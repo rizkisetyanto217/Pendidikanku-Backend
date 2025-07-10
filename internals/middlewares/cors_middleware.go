@@ -10,7 +10,7 @@ import (
 // SetupMiddlewareCors membuat middleware CORS
 func CorsMiddleware() fiber.Handler {
 	return cors.New(cors.Config{
-		AllowOrigins:     "http://localhost:5117, http://127.0.0.1:5500, https://masjidkubackend-production.up.railway.app, https://web-six-theta-13.vercel.app", // sesuaikan
+		AllowOrigins:     "http://localhost:5177, http://127.0.0.1:5500, https://masjidkubackend-production.up.railway.app, https://web-six-theta-13.vercel.app", // sesuaikan
 		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS",
 		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
 		AllowCredentials: true,
