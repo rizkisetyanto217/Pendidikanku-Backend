@@ -1,0 +1,152 @@
+[
+  {
+    "tooltip_keyword": "iman",
+    "tooltip_description_short": "Keyakinan dalam hati",
+    "tooltip_description_long": "Iman adalah meyakini dalam hati, mengucapkan dengan lisan, dan mengamalkan dengan perbuatan atas keimanan kepada Allah dan rukun iman lainnya."
+  },
+  {
+    "tooltip_keyword": "islam",
+    "tooltip_description_short": "Agama penyerahan diri",
+    "tooltip_description_long": "Islam adalah agama yang mengajarkan penyerahan diri secara total kepada Allah melalui ajaran Nabi Muhammad SAW."
+  },
+  {
+    "tooltip_keyword": "ihsan",
+    "tooltip_description_short": "Beribadah seolah-olah melihat Allah",
+    "tooltip_description_long": "Ihsan adalah beribadah dengan penuh kesadaran seolah-olah melihat Allah, atau meyakini bahwa Allah melihat kita."
+  },
+  {
+    "tooltip_keyword": "tauhid",
+    "tooltip_description_short": "Mengesakan Allah",
+    "tooltip_description_long": "Tauhid adalah keyakinan bahwa hanya Allah yang berhak disembah, dan tidak ada sekutu bagi-Nya dalam rububiyah, uluhiyah, dan asma wa sifat."
+  },
+  {
+    "tooltip_keyword": "syahadat",
+    "tooltip_description_short": "Pernyataan keimanan",
+    "tooltip_description_long": "Syahadat adalah dua kalimat yang menyatakan keimanan kepada Allah dan Rasul-Nya sebagai pintu masuk Islam."
+  },
+  {
+    "tooltip_keyword": "nabi",
+    "tooltip_description_short": "Manusia pilihan Allah",
+    "tooltip_description_long": "Nabi adalah manusia pilihan Allah yang menerima wahyu untuk dirinya sendiri dan tidak membawa syariat baru."
+  },
+  {
+    "tooltip_keyword": "rasul",
+    "tooltip_description_short": "Utusan Allah dengan syariat baru",
+    "tooltip_description_long": "Rasul adalah manusia pilihan yang diutus oleh Allah untuk menyampaikan wahyu dan syariat baru kepada umatnya."
+  },
+  {
+    "tooltip_keyword": "kitab",
+    "tooltip_description_short": "Wahyu dari Allah",
+    "tooltip_description_long": "Kitab adalah wahyu Allah yang diturunkan kepada para rasul, termasuk di antaranya Taurat, Zabur, Injil, dan Al-Qur’an."
+  },
+  {
+    "tooltip_keyword": "fitrah",
+    "tooltip_description_short": "Kecenderungan alami kepada kebaikan",
+    "tooltip_description_long": "Fitrah adalah kondisi suci dan alami setiap manusia yang cenderung pada kebenaran dan ketauhidan."
+  },
+  {
+    "tooltip_keyword": "niat",
+    "tooltip_description_short": "Awal dari setiap ibadah",
+    "tooltip_description_long": "Niat adalah keinginan dalam hati untuk melakukan ibadah karena Allah. Niat adalah syarat sah semua ibadah."
+  },
+  {
+    "tooltip_keyword": "wudhu",
+    "tooltip_description_short": "Wudhu dan pentingnya bersuci",
+    "tooltip_description_long": "Wudhu adalah cara bersuci dengan membasuh anggota tubuh tertentu sebelum ibadah. Wudhu merupakan syarat sah sholat."
+  },
+  {
+    "tooltip_keyword": "tayamum",
+    "tooltip_description_short": "Tayamum sebagai pengganti wudhu",
+    "tooltip_description_long": "Tayamum adalah bersuci dengan debu suci ketika tidak tersedia air atau tidak bisa menggunakannya karena alasan syar’i seperti sakit."
+  },
+  {
+    "tooltip_keyword": "najis",
+    "tooltip_description_short": "Pengertian najis dalam Islam",
+    "tooltip_description_long": "Najis adalah segala sesuatu yang dianggap kotor secara syariat, seperti kotoran manusia, darah, bangkai, dan lain-lain yang menghalangi sahnya ibadah jika terkena badan atau pakaian."
+  },
+  {
+    "tooltip_keyword": "sholat",
+    "tooltip_description_short": "Ibadah wajib umat Islam",
+    "tooltip_description_long": "Sholat adalah tiang agama dan kewajiban harian bagi umat Islam yang harus dilakukan lima kali sehari pada waktu yang telah ditentukan."
+  },
+  {
+    "tooltip_keyword": "ruku",
+    "tooltip_description_short": "Gerakan tunduk dalam sholat",
+    "tooltip_description_long": "Ruku adalah gerakan membungkuk setelah membaca Al-Fatihah dan surat dalam sholat, sebagai bentuk ketundukan kepada Allah."
+  },
+  {
+    "tooltip_keyword": "sujud",
+    "tooltip_description_short": "Simbol kepatuhan tertinggi",
+    "tooltip_description_long": "Sujud adalah bagian dari gerakan sholat di mana dahi menyentuh tanah, simbol kehinaan diri dan ketundukan kepada Allah."
+  },
+  {
+    "tooltip_keyword": "takbir",
+    "tooltip_description_short": "Pengagungan kepada Allah",
+    "tooltip_description_long": "Takbir adalah ucapan 'Allahu Akbar' yang menandakan permulaan sholat dan sebagai bentuk pengagungan kepada Allah."
+  },
+  {
+    "tooltip_keyword": "qiblat",
+    "tooltip_description_short": "Arah sholat umat Islam",
+    "tooltip_description_long": "Qiblat adalah arah ke Ka'bah di Mekah yang menjadi arah menghadap ketika melaksanakan sholat."
+  },
+  {
+    "tooltip_keyword": "adzan",
+    "tooltip_description_short": "Panggilan sholat",
+    "tooltip_description_long": "Adzan adalah seruan untuk memberitahu masuknya waktu sholat yang dikumandangkan oleh muadzin."
+  },
+  {
+    "tooltip_keyword": "iqamah",
+    "tooltip_description_short": "Penanda dimulainya sholat",
+    "tooltip_description_long": "Iqamah adalah seruan pendek yang dikumandangkan sebelum dimulainya sholat berjamaah."
+  },
+  {
+    "tooltip_keyword": "imam",
+    "tooltip_description_short": "Pemimpin sholat",
+    "tooltip_description_long": "Imam adalah orang yang memimpin pelaksanaan sholat berjamaah dan bertanggung jawab atas kekhusyukan jamaah."
+  },
+  {
+    "tooltip_keyword": "makmum",
+    "tooltip_description_short": "Pengikut sholat berjamaah",
+    "tooltip_description_long": "Makmum adalah orang yang mengikuti imam dalam sholat berjamaah dengan mengikuti gerakan dan bacaan imam."
+  },
+  {
+    "tooltip_keyword": "puasa",
+    "tooltip_description_short": "Menahan diri selama Ramadhan",
+    "tooltip_description_long": "Puasa adalah ibadah menahan diri dari makan, minum, dan hal yang membatalkan mulai dari terbit fajar hingga terbenam matahari di bulan Ramadhan."
+  },
+  {
+    "tooltip_keyword": "zakat",
+    "tooltip_description_short": "Pembersih harta",
+    "tooltip_description_long": "Zakat adalah kewajiban mengeluarkan sebagian harta kepada yang berhak sebagai bentuk pembersihan jiwa dan kepedulian sosial."
+  },
+  {
+    "tooltip_keyword": "haji",
+    "tooltip_description_short": "Ibadah ke Baitullah",
+    "tooltip_description_long": "Haji adalah rukun Islam kelima yang wajib dilaksanakan sekali seumur hidup bagi yang mampu secara fisik dan finansial."
+  },
+  {
+    "tooltip_keyword": "dzikir",
+    "tooltip_description_short": "Mengingat Allah",
+    "tooltip_description_long": "Dzikir adalah ucapan yang mengingatkan kita kepada Allah dengan menyebut nama-Nya, membaca tasbih, tahmid, takbir, dan istighfar."
+  },
+  {
+    "tooltip_keyword": "doa",
+    "tooltip_description_short": "Permohonan kepada Allah",
+    "tooltip_description_long": "Doa adalah permohonan hamba kepada Allah dalam berbagai kondisi sebagai bentuk ketergantungan dan tawakkal."
+  },
+  {
+    "tooltip_keyword": "akhlak",
+    "tooltip_description_short": "Perilaku terpuji",
+    "tooltip_description_long": "Akhlak adalah perilaku dan sikap terpuji yang mencerminkan keimanan dan ketakwaan seorang muslim dalam kehidupan sehari-hari."
+  },
+  {
+    "tooltip_keyword": "muamalah",
+    "tooltip_description_short": "Interaksi sosial dalam Islam",
+    "tooltip_description_long": "Muamalah adalah aturan Islam yang mengatur hubungan antar manusia dalam aspek ekonomi, sosial, dan hukum."
+  },
+  {
+    "tooltip_keyword": "jinayah",
+    "tooltip_description_short": "Hukum pidana dalam Islam",
+    "tooltip_description_long": "Jinayah adalah cabang hukum Islam yang mengatur tindak pidana seperti pembunuhan, pencurian, dan perusakan."
+  }
+]

@@ -1,0 +1,1 @@
+http://localhost:3000/auth/google/callback?state=gEMUU22aaiiqqyyGGOOWW444cckkssAA&code=4%2F0AQSTgQF_bln2oJIrAnvddqhoTJt4nRUvY8sIaoPeL__quimiIqnBDCDZCZjBsSw2_r3Gmg&scope=email+profile+openid+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&authuser=0&prompt=consent

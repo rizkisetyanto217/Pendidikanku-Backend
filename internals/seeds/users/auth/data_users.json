@@ -1,0 +1,34 @@
+[
+    {
+        "user_name": "admin1",
+        "email": "admin1@example.com",
+        "password": "Admin1234",
+        "role": "admin",
+        "security_question": "Apa warna favoritmu?",
+        "security_answer": "biru"
+    },
+    {
+        "user_name": "teacher1",
+        "email": "teacher1@example.com",
+        "password": "Teacher1234",
+        "role": "teacher",
+        "security_question": "Siapa nama gurumu?",
+        "security_answer": "Budi"
+    },
+    {
+        "user_name": "owner1",
+        "email": "owner1@example.com",
+        "password": "Owner1234",
+        "role": "owner",
+        "security_question": "Apa nama hewan peliharaanmu?",
+        "security_answer": "kucing"
+    },
+    {
+        "user_name": "user1",
+        "email": "user1@example.com",
+        "password": "User1234",
+        "role": "user",
+        "security_question": "Kota kelahiranmu?",
+        "security_answer": "Jakarta"
+    }
+]

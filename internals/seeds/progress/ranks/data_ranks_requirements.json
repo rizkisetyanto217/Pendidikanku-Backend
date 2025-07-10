@@ -1,0 +1,38 @@
+[
+    {
+        "rank_req_rank": 1,
+        "rank_req_name": "Prajurit",
+        "rank_req_min_level": 1,
+        "rank_req_max_level": 9
+    },
+    {
+        "rank_req_rank": 2,
+        "rank_req_name": "Sersan",
+        "rank_req_min_level": 10,
+        "rank_req_max_level": 19
+    },
+    {
+        "rank_req_rank": 3,
+        "rank_req_name": "Letnan",
+        "rank_req_min_level": 20,
+        "rank_req_max_level": 29
+    },
+    {
+        "rank_req_rank": 4,
+        "rank_req_name": "Kapten",
+        "rank_req_min_level": 30,
+        "rank_req_max_level": 39
+    },
+    {
+        "rank_req_rank": 5,
+        "rank_req_name": "Mayor",
+        "rank_req_min_level": 40,
+        "rank_req_max_level": 49
+    },
+    {
+        "rank_req_rank": 6,
+        "rank_req_name": "Jenderal",
+        "rank_req_min_level": 50,
+        "rank_req_max_level": null
+    }
+]

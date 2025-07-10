@@ -1,0 +1,9 @@
+# Ignore Golang binaries
+/bin/
+/vendor/
+
+# Ignore environment files
+.env
+
+# Others
+*.log

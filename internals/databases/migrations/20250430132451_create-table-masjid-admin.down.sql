@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS masjid_admins;

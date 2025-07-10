@@ -1,0 +1,32 @@
+[
+    {
+        "level_req_level": 1,
+        "level_req_name": "Pemula",
+        "level_req_min_points": 0,
+        "level_req_max_points": 99
+    },
+    {
+        "level_req_level": 2,
+        "level_req_name": "Dasar",
+        "level_req_min_points": 100,
+        "level_req_max_points": 199
+    },
+    {
+        "level_req_level": 3,
+        "level_req_name": "Menengah",
+        "level_req_min_points": 200,
+        "level_req_max_points": 399
+    },
+    {
+        "level_req_level": 4,
+        "level_req_name": "Mahir",
+        "level_req_min_points": 400,
+        "level_req_max_points": 699
+    },
+    {
+        "level_req_level": 5,
+        "level_req_name": "Ahli",
+        "level_req_min_points": 700,
+        "level_req_max_points": null
+    }
+]

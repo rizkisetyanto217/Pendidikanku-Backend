@@ -1,0 +1,290 @@
+{
+    "data": [
+        {
+            "id": 3,
+            "name": "Unit 3: Pengantar Fiqh",
+            "status": "active",
+            "description_short": "Pengenalan wudhu dalam Islam",
+            "description_overview": "Membahas pentingnya bersuci dalam Islam serta pengenalan terhadap wudhu secara umum.",
+            "image_url": "",
+            "total_section_quizzes": [
+                6,
+                7
+            ],
+            "created_at": "2025-05-13T03:33:46.559222Z",
+            "updated_at": "2025-05-13T03:33:46.559222Z",
+            "deleted_at": null,
+            "themes_or_level_id": 2,
+            "created_by": "7991dd47-6979-4d18-a438-be1641750e3f",
+            "section_quizzes": [
+                {
+                    "id": 6,
+                    "name_section_quizzes": "Pengantar Fiqh dan Thaharah",
+                    "status": "active",
+                    "materials_quizzes": "Pengenalan konsep fiqh dan pentingnya bersuci dalam Islam.",
+                    "icon_url": "https://example.com/icons/fiqh-1.png",
+                    "total_quizzes": [
+                        11,
+                        12
+                    ],
+                    "created_at": "2025-05-13T03:34:03.915442Z",
+                    "updated_at": "2025-05-13T03:34:03.915442Z",
+                    "deleted_at": null,
+                    "created_by": "7991dd47-6979-4d18-a438-be1641750e3f",
+                    "unit_id": 3,
+                    "quizzes": [
+                        {
+                            "id": 11,
+                            "name_quizzes": "Pengantar Fiqh dan Thaharah 1",
+                            "status": "active",
+                            "total_question": [],
+                            "icon_url": "https://example.com/icons/section6-1.png",
+                            "created_at": "2025-05-13T03:34:07.05877Z",
+                            "updated_at": "2025-05-13T03:34:07.05877Z",
+                            "deleted_at": null,
+                            "section_quizzes_id": 6,
+                            "created_by": "7991dd47-6979-4d18-a438-be1641750e3f"
+                        },
+                        {
+                            "id": 12,
+                            "name_quizzes": "Pengantar Fiqh dan Thaharah 2",
+                            "status": "active",
+                            "total_question": [],
+                            "icon_url": "https://example.com/icons/section6-2.png",
+                            "created_at": "2025-05-13T03:34:07.175251Z",
+                            "updated_at": "2025-05-13T03:34:07.175251Z",
+                            "deleted_at": null,
+                            "section_quizzes_id": 6,
+                            "created_by": "7991dd47-6979-4d18-a438-be1641750e3f"
+                        }
+                    ]
+                },
+                {
+                    "id": 7,
+                    "name_section_quizzes": "Jenis Najis dan Cara Mensucikannya",
+                    "status": "active",
+                    "materials_quizzes": "Menjelaskan macam-macam najis dan cara membersihkannya.",
+                    "icon_url": "https://example.com/icons/fiqh-2.png",
+                    "total_quizzes": [
+                        13,
+                        14
+                    ],
+                    "created_at": "2025-05-13T03:34:04.03062Z",
+                    "updated_at": "2025-05-13T03:34:04.03062Z",
+                    "deleted_at": null,
+                    "created_by": "7991dd47-6979-4d18-a438-be1641750e3f",
+                    "unit_id": 3,
+                    "quizzes": [
+                        {
+                            "id": 13,
+                            "name_quizzes": "Jenis Najis 1",
+                            "status": "active",
+                            "total_question": [],
+                            "icon_url": "https://example.com/icons/section7-1.png",
+                            "created_at": "2025-05-13T03:34:07.292118Z",
+                            "updated_at": "2025-05-13T03:34:07.292118Z",
+                            "deleted_at": null,
+                            "section_quizzes_id": 7,
+                            "created_by": "7991dd47-6979-4d18-a438-be1641750e3f"
+                        },
+                        {
+                            "id": 14,
+                            "name_quizzes": "Cara Mensucikan Najis",
+                            "status": "active",
+                            "total_question": [],
+                            "icon_url": "https://example.com/icons/section7-2.png",
+                            "created_at": "2025-05-13T03:34:07.408163Z",
+                            "updated_at": "2025-05-13T03:34:07.408163Z",
+                            "deleted_at": null,
+                            "section_quizzes_id": 7,
+                            "created_by": "7991dd47-6979-4d18-a438-be1641750e3f"
+                        }
+                    ]
+                }
+            ],
+            "user_progress": {
+                "id": 11,
+                "user_id": "0e27c4eb-73c8-45c9-9909-d9ed92173e28",
+                "unit_id": 3,
+                "attempt_reading": 0,
+                "attempt_evaluation": {
+                    "attempt": 0,
+                    "grade_evaluation": 0
+                },
+                "complete_section_quizzes": [
+                    6,
+                    7
+                ],
+                "grade_quiz": 80,
+                "grade_exam": 0,
+                "grade_result": 26,
+                "is_passed": false,
+                "created_at": "2025-05-13T07:35:37.947921Z",
+                "updated_at": "2025-05-13T15:45:06.253998Z",
+                "section_progress": []
+            }
+        },
+        {
+            "id": 4,
+            "name": "Unit 4: Fiqh Sebagai Pondasi Islam",
+            "status": "active",
+            "description_short": "Langkah-langkah wudhu yang benar",
+            "description_overview": "Menjelaskan tahapan dan bacaan dalam berwudhu sesuai sunnah Rasulullah.",
+            "image_url": "",
+            "total_section_quizzes": [
+                8,
+                9
+            ],
+            "created_at": "2025-05-13T03:33:46.683058Z",
+            "updated_at": "2025-05-13T03:33:46.683058Z",
+            "deleted_at": null,
+            "themes_or_level_id": 2,
+            "created_by": "7991dd47-6979-4d18-a438-be1641750e3f",
+            "section_quizzes": [
+                {
+                    "id": 8,
+                    "name_section_quizzes": "Aqidah dalam Kehidupan Sehari-hari",
+                    "status": "active",
+                    "materials_quizzes": "Penerapan nilai-nilai aqidah dalam perilaku sehari-hari.",
+                    "icon_url": "https://example.com/icons/aqidah-life.png",
+                    "total_quizzes": [
+                        15,
+                        16
+                    ],
+                    "created_at": "2025-05-13T03:34:04.145007Z",
+                    "updated_at": "2025-05-13T03:34:04.145007Z",
+                    "deleted_at": null,
+                    "created_by": "7991dd47-6979-4d18-a438-be1641750e3f",
+                    "unit_id": 4,
+                    "quizzes": [
+                        {
+                            "id": 15,
+                            "name_quizzes": "Aqidah Sehari-hari 1",
+                            "status": "active",
+                            "total_question": [],
+                            "icon_url": "https://example.com/icons/section8-1.png",
+                            "created_at": "2025-05-13T03:34:07.524032Z",
+                            "updated_at": "2025-05-13T03:34:07.524032Z",
+                            "deleted_at": null,
+                            "section_quizzes_id": 8,
+                            "created_by": "7991dd47-6979-4d18-a438-be1641750e3f"
+                        },
+                        {
+                            "id": 16,
+                            "name_quizzes": "Aqidah Sehari-hari 2",
+                            "status": "active",
+                            "total_question": [],
+                            "icon_url": "https://example.com/icons/section8-2.png",
+                            "created_at": "2025-05-13T03:34:07.641316Z",
+                            "updated_at": "2025-05-13T03:34:07.641316Z",
+                            "deleted_at": null,
+                            "section_quizzes_id": 8,
+                            "created_by": "7991dd47-6979-4d18-a438-be1641750e3f"
+                        }
+                    ]
+                },
+                {
+                    "id": 9,
+                    "name_section_quizzes": "Kesalahan Umum dalam Pemahaman Aqidah",
+                    "status": "active",
+                    "materials_quizzes": "Membedah kekeliruan umum dalam keyakinan umat Islam.",
+                    "icon_url": "https://example.com/icons/aqidah-error.png",
+                    "total_quizzes": [
+                        17,
+                        18
+                    ],
+                    "created_at": "2025-05-13T03:34:04.262301Z",
+                    "updated_at": "2025-05-13T03:34:04.262301Z",
+                    "deleted_at": null,
+                    "created_by": "7991dd47-6979-4d18-a438-be1641750e3f",
+                    "unit_id": 4,
+                    "quizzes": [
+                        {
+                            "id": 17,
+                            "name_quizzes": "Kesalahan Aqidah 1",
+                            "status": "active",
+                            "total_question": [],
+                            "icon_url": "https://example.com/icons/section9-1.png",
+                            "created_at": "2025-05-13T03:34:07.756908Z",
+                            "updated_at": "2025-05-13T03:34:07.756908Z",
+                            "deleted_at": null,
+                            "section_quizzes_id": 9,
+                            "created_by": "7991dd47-6979-4d18-a438-be1641750e3f"
+                        },
+                        {
+                            "id": 18,
+                            "name_quizzes": "Kesalahan Aqidah 2",
+                            "status": "active",
+                            "total_question": [],
+                            "icon_url": "https://example.com/icons/section9-2.png",
+                            "created_at": "2025-05-13T03:34:07.873215Z",
+                            "updated_at": "2025-05-13T03:34:07.873215Z",
+                            "deleted_at": null,
+                            "section_quizzes_id": 9,
+                            "created_by": "7991dd47-6979-4d18-a438-be1641750e3f"
+                        }
+                    ]
+                }
+            ],
+            "user_progress": {
+                "id": 12,
+                "user_id": "0e27c4eb-73c8-45c9-9909-d9ed92173e28",
+                "unit_id": 4,
+                "attempt_reading": 0,
+                "attempt_evaluation": {
+                    "attempt": 0,
+                    "grade_evaluation": 0
+                },
+                "complete_section_quizzes": [],
+                "grade_quiz": 0,
+                "grade_exam": 0,
+                "grade_result": 0,
+                "is_passed": false,
+                "created_at": "2025-05-13T07:35:37.947921Z",
+                "updated_at": "2025-05-13T07:35:37.947921Z",
+                "section_progress": [
+                    {
+                        "id": 6,
+                        "user_id": "0e27c4eb-73c8-45c9-9909-d9ed92173e28",
+                        "section_quizzes_id": 6,
+                        "complete_quiz": [
+                            {
+                                "id": 11,
+                                "score": 70,
+                                "attempt": 1
+                            },
+                            {
+                                "id": 12,
+                                "score": 70,
+                                "attempt": 1
+                            }
+                        ],
+                        "grade_result": 70,
+                        "created_at": "2025-05-13T15:37:06.608927Z",
+                        "updated_at": "2025-05-13T15:39:16.324307Z"
+                    },
+                    {
+                        "id": 7,
+                        "user_id": "0e27c4eb-73c8-45c9-9909-d9ed92173e28",
+                        "section_quizzes_id": 7,
+                        "complete_quiz": [
+                            {
+                                "id": 13,
+                                "score": 90,
+                                "attempt": 1
+                            },
+                            {
+                                "id": 14,
+                                "score": 90,
+                                "attempt": 1
+                            }
+                        ],
+                        "grade_result": 90,
+                        "created_at": "2025-05-13T15:45:02.854044Z",
+                        "updated_at": "2025-05-13T15:45:05.711888Z"
+                    }
+                ]
+            }
+        }
+    ]
+}

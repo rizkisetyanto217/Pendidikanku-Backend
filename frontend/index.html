@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Google Login Test</title>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+
+<body>
+
+  <h1>Login with Google</h1>
+
+  <div id="g_id_onload" data-client_id="330051036041-8src8un315p823ap640hv70vp3448ruh.apps.googleusercontent.com"
+    data-callback="handleCredentialResponse" data-auto_prompt="false">
+  </div>
+
+  <div class="g_id_signin" data-type="standard"></div>
+
+  <!-- Tempat output token -->
+  <p id="token-output" style="margin-top:20px; font-family: monospace; white-space: pre-wrap;"></p>
+
+  <script>
+    function handleCredentialResponse(response) {
+      console.log("[DEBUG] ID Token dari Google:", response.credential);
+
+      fetch('http://localhost:3000/auth/login-google', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          id_token: response.credential
+        })
+      })
+        .then(res => res.json())
+        .then(data => {
+          console.log('[DEBUG] Server response:', data);
+
+          const output = document.getElementById('token-output');
+
+          // ✅ Akses token di dalam field `data.data.access_token`
+          if (data.status === "success" && data.data && data.data.access_token) {
+            output.textContent = '✅ Login sukses!\n\nAccess Token:\n' + data.data.access_token;
+          } else if (data.error) {
+            output.textContent = '❌ Login gagal: ' + data.error;
+          } else {
+            output.textContent = '❌ Login gagal: Token tidak ditemukan.';
+          }
+        })
+
+        .catch(err => {
+          console.error('[ERROR] Fetch gagal:', err);
+          document.getElementById('token-output').textContent = '❌ Login gagal: ' + err.message;
+        });
+    }
+  </script>
+
+</body>
+
+</html>

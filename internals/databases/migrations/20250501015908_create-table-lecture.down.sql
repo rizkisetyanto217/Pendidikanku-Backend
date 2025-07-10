@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS user_lectures;
+DROP TABLE IF EXISTS lectures;

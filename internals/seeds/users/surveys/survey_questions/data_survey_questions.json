@@ -1,0 +1,22 @@
+[
+    {
+        "survey_question_text": "Apa tujuan utama dari pelatihan ini?",
+        "survey_question_answer": [
+            "Meningkatkan skill",
+            "Mendapat pekerjaan",
+            "Mencari pengalaman",
+            "Lainnya"
+        ],
+        "survey_question_order_index": 1
+    },
+    {
+        "survey_question_text": "Apa harapanmu setelah mengikuti pelatihan ini?",
+        "survey_question_answer": [
+            "Langsung kerja",
+            "Lanjut kuliah",
+            "Buka usaha",
+            "Belum tahu"
+        ],
+        "survey_question_order_index": 2
+    }
+]

@@ -1,0 +1,42 @@
+[
+    {
+        "user_id": "31dd72b9-9757-4a89-90ad-4faa39640e91",
+        "donation_name": "Admin Donator",
+        "full_name": "Admin Satu",
+        "gender": "male",
+        "phone_number": "081234567891",
+        "bio": "Admin utama untuk manajemen sistem",
+        "location": "Jakarta",
+        "occupation": "Admin"
+    },
+    {
+        "user_id": "51c2dbb2-c839-4b9b-979c-0d4e40b96574",
+        "donation_name": "Guru Dermawan",
+        "full_name": "Guru Feri",
+        "gender": "male",
+        "phone_number": "082345678912",
+        "bio": "Pengajar aktif di platform ini",
+        "location": "Bandung",
+        "occupation": "Teacher"
+    },
+    {
+        "user_id": "7991dd47-6979-4d18-a438-be1641750e3f",
+        "donation_name": "Pemilik Platform",
+        "full_name": "Owner Fulan",
+        "gender": "male",
+        "phone_number": "083456789123",
+        "bio": "Pendiri utama aplikasi QuizKu",
+        "location": "Surabaya",
+        "occupation": "Owner"
+    },
+    {
+        "user_id": "1abe2116-943a-4c6a-98b2-5b11f9b35123",
+        "donation_name": "User Biasa",
+        "full_name": "Pengguna Awal",
+        "gender": "female",
+        "phone_number": "084567891234",
+        "bio": "Pengguna pertama yang mencoba app",
+        "location": "Depok",
+        "occupation": "Mahasiswa"
+    }
+]

@@ -1,0 +1,362 @@
+[
+  {
+    "masjid_profile_masjid_id": "e71aa9fc-a7fc-4c49-b974-fe665b539713",
+    "masjid_profile_slug": "masjid-ke-1",
+    "masjid_profile_description": "Masjid ke-1 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-1 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-1.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "a53203d1-e809-4a84-b062-f9469e892be4",
+    "masjid_profile_slug": "masjid-ke-2",
+    "masjid_profile_description": "Masjid ke-2 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-2 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-2.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "03bc2d64-2d27-42da-8ccc-3c8ca0833358",
+    "masjid_profile_slug": "masjid-ke-3",
+    "masjid_profile_description": "Masjid ke-3 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-3 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-3.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "a9bed6fa-415a-4314-9b6f-642b199caec8",
+    "masjid_profile_slug": "masjid-ke-4",
+    "masjid_profile_description": "Masjid ke-4 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-4 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-4.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "4ba043a9-01e8-43b0-85b9-db34fafb7ffd",
+    "masjid_profile_slug": "masjid-ke-5",
+    "masjid_profile_description": "Masjid ke-5 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-5 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-5.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "18a98726-27a5-4f58-b67f-f7ce0a0e8464",
+    "masjid_profile_slug": "masjid-ke-6",
+    "masjid_profile_description": "Masjid ke-6 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-6 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-6.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "bf369a12-d80d-4b25-a6ce-2dd958a02fac",
+    "masjid_profile_slug": "masjid-ke-7",
+    "masjid_profile_description": "Masjid ke-7 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-7 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-7.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "b15dd9ed-15cf-4541-a295-c2bb73c88af0",
+    "masjid_profile_slug": "masjid-ke-8",
+    "masjid_profile_description": "Masjid ke-8 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-8 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-8.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "559e522b-b349-4606-bc9d-0565bba09805",
+    "masjid_profile_slug": "masjid-ke-9",
+    "masjid_profile_description": "Masjid ke-9 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-9 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-9.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "dc51be40-2764-4177-a04e-770a0bab9c6c",
+    "masjid_profile_slug": "masjid-ke-10",
+    "masjid_profile_description": "Masjid ke-10 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-10 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-10.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "d776146f-5bec-4315-b860-dfeb299f5b69",
+    "masjid_profile_slug": "masjid-ke-11",
+    "masjid_profile_description": "Masjid ke-11 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-11 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-11.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "0f864d57-721d-4961-8897-242ac21b4045",
+    "masjid_profile_slug": "masjid-ke-12",
+    "masjid_profile_description": "Masjid ke-12 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-12 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-12.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "8d41426c-8ba1-4331-ad19-5fa4dd16db29",
+    "masjid_profile_slug": "masjid-ke-13",
+    "masjid_profile_description": "Masjid ke-13 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-13 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-13.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "eb2a27cc-c5a1-4755-86b5-5bf04a034b9c",
+    "masjid_profile_slug": "masjid-ke-14",
+    "masjid_profile_description": "Masjid ke-14 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-14 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-14.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "069072ff-7d02-4b45-bd27-8029318b9403",
+    "masjid_profile_slug": "masjid-ke-15",
+    "masjid_profile_description": "Masjid ke-15 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-15 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-15.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "f4199c82-75e1-4884-9c6c-9c0c9d234f75",
+    "masjid_profile_slug": "masjid-ke-16",
+    "masjid_profile_description": "Masjid ke-16 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-16 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-16.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "ce676f6e-984e-4ae1-9735-8a84b59d48ed",
+    "masjid_profile_slug": "masjid-ke-17",
+    "masjid_profile_description": "Masjid ke-17 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-17 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-17.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "3f5cb0b3-be39-4360-9465-8da9c4629211",
+    "masjid_profile_slug": "masjid-ke-18",
+    "masjid_profile_description": "Masjid ke-18 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-18 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-18.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "ea3c3568-b5b8-4bb2-b024-a81b12cfde29",
+    "masjid_profile_slug": "masjid-ke-19",
+    "masjid_profile_description": "Masjid ke-19 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-19 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-19.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  },
+  {
+    "masjid_profile_masjid_id": "c44ddbba-d51e-4d4d-b6c3-ea3b66bd0ce6",
+    "masjid_profile_slug": "masjid-ke-20",
+    "masjid_profile_description": "Masjid ke-20 adalah tempat ibadah umat Islam yang aktif dalam kegiatan keagamaan dan sosial.",
+    "masjid_profile_vision": "Menjadi masjid unggulan ke-20 dalam dakwah dan pelayanan umat.",
+    "masjid_profile_mission": "Menyelenggarakan ibadah, pendidikan, dan kegiatan sosial kemasyarakatan ke-20.",
+    "masjid_profile_facilities": [
+      "Ruang shalat luas",
+      "AC",
+      "Perpustakaan",
+      "Tempat wudhu modern"
+    ],
+    "masjid_profile_services": [
+      "Kajian rutin",
+      "Bimbingan muallaf",
+      "Zakat & infaq"
+    ]
+  }
+]

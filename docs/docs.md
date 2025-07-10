@@ -1,0 +1,1 @@
+/Users/muhammadrizkisetyanto/Documents/masjidku_backend/internals/databases/migrations/20250430232248_create-table-subcategories.down.sql

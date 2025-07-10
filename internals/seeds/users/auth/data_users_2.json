@@ -1,0 +1,402 @@
+[
+    {
+        "user_name": "admin1",
+        "email": "admin1@example.com",
+        "password": "Admin1234",
+        "role": "admin",
+        "security_question": "Pertanyaan keamanan untuk admin1?",
+        "security_answer": "jawaban1"
+    },
+    {
+        "user_name": "teacher2",
+        "email": "teacher2@example.com",
+        "password": "Teacher1234",
+        "role": "teacher",
+        "security_question": "Pertanyaan keamanan untuk teacher2?",
+        "security_answer": "jawaban2"
+    },
+    {
+        "user_name": "owner3",
+        "email": "owner3@example.com",
+        "password": "Owner1234",
+        "role": "owner",
+        "security_question": "Pertanyaan keamanan untuk owner3?",
+        "security_answer": "jawaban3"
+    },
+    {
+        "user_name": "user4",
+        "email": "user4@example.com",
+        "password": "User1234",
+        "role": "user",
+        "security_question": "Pertanyaan keamanan untuk user4?",
+        "security_answer": "jawaban4"
+    },
+    {
+        "user_name": "admin5",
+        "email": "admin5@example.com",
+        "password": "Admin1234",
+        "role": "admin",
+        "security_question": "Pertanyaan keamanan untuk admin5?",
+        "security_answer": "jawaban5"
+    },
+    {
+        "user_name": "teacher6",
+        "email": "teacher6@example.com",
+        "password": "Teacher1234",
+        "role": "teacher",
+        "security_question": "Pertanyaan keamanan untuk teacher6?",
+        "security_answer": "jawaban6"
+    },
+    {
+        "user_name": "owner7",
+        "email": "owner7@example.com",
+        "password": "Owner1234",
+        "role": "owner",
+        "security_question": "Pertanyaan keamanan untuk owner7?",
+        "security_answer": "jawaban7"
+    },
+    {
+        "user_name": "user8",
+        "email": "user8@example.com",
+        "password": "User1234",
+        "role": "user",
+        "security_question": "Pertanyaan keamanan untuk user8?",
+        "security_answer": "jawaban8"
+    },
+    {
+        "user_name": "admin9",
+        "email": "admin9@example.com",
+        "password": "Admin1234",
+        "role": "admin",
+        "security_question": "Pertanyaan keamanan untuk admin9?",
+        "security_answer": "jawaban9"
+    },
+    {
+        "user_name": "teacher10",
+        "email": "teacher10@example.com",
+        "password": "Teacher1234",
+        "role": "teacher",
+        "security_question": "Pertanyaan keamanan untuk teacher10?",
+        "security_answer": "jawaban10"
+    },
+    {
+        "user_name": "owner11",
+        "email": "owner11@example.com",
+        "password": "Owner1234",
+        "role": "owner",
+        "security_question": "Pertanyaan keamanan untuk owner11?",
+        "security_answer": "jawaban11"
+    },
+    {
+        "user_name": "user12",
+        "email": "user12@example.com",
+        "password": "User1234",
+        "role": "user",
+        "security_question": "Pertanyaan keamanan untuk user12?",
+        "security_answer": "jawaban12"
+    },
+    {
+        "user_name": "admin13",
+        "email": "admin13@example.com",
+        "password": "Admin1234",
+        "role": "admin",
+        "security_question": "Pertanyaan keamanan untuk admin13?",
+        "security_answer": "jawaban13"
+    },
+    {
+        "user_name": "teacher14",
+        "email": "teacher14@example.com",
+        "password": "Teacher1234",
+        "role": "teacher",
+        "security_question": "Pertanyaan keamanan untuk teacher14?",
+        "security_answer": "jawaban14"
+    },
+    {
+        "user_name": "owner15",
+        "email": "owner15@example.com",
+        "password": "Owner1234",
+        "role": "owner",
+        "security_question": "Pertanyaan keamanan untuk owner15?",
+        "security_answer": "jawaban15"
+    },
+    {
+        "user_name": "user16",
+        "email": "user16@example.com",
+        "password": "User1234",
+        "role": "user",
+        "security_question": "Pertanyaan keamanan untuk user16?",
+        "security_answer": "jawaban16"
+    },
+    {
+        "user_name": "admin17",
+        "email": "admin17@example.com",
+        "password": "Admin1234",
+        "role": "admin",
+        "security_question": "Pertanyaan keamanan untuk admin17?",
+        "security_answer": "jawaban17"
+    },
+    {
+        "user_name": "teacher18",
+        "email": "teacher18@example.com",
+        "password": "Teacher1234",
+        "role": "teacher",
+        "security_question": "Pertanyaan keamanan untuk teacher18?",
+        "security_answer": "jawaban18"
+    },
+    {
+        "user_name": "owner19",
+        "email": "owner19@example.com",
+        "password": "Owner1234",
+        "role": "owner",
+        "security_question": "Pertanyaan keamanan untuk owner19?",
+        "security_answer": "jawaban19"
+    },
+    {
+        "user_name": "user20",
+        "email": "user20@example.com",
+        "password": "User1234",
+        "role": "user",
+        "security_question": "Pertanyaan keamanan untuk user20?",
+        "security_answer": "jawaban20"
+    },
+    {
+        "user_name": "admin21",
+        "email": "admin21@example.com",
+        "password": "Admin1234",
+        "role": "admin",
+        "security_question": "Pertanyaan keamanan untuk admin21?",
+        "security_answer": "jawaban21"
+    },
+    {
+        "user_name": "teacher22",
+        "email": "teacher22@example.com",
+        "password": "Teacher1234",
+        "role": "teacher",
+        "security_question": "Pertanyaan keamanan untuk teacher22?",
+        "security_answer": "jawaban22"
+    },
+    {
+        "user_name": "owner23",
+        "email": "owner23@example.com",
+        "password": "Owner1234",
+        "role": "owner",
+        "security_question": "Pertanyaan keamanan untuk owner23?",
+        "security_answer": "jawaban23"
+    },
+    {
+        "user_name": "user24",
+        "email": "user24@example.com",
+        "password": "User1234",
+        "role": "user",
+        "security_question": "Pertanyaan keamanan untuk user24?",
+        "security_answer": "jawaban24"
+    },
+    {
+        "user_name": "admin25",
+        "email": "admin25@example.com",
+        "password": "Admin1234",
+        "role": "admin",
+        "security_question": "Pertanyaan keamanan untuk admin25?",
+        "security_answer": "jawaban25"
+    },
+    {
+        "user_name": "teacher26",
+        "email": "teacher26@example.com",
+        "password": "Teacher1234",
+        "role": "teacher",
+        "security_question": "Pertanyaan keamanan untuk teacher26?",
+        "security_answer": "jawaban26"
+    },
+    {
+        "user_name": "owner27",
+        "email": "owner27@example.com",
+        "password": "Owner1234",
+        "role": "owner",
+        "security_question": "Pertanyaan keamanan untuk owner27?",
+        "security_answer": "jawaban27"
+    },
+    {
+        "user_name": "user28",
+        "email": "user28@example.com",
+        "password": "User1234",
+        "role": "user",
+        "security_question": "Pertanyaan keamanan untuk user28?",
+        "security_answer": "jawaban28"
+    },
+    {
+        "user_name": "admin29",
+        "email": "admin29@example.com",
+        "password": "Admin1234",
+        "role": "admin",
+        "security_question": "Pertanyaan keamanan untuk admin29?",
+        "security_answer": "jawaban29"
+    },
+    {
+        "user_name": "teacher30",
+        "email": "teacher30@example.com",
+        "password": "Teacher1234",
+        "role": "teacher",
+        "security_question": "Pertanyaan keamanan untuk teacher30?",
+        "security_answer": "jawaban30"
+    },
+    {
+        "user_name": "owner31",
+        "email": "owner31@example.com",
+        "password": "Owner1234",
+        "role": "owner",
+        "security_question": "Pertanyaan keamanan untuk owner31?",
+        "security_answer": "jawaban31"
+    },
+    {
+        "user_name": "user32",
+        "email": "user32@example.com",
+        "password": "User1234",
+        "role": "user",
+        "security_question": "Pertanyaan keamanan untuk user32?",
+        "security_answer": "jawaban32"
+    },
+    {
+        "user_name": "admin33",
+        "email": "admin33@example.com",
+        "password": "Admin1234",
+        "role": "admin",
+        "security_question": "Pertanyaan keamanan untuk admin33?",
+        "security_answer": "jawaban33"
+    },
+    {
+        "user_name": "teacher34",
+        "email": "teacher34@example.com",
+        "password": "Teacher1234",
+        "role": "teacher",
+        "security_question": "Pertanyaan keamanan untuk teacher34?",
+        "security_answer": "jawaban34"
+    },
+    {
+        "user_name": "owner35",
+        "email": "owner35@example.com",
+        "password": "Owner1234",
+        "role": "owner",
+        "security_question": "Pertanyaan keamanan untuk owner35?",
+        "security_answer": "jawaban35"
+    },
+    {
+        "user_name": "user36",
+        "email": "user36@example.com",
+        "password": "User1234",
+        "role": "user",
+        "security_question": "Pertanyaan keamanan untuk user36?",
+        "security_answer": "jawaban36"
+    },
+    {
+        "user_name": "admin37",
+        "email": "admin37@example.com",
+        "password": "Admin1234",
+        "role": "admin",
+        "security_question": "Pertanyaan keamanan untuk admin37?",
+        "security_answer": "jawaban37"
+    },
+    {
+        "user_name": "teacher38",
+        "email": "teacher38@example.com",
+        "password": "Teacher1234",
+        "role": "teacher",
+        "security_question": "Pertanyaan keamanan untuk teacher38?",
+        "security_answer": "jawaban38"
+    },
+    {
+        "user_name": "owner39",
+        "email": "owner39@example.com",
+        "password": "Owner1234",
+        "role": "owner",
+        "security_question": "Pertanyaan keamanan untuk owner39?",
+        "security_answer": "jawaban39"
+    },
+    {
+        "user_name": "user40",
+        "email": "user40@example.com",
+        "password": "User1234",
+        "role": "user",
+        "security_question": "Pertanyaan keamanan untuk user40?",
+        "security_answer": "jawaban40"
+    },
+    {
+        "user_name": "admin41",
+        "email": "admin41@example.com",
+        "password": "Admin1234",
+        "role": "admin",
+        "security_question": "Pertanyaan keamanan untuk admin41?",
+        "security_answer": "jawaban41"
+    },
+    {
+        "user_name": "teacher42",
+        "email": "teacher42@example.com",
+        "password": "Teacher1234",
+        "role": "teacher",
+        "security_question": "Pertanyaan keamanan untuk teacher42?",
+        "security_answer": "jawaban42"
+    },
+    {
+        "user_name": "owner43",
+        "email": "owner43@example.com",
+        "password": "Owner1234",
+        "role": "owner",
+        "security_question": "Pertanyaan keamanan untuk owner43?",
+        "security_answer": "jawaban43"
+    },
+    {
+        "user_name": "user44",
+        "email": "user44@example.com",
+        "password": "User1234",
+        "role": "user",
+        "security_question": "Pertanyaan keamanan untuk user44?",
+        "security_answer": "jawaban44"
+    },
+    {
+        "user_name": "admin45",
+        "email": "admin45@example.com",
+        "password": "Admin1234",
+        "role": "admin",
+        "security_question": "Pertanyaan keamanan untuk admin45?",
+        "security_answer": "jawaban45"
+    },
+    {
+        "user_name": "teacher46",
+        "email": "teacher46@example.com",
+        "password": "Teacher1234",
+        "role": "teacher",
+        "security_question": "Pertanyaan keamanan untuk teacher46?",
+        "security_answer": "jawaban46"
+    },
+    {
+        "user_name": "owner47",
+        "email": "owner47@example.com",
+        "password": "Owner1234",
+        "role": "owner",
+        "security_question": "Pertanyaan keamanan untuk owner47?",
+        "security_answer": "jawaban47"
+    },
+    {
+        "user_name": "user48",
+        "email": "user48@example.com",
+        "password": "User1234",
+        "role": "user",
+        "security_question": "Pertanyaan keamanan untuk user48?",
+        "security_answer": "jawaban48"
+    },
+    {
+        "user_name": "admin49",
+        "email": "admin49@example.com",
+        "password": "Admin1234",
+        "role": "admin",
+        "security_question": "Pertanyaan keamanan untuk admin49?",
+        "security_answer": "jawaban49"
+    },
+    {
+        "user_name": "teacher50",
+        "email": "teacher50@example.com",
+        "password": "Teacher1234",
+        "role": "teacher",
+        "security_question": "Pertanyaan keamanan untuk teacher50?",
+        "security_answer": "jawaban50"
+    }
+]

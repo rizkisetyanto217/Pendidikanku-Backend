@@ -1,0 +1,141 @@
+{
+    "data": [
+        {
+            "id": 1,
+            "name": "Aqidah",
+            "status": "active",
+            "description_short": "Hukum-hukum ibadah dalam Islam",
+            "description_long": "Kategori ini mencakup hukum-hukum ibadah seperti shalat, puasa, zakat, dan haji berdasarkan dalil-dalil yang kuat.",
+            "total_subcategories": [
+                1
+            ],
+            "image_url": "",
+            "update_news": null,
+            "difficulty_id": 1,
+            "created_at": "2025-05-11T08:54:36.510715Z",
+            "updated_at": null,
+            "subcategories": [
+                {
+                    "id": 1,
+                    "name": "Aqidah Praktis",
+                    "status": "active",
+                    "description_long": "Subkategori ini mencakup pembelajaran tentang tata cara ibadah dalam Islam, termasuk shalat, puasa, zakat, dan haji.",
+                    "total_themes_or_levels": [
+                        1,
+                        2,
+                        6
+                    ],
+                    "image_url": "https://example.com/images/fiqh_ibadah.jpg",
+                    "update_news": null,
+                    "created_at": "2025-05-11T08:54:38.311396Z",
+                    "updated_at": "2025-05-11T08:54:38.306366Z",
+                    "categories_id": 1,
+                    "grade_result": 0,
+                    "complete_themes_or_levels": {},
+                    "user_subcategory_id": 24,
+                    "user_id": "0e27c4eb-73c8-45c9-9909-d9ed92173e28",
+                    "themes_or_levels": [
+                        {
+                            "id": 1,
+                            "name": "Pengantar Aqidah",
+                            "status": "active",
+                            "description_short": "Pembahasan tentang wudhu",
+                            "description_long": "Materi ini mencakup tata cara berwudhu, syarat sah, pembatal, dan hal-hal terkait lainnya dalam fiqh wudhu.",
+                            "total_unit": [
+                                1,
+                                2
+                            ],
+                            "image_url": "https://example.com/images/fiqh-wudhu.jpg",
+                            "update_news": null,
+                            "created_at": "2025-05-11T08:54:40.196463Z",
+                            "updated_at": "2025-05-11T08:54:40.196265Z",
+                            "subcategories_id": 1,
+                            "grade_result": 97,
+                            "complete_unit": {
+                                "1": "100",
+                                "2": "95"
+                            },
+                            "has_progress_theme": true
+                        },
+                        {
+                            "id": 2,
+                            "name": "Pendalaman Aqidah",
+                            "status": "active",
+                            "description_short": "Pengantar fiqh sholat",
+                            "description_long": "Materi ini membahas pengertian sholat, hukum-hukumnya, dan urgensinya dalam Islam sebelum masuk ke praktik teknis.",
+                            "total_unit": [
+                                3,
+                                4
+                            ],
+                            "image_url": "https://example.com/images/fiqh-pengantar-sholat.jpg",
+                            "update_news": null,
+                            "created_at": "2025-05-11T08:54:40.770315Z",
+                            "updated_at": "2025-05-11T08:54:40.770291Z",
+                            "subcategories_id": 1,
+                            "grade_result": 0,
+                            "complete_unit": {},
+                            "has_progress_theme": false
+                        },
+                        {
+                            "id": 6,
+                            "name": "Tema Hari Raya 3",
+                            "status": "active",
+                            "description_short": "Tema khusus Idul Adha dengan berbagai tantangan menarik.",
+                            "description_long": "Tema ini menghadirkan berbagai tantangan dan materi menarik seputar Ramadhan, mulai dari sejarah, fiqh, hingga amalan khusus yang bisa dilakukan selama bulan suci.",
+                            "total_unit": [],
+                            "image_url": "https://example.com/images/theme-ramadhan.jpg",
+                            "update_news": null,
+                            "created_at": "2025-05-12T09:17:29.550161Z",
+                            "updated_at": "2025-05-12T09:17:29.558098Z",
+                            "subcategories_id": 1,
+                            "grade_result": 0,
+                            "complete_unit": {},
+                            "has_progress_theme": false
+                        }
+                    ],
+                    "has_progress_subcategory": true
+                }
+            ]
+        },
+        {
+            "id": 2,
+            "name": "Fiqh",
+            "status": "active",
+            "description_short": "Hukum-hukum ibadah dalam Islam",
+            "description_long": "Kategori ini mencakup hukum-hukum ibadah seperti shalat, puasa, zakat, dan haji berdasarkan dalil-dalil yang kuat.",
+            "total_subcategories": [
+                2
+            ],
+            "image_url": "",
+            "update_news": null,
+            "difficulty_id": 1,
+            "created_at": "2025-05-11T08:54:36.962418Z",
+            "updated_at": null,
+            "subcategories": [
+                {
+                    "id": 2,
+                    "name": "Fiqh Praktis",
+                    "status": "active",
+                    "description_long": "Subkategori ini mencakup pembelajaran tentang tata cara ibadah dalam Islam, termasuk shalat, puasa, zakat, dan haji.",
+                    "total_themes_or_levels": [],
+                    "image_url": "https://example.com/images/fiqh_ibadah.jpg",
+                    "update_news": null,
+                    "created_at": "2025-05-11T08:54:38.750391Z",
+                    "updated_at": "2025-05-11T08:54:38.768102Z",
+                    "categories_id": 2,
+                    "grade_result": 0,
+                    "complete_themes_or_levels": null,
+                    "user_subcategory_id": 0,
+                    "themes_or_levels": null,
+                    "has_progress_subcategory": false
+                }
+            ]
+        }
+    ],
+    "message": "Berhasil ambil data lengkap",
+    "user_progress": {
+        "user_id": "0e27c4eb-73c8-45c9-9909-d9ed92173e28",
+        "average_grade": 97,
+        "data_count": 1
+    }
+}

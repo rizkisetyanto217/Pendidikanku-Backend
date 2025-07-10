@@ -1,0 +1,446 @@
+{
+  "batch_id": "batch-2025-06-02-1100",
+  "submitted_at": "2025-06-02T04:06:34.243760Z",
+  "users": [
+    {
+      "user_id": "794dc265-3a8b-4f7d-bb1c-885047b4c1fd",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 1,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 80,
+          "user_module_attempt_time_duration": 100,
+          "user_module_attempt_created_at": "2025-06-02T04:06:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:07:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "2dae973e-091f-466c-8eea-ccbc10b6d863",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 2,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 81,
+          "user_module_attempt_time_duration": 101,
+          "user_module_attempt_created_at": "2025-06-02T04:07:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:08:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "f2fc4bf3-c7c4-46df-87bc-e675f11317cd",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 3,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 82,
+          "user_module_attempt_time_duration": 102,
+          "user_module_attempt_created_at": "2025-06-02T04:08:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:09:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "abe4491b-dabc-4cfd-b18f-8eb3b2c9a020",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 4,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 83,
+          "user_module_attempt_time_duration": 103,
+          "user_module_attempt_created_at": "2025-06-02T04:09:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:10:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "f088e8c2-dd6e-43f7-a0cd-d2efb3b948ed",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 1,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 84,
+          "user_module_attempt_time_duration": 104,
+          "user_module_attempt_created_at": "2025-06-02T04:10:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:11:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "8809c20d-fecf-4608-b24e-9602d0f26bae",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 2,
+          "user_module_attempt_target_id": 105,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 80,
+          "user_module_attempt_time_duration": 105,
+          "user_module_attempt_created_at": "2025-06-02T04:11:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 2005,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:12:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "acea650d-0cfa-48e4-8c14-e46d82d5772c",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 3,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 81,
+          "user_module_attempt_time_duration": 106,
+          "user_module_attempt_created_at": "2025-06-02T04:12:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:13:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "24eb9a8b-1443-4c55-a6bf-e4b73c467da0",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 4,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 82,
+          "user_module_attempt_time_duration": 107,
+          "user_module_attempt_created_at": "2025-06-02T04:13:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:14:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "9aafe1d4-c5ca-4708-8892-86e2fd635559",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 1,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 83,
+          "user_module_attempt_time_duration": 108,
+          "user_module_attempt_created_at": "2025-06-02T04:14:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:15:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "017fa236-4240-491c-a08c-a6d60178663c",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 2,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 84,
+          "user_module_attempt_time_duration": 109,
+          "user_module_attempt_created_at": "2025-06-02T04:15:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:16:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "a70141cd-0dff-43bd-bbe7-aef88ead42c9",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 3,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 80,
+          "user_module_attempt_time_duration": 110,
+          "user_module_attempt_created_at": "2025-06-02T04:16:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:17:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "68581b74-7b8b-40e2-bb61-43400d2fd361",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 4,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 81,
+          "user_module_attempt_time_duration": 111,
+          "user_module_attempt_created_at": "2025-06-02T04:17:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:18:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "6e06567b-cf8f-41da-829a-9ccf6d00e2d8",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 1,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 82,
+          "user_module_attempt_time_duration": 112,
+          "user_module_attempt_created_at": "2025-06-02T04:18:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:19:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "a014f966-a4c3-42bf-b963-189bfe156312",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 2,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 83,
+          "user_module_attempt_time_duration": 113,
+          "user_module_attempt_created_at": "2025-06-02T04:19:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:20:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "701fe85d-c009-4c8e-a0a9-a15b65b983b1",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 3,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 84,
+          "user_module_attempt_time_duration": 114,
+          "user_module_attempt_created_at": "2025-06-02T04:20:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:21:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "4477337b-8398-4638-8e0e-25c4295ae7a6",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 4,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 80,
+          "user_module_attempt_time_duration": 1,
+          "user_module_attempt_created_at": "2025-06-02T04:21:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 2015,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:22:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "304a0e64-354c-467c-a3cc-7f0d1d95db3c",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 1,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 81,
+          "user_module_attempt_time_duration": 116,
+          "user_module_attempt_created_at": "2025-06-02T04:22:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:23:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "5560631b-ccc3-47c5-a2cd-bec002292b1a",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 2,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 82,
+          "user_module_attempt_time_duration": 117,
+          "user_module_attempt_created_at": "2025-06-02T04:23:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:24:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "109cf9c9-864b-46e7-97e9-d5bfca4a3674",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 3,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 83,
+          "user_module_attempt_time_duration": 118,
+          "user_module_attempt_created_at": "2025-06-02T04:24:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:25:04.243760Z"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "user_id": "8b28e4be-03ef-4e62-a7e5-5abde62a8ca0",
+      "targets": [
+        {
+          "user_module_attempt_target_type": 4,
+          "user_module_attempt_target_id": 1,
+          "user_module_attempt_attempt_number": 1,
+          "user_module_attempt_percentage_grade": 84,
+          "user_module_attempt_time_duration": 119,
+          "user_module_attempt_created_at": "2025-06-02T04:25:34.243760Z",
+          "answers": [
+            {
+              "user_answer_attempt_question_id": 1,
+              "user_answer_attempt_question_attempt": 1,
+              "user_answer_attempt_answer": "A",
+              "user_answer_attempt_is_correct": true,
+              "user_answer_attempt_created_at": "2025-06-02T04:26:04.243760Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

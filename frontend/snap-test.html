@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Midtrans Snap Test</title>
+    <script src="https://app.sandbox.midtrans.com/snap/snap.js" data-client-key="Mid-client-l1lXV0xwBLRhI_62"></script>
+    
+    <style>
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            font-family: sans-serif;
+        }
+
+        h3 {
+            margin-bottom: 20px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+
+<body>
+    <h3>Bayar Donasi</h3>
+    <button onclick="pay()">Bayar Sekarang</button>
+
+    <script>
+        function pay() {
+            window.snap.pay("7ab6cf09-ac17-496c-b88f-82413b570eb6");
+        }
+    </script>
+</body>
+
+</html>
