@@ -30,6 +30,22 @@ func AuthMiddleware(db *gorm.DB) fiber.Handler {
 
 		authHeader := c.Get("Authorization")
 		log.Println("[DEBUG] Authorization Header:", authHeader)
+
+		if authHeader == "" {
+			cookieToken := c.Cookies("access_token")
+			if cookieToken != "" {
+				authHeader = "Bearer " + cookieToken
+				log.Println("[DEBUG] Authorization dari Cookie:", cookieToken)
+			}
+		}
+
+		if authHeader == "" {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "Unauthorized - No token provided",
+			})
+		}
+
+		log.Println("[DEBUG] Authorization Header:", authHeader)
 		if authHeader == "" {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": "Unauthorized - No token provided",

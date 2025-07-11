@@ -82,25 +82,22 @@ func RefreshToken(db *gorm.DB, c *fiber.Ctx) error {
 
 // ========================== ISSUE TOKEN ==========================
 func issueTokens(c *fiber.Ctx, db *gorm.DB, user userModel.UserModel) error {
-	// Durasi token
 	const (
 		accessTokenDuration  = 3600 * time.Minute
 		refreshTokenDuration = 7 * 24 * time.Hour
 	)
 
-	// 🔐 Generate Access Token
+	// Generate Tokens
 	accessToken, accessExp, err := generateToken(user, db, configs.JWTSecret, accessTokenDuration)
 	if err != nil {
 		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal membuat access token")
 	}
-
-	// 🔐 Generate Refresh Token
 	refreshToken, refreshExp, err := generateToken(user, db, configs.JWTRefreshSecret, refreshTokenDuration)
 	if err != nil {
 		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal membuat refresh token")
 	}
 
-	// 💾 Simpan Refresh Token ke DB
+	// Simpan Refresh Token ke DB
 	rt := authModel.RefreshToken{
 		UserID:    user.ID,
 		Token:     refreshToken,
@@ -110,7 +107,15 @@ func issueTokens(c *fiber.Ctx, db *gorm.DB, user userModel.UserModel) error {
 		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal menyimpan refresh token")
 	}
 
-	// 🍪 Simpan Refresh Token di cookie
+	// Simpan ke Cookie (HttpOnly)
+	c.Cookie(&fiber.Cookie{
+		Name:     "access_token",
+		Value:    accessToken,
+		HTTPOnly: true,
+		Secure:   true,
+		SameSite: "Strict",
+		Expires:  accessExp,
+	})
 	c.Cookie(&fiber.Cookie{
 		Name:     "refresh_token",
 		Value:    refreshToken,
@@ -120,12 +125,11 @@ func issueTokens(c *fiber.Ctx, db *gorm.DB, user userModel.UserModel) error {
 		Expires:  refreshExp,
 	})
 
-	// ✅ Response ke client
+	// ✅ Response JSON (Token di-include untuk Postman/Flutter)
 	return helpers.Success(c, "Login berhasil", fiber.Map{
-		"access_token":        accessToken,
-		"refresh_token_debug": refreshToken,      // ⚠️ Hapus ini di production
-		"access_exp_unix":     accessExp.Unix(),  // Opsional: monitoring waktu
-		"refresh_exp_unix":    refreshExp.Unix(), // Opsional
+		"access_token":     accessToken,      // untuk Postman / Flutter
+		"access_exp_unix":  accessExp.Unix(), // opsional untuk client-side timer
+		"refresh_exp_unix": refreshExp.Unix(),
 		"user": fiber.Map{
 			"id":        user.ID,
 			"user_name": user.UserName,
