@@ -113,7 +113,7 @@ func issueTokens(c *fiber.Ctx, db *gorm.DB, user userModel.UserModel) error {
 		Value:    accessToken,
 		HTTPOnly: true,
 		Secure:   true,
-		SameSite: "Strict",
+		SameSite: "None",
 		Expires:  accessExp,
 	})
 	c.Cookie(&fiber.Cookie{
@@ -121,7 +121,7 @@ func issueTokens(c *fiber.Ctx, db *gorm.DB, user userModel.UserModel) error {
 		Value:    refreshToken,
 		HTTPOnly: true,
 		Secure:   true,
-		SameSite: "Strict",
+		SameSite: "None",
 		Expires:  refreshExp,
 	})
 
