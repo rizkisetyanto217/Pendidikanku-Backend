@@ -2,8 +2,10 @@ package controller
 
 import (
 	"masjidku_backend/internals/features/users/auth/service"
+	models "masjidku_backend/internals/features/users/user/model"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -13,6 +15,29 @@ type AuthController struct {
 
 func NewAuthController(db *gorm.DB) *AuthController {
 	return &AuthController{DB: db}
+}
+
+func (ac *AuthController) Me(c *fiber.Ctx) error {
+	userIDStr, ok := c.Locals("user_id").(string)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "Invalid user ID in context")
+	}
+
+	userUUID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "Invalid UUID format")
+	}
+
+	var user models.UserModel
+	if err := ac.DB.First(&user, "id = ?", userUUID).Error; err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "User not found")
+	}
+
+	user.Password = ""
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"user": user,
+	})
 }
 
 func (ac *AuthController) Register(c *fiber.Ctx) error {

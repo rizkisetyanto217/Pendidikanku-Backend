@@ -19,7 +19,8 @@ type UserModel struct {
 	Email    string    `gorm:"size:255;unique;not null" json:"email" validate:"required,email"`
 	Password string    `gorm:"not null" json:"password" validate:"required,min=8"`
 	GoogleID *string   `gorm:"size:255;unique" json:"google_id,omitempty"`
-	Role     string    `gorm:"type:varchar(20);not null;default:'user'" json:"-"`
+	Role     string    `gorm:"type:varchar(20);not null;default:'user'" json:"role"`
+
 	SecurityQuestion string    `gorm:"not null" json:"security_question"`
 	SecurityAnswer   string    `gorm:"size:255;not null" json:"security_answer"`
 	IsActive         bool      `gorm:"not null;default:true" json:"is_active"`
