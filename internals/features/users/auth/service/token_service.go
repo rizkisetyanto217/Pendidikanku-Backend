@@ -77,11 +77,11 @@ func RefreshToken(db *gorm.DB, c *fiber.Ctx) error {
 	}
 
 	// 🔁 Kembalikan access_token baru + refresh_token baru
-	return issueTokens(c, db, *user)
+	return issueTokens(c, db, *user, nil)
 }
 
 // ========================== ISSUE TOKEN ==========================
-func issueTokens(c *fiber.Ctx, db *gorm.DB, user userModel.UserModel) error {
+func issueTokens(c *fiber.Ctx, db *gorm.DB, user userModel.UserModel, masjidIDs []string) error {
 	const (
 		accessTokenDuration  = 3600 * time.Minute
 		refreshTokenDuration = 7 * 24 * time.Hour
@@ -131,10 +131,11 @@ func issueTokens(c *fiber.Ctx, db *gorm.DB, user userModel.UserModel) error {
 		"access_exp_unix":  accessExp.Unix(), // opsional untuk client-side timer
 		"refresh_exp_unix": refreshExp.Unix(),
 		"user": fiber.Map{
-			"id":        user.ID,
-			"user_name": user.UserName,
-			"email":     user.Email,
-			"role":      user.Role,
+			"id":               user.ID,
+			"user_name":        user.UserName,
+			"email":            user.Email,
+			"role":             user.Role,
+			"masjid_admin_ids": masjidIDs, // ← Tambah ini
 		},
 	})
 }

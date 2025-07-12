@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"masjidku_backend/internals/configs"
+	"masjidku_backend/internals/features/masjids/masjid_admins/model"
 	authHelper "masjidku_backend/internals/features/users/auth/helper"
 	authRepo "masjidku_backend/internals/features/users/auth/repository"
 	userModel "masjidku_backend/internals/features/users/user/model"
@@ -90,7 +91,22 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data user")
 	}
 
-	return issueTokens(c, db, *userFull)
+	// Ambil daftar masjid_id yang dimiliki user jika role DKM
+	var masjidIDs []string
+	if userFull.Role == "dkm" {
+		var adminMasjids []model.MasjidAdminModel
+		if err := db.
+			Where("masjid_admins_user_id = ? AND masjid_admins_is_active = true", userFull.ID).
+			Find(&adminMasjids).Error; err != nil {
+			return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data masjid admin")
+		}
+
+		for _, m := range adminMasjids {
+			masjidIDs = append(masjidIDs, m.MasjidID.String())
+		}
+	}
+
+	return issueTokens(c, db, *userFull, masjidIDs)
 }
 
 // ========================== LOGIN GOOGLE ==========================
@@ -147,7 +163,7 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 	}
 
 	// 🎟️ Buat access + refresh token
-	return issueTokens(c, db, *user)
+	return issueTokens(c, db, *user, nil)
 }
 
 // ========================== LOGOUT ==========================

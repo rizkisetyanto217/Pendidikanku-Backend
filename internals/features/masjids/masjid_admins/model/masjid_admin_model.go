@@ -13,10 +13,10 @@ type MasjidAdminModel struct {
 	MasjidAdminID uuid.UUID `gorm:"column:masjid_admins_id;type:uuid;primaryKey;default:gen_random_uuid()" json:"masjid_admins_id"`
 
 	MasjidID uuid.UUID          `gorm:"column:masjid_admins_masjid_id;type:uuid;not null;index" json:"masjid_admins_masjid_id"`
-	Masjid   Masjid.MasjidModel `gorm:"foreignKey:MasjidID;references:MasjidID" json:"masjid,omitempty"`
+	Masjid Masjid.MasjidModel `gorm:"foreignKey:MasjidID;references:MasjidID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"masjid,omitempty"`
 
 	UserID uuid.UUID      `gorm:"column:masjid_admins_user_id;type:uuid;not null;index" json:"masjid_admins_user_id"`
-	User   User.UserModel `gorm:"foreignKey:UserID;references:ID" json:"user,omitempty"`
+	User   User.UserModel     `gorm:"foreignKey:UserID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"user,omitempty"`
 
 	IsActive  bool      `gorm:"column:masjid_admins_is_active;default:true" json:"masjid_admins_is_active"`
 	CreatedAt time.Time `gorm:"column:created_at;default:current_timestamp" json:"created_at"`

@@ -9,7 +9,6 @@ import (
 
 func IsMasjidAdmin() fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		// ✅ Kalau role = owner, langsung bypass
 		if role, ok := c.Locals("userRole").(string); ok && role == "owner" {
 			log.Println("[MIDDLEWARE] Bypass IsMasjidAdmin: user is owner")
 			return c.Next()
@@ -21,22 +20,39 @@ func IsMasjidAdmin() fiber.Handler {
 		if id := c.Query("masjid_id"); id != "" {
 			masjidID = id
 		} else {
-			// ✅ 2. Cek dari body dengan daftar field yang disetujui
+			// ✅ 2. Cek dari body
 			validMasjidIDFields := []string{
 				"masjid_id",
 				"lecture_masjid_id",
 				"event_masjid_id",
 				"notification_masjid_id",
 				"post_masjid_id",
+				"masjid_profile_masjid_id",
 			}
 
-			var body map[string]interface{}
-			if err := c.BodyParser(&body); err == nil {
+			// ✅ 2a. Coba parse sebagai object
+			var bodyObj map[string]interface{}
+			if err := c.BodyParser(&bodyObj); err == nil {
 				for _, field := range validMasjidIDFields {
-					if val, ok := body[field].(string); ok {
+					if val, ok := bodyObj[field].(string); ok {
 						if _, err := uuid.Parse(val); err == nil {
 							masjidID = val
 							break
+						}
+					}
+				}
+			}
+
+			// ✅ 2b. Coba parse sebagai array (fallback)
+			if masjidID == "" {
+				var bodyArr []map[string]interface{}
+				if err := c.BodyParser(&bodyArr); err == nil && len(bodyArr) > 0 {
+					for _, field := range validMasjidIDFields {
+						if val, ok := bodyArr[0][field].(string); ok {
+							if _, err := uuid.Parse(val); err == nil {
+								masjidID = val
+								break
+							}
 						}
 					}
 				}
@@ -48,14 +64,12 @@ func IsMasjidAdmin() fiber.Handler {
 			return fiber.NewError(fiber.StatusBadRequest, "masjid_id tidak ditemukan di body atau query")
 		}
 
-		// ✅ 3. Ambil daftar masjid dari token
 		adminMasjids, ok := c.Locals("masjid_admin_ids").([]string)
 		if !ok {
 			log.Println("[MIDDLEWARE] masjid_admin_ids tidak tersedia di token")
 			return fiber.NewError(fiber.StatusUnauthorized, "Token tidak mengandung data masjid_admin_ids")
 		}
 
-		// ✅ 4. Cocokkan masjid_id dari request dengan masjid yang dimiliki user
 		for _, id := range adminMasjids {
 			if id == masjidID {
 				log.Println("[MIDDLEWARE] Akses DIIJINKAN ke masjid_id:", masjidID)
