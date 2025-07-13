@@ -15,6 +15,7 @@ type MasjidRequest struct {
 	MasjidLatitude     float64 `json:"masjid_latitude"`
 	MasjidLongitude    float64 `json:"masjid_longitude"`
 	MasjidImageURL     string  `json:"masjid_image_url"`
+	MasjidGoogleMapsURL string `json:"masjid_google_maps_url"`
 	MasjidSlug         string  `json:"masjid_slug"`
 	MasjidIsVerified   bool    `json:"masjid_is_verified"`
 	MasjidInstagramURL string  `json:"masjid_instagram_url"`
@@ -31,6 +32,7 @@ type MasjidResponse struct {
 	MasjidLatitude     float64   `json:"masjid_latitude"`
 	MasjidLongitude    float64   `json:"masjid_longitude"`
 	MasjidImageURL     string    `json:"masjid_image_url"`
+	MasjidGoogleMapsURL string `json:"masjid_google_maps_url"`
 	MasjidSlug         string    `json:"masjid_slug"`
 	MasjidIsVerified   bool      `json:"masjid_is_verified"`
 	MasjidInstagramURL string    `json:"masjid_instagram_url"`
@@ -50,6 +52,7 @@ func FromModelMasjid(m *model.MasjidModel) MasjidResponse {
 		MasjidLatitude:     m.MasjidLatitude,
 		MasjidLongitude:    m.MasjidLongitude,
 		MasjidImageURL:     m.MasjidImageURL,
+		MasjidGoogleMapsURL: m.MasjidGoogleMapsURL,
 		MasjidSlug:         m.MasjidSlug,
 		MasjidIsVerified:   m.MasjidIsVerified,
 		MasjidInstagramURL: m.MasjidInstagramURL,
@@ -71,6 +74,7 @@ func ToModelMasjid(input *MasjidRequest, masjidID uuid.UUID) *model.MasjidModel 
 		MasjidLongitude:    input.MasjidLongitude,
 		MasjidImageURL:     input.MasjidImageURL,
 		MasjidSlug:         input.MasjidSlug,
+		MasjidGoogleMapsURL: input.MasjidGoogleMapsURL,
 		MasjidIsVerified:   input.MasjidIsVerified,
 		MasjidInstagramURL: input.MasjidInstagramURL,
 		MasjidWhatsappURL:  input.MasjidWhatsappURL,

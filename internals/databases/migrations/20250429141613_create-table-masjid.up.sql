@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS masjids (
     masjid_latitude DECIMAL(9,6),
     masjid_longitude DECIMAL(9,6),
     masjid_image_url TEXT,
+    masjid_google_maps_url TEXT,
     masjid_slug VARCHAR(100) UNIQUE NOT NULL,
     masjid_is_verified BOOLEAN DEFAULT FALSE,
     masjid_instagram_url TEXT,
