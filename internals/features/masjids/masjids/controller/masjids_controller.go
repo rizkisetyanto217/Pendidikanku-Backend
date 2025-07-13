@@ -74,6 +74,39 @@ func (mc *MasjidController) GetAllVerifiedMasjids(c *fiber.Ctx) error {
 	})
 }
 
+// 🟢 GET VERIFIED MASJID BY ID
+func (mc *MasjidController) GetVerifiedMasjidByID(c *fiber.Ctx) error {
+	id := c.Params("id")
+	log.Printf("[INFO] Fetching verified masjid with ID: %s\n", id)
+
+	masjidUUID, err := uuid.Parse(id)
+	if err != nil {
+		log.Printf("[ERROR] Invalid UUID format: %v\n", err)
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Format ID tidak valid",
+		})
+	}
+
+	var masjid model.MasjidModel
+	if err := mc.DB.
+		Where("masjid_id = ? AND masjid_is_verified = ?", masjidUUID, true).
+		First(&masjid).Error; err != nil {
+		log.Printf("[ERROR] Verified masjid with ID %s not found\n", id)
+		return c.Status(404).JSON(fiber.Map{
+			"error": "Masjid terverifikasi tidak ditemukan",
+		})
+	}
+
+	log.Printf("[SUCCESS] Retrieved verified masjid: %s\n", masjid.MasjidName)
+
+	masjidDTO := dto.FromModelMasjid(&masjid)
+	return c.JSON(fiber.Map{
+		"message": "Data masjid terverifikasi berhasil diambil",
+		"data":    masjidDTO,
+	})
+}
+
+
 // 🟢 GET MASJID BY SLUG
 func (mc *MasjidController) GetMasjidBySlug(c *fiber.Ctx) error {
 	slug := c.Params("slug")

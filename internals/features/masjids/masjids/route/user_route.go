@@ -16,6 +16,7 @@ func AllMasjidRoutes(user fiber.Router, db *gorm.DB) {
 	masjid.Get("/", masjidCtrl.GetAllMasjids)        // 📄 Semua masjid
 	masjid.Get("/verified", masjidCtrl.GetAllVerifiedMasjids)
 	masjid.Get("/:slug", masjidCtrl.GetMasjidBySlug) // 🔍 Detail by slug
+	masjid.Get("/verified/:id", masjidCtrl.GetVerifiedMasjidByID)
 
 	// 📄 Group: /masjid-profiles
 	profile := user.Group("/masjid-profiles")
