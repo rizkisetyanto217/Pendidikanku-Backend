@@ -5,21 +5,20 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
+
+	masjidkuMiddleware "masjidku_backend/internals/middlewares/features"
 )
 
 func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	masjidCtrl := controller.NewMasjidController(db)
 	profileCtrl := controller.NewMasjidProfileController(db)
 
-	// 🕌 Group: /masjids
-	masjid := admin.Group("/masjids")
-	masjid.Post("/", masjidCtrl.CreateMasjid)      // ➕ Buat masjid
-	masjid.Put("/:id", masjidCtrl.UpdateMasjid)    // ✏️ Edit masjid
-	masjid.Delete("/:id", masjidCtrl.DeleteMasjid) // ❌ Hapus masjid
+	// 🕌 Langsung gunakan admin.[METHOD] agar path param ":id" sudah terparse saat middleware dipanggil
+	admin.Post("/masjids", masjidkuMiddleware.IsMasjidAdmin(), masjidCtrl.CreateMasjid)
+	admin.Put("/masjids/:id", masjidkuMiddleware.IsMasjidAdmin(), masjidCtrl.UpdateMasjid)
+	admin.Delete("/masjids/:id", masjidkuMiddleware.IsMasjidAdmin(), masjidCtrl.DeleteMasjid)
 
-	// 📄 Group: /masjid-profiles
-	profile := admin.Group("/masjid-profiles")
-	profile.Post("/", profileCtrl.CreateMasjidProfile)      // ➕ Buat profil masjid
-	profile.Put("/:id", profileCtrl.UpdateMasjidProfile)    // ✏️ Edit profil masjid
-	profile.Delete("/:id", profileCtrl.DeleteMasjidProfile) // ❌ Hapus profil
+	admin.Post("/masjid-profiles", masjidkuMiddleware.IsMasjidAdmin(), profileCtrl.CreateMasjidProfile)
+	admin.Put("/masjid-profiles/:id", masjidkuMiddleware.IsMasjidAdmin(), profileCtrl.UpdateMasjidProfile)
+	admin.Delete("/masjid-profiles/:id", masjidkuMiddleware.IsMasjidAdmin(), profileCtrl.DeleteMasjidProfile)
 }

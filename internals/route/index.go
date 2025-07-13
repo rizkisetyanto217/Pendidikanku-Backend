@@ -46,7 +46,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	log.Println("[INFO] Setting up MasjidRoutes (admin)...")
 	masjidAdmin := app.Group("/api/a",
 		authMiddleware.AuthMiddleware(db),
-		masjidkuMiddleware.IsMasjidAdmin(),
+		// masjidkuMiddleware.IsMasjidAdmin(),
 	)
 	routeDetails.MasjidAdminRoutes(masjidAdmin, db)
 
