@@ -13,7 +13,6 @@ func LectureRoutes(api fiber.Router, db *gorm.DB) {
 	lectureCtrl := controller.NewLectureController(db)
 	lecture := api.Group("/lectures")
 	lecture.Post("/", masjidkuMiddleware.IsMasjidAdmin(db), lectureCtrl.CreateLecture)
-	lecture.Post("/by-masjid-latest", masjidkuMiddleware.IsMasjidAdmin(db), lectureCtrl.GetByMasjidID)
 	lecture.Get("/:id", masjidkuMiddleware.IsMasjidAdmin(db), lectureCtrl.GetLectureByID)
 	lecture.Put("/:id", masjidkuMiddleware.IsMasjidAdmin(db), lectureCtrl.UpdateLecture)
 	lecture.Delete("/:id", masjidkuMiddleware.IsMasjidAdmin(db), lectureCtrl.DeleteLecture)

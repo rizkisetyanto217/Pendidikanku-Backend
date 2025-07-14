@@ -58,30 +58,19 @@ func (ctrl *LectureController) CreateLecture(c *fiber.Ctx) error {
 	})
 }
 
-// ✅ POST /api/a/lectures/by-masjid-latest
+
+// ✅ GET /api/a/lectures/by-masjid-latest/:masjid_id
 func (ctrl *LectureController) GetByMasjidID(c *fiber.Ctx) error {
-	type RequestBody struct {
-		MasjidID string `json:"masjid_id"`
-	}
-
-	var body RequestBody
-	if err := c.BodyParser(&body); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Permintaan tidak valid",
-		})
-	}
-
-	if body.MasjidID == "" {
+	masjidID := c.Params("masjid_id")
+	if masjidID == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"message": "Masjid ID wajib diisi",
 		})
 	}
 
-	userIDRaw := c.Locals("user_id")
-
 	var lecture model.LectureModel
 	if err := ctrl.DB.
-		Where("lecture_masjid_id = ?", body.MasjidID).
+		Where("lecture_masjid_id = ?", masjidID).
 		Order("lecture_created_at DESC").
 		First(&lecture).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -94,32 +83,12 @@ func (ctrl *LectureController) GetByMasjidID(c *fiber.Ctx) error {
 		})
 	}
 
-	// Jika user login, cari data user_lecture
-	if userIDRaw != nil {
-		userIDStr, ok := userIDRaw.(string)
-		if ok && userIDStr != "" {
-			var userLecture model.UserLectureModel
-			if err := ctrl.DB.Where("user_lecture_user_id = ? AND user_lecture_lecture_id = ?", userIDStr, lecture.LectureID).
-				First(&userLecture).Error; err == nil {
-				// Gabungkan data
-				lectureMap := map[string]interface{}{
-					"lecture":      dto.ToLectureResponse(&lecture),
-					"user_lecture": userLecture,
-				}
-				return c.Status(fiber.StatusOK).JSON(fiber.Map{
-					"message": "Lecture dan partisipasi user ditemukan",
-					"data":    lectureMap,
-				})
-			}
-		}
-	}
-
-	// Jika user tidak login atau tidak ada data user_lecture
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "Lecture terbaru berhasil ditemukan",
 		"data":    dto.ToLectureResponse(&lecture),
 	})
 }
+
 
 // 🟢 GET /api/a/lectures/:id
 func (ctrl *LectureController) GetLectureByID(c *fiber.Ctx) error {
