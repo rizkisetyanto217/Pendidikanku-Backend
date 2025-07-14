@@ -59,7 +59,7 @@ func (ctrl *LectureController) CreateLecture(c *fiber.Ctx) error {
 }
 
 
-// ✅ GET /api/a/lectures/by-masjid-latest/:masjid_id
+// ✅ GET /api/a/lectures/by-masjid/:masjid_id
 func (ctrl *LectureController) GetByMasjidID(c *fiber.Ctx) error {
 	masjidID := c.Params("masjid_id")
 	if masjidID == "" {
@@ -68,24 +68,25 @@ func (ctrl *LectureController) GetByMasjidID(c *fiber.Ctx) error {
 		})
 	}
 
-	var lecture model.LectureModel
+	var lectures []model.LectureModel
 	if err := ctrl.DB.
 		Where("lecture_masjid_id = ?", masjidID).
 		Order("lecture_created_at DESC").
-		First(&lecture).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-				"message": "Belum ada lecture untuk masjid ini",
-			})
-		}
+		Find(&lectures).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Gagal mengambil data lecture",
 		})
 	}
 
+	if len(lectures) == 0 {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Belum ada lecture untuk masjid ini",
+		})
+	}
+
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message": "Lecture terbaru berhasil ditemukan",
-		"data":    dto.ToLectureResponse(&lecture),
+		"message": "Daftar lecture berhasil ditemukan",
+		"data":    dto.ToLectureResponseList(lectures),
 	})
 }
 

@@ -126,3 +126,11 @@ func ToLectureResponse(m *model.LectureModel) *LectureResponse {
 		LectureDeletedAt:            deletedAtStr,
 	}
 }
+
+func ToLectureResponseList(lectures []model.LectureModel) []*LectureResponse {
+	var responses []*LectureResponse
+	for _, lecture := range lectures {
+		responses = append(responses, ToLectureResponse(&lecture))
+	}
+	return responses
+}
