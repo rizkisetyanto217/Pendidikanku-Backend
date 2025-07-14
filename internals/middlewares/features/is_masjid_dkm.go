@@ -17,6 +17,20 @@ func isValidUUID(val string) bool {
 
 // ✅ Resolver Map (modular, scalable)
 var MasjidIDResolvers = map[string]func(*fiber.Ctx) string{
+	"/api/a/lectures": func(c *fiber.Ctx) string {
+	var body map[string]interface{}
+	if err := c.BodyParser(&body); err == nil {
+		if id, ok := body["lecture_masjid_id"].(string); ok && isValidUUID(id) {
+			log.Println("[DEBUG] masjid_id dari body: lecture_masjid_id")
+			return id
+		}
+	}
+	if id := c.Query("masjid_id"); isValidUUID(id) {
+		log.Println("[DEBUG] masjid_id dari query param (fallback)")
+		return id
+	}
+	return ""
+	},
 	"/api/a/lecture-sessions": func(c *fiber.Ctx) string {
 		var body map[string]interface{}
 		if err := c.BodyParser(&body); err == nil {
@@ -57,7 +71,7 @@ func getMasjidIDFromRequest(c *fiber.Ctx, db *gorm.DB) string {
 		}
 	}
 
-	// 🔍 Resolver prefix (untuk dynamic ID seperti /api/a/lecture-sessions/:id)
+	// 🔍 Resolver prefix
 	for prefix, resolver := range MasjidIDResolvers {
 		if strings.HasPrefix(path, prefix) {
 			if id := resolver(c); id != "" {
@@ -66,7 +80,7 @@ func getMasjidIDFromRequest(c *fiber.Ctx, db *gorm.DB) string {
 		}
 	}
 
-	// 🔍 Fallback DB: cek masjid_id dari lecture_session_id di path param
+	// 🔍 Fallback DB: dari lecture_session_id
 	if strings.HasPrefix(path, "/api/a/lecture-sessions/") {
 		sessionID := c.Params("id")
 		if isValidUUID(sessionID) {
@@ -74,6 +88,19 @@ func getMasjidIDFromRequest(c *fiber.Ctx, db *gorm.DB) string {
 			err := db.Raw(`SELECT lecture_session_masjid_id FROM lecture_sessions WHERE lecture_session_id = ?`, sessionID).Scan(&masjidID).Error
 			if err == nil && isValidUUID(masjidID) {
 				log.Println("[DEBUG] masjid_id dari DB fallback: lecture_sessions")
+				return masjidID
+			}
+		}
+	}
+
+	// 🔍 Fallback DB: dari lecture_id
+	if strings.HasPrefix(path, "/api/a/lectures/") {
+		lectureID := c.Params("id")
+		if isValidUUID(lectureID) {
+			var masjidID string
+			err := db.Raw(`SELECT lecture_masjid_id FROM lectures WHERE lecture_id = ?`, lectureID).Scan(&masjidID).Error
+			if err == nil && isValidUUID(masjidID) {
+				log.Println("[DEBUG] masjid_id dari DB fallback: lectures")
 				return masjidID
 			}
 		}
