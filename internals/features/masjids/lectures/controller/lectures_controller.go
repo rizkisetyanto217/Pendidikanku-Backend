@@ -16,6 +16,30 @@ func NewLectureController(db *gorm.DB) *LectureController {
 	return &LectureController{DB: db}
 }
 
+
+// 🟢 GET /api/a/lectures
+func (ctrl *LectureController) GetAllLectures(c *fiber.Ctx) error {
+	var lectures []model.LectureModel
+
+	if err := ctrl.DB.Order("lecture_created_at DESC").Find(&lectures).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Gagal mengambil daftar kajian",
+			"error":   err.Error(),
+		})
+	}
+
+	// Ubah ke bentuk response DTO
+	lectureResponses := make([]dto.LectureResponse, len(lectures))
+	for i, l := range lectures {
+		lectureResponses[i] = *dto.ToLectureResponse(&l)
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Daftar kajian berhasil diambil",
+		"data":    lectureResponses,
+	})
+}
+
 // 🟢 POST /api/a/lectures
 func (ctrl *LectureController) CreateLecture(c *fiber.Ctx) error {
 	var req dto.LectureRequest

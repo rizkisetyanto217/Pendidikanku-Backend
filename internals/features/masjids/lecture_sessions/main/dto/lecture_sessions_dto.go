@@ -21,9 +21,13 @@ type CreateLectureSessionRequest struct {
 	LectureSessionPlace        *string    `json:"lecture_session_place"`
 	LectureSessionImageURL     *string    `json:"lecture_session_image_url"`
 	LectureSessionLectureID    *uuid.UUID `json:"lecture_session_lecture_id"`
+
+	// ✅ Jika dikirim, berarti tidak perlu diperiksa oleh guru
+	LectureSessionApprovedByTeacherAt *time.Time `json:"lecture_session_approved_by_teacher_at,omitempty"`
 }
 
 type UpdateLectureSessionRequest = CreateLectureSessionRequest
+
 
 
 // =========================
@@ -41,6 +45,9 @@ type LectureSessionDTO struct {
 	LectureSessionPlace        *string    `json:"lecture_session_place"`
 	LectureSessionImageURL     *string    `json:"lecture_session_image_url"`
 	LectureSessionLectureID    *uuid.UUID `json:"lecture_session_lecture_id"`
+
+	LectureTitle               string     `json:"lecture_title"` // ✅ Tambahan
+
 
 	// Validasi Role
 	LectureSessionApprovedByAdminID   *uuid.UUID `json:"lecture_session_approved_by_admin_id"`
@@ -106,6 +113,14 @@ func ToLectureSessionDTO(m model.LectureSessionModel) LectureSessionDTO {
 		LectureSessionCreatedAt:          m.LectureSessionCreatedAt,
 		LectureSessionUpdatedAt:          m.LectureSessionUpdatedAt,
 	}
+}
+
+
+// Untuk Lecture Title
+func ToLectureSessionDTOWithLectureTitle(m model.LectureSessionModel, lectureTitle string) LectureSessionDTO {
+	dto := ToLectureSessionDTO(m)
+	dto.LectureTitle = lectureTitle
+	return dto
 }
 
 

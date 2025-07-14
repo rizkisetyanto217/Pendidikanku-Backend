@@ -18,16 +18,13 @@ func NewLectureSessionController(db *gorm.DB) *LectureSessionController {
 	return &LectureSessionController{DB: db}
 }
 
-// ================================
-// CREATE
-// ================================
 func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 	var body dto.CreateLectureSessionRequest
 	if err := c.BodyParser(&body); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Permintaan tidak valid")
 	}
 
-	// Validasi user login (jika diperlukan)
+	// Validasi user login
 	userIDRaw := c.Locals("user_id")
 	if userIDRaw == nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "User belum login")
@@ -36,6 +33,15 @@ func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 	// Konversi request ke model
 	newSession := body.ToModel()
 
+	// 💡 Jika waktu verifikasi teacher dikirim, berarti tidak diperiksa oleh guru
+	if body.LectureSessionApprovedByTeacherAt != nil {
+	newSession.LectureSessionIsActive = true
+	newSession.LectureSessionApprovedByTeacherID = &newSession.LectureSessionTeacherID
+	now := time.Now()
+	newSession.LectureSessionApprovedByTeacherAt = &now
+	}
+
+
 	// Simpan ke DB
 	if err := ctrl.DB.Create(&newSession).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat sesi kajian")
@@ -43,6 +49,8 @@ func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 
 	return c.Status(fiber.StatusCreated).JSON(dto.ToLectureSessionDTO(newSession))
 }
+
+
 
 // ================================
 // GET ALL
@@ -77,8 +85,9 @@ func (ctrl *LectureSessionController) GetLectureSessionByID(c *fiber.Ctx) error 
 }
 
 
+
 func (ctrl *LectureSessionController) GetLectureSessionsByMasjidID(c *fiber.Ctx) error {
-	masjidIDParam := c.Params("id") // ✅ pakai Params, bukan Query
+	masjidIDParam := c.Params("id")
 	if masjidIDParam == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"message": "masjid_id wajib diisi",
@@ -92,21 +101,29 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMasjidID(c *fiber.Ctx)
 		})
 	}
 
-	var sessions []model.LectureSessionModel
+	// Struct untuk hasil gabungan
+	type JoinedResult struct {
+		model.LectureSessionModel
+		LectureTitle string `gorm:"column:lecture_title"`
+	}
+
+	var results []JoinedResult
 	if err := ctrl.DB.
-	Model(&model.LectureSessionModel{}). // ⬅️ Tambahkan ini agar GORM tahu basis model
-	Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
-	Where("lectures.lecture_masjid_id = ?", masjidID).
-	Order("lecture_sessions.lecture_session_start_time ASC").
-	Find(&sessions).Error; err != nil {
+		Model(&model.LectureSessionModel{}).
+		Select("lecture_sessions.*, lectures.lecture_title").
+		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Where("lectures.lecture_masjid_id = ?", masjidID).
+		Order("lecture_sessions.lecture_session_start_time ASC").
+		Scan(&results).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Gagal mengambil sesi kajian berdasarkan masjid",
 		})
 	}
 
-	response := make([]dto.LectureSessionDTO, len(sessions))
-	for i, s := range sessions {
-		response[i] = dto.ToLectureSessionDTO(s)
+	// Map ke DTO
+	response := make([]dto.LectureSessionDTO, len(results))
+	for i, r := range results {
+		response[i] = dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
 	}
 
 	type GetLectureSessionsByMasjidIDResponse struct {
@@ -118,8 +135,8 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMasjidID(c *fiber.Ctx)
 		Message: "Berhasil mengambil sesi kajian berdasarkan masjid",
 		Data:    response,
 	})
-
 }
+
 
 
 // ✅ POST /api/a/lecture-sessions/by-lecture-id
