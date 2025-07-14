@@ -15,6 +15,7 @@ type LectureSessionsAssetDTO struct {
 	LectureSessionsAssetFileURL          string    `json:"lecture_sessions_asset_file_url"`
 	LectureSessionsAssetFileType         int       `json:"lecture_sessions_asset_file_type"`
 	LectureSessionsAssetLectureSessionID string    `json:"lecture_sessions_asset_lecture_session_id"`
+	LectureSessionsAssetMasjidID         string    `json:"lecture_sessions_asset_masjid_id"`
 	LectureSessionsAssetCreatedAt        time.Time `json:"lecture_sessions_asset_created_at"`
 }
 
@@ -27,6 +28,7 @@ type CreateLectureSessionsAssetRequest struct {
 	LectureSessionsAssetFileURL          string `json:"lecture_sessions_asset_file_url" validate:"required,url"`
 	LectureSessionsAssetFileType         int    `json:"lecture_sessions_asset_file_type" validate:"required"`
 	LectureSessionsAssetLectureSessionID string `json:"lecture_sessions_asset_lecture_session_id" validate:"required,uuid"`
+	LectureSessionsAssetMasjidID         string `json:"lecture_sessions_asset_masjid_id" validate:"required,uuid"`
 }
 
 // ======================
@@ -40,6 +42,7 @@ func ToLectureSessionsAssetDTO(m model.LectureSessionsAssetModel) LectureSession
 		LectureSessionsAssetFileURL:          m.LectureSessionsAssetFileURL,
 		LectureSessionsAssetFileType:         m.LectureSessionsAssetFileType,
 		LectureSessionsAssetLectureSessionID: m.LectureSessionsAssetLectureSessionID,
+		LectureSessionsAssetMasjidID:         m.LectureSessionsAssetMasjidID,
 		LectureSessionsAssetCreatedAt:        m.LectureSessionsAssetCreatedAt,
 	}
 }

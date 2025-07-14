@@ -9,6 +9,7 @@ import (
 // Request: biasanya hanya perlu LectureID untuk inisialisasi
 type LectureStatsRequest struct {
 	LectureStatsLectureID         uuid.UUID `json:"lecture_stats_lecture_id"`
+	LectureStatsMasjidID          uuid.UUID `json:"lecture_stats_masjid_id"` // ✅ tambahkan ini
 	LectureStatsTotalParticipants int       `json:"lecture_stats_total_participants"`
 	LectureStatsAverageGrade      float64   `json:"lecture_stats_average_grade"`
 }
@@ -17,6 +18,7 @@ type LectureStatsRequest struct {
 type LectureStatsResponse struct {
 	LectureStatsID                uuid.UUID `json:"lecture_stats_id"`
 	LectureStatsLectureID         uuid.UUID `json:"lecture_stats_lecture_id"`
+	LectureStatsMasjidID          uuid.UUID `json:"lecture_stats_masjid_id"` // ✅ tambahkan ini
 	LectureStatsTotalParticipants int       `json:"lecture_stats_total_participants"`
 	LectureStatsAverageGrade      float64   `json:"lecture_stats_average_grade"`
 	LectureStatsUpdatedAt         string    `json:"lecture_stats_updated_at"`
@@ -26,6 +28,7 @@ type LectureStatsResponse struct {
 func (r *LectureStatsRequest) ToModel() *model.LectureStatsModel {
 	return &model.LectureStatsModel{
 		LectureStatsLectureID:         r.LectureStatsLectureID,
+		LectureStatsMasjidID:          r.LectureStatsMasjidID,
 		LectureStatsTotalParticipants: r.LectureStatsTotalParticipants,
 		LectureStatsAverageGrade:      r.LectureStatsAverageGrade,
 	}
@@ -36,6 +39,7 @@ func ToLectureStatsResponse(m *model.LectureStatsModel) *LectureStatsResponse {
 	return &LectureStatsResponse{
 		LectureStatsID:                m.LectureStatsID,
 		LectureStatsLectureID:         m.LectureStatsLectureID,
+		LectureStatsMasjidID:          m.LectureStatsMasjidID,
 		LectureStatsTotalParticipants: m.LectureStatsTotalParticipants,
 		LectureStatsAverageGrade:      m.LectureStatsAverageGrade,
 		LectureStatsUpdatedAt:         m.LectureStatsUpdatedAt.Format("2006-01-02 15:04:05"),

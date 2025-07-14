@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS user_event_registrations (
     user_event_registration_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_event_registration_event_session_id UUID NOT NULL REFERENCES event_sessions(event_session_id) ON DELETE CASCADE,
     user_event_registration_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_event_registration_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE, -- ✅ Ditambahkan
     user_event_registration_status VARCHAR(50) DEFAULT 'registered',
     user_event_registration_registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     user_event_registration_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -50,3 +51,4 @@ CREATE TABLE IF NOT EXISTS user_event_registrations (
 -- Indexing
 CREATE INDEX IF NOT EXISTS idx_user_event_registrations_event_session_id ON user_event_registrations(user_event_registration_event_session_id);
 CREATE INDEX IF NOT EXISTS idx_user_event_registrations_user_id ON user_event_registrations(user_event_registration_user_id);
+CREATE INDEX IF NOT EXISTS idx_user_event_registrations_masjid_id ON user_event_registrations(user_event_registration_masjid_id); -- ✅ Ditambahkan

@@ -13,6 +13,7 @@ type FaqAnswerDTO struct {
 	FaqAnswerID         string    `json:"faq_answer_id"`
 	FaqAnswerQuestionID string    `json:"faq_answer_question_id"`
 	FaqAnswerAnsweredBy string    `json:"faq_answer_answered_by"`
+	FaqAnswerMasjidID   string    `json:"faq_answer_masjid_id"`
 	FaqAnswerText       string    `json:"faq_answer_text"`
 	FaqAnswerCreatedAt  time.Time `json:"faq_answer_created_at"`
 }
@@ -23,6 +24,7 @@ type FaqAnswerDTO struct {
 
 type CreateFaqAnswerRequest struct {
 	FaqAnswerQuestionID string `json:"faq_answer_question_id" validate:"required,uuid"`
+	FaqAnswerMasjidID   string `json:"faq_answer_masjid_id" validate:"required,uuid"`
 	FaqAnswerText       string `json:"faq_answer_text" validate:"required,min=3"`
 }
 
@@ -39,6 +41,7 @@ func ToFaqAnswerDTO(m model.FaqAnswerModel) FaqAnswerDTO {
 		FaqAnswerID:         m.FaqAnswerID,
 		FaqAnswerQuestionID: m.FaqAnswerQuestionID,
 		FaqAnswerAnsweredBy: m.FaqAnswerAnsweredBy,
+		FaqAnswerMasjidID:   m.FaqAnswerMasjidID,
 		FaqAnswerText:       m.FaqAnswerText,
 		FaqAnswerCreatedAt:  m.FaqAnswerCreatedAt,
 	}
@@ -52,6 +55,7 @@ func (r CreateFaqAnswerRequest) ToModel(answeredBy string) model.FaqAnswerModel 
 	return model.FaqAnswerModel{
 		FaqAnswerQuestionID: r.FaqAnswerQuestionID,
 		FaqAnswerAnsweredBy: answeredBy,
+		FaqAnswerMasjidID:   r.FaqAnswerMasjidID,
 		FaqAnswerText:       r.FaqAnswerText,
 	}
 }

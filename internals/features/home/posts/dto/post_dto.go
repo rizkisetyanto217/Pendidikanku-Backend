@@ -15,6 +15,7 @@ type PostDTO struct {
 	PostImageURL    *string    `json:"post_image_url"`
 	PostIsPublished bool       `json:"post_is_published"`
 	PostType        string     `json:"post_type"`
+	PostThemeID     *string    `json:"post_theme_id"`
 	PostMasjidID    *string    `json:"post_masjid_id"`
 	PostUserID      *string    `json:"post_user_id"`
 	PostCreatedAt   time.Time  `json:"post_created_at"`
@@ -31,6 +32,7 @@ type CreatePostRequest struct {
 	PostImageURL    *string `json:"post_image_url"`
 	PostIsPublished bool    `json:"post_is_published"`
 	PostType        string  `json:"post_type" validate:"omitempty,oneof=text image video"`
+	PostThemeID     *string `json:"post_theme_id" validate:"omitempty,uuid"`
 	PostMasjidID    *string `json:"post_masjid_id"`
 }
 
@@ -43,6 +45,7 @@ type UpdatePostRequest struct {
 	PostImageURL    *string `json:"post_image_url"`
 	PostIsPublished bool    `json:"post_is_published"`
 	PostType        string  `json:"post_type" validate:"omitempty,oneof=text image video"`
+	PostThemeID     *string `json:"post_theme_id" validate:"omitempty,uuid"`
 }
 
 // ============================
@@ -56,6 +59,7 @@ func ToPostDTO(m model.PostModel) PostDTO {
 		PostImageURL:    m.PostImageURL,
 		PostIsPublished: m.PostIsPublished,
 		PostType:        m.PostType,
+		PostThemeID:     m.PostThemeID,
 		PostMasjidID:    m.PostMasjidID,
 		PostUserID:      m.PostUserID,
 		PostCreatedAt:   m.PostCreatedAt,
@@ -71,6 +75,7 @@ func ToPostModel(req CreatePostRequest, userID *string) model.PostModel {
 		PostImageURL:    req.PostImageURL,
 		PostIsPublished: req.PostIsPublished,
 		PostType:        req.PostType,
+		PostThemeID:     req.PostThemeID,
 		PostMasjidID:    req.PostMasjidID,
 		PostUserID:      userID,
 	}
@@ -82,4 +87,5 @@ func UpdatePostModel(m *model.PostModel, req UpdatePostRequest) {
 	m.PostImageURL = req.PostImageURL
 	m.PostIsPublished = req.PostIsPublished
 	m.PostType = req.PostType
+	m.PostThemeID = req.PostThemeID
 }

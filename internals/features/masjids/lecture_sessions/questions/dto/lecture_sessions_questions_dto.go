@@ -17,6 +17,7 @@ type LectureSessionsQuestionDTO struct {
 	LectureSessionsQuestionExplanation string    `json:"lecture_sessions_question_explanation"`
 	LectureSessionsQuestionQuizID      *string   `json:"lecture_sessions_question_quiz_id,omitempty"`
 	LectureSessionsQuestionExamID      *string   `json:"lecture_sessions_question_exam_id,omitempty"`
+	LectureSessionsQuestionMasjidID    string    `json:"lecture_sessions_question_masjid_id"`
 	LectureSessionsQuestionCreatedAt   time.Time `json:"lecture_sessions_question_created_at"`
 }
 
@@ -31,6 +32,7 @@ type CreateLectureSessionsQuestionRequest struct {
 	LectureSessionsQuestionExplanation string  `json:"lecture_sessions_question_explanation" validate:"required"`
 	LectureSessionsQuestionQuizID      *string `json:"lecture_sessions_question_quiz_id,omitempty" validate:"omitempty,uuid"`
 	LectureSessionsQuestionExamID      *string `json:"lecture_sessions_question_exam_id,omitempty" validate:"omitempty,uuid"`
+	LectureSessionsQuestionMasjidID    string  `json:"lecture_sessions_question_masjid_id" validate:"required,uuid"`
 }
 
 // ============================
@@ -46,6 +48,7 @@ func ToLectureSessionsQuestionDTO(m model.LectureSessionsQuestionModel) LectureS
 		LectureSessionsQuestionExplanation: m.LectureSessionsQuestionExplanation,
 		LectureSessionsQuestionQuizID:      m.LectureSessionsQuestionQuizID,
 		LectureSessionsQuestionExamID:      m.LectureSessionsQuestionExamID,
+		LectureSessionsQuestionMasjidID:    m.LectureSessionsQuestionMasjidID,
 		LectureSessionsQuestionCreatedAt:   m.LectureSessionsQuestionCreatedAt,
 	}
 }

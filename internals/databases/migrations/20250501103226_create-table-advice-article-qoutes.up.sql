@@ -18,8 +18,13 @@ CREATE TABLE IF NOT EXISTS articles (
   article_description TEXT NOT NULL,
   article_image_url TEXT,
   article_order_id INT,
+
+  -- ✅ Masjid ID wajib
+  article_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+
   article_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  article_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  article_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  article_deleted_at TIMESTAMP
 );
 
 -- Untuk urutan tampilan artikel
@@ -28,6 +33,10 @@ CREATE INDEX IF NOT EXISTS idx_articles_order_id ON articles(article_order_id);
 -- Untuk pencarian artikel berdasarkan waktu
 CREATE INDEX IF NOT EXISTS idx_articles_created_at ON articles(article_created_at);
 CREATE INDEX IF NOT EXISTS idx_articles_updated_at ON articles(article_updated_at);
+
+-- Untuk pencarian berdasarkan masjid
+CREATE INDEX IF NOT EXISTS idx_articles_masjid_id ON articles(article_masjid_id);
+
 
 
 CREATE TABLE IF NOT EXISTS carousels (

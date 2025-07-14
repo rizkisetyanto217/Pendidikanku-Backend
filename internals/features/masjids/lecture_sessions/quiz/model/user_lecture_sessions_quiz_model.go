@@ -9,6 +9,10 @@ type UserLectureSessionsQuizModel struct {
 	UserLectureSessionsQuizGrade     float64   `gorm:"column:user_lecture_sessions_quiz_grade_result" json:"user_lecture_sessions_quiz_grade_result"`
 	UserLectureSessionsQuizQuizID    string    `gorm:"column:user_lecture_sessions_quiz_quiz_id;type:uuid;not null" json:"user_lecture_sessions_quiz_quiz_id"`
 	UserLectureSessionsQuizUserID    string    `gorm:"column:user_lecture_sessions_quiz_user_id;type:uuid;not null" json:"user_lecture_sessions_quiz_user_id"`
+
+	// ✅ Tambahan masjid_id
+	UserLectureSessionsQuizMasjidID  string    `gorm:"column:user_lecture_sessions_quiz_masjid_id;type:uuid;not null" json:"user_lecture_sessions_quiz_masjid_id"`
+
 	UserLectureSessionsQuizCreatedAt time.Time `gorm:"column:user_lecture_sessions_quiz_created_at;autoCreateTime" json:"user_lecture_sessions_quiz_created_at"`
 }
 

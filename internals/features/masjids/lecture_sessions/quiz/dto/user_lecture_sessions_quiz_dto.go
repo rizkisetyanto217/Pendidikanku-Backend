@@ -13,6 +13,7 @@ type UserLectureSessionsQuizDTO struct {
 	UserLectureSessionsQuizGrade     float64   `json:"user_lecture_sessions_quiz_grade_result"`
 	UserLectureSessionsQuizQuizID    string    `json:"user_lecture_sessions_quiz_quiz_id"`
 	UserLectureSessionsQuizUserID    string    `json:"user_lecture_sessions_quiz_user_id"`
+	UserLectureSessionsQuizMasjidID  string    `json:"user_lecture_sessions_quiz_masjid_id"`
 	UserLectureSessionsQuizCreatedAt time.Time `json:"user_lecture_sessions_quiz_created_at"`
 }
 
@@ -20,8 +21,9 @@ type UserLectureSessionsQuizDTO struct {
 // Create Request DTO
 // ============================
 type CreateUserLectureSessionsQuizRequest struct {
-	UserLectureSessionsQuizGrade  float64 `json:"user_lecture_sessions_quiz_grade_result" validate:"required"`
-	UserLectureSessionsQuizQuizID string  `json:"user_lecture_sessions_quiz_quiz_id" validate:"required,uuid"`
+	UserLectureSessionsQuizGrade    float64 `json:"user_lecture_sessions_quiz_grade_result" validate:"required"`
+	UserLectureSessionsQuizQuizID   string  `json:"user_lecture_sessions_quiz_quiz_id" validate:"required,uuid"`
+	UserLectureSessionsQuizMasjidID string  `json:"user_lecture_sessions_quiz_masjid_id" validate:"required,uuid"`
 }
 
 // ============================
@@ -33,6 +35,17 @@ func ToUserLectureSessionsQuizDTO(m model.UserLectureSessionsQuizModel) UserLect
 		UserLectureSessionsQuizGrade:     m.UserLectureSessionsQuizGrade,
 		UserLectureSessionsQuizQuizID:    m.UserLectureSessionsQuizQuizID,
 		UserLectureSessionsQuizUserID:    m.UserLectureSessionsQuizUserID,
+		UserLectureSessionsQuizMasjidID:  m.UserLectureSessionsQuizMasjidID,
 		UserLectureSessionsQuizCreatedAt: m.UserLectureSessionsQuizCreatedAt,
+	}
+}
+
+// Optional: Convert from request to model
+func (r CreateUserLectureSessionsQuizRequest) ToModel(userID string) model.UserLectureSessionsQuizModel {
+	return model.UserLectureSessionsQuizModel{
+		UserLectureSessionsQuizGrade:    r.UserLectureSessionsQuizGrade,
+		UserLectureSessionsQuizQuizID:   r.UserLectureSessionsQuizQuizID,
+		UserLectureSessionsQuizUserID:   userID,
+		UserLectureSessionsQuizMasjidID: r.UserLectureSessionsQuizMasjidID,
 	}
 }

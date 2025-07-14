@@ -11,6 +11,9 @@ type UserLectureModel struct {
 	UserLectureLectureID              uuid.UUID  `gorm:"column:user_lecture_lecture_id;type:uuid;not null" json:"user_lecture_lecture_id"`
 	UserLectureUserID                 uuid.UUID  `gorm:"column:user_lecture_user_id;type:uuid;not null" json:"user_lecture_user_id"`
 
+	// 🔗 Masjid
+	UserLectureMasjidID               uuid.UUID  `gorm:"column:user_lecture_masjid_id;type:uuid;not null" json:"user_lecture_masjid_id"`
+
 	UserLectureGradeResult            *int       `gorm:"column:user_lecture_grade_result" json:"user_lecture_grade_result,omitempty"`
 	UserLectureTotalCompletedSessions int        `gorm:"column:user_lecture_total_completed_sessions;default:0" json:"user_lecture_total_completed_sessions"`
 

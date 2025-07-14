@@ -13,6 +13,7 @@ type CreateLectureSessionsExamRequest struct {
 	LectureSessionsExamTitle       string  `json:"lecture_sessions_exam_title" validate:"required,min=5"`
 	LectureSessionsExamDescription *string `json:"lecture_sessions_exam_description,omitempty"`
 	LectureSessionsExamLectureID   string  `json:"lecture_sessions_exam_lecture_id" validate:"required,uuid"`
+	LectureSessionsExamMasjidID    string  `json:"lecture_sessions_exam_masjid_id" validate:"required,uuid"` // ✅ baru
 }
 
 type UpdateLectureSessionsExamRequest struct {
@@ -29,6 +30,7 @@ type LectureSessionsExamDTO struct {
 	LectureSessionsExamTitle       string    `json:"lecture_sessions_exam_title"`
 	LectureSessionsExamDescription *string   `json:"lecture_sessions_exam_description,omitempty"`
 	LectureSessionsExamLectureID   string    `json:"lecture_sessions_exam_lecture_id"`
+	LectureSessionsExamMasjidID    string    `json:"lecture_sessions_exam_masjid_id"` // ✅ baru
 	LectureSessionsExamCreatedAt   time.Time `json:"lecture_sessions_exam_created_at"`
 }
 
@@ -42,6 +44,7 @@ func ToLectureSessionsExamDTO(m model.LectureSessionsExamModel) LectureSessionsE
 		LectureSessionsExamTitle:       m.LectureSessionsExamTitle,
 		LectureSessionsExamDescription: m.LectureSessionsExamDescription,
 		LectureSessionsExamLectureID:   m.LectureSessionsExamLectureID,
+		LectureSessionsExamMasjidID:    m.LectureSessionsExamMasjidID, // ✅ baru
 		LectureSessionsExamCreatedAt:   m.LectureSessionsExamCreatedAt,
 	}
 }

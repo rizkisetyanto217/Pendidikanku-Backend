@@ -37,14 +37,15 @@ CREATE INDEX IF NOT EXISTS idx_lecture_masjid_created_at
 
 
 
-
-
 CREATE TABLE IF NOT EXISTS user_lectures (
   user_lecture_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_lecture_grade_result INT, -- nilai hasil jika ada evaluasi
   user_lecture_lecture_id UUID NOT NULL REFERENCES lectures(lecture_id) ON DELETE CASCADE,
   user_lecture_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   user_lecture_total_completed_sessions INT DEFAULT 0, -- jumlah sesi yang sudah dihadiri
+
+  -- 🔗 Masjid
+  user_lecture_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   -- Pendaftaran & Pembayaran
   user_lecture_is_registered BOOLEAN DEFAULT FALSE,
@@ -58,6 +59,7 @@ CREATE TABLE IF NOT EXISTS user_lectures (
   UNIQUE(user_lecture_lecture_id, user_lecture_user_id)
 );
 
-
+-- Indexing
 CREATE INDEX IF NOT EXISTS idx_user_lecture_lecture_id ON user_lectures(user_lecture_lecture_id);
 CREATE INDEX IF NOT EXISTS idx_user_lecture_user_id ON user_lectures(user_lecture_user_id);
+CREATE INDEX IF NOT EXISTS idx_user_lecture_masjid_id ON user_lectures(user_lecture_masjid_id);

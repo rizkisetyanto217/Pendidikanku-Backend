@@ -1,3 +1,14 @@
+CREATE TABLE IF NOT EXISTS post_themes (
+  post_theme_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  post_theme_name VARCHAR(100) NOT NULL,
+  post_theme_description TEXT,
+  post_theme_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexing
+CREATE INDEX IF NOT EXISTS idx_post_themes_name ON post_themes(post_theme_name);
+CREATE INDEX IF NOT EXISTS idx_post_themes_created_at ON post_themes(post_theme_created_at);
+
 CREATE TABLE IF NOT EXISTS posts (
   post_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   post_title VARCHAR(255) NOT NULL,
@@ -5,14 +16,20 @@ CREATE TABLE IF NOT EXISTS posts (
   post_image_url TEXT,
   post_is_published BOOLEAN DEFAULT FALSE,
   post_type VARCHAR(50) DEFAULT 'text',
+
+  -- ✅ Ganti dengan foreign key ke tabel tema
+  post_theme_id UUID REFERENCES post_themes(post_theme_id) ON DELETE SET NULL,
+
   post_masjid_id UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE,
   post_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+
   post_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   post_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   post_deleted_at TIMESTAMP
 );
 
 -- Indexing
+CREATE INDEX IF NOT EXISTS idx_posts_theme_id ON posts(post_theme_id);
 CREATE INDEX IF NOT EXISTS idx_posts_masjid_id ON posts(post_masjid_id);
 CREATE INDEX IF NOT EXISTS idx_posts_user_id ON posts(post_user_id);
 CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(post_created_at);
@@ -33,3 +50,6 @@ CREATE TABLE IF NOT EXISTS post_likes (
 CREATE INDEX IF NOT EXISTS idx_post_likes_post_id ON post_likes(post_like_post_id);
 CREATE INDEX IF NOT EXISTS idx_post_likes_user_id ON post_likes(post_like_user_id);
 CREATE INDEX IF NOT EXISTS idx_post_likes_updated_at ON post_likes(post_like_updated_at);
+
+
+-- Tambah tema post

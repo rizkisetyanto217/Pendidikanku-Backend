@@ -14,11 +14,11 @@ func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	profileCtrl := controller.NewMasjidProfileController(db)
 
 	// 🕌 Langsung gunakan admin.[METHOD] agar path param ":id" sudah terparse saat middleware dipanggil
-	admin.Post("/masjids", masjidkuMiddleware.IsMasjidAdmin(), masjidCtrl.CreateMasjid)
-	admin.Put("/masjids/:id", masjidkuMiddleware.IsMasjidAdmin(), masjidCtrl.UpdateMasjid)
-	admin.Delete("/masjids/:id", masjidkuMiddleware.IsMasjidAdmin(), masjidCtrl.DeleteMasjid)
+	admin.Post("/masjids", masjidkuMiddleware.IsMasjidAdmin(db), masjidCtrl.CreateMasjid)
+	admin.Put("/masjids/:id", masjidkuMiddleware.IsMasjidAdmin(db), masjidCtrl.UpdateMasjid)
+	admin.Delete("/masjids/:id", masjidkuMiddleware.IsMasjidAdmin(db), masjidCtrl.DeleteMasjid)
 
-	admin.Post("/masjid-profiles", masjidkuMiddleware.IsMasjidAdmin(), profileCtrl.CreateMasjidProfile)
-	admin.Put("/masjid-profiles/:id", masjidkuMiddleware.IsMasjidAdmin(), profileCtrl.UpdateMasjidProfile)
-	admin.Delete("/masjid-profiles/:id", masjidkuMiddleware.IsMasjidAdmin(), profileCtrl.DeleteMasjidProfile)
+	admin.Post("/masjid-profiles", masjidkuMiddleware.IsMasjidAdmin(db), profileCtrl.CreateMasjidProfile)
+	admin.Put("/masjid-profiles/:id", masjidkuMiddleware.IsMasjidAdmin(db), profileCtrl.UpdateMasjidProfile)
+	admin.Delete("/masjid-profiles/:id", masjidkuMiddleware.IsMasjidAdmin(db), profileCtrl.DeleteMasjidProfile)
 }

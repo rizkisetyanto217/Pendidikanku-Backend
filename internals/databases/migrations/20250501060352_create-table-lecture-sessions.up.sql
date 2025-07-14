@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS lecture_sessions (
   -- 🔗 Relasi ke lectures
   lecture_session_lecture_id UUID REFERENCES lectures(lecture_id) ON DELETE CASCADE,
 
+  -- 🔗 Masjid langsung (cache masjid untuk efisiensi)
+  lecture_session_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+
   -- ✅ Validasi Admin
   lecture_session_approved_by_admin_id UUID REFERENCES users(id),
   lecture_session_approved_by_admin_at TIMESTAMP,
@@ -44,6 +47,8 @@ CREATE TABLE IF NOT EXISTS lecture_sessions (
   lecture_session_deleted_at TIMESTAMP
 );
 
+
+-- Tambah masjid_id
 
 -- 🔗 Relasi ke lecture utama
 CREATE INDEX IF NOT EXISTS idx_lecture_sessions_lecture_id 
@@ -77,6 +82,10 @@ CREATE INDEX IF NOT EXISTS idx_lecture_sessions_approved_by_teacher
   ON lecture_sessions (lecture_session_approved_by_teacher_id);
 CREATE INDEX IF NOT EXISTS idx_lecture_sessions_approved_by_teacher_at 
   ON lecture_sessions (lecture_session_approved_by_teacher_at);
+
+-- Index untuk masjid_id
+CREATE INDEX IF NOT EXISTS idx_lecture_sessions_masjid_id 
+  ON lecture_sessions (lecture_session_masjid_id);
 
 -- 📌 Status aktif
 CREATE INDEX IF NOT EXISTS idx_lecture_sessions_is_active 

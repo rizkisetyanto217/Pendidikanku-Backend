@@ -8,9 +8,10 @@ import (
 
 // Request untuk membuat pendaftaran event
 type UserEventRegistrationRequest struct {
-	EventID uuid.UUID `json:"user_event_registration_event_id"`
-	UserID  uuid.UUID `json:"user_event_registration_user_id"`
-	Status  string    `json:"user_event_registration_status"` // Optional, default "registered"
+	EventID   uuid.UUID `json:"user_event_registration_event_id"`
+	UserID    uuid.UUID `json:"user_event_registration_user_id"`
+	MasjidID  uuid.UUID `json:"user_event_registration_masjid_id"` // ✅ Ditambahkan
+	Status    string    `json:"user_event_registration_status"`    // Optional, default "registered"
 }
 
 // Response untuk menampilkan data pendaftaran event
@@ -18,6 +19,7 @@ type UserEventRegistrationResponse struct {
 	ID         uuid.UUID `json:"user_event_registration_id"`
 	EventID    uuid.UUID `json:"user_event_registration_event_id"`
 	UserID     uuid.UUID `json:"user_event_registration_user_id"`
+	MasjidID   uuid.UUID `json:"user_event_registration_masjid_id"` // ✅ Ditambahkan
 	Status     string    `json:"user_event_registration_status"`
 	Registered string    `json:"user_event_registration_registered_at"`
 }
@@ -29,9 +31,10 @@ func (r *UserEventRegistrationRequest) ToModel() *model.UserEventRegistrationMod
 		status = "registered"
 	}
 	return &model.UserEventRegistrationModel{
-		UserEventRegistrationEventID: r.EventID,
-		UserEventRegistrationUserID:  r.UserID,
-		UserEventRegistrationStatus:  status,
+		UserEventRegistrationEventID:  r.EventID,
+		UserEventRegistrationUserID:   r.UserID,
+		UserEventRegistrationMasjidID: r.MasjidID, // ✅
+		UserEventRegistrationStatus:   status,
 	}
 }
 
@@ -41,6 +44,7 @@ func ToUserEventRegistrationResponse(m *model.UserEventRegistrationModel) *UserE
 		ID:         m.UserEventRegistrationID,
 		EventID:    m.UserEventRegistrationEventID,
 		UserID:     m.UserEventRegistrationUserID,
+		MasjidID:   m.UserEventRegistrationMasjidID, // ✅
 		Status:     m.UserEventRegistrationStatus,
 		Registered: m.UserEventRegistrationCreatedAt.Format("2006-01-02 15:04:05"),
 	}

@@ -15,6 +15,7 @@ type LectureSessionsMaterialDTO struct {
 	LectureSessionsMaterialSummary          string    `json:"lecture_sessions_material_summary"`
 	LectureSessionsMaterialTranscriptFull   string    `json:"lecture_sessions_material_transcript_full"`
 	LectureSessionsMaterialLectureSessionID string    `json:"lecture_sessions_material_lecture_session_id"`
+	LectureSessionsMaterialMasjidID         string    `json:"lecture_sessions_material_masjid_id"`
 	LectureSessionsMaterialCreatedAt        time.Time `json:"lecture_sessions_material_created_at"`
 }
 
@@ -27,6 +28,7 @@ type CreateLectureSessionsMaterialRequest struct {
 	LectureSessionsMaterialSummary          string `json:"lecture_sessions_material_summary" validate:"required"`
 	LectureSessionsMaterialTranscriptFull   string `json:"lecture_sessions_material_transcript_full" validate:"required"`
 	LectureSessionsMaterialLectureSessionID string `json:"lecture_sessions_material_lecture_session_id" validate:"required,uuid"`
+	LectureSessionsMaterialMasjidID         string `json:"lecture_sessions_material_masjid_id" validate:"required,uuid"`
 }
 
 // ============================
@@ -40,6 +42,7 @@ func ToLectureSessionsMaterialDTO(m model.LectureSessionsMaterialModel) LectureS
 		LectureSessionsMaterialSummary:          m.LectureSessionsMaterialSummary,
 		LectureSessionsMaterialTranscriptFull:   m.LectureSessionsMaterialTranscriptFull,
 		LectureSessionsMaterialLectureSessionID: m.LectureSessionsMaterialLectureSessionID,
+		LectureSessionsMaterialMasjidID:         m.LectureSessionsMaterialMasjidID,
 		LectureSessionsMaterialCreatedAt:        m.LectureSessionsMaterialCreatedAt,
 	}
 }

@@ -14,6 +14,7 @@ type LectureSessionsUserQuestionDTO struct {
 	LectureSessionsUserQuestionAnswer     string    `json:"lecture_sessions_user_question_answer"`
 	LectureSessionsUserQuestionIsCorrect  bool      `json:"lecture_sessions_user_question_is_correct"`
 	LectureSessionsUserQuestionQuestionID string    `json:"lecture_sessions_user_question_question_id"`
+	LectureSessionsUserQuestionMasjidID   string    `json:"lecture_sessions_user_question_masjid_id"`
 	LectureSessionsUserQuestionCreatedAt  time.Time `json:"lecture_sessions_user_question_created_at"`
 }
 
@@ -25,6 +26,7 @@ type CreateLectureSessionsUserQuestionRequest struct {
 	LectureSessionsUserQuestionAnswer     string `json:"lecture_sessions_user_question_answer" validate:"required,oneof=A B C D"`
 	LectureSessionsUserQuestionIsCorrect  bool   `json:"lecture_sessions_user_question_is_correct" validate:"required"`
 	LectureSessionsUserQuestionQuestionID string `json:"lecture_sessions_user_question_question_id" validate:"required,uuid"`
+	LectureSessionsUserQuestionMasjidID   string `json:"lecture_sessions_user_question_masjid_id" validate:"required,uuid"`
 }
 
 // ============================
@@ -37,6 +39,7 @@ func ToLectureSessionsUserQuestionDTO(m model.LectureSessionsUserQuestionModel) 
 		LectureSessionsUserQuestionAnswer:     m.LectureSessionsUserQuestionAnswer,
 		LectureSessionsUserQuestionIsCorrect:  m.LectureSessionsUserQuestionIsCorrect,
 		LectureSessionsUserQuestionQuestionID: m.LectureSessionsUserQuestionQuestionID,
+		LectureSessionsUserQuestionMasjidID:   m.LectureSessionsUserQuestionMasjidID,
 		LectureSessionsUserQuestionCreatedAt:  m.LectureSessionsUserQuestionCreatedAt,
 	}
 }

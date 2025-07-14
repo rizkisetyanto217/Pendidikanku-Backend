@@ -10,7 +10,11 @@ type FaqAnswerModel struct {
 	FaqAnswerQuestionID string    `gorm:"column:faq_answer_question_id;type:uuid;not null"`
 	FaqAnswerAnsweredBy string    `gorm:"column:faq_answer_answered_by;type:uuid;not null"`
 	FaqAnswerText       string    `gorm:"column:faq_answer_text;type:text;not null"`
-	FaqAnswerCreatedAt  time.Time `gorm:"column:faq_answer_created_at;autoCreateTime"`
+
+	// 🔗 Masjid
+	FaqAnswerMasjidID string `gorm:"column:faq_answer_masjid_id;type:uuid;not null"`
+
+	FaqAnswerCreatedAt time.Time `gorm:"column:faq_answer_created_at;autoCreateTime"`
 
 	// Relations
 	User     *UserModel.UserModel `gorm:"foreignKey:FaqAnswerAnsweredBy"`
