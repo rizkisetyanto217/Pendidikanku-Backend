@@ -93,7 +93,6 @@ CREATE INDEX IF NOT EXISTS idx_lecture_sessions_is_active
 
 
 
-
 CREATE TABLE IF NOT EXISTS user_lecture_sessions (
   user_lecture_session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -105,10 +104,14 @@ CREATE TABLE IF NOT EXISTS user_lecture_sessions (
   user_lecture_session_lecture_session_id UUID NOT NULL REFERENCES lecture_sessions(lecture_session_id) ON DELETE CASCADE,
   user_lecture_session_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
+  -- ✅ Masjid ID
+  user_lecture_session_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+
   user_lecture_session_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   user_lecture_session_updated_at TIMESTAMP
 );
 
+-- Indexing
 CREATE INDEX IF NOT EXISTS idx_user_lecture_sessions_user 
   ON user_lecture_sessions(user_lecture_session_user_id);
 
@@ -117,3 +120,7 @@ CREATE INDEX IF NOT EXISTS idx_user_lecture_sessions_lecture_session
 
 CREATE INDEX IF NOT EXISTS idx_user_lecture_sessions_attendance_status 
   ON user_lecture_sessions(user_lecture_session_attendance_status);
+
+CREATE INDEX IF NOT EXISTS idx_user_lecture_sessions_masjid_id 
+  ON user_lecture_sessions(user_lecture_session_masjid_id);
+0=

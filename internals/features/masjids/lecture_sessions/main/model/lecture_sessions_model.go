@@ -27,6 +27,9 @@ type LectureSessionModel struct {
 	// 🔗 Relasi ke lecture utama
 	LectureSessionLectureID   *uuid.UUID     `gorm:"column:lecture_session_lecture_id;type:uuid" json:"lecture_session_lecture_id"`
 
+	// ✅ Tambahan Masjid ID
+	LectureSessionMasjidID    uuid.UUID      `gorm:"column:lecture_session_masjid_id;type:uuid;not null" json:"lecture_session_masjid_id"`
+
 	// ✅ Validasi Admin
 	LectureSessionApprovedByAdminID  *uuid.UUID  `gorm:"column:lecture_session_approved_by_admin_id;type:uuid" json:"lecture_session_approved_by_admin_id"`
 	LectureSessionApprovedByAdminAt  *time.Time  `gorm:"column:lecture_session_approved_by_admin_at" json:"lecture_session_approved_by_admin_at"`
@@ -50,7 +53,6 @@ type LectureSessionModel struct {
 	LectureSessionUpdatedAt *time.Time     `gorm:"column:lecture_session_updated_at;autoUpdateTime" json:"lecture_session_updated_at"`
 	LectureSessionDeletedAt gorm.DeletedAt `gorm:"column:lecture_session_deleted_at" json:"lecture_session_deleted_at"`
 }
-
 
 func (LectureSessionModel) TableName() string {
 	return "lecture_sessions"

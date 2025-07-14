@@ -21,14 +21,13 @@ type CreateLectureSessionRequest struct {
 	LectureSessionPlace        *string    `json:"lecture_session_place"`
 	LectureSessionImageURL     *string    `json:"lecture_session_image_url"`
 	LectureSessionLectureID    *uuid.UUID `json:"lecture_session_lecture_id"`
+	LectureSessionMasjidID     uuid.UUID  `json:"lecture_session_masjid_id" validate:"required,uuid"`
 
 	// ✅ Jika dikirim, berarti tidak perlu diperiksa oleh guru
 	LectureSessionApprovedByTeacherAt *time.Time `json:"lecture_session_approved_by_teacher_at,omitempty"`
 }
 
 type UpdateLectureSessionRequest = CreateLectureSessionRequest
-
-
 
 // =========================
 // Response DTO
@@ -45,9 +44,9 @@ type LectureSessionDTO struct {
 	LectureSessionPlace        *string    `json:"lecture_session_place"`
 	LectureSessionImageURL     *string    `json:"lecture_session_image_url"`
 	LectureSessionLectureID    *uuid.UUID `json:"lecture_session_lecture_id"`
+	LectureSessionMasjidID     uuid.UUID  `json:"lecture_session_masjid_id"`
 
-	LectureTitle               string     `json:"lecture_title"` // ✅ Tambahan
-
+	LectureTitle string `json:"lecture_title"` // ✅ Tambahan
 
 	// Validasi Role
 	LectureSessionApprovedByAdminID   *uuid.UUID `json:"lecture_session_approved_by_admin_id"`
@@ -59,13 +58,12 @@ type LectureSessionDTO struct {
 	LectureSessionApprovedByDkmAt     *time.Time `json:"lecture_session_approved_by_dkm_at"`
 
 	// Status DKM
-	LectureSessionIsActive bool      `json:"lecture_session_is_active"`
+	LectureSessionIsActive bool `json:"lecture_session_is_active"`
 
 	// Metadata
 	LectureSessionCreatedAt time.Time  `json:"lecture_session_created_at"`
 	LectureSessionUpdatedAt *time.Time `json:"lecture_session_updated_at"`
 }
-
 
 // =========================
 // Request → Model
@@ -82,9 +80,9 @@ func (r CreateLectureSessionRequest) ToModel() model.LectureSessionModel {
 		LectureSessionPlace:       r.LectureSessionPlace,
 		LectureSessionImageURL:    r.LectureSessionImageURL,
 		LectureSessionLectureID:   r.LectureSessionLectureID,
+		LectureSessionMasjidID:    r.LectureSessionMasjidID,
 	}
 }
-
 
 // =========================
 // Model → Response
@@ -92,37 +90,35 @@ func (r CreateLectureSessionRequest) ToModel() model.LectureSessionModel {
 
 func ToLectureSessionDTO(m model.LectureSessionModel) LectureSessionDTO {
 	return LectureSessionDTO{
-		LectureSessionID:                  m.LectureSessionID,
-		LectureSessionTitle:              m.LectureSessionTitle,
-		LectureSessionDescription:        m.LectureSessionDescription,
-		LectureSessionTeacherID:          m.LectureSessionTeacherID,
-		LectureSessionTeacherName:        m.LectureSessionTeacherName,
-		LectureSessionStartTime:          m.LectureSessionStartTime,
-		LectureSessionEndTime:            m.LectureSessionEndTime,
-		LectureSessionPlace:              m.LectureSessionPlace,
-		LectureSessionImageURL:           m.LectureSessionImageURL,
-		LectureSessionLectureID:          m.LectureSessionLectureID,
-		LectureSessionApprovedByAdminID:  m.LectureSessionApprovedByAdminID,
-		LectureSessionApprovedByAdminAt:  m.LectureSessionApprovedByAdminAt,
-		LectureSessionApprovedByAuthorID: m.LectureSessionApprovedByAuthorID,
-		LectureSessionApprovedByAuthorAt: m.LectureSessionApprovedByAuthorAt,
+		LectureSessionID:           m.LectureSessionID,
+		LectureSessionTitle:        m.LectureSessionTitle,
+		LectureSessionDescription:  m.LectureSessionDescription,
+		LectureSessionTeacherID:    m.LectureSessionTeacherID,
+		LectureSessionTeacherName:  m.LectureSessionTeacherName,
+		LectureSessionStartTime:    m.LectureSessionStartTime,
+		LectureSessionEndTime:      m.LectureSessionEndTime,
+		LectureSessionPlace:        m.LectureSessionPlace,
+		LectureSessionImageURL:     m.LectureSessionImageURL,
+		LectureSessionLectureID:    m.LectureSessionLectureID,
+		LectureSessionMasjidID:     m.LectureSessionMasjidID,
+		LectureSessionApprovedByAdminID:   m.LectureSessionApprovedByAdminID,
+		LectureSessionApprovedByAdminAt:   m.LectureSessionApprovedByAdminAt,
+		LectureSessionApprovedByAuthorID:  m.LectureSessionApprovedByAuthorID,
+		LectureSessionApprovedByAuthorAt:  m.LectureSessionApprovedByAuthorAt,
 		LectureSessionApprovedByTeacherID: m.LectureSessionApprovedByTeacherID,
 		LectureSessionApprovedByTeacherAt: m.LectureSessionApprovedByTeacherAt,
 		LectureSessionApprovedByDkmAt:     m.LectureSessionApprovedByDkmAt,
-		LectureSessionIsActive:           m.LectureSessionIsActive,
-		LectureSessionCreatedAt:          m.LectureSessionCreatedAt,
-		LectureSessionUpdatedAt:          m.LectureSessionUpdatedAt,
+		LectureSessionIsActive:            m.LectureSessionIsActive,
+		LectureSessionCreatedAt:           m.LectureSessionCreatedAt,
+		LectureSessionUpdatedAt:           m.LectureSessionUpdatedAt,
 	}
 }
 
-
-// Untuk Lecture Title
 func ToLectureSessionDTOWithLectureTitle(m model.LectureSessionModel, lectureTitle string) LectureSessionDTO {
 	dto := ToLectureSessionDTO(m)
 	dto.LectureTitle = lectureTitle
 	return dto
 }
-
 
 // =========================
 // DTO: Approval by Role
@@ -139,7 +135,6 @@ type ApproveLectureSessionByAuthorRequest struct {
 type ApproveLectureSessionByTeacherRequest struct {
 	ApprovedByTeacherID uuid.UUID `json:"approved_by_teacher_id" validate:"required"`
 }
-
 
 // =========================
 // DTO: Set Active by DKM

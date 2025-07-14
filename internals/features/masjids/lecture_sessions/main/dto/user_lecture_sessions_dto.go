@@ -15,6 +15,7 @@ type UserLectureSessionDTO struct {
 	UserLectureSessionGradeResult      *float64   `json:"user_lecture_session_grade_result,omitempty"`
 	UserLectureSessionLectureSessionID string     `json:"user_lecture_session_lecture_session_id"`
 	UserLectureSessionUserID           string     `json:"user_lecture_session_user_id"`
+	UserLectureSessionMasjidID         string     `json:"user_lecture_session_masjid_id"` // ✅ NEW
 	UserLectureSessionIsRegistered     bool       `json:"user_lecture_session_is_registered"`
 	UserLectureSessionHasPaid          bool       `json:"user_lecture_session_has_paid"`
 	UserLectureSessionPaidAmount       *int       `json:"user_lecture_session_paid_amount,omitempty"`
@@ -22,20 +23,23 @@ type UserLectureSessionDTO struct {
 	UserLectureSessionCreatedAt        time.Time  `json:"user_lecture_session_created_at"`
 }
 
+
 // ====================
 // Request DTO
 // ====================
 
 type CreateUserLectureSessionRequest struct {
-	UserLectureSessionAttendanceStatus int        `json:"user_lecture_session_attendance_status" validate:"required,oneof=0 1 2"` // 0=tidak hadir, 1=hadir, 2=hadir online
+	UserLectureSessionAttendanceStatus int        `json:"user_lecture_session_attendance_status" validate:"required,oneof=0 1 2"`
 	UserLectureSessionGradeResult      *float64   `json:"user_lecture_session_grade_result,omitempty"`
 	UserLectureSessionLectureSessionID string     `json:"user_lecture_session_lecture_session_id" validate:"required,uuid"`
 	UserLectureSessionUserID           string     `json:"user_lecture_session_user_id" validate:"required,uuid"`
+	UserLectureSessionMasjidID         string     `json:"user_lecture_session_masjid_id" validate:"required,uuid"` // ✅ NEW
 	UserLectureSessionIsRegistered     bool       `json:"user_lecture_session_is_registered"`
 	UserLectureSessionHasPaid          bool       `json:"user_lecture_session_has_paid"`
 	UserLectureSessionPaidAmount       *int       `json:"user_lecture_session_paid_amount,omitempty"`
 	UserLectureSessionPaymentTime      *time.Time `json:"user_lecture_session_payment_time,omitempty"`
 }
+
 
 // ====================
 // Converter
@@ -48,6 +52,7 @@ func ToUserLectureSessionDTO(u model.UserLectureSessionModel) UserLectureSession
 		UserLectureSessionGradeResult:      u.UserLectureSessionGradeResult,
 		UserLectureSessionLectureSessionID: u.UserLectureSessionLectureSessionID,
 		UserLectureSessionUserID:           u.UserLectureSessionUserID,
+		UserLectureSessionMasjidID:         u.UserLectureSessionMasjidID, // ✅ NEW
 		UserLectureSessionIsRegistered:     u.UserLectureSessionIsRegistered,
 		UserLectureSessionHasPaid:          u.UserLectureSessionHasPaid,
 		UserLectureSessionPaidAmount:       u.UserLectureSessionPaidAmount,
@@ -56,6 +61,7 @@ func ToUserLectureSessionDTO(u model.UserLectureSessionModel) UserLectureSession
 	}
 }
 
+
 // Optional: Tambahkan `ToModel()` jika ingin mendukung convert dari Create ke Model
 func (r CreateUserLectureSessionRequest) ToModel() model.UserLectureSessionModel {
 	return model.UserLectureSessionModel{
@@ -63,6 +69,7 @@ func (r CreateUserLectureSessionRequest) ToModel() model.UserLectureSessionModel
 		UserLectureSessionGradeResult:      r.UserLectureSessionGradeResult,
 		UserLectureSessionLectureSessionID: r.UserLectureSessionLectureSessionID,
 		UserLectureSessionUserID:           r.UserLectureSessionUserID,
+		UserLectureSessionMasjidID:         r.UserLectureSessionMasjidID, // ✅ NEW
 		UserLectureSessionIsRegistered:     r.UserLectureSessionIsRegistered,
 		UserLectureSessionHasPaid:          r.UserLectureSessionHasPaid,
 		UserLectureSessionPaidAmount:       r.UserLectureSessionPaidAmount,
