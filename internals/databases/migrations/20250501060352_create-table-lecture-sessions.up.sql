@@ -123,4 +123,3 @@ CREATE INDEX IF NOT EXISTS idx_user_lecture_sessions_attendance_status
 
 CREATE INDEX IF NOT EXISTS idx_user_lecture_sessions_masjid_id 
   ON user_lecture_sessions(user_lecture_session_masjid_id);
-0=

@@ -32,13 +32,13 @@ func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 
 	// Konversi request ke model
 	newSession := body.ToModel()
-
+	newSession.LectureSessionIsActive = true
+	
 	// 💡 Jika waktu verifikasi teacher dikirim, berarti tidak diperiksa oleh guru
 	if body.LectureSessionApprovedByTeacherAt != nil {
-	newSession.LectureSessionIsActive = true
-	newSession.LectureSessionApprovedByTeacherID = &newSession.LectureSessionTeacherID
-	now := time.Now()
-	newSession.LectureSessionApprovedByTeacherAt = &now
+		newSession.LectureSessionApprovedByTeacherID = &newSession.LectureSessionTeacherID
+		now := time.Now()
+		newSession.LectureSessionApprovedByTeacherAt = &now
 	}
 
 

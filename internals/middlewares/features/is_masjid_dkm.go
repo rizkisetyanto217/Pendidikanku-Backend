@@ -2,75 +2,88 @@ package middleware
 
 import (
 	"log"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
-// 🔧 Helper: Cek UUID valid
+// ✅ Validasi UUID
 func isValidUUID(val string) bool {
 	_, err := uuid.Parse(val)
 	return err == nil
 }
 
-// 🔧 Helper: Ekstrak masjid_id dari berbagai nama field
-func extractMasjidIDFromMap(m map[string]interface{}) string {
-	fields := []string{
-		"masjid_id",
-		"lecture_masjid_id",
-		"event_masjid_id",
-		"notification_masjid_id",
-		"post_masjid_id",
-		"masjid_profile_masjid_id",
-	}
-	for _, field := range fields {
-		if val, ok := m[field].(string); ok && isValidUUID(val) {
-			return val
+// ✅ Resolver Map (modular, scalable)
+var MasjidIDResolvers = map[string]func(*fiber.Ctx) string{
+	"/api/a/lecture-sessions": func(c *fiber.Ctx) string {
+		var body map[string]interface{}
+		if err := c.BodyParser(&body); err == nil {
+			if id, ok := body["lecture_session_masjid_id"].(string); ok && isValidUUID(id) {
+				log.Println("[DEBUG] masjid_id dari body: lecture_session_masjid_id")
+				return id
+			}
 		}
-	}
-	return ""
+		if id := c.Query("masjid_id"); isValidUUID(id) {
+			log.Println("[DEBUG] masjid_id dari query param")
+			return id
+		}
+		return ""
+	},
+
+	"/api/a/posts": func(c *fiber.Ctx) string {
+		var body map[string]interface{}
+		if err := c.BodyParser(&body); err == nil {
+			if id, ok := body["post_masjid_id"].(string); ok && isValidUUID(id) {
+				log.Println("[DEBUG] masjid_id dari body: post_masjid_id")
+				return id
+			}
+		}
+		return ""
+	},
+
+	// 🔧 Tambahkan endpoint lain di sini sesuai kebutuhan
 }
 
+// ✅ Ambil masjid_id pakai resolver per route, fallback ke DB jika perlu
+func getMasjidIDFromRequest(c *fiber.Ctx, db *gorm.DB) string {
+	path := c.Route().Path
 
-func getMasjidIDFromRequest(c *fiber.Ctx) string {
-	// 1. Query param
-	if id := c.Query("masjid_id"); isValidUUID(id) {
-		log.Println("[DEBUG] masjid_id dari query:", id)
-		return id
-	}
-
-	// 2. Body (object)
-	var bodyObj map[string]interface{}
-	if err := c.BodyParser(&bodyObj); err == nil {
-		if id := extractMasjidIDFromMap(bodyObj); id != "" {
-			log.Println("[DEBUG] masjid_id dari body object:", id)
+	// 🔍 Resolver spesifik
+	if resolver, ok := MasjidIDResolvers[path]; ok {
+		if id := resolver(c); id != "" {
 			return id
 		}
 	}
 
-	// 3. Body (array of object)
-	var bodyArr []map[string]interface{}
-	if err := c.BodyParser(&bodyArr); err == nil && len(bodyArr) > 0 {
-		if id := extractMasjidIDFromMap(bodyArr[0]); id != "" {
-			log.Println("[DEBUG] masjid_id dari body array:", id)
-			return id
+	// 🔍 Resolver prefix (untuk dynamic ID seperti /api/a/lecture-sessions/:id)
+	for prefix, resolver := range MasjidIDResolvers {
+		if strings.HasPrefix(path, prefix) {
+			if id := resolver(c); id != "" {
+				return id
+			}
 		}
 	}
 
-	// 4. (Opsional) Path param, misal: /masjid/:masjid_id/...
-	if id := c.Params("masjid_id"); isValidUUID(id) {
-		log.Println("[DEBUG] masjid_id dari path:", id)
-		return id
+	// 🔍 Fallback DB: cek masjid_id dari lecture_session_id di path param
+	if strings.HasPrefix(path, "/api/a/lecture-sessions/") {
+		sessionID := c.Params("id")
+		if isValidUUID(sessionID) {
+			var masjidID string
+			err := db.Raw(`SELECT lecture_session_masjid_id FROM lecture_sessions WHERE lecture_session_id = ?`, sessionID).Scan(&masjidID).Error
+			if err == nil && isValidUUID(masjidID) {
+				log.Println("[DEBUG] masjid_id dari DB fallback: lecture_sessions")
+				return masjidID
+			}
+		}
 	}
 
-	// 5. Gagal ditemukan
+	log.Println("[WARN] Tidak ada resolver masjid_id untuk path:", path)
 	return ""
 }
 
-
-
-// ✨ Middleware utama
+// ✅ Middleware utama
 func IsMasjidAdmin(db *gorm.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		log.Println("🔍 DEBUG PARAMS:")
@@ -78,20 +91,18 @@ func IsMasjidAdmin(db *gorm.DB) fiber.Handler {
 		log.Println("    Query: ", c.Context().QueryArgs().String())
 		log.Println("    Body : ", string(c.Body()))
 
-		// Bypass jika role owner
+		// 🚫 Bypass untuk owner
 		if role, ok := c.Locals("userRole").(string); ok && role == "owner" {
 			log.Println("[MIDDLEWARE] Bypass IsMasjidAdmin: user is owner")
 			return c.Next()
 		}
 
-		// Ambil masjid_id dari berbagai sumber
-		masjidID := getMasjidIDFromRequest(c)
+		masjidID := getMasjidIDFromRequest(c, db)
 		if masjidID == "" {
 			log.Println("[ERROR] masjid_id tidak ditemukan")
-			return fiber.NewError(fiber.StatusBadRequest, "masjid_id tidak ditemukan di body, query, path, atau DB lookup")
+			return fiber.NewError(fiber.StatusBadRequest, "masjid_id tidak ditemukan")
 		}
 
-		// Ambil daftar masjid_id yang dimiliki admin
 		adminMasjids, ok := c.Locals("masjid_admin_ids").([]string)
 		if !ok {
 			log.Println("[MIDDLEWARE] masjid_admin_ids tidak tersedia di token")
