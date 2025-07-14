@@ -2,28 +2,29 @@ package route
 
 import (
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/controller"
+	masjidkuMiddleware "masjidku_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
 
-// ✅ Admin Routes
 func LectureSessionAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	lectureSessionCtrl := controller.NewLectureSessionController(db)
 	userLectureSessionCtrl := controller.NewUserLectureSessionController(db)
 
 	// 📚 Group: /lecture-sessions
-	session := admin.Group("/lecture-sessions")
-	session.Post("/", lectureSessionCtrl.CreateLectureSession)      // ➕ Buat sesi baru
-	session.Get("/", lectureSessionCtrl.GetAllLectureSessions)      // 📄 Lihat semua sesi
-	session.Get("/:id", lectureSessionCtrl.GetLectureSessionByID)   // 🔍 Detail sesi
-	session.Put("/:id", lectureSessionCtrl.UpdateLectureSession)    // ✏️ Edit sesi
-	session.Delete("/:id", lectureSessionCtrl.DeleteLectureSession) // ❌ Hapus sesi
+	admin.Post("/lecture-sessions", masjidkuMiddleware.IsMasjidAdmin(), lectureSessionCtrl.CreateLectureSession)
+	admin.Get("/lecture-sessions", masjidkuMiddleware.IsMasjidAdmin(), lectureSessionCtrl.GetAllLectureSessions)
+	admin.Get("/lecture-sessions/:id", masjidkuMiddleware.IsMasjidAdmin(), lectureSessionCtrl.GetLectureSessionByID)
+	admin.Put("/lecture-sessions/:id", masjidkuMiddleware.IsMasjidAdmin(), lectureSessionCtrl.UpdateLectureSession)
+	admin.Delete("/lecture-sessions/:id", masjidkuMiddleware.IsMasjidAdmin(), lectureSessionCtrl.DeleteLectureSession)
+
+	// ✅ Role-based approve (tanpa middleware IsMasjidAdmin)
+	admin.Patch("/lecture-sessions/:id/approve", lectureSessionCtrl.ApproveLectureSession)
 
 	// 👥 Group: /user-lecture-sessions
-	userSession := admin.Group("/user-lecture-sessions")
-	userSession.Get("/", userLectureSessionCtrl.GetAllUserLectureSessions)      // 📄 Semua user sesi
-	userSession.Get("/:id", userLectureSessionCtrl.GetUserLectureSessionByID)   // 🔍 Detail user sesi
-	userSession.Put("/:id", userLectureSessionCtrl.UpdateUserLectureSession)    // ✏️ Edit user sesi
-	userSession.Delete("/:id", userLectureSessionCtrl.DeleteUserLectureSession) // ❌ Hapus user sesi
+	admin.Get("/user-lecture-sessions", masjidkuMiddleware.IsMasjidAdmin(), userLectureSessionCtrl.GetAllUserLectureSessions)
+	admin.Get("/user-lecture-sessions/:id", masjidkuMiddleware.IsMasjidAdmin(), userLectureSessionCtrl.GetUserLectureSessionByID)
+	admin.Put("/user-lecture-sessions/:id", masjidkuMiddleware.IsMasjidAdmin(), userLectureSessionCtrl.UpdateUserLectureSession)
+	admin.Delete("/user-lecture-sessions/:id", masjidkuMiddleware.IsMasjidAdmin(), userLectureSessionCtrl.DeleteUserLectureSession)
 }
