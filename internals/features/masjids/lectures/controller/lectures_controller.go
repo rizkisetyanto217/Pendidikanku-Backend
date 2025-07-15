@@ -58,9 +58,9 @@ func (ctrl *LectureController) CreateLecture(c *fiber.Ctx) error {
 	})
 }
 
-
 // ✅ GET /api/a/lectures/by-masjid
 func (ctrl *LectureController) GetByMasjidID(c *fiber.Ctx) error {
+	// Ambil masjid_id yang sudah di-inject middleware ke context
 	masjidID, ok := c.Locals("masjid_id").(string)
 	if !ok || masjidID == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
@@ -68,6 +68,7 @@ func (ctrl *LectureController) GetByMasjidID(c *fiber.Ctx) error {
 		})
 	}
 
+	// Query data lectures berdasarkan masjid_id
 	var lectures []model.LectureModel
 	if err := ctrl.DB.
 		Where("lecture_masjid_id = ?", masjidID).
@@ -78,12 +79,14 @@ func (ctrl *LectureController) GetByMasjidID(c *fiber.Ctx) error {
 		})
 	}
 
+	// Handle jika belum ada data
 	if len(lectures) == 0 {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"message": "Belum ada lecture untuk masjid ini",
 		})
 	}
 
+	// Response sukses
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "Daftar lecture berhasil ditemukan",
 		"data":    dto.ToLectureResponseList(lectures),
