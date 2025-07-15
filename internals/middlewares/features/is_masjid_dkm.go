@@ -54,6 +54,16 @@ var MasjidIDResolvers = map[string]func(*fiber.Ctx) string{
 		return ""
 	},
 
+	"/api/a/lecture-sessions/by-masjid": func(c *fiber.Ctx) string {
+	// Ambil dari token via Locals
+	if ids, ok := c.Locals("masjid_admin_ids").([]string); ok && len(ids) > 0 {
+		log.Println("[DEBUG] masjid_id dari Locals: masjid_admin_ids[0]")
+		return ids[0]
+	}
+		return ""
+	},
+
+
 
 	"/api/a/posts": func(c *fiber.Ctx) string {
 		var body map[string]interface{}
