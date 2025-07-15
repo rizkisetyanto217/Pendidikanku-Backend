@@ -179,9 +179,15 @@ func AuthMiddleware(db *gorm.DB) fiber.Handler {
 			}
 			c.Locals("masjid_admin_ids", ids)
 			log.Println("[SUCCESS] Masjid admin IDs stored in context:", ids)
+
+			if len(ids) > 0 {
+				c.Locals("masjid_id", ids[0]) // ✅ ini yang dibutuhkan controller
+				log.Println("[SUCCESS] Masjid ID aktif stored in context:", ids[0])
+			}
 		} else {
 			log.Println("[INFO] Token tidak mengandung masjid_admin_ids")
 		}
+
 
 		log.Println("[SUCCESS] Token valid, lanjutkan request")
 		return c.Next()
