@@ -81,7 +81,7 @@ var MasjidIDResolvers = map[string]func(*fiber.Ctx) string{
 
 // ✅ Ambil masjid_id pakai resolver per route, fallback ke DB jika perlu
 func getMasjidIDFromRequest(c *fiber.Ctx, db *gorm.DB) string {
-	path := c.Route().Path
+	path := c.Path() // Lebih akurat
 
 	// 🔍 Resolver spesifik
 	if resolver, ok := MasjidIDResolvers[path]; ok {
@@ -98,6 +98,7 @@ func getMasjidIDFromRequest(c *fiber.Ctx, db *gorm.DB) string {
 			}
 		}
 	}
+
 
 	// 🔍 Fallback DB: dari lecture_session_id
 	if strings.HasPrefix(path, "/api/a/lecture-sessions/") {
