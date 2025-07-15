@@ -34,6 +34,7 @@ type LectureRequest struct {
 	LectureCapacity              *int       `json:"lecture_capacity"`
 	LectureIsPublic              bool       `json:"lecture_is_public"`
 	LectureIsActive              bool       `json:"lecture_is_active"`
+
 }
 
 // ========================
@@ -56,6 +57,7 @@ type LectureResponse struct {
 	LectureCapacity             *int       `json:"lecture_capacity"`
 	LectureIsPublic             bool       `json:"lecture_is_public"`
 	LectureIsActive             bool       `json:"lecture_is_active"`
+	LectureIsCertificateGenerated bool `json:"lecture_is_certificate_generated"`
 	LectureCreatedAt            string     `json:"lecture_created_at"`
 	LectureUpdatedAt            *string    `json:"lecture_updated_at,omitempty"`
 	LectureDeletedAt            *string    `json:"lecture_deleted_at,omitempty"`
@@ -121,6 +123,7 @@ func ToLectureResponse(m *model.LectureModel) *LectureResponse {
 		LectureCapacity:             m.LectureCapacity,
 		LectureIsPublic:             m.LectureIsPublic,
 		LectureIsActive:             m.LectureIsActive,
+		LectureIsCertificateGenerated: m.LectureIsCerticateGenerated,
 		LectureCreatedAt:            m.LectureCreatedAt.Format("2006-01-02 15:04:05"),
 		LectureUpdatedAt:            updatedAtStr,
 		LectureDeletedAt:            deletedAtStr,
