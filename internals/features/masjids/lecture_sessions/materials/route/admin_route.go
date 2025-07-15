@@ -22,8 +22,11 @@ func LectureSessionsAssetAdminRoutes(admin fiber.Router, db *gorm.DB) {
 
 	// 📚 Group: /lecture-sessions-materials
 	material := admin.Group("/lecture-sessions-materials")
-	material.Post("/", materialCtrl.CreateLectureSessionsMaterial)      // ➕ Tambah materi
-	material.Get("/", materialCtrl.GetAllLectureSessionsMaterials)      // 📄 Semua materi
-	material.Get("/:id", materialCtrl.GetLectureSessionsMaterialByID)   // 🔍 Detail materi
-	material.Delete("/:id", materialCtrl.DeleteLectureSessionsMaterial) // ❌ Hapus materi
+
+	material.Post("/", materialCtrl.CreateLectureSessionsMaterial)        // ➕ Tambah materi
+	material.Get("/", materialCtrl.GetAllLectureSessionsMaterials)        // 📄 Semua materi
+	material.Get("/filter", materialCtrl.FindByLectureSessionFiltered)    // ✅ Filter (tambahkan kalau perlu)
+	material.Get("/get-by-id/:id", materialCtrl.GetLectureSessionsMaterialByID) // ✅ Lebih aman
+	material.Delete("/:id", materialCtrl.DeleteLectureSessionsMaterial)   // ❌ Hapus materi
+
 }

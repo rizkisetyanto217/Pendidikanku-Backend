@@ -25,7 +25,6 @@ CREATE TABLE IF NOT EXISTS lecture_sessions_assets (
   lecture_sessions_asset_file_url TEXT NOT NULL,
   lecture_sessions_asset_file_type INT NOT NULL, -- 1 = YouTube, 2 = PDF, 3 = DOCX, etc
   lecture_sessions_asset_lecture_session_id UUID NOT NULL REFERENCES lecture_sessions(lecture_session_id) ON DELETE CASCADE,
-
   -- ✅ Tambahan masjid_id
   lecture_sessions_asset_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 

@@ -1,8 +1,11 @@
 package controller
 
 import (
+	"fmt"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/materials/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/materials/model"
+	"net/http"
+	"strings"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -24,27 +27,89 @@ func NewLectureSessionsMaterialController(db *gorm.DB) *LectureSessionsMaterialC
 // =============================
 func (ctrl *LectureSessionsMaterialController) CreateLectureSessionsMaterial(c *fiber.Ctx) error {
 	var body dto.CreateLectureSessionsMaterialRequest
+
+	// 🧾 Parse request body
 	if err := c.BodyParser(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body: "+err.Error())
 	}
 
+	// 🔐 Ambil masjid_id dari token/middleware
+	masjidID, ok := c.Locals("masjid_id").(string)
+	if !ok || masjidID == "" {
+		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan dalam token")
+	}
+
+	// Inject ke body sebelum validasi
+	body.LectureSessionsMaterialMasjidID = masjidID
+
+	// ✅ Validasi setelah lengkap
 	if err := validate2.Struct(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return fiber.NewError(fiber.StatusBadRequest, "Validasi gagal: "+err.Error())
 	}
 
+	// 📦 Simpan ke DB
 	material := model.LectureSessionsMaterialModel{
 		LectureSessionsMaterialTitle:            body.LectureSessionsMaterialTitle,
 		LectureSessionsMaterialSummary:          body.LectureSessionsMaterialSummary,
 		LectureSessionsMaterialTranscriptFull:   body.LectureSessionsMaterialTranscriptFull,
 		LectureSessionsMaterialLectureSessionID: body.LectureSessionsMaterialLectureSessionID,
+		LectureSessionsMaterialMasjidID:         masjidID,
 	}
 
 	if err := ctrl.DB.Create(&material).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create material")
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan materi: "+err.Error())
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(dto.ToLectureSessionsMaterialDTO(material))
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"message": "Materi berhasil ditambahkan",
+		"data":    dto.ToLectureSessionsMaterialDTO(material),
+	})
 }
+
+
+func (ctl *LectureSessionsMaterialController) FindByLectureSessionFiltered(c *fiber.Ctx) error {
+	lectureSessionID := strings.TrimSpace(c.Query("lecture_session_id"))
+	if lectureSessionID == "" {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+			"message": "lecture_session_id is required",
+		})
+	}
+
+	fmt.Println("🎯 Filter lecture_session_id:", lectureSessionID)
+
+	filterType := c.Query("type")
+
+	var materials []model.LectureSessionsMaterialModel
+	query := ctl.DB.
+		Where("lecture_sessions_material_lecture_session_id = ?", lectureSessionID)
+
+	switch filterType {
+	case "summary":
+		query = query.Select("lecture_sessions_material_id, lecture_sessions_material_title, lecture_sessions_material_summary, lecture_sessions_material_lecture_session_id, lecture_sessions_material_masjid_id, lecture_sessions_material_created_at")
+	case "transcript":
+		query = query.Select("lecture_sessions_material_id, lecture_sessions_material_title, lecture_sessions_material_transcript_full, lecture_sessions_material_lecture_session_id, lecture_sessions_material_masjid_id, lecture_sessions_material_created_at")
+	}
+
+	if err := query.Debug().Find(&materials).Error; err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"message": "failed to retrieve data",
+			"error":   err.Error(),
+		})
+	}
+
+	fmt.Printf("✅ Found %d materials\n", len(materials))
+
+	var result []dto.LectureSessionsMaterialDTO
+	for _, m := range materials {
+		result = append(result, dto.ToLectureSessionsMaterialDTO(m))
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "success",
+		"data":    result,
+	})
+}
+
 
 // =============================
 // 📄 Get All Materials
