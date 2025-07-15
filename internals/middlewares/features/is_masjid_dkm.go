@@ -46,6 +46,15 @@ var MasjidIDResolvers = map[string]func(*fiber.Ctx) string{
 		return ""
 	},
 
+	"/api/a/lectures/by-masjid": func(c *fiber.Ctx) string {
+	if ids, ok := c.Locals("masjid_admin_ids").([]string); ok && len(ids) > 0 && isValidUUID(ids[0]) {
+		log.Println("[DEBUG] masjid_id dari token masjid_admin_ids")
+		return ids[0]
+		}
+		return ""
+	},
+
+
 	"/api/a/posts": func(c *fiber.Ctx) string {
 		var body map[string]interface{}
 		if err := c.BodyParser(&body); err == nil {
@@ -139,9 +148,11 @@ func IsMasjidAdmin(db *gorm.DB) fiber.Handler {
 		for _, id := range adminMasjids {
 			if id == masjidID {
 				log.Println("[MIDDLEWARE] Akses DIIJINKAN ke masjid_id:", masjidID)
+				c.Locals("masjid_id", masjidID) // ✅ Simpan ke context
 				return c.Next()
 			}
 		}
+
 
 		log.Println("[MIDDLEWARE] Akses DITOLAK ke masjid_id:", masjidID)
 		return fiber.NewError(fiber.StatusForbidden, "Kamu bukan admin masjid ini")
