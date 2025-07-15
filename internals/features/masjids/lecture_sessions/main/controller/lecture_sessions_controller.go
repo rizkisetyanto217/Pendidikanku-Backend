@@ -70,34 +70,13 @@ func (ctrl *LectureSessionController) GetAllLectureSessions(c *fiber.Ctx) error 
 	return c.JSON(result)
 }
 
-// ================================
-// GET BY ID
-// ================================
-func (ctrl *LectureSessionController) GetLectureSessionByID(c *fiber.Ctx) error {
-	id := c.Params("id")
-	var session model.LectureSessionModel
-
-	if err := ctrl.DB.First(&session, "lecture_session_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Lecture session not found")
-	}
-
-	return c.JSON(dto.ToLectureSessionDTO(session))
-}
-
-
 
 func (ctrl *LectureSessionController) GetLectureSessionsByMasjidID(c *fiber.Ctx) error {
-	masjidIDParam := c.Params("id")
-	if masjidIDParam == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "masjid_id wajib diisi",
-		})
-	}
-
-	masjidID, err := uuid.Parse(masjidIDParam)
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Masjid ID tidak valid",
+	// ✅ Ambil dari token (middleware sudah pastikan valid dan admin)
+	masjidID, ok := c.Locals("masjid_id").(string)
+	if !ok || masjidID == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Masjid ID tidak valid atau tidak ditemukan di token",
 		})
 	}
 
@@ -126,16 +105,12 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMasjidID(c *fiber.Ctx)
 		response[i] = dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
 	}
 
-	type GetLectureSessionsByMasjidIDResponse struct {
-		Message string                  `json:"message"`
-		Data    []dto.LectureSessionDTO `json:"data"`
-	}
-
-	return c.JSON(GetLectureSessionsByMasjidIDResponse{
-		Message: "Berhasil mengambil sesi kajian berdasarkan masjid",
-		Data:    response,
+	return c.JSON(fiber.Map{
+		"message": "Berhasil mengambil sesi kajian berdasarkan masjid",
+		"data":    response,
 	})
 }
+
 
 
 

@@ -15,7 +15,9 @@ func LectureSessionAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// 📚 Group: /lecture-sessions
 	admin.Post("/lecture-sessions", masjidkuMiddleware.IsMasjidAdmin(db), lectureSessionCtrl.CreateLectureSession)
 	admin.Get("/lecture-sessions", masjidkuMiddleware.IsMasjidAdmin(db), lectureSessionCtrl.GetAllLectureSessions)
-	admin.Get("/lecture-sessions/:id", masjidkuMiddleware.IsMasjidAdmin(db), lectureSessionCtrl.GetLectureSessionByID)
+	admin.Get("/lecture-sessions/by-masjid", masjidkuMiddleware.IsMasjidAdmin(db),lectureSessionCtrl.GetLectureSessionsByMasjidID)
+
+
 	admin.Put("/lecture-sessions/:id", masjidkuMiddleware.IsMasjidAdmin(db), lectureSessionCtrl.UpdateLectureSession)
 	admin.Delete("/lecture-sessions/:id", masjidkuMiddleware.IsMasjidAdmin(db), lectureSessionCtrl.DeleteLectureSession)
 
