@@ -35,6 +35,7 @@ func (ctrl *LectureSessionsAssetController) CreateLectureSessionsAsset(c *fiber.
 		LectureSessionsAssetFileURL:          body.LectureSessionsAssetFileURL,
 		LectureSessionsAssetFileType:         body.LectureSessionsAssetFileType,
 		LectureSessionsAssetLectureSessionID: body.LectureSessionsAssetLectureSessionID,
+		LectureSessionsAssetMasjidID:         body.LectureSessionsAssetMasjidID,
 	}
 
 	if err := ctrl.DB.Create(&asset).Error; err != nil {

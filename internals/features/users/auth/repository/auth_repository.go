@@ -20,6 +20,7 @@ func FindUserByEmailOrUsername(db *gorm.DB, identifier string) (*userModel.UserM
 	return &user, nil
 }
 
+
 func FindUserByGoogleID(db *gorm.DB, googleID string) (*userModel.UserModel, error) {
 	var user userModel.UserModel
 	if err := db.Where("google_id = ?", googleID).First(&user).Error; err != nil {

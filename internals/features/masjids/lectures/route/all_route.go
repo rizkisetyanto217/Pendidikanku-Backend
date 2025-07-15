@@ -12,9 +12,8 @@ func AllLectureRoutes(api fiber.Router, db *gorm.DB) {
 
 	lecture := api.Group("/lectures")
 	lecture.Get("/", lectureCtrl.GetAllLectures)
-	lecture.Get("/by-masjid/:masjid_id", lectureCtrl.GetByMasjidID)
 
-
+	lecture.Get("/:id", lectureCtrl.GetLectureByID)
 
 	ctrl := controller.NewUserLectureController(db)
 

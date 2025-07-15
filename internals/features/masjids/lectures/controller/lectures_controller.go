@@ -59,12 +59,12 @@ func (ctrl *LectureController) CreateLecture(c *fiber.Ctx) error {
 }
 
 
-// ✅ GET /api/a/lectures/by-masjid/:masjid_id
+// ✅ GET /api/a/lectures/by-masjid
 func (ctrl *LectureController) GetByMasjidID(c *fiber.Ctx) error {
-	masjidID := c.Params("masjid_id")
-	if masjidID == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Masjid ID wajib diisi",
+	masjidID, ok := c.Locals("masjid_id").(string)
+	if !ok || masjidID == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"message": "Masjid ID tidak valid atau tidak ditemukan",
 		})
 	}
 
@@ -89,6 +89,7 @@ func (ctrl *LectureController) GetByMasjidID(c *fiber.Ctx) error {
 		"data":    dto.ToLectureResponseList(lectures),
 	})
 }
+
 
 
 // 🟢 GET /api/a/lectures/:id
