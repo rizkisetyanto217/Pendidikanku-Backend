@@ -17,6 +17,7 @@ func AllLectureSessionRoutes(user fiber.Router, db *gorm.DB) {
 
 	session.Get("/by-masjid", lectureSessionCtrl.GetLectureSessionsByMasjidID)
 	session.Post("/by-lecture-sessions", lectureSessionCtrl.GetByLectureID)
+	session.Get("/by-lecture-sessions/:lecture_id", lectureSessionCtrl.GetLectureSessionsByLectureID)
 
 	// 👥 Group: /user-lecture-sessions
 	userSession := user.Group("/user-lecture-sessions")

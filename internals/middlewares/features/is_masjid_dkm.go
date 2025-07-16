@@ -15,23 +15,24 @@ func isValidUUID(val string) bool {
 	return err == nil
 }
 
-// ✅ Resolver Map (modular, scalable)
-var MasjidIDResolvers = map[string]func(*fiber.Ctx) string{
-	"/api/a/lectures": func(c *fiber.Ctx) string {
-	var body map[string]interface{}
-	if err := c.BodyParser(&body); err == nil {
-		if id, ok := body["lecture_masjid_id"].(string); ok && isValidUUID(id) {
-			log.Println("[DEBUG] masjid_id dari body: lecture_masjid_id")
+
+var MasjidIDResolvers = map[string]func(*fiber.Ctx, *gorm.DB) string{
+	"/api/a/lectures": func(c *fiber.Ctx, db *gorm.DB) string {
+		var body map[string]interface{}
+		if err := c.BodyParser(&body); err == nil {
+			if id, ok := body["lecture_masjid_id"].(string); ok && isValidUUID(id) {
+				log.Println("[DEBUG] masjid_id dari body: lecture_masjid_id")
+				return id
+			}
+		}
+		if id := c.Query("masjid_id"); isValidUUID(id) {
+			log.Println("[DEBUG] masjid_id dari query param (fallback)")
 			return id
 		}
-	}
-	if id := c.Query("masjid_id"); isValidUUID(id) {
-		log.Println("[DEBUG] masjid_id dari query param (fallback)")
-		return id
-	}
-	return ""
+		return ""
 	},
-	"/api/a/lecture-sessions": func(c *fiber.Ctx) string {
+
+	"/api/a/lecture-sessions": func(c *fiber.Ctx, db *gorm.DB) string {
 		var body map[string]interface{}
 		if err := c.BodyParser(&body); err == nil {
 			if id, ok := body["lecture_session_masjid_id"].(string); ok && isValidUUID(id) {
@@ -46,26 +47,38 @@ var MasjidIDResolvers = map[string]func(*fiber.Ctx) string{
 		return ""
 	},
 
-	"/api/a/lectures/by-masjid": func(c *fiber.Ctx) string {
-	if ids, ok := c.Locals("masjid_admin_ids").([]string); ok && len(ids) > 0 && isValidUUID(ids[0]) {
-		log.Println("[DEBUG] masjid_id dari token masjid_admin_ids")
-		return ids[0]
+	"/api/a/lectures/by-masjid": func(c *fiber.Ctx, db *gorm.DB) string {
+		if ids, ok := c.Locals("masjid_admin_ids").([]string); ok && len(ids) > 0 && isValidUUID(ids[0]) {
+			log.Println("[DEBUG] masjid_id dari token masjid_admin_ids")
+			return ids[0]
 		}
 		return ""
 	},
 
-	"/api/a/lecture-sessions/by-masjid": func(c *fiber.Ctx) string {
-	// Ambil dari token via Locals
-	if ids, ok := c.Locals("masjid_admin_ids").([]string); ok && len(ids) > 0 {
-		log.Println("[DEBUG] masjid_id dari Locals: masjid_admin_ids[0]")
-		return ids[0]
-	}
+	"/api/a/lecture-sessions/by-masjid": func(c *fiber.Ctx, db *gorm.DB) string {
+		if ids, ok := c.Locals("masjid_admin_ids").([]string); ok && len(ids) > 0 {
+			log.Println("[DEBUG] masjid_id dari Locals: masjid_admin_ids[0]")
+			return ids[0]
+		}
+		return ""
+	},
+
+	"/api/a/lecture-sessions/by-lecture-sessions/": func(c *fiber.Ctx, db *gorm.DB) string {
+	lectureID := c.Params("lecture_id")
+		if isValidUUID(lectureID) {
+			var masjidID string
+			err := db.Raw(`SELECT lecture_masjid_id FROM lectures WHERE lecture_id = ?`, lectureID).Scan(&masjidID).Error
+			if err == nil && isValidUUID(masjidID) {
+				log.Println("[DEBUG] masjid_id dari DB: lectures.lecture_masjid_id (by lecture_id)")
+				return masjidID
+			}
+		}
+		log.Println("[WARN] Tidak bisa resolve masjid_id dari lecture_id")
 		return ""
 	},
 
 
-
-	"/api/a/posts": func(c *fiber.Ctx) string {
+	"/api/a/posts": func(c *fiber.Ctx, db *gorm.DB) string {
 		var body map[string]interface{}
 		if err := c.BodyParser(&body); err == nil {
 			if id, ok := body["post_masjid_id"].(string); ok && isValidUUID(id) {
@@ -79,25 +92,28 @@ var MasjidIDResolvers = map[string]func(*fiber.Ctx) string{
 	// 🔧 Tambahkan endpoint lain di sini sesuai kebutuhan
 }
 
+
 // ✅ Ambil masjid_id pakai resolver per route, fallback ke DB jika perlu
 func getMasjidIDFromRequest(c *fiber.Ctx, db *gorm.DB) string {
 	path := c.Path() // Lebih akurat
+	log.Println("Path:", c.Path())
 
-	// 🔍 Resolver spesifik
+	// Exact match (jarang dipakai)
 	if resolver, ok := MasjidIDResolvers[path]; ok {
-		if id := resolver(c); id != "" {
+		if id := resolver(c, db); id != "" {
 			return id
 		}
 	}
 
-	// 🔍 Resolver prefix
+	// ✅ Prefix match (penting untuk dynamic path)
 	for prefix, resolver := range MasjidIDResolvers {
 		if strings.HasPrefix(path, prefix) {
-			if id := resolver(c); id != "" {
+			if id := resolver(c, db); id != "" {
 				return id
 			}
 		}
 	}
+
 
 
 	// 🔍 Fallback DB: dari lecture_session_id

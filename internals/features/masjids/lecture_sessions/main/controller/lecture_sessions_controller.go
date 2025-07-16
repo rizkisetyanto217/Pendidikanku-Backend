@@ -1,8 +1,11 @@
 package controller
 
 import (
+	"log"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
+	LectureModel "masjidku_backend/internals/features/masjids/lectures/model"
+
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -17,6 +20,8 @@ type LectureSessionController struct {
 func NewLectureSessionController(db *gorm.DB) *LectureSessionController {
 	return &LectureSessionController{DB: db}
 }
+
+
 
 func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 	var body dto.CreateLectureSessionRequest
@@ -48,6 +53,47 @@ func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(dto.ToLectureSessionDTO(newSession))
+}
+
+// =============================
+// 📥 GET All Lecture Sessions by Lecture ID
+// =============================
+func (ctrl *LectureSessionController) GetLectureSessionsByLectureID(c *fiber.Ctx) error {
+	log.Println("📥 MASUK GetLectureSessionsByLectureID (Public)")
+
+	// Ambil lecture_id dari URL
+	lectureIDParam := c.Params("lecture_id")
+	lectureID, err := uuid.Parse(lectureIDParam)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Lecture ID tidak valid")
+	}
+
+	// ✅ Cek apakah lecture_id valid dan milik masjid yang ada
+	var lecture LectureModel.LectureModel
+	if err := ctrl.DB.
+		Where("lecture_id = ?", lectureID).
+		First(&lecture).Error; err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "Lecture tidak ditemukan")
+	}
+
+	// ✅ Ambil semua sesi berdasarkan lecture_id
+	var sessions []model.LectureSessionModel
+	if err := ctrl.DB.
+		Where("lecture_session_lecture_id = ? AND lecture_session_deleted_at IS NULL", lectureID).
+		Find(&sessions).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data sesi kajian")
+	}
+
+	// Konversi ke DTO
+	response := make([]dto.LectureSessionDTO, 0, len(sessions))
+	for _, s := range sessions {
+		response = append(response, dto.ToLectureSessionDTO(s))
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Daftar sesi kajian berhasil diambil",
+		"data":    response,
+	})
 }
 
 
