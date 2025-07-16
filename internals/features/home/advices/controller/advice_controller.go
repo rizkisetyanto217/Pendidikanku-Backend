@@ -74,10 +74,19 @@ func (ctrl *AdviceController) GetAllAdvices(c *fiber.Ctx) error {
 // 🔍 Get Advices by Lecture ID
 // =============================
 func (ctrl *AdviceController) GetAdvicesByLectureID(c *fiber.Ctx) error {
+	// ✅ Ambil user_id dari token
+	userID := c.Locals("user_id")
+	userIDStr, ok := userID.(string)
+	if !ok || userIDStr == "" {
+		return fiber.NewError(fiber.StatusUnauthorized, "User ID not found in token")
+	}
+
 	lectureID := c.Params("lectureId")
 	var advices []model.AdviceModel
 
-	if err := ctrl.DB.Where("advice_lecture_id = ?", lectureID).Find(&advices).Error; err != nil {
+	if err := ctrl.DB.
+		Where("advice_lecture_id = ?", lectureID).
+		Find(&advices).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to fetch advices")
 	}
 
@@ -88,6 +97,7 @@ func (ctrl *AdviceController) GetAdvicesByLectureID(c *fiber.Ctx) error {
 
 	return c.JSON(response)
 }
+
 
 // =============================
 // 🔍 Get Advices by User ID

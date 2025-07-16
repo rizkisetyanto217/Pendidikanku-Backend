@@ -89,6 +89,26 @@ var MasjidIDResolvers = map[string]func(*fiber.Ctx, *gorm.DB) string{
 		return ""
 	},
 
+	"/api/a/advices/by-lecture": func(c *fiber.Ctx, db *gorm.DB) string {
+	// Ambil :lectureId dari path manual karena tidak otomatis parse param
+	parts := strings.Split(c.Path(), "/")
+	if len(parts) >= 6 { // ["", "api", "a", "advices", "by-lecture", "{lectureId}"]
+		lectureID := parts[5]
+		if isValidUUID(lectureID) {
+			var masjidID string
+			err := db.Raw(`SELECT lecture_masjid_id FROM lectures WHERE lecture_id = ?`, lectureID).Scan(&masjidID).Error
+			if err == nil && isValidUUID(masjidID) {
+				log.Println("[DEBUG] masjid_id dari DB: lectures.lecture_masjid_id (by lecture_id)")
+				return masjidID
+			}
+		}
+	}
+	log.Println("[WARN] Tidak bisa resolve masjid_id dari lecture_id (resolver advices)")
+	return ""
+	},
+
+
+
 	// 🔧 Tambahkan endpoint lain di sini sesuai kebutuhan
 }
 

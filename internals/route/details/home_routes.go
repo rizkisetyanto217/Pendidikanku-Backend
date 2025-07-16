@@ -14,23 +14,21 @@ import (
 )
 
 // ✅ Untuk route publik tanpa token
-// Contoh akses: /api/public/quotes
+// Contoh akses: /public/quotes
 func HomePublicRoutes(api fiber.Router, db *gorm.DB) {
 	QouteRoutes.AllQuoteRoutes(api, db)
-	AdviceRoutes.AllAdviceRoutes(api, db)
 	FaqRoutes.AllFaqQuestionRoutes(api, db)
 	ArticleRoutes.AllArticleRoutes(api, db)
 	PostRoutes.AllPostRoutes(api, db)
 	QuestionnaireRoutes.AllQuestionnaireQuestionRoutes(api, db)
 	NotificationRoutes.AllNotificationRoutes(api, db)
-
+	
 }
 
 // ✅ Untuk route user login (dengan token)
 // Contoh akses: /api/u/notifications
 func HomePrivateRoutes(api fiber.Router, db *gorm.DB) {
-	// private := api.Group("/u")
-	// NotificationRoutes.NotificationUserRoutes(private, db)
+	AdviceRoutes.AllAdviceRoutes(api, db)
 }
 
 // ✅ Untuk route admin masjid (token + admin)

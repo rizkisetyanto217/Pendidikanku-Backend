@@ -59,7 +59,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 
 	// ✅ 2. PRIVATE: User biasa (wajib token)
 	log.Println("[INFO] Setting up HomeRoutes (private)...")
-	private := app.Group("/api", authMiddleware.AuthMiddleware(db))
+	private := app.Group("/api/u", authMiddleware.AuthMiddleware(db))
 	routeDetails.HomePrivateRoutes(private, db)
 
 	// ✅ 3. ADMIN: Admin masjid (wajib token + admin check)
