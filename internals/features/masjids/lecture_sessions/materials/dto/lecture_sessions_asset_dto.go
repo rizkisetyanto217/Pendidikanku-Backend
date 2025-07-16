@@ -2,6 +2,7 @@ package dto
 
 import (
 	"masjidku_backend/internals/features/masjids/lecture_sessions/materials/model"
+	constants "masjidku_backend/internals/constants"
 	"time"
 )
 type LectureSessionsAssetDTO struct {
@@ -12,6 +13,8 @@ type LectureSessionsAssetDTO struct {
 	LectureSessionsAssetLectureSessionID string    `json:"lecture_sessions_asset_lecture_session_id"`
 	LectureSessionsAssetMasjidID         string    `json:"lecture_sessions_asset_masjid_id"`
 	LectureSessionsAssetCreatedAt        time.Time `json:"lecture_sessions_asset_created_at"`
+	LectureSessionsAssetFileTypeLabel string `json:"lecture_sessions_asset_file_type_label"` // 👈 Tambahan
+
 }
 
 // dto/lecture_sessions_asset.go
@@ -24,12 +27,19 @@ type CreateLectureSessionsAssetRequest struct {
 }
 
 
+
 func ToLectureSessionsAssetDTO(m model.LectureSessionsAssetModel) LectureSessionsAssetDTO {
+	label, ok := constants.FileTypeLabels[m.LectureSessionsAssetFileType]
+	if !ok {
+		label = "Tidak diketahui"
+	}
+
 	return LectureSessionsAssetDTO{
 		LectureSessionsAssetID:               m.LectureSessionsAssetID,
 		LectureSessionsAssetTitle:            m.LectureSessionsAssetTitle,
 		LectureSessionsAssetFileURL:          m.LectureSessionsAssetFileURL,
 		LectureSessionsAssetFileType:         m.LectureSessionsAssetFileType,
+		LectureSessionsAssetFileTypeLabel:    label, 
 		LectureSessionsAssetLectureSessionID: m.LectureSessionsAssetLectureSessionID,
 		LectureSessionsAssetMasjidID:         m.LectureSessionsAssetMasjidID,
 		LectureSessionsAssetCreatedAt:        m.LectureSessionsAssetCreatedAt,
