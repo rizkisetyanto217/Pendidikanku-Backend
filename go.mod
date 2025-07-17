@@ -13,6 +13,7 @@ require (
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/philhofer/fwd v1.1.3-0.20240916144458-20a13a1f6b7c // indirect
 	github.com/tinylib/msgp v1.2.5 // indirect
+	golang.org/x/image v0.0.0-20211028202545-6944b10bf410 // indirect
 	golang.org/x/net v0.34.0 // indirect
 	golang.org/x/oauth2 v0.29.0 // indirect
 	gorm.io/driver/mysql v1.5.6 // indirect
@@ -20,6 +21,8 @@ require (
 
 require (
 	github.com/andybalholm/brotli v1.1.0 // indirect
+	github.com/chai2010/webp v1.4.0
+	github.com/disintegration/imaging v1.6.2
 	github.com/futurenda/google-auth-id-token-verifier v0.0.0-20170311140316-2a5b89f28b7e
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/golang-jwt/jwt/v4 v4.5.2

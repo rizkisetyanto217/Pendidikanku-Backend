@@ -11,7 +11,7 @@ import (
 // ✅ Resolver per path
 var MasjidIDResolvers = map[string]func(*fiber.Ctx, *gorm.DB) string{
 	"/api/a/lectures": resolveMasjidIDFromBody("lecture_masjid_id"),
-	"/api/a/lecture-sessions": resolveMasjidIDFromBody("lecture_session_masjid_id"),
+	"/api/a/lecture-sessions": resolveMasjidIDFromLocals("masjid_admin_ids"),
 	"/api/a/posts": resolveMasjidIDFromBody("post_masjid_id"),
 	"/api/a/lectures/by-masjid": resolveMasjidIDFromLocals("masjid_admin_ids"),
 	"/api/a/lecture-sessions/by-masjid": resolveMasjidIDFromLocals("masjid_admin_ids"),

@@ -21,7 +21,6 @@ type CreateLectureSessionRequest struct {
 	LectureSessionPlace        *string    `json:"lecture_session_place"`
 	LectureSessionImageURL     *string    `json:"lecture_session_image_url"`
 	LectureSessionLectureID    *uuid.UUID `json:"lecture_session_lecture_id"`
-	LectureSessionMasjidID     uuid.UUID  `json:"lecture_session_masjid_id" validate:"required,uuid"`
 
 	// ✅ Jika dikirim, berarti tidak perlu diperiksa oleh guru
 	LectureSessionApprovedByTeacherAt *time.Time `json:"lecture_session_approved_by_teacher_at,omitempty"`
@@ -80,7 +79,6 @@ func (r CreateLectureSessionRequest) ToModel() model.LectureSessionModel {
 		LectureSessionPlace:       r.LectureSessionPlace,
 		LectureSessionImageURL:    r.LectureSessionImageURL,
 		LectureSessionLectureID:   r.LectureSessionLectureID,
-		LectureSessionMasjidID:    r.LectureSessionMasjidID,
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
 	LectureModel "masjidku_backend/internals/features/masjids/lectures/model"
+	helper "masjidku_backend/internals/helpers"
 
 	"time"
 
@@ -21,31 +22,86 @@ func NewLectureSessionController(db *gorm.DB) *LectureSessionController {
 	return &LectureSessionController{DB: db}
 }
 
-
-
 func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
-	var body dto.CreateLectureSessionRequest
-	if err := c.BodyParser(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Permintaan tidak valid")
-	}
-
 	// Validasi user login
 	userIDRaw := c.Locals("user_id")
 	if userIDRaw == nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "User belum login")
 	}
 
-	// Konversi request ke model
-	newSession := body.ToModel()
-	newSession.LectureSessionIsActive = true
-	
-	// 💡 Jika waktu verifikasi teacher dikirim, berarti tidak diperiksa oleh guru
-	if body.LectureSessionApprovedByTeacherAt != nil {
-		newSession.LectureSessionApprovedByTeacherID = &newSession.LectureSessionTeacherID
-		now := time.Now()
-		newSession.LectureSessionApprovedByTeacherAt = &now
+	// Ambil masjid_id dari token
+	masjidIDs, ok := c.Locals("masjid_admin_ids").([]string)
+	if !ok || len(masjidIDs) == 0 {
+		return fiber.NewError(fiber.StatusBadRequest, "Masjid ID tidak ditemukan di token")
+	}
+	masjidID, err := uuid.Parse(masjidIDs[0])
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Masjid ID tidak valid")
 	}
 
+	// Ambil semua field dari form-data
+	title := c.FormValue("lecture_session_title")
+	description := c.FormValue("lecture_session_description")
+	teacherIDStr := c.FormValue("lecture_session_teacher_id")
+	teacherName := c.FormValue("lecture_session_teacher_name")
+	startTimeStr := c.FormValue("lecture_session_start_time")
+	endTimeStr := c.FormValue("lecture_session_end_time")
+	place := c.FormValue("lecture_session_place")
+	lectureIDStr := c.FormValue("lecture_session_lecture_id")
+	approvedAtStr := c.FormValue("lecture_session_approved_by_teacher_at") // optional
+
+	// Validasi dan parsing UUID & waktu
+	teacherID, err := uuid.Parse(teacherIDStr)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "ID guru tidak valid")
+	}
+	lectureID, err := uuid.Parse(lectureIDStr)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "ID tema kajian tidak valid")
+	}
+	startTime, err := time.Parse(time.RFC3339, startTimeStr)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Format waktu mulai tidak valid")
+	}
+	endTime, err := time.Parse(time.RFC3339, endTimeStr)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Format waktu selesai tidak valid")
+	}
+
+	// Upload gambar jika ada
+	var imageURL *string
+	if file, err := c.FormFile("lecture_session_image_url"); err == nil && file != nil {
+		url, err := helper.UploadImageAsWebPToSupabase("lecture_sessions", file)
+		if err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal upload gambar")
+		}
+		imageURL = &url
+	} else if val := c.FormValue("lecture_session_image_url"); val != "" {
+		imageURL = &val
+	}
+
+	// Buat objek session
+	newSession := model.LectureSessionModel{
+		LectureSessionTitle:       title,
+		LectureSessionDescription: description,
+		LectureSessionTeacherID:   teacherID,
+		LectureSessionTeacherName: teacherName,
+		LectureSessionStartTime:   startTime,
+		LectureSessionEndTime:     endTime,
+		LectureSessionPlace:       &place,
+		LectureSessionLectureID:   &lectureID,
+		LectureSessionMasjidID:    masjidID,
+		LectureSessionIsActive:    true,
+		LectureSessionImageURL:    imageURL,
+	}
+
+	// Jika waktu verifikasi oleh guru dikirim
+	if approvedAtStr != "" {
+		if t, err := time.Parse(time.RFC3339, approvedAtStr); err == nil {
+			newSession.LectureSessionApprovedByTeacherID = &teacherID
+			newSession.LectureSessionApprovedByTeacherAt = &t
+		}
+	}
 
 	// Simpan ke DB
 	if err := ctrl.DB.Create(&newSession).Error; err != nil {
@@ -54,6 +110,8 @@ func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 
 	return c.Status(fiber.StatusCreated).JSON(dto.ToLectureSessionDTO(newSession))
 }
+
+
 
 // =============================
 // 📥 GET All Lecture Sessions by Lecture ID
