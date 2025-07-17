@@ -19,6 +19,36 @@ import (
 	"github.com/google/uuid"
 )
 
+func UploadImageToSupabase(folder string, fileHeader *multipart.FileHeader) (string, error) {
+	src, err := fileHeader.Open()
+	if err != nil {
+		return "", fmt.Errorf("gagal membuka file gambar: %w", err)
+	}
+	defer src.Close()
+
+	// Baca semua isi file
+	buf := new(bytes.Buffer)
+	if _, err := io.Copy(buf, src); err != nil {
+		return "", fmt.Errorf("gagal membaca file gambar: %w", err)
+	}
+
+	filename := GenerateUniqueFilename(folder, fileHeader.Filename) // tanpanya .webp
+	contentType := fileHeader.Header.Get("Content-Type")
+
+	// ✅ Gunakan bucket "image"
+	if err := UploadToSupabase("image", filename, contentType, buf); err != nil {
+		return "", fmt.Errorf("upload gambar gagal: %w", err)
+	}
+
+	publicURL := fmt.Sprintf("%s/storage/v1/object/public/image/%s",
+		os.Getenv("SUPABASE_PROJECT_URL"),
+		url.PathEscape(filename),
+	)
+
+	return publicURL, nil
+}
+
+
 // ✅ Upload image setelah resize + kompresi WebP maksimal 65KB
 func UploadImageAsWebPToSupabase(folder string, fileHeader *multipart.FileHeader) (string, error) {
 	src, err := fileHeader.Open()

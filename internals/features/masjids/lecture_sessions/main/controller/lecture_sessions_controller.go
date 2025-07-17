@@ -71,7 +71,8 @@ func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 	// Upload gambar jika ada
 	var imageURL *string
 	if file, err := c.FormFile("lecture_session_image_url"); err == nil && file != nil {
-		url, err := helper.UploadImageAsWebPToSupabase("lecture_sessions", file)
+		url, err := helper.UploadImageToSupabase("lecture_sessions", file)
+
 		if err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal upload gambar")
 		}
