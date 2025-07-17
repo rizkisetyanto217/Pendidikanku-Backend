@@ -3,7 +3,6 @@ package helper
 import (
 	"bytes"
 	"fmt"
-	"image"
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
@@ -14,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chai2010/webp"
-	"github.com/disintegration/imaging"
+	// "github.com/chai2010/webp"
+	// "github.com/disintegration/imaging"
 	"github.com/google/uuid"
 )
 
@@ -49,54 +48,54 @@ func UploadImageToSupabase(folder string, fileHeader *multipart.FileHeader) (str
 }
 
 
-// ✅ Upload image setelah resize + kompresi WebP maksimal 65KB
-func UploadImageAsWebPToSupabase(folder string, fileHeader *multipart.FileHeader) (string, error) {
-	src, err := fileHeader.Open()
-	if err != nil {
-		return "", fmt.Errorf("gagal membuka file gambar: %w", err)
-	}
-	defer src.Close()
+// // ✅ Upload image setelah resize + kompresi WebP maksimal 65KB
+// func UploadImageAsWebPToSupabase(folder string, fileHeader *multipart.FileHeader) (string, error) {
+// 	src, err := fileHeader.Open()
+// 	if err != nil {
+// 		return "", fmt.Errorf("gagal membuka file gambar: %w", err)
+// 	}
+// 	defer src.Close()
 
-	img, _, err := image.Decode(src)
-	if err != nil {
-		return "", fmt.Errorf("format gambar tidak dikenali: %w", err)
-	}
+// 	img, _, err := image.Decode(src)
+// 	if err != nil {
+// 		return "", fmt.Errorf("format gambar tidak dikenali: %w", err)
+// 	}
 
-	resized := imaging.Resize(img, 1080, 0, imaging.Lanczos)
+// 	resized := imaging.Resize(img, 1080, 0, imaging.Lanczos)
 
-	var buf *bytes.Buffer
-	var sizeKB int
-	success := false
-	for _, quality := range []float32{60, 50, 40, 30, 20} {
-		tmp := new(bytes.Buffer)
-		if err := webp.Encode(tmp, resized, &webp.Options{Quality: quality}); err != nil {
-			continue
-		}
-		sizeKB = tmp.Len() / 1024
-		if sizeKB <= 65 {
-			buf = tmp
-			success = true
-			break
-		}
-	}
-	if !success {
-		return "", fmt.Errorf("ukuran gambar setelah kompresi tetap melebihi 65 KB (terkecil %d KB)", sizeKB)
-	}
+// 	var buf *bytes.Buffer
+// 	var sizeKB int
+// 	success := false
+// 	for _, quality := range []float32{60, 50, 40, 30, 20} {
+// 		tmp := new(bytes.Buffer)
+// 		if err := webp.Encode(tmp, resized, &webp.Options{Quality: quality}); err != nil {
+// 			continue
+// 		}
+// 		sizeKB = tmp.Len() / 1024
+// 		if sizeKB <= 65 {
+// 			buf = tmp
+// 			success = true
+// 			break
+// 		}
+// 	}
+// 	if !success {
+// 		return "", fmt.Errorf("ukuran gambar setelah kompresi tetap melebihi 65 KB (terkecil %d KB)", sizeKB)
+// 	}
 
-	filename := GenerateUniqueFilename(folder, fileHeader.Filename) + ".webp"
+// 	filename := GenerateUniqueFilename(folder, fileHeader.Filename) + ".webp"
 
-	// ✅ Gunakan bucket "image"
-	if err := UploadToSupabase("image", filename, "image/webp", buf); err != nil {
-		return "", fmt.Errorf("upload gambar gagal: %w", err)
-	}
+// 	// ✅ Gunakan bucket "image"
+// 	if err := UploadToSupabase("image", filename, "image/webp", buf); err != nil {
+// 		return "", fmt.Errorf("upload gambar gagal: %w", err)
+// 	}
 
-	publicURL := fmt.Sprintf("%s/storage/v1/object/public/image/%s",
-		os.Getenv("SUPABASE_PROJECT_URL"),
-		url.PathEscape(filename),
-	)
+// 	publicURL := fmt.Sprintf("%s/storage/v1/object/public/image/%s",
+// 		os.Getenv("SUPABASE_PROJECT_URL"),
+// 		url.PathEscape(filename),
+// 	)
 
-	return publicURL, nil
-}
+// 	return publicURL, nil
+// }
 
 // ✅ Buat nama unik
 func GenerateUniqueFilename(folder, originalFilename string) string {
