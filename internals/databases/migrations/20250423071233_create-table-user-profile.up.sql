@@ -13,6 +13,16 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Untuk pencarian by user_name
+CREATE INDEX IF NOT EXISTS idx_users_user_name ON users(user_name);
+
+-- Untuk pencarian by email
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+
+
+
 -- Buat table users_profile
 CREATE TABLE IF NOT EXISTS users_profile (
     id SERIAL PRIMARY KEY,

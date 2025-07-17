@@ -40,6 +40,34 @@ func (uc *UserController) GetUsers(c *fiber.Ctx) error {
 	})
 }
 
+// GET /api/a/users/search?q=namaOrEmail
+func (uc *UserController) SearchUsers(c *fiber.Ctx) error {
+	query := c.Query("q")
+	if query == "" {
+		return helper.Error(c, fiber.StatusBadRequest, "Query tidak boleh kosong")
+	}
+
+	var users []model.UserModel
+	if err := uc.DB.
+		Where("user_name ILIKE ? OR email ILIKE ?", "%"+query+"%", "%"+query+"%").
+		Find(&users).Error; err != nil {
+		log.Println("[ERROR] SearchUsers gagal:", err)
+		return helper.Error(c, fiber.StatusInternalServerError, "Gagal mencari pengguna")
+	}
+
+	// Kosongkan password
+	for i := range users {
+		users[i].Password = ""
+	}
+
+	log.Printf("[SUCCESS] Ditemukan %d user dengan query '%s'\n", len(users), query)
+	return helper.Success(c, "Hasil pencarian user", fiber.Map{
+		"total": len(users),
+		"users": users,
+	})
+}
+
+
 // GET profile user by ID (dari JWT)
 func (uc *UserController) GetUser(c *fiber.Ctx) error {
 	userIDRaw := c.Locals("user_id")

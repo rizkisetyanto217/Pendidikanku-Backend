@@ -6,4 +6,5 @@ const (
 	RoleAccountant = "accountant"
 	RoleOwner      = "owner"
 	RoleAdmin      = "admin"
+	RoleDKM        = "dkm"
 )

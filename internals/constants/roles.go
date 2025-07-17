@@ -50,6 +50,7 @@ var (
 		RoleTeacher,
 		RoleAdmin,
 		RoleOwner,
+		RoleDKM,
 	}
 
 	OwnerAndAbove = []string{

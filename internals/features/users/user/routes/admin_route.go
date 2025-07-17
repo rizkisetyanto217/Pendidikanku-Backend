@@ -1,8 +1,8 @@
 package routes
 
 import (
-	userController "masjidku_backend/internals/features/users/user/controller"
 	"masjidku_backend/internals/constants" // ✅ Tambahkan ini
+	userController "masjidku_backend/internals/features/users/user/controller"
 	authMiddleware "masjidku_backend/internals/middlewares/auth"
 
 	"github.com/gofiber/fiber/v2"
@@ -19,6 +19,7 @@ func UserAdminRoutes(app fiber.Router, db *gorm.DB) {
 	)
 
 	users.Get("/", userCtrl.GetUsers)
+	users.Get("/search", userCtrl.SearchUsers)
 	users.Put("/user", userCtrl.UpdateUser)
 	users.Post("/", userCtrl.CreateUser)
 	users.Delete("/:id", userCtrl.DeleteUser)

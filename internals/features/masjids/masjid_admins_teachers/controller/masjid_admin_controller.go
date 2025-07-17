@@ -2,8 +2,8 @@ package controller
 
 import (
 	"errors"
-	"masjidku_backend/internals/features/masjids/masjid_admins/dto"
-	"masjidku_backend/internals/features/masjids/masjid_admins/model"
+	"masjidku_backend/internals/features/masjids/masjid_admins_teachers/dto"
+	"masjidku_backend/internals/features/masjids/masjid_admins_teachers/model"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

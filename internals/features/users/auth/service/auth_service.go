@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"masjidku_backend/internals/configs"
-	"masjidku_backend/internals/features/masjids/masjid_admins/model"
+	"masjidku_backend/internals/features/masjids/masjid_admins_teachers/model"
 	authHelper "masjidku_backend/internals/features/users/auth/helper"
 	authRepo "masjidku_backend/internals/features/users/auth/repository"
 	userModel "masjidku_backend/internals/features/users/user/model"
