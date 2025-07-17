@@ -1,2 +1,11 @@
 [phases.setup]
-nixpkgs = ["libwebp"]
+nixpkgs = [
+  "libwebp",
+  "clang",
+  "pkg-config",   # bantu cari header .h saat build C
+  "glibc"         # pastikan libc tersedia
+]
+
+[variables]
+CGO_ENABLED = "1"
+CC = "clang"
