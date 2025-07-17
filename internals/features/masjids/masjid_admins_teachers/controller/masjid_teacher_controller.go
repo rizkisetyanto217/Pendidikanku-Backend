@@ -5,6 +5,7 @@ import (
 	"masjidku_backend/internals/features/masjids/masjid_admins_teachers/dto"
 	"masjidku_backend/internals/features/masjids/masjid_admins_teachers/model"
 	helper "masjidku_backend/internals/helpers"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -56,15 +57,29 @@ func (ctrl *MasjidTeacherController) GetByMasjid(c *fiber.Ctx) error {
 		return helper.Error(c, fiber.StatusBadRequest, "Masjid ID tidak ditemukan di token")
 	}
 
-	var teachers []model.MasjidTeacher
-	if err := ctrl.DB.Where("masjid_teachers_masjid_id = ?", masjidID).Find(&teachers).Error; err != nil {
-		log.Println("[ERROR] Gagal query teachers:", err)
+	type MasjidTeacherWithName struct {
+		MasjidTeachersID        string    `json:"masjid_teachers_id"`
+		MasjidTeachersMasjidID  string    `json:"masjid_teachers_masjid_id"`
+		MasjidTeachersUserID    string    `json:"masjid_teachers_user_id"`
+		UserName                string    `json:"user_name"`
+		MasjidTeachersCreatedAt time.Time `json:"masjid_teachers_created_at"`
+		MasjidTeachersUpdatedAt time.Time `json:"masjid_teachers_updated_at"`
+	}
+	var result []MasjidTeacherWithName
+
+	if err := ctrl.DB.
+		Table("masjid_teachers").
+		Select("masjid_teachers.*, users.user_name").
+		Joins("JOIN users ON users.id = masjid_teachers.masjid_teachers_user_id").
+		Where("masjid_teachers.masjid_teachers_masjid_id = ?", masjidID).
+		Scan(&result).Error; err != nil {
+		log.Println("[ERROR] Gagal join masjid_teachers ke users:", err)
 		return helper.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data pengajar")
 	}
 
 	return helper.Success(c, "Daftar pengajar ditemukan", fiber.Map{
-		"total":    len(teachers),
-		"teachers": teachers,
+		"total":    len(result),
+		"teachers": result,
 	})
 }
 
