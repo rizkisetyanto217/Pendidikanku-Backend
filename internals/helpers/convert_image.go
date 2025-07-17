@@ -6,7 +6,6 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,34 +17,50 @@ import (
 	"github.com/google/uuid"
 )
 
-func UploadImageToSupabase(folder string, fileHeader *multipart.FileHeader) (string, error) {
-	src, err := fileHeader.Open()
+func UploadToSupabase(bucket, filename, contentType string, data *bytes.Buffer) error {
+	supabaseURL := os.Getenv("SUPABASE_PROJECT_URL")
+	supabaseKey := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+	// ✅ DEBUG: cek env
+	fmt.Println("📦 Upload to Supabase")
+	fmt.Println("🔗 URL:", supabaseURL)
+	fmt.Println("🗝️ Key exists:", supabaseKey != "")
+	fmt.Println("📁 Bucket:", bucket)
+	fmt.Println("📄 Filename:", filename)
+	fmt.Println("🧾 Content-Type:", contentType)
+	fmt.Println("📏 Size (bytes):", data.Len())
+
+	if supabaseURL == "" || supabaseKey == "" {
+		return fmt.Errorf("SUPABASE_PROJECT_URL atau SUPABASE_SERVICE_ROLE_KEY belum diset")
+	}
+
+	url := fmt.Sprintf("%s/storage/v1/object/%s/%s", supabaseURL, bucket, filename)
+
+	req, err := http.NewRequest("PUT", url, data)
 	if err != nil {
-		return "", fmt.Errorf("gagal membuka file gambar: %w", err)
-	}
-	defer src.Close()
-
-	// Baca semua isi file
-	buf := new(bytes.Buffer)
-	if _, err := io.Copy(buf, src); err != nil {
-		return "", fmt.Errorf("gagal membaca file gambar: %w", err)
+		return fmt.Errorf("gagal membuat request upload: %w", err)
 	}
 
-	filename := GenerateUniqueFilename(folder, fileHeader.Filename) // tanpanya .webp
-	contentType := fileHeader.Header.Get("Content-Type")
+	req.Header.Set("Authorization", "Bearer "+supabaseKey)
+	req.Header.Set("Content-Type", contentType)
 
-	// ✅ Gunakan bucket "image"
-	if err := UploadToSupabase("image", filename, contentType, buf); err != nil {
-		return "", fmt.Errorf("upload gambar gagal: %w", err)
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("gagal mengirim request upload: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Println("❌ Upload gagal:", string(body))
+		return fmt.Errorf("upload gagal status %d: %s", resp.StatusCode, string(body))
 	}
 
-	publicURL := fmt.Sprintf("%s/storage/v1/object/public/image/%s",
-		os.Getenv("SUPABASE_PROJECT_URL"),
-		url.PathEscape(filename),
-	)
-
-	return publicURL, nil
+	fmt.Println("✅ Upload sukses ke:", url)
+	return nil
 }
+
 
 
 // // ✅ Upload image setelah resize + kompresi WebP maksimal 65KB
@@ -104,39 +119,39 @@ func GenerateUniqueFilename(folder, originalFilename string) string {
 	return fmt.Sprintf("%s/%s-%s", folder, timestamp, uuidStr+"-"+originalFilename)
 }
 
-func UploadToSupabase(bucket, filename, contentType string, data *bytes.Buffer) error {
-	supabaseURL := os.Getenv("SUPABASE_PROJECT_URL")
-	supabaseKey := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
+// func UploadToSupabase(bucket, filename, contentType string, data *bytes.Buffer) error {
+// 	supabaseURL := os.Getenv("SUPABASE_PROJECT_URL")
+// 	supabaseKey := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
 
-	if supabaseURL == "" || supabaseKey == "" {
-		return fmt.Errorf("SUPABASE_PROJECT_URL atau SUPABASE_SERVICE_ROLE_KEY belum diset")
-	}
+// 	if supabaseURL == "" || supabaseKey == "" {
+// 		return fmt.Errorf("SUPABASE_PROJECT_URL atau SUPABASE_SERVICE_ROLE_KEY belum diset")
+// 	}
 
-	// ✅ Simple PUT endpoint untuk upload langsung
-	url := fmt.Sprintf("%s/storage/v1/object/%s/%s", supabaseURL, bucket, filename)
+// 	// ✅ Simple PUT endpoint untuk upload langsung
+// 	url := fmt.Sprintf("%s/storage/v1/object/%s/%s", supabaseURL, bucket, filename)
 
-	req, err := http.NewRequest("PUT", url, data)
-	if err != nil {
-		return fmt.Errorf("gagal membuat request upload: %w", err)
-	}
+// 	req, err := http.NewRequest("PUT", url, data)
+// 	if err != nil {
+// 		return fmt.Errorf("gagal membuat request upload: %w", err)
+// 	}
 
-	req.Header.Set("Authorization", "Bearer "+supabaseKey)
-	req.Header.Set("Content-Type", contentType)
+// 	req.Header.Set("Authorization", "Bearer "+supabaseKey)
+// 	req.Header.Set("Content-Type", contentType)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("gagal mengirim request upload: %w", err)
-	}
-	defer resp.Body.Close()
+// 	client := &http.Client{}
+// 	resp, err := client.Do(req)
+// 	if err != nil {
+// 		return fmt.Errorf("gagal mengirim request upload: %w", err)
+// 	}
+// 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("upload gagal status %d: %s", resp.StatusCode, string(body))
-	}
+// 	if resp.StatusCode >= 300 {
+// 		body, _ := io.ReadAll(resp.Body)
+// 		return fmt.Errorf("upload gagal status %d: %s", resp.StatusCode, string(body))
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 // ✅ Hapus file dari Supabase
 func DeleteFromSupabase(bucket, path string) error {
