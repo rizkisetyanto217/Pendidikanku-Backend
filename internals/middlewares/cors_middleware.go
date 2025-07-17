@@ -20,7 +20,7 @@ func CorsMiddleware() fiber.Handler {
 			"https://web-six-theta-13.vercel.app",
 			"https://masjidku-web-production.up.railway.app", // ✅ tambahkan ini
 		}, ", "),
-		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS",
+		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS, PATCH",
 		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
 		AllowCredentials: true,
 	})
