@@ -14,6 +14,7 @@ func LectureRoutes(api fiber.Router, db *gorm.DB) {
 	lecture := api.Group("/lectures")
 	lecture.Post("/", masjidkuMiddleware.IsMasjidAdmin(), lectureCtrl.CreateLecture)
 	lecture.Get("/by-masjid",masjidkuMiddleware.IsMasjidAdmin(), lectureCtrl.GetByMasjidID)
+	lecture.Get("/:id", masjidkuMiddleware.IsMasjidAdmin(), lectureCtrl.GetLectureByID)
 	lecture.Put("/:id", masjidkuMiddleware.IsMasjidAdmin(), lectureCtrl.UpdateLecture)
 	lecture.Delete("/:id", masjidkuMiddleware.IsMasjidAdmin(), lectureCtrl.DeleteLecture)
 
