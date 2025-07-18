@@ -3,8 +3,6 @@ CREATE TABLE IF NOT EXISTS lectures (
   lecture_title VARCHAR(255) NOT NULL,
   lecture_description TEXT,
   total_lecture_sessions INTEGER, -- Total sesi jika kajian terbatas
-  lecture_is_recurring BOOLEAN DEFAULT FALSE, -- Apakah kajian berulang?
-  lecture_recurrence_interval INTEGER, -- Jumlah hari antar pertemuan jika berulang
   lecture_image_url TEXT, -- Gambar utama kajian
   lecture_teachers JSONB, -- List pengajar: [{"id": "...", "name": "..."}, ...]
   lecture_masjid_id UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE,
@@ -16,7 +14,6 @@ CREATE TABLE IF NOT EXISTS lectures (
   lecture_payment_deadline TIMESTAMP, -- batas bayar jika ada
 
   lecture_capacity INT,
-  lecture_is_public BOOLEAN DEFAULT TRUE, -- sesi tetap bisa publik/privat
 
   -- 📌 Status aktif
   lecture_is_active BOOLEAN DEFAULT TRUE,

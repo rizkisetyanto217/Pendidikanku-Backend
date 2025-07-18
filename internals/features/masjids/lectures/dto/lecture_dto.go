@@ -74,8 +74,6 @@ func (r *LectureRequest) ToModel() *model.LectureModel {
 		LectureDescription:           r.LectureDescription,
 		LectureMasjidID:              r.LectureMasjidID,
 		TotalLectureSessions:         r.TotalLectureSessions,
-		LectureIsRecurring:           r.LectureIsRecurring,
-		LectureRecurrenceInterval:    r.LectureRecurrenceInterval,
 		LectureImageURL:              r.LectureImageURL,
 		LectureTeachers:              datatypes.JSON(teacherJSON),
 		LectureIsRegistrationRequired: r.LectureIsRegistrationRequired,
@@ -83,7 +81,6 @@ func (r *LectureRequest) ToModel() *model.LectureModel {
 		LecturePrice:                 r.LecturePrice,
 		LecturePaymentDeadline:       r.LecturePaymentDeadline,
 		LectureCapacity:              r.LectureCapacity,
-		LectureIsPublic:              r.LectureIsPublic,
 		LectureIsActive:              r.LectureIsActive,
 	}
 }
@@ -112,8 +109,6 @@ func ToLectureResponse(m *model.LectureModel) *LectureResponse {
 		LectureDescription:          m.LectureDescription,
 		LectureMasjidID:             m.LectureMasjidID,
 		TotalLectureSessions:        m.TotalLectureSessions,
-		LectureIsRecurring:          m.LectureIsRecurring,
-		LectureRecurrenceInterval:   m.LectureRecurrenceInterval,
 		LectureImageURL:             m.LectureImageURL,
 		LectureTeachers:             teachers,
 		LectureIsRegistrationRequired: m.LectureIsRegistrationRequired,
@@ -121,7 +116,6 @@ func ToLectureResponse(m *model.LectureModel) *LectureResponse {
 		LecturePrice:                m.LecturePrice,
 		LecturePaymentDeadline:      m.LecturePaymentDeadline,
 		LectureCapacity:             m.LectureCapacity,
-		LectureIsPublic:             m.LectureIsPublic,
 		LectureIsActive:             m.LectureIsActive,
 		LectureIsCertificateGenerated: m.LectureIsCerticateGenerated,
 		LectureCreatedAt:            m.LectureCreatedAt.Format("2006-01-02 15:04:05"),

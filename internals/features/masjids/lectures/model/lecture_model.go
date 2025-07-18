@@ -13,8 +13,6 @@ type LectureModel struct {
 	LectureTitle                 string         `gorm:"column:lecture_title;type:varchar(255);not null" json:"lecture_title"`
 	LectureDescription           string         `gorm:"column:lecture_description;type:text" json:"lecture_description"`
 	TotalLectureSessions         *int           `gorm:"column:total_lecture_sessions" json:"total_lecture_sessions,omitempty"`
-	LectureIsRecurring           bool           `gorm:"column:lecture_is_recurring;default:false" json:"lecture_is_recurring"`
-	LectureRecurrenceInterval    *int           `gorm:"column:lecture_recurrence_interval" json:"lecture_recurrence_interval,omitempty"`
 	LectureImageURL              *string        `gorm:"column:lecture_image_url;type:text" json:"lecture_image_url,omitempty"`
 	LectureTeachers              datatypes.JSON `gorm:"column:lecture_teachers;type:jsonb" json:"lecture_teachers,omitempty"`
 	LectureMasjidID              uuid.UUID      `gorm:"column:lecture_masjid_id;type:uuid;not null" json:"lecture_masjid_id"`
@@ -27,14 +25,13 @@ type LectureModel struct {
 
 	// Kapasitas & visibilitas
 	LectureCapacity  *int  `gorm:"column:lecture_capacity" json:"lecture_capacity,omitempty"`
-	LectureIsPublic  bool  `gorm:"column:lecture_is_public;default:true" json:"lecture_is_public"`
 	LectureIsActive  bool  `gorm:"column:lecture_is_active;default:true" json:"lecture_is_active"`
 	LectureIsCerticateGenerated bool `gorm:"column:lecture_is_certificate_generated;default:false" json:"lecture_is_certificate_generated"`
 
 	// Timestamps
 	LectureCreatedAt time.Time  `gorm:"column:lecture_created_at;autoCreateTime" json:"lecture_created_at"`
 	LectureUpdatedAt *time.Time `gorm:"column:lecture_updated_at;autoUpdateTime" json:"lecture_updated_at,omitempty"`
-	DeletedAt gorm.DeletedAt `gorm:"column:lecture_deleted_at" json:"lecture_deleted_at,omitempty"`
+	DeletedAt gorm.DeletedAt `gorm:"column:lecture_deleted_at;softDelete" json:"lecture_deleted_at,omitempty"`
 
 }
 
