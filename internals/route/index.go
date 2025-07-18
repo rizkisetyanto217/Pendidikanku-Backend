@@ -66,7 +66,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	log.Println("[INFO] Setting up HomeRoutes (admin)...")
 	admin := app.Group("/api/a",
 		authMiddleware.AuthMiddleware(db),
-		masjidkuMiddleware.IsMasjidAdmin(db),
+		masjidkuMiddleware.IsMasjidAdmin(),
 	)
 	routeDetails.HomeAdminRoutes(admin, db)
 }

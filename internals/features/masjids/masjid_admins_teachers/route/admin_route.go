@@ -19,7 +19,7 @@ func MasjidAdminRoutes(api fiber.Router, db *gorm.DB) {
 	ctrl2 := controller.NewMasjidTeacherController(db)
 
 	teachers := api.Group("/masjid-teachers")
-	teachers.Post("/",masjidkuMiddleware.IsMasjidAdmin(db), ctrl2.Create)
-	teachers.Get("/by-masjid", masjidkuMiddleware.IsMasjidAdmin(db), ctrl2.GetByMasjid)
-	teachers.Delete("/:id", masjidkuMiddleware.IsMasjidAdmin(db), ctrl2.Delete)
+	teachers.Post("/",masjidkuMiddleware.IsMasjidAdmin(), ctrl2.Create)
+	teachers.Get("/by-masjid", masjidkuMiddleware.IsMasjidAdmin(), ctrl2.GetByMasjid)
+	teachers.Delete("/:id", masjidkuMiddleware.IsMasjidAdmin(), ctrl2.Delete)
 }

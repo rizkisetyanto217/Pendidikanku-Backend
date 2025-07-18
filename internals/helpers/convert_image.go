@@ -31,10 +31,16 @@ func UploadImageToSupabase(folder string, fileHeader *multipart.FileHeader) (str
 		return "", fmt.Errorf("gagal membaca file gambar: %w", err)
 	}
 
-	filename := GenerateUniqueFilename(folder, fileHeader.Filename) // tanpanya .webp
+	// ✅ Validasi ukuran maksimal 300KB
+	// const maxSize = 300 * 1024
+	// if buf.Len() > maxSize {
+	// 	return "", fmt.Errorf("ukuran gambar melebihi 200KB (%dKB)", buf.Len()/1024)
+	// }
+
+	filename := GenerateUniqueFilename(folder, fileHeader.Filename)
 	contentType := fileHeader.Header.Get("Content-Type")
 
-	// ✅ Gunakan bucket "image"
+	// Upload ke Supabase
 	if err := UploadToSupabase("image", filename, contentType, buf); err != nil {
 		return "", fmt.Errorf("upload gambar gagal: %w", err)
 	}
@@ -46,6 +52,7 @@ func UploadImageToSupabase(folder string, fileHeader *multipart.FileHeader) (str
 
 	return publicURL, nil
 }
+
 
 
 // // ✅ Upload image setelah resize + kompresi WebP maksimal 65KB

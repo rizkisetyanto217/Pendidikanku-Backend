@@ -3,8 +3,9 @@ package controller
 import (
 	"masjidku_backend/internals/features/masjids/lectures/dto"
 	"masjidku_backend/internals/features/masjids/lectures/model"
-
+	helper "masjidku_backend/internals/helpers"
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -42,21 +43,62 @@ func (ctrl *LectureController) GetAllLectures(c *fiber.Ctx) error {
 
 // 🟢 POST /api/a/lectures
 func (ctrl *LectureController) CreateLecture(c *fiber.Ctx) error {
-	var req dto.LectureRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(400).JSON(fiber.Map{"message": "Permintaan tidak valid", "error": err.Error()})
+	// Validasi user login
+	userIDRaw := c.Locals("user_id")
+	if userIDRaw == nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "User belum login")
 	}
 
-	newLecture := req.ToModel()
-	if err := ctrl.DB.Create(newLecture).Error; err != nil {
-		return c.Status(500).JSON(fiber.Map{"message": "Gagal menyimpan data", "error": err.Error()})
+	// Ambil masjid_id dari token
+	masjidIDs, ok := c.Locals("masjid_admin_ids").([]string)
+	if !ok || len(masjidIDs) == 0 {
+		return fiber.NewError(fiber.StatusBadRequest, "Masjid ID tidak ditemukan di token")
+	}
+	masjidID, err := uuid.Parse(masjidIDs[0])
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Masjid ID tidak valid")
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Kajian berhasil dibuat",
-		"data":    dto.ToLectureResponse(newLecture),
-	})
+	// Ambil nilai dari form-data
+	title := c.FormValue("lecture_title")
+	description := c.FormValue("lecture_description")
+	isActive := c.FormValue("lecture_is_active") == "true"
+
+	// Upload gambar jika ada
+	var imageURL *string
+	if file, err := c.FormFile("lecture_image_url"); err == nil && file != nil {
+		url, err := helper.UploadImageToSupabase("lectures", file)
+		if err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal upload gambar")
+		}
+		imageURL = &url
+	} else if val := c.FormValue("lecture_image_url"); val != "" {
+		imageURL = &val
+	}
+
+	// Validasi minimal judul
+	if title == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Judul tema kajian wajib diisi")
+	}
+
+	// Buat model baru
+	newLecture := model.LectureModel{
+		LectureTitle:       title,
+		LectureDescription: description,
+		LectureMasjidID:    masjidID,
+		LectureImageURL:    imageURL,
+		LectureIsActive:    isActive,
+	}
+
+	// Simpan ke database
+	if err := ctrl.DB.Create(&newLecture).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat tema kajian")
+	}
+
+	// Kirim response
+	return c.Status(fiber.StatusCreated).JSON(dto.ToLectureResponse(&newLecture))
 }
+
 
 // ✅ GET /api/a/lectures/by-masjid
 func (ctrl *LectureController) GetByMasjidID(c *fiber.Ctx) error {
