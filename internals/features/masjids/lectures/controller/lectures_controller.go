@@ -4,6 +4,9 @@ import (
 	"masjidku_backend/internals/features/masjids/lectures/dto"
 	"masjidku_backend/internals/features/masjids/lectures/model"
 	helper "masjidku_backend/internals/helpers"
+	"net/url"
+	"strings"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -152,40 +155,105 @@ func (ctrl *LectureController) GetLectureByID(c *fiber.Ctx) error {
 	})
 }
 
-// 🟡 PUT /api/a/lectures/:id
+// ✅ PUT /api/a/lectures/:id
 func (ctrl *LectureController) UpdateLecture(c *fiber.Ctx) error {
 	lectureID := c.Params("id")
-	var req dto.LectureRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(400).JSON(fiber.Map{"message": "Permintaan tidak valid", "error": err.Error()})
+
+	// 🔍 Cari entri lama
+	var existing model.LectureModel
+	if err := ctrl.DB.First(&existing, "lecture_id = ?", lectureID).Error; err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "Tema kajian tidak ditemukan")
 	}
 
-	var lecture model.LectureModel
-	if err := ctrl.DB.First(&lecture, "lecture_id = ?", lectureID).Error; err != nil {
-		return c.Status(404).JSON(fiber.Map{"message": "Kajian tidak ditemukan", "error": err.Error()})
+	// 📝 Update field jika dikirim
+	if val := c.FormValue("lecture_title"); val != "" {
+		existing.LectureTitle = val
+	}
+	if val := c.FormValue("lecture_description"); val != "" {
+		existing.LectureDescription = val
 	}
 
-	// Update dengan data baru
-	updatedLecture := req.ToModel()
-	updatedLecture.LectureID = lecture.LectureID // tetap pakai ID lama
+	// 🖼️ Handle gambar jika ada file baru
+	if file, err := c.FormFile("lecture_image_url"); err == nil && file != nil {
+		// 🔁 Hapus gambar lama dari Supabase jika ada
+		if existing.LectureImageURL != nil {
+			parsed, err := url.Parse(*existing.LectureImageURL)
+			if err == nil {
+				rawPath := parsed.Path // /storage/v1/object/public/image/lectures%2Fxxx.png
+				prefix := "/storage/v1/object/public/"
+				cleaned := strings.TrimPrefix(rawPath, prefix) // image/lectures%2Fxxx.png
 
-	if err := ctrl.DB.Model(&lecture).Updates(updatedLecture).Error; err != nil {
-		return c.Status(500).JSON(fiber.Map{"message": "Gagal memperbarui data", "error": err.Error()})
+				// Decode agar %2F jadi /
+				unescaped, err := url.QueryUnescape(cleaned)
+				if err == nil {
+					parts := strings.SplitN(unescaped, "/", 2)
+					if len(parts) == 2 {
+						bucket := parts[0]      // "image"
+						objectPath := parts[1]  // "lectures/xxx.png"
+						_ = helper.DeleteFromSupabase(bucket, objectPath)
+					}
+				}
+			}
+		}
+
+		// ⬆️ Upload gambar baru
+		newURL, err := helper.UploadImageToSupabase("lectures", file)
+		if err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal upload gambar")
+		}
+		existing.LectureImageURL = &newURL
+	}
+
+	// 💾 Simpan ke DB
+	if err := ctrl.DB.Save(&existing).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal update tema kajian")
 	}
 
 	return c.JSON(fiber.Map{
-		"message": "Kajian berhasil diperbarui",
-		"data":    dto.ToLectureResponse(&lecture),
+		"message": "Tema kajian berhasil diperbarui",
+		"data":    dto.ToLectureResponse(&existing),
 	})
 }
+
+
 
 // 🔴 DELETE /api/a/lectures/:id
 func (ctrl *LectureController) DeleteLecture(c *fiber.Ctx) error {
 	lectureID := c.Params("id")
 
-	if err := ctrl.DB.Delete(&model.LectureModel{}, "lecture_id = ?", lectureID).Error; err != nil {
-		return c.Status(500).JSON(fiber.Map{"message": "Gagal menghapus kajian", "error": err.Error()})
+	// 🔍 Cek dulu apakah kajian ditemukan
+	var existing model.LectureModel
+	if err := ctrl.DB.First(&existing, "lecture_id = ?", lectureID).Error; err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "Kajian tidak ditemukan")
 	}
 
-	return c.JSON(fiber.Map{"message": "Kajian berhasil dihapus"})
+	// 🗑️ Hapus gambar dari Supabase kalau ada
+	if existing.LectureImageURL != nil {
+		parsed, err := url.Parse(*existing.LectureImageURL)
+		if err == nil {
+			rawPath := parsed.Path // /storage/v1/object/public/image/lectures%2Fxxx.png
+			prefix := "/storage/v1/object/public/"
+			cleaned := strings.TrimPrefix(rawPath, prefix) // image/lectures%2Fxxx.png
+
+			// Decode agar %2F jadi /
+			unescaped, err := url.QueryUnescape(cleaned)
+			if err == nil {
+				parts := strings.SplitN(unescaped, "/", 2)
+				if len(parts) == 2 {
+					bucket := parts[0]        // image
+					objectPath := parts[1]    // lectures/xxx.png
+					_ = helper.DeleteFromSupabase(bucket, objectPath)
+				}
+			}
+		}
+	}
+
+	// 🔴 Hapus dari database
+	if err := ctrl.DB.Delete(&existing).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus kajian")
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Kajian berhasil dihapus",
+	})
 }

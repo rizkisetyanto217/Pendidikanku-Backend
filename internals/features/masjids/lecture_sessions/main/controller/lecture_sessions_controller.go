@@ -334,9 +334,7 @@ func (ctrl *LectureSessionController) GetByLectureID(c *fiber.Ctx) error {
 }
 
 
-// ================================
-// UPDATE
-// ================================
+// ✅ PUT /api/a/lecture-sessions/:id
 func (ctrl *LectureSessionController) UpdateLectureSession(c *fiber.Ctx) error {
 	// Ambil ID dari param
 	idParam := c.Params("id")
@@ -385,37 +383,43 @@ func (ctrl *LectureSessionController) UpdateLectureSession(c *fiber.Ctx) error {
 		}
 	}
 
-	// 🔁 Handle gambar
+	// 🖼️ Handle gambar jika ada file baru
 	if file, err := c.FormFile("lecture_session_image_url"); err == nil && file != nil {
-		// Hapus gambar lama jika ada
+		// 🔁 Hapus gambar lama dari Supabase jika ada
 		if existing.LectureSessionImageURL != nil {
 			parsed, err := url.Parse(*existing.LectureSessionImageURL)
 			if err == nil {
-				segments := strings.Split(parsed.Path, "/object/public/")
-				if len(segments) == 2 {
-					// contoh path: "lecture_sessions/nama-file.webp"
-					path := segments[1]
-					_ = helper.DeleteFromSupabase("lecture_sessions", path)
+				rawPath := parsed.Path // /storage/v1/object/public/image/lecture_sessions%2Fxxx.png
+				prefix := "/storage/v1/object/public/"
+				cleaned := strings.TrimPrefix(rawPath, prefix)
+
+				unescaped, err := url.QueryUnescape(cleaned)
+				if err == nil {
+					parts := strings.SplitN(unescaped, "/", 2)
+					if len(parts) == 2 {
+						bucket := parts[0]      // "image"
+						objectPath := parts[1]  // "lecture_sessions/xxx.png"
+						_ = helper.DeleteFromSupabase(bucket, objectPath)
+					}
 				}
 			}
 		}
 
-		// Upload gambar baru
-		url, err := helper.UploadImageToSupabase("lecture_sessions", file)
+		// ⬆️ Upload gambar baru
+		newURL, err := helper.UploadImageToSupabase("lecture_sessions", file)
 		if err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal upload gambar")
 		}
-		existing.LectureSessionImageURL = &url
+		existing.LectureSessionImageURL = &newURL
 	}
 
-	// Simpan perubahan
+	// 💾 Simpan perubahan
 	if err := ctrl.DB.Save(&existing).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal update sesi kajian")
 	}
 
 	return c.JSON(dto.ToLectureSessionDTO(existing))
 }
-
 
 
 
@@ -465,18 +469,38 @@ func (ctrl *LectureSessionController) ApproveLectureSession(c *fiber.Ctx) error 
 	return c.JSON(dto.ToLectureSessionDTO(session))
 }
 
-
-// ================================
-// DELETE
-// ================================
+// 🔴 DELETE /api/a/lecture-sessions/:id
 func (ctrl *LectureSessionController) DeleteLectureSession(c *fiber.Ctx) error {
-	idParam := c.Params("id")
-	sessionID, err := uuid.Parse(idParam)
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+	sessionID := c.Params("id")
+
+	// 🔍 Ambil sesi kajian
+	var existing model.LectureSessionModel
+	if err := ctrl.DB.First(&existing, "lecture_session_id = ?", sessionID).Error; err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
 	}
 
-	if err := ctrl.DB.Delete(&model.LectureSessionModel{}, "lecture_session_id = ?", sessionID).Error; err != nil {
+	// 🗑️ Hapus gambar dari Supabase jika ada
+	if existing.LectureSessionImageURL != nil {
+		parsed, err := url.Parse(*existing.LectureSessionImageURL)
+		if err == nil {
+			rawPath := parsed.Path // /storage/v1/object/public/image/lecture_sessions%2Fxxx.png
+			prefix := "/storage/v1/object/public/"
+			cleaned := strings.TrimPrefix(rawPath, prefix)
+
+			unescaped, err := url.QueryUnescape(cleaned)
+			if err == nil {
+				parts := strings.SplitN(unescaped, "/", 2)
+				if len(parts) == 2 {
+					bucket := parts[0]
+					objectPath := parts[1]
+					_ = helper.DeleteFromSupabase(bucket, objectPath)
+				}
+			}
+		}
+	}
+
+	// ❌ Hapus dari DB
+	if err := ctrl.DB.Delete(&existing).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus sesi kajian")
 	}
 
