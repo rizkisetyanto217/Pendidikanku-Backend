@@ -1,6 +1,7 @@
 package details
 
 import (
+	DonationRoutes "masjidku_backend/internals/features/donations/donations/routes"
 	AdviceRoutes "masjidku_backend/internals/features/home/advices/route"
 	ArticleRoutes "masjidku_backend/internals/features/home/articles/route"
 	FaqRoutes "masjidku_backend/internals/features/home/faqs/route"
@@ -22,7 +23,7 @@ func HomePublicRoutes(api fiber.Router, db *gorm.DB) {
 	PostRoutes.AllPostRoutes(api, db)
 	QuestionnaireRoutes.AllQuestionnaireQuestionRoutes(api, db)
 	NotificationRoutes.AllNotificationRoutes(api, db)
-	
+	DonationRoutes.DonationRoutes(api, db)
 }
 
 // ✅ Untuk route user login (dengan token)
