@@ -9,6 +9,7 @@ import (
 
 func AllLectureSessionRoutes(user fiber.Router, db *gorm.DB) {
 	lectureSessionCtrl := controller.NewLectureSessionController(db)
+	lectureSessionCtrl2 := controller.NewLectureSessionUserController(db)
 	userLectureSessionCtrl := controller.NewUserLectureSessionController(db)
 
 	// 📚 Group: /lecture-sessions
@@ -16,8 +17,14 @@ func AllLectureSessionRoutes(user fiber.Router, db *gorm.DB) {
 	session.Get("/", lectureSessionCtrl.GetAllLectureSessions)    // 📄 Lihat semua sesi
 
 	session.Get("/by-masjid", lectureSessionCtrl.GetLectureSessionsByMasjidID)
-	session.Post("/by-lecture-sessions", lectureSessionCtrl.GetByLectureID)
+	session.Get("/lecture-sessions", lectureSessionCtrl.GetByLectureID)
 	session.Get("/by-lecture-sessions/:lecture_id", lectureSessionCtrl.GetLectureSessionsByLectureID)
+
+
+	// 👥 Group: /user-lecture-sessions
+	sessionUser := user.Group("/lecture-sessions-u")
+	sessionUser.Get("/:id", lectureSessionCtrl2.GetLectureSessionsByMasjidIDParam)
+
 
 	// 👥 Group: /user-lecture-sessions
 	userSession := user.Group("/user-lecture-sessions")

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -105,11 +106,20 @@ func UploadImageToSupabase(folder string, fileHeader *multipart.FileHeader) (str
 // }
 
 // ✅ Buat nama unik
+func sanitizeFilename(filename string) string {
+	// Hapus karakter selain huruf, angka, titik, dash, underscore
+	re := regexp.MustCompile(`[^a-zA-Z0-9.\-_]+`)
+	safe := re.ReplaceAllString(filename, "_")
+	return safe
+}
+
 func GenerateUniqueFilename(folder, originalFilename string) string {
 	timestamp := time.Now().Format("20060102")
 	uuidStr := uuid.New().String()
-	return fmt.Sprintf("%s/%s-%s", folder, timestamp, uuidStr+"-"+originalFilename)
+	safeFilename := sanitizeFilename(originalFilename)
+	return fmt.Sprintf("%s/%s-%s-%s", folder, timestamp, uuidStr, safeFilename)
 }
+
 
 func UploadToSupabase(bucket, filename, contentType string, data *bytes.Buffer) error {
 	supabaseURL := os.Getenv("SUPABASE_PROJECT_URL")
@@ -208,4 +218,32 @@ func ExtractSupabaseStoragePath(fullURL string) string {
 		return parts[1]
 	}
 	return ""
+}
+
+
+func UploadFileToSupabase(folder string, fileHeader *multipart.FileHeader) (string, error) {
+	src, err := fileHeader.Open()
+	if err != nil {
+		return "", fmt.Errorf("gagal membuka file: %w", err)
+	}
+	defer src.Close()
+
+	buf := new(bytes.Buffer)
+	if _, err := io.Copy(buf, src); err != nil {
+		return "", fmt.Errorf("gagal membaca isi file: %w", err)
+	}
+
+	filename := GenerateUniqueFilename(folder, fileHeader.Filename)
+	contentType := fileHeader.Header.Get("Content-Type")
+
+	if err := UploadToSupabase("file", filename, contentType, buf); err != nil {
+		return "", fmt.Errorf("upload file gagal: %w", err)
+	}
+
+	publicURL := fmt.Sprintf("%s/storage/v1/object/public/file/%s",
+		os.Getenv("SUPABASE_PROJECT_URL"),
+		url.PathEscape(filename),
+	)
+
+	return publicURL, nil
 }

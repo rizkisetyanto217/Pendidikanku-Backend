@@ -1,10 +1,12 @@
 package controller
 
 import (
+	"encoding/json"
 	"log"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
-	LectureModel "masjidku_backend/internals/features/masjids/lectures/model"
+
+	lectureModel "masjidku_backend/internals/features/masjids/lectures/model"
 	helper "masjidku_backend/internals/helpers"
 	"net/url"
 	"strings"
@@ -20,9 +22,12 @@ type LectureSessionController struct {
 	DB *gorm.DB
 }
 
+
 func NewLectureSessionController(db *gorm.DB) *LectureSessionController {
 	return &LectureSessionController{DB: db}
 }
+
+
 
 func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 	// Validasi user login
@@ -70,20 +75,17 @@ func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Format waktu selesai tidak valid")
 	}
 
-	// Upload gambar jika ada
-	var imageURL *string
-	if file, err := c.FormFile("lecture_session_image_url"); err == nil && file != nil {
-		url, err := helper.UploadImageToSupabase("lecture_sessions", file)
-
-		if err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal upload gambar")
-		}
-		imageURL = &url
-	} else if val := c.FormValue("lecture_session_image_url"); val != "" {
-		imageURL = &val
+	// JSON guru untuk lecture_teachers
+	teacherObj := map[string]string{
+		"id":   teacherID.String(),
+		"name": teacherName,
+	}
+	teacherJSON, err := json.Marshal(teacherObj)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal konversi teacher ke JSON")
 	}
 
-	// Buat objek session
+	// Buat objek session (tanpa gambar dulu)
 	newSession := model.LectureSessionModel{
 		LectureSessionTitle:       title,
 		LectureSessionDescription: description,
@@ -95,7 +97,6 @@ func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 		LectureSessionLectureID:   &lectureID,
 		LectureSessionMasjidID:    masjidID,
 		LectureSessionIsActive:    true,
-		LectureSessionImageURL:    imageURL,
 	}
 
 	// Jika waktu verifikasi oleh guru dikirim
@@ -106,14 +107,59 @@ func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 		}
 	}
 
-	// Simpan ke DB
-	if err := ctrl.DB.Create(&newSession).Error; err != nil {
+	err = ctrl.DB.Transaction(func(tx *gorm.DB) error {
+		// Simpan sesi dulu (tanpa gambar)
+		if err := tx.Create(&newSession).Error; err != nil {
+			return err
+		}
+
+		// Tambah 1 sesi ke tema kajian
+		if err := tx.Model(&lectureModel.LectureModel{}).
+			Where("lecture_id = ?", lectureID).
+			UpdateColumn("total_lecture_sessions", gorm.Expr("COALESCE(total_lecture_sessions, 0) + 1")).Error; err != nil {
+			return err
+		}
+
+		// Tambahkan pengajar ke lecture_teachers (JSONB array)
+		if err := tx.Exec(`
+			UPDATE lectures
+			SET lecture_teachers = CASE
+				WHEN lecture_teachers IS NULL THEN jsonb_build_array(?::jsonb)
+				WHEN NOT (lecture_teachers @> ?::jsonb) THEN lecture_teachers || ?::jsonb
+				ELSE lecture_teachers
+			END
+			WHERE lecture_id = ?
+		`, string(teacherJSON), string(teacherJSON), string(teacherJSON), lectureID).Error; err != nil {
+			return err
+		}
+
+		// Upload gambar hanya setelah semua DB logic aman
+		if file, err := c.FormFile("lecture_session_image_url"); err == nil && file != nil {
+			url, err := helper.UploadImageToSupabase("lecture_sessions", file)
+			if err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal upload gambar")
+			}
+			// Update field image di sesi yang sudah dibuat
+			if err := tx.Model(&newSession).Update("lecture_session_image_url", url).Error; err != nil {
+				return err
+			}
+			newSession.LectureSessionImageURL = &url
+		} else if val := c.FormValue("lecture_session_image_url"); val != "" {
+			if err := tx.Model(&newSession).Update("lecture_session_image_url", val).Error; err != nil {
+				return err
+			}
+			newSession.LectureSessionImageURL = &val
+		}
+
+		return nil
+	})
+
+	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat sesi kajian")
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(dto.ToLectureSessionDTO(newSession))
 }
-
 
 // ================================
 // GET Detail Lecture Session by ID
@@ -148,7 +194,7 @@ func (ctrl *LectureSessionController) GetLectureSessionsByLectureID(c *fiber.Ctx
 	}
 
 	// ✅ Cek apakah lecture_id valid dan milik masjid yang ada
-	var lecture LectureModel.LectureModel
+	var lecture lectureModel.LectureModel
 	if err := ctrl.DB.
 		Where("lecture_id = ?", lectureID).
 		First(&lecture).Error; err != nil {
