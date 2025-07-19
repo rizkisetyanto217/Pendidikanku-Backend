@@ -45,13 +45,10 @@ func DonationRoutes(api fiber.Router, db *gorm.DB) {
 	// Initialize donation controller
 	donationCtrl := donationController.NewDonationController(db)
 
-	// Group routes under "/donations"
-	donationRoutes := api.Group("/donations")
-
 	// Define the donation routes
-	donationRoutes.Post("/", donationCtrl.CreateDonation)                   // Create donation + Snap token
-	donationRoutes.Get("/", donationCtrl.GetAllDonations)                   // Get all donations
-	donationRoutes.Get("/user/:user_id", donationCtrl.GetDonationsByUserID) // Get donations by user
+	api.Post("/", donationCtrl.CreateDonation)                   // Create donation + Snap token
+	api.Get("/", donationCtrl.GetAllDonations)                   // Get all donations
+	api.Get("/user/:user_id", donationCtrl.GetDonationsByUserID) // Get donations by user
 
 	// Add route for Midtrans webhook to handle payment status updates
 	api.Post("/midtrans/webhook", donationCtrl.HandleMidtransNotification) // Midtrans Webhook

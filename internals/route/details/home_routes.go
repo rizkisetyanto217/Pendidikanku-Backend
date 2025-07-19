@@ -10,6 +10,8 @@ import (
 	QouteRoutes "masjidku_backend/internals/features/home/qoutes/route"
 	QuestionnaireRoutes "masjidku_backend/internals/features/home/questionnaires/route"
 
+	DBMiddleware "masjidku_backend/internals/middlewares"
+
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
@@ -17,14 +19,20 @@ import (
 // ✅ Untuk route publik tanpa token
 // Contoh akses: /public/quotes
 func HomePublicRoutes(api fiber.Router, db *gorm.DB) {
-	QouteRoutes.AllQuoteRoutes(api, db)
-	FaqRoutes.AllFaqQuestionRoutes(api, db)
-	ArticleRoutes.AllArticleRoutes(api, db)
-	PostRoutes.AllPostRoutes(api, db)
-	QuestionnaireRoutes.AllQuestionnaireQuestionRoutes(api, db)
-	NotificationRoutes.AllNotificationRoutes(api, db)
-	DonationRoutes.DonationRoutes(api, db)
+    // Route lainnya yang tidak membutuhkan DBMiddleware
+    QouteRoutes.AllQuoteRoutes(api, db)
+    FaqRoutes.AllFaqQuestionRoutes(api, db)
+    ArticleRoutes.AllArticleRoutes(api, db)
+    PostRoutes.AllPostRoutes(api, db)
+    QuestionnaireRoutes.AllQuestionnaireQuestionRoutes(api, db)
+    NotificationRoutes.AllNotificationRoutes(api, db)
+
+    // Hanya menambahkan DBMiddleware untuk DonationRoutes
+    donationRoutes := api.Group("/donations")
+    donationRoutes.Use(DBMiddleware.DBMiddleware(db)) // Apply DBMiddleware only for donation routes
+    DonationRoutes.DonationRoutes(donationRoutes, db)
 }
+
 
 // ✅ Untuk route user login (dengan token)
 // Contoh akses: /api/u/notifications
