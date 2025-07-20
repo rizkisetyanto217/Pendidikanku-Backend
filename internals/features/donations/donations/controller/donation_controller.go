@@ -116,7 +116,6 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 }
 
 
-
 // 🟢 HANDLE MIDTRANS WEBHOOK: Update status donasi berdasarkan notifikasi Midtrans
 func (ctrl *DonationController) HandleDonationStatusWebhook(db *gorm.DB, body map[string]interface{}) error {
 	// Pastikan `order_id` dan `transaction_status` ada dalam payload
@@ -127,9 +126,12 @@ func (ctrl *DonationController) HandleDonationStatusWebhook(db *gorm.DB, body ma
 		return fmt.Errorf("payload tidak valid: order_id atau transaction_status tidak ditemukan")
 	}
 
+	log.Printf("Processing webhook for order_id: %s with transaction_status: %s\n", orderID, transactionStatus)
+
 	// Cari donasi berdasarkan order ID
 	var donation model.Donation
 	if err := db.Where("donation_order_id = ?", orderID).First(&donation).Error; err != nil {
+		log.Printf("[ERROR] Donasi tidak ditemukan untuk order_id: %s\n", orderID)
 		return fmt.Errorf("donasi tidak ditemukan untuk order_id %s: %v", orderID, err)
 	}
 
@@ -145,8 +147,11 @@ func (ctrl *DonationController) HandleDonationStatusWebhook(db *gorm.DB, body ma
 
 	// Simpan perubahan status donasi ke database
 	if err := db.Save(&donation).Error; err != nil {
+		log.Printf("[ERROR] Gagal memperbarui status donasi untuk order_id: %s\n", orderID)
 		return fmt.Errorf("gagal memperbarui status donasi untuk order_id %s: %v", orderID, err)
 	}
+
+	log.Printf("Status donasi untuk order_id: %s berhasil diperbarui menjadi: %s\n", orderID, donation.DonationStatus)
 
 	return nil
 }
@@ -183,9 +188,9 @@ func (ctrl *DonationController) HandleMidtransNotification(c *fiber.Ctx) error {
 	}
 
 	// ✅ Kirim status berhasil ke Midtrans
+	log.Println("Webhook processed successfully")
 	return c.SendStatus(200)
 }
-
 
 
 // 🟢 GET ALL DONATIONS: Ambil seluruh data donasi (admin)
