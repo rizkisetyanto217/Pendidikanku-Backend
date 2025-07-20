@@ -7,7 +7,6 @@ import (
 	"masjidku_backend/internals/features/donations/donations/dto"
 	"masjidku_backend/internals/features/donations/donations/model"
 	donationService "masjidku_backend/internals/features/donations/donations/service"
-	modelMasjid "masjidku_backend/internals/features/masjids/masjids/model"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -136,27 +135,22 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 
 
 // 🟢 GET DONATIONS BY MASJID ID: Ambil semua donasi yang ditujukan ke masjid tertentu
-func (ctrl *DonationController) GetDonationsByMasjidSlug(c *fiber.Ctx) error {
-	slug := c.Params("slug")
-	if slug == "" {
+func (ctrl *DonationController) GetDonationsByMasjidID(c *fiber.Ctx) error {
+	// Ambil masjid_id dari parameter URL
+	masjidIDParam := c.Params("masjid_id")
+
+	// Validasi UUID masjid_id
+	masjidID, err := uuid.Parse(masjidIDParam)
+	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Slug masjid tidak boleh kosong",
+			"error": "Masjid ID tidak valid",
 		})
 	}
 
-	// 🔍 Cari masjid berdasarkan slug
-	var masjid modelMasjid.MasjidModel
-	if err := ctrl.DB.Where("masjid_slug = ?", slug).First(&masjid).Error; err != nil {
-		log.Println("[ERROR] Masjid dengan slug tidak ditemukan:", slug)
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "Masjid tidak ditemukan",
-		})
-	}
-
-	// 🧾 Cari donasi berdasarkan masjid_id
+	// Query donasi yang memiliki donation_masjid_id sesuai masjid
 	var donations []model.Donation
 	if err := ctrl.DB.
-		Where("donation_masjid_id = ?", masjid.MasjidID).
+		Where("donation_masjid_id = ?", masjidID).
 		Order("created_at desc").
 		Find(&donations).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
