@@ -1,10 +1,14 @@
 package controller
 
 import (
+	"fmt"
+	"log"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
+	lectureModel "masjidku_backend/internals/features/masjids/lectures/model"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -55,3 +59,95 @@ func (ctrl *LectureSessionUserController) GetLectureSessionsByMasjidIDParam(c *f
 		"data":    response,
 	})
 }
+
+
+
+
+// =============================
+// 📥 GET All Lecture Sessions by Lecture ID
+// =============================
+func (ctrl *LectureSessionController) GetLectureSessionsByLectureID(c *fiber.Ctx) error {
+	log.Println("📥 MASUK GetLectureSessionsByLectureID (Public)")
+
+	// Ambil lecture_id dari URL
+	lectureIDParam := c.Params("lecture_id")
+	lectureID, err := uuid.Parse(lectureIDParam)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Lecture ID tidak valid")
+	}
+
+	// ✅ Cek apakah lecture_id valid dan milik masjid yang ada
+	var lecture lectureModel.LectureModel
+	if err := ctrl.DB.
+		Where("lecture_id = ?", lectureID).
+		First(&lecture).Error; err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "Lecture tidak ditemukan")
+	}
+
+	// ✅ Ambil semua sesi berdasarkan lecture_id
+	var sessions []model.LectureSessionModel
+	if err := ctrl.DB.
+		Where("lecture_session_lecture_id = ? AND lecture_session_deleted_at IS NULL", lectureID).
+		Find(&sessions).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data sesi kajian")
+	}
+
+	// Konversi ke DTO
+	response := make([]dto.LectureSessionDTO, 0, len(sessions))
+	for _, s := range sessions {
+		response = append(response, dto.ToLectureSessionDTO(s))
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Daftar sesi kajian berhasil diambil",
+		"data":    response,
+	})
+}
+
+
+// ✅ GET lecture sessions by multiple lecture_session_ids (ringan, tanpa progress user)
+func (ctrl *LectureSessionController) GetByIDs(c *fiber.Ctx) error {
+	type RequestBody struct {
+		LectureSessionIDs []string `json:"lecture_session_ids"`
+	}
+
+	var body RequestBody
+	if err := c.BodyParser(&body); err != nil || len(body.LectureSessionIDs) == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Permintaan tidak valid, lecture_session_ids wajib diisi",
+		})
+	}
+
+	// Parsing string UUID ke uuid.UUID
+	var parsedIDs []uuid.UUID
+	for _, idStr := range body.LectureSessionIDs {
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"message": fmt.Sprintf("Lecture session ID tidak valid: %s", idStr),
+			})
+		}
+		parsedIDs = append(parsedIDs, id)
+	}
+
+	var sessions []model.LectureSessionModel
+	if err := ctrl.DB.
+		Where("lecture_session_id IN ?", parsedIDs).
+		Order("lecture_session_start_time ASC").
+		Find(&sessions).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Gagal mengambil data sesi kajian",
+		})
+	}
+
+	response := make([]dto.LectureSessionDTO, len(sessions))
+	for i, s := range sessions {
+		response[i] = dto.ToLectureSessionDTO(s)
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Berhasil mengambil data sesi kajian",
+		"data":    response,
+	})
+}
+

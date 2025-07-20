@@ -23,6 +23,7 @@ func NewDonationController(db *gorm.DB) *DonationController {
 }
 
 
+
 // 🟢 CREATE DONATION: Buat donasi baru & simpan snap token Midtrans, bisa tanpa login (guest) maupun dengan login (user)
 func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 	var body dto.CreateDonationRequest
@@ -76,9 +77,23 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 		DonationStatus:         "pending",          // Status masih pending karena belum ada pembayaran
 		DonationOrderID:        orderID,
 		DonationPaymentGateway: "midtrans",     
-		DonationMasjidID:       &body.DonationMasjidID, 
 	}
 
+	// Cek apakah DonationMasjidID ada dan valid, jika tidak, set sebagai NULL
+	if body.DonationMasjidID != "" {
+		// Convert DonationMasjidID ke UUID jika ada
+		masjidUUID, err := uuid.Parse(body.DonationMasjidID)
+		if err != nil {
+			log.Println("[ERROR] Invalid Masjid ID format:", err)
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid Masjid ID format",
+			})
+		}
+		donation.DonationMasjidID = &masjidUUID
+	} else {
+		// Jika tidak ada masjid yang dipilih, set donation_masjid_id ke NULL
+		donation.DonationMasjidID = nil
+	}
 
 	// 📂 Simpan donasi ke database
 	if err := ctrl.DB.Save(&donation).Error; err != nil {

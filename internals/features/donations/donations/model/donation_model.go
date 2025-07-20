@@ -18,7 +18,7 @@ type Donation struct {
 	DonationPaymentGateway string         `gorm:"column:donation_payment_gateway;type:varchar(50);default:'midtrans'" json:"donation_payment_gateway"` // Nama gateway
 	DonationPaymentMethod  string         `gorm:"column:donation_payment_method;type:varchar(50)" json:"donation_payment_method"`                      // Metode spesifik (gopay, va_bni)
 	DonationPaidAt         *time.Time     `gorm:"column:donation_paid_at" json:"donation_paid_at"` 
-	DonationMasjidID       *uuid.UUID     `gorm:"column:donation_masjid_id;type:uuid" json:"donation_masjid_id"` 
+	DonationMasjidID       *uuid.UUID     `gorm:"column:donation_masjid_id;type:uuid;null" json:"donation_masjid_id"` 
 	CreatedAt              time.Time      `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 	UpdatedAt              time.Time      `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
 	DeletedAt              gorm.DeletedAt `gorm:"column:deleted_at;index" json:"deleted_at,omitempty"`
