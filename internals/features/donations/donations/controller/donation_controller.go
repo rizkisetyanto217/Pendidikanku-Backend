@@ -93,31 +93,33 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 
 // 🟢 HANDLE MIDTRANS WEBHOOK: Update status donasi berdasarkan notifikasi Midtrans
 func (ctrl *DonationController) HandleDonationStatusWebhook(db *gorm.DB, body map[string]interface{}) error {
-	orderID := body["order_id"].(string)
-	transactionStatus := body["transaction_status"].(string)
+	// Pastikan `order_id` dan `transaction_status` ada dalam payload
+	orderID, orderExists := body["order_id"].(string)
+	transactionStatus, statusExists := body["transaction_status"].(string)
+
+	if !orderExists || !statusExists {
+		return fmt.Errorf("payload tidak valid: order_id atau transaction_status tidak ditemukan")
+	}
 
 	// Cari donasi berdasarkan order ID
 	var donation model.Donation
 	if err := db.Where("donation_order_id = ?", orderID).First(&donation).Error; err != nil {
-		return fmt.Errorf("donasi tidak ditemukan: %v", err)
+		return fmt.Errorf("donasi tidak ditemukan untuk order_id %s: %v", orderID, err)
 	}
 
 	// Update status donasi berdasarkan status transaksi
 	switch transactionStatus {
 	case "settlement", "success":
-		// Pembayaran berhasil
 		donation.DonationStatus = "completed"
 	case "failed", "cancelled":
-		// Pembayaran gagal
 		donation.DonationStatus = "failed"
 	default:
-		// Status lainnya, misalnya pending
 		donation.DonationStatus = "pending"
 	}
 
 	// Simpan perubahan status donasi ke database
 	if err := db.Save(&donation).Error; err != nil {
-		return fmt.Errorf("gagal memperbarui status donasi: %v", err)
+		return fmt.Errorf("gagal memperbarui status donasi untuk order_id %s: %v", orderID, err)
 	}
 
 	return nil
@@ -125,28 +127,37 @@ func (ctrl *DonationController) HandleDonationStatusWebhook(db *gorm.DB, body ma
 
 // 🟢 HANDLE MIDTRANS WEBHOOK: Update status donasi berdasarkan notifikasi Midtrans
 func (ctrl *DonationController) HandleMidtransNotification(c *fiber.Ctx) error {
-    // 🔄 Ambil payload dari webhook
-    var body map[string]interface{}
-    if err := c.BodyParser(&body); err != nil {
-        return c.Status(400).JSON(fiber.Map{
-            "error": "Invalid webhook",
-        })
-    }
+	// 🔄 Ambil payload dari webhook
+	var body map[string]interface{}
+	if err := c.BodyParser(&body); err != nil {
+		log.Println("[ERROR] Gagal memparsing body webhook:", err)
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid webhook",
+		})
+	}
 
-    // Log untuk memastikan payload yang diterima
-    log.Println("Received webhook:", body)
+	// Log untuk memastikan payload yang diterima
+	log.Println("Received webhook:", body)
 
-    // Ambil koneksi DB dari context (pastikan koneksi sudah diatur di middleware)
-    db := c.Locals("db").(*gorm.DB)
+	// Ambil koneksi DB dari context (pastikan koneksi sudah diatur di middleware)
+	db := c.Locals("db").(*gorm.DB)
+	if db == nil {
+		log.Println("[ERROR] Koneksi database tidak tersedia")
+		return c.Status(500).JSON(fiber.Map{
+			"error": "Koneksi database tidak tersedia",
+		})
+	}
 
-    // 🔁 Proses webhook untuk memperbarui status donasi
-    if err := ctrl.HandleDonationStatusWebhook(db, body); err != nil {
-        log.Println("[ERROR] Webhook gagal:", err)
-        return c.SendStatus(500)
-    }
+	// 🔁 Proses webhook untuk memperbarui status donasi
+	if err := ctrl.HandleDonationStatusWebhook(db, body); err != nil {
+		log.Println("[ERROR] Webhook gagal:", err)
+		return c.Status(500).JSON(fiber.Map{
+			"error": fmt.Sprintf("Webhook gagal: %v", err),
+		})
+	}
 
-    // ✅ Kirim status berhasil ke Midtrans
-    return c.SendStatus(200)
+	// ✅ Kirim status berhasil ke Midtrans
+	return c.SendStatus(200)
 }
 
 
