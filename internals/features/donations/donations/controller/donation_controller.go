@@ -35,8 +35,8 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 	}
 
 	// Validasi amount yang lebih besar dari 0
-	if body.Amount <= 0 {
-		log.Println("[ERROR] Amount must be greater than 0:", body.Amount)
+	if body.DonationAmount <= 0 {
+		log.Println("[ERROR] Amount must be greater than 0:", body.DonationAmount)
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Amount must be greater than 0",
 		})
@@ -70,13 +70,15 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 
 	// 🧹 Bangun entitas donasi
 	donation := model.Donation{
-		DonationUserID:         userUUID,      // Jika tidak login, userUUID = nil
-		DonationAmount:         body.Amount,
-		DonationMessage:        body.Message,
-		DonationStatus:         "pending",      // Status masih pending karena belum ada pembayaran
+		DonationUserID:         userUUID,          // Jika tidak login, userUUID = nil
+		DonationAmount:         body.DonationAmount,
+		DonationMessage:        body.DonationMessage,
+		DonationStatus:         "pending",          // Status masih pending karena belum ada pembayaran
 		DonationOrderID:        orderID,
-		DonationPaymentGateway: "midtrans",     // Menggunakan Midtrans sebagai gateway
+		DonationPaymentGateway: "midtrans",     
+		DonationMasjidID:       &body.DonationMasjidID, 
 	}
+
 
 	// 📂 Simpan donasi ke database
 	if err := ctrl.DB.Save(&donation).Error; err != nil {
@@ -88,7 +90,7 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 	log.Println("[INFO] Donasi berhasil disimpan dengan order ID:", donation.DonationOrderID)
 
 	// 🔐 Buat snap token Midtrans untuk pembayaran
-	token, err := donationService.GenerateSnapToken(donation, body.Name, body.Email)
+	token, err := donationService.GenerateSnapToken(donation, body.DonationName, body.DonationEmail)
 	if err != nil {
 		log.Println("[ERROR] Gagal membuat token pembayaran:", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{

@@ -17,38 +17,38 @@ var startTime time.Time
 func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	startTime = time.Now()
 
-	// // ===================== BASE =====================
-	// BaseRoutes(app, db)
+	// ===================== BASE =====================
+	BaseRoutes(app, db)
 
-	// // ===================== AUTH / USER =====================
-	// log.Println("[INFO] Setting up AuthRoutes...")
-	// routeDetails.AuthRoutes(app, db)
+	// ===================== AUTH / USER =====================
+	log.Println("[INFO] Setting up AuthRoutes...")
+	routeDetails.AuthRoutes(app, db)
 
-	// log.Println("[INFO] Setting up UserRoutes...")
-	// routeDetails.UserRoutes(app, db)
+	log.Println("[INFO] Setting up UserRoutes...")
+	routeDetails.UserRoutes(app, db)
 
-	// // ===================== GENERAL FEATURES =====================
-	// log.Println("[INFO] Setting up UtilsRoutes...")
-	// routeDetails.UtilsRoutes(app, db)
+	// ===================== GENERAL FEATURES =====================
+	log.Println("[INFO] Setting up UtilsRoutes...")
+	routeDetails.UtilsRoutes(app, db)
 
-	// log.Println("[INFO] Setting up CertificateRoutes...")
-	// routeDetails.CertificateRoutes(app, db)
+	log.Println("[INFO] Setting up CertificateRoutes...")
+	routeDetails.CertificateRoutes(app, db)
 
-	// // ===================== MASJID PAGE =====================
-	// log.Println("[INFO] Setting up MasjidRoutes (public)...")
-	// masjidPublic := app.Group("/public", authMiddleware.OptionalJWTMiddleware(db))
-	// routeDetails.MasjidPublicRoutes(masjidPublic, db)
+	// ===================== MASJID PAGE =====================
+	log.Println("[INFO] Setting up MasjidRoutes (public)...")
+	masjidPublic := app.Group("/public", authMiddleware.OptionalJWTMiddleware(db))
+	routeDetails.MasjidPublicRoutes(masjidPublic, db)
 
-	// log.Println("[INFO] Setting up MasjidRoutes (private)...")
-	// masjidPrivate := app.Group("/api/u", authMiddleware.AuthMiddleware(db))
-	// routeDetails.MasjidUserRoutes(masjidPrivate, db)
+	log.Println("[INFO] Setting up MasjidRoutes (private)...")
+	masjidPrivate := app.Group("/api/u", authMiddleware.AuthMiddleware(db))
+	routeDetails.MasjidUserRoutes(masjidPrivate, db)
 
-	// log.Println("[INFO] Setting up MasjidRoutes (admin)...")
-	// masjidAdmin := app.Group("/api/a",
-	// 	authMiddleware.AuthMiddleware(db),
-	// 	// masjidkuMiddleware.IsMasjidAdmin(),
-	// )
-	// routeDetails.MasjidAdminRoutes(masjidAdmin, db)
+	log.Println("[INFO] Setting up MasjidRoutes (admin)...")
+	masjidAdmin := app.Group("/api/a",
+		authMiddleware.AuthMiddleware(db),
+		// masjidkuMiddleware.IsMasjidAdmin(),
+	)
+	routeDetails.MasjidAdminRoutes(masjidAdmin, db)
 
 	// ===================== HOME GROUPS =====================
 
