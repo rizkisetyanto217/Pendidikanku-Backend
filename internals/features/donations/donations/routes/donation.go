@@ -50,6 +50,7 @@ func DonationRoutes(api fiber.Router, db *gorm.DB) {
 	api.Get("/", donationCtrl.GetAllDonations)                   // Get all donations
 	api.Get("/user/:user_id", donationCtrl.GetDonationsByUserID) // Get donations by user
 
+	api.Get("/masjid/:slug", donationCtrl.GetDonationsByMasjidSlug)
 	// Add route for Midtrans webhook to handle payment status updates
 	api.Post("/midtrans/webhook", donationCtrl.HandleMidtransNotification) // Midtrans Webhook
 }

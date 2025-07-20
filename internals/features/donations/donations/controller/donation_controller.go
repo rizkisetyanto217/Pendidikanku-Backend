@@ -7,6 +7,7 @@ import (
 	"masjidku_backend/internals/features/donations/donations/dto"
 	"masjidku_backend/internals/features/donations/donations/model"
 	donationService "masjidku_backend/internals/features/donations/donations/service"
+	modelMasjid "masjidku_backend/internals/features/masjids/masjids/model"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -21,7 +22,6 @@ type DonationController struct {
 func NewDonationController(db *gorm.DB) *DonationController {
 	return &DonationController{DB: db}
 }
-
 
 
 // 🟢 CREATE DONATION: Buat donasi baru & simpan snap token Midtrans, bisa tanpa login (guest) maupun dengan login (user)
@@ -132,6 +132,39 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 		"order_id":   donation.DonationOrderID,
 		"snap_token": token, // Snap token untuk pembayaran langsung
 	})
+}
+
+
+// 🟢 GET DONATIONS BY MASJID ID: Ambil semua donasi yang ditujukan ke masjid tertentu
+func (ctrl *DonationController) GetDonationsByMasjidSlug(c *fiber.Ctx) error {
+	slug := c.Params("slug")
+	if slug == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Slug masjid tidak boleh kosong",
+		})
+	}
+
+	// 🔍 Cari masjid berdasarkan slug
+	var masjid modelMasjid.MasjidModel
+	if err := ctrl.DB.Where("masjid_slug = ?", slug).First(&masjid).Error; err != nil {
+		log.Println("[ERROR] Masjid dengan slug tidak ditemukan:", slug)
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Masjid tidak ditemukan",
+		})
+	}
+
+	// 🧾 Cari donasi berdasarkan masjid_id
+	var donations []model.Donation
+	if err := ctrl.DB.
+		Where("donation_masjid_id = ?", masjid.MasjidID).
+		Order("created_at desc").
+		Find(&donations).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Gagal mengambil data donasi berdasarkan masjid",
+		})
+	}
+
+	return c.JSON(donations)
 }
 
 
