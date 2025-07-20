@@ -10,6 +10,7 @@ import (
 type Donation struct {
 	DonationID             uint           `gorm:"column:donation_id;primaryKey" json:"donation_id"`                                                    // ID unik donasi
 	DonationUserID         *uuid.UUID     `gorm:"column:donation_user_id;type:uuid" json:"donation_user_id,omitempty"`                                 // ID user yang berdonasi
+	DonationName           string         `gorm:"column:donation_name;type:varchar(50);not null" json:"donation_name"`                                // Nama donasi
 	DonationAmount         int            `gorm:"column:donation_amount;not null" json:"donation_amount"`                                              // Jumlah donasi (wajib)
 	DonationMessage        string         `gorm:"column:donation_message;type:text" json:"donation_message"`                                           // Pesan/ucapan (opsional)
 	DonationStatus         string         `gorm:"column:donation_status;type:varchar(20);default:'pending'" json:"donation_status"`                    // pending, paid, expired, etc.

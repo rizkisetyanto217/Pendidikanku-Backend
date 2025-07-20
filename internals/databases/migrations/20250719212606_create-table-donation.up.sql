@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS donations (
     donation_id SERIAL PRIMARY KEY,
-    donation_user_id UUID REFERENCES users(id) ON DELETE SET NULL, 
+    donation_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    donation_name VARCHAR(50) NOT NULL, 
     donation_amount INTEGER NOT NULL CHECK (donation_amount > 0), 
     donation_message TEXT, 
     donation_status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (

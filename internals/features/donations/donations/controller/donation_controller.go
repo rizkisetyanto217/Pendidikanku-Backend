@@ -72,9 +72,11 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 	// 🧹 Bangun entitas donasi
 	donation := model.Donation{
 		DonationUserID:         userUUID,          // Jika tidak login, userUUID = nil
+		DonationName:           body.DonationName,
 		DonationAmount:         body.DonationAmount,
 		DonationMessage:        body.DonationMessage,
 		DonationStatus:         "pending",          // Status masih pending karena belum ada pembayaran
+		// DonationMasjidID:       body.DonationMasjidID,
 		DonationOrderID:        orderID,
 		DonationPaymentGateway: "midtrans",     
 	}
