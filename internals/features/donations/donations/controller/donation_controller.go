@@ -21,21 +21,34 @@ type DonationController struct {
 func NewDonationController(db *gorm.DB) *DonationController {
 	return &DonationController{DB: db}
 }
+
+
 // 🟢 CREATE DONATION: Buat donasi baru & simpan snap token Midtrans, bisa tanpa login (guest) maupun dengan login (user)
 func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 	var body dto.CreateDonationRequest
+	// Mem-parsing body request
 	if err := c.BodyParser(&body); err != nil {
+		log.Println("[ERROR] Gagal mem-parsing request body:", err)
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Invalid request",
 		})
 	}
 
+	// Validasi amount yang lebih besar dari 0
+	if body.Amount <= 0 {
+		log.Println("[ERROR] Amount must be greater than 0:", body.Amount)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Amount must be greater than 0",
+		})
+	}
+
 	var userUUID *uuid.UUID
-	// 🔐 Jika pengguna login, ambil user ID dari JWT token
+	// Jika pengguna login, ambil user ID dari JWT token
 	userIDRaw := c.Locals("user_id")
 	if userIDRaw != nil {
 		userIDStr, ok := userIDRaw.(string)
 		if !ok || userIDStr == "" {
+			log.Println("[ERROR] User ID tidak valid:", userIDRaw)
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": "User ID tidak valid",
 			})
@@ -43,6 +56,7 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 		// Parse userID
 		parsedUUID, err := uuid.Parse(userIDStr)
 		if err != nil {
+			log.Println("[ERROR] User ID parsing failed:", err)
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error": "User ID dalam token tidak valid",
 			})
@@ -52,6 +66,7 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 
 	// 🧾 Generate order ID unik
 	orderID := fmt.Sprintf("DONATION-%d", time.Now().UnixNano())
+	log.Println("[INFO] Generated order ID:", orderID)
 
 	// 🧹 Bangun entitas donasi
 	donation := model.Donation{
@@ -64,23 +79,33 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 	}
 
 	// 📂 Simpan donasi ke database
-	if err := ctrl.DB.Create(&donation).Error; err != nil {
+	if err := ctrl.DB.Save(&donation).Error; err != nil {
+		log.Println("[ERROR] Gagal menyimpan donasi:", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Gagal menyimpan donasi",
 		})
 	}
+	log.Println("[INFO] Donasi berhasil disimpan dengan order ID:", donation.DonationOrderID)
 
 	// 🔐 Buat snap token Midtrans untuk pembayaran
 	token, err := donationService.GenerateSnapToken(donation, body.Name, body.Email)
 	if err != nil {
+		log.Println("[ERROR] Gagal membuat token pembayaran:", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Gagal membuat token pembayaran",
 		})
 	}
+	log.Println("[INFO] Snap token berhasil dibuat:", token)
 
 	// 📂 Update token pembayaran ke database
 	donation.DonationPaymentToken = token
-	ctrl.DB.Save(&donation)
+	if err := ctrl.DB.Save(&donation).Error; err != nil {
+		log.Println("[ERROR] Gagal memperbarui token pembayaran:", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Gagal memperbarui token pembayaran",
+		})
+	}
+	log.Println("[INFO] Token pembayaran diperbarui di database untuk order ID:", donation.DonationOrderID)
 
 	// ✅ Kirim response sukses dengan snap token
 	return c.JSON(fiber.Map{
@@ -89,6 +114,7 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 		"snap_token": token, // Snap token untuk pembayaran langsung
 	})
 }
+
 
 
 // 🟢 HANDLE MIDTRANS WEBHOOK: Update status donasi berdasarkan notifikasi Midtrans
