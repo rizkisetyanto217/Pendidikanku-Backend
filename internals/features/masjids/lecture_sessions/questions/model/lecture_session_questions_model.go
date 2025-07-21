@@ -7,7 +7,7 @@ import (
 type LectureSessionsQuestionModel struct {
 	LectureSessionsQuestionID          string  `gorm:"column:lecture_sessions_question_id;primaryKey;type:uuid;default:gen_random_uuid()" json:"lecture_sessions_question_id"`
 	LectureSessionsQuestion            string  `gorm:"column:lecture_sessions_question;type:text;not null" json:"lecture_sessions_question"`
-	LectureSessionsQuestionAnswer      string  `gorm:"column:lecture_sessions_question_answer;type:text;not null" json:"lecture_sessions_question_answer"`
+	LectureSessionsQuestionAnswers []string `gorm:"column:lecture_sessions_question_answers;type:jsonb;serializer:json" json:"lecture_sessions_question_answers"`
 	LectureSessionsQuestionCorrect     string  `gorm:"column:lecture_sessions_question_correct;type:char(1);not null" json:"lecture_sessions_question_correct"` // A/B/C/D
 	LectureSessionsQuestionExplanation string  `gorm:"column:lecture_sessions_question_explanation;type:text" json:"lecture_sessions_question_explanation"`
 

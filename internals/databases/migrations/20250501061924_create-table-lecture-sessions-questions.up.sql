@@ -1,7 +1,7 @@
 CREATE TABLE lecture_sessions_questions (
   lecture_sessions_question_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   lecture_sessions_question TEXT NOT NULL,
-  lecture_sessions_question_answer TEXT NOT NULL,
+  lecture_sessions_question_answers JSONB NOT NULL,
   lecture_sessions_question_correct CHAR(1) NOT NULL CHECK (lecture_sessions_question_correct IN ('A', 'B', 'C', 'D')),
   lecture_sessions_question_explanation TEXT,
   lecture_sessions_question_quiz_id UUID REFERENCES lecture_sessions_quiz(lecture_sessions_quiz_id) ON DELETE SET NULL,

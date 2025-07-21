@@ -12,5 +12,6 @@ func AllLectureSessionsQuestionRoutes(user fiber.Router, db *gorm.DB) {
 	// 📝 Group: /lecture-sessions-questions (read-only)
 	questions := user.Group("/lecture-sessions-questions")
 	questions.Get("/", questionCtrl.GetAllLectureSessionsQuestions)
+	questions.Get("/by-quiz/:quiz_id", questionCtrl.GetLectureSessionsQuestionsByQuizID)
 	// questions.Get("/:id", questionCtrl.GetLectureSessionsQuestionByID) // (opsional)
 }

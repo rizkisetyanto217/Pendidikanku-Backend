@@ -15,6 +15,7 @@ func LectureSessionsQuestionAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	questions := admin.Group("/lecture-sessions-questions")
 	questions.Post("/", questionCtrl.CreateLectureSessionsQuestion) // ➕ Tambah soal
 	questions.Get("/", questionCtrl.GetAllLectureSessionsQuestions) // 📄 Lihat semua soal
+	questions.Put("/:id", questionCtrl.UpdateLectureSessionsQuestionByID)
 	// questions.Get("/:id", questionCtrl.GetLectureSessionsQuestionByID) // 🔍 (jika diperlukan)
 	questions.Delete("/:id", questionCtrl.DeleteLectureSessionsQuestion) // ❌ Hapus soal
 

@@ -12,7 +12,7 @@ import (
 type LectureSessionsQuestionDTO struct {
 	LectureSessionsQuestionID          string    `json:"lecture_sessions_question_id"`
 	LectureSessionsQuestion            string    `json:"lecture_sessions_question"`
-	LectureSessionsQuestionAnswer      string    `json:"lecture_sessions_question_answer"`
+	LectureSessionsQuestionAnswers      []string  `json:"lecture_sessions_question_answers"` // ✅ tetap array
 	LectureSessionsQuestionCorrect     string    `json:"lecture_sessions_question_correct"`
 	LectureSessionsQuestionExplanation string    `json:"lecture_sessions_question_explanation"`
 	LectureSessionsQuestionQuizID      *string   `json:"lecture_sessions_question_quiz_id,omitempty"`
@@ -26,14 +26,15 @@ type LectureSessionsQuestionDTO struct {
 // ============================
 
 type CreateLectureSessionsQuestionRequest struct {
-	LectureSessionsQuestion            string  `json:"lecture_sessions_question" validate:"required"`
-	LectureSessionsQuestionAnswer      string  `json:"lecture_sessions_question_answer" validate:"required"`
-	LectureSessionsQuestionCorrect     string  `json:"lecture_sessions_question_correct" validate:"required,oneof=A B C D"`
-	LectureSessionsQuestionExplanation string  `json:"lecture_sessions_question_explanation" validate:"required"`
-	LectureSessionsQuestionQuizID      *string `json:"lecture_sessions_question_quiz_id,omitempty" validate:"omitempty,uuid"`
-	LectureSessionsQuestionExamID      *string `json:"lecture_sessions_question_exam_id,omitempty" validate:"omitempty,uuid"`
-	LectureSessionsQuestionMasjidID    string  `json:"lecture_sessions_question_masjid_id" validate:"required,uuid"`
+	LectureSessionsQuestion            string   `json:"lecture_sessions_question" validate:"required"`
+	LectureSessionsQuestionAnswers     []string `json:"lecture_sessions_question_answers" validate:"required,min=1,dive,required"`
+	LectureSessionsQuestionCorrect     string   `json:"lecture_sessions_question_correct" validate:"required,oneof=A B C D"`
+	LectureSessionsQuestionExplanation string   `json:"lecture_sessions_question_explanation" validate:"required"`
+	LectureSessionsQuestionQuizID      *string  `json:"lecture_sessions_question_quiz_id,omitempty" validate:"omitempty,uuid"`
+	LectureSessionsQuestionExamID      *string  `json:"lecture_sessions_question_exam_id,omitempty" validate:"omitempty,uuid"`
+	LectureSessionsQuestionMasjidID    string   `json:"lecture_sessions_question_masjid_id,omitempty"` // optional untuk fallback
 }
+
 
 // ============================
 // Converter
@@ -43,7 +44,7 @@ func ToLectureSessionsQuestionDTO(m model.LectureSessionsQuestionModel) LectureS
 	return LectureSessionsQuestionDTO{
 		LectureSessionsQuestionID:          m.LectureSessionsQuestionID,
 		LectureSessionsQuestion:            m.LectureSessionsQuestion,
-		LectureSessionsQuestionAnswer:      m.LectureSessionsQuestionAnswer,
+		LectureSessionsQuestionAnswers:      m.LectureSessionsQuestionAnswers,
 		LectureSessionsQuestionCorrect:     m.LectureSessionsQuestionCorrect,
 		LectureSessionsQuestionExplanation: m.LectureSessionsQuestionExplanation,
 		LectureSessionsQuestionQuizID:      m.LectureSessionsQuestionQuizID,

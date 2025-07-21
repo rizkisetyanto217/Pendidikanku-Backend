@@ -13,7 +13,9 @@ func LectureSessionsQuizAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	quizzes := admin.Group("/lecture-sessions-quiz")
 	quizzes.Post("/", quizCtrl.CreateQuiz)          // ➕ Tambah quiz
 	quizzes.Get("/", quizCtrl.GetAllQuizzes)        // 📄 Lihat semua quiz
-	quizzes.Get("/:id", quizCtrl.GetQuizByID)       // 🔍 Lihat detail quiz
+	quizzes.Get("/get-by-id/:id", quizCtrl.GetQuizByID)       // 🔍 Lihat detail quiz
+	quizzes.Get("/by-masjid", quizCtrl.GetQuizzesByMasjidID)
+	quizzes.Put("/:id", quizCtrl.UpdateQuizByID)    // ✏️ Ubah quiz
 	quizzes.Delete("/:id", quizCtrl.DeleteQuizByID) // ❌ Hapus quiz
 
 	userQuizCtrl := quizcontroller.NewUserLectureSessionsQuizController(db)

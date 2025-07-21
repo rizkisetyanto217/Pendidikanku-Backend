@@ -9,19 +9,10 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
-type LectureSessionUserController struct {
-	DB *gorm.DB
-}
 
-func NewLectureSessionUserController(db *gorm.DB) *LectureSessionUserController {
-	return &LectureSessionUserController{DB: db}
-}
-
-
-func (ctrl *LectureSessionUserController) GetLectureSessionsByMasjidIDParam(c *fiber.Ctx) error {
+func (ctrl *LectureSessionController) GetLectureSessionsByMasjidIDParam(c *fiber.Ctx) error {
 	masjidID := c.Params("id")
 	if masjidID == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{

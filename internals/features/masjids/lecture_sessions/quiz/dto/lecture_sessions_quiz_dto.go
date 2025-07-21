@@ -25,7 +25,7 @@ type CreateLectureSessionsQuizRequest struct {
 	LectureSessionsQuizTitle            string `json:"lecture_sessions_quiz_title" validate:"required"`
 	LectureSessionsQuizDescription      string `json:"lecture_sessions_quiz_description" validate:"required"`
 	LectureSessionsQuizLectureSessionID string `json:"lecture_sessions_quiz_lecture_session_id" validate:"required,uuid"`
-	LectureSessionsQuizMasjidID         string `json:"lecture_sessions_quiz_masjid_id" validate:"required,uuid"` // ⬅️ Tambahan
+	// LectureSessionsQuizMasjidID         string `json:"lecture_sessions_quiz_masjid_id" validate:"required,uuid"` // ⬅️ Tambahan
 }
 
 
@@ -37,7 +37,7 @@ func (r *CreateLectureSessionsQuizRequest) ToModel() *model.LectureSessionsQuizM
 		LectureSessionsQuizTitle:            r.LectureSessionsQuizTitle,
 		LectureSessionsQuizDescription:      r.LectureSessionsQuizDescription,
 		LectureSessionsQuizLectureSessionID: r.LectureSessionsQuizLectureSessionID,
-		LectureSessionsQuizMasjidID:         r.LectureSessionsQuizMasjidID,
+		// LectureSessionsQuizMasjidID:         r.LectureSessionsQuizMasjidID,
 	}
 }
 
@@ -51,4 +51,12 @@ func ToLectureSessionsQuizDTO(m model.LectureSessionsQuizModel) LectureSessionsQ
 		LectureSessionsQuizMasjidID:         m.LectureSessionsQuizMasjidID, // ⬅️ Tambahan
 		LectureSessionsQuizCreatedAt:        m.LectureSessionsQuizCreatedAt,
 	}
+}
+
+
+// dto/quiz_request.go
+
+type UpdateLectureSessionsQuizRequest struct {
+	LectureSessionsQuizTitle       string `json:"lecture_sessions_quiz_title"`
+	LectureSessionsQuizDescription string `json:"lecture_sessions_quiz_description"`
 }
