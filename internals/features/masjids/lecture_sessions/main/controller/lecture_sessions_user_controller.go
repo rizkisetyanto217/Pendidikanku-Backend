@@ -142,3 +142,58 @@ func (ctrl *LectureSessionController) GetByIDs(c *fiber.Ctx) error {
 	})
 }
 
+// =============================
+// 🌐 GET Lecture Sessions by Masjid Slug (Public)
+// =============================
+func (ctrl *LectureSessionController) GetLectureSessionsByMasjidSlug(c *fiber.Ctx) error {
+	slug := c.Params("slug")
+	if slug == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Slug masjid tidak ditemukan di URL",
+		})
+	}
+
+	// Cari masjid berdasarkan slug
+	var masjid struct {
+		MasjidID uuid.UUID `gorm:"column:masjid_id"`
+	}
+	if err := ctrl.DB.
+		Table("masjids").
+		Select("masjid_id").
+		Where("masjid_slug = ?", slug).
+		Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Masjid dengan slug tersebut tidak ditemukan",
+		})
+	}
+
+	// Join lecture_sessions + lectures, filter berdasarkan masjid_id
+	type JoinedResult struct {
+		model.LectureSessionModel
+		LectureTitle string `gorm:"column:lecture_title"`
+	}
+
+	var results []JoinedResult
+	if err := ctrl.DB.
+		Model(&model.LectureSessionModel{}).
+		Select("lecture_sessions.*, lectures.lecture_title").
+		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Where("lectures.lecture_masjid_id = ?", masjid.MasjidID).
+		Order("lecture_sessions.lecture_session_start_time ASC").
+		Scan(&results).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Gagal mengambil sesi kajian berdasarkan slug masjid",
+		})
+	}
+
+	// Map ke DTO
+	response := make([]dto.LectureSessionDTO, len(results))
+	for i, r := range results {
+		response[i] = dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Berhasil mengambil sesi kajian berdasarkan slug masjid",
+		"data":    response,
+	})
+}
