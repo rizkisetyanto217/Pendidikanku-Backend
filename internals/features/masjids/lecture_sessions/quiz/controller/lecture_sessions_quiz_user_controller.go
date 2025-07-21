@@ -3,6 +3,7 @@ package controller
 import (
 	"masjidku_backend/internals/features/masjids/lecture_sessions/quiz/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/quiz/model"
+	questionModel "masjidku_backend/internals/features/masjids/lecture_sessions/questions/model"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -43,4 +44,45 @@ func (ctrl *LectureSessionsQuizController) GetQuizzesBySlug(c *fiber.Ctx) error 
 	}
 
 	return c.JSON(result)
+}
+
+
+// ✅ GET /api/a/lecture-sessions-quiz/by-session/:id
+func (ctrl *LectureSessionsQuizController) GetByLectureSessionID(c *fiber.Ctx) error {
+	lectureSessionID := c.Params("id")
+	if lectureSessionID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Lecture session ID tidak ditemukan di URL",
+		})
+	}
+
+	// Ambil satu quiz berdasarkan lecture_session_id
+	var quiz model.LectureSessionsQuizModel
+	if err := ctrl.DB.
+		Where("lecture_sessions_quiz_lecture_session_id = ?", lectureSessionID).
+		First(&quiz).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Quiz untuk sesi kajian ini tidak ditemukan",
+		})
+	}
+
+	// Ambil soal-soal terkait quiz
+	var questions []questionModel.LectureSessionsQuestionModel
+	if err := ctrl.DB.
+		Where("lecture_sessions_question_quiz_id = ?", quiz.LectureSessionsQuizID).
+		Order("lecture_sessions_question_created_at ASC").
+		Find(&questions).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Gagal mengambil soal-soal quiz",
+		})
+	}
+
+	// Response
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Quiz dan soal berhasil ditemukan",
+		"data": fiber.Map{
+			"quiz":      quiz,
+			"questions": questions,
+		},
+	})
 }
