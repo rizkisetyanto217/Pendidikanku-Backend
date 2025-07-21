@@ -6,6 +6,7 @@ import (
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
 	lectureModel "masjidku_backend/internals/features/masjids/lectures/model"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -194,6 +195,120 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMasjidSlug(c *fiber.Ct
 
 	return c.JSON(fiber.Map{
 		"message": "Berhasil mengambil sesi kajian berdasarkan slug masjid",
+		"data":    response,
+	})
+}
+
+
+func (ctrl *LectureSessionController) GetUpcomingLectureSessionsByMasjidSlug(c *fiber.Ctx) error {
+	slug := c.Params("slug")
+	if slug == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Slug masjid tidak ditemukan di URL",
+		})
+	}
+
+	// Cari masjid berdasarkan slug
+	var masjid struct {
+		MasjidID uuid.UUID `gorm:"column:masjid_id"`
+	}
+	if err := ctrl.DB.
+		Table("masjids").
+		Select("masjid_id").
+		Where("masjid_slug = ?", slug).
+		Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Masjid dengan slug tersebut tidak ditemukan",
+		})
+	}
+
+	// Ambil waktu sekarang
+	now := time.Now()
+
+	// Join + filter hanya yang akan datang
+	type JoinedResult struct {
+		model.LectureSessionModel
+		LectureTitle string `gorm:"column:lecture_title"`
+	}
+
+	var results []JoinedResult
+	if err := ctrl.DB.
+		Model(&model.LectureSessionModel{}).
+		Select("lecture_sessions.*, lectures.lecture_title").
+		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Where("lectures.lecture_masjid_id = ? AND lecture_sessions.lecture_session_start_time > ?", masjid.MasjidID, now).
+		Order("lecture_sessions.lecture_session_start_time ASC").
+		Scan(&results).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Gagal mengambil sesi kajian mendatang berdasarkan slug masjid",
+		})
+	}
+
+	// Map ke DTO
+	response := make([]dto.LectureSessionDTO, len(results))
+	for i, r := range results {
+		response[i] = dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Berhasil mengambil sesi kajian mendatang berdasarkan slug masjid",
+		"data":    response,
+	})
+}
+
+
+func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *fiber.Ctx) error {
+	slug := c.Params("slug")
+	if slug == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Slug masjid tidak ditemukan di URL",
+		})
+	}
+
+	// Cari masjid berdasarkan slug
+	var masjid struct {
+		MasjidID uuid.UUID `gorm:"column:masjid_id"`
+	}
+	if err := ctrl.DB.
+		Table("masjids").
+		Select("masjid_id").
+		Where("masjid_slug = ?", slug).
+		Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Masjid dengan slug tersebut tidak ditemukan",
+		})
+	}
+
+	// Ambil waktu sekarang
+	now := time.Now()
+
+	// Join + filter hanya yang sudah lewat
+	type JoinedResult struct {
+		model.LectureSessionModel
+		LectureTitle string `gorm:"column:lecture_title"`
+	}
+
+	var results []JoinedResult
+	if err := ctrl.DB.
+		Model(&model.LectureSessionModel{}).
+		Select("lecture_sessions.*, lectures.lecture_title").
+		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Where("lectures.lecture_masjid_id = ? AND lecture_sessions.lecture_session_end_time < ?", masjid.MasjidID, now).
+		Order("lecture_sessions.lecture_session_start_time DESC").
+		Scan(&results).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Gagal mengambil sesi kajian yang telah lewat berdasarkan slug masjid",
+		})
+	}
+
+	// Map ke DTO
+	response := make([]dto.LectureSessionDTO, len(results))
+	for i, r := range results {
+		response[i] = dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Berhasil mengambil sesi kajian yang telah lewat berdasarkan slug masjid",
 		"data":    response,
 	})
 }

@@ -19,12 +19,15 @@ func AllLectureSessionRoutes(user fiber.Router, db *gorm.DB) {
 	session.Get("/lecture-sessions", lectureSessionCtrl.GetByLectureID)
 	
 	
-	// 👥 Group: /user-lecture-sessions
+	// 👥 Group: /lecture-sessions-user
 	sessionUser := user.Group("/lecture-sessions-u")
 	sessionUser.Get("/by-masjid/:id", lectureSessionCtrl.GetLectureSessionsByMasjidIDParam)
 	sessionUser.Get("/by-lecture/:lecture_id", lectureSessionCtrl.GetLectureSessionsByLectureID)
 	sessionUser.Get("/by-id/:id", lectureSessionCtrl.GetLectureSessionByID)
 	sessionUser.Get("/by-masjid-slug/:slug", lectureSessionCtrl.GetLectureSessionsByMasjidSlug)
+	sessionUser.Get("/mendatang/:slug", lectureSessionCtrl.GetUpcomingLectureSessionsByMasjidSlug)
+	sessionUser.Get("/soal-materi/:slug", lectureSessionCtrl.GetFinishedLectureSessionsByMasjidSlug)
+
 	
 
 	// 👥 Group: /user-lecture-sessions
