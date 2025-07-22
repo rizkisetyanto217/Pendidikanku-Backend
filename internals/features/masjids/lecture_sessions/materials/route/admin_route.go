@@ -16,6 +16,7 @@ func LectureSessionsAssetAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	asset := admin.Group("/lecture-sessions-assets")
 	asset.Post("/", assetCtrl.CreateLectureSessionsAsset)      // ➕ Tambah asset
 	asset.Get("/", assetCtrl.GetAllLectureSessionsAssets)      // 📄 Lihat semua asset
+	asset.Get("/:id", assetCtrl.GetLectureSessionsAssetByID)
 	asset.Get("/filter", assetCtrl.FilterLectureSessionsAssets)
 
 	asset.Delete("/:id", assetCtrl.DeleteLectureSessionsAsset) // ❌ Hapus asset

@@ -137,6 +137,22 @@ func (ctrl *LectureSessionsAssetController) FilterLectureSessionsAssets(c *fiber
 	return c.JSON(response)
 }
 
+func (ctrl *LectureSessionsAssetController) GetLectureSessionsAssetByID(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "ID tidak boleh kosong")
+	}
+
+	var asset model.LectureSessionsAssetModel
+	if err := ctrl.DB.First(&asset, "lecture_sessions_asset_id = ?", id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return fiber.NewError(fiber.StatusNotFound, "Asset tidak ditemukan")
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data asset")
+	}
+
+	return c.JSON(dto.ToLectureSessionsAssetDTO(asset))
+}
 
 
 
