@@ -21,6 +21,17 @@ type LectureSessionsQuestionDTO struct {
 	LectureSessionsQuestionCreatedAt   time.Time `json:"lecture_sessions_question_created_at"`
 }
 
+
+// dto/lecture_sessions_question_dto.go
+
+type UpdateLectureSessionsQuestionDTO struct {
+	LectureSessionsQuestion            *string   `json:"lecture_sessions_question"`
+	LectureSessionsQuestionAnswers     *[]string `json:"lecture_sessions_question_answers"`
+	LectureSessionsQuestionCorrect     *string   `json:"lecture_sessions_question_correct"`
+	LectureSessionsQuestionExplanation *string   `json:"lecture_sessions_question_explanation"`
+}
+
+
 // ============================
 // Create Request DTO
 // ============================

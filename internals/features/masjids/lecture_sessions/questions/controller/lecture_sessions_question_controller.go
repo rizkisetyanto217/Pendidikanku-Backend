@@ -163,7 +163,6 @@ func (ctrl *LectureSessionsQuestionController) GetLectureSessionsQuestionByID(c 
 	return c.JSON(dto.ToLectureSessionsQuestionDTO(question))
 }
 
-
 // =============================
 // ✏️ Update Question by ID (Partial)
 // =============================
@@ -179,31 +178,51 @@ func (ctrl *LectureSessionsQuestionController) UpdateLectureSessionsQuestionByID
 		return fiber.NewError(fiber.StatusNotFound, "Soal tidak ditemukan")
 	}
 
-	// Bind data request
-	var body map[string]interface{}
+	// Bind request body
+	var body dto.UpdateLectureSessionsQuestionDTO
 	if err := c.BodyParser(&body); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Format request tidak valid")
 	}
 
-	// Optional: Validasi field jika perlu (misal: correct harus A/B/C/D)
-	if v, ok := body["lecture_sessions_question_correct"].(string); ok {
-		if v != "A" && v != "B" && v != "C" && v != "D" {
+	// Validasi nilai correct (jika dikirim)
+	if body.LectureSessionsQuestionCorrect != nil {
+		correct := *body.LectureSessionsQuestionCorrect
+		if correct != "A" && correct != "B" && correct != "C" && correct != "D" {
 			return fiber.NewError(fiber.StatusBadRequest, "Jawaban benar harus salah satu dari A, B, C, atau D")
 		}
 	}
 
-	// Update
-	if err := ctrl.DB.Model(&question).Updates(body).Error; err != nil {
+	// Siapkan map update
+	updates := map[string]interface{}{}
+	if body.LectureSessionsQuestion != nil {
+		updates["lecture_sessions_question"] = *body.LectureSessionsQuestion
+	}
+	if body.LectureSessionsQuestionAnswers != nil {
+		updates["lecture_sessions_question_answers"] = *body.LectureSessionsQuestionAnswers
+	}
+	if body.LectureSessionsQuestionCorrect != nil {
+		updates["lecture_sessions_question_correct"] = *body.LectureSessionsQuestionCorrect
+	}
+	if body.LectureSessionsQuestionExplanation != nil {
+		updates["lecture_sessions_question_explanation"] = *body.LectureSessionsQuestionExplanation
+	}
+
+	// Lakukan update hanya jika ada field yang dikirim
+	if len(updates) == 0 {
+		return fiber.NewError(fiber.StatusBadRequest, "Tidak ada field yang dikirim untuk diperbarui")
+	}
+	if err := ctrl.DB.Model(&question).Updates(updates).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui soal")
 	}
 
-	// Ambil data terbaru
+	// Ambil ulang data yang telah diperbarui
 	if err := ctrl.DB.First(&question, "lecture_sessions_question_id = ?", id).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data setelah update")
 	}
 
 	return c.JSON(dto.ToLectureSessionsQuestionDTO(question))
 }
+
 
 // =============================
 // ❌ Delete Question by ID
