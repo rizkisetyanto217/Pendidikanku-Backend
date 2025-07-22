@@ -20,7 +20,7 @@ type MasjidProfileRequest struct {
 }
 
 type MasjidProfileResponse struct {
-	MasjidProfileID            uint      `json:"masjid_profile_id"`
+	MasjidProfileID             string    `json:"masjid_profile_id"`
 	MasjidProfileStory         string    `json:"masjid_profile_story"`
 	MasjidProfileVisi          string    `json:"masjid_profile_visi"`
 	MasjidProfileMisi          string    `json:"masjid_profile_misi"`
@@ -36,19 +36,20 @@ type MasjidProfileResponse struct {
 // 🔁 Konversi dari Model ke DTO Response
 func FromModelMasjidProfile(profile *model.MasjidProfileModel) MasjidProfileResponse {
 	return MasjidProfileResponse{
-		MasjidProfileID:            profile.MasjidProfileID,
-		MasjidProfileStory:         profile.MasjidProfileStory,
-		MasjidProfileVisi:          profile.MasjidProfileVisi,
-		MasjidProfileMisi:          profile.MasjidProfileMisi,
-		MasjidProfileOther:         profile.MasjidProfileOther,
-		MasjidProfileFoundedYear:   profile.MasjidProfileFoundedYear,
-		MasjidProfileMasjidID:      profile.MasjidProfileMasjidID.String(),
-		MasjidProfileLogoURL:       profile.MasjidProfileLogoURL,
-		MasjidProfileStampURL:      profile.MasjidProfileStampURL,
+		MasjidProfileID:             profile.MasjidProfileID.String(), 
+		MasjidProfileStory:          profile.MasjidProfileStory,
+		MasjidProfileVisi:           profile.MasjidProfileVisi,
+		MasjidProfileMisi:           profile.MasjidProfileMisi,
+		MasjidProfileOther:          profile.MasjidProfileOther,
+		MasjidProfileFoundedYear:    profile.MasjidProfileFoundedYear,
+		MasjidProfileMasjidID:       profile.MasjidProfileMasjidID.String(),
+		MasjidProfileLogoURL:        profile.MasjidProfileLogoURL,
+		MasjidProfileStampURL:       profile.MasjidProfileStampURL,
 		MasjidProfileTTDKetuaDKMURL: profile.MasjidProfileTTDKetuaDKMURL,
-		MasjidProfileCreatedAt:     profile.MasjidProfileCreatedAt,
+		MasjidProfileCreatedAt:      profile.MasjidProfileCreatedAt,
 	}
 }
+
 
 // 🔁 Konversi dari DTO Request ke Model
 func ToModelMasjidProfile(input *MasjidProfileRequest) *model.MasjidProfileModel {

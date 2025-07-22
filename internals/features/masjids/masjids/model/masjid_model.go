@@ -12,6 +12,7 @@ type MasjidModel struct {
 	MasjidName         string         `gorm:"type:varchar(100);not null" json:"masjid_name"`
 	MasjidBioShort     string         `gorm:"type:text" json:"masjid_bio_short"`
 	MasjidLocation     string         `gorm:"type:text" json:"masjid_location"`
+	MasjidDomain *string `gorm:"type:varchar(50);uniqueIndex:masjids_masjid_domain_unique_idx" json:"masjid_domain"`
 	MasjidLatitude     float64        `gorm:"type:decimal(9,6)" json:"masjid_latitude"`
 	MasjidLongitude    float64        `gorm:"type:decimal(9,6)" json:"masjid_longitude"`
 	MasjidGoogleMapsURL string 		  `gorm:"type:text" json:"masjid_google_maps_url"`

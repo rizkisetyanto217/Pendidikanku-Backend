@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS masjids (
     masjid_longitude DECIMAL(9,6),
     masjid_image_url TEXT,
     masjid_google_maps_url TEXT,
+    masjid_domain VARCHAR(50),
     masjid_slug VARCHAR(100) UNIQUE NOT NULL,
     masjid_is_verified BOOLEAN DEFAULT FALSE,
     masjid_instagram_url TEXT,
@@ -20,6 +21,8 @@ CREATE TABLE IF NOT EXISTS masjids (
 -- 🔍 Index untuk pencarian lokasi / geo
 CREATE INDEX IF NOT EXISTS idx_masjids_location ON masjids(masjid_location);
 CREATE INDEX IF NOT EXISTS idx_masjids_latlong ON masjids(masjid_latitude, masjid_longitude);
+CREATE INDEX IF NOT EXISTS masjids_masjid_domain_unique_idx
+ON masjids(masjid_domain) WHERE masjid_domain IS NOT NULL;
 
 -- 🔍 Index untuk lookup berdasarkan slug (frontend URL)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_masjids_slug ON masjids(masjid_slug);
@@ -38,7 +41,7 @@ CREATE INDEX IF NOT EXISTS idx_follow_masjid_id ON user_follow_masjid(follow_mas
 
 
 CREATE TABLE IF NOT EXISTS masjids_profiles (
-    masjid_profile_id SERIAL PRIMARY KEY,
+    masjid_profile_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     masjid_profile_story TEXT,
     masjid_profile_visi TEXT,
     masjid_profile_misi TEXT,
