@@ -42,7 +42,7 @@ func (ctrl *LectureSessionsAssetController) CreateLectureSessionsAsset(c *fiber.
 	var fileURL string
 	var fileType int
 
-	if file, err := c.FormFile("lecture_sessions_asset_file"); err == nil && file != nil {
+	if file, err := c.FormFile("lecture_sessions_asset_file_url"); err == nil && file != nil {
 		// ⬇️ Upload file ke Supabase
 		uploadedURL, err := helper.UploadFileToSupabase("lecture_sessions_assets", file)
 		if err != nil {
@@ -153,6 +153,68 @@ func (ctrl *LectureSessionsAssetController) GetLectureSessionsAssetByID(c *fiber
 
 	return c.JSON(dto.ToLectureSessionsAssetDTO(asset))
 }
+
+func (ctrl *LectureSessionsAssetController) UpdateLectureSessionsAsset(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "ID tidak boleh kosong")
+	}
+
+	// ✅ Cari data existing
+	var asset model.LectureSessionsAssetModel
+	if err := ctrl.DB.First(&asset, "lecture_sessions_asset_id = ?", id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return fiber.NewError(fiber.StatusNotFound, "Asset tidak ditemukan")
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data asset")
+	}
+
+	// ✅ Ambil data dari form (partial)
+	title := c.FormValue("lecture_sessions_asset_title")
+	if title != "" {
+		asset.LectureSessionsAssetTitle = title
+	}
+
+	// ✅ Cek apakah ada file baru diupload
+	file, errFile := c.FormFile("lecture_sessions_asset_file_url")
+	if errFile == nil && file != nil {
+		// Hapus file lama jika dari Supabase
+		if asset.LectureSessionsAssetFileURL != "" {
+			if parsed, err := url.Parse(asset.LectureSessionsAssetFileURL); err == nil {
+				prefix := "/storage/v1/object/public/"
+				cleaned := strings.TrimPrefix(parsed.Path, prefix)
+
+				if unescaped, err := url.QueryUnescape(cleaned); err == nil {
+					parts := strings.SplitN(unescaped, "/", 2)
+					if len(parts) == 2 {
+						_ = helper.DeleteFromSupabase(parts[0], parts[1])
+					}
+				}
+			}
+		}
+
+		// Upload file baru
+		uploadedURL, err := helper.UploadFileToSupabase("lecture_sessions_assets", file)
+		if err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal upload file")
+		}
+
+		asset.LectureSessionsAssetFileURL = uploadedURL
+		asset.LectureSessionsAssetFileType = constants.DetectFileTypeFromExt(file.Filename)
+
+	} else if val := c.FormValue("lecture_sessions_asset_file_url"); val != "" {
+		asset.LectureSessionsAssetFileURL = val
+		asset.LectureSessionsAssetFileType = 1 // YouTube atau link biasa
+	}
+
+	// ✅ Simpan update
+	if err := ctrl.DB.Save(&asset).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui asset")
+	}
+
+	return c.JSON(dto.ToLectureSessionsAssetDTO(asset))
+}
+
 
 
 

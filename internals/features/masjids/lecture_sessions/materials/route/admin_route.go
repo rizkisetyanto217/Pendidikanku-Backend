@@ -19,6 +19,8 @@ func LectureSessionsAssetAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	asset.Get("/filter", assetCtrl.FilterLectureSessionsAssets)
 	asset.Get("/:id", assetCtrl.GetLectureSessionsAssetByID)
 
+	asset.Put("/:id", assetCtrl.UpdateLectureSessionsAsset)    // ✏️ Ubah
+
 	asset.Delete("/:id", assetCtrl.DeleteLectureSessionsAsset) // ❌ Hapus asset
 
 	// 📚 Group: /lecture-sessions-materials

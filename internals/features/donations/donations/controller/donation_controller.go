@@ -134,7 +134,7 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 }
 
 
-// 🟢 GET DONATIONS BY MASJID ID: Ambil semua donasi yang ditujukan ke masjid tertentu
+// 🟢 GET DONATIONS BY MASJID ID: Ambil semua donasi yang telah *completed* untuk masjid tertentu
 func (ctrl *DonationController) GetDonationsByMasjidID(c *fiber.Ctx) error {
 	// Ambil masjid_id dari parameter URL
 	masjidIDParam := c.Params("masjid_id")
@@ -147,10 +147,10 @@ func (ctrl *DonationController) GetDonationsByMasjidID(c *fiber.Ctx) error {
 		})
 	}
 
-	// Query donasi yang memiliki donation_masjid_id sesuai masjid
+	// Ambil donasi yang statusnya 'completed' dan ditujukan ke masjid ini
 	var donations []model.Donation
 	if err := ctrl.DB.
-		Where("donation_masjid_id = ?", masjidID).
+		Where("donation_masjid_id = ? AND donation_status = ?", masjidID, "completed").
 		Order("created_at desc").
 		Find(&donations).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -160,6 +160,7 @@ func (ctrl *DonationController) GetDonationsByMasjidID(c *fiber.Ctx) error {
 
 	return c.JSON(donations)
 }
+
 
 
 // 🟢 HANDLE MIDTRANS WEBHOOK: Update status donasi berdasarkan notifikasi Midtrans
