@@ -1,12 +1,14 @@
 package controller
 
 import (
+	"encoding/json"
 	"fmt"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/questions/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/questions/model"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -166,6 +168,8 @@ func (ctrl *LectureSessionsQuestionController) GetLectureSessionsQuestionByID(c 
 // =============================
 // ✏️ Update Question by ID (Partial)
 // =============================
+
+
 func (ctrl *LectureSessionsQuestionController) UpdateLectureSessionsQuestionByID(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if id == "" {
@@ -194,28 +198,38 @@ func (ctrl *LectureSessionsQuestionController) UpdateLectureSessionsQuestionByID
 
 	// Siapkan map update
 	updates := map[string]interface{}{}
+
 	if body.LectureSessionsQuestion != nil {
 		updates["lecture_sessions_question"] = *body.LectureSessionsQuestion
 	}
+
 	if body.LectureSessionsQuestionAnswers != nil {
-		updates["lecture_sessions_question_answers"] = *body.LectureSessionsQuestionAnswers
+		// Convert []string → JSON → datatypes.JSON
+		jsonBytes, err := json.Marshal(*body.LectureSessionsQuestionAnswers)
+		if err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "Gagal memproses pilihan jawaban")
+		}
+		updates["lecture_sessions_question_answers"] = datatypes.JSON(jsonBytes)
 	}
+
 	if body.LectureSessionsQuestionCorrect != nil {
 		updates["lecture_sessions_question_correct"] = *body.LectureSessionsQuestionCorrect
 	}
+
 	if body.LectureSessionsQuestionExplanation != nil {
 		updates["lecture_sessions_question_explanation"] = *body.LectureSessionsQuestionExplanation
 	}
 
-	// Lakukan update hanya jika ada field yang dikirim
 	if len(updates) == 0 {
 		return fiber.NewError(fiber.StatusBadRequest, "Tidak ada field yang dikirim untuk diperbarui")
 	}
+
+	// Eksekusi update
 	if err := ctrl.DB.Model(&question).Updates(updates).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui soal")
 	}
 
-	// Ambil ulang data yang telah diperbarui
+	// Ambil ulang hasil setelah update
 	if err := ctrl.DB.First(&question, "lecture_sessions_question_id = ?", id).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data setelah update")
 	}
