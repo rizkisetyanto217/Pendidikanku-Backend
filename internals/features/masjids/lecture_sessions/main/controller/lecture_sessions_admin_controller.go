@@ -5,7 +5,7 @@ import (
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
 
-	lectureModel "masjidku_backend/internals/features/masjids/lectures/model"
+	lectureModel "masjidku_backend/internals/features/masjids/lectures/main/model"
 	helper "masjidku_backend/internals/helpers"
 	"net/url"
 	"strings"
@@ -163,6 +163,9 @@ func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 // ================================
 // GET Detail Lecture Session by ID
 // ================================
+// ================================
+// GET Detail Lecture Session by ID
+// ================================
 func (ctrl *LectureSessionController) GetLectureSessionByID(c *fiber.Ctx) error {
 	idParam := c.Params("id")
 	sessionID, err := uuid.Parse(idParam)
@@ -170,13 +173,34 @@ func (ctrl *LectureSessionController) GetLectureSessionByID(c *fiber.Ctx) error 
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	var session model.LectureSessionModel
-	if err := ctrl.DB.First(&session, "lecture_session_id = ?", sessionID).Error; err != nil {
+	// Join dengan lectures dan users
+	type JoinedResult struct {
+		model.LectureSessionModel
+		LectureTitle string  `gorm:"column:lecture_title"`
+		UserName     *string `gorm:"column:user_name"`
+	}
+
+	var result JoinedResult
+	if err := ctrl.DB.
+		Model(&model.LectureSessionModel{}).
+		Select("lecture_sessions.*, lectures.lecture_title, users.user_name").
+		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
+		Where("lecture_sessions.lecture_session_id = ?", sessionID).
+		Scan(&result).Error; err != nil {
 		return fiber.NewError(fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
 	}
 
-	return c.JSON(dto.ToLectureSessionDTO(session))
+	dtoItem := dto.ToLectureSessionDTOWithLectureTitle(result.LectureSessionModel, result.LectureTitle)
+
+	// Fallback jika teacher_name kosong
+	if dtoItem.LectureSessionTeacherName == "" && result.UserName != nil {
+		dtoItem.LectureSessionTeacherName = *result.UserName
+	}
+
+	return c.JSON(dtoItem)
 }
+
 
 // ================================
 // GET ALL

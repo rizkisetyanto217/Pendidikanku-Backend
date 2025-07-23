@@ -5,7 +5,7 @@ import (
 	"log"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
-	lectureModel "masjidku_backend/internals/features/masjids/lectures/model"
+	lectureModel "masjidku_backend/internals/features/masjids/lectures/main/model"
 	"time"
 
 	"github.com/gofiber/fiber/v2"

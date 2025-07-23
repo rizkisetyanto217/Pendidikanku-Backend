@@ -1,7 +1,7 @@
 package model
 
 import (
-	LectureModel "masjidku_backend/internals/features/masjids/lectures/model"
+	LectureModel "masjidku_backend/internals/features/masjids/lectures/main/model"
 	LectureSessionModel "masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
 	UserModel "masjidku_backend/internals/features/users/user/model"
 	"time"
