@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"masjidku_backend/internals/features/masjids/lectures/dto"
 	"masjidku_backend/internals/features/masjids/lectures/model"
 	helper "masjidku_backend/internals/helpers"
@@ -105,7 +106,6 @@ func (ctrl *LectureController) CreateLecture(c *fiber.Ctx) error {
 
 // ✅ GET /api/a/lectures/by-masjid
 func (ctrl *LectureController) GetByMasjidID(c *fiber.Ctx) error {
-	// Ambil masjid_id yang sudah di-inject middleware ke context
 	masjidID, ok := c.Locals("masjid_id").(string)
 	if !ok || masjidID == "" {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
@@ -113,7 +113,6 @@ func (ctrl *LectureController) GetByMasjidID(c *fiber.Ctx) error {
 		})
 	}
 
-	// Query data lectures berdasarkan masjid_id
 	var lectures []model.LectureModel
 	if err := ctrl.DB.
 		Where("lecture_masjid_id = ?", masjidID).
@@ -124,19 +123,54 @@ func (ctrl *LectureController) GetByMasjidID(c *fiber.Ctx) error {
 		})
 	}
 
-	// Handle jika belum ada data
 	if len(lectures) == 0 {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"message": "Belum ada lecture untuk masjid ini",
 		})
 	}
 
-	// Response sukses
+	// Lengkapi teacher name jika kosong
+	for i := range lectures {
+		if lectures[i].LectureTeachers != nil {
+			var teacherList []struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			}
+
+			// Parse JSON
+			if err := json.Unmarshal(lectures[i].LectureTeachers, &teacherList); err == nil {
+				changed := false
+				for j, t := range teacherList {
+					if t.ID != "" && t.Name == "" {
+						var user struct {
+							UserName string
+						}
+						if err := ctrl.DB.
+							Table("users").
+							Select("user_name").
+							Where("id = ?", t.ID).
+							Scan(&user).Error; err == nil && user.UserName != "" {
+							teacherList[j].Name = user.UserName
+							changed = true
+						}
+					}
+				}
+				if changed {
+					updated, err := json.Marshal(teacherList)
+					if err == nil {
+						lectures[i].LectureTeachers = updated
+					}
+				}
+			}
+		}
+	}
+
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "Daftar lecture berhasil ditemukan",
 		"data":    dto.ToLectureResponseList(lectures),
 	})
 }
+
 
 
 

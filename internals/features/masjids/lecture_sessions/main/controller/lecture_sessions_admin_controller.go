@@ -470,6 +470,7 @@ func (ctrl *LectureSessionController) ApproveLectureSession(c *fiber.Ctx) error 
 	return c.JSON(dto.ToLectureSessionDTO(session))
 }
 
+
 // 🔴 DELETE /api/a/lecture-sessions/:id
 func (ctrl *LectureSessionController) DeleteLectureSession(c *fiber.Ctx) error {
 	sessionID := c.Params("id")
@@ -480,28 +481,45 @@ func (ctrl *LectureSessionController) DeleteLectureSession(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
 	}
 
-	// 🗑️ Hapus gambar dari Supabase jika ada
-	if existing.LectureSessionImageURL != nil {
-		parsed, err := url.Parse(*existing.LectureSessionImageURL)
-		if err == nil {
-			rawPath := parsed.Path // /storage/v1/object/public/image/lecture_sessions%2Fxxx.png
-			prefix := "/storage/v1/object/public/"
-			cleaned := strings.TrimPrefix(rawPath, prefix)
-
-			unescaped, err := url.QueryUnescape(cleaned)
+	err := ctrl.DB.Transaction(func(tx *gorm.DB) error {
+		// 🗑️ Hapus gambar dari Supabase jika ada
+		if existing.LectureSessionImageURL != nil {
+			parsed, err := url.Parse(*existing.LectureSessionImageURL)
 			if err == nil {
-				parts := strings.SplitN(unescaped, "/", 2)
-				if len(parts) == 2 {
-					bucket := parts[0]
-					objectPath := parts[1]
-					_ = helper.DeleteFromSupabase(bucket, objectPath)
+				rawPath := parsed.Path // /storage/v1/object/public/image/lecture_sessions%2Fxxx.png
+				prefix := "/storage/v1/object/public/"
+				cleaned := strings.TrimPrefix(rawPath, prefix)
+
+				unescaped, err := url.QueryUnescape(cleaned)
+				if err == nil {
+					parts := strings.SplitN(unescaped, "/", 2)
+					if len(parts) == 2 {
+						bucket := parts[0]
+						objectPath := parts[1]
+						_ = helper.DeleteFromSupabase(bucket, objectPath)
+					}
 				}
 			}
 		}
-	}
 
-	// ❌ Hapus dari DB
-	if err := ctrl.DB.Delete(&existing).Error; err != nil {
+		// ❌ Hapus sesi dari database
+		if err := tx.Delete(&existing).Error; err != nil {
+			return err
+		}
+
+		// 🔢 Kurangi total_lecture_sessions di lectures
+		if existing.LectureSessionLectureID != nil {
+			if err := tx.Model(&lectureModel.LectureModel{}).
+				Where("lecture_id = ?", *existing.LectureSessionLectureID).
+				UpdateColumn("total_lecture_sessions", gorm.Expr("GREATEST(COALESCE(total_lecture_sessions, 1) - 1, 0)")).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus sesi kajian")
 	}
 

@@ -143,9 +143,7 @@ func (ctrl *LectureSessionController) GetByIDs(c *fiber.Ctx) error {
 	})
 }
 
-// =============================
-// 🌐 GET Lecture Sessions by Masjid Slug (Public)
-// =============================
+
 func (ctrl *LectureSessionController) GetLectureSessionsByMasjidSlug(c *fiber.Ctx) error {
 	slug := c.Params("slug")
 	if slug == "" {
@@ -168,17 +166,19 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMasjidSlug(c *fiber.Ct
 		})
 	}
 
-	// Join lecture_sessions + lectures, filter berdasarkan masjid_id
+	// Join dengan lectures dan users
 	type JoinedResult struct {
 		model.LectureSessionModel
-		LectureTitle string `gorm:"column:lecture_title"`
+		LectureTitle string  `gorm:"column:lecture_title"`
+		UserName     *string `gorm:"column:user_name"`
 	}
 
 	var results []JoinedResult
 	if err := ctrl.DB.
 		Model(&model.LectureSessionModel{}).
-		Select("lecture_sessions.*, lectures.lecture_title").
+		Select("lecture_sessions.*, lectures.lecture_title, users.user_name").
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
 		Where("lectures.lecture_masjid_id = ?", masjid.MasjidID).
 		Order("lecture_sessions.lecture_session_start_time ASC").
 		Scan(&results).Error; err != nil {
@@ -187,10 +187,17 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMasjidSlug(c *fiber.Ct
 		})
 	}
 
-	// Map ke DTO
+	// Mapping ke DTO
 	response := make([]dto.LectureSessionDTO, len(results))
 	for i, r := range results {
-		response[i] = dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
+		dtoItem := dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
+
+		// Fallback jika teacher_name kosong
+		if dtoItem.LectureSessionTeacherName == "" && r.UserName != nil {
+			dtoItem.LectureSessionTeacherName = *r.UserName
+		}
+
+		response[i] = dtoItem
 	}
 
 	return c.JSON(fiber.Map{
@@ -222,20 +229,21 @@ func (ctrl *LectureSessionController) GetUpcomingLectureSessionsByMasjidSlug(c *
 		})
 	}
 
-	// Ambil waktu sekarang
 	now := time.Now()
 
-	// Join + filter hanya yang akan datang
+	// Join lectures + users
 	type JoinedResult struct {
 		model.LectureSessionModel
-		LectureTitle string `gorm:"column:lecture_title"`
+		LectureTitle string  `gorm:"column:lecture_title"`
+		UserName     *string `gorm:"column:user_name"`
 	}
 
 	var results []JoinedResult
 	if err := ctrl.DB.
 		Model(&model.LectureSessionModel{}).
-		Select("lecture_sessions.*, lectures.lecture_title").
+		Select("lecture_sessions.*, lectures.lecture_title, users.user_name").
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
 		Where("lectures.lecture_masjid_id = ? AND lecture_sessions.lecture_session_start_time > ?", masjid.MasjidID, now).
 		Order("lecture_sessions.lecture_session_start_time ASC").
 		Scan(&results).Error; err != nil {
@@ -247,7 +255,11 @@ func (ctrl *LectureSessionController) GetUpcomingLectureSessionsByMasjidSlug(c *
 	// Map ke DTO
 	response := make([]dto.LectureSessionDTO, len(results))
 	for i, r := range results {
-		response[i] = dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
+		dtoItem := dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
+		if dtoItem.LectureSessionTeacherName == "" && r.UserName != nil {
+			dtoItem.LectureSessionTeacherName = *r.UserName
+		}
+		response[i] = dtoItem
 	}
 
 	return c.JSON(fiber.Map{
@@ -256,10 +268,11 @@ func (ctrl *LectureSessionController) GetUpcomingLectureSessionsByMasjidSlug(c *
 	})
 }
 
-
 func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *fiber.Ctx) error {
+	fmt.Println("🟢 GET /api/u/masjids/:slug/finished-lecture-sessions")
 	slug := c.Params("slug")
 	if slug == "" {
+		fmt.Println("❌ Slug masjid tidak ditemukan di URL")
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"message": "Slug masjid tidak ditemukan di URL",
 		})
@@ -274,37 +287,59 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 		Select("masjid_id").
 		Where("masjid_slug = ?", slug).
 		Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
+		fmt.Println("❌ Masjid tidak ditemukan untuk slug:", slug)
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"message": "Masjid dengan slug tersebut tidak ditemukan",
 		})
 	}
 
-	// Ambil waktu sekarang
 	now := time.Now()
+	fmt.Println("🔍 Slug:", slug)
+	fmt.Println("🔍 MasjidID:", masjid.MasjidID)
+	fmt.Println("🔍 Waktu sekarang:", now.Format("2006-01-02 15:04:05"))
 
-	// Join + filter hanya yang sudah lewat
+	// Join lectures + users
 	type JoinedResult struct {
 		model.LectureSessionModel
-		LectureTitle string `gorm:"column:lecture_title"`
+		LectureTitle string  `gorm:"column:lecture_title"`
+		UserName     *string `gorm:"column:user_name"`
 	}
 
 	var results []JoinedResult
-	if err := ctrl.DB.
+	err := ctrl.DB.
 		Model(&model.LectureSessionModel{}).
-		Select("lecture_sessions.*, lectures.lecture_title").
+		Select("lecture_sessions.*, lectures.lecture_title, users.user_name").
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
-		Where("lectures.lecture_masjid_id = ? AND lecture_sessions.lecture_session_end_time < ?", masjid.MasjidID, now).
+		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
+		Where("lecture_sessions.lecture_session_masjid_id = ? AND lecture_sessions.lecture_session_end_time < ?", masjid.MasjidID, now).
 		Order("lecture_sessions.lecture_session_start_time DESC").
-		Scan(&results).Error; err != nil {
+		Scan(&results).Error
+
+	if err != nil {
+		fmt.Println("❌ ERROR saat mengambil data sesi:", err.Error())
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Gagal mengambil sesi kajian yang telah lewat berdasarkan slug masjid",
+			"error":   err.Error(),
 		})
+	}
+
+	fmt.Printf("✅ %d sesi ditemukan untuk masjid %s\n", len(results), slug)
+	for _, r := range results {
+		fmt.Printf("→ ID: %s | Judul: %s | End: %s\n",
+			r.LectureSessionID,
+			r.LectureTitle,
+			r.LectureSessionEndTime.Format("2006-01-02 15:04:05"),
+		)
 	}
 
 	// Map ke DTO
 	response := make([]dto.LectureSessionDTO, len(results))
 	for i, r := range results {
-		response[i] = dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
+		dtoItem := dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
+		if dtoItem.LectureSessionTeacherName == "" && r.UserName != nil {
+			dtoItem.LectureSessionTeacherName = *r.UserName
+		}
+		response[i] = dtoItem
 	}
 
 	return c.JSON(fiber.Map{
