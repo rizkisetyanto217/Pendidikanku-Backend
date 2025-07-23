@@ -15,7 +15,7 @@ func AllLectureSessionsAssetRoutes(user fiber.Router, db *gorm.DB) {
 	// 📁 Group: /lecture-sessions-assets
 	asset := user.Group("/lecture-sessions-assets")
 	asset.Get("/", assetCtrl.GetAllLectureSessionsAssets)    // 📄 Lihat semua asset
-	asset.Get("/filter", assetCtrl.FilterLectureSessionsAssets)
+	asset.Get("/filter", assetCtrl.FilterLectureLectureSessionsAssets)
 
 	// 📚 Group: /lecture-sessions-materials
 	material := user.Group("/lecture-sessions-materials")

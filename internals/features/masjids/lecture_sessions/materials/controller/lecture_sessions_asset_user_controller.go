@@ -9,13 +9,12 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-func (ctrl *LectureSessionsAssetController) FilterLectureSessionsAssets(c *fiber.Ctx) error {
+func (ctrl *LectureSessionsAssetController) FilterLectureLectureSessionsAssets(c *fiber.Ctx) error {
 	lectureSessionID := c.Query("lecture_session_id")
-	if lectureSessionID == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "Missing lecture_session_id")
-	}
+	lectureID := c.Query("lecture_id")
+	fileTypeQuery := c.Query("file_type")
 
-	fileTypeQuery := c.Query("file_type") // bisa 1 atau 2,3,4
+	// Validasi file_type wajib
 	if fileTypeQuery == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "Missing file_type")
 	}
@@ -30,13 +29,40 @@ func (ctrl *LectureSessionsAssetController) FilterLectureSessionsAssets(c *fiber
 		fileTypes = append(fileTypes, ft)
 	}
 
+	// Validasi: setidaknya salah satu dari lectureSessionID atau lectureID wajib ada
+	if lectureSessionID == "" && lectureID == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Either lecture_session_id or lecture_id must be provided")
+	}
+
+	var sessionIDs []string
+
+	// Jika lectureID disediakan → ambil semua session_id dari lecture tersebut
+	if lectureID != "" {
+		if err := ctrl.DB.
+			Table("lecture_sessions").
+			Where("lecture_session_lecture_id = ?", lectureID).
+			Pluck("lecture_session_id", &sessionIDs).Error; err != nil || len(sessionIDs) == 0 {
+			return fiber.NewError(fiber.StatusNotFound, "Sesi kajian tidak ditemukan untuk lecture ini")
+		}
+	}
+
+	// Ambil data asset
 	var assets []model.LectureSessionsAssetModel
-	if err := ctrl.DB.
-		Where("lecture_sessions_asset_lecture_session_id = ? AND lecture_sessions_asset_file_type IN ?", lectureSessionID, fileTypes).
+	query := ctrl.DB.Model(&model.LectureSessionsAssetModel{})
+
+	if lectureSessionID != "" {
+		query = query.Where("lecture_sessions_asset_lecture_session_id = ?", lectureSessionID)
+	} else {
+		query = query.Where("lecture_sessions_asset_lecture_session_id IN ?", sessionIDs)
+	}
+
+	if err := query.
+		Where("lecture_sessions_asset_file_type IN ?", fileTypes).
 		Find(&assets).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to retrieve assets")
 	}
 
+	// Mapping ke DTO
 	var response []dto.LectureSessionsAssetDTO
 	for _, a := range assets {
 		response = append(response, dto.ToLectureSessionsAssetDTO(a))

@@ -3,6 +3,7 @@ package controller
 import (
 	"masjidku_backend/internals/features/masjids/lectures/main/dto"
 	"masjidku_backend/internals/features/masjids/lectures/main/model"
+	lectureSessionModel "masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -52,5 +53,47 @@ func (ctrl *LectureController) GetLectureByMasjidSlug(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "Daftar tema kajian berhasil ditemukan",
 		"data":    dto.ToLectureResponseList(lectures),
+	})
+}
+
+
+// ✅ GET /api/a/lecture-sessions/by-lecture/:id
+func (ctrl *LectureController) GetLectureSessionsByLectureID(c *fiber.Ctx) error {
+	lectureID := c.Params("id")
+	if lectureID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Lecture ID tidak ditemukan di URL",
+		})
+	}
+
+	type Result struct {
+		lectureSessionModel.LectureSessionModel
+		UserName     *string `gorm:"column:user_name"`
+		LectureTitle string  `gorm:"column:lecture_title"`
+	}
+
+	var sessions []Result
+
+	if err := ctrl.DB.
+		Table("lecture_sessions").
+		Select(`
+			lecture_sessions.*,
+			users.user_name AS user_name,
+			lectures.lecture_title AS lecture_title
+		`).
+		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
+		Joins("LEFT JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Where("lecture_sessions.lecture_session_lecture_id = ?", lectureID).
+		Order("lecture_sessions.lecture_session_created_at DESC").
+		Scan(&sessions).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Gagal mengambil sesi kajian",
+			"error":   err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Daftar sesi kajian berhasil ditemukan",
+		"data":    sessions,
 	})
 }

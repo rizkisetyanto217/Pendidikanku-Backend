@@ -22,6 +22,7 @@ func NewLectureController(db *gorm.DB) *LectureController {
 }
 
 
+
 // 🟢 GET /api/a/lectures
 func (ctrl *LectureController) GetAllLectures(c *fiber.Ctx) error {
 	var lectures []model.LectureModel
@@ -44,6 +45,7 @@ func (ctrl *LectureController) GetAllLectures(c *fiber.Ctx) error {
 		"data":    lectureResponses,
 	})
 }
+
 
 // 🟢 POST /api/a/lectures
 func (ctrl *LectureController) CreateLecture(c *fiber.Ctx) error {
@@ -172,15 +174,48 @@ func (ctrl *LectureController) GetByMasjidID(c *fiber.Ctx) error {
 }
 
 
-
-
 // 🟢 GET /api/a/lectures/:id
 func (ctrl *LectureController) GetLectureByID(c *fiber.Ctx) error {
 	lectureID := c.Params("id")
 	var lecture model.LectureModel
 
 	if err := ctrl.DB.First(&lecture, "lecture_id = ?", lectureID).Error; err != nil {
-		return c.Status(404).JSON(fiber.Map{"message": "Kajian tidak ditemukan", "error": err.Error()})
+		return c.Status(404).JSON(fiber.Map{
+			"message": "Kajian tidak ditemukan",
+			"error":   err.Error(),
+		})
+	}
+
+	// 🔄 Lengkapi nama pengajar jika kosong
+	if lecture.LectureTeachers != nil {
+		var teacherList []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}
+
+		if err := json.Unmarshal(lecture.LectureTeachers, &teacherList); err == nil {
+			changed := false
+			for i, t := range teacherList {
+				if t.ID != "" && t.Name == "" {
+					var user struct {
+						UserName string
+					}
+					if err := ctrl.DB.
+						Table("users").
+						Select("user_name").
+						Where("id = ?", t.ID).
+						Scan(&user).Error; err == nil && user.UserName != "" {
+						teacherList[i].Name = user.UserName
+						changed = true
+					}
+				}
+			}
+			if changed {
+				if updated, err := json.Marshal(teacherList); err == nil {
+					lecture.LectureTeachers = updated
+				}
+			}
+		}
 	}
 
 	return c.JSON(fiber.Map{
@@ -188,6 +223,8 @@ func (ctrl *LectureController) GetLectureByID(c *fiber.Ctx) error {
 		"data":    dto.ToLectureResponse(&lecture),
 	})
 }
+
+
 
 // ✅ PUT /api/a/lectures/:id
 func (ctrl *LectureController) UpdateLecture(c *fiber.Ctx) error {
@@ -291,3 +328,5 @@ func (ctrl *LectureController) DeleteLecture(c *fiber.Ctx) error {
 		"message": "Kajian berhasil dihapus",
 	})
 }
+
+
