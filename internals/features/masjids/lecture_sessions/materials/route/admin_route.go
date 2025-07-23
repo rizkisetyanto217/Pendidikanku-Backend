@@ -30,5 +30,6 @@ func LectureSessionsAssetAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	material.Get("/filter", materialCtrl.FindByLectureSessionFiltered)    // ✅ Filter (tambahkan kalau perlu)
 	material.Get("/get-by-id/:id", materialCtrl.GetLectureSessionsMaterialByID) // ✅ Lebih aman
 	material.Delete("/:id", materialCtrl.DeleteLectureSessionsMaterial)   // ❌ Hapus materi
+	material.Put("/:id", materialCtrl.UpdateLectureSessionsMaterial)
 
 }

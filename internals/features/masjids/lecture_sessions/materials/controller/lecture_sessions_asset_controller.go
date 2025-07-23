@@ -114,6 +114,7 @@ func (ctrl *LectureSessionsAssetController) GetLectureSessionsAssetByID(c *fiber
 	return c.JSON(dto.ToLectureSessionsAssetDTO(asset))
 }
 
+
 func (ctrl *LectureSessionsAssetController) UpdateLectureSessionsAsset(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if id == "" {
@@ -174,9 +175,6 @@ func (ctrl *LectureSessionsAssetController) UpdateLectureSessionsAsset(c *fiber.
 
 	return c.JSON(dto.ToLectureSessionsAssetDTO(asset))
 }
-
-
-
 
 func (ctrl *LectureSessionsAssetController) DeleteLectureSessionsAsset(c *fiber.Ctx) error {
 	id := c.Params("id")

@@ -32,6 +32,17 @@ type CreateLectureSessionsMaterialRequest struct {
 }
 
 // ============================
+// Update Request DTO
+// ============================
+
+type UpdateLectureSessionsMaterialRequest struct {
+	LectureSessionsMaterialTitle            string `json:"lecture_sessions_material_title"`
+	LectureSessionsMaterialSummary          string `json:"lecture_sessions_material_summary"`
+	LectureSessionsMaterialTranscriptFull   string `json:"lecture_sessions_material_transcript_full"`
+	LectureSessionsMaterialLectureSessionID string `json:"lecture_sessions_material_lecture_session_id"`
+}
+
+// ============================
 // Converter
 // ============================
 

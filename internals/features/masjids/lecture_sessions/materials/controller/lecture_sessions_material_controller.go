@@ -160,6 +160,53 @@ func (ctrl *LectureSessionsMaterialController) GetLectureSessionsMaterialByID(c 
 	return c.JSON(dto.ToLectureSessionsMaterialDTO(material))
 }
 
+
+// =============================
+// ✏️ Update Material by ID (Partial Update)
+// =============================
+func (ctrl *LectureSessionsMaterialController) UpdateLectureSessionsMaterial(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "ID materi tidak ditemukan di URL")
+	}
+
+	var body dto.UpdateLectureSessionsMaterialRequest
+	if err := c.BodyParser(&body); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Gagal parsing body: "+err.Error())
+	}
+
+	// Ambil materi dari DB
+	var material model.LectureSessionsMaterialModel
+	if err := ctrl.DB.First(&material, "lecture_sessions_material_id = ?", id).Error; err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "Materi tidak ditemukan")
+	}
+
+	// Update hanya field yang dikirim (partial update)
+	if body.LectureSessionsMaterialTitle != "" {
+		material.LectureSessionsMaterialTitle = body.LectureSessionsMaterialTitle
+	}
+	if body.LectureSessionsMaterialSummary != "" {
+		material.LectureSessionsMaterialSummary = body.LectureSessionsMaterialSummary
+	}
+	if body.LectureSessionsMaterialTranscriptFull != "" {
+		material.LectureSessionsMaterialTranscriptFull = body.LectureSessionsMaterialTranscriptFull
+	}
+	if body.LectureSessionsMaterialLectureSessionID != "" {
+		material.LectureSessionsMaterialLectureSessionID = body.LectureSessionsMaterialLectureSessionID
+	}
+
+	// Simpan perubahan
+	if err := ctrl.DB.Save(&material).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengupdate materi: "+err.Error())
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Materi berhasil diperbarui",
+		"data":    dto.ToLectureSessionsMaterialDTO(material),
+	})
+}
+
+
 // =============================
 // ❌ Delete Material
 // =============================
