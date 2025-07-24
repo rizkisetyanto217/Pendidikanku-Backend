@@ -19,7 +19,7 @@ type UpdateUserCertificateDTO struct {
 }
 // 🔹 Response DTO
 type UserCertificateResponseDTO struct {
-	UserCertID            uint      `json:"user_cert_id"`
+	UserCertID            uuid.UUID `json:"user_cert_id"`
 	UserCertUserID        uuid.UUID `json:"user_cert_user_id"`
 	UserCertCertificateID uuid.UUID `json:"user_cert_certificate_id"`
 	UserCertScore         *int      `json:"user_cert_score,omitempty"`

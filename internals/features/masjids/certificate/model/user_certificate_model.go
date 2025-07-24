@@ -7,8 +7,8 @@ import (
 )
 
 type UserCertificateModel struct {
-	UserCertID              uint      `gorm:"primaryKey;column:user_cert_id"`
-	UserCertUserID          uuid.UUID `gorm:"type:uuid;not null;column:user_cert_user_id"`
+	UserCertID              uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid();column:user_cert_id"`
+	UserCertUserID          uuid.UUID `gorm:"type:uuid;column:user_cert_user_id"`
 	UserCertCertificateID   uuid.UUID `gorm:"type:uuid;not null;column:user_cert_certificate_id"`
 	UserCertScore           *int      `gorm:"column:user_cert_score"`
 	UserCertSlugURL         string    `gorm:"unique;not null;column:user_cert_slug_url"`

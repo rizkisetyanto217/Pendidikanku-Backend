@@ -15,8 +15,8 @@ CREATE INDEX IF NOT EXISTS idx_certificates_lecture_id ON certificates(certifica
 
 -- Tabel user yang menerima sertifikat
 CREATE TABLE IF NOT EXISTS user_certificates (
-    user_cert_id SERIAL PRIMARY KEY,
-    user_cert_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_cert_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_cert_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     user_cert_certificate_id UUID NOT NULL REFERENCES certificates(certificate_id) ON DELETE CASCADE,
 
     user_cert_score INTEGER,

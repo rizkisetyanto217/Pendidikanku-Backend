@@ -98,6 +98,48 @@ func (ctrl *LectureExamController) GetLectureExamByID(c *fiber.Ctx) error {
 	return c.JSON(dto.ToLectureExamDTO(exam))
 }
 
+
+// 📄 GET /api/a/lecture-exams/questions/by-lecture/:id
+func (ctrl *LectureExamController) GetQuestionExamByLectureID(c *fiber.Ctx) error {
+	lectureID := c.Params("id")
+	if lectureID == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Lecture ID tidak ditemukan")
+	}
+
+	// Cari semua exam berdasarkan lecture_id
+	var exams []model.LectureExamModel
+	if err := ctrl.DB.
+		Where("lecture_exam_lecture_id = ?", lectureID).
+		Find(&exams).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil ujian berdasarkan lecture ID")
+	}
+
+	if len(exams) == 0 {
+		return fiber.NewError(fiber.StatusNotFound, "Tidak ada ujian untuk lecture ini")
+	}
+
+	// Ambil semua exam_id
+	var examIDs []string
+	for _, exam := range exams {
+		examIDs = append(examIDs, exam.LectureExamID)
+	}
+
+	// Ambil semua soal yang terkait dengan exam-exam tersebut
+	var questions []modelLectureSessionQuestion.LectureSessionsQuestionModel
+	if err := ctrl.DB.
+		Where("lecture_question_exam_id IN ?", examIDs).
+		Order("lecture_sessions_question_created_at ASC").
+		Find(&questions).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil soal-soal dari exam")
+	}
+
+	return c.JSON(fiber.Map{
+		"message":   "Berhasil mengambil soal dari lecture_id",
+		"examCount": len(exams),
+		"questions": questions,
+	})
+}
+
 // ✏️ Update exam
 func (ctrl *LectureExamController) UpdateLectureExam(c *fiber.Ctx) error {
 	id := c.Params("id")

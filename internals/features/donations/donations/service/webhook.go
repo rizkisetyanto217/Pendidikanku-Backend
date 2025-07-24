@@ -1,3 +1,5 @@
+
+// HandleDonationStatusWebhook dipanggil saat menerima notifikasi dari Midtrans
 package service
 
 import (
@@ -7,7 +9,6 @@ import (
 
 	"gorm.io/gorm"
 
-	donationQuestionModel "masjidku_backend/internals/features/donations/donation_questions/model"
 	donationModel "masjidku_backend/internals/features/donations/donations/model"
 )
 
@@ -38,19 +39,6 @@ func HandleDonationStatusWebhook(db *gorm.DB, body map[string]interface{}) error
 		donation.DonationStatus = "paid"
 		donation.DonationPaidAt = &now
 
-		// Hitung jumlah soal berdasarkan jumlah donasi
-		totalSoal := donation.DonationAmount / 5000
-		for i := 0; i < totalSoal; i++ {
-			soal := donationQuestionModel.DonationQuestionModel{
-				DonationQuestionDonationID:  donation.DonationID,
-				DonationQuestionQuestionID:  0, // default, bisa diisi nanti
-				DonationQuestionUserMessage: donation.DonationMessage,
-			}
-			if err := db.Create(&soal).Error; err != nil {
-				log.Printf("[ERROR] Gagal membuat donation_question (%d/%d): %v", i+1, totalSoal, err)
-			}
-		}
-
 	case "expire":
 		donation.DonationStatus = "expired"
 	case "cancel":
@@ -67,3 +55,4 @@ func HandleDonationStatusWebhook(db *gorm.DB, body map[string]interface{}) error
 
 	return nil
 }
+
