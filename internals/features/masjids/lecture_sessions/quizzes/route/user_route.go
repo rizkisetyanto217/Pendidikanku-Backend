@@ -18,7 +18,6 @@ func LectureSessionsQuizUserRoutes(user fiber.Router, db *gorm.DB) {
 	quizzes.Get("/by-lecture/:id", quizCtrl.GetByLectureID)
 
 	userQuizCtrl := quizcontroller.NewUserLectureSessionsQuizController(db)
-
 	userQuiz := user.Group("/user-lecture-sessions-quiz")
 	userQuiz.Post("/", userQuizCtrl.CreateUserLectureSessionsQuiz)           // ➕ Input hasil quiz user
 	userQuiz.Get("/", userQuizCtrl.GetAllUserLectureSessionsQuiz)            // 📄 Lihat semua hasil quiz user

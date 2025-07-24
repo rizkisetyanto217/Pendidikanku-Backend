@@ -5,12 +5,11 @@ CREATE TABLE lecture_sessions_questions (
   lecture_sessions_question_correct CHAR(1) NOT NULL CHECK (lecture_sessions_question_correct IN ('A', 'B', 'C', 'D')),
   lecture_sessions_question_explanation TEXT,
   lecture_sessions_question_quiz_id UUID REFERENCES lecture_sessions_quiz(lecture_sessions_quiz_id) ON DELETE SET NULL,
-  lecture_sessions_question_exam_id UUID REFERENCES lecture_sessions_exams(lecture_sessions_exam_id) ON DELETE SET NULL,
+  lecture_question_exam_id UUID REFERENCES lecture_exams(lecture_exam_id) ON DELETE SET NULL,
 
 
   -- ✅ Masjid ID wajib
   lecture_sessions_question_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
-
 
   lecture_sessions_question_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -19,8 +18,8 @@ CREATE TABLE lecture_sessions_questions (
 CREATE INDEX IF NOT EXISTS idx_lecture_sessions_questions_quiz_id
   ON lecture_sessions_questions(lecture_sessions_question_quiz_id);
 
-CREATE INDEX IF NOT EXISTS idx_lecture_sessions_questions_exam_id
-  ON lecture_sessions_questions(lecture_sessions_question_exam_id);
+CREATE INDEX IF NOT EXISTS idx_lecture_questions_exam_id
+  ON lecture_sessions_questions(lecture_question_exam_id);
 
 CREATE INDEX IF NOT EXISTS idx_lecture_sessions_questions_created_at
   ON lecture_sessions_questions(lecture_sessions_question_created_at);

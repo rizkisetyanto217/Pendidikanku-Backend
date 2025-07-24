@@ -12,7 +12,7 @@ type LectureSessionsQuestionModel struct {
 	LectureSessionsQuestionExplanation string  `gorm:"column:lecture_sessions_question_explanation;type:text" json:"lecture_sessions_question_explanation"`
 
 	LectureSessionsQuestionQuizID      *string `gorm:"column:lecture_sessions_question_quiz_id;type:uuid" json:"lecture_sessions_question_quiz_id"`
-	LectureSessionsQuestionExamID      *string `gorm:"column:lecture_sessions_question_exam_id;type:uuid" json:"lecture_sessions_question_exam_id"`
+	LectureQuestionExamID      *string `gorm:"column:lecture_question_exam_id;type:uuid" json:"lecture_question_exam_id"`
 
 	LectureSessionsQuestionMasjidID    string  `gorm:"column:lecture_sessions_question_masjid_id;type:uuid;not null" json:"lecture_sessions_question_masjid_id"`
 

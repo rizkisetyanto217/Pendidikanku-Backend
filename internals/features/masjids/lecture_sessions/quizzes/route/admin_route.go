@@ -22,5 +22,4 @@ func LectureSessionsQuizAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	userQuiz := admin.Group("/user-lecture-sessions-quiz")
 	userQuiz.Post("/", userQuizCtrl.CreateUserLectureSessionsQuiz)           // ➕ Submit nilai quiz
 	userQuiz.Get("/filter", userQuizCtrl.GetUserLectureSessionsQuizFiltered) // 🔍 Lihat hasil quiz user tertentu
-
 }

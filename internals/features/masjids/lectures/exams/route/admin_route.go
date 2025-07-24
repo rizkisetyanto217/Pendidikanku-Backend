@@ -7,20 +7,20 @@ import (
 	"gorm.io/gorm"
 )
 
-func LectureSessionsExamsAdminRoutes(admin fiber.Router, db *gorm.DB) {
-	ctrl := controller.NewLectureSessionsExamController(db)
-	ctrl2 := controller.NewUserLectureSessionsExamController(db)
+func LectureExamsAdminRoutes(admin fiber.Router, db *gorm.DB) {
+	ctrl := controller.NewLectureExamController(db)
+	ctrl2 := controller.NewUserLectureExamController(db)
 
-	// 📚 Group: /lecture-sessions-exams
-	exam := admin.Group("/lecture-sessions-exams")
-	exam.Post("/", ctrl.CreateLectureSessionsExam)      // ➕ Buat ujian sesi kajian
-	exam.Get("/", ctrl.GetAllLectureSessionsExams)      // 📄 Lihat semua ujian
-	exam.Get("/:id", ctrl.GetLectureSessionsExamByID)   // 🔍 Detail ujian
-	exam.Put("/:id", ctrl.UpdateLectureSessionsExam)    // ✏️ Edit ujian
-	exam.Delete("/:id", ctrl.DeleteLectureSessionsExam) // ❌ Hapus ujian
+	// 📚 Group: /lecture--exams
+	exam := admin.Group("/lecture-exams")
+	exam.Post("/", ctrl.CreateLectureExam)      // ➕ Buat ujian sesi kajian
+	exam.Get("/", ctrl.GetAllLectureExams)      // 📄 Lihat semua ujian
+	exam.Get("/:id", ctrl.GetLectureExamByID)   // 🔍 Detail ujian
+	exam.Put("/:id", ctrl.UpdateLectureExam)    // ✏️ Edit ujian
+	exam.Delete("/:id", ctrl.DeleteLectureExam) // ❌ Hapus ujian
 
-	// 👥 Group: /user-lecture-sessions-exams
-	userExam := admin.Group("/user-lecture-sessions-exams")
-	userExam.Get("/", ctrl2.GetAllUserLectureSessionsExams)    // 📄 Lihat semua
-	userExam.Get("/:id", ctrl2.GetUserLectureSessionsExamByID) // 🔍 Detail user ujian
+	// 👥 Group: /user-lecture--exams
+	userExam := admin.Group("/user-lecture-exams")
+	userExam.Get("/", ctrl2.GetAllUserLectureExams)    // 📄 Lihat semua
+	userExam.Get("/:id", ctrl2.GetUserLectureExamByID) // 🔍 Detail user ujian
 }

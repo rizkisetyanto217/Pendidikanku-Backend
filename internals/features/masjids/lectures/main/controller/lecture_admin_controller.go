@@ -21,8 +21,6 @@ func NewLectureController(db *gorm.DB) *LectureController {
 	return &LectureController{DB: db}
 }
 
-
-
 // 🟢 GET /api/a/lectures
 func (ctrl *LectureController) GetAllLectures(c *fiber.Ctx) error {
 	var lectures []model.LectureModel

@@ -53,7 +53,7 @@ func (ctrl *LectureSessionsQuestionController) CreateLectureSessionsQuestion(c *
 				LectureSessionsQuestionCorrect:     body.LectureSessionsQuestionCorrect,
 				LectureSessionsQuestionExplanation: body.LectureSessionsQuestionExplanation,
 				LectureSessionsQuestionQuizID:      body.LectureSessionsQuestionQuizID,
-				LectureSessionsQuestionExamID:      body.LectureSessionsQuestionExamID,
+				LectureQuestionExamID:      body.LectureQuestionExamID,
 				LectureSessionsQuestionMasjidID:    masjidID,
 			})
 		}
@@ -94,7 +94,7 @@ func (ctrl *LectureSessionsQuestionController) CreateLectureSessionsQuestion(c *
 		LectureSessionsQuestionCorrect:     body.LectureSessionsQuestionCorrect,
 		LectureSessionsQuestionExplanation: body.LectureSessionsQuestionExplanation,
 		LectureSessionsQuestionQuizID:      body.LectureSessionsQuestionQuizID,
-		LectureSessionsQuestionExamID:      body.LectureSessionsQuestionExamID,
+		LectureQuestionExamID:      body.LectureQuestionExamID,
 		LectureSessionsQuestionMasjidID:    masjidID,
 	}
 
@@ -164,6 +164,8 @@ func (ctrl *LectureSessionsQuestionController) GetLectureSessionsQuestionByID(c 
 
 	return c.JSON(dto.ToLectureSessionsQuestionDTO(question))
 }
+
+
 
 // =============================
 // ✏️ Update Question by ID (Partial)
