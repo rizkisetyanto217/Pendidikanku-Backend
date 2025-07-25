@@ -8,7 +8,7 @@ import (
 )
 
 type Donation struct {
-	DonationID             uuid.UUID      `gorm:"column:donation_id;type:uuid;primary_key" json:"donation_id"` 
+	DonationID uuid.UUID `gorm:"column:donation_id;type:uuid;default:gen_random_uuid();primaryKey" json:"donation_id"`
 	DonationUserID         *uuid.UUID     `gorm:"column:donation_user_id;type:uuid" json:"donation_user_id,omitempty"`                                 // ID user yang berdonasi
 	DonationName           string         `gorm:"column:donation_name;type:varchar(50);not null" json:"donation_name"`                                // Nama donasi
 	DonationAmount         int            `gorm:"column:donation_amount;not null" json:"donation_amount"`                                              // Jumlah donasi (wajib)

@@ -4,6 +4,7 @@ package controller
 import (
 	"fmt"
 	"log"
+	"masjidku_backend/internals/constants"
 	"masjidku_backend/internals/features/donations/donations/dto"
 	"masjidku_backend/internals/features/donations/donations/model"
 	donationService "masjidku_backend/internals/features/donations/donations/service"
@@ -24,9 +25,9 @@ func NewDonationController(db *gorm.DB) *DonationController {
 
 
 // 🟢 CREATE DONATION: Buat donasi baru & simpan snap token Midtrans, bisa tanpa login (guest) maupun dengan login (user)
+
 func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 	var body dto.CreateDonationRequest
-	// Mem-parsing body request
 	if err := c.BodyParser(&body); err != nil {
 		log.Println("[ERROR] Gagal mem-parsing request body:", err)
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -34,7 +35,6 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 		})
 	}
 
-	// Validasi amount yang lebih besar dari 0
 	if body.DonationAmount <= 0 {
 		log.Println("[ERROR] Amount must be greater than 0:", body.DonationAmount)
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -42,61 +42,47 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 		})
 	}
 
-	var userUUID *uuid.UUID
-	// Jika pengguna login, ambil user ID dari JWT token
-	userIDRaw := c.Locals("user_id")
-	if userIDRaw != nil {
-		userIDStr, ok := userIDRaw.(string)
-		if !ok || userIDStr == "" {
-			log.Println("[ERROR] User ID tidak valid:", userIDRaw)
-			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-				"error": "User ID tidak valid",
-			})
+	// ⬇️ Default: Dummy User (guest)
+	userUUID := constants.DummyUserID
+
+	// Jika pengguna login, override dengan user_id dari token
+	if userIDRaw := c.Locals("user_id"); userIDRaw != nil {
+		if userIDStr, ok := userIDRaw.(string); ok && userIDStr != "" {
+			if parsedUUID, err := uuid.Parse(userIDStr); err == nil {
+				userUUID = parsedUUID
+			} else {
+				log.Println("[ERROR] User ID parsing failed:", err)
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"error": "User ID dalam token tidak valid",
+				})
+			}
 		}
-		// Parse userID
-		parsedUUID, err := uuid.Parse(userIDStr)
-		if err != nil {
-			log.Println("[ERROR] User ID parsing failed:", err)
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "User ID dalam token tidak valid",
-			})
-		}
-		userUUID = &parsedUUID
 	}
 
-	// 🧾 Generate order ID unik
 	orderID := fmt.Sprintf("DONATION-%d", time.Now().UnixNano())
 	log.Println("[INFO] Generated order ID:", orderID)
 
-	// 🧹 Bangun entitas donasi
 	donation := model.Donation{
-		DonationUserID:         userUUID,          // Jika tidak login, userUUID = nil
+		DonationUserID:         &userUUID,
 		DonationName:           body.DonationName,
 		DonationAmount:         body.DonationAmount,
 		DonationMessage:        body.DonationMessage,
-		DonationStatus:         "pending",          // Status masih pending karena belum ada pembayaran
-		// DonationMasjidID:       body.DonationMasjidID,
+		DonationStatus:         "pending",
 		DonationOrderID:        orderID,
-		DonationPaymentGateway: "midtrans",     
+		DonationPaymentGateway: "midtrans",
 	}
 
-	// Cek apakah DonationMasjidID ada dan valid, jika tidak, set sebagai NULL
 	if body.DonationMasjidID != "" {
-		// Convert DonationMasjidID ke UUID jika ada
-		masjidUUID, err := uuid.Parse(body.DonationMasjidID)
-		if err != nil {
+		if masjidUUID, err := uuid.Parse(body.DonationMasjidID); err == nil {
+			donation.DonationMasjidID = &masjidUUID
+		} else {
 			log.Println("[ERROR] Invalid Masjid ID format:", err)
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error": "Invalid Masjid ID format",
 			})
 		}
-		donation.DonationMasjidID = &masjidUUID
-	} else {
-		// Jika tidak ada masjid yang dipilih, set donation_masjid_id ke NULL
-		donation.DonationMasjidID = nil
 	}
 
-	// 📂 Simpan donasi ke database
 	if err := ctrl.DB.Save(&donation).Error; err != nil {
 		log.Println("[ERROR] Gagal menyimpan donasi:", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -105,7 +91,6 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 	}
 	log.Println("[INFO] Donasi berhasil disimpan dengan order ID:", donation.DonationOrderID)
 
-	// 🔐 Buat snap token Midtrans untuk pembayaran
 	token, err := donationService.GenerateSnapToken(donation, body.DonationName, body.DonationEmail)
 	if err != nil {
 		log.Println("[ERROR] Gagal membuat token pembayaran:", err)
@@ -115,7 +100,6 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 	}
 	log.Println("[INFO] Snap token berhasil dibuat:", token)
 
-	// 📂 Update token pembayaran ke database
 	donation.DonationPaymentToken = token
 	if err := ctrl.DB.Save(&donation).Error; err != nil {
 		log.Println("[ERROR] Gagal memperbarui token pembayaran:", err)
@@ -123,15 +107,14 @@ func (ctrl *DonationController) CreateDonation(c *fiber.Ctx) error {
 			"error": "Gagal memperbarui token pembayaran",
 		})
 	}
-	log.Println("[INFO] Token pembayaran diperbarui di database untuk order ID:", donation.DonationOrderID)
 
-	// ✅ Kirim response sukses dengan snap token
 	return c.JSON(fiber.Map{
 		"message":    "Donasi berhasil dibuat. Silakan lanjutkan pembayaran.",
 		"order_id":   donation.DonationOrderID,
-		"snap_token": token, // Snap token untuk pembayaran langsung
+		"snap_token": token,
 	})
 }
+
 
 
 // 🟢 GET DONATIONS BY MASJID ID: Ambil semua donasi yang telah *completed* untuk masjid tertentu
