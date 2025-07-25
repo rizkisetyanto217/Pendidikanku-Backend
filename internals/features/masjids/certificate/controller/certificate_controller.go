@@ -93,6 +93,48 @@ func (ctrl *CertificateController) GetByID(c *fiber.Ctx) error {
 	return c.JSON(cert)
 }
 
+// ✅ GET BY LECTURE ID with JOIN (certificate + lecture + masjid)
+func (ctrl *CertificateController) GetByLectureIDWithLectureAndMasjid(c *fiber.Ctx) error {
+	lectureIDParam := c.Params("lecture_id")
+	lectureID, err := uuid.Parse(lectureIDParam)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid lecture_id",
+			"error":   err.Error(),
+		})
+	}
+
+	type Result struct {
+		certificateModel.CertificateModel
+		LectureTitle                 string  `json:"lecture_title"`
+		LectureIsCertificateGenerated bool   `json:"lecture_is_certificate_generated"`
+		MasjidID                     uuid.UUID `json:"masjid_id"`
+		MasjidName                   string  `json:"masjid_name"`
+		MasjidImageURL               *string `json:"masjid_image_url"`
+	}
+
+	var result Result
+	err = ctrl.DB.Table("certificates").
+		Select(`certificates.*, 
+				 lectures.lecture_title, lectures.lecture_is_certificate_generated,
+				 lectures.lecture_masjid_id as masjid_id,
+				 masjids.masjid_name, masjids.masjid_image_url`).
+		Joins("join lectures on certificates.certificate_lecture_id = lectures.lecture_id").
+		Joins("join masjids on lectures.lecture_masjid_id = masjids.masjid_id").
+		Where("certificates.certificate_lecture_id = ?", lectureID).
+		Scan(&result).Error
+
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to fetch certificate with lecture and masjid",
+			"error":   err.Error(),
+		})
+	}
+
+	return c.JSON(result)
+}
+
+
 // ✅ UPDATE
 func (ctrl *CertificateController) Update(c *fiber.Ctx) error {
 	id := c.Params("id")

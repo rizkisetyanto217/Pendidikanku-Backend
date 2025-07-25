@@ -19,6 +19,7 @@ func PublicCertificateRoutes(router fiber.Router, db *gorm.DB) {
 	// GET - publik
 	cert.Get("/", certificateCtrl.GetAll)
 	cert.Get("/:id", certificateCtrl.GetByID)
+	cert.Get("/by-lecture/:lecture_id", certificateCtrl.GetByLectureIDWithLectureAndMasjid)
 
 	certs := router.Group("/user-certificates")
 	// 🌐 Public / All User
