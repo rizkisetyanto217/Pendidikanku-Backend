@@ -117,7 +117,7 @@ func ToLectureResponse(m *model.LectureModel) *LectureResponse {
 		LecturePaymentDeadline:      m.LecturePaymentDeadline,
 		LectureCapacity:             m.LectureCapacity,
 		LectureIsActive:             m.LectureIsActive,
-		LectureIsCertificateGenerated: m.LectureIsCerticateGenerated,
+		LectureIsCertificateGenerated: m.LectureIsCertificateGenerated,
 		LectureCreatedAt:            m.LectureCreatedAt.Format("2006-01-02 15:04:05"),
 		LectureUpdatedAt:            updatedAtStr,
 		LectureDeletedAt:            deletedAtStr,

@@ -1,7 +1,6 @@
 package route
 
 import (
-
 	certificateController "masjidku_backend/internals/features/masjids/certificate/controller"
 
 	"github.com/gofiber/fiber/v2"
@@ -19,7 +18,8 @@ func PublicCertificateRoutes(router fiber.Router, db *gorm.DB) {
 	// GET - publik
 	cert.Get("/", certificateCtrl.GetAll)
 	cert.Get("/:id", certificateCtrl.GetByID)
-	cert.Get("/by-lecture/:lecture_id", certificateCtrl.GetByLectureIDWithLectureAndMasjid)
+	cert.Get("/by-user-exam/:user_exam_id", certificateCtrl.GetByUserExamID)
+
 
 	certs := router.Group("/user-certificates")
 	// 🌐 Public / All User

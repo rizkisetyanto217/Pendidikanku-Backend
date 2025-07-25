@@ -26,7 +26,7 @@ type LectureModel struct {
 	// Kapasitas & visibilitas
 	LectureCapacity  *int  `gorm:"column:lecture_capacity" json:"lecture_capacity,omitempty"`
 	LectureIsActive  bool  `gorm:"column:lecture_is_active;default:true" json:"lecture_is_active"`
-	LectureIsCerticateGenerated bool `gorm:"column:lecture_is_certificate_generated;default:false" json:"lecture_is_certificate_generated"`
+	LectureIsCertificateGenerated bool `gorm:"column:lecture_is_certificate_generated;default:false" json:"lecture_is_certificate_generated"`
 
 	// Timestamps
 	LectureCreatedAt time.Time  `gorm:"column:lecture_created_at;autoCreateTime" json:"lecture_created_at"`

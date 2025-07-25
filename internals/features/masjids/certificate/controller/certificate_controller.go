@@ -3,7 +3,9 @@ package controllers
 import (
 	"masjidku_backend/internals/features/masjids/certificate/dto"
 	certificateModel "masjidku_backend/internals/features/masjids/certificate/model"
+	lectureExamModel "masjidku_backend/internals/features/masjids/lectures/exams/model"
 	lectureModel "masjidku_backend/internals/features/masjids/lectures/main/model"
+	masjidModel "masjidku_backend/internals/features/masjids/masjids/model"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -93,46 +95,88 @@ func (ctrl *CertificateController) GetByID(c *fiber.Ctx) error {
 	return c.JSON(cert)
 }
 
-// ✅ GET BY LECTURE ID with JOIN (certificate + lecture + masjid)
-func (ctrl *CertificateController) GetByLectureIDWithLectureAndMasjid(c *fiber.Ctx) error {
-	lectureIDParam := c.Params("lecture_id")
-	lectureID, err := uuid.Parse(lectureIDParam)
+func (ctrl *CertificateController) GetByUserExamID(c *fiber.Ctx) error {
+	userExamIDParam := c.Params("user_exam_id")
+	userExamID, err := uuid.Parse(userExamIDParam)
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Invalid lecture_id",
+			"message": "Invalid user_exam_id",
 			"error":   err.Error(),
 		})
 	}
 
-	type Result struct {
-		certificateModel.CertificateModel
-		LectureTitle                 string  `json:"lecture_title"`
-		LectureIsCertificateGenerated bool   `json:"lecture_is_certificate_generated"`
-		MasjidID                     uuid.UUID `json:"masjid_id"`
-		MasjidName                   string  `json:"masjid_name"`
-		MasjidImageURL               *string `json:"masjid_image_url"`
-	}
-
-	var result Result
-	err = ctrl.DB.Table("certificates").
-		Select(`certificates.*, 
-				 lectures.lecture_title, lectures.lecture_is_certificate_generated,
-				 lectures.lecture_masjid_id as masjid_id,
-				 masjids.masjid_name, masjids.masjid_image_url`).
-		Joins("join lectures on certificates.certificate_lecture_id = lectures.lecture_id").
-		Joins("join masjids on lectures.lecture_masjid_id = masjids.masjid_id").
-		Where("certificates.certificate_lecture_id = ?", lectureID).
-		Scan(&result).Error
-
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Failed to fetch certificate with lecture and masjid",
+	// STEP 1: Ambil data ujian user
+	var userExam lectureExamModel.UserLectureExamModel
+	if err := ctrl.DB.First(&userExam, "user_lecture_exam_id = ?", userExamID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "User exam not found",
 			"error":   err.Error(),
 		})
 	}
 
-	return c.JSON(result)
+	// STEP 2: Ambil exam → untuk mendapatkan lecture_id
+	var exam lectureExamModel.LectureExamModel
+	if err := ctrl.DB.First(&exam, "lecture_exam_id = ?", userExam.UserLectureExamExamID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Lecture exam not found",
+			"error":   err.Error(),
+		})
+	}
+
+	// STEP 3: Ambil lecture
+	var lecture lectureModel.LectureModel
+	if err := ctrl.DB.First(&lecture, "lecture_id = ?", exam.LectureExamLectureID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Lecture not found",
+			"error":   err.Error(),
+		})
+	}
+
+	// STEP 4: Ambil certificate berdasarkan lecture_id
+	var certificate certificateModel.CertificateModel
+	if err := ctrl.DB.First(&certificate, "certificate_lecture_id = ?", lecture.LectureID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Certificate not found for this lecture",
+			"error":   err.Error(),
+		})
+	}
+
+	// STEP 5: Ambil masjid
+	var masjid masjidModel.MasjidModel
+	if err := ctrl.DB.First(&masjid, "masjid_id = ?", lecture.LectureMasjidID).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Masjid not found",
+			"error":   err.Error(),
+		})
+	}
+
+	// STEP 6: Konversi nilai
+	var gradeResult *int
+	if userExam.UserLectureExamGrade != nil {
+		tmp := int(*userExam.UserLectureExamGrade)
+		gradeResult = &tmp
+	}
+
+	// STEP 7: Bangun response
+	response := dto.CertificateDetailResponse{
+		CertificateID:                 certificate.CertificateID,
+		CertificateTitle:              certificate.CertificateTitle,
+		CertificateDescription:        certificate.CertificateDescription,
+		CertificateTemplateURL:        certificate.CertificateTemplateURL,
+		LectureTitle:                  lecture.LectureTitle,
+		LectureIsCertificateGenerated: lecture.LectureIsCertificateGenerated,
+		MasjidID:                      masjid.MasjidID,
+		MasjidName:                    masjid.MasjidName,
+		MasjidImageURL:                &masjid.MasjidImageURL,
+		UserLectureExamUserName:      userExam.UserLectureExamUserName,
+		UserLectureExamGradeResult:   gradeResult,
+	}
+
+	return c.Status(fiber.StatusOK).JSON(response)
 }
+
+
+
 
 
 // ✅ UPDATE

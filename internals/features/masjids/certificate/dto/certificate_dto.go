@@ -32,3 +32,18 @@ type CertificateResponseDTO struct {
 	CreatedAt              time.Time `json:"created_at"`
 	UpdatedAt              time.Time `json:"updated_at"`
 }
+
+type CertificateDetailResponse struct {
+	CertificateID                  uuid.UUID  `json:"certificate_id"`
+	CertificateTitle               string     `json:"certificate_title"`
+	CertificateDescription         string     `json:"certificate_description"`
+	CertificateTemplateURL         string     `json:"certificate_template_url"`
+	LectureTitle                   string     `json:"lecture_title"`
+	LectureIsCertificateGenerated  bool       `json:"lecture_is_certificate_generated"`
+	MasjidID                       uuid.UUID  `json:"masjid_id"`
+	MasjidName                     string     `json:"masjid_name"`
+	MasjidImageURL                 *string    `json:"masjid_image_url"`
+	UserLectureExamUserName       string     `json:"user_lecture_exam_user_name"`
+	UserLectureExamGradeResult    *int       `json:"user_lecture_exam_grade_result,omitempty"`
+}
+
