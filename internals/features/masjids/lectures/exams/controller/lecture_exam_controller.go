@@ -136,6 +136,7 @@ func (ctrl *LectureExamController) GetQuestionExamByLectureID(c *fiber.Ctx) erro
 	return c.JSON(fiber.Map{
 		"message":   "Berhasil mengambil soal dari lecture_id",
 		"examCount": len(exams),
+		"exam_id":   exams[0].LectureExamID, 
 		"questions": questions,
 	})
 }

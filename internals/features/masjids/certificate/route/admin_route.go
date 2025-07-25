@@ -9,24 +9,18 @@ import (
 	masjidkuMiddleware "masjidku_backend/internals/middlewares/features"
 )
 
-func CertificateAdminRoutes(dkm fiber.Router, db *gorm.DB) {
+func CertificateAdminRoutes(router fiber.Router, db *gorm.DB) {
 	certificateCtrl := certificateController.NewCertificateController(db)
 
-	dkm.Post("/certificates",
-		masjidkuMiddleware.IsMasjidAdmin(),
-		certificateCtrl.Create,
-	)
+	// Grouping: /certificates
+	cert := router.Group("/certificates")
 
-	dkm.Get("/certificates", certificateCtrl.GetAll)
-	dkm.Get("/certificates/:id", certificateCtrl.GetByID)
+	// GET - publik
+	cert.Get("/", certificateCtrl.GetAll)
+	cert.Get("/:id", certificateCtrl.GetByID)
 
-	dkm.Put("/certificates/:id",
-		masjidkuMiddleware.IsMasjidAdmin(),
-		certificateCtrl.Update,
-	)
-
-	dkm.Delete("/certificates/:id",
-		masjidkuMiddleware.IsMasjidAdmin(),
-		certificateCtrl.Delete,
-	)
+	// Admin only
+	cert.Post("/", masjidkuMiddleware.IsMasjidAdmin(), certificateCtrl.Create)
+	cert.Put("/:id", masjidkuMiddleware.IsMasjidAdmin(), certificateCtrl.Update)
+	cert.Delete("/:id", masjidkuMiddleware.IsMasjidAdmin(), certificateCtrl.Delete)
 }

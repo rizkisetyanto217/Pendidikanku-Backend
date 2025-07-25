@@ -3,6 +3,7 @@ package controllers
 import (
 	"masjidku_backend/internals/features/masjids/certificate/dto"
 	certificateModel "masjidku_backend/internals/features/masjids/certificate/model"
+	lectureModel "masjidku_backend/internals/features/masjids/lectures/main/model"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -22,7 +23,10 @@ func NewCertificateController(db *gorm.DB) *CertificateController {
 func (ctrl *CertificateController) Create(c *fiber.Ctx) error {
 	var body dto.CreateCertificateDTO
 	if err := c.BodyParser(&body); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid body", "error": err.Error()})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Invalid body",
+			"error":   err.Error(),
+		})
 	}
 
 	cert := certificateModel.CertificateModel{
@@ -35,12 +39,38 @@ func (ctrl *CertificateController) Create(c *fiber.Ctx) error {
 		UpdatedAt:              time.Now(),
 	}
 
-	if err := ctrl.DB.Create(&cert).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to create certificate", "error": err.Error()})
+	// Mulai transaksi
+	tx := ctrl.DB.Begin()
+
+	// Simpan certificate
+	if err := tx.Create(&cert).Error; err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Failed to create certificate",
+			"error":   err.Error(),
+		})
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(cert)
+	// Update Lecture: set LectureIsCerticateGenerated = true
+	if err := tx.Model(&lectureModel.LectureModel{}).
+		Where("lecture_id = ?", body.CertificateLectureID).
+		Update("lecture_is_certificate_generated", true).Error; err != nil {
+		tx.Rollback()
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Certificate created but failed to update lecture",
+			"error":   err.Error(),
+		})
+	}
+
+	tx.Commit()
+
+	// Return format dengan message + data
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"message": "Certificate created successfully",
+		"data":    cert,
+	})
 }
+
 
 // ✅ GET ALL
 func (ctrl *CertificateController) GetAll(c *fiber.Ctx) error {
