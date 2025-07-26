@@ -113,7 +113,7 @@ func issueTokens(c *fiber.Ctx, db *gorm.DB, user userModel.UserModel, masjidIDs 
 		Value:    accessToken,
 		HTTPOnly: true,
 		Secure:   true,
-		SameSite: "Strict",
+		SameSite: "None",
 		Expires:  accessExp,
 	})
 	c.Cookie(&fiber.Cookie{
@@ -121,15 +121,15 @@ func issueTokens(c *fiber.Ctx, db *gorm.DB, user userModel.UserModel, masjidIDs 
 		Value:    refreshToken,
 		HTTPOnly: true,
 		Secure:   true,
-		SameSite: "Strict",
+		SameSite: "None",
 		Expires:  refreshExp,
 	})
 
 	// ✅ Response JSON (Token di-include untuk Postman/Flutter)
 	return helpers.Success(c, "Login berhasil", fiber.Map{
-		"access_token":     accessToken,      // untuk Postman / Flutter
-		"access_exp_unix":  accessExp.Unix(), // opsional untuk client-side timer
-		"refresh_exp_unix": refreshExp.Unix(),
+		// "access_token":     accessToken,      // untuk Postman / Flutter
+		// "access_exp_unix":  accessExp.Unix(), // opsional untuk client-side timer
+		// "refresh_exp_unix": refreshExp.Unix(),
 		"user": fiber.Map{
 			"id":               user.ID,
 			"user_name":        user.UserName,
