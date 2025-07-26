@@ -23,7 +23,7 @@
     function handleCredentialResponse(response) {
       console.log("[DEBUG] ID Token dari Google:", response.credential);
 
-      fetch('https://masjidkubackend-production.up.railway.app/auth/login-google', {
+      fetch('https://masjidkubackend4-production.up.railway.app/auth/login-google', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id_token: response.credential })
@@ -38,7 +38,7 @@
             output.textContent = '✅ Login sukses!\n\nAccess Token:\n' + accessToken;
 
             // 🔥 Kirim token ke endpoint /api/u/tokens
-            fetch(' https://masjidkubackend-production.up.railway.app/api/u/tokens', {
+            fetch(' https://masjidkubackend4-production.up.railway.app/api/u/tokens', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',

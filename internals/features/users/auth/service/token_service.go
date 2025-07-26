@@ -113,7 +113,7 @@ func issueTokens(c *fiber.Ctx, db *gorm.DB, user userModel.UserModel, masjidIDs 
 		Value:    accessToken,
 		HTTPOnly: true,
 		Secure:   true,
-		SameSite: "None",
+		SameSite: "Strict",
 		Expires:  accessExp,
 	})
 	c.Cookie(&fiber.Cookie{
@@ -121,7 +121,7 @@ func issueTokens(c *fiber.Ctx, db *gorm.DB, user userModel.UserModel, masjidIDs 
 		Value:    refreshToken,
 		HTTPOnly: true,
 		Secure:   true,
-		SameSite: "None",
+		SameSite: "Strict",
 		Expires:  refreshExp,
 	})
 
