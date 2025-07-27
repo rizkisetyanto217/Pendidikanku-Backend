@@ -104,6 +104,7 @@ func (ctrl *UserLectureSessionController) DeleteUserLectureSession(c *fiber.Ctx)
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
+
 func (ctrl *UserLectureSessionController) GetLectureSessionsWithUserProgress(c *fiber.Ctx) error {
 	userIDRaw := c.Locals("user_id")
 	userID := ""

@@ -21,7 +21,7 @@ func CorsMiddleware() fiber.Handler {
 			"https://masjidku-web-production.up.railway.app", // ✅ tambahkan ini
 		}, ", "),
 		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS, PATCH",
-		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
+		AllowHeaders:     "Origin, Content-Type, Accept, Authorization, X-User-Id",
 		AllowCredentials: true,
 	})
 }
