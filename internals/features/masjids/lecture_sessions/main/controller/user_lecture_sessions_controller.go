@@ -29,10 +29,6 @@ func (ctrl *UserLectureSessionController) CreateUserLectureSession(c *fiber.Ctx)
 		UserLectureSessionGradeResult:      req.UserLectureSessionGradeResult,
 		UserLectureSessionLectureSessionID: req.UserLectureSessionLectureSessionID,
 		UserLectureSessionUserID:           req.UserLectureSessionUserID,
-		UserLectureSessionIsRegistered:     req.UserLectureSessionIsRegistered,
-		UserLectureSessionHasPaid:          req.UserLectureSessionHasPaid,
-		UserLectureSessionPaidAmount:       req.UserLectureSessionPaidAmount,
-		UserLectureSessionPaymentTime:      req.UserLectureSessionPaymentTime,
 	}
 
 	if err := ctrl.DB.Create(&newRecord).Error; err != nil {
@@ -88,10 +84,7 @@ func (ctrl *UserLectureSessionController) UpdateUserLectureSession(c *fiber.Ctx)
 	record.UserLectureSessionGradeResult = req.UserLectureSessionGradeResult
 	record.UserLectureSessionLectureSessionID = req.UserLectureSessionLectureSessionID
 	record.UserLectureSessionUserID = req.UserLectureSessionUserID
-	record.UserLectureSessionIsRegistered = req.UserLectureSessionIsRegistered
-	record.UserLectureSessionHasPaid = req.UserLectureSessionHasPaid
-	record.UserLectureSessionPaidAmount = req.UserLectureSessionPaidAmount
-	record.UserLectureSessionPaymentTime = req.UserLectureSessionPaymentTime
+
 
 	if err := ctrl.DB.Save(&record).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui data user lecture session")

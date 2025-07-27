@@ -102,7 +102,10 @@ CREATE TABLE IF NOT EXISTS user_lecture_sessions (
 
   -- Relasi
   user_lecture_session_lecture_session_id UUID NOT NULL REFERENCES lecture_sessions(lecture_session_id) ON DELETE CASCADE,
+  
   user_lecture_session_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+  user_lecture_session_lecture_id UUID NOT NULL REFERENCES lectures(lecture_id) ON DELETE CASCADE,
 
   -- ✅ Masjid ID
   user_lecture_session_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,

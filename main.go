@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/gofiber/fiber/v2"
+	// xendit "github.com/xendit/xendit-go/v7"
+	// serviceXendit "masjidku_backend/internals/service" // sesuaikan path
 
 	"masjidku_backend/internals/configs"
 	database "masjidku_backend/internals/databases"
@@ -19,33 +21,20 @@ func main() {
 	app := fiber.New()
 
 	middlewares.SetupMiddlewares(app)
-
-	// ✅ Koneksi DB
 	database.ConnectDB()
 	scheduler.StartBlacklistCleanupScheduler(database.DB)
 
-	// ✅ Ambil MIDTRANS_SERVER_KEY dari .env
-	serverKey := configs.GetEnv("MIDTRANS_SERVER_KEY")
-	if serverKey == "" {
-		log.Fatal("❌ MIDTRANS_SERVER_KEY tidak ditemukan di .env")
-	}
+	// ✅ MIDTRANS setup
+	service.InitMidtrans(configs.GetEnv("MIDTRANS_SERVER_KEY"))
 
-	service.InitMidtrans(serverKey) // ✅ PASANG PARAMETERNYA
-
-	// ✅ Setup routes dulu
+    
+	// ✅ Route
 	routes.SetupRoutes(app, database.DB)
 
-	// ✅ Baru tangani preflight OPTIONS (setelah semua route aktif)
-	// app.Options("/*", func(c *fiber.Ctx) error {
-	// 	return c.SendStatus(fiber.StatusNoContent) // 204 No Content
-	// })
-
-	// ✅ Jalankan server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "3000"
 	}
 	log.Printf("✅ Listening on PORT: %s", port)
-	log.Fatal(app.Listen("0.0.0.0:" + port)) // ✅ FIX INI
-
+	log.Fatal(app.Listen("0.0.0.0:" + port))
 }

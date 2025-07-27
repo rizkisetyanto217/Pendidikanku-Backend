@@ -12,17 +12,14 @@ type UserLectureSessionModel struct {
 
 	UserLectureSessionLectureSessionID string     `gorm:"column:user_lecture_session_lecture_session_id;type:uuid;not null"`
 	UserLectureSessionUserID           string     `gorm:"column:user_lecture_session_user_id;type:uuid;not null"`
+	UserLectureSessionLectureID string `gorm:"column:user_lecture_session_lecture_id;type:uuid;not null" json:"user_lecture_session_lecture_id"`
 
 	// 🕌 Masjid ID (baru)
 	UserLectureSessionMasjidID         string     `gorm:"column:user_lecture_session_masjid_id;type:uuid;not null"`
 
-	// Pembayaran & pendaftaran
-	UserLectureSessionIsRegistered     bool       `gorm:"column:user_lecture_session_is_registered;default:false"`
-	UserLectureSessionHasPaid          bool       `gorm:"column:user_lecture_session_has_paid;default:false"`
-	UserLectureSessionPaidAmount       *int       `gorm:"column:user_lecture_session_paid_amount"`
-	UserLectureSessionPaymentTime      *time.Time `gorm:"column:user_lecture_session_payment_time"`
-
 	UserLectureSessionCreatedAt        time.Time  `gorm:"column:user_lecture_session_created_at;autoCreateTime"`
+
+	UserLectureSessionUpdatedAt *time.Time `gorm:"column:user_lecture_session_updated_at" json:"user_lecture_session_updated_at"`
 
 	// Relations
 	User           *UserModel.UserModel   `gorm:"foreignKey:UserLectureSessionUserID"`

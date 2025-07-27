@@ -9,7 +9,7 @@ import (
 
 var SnapClient snap.Client
 
-// InitMidtrans menginisialisasi Midtrans Snap Client dengan server key.
+// Midtrans menginisialisasi Midtrans Snap Client dengan server key.
 func InitMidtrans(serverKey string) {
 	SnapClient.New(serverKey, midtrans.Sandbox)
 }

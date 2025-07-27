@@ -1,12 +1,17 @@
 package controller
 
 import (
+	"fmt"
 	"log"
+	"masjidku_backend/internals/constants"
+	modelUserLectureSession "masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/quizzes/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/quizzes/model"
+	modelLecture "masjidku_backend/internals/features/masjids/lectures/main/model"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -17,6 +22,7 @@ type UserLectureSessionsQuizController struct {
 func NewUserLectureSessionsQuizController(db *gorm.DB) *UserLectureSessionsQuizController {
 	return &UserLectureSessionsQuizController{DB: db}
 }
+
 
 // =============================
 // ➕ Create User Quiz Result (from token)
@@ -30,25 +36,192 @@ func (ctrl *UserLectureSessionsQuizController) CreateUserLectureSessionsQuiz(c *
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// Ambil user_id dari token (diset oleh middleware)
-	userIDRaw := c.Locals("user_id")
-	if userIDRaw == nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "User ID not found in token")
-	}
-	userID := userIDRaw.(string)
-
-	data := model.UserLectureSessionsQuizModel{
-		UserLectureSessionsQuizGrade:  body.UserLectureSessionsQuizGrade,
-		UserLectureSessionsQuizQuizID: body.UserLectureSessionsQuizQuizID,
-		UserLectureSessionsQuizUserID: userID,
+	// Ambil user_id dari token (atau pakai dummy)
+	userID := ""
+	if userIDRaw := c.Locals("user_id"); userIDRaw != nil {
+		userID = userIDRaw.(string)
+	} else {
+		userID = constants.DummyUserID.String()
 	}
 
-	if err := ctrl.DB.Create(&data).Error; err != nil {
+	// Ambil slug masjid
+	slug := c.Params("slug")
+	if slug == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Masjid slug is required in URL")
+	}
+
+	// Dapatkan masjid_id dari slug
+	var masjid struct {
+		MasjidID string `gorm:"column:masjid_id"`
+	}
+	if err := ctrl.DB.
+		Table("masjids").
+		Select("masjid_id").
+		Where("masjid_slug = ?", slug).
+		First(&masjid).Error; err != nil {
+		return fiber.NewError(fiber.StatusNotFound, "Masjid not found for given slug")
+	}
+
+	// Cek apakah user sudah pernah mengerjakan quiz ini
+	var existing model.UserLectureSessionsQuizModel
+	err := ctrl.DB.Where("user_lecture_sessions_quiz_user_id = ? AND user_lecture_sessions_quiz_quiz_id = ?", userID, body.UserLectureSessionsQuizQuizID).
+		First(&existing).Error
+
+	if err == nil {
+		// ✅ Sudah pernah mengerjakan
+		existing.UserLectureSessionsQuizAttemptCount += 1
+
+		if body.UserLectureSessionsQuizGrade > existing.UserLectureSessionsQuizGrade {
+			existing.UserLectureSessionsQuizGrade = body.UserLectureSessionsQuizGrade
+		}
+
+		if err := ctrl.DB.Save(&existing).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Failed to update quiz result")
+		}
+
+		// ✅ Recalculate final grade
+		_ = ctrl.RecalculateLectureSessionsGrade(userID, body.UserLectureSessionsQuizLectureSessionID, masjid.MasjidID)
+
+		return c.Status(fiber.StatusOK).JSON(dto.ToUserLectureSessionsQuizDTO(existing))
+	}
+
+	// ✅ Belum pernah mengerjakan: insert baru
+	newData := model.UserLectureSessionsQuizModel{
+		UserLectureSessionsQuizGrade:               body.UserLectureSessionsQuizGrade,
+		UserLectureSessionsQuizQuizID:              body.UserLectureSessionsQuizQuizID,
+		UserLectureSessionsQuizUserID:              userID,
+		UserLectureSessionsQuizMasjidID:            masjid.MasjidID,
+		UserLectureSessionsQuizAttemptCount:        1,
+		UserLectureSessionsQuizLectureSessionID:    body.UserLectureSessionsQuizLectureSessionID,
+	}
+
+	if err := ctrl.DB.Create(&newData).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to save quiz result")
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(dto.ToUserLectureSessionsQuizDTO(data))
+	// ✅ Recalculate final grade
+	_ = ctrl.RecalculateLectureSessionsGrade(userID, body.UserLectureSessionsQuizLectureSessionID, masjid.MasjidID)
+
+
+	return c.Status(fiber.StatusCreated).JSON(dto.ToUserLectureSessionsQuizDTO(newData))
 }
+
+
+func (ctrl *UserLectureSessionsQuizController) RecalculateLectureSessionsGrade(userID, lectureSessionID, masjidID string) error {
+	// ✅ Hitung rata-rata quiz user di sesi
+	var avg float64
+	if err := ctrl.DB.
+		Table("user_lecture_sessions_quiz").
+		Select("AVG(user_lecture_sessions_quiz_grade_result)").
+		Where("user_lecture_sessions_quiz_user_id = ? AND user_lecture_sessions_quiz_lecture_session_id = ?", userID, lectureSessionID).
+		Scan(&avg).Error; err != nil {
+		return fmt.Errorf("failed to calculate quiz average: %w", err)
+	}
+
+	// ✅ Ambil lecture_session_lecture_id → AS alias LectureID
+	var lecture struct {
+		LectureID string
+	}
+	if err := ctrl.DB.
+		Table("lecture_sessions").
+		Select("lecture_session_lecture_id AS lecture_id").
+		Where("lecture_session_id = ?", lectureSessionID).
+		Scan(&lecture).Error; err != nil || lecture.LectureID == "" {
+		return fmt.Errorf("failed to get lecture ID from session: %w", err)
+	}
+
+	// ✅ Cek apakah user_lecture_session sudah ada
+	var existing modelUserLectureSession.UserLectureSessionModel
+	err := ctrl.DB.
+		Where("user_lecture_session_user_id = ? AND user_lecture_session_lecture_session_id = ?", userID, lectureSessionID).
+		First(&existing).Error
+
+	if err != nil {
+		// ❗ Tidak ada → insert baru
+		newData := modelUserLectureSession.UserLectureSessionModel{
+			UserLectureSessionUserID:           userID,
+			UserLectureSessionLectureSessionID: lectureSessionID,
+			UserLectureSessionLectureID:        lecture.LectureID,
+			UserLectureSessionMasjidID:         masjidID,
+			UserLectureSessionGradeResult:      &avg,
+			UserLectureSessionAttendanceStatus: 0,
+		}
+		if err := ctrl.DB.Create(&newData).Error; err != nil {
+			return fmt.Errorf("failed to create user_lecture_session: %w", err)
+		}
+	} else {
+		// ✅ Update nilai
+		if err := ctrl.DB.
+			Model(&existing).
+			Update("user_lecture_session_grade_result", avg).
+			Error; err != nil {
+			return fmt.Errorf("failed to update grade result: %w", err)
+		}
+	}
+
+	// ✅ Update progres user
+	return ctrl.UpdateUserLectureProgress(userID, lecture.LectureID, masjidID)
+}
+
+
+func (ctrl *UserLectureSessionsQuizController) UpdateUserLectureProgress(userID, lectureID, masjidID string) error {
+	// ✅ Hitung rata-rata nilai semua sesi user di satu lecture
+	var avg float64
+	err := ctrl.DB.
+		Table("user_lecture_sessions").
+		Select("AVG(user_lecture_session_grade_result)").
+		Joins("JOIN lecture_sessions ON user_lecture_session_lecture_session_id = lecture_sessions.lecture_session_id").
+		Where("user_lecture_session_user_id = ? AND lecture_sessions.lecture_session_lecture_id = ?", userID, lectureID).
+		Scan(&avg).Error
+	if err != nil {
+		return fmt.Errorf("failed to calculate lecture avg: %w", err)
+	}
+
+	// ✅ Hitung sesi yang selesai
+	var count int64
+	err = ctrl.DB.
+		Table("user_lecture_sessions").
+		Joins("JOIN lecture_sessions ON user_lecture_session_lecture_session_id = lecture_sessions.lecture_session_id").
+		Where("user_lecture_session_user_id = ? AND lecture_sessions.lecture_session_lecture_id = ? AND user_lecture_session_grade_result IS NOT NULL", userID, lectureID).
+		Count(&count).Error
+	if err != nil {
+		return fmt.Errorf("failed to count completed sessions: %w", err)
+	}
+
+	// ✅ Cek user_lecture
+	var existing modelLecture.UserLectureModel
+	err = ctrl.DB.
+		Where("user_lecture_user_id = ? AND user_lecture_lecture_id = ?", userID, lectureID).
+		First(&existing).Error
+
+	if err != nil {
+		// ❗ Belum ada → insert
+		newData := modelLecture.UserLectureModel{
+			UserLectureUserID:                 uuid.MustParse(userID),
+			UserLectureLectureID:              uuid.MustParse(lectureID),
+			UserLectureMasjidID:               uuid.MustParse(masjidID),
+			UserLectureGradeResult:            intPtr(int(avg)),
+			UserLectureTotalCompletedSessions: int(count),
+		}
+		return ctrl.DB.Create(&newData).Error
+	}
+
+	// ✅ Jika ada → update
+	return ctrl.DB.
+		Model(&existing).
+		Updates(map[string]interface{}{
+			"user_lecture_grade_result":             int(avg),
+			"user_lecture_total_completed_sessions": int(count),
+		}).Error
+}
+
+
+func intPtr(v int) *int {
+	return &v
+}
+
+
+
 
 // =============================
 // 📄 Get All Quiz Results
