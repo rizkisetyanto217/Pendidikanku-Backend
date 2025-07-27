@@ -1,9 +1,11 @@
 package controller
 
 import (
+	"encoding/json"
+	"log"
+	lectureSessionModel "masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
 	"masjidku_backend/internals/features/masjids/lectures/main/dto"
 	"masjidku_backend/internals/features/masjids/lectures/main/model"
-	lectureSessionModel "masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -94,5 +96,82 @@ func (ctrl *LectureController) GetLectureSessionsByLectureID(c *fiber.Ctx) error
 	return c.JSON(fiber.Map{
 		"message": "Daftar sesi kajian berhasil ditemukan",
 		"data":    sessions,
+	})
+}
+
+
+func (ctrl *LectureController) GetLectureByIDProgressUser(c *fiber.Ctx) error {
+	lectureID := c.Params("id")
+	var lecture model.LectureModel
+
+	if err := ctrl.DB.First(&lecture, "lecture_id = ?", lectureID).Error; err != nil {
+		return c.Status(404).JSON(fiber.Map{
+			"message": "Kajian tidak ditemukan",
+			"error":   err.Error(),
+		})
+	}
+
+	// 🔄 Lengkapi nama pengajar jika kosong
+	if lecture.LectureTeachers != nil {
+		var teacherList []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}
+
+		if err := json.Unmarshal(lecture.LectureTeachers, &teacherList); err == nil {
+			changed := false
+			for i, t := range teacherList {
+				if t.ID != "" && t.Name == "" {
+					var user struct {
+						UserName string
+					}
+					if err := ctrl.DB.
+						Table("users").
+						Select("user_name").
+						Where("id = ?", t.ID).
+						Scan(&user).Error; err == nil && user.UserName != "" {
+						teacherList[i].Name = user.UserName
+						changed = true
+					}
+				}
+			}
+			if changed {
+				if updated, err := json.Marshal(teacherList); err == nil {
+					lecture.LectureTeachers = updated
+				}
+			}
+		}
+	}
+
+	// 🔍 Ambil user_id dari cookie atau header
+	userID := c.Cookies("user_id")
+	if userID == "" {
+		userID = c.Get("X-User-Id")
+	}
+	log.Println("[INFO] user_id dari request:", userID)
+
+	var userLecture model.UserLectureModel
+	err := ctrl.DB.Where("user_lecture_lecture_id = ? AND user_lecture_user_id = ?", lectureID, userID).First(&userLecture).Error
+
+	var userProgress map[string]interface{}
+	if err == nil {
+		userProgress = map[string]interface{}{
+			"grade_result":             userLecture.UserLectureGradeResult,
+			"total_completed_sessions": userLecture.UserLectureTotalCompletedSessions,
+			"is_registered":            userLecture.UserLectureIsRegistered,
+			"has_paid":                 userLecture.UserLectureHasPaid,
+			"paid_amount":              userLecture.UserLecturePaidAmount,
+			"payment_time":             userLecture.UserLecturePaymentTime,
+		}
+	} else {
+		userProgress = nil // Atau kosongkan jika user belum ikut
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Berhasil mengambil detail kajian",
+		"data": fiber.Map{
+			"lecture":       dto.ToLectureResponse(&lecture),
+			"user_progress": userProgress,
+		},
 	})
 }
