@@ -272,11 +272,17 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 	fmt.Println("🟢 GET /api/u/masjids/:slug/finished-lecture-sessions")
 	slug := c.Params("slug")
 	if slug == "" {
-		fmt.Println("❌ Slug masjid tidak ditemukan di URL")
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"message": "Slug masjid tidak ditemukan di URL",
 		})
 	}
+
+	// Ambil user_id dari cookie atau header
+	userID := c.Cookies("user_id")
+	if userID == "" {
+		userID = c.Get("X-User-Id")
+	}
+	log.Println("[INFO] user_id dari request:", userID)
 
 	// Cari masjid berdasarkan slug
 	var masjid struct {
@@ -287,49 +293,55 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 		Select("masjid_id").
 		Where("masjid_slug = ?", slug).
 		Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
-		fmt.Println("❌ Masjid tidak ditemukan untuk slug:", slug)
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"message": "Masjid dengan slug tersebut tidak ditemukan",
 		})
 	}
 
 	now := time.Now()
-	fmt.Println("🔍 Slug:", slug)
-	fmt.Println("🔍 MasjidID:", masjid.MasjidID)
-	fmt.Println("🔍 Waktu sekarang:", now.Format("2006-01-02 15:04:05"))
 
-	// Join lectures + users
 	type JoinedResult struct {
 		model.LectureSessionModel
-		LectureTitle string  `gorm:"column:lecture_title"`
-		UserName     *string `gorm:"column:user_name"`
+		LectureTitle    string   `gorm:"column:lecture_title"`
+		UserName        *string  `gorm:"column:user_name"`
+		UserGradeResult *float64 `gorm:"column:user_grade_result"`
+		UserAttendance  *int     `gorm:"column:user_attendance_status"`
 	}
 
 	var results []JoinedResult
-	err := ctrl.DB.
+
+	query := ctrl.DB.
 		Model(&model.LectureSessionModel{}).
-		Select("lecture_sessions.*, lectures.lecture_title, users.user_name").
+		Select(`
+			lecture_sessions.*, 
+			lectures.lecture_title, 
+			users.user_name
+		`).
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
 		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
 		Where("lecture_sessions.lecture_session_masjid_id = ? AND lecture_sessions.lecture_session_end_time < ?", masjid.MasjidID, now).
-		Order("lecture_sessions.lecture_session_start_time DESC").
-		Scan(&results).Error
+		Order("lecture_sessions.lecture_session_start_time DESC")
 
-	if err != nil {
-		fmt.Println("❌ ERROR saat mengambil data sesi:", err.Error())
+	if userID != "" {
+		log.Println("[INFO] Menambahkan join ke user_lecture_sessions")
+		query = query.Select(`
+			lecture_sessions.*, 
+			lectures.lecture_title, 
+			users.user_name,
+			user_lecture_sessions.user_lecture_session_grade_result AS user_grade_result,
+			user_lecture_sessions.user_lecture_session_attendance_status AS user_attendance_status
+		`).Joins(`
+			LEFT JOIN user_lecture_sessions 
+			ON user_lecture_sessions.user_lecture_session_lecture_session_id = lecture_sessions.lecture_session_id 
+			AND user_lecture_sessions.user_lecture_session_user_id = ?
+		`, userID)
+	}
+
+	if err := query.Scan(&results).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Gagal mengambil sesi kajian yang telah lewat berdasarkan slug masjid",
 			"error":   err.Error(),
 		})
-	}
-
-	fmt.Printf("✅ %d sesi ditemukan untuk masjid %s\n", len(results), slug)
-	for _, r := range results {
-		fmt.Printf("→ ID: %s | Judul: %s | End: %s\n",
-			r.LectureSessionID,
-			r.LectureTitle,
-			r.LectureSessionEndTime.Format("2006-01-02 15:04:05"),
-		)
 	}
 
 	// Map ke DTO
@@ -339,6 +351,12 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 		if dtoItem.LectureSessionTeacherName == "" && r.UserName != nil {
 			dtoItem.LectureSessionTeacherName = *r.UserName
 		}
+		if r.UserGradeResult != nil {
+			dtoItem.UserGradeResult = r.UserGradeResult
+		}
+		if r.UserAttendance != nil {
+			dtoItem.UserAttendanceStatus = r.UserAttendance
+		}
 		response[i] = dtoItem
 	}
 
@@ -347,6 +365,7 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 		"data":    response,
 	})
 }
+
 
 
 
