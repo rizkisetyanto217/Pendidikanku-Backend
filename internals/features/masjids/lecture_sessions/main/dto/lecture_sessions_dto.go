@@ -45,6 +45,11 @@ type LectureSessionDTO struct {
 
 	LectureTitle string `json:"lecture_title"`
 
+	// Informasi user (jika tersedia dari join)
+	UserGradeResult      *float64 `json:"user_grade_result,omitempty"`
+	UserAttendanceStatus *int     `json:"user_attendance_status,omitempty"`
+
+
 	// Approval status
 	LectureSessionApprovedByAdminID   *uuid.UUID `json:"lecture_session_approved_by_admin_id"`
 	LectureSessionApprovedByAdminAt   *time.Time `json:"lecture_session_approved_by_admin_at"`
@@ -115,8 +120,14 @@ func ToLectureSessionDTO(m model.LectureSessionModel) LectureSessionDTO {
 func ToLectureSessionDTOWithLectureTitle(m model.LectureSessionModel, lectureTitle string) LectureSessionDTO {
 	dto := ToLectureSessionDTO(m)
 	dto.LectureTitle = lectureTitle
+
+	// Ini hanya fallback, nilainya akan diisi manual di controller jika join user_lecture_sessions berhasil
+	dto.UserGradeResult = nil
+	dto.UserAttendanceStatus = nil
+
 	return dto
 }
+
 
 // =========================
 // DTO: Approval by Role
