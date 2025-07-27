@@ -23,10 +23,6 @@ func NewUserLectureSessionsQuizController(db *gorm.DB) *UserLectureSessionsQuizC
 	return &UserLectureSessionsQuizController{DB: db}
 }
 
-
-// =============================
-// ➕ Create User Quiz Result (from token)
-// =============================
 func (ctrl *UserLectureSessionsQuizController) CreateUserLectureSessionsQuiz(c *fiber.Ctx) error {
 	var body dto.CreateUserLectureSessionsQuizRequest
 	if err := c.BodyParser(&body); err != nil {
@@ -36,12 +32,12 @@ func (ctrl *UserLectureSessionsQuizController) CreateUserLectureSessionsQuiz(c *
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// Ambil user_id dari token (atau pakai dummy)
-	userID := ""
+	// Ambil user_id dari token atau gunakan Dummy
+	userID := constants.DummyUserID.String()
+	isAnonymous := true
 	if userIDRaw := c.Locals("user_id"); userIDRaw != nil {
 		userID = userIDRaw.(string)
-	} else {
-		userID = constants.DummyUserID.String()
+		isAnonymous = false
 	}
 
 	// Ambil slug masjid
@@ -50,7 +46,7 @@ func (ctrl *UserLectureSessionsQuizController) CreateUserLectureSessionsQuiz(c *
 		return fiber.NewError(fiber.StatusBadRequest, "Masjid slug is required in URL")
 	}
 
-	// Dapatkan masjid_id dari slug
+	// Ambil masjid_id dari slug
 	var masjid struct {
 		MasjidID string `gorm:"column:masjid_id"`
 	}
@@ -62,49 +58,51 @@ func (ctrl *UserLectureSessionsQuizController) CreateUserLectureSessionsQuiz(c *
 		return fiber.NewError(fiber.StatusNotFound, "Masjid not found for given slug")
 	}
 
-	// Cek apakah user sudah pernah mengerjakan quiz ini
-	var existing model.UserLectureSessionsQuizModel
-	err := ctrl.DB.Where("user_lecture_sessions_quiz_user_id = ? AND user_lecture_sessions_quiz_quiz_id = ?", userID, body.UserLectureSessionsQuizQuizID).
-		First(&existing).Error
+	// === ✅ USER LOGIN ===
+	if !isAnonymous {
+		// Cek apakah user sudah pernah kerjakan quiz ini
+		var existing model.UserLectureSessionsQuizModel
+		err := ctrl.DB.Where("user_lecture_sessions_quiz_user_id = ? AND user_lecture_sessions_quiz_quiz_id = ?", userID, body.UserLectureSessionsQuizQuizID).
+			First(&existing).Error
 
-	if err == nil {
-		// ✅ Sudah pernah mengerjakan
-		existing.UserLectureSessionsQuizAttemptCount += 1
+		if err == nil {
+			// Sudah pernah → update attempt & grade jika lebih tinggi
+			existing.UserLectureSessionsQuizAttemptCount += 1
+			if body.UserLectureSessionsQuizGrade > existing.UserLectureSessionsQuizGrade {
+				existing.UserLectureSessionsQuizGrade = body.UserLectureSessionsQuizGrade
+			}
 
-		if body.UserLectureSessionsQuizGrade > existing.UserLectureSessionsQuizGrade {
-			existing.UserLectureSessionsQuizGrade = body.UserLectureSessionsQuizGrade
+			if err := ctrl.DB.Save(&existing).Error; err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "Failed to update quiz result")
+			}
+
+			_ = ctrl.RecalculateLectureSessionsGrade(userID, body.UserLectureSessionsQuizLectureSessionID, masjid.MasjidID)
+			return c.Status(fiber.StatusOK).JSON(dto.ToUserLectureSessionsQuizDTO(existing))
 		}
-
-		if err := ctrl.DB.Save(&existing).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Failed to update quiz result")
-		}
-
-		// ✅ Recalculate final grade
-		_ = ctrl.RecalculateLectureSessionsGrade(userID, body.UserLectureSessionsQuizLectureSessionID, masjid.MasjidID)
-
-		return c.Status(fiber.StatusOK).JSON(dto.ToUserLectureSessionsQuizDTO(existing))
 	}
 
-	// ✅ Belum pernah mengerjakan: insert baru
+	// === ✅ USER ANONIM atau BELUM PERNAH: insert baru ===
 	newData := model.UserLectureSessionsQuizModel{
-		UserLectureSessionsQuizGrade:               body.UserLectureSessionsQuizGrade,
-		UserLectureSessionsQuizQuizID:              body.UserLectureSessionsQuizQuizID,
-		UserLectureSessionsQuizUserID:              userID,
-		UserLectureSessionsQuizMasjidID:            masjid.MasjidID,
-		UserLectureSessionsQuizAttemptCount:        1,
-		UserLectureSessionsQuizLectureSessionID:    body.UserLectureSessionsQuizLectureSessionID,
+		UserLectureSessionsQuizGrade:            body.UserLectureSessionsQuizGrade,
+		UserLectureSessionsQuizQuizID:           body.UserLectureSessionsQuizQuizID,
+		UserLectureSessionsQuizUserID:           userID, // tetap DummyUserID kalau anonim
+		UserLectureSessionsQuizMasjidID:         masjid.MasjidID,
+		UserLectureSessionsQuizAttemptCount:     1,
+		UserLectureSessionsQuizLectureSessionID: body.UserLectureSessionsQuizLectureSessionID,
 	}
 
 	if err := ctrl.DB.Create(&newData).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to save quiz result")
 	}
 
-	// ✅ Recalculate final grade
-	_ = ctrl.RecalculateLectureSessionsGrade(userID, body.UserLectureSessionsQuizLectureSessionID, masjid.MasjidID)
-
+	// Hanya user login yang akan dihitung progres ke sesi & tema
+	if !isAnonymous {
+		_ = ctrl.RecalculateLectureSessionsGrade(userID, body.UserLectureSessionsQuizLectureSessionID, masjid.MasjidID)
+	}
 
 	return c.Status(fiber.StatusCreated).JSON(dto.ToUserLectureSessionsQuizDTO(newData))
 }
+
 
 
 func (ctrl *UserLectureSessionsQuizController) RecalculateLectureSessionsGrade(userID, lectureSessionID, masjidID string) error {
