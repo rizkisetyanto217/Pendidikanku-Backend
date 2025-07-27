@@ -2,6 +2,7 @@ package controller
 
 import (
 	"encoding/json"
+	"log"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
 
@@ -161,20 +162,21 @@ func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 }
 
 
-// ================================
-// GET Detail Lecture Session by ID
-// ================================
+
 func (ctrl *LectureSessionController) GetLectureSessionByID(c *fiber.Ctx) error {
-	// Parse UUID dari path
 	sessionID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
+		log.Println("[ERROR] Invalid session ID:", c.Params("id"))
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// Ambil user_id dari cookie (jika tersedia)
+	// Ambil user_id dari cookie / header
 	userID := c.Cookies("user_id")
+	if userID == "" {
+		userID = c.Get("X-User-Id")
+	}
+	log.Println("[INFO] user_id dari request:", userID)
 
-	// Struct hasil query join
 	type JoinedResult struct {
 		model.LectureSessionModel
 		LectureTitle    string   `gorm:"column:lecture_title"`
@@ -185,7 +187,6 @@ func (ctrl *LectureSessionController) GetLectureSessionByID(c *fiber.Ctx) error 
 
 	var result JoinedResult
 
-	// Query dasar
 	query := ctrl.DB.
 		Model(&model.LectureSessionModel{}).
 		Select(`
@@ -196,8 +197,8 @@ func (ctrl *LectureSessionController) GetLectureSessionByID(c *fiber.Ctx) error 
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
 		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id")
 
-	// Tambahkan join ke user_lecture_sessions jika user login
 	if userID != "" {
+		log.Println("[INFO] Menambahkan join ke user_lecture_sessions")
 		query = query.Select(`
 			lecture_sessions.*, 
 			lectures.lecture_title, 
@@ -211,22 +212,25 @@ func (ctrl *LectureSessionController) GetLectureSessionByID(c *fiber.Ctx) error 
 		`, userID)
 	}
 
-	// Eksekusi query
+	log.Println("[INFO] Eksekusi query untuk session ID:", sessionID)
+
 	if err := query.
 		Where("lecture_sessions.lecture_session_id = ?", sessionID).
 		Scan(&result).Error; err != nil {
+		log.Println("[ERROR] Gagal ambil data sesi kajian:", err)
 		return fiber.NewError(fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
 	}
 
-	// Konversi ke DTO
+	log.Println("[INFO] Hasil query berhasil diambil")
+	log.Printf("[DEBUG] UserGradeResult: %v, UserAttendance: %v\n", result.UserGradeResult, result.UserAttendance)
+
 	dtoItem := dto.ToLectureSessionDTOWithLectureTitle(result.LectureSessionModel, result.LectureTitle)
 
-	// Fallback jika teacher name kosong
 	if dtoItem.LectureSessionTeacherName == "" && result.UserName != nil {
 		dtoItem.LectureSessionTeacherName = *result.UserName
+		log.Println("[INFO] Fallback user_name digunakan sebagai teacher name:", *result.UserName)
 	}
 
-	// Isi nilai user (jika login dan datanya ada)
 	if result.UserGradeResult != nil {
 		dtoItem.UserGradeResult = result.UserGradeResult
 	}
