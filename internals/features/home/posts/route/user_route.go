@@ -13,11 +13,11 @@ func AllPostRoutes(api fiber.Router, db *gorm.DB) {
 	ctrl3 := controller.NewPostThemeController(db)
 
 	user := api.Group("/posts")
-	user.Get("/", ctrl.GetAllPosts)                // 📄 Semua post publik
-	user.Get("/:id", ctrl.GetPostByID)             // 🔍 Detail post
+	user.Get("/", ctrl.GetAllPosts)            
 	user.Post("/by-masjid", ctrl.GetPostsByMasjid) // 🕌 Post berdasarkan masjid_id
 	user.Get("/by-masjid/:slug", ctrl.GetPostsByMasjidSlug)
-
+	user.Get("/:id", ctrl.GetPostByID)    // 📄 Semua post publik
+	
 	post := api.Group("/post-likes")
 	// 🔄 Toggle like (user harus login → ambil user_id dari token)
 	post.Post("/toggle", ctrl2.ToggleLike)

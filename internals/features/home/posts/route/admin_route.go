@@ -17,7 +17,6 @@ func PostAdminRoutes(api fiber.Router, db *gorm.DB) {
 	admin.Delete("/:id", ctrl.DeletePost) // 🗑️ Hapus post
 	// Admin bisa lihat semua post juga (jika butuh)
 	admin.Get("/", ctrl.GetAllPosts)    // 📄 Semua post
-	admin.Get("/:id", ctrl.GetPostByID) // 🔍 Detail post
 
 	theme := api.Group("/post-themes")
 
