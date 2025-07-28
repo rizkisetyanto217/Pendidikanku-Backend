@@ -127,7 +127,7 @@ func issueTokens(c *fiber.Ctx, db *gorm.DB, user userModel.UserModel, masjidIDs 
 
 	// ✅ Response JSON (Token di-include untuk Postman/Flutter)
 	return helpers.Success(c, "Login berhasil", fiber.Map{
-		// "access_token":     accessToken,      // untuk Postman / Flutter
+		"access_token":     accessToken,      // untuk Postman / Flutter
 		// "access_exp_unix":  accessExp.Unix(), // opsional untuk client-side timer
 		// "refresh_exp_unix": refreshExp.Unix(),
 		"user": fiber.Map{

@@ -29,10 +29,16 @@ func (ctrl *PostThemeController) CreateTheme(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
+	// Ambil masjid_id dari token
+	masjidID := c.Locals("masjid_id")
+	if masjidID == nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID not found in token")
+	}
+
 	theme := model.PostThemeModel{
 		PostThemeName:        req.PostThemeName,
 		PostThemeDescription: req.PostThemeDescription,
-		PostThemeMasjidID:    req.PostThemeMasjidID,
+		PostThemeMasjidID:    masjidID.(string),
 	}
 
 	if err := ctrl.DB.Create(&theme).Error; err != nil {
@@ -41,6 +47,7 @@ func (ctrl *PostThemeController) CreateTheme(c *fiber.Ctx) error {
 
 	return c.Status(fiber.StatusCreated).JSON(dto.ToPostThemeDTO(theme))
 }
+
 
 // 🔄 Update Tema
 func (ctrl *PostThemeController) UpdateTheme(c *fiber.Ctx) error {

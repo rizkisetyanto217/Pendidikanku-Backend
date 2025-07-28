@@ -11,12 +11,11 @@ type PostThemeModel struct {
 	PostThemeDescription string    `gorm:"column:post_theme_description;type:text" json:"post_theme_description"`
 
 	PostThemeMasjidID    string    `gorm:"column:post_theme_masjid_id;type:uuid;not null" json:"post_theme_masjid_id"`
-
 	PostThemeCreatedAt   time.Time `gorm:"column:post_theme_created_at;autoCreateTime" json:"post_theme_created_at"`
 
-	// Optional: relation
+	// Relations
 	Masjid *MasjidModel.MasjidModel `gorm:"foreignKey:PostThemeMasjidID"`
-	// Posts  []PostModel              `gorm:"foreignKey:PostThemeID"` // if you want reverse relation
+	// Posts  []PostModel           `gorm:"foreignKey:PostThemeID"` // Uncomment if you want reverse relation
 }
 
 func (PostThemeModel) TableName() string {

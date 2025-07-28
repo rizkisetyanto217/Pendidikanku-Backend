@@ -2,12 +2,14 @@ CREATE TABLE IF NOT EXISTS post_themes (
   post_theme_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   post_theme_name VARCHAR(100) NOT NULL,
   post_theme_description TEXT,
+  post_theme_masjid_id UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE,
   post_theme_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Indexing
 CREATE INDEX IF NOT EXISTS idx_post_themes_name ON post_themes(post_theme_name);
 CREATE INDEX IF NOT EXISTS idx_post_themes_created_at ON post_themes(post_theme_created_at);
+
 
 CREATE TABLE IF NOT EXISTS posts (
   post_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -18,7 +20,7 @@ CREATE TABLE IF NOT EXISTS posts (
   post_type VARCHAR(50) DEFAULT 'text',
 
   -- ✅ Ganti dengan foreign key ke tabel tema
-  post_theme_id UUID REFERENCES post_themes(post_theme_id) ON DELETE SET NULL,
+  post_theme_id UUID REFERENCES post_themes(post_theme_id) ON DELETE CASCADE,
 
   post_masjid_id UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE,
   post_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -42,7 +44,7 @@ CREATE TABLE IF NOT EXISTS post_likes (
   post_like_post_id UUID NOT NULL REFERENCES posts(post_id) ON DELETE CASCADE,
   post_like_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   post_like_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
+  post_like_masjid_id UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE,
   CONSTRAINT unique_post_like UNIQUE (post_like_post_id, post_like_user_id)
 );
 

@@ -9,19 +9,22 @@ import (
 // Response DTO
 // ============================
 type PostDTO struct {
-	PostID          string     `json:"post_id"`
-	PostTitle       string     `json:"post_title"`
-	PostContent     string     `json:"post_content"`
-	PostImageURL    *string    `json:"post_image_url"`
-	PostIsPublished bool       `json:"post_is_published"`
-	PostType        string     `json:"post_type"`
-	PostThemeID     *string    `json:"post_theme_id"`
-	PostMasjidID    *string    `json:"post_masjid_id"`
-	PostUserID      *string    `json:"post_user_id"`
-	PostCreatedAt   time.Time  `json:"post_created_at"`
-	PostUpdatedAt   time.Time  `json:"post_updated_at"`
-	PostDeletedAt   *time.Time `json:"post_deleted_at"`
+	PostID          string         `json:"post_id"`
+	PostTitle       string         `json:"post_title"`
+	PostContent     string         `json:"post_content"`
+	PostImageURL    *string        `json:"post_image_url"`
+	PostIsPublished bool           `json:"post_is_published"`
+	PostType        string         `json:"post_type"`
+	PostThemeID     *string        `json:"post_theme_id"`
+	PostMasjidID    *string        `json:"post_masjid_id"`
+	PostUserID      *string        `json:"post_user_id"`
+	PostCreatedAt   time.Time      `json:"post_created_at"`
+	PostUpdatedAt   time.Time      `json:"post_updated_at"`
+	PostDeletedAt   *time.Time     `json:"post_deleted_at"`
+	PostTheme       *PostThemeDTO  `json:"post_theme,omitempty"` // 🎯 tambahan untuk menampilkan data tema
 }
+
+
 
 // ============================
 // Create Request DTO
@@ -67,6 +70,23 @@ func ToPostDTO(m model.PostModel) PostDTO {
 		PostDeletedAt:   m.PostDeletedAt,
 	}
 }
+
+func ToPostDTOWithTheme(m model.PostModel, theme *model.PostThemeModel) PostDTO {
+	dto := ToPostDTO(m)
+
+	if theme != nil {
+		dto.PostTheme = &PostThemeDTO{
+			PostThemeID:          theme.PostThemeID,
+			PostThemeName:        theme.PostThemeName,
+			PostThemeDescription: theme.PostThemeDescription,
+			PostThemeMasjidID:    theme.PostThemeMasjidID,
+			PostThemeCreatedAt:   theme.PostThemeCreatedAt,
+		}
+	}
+
+	return dto
+}
+
 
 func ToPostModel(req CreatePostRequest, userID *string) model.PostModel {
 	return model.PostModel{

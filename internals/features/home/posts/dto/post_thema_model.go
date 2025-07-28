@@ -24,7 +24,6 @@ type PostThemeDTO struct {
 type CreatePostThemeRequest struct {
 	PostThemeName        string `json:"post_theme_name" validate:"required,min=3"`
 	PostThemeDescription string `json:"post_theme_description"`
-	PostThemeMasjidID    string `json:"post_theme_masjid_id" validate:"required,uuid"`
 }
 
 // ============================

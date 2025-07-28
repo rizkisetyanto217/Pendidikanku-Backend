@@ -26,6 +26,4 @@ func PostAdminRoutes(api fiber.Router, db *gorm.DB) {
 	theme.Put("/:id", ctrl2.UpdateTheme)     // ✏️ Update tema
 	theme.Delete("/:id", ctrl2.DeleteTheme)  // 🗑️ Hapus tema
 
-
-	
 }
