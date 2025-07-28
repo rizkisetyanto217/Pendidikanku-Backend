@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS donations (
     donation_order_id VARCHAR(100) NOT NULL UNIQUE CHECK (
         char_length(donation_order_id) <= 100
     ), 
+    donation_target_type INT CHECK (donation_target_type IN (1, 2, 3, 4)) DEFAULT NULL,
+    donation_target_id UUID DEFAULT NULL,
     donation_payment_token TEXT, 
     donation_payment_gateway VARCHAR(50) DEFAULT 'midtrans',
     donation_payment_method VARCHAR,
@@ -19,6 +21,15 @@ CREATE TABLE IF NOT EXISTS donations (
     deleted_at TIMESTAMP,
     donation_masjid_id UUID REFERENCES masjids(masjid_id) ON DELETE SET NULL  -- Menambahkan kolom masjid_id
 );
+
+-- Index opsional untuk pencarian berdasarkan tipe target
+CREATE INDEX IF NOT EXISTS idx_donations_target_type
+  ON donations (donation_target_type);
+
+-- Index opsional untuk pencarian berdasarkan id target
+CREATE INDEX IF NOT EXISTS idx_donations_target_id
+  ON donations (donation_target_id);
+
 
 -- 🔍 Index untuk pencarian cepat order_id (case-insensitive)
 CREATE INDEX IF NOT EXISTS idx_donations_order_id_lower 

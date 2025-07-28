@@ -8,6 +8,7 @@ import (
 	"masjidku_backend/internals/features/masjids/lecture_sessions/quizzes/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/quizzes/model"
 	modelLecture "masjidku_backend/internals/features/masjids/lectures/main/model"
+	helper "masjidku_backend/internals/helpers"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -33,12 +34,10 @@ func (ctrl *UserLectureSessionsQuizController) CreateUserLectureSessionsQuiz(c *
 	}
 
 	// Ambil user_id dari token atau gunakan Dummy
-	userID := constants.DummyUserID.String()
-	isAnonymous := true
-	if userIDRaw := c.Locals("user_id"); userIDRaw != nil {
-		userID = userIDRaw.(string)
-		isAnonymous = false
-	}
+	userUUID := helper.GetUserUUID(c)
+	userID := userUUID.String()
+	isAnonymous := userUUID == constants.DummyUserID
+
 
 	// Ambil slug masjid
 	slug := c.Params("slug")
@@ -88,6 +87,7 @@ func (ctrl *UserLectureSessionsQuizController) CreateUserLectureSessionsQuiz(c *
 		UserLectureSessionsQuizUserID:           userID, // tetap DummyUserID kalau anonim
 		UserLectureSessionsQuizMasjidID:         masjid.MasjidID,
 		UserLectureSessionsQuizAttemptCount:     1,
+		UserLectureSessionsQuizDurationSeconds:  body.UserLectureSessionsQuizDurationSeconds,
 		UserLectureSessionsQuizLectureSessionID: body.UserLectureSessionsQuizLectureSessionID,
 	}
 
@@ -102,6 +102,7 @@ func (ctrl *UserLectureSessionsQuizController) CreateUserLectureSessionsQuiz(c *
 
 	return c.Status(fiber.StatusCreated).JSON(dto.ToUserLectureSessionsQuizDTO(newData))
 }
+
 
 
 

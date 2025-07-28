@@ -13,6 +13,8 @@ type UserLectureSessionsQuizModel struct {
 	// ✅ Count percobaan, default mulai dari 1
 	UserLectureSessionsQuizAttemptCount int `gorm:"column:user_lecture_sessions_quiz_attempt_count;not null;default:1" json:"user_lecture_sessions_quiz_attempt_count"`
 
+	UserLectureSessionsQuizDurationSeconds int `gorm:"column:user_lecture_sessions_quiz_duration_seconds" json:"user_lecture_sessions_quiz_duration_seconds"`
+
 	// ✅ Tambahan masjid_id
 	UserLectureSessionsQuizMasjidID  string    `gorm:"column:user_lecture_sessions_quiz_masjid_id;type:uuid;not null" json:"user_lecture_sessions_quiz_masjid_id"`
 

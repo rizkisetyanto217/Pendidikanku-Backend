@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS user_lecture_sessions_quiz (
 
   user_lecture_sessions_quiz_lecture_session_id UUID NOT NULL REFERENCES lecture_sessions(lecture_session_id) ON DELETE CASCADE,
 
+  user_lecture_sessions_quiz_duration_seconds INT,
+
   -- ✅ Tambahan masjid_id
   user_lecture_sessions_quiz_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
