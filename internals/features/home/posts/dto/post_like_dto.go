@@ -23,7 +23,6 @@ type PostLikeDTO struct {
 // ============================
 type ToggleLikeRequest struct {
 	PostID    string `json:"post_id" validate:"required,uuid"`
-	MasjidID  string `json:"masjid_id" validate:"required,uuid"` // ✅ tambahan
 }
 
 

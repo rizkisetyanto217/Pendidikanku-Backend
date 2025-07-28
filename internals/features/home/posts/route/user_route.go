@@ -16,17 +16,15 @@ func AllPostRoutes(api fiber.Router, db *gorm.DB) {
 	user.Get("/", ctrl.GetAllPosts)            
 	user.Post("/by-masjid", ctrl.GetPostsByMasjid) // 🕌 Post berdasarkan masjid_id
 	user.Get("/by-masjid/:slug", ctrl.GetPostsByMasjidSlug)
-	user.Get("/:id", ctrl.GetPostByID)    // 📄 Semua post publik
-	
+	user.Get("/:id", ctrl.GetPostByID)             // 📄 Detail post publik
+
 	post := api.Group("/post-likes")
-	// 🔄 Toggle like (user harus login → ambil user_id dari token)
-	post.Post("/toggle", ctrl2.ToggleLike)
+	// 🔄 Toggle like dengan masjid_slug di URL
+	post.Post("/:slug/toggle", ctrl2.ToggleLike)
+	post.Get("/:post_id/all", ctrl2.GetAllLikesByPost) // 🔍 Get semua like by post_id
 
-
-
-theme := api.Group("/post-themes")
-	// 📄 GET
-	theme.Get("/", ctrl3.GetAllThemes)                  // 📄 Semua tema
-	theme.Get("/:id", ctrl3.GetThemeByID)               // 🔍 Detail tema
-	theme.Post("/by-masjid", ctrl3.GetThemesByMasjid)   // 🕌 Tema berdasarkan masjid
+	theme := api.Group("/post-themes")
+	theme.Get("/", ctrl3.GetAllThemes)                // 📄 Semua tema
+	theme.Get("/:id", ctrl3.GetThemeByID)             // 🔍 Detail tema
+	theme.Post("/by-masjid", ctrl3.GetThemesByMasjid) // 🕌 Tema berdasarkan masjid
 }

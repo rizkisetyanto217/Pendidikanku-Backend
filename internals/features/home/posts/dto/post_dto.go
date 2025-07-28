@@ -21,10 +21,10 @@ type PostDTO struct {
 	PostCreatedAt   time.Time      `json:"post_created_at"`
 	PostUpdatedAt   time.Time      `json:"post_updated_at"`
 	PostDeletedAt   *time.Time     `json:"post_deleted_at"`
-	PostTheme       *PostThemeDTO  `json:"post_theme,omitempty"` // 🎯 tambahan untuk menampilkan data tema
+	PostTheme       *PostThemeDTO  `json:"post_theme,omitempty"`
+	LikeCount       int64          `json:"like_count"`
+	IsLikedByUser   bool           `json:"is_liked_by_user"`
 }
-
-
 
 // ============================
 // Create Request DTO
@@ -52,9 +52,11 @@ type UpdatePostRequest struct {
 }
 
 // ============================
-// Converter
+// Converters
 // ============================
-func ToPostDTO(m model.PostModel) PostDTO {
+
+// Untuk endpoint publik/admin yang hanya perlu like count (tanpa status like user)
+func ToPostDTO(m model.PostModel, likeCount int64) PostDTO {
 	return PostDTO{
 		PostID:          m.PostID,
 		PostTitle:       m.PostTitle,
@@ -68,11 +70,34 @@ func ToPostDTO(m model.PostModel) PostDTO {
 		PostCreatedAt:   m.PostCreatedAt,
 		PostUpdatedAt:   m.PostUpdatedAt,
 		PostDeletedAt:   m.PostDeletedAt,
+		LikeCount:       likeCount,
+		IsLikedByUser:   false,
 	}
 }
 
-func ToPostDTOWithTheme(m model.PostModel, theme *model.PostThemeModel) PostDTO {
-	dto := ToPostDTO(m)
+// Untuk endpoint publik yang butuh tema dan like count
+func ToPostDTOWithTheme(m model.PostModel, theme *model.PostThemeModel, likeCount int64) PostDTO {
+	return ToPostDTOFull(m, theme, likeCount, false)
+}
+
+// ✅ Fungsi utama: Untuk post lengkap + tema + like count + status like user
+func ToPostDTOFull(m model.PostModel, theme *model.PostThemeModel, likeCount int64, isLiked bool) PostDTO {
+	dto := PostDTO{
+		PostID:          m.PostID,
+		PostTitle:       m.PostTitle,
+		PostContent:     m.PostContent,
+		PostImageURL:    m.PostImageURL,
+		PostIsPublished: m.PostIsPublished,
+		PostType:        m.PostType,
+		PostThemeID:     m.PostThemeID,
+		PostMasjidID:    m.PostMasjidID,
+		PostUserID:      m.PostUserID,
+		PostCreatedAt:   m.PostCreatedAt,
+		PostUpdatedAt:   m.PostUpdatedAt,
+		PostDeletedAt:   m.PostDeletedAt,
+		LikeCount:       likeCount,
+		IsLikedByUser:   isLiked,
+	}
 
 	if theme != nil {
 		dto.PostTheme = &PostThemeDTO{
@@ -87,7 +112,7 @@ func ToPostDTOWithTheme(m model.PostModel, theme *model.PostThemeModel) PostDTO 
 	return dto
 }
 
-
+// Untuk membuat model baru saat create post
 func ToPostModel(req CreatePostRequest, userID *string) model.PostModel {
 	return model.PostModel{
 		PostTitle:       req.PostTitle,
@@ -101,6 +126,7 @@ func ToPostModel(req CreatePostRequest, userID *string) model.PostModel {
 	}
 }
 
+// Untuk update post (direct ke model)
 func UpdatePostModel(m *model.PostModel, req UpdatePostRequest) {
 	m.PostTitle = req.PostTitle
 	m.PostContent = req.PostContent
