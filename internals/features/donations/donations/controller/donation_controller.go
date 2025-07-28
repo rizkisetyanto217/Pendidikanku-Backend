@@ -7,6 +7,7 @@ import (
 	"masjidku_backend/internals/features/donations/donations/dto"
 	"masjidku_backend/internals/features/donations/donations/model"
 	donationService "masjidku_backend/internals/features/donations/donations/service"
+	modelMasjid "masjidku_backend/internals/features/masjids/masjids/model"
 	helper "masjidku_backend/internals/helpers"
 	"time"
 
@@ -123,6 +124,39 @@ func (ctrl *DonationController) GetDonationsByMasjidID(c *fiber.Ctx) error {
 	return c.JSON(donations)
 }
 
+
+
+// 🟢 GET DONATIONS BY MASJID SLUG: Ambil semua donasi *completed* berdasarkan slug masjid
+func (ctrl *DonationController) GetDonationsByMasjidSlug(c *fiber.Ctx) error {
+	// Ambil slug dari parameter URL
+	slug := c.Params("slug")
+	if slug == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Slug masjid tidak boleh kosong",
+		})
+	}
+
+	// Cari masjid berdasarkan slug
+	var masjid modelMasjid.MasjidModel
+	if err := ctrl.DB.Where("masjid_slug = ?", slug).First(&masjid).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Masjid dengan slug tersebut tidak ditemukan",
+		})
+	}
+
+	// Ambil donasi yang statusnya 'completed' untuk masjid ini
+	var donations []model.Donation
+	if err := ctrl.DB.
+		Where("donation_masjid_id = ? AND donation_status = ?", masjid.MasjidID, "completed").
+		Order("created_at desc").
+		Find(&donations).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Gagal mengambil data donasi berdasarkan slug masjid",
+		})
+	}
+
+	return c.JSON(donations)
+}
 
 
 // 🟢 HANDLE MIDTRANS WEBHOOK: Update status donasi berdasarkan notifikasi Midtrans

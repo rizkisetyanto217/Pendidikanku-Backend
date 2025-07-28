@@ -1,9 +1,9 @@
 package details
 
 import (
-	CertificateRoutes "masjidku_backend/internals/features/masjids/certificate/route"
 	FaqRoutes "masjidku_backend/internals/features/home/faqs/route"
 	NotificationRoutes "masjidku_backend/internals/features/home/notifications/route"
+	CertificateRoutes "masjidku_backend/internals/features/masjids/certificate/route"
 	EventRoutes "masjidku_backend/internals/features/masjids/events/route"
 	LectureSessionRoutes "masjidku_backend/internals/features/masjids/lecture_sessions/main/route"
 	LectureSessionsAssetRoutes "masjidku_backend/internals/features/masjids/lecture_sessions/materials/route"
@@ -14,8 +14,6 @@ import (
 	MasjidAdmin "masjidku_backend/internals/features/masjids/masjid_admins_teachers/route"
 	masjidRoutes "masjidku_backend/internals/features/masjids/masjids/route"
 	MasjidMore "masjidku_backend/internals/features/masjids/masjids_more/route"
-
-	PublicCertificateRoutes "masjidku_backend/internals/features/masjids/certificate/route"
 
 	userFollowMasjid "masjidku_backend/internals/features/masjids/user_follow_masjids/route"
 
@@ -34,7 +32,7 @@ func MasjidPublicRoutes(r fiber.Router, db *gorm.DB) {
 	LectureSessionsAssetRoutes.AllLectureSessionsAssetRoutes(r, db)
 	LectureSessionsQuizRoutes.LectureSessionsQuizUserRoutes(r, db)
 	LectureSessionsQuestionRoutes.AllLectureSessionsQuestionRoutes(r, db)
-	PublicCertificateRoutes.PublicCertificateRoutes(r, db)
+	CertificateRoutes.PublicCertificateRoutes(r, db)
 }
 
 func MasjidUserRoutes(r fiber.Router, db *gorm.DB) {
