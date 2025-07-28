@@ -166,35 +166,43 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 	return issueTokens(c, db, *user, nil)
 }
 
+
 // ========================== LOGOUT ==========================
 func Logout(db *gorm.DB, c *fiber.Ctx) error {
-	authHeader := c.Get("Authorization")
-	if authHeader == "" {
-		return helpers.Error(c, fiber.StatusUnauthorized, "Unauthorized - No token provided")
+	// ✅ Ambil access token dari cookie
+	accessToken := c.Cookies("access_token")
+	if accessToken == "" {
+		return helpers.Error(c, fiber.StatusUnauthorized, "Unauthorized - No access token in cookie")
 	}
 
-	tokenParts := strings.Split(authHeader, " ")
-	if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
-		return helpers.Error(c, fiber.StatusUnauthorized, "Unauthorized - Invalid token format")
-	}
-
-	tokenString := tokenParts[1]
-
-	if err := authRepo.BlacklistToken(db, tokenString, 4*24*time.Hour); err != nil {
+	// 🔒 Masukkan access token ke blacklist
+	if err := authRepo.BlacklistToken(db, accessToken, 4*24*time.Hour); err != nil {
 		return helpers.Error(c, fiber.StatusInternalServerError, "Failed to blacklist token")
 	}
 
+	// 🧹 Hapus refresh token dari database (jika ada)
 	refreshToken := c.Cookies("refresh_token")
 	if refreshToken != "" {
 		_ = authRepo.DeleteRefreshToken(db, refreshToken)
 	}
 
+	// ❌ Hapus cookie refresh_token
 	c.Cookie(&fiber.Cookie{
 		Name:     "refresh_token",
 		Value:    "",
 		HTTPOnly: true,
 		Secure:   true,
-		SameSite: "Strict",
+		SameSite: "None", // ⚠️ pakai "None" jika login dari frontend di domain berbeda
+		Expires:  time.Now().Add(-time.Hour),
+	})
+
+	// ❌ Hapus cookie access_token juga
+	c.Cookie(&fiber.Cookie{
+		Name:     "access_token",
+		Value:    "",
+		HTTPOnly: true,
+		Secure:   true,
+		SameSite: "None",
 		Expires:  time.Now().Add(-time.Hour),
 	})
 
