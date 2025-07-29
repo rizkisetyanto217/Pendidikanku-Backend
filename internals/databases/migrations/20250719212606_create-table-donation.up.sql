@@ -1,26 +1,42 @@
 CREATE TABLE IF NOT EXISTS donations (
     donation_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     donation_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+
     donation_name VARCHAR(50) NOT NULL, 
     donation_amount INTEGER NOT NULL CHECK (donation_amount > 0), 
+
+    -- 🔹 Rincian pembagian donasi
+    donation_amount_masjid INTEGER CHECK (donation_amount_masjid >= 0),
+    donation_amount_masjidku INTEGER CHECK (donation_amount_masjidku >= 0),
+    donation_amount_masjidku_to_masjid INTEGER CHECK (donation_amount_masjidku_to_masjid >= 0),
+    donation_amount_masjidku_to_app INTEGER CHECK (donation_amount_masjidku_to_app >= 0),
+
     donation_message TEXT, 
+
     donation_status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (
         donation_status IN ('pending', 'paid', 'expired', 'canceled', 'completed')
     ), 
+
     donation_order_id VARCHAR(100) NOT NULL UNIQUE CHECK (
         char_length(donation_order_id) <= 100
     ), 
+
     donation_target_type INT CHECK (donation_target_type IN (1, 2, 3, 4)) DEFAULT NULL,
     donation_target_id UUID DEFAULT NULL,
+
     donation_payment_token TEXT, 
     donation_payment_gateway VARCHAR(50) DEFAULT 'midtrans',
     donation_payment_method VARCHAR,
+
     donation_paid_at TIMESTAMP, 
+
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,                       
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP,
-    donation_masjid_id UUID REFERENCES masjids(masjid_id) ON DELETE SET NULL  -- Menambahkan kolom masjid_id
+
+    donation_masjid_id UUID REFERENCES masjids(masjid_id) ON DELETE SET NULL
 );
+
 
 -- Index opsional untuk pencarian berdasarkan tipe target
 CREATE INDEX IF NOT EXISTS idx_donations_target_type

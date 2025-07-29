@@ -97,8 +97,9 @@ CREATE TABLE IF NOT EXISTS user_lecture_sessions (
   user_lecture_session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Kehadiran dan evaluasi per sesi
-  user_lecture_session_attendance_status INT, -- 0 = tidak hadir, 1 = hadir, 2 = hadir online
+  user_lecture_session_attendance_status INT, -- 0 = tidak hadir, 1 = hadir, 2 = hadir online, 3 = tanpa keterangan
   user_lecture_session_grade_result FLOAT,
+  user_lecture_session_notes TEXT,
 
   -- Relasi
   user_lecture_session_lecture_session_id UUID NOT NULL REFERENCES lecture_sessions(lecture_session_id) ON DELETE CASCADE,

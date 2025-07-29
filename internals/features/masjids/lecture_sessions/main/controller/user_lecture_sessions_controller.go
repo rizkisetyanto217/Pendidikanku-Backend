@@ -17,19 +17,14 @@ func NewUserLectureSessionController(db *gorm.DB) *UserLectureSessionController 
 	return &UserLectureSessionController{DB: db}
 }
 
-// CREATE
+
 func (ctrl *UserLectureSessionController) CreateUserLectureSession(c *fiber.Ctx) error {
 	var req dto.CreateUserLectureSessionRequest
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Permintaan tidak valid")
 	}
 
-	newRecord := model.UserLectureSessionModel{
-		UserLectureSessionAttendanceStatus: req.UserLectureSessionAttendanceStatus,
-		UserLectureSessionGradeResult:      req.UserLectureSessionGradeResult,
-		UserLectureSessionLectureSessionID: req.UserLectureSessionLectureSessionID,
-		UserLectureSessionUserID:           req.UserLectureSessionUserID,
-	}
+	newRecord := req.ToModel()
 
 	if err := ctrl.DB.Create(&newRecord).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat user lecture session")
@@ -65,7 +60,7 @@ func (ctrl *UserLectureSessionController) GetUserLectureSessionByID(c *fiber.Ctx
 	return c.JSON(dto.ToUserLectureSessionDTO(record))
 }
 
-// UPDATE
+
 func (ctrl *UserLectureSessionController) UpdateUserLectureSession(c *fiber.Ctx) error {
 	id := c.Params("id")
 
@@ -79,12 +74,28 @@ func (ctrl *UserLectureSessionController) UpdateUserLectureSession(c *fiber.Ctx)
 		return fiber.NewError(fiber.StatusBadRequest, "Permintaan tidak valid")
 	}
 
-	// Update field
-	record.UserLectureSessionAttendanceStatus = req.UserLectureSessionAttendanceStatus
-	record.UserLectureSessionGradeResult = req.UserLectureSessionGradeResult
-	record.UserLectureSessionLectureSessionID = req.UserLectureSessionLectureSessionID
-	record.UserLectureSessionUserID = req.UserLectureSessionUserID
+	// Partial update
+	if req.UserLectureSessionAttendanceStatus >= 0 {
+		record.UserLectureSessionAttendanceStatus = req.UserLectureSessionAttendanceStatus
+	}
+	if req.UserLectureSessionGradeResult != nil {
+		record.UserLectureSessionGradeResult = req.UserLectureSessionGradeResult
+	}
+	if req.UserLectureSessionNotes != nil {
+		record.UserLectureSessionNotes = req.UserLectureSessionNotes
+	}
+	if req.UserLectureSessionLectureSessionID != "" {
+		record.UserLectureSessionLectureSessionID = req.UserLectureSessionLectureSessionID
+	}
+	if req.UserLectureSessionUserID != "" {
+		record.UserLectureSessionUserID = req.UserLectureSessionUserID
+	}
+	if req.UserLectureSessionMasjidID != "" {
+		record.UserLectureSessionMasjidID = req.UserLectureSessionMasjidID
+	}
 
+	now := time.Now()
+	record.UserLectureSessionUpdatedAt = &now
 
 	if err := ctrl.DB.Save(&record).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui data user lecture session")
@@ -92,6 +103,7 @@ func (ctrl *UserLectureSessionController) UpdateUserLectureSession(c *fiber.Ctx)
 
 	return c.JSON(dto.ToUserLectureSessionDTO(record))
 }
+
 
 // DELETE
 func (ctrl *UserLectureSessionController) DeleteUserLectureSession(c *fiber.Ctx) error {
