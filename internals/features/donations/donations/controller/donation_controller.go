@@ -325,16 +325,15 @@ func (ctrl *DonationController) GetAllDonations(c *fiber.Ctx) error {
 }
 
 
-// 🟢 GET DONATIONS BY USER SESSION: Ambil donasi milik user dari session
-func (ctrl *DonationController) GetDonationsByUserID(c *fiber.Ctx) error {
-	// 🔐 Ambil user_id dari session (Locals)
+// 🟢 GET DONATIONS BY USER & MASJID SLUG: Ambil donasi milik user berdasarkan masjid
+func (ctrl *DonationController) GetDonationsByUserIDWithSlug(c *fiber.Ctx) error {
+	// 🔐 Ambil user_id dari session
 	userIDValue := c.Locals("user_id")
 	if userIDValue == nil {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 			"error": "User belum login",
 		})
 	}
-
 	userID, ok := userIDValue.(string)
 	if !ok {
 		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
@@ -342,10 +341,26 @@ func (ctrl *DonationController) GetDonationsByUserID(c *fiber.Ctx) error {
 		})
 	}
 
-	// 🔍 Ambil semua donasi milik user ini
+	// 📥 Ambil slug dari params
+	slug := c.Params("slug")
+	if slug == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Slug masjid tidak boleh kosong",
+		})
+	}
+
+	// 🔍 Cari masjid berdasarkan slug
+	var masjid modelMasjid.MasjidModel
+	if err := ctrl.DB.Where("masjid_slug = ?", slug).First(&masjid).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Masjid dengan slug tersebut tidak ditemukan",
+		})
+	}
+
+	// 🔍 Ambil donasi milik user untuk masjid ini
 	var donations []model.Donation
 	if err := ctrl.DB.
-		Where("donation_user_id = ?", userID).
+		Where("donation_user_id = ? AND donation_masjid_id = ?", userID, masjid.MasjidID).
 		Order("created_at desc").
 		Find(&donations).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -353,10 +368,9 @@ func (ctrl *DonationController) GetDonationsByUserID(c *fiber.Ctx) error {
 		})
 	}
 
-	// 🔁 Format respons seperti GetDonationsByMasjidSlug
+	// 🔁 Tambahkan informasi like
 	type DonationWithLike struct {
 		model.Donation
-
 		LikeCount     int  `json:"like_count"`
 		IsLikedByUser bool `json:"is_liked_by_user"`
 	}
@@ -388,4 +402,3 @@ func (ctrl *DonationController) GetDonationsByUserID(c *fiber.Ctx) error {
 
 	return c.JSON(response)
 }
-

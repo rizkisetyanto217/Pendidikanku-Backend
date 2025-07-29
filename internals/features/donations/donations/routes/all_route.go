@@ -18,7 +18,7 @@ func AllDonationRoutes(api fiber.Router, db *gorm.DB) {
 
 	api.Post("/midtrans/webhook", donationCtrl.HandleMidtransNotification) // Midtrans Webhook
 
-	api.Get("/by-user-id/", donationCtrl.GetDonationsByUserID) // Get donations by user
+	api.Get("/by-user/:slug", donationCtrl.GetDonationsByUserIDWithSlug) // Get donations by user
 	
 	api.Get("/by-masjid/:slug", donationCtrl.GetDonationsByMasjidSlug)
 	
