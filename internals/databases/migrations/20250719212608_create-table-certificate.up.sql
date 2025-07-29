@@ -31,3 +31,5 @@ CREATE TABLE IF NOT EXISTS user_certificates (
 -- Index untuk pencarian efisien
 CREATE INDEX IF NOT EXISTS idx_user_cert_user_id ON user_certificates(user_cert_user_id);
 CREATE INDEX IF NOT EXISTS idx_user_cert_certificate_id ON user_certificates(user_cert_certificate_id);
+
+

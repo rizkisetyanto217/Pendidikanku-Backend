@@ -128,20 +128,21 @@ func (ctrl *DonationController) GetDonationsByMasjidID(c *fiber.Ctx) error {
 
 // 🟢 GET DONATIONS BY MASJID SLUG: Ambil semua donasi *completed* berdasarkan slug masjid
 func (ctrl *DonationController) GetDonationsByMasjidSlug(c *fiber.Ctx) error {
-	// Ambil slug dari parameter URL
 	slug := c.Params("slug")
 	if slug == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Slug masjid tidak boleh kosong",
-		})
+		return fiber.NewError(fiber.StatusBadRequest, "Slug masjid tidak boleh kosong")
 	}
 
-	// Cari masjid berdasarkan slug
+	// Cari masjid
 	var masjid modelMasjid.MasjidModel
 	if err := ctrl.DB.Where("masjid_slug = ?", slug).First(&masjid).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"error": "Masjid dengan slug tersebut tidak ditemukan",
-		})
+		return fiber.NewError(fiber.StatusNotFound, "Masjid dengan slug tersebut tidak ditemukan")
+	}
+
+	// Ambil user_id dari session jika ada
+	var userID string
+	if uid, ok := c.Locals("user_id").(string); ok {
+		userID = uid
 	}
 
 	// Ambil donasi yang statusnya 'completed' untuk masjid ini
@@ -150,12 +151,44 @@ func (ctrl *DonationController) GetDonationsByMasjidSlug(c *fiber.Ctx) error {
 		Where("donation_masjid_id = ? AND donation_status = ?", masjid.MasjidID, "completed").
 		Order("created_at desc").
 		Find(&donations).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Gagal mengambil data donasi berdasarkan slug masjid",
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data donasi")
+	}
+
+	// Ambil like count & is_liked_by_user untuk masing-masing donasi
+	type DonationWithLike struct {
+		model.Donation
+		LikeCount      int  `json:"like_count"`
+		IsLikedByUser  bool `json:"is_liked_by_user"`
+	}
+
+	var response []DonationWithLike
+	for _, d := range donations {
+		var count int64
+		ctrl.DB.
+			Model(&model.DonationLikeModel{}).
+			Where("donation_like_donation_id = ? AND donation_like_is_liked = true", d.DonationID).
+			Count(&count)
+
+		liked := false
+		if userID != "" {
+			var like model.DonationLikeModel
+			err := ctrl.DB.
+				Where("donation_like_donation_id = ? AND donation_like_user_id = ? AND donation_like_is_liked = true",
+					d.DonationID, userID).
+				First(&like).Error
+			if err == nil {
+				liked = true
+			}
+		}
+
+		response = append(response, DonationWithLike{
+			Donation:       d,
+			LikeCount:      int(count),
+			IsLikedByUser:  liked,
 		})
 	}
 
-	return c.JSON(donations)
+	return c.JSON(response)
 }
 
 

@@ -42,3 +42,23 @@ CREATE INDEX IF NOT EXISTS idx_donations_user_id
 -- 🔍 Index untuk pencarian berdasarkan masjid_id
 CREATE INDEX IF NOT EXISTS idx_donations_masjid_id
     ON donations (donation_masjid_id);
+
+
+CREATE TABLE IF NOT EXISTS donation_likes (
+  donation_like_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  donation_like_is_liked BOOLEAN DEFAULT TRUE,
+  donation_like_donation_id UUID NOT NULL REFERENCES donations(donation_id) ON DELETE CASCADE,
+  donation_like_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  donation_like_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  donation_like_masjid_id UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  CONSTRAINT unique_donation_like UNIQUE (donation_like_donation_id, donation_like_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_donation_likes_donation_id 
+  ON donation_likes(donation_like_donation_id);
+
+CREATE INDEX IF NOT EXISTS idx_donation_likes_user_id 
+  ON donation_likes(donation_like_user_id);
+
+CREATE INDEX IF NOT EXISTS idx_donation_likes_updated_at 
+  ON donation_likes(donation_like_updated_at);
