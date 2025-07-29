@@ -325,7 +325,6 @@ func (ctrl *DonationController) GetAllDonations(c *fiber.Ctx) error {
 }
 
 
-
 // 🟢 GET DONATIONS BY USER SESSION: Ambil donasi milik user dari session
 func (ctrl *DonationController) GetDonationsByUserID(c *fiber.Ctx) error {
 	// 🔐 Ambil user_id dari session (Locals)
@@ -343,7 +342,7 @@ func (ctrl *DonationController) GetDonationsByUserID(c *fiber.Ctx) error {
 		})
 	}
 
-	// 🔍 Ambil semua donasi milik user ini (berapapun statusnya)
+	// 🔍 Ambil semua donasi milik user ini
 	var donations []model.Donation
 	if err := ctrl.DB.
 		Where("donation_user_id = ?", userID).
@@ -354,6 +353,39 @@ func (ctrl *DonationController) GetDonationsByUserID(c *fiber.Ctx) error {
 		})
 	}
 
-	// ✅ Kirim data donasi user (termasuk breakdown amount)
-	return c.JSON(donations)
+	// 🔁 Format respons seperti GetDonationsByMasjidSlug
+	type DonationWithLike struct {
+		model.Donation
+
+		LikeCount     int  `json:"like_count"`
+		IsLikedByUser bool `json:"is_liked_by_user"`
+	}
+
+	var response []DonationWithLike
+	for _, d := range donations {
+		var count int64
+		ctrl.DB.
+			Model(&model.DonationLikeModel{}).
+			Where("donation_like_donation_id = ? AND donation_like_is_liked = true", d.DonationID).
+			Count(&count)
+
+		liked := false
+		var like model.DonationLikeModel
+		err := ctrl.DB.
+			Where("donation_like_donation_id = ? AND donation_like_user_id = ? AND donation_like_is_liked = true",
+				d.DonationID, userID).
+			First(&like).Error
+		if err == nil {
+			liked = true
+		}
+
+		response = append(response, DonationWithLike{
+			Donation:       d,
+			LikeCount:      int(count),
+			IsLikedByUser:  liked,
+		})
+	}
+
+	return c.JSON(response)
 }
+
