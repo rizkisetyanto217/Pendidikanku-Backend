@@ -17,10 +17,12 @@ func PostAdminRoutes(api fiber.Router, db *gorm.DB) {
 	admin.Delete("/:id", ctrl.DeletePost) // 🗑️ Hapus post
 	// Admin bisa lihat semua post juga (jika butuh)
 	admin.Get("/", ctrl.GetAllPosts)    // 📄 Semua post
+	admin.Get("/by-masjid", ctrl.GetPostsByMasjid)
 
 	theme := api.Group("/post-themes")
 
 	// ➕ CRUD untuk tema (admin masjid)
+	theme.Get("/by-masjid", ctrl2.GetThemesByMasjid)       // 📄 Semua tema
 	theme.Post("/", ctrl2.CreateTheme)       // ➕ Buat tema
 	theme.Put("/:id", ctrl2.UpdateTheme)     // ✏️ Update tema
 	theme.Delete("/:id", ctrl2.DeleteTheme)  // 🗑️ Hapus tema

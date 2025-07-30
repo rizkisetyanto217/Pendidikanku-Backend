@@ -114,23 +114,21 @@ func (ctrl *PostThemeController) DeleteTheme(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
-// 📄 Get Tema by Masjid
-func (ctrl *PostThemeController) GetThemesByMasjid(c *fiber.Ctx) error {
-	type RequestBody struct {
-		MasjidID string `json:"masjid_id" validate:"required,uuid"`
-	}
 
-	var req RequestBody
-	if err := c.BodyParser(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+// 📄 Get Tema by Masjid (dari token)
+func (ctrl *PostThemeController) GetThemesByMasjid(c *fiber.Ctx) error {
+	masjidIDRaw := c.Locals("masjid_id")
+	if masjidIDRaw == nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
-	if err := validateTheme.Struct(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
+	masjidID := masjidIDRaw.(string)
 
 	var themes []model.PostThemeModel
-	if err := ctrl.DB.Where("post_theme_masjid_id = ?", req.MasjidID).Order("post_theme_created_at DESC").Find(&themes).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to retrieve themes")
+	if err := ctrl.DB.
+		Where("post_theme_masjid_id = ?", masjidID).
+		Order("post_theme_created_at DESC").
+		Find(&themes).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil daftar tema")
 	}
 
 	var result []dto.PostThemeDTO

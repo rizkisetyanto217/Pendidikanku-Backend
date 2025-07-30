@@ -7,12 +7,10 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
 
-var validatePost = validator.New()
 
 type PostController struct {
 	DB *gorm.DB
@@ -210,37 +208,32 @@ func (ctrl *PostController) GetAllPosts(c *fiber.Ctx) error {
 	return c.JSON(result)
 }
 
-
 // =============================
-// 📄 Get Posts by Masjid ID
+// 📄 Get Posts by Masjid ID (From Token)
 // =============================
 func (ctrl *PostController) GetPostsByMasjid(c *fiber.Ctx) error {
-	type RequestBody struct {
-		MasjidID string `json:"masjid_id" validate:"required,uuid"`
+	masjidIDRaw := c.Locals("masjid_id")
+	if masjidIDRaw == nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
-	var req RequestBody
-	if err := c.BodyParser(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
-	}
-	if err := validatePost.Struct(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
+	masjidID := masjidIDRaw.(string)
 
 	var posts []model.PostModel
 	if err := ctrl.DB.
-		Where("post_masjid_id = ? AND post_deleted_at IS NULL", req.MasjidID).
+		Where("post_masjid_id = ? AND post_deleted_at IS NULL", masjidID).
 		Order("post_created_at DESC").
 		Find(&posts).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to retrieve posts")
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil daftar postingan")
 	}
 
-	// Ambil semua theme ID unik
+	// 🔎 Ambil semua theme ID unik dari post
 	themeIDs := make(map[string]struct{})
 	for _, post := range posts {
 		if post.PostThemeID != nil {
 			themeIDs[*post.PostThemeID] = struct{}{}
 		}
 	}
+
 	var themes []model.PostThemeModel
 	if len(themeIDs) > 0 {
 		var ids []string
@@ -249,11 +242,14 @@ func (ctrl *PostController) GetPostsByMasjid(c *fiber.Ctx) error {
 		}
 		ctrl.DB.Where("post_theme_id IN ?", ids).Find(&themes)
 	}
+
+	// Buat map untuk lookup theme
 	themeMap := make(map[string]model.PostThemeModel)
 	for _, t := range themes {
 		themeMap[t.PostThemeID] = t
 	}
 
+	// Bangun hasil response
 	var result []dto.PostDTO
 	for _, post := range posts {
 		var theme *model.PostThemeModel
@@ -276,6 +272,7 @@ func (ctrl *PostController) GetPostsByMasjid(c *fiber.Ctx) error {
 		"data":    result,
 	})
 }
+
 
 
 
