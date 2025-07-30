@@ -1,6 +1,7 @@
 package controller
 
 import (
+	masjidAdminModel "masjidku_backend/internals/features/masjids/masjid_admins_teachers/model"
 	"masjidku_backend/internals/features/users/auth/service"
 	models "masjidku_backend/internals/features/users/user/model"
 
@@ -35,10 +36,33 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 
 	user.Password = ""
 
+	// Ambil daftar masjid_id jika user adalah DKM
+	var masjidIDs []string
+	if user.Role == "dkm" {
+		var adminMasjids []masjidAdminModel.MasjidAdminModel
+		if err := ac.DB.
+			Where("masjid_admins_user_id = ? AND masjid_admins_is_active = true", user.ID).
+			Find(&adminMasjids).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data masjid admin")
+		}
+
+		for _, m := range adminMasjids {
+			masjidIDs = append(masjidIDs, m.MasjidID.String())
+		}
+	}
+
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"user": user,
+		"user": fiber.Map{
+			"id":                user.ID,
+			"name":              user.UserName,
+			"email":             user.Email,
+			"role":              user.Role,
+			"masjid_admin_ids":  masjidIDs, // ✅ Tambahkan ini
+			// tambahkan field lain sesuai kebutuhan
+		},
 	})
 }
+
 
 func (ac *AuthController) Register(c *fiber.Ctx) error {
 	return service.Register(ac.DB, c)
