@@ -28,7 +28,6 @@ func NewLectureSessionController(db *gorm.DB) *LectureSessionController {
 }
 
 
-
 func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 	// Validasi user login
 	userIDRaw := c.Locals("user_id")

@@ -90,8 +90,6 @@ func (ctrl *PostController) CreatePost(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(dto.ToPostDTOWithTheme(post, theme, likeCount))
 }
 
-
-
 func (ctrl *PostController) UpdatePost(c *fiber.Ctx) error {
 	id := c.Params("id")
 

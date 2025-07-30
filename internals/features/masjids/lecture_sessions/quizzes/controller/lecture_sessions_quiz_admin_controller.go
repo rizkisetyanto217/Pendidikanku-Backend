@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/quizzes/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/quizzes/model"
 
@@ -19,8 +20,11 @@ func NewLectureSessionsQuizController(db *gorm.DB) *LectureSessionsQuizControlle
 
 var validate = validator.New()
 
+
 func (ctrl *LectureSessionsQuizController) CreateQuiz(c *fiber.Ctx) error {
 	var body dto.CreateLectureSessionsQuizRequest
+
+	// Parse dan validasi request body
 	if err := c.BodyParser(&body); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
@@ -28,25 +32,42 @@ func (ctrl *LectureSessionsQuizController) CreateQuiz(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// Ambil masjid_id dari JWT (dari middleware)
-	masjidID := c.Locals("masjid_id")
-	if masjidID == nil {
+	// Ambil masjid_id dari JWT (middleware)
+	masjidID, ok := c.Locals("masjid_id").(string)
+	if !ok || masjidID == "" {
 		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
 
+	// Cek apakah sudah ada quiz untuk sesi ini dan masjid ini
+	var existing model.LectureSessionsQuizModel
+	err := ctrl.DB.
+		Where("lecture_sessions_quiz_lecture_session_id = ? AND lecture_sessions_quiz_masjid_id = ?", body.LectureSessionsQuizLectureSessionID, masjidID).
+		First(&existing).Error
+
+	switch {
+	case err == nil:
+		// Quiz sudah ada → 409 Conflict
+		return fiber.NewError(fiber.StatusConflict, "Quiz untuk sesi kajian ini sudah tersedia.")
+	case !errors.Is(err, gorm.ErrRecordNotFound):
+		// Error lain saat query
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa quiz yang sudah ada")
+	}
+
+	// Quiz belum ada, lanjut buat baru
 	quiz := model.LectureSessionsQuizModel{
 		LectureSessionsQuizTitle:            body.LectureSessionsQuizTitle,
 		LectureSessionsQuizDescription:      body.LectureSessionsQuizDescription,
 		LectureSessionsQuizLectureSessionID: body.LectureSessionsQuizLectureSessionID,
-		LectureSessionsQuizMasjidID:         masjidID.(string),
+		LectureSessionsQuizMasjidID:         masjidID,
 	}
 
 	if err := ctrl.DB.Create(&quiz).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create quiz")
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat quiz")
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(dto.ToLectureSessionsQuizDTO(quiz))
 }
+
 
 
 // =============================
