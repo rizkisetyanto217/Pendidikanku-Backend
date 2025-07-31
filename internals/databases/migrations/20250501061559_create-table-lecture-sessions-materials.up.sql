@@ -1,6 +1,5 @@
 CREATE TABLE IF NOT EXISTS lecture_sessions_materials (
   lecture_sessions_material_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  lecture_sessions_material_title VARCHAR(255) NOT NULL,
   lecture_sessions_material_summary TEXT,
   lecture_sessions_material_transcript_full TEXT,
   lecture_sessions_material_lecture_session_id UUID NOT NULL REFERENCES lecture_sessions(lecture_session_id) ON DELETE CASCADE,

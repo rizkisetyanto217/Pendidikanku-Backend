@@ -64,7 +64,6 @@ func (ctrl *LectureSessionsMaterialController) CreateLectureSessionsMaterial(c *
 
 	// ✅ Simpan ke DB jika belum ada
 	material := model.LectureSessionsMaterialModel{
-		LectureSessionsMaterialTitle:            body.LectureSessionsMaterialTitle,
 		LectureSessionsMaterialSummary:          body.LectureSessionsMaterialSummary,
 		LectureSessionsMaterialTranscriptFull:   body.LectureSessionsMaterialTranscriptFull,
 		LectureSessionsMaterialLectureSessionID: body.LectureSessionsMaterialLectureSessionID,
@@ -117,9 +116,9 @@ func (ctl *LectureSessionsMaterialController) FindByLectureSessionFiltered(c *fi
 	// Kolom yang di-select berdasarkan type
 	switch filterType {
 	case "summary":
-		query = query.Select("lecture_sessions_materials.lecture_sessions_material_id, lecture_sessions_materials.lecture_sessions_material_title, lecture_sessions_materials.lecture_sessions_material_summary, lecture_sessions_materials.lecture_sessions_material_lecture_session_id, lecture_sessions_materials.lecture_sessions_material_masjid_id, lecture_sessions_materials.lecture_sessions_material_created_at")
+		query = query.Select("lecture_sessions_materials.lecture_sessions_material_id, lecture_sessions_materials.lecture_sessions_material_summary, lecture_sessions_materials.lecture_sessions_material_lecture_session_id, lecture_sessions_materials.lecture_sessions_material_masjid_id, lecture_sessions_materials.lecture_sessions_material_created_at")
 	case "transcript":
-		query = query.Select("lecture_sessions_materials.lecture_sessions_material_id, lecture_sessions_materials.lecture_sessions_material_title, lecture_sessions_materials.lecture_sessions_material_transcript_full, lecture_sessions_materials.lecture_sessions_material_lecture_session_id, lecture_sessions_materials.lecture_sessions_material_masjid_id, lecture_sessions_materials.lecture_sessions_material_created_at")
+		query = query.Select("lecture_sessions_materials.lecture_sessions_material_id,lecture_sessions_materials.lecture_sessions_material_transcript_full, lecture_sessions_materials.lecture_sessions_material_lecture_session_id, lecture_sessions_materials.lecture_sessions_material_masjid_id, lecture_sessions_materials.lecture_sessions_material_created_at")
 	}
 
 	// Eksekusi query
@@ -199,10 +198,6 @@ func (ctrl *LectureSessionsMaterialController) UpdateLectureSessionsMaterial(c *
 		return fiber.NewError(fiber.StatusNotFound, "Materi tidak ditemukan")
 	}
 
-	// Update hanya field yang dikirim (partial update)
-	if body.LectureSessionsMaterialTitle != "" {
-		material.LectureSessionsMaterialTitle = body.LectureSessionsMaterialTitle
-	}
 	if body.LectureSessionsMaterialSummary != "" {
 		material.LectureSessionsMaterialSummary = body.LectureSessionsMaterialSummary
 	}
@@ -278,7 +273,6 @@ func (ctrl *LectureSessionsMaterialController) GetContentByLectureID(c *fiber.Ct
 		content = append(content, map[string]interface{}{
 			"type":       "material",
 			"id":         m.LectureSessionsMaterialID,
-			"title":      m.LectureSessionsMaterialTitle,
 			"summary":    m.LectureSessionsMaterialSummary,
 			"transcript": m.LectureSessionsMaterialTranscriptFull,
 			"session_id": m.LectureSessionsMaterialLectureSessionID,
