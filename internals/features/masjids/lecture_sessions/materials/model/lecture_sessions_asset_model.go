@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
+	"time"
+)
 
 type LectureSessionsAssetModel struct {
 	LectureSessionsAssetID               string    `gorm:"column:lecture_sessions_asset_id;primaryKey;type:uuid;default:gen_random_uuid()"`
@@ -10,6 +13,8 @@ type LectureSessionsAssetModel struct {
 	LectureSessionsAssetLectureSessionID string    `gorm:"column:lecture_sessions_asset_lecture_session_id;type:uuid;not null"`
 	LectureSessionsAssetMasjidID         string    `gorm:"column:lecture_sessions_asset_masjid_id;type:uuid;not null"`
 	LectureSessionsAssetCreatedAt        time.Time `gorm:"column:lecture_sessions_asset_created_at;autoCreateTime"`
+	LectureSession                        model.LectureSessionModel `gorm:"foreignKey:LectureSessionsAssetLectureSessionID;references:LectureSessionID"`
+
 
 	// Optional relations:
 	// LectureSession *LectureSessionModel `gorm:"foreignKey:LectureSessionsAssetLectureSessionID"`

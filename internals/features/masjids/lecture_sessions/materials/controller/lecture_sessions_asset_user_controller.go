@@ -89,6 +89,7 @@ func (ctl *LectureSessionsAssetController) FindGroupedByLectureID(c *fiber.Ctx) 
 	var assets []model.LectureSessionsAssetModel
 	query := ctl.DB.Model(&model.LectureSessionsAssetModel{}).
 		Joins("JOIN lecture_sessions ON lecture_sessions.lecture_session_id = lecture_sessions_assets.lecture_sessions_asset_lecture_session_id").
+		Preload("LectureSession"). // 👈 WAJIB agar field Title bisa diakses
 		Where("lecture_sessions.lecture_session_lecture_id = ?", lectureID)
 
 	if fileTypes != "" {
@@ -122,33 +123,46 @@ func (ctl *LectureSessionsAssetController) FindGroupedByLectureID(c *fiber.Ctx) 
 
 // Struktur grouping
 type GroupedAssets struct {
-	LectureSessionID string                             `json:"lecture_session_id"`
-	Assets           []dto.LectureSessionsAssetResponse `json:"assets"`
+	LectureSessionID    string                             `json:"lecture_session_id"`
+	LectureSessionTitle string                             `json:"lecture_session_title"`
+	Assets              []dto.LectureSessionsAssetResponse `json:"assets"`
 }
+
 
 // Grouping function (versi benar)
 func groupByLectureSessionID(data []model.LectureSessionsAssetModel) []GroupedAssets {
-	groupMap := make(map[string][]dto.LectureSessionsAssetResponse)
+	type groupKey struct {
+		SessionID string
+		Title     string
+	}
+
+	groupMap := make(map[groupKey][]dto.LectureSessionsAssetResponse)
 
 	for _, item := range data {
-		sessionID := item.LectureSessionsAssetLectureSessionID
-		resp := dto.ToLectureSessionsAssetResponse(item) // ✅ gunakan response bukan DTO
-		groupMap[sessionID] = append(groupMap[sessionID], resp)
+		key := groupKey{
+			SessionID: item.LectureSessionsAssetLectureSessionID,
+			Title:     item.LectureSession.LectureSessionTitle, // pastikan relasi dimuat
+		}
+
+		resp := dto.ToLectureSessionsAssetResponse(item)
+		groupMap[key] = append(groupMap[key], resp)
 	}
 
 	var result []GroupedAssets
-	for sessionID, assets := range groupMap {
+	for key, assets := range groupMap {
 		result = append(result, GroupedAssets{
-			LectureSessionID: sessionID,
-			Assets:           assets,
+			LectureSessionID:    key.SessionID,
+			LectureSessionTitle: key.Title,
+			Assets:              assets,
 		})
 	}
 
-	// Urutkan secara descending berdasarkan ID
+	// Urutkan berdasarkan session title atau ID (opsional)
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].LectureSessionID > result[j].LectureSessionID
 	})
 
 	return result
 }
+
 
