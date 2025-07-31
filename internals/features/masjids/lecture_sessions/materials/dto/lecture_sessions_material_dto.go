@@ -23,13 +23,15 @@ type LectureSessionsMaterialDTO struct {
 // Create Request DTO
 // ============================
 
+// dto/lecture_sessions_material_request.go
 type CreateLectureSessionsMaterialRequest struct {
-	LectureSessionsMaterialTitle            string `json:"lecture_sessions_material_title" validate:"required,min=3"`
-	LectureSessionsMaterialSummary          string `json:"lecture_sessions_material_summary" validate:"required"`
-	LectureSessionsMaterialTranscriptFull   string `json:"lecture_sessions_material_transcript_full" validate:"required"`
-	LectureSessionsMaterialLectureSessionID string `json:"lecture_sessions_material_lecture_session_id" validate:"required,uuid"`
-	LectureSessionsMaterialMasjidID         string `json:"lecture_sessions_material_masjid_id" validate:"required,uuid"`
+	LectureSessionsMaterialTitle           string `json:"lecture_sessions_material_title" validate:"required"`
+	LectureSessionsMaterialSummary         string `json:"lecture_sessions_material_summary"`
+	LectureSessionsMaterialTranscriptFull  string `json:"lecture_sessions_material_transcript_full"`
+	LectureSessionsMaterialLectureSessionID string `json:"lecture_sessions_material_lecture_session_id" validate:"required"`
+	LectureSessionsMaterialMasjidID        string `json:"-"` // diisi manual dari token
 }
+
 
 // ============================
 // Update Request DTO

@@ -23,6 +23,7 @@ func AllLectureSessionsAssetRoutes(user fiber.Router, db *gorm.DB) {
 	material.Get("/", materialCtrl.GetAllLectureSessionsMaterials)    // 📄 Semua materi
 	material.Get("/filter", materialCtrl.FindByLectureSessionFiltered)
 	material.Get("/get-by-id/:id", materialCtrl.GetLectureSessionsMaterialByID) // 🔍 Detail materi
+	material.Get("/filter-by-lecture-id", materialCtrl.FindGroupedMaterialsByLectureID)
 
 
 }

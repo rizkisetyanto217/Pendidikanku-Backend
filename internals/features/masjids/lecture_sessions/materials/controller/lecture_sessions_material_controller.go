@@ -22,8 +22,9 @@ func NewLectureSessionsMaterialController(db *gorm.DB) *LectureSessionsMaterialC
 	return &LectureSessionsMaterialController{DB: db}
 }
 
+
 // =============================
-// ➕ Create Lecture Session Material
+// ➕ Create Lecture Session Material (1 per session only)
 // =============================
 func (ctrl *LectureSessionsMaterialController) CreateLectureSessionsMaterial(c *fiber.Ctx) error {
 	var body dto.CreateLectureSessionsMaterialRequest
@@ -42,12 +43,26 @@ func (ctrl *LectureSessionsMaterialController) CreateLectureSessionsMaterial(c *
 	// Inject ke body sebelum validasi
 	body.LectureSessionsMaterialMasjidID = masjidID
 
-	// ✅ Validasi setelah lengkap
+	// ✅ Validasi
 	if err := validate2.Struct(&body); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Validasi gagal: "+err.Error())
 	}
 
-	// 📦 Simpan ke DB
+	// 🚫 Cek apakah sudah ada materi untuk sesi ini
+	var existing model.LectureSessionsMaterialModel
+	err := ctrl.DB.
+		Where("lecture_sessions_material_lecture_session_id = ?", body.LectureSessionsMaterialLectureSessionID).
+		First(&existing).Error
+
+	if err == nil {
+		// Artinya sudah ada data
+		return fiber.NewError(fiber.StatusConflict, "Materi untuk sesi ini sudah tersedia")
+	} else if err != gorm.ErrRecordNotFound {
+		// Error selain "tidak ditemukan"
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa duplikasi: "+err.Error())
+	}
+
+	// ✅ Simpan ke DB jika belum ada
 	material := model.LectureSessionsMaterialModel{
 		LectureSessionsMaterialTitle:            body.LectureSessionsMaterialTitle,
 		LectureSessionsMaterialSummary:          body.LectureSessionsMaterialSummary,
