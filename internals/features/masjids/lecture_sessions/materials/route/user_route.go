@@ -16,10 +16,13 @@ func AllLectureSessionsAssetRoutes(user fiber.Router, db *gorm.DB) {
 	asset := user.Group("/lecture-sessions-assets")
 	asset.Get("/", assetCtrl.GetAllLectureSessionsAssets)    // 📄 Lihat semua asset
 	asset.Get("/filter", assetCtrl.FilterLectureLectureSessionsAssets)
+	asset.Get("/filter-by-lecture-id", assetCtrl.FindGroupedByLectureID)
 
 	// 📚 Group: /lecture-sessions-materials
 	material := user.Group("/lecture-sessions-materials")
 	material.Get("/", materialCtrl.GetAllLectureSessionsMaterials)    // 📄 Semua materi
 	material.Get("/filter", materialCtrl.FindByLectureSessionFiltered)
 	material.Get("/get-by-id/:id", materialCtrl.GetLectureSessionsMaterialByID) // 🔍 Detail materi
+
+
 }

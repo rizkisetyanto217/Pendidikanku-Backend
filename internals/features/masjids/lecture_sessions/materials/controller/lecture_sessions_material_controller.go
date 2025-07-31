@@ -67,7 +67,9 @@ func (ctrl *LectureSessionsMaterialController) CreateLectureSessionsMaterial(c *
 }
 
 
-
+// =============================
+// 🔍 Get Material by Lecture Sessions
+// =============================
 func (ctl *LectureSessionsMaterialController) FindByLectureSessionFiltered(c *fiber.Ctx) error {
 	lectureSessionID := strings.TrimSpace(c.Query("lecture_session_id"))
 	lectureID := strings.TrimSpace(c.Query("lecture_id"))
@@ -126,6 +128,7 @@ func (ctl *LectureSessionsMaterialController) FindByLectureSessionFiltered(c *fi
 		"data":    result,
 	})
 }
+
 
 
 // =============================

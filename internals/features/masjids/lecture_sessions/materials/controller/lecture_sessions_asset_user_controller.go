@@ -3,6 +3,8 @@ package controller
 import (
 	"masjidku_backend/internals/features/masjids/lecture_sessions/materials/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/materials/model"
+	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -70,3 +72,83 @@ func (ctrl *LectureSessionsAssetController) FilterLectureLectureSessionsAssets(c
 
 	return c.JSON(response)
 }
+
+
+
+// Get By Lecture ID
+func (ctl *LectureSessionsAssetController) FindGroupedByLectureID(c *fiber.Ctx) error {
+	lectureID := c.Query("lecture_id")
+	fileTypes := c.Query("file_type") // contoh: "1,2"
+
+	if lectureID == "" {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+			"message": "lecture_id wajib diisi",
+		})
+	}
+
+	var assets []model.LectureSessionsAssetModel
+	query := ctl.DB.Model(&model.LectureSessionsAssetModel{}).
+		Joins("JOIN lecture_sessions ON lecture_sessions.lecture_session_id = lecture_sessions_assets.lecture_sessions_asset_lecture_session_id").
+		Where("lecture_sessions.lecture_session_lecture_id = ?", lectureID)
+
+	if fileTypes != "" {
+		types := strings.Split(fileTypes, ",")
+		query = query.Where("lecture_sessions_assets.lecture_sessions_asset_file_type IN (?)", types)
+	}
+
+	if err := query.
+		Order("lecture_sessions_assets.lecture_sessions_asset_lecture_session_id DESC").
+		Find(&assets).Error; err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"message": "gagal mengambil data",
+			"error":   err.Error(),
+		})
+	}
+
+	if len(assets) == 0 {
+		return c.JSON(fiber.Map{
+			"message": "success",
+			"data":    []GroupedAssets{}, // tetap bentuk array kosong
+		})
+	}
+
+	grouped := groupByLectureSessionID(assets)
+
+	return c.JSON(fiber.Map{
+		"message": "success",
+		"data":    grouped,
+	})
+}
+
+// Struktur grouping
+type GroupedAssets struct {
+	LectureSessionID string                             `json:"lecture_session_id"`
+	Assets           []dto.LectureSessionsAssetResponse `json:"assets"`
+}
+
+// Grouping function (versi benar)
+func groupByLectureSessionID(data []model.LectureSessionsAssetModel) []GroupedAssets {
+	groupMap := make(map[string][]dto.LectureSessionsAssetResponse)
+
+	for _, item := range data {
+		sessionID := item.LectureSessionsAssetLectureSessionID
+		resp := dto.ToLectureSessionsAssetResponse(item) // ✅ gunakan response bukan DTO
+		groupMap[sessionID] = append(groupMap[sessionID], resp)
+	}
+
+	var result []GroupedAssets
+	for sessionID, assets := range groupMap {
+		result = append(result, GroupedAssets{
+			LectureSessionID: sessionID,
+			Assets:           assets,
+		})
+	}
+
+	// Urutkan secara descending berdasarkan ID
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].LectureSessionID > result[j].LectureSessionID
+	})
+
+	return result
+}
+
