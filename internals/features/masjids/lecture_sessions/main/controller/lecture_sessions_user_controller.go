@@ -277,14 +277,12 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 		})
 	}
 
-	// Ambil user_id dari cookie atau header
 	userID := c.Cookies("user_id")
 	if userID == "" {
 		userID = c.Get("X-User-Id")
 	}
 	log.Println("[INFO] user_id dari request:", userID)
 
-	// Cari masjid berdasarkan slug
 	var masjid struct {
 		MasjidID uuid.UUID `gorm:"column:masjid_id"`
 	}
@@ -305,7 +303,6 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 		LectureTitle    string   `gorm:"column:lecture_title"`
 		UserName        *string  `gorm:"column:user_name"`
 		UserGradeResult *float64 `gorm:"column:user_grade_result"`
-		UserAttendance  *int     `gorm:"column:user_attendance_status"`
 	}
 
 	var results []JoinedResult
@@ -328,8 +325,7 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 			lecture_sessions.*, 
 			lectures.lecture_title, 
 			users.user_name,
-			user_lecture_sessions.user_lecture_session_grade_result AS user_grade_result,
-			user_lecture_sessions.user_lecture_session_attendance_status AS user_attendance_status
+			user_lecture_sessions.user_lecture_session_grade_result AS user_grade_result
 		`).Joins(`
 			LEFT JOIN user_lecture_sessions 
 			ON user_lecture_sessions.user_lecture_session_lecture_session_id = lecture_sessions.lecture_session_id 
@@ -344,7 +340,6 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 		})
 	}
 
-	// Map ke DTO
 	response := make([]dto.LectureSessionDTO, len(results))
 	for i, r := range results {
 		dtoItem := dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
@@ -353,9 +348,6 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 		}
 		if r.UserGradeResult != nil {
 			dtoItem.UserGradeResult = r.UserGradeResult
-		}
-		if r.UserAttendance != nil {
-			dtoItem.UserAttendanceStatus = r.UserAttendance
 		}
 		response[i] = dtoItem
 	}
