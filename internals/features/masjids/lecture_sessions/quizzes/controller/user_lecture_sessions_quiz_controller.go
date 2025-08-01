@@ -104,8 +104,6 @@ func (ctrl *UserLectureSessionsQuizController) CreateUserLectureSessionsQuiz(c *
 }
 
 
-
-
 func (ctrl *UserLectureSessionsQuizController) RecalculateLectureSessionsGrade(userID, lectureSessionID, masjidID string) error {
 	// ✅ Hitung rata-rata quiz user di sesi
 	var avg float64
@@ -143,7 +141,6 @@ func (ctrl *UserLectureSessionsQuizController) RecalculateLectureSessionsGrade(u
 			UserLectureSessionLectureID:        lecture.LectureID,
 			UserLectureSessionMasjidID:         masjidID,
 			UserLectureSessionGradeResult:      &avg,
-			UserLectureSessionAttendanceStatus: 0,
 		}
 		if err := ctrl.DB.Create(&newData).Error; err != nil {
 			return fmt.Errorf("failed to create user_lecture_session: %w", err)

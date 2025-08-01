@@ -5,6 +5,7 @@ import (
 	"masjidku_backend/internals/features/users/auth/service"
 	models "masjidku_backend/internals/features/users/user/model"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -54,7 +55,7 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"user": fiber.Map{
 			"id":                user.ID,
-			"name":              user.UserName,
+			"user_name":         user.UserName,
 			"email":             user.Email,
 			"role":              user.Role,
 			"masjid_admin_ids":  masjidIDs, // ✅ Tambahkan ini
@@ -63,6 +64,41 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 	})
 }
 
+
+func (ac *AuthController) UpdateUserName(c *fiber.Ctx) error {
+	userIDStr, ok := c.Locals("user_id").(string)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "Invalid user ID in context")
+	}
+
+	userUUID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "Invalid UUID format")
+	}
+
+	var req struct {
+		UserName string `json:"user_name" validate:"required,min=3,max=50"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	validate := validator.New()
+	if err := validate.Struct(req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+
+	if err := ac.DB.Model(&models.UserModel{}).
+		Where("id = ?", userUUID).
+		Update("user_name", req.UserName).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal update user name")
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Username berhasil diperbarui",
+	})
+}
 
 func (ac *AuthController) Register(c *fiber.Ctx) error {
 	return service.Register(ac.DB, c)

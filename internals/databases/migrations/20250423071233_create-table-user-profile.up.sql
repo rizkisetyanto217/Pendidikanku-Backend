@@ -25,7 +25,7 @@ CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 
 -- Buat table users_profile
 CREATE TABLE IF NOT EXISTS users_profile (
-    id SERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     donation_name VARCHAR(50),
     full_name VARCHAR(50),

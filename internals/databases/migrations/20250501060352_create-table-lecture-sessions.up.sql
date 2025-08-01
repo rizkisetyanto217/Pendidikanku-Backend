@@ -96,11 +96,7 @@ CREATE INDEX IF NOT EXISTS idx_lecture_sessions_is_active
 CREATE TABLE IF NOT EXISTS user_lecture_sessions (
   user_lecture_session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  -- Kehadiran dan evaluasi per sesi
-  user_lecture_session_attendance_status INT, -- 0 = tidak hadir, 1 = hadir, 2 = hadir online, 3 = tanpa keterangan
   user_lecture_session_grade_result FLOAT,
-  user_lecture_session_notes TEXT,
-
   -- Relasi
   user_lecture_session_lecture_session_id UUID NOT NULL REFERENCES lecture_sessions(lecture_session_id) ON DELETE CASCADE,
   
@@ -121,9 +117,6 @@ CREATE INDEX IF NOT EXISTS idx_user_lecture_sessions_user
 
 CREATE INDEX IF NOT EXISTS idx_user_lecture_sessions_lecture_session 
   ON user_lecture_sessions(user_lecture_session_lecture_session_id);
-
-CREATE INDEX IF NOT EXISTS idx_user_lecture_sessions_attendance_status 
-  ON user_lecture_sessions(user_lecture_session_attendance_status);
 
 CREATE INDEX IF NOT EXISTS idx_user_lecture_sessions_masjid_id 
   ON user_lecture_sessions(user_lecture_session_masjid_id);

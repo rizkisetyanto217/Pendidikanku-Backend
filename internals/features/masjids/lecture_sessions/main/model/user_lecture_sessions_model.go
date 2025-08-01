@@ -6,12 +6,8 @@ import (
 )
 
 type UserLectureSessionModel struct {
-	UserLectureSessionID               string     `gorm:"column:user_lecture_session_id;primaryKey;type:uuid;default:gen_random_uuid()"`
-	UserLectureSessionAttendanceStatus int        `gorm:"column:user_lecture_session_attendance_status"` // 0 = tidak hadir, 1 = hadir, 2 = hadir online
+	UserLectureSessionID               string     `gorm:"column:user_lecture_session_id;primaryKey;type:uuid;default:gen_random_uuid()"` // 0 = tidak hadir, 1 = hadir, 2 = hadir online
 	UserLectureSessionGradeResult      *float64   `gorm:"column:user_lecture_session_grade_result"`      // nullable
-
-	// 📝 Catatan pembelajaran
-	UserLectureSessionNotes            *string    `gorm:"column:user_lecture_session_notes" json:"user_lecture_session_notes"`
 
 	UserLectureSessionLectureSessionID string     `gorm:"column:user_lecture_session_lecture_session_id;type:uuid;not null"`
 	UserLectureSessionUserID           string     `gorm:"column:user_lecture_session_user_id;type:uuid;not null"`

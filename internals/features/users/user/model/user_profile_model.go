@@ -15,12 +15,12 @@ const (
 )
 
 type UsersProfileModel struct {
-	ID           uint           `gorm:"primaryKey" json:"id"`
+	ID           uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
 	UserID       uuid.UUID      `gorm:"type:uuid;not null;index" json:"user_id"`
 	DonationName string         `gorm:"size:50" json:"donation_name"`
 	FullName     string         `gorm:"size:50" json:"full_name"`
 	DateOfBirth  *time.Time     `json:"date_of_birth" time_format:"2006-01-02"`
-	Gender       *Gender         `gorm:"size:10" json:"gender,omitempty"`
+	Gender       *Gender        `gorm:"size:10" json:"gender,omitempty"`
 	PhoneNumber  string         `gorm:"size:20" json:"phone_number"`
 	Bio          string         `gorm:"size:300" json:"bio"`
 	Location     string         `gorm:"size:50" json:"location"`

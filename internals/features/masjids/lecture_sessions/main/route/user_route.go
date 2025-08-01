@@ -33,7 +33,6 @@ func AllLectureSessionRoutes(user fiber.Router, db *gorm.DB) {
 	// 👥 Group: /user-lecture-sessions
 	userSession := user.Group("/user-lecture-sessions")
 	userSession.Post("/", userLectureSessionCtrl.CreateUserLectureSession) // ✅ Catat kehadiran / progress
-	userSession.Get("/with-progress", userLectureSessionCtrl.GetLectureSessionsWithUserProgress)
 	userSession.Get("/", userLectureSessionCtrl.GetAllUserLectureSessions)    // 🔍 Lihat semua sesi yang diikuti
 	userSession.Get("/:id", userLectureSessionCtrl.GetUserLectureSessionByID) // 🔍 Detail kehadiran
 
