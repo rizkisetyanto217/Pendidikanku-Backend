@@ -359,8 +359,6 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 }
 
 
-
-
 func (ctrl *LectureSessionController) GetLectureSessionByIDProgressUser(c *fiber.Ctx) error {
 	sessionID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
@@ -380,7 +378,6 @@ func (ctrl *LectureSessionController) GetLectureSessionByIDProgressUser(c *fiber
 		LectureTitle    string   `gorm:"column:lecture_title"`
 		UserName        *string  `gorm:"column:user_name"`
 		UserGradeResult *float64 `gorm:"column:user_grade_result"`
-		UserAttendance  *int     `gorm:"column:user_attendance_status"`
 	}
 
 	var result JoinedResult
@@ -401,8 +398,7 @@ func (ctrl *LectureSessionController) GetLectureSessionByIDProgressUser(c *fiber
 			lecture_sessions.*, 
 			lectures.lecture_title, 
 			users.user_name,
-			user_lecture_sessions.user_lecture_session_grade_result AS user_grade_result,
-			user_lecture_sessions.user_lecture_session_attendance_status AS user_attendance_status
+			user_lecture_sessions.user_lecture_session_grade_result AS user_grade_result
 		`).Joins(`
 			LEFT JOIN user_lecture_sessions 
 			ON user_lecture_sessions.user_lecture_session_lecture_session_id = lecture_sessions.lecture_session_id 
@@ -420,7 +416,7 @@ func (ctrl *LectureSessionController) GetLectureSessionByIDProgressUser(c *fiber
 	}
 
 	log.Println("[INFO] Hasil query berhasil diambil")
-	log.Printf("[DEBUG] UserGradeResult: %v, UserAttendance: %v\n", result.UserGradeResult, result.UserAttendance)
+	log.Printf("[DEBUG] UserGradeResult: %v\n", result.UserGradeResult)
 
 	dtoItem := dto.ToLectureSessionDTOWithLectureTitle(result.LectureSessionModel, result.LectureTitle)
 
@@ -431,9 +427,6 @@ func (ctrl *LectureSessionController) GetLectureSessionByIDProgressUser(c *fiber
 
 	if result.UserGradeResult != nil {
 		dtoItem.UserGradeResult = result.UserGradeResult
-	}
-	if result.UserAttendance != nil {
-		dtoItem.UserAttendanceStatus = result.UserAttendance
 	}
 
 	return c.JSON(dtoItem)
