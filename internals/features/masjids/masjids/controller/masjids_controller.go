@@ -271,17 +271,21 @@ func (mc *MasjidController) CreateMasjid(c *fiber.Ctx) error {
 // 🟢 UPDATE MASJID (Partial Update)
 // ✅ PUT /api/a/masjids/:id
 func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
-	id := c.Params("id")
-	log.Printf("[INFO] Updating masjid with ID: %s\n", id)
-
-	masjidUUID, err := uuid.Parse(id)
+	id := c.Locals("masjid_id")
+	if id == nil {
+		return c.Status(401).JSON(fiber.Map{
+			"error": "Masjid ID tidak ditemukan di token",
+		})
+	}
+	idStr := fmt.Sprintf("%v", id)
+	masjidUUID, err := uuid.Parse(idStr)
 	if err != nil {
 		log.Printf("[ERROR] Invalid UUID format: %v\n", err)
 		return c.Status(400).JSON(fiber.Map{
 			"error": "Format ID tidak valid",
 		})
 	}
-
+	
 	// 🔍 Ambil entri lama
 	var existing model.MasjidModel
 	if err := mc.DB.First(&existing, "masjid_id = ?", masjidUUID).Error; err != nil {

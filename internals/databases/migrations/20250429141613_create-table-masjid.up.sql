@@ -24,6 +24,8 @@ CREATE INDEX IF NOT EXISTS idx_masjids_latlong ON masjids(masjid_latitude, masji
 CREATE INDEX IF NOT EXISTS masjids_masjid_domain_unique_idx
 ON masjids(masjid_domain) WHERE masjid_domain IS NOT NULL;
 
+
+
 -- 🔍 Index untuk lookup berdasarkan slug (frontend URL)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_masjids_slug ON masjids(masjid_slug);
 

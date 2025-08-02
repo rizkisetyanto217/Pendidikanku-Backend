@@ -20,7 +20,7 @@ func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	auth.OnlyRolesSlice(constants.RoleErrorOwner("membuat masjid"), constants.OwnerAndAbove),
 	masjidCtrl.CreateMasjid,
 )
-	admin.Put("/masjids/:id", masjidkuMiddleware.IsMasjidAdmin(), masjidCtrl.UpdateMasjid)
+	admin.Put("/masjids", masjidkuMiddleware.IsMasjidAdmin(), masjidCtrl.UpdateMasjid)
 	admin.Delete("/masjids/:id", masjidkuMiddleware.IsMasjidAdmin(), masjidCtrl.DeleteMasjid)
 
 	admin.Post("/masjid-profiles", masjidkuMiddleware.IsMasjidAdmin(), profileCtrl.CreateMasjidProfile)
