@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
 
@@ -17,60 +18,101 @@ func NewUserLectureSessionsAttendanceController(db *gorm.DB) *UserLectureSession
 	return &UserLectureSessionsAttendanceController{DB: db}
 }
 
-// ✅ Create or Upsert attendance
+
 func (ctrl *UserLectureSessionsAttendanceController) CreateOrUpdate(c *fiber.Ctx) error {
+	// 🔐 Ambil user ID dari token
 	userIDStr, ok := c.Locals("user_id").(string)
 	if !ok || userIDStr == "" {
-		return c.Status(401).JSON(fiber.Map{"error": "user_id tidak ditemukan di token"})
-	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "user_id tidak valid"})
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "user_id tidak ditemukan di token",
+		})
 	}
 
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "user_id tidak valid",
+		})
+	}
+
+	// 📥 Ambil dan validasi payload
 	var payload dto.UserLectureSessionsAttendanceRequest
 	if err := c.BodyParser(&payload); err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Payload tidak valid"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Payload tidak valid",
+		})
 	}
 
 	sessionID, err := uuid.Parse(payload.UserLectureSessionsAttendanceLectureSessionID)
 	if err != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Session ID tidak valid"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Session ID tidak valid",
+		})
 	}
 
+	// 🔍 Ambil lecture_id berdasarkan session ID
+	var lectureIDs []uuid.UUID
+	if err := ctrl.DB.
+		Table("lecture_sessions").
+		Where("lecture_session_id = ?", sessionID).
+		Pluck("lecture_session_lecture_id", &lectureIDs).Error; err != nil || len(lectureIDs) == 0 {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Lecture ID tidak ditemukan dari session",
+		})
+	}
+	lectureID := lectureIDs[0]
+
+	// 🔁 Cek apakah sudah pernah mengisi kehadiran
 	var existing model.UserLectureSessionsAttendanceModel
-	err = ctrl.DB.Where("user_lecture_sessions_attendance_user_id = ? AND user_lecture_sessions_attendance_lecture_session_id = ?", userID, sessionID).
+	err = ctrl.DB.
+		Where("user_lecture_sessions_attendance_user_id = ? AND user_lecture_sessions_attendance_lecture_session_id = ?", userID, sessionID).
 		First(&existing).Error
 
 	if err == nil {
-		// Update existing
+		// ✅ Update
 		existing.UserLectureSessionsAttendanceStatus = payload.UserLectureSessionsAttendanceStatus
 		existing.UserLectureSessionsAttendanceNotes = payload.UserLectureSessionsAttendanceNotes
 		existing.UserLectureSessionsAttendancePersonalNotes = payload.UserLectureSessionsAttendancePersonalNotes
-		ctrl.DB.Save(&existing)
+		existing.UserLectureSessionsAttendanceLectureID = lectureID
+
+		if err := ctrl.DB.Save(&existing).Error; err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Gagal memperbarui kehadiran",
+			})
+		}
+
 		return c.JSON(fiber.Map{
 			"message": "Kehadiran berhasil diperbarui",
 			"data":    dto.FromModelUserLectureSessionsAttendance(&existing),
 		})
 	}
 
-	if err == gorm.ErrRecordNotFound {
-		// Create baru
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// ➕ Insert baru
 		modelData := dto.ToModelUserLectureSessionsAttendance(&payload, userID)
+		modelData.UserLectureSessionsAttendanceLectureID = lectureID
+
 		if err := ctrl.DB.Create(&modelData).Error; err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": "Gagal menyimpan kehadiran"})
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Gagal mencatat kehadiran",
+			})
 		}
-		return c.Status(201).JSON(fiber.Map{
+
+		return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 			"message": "Kehadiran berhasil dicatat",
 			"data":    dto.FromModelUserLectureSessionsAttendance(modelData),
 		})
 	}
 
-	return c.Status(500).JSON(fiber.Map{"error": "Terjadi kesalahan saat menyimpan data"})
+	// ❌ Error lain
+	return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+		"error": "Terjadi kesalahan saat memproses kehadiran",
+	})
 }
 
+
 // ✅ Get attendance by session & user
-func (ctrl *UserLectureSessionsAttendanceController) GetBySession(c *fiber.Ctx) error {
+func (ctrl *UserLectureSessionsAttendanceController) GetByLectureSession(c *fiber.Ctx) error {
 	userIDStr, ok := c.Locals("user_id").(string)
 	if !ok || userIDStr == "" {
 		return c.Status(401).JSON(fiber.Map{"error": "user_id tidak ditemukan di token"})

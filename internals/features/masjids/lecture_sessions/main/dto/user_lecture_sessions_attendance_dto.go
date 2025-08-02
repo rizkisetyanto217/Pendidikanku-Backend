@@ -8,17 +8,19 @@ import (
 )
 
 type UserLectureSessionsAttendanceRequest struct {
-	UserLectureSessionsAttendanceLectureSessionID string `json:"user_lecture_sessions_attendance_lecture_session_id"` // UUID string
-	UserLectureSessionsAttendanceStatus           int    `json:"user_lecture_sessions_attendance_status"`              // ✅ Now integer
+	UserLectureSessionsAttendanceLectureSessionID string `json:"user_lecture_sessions_attendance_lecture_session_id"`
+	UserLectureSessionsAttendanceStatus           int    `json:"user_lecture_sessions_attendance_status"`
 	UserLectureSessionsAttendanceNotes            string `json:"user_lecture_sessions_attendance_notes"`
 	UserLectureSessionsAttendancePersonalNotes    string `json:"user_lecture_sessions_attendance_personal_notes"`
 }
+
 
 type UserLectureSessionsAttendanceResponse struct {
 	UserLectureSessionsAttendanceID               string    `json:"user_lecture_sessions_attendance_id"`
 	UserLectureSessionsAttendanceUserID           string    `json:"user_lecture_sessions_attendance_user_id"`
 	UserLectureSessionsAttendanceLectureSessionID string    `json:"user_lecture_sessions_attendance_lecture_session_id"`
-	UserLectureSessionsAttendanceStatus           int       `json:"user_lecture_sessions_attendance_status"` // ✅ Now integer
+	UserLectureSessionsAttendanceLectureID        string    `json:"user_lecture_sessions_attendance_lecture_id"`
+	UserLectureSessionsAttendanceStatus           int       `json:"user_lecture_sessions_attendance_status"`
 	UserLectureSessionsAttendanceNotes            string    `json:"user_lecture_sessions_attendance_notes"`
 	UserLectureSessionsAttendancePersonalNotes    string    `json:"user_lecture_sessions_attendance_personal_notes"`
 	UserLectureSessionsAttendanceCreatedAt        time.Time `json:"user_lecture_sessions_attendance_created_at"`
@@ -30,6 +32,7 @@ func FromModelUserLectureSessionsAttendance(m *model.UserLectureSessionsAttendan
 		UserLectureSessionsAttendanceID:               m.UserLectureSessionsAttendanceID.String(),
 		UserLectureSessionsAttendanceUserID:           m.UserLectureSessionsAttendanceUserID.String(),
 		UserLectureSessionsAttendanceLectureSessionID: m.UserLectureSessionsAttendanceLectureSessionID.String(),
+		UserLectureSessionsAttendanceLectureID:        m.UserLectureSessionsAttendanceLectureID.String(),
 		UserLectureSessionsAttendanceStatus:           m.UserLectureSessionsAttendanceStatus,
 		UserLectureSessionsAttendanceNotes:            m.UserLectureSessionsAttendanceNotes,
 		UserLectureSessionsAttendancePersonalNotes:    m.UserLectureSessionsAttendancePersonalNotes,

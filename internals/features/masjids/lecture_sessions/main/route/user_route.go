@@ -22,7 +22,7 @@ func AllLectureSessionRoutes(user fiber.Router, db *gorm.DB) {
 	sessionUser := user.Group("/lecture-sessions-u")
 	sessionUser.Get("/by-masjid/:id", lectureSessionCtrl.GetLectureSessionsByMasjidIDParam)
 	sessionUser.Get("/by-lecture/:lecture_id", lectureSessionCtrl.GetLectureSessionsByLectureID)
-	sessionUser.Get("/by-id/:id", lectureSessionCtrl.GetLectureSessionByIDProgressUser)
+	sessionUser.Get("/by-id/:id", lectureSessionCtrl.GetLectureSessionByID)
 	sessionUser.Get("/by-masjid-slug/:slug", lectureSessionCtrl.GetLectureSessionsByMasjidSlug)
 	sessionUser.Get("/mendatang/:slug", lectureSessionCtrl.GetUpcomingLectureSessionsByMasjidSlug)
 	sessionUser.Get("/soal-materi/:slug", lectureSessionCtrl.GetFinishedLectureSessionsByMasjidSlug)
@@ -36,6 +36,6 @@ func AllLectureSessionRoutes(user fiber.Router, db *gorm.DB) {
 	// ✅ Tambah route untuk /user-lecture-sessions-attendance
 	userAttendance := user.Group("/user-lecture-sessions-attendance")
 	userAttendance.Post("/", userAttendanceCtrl.CreateOrUpdate)
-	userAttendance.Get("/:lecture_session_id", userAttendanceCtrl.GetBySession)
+	userAttendance.Get("/:lecture_session_id", userAttendanceCtrl.GetByLectureSession)
 	userAttendance.Delete("/:id", userAttendanceCtrl.Delete)
 }
