@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS user_lecture_sessions_attendance;

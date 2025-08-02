@@ -40,14 +40,15 @@ CREATE TABLE IF NOT EXISTS user_follow_masjid (
 CREATE INDEX IF NOT EXISTS idx_follow_masjid_id ON user_follow_masjid(follow_masjid_id);
 
 
+-- Buat tabel baru sesuai struktur di GORM model
 CREATE TABLE IF NOT EXISTS masjids_profiles (
-    masjid_profile_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    masjid_profile_story TEXT,
-    masjid_profile_visi TEXT,
-    masjid_profile_misi TEXT,
-    masjid_profile_other TEXT,
+    masjid_profile_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    masjid_profile_description TEXT,
     masjid_profile_founded_year INT,
     masjid_profile_masjid_id UUID UNIQUE REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+    masjid_profile_logo_url TEXT,
+    masjid_profile_stamp_url TEXT,
+    masjid_profile_ttd_ketua_dkm_url TEXT,
     masjid_profile_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     masjid_profile_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     masjid_profile_deleted_at TIMESTAMP

@@ -10,16 +10,15 @@ import (
 func AllLectureSessionRoutes(user fiber.Router, db *gorm.DB) {
 	lectureSessionCtrl := controller.NewLectureSessionController(db)
 	userLectureSessionCtrl := controller.NewUserLectureSessionController(db)
+	userAttendanceCtrl := controller.NewUserLectureSessionsAttendanceController(db) // ✅ Tambah controller baru
 
 	// 📚 Group: /lecture-sessions
 	session := user.Group("/lecture-sessions")
-	session.Get("/", lectureSessionCtrl.GetAllLectureSessions)    // 📄 Lihat semua sesi
-
+	session.Get("/", lectureSessionCtrl.GetAllLectureSessions)
 	session.Get("/by-masjid", lectureSessionCtrl.GetLectureSessionsByMasjidID)
 	session.Get("/lecture-sessions", lectureSessionCtrl.GetByLectureID)
-	
-	
-	// 👥 Group: /lecture-sessions-user
+
+	// 👥 Group: /lecture-sessions-u
 	sessionUser := user.Group("/lecture-sessions-u")
 	sessionUser.Get("/by-masjid/:id", lectureSessionCtrl.GetLectureSessionsByMasjidIDParam)
 	sessionUser.Get("/by-lecture/:lecture_id", lectureSessionCtrl.GetLectureSessionsByLectureID)
@@ -28,12 +27,15 @@ func AllLectureSessionRoutes(user fiber.Router, db *gorm.DB) {
 	sessionUser.Get("/mendatang/:slug", lectureSessionCtrl.GetUpcomingLectureSessionsByMasjidSlug)
 	sessionUser.Get("/soal-materi/:slug", lectureSessionCtrl.GetFinishedLectureSessionsByMasjidSlug)
 
-	
-
 	// 👥 Group: /user-lecture-sessions
 	userSession := user.Group("/user-lecture-sessions")
-	userSession.Post("/", userLectureSessionCtrl.CreateUserLectureSession) // ✅ Catat kehadiran / progress
-	userSession.Get("/", userLectureSessionCtrl.GetAllUserLectureSessions)    // 🔍 Lihat semua sesi yang diikuti
-	userSession.Get("/:id", userLectureSessionCtrl.GetUserLectureSessionByID) // 🔍 Detail kehadiran
+	userSession.Post("/", userLectureSessionCtrl.CreateUserLectureSession)
+	userSession.Get("/", userLectureSessionCtrl.GetAllUserLectureSessions)
+	userSession.Get("/:id", userLectureSessionCtrl.GetUserLectureSessionByID)
 
+	// ✅ Tambah route untuk /user-lecture-sessions-attendance
+	userAttendance := user.Group("/user-lecture-sessions-attendance")
+	userAttendance.Post("/", userAttendanceCtrl.CreateOrUpdate)
+	userAttendance.Get("/:lecture_session_id", userAttendanceCtrl.GetBySession)
+	userAttendance.Delete("/:id", userAttendanceCtrl.Delete)
 }
