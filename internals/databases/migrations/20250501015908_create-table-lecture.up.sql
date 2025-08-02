@@ -61,3 +61,44 @@ CREATE TABLE IF NOT EXISTS user_lectures (
 CREATE INDEX IF NOT EXISTS idx_user_lecture_lecture_id ON user_lectures(user_lecture_lecture_id);
 CREATE INDEX IF NOT EXISTS idx_user_lecture_user_id ON user_lectures(user_lecture_user_id);
 CREATE INDEX IF NOT EXISTS idx_user_lecture_masjid_id ON user_lectures(user_lecture_masjid_id);
+
+
+
+CREATE TABLE IF NOT EXISTS lecture_schedules (
+  lecture_schedules_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Relasi ke lecture
+  lecture_schedules_lecture_id UUID REFERENCES lectures(lecture_id) ON DELETE CASCADE,
+  lecture_schedules_title VARCHAR(255) NOT NULL,
+
+  -- Hari & waktu rutin
+  lecture_schedules_day_of_week INT NOT NULL,        -- 0 = Minggu, 1 = Senin, ..., 6 = Sabtu
+  lecture_schedules_start_time TIME NOT NULL,        -- '19:00:00'
+  lecture_schedules_end_time TIME,                   -- opsional
+
+  -- Lokasi & keterangan
+  lecture_schedules_place TEXT,
+  lecture_schedules_notes TEXT,                      -- "Setiap pekan ke-2"
+
+  -- Pengaturan
+  lecture_schedules_is_active BOOLEAN DEFAULT TRUE,
+  lecture_schedules_is_paid BOOLEAN DEFAULT FALSE,
+  lecture_schedules_price INT,
+  lecture_schedules_capacity INT,
+  lecture_schedules_is_registration_required BOOLEAN DEFAULT FALSE,
+
+  -- Timestamps
+  lecture_schedules_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  lecture_schedules_updated_at TIMESTAMP,
+  lecture_schedules_deleted_at TIMESTAMP
+);
+
+
+CREATE INDEX IF NOT EXISTS idx_lecture_schedules_lecture_id 
+  ON lecture_schedules (lecture_schedules_lecture_id);
+
+CREATE INDEX IF NOT EXISTS idx_lecture_schedules_day_time 
+  ON lecture_schedules (lecture_schedules_day_of_week, lecture_schedules_start_time);
+
+CREATE INDEX IF NOT EXISTS idx_lecture_schedules_active 
+  ON lecture_schedules (lecture_schedules_is_active);

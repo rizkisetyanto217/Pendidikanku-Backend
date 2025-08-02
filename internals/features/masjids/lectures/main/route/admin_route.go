@@ -30,4 +30,13 @@ func LectureRoutes(api fiber.Router, db *gorm.DB) {
 	stats.Post("/", masjidkuMiddleware.IsMasjidAdmin(), statsCtrl.CreateLectureStats)
 	stats.Get("/:lectureId", masjidkuMiddleware.IsMasjidAdmin(), statsCtrl.GetLectureStatsByLectureID)
 	stats.Put("/:lectureId", masjidkuMiddleware.IsMasjidAdmin(), statsCtrl.UpdateLectureStats)
+
+	// 🔹 Lecture Schedules
+	lectureSchedulesCtrl := controller.NewLectureSchedulesController(db)
+	schedule := api.Group("/lecture-schedules", masjidkuMiddleware.IsMasjidAdmin())
+	schedule.Post("/", lectureSchedulesCtrl.Create)
+	schedule.Get("/", lectureSchedulesCtrl.GetAll) // optional: filter by masjid_id
+	schedule.Get("/:id", lectureSchedulesCtrl.GetByID)
+	schedule.Put("/:id", lectureSchedulesCtrl.Update)
+	schedule.Delete("/:id", lectureSchedulesCtrl.Delete)
 }
