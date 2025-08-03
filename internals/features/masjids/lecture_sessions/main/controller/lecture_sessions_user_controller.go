@@ -277,7 +277,6 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 	// --- Ambil slug dan user ID ---
 	slug := c.Params("slug")
 	if slug == "" {
-		log.Println("[ERROR] Slug masjid kosong")
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"message": "Slug masjid tidak ditemukan di URL",
 		})
@@ -298,12 +297,10 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 		Select("masjid_id").
 		Where("masjid_slug = ?", slug).
 		Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
-		log.Println("[ERROR] Gagal menemukan masjid dari slug:", slug)
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"message": "Masjid dengan slug tersebut tidak ditemukan",
 		})
 	}
-	log.Println("[INFO] masjid_id ditemukan:", masjid.MasjidID)
 
 	now := time.Now()
 
@@ -327,7 +324,6 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 			"user_lecture_sessions.user_lecture_session_grade_result AS user_grade_result",
 			"user_lecture_sessions_attendance.user_lecture_sessions_attendance_status AS attendance_status",
 		)
-		log.Println("[INFO] Menambahkan select field: grade_result dan attendance_status")
 	}
 
 	// --- Query builder ---
@@ -335,7 +331,7 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
 		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id")
 
-	if userID != "" {
+		if userID != "" {
 		query = query.
 			Joins(`LEFT JOIN user_lecture_sessions 
 				ON user_lecture_sessions.user_lecture_session_lecture_session_id = lecture_sessions.lecture_session_id 
@@ -343,41 +339,40 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 			Joins(`LEFT JOIN user_lecture_sessions_attendance 
 				ON user_lecture_sessions_attendance.user_lecture_sessions_attendance_lecture_session_id = lecture_sessions.lecture_session_id 
 				AND user_lecture_sessions_attendance.user_lecture_sessions_attendance_user_id = ?`, userID)
-		log.Println("[INFO] Join ke user_lecture_sessions dan user_lecture_sessions_attendance berhasil")
+
+		// Tambahkan filter opsional attendance_only=true
+		attendanceOnly := c.Query("attendance_only") == "true"
+		if attendanceOnly {
+			log.Println("[INFO] Filter aktif: hanya ambil sesi dengan kehadiran user (attendance_status IS NOT NULL)")
+			query = query.Where("user_lecture_sessions_attendance.user_lecture_sessions_attendance_status IS NOT NULL")
+		}
 	}
 
 	// --- Eksekusi query ---
 	var results []JoinedResult
-	log.Println("[DEBUG] Menjalankan query untuk ambil sesi kajian selesai")
 	if err := query.
 		Select(strings.Join(selectFields, ", ")).
 		Where("lecture_sessions.lecture_session_masjid_id = ? AND lecture_sessions.lecture_session_end_time < ?", masjid.MasjidID, now).
 		Order("lecture_sessions.lecture_session_start_time DESC").
 		Scan(&results).Error; err != nil {
-		log.Println("[ERROR] Gagal mengeksekusi query:", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Gagal mengambil sesi kajian",
 			"error":   err.Error(),
 		})
 	}
 
-	log.Printf("[INFO] Berhasil ambil %d sesi kajian\n", len(results))
-
 	// --- Mapping ke DTO ---
 	response := make([]dto.LectureSessionDTO, len(results))
 	for i, r := range results {
 		dtoItem := dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
-
 		if dtoItem.LectureSessionTeacherName == "" && r.UserName != nil {
 			dtoItem.LectureSessionTeacherName = *r.UserName
 		}
 		if r.UserGradeResult != nil {
 			dtoItem.UserGradeResult = r.UserGradeResult
-			log.Printf("[DEBUG] Sesi %s: Grade = %.2f\n", r.LectureSessionID, *r.UserGradeResult)
 		}
 		if r.AttendanceStatus != nil {
 			dtoItem.UserAttendanceStatus = r.AttendanceStatus
-			log.Printf("[DEBUG] Sesi %s: AttendanceStatus = %d\n", r.LectureSessionID, *r.AttendanceStatus)
 		}
 		response[i] = dtoItem
 	}
@@ -387,6 +382,7 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 		"data":    response,
 	})
 }
+
 
 
 func (ctrl *LectureSessionController) GetLectureSessionByIDProgressUser(c *fiber.Ctx) error {
