@@ -7,6 +7,7 @@ import (
 	helper "masjidku_backend/internals/helpers"
 	"net/url"
 	"strings"
+	"unicode"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -85,13 +86,17 @@ func (ctrl *LectureController) CreateLecture(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Judul tema kajian wajib diisi")
 	}
 
+	// Generate slug dari judul
+	slug := generateSlugFromTitle(title)
+
 	// Buat model baru
 	newLecture := model.LectureModel{
-		LectureTitle:       title,
+		LectureTitle:    title,
+		LectureSlug:     slug,
 		LectureDescription: description,
-		LectureMasjidID:    masjidID,
-		LectureImageURL:    imageURL,
-		LectureIsActive:    isActive,
+		LectureMasjidID: masjidID,
+		LectureImageURL: imageURL,
+		LectureIsActive: isActive,
 	}
 
 	// Simpan ke database
@@ -102,6 +107,7 @@ func (ctrl *LectureController) CreateLecture(c *fiber.Ctx) error {
 	// Kirim response
 	return c.Status(fiber.StatusCreated).JSON(dto.ToLectureResponse(&newLecture))
 }
+
 
 
 // ✅ GET /api/a/lectures/by-masjid
@@ -328,3 +334,19 @@ func (ctrl *LectureController) DeleteLecture(c *fiber.Ctx) error {
 }
 
 
+
+func generateSlugFromTitle(title string) string {
+	title = strings.ToLower(title)
+	var b strings.Builder
+	lastDash := false
+	for _, r := range title {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			lastDash = false
+		} else if !lastDash {
+			b.WriteRune('-')
+			lastDash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}

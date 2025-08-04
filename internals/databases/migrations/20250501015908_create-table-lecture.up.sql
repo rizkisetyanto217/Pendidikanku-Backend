@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS lectures (
   lecture_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   lecture_title VARCHAR(255) NOT NULL,
+  lecture_slug VARCHAR(255) UNIQUE NOT NULL, -- ✅ Slug unik untuk URL
   lecture_description TEXT,
   total_lecture_sessions INTEGER, -- Total sesi jika kajian terbatas
   lecture_image_url TEXT, -- Gambar utama kajian
@@ -22,7 +23,6 @@ CREATE TABLE IF NOT EXISTS lectures (
   lecture_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   lecture_updated_at TIMESTAMP,
   lecture_deleted_at TIMESTAMP
-
 );
 
 CREATE INDEX IF NOT EXISTS idx_lecture_masjid_id ON lectures(lecture_masjid_id);
@@ -32,6 +32,8 @@ CREATE INDEX IF NOT EXISTS idx_lecture_masjid_active_created_at
 -- ✅ Untuk query kajian terbaru per masjid (tanpa peduli aktif)
 CREATE INDEX IF NOT EXISTS idx_lecture_masjid_created_at 
   ON lectures (lecture_masjid_id, lecture_created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lecture_slug ON lectures(lecture_slug);
+
 
 
 

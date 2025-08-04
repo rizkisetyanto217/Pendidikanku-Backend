@@ -20,6 +20,7 @@ type Teacher struct {
 // ========================
 type LectureRequest struct {
 	LectureTitle                 string     `json:"lecture_title"`
+	LectureSlug                    string     `json:"lecture_slug"` // ✅
 	LectureDescription           string     `json:"lecture_description"`
 	LectureMasjidID              uuid.UUID  `json:"lecture_masjid_id"`
 	TotalLectureSessions         *int       `json:"total_lecture_sessions"`
@@ -43,6 +44,7 @@ type LectureRequest struct {
 type LectureResponse struct {
 	LectureID                   uuid.UUID  `json:"lecture_id"`
 	LectureTitle                string     `json:"lecture_title"`
+	LectureSlug                   string     `json:"lecture_slug"` // ✅
 	LectureDescription          string     `json:"lecture_description"`
 	LectureMasjidID             uuid.UUID  `json:"lecture_masjid_id"`
 	TotalLectureSessions        *int       `json:"total_lecture_sessions"`
@@ -71,6 +73,7 @@ func (r *LectureRequest) ToModel() *model.LectureModel {
 
 	return &model.LectureModel{
 		LectureTitle:                 r.LectureTitle,
+		LectureSlug:                    r.LectureSlug, // ✅
 		LectureDescription:           r.LectureDescription,
 		LectureMasjidID:              r.LectureMasjidID,
 		TotalLectureSessions:         r.TotalLectureSessions,
@@ -106,6 +109,7 @@ func ToLectureResponse(m *model.LectureModel) *LectureResponse {
 	return &LectureResponse{
 		LectureID:                   m.LectureID,
 		LectureTitle:                m.LectureTitle,
+		LectureSlug:                   m.LectureSlug, // ✅
 		LectureDescription:          m.LectureDescription,
 		LectureMasjidID:             m.LectureMasjidID,
 		TotalLectureSessions:        m.TotalLectureSessions,
