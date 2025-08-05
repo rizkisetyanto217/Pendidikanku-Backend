@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS lecture_sessions (
   -- 📝 Informasi Sesi
   lecture_session_title VARCHAR(255) NOT NULL,
   lecture_session_description TEXT,
+  lecture_session_slug VARCHAR(255) UNIQUE NOT NULL, -- ✅ Slug untuk URL
+
 
   -- 👤 Pengajar
   lecture_session_teacher_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -47,6 +49,9 @@ CREATE TABLE IF NOT EXISTS lecture_sessions (
   lecture_session_deleted_at TIMESTAMP
 );
 
+
+-- Slug untuk akses publik
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lecture_sessions_slug ON lecture_sessions (lecture_session_slug);
 
 -- Tambah masjid_id
 

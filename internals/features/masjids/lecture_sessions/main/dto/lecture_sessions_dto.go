@@ -2,7 +2,9 @@ package dto
 
 import (
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 )
@@ -33,8 +35,9 @@ type UpdateLectureSessionRequest = CreateLectureSessionRequest
 type LectureSessionDTO struct {
 	LectureSessionID           uuid.UUID   `json:"lecture_session_id"`
 	LectureSessionTitle        string      `json:"lecture_session_title"`
+	LectureSessionSlug         string      `json:"lecture_session_slug"` // ✅ Baru
 	LectureSessionDescription  string      `json:"lecture_session_description"`
-	LectureSessionTeacherID    *uuid.UUID  `json:"lecture_session_teacher_id"` // nullable
+	LectureSessionTeacherID    *uuid.UUID  `json:"lecture_session_teacher_id"`
 	LectureSessionTeacherName  string      `json:"lecture_session_teacher_name"`
 	LectureSessionStartTime    time.Time   `json:"lecture_session_start_time"`
 	LectureSessionEndTime      time.Time   `json:"lecture_session_end_time"`
@@ -42,15 +45,11 @@ type LectureSessionDTO struct {
 	LectureSessionImageURL     *string     `json:"lecture_session_image_url"`
 	LectureSessionLectureID    *uuid.UUID  `json:"lecture_session_lecture_id"`
 	LectureSessionMasjidID     uuid.UUID   `json:"lecture_session_masjid_id"`
+	LectureTitle               string      `json:"lecture_title"`
 
-	LectureTitle string `json:"lecture_title"`
-
-	// Informasi user (jika tersedia dari join)
 	UserGradeResult      *float64 `json:"user_grade_result,omitempty"`
 	UserAttendanceStatus *int     `json:"user_attendance_status,omitempty"`
 
-
-	// Approval status
 	LectureSessionApprovedByAdminID   *uuid.UUID `json:"lecture_session_approved_by_admin_id"`
 	LectureSessionApprovedByAdminAt   *time.Time `json:"lecture_session_approved_by_admin_at"`
 	LectureSessionApprovedByAuthorID  *uuid.UUID `json:"lecture_session_approved_by_author_id"`
@@ -59,10 +58,11 @@ type LectureSessionDTO struct {
 	LectureSessionApprovedByTeacherAt *time.Time `json:"lecture_session_approved_by_teacher_at"`
 	LectureSessionApprovedByDkmAt     *time.Time `json:"lecture_session_approved_by_dkm_at"`
 
-	LectureSessionIsActive    bool       `json:"lecture_session_is_active"`
-	LectureSessionCreatedAt   time.Time  `json:"lecture_session_created_at"`
-	LectureSessionUpdatedAt   *time.Time `json:"lecture_session_updated_at"`
+	LectureSessionIsActive  bool       `json:"lecture_session_is_active"`
+	LectureSessionCreatedAt time.Time  `json:"lecture_session_created_at"`
+	LectureSessionUpdatedAt *time.Time `json:"lecture_session_updated_at"`
 }
+
 
 // =========================
 // Request → Model
@@ -84,8 +84,10 @@ func (r CreateLectureSessionRequest) ToModel() model.LectureSessionModel {
 		LectureSessionPlace:       r.LectureSessionPlace,
 		LectureSessionImageURL:    r.LectureSessionImageURL,
 		LectureSessionLectureID:   r.LectureSessionLectureID,
+		LectureSessionSlug:     GenerateSlug(r.LectureSessionTitle), // ✅ kalau mau handle slug manual
 	}
 }
+
 
 // =========================
 // Model → Response
@@ -95,6 +97,7 @@ func ToLectureSessionDTO(m model.LectureSessionModel) LectureSessionDTO {
 	return LectureSessionDTO{
 		LectureSessionID:           m.LectureSessionID,
 		LectureSessionTitle:        m.LectureSessionTitle,
+		LectureSessionSlug:         m.LectureSessionSlug, // ✅ ditambahkan
 		LectureSessionDescription:  m.LectureSessionDescription,
 		LectureSessionTeacherID:    &m.LectureSessionTeacherID,
 		LectureSessionTeacherName:  m.LectureSessionTeacherName,
@@ -116,6 +119,7 @@ func ToLectureSessionDTO(m model.LectureSessionModel) LectureSessionDTO {
 		LectureSessionUpdatedAt:           m.LectureSessionUpdatedAt,
 	}
 }
+
 
 func ToLectureSessionDTOWithLectureTitle(m model.LectureSessionModel, lectureTitle string) LectureSessionDTO {
 	dto := ToLectureSessionDTO(m)
@@ -156,4 +160,22 @@ type SetLectureSessionActiveRequest struct {
 type SetLectureSessionActiveResponse struct {
 	LectureSessionID uuid.UUID `json:"lecture_session_id"`
 	IsActive         bool      `json:"is_active"`
+}
+
+
+func GenerateSlug(title string) string {
+	title = strings.ToLower(title)
+
+	var b strings.Builder
+	lastDash := false
+	for _, r := range title {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			lastDash = false
+		} else if !lastDash {
+			b.WriteRune('-')
+			lastDash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }

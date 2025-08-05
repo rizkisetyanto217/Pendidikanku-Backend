@@ -1,7 +1,9 @@
 package model
 
 import (
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -10,6 +12,7 @@ import (
 type LectureSessionModel struct {
 	LectureSessionID          uuid.UUID      `gorm:"column:lecture_session_id;primaryKey;type:uuid;default:gen_random_uuid()" json:"lecture_session_id"`
 	LectureSessionTitle       string         `gorm:"column:lecture_session_title;type:varchar(255);not null" json:"lecture_session_title"`
+	LectureSessionSlug        string         `gorm:"column:lecture_session_slug;type:varchar(255);not null;unique" json:"lecture_session_slug"` // ✅ Slug URL
 	LectureSessionDescription string         `gorm:"column:lecture_session_description;type:text" json:"lecture_session_description"`
 
 	// 👤 Pengajar
@@ -57,3 +60,48 @@ type LectureSessionModel struct {
 func (LectureSessionModel) TableName() string {
 	return "lecture_sessions"
 }
+
+
+
+// BeforeCreate generates slug automatically if not set
+func (l *LectureSessionModel) BeforeCreate(tx *gorm.DB) (err error) {
+	if l.LectureSessionSlug == "" && l.LectureSessionTitle != "" {
+		baseSlug := generateSlug(l.LectureSessionTitle)
+		slug := baseSlug
+		counter := 1
+
+		// Cek keberadaan slug di database
+		for {
+			var count int64
+			tx.Model(&LectureSessionModel{}).Where("lecture_session_slug = ?", slug).Count(&count)
+			if count == 0 {
+				break
+			}
+			// Tambahkan suffix jika sudah ada
+			slug = baseSlug + "-" + uuid.New().String()[:8]
+			counter++
+		}
+		l.LectureSessionSlug = slug
+	}
+	return nil
+}
+
+
+// generateSlug creates a URL-friendly slug from the title
+func generateSlug(title string) string {
+	title = strings.ToLower(title)
+
+	var b strings.Builder
+	lastDash := false
+	for _, r := range title {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			lastDash = false
+		} else if !lastDash {
+			b.WriteRune('-')
+			lastDash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+

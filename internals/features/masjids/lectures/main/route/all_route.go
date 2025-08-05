@@ -1,7 +1,6 @@
 package route
 
 import (
-	
 	"masjidku_backend/internals/features/masjids/lectures/main/controller"
 
 	"github.com/gofiber/fiber/v2"
@@ -15,7 +14,8 @@ func AllLectureRoutes(api fiber.Router, db *gorm.DB) {
 	lecture.Get("/", lectureCtrl.GetAllLectures)
 	lecture.Get("/:id/lecture-sessions", lectureCtrl.GetLectureSessionsByLectureID)
 	lecture.Get("/:id", lectureCtrl.GetLectureByIDProgressUser)
-	lecture.Get("/slug/:slug", lectureCtrl.GetLectureByMasjidSlug)
+	lecture.Get("/by-slug/:slug", lectureCtrl.GetLectureBySlugProgressUser)
+	lecture.Get("/by-masjid-slug/:slug", lectureCtrl.GetLectureByMasjidSlug)
 
 	// 🔹 User Lecture
 	ctrl := controller.NewUserLectureController(db)

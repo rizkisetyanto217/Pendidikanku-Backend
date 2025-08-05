@@ -412,7 +412,9 @@ func (ctrl *LectureSessionController) UpdateLectureSession(c *fiber.Ctx) error {
 	// Update field jika ada
 	if val := c.FormValue("lecture_session_title"); val != "" {
 		existing.LectureSessionTitle = val
+		existing.LectureSessionSlug = dto.GenerateSlug(val)
 	}
+
 	if val := c.FormValue("lecture_session_description"); val != "" {
 		existing.LectureSessionDescription = val
 	}
