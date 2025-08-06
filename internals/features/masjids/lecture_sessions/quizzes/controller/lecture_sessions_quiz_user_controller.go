@@ -2,6 +2,8 @@ package controller
 
 import (
 	questionModel "masjidku_backend/internals/features/masjids/lecture_sessions/questions/model"
+
+	lectureSessionModel "masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/quizzes/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/quizzes/model"
 
@@ -78,6 +80,56 @@ func (ctrl *LectureSessionsQuizController) GetByLectureSessionID(c *fiber.Ctx) e
 	}
 
 	// Response
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Quiz dan soal berhasil ditemukan",
+		"data": fiber.Map{
+			"quiz":      quiz,
+			"questions": questions,
+		},
+	})
+}
+
+
+// ✅ GET /api/a/lecture-sessions-quiz/by-session-slug/:slug
+func (ctrl *LectureSessionsQuizController) GetByLectureSessionSlug(c *fiber.Ctx) error {
+	lectureSessionSlug := c.Params("slug")
+	if lectureSessionSlug == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"message": "Slug sesi kajian tidak ditemukan di URL",
+		})
+	}
+
+	// Ambil sesi kajian berdasarkan slug
+	var session lectureSessionModel.LectureSessionModel
+	if err := ctrl.DB.
+		Where("lecture_session_slug = ?", lectureSessionSlug).
+		First(&session).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Sesi kajian dengan slug tersebut tidak ditemukan",
+		})
+	}
+
+	// Ambil quiz berdasarkan lecture_session_id dari sesi yang ditemukan
+	var quiz model.LectureSessionsQuizModel
+	if err := ctrl.DB.
+		Where("lecture_sessions_quiz_lecture_session_id = ?", session.LectureSessionID).
+		First(&quiz).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Quiz untuk sesi kajian ini tidak ditemukan",
+		})
+	}
+
+	// Ambil soal-soal terkait quiz
+	var questions []questionModel.LectureSessionsQuestionModel
+	if err := ctrl.DB.
+		Where("lecture_sessions_question_quiz_id = ?", quiz.LectureSessionsQuizID).
+		Order("lecture_sessions_question_created_at ASC").
+		Find(&questions).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Gagal mengambil soal-soal quiz",
+		})
+	}
+
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "Quiz dan soal berhasil ditemukan",
 		"data": fiber.Map{

@@ -13,6 +13,7 @@ func AllLectureRoutes(api fiber.Router, db *gorm.DB) {
 	lecture := api.Group("/lectures")
 	lecture.Get("/", lectureCtrl.GetAllLectures)
 	lecture.Get("/:id/lecture-sessions", lectureCtrl.GetLectureSessionsByLectureID)
+	lecture.Get("/:slug/lecture-sessions-by-slug", lectureCtrl.GetLectureSessionsByLectureSlug)
 	lecture.Get("/:id", lectureCtrl.GetLectureByIDProgressUser)
 	lecture.Get("/by-slug/:slug", lectureCtrl.GetLectureBySlugProgressUser)
 	lecture.Get("/by-masjid-slug/:slug", lectureCtrl.GetLectureByMasjidSlug)

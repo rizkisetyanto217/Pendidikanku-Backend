@@ -15,6 +15,7 @@ func LectureSessionsQuizUserRoutes(user fiber.Router, db *gorm.DB) {
 	quizzes.Get("/by-masjid/:slug", quizCtrl.GetQuizzesBySlug)
 	quizzes.Get("/:id", quizCtrl.GetQuizByID) // 🔍 Lihat detail quiz
 	quizzes.Get("/:id/with-questions", quizCtrl.GetByLectureSessionID)
+	quizzes.Get("/:slug/with-questions-by-slug", quizCtrl.GetByLectureSessionSlug)
 	quizzes.Get("/by-lecture/:id", quizCtrl.GetByLectureID)
 
 	userQuizCtrl := quizcontroller.NewUserLectureSessionsQuizController(db)
