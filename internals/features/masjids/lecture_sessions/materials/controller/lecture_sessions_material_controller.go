@@ -1,11 +1,8 @@
 package controller
 
 import (
-	"fmt"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/materials/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/materials/model"
-	"net/http"
-	"strings"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -80,68 +77,6 @@ func (ctrl *LectureSessionsMaterialController) CreateLectureSessionsMaterial(c *
 	})
 }
 
-
-// =============================
-// 🔍 Get Material by Lecture Sessions
-// =============================
-func (ctl *LectureSessionsMaterialController) FindByLectureSessionFiltered(c *fiber.Ctx) error {
-	lectureSessionID := strings.TrimSpace(c.Query("lecture_session_id"))
-	lectureID := strings.TrimSpace(c.Query("lecture_id"))
-
-	if lectureSessionID == "" && lectureID == "" {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
-			"message": "lecture_session_id atau lecture_id harus diisi",
-		})
-	}
-
-	filterType := c.Query("type")
-	fmt.Println("🎯 Filter:", map[string]string{
-		"lecture_session_id": lectureSessionID,
-		"lecture_id":         lectureID,
-		"type":               filterType,
-	})
-
-	var materials []model.LectureSessionsMaterialModel
-	query := ctl.DB.Model(&model.LectureSessionsMaterialModel{})
-
-	// Filter berdasarkan salah satu
-	if lectureSessionID != "" {
-		query = query.Where("lecture_sessions_material_lecture_session_id = ?", lectureSessionID)
-	} else {
-		// join ke table session jika filter by lecture_id
-		query = query.Joins("JOIN lecture_sessions ON lecture_sessions.lecture_session_id = lecture_sessions_materials.lecture_sessions_material_lecture_session_id").
-			Where("lecture_sessions.lecture_session_lecture_id = ?", lectureID)
-	}
-
-	// Kolom yang di-select berdasarkan type
-	switch filterType {
-	case "summary":
-		query = query.Select("lecture_sessions_materials.lecture_sessions_material_id, lecture_sessions_materials.lecture_sessions_material_summary, lecture_sessions_materials.lecture_sessions_material_lecture_session_id, lecture_sessions_materials.lecture_sessions_material_masjid_id, lecture_sessions_materials.lecture_sessions_material_created_at")
-	case "transcript":
-		query = query.Select("lecture_sessions_materials.lecture_sessions_material_id,lecture_sessions_materials.lecture_sessions_material_transcript_full, lecture_sessions_materials.lecture_sessions_material_lecture_session_id, lecture_sessions_materials.lecture_sessions_material_masjid_id, lecture_sessions_materials.lecture_sessions_material_created_at")
-	}
-
-	// Eksekusi query
-	if err := query.Debug().Find(&materials).Error; err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"message": "failed to retrieve data",
-			"error":   err.Error(),
-		})
-	}
-
-	fmt.Printf("✅ Found %d materials\n", len(materials))
-
-	// Mapping ke DTO
-	var result []dto.LectureSessionsMaterialDTO
-	for _, m := range materials {
-		result = append(result, dto.ToLectureSessionsMaterialDTO(m))
-	}
-
-	return c.JSON(fiber.Map{
-		"message": "success",
-		"data":    result,
-	})
-}
 
 
 

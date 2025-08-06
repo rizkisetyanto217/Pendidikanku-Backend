@@ -22,6 +22,7 @@ func LectureSessionsAssetAdminRoutes(admin fiber.Router, db *gorm.DB) {
 
 	asset.Delete("/:id", assetCtrl.DeleteLectureSessionsAsset) // ❌ Hapus asset
 
+	
 	// 📚 Group: /lecture-sessions-materials
 	material := admin.Group("/lecture-sessions-materials")
 
