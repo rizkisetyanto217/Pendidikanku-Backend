@@ -38,5 +38,6 @@ func AllLectureSessionRoutes(user fiber.Router, db *gorm.DB) {
 	userAttendance := user.Group("/user-lecture-sessions-attendance")
 	userAttendance.Post("/", userAttendanceCtrl.CreateOrUpdate)
 	userAttendance.Get("/:lecture_session_id", userAttendanceCtrl.GetByLectureSession)
+	userAttendance.Get("/:lecture_session_slug/by-slug", userAttendanceCtrl.GetByLectureSessionSlug)
 	userAttendance.Delete("/:id", userAttendanceCtrl.Delete)
 }

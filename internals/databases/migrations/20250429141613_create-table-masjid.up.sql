@@ -13,6 +13,10 @@ CREATE TABLE IF NOT EXISTS masjids (
     masjid_instagram_url TEXT,
     masjid_whatsapp_url TEXT,
     masjid_youtube_url TEXT,
+    masjid_facebook_url TEXT, -- ✅ Tambahan Facebook
+    masjid_tiktok_url TEXT, -- ✅ Tambahan TikTok
+    masjid_whatsapp_group_ikhwan_url TEXT, -- ✅ Tambahan Grup Ikhwan
+    masjid_whatsapp_group_akhwat_url TEXT, -- ✅ Tambahan Grup Akhwat
     masjid_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     masjid_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     masjid_deleted_at TIMESTAMP

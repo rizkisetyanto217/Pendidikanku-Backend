@@ -143,6 +143,43 @@ func (ctrl *UserLectureSessionsAttendanceController) GetByLectureSession(c *fibe
 }
 
 
+// ✅ Get attendance by session slug & user
+func (ctrl *UserLectureSessionsAttendanceController) GetByLectureSessionSlug(c *fiber.Ctx) error {
+	userIDStr, ok := c.Locals("user_id").(string)
+	if !ok || userIDStr == "" {
+		return c.Status(401).JSON(fiber.Map{"error": "user_id tidak ditemukan di token"})
+	}
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": "user_id tidak valid"})
+	}
+
+	slug := c.Params("lecture_session_slug")
+	if slug == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "lecture_session_slug tidak boleh kosong"})
+	}
+
+	// 🔍 Cari lecture_session berdasarkan slug
+	var session model.LectureSessionModel
+	err = ctrl.DB.Where("lecture_session_slug = ?", slug).First(&session).Error
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Sesi kajian dengan slug tersebut tidak ditemukan"})
+	}
+
+	// 🔍 Cari data kehadiran user terhadap sesi kajian
+	var data model.UserLectureSessionsAttendanceModel
+	err = ctrl.DB.Where(
+		"user_lecture_sessions_attendance_user_id = ? AND user_lecture_sessions_attendance_lecture_session_id = ?",
+		userID, session.LectureSessionID,
+	).First(&data).Error
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Data kehadiran tidak ditemukan"})
+	}
+
+	return c.JSON(dto.FromModelUserLectureSessionsAttendance(&data))
+}
+
+
 // ✅ Delete attendance (optional)
 func (ctrl *UserLectureSessionsAttendanceController) Delete(c *fiber.Ctx) error {
 	id := c.Params("id")

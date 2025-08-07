@@ -8,23 +8,27 @@ import (
 )
 
 type MasjidModel struct {
-	MasjidID           uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"masjid_id"`
-	MasjidName         string         `gorm:"type:varchar(100);not null" json:"masjid_name"`
-	MasjidBioShort     string         `gorm:"type:text" json:"masjid_bio_short"`
-	MasjidLocation     string         `gorm:"type:text" json:"masjid_location"`
-	MasjidDomain *string `gorm:"type:varchar(50);uniqueIndex:masjids_masjid_domain_unique_idx" json:"masjid_domain"`
-	MasjidLatitude     float64        `gorm:"type:decimal(9,6)" json:"masjid_latitude"`
-	MasjidLongitude    float64        `gorm:"type:decimal(9,6)" json:"masjid_longitude"`
-	MasjidGoogleMapsURL string 		  `gorm:"type:text" json:"masjid_google_maps_url"`
-	MasjidImageURL     string         `gorm:"type:text" json:"masjid_image_url"`
-	MasjidSlug         string         `gorm:"type:varchar(100);uniqueIndex;not null" json:"masjid_slug"`
-	MasjidIsVerified   bool           `gorm:"default:false" json:"masjid_is_verified"`
-	MasjidInstagramURL string         `gorm:"type:text" json:"masjid_instagram_url"`
-	MasjidWhatsappURL  string         `gorm:"type:text" json:"masjid_whatsapp_url"`
-	MasjidYoutubeURL   string         `gorm:"type:text" json:"masjid_youtube_url"`
-	MasjidCreatedAt    time.Time      `gorm:"autoCreateTime" json:"masjid_created_at"`
-	MasjidUpdatedAt    time.Time      `gorm:"autoUpdateTime" json:"masjid_updated_at"`
-	MasjidDeletedAt    gorm.DeletedAt `gorm:"column:masjid_deleted_at" json:"masjid_deleted_at,omitempty"`
+	MasjidID                    uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"masjid_id"`
+	MasjidName                  string         `gorm:"type:varchar(100);not null" json:"masjid_name"`
+	MasjidBioShort              string         `gorm:"type:text" json:"masjid_bio_short"`
+	MasjidLocation              string         `gorm:"type:text" json:"masjid_location"`
+	MasjidDomain                *string        `gorm:"type:varchar(50);uniqueIndex:masjids_masjid_domain_unique_idx" json:"masjid_domain"`
+	MasjidLatitude              float64        `gorm:"type:decimal(9,6)" json:"masjid_latitude"`
+	MasjidLongitude             float64        `gorm:"type:decimal(9,6)" json:"masjid_longitude"`
+	MasjidGoogleMapsURL         string         `gorm:"type:text" json:"masjid_google_maps_url"`
+	MasjidImageURL              string         `gorm:"type:text" json:"masjid_image_url"`
+	MasjidSlug                  string         `gorm:"type:varchar(100);uniqueIndex;not null" json:"masjid_slug"`
+	MasjidIsVerified            bool           `gorm:"default:false" json:"masjid_is_verified"`
+	MasjidInstagramURL          string         `gorm:"type:text" json:"masjid_instagram_url"`
+	MasjidWhatsappURL           string         `gorm:"type:text" json:"masjid_whatsapp_url"`
+	MasjidWhatsappGroupIkhwanURL string        `gorm:"type:text" json:"masjid_whatsapp_group_ikhwan_url"`
+	MasjidWhatsappGroupAkhwatURL string        `gorm:"type:text" json:"masjid_whatsapp_group_akhwat_url"`
+	MasjidYoutubeURL            string         `gorm:"type:text" json:"masjid_youtube_url"`
+	MasjidFacebookURL           string         `gorm:"type:text" json:"masjid_facebook_url"`
+	MasjidTiktokURL             string         `gorm:"type:text" json:"masjid_tiktok_url"`
+	MasjidCreatedAt             time.Time      `gorm:"autoCreateTime" json:"masjid_created_at"`
+	MasjidUpdatedAt             time.Time      `gorm:"autoUpdateTime" json:"masjid_updated_at"`
+	MasjidDeletedAt             gorm.DeletedAt `gorm:"column:masjid_deleted_at" json:"masjid_deleted_at,omitempty"`
 }
 
 func (MasjidModel) TableName() string {

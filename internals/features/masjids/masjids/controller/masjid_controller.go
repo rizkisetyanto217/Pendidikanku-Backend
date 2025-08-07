@@ -139,8 +139,6 @@ func (mc *MasjidController) GetMasjidBySlug(c *fiber.Ctx) error {
 func (mc *MasjidController) CreateMasjid(c *fiber.Ctx) error {
 	log.Println("[INFO] Received request to create masjid")
 
-	
-	// ✅ Jika multipart/form-data untuk single insert dengan gambar
 	if strings.Contains(c.Get("Content-Type"), "multipart/form-data") {
 		name := c.FormValue("masjid_name")
 		bio := c.FormValue("masjid_bio_short")
@@ -150,9 +148,15 @@ func (mc *MasjidController) CreateMasjid(c *fiber.Ctx) error {
 		gmapsURL := c.FormValue("masjid_google_maps_url")
 		lat, _ := strconv.ParseFloat(c.FormValue("masjid_latitude"), 64)
 		long, _ := strconv.ParseFloat(c.FormValue("masjid_longitude"), 64)
+
+		// 🔗 Sosial Media
 		ig := c.FormValue("masjid_instagram_url")
 		wa := c.FormValue("masjid_whatsapp_url")
 		yt := c.FormValue("masjid_youtube_url")
+		fb := c.FormValue("masjid_facebook_url")
+		tiktok := c.FormValue("masjid_tiktok_url")
+		waIkhwan := c.FormValue("masjid_whatsapp_group_ikhwan_url")
+		waAkhwat := c.FormValue("masjid_whatsapp_group_akhwat_url")
 
 		if name == "" || slug == "" {
 			return c.Status(400).JSON(fiber.Map{
@@ -165,9 +169,7 @@ func (mc *MasjidController) CreateMasjid(c *fiber.Ctx) error {
 		file, err := c.FormFile("masjid_image_url")
 		if err != nil {
 			log.Printf("[DEBUG] Tidak ada file masjid_image_url: %v", err)
-		} else if file == nil {
-			log.Printf("[DEBUG] FormFile masjid_image_url ada tapi nil")
-		} else {
+		} else if file != nil {
 			log.Printf("[DEBUG] File masjid_image_url ditemukan: %s (%d bytes)", file.Filename, file.Size)
 
 			url, err := helper.UploadImageToSupabase("masjids", file)
@@ -180,29 +182,31 @@ func (mc *MasjidController) CreateMasjid(c *fiber.Ctx) error {
 			imageURL = url
 		}
 
-
 		var domainPtr *string
 		if domain != "" {
 			domainPtr = &domain
 		}
 
 		newMasjid := model.MasjidModel{
-			MasjidID:            uuid.New(),
-			MasjidName:          name,
-			MasjidBioShort:      bio,
-			MasjidLocation:      location,
-			MasjidDomain:        domainPtr, 
-			MasjidSlug:          slug,
-			MasjidLatitude:      lat,
-			MasjidLongitude:     long,
-			MasjidGoogleMapsURL: gmapsURL,
-			MasjidImageURL:      imageURL,
-			MasjidInstagramURL:  ig,
-			MasjidWhatsappURL:   wa,
-			MasjidYoutubeURL:    yt,
-			MasjidIsVerified:    false,
+			MasjidID:                     uuid.New(),
+			MasjidName:                   name,
+			MasjidBioShort:               bio,
+			MasjidLocation:               location,
+			MasjidDomain:                 domainPtr,
+			MasjidSlug:                   slug,
+			MasjidLatitude:               lat,
+			MasjidLongitude:              long,
+			MasjidGoogleMapsURL:          gmapsURL,
+			MasjidImageURL:               imageURL,
+			MasjidInstagramURL:           ig,
+			MasjidWhatsappURL:            wa,
+			MasjidYoutubeURL:             yt,
+			MasjidFacebookURL:            fb,
+			MasjidTiktokURL:              tiktok,
+			MasjidWhatsappGroupIkhwanURL: waIkhwan,
+			MasjidWhatsappGroupAkhwatURL: waAkhwat,
+			MasjidIsVerified:             false,
 		}
-
 
 		if err := mc.DB.Create(&newMasjid).Error; err != nil {
 			log.Printf("[ERROR] Failed to create masjid: %v\n", err)
@@ -219,7 +223,7 @@ func (mc *MasjidController) CreateMasjid(c *fiber.Ctx) error {
 		})
 	}
 
-	// 🌀 Jika bukan multipart, anggap batch insert JSON biasa
+	// 🌀 Jika batch insert JSON
 	var singleReq dto.MasjidRequest
 	var multipleReq []dto.MasjidRequest
 
@@ -245,7 +249,7 @@ func (mc *MasjidController) CreateMasjid(c *fiber.Ctx) error {
 		})
 	}
 
-	// Jika single JSON
+	// 🧍 Jika single JSON
 	if err := c.BodyParser(&singleReq); err != nil {
 		log.Printf("[ERROR] Invalid single input: %v", err)
 		return c.Status(400).JSON(fiber.Map{
@@ -285,8 +289,8 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 			"error": "Format ID tidak valid",
 		})
 	}
-	
-	// 🔍 Ambil entri lama
+
+	// 🔍 Ambil data lama
 	var existing model.MasjidModel
 	if err := mc.DB.First(&existing, "masjid_id = ?", masjidUUID).Error; err != nil {
 		log.Printf("[ERROR] Masjid with ID %s not found\n", id)
@@ -295,70 +299,126 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 		})
 	}
 
-	// ✅ Update field jika dikirim (FormValue)
-	if val := c.FormValue("masjid_name"); val != "" {
-		existing.MasjidName = val
-	}
-	if val := c.FormValue("masjid_bio_short"); val != "" {
-		existing.MasjidBioShort = val
-	}
-	if val := c.FormValue("masjid_location"); val != "" {
-		existing.MasjidLocation = val
-	}
-	if val := c.FormValue("masjid_slug"); val != "" {
-		existing.MasjidSlug = val
-	}
-	if val := c.FormValue("masjid_google_maps_url"); val != "" {
-		existing.MasjidGoogleMapsURL = val
-	}
-	if val := c.FormValue("masjid_instagram_url"); val != "" {
-		existing.MasjidInstagramURL = val
-	}
-	if val := c.FormValue("masjid_whatsapp_url"); val != "" {
-		existing.MasjidWhatsappURL = val
-	}
-	if val := c.FormValue("masjid_youtube_url"); val != "" {
-		existing.MasjidYoutubeURL = val
-	}
-	if val := c.FormValue("masjid_latitude"); val != "" {
-		if lat, err := strconv.ParseFloat(val, 64); err == nil {
-			existing.MasjidLatitude = lat
-		}
-	}
-	if val := c.FormValue("masjid_longitude"); val != "" {
-		if lng, err := strconv.ParseFloat(val, 64); err == nil {
-			existing.MasjidLongitude = lng
-		}
-	}
+	contentType := c.Get("Content-Type")
 
-	// 🖼️ Ganti gambar jika ada upload baru
-	if file, err := c.FormFile("masjid_image_url"); err == nil && file != nil {
-		// 🔁 Hapus gambar lama dari Supabase jika ada
-		if existing.MasjidImageURL != "" {
-			parsed, err := url.Parse(existing.MasjidImageURL)
-			if err == nil {
-				rawPath := parsed.Path // /storage/v1/object/public/image/masjids%2Fxxx.png
-				prefix := "/storage/v1/object/public/"
-				cleaned := strings.TrimPrefix(rawPath, prefix)
-				if unescaped, err := url.QueryUnescape(cleaned); err == nil {
-					parts := strings.SplitN(unescaped, "/", 2)
-					if len(parts) == 2 {
-						bucket := parts[0]
-						objectPath := parts[1]
-						_ = helper.DeleteFromSupabase(bucket, objectPath)
-					}
-				}
+	// ✅ Update via multipart/form-data
+	if strings.Contains(contentType, "multipart/form-data") {
+		// Field text
+		if val := c.FormValue("masjid_name"); val != "" {
+			existing.MasjidName = val
+		}
+		if val := c.FormValue("masjid_bio_short"); val != "" {
+			existing.MasjidBioShort = val
+		}
+		if val := c.FormValue("masjid_location"); val != "" {
+			existing.MasjidLocation = val
+		}
+		if val := c.FormValue("masjid_slug"); val != "" {
+			existing.MasjidSlug = val
+		}
+		if val := c.FormValue("masjid_google_maps_url"); val != "" {
+			existing.MasjidGoogleMapsURL = val
+		}
+		if val := c.FormValue("masjid_instagram_url"); val != "" {
+			existing.MasjidInstagramURL = val
+		}
+		if val := c.FormValue("masjid_whatsapp_url"); val != "" {
+			existing.MasjidWhatsappURL = val
+		}
+		if val := c.FormValue("masjid_youtube_url"); val != "" {
+			existing.MasjidYoutubeURL = val
+		}
+		if val := c.FormValue("masjid_domain"); val != "" {
+			domain := strings.TrimSpace(val)
+			existing.MasjidDomain = &domain
+		}
+
+		// Koordinat
+		if val := c.FormValue("masjid_latitude"); val != "" {
+			if lat, err := strconv.ParseFloat(val, 64); err == nil {
+				existing.MasjidLatitude = lat
+			}
+		}
+		if val := c.FormValue("masjid_longitude"); val != "" {
+			if lng, err := strconv.ParseFloat(val, 64); err == nil {
+				existing.MasjidLongitude = lng
 			}
 		}
 
-		// ⬆️ Upload gambar baru
-		newURL, err := helper.UploadImageToSupabase("masjids", file)
-		if err != nil {
-			return c.Status(500).JSON(fiber.Map{
-				"error": "Gagal upload gambar baru",
+		// Upload gambar baru jika ada
+		if file, err := c.FormFile("masjid_image_url"); err == nil && file != nil {
+			// Hapus gambar lama dari Supabase
+			if existing.MasjidImageURL != "" {
+				parsed, err := url.Parse(existing.MasjidImageURL)
+				if err == nil {
+					rawPath := parsed.Path
+					prefix := "/storage/v1/object/public/"
+					cleaned := strings.TrimPrefix(rawPath, prefix)
+					if unescaped, err := url.QueryUnescape(cleaned); err == nil {
+						parts := strings.SplitN(unescaped, "/", 2)
+						if len(parts) == 2 {
+							bucket := parts[0]
+							objectPath := parts[1]
+							_ = helper.DeleteFromSupabase(bucket, objectPath)
+						}
+					}
+				}
+			}
+
+			// Upload baru
+			newURL, err := helper.UploadImageToSupabase("masjids", file)
+			if err != nil {
+				return c.Status(500).JSON(fiber.Map{
+					"error": "Gagal upload gambar baru",
+				})
+			}
+			existing.MasjidImageURL = newURL
+		}
+
+	} else {
+		// ✅ Update via JSON (application/json)
+		var input dto.MasjidRequest
+		if err := c.BodyParser(&input); err != nil {
+			log.Printf("[ERROR] Invalid JSON input: %v\n", err)
+			return c.Status(400).JSON(fiber.Map{
+				"error": "Format JSON tidak valid",
 			})
 		}
-		existing.MasjidImageURL = newURL
+
+		if input.MasjidName != "" {
+			existing.MasjidName = input.MasjidName
+		}
+		if input.MasjidBioShort != "" {
+			existing.MasjidBioShort = input.MasjidBioShort
+		}
+		if input.MasjidLocation != "" {
+			existing.MasjidLocation = input.MasjidLocation
+		}
+		if input.MasjidSlug != "" {
+			existing.MasjidSlug = input.MasjidSlug
+		}
+		if input.MasjidGoogleMapsURL != "" {
+			existing.MasjidGoogleMapsURL = input.MasjidGoogleMapsURL
+		}
+		if input.MasjidInstagramURL != "" {
+			existing.MasjidInstagramURL = input.MasjidInstagramURL
+		}
+		if input.MasjidWhatsappURL != "" {
+			existing.MasjidWhatsappURL = input.MasjidWhatsappURL
+		}
+		if input.MasjidYoutubeURL != "" {
+			existing.MasjidYoutubeURL = input.MasjidYoutubeURL
+		}
+		if strings.TrimSpace(input.MasjidDomain) != "" {
+			domain := strings.TrimSpace(input.MasjidDomain)
+			existing.MasjidDomain = &domain
+		}
+		if input.MasjidLatitude != 0 {
+			existing.MasjidLatitude = input.MasjidLatitude
+		}
+		if input.MasjidLongitude != 0 {
+			existing.MasjidLongitude = input.MasjidLongitude
+		}
 	}
 
 	// 💾 Simpan ke DB
@@ -370,7 +430,6 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 	}
 
 	log.Printf("[SUCCESS] Masjid updated: %s\n", existing.MasjidName)
-
 	return c.JSON(fiber.Map{
 		"message": "Masjid berhasil diperbarui",
 		"data":    dto.FromModelMasjid(&existing),
