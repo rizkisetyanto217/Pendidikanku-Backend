@@ -78,6 +78,7 @@ func (ctrl *LectureSessionController) GetLectureSessionBySlug(c *fiber.Ctx) erro
 
 	var result JoinedResult
 
+	// Base query
 	query := ctrl.DB.
 		Model(&model.LectureSessionModel{}).
 		Select(`
@@ -88,17 +89,25 @@ func (ctrl *LectureSessionController) GetLectureSessionBySlug(c *fiber.Ctx) erro
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
 		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id")
 
+	// ✅ Jika user login, join ke subquery user_lecture_sessions terbaru
 	if userID != "" {
-		log.Println("[INFO] Menambahkan join ke user_lecture_sessions")
+		log.Println("[INFO] Menambahkan subquery join ke user_lecture_sessions (latest attempt)")
 		query = query.Select(`
 			lecture_sessions.*, 
 			lectures.lecture_title, 
 			users.user_name,
-			user_lecture_sessions.user_lecture_session_grade_result AS user_grade_result
+			uls.user_grade_result
 		`).Joins(`
-			LEFT JOIN user_lecture_sessions 
-			ON user_lecture_sessions.user_lecture_session_lecture_session_id = lecture_sessions.lecture_session_id 
-			AND user_lecture_sessions.user_lecture_session_user_id = ?
+			LEFT JOIN (
+				SELECT 
+					user_lecture_session_lecture_session_id, 
+					user_lecture_session_grade_result AS user_grade_result
+				FROM user_lecture_sessions
+				WHERE user_lecture_session_user_id = ?
+				ORDER BY user_lecture_session_created_at DESC
+				LIMIT 1
+			) AS uls
+			ON uls.user_lecture_session_lecture_session_id = lecture_sessions.lecture_session_id
 		`, userID)
 	}
 
@@ -127,6 +136,7 @@ func (ctrl *LectureSessionController) GetLectureSessionBySlug(c *fiber.Ctx) erro
 
 	return c.JSON(dtoItem)
 }
+
 
 
 

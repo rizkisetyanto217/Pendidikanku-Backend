@@ -71,7 +71,7 @@ func (ctrl *UserLectureSessionsQuizController) CreateUserLectureSessionsQuiz(c *
 			if err := ctrl.DB.Save(&existing).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Failed to update quiz result")
 			}
-			_ = ctrl.RecalculateLectureSessionsGradeBySlug(userID, session.ID, session.MasjidID)
+			_ = ctrl.RecalculateLectureSessionsGradeByID(userID, session.ID, session.MasjidID)
 			return c.Status(fiber.StatusOK).JSON(dto.ToUserLectureSessionsQuizDTO(existing))
 		}
 	}
@@ -91,7 +91,7 @@ func (ctrl *UserLectureSessionsQuizController) CreateUserLectureSessionsQuiz(c *
 	}
 
 	if !isAnonymous {
-		_ = ctrl.RecalculateLectureSessionsGradeBySlug(userID, session.ID, session.MasjidID)
+		_ = ctrl.RecalculateLectureSessionsGradeByID(userID, session.ID, session.MasjidID)
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(dto.ToUserLectureSessionsQuizDTO(newData))
@@ -99,18 +99,17 @@ func (ctrl *UserLectureSessionsQuizController) CreateUserLectureSessionsQuiz(c *
 
 
 
-func (ctrl *UserLectureSessionsQuizController) RecalculateLectureSessionsGradeBySlug(userID, lectureSessionSlug, masjidID string) error {
-	// ✅ Ambil lecture_session_id & lecture_id dari slug
+func (ctrl *UserLectureSessionsQuizController) RecalculateLectureSessionsGradeByID(userID, lectureSessionID, masjidID string) error {
+	// ✅ Ambil lecture_id dari ID
 	var session struct {
-		ID        string
 		LectureID string
 	}
 	if err := ctrl.DB.
 		Table("lecture_sessions").
-		Select("lecture_session_id AS id, lecture_session_lecture_id AS lecture_id").
-		Where("lecture_session_slug = ?", lectureSessionSlug).
-		Scan(&session).Error; err != nil || session.ID == "" || session.LectureID == "" {
-		return fmt.Errorf("failed to find session by slug: %w", err)
+		Select("lecture_session_lecture_id AS lecture_id").
+		Where("lecture_session_id = ?", lectureSessionID).
+		Scan(&session).Error; err != nil || session.LectureID == "" {
+		return fmt.Errorf("failed to find session by ID: %w", err)
 	}
 
 	// ✅ Hitung rata-rata nilai quiz user di sesi
@@ -118,22 +117,21 @@ func (ctrl *UserLectureSessionsQuizController) RecalculateLectureSessionsGradeBy
 	if err := ctrl.DB.
 		Table("user_lecture_sessions_quiz").
 		Select("AVG(user_lecture_sessions_quiz_grade_result)").
-		Where("user_lecture_sessions_quiz_user_id = ? AND user_lecture_sessions_quiz_lecture_session_id = ?", userID, session.ID).
+		Where("user_lecture_sessions_quiz_user_id = ? AND user_lecture_sessions_quiz_lecture_session_id = ?", userID, lectureSessionID).
 		Scan(&avg).Error; err != nil {
 		return fmt.Errorf("failed to calculate quiz average: %w", err)
 	}
 
-	// ✅ Cek apakah user_lecture_session sudah ada
+	// ✅ Update atau insert ke user_lecture_sessions
 	var existing modelUserLectureSession.UserLectureSessionModel
 	err := ctrl.DB.
-		Where("user_lecture_session_user_id = ? AND user_lecture_session_lecture_session_id = ?", userID, session.ID).
+		Where("user_lecture_session_user_id = ? AND user_lecture_session_lecture_session_id = ?", userID, lectureSessionID).
 		First(&existing).Error
 
 	if err != nil {
-		// ❗ Belum ada → insert baru
 		newData := modelUserLectureSession.UserLectureSessionModel{
 			UserLectureSessionUserID:           userID,
-			UserLectureSessionLectureSessionID: session.ID,
+			UserLectureSessionLectureSessionID: lectureSessionID,
 			UserLectureSessionLectureID:        session.LectureID,
 			UserLectureSessionMasjidID:         masjidID,
 			UserLectureSessionGradeResult:      &avg,
@@ -142,7 +140,6 @@ func (ctrl *UserLectureSessionsQuizController) RecalculateLectureSessionsGradeBy
 			return fmt.Errorf("failed to create user_lecture_session: %w", err)
 		}
 	} else {
-		// ✅ Update nilai saja
 		if err := ctrl.DB.
 			Model(&existing).
 			Update("user_lecture_session_grade_result", avg).
@@ -151,31 +148,20 @@ func (ctrl *UserLectureSessionsQuizController) RecalculateLectureSessionsGradeBy
 		}
 	}
 
-	// ✅ Update progres user ke tabel user_lectures
-	return ctrl.UpdateUserLectureProgressBySlug(userID, session.LectureID, masjidID)
+	// ✅ Lanjut ke progres
+	return ctrl.UpdateUserLectureProgressByID(userID, session.LectureID, masjidID)
 }
 
 
-func (ctrl *UserLectureSessionsQuizController) UpdateUserLectureProgressBySlug(userID, lectureSlug, masjidID string) error {
-	// ✅ Cari lecture_id dari slug
-	var lecture struct {
-		ID string
-	}
-	if err := ctrl.DB.
-		Table("lectures").
-		Select("lecture_id AS id").
-		Where("lecture_slug = ?", lectureSlug).
-		Scan(&lecture).Error; err != nil || lecture.ID == "" {
-		return fmt.Errorf("failed to find lecture by slug: %w", err)
-	}
 
+func (ctrl *UserLectureSessionsQuizController) UpdateUserLectureProgressByID(userID, lectureID, masjidID string) error {
 	// ✅ Hitung rata-rata nilai semua sesi user di satu lecture
 	var avg float64
 	err := ctrl.DB.
 		Table("user_lecture_sessions").
 		Select("AVG(user_lecture_session_grade_result)").
 		Joins("JOIN lecture_sessions ON user_lecture_session_lecture_session_id = lecture_sessions.lecture_session_id").
-		Where("user_lecture_session_user_id = ? AND lecture_sessions.lecture_session_lecture_id = ?", userID, lecture.ID).
+		Where("user_lecture_session_user_id = ? AND lecture_sessions.lecture_session_lecture_id = ?", userID, lectureID).
 		Scan(&avg).Error
 	if err != nil {
 		return fmt.Errorf("failed to calculate lecture avg: %w", err)
@@ -186,7 +172,7 @@ func (ctrl *UserLectureSessionsQuizController) UpdateUserLectureProgressBySlug(u
 	err = ctrl.DB.
 		Table("user_lecture_sessions").
 		Joins("JOIN lecture_sessions ON user_lecture_session_lecture_session_id = lecture_sessions.lecture_session_id").
-		Where("user_lecture_session_user_id = ? AND lecture_sessions.lecture_session_lecture_id = ? AND user_lecture_session_grade_result IS NOT NULL", userID, lecture.ID).
+		Where("user_lecture_session_user_id = ? AND lecture_sessions.lecture_session_lecture_id = ? AND user_lecture_session_grade_result IS NOT NULL", userID, lectureID).
 		Count(&count).Error
 	if err != nil {
 		return fmt.Errorf("failed to count completed sessions: %w", err)
@@ -195,14 +181,14 @@ func (ctrl *UserLectureSessionsQuizController) UpdateUserLectureProgressBySlug(u
 	// ✅ Cek apakah user_lecture sudah ada
 	var existing modelLecture.UserLectureModel
 	err = ctrl.DB.
-		Where("user_lecture_user_id = ? AND user_lecture_lecture_id = ?", userID, lecture.ID).
+		Where("user_lecture_user_id = ? AND user_lecture_lecture_id = ?", userID, lectureID).
 		First(&existing).Error
 
 	if err != nil {
 		// ❗ Insert baru jika belum ada
 		newData := modelLecture.UserLectureModel{
 			UserLectureUserID:                 uuid.MustParse(userID),
-			UserLectureLectureID:              uuid.MustParse(lecture.ID),
+			UserLectureLectureID:              uuid.MustParse(lectureID),
 			UserLectureMasjidID:               uuid.MustParse(masjidID),
 			UserLectureGradeResult:            intPtr(int(avg)),
 			UserLectureTotalCompletedSessions: int(count),
@@ -218,6 +204,7 @@ func (ctrl *UserLectureSessionsQuizController) UpdateUserLectureProgressBySlug(u
 			"user_lecture_total_completed_sessions": int(count),
 		}).Error
 }
+
 
 func intPtr(v int) *int {
 	return &v
