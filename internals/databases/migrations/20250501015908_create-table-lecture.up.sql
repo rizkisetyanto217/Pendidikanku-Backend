@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS lectures (
 
   -- 📌 Status aktif
   lecture_is_active BOOLEAN DEFAULT TRUE,
-  lecture_is_certificate_generated BOOLEAN DEFAULT FALSE
+  lecture_is_certificate_generated BOOLEAN DEFAULT FALSE,
 
   lecture_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   lecture_updated_at TIMESTAMP,

@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS user_lecture_exams (
   user_lecture_exam_grade_result FLOAT,
   user_lecture_exam_exam_id UUID REFERENCES lecture_exams(lecture_exam_id) ON DELETE CASCADE,
   user_lecture_exam_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  user_lecture_exam_user_name VARCHAR(100);
+  user_lecture_exam_user_name VARCHAR(100),
   user_lecture_exam_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   user_lecture_exam_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
