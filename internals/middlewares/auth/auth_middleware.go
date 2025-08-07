@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
+
 func AuthMiddleware(db *gorm.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		log.Println("🔥 AuthMiddleware triggered at:", c.Path())

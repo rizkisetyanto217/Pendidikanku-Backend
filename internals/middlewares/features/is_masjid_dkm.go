@@ -15,6 +15,7 @@ func IsMasjidAdmin() fiber.Handler {
 		// ✅ Owner bypass
 		if role, ok := c.Locals("userRole").(string); ok && role == "owner" {
 			log.Println("[MIDDLEWARE] Bypass: user is owner")
+			c.Locals("role", role) // <== penting
 			return c.Next()
 		}
 
@@ -25,17 +26,19 @@ func IsMasjidAdmin() fiber.Handler {
 			return fiber.NewError(fiber.StatusUnauthorized, "Token tidak valid atau tidak memiliki akses masjid")
 		}
 
+		// ✅ Inject masjid_id
 		masjidID := adminMasjids[0]
-		log.Println("[MIDDLEWARE] Akses DIIJINKAN, masjid_id:", masjidID)
-
-		// ✅ Inject ke context biar bisa dipakai controller
 		c.Locals("masjid_id", masjidID)
+
+		// ✅ Inject role dari token
+		if role, ok := c.Locals("userRole").(string); ok {
+			c.Locals("role", role)
+		}
+
+		log.Println("[MIDDLEWARE] Akses DIIJINKAN, masjid_id:", masjidID)
 		return c.Next()
 	}
 }
-
-
-
 
 // package middleware
 

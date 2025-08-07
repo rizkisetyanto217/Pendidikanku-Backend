@@ -22,7 +22,9 @@ func LectureSessionAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	admin.Delete("/lecture-sessions/:id", masjidkuMiddleware.IsMasjidAdmin(), lectureSessionCtrl.DeleteLectureSession)
 
 	// ✅ Role-based approve (tanpa middleware IsMasjidAdmin)db
-	admin.Patch("/lecture-sessions/:id/approve", lectureSessionCtrl.ApproveLectureSession)
+	admin.Put("/lecture-sessions/:id/approve", masjidkuMiddleware.IsMasjidAdmin(), lectureSessionCtrl.ApproveLectureSession)
+	admin.Patch("/lecture-sessions/:id/approve-dkm", masjidkuMiddleware.IsMasjidAdmin(), lectureSessionCtrl.ApproveLectureSessionByDKM)
+
 
 	// 👥 Group: /user-lecture-sessions
 	admin.Get("/user-lecture-sessions", masjidkuMiddleware.IsMasjidAdmin(), userLectureSessionCtrl.GetAllUserLectureSessions)

@@ -484,52 +484,109 @@ func (ctrl *LectureSessionController) UpdateLectureSession(c *fiber.Ctx) error {
 }
 
 
-
-func (ctrl *LectureSessionController) ApproveLectureSession(c *fiber.Ctx) error {
+func (ctrl *LectureSessionController) ApproveLectureSessionByDKM(c *fiber.Ctx) error {
+	// 🔎 Ambil dan validasi ID sesi dari URL
 	sessionID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
+		log.Printf("[ERROR] Invalid session ID: %s", c.Params("id"))
+		return fiber.NewError(fiber.StatusBadRequest, "ID sesi tidak valid")
+	}
+
+	// 🔐 Validasi role DKM
+	role, ok := c.Locals("role").(string)
+	if !ok || role != "dkm" {
+		log.Printf("[ERROR] Role bukan DKM: %#v", c.Locals("role"))
+		return fiber.NewError(fiber.StatusForbidden, "Hanya DKM yang dapat menyetujui sesi")
+	}
+
+	// 📦 Ambil data sesi
+	var session model.LectureSessionModel
+	if err := ctrl.DB.First(&session, "lecture_session_id = ?", sessionID).Error; err != nil {
+		log.Printf("[ERROR] Sesi tidak ditemukan: %s", sessionID)
+		return fiber.NewError(fiber.StatusNotFound, "Sesi tidak ditemukan")
+	}
+
+	// ⏱ Tandai approval by DKM
+	now := time.Now()
+	session.LectureSessionApprovedByDkmAt = &now
+
+	if err := ctrl.DB.Save(&session).Error; err != nil {
+		log.Printf("[ERROR] Gagal menyimpan approval DKM: %v", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan approval")
+	}
+
+	log.Printf("[SUCCESS] DKM menyetujui sesi %s", sessionID)
+	return c.JSON(dto.ToLectureSessionDTO(session))
+}
+
+
+
+func (ctrl *LectureSessionController) ApproveLectureSession(c *fiber.Ctx) error {
+	// 🔎 Ambil & validasi UUID sesi
+	sessionID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		log.Printf("[ERROR] Invalid session ID: %s", c.Params("id"))
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// Ambil role dan ID user dari context (misalnya dari JWT middleware)
-	role := c.Locals("role")       // role: admin / author / teacher
-	userID := c.Locals("user_id")  // UUID (pastikan sudah parse di middleware)
+	// 🔐 Ambil role dari JWT context
+	role, ok := c.Locals("role").(string)
+	if !ok || role == "" {
+		log.Printf("[ERROR] Role tidak valid: %#v", c.Locals("role"))
+		return fiber.NewError(fiber.StatusForbidden, "Role tidak valid")
+	}
 
-	userUUID, ok := userID.(uuid.UUID)
-	if !ok {
+	// 👤 Ambil user_id dari JWT context
+	userIDStr, ok := c.Locals("user_id").(string)
+	if !ok || userIDStr == "" {
+		log.Printf("[ERROR] User ID tidak valid: %#v", c.Locals("user_id"))
 		return fiber.NewError(fiber.StatusUnauthorized, "User tidak valid")
 	}
 
+	userUUID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		log.Printf("[ERROR] Gagal parsing UUID dari user_id: %s", userIDStr)
+		return fiber.NewError(fiber.StatusUnauthorized, "User tidak valid")
+	}
+
+	log.Printf("[INFO] User %s dengan role '%s' meng-approve sesi %s", userUUID, role, sessionID)
+
+	// 🗃 Ambil sesi kajian dari DB
 	var session model.LectureSessionModel
 	if err := ctrl.DB.First(&session, "lecture_session_id = ?", sessionID).Error; err != nil {
+		log.Printf("[ERROR] Sesi kajian tidak ditemukan: %s", sessionID)
 		return fiber.NewError(fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
 	}
 
+	// 🕒 Set approval berdasarkan role
 	now := time.Now()
-
 	switch role {
 	case "admin":
 		session.LectureSessionApprovedByAdminID = &userUUID
 		session.LectureSessionApprovedByAdminAt = &now
-
 	case "author":
 		session.LectureSessionApprovedByAuthorID = &userUUID
 		session.LectureSessionApprovedByAuthorAt = &now
-
 	case "teacher":
 		session.LectureSessionApprovedByTeacherID = &userUUID
 		session.LectureSessionApprovedByTeacherAt = &now
-
+	case "dkm":
+		session.LectureSessionApprovedByDkmAt = &now
 	default:
+		log.Printf("[ERROR] Role '%s' tidak memiliki hak approval", role)
 		return fiber.NewError(fiber.StatusForbidden, "Role tidak diizinkan untuk melakukan approval")
 	}
 
+	// 💾 Simpan ke DB
 	if err := ctrl.DB.Save(&session).Error; err != nil {
+		log.Printf("[ERROR] Gagal menyimpan approval: %v", err)
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan approval")
 	}
 
+	log.Println("[SUCCESS] Approval berhasil disimpan")
 	return c.JSON(dto.ToLectureSessionDTO(session))
 }
+
 
 
 // 🔴 DELETE /api/a/lecture-sessions/:id
