@@ -32,7 +32,7 @@ type UserLectureSessionsQuizDTO struct {
 type CreateUserLectureSessionsQuizRequest struct {
 	UserLectureSessionsQuizGrade            float64 `json:"user_lecture_sessions_quiz_grade_result" validate:"required"`
 	UserLectureSessionsQuizQuizID           string  `json:"user_lecture_sessions_quiz_quiz_id" validate:"required,uuid"`
-	UserLectureSessionsQuizLectureSessionID string  `json:"user_lecture_sessions_quiz_lecture_session_id" validate:"required,uuid"`
+	UserLectureSessionsQuizLectureSessionID string  `json:"user_lecture_sessions_quiz_lecture_session_id" validate:"omitempty,uuid"`
 	UserLectureSessionsQuizDurationSeconds  int     `json:"user_lecture_sessions_quiz_duration_seconds" validate:"required"`
 }
 
