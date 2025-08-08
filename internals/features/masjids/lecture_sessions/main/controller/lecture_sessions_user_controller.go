@@ -138,6 +138,70 @@ func (ctrl *LectureSessionController) GetLectureSessionBySlug(c *fiber.Ctx) erro
 }
 
 
+//  ======================================
+// 📥 GetLectureSessionsGroupedByMonth
+//  ======================================
+func (ctrl *LectureSessionController) GetLectureSessionsGroupedByMonth(c *fiber.Ctx) error {
+	slug := c.Params("slug")
+	if slug == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Slug masjid tidak ditemukan di URL")
+	}
+
+	// Ambil masjid_id dari slug
+	var masjid struct {
+		MasjidID uuid.UUID `gorm:"column:masjid_id"`
+	}
+	if err := ctrl.DB.
+		Table("masjids").
+		Select("masjid_id").
+		Where("masjid_slug = ?", slug).
+		Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
+		return fiber.NewError(fiber.StatusNotFound, "Masjid dengan slug tersebut tidak ditemukan")
+	}
+
+	// Struct hasil query
+	type MonthlyResult struct {
+		Month         string `gorm:"column:month"` // Format "2025-08"
+		model.LectureSessionModel
+		LectureTitle string  `gorm:"column:lecture_title"`
+		UserName     *string `gorm:"column:user_name"`
+	}
+
+	var results []MonthlyResult
+
+	if err := ctrl.DB.
+		Model(&model.LectureSessionModel{}).
+		Select(`
+			TO_CHAR(lecture_sessions.lecture_session_start_time, 'YYYY-MM') AS month,
+			lecture_sessions.*,
+			lectures.lecture_title,
+			users.user_name
+		`).
+		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
+		Where("lectures.lecture_masjid_id = ?", masjid.MasjidID).
+		Order("month DESC, lecture_sessions.lecture_session_start_time ASC").
+		Scan(&results).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil sesi kajian per bulan")
+	}
+
+	// Mapping hasil ke grup per bulan
+	grouped := make(map[string][]dto.LectureSessionDTO)
+	for _, r := range results {
+		dtoItem := dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
+		if dtoItem.LectureSessionTeacherName == "" && r.UserName != nil {
+			dtoItem.LectureSessionTeacherName = *r.UserName
+		}
+		grouped[r.Month] = append(grouped[r.Month], dtoItem)
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Berhasil mengambil sesi kajian dikelompokkan per bulan",
+		"data":    grouped,
+	})
+}
+
+
 
 
 
