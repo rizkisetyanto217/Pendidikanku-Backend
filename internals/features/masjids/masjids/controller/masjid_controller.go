@@ -333,6 +333,20 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 			existing.MasjidDomain = &domain
 		}
 
+		if val := c.FormValue("masjid_facebook_url"); val != "" {
+			existing.MasjidFacebookURL = val
+		}
+		if val := c.FormValue("masjid_tiktok_url"); val != "" {
+			existing.MasjidTiktokURL = val
+		}
+		if val := c.FormValue("masjid_whatsapp_group_ikhwan_url"); val != "" {
+			existing.MasjidWhatsappGroupIkhwanURL = val
+		}
+		if val := c.FormValue("masjid_whatsapp_group_akhwat_url"); val != "" {
+			existing.MasjidWhatsappGroupAkhwatURL = val
+		}
+
+
 		// Koordinat
 		if val := c.FormValue("masjid_latitude"); val != "" {
 			if lat, err := strconv.ParseFloat(val, 64); err == nil {
@@ -419,6 +433,19 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 		if input.MasjidLongitude != 0 {
 			existing.MasjidLongitude = input.MasjidLongitude
 		}
+		if input.MasjidFacebookURL != "" {
+			existing.MasjidFacebookURL = input.MasjidFacebookURL
+		}
+		if input.MasjidTiktokURL != "" {
+			existing.MasjidTiktokURL = input.MasjidTiktokURL
+		}
+		if input.MasjidWhatsappGroupIkhwanURL != "" {
+			existing.MasjidWhatsappGroupIkhwanURL = input.MasjidWhatsappGroupIkhwanURL
+		}
+		if input.MasjidWhatsappGroupAkhwatURL != "" {
+			existing.MasjidWhatsappGroupAkhwatURL = input.MasjidWhatsappGroupAkhwatURL
+		}
+
 	}
 
 	// 💾 Simpan ke DB
