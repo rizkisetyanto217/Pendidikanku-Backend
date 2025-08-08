@@ -41,26 +41,44 @@ func (ctrl *MasjidProfileTeacherDkmController) CreateProfile(c *fiber.Ctx) error
 	})
 }
 
-// ✅ Ambil semua profil pengajar/DKM berdasarkan masjid
-// Ambil semua profil pengajar/DKM berdasarkan masjid
-func (ctrl *MasjidProfileTeacherDkmController) GetProfilesByMasjid(c *fiber.Ctx) error {
-	var body dto.GetProfilesByMasjidRequest
-	if err := c.BodyParser(&body); err != nil {
+// ✅ Ambil profil pengajar/DKM berdasarkan ID
+func (ctrl *MasjidProfileTeacherDkmController) GetProfileByID(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Gagal parsing body",
+			"message": "Parameter ID wajib dikirim",
+		})
+	}
+
+	var profile model.MasjidProfileTeacherDkmModel
+	if err := ctrl.DB.
+		Where("masjid_profile_teacher_dkm_id = ?", id).
+		First(&profile).Error; err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"message": "Profil tidak ditemukan",
 			"error":   err.Error(),
 		})
 	}
 
-	if body.MasjidProfileTeacherDkmMasjidID == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "masjid_profile_teacher_dkm_masjid_id wajib dikirim",
-		})
+	return c.JSON(fiber.Map{
+		"message": "Berhasil mengambil profil",
+		"data":    dto.ToResponse(&profile),
+	})
+}
+
+
+// ✅ Ambil semua profil pengajar/DKM berdasarkan masjid (dari token)
+func (ctrl *MasjidProfileTeacherDkmController) GetProfilesByMasjid(c *fiber.Ctx) error {
+	// Ambil masjid_id dari token
+	masjidIDs, ok := c.Locals("masjid_admin_ids").([]string)
+	if !ok || len(masjidIDs) == 0 {
+		return fiber.NewError(fiber.StatusBadRequest, "Masjid ID tidak ditemukan di token")
 	}
+	masjidID := masjidIDs[0]
 
 	var profiles []model.MasjidProfileTeacherDkmModel
 	if err := ctrl.DB.
-		Where("masjid_profile_teacher_dkm_masjid_id = ?", body.MasjidProfileTeacherDkmMasjidID).
+		Where("masjid_profile_teacher_dkm_masjid_id = ?", masjidID).
 		Find(&profiles).Error; err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Gagal mengambil data profil",
@@ -68,7 +86,7 @@ func (ctrl *MasjidProfileTeacherDkmController) GetProfilesByMasjid(c *fiber.Ctx)
 		})
 	}
 
-	// Transform ke bentuk ringkas
+	// Transform ke response
 	var responses []dto.MasjidProfileTeacherDkmResponse
 	for _, p := range profiles {
 		responses = append(responses, dto.ToResponse(&p))
@@ -79,6 +97,7 @@ func (ctrl *MasjidProfileTeacherDkmController) GetProfilesByMasjid(c *fiber.Ctx)
 		"data":    responses,
 	})
 }
+
 
 // ✅ Update profil pengajar/DKM
 func (ctrl *MasjidProfileTeacherDkmController) UpdateProfile(c *fiber.Ctx) error {

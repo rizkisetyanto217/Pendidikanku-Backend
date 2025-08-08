@@ -6,7 +6,6 @@ CREATE TABLE IF NOT EXISTS lecture_sessions (
   lecture_session_description TEXT,
   lecture_session_slug VARCHAR(255) UNIQUE NOT NULL, -- ✅ Slug untuk URL
 
-
   -- 👤 Pengajar
   lecture_session_teacher_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   lecture_session_teacher_name VARCHAR(255),

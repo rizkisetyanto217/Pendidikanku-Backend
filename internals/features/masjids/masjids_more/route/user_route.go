@@ -11,7 +11,8 @@ func AllMasjidMoreRoutes(router fiber.Router, db *gorm.DB) {
 	// 🎓 Endpoint untuk melihat daftar profil teacher/DKM (tanpa create/update/delete)
 	ctrl := controller.NewMasjidProfileTeacherDkmController(db)
 	profile := router.Group("/masjid-profile-teacher-dkm")
-	profile.Post("/by-masjid", ctrl.GetProfilesByMasjid)
+	profile.Get("/", ctrl.GetProfilesByMasjid)
+	profile.Get("/:id", ctrl.GetProfileByID)
 
 	// 🏷️ Endpoint untuk melihat tag yang tersedia
 	ctrl2 := controller.NewMasjidTagController(db)
