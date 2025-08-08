@@ -257,6 +257,12 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMonth(c *fiber.Ctx) er
 		return fiber.NewError(fiber.StatusBadRequest, "Slug atau bulan tidak ditemukan di URL")
 	}
 
+	// Ambil user_id dari cookie atau header
+	userID := c.Cookies("user_id")
+	if userID == "" {
+		userID = c.Get("X-User-Id")
+	}
+
 	// Ambil masjid_id dari slug
 	var masjid struct {
 		MasjidID uuid.UUID `gorm:"column:masjid_id"`
@@ -269,35 +275,66 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMonth(c *fiber.Ctx) er
 		return fiber.NewError(fiber.StatusNotFound, "Masjid tidak ditemukan")
 	}
 
+	// Struct hasil query
 	type Result struct {
 		model.LectureSessionModel
-		LectureTitle string  `gorm:"column:lecture_title"`
-		UserName     *string `gorm:"column:user_name"`
+		LectureTitle     string   `gorm:"column:lecture_title"`
+		UserName         *string  `gorm:"column:user_name"`
+		UserGradeResult  *float64 `gorm:"column:user_grade_result"`
+		AttendanceStatus *int     `gorm:"column:attendance_status"`
 	}
 
-	var results []Result
+	// Select field
+	selectFields := []string{
+		"lecture_sessions.*",
+		"lectures.lecture_title",
+		"users.user_name",
+	}
+	if userID != "" {
+		selectFields = append(selectFields,
+			"user_lecture_sessions.user_lecture_session_grade_result AS user_grade_result",
+			"user_lecture_sessions_attendance.user_lecture_sessions_attendance_status AS attendance_status",
+		)
+	}
 
-	if err := ctrl.DB.
-		Model(&model.LectureSessionModel{}).
-		Select(`
-			lecture_sessions.*,
-			lectures.lecture_title,
-			users.user_name
-		`).
+	// Query builder
+	query := ctrl.DB.Model(&model.LectureSessionModel{}).
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
-		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
+		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id")
+
+	if userID != "" {
+		query = query.
+			Joins(`LEFT JOIN user_lecture_sessions 
+				ON user_lecture_sessions.user_lecture_session_lecture_session_id = lecture_sessions.lecture_session_id 
+				AND user_lecture_sessions.user_lecture_session_user_id = ?`, userID).
+			Joins(`LEFT JOIN user_lecture_sessions_attendance 
+				ON user_lecture_sessions_attendance.user_lecture_sessions_attendance_lecture_session_id = lecture_sessions.lecture_session_id 
+				AND user_lecture_sessions_attendance.user_lecture_sessions_attendance_user_id = ?`, userID)
+	}
+
+	// Jalankan query
+	var results []Result
+	if err := query.
+		Select(strings.Join(selectFields, ", ")).
 		Where("lectures.lecture_masjid_id = ?", masjid.MasjidID).
 		Where("TO_CHAR(lecture_sessions.lecture_session_start_time, 'YYYY-MM') = ?", month).
 		Order("lecture_sessions.lecture_session_start_time ASC").
 		Scan(&results).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data sesi kajian")
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil sesi kajian")
 	}
 
+	// Mapping ke DTO
 	var dtoList []dto.LectureSessionDTO
 	for _, r := range results {
 		item := dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
 		if item.LectureSessionTeacherName == "" && r.UserName != nil {
 			item.LectureSessionTeacherName = *r.UserName
+		}
+		if r.UserGradeResult != nil {
+			item.UserGradeResult = r.UserGradeResult
+		}
+		if r.AttendanceStatus != nil {
+			item.UserAttendanceStatus = r.AttendanceStatus
 		}
 		dtoList = append(dtoList, item)
 	}
