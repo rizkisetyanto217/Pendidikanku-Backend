@@ -247,6 +247,67 @@ func (ctrl *LectureSessionController) GetLectureSessionsByLectureID(c *fiber.Ctx
 }
 
 
+//  ======================================
+// 📥 GetLectureSessionsByMonth
+//  ======================================
+func (ctrl *LectureSessionController) GetLectureSessionsByMonth(c *fiber.Ctx) error {
+	slug := c.Params("slug")
+	month := c.Params("month") // format "2025-08"
+	if slug == "" || month == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Slug atau bulan tidak ditemukan di URL")
+	}
+
+	// Ambil masjid_id dari slug
+	var masjid struct {
+		MasjidID uuid.UUID `gorm:"column:masjid_id"`
+	}
+	if err := ctrl.DB.
+		Table("masjids").
+		Select("masjid_id").
+		Where("masjid_slug = ?", slug).
+		Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
+		return fiber.NewError(fiber.StatusNotFound, "Masjid tidak ditemukan")
+	}
+
+	type Result struct {
+		model.LectureSessionModel
+		LectureTitle string  `gorm:"column:lecture_title"`
+		UserName     *string `gorm:"column:user_name"`
+	}
+
+	var results []Result
+
+	if err := ctrl.DB.
+		Model(&model.LectureSessionModel{}).
+		Select(`
+			lecture_sessions.*,
+			lectures.lecture_title,
+			users.user_name
+		`).
+		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
+		Where("lectures.lecture_masjid_id = ?", masjid.MasjidID).
+		Where("TO_CHAR(lecture_sessions.lecture_session_start_time, 'YYYY-MM') = ?", month).
+		Order("lecture_sessions.lecture_session_start_time ASC").
+		Scan(&results).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data sesi kajian")
+	}
+
+	var dtoList []dto.LectureSessionDTO
+	for _, r := range results {
+		item := dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
+		if item.LectureSessionTeacherName == "" && r.UserName != nil {
+			item.LectureSessionTeacherName = *r.UserName
+		}
+		dtoList = append(dtoList, item)
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Berhasil mengambil sesi kajian berdasarkan bulan",
+		"data":    dtoList,
+	})
+}
+
 
 
 func (ctrl *LectureSessionController) GetLectureSessionsByMasjidSlug(c *fiber.Ctx) error {
