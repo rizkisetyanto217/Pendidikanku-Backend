@@ -17,6 +17,7 @@ func LectureSessionsQuizUserRoutes(user fiber.Router, db *gorm.DB) {
 	quizzes.Get("/:id/with-questions", quizCtrl.GetByLectureSessionID)
 	quizzes.Get("/:slug/with-questions-by-slug", quizCtrl.GetByLectureSessionSlug)
 	quizzes.Get("/by-lecture/:id", quizCtrl.GetByLectureID)
+	quizzes.Get("/by-lecture-slug/:lecture_slug", quizCtrl.GetQuizzesByLectureSlug)
 
 	userQuizCtrl := quizcontroller.NewUserLectureSessionsQuizController(db)
 	userQuiz := user.Group("/user-lecture-sessions-quiz")
@@ -26,4 +27,5 @@ func LectureSessionsQuizUserRoutes(user fiber.Router, db *gorm.DB) {
 	userQuiz.Get("/filter", userQuizCtrl.GetUserLectureSessionsQuizFiltered) // 🔍 Filter by quiz_id/user_id
 	userQuiz.Delete("/:id", userQuizCtrl.DeleteUserLectureSessionsQuizByID)  // ❌ Hapus hasil quiz
 	userQuiz.Get("/with-detail", userQuizCtrl.GetUserQuizWithDetail)
+
 }

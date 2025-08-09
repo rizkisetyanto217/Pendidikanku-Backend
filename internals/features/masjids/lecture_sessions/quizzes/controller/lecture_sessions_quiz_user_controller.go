@@ -2,6 +2,7 @@ package controller
 
 import (
 	questionModel "masjidku_backend/internals/features/masjids/lecture_sessions/questions/model"
+	"time"
 
 	lectureSessionModel "masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/quizzes/dto"
@@ -88,6 +89,98 @@ func (ctrl *LectureSessionsQuizController) GetByLectureSessionID(c *fiber.Ctx) e
 		},
 	})
 }
+
+
+
+// ✅ GET /api/a/lecture-sessions-quiz/by-lecture-slug/:lecture_slug
+// Opsional: ?only_with_quiz=true  (hanya sesi yang punya quiz)
+func (ctrl *LectureSessionsQuizController) GetQuizzesByLectureSlug(c *fiber.Ctx) error {
+	lectureSlug := c.Params("lecture_slug")
+	if lectureSlug == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "lecture_slug wajib diisi"})
+	}
+
+	// user_id opsional (middleware / header)
+	userID, _ := c.Locals("user_id").(string)
+	if userID == "" {
+		userID = c.Get("X-User-Id")
+	}
+	onlyWithQuiz := c.Query("only_with_quiz") == "true"
+
+	// 1) resolve lecture_slug -> lecture_id
+	var lectureID string
+	if err := ctrl.DB.Table("lectures").Select("lecture_id").
+		Where("lecture_slug = ?", lectureSlug).Scan(&lectureID).Error; err != nil || lectureID == "" {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Lecture tidak ditemukan"})
+	}
+
+	// 2) sesi + quiz + (nilai quiz user jika ada)
+	type Row struct {
+		LectureSessionID               string     `json:"lecture_session_id"`
+		LectureSessionSlug             string     `json:"lecture_session_slug"`
+		LectureSessionTitle            string     `json:"lecture_session_title"`
+		LectureSessionStartTime        *time.Time `json:"lecture_session_start_time"`
+
+		LectureSessionsQuizID          *string    `json:"lecture_sessions_quiz_id,omitempty"`
+		LectureSessionsQuizTitle       *string    `json:"lecture_sessions_quiz_title,omitempty"`
+		LectureSessionsQuizDescription *string    `json:"lecture_sessions_quiz_description,omitempty"`
+
+		UserQuizGradeResult            *float64   `json:"user_quiz_grade_result,omitempty"`
+		UserQuizAttemptCount           *int       `json:"user_quiz_attempt_count,omitempty"`
+		UserQuizDurationSeconds        *int       `json:"user_quiz_duration_seconds,omitempty"`
+	}
+
+	baseSelect := `
+		ls.lecture_session_id,
+		ls.lecture_session_slug,
+		ls.lecture_session_title,
+		ls.lecture_session_start_time,
+		lsq.lecture_sessions_quiz_id,
+		lsq.lecture_sessions_quiz_title,
+		lsq.lecture_sessions_quiz_description
+	`
+
+	q := ctrl.DB.
+		Table("lecture_sessions AS ls").
+		Select(baseSelect).
+		Joins(`LEFT JOIN lecture_sessions_quiz AS lsq
+		       ON lsq.lecture_sessions_quiz_lecture_session_id = ls.lecture_session_id`).
+		Where("ls.lecture_session_lecture_id = ? AND ls.lecture_session_deleted_at IS NULL", lectureID)
+
+	if onlyWithQuiz {
+		q = q.Where("lsq.lecture_sessions_quiz_id IS NOT NULL")
+	}
+
+	// join nilai QUIZ kalau user_id ada
+	if userID != "" {
+		q = q.Select(baseSelect + `,
+			ulsq.user_lecture_sessions_quiz_grade_result     AS user_quiz_grade_result,
+			ulsq.user_lecture_sessions_quiz_attempt_count    AS user_quiz_attempt_count,
+			ulsq.user_lecture_sessions_quiz_duration_seconds AS user_quiz_duration_seconds
+		`).Joins(`LEFT JOIN user_lecture_sessions_quiz AS ulsq
+		          ON ulsq.user_lecture_sessions_quiz_quiz_id = lsq.lecture_sessions_quiz_id
+		          AND ulsq.user_lecture_sessions_quiz_user_id = ?`, userID)
+	}
+
+	q = q.Order("ls.lecture_session_start_time ASC NULLS LAST")
+
+	var rows []Row
+	if err := q.Scan(&rows).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Gagal mengambil quiz berdasarkan lecture_slug",
+			"error":   err.Error(),
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Berhasil mengambil quiz berdasarkan lecture_slug",
+		"data":    rows,
+	})
+}
+
+
+
+
 
 
 // ✅ GET /api/a/lecture-sessions-quiz/by-session-slug/:slug
