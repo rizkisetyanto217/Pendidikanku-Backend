@@ -55,88 +55,79 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMasjidIDParam(c *fiber
 
 
 
-// GetLectureSessionBySlug
+// GetLectureSessionBySlug returns lecture session detail (by slug)
+// and (if user is logged in) the latest user grade for THIS session.
 func (ctrl *LectureSessionController) GetLectureSessionBySlug(c *fiber.Ctx) error {
 	slug := c.Params("slug")
 	if slug == "" {
-		log.Println("[ERROR] Slug kosong")
 		return fiber.NewError(fiber.StatusBadRequest, "Slug tidak ditemukan")
 	}
 
-	// Ambil user_id dari cookie / header
+	// Ambil user_id dari cookie/header
 	userID := c.Cookies("user_id")
 	if userID == "" {
 		userID = c.Get("X-User-Id")
 	}
-	log.Println("[INFO] user_id dari request:", userID)
 
-	type JoinedResult struct {
+	type joinedResult struct {
 		model.LectureSessionModel
 		LectureTitle    string   `gorm:"column:lecture_title"`
 		UserName        *string  `gorm:"column:user_name"`
 		UserGradeResult *float64 `gorm:"column:user_grade_result"`
 	}
 
-	var result JoinedResult
+	var result joinedResult
 
-	// Base query
-	query := ctrl.DB.
-		Model(&model.LectureSessionModel{}).
-		Select(`
-			lecture_sessions.*, 
-			lectures.lecture_title, 
-			users.user_name
-		`).
-		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
-		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id")
+	// Base SELECT
+	baseSelect := `
+		lecture_sessions.*,
+		lectures.lecture_title,
+		users.user_name
+	`
 
-	// ✅ Jika user login, join ke subquery user_lecture_sessions terbaru
+	// Jika user login, tambahkan correlated subquery:
+	// Ambil attempt terakhir user UNTUK sesi ini
 	if userID != "" {
-		log.Println("[INFO] Menambahkan subquery join ke user_lecture_sessions (latest attempt)")
-		query = query.Select(`
-			lecture_sessions.*, 
-			lectures.lecture_title, 
-			users.user_name,
-			uls.user_grade_result
-		`).Joins(`
-			LEFT JOIN (
-				SELECT 
-					user_lecture_session_lecture_session_id, 
-					user_lecture_session_grade_result AS user_grade_result
-				FROM user_lecture_sessions
-				WHERE user_lecture_session_user_id = ?
-				ORDER BY user_lecture_session_created_at DESC
-				LIMIT 1
-			) AS uls
-			ON uls.user_lecture_session_lecture_session_id = lecture_sessions.lecture_session_id
-		`, userID)
+		baseSelect += `
+		,
+		(
+			SELECT u.user_lecture_session_grade_result
+			FROM user_lecture_sessions u
+			WHERE u.user_lecture_session_user_id = ?
+			  AND u.user_lecture_session_lecture_session_id = lecture_sessions.lecture_session_id
+			ORDER BY u.user_lecture_session_created_at DESC
+			LIMIT 1
+		) AS user_grade_result
+		`
 	}
 
-	log.Println("[INFO] Eksekusi query untuk slug:", slug)
+	db := ctrl.DB.
+		Model(&model.LectureSessionModel{}).
+		Select(baseSelect, userID). // arg userID dipakai hanya jika ada placeholder, otherwise diabaikan
+		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
+		Where("lecture_sessions.lecture_session_slug = ?", slug)
 
-	if err := query.
-		Where("lecture_sessions.lecture_session_slug = ?", slug).
-		Scan(&result).Error; err != nil {
-		log.Println("[ERROR] Gagal ambil data sesi kajian:", err)
+	if err := db.Scan(&result).Error; err != nil {
 		return fiber.NewError(fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
 	}
 
-	log.Println("[INFO] Hasil query berhasil diambil")
-	log.Printf("[DEBUG] UserGradeResult: %v\n", result.UserGradeResult)
-
+	// Build DTO
 	dtoItem := dto.ToLectureSessionDTOWithLectureTitle(result.LectureSessionModel, result.LectureTitle)
 
+	// Fallback nama pengajar dari users.user_name jika kosong
 	if dtoItem.LectureSessionTeacherName == "" && result.UserName != nil {
 		dtoItem.LectureSessionTeacherName = *result.UserName
-		log.Println("[INFO] Fallback user_name digunakan sebagai teacher name:", *result.UserName)
 	}
 
+	// Inject grade jika ada
 	if result.UserGradeResult != nil {
 		dtoItem.UserGradeResult = result.UserGradeResult
 	}
 
 	return c.JSON(dtoItem)
 }
+
 
 
 //  ======================================
