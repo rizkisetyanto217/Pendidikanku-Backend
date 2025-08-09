@@ -5,6 +5,7 @@ import (
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
 	lectureModel "masjidku_backend/internals/features/masjids/lectures/main/model"
+	"sort"
 	"strings"
 	"time"
 
@@ -585,6 +586,128 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 	})
 }
 
+
+
+// GET /api/u/lectures/:lecture_slug/sessions
+func (ctrl *LectureSessionController) GetAllLectureSessionsByLectureSlug(c *fiber.Ctx) error {
+	lectureSlug := c.Params("lecture_slug")
+	if lectureSlug == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Lecture slug tidak ditemukan di URL"})
+	}
+	attendanceOnly := c.Query("attendance_only") == "true"
+
+	// Ambil user_id opsional (untuk progress)
+	userID := c.Cookies("user_id")
+	if userID == "" {
+		userID = c.Get("X-User-Id")
+	}
+
+	// Resolve lecture_slug -> lecture_id
+	type LectureLite struct {
+		LectureID    uuid.UUID `gorm:"column:lecture_id"`
+		LectureTitle string    `gorm:"column:lecture_title"`
+	}
+	var lec LectureLite
+	if err := ctrl.DB.Table("lectures").
+		Select("lecture_id, lecture_title").
+		Where("lecture_slug = ?", lectureSlug).
+		Scan(&lec).Error; err != nil || lec.LectureID == uuid.Nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Lecture dengan slug tsb tidak ditemukan"})
+	}
+
+	now := time.Now()
+
+	// Hasil join (tambahkan kolom progress & status)
+	type JoinedResult struct {
+		model.LectureSessionModel
+		LectureTitle     string   `gorm:"column:lecture_title"`
+		UserName         *string  `gorm:"column:user_name"`
+		UserGradeResult  *float64 `gorm:"column:user_grade_result"`
+		AttendanceStatus *int     `gorm:"column:attendance_status"`
+		Status           string   `gorm:"column:status"` // "upcoming" / "finished"
+	}
+
+	// SELECT dinamis
+	selectFields := []string{
+		"lecture_sessions.*",
+		"lectures.lecture_title",
+		"users.user_name",
+		// status dihitung via CASE di SQL biar efisien
+		"CASE WHEN lecture_sessions.lecture_session_end_time < ? THEN 'finished' ELSE 'upcoming' END AS status",
+	}
+	args := []any{now}
+
+	// Base query
+	q := ctrl.DB.Model(&model.LectureSessionModel{}).
+		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
+		Where("lecture_sessions.lecture_session_lecture_id = ?", lec.LectureID)
+
+	// Join progress kalau user_id ada
+	if userID != "" {
+		selectFields = append(selectFields,
+			"user_lecture_sessions.user_lecture_session_grade_result AS user_grade_result",
+			"user_lecture_sessions_attendance.user_lecture_sessions_attendance_status AS attendance_status",
+		)
+		q = q.
+			Joins(`LEFT JOIN user_lecture_sessions 
+				ON user_lecture_sessions.user_lecture_session_lecture_session_id = lecture_sessions.lecture_session_id 
+				AND user_lecture_sessions.user_lecture_session_user_id = ?`, userID).
+			Joins(`LEFT JOIN user_lecture_sessions_attendance 
+				ON user_lecture_sessions_attendance.user_lecture_sessions_attendance_lecture_session_id = lecture_sessions.lecture_session_id 
+				AND user_lecture_sessions_attendance.user_lecture_sessions_attendance_user_id = ?`, userID)
+		if attendanceOnly {
+			q = q.Where("user_lecture_sessions_attendance.user_lecture_sessions_attendance_status IS NOT NULL")
+		}
+	}
+
+	// Eksekusi
+	var rows []JoinedResult
+	if err := q.Select(strings.Join(selectFields, ", "), args...).
+		// urutkan agar nanti gampang di-split group (upcoming dulu ASC, finished setelahnya DESC)
+		Order("CASE WHEN lecture_sessions.lecture_session_end_time < NOW() THEN 1 ELSE 0 END ASC").
+		Order("lecture_sessions.lecture_session_start_time ASC").
+		Scan(&rows).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Gagal mengambil sesi by lecture slug",
+			"error":   err.Error(),
+		})
+	}
+
+	// Mapping -> DTO + pengelompokan
+	upcoming := make([]dto.LectureSessionDTO, 0, len(rows))
+	finished := make([]dto.LectureSessionDTO, 0, len(rows))
+
+	for _, r := range rows {
+		item := dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
+		if item.LectureSessionTeacherName == "" && r.UserName != nil {
+			item.LectureSessionTeacherName = *r.UserName
+		}
+		if r.UserGradeResult != nil {
+			item.UserGradeResult = r.UserGradeResult
+		}
+		if r.AttendanceStatus != nil {
+			item.UserAttendanceStatus = r.AttendanceStatus
+		}
+		if r.Status == "finished" {
+			finished = append(finished, item)
+		} else {
+			upcoming = append(upcoming, item)
+		}
+	}
+
+	// Sort final: upcoming ASC (sudah), finished DESC
+	sort.SliceStable(finished, func(i, j int) bool {
+		return finished[i].LectureSessionStartTime.After(finished[j].LectureSessionStartTime)
+	})
+
+	return c.JSON(fiber.Map{
+		"message":  "Berhasil ambil semua sesi berdasarkan lecture slug",
+		"lecture":  fiber.Map{"lecture_id": lec.LectureID, "lecture_title": lec.LectureTitle, "lecture_slug": lectureSlug},
+		"upcoming": upcoming,
+		"finished": finished,
+	})
+}
 
 
 func (ctrl *LectureSessionController) GetLectureSessionByIDProgressUser(c *fiber.Ctx) error {
