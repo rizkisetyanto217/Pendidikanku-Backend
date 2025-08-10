@@ -18,7 +18,8 @@ func CorsMiddleware() fiber.Handler {
 			"http://127.0.0.1:5500",
 			"https://masjidkubackend-production.up.railway.app",
 			"https://web-six-theta-13.vercel.app",
-			"https://masjidku-web-production.up.railway.app", // ✅ tambahkan ini
+			"https://masjidku-web-production.up.railway.app", 
+			"https://masjidku.org",
 		}, ", "),
 		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS, PATCH",
 		AllowHeaders:     "Origin, Content-Type, Accept, Authorization, X-User-Id",
