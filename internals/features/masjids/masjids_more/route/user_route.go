@@ -13,6 +13,7 @@ func AllMasjidMoreRoutes(router fiber.Router, db *gorm.DB) {
 	profile := router.Group("/masjid-profile-teacher-dkm")
 	profile.Get("/", ctrl.GetProfilesByMasjid)
 	profile.Get("/:id", ctrl.GetProfileByID)
+	profile.Get("/by-masjid-slug/:slug", ctrl.GetProfilesByMasjidSlug)
 
 	// 🏷️ Endpoint untuk melihat tag yang tersedia
 	ctrl2 := controller.NewMasjidTagController(db)
