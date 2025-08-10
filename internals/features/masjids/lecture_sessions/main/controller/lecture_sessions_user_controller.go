@@ -54,16 +54,15 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMasjidIDParam(c *fiber
 }
 
 
-
 // GetLectureSessionBySlug returns lecture session detail (by slug)
-// and (if user is logged in) the latest user grade for THIS session.
+// If user is logged in, also returns the latest user grade for THIS session.
 func (ctrl *LectureSessionController) GetLectureSessionBySlug(c *fiber.Ctx) error {
 	slug := c.Params("slug")
 	if slug == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "Slug tidak ditemukan")
 	}
 
-	// Ambil user_id dari cookie/header
+	// Ambil user_id dari cookie/header (opsional)
 	userID := c.Cookies("user_id")
 	if userID == "" {
 		userID = c.Get("X-User-Id")
@@ -76,17 +75,21 @@ func (ctrl *LectureSessionController) GetLectureSessionBySlug(c *fiber.Ctx) erro
 		UserGradeResult *float64 `gorm:"column:user_grade_result"`
 	}
 
-	var result joinedResult
-
-	// Base SELECT
+	// Base SELECT (tanpa progress)
 	baseSelect := `
 		lecture_sessions.*,
 		lectures.lecture_title,
 		users.user_name
 	`
 
-	// Jika user login, tambahkan correlated subquery:
-	// Ambil attempt terakhir user UNTUK sesi ini
+	// Build base query
+	db := ctrl.DB.
+		Model(&model.LectureSessionModel{}).
+		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
+		Where("lecture_sessions.lecture_session_slug = ?", slug)
+
+	// Jika user login → tambahkan correlated subquery untuk progress
 	if userID != "" {
 		baseSelect += `
 		,
@@ -99,16 +102,13 @@ func (ctrl *LectureSessionController) GetLectureSessionBySlug(c *fiber.Ctx) erro
 			LIMIT 1
 		) AS user_grade_result
 		`
+		db = db.Select(baseSelect, userID) // ada placeholder "?"
+	} else {
+		db = db.Select(baseSelect) // tanpa arg supaya aman
 	}
 
-	db := ctrl.DB.
-		Model(&model.LectureSessionModel{}).
-		Select(baseSelect, userID). // arg userID dipakai hanya jika ada placeholder, otherwise diabaikan
-		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
-		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
-		Where("lecture_sessions.lecture_session_slug = ?", slug)
-
-	if err := db.Scan(&result).Error; err != nil {
+	var result joinedResult
+	if err := db.Take(&result).Error; err != nil {
 		return fiber.NewError(fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
 	}
 
@@ -120,12 +120,12 @@ func (ctrl *LectureSessionController) GetLectureSessionBySlug(c *fiber.Ctx) erro
 		dtoItem.LectureSessionTeacherName = *result.UserName
 	}
 
-	// Inject grade jika ada
+	// Inject grade hanya jika ada (artinya user login & progress tersedia)
 	if result.UserGradeResult != nil {
 		dtoItem.UserGradeResult = result.UserGradeResult
 	}
 
-	return c.JSON(dtoItem)
+	return c.JSON(dtoItem) // tanpa progress kalau tidak login
 }
 
 
