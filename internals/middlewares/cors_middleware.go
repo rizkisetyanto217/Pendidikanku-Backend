@@ -24,5 +24,8 @@ func CorsMiddleware() fiber.Handler {
 		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS, PATCH",
 		AllowHeaders:     "Origin, Content-Type, Accept, Authorization, X-User-Id",
 		AllowCredentials: true,
+
+		// 🔹 Cache preflight OPTIONS di browser 10 menit (hemat latency)
+		MaxAge: 600,
 	})
 }
