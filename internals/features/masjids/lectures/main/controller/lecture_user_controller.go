@@ -56,6 +56,7 @@ func (ctrl *LectureController) GetLectureByMasjidSlug(c *fiber.Ctx) error {
 	})
 }
 
+
 // ✅ GET /api/a/lecture-sessions/by-lecture/:id
 func (ctrl *LectureController) GetLectureSessionsByLectureID(c *fiber.Ctx) error {
 	lectureID := c.Params("id")

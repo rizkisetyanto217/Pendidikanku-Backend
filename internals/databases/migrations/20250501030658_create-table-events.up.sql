@@ -16,6 +16,7 @@ CREATE INDEX IF NOT EXISTS idx_event_slug ON events(event_slug);
 CREATE TABLE IF NOT EXISTS event_sessions (
     event_session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_session_event_id UUID NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
+    event_session_slug VARCHAR(100) NOT NULL UNIQUE,
     event_session_title VARCHAR(255) NOT NULL,
     event_session_description TEXT,
     event_session_start_time TIMESTAMP NOT NULL,
@@ -34,6 +35,9 @@ CREATE TABLE IF NOT EXISTS event_sessions (
 -- Indexing
 CREATE INDEX IF NOT EXISTS idx_event_sessions_event_id ON event_sessions(event_session_event_id);
 CREATE INDEX IF NOT EXISTS idx_event_sessions_start_time ON event_sessions(event_session_start_time);
+-- unik case-insensitive
+CREATE UNIQUE INDEX IF NOT EXISTS ux_event_sessions_slug_ci
+  ON event_sessions (LOWER(event_session_slug));
 
 
 

@@ -69,7 +69,7 @@ func (ctrl *EventSessionController) CreateEventSession(c *fiber.Ctx) error {
 
 // 🟢 GET /api/u/event-sessions/by-event/:event_id
 func (ctrl *EventSessionController) GetEventSessionsByEvent(c *fiber.Ctx) error {
-	eventID := c.Params("event_id")
+	eventID := c.Params("id")
 	if eventID == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"message": "Event ID tidak boleh kosong",
@@ -142,28 +142,6 @@ func (ctrl *EventSessionController) GetAllEventSessions(c *fiber.Ctx) error {
 
 func (ctrl *EventSessionController) GetUpcomingEventSessions(c *fiber.Ctx) error {
 	var sessions []model.EventSessionModel
-
-	// CATATAN PENTING UNTUK ROUTING DI FILE UTAMA (misal: main.go atau routes.go):
-	//
-	// Untuk menangani permintaan ke: /public/event-sessions/upcoming/masjid-id (TANPA ID)
-	// Anda HARUS menambahkan rute ini LEBIH DULU:
-	// ```go
-	// session.Get("/upcoming/masjid-id", func(c *fiber.Ctx) error {
-	//    // Ini akan terpicu jika URL adalah /public/event-sessions/upcoming/masjid-id
-	//    log.Printf("[WARNING] Request received for /upcoming/masjid-id without a specific ID. Returning Bad Request.")
-	//    return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-	//        "message": "ID masjid diperlukan di URL path untuk endpoint ini.",
-	//        "error":   "Missing masjid_id in URL path",
-	//    })
-	// })
-	// ```
-	//
-	// DAN KEMUDIAN, rute Anda yang sudah ada untuk menangani permintaan DENGAN ID:
-	// ```go
-	// session.Get("/upcoming/masjid-id/:masjid_id", ctrl.GetUpcomingEventSessions)
-	// ```
-	//
-	// Perhatikan urutan definisi rute ini sangat krusial di Fiber.
 
 	// 1. Ambil masjid_id dari PATH parameter
 	// PERHATIKAN: Nama parameter di c.Params() HARUS SAMA dengan di definisi rute

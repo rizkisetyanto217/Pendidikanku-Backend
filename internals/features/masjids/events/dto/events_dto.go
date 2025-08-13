@@ -26,16 +26,28 @@ type EventResponse struct {
 	EventCreatedAt   string    `json:"event_created_at"`
 }
 
-// 🔄 Fungsi bantu generate slug dari judul
-func generateSlug(title string) string {
-	return strings.ToLower(strings.ReplaceAll(title, " ", "-"))
+
+// 🔹 Request partial update pakai pointer agar bisa bedakan "tidak dikirim" vs "string kosong"
+type EventUpdateRequest struct {
+	EventTitle       *string    `json:"event_title"`       // jika diisi → slug ikut diperbarui
+	EventDescription *string    `json:"event_description"`
+	EventLocation    *string    `json:"event_location"`
+	EventMasjidID    *uuid.UUID `json:"event_masjid_id"`
+}
+
+
+// 🔄 Exported biar bisa dipakai di controller
+func GenerateSlug(title string) string {
+	slug := strings.ToLower(strings.TrimSpace(title))
+	slug = strings.ReplaceAll(slug, " ", "-")
+	return slug
 }
 
 // 🔄 Konversi dari request → model
 func (r *EventRequest) ToModel() *model.EventModel {
 	return &model.EventModel{
 		EventTitle:       r.EventTitle,
-		EventSlug:        generateSlug(r.EventTitle),
+		EventSlug:        GenerateSlug(r.EventTitle),
 		EventDescription: r.EventDescription,
 		EventLocation:    r.EventLocation,
 		EventMasjidID:    r.EventMasjidID,
