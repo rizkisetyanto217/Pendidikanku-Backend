@@ -32,7 +32,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 
 	// ===================== MASJID PAGE =====================
 	log.Println("[INFO] Setting up MasjidRoutes (public)...")
-	masjidPublic := app.Group("/public", authMiddleware.SecondAuthMiddleware(db)) // ✅ update di sini
+	masjidPublic := app.Group("/public", authMiddleware.SecondAuthMiddleware(db))
 	routeDetails.MasjidPublicRoutes(masjidPublic, db)
 
 	log.Println("[INFO] Setting up MasjidRoutes (private)...")
@@ -43,11 +43,24 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	masjidAdmin := app.Group("/api/a", authMiddleware.AuthMiddleware(db))
 	routeDetails.MasjidAdminRoutes(masjidAdmin, db)
 
+	// ===================== LEMBAGA PAGE =====================
+	log.Println("[INFO] Setting up LembagaRoutes (public)...")
+	lembagaPublic := app.Group("/public", authMiddleware.SecondAuthMiddleware(db))
+	routeDetails.LembagaPublicRoutes(lembagaPublic, db)
+
+	log.Println("[INFO] Setting up LembagaRoutes (private)...")
+	lembagaPrivate := app.Group("/api/u", authMiddleware.AuthMiddleware(db))
+	routeDetails.LembagaUserRoutes(lembagaPrivate, db)
+
+	log.Println("[INFO] Setting up LembagaRoutes (admin)...")
+	lembagaAdmin := app.Group("/api/a", authMiddleware.AuthMiddleware(db))
+	routeDetails.LembagaAdminRoutes(lembagaAdmin, db)
+
 	// ===================== HOME GROUPS =====================
 
 	// ✅ 1. PUBLIC: Gunakan SecondAuthMiddleware agar bisa dapat user_id jika login
 	log.Println("[INFO] Setting up HomeRoutes (public)...")
-	public := app.Group("/public", authMiddleware.SecondAuthMiddleware(db)) // ✅ update di sini juga
+	public := app.Group("/public", authMiddleware.SecondAuthMiddleware(db))
 	routeDetails.HomePublicRoutes(public, db)
 
 	// ✅ 2. PRIVATE: Wajib token
