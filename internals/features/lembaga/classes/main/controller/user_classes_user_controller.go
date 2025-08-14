@@ -1,0 +1,187 @@
+// internals/features/lembaga/classes/user_classes/main/controller/user_my_class_controller.go
+package controller
+
+import (
+	"strings"
+
+	"github.com/go-playground/validator/v10"
+	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+
+	helper "masjidku_backend/internals/helpers"
+
+	ucDTO "masjidku_backend/internals/features/lembaga/classes/main/dto"
+	classModel "masjidku_backend/internals/features/lembaga/classes/main/model"
+)
+
+type UserMyClassController struct {
+	DB *gorm.DB
+}
+
+
+func NewUserMyClassController(db *gorm.DB) *UserMyClassController {
+	return &UserMyClassController{DB: db}
+}
+
+var userValidate = validator.New()
+
+/* ================== USER: LIST & DETAIL ================== */
+
+// GET /api/u/user-classes
+func (h *UserMyClassController) ListMyUserClasses(c *fiber.Ctx) error {
+	userID, err := helper.GetUserIDFromToken(c)
+	if err != nil {
+		return err
+	}
+
+	// Default query
+	var q ucDTO.ListUserClassQuery
+	q.Limit, q.Offset = 20, 0
+	if err := c.QueryParser(&q); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
+	}
+
+	// Base query
+	tx := h.DB.Model(&classModel.UserClassesModel{}).
+		Joins("JOIN classes ON classes.class_id = user_classes.user_classes_class_id").
+		Where("user_classes_user_id = ? AND classes.class_deleted_at IS NULL", userID)
+
+	// Filter opsional
+	if q.ClassID != nil {
+		tx = tx.Where("user_classes_class_id = ?", *q.ClassID)
+	}
+	if q.Status != nil && strings.TrimSpace(*q.Status) != "" {
+		tx = tx.Where("user_classes_status = ?", strings.TrimSpace(*q.Status))
+	}
+	if q.ActiveNow != nil && *q.ActiveNow {
+		tx = tx.Where("user_classes_status = 'active' AND user_classes_ended_at IS NULL")
+	}
+
+	// Sorting
+	sort := "started_at_desc"
+	if q.Sort != nil {
+		sort = strings.ToLower(strings.TrimSpace(*q.Sort))
+	}
+	switch sort {
+	case "started_at_asc":
+		tx = tx.Order("user_classes_started_at ASC")
+	case "created_at_asc":
+		tx = tx.Order("user_classes_created_at ASC")
+	case "created_at_desc":
+		tx = tx.Order("user_classes_created_at DESC")
+	default:
+		tx = tx.Order("user_classes_started_at DESC")
+	}
+
+	// Limit & Offset
+	if q.Limit > 0 {
+		tx = tx.Limit(q.Limit)
+	}
+	if q.Offset > 0 {
+		tx = tx.Offset(q.Offset)
+	}
+
+	// Eksekusi
+	var rows []classModel.UserClassesModel
+	if err := tx.Find(&rows).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+	}
+
+	// Response
+	resp := make([]*ucDTO.UserClassResponse, 0, len(rows))
+	for i := range rows {
+		resp = append(resp, ucDTO.NewUserClassResponse(&rows[i]))
+	}
+	return helper.JsonOK(c, "OK", resp)
+}
+
+// GET /api/u/user-classes/:id
+func (h *UserMyClassController) GetMyUserClassByID(c *fiber.Ctx) error {
+	userID, err := helper.GetUserIDFromToken(c)
+	if err != nil {
+		return err
+	}
+	ucID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+	}
+
+	var m classModel.UserClassesModel
+	err = h.DB.Model(&classModel.UserClassesModel{}).
+		Joins("JOIN classes ON classes.class_id = user_classes.user_classes_class_id").
+		Where("user_classes_id = ? AND user_classes_user_id = ? AND classes.class_deleted_at IS NULL", ucID, userID).
+		First(&m).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return fiber.NewError(fiber.StatusNotFound, "Enrolment tidak ditemukan")
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+	}
+
+	return helper.JsonOK(c, "OK", ucDTO.NewUserClassResponse(&m))
+}
+
+// POST /api/u/user-classes
+func (h *UserMyClassController) SelfEnroll(c *fiber.Ctx) error {
+	userID, err := helper.GetUserIDFromToken(c)
+	if err != nil {
+		return err
+	}
+
+	// DTO ringan khusus user-PMB
+	type selfEnrollRequest struct {
+		ClassID uuid.UUID `json:"user_classes_class_id" validate:"required"`
+		Notes   *string   `json:"user_classes_notes" validate:"omitempty"`
+	}
+	var req selfEnrollRequest
+	if err := c.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
+	}
+	if err := userValidate.Struct(req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+
+	// Pastikan class ada & aktif (tidak terhapus), sekalian ambil masjid_id
+	var cls classModel.ClassModel
+	if err := h.DB.
+		Select("class_id, class_is_active, class_masjid_id").
+		Where("class_id = ? AND class_deleted_at IS NULL", req.ClassID).
+		First(&cls).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return fiber.NewError(fiber.StatusBadRequest, "Class tidak ditemukan")
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi class")
+	}
+	if !cls.ClassIsActive {
+		return fiber.NewError(fiber.StatusBadRequest, "Class sedang tidak aktif")
+	}
+
+	// Cegah duplikasi enrolment yang masih terbuka (active/inactive tanpa ended_at)
+	var cnt int64
+	if err := h.DB.Model(&classModel.UserClassesModel{}).
+		Where("user_classes_user_id = ? AND user_classes_class_id = ? AND user_classes_ended_at IS NULL", userID, req.ClassID).
+		Where("user_classes_status IN ('active','inactive')").
+		Count(&cnt).Error; err == nil && cnt > 0 {
+		return fiber.NewError(fiber.StatusConflict, "Anda sudah memiliki pendaftaran/enrolment yang masih berjalan untuk kelas ini")
+	}
+
+	// Buat enrolment 'inactive' (pending approval)
+	// NOTE: started_at DIKOSONGKAN (nil) agar nanti admin yang mengisi saat approve
+	m := &classModel.UserClassesModel{
+		UserClassesUserID:                userID,
+		UserClassesClassID:               req.ClassID,
+		UserClassesMasjidID:              cls.ClassMasjidID,                  // ikut masjid kelas
+		UserClassesStatus:                classModel.UserClassStatusInactive,     // pending
+		UserClassesStartedAt:             nil,                                 // <- kosong dulu
+		UserClassesEndedAt:               nil,
+		UserClassesFeeOverrideMonthlyIDR: nil,
+		UserClassesNotes:                 req.Notes,
+	}
+
+	if err := h.DB.Create(m).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat pendaftaran")
+	}
+
+	return helper.JsonCreated(c, "Pendaftaran berhasil dikirim, menunggu persetujuan admin", ucDTO.NewUserClassResponse(m))
+}

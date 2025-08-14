@@ -92,140 +92,254 @@ CREATE INDEX IF NOT EXISTS idx_sections_created_at
 CREATE INDEX IF NOT EXISTS idx_sections_slug 
   ON class_sections(class_sections_slug);
 
-
 -- =========================================================
 -- user_classes (enrolment siswa -> class/level)
--- Pembayaran bulanan: coalesce(uc_fee_override_monthly_idr, classes.class_fee_monthly_idr)
+-- Pembayaran bulanan: COALESCE(user_classes_fee_override_monthly_idr, classes.class_fee_monthly_idr)
 -- =========================================================
-CREATE TABLE IF NOT EXISTS user_classes (
-  uc_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  uc_user_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  uc_class_id UUID NOT NULL REFERENCES classes(class_id) ON DELETE CASCADE,
+-- Pastikan pasangan (class_id, class_masjid_id) unik di classes
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'uq_classes_id_masjid'
+  ) THEN
+    ALTER TABLE classes
+      ADD CONSTRAINT uq_classes_id_masjid UNIQUE (class_id, class_masjid_id);
+  END IF;
+END$$;
+
+CREATE TABLE IF NOT EXISTS user_classes (
+  user_classes_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  user_classes_user_id  UUID NOT NULL
+    REFERENCES users(id) ON DELETE CASCADE,
+
+  -- tetap simpan class_id anak
+  user_classes_class_id UUID NOT NULL,
+
+  -- denormalized tenant (filter cepat per masjid)
+  user_classes_masjid_id UUID
+    REFERENCES masjids(masjid_id) ON DELETE SET NULL,
 
   -- status enrolment
-  uc_status TEXT NOT NULL DEFAULT 'active'
-    CHECK (uc_status IN ('active','inactive','ended')),
+  user_classes_status TEXT NOT NULL DEFAULT 'active'
+    CHECK (user_classes_status IN ('active','inactive','ended')),
 
-  uc_started_at DATE NOT NULL DEFAULT CURRENT_DATE,
-  uc_ended_at   DATE,
+  user_classes_started_at DATE NOT NULL DEFAULT,
+  user_classes_ended_at   DATE,
+
+  -- ended_at tidak boleh sebelum started_at
+  CHECK (user_classes_ended_at IS NULL OR user_classes_ended_at >= user_classes_started_at),
 
   -- override tarif per bulan untuk siswa ini (NULL = ikut class_fee_monthly_idr)
-  uc_fee_override_monthly_idr INT
-    CHECK (uc_fee_override_monthly_idr IS NULL OR uc_fee_override_monthly_idr >= 0),
+  user_classes_fee_override_monthly_idr INT
+    CHECK (user_classes_fee_override_monthly_idr IS NULL OR user_classes_fee_override_monthly_idr >= 0),
 
-  uc_notes TEXT,
+  user_classes_notes TEXT,
 
-  uc_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  uc_updated_at TIMESTAMP
+  user_classes_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  user_classes_updated_at TIMESTAMP
 );
 
--- Satu enrolment 'active' per (user, class)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_uc_active_per_user_class
-  ON user_classes(uc_user_id, uc_class_id)
-  WHERE uc_status = 'active' AND uc_ended_at IS NULL;
 
--- Index umum
-CREATE INDEX IF NOT EXISTS idx_uc_user
-  ON user_classes(uc_user_id);
 
-CREATE INDEX IF NOT EXISTS idx_uc_class
-  ON user_classes(uc_class_id);
+-- FK komposit: (class_id, masjid_id) di user_classes harus cocok dengan classes
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'fk_uc_class_masjid_pair'
+  ) THEN
+    ALTER TABLE user_classes
+      ADD CONSTRAINT fk_uc_class_masjid_pair
+      FOREIGN KEY (user_classes_class_id, user_classes_masjid_id)
+      REFERENCES classes (class_id, class_masjid_id)
+      ON UPDATE CASCADE ON DELETE CASCADE;
+  END IF;
+END$$;
 
-CREATE INDEX IF NOT EXISTS idx_uc_status
-  ON user_classes(uc_status);
+-- =========================================================
+-- Indexes
+-- =========================================================
 
--- (Opsional) bantu query historis/aktif berdasar tanggal mulai/akhir
-CREATE INDEX IF NOT EXISTS idx_uc_started_at
-  ON user_classes(uc_started_at);
+-- Unik: hanya 1 enrolment 'active' yg belum berakhir per (user, class)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_user_classes_active_per_user_class
+  ON user_classes(user_classes_user_id, user_classes_class_id)
+  WHERE user_classes_status = 'active' AND user_classes_ended_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_uc_ended_at
-  ON user_classes(uc_ended_at);
+-- Index dasar
+CREATE INDEX IF NOT EXISTS idx_user_classes_user
+  ON user_classes(user_classes_user_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_classes_class
+  ON user_classes(user_classes_class_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_classes_status
+  ON user_classes(user_classes_status);
+
+CREATE INDEX IF NOT EXISTS idx_user_classes_started_at
+  ON user_classes(user_classes_started_at);
+
+CREATE INDEX IF NOT EXISTS idx_user_classes_ended_at
+  ON user_classes(user_classes_ended_at);
+
+CREATE INDEX IF NOT EXISTS idx_user_classes_created_at
+  ON user_classes(user_classes_created_at DESC);
+
+-- Filter cepat per tenant (tanpa JOIN)
+CREATE INDEX IF NOT EXISTS idx_user_classes_masjid
+  ON user_classes(user_classes_masjid_id);
+
+-- Partial indexes untuk query enrolment aktif
+CREATE INDEX IF NOT EXISTS idx_user_classes_user_active
+  ON user_classes(user_classes_user_id, user_classes_class_id)
+  WHERE user_classes_status = 'active' AND user_classes_ended_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_user_classes_class_active
+  ON user_classes(user_classes_class_id, user_classes_user_id)
+  WHERE user_classes_status = 'active' AND user_classes_ended_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_user_classes_masjid_active
+  ON user_classes(user_classes_masjid_id, user_classes_user_id, user_classes_class_id)
+  WHERE user_classes_status = 'active' AND user_classes_ended_at IS NULL;
+
 
 
 
 -- =========================================================
 -- user_class_sections (penempatan siswa ke section)
---    Satu siswa (per enrolment) hanya punya 1 section 'active'
 -- =========================================================
 CREATE TABLE IF NOT EXISTS user_class_sections (
-  ucs_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_class_sections_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- enrolment siswa
-  ucs_uc_id     UUID NOT NULL
-    REFERENCES user_classes(uc_id) ON DELETE CASCADE,
+  user_class_sections_user_class_id UUID NOT NULL,
 
   -- section (kelas-paralel)
-  ucs_section_id UUID NOT NULL
-    REFERENCES class_sections(class_sections_id) ON DELETE CASCADE,
+  user_class_sections_section_id UUID NOT NULL,
 
-  ucs_status TEXT NOT NULL DEFAULT 'active'
-    CHECK (ucs_status IN ('active','inactive','ended')),
+  -- tenant (denormalized untuk filter cepat)
+  user_class_sections_masjid_id UUID NOT NULL,
 
-  ucs_assigned_at   DATE NOT NULL DEFAULT CURRENT_DATE,
-  ucs_unassigned_at DATE,
+  user_class_sections_status TEXT NOT NULL DEFAULT 'active'
+    CHECK (user_class_sections_status IN ('active','inactive','ended')),
 
-  ucs_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  ucs_updated_at TIMESTAMP
+  user_class_sections_assigned_at   DATE NOT NULL DEFAULT CURRENT_DATE,
+  user_class_sections_unassigned_at DATE,
+  -- unassign tidak boleh sebelum assign
+  CHECK (user_class_sections_unassigned_at IS NULL
+         OR user_class_sections_unassigned_at >= user_class_sections_assigned_at),
+
+  user_class_sections_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  user_class_sections_updated_at TIMESTAMP
 );
 
--- Pastikan hanya 1 penempatan aktif per enrolment
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ucs_active_per_uc
-  ON user_class_sections(ucs_uc_id)
-  WHERE ucs_status = 'active' AND ucs_unassigned_at IS NULL;
+-- ========== Unique & Indexes ==========
+-- unik: 1 penempatan aktif per enrolment
+CREATE UNIQUE INDEX IF NOT EXISTS uq_user_class_sections_active_per_user_class
+  ON user_class_sections(user_class_sections_user_class_id)
+  WHERE user_class_sections_status = 'active'
+    AND user_class_sections_unassigned_at IS NULL;
 
--- Index umum
-CREATE INDEX IF NOT EXISTS idx_ucs_uc
-  ON user_class_sections(ucs_uc_id);
+-- indeks dasar
+CREATE INDEX IF NOT EXISTS idx_user_class_sections_user_class
+  ON user_class_sections(user_class_sections_user_class_id);
 
-CREATE INDEX IF NOT EXISTS idx_ucs_section
-  ON user_class_sections(ucs_section_id);
+CREATE INDEX IF NOT EXISTS idx_user_class_sections_section
+  ON user_class_sections(user_class_sections_section_id);
 
-CREATE INDEX IF NOT EXISTS idx_ucs_section_status
-  ON user_class_sections(ucs_section_id, ucs_status);
+CREATE INDEX IF NOT EXISTS idx_user_class_sections_section_status
+  ON user_class_sections(user_class_sections_section_id, user_class_sections_status);
 
--- Opsional: bantu query historis/aktif berdasar tanggal
-CREATE INDEX IF NOT EXISTS idx_ucs_assigned_at
-  ON user_class_sections(ucs_assigned_at);
+CREATE INDEX IF NOT EXISTS idx_user_class_sections_assigned_at
+  ON user_class_sections(user_class_sections_assigned_at);
 
-CREATE INDEX IF NOT EXISTS idx_ucs_unassigned_at
-  ON user_class_sections(ucs_unassigned_at);
+CREATE INDEX IF NOT EXISTS idx_user_class_sections_unassigned_at
+  ON user_class_sections(user_class_sections_unassigned_at);
+
+-- indeks per tenant
+CREATE INDEX IF NOT EXISTS idx_user_class_sections_masjid
+  ON user_class_sections(user_class_sections_masjid_id);
+
+-- partial index: yang aktif per tenant
+CREATE INDEX IF NOT EXISTS idx_user_class_sections_masjid_active
+  ON user_class_sections(user_class_sections_masjid_id,
+                         user_class_sections_user_class_id,
+                         user_class_sections_section_id)
+  WHERE user_class_sections_status = 'active'
+    AND user_class_sections_unassigned_at IS NULL;
+
+-- ========== Syarat untuk FK komposit ==========
+-- parent: classes/class_sections & user_classes harus punya (id, masjid_id) unik
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_user_classes_id_masjid'
+  ) THEN
+    ALTER TABLE user_classes
+      ADD CONSTRAINT uq_user_classes_id_masjid
+      UNIQUE (user_classes_id, user_classes_masjid_id);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_class_sections_id_masjid'
+  ) THEN
+    ALTER TABLE class_sections
+      ADD CONSTRAINT uq_class_sections_id_masjid
+      UNIQUE (class_sections_id, class_sections_masjid_id);
+  END IF;
+END$$;
+
+-- ========== FK komposit (jaga konsistensi tenant) ==========
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'fk_ucs_user_class_masjid_pair'
+  ) THEN
+    ALTER TABLE user_class_sections
+      ADD CONSTRAINT fk_ucs_user_class_masjid_pair
+      FOREIGN KEY (user_class_sections_user_class_id, user_class_sections_masjid_id)
+      REFERENCES user_classes (user_classes_id, user_classes_masjid_id)
+      ON UPDATE CASCADE ON DELETE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'fk_ucs_section_masjid_pair'
+  ) THEN
+    ALTER TABLE user_class_sections
+      ADD CONSTRAINT fk_ucs_section_masjid_pair
+      FOREIGN KEY (user_class_sections_section_id, user_class_sections_masjid_id)
+      REFERENCES class_sections (class_sections_id, class_sections_masjid_id)
+      ON UPDATE CASCADE ON DELETE CASCADE;
+  END IF;
+END$$;
 
 
 
--- =========================================================
--- 5) user_tpa_class_invoices (invoice bulanan per enrolment)
---    Aplikasi saat INSERT mengisi invoice_amount_idr:
---    COALESCE(utc_fee_override_monthly_idr, class_fee_monthly_idr, 0)
--- =========================================================
 -- =========================================================
 -- user_class_invoices (invoice bulanan per enrolment)
---    Saat INSERT, isi invoice_amount_idr:
---    COALESCE(uc_fee_override_monthly_idr, class_fee_monthly_idr, 0)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS user_class_invoices (
   invoice_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- enrolment (FK ke user_classes)
-  invoice_uc_id UUID NOT NULL REFERENCES user_classes(uc_id) ON DELETE CASCADE,
+  invoice_user_class_id UUID NOT NULL
+    REFERENCES user_classes(user_classes_id) ON DELETE CASCADE,
 
-  -- periode bulan: format YYYYMM, contoh 202508
   invoice_period_month INT NOT NULL
     CHECK (invoice_period_month BETWEEN 200001 AND 999912),
 
-  -- nominal bulan tersebut (salin tarif efektif saat generate)
   invoice_amount_idr INT NOT NULL CHECK (invoice_amount_idr >= 0),
 
-  -- status sederhana
   invoice_status TEXT NOT NULL DEFAULT 'unpaid'
     CHECK (invoice_status IN ('unpaid','paid','void')),
 
   invoice_due_date DATE,
 
-  -- bukti bayar (opsional, untuk pembayaran lunas)
   invoice_paid_at TIMESTAMP,
   invoice_paid_amount_idr INT CHECK (invoice_paid_amount_idr IS NULL OR invoice_paid_amount_idr >= 0),
-  invoice_payment_method TEXT,  -- 'cash','transfer','qris', dll
+  invoice_payment_method TEXT,
   invoice_payment_ref TEXT,
 
   invoice_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -233,12 +347,11 @@ CREATE TABLE IF NOT EXISTS user_class_invoices (
 );
 
 -- 1 invoice per (enrolment, bulan)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_invoice_uc_period
-  ON user_class_invoices(invoice_uc_id, invoice_period_month);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_invoice_user_class_period
+  ON user_class_invoices(invoice_user_class_id, invoice_period_month);
 
--- Index umum
-CREATE INDEX IF NOT EXISTS idx_invoice_uc
-  ON user_class_invoices(invoice_uc_id);
+CREATE INDEX IF NOT EXISTS idx_invoice_user_class
+  ON user_class_invoices(invoice_user_class_id);
 
 CREATE INDEX IF NOT EXISTS idx_invoice_status
   ON user_class_invoices(invoice_status);
@@ -246,7 +359,6 @@ CREATE INDEX IF NOT EXISTS idx_invoice_status
 CREATE INDEX IF NOT EXISTS idx_invoice_period
   ON user_class_invoices(invoice_period_month);
 
--- Optional: cepat ambil yang belum lunas
 CREATE INDEX IF NOT EXISTS idx_invoice_unpaid_partial
-  ON user_class_invoices(invoice_uc_id, invoice_period_month)
+  ON user_class_invoices(invoice_user_class_id, invoice_period_month)
   WHERE invoice_status = 'unpaid';

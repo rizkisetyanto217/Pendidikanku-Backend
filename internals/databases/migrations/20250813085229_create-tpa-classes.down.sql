@@ -1,19 +1,18 @@
--- 20250813_drop_tpa_tables.down.sql
-BEGIN;
+-- =========================================
+-- DOWN: drop tables in dependency order
+-- =========================================
 
--- 1) Invoices (child)
-DROP TABLE IF EXISTS user_tpa_class_invoices;
+-- 1) Child paling bawah
+DROP TABLE IF EXISTS user_class_invoices;
 
--- 2) Penempatan section (child of user_tpa_classes & tpa_class_sections)
-DROP TABLE IF EXISTS user_tpa_class_sections;
+-- 2) Penempatan siswa per section
+DROP TABLE IF EXISTS user_class_sections;
 
--- 3) Enrolment ke class (child of tpa_classes)
-DROP TABLE IF EXISTS user_tpa_classes;
+-- 3) Enrolment siswa ke class
+DROP TABLE IF EXISTS user_classes;
 
--- 4) Section/rombongan belajar (child of tpa_classes)
-DROP TABLE IF EXISTS tpa_class_sections;
+-- 4) Sections
+DROP TABLE IF EXISTS class_sections;
 
--- 5) Class/level (parent)
-DROP TABLE IF EXISTS tpa_classes;
-
-COMMIT;
+-- 5) Master classes
+DROP TABLE IF EXISTS classes;

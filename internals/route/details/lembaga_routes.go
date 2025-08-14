@@ -3,7 +3,9 @@ package details
 
 import (
 	// ====== Lembaga features ======
-	ClassRoutes "masjidku_backend/internals/features/lembaga/classes/main/route"
+	ClassSectionsRoutes "masjidku_backend/internals/features/lembaga/class_sections/main/route"
+	ClassesRoutes "masjidku_backend/internals/features/lembaga/classes/main/route"
+
 	// Tambahkan import route lain di sini saat modul siap:
 	// SectionRoutes "masjidku_backend/internals/features/lembaga/sections/main/route"
 	// StudentRoutes "masjidku_backend/internals/features/lembaga/students/main/route"
@@ -18,6 +20,8 @@ import (
 /* ===================== PUBLIC ===================== */
 // Endpoint publik (boleh diakses tanpa login, atau pakai SecondAuth untuk optional user)
 func LembagaPublicRoutes(r fiber.Router, db *gorm.DB) {
+	ClassesRoutes.ClassAllRoutes(r, db)
+	ClassSectionsRoutes.ClassSectionAllRoutes(r, db)
 	// Classes (public read)
 	// ClassRoutes.ClassPublicRoutes(r, db)
 
@@ -29,6 +33,7 @@ func LembagaPublicRoutes(r fiber.Router, db *gorm.DB) {
 /* ===================== USER (PRIVATE) ===================== */
 // Endpoint yang butuh login user biasa (token user)
 func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
+	ClassesRoutes.UserClassesStudentRoutes(r, db)
 	// Classes (user actions: enroll, progress, dsb)
 	// ClassRoutes.ClassUserRoutes(r, db)
 
@@ -41,7 +46,8 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 // Endpoint khusus admin lembaga/masjid (token + guard admin)
 func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// Classes (CRUD admin)
-	ClassRoutes.ClassAdminRoutes(r, db)
+	ClassesRoutes.ClassAdminRoutes(r, db)
+	ClassSectionsRoutes.ClassSectionAdminRoutes(r, db)
 
 	// Tambahkan modul lain (admin) di sini:
 	// SectionRoutes.SectionAdminRoutes(r, db)

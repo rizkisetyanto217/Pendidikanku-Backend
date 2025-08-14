@@ -3,6 +3,7 @@ package route
 
 import (
 	classctrl "masjidku_backend/internals/features/lembaga/classes/main/controller"
+
 	masjidkuMiddleware "masjidku_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"
@@ -10,15 +11,29 @@ import (
 )
 
 func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
-	h := classctrl.NewClassController(db)
+	// Controller classes
+	classHandler := classctrl.NewClassController(db)
 
-	// /admin/classes (semua pakai IsMasjidAdmin)
 	classes := admin.Group("/classes", masjidkuMiddleware.IsMasjidAdmin())
+	{
+		classes.Post("/", classHandler.CreateClass)
+		classes.Get("/", classHandler.ListClasses)
+		classes.Get("/slug/:slug", classHandler.GetClassBySlug)
+		classes.Get("/:id", classHandler.GetClassByID)
+		classes.Put("/:id", classHandler.UpdateClass)
+		classes.Delete("/:id", classHandler.SoftDeleteClass)
+	}
 
-	classes.Post("/", h.CreateClass)
-	classes.Get("/", h.ListClasses)
-	classes.Get("/slug/:slug", h.GetClassBySlug)
-	classes.Get("/:id", h.GetClassByID)
-	classes.Put("/:id", h.UpdateClass)
-	classes.Delete("/:id", h.SoftDeleteClass)
+	// Controller user classes
+	userClassHandler := classctrl.NewUserClassController(db)
+
+	userClasses := admin.Group("/user-classes", masjidkuMiddleware.IsMasjidAdmin())
+	{
+		// userClasses.Post("/", userClassHandler.CreateUserClass) 
+		userClasses.Get("/", userClassHandler.ListUserClasses)
+		userClasses.Get("/:id", userClassHandler.GetUserClassByID)
+		userClasses.Put("/:id", userClassHandler.UpdateUserClass)
+		userClasses.Delete("/:id", userClassHandler.EndUserClass)
+		userClasses.Delete("/remove/:id", userClassHandler.DeleteUserClass)
+	}
 }

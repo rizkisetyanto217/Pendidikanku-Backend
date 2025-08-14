@@ -2,9 +2,8 @@
 package dto
 
 import (
-	"time"	
 	"masjidku_backend/internals/features/lembaga/classes/main/model"
-
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -12,15 +11,18 @@ import (
 /* ========== REQUEST DTOs ========== */
 
 // CreateClassRequest: payload saat create
+// internals/features/lembaga/classes/main/dto/class_dto.go
+
 type CreateClassRequest struct {
-	ClassMasjidID      *uuid.UUID `json:"class_masjid_id"`                          // optional
+	ClassMasjidID      *uuid.UUID `json:"class_masjid_id"`
 	ClassName          string     `json:"class_name" validate:"required,min=2,max=120"`
-	ClassSlug          string     `json:"class_slug" validate:"required,min=2,max=160"`
-	ClassDescription   *string    `json:"class_description"`                        // optional
-	ClassLevel         *string    `json:"class_level"`                              // optional
+	ClassSlug          string     `json:"class_slug" validate:"omitempty,min=2,max=160"` // <— was required, now omitempty
+	ClassDescription   *string    `json:"class_description"`
+	ClassLevel         *string    `json:"class_level"`
 	ClassFeeMonthlyIDR *int       `json:"class_fee_monthly_idr" validate:"omitempty,min=0"`
-	ClassIsActive      *bool      `json:"class_is_active"`                          // default true jika nil
+	ClassIsActive      *bool      `json:"class_is_active"`
 }
+
 
 // UpdateClassRequest: payload saat update (partial)
 type UpdateClassRequest struct {

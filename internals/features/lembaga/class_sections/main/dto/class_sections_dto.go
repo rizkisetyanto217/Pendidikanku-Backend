@@ -14,17 +14,16 @@ import (
 /* ===================== Requests ===================== */
 
 type CreateClassSectionRequest struct {
-	// di-controller: paksa tenant dari token jika perlu
 	ClassSectionMasjidID *uuid.UUID      `json:"class_sections_masjid_id" validate:"omitempty"`
 	ClassSectionClassID  uuid.UUID       `json:"class_sections_class_id" validate:"required"`
-	ClassSectionSlug     string          `json:"class_sections_slug" validate:"required,min=1,max=160"`
+	ClassSectionSlug     string          `json:"class_sections_slug" validate:"omitempty,min=1,max=160"` // ⬅️ ganti required -> omitempty
 	ClassSectionName     string          `json:"class_sections_name" validate:"required,min=1,max=100"`
 	ClassSectionCode     *string         `json:"class_sections_code" validate:"omitempty,max=50"`
 	ClassSectionCapacity *int            `json:"class_sections_capacity" validate:"omitempty,gte=0"`
-	ClassSectionSchedule json.RawMessage `json:"class_sections_schedule" validate:"omitempty"` // JSONB
-	// default true jika tidak dikirim
-	ClassSectionIsActive *bool `json:"class_sections_is_active" validate:"omitempty"`
+	ClassSectionSchedule json.RawMessage `json:"class_sections_schedule" validate:"omitempty"`
+	ClassSectionIsActive *bool           `json:"class_sections_is_active" validate:"omitempty"`
 }
+
 
 func (r *CreateClassSectionRequest) ToModel() *model.ClassSectionModel {
 	m := &model.ClassSectionModel{

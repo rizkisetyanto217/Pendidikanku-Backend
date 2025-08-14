@@ -31,6 +31,9 @@ var validate = validator.New()
 /* ================= Handlers ================= */
 
 // POST /admin/classes
+// internals/features/lembaga/classes/main/controller/class_controller.go
+
+// POST /admin/classes
 func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
@@ -41,15 +44,23 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
+
 	// paksa tenant dari token (abaikan masukan klien)
 	req.ClassMasjidID = &masjidID
-	req.ClassSlug = helper.NormalizeSlug(req.ClassSlug)
+
+	// === auto-generate slug ===
+	if strings.TrimSpace(req.ClassSlug) == "" {
+		req.ClassSlug = helper.NormalizeSlug(req.ClassName)
+	} else {
+		req.ClassSlug = helper.NormalizeSlug(req.ClassSlug)
+	}
 
 	if err := validate.Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
 	m := req.ToModel()
+
 	// jaga2: slug unik per sistem (DB sudah ada unique)
 	if err := ctrl.DB.Where("class_slug = ? AND class_deleted_at IS NULL", m.ClassSlug).
 		First(&model.ClassModel{}).Error; err == nil {
@@ -60,8 +71,11 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat data kelas")
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(dto.NewClassResponse(m))
+	// NOTE: pastikan nama helper sesuai (JsonCreated vs JSONCreated). 
+	// Kalau helper kamu bernama JSONCreated, ganti pemanggilan di bawah.
+	return helper.JsonCreated(c, "Kelas berhasil dibuat", dto.NewClassResponse(m))
 }
+
 
 // PUT /admin/classes/:id
 // PUT /admin/classes/:id
@@ -122,7 +136,8 @@ func (ctrl *ClassController) UpdateClass(c *fiber.Ctx) error {
         return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui data")
     }
 
-    return c.JSON(dto.NewClassResponse(&existing))
+	return helper.JsonUpdated(c, "Kelas berhasil diperbarui", dto.NewClassResponse(&existing))
+
 }
 
 // GET /admin/classes/:id
@@ -148,29 +163,9 @@ func (ctrl *ClassController) GetClassByID(c *fiber.Ctx) error {
 	if m.ClassMasjidID == nil || *m.ClassMasjidID != masjidID {
 		return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengakses kelas di masjid lain")
 	}
-	return c.JSON(dto.NewClassResponse(&m))
+	return helper.JsonOK(c, "Data diterima", dto.NewClassResponse(&m))
 }
 
-// GET /admin/classes/slug/:slug
-func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
-	if err != nil {
-		return err
-	}
-	slug := helper.NormalizeSlug(c.Params("slug"))
-
-	var m model.ClassModel
-	if err := ctrl.DB.First(&m, "class_slug = ? AND class_deleted_at IS NULL", slug).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return fiber.NewError(fiber.StatusNotFound, "Kelas tidak ditemukan")
-		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-	if m.ClassMasjidID == nil || *m.ClassMasjidID != masjidID {
-		return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengakses kelas di masjid lain")
-	}
-	return c.JSON(dto.NewClassResponse(&m))
-}
 
 // GET /admin/classes
 func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
@@ -230,7 +225,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	for i := range rows {
 		resp = append(resp, dto.NewClassResponse(&rows[i]))
 	}
-	return c.JSON(resp)
+	return helper.JsonOK(c, "OK", resp)
 }
 
 // DELETE /admin/classes/:id  (soft delete)
@@ -267,5 +262,5 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus data")
 	}
 
-	return c.SendStatus(fiber.StatusNoContent)
+	return helper.JsonDeleted(c, "Kelas berhasil dihapus", fiber.Map{"class_id": m.ClassID})
 }
