@@ -15,6 +15,9 @@ CREATE TABLE IF NOT EXISTS classes (
   class_description TEXT,
   class_level TEXT, -- "TK A", "TK B", "Tahfidz", dst
 
+   -- URL gambar class (opsional)
+  class_image_url TEXT,
+
   -- NULL = gratis; >= 0 = tarif per bulan (IDR)
   class_fee_monthly_idr INT
     CHECK (class_fee_monthly_idr IS NULL OR class_fee_monthly_idr >= 0),
@@ -62,6 +65,8 @@ CREATE TABLE IF NOT EXISTS class_sections (
     REFERENCES masjids(masjid_id) ON DELETE SET NULL,
   class_sections_slug VARCHAR(160) UNIQUE NOT NULL,
 
+  class_sections_teacher_id UUID REFERENCES users(id) ON DELETE SET NULL,
+
   class_sections_name VARCHAR(100) NOT NULL,  -- "A", "B", "Pagi"
   class_sections_code VARCHAR(50),
   class_sections_capacity INT
@@ -91,6 +96,8 @@ CREATE INDEX IF NOT EXISTS idx_sections_created_at
   ON class_sections(class_sections_created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sections_slug 
   ON class_sections(class_sections_slug);
+
+CREATE INDEX IF NOT EXISTS idx_sections_teacher ON class_sections(class_sections_teacher_id);
 
 -- =========================================================
 -- user_classes (enrolment siswa -> class/level)
@@ -126,7 +133,7 @@ CREATE TABLE IF NOT EXISTS user_classes (
   user_classes_status TEXT NOT NULL DEFAULT 'active'
     CHECK (user_classes_status IN ('active','inactive','ended')),
 
-  user_classes_started_at DATE NOT NULL DEFAULT,
+  user_classes_started_at DATE,
   user_classes_ended_at   DATE,
 
   -- ended_at tidak boleh sebelum started_at
@@ -206,9 +213,8 @@ CREATE INDEX IF NOT EXISTS idx_user_classes_masjid_active
 
 
 
-
 -- =========================================================
--- user_class_sections (penempatan siswa ke section)
+-- user_class_sections (penempatan siswa ke section) — NO STATUS
 -- =========================================================
 CREATE TABLE IF NOT EXISTS user_class_sections (
   user_class_sections_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -222,12 +228,11 @@ CREATE TABLE IF NOT EXISTS user_class_sections (
   -- tenant (denormalized untuk filter cepat)
   user_class_sections_masjid_id UUID NOT NULL,
 
-  user_class_sections_status TEXT NOT NULL DEFAULT 'active'
-    CHECK (user_class_sections_status IN ('active','inactive','ended')),
-
   user_class_sections_assigned_at   DATE NOT NULL DEFAULT CURRENT_DATE,
   user_class_sections_unassigned_at DATE,
+
   -- unassign tidak boleh sebelum assign
+  CONSTRAINT chk_ucs_dates
   CHECK (user_class_sections_unassigned_at IS NULL
          OR user_class_sections_unassigned_at >= user_class_sections_assigned_at),
 
@@ -236,11 +241,10 @@ CREATE TABLE IF NOT EXISTS user_class_sections (
 );
 
 -- ========== Unique & Indexes ==========
--- unik: 1 penempatan aktif per enrolment
+-- Unik: hanya 1 placement aktif (unassigned_at NULL) per enrolment
 CREATE UNIQUE INDEX IF NOT EXISTS uq_user_class_sections_active_per_user_class
   ON user_class_sections(user_class_sections_user_class_id)
-  WHERE user_class_sections_status = 'active'
-    AND user_class_sections_unassigned_at IS NULL;
+  WHERE user_class_sections_unassigned_at IS NULL;
 
 -- indeks dasar
 CREATE INDEX IF NOT EXISTS idx_user_class_sections_user_class
@@ -248,9 +252,6 @@ CREATE INDEX IF NOT EXISTS idx_user_class_sections_user_class
 
 CREATE INDEX IF NOT EXISTS idx_user_class_sections_section
   ON user_class_sections(user_class_sections_section_id);
-
-CREATE INDEX IF NOT EXISTS idx_user_class_sections_section_status
-  ON user_class_sections(user_class_sections_section_id, user_class_sections_status);
 
 CREATE INDEX IF NOT EXISTS idx_user_class_sections_assigned_at
   ON user_class_sections(user_class_sections_assigned_at);
@@ -267,11 +268,9 @@ CREATE INDEX IF NOT EXISTS idx_user_class_sections_masjid_active
   ON user_class_sections(user_class_sections_masjid_id,
                          user_class_sections_user_class_id,
                          user_class_sections_section_id)
-  WHERE user_class_sections_status = 'active'
-    AND user_class_sections_unassigned_at IS NULL;
+  WHERE user_class_sections_unassigned_at IS NULL;
 
--- ========== Syarat untuk FK komposit ==========
--- parent: classes/class_sections & user_classes harus punya (id, masjid_id) unik
+-- (Tetap) Syarat untuk FK komposit di parent (kalau belum ada)
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -291,7 +290,7 @@ BEGIN
   END IF;
 END$$;
 
--- ========== FK komposit (jaga konsistensi tenant) ==========
+-- FK komposit (tenant-safe)
 DO $$
 BEGIN
   IF NOT EXISTS (

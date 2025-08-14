@@ -11,28 +11,26 @@ import (
 /* ========== REQUEST DTOs ========== */
 
 // CreateClassRequest: payload saat create
-// internals/features/lembaga/classes/main/dto/class_dto.go
-
 type CreateClassRequest struct {
-	ClassMasjidID      *uuid.UUID `json:"class_masjid_id"`
-	ClassName          string     `json:"class_name" validate:"required,min=2,max=120"`
-	ClassSlug          string     `json:"class_slug" validate:"omitempty,min=2,max=160"` // <— was required, now omitempty
-	ClassDescription   *string    `json:"class_description"`
-	ClassLevel         *string    `json:"class_level"`
-	ClassFeeMonthlyIDR *int       `json:"class_fee_monthly_idr" validate:"omitempty,min=0"`
-	ClassIsActive      *bool      `json:"class_is_active"`
+	ClassMasjidID      *uuid.UUID `json:"class_masjid_id"       form:"class_masjid_id"`
+	ClassName          string     `json:"class_name"            form:"class_name"            validate:"required,min=2,max=120"`
+	ClassSlug          string     `json:"class_slug"            form:"class_slug"            validate:"omitempty,min=2,max=160"`
+	ClassDescription   *string    `json:"class_description"     form:"class_description"`
+	ClassLevel         *string    `json:"class_level"           form:"class_level"`
+	ClassImageURL      *string    `json:"class_image_url"       form:"class_image_url"       validate:"omitempty,url"`
+	ClassFeeMonthlyIDR *int       `json:"class_fee_monthly_idr" form:"class_fee_monthly_idr" validate:"omitempty,min=0"`
+	ClassIsActive      *bool      `json:"class_is_active"       form:"class_is_active"`
 }
 
-
-// UpdateClassRequest: payload saat update (partial)
 type UpdateClassRequest struct {
-	ClassMasjidID      *uuid.UUID `json:"class_masjid_id"`                          // optional
-	ClassName          *string    `json:"class_name" validate:"omitempty,min=2,max=120"`
-	ClassSlug          *string    `json:"class_slug" validate:"omitempty,min=2,max=160"`
-	ClassDescription   *string    `json:"class_description"`                        // optional
-	ClassLevel         *string    `json:"class_level"`                              // optional
-	ClassFeeMonthlyIDR *int       `json:"class_fee_monthly_idr" validate:"omitempty,min=0"`
-	ClassIsActive      *bool      `json:"class_is_active"`
+	ClassMasjidID      *uuid.UUID `json:"class_masjid_id"       form:"class_masjid_id"`
+	ClassName          *string    `json:"class_name"            form:"class_name"            validate:"omitempty,min=2,max=120"`
+	ClassSlug          *string    `json:"class_slug"            form:"class_slug"            validate:"omitempty,min=2,max=160"`
+	ClassDescription   *string    `json:"class_description"     form:"class_description"`
+	ClassLevel         *string    `json:"class_level"           form:"class_level"`
+	ClassImageURL      *string    `json:"class_image_url"       form:"class_image_url"       validate:"omitempty,url"`
+	ClassFeeMonthlyIDR *int       `json:"class_fee_monthly_idr" form:"class_fee_monthly_idr" validate:"omitempty,min=0"`
+	ClassIsActive      *bool      `json:"class_is_active"       form:"class_is_active"`
 }
 
 /* ========== RESPONSE DTO ========== */
@@ -45,6 +43,7 @@ type ClassResponse struct {
 	ClassSlug          string     `json:"class_slug"`
 	ClassDescription   *string    `json:"class_description,omitempty"`
 	ClassLevel         *string    `json:"class_level,omitempty"`
+	ClassImageURL      *string    `json:"class_image_url,omitempty"`
 	ClassFeeMonthlyIDR *int       `json:"class_fee_monthly_idr,omitempty"`
 	ClassIsActive      bool       `json:"class_is_active"`
 
@@ -60,7 +59,7 @@ type ListClassQuery struct {
 	Search     *string    `query:"search"`     // /classes?search=tahfidz (match name/level)
 	Limit      int        `query:"limit" validate:"omitempty,min=1,max=200"`
 	Offset     int        `query:"offset" validate:"omitempty,min=0"`
-	Sort       *string    `query:"sort"`       // e.g. "created_at_desc", "name_asc"
+	Sort       *string    `query:"sort"` // e.g. "created_at_desc", "name_asc"
 }
 
 /* ========== HELPER: KONVERSI MODEL <-> DTO ========== */
@@ -76,6 +75,7 @@ func NewClassResponse(m *model.ClassModel) *ClassResponse {
 		ClassSlug:          m.ClassSlug,
 		ClassDescription:   m.ClassDescription,
 		ClassLevel:         m.ClassLevel,
+		ClassImageURL:      m.ClassImageURL,
 		ClassFeeMonthlyIDR: m.ClassFeeMonthlyIDR,
 		ClassIsActive:      m.ClassIsActive,
 		ClassCreatedAt:     m.ClassCreatedAt,
@@ -92,6 +92,7 @@ func (r *CreateClassRequest) ToModel() *model.ClassModel {
 		ClassSlug:          r.ClassSlug,
 		ClassDescription:   r.ClassDescription,
 		ClassLevel:         r.ClassLevel,
+		ClassImageURL:      r.ClassImageURL,
 		ClassFeeMonthlyIDR: r.ClassFeeMonthlyIDR,
 		ClassIsActive:      true, // default
 		ClassCreatedAt:     now,
@@ -120,9 +121,12 @@ func (r *UpdateClassRequest) ApplyToModel(m *model.ClassModel) {
 	if r.ClassLevel != nil {
 		m.ClassLevel = r.ClassLevel
 	}
+	if r.ClassImageURL != nil {
+		// boleh nil untuk clear image
+		m.ClassImageURL = r.ClassImageURL
+	}
 	if r.ClassFeeMonthlyIDR != nil {
-		// boleh nil? di UpdateDTO sudah pointer; kalau ingin clear ke NULL,
-		// kirimkan explicit null dari client dan handle di controller.
+		// boleh nil -> kirim explicit null dari client bila ingin clear
 		m.ClassFeeMonthlyIDR = r.ClassFeeMonthlyIDR
 	}
 	if r.ClassIsActive != nil {

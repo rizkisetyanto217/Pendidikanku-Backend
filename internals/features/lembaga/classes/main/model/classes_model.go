@@ -17,6 +17,8 @@ type ClassModel struct {
 	ClassDescription     *string    `json:"class_description,omitempty" gorm:"column:class_description;type:text"`
 	ClassLevel           *string    `json:"class_level,omitempty" gorm:"column:class_level;type:text"`
 
+	ClassImageURL        *string    `json:"class_image_url,omitempty" gorm:"column:class_image_url;type:text"`
+
 	// NULL = gratis; >= 0 = tarif per bulan (IDR)
 	ClassFeeMonthlyIDR   *int       `json:"class_fee_monthly_idr,omitempty" gorm:"column:class_fee_monthly_idr"`
 

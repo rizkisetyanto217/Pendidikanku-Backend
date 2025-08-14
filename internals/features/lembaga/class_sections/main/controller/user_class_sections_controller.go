@@ -59,7 +59,7 @@ func (h *UserClassSectionController) ensureParentsBelongToMasjid(userClassID, se
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi section")
 		}
-		if sec.MasjidID == nil || *sec.MasjidID != masjidID {
+		if sec.ClassSectionsMasjidID == nil || *sec.ClassSectionsMasjidID != masjidID {
 			return fiber.NewError(fiber.StatusForbidden, "Section bukan milik masjid Anda")
 		}
 	}
@@ -83,7 +83,7 @@ func (h *UserClassSectionController) findUCSWithTenantGuard(ucsID, masjidID uuid
 func (h *UserClassSectionController) ensureSingleActivePerUserClass(userClassID, excludeID uuid.UUID) error {
 	var cnt int64
 	tx := h.DB.Model(&secModel.UserClassSectionsModel{}).
-		Where("user_class_sections_user_class_id = ? AND user_class_sections_status = 'active' AND user_class_sections_unassigned_at IS NULL",
+		Where("user_class_sections_user_class_id = ? AND user_class_sections_unassigned_at IS NULL",
 			userClassID)
 	if excludeID != uuid.Nil {
 		tx = tx.Where("user_class_sections_id <> ?", excludeID)
@@ -144,6 +144,7 @@ func (h *UserClassSectionController) CreateUserClassSection(c *fiber.Ctx) error 
 }
 
 // PUT /admin/user-class-sections/:id
+// UpdateUserClassSection: tanpa kolom status, aktif = unassigned_at IS NULL
 func (h *UserClassSectionController) UpdateUserClassSection(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
@@ -170,7 +171,7 @@ func (h *UserClassSectionController) UpdateUserClassSection(c *fiber.Ctx) error 
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// Jika mengganti parent, guard tenantnya
+	// --- Guard parent (user_class_id & section_id) tetap dalam tenant yang sama ---
 	targetUserClassID := existing.UserClassSectionsUserClassID
 	if req.UserClassSectionsUserClassID != nil {
 		targetUserClassID = *req.UserClassSectionsUserClassID
@@ -185,24 +186,20 @@ func (h *UserClassSectionController) UpdateUserClassSection(c *fiber.Ctx) error 
 		}
 	}
 
-	// Hitung status/unassigned target untuk cek unik aktif
-	targetStatus := existing.UserClassSectionsStatus
-	if req.UserClassSectionsStatus != nil {
-		targetStatus = *req.UserClassSectionsStatus
-	}
+	// --- Tentukan target unassigned_at (NULL = aktif) ---
 	targetUnassigned := existing.UserClassSectionsUnassignedAt
 	if req.UserClassSectionsUnassignedAt != nil {
 		targetUnassigned = req.UserClassSectionsUnassignedAt
 	}
 
-	// Jika akan menjadi aktif & belum di-unassign, pastikan tidak duplikat aktif
-	if strings.EqualFold(targetStatus, secModel.UserClassSectionStatusActive) && targetUnassigned == nil {
+	// --- Jika akan menjadi AKTIF (unassigned_at == NULL) pastikan tidak ada duplikat aktif ---
+	if targetUnassigned == nil {
 		if err := h.ensureSingleActivePerUserClass(targetUserClassID, existing.UserClassSectionsID); err != nil {
 			return err
 		}
 	}
 
-	// apply & save
+	// --- Apply & Save ---
 	req.ApplyToModel(existing)
 	if err := h.DB.Model(&secModel.UserClassSectionsModel{}).
 		Where("user_class_sections_id = ?", existing.UserClassSectionsID).
@@ -212,6 +209,7 @@ func (h *UserClassSectionController) UpdateUserClassSection(c *fiber.Ctx) error 
 
 	return helper.JsonUpdated(c, "Penempatan section berhasil diperbarui", ucsDTO.NewUserClassSectionResponse(existing))
 }
+
 
 // GET /admin/user-class-sections/:id
 func (h *UserClassSectionController) GetUserClassSectionByID(c *fiber.Ctx) error {
@@ -238,28 +236,49 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 	}
 
 	var q ucsDTO.ListUserClassSectionQuery
-	q.Limit = 20
-	q.Offset = 0
+	// default pagination
+	q.Limit, q.Offset = 20, 0
+
 	if err := c.QueryParser(&q); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
+	}
+	if q.Limit <= 0 || q.Limit > 200 {
+		q.Limit = 20
+	}
+	if q.Offset < 0 {
+		q.Offset = 0
 	}
 
 	tx := h.DB.Model(&secModel.UserClassSectionsModel{}).
 		Where("user_class_sections_masjid_id = ?", masjidID)
 
+	// Filter opsional
 	if q.UserClassID != nil {
 		tx = tx.Where("user_class_sections_user_class_id = ?", *q.UserClassID)
 	}
 	if q.SectionID != nil {
 		tx = tx.Where("user_class_sections_section_id = ?", *q.SectionID)
 	}
-	if q.Status != nil && strings.TrimSpace(*q.Status) != "" {
-		tx = tx.Where("user_class_sections_status = ?", strings.TrimSpace(*q.Status))
-	}
-	if q.ActiveOnly != nil && *q.ActiveOnly {
-		tx = tx.Where("user_class_sections_status = 'active' AND user_class_sections_unassigned_at IS NULL")
+
+	// (Compat) Jika q.Status diisi, map ke unassigned_at:
+	//   active   -> unassigned_at IS NULL
+	//   inactive -> unassigned_at IS NOT NULL
+	if q.Status != nil {
+		status := strings.ToLower(strings.TrimSpace(*q.Status))
+		switch status {
+		case "active":
+			tx = tx.Where("user_class_sections_unassigned_at IS NULL")
+		case "inactive":
+			tx = tx.Where("user_class_sections_unassigned_at IS NOT NULL")
+		}
 	}
 
+	// ActiveOnly: hanya yang masih "aktif" (belum di-unassign)
+	if q.ActiveOnly != nil && *q.ActiveOnly {
+		tx = tx.Where("user_class_sections_unassigned_at IS NULL")
+	}
+
+	// Sorting
 	sort := "assigned_at_desc"
 	if q.Sort != nil {
 		sort = strings.ToLower(strings.TrimSpace(*q.Sort))
@@ -275,18 +294,16 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 		tx = tx.Order("user_class_sections_assigned_at DESC")
 	}
 
-	if q.Limit > 0 {
-		tx = tx.Limit(q.Limit)
-	}
-	if q.Offset > 0 {
-		tx = tx.Offset(q.Offset)
-	}
+	// Pagination
+	tx = tx.Limit(q.Limit).Offset(q.Offset)
 
+	// Eksekusi
 	var rows []secModel.UserClassSectionsModel
 	if err := tx.Find(&rows).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
+	// Response
 	resp := make([]*ucsDTO.UserClassSectionResponse, 0, len(rows))
 	for i := range rows {
 		resp = append(resp, ucsDTO.NewUserClassSectionResponse(&rows[i]))
@@ -294,12 +311,14 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "OK", resp)
 }
 
+
 // POST /admin/user-class-sections/:id/end  -> unassign/akhiri penempatan
 func (h *UserClassSectionController) EndUserClassSection(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
+
 	ucsID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
@@ -310,12 +329,18 @@ func (h *UserClassSectionController) EndUserClassSection(c *fiber.Ctx) error {
 		return err
 	}
 
+	// Idempotent: jika sudah diakhiri, beri pesan jelas
+	if m.UserClassSectionsUnassignedAt != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Penempatan sudah diakhiri sebelumnya")
+	}
+
 	now := time.Now()
 	updates := map[string]any{
-		"user_class_sections_status":       secModel.UserClassSectionStatusEnded,
+		// status dihapus — cukup set unassigned_at sebagai penanda sudah diakhiri
 		"user_class_sections_unassigned_at": now,
 		"user_class_sections_updated_at":    now,
 	}
+
 	if err := h.DB.Model(&secModel.UserClassSectionsModel{}).
 		Where("user_class_sections_id = ?", m.UserClassSectionsID).
 		Updates(updates).Error; err != nil {
@@ -324,30 +349,32 @@ func (h *UserClassSectionController) EndUserClassSection(c *fiber.Ctx) error {
 
 	return helper.JsonUpdated(c, "Penempatan diakhiri", fiber.Map{
 		"user_class_sections_id":            m.UserClassSectionsID,
-		"user_class_sections_status":        secModel.UserClassSectionStatusEnded,
 		"user_class_sections_unassigned_at": now,
+		"is_active":                         false, // kompas kompatibilitas: aktif = unassigned_at == NULL
 	})
 }
 
-// DELETE /admin/user-class-sections/:id  (hard delete dgn guard aman)
+
+// DELETE /admin/user-class-sections/:id  (hard delete dengan guard aman)
 func (h *UserClassSectionController) DeleteUserClassSection(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
+
 	ucsID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
+	// Pastikan record milik tenant yang sama
 	m, err := h.findUCSWithTenantGuard(ucsID, masjidID)
 	if err != nil {
 		return err
 	}
 
-	// Larang hapus jika masih aktif & belum di-unassign
-	if strings.EqualFold(m.UserClassSectionsStatus, secModel.UserClassSectionStatusActive) &&
-		m.UserClassSectionsUnassignedAt == nil {
+	// Larang hapus jika masih aktif (aktif = unassigned_at IS NULL)
+	if m.UserClassSectionsUnassignedAt == nil {
 		return fiber.NewError(fiber.StatusConflict, "Penempatan masih aktif, akhiri terlebih dahulu")
 	}
 

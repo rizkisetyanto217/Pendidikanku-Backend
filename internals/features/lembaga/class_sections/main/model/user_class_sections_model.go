@@ -19,7 +19,6 @@ type UserClassSectionsModel struct {
 	UserClassSectionsSectionID uuid.UUID  `json:"user_class_sections_section_id"  gorm:"type:uuid;not null;column:user_class_sections_section_id"`
 	UserClassSectionsMasjidID  uuid.UUID  `json:"user_class_sections_masjid_id"   gorm:"type:uuid;not null;column:user_class_sections_masjid_id"`
 
-	UserClassSectionsStatus    string     `json:"user_class_sections_status"      gorm:"type:text;not null;default:'active';column:user_class_sections_status"`
 	UserClassSectionsAssignedAt time.Time  `json:"user_class_sections_assigned_at" gorm:"type:date;not null;column:user_class_sections_assigned_at"`
 	UserClassSectionsUnassignedAt *time.Time `json:"user_class_sections_unassigned_at,omitempty" gorm:"type:date;column:user_class_sections_unassigned_at"`
 

@@ -1,11 +1,13 @@
 package service
 
 import (
+	"os"
 	"strings"
 	"time"
 
 	googleAuthIDTokenVerifier "github.com/futurenda/google-auth-id-token-verifier"
 	"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v4"
 	"gorm.io/gorm"
 
 	"masjidku_backend/internals/configs"
@@ -58,6 +60,7 @@ func Register(db *gorm.DB, c *fiber.Ctx) error {
 }
 
 // ========================== LOGIN ==========================
+// ========================== LOGIN ==========================
 func Login(db *gorm.DB, c *fiber.Ctx) error {
 	var input struct {
 		Identifier string `json:"identifier"`
@@ -71,43 +74,128 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.Error(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// 🔍 Ambil data minimal (id, password, is_active)
+	// 🔍 Minimal user (id, password, is_active)
 	userLight, err := authRepo.FindUserByEmailOrUsernameLight(db, input.Identifier)
 	if err != nil {
 		return helpers.Error(c, fiber.StatusUnauthorized, "Identifier atau Password salah")
 	}
-
 	if !userLight.IsActive {
 		return helpers.Error(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan. Hubungi admin.")
 	}
-
 	if err := authHelper.CheckPasswordHash(userLight.Password, input.Password); err != nil {
 		return helpers.Error(c, fiber.StatusUnauthorized, "Identifier atau Password salah")
 	}
 
-	// 🔄 Ambil data lengkap user
+	// 🔄 Full user
 	userFull, err := authRepo.FindUserByID(db, userLight.ID)
 	if err != nil {
 		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data user")
 	}
 
-	// Ambil daftar masjid_id yang dimiliki user jika role DKM
-	var masjidIDs []string
-	if userFull.Role == "dkm" {
+	// =========================================================
+	// Kumpulkan masjid_admin_ids & masjid_teacher_ids
+	// =========================================================
+	adminSet := map[string]struct{}{}
+	teacherSet := map[string]struct{}{}
+
+	// 1) Admin/DKM → masjid_admins
+	{
 		var adminMasjids []model.MasjidAdminModel
 		if err := db.
 			Where("masjid_admins_user_id = ? AND masjid_admins_is_active = true", userFull.ID).
 			Find(&adminMasjids).Error; err != nil {
 			return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data masjid admin")
 		}
-
 		for _, m := range adminMasjids {
-			masjidIDs = append(masjidIDs, m.MasjidID.String())
+			adminSet[m.MasjidID.String()] = struct{}{}
 		}
 	}
 
-	return issueTokens(c, db, *userFull, masjidIDs)
+	// 2) Teacher → masjid_teachers
+	{
+		var teacherRows []model.MasjidTeacher
+		if err := db.
+			Where("masjid_teachers_user_id = ?", userFull.ID).
+			Find(&teacherRows).Error; err != nil {
+			return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data masjid guru")
+		}
+		for _, t := range teacherRows {
+			teacherSet[t.MasjidTeachersMasjidID] = struct{}{}
+		}
+	}
+
+	// Build slices
+	masjidAdminIDs := make([]string, 0, len(adminSet))
+	for id := range adminSet { masjidAdminIDs = append(masjidAdminIDs, id) }
+
+	masjidTeacherIDs := make([]string, 0, len(teacherSet))
+	for id := range teacherSet { masjidTeacherIDs = append(masjidTeacherIDs, id) }
+
+	// Union → masjid_ids
+	unionSet := map[string]struct{}{}
+	for id := range adminSet { unionSet[id] = struct{}{} }
+	for id := range teacherSet { unionSet[id] = struct{}{} }
+	masjidIDs := make([]string, 0, len(unionSet))
+	for id := range unionSet { masjidIDs = append(masjidIDs, id) }
+
+	// 🎫 Issue tokens (ubah fungsi agar terima 3 list)
+	return issueTokensWithRoles(c, db, *userFull, masjidAdminIDs, masjidTeacherIDs, masjidIDs)
 }
+
+
+func issueTokensWithRoles(
+	c *fiber.Ctx,
+	db *gorm.DB,
+	user userModel.UserModel,
+	masjidAdminIDs []string,
+	masjidTeacherIDs []string,
+	masjidIDs []string,
+) error {
+	claims := jwt.MapClaims{
+		"id":                 user.ID,
+		"user_name":          user.UserName,
+		"role":               user.Role,
+		"masjid_admin_ids":   masjidAdminIDs,
+		"masjid_teacher_ids": masjidTeacherIDs,
+		"masjid_ids":         masjidIDs,
+		"exp":                time.Now().Add(24 * time.Hour).Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+	// 🔑 Ambil dari ENV
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return helpers.Error(c, fiber.StatusInternalServerError, "JWT_SECRET belum diset")
+	}
+
+	accessToken, err := token.SignedString([]byte(secret)) // ✅ hilangkan config.*
+	if err != nil {
+		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal membuat token")
+	}
+
+	resp := fiber.Map{
+		"code":    200,
+		"status":  "success",
+		"message": "Login berhasil",
+		"data": fiber.Map{
+			"access_token": accessToken,
+			"user": fiber.Map{
+				"id":                 user.ID,
+				"user_name":          user.UserName,
+				"email":              user.Email,
+				"role":               user.Role,
+				"masjid_admin_ids":   masjidAdminIDs,
+				"masjid_teacher_ids": masjidTeacherIDs,
+				"masjid_ids":         masjidIDs,
+			},
+		},
+	}
+	return c.Status(fiber.StatusOK).JSON(resp)
+}
+
+
+
 
 // ========================== LOGIN GOOGLE ==========================
 func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {

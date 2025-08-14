@@ -24,7 +24,7 @@ func (ctrl *ClassSectionController) GetClassSectionBySlug(c *fiber.Ctx) error {
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
-	if m.MasjidID == nil || *m.MasjidID != masjidID {
+	if m.ClassSectionsMasjidID == nil || *m.ClassSectionsMasjidID != masjidID {
 		return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengakses section milik masjid lain")
 	}
 	return helper.JsonOK(c, "OK", secDTO.NewClassSectionResponse(&m))

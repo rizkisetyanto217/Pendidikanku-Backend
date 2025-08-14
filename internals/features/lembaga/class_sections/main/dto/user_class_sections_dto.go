@@ -24,15 +24,11 @@ func (r *CreateUserClassSectionRequest) ToModel() *ucsModel.UserClassSectionsMod
 	m := &ucsModel.UserClassSectionsModel{
 		UserClassSectionsUserClassID: r.UserClassSectionsUserClassID,
 		UserClassSectionsSectionID:   r.UserClassSectionsSectionID,
-		UserClassSectionsStatus:      ucsModel.UserClassSectionStatusActive, // default
 		UserClassSectionsMasjidID:    uuid.Nil,
 	}
 
 	if r.UserClassSectionsMasjidID != nil {
 		m.UserClassSectionsMasjidID = *r.UserClassSectionsMasjidID
-	}
-	if r.UserClassSectionsStatus != nil && *r.UserClassSectionsStatus != "" {
-		m.UserClassSectionsStatus = *r.UserClassSectionsStatus
 	}
 
 	// AssignedAt default: today/now (DB juga default CURRENT_DATE, tapi set di app untuk konsistensi)
@@ -67,9 +63,6 @@ func (r *UpdateUserClassSectionRequest) ApplyToModel(m *ucsModel.UserClassSectio
 	}
 	if r.UserClassSectionsMasjidID != nil {
 		m.UserClassSectionsMasjidID = *r.UserClassSectionsMasjidID
-	}
-	if r.UserClassSectionsStatus != nil {
-		m.UserClassSectionsStatus = *r.UserClassSectionsStatus
 	}
 	if r.UserClassSectionsAssignedAt != nil {
 		m.UserClassSectionsAssignedAt = *r.UserClassSectionsAssignedAt
@@ -121,7 +114,6 @@ func NewUserClassSectionResponse(m *ucsModel.UserClassSectionsModel) *UserClassS
 		UserClassSectionsSectionID:    m.UserClassSectionsSectionID,
 		UserClassSectionsMasjidID:     m.UserClassSectionsMasjidID,
 
-		UserClassSectionsStatus:       m.UserClassSectionsStatus,
 		UserClassSectionsAssignedAt:   m.UserClassSectionsAssignedAt,
 		UserClassSectionsUnassignedAt: m.UserClassSectionsUnassignedAt,
 
