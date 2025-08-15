@@ -49,9 +49,9 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 
 	// === AUTO SLUG ===
 	if strings.TrimSpace(req.ClassSectionsSlug) == "" {
-		req.ClassSectionsSlug = helper.NormalizeSlug(req.ClassSectionsName)
+		req.ClassSectionsSlug = helper.GenerateSlug(req.ClassSectionsName)
 	} else {
-		req.ClassSectionsSlug = helper.NormalizeSlug(req.ClassSectionsSlug)
+		req.ClassSectionsSlug = helper.GenerateSlug(req.ClassSectionsSlug)
 	}
 	if req.ClassSectionsSlug == "" {
 		req.ClassSectionsSlug = "section-" + uuid.NewString()[:8]
@@ -141,13 +141,13 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 
 	// Normalisasi slug bila dikirim; atau auto dari name bila name dikirim
 	if req.ClassSectionsSlug != nil {
-		s := helper.NormalizeSlug(*req.ClassSectionsSlug)
+		s := helper.GenerateSlug(*req.ClassSectionsSlug)
 		if s == "" {
 			s = "section-" + uuid.NewString()[:8]
 		}
 		req.ClassSectionsSlug = &s
 	} else if req.ClassSectionsName != nil {
-		s := helper.NormalizeSlug(*req.ClassSectionsName)
+		s := helper.GenerateSlug(*req.ClassSectionsName)
 		if s == "" {
 			s = "section-" + uuid.NewString()[:8]
 		}

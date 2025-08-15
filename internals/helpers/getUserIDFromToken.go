@@ -46,10 +46,3 @@ func GetUserIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
 	}
 }
 
-// simple slug normalizer (optional, sesuaikan dgn kebutuhanmu)
-func NormalizeSlug(s string) string {
-	s = strings.TrimSpace(strings.ToLower(s))
-	s = strings.ReplaceAll(s, " ", "-")
-	s = strings.ReplaceAll(s, "--", "-")
-	return s
-}

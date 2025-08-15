@@ -50,9 +50,9 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 
 	// === Auto-generate slug ===
 	if strings.TrimSpace(req.ClassSlug) == "" {
-		req.ClassSlug = helper.NormalizeSlug(req.ClassName)
+		req.ClassSlug = helper.GenerateSlug(req.ClassName)
 	} else {
-		req.ClassSlug = helper.NormalizeSlug(req.ClassSlug)
+		req.ClassSlug = helper.GenerateSlug(req.ClassSlug)
 	}
 
 	// Validasi DTO
@@ -143,10 +143,10 @@ func (ctrl *ClassController) UpdateClass(c *fiber.Ctx) error {
 
 	// --- Normalize slug/name ---
 	if req.ClassSlug != nil {
-		s := helper.NormalizeSlug(*req.ClassSlug)
+		s := helper.GenerateSlug(*req.ClassSlug)
 		req.ClassSlug = &s
 	} else if req.ClassName != nil { // regen slug dari name jika slug tidak dikirim
-		s := helper.NormalizeSlug(*req.ClassName)
+		s := helper.GenerateSlug(*req.ClassName)
 		req.ClassSlug = &s
 	}
 

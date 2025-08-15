@@ -15,7 +15,7 @@ func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	slug := helper.NormalizeSlug(c.Params("slug"))
+	slug := helper.GenerateSlug(c.Params("slug"))
 
 	var m model.ClassModel
 	if err := ctrl.DB.First(&m, "class_slug = ? AND class_deleted_at IS NULL", slug).Error; err != nil {
