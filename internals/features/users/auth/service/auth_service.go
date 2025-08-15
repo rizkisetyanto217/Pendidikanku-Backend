@@ -198,6 +198,7 @@ func issueTokensWithRoles(
 
 
 // ========================== LOGIN GOOGLE ==========================
+// ========================== LOGIN GOOGLE ==========================
 func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 	var input struct {
 		IDToken string `json:"id_token"`
@@ -217,7 +218,6 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 	if err != nil {
 		return helpers.Error(c, fiber.StatusInternalServerError, "Failed to decode ID Token")
 	}
-
 	email, name, googleID := claimSet.Email, claimSet.Name, claimSet.Sub
 
 	// 🔍 Cek apakah user sudah terdaftar dengan google_id
@@ -227,15 +227,15 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 		newUser := userModel.UserModel{
 			UserName:         name,
 			Email:            email,
-			Password:         generateDummyPassword(), // dummy password
+			Password:         generateDummyPassword(), // dummy password (hash sesuai implementasi)
 			GoogleID:         &googleID,
 			Role:             "user",
 			SecurityQuestion: "Created by Google",
 			SecurityAnswer:   "google_auth",
 			CreatedAt:        time.Now(),
 			UpdatedAt:        time.Now(),
+			IsActive:         true,
 		}
-
 		if err := authRepo.CreateUser(db, &newUser); err != nil {
 			if strings.Contains(err.Error(), "duplicate key") {
 				return helpers.Error(c, fiber.StatusBadRequest, "Email already registered")
@@ -243,15 +243,71 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 			return helpers.Error(c, fiber.StatusInternalServerError, "Failed to create Google user")
 		}
 
-		// ✅ Buat user_progress dan user_profile
-		_ = progressUserService.CreateInitialUserProgress(db, newUser.ID)
-		userProfileService.CreateInitialUserProfile(db, newUser.ID)
+		if err := progressUserService.CreateInitialUserProgress(db, newUser.ID); err != nil {
+    	// optional logging
+		}
+		userProfileService.CreateInitialUserProfile(db, newUser.ID) // <- void, cukup panggil
 
 		user = &newUser
 	}
 
-	// 🎟️ Buat access + refresh token
-	return issueTokens(c, db, *user, nil)
+	// 🔄 Ambil data user full (guard is_active, field lainnya)
+	userFull, err := authRepo.FindUserByID(db, user.ID)
+	if err != nil {
+		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data user")
+	}
+	if !userFull.IsActive {
+		return helpers.Error(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan. Hubungi admin.")
+	}
+
+	// =========================================================
+	// Kumpulkan masjid_admin_ids & masjid_teacher_ids
+	// =========================================================
+	adminSet := map[string]struct{}{}
+	teacherSet := map[string]struct{}{}
+
+	// 1) Admin/DKM → masjid_admins
+	{
+		var adminMasjids []model.MasjidAdminModel
+		if err := db.
+			Where("masjid_admins_user_id = ? AND masjid_admins_is_active = true", userFull.ID).
+			Find(&adminMasjids).Error; err != nil {
+			return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data masjid admin")
+		}
+		for _, m := range adminMasjids {
+			adminSet[m.MasjidID.String()] = struct{}{}
+		}
+	}
+
+	// 2) Teacher → masjid_teachers
+	{
+		var teacherRows []model.MasjidTeacher
+		if err := db.
+			Where("masjid_teachers_user_id = ?", userFull.ID).
+			Find(&teacherRows).Error; err != nil {
+			return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data masjid guru")
+		}
+		for _, t := range teacherRows {
+			teacherSet[t.MasjidTeachersMasjidID] = struct{}{}
+		}
+	}
+
+	// Build slices
+	masjidAdminIDs := make([]string, 0, len(adminSet))
+	for id := range adminSet { masjidAdminIDs = append(masjidAdminIDs, id) }
+
+	masjidTeacherIDs := make([]string, 0, len(teacherSet))
+	for id := range teacherSet { masjidTeacherIDs = append(masjidTeacherIDs, id) }
+
+	// Union → masjid_ids
+	unionSet := map[string]struct{}{}
+	for id := range adminSet { unionSet[id] = struct{}{} }
+	for id := range teacherSet { unionSet[id] = struct{}{} }
+	masjidIDs := make([]string, 0, len(unionSet))
+	for id := range unionSet { masjidIDs = append(masjidIDs, id) }
+
+	// 🎫 Issue tokens (pakai fungsi yang sama dengan login biasa)
+	return issueTokensWithRoles(c, db, *userFull, masjidAdminIDs, masjidTeacherIDs, masjidIDs)
 }
 
 

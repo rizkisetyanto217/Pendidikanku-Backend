@@ -12,15 +12,21 @@ import (
 	ucDTO "masjidku_backend/internals/features/lembaga/classes/main/dto"
 	classModel "masjidku_backend/internals/features/lembaga/classes/main/model"
 	helper "masjidku_backend/internals/helpers"
+
+	statsSvc "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/service"
 )
 
 type UserClassController struct {
 	DB *gorm.DB
+	Stats *statsSvc.LembagaStatsService
+
 }
 
 func NewUserClassController(db *gorm.DB) *UserClassController {
-	return &UserClassController{DB: db}
-}
+	return &UserClassController{
+        DB:    db,
+        Stats: statsSvc.NewLembagaStatsService(),
+    }}
 
 var validateUserClasses = validator.New()
 
@@ -78,6 +84,8 @@ func (h *UserClassController) checkActiveEnrollmentConflict(userID, classID, exc
 }
 
 
+// internals/features/lembaga/classes/user_classes/main/controller/user_class_controller.go
+
 func (h *UserClassController) UpdateUserClass(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
@@ -89,7 +97,7 @@ func (h *UserClassController) UpdateUserClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// Ambil enrolment + tenant guard
+	// Ambil enrolment + tenant guard (pakai DB biasa dulu untuk fetch awal)
 	existing, err := h.findUserClassWithTenantGuard(ucID, masjidID)
 	if err != nil {
 		return err
@@ -103,65 +111,98 @@ func (h *UserClassController) UpdateUserClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// Jika class diganti, pastikan class milik masjid yang sama
-	targetClass := existing.UserClassesClassID
-	if req.UserClassesClassID != nil {
-		if err := h.ensureClassBelongsToMasjid(*req.UserClassesClassID, masjidID); err != nil {
-			return err
+	// ==== Mulai transaksi agar update enrolment & stats atomik ====
+	return h.DB.Transaction(func(tx *gorm.DB) error {
+		// Jika class diganti, pastikan class milik masjid yang sama
+		targetClass := existing.UserClassesClassID
+		if req.UserClassesClassID != nil {
+			if err := h.ensureClassBelongsToMasjid(*req.UserClassesClassID, masjidID); err != nil {
+				return err
+			}
+			targetClass = *req.UserClassesClassID
 		}
-		targetClass = *req.UserClassesClassID
-	}
 
-	// Hitung status/ended_at target (untuk validasi unik enrolment aktif)
-	status := existing.UserClassesStatus
-	if req.UserClassesStatus != nil {
-		status = *req.UserClassesStatus
-	}
-	endedAt := existing.UserClassesEndedAt
-	if req.UserClassesEndedAt != nil {
-		endedAt = req.UserClassesEndedAt
-	}
-
-	// Jika akan menjadi "aktif" tanpa ended_at, pastikan tidak duplikat enrolment aktif
-	if strings.EqualFold(status, classModel.UserClassStatusActive) && endedAt == nil {
-		targetUser := existing.UserClassesUserID
-		if req.UserClassesUserID != nil {
-			targetUser = *req.UserClassesUserID
+		// Hitung status/ended_at target (untuk validasi unik enrolment aktif)
+		status := existing.UserClassesStatus
+		if req.UserClassesStatus != nil {
+			status = *req.UserClassesStatus
 		}
-		if err := h.checkActiveEnrollmentConflict(targetUser, targetClass, existing.UserClassesID, masjidID); err != nil {
-			return err
+		endedAt := existing.UserClassesEndedAt
+		if req.UserClassesEndedAt != nil {
+			endedAt = req.UserClassesEndedAt
 		}
-	}
 
-	// ===== Aturan started_at =====
-	// 1) Jangan izinkan payload mengubah started_at langsung
-	req.UserClassesStartedAt = nil
+		// Jika akan menjadi "aktif" tanpa ended_at, pastikan tidak duplikat enrolment aktif
+		if strings.EqualFold(status, classModel.UserClassStatusActive) && endedAt == nil {
+			targetUser := existing.UserClassesUserID
+			if req.UserClassesUserID != nil {
+				targetUser = *req.UserClassesUserID
+			}
+			if err := h.checkActiveEnrollmentConflict(targetUser, targetClass, existing.UserClassesID, masjidID); err != nil {
+				return err
+			}
+		}
 
-	// 2) Jika TRANSISI: non-aktif -> aktif, dan sebelumnya started_at masih kosong, isi sekarang
-	shouldSetStart := false
-	var startAt time.Time
-	if existing.UserClassesStatus != classModel.UserClassStatusActive &&
-		strings.EqualFold(status, classModel.UserClassStatusActive) &&
-		existing.UserClassesStartedAt == nil {
-		startAt = time.Now()
-		shouldSetStart = true
-	}
+		// ===== Aturan started_at =====
+		// 1) Jangan izinkan payload mengubah started_at langsung
+		req.UserClassesStartedAt = nil
 
-	// Terapkan perubahan lain & simpan
-	req.ApplyToModel(existing)
-	if shouldSetStart {
-		existing.UserClassesStartedAt = &startAt
-	}
+		// 2) Jika TRANSISI: non-aktif -> aktif, dan sebelumnya started_at masih kosong, isi sekarang
+		shouldSetStart := false
+		var startAt time.Time
+		if existing.UserClassesStatus != classModel.UserClassStatusActive &&
+			strings.EqualFold(status, classModel.UserClassStatusActive) &&
+			existing.UserClassesStartedAt == nil {
+			startAt = time.Now()
+			shouldSetStart = true
+		}
 
-	if err := h.DB.Model(&classModel.UserClassesModel{}).
-		Where("user_classes_id = ?", existing.UserClassesID).
-		Updates(existing).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui enrolment")
-	}
+		// --- Deteksi state aktif sebelum update ---
+		wasActive := isActive(existing.UserClassesStatus, existing.UserClassesEndedAt)
 
-	return helper.JsonUpdated(c, "Enrolment berhasil diperbarui", ucDTO.NewUserClassResponse(existing))
+		// Terapkan perubahan lain
+		req.ApplyToModel(existing)
+		if shouldSetStart {
+			existing.UserClassesStartedAt = &startAt
+		}
+
+		// Simpan enrolment memakai tx (bukan h.DB)
+		if err := tx.Model(&classModel.UserClassesModel{}).
+			Where("user_classes_id = ?", existing.UserClassesID).
+			Updates(existing).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui enrolment")
+		}
+
+		// --- Deteksi state aktif sesudah update ---
+		nowActive := isActive(existing.UserClassesStatus, existing.UserClassesEndedAt)
+
+		// Jika ada perubahan state aktif/non-aktif → update stats
+		delta := 0
+		if !wasActive && nowActive {
+			delta = +1
+		} else if wasActive && !nowActive {
+			delta = -1
+		}
+
+		if delta != 0 {
+			// Pastikan baris stats ada
+			if err := h.Stats.EnsureForMasjid(tx, masjidID); err != nil {
+				return err
+			}
+			// Update counter students atomik dalam transaksi
+			if err := h.Stats.IncActiveStudents(tx, masjidID, delta); err != nil {
+				return err
+			}
+		}
+
+		return helper.JsonUpdated(c, "Enrolment berhasil diperbarui", ucDTO.NewUserClassResponse(existing))
+	})
 }
 
+// helper kecil
+func isActive(status string, endedAt *time.Time) bool {
+	return strings.EqualFold(status, classModel.UserClassStatusActive) && endedAt == nil
+}
 
 
 func (h *UserClassController) GetUserClassByID(c *fiber.Ctx) error {
@@ -244,42 +285,58 @@ func (h *UserClassController) ListUserClasses(c *fiber.Ctx) error {
     return helper.JsonOK(c, "OK", resp)
 }
 
-
 func (h *UserClassController) EndUserClass(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
-	if err != nil {
-		return err
-	}
+    masjidID, err := helper.GetMasjidIDFromToken(c)
+    if err != nil {
+        return err
+    }
 
-	ucID, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
-	}
+    ucID, err := uuid.Parse(c.Params("id"))
+    if err != nil {
+        return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+    }
 
-	// Ambil enrolment + tenant guard (fungsi helper yg sudah kita buat sebelumnya)
-	m, err := h.findUserClassWithTenantGuard(ucID, masjidID)
-	if err != nil {
-		return err
-	}
+    // Tenant guard
+    m, err := h.findUserClassWithTenantGuard(ucID, masjidID)
+    if err != nil {
+        return err
+    }
 
-	now := time.Now()
-	updates := map[string]any{
-		"user_classes_status":     classModel.UserClassStatusEnded,
-		"user_classes_ended_at":   now,
-		"user_classes_updated_at": now,
-	}
+    // Jalankan atomik
+    return h.DB.Transaction(func(tx *gorm.DB) error {
+        // Cek state sebelum update
+        wasActive := isActive(m.UserClassesStatus, m.UserClassesEndedAt)
 
-	if err := h.DB.Model(&classModel.UserClassesModel{}).
-		Where("user_classes_id = ?", m.UserClassesID).
-		Updates(updates).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengakhiri enrolment")
-	}
+        now := time.Now()
+        updates := map[string]any{
+            "user_classes_status":     classModel.UserClassStatusEnded,
+            "user_classes_ended_at":   now,
+            "user_classes_updated_at": now,
+        }
 
-	return helper.JsonUpdated(c, "Enrolment diakhiri", fiber.Map{
-		"user_classes_id":     m.UserClassesID,
-		"user_classes_status": classModel.UserClassStatusEnded,
-		"user_classes_ended_at": now,
-	})
+        if err := tx.Model(&classModel.UserClassesModel{}).
+            Where("user_classes_id = ?", m.UserClassesID).
+            Updates(updates).Error; err != nil {
+            return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengakhiri enrolment")
+        }
+
+        // Jika sebelumnya aktif → sekarang tidak aktif ⇒ decrement
+        if wasActive {
+            if err := h.Stats.EnsureForMasjid(tx, masjidID); err != nil {
+                return err
+            }
+            if err := h.Stats.IncActiveStudents(tx, masjidID, -1); err != nil {
+                return err
+            }
+        }
+
+        // Balas setelah sukses
+        return helper.JsonUpdated(c, "Enrolment diakhiri", fiber.Map{
+            "user_classes_id":       m.UserClassesID,
+            "user_classes_status":   classModel.UserClassStatusEnded,
+            "user_classes_ended_at": now,
+        })
+    })
 }
 
 

@@ -1,54 +1,87 @@
 package controller
 
 import (
+	"errors"
 	"log"
 	"masjidku_backend/internals/features/masjids/masjid_admins_teachers/dto"
 	"masjidku_backend/internals/features/masjids/masjid_admins_teachers/model"
 	helper "masjidku_backend/internals/helpers"
 	"time"
 
+	statsSvc "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/service"
+
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type MasjidTeacherController struct {
-	DB *gorm.DB
+	DB    *gorm.DB
+	Stats *statsSvc.LembagaStatsService
 }
 
 func NewMasjidTeacherController(db *gorm.DB) *MasjidTeacherController {
-	return &MasjidTeacherController{DB: db}
+	return &MasjidTeacherController{
+		DB:    db,
+		Stats: statsSvc.NewLembagaStatsService(),
+	}
 }
-
 func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 	var body dto.CreateMasjidTeacherRequest
 	if err := c.BodyParser(&body); err != nil {
 		return helper.Error(c, fiber.StatusBadRequest, "Invalid request")
 	}
-
 	if err := validator.New().Struct(body); err != nil {
 		return helper.ValidationError(c, err)
 	}
 
-	// ✅ Ambil masjid_id dari context, diset oleh middleware IsMasjidAdmin
-	masjidID, ok := c.Locals("masjid_id").(string)
-	if !ok || masjidID == "" {
+	masjidIDStr, ok := c.Locals("masjid_id").(string)
+	if !ok || masjidIDStr == "" {
 		return helper.Error(c, fiber.StatusBadRequest, "Masjid ID tidak ditemukan atau tidak valid")
 	}
-
-	// ✅ Simpan data berdasarkan masjid yang tervalidasi
-	data := model.MasjidTeacher{
-		MasjidTeachersMasjidID: masjidID,
-		MasjidTeachersUserID:   body.MasjidTeachersUserID,
+	masjidUUID, err := uuid.Parse(masjidIDStr)
+	if err != nil {
+		return helper.Error(c, fiber.StatusBadRequest, "Masjid ID tidak valid (UUID)")
 	}
 
-	if err := ctrl.DB.Create(&data).Error; err != nil {
-		log.Println("[ERROR] Failed to insert teacher:", err)
-		return helper.Error(c, fiber.StatusInternalServerError, "Gagal menambahkan pengajar")
-	}
+	return ctrl.DB.Transaction(func(tx *gorm.DB) error {
+		// Cek duplikasi (idempotent behavior)
+		var exists int64
+		if err := tx.Model(&model.MasjidTeacher{}).
+			Where("masjid_teachers_masjid_id = ? AND masjid_teachers_user_id = ?", masjidIDStr, body.MasjidTeachersUserID).
+			Count(&exists).Error; err != nil {
+			return helper.Error(c, fiber.StatusInternalServerError, "Gagal validasi pengajar")
+		}
+		if exists > 0 {
+			// Sudah terdaftar → kembalikan 409 supaya tak menggandakan counter
+			return helper.Error(c, fiber.StatusConflict, "Pengajar sudah terdaftar")
+		}
 
-	return helper.Success(c, "Pengajar berhasil ditambahkan", dto.ToMasjidTeacherResponse(dto.MasjidTeacher(data)))
+		// Insert
+		data := model.MasjidTeacher{
+			MasjidTeachersMasjidID: masjidIDStr,
+			MasjidTeachersUserID:   body.MasjidTeachersUserID,
+		}
+		if err := tx.Create(&data).Error; err != nil {
+			return helper.Error(c, fiber.StatusInternalServerError, "Gagal menambahkan pengajar")
+		}
+
+		// Pastikan baris stats ada, lalu increment guru aktif
+		if err := ctrl.Stats.EnsureForMasjid(tx, masjidUUID); err != nil {
+			return helper.Error(c, fiber.StatusInternalServerError, "Gagal memastikan baris statistik")
+		}
+		if err := ctrl.Stats.IncActiveTeachers(tx, masjidUUID, +1); err != nil {
+			return helper.Error(c, fiber.StatusInternalServerError, "Gagal memperbarui statistik guru")
+		}
+
+		return helper.Success(c, "Pengajar berhasil ditambahkan",
+			dto.ToMasjidTeacherResponse(dto.MasjidTeacher(data)),
+		)
+	})
 }
+
 
 
 func (ctrl *MasjidTeacherController) GetByMasjid(c *fiber.Ctx) error {
@@ -84,27 +117,55 @@ func (ctrl *MasjidTeacherController) GetByMasjid(c *fiber.Ctx) error {
 }
 
 
+
 func (ctrl *MasjidTeacherController) Delete(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if id == "" {
 		return helper.Error(c, fiber.StatusBadRequest, "ID tidak boleh kosong")
 	}
 
-	masjidID, ok := c.Locals("masjid_id").(string)
-	if !ok || masjidID == "" {
+	masjidIDStr, ok := c.Locals("masjid_id").(string)
+	if !ok || masjidIDStr == "" {
 		return helper.Error(c, fiber.StatusBadRequest, "Masjid ID tidak ditemukan")
 	}
-
-	// 🔐 Validasi apakah teacher ini benar-benar milik masjid tersebut
-	var teacher model.MasjidTeacher
-	if err := ctrl.DB.First(&teacher, "masjid_teachers_id = ? AND masjid_teachers_masjid_id = ?", id, masjidID).Error; err != nil {
-		return helper.Error(c, fiber.StatusNotFound, "Pengajar tidak ditemukan atau bukan milik masjid kamu")
+	masjidUUID, err := uuid.Parse(masjidIDStr)
+	if err != nil {
+		return helper.Error(c, fiber.StatusBadRequest, "Masjid ID tidak valid (UUID)")
 	}
 
-	if err := ctrl.DB.Delete(&teacher).Error; err != nil {
-		log.Println("[ERROR] Failed to delete masjid teacher:", err)
-		return helper.Error(c, fiber.StatusInternalServerError, "Gagal menghapus pengajar")
-	}
+	return ctrl.DB.Transaction(func(tx *gorm.DB) error {
+		// Ambil row milik tenant (lock opsional untuk keamanan concurrent)
+		var teacher model.MasjidTeacher
+		if err := tx.
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			First(&teacher, "masjid_teachers_id = ? AND masjid_teachers_masjid_id = ?", id, masjidIDStr).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.Error(c, fiber.StatusNotFound, "Pengajar tidak ditemukan atau bukan milik masjid kamu")
+			}
+			return helper.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data pengajar")
+		}
 
-	return helper.Success(c, "Pengajar berhasil dihapus", nil)
+		// Hapus
+		res := tx.Where("masjid_teachers_id = ?", teacher.MasjidTeachersID).
+			Delete(&model.MasjidTeacher{})
+		if res.Error != nil {
+			log.Println("[ERROR] Failed to delete masjid teacher:", res.Error)
+			return helper.Error(c, fiber.StatusInternalServerError, "Gagal menghapus pengajar")
+		}
+
+		// Jika benar-benar terhapus → decrement statistik guru aktif
+		if res.RowsAffected > 0 {
+			// Pastikan baris stats ada dulu
+			if err := ctrl.Stats.EnsureForMasjid(tx, masjidUUID); err != nil {
+				return helper.Error(c, fiber.StatusInternalServerError, "Gagal memastikan baris statistik")
+			}
+			if err := ctrl.Stats.IncActiveTeachers(tx, masjidUUID, -1); err != nil {
+				return helper.Error(c, fiber.StatusInternalServerError, "Gagal memperbarui statistik guru")
+			}
+		}
+
+		return helper.JsonDeleted(c, "Pengajar berhasil dihapus", fiber.Map{
+			"masjid_teachers_id": id,
+		})
+	})
 }

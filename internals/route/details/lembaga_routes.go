@@ -6,6 +6,7 @@ import (
 	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/main/route"
 	ClassSectionsRoutes "masjidku_backend/internals/features/lembaga/class_sections/main/route"
 	ClassesRoutes "masjidku_backend/internals/features/lembaga/classes/main/route"
+	LembagaStatsRoutes "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/route"
 
 	// Tambahkan import route lain di sini saat modul siap:
 	// SectionRoutes "masjidku_backend/internals/features/lembaga/sections/main/route"
@@ -23,6 +24,7 @@ import (
 func LembagaPublicRoutes(r fiber.Router, db *gorm.DB) {
 	ClassesRoutes.ClassAllRoutes(r, db)
 	ClassSectionsRoutes.ClassSectionAllRoutes(r, db)
+	LembagaStatsRoutes.LembagaStatsAllRoutes(r, db)
 	// Classes (public read)
 	// ClassRoutes.ClassPublicRoutes(r, db)
 	// Tambahkan modul lain (public) di sini:
@@ -50,6 +52,7 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	ClassesRoutes.ClassAdminRoutes(r, db)
 	ClassSectionsRoutes.ClassSectionAdminRoutes(r, db)
 	ClassAttendanceSessionsRoutes.ClassAttendanceSessionsTeacherRoutes(r, db)
+	LembagaStatsRoutes.LembagaStatsAdminRoutes(r, db)
 
 	// Tambahkan modul lain (admin) di sini:
 	// SectionRoutes.SectionAdminRoutes(r, db)

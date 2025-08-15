@@ -1,0 +1,1 @@
+DROP DOWN TABLE IF EXISTS lembaga_stats;
