@@ -14,6 +14,8 @@ import (
 
 	ucsDTO "masjidku_backend/internals/features/lembaga/class_sections/main/dto"
 
+	semstats "masjidku_backend/internals/features/lembaga/stats/semester_stats/service"
+
 	// untuk validasi parent (cek tenant & eksistensi)
 	secModel "masjidku_backend/internals/features/lembaga/class_sections/main/model"
 	ucModel "masjidku_backend/internals/features/lembaga/classes/main/model"
@@ -98,8 +100,7 @@ func (h *UserClassSectionController) ensureSingleActivePerUserClass(userClassID,
 }
 
 /* =============== Handlers (ADMIN) =============== */
-
-// POST /admin/user-class-sections
+ // POST /admin/user-class-sections
 func (h *UserClassSectionController) CreateUserClassSection(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
@@ -110,38 +111,71 @@ func (h *UserClassSectionController) CreateUserClassSection(c *fiber.Ctx) error 
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
-
-	// force tenant dari token
 	req.UserClassSectionsMasjidID = &masjidID
 
+	// Validasi & guard tenant
 	if err := validateUCS.Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
-
-	// Guard parent tenant
 	if err := h.ensureParentsBelongToMasjid(req.UserClassSectionsUserClassID, req.UserClassSectionsSectionID, masjidID); err != nil {
 		return err
 	}
 
-	// Jika status aktif (default aktif) & belum di-unassign, pastikan tidak ada yg aktif lain
+	// Pastikan hanya satu penempatan ACTIVE per user_class (kalau status = active & belum di-unassign)
 	targetStatus := secModel.UserClassSectionStatusActive
 	if req.UserClassSectionsStatus != nil && strings.TrimSpace(*req.UserClassSectionsStatus) != "" {
 		targetStatus = strings.TrimSpace(*req.UserClassSectionsStatus)
 	}
-	if strings.EqualFold(targetStatus, secModel.UserClassSectionStatusActive) &&
-		(req.UserClassSectionsUnassignedAt == nil) {
+	if strings.EqualFold(targetStatus, secModel.UserClassSectionStatusActive) && (req.UserClassSectionsUnassignedAt == nil) {
 		if err := h.ensureSingleActivePerUserClass(req.UserClassSectionsUserClassID, uuid.Nil); err != nil {
 			return err
 		}
 	}
 
-	m := req.ToModel()
-	if err := h.DB.Create(m).Error; err != nil {
+	// ===== TRANSACTION START =====
+	tx := h.DB.Begin()
+	if tx.Error != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, tx.Error.Error())
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			panic(r)
+		}
+	}()
+
+	// Simpan penempatan section
+	m := req.ToModel() // biasanya return *UserClassSectionsModel
+	if err := tx.Create(m).Error; err != nil {
+		tx.Rollback()
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat penempatan section")
 	}
 
+	// Gunakan assigned_at sebagai anchor utk menentukan semester kalender
+	anchor := m.UserClassSectionsAssignedAt
+
+	// Upsert 1 baris semester stats (idempotent via ON CONFLICT DO NOTHING)
+	semSvc := semstats.NewSemesterStatsService()
+	if err := semSvc.EnsureSemesterStatsForUserClassWithAnchor(
+		tx,
+		masjidID,
+		req.UserClassSectionsUserClassID,
+		req.UserClassSectionsSectionID,
+		anchor,
+	); err != nil {
+		tx.Rollback()
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal inisialisasi semester stats: "+err.Error())
+	}
+
+	// Commit
+	if err := tx.Commit().Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	// ===== TRANSACTION END =====
+
 	return helper.JsonCreated(c, "Penempatan section berhasil dibuat", ucsDTO.NewUserClassSectionResponse(m))
 }
+
 
 // PUT /admin/user-class-sections/:id
 // UpdateUserClassSection: tanpa kolom status, aktif = unassigned_at IS NULL

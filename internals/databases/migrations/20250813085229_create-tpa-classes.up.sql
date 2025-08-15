@@ -116,6 +116,11 @@ BEGIN
   END IF;
 END$$;
 
+
+-- 
+-- 
+-- 
+
 CREATE TABLE IF NOT EXISTS user_classes (
   user_classes_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
