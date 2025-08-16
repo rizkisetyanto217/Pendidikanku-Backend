@@ -1,7 +1,7 @@
 package route
 
 import (
-	donationController "masjidku_backend/internals/features/donations/donations/controller"
+	donationController "masjidku_backend/internals/features/payment/donations/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

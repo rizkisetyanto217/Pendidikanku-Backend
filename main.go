@@ -17,7 +17,7 @@ import (
 
 	"masjidku_backend/internals/configs"
 	database "masjidku_backend/internals/databases"
-	"masjidku_backend/internals/features/donations/donations/service"
+	"masjidku_backend/internals/features/payment/donations/service"
 	scheduler "masjidku_backend/internals/features/users/auth/scheduler"
 	middlewares "masjidku_backend/internals/middlewares"
 	routes "masjidku_backend/internals/route"

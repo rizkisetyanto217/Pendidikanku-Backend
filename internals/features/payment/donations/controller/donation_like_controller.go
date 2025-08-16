@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"masjidku_backend/internals/features/donations/donations/dto"
-	"masjidku_backend/internals/features/donations/donations/model"
+	"masjidku_backend/internals/features/payment/donations/dto"
+	"masjidku_backend/internals/features/payment/donations/model"
 
 	helpers "masjidku_backend/internals/helpers"
 )

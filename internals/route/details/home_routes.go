@@ -1,7 +1,6 @@
 package details
 
 import (
-	DonationRoutes "masjidku_backend/internals/features/donations/donations/routes"
 	AdviceRoutes "masjidku_backend/internals/features/home/advices/route"
 	ArticleRoutes "masjidku_backend/internals/features/home/articles/route"
 	FaqRoutes "masjidku_backend/internals/features/home/faqs/route"
@@ -9,7 +8,9 @@ import (
 	PostRoutes "masjidku_backend/internals/features/home/posts/route"
 	QouteRoutes "masjidku_backend/internals/features/home/qoutes/route"
 	QuestionnaireRoutes "masjidku_backend/internals/features/home/questionnaires/route"
+	DonationRoutes "masjidku_backend/internals/features/payment/donations/routes"
 
+	SPPRoutes "masjidku_backend/internals/features/payment/spp/routes"
 	DBMiddleware "masjidku_backend/internals/middlewares"
 
 	"github.com/gofiber/fiber/v2"
@@ -50,4 +51,5 @@ func HomeAdminRoutes(api fiber.Router, db *gorm.DB) {
 	QuestionnaireRoutes.QuestionnaireQuestionAdminRoutes(api, db)
 	QouteRoutes.QuoteAdminRoutes(api, db)
 	DonationRoutes.DonationAdminRoutes(api, db)
+	SPPRoutes.SppBillingAdminRoutes(api, db)
 }

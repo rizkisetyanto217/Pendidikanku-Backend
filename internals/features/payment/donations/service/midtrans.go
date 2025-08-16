@@ -1,7 +1,7 @@
 package service
 
 import (
-	"masjidku_backend/internals/features/donations/donations/model"
+	"masjidku_backend/internals/features/payment/donations/model"
 
 	midtrans "github.com/midtrans/midtrans-go"
 	"github.com/midtrans/midtrans-go/snap"

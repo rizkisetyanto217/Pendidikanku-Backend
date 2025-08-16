@@ -9,7 +9,7 @@ import (
 
 	"gorm.io/gorm"
 
-	donationModel "masjidku_backend/internals/features/donations/donations/model"
+	donationModel "masjidku_backend/internals/features/payment/donations/model"
 )
 
 // HandleDonationStatusWebhook dipanggil saat menerima notifikasi dari Midtrans
