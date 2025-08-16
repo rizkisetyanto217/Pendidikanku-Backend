@@ -13,6 +13,7 @@ import (
 	"masjidku_backend/internals/configs"
 	"masjidku_backend/internals/features/masjids/masjid_admins_teachers/model"
 	authHelper "masjidku_backend/internals/features/users/auth/helper"
+	authModel "masjidku_backend/internals/features/users/auth/model"
 	authRepo "masjidku_backend/internals/features/users/auth/repository"
 	userModel "masjidku_backend/internals/features/users/user/model"
 	helpers "masjidku_backend/internals/helpers"
@@ -143,6 +144,8 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 }
 
 
+
+
 func issueTokensWithRoles(
 	c *fiber.Ctx,
 	db *gorm.DB,
@@ -151,35 +154,91 @@ func issueTokensWithRoles(
 	masjidTeacherIDs []string,
 	masjidIDs []string,
 ) error {
-	claims := jwt.MapClaims{
+	const (
+		accessTTL  = 24 * time.Hour       // sesuaikan
+		refreshTTL = 7 * 24 * time.Hour   // sesuaikan
+	)
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		return helpers.Error(c, fiber.StatusInternalServerError, "JWT_SECRET belum diset")
+	}
+	refreshSecret := configs.JWTRefreshSecret
+	if refreshSecret == "" {
+		return helpers.Error(c, fiber.StatusInternalServerError, "JWT_REFRESH_SECRET belum diset")
+	}
+
+	now := time.Now()
+
+	// ---------- ACCESS TOKEN ----------
+	accessClaims := jwt.MapClaims{
 		"id":                 user.ID,
 		"user_name":          user.UserName,
 		"role":               user.Role,
 		"masjid_admin_ids":   masjidAdminIDs,
 		"masjid_teacher_ids": masjidTeacherIDs,
 		"masjid_ids":         masjidIDs,
-		"exp":                time.Now().Add(24 * time.Hour).Unix(),
+		"iat":                now.Unix(),
+		"exp":                now.Add(accessTTL).Unix(),
 	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-
-	// 🔑 Ambil dari ENV
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		return helpers.Error(c, fiber.StatusInternalServerError, "JWT_SECRET belum diset")
-	}
-
-	accessToken, err := token.SignedString([]byte(secret)) // ✅ hilangkan config.*
+	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).
+		SignedString([]byte(jwtSecret))
 	if err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal membuat token")
+		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal membuat access token")
 	}
 
-	resp := fiber.Map{
+	// ---------- REFRESH TOKEN ----------
+	refreshClaims := jwt.MapClaims{
+		"id":  user.ID,
+		"typ": "refresh",
+		"iat": now.Unix(),
+		"exp": now.Add(refreshTTL).Unix(),
+	}
+	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).
+		SignedString([]byte(refreshSecret))
+	if err != nil {
+		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal membuat refresh token")
+	}
+
+	// Simpan/rotasi refresh token di DB
+	if err := authRepo.CreateRefreshToken(db, &authModel.RefreshToken{
+		UserID:    user.ID,
+		Token:     refreshToken,
+		ExpiresAt: now.Add(refreshTTL),
+	}); err != nil {
+		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal menyimpan refresh token")
+	}
+
+	// ---------- SET COOKIES ----------
+	// Catatan: untuk cross-site, butuh CORS allow-credentials + origin spesifik di server.
+	c.Cookie(&fiber.Cookie{
+		Name:     "access_token",
+		Value:    accessToken,
+		HTTPOnly: true,
+		Secure:   true,
+		SameSite: "None",
+		Expires:  now.Add(accessTTL),
+		// Optional: Domain: ".masjidku.org",
+		// Optional: Path: "/",
+	})
+	c.Cookie(&fiber.Cookie{
+		Name:     "refresh_token",
+		Value:    refreshToken,
+		HTTPOnly: true,
+		Secure:   true,
+		SameSite: "None",
+		Expires:  now.Add(refreshTTL),
+		// Optional: Domain: ".masjidku.org",
+		// Optional: Path: "/",
+	})
+
+	// ---------- RESPONSE (konsisten) ----------
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"code":    200,
 		"status":  "success",
 		"message": "Login berhasil",
 		"data": fiber.Map{
-			"access_token": accessToken,
+			"access_token": accessToken, // memudahkan Postman/mobile
 			"user": fiber.Map{
 				"id":                 user.ID,
 				"user_name":          user.UserName,
@@ -190,10 +249,8 @@ func issueTokensWithRoles(
 				"masjid_ids":         masjidIDs,
 			},
 		},
-	}
-	return c.Status(fiber.StatusOK).JSON(resp)
+	})
 }
-
 
 
 
@@ -351,4 +408,39 @@ func Logout(db *gorm.DB, c *fiber.Ctx) error {
 	})
 
 	return helpers.Success(c, "Logout successful", nil)
+}
+
+
+
+func generateDummyPassword() string {
+	hash, _ := authHelper.HashPassword("RandomDummyPassword123!")
+	return hash
+}
+
+func CheckSecurityAnswer(db *gorm.DB, c *fiber.Ctx) error {
+	var input struct {
+		Email  string `json:"email"`
+		Answer string `json:"security_answer"`
+	}
+
+	if err := c.BodyParser(&input); err != nil {
+		return helpers.Error(c, fiber.StatusBadRequest, "Invalid request format")
+	}
+
+	if err := authHelper.ValidateSecurityAnswerInput(input.Email, input.Answer); err != nil {
+		return helpers.Error(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	user, err := authRepo.FindUserByEmail(db, input.Email)
+	if err != nil {
+		return helpers.Error(c, fiber.StatusNotFound, "User not found")
+	}
+
+	if strings.TrimSpace(input.Answer) != strings.TrimSpace(user.SecurityAnswer) {
+		return helpers.Error(c, fiber.StatusBadRequest, "Incorrect security answer")
+	}
+
+	return helpers.Success(c, "Security answer correct", fiber.Map{
+		"email": user.Email,
+	})
 }

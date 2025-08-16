@@ -1,207 +1,117 @@
 package service
 
+// ======== Tambah import model admin/teacher jika belum ========
 import (
-	"log"
-	"strings"
+	"masjidku_backend/internals/configs"
+	matModel "masjidku_backend/internals/features/masjids/masjid_admins_teachers/model"
+	authRepo "masjidku_backend/internals/features/users/auth/repository"
+	helpers "masjidku_backend/internals/helpers"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-
-	"masjidku_backend/internals/configs"
-	authHelper "masjidku_backend/internals/features/users/auth/helper"
-	authModel "masjidku_backend/internals/features/users/auth/model"
-	authRepo "masjidku_backend/internals/features/users/auth/repository"
-	userModel "masjidku_backend/internals/features/users/user/model"
-	helpers "masjidku_backend/internals/helpers"
 )
 
 // ========================== REFRESH TOKEN ==========================
 func RefreshToken(db *gorm.DB, c *fiber.Ctx) error {
-	// 1️⃣ Ambil refresh_token dari cookie (default)
+	// 1) Ambil refresh token dari cookie atau body
 	refreshToken := c.Cookies("refresh_token")
-
-	// 2️⃣ Atau fallback ke body JSON jika tidak ada di cookie
 	if refreshToken == "" {
-		var payload struct {
-			RefreshToken string `json:"refresh_token"`
-		}
+		var payload struct{ RefreshToken string `json:"refresh_token"` }
 		if err := c.BodyParser(&payload); err != nil || payload.RefreshToken == "" {
 			return helpers.Error(c, fiber.StatusUnauthorized, "No refresh token provided")
 		}
 		refreshToken = payload.RefreshToken
 	}
 
-	// 🔍 Cek token ada di database
+	// 2) Pastikan token ada di DB (valid & belum dicabut)
 	rt, err := authRepo.FindRefreshToken(db, refreshToken)
 	if err != nil {
 		return helpers.Error(c, fiber.StatusUnauthorized, "Invalid or expired refresh token")
 	}
 
-	// 🧠 Validasi isi refresh token secara manual
+	// 3) Parse + cek expiry
 	claims := jwt.MapClaims{}
 	parser := jwt.Parser{SkipClaimsValidation: true}
-	_, err = parser.ParseWithClaims(refreshToken, claims, func(token *jwt.Token) (interface{}, error) {
+	if _, err := parser.ParseWithClaims(refreshToken, claims, func(t *jwt.Token) (interface{}, error) {
 		return []byte(configs.JWTRefreshSecret), nil
-	})
-	if err != nil {
-		log.Println("[ERROR] Failed to parse refresh token:", err)
+	}); err != nil {
 		return helpers.Error(c, fiber.StatusUnauthorized, "Malformed refresh token")
 	}
-
-	exp, ok := claims["exp"].(float64)
-	if !ok {
-		return helpers.Error(c, fiber.StatusUnauthorized, "Refresh token missing expiration")
-	}
-	if time.Now().After(time.Unix(int64(exp), 0)) {
+	exp, _ := claims["exp"].(float64)
+	if time.Now().Unix() >= int64(exp) {
 		return helpers.Error(c, fiber.StatusUnauthorized, "Refresh token expired")
 	}
 
-	// 🧑‍💼 Cek status aktif user sebelum lanjut
-	var userStatus struct {
-		IsActive bool
-	}
-	if err := db.Table("users").Select("is_active").Where("id = ?", rt.UserID).First(&userStatus).Error; err != nil {
-		return helpers.Error(c, fiber.StatusUnauthorized, "User not found")
-	}
-	if !userStatus.IsActive {
-		return helpers.Error(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan")
-	}
-
-	// Jika aktif, baru ambil user lengkap untuk issueTokens
+	// 4) Pastikan user masih aktif
 	user, err := authRepo.FindUserByID(db, rt.UserID)
 	if err != nil {
 		return helpers.Error(c, fiber.StatusUnauthorized, "User not found")
 	}
+	if !user.IsActive {
+		return helpers.Error(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan")
+	}
 
-	// 🔁 Kembalikan access_token baru + refresh_token baru
-	return issueTokens(c, db, *user, nil)
+	// 5) Kumpulkan ulang semua masjid IDs
+	adminIDs, teacherIDs, unionIDs, err := collectMasjidIDs(db, user.ID)
+	if err != nil {
+		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data masjid user")
+	}
+
+	// 6) ROTATE: hapus refresh token lama agar tidak bisa dipakai ulang
+	_ = authRepo.DeleteRefreshToken(db, refreshToken)
+
+	// 7) Keluarkan pasangan token baru dengan bentuk response yang SAMA
+	return issueTokensWithRoles(c, db, *user, adminIDs, teacherIDs, unionIDs)
 }
 
-// ========================== ISSUE TOKEN ==========================
-func issueTokens(c *fiber.Ctx, db *gorm.DB, user userModel.UserModel, masjidIDs []string) error {
-	const (
-		accessTokenDuration  = 3600 * time.Minute
-		refreshTokenDuration = 7 * 24 * time.Hour
-	)
+// ========================== HELPER: kumpulkan masjid IDs ==========================
+func collectMasjidIDs(db *gorm.DB, userID uuid.UUID) (adminIDs []string, teacherIDs []string, unionIDs []string, err error) {
+	adminSet := map[string]struct{}{}
+	teacherSet := map[string]struct{}{}
 
-	// Generate Tokens
-	accessToken, accessExp, err := generateToken(user, db, configs.JWTSecret, accessTokenDuration)
-	if err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal membuat access token")
+	// Admin/DKM
+	var adminRows []matModel.MasjidAdminModel
+	if err = db.
+		Where("masjid_admins_user_id = ? AND masjid_admins_is_active = true", userID).
+		Find(&adminRows).Error; err != nil {
+		return
 	}
-	refreshToken, refreshExp, err := generateToken(user, db, configs.JWTRefreshSecret, refreshTokenDuration)
-	if err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal membuat refresh token")
-	}
-
-	// Simpan Refresh Token ke DB
-	rt := authModel.RefreshToken{
-		UserID:    user.ID,
-		Token:     refreshToken,
-		ExpiresAt: refreshExp,
-	}
-	if err := authRepo.CreateRefreshToken(db, &rt); err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal menyimpan refresh token")
+	for _, r := range adminRows {
+		adminSet[r.MasjidID.String()] = struct{}{}
 	}
 
-	// Simpan ke Cookie (HttpOnly)
-	c.Cookie(&fiber.Cookie{
-		Name:     "access_token",
-		Value:    accessToken,
-		HTTPOnly: true,
-		Secure:   true,
-		SameSite: "None",
-		Expires:  accessExp,
-	})
-	c.Cookie(&fiber.Cookie{
-		Name:     "refresh_token",
-		Value:    refreshToken,
-		HTTPOnly: true,
-		Secure:   true,
-		SameSite: "None",
-		Expires:  refreshExp,
-	})
-
-	// ✅ Response JSON (Token di-include untuk Postman/Flutter)
-	return helpers.Success(c, "Login berhasil", fiber.Map{
-		"access_token":     accessToken,      // untuk Postman / Flutter
-		// "access_exp_unix":  accessExp.Unix(), // opsional untuk client-side timer
-		// "refresh_exp_unix": refreshExp.Unix(),
-		"user": fiber.Map{
-			"id":               user.ID,
-			"user_name":        user.UserName,
-			"email":            user.Email,
-			"role":             user.Role,
-			"masjid_admin_ids": masjidIDs, // ← Tambah ini
-		},
-	})
-}
-
-// ========================== GENERATE TOKEN ==========================
-func generateToken(user userModel.UserModel, db *gorm.DB, secretKey string, duration time.Duration) (string, time.Time, error) {
-	expiration := time.Now().Add(duration)
-
-	// Ambil semua masjid_id dari tabel masjid_admins
-	var masjidIDs []uuid.UUID
-	err := db.Table("masjid_admins").
-		Where("masjid_admins_user_id = ? AND masjid_admins_is_active = true", user.ID).
-		Pluck("masjid_admins_masjid_id", &masjidIDs).Error
-	if err != nil {
-		return "", time.Time{}, err
+	// Teacher
+	var teacherRows []matModel.MasjidTeacher
+	if err = db.
+		Where("masjid_teachers_user_id = ?", userID).
+		Find(&teacherRows).Error; err != nil {
+		return
+	}
+	for _, r := range teacherRows {
+		teacherSet[r.MasjidTeachersMasjidID] = struct{}{}
 	}
 
-	// Konversi ke []string
-	var masjidIDStrs []string
-	for _, id := range masjidIDs {
-		masjidIDStrs = append(masjidIDStrs, id.String())
+	// Build slices
+	for id := range adminSet {
+		adminIDs = append(adminIDs, id)
+	}
+	for id := range teacherSet {
+		teacherIDs = append(teacherIDs, id)
 	}
 
-	// Tambahkan ke claims
-	claims := jwt.MapClaims{
-		"id":               user.ID.String(),
-		"user_name":        user.UserName,
-		"role":             user.Role,
-		"masjid_admin_ids": masjidIDStrs, // 🟢 ditambahkan di sini
-		"exp":              expiration.Unix(),
+	// Union
+	seen := map[string]struct{}{}
+	for id := range adminSet {
+		seen[id] = struct{}{}
 	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString([]byte(secretKey))
-	return tokenString, expiration, err
-}
-
-func generateDummyPassword() string {
-	hash, _ := authHelper.HashPassword("RandomDummyPassword123!")
-	return hash
-}
-
-func CheckSecurityAnswer(db *gorm.DB, c *fiber.Ctx) error {
-	var input struct {
-		Email  string `json:"email"`
-		Answer string `json:"security_answer"`
+	for id := range teacherSet {
+		seen[id] = struct{}{}
 	}
-
-	if err := c.BodyParser(&input); err != nil {
-		return helpers.Error(c, fiber.StatusBadRequest, "Invalid request format")
+	for id := range seen {
+		unionIDs = append(unionIDs, id)
 	}
-
-	if err := authHelper.ValidateSecurityAnswerInput(input.Email, input.Answer); err != nil {
-		return helpers.Error(c, fiber.StatusBadRequest, err.Error())
-	}
-
-	user, err := authRepo.FindUserByEmail(db, input.Email)
-	if err != nil {
-		return helpers.Error(c, fiber.StatusNotFound, "User not found")
-	}
-
-	if strings.TrimSpace(input.Answer) != strings.TrimSpace(user.SecurityAnswer) {
-		return helpers.Error(c, fiber.StatusBadRequest, "Incorrect security answer")
-	}
-
-	return helpers.Success(c, "Security answer correct", fiber.Map{
-		"email": user.Email,
-	})
+	return
 }
