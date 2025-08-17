@@ -39,6 +39,7 @@ func HomePublicRoutes(api fiber.Router, db *gorm.DB) {
 // Contoh akses: /api/u/notifications
 func HomePrivateRoutes(api fiber.Router, db *gorm.DB) {
 	AdviceRoutes.AllAdviceRoutes(api, db)
+	SPPRoutes.SppBillingUserRoutes(api, db)
 }
 
 // ✅ Untuk route admin masjid (token + admin)

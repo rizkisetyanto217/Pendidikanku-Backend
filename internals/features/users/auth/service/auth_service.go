@@ -8,6 +8,7 @@ import (
 	googleAuthIDTokenVerifier "github.com/futurenda/google-auth-id-token-verifier"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	"masjidku_backend/internals/configs"
@@ -17,6 +18,7 @@ import (
 	authRepo "masjidku_backend/internals/features/users/auth/repository"
 	userModel "masjidku_backend/internals/features/users/user/model"
 	helpers "masjidku_backend/internals/helpers"
+	classModel "masjidku_backend/internals/features/lembaga/classes/main/model"
 
 	progressUserService "masjidku_backend/internals/features/progress/progress/service"
 	userProfileService "masjidku_backend/internals/features/users/user/service"
@@ -60,7 +62,7 @@ func Register(db *gorm.DB, c *fiber.Ctx) error {
 	return helpers.SuccessWithCode(c, fiber.StatusCreated, "Registration successful", nil)
 }
 
-// ========================== LOGIN ==========================
+
 // ========================== LOGIN ==========================
 func Login(db *gorm.DB, c *fiber.Ctx) error {
 	var input struct {
@@ -94,10 +96,11 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 	}
 
 	// =========================================================
-	// Kumpulkan masjid_admin_ids & masjid_teacher_ids
+	// Kumpulkan masjid_admin_ids, masjid_teacher_ids, masjid_student_ids
 	// =========================================================
 	adminSet := map[string]struct{}{}
 	teacherSet := map[string]struct{}{}
+	studentSet := map[string]struct{}{}
 
 	// 1) Admin/DKM → masjid_admins
 	{
@@ -125,24 +128,61 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 		}
 	}
 
+	// 3) Student → enrolment aktif di user_classes (status = active, ended_at IS NULL)
+	{
+		var rows []struct {
+			MasjidID *uuid.UUID `gorm:"column:user_classes_masjid_id"`
+		}
+		if err := db.
+			Model(&classModel.UserClassesModel{}).
+			Where("user_classes_user_id = ? AND user_classes_status = ? AND user_classes_ended_at IS NULL",
+				userFull.ID, classModel.UserClassStatusActive).
+			Select("user_classes_masjid_id").
+			Find(&rows).Error; err != nil {
+			return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data masjid student")
+		}
+		for _, r := range rows {
+			if r.MasjidID != nil {
+				studentSet[r.MasjidID.String()] = struct{}{}
+			}
+		}
+	}
+
 	// Build slices
 	masjidAdminIDs := make([]string, 0, len(adminSet))
-	for id := range adminSet { masjidAdminIDs = append(masjidAdminIDs, id) }
+	for id := range adminSet {
+		masjidAdminIDs = append(masjidAdminIDs, id)
+	}
 
 	masjidTeacherIDs := make([]string, 0, len(teacherSet))
-	for id := range teacherSet { masjidTeacherIDs = append(masjidTeacherIDs, id) }
+	for id := range teacherSet {
+		masjidTeacherIDs = append(masjidTeacherIDs, id)
+	}
 
-	// Union → masjid_ids
+	masjidStudentIDs := make([]string, 0, len(studentSet))
+	for id := range studentSet {
+		masjidStudentIDs = append(masjidStudentIDs, id)
+	}
+
+	// Union → masjid_ids (admin ∪ teacher ∪ student)
 	unionSet := map[string]struct{}{}
-	for id := range adminSet { unionSet[id] = struct{}{} }
-	for id := range teacherSet { unionSet[id] = struct{}{} }
+	for id := range adminSet {
+		unionSet[id] = struct{}{}
+	}
+	for id := range teacherSet {
+		unionSet[id] = struct{}{}
+	}
+	for id := range studentSet {
+		unionSet[id] = struct{}{}
+	}
 	masjidIDs := make([]string, 0, len(unionSet))
-	for id := range unionSet { masjidIDs = append(masjidIDs, id) }
+	for id := range unionSet {
+		masjidIDs = append(masjidIDs, id)
+	}
 
-	// 🎫 Issue tokens (ubah fungsi agar terima 3 list)
-	return issueTokensWithRoles(c, db, *userFull, masjidAdminIDs, masjidTeacherIDs, masjidIDs)
+	// 🎫 Issue tokens (terima 4 list spesifik + 1 union)
+	return issueTokensWithRoles(c, db, *userFull, masjidAdminIDs, masjidTeacherIDs, masjidStudentIDs, masjidIDs)
 }
-
 
 
 
@@ -152,11 +192,12 @@ func issueTokensWithRoles(
 	user userModel.UserModel,
 	masjidAdminIDs []string,
 	masjidTeacherIDs []string,
+	masjidStudentIDs []string, // ⬅️ baru
 	masjidIDs []string,
 ) error {
 	const (
-		accessTTL  = 24 * time.Hour       // sesuaikan
-		refreshTTL = 7 * 24 * time.Hour   // sesuaikan
+		accessTTL  = 24 * time.Hour     // sesuaikan
+		refreshTTL = 7 * 24 * time.Hour // sesuaikan
 	)
 
 	jwtSecret := os.Getenv("JWT_SECRET")
@@ -177,6 +218,7 @@ func issueTokensWithRoles(
 		"role":               user.Role,
 		"masjid_admin_ids":   masjidAdminIDs,
 		"masjid_teacher_ids": masjidTeacherIDs,
+		"masjid_student_ids": masjidStudentIDs, // ⬅️ baru
 		"masjid_ids":         masjidIDs,
 		"iat":                now.Unix(),
 		"exp":                now.Add(accessTTL).Unix(),
@@ -218,8 +260,6 @@ func issueTokensWithRoles(
 		Secure:   true,
 		SameSite: "None",
 		Expires:  now.Add(accessTTL),
-		// Optional: Domain: ".masjidku.org",
-		// Optional: Path: "/",
 	})
 	c.Cookie(&fiber.Cookie{
 		Name:     "refresh_token",
@@ -228,14 +268,12 @@ func issueTokensWithRoles(
 		Secure:   true,
 		SameSite: "None",
 		Expires:  now.Add(refreshTTL),
-		// Optional: Domain: ".masjidku.org",
-		// Optional: Path: "/",
 	})
 
 	// ---------- RESPONSE (konsisten) ----------
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"code":    200,
-		"status":  "success",
+		"code":   200,
+		"status": "success",
 		"message": "Login berhasil",
 		"data": fiber.Map{
 			"access_token": accessToken, // memudahkan Postman/mobile
@@ -246,12 +284,12 @@ func issueTokensWithRoles(
 				"role":               user.Role,
 				"masjid_admin_ids":   masjidAdminIDs,
 				"masjid_teacher_ids": masjidTeacherIDs,
+				"masjid_student_ids": masjidStudentIDs, // ⬅️ baru
 				"masjid_ids":         masjidIDs,
 			},
 		},
 	})
 }
-
 
 
 // ========================== LOGIN GOOGLE ==========================
@@ -301,9 +339,9 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 		}
 
 		if err := progressUserService.CreateInitialUserProgress(db, newUser.ID); err != nil {
-    	// optional logging
+			// optional logging
 		}
-		userProfileService.CreateInitialUserProfile(db, newUser.ID) // <- void, cukup panggil
+		userProfileService.CreateInitialUserProfile(db, newUser.ID) // void
 
 		user = &newUser
 	}
@@ -318,10 +356,11 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 	}
 
 	// =========================================================
-	// Kumpulkan masjid_admin_ids & masjid_teacher_ids
+	// Kumpulkan masjid_admin_ids, masjid_teacher_ids, masjid_student_ids
 	// =========================================================
 	adminSet := map[string]struct{}{}
 	teacherSet := map[string]struct{}{}
+	studentSet := map[string]struct{}{}
 
 	// 1) Admin/DKM → masjid_admins
 	{
@@ -349,6 +388,26 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 		}
 	}
 
+	// 3) Student → enrolment aktif di user_classes (status = active, ended_at IS NULL)
+	{
+		var rows []struct {
+			MasjidID *uuid.UUID `gorm:"column:user_classes_masjid_id"`
+		}
+		if err := db.
+			Model(&classModel.UserClassesModel{}).
+			Where("user_classes_user_id = ? AND user_classes_status = ? AND user_classes_ended_at IS NULL",
+				userFull.ID, classModel.UserClassStatusActive).
+			Select("user_classes_masjid_id").
+			Find(&rows).Error; err != nil {
+			return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data masjid student")
+		}
+		for _, r := range rows {
+			if r.MasjidID != nil {
+				studentSet[r.MasjidID.String()] = struct{}{}
+			}
+		}
+	}
+
 	// Build slices
 	masjidAdminIDs := make([]string, 0, len(adminSet))
 	for id := range adminSet { masjidAdminIDs = append(masjidAdminIDs, id) }
@@ -356,15 +415,21 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 	masjidTeacherIDs := make([]string, 0, len(teacherSet))
 	for id := range teacherSet { masjidTeacherIDs = append(masjidTeacherIDs, id) }
 
-	// Union → masjid_ids
+	masjidStudentIDs := make([]string, 0, len(studentSet))
+	for id := range studentSet { masjidStudentIDs = append(masjidStudentIDs, id) }
+
+	// Union → masjid_ids (admin ∪ teacher ∪ student)
 	unionSet := map[string]struct{}{}
-	for id := range adminSet { unionSet[id] = struct{}{} }
-	for id := range teacherSet { unionSet[id] = struct{}{} }
+	for id := range adminSet  { unionSet[id] = struct{}{} }
+	for id := range teacherSet{ unionSet[id] = struct{}{} }
+	for id := range studentSet{ unionSet[id] = struct{}{} }
+
 	masjidIDs := make([]string, 0, len(unionSet))
 	for id := range unionSet { masjidIDs = append(masjidIDs, id) }
 
-	// 🎫 Issue tokens (pakai fungsi yang sama dengan login biasa)
-	return issueTokensWithRoles(c, db, *userFull, masjidAdminIDs, masjidTeacherIDs, masjidIDs)
+	// 🎫 Issue tokens (pakai fungsi yang sama dengan login biasa, versi baru)
+	return issueTokensWithRoles(c, db, *userFull,
+		masjidAdminIDs, masjidTeacherIDs, masjidStudentIDs, masjidIDs)
 }
 
 

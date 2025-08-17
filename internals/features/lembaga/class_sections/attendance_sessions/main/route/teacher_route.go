@@ -22,6 +22,8 @@ func ClassAttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	sGroup.Post("/", sessionController.CreateClassAttendanceSession)
 	sGroup.Put("/:id", sessionController.UpdateClassAttendanceSession)
 	sGroup.Delete("/:id", sessionController.DeleteClassAttendanceSession)
+	sGroup.Get("/teacher/me", sessionController.ListMyTeachingSessions)  
+	sGroup.Get("/section/:section_id", sessionController.ListBySection)
 
 	// =====================
 	// Attendance Entries

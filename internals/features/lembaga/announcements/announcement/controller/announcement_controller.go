@@ -49,34 +49,60 @@ func (h *AnnouncementController) GetByID(c *fiber.Ctx) error {
 // ===================== LIST =====================
 // GET /admin/announcements
 func (h *AnnouncementController) List(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil {
-		return err
-	}
+	masjidIDs, err := helper.GetMasjidIDsFromToken(c)
+	if err != nil { return err }
 
 	var q annDTO.ListAnnouncementQuery
-	// default pagination
-	q.Limit = 20
-	q.Offset = 0
-
+	q.Limit, q.Offset = 20, 0
 	if err := c.QueryParser(&q); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
 	}
 
 	tx := h.DB.Model(&annModel.AnnouncementModel{}).
-		Where("announcement_masjid_id = ?", masjidID)
+		Where("announcement_masjid_id IN ?", masjidIDs).
+		Preload("Theme", func(db *gorm.DB) *gorm.DB {
+			// pilih kolom seperlunya biar hemat payload; sesuaikan nama kolom model tema
+			return db.
+				Select("announcement_themes_id, announcement_themes_masjid_id, announcement_themes_name, announcement_themes_color").
+				Where("announcement_themes_deleted_at IS NULL")
+		})
 
-	// Filter by theme
+	// ===== Filter: Theme
 	if q.ThemeID != nil {
 		tx = tx.Where("announcement_theme_id = ?", *q.ThemeID)
 	}
 
-	// Filter by section (ingat: NULL = global, pointer hanya filter value spesifik)
-	if q.SectionID != nil {
-		tx = tx.Where("announcement_class_section_id = ?", *q.SectionID)
+	// ===== Filter: Section vs Global (NULL) =====
+	includeGlobal := true
+	if q.IncludeGlobal != nil { includeGlobal = *q.IncludeGlobal }
+	onlyGlobal := q.OnlyGlobal != nil && *q.OnlyGlobal
+
+	sectionIDsCSV := strings.TrimSpace(c.Query("section_ids"))
+	sectionIDs, parseErr := parseUUIDsCSV(sectionIDsCSV)
+	if parseErr != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "section_ids berisi UUID tidak valid")
 	}
 
-	// Filter by attachment
+	switch {
+	case onlyGlobal:
+		tx = tx.Where("announcement_class_section_id IS NULL")
+
+	case len(sectionIDs) > 0:
+		if includeGlobal {
+			tx = tx.Where("(announcement_class_section_id IN ? OR announcement_class_section_id IS NULL)", sectionIDs)
+		} else {
+			tx = tx.Where("announcement_class_section_id IN ?", sectionIDs)
+		}
+
+	case q.SectionID != nil:
+		if includeGlobal {
+			tx = tx.Where("(announcement_class_section_id = ? OR announcement_class_section_id IS NULL)", *q.SectionID)
+		} else {
+			tx = tx.Where("announcement_class_section_id = ?", *q.SectionID)
+		}
+	}
+
+	// ===== Filter: Attachment
 	if q.HasAttachment != nil {
 		if *q.HasAttachment {
 			tx = tx.Where("announcement_attachment_url IS NOT NULL AND announcement_attachment_url <> ''")
@@ -85,35 +111,31 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// Filter by is_active
+	// ===== Filter: is_active
 	if q.IsActive != nil {
 		tx = tx.Where("announcement_is_active = ?", *q.IsActive)
 	}
 
-	// Date range (YYYY-MM-DD)
-	parseDate := func(s string) (time.Time, error) {
-		return time.Parse("2006-01-02", strings.TrimSpace(s))
-	}
+	// ===== Filter: Date range (YYYY-MM-DD)
+	parseDate := func(s string) (time.Time, error) { return time.Parse("2006-01-02", strings.TrimSpace(s)) }
 	if q.DateFrom != nil && strings.TrimSpace(*q.DateFrom) != "" {
-		if t, err := parseDate(*q.DateFrom); err == nil {
-			tx = tx.Where("announcement_date >= ?", t)
-		} else {
-			return fiber.NewError(fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)")
-		}
+		t, err := parseDate(*q.DateFrom); if err != nil { return fiber.NewError(fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)") }
+		tx = tx.Where("announcement_date >= ?", t)
 	}
 	if q.DateTo != nil && strings.TrimSpace(*q.DateTo) != "" {
-		if t, err := parseDate(*q.DateTo); err == nil {
-			tx = tx.Where("announcement_date <= ?", t)
-		} else {
-			return fiber.NewError(fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)")
-		}
+		t, err := parseDate(*q.DateTo); if err != nil { return fiber.NewError(fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)") }
+		tx = tx.Where("announcement_date <= ?", t)
 	}
 
-	// Sorting
-	sort := "date_desc"
-	if q.Sort != nil {
-		sort = strings.ToLower(strings.TrimSpace(*q.Sort))
+	// ===== Total
+	var total int64
+	if err := tx.Count(&total).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung data")
 	}
+
+	// ===== Sorting
+	sort := "date_desc"
+	if q.Sort != nil { sort = strings.ToLower(strings.TrimSpace(*q.Sort)) }
 	switch sort {
 	case "date_asc":
 		tx = tx.Order("announcement_date ASC")
@@ -125,38 +147,50 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		tx = tx.Order("announcement_title ASC")
 	case "title_desc":
 		tx = tx.Order("announcement_title DESC")
-	default: // "date_desc"
+	default:
 		tx = tx.Order("announcement_date DESC")
 	}
 
-	// Pagination safety
-	if q.Limit <= 0 {
-		q.Limit = 20
-	}
-	if q.Limit > 100 {
-		q.Limit = 100
-	}
-	if q.Offset < 0 {
-		q.Offset = 0
-	}
+	// ===== Pagination safety
+	if q.Limit <= 0 { q.Limit = 20 }
+	if q.Limit > 100 { q.Limit = 100 }
+	if q.Offset < 0 { q.Offset = 0 }
 
+	// ===== Fetch
 	var rows []annModel.AnnouncementModel
 	if err := tx.Limit(q.Limit).Offset(q.Offset).Find(&rows).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
+	// ===== Map ke response
 	resp := make([]*annDTO.AnnouncementResponse, 0, len(rows))
-	for i := range rows {
-		resp = append(resp, annDTO.NewAnnouncementResponse(&rows[i]))
-	}
+	for i := range rows { resp = append(resp, annDTO.NewAnnouncementResponse(&rows[i])) }
 
 	return helper.Success(c, "OK", fiber.Map{
 		"limit":  q.Limit,
 		"offset": q.Offset,
+		"total":  total,
 		"count":  len(resp),
 		"items":  resp,
 	})
 }
+
+
+// // helper lokal (boleh dipindah ke package helper)
+func parseUUIDsCSV(csv string) ([]uuid.UUID, error) {
+	if csv == "" { return nil, nil }
+	parts := strings.Split(csv, ",")
+	out := make([]uuid.UUID, 0, len(parts))
+	for _, p := range parts {
+		s := strings.TrimSpace(p)
+		if s == "" { continue }
+		id, err := uuid.Parse(s)
+		if err != nil { return nil, err }
+		out = append(out, id)
+	}
+	return out, nil
+}
+
 
 // internals/features/lembaga/announcements/announcement/controller/announcement_controller.go
 

@@ -104,35 +104,51 @@ func (r *UpdateAnnouncementRequest) ApplyToModel(m *model.AnnouncementModel) {
 
 /* ===================== QUERIES (list) ===================== */
 
+// internals/features/lembaga/announcements/announcement/dto/list_query.go
 type ListAnnouncementQuery struct {
-	ThemeID       *uuid.UUID `query:"theme_id"`
-	SectionID     *uuid.UUID `query:"section_id"` // filter per section (ingat: NULL = global)
-	DateFrom      *string    `query:"date_from" validate:"omitempty,datetime=2006-01-02"` // inclusive
-	DateTo        *string    `query:"date_to"   validate:"omitempty,datetime=2006-01-02"` // inclusive
-	HasAttachment *bool      `query:"has_attachment"`
-	IsActive      *bool      `query:"is_active"` // default: true di controller feed user
-	Limit         int        `query:"limit"`     // default 20
-	Offset        int        `query:"offset"`    // default 0
-	Sort          *string    `query:"sort"`      // "date_desc"(default) | "date_asc" | "created_at_desc" | "created_at_asc" | "title_asc" | "title_desc"
+  Limit         int        `query:"limit"`
+  Offset        int        `query:"offset"`
+  ThemeID       *uuid.UUID `query:"theme_id"`
+  SectionID     *uuid.UUID `query:"section_id"`
+  IncludeGlobal *bool      `query:"include_global"`
+  OnlyGlobal    *bool      `query:"only_global"`
+  HasAttachment *bool      `query:"has_attachment"`
+  IsActive      *bool      `query:"is_active"`
+  DateFrom      *string    `query:"date_from"`
+  DateTo        *string    `query:"date_to"`
+  Sort          *string    `query:"sort"`
+
+  // NEW:
+  IncludePusat  *bool      `query:"include_pusat"` // default true
 }
 
-/* ===================== RESPONSES ===================== */
+
+// internals/features/lembaga/announcements/announcement/dto/announcement_response.go
+
+type AnnouncementThemeLite struct {
+	ID    uuid.UUID `json:"id"`
+	Name  string    `json:"name,omitempty"`
+	Color *string   `json:"color,omitempty"`
+}
 
 type AnnouncementResponse struct {
-	AnnouncementID             uuid.UUID  `json:"announcement_id"`
-	AnnouncementMasjidID       uuid.UUID  `json:"announcement_masjid_id"`
-	AnnouncementThemeID        *uuid.UUID `json:"announcement_theme_id,omitempty"`
-	AnnouncementClassSectionID *uuid.UUID `json:"announcement_class_section_id,omitempty"`
-	AnnouncementCreatedByUserID uuid.UUID `json:"announcement_created_by_user_id"`
+	AnnouncementID              uuid.UUID  `json:"announcement_id"`
+	AnnouncementMasjidID        uuid.UUID  `json:"announcement_masjid_id"`
+	AnnouncementThemeID         *uuid.UUID `json:"announcement_theme_id,omitempty"`
+	AnnouncementClassSectionID  *uuid.UUID `json:"announcement_class_section_id,omitempty"`
+	AnnouncementCreatedByUserID uuid.UUID  `json:"announcement_created_by_user_id"`
 
-	AnnouncementTitle          string     `json:"announcement_title"`
-	AnnouncementDate           time.Time  `json:"announcement_date"`
-	AnnouncementContent        string     `json:"announcement_content"`
-	AnnouncementAttachmentURL  *string    `json:"announcement_attachment_url,omitempty"`
-	AnnouncementIsActive       bool       `json:"announcement_is_active"`
+	AnnouncementTitle         string     `json:"announcement_title"`
+	AnnouncementDate          time.Time  `json:"announcement_date"`
+	AnnouncementContent       string     `json:"announcement_content"`
+	AnnouncementAttachmentURL *string    `json:"announcement_attachment_url,omitempty"`
+	AnnouncementIsActive      bool       `json:"announcement_is_active"`
 
-	AnnouncementCreatedAt      time.Time  `json:"announcement_created_at"`
-	AnnouncementUpdatedAt      *time.Time `json:"announcement_updated_at,omitempty"`
+	AnnouncementCreatedAt time.Time  `json:"announcement_created_at"`
+	AnnouncementUpdatedAt *time.Time `json:"announcement_updated_at,omitempty"`
+
+	// NEW: info tema yang sudah dipreload
+	Theme *AnnouncementThemeLite `json:"theme,omitempty"`
 }
 
 // Factory response
@@ -140,7 +156,7 @@ func NewAnnouncementResponse(m *model.AnnouncementModel) *AnnouncementResponse {
 	if m == nil {
 		return nil
 	}
-	return &AnnouncementResponse{
+	resp := &AnnouncementResponse{
 		AnnouncementID:              m.AnnouncementID,
 		AnnouncementMasjidID:        m.AnnouncementMasjidID,
 		AnnouncementThemeID:         m.AnnouncementThemeID,
@@ -154,4 +170,14 @@ func NewAnnouncementResponse(m *model.AnnouncementModel) *AnnouncementResponse {
 		AnnouncementCreatedAt:       m.AnnouncementCreatedAt,
 		AnnouncementUpdatedAt:       m.AnnouncementUpdatedAt,
 	}
+
+	// Map relasi Theme jika sudah dipreload
+	if m.Theme != nil {
+		resp.Theme = &AnnouncementThemeLite{
+			ID:    m.Theme.AnnouncementThemesID,     // sesuaikan dengan field model tema kamu
+			Name:  m.Theme.AnnouncementThemesName,   // sesuaikan
+			Color: m.Theme.AnnouncementThemesColor,  // opsional, sesuaikan
+		}
+	}
+	return resp
 }

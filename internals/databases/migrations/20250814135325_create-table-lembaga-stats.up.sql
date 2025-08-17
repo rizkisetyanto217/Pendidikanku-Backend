@@ -14,22 +14,21 @@ CREATE TABLE IF NOT EXISTS lembaga_stats (
 CREATE INDEX IF NOT EXISTS idx_lembaga_stats_updated_at
   ON lembaga_stats(lembaga_stats_updated_at);
 
+
+
 CREATE TABLE IF NOT EXISTS user_class_attendance_semester_stats (
   user_class_attendance_semester_stats_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  user_class_attendance_semester_stats_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  user_class_attendance_semester_stats_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  user_class_attendance_semester_stats_user_class_id UUID NOT NULL
-    REFERENCES user_classes(user_classes_id) ON DELETE CASCADE,
+  user_class_attendance_semester_stats_user_class_id UUID NOT NULL REFERENCES user_classes(user_classes_id) ON DELETE CASCADE,
 
-  user_class_attendance_semester_stats_section_id UUID NOT NULL
-    REFERENCES class_sections(class_sections_id) ON DELETE CASCADE,
+  user_class_attendance_semester_stats_section_id UUID NOT NULL REFERENCES class_sections(class_sections_id) ON DELETE CASCADE,
 
   user_class_attendance_semester_stats_period_start DATE NOT NULL,
   user_class_attendance_semester_stats_period_end   DATE NOT NULL,
   CONSTRAINT chk_ucass_period_range
-    CHECK (user_class_attendance_semester_stats_period_start <= user_class_attendance_semester_stats_period_end),
+  CHECK (user_class_attendance_semester_stats_period_start <= user_class_attendance_semester_stats_period_end),
 
   user_class_attendance_semester_stats_present_count INT NOT NULL DEFAULT 0 CHECK (user_class_attendance_semester_stats_present_count >= 0),
   user_class_attendance_semester_stats_sick_count    INT NOT NULL DEFAULT 0 CHECK (user_class_attendance_semester_stats_sick_count    >= 0),

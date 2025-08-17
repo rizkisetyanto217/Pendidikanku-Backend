@@ -3,6 +3,8 @@ package controller
 
 import (
 	"errors"
+	"strconv"
+	"strings"
 	"time"
 
 	helper "masjidku_backend/internals/helpers"
@@ -27,6 +29,198 @@ type ClassAttendanceSessionController struct {
 
 func NewClassAttendanceSessionController(db *gorm.DB) *ClassAttendanceSessionController {
 	return &ClassAttendanceSessionController{DB: db}
+}
+
+
+
+// GET /admin/class-attendance-sessions/section/:section_id?date_from=&date_to=&limit=&offset=
+func (ctrl *ClassAttendanceSessionController) ListBySection(c *fiber.Ctx) error {
+	// Tenant (admin ATAU teacher boleh)
+	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil { return err }
+
+	// Role & user
+	userID, _ := helper.GetUserIDFromToken(c)
+	isAdmin := func() bool {
+		if mid, err := helper.GetMasjidIDFromToken(c); err == nil && mid == masjidID { return true }
+		return false
+	}()
+	isTeacher := func() bool {
+		if mid, err := helper.GetTeacherMasjidIDFromToken(c); err == nil && mid == masjidID { return true }
+		return false
+	}()
+
+	// Path param: section
+	secID, err := uuid.Parse(strings.TrimSpace(c.Params("section_id")))
+	if err != nil { return fiber.NewError(fiber.StatusBadRequest, "section_id tidak valid") }
+
+	// Pastikan section milik masjid (tenant guard)
+	var sec secModel.ClassSectionModel
+	if err := ctrl.DB.
+		Select("class_sections_id, class_sections_masjid_id").
+		First(&sec, "class_sections_id = ? AND class_sections_deleted_at IS NULL", secID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, "Section tidak ditemukan")
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi section")
+	}
+	if sec.ClassSectionsMasjidID == nil || *sec.ClassSectionsMasjidID != masjidID {
+		return fiber.NewError(fiber.StatusForbidden, "Section bukan milik masjid Anda")
+	}
+
+	// Jika siswa/ortu → hanya boleh lihat jika user memang terdaftar aktif di section tsb
+	if !isAdmin && !isTeacher {
+		if userID == uuid.Nil {
+			return fiber.NewError(fiber.StatusUnauthorized, "User tidak terautentik")
+		}
+		var cnt int64
+		if err := ctrl.DB.Table("user_class_sections AS ucs").
+			Joins("JOIN user_classes uc ON uc.user_classes_id = ucs.user_class_sections_user_class_id").
+			Where(`
+				ucs.user_class_sections_section_id = ?
+				AND ucs.user_class_sections_masjid_id = ?
+				AND uc.user_classes_user_id = ?
+				AND ucs.user_class_sections_unassigned_at IS NULL
+				AND uc.user_classes_status = 'active'
+				AND uc.user_classes_ended_at IS NULL
+			`, secID, masjidID, userID).
+			Count(&cnt).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek keanggotaan section")
+		}
+		if cnt == 0 {
+			return fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada section ini")
+		}
+	}
+
+	// Query dasar
+	q := ctrl.DB.Model(&attendanceModel.ClassAttendanceSessionModel{}).
+		Where("class_attendance_sessions_masjid_id = ? AND class_attendance_sessions_section_id = ?", masjidID, secID)
+
+	// === HANYA filter tanggal kalau param dikirim ===
+	df := strings.TrimSpace(c.Query("date_from"))
+	dt := strings.TrimSpace(c.Query("date_to"))
+
+	parseDate := func(s string) (time.Time, error) { return time.Parse("2006-01-02", s) } // kolom bertipe DATE aman kirim time.Date
+	if df != "" {
+		t, e := parseDate(df); if e != nil { return fiber.NewError(fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)") }
+		q = q.Where("class_attendance_sessions_date >= ?", t)
+	}
+	if dt != "" {
+		t, e := parseDate(dt); if e != nil { return fiber.NewError(fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)") }
+		q = q.Where("class_attendance_sessions_date <= ?", t)
+	}
+
+	// Pagination
+	limit, _ := strconv.Atoi(c.Query("limit", "20"))
+	offset, _ := strconv.Atoi(c.Query("offset", "0"))
+	if limit <= 0 || limit > 200 { limit = 20 }
+	if offset < 0 { offset = 0 }
+
+	var rows []attendanceModel.ClassAttendanceSessionModel
+	if err := q.
+		Order("class_attendance_sessions_date DESC, class_attendance_sessions_created_at DESC").
+		Limit(limit).Offset(offset).
+		Find(&rows).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+	}
+
+	out := make([]attendanceDTO.ClassAttendanceSessionResponse, 0, len(rows))
+	for _, r := range rows { out = append(out, attendanceDTO.FromClassAttendanceSessionModel(r)) }
+
+	return helper.JsonOK(c, "Daftar sesi per section berhasil diambil", fiber.Map{
+		"limit":  limit,
+		"offset": offset,
+		"count":  len(out),
+		"items":  out,
+	})
+}
+
+
+
+// ===============================
+// LIST by TEACHER (SELF)
+// GET /admin/class-attendance-sessions/teacher/me?section_id=&date_from=&date_to=&limit=&offset=
+// ===============================
+func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ctx) error {
+	// Pastikan pemanggil adalah TEACHER di sebuah masjid (ambil masjidnya dari klaim teacher)
+	masjidID, err := helper.GetTeacherMasjidIDFromToken(c)
+	if err != nil {
+		// kalau tidak punya klaim teacher, tolak
+		return fiber.NewError(fiber.StatusUnauthorized, "masjid_teacher_ids tidak ditemukan di token")
+	}
+	userID, err := helper.GetUserIDFromToken(c)
+	if err != nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "User tidak terautentik")
+	}
+
+	q := ctrl.DB.Model(&attendanceModel.ClassAttendanceSessionModel{}).
+		Where("class_attendance_sessions_masjid_id = ? AND class_attendance_sessions_teacher_user_id = ?", masjidID, userID)
+
+	// ----- Filter tanggal (default: hari ini & besok) -----
+	df := strings.TrimSpace(c.Query("date_from"))
+	dt := strings.TrimSpace(c.Query("date_to"))
+
+	if df == "" && dt == "" {
+		// kolom bertipe DATE → pakai string YYYY-MM-DD
+		today := time.Now().Format("2006-01-02")
+		tomorrow := time.Now().Add(24 * time.Hour).Format("2006-01-02")
+		q = q.Where("class_attendance_sessions_date BETWEEN ? AND ?", today, tomorrow)
+	} else {
+		parse := func(s string) (string, error) {
+			t, err := time.Parse("2006-01-02", s)
+			if err != nil { return "", err }
+			return t.Format("2006-01-02"), nil
+		}
+		if df != "" {
+			if s, err := parse(df); err == nil {
+				q = q.Where("class_attendance_sessions_date >= ?", s)
+			} else {
+				return fiber.NewError(fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)")
+			}
+		}
+		if dt != "" {
+			if s, err := parse(dt); err == nil {
+				q = q.Where("class_attendance_sessions_date <= ?", s)
+			} else {
+				return fiber.NewError(fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)")
+			}
+		}
+	}
+
+	// ----- Filter opsional -----
+	if s := strings.TrimSpace(c.Query("section_id")); s != "" {
+		if sid, err := uuid.Parse(s); err == nil {
+			q = q.Where("class_attendance_sessions_section_id = ?", sid)
+		} else {
+			return fiber.NewError(fiber.StatusBadRequest, "section_id tidak valid")
+		}
+	}
+
+	// ----- Pagination -----
+	limit, _ := strconv.Atoi(c.Query("limit", "20"))
+	offset, _ := strconv.Atoi(c.Query("offset", "0"))
+	if limit <= 0 || limit > 200 { limit = 20 }
+	if offset < 0 { offset = 0 }
+
+	var rows []attendanceModel.ClassAttendanceSessionModel
+	if err := q.
+		Order("class_attendance_sessions_date DESC, class_attendance_sessions_created_at DESC").
+		Limit(limit).Offset(offset).
+		Find(&rows).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+	}
+
+	resp := make([]attendanceDTO.ClassAttendanceSessionResponse, 0, len(rows))
+	for _, r := range rows {
+		resp = append(resp, attendanceDTO.FromClassAttendanceSessionModel(r))
+	}
+
+	return helper.JsonOK(c, "Daftar sesi mengajar (by token) berhasil diambil", fiber.Map{
+		"limit":  limit,
+		"offset": offset,
+		"count":  len(resp),
+		"items":  resp,
+	})
 }
 
 /* ===============================

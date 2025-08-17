@@ -11,6 +11,7 @@ import (
 
 	ucDTO "masjidku_backend/internals/features/lembaga/classes/main/dto"
 	classModel "masjidku_backend/internals/features/lembaga/classes/main/model"
+	userModel "masjidku_backend/internals/features/users/user/model"
 	helper "masjidku_backend/internals/helpers"
 
 	statsSvc "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/service"
@@ -97,7 +98,7 @@ func (h *UserClassController) UpdateUserClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// Ambil enrolment + tenant guard (pakai DB biasa dulu untuk fetch awal)
+	// Ambil enrolment + tenant guard
 	existing, err := h.findUserClassWithTenantGuard(ucID, masjidID)
 	if err != nil {
 		return err
@@ -160,13 +161,13 @@ func (h *UserClassController) UpdateUserClass(c *fiber.Ctx) error {
 		// --- Deteksi state aktif sebelum update ---
 		wasActive := isActive(existing.UserClassesStatus, existing.UserClassesEndedAt)
 
-		// Terapkan perubahan lain
+		// Terapkan perubahan lain ke model (bisa mengubah user_id/class_id/status/ended_at)
 		req.ApplyToModel(existing)
 		if shouldSetStart {
 			existing.UserClassesStartedAt = &startAt
 		}
 
-		// Simpan enrolment memakai tx (bukan h.DB)
+		// Simpan enrolment
 		if err := tx.Model(&classModel.UserClassesModel{}).
 			Where("user_classes_id = ?", existing.UserClassesID).
 			Updates(existing).Error; err != nil {
@@ -189,9 +190,25 @@ func (h *UserClassController) UpdateUserClass(c *fiber.Ctx) error {
 			if err := h.Stats.EnsureForMasjid(tx, masjidID); err != nil {
 				return err
 			}
-			// Update counter students atomik dalam transaksi
+			// Update counter students atomik
 			if err := h.Stats.IncActiveStudents(tx, masjidID, delta); err != nil {
 				return err
+			}
+		}
+
+		// =========================
+		// NEW: Promosi role → student
+		// =========================
+		// Hanya saat transisi non-aktif → aktif.
+		if !wasActive && nowActive {
+			// Ambil user target setelah ApplyToModel (bisa jadi berubah dari payload)
+			userID := existing.UserClassesUserID
+
+			// Update role hanya jika saat ini 'user'
+			if err := tx.Model(&userModel.UserModel{}).
+				Where("id = ? AND role = ?", userID, "user").
+				Update("role", "student").Error; err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengubah role user menjadi student")
 			}
 		}
 

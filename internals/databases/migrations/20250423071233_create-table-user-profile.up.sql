@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(255) UNIQUE NOT NULL CHECK (POSITION('@' IN email) > 1),
     password VARCHAR(250),
     google_id VARCHAR(255) UNIQUE,
-    role VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('owner', 'user', 'teacher', 'treasurer', 'admin', 'dkm', 'author')),
+    role VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('owner', 'user', 'teacher', 'treasurer', 'admin', 'dkm', 'author', 'student')),
     security_question TEXT NOT NULL,
     security_answer VARCHAR(255) NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,

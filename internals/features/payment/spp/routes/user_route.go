@@ -9,21 +9,13 @@ import (
 )
 
 // Contoh pemakaian: route.SppBillingRoutes(app, db)
-func SppBillingAdminRoutes(r fiber.Router, db *gorm.DB) {
-	ctl := sppCtl.NewSppBillingController(db)
+func SppBillingUserRoutes(r fiber.Router, db *gorm.DB) {
 	user_ctl := sppCtl.NewUserSppBillingItemController(db)
-
-	spp := r.Group("/spp-billings")
-
-	spp.Post("/", ctl.Create)     // POST   /spp/billings
-	spp.Get("/", ctl.List)        // GET    /spp/billings
-	spp.Get("/:id", ctl.GetByID) // GET    /spp/billings/:id
-	spp.Patch("/:id", ctl.Update) // PATCH /spp/billings/:id
-	spp.Delete("/:id", ctl.Delete) // DELETE /spp/billings/:id
 
 	user_spp := r.Group("/user-spp-billings")
 
 	user_spp.Get("/", user_ctl.List)
+	user_spp.Get("/me", user_ctl.ListMine)
 	user_spp.Get("/:id", user_ctl.GetByID)
 	user_spp.Patch("/:id", user_ctl.Update)
 	user_spp.Delete("/:id", user_ctl.Delete)
