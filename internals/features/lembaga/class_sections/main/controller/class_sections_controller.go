@@ -339,17 +339,22 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 		Where("class_sections_deleted_at IS NULL").
 		Where("class_sections_masjid_id = ?", masjidID)
 
+	// ---- Filters ----
 	if q.ActiveOnly != nil {
 		tx = tx.Where("class_sections_is_active = ?", *q.ActiveOnly)
 	}
 	if q.ClassID != nil {
 		tx = tx.Where("class_sections_class_id = ?", *q.ClassID)
 	}
+	if q.TeacherID != nil {
+		tx = tx.Where("class_sections_teacher_id = ?", *q.TeacherID)
+	}
 	if q.Search != nil && strings.TrimSpace(*q.Search) != "" {
 		s := "%" + strings.ToLower(strings.TrimSpace(*q.Search)) + "%"
-		tx = tx.Where("(LOWER(class_sections_name) LIKE ? OR LOWER(class_sections_code) LIKE ?)", s, s)
+		tx = tx.Where("(LOWER(class_sections_name) LIKE ? OR LOWER(class_sections_code) LIKE ? OR LOWER(class_sections_slug) LIKE ?)", s, s, s)
 	}
 
+	// ---- Sorting ----
 	sortVal := ""
 	if q.Sort != nil {
 		sortVal = strings.ToLower(strings.TrimSpace(*q.Sort))
@@ -365,6 +370,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 		tx = tx.Order("class_sections_created_at DESC")
 	}
 
+	// ---- Pagination ----
 	if q.Limit > 0 {
 		tx = tx.Limit(q.Limit)
 	}
@@ -372,16 +378,68 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 		tx = tx.Offset(q.Offset)
 	}
 
+	// ---- Fetch sections ----
 	var rows []secModel.ClassSectionModel
 	if err := tx.Find(&rows).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	resp := make([]*secDTO.ClassSectionResponse, 0, len(rows))
+	// ---- Kumpulkan teacher IDs unik ----
+	teacherSet := make(map[uuid.UUID]struct{}, len(rows))
 	for i := range rows {
-		resp = append(resp, secDTO.NewClassSectionResponse(&rows[i]))
+		if rows[i].ClassSectionsTeacherID != nil {
+			teacherSet[*rows[i].ClassSectionsTeacherID] = struct{}{}
+		}
 	}
-	return helper.JsonOK(c, "OK", resp)
+	teacherIDs := make([]uuid.UUID, 0, len(teacherSet))
+	for id := range teacherSet {
+		teacherIDs = append(teacherIDs, id)
+	}
+
+	// ---- Ambil data users (guru) ----
+	userMap := map[uuid.UUID]secDTO.UserLite{}
+	if len(teacherIDs) > 0 {
+		// pakai model users kamu; minimal kolom id, user_name, email, is_active
+		type userRow struct {
+			ID       uuid.UUID `gorm:"column:id"`
+			UserName string    `gorm:"column:user_name"`
+			Email    string    `gorm:"column:email"`
+			IsActive bool      `gorm:"column:is_active"`
+		}
+		var urs []userRow
+		if err := ctrl.DB.
+			Table("users").
+			Select("id, user_name, email, is_active").
+			Where("id IN ?", teacherIDs).
+			Find(&urs).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data guru")
+		}
+		for _, u := range urs {
+			userMap[u.ID] = secDTO.UserLite{
+				ID:       u.ID,
+				UserName: u.UserName,
+				Email:    u.Email,
+				IsActive: u.IsActive,
+			}
+		}
+	}
+
+	// ---- Bangun response + embed teacher ----
+	out := make([]*secDTO.ClassSectionResponse, 0, len(rows))
+	for i := range rows {
+		var t *secDTO.UserLite
+		if rows[i].ClassSectionsTeacherID != nil {
+			if ul, ok := userMap[*rows[i].ClassSectionsTeacherID]; ok {
+				uCopy := ul
+				t = &uCopy
+			}
+		}
+		resp := secDTO.NewClassSectionResponse(&rows[i])
+		resp.Teacher = t
+		out = append(out, resp)
+	}
+
+	return helper.JsonOK(c, "OK", out)
 }
 
 

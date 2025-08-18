@@ -223,6 +223,111 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 	})
 }
 
+
+
+// GET /admin/class-attendance-sessions/by-masjid?masjid_id=&date_from=&date_to=&sort=&limit=&offset=
+func (ctrl *ClassAttendanceSessionController) ListByMasjid(c *fiber.Ctx) error {
+	// Role & tenant guard
+	adminMasjidID, _ := helper.GetMasjidIDFromToken(c)
+	teacherMasjidID, _ := helper.GetTeacherMasjidIDFromToken(c)
+
+	isAdmin := adminMasjidID != uuid.Nil
+	isTeacher := teacherMasjidID != uuid.Nil
+	if !isAdmin && !isTeacher {
+		return fiber.NewError(fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
+	}
+
+	// Tentukan masjid target:
+	// - Admin boleh kirim ?masjid_id (harus sama dengan token-nya)
+	// - Teacher dipaksa ke masjid klaim teacher
+	targetMasjidID := uuid.Nil
+	if isTeacher {
+		targetMasjidID = teacherMasjidID
+	}
+	if isAdmin {
+		targetMasjidID = adminMasjidID
+		if s := strings.TrimSpace(c.Query("masjid_id")); s != "" {
+			if qid, err := uuid.Parse(s); err == nil {
+				if qid != adminMasjidID {
+					return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengakses masjid lain")
+				}
+				targetMasjidID = qid
+			} else {
+				return fiber.NewError(fiber.StatusBadRequest, "masjid_id tidak valid")
+			}
+		}
+	}
+
+	q := ctrl.DB.Model(&attendanceModel.ClassAttendanceSessionModel{}).
+		Where("class_attendance_sessions_masjid_id = ?", targetMasjidID)
+
+	// ====== Filter tanggal ======
+	// Default: hari ini → ke depan
+	df := strings.TrimSpace(c.Query("date_from"))
+	dt := strings.TrimSpace(c.Query("date_to"))
+	parse := func(s string) (string, error) {
+		t, err := time.Parse("2006-01-02", s)
+		if err != nil {
+			return "", err
+		}
+		return t.Format("2006-01-02"), nil
+	}
+
+	if df == "" && dt == "" {
+		df = time.Now().Format("2006-01-02")
+	}
+
+	if df != "" {
+		if s, err := parse(df); err == nil {
+			q = q.Where("class_attendance_sessions_date >= ?", s)
+		} else {
+			return fiber.NewError(fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)")
+		}
+	}
+	if dt != "" {
+		if s, err := parse(dt); err == nil {
+			q = q.Where("class_attendance_sessions_date <= ?", s)
+		} else {
+			return fiber.NewError(fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)")
+		}
+	}
+
+	// ====== Sort ======
+	// ?sort=asc | desc  (default asc: terdekat dulu)
+	sort := strings.ToLower(strings.TrimSpace(c.Query("sort", "asc")))
+	orderClause := "class_attendance_sessions_date ASC, class_attendance_sessions_created_at DESC"
+	if sort == "desc" {
+		orderClause = "class_attendance_sessions_date DESC, class_attendance_sessions_created_at DESC"
+	}
+
+	// ====== Pagination ======
+	limit, _ := strconv.Atoi(c.Query("limit", "20"))
+	offset, _ := strconv.Atoi(c.Query("offset", "0"))
+	if limit <= 0 || limit > 200 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	var rows []attendanceModel.ClassAttendanceSessionModel
+	if err := q.Order(orderClause).Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+	}
+
+	items := make([]attendanceDTO.ClassAttendanceSessionResponse, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, attendanceDTO.FromClassAttendanceSessionModel(r))
+	}
+
+	return helper.JsonOK(c, "Daftar sesi per masjid berhasil diambil", fiber.Map{
+		"limit":  limit,
+		"offset": offset,
+		"count":  len(items),
+		"items":  items,
+	})
+}
+
 /* ===============================
    CREATE
 =============================== */
