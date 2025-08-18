@@ -1,8 +1,8 @@
 package controller
 
 import (
-	"masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/main/dto"
-	"masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/main/model"
+	"masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/dto"
+	"masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/model"
 	helper "masjidku_backend/internals/helpers"
 	"strconv"
 	"time"

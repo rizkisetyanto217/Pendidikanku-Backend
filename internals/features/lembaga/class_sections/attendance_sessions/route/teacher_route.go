@@ -2,7 +2,7 @@
 package route
 
 import (
-	entryCtrl "masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/main/controller"
+	entryCtrl "masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

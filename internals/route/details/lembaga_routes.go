@@ -3,12 +3,13 @@ package details
 
 import (
 	// ====== Lembaga features ======
+	AnnouncementRoutes "masjidku_backend/internals/features/lembaga/announcements/announcement/route"
 	AnnouncementThemaRoutes "masjidku_backend/internals/features/lembaga/announcements/announcement_thema/route"
-	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/main/route"
+	ClassLessonsRoutes "masjidku_backend/internals/features/lembaga/class_lessons/route"
+	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/route"
 	ClassSectionsRoutes "masjidku_backend/internals/features/lembaga/class_sections/main/route"
 	ClassesRoutes "masjidku_backend/internals/features/lembaga/classes/main/route"
 	LembagaStatsRoutes "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/route"
-	AnnouncementRoutes "masjidku_backend/internals/features/lembaga/announcements/announcement/route"
 	SemesterStatsRoutes "masjidku_backend/internals/features/lembaga/stats/semester_stats/route"
 
 	// Tambahkan import route lain di sini saat modul siap:
@@ -62,6 +63,7 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	LembagaStatsRoutes.LembagaStatsAdminRoutes(r, db)
 	AnnouncementThemaRoutes.AnnouncementAdminRoute(r, db)
 	SemesterStatsRoutes.UserClassAttendanceSemesterAdminRoutes(r, db)
+	ClassLessonsRoutes.ClassLessonsAdminRoutes(r, db)
 
 	// Tambahkan modul lain (admin) di sini:
 	// SectionRoutes.SectionAdminRoutes(r, db)

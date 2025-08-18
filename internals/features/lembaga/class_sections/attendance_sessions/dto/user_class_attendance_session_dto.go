@@ -4,7 +4,7 @@ package dto
 import (
 	"time"
 
-	model "masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/main/model"
+	model "masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/model"
 
 	"github.com/google/uuid"
 )

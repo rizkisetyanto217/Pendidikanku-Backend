@@ -4,8 +4,8 @@ package controller
 import (
 	"time"
 
-	"masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/main/dto"
-	"masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/main/model"
+	"masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/dto"
+	"masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/model"
 	helper "masjidku_backend/internals/helpers"
 
 	semstats "masjidku_backend/internals/features/lembaga/stats/semester_stats/service"
