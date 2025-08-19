@@ -16,11 +16,11 @@ import (
 
 // Create
 type CreateSubjectRequest struct {
-	MasjidID    uuid.UUID `json:"subjects_masjid_id" validate:"required"`
-	Code        string    `json:"subjects_code" validate:"required,max=40"`
-	Name        string    `json:"subjects_name" validate:"required,max=120"`
-	Desc        *string   `json:"subjects_desc" validate:"omitempty"`
-	IsActive    *bool     `json:"subjects_is_active" validate:"omitempty"`
+	MasjidID uuid.UUID `json:"subjects_masjid_id" validate:"required"`
+	Code     string    `json:"subjects_code" validate:"required,max=40"`
+	Name     string    `json:"subjects_name" validate:"required,max=120"`
+	Desc     *string   `json:"subjects_desc" validate:"omitempty"`
+	IsActive *bool     `json:"subjects_is_active" validate:"omitempty"`
 }
 
 // Update (partial)
@@ -37,14 +37,16 @@ type UpdateSubjectRequest struct {
    - Filter by active
    - q untuk pencarian sederhana (code/name)
    - Pagination & sort sederhana
+   - with_deleted: jika true, sertakan baris yang soft-deleted (default: false)
 */
 type ListSubjectQuery struct {
-	Limit    *int    `query:"limit" validate:"omitempty,min=1,max=200"`
-	Offset   *int    `query:"offset" validate:"omitempty,min=0"`
-	IsActive *bool   `query:"is_active" validate:"omitempty"`
-	Q        *string `query:"q" validate:"omitempty,max=100"`
-	OrderBy  *string `query:"order_by" validate:"omitempty,oneof=code name created_at"` // whitelist di controller
-	Sort     *string `query:"sort" validate:"omitempty,oneof=asc desc"`
+	Limit       *int    `query:"limit" validate:"omitempty,min=1,max=200"`
+	Offset      *int    `query:"offset" validate:"omitempty,min=0"`
+	IsActive    *bool   `query:"is_active" validate:"omitempty"`
+	Q           *string `query:"q" validate:"omitempty,max=100"`
+	OrderBy     *string `query:"order_by" validate:"omitempty,oneof=code name created_at updated_at"` // whitelist di controller
+	Sort        *string `query:"sort" validate:"omitempty,oneof=asc desc"`
+	WithDeleted *bool   `query:"with_deleted" validate:"omitempty"` // default: nil/false -> hanya yang deleted_at IS NULL
 }
 
 /* =========================================================
@@ -60,6 +62,7 @@ type SubjectResponse struct {
 	IsActive  bool       `json:"subjects_is_active"`
 	CreatedAt time.Time  `json:"subjects_created_at"`
 	UpdatedAt *time.Time `json:"subjects_updated_at,omitempty"`
+	DeletedAt *time.Time `json:"subjects_deleted_at,omitempty"` // ⬅️ tambah untuk soft delete
 }
 
 // List response + meta
@@ -85,7 +88,11 @@ func (r CreateSubjectRequest) ToModel() subjectModel.SubjectsModel {
 	var desc *string
 	if r.Desc != nil {
 		d := strings.TrimSpace(*r.Desc)
-		desc = &d
+		if d != "" {
+			desc = &d
+		} else {
+			desc = nil
+		}
 	}
 
 	isActive := true
@@ -94,11 +101,11 @@ func (r CreateSubjectRequest) ToModel() subjectModel.SubjectsModel {
 	}
 
 	return subjectModel.SubjectsModel{
-		SubjectsMasjidID:  r.MasjidID,
-		SubjectsCode:      code,
-		SubjectsName:      name,
-		SubjectsDesc:      desc,
-		SubjectsIsActive:  isActive,
+		SubjectsMasjidID: r.MasjidID,
+		SubjectsCode:     code,
+		SubjectsName:     name,
+		SubjectsDesc:     desc,
+		SubjectsIsActive: isActive,
 	}
 }
 
@@ -112,6 +119,7 @@ func FromSubjectModel(m subjectModel.SubjectsModel) SubjectResponse {
 		IsActive:  m.SubjectsIsActive,
 		CreatedAt: m.SubjectsCreatedAt,
 		UpdatedAt: m.SubjectsUpdatedAt,
+		DeletedAt: m.SubjectsDeletedAt, // ⬅️ map deleted_at
 	}
 }
 
@@ -142,8 +150,6 @@ func (r UpdateSubjectRequest) Apply(m *subjectModel.SubjectsModel) {
 	}
 	if r.Desc != nil {
 		d := strings.TrimSpace(*r.Desc)
-		// boleh kosong jadi NULL?
-		// jika ya:
 		if d == "" {
 			m.SubjectsDesc = nil
 		} else {

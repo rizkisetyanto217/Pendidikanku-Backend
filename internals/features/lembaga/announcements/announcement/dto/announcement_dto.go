@@ -102,6 +102,12 @@ func (r *UpdateAnnouncementRequest) ApplyToModel(m *model.AnnouncementModel) {
 	m.AnnouncementUpdatedAt = &now
 }
 
+type Pagination struct {
+	Limit  int `json:"limit"`
+	Offset int `json:"offset"`
+	Total  int `json:"total"`
+}
+
 /* ===================== QUERIES (list) ===================== */
 
 // internals/features/lembaga/announcements/announcement/dto/list_query.go

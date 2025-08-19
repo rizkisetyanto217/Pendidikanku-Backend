@@ -289,6 +289,7 @@ func (ctrl *ClassController) GetClassByID(c *fiber.Ctx) error {
 }
 
 
+
 // GET /admin/classes
 func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
@@ -298,16 +299,20 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 
 	var q dto.ListClassQuery
 	// default paging
-	q.Limit = 20
-	q.Offset = 0
+	q.Limit, q.Offset = 20, 0
 	if err := c.QueryParser(&q); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
 	}
+	// guard pagination
+	if q.Limit <= 0 { q.Limit = 20 }
+	if q.Limit > 200 { q.Limit = 200 }
+	if q.Offset < 0 { q.Offset = 0 }
 
 	tx := ctrl.DB.Model(&model.ClassModel{}).
-		Where("class_deleted_at IS NULL").
-		Where("class_masjid_id = ?", masjidID)
+		Where("class_masjid_id = ?", masjidID).
+		Where("class_deleted_at IS NULL")
 
+	// filters
 	if q.ActiveOnly != nil {
 		tx = tx.Where("class_is_active = ?", *q.ActiveOnly)
 	}
@@ -315,11 +320,18 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		s := "%" + strings.ToLower(strings.TrimSpace(*q.Search)) + "%"
 		tx = tx.Where("(LOWER(class_name) LIKE ? OR LOWER(class_level) LIKE ?)", s, s)
 	}
+
+	// total (sebelum limit/offset)
+	var total int64
+	if err := tx.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung total data")
+	}
+
+	// sorting whitelist
 	sortVal := ""
 	if q.Sort != nil {
 		sortVal = strings.ToLower(strings.TrimSpace(*q.Sort))
 	}
-
 	switch sortVal {
 	case "name_asc":
 		tx = tx.Order("class_name ASC")
@@ -331,23 +343,26 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		tx = tx.Order("class_created_at DESC")
 	}
 
-	if q.Limit > 0 {
-		tx = tx.Limit(q.Limit)
-	}
-	if q.Offset > 0 {
-		tx = tx.Offset(q.Offset)
-	}
-
+	// data
 	var rows []model.ClassModel
-	if err := tx.Find(&rows).Error; err != nil {
+	if err := tx.
+		Limit(q.Limit).
+		Offset(q.Offset).
+		Find(&rows).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	resp := make([]*dto.ClassResponse, 0, len(rows))
+	items := make([]*dto.ClassResponse, 0, len(rows))
 	for i := range rows {
-		resp = append(resp, dto.NewClassResponse(&rows[i]))
+		items = append(items, dto.NewClassResponse(&rows[i]))
 	}
-	return helper.JsonOK(c, "OK", resp)
+
+	// gunakan JsonList agar konsisten: { data, pagination }
+	return helper.JsonList(c, items, fiber.Map{
+		"limit":  q.Limit,
+		"offset": q.Offset,
+		"total":  int(total),
+	})
 }
 
 

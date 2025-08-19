@@ -95,13 +95,14 @@ func (ctrl *ClassAttendanceSessionController) GetClassAttendanceSession(c *fiber
 	return helper.JsonOK(c, "Sesi kehadiran ditemukan", attendanceDTO.FromClassAttendanceSessionModel(m))
 }
 
+
 // GET /admin/class-attendance-sessions?section_id=&teacher_id=&date_from=&date_to=&limit=&offset=
 func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fiber.Ctx) error {
-	// Tenant (admin/teacher)
+	// ===== Tenant (admin/teacher) =====
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil { return err }
 
-	// Role
+	// ===== Role =====
 	userID, _ := helper.GetUserIDFromToken(c)
 	adminMasjidID, _ := helper.GetMasjidIDFromToken(c)
 	teacherMasjidID, _ := helper.GetTeacherMasjidIDFromToken(c)
@@ -109,11 +110,11 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	isAdmin := adminMasjidID != uuid.Nil && adminMasjidID == masjidID
 	isTeacher := teacherMasjidID != uuid.Nil && teacherMasjidID == masjidID
 
-	// Base query
+	// ===== Base query =====
 	qBase := ctrl.DB.Model(&attendanceModel.ClassAttendanceSessionModel{}).
 		Where("class_attendance_session_masjid_id = ?", masjidID)
 
-	// ====== FILTER TANGGAL (opsional) ======
+	// ===== Filter tanggal (opsional) =====
 	df := strings.TrimSpace(c.Query("date_from"))
 	dt := strings.TrimSpace(c.Query("date_to"))
 
@@ -135,7 +136,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		qBase = qBase.Where("class_attendance_session_date <= ?", to)
 	}
 
-	// ====== PARAM OPSIONAL ======
+	// ===== Param opsional =====
 	if s := strings.TrimSpace(c.Query("section_id")); s != "" {
 		if sid, err := uuid.Parse(s); err == nil {
 			qBase = qBase.Where("class_attendance_session_section_id = ?", sid)
@@ -151,7 +152,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		}
 	}
 
-	// ====== SCOPE BERDASARKAN ROLE ======
+	// ===== Scope berdasarkan role =====
 	if !isAdmin {
 		if isTeacher {
 			if userID == uuid.Nil {
@@ -176,19 +177,19 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		}
 	}
 
-	// ====== PAGINATION ======
+	// ===== Pagination =====
 	limit, _ := strconv.Atoi(c.Query("limit", "20"))
 	offset, _ := strconv.Atoi(c.Query("offset", "0"))
 	if limit <= 0 || limit > 200 { limit = 20 }
 	if offset < 0 { offset = 0 }
 
-	// ====== TOTAL ======
+	// ===== Total =====
 	var total int64
-	if err := qBase.Count(&total).Error; err != nil {
+	if err := qBase.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
-	// ====== QUERY DATA ======
+	// ===== Query data =====
 	var rows []attendanceModel.ClassAttendanceSessionModel
 	if err := qBase.
 		Select(`
@@ -212,19 +213,18 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	resp := make([]attendanceDTO.ClassAttendanceSessionResponse, 0, len(rows))
+	items := make([]attendanceDTO.ClassAttendanceSessionResponse, 0, len(rows))
 	for _, r := range rows {
-		resp = append(resp, attendanceDTO.FromClassAttendanceSessionModel(r))
+		items = append(items, attendanceDTO.FromClassAttendanceSessionModel(r))
 	}
 
-	return helper.JsonOK(c, "Daftar sesi kehadiran berhasil diambil", fiber.Map{
-		"items": resp,
-		"meta": fiber.Map{
-			"limit":    limit,
-			"offset":   offset,
-			"total":    total,
-			"date_from": df,
-			"date_to":   dt,
-		},
+	// ===== Return konsisten: JsonList (pakai fiber.Map untuk pagination/meta)
+	return helper.JsonList(c, items, fiber.Map{
+		"limit":    limit,
+		"offset":   offset,
+		"total":    int(total),
+		"date_from": df,
+		"date_to":   dt,
 	})
 }
+

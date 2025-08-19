@@ -239,68 +239,86 @@ func (h *UserClassController) GetUserClassByID(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "OK", ucDTO.NewUserClassResponse(m))
 }
 
+
 func (h *UserClassController) ListUserClasses(c *fiber.Ctx) error {
-    masjidID, err := helper.GetMasjidIDFromToken(c) // <-- ini yang benar
-    if err != nil {
-        return err
-    }
+	masjidID, err := helper.GetMasjidIDFromToken(c) // benar: tenant guard
+	if err != nil {
+		return err
+	}
 
-    var q ucDTO.ListUserClassQuery
-    q.Limit = 20
-    if err := c.QueryParser(&q); err != nil {
-        return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
-    }
+	var q ucDTO.ListUserClassQuery
+	// default paging
+	q.Limit, q.Offset = 20, 0
+	if err := c.QueryParser(&q); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
+	}
+	// guard pagination
+	if q.Limit <= 0 { q.Limit = 20 }
+	if q.Limit > 200 { q.Limit = 200 }
+	if q.Offset < 0 { q.Offset = 0 }
 
-    tx := h.DB.Model(&classModel.UserClassesModel{}).
-        Joins("JOIN classes ON classes.class_id = user_classes.user_classes_class_id").
-        Where("classes.class_masjid_id = ? AND classes.class_deleted_at IS NULL", masjidID)
+	tx := h.DB.Model(&classModel.UserClassesModel{}).
+		Joins("JOIN classes ON classes.class_id = user_classes.user_classes_class_id").
+		Where("classes.class_masjid_id = ? AND classes.class_deleted_at IS NULL", masjidID)
 
-    if q.UserID != nil {
-        tx = tx.Where("user_classes_user_id = ?", *q.UserID)
-    }
-    if q.ClassID != nil {
-        tx = tx.Where("user_classes_class_id = ?", *q.ClassID)
-    }
-    if q.Status != nil && strings.TrimSpace(*q.Status) != "" {
-        tx = tx.Where("user_classes_status = ?", strings.TrimSpace(*q.Status))
-    }
-    if q.ActiveNow != nil && *q.ActiveNow {
-        tx = tx.Where("user_classes_status = 'active' AND user_classes_ended_at IS NULL")
-    }
+	// filters
+	if q.UserID != nil {
+		tx = tx.Where("user_classes_user_id = ?", *q.UserID)
+	}
+	if q.ClassID != nil {
+		tx = tx.Where("user_classes_class_id = ?", *q.ClassID)
+	}
+	if q.Status != nil && strings.TrimSpace(*q.Status) != "" {
+		tx = tx.Where("user_classes_status = ?", strings.TrimSpace(*q.Status))
+	}
+	if q.ActiveNow != nil && *q.ActiveNow {
+		tx = tx.Where("user_classes_status = 'active' AND user_classes_ended_at IS NULL")
+	}
 
-    sort := "started_at_desc"
-    if q.Sort != nil {
-        sort = strings.ToLower(strings.TrimSpace(*q.Sort))
-    }
-    switch sort {
-    case "started_at_asc":
-        tx = tx.Order("user_classes_started_at ASC")
-    case "created_at_asc":
-        tx = tx.Order("user_classes_created_at ASC")
-    case "created_at_desc":
-        tx = tx.Order("user_classes_created_at DESC")
-    default:
-        tx = tx.Order("user_classes_started_at DESC")
-    }
+	// total (sebelum limit/offset)
+	var total int64
+	if err := tx.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung total data")
+	}
 
-    if q.Limit > 0 {
-        tx = tx.Limit(q.Limit)
-    }
-    if q.Offset > 0 {
-        tx = tx.Offset(q.Offset)
-    }
+	// sorting whitelist
+	sort := "started_at_desc"
+	if q.Sort != nil {
+		sort = strings.ToLower(strings.TrimSpace(*q.Sort))
+	}
+	switch sort {
+	case "started_at_asc":
+		tx = tx.Order("user_classes_started_at ASC")
+	case "created_at_asc":
+		tx = tx.Order("user_classes_created_at ASC")
+	case "created_at_desc":
+		tx = tx.Order("user_classes_created_at DESC")
+	default:
+		tx = tx.Order("user_classes_started_at DESC")
+	}
 
-    var rows []classModel.UserClassesModel
-    if err := tx.Find(&rows).Error; err != nil {
-        return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
-    }
+	// fetch data
+	var rows []classModel.UserClassesModel
+	if err := tx.
+		Limit(q.Limit).
+		Offset(q.Offset).
+		Find(&rows).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+	}
 
-    resp := make([]*ucDTO.UserClassResponse, 0, len(rows))
-    for i := range rows {
-        resp = append(resp, ucDTO.NewUserClassResponse(&rows[i]))
-    }
-    return helper.JsonOK(c, "OK", resp)
+	items := make([]*ucDTO.UserClassResponse, 0, len(rows))
+	for i := range rows {
+		items = append(items, ucDTO.NewUserClassResponse(&rows[i]))
+	}
+
+	// gunakan JsonList agar konsisten: { data, pagination }
+	return helper.JsonList(c, items, fiber.Map{
+		"limit":  q.Limit,
+		"offset": q.Offset,
+		"total":  int(total),
+	})
 }
+
 
 func (h *UserClassController) EndUserClass(c *fiber.Ctx) error {
     masjidID, err := helper.GetMasjidIDFromToken(c)

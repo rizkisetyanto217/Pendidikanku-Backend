@@ -5,14 +5,14 @@ import (
 	"masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/model"
 	helper "masjidku_backend/internals/helpers"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
-/* ===============
-====== LIST ===================== */
 // GET /teacher/class-attendance-sessions?session_id=...&user_class_id=...&status=present&date_from=YYYY-MM-DD&date_to=YYYY-MM-DD&limit=50&offset=0
 func (ctrl *TeacherClassAttendanceSessionController) ListAttendanceSessions(c *fiber.Ctx) error {
 	masjidID, err := helper.GetTeacherMasjidIDFromToken(c)
@@ -24,41 +24,50 @@ func (ctrl *TeacherClassAttendanceSessionController) ListAttendanceSessions(c *f
 		Where("user_class_attendance_sessions_masjid_id = ?", masjidID)
 
 	// filter by session_id
-	if s := c.Query("session_id"); s != "" {
-		if sid, err := uuid.Parse(s); err == nil {
-			q = q.Where("user_class_attendance_sessions_session_id = ?", sid)
+	if s := strings.TrimSpace(c.Query("session_id")); s != "" {
+		sid, err := uuid.Parse(s)
+		if err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "session_id tidak valid")
 		}
+		q = q.Where("user_class_attendance_sessions_session_id = ?", sid)
 	}
 
 	// filter by user_class_id
-	if uc := c.Query("user_class_id"); uc != "" {
-		if u, err := uuid.Parse(uc); err == nil {
-			q = q.Where("user_class_attendance_sessions_user_class_id = ?", u)
+	if uc := strings.TrimSpace(c.Query("user_class_id")); uc != "" {
+		uid, err := uuid.Parse(uc)
+		if err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "user_class_id tidak valid")
 		}
+		q = q.Where("user_class_attendance_sessions_user_class_id = ?", uid)
 	}
 
-	// filter by status (TEXT: present|sick|leave|absent)
-	if st := c.Query("status"); st != "" {
+	// filter by status (present|sick|leave|absent) - biarkan bebas jika enum sudah diproteksi DB
+	if st := strings.TrimSpace(c.Query("status")); st != "" {
 		q = q.Where("user_class_attendance_sessions_attendance_status = ?", st)
 	}
 
 	// filter tanggal via JOIN ke class_attendance_sessions (punya kolom date)
-	df := c.Query("date_from")
-	dt := c.Query("date_to")
+	df := strings.TrimSpace(c.Query("date_from"))
+	dt := strings.TrimSpace(c.Query("date_to"))
 	if df != "" || dt != "" {
-		q = q.Joins(`JOIN class_attendance_sessions s
-                      ON s.class_attendance_sessions_id = user_class_attendance_sessions_session_id`).
-			Where("s.class_attendance_sessions_masjid_id = ?", masjidID)
+		q = q.Joins(`
+			JOIN class_attendance_sessions s
+			  ON s.class_attendance_sessions_id = user_class_attendance_sessions_session_id
+		`).Where("s.class_attendance_sessions_masjid_id = ?", masjidID)
 
 		if df != "" {
-			if t, err := time.Parse("2006-01-02", df); err == nil {
-				q = q.Where("s.class_attendance_sessions_date >= ?", t)
+			t, err := time.Parse("2006-01-02", df)
+			if err != nil {
+				return fiber.NewError(fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)")
 			}
+			q = q.Where("s.class_attendance_sessions_date >= ?", t)
 		}
 		if dt != "" {
-			if t, err := time.Parse("2006-01-02", dt); err == nil {
-				q = q.Where("s.class_attendance_sessions_date <= ?", t)
+			t, err := time.Parse("2006-01-02", dt)
+			if err != nil {
+				return fiber.NewError(fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)")
 			}
+			q = q.Where("s.class_attendance_sessions_date <= ?", t)
 		}
 	}
 
@@ -72,6 +81,13 @@ func (ctrl *TeacherClassAttendanceSessionController) ListAttendanceSessions(c *f
 		offset = 0
 	}
 
+	// total sebelum limit/offset
+	var total int64
+	if err := q.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung total data")
+	}
+
+	// fetch
 	var rows []model.UserClassAttendanceSessionModel
 	if err := q.
 		Order("user_class_attendance_sessions_created_at DESC").
@@ -80,10 +96,17 @@ func (ctrl *TeacherClassAttendanceSessionController) ListAttendanceSessions(c *f
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	resp := make([]dto.UserClassAttendanceSessionResponse, 0, len(rows))
+	items := make([]dto.UserClassAttendanceSessionResponse, 0, len(rows))
 	for _, r := range rows {
-		resp = append(resp, dto.FromUserClassAttendanceSessionModel(r))
+		items = append(items, dto.FromUserClassAttendanceSessionModel(r))
 	}
 
-	return helper.JsonOK(c, "Daftar kehadiran ditemukan", resp)
+	// konsisten: JsonList
+	return helper.JsonList(c, items, fiber.Map{
+		"limit":     limit,
+		"offset":    offset,
+		"total":     int(total),
+		"date_from": df,
+		"date_to":   dt,
+	})
 }

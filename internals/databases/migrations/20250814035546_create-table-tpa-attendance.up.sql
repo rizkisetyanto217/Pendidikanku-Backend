@@ -7,40 +7,52 @@
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS btree_gin;
 
--- =========================================================
--- 1) SUBJECTS
--- =========================================================
--- SUBJECTS table (HARUS dibuat dulu sebelum index & FK lain)
+-- ---------- TABLE ----------
 CREATE TABLE IF NOT EXISTS subjects (
-  subjects_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  subjects_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
-  subjects_code VARCHAR(40) NOT NULL,
-  subjects_name VARCHAR(120) NOT NULL,
-  subjects_desc TEXT,
-  subjects_is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  subjects_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  subjects_masjid_id  UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+
+  subjects_code       VARCHAR(40)  NOT NULL,   -- unik per masjid (case-insensitive) bila belum dihapus
+  subjects_name       VARCHAR(120) NOT NULL,
+  subjects_desc       TEXT,
+
+  subjects_is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+
   subjects_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  subjects_updated_at TIMESTAMP
+  subjects_updated_at TIMESTAMP,
+  subjects_deleted_at TIMESTAMP
 );
 
--- unik per masjid (case-insensitive code)
+-- ---------- INDEXES ----------
+-- Unik per masjid untuk row yang BELUM dihapus (soft delete aware)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_subjects_code_per_masjid
-  ON subjects (subjects_masjid_id, lower(subjects_code));
+  ON subjects (subjects_masjid_id, lower(subjects_code))
+  WHERE subjects_deleted_at IS NULL;
 
--- index aktif
+-- Daftar aktif per masjid (abaikan yang sudah dihapus)
 CREATE INDEX IF NOT EXISTS idx_subjects_active
   ON subjects(subjects_masjid_id)
-  WHERE subjects_is_active = true;
+  WHERE subjects_is_active = true AND subjects_deleted_at IS NULL;
 
--- trigram name (pastikan pg_trgm aktif)
+-- Trigram untuk pencarian nama, hanya pada row yang belum dihapus
 CREATE INDEX IF NOT EXISTS gin_subjects_name_trgm
-  ON subjects USING gin (subjects_name gin_trgm_ops);
+  ON subjects USING gin (subjects_name gin_trgm_ops)
+  WHERE subjects_deleted_at IS NULL;
+
+-- (opsional) Index bantu untuk filter tenant (sering dipakai di WHERE)
+CREATE INDEX IF NOT EXISTS idx_subjects_masjid_alive
+  ON subjects(subjects_masjid_id)
+  WHERE subjects_deleted_at IS NULL;
+
+-- (opsional) Index bantu untuk pencarian case-insensitive code (non-unique)
+-- berguna jika sering SELECT ... WHERE lower(subjects_code) = lower($1)
+CREATE INDEX IF NOT EXISTS idx_subjects_code_ci_alive
+  ON subjects (lower(subjects_code))
+  WHERE subjects_deleted_at IS NULL;
 
 
--- =========================================================
--- CLASS_SUBJECTS (one shot, idempotent)
--- =========================================================
 
--- 1) TABLE
+-- ---------- TABLE ----------
 CREATE TABLE IF NOT EXISTS class_subjects (
   class_subjects_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -49,57 +61,96 @@ CREATE TABLE IF NOT EXISTS class_subjects (
   class_subjects_subject_id UUID NOT NULL REFERENCES subjects(subjects_id) ON DELETE RESTRICT,
 
   -- metadata kurikulum (opsional)
-  class_subjects_order_index INT,                     -- urutan di rapor
-  class_subjects_hours_per_week INT,                  -- jp/minggu
+  class_subjects_order_index INT,                       -- urutan di rapor (NULL = tak diatur)
+  class_subjects_hours_per_week INT,                    -- jp/minggu
   class_subjects_min_passing_score INT CHECK (class_subjects_min_passing_score BETWEEN 0 AND 100),
-  class_subjects_weight_on_report INT,                -- bobot di rapor
+  class_subjects_weight_on_report INT,                  -- bobot di rapor
   class_subjects_is_core BOOLEAN NOT NULL DEFAULT FALSE,
-  class_subjects_academic_year TEXT,                  -- "2025/2026" (opsional versi kurikulum)
+  class_subjects_academic_year TEXT,                    -- "2025/2026" (opsional)
+  class_subjects_desc TEXT,
 
   class_subjects_is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  class_subjects_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  class_subjects_updated_at TIMESTAMP
+  class_subjects_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  class_subjects_updated_at TIMESTAMPTZ,
+  class_subjects_deleted_at TIMESTAMPTZ                -- ⬅️ soft delete
 );
 
--- 2) UNIQUE: cegah mapel yang sama didaftarkan dua kali pada class & tahun ajaran yang sama (per masjid)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_class_subjects
-ON class_subjects(
-  class_subjects_masjid_id,
-  class_subjects_class_id,
-  class_subjects_subject_id,
-  COALESCE(class_subjects_academic_year,'')
-);
-
--- 3) CHECK numerik ringan (idempotent)
+-- ---------- SOFT-DELETE COLUMN BACKFILL (if older table) ----------
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'chk_cs_order_index_nonneg'
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema='public' AND table_name='class_subjects'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='class_subjects' AND column_name='class_subjects_deleted_at'
   ) THEN
+    ALTER TABLE class_subjects
+      ADD COLUMN class_subjects_deleted_at TIMESTAMPTZ;
+  END IF;
+END$$;
+
+-- ---------- ENSURE TIMESTAMPTZ (migrate from timestamp without time zone if needed) ----------
+DO $$
+DECLARE
+  v_created_type text;
+  v_updated_type text;
+  v_deleted_type text;
+BEGIN
+  SELECT data_type INTO v_created_type
+  FROM information_schema.columns
+  WHERE table_name='class_subjects' AND column_name='class_subjects_created_at';
+
+  IF v_created_type = 'timestamp without time zone' THEN
+    ALTER TABLE class_subjects
+      ALTER COLUMN class_subjects_created_at TYPE timestamptz
+      USING class_subjects_created_at AT TIME ZONE 'UTC';
+  END IF;
+
+  SELECT data_type INTO v_updated_type
+  FROM information_schema.columns
+  WHERE table_name='class_subjects' AND column_name='class_subjects_updated_at';
+
+  IF v_updated_type = 'timestamp without time zone' THEN
+    ALTER TABLE class_subjects
+      ALTER COLUMN class_subjects_updated_at TYPE timestamptz
+      USING class_subjects_updated_at AT TIME ZONE 'UTC';
+  END IF;
+
+  SELECT data_type INTO v_deleted_type
+  FROM information_schema.columns
+  WHERE table_name='class_subjects' AND column_name='class_subjects_deleted_at';
+
+  IF v_deleted_type = 'timestamp without time zone' THEN
+    ALTER TABLE class_subjects
+      ALTER COLUMN class_subjects_deleted_at TYPE timestamptz
+      USING class_subjects_deleted_at AT TIME ZONE 'UTC';
+  END IF;
+END$$;
+
+-- ---------- CHECK NUMERIC (idempotent guards) ----------
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_cs_order_index_nonneg') THEN
     ALTER TABLE class_subjects
       ADD CONSTRAINT chk_cs_order_index_nonneg
       CHECK (class_subjects_order_index IS NULL OR class_subjects_order_index >= 0);
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'chk_cs_hours_per_week_nonneg'
-  ) THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_cs_hours_per_week_nonneg') THEN
     ALTER TABLE class_subjects
       ADD CONSTRAINT chk_cs_hours_per_week_nonneg
       CHECK (class_subjects_hours_per_week IS NULL OR class_subjects_hours_per_week >= 0);
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'chk_cs_weight_on_report_nonneg'
-  ) THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_cs_weight_on_report_nonneg') THEN
     ALTER TABLE class_subjects
       ADD CONSTRAINT chk_cs_weight_on_report_nonneg
       CHECK (class_subjects_weight_on_report IS NULL OR class_subjects_weight_on_report >= 0);
   END IF;
 END$$;
 
--- 4) (Opsional) TENANT-SAFE FK komposit ke classes (class_id, class_masjid_id)
---    Hanya dibuat jika kolom class_masjid_id memang ada di tabel classes
+-- ---------- (Opsional) TENANT-SAFE FK komposit ke classes (class_id, class_masjid_id) ----------
 DO $$
 BEGIN
   IF EXISTS (
@@ -117,30 +168,89 @@ BEGIN
   END IF;
 END$$;
 
--- 5) INDEX yang umum dipakai
--- List mapel per kelas (aktif per tahun ajaran)
+-- ---------- UNIQUE (soft-delete aware) ----------
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='uq_class_subjects') THEN
+    DROP INDEX IF EXISTS uq_class_subjects;
+  END IF;
+END$$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_class_subjects
+ON class_subjects (
+  class_subjects_masjid_id,
+  class_subjects_class_id,
+  class_subjects_subject_id,
+  COALESCE(class_subjects_academic_year,'')
+)
+WHERE class_subjects_deleted_at IS NULL;
+
+-- ---------- INDEXES (soft-delete aware) ----------
+-- List mapel per kelas (aktif per tahun)
 CREATE INDEX IF NOT EXISTS idx_cs_masjid_class_year_active
-  ON class_subjects (class_subjects_masjid_id, class_subjects_class_id, COALESCE(class_subjects_academic_year,''))
-  WHERE class_subjects_is_active = TRUE;
+  ON class_subjects (
+    class_subjects_masjid_id,
+    class_subjects_class_id,
+    COALESCE(class_subjects_academic_year,'')
+  )
+  WHERE class_subjects_is_active = TRUE
+    AND class_subjects_deleted_at IS NULL;
 
 -- Cari semua kelas yang mengajarkan satu subject (aktif per tahun)
 CREATE INDEX IF NOT EXISTS idx_cs_masjid_subject_year_active
-  ON class_subjects (class_subjects_masjid_id, class_subjects_subject_id, COALESCE(class_subjects_academic_year,''))
-  WHERE class_subjects_is_active = TRUE;
+  ON class_subjects (
+    class_subjects_masjid_id,
+    class_subjects_subject_id,
+    COALESCE(class_subjects_academic_year,'')
+  )
+  WHERE class_subjects_is_active = TRUE
+    AND class_subjects_deleted_at IS NULL;
 
 -- Rekap cepat per masjid (aktif)
 CREATE INDEX IF NOT EXISTS idx_cs_masjid_active
   ON class_subjects (class_subjects_masjid_id)
-  WHERE class_subjects_is_active = TRUE;
+  WHERE class_subjects_is_active = TRUE
+    AND class_subjects_deleted_at IS NULL;
 
 -- Urutan rapor per kelas (aktif)
 CREATE INDEX IF NOT EXISTS idx_cs_class_order
   ON class_subjects (class_subjects_class_id, class_subjects_order_index)
-  WHERE class_subjects_is_active = TRUE;
+  WHERE class_subjects_is_active = TRUE
+    AND class_subjects_deleted_at IS NULL;
 
+-- Filter umum "alive" untuk tenant queries
+CREATE INDEX IF NOT EXISTS idx_cs_masjid_alive
+  ON class_subjects (class_subjects_masjid_id)
+  WHERE class_subjects_deleted_at IS NULL;
+
+-- Pencarian teks untuk deskripsi (opsional)
+CREATE INDEX IF NOT EXISTS gin_cs_desc_trgm
+  ON class_subjects USING gin (class_subjects_desc gin_trgm_ops)
+  WHERE class_subjects_deleted_at IS NULL;
+
+-- ---------- TRIGGER updated_at ----------
+CREATE OR REPLACE FUNCTION trg_set_timestamp_class_subjects()
+RETURNS trigger AS $$
+BEGIN
+  NEW.class_subjects_updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS set_timestamp_class_subjects ON class_subjects;
+CREATE TRIGGER set_timestamp_class_subjects
+BEFORE UPDATE ON class_subjects
+FOR EACH ROW EXECUTE FUNCTION trg_set_timestamp_class_subjects();
 
 -- =========================================================
--- CLASS SECTION SUBJECT TEACHERS (tanpa "csst" alias)
+-- NOTES:
+-- - Jika sekolah tidak membedakan per tahun, biarkan academic_year NULL (unik tetap aman).
+-- - Jika nanti ingin tanpa academic_year sama sekali, drop kolom + ganti UNIQUE ke 3 kolom (masjid,class,subject).
+-- - Info buku disimpan di tabel class_books (child → parent), bukan di class_subjects.
+-- =========================================================
+
+-- =========================================================
+-- CLASS SECTION SUBJECT TEACHERS (soft delete friendly)
 -- =========================================================
 
 -- 1) TABLE
@@ -154,10 +264,26 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
 
   class_section_subject_teachers_is_active BOOLEAN NOT NULL DEFAULT TRUE,
   class_section_subject_teachers_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  class_section_subject_teachers_updated_at TIMESTAMP
+  class_section_subject_teachers_updated_at TIMESTAMP,
+  class_section_subject_teachers_deleted_at TIMESTAMP     -- ⬅️ soft delete
 );
 
--- 2) TENANT-SAFE: pastikan section milik masjid yang sama (FK komposit)
+-- 1b) Tambahkan kolom deleted_at jika belum ada (idempotent)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema='public' AND table_name='class_section_subject_teachers'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='class_section_subject_teachers' AND column_name='class_section_subject_teachers_deleted_at'
+  ) THEN
+    ALTER TABLE class_section_subject_teachers
+      ADD COLUMN class_section_subject_teachers_deleted_at TIMESTAMP;
+  END IF;
+END$$;
+
+-- 2) TENANT-SAFE FK komposit ke class_sections (section_id, masjid_id)
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -171,36 +297,59 @@ BEGIN
   END IF;
 END$$;
 
--- 3) UNIQUE: cegah duplikasi penugasan AKTIF untuk guru yang sama pada (section, subject)
---    (mengizinkan >1 guru aktif per section+subject → team teaching)
+-- 3) UNIQUE aktif: cegah duplikasi penugasan guru untuk (section, subject, teacher) yang masih aktif & belum dihapus
+--    (team teaching tetap diperbolehkan karena uniqueness menyertakan teacher_user_id)
+DO $$
+BEGIN
+  -- drop index lama agar bisa ganti ke partial + deleted_at
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='uq_class_sec_subj_teachers_active') THEN
+    DROP INDEX IF EXISTS uq_class_sec_subj_teachers_active;
+  END IF;
+END$$;
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_sec_subj_teachers_active
 ON class_section_subject_teachers (
   class_section_subject_teachers_section_id,
   class_section_subject_teachers_subject_id,
   class_section_subject_teachers_teacher_user_id
 )
-WHERE class_section_subject_teachers_is_active = TRUE;
+WHERE class_section_subject_teachers_is_active = TRUE
+  AND class_section_subject_teachers_deleted_at IS NULL;
 
--- ALTERNATIF (jika ingin 1 guru saja aktif per section+subject):
+-- ALTERNATIF (tetap 1 guru saja per section+subject): tambahkan filter deleted_at juga
 -- CREATE UNIQUE INDEX IF NOT EXISTS uq_class_sec_subj_teachers_active_single
 -- ON class_section_subject_teachers (
 --   class_section_subject_teachers_section_id,
 --   class_section_subject_teachers_subject_id
 -- )
--- WHERE class_section_subject_teachers_is_active = TRUE;
+-- WHERE class_section_subject_teachers_is_active = TRUE
+--   AND class_section_subject_teachers_deleted_at IS NULL;
 
--- 4) INDEX umum
-CREATE INDEX IF NOT EXISTS idx_class_sec_subj_teachers_section
-  ON class_section_subject_teachers(class_section_subject_teachers_section_id);
+-- 4) INDEX umum (filter deleted_at agar ringan & sesuai query umum)
+CREATE INDEX IF NOT EXISTS idx_class_sec_subj_teachers_section_alive
+  ON class_section_subject_teachers(class_section_subject_teachers_section_id)
+  WHERE class_section_subject_teachers_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_class_sec_subj_teachers_subject
-  ON class_section_subject_teachers(class_section_subject_teachers_subject_id);
+CREATE INDEX IF NOT EXISTS idx_class_sec_subj_teachers_subject_alive
+  ON class_section_subject_teachers(class_section_subject_teachers_subject_id)
+  WHERE class_section_subject_teachers_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_class_sec_subj_teachers_masjid
-  ON class_section_subject_teachers(class_section_subject_teachers_masjid_id);
+CREATE INDEX IF NOT EXISTS idx_class_sec_subj_teachers_masjid_alive
+  ON class_section_subject_teachers(class_section_subject_teachers_masjid_id)
+  WHERE class_section_subject_teachers_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_class_sec_subj_teachers_teacher
-  ON class_section_subject_teachers(class_section_subject_teachers_teacher_user_id);
+CREATE INDEX IF NOT EXISTS idx_class_sec_subj_teachers_teacher_alive
+  ON class_section_subject_teachers(class_section_subject_teachers_teacher_user_id)
+  WHERE class_section_subject_teachers_deleted_at IS NULL;
+
+-- (opsional) kombinasi untuk query listing aktif per section+subject
+CREATE INDEX IF NOT EXISTS idx_class_sec_subj_teachers_sec_subj_active_alive
+  ON class_section_subject_teachers(
+    class_section_subject_teachers_section_id,
+    class_section_subject_teachers_subject_id
+  )
+  WHERE class_section_subject_teachers_is_active = TRUE
+    AND class_section_subject_teachers_deleted_at IS NULL;
 
 -- 5) TRIGGER updated_at
 CREATE OR REPLACE FUNCTION trg_set_timestamp_class_sec_subj_teachers()
@@ -217,30 +366,61 @@ BEFORE UPDATE ON class_section_subject_teachers
 FOR EACH ROW EXECUTE FUNCTION trg_set_timestamp_class_sec_subj_teachers();
 
 -- 6) VALIDASI TENANT: pastikan subject & section berada di masjid yang sama
+--    (opsional) jika tabel subject/section juga punya deleted_at, validasi hanya pada yang belum dihapus
 CREATE OR REPLACE FUNCTION fn_class_sec_subj_teachers_validate_tenant()
 RETURNS TRIGGER AS $BODY$
 DECLARE
   v_sec_masjid UUID;
   v_sub_masjid UUID;
+  has_sec_deleted_at BOOLEAN := FALSE;
+  has_sub_deleted_at BOOLEAN := FALSE;
 BEGIN
-  -- validasi section
-  SELECT class_sections_masjid_id INTO v_sec_masjid
-  FROM class_sections
-  WHERE class_sections_id = NEW.class_section_subject_teachers_section_id;
+  -- deteksi kolom deleted_at di class_sections
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='class_sections' AND column_name='class_sections_deleted_at'
+  ) INTO has_sec_deleted_at;
+
+  -- deteksi kolom deleted_at di subjects
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='subjects' AND column_name='subjects_deleted_at'
+  ) INTO has_sub_deleted_at;
+
+  -- validasi section (hanya yang belum dihapus jika kolomnya ada)
+  IF has_sec_deleted_at THEN
+    SELECT class_sections_masjid_id INTO v_sec_masjid
+    FROM class_sections
+    WHERE class_sections_id = NEW.class_section_subject_teachers_section_id
+      AND class_sections_deleted_at IS NULL;
+  ELSE
+    SELECT class_sections_masjid_id INTO v_sec_masjid
+    FROM class_sections
+    WHERE class_sections_id = NEW.class_section_subject_teachers_section_id;
+  END IF;
+
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'Section % tidak ditemukan', NEW.class_section_subject_teachers_section_id;
+    RAISE EXCEPTION 'Section % tidak ditemukan / sudah dihapus', NEW.class_section_subject_teachers_section_id;
   END IF;
   IF v_sec_masjid IS DISTINCT FROM NEW.class_section_subject_teachers_masjid_id THEN
     RAISE EXCEPTION 'Masjid mismatch: section(%) != row_masjid(%)',
       v_sec_masjid, NEW.class_section_subject_teachers_masjid_id;
   END IF;
 
-  -- validasi subject
-  SELECT subjects_masjid_id INTO v_sub_masjid
-  FROM subjects
-  WHERE subjects_id = NEW.class_section_subject_teachers_subject_id;
+  -- validasi subject (hanya yang belum dihapus jika kolomnya ada)
+  IF has_sub_deleted_at THEN
+    SELECT subjects_masjid_id INTO v_sub_masjid
+    FROM subjects
+    WHERE subjects_id = NEW.class_section_subject_teachers_subject_id
+      AND subjects_deleted_at IS NULL;
+  ELSE
+    SELECT subjects_masjid_id INTO v_sub_masjid
+    FROM subjects
+    WHERE subjects_id = NEW.class_section_subject_teachers_subject_id;
+  END IF;
+
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'Subject % tidak ditemukan', NEW.class_section_subject_teachers_subject_id;
+    RAISE EXCEPTION 'Subject % tidak ditemukan / sudah dihapus', NEW.class_section_subject_teachers_subject_id;
   END IF;
   IF v_sub_masjid IS DISTINCT FROM NEW.class_section_subject_teachers_masjid_id THEN
     RAISE EXCEPTION 'Masjid mismatch: subject(%) != row_masjid(%)',
@@ -267,6 +447,7 @@ BEGIN
   FOR EACH ROW
   EXECUTE FUNCTION fn_class_sec_subj_teachers_validate_tenant();
 END$$;
+
 
 -- =========================================================
 -- CLASS ATTENDANCE SESSIONS (CAS) — Refactor tanpa "csst"

@@ -2,7 +2,19 @@ package helper
 
 import "github.com/gofiber/fiber/v2"
 
-// helper JSON response (urut: data lalu message)
+// ===============================
+// Response JSON standar
+// ===============================
+
+// Success: list dengan pagination
+func JsonList(c *fiber.Ctx, data any, pagination any) error {
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"data":       data,
+		"pagination": pagination,
+	})
+}
+
+// Success: single resource (GET by ID, CREATE, UPDATE)
 func JsonOK(c *fiber.Ctx, message string, data any) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"data":    data,
@@ -24,10 +36,21 @@ func JsonUpdated(c *fiber.Ctx, message string, data any) error {
 	})
 }
 
+// Success: delete
+// (200 agar bisa kirim body, bukan 204 No Content)
 func JsonDeleted(c *fiber.Ctx, message string, data any) error {
-	// gunakan 200 agar bisa kirim body (bukan 204 No Content)
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"data":    data,
 		"message": message,
+	})
+}
+
+// Error helper
+func JsonError(c *fiber.Ctx, status int, message string) error {
+	return c.Status(status).JSON(fiber.Map{
+		"error": fiber.Map{
+			"code":    status,
+			"message": message,
+		},
 	})
 }

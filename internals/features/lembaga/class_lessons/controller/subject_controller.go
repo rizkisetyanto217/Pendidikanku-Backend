@@ -7,7 +7,7 @@ import (
 	"time"
 
 	subjectDTO "masjidku_backend/internals/features/lembaga/class_lessons/dto"
-	subjectModel "masjidku_backend/internals/features/lembaga/class_lessons/model" // mengikuti import di DTO
+	subjectModel "masjidku_backend/internals/features/lembaga/class_lessons/model"
 	helper "masjidku_backend/internals/helpers"
 
 	"github.com/go-playground/validator/v10"
@@ -28,7 +28,9 @@ type SubjectsController struct {
 func (h *SubjectsController) CreateSubject(c *fiber.Ctx) error {
 	// tenant guard (admin/teacher)
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	var req subjectDTO.CreateSubjectRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -38,11 +40,12 @@ func (h *SubjectsController) CreateSubject(c *fiber.Ctx) error {
 	// force tenant
 	req.MasjidID = masjidID
 
-	// trim ringan (tambahan selain yang ada di ToModel)
+	// normalisasi string
 	req.Code = strings.TrimSpace(req.Code)
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Desc != nil {
-		d := strings.TrimSpace(*req.Desc); req.Desc = &d
+		d := strings.TrimSpace(*req.Desc)
+		req.Desc = &d
 	}
 
 	if err := validator.New().Struct(req); err != nil {
@@ -51,10 +54,14 @@ func (h *SubjectsController) CreateSubject(c *fiber.Ctx) error {
 
 	// transaksi kecil
 	if err := h.DB.Transaction(func(tx *gorm.DB) error {
-		// duplikat code (per masjid) — case-insensitive
+		// cek duplikat code (per masjid), abaikan yang sudah soft-deleted
 		var cnt int64
 		if err := tx.Model(&subjectModel.SubjectsModel{}).
-			Where("subjects_masjid_id = ? AND LOWER(subjects_code) = LOWER(?)", req.MasjidID, req.Code).
+			Where(`
+				subjects_masjid_id = ?
+				AND LOWER(subjects_code) = LOWER(?)
+				AND subjects_deleted_at IS NULL
+			`, req.MasjidID, req.Code).
 			Count(&cnt).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek duplikasi kode")
 		}
@@ -83,14 +90,20 @@ func (h *SubjectsController) CreateSubject(c *fiber.Ctx) error {
 
 /* =========================================================
    GET BY ID
-   GET /admin/subjects/:id
+   GET /admin/subjects/:id[?with_deleted=true]
    ========================================================= */
 func (h *SubjectsController) GetSubject(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil { return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid") }
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+	}
+
+	withDeleted := strings.EqualFold(c.Query("with_deleted"), "true")
 
 	var m subjectModel.SubjectsModel
 	if err := h.DB.First(&m, "subjects_id = ?", id).Error; err != nil {
@@ -102,41 +115,59 @@ func (h *SubjectsController) GetSubject(c *fiber.Ctx) error {
 	if m.SubjectsMasjidID != masjidID {
 		return fiber.NewError(fiber.StatusForbidden, "Akses ditolak")
 	}
+	// jika soft-deleted dan tidak diminta with_deleted → treat as 404
+	if !withDeleted && m.SubjectsDeletedAt != nil {
+		return fiber.NewError(fiber.StatusNotFound, "Subject tidak ditemukan")
+	}
 
 	return helper.JsonOK(c, "Detail subject ditemukan", subjectDTO.FromSubjectModel(m))
 }
 
 /* =========================================================
    LIST
-   GET /admin/subjects?q=&is_active=&order_by=&sort=&limit=&offset=
-   order_by: code|name|created_at
+   GET /admin/subjects?q=&is_active=&order_by=&sort=&limit=&offset=&with_deleted=
+   order_by: code|name|created_at|updated_at
    sort: asc|desc
    ========================================================= */
 func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
-	// Query params
+	// --- Query params & defaults ---
 	var q subjectDTO.ListSubjectQuery
 	q.Limit, q.Offset = intPtr(20), intPtr(0)
+
 	if err := c.QueryParser(&q); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
 	}
-	if q.Limit == nil || *q.Limit <= 0 || *q.Limit > 200 { q.Limit = intPtr(20) }
-	if q.Offset == nil || *q.Offset < 0 { q.Offset = intPtr(0) }
+	if q.Limit == nil || *q.Limit <= 0 || *q.Limit > 200 {
+		q.Limit = intPtr(20)
+	}
+	if q.Offset == nil || *q.Offset < 0 {
+		q.Offset = intPtr(0)
+	}
 
+	// --- Base query (tenant + soft delete by default) ---
 	tx := h.DB.Model(&subjectModel.SubjectsModel{}).
 		Where("subjects_masjid_id = ?", masjidID)
 
+	// exclude soft-deleted by default
+	if q.WithDeleted == nil || !*q.WithDeleted {
+		tx = tx.Where("subjects_deleted_at IS NULL")
+	}
+
+	// filters
 	if q.IsActive != nil {
 		tx = tx.Where("subjects_is_active = ?", *q.IsActive)
 	}
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
 		kw := "%" + strings.ToLower(strings.TrimSpace(*q.Q)) + "%"
-		tx = tx.Where("LOWER(subjects_code) LIKE ? OR LOWER(subjects_name) LIKE ?", kw, kw)
+		tx = tx.Where("(LOWER(subjects_code) LIKE ? OR LOWER(subjects_name) LIKE ?)", kw, kw)
 	}
 
-	// OrderBy whitelist
+	// order by whitelist
 	orderBy := "subjects_created_at"
 	if q.OrderBy != nil {
 		switch strings.ToLower(*q.OrderBy) {
@@ -146,6 +177,8 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 			orderBy = "subjects_name"
 		case "created_at":
 			orderBy = "subjects_created_at"
+		case "updated_at":
+			orderBy = "subjects_updated_at"
 		}
 	}
 	sort := "ASC"
@@ -153,13 +186,13 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 		sort = "DESC"
 	}
 
-	// total
+	// --- total (sebelum limit/offset) ---
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
-	// data
+	// --- data ---
 	var rows []subjectModel.SubjectsModel
 	if err := tx.
 		Select(`
@@ -170,7 +203,8 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 			subjects_desc,
 			subjects_is_active,
 			subjects_created_at,
-			subjects_updated_at
+			subjects_updated_at,
+			subjects_deleted_at
 		`).
 		Order(orderBy + " " + sort).
 		Limit(*q.Limit).Offset(*q.Offset).
@@ -178,15 +212,18 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	return helper.JsonOK(c, "Daftar subject berhasil diambil", subjectDTO.SubjectListResponse{
-		Items: subjectDTO.FromSubjectModels(rows),
-		Meta: subjectDTO.ListMeta{
-			Limit:  *q.Limit,
-			Offset: *q.Offset,
-			Total:  int(total),
+	// --- response konsisten: data[] + pagination ---
+	return helper.JsonList(c,
+		subjectDTO.FromSubjectModels(rows),
+		fiber.Map{
+			"limit":  *q.Limit,
+			"offset": *q.Offset,
+			"total":  int(total),
 		},
-	})
+	)
 }
+
+
 
 /* =========================================================
    UPDATE (partial)
@@ -194,10 +231,14 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
    ========================================================= */
 func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil { return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid") }
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+	}
 
 	var req subjectDTO.UpdateSubjectRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -208,9 +249,18 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 	req.MasjidID = &masjidID
 
 	// normalisasi string
-	if req.Code != nil { s := strings.TrimSpace(*req.Code); req.Code = &s }
-	if req.Name != nil { s := strings.TrimSpace(*req.Name); req.Name = &s }
-	if req.Desc != nil { s := strings.TrimSpace(*req.Desc); req.Desc = &s }
+	if req.Code != nil {
+		s := strings.TrimSpace(*req.Code)
+		req.Code = &s
+	}
+	if req.Name != nil {
+		s := strings.TrimSpace(*req.Name)
+		req.Name = &s
+	}
+	if req.Desc != nil {
+		s := strings.TrimSpace(*req.Desc)
+		req.Desc = &s
+	}
 
 	if err := validator.New().Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -229,8 +279,12 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 		if m.SubjectsMasjidID != masjidID {
 			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengubah subject milik masjid lain")
 		}
+		// jangan izinkan update jika sudah soft-deleted
+		if m.SubjectsDeletedAt != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "Subject sudah dihapus")
+		}
 
-		// jika code berubah → cek duplikat
+		// jika code berubah → cek duplikat (abaikan soft-deleted & diri sendiri)
 		if req.Code != nil && *req.Code != m.SubjectsCode {
 			var cnt int64
 			if err := tx.Model(&subjectModel.SubjectsModel{}).
@@ -238,6 +292,7 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 					subjects_masjid_id = ?
 					AND LOWER(subjects_code) = LOWER(?)
 					AND subjects_id <> ?
+					AND subjects_deleted_at IS NULL
 				`, masjidID, *req.Code, m.SubjectsID).
 				Count(&cnt).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek duplikasi kode")
@@ -285,10 +340,14 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 /* =========================================================
    DELETE
    DELETE /admin/subjects/:id?force=true
+   - force=true (admin saja): hard delete (DELETE FROM)
+   - default: soft delete dengan set subjects_deleted_at = now()
    ========================================================= */
 func (h *SubjectsController) DeleteSubject(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	// Hanya admin boleh force delete
 	adminMasjidID, _ := helper.GetMasjidIDFromToken(c)
@@ -299,7 +358,9 @@ func (h *SubjectsController) DeleteSubject(c *fiber.Ctx) error {
 	}
 
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil { return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid") }
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+	}
 
 	if err := h.DB.Transaction(func(tx *gorm.DB) error {
 		var m subjectModel.SubjectsModel
@@ -315,18 +376,30 @@ func (h *SubjectsController) DeleteSubject(c *fiber.Ctx) error {
 
 		// TODO (opsional): cek relasi (kelas/mapel pakai subject ini). Blokir jika ada & force=false.
 
-		var delErr error
 		if force {
-			delErr = tx.Delete(&subjectModel.SubjectsModel{}, "subjects_id = ?", id).Error
-		} else {
-			delErr = tx.Where("subjects_id = ?", id).Delete(&subjectModel.SubjectsModel{}).Error
-		}
-		if delErr != nil {
-			msg := strings.ToLower(delErr.Error())
-			if strings.Contains(msg, "constraint") || strings.Contains(msg, "foreign") || strings.Contains(msg, "violat") {
-				return fiber.NewError(fiber.StatusBadRequest, "Tidak dapat menghapus karena masih ada data terkait")
+			// hard delete
+			if err := tx.Delete(&subjectModel.SubjectsModel{}, "subjects_id = ?", id).Error; err != nil {
+				msg := strings.ToLower(err.Error())
+				if strings.Contains(msg, "constraint") || strings.Contains(msg, "foreign") || strings.Contains(msg, "violat") {
+					return fiber.NewError(fiber.StatusBadRequest, "Tidak dapat menghapus karena masih ada data terkait")
+				}
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus subject")
 			}
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus subject")
+		} else {
+			// soft delete manual (karena tidak pakai gorm.DeletedAt)
+			if m.SubjectsDeletedAt != nil {
+				// sudah terhapus
+				return fiber.NewError(fiber.StatusBadRequest, "Subject sudah dihapus")
+			}
+			now := time.Now()
+			if err := tx.Model(&subjectModel.SubjectsModel{}).
+				Where("subjects_id = ?", id).
+				Updates(map[string]interface{}{
+					"subjects_deleted_at": &now,
+					"subjects_updated_at": &now,
+				}).Error; err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus subject")
+			}
 		}
 
 		c.Locals("deleted_subject", m)

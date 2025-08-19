@@ -5,6 +5,7 @@ import (
 	// ====== Lembaga features ======
 	AnnouncementRoutes "masjidku_backend/internals/features/lembaga/announcements/announcement/route"
 	AnnouncementThemaRoutes "masjidku_backend/internals/features/lembaga/announcements/announcement_thema/route"
+	ClassBooksRoutes "masjidku_backend/internals/features/lembaga/class_books/route"
 	ClassLessonsRoutes "masjidku_backend/internals/features/lembaga/class_lessons/route"
 	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/route"
 	ClassSectionsRoutes "masjidku_backend/internals/features/lembaga/class_sections/main/route"
@@ -64,6 +65,7 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	AnnouncementThemaRoutes.AnnouncementAdminRoute(r, db)
 	SemesterStatsRoutes.UserClassAttendanceSemesterAdminRoutes(r, db)
 	ClassLessonsRoutes.ClassLessonsAdminRoutes(r, db)
+	ClassBooksRoutes.ClassBooksAdminRoutes(r, db)
 
 	// Tambahkan modul lain (admin) di sini:
 	// SectionRoutes.SectionAdminRoutes(r, db)

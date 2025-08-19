@@ -321,7 +321,9 @@ func (ctrl *ClassAttendanceSessionController) ListByMasjid(c *fiber.Ctx) error {
 
 	parseDate := func(s string) (time.Time, error) {
 		t, err := time.Parse("2006-01-02", s)
-		if err != nil { return time.Time{}, err }
+		if err != nil {
+			return time.Time{}, err
+		}
 		return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local), nil
 	}
 
@@ -356,7 +358,7 @@ func (ctrl *ClassAttendanceSessionController) ListByMasjid(c *fiber.Ctx) error {
 
 	// ===== Total sebelum limit/offset =====
 	var total int64
-	if err := qBase.Count(&total).Error; err != nil {
+	if err := qBase.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
@@ -389,18 +391,18 @@ func (ctrl *ClassAttendanceSessionController) ListByMasjid(c *fiber.Ctx) error {
 		items = append(items, attendanceDTO.FromClassAttendanceSessionModel(r))
 	}
 
-	return helper.JsonOK(c, "Daftar sesi per masjid berhasil diambil", fiber.Map{
-		"items": items,
-		"meta": fiber.Map{
-			"limit":    limit,
-			"offset":   offset,
-			"total":    total,
-			"sort":     sort,
-			"date_from": df,
-			"date_to":   dt,
-		},
+	// ===== Return konsisten: JsonList
+	return helper.JsonList(c, items, fiber.Map{
+		"limit":    limit,
+		"offset":   offset,
+		"total":    int(total),
+		// Kalau ingin tetap expose filter yang dipakai:
+		"sort":      sort,
+		"date_from": df,
+		"date_to":   dt,
 	})
 }
+
 
 
 // POST /admin/class-attendance-sessions

@@ -73,6 +73,12 @@ type UpdateAnnouncementThemeRequest struct {
 	AnnouncementThemesIsActive    *bool   `json:"announcement_themes_is_active" validate:"omitempty"`
 }
 
+type Pagination struct {
+	Limit  int `json:"limit"`
+	Offset int `json:"offset"`
+	Total  int `json:"total"`
+}
+
 // ApplyToModel: terapkan hanya field yang dikirim
 func (r *UpdateAnnouncementThemeRequest) ApplyToModel(m *model.AnnouncementThemeModel) {
 	if r.AnnouncementThemesName != nil {

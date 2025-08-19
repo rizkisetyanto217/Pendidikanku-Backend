@@ -107,6 +107,7 @@ func (h *AnnouncementThemeController) GetByID(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "OK", annDTO.NewAnnouncementThemeResponse(m))
 }
 
+
 // GET /admin/announcement-themes
 func (h *AnnouncementThemeController) List(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
@@ -115,14 +116,17 @@ func (h *AnnouncementThemeController) List(c *fiber.Ctx) error {
 	}
 
 	var q annDTO.ListAnnouncementThemeQuery
+	// default pagination
 	q.Limit, q.Offset = 20, 0
 	if err := c.QueryParser(&q); err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Query tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 
 	tx := h.DB.Model(&annModel.AnnouncementThemeModel{}).
-		Where("announcement_themes_masjid_id = ?", masjidID)
+		Where("announcement_themes_masjid_id = ?", masjidID).
+		Where("announcement_themes_deleted_at IS NULL") // <-- hapus baris ini jika tidak pakai soft delete
 
+	// ===== Filters
 	if q.Name != nil && strings.TrimSpace(*q.Name) != "" {
 		name := "%" + strings.TrimSpace(*q.Name) + "%"
 		tx = tx.Where("announcement_themes_name ILIKE ?", name)
@@ -134,6 +138,13 @@ func (h *AnnouncementThemeController) List(c *fiber.Ctx) error {
 		tx = tx.Where("announcement_themes_is_active = ?", *q.IsActive)
 	}
 
+	// ===== Count total (sebelum limit/offset)
+	var total int64
+	if err := tx.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data tema")
+	}
+
+	// ===== Sorting whitelist
 	sort := "created_at_desc"
 	if q.Sort != nil {
 		sort = strings.ToLower(strings.TrimSpace(*q.Sort))
@@ -149,28 +160,41 @@ func (h *AnnouncementThemeController) List(c *fiber.Ctx) error {
 		tx = tx.Order("announcement_themes_created_at DESC")
 	}
 
-	if q.Limit > 0 {
-		tx = tx.Limit(q.Limit)
+	// ===== Pagination guard
+	if q.Limit <= 0 {
+		q.Limit = 20
 	}
-	if q.Offset > 0 {
-		tx = tx.Offset(q.Offset)
+	if q.Limit > 100 {
+		q.Limit = 100
+	}
+	if q.Offset < 0 {
+		q.Offset = 0
 	}
 
+	// ===== Fetch
 	var rows []annModel.AnnouncementThemeModel
-	if err := tx.Find(&rows).Error; err != nil {
-		return helper.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data tema")
+	if err := tx.Limit(q.Limit).Offset(q.Offset).Find(&rows).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data tema")
 	}
 
+	// ===== Map DTO
 	resp := make([]*annDTO.AnnouncementThemeResponse, 0, len(rows))
 	for i := range rows {
 		resp = append(resp, annDTO.NewAnnouncementThemeResponse(&rows[i]))
 	}
 
-	return helper.JsonOK(c, "OK", fiber.Map{
-		"total": len(resp),
-		"items": resp,
+	// ===== Return konsisten dengan JsonList
+	// Opsi 1 (pakai struct Pagination kalau sudah ada di annDTO):
+	return helper.JsonList(c, resp, annDTO.Pagination{
+		Limit:  q.Limit,
+		Offset: q.Offset,
+		Total:  int(total),
 	})
+
+	// Opsi 2 (kalau belum punya annDTO.Pagination, ganti dengan):
+	// return helper.JsonList(c, resp, fiber.Map{"limit": q.Limit, "offset": q.Offset, "total": int(total)})
 }
+
 
 // PUT /admin/announcement-themes/:id
 // PUT /admin/announcement-themes/:id

@@ -46,22 +46,26 @@ func (h *AnnouncementController) GetByID(c *fiber.Ctx) error {
 }
 
 
+
 // ===================== LIST =====================
 // GET /admin/announcements
 func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	masjidIDs, err := helper.GetMasjidIDsFromToken(c)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	var q annDTO.ListAnnouncementQuery
+	// default pagination
 	q.Limit, q.Offset = 20, 0
 	if err := c.QueryParser(&q); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
 	}
 
+	// base query + preload Theme (hemat kolom)
 	tx := h.DB.Model(&annModel.AnnouncementModel{}).
 		Where("announcement_masjid_id IN ?", masjidIDs).
 		Preload("Theme", func(db *gorm.DB) *gorm.DB {
-			// pilih kolom seperlunya biar hemat payload; sesuaikan nama kolom model tema
 			return db.
 				Select("announcement_themes_id, announcement_themes_masjid_id, announcement_themes_name, announcement_themes_color").
 				Where("announcement_themes_deleted_at IS NULL")
@@ -72,9 +76,11 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		tx = tx.Where("announcement_theme_id = ?", *q.ThemeID)
 	}
 
-	// ===== Filter: Section vs Global (NULL) =====
+	// ===== Filter: Section vs Global (NULL)
 	includeGlobal := true
-	if q.IncludeGlobal != nil { includeGlobal = *q.IncludeGlobal }
+	if q.IncludeGlobal != nil {
+		includeGlobal = *q.IncludeGlobal
+	}
 	onlyGlobal := q.OnlyGlobal != nil && *q.OnlyGlobal
 
 	sectionIDsCSV := strings.TrimSpace(c.Query("section_ids"))
@@ -86,14 +92,12 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	switch {
 	case onlyGlobal:
 		tx = tx.Where("announcement_class_section_id IS NULL")
-
 	case len(sectionIDs) > 0:
 		if includeGlobal {
 			tx = tx.Where("(announcement_class_section_id IN ? OR announcement_class_section_id IS NULL)", sectionIDs)
 		} else {
 			tx = tx.Where("announcement_class_section_id IN ?", sectionIDs)
 		}
-
 	case q.SectionID != nil:
 		if includeGlobal {
 			tx = tx.Where("(announcement_class_section_id = ? OR announcement_class_section_id IS NULL)", *q.SectionID)
@@ -119,23 +123,31 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	// ===== Filter: Date range (YYYY-MM-DD)
 	parseDate := func(s string) (time.Time, error) { return time.Parse("2006-01-02", strings.TrimSpace(s)) }
 	if q.DateFrom != nil && strings.TrimSpace(*q.DateFrom) != "" {
-		t, err := parseDate(*q.DateFrom); if err != nil { return fiber.NewError(fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)") }
+		t, err := parseDate(*q.DateFrom)
+		if err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)")
+		}
 		tx = tx.Where("announcement_date >= ?", t)
 	}
 	if q.DateTo != nil && strings.TrimSpace(*q.DateTo) != "" {
-		t, err := parseDate(*q.DateTo); if err != nil { return fiber.NewError(fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)") }
+		t, err := parseDate(*q.DateTo)
+		if err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)")
+		}
 		tx = tx.Where("announcement_date <= ?", t)
 	}
 
-	// ===== Total
+	// ===== Total (hitung sebelum limit/offset)
 	var total int64
-	if err := tx.Count(&total).Error; err != nil {
+	if err := tx.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung data")
 	}
 
 	// ===== Sorting
 	sort := "date_desc"
-	if q.Sort != nil { sort = strings.ToLower(strings.TrimSpace(*q.Sort)) }
+	if q.Sort != nil {
+		sort = strings.ToLower(strings.TrimSpace(*q.Sort))
+	}
 	switch sort {
 	case "date_asc":
 		tx = tx.Order("announcement_date ASC")
@@ -151,10 +163,16 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		tx = tx.Order("announcement_date DESC")
 	}
 
-	// ===== Pagination safety
-	if q.Limit <= 0 { q.Limit = 20 }
-	if q.Limit > 100 { q.Limit = 100 }
-	if q.Offset < 0 { q.Offset = 0 }
+	// ===== Pagination guard
+	if q.Limit <= 0 {
+		q.Limit = 20
+	}
+	if q.Limit > 100 {
+		q.Limit = 100
+	}
+	if q.Offset < 0 {
+		q.Offset = 0
+	}
 
 	// ===== Fetch
 	var rows []annModel.AnnouncementModel
@@ -162,16 +180,17 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// ===== Map ke response
-	resp := make([]*annDTO.AnnouncementResponse, 0, len(rows))
-	for i := range rows { resp = append(resp, annDTO.NewAnnouncementResponse(&rows[i])) }
+	// ===== Map ke response DTO
+	items := make([]*annDTO.AnnouncementResponse, 0, len(rows))
+	for i := range rows {
+		items = append(items, annDTO.NewAnnouncementResponse(&rows[i]))
+	}
 
-	return helper.Success(c, "OK", fiber.Map{
-		"limit":  q.Limit,
-		"offset": q.Offset,
-		"total":  total,
-		"count":  len(resp),
-		"items":  resp,
+	// ===== Return konsisten JsonList
+	return helper.JsonList(c, items, annDTO.Pagination{
+		Limit:  q.Limit,
+		Offset: q.Offset,
+		Total:  int(total),
 	})
 }
 
