@@ -2,6 +2,7 @@
 package dto
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -9,28 +10,6 @@ import (
 
 	"github.com/google/uuid"
 )
-
-/* =========================================================
-   Helpers
-   ========================================================= */
-
-const dateLayout = "2006-01-02"
-
-func parseDatePtr(s *string) *time.Time {
-	if s == nil {
-		return nil
-	}
-	d := strings.TrimSpace(*s)
-	if d == "" {
-		return nil
-	}
-	if t, err := time.Parse(dateLayout, d); err == nil {
-		// make it date-only (00:00 local)
-		tt := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
-		return &tt
-	}
-	return nil
-}
 
 /* =========================================================
    1) REQUESTS
@@ -42,24 +21,22 @@ type CreateClassSubjectBookRequest struct {
 	ClassSubjectBooksClassSubjectID uuid.UUID `json:"class_subject_books_class_subject_id" validate:"required"`
 	ClassSubjectBooksBookID         uuid.UUID `json:"class_subject_books_book_id"          validate:"required"`
 
-	// YYYY-MM-DD (opsional)
-	ValidFrom *string `json:"valid_from" validate:"omitempty,datetime=2006-01-02"`
-	ValidTo   *string `json:"valid_to"   validate:"omitempty,datetime=2006-01-02"`
-
-	IsPrimary *bool   `json:"is_primary" validate:"omitempty"`
-	Notes     *string `json:"notes"      validate:"omitempty"`
+	// pengganti valid_from/valid_to & notes/is_primary
+	ClassSubjectBooksIsActive *bool   `json:"class_subject_books_is_active" validate:"omitempty"`
+	ClassSubjectBooksDesc     *string `json:"class_subject_books_desc"      validate:"omitempty,max=2000"`
 }
 
 func (r CreateClassSubjectBookRequest) ToModel() model.ClassSubjectBookModel {
-	isPrimary := false
-	if r.IsPrimary != nil {
-		isPrimary = *r.IsPrimary
+	isActive := true
+	if r.ClassSubjectBooksIsActive != nil {
+		isActive = *r.ClassSubjectBooksIsActive
 	}
-	var notes *string
-	if r.Notes != nil {
-		n := strings.TrimSpace(*r.Notes)
-		if n != "" {
-			notes = &n
+
+	var desc *string
+	if r.ClassSubjectBooksDesc != nil {
+		d := strings.TrimSpace(*r.ClassSubjectBooksDesc)
+		if d != "" {
+			desc = &d
 		}
 	}
 
@@ -67,27 +44,26 @@ func (r CreateClassSubjectBookRequest) ToModel() model.ClassSubjectBookModel {
 		ClassSubjectBooksMasjidID:       r.ClassSubjectBooksMasjidID,
 		ClassSubjectBooksClassSubjectID: r.ClassSubjectBooksClassSubjectID,
 		ClassSubjectBooksBookID:         r.ClassSubjectBooksBookID,
-		ClassSubjectBooksValidFrom:      parseDatePtr(r.ValidFrom),
-		ClassSubjectBooksValidTo:        parseDatePtr(r.ValidTo),
-		ClassSubjectBooksIsPrimary:      isPrimary,
-		ClassSubjectBooksNotes:          notes,
+		ClassSubjectBooksIsActive:       isActive,
+		ClassSubjectBooksDesc:           desc,
 	}
 }
 
 // Update (partial)
 type UpdateClassSubjectBookRequest struct {
+	// biasanya masjid_id dipaksa dari token di controller; tetap pointer agar mudah di-apply
 	ClassSubjectBooksMasjidID       *uuid.UUID `json:"class_subject_books_masjid_id"        validate:"omitempty"`
 	ClassSubjectBooksClassSubjectID *uuid.UUID `json:"class_subject_books_class_subject_id" validate:"omitempty"`
 	ClassSubjectBooksBookID         *uuid.UUID `json:"class_subject_books_book_id"          validate:"omitempty"`
 
-	ValidFrom *string `json:"valid_from" validate:"omitempty,datetime=2006-01-02"`
-	ValidTo   *string `json:"valid_to"   validate:"omitempty,datetime=2006-01-02"`
-
-	IsPrimary *bool   `json:"is_primary" validate:"omitempty"`
-	Notes     *string `json:"notes"      validate:"omitempty"`
+	ClassSubjectBooksIsActive *bool   `json:"class_subject_books_is_active" validate:"omitempty"`
+	ClassSubjectBooksDesc     *string `json:"class_subject_books_desc"      validate:"omitempty,max=2000"`
 }
 
-func (r *UpdateClassSubjectBookRequest) Apply(m *model.ClassSubjectBookModel) {
+func (r *UpdateClassSubjectBookRequest) Apply(m *model.ClassSubjectBookModel) error {
+	if m == nil {
+		return errors.New("nil model")
+	}
 	if r.ClassSubjectBooksMasjidID != nil {
 		m.ClassSubjectBooksMasjidID = *r.ClassSubjectBooksMasjidID
 	}
@@ -97,25 +73,20 @@ func (r *UpdateClassSubjectBookRequest) Apply(m *model.ClassSubjectBookModel) {
 	if r.ClassSubjectBooksBookID != nil {
 		m.ClassSubjectBooksBookID = *r.ClassSubjectBooksBookID
 	}
-	if r.ValidFrom != nil {
-		m.ClassSubjectBooksValidFrom = parseDatePtr(r.ValidFrom)
+	if r.ClassSubjectBooksIsActive != nil {
+		m.ClassSubjectBooksIsActive = *r.ClassSubjectBooksIsActive
 	}
-	if r.ValidTo != nil {
-		m.ClassSubjectBooksValidTo = parseDatePtr(r.ValidTo)
-	}
-	if r.IsPrimary != nil {
-		m.ClassSubjectBooksIsPrimary = *r.IsPrimary
-	}
-	if r.Notes != nil {
-		n := strings.TrimSpace(*r.Notes)
-		if n == "" {
-			m.ClassSubjectBooksNotes = nil
+	if r.ClassSubjectBooksDesc != nil {
+		d := strings.TrimSpace(*r.ClassSubjectBooksDesc)
+		if d == "" {
+			m.ClassSubjectBooksDesc = nil
 		} else {
-			m.ClassSubjectBooksNotes = &n
+			m.ClassSubjectBooksDesc = &d
 		}
 	}
 	now := time.Now()
 	m.ClassSubjectBooksUpdatedAt = &now
+	return nil
 }
 
 /* =========================================================
@@ -123,14 +94,16 @@ func (r *UpdateClassSubjectBookRequest) Apply(m *model.ClassSubjectBookModel) {
    ========================================================= */
 
 type ListClassSubjectBookQuery struct {
-	Limit       *int      `query:"limit" validate:"omitempty,min=1,max=200"`
-	Offset      *int      `query:"offset" validate:"omitempty,min=0"`
+	Limit          *int       `query:"limit" validate:"omitempty,min=1,max=200"`
+	Offset         *int       `query:"offset" validate:"omitempty,min=0"`
 	ClassSubjectID *uuid.UUID `query:"class_subject_id" validate:"omitempty"`
-	BookID      *uuid.UUID `query:"book_id" validate:"omitempty"`
-	IsPrimary   *bool     `query:"is_primary" validate:"omitempty"`
-	ActiveOn    *string   `query:"active_on" validate:"omitempty,datetime=2006-01-02"` // filter: valid_from <= active_on <= valid_to (null = open)
-	WithDeleted *bool     `query:"with_deleted" validate:"omitempty"`
-	Sort        *string   `query:"sort" validate:"omitempty,oneof=created_at_asc created_at_desc valid_from_asc valid_from_desc"`
+	BookID         *uuid.UUID `query:"book_id" validate:"omitempty"`
+	IsActive       *bool      `query:"is_active" validate:"omitempty"`
+	WithDeleted    *bool      `query:"with_deleted" validate:"omitempty"`
+	// urutan yang relevan setelah refactor
+	Sort *string `query:"sort" validate:"omitempty,oneof=created_at_asc created_at_desc updated_at_asc updated_at_desc"`
+	// opsional: pencarian sederhana pada desc
+	Q *string `query:"q" validate:"omitempty,max=100"`
 }
 
 /* =========================================================
@@ -143,11 +116,8 @@ type ClassSubjectBookResponse struct {
 	ClassSubjectBooksClassSubjectID uuid.UUID  `json:"class_subject_books_class_subject_id"`
 	ClassSubjectBooksBookID         uuid.UUID  `json:"class_subject_books_book_id"`
 
-	ValidFrom *time.Time `json:"valid_from,omitempty"`
-	ValidTo   *time.Time `json:"valid_to,omitempty"`
-
-	IsPrimary bool    `json:"is_primary"`
-	Notes     *string `json:"notes,omitempty"`
+	ClassSubjectBooksIsActive bool     `json:"class_subject_books_is_active"`
+	ClassSubjectBooksDesc     *string  `json:"class_subject_books_desc,omitempty"`
 
 	ClassSubjectBooksCreatedAt time.Time  `json:"class_subject_books_created_at"`
 	ClassSubjectBooksUpdatedAt *time.Time `json:"class_subject_books_updated_at,omitempty"`
@@ -171,18 +141,20 @@ type ClassSubjectBookListResponse struct {
    ========================================================= */
 
 func FromModel(m model.ClassSubjectBookModel) ClassSubjectBookResponse {
+	var deletedAt *time.Time
+	if m.ClassSubjectBooksDeletedAt.Valid {
+		deletedAt = &m.ClassSubjectBooksDeletedAt.Time
+	}
 	return ClassSubjectBookResponse{
 		ClassSubjectBooksID:             m.ClassSubjectBooksID,
 		ClassSubjectBooksMasjidID:       m.ClassSubjectBooksMasjidID,
 		ClassSubjectBooksClassSubjectID: m.ClassSubjectBooksClassSubjectID,
 		ClassSubjectBooksBookID:         m.ClassSubjectBooksBookID,
-		ValidFrom:                       m.ClassSubjectBooksValidFrom,
-		ValidTo:                         m.ClassSubjectBooksValidTo,
-		IsPrimary:                       m.ClassSubjectBooksIsPrimary,
-		Notes:                           m.ClassSubjectBooksNotes,
+		ClassSubjectBooksIsActive:       m.ClassSubjectBooksIsActive,
+		ClassSubjectBooksDesc:           m.ClassSubjectBooksDesc,
 		ClassSubjectBooksCreatedAt:      m.ClassSubjectBooksCreatedAt,
 		ClassSubjectBooksUpdatedAt:      m.ClassSubjectBooksUpdatedAt,
-		ClassSubjectBooksDeletedAt:      m.ClassSubjectBooksDeletedAt,
+		ClassSubjectBooksDeletedAt:      deletedAt,
 	}
 }
 

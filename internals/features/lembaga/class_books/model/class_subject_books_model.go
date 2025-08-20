@@ -5,29 +5,27 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type ClassSubjectBookModel struct {
 	// PK
-	ClassSubjectBooksID uuid.UUID `json:"class_subject_books_id" gorm:"column:class_subject_books_id;type:uuid;default:gen_random_uuid();primaryKey"`
+	ClassSubjectBooksID uuid.UUID `json:"class_subject_books_id" gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:class_subject_books_id"`
 
 	// FKs
-	ClassSubjectBooksMasjidID       uuid.UUID `json:"class_subject_books_masjid_id"        gorm:"column:class_subject_books_masjid_id;type:uuid;not null"`
-	ClassSubjectBooksClassSubjectID uuid.UUID `json:"class_subject_books_class_subject_id" gorm:"column:class_subject_books_class_subject_id;type:uuid;not null"`
-	ClassSubjectBooksBookID         uuid.UUID `json:"class_subject_books_book_id"          gorm:"column:class_subject_books_book_id;type:uuid;not null"`
+	ClassSubjectBooksMasjidID       uuid.UUID `json:"class_subject_books_masjid_id"        gorm:"type:uuid;not null;column:class_subject_books_masjid_id;index:idx_csb_masjid"`
+	ClassSubjectBooksClassSubjectID uuid.UUID `json:"class_subject_books_class_subject_id" gorm:"type:uuid;not null;column:class_subject_books_class_subject_id;index:idx_csb_class_subject"`
+	ClassSubjectBooksBookID         uuid.UUID `json:"class_subject_books_book_id"          gorm:"type:uuid;not null;column:class_subject_books_book_id;index:idx_csb_book"`
 
-	// Periode pemakaian (nullable)
-	ClassSubjectBooksValidFrom *time.Time `json:"valid_from,omitempty" gorm:"column:valid_from;type:date"`
-	ClassSubjectBooksValidTo   *time.Time `json:"valid_to,omitempty"   gorm:"column:valid_to;type:date"`
-
-	// Penandaan
-	ClassSubjectBooksIsPrimary bool    `json:"is_primary"      gorm:"column:is_primary;not null;default:false"`
-	ClassSubjectBooksNotes     *string `json:"notes,omitempty" gorm:"column:notes"`
+	// Status aktif (pengganti valid_from/valid_to)
+	ClassSubjectBooksIsActive bool     `json:"class_subject_books_is_active" gorm:"not null;default:true;column:class_subject_books_is_active;index:idx_csb_active"`
+	// Deskripsi (pengganti notes)
+	ClassSubjectBooksDesc     *string  `json:"class_subject_books_desc,omitempty" gorm:"column:class_subject_books_desc"`
 
 	// Timestamps
-	ClassSubjectBooksCreatedAt time.Time  `json:"class_subject_books_created_at"           gorm:"column:class_subject_books_created_at;not null;default:now()"`
-	ClassSubjectBooksUpdatedAt *time.Time `json:"class_subject_books_updated_at,omitempty" gorm:"column:class_subject_books_updated_at"`
-	ClassSubjectBooksDeletedAt *time.Time `json:"class_subject_books_deleted_at,omitempty" gorm:"column:class_subject_books_deleted_at;index"`
+	ClassSubjectBooksCreatedAt time.Time      `json:"class_subject_books_created_at"           gorm:"column:class_subject_books_created_at;autoCreateTime"`
+	ClassSubjectBooksUpdatedAt *time.Time     `json:"class_subject_books_updated_at,omitempty" gorm:"column:class_subject_books_updated_at;autoUpdateTime"`
+	ClassSubjectBooksDeletedAt gorm.DeletedAt `json:"class_subject_books_deleted_at,omitempty" gorm:"column:class_subject_books_deleted_at;index"`
 }
 
 func (ClassSubjectBookModel) TableName() string { return "class_subject_books" }

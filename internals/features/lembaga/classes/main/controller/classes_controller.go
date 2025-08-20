@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -31,77 +32,80 @@ func NewClassController(db *gorm.DB) *ClassController {
 var validate = validator.New()
 
 /* ================= Handlers ================= */
-
 // POST /admin/classes
-// POST /api/a/classes  (multipart/form-data ATAU JSON)
 func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
-	if err != nil {
-		return err
-	}
+	if err != nil { return err }
 
 	var req dto.CreateClassRequest
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
-	// Paksa tenant dari token (abaikan input klien)
+	// paksa tenant
 	req.ClassMasjidID = &masjidID
 
-	// === Auto-generate slug ===
-	if strings.TrimSpace(req.ClassSlug) == "" {
+	// normalisasi & slug
+	req.ClassName = strings.TrimSpace(req.ClassName)
+	req.ClassSlug = strings.TrimSpace(req.ClassSlug)
+	if req.ClassSlug == "" {
 		req.ClassSlug = helper.GenerateSlug(req.ClassName)
 	} else {
 		req.ClassSlug = helper.GenerateSlug(req.ClassSlug)
 	}
 
-	// Validasi DTO
+	// validasi
 	if err := validate.Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// === (Opsional) Upload gambar ke Supabase jika ada file ===
-	if fileHeader, err := c.FormFile("class_image_url"); err == nil && fileHeader != nil {
-		publicURL, upErr := helper.UploadImageToSupabase("classes", fileHeader)
+	// (opsional) upload gambar dari form field "class_image_url"
+	if fh, ferr := c.FormFile("class_image_url"); ferr == nil && fh != nil {
+		publicURL, upErr := helper.UploadImageToSupabase("classes", fh)
 		if upErr != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "Upload gambar gagal: "+upErr.Error())
 		}
 		req.ClassImageURL = &publicURL
 	}
 
-	// Mapping ke model
 	m := req.ToModel()
 
-	// === TRANSACTION START ===
 	tx := ctrl.DB.Begin()
 	if tx.Error != nil {
-	return fiber.NewError(fiber.StatusInternalServerError, tx.Error.Error())
+		return fiber.NewError(fiber.StatusInternalServerError, tx.Error.Error())
 	}
 	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-			panic(r)
-		}
+		if r := recover(); r != nil { tx.Rollback(); panic(r) }
 	}()
 
-	// Guard slug unik (non-deleted)
-	if err := tx.
-		Where("class_slug = ? AND class_deleted_at IS NULL", m.ClassSlug).
-		First(&model.ClassModel{}).Error; err == nil {
+	// Cek slug unik PER MASJID (case-insensitive, soft-delete aware)
+	var exists model.ClassModel
+	findErr := tx.
+		Where(
+			"class_masjid_id = ? AND lower(class_slug) = lower(?) AND class_deleted_at IS NULL",
+			masjidID, m.ClassSlug,
+		).
+		Take(&exists).Error
+	if findErr == nil {
 		tx.Rollback()
-		return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan")
-	} else if err != gorm.ErrRecordNotFound {
+		return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
+	}
+	if !errors.Is(findErr, gorm.ErrRecordNotFound) {
 		tx.Rollback()
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return fiber.NewError(fiber.StatusInternalServerError, findErr.Error())
 	}
 
-	// Simpan kelas
+	// Simpan
 	if err := tx.Create(m).Error; err != nil {
 		tx.Rollback()
+		low := strings.ToLower(err.Error())
+		if strings.Contains(low, "duplicate") || strings.Contains(low, "unique") {
+			return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
+		}
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat data kelas")
 	}
 
-	// === Update lembaga_stats (ensure + increment) ===
+	// Update lembaga_stats
 	statsSvc := service.NewLembagaStatsService()
 	if err := statsSvc.EnsureForMasjid(tx, masjidID); err != nil {
 		tx.Rollback()
@@ -112,11 +116,9 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal update lembaga_stats: "+err.Error())
 	}
 
-	// Commit
 	if err := tx.Commit().Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	// === TRANSACTION END ===
 
 	return helper.JsonCreated(c, "Kelas berhasil dibuat", dto.NewClassResponse(m))
 }
@@ -130,39 +132,43 @@ func (ctrl *ClassController) UpdateClass(c *fiber.Ctx) error {
 		return err
 	}
 
-	classID, err := uuid.Parse(c.Params("id"))
+	classID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// Parse payload lebih dulu (boleh JSON atau form)
+	// Parse payload (JSON / form)
 	var req dto.UpdateClassRequest
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
-	// --- Normalize slug/name ---
+	// --- Normalize name/slug ---
 	if req.ClassSlug != nil {
-		s := helper.GenerateSlug(*req.ClassSlug)
+		s := helper.GenerateSlug(strings.TrimSpace(*req.ClassSlug))
 		req.ClassSlug = &s
-	} else if req.ClassName != nil { // regen slug dari name jika slug tidak dikirim
-		s := helper.GenerateSlug(*req.ClassName)
+	} else if req.ClassName != nil {
+		// Regen slug dari name hanya kalau slug tidak dikirim
+		s := helper.GenerateSlug(strings.TrimSpace(*req.ClassName))
 		req.ClassSlug = &s
 	}
 
-	// Cegah pindah tenant dari klien
+	// Paksa tenant (tidak bisa diganti dari klien)
 	req.ClassMasjidID = &masjidID
 
-	// === (Opsional) Upload gambar baru jika ada file "class_image" ===
-	var newUploadedURL *string
-	if fileHeader, err := c.FormFile("class_image"); err == nil && fileHeader != nil {
-		publicURL, upErr := helper.UploadImageToSupabase("classes", fileHeader)
-		if upErr != nil {
+	// === (Opsional) Upload file (coba "class_image", fallback "class_image_url") ===
+	if fh, err := c.FormFile("class_image"); err == nil && fh != nil {
+		if publicURL, upErr := helper.UploadImageToSupabase("classes", fh); upErr == nil {
+			req.ClassImageURL = &publicURL
+		} else {
 			return fiber.NewError(fiber.StatusBadRequest, "Upload gambar gagal: "+upErr.Error())
 		}
-		newUploadedURL = &publicURL
-		// set ke req agar ikut tersimpan
-		req.ClassImageURL = newUploadedURL
+	} else if fh, err := c.FormFile("class_image_url"); err == nil && fh != nil {
+		if publicURL, upErr := helper.UploadImageToSupabase("classes", fh); upErr == nil {
+			req.ClassImageURL = &publicURL
+		} else {
+			return fiber.NewError(fiber.StatusBadRequest, "Upload gambar gagal: "+upErr.Error())
+		}
 	}
 
 	// Validasi DTO
@@ -182,13 +188,13 @@ func (ctrl *ClassController) UpdateClass(c *fiber.Ctx) error {
 		}
 	}()
 
-	// Lock row agar aman dari race
+	// Lock row + cek tenant
 	var existing model.ClassModel
 	if err := tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
 		First(&existing, "class_id = ? AND class_deleted_at IS NULL", classID).Error; err != nil {
 		tx.Rollback()
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.NewError(fiber.StatusNotFound, "Kelas tidak ditemukan")
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
@@ -198,40 +204,50 @@ func (ctrl *ClassController) UpdateClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengubah kelas di masjid lain")
 	}
 
-	// Cek perubahan status aktif
+	// Track perubahan status aktif (untuk lembaga_stats)
 	wasActive := existing.ClassIsActive
 	newActive := wasActive
 	if req.ClassIsActive != nil {
 		newActive = *req.ClassIsActive
 	}
 
-	// Cek unik slug (exclude current id) bila akan mengubah slug
+	// Cek unik slug PER MASJID saat slug berubah (case-insensitive, soft-delete aware)
 	if req.ClassSlug != nil && *req.ClassSlug != existing.ClassSlug {
 		var cnt int64
 		if err := tx.Model(&model.ClassModel{}).
-			Where("class_slug = ? AND class_id <> ? AND class_deleted_at IS NULL", *req.ClassSlug, existing.ClassID).
-			Count(&cnt).Error; err == nil && cnt > 0 {
-			tx.Rollback()
-			return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan")
-		} else if err != nil {
+			Where(`
+				class_masjid_id = ?
+				AND lower(class_slug) = lower(?)
+				AND class_id <> ?
+				AND class_deleted_at IS NULL
+			`, masjidID, *req.ClassSlug, existing.ClassID).
+			Count(&cnt).Error; err != nil {
 			tx.Rollback()
 			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		} else if cnt > 0 {
+			tx.Rollback()
+			return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
 		}
 	}
 
-	// Jika klien mengirim URL gambar berbeda (tanpa upload file), hapus lama dulu
+	// Jika URL gambar diganti manual, hapus file lama (best effort)
 	if req.ClassImageURL != nil && existing.ClassImageURL != nil && *existing.ClassImageURL != *req.ClassImageURL {
 		if bucket, path, exErr := helper.ExtractSupabasePath(*existing.ClassImageURL); exErr == nil {
-			_ = helper.DeleteFromSupabase(bucket, path) // abaikan error non-kritis
+			_ = helper.DeleteFromSupabase(bucket, path)
 		}
 	}
 
-	// Apply & save
+	// Apply perubahan ke model & simpan
 	req.ApplyToModel(&existing)
+
 	if err := tx.Model(&model.ClassModel{}).
 		Where("class_id = ?", existing.ClassID).
 		Updates(&existing).Error; err != nil {
 		tx.Rollback()
+		low := strings.ToLower(err.Error())
+		if strings.Contains(low, "duplicate") || strings.Contains(low, "unique") {
+			return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
+		}
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui data")
 	}
 

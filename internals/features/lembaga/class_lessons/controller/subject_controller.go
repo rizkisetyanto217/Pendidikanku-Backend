@@ -20,11 +20,8 @@ type SubjectsController struct {
 	DB *gorm.DB
 }
 
-/* =========================================================
-   CREATE
-   POST /admin/subjects
-   Body: CreateSubjectRequest
-   ========================================================= */
+// CREATE
+// POST /admin/subjects
 func (h *SubjectsController) CreateSubject(c *fiber.Ctx) error {
 	// tenant guard (admin/teacher)
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
@@ -45,21 +42,41 @@ func (h *SubjectsController) CreateSubject(c *fiber.Ctx) error {
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Desc != nil {
 		d := strings.TrimSpace(*req.Desc)
-		req.Desc = &d
+		if d == "" {
+			req.Desc = nil
+		} else {
+			req.Desc = &d
+		}
 	}
 
+	// generate / normalize slug
+	if req.Slug != nil {
+		s := helper.GenerateSlug(*req.Slug)
+		if s == "" {
+			req.Slug = nil
+		} else {
+			req.Slug = &s
+		}
+	} else {
+		s := helper.GenerateSlug(req.Name)
+		if s != "" {
+			req.Slug = &s
+		}
+	}
+
+	// validasi DTO
 	if err := validator.New().Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
 	// transaksi kecil
 	if err := h.DB.Transaction(func(tx *gorm.DB) error {
-		// cek duplikat code (per masjid), abaikan yang sudah soft-deleted
+		// cek duplikat code (per masjid), abaikan yang soft-deleted
 		var cnt int64
 		if err := tx.Model(&subjectModel.SubjectsModel{}).
 			Where(`
 				subjects_masjid_id = ?
-				AND LOWER(subjects_code) = LOWER(?)
+				AND lower(subjects_code) = lower(?)
 				AND subjects_deleted_at IS NULL
 			`, req.MasjidID, req.Code).
 			Count(&cnt).Error; err != nil {
@@ -69,10 +86,34 @@ func (h *SubjectsController) CreateSubject(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusConflict, "Kode mapel sudah digunakan")
 		}
 
+		// cek duplikat slug per masjid (jika slug ada)
+		if req.Slug != nil && strings.TrimSpace(*req.Slug) != "" {
+			cnt = 0
+			if err := tx.Model(&subjectModel.SubjectsModel{}).
+				Where(`
+					subjects_masjid_id = ?
+					AND lower(subjects_slug) = lower(?)
+					AND subjects_deleted_at IS NULL
+				`, req.MasjidID, *req.Slug).
+				Count(&cnt).Error; err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek duplikasi slug")
+			}
+			if cnt > 0 {
+				return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
+			}
+		}
+
+		// simpan
 		m := req.ToModel()
 		if err := tx.Create(&m).Error; err != nil {
 			msg := strings.ToLower(err.Error())
-			if strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
+			switch {
+			case strings.Contains(msg, "uq_subjects_code_per_masjid"),
+				strings.Contains(msg, "duplicate"), strings.Contains(msg, "unique"):
+				// tangkap unik index dari DB (code/slug)
+				if req.Slug != nil {
+					return fiber.NewError(fiber.StatusConflict, "Kode/Slug sudah digunakan di masjid ini")
+				}
 				return fiber.NewError(fiber.StatusConflict, "Kode mapel sudah digunakan")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat subject")
@@ -225,10 +266,8 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 
 
 
-/* =========================================================
-   UPDATE (partial)
-   PUT /admin/subjects/:id
-   ========================================================= */
+// UPDATE (partial)
+// PUT /admin/subjects/:id
 func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
@@ -261,6 +300,22 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 		s := strings.TrimSpace(*req.Desc)
 		req.Desc = &s
 	}
+	// normalize / generate slug:
+	// - jika slug dikirim → normalize
+	// - else jika name dikirim → regenerate dari name
+	if req.Slug != nil {
+		s := helper.GenerateSlug(strings.TrimSpace(*req.Slug))
+		if s == "" {
+			req.Slug = nil // kosongkan bila hasil normalisasi empty
+		} else {
+			req.Slug = &s
+		}
+	} else if req.Name != nil {
+		s := helper.GenerateSlug(*req.Name)
+		if s != "" {
+			req.Slug = &s
+		}
+	}
 
 	if err := validator.New().Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -279,7 +334,6 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 		if m.SubjectsMasjidID != masjidID {
 			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengubah subject milik masjid lain")
 		}
-		// jangan izinkan update jika sudah soft-deleted
 		if m.SubjectsDeletedAt != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "Subject sudah dihapus")
 		}
@@ -290,7 +344,7 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 			if err := tx.Model(&subjectModel.SubjectsModel{}).
 				Where(`
 					subjects_masjid_id = ?
-					AND LOWER(subjects_code) = LOWER(?)
+					AND lower(subjects_code) = lower(?)
 					AND subjects_id <> ?
 					AND subjects_deleted_at IS NULL
 				`, masjidID, *req.Code, m.SubjectsID).
@@ -302,12 +356,36 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 			}
 		}
 
-		// apply perubahan
+		// jika slug berubah → cek duplikat per masjid (abaikan soft-deleted & diri sendiri)
+		if req.Slug != nil {
+			// cek hanya jika slug berubah (case-insensitive)
+			needCheck := m.SubjectsSlug == nil || !strings.EqualFold(*m.SubjectsSlug, *req.Slug)
+			if needCheck {
+				var cnt int64
+				if err := tx.Model(&subjectModel.SubjectsModel{}).
+					Where(`
+						subjects_masjid_id = ?
+						AND subjects_id <> ?
+						AND subjects_deleted_at IS NULL
+						AND subjects_slug IS NOT NULL
+						AND lower(subjects_slug) = lower(?)
+					`, masjidID, m.SubjectsID, *req.Slug).
+					Count(&cnt).Error; err != nil {
+					return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek duplikasi slug")
+				}
+				if cnt > 0 {
+					return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
+				}
+			}
+		}
+
+
+		// apply perubahan ke model
 		req.Apply(&m)
 		now := time.Now()
 		m.SubjectsUpdatedAt = &now
 
-		// update field spesifik (hindari overwrite tak sengaja)
+		// patch spesifik (hindari overwrite tak sengaja)
 		patch := map[string]interface{}{
 			"subjects_masjid_id":  m.SubjectsMasjidID,
 			"subjects_code":       m.SubjectsCode,
@@ -316,13 +394,23 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 			"subjects_is_active":  m.SubjectsIsActive,
 			"subjects_updated_at": m.SubjectsUpdatedAt,
 		}
+		// update slug hanya jika memang diubah/dikirim
+		if req.Slug != nil {
+			patch["subjects_slug"] = m.SubjectsSlug
+		}
 
 		if err := tx.Model(&subjectModel.SubjectsModel{}).
 			Where("subjects_id = ?", m.SubjectsID).
 			Updates(patch).Error; err != nil {
 			msg := strings.ToLower(err.Error())
-			if strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
+			switch {
+			case strings.Contains(msg, "uq_subjects_code_per_masjid"):
 				return fiber.NewError(fiber.StatusConflict, "Kode mapel sudah digunakan")
+			case strings.Contains(msg, "uq_subjects_slug_per_masjid"):
+				return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
+			case strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique"):
+				// fallback umum dari DB
+				return fiber.NewError(fiber.StatusConflict, "Duplikasi data (kode/slug)")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui subject")
 		}
@@ -336,6 +424,7 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 	m := c.Locals("updated_subject").(subjectModel.SubjectsModel)
 	return helper.JsonUpdated(c, "Subject berhasil diperbarui", subjectDTO.FromSubjectModel(m))
 }
+
 
 /* =========================================================
    DELETE

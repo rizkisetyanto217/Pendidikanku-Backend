@@ -5,16 +5,16 @@ import (
 	"strings"
 	"time"
 
-	model "masjidku_backend/internals/features/lembaga/class_lessons/model"
-
 	"github.com/google/uuid"
+
+	booksModel "masjidku_backend/internals/features/lembaga/class_books/model"
+	csModel "masjidku_backend/internals/features/lembaga/class_lessons/model"
 )
 
 /* =========================================================
    1) REQUEST DTO
    ========================================================= */
 
-// Create
 type CreateClassSubjectRequest struct {
 	MasjidID     uuid.UUID `json:"class_subjects_masjid_id" validate:"required"`
 	ClassID      uuid.UUID `json:"class_subjects_class_id" validate:"required"`
@@ -29,9 +29,8 @@ type CreateClassSubjectRequest struct {
 	IsActive     *bool     `json:"class_subjects_is_active" validate:"omitempty"`
 }
 
-// Update (partial)
 type UpdateClassSubjectRequest struct {
-	MasjidID     *uuid.UUID `json:"class_subjects_masjid_id" validate:"omitempty"` // biasanya di-force dari token
+	MasjidID     *uuid.UUID `json:"class_subjects_masjid_id" validate:"omitempty"`
 	ClassID      *uuid.UUID `json:"class_subjects_class_id" validate:"omitempty"`
 	SubjectID    *uuid.UUID `json:"class_subjects_subject_id" validate:"omitempty"`
 	OrderIndex   *int       `json:"class_subjects_order_index" validate:"omitempty,min=0"`
@@ -44,13 +43,6 @@ type UpdateClassSubjectRequest struct {
 	IsActive     *bool      `json:"class_subjects_is_active" validate:"omitempty"`
 }
 
-/*
-   List query:
-   - Filter by active
-   - q (opsional, mis. academic_year)
-   - Pagination & sort
-   - with_deleted
-*/
 type ListClassSubjectQuery struct {
 	Limit       *int    `query:"limit" validate:"omitempty,min=1,max=200"`
 	Offset      *int    `query:"offset" validate:"omitempty,min=0"`
@@ -62,45 +54,43 @@ type ListClassSubjectQuery struct {
 }
 
 /* =========================================================
-   2) RESPONSE DTO
+   2) RESPONSE DTO (basic)
    ========================================================= */
 
 type ClassSubjectResponse struct {
-	ID            uuid.UUID  `json:"class_subjects_id"`
-	MasjidID      uuid.UUID  `json:"class_subjects_masjid_id"`
-	ClassID       uuid.UUID  `json:"class_subjects_class_id"`
-	SubjectID     uuid.UUID  `json:"class_subjects_subject_id"`
-	OrderIndex    *int       `json:"class_subjects_order_index,omitempty"`
-	HoursPerWeek  *int       `json:"class_subjects_hours_per_week,omitempty"`
-	MinScore      *int       `json:"class_subjects_min_passing_score,omitempty"`
-	Weight        *int       `json:"class_subjects_weight_on_report,omitempty"`
-	IsCore        bool       `json:"class_subjects_is_core"`
-	AcademicYear  *string    `json:"class_subjects_academic_year,omitempty"`
-	Desc          *string    `json:"class_subjects_desc,omitempty"`
-	IsActive      bool       `json:"class_subjects_is_active"`
-	CreatedAt     time.Time  `json:"class_subjects_created_at"`
-	UpdatedAt     *time.Time `json:"class_subjects_updated_at,omitempty"`
-	DeletedAt     *time.Time `json:"class_subjects_deleted_at,omitempty"`
+	ID           uuid.UUID  `json:"class_subjects_id"`
+	MasjidID     uuid.UUID  `json:"class_subjects_masjid_id"`
+	ClassID      uuid.UUID  `json:"class_subjects_class_id"`
+	SubjectID    uuid.UUID  `json:"class_subjects_subject_id"`
+	OrderIndex   *int       `json:"class_subjects_order_index,omitempty"`
+	HoursPerWeek *int       `json:"class_subjects_hours_per_week,omitempty"`
+	MinScore     *int       `json:"class_subjects_min_passing_score,omitempty"`
+	Weight       *int       `json:"class_subjects_weight_on_report,omitempty"`
+	IsCore       bool       `json:"class_subjects_is_core"`
+	AcademicYear *string    `json:"class_subjects_academic_year,omitempty"`
+	Desc         *string    `json:"class_subjects_desc,omitempty"`
+	IsActive     bool       `json:"class_subjects_is_active"`
+	CreatedAt    time.Time  `json:"class_subjects_created_at"`
+	UpdatedAt    *time.Time `json:"class_subjects_updated_at,omitempty"`
+	DeletedAt    *time.Time `json:"class_subjects_deleted_at,omitempty"`
 }
 
-// Pagination info
 type Pagination struct {
 	Limit  int `json:"limit"`
 	Offset int `json:"offset"`
 	Total  int `json:"total"`
 }
 
-// List response
 type ClassSubjectListResponse struct {
 	Items      []ClassSubjectResponse `json:"items"`
 	Pagination Pagination             `json:"pagination"`
 }
 
 /* =========================================================
-   3) MAPPERS
+   3) MAPPERS (basic)
    ========================================================= */
 
-func (r CreateClassSubjectRequest) ToModel() model.ClassSubjectModel {
+func (r CreateClassSubjectRequest) ToModel() csModel.ClassSubjectModel {
 	isActive := true
 	if r.IsActive != nil {
 		isActive = *r.IsActive
@@ -110,14 +100,13 @@ func (r CreateClassSubjectRequest) ToModel() model.ClassSubjectModel {
 		isCore = *r.IsCore
 	}
 
-	var academicYear *string
+	var ay *string
 	if r.AcademicYear != nil {
-		ay := strings.TrimSpace(*r.AcademicYear)
-		if ay != "" {
-			academicYear = &ay
+		t := strings.TrimSpace(*r.AcademicYear)
+		if t != "" {
+			ay = &t
 		}
 	}
-
 	var desc *string
 	if r.Desc != nil {
 		d := strings.TrimSpace(*r.Desc)
@@ -126,22 +115,22 @@ func (r CreateClassSubjectRequest) ToModel() model.ClassSubjectModel {
 		}
 	}
 
-	return model.ClassSubjectModel{
-		ClassSubjectsMasjidID:     r.MasjidID,
-		ClassSubjectsClassID:      r.ClassID,
-		ClassSubjectsSubjectID:    r.SubjectID,
-		ClassSubjectsOrderIndex:   r.OrderIndex,
-		ClassSubjectsHoursPerWeek: r.HoursPerWeek,
+	return csModel.ClassSubjectModel{
+		ClassSubjectsMasjidID:        r.MasjidID,
+		ClassSubjectsClassID:         r.ClassID,
+		ClassSubjectsSubjectID:       r.SubjectID,
+		ClassSubjectsOrderIndex:      r.OrderIndex,
+		ClassSubjectsHoursPerWeek:    r.HoursPerWeek,
 		ClassSubjectsMinPassingScore: r.MinScore,
 		ClassSubjectsWeightOnReport:  r.Weight,
 		ClassSubjectsIsCore:          isCore,
-		ClassSubjectsAcademicYear:    academicYear,
+		ClassSubjectsAcademicYear:    ay,
 		ClassSubjectsDesc:            desc,
 		ClassSubjectsIsActive:        isActive,
 	}
 }
 
-func FromClassSubjectModel(m model.ClassSubjectModel) ClassSubjectResponse {
+func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
 	return ClassSubjectResponse{
 		ID:           m.ClassSubjectsID,
 		MasjidID:     m.ClassSubjectsMasjidID,
@@ -161,7 +150,7 @@ func FromClassSubjectModel(m model.ClassSubjectModel) ClassSubjectResponse {
 	}
 }
 
-func FromClassSubjectModels(list []model.ClassSubjectModel) []ClassSubjectResponse {
+func FromClassSubjectModels(list []csModel.ClassSubjectModel) []ClassSubjectResponse {
 	out := make([]ClassSubjectResponse, 0, len(list))
 	for _, m := range list {
 		out = append(out, FromClassSubjectModel(m))
@@ -169,11 +158,7 @@ func FromClassSubjectModels(list []model.ClassSubjectModel) []ClassSubjectRespon
 	return out
 }
 
-/* =========================================================
-   4) APPLY (partial update helper)
-   ========================================================= */
-
-func (r UpdateClassSubjectRequest) Apply(m *model.ClassSubjectModel) {
+func (r UpdateClassSubjectRequest) Apply(m *csModel.ClassSubjectModel) {
 	if r.MasjidID != nil {
 		m.ClassSubjectsMasjidID = *r.MasjidID
 	}
@@ -216,5 +201,69 @@ func (r UpdateClassSubjectRequest) Apply(m *model.ClassSubjectModel) {
 	}
 	if r.IsActive != nil {
 		m.ClassSubjectsIsActive = *r.IsActive
+	}
+}
+
+/* =========================================================
+   4) NESTED: class_subject_books + book (versi baru: simple books)
+   ========================================================= */
+
+type BookLite struct {
+	BooksID       uuid.UUID `json:"books_id"`
+	BooksTitle    string    `json:"books_title"`
+	BooksAuthor   *string   `json:"books_author,omitempty"`
+	BooksDesc     *string   `json:"books_desc,omitempty"`
+	BooksURL      *string   `json:"books_url,omitempty"`
+	BooksImageURL *string   `json:"books_image_url,omitempty"`
+	BooksSlug     *string   `json:"books_slug,omitempty"`
+}
+
+func bookLiteFromModel(b booksModel.BooksModel) BookLite {
+	return BookLite{
+		BooksID:       b.BooksID,
+		BooksTitle:    b.BooksTitle,
+		BooksAuthor:   b.BooksAuthor,
+		BooksDesc:     b.BooksDesc,
+		BooksURL:      b.BooksURL,
+		BooksImageURL: b.BooksImageURL,
+		BooksSlug:     b.BooksSlug,
+	}
+}
+
+// Disesuaikan: pakai is_active + desc (tanpa valid_from/valid_to/is_primary/notes)
+type ClassSubjectBookWithBook struct {
+	ClassSubjectBooksID       uuid.UUID `json:"class_subject_books_id"`
+	ClassSubjectBooksIsActive bool      `json:"class_subject_books_is_active"`
+	ClassSubjectBooksDesc     *string   `json:"class_subject_books_desc,omitempty"`
+	Book                      BookLite  `json:"book"`
+}
+
+type ClassSubjectWithBooksResponse struct {
+	ClassSubjectResponse
+	ClassSubjectBooks []ClassSubjectBookWithBook `json:"class_subject_books"`
+}
+
+func NewClassSubjectWithBooksResponse(
+	cs csModel.ClassSubjectModel,
+	links []booksModel.ClassSubjectBookModel,
+	bookByID map[uuid.UUID]booksModel.BooksModel,
+) ClassSubjectWithBooksResponse {
+	base := FromClassSubjectModel(cs)
+
+	out := make([]ClassSubjectBookWithBook, 0, len(links))
+	for _, l := range links {
+		if b, ok := bookByID[l.ClassSubjectBooksBookID]; ok {
+			out = append(out, ClassSubjectBookWithBook{
+				ClassSubjectBooksID:       l.ClassSubjectBooksID,
+				ClassSubjectBooksIsActive: l.ClassSubjectBooksIsActive,
+				ClassSubjectBooksDesc:     l.ClassSubjectBooksDesc,
+				Book:                      bookLiteFromModel(b),
+			})
+		}
+	}
+
+	return ClassSubjectWithBooksResponse{
+		ClassSubjectResponse: base,
+		ClassSubjectBooks:    out,
 	}
 }

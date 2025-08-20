@@ -30,6 +30,8 @@ type ClassSubjectModel struct {
 	ClassSubjectsCreatedAt time.Time  `json:"class_subjects_created_at"           gorm:"column:class_subjects_created_at;not null;default:CURRENT_TIMESTAMP"`
 	ClassSubjectsUpdatedAt *time.Time `json:"class_subjects_updated_at,omitempty" gorm:"column:class_subjects_updated_at"`
 	ClassSubjectsDeletedAt *time.Time `json:"class_subjects_deleted_at,omitempty" gorm:"column:class_subjects_deleted_at;index"`
+
+	
 }
 
 func (ClassSubjectModel) TableName() string { return "class_subjects" }

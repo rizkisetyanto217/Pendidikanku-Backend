@@ -3,18 +3,25 @@
 -- (Idempotent: aman di-run berkali-kali)
 -- =========================================================
 
--- ---------- EXTENSIONS ----------
+-- =========================================================
+-- SUBJECTS (timestamp only, slug unik per masjid)
+-- =========================================================
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS btree_gin;
 
--- ---------- TABLE ----------
+-- ---------- TABLE (fresh install) ----------
 CREATE TABLE IF NOT EXISTS subjects (
   subjects_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   subjects_masjid_id  UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  subjects_code       VARCHAR(40)  NOT NULL,   -- unik per masjid (case-insensitive) bila belum dihapus
+  subjects_code       VARCHAR(40)  NOT NULL,
   subjects_name       VARCHAR(120) NOT NULL,
   subjects_desc       TEXT,
+
+  -- NEW: slug (URL-friendly)
+  subjects_slug       VARCHAR(160),
 
   subjects_is_active  BOOLEAN NOT NULL DEFAULT TRUE,
 
@@ -23,32 +30,194 @@ CREATE TABLE IF NOT EXISTS subjects (
   subjects_deleted_at TIMESTAMP
 );
 
+-- ---------- MIGRASI: tambah kolom slug jika belum ada ----------
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='subjects' AND column_name='subjects_slug'
+  ) THEN
+    ALTER TABLE subjects ADD COLUMN subjects_slug VARCHAR(160);
+  END IF;
+END$$;
+
+-- ---------- BACKFILL SLUG (unik per masjid, soft-delete aware) ----------
+WITH base AS (
+  SELECT
+    s.subjects_id,
+    s.subjects_masjid_id,
+    COALESCE(NULLIF(trim(s.subjects_slug), ''),
+             NULLIF(trim(s.subjects_name), ''),
+             trim(s.subjects_code)) AS raw_src
+  FROM subjects s
+  WHERE s.subjects_deleted_at IS NULL
+),
+cand AS (
+  SELECT
+    subjects_id,
+    subjects_masjid_id,
+    regexp_replace(
+      regexp_replace(lower(raw_src), '[^a-z0-9]+', '-', 'g'),
+      '(^-+|-+$)', '', 'g'
+    ) AS slug0
+  FROM base
+),
+norm AS (
+  SELECT
+    c.subjects_id,
+    c.subjects_masjid_id,
+    CASE
+      WHEN c.slug0 IS NULL OR c.slug0 = '' THEN
+        'subject-' || substring(replace(c.subjects_id::text,'-','') for 8)
+      ELSE c.slug0
+    END AS slug1
+  FROM cand c
+),
+ranked AS (
+  SELECT
+    n.*,
+    ROW_NUMBER() OVER (
+      PARTITION BY n.subjects_masjid_id, n.slug1
+      ORDER BY n.subjects_id
+    ) AS rn
+  FROM norm n
+),
+final_slug AS (
+  SELECT
+    subjects_id,
+    CASE WHEN rn = 1 THEN slug1 ELSE slug1 || '-' || rn::text END AS slug_final
+  FROM ranked
+)
+UPDATE subjects s
+SET subjects_slug = f.slug_final
+FROM final_slug f
+WHERE s.subjects_id = f.subjects_id
+  AND (s.subjects_slug IS NULL OR trim(s.subjects_slug) = '');
+
+-- Jadikan NOT NULL setelah backfill (jika masih ada data kosong, biarkan saja)
+DO $$
+BEGIN
+  BEGIN
+    ALTER TABLE subjects
+      ALTER COLUMN subjects_slug SET NOT NULL;
+  EXCEPTION WHEN others THEN
+    -- skip jika masih ada kasus edge yang perlu dibereskan manual
+    NULL;
+  END;
+END$$;
+
+-- ---------- CHECK ringan ----------
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='chk_subjects_code_not_blank') THEN
+    ALTER TABLE subjects
+      ADD CONSTRAINT chk_subjects_code_not_blank
+      CHECK (length(trim(subjects_code)) > 0);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='chk_subjects_slug_not_blank') THEN
+    ALTER TABLE subjects
+      ADD CONSTRAINT chk_subjects_slug_not_blank
+      CHECK (length(trim(subjects_slug)) > 0);
+  END IF;
+END$$;
+
 -- ---------- INDEXES ----------
--- Unik per masjid untuk row yang BELUM dihapus (soft delete aware)
+-- Unik CODE per masjid (soft-delete aware, case-insensitive)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_subjects_code_per_masjid
   ON subjects (subjects_masjid_id, lower(subjects_code))
+  WHERE subjects_deleted_at IS NULL;
+
+-- Unik SLUG per masjid (soft-delete aware, case-insensitive)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_subjects_slug_per_masjid
+  ON subjects (subjects_masjid_id, lower(subjects_slug))
   WHERE subjects_deleted_at IS NULL;
 
 -- Daftar aktif per masjid (abaikan yang sudah dihapus)
 CREATE INDEX IF NOT EXISTS idx_subjects_active
   ON subjects(subjects_masjid_id)
-  WHERE subjects_is_active = true AND subjects_deleted_at IS NULL;
+  WHERE subjects_is_active = TRUE AND subjects_deleted_at IS NULL;
 
--- Trigram untuk pencarian nama, hanya pada row yang belum dihapus
+-- Trigram untuk pencarian nama (yang belum dihapus)
 CREATE INDEX IF NOT EXISTS gin_subjects_name_trgm
   ON subjects USING gin (subjects_name gin_trgm_ops)
   WHERE subjects_deleted_at IS NULL;
 
--- (opsional) Index bantu untuk filter tenant (sering dipakai di WHERE)
+-- Filter tenant umum (alive)
 CREATE INDEX IF NOT EXISTS idx_subjects_masjid_alive
   ON subjects(subjects_masjid_id)
   WHERE subjects_deleted_at IS NULL;
 
--- (opsional) Index bantu untuk pencarian case-insensitive code (non-unique)
--- berguna jika sering SELECT ... WHERE lower(subjects_code) = lower($1)
+-- Lookup cepat code/slug case-insensitive (non-unique)
 CREATE INDEX IF NOT EXISTS idx_subjects_code_ci_alive
   ON subjects (lower(subjects_code))
   WHERE subjects_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_subjects_slug_ci_alive
+  ON subjects (lower(subjects_slug))
+  WHERE subjects_deleted_at IS NULL;
+
+-- ---------- TRIGGERS ----------
+-- auto-update updated_at
+CREATE OR REPLACE FUNCTION fn_subjects_touch_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.subjects_updated_at := CURRENT_TIMESTAMP;
+  RETURN NEW;
+END$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_subjects_touch_updated_at') THEN
+    DROP TRIGGER trg_subjects_touch_updated_at ON subjects;
+  END IF;
+
+  CREATE TRIGGER trg_subjects_touch_updated_at
+    BEFORE UPDATE ON subjects
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_subjects_touch_updated_at();
+END$$;
+
+-- normalisasi ringan + auto-generate slug jika kosong (unik tetap ditangani index)
+CREATE OR REPLACE FUNCTION fn_subjects_normalize()
+RETURNS TRIGGER AS $$
+DECLARE v_slug text;
+BEGIN
+  NEW.subjects_code := trim(NEW.subjects_code);
+  NEW.subjects_name := trim(NEW.subjects_name);
+  IF NEW.subjects_desc IS NOT NULL THEN
+    NEW.subjects_desc := NULLIF(trim(NEW.subjects_desc), '');
+  END IF;
+  IF NEW.subjects_slug IS NOT NULL THEN
+    NEW.subjects_slug := NULLIF(trim(NEW.subjects_slug), '');
+  END IF;
+
+  IF NEW.subjects_slug IS NULL OR NEW.subjects_slug = '' THEN
+    v_slug := COALESCE(NEW.subjects_name, NEW.subjects_code);
+    v_slug := lower(regexp_replace(v_slug, '[^a-z0-9]+', '-', 'g'));
+    v_slug := regexp_replace(v_slug, '(^-+|-+$)', '', 'g');
+    IF v_slug IS NULL OR v_slug = '' THEN
+      v_slug := 'subject-' || substring(replace(NEW.subjects_id::text,'-','') for 8);
+    END IF;
+    NEW.subjects_slug := v_slug;
+  END IF;
+
+  RETURN NEW;
+END$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_subjects_normalize') THEN
+    DROP TRIGGER trg_subjects_normalize ON subjects;
+  END IF;
+
+  CREATE TRIGGER trg_subjects_normalize
+    BEFORE INSERT OR UPDATE OF subjects_name, subjects_code, subjects_slug, subjects_desc
+    ON subjects
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_subjects_normalize();
+END$$;
+
 
 
 
@@ -449,44 +618,27 @@ BEGIN
 END$$;
 
 
--- =========================================================
--- CLASS ATTENDANCE SESSIONS (CAS) — Refactor tanpa "csst"
--- =========================================================
 
--- 0) (Opsional, migrasi) rename kolom lama jika masih ada
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name='class_attendance_sessions'
-      AND column_name='class_attendance_sessions_csst_id'
-  )
-  AND NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name='class_attendance_sessions'
-      AND column_name='class_attendance_sessions_class_section_subject_teachers_id'
-  ) THEN
-    ALTER TABLE class_attendance_sessions
-      RENAME COLUMN class_attendance_sessions_csst_id
-      TO class_attendance_sessions_class_section_subject_teachers_id;
-  END IF;
-END$$;
-
--- 1) TABLE (fresh install)
+-- =========================================================
+-- 1) TABLE
+-- =========================================================
 CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_sessions_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   class_attendance_sessions_section_id UUID NOT NULL,
   class_attendance_sessions_masjid_id  UUID NOT NULL,
 
-  -- Integrasi mapel & penugasan
-  class_attendance_sessions_subject_id UUID,  -- boleh NULL saat awal
-  class_attendance_sessions_class_section_subject_teachers_id UUID, -- opsional, validasi via trigger
+  -- Kurikulum: refer ke class_subjects (boleh NULL saat awal input)
+  class_attendance_sessions_class_subject_id UUID,
+
+  -- Penugasan guru per section+subject (opsional)
+  class_attendance_sessions_class_section_subject_teacher_id UUID,
 
   class_attendance_sessions_date  DATE NOT NULL DEFAULT CURRENT_DATE,
   class_attendance_sessions_title TEXT,
   class_attendance_sessions_general_info TEXT NOT NULL,
   class_attendance_sessions_note  TEXT,
+
   class_attendance_sessions_teacher_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
 
   class_attendance_sessions_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -494,8 +646,11 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_sessions_deleted_at TIMESTAMP
 );
 
--- 2) FK
--- (a) Komposit ke class_sections (tenant-safe)
+-- =========================================================
+-- 2) FOREIGN KEYS
+-- =========================================================
+
+-- (a) Tenant-safe: composite FK ke class_sections(id, masjid_id)
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -509,45 +664,43 @@ BEGIN
   END IF;
 END$$;
 
--- (b) Ke subjects
+-- (b) Kurikulum: FK ke class_subjects (bukan subjects langsung)
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_cas_subject') THEN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_cas_subject') THEN
+    ALTER TABLE class_attendance_sessions DROP CONSTRAINT fk_cas_subject;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_cas_class_subject') THEN
     ALTER TABLE class_attendance_sessions
-      ADD CONSTRAINT fk_cas_subject
-      FOREIGN KEY (class_attendance_sessions_subject_id)
-      REFERENCES subjects(subjects_id)
+      ADD CONSTRAINT fk_cas_class_subject
+      FOREIGN KEY (class_attendance_sessions_class_subject_id)
+      REFERENCES class_subjects(class_subjects_id)
       ON UPDATE CASCADE ON DELETE RESTRICT;
   END IF;
 END$$;
 
--- (c) Ke class_section_subject_teachers (nama & PK yang benar)
+-- (c) Penugasan guru: FK ke class_section_subject_teachers
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_cas_csst') THEN
-    ALTER TABLE class_attendance_sessions DROP CONSTRAINT fk_cas_csst;
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_cas_csst_old') THEN
+    ALTER TABLE class_attendance_sessions DROP CONSTRAINT fk_cas_csst_old;
   END IF;
 
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname='fk_cas_class_section_subject_teachers'
+    SELECT 1 FROM pg_constraint WHERE conname='fk_cas_class_section_subject_teacher'
   ) THEN
     ALTER TABLE class_attendance_sessions
-      ADD CONSTRAINT fk_cas_class_section_subject_teachers
-      FOREIGN KEY (class_attendance_sessions_class_section_subject_teachers_id)
+      ADD CONSTRAINT fk_cas_class_section_subject_teacher
+      FOREIGN KEY (class_attendance_sessions_class_section_subject_teacher_id)
       REFERENCES class_section_subject_teachers(class_section_subject_teachers_id)
       ON UPDATE CASCADE ON DELETE SET NULL;
   END IF;
 END$$;
 
--- 3) INDEXES
--- Unik: satu (masjid, section, subject, date)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_section_subject_date
-  ON class_attendance_sessions(
-    class_attendance_sessions_masjid_id,
-    class_attendance_sessions_section_id,
-    class_attendance_sessions_subject_id,
-    class_attendance_sessions_date
-  );
+-- =========================================================
+-- 3) INDEXES (termasuk unik soft-delete aware)
+-- =========================================================
 
 -- Query umum
 CREATE INDEX IF NOT EXISTS idx_cas_section
@@ -559,97 +712,186 @@ CREATE INDEX IF NOT EXISTS idx_cas_masjid
 CREATE INDEX IF NOT EXISTS idx_cas_date
   ON class_attendance_sessions(class_attendance_sessions_date DESC);
 
-CREATE INDEX IF NOT EXISTS idx_cas_subject
-  ON class_attendance_sessions(class_attendance_sessions_subject_id);
+CREATE INDEX IF NOT EXISTS idx_cas_class_subject
+  ON class_attendance_sessions(class_attendance_sessions_class_subject_id);
 
-CREATE INDEX IF NOT EXISTS idx_cas_css_teachers
-  ON class_attendance_sessions(class_attendance_sessions_class_section_subject_teachers_id);
+CREATE INDEX IF NOT EXISTS idx_cas_csst
+  ON class_attendance_sessions(class_attendance_sessions_class_section_subject_teacher_id);
 
-CREATE INDEX IF NOT EXISTS idx_cas_masjid_section_subject_date
+CREATE INDEX IF NOT EXISTS idx_cas_teacher_user
+  ON class_attendance_sessions(class_attendance_sessions_teacher_user_id);
+
+-- Unik: jika class_subject_id IS NULL → unik per (masjid, section, date)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_section_date_when_cs_null
   ON class_attendance_sessions(
     class_attendance_sessions_masjid_id,
     class_attendance_sessions_section_id,
-    class_attendance_sessions_subject_id,
-    class_attendance_sessions_date DESC
-  );
+    class_attendance_sessions_date
+  )
+  WHERE class_attendance_sessions_class_subject_id IS NULL
+    AND class_attendance_sessions_deleted_at IS NULL;
 
--- (Opsional) Jika tetap mau guard "satu sesi per section per date" TANPA soft-delete:
--- CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_section_date_plain
---   ON class_attendance_sessions (class_attendance_sessions_section_id, class_attendance_sessions_date);
+-- Unik: jika class_subject_id NOT NULL → unik per (masjid, section, class_subject, date)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_section_cs_date_when_cs_not_null
+  ON class_attendance_sessions(
+    class_attendance_sessions_masjid_id,
+    class_attendance_sessions_section_id,
+    class_attendance_sessions_class_subject_id,
+    class_attendance_sessions_date
+  )
+  WHERE class_attendance_sessions_class_subject_id IS NOT NULL
+    AND class_attendance_sessions_deleted_at IS NULL;
 
--- 4) VALIDASI konsistensi penugasan guru (DEFERRABLE TRIGGER)
-CREATE OR REPLACE FUNCTION fn_cas_validate_csst()
-RETURNS TRIGGER AS $BODY$
+-- =========================================================
+-- 4) TRIGGERS: validasi konsistensi relasi (DEFERRABLE)
+--    - pastikan masjid session = masjid section = masjid class_subject
+--    - pastikan class_subject.class_id sama dengan section.class_id (jika kolom class_id ada)
+--    - pastikan CSS teacher cocok: masjid & section sama, dan subject-nya match class_subject
+--    - auto-isi teacher_user_id dari CSS teacher jika NULL
+-- =========================================================
+
+CREATE OR REPLACE FUNCTION fn_cas_validate_links()
+RETURNS TRIGGER AS $$
 DECLARE
-  v_section UUID;
-  v_subject UUID;
-  v_masjid  UUID;
-  v_teacher UUID;
+  v_sec_masjid UUID;
+  v_sec_class  UUID;        -- boleh NULL jika tidak ada kolom class_id
+  v_cs_masjid  UUID;
+  v_cs_class   UUID;
+  v_cs_subject UUID;
+  v_css_masjid UUID;
+  v_css_sec    UUID;
+  v_css_subj   UUID;
+  v_css_teacher UUID;
 BEGIN
-  IF NEW.class_attendance_sessions_class_section_subject_teachers_id IS NULL THEN
-    RETURN NEW; -- tidak perlu validasi
+  -- 1) Section → masjid & (opsional) class_id
+  SELECT class_sections_masjid_id, class_sections_class_id
+    INTO v_sec_masjid, v_sec_class
+  FROM class_sections
+  WHERE class_sections_id = NEW.class_attendance_sessions_section_id
+    AND class_sections_deleted_at IS NULL;
+
+  IF v_sec_masjid IS NULL THEN
+    RAISE EXCEPTION 'Section invalid/terhapus';
   END IF;
 
-  SELECT
-    class_section_subject_teachers_section_id,
-    class_section_subject_teachers_subject_id,
-    class_section_subject_teachers_masjid_id,
-    class_section_subject_teachers_teacher_user_id
-  INTO v_section, v_subject, v_masjid, v_teacher
-  FROM class_section_subject_teachers
-  WHERE class_section_subject_teachers_id = NEW.class_attendance_sessions_class_section_subject_teachers_id;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'ClassSectionSubjectTeachers % tidak ditemukan',
-      NEW.class_attendance_sessions_class_section_subject_teachers_id;
+  -- 2) Cocokkan masjid session vs section
+  IF NEW.class_attendance_sessions_masjid_id <> v_sec_masjid THEN
+    RAISE EXCEPTION 'Masjid mismatch: session(%) vs section(%)',
+      NEW.class_attendance_sessions_masjid_id, v_sec_masjid;
   END IF;
 
-  IF v_section IS DISTINCT FROM NEW.class_attendance_sessions_section_id THEN
-    RAISE EXCEPTION 'Section mismatch: CSST(%) != CAS(%)', v_section, NEW.class_attendance_sessions_section_id;
+  -- 3) Class_subject (opsional): cek masjid & (opsional) class_id
+  IF NEW.class_attendance_sessions_class_subject_id IS NOT NULL THEN
+    SELECT class_subjects_masjid_id, class_subjects_class_id, class_subjects_subject_id
+      INTO v_cs_masjid, v_cs_class, v_cs_subject
+    FROM class_subjects
+    WHERE class_subjects_id = NEW.class_attendance_sessions_class_subject_id
+      AND class_subjects_deleted_at IS NULL;
+
+    IF v_cs_masjid IS NULL THEN
+      RAISE EXCEPTION 'Class subject invalid/terhapus';
+    END IF;
+
+    IF v_cs_masjid <> NEW.class_attendance_sessions_masjid_id THEN
+      RAISE EXCEPTION 'Masjid mismatch: class_subject(%) vs session(%)',
+        v_cs_masjid, NEW.class_attendance_sessions_masjid_id;
+    END IF;
+
+    -- Jika kedua sisi punya class_id, pastikan sama
+    IF v_sec_class IS NOT NULL AND v_cs_class IS NOT NULL AND v_sec_class <> v_cs_class THEN
+      RAISE EXCEPTION 'class_subject.class_id berbeda dengan section.class_id';
+    END IF;
   END IF;
 
-  IF v_subject IS DISTINCT FROM NEW.class_attendance_sessions_subject_id THEN
-    RAISE EXCEPTION 'Subject mismatch: CSST(%) != CAS(%)', v_subject, NEW.class_attendance_sessions_subject_id;
-  END IF;
+  -- 4) CSS Teacher (opsional): cek masjid, section, subject harus match
+  IF NEW.class_attendance_sessions_class_section_subject_teacher_id IS NOT NULL THEN
+    SELECT
+      class_section_subject_teachers_masjid_id,
+      class_section_subject_teachers_section_id,
+      class_section_subject_teachers_subject_id,
+      class_section_subject_teachers_teacher_user_id
+    INTO v_css_masjid, v_css_sec, v_css_subj, v_css_teacher
+    FROM class_section_subject_teachers
+    WHERE class_section_subject_teachers_id = NEW.class_attendance_sessions_class_section_subject_teacher_id
+      AND class_section_subject_teachers_deleted_at IS NULL;
 
-  IF v_masjid IS DISTINCT FROM NEW.class_attendance_sessions_masjid_id THEN
-    RAISE EXCEPTION 'Masjid mismatch: CSST(%) != CAS(%)', v_masjid, NEW.class_attendance_sessions_masjid_id;
-  END IF;
+    IF v_css_masjid IS NULL THEN
+      RAISE EXCEPTION 'CSS teacher invalid/terhapus';
+    END IF;
 
-  IF NEW.class_attendance_sessions_teacher_user_id IS NOT NULL
-     AND NEW.class_attendance_sessions_teacher_user_id IS DISTINCT FROM v_teacher THEN
-    RAISE EXCEPTION 'Teacher mismatch: CAS(%) != CSST(%)',
-      NEW.class_attendance_sessions_teacher_user_id, v_teacher;
+    IF v_css_masjid <> NEW.class_attendance_sessions_masjid_id THEN
+      RAISE EXCEPTION 'Masjid CSS(%) != session(%)', v_css_masjid, NEW.class_attendance_sessions_masjid_id;
+    END IF;
+
+    IF v_css_sec <> NEW.class_attendance_sessions_section_id THEN
+      RAISE EXCEPTION 'Section CSS(%) != session(%)', v_css_sec, NEW.class_attendance_sessions_section_id;
+    END IF;
+
+    -- Jika class_subject diisi, pastikan subject CSS sama dengan subject milik class_subject
+    IF NEW.class_attendance_sessions_class_subject_id IS NOT NULL THEN
+      IF v_cs_subject IS NULL THEN
+        -- ambil ulang jika belum diisi dari langkah (3)
+        SELECT class_subjects_subject_id INTO v_cs_subject
+        FROM class_subjects
+        WHERE class_subjects_id = NEW.class_attendance_sessions_class_subject_id;
+      END IF;
+
+      IF v_css_subj <> v_cs_subject THEN
+        RAISE EXCEPTION 'Subject CSS(%) != class_subject(%)', v_css_subj, v_cs_subject;
+      END IF;
+    END IF;
+
+    -- Auto-isi teacher_user_id dari CSS Teacher bila belum diset
+    IF NEW.class_attendance_sessions_teacher_user_id IS NULL THEN
+      NEW.class_attendance_sessions_teacher_user_id := v_css_teacher;
+    END IF;
   END IF;
 
   RETURN NEW;
 END
-$BODY$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql;
 
--- Recreate constraint trigger dengan kolom yang benar
+-- Buat constraint trigger (DEFERRABLE)
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_cas_validate_csst') THEN
-    DROP TRIGGER trg_cas_validate_csst ON class_attendance_sessions;
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_cas_validate_links') THEN
+    DROP TRIGGER trg_cas_validate_links ON class_attendance_sessions;
   END IF;
 
-  CREATE CONSTRAINT TRIGGER trg_cas_validate_csst
+  CREATE CONSTRAINT TRIGGER trg_cas_validate_links
     AFTER INSERT OR UPDATE OF
-      class_attendance_sessions_class_section_subject_teachers_id,
-      class_attendance_sessions_section_id,
-      class_attendance_sessions_subject_id,
       class_attendance_sessions_masjid_id,
+      class_attendance_sessions_section_id,
+      class_attendance_sessions_class_subject_id,
+      class_attendance_sessions_class_section_subject_teacher_id,
       class_attendance_sessions_teacher_user_id
     ON class_attendance_sessions
     DEFERRABLE INITIALLY DEFERRED
     FOR EACH ROW
-    EXECUTE FUNCTION fn_cas_validate_csst();
+    EXECUTE FUNCTION fn_cas_validate_links();
 END$$;
 
--- 5) (Opsional) Setelah migrasi penuh, kamu bisa enforce NOT NULL:
--- ALTER TABLE class_attendance_sessions
---   ALTER COLUMN class_attendance_sessions_subject_id SET NOT NULL;
+-- =========================================================
+-- 5) (Opsional) updated_at auto
+-- =========================================================
+CREATE OR REPLACE FUNCTION fn_touch_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.class_attendance_sessions_updated_at := CURRENT_TIMESTAMP;
+  RETURN NEW;
+END$$ LANGUAGE plpgsql;
 
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_cas_touch_updated_at') THEN
+    DROP TRIGGER trg_cas_touch_updated_at ON class_attendance_sessions;
+  END IF;
+
+  CREATE TRIGGER trg_cas_touch_updated_at
+    BEFORE UPDATE ON class_attendance_sessions
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_touch_updated_at();
+END$$;
 
 
 

@@ -4,7 +4,6 @@ package controller
 import (
 	"errors"
 	"strings"
-	"time"
 
 	csbDTO "masjidku_backend/internals/features/lembaga/class_books/dto"
 	csbModel "masjidku_backend/internals/features/lembaga/class_books/model"
@@ -19,6 +18,8 @@ import (
 type ClassSubjectBookController struct {
 	DB *gorm.DB
 }
+
+func intPtr(v int) *int { return &v }
 
 /* =========================================================
    CREATE
@@ -36,13 +37,17 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
-	// Force tenant dari token
+	// Paksa tenant dari token
 	req.ClassSubjectBooksMasjidID = masjidID
 
-	// Normalisasi ringan
-	if req.Notes != nil {
-		n := strings.TrimSpace(*req.Notes)
-		req.Notes = &n
+	// Normalisasi ringan pada desc
+	if req.ClassSubjectBooksDesc != nil {
+		d := strings.TrimSpace(*req.ClassSubjectBooksDesc)
+		if d == "" {
+			req.ClassSubjectBooksDesc = nil
+		} else {
+			req.ClassSubjectBooksDesc = &d
+		}
 	}
 
 	if err := validator.New().Struct(req); err != nil {
@@ -59,12 +64,11 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 				strings.Contains(msg, "duplicate") ||
 				strings.Contains(msg, "unique"):
 				return fiber.NewError(fiber.StatusConflict, "Buku sudah terdaftar pada class_subject tersebut")
-			case strings.Contains(msg, "uq_csb_one_primary_per_cs"):
-				return fiber.NewError(fiber.StatusConflict, "Hanya boleh satu buku utama untuk class_subject ini")
-			case strings.Contains(msg, "foreign key"):
+			case strings.Contains(msg, "foreign"):
 				return fiber.NewError(fiber.StatusBadRequest, "FK gagal: pastikan class_subject & book valid dan satu tenant")
+			default:
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat relasi buku")
 			}
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat relasi buku")
 		}
 		created = m
 		return nil
@@ -102,7 +106,8 @@ func (h *ClassSubjectBookController) GetByID(c *fiber.Ctx) error {
 	if m.ClassSubjectBooksMasjidID != masjidID {
 		return fiber.NewError(fiber.StatusForbidden, "Akses ditolak")
 	}
-	if !withDeleted && m.ClassSubjectBooksDeletedAt != nil {
+	// soft delete guard (pakai gorm.DeletedAt.Valid)
+	if !withDeleted && m.ClassSubjectBooksDeletedAt.Valid {
 		return fiber.NewError(fiber.StatusNotFound, "Data tidak ditemukan")
 	}
 
@@ -111,8 +116,9 @@ func (h *ClassSubjectBookController) GetByID(c *fiber.Ctx) error {
 
 /* =========================================================
    LIST
-   GET /admin/class-subject-books?class_subject_id=&book_id=&is_primary=&active_on=YYYY-MM-DD&sort=&limit=&offset=&with_deleted=
-   sort: created_at_asc|created_at_desc|valid_from_asc|valid_from_desc
+   GET /admin/class-subject-books
+     ?class_subject_id=&book_id=&is_active=&q=&sort=&limit=&offset=&with_deleted=
+   sort: created_at_asc|created_at_desc|updated_at_asc|updated_at_desc
    ========================================================= */
 func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
@@ -149,17 +155,12 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	if q.BookID != nil {
 		tx = tx.Where("class_subject_books_book_id = ?", *q.BookID)
 	}
-	if q.IsPrimary != nil {
-		tx = tx.Where("is_primary = ?", *q.IsPrimary)
+	if q.IsActive != nil {
+		tx = tx.Where("class_subject_books_is_active = ?", *q.IsActive)
 	}
-	if q.ActiveOn != nil && strings.TrimSpace(*q.ActiveOn) != "" {
-		if d, err := time.Parse("2006-01-02", strings.TrimSpace(*q.ActiveOn)); err == nil {
-			// date-only
-			d0 := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.Local)
-			tx = tx.Where("(valid_from IS NULL OR valid_from <= ?) AND (valid_to IS NULL OR valid_to >= ?)", d0, d0)
-		} else {
-			return fiber.NewError(fiber.StatusBadRequest, "active_on tidak valid (YYYY-MM-DD)")
-		}
+	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
+		qq := "%" + strings.TrimSpace(*q.Q) + "%"
+		tx = tx.Where("class_subject_books_desc ILIKE ?", qq)
 	}
 
 	// total
@@ -176,11 +177,11 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	switch sort {
 	case "created_at_asc":
 		tx = tx.Order("class_subject_books_created_at ASC")
-	case "valid_from_asc":
-		tx = tx.Order("valid_from ASC NULLS FIRST")
-	case "valid_from_desc":
-		tx = tx.Order("valid_from DESC NULLS LAST")
-	default:
+	case "updated_at_asc":
+		tx = tx.Order("class_subject_books_updated_at ASC NULLS FIRST")
+	case "updated_at_desc":
+		tx = tx.Order("class_subject_books_updated_at DESC NULLS LAST")
+	default: // "created_at_desc"
 		tx = tx.Order("class_subject_books_created_at DESC")
 	}
 
@@ -192,10 +193,8 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 			class_subject_books_masjid_id,
 			class_subject_books_class_subject_id,
 			class_subject_books_book_id,
-			valid_from,
-			valid_to,
-			is_primary,
-			notes,
+			class_subject_books_is_active,
+			class_subject_books_desc,
 			class_subject_books_created_at,
 			class_subject_books_updated_at,
 			class_subject_books_deleted_at
@@ -215,10 +214,8 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	)
 }
 
-/* =========================================================
-   UPDATE (partial)
-   PUT /admin/class-subject-books/:id
-   ========================================================= */
+// UPDATE (partial)
+// PUT /admin/class-subject-books/:id
 func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
@@ -238,10 +235,14 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 	// Force tenant
 	req.ClassSubjectBooksMasjidID = &masjidID
 
-	// Normalisasi ringan
-	if req.Notes != nil {
-		n := strings.TrimSpace(*req.Notes)
-		req.Notes = &n
+	// Normalisasi ringan untuk desc
+	if req.ClassSubjectBooksDesc != nil {
+		d := strings.TrimSpace(*req.ClassSubjectBooksDesc)
+		if d == "" {
+			req.ClassSubjectBooksDesc = nil
+		} else {
+			req.ClassSubjectBooksDesc = &d
+		}
 	}
 
 	if err := validator.New().Struct(req); err != nil {
@@ -260,21 +261,19 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 		if m.ClassSubjectBooksMasjidID != masjidID {
 			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengubah data milik masjid lain")
 		}
-		if m.ClassSubjectBooksDeletedAt != nil {
+		if m.ClassSubjectBooksDeletedAt.Valid {
 			return fiber.NewError(fiber.StatusBadRequest, "Data sudah dihapus")
 		}
 
-		// Apply perubahan
+		// Apply perubahan (setter DTO sudah isi UpdatedAt)
 		req.Apply(&m)
 
 		patch := map[string]interface{}{
 			"class_subject_books_masjid_id":        m.ClassSubjectBooksMasjidID,
 			"class_subject_books_class_subject_id": m.ClassSubjectBooksClassSubjectID,
 			"class_subject_books_book_id":          m.ClassSubjectBooksBookID,
-			"valid_from":                           m.ClassSubjectBooksValidFrom,
-			"valid_to":                             m.ClassSubjectBooksValidTo,
-			"is_primary":                           m.ClassSubjectBooksIsPrimary,
-			"notes":                                 m.ClassSubjectBooksNotes,
+			"class_subject_books_is_active":        m.ClassSubjectBooksIsActive,
+			"class_subject_books_desc":             m.ClassSubjectBooksDesc,
 			"class_subject_books_updated_at":       m.ClassSubjectBooksUpdatedAt,
 		}
 
@@ -287,12 +286,11 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 				strings.Contains(msg, "duplicate") ||
 				strings.Contains(msg, "unique"):
 				return fiber.NewError(fiber.StatusConflict, "Buku sudah terdaftar pada class_subject tersebut")
-			case strings.Contains(msg, "uq_csb_one_primary_per_cs"):
-				return fiber.NewError(fiber.StatusConflict, "Hanya boleh satu buku utama untuk class_subject ini")
-			case strings.Contains(msg, "foreign key"):
+			case strings.Contains(msg, "foreign"):
 				return fiber.NewError(fiber.StatusBadRequest, "FK gagal: pastikan class_subject & book valid dan satu tenant")
+			default:
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui data")
 			}
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui data")
 		}
 
 		updated = m
@@ -304,12 +302,11 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Relasi buku berhasil diperbarui", csbDTO.FromModel(updated))
 }
 
-/* =========================================================
-   DELETE
-   DELETE /admin/class-subject-books/:id?force=true
-   - force=true (admin saja): hard delete
-   - default: soft delete (set deleted_at)
-   ========================================================= */
+
+// DELETE
+// DELETE /admin/class-subject-books/:id?force=true
+// - force=true (admin saja): hard delete
+// - default: soft delete (gorm.DeletedAt)
 func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
@@ -343,6 +340,7 @@ func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 		}
 
 		if force {
+			// HARD DELETE
 			if err := tx.Delete(&csbModel.ClassSubjectBookModel{}, "class_subject_books_id = ?", id).Error; err != nil {
 				msg := strings.ToLower(err.Error())
 				if strings.Contains(msg, "constraint") || strings.Contains(msg, "foreign") || strings.Contains(msg, "violat") {
@@ -351,16 +349,12 @@ func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus data")
 			}
 		} else {
-			if m.ClassSubjectBooksDeletedAt != nil {
+			// SOFT DELETE via GORM (mengisi deleted_at)
+			if m.ClassSubjectBooksDeletedAt.Valid {
 				return fiber.NewError(fiber.StatusBadRequest, "Data sudah dihapus")
 			}
-			now := time.Now()
-			if err := tx.Model(&csbModel.ClassSubjectBookModel{}).
-				Where("class_subject_books_id = ?", id).
-				Updates(map[string]interface{}{
-					"class_subject_books_deleted_at": &now,
-					"class_subject_books_updated_at": &now,
-				}).Error; err != nil {
+			if err := tx.Where("class_subject_books_id = ?", id).
+				Delete(&csbModel.ClassSubjectBookModel{}).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus data")
 			}
 		}
@@ -373,8 +367,3 @@ func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 
 	return helper.JsonDeleted(c, "Relasi buku berhasil dihapus", csbDTO.FromModel(deleted))
 }
-
-/* =========================================================
-   UTIL
-   ========================================================= */
-func intPtr(v int) *int { return &v }
