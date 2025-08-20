@@ -2,6 +2,7 @@ package controller
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +31,163 @@ func NewClassController(db *gorm.DB) *ClassController {
 
 // single validator instance for this package (tidak perlu di-inject)
 var validate = validator.New()
+
+
+
+func (ctl *ClassController) SearchWithSubjects(c *fiber.Ctx) error {
+	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil { return err }
+
+	q := strings.TrimSpace(c.Query("q"))
+	limit, _ := strconv.Atoi(c.Query("limit", "20"))
+	offset, _ := strconv.Atoi(c.Query("offset", "0"))
+	if limit <= 0 || limit > 200 { limit = 20 }
+	if offset < 0 { offset = 0 }
+
+	like := "%" + q + "%"
+
+	// ----- base filter: classes x class_subjects x subjects -----
+	filter := ctl.DB.Table("classes AS c").
+		Joins(`
+			JOIN class_subjects AS cs
+			  ON cs.class_subjects_class_id = c.class_id
+			 AND cs.class_subjects_masjid_id = c.class_masjid_id
+			 AND cs.class_subjects_is_active = TRUE
+			 AND cs.class_subjects_deleted_at IS NULL
+		`).
+		Joins(`JOIN subjects AS s ON s.subjects_id = cs.class_subjects_subject_id`).
+		Where("c.class_masjid_id = ? AND c.class_deleted_at IS NULL", masjidID)
+
+	if q != "" {
+		filter = filter.Where(
+			`(c.class_name ILIKE ? OR c.class_slug ILIKE ? OR s.subjects_name ILIKE ?)`,
+			like, like, like,
+		)
+	}
+
+	// ----- total kelas unik -----
+	var total int64
+	if err := filter.Session(&gorm.Session{}).
+		Distinct("c.class_id").
+		Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total")
+	}
+
+	// ----- page of class_ids (FIX: pakai GROUP BY agar ORDER BY sah) -----
+	type idRow struct {
+		ClassID   uuid.UUID `gorm:"column:class_id"`
+		ClassName string    `gorm:"column:class_name"`
+	}
+	var idRows []idRow
+	if err := filter.
+		Select("c.class_id, c.class_name").
+		Group("c.class_id, c.class_name").
+		Order("c.class_name ASC").
+		Limit(limit).Offset(offset).
+		Scan(&idRows).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil daftar kelas")
+	}
+	if len(idRows) == 0 {
+		return helper.JsonList(c, []any{}, fiber.Map{"limit": limit, "offset": offset, "total": int(total)})
+	}
+	classIDs := make([]uuid.UUID, 0, len(idRows))
+	for _, r := range idRows { classIDs = append(classIDs, r.ClassID) }
+
+	// ----- detail kelas untuk page IDs -----
+	type classRow struct {
+		ClassID            uuid.UUID  `gorm:"column:class_id" json:"class_id"`
+		ClassMasjidID      uuid.UUID  `gorm:"column:class_masjid_id" json:"class_masjid_id"`
+		ClassName          string     `gorm:"column:class_name" json:"class_name"`
+		ClassSlug          *string    `gorm:"column:class_slug" json:"class_slug,omitempty"`
+		ClassDescription   *string    `gorm:"column:class_description" json:"class_description,omitempty"`
+		ClassLevel         *string    `gorm:"column:class_level" json:"class_level,omitempty"`
+		ClassImageURL      *string    `gorm:"column:class_image_url" json:"class_image_url,omitempty"`
+		ClassFeeMonthlyIDR *int64     `gorm:"column:class_fee_monthly_idr" json:"class_fee_monthly_idr,omitempty"`
+		ClassIsActive      bool       `gorm:"column:class_is_active" json:"class_is_active"`
+		ClassCreatedAt     time.Time  `gorm:"column:class_created_at" json:"class_created_at"`
+	}
+	var clsRows []classRow
+	if err := ctl.DB.Table("classes AS c").
+		Where("c.class_id IN ?", classIDs).
+		Where("c.class_masjid_id = ? AND c.class_deleted_at IS NULL", masjidID).
+		Select(`
+			c.class_id, c.class_masjid_id, c.class_name, c.class_slug,
+			c.class_description, c.class_level, c.class_image_url,
+			c.class_fee_monthly_idr, c.class_is_active, c.class_created_at
+		`).
+		Order("c.class_name ASC").
+		Scan(&clsRows).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil detail kelas")
+	}
+
+	// ----- subjects aktif per class (untuk page IDs) -----
+	type subjRow struct {
+		ClassID         uuid.UUID `gorm:"column:class_id"`
+		SubjectsID      uuid.UUID `gorm:"column:subjects_id"`
+		SubjectsName    string    `gorm:"column:subjects_name"`
+		ClassSubjectsID uuid.UUID `gorm:"column:class_subjects_id"`
+	}
+	var sjRows []subjRow
+	if err := ctl.DB.Table("class_subjects AS cs").
+		Joins(`JOIN subjects AS s ON s.subjects_id = cs.class_subjects_subject_id`).
+		Where("cs.class_subjects_masjid_id = ? AND cs.class_subjects_is_active = TRUE AND cs.class_subjects_deleted_at IS NULL", masjidID).
+		Where("cs.class_subjects_class_id IN ?", classIDs).
+		Select(`cs.class_subjects_class_id AS class_id, s.subjects_id, s.subjects_name, cs.class_subjects_id`).
+		Order("s.subjects_name ASC").
+		Scan(&sjRows).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil subject kelas")
+	}
+
+	// ----- compose output -----
+	type SubjectLite struct {
+		SubjectsID      uuid.UUID `json:"subjects_id"`
+		SubjectsName    string    `json:"subjects_name"`
+		ClassSubjectsID uuid.UUID `json:"class_subjects_id"`
+	}
+	type ClassHit struct {
+		ClassID            uuid.UUID    `json:"class_id"`
+		ClassMasjidID      uuid.UUID    `json:"class_masjid_id"`
+		ClassName          string       `json:"class_name"`
+		ClassSlug          *string      `json:"class_slug,omitempty"`
+		ClassDescription   *string      `json:"class_description,omitempty"`
+		ClassLevel         *string      `json:"class_level,omitempty"`
+		ClassImageURL      *string      `json:"class_image_url,omitempty"`
+		ClassFeeMonthlyIDR *int64       `json:"class_fee_monthly_idr,omitempty"`
+		ClassIsActive      bool         `json:"class_is_active"`
+		ClassCreatedAt     time.Time    `json:"class_created_at"`
+		Subjects           []SubjectLite `json:"subjects"`
+	}
+
+	byClass := make(map[uuid.UUID]*ClassHit, len(clsRows))
+	order := make([]uuid.UUID, 0, len(clsRows))
+	for _, cr := range clsRows {
+		byClass[cr.ClassID] = &ClassHit{
+			ClassID: cr.ClassID, ClassMasjidID: cr.ClassMasjidID,
+			ClassName: cr.ClassName, ClassSlug: cr.ClassSlug,
+			ClassDescription: cr.ClassDescription, ClassLevel: cr.ClassLevel,
+			ClassImageURL: cr.ClassImageURL, ClassFeeMonthlyIDR: cr.ClassFeeMonthlyIDR,
+			ClassIsActive: cr.ClassIsActive, ClassCreatedAt: cr.ClassCreatedAt,
+			Subjects: []SubjectLite{},
+		}
+		order = append(order, cr.ClassID)
+	}
+	for _, sr := range sjRows {
+		if hit := byClass[sr.ClassID]; hit != nil {
+			hit.Subjects = append(hit.Subjects, SubjectLite{
+				SubjectsID:      sr.SubjectsID,
+				SubjectsName:    sr.SubjectsName,
+				ClassSubjectsID: sr.ClassSubjectsID,
+			})
+		}
+	}
+	out := make([]ClassHit, 0, len(order))
+	for _, id := range order { out = append(out, *byClass[id]) }
+
+	return helper.JsonList(c, out, fiber.Map{
+		"limit": limit, "offset": offset, "total": int(total),
+	})
+}
+
 
 /* ================= Handlers ================= */
 // POST /admin/classes

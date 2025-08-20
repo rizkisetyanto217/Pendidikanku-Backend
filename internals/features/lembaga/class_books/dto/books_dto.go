@@ -48,6 +48,54 @@ type BooksListQuery struct {
 	Offset   *int    `query:"offset"`
 }
 
+
+// ==== WITH-USAGES DTO ====
+
+type BookUsageSectionLite struct {
+	ClassSectionsID       uuid.UUID `json:"class_sections_id"`
+	ClassSectionsName     string    `json:"class_sections_name"`
+	ClassSectionsSlug     string    `json:"class_sections_slug"`
+	ClassSectionsCode     *string   `json:"class_sections_code,omitempty"`
+	ClassSectionsCapacity *int      `json:"class_sections_capacity,omitempty"`
+	ClassSectionsIsActive bool      `json:"class_sections_is_active"`
+}
+
+type BookUsage struct {
+	ClassSubjectBooksID uuid.UUID  `json:"class_subject_books_id"`
+	ClassSubjectID      *uuid.UUID `json:"class_subjects_id,omitempty"`
+	SubjectsID          *uuid.UUID `json:"subjects_id,omitempty"`
+	ClassesID           *uuid.UUID `json:"classes_id,omitempty"`
+	Sections            []BookUsageSectionLite `json:"sections"`
+}
+
+type BookWithUsagesResponse struct {
+	BooksID       uuid.UUID `json:"books_id"`
+	BooksMasjidID uuid.UUID `json:"books_masjid_id"`
+
+	BooksTitle    string  `json:"books_title"`
+	BooksAuthor   *string `json:"books_author,omitempty"`
+	BooksDesc     *string `json:"books_desc,omitempty"`
+	BooksURL      *string `json:"books_url,omitempty"`
+	BooksImageURL *string `json:"books_image_url,omitempty"`
+	BooksSlug     *string `json:"books_slug,omitempty"`
+
+	Usages []BookUsage `json:"usages"`
+}
+
+// opsional: query yang sama dengan list biasa, bisa dipakai kembali
+// tambahkan with_deleted bila perlu
+type BooksWithUsagesListQuery struct {
+	Q          *string `query:"q"`
+	Author     *string `query:"author"`
+	HasImage   *bool   `query:"has_image"`
+	HasURL     *bool   `query:"has_url"`
+	OrderBy    *string `query:"order_by"` // books_title|books_author|created_at
+	Sort       *string `query:"sort"`     // asc|desc
+	Limit      *int    `query:"limit"`
+	Offset     *int    `query:"offset"`
+	WithDeleted *bool  `query:"with_deleted"`
+}
+
 /* =========================
    RESPONSE
    ========================= */

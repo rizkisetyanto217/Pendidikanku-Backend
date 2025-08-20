@@ -19,8 +19,8 @@ func ClassBooksAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// -----------------------------
 	books := r.Group("/books")
 	books.Post("/", booksCtl.Create)      // POST   /admin/class-books
-	books.Get("/", booksCtl.List)         // GET    /admin/class-books
-	books.Get("/:id", booksCtl.GetByID)   // GET    /admin/class-books/:id
+	books.Get("/", booksCtl.ListWithUsages)         // GET    /admin/class-books
+	books.Get("/:id", booksCtl.GetWithUsagesByID)   // GET    /admin/class-books/:id
 	books.Put("/:id", booksCtl.Update)    // PUT    /admin/class-books/:id
 	books.Delete("/:id", booksCtl.Delete) // DELETE /admin/class-books/:id (soft delete)
 
