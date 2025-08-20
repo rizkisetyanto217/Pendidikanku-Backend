@@ -214,115 +214,110 @@ func parseUUIDsCSV(csv string) ([]uuid.UUID, error) {
 // internals/features/lembaga/announcements/announcement/controller/announcement_controller.go
 
 // POST /admin/announcements
-// POST /admin/announcements
 func (h *AnnouncementController) Create(c *fiber.Ctx) error {
-    masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
-    if err != nil {
-        return err
-    }
-    userID, err := helper.GetUserIDFromToken(c)
-    if err != nil {
-        return err
-    }
-
-    // role detection
-    isAdmin := func() bool {
-        if id, err := helper.GetMasjidIDFromToken(c); err == nil && id == masjidID {
-            return true
-        }
-        return false
-    }()
-    isTeacher := func() bool {
-        if id, err := helper.GetTeacherMasjidIDFromToken(c); err == nil && id == masjidID {
-            return true
-        }
-        return false
-    }()
-    if !isAdmin && !isTeacher {
-        return fiber.NewError(fiber.StatusForbidden, "Tidak diizinkan")
-    }
-
-    var req annDTO.CreateAnnouncementRequest
-    ct := c.Get("Content-Type")
-
-    if strings.HasPrefix(ct, "multipart/form-data") {
-        // ----- parse text fields -----
-        req.AnnouncementTitle = strings.TrimSpace(c.FormValue("announcement_title"))
-        req.AnnouncementDate = strings.TrimSpace(c.FormValue("announcement_date"))
-        req.AnnouncementContent = strings.TrimSpace(c.FormValue("announcement_content"))
-
-        if v := strings.TrimSpace(c.FormValue("announcement_theme_id")); v != "" {
-            if id, err := uuid.Parse(v); err == nil {
-                req.AnnouncementThemeID = &id
-            }
-        }
-        if v := strings.TrimSpace(c.FormValue("announcement_class_section_id")); v != "" {
-            if id, err := uuid.Parse(v); err == nil {
-                req.AnnouncementClassSectionID = &id
-            }
-        }
-        if v := strings.TrimSpace(c.FormValue("announcement_is_active")); v != "" {
-            b := strings.EqualFold(v, "true") || v == "1"
-            req.AnnouncementIsActive = &b
-        }
-
-        // ----- file upload (dua key yang didukung) -----
-	var fh *multipart.FileHeader
-	if f, err := c.FormFile("attachment"); err == nil && f != nil {
-		fh = f
-	} else if f2, err2 := c.FormFile("announcement_attachment_url"); err2 == nil && f2 != nil {
-		fh = f2
+	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil {
+		return err
+	}
+	userID, err := helper.GetUserIDFromToken(c)
+	if err != nil {
+		return err
 	}
 
-	if fh != nil {
-		// Simpan semua file ke folder "announcement" (tanpa subfolder masjid)
-		folder := "announcement"
-
-		publicURL, err := helper.UploadFileToSupabase(folder, fh)
-		if err != nil {
-			return helper.Error(c, fiber.StatusBadRequest, err.Error())
+	// role detection
+	isAdmin := func() bool {
+		if id, err := helper.GetMasjidIDFromToken(c); err == nil && id == masjidID {
+			return true
 		}
-		req.AnnouncementAttachmentURL = &publicURL
+		return false
+	}()
+	isTeacher := func() bool {
+		if id, err := helper.GetTeacherMasjidIDFromToken(c); err == nil && id == masjidID {
+			return true
+		}
+		return false
+	}()
+	if !isAdmin && !isTeacher {
+		return fiber.NewError(fiber.StatusForbidden, "Tidak diizinkan")
 	}
-    } else {
-        // JSON
-        if err := c.BodyParser(&req); err != nil {
-            return helper.Error(c, fiber.StatusBadRequest, "Payload tidak valid")
-        }
-        // Catatan: untuk JSON, Attachment dikirim sebagai URL string via announcement_attachment_url
-    }
 
-    // Validasi DTO
-    if err := validateAnnouncement.Struct(req); err != nil {
-        return helper.ValidationError(c, err)
-    }
+	var req annDTO.CreateAnnouncementRequest
+	ct := c.Get("Content-Type")
 
-    // aturan role
-    if isAdmin && !isTeacher {
-        req.AnnouncementClassSectionID = nil // GLOBAL
-    }
-    if isTeacher {
-        if req.AnnouncementClassSectionID == nil || *req.AnnouncementClassSectionID == uuid.Nil {
-            return helper.Error(c, fiber.StatusBadRequest, "Teacher wajib memilih section")
-        }
-        if err := h.ensureSectionBelongsToMasjid(*req.AnnouncementClassSectionID, masjidID); err != nil {
-            return err
-        }
-    }
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		// ----- parse text fields -----
+		req.AnnouncementTitle = strings.TrimSpace(c.FormValue("announcement_title"))
+		req.AnnouncementDate = strings.TrimSpace(c.FormValue("announcement_date"))
+		req.AnnouncementContent = strings.TrimSpace(c.FormValue("announcement_content"))
 
-    // validasi theme bila ada
-    if req.AnnouncementThemeID != nil {
-        if err := h.ensureThemeBelongsToMasjid(*req.AnnouncementThemeID, masjidID); err != nil {
-            return err
-        }
-    }
+		if v := strings.TrimSpace(c.FormValue("announcement_theme_id")); v != "" {
+			if id, err := uuid.Parse(v); err == nil {
+				req.AnnouncementThemeID = &id
+			}
+		}
+		if v := strings.TrimSpace(c.FormValue("announcement_class_section_id")); v != "" {
+			if id, err := uuid.Parse(v); err == nil {
+				req.AnnouncementClassSectionID = &id
+			}
+		}
+		if v := strings.TrimSpace(c.FormValue("announcement_is_active")); v != "" {
+			b := strings.EqualFold(v, "true") || v == "1"
+			req.AnnouncementIsActive = &b
+		}
 
-    // simpan
-    m := req.ToModel(masjidID, userID)
-    if err := h.DB.Create(m).Error; err != nil {
-        return helper.Error(c, fiber.StatusInternalServerError, "Gagal membuat pengumuman")
-    }
-    return helper.Success(c, "Pengumuman berhasil dibuat", annDTO.NewAnnouncementResponse(m))
+		// ----- file upload (dua key yang didukung) -----
+		var fh *multipart.FileHeader
+		if f, err := c.FormFile("attachment"); err == nil && f != nil {
+			fh = f
+		} else if f2, err2 := c.FormFile("announcement_attachment_url"); err2 == nil && f2 != nil {
+			fh = f2
+		}
+		if fh != nil {
+			publicURL, err := helper.UploadFileToSupabase("announcement", fh)
+			if err != nil {
+				return helper.Error(c, fiber.StatusBadRequest, err.Error())
+			}
+			req.AnnouncementAttachmentURL = &publicURL
+		}
+	} else {
+		// JSON
+		if err := c.BodyParser(&req); err != nil {
+			return helper.Error(c, fiber.StatusBadRequest, "Payload tidak valid")
+		}
+	}
+
+	// Validasi DTO (title, date, content, dll)
+	if err := validateAnnouncement.Struct(req); err != nil {
+		return helper.ValidationError(c, err)
+	}
+
+	// ====== ATURAN ROLE (Admin menang prioritas) ======
+	if isAdmin {
+		// Admin selalu boleh GLOBAL
+		req.AnnouncementClassSectionID = nil
+	} else if isTeacher {
+		// Teacher wajib pilih section dan harus milik masjid
+		if req.AnnouncementClassSectionID == nil || *req.AnnouncementClassSectionID == uuid.Nil {
+			return helper.Error(c, fiber.StatusBadRequest, "Teacher wajib memilih section")
+		}
+		if err := h.ensureSectionBelongsToMasjid(*req.AnnouncementClassSectionID, masjidID); err != nil {
+			return err
+		}
+	}
+
+	// validasi theme bila ada
+	if req.AnnouncementThemeID != nil {
+		if err := h.ensureThemeBelongsToMasjid(*req.AnnouncementThemeID, masjidID); err != nil {
+			return err
+		}
+	}
+
+	// simpan
+	m := req.ToModel(masjidID, userID)
+	if err := h.DB.Create(m).Error; err != nil {
+		return helper.Error(c, fiber.StatusInternalServerError, "Gagal membuat pengumuman")
+	}
+	return helper.Success(c, "Pengumuman berhasil dibuat", annDTO.NewAnnouncementResponse(m))
 }
 
 
