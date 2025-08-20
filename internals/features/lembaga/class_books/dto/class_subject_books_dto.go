@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	model "masjidku_backend/internals/features/lembaga/class_books/model"
+	model "masjidku_backend/internals/features/lembaga/class_books/model" // <-- pastikan path model benar
 
 	"github.com/google/uuid"
 )
@@ -21,17 +21,16 @@ type CreateClassSubjectBookRequest struct {
 	ClassSubjectBooksClassSubjectID uuid.UUID `json:"class_subject_books_class_subject_id" validate:"required"`
 	ClassSubjectBooksBookID         uuid.UUID `json:"class_subject_books_book_id"          validate:"required"`
 
-	// pengganti valid_from/valid_to & notes/is_primary
 	ClassSubjectBooksIsActive *bool   `json:"class_subject_books_is_active" validate:"omitempty"`
 	ClassSubjectBooksDesc     *string `json:"class_subject_books_desc"      validate:"omitempty,max=2000"`
 }
+
 
 func (r CreateClassSubjectBookRequest) ToModel() model.ClassSubjectBookModel {
 	isActive := true
 	if r.ClassSubjectBooksIsActive != nil {
 		isActive = *r.ClassSubjectBooksIsActive
 	}
-
 	var desc *string
 	if r.ClassSubjectBooksDesc != nil {
 		d := strings.TrimSpace(*r.ClassSubjectBooksDesc)
@@ -39,7 +38,6 @@ func (r CreateClassSubjectBookRequest) ToModel() model.ClassSubjectBookModel {
 			desc = &d
 		}
 	}
-
 	return model.ClassSubjectBookModel{
 		ClassSubjectBooksMasjidID:       r.ClassSubjectBooksMasjidID,
 		ClassSubjectBooksClassSubjectID: r.ClassSubjectBooksClassSubjectID,
@@ -51,7 +49,6 @@ func (r CreateClassSubjectBookRequest) ToModel() model.ClassSubjectBookModel {
 
 // Update (partial)
 type UpdateClassSubjectBookRequest struct {
-	// biasanya masjid_id dipaksa dari token di controller; tetap pointer agar mudah di-apply
 	ClassSubjectBooksMasjidID       *uuid.UUID `json:"class_subject_books_masjid_id"        validate:"omitempty"`
 	ClassSubjectBooksClassSubjectID *uuid.UUID `json:"class_subject_books_class_subject_id" validate:"omitempty"`
 	ClassSubjectBooksBookID         *uuid.UUID `json:"class_subject_books_book_id"          validate:"omitempty"`
@@ -100,15 +97,27 @@ type ListClassSubjectBookQuery struct {
 	BookID         *uuid.UUID `query:"book_id" validate:"omitempty"`
 	IsActive       *bool      `query:"is_active" validate:"omitempty"`
 	WithDeleted    *bool      `query:"with_deleted" validate:"omitempty"`
-	// urutan yang relevan setelah refactor
-	Sort *string `query:"sort" validate:"omitempty,oneof=created_at_asc created_at_desc updated_at_asc updated_at_desc"`
-	// opsional: pencarian sederhana pada desc
-	Q *string `query:"q" validate:"omitempty,max=100"`
+	Sort           *string    `query:"sort" validate:"omitempty,oneof=created_at_asc created_at_desc updated_at_asc updated_at_desc"`
+	Q              *string    `query:"q" validate:"omitempty,max=100"`
 }
 
 /* =========================================================
    3) RESPONSE
    ========================================================= */
+
+// Ringkas data buku yang ikut di-embed di item CSB
+type BookLite struct {
+	BooksID         uuid.UUID  `json:"books_id"`
+	BooksMasjidID   uuid.UUID  `json:"books_masjid_id"`
+	BooksTitle      string     `json:"books_title"`
+	BooksAuthor     *string    `json:"books_author,omitempty"`
+	BooksURL        *string    `json:"books_url,omitempty"`
+	BooksImageURL   *string    `json:"books_image_url,omitempty"`
+	BooksSlug       *string    `json:"books_slug,omitempty"`
+	BooksCreatedAtUnix *int64  `json:"books_created_at_unix,omitempty"`
+	BooksUpdatedAtUnix *int64  `json:"books_updated_at_unix,omitempty"`
+	BooksIsDeleted     *bool   `json:"books_is_deleted,omitempty"`
+}
 
 type ClassSubjectBookResponse struct {
 	ClassSubjectBooksID             uuid.UUID  `json:"class_subject_books_id"`
@@ -122,9 +131,11 @@ type ClassSubjectBookResponse struct {
 	ClassSubjectBooksCreatedAt time.Time  `json:"class_subject_books_created_at"`
 	ClassSubjectBooksUpdatedAt *time.Time `json:"class_subject_books_updated_at,omitempty"`
 	ClassSubjectBooksDeletedAt *time.Time `json:"class_subject_books_deleted_at,omitempty"`
+
+	// ✅ tambahan: detail buku hasil JOIN (opsional)
+	Book *BookLite `json:"book,omitempty"`
 }
 
-// Pagination (reusable)
 type Pagination struct {
 	Limit  int `json:"limit"`
 	Offset int `json:"offset"`
@@ -155,6 +166,7 @@ func FromModel(m model.ClassSubjectBookModel) ClassSubjectBookResponse {
 		ClassSubjectBooksCreatedAt:      m.ClassSubjectBooksCreatedAt,
 		ClassSubjectBooksUpdatedAt:      m.ClassSubjectBooksUpdatedAt,
 		ClassSubjectBooksDeletedAt:      deletedAt,
+		// Book: nil (controller isi kalau JOIN)
 	}
 }
 
@@ -164,4 +176,10 @@ func FromModels(list []model.ClassSubjectBookModel) []ClassSubjectBookResponse {
 		out = append(out, FromModel(m))
 	}
 	return out
+}
+
+// (Opsional) helper kalau controller kamu sudah punya kolom join "books_*"
+func WithBook(resp ClassSubjectBookResponse, b *BookLite) ClassSubjectBookResponse {
+	resp.Book = b
+	return resp
 }

@@ -50,12 +50,21 @@ func scopeSection(id *uuid.UUID) func(*gorm.DB) *gorm.DB {
 	}
 }
 
-func scopeTeacher(userID *uuid.UUID) func(*gorm.DB) *gorm.DB {
+// scopeTeacherUser membatasi ke sesi yang diajar oleh user (guru) tertentu
+// dengan JOIN ke class_section_subject_teachers (csst).
+func scopeTeacherUser(userID *uuid.UUID) func(*gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
 		if userID == nil {
 			return db
 		}
-		return db.Where("class_attendance_sessions_teacher_user_id = ?", *userID)
+		return db.
+			Joins(`
+				JOIN class_section_subject_teachers csst
+				  ON csst.class_section_subject_teachers_id = class_attendance_sessions_class_section_subject_teacher_id
+			`).
+			Where("csst.class_section_subject_teachers_user_id = ?", *userID).
+			// Hindari duplikasi jika ada JOIN tambahan lain di masa depan
+			Group("class_attendance_sessions_id")
 	}
 }
 
@@ -71,6 +80,26 @@ func parseYmd(s string) (*time.Time, error) {
 	// normalisasi ke midnight local (kolom tipe DATE)
 	tt := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
 	return &tt, nil
+}
+
+// isTeacherOfSession mengecek apakah user (guru) adalah pengajar untuk sesi tertentu
+// via tabel class_section_subject_teachers.
+func (ctrl *ClassAttendanceSessionController) isTeacherOfSession(session attendanceModel.ClassAttendanceSessionModel, userID, masjidID uuid.UUID) (bool, error) {
+	if session.ClassAttendanceSessionClassSectionSubjectTeacherId == nil {
+		return false, nil
+	}
+	var cnt int64
+	q := ctrl.DB.Table("class_section_subject_teachers AS csst").
+		Where("csst.class_section_subject_teachers_id = ?", *session.ClassAttendanceSessionClassSectionSubjectTeacherId).
+		Where("csst.class_section_subject_teachers_user_id = ?", userID)
+
+	// Jika Anda menyimpan masjid_id di csst, aktifkan baris berikut:
+	q = q.Where("csst.class_section_subject_teachers_masjid_id = ?", masjidID)
+
+	if err := q.Count(&cnt).Error; err != nil {
+		return false, err
+	}
+	return cnt > 0, nil
 }
 
 /* =========================================================
@@ -110,7 +139,14 @@ func (ctrl *ClassAttendanceSessionController) GetClassAttendanceSession(c *fiber
 	if !isAdmin {
 		if isTeacher {
 			// Guru hanya boleh lihat sesi yang dia ajar
-			if userID == uuid.Nil || (m.ClassAttendanceSessionTeacherUserId != nil && *m.ClassAttendanceSessionTeacherUserId != userID) {
+			if userID == uuid.Nil {
+				return fiber.NewError(fiber.StatusUnauthorized, "User tidak terautentik")
+			}
+			ok, e := ctrl.isTeacherOfSession(m, userID, masjidID)
+			if e != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal verifikasi pengajar sesi")
+			}
+			if !ok {
 				return fiber.NewError(fiber.StatusForbidden, "Bukan pengajar sesi ini")
 			}
 		} else {
@@ -143,6 +179,8 @@ func (ctrl *ClassAttendanceSessionController) GetClassAttendanceSession(c *fiber
 
 /* ==========================================================================================
    GET /admin/class-attendance-sessions?section_id=&teacher_id=&date_from=&date_to=&limit=&offset=
+   - teacher_id sekarang diartikan sebagai USER ID dari guru.
+   - Filtering dilakukan via JOIN ke class_section_subject_teachers.
 ========================================================================================== */
 
 func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fiber.Ctx) error {
@@ -182,10 +220,11 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		}
 	}
 
-	var teacherIDPtr *uuid.UUID
+	// teacher_id = user_id guru
+	var teacherUserIDPtr *uuid.UUID
 	if t := strings.TrimSpace(c.Query("teacher_id")); t != "" {
 		if tid, e := uuid.Parse(t); e == nil {
-			teacherIDPtr = &tid
+			teacherUserIDPtr = &tid
 		} else {
 			return fiber.NewError(fiber.StatusBadRequest, "teacher_id tidak valid")
 		}
@@ -197,7 +236,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			scopeMasjid(masjidID),
 			scopeDateBetween(df, dt),
 			scopeSection(sectionIDPtr),
-			scopeTeacher(teacherIDPtr),
+			scopeTeacherUser(teacherUserIDPtr), // << gunakan JOIN ke csst jika filter teacher diberikan
 		)
 
 	// Scope berdasarkan role
@@ -206,7 +245,16 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			if userID == uuid.Nil {
 				return fiber.NewError(fiber.StatusUnauthorized, "User tidak terautentik")
 			}
-			qBase = qBase.Where("class_attendance_sessions_teacher_user_id = ?", userID)
+			// Batasi ke sesi yang diajar oleh guru (user) ini
+			qBase = qBase.
+				Joins(`
+					JOIN class_section_subject_teachers csst
+					  ON csst.class_section_subject_teachers_id = class_attendance_sessions_class_section_subject_teacher_id
+				`).
+				Where("csst.class_section_subject_teachers_user_id = ?", userID).
+				// Jika csst punya kolom masjid_id:
+				Where("csst.class_section_subject_teachers_masjid_id = ?", masjidID).
+				Group("class_attendance_sessions_id")
 		} else {
 			if userID == uuid.Nil {
 				return fiber.NewError(fiber.StatusUnauthorized, "User tidak terautentik")
@@ -241,7 +289,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
-	// Data (tanpa SELECT manual agar aman mapping kolom)
+	// Data
 	var rows []attendanceModel.ClassAttendanceSessionModel
 	if err := qBase.
 		Order("class_attendance_sessions_date DESC, class_attendance_sessions_created_at DESC").
@@ -256,9 +304,9 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	}
 
 	return helper.JsonList(c, items, fiber.Map{
-		"limit":    limit,
-		"offset":   offset,
-		"total":    int(total),
+		"limit":     limit,
+		"offset":    offset,
+		"total":     int(total),
 		"date_from": dfStr,
 		"date_to":   dtStr,
 	})

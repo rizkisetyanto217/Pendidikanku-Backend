@@ -18,7 +18,6 @@ type ClassSectionSubjectTeacherController struct {
 	DB *gorm.DB
 }
 
-// func intPtr(v int) *int { return &v }
 
 // ===============================
 // CREATE (force masjid_id dari token)
@@ -35,19 +34,13 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid: "+err.Error())
 	}
 
-	row := model.ClassSectionSubjectTeacherModel{
-		ClassSectionSubjectTeacherModelMasjidID:      masjidID,
-		ClassSectionSubjectTeacherModelSectionID:     req.ClassSectionSubjectTeacherModelSectionID,
-		ClassSectionSubjectTeacherModelSubjectID:     req.ClassSectionSubjectTeacherModelSubjectID,
-		ClassSectionSubjectTeacherModelTeacherUserID: req.ClassSectionSubjectTeacherModelTeacherUserID,
-	}
-	if req.ClassSectionSubjectTeacherModelIsActive != nil {
-		row.ClassSectionSubjectTeacherModelIsActive = *req.ClassSectionSubjectTeacherModelIsActive
-	}
+	// build dari DTO, lalu force tenant
+	row := req.ToModel()
+	row.ClassSectionSubjectTeacherModelMasjidID = masjidID
 
 	if err := ctl.DB.Create(&row).Error; err != nil {
 		msg := strings.ToLower(err.Error())
-		// unique constraint (contoh: uq_class_sec_subj_teachers_active)
+		// unique constraint
 		if strings.Contains(msg, "uq_class_sec_subj_teachers_active") ||
 			strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
 			return helper.JsonError(c, fiber.StatusConflict, "Penugasan guru untuk section+subject ini sudah aktif (duplikat).")
@@ -136,10 +129,10 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 
 	return helper.JsonList(c,
 		dto.FromClassSectionSubjectTeacherModels(rows),
-		dto.Pagination{
-			Limit:  *q.Limit,
-			Offset: *q.Offset,
-			Total:  int(total),
+		fiber.Map{
+			"limit":  *q.Limit,
+			"offset": *q.Offset,
+			"total":  int(total),
 		},
 	)
 }
@@ -175,7 +168,7 @@ func (ctl *ClassSectionSubjectTeacherController) GetByID(c *fiber.Ctx) error {
 	if row.ClassSectionSubjectTeacherModelMasjidID != masjidID {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
-	// soft-delete guard (gorm.DeletedAt)
+	// soft-delete guard
 	if !withDeleted && row.ClassSectionSubjectTeacherModelDeletedAt.Valid {
 		return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan")
 	}
@@ -218,19 +211,8 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
 
-	// partial update
-	if req.ClassSectionSubjectTeacherModelSectionID != nil {
-		row.ClassSectionSubjectTeacherModelSectionID = *req.ClassSectionSubjectTeacherModelSectionID
-	}
-	if req.ClassSectionSubjectTeacherModelSubjectID != nil {
-		row.ClassSectionSubjectTeacherModelSubjectID = *req.ClassSectionSubjectTeacherModelSubjectID
-	}
-	if req.ClassSectionSubjectTeacherModelTeacherUserID != nil {
-		row.ClassSectionSubjectTeacherModelTeacherUserID = *req.ClassSectionSubjectTeacherModelTeacherUserID
-	}
-	if req.ClassSectionSubjectTeacherModelIsActive != nil {
-		row.ClassSectionSubjectTeacherModelIsActive = *req.ClassSectionSubjectTeacherModelIsActive
-	}
+	// partial update via DTO
+	req.Apply(&row)
 
 	if err := ctl.DB.Save(&row).Error; err != nil {
 		msg := strings.ToLower(err.Error())
