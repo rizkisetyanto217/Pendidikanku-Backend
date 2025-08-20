@@ -16,6 +16,7 @@ import (
 
 	annDTO "masjidku_backend/internals/features/lembaga/announcements/announcement/dto"
 	annModel "masjidku_backend/internals/features/lembaga/announcements/announcement/model"
+	annThemeModel "masjidku_backend/internals/features/lembaga/announcements/announcement_thema/model" // import model tema agar tidak bentrok dengan model announcementModel
 	helper "masjidku_backend/internals/helpers"
 )
 
@@ -54,6 +55,9 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	if len(masjidIDs) == 0 {
+		return fiber.NewError(fiber.StatusForbidden, "Tidak ada akses masjid")
+	}
 
 	var q annDTO.ListAnnouncementQuery
 	// default pagination
@@ -62,18 +66,18 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
 	}
 
-	// base query + preload Theme (hemat kolom)
+	// ===== Base query (TANPA preload untuk hindari panic nil *UUID)
 	tx := h.DB.Model(&annModel.AnnouncementModel{}).
-		Where("announcement_masjid_id IN ?", masjidIDs).
-		Preload("Theme", func(db *gorm.DB) *gorm.DB {
-			return db.
-				Select("announcement_themes_id, announcement_themes_masjid_id, announcement_themes_name, announcement_themes_color").
-				Where("announcement_themes_deleted_at IS NULL")
-		})
+		Where("announcement_masjid_id IN ?", masjidIDs)
 
 	// ===== Filter: Theme
 	if q.ThemeID != nil {
-		tx = tx.Where("announcement_theme_id = ?", *q.ThemeID)
+		if *q.ThemeID == uuid.Nil {
+			// kalau dikirim uuid.Nil → treat sebagai "tanpa tema"
+			tx = tx.Where("announcement_theme_id IS NULL")
+		} else {
+			tx = tx.Where("announcement_theme_id = ?", *q.ThemeID)
+		}
 	}
 
 	// ===== Filter: Section vs Global (NULL)
@@ -92,14 +96,19 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	switch {
 	case onlyGlobal:
 		tx = tx.Where("announcement_class_section_id IS NULL")
+
 	case len(sectionIDs) > 0:
 		if includeGlobal {
 			tx = tx.Where("(announcement_class_section_id IN ? OR announcement_class_section_id IS NULL)", sectionIDs)
 		} else {
 			tx = tx.Where("announcement_class_section_id IN ?", sectionIDs)
 		}
+
 	case q.SectionID != nil:
-		if includeGlobal {
+		// jika SectionID = uuid.Nil → anggap GLOBAL
+		if *q.SectionID == uuid.Nil {
+			tx = tx.Where("announcement_class_section_id IS NULL")
+		} else if includeGlobal {
 			tx = tx.Where("(announcement_class_section_id = ? OR announcement_class_section_id IS NULL)", *q.SectionID)
 		} else {
 			tx = tx.Where("announcement_class_section_id = ?", *q.SectionID)
@@ -121,7 +130,9 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	}
 
 	// ===== Filter: Date range (YYYY-MM-DD)
-	parseDate := func(s string) (time.Time, error) { return time.Parse("2006-01-02", strings.TrimSpace(s)) }
+	parseDate := func(s string) (time.Time, error) {
+		return time.Parse("2006-01-02", strings.TrimSpace(s))
+	}
 	if q.DateFrom != nil && strings.TrimSpace(*q.DateFrom) != "" {
 		t, err := parseDate(*q.DateFrom)
 		if err != nil {
@@ -144,23 +155,20 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	}
 
 	// ===== Sorting
-	sort := "date_desc"
+	orderExpr := "announcement_date DESC"
 	if q.Sort != nil {
-		sort = strings.ToLower(strings.TrimSpace(*q.Sort))
-	}
-	switch sort {
-	case "date_asc":
-		tx = tx.Order("announcement_date ASC")
-	case "created_at_desc":
-		tx = tx.Order("announcement_created_at DESC")
-	case "created_at_asc":
-		tx = tx.Order("announcement_created_at ASC")
-	case "title_asc":
-		tx = tx.Order("announcement_title ASC")
-	case "title_desc":
-		tx = tx.Order("announcement_title DESC")
-	default:
-		tx = tx.Order("announcement_date DESC")
+		switch strings.ToLower(strings.TrimSpace(*q.Sort)) {
+		case "date_asc":
+			orderExpr = "announcement_date ASC"
+		case "created_at_desc":
+			orderExpr = "announcement_created_at DESC"
+		case "created_at_asc":
+			orderExpr = "announcement_created_at ASC"
+		case "title_asc":
+			orderExpr = "announcement_title ASC"
+		case "title_desc":
+			orderExpr = "announcement_title DESC"
+		}
 	}
 
 	// ===== Pagination guard
@@ -174,10 +182,54 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		q.Offset = 0
 	}
 
-	// ===== Fetch
+	// ===== Fetch rows (tanpa preload)
 	var rows []annModel.AnnouncementModel
-	if err := tx.Limit(q.Limit).Offset(q.Offset).Find(&rows).Error; err != nil {
+	if err := tx.
+		Order(orderExpr).
+		Limit(q.Limit).
+		Offset(q.Offset).
+		Find(&rows).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+	}
+
+	// ===== Batch-load Theme lalu inject (hindari panic di preload)
+	themeIDs := make([]uuid.UUID, 0, len(rows))
+	seen := map[uuid.UUID]struct{}{}
+	for i := range rows {
+		if rows[i].AnnouncementThemeID != nil {
+			id := *rows[i].AnnouncementThemeID
+			if id == uuid.Nil {
+				// treat sebagai NULL, skip
+				continue
+			}
+			if _, ok := seen[id]; !ok {
+				seen[id] = struct{}{}
+				themeIDs = append(themeIDs, id)
+			}
+		}
+	}
+
+	if len(themeIDs) > 0 {
+		var themes []annThemeModel.AnnouncementThemeModel
+		if err := h.DB.
+			Select("announcement_themes_id, announcement_themes_masjid_id, announcement_themes_name, announcement_themes_color").
+			Where("announcement_themes_deleted_at IS NULL").
+			Where("announcement_themes_id IN ?", themeIDs).
+			Find(&themes).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memuat tema")
+		}
+		tmap := make(map[uuid.UUID]*annThemeModel.AnnouncementThemeModel, len(themes))
+		for i := range themes {
+			t := themes[i] // copy untuk ambil address stabil
+			tmap[t.AnnouncementThemesID] = &t
+		}
+		for i := range rows {
+			if rows[i].AnnouncementThemeID != nil {
+				if th := tmap[*rows[i].AnnouncementThemeID]; th != nil {
+					rows[i].Theme = th
+				}
+			}
+		}
 	}
 
 	// ===== Map ke response DTO
@@ -194,17 +246,25 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	})
 }
 
+// ===================== Utils =====================
 
-// // helper lokal (boleh dipindah ke package helper)
-func parseUUIDsCSV(csv string) ([]uuid.UUID, error) {
-	if csv == "" { return nil, nil }
-	parts := strings.Split(csv, ",")
+// aman: kembalikan []uuid.UUID, skip kosong
+func parseUUIDsCSV(s string) ([]uuid.UUID, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	parts := strings.Split(s, ",")
 	out := make([]uuid.UUID, 0, len(parts))
 	for _, p := range parts {
-		s := strings.TrimSpace(p)
-		if s == "" { continue }
-		id, err := uuid.Parse(s)
-		if err != nil { return nil, err }
+		p = strings.TrimSpace(p)
+		if p == "" { // SKIP item kosong
+			continue
+		}
+		id, err := uuid.Parse(p)
+		if err != nil {
+			return nil, fmt.Errorf("invalid uuid: %q", p)
+		}
 		out = append(out, id)
 	}
 	return out, nil
