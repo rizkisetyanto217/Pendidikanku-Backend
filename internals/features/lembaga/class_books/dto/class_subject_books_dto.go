@@ -25,6 +25,14 @@ type CreateClassSubjectBookRequest struct {
 	ClassSubjectBooksDesc     *string `json:"class_subject_books_desc"      validate:"omitempty,max=2000"`
 }
 
+type SectionLite struct {
+	ClassSectionsID       uuid.UUID `json:"class_sections_id"`
+	ClassSectionsName     string    `json:"class_sections_name"`
+	ClassSectionsSlug     string    `json:"class_sections_slug"`
+	ClassSectionsCode     *string   `json:"class_sections_code,omitempty"`
+	ClassSectionsCapacity *int      `json:"class_sections_capacity,omitempty"`
+	ClassSectionsIsActive bool      `json:"class_sections_is_active"`
+}
 
 func (r CreateClassSubjectBookRequest) ToModel() model.ClassSubjectBookModel {
 	isActive := true
@@ -127,6 +135,7 @@ type ClassSubjectBookResponse struct {
 
 	ClassSubjectBooksIsActive bool     `json:"class_subject_books_is_active"`
 	ClassSubjectBooksDesc     *string  `json:"class_subject_books_desc,omitempty"`
+	
 
 	ClassSubjectBooksCreatedAt time.Time  `json:"class_subject_books_created_at"`
 	ClassSubjectBooksUpdatedAt *time.Time `json:"class_subject_books_updated_at,omitempty"`
@@ -134,6 +143,7 @@ type ClassSubjectBookResponse struct {
 
 	// ✅ tambahan: detail buku hasil JOIN (opsional)
 	Book *BookLite `json:"book,omitempty"`
+	Section *SectionLite `json:"section,omitempty"`
 }
 
 type Pagination struct {
