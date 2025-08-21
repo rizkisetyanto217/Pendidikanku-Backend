@@ -7,19 +7,28 @@ import (
 	User "masjidku_backend/internals/features/users/user/model"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type MasjidAdminModel struct {
-	MasjidAdminID uuid.UUID `gorm:"column:masjid_admins_id;type:uuid;primaryKey;default:gen_random_uuid()" json:"masjid_admins_id"`
+	// PK
+	MasjidAdminsID uuid.UUID `gorm:"column:masjid_admins_id;type:uuid;primaryKey;default:gen_random_uuid()" json:"masjid_admins_id"`
 
-	MasjidID uuid.UUID          `gorm:"column:masjid_admins_masjid_id;type:uuid;not null;index" json:"masjid_admins_masjid_id"`
-	Masjid Masjid.MasjidModel `gorm:"foreignKey:MasjidID;references:MasjidID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"masjid,omitempty"`
+	// FK (kolom sama persis dengan SQL)
+	MasjidAdminsMasjidID uuid.UUID `gorm:"column:masjid_admins_masjid_id;type:uuid;not null;index" json:"masjid_admins_masjid_id"`
+	MasjidAdminsUserID   uuid.UUID `gorm:"column:masjid_admins_user_id;type:uuid;not null;index"   json:"masjid_admins_user_id"`
 
-	UserID uuid.UUID      `gorm:"column:masjid_admins_user_id;type:uuid;not null;index" json:"masjid_admins_user_id"`
-	User   User.UserModel     `gorm:"foreignKey:UserID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"user,omitempty"`
+	// Relasi (gunakan nama field FK di atas)
+	Masjid Masjid.MasjidModel `gorm:"foreignKey:MasjidAdminsMasjidID;references:MasjidID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"masjid,omitempty"`
+	User   User.UserModel      `gorm:"foreignKey:MasjidAdminsUserID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"      json:"user,omitempty"`
 
-	IsActive  bool      `gorm:"column:masjid_admins_is_active;default:true" json:"masjid_admins_is_active"`
-	CreatedAt time.Time `gorm:"column:created_at;default:current_timestamp" json:"created_at"`
+	// Status
+	MasjidAdminsIsActive bool `gorm:"column:masjid_admins_is_active;not null;default:true;index" json:"masjid_admins_is_active"`
+
+	// Timestamps (eksplisit sesuai migrasi)
+	MasjidAdminCreatedAt time.Time      `gorm:"column:masjid_admin_created_at;autoCreateTime" json:"masjid_admin_created_at"`
+	MasjidAdminUpdatedAt time.Time      `gorm:"column:masjid_admin_updated_at;autoUpdateTime" json:"masjid_admin_updated_at"`
+	MasjidAdminDeletedAt gorm.DeletedAt `gorm:"column:masjid_admin_deleted_at;index"          json:"masjid_admin_deleted_at,omitempty"`
 }
 
 func (MasjidAdminModel) TableName() string {

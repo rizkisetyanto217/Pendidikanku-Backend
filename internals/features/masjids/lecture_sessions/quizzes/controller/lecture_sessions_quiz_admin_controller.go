@@ -2,11 +2,14 @@ package controller
 
 import (
 	"errors"
+
 	"masjidku_backend/internals/features/masjids/lecture_sessions/quizzes/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/quizzes/model"
+	resp "masjidku_backend/internals/helpers"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -20,126 +23,140 @@ func NewLectureSessionsQuizController(db *gorm.DB) *LectureSessionsQuizControlle
 
 var validate = validator.New()
 
-
+// =============================
+// ➕ Create Quiz
+// =============================
 func (ctrl *LectureSessionsQuizController) CreateQuiz(c *fiber.Ctx) error {
 	var body dto.CreateLectureSessionsQuizRequest
 
-	// Parse dan validasi request body
 	if err := c.BodyParser(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+		return resp.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 	if err := validate.Struct(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return resp.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// Ambil masjid_id dari JWT (middleware)
-	masjidID, ok := c.Locals("masjid_id").(string)
-	if !ok || masjidID == "" {
-		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	masjidIDStr, ok := c.Locals("masjid_id").(string)
+	if !ok || masjidIDStr == "" {
+		return resp.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	}
+	if _, err := uuid.Parse(masjidIDStr); err != nil {
+		return resp.JsonError(c, fiber.StatusBadRequest, "Masjid ID tidak valid")
 	}
 
-	// Cek apakah sudah ada quiz untuk sesi ini dan masjid ini
+	// Cek duplikasi: satu sesi satu kuis per masjid
 	var existing model.LectureSessionsQuizModel
-	err := ctrl.DB.
-		Where("lecture_sessions_quiz_lecture_session_id = ? AND lecture_sessions_quiz_masjid_id = ?", body.LectureSessionsQuizLectureSessionID, masjidID).
+	err := ctrl.DB.WithContext(c.Context()).
+		Where("lecture_sessions_quiz_lecture_session_id = ? AND lecture_sessions_quiz_masjid_id = ?",
+			body.LectureSessionsQuizLectureSessionID, masjidIDStr).
 		First(&existing).Error
 
 	switch {
 	case err == nil:
-		// Quiz sudah ada → 409 Conflict
-		return fiber.NewError(fiber.StatusConflict, "Quiz untuk sesi kajian ini sudah tersedia.")
+		return resp.JsonError(c, fiber.StatusConflict, "Quiz untuk sesi kajian ini sudah tersedia")
 	case !errors.Is(err, gorm.ErrRecordNotFound):
-		// Error lain saat query
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa quiz yang sudah ada")
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal memeriksa quiz yang sudah ada")
 	}
 
-	// Quiz belum ada, lanjut buat baru
 	quiz := model.LectureSessionsQuizModel{
 		LectureSessionsQuizTitle:            body.LectureSessionsQuizTitle,
 		LectureSessionsQuizDescription:      body.LectureSessionsQuizDescription,
 		LectureSessionsQuizLectureSessionID: body.LectureSessionsQuizLectureSessionID,
-		LectureSessionsQuizMasjidID:         masjidID,
+		LectureSessionsQuizMasjidID:         masjidIDStr,
 	}
 
-	if err := ctrl.DB.Create(&quiz).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat quiz")
+	if err := ctrl.DB.WithContext(c.Context()).Create(&quiz).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat quiz")
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(dto.ToLectureSessionsQuizDTO(quiz))
+	return resp.JsonCreated(c, "Quiz created", dto.ToLectureSessionsQuizDTO(quiz))
 }
-
-
 
 // =============================
 // 📄 Get All Quiz
 // =============================
 func (ctrl *LectureSessionsQuizController) GetAllQuizzes(c *fiber.Ctx) error {
 	var quizzes []model.LectureSessionsQuizModel
-
-	if err := ctrl.DB.Find(&quizzes).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to fetch quizzes")
+	if err := ctrl.DB.WithContext(c.Context()).Find(&quizzes).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Failed to fetch quizzes")
 	}
 
-	var result []dto.LectureSessionsQuizDTO
-	for _, quiz := range quizzes {
-		result = append(result, dto.ToLectureSessionsQuizDTO(quiz))
+	result := make([]dto.LectureSessionsQuizDTO, 0, len(quizzes))
+	for _, q := range quizzes {
+		result = append(result, dto.ToLectureSessionsQuizDTO(q))
 	}
-
-	return c.JSON(result)
+	return resp.JsonOK(c, "OK", result)
 }
 
 // =============================
 // 🔍 Get Quiz By ID
 // =============================
 func (ctrl *LectureSessionsQuizController) GetQuizByID(c *fiber.Ctx) error {
-	id := c.Params("id")
-	var quiz model.LectureSessionsQuizModel
-
-	if err := ctrl.DB.First(&quiz, "lecture_sessions_quiz_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Quiz not found")
+	idStr := c.Params("id")
+	if _, err := uuid.Parse(idStr); err != nil {
+	 return resp.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	return c.JSON(dto.ToLectureSessionsQuizDTO(quiz))
+	var quiz model.LectureSessionsQuizModel
+	if err := ctrl.DB.WithContext(c.Context()).
+		First(&quiz, "lecture_sessions_quiz_id = ?", idStr).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return resp.JsonError(c, fiber.StatusNotFound, "Quiz not found")
+		}
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Failed to get quiz")
+	}
+
+	return resp.JsonOK(c, "OK", dto.ToLectureSessionsQuizDTO(quiz))
 }
 
 // =============================
-// 🏷️ Get Quiz By Masjid ID
+// 🏷️ Get Quiz By Masjid ID (dari token)
 // =============================
 func (ctrl *LectureSessionsQuizController) GetQuizzesByMasjidID(c *fiber.Ctx) error {
-	masjidID := c.Locals("masjid_id")
-	if masjidID == nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	masjidIDStr, ok := c.Locals("masjid_id").(string)
+	if !ok || masjidIDStr == "" {
+		return resp.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	}
+	if _, err := uuid.Parse(masjidIDStr); err != nil {
+		return resp.JsonError(c, fiber.StatusBadRequest, "Masjid ID tidak valid")
 	}
 
 	var quizzes []model.LectureSessionsQuizModel
-	if err := ctrl.DB.Where("lecture_sessions_quiz_masjid_id = ?", masjidID).Find(&quizzes).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data quiz")
+	if err := ctrl.DB.WithContext(c.Context()).
+		Where("lecture_sessions_quiz_masjid_id = ?", masjidIDStr).
+		Find(&quizzes).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data quiz")
 	}
 
-	var result []dto.LectureSessionsQuizDTO
-	for _, quiz := range quizzes {
-		result = append(result, dto.ToLectureSessionsQuizDTO(quiz))
+	result := make([]dto.LectureSessionsQuizDTO, 0, len(quizzes))
+	for _, q := range quizzes {
+		result = append(result, dto.ToLectureSessionsQuizDTO(q))
 	}
-
-	return c.JSON(result)
+	return resp.JsonOK(c, "OK", result)
 }
 
-
-
 // =============================
-// ✏️ Update Quiz By ID
+// ✏️ Update Quiz By ID (partial)
 // =============================
 func (ctrl *LectureSessionsQuizController) UpdateQuizByID(c *fiber.Ctx) error {
-	id := c.Params("id")
+	idStr := c.Params("id")
+	if _, err := uuid.Parse(idStr); err != nil {
+		return resp.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+	}
 
 	var body dto.UpdateLectureSessionsQuizRequest
 	if err := c.BodyParser(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+		return resp.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 
 	var quiz model.LectureSessionsQuizModel
-	if err := ctrl.DB.First(&quiz, "lecture_sessions_quiz_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Quiz tidak ditemukan")
+	if err := ctrl.DB.WithContext(c.Context()).
+		First(&quiz, "lecture_sessions_quiz_id = ?", idStr).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return resp.JsonError(c, fiber.StatusNotFound, "Quiz tidak ditemukan")
+		}
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil quiz")
 	}
 
 	// Partial update
@@ -150,26 +167,26 @@ func (ctrl *LectureSessionsQuizController) UpdateQuizByID(c *fiber.Ctx) error {
 		quiz.LectureSessionsQuizDescription = body.LectureSessionsQuizDescription
 	}
 
-	if err := ctrl.DB.Save(&quiz).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui quiz")
+	if err := ctrl.DB.WithContext(c.Context()).Save(&quiz).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui quiz")
 	}
 
-	return c.JSON(dto.ToLectureSessionsQuizDTO(quiz))
+	return resp.JsonUpdated(c, "Quiz updated", dto.ToLectureSessionsQuizDTO(quiz))
 }
-
-
 
 // =============================
 // ❌ Delete Quiz By ID
 // =============================
 func (ctrl *LectureSessionsQuizController) DeleteQuizByID(c *fiber.Ctx) error {
-	id := c.Params("id")
-
-	if err := ctrl.DB.Delete(&model.LectureSessionsQuizModel{}, "lecture_sessions_quiz_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to delete quiz")
+	idStr := c.Params("id")
+	if _, err := uuid.Parse(idStr); err != nil {
+		return resp.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Quiz deleted successfully",
-	})
+	if err := ctrl.DB.WithContext(c.Context()).
+		Delete(&model.LectureSessionsQuizModel{}, "lecture_sessions_quiz_id = ?", idStr).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Failed to delete quiz")
+	}
+
+	return resp.JsonDeleted(c, "Quiz deleted successfully", fiber.Map{"id": idStr})
 }

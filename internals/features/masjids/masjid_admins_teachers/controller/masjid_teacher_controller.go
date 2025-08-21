@@ -12,7 +12,6 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -37,58 +36,68 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 		return helper.ValidationError(c, err)
 	}
 
-	masjidIDStr, ok := c.Locals("masjid_id").(string)
-	if !ok || masjidIDStr == "" {
-		return helper.Error(c, fiber.StatusBadRequest, "Masjid ID tidak ditemukan atau tidak valid")
-	}
-	masjidUUID, err := uuid.Parse(masjidIDStr)
+	// 🔐 Admin-only
+	masjidUUID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Masjid ID tidak valid (UUID)")
+		return helper.FromFiberError(c, err) // sudah mengandung status+pesan dari helper
 	}
+	masjidIDStr := masjidUUID.String()
 
-	return ctrl.DB.Transaction(func(tx *gorm.DB) error {
-		// Cek duplikasi (idempotent behavior)
+	var created model.MasjidTeacher
+	if err := ctrl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
+		// idempotent: cek baris hidup
 		var exists int64
 		if err := tx.Model(&model.MasjidTeacher{}).
-			Where("masjid_teachers_masjid_id = ? AND masjid_teachers_user_id = ?", masjidIDStr, body.MasjidTeachersUserID).
+			Where("masjid_teachers_masjid_id = ? AND masjid_teachers_user_id = ? AND masjid_teachers_deleted_at IS NULL",
+				masjidIDStr, body.MasjidTeachersUserID).
 			Count(&exists).Error; err != nil {
-			return helper.Error(c, fiber.StatusInternalServerError, "Gagal validasi pengajar")
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi pengajar")
 		}
 		if exists > 0 {
-			// Sudah terdaftar → kembalikan 409 supaya tak menggandakan counter
-			return helper.Error(c, fiber.StatusConflict, "Pengajar sudah terdaftar")
+			return fiber.NewError(fiber.StatusConflict, "Pengajar sudah terdaftar")
 		}
 
-		// Insert
-		data := model.MasjidTeacher{
+		rec := model.MasjidTeacher{
 			MasjidTeachersMasjidID: masjidIDStr,
 			MasjidTeachersUserID:   body.MasjidTeachersUserID,
 		}
-		if err := tx.Create(&data).Error; err != nil {
-			return helper.Error(c, fiber.StatusInternalServerError, "Gagal menambahkan pengajar")
+		if err := tx.Create(&rec).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menambahkan pengajar")
 		}
+		created = rec
 
-		// Pastikan baris stats ada, lalu increment guru aktif
+		// stats
 		if err := ctrl.Stats.EnsureForMasjid(tx, masjidUUID); err != nil {
-			return helper.Error(c, fiber.StatusInternalServerError, "Gagal memastikan baris statistik")
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memastikan baris statistik")
 		}
 		if err := ctrl.Stats.IncActiveTeachers(tx, masjidUUID, +1); err != nil {
-			return helper.Error(c, fiber.StatusInternalServerError, "Gagal memperbarui statistik guru")
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui statistik guru")
 		}
+		return nil
+	}); err != nil {
+		return helper.FromFiberError(c, err)
+	}
 
-		return helper.Success(c, "Pengajar berhasil ditambahkan",
-			dto.ToMasjidTeacherResponse(dto.MasjidTeacher(data)),
-		)
-	})
+	resp := dto.MasjidTeacherResponse{
+		MasjidTeachersID:        created.MasjidTeachersID,
+		MasjidTeachersMasjidID:  created.MasjidTeachersMasjidID,
+		MasjidTeachersUserID:    created.MasjidTeachersUserID,
+		MasjidTeachersCreatedAt: created.MasjidTeachersCreatedAt,
+		MasjidTeachersUpdatedAt: created.MasjidTeachersUpdatedAt,
+	}
+	return helper.Success(c, "Pengajar berhasil ditambahkan", resp)
 }
 
 
 
+
 func (ctrl *MasjidTeacherController) GetByMasjid(c *fiber.Ctx) error {
-	masjidID, ok := c.Locals("masjid_id").(string)
-	if !ok || masjidID == "" {
-		return helper.Error(c, fiber.StatusBadRequest, "Masjid ID tidak ditemukan di token")
+	// 👥 Prefer TEACHER -> UNION masjid_ids -> ADMIN
+	masjidUUID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil {
+		return helper.FromFiberError(c, err)
 	}
+	masjidID := masjidUUID.String()
 
 	type MasjidTeacherWithName struct {
 		MasjidTeachersID        string    `json:"masjid_teachers_id"`
@@ -100,11 +109,17 @@ func (ctrl *MasjidTeacherController) GetByMasjid(c *fiber.Ctx) error {
 	}
 	var result []MasjidTeacherWithName
 
-	if err := ctrl.DB.
+	if err := ctrl.DB.WithContext(c.Context()).
 		Table("masjid_teachers").
-		Select("masjid_teachers.*, users.user_name").
+		Select(`masjid_teachers.masjid_teachers_id,
+		        masjid_teachers.masjid_teachers_masjid_id,
+		        masjid_teachers.masjid_teachers_user_id,
+		        users.user_name,
+		        masjid_teachers.masjid_teachers_created_at,
+		        masjid_teachers.masjid_teachers_updated_at`).
 		Joins("JOIN users ON users.id = masjid_teachers.masjid_teachers_user_id").
-		Where("masjid_teachers.masjid_teachers_masjid_id = ?", masjidID).
+		Where("masjid_teachers.masjid_teachers_masjid_id = ? AND masjid_teachers.masjid_teachers_deleted_at IS NULL", masjidID).
+		Order("masjid_teachers.masjid_teachers_created_at DESC").
 		Scan(&result).Error; err != nil {
 		log.Println("[ERROR] Gagal join masjid_teachers ke users:", err)
 		return helper.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data pengajar")
@@ -124,48 +139,48 @@ func (ctrl *MasjidTeacherController) Delete(c *fiber.Ctx) error {
 		return helper.Error(c, fiber.StatusBadRequest, "ID tidak boleh kosong")
 	}
 
-	masjidIDStr, ok := c.Locals("masjid_id").(string)
-	if !ok || masjidIDStr == "" {
-		return helper.Error(c, fiber.StatusBadRequest, "Masjid ID tidak ditemukan")
-	}
-	masjidUUID, err := uuid.Parse(masjidIDStr)
+	// 🔐 Admin-only
+	masjidUUID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Masjid ID tidak valid (UUID)")
+		return helper.FromFiberError(c, err)
 	}
+	masjidIDStr := masjidUUID.String()
 
-	return ctrl.DB.Transaction(func(tx *gorm.DB) error {
-		// Ambil row milik tenant (lock opsional untuk keamanan concurrent)
+	var rows int64
+	if err := ctrl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		var teacher model.MasjidTeacher
 		if err := tx.
 			Clauses(clause.Locking{Strength: "UPDATE"}).
-			First(&teacher, "masjid_teachers_id = ? AND masjid_teachers_masjid_id = ?", id, masjidIDStr).Error; err != nil {
+			First(&teacher, "masjid_teachers_id = ? AND masjid_teachers_masjid_id = ? AND masjid_teachers_deleted_at IS NULL", id, masjidIDStr).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return helper.Error(c, fiber.StatusNotFound, "Pengajar tidak ditemukan atau bukan milik masjid kamu")
+				return fiber.NewError(fiber.StatusNotFound, "Pengajar tidak ditemukan atau sudah dihapus")
 			}
-			return helper.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data pengajar")
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data pengajar")
 		}
 
-		// Hapus
 		res := tx.Where("masjid_teachers_id = ?", teacher.MasjidTeachersID).
-			Delete(&model.MasjidTeacher{})
+			Delete(&model.MasjidTeacher{}) // soft delete
 		if res.Error != nil {
 			log.Println("[ERROR] Failed to delete masjid teacher:", res.Error)
-			return helper.Error(c, fiber.StatusInternalServerError, "Gagal menghapus pengajar")
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus pengajar")
 		}
+		rows = res.RowsAffected
 
-		// Jika benar-benar terhapus → decrement statistik guru aktif
-		if res.RowsAffected > 0 {
-			// Pastikan baris stats ada dulu
+		if rows > 0 {
 			if err := ctrl.Stats.EnsureForMasjid(tx, masjidUUID); err != nil {
-				return helper.Error(c, fiber.StatusInternalServerError, "Gagal memastikan baris statistik")
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal memastikan baris statistik")
 			}
 			if err := ctrl.Stats.IncActiveTeachers(tx, masjidUUID, -1); err != nil {
-				return helper.Error(c, fiber.StatusInternalServerError, "Gagal memperbarui statistik guru")
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui statistik guru")
 			}
 		}
+		return nil
+	}); err != nil {
+		return helper.FromFiberError(c, err)
+	}
 
-		return helper.JsonDeleted(c, "Pengajar berhasil dihapus", fiber.Map{
-			"masjid_teachers_id": id,
-		})
+	return helper.JsonDeleted(c, "Pengajar berhasil dihapus", fiber.Map{
+		"masjid_teachers_id": id,
+		"affected":           rows,
 	})
 }

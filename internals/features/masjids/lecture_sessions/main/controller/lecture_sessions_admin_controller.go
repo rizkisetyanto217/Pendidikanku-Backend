@@ -3,15 +3,15 @@ package controller
 import (
 	"encoding/json"
 	"log"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
-
 	lectureModel "masjidku_backend/internals/features/masjids/lectures/main/model"
 	helper "masjidku_backend/internals/helpers"
-	"net/url"
-	"strings"
-
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -22,27 +22,28 @@ type LectureSessionController struct {
 	DB *gorm.DB
 }
 
-
 func NewLectureSessionController(db *gorm.DB) *LectureSessionController {
 	return &LectureSessionController{DB: db}
 }
 
-
+/* =========================================================
+   CREATE
+========================================================= */
 func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 	// Validasi user login
 	userIDRaw := c.Locals("user_id")
 	if userIDRaw == nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "User belum login")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "User belum login")
 	}
 
 	// Ambil masjid_id dari token
 	masjidIDs, ok := c.Locals("masjid_admin_ids").([]string)
 	if !ok || len(masjidIDs) == 0 {
-		return fiber.NewError(fiber.StatusBadRequest, "Masjid ID tidak ditemukan di token")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid ID tidak ditemukan di token")
 	}
 	masjidID, err := uuid.Parse(masjidIDs[0])
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Masjid ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid ID tidak valid")
 	}
 
 	// Ambil semua field dari form-data
@@ -56,37 +57,38 @@ func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 	lectureIDStr := c.FormValue("lecture_session_lecture_id")
 	approvedAtStr := c.FormValue("lecture_session_approved_by_teacher_at") // optional
 
-	// Validasi dan parsing UUID & waktu
+	if title == "" || teacherIDStr == "" || startTimeStr == "" || endTimeStr == "" || lectureIDStr == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Field wajib ada: title, teacher_id, start_time, end_time, lecture_id")
+	}
+
 	teacherID, err := uuid.Parse(teacherIDStr)
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID guru tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID guru tidak valid")
 	}
 	lectureID, err := uuid.Parse(lectureIDStr)
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tema kajian tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tema kajian tidak valid")
 	}
 	startTime, err := time.Parse(time.RFC3339, startTimeStr)
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Format waktu mulai tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Format waktu mulai tidak valid (RFC3339)")
 	}
 	endTime, err := time.Parse(time.RFC3339, endTimeStr)
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Format waktu selesai tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Format waktu selesai tidak valid (RFC3339)")
 	}
 
 	// JSON guru untuk lecture_teachers
-	teacherObj := map[string]string{
-		"id":   teacherID.String(),
-		"name": teacherName,
-	}
+	teacherObj := map[string]string{"id": teacherID.String(), "name": teacherName}
 	teacherJSON, err := json.Marshal(teacherObj)
 	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal konversi teacher ke JSON")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal konversi teacher ke JSON")
 	}
 
 	// Buat objek session (tanpa gambar dulu)
 	newSession := model.LectureSessionModel{
 		LectureSessionTitle:       title,
+		LectureSessionSlug:        dto.GenerateSlug(title),
 		LectureSessionDescription: description,
 		LectureSessionTeacherID:   teacherID,
 		LectureSessionTeacherName: teacherName,
@@ -107,7 +109,7 @@ func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 	}
 
 	err = ctrl.DB.Transaction(func(tx *gorm.DB) error {
-		// Simpan sesi dulu (tanpa gambar)
+		// Simpan sesi (tanpa gambar)
 		if err := tx.Create(&newSession).Error; err != nil {
 			return err
 		}
@@ -132,13 +134,12 @@ func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 			return err
 		}
 
-		// Upload gambar hanya setelah semua DB logic aman
+		// Upload gambar setelah DB ok
 		if file, err := c.FormFile("lecture_session_image_url"); err == nil && file != nil {
 			url, err := helper.UploadImageToSupabase("lecture_sessions", file)
 			if err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal upload gambar")
 			}
-			// Update field image di sesi yang sudah dibuat
 			if err := tx.Model(&newSession).Update("lecture_session_image_url", url).Error; err != nil {
 				return err
 			}
@@ -152,29 +153,28 @@ func (ctrl *LectureSessionController) CreateLectureSession(c *fiber.Ctx) error {
 
 		return nil
 	})
-
 	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat sesi kajian")
+		log.Printf("[ERROR] CreateLectureSession: %v", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat sesi kajian")
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(dto.ToLectureSessionDTO(newSession))
+	return helper.JsonCreated(c, "Sesi kajian berhasil dibuat", dto.ToLectureSessionDTO(newSession))
 }
 
-
-
+/* =========================================================
+   GET BY ID (+user progress kalau ada)
+========================================================= */
 func (ctrl *LectureSessionController) GetLectureSessionByID(c *fiber.Ctx) error {
 	sessionID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
-		log.Println("[ERROR] Invalid session ID:", c.Params("id"))
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// Ambil user_id dari cookie / header
+	// Ambil user_id dari cookie / header (opsional)
 	userID := c.Cookies("user_id")
 	if userID == "" {
 		userID = c.Get("X-User-Id")
 	}
-	log.Println("[INFO] user_id dari request:", userID)
 
 	type JoinedResult struct {
 		model.LectureSessionModel
@@ -184,19 +184,13 @@ func (ctrl *LectureSessionController) GetLectureSessionByID(c *fiber.Ctx) error 
 	}
 
 	var result JoinedResult
-
 	query := ctrl.DB.
 		Model(&model.LectureSessionModel{}).
-		Select(`
-			lecture_sessions.*, 
-			lectures.lecture_title, 
-			users.user_name
-		`).
+		Select(`lecture_sessions.*, lectures.lecture_title, users.user_name`).
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
 		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id")
 
 	if userID != "" {
-		log.Println("[INFO] Menambahkan join ke user_lecture_sessions")
 		query = query.Select(`
 			lecture_sessions.*, 
 			lectures.lecture_title, 
@@ -209,68 +203,105 @@ func (ctrl *LectureSessionController) GetLectureSessionByID(c *fiber.Ctx) error 
 		`, userID)
 	}
 
-	log.Println("[INFO] Eksekusi query untuk session ID:", sessionID)
-
-	if err := query.
-		Where("lecture_sessions.lecture_session_id = ?", sessionID).
+	if err := query.Where("lecture_sessions.lecture_session_id = ?", sessionID).
 		Scan(&result).Error; err != nil {
-		log.Println("[ERROR] Gagal ambil data sesi kajian:", err)
-		return fiber.NewError(fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
+		return helper.JsonError(c, fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
 	}
-
-	log.Println("[INFO] Hasil query berhasil diambil")
-	log.Printf("[DEBUG] UserGradeResult: %v\n", result.UserGradeResult)
 
 	dtoItem := dto.ToLectureSessionDTOWithLectureTitle(result.LectureSessionModel, result.LectureTitle)
-
 	if dtoItem.LectureSessionTeacherName == "" && result.UserName != nil {
 		dtoItem.LectureSessionTeacherName = *result.UserName
-		log.Println("[INFO] Fallback user_name digunakan sebagai teacher name:", *result.UserName)
 	}
-
 	if result.UserGradeResult != nil {
 		dtoItem.UserGradeResult = result.UserGradeResult
 	}
 
-	return c.JSON(dtoItem)
+	return helper.JsonOK(c, "Berhasil mengambil sesi kajian", dtoItem)
 }
 
-
-
-// ================================
-// GET ALL
-// ================================
+/* =========================================================
+   GET ALL (pagination)
+========================================================= */
 func (ctrl *LectureSessionController) GetAllLectureSessions(c *fiber.Ctx) error {
-	var sessions []model.LectureSessionModel
+	// pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.Query("limit", "10"))
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
 
-	if err := ctrl.DB.Find(&sessions).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to fetch lecture sessions")
+	var total int64
+	if err := ctrl.DB.Model(&model.LectureSessionModel{}).Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung sesi kajian")
 	}
 
-	var result []dto.LectureSessionDTO
+	var sessions []model.LectureSessionModel
+	if err := ctrl.DB.Order("lecture_session_start_time DESC").
+		Limit(limit).Offset(offset).
+		Find(&sessions).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to fetch lecture sessions")
+	}
+
+	result := make([]dto.LectureSessionDTO, 0, len(sessions))
 	for _, s := range sessions {
 		result = append(result, dto.ToLectureSessionDTO(s))
 	}
 
-	return c.JSON(result)
+	pagination := fiber.Map{
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": int((total+int64(limit)-1)/int64(limit)),
+		"has_next":    int64(page*limit) < total,
+		"has_prev":    page > 1,
+	}
+	return helper.JsonList(c, result, pagination)
 }
 
-
+/* =========================================================
+   GET by Masjid (pagination)
+========================================================= */
 func (ctrl *LectureSessionController) GetLectureSessionsByMasjidID(c *fiber.Ctx) error {
-	// ✅ Ambil dari token (middleware sudah pastikan valid dan admin)
 	masjidID, ok := c.Locals("masjid_id").(string)
 	if !ok || masjidID == "" {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"message": "Masjid ID tidak valid atau tidak ditemukan di token",
-		})
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak valid atau tidak ditemukan di token")
 	}
 
-	// Struct untuk hasil gabungan
+	// pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.Query("limit", "10"))
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+
+	// count
+	var total int64
+	if err := ctrl.DB.Table("lecture_sessions").
+		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Where("lectures.lecture_masjid_id = ?", masjidID).
+		Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung sesi kajian")
+	}
+
+	// data
 	type JoinedResult struct {
 		model.LectureSessionModel
 		LectureTitle string `gorm:"column:lecture_title"`
 	}
-
 	var results []JoinedResult
 	if err := ctrl.DB.
 		Model(&model.LectureSessionModel{}).
@@ -278,57 +309,76 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMasjidID(c *fiber.Ctx)
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
 		Where("lectures.lecture_masjid_id = ?", masjidID).
 		Order("lecture_sessions.lecture_session_start_time ASC").
+		Limit(limit).Offset(offset).
 		Scan(&results).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil sesi kajian berdasarkan masjid",
-		})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil sesi kajian berdasarkan masjid")
 	}
 
-	// Map ke DTO
 	response := make([]dto.LectureSessionDTO, len(results))
 	for i, r := range results {
 		response[i] = dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Berhasil mengambil sesi kajian berdasarkan masjid",
-		"data":    response,
-	})
+	pagination := fiber.Map{
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": int((total+int64(limit)-1)/int64(limit)),
+		"has_next":    int64(page*limit) < total,
+		"has_prev":    page > 1,
+		"masjid_id":   masjidID,
+	}
+	return helper.JsonList(c, response, pagination)
 }
 
-
-// ✅ GET lecture sessions by lecture_id (adaptif: jika login, include user progress)
+/* =========================================================
+   GET by Lecture ID (adaptif: include user progress jika login)
+========================================================= */
 func (ctrl *LectureSessionController) GetByLectureID(c *fiber.Ctx) error {
 	type RequestBody struct {
 		LectureID string `json:"lecture_id"`
 	}
-
 	var body RequestBody
 	if err := c.BodyParser(&body); err != nil || body.LectureID == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Permintaan tidak valid, lecture_id wajib diisi",
-		})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Permintaan tidak valid, lecture_id wajib diisi")
 	}
-
 	lectureID, err := uuid.Parse(body.LectureID)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Lecture ID tidak valid",
-		})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Lecture ID tidak valid")
 	}
+
+	// pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.Query("limit", "20"))
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	offset := (page - 1) * limit
 
 	userIDRaw := c.Locals("user_id")
 
-	// Jika tidak login, ambil data biasa
+	// Tidak login → data biasa
 	if userIDRaw == nil {
+		var total int64
+		if err := ctrl.DB.Model(&model.LectureSessionModel{}).
+			Where("lecture_session_lecture_id = ?", lectureID).
+			Count(&total).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung sesi kajian")
+		}
+
 		var sessions []model.LectureSessionModel
 		if err := ctrl.DB.
 			Where("lecture_session_lecture_id = ?", lectureID).
 			Order("lecture_session_start_time ASC").
+			Limit(limit).Offset(offset).
 			Find(&sessions).Error; err != nil {
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"message": "Gagal mengambil data sesi kajian",
-			})
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data sesi kajian")
 		}
 
 		response := make([]dto.LectureSessionDTO, len(sessions))
@@ -336,27 +386,38 @@ func (ctrl *LectureSessionController) GetByLectureID(c *fiber.Ctx) error {
 			response[i] = dto.ToLectureSessionDTO(s)
 		}
 
-		return c.JSON(fiber.Map{
-			"message": "Berhasil mengambil sesi kajian",
-			"data":    response,
-		})
+		pagination := fiber.Map{
+			"page":        page,
+			"limit":       limit,
+			"total":       total,
+			"total_pages": int((total+int64(limit)-1)/int64(limit)),
+			"has_next":    int64(page*limit) < total,
+			"has_prev":    page > 1,
+			"lecture_id":  lectureID,
+		}
+		return helper.JsonList(c, response, pagination)
 	}
 
-	// Jika login → Ambil juga progress user
+	// Login → gabung progress user
 	userIDStr, ok := userIDRaw.(string)
-	if !ok {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"message": "User ID tidak valid",
-		})
+	if !ok || userIDStr == "" {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "User ID tidak valid")
 	}
 
-	// Ambil data + progress via LEFT JOIN
+	// count
+	var total int64
+	if err := ctrl.DB.Table("lecture_sessions as ls").
+		Where("ls.lecture_session_lecture_id = ?", lectureID).
+		Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung sesi + progres user")
+	}
+
+	// data
 	type JoinedResult struct {
 		model.LectureSessionModel
 		UserAttendanceStatus string   `json:"user_attendance_status"`
 		UserGradeResult      *float64 `json:"user_grade_result"`
 	}
-
 	var joined []JoinedResult
 	if err := ctrl.DB.Table("lecture_sessions as ls").
 		Select(`
@@ -371,50 +432,53 @@ func (ctrl *LectureSessionController) GetByLectureID(c *fiber.Ctx) error {
 		`, userIDStr).
 		Where("ls.lecture_session_lecture_id = ?", lectureID).
 		Order("ls.lecture_session_start_time ASC").
+		Limit(limit).Offset(offset).
 		Scan(&joined).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil data sesi + progres user",
-		})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data sesi + progres user")
 	}
 
-	// Gabungkan ke response
-	response := make([]fiber.Map, len(joined))
+	// response
+	out := make([]fiber.Map, len(joined))
 	for i, j := range joined {
-		response[i] = fiber.Map{
+		out[i] = fiber.Map{
 			"lecture_session":        dto.ToLectureSessionDTO(j.LectureSessionModel),
 			"user_attendance_status": j.UserAttendanceStatus,
 			"user_grade_result":      j.UserGradeResult,
 		}
 	}
-
-	return c.JSON(fiber.Map{
-		"message": "Berhasil mengambil sesi kajian + progres user",
-		"data":    response,
-	})
+	pagination := fiber.Map{
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": int((total+int64(limit)-1)/int64(limit)),
+		"has_next":    int64(page*limit) < total,
+		"has_prev":    page > 1,
+		"lecture_id":  lectureID,
+	}
+	return helper.JsonList(c, out, pagination)
 }
 
-
-// ✅ PUT /api/a/lecture-sessions/:id
+/* =========================================================
+   UPDATE (multipart form)
+========================================================= */
 func (ctrl *LectureSessionController) UpdateLectureSession(c *fiber.Ctx) error {
-	// Ambil ID dari param
 	idParam := c.Params("id")
 	sessionID, err := uuid.Parse(idParam)
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// Cari sesi yang ada
+	// Cari sesi
 	var existing model.LectureSessionModel
 	if err := ctrl.DB.First(&existing, "lecture_session_id = ?", sessionID).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
+		return helper.JsonError(c, fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
 	}
 
-	// Update field jika ada
+	// Partial updates
 	if val := c.FormValue("lecture_session_title"); val != "" {
 		existing.LectureSessionTitle = val
 		existing.LectureSessionSlug = dto.GenerateSlug(val)
 	}
-
 	if val := c.FormValue("lecture_session_description"); val != "" {
 		existing.LectureSessionDescription = val
 	}
@@ -445,120 +509,91 @@ func (ctrl *LectureSessionController) UpdateLectureSession(c *fiber.Ctx) error {
 		}
 	}
 
-	// 🖼️ Handle gambar jika ada file baru
+	// Gambar baru?
 	if file, err := c.FormFile("lecture_session_image_url"); err == nil && file != nil {
-		// 🔁 Hapus gambar lama dari Supabase jika ada
+		// Hapus lama
 		if existing.LectureSessionImageURL != nil {
-			parsed, err := url.Parse(*existing.LectureSessionImageURL)
-			if err == nil {
-				rawPath := parsed.Path // /storage/v1/object/public/image/lecture_sessions%2Fxxx.png
+			if parsed, err := url.Parse(*existing.LectureSessionImageURL); err == nil {
+				rawPath := parsed.Path
 				prefix := "/storage/v1/object/public/"
 				cleaned := strings.TrimPrefix(rawPath, prefix)
-
-				unescaped, err := url.QueryUnescape(cleaned)
-				if err == nil {
+				if unescaped, err := url.QueryUnescape(cleaned); err == nil {
 					parts := strings.SplitN(unescaped, "/", 2)
 					if len(parts) == 2 {
-						bucket := parts[0]      // "image"
-						objectPath := parts[1]  // "lecture_sessions/xxx.png"
-						_ = helper.DeleteFromSupabase(bucket, objectPath)
+						_ = helper.DeleteFromSupabase(parts[0], parts[1])
 					}
 				}
 			}
 		}
-
-		// ⬆️ Upload gambar baru
+		// Upload baru
 		newURL, err := helper.UploadImageToSupabase("lecture_sessions", file)
 		if err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal upload gambar")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal upload gambar")
 		}
 		existing.LectureSessionImageURL = &newURL
+	} else if val := c.FormValue("lecture_session_image_url"); val != "" {
+		existing.LectureSessionImageURL = &val
 	}
 
-	// 💾 Simpan perubahan
 	if err := ctrl.DB.Save(&existing).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal update sesi kajian")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update sesi kajian")
 	}
-
-	return c.JSON(dto.ToLectureSessionDTO(existing))
+	return helper.JsonUpdated(c, "Sesi kajian berhasil diperbarui", dto.ToLectureSessionDTO(existing))
 }
 
-
+/* =========================================================
+   APPROVALS
+========================================================= */
 func (ctrl *LectureSessionController) ApproveLectureSessionByDKM(c *fiber.Ctx) error {
-	// 🔎 Ambil dan validasi ID sesi dari URL
 	sessionID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
-		log.Printf("[ERROR] Invalid session ID: %s", c.Params("id"))
-		return fiber.NewError(fiber.StatusBadRequest, "ID sesi tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID sesi tidak valid")
 	}
 
-	// 🔐 Validasi role DKM
 	role, ok := c.Locals("role").(string)
 	if !ok || role != "dkm" {
-		log.Printf("[ERROR] Role bukan DKM: %#v", c.Locals("role"))
-		return fiber.NewError(fiber.StatusForbidden, "Hanya DKM yang dapat menyetujui sesi")
+		return helper.JsonError(c, fiber.StatusForbidden, "Hanya DKM yang dapat menyetujui sesi")
 	}
 
-	// 📦 Ambil data sesi
 	var session model.LectureSessionModel
 	if err := ctrl.DB.First(&session, "lecture_session_id = ?", sessionID).Error; err != nil {
-		log.Printf("[ERROR] Sesi tidak ditemukan: %s", sessionID)
-		return fiber.NewError(fiber.StatusNotFound, "Sesi tidak ditemukan")
+		return helper.JsonError(c, fiber.StatusNotFound, "Sesi tidak ditemukan")
 	}
 
-	// ⏱ Tandai approval by DKM
 	now := time.Now()
 	session.LectureSessionApprovedByDkmAt = &now
 
 	if err := ctrl.DB.Save(&session).Error; err != nil {
-		log.Printf("[ERROR] Gagal menyimpan approval DKM: %v", err)
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan approval")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan approval")
 	}
-
-	log.Printf("[SUCCESS] DKM menyetujui sesi %s", sessionID)
-	return c.JSON(dto.ToLectureSessionDTO(session))
+	return helper.JsonUpdated(c, "Sesi disetujui oleh DKM", dto.ToLectureSessionDTO(session))
 }
 
-
-
 func (ctrl *LectureSessionController) ApproveLectureSession(c *fiber.Ctx) error {
-	// 🔎 Ambil & validasi UUID sesi
 	sessionID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
-		log.Printf("[ERROR] Invalid session ID: %s", c.Params("id"))
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// 🔐 Ambil role dari JWT context
 	role, ok := c.Locals("role").(string)
 	if !ok || role == "" {
-		log.Printf("[ERROR] Role tidak valid: %#v", c.Locals("role"))
-		return fiber.NewError(fiber.StatusForbidden, "Role tidak valid")
+		return helper.JsonError(c, fiber.StatusForbidden, "Role tidak valid")
 	}
 
-	// 👤 Ambil user_id dari JWT context
 	userIDStr, ok := c.Locals("user_id").(string)
 	if !ok || userIDStr == "" {
-		log.Printf("[ERROR] User ID tidak valid: %#v", c.Locals("user_id"))
-		return fiber.NewError(fiber.StatusUnauthorized, "User tidak valid")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "User tidak valid")
 	}
-
 	userUUID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		log.Printf("[ERROR] Gagal parsing UUID dari user_id: %s", userIDStr)
-		return fiber.NewError(fiber.StatusUnauthorized, "User tidak valid")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "User tidak valid")
 	}
 
-	log.Printf("[INFO] User %s dengan role '%s' meng-approve sesi %s", userUUID, role, sessionID)
-
-	// 🗃 Ambil sesi kajian dari DB
 	var session model.LectureSessionModel
 	if err := ctrl.DB.First(&session, "lecture_session_id = ?", sessionID).Error; err != nil {
-		log.Printf("[ERROR] Sesi kajian tidak ditemukan: %s", sessionID)
-		return fiber.NewError(fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
+		return helper.JsonError(c, fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
 	}
 
-	// 🕒 Set approval berdasarkan role
 	now := time.Now()
 	switch role {
 	case "admin":
@@ -573,59 +608,48 @@ func (ctrl *LectureSessionController) ApproveLectureSession(c *fiber.Ctx) error 
 	case "dkm":
 		session.LectureSessionApprovedByDkmAt = &now
 	default:
-		log.Printf("[ERROR] Role '%s' tidak memiliki hak approval", role)
-		return fiber.NewError(fiber.StatusForbidden, "Role tidak diizinkan untuk melakukan approval")
+		return helper.JsonError(c, fiber.StatusForbidden, "Role tidak diizinkan untuk melakukan approval")
 	}
 
-	// 💾 Simpan ke DB
 	if err := ctrl.DB.Save(&session).Error; err != nil {
-		log.Printf("[ERROR] Gagal menyimpan approval: %v", err)
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan approval")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan approval")
 	}
-
-	log.Println("[SUCCESS] Approval berhasil disimpan")
-	return c.JSON(dto.ToLectureSessionDTO(session))
+	return helper.JsonUpdated(c, "Approval berhasil disimpan", dto.ToLectureSessionDTO(session))
 }
 
-
-
-// 🔴 DELETE /api/a/lecture-sessions/:id
+/* =========================================================
+   DELETE
+========================================================= */
 func (ctrl *LectureSessionController) DeleteLectureSession(c *fiber.Ctx) error {
 	sessionID := c.Params("id")
 
-	// 🔍 Ambil sesi kajian
 	var existing model.LectureSessionModel
 	if err := ctrl.DB.First(&existing, "lecture_session_id = ?", sessionID).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
+		return helper.JsonError(c, fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
 	}
 
 	err := ctrl.DB.Transaction(func(tx *gorm.DB) error {
-		// 🗑️ Hapus gambar dari Supabase jika ada
+		// Hapus gambar dari storage jika ada
 		if existing.LectureSessionImageURL != nil {
-			parsed, err := url.Parse(*existing.LectureSessionImageURL)
-			if err == nil {
-				rawPath := parsed.Path // /storage/v1/object/public/image/lecture_sessions%2Fxxx.png
+			if parsed, err := url.Parse(*existing.LectureSessionImageURL); err == nil {
+				rawPath := parsed.Path
 				prefix := "/storage/v1/object/public/"
 				cleaned := strings.TrimPrefix(rawPath, prefix)
-
-				unescaped, err := url.QueryUnescape(cleaned)
-				if err == nil {
+				if unescaped, err := url.QueryUnescape(cleaned); err == nil {
 					parts := strings.SplitN(unescaped, "/", 2)
 					if len(parts) == 2 {
-						bucket := parts[0]
-						objectPath := parts[1]
-						_ = helper.DeleteFromSupabase(bucket, objectPath)
+						_ = helper.DeleteFromSupabase(parts[0], parts[1])
 					}
 				}
 			}
 		}
 
-		// ❌ Hapus sesi dari database
+		// Hapus sesi
 		if err := tx.Delete(&existing).Error; err != nil {
 			return err
 		}
 
-		// 🔢 Kurangi total_lecture_sessions di lectures
+		// Kurangi counter pada lecture
 		if existing.LectureSessionLectureID != nil {
 			if err := tx.Model(&lectureModel.LectureModel{}).
 				Where("lecture_id = ?", *existing.LectureSessionLectureID).
@@ -633,15 +657,11 @@ func (ctrl *LectureSessionController) DeleteLectureSession(c *fiber.Ctx) error {
 				return err
 			}
 		}
-
 		return nil
 	})
-
 	if err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus sesi kajian")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus sesi kajian")
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Sesi kajian berhasil dihapus",
-	})
+	return helper.JsonDeleted(c, "Sesi kajian berhasil dihapus", fiber.Map{"id": sessionID})
 }

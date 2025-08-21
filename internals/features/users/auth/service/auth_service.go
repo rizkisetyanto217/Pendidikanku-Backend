@@ -135,7 +135,7 @@ func collectMasjidRoleIDs(db *gorm.DB, userID uuid.UUID) (
 			return nil, nil, nil, nil, e
 		}
 		for _, m := range adminMasjids {
-			adminSet[m.MasjidID.String()] = struct{}{}
+			adminSet[m.MasjidAdminsMasjidID.String()] = struct{}{}
 		}
 	}
 
@@ -276,15 +276,15 @@ func issueTokensWithRoles(
 	}
 
 	// Hash-kan token sebelum simpan
-	tokenHash := computeRefreshHash(refreshToken, refreshSecret)
+	token := computeRefreshHash(refreshToken, refreshSecret)
 
 	ua := c.Get("User-Agent")
 	ip := c.IP()
 
-	// Simpan/rotasi refresh token di DB (pakai TokenHash, bukan Token)
+	// Simpan/rotasi refresh token di DB (pakai Token, bukan Token)
 	if err := authRepo.CreateRefreshToken(db, &authModel.RefreshToken{
 		UserID:    user.ID,
-		TokenHash: tokenHash,                // << ini yang baru
+		Token: token,                // << ini yang baru
 		ExpiresAt: now.Add(refreshTTL),
 		UserAgent: strptr(ua),
 		IP:        strptr(ip),

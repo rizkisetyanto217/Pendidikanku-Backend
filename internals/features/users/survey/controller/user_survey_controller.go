@@ -1,10 +1,12 @@
 package controller
 
 import (
+	"fmt"
 	"log"
 	"time"
 
 	model "masjidku_backend/internals/features/users/survey/model"
+	helper "masjidku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -19,49 +21,54 @@ func NewUserSurveyController(db *gorm.DB) *UserSurveyController {
 	return &UserSurveyController{DB: db}
 }
 
-// 📩 SubmitSurveyAnswers menyimpan jawaban survei yang dikirim oleh user.
+// 📩 SubmitSurveyAnswers menyimpan jawaban survei yang dikirim oleh user (bulk insert).
 func (ctrl *UserSurveyController) SubmitSurveyAnswers(c *fiber.Ctx) error {
 	userIDStr, ok := c.Locals("user_id").(string)
-	if !ok {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
+	if !ok || userIDStr == "" {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Invalid user ID"})
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Invalid user ID")
 	}
 
+	// payload harus array
 	var inputs []struct {
 		SurveyQuestionID int    `json:"survey_question_id"`
 		UserAnswer       string `json:"user_answer"`
 	}
-
 	if err := c.BodyParser(&inputs); err != nil {
 		log.Println("[ERROR] Failed to parse user survey input:", err)
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid input"})
+	return helper.JsonError(c, fiber.StatusBadRequest, "Invalid input (expected JSON array)")
 	}
-
-	// Validasi isi minimal
 	if len(inputs) == 0 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "No answers provided"})
+		return helper.JsonError(c, fiber.StatusBadRequest, "No answers provided")
 	}
 
-	// Simpan semua jawaban ke DB
-	for _, input := range inputs {
-		answer := model.UserSurvey{
+	// siapkan bulk
+	now := time.Now()
+	answers := make([]model.UserSurvey, 0, len(inputs))
+	for i, in := range inputs {
+		if in.SurveyQuestionID == 0 || in.UserAnswer == "" {
+			return helper.JsonError(c, fiber.StatusBadRequest, 
+				"Invalid item at index "+fmt.Sprint(i)+": survey_question_id and user_answer are required")
+		}
+		answers = append(answers, model.UserSurvey{
 			UserSurveyUserID:     userID,
-			UserSurveyQuestionID: input.SurveyQuestionID,
-			UserSurveyAnswer:     input.UserAnswer,
-			CreatedAt:            time.Now(),
-		}
-
-		if err := ctrl.DB.Create(&answer).Error; err != nil {
-			log.Println("[ERROR] Failed to save user survey:", err)
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to save user survey"})
-		}
+			UserSurveyQuestionID: in.SurveyQuestionID,
+			UserSurveyAnswer:     in.UserAnswer,
+			CreatedAt:            now,
+		})
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-		"message": "Survey answers submitted successfully",
+	// bulk insert (gunakan CreateInBatches untuk aman di payload besar)
+	if err := ctrl.DB.CreateInBatches(&answers, 100).Error; err != nil {
+		log.Println("[ERROR] Failed to save user survey:", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to save user survey")
+	}
+
+	return helper.JsonCreated(c, "Survey answers submitted successfully", fiber.Map{
+		"count": len(answers),
 	})
 }

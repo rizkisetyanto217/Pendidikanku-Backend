@@ -4,21 +4,21 @@ import (
 	lectureSessionModel "masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
 	"masjidku_backend/internals/features/masjids/lectures/main/dto"
 	"masjidku_backend/internals/features/masjids/lectures/main/model"
+	helper "masjidku_backend/internals/helpers"
+
+	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-// ✅ GET /public/lectures/by-masjid-slug/:slug
+// ✅ GET /public/lectures/by-masjid-slug/:slug  (pakai JsonList + pagination)
 func (ctrl *LectureController) GetLectureByMasjidSlug(c *fiber.Ctx) error {
-	// Ambil slug dari parameter URL
 	slug := c.Params("slug")
 	if slug == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Slug masjid tidak ditemukan di URL",
-		})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Slug masjid tidak boleh kosong")
 	}
 
-	// Ambil masjid_id berdasarkan slug
+	// Ambil masjid_id by slug
 	var masjid struct {
 		MasjidID string `gorm:"column:masjid_id"`
 	}
@@ -27,43 +27,58 @@ func (ctrl *LectureController) GetLectureByMasjidSlug(c *fiber.Ctx) error {
 		Select("masjid_id").
 		Where("masjid_slug = ?", slug).
 		Scan(&masjid).Error; err != nil || masjid.MasjidID == "" {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"message": "Masjid dengan slug tersebut tidak ditemukan",
-		})
+		return helper.JsonError(c, fiber.StatusNotFound, "Masjid dengan slug tersebut tidak ditemukan")
 	}
 
-	// Ambil lectures berdasarkan masjid_id
+	// Pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.Query("limit", "10"))
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+
+	// Count total
+	var total int64
+	if err := ctrl.DB.
+		Model(&model.LectureModel{}).
+		Where("lecture_masjid_id = ?", masjid.MasjidID).
+		Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
+	}
+
+	// Fetch data
 	var lectures []model.LectureModel
 	if err := ctrl.DB.
 		Where("lecture_masjid_id = ?", masjid.MasjidID).
 		Order("lecture_created_at DESC").
+		Limit(limit).Offset(offset).
 		Find(&lectures).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil data lecture",
-		})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data lecture")
 	}
 
-	if len(lectures) == 0 {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"message": "Belum ada tema kajian untuk masjid ini",
-		})
+	pagination := fiber.Map{
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": int((total + int64(limit) - 1) / int64(limit)),
+		"has_next":    int64(page*limit) < total,
+		"has_prev":    page > 1,
 	}
-
-	// Sukses
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message": "Daftar tema kajian berhasil ditemukan",
-		"data":    dto.ToLectureResponseList(lectures),
-	})
+	return helper.JsonList(c, dto.ToLectureResponseList(lectures), pagination)
 }
 
-
-// ✅ GET /api/a/lecture-sessions/by-lecture/:id
+// ✅ GET /api/a/lecture-sessions/by-lecture/:id  (pakai JsonList + pagination)
 func (ctrl *LectureController) GetLectureSessionsByLectureID(c *fiber.Ctx) error {
 	lectureID := c.Params("id")
 	if lectureID == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Lecture ID tidak ditemukan di URL",
-		})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Lecture ID tidak ditemukan di URL")
 	}
 
 	type Result struct {
@@ -72,8 +87,31 @@ func (ctrl *LectureController) GetLectureSessionsByLectureID(c *fiber.Ctx) error
 		LectureTitle string  `gorm:"column:lecture_title"`
 	}
 
-	var sessions []Result
+	// Pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.Query("limit", "10"))
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
 
+	// Count
+	var total int64
+	if err := ctrl.DB.
+		Table("lecture_sessions").
+		Where("lecture_session_lecture_id = ?", lectureID).
+		Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
+	}
+
+	// Data
+	var sessions []Result
 	if err := ctrl.DB.
 		Table("lecture_sessions").
 		Select(`
@@ -85,28 +123,28 @@ func (ctrl *LectureController) GetLectureSessionsByLectureID(c *fiber.Ctx) error
 		Joins("LEFT JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
 		Where("lecture_sessions.lecture_session_lecture_id = ?", lectureID).
 		Order("lecture_sessions.lecture_session_created_at DESC").
+		Limit(limit).Offset(offset).
 		Scan(&sessions).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil sesi kajian",
-			"error":   err.Error(),
-		})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil sesi kajian")
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Daftar sesi kajian berhasil ditemukan",
-		"data":    sessions,
-	})
+	pagination := fiber.Map{
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": int((total + int64(limit) - 1) / int64(limit)),
+		"has_next":    int64(page*limit) < total,
+		"has_prev":    page > 1,
+		"lecture_id":  lectureID,
+	}
+	return helper.JsonList(c, sessions, pagination)
 }
 
-
- 
-// ✅ GET /api/a/lecture-sessions/by-lecture-slug/:slug
+// ✅ GET /api/a/lecture-sessions/by-lecture-slug/:slug  (pakai JsonList + pagination)
 func (ctrl *LectureController) GetLectureSessionsByLectureSlug(c *fiber.Ctx) error {
 	lectureSlug := c.Params("slug")
 	if lectureSlug == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Lecture slug tidak ditemukan di URL",
-		})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Lecture slug tidak ditemukan di URL")
 	}
 
 	type Result struct {
@@ -115,8 +153,32 @@ func (ctrl *LectureController) GetLectureSessionsByLectureSlug(c *fiber.Ctx) err
 		LectureTitle string  `gorm:"column:lecture_title"`
 	}
 
-	var sessions []Result
+	// Pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.Query("limit", "10"))
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
 
+	// Count
+	var total int64
+	if err := ctrl.DB.
+		Table("lecture_sessions").
+		Joins("LEFT JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Where("lectures.lecture_slug = ?", lectureSlug).
+		Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
+	}
+
+	// Data
+	var sessions []Result
 	if err := ctrl.DB.
 		Table("lecture_sessions").
 		Select(`
@@ -128,15 +190,19 @@ func (ctrl *LectureController) GetLectureSessionsByLectureSlug(c *fiber.Ctx) err
 		Joins("LEFT JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
 		Where("lectures.lecture_slug = ?", lectureSlug).
 		Order("lecture_sessions.lecture_session_created_at DESC").
+		Limit(limit).Offset(offset).
 		Scan(&sessions).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil sesi kajian",
-			"error":   err.Error(),
-		})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil sesi kajian")
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Daftar sesi kajian berhasil ditemukan",
-		"data":    sessions,
-	})
+	pagination := fiber.Map{
+		"page":         page,
+		"limit":        limit,
+		"total":        total,
+		"total_pages":  int((total + int64(limit) - 1) / int64(limit)),
+		"has_next":     int64(page*limit) < total,
+		"has_prev":     page > 1,
+		"lecture_slug": lectureSlug,
+	}
+	return helper.JsonList(c, sessions, pagination)
 }

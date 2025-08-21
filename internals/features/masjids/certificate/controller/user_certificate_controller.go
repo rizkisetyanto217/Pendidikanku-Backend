@@ -3,6 +3,8 @@ package controllers
 import (
 	"time"
 
+	helper "masjidku_backend/internals/helpers"
+
 	"masjidku_backend/internals/features/masjids/certificate/dto"
 	userCertModel "masjidku_backend/internals/features/masjids/certificate/model"
 
@@ -22,7 +24,7 @@ func NewUserCertificateController(db *gorm.DB) *UserCertificateController {
 func (ctrl *UserCertificateController) Create(c *fiber.Ctx) error {
 	var body dto.CreateUserCertificateDTO
 	if err := c.BodyParser(&body); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid body", "error": err.Error()})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid body")
 	}
 
 	newCert := userCertModel.UserCertificateModel{
@@ -37,45 +39,45 @@ func (ctrl *UserCertificateController) Create(c *fiber.Ctx) error {
 	}
 
 	if err := ctrl.DB.Create(&newCert).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to create user certificate", "error": err.Error()})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to create user certificate")
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(newCert)
+	return helper.JsonCreated(c, "User certificate created", newCert)
 }
 
-// ✅ GET ALL
+// ✅ GET ALL (tanpa pagination; bisa ditambah jika perlu)
 func (ctrl *UserCertificateController) GetAll(c *fiber.Ctx) error {
 	var certs []userCertModel.UserCertificateModel
 	if err := ctrl.DB.Find(&certs).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to fetch data", "error": err.Error()})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to fetch data")
 	}
-	return c.JSON(certs)
+	return helper.JsonList(c, certs, nil)
 }
 
 // ✅ GET BY ID
 func (ctrl *UserCertificateController) GetByID(c *fiber.Ctx) error {
 	id := c.Params("id")
-	var cert userCertModel.UserCertificateModel
 
+	var cert userCertModel.UserCertificateModel
 	if err := ctrl.DB.First(&cert, "user_cert_id = ?", id).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "User Certificate not found", "error": err.Error()})
+		return helper.JsonError(c, fiber.StatusNotFound, "User certificate not found")
 	}
 
-	return c.JSON(cert)
+	return helper.JsonOK(c, "OK", cert)
 }
 
-// ✅ UPDATE
+// ✅ UPDATE (partial)
 func (ctrl *UserCertificateController) Update(c *fiber.Ctx) error {
 	id := c.Params("id")
-	var cert userCertModel.UserCertificateModel
 
+	var cert userCertModel.UserCertificateModel
 	if err := ctrl.DB.First(&cert, "user_cert_id = ?", id).Error; err != nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "User Certificate not found", "error": err.Error()})
+		return helper.JsonError(c, fiber.StatusNotFound, "User certificate not found")
 	}
 
 	var body dto.UpdateUserCertificateDTO
 	if err := c.BodyParser(&body); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Invalid body", "error": err.Error()})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid body")
 	}
 
 	if body.UserCertScore != nil {
@@ -87,21 +89,33 @@ func (ctrl *UserCertificateController) Update(c *fiber.Ctx) error {
 	if body.UserCertIsUpToDate != nil {
 		cert.UserCertIsUpToDate = *body.UserCertIsUpToDate
 	}
-
 	cert.UpdatedAt = time.Now()
 
 	if err := ctrl.DB.Save(&cert).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to update", "error": err.Error()})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to update user certificate")
 	}
 
-	return c.JSON(cert)
+	return helper.JsonUpdated(c, "User certificate updated", cert)
 }
 
 // ✅ DELETE
 func (ctrl *UserCertificateController) Delete(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if err := ctrl.DB.Delete(&userCertModel.UserCertificateModel{}, "user_cert_id = ?", id).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"message": "Failed to delete", "error": err.Error()})
+
+	// optional: cek eksistensi agar error lebih jelas
+	var exists int64
+	if err := ctrl.DB.Model(&userCertModel.UserCertificateModel{}).
+		Where("user_cert_id = ?", id).
+		Count(&exists).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to delete user certificate")
 	}
-	return c.JSON(fiber.Map{"message": "User Certificate deleted"})
+	if exists == 0 {
+		return helper.JsonError(c, fiber.StatusNotFound, "User certificate not found")
+	}
+
+	if err := ctrl.DB.Delete(&userCertModel.UserCertificateModel{}, "user_cert_id = ?", id).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to delete user certificate")
+	}
+
+	return helper.JsonDeleted(c, "User certificate deleted", fiber.Map{"id": id})
 }

@@ -421,6 +421,8 @@ FOR EACH ROW EXECUTE FUNCTION trg_set_timestamp_class_subjects();
 -- =========================================================
 -- CLASS SECTION SUBJECT TEACHERS (soft delete friendly)
 -- =========================================================
+-- Kebutuhan UUID
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- 1) TABLE
 CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
@@ -431,13 +433,13 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teachers_subject_id UUID NOT NULL REFERENCES subjects(subjects_id) ON DELETE RESTRICT,
   class_section_subject_teachers_teacher_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
 
-  class_section_subject_teachers_is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  class_section_subject_teachers_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  class_section_subject_teachers_updated_at TIMESTAMP,
-  class_section_subject_teachers_deleted_at TIMESTAMP     -- ⬅️ soft delete
+  class_section_subject_teachers_is_active   BOOLEAN   NOT NULL DEFAULT TRUE,
+  class_section_subject_teachers_created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  class_section_subject_teachers_updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  class_section_subject_teachers_deleted_at  TIMESTAMP NULL
 );
 
--- 1b) Tambahkan kolom deleted_at jika belum ada (idempotent)
+-- 1b) Tambah kolom deleted_at jika belum ada (idempotent untuk skema lama)
 DO $$
 BEGIN
   IF EXISTS (
@@ -445,38 +447,51 @@ BEGIN
     WHERE table_schema='public' AND table_name='class_section_subject_teachers'
   ) AND NOT EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_schema='public' AND table_name='class_section_subject_teachers' AND column_name='class_section_subject_teachers_deleted_at'
+    WHERE table_schema='public' AND table_name='class_section_subject_teachers'
+      AND column_name='class_section_subject_teachers_deleted_at'
   ) THEN
     ALTER TABLE class_section_subject_teachers
       ADD COLUMN class_section_subject_teachers_deleted_at TIMESTAMP;
   END IF;
 END$$;
 
--- 2) TENANT-SAFE FK komposit ke class_sections (section_id, masjid_id)
+-- 2) TENANT-SAFE FK: (section_id, masjid_id) → class_sections(id, masjid_id)
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'fk_class_sec_subj_teachers_section_masjid'
+    SELECT 1 FROM pg_constraint WHERE conname = 'fk_csst_section_masjid'
   ) THEN
     ALTER TABLE class_section_subject_teachers
-      ADD CONSTRAINT fk_class_sec_subj_teachers_section_masjid
-      FOREIGN KEY (class_section_subject_teachers_section_id, class_section_subject_teachers_masjid_id)
+      ADD CONSTRAINT fk_csst_section_masjid
+      FOREIGN KEY (
+        class_section_subject_teachers_section_id,
+        class_section_subject_teachers_masjid_id
+      )
       REFERENCES class_sections (class_sections_id, class_sections_masjid_id)
       ON UPDATE CASCADE ON DELETE CASCADE;
   END IF;
 END$$;
 
--- 3) UNIQUE aktif: cegah duplikasi penugasan guru untuk (section, subject, teacher) yang masih aktif & belum dihapus
---    (team teaching tetap diperbolehkan karena uniqueness menyertakan teacher_user_id)
+-- 3) TENANT-SAFE MEMBERSHIP: (masjid_id, teacher_user_id) → masjid_teachers(masjid_id, user_id)
 DO $$
 BEGIN
-  -- drop index lama agar bisa ganti ke partial + deleted_at
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='uq_class_sec_subj_teachers_active') THEN
-    DROP INDEX IF EXISTS uq_class_sec_subj_teachers_active;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'fk_csst_teacher_membership'
+  ) THEN
+    ALTER TABLE class_section_subject_teachers
+      ADD CONSTRAINT fk_csst_teacher_membership
+      FOREIGN KEY (
+        class_section_subject_teachers_masjid_id,
+        class_section_subject_teachers_teacher_user_id
+      )
+      REFERENCES masjid_teachers (masjid_teachers_masjid_id, masjid_teachers_user_id)
+      ON UPDATE CASCADE
+      ON DELETE RESTRICT;
   END IF;
 END$$;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_class_sec_subj_teachers_active
+-- 4) UNIQUE aktif: cegah duplikasi assignment untuk (section, subject, teacher) yang aktif & belum dihapus
+CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_active_unique
 ON class_section_subject_teachers (
   class_section_subject_teachers_section_id,
   class_section_subject_teachers_subject_id,
@@ -485,42 +500,24 @@ ON class_section_subject_teachers (
 WHERE class_section_subject_teachers_is_active = TRUE
   AND class_section_subject_teachers_deleted_at IS NULL;
 
--- ALTERNATIF (tetap 1 guru saja per section+subject): tambahkan filter deleted_at juga
--- CREATE UNIQUE INDEX IF NOT EXISTS uq_class_sec_subj_teachers_active_single
--- ON class_section_subject_teachers (
---   class_section_subject_teachers_section_id,
---   class_section_subject_teachers_subject_id
--- )
--- WHERE class_section_subject_teachers_is_active = TRUE
---   AND class_section_subject_teachers_deleted_at IS NULL;
-
--- 4) INDEX umum (filter deleted_at agar ringan & sesuai query umum)
-CREATE INDEX IF NOT EXISTS idx_class_sec_subj_teachers_section_alive
-  ON class_section_subject_teachers(class_section_subject_teachers_section_id)
+-- 5) INDEX umum (soft-delete aware)
+CREATE INDEX IF NOT EXISTS idx_csst_teacher_alive
+  ON class_section_subject_teachers (class_section_subject_teachers_teacher_user_id)
   WHERE class_section_subject_teachers_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_class_sec_subj_teachers_subject_alive
-  ON class_section_subject_teachers(class_section_subject_teachers_subject_id)
+CREATE INDEX IF NOT EXISTS idx_csst_masjid_alive
+  ON class_section_subject_teachers (class_section_subject_teachers_masjid_id)
   WHERE class_section_subject_teachers_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_class_sec_subj_teachers_masjid_alive
-  ON class_section_subject_teachers(class_section_subject_teachers_masjid_id)
-  WHERE class_section_subject_teachers_deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS idx_class_sec_subj_teachers_teacher_alive
-  ON class_section_subject_teachers(class_section_subject_teachers_teacher_user_id)
-  WHERE class_section_subject_teachers_deleted_at IS NULL;
-
--- (opsional) kombinasi untuk query listing aktif per section+subject
-CREATE INDEX IF NOT EXISTS idx_class_sec_subj_teachers_sec_subj_active_alive
-  ON class_section_subject_teachers(
+CREATE INDEX IF NOT EXISTS idx_csst_section_subject_active_alive
+  ON class_section_subject_teachers (
     class_section_subject_teachers_section_id,
     class_section_subject_teachers_subject_id
   )
   WHERE class_section_subject_teachers_is_active = TRUE
     AND class_section_subject_teachers_deleted_at IS NULL;
 
--- 5) TRIGGER updated_at
+-- 6) TRIGGER updated_at
 CREATE OR REPLACE FUNCTION trg_set_timestamp_class_sec_subj_teachers()
 RETURNS trigger AS $$
 BEGIN
@@ -534,8 +531,7 @@ CREATE TRIGGER set_timestamp_class_sec_subj_teachers
 BEFORE UPDATE ON class_section_subject_teachers
 FOR EACH ROW EXECUTE FUNCTION trg_set_timestamp_class_sec_subj_teachers();
 
--- 6) VALIDASI TENANT: pastikan subject & section berada di masjid yang sama
---    (opsional) jika tabel subject/section juga punya deleted_at, validasi hanya pada yang belum dihapus
+-- 7) VALIDASI TENANT: pastikan section & subject berada di masjid yang sama dgn row CSST
 CREATE OR REPLACE FUNCTION fn_class_sec_subj_teachers_validate_tenant()
 RETURNS TRIGGER AS $BODY$
 DECLARE
@@ -556,7 +552,7 @@ BEGIN
     WHERE table_schema='public' AND table_name='subjects' AND column_name='subjects_deleted_at'
   ) INTO has_sub_deleted_at;
 
-  -- validasi section (hanya yang belum dihapus jika kolomnya ada)
+  -- validasi section
   IF has_sec_deleted_at THEN
     SELECT class_sections_masjid_id INTO v_sec_masjid
     FROM class_sections
@@ -576,7 +572,7 @@ BEGIN
       v_sec_masjid, NEW.class_section_subject_teachers_masjid_id;
   END IF;
 
-  -- validasi subject (hanya yang belum dihapus jika kolomnya ada)
+  -- validasi subject
   IF has_sub_deleted_at THEN
     SELECT subjects_masjid_id INTO v_sub_masjid
     FROM subjects

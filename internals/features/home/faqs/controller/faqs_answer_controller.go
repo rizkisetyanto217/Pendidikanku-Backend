@@ -3,6 +3,7 @@ package controller
 import (
 	"masjidku_backend/internals/features/home/faqs/dto"
 	"masjidku_backend/internals/features/home/faqs/model"
+	helper "masjidku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -17,33 +18,39 @@ func NewFaqAnswerController(db *gorm.DB) *FaqAnswerController {
 }
 
 // =========================
-// Buat Jawaban Baru
+// Buat Jawaban Baru (trx)
 // =========================
 func (ctrl *FaqAnswerController) CreateFaqAnswer(c *fiber.Ctx) error {
 	var body dto.CreateFaqAnswerRequest
 	if err := c.BodyParser(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 
-	// Ambil user ID dari token
 	answeredBy, ok := c.Locals("user_id").(string)
 	if !ok || answeredBy == "" {
-		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
 
 	answer := body.ToModel(answeredBy)
 
-	// Simpan jawaban
-	if err := ctrl.DB.Create(&answer).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create answer")
+	// Transaksi: simpan answer + set pertanyaan menjadi answered
+	if err := ctrl.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&answer).Error; err != nil {
+			return err
+		}
+		res := tx.Model(&model.FaqQuestionModel{}).
+			Where("faq_question_id = ?", body.FaqAnswerQuestionID).
+			Update("faq_question_is_answered", true)
+		if res.Error != nil {
+			return res.Error
+		}
+		// Opsional: jika question tidak ditemukan (RowsAffected == 0), silakan pilih mau error atau tidak.
+		return nil
+	}); err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to create answer")
 	}
 
-	// Update pertanyaan jadi is_answered = true
-	ctrl.DB.Model(&model.FaqQuestionModel{}).
-		Where("faq_question_id = ?", body.FaqAnswerQuestionID).
-		Update("faq_question_is_answered", true)
-
-	return c.Status(fiber.StatusCreated).JSON(dto.ToFaqAnswerDTO(answer))
+	return helper.JsonCreated(c, "Answer created successfully", dto.ToFaqAnswerDTO(answer))
 }
 
 // =========================
@@ -51,24 +58,24 @@ func (ctrl *FaqAnswerController) CreateFaqAnswer(c *fiber.Ctx) error {
 // =========================
 func (ctrl *FaqAnswerController) UpdateFaqAnswer(c *fiber.Ctx) error {
 	id := c.Params("id")
-	var body dto.UpdateFaqAnswerRequest
 
+	var body dto.UpdateFaqAnswerRequest
 	if err := c.BodyParser(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request")
 	}
 
 	var answer model.FaqAnswerModel
 	if err := ctrl.DB.First(&answer, "faq_answer_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Answer not found")
+		return helper.JsonError(c, fiber.StatusNotFound, "Answer not found")
 	}
 
 	answer.FaqAnswerText = body.FaqAnswerText
 
 	if err := ctrl.DB.Save(&answer).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update answer")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to update answer")
 	}
 
-	return c.JSON(dto.ToFaqAnswerDTO(answer))
+	return helper.JsonUpdated(c, "Answer updated successfully", dto.ToFaqAnswerDTO(answer))
 }
 
 // =========================
@@ -78,22 +85,23 @@ func (ctrl *FaqAnswerController) DeleteFaqAnswer(c *fiber.Ctx) error {
 	id := c.Params("id")
 
 	if err := ctrl.DB.Delete(&model.FaqAnswerModel{}, "faq_answer_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to delete answer")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to delete answer")
 	}
 
-	return c.SendStatus(fiber.StatusNoContent)
+	// 200 + body agar konsisten dengan helper
+	return helper.JsonDeleted(c, "Answer deleted successfully", fiber.Map{"faq_answer_id": id})
 }
 
 // =========================
-// Detail Jawaban (Opsional)
+/* Detail Jawaban */
 // =========================
 func (ctrl *FaqAnswerController) GetFaqAnswerByID(c *fiber.Ctx) error {
 	id := c.Params("id")
 	var answer model.FaqAnswerModel
 
 	if err := ctrl.DB.First(&answer, "faq_answer_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Answer not found")
+		return helper.JsonError(c, fiber.StatusNotFound, "Answer not found")
 	}
 
-	return c.JSON(dto.ToFaqAnswerDTO(answer))
+	return helper.JsonOK(c, "Answer fetched successfully", dto.ToFaqAnswerDTO(answer))
 }

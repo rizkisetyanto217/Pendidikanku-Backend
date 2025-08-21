@@ -1,46 +1,109 @@
+-- Dependensi untuk gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- ============================
+-- NOTIFICATIONS
+-- ============================
 CREATE TABLE IF NOT EXISTS notifications (
-    notification_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    notification_title VARCHAR(255) NOT NULL,
+    notification_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    notification_title      VARCHAR(255) NOT NULL,
     notification_description TEXT,
-    
-    -- Integer yang mewakili tipe notifikasi (ditentukan enum di level kode)
-    notification_type INT NOT NULL,
-    
-    notification_masjid_id UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE,
-    notification_tags TEXT[], -- Array tag misalnya ['kajian', 'informasi']
-    
-    notification_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    notification_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+    -- tipe ditentukan di level kode
+    notification_type       INT NOT NULL,
+
+    -- NULL = notifikasi global (tidak terikat masjid tertentu)
+    notification_masjid_id  UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+
+    -- tag untuk filter/search
+    notification_tags       TEXT[] NOT NULL DEFAULT '{}',
+
+    notification_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    notification_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_notification_type ON notifications(notification_type);
-CREATE INDEX IF NOT EXISTS idx_notification_masjid_id ON notifications(notification_masjid_id);
+-- Trigger: auto-update updated_at
+CREATE OR REPLACE FUNCTION set_notifications_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.notification_updated_at := NOW();
+  RETURN NEW;
+END; $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_notifications_set_updated_at ON notifications;
+CREATE TRIGGER trg_notifications_set_updated_at
+BEFORE UPDATE ON notifications
+FOR EACH ROW EXECUTE FUNCTION set_notifications_updated_at();
+
+-- Indexing yang efektif untuk query umum:
+-- 1) List per masjid (ORDER BY terbaru)
+CREATE INDEX IF NOT EXISTS idx_notifications_masjid_created
+  ON notifications (notification_masjid_id, notification_created_at DESC);
+
+-- 2) Filter per masjid + tipe (ORDER BY terbaru)
+CREATE INDEX IF NOT EXISTS idx_notifications_masjid_type_created
+  ON notifications (notification_masjid_id, notification_type, notification_created_at DESC);
+
+-- 3) Notifikasi global (masjid_id IS NULL) terbaru
+CREATE INDEX IF NOT EXISTS idx_notifications_global_created
+  ON notifications (notification_created_at DESC)
+  WHERE notification_masjid_id IS NULL;
+
+-- 4) Pencarian/penyaringan berdasarkan tag
+CREATE INDEX IF NOT EXISTS idx_notifications_tags_gin
+  ON notifications USING GIN (notification_tags);
+
+-- (Tidak membuat index single kolom 'type' karena covered oleh composite #2 di atas)
 
 
 -- ============================
 -- NOTIFICATION USERS
 -- ============================
 CREATE TABLE IF NOT EXISTS notification_users (
-    notification_users_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    notification_users_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-    -- Relasi
     notification_users_notification_id UUID NOT NULL REFERENCES notifications(notification_id) ON DELETE CASCADE,
-    notification_users_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    
-    -- Informasi Masjid (redundan tapi efisien untuk filter cepat)
-    notification_users_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+    notification_users_user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
-    -- Status
-    notification_users_read BOOLEAN DEFAULT FALSE,
-    notification_users_sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    notification_users_read_at TIMESTAMP,
+    -- redundan untuk filter cepat per masjid
+    notification_users_masjid_id       UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-    -- Unik per user per notifikasi
-    UNIQUE(notification_users_notification_id, notification_users_user_id)
+    -- status baca
+    notification_users_read            BOOLEAN NOT NULL DEFAULT FALSE,
+    notification_users_sent_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    notification_users_read_at         TIMESTAMPTZ,
+
+    -- unik per user per notifikasi
+    UNIQUE (notification_users_notification_id, notification_users_user_id)
 );
 
--- 🔍 Index
-CREATE INDEX IF NOT EXISTS idx_notification_users_user_id ON notification_users(notification_users_user_id);
-CREATE INDEX IF NOT EXISTS idx_notification_users_notification_id ON notification_users(notification_users_notification_id);
-CREATE INDEX IF NOT EXISTS idx_notification_users_read ON notification_users(notification_users_read);
-CREATE INDEX IF NOT EXISTS idx_notification_users_masjid_id ON notification_users(notification_users_masjid_id);
+-- Trigger: set read_at ketika read=true; kosongkan saat read=false
+CREATE OR REPLACE FUNCTION set_notification_users_read_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.notification_users_read IS TRUE AND (OLD.notification_users_read IS DISTINCT FROM TRUE) THEN
+    NEW.notification_users_read_at := COALESCE(NEW.notification_users_read_at, NOW());
+  ELSIF NEW.notification_users_read IS NOT TRUE THEN
+    NEW.notification_users_read_at := NULL;
+  END IF;
+  RETURN NEW;
+END; $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_notification_users_set_read_at ON notification_users;
+CREATE TRIGGER trg_notification_users_set_read_at
+BEFORE UPDATE ON notification_users
+FOR EACH ROW EXECUTE FUNCTION set_notification_users_read_at();
+
+-- Indexing untuk akses cepat:
+-- 1) Hitung/list unread per user
+CREATE INDEX IF NOT EXISTS idx_nu_user_unread
+  ON notification_users (notification_users_user_id)
+  WHERE notification_users_read = FALSE;
+
+-- 2) List notifikasi user per masjid (terbaru dulu)
+CREATE INDEX IF NOT EXISTS idx_nu_user_masjid_sent
+  ON notification_users (notification_users_user_id, notification_users_masjid_id, notification_users_sent_at DESC);
+
+-- 3) Fanout lookup per notification_id
+CREATE INDEX IF NOT EXISTS idx_nu_notification_id
+  ON notification_users (notification_users_notification_id);

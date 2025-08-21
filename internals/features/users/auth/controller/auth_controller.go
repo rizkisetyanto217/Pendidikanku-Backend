@@ -72,7 +72,7 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data masjid admin")
 		}
 		for _, r := range rows {
-			adminSet[r.MasjidID.String()] = struct{}{}
+			adminSet[r.MasjidAdminsMasjidID.String()] = struct{}{}
 		}
 	}
 

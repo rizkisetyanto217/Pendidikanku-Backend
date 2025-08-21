@@ -1,8 +1,12 @@
 package controller
 
 import (
+	"errors"
+	"strings"
+
 	"masjidku_backend/internals/features/masjids/masjids_more/dto"
 	"masjidku_backend/internals/features/masjids/masjids_more/model"
+	helper "masjidku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -20,61 +24,54 @@ func NewMasjidTagController(db *gorm.DB) *MasjidTagController {
 func (ctrl *MasjidTagController) CreateTag(c *fiber.Ctx) error {
 	var body dto.MasjidTagRequest
 	if err := c.BodyParser(&body); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Input tidak valid",
-			"error":   err.Error(),
-		})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Input tidak valid")
 	}
 
-	tag := body.ToModel()
+	tag := body.ToModel() // asumsi: *model.MasjidTagModel
 
-	if err := ctrl.DB.Create(tag).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal menyimpan tag",
-			"error":   err.Error(),
-		})
+	if err := ctrl.DB.WithContext(c.Context()).Create(tag).Error; err != nil {
+		// duplikasi: unique lower(name)
+		if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(strings.ToLower(err.Error()), "duplicate key") {
+			return helper.JsonError(c, fiber.StatusConflict, "Tag sudah ada")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan tag")
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Tag berhasil ditambahkan",
-		"data":    dto.ToMasjidTagResponse(tag),
-	})
+	return helper.JsonCreated(c, "Tag berhasil ditambahkan", dto.ToMasjidTagResponse(tag))
 }
 
 // ✅ Ambil semua tag
 func (ctrl *MasjidTagController) GetAllTags(c *fiber.Ctx) error {
 	var tags []model.MasjidTagModel
-	if err := ctrl.DB.Find(&tags).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil data tag",
-			"error":   err.Error(),
-		})
+	if err := ctrl.DB.WithContext(c.Context()).
+		Order("masjid_tag_created_at DESC").
+		Find(&tags).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data tag")
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Berhasil mengambil semua tag",
-		"data":    dto.ToMasjidTagResponseList(tags),
-	})
+	return helper.JsonOK(c, "Berhasil mengambil semua tag", dto.ToMasjidTagResponseList(tags))
 }
 
 // ✅ Hapus tag berdasarkan ID
 func (ctrl *MasjidTagController) DeleteTag(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if id == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Parameter ID wajib dikirim",
-		})
+	if strings.TrimSpace(id) == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Parameter ID wajib dikirim")
 	}
 
-	if err := ctrl.DB.Where("masjid_tag_id = ?", id).Delete(&model.MasjidTagModel{}).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal menghapus tag",
-			"error":   err.Error(),
-		})
+	res := ctrl.DB.WithContext(c.Context()).
+		Where("masjid_tag_id = ?", id).
+		Delete(&model.MasjidTagModel{})
+
+	if res.Error != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus tag")
+	}
+	if res.RowsAffected == 0 {
+		return helper.JsonError(c, fiber.StatusNotFound, "Tag tidak ditemukan")
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Tag berhasil dihapus",
+	return helper.JsonDeleted(c, "Tag berhasil dihapus", fiber.Map{
+		"masjid_tag_id": id,
 	})
 }
 
@@ -83,23 +80,19 @@ func (ctrl *MasjidTagController) GetTagsByIDs(c *fiber.Ctx) error {
 	var payload struct {
 		IDs []string `json:"ids"`
 	}
-	if err := c.BodyParser(&payload); err != nil || len(payload.IDs) == 0 {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Daftar ID wajib dikirim dalam body JSON",
-			"error":   err.Error(),
-		})
+	if err := c.BodyParser(&payload); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Body JSON tidak valid")
+	}
+	if len(payload.IDs) == 0 {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Daftar ID wajib dikirim")
 	}
 
 	var tags []model.MasjidTagModel
-	if err := ctrl.DB.Where("masjid_tag_id IN ?", payload.IDs).Find(&tags).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil data tag",
-			"error":   err.Error(),
-		})
+	if err := ctrl.DB.WithContext(c.Context()).
+		Where("masjid_tag_id IN ?", payload.IDs).
+		Find(&tags).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data tag")
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Berhasil mengambil tag",
-		"data":    dto.ToMasjidTagResponseList(tags),
-	})
+	return helper.JsonOK(c, "Berhasil mengambil tag", dto.ToMasjidTagResponseList(tags))
 }

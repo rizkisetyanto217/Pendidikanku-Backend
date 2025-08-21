@@ -2,7 +2,11 @@ package controller
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+
+	resp "masjidku_backend/internals/helpers"
+
 	"masjidku_backend/internals/features/masjids/lecture_sessions/questions/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/questions/model"
 
@@ -23,108 +27,106 @@ func NewLectureSessionsQuestionController(db *gorm.DB) *LectureSessionsQuestionC
 }
 
 // =============================
-// ➕ Create Question
-// =============================
-// =============================
-// ➕ Create Question
+// ➕ Create Question (mendukung bulk array atau single object)
 // =============================
 func (ctrl *LectureSessionsQuestionController) CreateLectureSessionsQuestion(c *fiber.Ctx) error {
-	// 1. Coba parse sebagai array (bulk)
+	// ---- 1) Coba parse sebagai array (bulk) ----
 	var bulkBody []dto.CreateLectureSessionsQuestionRequest
 	if err := c.BodyParser(&bulkBody); err == nil && len(bulkBody) > 0 {
-		// Ambil masjid_id dari token atau body
+		// Ambil masjid_id dari token atau dari body[0]
 		masjidID := ""
 		if raw := c.Locals("masjid_id"); raw != nil {
-			masjidID = raw.(string)
-		} else if bulkBody[0].LectureSessionsQuestionMasjidID != "" {
+			if s, ok := raw.(string); ok {
+				masjidID = s
+			}
+		}
+		if masjidID == "" && bulkBody[0].LectureSessionsQuestionMasjidID != "" {
 			masjidID = bulkBody[0].LectureSessionsQuestionMasjidID
-		} else {
-			return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak tersedia di token maupun body")
+		}
+		if masjidID == "" {
+			return resp.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak tersedia di token maupun body")
 		}
 
-		var questions []model.LectureSessionsQuestionModel
-		for i, body := range bulkBody {
-			if err := validateLectureQuestion.Struct(body); err != nil {
-				return fiber.NewError(fiber.StatusBadRequest, fmt.Sprintf("Validasi gagal pada soal ke-%d: %v", i+1, err.Error()))
+		questions := make([]model.LectureSessionsQuestionModel, 0, len(bulkBody))
+		for i, b := range bulkBody {
+			if err := validateLectureQuestion.Struct(b); err != nil {
+				return resp.JsonError(c, fiber.StatusBadRequest, fmt.Sprintf("Validasi gagal pada soal ke-%d: %v", i+1, err.Error()))
 			}
 			questions = append(questions, model.LectureSessionsQuestionModel{
-				LectureSessionsQuestion:            body.LectureSessionsQuestion,
-				LectureSessionsQuestionAnswers:     body.LectureSessionsQuestionAnswers,
-				LectureSessionsQuestionCorrect:     body.LectureSessionsQuestionCorrect,
-				LectureSessionsQuestionExplanation: body.LectureSessionsQuestionExplanation,
-				LectureSessionsQuestionQuizID:      body.LectureSessionsQuestionQuizID,
-				LectureQuestionExamID:      body.LectureQuestionExamID,
+				LectureSessionsQuestion:            b.LectureSessionsQuestion,
+				LectureSessionsQuestionAnswers:     b.LectureSessionsQuestionAnswers,
+				LectureSessionsQuestionCorrect:     b.LectureSessionsQuestionCorrect,
+				LectureSessionsQuestionExplanation: b.LectureSessionsQuestionExplanation,
+				LectureSessionsQuestionQuizID:      b.LectureSessionsQuestionQuizID,
+				LectureQuestionExamID:              b.LectureQuestionExamID,
 				LectureSessionsQuestionMasjidID:    masjidID,
 			})
 		}
 
-		if err := ctrl.DB.Create(&questions).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan soal")
+		if err := ctrl.DB.WithContext(c.Context()).Create(&questions).Error; err != nil {
+			return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan soal")
 		}
 
-		var response []dto.LectureSessionsQuestionDTO
+		out := make([]dto.LectureSessionsQuestionDTO, 0, len(questions))
 		for _, q := range questions {
-			response = append(response, dto.ToLectureSessionsQuestionDTO(q))
+			out = append(out, dto.ToLectureSessionsQuestionDTO(q))
 		}
-		return c.Status(fiber.StatusCreated).JSON(response)
+		return resp.JsonCreated(c, "Questions created", out)
 	}
 
-	// 2. Kalau bukan array, coba parse sebagai satuan
+	// ---- 2) Kalau bukan array, parse sebagai single object ----
 	var body dto.CreateLectureSessionsQuestionRequest
 	if err := c.BodyParser(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Format data tidak valid")
+		return resp.JsonError(c, fiber.StatusBadRequest, "Format data tidak valid")
 	}
 	if err := validateLectureQuestion.Struct(body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return resp.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Ambil masjid_id dari token atau body
 	masjidID := ""
 	if raw := c.Locals("masjid_id"); raw != nil {
-		masjidID = raw.(string)
-	} else if body.LectureSessionsQuestionMasjidID != "" {
+		if s, ok := raw.(string); ok {
+			masjidID = s
+		}
+	}
+	if masjidID == "" && body.LectureSessionsQuestionMasjidID != "" {
 		masjidID = body.LectureSessionsQuestionMasjidID
-	} else {
-		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak tersedia di token maupun body")
+	}
+	if masjidID == "" {
+		return resp.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak tersedia di token maupun body")
 	}
 
-	question := model.LectureSessionsQuestionModel{
+	q := model.LectureSessionsQuestionModel{
 		LectureSessionsQuestion:            body.LectureSessionsQuestion,
 		LectureSessionsQuestionAnswers:     body.LectureSessionsQuestionAnswers,
 		LectureSessionsQuestionCorrect:     body.LectureSessionsQuestionCorrect,
 		LectureSessionsQuestionExplanation: body.LectureSessionsQuestionExplanation,
 		LectureSessionsQuestionQuizID:      body.LectureSessionsQuestionQuizID,
-		LectureQuestionExamID:      body.LectureQuestionExamID,
+		LectureQuestionExamID:              body.LectureQuestionExamID,
 		LectureSessionsQuestionMasjidID:    masjidID,
 	}
-
-	if err := ctrl.DB.Create(&question).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan soal")
+	if err := ctrl.DB.WithContext(c.Context()).Create(&q).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan soal")
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(dto.ToLectureSessionsQuestionDTO(question))
+	return resp.JsonCreated(c, "Question created", dto.ToLectureSessionsQuestionDTO(q))
 }
-
-
 
 // =============================
 // 📄 Get All Questions
 // =============================
 func (ctrl *LectureSessionsQuestionController) GetAllLectureSessionsQuestions(c *fiber.Ctx) error {
 	var questions []model.LectureSessionsQuestionModel
-
-	if err := ctrl.DB.Find(&questions).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to fetch questions")
+	if err := ctrl.DB.WithContext(c.Context()).Find(&questions).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Failed to fetch questions")
 	}
 
-	var response []dto.LectureSessionsQuestionDTO
+	out := make([]dto.LectureSessionsQuestionDTO, 0, len(questions))
 	for _, q := range questions {
-		response = append(response, dto.ToLectureSessionsQuestionDTO(q))
+		out = append(out, dto.ToLectureSessionsQuestionDTO(q))
 	}
-
-	return c.JSON(response)
+	return resp.JsonOK(c, "OK", out)
 }
-
 
 // =============================
 // 📚 Get Questions by Quiz ID
@@ -132,24 +134,22 @@ func (ctrl *LectureSessionsQuestionController) GetAllLectureSessionsQuestions(c 
 func (ctrl *LectureSessionsQuestionController) GetLectureSessionsQuestionsByQuizID(c *fiber.Ctx) error {
 	quizID := c.Params("quiz_id")
 	if quizID == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "Quiz ID tidak boleh kosong")
+		return resp.JsonError(c, fiber.StatusBadRequest, "Quiz ID tidak boleh kosong")
 	}
 
 	var questions []model.LectureSessionsQuestionModel
-	if err := ctrl.DB.
+	if err := ctrl.DB.WithContext(c.Context()).
 		Where("lecture_sessions_question_quiz_id = ?", quizID).
 		Find(&questions).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil pertanyaan")
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil pertanyaan")
 	}
 
-	var response []dto.LectureSessionsQuestionDTO
+	out := make([]dto.LectureSessionsQuestionDTO, 0, len(questions))
 	for _, q := range questions {
-		response = append(response, dto.ToLectureSessionsQuestionDTO(q))
+		out = append(out, dto.ToLectureSessionsQuestionDTO(q))
 	}
-
-	return c.JSON(response)
+	return resp.JsonOK(c, "OK", out)
 }
-
 
 // =============================
 // 🔍 Get Question by ID
@@ -157,49 +157,53 @@ func (ctrl *LectureSessionsQuestionController) GetLectureSessionsQuestionsByQuiz
 func (ctrl *LectureSessionsQuestionController) GetLectureSessionsQuestionByID(c *fiber.Ctx) error {
 	id := c.Params("id")
 
-	var question model.LectureSessionsQuestionModel
-	if err := ctrl.DB.First(&question, "lecture_sessions_question_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Question not found")
+	var q model.LectureSessionsQuestionModel
+	if err := ctrl.DB.WithContext(c.Context()).
+		First(&q, "lecture_sessions_question_id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return resp.JsonError(c, fiber.StatusNotFound, "Question not found")
+		}
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Failed to fetch question")
 	}
 
-	return c.JSON(dto.ToLectureSessionsQuestionDTO(question))
+	return resp.JsonOK(c, "OK", dto.ToLectureSessionsQuestionDTO(q))
 }
 
-
-
 // =============================
-// ✏️ Update Question by ID (Partial)
+// ✏️ Update Question by ID (partial)
 // =============================
-
-
 func (ctrl *LectureSessionsQuestionController) UpdateLectureSessionsQuestionByID(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if id == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak boleh kosong")
+		return resp.JsonError(c, fiber.StatusBadRequest, "ID tidak boleh kosong")
 	}
 
 	// Ambil data existing
-	var question model.LectureSessionsQuestionModel
-	if err := ctrl.DB.First(&question, "lecture_sessions_question_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Soal tidak ditemukan")
+	var q model.LectureSessionsQuestionModel
+	if err := ctrl.DB.WithContext(c.Context()).
+		First(&q, "lecture_sessions_question_id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return resp.JsonError(c, fiber.StatusNotFound, "Soal tidak ditemukan")
+		}
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil soal")
 	}
 
 	// Bind request body
 	var body dto.UpdateLectureSessionsQuestionDTO
 	if err := c.BodyParser(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Format request tidak valid")
+		return resp.JsonError(c, fiber.StatusBadRequest, "Format request tidak valid")
 	}
 
 	// Validasi nilai correct (jika dikirim)
 	if body.LectureSessionsQuestionCorrect != nil {
 		correct := *body.LectureSessionsQuestionCorrect
 		if correct != "A" && correct != "B" && correct != "C" && correct != "D" {
-			return fiber.NewError(fiber.StatusBadRequest, "Jawaban benar harus salah satu dari A, B, C, atau D")
+			return resp.JsonError(c, fiber.StatusBadRequest, "Jawaban benar harus salah satu dari A, B, C, atau D")
 		}
 	}
 
 	// Siapkan map update
-	updates := map[string]interface{}{}
+	updates := map[string]any{}
 
 	if body.LectureSessionsQuestion != nil {
 		updates["lecture_sessions_question"] = *body.LectureSessionsQuestion
@@ -209,7 +213,7 @@ func (ctrl *LectureSessionsQuestionController) UpdateLectureSessionsQuestionByID
 		// Convert []string → JSON → datatypes.JSON
 		jsonBytes, err := json.Marshal(*body.LectureSessionsQuestionAnswers)
 		if err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "Gagal memproses pilihan jawaban")
+			return resp.JsonError(c, fiber.StatusBadRequest, "Gagal memproses pilihan jawaban")
 		}
 		updates["lecture_sessions_question_answers"] = datatypes.JSON(jsonBytes)
 	}
@@ -223,34 +227,34 @@ func (ctrl *LectureSessionsQuestionController) UpdateLectureSessionsQuestionByID
 	}
 
 	if len(updates) == 0 {
-		return fiber.NewError(fiber.StatusBadRequest, "Tidak ada field yang dikirim untuk diperbarui")
+		// Tidak ada perubahan; kembalikan data existing
+		return resp.JsonOK(c, "No changes", dto.ToLectureSessionsQuestionDTO(q))
 	}
 
 	// Eksekusi update
-	if err := ctrl.DB.Model(&question).Updates(updates).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui soal")
+	if err := ctrl.DB.WithContext(c.Context()).
+		Model(&q).
+		Updates(updates).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui soal")
 	}
 
 	// Ambil ulang hasil setelah update
-	if err := ctrl.DB.First(&question, "lecture_sessions_question_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data setelah update")
+	if err := ctrl.DB.WithContext(c.Context()).
+		First(&q, "lecture_sessions_question_id = ?", id).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Updated but failed to re-fetch")
 	}
 
-	return c.JSON(dto.ToLectureSessionsQuestionDTO(question))
+	return resp.JsonUpdated(c, "Soal berhasil diperbarui", dto.ToLectureSessionsQuestionDTO(q))
 }
-
 
 // =============================
 // ❌ Delete Question by ID
 // =============================
 func (ctrl *LectureSessionsQuestionController) DeleteLectureSessionsQuestion(c *fiber.Ctx) error {
 	id := c.Params("id")
-
-	if err := ctrl.DB.Delete(&model.LectureSessionsQuestionModel{}, "lecture_sessions_question_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to delete question")
+	if err := ctrl.DB.WithContext(c.Context()).
+		Delete(&model.LectureSessionsQuestionModel{}, "lecture_sessions_question_id = ?", id).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Failed to delete question")
 	}
-
-	return c.JSON(fiber.Map{
-	"message": "Question deleted successfully",
-	})
+	return resp.JsonDeleted(c, "Question deleted successfully", nil)
 }

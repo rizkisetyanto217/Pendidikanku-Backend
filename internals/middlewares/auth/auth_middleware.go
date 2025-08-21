@@ -19,6 +19,9 @@ var skipPaths = map[string]struct{}{
 	"/api/donations/notification": {},
 }
 
+
+
+
 func AuthMiddleware(db *gorm.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		log.Printf("🔥 AuthMiddleware: %s %s", c.Method(), c.OriginalURL())

@@ -4,6 +4,10 @@ import (
 	modelLectureSessionQuestion "masjidku_backend/internals/features/masjids/lecture_sessions/questions/model"
 	"masjidku_backend/internals/features/masjids/lectures/exams/dto"
 	"masjidku_backend/internals/features/masjids/lectures/exams/model"
+	helper "masjidku_backend/internals/helpers"
+	"strings"
+
+	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -17,161 +21,209 @@ func NewLectureExamController(db *gorm.DB) *LectureExamController {
 	return &LectureExamController{DB: db}
 }
 
-// ➕ Create exam
+// ➕ POST /api/a/lecture-exams
 func (ctrl *LectureExamController) CreateLectureExam(c *fiber.Ctx) error {
-	// Ambil masjid_id dari token (middleware sebelumnya harus sudah set ini)
+	// Ambil masjid_id dari token (middleware harus set)
 	masjidID := c.Locals("masjid_id")
 	if masjidID == nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID not found in token")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID not found in token")
 	}
 
 	var body dto.CreateLectureExamRequest
 	if err := c.BodyParser(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 
 	newExam := model.LectureExamModel{
 		LectureExamTitle:       body.LectureExamTitle,
 		LectureExamDescription: body.LectureExamDescription,
 		LectureExamLectureID:   body.LectureExamLectureID,
-		LectureExamMasjidID:    masjidID.(string), // casting to string
+		LectureExamMasjidID:    masjidID.(string),
 	}
 
 	if err := ctrl.DB.Create(&newExam).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create exam")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to create exam")
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(dto.ToLectureExamDTO(newExam))
+	return helper.JsonCreated(c, "Exam created successfully", dto.ToLectureExamDTO(newExam))
 }
 
-
-// 📄 Get all exams
+// 📄 GET /api/a/lecture-exams (support pagination ?page=&page_size=)
 func (ctrl *LectureExamController) GetAllLectureExams(c *fiber.Ctx) error {
+	// pagination ringan
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(c.Query("page_size", "20"))
+	if pageSize <= 0 || pageSize > 200 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+
+	var total int64
+	if err := ctrl.DB.Model(&model.LectureExamModel{}).Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to count exams")
+	}
+
 	var exams []model.LectureExamModel
-	if err := ctrl.DB.Order("lecture_exam_created_at DESC").Find(&exams).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to retrieve exams")
+	if err := ctrl.DB.
+		Order("lecture_exam_created_at DESC").
+		Limit(pageSize).Offset(offset).
+		Find(&exams).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve exams")
 	}
 
-	var response []dto.LectureExamDTO
-	for _, exam := range exams {
-		response = append(response, dto.ToLectureExamDTO(exam))
+	resp := make([]dto.LectureExamDTO, len(exams))
+	for i, e := range exams {
+		resp[i] = dto.ToLectureExamDTO(e)
 	}
 
-	return c.JSON(response)
+	totalPages := int((total + int64(pageSize) - 1) / int64(pageSize))
+	pagination := fiber.Map{
+		"page":        page,
+		"page_size":   pageSize,
+		"total":       total,
+		"total_pages": totalPages,
+		"has_next":    page < totalPages,
+	}
+
+	return helper.JsonList(c, resp, pagination)
 }
 
-// 📄 Get exam by ID with questions
+// 📄 GET /api/u/lecture-exams/:id/with-questions
 func (ctrl *LectureExamController) GetLectureExamWithQuestions(c *fiber.Ctx) error {
 	examID := c.Params("id")
-
-	// Ambil data exam
-	var exam model.LectureExamModel
-	if err := ctrl.DB.First(&exam, "lecture_exam_id = ?", examID).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Exam not found")
+	if examID == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Exam ID is required")
 	}
 
-	// Ambil semua soal yang berkaitan dengan exam tersebut
+	var exam model.LectureExamModel
+	if err := ctrl.DB.First(&exam, "lecture_exam_id = ?", examID).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "Exam not found")
+	}
+
 	var questions []modelLectureSessionQuestion.LectureSessionsQuestionModel
 	if err := ctrl.DB.
 		Where("lecture_question_exam_id = ?", examID).
 		Order("lecture_sessions_question_created_at ASC").
 		Find(&questions).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to fetch questions")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to fetch questions")
 	}
 
-	return c.JSON(fiber.Map{
-		"exam":      exam,
-		"questions": questions,
-	})
+	data := fiber.Map{
+		"exam":      dto.ToLectureExamDTO(exam),
+		"questions": questions, // ganti ke DTO kalau kamu sudah punya DTO untuk questions
+	}
+	return helper.JsonOK(c, "Exam & questions fetched successfully", data)
 }
 
-
-// 🔍 Get exam by ID
+// 🔍 GET /api/u/lecture-exams/:id
 func (ctrl *LectureExamController) GetLectureExamByID(c *fiber.Ctx) error {
 	id := c.Params("id")
+	if id == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Exam ID is required")
+	}
 
 	var exam model.LectureExamModel
 	if err := ctrl.DB.First(&exam, "lecture_exam_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Exam not found")
+		return helper.JsonError(c, fiber.StatusNotFound, "Exam not found")
 	}
 
-	return c.JSON(dto.ToLectureExamDTO(exam))
+	return helper.JsonOK(c, "Exam fetched successfully", dto.ToLectureExamDTO(exam))
 }
-
 
 // 📄 GET /api/a/lecture-exams/questions/by-lecture/:id
 func (ctrl *LectureExamController) GetQuestionExamByLectureID(c *fiber.Ctx) error {
 	lectureID := c.Params("id")
 	if lectureID == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "Lecture ID tidak ditemukan")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Lecture ID is required")
 	}
 
-	// Cari semua exam berdasarkan lecture_id
 	var exams []model.LectureExamModel
 	if err := ctrl.DB.
 		Where("lecture_exam_lecture_id = ?", lectureID).
 		Find(&exams).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil ujian berdasarkan lecture ID")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to get exams by lecture ID")
 	}
 
 	if len(exams) == 0 {
-		return fiber.NewError(fiber.StatusNotFound, "Tidak ada ujian untuk lecture ini")
+		return helper.JsonError(c, fiber.StatusNotFound, "No exams found for this lecture")
 	}
 
-	// Ambil semua exam_id
-	var examIDs []string
-	for _, exam := range exams {
-		examIDs = append(examIDs, exam.LectureExamID)
+	// kumpulkan exam_id
+	examIDs := make([]string, 0, len(exams))
+	for _, e := range exams {
+		examIDs = append(examIDs, e.LectureExamID)
 	}
 
-	// Ambil semua soal yang terkait dengan exam-exam tersebut
 	var questions []modelLectureSessionQuestion.LectureSessionsQuestionModel
 	if err := ctrl.DB.
 		Where("lecture_question_exam_id IN ?", examIDs).
 		Order("lecture_sessions_question_created_at ASC").
 		Find(&questions).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil soal-soal dari exam")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to get questions for exams")
 	}
 
-	return c.JSON(fiber.Map{
-		"message":   "Berhasil mengambil soal dari lecture_id",
-		"examCount": len(exams),
-		"exam_id":   exams[0].LectureExamID, 
-		"questions": questions,
-	})
+	data := fiber.Map{
+		"exam_count": len(exams),
+		"exam_id":    exams[0].LectureExamID, // jika perlu id pertama
+		"questions":  questions,              // ganti ke DTO jika tersedia
+	}
+	return helper.JsonOK(c, "Questions fetched by lecture successfully", data)
 }
 
-// ✏️ Update exam
+// ✏️ PATCH /api/a/lecture-exams/:id
 func (ctrl *LectureExamController) UpdateLectureExam(c *fiber.Ctx) error {
 	id := c.Params("id")
-	var body dto.UpdateLectureExamRequest
+	if id == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Exam ID is required")
+	}
 
+	var body dto.UpdateLectureExamRequest
 	if err := c.BodyParser(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 
 	var exam model.LectureExamModel
-	if err := ctrl.DB.First(&exam, "lecture_exam_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Exam not found")
+	if err := ctrl.DB.WithContext(c.Context()).
+		First(&exam, "lecture_exam_id = ?", id).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "Exam not found")
 	}
 
-	exam.LectureExamTitle = body.LectureExamTitle
-	exam.LectureExamDescription = body.LectureExamDescription
-
-	if err := ctrl.DB.Save(&exam).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update exam")
+	// Partial update
+	if body.LectureExamTitle != "" {
+		exam.LectureExamTitle = body.LectureExamTitle
+	}
+	if body.LectureExamDescription != nil { // <-- cek pointer dulu
+		// kalau mau boleh kosongkan kolom saat kirim "":
+		desc := strings.TrimSpace(*body.LectureExamDescription)
+		if desc == "" {
+			exam.LectureExamDescription = nil
+		} else {
+			exam.LectureExamDescription = &desc
+		}
 	}
 
-	return c.JSON(dto.ToLectureExamDTO(exam))
+	if err := ctrl.DB.WithContext(c.Context()).Save(&exam).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to update exam")
+	}
+
+	return helper.JsonUpdated(c, "Exam updated successfully", dto.ToLectureExamDTO(exam))
 }
 
-// ❌ Delete exam
+
+// ❌ DELETE /api/a/lecture-exams/:id
 func (ctrl *LectureExamController) DeleteLectureExam(c *fiber.Ctx) error {
 	id := c.Params("id")
-
-	if err := ctrl.DB.Delete(&model.LectureExamModel{}, "lecture__exam_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to delete exam")
+	if id == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Exam ID is required")
 	}
 
-	return c.JSON(fiber.Map{"message": "Exam deleted successfully"})
+	// fix: kolom yang benar "lecture_exam_id" (bukan lecture__exam_id)
+	if err := ctrl.DB.Delete(&model.LectureExamModel{}, "lecture_exam_id = ?", id).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to delete exam")
+	}
+
+	return helper.JsonDeleted(c, "Exam deleted successfully", fiber.Map{"lecture_exam_id": id})
 }

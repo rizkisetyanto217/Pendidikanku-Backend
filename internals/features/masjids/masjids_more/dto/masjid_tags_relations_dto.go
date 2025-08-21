@@ -1,18 +1,36 @@
 package dto
 
 import (
+	"time"
+
 	"masjidku_backend/internals/features/masjids/masjids_more/model"
 
 	"github.com/google/uuid"
 )
 
-// 🟩 Input request untuk membuat relasi tag
+const timeLayout = time.RFC3339 // contoh: 2025-08-21T14:03:07Z
+func fmtTS(t time.Time) string  { return t.UTC().Format(timeLayout) }
+
+// ==============================
+// Request
+// ==============================
+
 type MasjidTagRelationRequest struct {
 	MasjidTagRelationMasjidID uuid.UUID `json:"masjid_tag_relation_masjid_id"`
 	MasjidTagRelationTagID    uuid.UUID `json:"masjid_tag_relation_tag_id"`
 }
 
-// 🟦 Response sederhana tanpa preload
+func (r *MasjidTagRelationRequest) ToModel() *model.MasjidTagRelationModel {
+	return &model.MasjidTagRelationModel{
+		MasjidTagRelationMasjidID: r.MasjidTagRelationMasjidID,
+		MasjidTagRelationTagID:    r.MasjidTagRelationTagID,
+	}
+}
+
+// ==============================
+// Response (simple)
+// ==============================
+
 type MasjidTagRelationResponse struct {
 	MasjidTagRelationID        uuid.UUID `json:"masjid_tag_relation_id"`
 	MasjidTagRelationMasjidID  uuid.UUID `json:"masjid_tag_relation_masjid_id"`
@@ -20,7 +38,22 @@ type MasjidTagRelationResponse struct {
 	MasjidTagRelationCreatedAt string    `json:"masjid_tag_relation_created_at"`
 }
 
-// 🟨 Response lengkap dengan relasi Masjid dan Tag (Preload)
+func ToMasjidTagRelationResponse(m *model.MasjidTagRelationModel) *MasjidTagRelationResponse {
+	if m == nil {
+		return &MasjidTagRelationResponse{}
+	}
+	return &MasjidTagRelationResponse{
+		MasjidTagRelationID:        m.MasjidTagRelationID,
+		MasjidTagRelationMasjidID:  m.MasjidTagRelationMasjidID,
+		MasjidTagRelationTagID:     m.MasjidTagRelationTagID,
+		MasjidTagRelationCreatedAt: fmtTS(m.MasjidTagRelationCreatedAt),
+	}
+}
+
+// ==============================
+// Response (full, dengan preload)
+// ==============================
+
 type MasjidTagRelationFullResponse struct {
 	MasjidTagRelationID        uuid.UUID      `json:"masjid_tag_relation_id"`
 	MasjidTagRelationMasjidID  uuid.UUID      `json:"masjid_tag_relation_masjid_id"`
@@ -30,40 +63,24 @@ type MasjidTagRelationFullResponse struct {
 	MasjidTagRelationCreatedAt string         `json:"masjid_tag_relation_created_at"`
 }
 
-// 🔹 Miniatur Masjid (hanya ID dan Name)
 type MiniMasjidDTO struct {
 	MasjidID   uuid.UUID `json:"masjid_id"`
 	MasjidName string    `json:"masjid_name"`
 }
 
-// 🔹 Miniatur Tag (hanya ID dan Name)
 type MiniTagDTO struct {
 	MasjidTagID   uuid.UUID `json:"masjid_tag_id"`
 	MasjidTagName string    `json:"masjid_tag_name"`
 }
 
-// 🔁 Convert request → model
-func (r *MasjidTagRelationRequest) ToModel() *model.MasjidTagRelationModel {
-	return &model.MasjidTagRelationModel{
-		MasjidTagRelationMasjidID: r.MasjidTagRelationMasjidID,
-		MasjidTagRelationTagID:    r.MasjidTagRelationTagID,
-	}
-}
-
-// 🔁 Convert model → response biasa
-func ToMasjidTagRelationResponse(m *model.MasjidTagRelationModel) *MasjidTagRelationResponse {
-	return &MasjidTagRelationResponse{
-		MasjidTagRelationID:        m.MasjidTagRelationID,
-		MasjidTagRelationMasjidID:  m.MasjidTagRelationMasjidID,
-		MasjidTagRelationTagID:     m.MasjidTagRelationTagID,
-		MasjidTagRelationCreatedAt: m.MasjidTagRelationCreatedAt.Format("2006-01-02 15:04:05"),
-	}
-}
-
-// 🔁 Convert model → response dengan relasi masjid dan tag
 func ToMasjidTagRelationFullResponse(m *model.MasjidTagRelationModel) *MasjidTagRelationFullResponse {
+	if m == nil {
+		return &MasjidTagRelationFullResponse{}
+	}
+
 	var masjidDTO *MiniMasjidDTO
-	if m.Masjid.MasjidID != uuid.Nil {
+	// Masjid adalah struct (bukan pointer) → cek ID/nama
+	if m.Masjid.MasjidID != uuid.Nil || m.Masjid.MasjidName != "" {
 		masjidDTO = &MiniMasjidDTO{
 			MasjidID:   m.Masjid.MasjidID,
 			MasjidName: m.Masjid.MasjidName,
@@ -71,7 +88,8 @@ func ToMasjidTagRelationFullResponse(m *model.MasjidTagRelationModel) *MasjidTag
 	}
 
 	var tagDTO *MiniTagDTO
-	if m.MasjidTag != nil {
+	// MasjidTag juga struct → cek ID/nama
+	if m.MasjidTag.MasjidTagID != uuid.Nil || m.MasjidTag.MasjidTagName != "" {
 		tagDTO = &MiniTagDTO{
 			MasjidTagID:   m.MasjidTag.MasjidTagID,
 			MasjidTagName: m.MasjidTag.MasjidTagName,
@@ -84,24 +102,27 @@ func ToMasjidTagRelationFullResponse(m *model.MasjidTagRelationModel) *MasjidTag
 		Masjid:                     masjidDTO,
 		MasjidTagRelationTagID:     m.MasjidTagRelationTagID,
 		Tag:                        tagDTO,
-		MasjidTagRelationCreatedAt: m.MasjidTagRelationCreatedAt.Format("2006-01-02 15:04:05"),
+		MasjidTagRelationCreatedAt: m.MasjidTagRelationCreatedAt.UTC().Format(time.RFC3339),
 	}
 }
 
-// 🔁 Convert slice → response biasa
+
+// ==============================
+// List converters (efisien, tanpa pointer-range bug)
+// ==============================
+
 func ToMasjidTagRelationResponseList(models []model.MasjidTagRelationModel) []MasjidTagRelationResponse {
-	var result []MasjidTagRelationResponse
-	for _, m := range models {
-		result = append(result, *ToMasjidTagRelationResponse(&m))
+	out := make([]MasjidTagRelationResponse, len(models))
+	for i := range models {
+		out[i] = *ToMasjidTagRelationResponse(&models[i])
 	}
-	return result
+	return out
 }
 
-// 🔁 Convert slice → response full (dengan preload)
 func ToMasjidTagRelationFullResponseList(models []model.MasjidTagRelationModel) []MasjidTagRelationFullResponse {
-	var result []MasjidTagRelationFullResponse
-	for _, m := range models {
-		result = append(result, *ToMasjidTagRelationFullResponse(&m))
+	out := make([]MasjidTagRelationFullResponse, len(models))
+	for i := range models {
+		out[i] = *ToMasjidTagRelationFullResponse(&models[i])
 	}
-	return result
+	return out
 }

@@ -2,15 +2,16 @@ package controller
 
 import (
 	"fmt"
-	lectureSessionModel "masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
-	"masjidku_backend/internals/features/masjids/lecture_sessions/materials/dto"
-	"masjidku_backend/internals/features/masjids/lecture_sessions/materials/model"
-	lectureModel "masjidku_backend/internals/features/masjids/lectures/main/model"
-	"net/http"
 	"sort"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+
+	lectureSessionModel "masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
+	"masjidku_backend/internals/features/masjids/lecture_sessions/materials/dto"
+	"masjidku_backend/internals/features/masjids/lecture_sessions/materials/model"
+	lectureModel "masjidku_backend/internals/features/masjids/lectures/main/model"
+	helper "masjidku_backend/internals/helpers"
 )
 
 // =============================
@@ -21,9 +22,7 @@ func (ctl *LectureSessionsMaterialController) FindByLectureSessionFiltered(c *fi
 	lectureID := strings.TrimSpace(c.Query("lecture_id"))
 
 	if lectureSessionID == "" && lectureID == "" {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
-			"message": "lecture_session_id atau lecture_id harus diisi",
-		})
+		return helper.JsonError(c, fiber.StatusBadRequest, "lecture_session_id atau lecture_id harus diisi")
 	}
 
 	filterType := c.Query("type")
@@ -48,33 +47,33 @@ func (ctl *LectureSessionsMaterialController) FindByLectureSessionFiltered(c *fi
 	// Kolom yang di-select berdasarkan type
 	switch filterType {
 	case "summary":
-		query = query.Select("lecture_sessions_materials.lecture_sessions_material_id, lecture_sessions_materials.lecture_sessions_material_summary, lecture_sessions_materials.lecture_sessions_material_lecture_session_id, lecture_sessions_materials.lecture_sessions_material_masjid_id, lecture_sessions_materials.lecture_sessions_material_created_at")
+		query = query.Select(`
+			lecture_sessions_materials.lecture_sessions_material_id,
+			lecture_sessions_materials.lecture_sessions_material_summary,
+			lecture_sessions_materials.lecture_sessions_material_lecture_session_id,
+			lecture_sessions_materials.lecture_sessions_material_masjid_id,
+			lecture_sessions_materials.lecture_sessions_material_created_at`)
 	case "transcript":
-		query = query.Select("lecture_sessions_materials.lecture_sessions_material_id,lecture_sessions_materials.lecture_sessions_material_transcript_full, lecture_sessions_materials.lecture_sessions_material_lecture_session_id, lecture_sessions_materials.lecture_sessions_material_masjid_id, lecture_sessions_materials.lecture_sessions_material_created_at")
+		query = query.Select(`
+			lecture_sessions_materials.lecture_sessions_material_id,
+			lecture_sessions_materials.lecture_sessions_material_transcript_full,
+			lecture_sessions_materials.lecture_sessions_material_lecture_session_id,
+			lecture_sessions_materials.lecture_sessions_material_masjid_id,
+			lecture_sessions_materials.lecture_sessions_material_created_at`)
 	}
 
-	// Eksekusi query
-	if err := query.Debug().Find(&materials).Error; err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"message": "failed to retrieve data",
-			"error":   err.Error(),
-		})
+	if err := query.Find(&materials).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
-
-	fmt.Printf("✅ Found %d materials\n", len(materials))
 
 	// Mapping ke DTO
-	var result []dto.LectureSessionsMaterialDTO
+	result := make([]dto.LectureSessionsMaterialDTO, 0, len(materials))
 	for _, m := range materials {
 		result = append(result, dto.ToLectureSessionsMaterialDTO(m))
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "success",
-		"data":    result,
-	})
+	return helper.JsonOK(c, "success", result)
 }
-
 
 // 🔍 Get Material by Lecture Sessions (By Slug)
 func (ctl *LectureSessionsMaterialController) FindByLectureSessionFilteredBySlug(c *fiber.Ctx) error {
@@ -82,9 +81,7 @@ func (ctl *LectureSessionsMaterialController) FindByLectureSessionFilteredBySlug
 	lectureSlug := strings.TrimSpace(c.Query("lecture_slug"))
 
 	if lectureSessionSlug == "" && lectureSlug == "" {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
-			"message": "lecture_session_slug atau lecture_slug harus diisi",
-		})
+		return helper.JsonError(c, fiber.StatusBadRequest, "lecture_session_slug atau lecture_slug harus diisi")
 	}
 
 	filterType := c.Query("type")
@@ -102,9 +99,7 @@ func (ctl *LectureSessionsMaterialController) FindByLectureSessionFilteredBySlug
 		// Ambil UUID dari slug
 		var session lectureSessionModel.LectureSessionModel
 		if err := ctl.DB.Where("lecture_session_slug = ?", lectureSessionSlug).First(&session).Error; err != nil {
-			return c.Status(http.StatusNotFound).JSON(fiber.Map{
-				"message": "Sesi kajian tidak ditemukan",
-			})
+			return helper.JsonError(c, fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
 		}
 		query = query.Where("lecture_sessions_material_lecture_session_id = ?", session.LectureSessionID)
 
@@ -112,9 +107,7 @@ func (ctl *LectureSessionsMaterialController) FindByLectureSessionFilteredBySlug
 		// Ambil UUID dari lecture slug → cari semua session ID-nya
 		var lecture lectureModel.LectureModel
 		if err := ctl.DB.Where("lecture_slug = ?", lectureSlug).First(&lecture).Error; err != nil {
-			return c.Status(http.StatusNotFound).JSON(fiber.Map{
-				"message": "Lecture tidak ditemukan",
-			})
+			return helper.JsonError(c, fiber.StatusNotFound, "Lecture tidak ditemukan")
 		}
 
 		query = query.Joins("JOIN lecture_sessions ON lecture_sessions.lecture_session_id = lecture_sessions_materials.lecture_sessions_material_lecture_session_id").
@@ -124,34 +117,33 @@ func (ctl *LectureSessionsMaterialController) FindByLectureSessionFilteredBySlug
 	// 🎯 Select kolom berdasarkan tipe
 	switch filterType {
 	case "summary":
-		query = query.Select("lecture_sessions_materials.lecture_sessions_material_id, lecture_sessions_materials.lecture_sessions_material_summary, lecture_sessions_materials.lecture_sessions_material_lecture_session_id, lecture_sessions_materials.lecture_sessions_material_masjid_id, lecture_sessions_materials.lecture_sessions_material_created_at")
+		query = query.Select(`
+			lecture_sessions_materials.lecture_sessions_material_id,
+			lecture_sessions_materials.lecture_sessions_material_summary,
+			lecture_sessions_materials.lecture_sessions_material_lecture_session_id,
+			lecture_sessions_materials.lecture_sessions_material_masjid_id,
+			lecture_sessions_materials.lecture_sessions_material_created_at`)
 	case "transcript":
-		query = query.Select("lecture_sessions_materials.lecture_sessions_material_id, lecture_sessions_materials.lecture_sessions_material_transcript_full, lecture_sessions_materials.lecture_sessions_material_lecture_session_id, lecture_sessions_materials.lecture_sessions_material_masjid_id, lecture_sessions_materials.lecture_sessions_material_created_at")
+		query = query.Select(`
+			lecture_sessions_materials.lecture_sessions_material_id,
+			lecture_sessions_materials.lecture_sessions_material_transcript_full,
+			lecture_sessions_materials.lecture_sessions_material_lecture_session_id,
+			lecture_sessions_materials.lecture_sessions_material_masjid_id,
+			lecture_sessions_materials.lecture_sessions_material_created_at`)
 	}
 
-	// 🔍 Eksekusi query
-	if err := query.Debug().Find(&materials).Error; err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil data",
-			"error":   err.Error(),
-		})
+	if err := query.Find(&materials).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
-
-	fmt.Printf("✅ Found %d materials\n", len(materials))
 
 	// 🔁 Mapping ke DTO
-	var result []dto.LectureSessionsMaterialDTO
+	result := make([]dto.LectureSessionsMaterialDTO, 0, len(materials))
 	for _, m := range materials {
 		result = append(result, dto.ToLectureSessionsMaterialDTO(m))
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "success",
-		"data":    result,
-	})
+	return helper.JsonOK(c, "success", result)
 }
-
-
 
 // =============================
 // 📚 Get Grouped Materials by Lecture ID
@@ -161,9 +153,7 @@ func (ctl *LectureSessionsMaterialController) FindGroupedMaterialsByLectureID(c 
 	filterType := c.Query("type") // summary atau transcript
 
 	if lectureID == "" {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
-			"message": "lecture_id wajib diisi",
-		})
+		return helper.JsonError(c, fiber.StatusBadRequest, "lecture_id wajib diisi")
 	}
 
 	var materials []model.LectureSessionsMaterialModel
@@ -175,32 +165,28 @@ func (ctl *LectureSessionsMaterialController) FindGroupedMaterialsByLectureID(c 
 	// Select kolom berdasarkan type
 	switch filterType {
 	case "summary":
-		query = query.Select("lecture_sessions_materials.lecture_sessions_material_id,lecture_sessions_materials.lecture_sessions_material_summary, lecture_sessions_materials.lecture_sessions_material_lecture_session_id, lecture_sessions_materials.lecture_sessions_material_masjid_id, lecture_sessions_materials.lecture_sessions_material_created_at")
+		query = query.Select(`
+			lecture_sessions_materials.lecture_sessions_material_id,
+			lecture_sessions_materials.lecture_sessions_material_summary,
+			lecture_sessions_materials.lecture_sessions_material_lecture_session_id,
+			lecture_sessions_materials.lecture_sessions_material_masjid_id,
+			lecture_sessions_materials.lecture_sessions_material_created_at`)
 	case "transcript":
-		query = query.Select("lecture_sessions_materials.lecture_sessions_material_id,lecture_sessions_materials.lecture_sessions_material_transcript_full, lecture_sessions_materials.lecture_sessions_material_lecture_session_id, lecture_sessions_materials.lecture_sessions_material_masjid_id, lecture_sessions_materials.lecture_sessions_material_created_at")
+		query = query.Select(`
+			lecture_sessions_materials.lecture_sessions_material_id,
+			lecture_sessions_materials.lecture_sessions_material_transcript_full,
+			lecture_sessions_materials.lecture_sessions_material_lecture_session_id,
+			lecture_sessions_materials.lecture_sessions_material_masjid_id,
+			lecture_sessions_materials.lecture_sessions_material_created_at`)
 	}
 
-	// Eksekusi query
 	if err := query.Find(&materials).Error; err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"message": "gagal mengambil data",
-			"error":   err.Error(),
-		})
-	}
-
-	if len(materials) == 0 {
-		return c.JSON(fiber.Map{
-			"message": "success",
-			"data":    []GroupedMaterials{}, // kosong tetap array
-		})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
 	grouped := groupMaterialsBySession(materials)
-
-	return c.JSON(fiber.Map{
-		"message": "success",
-		"data":    grouped,
-	})
+	// tetap kembalikan array kosong jika tidak ada data
+	return helper.JsonOK(c, "success", grouped)
 }
 
 // 📚 Get Grouped Materials by Lecture Slug
@@ -209,17 +195,13 @@ func (ctl *LectureSessionsMaterialController) FindGroupedMaterialsByLectureSlug(
 	filterType := c.Query("type") // summary atau transcript
 
 	if lectureSlug == "" {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
-			"message": "lecture_slug wajib diisi",
-		})
+		return helper.JsonError(c, fiber.StatusBadRequest, "lecture_slug wajib diisi")
 	}
 
 	// ✅ Ambil Lecture ID berdasarkan slug
 	var lecture lectureModel.LectureModel
 	if err := ctl.DB.Where("lecture_slug = ?", lectureSlug).First(&lecture).Error; err != nil {
-		return c.Status(http.StatusNotFound).JSON(fiber.Map{
-			"message": "Lecture tidak ditemukan",
-		})
+		return helper.JsonError(c, fiber.StatusNotFound, "Lecture tidak ditemukan")
 	}
 
 	// ✅ Ambil semua material berdasarkan lecture_id
@@ -232,41 +214,34 @@ func (ctl *LectureSessionsMaterialController) FindGroupedMaterialsByLectureSlug(
 	// ✅ Select kolom berdasarkan type
 	switch filterType {
 	case "summary":
-		query = query.Select("lecture_sessions_materials.lecture_sessions_material_id, lecture_sessions_materials.lecture_sessions_material_summary, lecture_sessions_materials.lecture_sessions_material_lecture_session_id, lecture_sessions_materials.lecture_sessions_material_masjid_id, lecture_sessions_materials.lecture_sessions_material_created_at")
+		query = query.Select(`
+			lecture_sessions_materials.lecture_sessions_material_id,
+			lecture_sessions_materials.lecture_sessions_material_summary,
+			lecture_sessions_materials.lecture_sessions_material_lecture_session_id,
+			lecture_sessions_materials.lecture_sessions_material_masjid_id,
+			lecture_sessions_materials.lecture_sessions_material_created_at`)
 	case "transcript":
-		query = query.Select("lecture_sessions_materials.lecture_sessions_material_id, lecture_sessions_materials.lecture_sessions_material_transcript_full, lecture_sessions_materials.lecture_sessions_material_lecture_session_id, lecture_sessions_materials.lecture_sessions_material_masjid_id, lecture_sessions_materials.lecture_sessions_material_created_at")
+		query = query.Select(`
+			lecture_sessions_materials.lecture_sessions_material_id,
+			lecture_sessions_materials.lecture_sessions_material_transcript_full,
+			lecture_sessions_materials.lecture_sessions_material_lecture_session_id,
+			lecture_sessions_materials.lecture_sessions_material_masjid_id,
+			lecture_sessions_materials.lecture_sessions_material_created_at`)
 	}
 
 	if err := query.Find(&materials).Error; err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil data",
-			"error":   err.Error(),
-		})
-	}
-
-	if len(materials) == 0 {
-		return c.JSON(fiber.Map{
-			"message": "success",
-			"data":    []GroupedMaterials{},
-		})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
 	grouped := groupMaterialsBySession(materials)
-
-	return c.JSON(fiber.Map{
-		"message": "success",
-		"data":    grouped,
-	})
+	return helper.JsonOK(c, "success", grouped)
 }
-
-
 
 type GroupedMaterials struct {
-	LectureSessionID    string                              `json:"lecture_session_id"`
-	LectureSessionTitle string                              `json:"lecture_session_title"`
-	Materials           []dto.LectureSessionsMaterialDTO    `json:"materials"`
+	LectureSessionID    string                           `json:"lecture_session_id"`
+	LectureSessionTitle string                           `json:"lecture_session_title"`
+	Materials           []dto.LectureSessionsMaterialDTO `json:"materials"`
 }
-
 
 func groupMaterialsBySession(data []model.LectureSessionsMaterialModel) []GroupedMaterials {
 	type groupKey struct {
@@ -281,11 +256,11 @@ func groupMaterialsBySession(data []model.LectureSessionsMaterialModel) []Groupe
 			SessionID: item.LectureSessionsMaterialLectureSessionID,
 			Title:     item.LectureSession.LectureSessionTitle,
 		}
-		dto := dto.ToLectureSessionsMaterialDTO(item)
-		groupMap[key] = append(groupMap[key], dto)
+		dtoItem := dto.ToLectureSessionsMaterialDTO(item)
+		groupMap[key] = append(groupMap[key], dtoItem)
 	}
 
-	var result []GroupedMaterials
+	result := make([]GroupedMaterials, 0, len(groupMap))
 	for key, list := range groupMap {
 		result = append(result, GroupedMaterials{
 			LectureSessionID:    key.SessionID,
@@ -294,6 +269,7 @@ func groupMaterialsBySession(data []model.LectureSessionsMaterialModel) []Groupe
 		})
 	}
 
+	// urutkan konsisten (descending by session_id seperti sebelumnya)
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].LectureSessionID > result[j].LectureSessionID
 	})

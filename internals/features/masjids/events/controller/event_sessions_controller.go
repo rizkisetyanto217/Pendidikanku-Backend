@@ -2,10 +2,12 @@ package controller
 
 import (
 	"log"
+	"strconv"
+	"time"
+
 	"masjidku_backend/internals/features/masjids/events/dto"
 	"masjidku_backend/internals/features/masjids/events/model"
-
-	"time"
+	helper "masjidku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -21,181 +23,220 @@ func NewEventSessionController(db *gorm.DB) *EventSessionController {
 }
 
 // 🟢 POST /api/a/event-sessions
-// 🟢 POST /api/a/event-sessions
 func (ctrl *EventSessionController) CreateEventSession(c *fiber.Ctx) error {
-	// Ambil user_id dari token (middleware harus sudah set ini di Locals)
-	userIDRaw := c.Locals("user_id")
-	userIDStr, ok := userIDRaw.(string)
-	if !ok || userIDStr == "" {
-		log.Println("[ERROR] Gagal mendapatkan user_id dari token")
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"message": "User tidak terautentikasi",
-		})
+	uidRaw := c.Locals("user_id")
+	uidStr, ok := uidRaw.(string)
+	if !ok || uidStr == "" {
+		log.Println("[ERROR] user_id tidak ditemukan di token")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "User tidak terautentikasi")
 	}
-
-	userID, err := uuid.Parse(userIDStr)
+	userID, err := uuid.Parse(uidStr)
 	if err != nil {
-		log.Printf("[ERROR] Gagal parsing user_id: %v", err)
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"message": "User ID tidak valid",
-		})
+		log.Printf("[ERROR] parse user_id: %v", err)
+		return helper.JsonError(c, fiber.StatusUnauthorized, "User ID tidak valid")
 	}
 
 	var req dto.EventSessionRequest
 	if err := c.BodyParser(&req); err != nil {
-		log.Printf("[ERROR] Body parser gagal: %v", err)
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Permintaan tidak valid",
-			"error":   err.Error(),
-		})
+		log.Printf("[ERROR] body parser: %v", err)
+		return helper.JsonError(c, fiber.StatusBadRequest, "Permintaan tidak valid")
 	}
 
 	session := req.ToModel()
-	session.EventSessionCreatedBy = &userID // ✅ Set created_by dari token
+	session.EventSessionCreatedBy = &userID
 
 	if err := ctrl.DB.Create(session).Error; err != nil {
-		log.Printf("[ERROR] Gagal menyimpan event session: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal menyimpan event session",
-			"error":   err.Error(),
-		})
+		log.Printf("[ERROR] create session: %v", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan event session")
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Event session berhasil dibuat",
-		"data":    dto.ToEventSessionResponse(session),
-	})
+	return helper.JsonCreated(c, "Event session berhasil dibuat", dto.ToEventSessionResponse(session))
 }
 
-// 🟢 GET /api/u/event-sessions/by-event/:event_id
+// 🟢 GET /api/u/event-sessions/by-event/:event_id?page=&limit=
 func (ctrl *EventSessionController) GetEventSessionsByEvent(c *fiber.Ctx) error {
-	eventID := c.Params("id")
+	eventID := c.Params("event_id")
 	if eventID == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Event ID tidak boleh kosong",
-		})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Event ID tidak boleh kosong")
 	}
 
+	// pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.Query("limit", "10"))
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+
+	// count
+	var total int64
+	if err := ctrl.DB.Model(&model.EventSessionModel{}).
+		Where("event_session_event_id = ?", eventID).
+		Count(&total).Error; err != nil {
+		log.Printf("[ERROR] count sessions: %v", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung event sessions")
+	}
+
+	// data
 	var sessions []model.EventSessionModel
-	if err := ctrl.DB.Where("event_session_event_id = ?", eventID).
+	if err := ctrl.DB.
+		Where("event_session_event_id = ?", eventID).
 		Order("event_session_start_time ASC").
+		Limit(limit).Offset(offset).
 		Find(&sessions).Error; err != nil {
-		log.Printf("[ERROR] Gagal mengambil event sessions: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil event sessions",
-			"error":   err.Error(),
-		})
+		log.Printf("[ERROR] get sessions: %v", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil event sessions")
 	}
 
+	// map + status
 	now := time.Now()
-	var result []dto.EventSessionResponse
-	for _, s := range sessions {
+	res := make([]dto.EventSessionResponse, 0, len(sessions))
+	for i := range sessions {
 		status := "upcoming"
-		if now.After(s.EventSessionStartTime) && now.Before(s.EventSessionEndTime) {
+		if now.After(sessions[i].EventSessionStartTime) && now.Before(sessions[i].EventSessionEndTime) {
 			status = "ongoing"
-		} else if now.After(s.EventSessionEndTime) {
+		} else if now.After(sessions[i].EventSessionEndTime) {
 			status = "completed"
 		}
-
-		resp := dto.ToEventSessionResponse(&s)
-		resp.EventSessionStatus = status
-		result = append(result, *resp)
+		item := dto.ToEventSessionResponse(&sessions[i])
+		item.EventSessionStatus = status
+		res = append(res, *item)
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Berhasil mengambil event sessions",
-		"data":    result,
-	})
+	pagination := fiber.Map{
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": int((total + int64(limit) - 1) / int64(limit)),
+		"has_next":    int64(page*limit) < total,
+		"has_prev":    page > 1,
+		"event_id":    eventID,
+	}
+	return helper.JsonList(c, res, pagination)
 }
 
-// 🟢 GET /api/u/event-sessions/all
+// 🟢 GET /api/u/event-sessions/all?page=&limit=
 func (ctrl *EventSessionController) GetAllEventSessions(c *fiber.Ctx) error {
-	var sessions []model.EventSessionModel
-	if err := ctrl.DB.Order("event_session_start_time DESC").Find(&sessions).Error; err != nil {
-		log.Printf("[ERROR] Gagal mengambil semua event session: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil data event sessions",
-			"error":   err.Error(),
-		})
+	// pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.Query("limit", "10"))
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+
+	// count
+	var total int64
+	if err := ctrl.DB.Model(&model.EventSessionModel{}).Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung event sessions")
 	}
 
+	// data
+	var sessions []model.EventSessionModel
+	if err := ctrl.DB.
+		Order("event_session_start_time DESC").
+		Limit(limit).Offset(offset).
+		Find(&sessions).Error; err != nil {
+		log.Printf("[ERROR] get all sessions: %v", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data event sessions")
+	}
+
+	// map + status
 	now := time.Now()
-	var result []dto.EventSessionResponse
-	for _, s := range sessions {
+	res := make([]dto.EventSessionResponse, 0, len(sessions))
+	for i := range sessions {
 		status := "upcoming"
-		if now.After(s.EventSessionStartTime) && now.Before(s.EventSessionEndTime) {
+		if now.After(sessions[i].EventSessionStartTime) && now.Before(sessions[i].EventSessionEndTime) {
 			status = "ongoing"
-		} else if now.After(s.EventSessionEndTime) {
+		} else if now.After(sessions[i].EventSessionEndTime) {
 			status = "completed"
 		}
-
-		resp := dto.ToEventSessionResponse(&s)
-		resp.EventSessionStatus = status
-		result = append(result, *resp)
+		item := dto.ToEventSessionResponse(&sessions[i])
+		item.EventSessionStatus = status
+		res = append(res, *item)
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Berhasil mengambil semua event session",
-		"data":    result,
-	})
+	pagination := fiber.Map{
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": int((total + int64(limit) - 1) / int64(limit)),
+		"has_next":    int64(page*limit) < total,
+		"has_prev":    page > 1,
+	}
+	return helper.JsonList(c, res, pagination)
 }
 
+// 🟢 GET /api/u/event-sessions/upcoming/:masjid_id?page=&limit=
+// (kalau :masjid_id tidak dikirim, ambil semua publik upcoming)
 func (ctrl *EventSessionController) GetUpcomingEventSessions(c *fiber.Ctx) error {
 	var sessions []model.EventSessionModel
 
-	// 1. Ambil masjid_id dari PATH parameter
-	// PERHATIKAN: Nama parameter di c.Params() HARUS SAMA dengan di definisi rute
-	masjidIDStr := c.Params("masjid_id") // Nama parameter harus cocok dengan definisi rute (:masjid_id)
+	// pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.Query("limit", "10"))
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
 
-	// Inisialisasi builder kueri GORM
-	// Filter awal untuk sesi yang akan datang dan bersifat publik
+	// base query: upcoming & public
 	query := ctrl.DB.
 		Where("event_session_start_time > ? AND event_session_is_public = ?", time.Now(), true)
 
-	// 2. Jika masjid_id ada (dari path), tambahkan filter ke kueri
+	// filter by masjid_id jika ada di path
+	masjidIDStr := c.Params("masjid_id")
 	if masjidIDStr != "" {
 		masjidID, err := uuid.Parse(masjidIDStr)
 		if err != nil {
-			log.Printf("[ERROR] Invalid masjid_id format from path: %v", err)
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"message": "Format ID masjid tidak valid",
-				"error":   "Invalid UUID format for masjid_id in path",
-			})
+			log.Printf("[ERROR] invalid masjid_id: %v", err)
+			return helper.JsonError(c, fiber.StatusBadRequest, "Format ID masjid tidak valid")
 		}
-		// Tambahkan filter berdasarkan event_session_masjid_id
 		query = query.Where("event_session_masjid_id = ?", masjidID)
-	} else {
-		// Log ini akan muncul jika GetUpcomingEventSessions dipanggil melalui rute tanpa parameter ID
-		// dan Flutter tidak mengirimkan ID di path.
-		// Jika ini terus muncul dan Anda ingin masjid_id selalu ada, pastikan Flutter mengirimkannya.
-		log.Printf("[INFO] GetUpcomingEventSessions dipanggil tanpa masjid_id di path. Mengambil semua event publik.")
 	}
 
-	// Ambil query parameter 'order' (jika ada)
-	// Ini tetap query parameter dari URL seperti ?order=terbaru
-	order := c.Query("order")
-	if order != "" {
-		// Contoh logika untuk order, jika diperlukan
-		// if order == "terbaru" {
-		// 	query = query.Order("event_session_created_at DESC")
-		// }
-		// Untuk saat ini, kita biarkan Order("event_session_start_time ASC") sebagai default
+	// count
+	var total int64
+	if err := query.Model(&model.EventSessionModel{}).Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung sesi event")
 	}
 
-	// 3. Lanjutkan dengan order dan Find
+	// data
 	if err := query.
-		Order("event_session_start_time ASC"). // Tetap urutkan berdasarkan waktu mulai
+		Order("event_session_start_time ASC").
+		Limit(limit).Offset(offset).
 		Find(&sessions).Error; err != nil {
-		log.Printf("[ERROR] Gagal mengambil sesi event upcoming: %v", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil sesi event upcoming",
-			"error":   err.Error(),
-		})
+		log.Printf("[ERROR] get upcoming sessions: %v", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil sesi event upcoming")
 	}
 
-	// Mengembalikan respons JSON dengan data sesi event
-	return c.JSON(fiber.Map{
-		"message": "Berhasil mengambil sesi event yang akan datang",
-		"data":    dto.ToEventSessionResponseList(sessions), // Asumsi ini mengonversi ke DTO yang sesuai
-	})
+	pagination := fiber.Map{
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": int((total + int64(limit) - 1) / int64(limit)),
+		"has_next":    int64(page*limit) < total,
+		"has_prev":    page > 1,
+		"masjid_id":   masjidIDStr,
+	}
+
+	return helper.JsonList(c, dto.ToEventSessionResponseList(sessions), pagination)
 }

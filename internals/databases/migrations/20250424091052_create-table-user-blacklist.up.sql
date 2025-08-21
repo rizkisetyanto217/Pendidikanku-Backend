@@ -1,15 +1,11 @@
--- Extensions
-CREATE EXTENSION IF NOT EXISTS pgcrypto;  -- digest() / gen_random_uuid()
-
--- Tabel blacklist (pakai hash token demi keamanan)
+-- === Token Blacklist (legacy/plaintext) ===
 CREATE TABLE IF NOT EXISTS token_blacklist (
-  token_blacklist_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  token_hash BYTEA NOT NULL UNIQUE,           -- sha256(token) → BYTEA
-  expired_at TIMESTAMPTZ NOT NULL,            -- gunakan waktu dengan zona
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  deleted_at TIMESTAMPTZ NULL,
-
-  -- token yang di-blacklist minimal punya expired_at >= created_at
+  id SERIAL PRIMARY KEY,
+  token TEXT NOT NULL UNIQUE,
+  expired_at TIMESTAMP NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at TIMESTAMP NULL,
+  -- opsional: pastikan expired_at tidak lebih kecil dari created_at
   CONSTRAINT token_blacklist_time_chk CHECK (expired_at >= created_at)
 );
 
@@ -19,6 +15,6 @@ CREATE INDEX IF NOT EXISTS idx_token_blacklist_cleanup
   WHERE deleted_at IS NULL;
 
 -- Index lookup cepat saat verifikasi (hanya baris yang belum soft-delete)
-CREATE INDEX IF NOT EXISTS idx_token_blacklist_hash_alive
-  ON token_blacklist (token_hash)
+CREATE INDEX IF NOT EXISTS idx_token_blacklist_token_not_deleted
+  ON token_blacklist (token)
   WHERE deleted_at IS NULL;

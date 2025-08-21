@@ -3,6 +3,7 @@ package controller
 import (
 	"masjidku_backend/internals/features/masjids/lecture_sessions/questions/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/questions/model"
+	helper "masjidku_backend/internals/helpers"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -25,39 +26,47 @@ func NewLectureSessionsUserQuestionController(db *gorm.DB) *LectureSessionsUserQ
 func (ctrl *LectureSessionsUserQuestionController) CreateLectureSessionsUserQuestion(c *fiber.Ctx) error {
 	var body dto.CreateLectureSessionsUserQuestionRequest
 	if err := c.BodyParser(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 	if err := validateUserQuestion.Struct(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	question := model.LectureSessionsUserQuestionModel{
+	// masjid_id wajib (sesuai schema)
+	masjidID, ok := c.Locals("masjid_id").(string)
+	if !ok || masjidID == "" {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID not found in token")
+	}
+
+	rec := model.LectureSessionsUserQuestionModel{
 		LectureSessionsUserQuestionAnswer:     body.LectureSessionsUserQuestionAnswer,
 		LectureSessionsUserQuestionIsCorrect:  body.LectureSessionsUserQuestionIsCorrect,
 		LectureSessionsUserQuestionQuestionID: body.LectureSessionsUserQuestionQuestionID,
+		LectureSessionsUserQuestionMasjidID:   masjidID,
 	}
 
-	if err := ctrl.DB.Create(&question).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create user question answer")
+	if err := ctrl.DB.Create(&rec).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to create user question answer")
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(dto.ToLectureSessionsUserQuestionDTO(question))
+	return helper.JsonCreated(c, "Created", dto.ToLectureSessionsUserQuestionDTO(rec))
 }
 
 // =============================
 // 📄 Get All User Question Answers
 // =============================
 func (ctrl *LectureSessionsUserQuestionController) GetAllLectureSessionsUserQuestions(c *fiber.Ctx) error {
-	var records []model.LectureSessionsUserQuestionModel
-	if err := ctrl.DB.Find(&records).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to retrieve data")
+	var rows []model.LectureSessionsUserQuestionModel
+	if err := ctrl.DB.Find(&rows).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve data")
 	}
 
-	var response []dto.LectureSessionsUserQuestionDTO
-	for _, r := range records {
-		response = append(response, dto.ToLectureSessionsUserQuestionDTO(r))
+	resp := make([]dto.LectureSessionsUserQuestionDTO, 0, len(rows))
+	for _, r := range rows {
+		resp = append(resp, dto.ToLectureSessionsUserQuestionDTO(r))
 	}
-	return c.JSON(response)
+
+	return helper.JsonList(c, resp, nil)
 }
 
 // =============================
@@ -65,17 +74,23 @@ func (ctrl *LectureSessionsUserQuestionController) GetAllLectureSessionsUserQues
 // =============================
 func (ctrl *LectureSessionsUserQuestionController) GetByQuestionID(c *fiber.Ctx) error {
 	questionID := c.Params("question_id")
-	var records []model.LectureSessionsUserQuestionModel
-
-	if err := ctrl.DB.Where("lecture_sessions_user_question_question_id = ?", questionID).Find(&records).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to retrieve data by question ID")
+	if questionID == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "question_id is required")
 	}
 
-	var response []dto.LectureSessionsUserQuestionDTO
-	for _, r := range records {
-		response = append(response, dto.ToLectureSessionsUserQuestionDTO(r))
+	var rows []model.LectureSessionsUserQuestionModel
+	if err := ctrl.DB.
+		Where("lecture_sessions_user_question_question_id = ?", questionID).
+		Find(&rows).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve data by question ID")
 	}
-	return c.JSON(response)
+
+	resp := make([]dto.LectureSessionsUserQuestionDTO, 0, len(rows))
+	for _, r := range rows {
+		resp = append(resp, dto.ToLectureSessionsUserQuestionDTO(r))
+	}
+
+	return helper.JsonList(c, resp, nil)
 }
 
 // =============================
@@ -83,8 +98,17 @@ func (ctrl *LectureSessionsUserQuestionController) GetByQuestionID(c *fiber.Ctx)
 // =============================
 func (ctrl *LectureSessionsUserQuestionController) DeleteByID(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if err := ctrl.DB.Delete(&model.LectureSessionsUserQuestionModel{}, "lecture_sessions_user_question_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to delete record")
+	if id == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "id is required")
 	}
-	return c.JSON(fiber.Map{"message": "Deleted successfully"})
+
+	tx := ctrl.DB.Delete(&model.LectureSessionsUserQuestionModel{}, "lecture_sessions_user_question_id = ?", id)
+	if tx.Error != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to delete record")
+	}
+	if tx.RowsAffected == 0 {
+		return helper.JsonError(c, fiber.StatusNotFound, "Record not found")
+	}
+
+	return helper.JsonDeleted(c, "Deleted successfully", fiber.Map{"id": id})
 }

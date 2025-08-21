@@ -6,13 +6,12 @@ import (
 	"masjidku_backend/internals/features/masjids/lecture_sessions/materials/model"
 	helper "masjidku_backend/internals/helpers"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
-
-// var validate = validator.New() // ✅ Buat instance validator
 
 type LectureSessionsAssetController struct {
 	DB *gorm.DB
@@ -22,44 +21,36 @@ func NewLectureSessionsAssetController(db *gorm.DB) *LectureSessionsAssetControl
 	return &LectureSessionsAssetController{DB: db}
 }
 
+// POST /api/a/lecture-sessions/assets
 func (ctrl *LectureSessionsAssetController) CreateLectureSessionsAsset(c *fiber.Ctx) error {
-	// ✅ Ambil masjid_id dari token
 	masjidID, ok := c.Locals("masjid_id").(string)
 	if !ok || masjidID == "" {
-		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID not found in token")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID not found in token")
 	}
 
-	// ✅ Ambil field dari form
 	title := c.FormValue("lecture_sessions_asset_title")
 	lectureSessionID := c.FormValue("lecture_sessions_asset_lecture_session_id")
-
 	if title == "" || lectureSessionID == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "Field wajib tidak lengkap")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Field wajib tidak lengkap")
 	}
 
-	// ✅ Coba ambil file upload
 	var fileURL string
 	var fileType int
 
 	if file, err := c.FormFile("lecture_sessions_asset_file_url"); err == nil && file != nil {
-		// ⬇️ Upload file ke Supabase
 		uploadedURL, err := helper.UploadFileToSupabase("lecture_sessions_assets", file)
 		if err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal upload file")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal upload file")
 		}
 		fileURL = uploadedURL
-
-		// ⬇️ Gunakan helper dari constants untuk deteksi tipe file
 		fileType = constants.DetectFileTypeFromExt(file.Filename)
-
 	} else if val := c.FormValue("lecture_sessions_asset_file_url"); val != "" {
 		fileURL = val
-		fileType = 1 // YouTube atau link biasa
+		fileType = 1 // link (YouTube/URL)
 	} else {
-		return fiber.NewError(fiber.StatusBadRequest, "Wajib upload file atau berikan URL")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Wajib upload file atau berikan URL")
 	}
 
-	// ✅ Simpan ke database
 	asset := model.LectureSessionsAssetModel{
 		LectureSessionsAssetTitle:            title,
 		LectureSessionsAssetFileURL:          fileURL,
@@ -69,148 +60,197 @@ func (ctrl *LectureSessionsAssetController) CreateLectureSessionsAsset(c *fiber.
 	}
 
 	if err := ctrl.DB.Create(&asset).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan asset")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan asset")
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(dto.ToLectureSessionsAssetDTO(asset))
+	return helper.JsonCreated(c, "Asset berhasil dibuat", dto.ToLectureSessionsAssetDTO(asset))
 }
 
-
-
-// =============================
-// 📄 Get All Assets
-// =============================
+// GET /api/a/lecture-sessions/assets
+// Query params:
+// - page, page_size
+// - lecture_session_id, masjid_id, file_type
+// - q (search title), order ∈ newest|oldest|title_asc|title_desc
 func (ctrl *LectureSessionsAssetController) GetAllLectureSessionsAssets(c *fiber.Ctx) error {
+	// pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(c.Query("page_size", "20"))
+	if pageSize <= 0 || pageSize > 200 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+
+	// filters
+	lectureSessionID := c.Query("lecture_session_id")
+	masjidID := c.Query("masjid_id")
+	q := strings.TrimSpace(c.Query("q"))
+	fileTypeStr := c.Query("file_type")
+	order := strings.ToLower(strings.TrimSpace(c.Query("order", "newest")))
+
+	query := ctrl.DB.Model(&model.LectureSessionsAssetModel{})
+
+	if lectureSessionID != "" {
+		query = query.Where("lecture_sessions_asset_lecture_session_id = ?", lectureSessionID)
+	}
+	if masjidID != "" {
+		query = query.Where("lecture_sessions_asset_masjid_id = ?", masjidID)
+	}
+	if fileTypeStr != "" {
+		if ft, err := strconv.Atoi(fileTypeStr); err == nil && ft > 0 {
+			query = query.Where("lecture_sessions_asset_file_type = ?", ft)
+		}
+	}
+
+	// search by title (FTS + fallback ILIKE)
+	if q != "" {
+		// gunakan FTS kalau tersedia (kolom tsv sudah dibuat di migration)
+		// fallback ILIKE untuk fuzzy sederhana
+		query = query.Where(`
+			lecture_sessions_asset_title_tsv @@ websearch_to_tsquery('simple', ?) 
+			OR LOWER(lecture_sessions_asset_title) LIKE LOWER(?)
+		`, q, "%"+q+"%")
+	}
+
+	// count sebelum limit/offset
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
+	}
+
+	// sorting
+	switch order {
+	case "oldest":
+		query = query.Order("lecture_sessions_asset_created_at ASC")
+	case "title_asc":
+		query = query.Order("lecture_sessions_asset_title ASC")
+	case "title_desc":
+		query = query.Order("lecture_sessions_asset_title DESC")
+	default: // newest
+		query = query.Order("lecture_sessions_asset_created_at DESC")
+	}
+
 	var assets []model.LectureSessionsAssetModel
-
-	if err := ctrl.DB.Find(&assets).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to retrieve assets")
+	if err := query.Limit(pageSize).Offset(offset).Find(&assets).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve assets")
 	}
 
-	var response []dto.LectureSessionsAssetDTO
-	for _, a := range assets {
-		response = append(response, dto.ToLectureSessionsAssetDTO(a))
+	resp := make([]dto.LectureSessionsAssetDTO, len(assets))
+	for i, a := range assets {
+		resp[i] = dto.ToLectureSessionsAssetDTO(a)
 	}
 
-	return c.JSON(response)
+	totalPages := int((total + int64(pageSize) - 1) / int64(pageSize))
+	pagination := fiber.Map{
+		"page":        page,
+		"page_size":   pageSize,
+		"total":       total,
+		"total_pages": totalPages,
+		"has_next":    page < totalPages,
+	}
+
+	return helper.JsonList(c, resp, pagination)
 }
 
-
-
+// GET /api/a/lecture-sessions/assets/:id
 func (ctrl *LectureSessionsAssetController) GetLectureSessionsAssetByID(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if id == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak boleh kosong")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak boleh kosong")
 	}
 
 	var asset model.LectureSessionsAssetModel
 	if err := ctrl.DB.First(&asset, "lecture_sessions_asset_id = ?", id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return fiber.NewError(fiber.StatusNotFound, "Asset tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Asset tidak ditemukan")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data asset")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data asset")
 	}
 
-	return c.JSON(dto.ToLectureSessionsAssetDTO(asset))
+	return helper.JsonOK(c, "Berhasil mengambil asset", dto.ToLectureSessionsAssetDTO(asset))
 }
 
-
+// PATCH /api/a/lecture-sessions/assets/:id
 func (ctrl *LectureSessionsAssetController) UpdateLectureSessionsAsset(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if id == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak boleh kosong")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak boleh kosong")
 	}
 
-	// ✅ Cari data existing
 	var asset model.LectureSessionsAssetModel
 	if err := ctrl.DB.First(&asset, "lecture_sessions_asset_id = ?", id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return fiber.NewError(fiber.StatusNotFound, "Asset tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Asset tidak ditemukan")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data asset")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data asset")
 	}
 
-	// ✅ Ambil data dari form (partial)
-	title := c.FormValue("lecture_sessions_asset_title")
-	if title != "" {
+	if title := c.FormValue("lecture_sessions_asset_title"); title != "" {
 		asset.LectureSessionsAssetTitle = title
 	}
 
-	// ✅ Cek apakah ada file baru diupload
-	file, errFile := c.FormFile("lecture_sessions_asset_file_url")
-	if errFile == nil && file != nil {
-		// Hapus file lama jika dari Supabase
+	if file, errFile := c.FormFile("lecture_sessions_asset_file_url"); errFile == nil && file != nil {
+		// hapus file lama bila dari Supabase
 		if asset.LectureSessionsAssetFileURL != "" {
 			if parsed, err := url.Parse(asset.LectureSessionsAssetFileURL); err == nil {
 				prefix := "/storage/v1/object/public/"
 				cleaned := strings.TrimPrefix(parsed.Path, prefix)
-
 				if unescaped, err := url.QueryUnescape(cleaned); err == nil {
-					parts := strings.SplitN(unescaped, "/", 2)
-					if len(parts) == 2 {
+					if parts := strings.SplitN(unescaped, "/", 2); len(parts) == 2 {
 						_ = helper.DeleteFromSupabase(parts[0], parts[1])
 					}
 				}
 			}
 		}
-
-		// Upload file baru
 		uploadedURL, err := helper.UploadFileToSupabase("lecture_sessions_assets", file)
 		if err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal upload file")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal upload file")
 		}
-
 		asset.LectureSessionsAssetFileURL = uploadedURL
 		asset.LectureSessionsAssetFileType = constants.DetectFileTypeFromExt(file.Filename)
-
 	} else if val := c.FormValue("lecture_sessions_asset_file_url"); val != "" {
 		asset.LectureSessionsAssetFileURL = val
-		asset.LectureSessionsAssetFileType = 1 // YouTube atau link biasa
+		asset.LectureSessionsAssetFileType = 1 // link
 	}
 
-	// ✅ Simpan update
 	if err := ctrl.DB.Save(&asset).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui asset")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui asset")
 	}
 
-	return c.JSON(dto.ToLectureSessionsAssetDTO(asset))
+	return helper.JsonUpdated(c, "Asset berhasil diperbarui", dto.ToLectureSessionsAssetDTO(asset))
 }
 
+// DELETE /api/a/lecture-sessions/assets/:id
 func (ctrl *LectureSessionsAssetController) DeleteLectureSessionsAsset(c *fiber.Ctx) error {
 	id := c.Params("id")
-
-	// 🔍 Cek apakah asset ada
-	var asset model.LectureSessionsAssetModel
-	if err := ctrl.DB.First(&asset, "lecture_sessions_asset_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Asset tidak ditemukan")
+	if id == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak boleh kosong")
 	}
 
-	// 🗑️ Hapus file dari Supabase jika file URL adalah dari Supabase
+	var asset model.LectureSessionsAssetModel
+	if err := ctrl.DB.First(&asset, "lecture_sessions_asset_id = ?", id).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "Asset tidak ditemukan")
+	}
+
+	// hapus file dari Supabase jika URL-nya dari bucket
 	if asset.LectureSessionsAssetFileURL != "" {
-		parsed, err := url.Parse(asset.LectureSessionsAssetFileURL)
-		if err == nil {
-			rawPath := parsed.Path // /storage/v1/object/public/file/lecture_sessions_assets%2Fxxx.pdf
+		if parsed, err := url.Parse(asset.LectureSessionsAssetFileURL); err == nil {
+			rawPath := parsed.Path
 			prefix := "/storage/v1/object/public/"
 			cleaned := strings.TrimPrefix(rawPath, prefix)
-
-			unescaped, err := url.QueryUnescape(cleaned)
-			if err == nil {
-				parts := strings.SplitN(unescaped, "/", 2)
-				if len(parts) == 2 {
-					bucket := parts[0]
-					objectPath := parts[1]
-					_ = helper.DeleteFromSupabase(bucket, objectPath)
+			if unescaped, err := url.QueryUnescape(cleaned); err == nil {
+				if parts := strings.SplitN(unescaped, "/", 2); len(parts) == 2 {
+					_ = helper.DeleteFromSupabase(parts[0], parts[1])
 				}
 			}
 		}
 	}
 
-	// ❌ Hapus dari DB
 	if err := ctrl.DB.Delete(&asset).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus asset")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus asset")
 	}
 
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message": "Asset berhasil dihapus",
-	})
+	return helper.JsonDeleted(c, "Asset berhasil dihapus", fiber.Map{"lecture_sessions_asset_id": id})
 }

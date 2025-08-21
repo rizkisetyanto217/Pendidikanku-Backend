@@ -1,10 +1,15 @@
 package controller
 
 import (
+	"errors"
+	"strings"
+
 	"masjidku_backend/internals/features/masjids/masjids_more/dto"
 	"masjidku_backend/internals/features/masjids/masjids_more/model"
+	helper "masjidku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -20,48 +25,42 @@ func NewMasjidTagRelationController(db *gorm.DB) *MasjidTagRelationController {
 func (ctrl *MasjidTagRelationController) CreateRelation(c *fiber.Ctx) error {
 	var body dto.MasjidTagRelationRequest
 	if err := c.BodyParser(&body); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Input tidak valid",
-			"error":   err.Error(),
-		})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Input tidak valid")
 	}
 
-	model := body.ToModel()
-	if err := ctrl.DB.Create(model).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal menyimpan relasi tag",
-			"error":   err.Error(),
-		})
+	// ✅ Validasi UUID: gunakan uuid.Nil, bukan TrimSpace
+	if body.MasjidTagRelationMasjidID == uuid.Nil || body.MasjidTagRelationTagID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id dan tag_id wajib diisi")
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Relasi tag berhasil ditambahkan",
-		"data":    dto.ToMasjidTagRelationResponse(model),
-	})
+	rel := body.ToModel() // *model.MasjidTagRelationModel
+	if err := ctrl.DB.WithContext(c.Context()).Create(rel).Error; err != nil {
+		// Tangani duplikat (unique (masjid_id, tag_id))
+		lower := strings.ToLower(err.Error())
+		if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(lower, "duplicate key") {
+			return helper.JsonError(c, fiber.StatusConflict, "Relasi tag untuk masjid ini sudah ada")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan relasi tag")
+	}
+
+	return helper.JsonCreated(c, "Relasi tag berhasil ditambahkan", dto.ToMasjidTagRelationResponse(rel))
 }
 
 // ✅ Ambil semua tag yang terkait dengan masjid tertentu
 func (ctrl *MasjidTagRelationController) GetTagsByMasjid(c *fiber.Ctx) error {
 	masjidID := c.Query("masjid_id")
-	if masjidID == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "masjid_id wajib dikirim sebagai query parameter",
-		})
+	if strings.TrimSpace(masjidID) == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id wajib dikirim sebagai query parameter")
 	}
 
 	var relations []model.MasjidTagRelationModel
-	if err := ctrl.DB.
-		Preload("MasjidTag").
+	if err := ctrl.DB.WithContext(c.Context()).
+		Preload("MasjidTag"). // pastikan relasi didefinisikan di model
 		Where("masjid_tag_relation_masjid_id = ?", masjidID).
+		Order("masjid_tag_relation_created_at DESC").
 		Find(&relations).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil data relasi tag",
-			"error":   err.Error(),
-		})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data relasi tag")
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Berhasil mengambil relasi tag masjid",
-		"data":    dto.ToMasjidTagRelationResponseList(relations),
-	})
+	return helper.JsonOK(c, "Berhasil mengambil relasi tag masjid", dto.ToMasjidTagRelationResponseList(relations))
 }

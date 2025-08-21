@@ -15,27 +15,36 @@ import (
 )
 
 /* ======== Extractors ======== */
+// ======== Extractors (perbarui ini) ========
 
 func extractBearerToken(c *fiber.Ctx) (string, error) {
-	authHeader := c.Get("Authorization")
-
-	if authHeader == "" {
-		// fallback ke cookie
-		if cookieToken := c.Cookies("access_token"); cookieToken != "" {
-			authHeader = "Bearer " + cookieToken
+	// 1) Ambil dari Authorization header atau fallback cookie
+	auth := strings.TrimSpace(c.Get("Authorization"))
+	if auth == "" {
+		if cookieTok := c.Cookies("access_token"); cookieTok != "" {
+			auth = "Bearer " + cookieTok
 			log.Println("[DEBUG] Authorization dari Cookie")
 		}
 	}
-
-	if authHeader == "" {
+	if auth == "" {
 		return "", fmt.Errorf("unauthorized - No token provided")
 	}
 
-	parts := strings.Split(authHeader, " ")
-	if len(parts) != 2 || parts[0] != "Bearer" || strings.TrimSpace(parts[1]) == "" {
+	// 2) Robust split: toleransi spasi ganda & case-insensitive
+	fields := strings.Fields(auth) // pecah berdasarkan whitespace berturut
+	if len(fields) < 2 || !strings.EqualFold(fields[0], "Bearer") {
 		return "", fmt.Errorf("unauthorized - Invalid token format")
 	}
-	return parts[1], nil
+	tok := fields[1]
+
+	// 3) Sanitasi: buang kutip di kiri/kanan & spasi
+	tok = strings.TrimSpace(tok)
+	tok = strings.Trim(tok, "\"'")
+
+	if tok == "" {
+		return "", fmt.Errorf("unauthorized - Empty token")
+	}
+	return tok, nil
 }
 
 func validateTokenExpiry(claims jwt.MapClaims, skew time.Duration) error {
@@ -44,7 +53,6 @@ func validateTokenExpiry(claims jwt.MapClaims, skew time.Duration) error {
 		return fmt.Errorf("token has no exp")
 	}
 
-	// exp bisa datang sebagai float64 (umum), atau json.Number/string (jarang)
 	var expUnix int64
 	switch t := expVal.(type) {
 	case float64:
@@ -52,23 +60,32 @@ func validateTokenExpiry(claims jwt.MapClaims, skew time.Duration) error {
 	case int64:
 		expUnix = t
 	case string:
-		// best effort parse
-		if n, err := parseInt64(t); err == nil {
+		if n, err := parseInt64(strings.TrimSpace(t)); err == nil {
 			expUnix = n
 		} else {
 			return fmt.Errorf("invalid exp format")
 		}
 	default:
-		return fmt.Errorf("invalid exp type")
+		// coba best-effort untuk tipe numeric lain (mis. json.Number via interface{})
+		if s := fmt.Sprintf("%v", t); s != "" {
+			if n, err := parseInt64(s); err == nil {
+				expUnix = n
+			} else {
+				return fmt.Errorf("invalid exp type")
+			}
+		} else {
+			return fmt.Errorf("invalid exp type")
+		}
 	}
 
-	now := time.Now()
-	expTime := time.Unix(expUnix, 0)
+	now := time.Now().UTC()
+	expTime := time.Unix(expUnix, 0).UTC()
 	if now.After(expTime.Add(skew)) {
 		return fmt.Errorf("token expired at %v", expTime)
 	}
 	return nil
 }
+
 
 func extractUserID(claims jwt.MapClaims) (uuid.UUID, error) {
 	idRaw, ok := claims["id"]

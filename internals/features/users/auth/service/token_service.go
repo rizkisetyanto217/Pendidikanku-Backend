@@ -119,7 +119,7 @@ func collectMasjidIDsFull(db *gorm.DB, userID uuid.UUID) (
 			return nil, nil, nil, nil, e
 		}
 		for _, r := range rows {
-			adminSet[r.MasjidID.String()] = struct{}{}
+			adminSet[r.MasjidAdminsMasjidID.String()] = struct{}{}
 		}
 	}
 
@@ -192,7 +192,7 @@ func collectMasjidIDsFull(db *gorm.DB, userID uuid.UUID) (
 func FindRefreshTokenByHashActive(db *gorm.DB, hash []byte) (*authModel.RefreshToken, error) {
 	var rt authModel.RefreshToken
 	if err := db.
-		Where("token_hash = ? AND revoked_at IS NULL AND expires_at > NOW()", hash).
+		Where("token = ? AND revoked_at IS NULL AND expires_at > NOW()", hash).
 		Limit(1).
 		Find(&rt).Error; err != nil {
 		return nil, err

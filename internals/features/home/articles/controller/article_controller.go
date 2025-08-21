@@ -1,10 +1,13 @@
 package controller
 
 import (
+	"math"
+	"strconv"
 	"time"
 
 	"masjidku_backend/internals/features/home/articles/dto"
 	"masjidku_backend/internals/features/home/articles/model"
+	helper "masjidku_backend/internals/helpers"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -27,10 +30,10 @@ func NewArticleController(db *gorm.DB) *ArticleController {
 func (ctrl *ArticleController) CreateArticle(c *fiber.Ctx) error {
 	var body dto.CreateArticleRequest
 	if err := c.BodyParser(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 	if err := validateArticle.Struct(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	article := model.ArticleModel{
@@ -38,13 +41,16 @@ func (ctrl *ArticleController) CreateArticle(c *fiber.Ctx) error {
 		ArticleDescription: body.ArticleDescription,
 		ArticleImageURL:    body.ArticleImageURL,
 		ArticleOrderID:     body.ArticleOrderID,
+		// NOTE: kalau tabel articles mewajibkan article_masjid_id,
+		// pastikan body/DTO-mu memuatnya dan set di sini.
+		// ArticleMasjidID: body.ArticleMasjidID,
 	}
 
 	if err := ctrl.DB.Create(&article).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create article")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to create article")
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(dto.ToArticleDTO(article))
+	return helper.JsonCreated(c, "Article created", dto.ToArticleDTO(article))
 }
 
 // =============================
@@ -55,15 +61,18 @@ func (ctrl *ArticleController) UpdateArticle(c *fiber.Ctx) error {
 
 	var body dto.UpdateArticleRequest
 	if err := c.BodyParser(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 	if err := validateArticle.Struct(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	var article model.ArticleModel
 	if err := ctrl.DB.First(&article, "article_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Article not found")
+		if err == gorm.ErrRecordNotFound {
+			return helper.JsonError(c, fiber.StatusNotFound, "Article not found")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve article")
 	}
 
 	article.ArticleTitle = body.ArticleTitle
@@ -73,10 +82,10 @@ func (ctrl *ArticleController) UpdateArticle(c *fiber.Ctx) error {
 	article.ArticleUpdatedAt = time.Now()
 
 	if err := ctrl.DB.Save(&article).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update article")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to update article")
 	}
 
-	return c.JSON(dto.ToArticleDTO(article))
+	return helper.JsonUpdated(c, "Article updated", dto.ToArticleDTO(article))
 }
 
 // =============================
@@ -86,27 +95,51 @@ func (ctrl *ArticleController) DeleteArticle(c *fiber.Ctx) error {
 	id := c.Params("id")
 
 	if err := ctrl.DB.Delete(&model.ArticleModel{}, "article_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to delete article")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to delete article")
 	}
 
-	return c.SendStatus(fiber.StatusNoContent)
+	// 200 OK supaya bisa kirim message/body
+	return helper.JsonDeleted(c, "Article deleted", fiber.Map{"article_id": id})
 }
 
 // =============================
-// 📄 Get All Articles
+// 📄 Get All Articles (with pagination)
+// Query: ?page=1&limit=10
 // =============================
 func (ctrl *ArticleController) GetAllArticles(c *fiber.Ctx) error {
-	var articles []model.ArticleModel
-	if err := ctrl.DB.Order("article_order_id ASC").Find(&articles).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to retrieve articles")
+	page := parseIntDefault(c.Query("page"), 1)
+	limit := parseIntDefault(c.Query("limit"), 10)
+	if limit <= 0 { limit = 10 }
+	if limit > 100 { limit = 100 }
+	offset := (page - 1) * limit
+
+	var total int64
+	if err := ctrl.DB.Model(&model.ArticleModel{}).Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to count articles")
 	}
 
-	var result []dto.ArticleDTO
+	var articles []model.ArticleModel
+	if err := ctrl.DB.
+		Order("article_order_id ASC").
+		Limit(limit).
+		Offset(offset).
+		Find(&articles).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve articles")
+	}
+
+	result := make([]dto.ArticleDTO, 0, len(articles))
 	for _, a := range articles {
 		result = append(result, dto.ToArticleDTO(a))
 	}
 
-	return c.JSON(result)
+	pagination := fiber.Map{
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": int(math.Ceil(float64(total) / float64(limit))),
+	}
+
+	return helper.JsonList(c, result, pagination)
 }
 
 // =============================
@@ -117,8 +150,25 @@ func (ctrl *ArticleController) GetArticleByID(c *fiber.Ctx) error {
 
 	var article model.ArticleModel
 	if err := ctrl.DB.First(&article, "article_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Article not found")
+		if err == gorm.ErrRecordNotFound {
+			return helper.JsonError(c, fiber.StatusNotFound, "Article not found")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve article")
 	}
 
-	return c.JSON(dto.ToArticleDTO(article))
+	return helper.JsonOK(c, "OK", dto.ToArticleDTO(article))
+}
+
+// =============================
+// utils
+// =============================
+func parseIntDefault(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return def
+	}
+	return v
 }

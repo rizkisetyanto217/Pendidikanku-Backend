@@ -3,6 +3,7 @@ package controller
 import (
 	"masjidku_backend/internals/features/home/questionnaires/dto"
 	"masjidku_backend/internals/features/home/questionnaires/model"
+	helper "masjidku_backend/internals/helpers"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -25,18 +26,18 @@ var validate = validator.New()
 func (ctrl *QuestionnaireQuestionController) CreateQuestion(c *fiber.Ctx) error {
 	var req dto.CreateQuestionnaireQuestionRequest
 	if err := c.BodyParser(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 	if err := validate.Struct(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	question := dto.ToQuestionnaireQuestionModel(req)
 	if err := ctrl.DB.Create(&question).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create question")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to create question")
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(dto.ToQuestionnaireQuestionDTO(question))
+	return helper.JsonCreated(c, "Pertanyaan berhasil dibuat", dto.ToQuestionnaireQuestionDTO(question))
 }
 
 // =============================
@@ -45,7 +46,7 @@ func (ctrl *QuestionnaireQuestionController) CreateQuestion(c *fiber.Ctx) error 
 func (ctrl *QuestionnaireQuestionController) GetAllQuestions(c *fiber.Ctx) error {
 	var questions []model.QuestionnaireQuestionModel
 	if err := ctrl.DB.Find(&questions).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to retrieve questions")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve questions")
 	}
 
 	var response []dto.QuestionnaireQuestionDTO
@@ -53,7 +54,8 @@ func (ctrl *QuestionnaireQuestionController) GetAllQuestions(c *fiber.Ctx) error
 		response = append(response, dto.ToQuestionnaireQuestionDTO(q))
 	}
 
-	return c.JSON(response)
+	// tidak ada pagination → simple list
+	return helper.JsonList(c, response, nil)
 }
 
 // =============================
@@ -64,7 +66,7 @@ func (ctrl *QuestionnaireQuestionController) GetQuestionsByScope(c *fiber.Ctx) e
 
 	var questions []model.QuestionnaireQuestionModel
 	if err := ctrl.DB.Where("questionnaire_question_scope = ?", scope).Find(&questions).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to retrieve questions by scope")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve questions by scope")
 	}
 
 	var response []dto.QuestionnaireQuestionDTO
@@ -72,5 +74,5 @@ func (ctrl *QuestionnaireQuestionController) GetQuestionsByScope(c *fiber.Ctx) e
 		response = append(response, dto.ToQuestionnaireQuestionDTO(q))
 	}
 
-	return c.JSON(response)
+	return helper.JsonList(c, response, nil)
 }

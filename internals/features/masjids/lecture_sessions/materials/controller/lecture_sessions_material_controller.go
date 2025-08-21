@@ -1,6 +1,11 @@
 package controller
 
 import (
+	"errors"
+	"strings"
+
+	resp "masjidku_backend/internals/helpers"
+
 	"masjidku_backend/internals/features/masjids/lecture_sessions/materials/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/materials/model"
 
@@ -9,7 +14,7 @@ import (
 	"gorm.io/gorm"
 )
 
-var validate2 = validator.New() // ✅ Buat instance validator
+var validate2 = validator.New()
 
 type LectureSessionsMaterialController struct {
 	DB *gorm.DB
@@ -19,83 +24,68 @@ func NewLectureSessionsMaterialController(db *gorm.DB) *LectureSessionsMaterialC
 	return &LectureSessionsMaterialController{DB: db}
 }
 
-
 // =============================
-// ➕ Create Lecture Session Material (1 per session only)
+// ➕ Create Lecture Session Material (maksimal 1 per session per masjid)
 // =============================
 func (ctrl *LectureSessionsMaterialController) CreateLectureSessionsMaterial(c *fiber.Ctx) error {
 	var body dto.CreateLectureSessionsMaterialRequest
 
-	// 🧾 Parse request body
+	// Parse body
 	if err := c.BodyParser(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body: "+err.Error())
+		return resp.JsonError(c, fiber.StatusBadRequest, "Invalid request body: "+err.Error())
 	}
 
-	// 🔐 Ambil masjid_id dari token/middleware
+	// Ambil masjid_id dari token/middleware
 	masjidID, ok := c.Locals("masjid_id").(string)
 	if !ok || masjidID == "" {
-		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan dalam token")
+		return resp.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan dalam token")
 	}
-
-	// Inject ke body sebelum validasi
 	body.LectureSessionsMaterialMasjidID = masjidID
 
-	// ✅ Validasi
+	// Validasi payload
 	if err := validate2.Struct(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Validasi gagal: "+err.Error())
+		return resp.JsonError(c, fiber.StatusBadRequest, "Validasi gagal: "+err.Error())
 	}
 
-	// 🚫 Cek apakah sudah ada materi untuk sesi ini
+	// Cek duplikasi: per sesi & masjid
 	var existing model.LectureSessionsMaterialModel
-	err := ctrl.DB.
-		Where("lecture_sessions_material_lecture_session_id = ?", body.LectureSessionsMaterialLectureSessionID).
-		First(&existing).Error
-
-	if err == nil {
-		// Artinya sudah ada data
-		return fiber.NewError(fiber.StatusConflict, "Materi untuk sesi ini sudah tersedia")
-	} else if err != gorm.ErrRecordNotFound {
-		// Error selain "tidak ditemukan"
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa duplikasi: "+err.Error())
+	if err := ctrl.DB.WithContext(c.Context()).
+		Where("lecture_sessions_material_lecture_session_id = ? AND lecture_sessions_material_masjid_id = ?",
+			body.LectureSessionsMaterialLectureSessionID, masjidID).
+		First(&existing).Error; err == nil {
+		return resp.JsonError(c, fiber.StatusConflict, "Materi untuk sesi ini sudah tersedia")
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal memeriksa duplikasi: "+err.Error())
 	}
 
-	// ✅ Simpan ke DB jika belum ada
+	// Simpan
 	material := model.LectureSessionsMaterialModel{
 		LectureSessionsMaterialSummary:          body.LectureSessionsMaterialSummary,
 		LectureSessionsMaterialTranscriptFull:   body.LectureSessionsMaterialTranscriptFull,
 		LectureSessionsMaterialLectureSessionID: body.LectureSessionsMaterialLectureSessionID,
 		LectureSessionsMaterialMasjidID:         masjidID,
 	}
-
-	if err := ctrl.DB.Create(&material).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan materi: "+err.Error())
+	if err := ctrl.DB.WithContext(c.Context()).Create(&material).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan materi: "+err.Error())
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-		"message": "Materi berhasil ditambahkan",
-		"data":    dto.ToLectureSessionsMaterialDTO(material),
-	})
+	return resp.JsonCreated(c, "Materi berhasil ditambahkan", dto.ToLectureSessionsMaterialDTO(material))
 }
-
-
-
 
 // =============================
 // 📄 Get All Materials
 // =============================
 func (ctrl *LectureSessionsMaterialController) GetAllLectureSessionsMaterials(c *fiber.Ctx) error {
 	var materials []model.LectureSessionsMaterialModel
-
-	if err := ctrl.DB.Find(&materials).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to retrieve materials")
+	if err := ctrl.DB.WithContext(c.Context()).Find(&materials).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve materials")
 	}
 
-	var response []dto.LectureSessionsMaterialDTO
+	out := make([]dto.LectureSessionsMaterialDTO, 0, len(materials))
 	for _, m := range materials {
-		response = append(response, dto.ToLectureSessionsMaterialDTO(m))
+		out = append(out, dto.ToLectureSessionsMaterialDTO(m))
 	}
-
-	return c.JSON(response)
+	return resp.JsonOK(c, "OK", out)
 }
 
 // =============================
@@ -103,109 +93,127 @@ func (ctrl *LectureSessionsMaterialController) GetAllLectureSessionsMaterials(c 
 // =============================
 func (ctrl *LectureSessionsMaterialController) GetLectureSessionsMaterialByID(c *fiber.Ctx) error {
 	id := c.Params("id")
-
 	var material model.LectureSessionsMaterialModel
-	if err := ctrl.DB.First(&material, "lecture_sessions_material_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Material not found")
+
+	if err := ctrl.DB.WithContext(c.Context()).
+		First(&material, "lecture_sessions_material_id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return resp.JsonError(c, fiber.StatusNotFound, "Material not found")
+		}
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Failed to get material")
 	}
 
-	return c.JSON(dto.ToLectureSessionsMaterialDTO(material))
+	return resp.JsonOK(c, "OK", dto.ToLectureSessionsMaterialDTO(material))
 }
 
-
 // =============================
-// ✏️ Update Material by ID (Partial Update)
+// ✏️ PUT (Partial) Update Material by ID
 // =============================
 func (ctrl *LectureSessionsMaterialController) UpdateLectureSessionsMaterial(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if id == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "ID materi tidak ditemukan di URL")
+		return resp.JsonError(c, fiber.StatusBadRequest, "ID materi tidak ditemukan di URL")
 	}
 
 	var body dto.UpdateLectureSessionsMaterialRequest
 	if err := c.BodyParser(&body); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Gagal parsing body: "+err.Error())
+		return resp.JsonError(c, fiber.StatusBadRequest, "Gagal parsing body: "+err.Error())
 	}
 
-	// Ambil materi dari DB
 	var material model.LectureSessionsMaterialModel
-	if err := ctrl.DB.First(&material, "lecture_sessions_material_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Materi tidak ditemukan")
+	if err := ctrl.DB.WithContext(c.Context()).
+		First(&material, "lecture_sessions_material_id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return resp.JsonError(c, fiber.StatusNotFound, "Materi tidak ditemukan")
+		}
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil materi")
 	}
 
-	if body.LectureSessionsMaterialSummary != "" {
-		material.LectureSessionsMaterialSummary = body.LectureSessionsMaterialSummary
+	updates := map[string]any{}
+	if s := strings.TrimSpace(body.LectureSessionsMaterialSummary); s != "" {
+		updates["lecture_sessions_material_summary"] = s
 	}
-	if body.LectureSessionsMaterialTranscriptFull != "" {
-		material.LectureSessionsMaterialTranscriptFull = body.LectureSessionsMaterialTranscriptFull
+	if t := strings.TrimSpace(body.LectureSessionsMaterialTranscriptFull); t != "" {
+		updates["lecture_sessions_material_transcript_full"] = t
 	}
-	if body.LectureSessionsMaterialLectureSessionID != "" {
-		material.LectureSessionsMaterialLectureSessionID = body.LectureSessionsMaterialLectureSessionID
-	}
-
-	// Simpan perubahan
-	if err := ctrl.DB.Save(&material).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengupdate materi: "+err.Error())
+	if sid := strings.TrimSpace(body.LectureSessionsMaterialLectureSessionID); sid != "" {
+		updates["lecture_sessions_material_lecture_session_id"] = sid
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Materi berhasil diperbarui",
-		"data":    dto.ToLectureSessionsMaterialDTO(material),
-	})
+	if len(updates) == 0 {
+		return resp.JsonOK(c, "No changes", dto.ToLectureSessionsMaterialDTO(material))
+	}
+
+	if err := ctrl.DB.WithContext(c.Context()).
+		Model(&material).
+		Updates(updates).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate materi: "+err.Error())
+	}
+
+	// re-fetch
+	if err := ctrl.DB.WithContext(c.Context()).
+		First(&material, "lecture_sessions_material_id = ?", id).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Updated but failed to re-fetch")
+	}
+
+	return resp.JsonUpdated(c, "Materi berhasil diperbarui", dto.ToLectureSessionsMaterialDTO(material))
 }
-
 
 // =============================
 // ❌ Delete Material
 // =============================
 func (ctrl *LectureSessionsMaterialController) DeleteLectureSessionsMaterial(c *fiber.Ctx) error {
 	id := c.Params("id")
-
-	if err := ctrl.DB.Delete(&model.LectureSessionsMaterialModel{}, "lecture_sessions_material_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to delete material")
+	if err := ctrl.DB.WithContext(c.Context()).
+		Delete(&model.LectureSessionsMaterialModel{}, "lecture_sessions_material_id = ?", id).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Failed to delete material")
 	}
-
-	return c.SendStatus(fiber.StatusNoContent)
+	return resp.JsonDeleted(c, "Material deleted", nil)
 }
 
-
-
+// =============================
+// 📦 Get Content (materials + assets) by Lecture ID
+// =============================
 func (ctrl *LectureSessionsMaterialController) GetContentByLectureID(c *fiber.Ctx) error {
 	lectureID := c.Query("lecture_id")
-	if lectureID == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "lecture_id wajib diisi",
-		})
+	if strings.TrimSpace(lectureID) == "" {
+		return resp.JsonError(c, fiber.StatusBadRequest, "lecture_id wajib diisi")
 	}
 
+	// Ambil semua session ID dari lecture ini
 	var sessionIDs []string
-	if err := ctrl.DB.
+	if err := ctrl.DB.WithContext(c.Context()).
 		Table("lecture_sessions").
 		Where("lecture_session_lecture_id = ?", lectureID).
 		Pluck("lecture_session_id", &sessionIDs).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil sesi kajian",
-			"error":   err.Error(),
-		})
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil sesi kajian")
 	}
 
+	// Jika lecture valid tapi belum punya sesi → kembalikan konten kosong
+	if len(sessionIDs) == 0 {
+		return resp.JsonOK(c, "success", []map[string]any{})
+	}
+
+	// Materials
 	var materials []model.LectureSessionsMaterialModel
-	if len(sessionIDs) > 0 {
-		ctrl.DB.
-			Where("lecture_sessions_material_lecture_session_id IN ?", sessionIDs).
-			Find(&materials)
+	if err := ctrl.DB.WithContext(c.Context()).
+		Where("lecture_sessions_material_lecture_session_id IN ?", sessionIDs).
+		Find(&materials).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil materi")
 	}
 
+	// Assets
 	var assets []model.LectureSessionsAssetModel
-	if len(sessionIDs) > 0 {
-		ctrl.DB.
-			Where("lecture_sessions_asset_lecture_session_id IN ?", sessionIDs).
-			Find(&assets)
+	if err := ctrl.DB.WithContext(c.Context()).
+		Where("lecture_sessions_asset_lecture_session_id IN ?", sessionIDs).
+		Find(&assets).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil asset")
 	}
 
-	var content []map[string]interface{}
+	// Gabungkan ke satu list
+	content := make([]map[string]any, 0, len(materials)+len(assets))
 	for _, m := range materials {
-		content = append(content, map[string]interface{}{
+		content = append(content, map[string]any{
 			"type":       "material",
 			"id":         m.LectureSessionsMaterialID,
 			"summary":    m.LectureSessionsMaterialSummary,
@@ -215,7 +223,7 @@ func (ctrl *LectureSessionsMaterialController) GetContentByLectureID(c *fiber.Ct
 		})
 	}
 	for _, a := range assets {
-		content = append(content, map[string]interface{}{
+		content = append(content, map[string]any{
 			"type":       "asset",
 			"id":         a.LectureSessionsAssetID,
 			"title":      a.LectureSessionsAssetTitle,
@@ -226,8 +234,5 @@ func (ctrl *LectureSessionsMaterialController) GetContentByLectureID(c *fiber.Ct
 		})
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Berhasil mengambil seluruh konten kajian berdasarkan lecture_id",
-		"data":    content,
-	})
+	return resp.JsonOK(c, "Berhasil mengambil seluruh konten kajian berdasarkan lecture_id", content)
 }

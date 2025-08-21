@@ -11,7 +11,7 @@ type RefreshToken struct {
 	UserID    uuid.UUID  `gorm:"column:user_id;type:uuid;not null" json:"user_id"`
 
 	// simpan HASH token (bukan plaintext)
-	TokenHash []byte     `gorm:"column:token_hash;type:bytea;not null" json:"-"`
+	Token []byte     `gorm:"column:token;type:bytea;not null" json:"-"`
 
 	ExpiresAt time.Time  `gorm:"column:expires_at;type:timestamptz;not null" json:"expires_at"`
 	RevokedAt *time.Time `gorm:"column:revoked_at;type:timestamptz" json:"revoked_at,omitempty"`

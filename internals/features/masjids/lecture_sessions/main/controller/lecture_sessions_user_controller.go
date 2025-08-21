@@ -2,32 +2,57 @@ package controller
 
 import (
 	"log"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
 	lectureModel "masjidku_backend/internals/features/masjids/lectures/main/model"
-	"sort"
-	"strings"
-	"time"
+	helper "masjidku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
 
-
+/* =========================================================
+   GET by Masjid ID (param)  -> JSONList + pagination
+========================================================= */
 func (ctrl *LectureSessionController) GetLectureSessionsByMasjidIDParam(c *fiber.Ctx) error {
 	masjidID := c.Params("id")
 	if masjidID == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Masjid ID tidak ditemukan di parameter URL",
-		})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid ID tidak ditemukan di parameter URL")
 	}
 
-	// Struct untuk hasil join
+	// pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.Query("limit", "10"))
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	offset := (page - 1) * limit
+
+	// count
+	var total int64
+	if err := ctrl.DB.Table("lecture_sessions").
+		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Where("lectures.lecture_masjid_id = ?", masjidID).
+		Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung sesi kajian berdasarkan masjid")
+	}
+
+	// data
 	type JoinedResult struct {
 		model.LectureSessionModel
 		LectureTitle string `gorm:"column:lecture_title"`
 	}
-
 	var results []JoinedResult
 	if err := ctrl.DB.
 		Model(&model.LectureSessionModel{}).
@@ -35,34 +60,38 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMasjidIDParam(c *fiber
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
 		Where("lectures.lecture_masjid_id = ?", masjidID).
 		Order("lecture_sessions.lecture_session_start_time ASC").
+		Limit(limit).Offset(offset).
 		Scan(&results).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil sesi kajian berdasarkan masjid ID",
-		})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil sesi kajian berdasarkan masjid ID")
 	}
 
-	// Map ke DTO
 	response := make([]dto.LectureSessionDTO, len(results))
 	for i, r := range results {
 		response[i] = dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Berhasil mengambil sesi kajian berdasarkan masjid ID",
-		"data":    response,
-	})
+	pagination := fiber.Map{
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": int((total+int64(limit)-1)/int64(limit)),
+		"has_next":    int64(page*limit) < total,
+		"has_prev":    page > 1,
+		"masjid_id":   masjidID,
+	}
+	return helper.JsonList(c, response, pagination)
 }
 
-
-// GetLectureSessionBySlug returns lecture session detail (by slug)
-// If user is logged in, also returns the latest user grade for THIS session.
+/* =========================================================
+   GET by Session Slug (single) -> JsonOK
+========================================================= */
 func (ctrl *LectureSessionController) GetLectureSessionBySlug(c *fiber.Ctx) error {
 	slug := c.Params("slug")
 	if slug == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "Slug tidak ditemukan")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Slug tidak ditemukan")
 	}
 
-	// Ambil user_id dari cookie/header (opsional)
+	// Ambil user_id opsional
 	userID := c.Cookies("user_id")
 	if userID == "" {
 		userID = c.Get("X-User-Id")
@@ -75,24 +104,20 @@ func (ctrl *LectureSessionController) GetLectureSessionBySlug(c *fiber.Ctx) erro
 		UserGradeResult *float64 `gorm:"column:user_grade_result"`
 	}
 
-	// Base SELECT (tanpa progress)
 	baseSelect := `
 		lecture_sessions.*,
 		lectures.lecture_title,
 		users.user_name
 	`
 
-	// Build base query
 	db := ctrl.DB.
 		Model(&model.LectureSessionModel{}).
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
 		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
 		Where("lecture_sessions.lecture_session_slug = ?", slug)
 
-	// Jika user login → tambahkan correlated subquery untuk progress
 	if userID != "" {
-		baseSelect += `
-		,
+		baseSelect += `,
 		(
 			SELECT u.user_lecture_session_grade_result
 			FROM user_lecture_sessions u
@@ -100,174 +125,182 @@ func (ctrl *LectureSessionController) GetLectureSessionBySlug(c *fiber.Ctx) erro
 			  AND u.user_lecture_session_lecture_session_id = lecture_sessions.lecture_session_id
 			ORDER BY u.user_lecture_session_created_at DESC
 			LIMIT 1
-		) AS user_grade_result
-		`
-		db = db.Select(baseSelect, userID) // ada placeholder "?"
+		) AS user_grade_result`
+		db = db.Select(baseSelect, userID)
 	} else {
-		db = db.Select(baseSelect) // tanpa arg supaya aman
+		db = db.Select(baseSelect)
 	}
 
 	var result joinedResult
 	if err := db.Take(&result).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
+		return helper.JsonError(c, fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
 	}
 
-	// Build DTO
 	dtoItem := dto.ToLectureSessionDTOWithLectureTitle(result.LectureSessionModel, result.LectureTitle)
-
-	// Fallback nama pengajar dari users.user_name jika kosong
 	if dtoItem.LectureSessionTeacherName == "" && result.UserName != nil {
 		dtoItem.LectureSessionTeacherName = *result.UserName
 	}
-
-	// Inject grade hanya jika ada (artinya user login & progress tersedia)
 	if result.UserGradeResult != nil {
 		dtoItem.UserGradeResult = result.UserGradeResult
 	}
 
-	return c.JSON(dtoItem) // tanpa progress kalau tidak login
+	return helper.JsonOK(c, "Berhasil mengambil sesi kajian", dtoItem)
 }
 
-
-
-//  ======================================
-// 📥 GetLectureSessionsGroupedByMonth
-//  ======================================
+/* =========================================================
+   Grouped by Month (map) -> JsonOK
+========================================================= */
 func (ctrl *LectureSessionController) GetLectureSessionsGroupedByMonth(c *fiber.Ctx) error {
 	slug := c.Params("slug")
 	if slug == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "Slug masjid tidak ditemukan di URL")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Slug masjid tidak ditemukan di URL")
 	}
 
-	// Ambil masjid_id dari slug
-	var masjid struct {
-		MasjidID uuid.UUID `gorm:"column:masjid_id"`
-	}
-	if err := ctrl.DB.
-		Table("masjids").
-		Select("masjid_id").
-		Where("masjid_slug = ?", slug).
-		Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
-		return fiber.NewError(fiber.StatusNotFound, "Masjid dengan slug tersebut tidak ditemukan")
+	var masjid struct{ MasjidID uuid.UUID `gorm:"column:masjid_id"` }
+	if err := ctrl.DB.Table("masjids").Select("masjid_id").Where("masjid_slug = ?", slug).Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "Masjid dengan slug tersebut tidak ditemukan")
 	}
 
-	// Struct hasil query
 	type MonthlyResult struct {
-		Month         string `gorm:"column:month"` // Format "2025-08"
+		Month string `gorm:"column:month"` // "YYYY-MM"
 		model.LectureSessionModel
 		LectureTitle string  `gorm:"column:lecture_title"`
 		UserName     *string `gorm:"column:user_name"`
 	}
-
 	var results []MonthlyResult
-
 	if err := ctrl.DB.
 		Model(&model.LectureSessionModel{}).
 		Select(`
 			TO_CHAR(lecture_sessions.lecture_session_start_time, 'YYYY-MM') AS month,
 			lecture_sessions.*,
 			lectures.lecture_title,
-			users.user_name
-		`).
+			users.user_name`).
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
 		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
 		Where("lectures.lecture_masjid_id = ?", masjid.MasjidID).
 		Order("month DESC, lecture_sessions.lecture_session_start_time ASC").
 		Scan(&results).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil sesi kajian per bulan")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil sesi kajian per bulan")
 	}
 
-	// Mapping hasil ke grup per bulan
 	grouped := make(map[string][]dto.LectureSessionDTO)
 	for _, r := range results {
-		dtoItem := dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
-		if dtoItem.LectureSessionTeacherName == "" && r.UserName != nil {
-			dtoItem.LectureSessionTeacherName = *r.UserName
+		item := dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
+		if item.LectureSessionTeacherName == "" && r.UserName != nil {
+			item.LectureSessionTeacherName = *r.UserName
 		}
-		grouped[r.Month] = append(grouped[r.Month], dtoItem)
+		grouped[r.Month] = append(grouped[r.Month], item)
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Berhasil mengambil sesi kajian dikelompokkan per bulan",
-		"data":    grouped,
-	})
+	return helper.JsonOK(c, "Berhasil mengambil sesi kajian dikelompokkan per bulan", grouped)
 }
 
-
-
-
-
-// =============================
-// 📥 GET All Lecture Sessions by Lecture ID
-// =============================
+/* =========================================================
+   Public: by Lecture ID (list) -> JsonList + pagination
+========================================================= */
 func (ctrl *LectureSessionController) GetLectureSessionsByLectureID(c *fiber.Ctx) error {
-	log.Println("📥 MASUK GetLectureSessionsByLectureID (Public)")
-
-	// Ambil lecture_id dari URL
 	lectureIDParam := c.Params("lecture_id")
 	lectureID, err := uuid.Parse(lectureIDParam)
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Lecture ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Lecture ID tidak valid")
 	}
 
-	// ✅ Cek apakah lecture_id valid dan milik masjid yang ada
 	var lecture lectureModel.LectureModel
-	if err := ctrl.DB.
-		Where("lecture_id = ?", lectureID).
-		First(&lecture).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Lecture tidak ditemukan")
+	if err := ctrl.DB.Where("lecture_id = ?", lectureID).First(&lecture).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "Lecture tidak ditemukan")
 	}
 
-	// ✅ Ambil semua sesi berdasarkan lecture_id
+	// pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.Query("limit", "20"))
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	offset := (page - 1) * limit
+
+	var total int64
+	if err := ctrl.DB.Model(&model.LectureSessionModel{}).
+		Where("lecture_session_lecture_id = ? AND lecture_session_deleted_at IS NULL", lectureID).
+		Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung sesi kajian")
+	}
+
 	var sessions []model.LectureSessionModel
 	if err := ctrl.DB.
 		Where("lecture_session_lecture_id = ? AND lecture_session_deleted_at IS NULL", lectureID).
+		Order("lecture_session_start_time ASC").
+		Limit(limit).Offset(offset).
 		Find(&sessions).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data sesi kajian")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data sesi kajian")
 	}
 
-	// Konversi ke DTO
-	response := make([]dto.LectureSessionDTO, 0, len(sessions))
+	resp := make([]dto.LectureSessionDTO, 0, len(sessions))
 	for _, s := range sessions {
-		response = append(response, dto.ToLectureSessionDTO(s))
+		resp = append(resp, dto.ToLectureSessionDTO(s))
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Daftar sesi kajian berhasil diambil",
-		"data":    response,
-	})
+	pagination := fiber.Map{
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": int((total+int64(limit)-1)/int64(limit)),
+		"has_next":    int64(page*limit) < total,
+		"has_prev":    page > 1,
+		"lecture_id":  lectureID,
+	}
+	return helper.JsonList(c, resp, pagination)
 }
 
-
-//  ======================================
-// 📥 GetLectureSessionsByMonth
-//  ======================================
+/* =========================================================
+   by Month (list) -> JsonList + pagination
+========================================================= */
 func (ctrl *LectureSessionController) GetLectureSessionsByMonth(c *fiber.Ctx) error {
 	slug := c.Params("slug")
-	month := c.Params("month") // format "2025-08"
+	month := c.Params("month") // "YYYY-MM"
 	if slug == "" || month == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "Slug atau bulan tidak ditemukan di URL")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Slug atau bulan tidak ditemukan di URL")
 	}
 
-	// Ambil user_id dari cookie atau header
 	userID := c.Cookies("user_id")
 	if userID == "" {
 		userID = c.Get("X-User-Id")
 	}
 
-	// Ambil masjid_id dari slug
-	var masjid struct {
-		MasjidID uuid.UUID `gorm:"column:masjid_id"`
-	}
-	if err := ctrl.DB.
-		Table("masjids").
-		Select("masjid_id").
-		Where("masjid_slug = ?", slug).
-		Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
-		return fiber.NewError(fiber.StatusNotFound, "Masjid tidak ditemukan")
+	var masjid struct{ MasjidID uuid.UUID `gorm:"column:masjid_id"` }
+	if err := ctrl.DB.Table("masjids").Select("masjid_id").Where("masjid_slug = ?", slug).Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "Masjid tidak ditemukan")
 	}
 
-	// Struct hasil query
+	// pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.Query("limit", "30"))
+	if limit < 1 {
+		limit = 30
+	}
+	if limit > 300 {
+		limit = 300
+	}
+	offset := (page - 1) * limit
+
+	// count
+	var total int64
+	countQ := ctrl.DB.Table("lecture_sessions").
+		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Where("lectures.lecture_masjid_id = ?", masjid.MasjidID).
+		Where("TO_CHAR(lecture_sessions.lecture_session_start_time, 'YYYY-MM') = ?", month)
+	if err := countQ.Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung sesi kajian per bulan")
+	}
+
 	type Result struct {
 		model.LectureSessionModel
 		LectureTitle     string   `gorm:"column:lecture_title"`
@@ -275,8 +308,6 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMonth(c *fiber.Ctx) er
 		UserGradeResult  *float64 `gorm:"column:user_grade_result"`
 		AttendanceStatus *int     `gorm:"column:attendance_status"`
 	}
-
-	// Select field
 	selectFields := []string{
 		"lecture_sessions.*",
 		"lectures.lecture_title",
@@ -289,7 +320,6 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMonth(c *fiber.Ctx) er
 		)
 	}
 
-	// Query builder
 	query := ctrl.DB.Model(&model.LectureSessionModel{}).
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
 		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id")
@@ -304,19 +334,18 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMonth(c *fiber.Ctx) er
 				AND user_lecture_sessions_attendance.user_lecture_sessions_attendance_user_id = ?`, userID)
 	}
 
-	// Jalankan query
 	var results []Result
 	if err := query.
 		Select(strings.Join(selectFields, ", ")).
 		Where("lectures.lecture_masjid_id = ?", masjid.MasjidID).
 		Where("TO_CHAR(lecture_sessions.lecture_session_start_time, 'YYYY-MM') = ?", month).
 		Order("lecture_sessions.lecture_session_start_time ASC").
+		Limit(limit).Offset(offset).
 		Scan(&results).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil sesi kajian")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil sesi kajian")
 	}
 
-	// Mapping ke DTO
-	var dtoList []dto.LectureSessionDTO
+	dtoList := make([]dto.LectureSessionDTO, 0, len(results))
 	for _, r := range results {
 		item := dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
 		if item.LectureSessionTeacherName == "" && r.UserName != nil {
@@ -331,43 +360,61 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMonth(c *fiber.Ctx) er
 		dtoList = append(dtoList, item)
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Berhasil mengambil sesi kajian berdasarkan bulan",
-		"data":    dtoList,
-	})
+	pagination := fiber.Map{
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": int((total+int64(limit)-1)/int64(limit)),
+		"has_next":    int64(page*limit) < total,
+		"has_prev":    page > 1,
+		"slug":        slug,
+		"month":       month,
+	}
+	return helper.JsonList(c, dtoList, pagination)
 }
 
-
-
+/* =========================================================
+   by Masjid Slug (list) -> JsonList + pagination
+========================================================= */
 func (ctrl *LectureSessionController) GetLectureSessionsByMasjidSlug(c *fiber.Ctx) error {
 	slug := c.Params("slug")
 	if slug == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Slug masjid tidak ditemukan di URL",
-		})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Slug masjid tidak ditemukan di URL")
 	}
 
-	// Cari masjid berdasarkan slug
-	var masjid struct {
-		MasjidID uuid.UUID `gorm:"column:masjid_id"`
-	}
-	if err := ctrl.DB.
-		Table("masjids").
-		Select("masjid_id").
-		Where("masjid_slug = ?", slug).
-		Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"message": "Masjid dengan slug tersebut tidak ditemukan",
-		})
+	var masjid struct{ MasjidID uuid.UUID `gorm:"column:masjid_id"` }
+	if err := ctrl.DB.Table("masjids").Select("masjid_id").Where("masjid_slug = ?", slug).Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "Masjid dengan slug tersebut tidak ditemukan")
 	}
 
-	// Join dengan lectures dan users
+	// pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.Query("limit", "10"))
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	offset := (page - 1) * limit
+
+	// count
+	var total int64
+	if err := ctrl.DB.Table("lecture_sessions").
+		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Where("lectures.lecture_masjid_id = ?", masjid.MasjidID).
+		Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung sesi kajian")
+	}
+
 	type JoinedResult struct {
 		model.LectureSessionModel
 		LectureTitle string  `gorm:"column:lecture_title"`
 		UserName     *string `gorm:"column:user_name"`
 	}
-
 	var results []JoinedResult
 	if err := ctrl.DB.
 		Model(&model.LectureSessionModel{}).
@@ -376,63 +423,76 @@ func (ctrl *LectureSessionController) GetLectureSessionsByMasjidSlug(c *fiber.Ct
 		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
 		Where("lectures.lecture_masjid_id = ?", masjid.MasjidID).
 		Order("lecture_sessions.lecture_session_start_time ASC").
+		Limit(limit).Offset(offset).
 		Scan(&results).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil sesi kajian berdasarkan slug masjid",
-		})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil sesi kajian berdasarkan slug masjid")
 	}
 
-	// Mapping ke DTO
 	response := make([]dto.LectureSessionDTO, len(results))
 	for i, r := range results {
 		dtoItem := dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
-
-		// Fallback jika teacher_name kosong
 		if dtoItem.LectureSessionTeacherName == "" && r.UserName != nil {
 			dtoItem.LectureSessionTeacherName = *r.UserName
 		}
-
 		response[i] = dtoItem
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Berhasil mengambil sesi kajian berdasarkan slug masjid",
-		"data":    response,
-	})
+	pagination := fiber.Map{
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": int((total+int64(limit)-1)/int64(limit)),
+		"has_next":    int64(page*limit) < total,
+		"has_prev":    page > 1,
+		"slug":        slug,
+	}
+	return helper.JsonList(c, response, pagination)
 }
 
-
+/* =========================================================
+   Upcoming by Masjid Slug (list) -> JsonList + pagination
+========================================================= */
 func (ctrl *LectureSessionController) GetUpcomingLectureSessionsByMasjidSlug(c *fiber.Ctx) error {
 	slug := c.Params("slug")
 	if slug == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Slug masjid tidak ditemukan di URL",
-		})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Slug masjid tidak ditemukan di URL")
 	}
 
-	// Cari masjid berdasarkan slug
-	var masjid struct {
-		MasjidID uuid.UUID `gorm:"column:masjid_id"`
-	}
-	if err := ctrl.DB.
-		Table("masjids").
-		Select("masjid_id").
-		Where("masjid_slug = ?", slug).
-		Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"message": "Masjid dengan slug tersebut tidak ditemukan",
-		})
+	var masjid struct{ MasjidID uuid.UUID `gorm:"column:masjid_id"` }
+	if err := ctrl.DB.Table("masjids").Select("masjid_id").Where("masjid_slug = ?", slug).Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "Masjid dengan slug tersebut tidak ditemukan")
 	}
 
 	now := time.Now()
 
-	// Join lectures + users
+	// pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.Query("limit", "10"))
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	offset := (page - 1) * limit
+
+	// count
+	var total int64
+	if err := ctrl.DB.Table("lecture_sessions").
+		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
+		Where("lectures.lecture_masjid_id = ? AND lecture_sessions.lecture_session_start_time > ?", masjid.MasjidID, now).
+		Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung sesi kajian mendatang")
+	}
+
 	type JoinedResult struct {
 		model.LectureSessionModel
 		LectureTitle string  `gorm:"column:lecture_title"`
 		UserName     *string `gorm:"column:user_name"`
 	}
-
 	var results []JoinedResult
 	if err := ctrl.DB.
 		Model(&model.LectureSessionModel{}).
@@ -441,13 +501,11 @@ func (ctrl *LectureSessionController) GetUpcomingLectureSessionsByMasjidSlug(c *
 		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
 		Where("lectures.lecture_masjid_id = ? AND lecture_sessions.lecture_session_start_time > ?", masjid.MasjidID, now).
 		Order("lecture_sessions.lecture_session_start_time ASC").
+		Limit(limit).Offset(offset).
 		Scan(&results).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil sesi kajian mendatang berdasarkan slug masjid",
-		})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil sesi kajian mendatang berdasarkan slug masjid")
 	}
 
-	// Map ke DTO
 	response := make([]dto.LectureSessionDTO, len(results))
 	for i, r := range results {
 		dtoItem := dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
@@ -457,48 +515,71 @@ func (ctrl *LectureSessionController) GetUpcomingLectureSessionsByMasjidSlug(c *
 		response[i] = dtoItem
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Berhasil mengambil sesi kajian mendatang berdasarkan slug masjid",
-		"data":    response,
-	})
+	pagination := fiber.Map{
+		"page":        page,
+		"limit":       limit,
+		"total":       total,
+		"total_pages": int((total+int64(limit)-1)/int64(limit)),
+		"has_next":    int64(page*limit) < total,
+		"has_prev":    page > 1,
+		"slug":        slug,
+	}
+	return helper.JsonList(c, response, pagination)
 }
 
-
-
+/* =========================================================
+   Finished by Masjid Slug (list) -> JsonList + pagination
+========================================================= */
 func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *fiber.Ctx) error {
 	log.Println("🟢 GET /api/u/masjids/:slug/finished-lecture-sessions")
 
-	// --- Ambil slug dan user ID ---
 	slug := c.Params("slug")
 	if slug == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"message": "Slug masjid tidak ditemukan di URL",
-		})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Slug masjid tidak ditemukan di URL")
 	}
 
 	userID := c.Cookies("user_id")
 	if userID == "" {
 		userID = c.Get("X-User-Id")
 	}
-	log.Println("[INFO] user_id dari request:", userID)
 
-	// --- Ambil masjid_id berdasarkan slug ---
-	var masjid struct {
-		MasjidID uuid.UUID
-	}
-	if err := ctrl.DB.
-		Table("masjids").
-		Select("masjid_id").
-		Where("masjid_slug = ?", slug).
-		Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"message": "Masjid dengan slug tersebut tidak ditemukan",
-		})
+	var masjid struct{ MasjidID uuid.UUID }
+	if err := ctrl.DB.Table("masjids").Select("masjid_id").Where("masjid_slug = ?", slug).Scan(&masjid).Error; err != nil || masjid.MasjidID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "Masjid dengan slug tersebut tidak ditemukan")
 	}
 
 	now := time.Now()
 
-	// --- Struct untuk hasil join ---
+	attendanceOnly := c.Query("attendance_only") == "true"
+
+	// pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.Query("limit", "10"))
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	offset := (page - 1) * limit
+
+	// count
+	countQ := ctrl.DB.Table("lecture_sessions").
+		Where("lecture_session_masjid_id = ? AND lecture_session_end_time < ?", masjid.MasjidID, now)
+	if attendanceOnly && userID != "" {
+		countQ = countQ.Joins(`LEFT JOIN user_lecture_sessions_attendance 
+			ON user_lecture_sessions_attendance.user_lecture_sessions_attendance_lecture_session_id = lecture_sessions.lecture_session_id 
+			AND user_lecture_sessions_attendance.user_lecture_sessions_attendance_user_id = ?`, userID).
+			Where("user_lecture_sessions_attendance.user_lecture_sessions_attendance_status IS NOT NULL")
+	}
+	var total int64
+	if err := countQ.Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung sesi kajian")
+	}
+
 	type JoinedResult struct {
 		model.LectureSessionModel
 		LectureTitle     string   `gorm:"column:lecture_title"`
@@ -506,8 +587,6 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 		UserGradeResult  *float64 `gorm:"column:user_grade_result"`
 		AttendanceStatus *int     `gorm:"column:attendance_status"`
 	}
-
-	// --- Select fields ---
 	selectFields := []string{
 		"lecture_sessions.*",
 		"lectures.lecture_title",
@@ -519,13 +598,10 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 			"user_lecture_sessions_attendance.user_lecture_sessions_attendance_status AS attendance_status",
 		)
 	}
-
-	// --- Query builder ---
 	query := ctrl.DB.Model(&model.LectureSessionModel{}).
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
 		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id")
-
-		if userID != "" {
+	if userID != "" {
 		query = query.
 			Joins(`LEFT JOIN user_lecture_sessions 
 				ON user_lecture_sessions.user_lecture_session_lecture_session_id = lecture_sessions.lecture_session_id 
@@ -533,29 +609,21 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 			Joins(`LEFT JOIN user_lecture_sessions_attendance 
 				ON user_lecture_sessions_attendance.user_lecture_sessions_attendance_lecture_session_id = lecture_sessions.lecture_session_id 
 				AND user_lecture_sessions_attendance.user_lecture_sessions_attendance_user_id = ?`, userID)
-
-		// Tambahkan filter opsional attendance_only=true
-		attendanceOnly := c.Query("attendance_only") == "true"
 		if attendanceOnly {
-			log.Println("[INFO] Filter aktif: hanya ambil sesi dengan kehadiran user (attendance_status IS NOT NULL)")
 			query = query.Where("user_lecture_sessions_attendance.user_lecture_sessions_attendance_status IS NOT NULL")
 		}
 	}
 
-	// --- Eksekusi query ---
 	var results []JoinedResult
 	if err := query.
 		Select(strings.Join(selectFields, ", ")).
 		Where("lecture_sessions.lecture_session_masjid_id = ? AND lecture_sessions.lecture_session_end_time < ?", masjid.MasjidID, now).
 		Order("lecture_sessions.lecture_session_start_time DESC").
+		Limit(limit).Offset(offset).
 		Scan(&results).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil sesi kajian",
-			"error":   err.Error(),
-		})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil sesi kajian")
 	}
 
-	// --- Mapping ke DTO ---
 	response := make([]dto.LectureSessionDTO, len(results))
 	for i, r := range results {
 		dtoItem := dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
@@ -571,29 +639,34 @@ func (ctrl *LectureSessionController) GetFinishedLectureSessionsByMasjidSlug(c *
 		response[i] = dtoItem
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Berhasil mengambil sesi kajian yang telah lewat berdasarkan slug masjid",
-		"data":    response,
-	})
+	pagination := fiber.Map{
+		"page":           page,
+		"limit":          limit,
+		"total":          total,
+		"total_pages":    int((total+int64(limit)-1)/int64(limit)),
+		"has_next":       int64(page*limit) < total,
+		"has_prev":       page > 1,
+		"slug":           slug,
+		"attendance_only": attendanceOnly,
+	}
+	return helper.JsonList(c, response, pagination)
 }
 
-
-
-// GET /api/u/lectures/:lecture_slug/sessions
+/* =========================================================
+   All Sessions by Lecture Slug (split upcoming/finished) -> JsonOK
+========================================================= */
 func (ctrl *LectureSessionController) GetAllLectureSessionsByLectureSlug(c *fiber.Ctx) error {
 	lectureSlug := c.Params("lecture_slug")
 	if lectureSlug == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"message": "Lecture slug tidak ditemukan di URL"})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Lecture slug tidak ditemukan di URL")
 	}
 	attendanceOnly := c.Query("attendance_only") == "true"
 
-	// Ambil user_id opsional (untuk progress)
 	userID := c.Cookies("user_id")
 	if userID == "" {
 		userID = c.Get("X-User-Id")
 	}
 
-	// Resolve lecture_slug -> lecture_id
 	type LectureLite struct {
 		LectureID    uuid.UUID `gorm:"column:lecture_id"`
 		LectureTitle string    `gorm:"column:lecture_title"`
@@ -603,38 +676,32 @@ func (ctrl *LectureSessionController) GetAllLectureSessionsByLectureSlug(c *fibe
 		Select("lecture_id, lecture_title").
 		Where("lecture_slug = ?", lectureSlug).
 		Scan(&lec).Error; err != nil || lec.LectureID == uuid.Nil {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"message": "Lecture dengan slug tsb tidak ditemukan"})
+		return helper.JsonError(c, fiber.StatusNotFound, "Lecture dengan slug tsb tidak ditemukan")
 	}
 
 	now := time.Now()
-
-	// Hasil join (tambahkan kolom progress & status)
 	type JoinedResult struct {
 		model.LectureSessionModel
 		LectureTitle     string   `gorm:"column:lecture_title"`
 		UserName         *string  `gorm:"column:user_name"`
 		UserGradeResult  *float64 `gorm:"column:user_grade_result"`
 		AttendanceStatus *int     `gorm:"column:attendance_status"`
-		Status           string   `gorm:"column:status"` // "upcoming" / "finished"
+		Status           string   `gorm:"column:status"`
 	}
 
-	// SELECT dinamis
 	selectFields := []string{
 		"lecture_sessions.*",
 		"lectures.lecture_title",
 		"users.user_name",
-		// status dihitung via CASE di SQL biar efisien
 		"CASE WHEN lecture_sessions.lecture_session_end_time < ? THEN 'finished' ELSE 'upcoming' END AS status",
 	}
 	args := []any{now}
 
-	// Base query
 	q := ctrl.DB.Model(&model.LectureSessionModel{}).
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
 		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id").
 		Where("lecture_sessions.lecture_session_lecture_id = ?", lec.LectureID)
 
-	// Join progress kalau user_id ada
 	if userID != "" {
 		selectFields = append(selectFields,
 			"user_lecture_sessions.user_lecture_session_grade_result AS user_grade_result",
@@ -652,23 +719,16 @@ func (ctrl *LectureSessionController) GetAllLectureSessionsByLectureSlug(c *fibe
 		}
 	}
 
-	// Eksekusi
 	var rows []JoinedResult
 	if err := q.Select(strings.Join(selectFields, ", "), args...).
-		// urutkan agar nanti gampang di-split group (upcoming dulu ASC, finished setelahnya DESC)
 		Order("CASE WHEN lecture_sessions.lecture_session_end_time < NOW() THEN 1 ELSE 0 END ASC").
 		Order("lecture_sessions.lecture_session_start_time ASC").
 		Scan(&rows).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Gagal mengambil sesi by lecture slug",
-			"error":   err.Error(),
-		})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil sesi by lecture slug")
 	}
 
-	// Mapping -> DTO + pengelompokan
 	upcoming := make([]dto.LectureSessionDTO, 0, len(rows))
 	finished := make([]dto.LectureSessionDTO, 0, len(rows))
-
 	for _, r := range rows {
 		item := dto.ToLectureSessionDTOWithLectureTitle(r.LectureSessionModel, r.LectureTitle)
 		if item.LectureSessionTeacherName == "" && r.UserName != nil {
@@ -686,34 +746,31 @@ func (ctrl *LectureSessionController) GetAllLectureSessionsByLectureSlug(c *fibe
 			upcoming = append(upcoming, item)
 		}
 	}
-
-	// Sort final: upcoming ASC (sudah), finished DESC
+	// finished DESC
 	sort.SliceStable(finished, func(i, j int) bool {
 		return finished[i].LectureSessionStartTime.After(finished[j].LectureSessionStartTime)
 	})
 
-	return c.JSON(fiber.Map{
-		"message":  "Berhasil ambil semua sesi berdasarkan lecture slug",
+	return helper.JsonOK(c, "Berhasil ambil semua sesi berdasarkan lecture slug", fiber.Map{
 		"lecture":  fiber.Map{"lecture_id": lec.LectureID, "lecture_title": lec.LectureTitle, "lecture_slug": lectureSlug},
 		"upcoming": upcoming,
 		"finished": finished,
 	})
 }
 
-
+/* =========================================================
+   GET by ID + user progress (single) -> JsonOK
+========================================================= */
 func (ctrl *LectureSessionController) GetLectureSessionByIDProgressUser(c *fiber.Ctx) error {
 	sessionID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
-		log.Println("[ERROR] Invalid session ID:", c.Params("id"))
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// Ambil user_id dari cookie / header
 	userID := c.Cookies("user_id")
 	if userID == "" {
 		userID = c.Get("X-User-Id")
 	}
-	log.Println("[INFO] user_id dari request:", userID)
 
 	type JoinedResult struct {
 		model.LectureSessionModel
@@ -721,21 +778,15 @@ func (ctrl *LectureSessionController) GetLectureSessionByIDProgressUser(c *fiber
 		UserName        *string  `gorm:"column:user_name"`
 		UserGradeResult *float64 `gorm:"column:user_grade_result"`
 	}
-
 	var result JoinedResult
 
 	query := ctrl.DB.
 		Model(&model.LectureSessionModel{}).
-		Select(`
-			lecture_sessions.*, 
-			lectures.lecture_title, 
-			users.user_name
-		`).
+		Select(`lecture_sessions.*, lectures.lecture_title, users.user_name`).
 		Joins("JOIN lectures ON lectures.lecture_id = lecture_sessions.lecture_session_lecture_id").
 		Joins("LEFT JOIN users ON users.id = lecture_sessions.lecture_session_teacher_id")
 
 	if userID != "" {
-		log.Println("[INFO] Menambahkan join ke user_lecture_sessions")
 		query = query.Select(`
 			lecture_sessions.*, 
 			lectures.lecture_title, 
@@ -748,28 +799,17 @@ func (ctrl *LectureSessionController) GetLectureSessionByIDProgressUser(c *fiber
 		`, userID)
 	}
 
-	log.Println("[INFO] Eksekusi query untuk session ID:", sessionID)
-
-	if err := query.
-		Where("lecture_sessions.lecture_session_id = ?", sessionID).
-		Scan(&result).Error; err != nil {
-		log.Println("[ERROR] Gagal ambil data sesi kajian:", err)
-		return fiber.NewError(fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
+	if err := query.Where("lecture_sessions.lecture_session_id = ?", sessionID).Scan(&result).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "Sesi kajian tidak ditemukan")
 	}
-
-	log.Println("[INFO] Hasil query berhasil diambil")
-	log.Printf("[DEBUG] UserGradeResult: %v\n", result.UserGradeResult)
 
 	dtoItem := dto.ToLectureSessionDTOWithLectureTitle(result.LectureSessionModel, result.LectureTitle)
-
 	if dtoItem.LectureSessionTeacherName == "" && result.UserName != nil {
 		dtoItem.LectureSessionTeacherName = *result.UserName
-		log.Println("[INFO] Fallback user_name digunakan sebagai teacher name:", *result.UserName)
 	}
-
 	if result.UserGradeResult != nil {
 		dtoItem.UserGradeResult = result.UserGradeResult
 	}
 
-	return c.JSON(dtoItem)
+	return helper.JsonOK(c, "Berhasil mengambil detail sesi kajian", dtoItem)
 }

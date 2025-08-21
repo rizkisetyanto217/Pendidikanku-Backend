@@ -5,12 +5,12 @@ import (
 	"masjidku_backend/internals/features/home/posts/model"
 	helper "masjidku_backend/internals/helpers"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
-
 
 type PostController struct {
 	DB *gorm.DB
@@ -24,13 +24,13 @@ func NewPostController(db *gorm.DB) *PostController {
 func (ctrl *PostController) CreatePost(c *fiber.Ctx) error {
 	userIDRaw := c.Locals("user_id")
 	if userIDRaw == nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "User belum login")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "User belum login")
 	}
 	userID := userIDRaw.(string)
 
 	masjidIDRaw := c.Locals("masjid_id")
 	if masjidIDRaw == nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
 	masjidID := masjidIDRaw.(string)
 
@@ -41,14 +41,14 @@ func (ctrl *PostController) CreatePost(c *fiber.Ctx) error {
 	themeID := c.FormValue("post_theme_id")
 
 	if title == "" || content == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "Judul dan konten wajib diisi")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Judul dan konten wajib diisi")
 	}
 
 	var imageURL *string
 	if file, err := c.FormFile("post_image_url"); err == nil && file != nil {
 		url, err := helper.UploadImageToSupabase("posts", file)
 		if err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal upload gambar")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal upload gambar")
 		}
 		imageURL = &url
 	} else if val := c.FormValue("post_image_url"); val != "" {
@@ -72,7 +72,7 @@ func (ctrl *PostController) CreatePost(c *fiber.Ctx) error {
 	}
 
 	if err := ctrl.DB.Create(&post).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat post")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat post")
 	}
 
 	// 🔎 Ambil theme jika ada
@@ -87,15 +87,19 @@ func (ctrl *PostController) CreatePost(c *fiber.Ctx) error {
 	// 🧮 LikeCount default 0 saat pertama dibuat
 	likeCount := int64(0)
 
-	return c.Status(fiber.StatusCreated).JSON(dto.ToPostDTOWithTheme(post, theme, likeCount))
+	return helper.JsonCreated(c, "Post berhasil dibuat", dto.ToPostDTOWithTheme(post, theme, likeCount))
 }
 
+// 🔄 Update Post
 func (ctrl *PostController) UpdatePost(c *fiber.Ctx) error {
 	id := c.Params("id")
 
 	var post model.PostModel
 	if err := ctrl.DB.First(&post, "post_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusNotFound, "Post tidak ditemukan")
+		if err == gorm.ErrRecordNotFound {
+			return helper.JsonError(c, fiber.StatusNotFound, "Post tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data post")
 	}
 
 	if val := c.FormValue("post_title"); val != "" {
@@ -116,6 +120,7 @@ func (ctrl *PostController) UpdatePost(c *fiber.Ctx) error {
 
 	// 🖼️ Handle gambar baru
 	if file, err := c.FormFile("post_image_url"); err == nil && file != nil {
+		// hapus lama (jika ada)
 		if post.PostImageURL != nil {
 			if parsed, err := url.Parse(*post.PostImageURL); err == nil {
 				prefix := "/storage/v1/object/public/"
@@ -127,16 +132,17 @@ func (ctrl *PostController) UpdatePost(c *fiber.Ctx) error {
 				}
 			}
 		}
+		// upload baru
 		newURL, err := helper.UploadImageToSupabase("posts", file)
 		if err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal upload gambar baru")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal upload gambar baru")
 		}
 		post.PostImageURL = &newURL
 	}
 
 	// 💾 Simpan
 	if err := ctrl.DB.Save(&post).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal update post")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update post")
 	}
 
 	// 🔎 Ambil tema jika ada
@@ -154,16 +160,35 @@ func (ctrl *PostController) UpdatePost(c *fiber.Ctx) error {
 		Where("post_like_post_id = ? AND post_like_is_liked = true", post.PostID).
 		Count(&likeCount)
 
-	return c.JSON(dto.ToPostDTOWithTheme(post, theme, likeCount))
+	return helper.JsonOK(c, "Post berhasil diperbarui", dto.ToPostDTOWithTheme(post, theme, likeCount))
 }
 
-
-
-// 📄 Get Semua Post
+// 📄 Get Semua Post (pagination opsional: ?page=1&page_size=20)
 func (ctrl *PostController) GetAllPosts(c *fiber.Ctx) error {
+	// pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	pageSize, _ := strconv.Atoi(c.Query("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 200 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+
+	var total int64
+	if err := ctrl.DB.Model(&model.PostModel{}).Where("post_deleted_at IS NULL").Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total post")
+	}
+
 	var posts []model.PostModel
-	if err := ctrl.DB.Preload("Masjid").Preload("User").Find(&posts).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to retrieve posts")
+	if err := ctrl.DB.
+		Where("post_deleted_at IS NULL").
+		Preload("Masjid").Preload("User").
+		Order("post_created_at DESC").
+		Limit(pageSize).Offset(offset).
+		Find(&posts).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve posts")
 	}
 
 	// Ambil semua theme ID unik
@@ -173,6 +198,7 @@ func (ctrl *PostController) GetAllPosts(c *fiber.Ctx) error {
 			themeIDs[*post.PostThemeID] = struct{}{}
 		}
 	}
+
 	var themes []model.PostThemeModel
 	if len(themeIDs) > 0 {
 		var ids []string
@@ -186,7 +212,7 @@ func (ctrl *PostController) GetAllPosts(c *fiber.Ctx) error {
 		themeMap[t.PostThemeID] = t
 	}
 
-	var result []dto.PostDTO
+	result := make([]dto.PostDTO, 0, len(posts))
 	for _, post := range posts {
 		var theme *model.PostThemeModel
 		if post.PostThemeID != nil {
@@ -203,25 +229,69 @@ func (ctrl *PostController) GetAllPosts(c *fiber.Ctx) error {
 		result = append(result, dto.ToPostDTOWithTheme(post, theme, likeCount))
 	}
 
-	return c.JSON(result)
+	pagination := fiber.Map{
+		"page":       page,
+		"page_size":  pageSize,
+		"total_data": total,
+		"total_pages": func() int64 {
+			if total == 0 {
+				return 1
+			}
+			// ceil
+			return (total + int64(pageSize) - 1) / int64(pageSize)
+		}(),
+		"has_next":  int64(offset+pageSize) < total,
+		"has_prev":  page > 1,
+		"next_page": func() int {
+			if int64(offset+pageSize) < total {
+				return page + 1
+			}
+			return page
+		}(),
+		"prev_page": func() int {
+			if page > 1 {
+				return page - 1
+			}
+			return page
+		}(),
+	}
+
+	return helper.JsonList(c, result, pagination)
 }
 
-// =============================
-// 📄 Get Posts by Masjid ID (From Token)
-// =============================
+// 📄 Get Posts by Masjid ID (From Token, pagination opsional)
 func (ctrl *PostController) GetPostsByMasjid(c *fiber.Ctx) error {
 	masjidIDRaw := c.Locals("masjid_id")
 	if masjidIDRaw == nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
 	masjidID := masjidIDRaw.(string)
+
+	// pagination
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	pageSize, _ := strconv.Atoi(c.Query("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 200 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+
+	var total int64
+	if err := ctrl.DB.Model(&model.PostModel{}).
+		Where("post_masjid_id = ? AND post_deleted_at IS NULL", masjidID).
+		Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung daftar postingan")
+	}
 
 	var posts []model.PostModel
 	if err := ctrl.DB.
 		Where("post_masjid_id = ? AND post_deleted_at IS NULL", masjidID).
 		Order("post_created_at DESC").
+		Limit(pageSize).Offset(offset).
 		Find(&posts).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil daftar postingan")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil daftar postingan")
 	}
 
 	// 🔎 Ambil semua theme ID unik dari post
@@ -241,14 +311,14 @@ func (ctrl *PostController) GetPostsByMasjid(c *fiber.Ctx) error {
 		ctrl.DB.Where("post_theme_id IN ?", ids).Find(&themes)
 	}
 
-	// Buat map untuk lookup theme
+	// Map theme
 	themeMap := make(map[string]model.PostThemeModel)
 	for _, t := range themes {
 		themeMap[t.PostThemeID] = t
 	}
 
-	// Bangun hasil response
-	var result []dto.PostDTO
+	// Build result
+	result := make([]dto.PostDTO, 0, len(posts))
 	for _, post := range posts {
 		var theme *model.PostThemeModel
 		if post.PostThemeID != nil {
@@ -265,22 +335,53 @@ func (ctrl *PostController) GetPostsByMasjid(c *fiber.Ctx) error {
 		result = append(result, dto.ToPostDTOWithTheme(post, theme, likeCount))
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Berhasil mengambil daftar postingan masjid",
-		"data":    result,
-	})
+	pagination := fiber.Map{
+		"page":       page,
+		"page_size":  pageSize,
+		"total_data": total,
+		"total_pages": func() int64 {
+			if total == 0 {
+				return 1
+			}
+			return (total + int64(pageSize) - 1) / int64(pageSize)
+		}(),
+		"has_next":  int64(offset+pageSize) < total,
+		"has_prev":  page > 1,
+		"next_page": func() int {
+			if int64(offset+pageSize) < total {
+				return page + 1
+			}
+			return page
+		}(),
+		"prev_page": func() int {
+			if page > 1 {
+				return page - 1
+			}
+			return page
+		}(),
+	}
+
+	return helper.JsonList(c, result, pagination)
 }
-
-
-
 
 // 🗑️ Hapus Post
 func (ctrl *PostController) DeletePost(c *fiber.Ctx) error {
 	id := c.Params("id")
 
-	if err := ctrl.DB.Delete(&model.PostModel{}, "post_id = ?", id).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to delete post")
+	// opsional: cek ada
+	var exists int64
+	if err := ctrl.DB.Model(&model.PostModel{}).
+		Where("post_id = ?", id).
+		Count(&exists).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus post")
+	}
+	if exists == 0 {
+		return helper.JsonError(c, fiber.StatusNotFound, "Post tidak ditemukan")
 	}
 
-	return c.SendStatus(fiber.StatusNoContent)
+	if err := ctrl.DB.Delete(&model.PostModel{}, "post_id = ?", id).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus post")
+	}
+
+	return helper.JsonDeleted(c, "Post berhasil dihapus", fiber.Map{"id": id})
 }

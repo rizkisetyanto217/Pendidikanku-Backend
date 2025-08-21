@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
     -- simpan HASH token (lebih aman & lebih kecil di index)
-    token_hash   BYTEA NOT NULL UNIQUE,
+    token   BYTEA NOT NULL UNIQUE,
 
     -- status & masa berlaku
     expires_at   TIMESTAMPTZ NOT NULL,
@@ -38,10 +38,10 @@ FOR EACH ROW EXECUTE FUNCTION set_refresh_tokens_updated_at();
 
 -- INDEXING (disetel untuk pola query umum)
 
--- 1) Verifikasi token: WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > NOW()
---    (token_hash, expires_at) + partial revoked_at IS NULL
+-- 1) Verifikasi token: WHERE token = $1 AND revoked_at IS NULL AND expires_at > NOW()
+--    (token, expires_at) + partial revoked_at IS NULL
 CREATE INDEX IF NOT EXISTS idx_rt_token_active
-  ON refresh_tokens (token_hash, expires_at)
+  ON refresh_tokens (token, expires_at)
   WHERE revoked_at IS NULL;
 
 -- 2) Listing token aktif per user: WHERE user_id = $1 AND revoked_at IS NULL
