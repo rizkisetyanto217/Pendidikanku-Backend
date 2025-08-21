@@ -561,7 +561,6 @@ func (ctrl *ClassAttendanceSessionController) ListByMasjid(c *fiber.Ctx) error {
 }
 
 
-
 // --- helper kecil untuk logging aman ---
 func nilIfNilUUID(p *uuid.UUID) any {
 	if p == nil {
@@ -575,7 +574,6 @@ func ptrStr(s *string) string {
 	}
 	return *s
 }
-
 
 func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fiber.Ctx) error {
 	// Tenant & Role Guard (admin ATAU teacher)

@@ -17,6 +17,7 @@ func AnnouncementAdminRoute(r fiber.Router, db *gorm.DB) {
 
 	themes.Post("/", ctl.Create)      // Create
 	themes.Get("/", ctl.List)         // List
+	themes.Get("/search", ctl.SearchByName) // Search
 	themes.Get("/:id", ctl.GetByID)   // Detail
 	themes.Put("/:id", ctl.Update)    // Update
 	themes.Delete("/:id", ctl.Delete) // Soft delete

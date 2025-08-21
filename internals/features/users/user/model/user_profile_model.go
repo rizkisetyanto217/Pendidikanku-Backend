@@ -19,6 +19,8 @@ type UsersProfileModel struct {
 	UserID       uuid.UUID      `gorm:"type:uuid;not null;index" json:"user_id"`
 	DonationName string         `gorm:"size:50" json:"donation_name"`
 	FullName     string         `gorm:"size:50" json:"full_name"`
+	FatherName   string         `gorm:"size:50;column:father_name" json:"father_name"`
+	MotherName   string         `gorm:"size:50;column:mother_name" json:"mother_name"`
 	DateOfBirth  *time.Time     `json:"date_of_birth" time_format:"2006-01-02"`
 	Gender       *Gender        `gorm:"size:10" json:"gender,omitempty"`
 	PhoneNumber  string         `gorm:"size:20" json:"phone_number"`

@@ -123,9 +123,6 @@ func (h *UserClassSectionController) CreateUserClassSection(c *fiber.Ctx) error 
 
 	// Pastikan hanya satu penempatan ACTIVE per user_class (kalau status = active & belum di-unassign)
 	targetStatus := secModel.UserClassSectionStatusActive
-	if req.UserClassSectionsStatus != nil && strings.TrimSpace(*req.UserClassSectionsStatus) != "" {
-		targetStatus = strings.TrimSpace(*req.UserClassSectionsStatus)
-	}
 	if strings.EqualFold(targetStatus, secModel.UserClassSectionStatusActive) && (req.UserClassSectionsUnassignedAt == nil) {
 		if err := h.ensureSingleActivePerUserClass(req.UserClassSectionsUserClassID, uuid.Nil); err != nil {
 			return err
@@ -262,6 +259,7 @@ func (h *UserClassSectionController) GetUserClassSectionByID(c *fiber.Ctx) error
 	return helper.JsonOK(c, "OK", ucsDTO.NewUserClassSectionResponse(m))
 }
 
+
 // GET /admin/user-class-sections
 func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
@@ -270,9 +268,7 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 	}
 
 	var q ucsDTO.ListUserClassSectionQuery
-	// default pagination
 	q.Limit, q.Offset = 20, 0
-
 	if err := c.QueryParser(&q); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
 	}
@@ -286,33 +282,26 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 	tx := h.DB.Model(&secModel.UserClassSectionsModel{}).
 		Where("user_class_sections_masjid_id = ?", masjidID)
 
-	// Filter opsional
+	// Filters
 	if q.UserClassID != nil {
 		tx = tx.Where("user_class_sections_user_class_id = ?", *q.UserClassID)
 	}
 	if q.SectionID != nil {
 		tx = tx.Where("user_class_sections_section_id = ?", *q.SectionID)
 	}
-
-	// (Compat) Jika q.Status diisi, map ke unassigned_at:
-	//   active   -> unassigned_at IS NULL
-	//   inactive -> unassigned_at IS NOT NULL
 	if q.Status != nil {
-		status := strings.ToLower(strings.TrimSpace(*q.Status))
-		switch status {
+		switch strings.ToLower(strings.TrimSpace(*q.Status)) {
 		case "active":
 			tx = tx.Where("user_class_sections_unassigned_at IS NULL")
 		case "inactive":
 			tx = tx.Where("user_class_sections_unassigned_at IS NOT NULL")
 		}
 	}
-
-	// ActiveOnly: hanya yang masih "aktif" (belum di-unassign)
 	if q.ActiveOnly != nil && *q.ActiveOnly {
 		tx = tx.Where("user_class_sections_unassigned_at IS NULL")
 	}
 
-	// Sorting
+	// Sort
 	sort := "assigned_at_desc"
 	if q.Sort != nil {
 		sort = strings.ToLower(strings.TrimSpace(*q.Sort))
@@ -328,22 +317,167 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 		tx = tx.Order("user_class_sections_assigned_at DESC")
 	}
 
-	// Pagination
+	// Paging
 	tx = tx.Limit(q.Limit).Offset(q.Offset)
 
-	// Eksekusi
+	// Fetch rows
 	var rows []secModel.UserClassSectionsModel
 	if err := tx.Find(&rows).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
+	// Early return kalau tidak ada data
+	if len(rows) == 0 {
+		return helper.JsonOK(c, "OK", []*ucsDTO.UserClassSectionResponse{})
+	}
 
-	// Response
+	/* ===== Enrichment ===== */
+
+	// 1) Kumpulkan user_class_id unik
+	ucSet := make(map[uuid.UUID]struct{}, len(rows))
+	userClassIDs := make([]uuid.UUID, 0, len(rows))
+	for i := range rows {
+		id := rows[i].UserClassSectionsUserClassID
+		if _, ok := ucSet[id]; !ok {
+			ucSet[id] = struct{}{}
+			userClassIDs = append(userClassIDs, id)
+		}
+	}
+
+	// 2) Ambil mapping user_class -> (user_id, status, started_at, ended_at)
+	type ucMeta struct {
+		UserClassID uuid.UUID  `gorm:"column:user_classes_id"`
+		UserID      uuid.UUID  `gorm:"column:user_classes_user_id"`
+		Status      string     `gorm:"column:user_classes_status"`
+		StartedAt   *time.Time `gorm:"column:user_classes_started_at"`
+		EndedAt     *time.Time `gorm:"column:user_classes_ended_at"`
+	}
+	ucMetaByID := make(map[uuid.UUID]ucMeta, len(userClassIDs))
+	userIDByUC := make(map[uuid.UUID]uuid.UUID, len(userClassIDs))
+	{
+		var ucRows []ucMeta
+		if err := h.DB.
+			Table("user_classes").
+			Select("user_classes_id, user_classes_user_id, user_classes_status, user_classes_started_at, user_classes_ended_at").
+			Where("user_classes_id IN ?", userClassIDs).
+			Find(&ucRows).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data user_class")
+		}
+		for _, r := range ucRows {
+			ucMetaByID[r.UserClassID] = r
+			userIDByUC[r.UserClassID] = r.UserID
+		}
+	}
+
+	// 3) Kumpulkan user_id unik
+	uSet := make(map[uuid.UUID]struct{}, len(userClassIDs))
+	userIDs := make([]uuid.UUID, 0, len(userClassIDs))
+	for _, uc := range userClassIDs {
+		if uid, ok := userIDByUC[uc]; ok {
+			if _, seen := uSet[uid]; !seen {
+				uSet[uid] = struct{}{}
+				userIDs = append(userIDs, uid)
+			}
+		}
+	}
+
+	// 4) Ambil users -> map[user_id]UcsUser
+	userMap := make(map[uuid.UUID]ucsDTO.UcsUser, len(userIDs))
+	if len(userIDs) > 0 {
+		var urs []struct {
+			ID       uuid.UUID `gorm:"column:id"`
+			UserName string    `gorm:"column:user_name"`
+			Email    string    `gorm:"column:email"`
+			IsActive bool      `gorm:"column:is_active"`
+		}
+		if err := h.DB.
+			Table("users").
+			Select("id, user_name, email, is_active").
+			Where("id IN ?", userIDs).
+			Find(&urs).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data user")
+		}
+		for _, u := range urs {
+			userMap[u.ID] = ucsDTO.UcsUser{
+				ID:       u.ID,
+				UserName: u.UserName,
+				Email:    u.Email,
+				IsActive: u.IsActive,
+			}
+		}
+	}
+
+	// 5) Ambil users_profile -> map[user_id]UcsUserProfile
+	profileMap := make(map[uuid.UUID]ucsDTO.UcsUserProfile, len(userIDs))
+	if len(userIDs) > 0 {
+		var prs []struct {
+			UserID       uuid.UUID  `gorm:"column:user_id"`
+			DonationName string     `gorm:"column:donation_name"`
+			FullName     string     `gorm:"column:full_name"`
+			FatherName   string     `gorm:"column:father_name"`
+			MotherName   string     `gorm:"column:mother_name"`
+			DateOfBirth  *time.Time `gorm:"column:date_of_birth"`
+			Gender       *string    `gorm:"column:gender"`
+			PhoneNumber  string     `gorm:"column:phone_number"`
+			Bio          string     `gorm:"column:bio"`
+			Location     string     `gorm:"column:location"`
+			Occupation   string     `gorm:"column:occupation"`
+		}
+		if err := h.DB.
+			Table("users_profile").
+			Select(`user_id, donation_name, full_name, father_name, mother_name,
+			        date_of_birth, gender, phone_number, bio, location, occupation`).
+			Where("user_id IN ?", userIDs).
+			Where("deleted_at IS NULL").
+			Find(&prs).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data profile")
+		}
+		for _, p := range prs {
+			profileMap[p.UserID] = ucsDTO.UcsUserProfile{
+				UserID:       p.UserID,
+				DonationName: p.DonationName,
+				FullName:     p.FullName,
+				FatherName:   p.FatherName,
+				MotherName:   p.MotherName,
+				DateOfBirth:  p.DateOfBirth,
+				Gender:       p.Gender,
+				PhoneNumber:  p.PhoneNumber,
+				Bio:          p.Bio,
+				Location:     p.Location,
+				Occupation:   p.Occupation,
+			}
+		}
+	}
+
+	// 6) Build response + set user_classes status & enrichments
 	resp := make([]*ucsDTO.UserClassSectionResponse, 0, len(rows))
 	for i := range rows {
-		resp = append(resp, ucsDTO.NewUserClassSectionResponse(&rows[i]))
+		r := ucsDTO.NewUserClassSectionResponse(&rows[i])
+
+		ucID := rows[i].UserClassSectionsUserClassID
+		if meta, ok := ucMetaByID[ucID]; ok {
+			// isi status dari user_classes (pastikan field ada di DTO kamu)
+			r.UserClassesStatus = meta.Status
+			r.UserClassesStartedAt = meta.StartedAt
+			r.UserClassesEndedAt = meta.EndedAt
+		}
+
+		if uid, ok := userIDByUC[ucID]; ok {
+			if u, ok := userMap[uid]; ok {
+				uCopy := u
+				r.User = &uCopy
+			}
+			if p, ok := profileMap[uid]; ok {
+				pCopy := p
+				r.Profile = &pCopy
+			}
+		}
+
+		resp = append(resp, r)
 	}
+
 	return helper.JsonOK(c, "OK", resp)
 }
+
 
 
 // POST /admin/user-class-sections/:id/end  -> unassign/akhiri penempatan

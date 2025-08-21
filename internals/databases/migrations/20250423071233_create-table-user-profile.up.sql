@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS users_profile (
     gender VARCHAR(10) CHECK (gender IN ('male', 'female')),
     phone_number VARCHAR(20),
     bio VARCHAR(300),
+    father_name VARCHAR(50),
+    mother_name VARCHAR(50),
     location VARCHAR(50),
     occupation VARCHAR(20),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

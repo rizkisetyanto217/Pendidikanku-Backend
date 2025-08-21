@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func ClassAttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
+func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	// Controller untuk sessions
 	sessionController := entryCtrl.NewClassAttendanceSessionController(db)
 
@@ -29,8 +29,8 @@ func ClassAttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	// =====================
 	// Attendance Entries
 	// =====================
-	eGroup := r.Group("/user_class_attendance_entries")
+	eGroup := r.Group("/user_class_attendance")
 	eGroup.Post("/", entryController.CreateAttendanceSession)
 	eGroup.Get("/", entryController.ListAttendanceSessions)
-	eGroup.Patch("/:id", entryController.UpdateAttendanceSession)
+	eGroup.Put("/:id", entryController.UpdateAttendanceSession)
 }

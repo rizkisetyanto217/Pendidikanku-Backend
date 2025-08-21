@@ -11,7 +11,7 @@ import (
 // Contoh penggunaan middleware auth jika ada:
 // import mw "masjidku_backend/internals/middlewares"
 
-func ClassAttendanceSessionsUserRoutes(r fiber.Router, db *gorm.DB) {
+func AttendanceSessionsUserRoutes(r fiber.Router, db *gorm.DB) {
 	// Buat instance controller dengan nama jelas
 	attendanceSessionController := controller.NewClassAttendanceSessionController(db)
 

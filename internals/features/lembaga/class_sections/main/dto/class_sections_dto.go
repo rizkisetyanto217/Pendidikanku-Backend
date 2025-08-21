@@ -13,6 +13,7 @@ import (
 
 /* ===================== Requests ===================== */
 
+// Create: SELALU aktif saat dibuat (tidak menerima flag aktif dari client)
 type CreateClassSectionRequest struct {
 	ClassSectionsMasjidID  *uuid.UUID      `json:"class_sections_masjid_id" validate:"omitempty"`
 	ClassSectionsClassID   uuid.UUID       `json:"class_sections_class_id" validate:"required"`
@@ -22,7 +23,6 @@ type CreateClassSectionRequest struct {
 	ClassSectionsCode      *string         `json:"class_sections_code" validate:"omitempty,max=50"`
 	ClassSectionsCapacity  *int            `json:"class_sections_capacity" validate:"omitempty,gte=0"`
 	ClassSectionsSchedule  json.RawMessage `json:"class_sections_schedule" validate:"omitempty"`
-	ClassSectionsIsActive  *bool           `json:"class_sections_is_active" validate:"omitempty"`
 }
 
 func (r *CreateClassSectionRequest) ToModel() *model.ClassSectionModel {
@@ -34,17 +34,15 @@ func (r *CreateClassSectionRequest) ToModel() *model.ClassSectionModel {
 		ClassSectionsName:      r.ClassSectionsName,
 		ClassSectionsCode:      r.ClassSectionsCode,
 		ClassSectionsCapacity:  r.ClassSectionsCapacity,
-		ClassSectionsIsActive:  true, // default aktif
+		ClassSectionsIsActive:  true, // ⬅️ selalu aktif saat create
 	}
 	if len(r.ClassSectionsSchedule) > 0 {
 		m.ClassSectionsSchedule = datatypes.JSON(r.ClassSectionsSchedule)
 	}
-	if r.ClassSectionsIsActive != nil {
-		m.ClassSectionsIsActive = *r.ClassSectionsIsActive
-	}
 	return m
 }
 
+// Update: boleh ubah aktif/nonaktif + field lain
 type UpdateClassSectionRequest struct {
 	ClassSectionsMasjidID  *uuid.UUID       `json:"class_sections_masjid_id" validate:"omitempty"`
 	ClassSectionsClassID   *uuid.UUID       `json:"class_sections_class_id" validate:"omitempty"`
@@ -74,8 +72,7 @@ func (r *UpdateClassSectionRequest) ApplyToModel(m *model.ClassSectionModel) {
 		m.ClassSectionsName = *r.ClassSectionsName
 	}
 	if r.ClassSectionsCode != nil {
-		// boleh kosong string; untuk null pakai explicit null di JSON body
-		m.ClassSectionsCode = r.ClassSectionsCode
+		m.ClassSectionsCode = r.ClassSectionsCode // boleh kosong string
 	}
 	if r.ClassSectionsCapacity != nil {
 		m.ClassSectionsCapacity = r.ClassSectionsCapacity
@@ -126,8 +123,7 @@ type ClassSectionResponse struct {
 	ClassSectionsUpdatedAt *time.Time `json:"class_sections_updated_at,omitempty"`
 	ClassSectionsDeletedAt *time.Time `json:"class_sections_deleted_at,omitempty"`
 
-	// Enrichment: data guru dari tabel users
-	Teacher *UserLite `json:"teacher,omitempty"`
+	Teacher *UserLite `json:"teacher,omitempty"` // enrichment (optional)
 }
 
 func NewClassSectionResponse(m *model.ClassSectionModel) *ClassSectionResponse {
@@ -141,7 +137,6 @@ func NewClassSectionResponse(m *model.ClassSectionModel) *ClassSectionResponse {
 		ClassSectionsName:     m.ClassSectionsName,
 		ClassSectionsCode:     m.ClassSectionsCode,
 		ClassSectionsCapacity: m.ClassSectionsCapacity,
-		// datatypes.JSON -> json.RawMessage
 		ClassSectionsSchedule: json.RawMessage(m.ClassSectionsSchedule),
 
 		ClassSectionsIsActive:  m.ClassSectionsIsActive,
@@ -152,14 +147,12 @@ func NewClassSectionResponse(m *model.ClassSectionModel) *ClassSectionResponse {
 	}
 }
 
-// Versi dengan embed guru (opsional)
 func NewClassSectionResponseWithTeacher(m *model.ClassSectionModel, t *UserLite) *ClassSectionResponse {
 	resp := NewClassSectionResponse(m)
 	resp.Teacher = t
 	return resp
 }
 
-// Helper: mapping slice + user map (opsional, memudahkan controller)
 func MapClassSectionsWithTeachers(models []model.ClassSectionModel, users map[uuid.UUID]UserLite) []ClassSectionResponse {
 	out := make([]ClassSectionResponse, 0, len(models))
 	for i := range models {

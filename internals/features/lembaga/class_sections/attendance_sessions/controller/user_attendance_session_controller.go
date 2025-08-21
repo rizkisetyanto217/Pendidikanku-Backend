@@ -8,6 +8,7 @@ import (
 	"masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/model"
 	helper "masjidku_backend/internals/helpers"
 
+	attendanceservice "masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions_settings/service"
 	semstats "masjidku_backend/internals/features/lembaga/stats/semester_stats/service"
 
 	"github.com/go-playground/validator/v10"
@@ -29,7 +30,6 @@ func NewTeacherClassAttendanceSessionController(db *gorm.DB) *TeacherClassAttend
 
 /* ===================== CREATE ===================== */
 // POST /teacher/class-attendance-sessions
-// POST /teacher/class-attendance-sessions
 func (ctrl *TeacherClassAttendanceSessionController) CreateAttendanceSession(c *fiber.Ctx) error {
 	masjidID, err := helper.GetTeacherMasjidIDFromToken(c)
 	if err != nil {
@@ -42,6 +42,7 @@ func (ctrl *TeacherClassAttendanceSessionController) CreateAttendanceSession(c *
 	}
 	req.UserClassAttendanceSessionsMasjidID = &masjidID
 
+	// Validasi dasar (type/enum/range)
 	v := validator.New()
 	if err := v.Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -59,14 +60,26 @@ func (ctrl *TeacherClassAttendanceSessionController) CreateAttendanceSession(c *
 		}
 	}()
 
-	// 1) Simpan entry kehadiran (per user)
-	m := req.ToModel() // NOTE: ToModel() kamu sudah return *Model
+	// 0) Ambil settings & normalize payload sesuai aturan (ENABLE/REQUIRE)
+	svc := attendanceservice.New(ctrl.DB) // import pakai alias: attendanceservice "masjidku_backend/internals/features/lembaga/class_sections/attendance_sessions/service"
+	set, err := svc.GetSettings(masjidID, tx)
+	if err != nil {
+		tx.Rollback()
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membaca settings: "+err.Error())
+	}
+	if err := svc.NormalizeCreate(&req, set); err != nil {
+		tx.Rollback()
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+
+	// 1) Simpan entry kehadiran (per user) — payload sudah ternormalisasi
+	m := req.ToModel()
 	if err := tx.Create(m).Error; err != nil {
 		tx.Rollback()
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat entri kehadiran")
 	}
 
-	// 2) Ambil info Sesi: section_id + tanggal sesi (anchor) dari parent class_attendance_sessions
+	// 2) Ambil info sesi: section_id + tanggal sesi (anchor)
 	type sessRow struct {
 		SectionID uuid.UUID `gorm:"column:class_attendance_sessions_section_id"`
 		Date      time.Time `gorm:"column:class_attendance_sessions_date"`
@@ -112,31 +125,8 @@ func (ctrl *TeacherClassAttendanceSessionController) CreateAttendanceSession(c *
 		sectionID = sec.SectionID
 	}
 
-	// 3) Hitung delta counter dari status/score/kelulusan
-	var dPresent, dSick, dLeave, dAbsent int
-	switch req.UserClassAttendanceSessionsAttendanceStatus {
-	case "present":
-		dPresent = 1
-	case "sick":
-		dSick = 1
-	case "leave":
-		dLeave = 1
-	case "absent":
-		dAbsent = 1
-	}
-	var dSum *int
-	if req.UserClassAttendanceSessionsScore != nil {
-		dSum = req.UserClassAttendanceSessionsScore
-	}
-	var dPassed, dFailed *int
-	if req.UserClassAttendanceSessionsGradePassed != nil {
-		one := 1
-		if *req.UserClassAttendanceSessionsGradePassed {
-			dPassed = &one
-		} else {
-			dFailed = &one
-		}
-	}
+	// 3) Hitung delta counter (hormati ENABLE di settings)
+	cnt := svc.ComputeCountersOnCreate(&req, set)
 
 	// 4) Upsert + bump counters semester stats untuk user ini
 	semSvc := semstats.NewSemesterStatsService()
@@ -146,8 +136,8 @@ func (ctrl *TeacherClassAttendanceSessionController) CreateAttendanceSession(c *
 		req.UserClassAttendanceSessionsUserClassID,
 		sectionID,
 		anchor,
-		dPresent, dSick, dLeave, dAbsent,
-		dSum, dPassed, dFailed,
+		cnt.DPresent, cnt.DSick, cnt.DLeave, cnt.DAbsent,
+		cnt.DSum, cnt.DPassed, cnt.DFailed,
 	); err != nil {
 		tx.Rollback()
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal update semester stats: "+err.Error())
@@ -161,7 +151,6 @@ func (ctrl *TeacherClassAttendanceSessionController) CreateAttendanceSession(c *
 
 	return helper.JsonCreated(c, "Entri kehadiran berhasil dibuat", dto.FromUserClassAttendanceSessionModel(*m))
 }
-
 
 
 /* ===================== UPDATE (partial) ===================== */
@@ -182,44 +171,31 @@ func (ctrl *TeacherClassAttendanceSessionController) UpdateAttendanceSession(c *
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
+	// Validasi dasar (type/enum/range)
 	v := validator.New()
 	if err := v.Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// siapkan updates hanya field yang dikirim
-	updates := map[string]any{}
-
-	if req.UserClassAttendanceSessionsAttendanceStatus != nil {
-		updates["user_class_attendance_sessions_attendance_status"] = *req.UserClassAttendanceSessionsAttendanceStatus
+	// === Load settings dan normalize update ===
+	svc := attendanceservice.New(ctrl.DB)
+	set, err := svc.GetSettings(masjidID, nil)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membaca settings: "+err.Error())
 	}
-	if req.UserClassAttendanceSessionsScore != nil {
-		updates["user_class_attendance_sessions_score"] = *req.UserClassAttendanceSessionsScore
-	}
-	if req.UserClassAttendanceSessionsGradePassed != nil {
-		updates["user_class_attendance_sessions_grade_passed"] = *req.UserClassAttendanceSessionsGradePassed
-	}
-	if req.UserClassAttendanceSessionsMaterialPersonal != nil {
-		updates["user_class_attendance_sessions_material_personal"] = *req.UserClassAttendanceSessionsMaterialPersonal
-	}
-	if req.UserClassAttendanceSessionsPersonalNote != nil {
-		updates["user_class_attendance_sessions_personal_note"] = *req.UserClassAttendanceSessionsPersonalNote
-	}
-	if req.UserClassAttendanceSessionsMemorization != nil {
-		updates["user_class_attendance_sessions_memorization"] = *req.UserClassAttendanceSessionsMemorization
-	}
-	if req.UserClassAttendanceSessionsHomework != nil {
-		updates["user_class_attendance_sessions_homework"] = *req.UserClassAttendanceSessionsHomework
+	updates, err := svc.NormalizeUpdate(&req, set)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
 	if len(updates) == 0 {
-		// tidak ada perubahan; tetap balikan ID biar klien tahu resource-nya
+		// tidak ada perubahan valid; balikan ID biar klien tahu resource-nya
 		return helper.JsonOK(c, "Tidak ada perubahan", dto.UserClassAttendanceSessionResponse{
 			UserClassAttendanceSessionsID: entryID,
 		})
 	}
 
-	// update dengan guard masjid + returning row
+	// === Update dengan guard masjid + returning row ===
 	var updated model.UserClassAttendanceSessionModel
 	tx := ctrl.DB.Model(&model.UserClassAttendanceSessionModel{}).
 		Where("user_class_attendance_sessions_id = ? AND user_class_attendance_sessions_masjid_id = ?", entryID, masjidID).
@@ -236,3 +212,4 @@ func (ctrl *TeacherClassAttendanceSessionController) UpdateAttendanceSession(c *
 
 	return helper.JsonOK(c, "Entri kehadiran berhasil diubah", dto.FromUserClassAttendanceSessionModel(updated))
 }
+

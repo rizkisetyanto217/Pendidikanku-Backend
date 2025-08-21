@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
@@ -195,6 +196,70 @@ func (h *AnnouncementThemeController) List(c *fiber.Ctx) error {
 	// return helper.JsonList(c, resp, fiber.Map{"limit": q.Limit, "offset": q.Offset, "total": int(total)})
 }
 
+
+
+// GET /admin/announcement-themes/search?q=tema&limit=10&active_only=true
+func (h *AnnouncementThemeController) SearchByName(c *fiber.Ctx) error {
+	masjidID, err := helper.GetMasjidIDFromToken(c)
+	if err != nil {
+		return err
+	}
+
+	// ambil query "q" (fallback ke "name")
+	q := strings.TrimSpace(c.Query("q"))
+	if q == "" {
+		q = strings.TrimSpace(c.Query("name"))
+	}
+	if q == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Parameter q/name wajib diisi")
+	}
+
+	// limit (default 10, maks 50)
+	limit := 10
+	if v := strings.TrimSpace(c.Query("limit")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 50 {
+			limit = n
+		}
+	}
+
+	// active_only (default true)
+	activeOnly := true
+	if v := strings.TrimSpace(c.Query("active_only")); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			activeOnly = b
+		}
+	}
+
+	tx := h.DB.Model(&annModel.AnnouncementThemeModel{}).
+		Where("announcement_themes_masjid_id = ?", masjidID).
+		Where("announcement_themes_deleted_at IS NULL")
+
+	if activeOnly {
+		tx = tx.Where("announcement_themes_is_active = TRUE")
+	}
+
+	like := "%" + q + "%"
+	// kalau ingin fuzzy pakai trigram (opsional):
+	// tx = tx.Where("announcement_themes_name ILIKE ?", like).
+	//     Order(gorm.Expr("similarity(announcement_themes_name, ?) DESC, announcement_themes_name ASC", q)).
+	//     Limit(limit)
+
+	// versi simpel: ILIKE + order by name
+	tx = tx.Where("announcement_themes_name ILIKE ?", like).
+		Order("announcement_themes_name ASC").
+		Limit(limit)
+
+	var rows []annModel.AnnouncementThemeModel
+	if err := tx.Find(&rows).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mencari tema")
+	}
+
+	resp := make([]*annDTO.AnnouncementThemeResponse, 0, len(rows))
+	for i := range rows {
+		resp = append(resp, annDTO.NewAnnouncementThemeResponse(&rows[i]))
+	}
+	return helper.JsonOK(c, "OK", resp)
+}
 
 // PUT /admin/announcement-themes/:id
 // PUT /admin/announcement-themes/:id
