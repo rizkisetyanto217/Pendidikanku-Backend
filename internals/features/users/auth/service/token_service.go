@@ -1,15 +1,16 @@
+// internals/features/users/auth/service/token_service.go
 package service
 
-// ======== Tambah import model admin/teacher jika belum ========
 import (
+	"os"
+	"time"
+
 	"masjidku_backend/internals/configs"
 	classModel "masjidku_backend/internals/features/lembaga/classes/main/model"
-
-	// "masjidku_backend/internals/features/masjids/masjid_admins_teachers/model"
 	matModel "masjidku_backend/internals/features/masjids/masjid_admins_teachers/model"
+	authModel "masjidku_backend/internals/features/users/auth/model"
 	authRepo "masjidku_backend/internals/features/users/auth/repository"
 	helpers "masjidku_backend/internals/helpers"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v4"
@@ -29,30 +30,42 @@ func RefreshToken(db *gorm.DB, c *fiber.Ctx) error {
 		refreshToken = payload.RefreshToken
 	}
 
-	// 2) Pastikan token ada di DB (valid & belum dicabut)
-	rt, err := authRepo.FindRefreshToken(db, refreshToken)
+	// 2) Ambil secret untuk verifikasi JWT & hashing DB
+	refreshSecret := configs.JWTRefreshSecret
+	if refreshSecret == "" {
+		refreshSecret = os.Getenv("JWT_REFRESH_SECRET")
+	}
+	if refreshSecret == "" {
+		return helpers.Error(c, fiber.StatusInternalServerError, "JWT_REFRESH_SECRET belum diset")
+	}
+
+	// 3) Cari token by HASH (harus aktif & belum expired)
+	tokenHash := computeRefreshHash(refreshToken, refreshSecret)
+	rt, err := FindRefreshTokenByHashActive(db.WithContext(c.Context()), tokenHash)
 	if err != nil {
 		return helpers.Error(c, fiber.StatusUnauthorized, "Invalid or expired refresh token")
 	}
+	if rt.RevokedAt != nil || time.Now().After(rt.ExpiresAt) {
+		return helpers.Error(c, fiber.StatusUnauthorized, "Refresh token expired")
+	}
 
-	// 3) Verifikasi signature + cek expiry (+ optional cek typ)
+	// 4) Verifikasi signature & claim
 	claims := jwt.MapClaims{}
 	parser := jwt.Parser{SkipClaimsValidation: true}
 	if _, err := parser.ParseWithClaims(refreshToken, claims, func(t *jwt.Token) (interface{}, error) {
-		return []byte(configs.JWTRefreshSecret), nil
+		return []byte(refreshSecret), nil
 	}); err != nil {
 		return helpers.Error(c, fiber.StatusUnauthorized, "Malformed refresh token")
 	}
 	if typ, _ := claims["typ"].(string); typ != "refresh" {
 		return helpers.Error(c, fiber.StatusUnauthorized, "Invalid token type")
 	}
-	exp, _ := claims["exp"].(float64)
-	if time.Now().Unix() >= int64(exp) {
+	if exp, ok := claims["exp"].(float64); ok && time.Now().Unix() >= int64(exp) {
 		return helpers.Error(c, fiber.StatusUnauthorized, "Refresh token expired")
 	}
 
-	// 4) Pastikan user masih aktif
-	user, err := authRepo.FindUserByID(db, rt.UserID)
+	// 5) Pastikan user masih aktif
+	user, err := authRepo.FindUserByID(db.WithContext(c.Context()), rt.UserID)
 	if err != nil {
 		return helpers.Error(c, fiber.StatusUnauthorized, "User not found")
 	}
@@ -60,21 +73,24 @@ func RefreshToken(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.Error(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan")
 	}
 
-	// 5) Kumpulkan ulang semua masjid IDs (admin, teacher, student, union)
-	adminIDs, teacherIDs, studentIDs, unionIDs, err := collectMasjidIDsFull(db, user.ID)
+	// 6) Kumpulkan ulang masjid IDs (admin/teacher/student/union)
+	adminIDs, teacherIDs, studentIDs, unionIDs, err := collectMasjidIDsFull(db.WithContext(c.Context()), user.ID)
 	if err != nil {
 		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data masjid user")
 	}
 
-	// 6) ROTATE: hapus refresh token lama agar tidak bisa dipakai ulang
-	_ = authRepo.DeleteRefreshToken(db, refreshToken)
+	// 7) ROTATE: revoke token lama
+	if err := RevokeRefreshTokenByID(db.WithContext(c.Context()), rt.ID); err != nil {
+		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mencabut refresh token lama")
+	}
 
-	// 7) Keluarkan pasangan token baru dengan bentuk response yang SAMA
+	// 8) Issue pasangan token baru
 	return issueTokensWithRoles(c, db, *user, adminIDs, teacherIDs, studentIDs, unionIDs)
 }
 
 // ==========================================================
 // Helper: ambil daftar masjid per peran + union untuk user
+//   - Toleran jika tabel peran belum ada (dev friendly, tanpa pgconn).
 // ==========================================================
 func collectMasjidIDsFull(db *gorm.DB, userID uuid.UUID) (
 	adminIDs []string,
@@ -83,40 +99,45 @@ func collectMasjidIDsFull(db *gorm.DB, userID uuid.UUID) (
 	unionIDs []string,
 	err error,
 ) {
+	// Bisa skip role lookup sementara (setup awal)
+	if os.Getenv("AUTH_SKIP_ROLE_LOOKUP") == "1" {
+		return nil, nil, nil, nil, nil
+	}
+
 	adminSet := map[string]struct{}{}
 	teacherSet := map[string]struct{}{}
 	studentSet := map[string]struct{}{}
 
-	// 1) Admin/DKM → masjid_admins (aktif)
-	{
-		var rows []matModel.MasjidAdminModel // sesuaikan tipe
+	mig := db.Migrator()
+
+	// 1) Admin/DKM → masjid_admins (aktif) — hanya query jika tabel ada
+	if mig.HasTable(&matModel.MasjidAdminModel{}) || mig.HasTable("masjid_admins") {
+		var rows []matModel.MasjidAdminModel
 		if e := db.
 			Where("masjid_admins_user_id = ? AND masjid_admins_is_active = true", userID).
 			Find(&rows).Error; e != nil {
-			err = e
-			return
+			return nil, nil, nil, nil, e
 		}
 		for _, r := range rows {
 			adminSet[r.MasjidID.String()] = struct{}{}
 		}
 	}
 
-	// 2) Teacher → masjid_teachers
-	{
-		var rows []matModel.MasjidTeacher // sesuaikan tipe
+	// 2) Teacher → masjid_teachers — hanya query jika tabel ada
+	if mig.HasTable(&matModel.MasjidTeacher{}) || mig.HasTable("masjid_teachers") {
+		var rows []matModel.MasjidTeacher
 		if e := db.
-			Where("masjid_teachers_user_id = ?", userID).
+			Where("masjid_teachers_user_id = ? AND masjid_teachers_is_active = true", userID).
 			Find(&rows).Error; e != nil {
-			err = e
-			return
+			return nil, nil, nil, nil, e
 		}
 		for _, r := range rows {
 			teacherSet[r.MasjidTeachersMasjidID] = struct{}{}
 		}
 	}
 
-	// 3) Student → user_classes aktif (status=active, ended_at IS NULL)
-	{
+	// 3) Student → user_classes (aktif) — hanya query jika tabel ada
+	if mig.HasTable(&classModel.UserClassesModel{}) || mig.HasTable("user_classes") {
 		var rows []struct {
 			MasjidID *uuid.UUID `gorm:"column:user_classes_masjid_id"`
 		}
@@ -126,8 +147,7 @@ func collectMasjidIDsFull(db *gorm.DB, userID uuid.UUID) (
 				userID, classModel.UserClassStatusActive).
 			Select("user_classes_masjid_id").
 			Find(&rows).Error; e != nil {
-			err = e
-			return
+				return nil, nil, nil, nil, e
 		}
 		for _, r := range rows {
 			if r.MasjidID != nil {
@@ -137,23 +157,63 @@ func collectMasjidIDsFull(db *gorm.DB, userID uuid.UUID) (
 	}
 
 	// Build slices
-	adminIDs = make([]string, 0, len(adminSet))
-	for id := range adminSet { adminIDs = append(adminIDs, id) }
-
-	teacherIDs = make([]string, 0, len(teacherSet))
-	for id := range teacherSet { teacherIDs = append(teacherIDs, id) }
-
-	studentIDs = make([]string, 0, len(studentSet))
-	for id := range studentSet { studentIDs = append(studentIDs, id) }
+	for id := range adminSet {
+		adminIDs = append(adminIDs, id)
+	}
+	for id := range teacherSet {
+		teacherIDs = append(teacherIDs, id)
+	}
+	for id := range studentSet {
+		studentIDs = append(studentIDs, id)
+	}
 
 	// Union
-	unionSet := map[string]struct{}{}
-	for id := range adminSet   { unionSet[id] = struct{}{} }
-	for id := range teacherSet { unionSet[id] = struct{}{} }
-	for id := range studentSet { unionSet[id] = struct{}{} }
-
-	unionIDs = make([]string, 0, len(unionSet))
-	for id := range unionSet { unionIDs = append(unionIDs, id) }
+	unionMap := map[string]struct{}{}
+	for id := range adminSet {
+		unionMap[id] = struct{}{}
+	}
+	for id := range teacherSet {
+		unionMap[id] = struct{}{}
+	}
+	for id := range studentSet {
+		unionMap[id] = struct{}{}
+	}
+	for id := range unionMap {
+		unionIDs = append(unionIDs, id)
+	}
 
 	return
+}
+
+
+// ========================== Mini-repo (tanpa dependensi baru) ==========================
+
+// Cari refresh token yang aktif (belum di-revoke, belum expired)
+func FindRefreshTokenByHashActive(db *gorm.DB, hash []byte) (*authModel.RefreshToken, error) {
+	var rt authModel.RefreshToken
+	if err := db.
+		Where("token_hash = ? AND revoked_at IS NULL AND expires_at > NOW()", hash).
+		Limit(1).
+		Find(&rt).Error; err != nil {
+		return nil, err
+	}
+	if rt.ID == uuid.Nil {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return &rt, nil
+}
+
+// Revoke by ID
+func RevokeRefreshTokenByID(db *gorm.DB, id uuid.UUID) error {
+	now := time.Now().UTC()
+	res := db.Model(&authModel.RefreshToken{}).
+		Where("id = ? AND revoked_at IS NULL", id).
+		Update("revoked_at", now)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }

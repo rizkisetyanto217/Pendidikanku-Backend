@@ -1,2 +1,6 @@
+BEGIN;
+DROP TABLE IF EXISTS lecture_schedules;
+DROP TABLE IF EXISTS certificates;
 DROP TABLE IF EXISTS user_lectures;
 DROP TABLE IF EXISTS lectures;
+COMMIT;
