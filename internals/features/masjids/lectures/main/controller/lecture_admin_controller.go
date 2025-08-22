@@ -35,57 +35,77 @@ func (ctrl *LectureController) GetAllLectures(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "Daftar kajian berhasil diambil", lectureResponses)
 }
 
+
 // 🟢 POST /api/a/lectures
 func (ctrl *LectureController) CreateLecture(c *fiber.Ctx) error {
-	userIDRaw := c.Locals("user_id")
-	if userIDRaw == nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "User belum login")
-	}
+    // pastikan login (helper kamu sudah ada)
+    if _, err := helper.GetUserIDFromToken(c); err != nil {
+        return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+    }
 
-	masjidIDs, ok := c.Locals("masjid_admin_ids").([]string)
-	if !ok || len(masjidIDs) == 0 {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid ID tidak ditemukan di token")
-	}
-	masjidID, err := uuid.Parse(masjidIDs[0])
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid ID tidak valid")
-	}
+    // 1) ambil scope dari middleware
+    var masjidUUID uuid.UUID
+    if v, ok := c.Locals("masjid_id").(string); ok && strings.TrimSpace(v) != "" {
+        id, err := uuid.Parse(strings.TrimSpace(v))
+        if err != nil {
+            return helper.JsonError(c, fiber.StatusBadRequest, "Masjid ID tidak valid (locals.masjid_id)")
+        }
+        masjidUUID = id
+    } else {
+        // 2) fallback: dari token (teacher → union → admin)
+        if id, err := helper.GetMasjidIDFromTokenPreferTeacher(c); err == nil {
+            masjidUUID = id
+        } else {
+            // 3) fallback terakhir: header/query/body (khusus OWNER tanpa scope)
+            scope := strings.TrimSpace(c.Get("X-Masjid-ID"))
+            if scope == "" { scope = strings.TrimSpace(c.Query("masjid_id")) }
+            if scope == "" { scope = strings.TrimSpace(c.FormValue("masjid_id")) }
+            if scope == "" {
+                return helper.JsonError(c, fiber.StatusBadRequest,
+                    "Masjid ID tidak ter-scope. Kirim X-Masjid-ID / ?masjid_id / body.masjid_id")
+            }
+            id, err := uuid.Parse(scope)
+            if err != nil {
+                return helper.JsonError(c, fiber.StatusBadRequest, "Masjid ID tidak valid")
+            }
+            masjidUUID = id
+        }
+    }
 
-	title := c.FormValue("lecture_title")
-	description := c.FormValue("lecture_description")
-	isActive := c.FormValue("lecture_is_active") == "true"
+    title := strings.TrimSpace(c.FormValue("lecture_title"))
+    description := c.FormValue("lecture_description")
+    isActive := c.FormValue("lecture_is_active") == "true"
 
-	var imageURL *string
-	if file, err := c.FormFile("lecture_image_url"); err == nil && file != nil {
-		url, err := helper.UploadImageToSupabase("lectures", file)
-		if err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal upload gambar")
-		}
-		imageURL = &url
-	} else if val := c.FormValue("lecture_image_url"); val != "" {
-		imageURL = &val
-	}
+    var imageURL *string
+    if file, err := c.FormFile("lecture_image_url"); err == nil && file != nil {
+        url, err := helper.UploadImageToSupabase("lectures", file)
+        if err != nil {
+            return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal upload gambar")
+        }
+        imageURL = &url
+    } else if v := strings.TrimSpace(c.FormValue("lecture_image_url")); v != "" {
+        imageURL = &v
+    }
 
-	if title == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Judul tema kajian wajib diisi")
-	}
+    if title == "" {
+        return helper.JsonError(c, fiber.StatusBadRequest, "Judul tema kajian wajib diisi")
+    }
 
-	slug := generateSlugFromTitle(title)
-	newLecture := model.LectureModel{
-		LectureTitle:       title,
-		LectureSlug:        slug,
-		LectureDescription: description,
-		LectureMasjidID:    masjidID,
-		LectureImageURL:    imageURL,
-		LectureIsActive:    isActive,
-	}
+    newLecture := model.LectureModel{
+        LectureTitle:       title,
+        LectureSlug:        generateSlugFromTitle(title),
+        LectureDescription: description,
+        LectureMasjidID:    masjidUUID,
+        LectureImageURL:    imageURL,
+        LectureIsActive:    isActive,
+    }
 
-	if err := ctrl.DB.Create(&newLecture).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat tema kajian")
-	}
-
-	return helper.JsonCreated(c, "Tema kajian berhasil dibuat", dto.ToLectureResponse(&newLecture))
+    if err := ctrl.DB.Create(&newLecture).Error; err != nil {
+        return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat tema kajian")
+    }
+    return helper.JsonCreated(c, "Tema kajian berhasil dibuat", dto.ToLectureResponse(&newLecture))
 }
+
 
 // ✅ GET /api/a/lectures/by-masjid
 func (ctrl *LectureController) GetByMasjidID(c *fiber.Ctx) error {

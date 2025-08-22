@@ -3,6 +3,7 @@ package details
 
 import (
 	// ====== Lembaga features ======
+	AcademicYearRoutes "masjidku_backend/internals/features/lembaga/academics/academic_year/route"
 	AnnouncementRoutes "masjidku_backend/internals/features/lembaga/announcements/announcement/route"
 	AnnouncementThemaRoutes "masjidku_backend/internals/features/lembaga/announcements/announcement_thema/route"
 	ClassBooksRoutes "masjidku_backend/internals/features/lembaga/class_books/route"
@@ -46,6 +47,8 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	AnnouncementThemaRoutes.AnnouncementUserRoute(r, db)
 	AnnouncementRoutes.AnnouncementUserRoutes(r, db)
 	SemesterStatsRoutes.UserClassAttendanceSemesterUserRoutes(r, db)
+	AcademicYearRoutes.AcademicTermUserRoutes(r, db)
+
 
 	// Classes (user actions: enroll, progress, dsb)
 	// ClassRoutes.ClassUserRoutes(r, db)
@@ -68,6 +71,7 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	ClassLessonsRoutes.ClassLessonsAdminRoutes(r, db)
 	ClassBooksRoutes.ClassBooksAdminRoutes(r, db)
 	AttendanceSettingsRoute.ClassAttendanceSettingsAdminRoutes(r, db)
+	AcademicYearRoutes.AcademicYearAdminRoutes(r, db)
 
 	// Tambahkan modul lain (admin) di sini:
 	// SectionRoutes.SectionAdminRoutes(r, db)

@@ -7,7 +7,7 @@ import (
 // OnlyRolesSlice memungkinkan akses jika user memiliki salah satu dari role yang diizinkan.
 func OnlyRolesSlice(message string, allowedRoles []string) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		role, ok := c.Locals("userRole").(string)
+		role, ok := c.Locals("role").(string)
 		if !ok {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"message": "Unauthorized - Role not found",

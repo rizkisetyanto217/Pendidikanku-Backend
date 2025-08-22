@@ -131,11 +131,18 @@ func ensureUserActive(db *gorm.DB, userID uuid.UUID) error {
    ======================= */
 
 // Simpan role (lowercased) → Locals("role"), plus user_name & sub (opsional).
+// auth/claims_utils.go
 func storeBasicClaimsToLocals(c *fiber.Ctx, claims jwt.MapClaims) {
 	if v, ok := claims["role"].(string); ok {
 		role := strings.ToLower(strings.TrimSpace(v))
 		if role != "" {
-			c.Locals(helper.LocRole, role) // "role"
+			// single-source of truth + alias kompatibilitas
+			c.Locals(helper.LocRole, role) // biasanya "role"
+			c.Locals("role", role)         // alias eksplisit
+			c.Locals("userRole", role)     // alias legacy
+
+			log.Printf("[AUTH] locals role set: %s (keys: %q, %q, %q)",
+				role, helper.LocRole, "role", "userRole")
 		}
 	}
 	if userName, ok := claims["user_name"].(string); ok {
@@ -145,9 +152,11 @@ func storeBasicClaimsToLocals(c *fiber.Ctx, claims jwt.MapClaims) {
 		c.Locals("sub", strings.TrimSpace(sub))
 	}
 
+	// (opsional) log tetap boleh
 	log.Printf("[AUTH] locals set: role=%v user_name=%v sub=%v",
 		c.Locals(helper.LocRole), c.Locals("user_name"), c.Locals("sub"))
 }
+
 
 // Simpan IDs: admin/teacher/student/union → Locals, dan set "masjid_id" aktif.
 // Prioritas aktif: TEACHER → UNION → ADMIN (selaras helper.GetMasjidIDFromTokenPreferTeacher).

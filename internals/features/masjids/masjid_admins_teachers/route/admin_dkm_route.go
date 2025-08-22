@@ -21,6 +21,7 @@ func MasjidAdminRoutes(api fiber.Router, db *gorm.DB) {
 			constants.RoleErrorOwner("mengelola admin masjid"),
 			constants.OwnerOnly,
 		),
+		masjidkuMiddleware.IsMasjidAdmin(), 
 	)
 	masjidAdmins.Post("/",          ctrlAdmin.AddAdmin)
 	masjidAdmins.Post("/by-masjid", ctrlAdmin.GetAdminsByMasjid)
