@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"fmt"
 	"log"
 	"net/url"
 	"strconv"
@@ -24,107 +23,33 @@ func NewMasjidProfileController(db *gorm.DB) *MasjidProfileController {
 	return &MasjidProfileController{DB: db}
 }
 
-// 🟢 GET PROFILE BY MASJID_ID
-func (mpc *MasjidProfileController) GetProfileByMasjidID(c *fiber.Ctx) error {
-	masjidIDParam := c.Params("masjid_id")
-	log.Printf("[INFO] Fetching profile for masjid ID: %s\n", masjidIDParam)
 
-	// Validasi UUID format
-	masjidUUID, err := uuid.Parse(masjidIDParam)
-	if err != nil {
-		log.Printf("[ERROR] Invalid UUID format: %v\n", err)
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Format UUID masjid tidak valid",
-		})
-	}
-
-	var profile model.MasjidProfileModel
-	err = mpc.DB.
-		// Preload("Masjid"). // preload relasi opsional
-		Where("masjid_profile_masjid_id = ?", masjidUUID).
-		First(&profile).Error
-
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			log.Printf("[ERROR] Profile not found for masjid ID %s\n", masjidUUID)
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-				"error": "Profil masjid tidak ditemukan",
-			})
-		}
-
-		log.Printf("[ERROR] Database error: %v\n", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Terjadi kesalahan saat mengambil data profil",
-		})
-	}
-
-	log.Printf("[SUCCESS] Retrieved profile for masjid ID %s\n", masjidUUID)
-	return c.JSON(fiber.Map{
-		"message": "Profil masjid berhasil diambil",
-		"data":    dto.FromModelMasjidProfile(&profile),
-	})
-}
-
-func (mpc *MasjidProfileController) GetProfileBySlug(c *fiber.Ctx) error {
-	slug := c.Params("slug")
-
-	// 1. Cari masjid berdasarkan slug
-	var masjid model.MasjidModel
-	if err := mpc.DB.Where("masjid_slug = ?", slug).First(&masjid).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Masjid tidak ditemukan"})
-		}
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Gagal mencari masjid"})
-	}
-
-	// 2. Cari profil masjid berdasarkan masjid_id
-	var profile model.MasjidProfileModel
-	if err := mpc.DB.
-		Where("masjid_profile_masjid_id = ?", masjid.MasjidID).
-		First(&profile).Error; err != nil {
-
-		if err == gorm.ErrRecordNotFound {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Profil masjid tidak ditemukan"})
-		}
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Gagal mengambil profil masjid"})
-	}
-
-	return c.JSON(fiber.Map{
-		"message": "Profil masjid berhasil diambil",
-		"data":    dto.FromModelMasjidProfile(&profile),
-	})
-}
-
-
+// 🟢 CREATE PROFILE (Admin-only, masjid_id dari token)
 func (mpc *MasjidProfileController) CreateMasjidProfile(c *fiber.Ctx) error {
+	// (opsional) enforce admin
+	if !helper.IsAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Akses ditolak: hanya admin"})
+	}
+
 	log.Println("[INFO] Create masjid profile")
 
 	// ✅ Ambil masjid_id dari token
-	masjidIDStr, ok := c.Locals("masjid_id").(string)
-	if !ok || masjidIDStr == "" {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"error": "masjid_id tidak ditemukan di token",
-		})
-	}
-
-	masjidUUID, err := uuid.Parse(masjidIDStr)
-	if err != nil || masjidUUID == uuid.Nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "masjid_id dari token tidak valid",
-		})
+	masjidUUID, err := helper.GetMasjidIDFromToken(c)
+	if err != nil {
+		return err // helper sudah kasih 401/400 sesuai kondisi
 	}
 
 	// ✅ Ambil form values
 	desc := c.FormValue("masjid_profile_description")
 	tahunStr := c.FormValue("masjid_profile_founded_year")
-	tahun, _ := strconv.Atoi(tahunStr)
+	tahun, _ := strconv.Atoi(strings.TrimSpace(tahunStr))
 
 	// 🔎 Cek duplikat
 	var existing model.MasjidProfileModel
-	if err := mpc.DB.Where("masjid_profile_masjid_id = ?", masjidUUID).First(&existing).Error; err == nil {
-		return c.Status(fiber.StatusConflict).JSON(fiber.Map{
-			"error": "Profil masjid sudah ada",
-		})
+	if err := mpc.DB.
+		Where("masjid_profile_masjid_id = ?", masjidUUID).
+		First(&existing).Error; err == nil {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{"error": "Profil masjid sudah ada"})
 	}
 
 	// ⬆️ Upload file jika ada
@@ -139,12 +64,11 @@ func (mpc *MasjidProfileController) CreateMasjidProfile(c *fiber.Ctx) error {
 		}
 		return url
 	}
-
 	logoURL := upload("masjid_profile_logo_url")
 	ttdURL := upload("masjid_profile_ttd_ketua_dkm_url")
 	stempelURL := upload("masjid_profile_stamp_url")
 
-	// 💾 Simpan ke DB
+	// 💾 Simpan
 	profile := model.MasjidProfileModel{
 		MasjidProfileMasjidID:       masjidUUID,
 		MasjidProfileDescription:    desc,
@@ -153,7 +77,6 @@ func (mpc *MasjidProfileController) CreateMasjidProfile(c *fiber.Ctx) error {
 		MasjidProfileTTDKetuaDKMURL: ttdURL,
 		MasjidProfileStampURL:       stempelURL,
 	}
-
 	if err := mpc.DB.Create(&profile).Error; err != nil {
 		log.Printf("[ERROR] Gagal simpan profil: %v", err)
 		return c.Status(500).JSON(fiber.Map{"error": "Gagal menyimpan profil"})
@@ -166,75 +89,74 @@ func (mpc *MasjidProfileController) CreateMasjidProfile(c *fiber.Ctx) error {
 }
 
 
+
+// 🟡 UPDATE PROFILE (Admin-only, masjid_id dari token)
 func (mpc *MasjidProfileController) UpdateMasjidProfile(c *fiber.Ctx) error {
+	// (opsional) enforce admin
+	if !helper.IsAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Akses ditolak: hanya admin"})
+	}
+
 	// ✅ Ambil masjid_id dari token
-	masjidIDStr, ok := c.Locals("masjid_id").(string)
-	if !ok || masjidIDStr == "" {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"error": "Masjid ID tidak ditemukan di token",
-		})
+	masjidUUID, err := helper.GetMasjidIDFromToken(c)
+	if err != nil {
+		return err
 	}
-	masjidUUID, err := uuid.Parse(masjidIDStr)
-	if err != nil || masjidUUID == uuid.Nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Masjid ID tidak valid",
-		})
-	}
+	log.Printf("[INFO] Update profil masjid: %s\n", masjidUUID.String())
 
-	log.Printf("[INFO] Update profil masjid: %s\n", masjidUUID)
-
-	// 🔍 Cari entri lama
+	// 🔍 Ambil entri lama
 	var existing model.MasjidProfileModel
-	if err := mpc.DB.Where("masjid_profile_masjid_id = ?", masjidUUID).First(&existing).Error; err != nil {
+	if err := mpc.DB.
+		Where("masjid_profile_masjid_id = ?", masjidUUID).
+		First(&existing).Error; err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": "Profil masjid tidak ditemukan"})
 	}
 
-	// ✅ Form value
-	if val := c.FormValue("masjid_profile_description"); val != "" {
-		existing.MasjidProfileDescription = val
+	// ✅ Field text
+	if v := c.FormValue("masjid_profile_description"); v != "" {
+		existing.MasjidProfileDescription = v
 	}
-	if val := c.FormValue("masjid_profile_founded_year"); val != "" {
-		if tahun, err := strconv.Atoi(val); err == nil {
+	if v := c.FormValue("masjid_profile_founded_year"); v != "" {
+		if tahun, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
 			existing.MasjidProfileFoundedYear = tahun
 		}
 	}
 
-	// ✅ File handler
-	handleFileUpdate := func(fieldName string, oldURL string, setter func(string)) error {
+	// ✅ File handler (hapus lama → upload baru; best-effort delete)
+	handleFileUpdate := func(fieldName, oldURL string, setter func(string)) error {
 		file, err := c.FormFile(fieldName)
 		if err == nil && file != nil {
 			if oldURL != "" {
-				if parsed, err := url.Parse(oldURL); err == nil {
+				if parsed, perr := url.Parse(oldURL); perr == nil {
 					cleaned := strings.TrimPrefix(parsed.Path, "/storage/v1/object/public/")
-					parts := strings.SplitN(cleaned, "/", 2)
-					if len(parts) == 2 {
-						_ = helper.DeleteFromSupabase(parts[0], parts[1])
+					if u, uerr := url.QueryUnescape(cleaned); uerr == nil {
+						if parts := strings.SplitN(u, "/", 2); len(parts) == 2 {
+							_ = helper.DeleteFromSupabase(parts[0], parts[1])
+						}
 					}
 				}
 			}
-			newURL, err := helper.UploadImageToSupabase("masjids", file)
-			if err != nil {
-				return err
+			newURL, uerr := helper.UploadImageToSupabase("masjids", file)
+			if uerr != nil {
+				return uerr
 			}
 			setter(newURL)
 		}
 		return nil
 	}
 
-	if err := handleFileUpdate("masjid_profile_logo_url", existing.MasjidProfileLogoURL, func(url string) {
-		existing.MasjidProfileLogoURL = url
+	if err := handleFileUpdate("masjid_profile_logo_url", existing.MasjidProfileLogoURL, func(u string) {
+		existing.MasjidProfileLogoURL = u
 	}); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Gagal upload logo"})
 	}
-
-	if err := handleFileUpdate("masjid_profile_ttd_ketua_dkm_url", existing.MasjidProfileTTDKetuaDKMURL, func(url string) {
-		existing.MasjidProfileTTDKetuaDKMURL = url
+	if err := handleFileUpdate("masjid_profile_ttd_ketua_dkm_url", existing.MasjidProfileTTDKetuaDKMURL, func(u string) {
+		existing.MasjidProfileTTDKetuaDKMURL = u
 	}); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Gagal upload TTD Ketua DKM"})
 	}
-
-	if err := handleFileUpdate("masjid_profile_stamp_url", existing.MasjidProfileStampURL, func(url string) {
-		existing.MasjidProfileStampURL = url
+	if err := handleFileUpdate("masjid_profile_stamp_url", existing.MasjidProfileStampURL, func(u string) {
+		existing.MasjidProfileStampURL = u
 	}); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "Gagal upload stempel"})
 	}
@@ -252,21 +174,72 @@ func (mpc *MasjidProfileController) UpdateMasjidProfile(c *fiber.Ctx) error {
 }
 
 
-// 🟢 DELETE PROFILE
+// 🗑️ DELETE /api/a/masjid-profiles         -> pakai ID dari token
+// 🗑️ DELETE /api/a/masjid-profiles/:id     -> :id harus sama dengan ID dari token
 func (mpc *MasjidProfileController) DeleteMasjidProfile(c *fiber.Ctx) error {
-	masjidID := c.Params("masjid_id")
-	log.Printf("[INFO] Deleting profile for masjid ID: %s\n", masjidID)
-
-	if err := mpc.DB.Where("masjid_profile_masjid_id = ?", masjidID).
-		Delete(&model.MasjidProfileModel{}).Error; err != nil {
-		log.Printf("[ERROR] Failed to delete masjid profile: %v\n", err)
-		return c.Status(500).JSON(fiber.Map{
-			"error": "Gagal menghapus profil masjid",
+	if !helper.IsAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "Akses ditolak: hanya admin yang dapat menghapus profil masjid",
 		})
 	}
 
-	log.Printf("[SUCCESS] Masjid profile with masjid ID %s deleted\n", masjidID)
+	// token scope
+	tokenMasjidID, err := helper.GetMasjidIDFromToken(c)
+	if err != nil {
+		return err
+	}
+
+	// cek optional :id
+	targetID := tokenMasjidID
+	if s := strings.TrimSpace(c.Params("id")); s != "" {
+		pathUUID, perr := uuid.Parse(s)
+		if perr != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Format ID pada path tidak valid"})
+		}
+		if pathUUID != tokenMasjidID {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"error": "Tidak boleh menghapus profil di luar scope Anda",
+			})
+		}
+		targetID = pathUUID
+	}
+
+	log.Printf("[INFO] Deleting masjid profile for masjid ID: %s\n", targetID.String())
+
+	// cari profil
+	var existing model.MasjidProfileModel
+	if err := mpc.DB.Where("masjid_profile_masjid_id = ?", targetID).First(&existing).Error; err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Profil masjid tidak ditemukan"})
+	}
+
+	// hapus file (best-effort)
+	deletePublicURL := func(u string) {
+		if u == "" {
+			return
+		}
+		if parsed, perr := url.Parse(u); perr == nil {
+			raw := strings.TrimPrefix(parsed.Path, "/storage/v1/object/public/")
+			if u2, uerr := url.QueryUnescape(raw); uerr == nil {
+				if parts := strings.SplitN(u2, "/", 2); len(parts) == 2 {
+					_ = helper.DeleteFromSupabase(parts[0], parts[1])
+				}
+			}
+		}
+	}
+	deletePublicURL(existing.MasjidProfileLogoURL)
+	deletePublicURL(existing.MasjidProfileTTDKetuaDKMURL)
+	deletePublicURL(existing.MasjidProfileStampURL)
+
+	// hapus record
+	if err := mpc.DB.Where("masjid_profile_masjid_id = ?", targetID).
+		Delete(&model.MasjidProfileModel{}).Error; err != nil {
+		log.Printf("[ERROR] Failed to delete masjid profile: %v\n", err)
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal menghapus profil masjid"})
+	}
+
+	log.Printf("[SUCCESS] Masjid profile deleted for masjid ID %s\n", targetID.String())
 	return c.JSON(fiber.Map{
-		"message": fmt.Sprintf("Profil masjid dengan ID %s berhasil dihapus", masjidID),
+		"message":   "Profil masjid berhasil dihapus",
+		"masjid_id": targetID.String(),
 	})
 }

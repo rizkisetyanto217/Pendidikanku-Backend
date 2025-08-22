@@ -24,127 +24,33 @@ func NewMasjidController(db *gorm.DB) *MasjidController {
 	return &MasjidController{DB: db}
 }
 
-// 🟢 GET ALL MASJIDS
-func (mc *MasjidController) GetAllMasjids(c *fiber.Ctx) error {
-	log.Println("[INFO] Fetching all masjids")
-
-	var masjids []model.MasjidModel
-	if err := mc.DB.Find(&masjids).Error; err != nil {
-		log.Printf("[ERROR] Failed to fetch masjids: %v\n", err)
-		return c.Status(500).JSON(fiber.Map{
-			"error": "Gagal mengambil data masjid",
-		})
-	}
-
-	log.Printf("[SUCCESS] Retrieved %d masjids\n", len(masjids))
-
-	// 🔁 Transform ke DTO
-	var masjidDTOs []dto.MasjidResponse
-	for _, m := range masjids {
-		masjidDTOs = append(masjidDTOs, dto.FromModelMasjid(&m))
-	}
-
-	return c.JSON(fiber.Map{
-		"message": "Data semua masjid berhasil diambil",
-		"total":   len(masjidDTOs),
-		"data":    masjidDTOs,
-	})
-}
-
-// 🟢 GET VERIFIED MASJIDS
-func (mc *MasjidController) GetAllVerifiedMasjids(c *fiber.Ctx) error {
-	log.Println("[INFO] Fetching all verified masjids")
-
-	var masjids []model.MasjidModel
-	if err := mc.DB.Where("masjid_is_verified = ?", true).Find(&masjids).Error; err != nil {
-		log.Printf("[ERROR] Failed to fetch verified masjids: %v\n", err)
-		return c.Status(500).JSON(fiber.Map{
-			"error": "Gagal mengambil data masjid terverifikasi",
-		})
-	}
-
-	log.Printf("[SUCCESS] Retrieved %d verified masjids\n", len(masjids))
-
-	// 🔁 Transform ke DTO
-	var masjidDTOs []dto.MasjidResponse
-	for _, m := range masjids {
-		masjidDTOs = append(masjidDTOs, dto.FromModelMasjid(&m))
-	}
-
-	return c.JSON(fiber.Map{
-		"message": "Data masjid terverifikasi berhasil diambil",
-		"total":   len(masjidDTOs),
-		"data":    masjidDTOs,
-	})
-}
-
-// 🟢 GET VERIFIED MASJID BY ID
-func (mc *MasjidController) GetVerifiedMasjidByID(c *fiber.Ctx) error {
-	id := c.Params("id")
-	log.Printf("[INFO] Fetching verified masjid with ID: %s\n", id)
-
-	masjidUUID, err := uuid.Parse(id)
-	if err != nil {
-		log.Printf("[ERROR] Invalid UUID format: %v\n", err)
-		return c.Status(400).JSON(fiber.Map{
-			"error": "Format ID tidak valid",
-		})
-	}
-
-	var masjid model.MasjidModel
-	if err := mc.DB.
-		Where("masjid_id = ? AND masjid_is_verified = ?", masjidUUID, true).
-		First(&masjid).Error; err != nil {
-		log.Printf("[ERROR] Verified masjid with ID %s not found\n", id)
-		return c.Status(404).JSON(fiber.Map{
-			"error": "Masjid terverifikasi tidak ditemukan",
-		})
-	}
-
-	log.Printf("[SUCCESS] Retrieved verified masjid: %s\n", masjid.MasjidName)
-
-	masjidDTO := dto.FromModelMasjid(&masjid)
-	return c.JSON(fiber.Map{
-		"message": "Data masjid terverifikasi berhasil diambil",
-		"data":    masjidDTO,
-	})
-}
-
-
-// 🟢 GET MASJID BY SLUG
-func (mc *MasjidController) GetMasjidBySlug(c *fiber.Ctx) error {
-	slug := c.Params("slug")
-	log.Printf("[INFO] Fetching masjid with slug: %s\n", slug)
-
-	var masjid model.MasjidModel
-	if err := mc.DB.Where("masjid_slug = ?", slug).First(&masjid).Error; err != nil {
-		log.Printf("[ERROR] Masjid with slug %s not found\n", slug)
-		return c.Status(404).JSON(fiber.Map{
-			"error": "Masjid tidak ditemukan",
-		})
-	}
-
-	log.Printf("[SUCCESS] Retrieved masjid: %s\n", masjid.MasjidName)
-
-	// 🔁 Transform ke DTO
-	masjidDTO := dto.FromModelMasjid(&masjid)
-
-	return c.JSON(fiber.Map{
-		"message": "Data masjid berhasil diambil",
-		"data":    masjidDTO,
-	})
-}
-
 
 func (mc *MasjidController) CreateMasjid(c *fiber.Ctx) error {
 	log.Println("[INFO] Received request to create masjid")
 
+	// =========================
+	// MULTIPART (form-data)
+	// =========================
 	if strings.Contains(c.Get("Content-Type"), "multipart/form-data") {
 		name := c.FormValue("masjid_name")
+		if strings.TrimSpace(name) == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "Nama masjid wajib diisi"})
+		}
+
+		// slug otomatis & unik
+		baseSlug := helper.GenerateSlug(name)
+		if baseSlug == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "Nama masjid tidak valid untuk slug"})
+		}
+		slug, err := helper.EnsureUniqueSlug(mc.DB, baseSlug, "masjids", "masjid_slug")
+		if err != nil {
+			log.Printf("[ERROR] ensure unique slug: %v", err)
+			return c.Status(500).JSON(fiber.Map{"error": "Gagal membuat slug unik"})
+		}
+
 		bio := c.FormValue("masjid_bio_short")
 		location := c.FormValue("masjid_location")
 		domain := c.FormValue("masjid_domain")
-		slug := helper.GenerateSlug(name)
 		gmapsURL := c.FormValue("masjid_google_maps_url")
 		lat, _ := strconv.ParseFloat(c.FormValue("masjid_latitude"), 64)
 		long, _ := strconv.ParseFloat(c.FormValue("masjid_longitude"), 64)
@@ -158,30 +64,21 @@ func (mc *MasjidController) CreateMasjid(c *fiber.Ctx) error {
 		waIkhwan := c.FormValue("masjid_whatsapp_group_ikhwan_url")
 		waAkhwat := c.FormValue("masjid_whatsapp_group_akhwat_url")
 
-		if name == "" || slug == "" {
-			return c.Status(400).JSON(fiber.Map{
-				"error": "Nama masjid dan slug wajib diisi",
-			})
-		}
-
 		// ✅ Upload gambar jika ada
 		var imageURL string
-		file, err := c.FormFile("masjid_image_url")
-		if err != nil {
-			log.Printf("[DEBUG] Tidak ada file masjid_image_url: %v", err)
-		} else if file != nil {
+		if file, err := c.FormFile("masjid_image_url"); err == nil && file != nil {
 			log.Printf("[DEBUG] File masjid_image_url ditemukan: %s (%d bytes)", file.Filename, file.Size)
-
-			url, err := helper.UploadImageToSupabase("masjids", file)
-			if err != nil {
-				log.Printf("[ERROR] Gagal upload gambar: %v", err)
-				return c.Status(500).JSON(fiber.Map{
-					"error": "Gagal upload gambar masjid",
-				})
+			if url, upErr := helper.UploadImageToSupabase("masjids", file); upErr == nil {
+				imageURL = url
+			} else {
+				log.Printf("[ERROR] Gagal upload gambar: %v", upErr)
+				return c.Status(500).JSON(fiber.Map{"error": "Gagal upload gambar masjid"})
 			}
-			imageURL = url
+		} else if err != nil {
+			log.Printf("[DEBUG] Tidak ada file masjid_image_url: %v", err)
 		}
 
+		// pointer domain jika diisi
 		var domainPtr *string
 		if domain != "" {
 			domainPtr = &domain
@@ -193,7 +90,7 @@ func (mc *MasjidController) CreateMasjid(c *fiber.Ctx) error {
 			MasjidBioShort:               bio,
 			MasjidLocation:               location,
 			MasjidDomain:                 domainPtr,
-			MasjidSlug:                   slug,
+			MasjidSlug:                   slug, // ← otomatis & unik
 			MasjidLatitude:               lat,
 			MasjidLongitude:              long,
 			MasjidGoogleMapsURL:          gmapsURL,
@@ -210,35 +107,70 @@ func (mc *MasjidController) CreateMasjid(c *fiber.Ctx) error {
 
 		if err := mc.DB.Create(&newMasjid).Error; err != nil {
 			log.Printf("[ERROR] Failed to create masjid: %v\n", err)
-			return c.Status(500).JSON(fiber.Map{
-				"error": "Gagal menyimpan masjid",
-			})
+			return c.Status(500).JSON(fiber.Map{"error": "Gagal menyimpan masjid"})
 		}
 
 		log.Printf("[SUCCESS] Masjid created: %s\n", newMasjid.MasjidName)
-
 		return c.Status(201).JSON(fiber.Map{
 			"message": "Masjid berhasil dibuat",
 			"data":    dto.FromModelMasjid(&newMasjid),
 		})
 	}
 
-	// 🌀 Jika batch insert JSON
+	// =========================
+	// JSON (batch / single)
+	// =========================
 	var singleReq dto.MasjidRequest
 	var multipleReq []dto.MasjidRequest
 
+	// ---- Batch JSON ----
 	if err := c.BodyParser(&multipleReq); err == nil && len(multipleReq) > 0 {
 		var models []model.MasjidModel
+		used := map[string]struct{}{} // cegah tabrakan di batch yang sama
+
 		for _, req := range multipleReq {
-			model := dto.ToModelMasjid(&req, uuid.New())
-			models = append(models, *model)
+			m := dto.ToModelMasjid(&req, uuid.New())
+
+			// wajib name
+			if strings.TrimSpace(m.MasjidName) == "" {
+				return c.Status(400).JSON(fiber.Map{"error": "Nama masjid wajib diisi (batch)"})
+			}
+
+			// slug otomatis & unik
+			base := helper.GenerateSlug(m.MasjidName)
+			if base == "" {
+				return c.Status(400).JSON(fiber.Map{"error": "Nama masjid tidak valid untuk slug (batch)"})
+			}
+			unique, err := helper.EnsureUniqueSlug(mc.DB, base, "masjids", "masjid_slug")
+			if err != nil {
+				log.Printf("[ERROR] ensure unique slug (batch): %v", err)
+				return c.Status(500).JSON(fiber.Map{"error": "Gagal membuat slug unik (batch)"})
+			}
+
+			final := unique
+			// jika sudah dipakai dalam batch ini, tambahkan increment lokal
+			if _, ok := used[final]; ok {
+				i := 2
+				for {
+					try := fmt.Sprintf("%s-%d", base, i)
+					if _, ok := used[try]; !ok {
+						final = try
+						break
+					}
+					i++
+				}
+			}
+			used[final] = struct{}{}
+			m.MasjidSlug = final
+
+			models = append(models, *m)
 		}
+
 		if err := mc.DB.Create(&models).Error; err != nil {
 			log.Printf("[ERROR] Failed to create multiple masjids: %v\n", err)
-			return c.Status(500).JSON(fiber.Map{
-				"error": "Gagal menyimpan banyak masjid",
-			})
+			return c.Status(500).JSON(fiber.Map{"error": "Gagal menyimpan banyak masjid"})
 		}
+
 		var responses []dto.MasjidResponse
 		for i := range models {
 			responses = append(responses, dto.FromModelMasjid(&models[i]))
@@ -249,20 +181,32 @@ func (mc *MasjidController) CreateMasjid(c *fiber.Ctx) error {
 		})
 	}
 
-	// 🧍 Jika single JSON
+	// ---- Single JSON ----
 	if err := c.BodyParser(&singleReq); err != nil {
 		log.Printf("[ERROR] Invalid single input: %v", err)
-		return c.Status(400).JSON(fiber.Map{
-			"error": "Format input tidak valid",
-		})
+		return c.Status(400).JSON(fiber.Map{"error": "Format input tidak valid"})
 	}
 
 	singleModel := dto.ToModelMasjid(&singleReq, uuid.New())
+
+	if strings.TrimSpace(singleModel.MasjidName) == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "Nama masjid wajib diisi"})
+	}
+
+	base := helper.GenerateSlug(singleModel.MasjidName)
+	if base == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "Nama masjid tidak valid untuk slug"})
+	}
+	unique, err := helper.EnsureUniqueSlug(mc.DB, base, "masjids", "masjid_slug")
+	if err != nil {
+		log.Printf("[ERROR] ensure unique slug (single): %v", err)
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal membuat slug unik"})
+	}
+	singleModel.MasjidSlug = unique
+
 	if err := mc.DB.Create(&singleModel).Error; err != nil {
 		log.Printf("[ERROR] Failed to create masjid: %v", err)
-		return c.Status(500).JSON(fiber.Map{
-			"error": "Gagal menyimpan masjid",
-		})
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal menyimpan masjid"})
 	}
 
 	return c.Status(201).JSON(fiber.Map{
@@ -271,41 +215,50 @@ func (mc *MasjidController) CreateMasjid(c *fiber.Ctx) error {
 	})
 }
 
-
 // 🟢 UPDATE MASJID (Partial Update)
-// ✅ PUT /api/a/masjids/:id
+// ✅ PUT /api/a/masjids
 func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
-	id := c.Locals("masjid_id")
-	if id == nil {
-		return c.Status(401).JSON(fiber.Map{
-			"error": "Masjid ID tidak ditemukan di token",
-		})
+	// (opsional, kalau mau enforce admin di level handler)
+	if !helper.IsAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Akses ditolak: hanya admin yang dapat memperbarui masjid"})
 	}
-	idStr := fmt.Sprintf("%v", id)
-	masjidUUID, err := uuid.Parse(idStr)
+
+	// 🔐 Ambil masjid_id dari token (admin scope)
+	masjidUUID, err := helper.GetMasjidIDFromToken(c) // baca LocMasjidAdminIDs
 	if err != nil {
-		log.Printf("[ERROR] Invalid UUID format: %v\n", err)
-		return c.Status(400).JSON(fiber.Map{
-			"error": "Format ID tidak valid",
-		})
+		return err // helper sudah return Fiber error 401/400 yang tepat
 	}
 
 	// 🔍 Ambil data lama
 	var existing model.MasjidModel
 	if err := mc.DB.First(&existing, "masjid_id = ?", masjidUUID).Error; err != nil {
-		log.Printf("[ERROR] Masjid with ID %s not found\n", id)
-		return c.Status(404).JSON(fiber.Map{
-			"error": "Masjid tidak ditemukan",
-		})
+		log.Printf("[ERROR] Masjid with ID %s not found\n", masjidUUID.String())
+		return c.Status(404).JSON(fiber.Map{"error": "Masjid tidak ditemukan"})
+	}
+
+	// util kecil: pastikan slug unik kecuali sama dengan slug existing
+	ensureSlugUpdate := func(candidate string) (string, error) {
+		base := helper.GenerateSlug(candidate)
+		if base == "" {
+			return "", fmt.Errorf("slug candidate kosong")
+		}
+		if base == existing.MasjidSlug {
+			return existing.MasjidSlug, nil
+		}
+		return helper.EnsureUniqueSlug(mc.DB, base, "masjids", "masjid_slug")
 	}
 
 	contentType := c.Get("Content-Type")
 
 	// ✅ Update via multipart/form-data
 	if strings.Contains(contentType, "multipart/form-data") {
-		// Field text
 		if val := c.FormValue("masjid_name"); val != "" {
 			existing.MasjidName = val
+			newSlug, err := ensureSlugUpdate(val)
+			if err != nil {
+				return c.Status(400).JSON(fiber.Map{"error": "Nama tidak valid untuk slug"})
+			}
+			existing.MasjidSlug = newSlug
 		}
 		if val := c.FormValue("masjid_bio_short"); val != "" {
 			existing.MasjidBioShort = val
@@ -313,8 +266,13 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 		if val := c.FormValue("masjid_location"); val != "" {
 			existing.MasjidLocation = val
 		}
+		// override slug eksplisit (tetap sanitize & unik)
 		if val := c.FormValue("masjid_slug"); val != "" {
-			existing.MasjidSlug = val
+			newSlug, err := ensureSlugUpdate(val)
+			if err != nil {
+				return c.Status(400).JSON(fiber.Map{"error": "Slug tidak valid"})
+			}
+			existing.MasjidSlug = newSlug
 		}
 		if val := c.FormValue("masjid_google_maps_url"); val != "" {
 			existing.MasjidGoogleMapsURL = val
@@ -332,7 +290,6 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 			domain := strings.TrimSpace(val)
 			existing.MasjidDomain = &domain
 		}
-
 		if val := c.FormValue("masjid_facebook_url"); val != "" {
 			existing.MasjidFacebookURL = val
 		}
@@ -345,9 +302,6 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 		if val := c.FormValue("masjid_whatsapp_group_akhwat_url"); val != "" {
 			existing.MasjidWhatsappGroupAkhwatURL = val
 		}
-
-
-		// Koordinat
 		if val := c.FormValue("masjid_latitude"); val != "" {
 			if lat, err := strconv.ParseFloat(val, 64); err == nil {
 				existing.MasjidLatitude = lat
@@ -358,49 +312,39 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 				existing.MasjidLongitude = lng
 			}
 		}
-
 		// Upload gambar baru jika ada
 		if file, err := c.FormFile("masjid_image_url"); err == nil && file != nil {
-			// Hapus gambar lama dari Supabase
 			if existing.MasjidImageURL != "" {
-				parsed, err := url.Parse(existing.MasjidImageURL)
-				if err == nil {
-					rawPath := parsed.Path
-					prefix := "/storage/v1/object/public/"
-					cleaned := strings.TrimPrefix(rawPath, prefix)
-					if unescaped, err := url.QueryUnescape(cleaned); err == nil {
-						parts := strings.SplitN(unescaped, "/", 2)
-						if len(parts) == 2 {
-							bucket := parts[0]
-							objectPath := parts[1]
-							_ = helper.DeleteFromSupabase(bucket, objectPath)
+				if parsed, err := url.Parse(existing.MasjidImageURL); err == nil {
+					raw := strings.TrimPrefix(parsed.Path, "/storage/v1/object/public/")
+					if u, err := url.QueryUnescape(raw); err == nil {
+						if parts := strings.SplitN(u, "/", 2); len(parts) == 2 {
+							_ = helper.DeleteFromSupabase(parts[0], parts[1]) // best-effort
 						}
 					}
 				}
 			}
-
-			// Upload baru
 			newURL, err := helper.UploadImageToSupabase("masjids", file)
 			if err != nil {
-				return c.Status(500).JSON(fiber.Map{
-					"error": "Gagal upload gambar baru",
-				})
+				return c.Status(500).JSON(fiber.Map{"error": "Gagal upload gambar baru"})
 			}
 			existing.MasjidImageURL = newURL
 		}
-
 	} else {
-		// ✅ Update via JSON (application/json)
+		// ✅ Update via JSON
 		var input dto.MasjidRequest
 		if err := c.BodyParser(&input); err != nil {
 			log.Printf("[ERROR] Invalid JSON input: %v\n", err)
-			return c.Status(400).JSON(fiber.Map{
-				"error": "Format JSON tidak valid",
-			})
+			return c.Status(400).JSON(fiber.Map{"error": "Format JSON tidak valid"})
 		}
 
 		if input.MasjidName != "" {
 			existing.MasjidName = input.MasjidName
+			newSlug, err := ensureSlugUpdate(input.MasjidName)
+			if err != nil {
+				return c.Status(400).JSON(fiber.Map{"error": "Nama tidak valid untuk slug"})
+			}
+			existing.MasjidSlug = newSlug
 		}
 		if input.MasjidBioShort != "" {
 			existing.MasjidBioShort = input.MasjidBioShort
@@ -409,7 +353,11 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 			existing.MasjidLocation = input.MasjidLocation
 		}
 		if input.MasjidSlug != "" {
-			existing.MasjidSlug = input.MasjidSlug
+			newSlug, err := ensureSlugUpdate(input.MasjidSlug)
+			if err != nil {
+				return c.Status(400).JSON(fiber.Map{"error": "Slug tidak valid"})
+			}
+			existing.MasjidSlug = newSlug
 		}
 		if input.MasjidGoogleMapsURL != "" {
 			existing.MasjidGoogleMapsURL = input.MasjidGoogleMapsURL
@@ -445,15 +393,12 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 		if input.MasjidWhatsappGroupAkhwatURL != "" {
 			existing.MasjidWhatsappGroupAkhwatURL = input.MasjidWhatsappGroupAkhwatURL
 		}
-
 	}
 
 	// 💾 Simpan ke DB
 	if err := mc.DB.Save(&existing).Error; err != nil {
 		log.Printf("[ERROR] Failed to update masjid: %v\n", err)
-		return c.Status(500).JSON(fiber.Map{
-			"error": "Gagal memperbarui masjid",
-		})
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal memperbarui masjid"})
 	}
 
 	log.Printf("[SUCCESS] Masjid updated: %s\n", existing.MasjidName)
@@ -465,58 +410,83 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 
 
 
-// 🗑️ DELETE /api/a/masjids/:id
+// 🗑️ DELETE /api/a/masjids           -> admin: pakai ID token; owner: 400 (perlu :id)
+// 🗑️ DELETE /api/a/masjids/:id       -> owner: bebas; admin: harus sama dgn ID token
 func (mc *MasjidController) DeleteMasjid(c *fiber.Ctx) error {
-	id := c.Params("id")
-	log.Printf("[INFO] Deleting masjid with ID: %s\n", id)
-
-	// ✅ Validasi UUID
-	masjidUUID, err := uuid.Parse(id)
-	if err != nil {
-		log.Printf("[ERROR] Invalid UUID format: %v\n", err)
-		return c.Status(400).JSON(fiber.Map{
-			"error": "Format ID tidak valid",
+	// 1) Harus admin atau owner
+	if !helper.IsAdmin(c) {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "Akses ditolak: hanya admin yang dapat menghapus masjid",
 		})
 	}
 
-	// 🔍 Cari data masjid
+	pathID := strings.TrimSpace(c.Params("id"))
+	isOwner := helper.IsOwner(c)
+
+	var targetID uuid.UUID
+	var err error
+
+	if isOwner {
+		// OWNER: harus pakai :id (biar eksplisit)
+		if pathID == "" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Owner harus menyertakan ID masjid di path",
+			})
+		}
+		targetID, err = uuid.Parse(pathID)
+		if err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Format ID pada path tidak valid"})
+		}
+	} else {
+		// ADMIN biasa: ambil dari token
+		tokenID, e := helper.GetMasjidIDFromToken(c)
+		if e != nil {
+			return e // 401/400 dari helper
+		}
+		// jika ada :id, wajib sama
+		if pathID != "" {
+			pathUUID, perr := uuid.Parse(pathID)
+			if perr != nil {
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Format ID pada path tidak valid"})
+			}
+			if pathUUID != tokenID {
+				return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+					"error": "Tidak boleh menghapus masjid di luar scope Anda",
+				})
+			}
+		}
+		targetID = tokenID
+	}
+
+	log.Printf("[INFO] Deleting masjid ID: %s (owner=%v)\n", targetID.String(), isOwner)
+
+	// 2) Ambil data existing
 	var existing model.MasjidModel
-	if err := mc.DB.First(&existing, "masjid_id = ?", masjidUUID).Error; err != nil {
-		log.Printf("[ERROR] Masjid not found: %v\n", err)
-		return c.Status(404).JSON(fiber.Map{
-			"error": "Masjid tidak ditemukan",
-		})
+	if err := mc.DB.First(&existing, "masjid_id = ?", targetID).Error; err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "Masjid tidak ditemukan"})
 	}
 
-	// 🧹 Hapus gambar dari Supabase jika ada
+	// 3) Hapus file gambar (best-effort)
 	if existing.MasjidImageURL != "" {
-		parsed, err := url.Parse(existing.MasjidImageURL)
-		if err == nil {
-			rawPath := parsed.Path
-			prefix := "/storage/v1/object/public/"
-			cleaned := strings.TrimPrefix(rawPath, prefix)
-			if unescaped, err := url.QueryUnescape(cleaned); err == nil {
-				parts := strings.SplitN(unescaped, "/", 2)
-				if len(parts) == 2 {
-					bucket := parts[0]
-					objectPath := parts[1]
-					_ = helper.DeleteFromSupabase(bucket, objectPath)
+		if parsed, perr := url.Parse(existing.MasjidImageURL); perr == nil {
+			raw := strings.TrimPrefix(parsed.Path, "/storage/v1/object/public/")
+			if u, uerr := url.QueryUnescape(raw); uerr == nil {
+				if parts := strings.SplitN(u, "/", 2); len(parts) == 2 {
+					_ = helper.DeleteFromSupabase(parts[0], parts[1])
 				}
 			}
 		}
 	}
 
-	// 🗑️ Hapus dari DB
+	// 4) Hapus record
 	if err := mc.DB.Delete(&existing).Error; err != nil {
 		log.Printf("[ERROR] Failed to delete masjid: %v\n", err)
-		return c.Status(500).JSON(fiber.Map{
-			"error": "Gagal menghapus masjid",
-		})
+		return c.Status(500).JSON(fiber.Map{"error": "Gagal menghapus masjid"})
 	}
 
-	log.Printf("[SUCCESS] Masjid with ID %s deleted\n", id)
-
+	log.Printf("[SUCCESS] Masjid deleted: %s\n", targetID.String())
 	return c.JSON(fiber.Map{
-		"message": fmt.Sprintf("Masjid dengan ID %s berhasil dihapus", id),
+		"message":   "Masjid berhasil dihapus",
+		"masjid_id": targetID.String(),
 	})
 }

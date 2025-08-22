@@ -240,3 +240,102 @@ func (ctrl *EventSessionController) GetUpcomingEventSessions(c *fiber.Ctx) error
 
 	return helper.JsonList(c, dto.ToEventSessionResponseList(sessions), pagination)
 }
+
+
+// 🟢 PUT /api/a/event-sessions/:id
+func (ctrl *EventSessionController) UpdateEventSession(c *fiber.Ctx) error {
+	// --- Param ---
+	idStr := c.Params("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Format ID tidak valid")
+	}
+
+	// --- Ambil session ---
+	var session model.EventSessionModel
+	if err := ctrl.DB.First(&session, "event_session_id = ?", id).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "Event session tidak ditemukan")
+	}
+
+	// --- Authorization by masjid ---
+	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || session.EventSessionMasjidID != masjidID {
+		return helper.JsonError(c, fiber.StatusForbidden, "Tidak punya akses untuk update event session ini")
+	}
+
+	// --- Bind request ---
+	var req dto.EventSessionUpdateRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Permintaan tidak valid")
+	}
+
+	// --- Apply partial fields ---
+	if req.EventSessionSlug != nil {
+		session.EventSessionSlug = *req.EventSessionSlug
+	}
+	if req.EventSessionTitle != nil {
+		session.EventSessionTitle = *req.EventSessionTitle
+	}
+	if req.EventSessionDescription != nil {
+		session.EventSessionDescription = *req.EventSessionDescription
+	}
+	if req.EventSessionStartTime != nil {
+		session.EventSessionStartTime = *req.EventSessionStartTime
+	}
+	if req.EventSessionEndTime != nil {
+		session.EventSessionEndTime = *req.EventSessionEndTime
+	}
+	if req.EventSessionLocation != nil {
+		session.EventSessionLocation = *req.EventSessionLocation
+	}
+	if req.EventSessionImageURL != nil {
+		session.EventSessionImageURL = *req.EventSessionImageURL
+	}
+	if req.EventSessionCapacity != nil {
+		session.EventSessionCapacity = *req.EventSessionCapacity
+	}
+	if req.EventSessionMasjidID != nil {
+		session.EventSessionMasjidID = *req.EventSessionMasjidID
+	}
+	if req.EventSessionIsPublic != nil {
+		session.EventSessionIsPublic = *req.EventSessionIsPublic
+	}
+	if req.EventSessionIsRegistrationNeeded != nil {
+		session.EventSessionIsRegistrationNeeded = *req.EventSessionIsRegistrationNeeded
+	}
+	// --- Simpan ---
+	if err := ctrl.DB.Save(&session).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate event session")
+	}
+
+	return helper.JsonOK(c, "Event session berhasil diperbarui", dto.ToEventSessionResponse(&session))
+}
+
+// 🟢 DELETE /api/a/event-sessions/:id
+func (ctrl *EventSessionController) DeleteEventSession(c *fiber.Ctx) error {
+	// --- Param ---
+	idStr := c.Params("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+	return helper.JsonError(c, fiber.StatusBadRequest, "Format ID tidak valid")
+	}
+
+	// --- Ambil session ---
+	var session model.EventSessionModel
+	if err := ctrl.DB.First(&session, "event_session_id = ?", id).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "Event session tidak ditemukan")
+	}
+
+	// --- Authorization by masjid ---
+	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || session.EventSessionMasjidID != masjidID {
+		return helper.JsonError(c, fiber.StatusForbidden, "Tidak punya akses untuk menghapus event session ini")
+	}
+
+	// --- Hapus ---
+	if err := ctrl.DB.Delete(&session).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus event session")
+	}
+
+	return helper.JsonOK(c, "Event session berhasil dihapus", nil)
+}

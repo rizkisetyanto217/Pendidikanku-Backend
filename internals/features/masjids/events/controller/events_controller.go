@@ -233,3 +233,35 @@ func (ctrl *EventController) GetEventBySlug(c *fiber.Ctx) error {
 
 	return helper.JsonOK(c, "Event berhasil ditemukan", dto.ToEventResponse(&event))
 }
+
+
+
+// 🛑 DELETE /api/a/events/:id
+func (ctrl *EventController) DeleteEvent(c *fiber.Ctx) error {
+    id := c.Params("id")
+    if id == "" {
+        return helper.JsonError(c, fiber.StatusBadRequest, "Event ID tidak boleh kosong")
+    }
+
+    // Ambil masjid_id dari token (admin/dkm/owner). Ini memastikan scope tenant.
+    masjidID, err := helper.GetMasjidIDFromToken(c)
+    if err != nil {
+        // 401/400 tergantung error dari helper
+        return err
+    }
+
+    // Pastikan event ada & memang milik masjid dari token
+    var ev model.EventModel
+    if err := ctrl.DB.
+        Where("event_id = ? AND event_masjid_id = ?", id, masjidID.String()).
+        First(&ev).Error; err != nil {
+        return helper.JsonError(c, fiber.StatusNotFound, "Event tidak ditemukan atau bukan milik masjid ini")
+    }
+
+    // --- Jika FK sudah ON DELETE CASCADE, cukup hapus event:
+    if err := ctrl.DB.Delete(&ev).Error; err != nil {
+        return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus event")
+    }
+
+    return helper.JsonOK(c, "Event berhasil dihapus", nil)
+}

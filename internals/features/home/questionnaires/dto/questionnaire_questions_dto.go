@@ -31,6 +31,16 @@ type CreateQuestionnaireQuestionRequest struct {
 	QuestionScope    int      `json:"question_scope" validate:"required,oneof=1 2 3"` // general/event/lecture
 }
 
+type UpdateQuestionnaireQuestionRequest struct {
+	QuestionText     *string   `json:"question_text,omitempty"`
+	QuestionType     *int      `json:"question_type,omitempty"`                 // 1=rating, 2=text, 3=choice
+	QuestionOptions  *[]string `json:"question_options,omitempty"`              // wajib kalau type==3
+	EventID          *string   `json:"event_id,omitempty"`                      // wajib jika scope=2
+	LectureSessionID *string   `json:"lecture_session_id,omitempty"`            // wajib jika scope=3
+	QuestionScope    *int      `json:"question_scope,omitempty"`                // 1=general, 2=event, 3=lecture
+}
+
+
 // =============================
 // 🔁 Converters
 // =============================

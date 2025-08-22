@@ -1,48 +1,44 @@
 package route
 
 import (
+	"masjidku_backend/internals/constants"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/controller"
+	authMiddleware "masjidku_backend/internals/middlewares/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
 
-func AllLectureSessionRoutes(user fiber.Router, db *gorm.DB) {
+// User routes (login wajib; untuk tindakan atas nama user sendiri)
+func LectureSessionUserRoutes(api fiber.Router, db *gorm.DB) {
+	r := api.Group("/",
+		authMiddleware.AuthMiddleware(db),
+		authMiddleware.OnlyRolesSlice(
+			"❌ Hanya pengguna terautentikasi yang boleh mengakses fitur sesi kajian.",
+			constants.AllowedRoles,
+		),
+	)
+
 	lectureSessionCtrl := controller.NewLectureSessionController(db)
 	userLectureSessionCtrl := controller.NewUserLectureSessionController(db)
-	userAttendanceCtrl := controller.NewUserLectureSessionsAttendanceController(db) // ✅ Tambah controller baru
+	userAttendanceCtrl := controller.NewUserLectureSessionsAttendanceController(db)
 
-	// 📚 Group: /lecture-sessions
-	session := user.Group("/lecture-sessions")
-	session.Get("/", lectureSessionCtrl.GetAllLectureSessions)
-	session.Get("/by-masjid", lectureSessionCtrl.GetLectureSessionsByMasjidID)
-	session.Get("/lecture-sessions", lectureSessionCtrl.GetByLectureID)
+	// (Opsional) read untuk user area—kalau ingin mirror sebagian GET
+	usrRead := r.Group("/lecture-sessions")
+	usrRead.Get("/", lectureSessionCtrl.GetAllLectureSessions)
+	usrRead.Get("/by-masjid", lectureSessionCtrl.GetLectureSessionsByMasjidID)
+	usrRead.Get("/by-lecture", lectureSessionCtrl.GetByLectureID) // sebelumnya "/lecture-sessions" → dibetulkan
 
-	// 👥 Group: /lecture-sessions-u
-	sessionUser := user.Group("/lecture-sessions-u")
-	sessionUser.Get("/by-masjid/:id", lectureSessionCtrl.GetLectureSessionsByMasjidIDParam)
-	sessionUser.Get("/by-lecture/:lecture_id", lectureSessionCtrl.GetLectureSessionsByLectureID)
-	sessionUser.Get("/by-id/:id", lectureSessionCtrl.GetLectureSessionByID)
-	sessionUser.Get("/by-slug/:slug", lectureSessionCtrl.GetLectureSessionBySlug)	
-	sessionUser.Get("/by-masjid-slug/:slug/group-by-month", lectureSessionCtrl.GetLectureSessionsGroupedByMonth)
-	sessionUser.Get("/by-masjid-slug/:slug/by-month/:month", lectureSessionCtrl.GetLectureSessionsByMonth)
-	sessionUser.Get("/by-masjid-slug/:slug", lectureSessionCtrl.GetLectureSessionBySlug)
-	sessionUser.Get("/mendatang/:slug", lectureSessionCtrl.GetUpcomingLectureSessionsByMasjidSlug)
-	sessionUser.Get("/soal-materi/:slug", lectureSessionCtrl.GetFinishedLectureSessionsByMasjidSlug)
-	// 📚 Semua sesi by lecture_slug (upcoming + finished)
-	sessionUser.Get("/by-lecture-slug/:lecture_slug/all", lectureSessionCtrl.GetAllLectureSessionsByLectureSlug)
+	// 👥 Group: /user-lecture-sessions (aksi user)
+	uls := r.Group("/user-lecture-sessions")
+	uls.Post("/", userLectureSessionCtrl.CreateUserLectureSession)
+	uls.Get("/", userLectureSessionCtrl.GetAllUserLectureSessions)
+	uls.Get("/:id", userLectureSessionCtrl.GetUserLectureSessionByID)
 
-
-	// 👥 Group: /user-lecture-sessions
-	userSession := user.Group("/user-lecture-sessions")
-	userSession.Post("/", userLectureSessionCtrl.CreateUserLectureSession)
-	userSession.Get("/", userLectureSessionCtrl.GetAllUserLectureSessions)
-	userSession.Get("/:id", userLectureSessionCtrl.GetUserLectureSessionByID)
-
-	// ✅ Tambah route untuk /user-lecture-sessions-attendance
-	userAttendance := user.Group("/user-lecture-sessions-attendance")
-	userAttendance.Post("/", userAttendanceCtrl.CreateOrUpdate)
-	userAttendance.Get("/:lecture_session_id", userAttendanceCtrl.GetByLectureSession)
-	userAttendance.Get("/:lecture_session_slug/by-slug", userAttendanceCtrl.GetByLectureSessionSlug)
-	userAttendance.Delete("/:id", userAttendanceCtrl.Delete)
+	// 📝 Attendance & personal notes (login user)
+	att := r.Group("/user-lecture-sessions-attendance")
+	att.Post("/", userAttendanceCtrl.CreateOrUpdate)
+	att.Get("/:lecture_session_id", userAttendanceCtrl.GetByLectureSession)
+	att.Get("/:lecture_session_slug/by-slug", userAttendanceCtrl.GetByLectureSessionSlug)
+	att.Delete("/:id", userAttendanceCtrl.Delete)
 }

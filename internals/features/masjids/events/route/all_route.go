@@ -7,23 +7,20 @@ import (
 	"gorm.io/gorm"
 )
 
+// Tidak perlu login
 func AllEventRoutes(api fiber.Router, db *gorm.DB) {
-	// 🔹 Events (user hanya melihat)
+	// Events (public read)
 	eventCtrl := controller.NewEventController(db)
-	event := api.Group("/events")
-	event.Get("/", eventCtrl.GetAllEvents)
-	event.Get("/by-masjid-slug/:slug", eventCtrl.GetEventsByMasjidSlug)
-	event.Get("/:slug", eventCtrl.GetEventBySlug) // 🔥 tambahkan ini
+	events := api.Group("/events")
+	events.Get("/", eventCtrl.GetAllEvents)
+	events.Get("/by-masjid-slug/:slug", eventCtrl.GetEventsByMasjidSlug)
+	events.Get("/:slug", eventCtrl.GetEventBySlug)
 
-	// 🔹 Event Sessions (user lihat jadwal sesi)
+	// Event Sessions (public read)
 	sessionCtrl := controller.NewEventSessionController(db)
-	session := api.Group("/event-sessions")
-	session.Get("/", sessionCtrl.GetAllEventSessions)
-	session.Get("/upcoming/masjid-id/:masjid_id", sessionCtrl.GetUpcomingEventSessions)
-
-	// 🔹 User Event Registrations
-	registrationCtrl := controller.NewUserEventRegistrationController(db)
-	reg := api.Group("/user-event-registrations")
-	reg.Post("/", registrationCtrl.CreateRegistration)           // user daftar event
-	reg.Post("/by-user", registrationCtrl.GetRegistrantsByEvent) // user lihat event yang diikuti
+	sessions := api.Group("/event-sessions")
+	sessions.Get("/", sessionCtrl.GetAllEventSessions)
+	// upcoming publik (opsional filter masjid_id di path)
+	// contoh: /event-sessions/upcoming/masjid-id/<uuid>, atau kosongkan masjid_id untuk semua masjid publik
+	sessions.Get("/upcoming/masjid-id/:masjid_id", sessionCtrl.GetUpcomingEventSessions)
 }

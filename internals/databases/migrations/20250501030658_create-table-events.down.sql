@@ -1,4 +1,3 @@
-
 -- =========================
 -- ========= DOWN ==========
 -- =========================
@@ -22,7 +21,7 @@ DROP INDEX IF EXISTS idx_user_event_registrations_masjid_id;
 DROP INDEX IF EXISTS idx_user_event_registrations_user_id;
 DROP INDEX IF EXISTS idx_user_event_registrations_event_session_id;
 
--- event_sessions
+-- event_sessions (semua ini memang index)
 DROP INDEX IF EXISTS idx_event_sessions_slug_trgm;
 DROP INDEX IF EXISTS idx_event_sessions_title_trgm;
 DROP INDEX IF EXISTS idx_event_sessions_tsv_gin;
@@ -31,7 +30,7 @@ DROP INDEX IF EXISTS idx_event_sessions_masjid_start;
 DROP INDEX IF EXISTS idx_event_sessions_event_start;
 DROP INDEX IF EXISTS idx_event_sessions_start_time;
 DROP INDEX IF EXISTS idx_event_sessions_event_id;
-DROP INDEX IF EXISTS ux_event_sessions_slug_ci;
+DROP INDEX IF EXISTS ux_event_sessions_slug_ci;  -- ini UNIQUE INDEX, bukan constraint
 
 -- events
 DROP INDEX IF EXISTS idx_events_slug_trgm;
@@ -39,10 +38,13 @@ DROP INDEX IF EXISTS idx_events_title_trgm;
 DROP INDEX IF EXISTS idx_events_tsv_gin;
 DROP INDEX IF EXISTS idx_events_masjid_recent;
 DROP INDEX IF EXISTS idx_events_masjid_id;
-DROP INDEX IF EXISTS ux_events_slug_per_masjid_lower;
-DROP INDEX IF EXISTS ux_events_slug_per_masjid_ci;
+DROP INDEX IF EXISTS ux_events_slug_per_masjid_lower;  -- UNIQUE INDEX lower(event_slug)
 
--- Drop generated columns
+-- ⚠️ penting: yang ini adalah CONSTRAINT, bukan index
+ALTER TABLE IF EXISTS events
+  DROP CONSTRAINT IF EXISTS ux_events_slug_per_masjid_ci;
+
+-- Drop generated columns (setelah index di atas dihapus)
 ALTER TABLE IF EXISTS event_sessions DROP COLUMN IF EXISTS event_session_search_tsv;
 ALTER TABLE IF EXISTS events DROP COLUMN IF EXISTS event_search_tsv;
 

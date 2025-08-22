@@ -19,22 +19,28 @@ var skipPaths = map[string]struct{}{
 	"/api/donations/notification": {},
 }
 
+const (
+	logPrefix = "[AUTH]"
+	// Skew waktu untuk toleransi exp (mis. clock drift)
+	defaultExpirySkew = 30 * time.Second
+)
 
-
-
+// AuthMiddleware memverifikasi JWT, cek blacklist, validasi user aktif,
+// lalu memetakan klaim penting (role, masjid_ids, dll) ke fiber.Context.Locals.
 func AuthMiddleware(db *gorm.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		log.Printf("🔥 AuthMiddleware: %s %s", c.Method(), c.OriginalURL())
+		log.Printf("%s 🔥 %s %s", logPrefix, c.Method(), c.OriginalURL())
 
 		// 1) Skip path tertentu (webhook dsb.)
 		if _, ok := skipPaths[c.Path()]; ok {
-			log.Println("[INFO] Skip AuthMiddleware for:", c.Path())
+			log.Printf("%s [INFO] Skip Auth for: %s", logPrefix, c.Path())
 			return c.Next()
 		}
 
 		// 2) Ambil Authorization (atau cookie)
 		tokenString, err := extractBearerToken(c)
 		if err != nil {
+			log.Printf("%s [ERROR] extract token: %v", logPrefix, err)
 			return fiber.NewError(fiber.StatusUnauthorized, err.Error())
 		}
 
@@ -42,10 +48,10 @@ func AuthMiddleware(db *gorm.DB) fiber.Handler {
 		if c.Locals("token_checked") == nil {
 			var existing TokenBlacklistModel.TokenBlacklist
 			if err := db.Where("token = ? AND deleted_at IS NULL", tokenString).First(&existing).Error; err == nil {
-				log.Println("[WARNING] Token ditemukan di blacklist")
+				log.Printf("%s [WARNING] Token ditemukan di blacklist", logPrefix)
 				return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized - Token is blacklisted")
 			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-				log.Println("[ERROR] DB error saat cek blacklist:", err)
+				log.Printf("%s [ERROR] DB error saat cek blacklist: %v", logPrefix, err)
 				return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 			}
 			c.Locals("token_checked", true)
@@ -54,7 +60,7 @@ func AuthMiddleware(db *gorm.DB) fiber.Handler {
 		// 4) Parse & verifikasi JWT (tanpa validate claims tambahan)
 		secretKey := configs.JWTSecret
 		if secretKey == "" {
-			log.Println("[ERROR] JWT_SECRET kosong")
+			log.Printf("%s [ERROR] JWT_SECRET kosong", logPrefix)
 			return fiber.NewError(fiber.StatusInternalServerError, "Missing JWT Secret")
 		}
 
@@ -63,26 +69,26 @@ func AuthMiddleware(db *gorm.DB) fiber.Handler {
 		if _, err := parser.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 			return []byte(secretKey), nil
 		}); err != nil {
-			log.Println("[ERROR] Gagal parse token:", err)
+			log.Printf("%s [ERROR] Gagal parse token: %v", logPrefix, err)
 			return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized - Token parse error")
 		}
 
 		// 5) Validasi exp
-		if err := validateTokenExpiry(claims, 30*time.Second); err != nil {
-			log.Println("[ERROR] Exp validation:", err)
+		if err := validateTokenExpiry(claims, defaultExpirySkew); err != nil {
+			log.Printf("%s [ERROR] Exp validation: %v", logPrefix, err)
 			return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized - Token expired")
 		}
 
 		// 6) Ambil user_id & validasi user aktif
 		userID, err := extractUserID(claims)
 		if err != nil {
-			log.Println("[ERROR] user_id:", err)
+			log.Printf("%s [ERROR] user_id: %v", logPrefix, err)
 			return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized - Invalid or missing user ID")
 		}
 		c.Locals("user_id", userID.String())
 
 		if err := ensureUserActive(db, userID); err != nil {
-			log.Println("[ERROR] ensureUserActive:", err)
+			log.Printf("%s [ERROR] ensureUserActive: %v", logPrefix, err)
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized - User not found")
 			}
@@ -90,10 +96,11 @@ func AuthMiddleware(db *gorm.DB) fiber.Handler {
 		}
 
 		// 7) Simpan info klaim ke context (role, user_name, dan masjid IDs)
+		//    Implementasi ada di auth_locals.go
 		storeBasicClaimsToLocals(c, claims)
-		storeMasjidIDsToLocals(c, claims) // <- simpan admin/teacher/union + set masjid_id aktif
+		storeMasjidIDsToLocals(c, claims)
 
-		log.Println("[SUCCESS] Token valid, lanjutkan request")
+		log.Printf("%s [SUCCESS] Token valid, lanjutkan request", logPrefix)
 		return c.Next()
 	}
 }

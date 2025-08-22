@@ -129,41 +129,56 @@ func (h *UserSppBillingItemController) List(c *fiber.Ctx) error {
 }
 
 // GET /admin/user-spp-billings/me
+// GET /admin/user-spp-billings/me
 func (h *UserSppBillingItemController) ListMine(c *fiber.Ctx) error {
+	// masjid dari helper yang sudah ada
 	masjidID, err := helper.GetMasjidIDFromToken(c)
-	if err != nil { return err }
-	userID, err := helper.GetUserIDFromToken(c)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
+
+	// user_id langsung dari Locals (tanpa helper baru)
+	uidRaw := c.Locals("user_id")
+	uidStr, ok := uidRaw.(string)
+	if !ok || uidStr == "" {
+		return fiber.NewError(fiber.StatusUnauthorized, "user_id tidak ditemukan di token")
+	}
+	userID, err := uuid.Parse(uidStr)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "user_id pada token tidak valid")
+	}
 
 	var q dto.ListMySppBillingQuery
 	if err := c.QueryParser(&q); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
 	}
-	if q.Limit == 0 { q.Limit = 20 }
+	if q.Limit == 0 {
+		q.Limit = 20
+	}
 
-	// base query (tenant-safe via join header)
 	tx := h.DB.Table("user_spp_billings AS u").
 		Joins("JOIN spp_billings AS b ON b.spp_billing_id = u.user_spp_billing_billing_id").
 		Where("u.user_spp_billing_user_id = ?", userID).
 		Where("b.spp_billing_masjid_id = ?", masjidID)
 
-	// filter optional
 	if q.Status != nil && *q.Status != "" {
 		tx = tx.Where("u.user_spp_billing_status = ?", *q.Status)
 	}
-	if q.Month != nil { tx = tx.Where("b.spp_billing_month = ?", *q.Month) }
-	if q.Year != nil  { tx = tx.Where("b.spp_billing_year  = ?", *q.Year)  }
+	if q.Month != nil {
+		tx = tx.Where("b.spp_billing_month = ?", *q.Month)
+	}
+	if q.Year != nil {
+		tx = tx.Where("b.spp_billing_year = ?", *q.Year)
+	}
 	if q.Q != nil && *q.Q != "" {
 		tx = tx.Where("b.spp_billing_title ILIKE ?", "%"+*q.Q+"%")
 	}
 
-	// count
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
-	// select kolom yang diperlukan + urutkan terbaru (tahun, bulan, created_at)
 	var rows []dto.MySppBillingItem
 	if err := tx.
 		Select(`
@@ -172,9 +187,9 @@ func (h *UserSppBillingItemController) ListMine(c *fiber.Ctx) error {
 			u.user_spp_billing_amount_idr,
 			u.user_spp_billing_status,
 			u.user_spp_billing_paid_at,
-			b.spp_billing_title   AS billing_title,
-			b.spp_billing_month   AS billing_month,
-			b.spp_billing_year    AS billing_year,
+			b.spp_billing_title    AS billing_title,
+			b.spp_billing_month    AS billing_month,
+			b.spp_billing_year     AS billing_year,
 			b.spp_billing_due_date AS billing_due_date,
 			b.spp_billing_class_id AS billing_class_id
 		`).
@@ -190,6 +205,7 @@ func (h *UserSppBillingItemController) ListMine(c *fiber.Ctx) error {
 		Total: total,
 	})
 }
+
 
 
 /* ====================== GET BY ID ====================== */

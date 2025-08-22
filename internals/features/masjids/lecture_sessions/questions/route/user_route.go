@@ -1,19 +1,24 @@
 package route
 
 import (
-	"masjidku_backend/internals/features/masjids/lecture_sessions/questions/controller"
+	questionController "masjidku_backend/internals/features/masjids/lecture_sessions/questions/controller"
+	authMiddleware "masjidku_backend/internals/middlewares/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
 
-func LectureSessionsQuestionUserRoutes(user fiber.Router, db *gorm.DB) {
-	userQuestionCtrl := controller.NewLectureSessionsUserQuestionController(db)
+// 👤 User (submit & baca jawaban milik sendiri)
+func LectureSessionsQuestionUserRoutes(router fiber.Router, db *gorm.DB) {
+	userQuestionCtrl := questionController.NewLectureSessionsUserQuestionController(db)
 
-	// 👤 Group: /lecture-sessions-user-questions
-	userQuestions := user.Group("/lecture-sessions-user-questions")
-	userQuestions.Post("/", userQuestionCtrl.CreateLectureSessionsUserQuestion)
-	// userQuestions.Get("/", userQuestionCtrl.GetAllUserLectureSessionsQuestions)
-	userQuestions.Get("/by-question/:question_id", userQuestionCtrl.GetByQuestionID)
-	// userQuestions.Get("/:id", userQuestionCtrl.GetLectureSessionsUserQuestionByID) // (opsional)
+	// Login wajib, tanpa guard role
+	userQuestions := router.Group("/lecture-sessions-user-questions",
+		authMiddleware.AuthMiddleware(db),
+	)
+
+	userQuestions.Post("/", userQuestionCtrl.CreateLectureSessionsUserQuestion) // 📝 Submit jawaban
+	// userQuestions.Get("/", userQuestionCtrl.GetAllUserLectureSessionsQuestions) // (opsional: list jawaban user)
+	userQuestions.Get("/by-question/:question_id", userQuestionCtrl.GetByQuestionID) // 🔎 Jawaban user by question
+	// userQuestions.Get("/:id", userQuestionCtrl.GetLectureSessionsUserQuestionByID)  // (opsional)
 }

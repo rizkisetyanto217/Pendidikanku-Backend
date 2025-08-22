@@ -1,22 +1,23 @@
 package route
 
 import (
-	"masjidku_backend/internals/features/home/articles/controller"
+	homeController "masjidku_backend/internals/features/home/articles/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
 
-func AllArticleRoutes(api fiber.Router, db *gorm.DB) {
-	articleCtrl := controller.NewArticleController(db)
+// 🌐 All/User (read-only)
+func AllArticleRoutes(router fiber.Router, db *gorm.DB) {
+	articleCtrl := homeController.NewArticleController(db)
+	carouselCtrl := homeController.NewCarouselController(db)
 
-	// === USER ROUTES ===
-	article := api.Group("/articles")
-	article.Get("/", articleCtrl.GetAllArticles)    // 📄 Lihat semua artikel
-	article.Get("/:id", articleCtrl.GetArticleByID) // 🔍 Lihat detail artikel
+	// === Article (read-only)
+	article := router.Group("/articles")
+	article.Get("/", articleCtrl.GetAllArticles)    // 📄 Semua artikel aktif/publik
+	article.Get("/:id", articleCtrl.GetArticleByID) // 🔍 Detail artikel
 
-	carouselCtrl := controller.NewCarouselController(db)
-	// === USER ROUTES ===
-	carousel := api.Group("/carousels")
-	carousel.Get("/", carouselCtrl.GetAllActiveCarousels) // 🎡 Ambil semua carousel aktif
+	// === Carousel (read-only aktif saja)
+	carousel := router.Group("/carousels")
+	carousel.Get("/", carouselCtrl.GetAllActiveCarousels) // 🎡 Carousel aktif
 }

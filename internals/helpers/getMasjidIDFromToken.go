@@ -8,27 +8,37 @@ import (
 )
 
 //
+// ========== Keys (hindari typo) ==========
+//
+
+const (
+	LocRole             = "role"
+	LocUserID           = "user_id" // ✅ tambahan: dipakai banyak controller
+	LocMasjidIDs        = "masjid_ids"         // union semua peran (opsional)
+	LocMasjidAdminIDs   = "masjid_admin_ids"
+	LocMasjidTeacherIDs = "masjid_teacher_ids"
+	LocMasjidStudentIDs = "masjid_student_ids"
+)
+
+//
 // ========== Utilities ==========
 //
 
-// normalizeLocalsToStrings mencoba mengekstrak daftar string dari berbagai tipe common Locals:
+// normalizeLocalsToStrings mengekstrak daftar string dari tipe umum Locals:
 // []string, []interface{}(string), string, uuid.UUID, []uuid.UUID.
-// Menghasilkan slice string yang sudah TrimSpace & tidak kosong.
 func normalizeLocalsToStrings(v any) []string {
 	out := make([]string, 0)
 	switch t := v.(type) {
 	case []string:
 		for _, s := range t {
-			s = strings.TrimSpace(s)
-			if s != "" {
+			if s = strings.TrimSpace(s); s != "" {
 				out = append(out, s)
 			}
 		}
 	case []interface{}:
 		for _, it := range t {
 			if s, ok := it.(string); ok {
-				s = strings.TrimSpace(s)
-				if s != "" {
+				if s = strings.TrimSpace(s); s != "" {
 					out = append(out, s)
 				}
 			}
@@ -91,46 +101,68 @@ func parseUUIDSliceFromLocals(c *fiber.Ctx, key string) ([]uuid.UUID, error) {
 }
 
 //
-// ========== Single-tenant getters (dipakai untuk Create/Update/Delete) ==========
+// ========== Claim helpers generik ==========
 //
 
-// Admin-only (existing)
+// GetRole mengembalikan role (lowercased). Kosong jika tidak ada.
+func GetRole(c *fiber.Ctx) string {
+	if v := c.Locals(LocRole); v != nil {
+		if s, ok := v.(string); ok {
+			return strings.ToLower(strings.TrimSpace(s))
+		}
+	}
+	return ""
+}
+
+// HasUUIDClaim true jika Locals[key] berisi minimal 1 UUID valid.
+func HasUUIDClaim(c *fiber.Ctx, key string) bool {
+	ids, err := parseUUIDSliceFromLocals(c, key)
+	return err == nil && len(ids) > 0
+}
+
+//
+// ========== Single-tenant getters (Create/Update/Delete) ==========
+//
+
+// ✅ User ID (sering dibutuhkan)
+func GetUserIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
+	return parseFirstUUIDFromLocals(c, LocUserID)
+}
+
+// Admin-only
 func GetMasjidIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
-	return parseFirstUUIDFromLocals(c, "masjid_admin_ids")
+	return parseFirstUUIDFromLocals(c, LocMasjidAdminIDs)
 }
 
-// Teacher-only (existing)
+// Teacher-only
 func GetTeacherMasjidIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
-	return parseFirstUUIDFromLocals(c, "masjid_teacher_ids")
+	return parseFirstUUIDFromLocals(c, LocMasjidTeacherIDs)
 }
 
-// Prefer TEACHER -> UNION masjid_ids -> ADMIN (existing behavior, dipakai C/U/D)
+// Prefer TEACHER -> UNION masjid_ids -> ADMIN
 func GetMasjidIDFromTokenPreferTeacher(c *fiber.Ctx) (uuid.UUID, error) {
-	if id, err := parseFirstUUIDFromLocals(c, "masjid_teacher_ids"); err == nil {
+	if id, err := parseFirstUUIDFromLocals(c, LocMasjidTeacherIDs); err == nil {
 		return id, nil
 	}
-	if id, err := parseFirstUUIDFromLocals(c, "masjid_ids"); err == nil {
+	if id, err := parseFirstUUIDFromLocals(c, LocMasjidIDs); err == nil {
 		return id, nil
 	}
-	return parseFirstUUIDFromLocals(c, "masjid_admin_ids")
+	return parseFirstUUIDFromLocals(c, LocMasjidAdminIDs)
 }
 
 //
-// ========== Multi-tenant getter (dipakai untuk List/Read) ==========
+// ========== Multi-tenant getter (List/Read) ==========
 //
 
 // Ambil semua masjid yang berhak diakses user dari token.
-// Prioritas:
-// 1) "masjid_ids" (union semua peran; yang kamu tunjukkan ada di JWT)
-// 2) fallback gabungan teacher/admin/student jika "masjid_ids" tidak tersedia.
 func GetMasjidIDsFromToken(c *fiber.Ctx) ([]uuid.UUID, error) {
-	// 1) union langsung
-	if ids, err := parseUUIDSliceFromLocals(c, "masjid_ids"); err == nil {
+	// 1) union langsung (jika ada)
+	if ids, err := parseUUIDSliceFromLocals(c, LocMasjidIDs); err == nil {
 		return ids, nil
 	}
 
 	// 2) fallback gabungan role-role
-	groups := []string{"masjid_teacher_ids", "masjid_admin_ids", "masjid_student_ids"}
+	groups := []string{LocMasjidTeacherIDs, LocMasjidAdminIDs, LocMasjidStudentIDs}
 	seen := map[uuid.UUID]struct{}{}
 	out := make([]uuid.UUID, 0, 4)
 
@@ -158,7 +190,7 @@ func GetMasjidIDsFromToken(c *fiber.Ctx) ([]uuid.UUID, error) {
 	}
 
 	if !anyFound || len(out) == 0 {
-		// terakhir: fallback ke single preferTeacher (biar tetap backward-compatible)
+		// terakhir: fallback single preferTeacher
 		if id, err := GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
 			return []uuid.UUID{id}, nil
 		}
@@ -168,11 +200,19 @@ func GetMasjidIDsFromToken(c *fiber.Ctx) ([]uuid.UUID, error) {
 }
 
 //
-// ========== Role helpers kecil (opsional) ==========
+// ========== Role helpers ==========
 //
 
-func IsAdmin(c *fiber.Ctx) bool   { v := c.Locals("role"); s, _ := v.(string); return strings.EqualFold(s, "admin") }
-func IsTeacher(c *fiber.Ctx) bool { v := c.Locals("role"); s, _ := v.(string); return strings.EqualFold(s, "teacher") }
-func IsStudent(c *fiber.Ctx) bool { v := c.Locals("role"); s, _ := v.(string); return strings.EqualFold(s, "student") }
+// IsAdmin true jika role=admin ATAU owner ATAU punya masjid_admin_ids (scoped).
+func IsAdmin(c *fiber.Ctx) bool {
+	role := strings.ToLower(GetRole(c)) // pastikan middleware set Locals("role")
+	if role == "admin" || role == "owner" {
+		return true
+	}
+	// fallback: punya hak admin scoped ke masjid
+	return HasUUIDClaim(c, LocMasjidAdminIDs)
+}
 
-
+func IsOwner(c *fiber.Ctx) bool   { return strings.ToLower(GetRole(c)) == "owner" }
+func IsTeacher(c *fiber.Ctx) bool { return strings.EqualFold(GetRole(c), "teacher") }
+func IsStudent(c *fiber.Ctx) bool { return strings.EqualFold(GetRole(c), "student") }

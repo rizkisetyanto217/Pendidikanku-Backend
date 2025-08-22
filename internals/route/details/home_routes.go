@@ -22,11 +22,12 @@ import (
 func HomePublicRoutes(api fiber.Router, db *gorm.DB) {
     // Route lainnya yang tidak membutuhkan DBMiddleware
     QouteRoutes.AllQuoteRoutes(api, db)
-    FaqRoutes.AllFaqQuestionRoutes(api, db)
+    FaqRoutes.AllFaqRoutes(api, db)
     ArticleRoutes.AllArticleRoutes(api, db)
-    PostRoutes.AllPostRoutes(api, db)
+    PostRoutes.AllPublicRoutes(api, db)
     QuestionnaireRoutes.AllQuestionnaireQuestionRoutes(api, db)
-    NotificationRoutes.AllNotificationRoutes(api, db)
+    NotificationRoutes.NotificationAdminRoutes(api, db)
+	FaqRoutes.FaqAdminRoutes(api, db)
 
     // Hanya menambahkan DBMiddleware untuk DonationRoutes
     donationRoutes := api.Group("/donations")
@@ -40,16 +41,18 @@ func HomePublicRoutes(api fiber.Router, db *gorm.DB) {
 func HomePrivateRoutes(api fiber.Router, db *gorm.DB) {
 	AdviceRoutes.AllAdviceRoutes(api, db)
 	SPPRoutes.SppBillingUserRoutes(api, db)
+	FaqRoutes.FaqUserRoutes(api, db)
+	PostRoutes.PostUserRoutes(api, db)
 }
 
 // ✅ Untuk route admin masjid (token + admin)
 // Contoh akses: /api/a/quotes
 func HomeAdminRoutes(api fiber.Router, db *gorm.DB) {
-	FaqRoutes.FaqQuestionAdminRoutes(api, db)
+	FaqRoutes.FaqAdminRoutes(api, db)
 	AdviceRoutes.AdviceAdminRoutes(api, db)
 	ArticleRoutes.ArticleAdminRoutes(api, db)
 	PostRoutes.PostAdminRoutes(api, db)
-	QuestionnaireRoutes.QuestionnaireQuestionAdminRoutes(api, db)
+	QuestionnaireRoutes.QuestionAdminRoutes(api, db)
 	QouteRoutes.QuoteAdminRoutes(api, db)
 	DonationRoutes.DonationAdminRoutes(api, db)
 	SPPRoutes.SppBillingAdminRoutes(api, db)

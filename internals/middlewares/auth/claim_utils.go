@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,34 +13,35 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+
+	helper "masjidku_backend/internals/helpers"
 )
 
-/* ======== Extractors ======== */
-// ======== Extractors (perbarui ini) ========
+/* =======================
+   Extractors
+   ======================= */
 
+// Ambil bearer token dari Authorization header, fallback cookie "access_token".
 func extractBearerToken(c *fiber.Ctx) (string, error) {
-	// 1) Ambil dari Authorization header atau fallback cookie
+	// 1) Header atau fallback cookie
 	auth := strings.TrimSpace(c.Get("Authorization"))
 	if auth == "" {
 		if cookieTok := c.Cookies("access_token"); cookieTok != "" {
 			auth = "Bearer " + cookieTok
-			log.Println("[DEBUG] Authorization dari Cookie")
+			log.Println("[AUTH] [DEBUG] Authorization diambil dari Cookie")
 		}
 	}
 	if auth == "" {
 		return "", fmt.Errorf("unauthorized - No token provided")
 	}
 
-	// 2) Robust split: toleransi spasi ganda & case-insensitive
-	fields := strings.Fields(auth) // pecah berdasarkan whitespace berturut
+	// 2) Robust split & case-insensitive
+	fields := strings.Fields(auth) // pecah by multiple whitespace
 	if len(fields) < 2 || !strings.EqualFold(fields[0], "Bearer") {
 		return "", fmt.Errorf("unauthorized - Invalid token format")
 	}
-	tok := fields[1]
-
-	// 3) Sanitasi: buang kutip di kiri/kanan & spasi
-	tok = strings.TrimSpace(tok)
-	tok = strings.Trim(tok, "\"'")
+	tok := strings.TrimSpace(fields[1])
+	tok = strings.Trim(tok, "\"'") // sanitasi jika ada quote
 
 	if tok == "" {
 		return "", fmt.Errorf("unauthorized - Empty token")
@@ -47,6 +49,7 @@ func extractBearerToken(c *fiber.Ctx) (string, error) {
 	return tok, nil
 }
 
+// Validasi exp dengan toleransi skew (clock drift).
 func validateTokenExpiry(claims jwt.MapClaims, skew time.Duration) error {
 	expVal, ok := claims["exp"]
 	if !ok {
@@ -54,28 +57,30 @@ func validateTokenExpiry(claims jwt.MapClaims, skew time.Duration) error {
 	}
 
 	var expUnix int64
-	switch t := expVal.(type) {
+	switch v := expVal.(type) {
 	case float64:
-		expUnix = int64(t)
+		expUnix = int64(v)
 	case int64:
-		expUnix = t
+		expUnix = v
+	case int:
+		expUnix = int64(v)
 	case string:
-		if n, err := parseInt64(strings.TrimSpace(t)); err == nil {
-			expUnix = n
-		} else {
+		n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		if err != nil {
 			return fmt.Errorf("invalid exp format")
 		}
+		expUnix = n
 	default:
-		// coba best-effort untuk tipe numeric lain (mis. json.Number via interface{})
-		if s := fmt.Sprintf("%v", t); s != "" {
-			if n, err := parseInt64(s); err == nil {
-				expUnix = n
-			} else {
-				return fmt.Errorf("invalid exp type")
-			}
-		} else {
+		// best-effort: stringify lalu parse
+		s := strings.TrimSpace(fmt.Sprintf("%v", v))
+		if s == "" {
 			return fmt.Errorf("invalid exp type")
 		}
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid exp type")
+		}
+		expUnix = n
 	}
 
 	now := time.Now().UTC()
@@ -86,25 +91,33 @@ func validateTokenExpiry(claims jwt.MapClaims, skew time.Duration) error {
 	return nil
 }
 
-
+// Ambil user ID dari klaim "id", fallback ke "sub". Keduanya di-parse ke UUID.
 func extractUserID(claims jwt.MapClaims) (uuid.UUID, error) {
-	idRaw, ok := claims["id"]
-	if !ok {
-		return uuid.Nil, fmt.Errorf("no user id")
-	}
-	switch v := idRaw.(type) {
-	case string:
-		return uuid.Parse(strings.TrimSpace(v))
-	default:
+	// utama: "id"
+	if idRaw, ok := claims["id"]; ok {
+		if s, ok := idRaw.(string); ok {
+			return uuid.Parse(strings.TrimSpace(s))
+		}
 		return uuid.Nil, fmt.Errorf("invalid user id type")
 	}
+	// fallback: "sub" (sering dipakai untuk subject/user id)
+	if subRaw, ok := claims["sub"]; ok {
+		if s, ok := subRaw.(string); ok {
+			return uuid.Parse(strings.TrimSpace(s))
+		}
+	}
+	return uuid.Nil, fmt.Errorf("no user id")
 }
 
+// Pastikan user aktif di DB.
 func ensureUserActive(db *gorm.DB, userID uuid.UUID) error {
 	var user struct {
 		IsActive bool
 	}
-	if err := db.Table("users").Select("is_active").Where("id = ?", userID).First(&user).Error; err != nil {
+	if err := db.Table("users").
+		Select("is_active").
+		Where("id = ?", userID).
+		First(&user).Error; err != nil {
 		return err
 	}
 	if !user.IsActive {
@@ -113,57 +126,92 @@ func ensureUserActive(db *gorm.DB, userID uuid.UUID) error {
 	return nil
 }
 
-/* ======== Store claims to Locals ======== */
+/* =======================
+   Store claims to Locals
+   ======================= */
 
+// Simpan role (lowercased) → Locals("role"), plus user_name & sub (opsional).
 func storeBasicClaimsToLocals(c *fiber.Ctx, claims jwt.MapClaims) {
-	if role, ok := claims["role"].(string); ok {
-		c.Locals("userRole", role)
+	if v, ok := claims["role"].(string); ok {
+		role := strings.ToLower(strings.TrimSpace(v))
+		if role != "" {
+			c.Locals(helper.LocRole, role) // "role"
+		}
 	}
 	if userName, ok := claims["user_name"].(string); ok {
-		c.Locals("user_name", userName)
+		c.Locals("user_name", strings.TrimSpace(userName))
 	}
+	if sub, ok := claims["sub"].(string); ok && strings.TrimSpace(sub) != "" {
+		c.Locals("sub", strings.TrimSpace(sub))
+	}
+
+	log.Printf("[AUTH] locals set: role=%v user_name=%v sub=%v",
+		c.Locals(helper.LocRole), c.Locals("user_name"), c.Locals("sub"))
 }
 
+// Simpan IDs: admin/teacher/student/union → Locals, dan set "masjid_id" aktif.
+// Prioritas aktif: TEACHER → UNION → ADMIN (selaras helper.GetMasjidIDFromTokenPreferTeacher).
 func storeMasjidIDsToLocals(c *fiber.Ctx, claims jwt.MapClaims) {
 	adminIDs := toStringSlice(claims["masjid_admin_ids"])
 	teacherIDs := toStringSlice(claims["masjid_teacher_ids"])
+	studentIDs := toStringSlice(claims["masjid_student_ids"])
 	unionIDs := toStringSlice(claims["masjid_ids"])
 
 	if len(adminIDs) > 0 {
-		c.Locals("masjid_admin_ids", adminIDs)
+		c.Locals(helper.LocMasjidAdminIDs, adminIDs)
 	}
 	if len(teacherIDs) > 0 {
-		c.Locals("masjid_teacher_ids", teacherIDs)
+		c.Locals(helper.LocMasjidTeacherIDs, teacherIDs)
+	}
+	if len(studentIDs) > 0 {
+		c.Locals(helper.LocMasjidStudentIDs, studentIDs)
 	}
 	if len(unionIDs) > 0 {
-		c.Locals("masjid_ids", unionIDs)
+		c.Locals(helper.LocMasjidIDs, unionIDs)
 	}
 
-	// pilih aktif: teacher → admin → union
+	// pilih aktif: TEACHER -> UNION -> ADMIN
 	active := ""
 	switch {
 	case len(teacherIDs) > 0:
 		active = teacherIDs[0]
-	case len(adminIDs) > 0:
-		active = adminIDs[0]
 	case len(unionIDs) > 0:
 		active = unionIDs[0]
+	case len(adminIDs) > 0:
+		active = adminIDs[0]
+	}
+	if strings.TrimSpace(active) != "" {
+		c.Locals("masjid_id", active) // backward-compat untuk kode lama
+		log.Println("[AUTH] [SUCCESS] Active masjid_id stored:", active)
+	} else {
+		log.Println("[AUTH] [INFO] Tidak ada masjid_id terdeteksi di token")
 	}
 
-	if active != "" {
-		c.Locals("masjid_id", active)
-		log.Println("[SUCCESS] Active masjid_id stored:", active)
-	} else {
-		log.Println("[INFO] Tidak ada masjid_id terdeteksi di token")
-	}
+	log.Printf("[AUTH] locals masjid_ids set: admin=%v teacher=%v student=%v union=%v active=%v",
+		c.Locals(helper.LocMasjidAdminIDs),
+		c.Locals(helper.LocMasjidTeacherIDs),
+		c.Locals(helper.LocMasjidStudentIDs),
+		c.Locals(helper.LocMasjidIDs),
+		c.Locals("masjid_id"),
+	)
 }
 
-/* ======== Helpers ======== */
+/* =======================
+   Helpers
+   ======================= */
 
+// Konversi klaim menjadi []string, tahan tipe []string, []any, atau string tunggal.
 func toStringSlice(v interface{}) []string {
 	switch t := v.(type) {
 	case []string:
-		return t
+		out := make([]string, 0, len(t))
+		for _, s := range t {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
 	case []interface{}:
 		out := make([]string, 0, len(t))
 		for _, it := range t {
@@ -175,19 +223,13 @@ func toStringSlice(v interface{}) []string {
 			}
 		}
 		return out
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" {
+			return nil
+		}
+		return []string{s}
 	default:
 		return nil
 	}
-}
-
-func parseInt64(s string) (int64, error) {
-	// kecilkan depedensi: simple parser untuk angka desimal
-	var n int64
-	for _, ch := range s {
-		if ch < '0' || ch > '9' {
-			return 0, fmt.Errorf("non-digit")
-		}
-		n = n*10 + int64(ch-'0')
-	}
-	return n, nil
 }

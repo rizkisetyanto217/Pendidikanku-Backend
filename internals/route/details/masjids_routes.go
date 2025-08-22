@@ -1,8 +1,6 @@
 package details
 
 import (
-	FaqRoutes "masjidku_backend/internals/features/home/faqs/route"
-	NotificationRoutes "masjidku_backend/internals/features/home/notifications/route"
 	CertificateRoutes "masjidku_backend/internals/features/masjids/certificate/route"
 	EventRoutes "masjidku_backend/internals/features/masjids/events/route"
 	LectureSessionRoutes "masjidku_backend/internals/features/masjids/lecture_sessions/main/route"
@@ -28,19 +26,25 @@ func MasjidPublicRoutes(r fiber.Router, db *gorm.DB) {
 	LectureRoutes.AllLectureRoutes(r, db)
 	LectureSessionRoutes.AllLectureSessionRoutes(r, db)
 	EventRoutes.AllEventRoutes(r, db)
-	LectureExamsRoutes.LectureExamsUserRoutes(r, db)
+	LectureSessionRoutes.AllLectureSessionRoutes(r, db)
+
 	LectureSessionsAssetRoutes.AllLectureSessionsAssetRoutes(r, db)
-	LectureSessionsQuizRoutes.LectureSessionsQuizUserRoutes(r, db)
+	LectureSessionsQuizRoutes.AllLectureSessionsQuizRoutes(r, db)
 	LectureSessionsQuestionRoutes.AllLectureSessionsQuestionRoutes(r, db)
-	CertificateRoutes.PublicCertificateRoutes(r, db)
+	CertificateRoutes.AllCertificateRoutes(r, db)
+
 }
+
 
 func MasjidUserRoutes(r fiber.Router, db *gorm.DB) {
 	// Ini endpoint yang butuh login user biasa (dengan token)
 	userFollowMasjid.UserFollowMasjidsRoutes(r, db)
-	FaqRoutes.AllFaqQuestionRoutes(r, db)
-	
+	LectureRoutes.LectureUserRoutes(r, db)
+	LectureSessionRoutes.LectureSessionUserRoutes(r, db)
+	LectureSessionsQuizRoutes.LectureSessionsQuizUserRoutes(r, db)
+	LectureExamsRoutes.LectureExamsUserRoutes(r, db)
 	LectureSessionsQuestionRoutes.LectureSessionsQuestionUserRoutes(r, db)
+	CertificateRoutes.CertificateUserRoutes(r, db)
 	// LectureRoutes.UserLectureRoutes(r, db)
 }
 
@@ -48,11 +52,9 @@ func MasjidAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// Ini endpoint khusus admin masjid
 	masjidRoutes.MasjidAdminRoutes(r, db)
 	MasjidAdmin.MasjidAdminRoutes(r, db)
-	MasjidMore.MasjidMoreRoutes(r, db)
-	LectureRoutes.LectureRoutes(r, db)
-	EventRoutes.EventRoutes(r, db)
-	NotificationRoutes.AllNotificationRoutes(r, db)
-	FaqRoutes.FaqQuestionAdminRoutes(r, db)
+	MasjidMore.MasjidMoreAdminRoutes(r, db)
+	LectureRoutes.LectureAdminRoutes(r, db)
+	EventRoutes.EventAdminRoutes(r, db)
 	LectureSessionRoutes.LectureSessionAdminRoutes(r, db)
 	LectureExamsRoutes.LectureExamsAdminRoutes(r, db)
 	LectureSessionsAssetRoutes.LectureSessionsAssetAdminRoutes(r, db)
