@@ -36,6 +36,19 @@ CREATE TABLE IF NOT EXISTS classes (
   class_deleted_at TIMESTAMPTZ
 );
 
+-- Pastikan ada UNIQUE (class_id, class_masjid_id) agar bisa jadi target FK komposit
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_classes_id_masjid'
+  ) THEN
+    ALTER TABLE classes
+      ADD CONSTRAINT uq_classes_id_masjid
+      UNIQUE (class_id, class_masjid_id);
+  END IF;
+END$$;
+
+
 -- =========================================================
 -- MIGRASI: hilangkan UNIQUE global di kolom class_slug (jika ada)
 -- =========================================================
@@ -114,17 +127,20 @@ END$$;
 -- =========================================================
 
 -- 1) Fresh install table (pakai NOT NULL + CASCADE yang direkomendasikan)
+-- =========================================================
+-- CLASS_SECTIONS (refactor, fully idempotent)
+-- =========================================================
+
+-- 1) Fresh install table
 CREATE TABLE IF NOT EXISTS class_sections (
   class_sections_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   class_sections_class_id UUID NOT NULL
     REFERENCES classes(class_id) ON DELETE CASCADE,
 
-  -- Rekomendasi: NOT NULL + CASCADE agar tenant konsisten
   class_sections_masjid_id UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  -- HAPUS UNIQUE di kolom, nanti pakai unique index per masjid
   class_sections_slug VARCHAR(160) NOT NULL,
 
   class_sections_teacher_id UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -142,7 +158,7 @@ CREATE TABLE IF NOT EXISTS class_sections (
   class_sections_deleted_at TIMESTAMPTZ
 );
 
--- 2) Migrasi dari skema lama (hapus UNIQUE di kolom slug bila ada)
+-- 2) Cleanup legacy UNIQUE di kolom slug (jika ada)
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'class_sections_class_sections_slug_key') THEN
@@ -152,52 +168,54 @@ BEGIN
   END IF;
 END$$;
 
--- 2b) (Jika sebelumnya kolom masjid_id bisa NULL & ingin dijadikan NOT NULL)
---     Isi yang NULL dengan masjid_id dari classes dulu lalu set NOT NULL.
+-- 2b) Backfill masjid_id (bila NULL di skema lama), lalu coba set NOT NULL
 DO $$
 BEGIN
-  -- Backfill dari classes (hanya jika ada NULL)
-  IF EXISTS (
-    SELECT 1 FROM class_sections WHERE class_sections_masjid_id IS NULL
-  ) THEN
+  IF EXISTS (SELECT 1 FROM class_sections WHERE class_sections_masjid_id IS NULL) THEN
     UPDATE class_sections cs
-      SET class_sections_masjid_id = c.class_masjid_id
-    FROM classes c
-    WHERE c.class_id = cs.class_sections_class_id
-      AND cs.class_sections_masjid_id IS NULL;
+       SET class_sections_masjid_id = c.class_masjid_id
+      FROM classes c
+     WHERE c.class_id = cs.class_sections_class_id
+       AND cs.class_sections_masjid_id IS NULL;
 
-    -- Coba set NOT NULL (akan gagal jika masih ada NULL)
     BEGIN
       ALTER TABLE class_sections
         ALTER COLUMN class_sections_masjid_id SET NOT NULL;
     EXCEPTION WHEN others THEN
-      -- Biarkan tetap nullable jika masih ada baris yang tidak bisa diisi
-      -- (kamu bisa bereskan datanya lalu rerun ALTER di atas)
+      -- biarkan nullable jika masih ada baris yang gagal diisi
       NULL;
     END;
   END IF;
 END$$;
 
--- 3) Unik: nama section per class (soft-delete aware) — dipertahankan
+-- 3) UNIQUE: nama section per class (soft-delete aware)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_class_name
   ON class_sections (class_sections_class_id, class_sections_name)
   WHERE class_sections_deleted_at IS NULL;
 
--- 4) Unik: slug per MASJID (case-insensitive, soft-delete aware)
---    slug boleh sama antar masjid, tapi unik di masjid yang sama.
+-- 4) UNIQUE: slug per masjid (case-insensitive, soft-delete aware)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_slug_per_masjid_active
   ON class_sections (class_sections_masjid_id, lower(class_sections_slug))
   WHERE class_sections_deleted_at IS NULL;
 
--- (Alternatif kalau maunya slug unik per CLASS, bukan per masjid)
--- CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_slug_per_class_active
---   ON class_sections (class_sections_class_id, lower(class_sections_slug))
---   WHERE class_sections_deleted_at IS NULL;
+-- 5) Composite UNIQUE (class_sections_id, class_sections_masjid_id)
+--    Gunakan pola "attach constraint ke index" agar tidak bentrok jika index sudah ada.
+-- 5a) Pastikan ada unique index (pakai nama yang sama agar bisa di-attach)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_class_sections_id_masjid
+  ON class_sections (class_sections_id, class_sections_masjid_id);
 
--- 5) Composite UNIQUE untuk mendukung composite FK (section_id + masjid_id)
-ALTER TABLE class_sections
-  ADD CONSTRAINT uq_class_sections_id_masjid
-  UNIQUE (class_sections_id, class_sections_masjid_id);
+-- 5b) Attach sebagai constraint jika constraint-nya belum ada
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'uq_class_sections_id_masjid'
+  ) THEN
+    ALTER TABLE class_sections
+      ADD CONSTRAINT uq_class_sections_id_masjid
+      UNIQUE USING INDEX uq_class_sections_id_masjid;
+  END IF;
+END$$;
 
 -- 6) Index umum
 CREATE INDEX IF NOT EXISTS idx_sections_class
@@ -237,20 +255,6 @@ BEGIN
     FOR EACH ROW
     EXECUTE FUNCTION fn_class_sections_touch_updated_at();
 END$$;
-
--- =========================================================
--- (Tetap) Composite UNIQUE pada classes bila kamu butuh composite FK ke classes
--- =========================================================
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'uq_classes_id_masjid'
-  ) THEN
-    ALTER TABLE classes
-      ADD CONSTRAINT uq_classes_id_masjid UNIQUE (class_id, class_masjid_id);
-  END IF;
-END$$;
-
 
 -- 
 -- 

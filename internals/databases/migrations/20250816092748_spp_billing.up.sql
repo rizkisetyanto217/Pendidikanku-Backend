@@ -4,9 +4,10 @@
 
 -- Extension untuk UUID
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- =========================================================
--- SPP: Batch header
+-- SPP BILLINGS (tambah relasi opsional ke academic_terms)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS spp_billings (
   spp_billing_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -17,6 +18,9 @@ CREATE TABLE IF NOT EXISTS spp_billings (
   spp_billing_month       SMALLINT NOT NULL CHECK (spp_billing_month BETWEEN 1 AND 12),
   spp_billing_year        SMALLINT NOT NULL CHECK (spp_billing_year BETWEEN 2000 AND 2100),
 
+  -- NEW (opsional): tautan ke term/semester
+  spp_billing_term_id     UUID,
+
   spp_billing_title       TEXT NOT NULL,
   spp_billing_due_date    DATE,
   spp_billing_note        TEXT,
@@ -26,23 +30,106 @@ CREATE TABLE IF NOT EXISTS spp_billings (
   spp_billing_deleted_at  TIMESTAMP
 );
 
--- Unik per masjid+kelas+bulan+tahun (yang belum dihapus)
+-- FK ke academic_terms (jika belum)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='spp_billings' AND column_name='spp_billing_term_id'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname='fk_spp_billing_term'
+  ) THEN
+    ALTER TABLE spp_billings
+      ADD CONSTRAINT fk_spp_billing_term
+      FOREIGN KEY (spp_billing_term_id)
+      REFERENCES academic_terms(academic_terms_id)
+      ON UPDATE CASCADE ON DELETE SET NULL;
+  END IF;
+END$$;
+
+-- Validasi tenant: term.mosque == billing.mosque (DEFERRABLE)
+CREATE OR REPLACE FUNCTION fn_spp_term_tenant_check()
+RETURNS TRIGGER AS $$
+DECLARE v_term_masjid UUID;
+BEGIN
+  IF NEW.spp_billing_term_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT academic_terms_masjid_id
+    INTO v_term_masjid
+  FROM academic_terms
+  WHERE academic_terms_id = NEW.spp_billing_term_id
+    AND academic_terms_deleted_at IS NULL;
+
+  IF v_term_masjid IS NULL THEN
+    RAISE EXCEPTION 'academic_term % tidak ditemukan/terhapus', NEW.spp_billing_term_id;
+  END IF;
+
+  IF v_term_masjid IS DISTINCT FROM NEW.spp_billing_masjid_id THEN
+    RAISE EXCEPTION 'Masjid mismatch: term(%) != spp_billing(%)',
+      v_term_masjid, NEW.spp_billing_masjid_id;
+  END IF;
+
+  RETURN NEW;
+END
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_spp_term_tenant_check') THEN
+    DROP TRIGGER trg_spp_term_tenant_check ON spp_billings;
+  END IF;
+
+  CREATE CONSTRAINT TRIGGER trg_spp_term_tenant_check
+  AFTER INSERT OR UPDATE OF spp_billing_masjid_id, spp_billing_term_id
+  ON spp_billings
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_spp_term_tenant_check();
+END$$;
+
+-- Unik per masjid+kelas+bulan+tahun (tetap, soft-delete aware)
+DROP INDEX IF EXISTS uq_spp_billings_batch;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_spp_billings_batch
-ON spp_billings (
-  spp_billing_masjid_id,
-  spp_billing_class_id,
-  spp_billing_month,
-  spp_billing_year
-)
+ON spp_billings (spp_billing_masjid_id, spp_billing_class_id, spp_billing_month, spp_billing_year)
 WHERE spp_billing_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_spp_billings_masjid
-ON spp_billings (spp_billing_masjid_id);
+-- =========================================================
+-- Percepatan Search spp_billings
+-- =========================================================
 
-CREATE INDEX IF NOT EXISTS idx_spp_billings_class
-ON spp_billings (spp_billing_class_id);
+-- Daftar live per tenant + terbaru
+CREATE INDEX IF NOT EXISTS ix_spp_billings_tenant_created_live
+  ON spp_billings (spp_billing_masjid_id, spp_billing_created_at DESC)
+  WHERE spp_billing_deleted_at IS NULL;
 
--- Trigger UPDATED_AT khusus spp_billings
+-- Navigasi per class & due_date (live)
+CREATE INDEX IF NOT EXISTS ix_spp_billings_tenant_class_due_live
+  ON spp_billings (spp_billing_masjid_id, spp_billing_class_id, spp_billing_due_date DESC)
+  WHERE spp_billing_deleted_at IS NULL;
+
+-- Filter cepat per (tenant, month, year) lintas kelas (live)
+CREATE INDEX IF NOT EXISTS ix_spp_billings_tenant_month_year_live
+  ON spp_billings (spp_billing_masjid_id, spp_billing_year, spp_billing_month)
+  WHERE spp_billing_deleted_at IS NULL;
+
+-- Pencarian judul (ILIKE) dengan trigram (live)
+CREATE INDEX IF NOT EXISTS gin_spp_billings_title_trgm_live
+  ON spp_billings USING GIN (spp_billing_title gin_trgm_ops)
+  WHERE spp_billing_deleted_at IS NULL;
+
+-- Filter per term (live)
+CREATE INDEX IF NOT EXISTS ix_spp_billings_term_live
+  ON spp_billings (spp_billing_term_id)
+  WHERE spp_billing_deleted_at IS NULL;
+
+-- Indeks dasar (tetap)
+CREATE INDEX IF NOT EXISTS idx_spp_billings_masjid ON spp_billings (spp_billing_masjid_id);
+CREATE INDEX IF NOT EXISTS idx_spp_billings_class  ON spp_billings (spp_billing_class_id);
+
+-- Trigger updated_at
 CREATE OR REPLACE FUNCTION set_spp_billing_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -56,34 +143,27 @@ CREATE TRIGGER trg_spp_billings_set_timestamp
 BEFORE UPDATE ON spp_billings
 FOR EACH ROW EXECUTE FUNCTION set_spp_billing_updated_at();
 
-
 -- =========================================================
--- USER SPP BILLINGS (item/tagihan per user)
+-- USER SPP BILLINGS (tetap)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS user_spp_billings (
   user_spp_billing_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_spp_billing_billing_id UUID NOT NULL
-    REFERENCES spp_billings(spp_billing_id) ON DELETE CASCADE,
-
+  user_spp_billing_billing_id UUID NOT NULL REFERENCES spp_billings(spp_billing_id) ON DELETE CASCADE,
   user_spp_billing_user_id    UUID REFERENCES users(id) ON DELETE SET NULL,
-
   user_spp_billing_amount_idr INT NOT NULL CHECK (user_spp_billing_amount_idr >= 0),
   user_spp_billing_status     VARCHAR(20) NOT NULL DEFAULT 'unpaid'
                               CHECK (user_spp_billing_status IN ('unpaid','paid','canceled')),
   user_spp_billing_paid_at    TIMESTAMP,
   user_spp_billing_note       TEXT,
-
   user_spp_billing_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   user_spp_billing_updated_at TIMESTAMP,
   user_spp_billing_deleted_at TIMESTAMP
 );
 
--- Unique per (billing_id, user_id) → wajib untuk ON CONFLICT
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'uq_user_spp_billing_per_user'
+    SELECT 1 FROM pg_constraint WHERE conname='uq_user_spp_billing_per_user'
   ) THEN
     ALTER TABLE user_spp_billings
       ADD CONSTRAINT uq_user_spp_billing_per_user
@@ -91,14 +171,9 @@ BEGIN
   END IF;
 END$$;
 
--- Index bantu
-CREATE INDEX IF NOT EXISTS idx_user_spp_billings_billing
-  ON user_spp_billings (user_spp_billing_billing_id);
+CREATE INDEX IF NOT EXISTS idx_user_spp_billings_billing ON user_spp_billings (user_spp_billing_billing_id);
+CREATE INDEX IF NOT EXISTS idx_user_spp_billings_user    ON user_spp_billings (user_spp_billing_user_id);
 
-CREATE INDEX IF NOT EXISTS idx_user_spp_billings_user
-  ON user_spp_billings (user_spp_billing_user_id);
-
--- Trigger UPDATED_AT khusus user_spp_billings
 CREATE OR REPLACE FUNCTION set_user_spp_billing_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -111,6 +186,8 @@ DROP TRIGGER IF EXISTS trg_user_spp_billings_set_timestamp ON user_spp_billings;
 CREATE TRIGGER trg_user_spp_billings_set_timestamp
 BEFORE UPDATE ON user_spp_billings
 FOR EACH ROW EXECUTE FUNCTION set_user_spp_billing_updated_at();
+
+
 
 
 -- =========================================================

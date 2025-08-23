@@ -225,8 +225,8 @@ func (h *UserSppBillingItemController) GetByID(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "OK", dto.FromUserSppBillingModel(*m))
 }
 
-/* ======================== UPDATE ======================= */
-// PATCH /admin/user-spp-billings/:id
+/* ======================== UPDATE (PUT, partial) ======================== */
+// PUT /admin/user-spp-billings/:id
 func (h *UserSppBillingItemController) Update(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil { return err }
@@ -234,35 +234,70 @@ func (h *UserSppBillingItemController) Update(c *fiber.Ctx) error {
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil { return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid") }
 
-	// Ambil + cek tenant
-	m, err := h.loadItemByIDTenant(id, masjidID)
+	// Pastikan item ada & milik tenant
+	curr, err := h.loadItemByIDTenant(id, masjidID)
 	if err != nil { return err }
 
 	var req dto.UpdateUserSppBillingRequest
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
-
-	v := validator.New()
-	if err := v.Struct(req); err != nil {
+	if err := validator.New().Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// Terapkan perubahan
-	req.ApplyTo(m)
+	patch := map[string]interface{}{}
 
-	// Jika status diubah ke paid & paid_at kosong → set now
-	if m.UserSppBillingStatus == model.SppPaid && m.UserSppBillingPaidAt == nil {
-		now := time.Now()
-		m.UserSppBillingPaidAt = &now
+	if req.UserSppBillingUserID != nil {
+		patch["user_spp_billing_user_id"] = *req.UserSppBillingUserID
+	}
+	if req.UserSppBillingAmountIDR != nil {
+		patch["user_spp_billing_amount_idr"] = *req.UserSppBillingAmountIDR
+	}
+	if req.UserSppBillingStatus != nil {
+		patch["user_spp_billing_status"] = *req.UserSppBillingStatus
+
+		// jika status menjadi 'paid' dan paid_at tidak dikirim → isi sekarang
+		if *req.UserSppBillingStatus == model.SppPaid {
+			if req.UserSppBillingPaidAt != nil {
+				patch["user_spp_billing_paid_at"] = *req.UserSppBillingPaidAt
+			} else if curr.UserSppBillingPaidAt == nil {
+				now := time.Now()
+				patch["user_spp_billing_paid_at"] = now
+			}
+		}
 	}
 
-	if err := h.DB.Save(m).Error; err != nil {
+	// paid_at dikirim eksplisit (override)
+	if req.UserSppBillingPaidAt != nil {
+		patch["user_spp_billing_paid_at"] = *req.UserSppBillingPaidAt
+	}
+
+	if req.UserSppBillingNote != nil {
+		patch["user_spp_billing_note"] = *req.UserSppBillingNote
+	}
+
+	// tidak ada perubahan
+	if len(patch) == 0 {
+		return helper.JsonOK(c, "Tidak ada perubahan", dto.FromUserSppBillingModel(*curr))
+	}
+
+	// update (trigger BEFORE UPDATE akan set user_spp_billing_updated_at)
+	if err := h.DB.Model(&model.UserSppBillingModel{}).
+		Where("user_spp_billing_id = ?", id).
+		Updates(patch).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui item SPP")
 	}
 
-	return helper.JsonOK(c, "Item SPP berhasil diperbarui", dto.FromUserSppBillingModel(*m))
+	// muat ulang nilai terbaru
+	updated, err := h.loadItemByIDTenant(id, masjidID)
+	if err != nil { // fallback kalau gagal reload
+		return helper.JsonOK(c, "Item SPP berhasil diperbarui", dto.FromUserSppBillingModel(*curr))
+	}
+	return helper.JsonOK(c, "Item SPP berhasil diperbarui", dto.FromUserSppBillingModel(*updated))
 }
+
+
 
 /* ======================== DELETE ======================= */
 // DELETE /admin/user-spp-billings/:id

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"masjidku_backend/internals/features/lembaga/academics/academic_year/model"
+	"masjidku_backend/internals/features/lembaga/academics/academic_terms/model"
 
 	"github.com/google/uuid"
 )

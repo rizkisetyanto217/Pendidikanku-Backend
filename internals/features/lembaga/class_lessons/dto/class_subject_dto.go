@@ -16,31 +16,33 @@ import (
    ========================================================= */
 
 type CreateClassSubjectRequest struct {
-	MasjidID     uuid.UUID `json:"class_subjects_masjid_id" validate:"required"`
-	ClassID      uuid.UUID `json:"class_subjects_class_id" validate:"required"`
-	SubjectID    uuid.UUID `json:"class_subjects_subject_id" validate:"required"`
-	OrderIndex   *int      `json:"class_subjects_order_index" validate:"omitempty,min=0"`
-	HoursPerWeek *int      `json:"class_subjects_hours_per_week" validate:"omitempty,min=0"`
-	MinScore     *int      `json:"class_subjects_min_passing_score" validate:"omitempty,min=0,max=100"`
-	Weight       *int      `json:"class_subjects_weight_on_report" validate:"omitempty,min=0"`
-	IsCore       *bool     `json:"class_subjects_is_core" validate:"omitempty"`
-	AcademicYear *string   `json:"class_subjects_academic_year" validate:"omitempty"`
-	Desc         *string   `json:"class_subjects_desc" validate:"omitempty"`
-	IsActive     *bool     `json:"class_subjects_is_active" validate:"omitempty"`
+	MasjidID     uuid.UUID  `json:"class_subjects_masjid_id" validate:"required"`
+	ClassID      uuid.UUID  `json:"class_subjects_class_id" validate:"required"`
+	SubjectID    uuid.UUID  `json:"class_subjects_subject_id" validate:"required"`
+	TermID       *uuid.UUID `json:"class_subjects_term_id" validate:"omitempty"`
+
+	OrderIndex   *int    `json:"class_subjects_order_index" validate:"omitempty,min=0"`
+	HoursPerWeek *int    `json:"class_subjects_hours_per_week" validate:"omitempty,min=0"`
+	MinScore     *int    `json:"class_subjects_min_passing_score" validate:"omitempty,min=0,max=100"`
+	Weight       *int    `json:"class_subjects_weight_on_report" validate:"omitempty,min=0"`
+	IsCore       *bool   `json:"class_subjects_is_core" validate:"omitempty"`
+	Desc         *string `json:"class_subjects_desc" validate:"omitempty"`
+	IsActive     *bool   `json:"class_subjects_is_active" validate:"omitempty"`
 }
 
 type UpdateClassSubjectRequest struct {
 	MasjidID     *uuid.UUID `json:"class_subjects_masjid_id" validate:"omitempty"`
 	ClassID      *uuid.UUID `json:"class_subjects_class_id" validate:"omitempty"`
 	SubjectID    *uuid.UUID `json:"class_subjects_subject_id" validate:"omitempty"`
-	OrderIndex   *int       `json:"class_subjects_order_index" validate:"omitempty,min=0"`
-	HoursPerWeek *int       `json:"class_subjects_hours_per_week" validate:"omitempty,min=0"`
-	MinScore     *int       `json:"class_subjects_min_passing_score" validate:"omitempty,min=0,max=100"`
-	Weight       *int       `json:"class_subjects_weight_on_report" validate:"omitempty,min=0"`
-	IsCore       *bool      `json:"class_subjects_is_core" validate:"omitempty"`
-	AcademicYear *string    `json:"class_subjects_academic_year" validate:"omitempty"`
-	Desc         *string    `json:"class_subjects_desc" validate:"omitempty"`
-	IsActive     *bool      `json:"class_subjects_is_active" validate:"omitempty"`
+	TermID       *uuid.UUID `json:"class_subjects_term_id" validate:"omitempty"`
+
+	OrderIndex   *int    `json:"class_subjects_order_index" validate:"omitempty,min=0"`
+	HoursPerWeek *int    `json:"class_subjects_hours_per_week" validate:"omitempty,min=0"`
+	MinScore     *int    `json:"class_subjects_min_passing_score" validate:"omitempty,min=0,max=100"`
+	Weight       *int    `json:"class_subjects_weight_on_report" validate:"omitempty,min=0"`
+	IsCore       *bool   `json:"class_subjects_is_core" validate:"omitempty"`
+	Desc         *string `json:"class_subjects_desc" validate:"omitempty"`
+	IsActive     *bool   `json:"class_subjects_is_active" validate:"omitempty"`
 }
 
 type ListClassSubjectQuery struct {
@@ -62,12 +64,13 @@ type ClassSubjectResponse struct {
 	MasjidID     uuid.UUID  `json:"class_subjects_masjid_id"`
 	ClassID      uuid.UUID  `json:"class_subjects_class_id"`
 	SubjectID    uuid.UUID  `json:"class_subjects_subject_id"`
+	TermID       *uuid.UUID `json:"class_subjects_term_id,omitempty"`
+
 	OrderIndex   *int       `json:"class_subjects_order_index,omitempty"`
 	HoursPerWeek *int       `json:"class_subjects_hours_per_week,omitempty"`
 	MinScore     *int       `json:"class_subjects_min_passing_score,omitempty"`
 	Weight       *int       `json:"class_subjects_weight_on_report,omitempty"`
 	IsCore       bool       `json:"class_subjects_is_core"`
-	AcademicYear *string    `json:"class_subjects_academic_year,omitempty"`
 	Desc         *string    `json:"class_subjects_desc,omitempty"`
 	IsActive     bool       `json:"class_subjects_is_active"`
 	CreatedAt    time.Time  `json:"class_subjects_created_at"`
@@ -100,13 +103,6 @@ func (r CreateClassSubjectRequest) ToModel() csModel.ClassSubjectModel {
 		isCore = *r.IsCore
 	}
 
-	var ay *string
-	if r.AcademicYear != nil {
-		t := strings.TrimSpace(*r.AcademicYear)
-		if t != "" {
-			ay = &t
-		}
-	}
 	var desc *string
 	if r.Desc != nil {
 		d := strings.TrimSpace(*r.Desc)
@@ -119,36 +115,43 @@ func (r CreateClassSubjectRequest) ToModel() csModel.ClassSubjectModel {
 		ClassSubjectsMasjidID:        r.MasjidID,
 		ClassSubjectsClassID:         r.ClassID,
 		ClassSubjectsSubjectID:       r.SubjectID,
+		ClassSubjectsTermID:          r.TermID,
 		ClassSubjectsOrderIndex:      r.OrderIndex,
 		ClassSubjectsHoursPerWeek:    r.HoursPerWeek,
 		ClassSubjectsMinPassingScore: r.MinScore,
 		ClassSubjectsWeightOnReport:  r.Weight,
 		ClassSubjectsIsCore:          isCore,
-		ClassSubjectsAcademicYear:    ay,
 		ClassSubjectsDesc:            desc,
 		ClassSubjectsIsActive:        isActive,
 	}
 }
 
 func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
-	return ClassSubjectResponse{
-		ID:           m.ClassSubjectsID,
-		MasjidID:     m.ClassSubjectsMasjidID,
-		ClassID:      m.ClassSubjectsClassID,
-		SubjectID:    m.ClassSubjectsSubjectID,
-		OrderIndex:   m.ClassSubjectsOrderIndex,
-		HoursPerWeek: m.ClassSubjectsHoursPerWeek,
-		MinScore:     m.ClassSubjectsMinPassingScore,
-		Weight:       m.ClassSubjectsWeightOnReport,
-		IsCore:       m.ClassSubjectsIsCore,
-		AcademicYear: m.ClassSubjectsAcademicYear,
-		Desc:         m.ClassSubjectsDesc,
-		IsActive:     m.ClassSubjectsIsActive,
-		CreatedAt:    m.ClassSubjectsCreatedAt,
-		UpdatedAt:    m.ClassSubjectsUpdatedAt,
-		DeletedAt:    m.ClassSubjectsDeletedAt,
-	}
+    var deletedAt *time.Time
+    if m.ClassSubjectsDeletedAt.Valid {
+        t := m.ClassSubjectsDeletedAt.Time
+        deletedAt = &t
+    }
+
+    return ClassSubjectResponse{
+        ID:           m.ClassSubjectsID,
+        MasjidID:     m.ClassSubjectsMasjidID,
+        ClassID:      m.ClassSubjectsClassID,
+        SubjectID:    m.ClassSubjectsSubjectID,
+        TermID:       m.ClassSubjectsTermID,
+        OrderIndex:   m.ClassSubjectsOrderIndex,
+        HoursPerWeek: m.ClassSubjectsHoursPerWeek,
+        MinScore:     m.ClassSubjectsMinPassingScore,
+        Weight:       m.ClassSubjectsWeightOnReport,
+        IsCore:       m.ClassSubjectsIsCore,
+        Desc:         m.ClassSubjectsDesc,
+        IsActive:     m.ClassSubjectsIsActive,
+        CreatedAt:    m.ClassSubjectsCreatedAt,
+        UpdatedAt:    m.ClassSubjectsUpdatedAt,
+        DeletedAt:    deletedAt,
+    }
 }
+
 
 func FromClassSubjectModels(list []csModel.ClassSubjectModel) []ClassSubjectResponse {
 	out := make([]ClassSubjectResponse, 0, len(list))
@@ -168,6 +171,9 @@ func (r UpdateClassSubjectRequest) Apply(m *csModel.ClassSubjectModel) {
 	if r.SubjectID != nil {
 		m.ClassSubjectsSubjectID = *r.SubjectID
 	}
+	if r.TermID != nil {
+		m.ClassSubjectsTermID = r.TermID
+	}
 	if r.OrderIndex != nil {
 		m.ClassSubjectsOrderIndex = r.OrderIndex
 	}
@@ -182,14 +188,6 @@ func (r UpdateClassSubjectRequest) Apply(m *csModel.ClassSubjectModel) {
 	}
 	if r.IsCore != nil {
 		m.ClassSubjectsIsCore = *r.IsCore
-	}
-	if r.AcademicYear != nil {
-		ay := strings.TrimSpace(*r.AcademicYear)
-		if ay == "" {
-			m.ClassSubjectsAcademicYear = nil
-		} else {
-			m.ClassSubjectsAcademicYear = &ay
-		}
 	}
 	if r.Desc != nil {
 		d := strings.TrimSpace(*r.Desc)

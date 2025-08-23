@@ -1,4 +1,13 @@
 -- +migrate Down
+-- Drop in reverse order (idempotent)
+
+-- announcements
+DROP TRIGGER  IF EXISTS trg_announcements_touch_updated_at ON announcements;
+DROP FUNCTION IF EXISTS fn_announcements_touch_updated_at();
+
+ALTER TABLE announcements DROP CONSTRAINT IF EXISTS fk_ann_section_same_tenant;
+ALTER TABLE announcements DROP CONSTRAINT IF EXISTS fk_ann_theme_same_tenant;
+
 DROP INDEX IF EXISTS ix_announcements_title_trgm_live;
 DROP INDEX IF EXISTS ix_announcements_search_gin_live;
 DROP INDEX IF EXISTS ix_announcements_created_by_live;
@@ -6,13 +15,19 @@ DROP INDEX IF EXISTS ix_announcements_section_live;
 DROP INDEX IF EXISTS ix_announcements_theme_live;
 DROP INDEX IF EXISTS ix_announcements_tenant_date_live;
 DROP INDEX IF EXISTS uq_announcements_id_tenant;
+
 DROP TABLE IF EXISTS announcements;
 
+-- announcement_themes
+DROP TRIGGER  IF EXISTS trg_announcement_themes_touch_updated_at ON announcement_themes;
+DROP FUNCTION IF EXISTS fn_announcement_themes_touch_updated_at();
 
--- +migrate Down
-DROP INDEX IF EXISTS uq_announcement_themes_id_tenant;
 DROP INDEX IF EXISTS ix_announcement_themes_name_trgm_live;
 DROP INDEX IF EXISTS ix_announcement_themes_tenant_active_live;
+DROP INDEX IF EXISTS uq_announcement_themes_id_tenant;
 DROP INDEX IF EXISTS uq_announcement_themes_tenant_slug_live;
 DROP INDEX IF EXISTS uq_announcement_themes_tenant_name_live;
+
 DROP TABLE IF EXISTS announcement_themes;
+
+-- (biarkan EXTENSION pg_trgm tetap terpasang)

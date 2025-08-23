@@ -17,6 +17,6 @@ func SppBillingUserRoutes(r fiber.Router, db *gorm.DB) {
 	user_spp.Get("/", user_ctl.List)
 	user_spp.Get("/me", user_ctl.ListMine)
 	user_spp.Get("/:id", user_ctl.GetByID)
-	user_spp.Patch("/:id", user_ctl.Update)
+	user_spp.Put("/:id", user_ctl.Update)
 	user_spp.Delete("/:id", user_ctl.Delete)
 }

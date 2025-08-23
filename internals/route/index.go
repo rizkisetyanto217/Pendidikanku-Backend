@@ -5,6 +5,7 @@ import (
 	"time"
 
 	authMiddleware "masjidku_backend/internals/middlewares/auth"
+	masjidkuMiddleware "masjidku_backend/internals/middlewares/features"
 	routeDetails "masjidku_backend/internals/route/details"
 
 	"github.com/gofiber/fiber/v2"
@@ -42,8 +43,8 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	// ADMIN (login + must be admin/dkm/owner + scope masjid)
 	log.Println("[INFO] Setting up ADMIN group (Auth + IsMasjidAdmin)...")
 	admin := app.Group("/api/a",
-		// authMiddleware.AuthMiddleware(db),
-		// masjidkuMiddleware.IsMasjidAdmin(), 
+		authMiddleware.AuthMiddleware(db),
+		masjidkuMiddleware.IsMasjidAdmin(), 
 	)
 
 	// ===================== MASJID ROUTES =====================

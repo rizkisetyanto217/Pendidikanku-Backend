@@ -3,7 +3,7 @@ package details
 
 import (
 	// ====== Lembaga features ======
-	AcademicYearRoutes "masjidku_backend/internals/features/lembaga/academics/academic_year/route"
+	AcademicYearRoutes "masjidku_backend/internals/features/lembaga/academics/academic_terms/route"
 	AnnouncementRoutes "masjidku_backend/internals/features/lembaga/announcements/announcement/route"
 	AnnouncementThemaRoutes "masjidku_backend/internals/features/lembaga/announcements/announcement_thema/route"
 	ClassBooksRoutes "masjidku_backend/internals/features/lembaga/class_books/route"
@@ -47,7 +47,8 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	AnnouncementThemaRoutes.AnnouncementUserRoute(r, db)
 	AnnouncementRoutes.AnnouncementUserRoutes(r, db)
 	SemesterStatsRoutes.UserClassAttendanceSemesterUserRoutes(r, db)
-	AcademicYearRoutes.AcademicTermUserRoutes(r, db)
+	AcademicYearRoutes.AcademicYearUserRoutes(r, db)
+
 
 
 	// Classes (user actions: enroll, progress, dsb)
@@ -67,6 +68,7 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	ClassAttendanceSessionsRoutes.AttendanceSessionsTeacherRoutes(r, db)
 	LembagaStatsRoutes.LembagaStatsAdminRoutes(r, db)
 	AnnouncementThemaRoutes.AnnouncementAdminRoute(r, db)
+	AnnouncementRoutes.AnnouncementAdminRoutes(r, db)
 	SemesterStatsRoutes.UserClassAttendanceSemesterAdminRoutes(r, db)
 	ClassLessonsRoutes.ClassLessonsAdminRoutes(r, db)
 	ClassBooksRoutes.ClassBooksAdminRoutes(r, db)

@@ -18,7 +18,7 @@ func SppBillingAdminRoutes(r fiber.Router, db *gorm.DB) {
 	spp.Post("/", ctl.Create)     // POST   /spp/billings
 	spp.Get("/", ctl.List)        // GET    /spp/billings
 	spp.Get("/:id", ctl.GetByID) // GET    /spp/billings/:id
-	spp.Patch("/:id", ctl.Update) // PATCH /spp/billings/:id
+	spp.Put("/:id", ctl.Update) // PUT /spp/billings/:id
 	spp.Delete("/:id", ctl.Delete) // DELETE /spp/billings/:id
 
 	user_spp := r.Group("/user-spp-billings")
