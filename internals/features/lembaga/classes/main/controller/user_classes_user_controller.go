@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
@@ -122,6 +123,10 @@ func (h *UserMyClassController) GetMyUserClassByID(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "OK", ucDTO.NewUserClassResponse(&m))
 }
 
+
+// file: internals/features/lembaga/classes/user_classes/main/controller/user_my_class_controller.go
+// file: internals/features/lembaga/classes/user_classes/main/controller/user_my_class_controller.go
+
 // POST /api/u/user-classes
 func (h *UserMyClassController) SelfEnroll(c *fiber.Ctx) error {
 	userID, err := helper.GetUserIDFromToken(c)
@@ -129,10 +134,11 @@ func (h *UserMyClassController) SelfEnroll(c *fiber.Ctx) error {
 		return err
 	}
 
-	// DTO ringan khusus user-PMB
 	type selfEnrollRequest struct {
-		ClassID uuid.UUID `json:"user_classes_class_id" validate:"required"`
-		Notes   *string   `json:"user_classes_notes" validate:"omitempty"`
+		ClassID   uuid.UUID  `json:"user_classes_class_id" validate:"required"`
+		TermID    uuid.UUID  `json:"user_classes_term_id"  validate:"required"`
+		OpeningID *uuid.UUID `json:"user_classes_opening_id" validate:"omitempty"`
+		Notes     *string    `json:"user_classes_notes" validate:"omitempty"`
 	}
 	var req selfEnrollRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -142,44 +148,84 @@ func (h *UserMyClassController) SelfEnroll(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// Pastikan class ada & aktif (tidak terhapus), sekalian ambil masjid_id
+	// Ambil kelas aktif + masjid_id
 	var cls classModel.ClassModel
 	if err := h.DB.
 		Select("class_id, class_is_active, class_masjid_id").
 		Where("class_id = ? AND class_deleted_at IS NULL", req.ClassID).
 		First(&cls).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return fiber.NewError(fiber.StatusBadRequest, "Class tidak ditemukan")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fiber.NewError(fiber.StatusBadRequest, "Kelas tidak ditemukan")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi class")
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa kelas")
 	}
 	if !cls.ClassIsActive {
-		return fiber.NewError(fiber.StatusBadRequest, "Class sedang tidak aktif")
+		return fiber.NewError(fiber.StatusBadRequest, "Kelas sedang tidak aktif")
+	}
+	if cls.ClassMasjidID == nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Masjid pada kelas tidak valid")
+	}
+	masjidID := *cls.ClassMasjidID // dereference pointer → value
+
+	// Validasi term milik masjid ini
+	{
+		var count int64
+		if err := h.DB.Table("academic_terms").
+			Where("academic_terms_id = ? AND academic_terms_masjid_id = ?", req.TermID, masjidID).
+			Count(&count).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa term akademik")
+		}
+		if count == 0 {
+			return fiber.NewError(fiber.StatusBadRequest, "Term akademik tidak ditemukan di masjid ini")
+		}
 	}
 
-	// Cegah duplikasi enrolment yang masih terbuka (active/inactive tanpa ended_at)
-	var cnt int64
-	if err := h.DB.Model(&classModel.UserClassesModel{}).
-		Where("user_classes_user_id = ? AND user_classes_class_id = ? AND user_classes_ended_at IS NULL", userID, req.ClassID).
-		Where("user_classes_status IN ('active','inactive')").
-		Count(&cnt).Error; err == nil && cnt > 0 {
-		return fiber.NewError(fiber.StatusConflict, "Anda sudah memiliki pendaftaran/enrolment yang masih berjalan untuk kelas ini")
+	// Validasi optional opening
+	if req.OpeningID != nil {
+		var count int64
+		if err := h.DB.Table("class_term_openings").
+			Where("class_term_openings_id = ? AND class_term_openings_masjid_id = ?", *req.OpeningID, masjidID).
+			Count(&count).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa opening")
+		}
+		if count == 0 {
+			return fiber.NewError(fiber.StatusBadRequest, "Opening tidak valid untuk masjid ini")
+		}
+	}
+
+	// Cegah duplikasi berjalan (active/inactive) pada kombinasi (user,class,term,masjid)
+	{
+		var cnt int64
+		if err := h.DB.Table("user_classes").
+			Where("user_classes_deleted_at IS NULL").
+			Where("user_classes_user_id = ? AND user_classes_class_id = ? AND user_classes_term_id = ? AND user_classes_masjid_id = ?",
+				userID, req.ClassID, req.TermID, masjidID).
+			Where("user_classes_status IN ('active','inactive')").
+			Count(&cnt).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa duplikasi pendaftaran")
+		}
+		if cnt > 0 {
+			return fiber.NewError(fiber.StatusConflict, "Anda sudah memiliki pendaftaran berjalan untuk kelas & term ini")
+		}
 	}
 
 	// Buat enrolment 'inactive' (pending approval)
-	// NOTE: started_at DIKOSONGKAN (nil) agar nanti admin yang mengisi saat approve
 	m := &classModel.UserClassesModel{
 		UserClassesUserID:                userID,
 		UserClassesClassID:               req.ClassID,
-		UserClassesMasjidID:              cls.ClassMasjidID,                  // ikut masjid kelas
-		UserClassesStatus:                classModel.UserClassStatusInactive,     // pending
-		UserClassesStartedAt:             nil,                                 // <- kosong dulu
-		UserClassesEndedAt:               nil,
+		UserClassesMasjidID:              masjidID, // value, bukan pointer
+		UserClassesTermID:                req.TermID,
+		UserClassesOpeningID:             req.OpeningID,
+		UserClassesStatus:                classModel.UserClassStatusInactive,
 		UserClassesFeeOverrideMonthlyIDR: nil,
 		UserClassesNotes:                 req.Notes,
 	}
 
 	if err := h.DB.Create(m).Error; err != nil {
+		// Tanpa package tambahan: pakai sentinel dari GORM
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return fiber.NewError(fiber.StatusConflict, "Pendaftaran untuk kelas & term ini sudah ada")
+		}
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat pendaftaran")
 	}
 

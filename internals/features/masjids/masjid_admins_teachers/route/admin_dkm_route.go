@@ -15,7 +15,7 @@ func MasjidAdminRoutes(api fiber.Router, db *gorm.DB) {
 	ctrlTeacher := adminTeacherCtrl.NewMasjidTeacherController(db)
 
 	// 🛡️ /masjid-admins → OWNER only (tetap)
-	masjidAdmins := api.Group("/masjid-admins",
+	masjidAdmins := api.Group("/masjid-admins/owner",
 		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorOwner("mengelola admin masjid"),

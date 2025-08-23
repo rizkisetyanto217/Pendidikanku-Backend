@@ -48,7 +48,7 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	AnnouncementRoutes.AnnouncementUserRoutes(r, db)
 	SemesterStatsRoutes.UserClassAttendanceSemesterUserRoutes(r, db)
 	AcademicYearRoutes.AcademicYearUserRoutes(r, db)
-
+	ClassBooksRoutes.ClassBooksUserRoutes(r, db)
 
 
 	// Classes (user actions: enroll, progress, dsb)

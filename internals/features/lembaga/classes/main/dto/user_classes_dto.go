@@ -1,4 +1,4 @@
-// internals/features/lembaga/classes/user_classes/main/dto/user_class_dto.go
+// file: internals/features/lembaga/classes/user_classes/main/dto/user_class_dto.go
 package dto
 
 import (
@@ -12,58 +12,72 @@ import (
 /* ===================== REQUESTS ===================== */
 
 type CreateUserClassRequest struct {
-	UserClassesUserID                  uuid.UUID  `json:"user_classes_user_id" validate:"required"`                   // FK -> users(id)
-	UserClassesClassID                 uuid.UUID  `json:"user_classes_class_id" validate:"required"`                  // FK -> classes(class_id)
-	UserClassesMasjidID                *uuid.UUID `json:"user_classes_masjid_id" validate:"omitempty"`                // (optional) isi dari token lebih aman
+	// FK -> users(id)
+	UserClassesUserID uuid.UUID `json:"user_classes_user_id" validate:"required"`
 
-	UserClassesStatus                  *string    `json:"user_classes_status" validate:"omitempty,oneof=active inactive ended"`
-	UserClassesStartedAt               *time.Time `json:"user_classes_started_at" validate:"omitempty"`
-	UserClassesEndedAt                 *time.Time `json:"user_classes_ended_at" validate:"omitempty"`
-	UserClassesFeeOverrideMonthlyIDR   *int       `json:"user_classes_fee_override_monthly_idr" validate:"omitempty,gte=0"`
-	UserClassesNotes                   *string    `json:"user_classes_notes" validate:"omitempty"`
+	// FK -> classes(class_id)
+	UserClassesClassID uuid.UUID `json:"user_classes_class_id" validate:"required"`
+
+	// Tenant. Di handler bisa diisi dari token; tetap optional di payload.
+	UserClassesMasjidID *uuid.UUID `json:"user_classes_masjid_id" validate:"omitempty"`
+
+	// FK -> academic_terms(academic_terms_id); di DB juga divalidasi komposit dg masjid_id
+	UserClassesTermID uuid.UUID `json:"user_classes_term_id" validate:"required"`
+
+	// (Opsional) jejak opening
+	UserClassesOpeningID *uuid.UUID `json:"user_classes_opening_id" validate:"omitempty"`
+
+	// Status dibatasi oleh CHECK ('active','inactive','ended')
+	UserClassesStatus *string `json:"user_classes_status" validate:"omitempty,oneof=active inactive ended"`
+
+	// Snapshot biaya per siswa
+	UserClassesFeeOverrideMonthlyIDR *int    `json:"user_classes_fee_override_monthly_idr" validate:"omitempty,gte=0"`
+	UserClassesNotes                 *string `json:"user_classes_notes" validate:"omitempty"`
 }
 
-func (r *CreateUserClassRequest) ToModel() *ucModel.UserClassesModel {
+func (r *CreateUserClassRequest) ToModel(masjidIDFromCtx *uuid.UUID) *ucModel.UserClassesModel {
+	// Tentukan masjid_id final (payload > context)
+	var masjidID uuid.UUID
+	if r.UserClassesMasjidID != nil {
+		masjidID = *r.UserClassesMasjidID
+	} else if masjidIDFromCtx != nil {
+		masjidID = *masjidIDFromCtx
+	} else {
+		// Biarkan zero-value; sebaiknya handler validasi ini sebelum save
+	}
+
 	m := &ucModel.UserClassesModel{
 		UserClassesUserID:                r.UserClassesUserID,
 		UserClassesClassID:               r.UserClassesClassID,
-		UserClassesMasjidID:              r.UserClassesMasjidID,
+		UserClassesMasjidID:              masjidID,
+		UserClassesTermID:                r.UserClassesTermID,
+		UserClassesOpeningID:             r.UserClassesOpeningID,
 		UserClassesNotes:                 r.UserClassesNotes,
 		UserClassesFeeOverrideMonthlyIDR: r.UserClassesFeeOverrideMonthlyIDR,
 		UserClassesStatus:                ucModel.UserClassStatusActive, // default
 	}
 
-	// status (jika dikirim)
 	if r.UserClassesStatus != nil && *r.UserClassesStatus != "" {
 		m.UserClassesStatus = *r.UserClassesStatus
-	}
-
-	// started_at: pakai request kalau ada, else biarkan nil (biar default DB jalan) atau isi now
-	if r.UserClassesStartedAt != nil {
-		m.UserClassesStartedAt = r.UserClassesStartedAt
-	} else {
-		now := time.Now()
-		m.UserClassesStartedAt = &now
-	}
-
-	// ended_at (opsional)
-	if r.UserClassesEndedAt != nil {
-		m.UserClassesEndedAt = r.UserClassesEndedAt
 	}
 
 	return m
 }
 
 type UpdateUserClassRequest struct {
-	UserClassesUserID                  *uuid.UUID `json:"user_classes_user_id" validate:"omitempty"`
-	UserClassesClassID                 *uuid.UUID `json:"user_classes_class_id" validate:"omitempty"`
-	UserClassesMasjidID                *uuid.UUID `json:"user_classes_masjid_id" validate:"omitempty"`
+	UserClassesUserID                *uuid.UUID `json:"user_classes_user_id" validate:"omitempty"`
+	UserClassesClassID               *uuid.UUID `json:"user_classes_class_id" validate:"omitempty"`
 
-	UserClassesStatus                  *string    `json:"user_classes_status" validate:"omitempty,oneof=active inactive ended"`
-	UserClassesStartedAt               *time.Time `json:"user_classes_started_at" validate:"omitempty"`
-	UserClassesEndedAt                 *time.Time `json:"user_classes_ended_at" validate:"omitempty"`
-	UserClassesFeeOverrideMonthlyIDR   *int       `json:"user_classes_fee_override_monthly_idr" validate:"omitempty,gte=0"`
-	UserClassesNotes                   *string    `json:"user_classes_notes" validate:"omitempty"`
+	// Boleh diubah jika skenario pindah tenant dibuka, tapi hati‑hati dengan FK komposit lain.
+	UserClassesMasjidID              *uuid.UUID `json:"user_classes_masjid_id" validate:"omitempty"`
+
+	// Term & Opening
+	UserClassesTermID                *uuid.UUID `json:"user_classes_term_id" validate:"omitempty"`
+	UserClassesOpeningID             *uuid.UUID `json:"user_classes_opening_id" validate:"omitempty"`
+
+	UserClassesStatus                *string    `json:"user_classes_status" validate:"omitempty,oneof=active inactive ended"`
+	UserClassesFeeOverrideMonthlyIDR *int       `json:"user_classes_fee_override_monthly_idr" validate:"omitempty,gte=0"`
+	UserClassesNotes                 *string    `json:"user_classes_notes" validate:"omitempty"`
 }
 
 func (r *UpdateUserClassRequest) ApplyToModel(m *ucModel.UserClassesModel) {
@@ -74,16 +88,16 @@ func (r *UpdateUserClassRequest) ApplyToModel(m *ucModel.UserClassesModel) {
 		m.UserClassesClassID = *r.UserClassesClassID
 	}
 	if r.UserClassesMasjidID != nil {
-		m.UserClassesMasjidID = r.UserClassesMasjidID
+		m.UserClassesMasjidID = *r.UserClassesMasjidID
+	}
+	if r.UserClassesTermID != nil {
+		m.UserClassesTermID = *r.UserClassesTermID
+	}
+	if r.UserClassesOpeningID != nil {
+		m.UserClassesOpeningID = r.UserClassesOpeningID
 	}
 	if r.UserClassesStatus != nil {
 		m.UserClassesStatus = *r.UserClassesStatus
-	}
-	if r.UserClassesStartedAt != nil {
-		m.UserClassesStartedAt = r.UserClassesStartedAt
-	}
-	if r.UserClassesEndedAt != nil {
-		m.UserClassesEndedAt = r.UserClassesEndedAt
 	}
 	if r.UserClassesFeeOverrideMonthlyIDR != nil {
 		m.UserClassesFeeOverrideMonthlyIDR = r.UserClassesFeeOverrideMonthlyIDR
@@ -91,6 +105,7 @@ func (r *UpdateUserClassRequest) ApplyToModel(m *ucModel.UserClassesModel) {
 	if r.UserClassesNotes != nil {
 		m.UserClassesNotes = r.UserClassesNotes
 	}
+
 	now := time.Now()
 	m.UserClassesUpdatedAt = &now
 }
@@ -98,15 +113,19 @@ func (r *UpdateUserClassRequest) ApplyToModel(m *ucModel.UserClassesModel) {
 /* ===================== QUERIES ===================== */
 
 type ListUserClassQuery struct {
-	UserID    *uuid.UUID `query:"user_id"`   // filter by user
-	ClassID   *uuid.UUID `query:"class_id"`  // filter by class
-	MasjidID  *uuid.UUID `query:"masjid_id"` // filter by masjid (tenant)
-	Status    *string    `query:"status"`    // active|inactive|ended
-	ActiveNow *bool      `query:"active_now"`
+	UserID     *uuid.UUID `query:"user_id"`    // filter by user
+	ClassID    *uuid.UUID `query:"class_id"`   // filter by class
+	MasjidID   *uuid.UUID `query:"masjid_id"`  // tenant
+	TermID     *uuid.UUID `query:"term_id"`    // filter by term
+	OpeningID  *uuid.UUID `query:"opening_id"` // filter by opening (opsional)
+	Status     *string    `query:"status"`     // active|inactive|ended
+	ActiveNow  *bool      `query:"active_now"`
 
 	Limit  int     `query:"limit" validate:"omitempty,min=1,max=200"`
 	Offset int     `query:"offset" validate:"omitempty,min=0"`
-	Sort   *string `query:"sort"`   // started_at_desc|started_at_asc|created_at_desc|created_at_asc
+
+	// Disederhanakan: created_at_desc|created_at_asc (karena tidak ada started_at di tabel)
+	Sort *string `query:"sort"` // created_at_desc|created_at_asc
 }
 
 /* ===================== RESPONSES ===================== */
@@ -115,17 +134,18 @@ type UserClassResponse struct {
 	UserClassesID                    uuid.UUID  `json:"user_classes_id"`
 	UserClassesUserID                uuid.UUID  `json:"user_classes_user_id"`
 	UserClassesClassID               uuid.UUID  `json:"user_classes_class_id"`
-	UserClassesMasjidID              *uuid.UUID `json:"user_classes_masjid_id,omitempty"`
+	UserClassesMasjidID              uuid.UUID  `json:"user_classes_masjid_id"`
 
-	UserClassesStatus                string      `json:"user_classes_status"`
-	UserClassesStartedAt             *time.Time  `json:"user_classes_started_at,omitempty"`
-	UserClassesEndedAt               *time.Time  `json:"user_classes_ended_at,omitempty"`
+	UserClassesTermID                uuid.UUID  `json:"user_classes_term_id"`
+	UserClassesOpeningID             *uuid.UUID `json:"user_classes_opening_id,omitempty"`
 
-	UserClassesFeeOverrideMonthlyIDR *int        `json:"user_classes_fee_override_monthly_idr,omitempty"`
-	UserClassesNotes                 *string     `json:"user_classes_notes,omitempty"`
+	UserClassesStatus                string     `json:"user_classes_status"`
 
-	UserClassesCreatedAt             time.Time   `json:"user_classes_created_at"`
-	UserClassesUpdatedAt             *time.Time  `json:"user_classes_updated_at,omitempty"`
+	UserClassesFeeOverrideMonthlyIDR *int       `json:"user_classes_fee_override_monthly_idr,omitempty"`
+	UserClassesNotes                 *string    `json:"user_classes_notes,omitempty"`
+
+	UserClassesCreatedAt             time.Time  `json:"user_classes_created_at"`
+	UserClassesUpdatedAt             *time.Time `json:"user_classes_updated_at,omitempty"`
 }
 
 func NewUserClassResponse(m *ucModel.UserClassesModel) *UserClassResponse {
@@ -138,10 +158,10 @@ func NewUserClassResponse(m *ucModel.UserClassesModel) *UserClassResponse {
 		UserClassesClassID:               m.UserClassesClassID,
 		UserClassesMasjidID:              m.UserClassesMasjidID,
 
-		UserClassesStatus:                m.UserClassesStatus,
-		UserClassesStartedAt:             m.UserClassesStartedAt,
-		UserClassesEndedAt:               m.UserClassesEndedAt,
+		UserClassesTermID:                m.UserClassesTermID,
+		UserClassesOpeningID:             m.UserClassesOpeningID,
 
+		UserClassesStatus:                m.UserClassesStatus,
 		UserClassesFeeOverrideMonthlyIDR: m.UserClassesFeeOverrideMonthlyIDR,
 		UserClassesNotes:                 m.UserClassesNotes,
 

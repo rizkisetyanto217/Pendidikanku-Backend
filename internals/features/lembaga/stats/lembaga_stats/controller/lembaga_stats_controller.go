@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gofiber/fiber/v2"
@@ -88,8 +89,9 @@ func (h *LembagaStatsController) CreateMyLembagaStats(c *fiber.Ctx) error {
 }
 
 
-/* PATCH /api/a/lembaga-stats  (partial update; tenant dari token) */
-func (h *LembagaStatsController) PatchMyLembagaStats(c *fiber.Ctx) error {
+
+// PUT /api/a/lembaga-stats  (update lembaga stats milik tenant dari token)
+func (h *LembagaStatsController) UpdateMyLembagaStats(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
@@ -99,7 +101,8 @@ func (h *LembagaStatsController) PatchMyLembagaStats(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
-	// validasi minimum (>=0) sederhana
+
+	// validasi minimal (>=0)
 	if req.LembagaStatsActiveClasses != nil && *req.LembagaStatsActiveClasses < 0 {
 		return fiber.NewError(fiber.StatusBadRequest, "lembaga_stats_active_classes minimal 0")
 	}
@@ -113,10 +116,10 @@ func (h *LembagaStatsController) PatchMyLembagaStats(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "lembaga_stats_active_teachers minimal 0")
 	}
 
-	// upsert baseline jika belum ada
+	// pastikan baseline ada
 	var m model.LembagaStats
 	if err := h.DB.First(&m, "lembaga_stats_lembaga_id = ?", masjidID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			m = model.LembagaStats{LembagaStatsLembagaID: masjidID}
 			if err := h.DB.Create(&m).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, err.Error())
@@ -126,8 +129,9 @@ func (h *LembagaStatsController) PatchMyLembagaStats(c *fiber.Ctx) error {
 		}
 	}
 
-	// apply & save
+	// terapkan perubahan
 	req.ApplyToModel(&m)
+
 	if err := h.DB.Save(&m).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}

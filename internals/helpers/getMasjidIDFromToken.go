@@ -13,9 +13,11 @@ import (
 
 const (
 	LocRole             = "role"
-	LocUserID           = "user_id" // ✅ tambahan: dipakai banyak controller
-	LocMasjidIDs        = "masjid_ids"         // union semua peran (opsional)
+	LocUserID           = "user_id" // ✅ dipakai banyak controller
+
+	LocMasjidIDs        = "masjid_ids"          // union semua peran (opsional, jika middleware set)
 	LocMasjidAdminIDs   = "masjid_admin_ids"
+	LocMasjidDKMIDs     = "masjid_dkm_ids"      // ✅ baru: untuk peran DKM (pengurus masjid)
 	LocMasjidTeacherIDs = "masjid_teacher_ids"
 	LocMasjidStudentIDs = "masjid_student_ids"
 )
@@ -134,18 +136,26 @@ func GetMasjidIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
 	return parseFirstUUIDFromLocals(c, LocMasjidAdminIDs)
 }
 
+// DKM-only (baru)
+func GetDKMMasjidIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
+	return parseFirstUUIDFromLocals(c, LocMasjidDKMIDs)
+}
+
 // Teacher-only
 func GetTeacherMasjidIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
 	return parseFirstUUIDFromLocals(c, LocMasjidTeacherIDs)
 }
 
-// Prefer TEACHER -> UNION masjid_ids -> ADMIN
+// Prefer TEACHER -> DKM -> UNION masjid_ids -> ADMIN
 func GetMasjidIDFromTokenPreferTeacher(c *fiber.Ctx) (uuid.UUID, error) {
 	if id, err := parseFirstUUIDFromLocals(c, LocMasjidTeacherIDs); err == nil {
 		return id, nil
 	}
-	if id, err := parseFirstUUIDFromLocals(c, LocMasjidIDs); err == nil {
+	if id, err := parseFirstUUIDFromLocals(c, LocMasjidDKMIDs); err == nil {
 		return id, nil
+	}
+	if ids, err := parseUUIDSliceFromLocals(c, LocMasjidIDs); err == nil && len(ids) > 0 {
+		return ids[0], nil
 	}
 	return parseFirstUUIDFromLocals(c, LocMasjidAdminIDs)
 }
@@ -161,8 +171,8 @@ func GetMasjidIDsFromToken(c *fiber.Ctx) ([]uuid.UUID, error) {
 		return ids, nil
 	}
 
-	// 2) fallback gabungan role-role
-	groups := []string{LocMasjidTeacherIDs, LocMasjidAdminIDs, LocMasjidStudentIDs}
+	// 2) fallback gabungan role-role (tambahkan DKM)
+	groups := []string{LocMasjidTeacherIDs, LocMasjidDKMIDs, LocMasjidAdminIDs, LocMasjidStudentIDs}
 	seen := map[uuid.UUID]struct{}{}
 	out := make([]uuid.UUID, 0, 4)
 
@@ -190,7 +200,7 @@ func GetMasjidIDsFromToken(c *fiber.Ctx) ([]uuid.UUID, error) {
 	}
 
 	if !anyFound || len(out) == 0 {
-		// terakhir: fallback single preferTeacher
+		// terakhir: fallback preferTeacher (yang sekarang include DKM)
 		if id, err := GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
 			return []uuid.UUID{id}, nil
 		}
@@ -203,16 +213,23 @@ func GetMasjidIDsFromToken(c *fiber.Ctx) ([]uuid.UUID, error) {
 // ========== Role helpers ==========
 //
 
-// IsAdmin true jika role=admin ATAU owner ATAU punya masjid_admin_ids (scoped).
+// IsAdmin true jika role=admin ATAU owner ATAU dkm, ATAU punya hak admin/dkm scoped.
 func IsAdmin(c *fiber.Ctx) bool {
-	role := strings.ToLower(GetRole(c)) // pastikan middleware set Locals("role")
-	if role == "admin" || role == "owner" {
+	role := strings.ToLower(GetRole(c))
+	if role == "admin" || role == "owner" || role == "dkm" {
 		return true
 	}
-	// fallback: punya hak admin scoped ke masjid
-	return HasUUIDClaim(c, LocMasjidAdminIDs)
+	// fallback: punya hak scoped ke masjid
+	return HasUUIDClaim(c, LocMasjidAdminIDs) || HasUUIDClaim(c, LocMasjidDKMIDs)
 }
 
-func IsOwner(c *fiber.Ctx) bool   { return strings.ToLower(GetRole(c)) == "owner" }
+func IsOwner(c *fiber.Ctx) bool { return strings.ToLower(GetRole(c)) == "owner" }
+
+// IsDKM true jika role=dkm atau punya masjid_dkm_ids
+func IsDKM(c *fiber.Ctx) bool {
+	role := strings.ToLower(GetRole(c))
+	return role == "dkm" || HasUUIDClaim(c, LocMasjidDKMIDs)
+}
+
 func IsTeacher(c *fiber.Ctx) bool { return strings.EqualFold(GetRole(c), "teacher") }
 func IsStudent(c *fiber.Ctx) bool { return strings.EqualFold(GetRole(c), "student") }

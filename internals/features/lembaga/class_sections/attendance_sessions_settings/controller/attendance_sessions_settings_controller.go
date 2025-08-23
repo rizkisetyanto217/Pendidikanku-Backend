@@ -39,15 +39,15 @@ func (ctl *ClassAttendanceSettingController) GetBySchool(c *fiber.Ctx) error {
 		Where("class_attendance_setting_masjid_id = ?", masjidID).
 		Limit(1).
 		Find(&m).Error; err != nil {
-		return fiber.NewError(http.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
 	if m.ClassAttendanceSettingID == uuid.Nil {
-		// belum ada → kembalikan null (FE bisa putuskan untuk create)
-		return c.Status(http.StatusOK).JSON(fiber.Map{"data": nil})
+		return helper.JsonOK(c, "no settings found", nil)
 	}
-	return c.Status(http.StatusOK).JSON(fiber.Map{"data": dto.FromModel(&m)})
+	return helper.JsonOK(c, "attendance settings retrieved", dto.FromModel(&m))
 }
+
 
 // ========== POST (CREATE) ==========
 // POST /class_attendance_settings
@@ -59,46 +59,37 @@ func (ctl *ClassAttendanceSettingController) CreateBySchool(c *fiber.Ctx) error 
 		return err
 	}
 
-	// 1) Wajib JSON
 	ct := c.Get("Content-Type")
 	if !strings.HasPrefix(ct, "application/json") {
-		return fiber.NewError(fiber.StatusUnsupportedMediaType, "use application/json")
+		return helper.JsonError(c, http.StatusUnsupportedMediaType, "use application/json")
 	}
 
-	// 2) Parse JSON tegas (hindari form behavior & field nyasar)
 	var payload dto.ClassAttendanceSettingDTO
 	dec := json.NewDecoder(bytes.NewReader(c.Body()))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&payload); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON: "+err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, "invalid JSON: "+err.Error())
 	}
 
-	// 3) Scope dari token & ID create
 	payload.ClassAttendanceSettingMasjidID = masjidID
 	payload.ClassAttendanceSettingID = uuid.Nil
-
-	// 4) DTO -> Model
 	m := payload.ToModel()
 
-	// 5) Validasi "require ⇒ enable"
 	if err := validateRequireImpliesEnable(m); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	// 6) INSERT
 	if err := ctl.DB.WithContext(c.Context()).Create(m).Error; err != nil {
 		msg := strings.ToLower(err.Error())
 		if strings.Contains(msg, "duplicate key value") || strings.Contains(msg, "unique") {
-			return fiber.NewError(fiber.StatusConflict, "settings already exist for this school, use PUT to update")
+			return helper.JsonError(c, http.StatusConflict, "settings already exist for this school, use PUT to update")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
-		"message": "attendance settings created",
-		"data":    dto.FromModel(m),
-	})
+	return helper.JsonCreated(c, "attendance settings created", dto.FromModel(m))
 }
+
 
 
 // ========== PUT (UPDATE) ==========
@@ -106,6 +97,7 @@ func (ctl *ClassAttendanceSettingController) CreateBySchool(c *fiber.Ctx) error 
 // - Mengubah baris yang sudah ada utk masjid di token (admin-only).
 // - Jika belum ada → 404 Not Found.
 // - Partial update: hanya field yang dikirim yang di-update.
+
 func (ctl *ClassAttendanceSettingController) UpdateBySchool(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c) // admin-only
 	if err != nil {
@@ -118,16 +110,16 @@ func (ctl *ClassAttendanceSettingController) UpdateBySchool(c *fiber.Ctx) error 
 		Where("class_attendance_setting_masjid_id = ?", masjidID).
 		Limit(1).
 		Find(&existing).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 	if existing.ClassAttendanceSettingID == uuid.Nil {
-		return fiber.NewError(fiber.StatusNotFound, "settings not found for this school, use POST to create")
+		return helper.JsonError(c, http.StatusNotFound, "settings not found for this school, use POST to create")
 	}
 
 	// baca raw payload sebagai map agar bisa deteksi field mana yang dikirim
 	var raw map[string]any
 	if err := c.BodyParser(&raw); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON payload")
+		return helper.JsonError(c, http.StatusBadRequest, "invalid JSON payload")
 	}
 
 	// whitelist jsonKey -> dbColumn
@@ -152,22 +144,23 @@ func (ctl *ClassAttendanceSettingController) UpdateBySchool(c *fiber.Ctx) error 
 	// siapkan updates yang benar-benar dikirim
 	updates := map[string]any{}
 
-	// helper baca bool dari raw (handle bool atau angka 0/1 / string "true"/"false")
+	// helper baca bool dari raw (support: bool, number 0/1, string "true"/"false"/"1"/"0")
 	readBool := func(v any) (bool, bool) {
 		switch t := v.(type) {
 		case bool:
 			return t, true
-		case float64: // JSON number
+		case float64: // JSON number -> float64
 			return t != 0, true
 		case string:
 			s := strings.TrimSpace(strings.ToLower(t))
-			if s == "true" || s == "1" {
+			switch s {
+			case "true", "1":
 				return true, true
-			}
-			if s == "false" || s == "0" {
+			case "false", "0":
 				return false, true
+			default:
+				return false, false
 			}
-			return false, false
 		default:
 			return false, false
 		}
@@ -178,7 +171,7 @@ func (ctl *ClassAttendanceSettingController) UpdateBySchool(c *fiber.Ctx) error 
 		if val, ok := raw[jsonKey]; ok {
 			if b, ok2 := readBool(val); ok2 {
 				updates[col] = b
-				// set ke effective state juga
+				// set juga ke effective state
 				switch jsonKey {
 				case "class_attendance_setting_enable_score":
 					eff.ClassAttendanceSettingEnableScore = b
@@ -206,19 +199,19 @@ func (ctl *ClassAttendanceSettingController) UpdateBySchool(c *fiber.Ctx) error 
 					eff.ClassAttendanceSettingRequireHomework = b
 				}
 			} else {
-				return fiber.NewError(fiber.StatusBadRequest, fmt.Sprintf("invalid boolean for %s", jsonKey))
+				return helper.JsonError(c, http.StatusBadRequest, fmt.Sprintf("invalid boolean for %s", jsonKey))
 			}
 		}
 	}
 
 	// jika tidak ada field yang dikirim
 	if len(updates) == 0 {
-		return fiber.NewError(fiber.StatusBadRequest, "no updatable fields provided")
+		return helper.JsonError(c, http.StatusBadRequest, "no updatable fields provided")
 	}
 
 	// validasi require ⇒ enable pada effective state
 	if err := validateRequireImpliesEnable(&eff); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
 	// UPDATE hanya kolom yang dikirim
@@ -227,11 +220,10 @@ func (ctl *ClassAttendanceSettingController) UpdateBySchool(c *fiber.Ctx) error 
 		Where("class_attendance_setting_masjid_id = ?", masjidID).
 		Updates(updates)
 	if res.Error != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, res.Error.Error())
+		return helper.JsonError(c, http.StatusInternalServerError, res.Error.Error())
 	}
 	if res.RowsAffected == 0 {
-		// jaga-jaga
-		return fiber.NewError(fiber.StatusNotFound, "settings not found for this school")
+		return helper.JsonError(c, http.StatusNotFound, "settings not found for this school")
 	}
 
 	// Ambil lagi hasil akhir untuk response
@@ -240,15 +232,11 @@ func (ctl *ClassAttendanceSettingController) UpdateBySchool(c *fiber.Ctx) error 
 		Where("class_attendance_setting_masjid_id = ?", masjidID).
 		Limit(1).
 		Find(&saved).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message": "attendance settings updated",
-		"data":    dto.FromModel(&saved),
-	})
+	return helper.JsonUpdated(c, "attendance settings updated", dto.FromModel(&saved))
 }
-
 // ========== helper ==========
 func validateRequireImpliesEnable(m *mdl.ClassAttendanceSetting) error {
 	type pair struct {

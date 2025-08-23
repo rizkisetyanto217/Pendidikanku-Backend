@@ -16,6 +16,6 @@ func LembagaStatsAdminRoutes(router fiber.Router, db *gorm.DB) {
 	{
 		tenant.Get("/", h.GetMyLembagaStats)
 		tenant.Post("/", h.CreateMyLembagaStats)
-		tenant.Patch("/", h.PatchMyLembagaStats)
+		tenant.Put("/", h.UpdateMyLembagaStats)
 	}
 }

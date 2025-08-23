@@ -68,3 +68,6 @@ type ClassTermOpeningResponse struct {
 	ClassTermOpeningsUpdatedAt             *time.Time `json:"class_term_openings_updated_at,omitempty"`
 	ClassTermOpeningsDeletedAt             *time.Time `json:"class_term_openings_deleted_at,omitempty"`
 }
+
+
+

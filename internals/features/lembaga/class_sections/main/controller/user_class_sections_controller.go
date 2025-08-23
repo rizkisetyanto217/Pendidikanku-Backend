@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -35,39 +36,48 @@ var validateUCS = validator.New()
 
 // Pastikan user_class (enrolment) & class_section berada pada masjid yg sama (masjidID token)
 func (h *UserClassSectionController) ensureParentsBelongToMasjid(userClassID, sectionID, masjidID uuid.UUID) error {
-	// cek user_classes
+	// --- Cek user_classes (harus belum soft-deleted & tenant sama)
 	{
 		var uc ucModel.UserClassesModel
 		if err := h.DB.
-			Select("user_classes_id, user_classes_masjid_id").
-			First(&uc, "user_classes_id = ?", userClassID).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
+			Select("user_classes_id, user_classes_masjid_id, user_classes_deleted_at").
+			Where("user_classes_id = ? AND user_classes_deleted_at IS NULL", userClassID).
+			First(&uc).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fiber.NewError(fiber.StatusBadRequest, "Enrolment (user_class) tidak ditemukan")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi enrolment")
 		}
-		if uc.UserClassesMasjidID == nil || *uc.UserClassesMasjidID != masjidID {
+
+		// ✅ uc.UserClassesMasjidID adalah uuid.UUID (value), cukup compare langsung
+		if uc.UserClassesMasjidID != masjidID {
 			return fiber.NewError(fiber.StatusForbidden, "Enrolment bukan milik masjid Anda")
 		}
 	}
-	// cek class_sections (tidak boleh deleted & harus tenant sama)
+
+	// --- Cek class_sections (harus belum soft-deleted & tenant sama)
 	{
 		var sec secModel.ClassSectionModel
 		if err := h.DB.
 			Select("class_sections_id, class_sections_masjid_id, class_sections_deleted_at").
-			First(&sec, "class_sections_id = ? AND class_sections_deleted_at IS NULL", sectionID).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
+			Where("class_sections_id = ? AND class_sections_deleted_at IS NULL", sectionID).
+			First(&sec).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fiber.NewError(fiber.StatusBadRequest, "Section tidak ditemukan")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi section")
 		}
+
+		// Jika di model kamu ClassSectionsMasjidID bertipe *uuid.UUID (pointer), tetap gunakan pengecekan ini:
 		if sec.ClassSectionsMasjidID == nil || *sec.ClassSectionsMasjidID != masjidID {
 			return fiber.NewError(fiber.StatusForbidden, "Section bukan milik masjid Anda")
 		}
+		// Jika nantinya kamu ubah jadi uuid.UUID (value), ganti blok di atas dengan:
+		// if sec.ClassSectionsMasjidID != masjidID { ... }
 	}
+
 	return nil
 }
-
 // Ambil row user_class_sections + pastikan tenant sama
 func (h *UserClassSectionController) findUCSWithTenantGuard(ucsID, masjidID uuid.UUID) (*secModel.UserClassSectionsModel, error) {
 	var m secModel.UserClassSectionsModel
