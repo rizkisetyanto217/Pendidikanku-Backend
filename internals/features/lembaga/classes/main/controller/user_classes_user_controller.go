@@ -55,9 +55,6 @@ func (h *UserMyClassController) ListMyUserClasses(c *fiber.Ctx) error {
 	if q.Status != nil && strings.TrimSpace(*q.Status) != "" {
 		tx = tx.Where("user_classes_status = ?", strings.TrimSpace(*q.Status))
 	}
-	if q.ActiveNow != nil && *q.ActiveNow {
-		tx = tx.Where("user_classes_status = 'active' AND user_classes_ended_at IS NULL")
-	}
 
 	// Sorting
 	sort := "started_at_desc"
@@ -65,14 +62,8 @@ func (h *UserMyClassController) ListMyUserClasses(c *fiber.Ctx) error {
 		sort = strings.ToLower(strings.TrimSpace(*q.Sort))
 	}
 	switch sort {
-	case "started_at_asc":
-		tx = tx.Order("user_classes_started_at ASC")
-	case "created_at_asc":
-		tx = tx.Order("user_classes_created_at ASC")
-	case "created_at_desc":
-		tx = tx.Order("user_classes_created_at DESC")
 	default:
-		tx = tx.Order("user_classes_started_at DESC")
+		tx = tx.Order("user_classes_created_at ASC")
 	}
 
 	// Limit & Offset

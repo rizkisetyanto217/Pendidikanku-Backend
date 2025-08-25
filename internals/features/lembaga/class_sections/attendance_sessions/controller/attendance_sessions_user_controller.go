@@ -163,7 +163,6 @@ func (ctrl *ClassAttendanceSessionController) GetClassAttendanceSession(c *fiber
 					AND uc.user_classes_user_id = ?
 					AND ucs.user_class_sections_unassigned_at IS NULL
 					AND uc.user_classes_status = 'active'
-					AND uc.user_classes_ended_at IS NULL
 				`, m.ClassAttendanceSessionSectionId, masjidID, userID).
 				Count(&cnt).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal verifikasi akses")
@@ -266,7 +265,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 					AND uc.user_classes_user_id = ?
 					AND ucs.user_class_sections_unassigned_at IS NULL
 					AND uc.user_classes_status = 'active'
-					AND uc.user_classes_ended_at IS NULL
 				`, masjidID, userID).
 				Select("ucs.user_class_sections_section_id")
 			qBase = qBase.Where("class_attendance_sessions_section_id IN (?)", sub)

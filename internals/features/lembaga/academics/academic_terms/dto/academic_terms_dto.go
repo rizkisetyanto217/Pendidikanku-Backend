@@ -16,11 +16,13 @@ import (
 
 type AcademicTermCreateDTO struct {
 	AcademicTermsAcademicYear string    `json:"academic_terms_academic_year" validate:"required,min=4"`
+	// Terima hanya 4 opsi ini
 	AcademicTermsName         string    `json:"academic_terms_name"          validate:"required,oneof=Ganjil Genap Pendek Khusus"`
 	AcademicTermsStartDate    time.Time `json:"academic_terms_start_date"    validate:"required"`
-	AcademicTermsEndDate      time.Time `json:"academic_terms_end_date"      validate:"required,gtfield=AcademicTermsStartDate"`
+	// gtefield agar sejalan dg DB CHECK (end >= start)
+	AcademicTermsEndDate      time.Time `json:"academic_terms_end_date"      validate:"required,gtefield=AcademicTermsStartDate"`
 	// pointer: bedakan "tidak dikirim" vs "false"
-	AcademicTermsIsActive *bool `json:"academic_terms_is_active,omitempty"`
+	AcademicTermsIsActive     *bool     `json:"academic_terms_is_active,omitempty"`
 }
 
 type AcademicTermUpdateDTO struct {
@@ -33,6 +35,8 @@ type AcademicTermUpdateDTO struct {
 
 // (opsional) filter list
 type AcademicTermFilterDTO struct {
+	// NEW: filter by term ID (query:?id=UUID)
+	ID       *string `query:"id"        validate:"omitempty,uuid4"`
 	Year     *string `query:"year"      validate:"omitempty,min=4"`
 	Name     *string `query:"name"      validate:"omitempty,oneof=Ganjil Genap Pendek Khusus"`
 	Active   *bool   `query:"active"    validate:"omitempty"`
@@ -72,7 +76,6 @@ func (p *AcademicTermCreateDTO) Normalize() {
 	p.AcademicTermsName = strings.TrimSpace(p.AcademicTermsName)
 }
 
-// Opsional: tetap ada bila ingin dipakai di tempat lain
 func (p *AcademicTermCreateDTO) WantsActive() bool {
 	return p.AcademicTermsIsActive == nil || *p.AcademicTermsIsActive
 }
@@ -110,6 +113,8 @@ func (u *AcademicTermUpdateDTO) ApplyUpdates(ent *model.AcademicTermModel) {
 	}
 }
 
+
+
 // Mapper entity -> response
 func FromModel(ent model.AcademicTermModel) AcademicTermResponseDTO {
 	return AcademicTermResponseDTO{
@@ -133,4 +138,24 @@ func FromModels(list []model.AcademicTermModel) []AcademicTermResponseDTO {
 		out = append(out, FromModel(it))
 	}
 	return out
+}
+
+// dto/dto.go
+func (q *AcademicTermFilterDTO) Normalize() {
+    if q.SortDir != nil {
+        s := strings.ToLower(strings.TrimSpace(*q.SortDir))
+        q.SortDir = &s
+    }
+    if q.SortBy != nil {
+        s := strings.ToLower(strings.TrimSpace(*q.SortBy))
+        q.SortBy = &s
+    }
+    if q.Year != nil {
+        s := strings.TrimSpace(*q.Year)
+        q.Year = &s
+    }
+    if q.Name != nil {
+        s := strings.TrimSpace(*q.Name)
+        q.Name = &s
+    }
 }

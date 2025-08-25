@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"log"
 	"strings"
 	"time"
 
@@ -14,20 +15,23 @@ import (
 	userModel "masjidku_backend/internals/features/users/user/model"
 	helper "masjidku_backend/internals/helpers"
 
+	openingSvc "masjidku_backend/internals/features/lembaga/academics/academic_terms/services"
 	statsSvc "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/service"
 )
 
 type UserClassController struct {
-	DB *gorm.DB
-	Stats *statsSvc.LembagaStatsService
-
+    DB       *gorm.DB
+    Stats    *statsSvc.LembagaStatsService
+    QuotaSvc openingSvc.OpeningQuotaService // <— add
 }
 
 func NewUserClassController(db *gorm.DB) *UserClassController {
-	return &UserClassController{
-        DB:    db,
-        Stats: statsSvc.NewLembagaStatsService(),
-    }}
+    return &UserClassController{
+        DB:       db,
+        Stats:    statsSvc.NewLembagaStatsService(),
+        QuotaSvc: openingSvc.NewOpeningQuotaService(), // <— add
+    }
+}
 
 var validateUserClasses = validator.New()
 
@@ -103,9 +107,7 @@ func (h *UserClassController) checkActiveEnrollmentConflict(
 	return nil
 }
 
-// internals/features/lembaga/classes/user_classes/main/controller/user_class_controller.go
 // file: internals/features/lembaga/classes/user_classes/main/controller/user_class_controller.go
-
 func (h *UserClassController) UpdateUserClass(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
@@ -117,25 +119,29 @@ func (h *UserClassController) UpdateUserClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
+	log.Printf("[UserClass] 🔥 UpdateUserClass START ucID=%s masjidID=%s", ucID, masjidID)
+
 	// Ambil enrolment + tenant guard
 	existing, err := h.findUserClassWithTenantGuard(ucID, masjidID)
 	if err != nil {
+		log.Printf("[UserClass] ❌ findUserClassWithTenantGuard gagal ucID=%s masjidID=%s err=%v", ucID, masjidID, err)
 		return err
 	}
 
 	var req ucDTO.UpdateUserClassRequest
 	if err := c.BodyParser(&req); err != nil {
+		log.Printf("[UserClass] ❌ BodyParser gagal err=%v", err)
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	if err := validateUserClasses.Struct(req); err != nil {
+		log.Printf("[UserClass] ❌ Validasi gagal err=%v", err)
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// ==== Mulai transaksi agar update enrolment & stats atomik ====
+	// ==== Mulai transaksi agar semua atomik ====
 	return h.DB.Transaction(func(tx *gorm.DB) error {
-		// =========================
-		// Validasi FK komposit & target nilai
-		// =========================
+		log.Printf("[UserClass] ➡️ Mulai Transaction ucID=%s", ucID)
+
 		targetUser := existing.UserClassesUserID
 		if req.UserClassesUserID != nil {
 			targetUser = *req.UserClassesUserID
@@ -143,62 +149,136 @@ func (h *UserClassController) UpdateUserClass(c *fiber.Ctx) error {
 
 		targetClass := existing.UserClassesClassID
 		if req.UserClassesClassID != nil {
-			// pastikan class milik masjid ini
 			if err := h.ensureClassBelongsToMasjid(tx, *req.UserClassesClassID, masjidID); err != nil {
+				log.Printf("[UserClass] ❌ ensureClassBelongsToMasjid gagal classID=%s masjidID=%s err=%v", *req.UserClassesClassID, masjidID, err)
 				return err
 			}
 			targetClass = *req.UserClassesClassID
 		}
 
-		// tenant id — sebaiknya tidak boleh berubah; guard jika ada payload
 		if req.UserClassesMasjidID != nil && *req.UserClassesMasjidID != masjidID {
+			log.Printf("[UserClass] ❌ UserClassesMasjidID tidak boleh diubah masjidID=%s", *req.UserClassesMasjidID)
 			return fiber.NewError(fiber.StatusBadRequest, "Masjid ID tidak boleh diubah")
 		}
 
 		targetTerm := existing.UserClassesTermID
 		if req.UserClassesTermID != nil {
-			// pastikan term milik masjid ini
 			if err := h.ensureTermBelongsToMasjid(tx, *req.UserClassesTermID, masjidID); err != nil {
+				log.Printf("[UserClass] ❌ ensureTermBelongsToMasjid gagal termID=%s masjidID=%s err=%v", *req.UserClassesTermID, masjidID, err)
 				return err
 			}
 			targetTerm = *req.UserClassesTermID
 		}
 
-		// status target
 		targetStatus := existing.UserClassesStatus
 		if req.UserClassesStatus != nil {
 			targetStatus = *req.UserClassesStatus
 		}
 
-		// =========================
 		// Cegah duplikasi enrolment aktif
-		// (mengikuti UNIQUE PARTIAL di DB:
-		//   uq_uc_active_per_user_class_term(user_id,class_id,term_id,masjid_id) WHERE status='active' AND deleted_at IS NULL)
-		// =========================
 		if strings.EqualFold(targetStatus, classModel.UserClassStatusActive) {
 			if err := h.checkActiveEnrollmentConflict(tx, targetUser, targetClass, targetTerm, existing.UserClassesID, masjidID); err != nil {
+				log.Printf("[UserClass] ❌ Conflict enrolment aktif user=%s class=%s term=%s err=%v", targetUser, targetClass, targetTerm, err)
 				return err
 			}
 		}
 
-		// --- Deteksi state aktif sebelum/sesudah update (tanpa ended_at)
 		wasActive := strings.EqualFold(existing.UserClassesStatus, classModel.UserClassStatusActive)
+		willBeActive := strings.EqualFold(targetStatus, classModel.UserClassStatusActive)
+		log.Printf("[UserClass] Status flip? wasActive=%t willBeActive=%t", wasActive, willBeActive)
 
-		// Terapkan perubahan ke model
+		// Tentukan opening yang akan dipakai / berubah
+		var openingToUse *uuid.UUID
+		if req.UserClassesOpeningID != nil {
+			openingToUse = req.UserClassesOpeningID
+		} else if existing.UserClassesOpeningID != nil {
+			openingToUse = existing.UserClassesOpeningID
+		}
+		log.Printf("[UserClass] openingToUse=%v", openingToUse)
+
+		// Simpan nilai final yang harus dipersist (mencegah ketimpa ApplyToModel)
+		finalOpeningID := existing.UserClassesOpeningID
+
+		// (1) inactive -> active  => CLAIM kuota (jika ada opening)
+		if !wasActive && willBeActive {
+			if openingToUse != nil {
+				log.Printf("[UserClass] 👉 Claim quota (inactive→active) openingID=%s", *openingToUse)
+				if err := h.QuotaSvc.EnsureOpeningBelongsToMasjid(tx, *openingToUse, masjidID); err != nil {
+					return err
+				}
+				if err := h.QuotaSvc.Claim(tx, *openingToUse); err != nil {
+					return err
+				}
+				finalOpeningID = openingToUse
+			}
+		}
+
+		// (2) active -> inactive  => RELEASE kuota (pakai opening yang lama/tercatat)
+		if wasActive && !willBeActive {
+			if existing.UserClassesOpeningID != nil {
+				log.Printf("[UserClass] 👉 Release quota (active→inactive) openingID=%s", *existing.UserClassesOpeningID)
+				if err := h.QuotaSvc.Release(tx, *existing.UserClassesOpeningID); err != nil {
+					return err
+				}
+			}
+			// saat non-aktif, boleh biarkan opening tetap tercatat atau null-kan sesuai kebijakan
+		}
+
+		// (3) active -> active, tapi opening berubah / baru ditambahkan
+		if wasActive && willBeActive {
+			// Tambah opening pertama kali (sebelumnya nil, sekarang ada di req)
+			if existing.UserClassesOpeningID == nil && req.UserClassesOpeningID != nil {
+				oid := *req.UserClassesOpeningID
+				log.Printf("[UserClass] 👉 Active→Active ADD opening, Claim openingID=%s", oid)
+				if err := h.QuotaSvc.EnsureOpeningBelongsToMasjid(tx, oid, masjidID); err != nil {
+					return err
+				}
+				if err := h.QuotaSvc.Claim(tx, oid); err != nil {
+					return err
+				}
+				finalOpeningID = &oid
+			}
+
+			// Ganti opening A → B
+			if existing.UserClassesOpeningID != nil && req.UserClassesOpeningID != nil &&
+				existing.UserClassesOpeningID.String() != req.UserClassesOpeningID.String() {
+
+				oldID := *existing.UserClassesOpeningID
+				newID := *req.UserClassesOpeningID
+				log.Printf("[UserClass] 👉 Active→Active SWITCH opening old=%s new=%s", oldID, newID)
+
+				// Release kuota lama
+				if err := h.QuotaSvc.Release(tx, oldID); err != nil {
+					return err
+				}
+				// Claim kuota baru
+				if err := h.QuotaSvc.EnsureOpeningBelongsToMasjid(tx, newID, masjidID); err != nil {
+					return err
+				}
+				if err := h.QuotaSvc.Claim(tx, newID); err != nil {
+					return err
+				}
+				finalOpeningID = &newID
+			}
+		}
+
+		// Terapkan perubahan field lain dari request
 		req.ApplyToModel(existing)
 
-		// Simpan enrolment
+		// Pastikan opening ID yang sudah diputuskan tidak ketimpa oleh ApplyToModel
+		if finalOpeningID != nil {
+			existing.UserClassesOpeningID = finalOpeningID
+		}
+
 		if err := tx.Model(&classModel.UserClassesModel{}).
 			Where("user_classes_id = ?", existing.UserClassesID).
 			Updates(existing).Error; err != nil {
+			log.Printf("[UserClass] ❌ Gagal update enrolment ucID=%s err=%v", existing.UserClassesID, err)
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui enrolment")
 		}
 
+		// Statistik & role promotion
 		nowActive := strings.EqualFold(existing.UserClassesStatus, classModel.UserClassStatusActive)
-
-		// =========================
-		// Update stats bila berubah aktif/non-aktif
-		// =========================
 		delta := 0
 		if !wasActive && nowActive {
 			delta = +1
@@ -207,6 +287,7 @@ func (h *UserClassController) UpdateUserClass(c *fiber.Ctx) error {
 		}
 
 		if delta != 0 {
+			log.Printf("[UserClass] Update statistik delta=%d masjidID=%s", delta, masjidID)
 			if err := h.Stats.EnsureForMasjid(tx, masjidID); err != nil {
 				return err
 			}
@@ -215,10 +296,8 @@ func (h *UserClassController) UpdateUserClass(c *fiber.Ctx) error {
 			}
 		}
 
-		// =========================
-		// Promosi role → student saat berubah ke aktif
-		// =========================
 		if !wasActive && nowActive {
+			log.Printf("[UserClass] Promote user=%s to role=student", existing.UserClassesUserID)
 			userID := existing.UserClassesUserID
 			if err := tx.Model(&userModel.UserModel{}).
 				Where("id = ? AND role = ?", userID, "user").
@@ -227,9 +306,11 @@ func (h *UserClassController) UpdateUserClass(c *fiber.Ctx) error {
 			}
 		}
 
+		log.Printf("[UserClass] ✅ UpdateUserClass DONE ucID=%s openingID=%v", existing.UserClassesID, existing.UserClassesOpeningID)
 		return helper.JsonUpdated(c, "Enrolment berhasil diperbarui", ucDTO.NewUserClassResponse(existing))
 	})
 }
+
 
 
 func (h *UserClassController) GetUserClassByID(c *fiber.Ctx) error {
@@ -281,9 +362,6 @@ func (h *UserClassController) ListUserClasses(c *fiber.Ctx) error {
 	if q.Status != nil && strings.TrimSpace(*q.Status) != "" {
 		tx = tx.Where("user_classes_status = ?", strings.TrimSpace(*q.Status))
 	}
-	if q.ActiveNow != nil && *q.ActiveNow {
-		tx = tx.Where("user_classes_status = 'active' AND user_classes_ended_at IS NULL")
-	}
 
 	// total (sebelum limit/offset)
 	var total int64
@@ -297,14 +375,8 @@ func (h *UserClassController) ListUserClasses(c *fiber.Ctx) error {
 		sort = strings.ToLower(strings.TrimSpace(*q.Sort))
 	}
 	switch sort {
-	case "started_at_asc":
-		tx = tx.Order("user_classes_started_at ASC")
-	case "created_at_asc":
-		tx = tx.Order("user_classes_created_at ASC")
-	case "created_at_desc":
-		tx = tx.Order("user_classes_created_at DESC")
 	default:
-		tx = tx.Order("user_classes_started_at DESC")
+		tx = tx.Order("user_classes_created_at ASC")
 	}
 
 	// fetch data

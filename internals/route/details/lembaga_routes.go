@@ -42,7 +42,7 @@ func LembagaPublicRoutes(r fiber.Router, db *gorm.DB) {
 /* ===================== USER (PRIVATE) ===================== */
 // Endpoint yang butuh login user biasa (token user)
 func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
-	ClassesRoutes.UserClassesStudentRoutes(r, db)
+	ClassesRoutes.ClassUserRoutes(r, db)
 	ClassAttendanceSessionsRoutes.AttendanceSessionsUserRoutes(r, db)
 	AnnouncementThemaRoutes.AnnouncementUserRoute(r, db)
 	AnnouncementRoutes.AnnouncementUserRoutes(r, db)

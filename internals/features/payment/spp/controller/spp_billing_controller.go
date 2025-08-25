@@ -85,7 +85,6 @@ func (h *SppBillingController) Create(c *fiber.Ctx) error {
 		WHERE c.class_id = ?
 		  AND c.class_masjid_id = ?
 		  AND uc.user_classes_status = 'active'
-		  AND uc.user_classes_ended_at IS NULL
 		ON CONFLICT (user_spp_billing_billing_id, user_spp_billing_user_id) DO NOTHING
 	`, m.SppBillingID, *req.SppBillingClassID, masjidID)
 	if res.Error != nil {

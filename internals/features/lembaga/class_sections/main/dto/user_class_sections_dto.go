@@ -93,9 +93,7 @@ type UserClassSectionResponse struct {
 
 
 	// ⬇⬇⬇ Tambahan dari user_classes
-	UserClassesStatus     string     `json:"user_classes_status,omitempty"`      // active|inactive|ended
-	UserClassesStartedAt  *time.Time `json:"user_classes_started_at,omitempty"`  // opsional
-	UserClassesEndedAt    *time.Time `json:"user_classes_ended_at,omitempty"`    // opsional
+	UserClassesStatus     string     `json:"user_classes_status,omitempty"`
 
 	UserClassSectionsCreatedAt time.Time  `json:"user_class_sections_created_at"`
 	UserClassSectionsUpdatedAt *time.Time `json:"user_class_sections_updated_at,omitempty"`

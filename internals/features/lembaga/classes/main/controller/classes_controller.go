@@ -102,7 +102,6 @@ func (ctl *ClassController) SearchWithSubjects(c *fiber.Ctx) error {
 		ClassDescription   *string    `gorm:"column:class_description" json:"class_description,omitempty"`
 		ClassLevel         *string    `gorm:"column:class_level" json:"class_level,omitempty"`
 		ClassImageURL      *string    `gorm:"column:class_image_url" json:"class_image_url,omitempty"`
-		ClassFeeMonthlyIDR *int64     `gorm:"column:class_fee_monthly_idr" json:"class_fee_monthly_idr,omitempty"`
 		ClassIsActive      bool       `gorm:"column:class_is_active" json:"class_is_active"`
 		ClassCreatedAt     time.Time  `gorm:"column:class_created_at" json:"class_created_at"`
 	}
@@ -112,8 +111,7 @@ func (ctl *ClassController) SearchWithSubjects(c *fiber.Ctx) error {
 		Where("c.class_masjid_id = ? AND c.class_deleted_at IS NULL", masjidID).
 		Select(`
 			c.class_id, c.class_masjid_id, c.class_name, c.class_slug,
-			c.class_description, c.class_level, c.class_image_url,
-			c.class_fee_monthly_idr, c.class_is_active, c.class_created_at
+			c.class_description, c.class_level, c.class_image_url, c.class_is_active, c.class_created_at
 		`).
 		Order("c.class_name ASC").
 		Scan(&clsRows).Error; err != nil {
@@ -152,7 +150,6 @@ func (ctl *ClassController) SearchWithSubjects(c *fiber.Ctx) error {
 		ClassDescription   *string      `json:"class_description,omitempty"`
 		ClassLevel         *string      `json:"class_level,omitempty"`
 		ClassImageURL      *string      `json:"class_image_url,omitempty"`
-		ClassFeeMonthlyIDR *int64       `json:"class_fee_monthly_idr,omitempty"`
 		ClassIsActive      bool         `json:"class_is_active"`
 		ClassCreatedAt     time.Time    `json:"class_created_at"`
 		Subjects           []SubjectLite `json:"subjects"`
@@ -165,7 +162,7 @@ func (ctl *ClassController) SearchWithSubjects(c *fiber.Ctx) error {
 			ClassID: cr.ClassID, ClassMasjidID: cr.ClassMasjidID,
 			ClassName: cr.ClassName, ClassSlug: cr.ClassSlug,
 			ClassDescription: cr.ClassDescription, ClassLevel: cr.ClassLevel,
-			ClassImageURL: cr.ClassImageURL, ClassFeeMonthlyIDR: cr.ClassFeeMonthlyIDR,
+			ClassImageURL: cr.ClassImageURL,
 			ClassIsActive: cr.ClassIsActive, ClassCreatedAt: cr.ClassCreatedAt,
 			Subjects: []SubjectLite{},
 		}
@@ -189,7 +186,6 @@ func (ctl *ClassController) SearchWithSubjects(c *fiber.Ctx) error {
 }
 
 
-/* ================= Handlers ================= */
 // POST /admin/classes
 func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
@@ -203,16 +199,17 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	// paksa tenant
 	req.ClassMasjidID = &masjidID
 
-	// normalisasi & slug
+	// normalisasi & slug dasar
 	req.ClassName = strings.TrimSpace(req.ClassName)
 	req.ClassSlug = strings.TrimSpace(req.ClassSlug)
+	var baseSlug string
 	if req.ClassSlug == "" {
-		req.ClassSlug = helper.GenerateSlug(req.ClassName)
+		baseSlug = req.ClassName
 	} else {
-		req.ClassSlug = helper.GenerateSlug(req.ClassSlug)
+		baseSlug = req.ClassSlug
 	}
 
-	// validasi
+	// validasi awal
 	if err := validate.Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
@@ -236,33 +233,48 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		if r := recover(); r != nil { tx.Rollback(); panic(r) }
 	}()
 
-	// Cek slug unik PER MASJID (case-insensitive, soft-delete aware)
-	var exists model.ClassModel
-	findErr := tx.
-		Where(
-			"class_masjid_id = ? AND lower(class_slug) = lower(?) AND class_deleted_at IS NULL",
-			masjidID, m.ClassSlug,
-		).
-		Take(&exists).Error
-	if findErr == nil {
+	// === NEW: generate slug unik generik (per masjid) ===
+	uniqueSlug, err := helper.GenerateUniqueSlug(tx, helper.SlugOptions{
+		Table:            "classes",
+		SlugColumn:       "class_slug",
+		SoftDeleteColumn: "class_deleted_at",
+		Filters: map[string]any{
+			"class_masjid_id": masjidID,
+		},
+		MaxLen:      160,
+		DefaultBase: "kelas",
+	}, baseSlug)
+	if err != nil {
 		tx.Rollback()
-		return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat slug unik: "+err.Error())
 	}
-	if !errors.Is(findErr, gorm.ErrRecordNotFound) {
-		tx.Rollback()
-		return fiber.NewError(fiber.StatusInternalServerError, findErr.Error())
-	}
+	m.ClassSlug = uniqueSlug
 
 	// Simpan
 	if err := tx.Create(m).Error; err != nil {
 		tx.Rollback()
 		low := strings.ToLower(err.Error())
 		if strings.Contains(low, "duplicate") || strings.Contains(low, "unique") {
+			// fallback race condition: coba regenerate 1x lalu insert lagi
+			if reSlug, rErr := helper.GenerateUniqueSlug(tx, helper.SlugOptions{
+				Table:            "classes",
+				SlugColumn:       "class_slug",
+				SoftDeleteColumn: "class_deleted_at",
+				Filters:          map[string]any{"class_masjid_id": masjidID},
+				MaxLen:           160,
+				DefaultBase:      "kelas",
+			}, baseSlug); rErr == nil {
+				m.ClassSlug = reSlug
+				if e2 := tx.Create(m).Error; e2 == nil {
+					goto SAVE_OK
+				}
+			}
 			return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat data kelas")
 	}
 
+SAVE_OK:
 	// Update lembaga_stats
 	statsSvc := service.NewLembagaStatsService()
 	if err := statsSvc.EnsureForMasjid(tx, masjidID); err != nil {
@@ -283,7 +295,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 
 
 
-// UPDATE /admin/classes/:id  (multipart/form-data ATAU JSON)
+// UPDATE /admin/classes/:id
 func (ctrl *ClassController) UpdateClass(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
@@ -295,58 +307,40 @@ func (ctrl *ClassController) UpdateClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// Parse payload (JSON / form)
 	var req dto.UpdateClassRequest
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
-	// --- Normalize name/slug ---
+	// normalize
 	if req.ClassSlug != nil {
 		s := helper.GenerateSlug(strings.TrimSpace(*req.ClassSlug))
 		req.ClassSlug = &s
 	} else if req.ClassName != nil {
-		// Regen slug dari name hanya kalau slug tidak dikirim
 		s := helper.GenerateSlug(strings.TrimSpace(*req.ClassName))
 		req.ClassSlug = &s
 	}
-
-	// Paksa tenant (tidak bisa diganti dari klien)
 	req.ClassMasjidID = &masjidID
 
-	// === (Opsional) Upload file (coba "class_image", fallback "class_image_url") ===
+	// upload file
 	if fh, err := c.FormFile("class_image"); err == nil && fh != nil {
 		if publicURL, upErr := helper.UploadImageToSupabase("classes", fh); upErr == nil {
 			req.ClassImageURL = &publicURL
 		} else {
 			return fiber.NewError(fiber.StatusBadRequest, "Upload gambar gagal: "+upErr.Error())
 		}
-	} else if fh, err := c.FormFile("class_image_url"); err == nil && fh != nil {
-		if publicURL, upErr := helper.UploadImageToSupabase("classes", fh); upErr == nil {
-			req.ClassImageURL = &publicURL
-		} else {
-			return fiber.NewError(fiber.StatusBadRequest, "Upload gambar gagal: "+upErr.Error())
-		}
 	}
 
-	// Validasi DTO
 	if err := validate.Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// ===== TRANSACTION START =====
 	tx := ctrl.DB.Begin()
 	if tx.Error != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, tx.Error.Error())
 	}
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-			panic(r)
-		}
-	}()
+	defer func() { if r := recover(); r != nil { tx.Rollback(); panic(r) } }()
 
-	// Lock row + cek tenant
 	var existing model.ClassModel
 	if err := tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -362,54 +356,59 @@ func (ctrl *ClassController) UpdateClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengubah kelas di masjid lain")
 	}
 
-	// Track perubahan status aktif (untuk lembaga_stats)
 	wasActive := existing.ClassIsActive
 	newActive := wasActive
 	if req.ClassIsActive != nil {
 		newActive = *req.ClassIsActive
 	}
 
-	// Cek unik slug PER MASJID saat slug berubah (case-insensitive, soft-delete aware)
+	// =========== pakai helper GenerateUniqueSlug ===========
 	if req.ClassSlug != nil && *req.ClassSlug != existing.ClassSlug {
-		var cnt int64
-		if err := tx.Model(&model.ClassModel{}).
-			Where(`
-				class_masjid_id = ?
-				AND lower(class_slug) = lower(?)
-				AND class_id <> ?
-				AND class_deleted_at IS NULL
-			`, masjidID, *req.ClassSlug, existing.ClassID).
-			Count(&cnt).Error; err != nil {
+		opts := helper.SlugOptions{
+			Table:            "classes",
+			SlugColumn:       "class_slug",
+			SoftDeleteColumn: "class_deleted_at",
+			Filters:          map[string]any{"class_masjid_id": masjidID},
+			MaxLen:           160,
+			DefaultBase:      "kelas",
+		}
+
+		// hasil slug unik
+		uni, err := helper.GenerateUniqueSlug(tx, opts, *req.ClassSlug)
+		if err != nil {
 			tx.Rollback()
-			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
-		} else if cnt > 0 {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat slug unik: "+err.Error())
+		}
+
+		// kalau user kirim slug eksplisit tapi ternyata bentrok (helper ngasih suffix),
+		// maka tolak → supaya slug tetap konsisten.
+		if req.ClassSlug != nil && *req.ClassSlug != uni && c.FormValue("class_slug") != "" {
 			tx.Rollback()
 			return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
 		}
+		req.ClassSlug = &uni
 	}
+	// ========================================================
 
-	// Jika URL gambar diganti manual, hapus file lama (best effort)
+	// hapus gambar lama jika diganti
 	if req.ClassImageURL != nil && existing.ClassImageURL != nil && *existing.ClassImageURL != *req.ClassImageURL {
 		if bucket, path, exErr := helper.ExtractSupabasePath(*existing.ClassImageURL); exErr == nil {
 			_ = helper.DeleteFromSupabase(bucket, path)
 		}
 	}
 
-	// Apply perubahan ke model & simpan
 	req.ApplyToModel(&existing)
 
 	if err := tx.Model(&model.ClassModel{}).
 		Where("class_id = ?", existing.ClassID).
 		Updates(&existing).Error; err != nil {
 		tx.Rollback()
-		low := strings.ToLower(err.Error())
-		if strings.Contains(low, "duplicate") || strings.Contains(low, "unique") {
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate") {
 			return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui data")
 	}
 
-	// Sinkronkan lembaga_stats jika status aktif berubah
 	if wasActive != newActive {
 		stats := service.NewLembagaStatsService()
 		if err := stats.EnsureForMasjid(tx, masjidID); err != nil {
@@ -417,21 +416,16 @@ func (ctrl *ClassController) UpdateClass(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal inisialisasi lembaga_stats: "+err.Error())
 		}
 		delta := -1
-		if newActive {
-			delta = +1
-		}
+		if newActive { delta = +1 }
 		if err := stats.IncActiveClasses(tx, masjidID, delta); err != nil {
 			tx.Rollback()
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal update lembaga_stats: "+err.Error())
 		}
 	}
 
-	// Commit
 	if err := tx.Commit().Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	// ===== TRANSACTION END =====
-
 	return helper.JsonUpdated(c, "Kelas berhasil diperbarui", dto.NewClassResponse(&existing))
 }
 

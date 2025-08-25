@@ -77,11 +77,11 @@ func (ctrl *ClassAttendanceSessionController) ListBySection(c *fiber.Ctx) error 
 				AND uc.user_classes_user_id = ?
 				AND ucs.user_class_sections_unassigned_at IS NULL
 				AND uc.user_classes_status = 'active'
-				AND uc.user_classes_ended_at IS NULL
 			`, secID, masjidID, userID).
 			Count(&cnt).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek keanggotaan section")
 		}
+
 		if cnt == 0 {
 			return fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada section ini")
 		}

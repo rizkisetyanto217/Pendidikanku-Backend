@@ -1,26 +1,31 @@
+// file: internals/features/lembaga/academics/academic_terms/controller/controller.go
 package controller
 
 import (
 	"errors"
-	"masjidku_backend/internals/features/lembaga/academics/academic_terms/dto"
-	"masjidku_backend/internals/features/lembaga/academics/academic_terms/model"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"masjidku_backend/internals/features/lembaga/academics/academic_terms/dto"
+	"masjidku_backend/internals/features/lembaga/academics/academic_terms/model"
 	helper "masjidku_backend/internals/helpers"
 )
 
-// -----------------------------
+/* ================= Controller & Constructor ================= */
+
+
+var fallbackValidator = validator.New()
+
+/* ================= Handlers ================= */
+
+// GET /api/a/academic-terms/:id
 // GetByID (scoped ke masjid di token)
-// -----------------------------
-// -----------------------------
-// GetByID (scoped ke masjid di token)
-// -----------------------------
 func (ctl *AcademicTermController) GetByID(c *fiber.Ctx) error {
 	idStr := c.Params("id")
 	id, err := uuid.Parse(idStr)
@@ -46,25 +51,31 @@ func (ctl *AcademicTermController) GetByID(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "Academic term fetched successfully", dto.FromModel(ent))
 }
 
-
-// -----------------------------
+// GET /api/a/academic-terms
 // List (multi-tenant via token) + Filter + Pagination + Sorting
-// -----------------------------
 func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	var q dto.AcademicTermFilterDTO
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid query: "+err.Error())
 	}
-	if err := ctl.Validator.Struct(&q); err != nil {
+	q.Normalize()
+
+	// validate
+	v := ctl.Validator
+	if v == nil {
+		v = fallbackValidator
+	}
+	if err := v.Struct(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Validation failed: "+err.Error())
 	}
 
-	// Dapatkan SEMUA masjid yang boleh diakses dari token
+	// multi-tenant
 	masjidIDs, err := helper.GetMasjidIDsFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
+	// paging default
 	page := q.Page
 	if page == 0 {
 		page = 1
@@ -77,6 +88,20 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	dbq := ctl.DB.Model(&model.AcademicTermModel{}).
 		Where("academic_terms_masjid_id IN (?) AND academic_terms_deleted_at IS NULL", masjidIDs)
 
+	// filter by ID (robust: abaikan nilai kosong/invalid, jangan 400)
+	if rawID, has := c.Queries()["id"]; has {
+		cleaned := strings.TrimSpace(rawID)
+		cleaned = strings.Trim(cleaned, `"' {}`) // bersihkan kutip/kurung nyasar
+		low := strings.ToLower(cleaned)
+		if cleaned != "" && low != "null" && low != "undefined" {
+			if termID, err := uuid.Parse(cleaned); err == nil {
+				dbq = dbq.Where("academic_terms_id = ?", termID)
+			}
+			// else: biarkan, jangan return 400 agar "get all" tetap jalan
+		}
+	}
+
+	// filters lain
 	if q.Year != nil && strings.TrimSpace(*q.Year) != "" {
 		dbq = dbq.Where("academic_terms_academic_year = ?", strings.TrimSpace(*q.Year))
 	}
@@ -87,6 +112,7 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 		dbq = dbq.Where("academic_terms_is_active = ?", *q.Active)
 	}
 
+	// sorting
 	sortBy := "academic_terms_created_at"
 	if q.SortBy != nil {
 		switch *q.SortBy {
@@ -109,11 +135,13 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 		sortDir = *q.SortDir
 	}
 
+	// total
 	var total int64
 	if err := dbq.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Count failed: "+err.Error())
 	}
 
+	// data
 	var list []model.AcademicTermModel
 	if err := dbq.
 		Order(sortBy + " " + sortDir).
@@ -123,25 +151,17 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Query failed: "+err.Error())
 	}
 
-	// Gunakan helper.JsonList untuk response list + pagination
-	pagination := fiber.Map{
-		"total":     total,
-		"page":      page,
-		"page_size": pageSize,
-	}
-	return helper.JsonList(c, dto.FromModels(list), pagination)
+	return helper.JsonList(c, dto.FromModels(list), fiber.Map{
+		"total": total, "page": page, "page_size": pageSize,
+	})
 }
 
+/* ================= Extra: Search By Year (dengan openings & class) ================= */
 
-
-
-
-
-
-
+// Struktur join untuk response search
 type OpeningWithClass struct {
-	// --- opening (mirror kolom, seperti response DTO openings) ---
-	ClassTermOpeningsID                    uuid.UUID  `json:"class_term_openings_id"                     gorm:"column:class_term_openings_id"`
+	// opening
+	ClassTermOpeningsID                    uuid.UUID  `json:"class_term_openings_id"                      gorm:"column:class_term_openings_id"`
 	ClassTermOpeningsMasjidID              uuid.UUID  `json:"class_term_openings_masjid_id"               gorm:"column:class_term_openings_masjid_id"`
 	ClassTermOpeningsClassID               uuid.UUID  `json:"class_term_openings_class_id"                gorm:"column:class_term_openings_class_id"`
 	ClassTermOpeningsTermID                uuid.UUID  `json:"class_term_openings_term_id"                 gorm:"column:class_term_openings_term_id"`
@@ -156,17 +176,16 @@ type OpeningWithClass struct {
 	ClassTermOpeningsUpdatedAt             *time.Time `json:"class_term_openings_updated_at"              gorm:"column:class_term_openings_updated_at"`
 	ClassTermOpeningsDeletedAt             *time.Time `json:"class_term_openings_deleted_at"              gorm:"column:class_term_openings_deleted_at"`
 
-	// --- class (subset penting; tambah kalau perlu) ---
+	// class (subset)
 	Class struct {
-		ClassID            uuid.UUID  `json:"class_id"               gorm:"column:class_id"`
-		ClassMasjidID      *uuid.UUID `json:"class_masjid_id"        gorm:"column:class_masjid_id"`
-		ClassName          string     `json:"class_name"             gorm:"column:class_name"`
-		ClassSlug          string     `json:"class_slug"             gorm:"column:class_slug"`
-		ClassDescription   *string    `json:"class_description"      gorm:"column:class_description"`
-		ClassLevel         *string    `json:"class_level"            gorm:"column:class_level"`
-		ClassImageURL      *string    `json:"class_image_url"        gorm:"column:class_image_url"`
-		ClassFeeMonthlyIDR *int       `json:"class_fee_monthly_idr"  gorm:"column:class_fee_monthly_idr"`
-		ClassIsActive      bool       `json:"class_is_active"        gorm:"column:class_is_active"`
+		ClassID            uuid.UUID  `json:"class_id"              gorm:"column:class_id"`
+		ClassMasjidID      *uuid.UUID `json:"class_masjid_id"       gorm:"column:class_masjid_id"`
+		ClassName          string     `json:"class_name"            gorm:"column:class_name"`
+		ClassSlug          string     `json:"class_slug"            gorm:"column:class_slug"`
+		ClassDescription   *string    `json:"class_description"     gorm:"column:class_description"`
+		ClassLevel         *string    `json:"class_level"           gorm:"column:class_level"`
+		ClassImageURL      *string    `json:"class_image_url"       gorm:"column:class_image_url"`
+		ClassIsActive      bool       `json:"class_is_active"       gorm:"column:class_is_active"`
 	} `json:"class"`
 }
 
@@ -175,12 +194,10 @@ type AcademicTermWithOpeningsResponse struct {
 	Openings []OpeningWithClass `json:"openings"`
 }
 
-// GET /academic-terms/search?year=2026&id=<uuid>&page_size=20&page=1
-
-// GET /academic-terms/search?year=2026&masjid_id=<uuid>&page_size=20&page=1
+// GET /api/a/academic-terms/search?year=2026&id=<masjid_id>&page_size=20&page=1
 func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 	yearQ := strings.TrimSpace(c.Query("year"))
-	masjidIDParam := strings.TrimSpace(c.Query("id")) // <-- sekarang dimaknai sebagai masjid_id
+	masjidIDParam := strings.TrimSpace(c.Query("id")) // dimaknai sebagai masjid_id
 
 	// multi-tenant via token
 	masjidIDs, err := helper.GetMasjidIDsFromToken(c)
@@ -188,7 +205,7 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 		return err
 	}
 
-	// jika masjid_id diberikan, validasi & limit ke masjid tersebut (dengan otorisasi)
+	// jika masjid_id diberikan, validasi & limit ke masjid tsb (authorization)
 	if masjidIDParam != "" {
 		wantID, err := uuid.Parse(masjidIDParam)
 		if err != nil {
@@ -204,24 +221,27 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 		if !authorized {
 			return fiber.NewError(fiber.StatusForbidden, "masjid_id tidak diizinkan untuk user ini")
 		}
-		// batasi scope hanya ke masjid itu
 		masjidIDs = []uuid.UUID{wantID}
 	}
 
-	// paginasi sederhana (fallback default)
+	// paginasi sederhana (default)
 	page := 1
 	pageSize := 20
 	if v := c.Query("page"); v != "" {
-		if n, _ := strconv.Atoi(v); n > 0 { page = n }
+		if n, _ := strconv.Atoi(v); n > 0 {
+			page = n
+		}
 	}
 	if v := c.Query("page_size"); v != "" {
-		if n, _ := strconv.Atoi(v); n > 0 && n <= 200 { pageSize = n }
+		if n, _ := strconv.Atoi(v); n > 0 && n <= 200 {
+			pageSize = n
+		}
 	}
 
 	dbq := ctl.DB.Model(&model.AcademicTermModel{}).
 		Where("academic_terms_masjid_id IN (?) AND academic_terms_deleted_at IS NULL", masjidIDs)
 
-	// --- APPLY FILTERS ---
+	// filter
 	if yearQ != "" {
 		dbq = dbq.Where("academic_terms_academic_year ILIKE ?", "%"+yearQ+"%")
 	}
@@ -232,7 +252,7 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Count failed: "+err.Error())
 	}
 
-	// fetch terms
+	// ambil terms
 	var list []model.AcademicTermModel
 	if err := dbq.
 		Order("academic_terms_start_date DESC").
@@ -242,7 +262,7 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Query failed: "+err.Error())
 	}
 
-	// kumpulkan term_ids untuk fetch openings
+	// kumpulkan term_ids
 	termIDs := make([]uuid.UUID, 0, len(list))
 	for _, t := range list {
 		termIDs = append(termIDs, t.AcademicTermsID)
@@ -252,7 +272,7 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 	openingMap := make(map[uuid.UUID][]OpeningWithClass, len(list))
 	if len(termIDs) > 0 {
 		type row struct {
-			// opening cols
+			// opening
 			ClassTermOpeningsID                    uuid.UUID
 			ClassTermOpeningsMasjidID              uuid.UUID
 			ClassTermOpeningsClassID               uuid.UUID
@@ -267,7 +287,7 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 			ClassTermOpeningsCreatedAt             time.Time
 			ClassTermOpeningsUpdatedAt             *time.Time
 			ClassTermOpeningsDeletedAt             *time.Time
-			// class cols
+			// class
 			ClassID            uuid.UUID
 			ClassMasjidID      *uuid.UUID
 			ClassName          string
@@ -275,7 +295,6 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 			ClassDescription   *string
 			ClassLevel         *string
 			ClassImageURL      *string
-			ClassFeeMonthlyIDR *int
 			ClassIsActive      bool
 		}
 
@@ -294,7 +313,7 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 			`).
 			Joins("JOIN classes c ON c.class_id = o.class_term_openings_class_id AND c.class_deleted_at IS NULL").
 			Where("o.class_term_openings_term_id IN (?)", termIDs).
-			Where("o.class_term_openings_masjid_id IN (?)", masjidIDs). // sudah discope
+			Where("o.class_term_openings_masjid_id IN (?)", masjidIDs).
 			Where("o.class_term_openings_deleted_at IS NULL").
 			Order("o.class_term_openings_created_at DESC").
 			Find(&rows).Error; err != nil {
@@ -325,14 +344,12 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 			item.Class.ClassDescription = r.ClassDescription
 			item.Class.ClassLevel = r.ClassLevel
 			item.Class.ClassImageURL = r.ClassImageURL
-			item.Class.ClassFeeMonthlyIDR = r.ClassFeeMonthlyIDR
 			item.Class.ClassIsActive = r.ClassIsActive
 
 			openingMap[r.ClassTermOpeningsTermID] = append(openingMap[r.ClassTermOpeningsTermID], item)
 		}
 	}
 
-	// susun response
 	termsDTO := dto.FromModels(list)
 	out := make([]AcademicTermWithOpeningsResponse, 0, len(termsDTO))
 	for i, t := range list {
@@ -342,12 +359,11 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 		})
 	}
 
-	// gunakan helper.JsonList untuk respons sukses standar
 	return helper.JsonList(c, out, fiber.Map{
-		"total":      total,
-		"page":       page,
-		"page_size":  pageSize,
-		"query":      yearQ,
-		"masjid_id":  masjidIDParam, // hanya diisi kalau user kirim param
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+		"query":     yearQ,
+		"masjid_id": masjidIDParam,
 	})
 }

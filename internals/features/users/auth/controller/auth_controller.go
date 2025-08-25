@@ -95,22 +95,28 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 		ClassID     uuid.UUID  `gorm:"column:user_classes_class_id"`
 		MasjidID    *uuid.UUID `gorm:"column:user_classes_masjid_id"`
 	}
+
 	var activeEnrolls []enrollRow
 	{
 		if err := ac.DB.
 			Model(&userClassModel.UserClassesModel{}).
-			Where("user_classes_user_id = ? AND user_classes_status = ? AND user_classes_ended_at IS NULL",
-				user.ID, userClassModel.UserClassStatusActive).
+			Where(`
+				user_classes_user_id = ?
+				AND user_classes_status = ?
+				AND user_classes_deleted_at IS NULL
+			`, user.ID, userClassModel.UserClassStatusActive).
 			Select("user_classes_id, user_classes_class_id, user_classes_masjid_id").
 			Find(&activeEnrolls).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil enrolment student")
 		}
+
 		for _, r := range activeEnrolls {
 			if r.MasjidID != nil {
 				studentSet[r.MasjidID.String()] = struct{}{}
 			}
 		}
 	}
+
 
 	toSlice := func(set map[string]struct{}) []string {
 		out := make([]string, 0, len(set))

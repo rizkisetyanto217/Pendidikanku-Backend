@@ -18,7 +18,6 @@ type CreateClassRequest struct {
 	ClassDescription   *string    `json:"class_description"     form:"class_description"`
 	ClassLevel         *string    `json:"class_level"           form:"class_level"`
 	ClassImageURL      *string    `json:"class_image_url"       form:"class_image_url"       validate:"omitempty,url"`
-	ClassFeeMonthlyIDR *int       `json:"class_fee_monthly_idr" form:"class_fee_monthly_idr" validate:"omitempty,min=0"`
 	ClassIsActive      *bool      `json:"class_is_active"       form:"class_is_active"`
 }
 
@@ -29,7 +28,6 @@ type UpdateClassRequest struct {
 	ClassDescription   *string    `json:"class_description"     form:"class_description"`
 	ClassLevel         *string    `json:"class_level"           form:"class_level"`
 	ClassImageURL      *string    `json:"class_image_url"       form:"class_image_url"       validate:"omitempty,url"`
-	ClassFeeMonthlyIDR *int       `json:"class_fee_monthly_idr" form:"class_fee_monthly_idr" validate:"omitempty,min=0"`
 	ClassIsActive      *bool      `json:"class_is_active"       form:"class_is_active"`
 }
 
@@ -44,7 +42,6 @@ type ClassResponse struct {
 	ClassDescription   *string    `json:"class_description,omitempty"`
 	ClassLevel         *string    `json:"class_level,omitempty"`
 	ClassImageURL      *string    `json:"class_image_url,omitempty"`
-	ClassFeeMonthlyIDR *int       `json:"class_fee_monthly_idr,omitempty"`
 	ClassIsActive      bool       `json:"class_is_active"`
 
 	ClassCreatedAt     time.Time  `json:"class_created_at"`
@@ -76,7 +73,6 @@ func NewClassResponse(m *model.ClassModel) *ClassResponse {
 		ClassDescription:   m.ClassDescription,
 		ClassLevel:         m.ClassLevel,
 		ClassImageURL:      m.ClassImageURL,
-		ClassFeeMonthlyIDR: m.ClassFeeMonthlyIDR,
 		ClassIsActive:      m.ClassIsActive,
 		ClassCreatedAt:     m.ClassCreatedAt,
 		ClassUpdatedAt:     m.ClassUpdatedAt,
@@ -93,7 +89,6 @@ func (r *CreateClassRequest) ToModel() *model.ClassModel {
 		ClassDescription:   r.ClassDescription,
 		ClassLevel:         r.ClassLevel,
 		ClassImageURL:      r.ClassImageURL,
-		ClassFeeMonthlyIDR: r.ClassFeeMonthlyIDR,
 		ClassIsActive:      true, // default
 		ClassCreatedAt:     now,
 	}
@@ -124,10 +119,6 @@ func (r *UpdateClassRequest) ApplyToModel(m *model.ClassModel) {
 	if r.ClassImageURL != nil {
 		// boleh nil untuk clear image
 		m.ClassImageURL = r.ClassImageURL
-	}
-	if r.ClassFeeMonthlyIDR != nil {
-		// boleh nil -> kirim explicit null dari client bila ingin clear
-		m.ClassFeeMonthlyIDR = r.ClassFeeMonthlyIDR
 	}
 	if r.ClassIsActive != nil {
 		m.ClassIsActive = *r.ClassIsActive

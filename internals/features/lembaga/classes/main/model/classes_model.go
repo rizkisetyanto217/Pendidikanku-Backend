@@ -19,9 +19,6 @@ type ClassModel struct {
 
 	ClassImageURL        *string    `json:"class_image_url,omitempty" gorm:"column:class_image_url;type:text"`
 
-	// NULL = gratis; >= 0 = tarif per bulan (IDR)
-	ClassFeeMonthlyIDR   *int       `json:"class_fee_monthly_idr,omitempty" gorm:"column:class_fee_monthly_idr"`
-
 	ClassIsActive        bool       `json:"class_is_active" gorm:"column:class_is_active;not null;default:true"`
 
 	ClassCreatedAt       time.Time  `json:"class_created_at" gorm:"column:class_created_at;not null;autoCreateTime"`

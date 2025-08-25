@@ -141,14 +141,19 @@ func collectMasjidIDsFull(db *gorm.DB, userID uuid.UUID) (
 		var rows []struct {
 			MasjidID *uuid.UUID `gorm:"column:user_classes_masjid_id"`
 		}
+
 		if e := db.
 			Model(&classModel.UserClassesModel{}).
-			Where("user_classes_user_id = ? AND user_classes_status = ? AND user_classes_ended_at IS NULL",
-				userID, classModel.UserClassStatusActive).
+			Where(`
+				user_classes_user_id = ?
+				AND user_classes_status = ?
+				AND user_classes_deleted_at IS NULL
+			`, userID, classModel.UserClassStatusActive).
 			Select("user_classes_masjid_id").
 			Find(&rows).Error; e != nil {
-				return nil, nil, nil, nil, e
+			return nil, nil, nil, nil, e
 		}
+
 		for _, r := range rows {
 			if r.MasjidID != nil {
 				studentSet[r.MasjidID.String()] = struct{}{}

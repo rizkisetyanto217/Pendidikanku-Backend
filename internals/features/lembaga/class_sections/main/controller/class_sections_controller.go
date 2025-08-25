@@ -113,21 +113,23 @@ func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) err
 		}
 	}
 
-	// 2) Ambil mapping user_class -> (user_id, status, started_at, ended_at)
+	// 2) Ambil mapping user_class -> (user_id, status, started_at)
 	type ucMeta struct {
 		UserClassID uuid.UUID  `gorm:"column:user_classes_id"`
 		UserID      uuid.UUID  `gorm:"column:user_classes_user_id"`
 		Status      string     `gorm:"column:user_classes_status"`
 		StartedAt   *time.Time `gorm:"column:user_classes_started_at"`
-		EndedAt     *time.Time `gorm:"column:user_classes_ended_at"`
+		// EndedAt sudah tidak ada
 	}
+
 	ucMetaByID := make(map[uuid.UUID]ucMeta, len(userClassIDs))
 	userIDByUC := make(map[uuid.UUID]uuid.UUID, len(userClassIDs))
+
 	{
 		var ucRows []ucMeta
 		if err := ctrl.DB.
 			Table("user_classes").
-			Select("user_classes_id, user_classes_user_id, user_classes_status, user_classes_started_at, user_classes_ended_at").
+			Select("user_classes_id, user_classes_user_id, user_classes_status, user_classes_started_at").
 			Where("user_classes_id IN ?", userClassIDs).
 			Find(&ucRows).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data enrolment")
@@ -137,6 +139,7 @@ func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) err
 			userIDByUC[r.UserClassID] = r.UserID
 		}
 	}
+
 
 	// 3) Kumpulkan user_id unik
 	uSet := make(map[uuid.UUID]struct{}, len(userClassIDs))
@@ -226,8 +229,6 @@ func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) err
 		ucID := rows[i].UserClassSectionsUserClassID
 		if meta, ok := ucMetaByID[ucID]; ok {
 			r.UserClassesStatus = meta.Status
-			r.UserClassesStartedAt = meta.StartedAt
-			r.UserClassesEndedAt = meta.EndedAt
 		}
 		if uid, ok := userIDByUC[ucID]; ok {
 			if u, ok := userMap[uid]; ok {
