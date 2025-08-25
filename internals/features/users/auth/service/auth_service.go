@@ -3,6 +3,7 @@ package service
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -414,46 +415,50 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 
 /* ========================== LOGOUT ========================== */
 
+
 func Logout(db *gorm.DB, c *fiber.Ctx) error {
-	// ✅ Ambil access token dari cookie
-	accessToken := c.Cookies("access_token")
-	if accessToken == "" {
-		return helpers.Error(c, fiber.StatusUnauthorized, "Unauthorized - No access token in cookie")
+	// Apakah request membawa cookie access_token?
+	hasCookieToken := strings.TrimSpace(c.Cookies("access_token")) != ""
+
+	// Jika via cookie, wajib CSRF check (double-submit: header vs cookie)
+	if hasCookieToken {
+		if err := helpers.CheckCSRFCookieHeader(c); err != nil {
+			return err // 403 jika mismatch/missing
+		}
 	}
 
-	// 🔒 Masukkan access token ke blacklist (pastikan repo melakukan hash jika DB simpan hash)
-	if err := authRepo.BlacklistToken(db, accessToken, 4*24*time.Hour); err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, "Failed to blacklist token")
+	// Ambil token dari cookie -> locals -> Authorization: Bearer
+	accessToken := helpers.GetRawAccessToken(c)
+
+	// Blacklist access token bila ada (idempotent: kalau kosong tetap lanjut)
+	if accessToken != "" {
+		if err := authRepo.BlacklistToken(db, accessToken, 4*24*time.Hour); err != nil {
+			// Jangan gagalkan logout kalau blacklist gagal
+			log.Printf("[WARN] Failed to blacklist token: %v", err)
+		}
+	} else {
+		log.Println("[INFO] Logout without access token payload; proceed clearing cookies (idempotent)")
 	}
 
-	// 🧹 Hapus refresh token dari database (jika ada)
-	refreshToken := c.Cookies("refresh_token")
-	if refreshToken != "" {
-		_ = authRepo.DeleteRefreshToken(db, refreshToken)
+	// Hapus refresh token dari database (jika ada di cookie)
+	if rt := helpers.GetRefreshTokenFromCookie(c); rt != "" {
+		_ = authRepo.DeleteRefreshToken(db, rt)
 	}
 
-	// ❌ Hapus cookie (pastikan Path + MaxAge)
+	// Hapus cookies
 	expired := time.Now().UTC().Add(-time.Hour)
-	c.Cookie(&fiber.Cookie{
-		Name:     "refresh_token",
-		Value:    "",
-		HTTPOnly: true,
-		Secure:   true,
-		SameSite: "None",
-		Path:     "/",
-		Expires:  expired,
-		MaxAge:   -1,
-	})
-	c.Cookie(&fiber.Cookie{
-		Name:     "access_token",
-		Value:    "",
-		HTTPOnly: true,
-		Secure:   true,
-		SameSite: "None",
-		Path:     "/",
-		Expires:  expired,
-		MaxAge:   -1,
-	})
+	for _, name := range []string{"access_token", "refresh_token", "csrf_token"} {
+		c.Cookie(&fiber.Cookie{
+			Name:     name,
+			Value:    "",
+			HTTPOnly: name != "csrf_token", // csrf_token boleh dibaca JS
+			Secure:   true,                 // di dev HTTP bisa di-set false sementara
+			SameSite: "None",               // kalau same-site, ganti "Lax/Strict"
+			Path:     "/",
+			Expires:  expired,
+			MaxAge:   -1,
+		})
+	}
 
 	return helpers.Success(c, "Logout successful", nil)
 }
