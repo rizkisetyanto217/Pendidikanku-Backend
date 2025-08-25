@@ -20,6 +20,6 @@ func MasjidUserRoutes(admin fiber.Router, db *gorm.DB) {
 
 	// OWNER-only untuk aksi sensitif/lintas tenant → /api/a/masjids/owner/...
 	masjidsOwner := masjids.Group("/user")
-	masjidsOwner.Post("/", masjidCtrl.CreateMasjid)
+	masjidsOwner.Post("/", masjidCtrl.CreateMasjidDKM)
 
 }

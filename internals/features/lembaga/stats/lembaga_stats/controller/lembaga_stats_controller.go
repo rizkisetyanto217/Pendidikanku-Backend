@@ -28,9 +28,9 @@ func (h *LembagaStatsController) GetMyLembagaStats(c *fiber.Ctx) error {
 	}
 
 	var m model.LembagaStats
-	if err := h.DB.First(&m, "lembaga_stats_lembaga_id = ?", masjidID).Error; err != nil {
+	if err := h.DB.First(&m, "lembaga_stats_masjid_id = ?", masjidID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			empty := model.LembagaStats{LembagaStatsLembagaID: masjidID}
+			empty := model.LembagaStats{LembagaStatsMasjidID: masjidID}
 			return c.Status(http.StatusOK).JSON(fiber.Map{
 				"data":  dto.FromModel(empty),
 				"found": false,
@@ -58,7 +58,7 @@ func (h *LembagaStatsController) CreateMyLembagaStats(c *fiber.Ctx) error {
 	// Cek sudah ada atau belum
 	var existing model.LembagaStats
 	if err := h.DB.
-		First(&existing, "lembaga_stats_lembaga_id = ?", masjidID).Error; err == nil {
+		First(&existing, "lembaga_stats_masjid_id = ?", masjidID).Error; err == nil {
 		// Sudah ada → kembalikan yang ada (idempotent)
 		return c.Status(http.StatusOK).JSON(fiber.Map{
 			"message": "Lembaga stats already exists",
@@ -71,7 +71,7 @@ func (h *LembagaStatsController) CreateMyLembagaStats(c *fiber.Ctx) error {
 
 	// Belum ada → buat baru dengan default 0
 	newRow := model.LembagaStats{
-		LembagaStatsLembagaID:      masjidID,
+		LembagaStatsMasjidID:      masjidID,
 		LembagaStatsActiveClasses:  0,
 		LembagaStatsActiveSections: 0,
 		LembagaStatsActiveStudents: 0,
@@ -118,9 +118,9 @@ func (h *LembagaStatsController) UpdateMyLembagaStats(c *fiber.Ctx) error {
 
 	// pastikan baseline ada
 	var m model.LembagaStats
-	if err := h.DB.First(&m, "lembaga_stats_lembaga_id = ?", masjidID).Error; err != nil {
+	if err := h.DB.First(&m, "lembaga_stats_masjid_id = ?", masjidID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			m = model.LembagaStats{LembagaStatsLembagaID: masjidID}
+			m = model.LembagaStats{LembagaStatsMasjidID: masjidID}
 			if err := h.DB.Create(&m).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 			}

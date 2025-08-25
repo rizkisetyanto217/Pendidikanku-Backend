@@ -7,7 +7,7 @@ import (
 )
 
 type LembagaStats struct {
-	LembagaStatsLembagaID     uuid.UUID  `gorm:"column:lembaga_stats_lembaga_id;type:uuid;primaryKey" json:"lembaga_stats_lembaga_id"`
+	LembagaStatsMasjidID     uuid.UUID  `gorm:"column:lembaga_stats_masjid_id;type:uuid;primaryKey" json:"lembaga_stats_masjid_id"`
 	LembagaStatsActiveClasses int        `gorm:"column:lembaga_stats_active_classes;not null;default:0" json:"lembaga_stats_active_classes"`
 	LembagaStatsActiveSections int       `gorm:"column:lembaga_stats_active_sections;not null;default:0" json:"lembaga_stats_active_sections"`
 	LembagaStatsActiveStudents int       `gorm:"column:lembaga_stats_active_students;not null;default:0" json:"lembaga_stats_active_students"`

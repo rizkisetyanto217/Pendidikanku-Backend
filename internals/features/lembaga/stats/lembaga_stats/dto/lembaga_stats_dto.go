@@ -12,7 +12,7 @@ import (
 /* ===================== RESPONSES ===================== */
 
 type LembagaStatsResponse struct {
-	LembagaStatsLembagaID      uuid.UUID  `json:"lembaga_stats_lembaga_id"`
+	LembagaStatsMasjidID      uuid.UUID  `json:"lembaga_stats_masjid_id"`
 	LembagaStatsActiveClasses  int        `json:"lembaga_stats_active_classes"`
 	LembagaStatsActiveSections int        `json:"lembaga_stats_active_sections"`
 	LembagaStatsActiveStudents int        `json:"lembaga_stats_active_students"`
@@ -23,7 +23,7 @@ type LembagaStatsResponse struct {
 
 func FromModel(m model.LembagaStats) LembagaStatsResponse {
 	return LembagaStatsResponse{
-		LembagaStatsLembagaID:      m.LembagaStatsLembagaID,
+		LembagaStatsMasjidID:      m.LembagaStatsMasjidID,
 		LembagaStatsActiveClasses:  m.LembagaStatsActiveClasses,
 		LembagaStatsActiveSections: m.LembagaStatsActiveSections,
 		LembagaStatsActiveStudents: m.LembagaStatsActiveStudents,
@@ -38,7 +38,7 @@ func FromModel(m model.LembagaStats) LembagaStatsResponse {
 // Untuk inisialisasi (upsert/create) satu baris stats lembaga.
 // Biasanya dipakai saat migrasi/seed, atau saat lembaga baru dibuat.
 type UpsertLembagaStatsRequest struct {
-	LembagaStatsLembagaID      uuid.UUID `json:"lembaga_stats_lembaga_id" validate:"required"`
+	LembagaStatsMasjidID      uuid.UUID `json:"lembaga_stats_masjid_id" validate:"required"`
 	LembagaStatsActiveClasses  int       `json:"lembaga_stats_active_classes"  validate:"gte=0"`
 	LembagaStatsActiveSections int       `json:"lembaga_stats_active_sections" validate:"gte=0"`
 	LembagaStatsActiveStudents int       `json:"lembaga_stats_active_students" validate:"gte=0"`
@@ -59,7 +59,7 @@ type UpdateLembagaStatsRequest struct {
 func (r UpsertLembagaStatsRequest) ToModel() model.LembagaStats {
 	now := time.Now()
 	return model.LembagaStats{
-		LembagaStatsLembagaID:      r.LembagaStatsLembagaID,
+		LembagaStatsMasjidID:      r.LembagaStatsMasjidID,
 		LembagaStatsActiveClasses:  r.LembagaStatsActiveClasses,
 		LembagaStatsActiveSections: r.LembagaStatsActiveSections,
 		LembagaStatsActiveStudents: r.LembagaStatsActiveStudents,

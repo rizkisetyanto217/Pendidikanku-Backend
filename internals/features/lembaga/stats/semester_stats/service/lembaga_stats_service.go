@@ -20,7 +20,7 @@ func NewLembagaStatsService() *LembagaStatsService { return &LembagaStatsService
 func (s *LembagaStatsService) EnsureForMasjid(tx *gorm.DB, masjidID uuid.UUID) error {
 	now := time.Now()
 	row := statsModel.LembagaStats{
-		LembagaStatsLembagaID:      masjidID,
+		LembagaStatsMasjidID:      masjidID,
 		LembagaStatsActiveClasses:  0,
 		LembagaStatsActiveSections: 0,
 		LembagaStatsActiveStudents: 0,
@@ -35,7 +35,7 @@ func (s *LembagaStatsService) EnsureForMasjid(tx *gorm.DB, masjidID uuid.UUID) e
 --------------------------------------------------- */
 func (s *LembagaStatsService) incField(tx *gorm.DB, masjidID uuid.UUID, field string, delta int) error {
 	return tx.Model(&statsModel.LembagaStats{}).
-		Where("lembaga_stats_lembaga_id = ?", masjidID).
+		Where("lembaga_stats_masjid_id = ?", masjidID).
 		Updates(map[string]any{
 			field:                     gorm.Expr("CASE WHEN "+field+" + ? < 0 THEN 0 ELSE "+field+" + ? END", delta, delta),
 			"lembaga_stats_updated_at": gorm.Expr("CURRENT_TIMESTAMP"),
@@ -64,7 +64,7 @@ func (s *LembagaStatsService) SetCounts(tx *gorm.DB, masjidID uuid.UUID, classes
 	if students < 0 { students = 0 }
 	if teachers < 0 { teachers = 0 }
 	return tx.Model(&statsModel.LembagaStats{}).
-		Where("lembaga_stats_lembaga_id = ?", masjidID).
+		Where("lembaga_stats_masjid_id = ?", masjidID).
 		Updates(map[string]any{
 			"lembaga_stats_active_classes":  classes,
 			"lembaga_stats_active_sections": sections,
@@ -76,7 +76,7 @@ func (s *LembagaStatsService) SetCounts(tx *gorm.DB, masjidID uuid.UUID, classes
 
 func (s *LembagaStatsService) Get(tx *gorm.DB, masjidID uuid.UUID) (*statsModel.LembagaStats, error) {
 	var row statsModel.LembagaStats
-	if err := tx.Where("lembaga_stats_lembaga_id = ?", masjidID).First(&row).Error; err != nil {
+	if err := tx.Where("lembaga_stats_masjid_id = ?", masjidID).First(&row).Error; err != nil {
 		return nil, err
 	}
 	return &row, nil
@@ -85,7 +85,7 @@ func (s *LembagaStatsService) Get(tx *gorm.DB, masjidID uuid.UUID) (*statsModel.
 func (s *LembagaStatsService) GetForUpdate(tx *gorm.DB, masjidID uuid.UUID) (*statsModel.LembagaStats, error) {
 	var row statsModel.LembagaStats
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("lembaga_stats_lembaga_id = ?", masjidID).
+		Where("lembaga_stats_masjid_id = ?", masjidID).
 		First(&row).Error; err != nil {
 		return nil, err
 	}
@@ -155,6 +155,6 @@ func (s *LembagaStatsService) Bootstrap(tx *gorm.DB, masjidID uuid.UUID) error {
 
 func (s *LembagaStatsService) TouchUpdatedAt(tx *gorm.DB, masjidID uuid.UUID) error {
 	return tx.Model(&statsModel.LembagaStats{}).
-		Where("lembaga_stats_lembaga_id = ?", masjidID).
+		Where("lembaga_stats_masjid_id = ?", masjidID).
 		Update("lembaga_stats_updated_at", gorm.Expr("CURRENT_TIMESTAMP")).Error
 }
