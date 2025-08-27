@@ -16,6 +16,7 @@ var validate = validator.New()
 type UserModel struct {
 	ID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	UserName string    `gorm:"size:50;not null" json:"user_name" validate:"required,min=3,max=50"`
+	FullName string    `gorm:"size:50;not null" json:"full_name" validate:"required,min=3,max=50"`
 	Email    string    `gorm:"size:255;unique;not null" json:"email" validate:"required,email"`
 	Password string    `gorm:"not null" json:"password" validate:"required,min=8"`
 	GoogleID *string   `gorm:"size:255;unique" json:"google_id,omitempty"`

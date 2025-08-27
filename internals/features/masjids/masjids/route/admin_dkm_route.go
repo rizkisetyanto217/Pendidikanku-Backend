@@ -21,12 +21,6 @@ func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// Prefix: /masjids
 	masjids := admin.Group("/masjids")
 
-	// OWNER-only untuk aksi sensitif/lintas tenant → /api/a/masjids/owner/...
-	masjidsOwner := masjids.Group("/owner",
-		auth.OnlyRolesSlice(constants.RoleErrorOwner("aksi ini khusus owner"), constants.OwnerOnly),
-	)
-	masjidsOwner.Post("/", masjidCtrl.CreateMasjid)
-
 	// Admin/dkm/owner untuk operasi harian → /api/a/masjids/...
 	masjidsAdmin := masjids.Group("/",
 		auth.OnlyRolesSlice(constants.RoleErrorAdmin("aksi ini untuk admin/owner"), constants.AdminAndAbove),

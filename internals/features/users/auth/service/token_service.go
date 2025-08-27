@@ -194,8 +194,8 @@ func collectMasjidIDsFull(db *gorm.DB, userID uuid.UUID) (
 // ========================== Mini-repo (tanpa dependensi baru) ==========================
 
 // Cari refresh token yang aktif (belum di-revoke, belum expired)
-func FindRefreshTokenByHashActive(db *gorm.DB, hash []byte) (*authModel.RefreshToken, error) {
-	var rt authModel.RefreshToken
+func FindRefreshTokenByHashActive(db *gorm.DB, hash []byte) (*authModel.RefreshTokenModel, error) {
+	var rt authModel.RefreshTokenModel
 	if err := db.
 		Where("token = ? AND revoked_at IS NULL AND expires_at > NOW()", hash).
 		Limit(1).
@@ -211,7 +211,7 @@ func FindRefreshTokenByHashActive(db *gorm.DB, hash []byte) (*authModel.RefreshT
 // Revoke by ID
 func RevokeRefreshTokenByID(db *gorm.DB, id uuid.UUID) error {
 	now := time.Now().UTC()
-	res := db.Model(&authModel.RefreshToken{}).
+	res := db.Model(&authModel.RefreshTokenModel{}).
 		Where("id = ? AND revoked_at IS NULL", id).
 		Update("revoked_at", now)
 	if res.Error != nil {

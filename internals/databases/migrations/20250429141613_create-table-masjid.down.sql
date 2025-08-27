@@ -1,35 +1,43 @@
--- === 3) Drop MASJIDS_PROFILES terlebih dulu (child) ===
-DROP TRIGGER  IF EXISTS trg_set_updated_at_masjids_profiles ON masjids_profiles;
-DROP FUNCTION IF EXISTS set_updated_at_masjids_profiles();
-DROP TABLE   IF EXISTS masjids_profiles;
+-- =========================================================
+-- DOWN: rollback masjids + relasinya
+-- Catatan:
+-- - Triggers ikut hilang saat tabelnya di-DROP, tapi functions perlu dihapus manual.
+-- - Extensions (pgcrypto, pg_trgm, cube, earthdistance) TIDAK di-drop.
+-- =========================================================
 
--- === 2) Drop USER_FOLLOW_MASJID (child) ===
-DROP INDEX IF EXISTS idx_follow_user_id;
-DROP INDEX IF EXISTS idx_follow_masjid_id;
+-- =========================
+-- 1) Putus & hapus tabel relasi
+-- =========================
+
+-- USER_FOLLOW_MASJID
 DROP TABLE IF EXISTS user_follow_masjid;
 
--- === 1) Bersihkan index/kolom/trigger di MASJIDS lalu drop tabelnya ===
-DROP TRIGGER  IF EXISTS trg_set_updated_at_masjids ON masjids;
+-- MASJIDS_PROFILES (+ function trigger-nya)
+DROP TRIGGER IF EXISTS trg_set_updated_at_masjids_profiles ON masjids_profiles;
+DROP FUNCTION IF EXISTS set_updated_at_masjids_profiles();
+
+DROP TABLE IF EXISTS masjids_profiles;
+
+-- =========================
+-- 2) Hapus trigger & function pada MASJIDS
+-- =========================
+DROP TRIGGER IF EXISTS trg_handle_masjid_image_trash ON masjids;
+DROP TRIGGER IF EXISTS trg_sync_verification ON masjids;
+DROP TRIGGER IF EXISTS trg_set_updated_at_masjids ON masjids;
+
+-- Functions
+DROP FUNCTION IF EXISTS handle_masjid_image_trash();
+DROP FUNCTION IF EXISTS sync_masjid_verification_flags();
 DROP FUNCTION IF EXISTS set_updated_at_masjids();
 
--- FTS
-DROP INDEX IF EXISTS idx_masjids_search;
-ALTER TABLE masjids DROP COLUMN IF EXISTS masjid_search;
-
--- Index pencarian & filter
-DROP INDEX IF EXISTS idx_masjids_earth;
-DROP INDEX IF EXISTS idx_masjids_slug_alive;
-DROP INDEX IF EXISTS idx_masjids_verified;
-DROP INDEX IF EXISTS idx_masjids_name_lower;
-DROP INDEX IF EXISTS idx_masjids_location_trgm;
-DROP INDEX IF EXISTS idx_masjids_name_trgm;
-DROP INDEX IF EXISTS idx_masjids_domain_ci_unique;
-
--- Constraints koordinat
-ALTER TABLE masjids DROP CONSTRAINT IF EXISTS masjids_lon_chk;
-ALTER TABLE masjids DROP CONSTRAINT IF EXISTS masjids_lat_chk;
-
--- Terakhir: drop tabel parent
+-- =========================
+-- 3) Hapus tabel utama
+-- =========================
 DROP TABLE IF EXISTS masjids;
 
--- (Extensions tidak di-drop; kemungkinan dipakai objek lain)
+-- =========================
+-- 4) Drop ENUM (jika sudah tidak dipakai)
+-- =========================
+-- Jika tipe ini dipakai tabel lain, perintah ini akan gagal.
+-- Pastikan hanya skema ini yang menggunakannya sebelum menjalankan down.
+DROP TYPE IF EXISTS verification_status_enum;

@@ -42,7 +42,7 @@ func SecondAuthMiddleware(db *gorm.DB) fiber.Handler {
 		tokenString := tokenParts[1]
 
 		// Cek blacklist
-		var existingToken TokenBlacklistModel.TokenBlacklist
+		var existingToken TokenBlacklistModel.TokenBlacklistModel
 		if err := db.Where("token = ? AND deleted_at IS NULL", tokenString).First(&existingToken).Error; err == nil {
 			log.Println("[WARNING] Token ada di blacklist, lanjut sebagai anonymous")
 			return c.Next()

@@ -20,7 +20,14 @@ func NewUserController(db *gorm.DB) *UserController {
 	return &UserController{DB: db}
 }
 
-// GET all users
+// helper: sanitasi field sensitif sebelum kirim ke client
+func sanitizeUser(u *model.UserModel) {
+	u.Password = ""
+	u.SecurityAnswer = ""
+	u.SecurityQuestion = "" // opsional: sembunyikan juga pertanyaan
+}
+
+// GET /api/a/users
 func (uc *UserController) GetUsers(c *fiber.Ctx) error {
 	var users []model.UserModel
 	if err := uc.DB.Find(&users).Error; err != nil {
@@ -28,9 +35,8 @@ func (uc *UserController) GetUsers(c *fiber.Ctx) error {
 		return helper.Error(c, fiber.StatusInternalServerError, "Failed to retrieve users")
 	}
 
-	// Kosongkan password semua user
 	for i := range users {
-		users[i].Password = ""
+		sanitizeUser(&users[i])
 	}
 
 	log.Printf("[SUCCESS] Retrieved %d users\n", len(users))
@@ -49,15 +55,14 @@ func (uc *UserController) SearchUsers(c *fiber.Ctx) error {
 
 	var users []model.UserModel
 	if err := uc.DB.
-		Where("user_name ILIKE ? OR email ILIKE ?", "%"+query+"%", "%"+query+"%").
+		Where("user_name ILIKE ? OR email ILIKE ? OR full_name ILIKE ?", "%"+query+"%", "%"+query+"%", "%"+query+"%").
 		Find(&users).Error; err != nil {
 		log.Println("[ERROR] SearchUsers gagal:", err)
 		return helper.Error(c, fiber.StatusInternalServerError, "Gagal mencari pengguna")
 	}
 
-	// Kosongkan password
 	for i := range users {
-		users[i].Password = ""
+		sanitizeUser(&users[i])
 	}
 
 	log.Printf("[SUCCESS] Ditemukan %d user dengan query '%s'\n", len(users), query)
@@ -67,8 +72,7 @@ func (uc *UserController) SearchUsers(c *fiber.Ctx) error {
 	})
 }
 
-
-// GET profile user by ID (dari JWT)
+// GET /api/a/users/me — profile user dari JWT
 func (uc *UserController) GetUser(c *fiber.Ctx) error {
 	userIDRaw := c.Locals("user_id")
 	userIDStr, ok := userIDRaw.(string)
@@ -82,51 +86,70 @@ func (uc *UserController) GetUser(c *fiber.Ctx) error {
 	}
 
 	var user model.UserModel
-	if err := uc.DB.First(&user, userID).Error; err != nil {
+	if err := uc.DB.First(&user, "id = ?", userID).Error; err != nil {
 		return helper.Error(c, fiber.StatusNotFound, "User not found")
 	}
 
-	user.Password = ""
+	sanitizeUser(&user)
 	return helper.Success(c, "User profile fetched successfully", user)
 }
 
-// POST create new user(s)
+// POST /api/a/users — create single atau multiple users (JSON array)
 func (uc *UserController) CreateUser(c *fiber.Ctx) error {
-	var singleUser model.UserModel
-	var multipleUsers []model.UserModel
-
-	if err := c.BodyParser(&multipleUsers); err == nil && len(multipleUsers) > 0 {
-		if err := uc.DB.Create(&multipleUsers).Error; err != nil {
+	// coba parse sebagai array dulu
+	var many []model.UserModel
+	if err := c.BodyParser(&many); err == nil && len(many) > 0 {
+		// validasi semua item
+		for i := range many {
+			if err := many[i].Validate(); err != nil {
+				return helper.ErrorWithDetails(c, fiber.StatusBadRequest, "Validation error", err.Error())
+			}
+			// TODO: hash password sebelum simpan (jika kamu punya helpernya)
+			// many[i].Password, _ = helper.HashPassword(many[i].Password)
+		}
+		if err := uc.DB.Create(&many).Error; err != nil {
 			log.Println("[ERROR] Failed to create multiple users:", err)
 			return helper.Error(c, fiber.StatusInternalServerError, "Failed to create multiple users")
 		}
-		log.Printf("[SUCCESS] Created %d users\n", len(multipleUsers))
-		return helper.SuccessWithCode(c, fiber.StatusCreated, "Users created successfully", multipleUsers)
+		for i := range many {
+			sanitizeUser(&many[i])
+		}
+		log.Printf("[SUCCESS] Created %d users\n", len(many))
+		return helper.SuccessWithCode(c, fiber.StatusCreated, "Users created successfully", many)
 	}
 
-	if err := c.BodyParser(&singleUser); err != nil {
+	// kalau bukan array, parse single
+	var one model.UserModel
+	if err := c.BodyParser(&one); err != nil {
 		log.Println("[ERROR] Invalid input format:", err)
 		return helper.Error(c, fiber.StatusBadRequest, "Invalid input format")
 	}
 
-	if err := uc.DB.Create(&singleUser).Error; err != nil {
+	if err := one.Validate(); err != nil {
+		return helper.ErrorWithDetails(c, fiber.StatusBadRequest, "Validation error", err.Error())
+	}
+
+	// TODO: hash password sebelum simpan
+	// one.Password, _ = helper.HashPassword(one.Password)
+
+	if err := uc.DB.Create(&one).Error; err != nil {
 		log.Println("[ERROR] Failed to create user:", err)
 		return helper.Error(c, fiber.StatusInternalServerError, "Failed to create user")
 	}
 
-	// Kosongkan password
-	singleUser.Password = ""
-
-	log.Printf("[SUCCESS] Created single user ID: %v\n", singleUser.ID)
-	return helper.SuccessWithCode(c, fiber.StatusCreated, "User created successfully", singleUser)
+	sanitizeUser(&one)
+	log.Printf("[SUCCESS] Created single user ID: %v\n", one.ID)
+	return helper.SuccessWithCode(c, fiber.StatusCreated, "User created successfully", one)
 }
 
-// PUT update user by ID
+// PUT /api/a/users — update user by JWT (profile update)
+// NOTE: ubah password dan security Q/A sebaiknya endpoint terpisah
 type UpdateUserInput struct {
-	UserName     string  `json:"user_name" validate:"required,min=3,max=50"`
-	Email        string  `json:"email" validate:"required,email"`
-	DonationName *string `json:"donation_name"`
-	OriginalName *string `json:"original_name"`
+	UserName string  `json:"user_name" validate:"required,min=3,max=50"`
+	FullName string  `json:"full_name" validate:"required,min=3,max=50"`
+	Email    string  `json:"email" validate:"required,email"`
+	Role     *string `json:"role,omitempty" validate:"omitempty,oneof=user admin dkm author teacher"`
+	IsActive *bool   `json:"is_active,omitempty" validate:"omitempty"`
 }
 
 func (uc *UserController) UpdateUser(c *fiber.Ctx) error {
@@ -155,37 +178,51 @@ func (uc *UserController) UpdateUser(c *fiber.Ctx) error {
 		return helper.Error(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 
-	validate := validator.New()
-	if err := validate.Struct(&input); err != nil {
-		// Kalau error validasi, lebih baik pakai ErrorWithDetails
+	v := validator.New()
+	if err := v.Struct(&input); err != nil {
 		return helper.ErrorWithDetails(c, fiber.StatusBadRequest, "Validation error", err.Error())
 	}
 
-	// Update fields
+	// Update fields yang disetujui
 	user.UserName = input.UserName
+	user.FullName = input.FullName
 	user.Email = input.Email
+	if input.Role != nil && *input.Role != "" {
+		user.Role = *input.Role
+	}
+	if input.IsActive != nil {
+		user.IsActive = *input.IsActive
+	}
+
+	// validasi lagi pakai rule di model (jaga konsistensi)
+	if err := user.Validate(); err != nil {
+		return helper.ErrorWithDetails(c, fiber.StatusBadRequest, "Validation error", err.Error())
+	}
 
 	if err := uc.DB.Save(&user).Error; err != nil {
 		log.Println("[ERROR] Failed to update user:", err)
 		return helper.Error(c, fiber.StatusInternalServerError, "Failed to update user")
 	}
 
+	sanitizeUser(&user)
 	log.Printf("[SUCCESS] Updated user ID: %v\n", user.ID)
-	return helper.Success(c, "User updated successfully", fiber.Map{
-		"id":         user.ID,
-		"user_name":  user.UserName,
-		"email":      user.Email,
-		"updated_at": user.UpdatedAt,
-	})
+	return helper.Success(c, "User updated successfully", user)
 }
 
-// DELETE user by ID
+// DELETE /api/a/users/:id — hard delete (jika mau soft delete, tambahkan gorm.DeletedAt di model)
 func (uc *UserController) DeleteUser(c *fiber.Ctx) error {
 	id := c.Params("id")
+	if _, err := uuid.Parse(id); err != nil {
+		return helper.Error(c, fiber.StatusBadRequest, "Invalid UUID format")
+	}
 
-	if err := uc.DB.Delete(&model.UserModel{}, "id = ?", id).Error; err != nil {
-		log.Println("[ERROR] Failed to delete user:", err)
+	tx := uc.DB.Delete(&model.UserModel{}, "id = ?", id)
+	if tx.Error != nil {
+		log.Println("[ERROR] Failed to delete user:", tx.Error)
 		return helper.Error(c, fiber.StatusInternalServerError, "Failed to delete user")
+	}
+	if tx.RowsAffected == 0 {
+		return helper.Error(c, fiber.StatusNotFound, "User not found")
 	}
 
 	log.Printf("[SUCCESS] Deleted user ID: %s\n", id)

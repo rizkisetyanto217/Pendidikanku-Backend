@@ -46,7 +46,7 @@ func AuthMiddleware(db *gorm.DB) fiber.Handler {
 
 		// 3) Cek blacklist (sekali per request)
 		if c.Locals("token_checked") == nil {
-			var existing TokenBlacklistModel.TokenBlacklist
+			var existing TokenBlacklistModel.TokenBlacklistModel
 			if err := db.Where("token = ? AND deleted_at IS NULL", tokenString).First(&existing).Error; err == nil {
 				log.Printf("%s [WARNING] Token ditemukan di blacklist", logPrefix)
 				return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized - Token is blacklisted")

@@ -16,7 +16,7 @@ CREATE EXTENSION IF NOT EXISTS btree_gin;    -- btree_gin ops (umum, aman disiap
 -- ---------------------------------------------------------
 -- Generic trigger functions untuk updated_at (TIMESTAMPTZ)
 -- ---------------------------------------------------------
-CREATE OR REPLACE FUNCTION fn_touch_updated_at()
+CREATE OR REPLACE FUNCTION fn_touch_updated_at_lecture()
 RETURNS TRIGGER AS $$
 BEGIN
   NEW.lecture_updated_at := CURRENT_TIMESTAMP;
@@ -112,7 +112,7 @@ CREATE INDEX IF NOT EXISTS idx_lectures_slug_trgm
 DROP TRIGGER IF EXISTS trg_lectures_touch ON lectures;
 CREATE TRIGGER trg_lectures_touch
 BEFORE UPDATE ON lectures
-FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at();
+FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_lecture();
 
 -- ---------------------------------------------------------
 -- TABEL: user_lectures

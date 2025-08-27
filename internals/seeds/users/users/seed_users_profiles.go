@@ -13,7 +13,6 @@ import (
 type UsersProfileSeed struct {
 	UserID       uuid.UUID     `json:"user_id"`
 	DonationName string        `json:"donation_name"`
-	FullName     string        `json:"full_name"`
 	Gender       *model.Gender `json:"gender"`
 	PhoneNumber  string        `json:"phone_number"`
 	Bio          string        `json:"bio"`
@@ -58,7 +57,6 @@ func SeedUsersProfileFromJSON(db *gorm.DB, filePath string) {
 		newProfiles = append(newProfiles, model.UsersProfileModel{
 			UserID:       p.UserID,
 			DonationName: p.DonationName,
-			FullName:     p.FullName,
 			Gender:       p.Gender,
 			PhoneNumber:  p.PhoneNumber,
 			Bio:          p.Bio,

@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type RefreshToken struct {
+type RefreshTokenModel struct {
 	ID        uuid.UUID  `gorm:"column:id;type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
 	UserID    uuid.UUID  `gorm:"column:user_id;type:uuid;not null" json:"user_id"`
 
@@ -24,6 +24,6 @@ type RefreshToken struct {
 }
 
 // TableName override
-func (RefreshToken) TableName() string {
+func (RefreshTokenModel) TableName() string {
 	return "refresh_tokens"
 }

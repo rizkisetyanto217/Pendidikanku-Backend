@@ -1,3 +1,4 @@
+// internals/features/users/auth/repository/repository.go
 package repository
 
 import (
@@ -10,7 +11,7 @@ import (
 	userModel "masjidku_backend/internals/features/users/user/model"
 )
 
-// ====================== USER ======================
+/* ====================== USER ====================== */
 
 func FindUserByEmailOrUsername(db *gorm.DB, identifier string) (*userModel.UserModel, error) {
 	var user userModel.UserModel
@@ -19,7 +20,6 @@ func FindUserByEmailOrUsername(db *gorm.DB, identifier string) (*userModel.UserM
 	}
 	return &user, nil
 }
-
 
 func FindUserByGoogleID(db *gorm.DB, googleID string) (*userModel.UserModel, error) {
 	var user userModel.UserModel
@@ -63,14 +63,16 @@ func UpdateUserPassword(db *gorm.DB, userID uuid.UUID, newPassword string) error
 	return db.Model(&userModel.UserModel{}).Where("id = ?", userID).Update("password", newPassword).Error
 }
 
-// ====================== REFRESH TOKEN ======================
+/* ====================== REFRESH TOKEN ====================== */
 
-func CreateRefreshToken(db *gorm.DB, token *authModel.RefreshToken) error {
+func CreateRefreshToken(db *gorm.DB, token *authModel.RefreshTokenModel) error {
 	return db.Create(token).Error
 }
 
-func FindRefreshToken(db *gorm.DB, token string) (*authModel.RefreshToken, error) {
-	var rt authModel.RefreshToken
+func FindRefreshToken(db *gorm.DB, token string) (*authModel.RefreshTokenModel, error) {
+	var rt authModel.RefreshTokenModel
+	// CATATAN: kolom model kamu bertipe []byte (bytea). Kalau memang disimpan hash,
+	// hash dulu `token` sebelum query, atau ubah model.Token -> string biar cocok dengan query ini.
 	if err := db.Where("token = ?", token).First(&rt).Error; err != nil {
 		return nil, err
 	}
@@ -78,15 +80,21 @@ func FindRefreshToken(db *gorm.DB, token string) (*authModel.RefreshToken, error
 }
 
 func DeleteRefreshToken(db *gorm.DB, token string) error {
-	return db.Where("token = ?", token).Delete(&authModel.RefreshToken{}).Error
+	// Sama seperti FindRefreshToken: pastikan tipe & nilai yang dicari sesuai penyimpanan (hash/plain).
+	return db.Where("token = ?", token).Delete(&authModel.RefreshTokenModel{}).Error
 }
 
-// ====================== BLACKLIST TOKEN ======================
+/* ====================== BLACKLIST TOKEN ====================== */
 
-func BlacklistToken(db *gorm.DB, token string, duration time.Duration) error {
-	blacklisted := authModel.TokenBlacklist{
+func BlacklistToken(db *gorm.DB, token string, ttl time.Duration) error {
+	return db.Create(&authModel.TokenBlacklistModel{
 		Token:     token,
-		ExpiredAt: time.Now().Add(duration),
-	}
-	return db.Create(&blacklisted).Error
+		ExpiredAt: time.Now().UTC().Add(ttl), // <- pakai field yang benar
+	}).Error
+}
+
+func CleanupExpiredBlacklist(db *gorm.DB) (int64, error) {
+	// Kolom di DB: expired_at (bukan expires_at)
+	res := db.Exec(`DELETE FROM token_blacklist WHERE expired_at <= ?`, time.Now().UTC())
+	return res.RowsAffected, res.Error
 }

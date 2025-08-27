@@ -17,7 +17,6 @@ import (
 
 type createProfileReq struct {
 	DonationName string     `json:"donation_name"`
-	FullName     string     `json:"full_name"`
 	FatherName   string     `json:"father_name"`
 	MotherName   string     `json:"mother_name"`
 	DateOfBirth  *string    `json:"date_of_birth"` // "2006-01-02"
@@ -30,7 +29,6 @@ type createProfileReq struct {
 
 type updateProfileReq struct {
 	DonationName *string `json:"donation_name"`
-	FullName     *string `json:"full_name"`
 	FatherName   *string `json:"father_name"`
 	MotherName   *string `json:"mother_name"`
 	DateOfBirth  *string `json:"date_of_birth"` // "2006-01-02" | ""
@@ -136,7 +134,6 @@ func (upc *UsersProfileController) CreateProfile(c *fiber.Ctx) error {
 		// update
 		patch := map[string]any{
 			"donation_name": in.DonationName,
-			"full_name":     in.FullName,
 			"father_name":   in.FatherName,
 			"mother_name":   in.MotherName,
 			"phone_number":  in.PhoneNumber,
@@ -165,7 +162,6 @@ func (upc *UsersProfileController) CreateProfile(c *fiber.Ctx) error {
 	newRow := uModel.UsersProfileModel{
 		UserID:       userID,
 		DonationName: in.DonationName,
-		FullName:     in.FullName,
 		FatherName:   in.FatherName,
 		MotherName:   in.MotherName,
 		PhoneNumber:  in.PhoneNumber,
@@ -221,9 +217,6 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 	// only set provided fields (including empty string to clear)
 	if in.DonationName != nil {
 		patch["donation_name"] = *in.DonationName
-	}
-	if in.FullName != nil {
-		patch["full_name"] = *in.FullName
 	}
 	if in.FatherName != nil {
 		patch["father_name"] = *in.FatherName

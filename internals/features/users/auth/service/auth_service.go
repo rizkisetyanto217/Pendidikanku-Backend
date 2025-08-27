@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -252,6 +253,7 @@ func issueTokensWithRoles(
 		"sub":                user.ID.String(),
 		"id":                 user.ID.String(),
 		"user_name":          user.UserName,
+		"full_name":          user.FullName,
 		"role":               user.Role,
 		"masjid_admin_ids":   masjidAdminIDs,
 		"masjid_teacher_ids": masjidTeacherIDs,
@@ -287,7 +289,7 @@ func issueTokensWithRoles(
 	ip := c.IP()
 
 	// Simpan/rotasi refresh token di DB (pakai Token, bukan Token)
-	if err := authRepo.CreateRefreshToken(db, &authModel.RefreshToken{
+	if err := authRepo.CreateRefreshToken(db, &authModel.RefreshTokenModel{
 		UserID:    user.ID,
 		Token: token,                // << ini yang baru
 		ExpiresAt: now.Add(refreshTTL),
@@ -327,6 +329,7 @@ func issueTokensWithRoles(
 				"id":                 user.ID,
 				"user_name":          user.UserName,
 				"email":              user.Email,
+				"full_name":          user.FullName,
 				"role":               user.Role,
 				"masjid_admin_ids":   masjidAdminIDs,
 				"masjid_teacher_ids": masjidTeacherIDs,
@@ -336,7 +339,6 @@ func issueTokensWithRoles(
 		},
 	})
 }
-
 /* ========================== LOGIN GOOGLE ========================== */
 
 func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
@@ -413,15 +415,16 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 	return issueTokensWithRoles(c, db, *userFull, masjidAdminIDs, masjidTeacherIDs, masjidStudentIDs, masjidIDs)
 }
 
+
+
 /* ========================== LOGOUT ========================== */
-
-
 func Logout(db *gorm.DB, c *fiber.Ctx) error {
-	// Apakah request membawa cookie access_token?
-	hasCookieToken := strings.TrimSpace(c.Cookies("access_token")) != ""
+	// Wajib CSRF hanya jika request mengandalkan cookie access_token
+	cookieAT := strings.TrimSpace(c.Cookies("access_token"))
+	authHeader := strings.TrimSpace(c.Get("Authorization"))
+	usesCookieAuth := cookieAT != "" && !strings.HasPrefix(authHeader, "Bearer ")
 
-	// Jika via cookie, wajib CSRF check (double-submit: header vs cookie)
-	if hasCookieToken {
+	if usesCookieAuth {
 		if err := helpers.CheckCSRFCookieHeader(c); err != nil {
 			return err // 403 jika mismatch/missing
 		}
@@ -430,17 +433,46 @@ func Logout(db *gorm.DB, c *fiber.Ctx) error {
 	// Ambil token dari cookie -> locals -> Authorization: Bearer
 	accessToken := helpers.GetRawAccessToken(c)
 
-	// Blacklist access token bila ada (idempotent: kalau kosong tetap lanjut)
+	// === Hitung TTL blacklist ===
+	ttl := 2 * time.Minute // default utk dev/test
+
+	// 1) Jika ada override via ENV (mis. BLACKLIST_TTL_SECONDS=120)
+	if v := os.Getenv("BLACKLIST_TTL_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			ttl = time.Duration(n) * time.Second
+		}
+	} else {
+		// 2) Produksi: pakai sisa umur JWT + buffer 60s
+		jwtSecret := os.Getenv("JWT_SECRET")
+		if jwtSecret != "" && accessToken != "" {
+			if tok, err := jwt.Parse(accessToken, func(t *jwt.Token) (any, error) {
+				return []byte(jwtSecret), nil
+			}); err == nil {
+				if claims, ok := tok.Claims.(jwt.MapClaims); ok && tok.Valid {
+					if exp, ok := claims["exp"].(float64); ok {
+						until := time.Until(time.Unix(int64(exp), 0))
+						switch {
+						case until > 0:
+							ttl = until + 60*time.Second // buffer 1 menit
+						default:
+							ttl = time.Minute // sudah kedaluwarsa → TTL kecil saja
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Blacklist access token bila ada (idempotent)
 	if accessToken != "" {
-		if err := authRepo.BlacklistToken(db, accessToken, 4*24*time.Hour); err != nil {
-			// Jangan gagalkan logout kalau blacklist gagal
+		if err := authRepo.BlacklistToken(db, accessToken, ttl); err != nil {
 			log.Printf("[WARN] Failed to blacklist token: %v", err)
 		}
 	} else {
 		log.Println("[INFO] Logout without access token payload; proceed clearing cookies (idempotent)")
 	}
 
-	// Hapus refresh token dari database (jika ada di cookie)
+	// Hapus refresh token dari DB jika ada di cookie
 	if rt := helpers.GetRefreshTokenFromCookie(c); rt != "" {
 		_ = authRepo.DeleteRefreshToken(db, rt)
 	}
@@ -451,9 +483,9 @@ func Logout(db *gorm.DB, c *fiber.Ctx) error {
 		c.Cookie(&fiber.Cookie{
 			Name:     name,
 			Value:    "",
-			HTTPOnly: name != "csrf_token", // csrf_token boleh dibaca JS
-			Secure:   true,                 // di dev HTTP bisa di-set false sementara
-			SameSite: "None",               // kalau same-site, ganti "Lax/Strict"
+			HTTPOnly: name != "csrf_token",
+			Secure:   true,
+			SameSite: "None",
 			Path:     "/",
 			Expires:  expired,
 			MaxAge:   -1,
@@ -462,6 +494,7 @@ func Logout(db *gorm.DB, c *fiber.Ctx) error {
 
 	return helpers.Success(c, "Logout successful", nil)
 }
+
 
 /* ========================== UTIL ========================== */
 

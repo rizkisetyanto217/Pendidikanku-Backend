@@ -254,7 +254,7 @@ END$$;
 -- =========================================================
 -- 5) (Opsional) updated_at auto
 -- =========================================================
-CREATE OR REPLACE FUNCTION fn_touch_updated_at()
+CREATE OR REPLACE FUNCTION fn_touch_class_attendance_sessions_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
   NEW.class_attendance_sessions_updated_at := CURRENT_TIMESTAMP;
@@ -270,7 +270,7 @@ BEGIN
   CREATE TRIGGER trg_cas_touch_updated_at
     BEFORE UPDATE ON class_attendance_sessions
     FOR EACH ROW
-    EXECUTE FUNCTION fn_touch_updated_at();
+    EXECUTE FUNCTION fn_touch_class_attendance_sessions_updated_at();
 END$$;
 
 

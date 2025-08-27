@@ -6,6 +6,7 @@ require github.com/gofiber/fiber/v2 v2.52.6
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
+	github.com/aliyun/aliyun-oss-go-sdk v3.0.2+incompatible // indirect
 	github.com/bytedance/sonic/loader v0.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.5 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
@@ -20,12 +21,14 @@ require (
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/net v0.34.0 // indirect
 	golang.org/x/oauth2 v0.29.0 // indirect
+	golang.org/x/time v0.12.0 // indirect
 	gorm.io/driver/mysql v1.5.6 // indirect
 )
 
 require (
 	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/bytedance/sonic v1.13.3
+	github.com/chai2010/webp v1.4.0
 	github.com/futurenda/google-auth-id-token-verifier v0.0.0-20170311140316-2a5b89f28b7e
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/gofiber/utils v1.1.0
@@ -45,6 +48,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/midtrans/midtrans-go v1.3.8
 	github.com/rivo/uniseg v0.2.0 // indirect
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.51.0 // indirect
 	github.com/valyala/tcplisten v1.0.0 // indirect

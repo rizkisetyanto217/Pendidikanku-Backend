@@ -1,3 +1,4 @@
+// internals/features/users/auth/scheduler/blacklist_cleanup.go
 package scheduler
 
 import (
@@ -6,44 +7,37 @@ import (
 	"strconv"
 	"time"
 
-	"masjidku_backend/internals/features/users/auth/model"
-
 	"gorm.io/gorm"
 )
 
-func StartBlacklistCleanupScheduler(db *gorm.DB) {
-	go func() {
-		// Ambil TTL dari env (default: 7 hari)
-		ttlDays := 7
-		if val := os.Getenv("TOKEN_BLACKLIST_TTL_DAYS"); val != "" {
-			if parsed, err := strconv.Atoi(val); err == nil {
-				ttlDays = parsed
-			}
+func envInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
 		}
+	}
+	return def
+}
 
-		for {
-			log.Println("[CLEANUP] Menjalankan pembersihan token_blacklist...")
+// Jalan periodik: hapus token_blacklist yang sudah expired (expired_at <= now)
+func StartBlacklistCleanupScheduler(db *gorm.DB) {
+	intervalSec := envInt("BLACKLIST_CLEANUP_INTERVAL_SEC", 604800) // default: 7 day (1 week)
+	ticker := time.NewTicker(time.Duration(intervalSec) * time.Second)
 
-			deleteBefore := time.Now().Add(-time.Duration(ttlDays) * 24 * time.Hour)
-
-			var expiredTokens []model.TokenBlacklist
-			if err := db.
-				Where("expired_at < ? AND deleted_at IS NULL", deleteBefore).
-				Limit(100).
-				Find(&expiredTokens).Error; err != nil {
-				log.Printf("[CLEANUP ERROR] Gagal ambil token kadaluarsa: %v", err)
-			} else if len(expiredTokens) > 0 {
-				if err := db.Delete(&expiredTokens).Error; err != nil {
-					log.Printf("[CLEANUP ERROR] Gagal hapus token: %v", err)
-				} else {
-					log.Printf("[CLEANUP] %d token kadaluarsa dihapus", len(expiredTokens))
-				}
-			} else {
-				log.Println("[CLEANUP] Tidak ada token yang memenuhi syarat dihapus")
+	go func() {
+		log.Printf("[BL-CLEANUP] started interval=%ds", intervalSec)
+		for range ticker.C {
+			now := time.Now().UTC()
+			res := db.Exec(`DELETE FROM token_blacklist WHERE expired_at <= ?`, now)
+			if res.Error != nil {
+				log.Printf("[BL-CLEANUP] error: %v", res.Error)
+				continue
 			}
-
-			// Jalankan tiap 24 jam
-			time.Sleep(24 * time.Hour)
+			if res.RowsAffected > 0 {
+				log.Printf("[BL-CLEANUP] deleted=%d rows (<= %s)", res.RowsAffected, now.Format(time.RFC3339))
+			} else {
+				log.Printf("[BL-CLEANUP] nothing to delete")
+			}
 		}
 	}()
 }
