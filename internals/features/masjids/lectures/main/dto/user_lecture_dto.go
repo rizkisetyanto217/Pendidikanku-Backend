@@ -1,16 +1,20 @@
 package dto
 
 import (
-	"masjidku_backend/internals/features/masjids/lectures/main/model"
 	"time"
+
+	"masjidku_backend/internals/features/masjids/lectures/main/model"
 
 	"github.com/google/uuid"
 )
 
+/* ======================
+   REQUEST
+   ====================== */
 type UserLectureRequest struct {
 	UserLectureUserID       uuid.UUID  `json:"user_lecture_user_id"`
 	UserLectureLectureID    uuid.UUID  `json:"user_lecture_lecture_id"`
-	UserLectureMasjidID     uuid.UUID  `json:"user_lecture_masjid_id"` // ✅ Ditambahkan
+	UserLectureMasjidID     uuid.UUID  `json:"user_lecture_masjid_id"`
 	UserLectureGrade        *int       `json:"user_lecture_grade_result,omitempty"`
 	UserLectureIsRegistered bool       `json:"user_lecture_is_registered,omitempty"`
 	UserLectureHasPaid      bool       `json:"user_lecture_has_paid,omitempty"`
@@ -18,27 +22,11 @@ type UserLectureRequest struct {
 	UserLecturePaymentTime  *time.Time `json:"user_lecture_payment_time,omitempty"`
 }
 
-type UserLectureResponse struct {
-	UserLectureID                     uuid.UUID  `json:"user_lecture_id"`
-	UserLectureUserID                 uuid.UUID  `json:"user_lecture_user_id"`
-	UserLectureLectureID              uuid.UUID  `json:"user_lecture_lecture_id"`
-	UserLectureMasjidID               uuid.UUID  `json:"user_lecture_masjid_id"` // ✅ Ditambahkan
-	UserLectureGradeResult            *int       `json:"user_lecture_grade_result,omitempty"`
-	UserLectureTotalCompletedSessions int        `json:"user_lecture_total_completed_sessions"`
-	UserLectureIsRegistered           bool       `json:"user_lecture_is_registered"`
-	UserLectureHasPaid                bool       `json:"user_lecture_has_paid"`
-	UserLecturePaidAmount             *int       `json:"user_lecture_paid_amount,omitempty"`
-	UserLecturePaymentTime            *time.Time `json:"user_lecture_payment_time,omitempty"`
-	UserLectureCreatedAt              string     `json:"user_lecture_created_at"`
-	UserLectureUpdatedAt              *string    `json:"user_lecture_updated_at,omitempty"`
-}
-
-
 func (r *UserLectureRequest) ToModel() *model.UserLectureModel {
 	return &model.UserLectureModel{
 		UserLectureUserID:       r.UserLectureUserID,
 		UserLectureLectureID:    r.UserLectureLectureID,
-		UserLectureMasjidID:     r.UserLectureMasjidID, // ✅
+		UserLectureMasjidID:     r.UserLectureMasjidID,
 		UserLectureGradeResult:  r.UserLectureGrade,
 		UserLectureIsRegistered: r.UserLectureIsRegistered,
 		UserLectureHasPaid:      r.UserLectureHasPaid,
@@ -47,18 +35,33 @@ func (r *UserLectureRequest) ToModel() *model.UserLectureModel {
 	}
 }
 
-func ToUserLectureResponse(m *model.UserLectureModel) *UserLectureResponse {
-	var updatedAtStr *string
-	if m.UserLectureUpdatedAt != nil {
-		s := m.UserLectureUpdatedAt.Format("2006-01-02 15:04:05")
-		updatedAtStr = &s
-	}
+/* ======================
+   RESPONSE
+   ====================== */
+type UserLectureResponse struct {
+	UserLectureID                     uuid.UUID  `json:"user_lecture_id"`
+	UserLectureUserID                 uuid.UUID  `json:"user_lecture_user_id"`
+	UserLectureLectureID              uuid.UUID  `json:"user_lecture_lecture_id"`
+	UserLectureMasjidID               uuid.UUID  `json:"user_lecture_masjid_id"`
+	UserLectureGradeResult            *int       `json:"user_lecture_grade_result,omitempty"`
+	UserLectureTotalCompletedSessions int        `json:"user_lecture_total_completed_sessions"`
+	UserLectureIsRegistered           bool       `json:"user_lecture_is_registered"`
+	UserLectureHasPaid                bool       `json:"user_lecture_has_paid"`
+	UserLecturePaidAmount             *int       `json:"user_lecture_paid_amount,omitempty"`
+	UserLecturePaymentTime            *time.Time `json:"user_lecture_payment_time,omitempty"`
+	UserLectureCreatedAt              string     `json:"user_lecture_created_at"`
+	UserLectureUpdatedAt              string     `json:"user_lecture_updated_at"`
+}
 
+/* ======================
+   MAPPER
+   ====================== */
+func ToUserLectureResponse(m *model.UserLectureModel) *UserLectureResponse {
 	return &UserLectureResponse{
 		UserLectureID:                     m.UserLectureID,
 		UserLectureUserID:                 m.UserLectureUserID,
 		UserLectureLectureID:              m.UserLectureLectureID,
-		UserLectureMasjidID:               m.UserLectureMasjidID, // ✅
+		UserLectureMasjidID:               m.UserLectureMasjidID,
 		UserLectureGradeResult:            m.UserLectureGradeResult,
 		UserLectureTotalCompletedSessions: m.UserLectureTotalCompletedSessions,
 		UserLectureIsRegistered:           m.UserLectureIsRegistered,
@@ -66,6 +69,14 @@ func ToUserLectureResponse(m *model.UserLectureModel) *UserLectureResponse {
 		UserLecturePaidAmount:             m.UserLecturePaidAmount,
 		UserLecturePaymentTime:            m.UserLecturePaymentTime,
 		UserLectureCreatedAt:              m.UserLectureCreatedAt.Format("2006-01-02 15:04:05"),
-		UserLectureUpdatedAt:              updatedAtStr,
+		UserLectureUpdatedAt:              m.UserLectureUpdatedAt.Format("2006-01-02 15:04:05"),
 	}
+}
+
+func ToUserLectureResponseList(models []model.UserLectureModel) []UserLectureResponse {
+	out := make([]UserLectureResponse, 0, len(models))
+	for i := range models {
+		out = append(out, *ToUserLectureResponse(&models[i]))
+	}
+	return out
 }

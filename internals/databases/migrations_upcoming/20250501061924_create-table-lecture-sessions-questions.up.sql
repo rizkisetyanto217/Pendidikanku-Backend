@@ -12,14 +12,14 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE OR REPLACE FUNCTION fn_touch_updated_at_ls_questions()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.lecture_sessions_question_updated_at := CURRENT_TIMESTAMP;
+  NEW.lecture_sessions_question_updated_at := CURRENT_TIMESTAMPTZ;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION fn_touch_updated_at_ls_user_questions()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.lecture_sessions_user_question_updated_at := CURRENT_TIMESTAMP;
+  NEW.lecture_sessions_user_question_updated_at := CURRENT_TIMESTAMPTZ;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
@@ -42,8 +42,9 @@ CREATE TABLE IF NOT EXISTS lecture_sessions_questions (
   lecture_sessions_question_masjid_id UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  lecture_sessions_question_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  lecture_sessions_question_updated_at TIMESTAMP,
+  lecture_sessions_question_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  lecture_sessions_question_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  lecture_sessions_question_deleted_at TIMESTAMPTZ NULL,  -- ✅ soft delete
 
   -- Validasi dasar struktur answers
   CONSTRAINT lecture_sessions_question_answers_type
@@ -65,34 +66,42 @@ ALTER TABLE lecture_sessions_questions
     setweight(to_tsvector('simple', coalesce(lecture_sessions_question_explanation, '')), 'B')
   ) STORED;
 
--- Indexes: FK / waktu / masjid
+-- Indexes: hanya baris hidup (deleted_at IS NULL)
 CREATE INDEX IF NOT EXISTS idx_ls_questions_quiz_id
-  ON lecture_sessions_questions(lecture_sessions_question_quiz_id);
+  ON lecture_sessions_questions(lecture_sessions_question_quiz_id)
+  WHERE lecture_sessions_question_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ls_questions_exam_id
-  ON lecture_sessions_questions(lecture_question_exam_id);
+  ON lecture_sessions_questions(lecture_question_exam_id)
+  WHERE lecture_sessions_question_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ls_questions_created_at
-  ON lecture_sessions_questions(lecture_sessions_question_created_at);
+  ON lecture_sessions_questions(lecture_sessions_question_created_at)
+  WHERE lecture_sessions_question_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ls_questions_masjid_id
-  ON lecture_sessions_questions(lecture_sessions_question_masjid_id);
+  ON lecture_sessions_questions(lecture_sessions_question_masjid_id)
+  WHERE lecture_sessions_question_deleted_at IS NULL;
 
 -- Komposit: masjid + created_at (sorting terbaru per masjid)
 CREATE INDEX IF NOT EXISTS idx_ls_questions_masjid_created_desc
-  ON lecture_sessions_questions(lecture_sessions_question_masjid_id, lecture_sessions_question_created_at DESC);
+  ON lecture_sessions_questions(lecture_sessions_question_masjid_id, lecture_sessions_question_created_at DESC)
+  WHERE lecture_sessions_question_deleted_at IS NULL;
 
--- GIN untuk JSONB answers (existence / containment)
+-- GIN untuk JSONB answers
 CREATE INDEX IF NOT EXISTS idx_ls_questions_answers_gin
-  ON lecture_sessions_questions USING GIN (lecture_sessions_question_answers jsonb_path_ops);
+  ON lecture_sessions_questions USING GIN (lecture_sessions_question_answers jsonb_path_ops)
+  WHERE lecture_sessions_question_deleted_at IS NULL;
 
 -- FTS GIN index
 CREATE INDEX IF NOT EXISTS idx_ls_questions_tsv_gin
-  ON lecture_sessions_questions USING GIN (lecture_sessions_question_search_tsv);
+  ON lecture_sessions_questions USING GIN (lecture_sessions_question_search_tsv)
+  WHERE lecture_sessions_question_deleted_at IS NULL;
 
--- Trigram untuk ILIKE '%...%' di kolom pertanyaan (opsional tapi praktis)
+-- Trigram
 CREATE INDEX IF NOT EXISTS idx_ls_questions_trgm
-  ON lecture_sessions_questions USING GIN (LOWER(lecture_sessions_question) gin_trgm_ops);
+  ON lecture_sessions_questions USING GIN (LOWER(lecture_sessions_question) gin_trgm_ops)
+  WHERE lecture_sessions_question_deleted_at IS NULL;
 
 -- Trigger updated_at
 DROP TRIGGER IF EXISTS trg_ls_questions_touch ON lecture_sessions_questions;
@@ -115,28 +124,34 @@ CREATE TABLE IF NOT EXISTS lecture_sessions_user_questions (
   lecture_sessions_user_question_masjid_id UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  lecture_sessions_user_question_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  lecture_sessions_user_question_updated_at TIMESTAMP
+  lecture_sessions_user_question_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  lecture_sessions_user_question_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  lecture_sessions_user_question_deleted_at TIMESTAMPTZ NULL   -- ✅ soft delete
 );
 
--- Indexes: FK / masjid / waktu
+-- Indexes: hanya baris hidup
 CREATE INDEX IF NOT EXISTS idx_ls_user_questions_question_id
-  ON lecture_sessions_user_questions(lecture_sessions_user_question_question_id);
+  ON lecture_sessions_user_questions(lecture_sessions_user_question_question_id)
+  WHERE lecture_sessions_user_question_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ls_user_questions_masjid_id
-  ON lecture_sessions_user_questions(lecture_sessions_user_question_masjid_id);
+  ON lecture_sessions_user_questions(lecture_sessions_user_question_masjid_id)
+  WHERE lecture_sessions_user_question_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ls_user_questions_created_at
-  ON lecture_sessions_user_questions(lecture_sessions_user_question_created_at);
+  ON lecture_sessions_user_questions(lecture_sessions_user_question_created_at)
+  WHERE lecture_sessions_user_question_deleted_at IS NULL;
 
--- Komposit untuk agregasi & analitik jawaban per soal
+-- Komposit untuk analitik
 CREATE INDEX IF NOT EXISTS idx_ls_user_questions_qid_is_correct
   ON lecture_sessions_user_questions(lecture_sessions_user_question_question_id,
-                                    lecture_sessions_user_question_is_correct);
+                                    lecture_sessions_user_question_is_correct)
+  WHERE lecture_sessions_user_question_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ls_user_questions_qid_answer
   ON lecture_sessions_user_questions(lecture_sessions_user_question_question_id,
-                                    lecture_sessions_user_question_answer);
+                                    lecture_sessions_user_question_answer)
+  WHERE lecture_sessions_user_question_deleted_at IS NULL;
 
 -- Trigger updated_at
 DROP TRIGGER IF EXISTS trg_ls_user_questions_touch ON lecture_sessions_user_questions;

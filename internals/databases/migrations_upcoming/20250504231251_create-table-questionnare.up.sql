@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS questionnaire_questions (
   -- 1=general, 2=event, 3=lecture
   questionnaire_question_scope INT NOT NULL DEFAULT 1 CHECK (questionnaire_question_scope IN (1, 2, 3)),
 
-  questionnaire_question_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  questionnaire_question_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   -- ✅ CHECK konsistensi SCOPE ↔️ referensi
   CONSTRAINT chk_question_scope_refs CHECK (
@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS user_questionnaire_answers (
   user_questionnaire_question_id UUID NOT NULL REFERENCES questionnaire_questions(questionnaire_question_id) ON DELETE CASCADE,
 
   user_questionnaire_answer TEXT NOT NULL,
-  user_questionnaire_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  user_questionnaire_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   -- ✅ Prevent duplicate answer per (user, reference, question)
   CONSTRAINT uq_user_answer UNIQUE (user_questionnaire_user_id, user_questionnaire_reference_id, user_questionnaire_question_id)

@@ -117,7 +117,6 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 }
 
 /* ========================== HELPER: Kumpulkan peran ========================== */
-
 func collectMasjidRoleIDs(db *gorm.DB, userID uuid.UUID) (
 	masjidAdminIDs []string,
 	masjidTeacherIDs []string,
@@ -129,28 +128,29 @@ func collectMasjidRoleIDs(db *gorm.DB, userID uuid.UUID) (
 	teacherSet := map[string]struct{}{}
 	studentSet := map[string]struct{}{}
 
-	// 1) Admin/DKM → masjid_admins
+	// 1) Admin/DKM → masjid_admins (kolom singular)
 	if db.Migrator().HasTable("masjid_admins") {
 		var adminMasjids []model.MasjidAdminModel
-		if e := db.Where("masjid_admins_user_id = ? AND masjid_admins_is_active = true", userID).
+		if e := db.
+			Where("masjid_admin_user_id = ? AND masjid_admin_is_active = TRUE", userID).
 			Find(&adminMasjids).Error; e != nil {
 			return nil, nil, nil, nil, e
 		}
 		for _, m := range adminMasjids {
-			adminSet[m.MasjidAdminsMasjidID.String()] = struct{}{}
+			adminSet[m.MasjidAdminMasjidID.String()] = struct{}{}
 		}
 	}
 
-	// 2) Teacher → masjid_teachers
+	// 2) Teacher → masjid_teachers (kolom singular + model baru)
 	if db.Migrator().HasTable("masjid_teachers") {
-		var teacherRows []model.MasjidTeacher
-		if e := db.Where("masjid_teachers_user_id = ?", userID).
+		var teacherRows []model.MasjidTeacherModel
+		if e := db.
+			Where("masjid_teacher_user_id = ? AND masjid_teacher_deleted_at IS NULL", userID).
 			Find(&teacherRows).Error; e != nil {
 			return nil, nil, nil, nil, e
 		}
 		for _, t := range teacherRows {
-			// sesuaikan field masjid ID di model kamu
-			teacherSet[t.MasjidTeachersMasjidID] = struct{}{}
+			teacherSet[t.MasjidTeacherMasjidID.String()] = struct{}{}
 		}
 	}
 
@@ -176,7 +176,6 @@ func collectMasjidRoleIDs(db *gorm.DB, userID uuid.UUID) (
 		}
 	}
 
-
 	// Build slices (plus union)
 	unionSet := map[string]struct{}{}
 	masjidAdminIDs = make([]string, 0, len(adminSet))
@@ -200,6 +199,7 @@ func collectMasjidRoleIDs(db *gorm.DB, userID uuid.UUID) (
 	}
 	return
 }
+
 
 /* ========================== ISSUE TOKENS ========================== */
 

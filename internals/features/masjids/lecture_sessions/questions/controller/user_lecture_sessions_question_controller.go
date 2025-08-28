@@ -4,6 +4,7 @@ import (
 	"masjidku_backend/internals/features/masjids/lecture_sessions/questions/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/questions/model"
 	helper "masjidku_backend/internals/helpers"
+	"strings"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -94,7 +95,7 @@ func (ctrl *LectureSessionsUserQuestionController) GetByQuestionID(c *fiber.Ctx)
 }
 
 // =============================
-// 🗑️ Delete by ID
+// 🗑️ Delete LectureSessionsUserQuestion by ID
 // =============================
 func (ctrl *LectureSessionsUserQuestionController) DeleteByID(c *fiber.Ctx) error {
 	id := c.Params("id")
@@ -102,13 +103,24 @@ func (ctrl *LectureSessionsUserQuestionController) DeleteByID(c *fiber.Ctx) erro
 		return helper.JsonError(c, fiber.StatusBadRequest, "id is required")
 	}
 
-	tx := ctrl.DB.Delete(&model.LectureSessionsUserQuestionModel{}, "lecture_sessions_user_question_id = ?", id)
-	if tx.Error != nil {
+	hard := strings.EqualFold(c.Query("hard"), "true") || c.Query("hard") == "1"
+
+	var db *gorm.DB
+	if hard {
+		db = ctrl.DB.Unscoped().Delete(&model.LectureSessionsUserQuestionModel{}, "lecture_sessions_user_question_id = ?", id)
+	} else {
+		db = ctrl.DB.Delete(&model.LectureSessionsUserQuestionModel{}, "lecture_sessions_user_question_id = ?", id)
+	}
+
+	if db.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to delete record")
 	}
-	if tx.RowsAffected == 0 {
+	if db.RowsAffected == 0 {
 		return helper.JsonError(c, fiber.StatusNotFound, "Record not found")
 	}
 
-	return helper.JsonDeleted(c, "Deleted successfully", fiber.Map{"id": id})
+	return helper.JsonDeleted(c, "Deleted successfully", fiber.Map{
+		"id":   id,
+		"hard": hard,
+	})
 }

@@ -45,6 +45,7 @@ type UpdateUserClassSectionRequest struct {
 	UserClassSectionsMasjidID     *uuid.UUID `json:"user_class_sections_masjid_id" validate:"omitempty"`
 	UserClassSectionsAssignedAt   *time.Time `json:"user_class_sections_assigned_at" validate:"omitempty"`
 	UserClassSectionsUnassignedAt *time.Time `json:"user_class_sections_unassigned_at" validate:"omitempty"`
+	// Tidak expose DeletedAt di update request
 }
 
 func (r *UpdateUserClassSectionRequest) ApplyToModel(m *ucsModel.UserClassSectionsModel) {
@@ -64,7 +65,7 @@ func (r *UpdateUserClassSectionRequest) ApplyToModel(m *ucsModel.UserClassSectio
 		m.UserClassSectionsUnassignedAt = r.UserClassSectionsUnassignedAt
 	}
 	now := time.Now()
-	m.UserClassSectionsUpdatedAt = &now
+	m.UserClassSectionsUpdatedAt = now
 }
 
 /* ===================== QUERIES ===================== */
@@ -91,14 +92,13 @@ type UserClassSectionResponse struct {
 	UserClassSectionsAssignedAt   time.Time  `json:"user_class_sections_assigned_at"`
 	UserClassSectionsUnassignedAt *time.Time `json:"user_class_sections_unassigned_at,omitempty"`
 
+	// Tambahan dari user_classes
+	UserClassesStatus string `json:"user_classes_status,omitempty"`
 
-	// ⬇⬇⬇ Tambahan dari user_classes
-	UserClassesStatus     string     `json:"user_classes_status,omitempty"`
+	UserClassSectionsCreatedAt time.Time   `json:"user_class_sections_created_at"`
+	UserClassSectionsUpdatedAt time.Time   `json:"user_class_sections_updated_at"`
+	UserClassSectionsDeletedAt *time.Time  `json:"user_class_sections_deleted_at,omitempty"`
 
-	UserClassSectionsCreatedAt time.Time  `json:"user_class_sections_created_at"`
-	UserClassSectionsUpdatedAt *time.Time `json:"user_class_sections_updated_at,omitempty"`
-
-	// ⬇️ rename tipe biar gak bentrok
 	User    *UcsUser        `json:"user,omitempty"`
 	Profile *UcsUserProfile `json:"profile,omitempty"`
 }
@@ -107,7 +107,7 @@ func NewUserClassSectionResponse(m *ucsModel.UserClassSectionsModel) *UserClassS
 	if m == nil {
 		return nil
 	}
-	return &UserClassSectionResponse{
+	resp := &UserClassSectionResponse{
 		UserClassSectionsID:           m.UserClassSectionsID,
 		UserClassSectionsUserClassID:  m.UserClassSectionsUserClassID,
 		UserClassSectionsSectionID:    m.UserClassSectionsSectionID,
@@ -117,6 +117,12 @@ func NewUserClassSectionResponse(m *ucsModel.UserClassSectionsModel) *UserClassS
 		UserClassSectionsCreatedAt:    m.UserClassSectionsCreatedAt,
 		UserClassSectionsUpdatedAt:    m.UserClassSectionsUpdatedAt,
 	}
+	// DeletedAt opsional: hanya diisi jika ada (gorm.DeletedAt valid)
+	if m.UserClassSectionsDeletedAt.Valid {
+		t := m.UserClassSectionsDeletedAt.Time
+		resp.UserClassSectionsDeletedAt = &t
+	}
+	return resp
 }
 
 func (r *UserClassSectionResponse) WithUser(u *UcsUser, p *UcsUserProfile) *UserClassSectionResponse {

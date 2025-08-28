@@ -1,8 +1,9 @@
 package dto
 
 import (
-	"masjidku_backend/internals/features/masjids/lecture_sessions/materials/model"
 	"time"
+
+	"masjidku_backend/internals/features/masjids/lecture_sessions/materials/model"
 )
 
 // ============================
@@ -10,35 +11,44 @@ import (
 // ============================
 
 type LectureSessionsMaterialDTO struct {
-	LectureSessionsMaterialID               string    `json:"lecture_sessions_material_id"`
-	LectureSessionsMaterialSummary          string    `json:"lecture_sessions_material_summary"`
-	LectureSessionsMaterialTranscriptFull   string    `json:"lecture_sessions_material_transcript_full"`
-	LectureSessionsMaterialLectureSessionID string    `json:"lecture_sessions_material_lecture_session_id"`
-	LectureSessionsMaterialMasjidID         string    `json:"lecture_sessions_material_masjid_id"`
-	LectureSessionsMaterialCreatedAt        time.Time `json:"lecture_sessions_material_created_at"`
+	LectureSessionsMaterialID               string     `json:"lecture_sessions_material_id"`
+	LectureSessionsMaterialSummary          *string    `json:"lecture_sessions_material_summary,omitempty"`
+	LectureSessionsMaterialTranscriptFull   *string    `json:"lecture_sessions_material_transcript_full,omitempty"`
+	LectureSessionsMaterialLectureSessionID string     `json:"lecture_sessions_material_lecture_session_id"`
+	LectureSessionsMaterialMasjidID         string     `json:"lecture_sessions_material_masjid_id"`
+	LectureSessionsMaterialCreatedAt        time.Time  `json:"lecture_sessions_material_created_at"`
+	LectureSessionsMaterialUpdatedAt        time.Time  `json:"lecture_sessions_material_updated_at"`
 }
 
 // ============================
 // Create Request DTO
 // ============================
 
-// dto/lecture_sessions_material_request.go
 type CreateLectureSessionsMaterialRequest struct {
-	LectureSessionsMaterialSummary         string `json:"lecture_sessions_material_summary"`
-	LectureSessionsMaterialTranscriptFull  string `json:"lecture_sessions_material_transcript_full"`
-	LectureSessionsMaterialLectureSessionID string `json:"lecture_sessions_material_lecture_session_id" validate:"required"`
-	LectureSessionsMaterialMasjidID        string `json:"-"` // diisi manual dari token
+	LectureSessionsMaterialSummary          *string `json:"lecture_sessions_material_summary,omitempty"`
+	LectureSessionsMaterialTranscriptFull   *string `json:"lecture_sessions_material_transcript_full,omitempty"`
+	LectureSessionsMaterialLectureSessionID string  `json:"lecture_sessions_material_lecture_session_id" validate:"required,uuid"`
+	// MasjidID diambil dari token/scope pada controller
 }
 
+// Converter: Create -> Model (butuh masjidID dari controller)
+func (r *CreateLectureSessionsMaterialRequest) ToModel(masjidID string) *model.LectureSessionsMaterialModel {
+	return &model.LectureSessionsMaterialModel{
+		LectureSessionsMaterialSummary:          r.LectureSessionsMaterialSummary,
+		LectureSessionsMaterialTranscriptFull:   r.LectureSessionsMaterialTranscriptFull,
+		LectureSessionsMaterialLectureSessionID: r.LectureSessionsMaterialLectureSessionID,
+		LectureSessionsMaterialMasjidID:         masjidID,
+	}
+}
 
 // ============================
-// Update Request DTO
+// Update Request DTO (partial)
 // ============================
 
 type UpdateLectureSessionsMaterialRequest struct {
-	LectureSessionsMaterialSummary          string `json:"lecture_sessions_material_summary"`
-	LectureSessionsMaterialTranscriptFull   string `json:"lecture_sessions_material_transcript_full"`
-	LectureSessionsMaterialLectureSessionID string `json:"lecture_sessions_material_lecture_session_id"`
+	LectureSessionsMaterialSummary          *string `json:"lecture_sessions_material_summary,omitempty"`         // set null untuk clear
+	LectureSessionsMaterialTranscriptFull   *string `json:"lecture_sessions_material_transcript_full,omitempty"` // set null untuk clear
+	// ID session tidak diubah lewat update normal (hindari migrasi data)
 }
 
 // ============================
@@ -53,5 +63,6 @@ func ToLectureSessionsMaterialDTO(m model.LectureSessionsMaterialModel) LectureS
 		LectureSessionsMaterialLectureSessionID: m.LectureSessionsMaterialLectureSessionID,
 		LectureSessionsMaterialMasjidID:         m.LectureSessionsMaterialMasjidID,
 		LectureSessionsMaterialCreatedAt:        m.LectureSessionsMaterialCreatedAt,
+		LectureSessionsMaterialUpdatedAt:        m.LectureSessionsMaterialUpdatedAt,
 	}
 }

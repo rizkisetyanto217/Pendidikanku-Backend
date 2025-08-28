@@ -10,8 +10,8 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_class_sec_subj_teachers_validate_tenant') THEN
     DROP TRIGGER trg_class_sec_subj_teachers_validate_tenant ON class_section_subject_teachers;
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_timestamp_class_sec_subj_teachers') THEN
-    DROP TRIGGER set_timestamp_class_sec_subj_teachers ON class_section_subject_teachers;
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_timestamptz_class_sec_subj_teachers') THEN
+    DROP TRIGGER set_timestamptz_class_sec_subj_teachers ON class_section_subject_teachers;
   END IF;
 END$$;
 
@@ -37,7 +37,7 @@ DROP TABLE IF EXISTS class_section_subject_teachers;
 
 -- 5) Functions
 DROP FUNCTION IF EXISTS fn_class_sec_subj_teachers_validate_tenant();
-DROP FUNCTION IF EXISTS trg_set_timestamp_class_sec_subj_teachers();
+DROP FUNCTION IF EXISTS trg_set_timestamptz_class_sec_subj_teachers();
 
 
 -- =========================================================
@@ -51,7 +51,7 @@ BEGIN
     DROP TRIGGER trg_cs_term_tenant_check ON class_subjects;
   END IF;
   IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_timestamp_class_subjects') THEN
-    DROP TRIGGER set_timestamp_class_subjects ON class_subjects;
+    DROP TRIGGER set_timestamptz_class_subjects ON class_subjects;
   END IF;
 END$$;
 
@@ -84,7 +84,7 @@ DROP TABLE IF EXISTS class_subjects;
 
 -- 5) Functions
 DROP FUNCTION IF EXISTS fn_cs_term_tenant_check();
-DROP FUNCTION IF EXISTS trg_set_timestamp_class_subjects();
+DROP FUNCTION IF EXISTS trg_set_timestamptz_class_subjects();
 
 
 -- =========================================================

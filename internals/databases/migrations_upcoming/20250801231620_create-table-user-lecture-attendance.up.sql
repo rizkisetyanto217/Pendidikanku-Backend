@@ -16,7 +16,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE OR REPLACE FUNCTION fn_touch_updated_at_generic()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.user_lecture_sessions_attendance_updated_at := CURRENT_TIMESTAMP;
+  NEW.user_lecture_sessions_attendance_updated_at := CURRENT_TIMESTAMPTZ;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
@@ -43,9 +43,9 @@ CREATE TABLE IF NOT EXISTS user_lecture_sessions_attendance (
   user_lecture_sessions_attendance_notes           TEXT,
   user_lecture_sessions_attendance_personal_notes  TEXT,
 
-  user_lecture_sessions_attendance_created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  user_lecture_sessions_attendance_updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  user_lecture_sessions_attendance_deleted_at  TIMESTAMP
+  user_lecture_sessions_attendance_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_lecture_sessions_attendance_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_lecture_sessions_attendance_deleted_at  TIMESTAMPTZ NULL
 );
 
 -- Trigger: auto-touch updated_at

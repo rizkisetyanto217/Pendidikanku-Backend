@@ -2,6 +2,7 @@ package controller
 
 import (
 	"errors"
+	"strings"
 
 	"masjidku_backend/internals/features/home/faqs/dto"
 	"masjidku_backend/internals/features/home/faqs/model"
@@ -166,20 +167,39 @@ func (ctrl *FaqQuestionController) UpdateFaqQuestion(c *fiber.Ctx) error {
     return resp.JsonUpdated(c, "FAQ updated", dto.ToFaqQuestionDTO(faq))
 }
 
-
 // ======================
-// Delete FaqQuestion
+// Delete FaqQuestion (soft by default; hard with ?hard=true)
 // ======================
 func (ctrl *FaqQuestionController) DeleteFaqQuestion(c *fiber.Ctx) error {
-	id := c.Params("id")
-	uid, err := uuid.Parse(id)
+	idStr := c.Params("id")
+	uid, err := uuid.Parse(idStr)
 	if err != nil {
 		return resp.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	if err := ctrl.DB.WithContext(c.Context()).
-		Delete(&model.FaqQuestionModel{}, "faq_question_id = ?", uid).Error; err != nil {
+	// hard delete opsional via query: ?hard=true / ?hard=1
+	hard := strings.EqualFold(c.Query("hard"), "true") || c.Query("hard") == "1"
+
+	tx := ctrl.DB.WithContext(c.Context())
+
+	var db *gorm.DB
+	if hard {
+		// Hapus permanen pertanyaan (+ jawaban ikut terhapus karena FK CASCADE)
+		db = tx.Unscoped().Delete(&model.FaqQuestionModel{}, "faq_question_id = ?", uid)
+	} else {
+		// Soft delete: set faq_question_deleted_at; trigger akan set is_answered=false
+		db = tx.Delete(&model.FaqQuestionModel{}, "faq_question_id = ?", uid)
+	}
+
+	if db.Error != nil {
 		return resp.JsonError(c, fiber.StatusInternalServerError, "Failed to delete FAQ")
 	}
-	return resp.JsonDeleted(c, "FAQ deleted", fiber.Map{"id": uid})
+	if db.RowsAffected == 0 {
+		return resp.JsonError(c, fiber.StatusNotFound, "FAQ not found")
+	}
+
+	return resp.JsonDeleted(c, "FAQ deleted", fiber.Map{
+		"id":   uid,
+		"hard": hard,
+	})
 }

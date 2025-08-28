@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_settings (
   class_attendance_setting_require_homework           BOOLEAN NOT NULL DEFAULT false,
 
   -- audit minimum: kapan dibuat
-  class_attendance_setting_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  class_attendance_setting_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- index & constraints

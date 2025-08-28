@@ -17,14 +17,14 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE OR REPLACE FUNCTION fn_touch_post_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.post_updated_at := CURRENT_TIMESTAMP;
+  NEW.post_updated_at := CURRENT_TIMESTAMPTZ;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION fn_touch_post_like_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.post_like_updated_at := CURRENT_TIMESTAMP;
+  NEW.post_like_updated_at := CURRENT_TIMESTAMPTZ;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
@@ -40,19 +40,23 @@ CREATE TABLE IF NOT EXISTS post_themes (
   post_theme_name        VARCHAR(100) NOT NULL,
   post_theme_description TEXT,
   post_theme_masjid_id   UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE,
-  post_theme_created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  post_theme_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  post_theme_deleted_at  TIMESTAMPTZ NULL  -- ✅ soft delete
 );
 
--- Indexing (theme)
+-- Indexing (theme, hanya baris hidup)
 CREATE INDEX IF NOT EXISTS idx_post_themes_name_trgm
-  ON post_themes USING GIN (post_theme_name gin_trgm_ops);
+  ON post_themes USING GIN (post_theme_name gin_trgm_ops)
+  WHERE post_theme_deleted_at IS NULL;
+
 CREATE INDEX IF NOT EXISTS idx_post_themes_masjid_created
-  ON post_themes(post_theme_masjid_id, post_theme_created_at DESC);
+  ON post_themes(post_theme_masjid_id, post_theme_created_at DESC)
+  WHERE post_theme_deleted_at IS NULL;
 
--- Opsional: nama tema unik per masjid
+-- Opsional: nama tema unik per masjid (hanya row hidup)
 -- CREATE UNIQUE INDEX IF NOT EXISTS uq_post_themes_masjid_name
---   ON post_themes(post_theme_masjid_id, post_theme_name);
-
+--   ON post_themes(post_theme_masjid_id, LOWER(post_theme_name))
+--   WHERE post_theme_deleted_at IS NULL;
 
 -- =========================
 -- posts  (soft delete + publish)
@@ -67,9 +71,9 @@ CREATE TABLE IF NOT EXISTS posts (
   post_theme_id     UUID REFERENCES post_themes(post_theme_id) ON DELETE CASCADE,
   post_masjid_id    UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE,
   post_user_id      UUID REFERENCES users(id) ON DELETE SET NULL,
-  post_created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  post_updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  post_deleted_at   TIMESTAMP,
+  post_created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  post_updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  post_deleted_at   TIMESTAMPTZ NULL,
 
   -- Batasi nilai post_type agar konsisten (sesuaikan daftar bila perlu)
   CONSTRAINT chk_posts_type
@@ -126,7 +130,7 @@ CREATE TABLE IF NOT EXISTS post_likes (
   post_like_is_liked  BOOLEAN NOT NULL DEFAULT TRUE,
   post_like_post_id   UUID NOT NULL REFERENCES posts(post_id) ON DELETE CASCADE,
   post_like_user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  post_like_updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  post_like_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   post_like_masjid_id UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   CONSTRAINT unique_post_like UNIQUE (post_like_post_id, post_like_user_id)

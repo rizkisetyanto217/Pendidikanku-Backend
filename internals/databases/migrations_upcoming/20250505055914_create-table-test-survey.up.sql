@@ -17,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE OR REPLACE FUNCTION fn_touch_updated_at_generic()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.updated_at := CURRENT_TIMESTAMP;
+  NEW.updated_at := CURRENT_TIMESTAMPTZ;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
@@ -56,8 +56,8 @@ CREATE TABLE IF NOT EXISTS survey_questions (
   survey_question_answer       TEXT[] DEFAULT NULL,        -- NULL = open-ended
   survey_question_order_index  INT NOT NULL,
 
-  created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   -- Urutan unik opsional (aktifkan jika perlu urutan unik secara global)
   -- CONSTRAINT uq_survey_questions_order UNIQUE (survey_question_order_index)
@@ -93,8 +93,8 @@ CREATE TABLE IF NOT EXISTS user_surveys (
   user_survey_question_id   INT  NOT NULL REFERENCES survey_questions(survey_question_id) ON DELETE CASCADE,
   user_survey_answer        TEXT NOT NULL,
 
-  created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   -- Satu user satu jawaban per question (hindari duplikasi)
   CONSTRAINT uq_user_surveys_user_question UNIQUE (user_survey_user_id, user_survey_question_id)
@@ -132,8 +132,8 @@ CREATE TABLE IF NOT EXISTS test_exams (
   test_exam_status VARCHAR(10) NOT NULL DEFAULT 'pending'
     CHECK (test_exam_status IN ('active', 'pending', 'archived')),
 
-  created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Trigger: touch updated_at
@@ -164,8 +164,8 @@ CREATE TABLE IF NOT EXISTS user_test_exams (
   user_test_exam_percentage_grade INTEGER NOT NULL DEFAULT 0 CHECK (user_test_exam_percentage_grade BETWEEN 0 AND 100),
   user_test_exam_time_duration     INTEGER NOT NULL DEFAULT 0 CHECK (user_test_exam_time_duration >= 0),
 
-  created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   -- Satu hasil per (user, exam). Jika ingin menyimpan banyak attempt, tambahkan kolom attempt_no.
   CONSTRAINT uq_user_test_exams_user_exam UNIQUE (user_test_exam_user_id, user_test_exam_test_exam_id)

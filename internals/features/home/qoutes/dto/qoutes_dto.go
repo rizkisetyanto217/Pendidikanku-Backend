@@ -1,8 +1,9 @@
 package dto
 
 import (
-	"masjidku_backend/internals/features/home/qoutes/model"
 	"time"
+
+	"masjidku_backend/internals/features/home/qoutes/model"
 )
 
 // ============================
@@ -10,11 +11,12 @@ import (
 // ============================
 
 type QuoteDTO struct {
-	QuoteID      string    `json:"quote_id"`
-	QuoteText    string    `json:"quote_text"`
-	IsPublished  bool      `json:"is_published"`
-	DisplayOrder int       `json:"display_order"`
-	CreatedAt    time.Time `json:"created_at"`
+	QuoteID          string     `json:"quote_id"`
+	QuoteText        string     `json:"quote_text"`
+	QuoteIsPublished bool       `json:"quote_is_published"`
+	QuoteDisplayOrder *int      `json:"quote_display_order,omitempty"`
+	QuoteCreatedAt   time.Time  `json:"quote_created_at"`
+	QuoteUpdatedAt   time.Time  `json:"quote_updated_at"`
 }
 
 // ============================
@@ -22,39 +24,42 @@ type QuoteDTO struct {
 // ============================
 
 type CreateQuoteRequest struct {
-	QuoteText    string `json:"quote_text" validate:"required,min=3"`
-	IsPublished  bool   `json:"is_published"`
-	DisplayOrder int    `json:"display_order"`
+	QuoteText         string `json:"quote_text" validate:"required,min=3"`
+	QuoteIsPublished  bool   `json:"quote_is_published"`
+	QuoteDisplayOrder *int   `json:"quote_display_order,omitempty"` // boleh null
 }
 
 // ============================
-// Update Request DTO
+// Update Request DTO (partial)
 // ============================
 
 type UpdateQuoteRequest struct {
-	QuoteText    string `json:"quote_text" validate:"required,min=3"`
-	IsPublished  bool   `json:"is_published"`
-	DisplayOrder int    `json:"display_order"`
+	QuoteText         *string `json:"quote_text,omitempty" validate:"omitempty,min=3"`
+	QuoteIsPublished  *bool   `json:"quote_is_published,omitempty"`
+	QuoteDisplayOrder *int    `json:"quote_display_order,omitempty"` // kirim null untuk clear
 }
 
 // ============================
-// Converter
+//
+// Converters
+//
 // ============================
 
 func ToQuoteDTO(m model.QuoteModel) QuoteDTO {
 	return QuoteDTO{
-		QuoteID:      m.QuoteID,
-		QuoteText:    m.QuoteText,
-		IsPublished:  m.IsPublished,
-		DisplayOrder: m.DisplayOrder,
-		CreatedAt:    m.CreatedAt,
+		QuoteID:           m.QuoteID,
+		QuoteText:         m.QuoteText,
+		QuoteIsPublished:  m.QuoteIsPublished,
+		QuoteDisplayOrder: m.QuoteDisplayOrder,
+		QuoteCreatedAt:    m.QuoteCreatedAt,
+		QuoteUpdatedAt:    m.QuoteUpdatedAt,
 	}
 }
 
 func (r *CreateQuoteRequest) ToModel() *model.QuoteModel {
 	return &model.QuoteModel{
-		QuoteText:    r.QuoteText,
-		IsPublished:  r.IsPublished,
-		DisplayOrder: r.DisplayOrder,
+		QuoteText:         r.QuoteText,
+		QuoteIsPublished:  r.QuoteIsPublished,
+		QuoteDisplayOrder: r.QuoteDisplayOrder, // bisa nil
 	}
 }

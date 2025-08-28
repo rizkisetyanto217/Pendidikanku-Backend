@@ -2,9 +2,9 @@
 CREATE TABLE IF NOT EXISTS token_blacklist (
   id SERIAL PRIMARY KEY,
   token TEXT NOT NULL UNIQUE,
-  expired_at TIMESTAMP NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  deleted_at TIMESTAMP NULL,
+  expired_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ NULL,
   -- opsional: pastikan expired_at tidak lebih kecil dari created_at
   CONSTRAINT token_blacklist_time_chk CHECK (expired_at >= created_at)
 );

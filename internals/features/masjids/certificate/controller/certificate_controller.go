@@ -99,44 +99,50 @@ func (ctrl *CertificateController) GetByUserExamID(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid user_exam_id")
 	}
 
-	// STEP 1: Ambil data ujian user
+	// 1) user exam
 	var userExam lectureExamModel.UserLectureExamModel
 	if err := ctrl.DB.First(&userExam, "user_lecture_exam_id = ?", userExamID).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusNotFound, "User exam not found")
 	}
 
-	// STEP 2: Ambil exam → lecture_id
+	// 2) exam
 	var exam lectureExamModel.LectureExamModel
 	if err := ctrl.DB.First(&exam, "lecture_exam_id = ?", userExam.UserLectureExamExamID).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusNotFound, "Lecture exam not found")
 	}
 
-	// STEP 3: Ambil lecture
+	// 3) lecture
 	var lecture lectureModel.LectureModel
 	if err := ctrl.DB.First(&lecture, "lecture_id = ?", exam.LectureExamLectureID).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusNotFound, "Lecture not found")
 	}
 
-	// STEP 4: Ambil certificate berdasarkan lecture_id
+	// 4) certificate
 	var certificate certificateModel.CertificateModel
 	if err := ctrl.DB.First(&certificate, "certificate_lecture_id = ?", lecture.LectureID).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusNotFound, "Certificate not found for this lecture")
 	}
 
-	// STEP 5: Ambil masjid
+	// 5) masjid
 	var masjid masjidModel.MasjidModel
 	if err := ctrl.DB.First(&masjid, "masjid_id = ?", lecture.LectureMasjidID).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusNotFound, "Masjid not found")
 	}
 
-	// STEP 6: Konversi nilai
-	var gradeResult *int
+	// Nil-safe conversions
+	var (
+		userName    string
+		gradeResult *int
+	)
+	if userExam.UserLectureExamUserName != nil {
+		userName = *userExam.UserLectureExamUserName
+	}
 	if userExam.UserLectureExamGrade != nil {
-		tmp := int(*userExam.UserLectureExamGrade)
-		gradeResult = &tmp
+		v := int(*userExam.UserLectureExamGrade)
+		gradeResult = &v
 	}
 
-	// STEP 7: Bangun response
+	// Response
 	response := dto.CertificateDetailResponse{
 		CertificateID:                 certificate.CertificateID,
 		CertificateTitle:              certificate.CertificateTitle,
@@ -146,9 +152,9 @@ func (ctrl *CertificateController) GetByUserExamID(c *fiber.Ctx) error {
 		LectureIsCertificateGenerated: lecture.LectureIsCertificateGenerated,
 		MasjidID:                      masjid.MasjidID,
 		MasjidName:                    masjid.MasjidName,
-		MasjidImageURL:                &masjid.MasjidImageURL,
-		UserLectureExamUserName:       userExam.UserLectureExamUserName,
-		UserLectureExamGradeResult:    gradeResult,
+		MasjidImageURL:                &masjid.MasjidImageURL, // pastikan tipe field ini *string di DTO
+		UserLectureExamUserName:       userName,               // <- sudah string
+		UserLectureExamGradeResult:    gradeResult,            // <- *int (boleh nil)
 	}
 
 	return helper.JsonOK(c, "OK", response)

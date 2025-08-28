@@ -3,12 +3,14 @@ package controller
 import (
 	"log"
 	"strconv"
+	"strings"
 
 	"masjidku_backend/internals/features/masjids/events/dto"
 	"masjidku_backend/internals/features/masjids/events/model"
 	helper "masjidku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -235,33 +237,86 @@ func (ctrl *EventController) GetEventBySlug(c *fiber.Ctx) error {
 }
 
 
-
-// 🛑 DELETE /api/a/events/:id
+// DELETE /api/a/events/:id[?hard=true]
 func (ctrl *EventController) DeleteEvent(c *fiber.Ctx) error {
-    id := c.Params("id")
-    if id == "" {
-        return helper.JsonError(c, fiber.StatusBadRequest, "Event ID tidak boleh kosong")
-    }
+	idStr := c.Params("id")
+	if strings.TrimSpace(idStr) == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Event ID tidak boleh kosong")
+	}
+	evID, err := uuid.Parse(idStr)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Event ID tidak valid")
+	}
 
-    // Ambil masjid_id dari token (admin/dkm/owner). Ini memastikan scope tenant.
-    masjidID, err := helper.GetMasjidIDFromToken(c)
-    if err != nil {
-        // 401/400 tergantung error dari helper
-        return err
-    }
+	// Scope tenant
+	masjidID, err := helper.GetMasjidIDFromToken(c)
+	if err != nil {
+		return err // sudah dalam bentuk fiber.Error dari helper
+	}
 
-    // Pastikan event ada & memang milik masjid dari token
-    var ev model.EventModel
-    if err := ctrl.DB.
-        Where("event_id = ? AND event_masjid_id = ?", id, masjidID.String()).
-        First(&ev).Error; err != nil {
-        return helper.JsonError(c, fiber.StatusNotFound, "Event tidak ditemukan atau bukan milik masjid ini")
-    }
+	// Cek keberadaan event (hanya baris 'hidup' kalau pakai soft delete)
+	var ev model.EventModel
+	if err := ctrl.DB.
+		Where("event_id = ? AND event_masjid_id = ?", evID, masjidID).
+		First(&ev).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "Event tidak ditemukan atau bukan milik masjid ini")
+	}
 
-    // --- Jika FK sudah ON DELETE CASCADE, cukup hapus event:
-    if err := ctrl.DB.Delete(&ev).Error; err != nil {
-        return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus event")
-    }
+	hard := strings.EqualFold(c.Query("hard"), "true")
 
-    return helper.JsonOK(c, "Event berhasil dihapus", nil)
+	// Jalankan dalam transaksi
+	tx := ctrl.DB.Begin()
+	if tx.Error != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memulai transaksi")
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	if hard {
+		// HARD DELETE: akan memicu ON DELETE CASCADE ke event_sessions & user_event_registrations
+		if err := tx.Unscoped().Delete(&ev).Error; err != nil {
+			tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus event (hard)")
+		}
+	} else {
+		// SOFT DELETE: tandai event_deleted_at; optional → soft delete anak-anaknya juga
+		if err := tx.Delete(&ev).Error; err != nil {
+			tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus event")
+		}
+
+		// (Opsional tapi direkomendasikan) Soft delete anak-anak agar konsisten.
+		// Perhatikan: model anak harus juga pakai gorm.DeletedAt kolom *_deleted_at.
+		if err := tx.
+			Table("event_sessions").
+			Where("event_session_event_id = ? AND event_session_masjid_id = ? AND event_session_deleted_at IS NULL", evID, masjidID).
+			Update("event_session_deleted_at", gorm.Expr("now()")).Error; err != nil {
+			tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menandai sesi event sebagai terhapus")
+		}
+
+		if err := tx.
+			Table("user_event_registrations").
+			Where(`user_event_registration_event_session_id IN (
+                SELECT event_session_id FROM event_sessions
+                WHERE event_session_event_id = ? AND event_session_masjid_id = ? AND event_session_deleted_at IS NOT NULL
+            ) AND user_event_registration_deleted_at IS NULL`, evID, masjidID).
+			Update("user_event_registration_deleted_at", gorm.Expr("now()")).Error; err != nil {
+			tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menandai registrasi sebagai terhapus")
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan")
+	}
+
+	msg := "Event berhasil dihapus"
+	if hard {
+		msg = "Event berhasil dihapus permanen (cascade)"
+	}
+	return helper.JsonOK(c, msg, nil)
 }

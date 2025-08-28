@@ -20,6 +20,29 @@ func NewMasjidTagController(db *gorm.DB) *MasjidTagController {
 	return &MasjidTagController{DB: db}
 }
 
+// -------------------------------
+// util: pagination lokal
+// -------------------------------
+// func getPagination(c *fiber.Ctx, defaultPage, defaultLimit int) (int, int) {
+// 	page := defaultPage
+// 	limit := defaultLimit
+
+// 	if v := strings.TrimSpace(c.Query("page")); v != "" {
+// 		if p, err := strconv.Atoi(v); err == nil && p > 0 {
+// 			page = p
+// 		}
+// 	}
+// 	if v := strings.TrimSpace(c.Query("limit")); v != "" {
+// 		if l, err := strconv.Atoi(v); err == nil && l > 0 {
+// 			limit = l
+// 		}
+// 	}
+// 	if limit > 100 {
+// 		limit = 100
+// 	}
+// 	return page, limit
+// }
+
 // ✅ Tambah tag masjid
 func (ctrl *MasjidTagController) CreateTag(c *fiber.Ctx) error {
 	var body dto.MasjidTagRequest
@@ -27,11 +50,30 @@ func (ctrl *MasjidTagController) CreateTag(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Input tidak valid")
 	}
 
-	tag := body.ToModel() // asumsi: *model.MasjidTagModel
+	// Trim + validasi sederhana di controller
+	body.MasjidTagName = strings.TrimSpace(body.MasjidTagName)
+	if body.MasjidTagName == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Nama tag wajib diisi")
+	}
+	if len(body.MasjidTagName) > 50 {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Nama tag maksimal 50 karakter")
+	}
+	// description: biarkan nil jika kosong
+	if body.MasjidTagDescription != nil {
+		desc := strings.TrimSpace(*body.MasjidTagDescription)
+		if desc == "" {
+			body.MasjidTagDescription = nil
+		} else {
+			body.MasjidTagDescription = &desc
+		}
+	}
+
+	tag := body.ToModel()
 
 	if err := ctrl.DB.WithContext(c.Context()).Create(tag).Error; err != nil {
 		// duplikasi: unique lower(name)
-		if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(strings.ToLower(err.Error()), "duplicate key") {
+		msg := strings.ToLower(err.Error())
+		if errors.Is(err, gorm.ErrDuplicatedKey) || strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique") {
 			return helper.JsonError(c, fiber.StatusConflict, "Tag sudah ada")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan tag")
@@ -40,16 +82,39 @@ func (ctrl *MasjidTagController) CreateTag(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Tag berhasil ditambahkan", dto.ToMasjidTagResponse(tag))
 }
 
-// ✅ Ambil semua tag
+// ✅ Ambil semua tag (support ?q=search & pagination ?page=&limit=)
 func (ctrl *MasjidTagController) GetAllTags(c *fiber.Ctx) error {
+	page, limit := getPagination(c, 1, 20)
+	q := strings.TrimSpace(c.Query("q"))
+
+	tx := ctrl.DB.WithContext(c.Context()).
+		Model(&model.MasjidTagModel{})
+
+	if q != "" {
+		like := "%" + q + "%"
+		tx = tx.Where("lower(masjid_tag_name) LIKE lower(?)", like)
+	}
+
+	var total int64
+	if err := tx.Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data tag")
+	}
+
 	var tags []model.MasjidTagModel
-	if err := ctrl.DB.WithContext(c.Context()).
+	if err := tx.
 		Order("masjid_tag_created_at DESC").
+		Offset((page - 1) * limit).
+		Limit(limit).
 		Find(&tags).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data tag")
 	}
 
-	return helper.JsonOK(c, "Berhasil mengambil semua tag", dto.ToMasjidTagResponseList(tags))
+	return helper.JsonOK(c, "Berhasil mengambil tag", fiber.Map{
+		"page":    page,
+		"limit":   limit,
+		"total":   total,
+		"results": dto.ToMasjidTagResponseList(tags),
+	})
 }
 
 // ✅ Hapus tag berdasarkan ID

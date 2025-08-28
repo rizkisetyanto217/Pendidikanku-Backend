@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -10,7 +12,6 @@ import (
 	"masjidku_backend/internals/features/masjids/lecture_sessions/quizzes/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/quizzes/model"
 	modelLecture "masjidku_backend/internals/features/masjids/lectures/main/model"
-
 
 	helper "masjidku_backend/internals/helpers"
 
@@ -133,58 +134,96 @@ func (ctrl *UserLectureSessionsQuizController) CreateUserLectureSessionsQuiz(c *
 }
 
 
+
 // =======================================================
 // Helpers (tetap return error; dipanggil internal)
 // =======================================================
-func (ctrl *UserLectureSessionsQuizController) RecalculateLectureSessionsGradeByID(userID, lectureSessionID, masjidID string) error {
-	// resolve lecture_session -> lecture_id
-	var session struct{ LectureID string }
+func (ctrl *UserLectureSessionsQuizController) RecalculateLectureSessionsGradeByID(
+	userID, lectureSessionID, masjidID string,
+) error {
+	// ---- Parse IDs ke uuid (validasi lebih dini) ----
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return fmt.Errorf("invalid userID: %w", err)
+	}
+	sid, err := uuid.Parse(lectureSessionID)
+	if err != nil {
+		return fmt.Errorf("invalid lectureSessionID: %w", err)
+	}
+	mid, err := uuid.Parse(masjidID)
+	if err != nil {
+		return fmt.Errorf("invalid masjidID: %w", err)
+	}
+
+	// ---- Resolve lecture_session -> lecture_id ----
+	var session struct {
+		LectureID uuid.UUID
+	}
 	if err := ctrl.DB.
 		Table("lecture_sessions").
 		Select("lecture_session_lecture_id AS lecture_id").
-		Where("lecture_session_id = ?", lectureSessionID).
-		Scan(&session).Error; err != nil || session.LectureID == "" {
+		Where("lecture_session_id = ?", sid).
+		Scan(&session).Error; err != nil {
 		return fmt.Errorf("failed to find session by ID: %w", err)
 	}
+	if session.LectureID == uuid.Nil {
+		return fmt.Errorf("failed to find session by ID: lecture_id is nil")
+	}
 
-	// avg nilai quiz user di sesi tsb
-	var avg float64
+	// ---- AVG nilai quiz user di sesi tsb (hasil bisa NULL) ----
+	var avg sql.NullFloat64
 	if err := ctrl.DB.
 		Table("user_lecture_sessions_quiz").
 		Select("AVG(user_lecture_sessions_quiz_grade_result)").
-		Where("user_lecture_sessions_quiz_user_id = ? AND user_lecture_sessions_quiz_lecture_session_id = ?",
-			userID, lectureSessionID).
+		Where("user_lecture_sessions_quiz_user_id = ? AND user_lecture_sessions_quiz_lecture_session_id = ?", uid, sid).
 		Scan(&avg).Error; err != nil {
 		return fmt.Errorf("failed to calculate quiz average: %w", err)
 	}
 
-	// upsert ke user_lecture_sessions
+	// ---- Upsert ke user_lecture_sessions (idempotent by (user_id, session_id)) ----
 	var existing modelUserLectureSession.UserLectureSessionModel
-	err := ctrl.DB.
-		Where("user_lecture_session_user_id = ? AND user_lecture_session_lecture_session_id = ?",
-			userID, lectureSessionID).
+	findErr := ctrl.DB.
+		Where("user_lecture_session_user_id = ? AND user_lecture_session_lecture_session_id = ?", uid, sid).
 		First(&existing).Error
 
-	if err != nil {
+	switch {
+	case errors.Is(findErr, gorm.ErrRecordNotFound):
+		// Create baru
 		newData := modelUserLectureSession.UserLectureSessionModel{
-			UserLectureSessionUserID:           userID,
-			UserLectureSessionLectureSessionID: lectureSessionID,
+			UserLectureSessionUserID:           uid,
+			UserLectureSessionLectureSessionID: sid,
 			UserLectureSessionLectureID:        session.LectureID,
-			UserLectureSessionMasjidID:         masjidID,
-			UserLectureSessionGradeResult:      &avg,
+			UserLectureSessionMasjidID:         mid,
+		}
+		if avg.Valid {
+			v := avg.Float64
+			newData.UserLectureSessionGradeResult = &v
 		}
 		if err := ctrl.DB.Create(&newData).Error; err != nil {
 			return fmt.Errorf("failed to create user_lecture_session: %w", err)
 		}
-	} else {
-		if err := ctrl.DB.
-			Model(&existing).
-			Update("user_lecture_session_grade_result", avg).Error; err != nil {
-			return fmt.Errorf("failed to update grade result: %w", err)
+
+	case findErr != nil:
+		// Error lain saat mencari
+		return fmt.Errorf("failed to get user_lecture_session: %w", findErr)
+
+	default:
+		// Update kolom grade saja (NULL jika avg tidak valid)
+		if avg.Valid {
+			if err := ctrl.DB.Model(&existing).
+				Update("user_lecture_session_grade_result", avg.Float64).Error; err != nil {
+				return fmt.Errorf("failed to update grade result: %w", err)
+			}
+		} else {
+			if err := ctrl.DB.Model(&existing).
+				Update("user_lecture_session_grade_result", gorm.Expr("NULL")).Error; err != nil {
+				return fmt.Errorf("failed to nullify grade result: %w", err)
+			}
 		}
 	}
 
-	return ctrl.UpdateUserLectureProgressByID(userID, session.LectureID, masjidID)
+	// ---- Update progress lecture user (pakai string lagi jika fungsi target pakai string) ----
+	return ctrl.UpdateUserLectureProgressByID(uid.String(), session.LectureID.String(), mid.String())
 }
 
 func (ctrl *UserLectureSessionsQuizController) UpdateUserLectureProgressByID(userID, lectureID, masjidID string) error {

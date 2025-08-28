@@ -23,7 +23,6 @@ func NewAuthController(db *gorm.DB) *AuthController {
 	return &AuthController{DB: db}
 }
 
-
 func (ac *AuthController) Me(c *fiber.Ctx) error {
 	// --- Guard user ---
 	userIDStr, ok := c.Locals("user_id").(string)
@@ -63,29 +62,29 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 	teacherSet := map[string]struct{}{}
 	studentSet := map[string]struct{}{}
 
-	// Admin/DKM
+	// Admin/DKM (pakai kolom singular)
 	{
 		var rows []masjidAdminModel.MasjidAdminModel
 		if err := ac.DB.
-			Where("masjid_admins_user_id = ? AND masjid_admins_is_active = true", user.ID).
+			Where("masjid_admin_user_id = ? AND masjid_admin_is_active = TRUE", user.ID).
 			Find(&rows).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data masjid admin")
 		}
 		for _, r := range rows {
-			adminSet[r.MasjidAdminsMasjidID.String()] = struct{}{}
+			adminSet[r.MasjidAdminMasjidID.String()] = struct{}{}
 		}
 	}
 
-	// Teacher
+	// Teacher (pakai kolom singular + model baru)
 	{
-		var rows []masjidAdminModel.MasjidTeacher // sesuaikan tipe/package
+		var rows []masjidAdminModel.MasjidTeacherModel
 		if err := ac.DB.
-			Where("masjid_teachers_user_id = ?", user.ID).
+			Where("masjid_teacher_user_id = ? AND masjid_teacher_deleted_at IS NULL", user.ID).
 			Find(&rows).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data masjid guru")
 		}
 		for _, r := range rows {
-			teacherSet[r.MasjidTeachersMasjidID] = struct{}{}
+			teacherSet[r.MasjidTeacherMasjidID.String()] = struct{}{}
 		}
 	}
 
@@ -117,7 +116,6 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 		}
 	}
 
-
 	toSlice := func(set map[string]struct{}) []string {
 		out := make([]string, 0, len(set))
 		for id := range set { out = append(out, id) }
@@ -130,7 +128,6 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 	// =========================
 	// Student: section aktif (mapping class→section + list section)
 	// =========================
-	// (kita tetap butuh classIDs internal untuk query section, tapi tidak dikirim kecuali diminta)
 	classIDsSet := map[string]struct{}{}
 	for _, e := range activeEnrolls { classIDsSet[e.ClassID.String()] = struct{}{} }
 	internalClassIDs := toSlice(classIDsSet)
@@ -213,7 +210,6 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 	})
 }
 
-
 func (ac *AuthController) UpdateUserName(c *fiber.Ctx) error {
 	userIDStr, ok := c.Locals("user_id").(string)
 	if !ok {
@@ -248,6 +244,7 @@ func (ac *AuthController) UpdateUserName(c *fiber.Ctx) error {
 		"message": "Username berhasil diperbarui",
 	})
 }
+
 
 func (ac *AuthController) Register(c *fiber.Ctx) error {
 	return service.Register(ac.DB, c)

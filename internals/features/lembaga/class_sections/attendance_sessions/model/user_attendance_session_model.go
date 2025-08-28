@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 /*
@@ -49,9 +50,9 @@ type UserClassAttendanceSessionModel struct {
 	UserClassAttendanceSessionsID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:user_class_attendance_sessions_id" json:"user_class_attendance_sessions_id"`
 
 	// FK & Unique guard (per session_id + user_class_id)
-	UserClassAttendanceSessionsSessionID    uuid.UUID `gorm:"type:uuid;not null;column:user_class_attendance_sessions_session_id;index:idx_ucas_session_status,priority:1;index:idx_ucas_masjid_session,priority:2;uniqueIndex:uq_ucas_session_userclass,priority:1" json:"user_class_attendance_sessions_session_id"`
-	UserClassAttendanceSessionsUserClassID  uuid.UUID `gorm:"type:uuid;not null;column:user_class_attendance_sessions_user_class_id;index:idx_ucas_userclass_created_at,priority:1;uniqueIndex:uq_ucas_session_userclass,priority:2" json:"user_class_attendance_sessions_user_class_id"`
-	UserClassAttendanceSessionsMasjidID     uuid.UUID `gorm:"type:uuid;not null;column:user_class_attendance_sessions_masjid_id;index:idx_ucas_masjid_created_at,priority:1;index:idx_ucas_masjid_session,priority:1" json:"user_class_attendance_sessions_masjid_id"`
+	UserClassAttendanceSessionsSessionID   uuid.UUID `gorm:"type:uuid;not null;column:user_class_attendance_sessions_session_id;index:idx_ucas_session_status,priority:1;index:idx_ucas_masjid_session,priority:2;uniqueIndex:uq_ucas_session_userclass,priority:1" json:"user_class_attendance_sessions_session_id"`
+	UserClassAttendanceSessionsUserClassID uuid.UUID `gorm:"type:uuid;not null;column:user_class_attendance_sessions_user_class_id;index:idx_ucas_userclass_created_at,priority:1;uniqueIndex:uq_ucas_session_userclass,priority:2" json:"user_class_attendance_sessions_user_class_id"`
+	UserClassAttendanceSessionsMasjidID    uuid.UUID `gorm:"type:uuid;not null;column:user_class_attendance_sessions_masjid_id;index:idx_ucas_masjid_created_at,priority:1;index:idx_ucas_masjid_session,priority:1" json:"user_class_attendance_sessions_masjid_id"`
 
 	// TEXT status ('present'|'sick'|'leave'|'absent')
 	UserClassAttendanceSessionsAttendanceStatus AttendanceStatus `gorm:"type:text;not null;column:user_class_attendance_sessions_attendance_status;index:idx_ucas_session_status,priority:2" json:"user_class_attendance_sessions_attendance_status"`
@@ -72,8 +73,9 @@ type UserClassAttendanceSessionModel struct {
 	UserClassAttendanceSessionsSearch *string `gorm:"type:tsvector;column:user_class_attendance_sessions_search;->" json:"-"`
 
 	// Timestamps
-	UserClassAttendanceSessionsCreatedAt time.Time  `gorm:"column:user_class_attendance_sessions_created_at;autoCreateTime" json:"user_class_attendance_sessions_created_at"`
-	UserClassAttendanceSessionsUpdatedAt *time.Time `gorm:"column:user_class_attendance_sessions_updated_at;autoUpdateTime" json:"user_class_attendance_sessions_updated_at,omitempty"`
+	UserClassAttendanceSessionsCreatedAt time.Time      `gorm:"column:user_class_attendance_sessions_created_at;autoCreateTime" json:"user_class_attendance_sessions_created_at"`
+	UserClassAttendanceSessionsUpdatedAt *time.Time     `gorm:"column:user_class_attendance_sessions_updated_at;autoUpdateTime" json:"user_class_attendance_sessions_updated_at,omitempty"`
+	UserClassAttendanceSessionsDeletedAt gorm.DeletedAt `gorm:"column:user_class_attendance_sessions_deleted_at;index" json:"user_class_attendance_sessions_deleted_at,omitempty"`
 }
 
 func (UserClassAttendanceSessionModel) TableName() string {

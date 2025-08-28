@@ -40,14 +40,13 @@ func (ctrl *LectureSessionsMaterialController) CreateLectureSessionsMaterial(c *
 	if !ok || masjidID == "" {
 		return resp.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan dalam token")
 	}
-	body.LectureSessionsMaterialMasjidID = masjidID
 
 	// Validasi payload
 	if err := validate2.Struct(&body); err != nil {
 		return resp.JsonError(c, fiber.StatusBadRequest, "Validasi gagal: "+err.Error())
 	}
 
-	// Cek duplikasi: per sesi & masjid
+	// Cek duplikasi: per (lecture_session_id, masjid_id) – hanya baris hidup (soft delete otomatis di-skip oleh GORM)
 	var existing model.LectureSessionsMaterialModel
 	if err := ctrl.DB.WithContext(c.Context()).
 		Where("lecture_sessions_material_lecture_session_id = ? AND lecture_sessions_material_masjid_id = ?",
@@ -59,21 +58,16 @@ func (ctrl *LectureSessionsMaterialController) CreateLectureSessionsMaterial(c *
 	}
 
 	// Simpan
-	material := model.LectureSessionsMaterialModel{
-		LectureSessionsMaterialSummary:          body.LectureSessionsMaterialSummary,
-		LectureSessionsMaterialTranscriptFull:   body.LectureSessionsMaterialTranscriptFull,
-		LectureSessionsMaterialLectureSessionID: body.LectureSessionsMaterialLectureSessionID,
-		LectureSessionsMaterialMasjidID:         masjidID,
-	}
-	if err := ctrl.DB.WithContext(c.Context()).Create(&material).Error; err != nil {
+	material := body.ToModel(masjidID)
+	if err := ctrl.DB.WithContext(c.Context()).Create(material).Error; err != nil {
 		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan materi: "+err.Error())
 	}
 
-	return resp.JsonCreated(c, "Materi berhasil ditambahkan", dto.ToLectureSessionsMaterialDTO(material))
+	return resp.JsonCreated(c, "Materi berhasil ditambahkan", dto.ToLectureSessionsMaterialDTO(*material))
 }
 
 // =============================
-// 📄 Get All Materials
+// 📄 Get All Materials (baris hidup saja)
 // =============================
 func (ctrl *LectureSessionsMaterialController) GetAllLectureSessionsMaterials(c *fiber.Ctx) error {
 	var materials []model.LectureSessionsMaterialModel
@@ -107,8 +101,9 @@ func (ctrl *LectureSessionsMaterialController) GetLectureSessionsMaterialByID(c 
 }
 
 // =============================
-// ✏️ PUT (Partial) Update Material by ID
+// ✏️ PATCH (Partial) Update Material by ID
 // =============================
+// Catatan: untuk "clear ke NULL", kirim string kosong "" pada field yang ingin dihapus.
 func (ctrl *LectureSessionsMaterialController) UpdateLectureSessionsMaterial(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if id == "" {
@@ -130,15 +125,28 @@ func (ctrl *LectureSessionsMaterialController) UpdateLectureSessionsMaterial(c *
 	}
 
 	updates := map[string]any{}
-	if s := strings.TrimSpace(body.LectureSessionsMaterialSummary); s != "" {
-		updates["lecture_sessions_material_summary"] = s
+
+	// Summary: pointer-aware + allow clear-to-NULL via "" (trimmed)
+	if body.LectureSessionsMaterialSummary != nil {
+		s := strings.TrimSpace(*body.LectureSessionsMaterialSummary)
+		if s == "" {
+			updates["lecture_sessions_material_summary"] = gorm.Expr("NULL")
+		} else {
+			updates["lecture_sessions_material_summary"] = s
+		}
 	}
-	if t := strings.TrimSpace(body.LectureSessionsMaterialTranscriptFull); t != "" {
-		updates["lecture_sessions_material_transcript_full"] = t
+
+	// Transcript: pointer-aware + allow clear-to-NULL via ""
+	if body.LectureSessionsMaterialTranscriptFull != nil {
+		t := strings.TrimSpace(*body.LectureSessionsMaterialTranscriptFull)
+		if t == "" {
+			updates["lecture_sessions_material_transcript_full"] = gorm.Expr("NULL")
+		} else {
+			updates["lecture_sessions_material_transcript_full"] = t
+		}
 	}
-	if sid := strings.TrimSpace(body.LectureSessionsMaterialLectureSessionID); sid != "" {
-		updates["lecture_sessions_material_lecture_session_id"] = sid
-	}
+
+	// Tidak mengizinkan pindah session_id melalui update biasa (hindari migrasi data tak sengaja)
 
 	if len(updates) == 0 {
 		return resp.JsonOK(c, "No changes", dto.ToLectureSessionsMaterialDTO(material))
@@ -160,7 +168,7 @@ func (ctrl *LectureSessionsMaterialController) UpdateLectureSessionsMaterial(c *
 }
 
 // =============================
-// ❌ Delete Material
+// ❌ Delete Material (soft delete)
 // =============================
 func (ctrl *LectureSessionsMaterialController) DeleteLectureSessionsMaterial(c *fiber.Ctx) error {
 	id := c.Params("id")
@@ -194,7 +202,7 @@ func (ctrl *LectureSessionsMaterialController) GetContentByLectureID(c *fiber.Ct
 		return resp.JsonOK(c, "success", []map[string]any{})
 	}
 
-	// Materials
+	// Materials (soft-deleted otomatis ter-skip)
 	var materials []model.LectureSessionsMaterialModel
 	if err := ctrl.DB.WithContext(c.Context()).
 		Where("lecture_sessions_material_lecture_session_id IN ?", sessionIDs).
@@ -202,7 +210,7 @@ func (ctrl *LectureSessionsMaterialController) GetContentByLectureID(c *fiber.Ct
 		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil materi")
 	}
 
-	// Assets
+	// Assets (soft-deleted otomatis ter-skip)
 	var assets []model.LectureSessionsAssetModel
 	if err := ctrl.DB.WithContext(c.Context()).
 		Where("lecture_sessions_asset_lecture_session_id IN ?", sessionIDs).

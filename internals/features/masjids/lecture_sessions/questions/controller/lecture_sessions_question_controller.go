@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	resp "masjidku_backend/internals/helpers"
 
@@ -248,13 +249,33 @@ func (ctrl *LectureSessionsQuestionController) UpdateLectureSessionsQuestionByID
 }
 
 // =============================
-// ❌ Delete Question by ID
+// ❌ Delete LectureSessionsQuestion by ID
 // =============================
 func (ctrl *LectureSessionsQuestionController) DeleteLectureSessionsQuestion(c *fiber.Ctx) error {
 	id := c.Params("id")
-	if err := ctrl.DB.WithContext(c.Context()).
-		Delete(&model.LectureSessionsQuestionModel{}, "lecture_sessions_question_id = ?", id).Error; err != nil {
+	if id == "" {
+		return resp.JsonError(c, fiber.StatusBadRequest, "id is required")
+	}
+
+	hard := strings.EqualFold(c.Query("hard"), "true") || c.Query("hard") == "1"
+
+	tx := ctrl.DB.WithContext(c.Context())
+	var db *gorm.DB
+	if hard {
+		db = tx.Unscoped().Delete(&model.LectureSessionsQuestionModel{}, "lecture_sessions_question_id = ?", id)
+	} else {
+		db = tx.Delete(&model.LectureSessionsQuestionModel{}, "lecture_sessions_question_id = ?", id)
+	}
+
+	if db.Error != nil {
 		return resp.JsonError(c, fiber.StatusInternalServerError, "Failed to delete question")
 	}
-	return resp.JsonDeleted(c, "Question deleted successfully", nil)
+	if db.RowsAffected == 0 {
+		return resp.JsonError(c, fiber.StatusNotFound, "Question not found")
+	}
+
+	return resp.JsonDeleted(c, "Question deleted successfully", fiber.Map{
+		"id":   id,
+		"hard": hard,
+	})
 }

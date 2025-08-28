@@ -58,9 +58,9 @@ CREATE TABLE IF NOT EXISTS user_classes (
 
   user_classes_notes TEXT,
 
-  user_classes_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  user_classes_updated_at TIMESTAMP,
-  user_classes_deleted_at TIMESTAMP
+  user_classes_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_classes_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_classes_deleted_at TIMESTAMPTZ
 );
 
 -- =========================================================
@@ -116,7 +116,7 @@ END$$;
 CREATE OR REPLACE FUNCTION fn_touch_user_classes_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.user_classes_updated_at := CURRENT_TIMESTAMP;
+  NEW.user_classes_updated_at := CURRENT_TIMESTAMPTZ;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
@@ -201,15 +201,17 @@ CREATE TABLE IF NOT EXISTS user_class_sections (
   CHECK (user_class_sections_unassigned_at IS NULL
          OR user_class_sections_unassigned_at >= user_class_sections_assigned_at),
 
-  user_class_sections_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  user_class_sections_updated_at TIMESTAMP
+  user_class_sections_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_class_sections_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_class_sections_deleted_at TIMESTAMPTZ NULL
 );
 
 -- ========== Unique & Indexes ==========
--- Unik: hanya 1 placement aktif (unassigned_at NULL) per enrolment
+-- Unik: hanya 1 placement aktif (unassigned_at NULL & belum soft-delete) per enrolment
 CREATE UNIQUE INDEX IF NOT EXISTS uq_user_class_sections_active_per_user_class
   ON user_class_sections(user_class_sections_user_class_id)
-  WHERE user_class_sections_unassigned_at IS NULL;
+  WHERE user_class_sections_unassigned_at IS NULL
+    AND user_class_sections_deleted_at IS NULL;
 
 -- indeks dasar
 CREATE INDEX IF NOT EXISTS idx_user_class_sections_user_class
@@ -228,12 +230,13 @@ CREATE INDEX IF NOT EXISTS idx_user_class_sections_unassigned_at
 CREATE INDEX IF NOT EXISTS idx_user_class_sections_masjid
   ON user_class_sections(user_class_sections_masjid_id);
 
--- partial index: yang aktif per tenant
+-- partial index: yang aktif per tenant (belum soft-delete)
 CREATE INDEX IF NOT EXISTS idx_user_class_sections_masjid_active
   ON user_class_sections(user_class_sections_masjid_id,
                          user_class_sections_user_class_id,
                          user_class_sections_section_id)
-  WHERE user_class_sections_unassigned_at IS NULL;
+  WHERE user_class_sections_unassigned_at IS NULL
+    AND user_class_sections_deleted_at IS NULL;
 
 -- (Tetap) Syarat untuk FK komposit di parent (kalau belum ada)
 DO $$

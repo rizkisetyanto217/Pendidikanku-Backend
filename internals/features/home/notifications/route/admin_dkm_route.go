@@ -26,6 +26,7 @@ func NotificationAdminRoutes(api fiber.Router, db *gorm.DB) {
 	notif := admin.Group("/notifications")
 	notif.Post("/", notifCtrl.CreateNotification)  // buat notifikasi (scoped masjid)
 	notif.Get("/", notifCtrl.GetAllNotifications)  // list internal (dashboard admin)
+	notif.Delete("/:id", notifCtrl.DeleteNotification)
 
 	// --- Notifikasi-User (penugasan/aksi admin) ---
 	notifUserCtrl := controller.NewNotificationUserController(db)

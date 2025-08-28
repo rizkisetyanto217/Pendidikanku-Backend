@@ -25,9 +25,9 @@ CREATE TABLE IF NOT EXISTS spp_billings (
   spp_billing_due_date    DATE,
   spp_billing_note        TEXT,
 
-  spp_billing_created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  spp_billing_updated_at  TIMESTAMP,
-  spp_billing_deleted_at  TIMESTAMP
+  spp_billing_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  spp_billing_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  spp_billing_deleted_at  TIMESTAMPTZ
 );
 
 -- FK ke academic_terms (jika belum)
@@ -153,11 +153,11 @@ CREATE TABLE IF NOT EXISTS user_spp_billings (
   user_spp_billing_amount_idr INT NOT NULL CHECK (user_spp_billing_amount_idr >= 0),
   user_spp_billing_status     VARCHAR(20) NOT NULL DEFAULT 'unpaid'
                               CHECK (user_spp_billing_status IN ('unpaid','paid','canceled')),
-  user_spp_billing_paid_at    TIMESTAMP,
+  user_spp_billing_paid_at    TIMESTAMPTZ,
   user_spp_billing_note       TEXT,
-  user_spp_billing_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  user_spp_billing_updated_at TIMESTAMP,
-  user_spp_billing_deleted_at TIMESTAMP
+  user_spp_billing_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_spp_billing_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_spp_billing_deleted_at TIMESTAMPTZ
 );
 
 DO $$
@@ -228,9 +228,9 @@ CREATE TABLE IF NOT EXISTS donations (
 
     donation_paid_at TIMESTAMP,
 
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
 
     -- XOR rule target umum vs SPP
     CONSTRAINT donations_target_xor_user_spp CHECK (
@@ -311,7 +311,7 @@ CREATE TABLE IF NOT EXISTS donation_likes (
   donation_like_is_liked BOOLEAN DEFAULT TRUE,
   donation_like_donation_id UUID NOT NULL REFERENCES donations(donation_id) ON DELETE CASCADE,
   donation_like_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  donation_like_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  donation_like_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   donation_like_masjid_id UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE,
   CONSTRAINT unique_donation_like UNIQUE (donation_like_donation_id, donation_like_user_id)
 );

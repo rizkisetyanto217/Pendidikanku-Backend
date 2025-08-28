@@ -3,10 +3,11 @@
 -- (Idempotent: aman di-run berkali-kali)
 -- =========================================================
 
+BEGIN;
+
 -- =========================================================
 -- SUBJECTS (timestamp only, slug unik per masjid)
 -- =========================================================
-
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS btree_gin;
@@ -25,9 +26,9 @@ CREATE TABLE IF NOT EXISTS subjects (
 
   subjects_is_active  BOOLEAN NOT NULL DEFAULT TRUE,
 
-  subjects_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  subjects_updated_at TIMESTAMP,
-  subjects_deleted_at TIMESTAMP
+  subjects_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  subjects_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  subjects_deleted_at TIMESTAMPTZ
 );
 
 -- ---------- MIGRASI: tambah kolom slug jika belum ada ----------
@@ -94,14 +95,13 @@ FROM final_slug f
 WHERE s.subjects_id = f.subjects_id
   AND (s.subjects_slug IS NULL OR trim(s.subjects_slug) = '');
 
--- Jadikan NOT NULL setelah backfill (jika masih ada data kosong, biarkan saja)
+-- Jadikan NOT NULL setelah backfill (best-effort)
 DO $$
 BEGIN
   BEGIN
     ALTER TABLE subjects
       ALTER COLUMN subjects_slug SET NOT NULL;
   EXCEPTION WHEN others THEN
-    -- skip jika masih ada kasus edge yang perlu dibereskan manual
     NULL;
   END;
 END$$;
@@ -123,32 +123,26 @@ BEGIN
 END$$;
 
 -- ---------- INDEXES ----------
--- Unik CODE per masjid (soft-delete aware, case-insensitive)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_subjects_code_per_masjid
   ON subjects (subjects_masjid_id, lower(subjects_code))
   WHERE subjects_deleted_at IS NULL;
 
--- Unik SLUG per masjid (soft-delete aware, case-insensitive)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_subjects_slug_per_masjid
   ON subjects (subjects_masjid_id, lower(subjects_slug))
   WHERE subjects_deleted_at IS NULL;
 
--- Daftar aktif per masjid (abaikan yang sudah dihapus)
 CREATE INDEX IF NOT EXISTS idx_subjects_active
   ON subjects(subjects_masjid_id)
   WHERE subjects_is_active = TRUE AND subjects_deleted_at IS NULL;
 
--- Trigram untuk pencarian nama (yang belum dihapus)
 CREATE INDEX IF NOT EXISTS gin_subjects_name_trgm
   ON subjects USING gin (subjects_name gin_trgm_ops)
   WHERE subjects_deleted_at IS NULL;
 
--- Filter tenant umum (alive)
 CREATE INDEX IF NOT EXISTS idx_subjects_masjid_alive
   ON subjects(subjects_masjid_id)
   WHERE subjects_deleted_at IS NULL;
 
--- Lookup cepat code/slug case-insensitive (non-unique)
 CREATE INDEX IF NOT EXISTS idx_subjects_code_ci_alive
   ON subjects (lower(subjects_code))
   WHERE subjects_deleted_at IS NULL;
@@ -158,7 +152,6 @@ CREATE INDEX IF NOT EXISTS idx_subjects_slug_ci_alive
   WHERE subjects_deleted_at IS NULL;
 
 -- ---------- TRIGGERS ----------
--- auto-update updated_at
 CREATE OR REPLACE FUNCTION fn_subjects_touch_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -178,7 +171,6 @@ BEGIN
     EXECUTE FUNCTION fn_subjects_touch_updated_at();
 END$$;
 
--- normalisasi ringan + auto-generate slug jika kosong (unik tetap ditangani index)
 CREATE OR REPLACE FUNCTION fn_subjects_normalize()
 RETURNS TRIGGER AS $$
 DECLARE v_slug text;
@@ -218,8 +210,6 @@ BEGIN
     EXECUTE FUNCTION fn_subjects_normalize();
 END$$;
 
-
-
 -- ===== Cleanup jejak lama berbasis academic_year (jika ada) =====
 DROP INDEX IF EXISTS idx_cs_masjid_class_year_active;
 DROP INDEX IF EXISTS idx_cs_masjid_subject_year_active;
@@ -245,7 +235,7 @@ CREATE TABLE IF NOT EXISTS class_subjects (
 
   class_subjects_is_active   BOOLEAN   NOT NULL DEFAULT TRUE,
   class_subjects_created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  class_subjects_updated_at  TIMESTAMPTZ,
+  class_subjects_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_subjects_deleted_at  TIMESTAMPTZ
 );
 
@@ -277,7 +267,6 @@ END$$;
 -- ===== FK ke academic_terms pada kolom class_subjects_term_id (beri nama eksplisit) =====
 DO $$
 BEGIN
-  -- tambahkan FK bila kolom ada dan FK belum ada
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name='class_subjects' AND column_name='class_subjects_term_id'
@@ -366,7 +355,6 @@ CREATE INDEX IF NOT EXISTS idx_cs_masjid_subject_term_active
   WHERE class_subjects_is_active = TRUE
     AND class_subjects_deleted_at IS NULL;
 
--- Index umum lain (tetap)
 CREATE INDEX IF NOT EXISTS idx_cs_term_alive
   ON class_subjects (class_subjects_term_id)
   WHERE class_subjects_deleted_at IS NULL;
@@ -390,7 +378,7 @@ CREATE INDEX IF NOT EXISTS gin_cs_desc_trgm
   WHERE class_subjects_deleted_at IS NULL;
 
 -- ===== Trigger updated_at =====
-CREATE OR REPLACE FUNCTION trg_set_timestamp_class_subjects()
+CREATE OR REPLACE FUNCTION trg_set_timestamptz_class_subjects()
 RETURNS trigger AS $$
 BEGIN
   NEW.class_subjects_updated_at = now();
@@ -398,19 +386,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS set_timestamp_class_subjects ON class_subjects;
-CREATE TRIGGER set_timestamp_class_subjects
+DROP TRIGGER IF EXISTS set_timestamptz_class_subjects ON class_subjects;
+CREATE TRIGGER set_timestamptz_class_subjects
 BEFORE UPDATE ON class_subjects
-FOR EACH ROW EXECUTE FUNCTION trg_set_timestamp_class_subjects();
-
-
-
-
+FOR EACH ROW EXECUTE FUNCTION trg_set_timestamptz_class_subjects();
 
 -- =========================================================
 -- CLASS SECTION SUBJECT TEACHERS (soft delete friendly)
 -- =========================================================
--- Kebutuhan UUID
 
 -- 1) TABLE
 CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
@@ -422,12 +405,12 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teachers_teacher_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
 
   class_section_subject_teachers_is_active   BOOLEAN   NOT NULL DEFAULT TRUE,
-  class_section_subject_teachers_created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  class_section_subject_teachers_updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  class_section_subject_teachers_deleted_at  TIMESTAMP NULL
+  class_section_subject_teachers_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_section_subject_teachers_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_section_subject_teachers_deleted_at  TIMESTAMPTZ NULL
 );
 
--- 1b) Tambah kolom deleted_at jika belum ada (idempotent untuk skema lama)
+-- 1b) Tambah kolom deleted_at jika belum ada (idempotent)
 DO $$
 BEGIN
   IF EXISTS (
@@ -439,7 +422,7 @@ BEGIN
       AND column_name='class_section_subject_teachers_deleted_at'
   ) THEN
     ALTER TABLE class_section_subject_teachers
-      ADD COLUMN class_section_subject_teachers_deleted_at TIMESTAMP;
+      ADD COLUMN class_section_subject_teachers_deleted_at TIMESTAMPTZ;
   END IF;
 END$$;
 
@@ -460,39 +443,36 @@ BEGIN
   END IF;
 END$$;
 
-
 -- 2.9) PRECONDITION untuk FK ke masjid_teachers:
---      butuh UNIQUE penuh di (masjid_id, user_id), bukan partial unique.
+--      wajib UNIQUE penuh di (masjid_teacher_masjid_id, masjid_teacher_user_id)
 DO $$
 DECLARE
   _dup_exists boolean;
 BEGIN
-  -- Cek duplikat pasangan (masjid_id, user_id) di SELURUH baris (termasuk yang deleted)
+  -- cek duplikat pasangan di SELURUH baris (termasuk soft-deleted)
   SELECT EXISTS (
     SELECT 1
     FROM masjid_teachers
-    GROUP BY masjid_teachers_masjid_id, masjid_teachers_user_id
+    GROUP BY masjid_teacher_masjid_id, masjid_teacher_user_id
     HAVING COUNT(*) > 1
   ) INTO _dup_exists;
 
   IF _dup_exists THEN
     RAISE EXCEPTION
-      'Tidak bisa menambah UNIQUE (masjid_id,user_id) di masjid_teachers: ada duplikat.
-       Bersihkan duplikat dulu (termasuk baris yang soft-deleted).';
+      'Tidak bisa tambah UNIQUE (masjid_teacher_masjid_id, masjid_teacher_user_id) di masjid_teachers: ada duplikat. Bersihkan dulu (termasuk baris soft-deleted).';
   END IF;
 
-  -- Tambah UNIQUE penuh jika belum ada
+  -- tambah UNIQUE penuh bila belum ada
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'uq_masjid_teachers_membership'
   ) THEN
     ALTER TABLE masjid_teachers
       ADD CONSTRAINT uq_masjid_teachers_membership
-      UNIQUE (masjid_teachers_masjid_id, masjid_teachers_user_id);
+      UNIQUE (masjid_teacher_masjid_id, masjid_teacher_user_id);
   END IF;
 END$$;
 
-
--- 3) TENANT-SAFE MEMBERSHIP: (masjid_id, teacher_user_id) → masjid_teachers(masjid_id, user_id)
+-- 3) TENANT-SAFE MEMBERSHIP FK → masjid_teachers (kolom yang benar)
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -504,13 +484,13 @@ BEGIN
         class_section_subject_teachers_masjid_id,
         class_section_subject_teachers_teacher_user_id
       )
-      REFERENCES masjid_teachers (masjid_teachers_masjid_id, masjid_teachers_user_id)
+      REFERENCES masjid_teachers (masjid_teacher_masjid_id, masjid_teacher_user_id)
       ON UPDATE CASCADE
       ON DELETE RESTRICT;
   END IF;
 END$$;
 
--- 4) UNIQUE aktif: cegah duplikasi assignment untuk (section, subject, teacher) yang aktif & belum dihapus
+-- 4) UNIQUE aktif: cegah duplikasi assignment aktif
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_active_unique
 ON class_section_subject_teachers (
   class_section_subject_teachers_section_id,
@@ -551,7 +531,7 @@ CREATE TRIGGER set_timestamp_class_sec_subj_teachers
 BEFORE UPDATE ON class_section_subject_teachers
 FOR EACH ROW EXECUTE FUNCTION trg_set_timestamp_class_sec_subj_teachers();
 
--- 7) VALIDASI TENANT: pastikan section & subject berada di masjid yang sama dgn row CSST
+-- 7) VALIDASI TENANT
 CREATE OR REPLACE FUNCTION fn_class_sec_subj_teachers_validate_tenant()
 RETURNS TRIGGER AS $BODY$
 DECLARE
@@ -560,13 +540,11 @@ DECLARE
   has_sec_deleted_at BOOLEAN := FALSE;
   has_sub_deleted_at BOOLEAN := FALSE;
 BEGIN
-  -- deteksi kolom deleted_at di class_sections
   SELECT EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_schema='public' AND table_name='class_sections' AND column_name='class_sections_deleted_at'
   ) INTO has_sec_deleted_at;
 
-  -- deteksi kolom deleted_at di subjects
   SELECT EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_schema='public' AND table_name='subjects' AND column_name='subjects_deleted_at'
@@ -633,4 +611,4 @@ BEGIN
   EXECUTE FUNCTION fn_class_sec_subj_teachers_validate_tenant();
 END$$;
 
-
+COMMIT;

@@ -2,7 +2,6 @@ package controller
 
 import (
 	"errors"
-	"time"
 
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/dto"
 	"masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
@@ -28,16 +27,23 @@ func (ctrl *UserLectureSessionController) CreateUserLectureSession(c *fiber.Ctx)
 		return resp.JsonError(c, fiber.StatusBadRequest, "Permintaan tidak valid")
 	}
 
-	// Validasi minimal (UUID format)
-	if _, err := uuid.Parse(req.UserLectureSessionUserID); err != nil {
+	// Validasi minimal
+	if req.UserLectureSessionUserID == uuid.Nil {
 		return resp.JsonError(c, fiber.StatusBadRequest, "User ID tidak valid")
 	}
-	if _, err := uuid.Parse(req.UserLectureSessionLectureSessionID); err != nil {
+	if req.UserLectureSessionLectureSessionID == uuid.Nil {
 		return resp.JsonError(c, fiber.StatusBadRequest, "Lecture Session ID tidak valid")
 	}
-	if req.UserLectureSessionMasjidID != "" {
-		if _, err := uuid.Parse(req.UserLectureSessionMasjidID); err != nil {
-			return resp.JsonError(c, fiber.StatusBadRequest, "Masjid ID tidak valid")
+	if req.UserLectureSessionLectureID == uuid.Nil {
+		return resp.JsonError(c, fiber.StatusBadRequest, "Lecture ID tidak valid")
+	}
+	if req.UserLectureSessionMasjidID == uuid.Nil {
+		return resp.JsonError(c, fiber.StatusBadRequest, "Masjid ID tidak valid")
+	}
+	if req.UserLectureSessionGradeResult != nil {
+		g := *req.UserLectureSessionGradeResult
+		if g < 0 || g > 100 {
+			return resp.JsonError(c, fiber.StatusBadRequest, "Grade harus di antara 0 sampai 100")
 		}
 	}
 
@@ -50,14 +56,15 @@ func (ctrl *UserLectureSessionController) CreateUserLectureSession(c *fiber.Ctx)
 
 	if err == nil {
 		// Update sebagian field bila dikirim
-		if req.UserLectureSessionMasjidID != "" {
+		if req.UserLectureSessionMasjidID != uuid.Nil {
 			existing.UserLectureSessionMasjidID = req.UserLectureSessionMasjidID
+		}
+		if req.UserLectureSessionLectureID != uuid.Nil {
+			existing.UserLectureSessionLectureID = req.UserLectureSessionLectureID
 		}
 		if req.UserLectureSessionGradeResult != nil {
 			existing.UserLectureSessionGradeResult = req.UserLectureSessionGradeResult
 		}
-		now := time.Now()
-		existing.UserLectureSessionUpdatedAt = &now
 
 		if err := ctrl.DB.WithContext(c.Context()).Save(&existing).Error; err != nil {
 			return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui user lecture session")
@@ -84,23 +91,21 @@ func (ctrl *UserLectureSessionController) GetAllUserLectureSessions(c *fiber.Ctx
 	if err := ctrl.DB.WithContext(c.Context()).Find(&records).Error; err != nil {
 		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
-	result := make([]dto.UserLectureSessionDTO, 0, len(records))
-	for _, r := range records {
-		result = append(result, dto.ToUserLectureSessionDTO(r))
-	}
+	result := dto.ToUserLectureSessionDTOList(records)
 	return resp.JsonOK(c, "OK", result)
 }
 
 // ===================== GET BY ID =====================
 func (ctrl *UserLectureSessionController) GetUserLectureSessionByID(c *fiber.Ctx) error {
 	idStr := c.Params("id")
-	if _, err := uuid.Parse(idStr); err != nil {
+	id, err := uuid.Parse(idStr)
+	if err != nil {
 		return resp.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	var record model.UserLectureSessionModel
 	if err := ctrl.DB.WithContext(c.Context()).
-		First(&record, "user_lecture_session_id = ?", idStr).Error; err != nil {
+		First(&record, "user_lecture_session_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return resp.JsonError(c, fiber.StatusNotFound, "Record tidak ditemukan")
 		}
@@ -110,15 +115,17 @@ func (ctrl *UserLectureSessionController) GetUserLectureSessionByID(c *fiber.Ctx
 }
 
 // ===================== UPDATE (partial) =====================
+// (masih memakai CreateUserLectureSessionRequest; kalau mau lebih presisi, buat UpdateRequest dengan pointer)
 func (ctrl *UserLectureSessionController) UpdateUserLectureSession(c *fiber.Ctx) error {
 	idStr := c.Params("id")
-	if _, err := uuid.Parse(idStr); err != nil {
+	id, err := uuid.Parse(idStr)
+	if err != nil {
 		return resp.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	var record model.UserLectureSessionModel
 	if err := ctrl.DB.WithContext(c.Context()).
-		First(&record, "user_lecture_session_id = ?", idStr).Error; err != nil {
+		First(&record, "user_lecture_session_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return resp.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
@@ -132,29 +139,24 @@ func (ctrl *UserLectureSessionController) UpdateUserLectureSession(c *fiber.Ctx)
 
 	// Partial update
 	if req.UserLectureSessionGradeResult != nil {
+		g := *req.UserLectureSessionGradeResult
+		if g < 0 || g > 100 {
+			return resp.JsonError(c, fiber.StatusBadRequest, "Grade harus di antara 0 sampai 100")
+		}
 		record.UserLectureSessionGradeResult = req.UserLectureSessionGradeResult
 	}
-	if req.UserLectureSessionLectureSessionID != "" {
-		if _, err := uuid.Parse(req.UserLectureSessionLectureSessionID); err != nil {
-			return resp.JsonError(c, fiber.StatusBadRequest, "Lecture Session ID tidak valid")
-		}
+	if req.UserLectureSessionLectureSessionID != uuid.Nil {
 		record.UserLectureSessionLectureSessionID = req.UserLectureSessionLectureSessionID
 	}
-	if req.UserLectureSessionUserID != "" {
-		if _, err := uuid.Parse(req.UserLectureSessionUserID); err != nil {
-			return resp.JsonError(c, fiber.StatusBadRequest, "User ID tidak valid")
-		}
+	if req.UserLectureSessionLectureID != uuid.Nil {
+		record.UserLectureSessionLectureID = req.UserLectureSessionLectureID
+	}
+	if req.UserLectureSessionUserID != uuid.Nil {
 		record.UserLectureSessionUserID = req.UserLectureSessionUserID
 	}
-	if req.UserLectureSessionMasjidID != "" {
-		if _, err := uuid.Parse(req.UserLectureSessionMasjidID); err != nil {
-			return resp.JsonError(c, fiber.StatusBadRequest, "Masjid ID tidak valid")
-		}
+	if req.UserLectureSessionMasjidID != uuid.Nil {
 		record.UserLectureSessionMasjidID = req.UserLectureSessionMasjidID
 	}
-
-	now := time.Now()
-	record.UserLectureSessionUpdatedAt = &now
 
 	if err := ctrl.DB.WithContext(c.Context()).Save(&record).Error; err != nil {
 		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui data user lecture session")
@@ -171,6 +173,7 @@ func (ctrl *UserLectureSessionController) DeleteUserLectureSession(c *fiber.Ctx)
 		return resp.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
+	// Soft delete (default; dengan gorm.DeletedAt akan mengisi deleted_at)
 	if err := ctrl.DB.WithContext(c.Context()).
 		Delete(&model.UserLectureSessionModel{}, "user_lecture_session_id = ?", id).Error; err != nil {
 		return resp.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus data")

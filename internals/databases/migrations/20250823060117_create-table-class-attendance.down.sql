@@ -9,10 +9,10 @@ DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_trigger t
-    WHERE t.tgname = 'set_timestamp_ucas'
+    WHERE t.tgname = 'set_timestamptz_ucas'
       AND t.tgrelid = 'public.user_class_attendance_sessions'::regclass
   ) THEN
-    EXECUTE 'DROP TRIGGER set_timestamp_ucas ON public.user_class_attendance_sessions';
+    EXECUTE 'DROP TRIGGER set_timestamptz_ucas ON public.user_class_attendance_sessions';
   END IF;
 END$$;
 
@@ -53,7 +53,7 @@ DROP INDEX IF EXISTS public.idx_ucae_session_status;
 DROP TABLE IF EXISTS public.user_class_attendance_sessions;
 
 -- 5) Drop function trigger milik UCAS
-DROP FUNCTION IF EXISTS public.trg_set_timestamp_ucas();
+DROP FUNCTION IF EXISTS public.trg_set_timestamptz_ucas();
 
 
 -- =========================================================

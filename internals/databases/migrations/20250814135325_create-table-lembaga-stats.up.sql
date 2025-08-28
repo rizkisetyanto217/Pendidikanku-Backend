@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS lembaga_stats (
   lembaga_stats_active_students INT NOT NULL DEFAULT 0,
   lembaga_stats_active_teachers INT NOT NULL DEFAULT 0,
 
-  lembaga_stats_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  lembaga_stats_updated_at TIMESTAMP
+  lembaga_stats_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  lembaga_stats_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Guard non-negatif (idempotent)
@@ -114,9 +114,9 @@ CREATE TABLE IF NOT EXISTS user_class_attendance_semester_stats (
   user_class_attendance_semester_stats_grade_passed_count INT,
   user_class_attendance_semester_stats_grade_failed_count INT,
 
-  user_class_attendance_semester_stats_last_aggregated_at TIMESTAMP,
-  user_class_attendance_semester_stats_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  user_class_attendance_semester_stats_updated_at TIMESTAMP
+  user_class_attendance_semester_stats_last_aggregated_at TIMESTAMPTZ,
+  user_class_attendance_semester_stats_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_class_attendance_semester_stats_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ============================

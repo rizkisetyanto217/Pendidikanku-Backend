@@ -14,9 +14,9 @@ CREATE TABLE IF NOT EXISTS announcement_themes (
   announcement_themes_description TEXT,
   announcement_themes_is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
-  announcement_themes_created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  announcement_themes_updated_at  TIMESTAMP,
-  announcement_themes_deleted_at  TIMESTAMP,
+  announcement_themes_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  announcement_themes_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  announcement_themes_deleted_at  TIMESTAMPTZ,
 
   CONSTRAINT ck_announcement_themes_slug
     CHECK (announcement_themes_slug ~ '^[a-z0-9-]+$')
@@ -87,9 +87,9 @@ CREATE TABLE IF NOT EXISTS announcements (
   announcement_attachment_url TEXT,
   announcement_is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
-  announcement_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  announcement_updated_at TIMESTAMP,
-  announcement_deleted_at TIMESTAMP,
+  announcement_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  announcement_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  announcement_deleted_at TIMESTAMPTZ,
 
   -- FTS
   announcement_search tsvector GENERATED ALWAYS AS (

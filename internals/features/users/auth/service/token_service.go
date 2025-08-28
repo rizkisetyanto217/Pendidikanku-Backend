@@ -92,6 +92,10 @@ func RefreshToken(db *gorm.DB, c *fiber.Ctx) error {
 // Helper: ambil daftar masjid per peran + union untuk user
 //   - Toleran jika tabel peran belum ada (dev friendly, tanpa pgconn).
 // ==========================================================
+// ==========================================================
+// Helper: ambil daftar masjid per peran + union untuk user
+//   - Toleran jika tabel peran belum ada (dev friendly, tanpa pgconn).
+// ==========================================================
 func collectMasjidIDsFull(db *gorm.DB, userID uuid.UUID) (
 	adminIDs []string,
 	teacherIDs []string,
@@ -114,25 +118,25 @@ func collectMasjidIDsFull(db *gorm.DB, userID uuid.UUID) (
 	if mig.HasTable(&matModel.MasjidAdminModel{}) || mig.HasTable("masjid_admins") {
 		var rows []matModel.MasjidAdminModel
 		if e := db.
-			Where("masjid_admins_user_id = ? AND masjid_admins_is_active = true", userID).
+			Where("masjid_admin_user_id = ? AND masjid_admin_is_active = TRUE", userID).
 			Find(&rows).Error; e != nil {
 			return nil, nil, nil, nil, e
 		}
 		for _, r := range rows {
-			adminSet[r.MasjidAdminsMasjidID.String()] = struct{}{}
+			adminSet[r.MasjidAdminMasjidID.String()] = struct{}{}
 		}
 	}
 
-	// 2) Teacher → masjid_teachers — hanya query jika tabel ada
-	if mig.HasTable(&matModel.MasjidTeacher{}) || mig.HasTable("masjid_teachers") {
-		var rows []matModel.MasjidTeacher
+	// 2) Teacher → masjid_teachers — hanya query jika tabel ada (singular cols + soft delete)
+	if mig.HasTable(&matModel.MasjidTeacherModel{}) || mig.HasTable("masjid_teachers") {
+		var rows []matModel.MasjidTeacherModel
 		if e := db.
-			Where("masjid_teachers_user_id = ? AND masjid_teachers_is_active = true", userID).
+			Where("masjid_teacher_user_id = ? AND masjid_teacher_deleted_at IS NULL", userID).
 			Find(&rows).Error; e != nil {
 			return nil, nil, nil, nil, e
 		}
 		for _, r := range rows {
-			teacherSet[r.MasjidTeachersMasjidID] = struct{}{}
+			teacherSet[r.MasjidTeacherMasjidID.String()] = struct{}{}
 		}
 	}
 
@@ -141,7 +145,6 @@ func collectMasjidIDsFull(db *gorm.DB, userID uuid.UUID) (
 		var rows []struct {
 			MasjidID *uuid.UUID `gorm:"column:user_classes_masjid_id"`
 		}
-
 		if e := db.
 			Model(&classModel.UserClassesModel{}).
 			Where(`
@@ -153,7 +156,6 @@ func collectMasjidIDsFull(db *gorm.DB, userID uuid.UUID) (
 			Find(&rows).Error; e != nil {
 			return nil, nil, nil, nil, e
 		}
-
 		for _, r := range rows {
 			if r.MasjidID != nil {
 				studentSet[r.MasjidID.String()] = struct{}{}
@@ -162,33 +164,20 @@ func collectMasjidIDsFull(db *gorm.DB, userID uuid.UUID) (
 	}
 
 	// Build slices
-	for id := range adminSet {
-		adminIDs = append(adminIDs, id)
-	}
-	for id := range teacherSet {
-		teacherIDs = append(teacherIDs, id)
-	}
-	for id := range studentSet {
-		studentIDs = append(studentIDs, id)
-	}
+	for id := range adminSet   { adminIDs = append(adminIDs, id) }
+	for id := range teacherSet { teacherIDs = append(teacherIDs, id) }
+	for id := range studentSet { studentIDs = append(studentIDs, id) }
 
 	// Union
 	unionMap := map[string]struct{}{}
-	for id := range adminSet {
-		unionMap[id] = struct{}{}
-	}
-	for id := range teacherSet {
-		unionMap[id] = struct{}{}
-	}
-	for id := range studentSet {
-		unionMap[id] = struct{}{}
-	}
-	for id := range unionMap {
-		unionIDs = append(unionIDs, id)
-	}
+	for id := range adminSet   { unionMap[id] = struct{}{} }
+	for id := range teacherSet { unionMap[id] = struct{}{} }
+	for id := range studentSet { unionMap[id] = struct{}{} }
+	for id := range unionMap   { unionIDs = append(unionIDs, id) }
 
 	return
 }
+
 
 
 // ========================== Mini-repo (tanpa dependensi baru) ==========================

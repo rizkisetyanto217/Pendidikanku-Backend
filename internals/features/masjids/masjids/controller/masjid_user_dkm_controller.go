@@ -218,10 +218,10 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 
 		// e) Jadikan pembuat sebagai admin masjid
 		admin := masjidAdminModel.MasjidAdminModel{
-			MasjidAdminsID:       uuid.New(),
-			MasjidAdminsMasjidID: newMasjid.MasjidID,
-			MasjidAdminsUserID:   userID,
-			MasjidAdminsIsActive: true,
+			MasjidAdminID:       uuid.New(),
+			MasjidAdminMasjidID: newMasjid.MasjidID,
+			MasjidAdminUserID:   userID,
+			MasjidAdminIsActive: true,
 		}
 		if err := tx.Create(&admin).Error; err != nil {
 			return fiber.NewError(500, "Gagal membuat admin masjid")

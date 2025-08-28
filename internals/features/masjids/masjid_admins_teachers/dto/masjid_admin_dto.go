@@ -14,9 +14,9 @@ import (
 
 // pakai pointer di is_active biar optional; default = true
 type MasjidAdminRequest struct {
-	MasjidAdminsMasjidID uuid.UUID `json:"masjid_admins_masjid_id"` // bisa dioverride dari path/token
-	MasjidAdminsUserID   uuid.UUID `json:"masjid_admins_user_id"`
-	MasjidAdminsIsActive *bool     `json:"masjid_admins_is_active,omitempty"`
+	MasjidAdminMasjidID uuid.UUID `json:"masjid_admin_masjid_id"` // bisa dioverride dari path/token
+	MasjidAdminUserID   uuid.UUID `json:"masjid_admin_user_id"`
+	MasjidAdminIsActive *bool     `json:"masjid_admin_is_active,omitempty"`
 }
 
 // =========================
@@ -24,12 +24,12 @@ type MasjidAdminRequest struct {
 // =========================
 
 type MasjidAdminResponse struct {
-	MasjidAdminsID        uuid.UUID `json:"masjid_admins_id"`
-	MasjidAdminsMasjidID  uuid.UUID `json:"masjid_admins_masjid_id"`
-	MasjidAdminsUserID    uuid.UUID `json:"masjid_admins_user_id"`
-	MasjidAdminsIsActive  bool      `json:"masjid_admins_is_active"`
-	MasjidAdminCreatedAt  time.Time `json:"masjid_admin_created_at"`
-	MasjidAdminUpdatedAt  time.Time `json:"masjid_admin_updated_at"`
+	MasjidAdminID        uuid.UUID `json:"masjid_admin_id"`
+	MasjidAdminMasjidID  uuid.UUID `json:"masjid_admin_masjid_id"`
+	MasjidAdminUserID    uuid.UUID `json:"masjid_admin_user_id"`
+	MasjidAdminIsActive  bool      `json:"masjid_admin_is_active"`
+	MasjidAdminCreatedAt time.Time `json:"masjid_admin_created_at"`
+	MasjidAdminUpdatedAt time.Time `json:"masjid_admin_updated_at"`
 	// kalau mau expose soft delete timestamp, buka ini:
 	// MasjidAdminDeletedAt *time.Time `json:"masjid_admin_deleted_at,omitempty"`
 }
@@ -39,31 +39,41 @@ type MasjidAdminResponse struct {
 // =========================
 
 // DTO -> Model (untuk CREATE)
-// Catatan: controller boleh override MasjidAdminsMasjidID dari path/token
+// Catatan: controller boleh override MasjidAdminMasjidID dari path/token
 func (r *MasjidAdminRequest) ToModelCreate() *model.MasjidAdminModel {
 	if r == nil {
 		return nil
 	}
 	active := true
-	if r.MasjidAdminsIsActive != nil {
-		active = *r.MasjidAdminsIsActive
+	if r.MasjidAdminIsActive != nil {
+		active = *r.MasjidAdminIsActive
 	}
 	return &model.MasjidAdminModel{
-		MasjidAdminsMasjidID: r.MasjidAdminsMasjidID,
-		MasjidAdminsUserID:   r.MasjidAdminsUserID,
-		MasjidAdminsIsActive: active,
+		MasjidAdminMasjidID: r.MasjidAdminMasjidID,
+		MasjidAdminUserID:   r.MasjidAdminUserID,
+		MasjidAdminIsActive: active,
 	}
 }
 
 // Model -> DTO (untuk response GET/POST/PUT)
 func ToMasjidAdminResponse(m *model.MasjidAdminModel) MasjidAdminResponse {
 	return MasjidAdminResponse{
-		MasjidAdminsID:       m.MasjidAdminsID,
-		MasjidAdminsMasjidID: m.MasjidAdminsMasjidID,
-		MasjidAdminsUserID:   m.MasjidAdminsUserID,
-		MasjidAdminsIsActive: m.MasjidAdminsIsActive,
-
+		MasjidAdminID:        m.MasjidAdminID,
+		MasjidAdminMasjidID:  m.MasjidAdminMasjidID,
+		MasjidAdminUserID:    m.MasjidAdminUserID,
+		MasjidAdminIsActive:  m.MasjidAdminIsActive,
 		MasjidAdminCreatedAt: m.MasjidAdminCreatedAt,
 		MasjidAdminUpdatedAt: m.MasjidAdminUpdatedAt,
+	}
+}
+
+// Opsional: helper untuk partial update (hanya is_active yang optional)
+func (r *MasjidAdminRequest) ApplyPartial(m *model.MasjidAdminModel) {
+	if r == nil || m == nil {
+		return
+	}
+	// Jangan ubah FK kalau memang tidak ingin mengizinkan update FK di endpoint
+	if r.MasjidAdminIsActive != nil {
+		m.MasjidAdminIsActive = *r.MasjidAdminIsActive
 	}
 }

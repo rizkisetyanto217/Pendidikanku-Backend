@@ -181,3 +181,48 @@ func (ctrl *NotificationController) GetAllNotificationsForUser(c *fiber.Ctx) err
 	}
 	return helper.JsonList(c, dto.ToNotificationResponseList(notifs), pagination)
 }
+
+
+// 🛑 DELETE /api/a/notifications/:id[?hard=true]
+func (ctrl *NotificationController) DeleteNotification(c *fiber.Ctx) error {
+	// param id
+	idStr := c.Params("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Format ID tidak valid")
+	}
+
+	// ambil data (alive only)
+	var notif model.NotificationModel
+	if err := ctrl.DB.
+		Where("notification_id = ?", id).
+		First(&notif).Error; err != nil {
+		// GORM default exclude soft-deleted — kalau mau menampilkan pesan sama
+		// untuk yang sudah terhapus, cukup tindak-nyatakan not found
+		return helper.JsonError(c, fiber.StatusNotFound, "Notifikasi tidak ditemukan")
+	}
+
+	// otorisasi tenant (jika notifikasi terikat masjid)
+	// global notification (notification_masjid_id == NULL) bebas dari scope ini;
+	// kalau ingin dibatasi, tambahkan pengecekan role di sini.
+	if notif.NotificationMasjidID != nil {
+		masjidID, terr := helper.GetMasjidIDFromTokenPreferTeacher(c)
+		if terr != nil || *notif.NotificationMasjidID != masjidID {
+			return helper.JsonError(c, fiber.StatusForbidden, "Tidak punya akses untuk menghapus notifikasi ini")
+		}
+	}
+
+	// soft delete (default) atau hard delete (opsional)
+	hard := c.Query("hard") == "true"
+	if hard {
+		if err := ctrl.DB.Unscoped().Delete(&notif).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus notifikasi (hard)")
+		}
+		return helper.JsonOK(c, "Notifikasi berhasil dihapus permanen", nil)
+	}
+
+	if err := ctrl.DB.Delete(&notif).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus notifikasi")
+	}
+	return helper.JsonOK(c, "Notifikasi berhasil dihapus", nil)
+}

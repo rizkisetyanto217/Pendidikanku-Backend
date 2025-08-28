@@ -2,11 +2,12 @@ package controller
 
 import (
 	"fmt"
-	"masjidku_backend/internals/features/home/qoutes/dto"
-	"masjidku_backend/internals/features/home/qoutes/model"
-	helpers "masjidku_backend/internals/helpers" // <- pastikan path sesuai: contoh "internals/helpers"
 	"math"
 	"strconv"
+
+	"masjidku_backend/internals/features/home/qoutes/dto"
+	"masjidku_backend/internals/features/home/qoutes/model"
+	helpers "masjidku_backend/internals/helpers"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -35,16 +36,21 @@ func (ctrl *QuoteController) CreateQuote(c *fiber.Ctx) error {
 		return helpers.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Cari DisplayOrder tertinggi
+	// Ambil MAX(order) hanya baris aktif (soft delete di-skip default)
 	var maxOrder int
 	if err := ctrl.DB.Model(&model.QuoteModel{}).
-		Select("COALESCE(MAX(display_order), 0)").
+		Select("COALESCE(MAX(quote_display_order), 0)").
 		Scan(&maxOrder).Error; err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to get max display order")
 	}
 
 	quote := req.ToModel()
-	quote.DisplayOrder = maxOrder + 1 // ✅ Auto increment
+
+	// Jika client tidak kirim order → set auto increment
+	if quote.QuoteDisplayOrder == nil {
+		next := maxOrder + 1
+		quote.QuoteDisplayOrder = &next
+	}
 
 	if err := ctrl.DB.Create(quote).Error; err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to create quote")
@@ -64,46 +70,44 @@ func (ctrl *QuoteController) CreateQuotes(c *fiber.Ctx) error {
 	if len(reqs) == 0 {
 		return helpers.JsonError(c, fiber.StatusBadRequest, "Payload must be a non-empty array")
 	}
-
-	// Validasi setiap item
-	for i, req := range reqs {
-		if err := validateQuote.Struct(&req); err != nil {
+	for i, r := range reqs {
+		if err := validateQuote.Struct(&r); err != nil {
 			return helpers.JsonError(c, fiber.StatusBadRequest, "Error in item "+fmt.Sprint(i+1)+": "+err.Error())
 		}
 	}
 
-	// Ambil DisplayOrder tertinggi saat ini
+	// Base MAX(order)
 	var maxOrder int
 	if err := ctrl.DB.Model(&model.QuoteModel{}).
-		Select("COALESCE(MAX(display_order), 0)").
+		Select("COALESCE(MAX(quote_display_order), 0)").
 		Scan(&maxOrder).Error; err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to get max display order")
 	}
 
-	// Konversi & assign DisplayOrder
-	var quotes []model.QuoteModel
-	for i, req := range reqs {
-		quote := req.ToModel()
-		quote.DisplayOrder = maxOrder + i + 1 // ✅ Increment sesuai urutan
-		quotes = append(quotes, *quote)
+	quotes := make([]model.QuoteModel, 0, len(reqs))
+	next := maxOrder
+	for _, r := range reqs {
+		q := r.ToModel()
+		if q.QuoteDisplayOrder == nil { // hanya auto jika kosong
+			next++
+			q.QuoteDisplayOrder = &next
+		}
+		quotes = append(quotes, *q)
 	}
 
-	// Simpan dalam batch
 	if err := ctrl.DB.Create(&quotes).Error; err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to create quotes")
 	}
 
-	// Ubah ke DTO untuk respons
-	result := make([]dto.QuoteDTO, 0, len(quotes))
+	out := make([]dto.QuoteDTO, 0, len(quotes))
 	for _, q := range quotes {
-		result = append(result, dto.ToQuoteDTO(q))
+		out = append(out, dto.ToQuoteDTO(q))
 	}
-
-	return helpers.JsonCreated(c, "Quotes created", result)
+	return helpers.JsonCreated(c, "Quotes created", out)
 }
 
 // =============================
-// 🔄 Update Quote
+// 🔄 Update Quote (partial)
 // =============================
 func (ctrl *QuoteController) UpdateQuote(c *fiber.Ctx) error {
 	id := c.Params("id")
@@ -124,10 +128,17 @@ func (ctrl *QuoteController) UpdateQuote(c *fiber.Ctx) error {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to get quote")
 	}
 
-	quote.QuoteText = body.QuoteText
-	quote.IsPublished = body.IsPublished
-	quote.DisplayOrder = body.DisplayOrder
-	// ❌ Jangan sentuh CreatedAt di update
+	// Partial apply
+	if body.QuoteText != nil {
+		quote.QuoteText = *body.QuoteText
+	}
+	if body.QuoteIsPublished != nil {
+		quote.QuoteIsPublished = *body.QuoteIsPublished
+	}
+	if body.QuoteDisplayOrder != nil {
+		// bisa set ke nilai tertentu, atau clear ke NULL jika client kirim null
+		quote.QuoteDisplayOrder = body.QuoteDisplayOrder
+	}
 
 	if err := ctrl.DB.Save(&quote).Error; err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to update quote")
@@ -137,12 +148,12 @@ func (ctrl *QuoteController) UpdateQuote(c *fiber.Ctx) error {
 }
 
 // =============================
-// 🗑️ Delete Quote
+// 🗑️ Delete Quote (soft delete)
 // =============================
 func (ctrl *QuoteController) DeleteQuote(c *fiber.Ctx) error {
 	id := c.Params("id")
 
-	// Optional: cek dulu ada atau tidak
+	// Opsional: cepat cek eksistensi
 	var exists int64
 	if err := ctrl.DB.Model(&model.QuoteModel{}).
 		Where("quote_id = ?", id).
@@ -156,7 +167,6 @@ func (ctrl *QuoteController) DeleteQuote(c *fiber.Ctx) error {
 	if err := ctrl.DB.Delete(&model.QuoteModel{}, "quote_id = ?", id).Error; err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to delete quote")
 	}
-
 	return helpers.JsonDeleted(c, "Quote deleted", fiber.Map{"id": id})
 }
 
@@ -165,7 +175,9 @@ func (ctrl *QuoteController) DeleteQuote(c *fiber.Ctx) error {
 // =============================
 func (ctrl *QuoteController) GetAllQuotes(c *fiber.Ctx) error {
 	var quotes []model.QuoteModel
-	if err := ctrl.DB.Order("display_order ASC").Find(&quotes).Error; err != nil {
+	if err := ctrl.DB.
+		Order("quote_display_order ASC NULLS LAST, quote_created_at ASC").
+		Find(&quotes).Error; err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve quotes")
 	}
 
@@ -174,14 +186,13 @@ func (ctrl *QuoteController) GetAllQuotes(c *fiber.Ctx) error {
 		result = append(result, dto.ToQuoteDTO(q))
 	}
 
-	// Beri pagination sederhana (full-list)
+	// simple pagination (full list)
 	pagination := fiber.Map{
 		"page":        1,
 		"page_size":   len(result),
 		"total_data":  len(result),
 		"total_pages": 1,
 	}
-
 	return helpers.JsonList(c, result, pagination)
 }
 
@@ -222,7 +233,10 @@ func (ctrl *QuoteController) GetQuotesByBatch(c *fiber.Ctx) error {
 	totalBatches := int(math.Ceil(float64(totalCount) / float64(batchSize)))
 
 	var quotes []model.QuoteModel
-	if err := ctrl.DB.Order("display_order ASC").Offset(offset).Limit(batchSize).Find(&quotes).Error; err != nil {
+	if err := ctrl.DB.
+		Order("quote_display_order ASC NULLS LAST, quote_created_at ASC").
+		Offset(offset).Limit(batchSize).
+		Find(&quotes).Error; err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve quotes")
 	}
 
@@ -232,16 +246,15 @@ func (ctrl *QuoteController) GetQuotesByBatch(c *fiber.Ctx) error {
 	}
 
 	pagination := fiber.Map{
-		"page":               batchNum,
-		"page_size":          batchSize,
-		"total_data":         totalCount,
-		"total_pages":        totalBatches,
-		"has_next":           batchNum < totalBatches,
-		"has_prev":           batchNum > 1,
-		"next_page":          func() int { if batchNum < totalBatches { return batchNum + 1 }; return batchNum }(),
-		"prev_page":          func() int { if batchNum > 1 { return batchNum - 1 }; return batchNum }(),
-		"total_available_batch": totalBatches, // tetap disediakan untuk kompatibilitas
+		"page":                  batchNum,
+		"page_size":             batchSize,
+		"total_data":            totalCount,
+		"total_pages":           totalBatches,
+		"has_next":              batchNum < totalBatches,
+		"has_prev":              batchNum > 1,
+		"next_page":             func() int { if batchNum < totalBatches { return batchNum + 1 }; return batchNum }(),
+		"prev_page":             func() int { if batchNum > 1 { return batchNum - 1 }; return batchNum }(),
+		"total_available_batch": totalBatches,
 	}
-
 	return helpers.JsonList(c, result, pagination)
 }

@@ -1,7 +1,7 @@
 package routes
 
 import (
-	"masjidku_backend/internals/constants" // ✅ Tambahkan ini
+	"masjidku_backend/internals/constants"
 	userController "masjidku_backend/internals/features/users/user/controller"
 	authMiddleware "masjidku_backend/internals/middlewares/auth"
 
@@ -10,24 +10,31 @@ import (
 )
 
 func UserAdminRoutes(app fiber.Router, db *gorm.DB) {
-	userCtrl := userController.NewUserController(db)
+	adminCtrl := userController.NewAdminUserController(db)
 	userProfileCtrl := userController.NewUsersProfileController(db)
 
-	// 🔐 /users – hanya teacher, admin, owner
+	// 🔐 /users – hanya teacher & above
 	users := app.Group("/users",
 		authMiddleware.OnlyRolesSlice(constants.RoleErrorTeacher("User Management"), constants.TeacherAndAbove),
 	)
 
-	users.Get("/", userCtrl.GetUsers)
-	users.Get("/search", userCtrl.SearchUsers)
-	users.Put("/user", userCtrl.UpdateUser)
-	users.Post("/", userCtrl.CreateUser)
-	users.Delete("/:id", userCtrl.DeleteUser)
+	// List & search & get by ID
+	users.Get("/", adminCtrl.GetUsers)
+	users.Get("/search", adminCtrl.SearchUsers)
+	users.Get("/:id", adminCtrl.GetUserByID)
 
-	// 🔐 Tambahan: admin bisa lihat semua user profile
+	// Create (single/batch) & delete (soft)
+	users.Post("/", adminCtrl.CreateUser)
+	users.Delete("/:id", adminCtrl.DeleteUser)
+
+	// Admin-only: lihat deleted, restore, force delete
+	users.Get("/deleted", adminCtrl.GetDeletedUsers)
+	users.Post("/:id/restore", adminCtrl.RestoreUser)
+	users.Delete("/:id/force", adminCtrl.ForceDeleteUser)
+
+	// 🔐 Tambahan: admin bisa lihat semua user profile (tetap pakai controller-mu)
 	app.Get("/users-profiles",
 		authMiddleware.OnlyRolesSlice(constants.RoleErrorTeacher("Lihat Semua User Profile"), constants.TeacherAndAbove),
 		userProfileCtrl.GetProfiles,
 	)
-
 }

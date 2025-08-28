@@ -47,15 +47,19 @@ func (ctrl *UserFollowMasjidController) FollowMasjid(c *fiber.Ctx) error {
 	}
 
 	follow := model.UserFollowMasjidModel{
-		FollowUserID:    userUUID,
-		FollowMasjidID:  masjidUUID,
-		FollowCreatedAt: time.Now(),
+		UserFollowMasjidUserID:   userUUID,
+		UserFollowMasjidMasjidID: masjidUUID,
+		// created_at auto oleh tag gorm: autoCreateTime, tapi tak masalah set manual juga:
+		UserFollowMasjidCreatedAt: time.Now(),
 	}
 
 	// Idempotent insert: jika sudah ada, DoNothing (tidak error)
 	res := ctrl.DB.
 		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "follow_user_id"}, {Name: "follow_masjid_id"}},
+			Columns: []clause.Column{
+				{Name: "user_follow_masjid_user_id"},
+				{Name: "user_follow_masjid_masjid_id"},
+			},
 			DoNothing: true,
 		}).
 		Create(&follow)
@@ -67,8 +71,8 @@ func (ctrl *UserFollowMasjidController) FollowMasjid(c *fiber.Ctx) error {
 	if res.RowsAffected == 0 {
 		// Sudah follow — balas OK dengan pesan informatif
 		return helper.JsonOK(c, "Sudah mengikuti masjid ini", fiber.Map{
-			"follow_user_id":   userUUID,
-			"follow_masjid_id": masjidUUID,
+			"user_follow_masjid_user_id":   userUUID,
+			"user_follow_masjid_masjid_id": masjidUUID,
 		})
 	}
 
@@ -100,7 +104,7 @@ func (ctrl *UserFollowMasjidController) UnfollowMasjid(c *fiber.Ctx) error {
 
 	res := ctrl.DB.Delete(
 		&model.UserFollowMasjidModel{},
-		"follow_user_id = ? AND follow_masjid_id = ?",
+		"user_follow_masjid_user_id = ? AND user_follow_masjid_masjid_id = ?",
 		userUUID, masjidUUID,
 	)
 	if res.Error != nil {
@@ -109,15 +113,15 @@ func (ctrl *UserFollowMasjidController) UnfollowMasjid(c *fiber.Ctx) error {
 	if res.RowsAffected == 0 {
 		// Tidak ada yang dihapus: anggap sudah tidak follow (idempotent)
 		return helper.JsonOK(c, "Tidak mengikuti masjid ini", fiber.Map{
-			"follow_user_id":   userUUID,
-			"follow_masjid_id": masjidUUID,
-			"unfollowed":       false,
+			"user_follow_masjid_user_id":   userUUID,
+			"user_follow_masjid_masjid_id": masjidUUID,
+			"unfollowed":                   false,
 		})
 	}
 
 	return helper.JsonDeleted(c, "Berhasil unfollow masjid", fiber.Map{
-		"follow_user_id":   userUUID,
-		"follow_masjid_id": masjidUUID,
+		"user_follow_masjid_user_id":   userUUID,
+		"user_follow_masjid_masjid_id": masjidUUID,
 	})
 }
 
@@ -147,7 +151,7 @@ func (ctrl *UserFollowMasjidController) IsFollowing(c *fiber.Ctx) error {
 
 	var count int64
 	if err := ctrl.DB.Model(&model.UserFollowMasjidModel{}).
-		Where("follow_user_id = ? AND follow_masjid_id = ?", userID, masjidID).
+		Where("user_follow_masjid_user_id = ? AND user_follow_masjid_masjid_id = ?", userID, masjidID).
 		Count(&count).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengecek status follow")
 	}
@@ -160,8 +164,6 @@ func (ctrl *UserFollowMasjidController) IsFollowing(c *fiber.Ctx) error {
 // =====================================================
 // 📄 Daftar masjid yang diikuti (paginated)
 // Query: ?page=1&limit=10
-// NOTE: ganti nama tabel di Table("user_follow_masjid AS ufm")
-// sesuai dengan nama sebenarnya di DB (singular/plural).
 // =====================================================
 func (ctrl *UserFollowMasjidController) GetFollowedMasjidsByUser(c *fiber.Ctx) error {
 	userIDStr, ok := c.Locals("user_id").(string)
@@ -186,8 +188,8 @@ func (ctrl *UserFollowMasjidController) GetFollowedMasjidsByUser(c *fiber.Ctx) e
 	// Hitung total
 	var total int64
 	if err := ctrl.DB.
-		Table("user_follow_masjid AS ufm"). // ⬅️ sesuaikan jika tabelmu bernama "user_follow_masjids"
-		Where("ufm.follow_user_id = ?", userUUID).
+		Table("user_follow_masjid AS ufm").
+		Where("ufm.user_follow_masjid_user_id = ?", userUUID).
 		Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
@@ -200,10 +202,10 @@ func (ctrl *UserFollowMasjidController) GetFollowedMasjidsByUser(c *fiber.Ctx) e
 	var results []Result
 	if err := ctrl.DB.
 		Table("user_follow_masjid AS ufm").
-		Select(`m.*, ufm.follow_created_at`).
-		Joins("JOIN masjids m ON m.masjid_id = ufm.follow_masjid_id").
-		Where("ufm.follow_user_id = ?", userUUID).
-		Order("ufm.follow_created_at DESC").
+		Select(`m.*, ufm.user_follow_masjid_created_at AS follow_created_at`).
+		Joins("JOIN masjids m ON m.masjid_id = ufm.user_follow_masjid_masjid_id").
+		Where("ufm.user_follow_masjid_user_id = ?", userUUID).
+		Order("ufm.user_follow_masjid_created_at DESC").
 		Limit(limit).
 		Offset(offset).
 		Scan(&results).Error; err != nil {

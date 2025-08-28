@@ -17,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE OR REPLACE FUNCTION fn_touch_updated_at_generic()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.updated_at := CURRENT_TIMESTAMP;
+  NEW.updated_at := CURRENT_TIMESTAMPTZ;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
@@ -34,8 +34,8 @@ CREATE TABLE IF NOT EXISTS certificates (
   certificate_description  TEXT,
   certificate_lecture_id   UUID NOT NULL REFERENCES lectures(lecture_id) ON DELETE CASCADE,
   certificate_template_url TEXT,
-  created_at               TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at               TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Touch updated_at on UPDATE
@@ -74,10 +74,9 @@ CREATE TABLE IF NOT EXISTS user_certificates (
   user_cert_score         INTEGER CHECK (user_cert_score IS NULL OR user_cert_score BETWEEN 0 AND 100),
   user_cert_slug_url      TEXT UNIQUE NOT NULL,           -- untuk akses publik
   user_cert_is_up_to_date BOOLEAN NOT NULL DEFAULT TRUE,  -- masih valid?
-  user_cert_issued_at     TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-  created_at              TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at              TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  user_cert_issued_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   -- satu certificate hanya boleh sekali per user (hindari duplikat)
   CONSTRAINT uq_user_cert_user_certificate UNIQUE (user_cert_user_id, user_cert_certificate_id)

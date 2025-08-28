@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS classes (
 
   class_is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
-  class_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  class_updated_at TIMESTAMPTZ,
+  class_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_deleted_at TIMESTAMPTZ
 );
 
@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS class_sections (
   class_sections_is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
   class_sections_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  class_sections_updated_at TIMESTAMPTZ,
+  class_sections_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_sections_deleted_at TIMESTAMPTZ
 );
 
@@ -217,7 +217,7 @@ CREATE TABLE IF NOT EXISTS class_pricing_options (
   class_pricing_options_recurrence_months INT,
 
   class_pricing_options_created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  class_pricing_options_updated_at        TIMESTAMPTZ,
+  class_pricing_options_updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_pricing_options_deleted_at        TIMESTAMPTZ
 );
 

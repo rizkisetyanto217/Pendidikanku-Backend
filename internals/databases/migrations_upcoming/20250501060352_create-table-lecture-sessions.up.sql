@@ -19,9 +19,9 @@ CREATE TABLE IF NOT EXISTS lecture_sessions (
   lecture_session_teacher_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   lecture_session_teacher_name VARCHAR(255),
 
-  -- Jadwal (TIMESTAMP tanpa TZ)
-  lecture_session_start_time   TIMESTAMP NOT NULL,
-  lecture_session_end_time     TIMESTAMP NOT NULL,
+  -- Jadwal (TIMESTAMPTZ)
+  lecture_session_start_time   TIMESTAMPTZ NOT NULL,
+  lecture_session_end_time     TIMESTAMPTZ NOT NULL,
 
   -- Lokasi & Gambar
   lecture_session_place        TEXT,
@@ -33,20 +33,20 @@ CREATE TABLE IF NOT EXISTS lecture_sessions (
 
   -- Validasi
   lecture_session_approved_by_admin_id   UUID REFERENCES users(id),
-  lecture_session_approved_by_admin_at   TIMESTAMP,
+  lecture_session_approved_by_admin_at   TIMESTAMPTZ,
   lecture_session_approved_by_author_id  UUID REFERENCES users(id),
-  lecture_session_approved_by_author_at  TIMESTAMP,
+  lecture_session_approved_by_author_at  TIMESTAMPTZ,
   lecture_session_approved_by_teacher_id UUID REFERENCES users(id),
-  lecture_session_approved_by_teacher_at TIMESTAMP,
-  lecture_session_approved_by_dkm_at     TIMESTAMP,
+  lecture_session_approved_by_teacher_at TIMESTAMPTZ,
+  lecture_session_approved_by_dkm_at     TIMESTAMPTZ,
 
   -- Publikasi
   lecture_session_is_active    BOOLEAN NOT NULL DEFAULT FALSE,
 
-  -- Metadata (TIMESTAMP tanpa TZ)
-  lecture_session_created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  lecture_session_updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  lecture_session_deleted_at   TIMESTAMP,
+  -- Metadata (TIMESTAMPTZ tanpa TZ)
+  lecture_session_created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  lecture_session_updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  lecture_session_deleted_at   TIMESTAMPTZ NULL,
 
   -- Validasi waktu
   CONSTRAINT ck_ls_time_order CHECK (lecture_session_start_time <= lecture_session_end_time),
@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS lecture_sessions (
 CREATE OR REPLACE FUNCTION set_lecture_sessions_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.lecture_session_updated_at := CURRENT_TIMESTAMP;
+  NEW.lecture_session_updated_at := CURRENT_TIMESTAMPTZ;
   RETURN NEW;
 END; $$ LANGUAGE plpgsql;
 
@@ -117,7 +117,6 @@ CREATE INDEX IF NOT EXISTS idx_ls_start_time
   ON lecture_sessions (lecture_session_start_time)
   WHERE lecture_session_deleted_at IS NULL;
 
-
 -- =========================================================
 -- USER LECTURE SESSIONS
 -- =========================================================
@@ -135,9 +134,10 @@ CREATE TABLE IF NOT EXISTS user_lecture_sessions (
   -- Masjid cache
   user_lecture_session_masjid_id          UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  -- Waktu (TIMESTAMP tanpa TZ)
-  user_lecture_session_created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  user_lecture_session_updated_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  -- Waktu (TIMESTAMPTZ)
+  user_lecture_session_created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_lecture_session_updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_lecture_session_deleted_at         TIMESTAMPTZ,
 
   -- Anti duplikasi: 1 user / 1 session
   CONSTRAINT uq_uls_user_per_session UNIQUE (user_lecture_session_user_id, user_lecture_session_lecture_session_id),
@@ -163,14 +163,17 @@ BEFORE UPDATE ON user_lecture_sessions
 FOR EACH ROW EXECUTE FUNCTION set_user_lecture_sessions_updated_at();
 
 -- Indexes
--- Peserta per session
-CREATE INDEX IF NOT EXISTS idx_uls_by_session
-  ON user_lecture_sessions (user_lecture_session_lecture_session_id);
+-- Peserta per session (alive only)
+CREATE INDEX IF NOT EXISTS idx_uls_by_session_alive
+  ON user_lecture_sessions (user_lecture_session_lecture_session_id)
+  WHERE user_lecture_session_deleted_at IS NULL;
 
--- Partisipasi user per masjid terbaru
-CREATE INDEX IF NOT EXISTS idx_uls_user_masjid_created_desc
-  ON user_lecture_sessions (user_lecture_session_user_id, user_lecture_session_masjid_id, user_lecture_session_created_at DESC);
+-- Partisipasi user per masjid terbaru (alive only)
+CREATE INDEX IF NOT EXISTS idx_uls_user_masjid_created_desc_alive
+  ON user_lecture_sessions (user_lecture_session_user_id, user_lecture_session_masjid_id, user_lecture_session_created_at DESC)
+  WHERE user_lecture_session_deleted_at IS NULL;
 
--- Analitik nilai per lecture (opsional)
-CREATE INDEX IF NOT EXISTS idx_uls_lecture_for_grade
-  ON user_lecture_sessions (user_lecture_session_lecture_id);
+-- Analitik nilai per lecture (alive only)
+CREATE INDEX IF NOT EXISTS idx_uls_lecture_for_grade_alive
+  ON user_lecture_sessions (user_lecture_session_lecture_id)
+  WHERE user_lecture_session_deleted_at IS NULL;

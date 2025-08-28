@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS masjid_stats (
     masjid_stats_total_participants INT   NOT NULL DEFAULT 0,   -- total kehadiran
     masjid_stats_total_donations   BIGINT NOT NULL DEFAULT 0,   -- total donasi (rupiah)
     masjid_stats_masjid_id         UUID   NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
-    masjid_stats_created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    masjid_stats_updated_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    masjid_stats_created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    masjid_stats_updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (masjid_stats_masjid_id)
 );
 

@@ -19,21 +19,21 @@ CREATE EXTENSION IF NOT EXISTS btree_gin;    -- btree_gin ops (umum, aman disiap
 CREATE OR REPLACE FUNCTION fn_touch_updated_at_lecture()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.lecture_updated_at := CURRENT_TIMESTAMP;
+  NEW.lecture_updated_at := CURRENT_TIMESTAMPTZ;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION fn_touch_updated_at_user_lectures()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.user_lecture_updated_at := CURRENT_TIMESTAMP;
+  NEW.user_lecture_updated_at := CURRENT_TIMESTAMPTZ;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION fn_touch_updated_at_lecture_schedules()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.lecture_schedules_updated_at := CURRENT_TIMESTAMP;
+  NEW.lecture_schedules_updated_at := CURRENT_TIMESTAMPTZ;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
@@ -60,9 +60,9 @@ CREATE TABLE IF NOT EXISTS lectures (
   lecture_is_active                BOOLEAN NOT NULL DEFAULT TRUE,
   lecture_is_certificate_generated BOOLEAN NOT NULL DEFAULT FALSE,
 
-  lecture_created_at               TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  lecture_updated_at               TIMESTAMPTZ,
-  lecture_deleted_at               TIMESTAMPTZ,
+  lecture_created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  lecture_updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+  lecture_deleted_at               TIMESTAMPTZ NULL,
 
   -- Constraints
   CONSTRAINT lectures_price_nonneg    CHECK (lecture_price IS NULL OR lecture_price >= 0),
@@ -114,6 +114,7 @@ CREATE TRIGGER trg_lectures_touch
 BEFORE UPDATE ON lectures
 FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_lecture();
 
+
 -- ---------------------------------------------------------
 -- TABEL: user_lectures
 -- ---------------------------------------------------------
@@ -131,13 +132,14 @@ CREATE TABLE IF NOT EXISTS user_lectures (
   user_lecture_is_registered             BOOLEAN NOT NULL DEFAULT FALSE,
   user_lecture_has_paid                  BOOLEAN NOT NULL DEFAULT FALSE,
   user_lecture_paid_amount               INT,
-  user_lecture_payment_time              TIMESTAMPTZ,
+  user_lecture_payment_time              TIMESTAMPTZ NULL,
 
-  user_lecture_created_at                TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  user_lecture_updated_at                TIMESTAMPTZ,
+  -- timestamps
+  user_lecture_created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+  user_lecture_updated_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+  user_lecture_deleted_at                TIMESTAMPTZ NULL, -- soft delete
 
-  UNIQUE(user_lecture_lecture_id, user_lecture_user_id),
-
+  -- unique hanya untuk row hidup (deleted_at IS NULL)
   CONSTRAINT user_lectures_grade_range            CHECK (user_lecture_grade_result IS NULL OR (user_lecture_grade_result BETWEEN 0 AND 100)),
   CONSTRAINT user_lectures_paid_amount_nonneg     CHECK (user_lecture_paid_amount IS NULL OR user_lecture_paid_amount >= 0),
   CONSTRAINT user_lectures_total_completed_nonneg CHECK (user_lecture_total_completed_sessions >= 0)
@@ -149,19 +151,24 @@ CREATE INDEX IF NOT EXISTS idx_user_lectures_user_id        ON user_lectures(use
 CREATE INDEX IF NOT EXISTS idx_user_lectures_masjid_id      ON user_lectures(user_lecture_masjid_id);
 
 -- Query progress user per lecture
-CREATE INDEX IF NOT EXISTS idx_user_lectures_user_lecture_unique
-  ON user_lectures(user_lecture_user_id, user_lecture_lecture_id);
+-- Unique partial (hanya row hidup)
+DROP INDEX IF EXISTS idx_user_lectures_user_lecture_unique;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_user_lectures_user_lecture_alive
+  ON user_lectures(user_lecture_user_id, user_lecture_lecture_id)
+  WHERE user_lecture_deleted_at IS NULL;
 
 -- Query finansial: only paid
 CREATE INDEX IF NOT EXISTS idx_user_lectures_paid_partial
   ON user_lectures(user_lecture_masjid_id, user_lecture_has_paid, user_lecture_payment_time)
-  WHERE user_lecture_has_paid = TRUE;
+  WHERE user_lecture_has_paid = TRUE AND user_lecture_deleted_at IS NULL;
 
 -- Trigger updated_at
 DROP TRIGGER IF EXISTS trg_user_lectures_touch ON user_lectures;
 CREATE TRIGGER trg_user_lectures_touch
 BEFORE UPDATE ON user_lectures
 FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_user_lectures();
+
+
 
 -- ---------------------------------------------------------
 -- TABEL: lecture_schedules
@@ -185,7 +192,7 @@ CREATE TABLE IF NOT EXISTS lecture_schedules (
   lecture_schedules_capacity           INT,
   lecture_schedules_is_registration_required BOOLEAN NOT NULL DEFAULT FALSE,
 
-  lecture_schedules_created_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  lecture_schedules_created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   lecture_schedules_updated_at         TIMESTAMPTZ,
   lecture_schedules_deleted_at         TIMESTAMPTZ,
 

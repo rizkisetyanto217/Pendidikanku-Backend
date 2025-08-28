@@ -1,5 +1,5 @@
 -- =========================================================
--- MIGRATION UP: lecture_sessions_quiz & user_lecture_sessions_quiz
+-- MIGRATION UP: lecture_sessions_quiz & user_lecture_sessions_quiz (soft delete)
 -- =========================================================
 
 -- Ekstensi
@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram index
 
 -- ---------------------------------------------------------
--- Trigger functions: updated_at (TIMESTAMP)
+-- Trigger functions: updated_at (TIMESTAMPTZ)
 -- ---------------------------------------------------------
 CREATE OR REPLACE FUNCTION fn_touch_updated_at_lsquiz()
 RETURNS TRIGGER AS $$
@@ -38,27 +38,31 @@ CREATE TABLE IF NOT EXISTS lecture_sessions_quiz (
   lecture_sessions_quiz_masjid_id UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  lecture_sessions_quiz_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  lecture_sessions_quiz_updated_at TIMESTAMP,
+  lecture_sessions_quiz_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  lecture_sessions_quiz_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  lecture_sessions_quiz_deleted_at TIMESTAMPTZ NULL,
 
-  -- Hindari judul duplikat dalam 1 lecture_session (case-insensitive)
+  -- Hindari judul duplikat dalam 1 lecture_session (case-insensitive, hanya baris hidup)
   CONSTRAINT ux_lsquiz_title_per_session_ci UNIQUE
-    (lecture_sessions_quiz_lecture_session_id, lecture_sessions_quiz_title)
+    (lecture_sessions_quiz_lecture_session_id, lecture_sessions_quiz_title, lecture_sessions_quiz_deleted_at)
 );
 
--- Unique index case-insensitive (aman untuk ILIKE)
+-- Unique index case-insensitive (hanya yang belum dihapus)
 CREATE UNIQUE INDEX IF NOT EXISTS ux_lsquiz_per_session_title_ci
   ON lecture_sessions_quiz (
     lecture_sessions_quiz_lecture_session_id,
     LOWER(lecture_sessions_quiz_title)
-  );
+  )
+  WHERE lecture_sessions_quiz_deleted_at IS NULL;
 
 -- Index komposit umum
 CREATE INDEX IF NOT EXISTS idx_lsquiz_session_created_desc
-  ON lecture_sessions_quiz (lecture_sessions_quiz_lecture_session_id, lecture_sessions_quiz_created_at DESC);
+  ON lecture_sessions_quiz (lecture_sessions_quiz_lecture_session_id, lecture_sessions_quiz_created_at DESC)
+  WHERE lecture_sessions_quiz_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_lsquiz_masjid_created_desc
-  ON lecture_sessions_quiz (lecture_sessions_quiz_masjid_id, lecture_sessions_quiz_created_at DESC);
+  ON lecture_sessions_quiz (lecture_sessions_quiz_masjid_id, lecture_sessions_quiz_created_at DESC)
+  WHERE lecture_sessions_quiz_deleted_at IS NULL;
 
 -- Full-Text Search (judul + deskripsi)
 ALTER TABLE lecture_sessions_quiz
@@ -73,11 +77,12 @@ CREATE INDEX IF NOT EXISTS idx_lsquiz_tsv_gin
 
 -- Trigram untuk ILIKE fuzzy
 CREATE INDEX IF NOT EXISTS idx_lsquiz_title_trgm
-  ON lecture_sessions_quiz USING GIN (LOWER(lecture_sessions_quiz_title) gin_trgm_ops);
+  ON lecture_sessions_quiz USING GIN (LOWER(lecture_sessions_quiz_title) gin_trgm_ops)
+  WHERE lecture_sessions_quiz_deleted_at IS NULL;
 
--- (Opsional tapi disarankan bila sering cari di deskripsi)
 CREATE INDEX IF NOT EXISTS idx_lsquiz_desc_trgm
-  ON lecture_sessions_quiz USING GIN (LOWER(lecture_sessions_quiz_description) gin_trgm_ops);
+  ON lecture_sessions_quiz USING GIN (LOWER(lecture_sessions_quiz_description) gin_trgm_ops)
+  WHERE lecture_sessions_quiz_deleted_at IS NULL;
 
 -- Trigger updated_at
 DROP TRIGGER IF EXISTS trg_lsquiz_touch ON lecture_sessions_quiz;
@@ -104,8 +109,9 @@ CREATE TABLE IF NOT EXISTS user_lecture_sessions_quiz (
   user_lecture_sessions_quiz_masjid_id       UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  user_lecture_sessions_quiz_created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  user_lecture_sessions_quiz_updated_at      TIMESTAMP,
+  user_lecture_sessions_quiz_created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_lecture_sessions_quiz_updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_lecture_sessions_quiz_deleted_at      TIMESTAMPTZ NULL,
 
   -- Data sehat
   CONSTRAINT ulsq_grade_range CHECK (
@@ -116,25 +122,30 @@ CREATE TABLE IF NOT EXISTS user_lecture_sessions_quiz (
   CONSTRAINT ulsq_duration_nonneg CHECK (user_lecture_sessions_quiz_duration_seconds IS NULL OR user_lecture_sessions_quiz_duration_seconds >= 0),
 
   -- Satu baris per (quiz, user, attempt)
-  CONSTRAINT ux_ulsq_quser_attempt UNIQUE (user_lecture_sessions_quiz_quiz_id, user_lecture_sessions_quiz_user_id, user_lecture_sessions_quiz_attempt_count)
+  CONSTRAINT ux_ulsq_quser_attempt UNIQUE (
+    user_lecture_sessions_quiz_quiz_id,
+    user_lecture_sessions_quiz_user_id,
+    user_lecture_sessions_quiz_attempt_count,
+    user_lecture_sessions_quiz_deleted_at
+  )
 );
 
 -- Index pola query umum
--- Attempt terbaru per (quiz,user)
 CREATE INDEX IF NOT EXISTS idx_ulsq_quser_created_desc
-  ON user_lecture_sessions_quiz (user_lecture_sessions_quiz_quiz_id, user_lecture_sessions_quiz_user_id, user_lecture_sessions_quiz_created_at DESC);
+  ON user_lecture_sessions_quiz (user_lecture_sessions_quiz_quiz_id, user_lecture_sessions_quiz_user_id, user_lecture_sessions_quiz_created_at DESC)
+  WHERE user_lecture_sessions_quiz_deleted_at IS NULL;
 
--- Rekap per (session,user)
 CREATE INDEX IF NOT EXISTS idx_ulsq_session_user
-  ON user_lecture_sessions_quiz (user_lecture_sessions_quiz_lecture_session_id, user_lecture_sessions_quiz_user_id);
+  ON user_lecture_sessions_quiz (user_lecture_sessions_quiz_lecture_session_id, user_lecture_sessions_quiz_user_id)
+  WHERE user_lecture_sessions_quiz_deleted_at IS NULL;
 
--- Semua attempt per user (terbaru)
 CREATE INDEX IF NOT EXISTS idx_ulsq_user_created_desc
-  ON user_lecture_sessions_quiz (user_lecture_sessions_quiz_user_id, user_lecture_sessions_quiz_created_at DESC);
+  ON user_lecture_sessions_quiz (user_lecture_sessions_quiz_user_id, user_lecture_sessions_quiz_created_at DESC)
+  WHERE user_lecture_sessions_quiz_deleted_at IS NULL;
 
--- Rekap per masjid (terbaru)
 CREATE INDEX IF NOT EXISTS idx_ulsq_masjid_created_desc
-  ON user_lecture_sessions_quiz (user_lecture_sessions_quiz_masjid_id, user_lecture_sessions_quiz_created_at DESC);
+  ON user_lecture_sessions_quiz (user_lecture_sessions_quiz_masjid_id, user_lecture_sessions_quiz_created_at DESC)
+  WHERE user_lecture_sessions_quiz_deleted_at IS NULL;
 
 -- Trigger updated_at
 DROP TRIGGER IF EXISTS trg_user_lsquiz_touch ON user_lecture_sessions_quiz;

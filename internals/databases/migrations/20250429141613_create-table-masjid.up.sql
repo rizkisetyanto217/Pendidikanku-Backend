@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS masjids (
   masjid_is_active BOOLEAN NOT NULL DEFAULT TRUE,
   masjid_is_verified BOOLEAN NOT NULL DEFAULT FALSE,
   masjid_verification_status verification_status_enum NOT NULL DEFAULT 'pending',
-  masjid_verified_at TIMESTAMP,
+  masjid_verified_at TIMESTAMPTZ NULL,
   masjid_verification_notes TEXT,
 
   -- Paket aktif
@@ -66,9 +66,9 @@ CREATE TABLE IF NOT EXISTS masjids (
   ) STORED,
 
   -- Audit
-  masjid_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  masjid_updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  masjid_deleted_at TIMESTAMP,
+  masjid_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  masjid_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  masjid_deleted_at TIMESTAMPTZ,
 
   -- Validasi koordinat
   CONSTRAINT masjids_lat_chk CHECK (masjid_latitude  BETWEEN -90  AND 90),
@@ -137,7 +137,7 @@ BEFORE UPDATE ON masjids
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at_masjids();
 
--- 2) Sinkronisasi verifikasi → boolean flag + timestamp
+-- 2) Sinkronisasi verifikasi → boolean flag + timestamptz
 CREATE OR REPLACE FUNCTION sync_masjid_verification_flags() RETURNS trigger AS $$
 BEGIN
   IF NEW.masjid_verification_status = 'approved' THEN
@@ -196,16 +196,41 @@ EXECUTE FUNCTION handle_masjid_image_trash();
 -- =========================================================
 
 -- USER_FOLLOW_MASJID
+-- ==========================================================
+-- Table: user_follow_masjid
+--   Menyimpan hubungan "user mengikuti masjid".
+--   Primary Key = (user_follow_masjid_user_id, user_follow_masjid_masjid_id)
+-- ==========================================================
+
 CREATE TABLE IF NOT EXISTS user_follow_masjid (
-  follow_user_id   UUID NOT NULL,
-  follow_masjid_id UUID NOT NULL,
-  follow_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (follow_user_id, follow_masjid_id),
-  FOREIGN KEY (follow_user_id)   REFERENCES users(id) ON DELETE CASCADE,
-  FOREIGN KEY (follow_masjid_id) REFERENCES masjids(masjid_id) ON DELETE CASCADE
+  user_follow_masjid_user_id    UUID        NOT NULL,
+  user_follow_masjid_masjid_id  UUID        NOT NULL,
+  user_follow_masjid_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  CONSTRAINT pk_user_follow_masjid
+    PRIMARY KEY (user_follow_masjid_user_id, user_follow_masjid_masjid_id),
+
+  CONSTRAINT fk_user_follow_masjid_user
+    FOREIGN KEY (user_follow_masjid_user_id)
+    REFERENCES users(id)
+    ON DELETE CASCADE,
+
+  CONSTRAINT fk_user_follow_masjid_masjid
+    FOREIGN KEY (user_follow_masjid_masjid_id)
+    REFERENCES masjids(masjid_id)
+    ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS idx_follow_masjid_id ON user_follow_masjid (follow_masjid_id);
-CREATE INDEX IF NOT EXISTS idx_follow_user_id   ON user_follow_masjid (follow_user_id);
+
+-- Indexes untuk mempercepat query by user atau by masjid
+CREATE INDEX IF NOT EXISTS idx_user_follow_masjid_user_id
+  ON user_follow_masjid (user_follow_masjid_user_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_follow_masjid_masjid_id
+  ON user_follow_masjid (user_follow_masjid_masjid_id);
+
+-- Optional: kalau mau query follower terbaru per masjid lebih cepat
+CREATE INDEX IF NOT EXISTS idx_user_follow_masjid_created_at
+  ON user_follow_masjid (user_follow_masjid_masjid_id, user_follow_masjid_created_at DESC);
 
 
 -- =========================================================
@@ -220,9 +245,9 @@ CREATE TABLE IF NOT EXISTS masjids_profiles (
   masjid_profile_logo_url TEXT,
   masjid_profile_stamp_url TEXT,
   masjid_profile_ttd_ketua_dkm_url TEXT,
-  masjid_profile_created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  masjid_profile_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  masjid_profile_deleted_at TIMESTAMP
+  masjid_profile_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  masjid_profile_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  masjid_profile_deleted_at TIMESTAMPTZ
 );
 CREATE OR REPLACE FUNCTION set_updated_at_masjids_profiles() RETURNS trigger AS $$
 BEGIN

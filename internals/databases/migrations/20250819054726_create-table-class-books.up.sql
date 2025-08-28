@@ -19,9 +19,9 @@ CREATE TABLE IF NOT EXISTS books (
   -- baru: slug untuk URL-friendly (unik per masjid, soft-delete aware)
   books_slug      VARCHAR(160),
 
-  books_created_at timestamptz NOT NULL DEFAULT now(),
-  books_updated_at timestamptz,
-  books_deleted_at timestamptz
+  books_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  books_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  books_deleted_at TIMESTAMPTZ
 );
 
 -- (Migration) hapus unique lama jika ada (title+edition) karena kolom edition tak dipakai lagi
@@ -128,9 +128,9 @@ CREATE TABLE IF NOT EXISTS class_subject_books (
   class_subject_books_is_active BOOLEAN NOT NULL DEFAULT TRUE,
   class_subject_books_desc      TEXT,
 
-  class_subject_books_created_at timestamptz NOT NULL DEFAULT now(),
-  class_subject_books_updated_at timestamptz,
-  class_subject_books_deleted_at timestamptz
+  class_subject_books_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_subject_books_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_subject_books_deleted_at TIMESTAMPTZ
 );
 
 -- Unik per (masjid, class_subject, book) — soft-delete aware

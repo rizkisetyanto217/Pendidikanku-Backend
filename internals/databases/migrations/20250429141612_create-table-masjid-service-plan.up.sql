@@ -21,8 +21,9 @@ CREATE TABLE IF NOT EXISTS masjid_service_plans (
 
   masjid_service_plan_is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
-  masjid_service_plan_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  masjid_service_plan_updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  masjid_service_plan_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  masjid_service_plan_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  masjid_service_plan_deleted_at TIMESTAMPTZ NULL
 );
 
 -- Trigger updated_at

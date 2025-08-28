@@ -10,7 +10,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE OR REPLACE FUNCTION fn_touch_class_term_openings_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.class_term_openings_updated_at := CURRENT_TIMESTAMP;
+  NEW.class_term_openings_updated_at := CURRENT_TIMESTAMPTZ;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
@@ -26,8 +26,8 @@ CREATE TABLE IF NOT EXISTS class_term_openings (
 
   class_term_openings_is_open BOOLEAN NOT NULL DEFAULT TRUE,
 
-  class_term_openings_registration_opens_at  TIMESTAMP,
-  class_term_openings_registration_closes_at TIMESTAMP,
+  class_term_openings_registration_opens_at  TIMESTAMPTZ,
+  class_term_openings_registration_closes_at TIMESTAMPTZ,
   CONSTRAINT ck_cto_reg_window
     CHECK (
       class_term_openings_registration_opens_at IS NULL
@@ -41,9 +41,9 @@ CREATE TABLE IF NOT EXISTS class_term_openings (
 
   class_term_openings_notes TEXT,
 
-  class_term_openings_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  class_term_openings_updated_at TIMESTAMP,
-  class_term_openings_deleted_at TIMESTAMP
+  class_term_openings_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_term_openings_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_term_openings_deleted_at TIMESTAMPTZ
 );
 
 -- Pastikan classes punya composite-unique (id, masjid_id) untuk FK komposit
@@ -146,7 +146,7 @@ CREATE INDEX IF NOT EXISTS ix_cto_updated_at_live
 CREATE OR REPLACE FUNCTION class_term_openings_claim(p_opening_id UUID)
 RETURNS BOOLEAN AS $$
 DECLARE
-  v_now TIMESTAMP := CURRENT_TIMESTAMP;
+  v_now TIMESTAMP := CURRENT_TIMESTAMPTZ;
   v_rows INT;
 BEGIN
   UPDATE class_term_openings
@@ -175,7 +175,7 @@ $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION class_term_openings_release(p_opening_id UUID)
 RETURNS VOID AS $$
-DECLARE v_now TIMESTAMP := CURRENT_TIMESTAMP;
+DECLARE v_now TIMESTAMP := CURRENT_TIMESTAMPTZ;
 BEGIN
   UPDATE class_term_openings
      SET class_term_openings_quota_taken = GREATEST(class_term_openings_quota_taken - 1, 0),

@@ -5,6 +5,7 @@ import (
 	"masjidku_backend/internals/features/home/posts/model"
 	helper "masjidku_backend/internals/helpers"
 	"strconv"
+	"strings"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -156,29 +157,6 @@ func (ctrl *PostThemeController) GetThemeByID(c *fiber.Ctx) error {
 
 	return helper.JsonOK(c, "OK", dto.ToPostThemeDTO(theme))
 }
-
-// 🗑️ Hapus Tema
-func (ctrl *PostThemeController) DeleteTheme(c *fiber.Ctx) error {
-	id := c.Params("id")
-
-	// opsional: cek ada
-	var exists int64
-	if err := ctrl.DB.Model(&model.PostThemeModel{}).
-		Where("post_theme_id = ?", id).
-		Count(&exists).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to delete theme")
-	}
-	if exists == 0 {
-		return helper.JsonError(c, fiber.StatusNotFound, "Theme not found")
-	}
-
-	if err := ctrl.DB.Delete(&model.PostThemeModel{}, "post_theme_id = ?", id).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to delete theme")
-	}
-
-	return helper.JsonDeleted(c, "Tema berhasil dihapus", fiber.Map{"id": id})
-}
-
 // 📄 Get Tema by Masjid (dari token, pagination opsional)
 func (ctrl *PostThemeController) GetThemesByMasjid(c *fiber.Ctx) error {
 	masjidIDRaw := c.Locals("masjid_id")
@@ -246,4 +224,36 @@ func (ctrl *PostThemeController) GetThemesByMasjid(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonList(c, result, pagination)
+}
+
+
+
+// 🗑️ Hapus Tema (soft by default; hard with ?hard=true)
+func (ctrl *PostThemeController) DeleteTheme(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "id is required")
+	}
+
+	hard := strings.EqualFold(c.Query("hard"), "true") || c.Query("hard") == "1"
+
+	tx := ctrl.DB.WithContext(c.Context())
+	var db *gorm.DB
+	if hard {
+		db = tx.Unscoped().Delete(&model.PostThemeModel{}, "post_theme_id = ?", id)
+	} else {
+		db = tx.Delete(&model.PostThemeModel{}, "post_theme_id = ?", id)
+	}
+
+	if db.Error != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to delete theme")
+	}
+	if db.RowsAffected == 0 {
+		return helper.JsonError(c, fiber.StatusNotFound, "Theme not found")
+	}
+
+	return helper.JsonDeleted(c, "Tema berhasil dihapus", fiber.Map{
+		"id":   id,
+		"hard": hard,
+	})
 }

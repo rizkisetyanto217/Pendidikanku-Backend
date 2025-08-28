@@ -3,21 +3,25 @@ package model
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
-type MasjidTeacher struct {
-	MasjidTeachersID       string         `gorm:"column:masjid_teachers_id;primaryKey;type:uuid;default:gen_random_uuid()" json:"masjid_teachers_id"`
-	MasjidTeachersMasjidID string         `gorm:"column:masjid_teachers_masjid_id;type:uuid;not null" json:"masjid_teachers_masjid_id"`
-	MasjidTeachersUserID   string         `gorm:"column:masjid_teachers_user_id;type:uuid;not null" json:"masjid_teachers_user_id"`
+type MasjidTeacherModel struct {
+	// PK
+	MasjidTeacherID uuid.UUID `gorm:"column:masjid_teacher_id;type:uuid;primaryKey;default:gen_random_uuid()" json:"masjid_teacher_id"`
+
+	// FK
+	MasjidTeacherMasjidID uuid.UUID `gorm:"column:masjid_teacher_masjid_id;type:uuid;not null;index" json:"masjid_teacher_masjid_id"`
+	MasjidTeacherUserID   uuid.UUID `gorm:"column:masjid_teacher_user_id;type:uuid;not null;index" json:"masjid_teacher_user_id"`
 
 	// timestamps
-	MasjidTeachersCreatedAt time.Time      `gorm:"column:masjid_teachers_created_at;autoCreateTime" json:"masjid_teachers_created_at"`
-	MasjidTeachersUpdatedAt time.Time      `gorm:"column:masjid_teachers_updated_at;autoUpdateTime" json:"masjid_teachers_updated_at"`
-	MasjidTeachersDeletedAt gorm.DeletedAt `gorm:"column:masjid_teachers_deleted_at;index" json:"masjid_teachers_deleted_at"`
+	MasjidTeacherCreatedAt time.Time      `gorm:"column:masjid_teacher_created_at;autoCreateTime" json:"masjid_teacher_created_at"`
+	MasjidTeacherUpdatedAt time.Time      `gorm:"column:masjid_teacher_updated_at;autoUpdateTime" json:"masjid_teacher_updated_at"`
+	MasjidTeacherDeletedAt gorm.DeletedAt `gorm:"column:masjid_teacher_deleted_at;index" json:"masjid_teacher_deleted_at,omitempty"`
 }
 
 // TableName override
-func (MasjidTeacher) TableName() string {
+func (MasjidTeacherModel) TableName() string {
 	return "masjid_teachers"
 }

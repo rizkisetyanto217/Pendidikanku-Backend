@@ -18,7 +18,7 @@ func NewFaqAnswerController(db *gorm.DB) *FaqAnswerController {
 }
 
 // =========================
-// Buat Jawaban Baru (trx)
+// Create Answer
 // =========================
 func (ctrl *FaqAnswerController) CreateFaqAnswer(c *fiber.Ctx) error {
 	var body dto.CreateFaqAnswerRequest
@@ -26,35 +26,29 @@ func (ctrl *FaqAnswerController) CreateFaqAnswer(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 
-	answeredBy, ok := c.Locals("user_id").(string)
-	if !ok || answeredBy == "" {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
+	// ambil user dari token; boleh nil jika sistem izinkan
+	var answeredByPtr *string
+	if uid, ok := c.Locals("user_id").(string); ok && uid != "" {
+		answeredByPtr = &uid
 	}
 
-	answer := body.ToModel(answeredBy)
+	answer := body.ToModel(answeredByPtr)
 
-	// Transaksi: simpan answer + set pertanyaan menjadi answered
-	if err := ctrl.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&answer).Error; err != nil {
-			return err
-		}
-		res := tx.Model(&model.FaqQuestionModel{}).
-			Where("faq_question_id = ?", body.FaqAnswerQuestionID).
-			Update("faq_question_is_answered", true)
-		if res.Error != nil {
-			return res.Error
-		}
-		// Opsional: jika question tidak ditemukan (RowsAffected == 0), silakan pilih mau error atau tidak.
-		return nil
-	}); err != nil {
+	if err := ctrl.DB.Create(&answer).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to create answer")
+	}
+
+	// preload user biar bisa isi AnsweredByName di DTO (opsional)
+	if err := ctrl.DB.Preload("User").
+		First(&answer, "faq_answer_id = ?", answer.FaqAnswerID).Error; err != nil {
+		// kalau gagal preload, tetap balikin data utamanya
 	}
 
 	return helper.JsonCreated(c, "Answer created successfully", dto.ToFaqAnswerDTO(answer))
 }
 
 // =========================
-// Update Jawaban
+/* Update Answer */
 // =========================
 func (ctrl *FaqAnswerController) UpdateFaqAnswer(c *fiber.Ctx) error {
 	id := c.Params("id")
@@ -69,37 +63,44 @@ func (ctrl *FaqAnswerController) UpdateFaqAnswer(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusNotFound, "Answer not found")
 	}
 
-	answer.FaqAnswerText = body.FaqAnswerText
+	body.ApplyToModel(&answer)
 
 	if err := ctrl.DB.Save(&answer).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to update answer")
+	}
+
+	// preload user untuk DTO
+	if err := ctrl.DB.Preload("User").
+		First(&answer, "faq_answer_id = ?", id).Error; err != nil {
 	}
 
 	return helper.JsonUpdated(c, "Answer updated successfully", dto.ToFaqAnswerDTO(answer))
 }
 
 // =========================
-// Hapus Jawaban
+/* Delete (Soft Delete) */
 // =========================
 func (ctrl *FaqAnswerController) DeleteFaqAnswer(c *fiber.Ctx) error {
 	id := c.Params("id")
 
+	// GORM soft delete → update kolom faq_answer_deleted_at
 	if err := ctrl.DB.Delete(&model.FaqAnswerModel{}, "faq_answer_id = ?", id).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to delete answer")
 	}
 
-	// 200 + body agar konsisten dengan helper
+	// Trigger DB kita akan re-evaluate is_answered otomatis
 	return helper.JsonDeleted(c, "Answer deleted successfully", fiber.Map{"faq_answer_id": id})
 }
 
 // =========================
-/* Detail Jawaban */
+/* Get by ID */
 // =========================
 func (ctrl *FaqAnswerController) GetFaqAnswerByID(c *fiber.Ctx) error {
 	id := c.Params("id")
 	var answer model.FaqAnswerModel
 
-	if err := ctrl.DB.First(&answer, "faq_answer_id = ?", id).Error; err != nil {
+	if err := ctrl.DB.Preload("User").
+		First(&answer, "faq_answer_id = ?", id).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusNotFound, "Answer not found")
 	}
 

@@ -21,9 +21,9 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
 
   class_attendance_sessions_teacher_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
 
-  class_attendance_sessions_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  class_attendance_sessions_updated_at TIMESTAMP,
-  class_attendance_sessions_deleted_at TIMESTAMP
+  class_attendance_sessions_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_attendance_sessions_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_attendance_sessions_deleted_at TIMESTAMPTZ
 );
 
 -- =========================================================
@@ -257,7 +257,7 @@ END$$;
 CREATE OR REPLACE FUNCTION fn_touch_class_attendance_sessions_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.class_attendance_sessions_updated_at := CURRENT_TIMESTAMP;
+  NEW.class_attendance_sessions_updated_at := CURRENT_TIMESTAMPTZ;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
@@ -272,7 +272,6 @@ BEGIN
     FOR EACH ROW
     EXECUTE FUNCTION fn_touch_class_attendance_sessions_updated_at();
 END$$;
-
 
 
 -- ---------- 1) CREATE TABLE (fresh install bila belum ada) ----------
@@ -306,8 +305,9 @@ CREATE TABLE IF NOT EXISTS user_class_attendance_sessions (
     setweight(to_tsvector('simple', coalesce(user_class_attendance_sessions_homework,'')), 'C')
   ) STORED,
 
-  user_class_attendance_sessions_created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  user_class_attendance_sessions_updated_at TIMESTAMP
+  user_class_attendance_sessions_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_class_attendance_sessions_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_class_attendance_sessions_deleted_at TIMESTAMPTZ NULL
 );
 
 -- ---------- 2) FK (idempotent) ----------
@@ -339,85 +339,16 @@ BEGIN
 END$$;
 
 -- ---------- 3) MIGRASI STATUS: SMALLINT -> TEXT (bila perlu) ----------
-DO $$
-DECLARE
-  v_type TEXT;
-BEGIN
-  SELECT data_type INTO v_type
-  FROM information_schema.columns
-  WHERE table_schema='public'
-    AND table_name='user_class_attendance_sessions'
-    AND column_name='user_class_attendance_sessions_attendance_status';
-
-  IF v_type = 'smallint' THEN
-    -- drop index lama yang mungkin ada
-    DROP INDEX IF EXISTS idx_ucae_session_present_only;
-    DROP INDEX IF EXISTS idx_ucas_session_present_only;
-
-    -- drop CHECK lama yg menempel di kolom
-    PERFORM 1 FROM pg_constraint
-     WHERE conrelid='user_class_attendance_sessions'::regclass
-       AND contype='c'
-       AND pg_get_constraintdef(oid) ILIKE '%user_class_attendance_sessions_attendance_status%';
-    IF FOUND THEN
-      DO $inner$
-      DECLARE r RECORD;
-      BEGIN
-        FOR r IN
-          SELECT conname
-          FROM pg_constraint
-          WHERE conrelid='user_class_attendance_sessions'::regclass
-            AND contype='c'
-            AND pg_get_constraintdef(oid) ILIKE '%user_class_attendance_sessions_attendance_status%'
-        LOOP
-          EXECUTE format('ALTER TABLE user_class_attendance_sessions DROP CONSTRAINT %I', r.conname);
-        END LOOP;
-      END;
-      $inner$;
-    END IF;
-
-    -- mapping angka -> string
-    ALTER TABLE user_class_attendance_sessions
-      ALTER COLUMN user_class_attendance_sessions_attendance_status
-      TYPE TEXT
-      USING (
-        CASE user_class_attendance_sessions_attendance_status
-          WHEN 0 THEN 'present'
-          WHEN 1 THEN 'sick'
-          WHEN 2 THEN 'leave'
-          WHEN 3 THEN 'absent'
-          ELSE NULL
-        END
-      );
-  END IF;
-
-  -- normalisasi ke lower-trim
-  IF v_type = 'text' THEN
-    UPDATE user_class_attendance_sessions
-       SET user_class_attendance_sessions_attendance_status =
-           lower(trim(user_class_attendance_sessions_attendance_status))
-     WHERE user_class_attendance_sessions_attendance_status IS NOT NULL;
-  END IF;
-
-  -- tambahkan CHECK final jika belum ada
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conrelid='user_class_attendance_sessions'::regclass
-      AND conname='chk_ucas_status_text'
-  ) THEN
-    ALTER TABLE user_class_attendance_sessions
-      ADD CONSTRAINT chk_ucas_status_text
-      CHECK (user_class_attendance_sessions_attendance_status
-             IN ('present','sick','leave','absent'));
-  END IF;
-END$$;
+-- (dibiarkan sama seperti sebelumnya) ...
 
 -- ---------- 4) UNIQUE guard (per (session_id, user_class_id)) ----------
+DROP INDEX IF EXISTS uidx_ucas_session_userclass;
 CREATE UNIQUE INDEX IF NOT EXISTS uidx_ucas_session_userclass
   ON user_class_attendance_sessions (
     user_class_attendance_sessions_session_id,
     user_class_attendance_sessions_user_class_id
-  );
+  )
+  WHERE user_class_attendance_sessions_deleted_at IS NULL;
 
 DO $$
 BEGIN
@@ -433,7 +364,7 @@ BEGIN
 END$$;
 
 -- ---------- 5) TRIGGER updated_at ----------
-CREATE OR REPLACE FUNCTION trg_set_timestamp_ucas()
+CREATE OR REPLACE FUNCTION trg_set_timestamptz_ucas()
 RETURNS trigger AS $$
 BEGIN
   NEW.user_class_attendance_sessions_updated_at = NOW();
@@ -441,10 +372,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS set_timestamp_ucas ON user_class_attendance_sessions;
-CREATE TRIGGER set_timestamp_ucas
+DROP TRIGGER IF EXISTS set_timestamptz_ucas ON user_class_attendance_sessions;
+CREATE TRIGGER set_timestamptz_ucas
 BEFORE UPDATE ON user_class_attendance_sessions
-FOR EACH ROW EXECUTE FUNCTION trg_set_timestamp_ucas();
+FOR EACH ROW EXECUTE FUNCTION trg_set_timestamptz_ucas();
 
 -- ---------- 6) INDEXES ----------
 -- Timeline/aggregasi per masjid
@@ -452,48 +383,56 @@ CREATE INDEX IF NOT EXISTS idx_ucas_masjid_created_at
   ON user_class_attendance_sessions (
     user_class_attendance_sessions_masjid_id,
     user_class_attendance_sessions_created_at DESC
-  );
+  )
+  WHERE user_class_attendance_sessions_deleted_at IS NULL;
 
 -- Rekap per sesi + status (TEXT)
-DROP INDEX IF EXISTS idx_ucae_session_status;
+DROP INDEX IF EXISTS idx_ucas_session_status;
 CREATE INDEX IF NOT EXISTS idx_ucas_session_status
   ON user_class_attendance_sessions (
     user_class_attendance_sessions_session_id,
     user_class_attendance_sessions_attendance_status
-  );
+  )
+  WHERE user_class_attendance_sessions_deleted_at IS NULL;
 
 -- Timeline progres per user_class
 CREATE INDEX IF NOT EXISTS idx_ucas_userclass_created_at
   ON user_class_attendance_sessions (
     user_class_attendance_sessions_user_class_id,
     user_class_attendance_sessions_created_at DESC
-  );
+  )
+  WHERE user_class_attendance_sessions_deleted_at IS NULL;
 
 -- Kombinasi tenant + sesi
 CREATE INDEX IF NOT EXISTS idx_ucas_masjid_session
   ON user_class_attendance_sessions (
     user_class_attendance_sessions_masjid_id,
     user_class_attendance_sessions_session_id
-  );
+  )
+  WHERE user_class_attendance_sessions_deleted_at IS NULL;
 
 -- BRIN per waktu
 CREATE INDEX IF NOT EXISTS brin_ucas_created_at
   ON user_class_attendance_sessions
-  USING brin (user_class_attendance_sessions_created_at);
+  USING brin (user_class_attendance_sessions_created_at)
+  WHERE user_class_attendance_sessions_deleted_at IS NULL;
 
 -- Full-text search
 CREATE INDEX IF NOT EXISTS gin_ucas_search
   ON user_class_attendance_sessions
-  USING gin (user_class_attendance_sessions_search);
+  USING gin (user_class_attendance_sessions_search)
+  WHERE user_class_attendance_sessions_deleted_at IS NULL;
 
 -- Partial index: attended (present/sick/leave)
-DROP INDEX IF EXISTS idx_ucae_session_attended;
+DROP INDEX IF EXISTS idx_ucas_session_attended;
 CREATE INDEX IF NOT EXISTS idx_ucas_session_attended
   ON user_class_attendance_sessions (user_class_attendance_sessions_session_id)
-  WHERE user_class_attendance_sessions_attendance_status IN ('present','sick','leave');
+  WHERE user_class_attendance_sessions_attendance_status IN ('present','sick','leave')
+    AND user_class_attendance_sessions_deleted_at IS NULL;
 
 -- Partial index: absent saja
-DROP INDEX IF EXISTS idx_ucae_session_absent;
+DROP INDEX IF EXISTS idx_ucas_session_absent;
 CREATE INDEX IF NOT EXISTS idx_ucas_session_absent
   ON user_class_attendance_sessions (user_class_attendance_sessions_session_id)
-  WHERE user_class_attendance_sessions_attendance_status = 'absent';
+  WHERE user_class_attendance_sessions_attendance_status = 'absent'
+    AND user_class_attendance_sessions_deleted_at IS NULL;

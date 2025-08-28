@@ -1,5 +1,5 @@
 -- =========================================================
--- MIGRATION: lecture_stats (TIMESTAMP, auto-recalc)
+-- MIGRATION: lecture_stats (TIMPESTAMPTZ, auto-recalc)
 -- =========================================================
 
 -- =========================
@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS lecture_stats (
 
   lecture_stats_total_participants  INT   NOT NULL DEFAULT 0,
   lecture_stats_average_grade       FLOAT NOT NULL DEFAULT 0,
-  lecture_stats_updated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  lecture_stats_updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
 
   CONSTRAINT ux_lecture_stats_lecture UNIQUE (lecture_stats_lecture_id),
   CONSTRAINT chk_stats_total_nonneg CHECK (lecture_stats_total_participants >= 0),
@@ -29,11 +29,11 @@ CREATE INDEX IF NOT EXISTS idx_lecture_stats_masjid_id  ON lecture_stats(lecture
 CREATE INDEX IF NOT EXISTS idx_lecture_stats_masjid_recent
   ON lecture_stats(lecture_stats_masjid_id, lecture_stats_updated_at DESC);
 
--- Trigger: touch updated_at (TIMESTAMP)
+-- Trigger: touch updated_at (TIMESTAMPTZ)
 CREATE OR REPLACE FUNCTION fn_touch_lecture_stats_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.lecture_stats_updated_at := CURRENT_TIMESTAMP;
+  NEW.lecture_stats_updated_at := CURRENT_TIMESTAMPTZ;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
@@ -91,7 +91,7 @@ BEGIN
     lecture_stats_masjid_id          = EXCLUDED.lecture_stats_masjid_id,
     lecture_stats_total_participants = EXCLUDED.lecture_stats_total_participants,
     lecture_stats_average_grade      = EXCLUDED.lecture_stats_average_grade,
-    lecture_stats_updated_at         = CURRENT_TIMESTAMP;
+    lecture_stats_updated_at         = CURRENT_TIMESTAMPTZ;
 END;
 $$ LANGUAGE plpgsql;
 

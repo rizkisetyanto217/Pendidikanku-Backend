@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 CREATE OR REPLACE FUNCTION fn_touch_academic_terms_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.academic_terms_updated_at := CURRENT_TIMESTAMP;
+  NEW.academic_terms_updated_at := CURRENT_TIMESTAMPTZ;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
@@ -24,17 +24,23 @@ CREATE TABLE IF NOT EXISTS academic_terms (
   academic_terms_academic_year TEXT NOT NULL,  -- contoh: '2026/2027'
   academic_terms_name          TEXT NOT NULL,  -- 'Ganjil' | 'Genap' | 'Pendek' | dst.
 
-  academic_terms_start_date    TIMESTAMP NOT NULL,
-  academic_terms_end_date      TIMESTAMP NOT NULL,
+  academic_terms_start_date    TIMESTAMPTZ NOT NULL,
+  academic_terms_end_date      TIMESTAMPTZ NOT NULL,
   academic_terms_is_active     BOOLEAN   NOT NULL DEFAULT TRUE,
 
-  -- half-open range [start, end)
+  -- half-open range [start, end) - IMMUTABLE via explicit timezone
   academic_terms_period        DATERANGE GENERATED ALWAYS AS
-    (daterange(academic_terms_start_date::date, academic_terms_end_date::date, '[)')) STORED,
+    (
+      daterange(
+        (academic_terms_start_date AT TIME ZONE 'UTC')::date,
+        (academic_terms_end_date   AT TIME ZONE 'UTC')::date,
+        '[)'
+      )
+    ) STORED,
 
-  academic_terms_created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  academic_terms_updated_at    TIMESTAMP          DEFAULT CURRENT_TIMESTAMP,
-  academic_terms_deleted_at    TIMESTAMP,
+  academic_terms_created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  academic_terms_updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  academic_terms_deleted_at    TIMESTAMPTZ,
 
   CHECK (academic_terms_end_date >= academic_terms_start_date)
 );
@@ -47,6 +53,7 @@ FOR EACH ROW EXECUTE FUNCTION fn_touch_academic_terms_updated_at();
 
 -- Bersihkan constraint/index lama (opsional; aman kalau tidak ada)
 DROP INDEX IF EXISTS uq_academic_terms_tenant_year_name_live;
+
 DO $$
 BEGIN
   IF EXISTS (
@@ -82,6 +89,7 @@ BEGIN
       DROP CONSTRAINT uq_academic_terms_one_active_per_tenant;
   END IF;
 END$$;
+
 DROP INDEX IF EXISTS uq_academic_terms_one_active_per_tenant;
 
 -- Indexes non-unique (soft-delete aware)

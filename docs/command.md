@@ -14,6 +14,12 @@ migrate -path internals/databases/migrations \
 migrate -path internals/databases/migrations \
   -database "postgresql://postgres.kkxflcqxkifqhysyijmx:Wedangjahe217@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require" down
 
+
+# Hapus semua
+DROP SCHEMA public CASCADE;
+CREATE SCHEMA public;
+
+
 # Dirty migrasi
 PGPASSWORD="Wedangjahe217" psql \
   -h kkxflcqxkifqhysyijmx.supabase.co \
@@ -37,6 +43,7 @@ Jika ingin menghapus versi 20250306232632 dari database secara manual, jalankan 
 DELETE FROM schema_migrations WHERE version = 20250306232632;
 
 Kemudian jalankan ulang migrasi:
+
 
 
 # JWT

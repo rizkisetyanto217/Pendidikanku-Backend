@@ -6,46 +6,59 @@ import (
 	"github.com/google/uuid"
 )
 
-// Request untuk membuat pendaftaran event
+// ===== Request =====
+
 type UserEventRegistrationRequest struct {
-	EventID   uuid.UUID `json:"user_event_registration_event_id"`
-	UserID    uuid.UUID `json:"user_event_registration_user_id"`
-	MasjidID  uuid.UUID `json:"user_event_registration_masjid_id"` // ✅ Ditambahkan
-	Status    string    `json:"user_event_registration_status"`    // Optional, default "registered"
+	EventSessionID uuid.UUID `json:"user_event_registration_event_session_id"` // match DB
+	UserID         uuid.UUID `json:"user_event_registration_user_id"`
+	MasjidID       uuid.UUID `json:"user_event_registration_masjid_id"`
+	Status         string    `json:"user_event_registration_status"` // optional, default "registered"
 }
 
-// Response untuk menampilkan data pendaftaran event
+// ===== Response =====
+
 type UserEventRegistrationResponse struct {
 	ID         uuid.UUID `json:"user_event_registration_id"`
-	EventID    uuid.UUID `json:"user_event_registration_event_id"`
+	EventID    uuid.UUID `json:"user_event_registration_event_session_id"`
 	UserID     uuid.UUID `json:"user_event_registration_user_id"`
-	MasjidID   uuid.UUID `json:"user_event_registration_masjid_id"` // ✅ Ditambahkan
+	MasjidID   uuid.UUID `json:"user_event_registration_masjid_id"`
 	Status     string    `json:"user_event_registration_status"`
 	Registered string    `json:"user_event_registration_registered_at"`
+	UpdatedAt  string    `json:"user_event_registration_updated_at"`
 }
 
-// Konversi request ke model
+// ===== Converters =====
+
 func (r *UserEventRegistrationRequest) ToModel() *model.UserEventRegistrationModel {
 	status := r.Status
 	if status == "" {
 		status = "registered"
 	}
 	return &model.UserEventRegistrationModel{
-		UserEventRegistrationEventID:  r.EventID,
+		UserEventRegistrationEventID:  r.EventSessionID, // column: user_event_registration_event_session_id
 		UserEventRegistrationUserID:   r.UserID,
-		UserEventRegistrationMasjidID: r.MasjidID, // ✅
+		UserEventRegistrationMasjidID: r.MasjidID,
 		UserEventRegistrationStatus:   status,
 	}
 }
 
-// Konversi model ke response
 func ToUserEventRegistrationResponse(m *model.UserEventRegistrationModel) *UserEventRegistrationResponse {
+	const fmt = "2006-01-02 15:04:05"
 	return &UserEventRegistrationResponse{
 		ID:         m.UserEventRegistrationID,
-		EventID:    m.UserEventRegistrationEventID,
+		EventID:    m.UserEventRegistrationEventID, // event_session_id
 		UserID:     m.UserEventRegistrationUserID,
-		MasjidID:   m.UserEventRegistrationMasjidID, // ✅
+		MasjidID:   m.UserEventRegistrationMasjidID,
 		Status:     m.UserEventRegistrationStatus,
-		Registered: m.UserEventRegistrationCreatedAt.Format("2006-01-02 15:04:05"),
+		Registered: toTimeString(m.UserEventRegistrationCreatedAt, fmt),
+		UpdatedAt:  toTimeString(m.UserEventRegistrationUpdatedAt, fmt),
 	}
+}
+
+func ToUserEventRegistrationResponseList(models []model.UserEventRegistrationModel) []UserEventRegistrationResponse {
+	out := make([]UserEventRegistrationResponse, 0, len(models))
+	for i := range models {
+		out = append(out, *ToUserEventRegistrationResponse(&models[i]))
+	}
+	return out
 }

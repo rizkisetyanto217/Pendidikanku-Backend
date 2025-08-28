@@ -109,8 +109,10 @@ func (h *UserClassSectionController) ensureSingleActivePerUserClass(userClassID,
 	return nil
 }
 
-/* =============== Handlers (ADMIN) =============== */
- // POST /admin/user-class-sections
+
+// internals/features/lembaga/classes/user_class_sections/main/controller/user_class_section_controller.go
+
+// POST /admin/user-class-sections
 func (h *UserClassSectionController) CreateUserClassSection(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
@@ -123,17 +125,29 @@ func (h *UserClassSectionController) CreateUserClassSection(c *fiber.Ctx) error 
 	}
 	req.UserClassSectionsMasjidID = &masjidID
 
-	// Validasi & guard tenant
+	// Validasi DTO
 	if err := validateUCS.Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
-	if err := h.ensureParentsBelongToMasjid(req.UserClassSectionsUserClassID, req.UserClassSectionsSectionID, masjidID); err != nil {
+
+	// Validasi tanggal ringan (DB juga sudah ada CHECK)
+	if req.UserClassSectionsAssignedAt != nil && req.UserClassSectionsUnassignedAt != nil {
+		if req.UserClassSectionsUnassignedAt.Before(*req.UserClassSectionsAssignedAt) {
+			return fiber.NewError(fiber.StatusBadRequest, "unassigned_at tidak boleh sebelum assigned_at")
+		}
+	}
+
+	// Guard tenant: pastikan parent entities memang milik masjid ini
+	if err := h.ensureParentsBelongToMasjid(
+		req.UserClassSectionsUserClassID,
+		req.UserClassSectionsSectionID,
+		masjidID,
+	); err != nil {
 		return err
 	}
 
-	// Pastikan hanya satu penempatan ACTIVE per user_class (kalau status = active & belum di-unassign)
-	targetStatus := secModel.UserClassSectionStatusActive
-	if strings.EqualFold(targetStatus, secModel.UserClassSectionStatusActive) && (req.UserClassSectionsUnassignedAt == nil) {
+	// Satu placement aktif per user_class (aktif = unassigned_at IS NULL & belum soft delete)
+	if req.UserClassSectionsUnassignedAt == nil {
 		if err := h.ensureSingleActivePerUserClass(req.UserClassSectionsUserClassID, uuid.Nil); err != nil {
 			return err
 		}
@@ -152,9 +166,10 @@ func (h *UserClassSectionController) CreateUserClassSection(c *fiber.Ctx) error 
 	}()
 
 	// Simpan penempatan section
-	m := req.ToModel() // biasanya return *UserClassSectionsModel
+	m := req.ToModel()
 	if err := tx.Create(m).Error; err != nil {
 		tx.Rollback()
+		// Tanpa AsPGError: cukup response generic (pre-check di atas sudah mencegah duplikasi aktif)
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat penempatan section")
 	}
 
@@ -182,6 +197,7 @@ func (h *UserClassSectionController) CreateUserClassSection(c *fiber.Ctx) error 
 
 	return helper.JsonCreated(c, "Penempatan section berhasil dibuat", ucsDTO.NewUserClassSectionResponse(m))
 }
+
 
 
 // PUT /admin/user-class-sections/:id
@@ -533,8 +549,11 @@ func (h *UserClassSectionController) EndUserClassSection(c *fiber.Ctx) error {
 	})
 }
 
+// internals/features/lembaga/classes/user_class_sections/main/controller/user_class_section_controller.go
 
-// DELETE /admin/user-class-sections/:id  (hard delete dengan guard aman)
+// DELETE /admin/user-class-sections/:id
+// Soft delete (default). Hard delete bila query ?hard=true.
+// Tetap guard: tidak boleh menghapus jika masih aktif (unassigned_at IS NULL).
 func (h *UserClassSectionController) DeleteUserClassSection(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
@@ -546,10 +565,18 @@ func (h *UserClassSectionController) DeleteUserClassSection(c *fiber.Ctx) error 
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// Pastikan record milik tenant yang sama
-	m, err := h.findUCSWithTenantGuard(ucsID, masjidID)
+	// hard delete?
+	hard := strings.EqualFold(c.Query("hard"), "true")
+
+	// Cari record dengan guard tenant; untuk hard, kita cari Unscoped (ikut yang sudah soft-deleted),
+	// untuk soft, cukup baris hidup (deleted_at IS NULL).
+	includeDeleted := hard
+	m, err := h.findUCSWithTenantGuard2(ucsID, masjidID, includeDeleted)
 	if err != nil {
 		return err
+	}
+	if m == nil {
+		return fiber.NewError(fiber.StatusNotFound, "Penempatan tidak ditemukan")
 	}
 
 	// Larang hapus jika masih aktif (aktif = unassigned_at IS NULL)
@@ -557,11 +584,88 @@ func (h *UserClassSectionController) DeleteUserClassSection(c *fiber.Ctx) error 
 		return fiber.NewError(fiber.StatusConflict, "Penempatan masih aktif, akhiri terlebih dahulu")
 	}
 
-	if err := h.DB.Delete(&secModel.UserClassSectionsModel{}, "user_class_sections_id = ?", m.UserClassSectionsID).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus penempatan")
+	// Eksekusi delete
+	db := h.DB
+	if hard {
+		// Hard delete permanen
+		if err := db.Unscoped().
+			Delete(&secModel.UserClassSectionsModel{}, "user_class_sections_id = ?", m.UserClassSectionsID).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus penempatan (hard)")
+		}
+		return helper.JsonDeleted(c, "Penempatan dihapus permanen", fiber.Map{
+			"user_class_sections_id": m.UserClassSectionsID,
+			"hard":                   true,
+		})
+	}
+
+	// Soft delete (gorm.DeletedAt akan diisi otomatis)
+	if err := db.
+		Delete(&secModel.UserClassSectionsModel{}, "user_class_sections_id = ?", m.UserClassSectionsID).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus penempatan (soft)")
 	}
 
 	return helper.JsonDeleted(c, "Penempatan dihapus", fiber.Map{
 		"user_class_sections_id": m.UserClassSectionsID,
+		"hard":                   false,
 	})
+}
+
+// includeDeleted=false → hanya baris hidup (deleted_at IS NULL)
+// includeDeleted=true  → cari Unscoped (termasuk yang sudah soft-deleted)
+func (h *UserClassSectionController) findUCSWithTenantGuard2(id, masjidID uuid.UUID, includeDeleted bool) (*secModel.UserClassSectionsModel, error) {
+	var m secModel.UserClassSectionsModel
+	q := h.DB.Model(&secModel.UserClassSectionsModel{})
+
+	if includeDeleted {
+		q = q.Unscoped()
+	} // else: default GORM otomatis exclude soft-deleted
+
+	if err := q.
+		Where("user_class_sections_id = ? AND user_class_sections_masjid_id = ?", id, masjidID).
+		First(&m).Error; err != nil {
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fiber.NewError(fiber.StatusNotFound, "Penempatan tidak ditemukan/di luar tenant")
+		}
+		return nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data penempatan")
+	}
+	return &m, nil
+}
+
+
+// POST /admin/user-class-sections/:id/restore
+func (h *UserClassSectionController) RestoreUserClassSection(c *fiber.Ctx) error {
+	masjidID, err := helper.GetMasjidIDFromToken(c)
+	if err != nil {
+		return err
+	}
+	ucsID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+	}
+
+	// Cari yang sudah soft-deleted
+	m, err := h.findUCSWithTenantGuard2(ucsID, masjidID, true)
+	if err != nil {
+		return err
+	}
+	if m == nil || !m.UserClassSectionsDeletedAt.Valid {
+		return fiber.NewError(fiber.StatusBadRequest, "Penempatan tidak dalam status terhapus")
+	}
+
+	// Pastikan tidak melanggar aturan "single active" saat restore (jika dia aktif)
+	if m.UserClassSectionsUnassignedAt == nil {
+		if err := h.ensureSingleActivePerUserClass(m.UserClassSectionsUserClassID, m.UserClassSectionsID); err != nil {
+			return err
+		}
+	}
+
+	// Null-kan deleted_at (restore)
+	if err := h.DB.Unscoped().Model(&secModel.UserClassSectionsModel{}).
+		Where("user_class_sections_id = ? AND user_class_sections_masjid_id = ?", m.UserClassSectionsID, masjidID).
+		Update("user_class_sections_deleted_at", nil).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memulihkan penempatan")
+	}
+
+	return helper.JsonOK(c, "Penempatan dipulihkan", ucsDTO.NewUserClassSectionResponse(m))
 }

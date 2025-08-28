@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
-	// "gorm.io/gorm"
+	"gorm.io/gorm"
 )
 
 // Validator instance
@@ -14,19 +14,20 @@ var validate = validator.New()
 
 // UserModel merepresentasikan tabel users di database
 type UserModel struct {
-	ID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
-	UserName string    `gorm:"size:50;not null" json:"user_name" validate:"required,min=3,max=50"`
-	FullName string    `gorm:"size:50;not null" json:"full_name" validate:"required,min=3,max=50"`
-	Email    string    `gorm:"size:255;unique;not null" json:"email" validate:"required,email"`
-	Password string    `gorm:"not null" json:"password" validate:"required,min=8"`
-	GoogleID *string   `gorm:"size:255;unique" json:"google_id,omitempty"`
-	Role     string    `gorm:"type:varchar(20);not null;default:'user'" json:"role"`
+	ID       uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey" json:"id"`
+	UserName string         `gorm:"size:50;not null" json:"user_name" validate:"required,min=3,max=50"`
+	FullName string         `gorm:"size:100;not null" json:"full_name" validate:"required,min=3,max=100"`
+	Email    string         `gorm:"type:citext;unique;not null" json:"email" validate:"required,email"`
+	Password string         `gorm:"not null" json:"password" validate:"required,min=8"`
+	GoogleID *string        `gorm:"size:255;unique" json:"google_id,omitempty"`
+	Role     string         `gorm:"type:varchar(20);not null;default:'user'" json:"role"`
 
-	SecurityQuestion string    `gorm:"not null" json:"security_question"`
-	SecurityAnswer   string    `gorm:"size:255;not null" json:"security_answer"`
-	IsActive         bool      `gorm:"not null;default:true" json:"is_active"`
-	CreatedAt        time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt        time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	SecurityQuestion string         `gorm:"not null" json:"security_question"`
+	SecurityAnswer   string         `gorm:"size:255;not null" json:"security_answer"`
+	IsActive         bool           `gorm:"not null;default:true" json:"is_active"`
+	CreatedAt        time.Time      `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt        time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
+	DeletedAt        gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
 }
 
 // TableName memastikan nama tabel sesuai dengan skema database
@@ -50,7 +51,6 @@ func (u *UserModel) Validate() error {
 	if err != nil {
 		return formatValidationError(err)
 	}
-
 	return nil
 }
 
@@ -76,7 +76,6 @@ func formatValidationError(err error) error {
 		}
 		return errors.New(formatErrorMessage(errorMessages))
 	}
-
 	return err
 }
 
