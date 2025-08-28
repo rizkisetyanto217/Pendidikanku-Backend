@@ -1,4 +1,4 @@
-FROM golang:1.22-bookworm AS build
+FROM golang:1.24-bookworm AS build
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
@@ -12,8 +12,6 @@ COPY . .
 
 ENV CGO_ENABLED=1 GOFLAGS="-ldflags=-s -w"
 RUN go build -o /app/server ./main.go
-# atau lebih umum:
-# RUN go build -o /app/server .
 
 # ---------- runtime ----------
 FROM debian:bookworm-slim
@@ -25,7 +23,6 @@ RUN apt-get update && \
 
 WORKDIR /app
 COPY --from=build /app/server /app/server
-
 EXPOSE 8080
 CMD ["/app/server"]
 
