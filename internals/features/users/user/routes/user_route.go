@@ -4,7 +4,7 @@ import (
 	"log"
 
 	// docController "masjidku_backend/internals/features/users/user/controller" // ⬅️ controller dokumen
-	formalController "masjidku_backend/internals/features/users/user/controller"
+	// formalController "masjidku_backend/internals/features/users/user/controller"
 	userController "masjidku_backend/internals/features/users/user/controller"
 
 	"github.com/gofiber/fiber/v2"
@@ -16,17 +16,17 @@ func UserAllRoutes(app fiber.Router, db *gorm.DB) {
 
 	selfCtrl := userController.NewUserSelfController(db)
 	userProfileCtrl := userController.NewUsersProfileController(db)
-	formalCtrl := formalController.NewUsersProfileFormalController(db)
+	formalCtrl := userController.NewUsersProfileFormalController(db)
 	docCtrl := userController.NewUsersProfileDocumentController(db) // ⬅️ inisialisasi
 
 	// ✅ Profil diri (JWT)
 	app.Get("/users/me", selfCtrl.GetMe)
-	app.Put("/users/me", selfCtrl.UpdateMe)
+	app.Patch("/users/me", selfCtrl.UpdateMe)
 
 	// ✅ Profile data (existing)
 	app.Get("/users-profiles/me", userProfileCtrl.GetProfile)
 	app.Post("/users-profiles/save", userProfileCtrl.CreateProfile)
-	app.Put("/users-profiles", userProfileCtrl.UpdateProfile)
+	app.Patch("/users-profiles", userProfileCtrl.UpdateProfile)
 	app.Delete("/users-profiles", userProfileCtrl.DeleteProfile)
 
 	// ✅ Formal profile (punya sendiri)

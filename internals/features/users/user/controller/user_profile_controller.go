@@ -221,7 +221,7 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 		oldPhotoURL    *string = profile.PhotoURL
 	)
 	if isMultipart {
-		if fh, errFile := c.FormFile("photo"); errFile == nil && fh != nil {
+		if fh, errFile := c.FormFile("photo_url"); errFile == nil && fh != nil {
 			// Optional: batasi ukuran & tipe
 			if fh.Size > 5*1024*1024 {
 				return helper.Error(c, fiber.StatusRequestEntityTooLarge, "Max file size 5MB")

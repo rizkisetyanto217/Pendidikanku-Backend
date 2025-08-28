@@ -1,3 +1,4 @@
+// file: internals/features/masjids/masjids/controller/masjid_controller.go
 package controller
 
 import (
@@ -6,6 +7,12 @@ import (
 	"image/jpeg"
 	"image/png"
 	"log"
+	"mime/multipart"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
 	masjidAdminModel "masjidku_backend/internals/features/masjids/masjid_admins_teachers/model"
 	"masjidku_backend/internals/features/masjids/masjids/dto"
 	"masjidku_backend/internals/features/masjids/masjids/model"
@@ -13,55 +20,138 @@ import (
 	helper "masjidku_backend/internals/helpers"
 	helperOSS "masjidku_backend/internals/helpers/oss"
 
-	"path/filepath"
-	"strconv"
-	"strings"
-	"time"
-
 	"github.com/chai2010/webp"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
-// CreateMasjidDKM (versi sederhana + OSS + auto convert WebP)
-// - multipart/form-data saja
-// - jpeg/jpg/png -> dikonversi ke .webp sebelum upload
-// - webp -> langsung upload apa adanya
-// CreateMasjidDKM (versi sesuai schema terbaru)
-// - multipart/form-data
-// - jpeg/jpg/png -> konversi ke .webp sebelum upload
-// - webp -> langsung upload
+// =========================
+// Helpers lokal
+// =========================
 
-// CreateMasjidDKM — schema terbaru (OSS + auto convert WebP)
+func strPtrOrNil(s string, lower bool) *string {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return nil
+	}
+	if lower {
+		l := strings.ToLower(t)
+		return &l
+	}
+	return &t
+}
+
+func boolFromForm(v string) bool {
+	return v == "true" || v == "1" || strings.ToLower(v) == "yes"
+}
+
+func uploadImageToOSS(
+	ctx context.Context,
+	svc *helperOSS.OSSService,
+	masjidID uuid.UUID,
+	slot string,
+	fh *multipart.FileHeader,
+) (string, error) {
+	ext := strings.ToLower(filepath.Ext(fh.Filename))
+	const maxBytes = 5 * 1024 * 1024
+	if fh.Size > maxBytes {
+		return "", fiber.NewError(fiber.StatusRequestEntityTooLarge, "Ukuran gambar maksimal 5MB")
+	}
+
+	keyPrefix := "masjids/" + masjidID.String() + "/images/" + slot
+	baseName := helper.GenerateSlug(strings.TrimSuffix(fh.Filename, ext))
+	if baseName == "" {
+		baseName = "image"
+	}
+	key := keyPrefix + "/" + baseName + "_" + time.Now().Format("20060102_150405") + ".webp"
+
+	src, err := fh.Open()
+	if err != nil {
+		return "", fiber.NewError(fiber.StatusBadRequest, "Gagal membuka file upload")
+	}
+	defer src.Close()
+
+	var webpBuf *bytes.Buffer
+	switch ext {
+	case ".jpg", ".jpeg":
+		img, derr := jpeg.Decode(src)
+		if derr != nil {
+			return "", fiber.NewError(fiber.StatusUnsupportedMediaType, "File JPEG tidak valid")
+		}
+		webpBuf = new(bytes.Buffer)
+		if err := webp.Encode(webpBuf, img, &webp.Options{Lossless: false, Quality: 85}); err != nil {
+			return "", fiber.NewError(fiber.StatusInternalServerError, "Gagal konversi JPEG ke WebP")
+		}
+	case ".png":
+		img, derr := png.Decode(src)
+		if derr != nil {
+			return "", fiber.NewError(fiber.StatusUnsupportedMediaType, "File PNG tidak valid")
+		}
+		webpBuf = new(bytes.Buffer)
+		if err := webp.Encode(webpBuf, img, &webp.Options{Lossless: false, Quality: 85}); err != nil {
+			return "", fiber.NewError(fiber.StatusInternalServerError, "Gagal konversi PNG ke WebP")
+		}
+	case ".webp":
+		all := new(bytes.Buffer)
+		if _, err := all.ReadFrom(src); err != nil {
+			return "", fiber.NewError(fiber.StatusBadRequest, "Gagal membaca file WebP")
+		}
+		webpBuf = all
+	default:
+		return "", fiber.NewError(fiber.StatusUnsupportedMediaType, "Format tidak didukung (jpg, jpeg, png, webp)")
+	}
+
+	if err := svc.UploadStream(ctx, key, bytes.NewReader(webpBuf.Bytes()), "image/webp", true, true); err != nil {
+		return "", fiber.NewError(fiber.StatusInternalServerError, "Gagal upload gambar ke OSS")
+	}
+	return svc.PublicURL(key), nil
+}
+
+// CreateMasjidDKM — schema terbaru (OSS + auto convert WebP + 3 slot gambar)
 func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 	log.Println("[INFO] Received request to create masjid (schema terbaru)")
 
 	// 1) Auth
 	userID, err := helper.GetUserIDFromToken(c)
 	if err != nil {
-		return err
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
 	// 2) Content-Type check
 	if !strings.Contains(c.Get("Content-Type"), "multipart/form-data") {
-		return c.Status(415).JSON(fiber.Map{"error": "Gunakan multipart/form-data"})
+		return helper.JsonError(c, fiber.StatusUnsupportedMediaType, "Gunakan multipart/form-data")
 	}
 
-	// 3) Ambil form
+	// 3) Ambil form (field inti)
 	name := strings.TrimSpace(c.FormValue("masjid_name"))
 	if name == "" {
-		return c.Status(400).JSON(fiber.Map{"error": "Nama masjid wajib diisi"})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Nama masjid wajib diisi")
 	}
 	baseSlug := helper.GenerateSlug(name)
 	if baseSlug == "" {
-		return c.Status(400).JSON(fiber.Map{"error": "Nama masjid tidak valid untuk slug"})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Nama masjid tidak valid untuk slug")
 	}
 
 	bio := c.FormValue("masjid_bio_short")
 	location := c.FormValue("masjid_location")
-	domain := strings.ToLower(strings.TrimSpace(c.FormValue("masjid_domain")))
+	domain := c.FormValue("masjid_domain")
 	gmapsURL := c.FormValue("masjid_google_maps_url")
+	isIslamicSchool := boolFromForm(c.FormValue("masjid_is_islamic_school"))
+
+	// Optional: Yayasan & Plan
+	var yayasanID *uuid.UUID
+	if s := strings.TrimSpace(c.FormValue("masjid_yayasan_id")); s != "" {
+		if id, err := uuid.Parse(s); err == nil {
+			yayasanID = &id
+		}
+	}
+	var planIDPtr *uuid.UUID
+	if s := strings.TrimSpace(c.FormValue("masjid_current_plan_id")); s != "" {
+		if id, err := uuid.Parse(s); err == nil {
+			planIDPtr = &id
+		}
+	}
 
 	// Optional verif input; default pending
 	verifStatus := strings.TrimSpace(c.FormValue("masjid_verification_status"))
@@ -70,16 +160,17 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 	}
 	verifNotes := c.FormValue("masjid_verification_notes")
 
-	latStr := c.FormValue("masjid_latitude")
-	longStr := c.FormValue("masjid_longitude")
-
-	var latPtr *float64
-	var longPtr *float64
-	if v, err := strconv.ParseFloat(latStr, 64); err == nil {
-		latPtr = &v
+	// Koordinat
+	var latPtr, longPtr *float64
+	if v := strings.TrimSpace(c.FormValue("masjid_latitude")); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			latPtr = &f
+		}
 	}
-	if v, err := strconv.ParseFloat(longStr, 64); err == nil {
-		longPtr = &v
+	if v := strings.TrimSpace(c.FormValue("masjid_longitude")); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			longPtr = &f
+		}
 	}
 
 	// Sosial
@@ -91,18 +182,10 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 	waIkhwan := c.FormValue("masjid_whatsapp_group_ikhwan_url")
 	waAkhwat := c.FormValue("masjid_whatsapp_group_akhwat_url")
 
-	// Plan opsional
-	var planIDPtr *uuid.UUID
-	if planIDStr := c.FormValue("masjid_current_plan_id"); planIDStr != "" {
-		if parsed, err := uuid.Parse(planIDStr); err == nil {
-			planIDPtr = &parsed
-		}
-	}
-
 	// 4) Transaksi
 	var respDTO dto.MasjidResponse
 	txErr := mc.DB.Transaction(func(tx *gorm.DB) error {
-		// a) Unik slug
+		// a) Slug unik
 		slug, err := helper.EnsureUniqueSlug(tx, baseSlug, "masjids", "masjid_slug")
 		if err != nil {
 			return fiber.NewError(500, "Gagal membuat slug unik")
@@ -110,113 +193,101 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 
 		newID := uuid.New()
 
-		// b) Upload gambar (jpeg/png -> webp; webp pass-through)
-		var imageURL string
-		if file, ferr := c.FormFile("masjid_image_url"); ferr == nil && file != nil {
-			ext := strings.ToLower(filepath.Ext(file.Filename))
-			const maxBytes = 5 * 1024 * 1024
-			if file.Size > maxBytes {
-				return fiber.NewError(fiber.StatusRequestEntityTooLarge, "Ukuran gambar maksimal 5MB")
-			}
-
-			svc, err := helperOSS.NewOSSServiceFromEnv("") // root bucket sesuai env
-			if err != nil {
+		// b) Siapkan OSS bila ada file upload
+		var (
+			svc    *helperOSS.OSSService
+			ossErr error
+		)
+		// cek apakah ada salah satu file gambar
+		if f, _ := c.FormFile("masjid_image_url"); f != nil ||
+			func() bool { f, _ := c.FormFile("masjid_image_main_url"); return f != nil }() ||
+			func() bool { f, _ := c.FormFile("masjid_image_bg_url"); return f != nil }() {
+			svc, ossErr = helperOSS.NewOSSServiceFromEnv("")
+			if ossErr != nil {
 				return fiber.NewError(500, "OSS init gagal")
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-			defer cancel()
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
 
-			keyPrefix := "masjids/" + newID.String() + "/images"
-			baseName := helper.GenerateSlug(strings.TrimSuffix(file.Filename, ext))
-			if baseName == "" {
-				baseName = "image"
-			}
-			key := keyPrefix + "/" + baseName + "_" + time.Now().Format("20060102_150405") + ".webp"
+		// c) Upload / set URL untuk 3 slot gambar
+		var (
+			imgDefaultURL *string
+			imgMainURL    *string
+			imgBgURL      *string
+		)
 
-			src, err := file.Open()
-			if err != nil {
-				return fiber.NewError(400, "Gagal membuka file upload")
+		// DEFAULT
+		if fh, err := c.FormFile("masjid_image_url"); err == nil && fh != nil {
+			if url, uerr := uploadImageToOSS(ctx, svc, newID, "default", fh); uerr != nil {
+				return uerr
+			} else {
+				imgDefaultURL = &url
 			}
-			defer src.Close()
-
-			var webpBuf *bytes.Buffer
-			switch ext {
-			case ".jpg", ".jpeg":
-				img, derr := jpeg.Decode(src)
-				if derr != nil {
-					return fiber.NewError(415, "File JPEG tidak valid")
-				}
-				webpBuf = new(bytes.Buffer)
-				if err := webp.Encode(webpBuf, img, &webp.Options{Lossless: false, Quality: 85}); err != nil {
-					return fiber.NewError(500, "Gagal konversi JPEG ke WebP")
-				}
-			case ".png":
-				img, derr := png.Decode(src)
-				if derr != nil {
-					return fiber.NewError(415, "File PNG tidak valid")
-				}
-				webpBuf = new(bytes.Buffer)
-				if err := webp.Encode(webpBuf, img, &webp.Options{Lossless: false, Quality: 85}); err != nil {
-					return fiber.NewError(500, "Gagal konversi PNG ke WebP")
-				}
-			case ".webp":
-				all := new(bytes.Buffer)
-				if _, err := all.ReadFrom(src); err != nil {
-					return fiber.NewError(400, "Gagal membaca file WebP")
-				}
-				webpBuf = all
-			default:
-				return fiber.NewError(fiber.StatusUnsupportedMediaType, "Format tidak didukung (jpg, jpeg, png, webp)")
-			}
-
-			if err := svc.UploadStream(ctx, key, bytes.NewReader(webpBuf.Bytes()), "image/webp", true, true); err != nil {
-				return fiber.NewError(500, "Gagal upload gambar ke OSS")
-			}
-			imageURL = svc.PublicURL(key)
 		} else if v := strings.TrimSpace(c.FormValue("masjid_image_url")); v != "" {
-			// Jika tidak upload file, boleh kirim URL langsung (akan dipakai apa adanya)
-			imageURL = v
+			imgDefaultURL = strPtrOrNil(v, false)
 		}
 
-		// c) Domain pointer (kosong → NULL), case-insensitive
-		var domainPtr *string
-		if domain != "" {
-			domainPtr = &domain
+		// MAIN
+		if fh, err := c.FormFile("masjid_image_main_url"); err == nil && fh != nil {
+			if url, uerr := uploadImageToOSS(ctx, svc, newID, "main", fh); uerr != nil {
+				return uerr
+			} else {
+				imgMainURL = &url
+			}
+		} else if v := strings.TrimSpace(c.FormValue("masjid_image_main_url")); v != "" {
+			imgMainURL = strPtrOrNil(v, false)
 		}
 
-		// d) Simpan masjid
+		// BACKGROUND
+		if fh, err := c.FormFile("masjid_image_bg_url"); err == nil && fh != nil {
+			if url, uerr := uploadImageToOSS(ctx, svc, newID, "bg", fh); uerr != nil {
+				return uerr
+			} else {
+				imgBgURL = &url
+			}
+		} else if v := strings.TrimSpace(c.FormValue("masjid_image_bg_url")); v != "" {
+			imgBgURL = strPtrOrNil(v, false)
+		}
+
+		// d) Domain pointer (kosong → NULL), case-insensitive
+		domainPtr := strPtrOrNil(domain, true)
+
+		// e) Simpan masjid (pakai pointer-friendly fields)
 		newMasjid := model.MasjidModel{
-			MasjidID:               newID,
-			MasjidName:             name,
-			MasjidBioShort:         bio,
-			MasjidLocation:         location,
-			MasjidDomain:           domainPtr,
-			MasjidLatitude:         latPtr,
-			MasjidLongitude:        longPtr,
-			MasjidGoogleMapsURL:    gmapsURL,
-			MasjidImageURL:         imageURL,
-			MasjidSlug:             slug,
-
-			// ⚠️ Jangan set IsVerified manual — trigger akan urus
-			MasjidIsActive:           true,
-			MasjidVerificationStatus: verifStatus,  // default "pending"
-			MasjidVerificationNotes:  verifNotes,   // opsional
+			MasjidID:                newID,
+			MasjidYayasanID:         yayasanID,
+			MasjidName:              name,
+			MasjidBioShort:          strPtrOrNil(bio, false),
+			MasjidLocation:          strPtrOrNil(location, false),
+			MasjidLatitude:          latPtr,
+			MasjidLongitude:         longPtr,
+			MasjidGoogleMapsURL:     strPtrOrNil(gmapsURL, false),
+			MasjidImageURL:          imgDefaultURL,
+			MasjidImageMainURL:      imgMainURL,
+			MasjidImageBgURL:        imgBgURL,
+			MasjidDomain:            domainPtr,
+			MasjidSlug:              slug,
+			MasjidIsActive:          true,
+			MasjidVerificationStatus: model.VerificationStatus(verifStatus),
+			MasjidVerificationNotes:  strPtrOrNil(verifNotes, false),
 			MasjidCurrentPlanID:      planIDPtr,
+			MasjidIsIslamicSchool:    isIslamicSchool,
 
 			// Sosial
-			MasjidInstagramURL:           ig,
-			MasjidWhatsappURL:            wa,
-			MasjidYoutubeURL:             yt,
-			MasjidFacebookURL:            fb,
-			MasjidTiktokURL:              tiktok,
-			MasjidWhatsappGroupIkhwanURL: waIkhwan,
-			MasjidWhatsappGroupAkhwatURL: waAkhwat,
+			MasjidInstagramURL:           strPtrOrNil(ig, false),
+			MasjidWhatsappURL:            strPtrOrNil(wa, false),
+			MasjidYoutubeURL:             strPtrOrNil(yt, false),
+			MasjidFacebookURL:            strPtrOrNil(fb, false),
+			MasjidTiktokURL:              strPtrOrNil(tiktok, false),
+			MasjidWhatsappGroupIkhwanURL: strPtrOrNil(waIkhwan, false),
+			MasjidWhatsappGroupAkhwatURL: strPtrOrNil(waAkhwat, false),
 		}
 		if err := tx.Create(&newMasjid).Error; err != nil {
 			return fiber.NewError(500, "Gagal menyimpan masjid")
 		}
 
-		// e) Jadikan pembuat sebagai admin masjid
+		// f) Jadikan pembuat sebagai admin masjid
 		admin := masjidAdminModel.MasjidAdminModel{
 			MasjidAdminID:       uuid.New(),
 			MasjidAdminMasjidID: newMasjid.MasjidID,
@@ -227,28 +298,25 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 			return fiber.NewError(500, "Gagal membuat admin masjid")
 		}
 
-		// f) Upgrade role user menjadi dkm jika masih "user"
+		// g) Upgrade role user menjadi dkm jika masih "user"
 		if err := tx.Model(&userModel.UserModel{}).
 			Where("id = ? AND role = ?", userID, "user").
 			Update("role", "dkm").Error; err != nil {
 			return fiber.NewError(500, "Gagal upgrade role user")
 		}
 
-		// g) Build response DTO
+		// h) Build response DTO
 		respDTO = dto.FromModelMasjid(&newMasjid)
 		return nil
 	})
 
 	if txErr != nil {
 		if fe, ok := txErr.(*fiber.Error); ok {
-			return c.Status(fe.Code).JSON(fiber.Map{"error": fe.Message})
+			return helper.JsonError(c, fe.Code, fe.Message)
 		}
-		return c.Status(500).JSON(fiber.Map{"error": "Transaksi gagal"})
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Transaksi gagal")
 	}
 
 	log.Printf("[SUCCESS] Masjid created & admin assigned for user %s\n", userID)
-	return c.Status(201).JSON(fiber.Map{
-		"message": "Masjid berhasil dibuat",
-		"data":    respDTO,
-	})
+	return helper.JsonCreated(c, "Masjid berhasil dibuat", respDTO)
 }

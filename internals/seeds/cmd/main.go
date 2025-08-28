@@ -15,8 +15,6 @@ import (
 	survey "masjidku_backend/internals/seeds/users/surveys/survey_questions"
 	user_survey "masjidku_backend/internals/seeds/users/surveys/user_surveys"
 	tooltips "masjidku_backend/internals/seeds/utils/tooltips"
-
-	masjids "masjidku_backend/internals/seeds/masjids/masjids"
 )
 
 func main() {
@@ -48,7 +46,7 @@ func main() {
 
 
 	case "masjids":
-		masjids.SeedMasjidsFromJSON(db, "internals/seeds/masjids/masjid/data_masjids.json")
+		// masjids.SeedMasjidsFromJSON(db, "internals/seeds/masjids/masjid/data_masjids.json")
 	default:
 		log.Fatalf("❌ Argumen '%s' tidak dikenali", os.Args[1])
 	}

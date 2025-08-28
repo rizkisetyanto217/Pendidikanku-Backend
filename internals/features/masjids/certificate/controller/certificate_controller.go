@@ -152,7 +152,7 @@ func (ctrl *CertificateController) GetByUserExamID(c *fiber.Ctx) error {
 		LectureIsCertificateGenerated: lecture.LectureIsCertificateGenerated,
 		MasjidID:                      masjid.MasjidID,
 		MasjidName:                    masjid.MasjidName,
-		MasjidImageURL:                &masjid.MasjidImageURL, // pastikan tipe field ini *string di DTO
+		// MasjidImageURL:                &masjid.MasjidImageURL, // pastikan tipe field ini *string di DTO
 		UserLectureExamUserName:       userName,               // <- sudah string
 		UserLectureExamGradeResult:    gradeResult,            // <- *int (boleh nil)
 	}

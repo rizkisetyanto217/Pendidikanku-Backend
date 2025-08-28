@@ -41,7 +41,7 @@ func (uc *UserSelfController) GetMe(c *fiber.Ctx) error {
 // UPDATE (SELF) — tolak jika soft-deleted
 // ==============================
 
-// PUT /api/u/users/me
+// PATCH /api/u/users/me
 func (uc *UserSelfController) UpdateMe(c *fiber.Ctx) error {
 	userID, err := helper.GetUserIDFromToken(c)
 	if err != nil {
