@@ -15,23 +15,29 @@ const (
 )
 
 type UsersProfileModel struct {
-	ID           uuid.UUID      `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	UserID       uuid.UUID      `gorm:"type:uuid;not null;index" json:"user_id"`
-	DonationName string         `gorm:"size:50" json:"donation_name"`
-	FatherName   string         `gorm:"size:50;column:father_name" json:"father_name"`
-	MotherName   string         `gorm:"size:50;column:mother_name" json:"mother_name"`
-	DateOfBirth  *time.Time     `json:"date_of_birth" time_format:"2006-01-02"`
-	Gender       *Gender        `gorm:"size:10" json:"gender,omitempty"`
-	PhoneNumber  string         `gorm:"size:20" json:"phone_number"`
-	Bio          string         `gorm:"size:300" json:"bio"`
-	Location     string         `gorm:"size:50" json:"location"`
-	Occupation   string         `gorm:"size:20" json:"occupation"`
-	CreatedAt    time.Time      `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt    time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
-	DeletedAt    gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
+	// PK
+	ID uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+
+	// FK & Unique
+	UserID uuid.UUID `gorm:"type:uuid;not null;uniqueIndex:uq_users_profile_user_id" json:"user_id"`
+
+	// Columns
+	DonationName            string     `gorm:"size:50;column:donation_name" json:"donation_name"`
+	PhotoURL                *string    `gorm:"size:255;column:photo_url" json:"photo_url,omitempty"`
+	PhotoTrashURL           *string    `gorm:"type:text;column:photo_trash_url" json:"photo_trash_url,omitempty"`
+	PhotoDeletePendingUntil *time.Time `gorm:"column:photo_delete_pending_until" json:"photo_delete_pending_until,omitempty"`
+	DateOfBirth             *time.Time `gorm:"type:date;column:date_of_birth" json:"date_of_birth,omitempty"`
+	Gender                  *Gender    `gorm:"type:varchar(10);column:gender;index:idx_users_profile_gender" json:"gender,omitempty"`
+	Location                *string    `gorm:"size:100;column:location" json:"location,omitempty"`
+	Occupation              *string    `gorm:"size:50;column:occupation" json:"occupation,omitempty"`
+	PhoneNumber             *string    `gorm:"size:20;column:phone_number;index:idx_users_profile_phone" json:"phone_number,omitempty"`
+	Bio                     *string    `gorm:"size:300;column:bio" json:"bio,omitempty"`
+
+	// Timestamps
+	CreatedAt time.Time      `gorm:"autoCreateTime;column:created_at" json:"created_at"`
+	// Biarkan trigger DB yang mengisi updated_at (tanpa autoUpdateTime agar tidak bentrok)
+	UpdatedAt *time.Time     `gorm:"column:updated_at" json:"updated_at,omitempty"`
+	DeletedAt gorm.DeletedAt `gorm:"index;column:deleted_at" json:"deleted_at,omitempty"`
 }
 
-// Pastikan tabel bernama `users_profile`
-func (UsersProfileModel) TableName() string {
-	return "users_profile"
-}
+func (UsersProfileModel) TableName() string { return "users_profile" }

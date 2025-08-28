@@ -26,9 +26,8 @@ func HomePublicRoutes(api fiber.Router, db *gorm.DB) {
     ArticleRoutes.AllArticleRoutes(api, db)
     PostRoutes.AllPublicRoutes(api, db)
     QuestionnaireRoutes.AllQuestionnaireQuestionRoutes(api, db)
-    NotificationRoutes.NotificationAdminRoutes(api, db)
-	FaqRoutes.FaqAdminRoutes(api, db)
 
+	
     // Hanya menambahkan DBMiddleware untuk DonationRoutes
     donationRoutes := api.Group("/donations")
     donationRoutes.Use(DBMiddleware.DBMiddleware(db)) // Apply DBMiddleware only for donation routes
@@ -48,6 +47,7 @@ func HomePrivateRoutes(api fiber.Router, db *gorm.DB) {
 // ✅ Untuk route admin masjid (token + admin)
 // Contoh akses: /api/a/quotes
 func HomeAdminRoutes(api fiber.Router, db *gorm.DB) {
+	NotificationRoutes.NotificationAdminRoutes(api, db)
 	FaqRoutes.FaqAdminRoutes(api, db)
 	AdviceRoutes.AdviceAdminRoutes(api, db)
 	ArticleRoutes.ArticleAdminRoutes(api, db)

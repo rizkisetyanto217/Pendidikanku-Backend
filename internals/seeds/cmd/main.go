@@ -8,18 +8,15 @@ import (
 	"masjidku_backend/internals/configs"
 	"masjidku_backend/internals/seeds"
 
-
 	level "masjidku_backend/internals/seeds/progress/levels"
 	rank "masjidku_backend/internals/seeds/progress/ranks"
-	
+
 	users "masjidku_backend/internals/seeds/users/auth"
-	userProfiles "masjidku_backend/internals/seeds/users/users"
-	tooltips "masjidku_backend/internals/seeds/utils/tooltips"
 	survey "masjidku_backend/internals/seeds/users/surveys/survey_questions"
 	user_survey "masjidku_backend/internals/seeds/users/surveys/user_surveys"
-	
-	masjids "masjidku_backend/internals/seeds/masjids/masjids"
+	tooltips "masjidku_backend/internals/seeds/utils/tooltips"
 
+	masjids "masjidku_backend/internals/seeds/masjids/masjids"
 )
 
 func main() {
@@ -37,7 +34,7 @@ func main() {
 	case "users":
 		users.SeedUsersFromJSON(db, "internals/seeds/users/auth/data_users.json")
 	case "users_profile":
-		userProfiles.SeedUsersProfileFromJSON(db, "internals/seeds/users/users/data_users_profiles.json")
+		// userProfiles.SeedUsersProfileFromJSON(db, "internals/seeds/users/users/data_users_profiles.json")
 	
 	case "progress":
 		level.SeedLevelRequirementsFromJSON(db, "internals/seeds/progress/levels/data_levels_requirements.json")

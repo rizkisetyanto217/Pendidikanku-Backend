@@ -1,71 +1,21 @@
 package controller
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"time"
 
-	uModel "masjidku_backend/internals/features/users/user/model"
+	profileDTO "masjidku_backend/internals/features/users/user/dto"
+	profileModel "masjidku_backend/internals/features/users/user/model"
 	helper "masjidku_backend/internals/helpers"
+	helperOSS "masjidku_backend/internals/helpers/oss"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
-
-/* ===== Request DTOs (lebih aman dari langsung pakai model) ===== */
-
-type createProfileReq struct {
-	DonationName string     `json:"donation_name"`
-	FatherName   string     `json:"father_name"`
-	MotherName   string     `json:"mother_name"`
-	DateOfBirth  *string    `json:"date_of_birth"` // "2006-01-02"
-	Gender       *string    `json:"gender"`        // "male" | "female"
-	PhoneNumber  string     `json:"phone_number"`
-	Bio          string     `json:"bio"`
-	Location     string     `json:"location"`
-	Occupation   string     `json:"occupation"`
-}
-
-type updateProfileReq struct {
-	DonationName *string `json:"donation_name"`
-	FatherName   *string `json:"father_name"`
-	MotherName   *string `json:"mother_name"`
-	DateOfBirth  *string `json:"date_of_birth"` // "2006-01-02" | ""
-	Gender       *string `json:"gender"`        // "male" | "female" | ""
-	PhoneNumber  *string `json:"phone_number"`
-	Bio          *string `json:"bio"`
-	Location     *string `json:"location"`
-	Occupation   *string `json:"occupation"`
-}
-
-func parseDOB(s *string) *time.Time {
-	if s == nil {
-		return nil
-	}
-	ss := strings.TrimSpace(*s)
-	if ss == "" {
-		return nil
-	}
-	t, err := time.Parse("2006-01-02", ss)
-	if err != nil {
-		return nil
-	}
-	return &t
-}
-
-func parseGender(s *string) *uModel.Gender {
-	if s == nil {
-		return nil
-	}
-	val := uModel.Gender(strings.ToLower(strings.TrimSpace(*s)))
-	if val != uModel.Male && val != uModel.Female {
-		return nil
-	}
-	return &val
-}
-
-/* ================= Controller ================= */
 
 type UsersProfileController struct {
 	DB *gorm.DB
@@ -75,21 +25,37 @@ func NewUsersProfileController(db *gorm.DB) *UsersProfileController {
 	return &UsersProfileController{DB: db}
 }
 
+func httpErr(c *fiber.Ctx, err error) error {
+	if fe, ok := err.(*fiber.Error); ok {
+		return helper.Error(c, fe.Code, fe.Message)
+	}
+	return helper.Error(c, fiber.StatusUnauthorized, err.Error())
+}
+
+/* =========================
+   GET: All profiles (DTO)
+   ========================= */
 func (upc *UsersProfileController) GetProfiles(c *fiber.Ctx) error {
 	log.Println("[INFO] Fetching all user profiles")
-	var profiles []uModel.UsersProfileModel
+	var profiles []profileModel.UsersProfileModel
 	if err := upc.DB.Find(&profiles).Error; err != nil {
 		log.Println("[ERROR] Failed to fetch user profiles:", err)
 		return helper.Error(c, fiber.StatusInternalServerError, "Failed to fetch user profiles")
 	}
-	return helper.Success(c, "User profiles fetched successfully", profiles)
+	return helper.Success(c, "User profiles fetched successfully", profileDTO.ToUsersProfileDTOs(profiles))
 }
 
+/* =========================
+   GET: My profile (DTO)
+   ========================= */
 func (upc *UsersProfileController) GetProfile(c *fiber.Ctx) error {
-	userID := c.Locals("user_id")
+	userID, err := helper.GetUserIDFromToken(c)
+	if err != nil {
+		return httpErr(c, err)
+	}
 	log.Println("[INFO] Fetching user profile with user_id:", userID)
 
-	var profile uModel.UsersProfileModel
+	var profile profileModel.UsersProfileModel
 	if err := upc.DB.Where("user_id = ?", userID).First(&profile).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return helper.Error(c, fiber.StatusNotFound, "User profile not found")
@@ -97,176 +63,250 @@ func (upc *UsersProfileController) GetProfile(c *fiber.Ctx) error {
 		log.Println("[ERROR] DB error:", err)
 		return helper.Error(c, fiber.StatusInternalServerError, "Failed to fetch user profile")
 	}
-	return helper.Success(c, "User profile fetched successfully", profile)
+	return helper.Success(c, "User profile fetched successfully", profileDTO.ToUsersProfileDTO(profile))
 }
 
+/* =========================
+   POST: Create / Upsert (DTO)
+   - Buat jika belum ada; kalau sudah ada, update dari payload create
+   ========================= */
+// =========================
+// POST /profiles (Create only)
+// =========================
 func (upc *UsersProfileController) CreateProfile(c *fiber.Ctx) error {
-	log.Println("[INFO] Creating or updating user profile")
-
-	uid := c.Locals("user_id")
-	if uid == nil {
-		return helper.Error(c, fiber.StatusUnauthorized, "Unauthorized: no user_id")
-	}
-	userID, ok := uid.(uuid.UUID)
-	if !ok {
-		return helper.Error(c, fiber.StatusUnauthorized, "Invalid user_id type")
+	userID, err := helper.GetUserIDFromToken(c)
+	if err != nil {
+		return httpErr(c, err)
 	}
 
-	var in createProfileReq
+	// Parse body (JSON/form) ke DTO kamu
+	var in profileDTO.CreateUsersProfileRequest
 	if err := c.BodyParser(&in); err != nil {
-		log.Println("[ERROR] Invalid request body:", err)
 		return helper.Error(c, fiber.StatusBadRequest, "Invalid request format")
 	}
-
-	// Upsert by user_id
-	var existing uModel.UsersProfileModel
-	err := upc.DB.Where("user_id = ?", userID).First(&existing).Error
-	if err != nil && err != gorm.ErrRecordNotFound {
-		log.Println("[ERROR] DB error:", err)
-		return helper.Error(c, fiber.StatusInternalServerError, "DB error")
+	// Validasi ringan contoh (silakan sesuaikan DTO/validator kamu)
+	if strings.TrimSpace(in.DonationName) == "" {
+		return helper.Error(c, fiber.StatusBadRequest, "Donation name is required")
+	}
+	if in.PhoneNumber != nil {
+		v := strings.TrimSpace(*in.PhoneNumber)
+		v = strings.ReplaceAll(v, " ", "")
+		in.PhoneNumber = &v
 	}
 
-	// Build model fields
-	dob := parseDOB(in.DateOfBirth)
-	g := parseGender(in.Gender)
+	// (opsional) upload avatar multipart field "photo" → WebP → OSS
+	var uploadedAvatarURL *string
+	if fh, errFile := c.FormFile("photo"); errFile == nil && fh != nil {
+		// Batasi ukuran & tipe dasar
+		if fh.Size > 5*1024*1024 {
+			return helper.Error(c, fiber.StatusRequestEntityTooLarge, "Max file size 5MB")
+		}
 
-	if err == nil {
-		// update
-		patch := map[string]any{
-			"donation_name": in.DonationName,
-			"father_name":   in.FatherName,
-			"mother_name":   in.MotherName,
-			"phone_number":  in.PhoneNumber,
-			"bio":           in.Bio,
-			"location":      in.Location,
-			"occupation":    in.Occupation,
-			"updated_at":    time.Now(),
+		svc, errInit := helperOSS.NewOSSServiceFromEnv("")
+		if errInit != nil {
+			return helper.Error(c, fiber.StatusInternalServerError, "Failed to init file service")
 		}
-		if dob != nil {
-			patch["date_of_birth"] = *dob
+
+		ctx, cancel := context.WithTimeout(c.Context(), 30*time.Second)
+		defer cancel()
+
+		dir := fmt.Sprintf("users/%s/avatar", userID.String())
+		publicURL, errUp := svc.UploadAsWebP(ctx, fh, dir)
+		if errUp != nil {
+			if strings.Contains(strings.ToLower(errUp.Error()), "format tidak didukung") {
+				return helper.Error(c, fiber.StatusUnsupportedMediaType, "Unsupported image format (use jpg/png/webp)")
+			}
+			return helper.Error(c, fiber.StatusBadGateway, "Failed to upload avatar")
 		}
-		if g != nil {
-			patch["gender"] = *g
+		uploadedAvatarURL = &publicURL
+		in.PhotoURL = uploadedAvatarURL
+	}
+
+	// Build model dari DTO
+	row := in.ToModel(userID)
+
+	// Gunakan unique index di DB utk cegah duplikasi secara race-safe
+	db := upc.DB.WithContext(c.Context())
+	if err := db.Create(&row).Error; err != nil {
+		// Rollback avatar jika DB gagal
+		if uploadedAvatarURL != nil {
+			_ = helperOSS.DeleteByPublicURLENV(*uploadedAvatarURL, 10*time.Second)
 		}
-		if err := upc.DB.Model(&existing).Updates(patch).Error; err != nil {
+
+		// Tangkap duplicate key (unique constraint)
+		le := strings.ToLower(err.Error())
+		if strings.Contains(le, "duplicate key") || strings.Contains(le, "unique constraint") {
+			return helper.Error(c, fiber.StatusConflict, "User profile already exists")
+		}
+		return helper.Error(c, fiber.StatusInternalServerError, "Failed to create user profile")
+	}
+
+	return helper.SuccessWithCode(c, fiber.StatusCreated, "User profile created successfully",
+		profileDTO.ToUsersProfileDTO(row))
+}
+
+
+/* =========================
+   PATCH: Update (DTO)
+   ========================= */
+// =========================
+// PATCH /profiles (partial update + optional avatar replace)
+// =========================
+// =========================
+// PATCH /profiles (partial update + optional avatar replace)
+// =========================
+func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
+	userID, err := helper.GetUserIDFromToken(c)
+	if err != nil {
+		return httpErr(c, err)
+	}
+	log.Println("[INFO] Updating user profile with user_id:", userID)
+
+	// Ambil profile existing
+	var profile profileModel.UsersProfileModel
+	if err := upc.DB.WithContext(c.Context()).
+		Where("user_id = ?", userID).
+		First(&profile).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.Error(c, fiber.StatusNotFound, "User profile not found")
+		}
+		log.Println("[ERROR] DB error:", err)
+		return helper.Error(c, fiber.StatusInternalServerError, "Failed to fetch user profile")
+	}
+
+	ct := strings.TrimSpace(c.Get(fiber.HeaderContentType))
+	isJSON := strings.HasPrefix(ct, fiber.MIMEApplicationJSON)
+	isMultipart := strings.HasPrefix(ct, fiber.MIMEMultipartForm)
+
+	// --- Kumpulkan perubahan dari body ---
+	var in profileDTO.UpdateUsersProfileRequest
+	var updateMap map[string]interface{}
+
+	// NOTE: BodyParser bisa handle form-urlencoded; untuk multipart kita ambil manual
+	if isJSON {
+		if err := c.BodyParser(&in); err != nil {
+			log.Println("[ERROR] Invalid request body:", err)
+			return helper.Error(c, fiber.StatusBadRequest, "Invalid request format")
+		}
+	} else {
+		// form-urlencoded / multipart → isi field pointer dari form value (hanya jika ada)
+		setPtr := func(dst **string, name string) {
+			if v := c.FormValue(name); v != "" {
+				val := v
+				*dst = &val
+			}
+		}
+		setPtr(&in.DonationName, "donation_name")
+		setPtr(&in.PhotoURL, "photo_url") // bila ingin set direct URL
+		setPtr(&in.PhotoTrashURL, "photo_trash_url")
+		setPtr(&in.PhotoDeletePendingUntil, "photo_delete_pending_until")
+		setPtr(&in.DateOfBirth, "date_of_birth")
+		setPtr(&in.Gender, "gender")
+		setPtr(&in.Location, "location")       // ✅ NEW
+		setPtr(&in.Occupation, "occupation")   // ✅ NEW
+		setPtr(&in.PhoneNumber, "phone_number")
+		setPtr(&in.Bio, "bio")
+	}
+
+	// Validasi & translate ke map kolom->nilai
+	var mapErr error
+	updateMap, mapErr = in.ToUpdateMap()
+	if mapErr != nil {
+		return helper.Error(c, fiber.StatusBadRequest, mapErr.Error())
+	}
+
+	// --- Handle penggantian foto lewat file multipart "photo" (prioritas di atas PhotoURL) ---
+	var (
+		uploadedNewURL *string
+		oldPhotoURL    *string = profile.PhotoURL
+	)
+	if isMultipart {
+		if fh, errFile := c.FormFile("photo"); errFile == nil && fh != nil {
+			// Optional: batasi ukuran & tipe
+			if fh.Size > 5*1024*1024 {
+				return helper.Error(c, fiber.StatusRequestEntityTooLarge, "Max file size 5MB")
+			}
+			svc, errInit := helperOSS.NewOSSServiceFromEnv("")
+			if errInit != nil {
+				return helper.Error(c, fiber.StatusInternalServerError, "Failed to init file service")
+			}
+			ctxUp, cancelUp := context.WithTimeout(c.Context(), 30*time.Second)
+			defer cancelUp()
+
+			dir := fmt.Sprintf("users/%s/avatar", userID.String())
+			publicURL, errUp := svc.UploadAsWebP(ctxUp, fh, dir)
+			if errUp != nil {
+				if strings.Contains(strings.ToLower(errUp.Error()), "format tidak didukung") {
+					return helper.Error(c, fiber.StatusUnsupportedMediaType, "Unsupported image format (use jpg/png/webp)")
+				}
+				return helper.Error(c, fiber.StatusBadGateway, "Failed to upload avatar")
+			}
+
+			uploadedNewURL = &publicURL
+			updateMap["photo_url"] = publicURL
+
+			// Pindahkan foto lama (kalau ada) ke trash window 7 hari
+			if oldPhotoURL != nil && strings.TrimSpace(*oldPhotoURL) != "" {
+				updateMap["photo_trash_url"] = strings.TrimSpace(*oldPhotoURL)
+				when := time.Now().Add(7 * 24 * time.Hour).UTC()
+				updateMap["photo_delete_pending_until"] = when
+			} else {
+				// kalau tidak ada lama, kosongkan metadata trash
+				updateMap["photo_trash_url"] = nil
+				updateMap["photo_delete_pending_until"] = nil
+			}
+		}
+	}
+
+	// --- Update DB dengan map kolom yang berubah saja ---
+	tx := upc.DB.WithContext(c.Context()).Begin()
+	if tx.Error != nil {
+		// cleanup file bila sudah terupload
+		if uploadedNewURL != nil {
+			_ = helperOSS.DeleteByPublicURLENV(*uploadedNewURL, 10*time.Second)
+		}
+		return helper.Error(c, fiber.StatusInternalServerError, "Failed to start transaction")
+	}
+
+	if len(updateMap) > 0 {
+		if err := tx.Model(&profile).Where("user_id = ?", userID).Updates(updateMap).Error; err != nil {
+			_ = tx.Rollback().Error
+			if uploadedNewURL != nil {
+				_ = helperOSS.DeleteByPublicURLENV(*uploadedNewURL, 10*time.Second)
+			}
 			log.Println("[ERROR] Failed to update user profile:", err)
 			return helper.Error(c, fiber.StatusInternalServerError, "Failed to update user profile")
 		}
-		// re-read to return the latest
-		var latest uModel.UsersProfileModel
-		_ = upc.DB.Where("user_id = ?", userID).First(&latest).Error
-		return helper.Success(c, "User profile updated successfully", latest)
 	}
 
-	// create
-	newRow := uModel.UsersProfileModel{
-		UserID:       userID,
-		DonationName: in.DonationName,
-		FatherName:   in.FatherName,
-		MotherName:   in.MotherName,
-		PhoneNumber:  in.PhoneNumber,
-		Bio:          in.Bio,
-		Location:     in.Location,
-		Occupation:   in.Occupation,
-	}
-	if dob != nil {
-		newRow.DateOfBirth = dob
-	}
-	if g != nil {
-		newRow.Gender = g
+	if err := tx.Commit().Error; err != nil {
+		if uploadedNewURL != nil {
+			_ = helperOSS.DeleteByPublicURLENV(*uploadedNewURL, 10*time.Second)
+		}
+		return helper.Error(c, fiber.StatusInternalServerError, "Failed to commit update")
 	}
 
-	if err := upc.DB.Create(&newRow).Error; err != nil {
-		log.Println("[ERROR] Failed to create user profile:", err)
-		return helper.Error(c, fiber.StatusInternalServerError, "Failed to create user profile")
+	// Refresh
+	if err := upc.DB.WithContext(c.Context()).
+		Where("user_id = ?", userID).First(&profile).Error; err != nil {
+		log.Println("[WARN] Refresh after update failed:", err)
 	}
-	return helper.SuccessWithCode(c, fiber.StatusCreated, "User profile created successfully", newRow)
+
+	return helper.Success(c, "User profile updated successfully", profileDTO.ToUsersProfileDTO(profile))
 }
 
-func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
-	uid := c.Locals("user_id")
-	if uid == nil {
-		return helper.Error(c, fiber.StatusUnauthorized, "Unauthorized - user_id missing")
-	}
-	userID, ok := uid.(uuid.UUID)
-	if !ok {
-		return helper.Error(c, fiber.StatusUnauthorized, "Invalid user_id type")
-	}
 
-	log.Println("[INFO] Updating user profile with user_id:", userID)
-
-	var profile uModel.UsersProfileModel
-	if err := upc.DB.Where("user_id = ?", userID).First(&profile).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return helper.Error(c, fiber.StatusNotFound, "User profile not found")
-		}
-		log.Println("[ERROR] DB error:", err)
-		return helper.Error(c, fiber.StatusInternalServerError, "Failed to fetch user profile")
-	}
-
-	var in updateProfileReq
-	if err := c.BodyParser(&in); err != nil {
-		log.Println("[ERROR] Invalid request body:", err)
-		return helper.Error(c, fiber.StatusBadRequest, "Invalid request format")
-	}
-
-	patch := map[string]any{
-		"updated_at": time.Now(),
-	}
-
-	// only set provided fields (including empty string to clear)
-	if in.DonationName != nil {
-		patch["donation_name"] = *in.DonationName
-	}
-	if in.FatherName != nil {
-		patch["father_name"] = *in.FatherName
-	}
-	if in.MotherName != nil {
-		patch["mother_name"] = *in.MotherName
-	}
-	if in.PhoneNumber != nil {
-		patch["phone_number"] = *in.PhoneNumber
-	}
-	if in.Bio != nil {
-		patch["bio"] = *in.Bio
-	}
-	if in.Location != nil {
-		patch["location"] = *in.Location
-	}
-	if in.Occupation != nil {
-		patch["occupation"] = *in.Occupation
-	}
-	if in.DateOfBirth != nil { // allow clear or set
-		if t := parseDOB(in.DateOfBirth); t != nil {
-			patch["date_of_birth"] = *t
-		} else {
-			patch["date_of_birth"] = nil
-		}
-	}
-	if in.Gender != nil { // allow clear or set
-		if g := parseGender(in.Gender); g != nil {
-			patch["gender"] = *g
-		} else {
-			patch["gender"] = nil
-		}
-	}
-
-	if err := upc.DB.Model(&profile).Updates(patch).Error; err != nil {
-		log.Println("[ERROR] Failed to update user profile:", err)
-		return helper.Error(c, fiber.StatusInternalServerError, "Failed to update user profile")
-	}
-
-	// return the latest row
-	var latest uModel.UsersProfileModel
-	_ = upc.DB.Where("user_id = ?", userID).First(&latest).Error
-	return helper.Success(c, "User profile updated successfully", latest)
-}
-
+/* =========================
+   DELETE: Soft delete
+   ========================= */
 func (upc *UsersProfileController) DeleteProfile(c *fiber.Ctx) error {
-	userID := c.Locals("user_id")
+	userID, err := helper.GetUserIDFromToken(c)
+	if err != nil {
+		return httpErr(c, err)
+	}
 	log.Println("[INFO] Deleting user profile with user_id:", userID)
 
-	var profile uModel.UsersProfileModel
+	var profile profileModel.UsersProfileModel
 	if err := upc.DB.Where("user_id = ?", userID).First(&profile).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return helper.Error(c, fiber.StatusNotFound, "User profile not found")

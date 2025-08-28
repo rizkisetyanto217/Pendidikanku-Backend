@@ -22,6 +22,9 @@ END$$;
 CREATE TABLE IF NOT EXISTS masjids (
   masjid_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
+  -- Relasi Yayasan
+  masjid_yayasan_id UUID REFERENCES yayasans (yayasan_id) ON UPDATE CASCADE ON DELETE SET NULL,
+
   -- Identitas & lokasi
   masjid_name       VARCHAR(100) NOT NULL,
   masjid_bio_short  TEXT,
@@ -118,6 +121,10 @@ CREATE INDEX IF NOT EXISTS idx_masjids_earth
 CREATE INDEX IF NOT EXISTS idx_masjids_image_gc_due
   ON masjids (masjid_image_delete_pending_until)
   WHERE masjid_image_trash_url IS NOT NULL;
+
+-- Index relasi yayasan
+CREATE INDEX IF NOT EXISTS idx_masjids_yayasan
+  ON masjids (masjid_yayasan_id);
 
 -- =========================================================
 -- TRIGGERS
