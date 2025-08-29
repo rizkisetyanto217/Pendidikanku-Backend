@@ -11,9 +11,9 @@ import (
 // Catatan: pastikan router 'r' sudah merupakan group /admin dan sudah ada middleware auth di level atas.
 func AnnouncementUserRoutes(r fiber.Router, db *gorm.DB) {
 	ctl := annCtl.NewAnnouncementController(db)
+	ctl2 := annCtl.NewAnnouncementURLController(db)
 
 	grp := r.Group("/announcements") // hasil akhir: /admin/announcements
-
 
 	grp.Get("/", ctl.List)      // ← get all
 	grp.Get("/:id", ctl.GetByID) // ← get by id
@@ -21,4 +21,11 @@ func AnnouncementUserRoutes(r fiber.Router, db *gorm.DB) {
 	// (opsional, kalau sudah ada handlernya)
 	// grp.Get("/", ctl.List)
 	// grp.Get("/:id", ctl.GetByID)
+
+	grp2 := r.Group("/announcement-urls")
+
+	// list & detail saja untuk user
+	grp2.Get("", ctl2.List)
+	grp2.Get("/", ctl2.List)
+	grp2.Get("/:id", ctl2.Detail)
 }

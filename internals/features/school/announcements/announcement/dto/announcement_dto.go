@@ -1,3 +1,4 @@
+// internals/features/lembaga/announcements/announcement/dto/announcement_dto.go
 package dto
 
 import (
@@ -14,11 +15,10 @@ import (
 // Create: masjid_id & created_by diambil dari token/context (bukan dari body)
 type CreateAnnouncementRequest struct {
 	AnnouncementThemeID        *uuid.UUID `json:"announcement_theme_id" validate:"omitempty"`
-	AnnouncementClassSectionID *uuid.UUID `json:"announcement_class_section_id" validate:"omitempty"` // NULL = GLOBAL (tampil ke semua user masjid)
+	AnnouncementClassSectionID *uuid.UUID `json:"announcement_class_section_id" validate:"omitempty"` // NULL = GLOBAL
 	AnnouncementTitle          string     `json:"announcement_title" validate:"required,min=3,max=200"`
 	AnnouncementDate           string     `json:"announcement_date" validate:"required,datetime=2006-01-02"` // YYYY-MM-DD
 	AnnouncementContent        string     `json:"announcement_content" validate:"required,min=3"`
-	AnnouncementAttachmentURL  *string    `json:"announcement_attachment_url" validate:"omitempty"`
 	AnnouncementIsActive       *bool      `json:"announcement_is_active" validate:"omitempty"`
 }
 
@@ -38,17 +38,8 @@ func (r CreateAnnouncementRequest) ToModel(masjidID, createdBy uuid.UUID) *model
 		AnnouncementContent:         content,
 		AnnouncementIsActive:        true, // default aktif
 	}
-
 	if r.AnnouncementIsActive != nil {
 		m.AnnouncementIsActive = *r.AnnouncementIsActive
-	}
-	if r.AnnouncementAttachmentURL != nil {
-		u := strings.TrimSpace(*r.AnnouncementAttachmentURL)
-		if u == "" {
-			m.AnnouncementAttachmentURL = nil
-		} else {
-			m.AnnouncementAttachmentURL = &u
-		}
 	}
 	return m
 }
@@ -61,8 +52,13 @@ type UpdateAnnouncementRequest struct {
 	AnnouncementTitle          *string    `json:"announcement_title" validate:"omitempty,min=3,max=200"`
 	AnnouncementDate           *string    `json:"announcement_date" validate:"omitempty,datetime=2006-01-02"` // YYYY-MM-DD
 	AnnouncementContent        *string    `json:"announcement_content" validate:"omitempty,min=3"`
-	AnnouncementAttachmentURL  *string    `json:"announcement_attachment_url" validate:"omitempty"`
 	AnnouncementIsActive       *bool      `json:"announcement_is_active" validate:"omitempty"`
+}
+
+type Pagination struct {
+	Limit  int `json:"limit"`
+	Offset int `json:"offset"`
+	Total  int `json:"total"`
 }
 
 // ApplyToModel: terapkan hanya field yang dikirim
@@ -86,50 +82,30 @@ func (r *UpdateAnnouncementRequest) ApplyToModel(m *model.AnnouncementModel) {
 	if r.AnnouncementContent != nil {
 		m.AnnouncementContent = strings.TrimSpace(*r.AnnouncementContent)
 	}
-	if r.AnnouncementAttachmentURL != nil {
-		u := strings.TrimSpace(*r.AnnouncementAttachmentURL)
-		if u == "" {
-			m.AnnouncementAttachmentURL = nil
-		} else {
-			m.AnnouncementAttachmentURL = &u
-		}
-	}
 	if r.AnnouncementIsActive != nil {
 		m.AnnouncementIsActive = *r.AnnouncementIsActive
 	}
-
-	now := time.Now()
-	m.AnnouncementUpdatedAt = &now
-}
-
-type Pagination struct {
-	Limit  int `json:"limit"`
-	Offset int `json:"offset"`
-	Total  int `json:"total"`
+	// UpdatedAt dikelola otomatis oleh GORM/trigger
 }
 
 /* ===================== QUERIES (list) ===================== */
 
-// internals/features/lembaga/announcements/announcement/dto/list_query.go
 type ListAnnouncementQuery struct {
-  Limit         int        `query:"limit"`
-  Offset        int        `query:"offset"`
-  ThemeID       *uuid.UUID `query:"theme_id"`
-  SectionID     *uuid.UUID `query:"section_id"`
-  IncludeGlobal *bool      `query:"include_global"`
-  OnlyGlobal    *bool      `query:"only_global"`
-  HasAttachment *bool      `query:"has_attachment"`
-  IsActive      *bool      `query:"is_active"`
-  DateFrom      *string    `query:"date_from"`
-  DateTo        *string    `query:"date_to"`
-  Sort          *string    `query:"sort"`
-
-  // NEW:
-  IncludePusat  *bool      `query:"include_pusat"` // default true
+	Limit         int        `query:"limit"`
+	Offset        int        `query:"offset"`
+	ThemeID       *uuid.UUID `query:"theme_id"`
+	SectionID     *uuid.UUID `query:"section_id"`
+	IncludeGlobal *bool      `query:"include_global"`
+	OnlyGlobal    *bool      `query:"only_global"`
+	HasAttachment *bool      `query:"has_attachment"` // (tidak dipakai di DDL sekarang; biarkan untuk kompatibilitas filter di layer query, atau hapus jika tidak perlu)
+	IsActive      *bool      `query:"is_active"`
+	DateFrom      *string    `query:"date_from"`
+	DateTo        *string    `query:"date_to"`
+	Sort          *string    `query:"sort"`
+	IncludePusat  *bool      `query:"include_pusat"` // default true
 }
 
-
-// internals/features/lembaga/announcements/announcement/dto/announcement_response.go
+/* ===================== RESPONSES ===================== */
 
 type AnnouncementThemeLite struct {
 	ID    uuid.UUID `json:"id"`
@@ -144,16 +120,15 @@ type AnnouncementResponse struct {
 	AnnouncementClassSectionID  *uuid.UUID `json:"announcement_class_section_id,omitempty"`
 	AnnouncementCreatedByUserID uuid.UUID  `json:"announcement_created_by_user_id"`
 
-	AnnouncementTitle         string     `json:"announcement_title"`
-	AnnouncementDate          time.Time  `json:"announcement_date"`
-	AnnouncementContent       string     `json:"announcement_content"`
-	AnnouncementAttachmentURL *string    `json:"announcement_attachment_url,omitempty"`
-	AnnouncementIsActive      bool       `json:"announcement_is_active"`
+	AnnouncementTitle    string    `json:"announcement_title"`
+	AnnouncementDate     time.Time `json:"announcement_date"`
+	AnnouncementContent  string    `json:"announcement_content"`
+	AnnouncementIsActive bool      `json:"announcement_is_active"`
 
-	AnnouncementCreatedAt time.Time  `json:"announcement_created_at"`
-	AnnouncementUpdatedAt *time.Time `json:"announcement_updated_at,omitempty"`
+	AnnouncementCreatedAt time.Time `json:"announcement_created_at"`
+	AnnouncementUpdatedAt time.Time `json:"announcement_updated_at"` // NOT NULL di DDL
 
-	// NEW: info tema yang sudah dipreload
+	// Info tema yang sudah dipreload
 	Theme *AnnouncementThemeLite `json:"theme,omitempty"`
 }
 
@@ -171,7 +146,6 @@ func NewAnnouncementResponse(m *model.AnnouncementModel) *AnnouncementResponse {
 		AnnouncementTitle:           m.AnnouncementTitle,
 		AnnouncementDate:            m.AnnouncementDate,
 		AnnouncementContent:         m.AnnouncementContent,
-		AnnouncementAttachmentURL:   m.AnnouncementAttachmentURL,
 		AnnouncementIsActive:        m.AnnouncementIsActive,
 		AnnouncementCreatedAt:       m.AnnouncementCreatedAt,
 		AnnouncementUpdatedAt:       m.AnnouncementUpdatedAt,
@@ -180,9 +154,9 @@ func NewAnnouncementResponse(m *model.AnnouncementModel) *AnnouncementResponse {
 	// Map relasi Theme jika sudah dipreload
 	if m.Theme != nil {
 		resp.Theme = &AnnouncementThemeLite{
-			ID:    m.Theme.AnnouncementThemesID,     // sesuaikan dengan field model tema kamu
-			Name:  m.Theme.AnnouncementThemesName,   // sesuaikan
-			Color: m.Theme.AnnouncementThemesColor,  // opsional, sesuaikan
+			ID:    m.Theme.AnnouncementThemesID,
+			Name:  m.Theme.AnnouncementThemesName,
+			Color: m.Theme.AnnouncementThemesColor,
 		}
 	}
 	return resp

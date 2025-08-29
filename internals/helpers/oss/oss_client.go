@@ -22,6 +22,7 @@ import (
 
 	"github.com/aliyun/aliyun-oss-go-sdk/oss"
 	"github.com/chai2010/webp"
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
 
@@ -542,20 +543,41 @@ func UploadImageToOSSScoped(masjidID uuid.UUID, kategori string, fh *multipart.F
 
 // UploadImageToOSS: helper lama (kompatibilitas)
 // Inisialisasi OSSService dari env tiap dipanggil (cukup untuk use-case ringan).
-func UploadImageToOSS(prefix string, fh *multipart.FileHeader) (string, error) {
-	svc, err := NewOSSServiceFromEnv(prefix)
-	if err != nil {
-		return "", err
+// uploadImageToOSS: selalu upload sebagai WebP (jpg/png dikonversi; webp passthrough)
+// uploadImageToOSS: selalu upload sebagai WebP (jpg/png dikonversi; webp passthrough)
+func UploadImageToOSS(
+	ctx context.Context,
+	svc *OSSService,           // <- pakai tipe lokal, bukan helperOSS.OSSService
+	masjidID uuid.UUID,
+	slot string,
+	fh *multipart.FileHeader,
+) (string, error) {
+	if fh == nil {
+		return "", fiber.NewError(fiber.StatusBadRequest, "File tidak ditemukan")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	if masjidID == uuid.Nil {
+		return "", fiber.NewError(fiber.StatusBadRequest, "masjid_id tidak valid")
+	}
+	if fh.Size > 5*1024*1024 {
+		return "", fiber.NewError(fiber.StatusRequestEntityTooLarge, "Ukuran gambar maksimal 5MB")
+	}
 
-	key, _, err := svc.UploadFromFormFile(ctx, fh)
-	if err != nil {
-		return "", err
+	slot = strings.Trim(strings.ToLower(strings.TrimSpace(slot)), "/")
+	if slot == "" {
+		slot = "default"
 	}
-	return svc.PublicURL(key), nil
+	dir := fmt.Sprintf("masjids/%s/images/%s", masjidID.String(), slot)
+
+	url, err := svc.UploadAsWebP(ctx, fh, dir)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "format tidak didukung") {
+			return "", fiber.NewError(fiber.StatusUnsupportedMediaType, "Unsupported image format (pakai jpg/png/webp)")
+		}
+		return "", fiber.NewError(fiber.StatusBadGateway, "Gagal upload ke OSS")
+	}
+	return url, nil
 }
+
 
 // -------------------- DELETE BY PUBLIC URL (SINGLE & BATCH) --------------------
 

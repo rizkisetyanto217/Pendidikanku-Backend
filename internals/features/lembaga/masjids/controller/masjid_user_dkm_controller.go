@@ -2,13 +2,8 @@
 package controller
 
 import (
-	"bytes"
 	"context"
-	"image/jpeg"
-	"image/png"
 	"log"
-	"mime/multipart"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -20,7 +15,6 @@ import (
 	helper "masjidku_backend/internals/helpers"
 	helperOSS "masjidku_backend/internals/helpers/oss"
 
-	"github.com/chai2010/webp"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -44,68 +38,6 @@ func strPtrOrNil(s string, lower bool) *string {
 
 func boolFromForm(v string) bool {
 	return v == "true" || v == "1" || strings.ToLower(v) == "yes"
-}
-
-func uploadImageToOSS(
-	ctx context.Context,
-	svc *helperOSS.OSSService,
-	masjidID uuid.UUID,
-	slot string,
-	fh *multipart.FileHeader,
-) (string, error) {
-	ext := strings.ToLower(filepath.Ext(fh.Filename))
-	const maxBytes = 5 * 1024 * 1024
-	if fh.Size > maxBytes {
-		return "", fiber.NewError(fiber.StatusRequestEntityTooLarge, "Ukuran gambar maksimal 5MB")
-	}
-
-	keyPrefix := "masjids/" + masjidID.String() + "/images/" + slot
-	baseName := helper.GenerateSlug(strings.TrimSuffix(fh.Filename, ext))
-	if baseName == "" {
-		baseName = "image"
-	}
-	key := keyPrefix + "/" + baseName + "_" + time.Now().Format("20060102_150405") + ".webp"
-
-	src, err := fh.Open()
-	if err != nil {
-		return "", fiber.NewError(fiber.StatusBadRequest, "Gagal membuka file upload")
-	}
-	defer src.Close()
-
-	var webpBuf *bytes.Buffer
-	switch ext {
-	case ".jpg", ".jpeg":
-		img, derr := jpeg.Decode(src)
-		if derr != nil {
-			return "", fiber.NewError(fiber.StatusUnsupportedMediaType, "File JPEG tidak valid")
-		}
-		webpBuf = new(bytes.Buffer)
-		if err := webp.Encode(webpBuf, img, &webp.Options{Lossless: false, Quality: 85}); err != nil {
-			return "", fiber.NewError(fiber.StatusInternalServerError, "Gagal konversi JPEG ke WebP")
-		}
-	case ".png":
-		img, derr := png.Decode(src)
-		if derr != nil {
-			return "", fiber.NewError(fiber.StatusUnsupportedMediaType, "File PNG tidak valid")
-		}
-		webpBuf = new(bytes.Buffer)
-		if err := webp.Encode(webpBuf, img, &webp.Options{Lossless: false, Quality: 85}); err != nil {
-			return "", fiber.NewError(fiber.StatusInternalServerError, "Gagal konversi PNG ke WebP")
-		}
-	case ".webp":
-		all := new(bytes.Buffer)
-		if _, err := all.ReadFrom(src); err != nil {
-			return "", fiber.NewError(fiber.StatusBadRequest, "Gagal membaca file WebP")
-		}
-		webpBuf = all
-	default:
-		return "", fiber.NewError(fiber.StatusUnsupportedMediaType, "Format tidak didukung (jpg, jpeg, png, webp)")
-	}
-
-	if err := svc.UploadStream(ctx, key, bytes.NewReader(webpBuf.Bytes()), "image/webp", true, true); err != nil {
-		return "", fiber.NewError(fiber.StatusInternalServerError, "Gagal upload gambar ke OSS")
-	}
-	return svc.PublicURL(key), nil
 }
 
 // CreateMasjidDKM — schema terbaru (OSS + auto convert WebP + 3 slot gambar)
@@ -219,7 +151,7 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 
 		// DEFAULT
 		if fh, err := c.FormFile("masjid_image_url"); err == nil && fh != nil {
-			if url, uerr := uploadImageToOSS(ctx, svc, newID, "default", fh); uerr != nil {
+			if url, uerr := helperOSS.UploadImageToOSS(ctx, svc, newID, "default", fh); uerr != nil {
 				return uerr
 			} else {
 				imgDefaultURL = &url
@@ -230,7 +162,7 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 
 		// MAIN
 		if fh, err := c.FormFile("masjid_image_main_url"); err == nil && fh != nil {
-			if url, uerr := uploadImageToOSS(ctx, svc, newID, "main", fh); uerr != nil {
+			if url, uerr := helperOSS.UploadImageToOSS(ctx, svc, newID, "main", fh); uerr != nil {
 				return uerr
 			} else {
 				imgMainURL = &url
@@ -241,7 +173,7 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 
 		// BACKGROUND
 		if fh, err := c.FormFile("masjid_image_bg_url"); err == nil && fh != nil {
-			if url, uerr := uploadImageToOSS(ctx, svc, newID, "bg", fh); uerr != nil {
+			if url, uerr := helperOSS.UploadImageToOSS(ctx, svc, newID, "bg", fh); uerr != nil {
 				return uerr
 			} else {
 				imgBgURL = &url

@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -67,19 +68,20 @@ func parseRFC3339Ptr(s *string) (*time.Time, error) {
    CREATE - JSON
    ========================= */
 // POST /users/profile/documents/upload/many
+// POST /users/profile/documents/upload/many
 func (uc *UsersProfileDocumentController) CreateMultipartMany(c *fiber.Ctx) error {
 	userID, err := helper.GetUserIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
 
-	// Ambil semua file dari form field "files"
+	// Ambil semua file dari form-data
 	form, err := c.MultipartForm()
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Form-data tidak valid")
 	}
 	files := form.File["files"]
-	docTypes := form.Value["doc_type"] // opsional: sejajarkan panjangnya dengan files
+	docTypes := form.Value["doc_type"] // opsional: align dengan files
 
 	if len(files) == 0 {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Tidak ada file yang diunggah (field 'files')")
@@ -88,26 +90,35 @@ func (uc *UsersProfileDocumentController) CreateMultipartMany(c *fiber.Ctx) erro
 		return helper.JsonError(c, fiber.StatusBadRequest, "Jumlah doc_type harus sama dengan jumlah files")
 	}
 
+	// Init OSS sekali
+	svc, err := helperOSS.NewOSSServiceFromEnv("")
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal init OSS")
+	}
+	ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
+	defer cancel()
+
+	// Transaksi DB
 	tx := uc.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memulai transaksi")
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			tx.Rollback()
+			_ = tx.Rollback().Error
 		}
 	}()
 
 	out := make([]dto.UserProfileDocumentResponse, 0, len(files))
-	prefix := fmt.Sprintf("users/documents/%s", userID.String())
+	// Folder target di bucket
+	baseDir := fmt.Sprintf("users/documents/%s", userID.String())
 
 	for i, fh := range files {
-		// tentukan docType: dari array doc_type atau fallback nama file
-		docType := ""
+		// Tentukan docType (pakai input atau fallback dari nama file)
+		var docType string
 		if len(docTypes) > 0 {
 			docType = strings.TrimSpace(docTypes[i])
 		} else {
-			// fallback aman: pakai nama file tanpa ekstensi (pastikan <= 50 char)
 			ext := strings.ToLower(filepath.Ext(fh.Filename))
 			base := strings.TrimSuffix(fh.Filename, ext)
 			if base == "" {
@@ -118,28 +129,34 @@ func (uc *UsersProfileDocumentController) CreateMultipartMany(c *fiber.Ctx) erro
 			}
 			docType = base
 		}
+		// Validasi singkat docType
 		if err := uc.Validator.Var(docType, "required,max=50"); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback().Error
 			return helper.JsonError(c, fiber.StatusBadRequest, fmt.Sprintf("doc_type[%d] tidak valid", i))
 		}
 
-		url, upErr := helperOSS.UploadImageToOSS(prefix, fh)
+		// Upload via helper OSS (konversi ke .webp bila jpg/png; webp passthrough)
+		url, upErr := svc.UploadAsWebP(ctx, fh, baseDir)
 		if upErr != nil {
-			tx.Rollback()
-			return helper.JsonError(c, fiber.StatusInternalServerError, fmt.Sprintf("Gagal upload ke OSS: %v", upErr))
+			_ = tx.Rollback().Error
+			lc := strings.ToLower(upErr.Error())
+			if strings.Contains(lc, "format tidak didukung") {
+				return helper.JsonError(c, fiber.StatusUnsupportedMediaType, "Format tidak didukung (jpg/png/webp)")
+			}
+			return helper.JsonError(c, fiber.StatusBadGateway, fmt.Sprintf("Gagal upload ke OSS: %v", upErr))
 		}
 
+		// Simpan ke DB
 		m := dto.ToModelCreateMultipart(userID, docType, url)
-
-		// Insert; jika (user_id, doc_type) unik, balikan error 409
 		if err := tx.Create(&m).Error; err != nil {
 			if isUniqueViolation(err) {
-				tx.Rollback()
+				_ = tx.Rollback().Error
 				return helper.JsonError(c, fiber.StatusConflict, fmt.Sprintf("Dokumen '%s' sudah ada", docType))
 			}
-			tx.Rollback()
+			_ = tx.Rollback().Error
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan dokumen")
 		}
+
 		out = append(out, dto.ToResponse(m))
 	}
 
@@ -244,20 +261,21 @@ func (uc *UsersProfileDocumentController) GetByDocType(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "Sukses mengambil dokumen", dto.ToResponse(m))
 }
 
-/* =========================
-   UPDATE - JSON (partial)
-   ========================= */
 
+/* =========================
+   UPDATE - MULTIPART (partial, single source of truth)
+   ========================= */
 func (uc *UsersProfileDocumentController) UpdateMultipart(c *fiber.Ctx) error {
 	userID, err := helper.GetUserIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
-	docType := c.Params("doc_type")
+	docType := strings.TrimSpace(c.Params("doc_type"))
 	if docType == "" {
 		return helper.JsonError(c, fiber.StatusBadRequest, "doc_type wajib di path")
 	}
 
+	// Ambil record existing
 	var m model.UsersProfileDocumentModel
 	if err := uc.DB.WithContext(c.Context()).
 		Where("user_id = ? AND doc_type = ?", userID, docType).
@@ -268,23 +286,38 @@ func (uc *UsersProfileDocumentController) UpdateMultipart(c *fiber.Ctx) error {
 		return httpErr(c, err)
 	}
 
+	// Ambil field lain yang mungkin ikut diubah (opsional)
 	var in dto.UpdateUserProfileDocumentMultipart
 	if err := c.BodyParser(&in); err != nil {
 		log.Println("[WARN] BodyParser multipart:", err)
 	}
 
-	// Optional: file baru → upload ke Alibaba OSS
+	// ==== Upload file baru (opsional) → pakai helper OSS ====
 	var newURL *string
 	if fh, err := c.FormFile("file"); err == nil && fh != nil {
-		prefix := fmt.Sprintf("users/documents/%s", userID.String())
-		u, upErr := helperOSS.UploadImageToOSS(prefix, fh)
+		// Init OSS sekali
+		svc, err := helperOSS.NewOSSServiceFromEnv("")
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal init OSS")
+		}
+		ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
+		defer cancel()
+
+		// Simpan ke folder: users/documents/<userID>
+		dir := fmt.Sprintf("users/documents/%s", userID.String())
+
+		u, upErr := svc.UploadAsWebP(ctx, fh, dir) // konversi jpg/png → webp, webp passthrough
 		if upErr != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, fmt.Sprintf("Gagal upload ke OSS: %v", upErr))
+			lc := strings.ToLower(upErr.Error())
+			if strings.Contains(lc, "format tidak didukung") {
+				return helper.JsonError(c, fiber.StatusUnsupportedMediaType, "Format tidak didukung (jpg/png/webp)")
+			}
+			return helper.JsonError(c, fiber.StatusBadGateway, fmt.Sprintf("Gagal upload ke OSS: %v", upErr))
 		}
 		newURL = &u
 	}
 
-	// Validasi ringan pada form fields
+	// ==== Validasi ringan pada URL input opsional ====
 	if in.FileURL != nil {
 		if err := uc.Validator.Var(in.FileURL, "omitempty,url"); err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "file_url tidak valid")
@@ -296,7 +329,7 @@ func (uc *UsersProfileDocumentController) UpdateMultipart(c *fiber.Ctx) error {
 		}
 	}
 
-	// Parse waktu jika ada
+	// ==== Parse waktu pending delete (opsional) ====
 	var pendingAt *time.Time
 	if in.FileDeletePendingUntil != nil {
 		t, err := parseRFC3339Ptr(in.FileDeletePendingUntil)
@@ -306,16 +339,17 @@ func (uc *UsersProfileDocumentController) UpdateMultipart(c *fiber.Ctx) error {
 		pendingAt = t
 	}
 
-	// Terapkan perubahan non-URL
+	// ==== Apply perubahan non-URL dulu ====
 	dto.ApplyModelUpdateMultipart(&m, nil, in.FileTrashURL, pendingAt)
 
-	// Prioritas URL: hasil upload baru → override file_url manual
+	// ==== Atur sumber FileURL: prioritas hasil upload baru ====
 	if newURL != nil {
 		m.FileURL = *newURL
 	} else if in.FileURL != nil {
 		m.FileURL = *in.FileURL
 	}
 
+	// ==== Simpan ====
 	if err := uc.DB.WithContext(c.Context()).Save(&m).Error; err != nil {
 		return httpErr(c, err)
 	}
@@ -323,83 +357,6 @@ func (uc *UsersProfileDocumentController) UpdateMultipart(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Dokumen berhasil diperbarui", dto.ToResponse(m))
 }
 
-/* =========================
-   UPDATE - MULTIPART (partial)
-   ========================= */
-func (uc *UsersProfileDocumentController) UpdateMultipartDocument(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
-	}
-	docType := c.Params("doc_type")
-	if docType == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "doc_type wajib di path")
-	}
-
-	var m model.UsersProfileDocumentModel
-	if err := uc.DB.WithContext(c.Context()).
-		Where("user_id = ? AND doc_type = ?", userID, docType).
-		First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Dokumen tidak ditemukan")
-		}
-		return httpErr(c, err)
-	}
-
-	var in dto.UpdateUserProfileDocumentMultipart
-	if err := c.BodyParser(&in); err != nil {
-		log.Println("[WARN] BodyParser multipart:", err)
-	}
-
-	// Optional: file baru → upload ke Alibaba OSS
-	var newURL *string
-	if fh, err := c.FormFile("file"); err == nil && fh != nil {
-		prefix := fmt.Sprintf("users/documents/%s", userID.String())
-		u, upErr := helperOSS.UploadImageToOSS(prefix, fh)
-		if upErr != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, fmt.Sprintf("Gagal upload ke OSS: %v", upErr))
-		}
-		newURL = &u
-	}
-
-	// Validasi ringan pada form fields
-	if in.FileURL != nil {
-		if err := uc.Validator.Var(in.FileURL, "omitempty,url"); err != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "file_url tidak valid")
-		}
-	}
-	if in.FileTrashURL != nil {
-		if err := uc.Validator.Var(in.FileTrashURL, "omitempty,url"); err != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "file_trash_url tidak valid")
-		}
-	}
-
-	// Parse waktu jika ada
-	var pendingAt *time.Time
-	if in.FileDeletePendingUntil != nil {
-		t, err := parseRFC3339Ptr(in.FileDeletePendingUntil)
-		if err != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Format file_delete_pending_until harus RFC3339")
-		}
-		pendingAt = t
-	}
-
-	// Terapkan perubahan non-URL
-	dto.ApplyModelUpdateMultipart(&m, nil, in.FileTrashURL, pendingAt)
-
-	// Prioritas URL: hasil upload baru → override file_url manual
-	if newURL != nil {
-		m.FileURL = *newURL
-	} else if in.FileURL != nil {
-		m.FileURL = *in.FileURL
-	}
-
-	if err := uc.DB.WithContext(c.Context()).Save(&m).Error; err != nil {
-		return httpErr(c, err)
-	}
-
-	return helper.JsonUpdated(c, "Dokumen berhasil diperbarui", dto.ToResponse(m))
-}
 
 
 /* =========================

@@ -7,35 +7,33 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	// import model tema dengan alias agar tidak bentrok
 	themeModel "masjidku_backend/internals/features/school/announcements/announcement_thema/model"
 )
 
-// internals/features/lembaga/announcements/model/announcement_model.go
 type AnnouncementModel struct {
-	AnnouncementID             uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:announcement_id" json:"announcement_id"`
-	AnnouncementMasjidID       uuid.UUID      `gorm:"type:uuid;not null;column:announcement_masjid_id" json:"announcement_masjid_id"`
+	AnnouncementID               uuid.UUID      `gorm:"column:announcement_id;type:uuid;primaryKey;default:gen_random_uuid()" json:"announcement_id"`
+	AnnouncementMasjidID         uuid.UUID      `gorm:"column:announcement_masjid_id;type:uuid;not null" json:"announcement_masjid_id"`
 
-	AnnouncementCreatedByUserID uuid.UUID   `gorm:"type:uuid;not null;column:announcement_created_by_user_id" json:"announcement_created_by_user_id"`
-	AnnouncementClassSectionID  *uuid.UUID  `gorm:"type:uuid;column:announcement_class_section_id" json:"announcement_class_section_id,omitempty"`
+	AnnouncementCreatedByUserID  uuid.UUID      `gorm:"column:announcement_created_by_user_id;type:uuid;not null" json:"announcement_created_by_user_id"`
+	AnnouncementClassSectionID   *uuid.UUID     `gorm:"column:announcement_class_section_id;type:uuid" json:"announcement_class_section_id,omitempty"`
 
-	AnnouncementThemeID *uuid.UUID `gorm:"type:uuid;column:announcement_theme_id" json:"announcement_theme_id,omitempty"`
+	AnnouncementThemeID          *uuid.UUID     `gorm:"column:announcement_theme_id;type:uuid" json:"announcement_theme_id,omitempty"`
 
-	AnnouncementTitle   string    `gorm:"size:200;not null;column:announcement_title" json:"announcement_title"`
-	AnnouncementDate    time.Time `gorm:"type:date;not null;column:announcement_date" json:"announcement_date"`
-	AnnouncementContent string    `gorm:"type:text;not null;column:announcement_content" json:"announcement_content"`
+	AnnouncementTitle            string         `gorm:"column:announcement_title;type:varchar(200);not null" json:"announcement_title"`
+	AnnouncementDate             time.Time      `gorm:"column:announcement_date;type:date;not null" json:"announcement_date"`
+	AnnouncementContent          string         `gorm:"column:announcement_content;type:text;not null" json:"announcement_content"`
 
-	AnnouncementAttachmentURL *string       `gorm:"type:text;column:announcement_attachment_url" json:"announcement_attachment_url,omitempty"`
-	AnnouncementIsActive      bool          `gorm:"not null;default:true;column:announcement_is_active" json:"announcement_is_active"`
+	AnnouncementIsActive         bool           `gorm:"column:announcement_is_active;not null;default:true" json:"announcement_is_active"`
 
-	AnnouncementCreatedAt time.Time      `gorm:"not null;default:CURRENT_TIMESTAMP;column:announcement_created_at" json:"announcement_created_at"`
-	AnnouncementUpdatedAt *time.Time     `gorm:"column:announcement_updated_at" json:"announcement_updated_at,omitempty"`
-	AnnouncementDeletedAt gorm.DeletedAt `gorm:"column:announcement_deleted_at;index" json:"-"`
+	AnnouncementCreatedAt        time.Time      `gorm:"column:announcement_created_at;type:timestamptz;not null;autoCreateTime" json:"announcement_created_at"`
+	AnnouncementUpdatedAt        time.Time      `gorm:"column:announcement_updated_at;type:timestamptz;not null;autoUpdateTime" json:"announcement_updated_at"`
+	AnnouncementDeletedAt        gorm.DeletedAt `gorm:"column:announcement_deleted_at;index" json:"-"`
 
-	AnnouncementSearch string `gorm:"type:tsvector;column:announcement_search;->" json:"-"`
+	// Generated column (read-only)
+	AnnouncementSearch           string         `gorm:"column:announcement_search;type:tsvector;->" json:"-"`
 
-	// relasi theme tetap:
-	Theme *themeModel.AnnouncementThemeModel `gorm:"foreignKey:AnnouncementThemeID,AnnouncementMasjidID;references:AnnouncementThemesID,AnnouncementThemesMasjidID;constraint:OnUpdate:RESTRICT,OnDelete:SET NULL" json:"-"`
+	// Relasi tema (tenant-safe composite FK)
+	Theme *themeModel.AnnouncementThemeModel `gorm:"foreignKey:AnnouncementThemeID,AnnouncementMasjidID;references:AnnouncementThemesID,AnnouncementThemesMasjidID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"-"`
 }
 
 func (AnnouncementModel) TableName() string { return "announcements" }

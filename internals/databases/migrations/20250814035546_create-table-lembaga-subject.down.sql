@@ -1,135 +1,211 @@
-BEGIN;
-
 -- =========================================================
--- A) CLASS SECTION SUBJECT TEACHERS (CSST) — CHILD
+-- DOWN (SAFE, IDEMPOTENT, DEPENDENCY-AWARE)
+-- Target:
+--   1) class_section_subject_teachers   (CSST)
+--   2) class_subjects                   (CS)
+--   3) subjects                         (SUB)
+-- Catatan:
+--  - Tidak ada BEGIN/COMMIT manual.
+--  - Selalu putus FK dari tabel lain ke target sebelum DROP TABLE.
 -- =========================================================
 
--- 1) Triggers
+-- ========== UTIL: putus semua FK yang menunjuk ke sebuah tabel ==========
+-- Gunakan blok ini sebelum DROP TABLE target (ganti 'public.<table_name>').
+-- (Tidak perlu diubah; panggil berulang dengan target berbeda.)
+
+-- Putus semua FK yang MEREFERENSIKAN class_section_subject_teachers
 DO $$
+DECLARE
+  target regclass := to_regclass('public.class_section_subject_teachers');
+  r RECORD;
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_class_sec_subj_teachers_validate_tenant') THEN
-    DROP TRIGGER trg_class_sec_subj_teachers_validate_tenant ON class_section_subject_teachers;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_timestamptz_class_sec_subj_teachers') THEN
-    DROP TRIGGER set_timestamptz_class_sec_subj_teachers ON class_section_subject_teachers;
+  IF target IS NOT NULL THEN
+    FOR r IN
+      SELECT ns.nspname  AS src_schema,
+             c.relname   AS src_table,
+             con.conname AS constraint_name
+      FROM pg_constraint con
+      JOIN pg_class      c  ON c.oid = con.conrelid        -- tabel sumber (yang punya FK)
+      JOIN pg_namespace  ns ON ns.oid = c.relnamespace
+      WHERE con.contype = 'f'
+        AND con.confrelid = target                          -- menunjuk ke target
+    LOOP
+      EXECUTE format('ALTER TABLE %I.%I DROP CONSTRAINT %I',
+                     r.src_schema, r.src_table, r.constraint_name);
+    END LOOP;
   END IF;
 END$$;
 
--- 2) Constraints (FK)
+-- Putus semua FK yang MEREFERENSIKAN class_subjects
 DO $$
+DECLARE
+  target regclass := to_regclass('public.class_subjects');
+  r RECORD;
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_csst_section_masjid') THEN
-    ALTER TABLE class_section_subject_teachers DROP CONSTRAINT fk_csst_section_masjid;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_csst_teacher_membership') THEN
-    ALTER TABLE class_section_subject_teachers DROP CONSTRAINT fk_csst_teacher_membership;
+  IF target IS NOT NULL THEN
+    FOR r IN
+      SELECT ns.nspname, c.relname, con.conname
+      FROM pg_constraint con
+      JOIN pg_class      c  ON c.oid = con.conrelid
+      JOIN pg_namespace  ns ON ns.oid = c.relnamespace
+      WHERE con.contype = 'f'
+        AND con.confrelid = target
+    LOOP
+      EXECUTE format('ALTER TABLE %I.%I DROP CONSTRAINT %I',
+                     r.nspname, r.relname, r.conname);
+    END LOOP;
   END IF;
 END$$;
 
--- 3) Indexes
-DROP INDEX IF EXISTS uq_csst_active_unique;
-DROP INDEX IF EXISTS idx_csst_teacher_alive;
-DROP INDEX IF EXISTS idx_csst_masjid_alive;
-DROP INDEX IF EXISTS idx_csst_section_subject_active_alive;
-
--- 4) Table
-DROP TABLE IF EXISTS class_section_subject_teachers;
-
--- 5) Functions
-DROP FUNCTION IF EXISTS fn_class_sec_subj_teachers_validate_tenant();
-DROP FUNCTION IF EXISTS trg_set_timestamptz_class_sec_subj_teachers();
-
+-- Putus semua FK yang MEREFERENSIKAN subjects
+DO $$
+DECLARE
+  target regclass := to_regclass('public.subjects');
+  r RECORD;
+BEGIN
+  IF target IS NOT NULL THEN
+    FOR r IN
+      SELECT ns.nspname, c.relname, con.conname
+      FROM pg_constraint con
+      JOIN pg_class      c  ON c.oid = con.conrelid
+      JOIN pg_namespace  ns ON ns.oid = c.relnamespace
+      WHERE con.contype = 'f'
+        AND con.confrelid = target
+    LOOP
+      EXECUTE format('ALTER TABLE %I.%I DROP CONSTRAINT %I',
+                     r.nspname, r.relname, r.conname);
+    END LOOP;
+  END IF;
+END$$;
 
 -- =========================================================
--- B) CLASS SUBJECTS — CHILD (mengacu ke subjects/classes/academic_terms)
+-- A) CLASS SECTION SUBJECT TEACHERS (CSST)
 -- =========================================================
-
--- 1) Triggers
 DO $$
+DECLARE
+  rel regclass := to_regclass('public.class_section_subject_teachers');
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_cs_term_tenant_check') THEN
-    DROP TRIGGER trg_cs_term_tenant_check ON class_subjects;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_timestamp_class_subjects') THEN
-    DROP TRIGGER set_timestamptz_class_subjects ON class_subjects;
+  IF rel IS NOT NULL THEN
+    -- TRIGGERS
+    IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_class_sec_subj_teachers_validate_tenant' AND tgrelid=rel) THEN
+      EXECUTE format('DROP TRIGGER trg_class_sec_subj_teachers_validate_tenant ON %s', rel);
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='set_timestamptz_class_sec_subj_teachers' AND tgrelid=rel) THEN
+      EXECUTE format('DROP TRIGGER set_timestamptz_class_sec_subj_teachers ON %s', rel);
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='set_timestamp_class_sec_subj_teachers' AND tgrelid=rel) THEN
+      EXECUTE format('DROP TRIGGER set_timestamp_class_sec_subj_teachers ON %s', rel);
+    END IF;
+
+    -- CONSTRAINTS (FK milik CSST)
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_csst_section_masjid' AND conrelid=rel) THEN
+      EXECUTE format('ALTER TABLE %s DROP CONSTRAINT fk_csst_section_masjid', rel);
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_csst_teacher_membership' AND conrelid=rel) THEN
+      EXECUTE format('ALTER TABLE %s DROP CONSTRAINT fk_csst_teacher_membership', rel);
+    END IF;
+
+    -- INDEXES (lepas)
+    DROP INDEX IF EXISTS public.uq_csst_active_unique;
+    DROP INDEX IF EXISTS public.idx_csst_teacher_alive;
+    DROP INDEX IF EXISTS public.idx_csst_masjid_alive;
+    DROP INDEX IF EXISTS public.idx_csst_section_subject_active_alive;
+
+    -- TABLE
+    EXECUTE format('DROP TABLE IF EXISTS %s', rel);
   END IF;
 END$$;
 
--- 2) Constraints (FK)
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_cs_class_masjid_pair') THEN
-    ALTER TABLE class_subjects DROP CONSTRAINT fk_cs_class_masjid_pair;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_cs_term') THEN
-    ALTER TABLE class_subjects DROP CONSTRAINT fk_cs_term;
-  END IF;
-END$$;
-
--- 3) Indexes
-DROP INDEX IF EXISTS uq_class_subjects_by_term;
-
-DROP INDEX IF EXISTS idx_cs_masjid_class_term_active;
-DROP INDEX IF EXISTS idx_cs_masjid_subject_term_active;
-
-DROP INDEX IF EXISTS idx_cs_term_alive;
-DROP INDEX IF EXISTS idx_cs_masjid_active;
-DROP INDEX IF EXISTS idx_cs_class_order;
-DROP INDEX IF EXISTS idx_cs_masjid_alive;
-
-DROP INDEX IF EXISTS gin_cs_desc_trgm;
-
--- 4) Table
-DROP TABLE IF EXISTS class_subjects;
-
--- 5) Functions
-DROP FUNCTION IF EXISTS fn_cs_term_tenant_check();
-DROP FUNCTION IF EXISTS trg_set_timestamptz_class_subjects();
-
+-- FUNCTIONS milik CSST
+DROP FUNCTION IF EXISTS public.fn_class_sec_subj_teachers_validate_tenant();
+DROP FUNCTION IF EXISTS public.trg_set_timestamptz_class_sec_subj_teachers();
+DROP FUNCTION IF EXISTS public.trg_set_timestamp_class_sec_subj_teachers();
 
 -- =========================================================
--- C) SUBJECTS — PARENT
---    (Jika tabel ini sudah ada sebelum migration ini, hati-hati:
---     baris DROP TABLE di bawah akan menghapusnya. Sesuaikan bila perlu.)
+-- B) CLASS SUBJECTS (CS)
 -- =========================================================
-
--- 1) Triggers
 DO $$
+DECLARE
+  rel regclass := to_regclass('public.class_subjects');
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_subjects_touch_updated_at') THEN
-    DROP TRIGGER trg_subjects_touch_updated_at ON subjects;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_subjects_normalize') THEN
-    DROP TRIGGER trg_subjects_normalize ON subjects;
+  IF rel IS NOT NULL THEN
+    -- TRIGGERS
+    IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_cs_term_tenant_check' AND tgrelid=rel) THEN
+      EXECUTE format('DROP TRIGGER trg_cs_term_tenant_check ON %s', rel);
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='set_timestamptz_class_subjects' AND tgrelid=rel) THEN
+      EXECUTE format('DROP TRIGGER set_timestamptz_class_subjects ON %s', rel);
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='set_timestamp_class_subjects' AND tgrelid=rel) THEN
+      EXECUTE format('DROP TRIGGER set_timestamp_class_subjects ON %s', rel);
+    END IF;
+
+    -- CONSTRAINTS (FK milik CS)
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_cs_class_masjid_pair' AND conrelid=rel) THEN
+      EXECUTE format('ALTER TABLE %s DROP CONSTRAINT fk_cs_class_masjid_pair', rel);
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_cs_term' AND conrelid=rel) THEN
+      EXECUTE format('ALTER TABLE %s DROP CONSTRAINT fk_cs_term', rel);
+    END IF;
+
+    -- INDEXES
+    DROP INDEX IF EXISTS public.uq_class_subjects_by_term;
+    DROP INDEX IF EXISTS public.uq_class_subjects;
+    DROP INDEX IF EXISTS public.idx_cs_masjid_class_term_active;
+    DROP INDEX IF EXISTS public.idx_cs_masjid_subject_term_active;
+    DROP INDEX IF EXISTS public.idx_cs_term_alive;
+    DROP INDEX IF EXISTS public.idx_cs_masjid_active;
+    DROP INDEX IF EXISTS public.idx_cs_class_order;
+    DROP INDEX IF EXISTS public.idx_cs_masjid_alive;
+    DROP INDEX IF EXISTS public.gin_cs_desc_trgm;
+
+    -- TABLE
+    EXECUTE format('DROP TABLE IF EXISTS %s', rel);
   END IF;
 END$$;
 
--- 2) Constraints (CHECK)
+-- FUNCTIONS milik CS
+DROP FUNCTION IF EXISTS public.fn_cs_term_tenant_check();
+DROP FUNCTION IF EXISTS public.trg_set_timestamptz_class_subjects();
+
+-- =========================================================
+-- C) SUBJECTS (SUB)
+-- =========================================================
 DO $$
+DECLARE
+  rel regclass := to_regclass('public.subjects');
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='chk_subjects_code_not_blank' AND conrelid='subjects'::regclass) THEN
-    ALTER TABLE subjects DROP CONSTRAINT chk_subjects_code_not_blank;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='chk_subjects_slug_not_blank' AND conrelid='subjects'::regclass) THEN
-    ALTER TABLE subjects DROP CONSTRAINT chk_subjects_slug_not_blank;
+  IF rel IS NOT NULL THEN
+    -- TRIGGERS
+    IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_subjects_touch_updated_at' AND tgrelid=rel) THEN
+      EXECUTE format('DROP TRIGGER trg_subjects_touch_updated_at ON %s', rel);
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_subjects_normalize' AND tgrelid=rel) THEN
+      EXECUTE format('DROP TRIGGER trg_subjects_normalize ON %s', rel);
+    END IF;
+
+    -- CONSTRAINTS (CHECK)
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='chk_subjects_code_not_blank' AND conrelid=rel) THEN
+      EXECUTE format('ALTER TABLE %s DROP CONSTRAINT chk_subjects_code_not_blank', rel);
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='chk_subjects_slug_not_blank' AND conrelid=rel) THEN
+      EXECUTE format('ALTER TABLE %s DROP CONSTRAINT chk_subjects_slug_not_blank', rel);
+    END IF;
+
+    -- INDEXES
+    DROP INDEX IF EXISTS public.uq_subjects_code_per_masjid;
+    DROP INDEX IF EXISTS public.uq_subjects_slug_per_masjid;
+    DROP INDEX IF EXISTS public.idx_subjects_active;
+    DROP INDEX IF EXISTS public.gin_subjects_name_trgm;
+    DROP INDEX IF EXISTS public.idx_subjects_masjid_alive;
+    DROP INDEX IF EXISTS public.idx_subjects_code_ci_alive;
+    DROP INDEX IF EXISTS public.idx_subjects_slug_ci_alive;
+
+    -- TABLE
+    EXECUTE format('DROP TABLE IF EXISTS %s', rel);
   END IF;
 END$$;
 
--- 3) Indexes
-DROP INDEX IF EXISTS uq_subjects_code_per_masjid;
-DROP INDEX IF EXISTS uq_subjects_slug_per_masjid;
-
-DROP INDEX IF EXISTS idx_subjects_active;
-DROP INDEX IF EXISTS gin_subjects_name_trgm;
-DROP INDEX IF EXISTS idx_subjects_masjid_alive;
-DROP INDEX IF EXISTS idx_subjects_code_ci_alive;
-DROP INDEX IF EXISTS idx_subjects_slug_ci_alive;
-
--- 4) Table (drop seluruh tabel)
-DROP TABLE IF EXISTS subjects;
-
--- 5) Functions
-DROP FUNCTION IF EXISTS fn_subjects_touch_updated_at();
-DROP FUNCTION IF EXISTS fn_subjects_normalize();
-
-COMMIT;
+-- FUNCTIONS milik SUB
+DROP FUNCTION IF EXISTS public.fn_subjects_touch_updated_at();
+DROP FUNCTION IF EXISTS public.fn_subjects_normalize();

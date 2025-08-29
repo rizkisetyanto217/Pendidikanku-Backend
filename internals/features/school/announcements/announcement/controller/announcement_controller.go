@@ -3,9 +3,7 @@ package controller
 
 import (
 	"fmt"
-	"log"
 	"mime/multipart"
-	"net/url"
 	"strings"
 	"time"
 
@@ -325,20 +323,6 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 			req.AnnouncementIsActive = &b
 		}
 
-		// ----- file upload (dua key yang didukung) -----
-		var fh *multipart.FileHeader
-		if f, err := c.FormFile("attachment"); err == nil && f != nil {
-			fh = f
-		} else if f2, err2 := c.FormFile("announcement_attachment_url"); err2 == nil && f2 != nil {
-			fh = f2
-		}
-		if fh != nil {
-			publicURL, err := helper.UploadFileToSupabase("announcement", fh)
-			if err != nil {
-				return helper.Error(c, fiber.StatusBadRequest, err.Error())
-			}
-			req.AnnouncementAttachmentURL = &publicURL
-		}
 	} else {
 		// JSON
 		if err := c.BodyParser(&req); err != nil {
@@ -430,133 +414,163 @@ func (h *AnnouncementController) findWithTenantGuard(id, masjidID uuid.UUID) (*a
 // ===================== UPDATE =====================
 // PUT /admin/announcements/:id
 // PUT /admin/announcements/:id
+// PUT /admin/announcements/:id
 func (h *AnnouncementController) Update(c *fiber.Ctx) error {
-    masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
-    if err != nil { return err }
-    userID, err := helper.GetUserIDFromToken(c)
-    if err != nil { return err }
+	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil { return err }
+	userID, err := helper.GetUserIDFromToken(c)
+	if err != nil { return err }
 
-    annID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-    if err != nil { return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid") }
+	annID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+	if err != nil { return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid") }
 
-    isAdmin := func() bool {
-        if id, err := helper.GetMasjidIDFromToken(c); err == nil && id == masjidID { return true }
-        return false
-    }()
-    isTeacher := func() bool {
-        if id, err := helper.GetTeacherMasjidIDFromToken(c); err == nil && id == masjidID { return true }
-        return false
-    }()
-    if !isAdmin && !isTeacher {
-        return fiber.NewError(fiber.StatusForbidden, "Tidak diizinkan")
-    }
+	// role detection
+	isAdmin := func() bool {
+		if id, err := helper.GetMasjidIDFromToken(c); err == nil && id == masjidID { return true }
+		return false
+	}()
+	isTeacher := func() bool {
+		if id, err := helper.GetTeacherMasjidIDFromToken(c); err == nil && id == masjidID { return true }
+		return false
+	}()
+	if !isAdmin && !isTeacher {
+		return fiber.NewError(fiber.StatusForbidden, "Tidak diizinkan")
+	}
 
-    existing, err := h.findWithTenantGuard(annID, masjidID)
-    if err != nil { return err }
+	// fetch existing (tenant-safe)
+	existing, err := h.findWithTenantGuard(annID, masjidID)
+	if err != nil { return err }
 
-    var req annDTO.UpdateAnnouncementRequest
-    ct := c.Get("Content-Type")
-    removeAttachment := false
+	var req annDTO.UpdateAnnouncementRequest
+	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
 
-    if strings.HasPrefix(ct, "multipart/form-data") {
-        if v := strings.TrimSpace(c.FormValue("announcement_title")); v != "" { req.AnnouncementTitle = &v }
-        if v := strings.TrimSpace(c.FormValue("announcement_date")); v != "" { req.AnnouncementDate = &v }
-        if v := strings.TrimSpace(c.FormValue("announcement_content")); v != "" { req.AnnouncementContent = &v }
-        if v := strings.TrimSpace(c.FormValue("announcement_theme_id")); v != "" {
-            if id, err := uuid.Parse(v); err == nil { req.AnnouncementThemeID = &id }
-        }
-        if v := strings.TrimSpace(c.FormValue("announcement_class_section_id")); v != "" {
-            if id, err := uuid.Parse(v); err == nil { req.AnnouncementClassSectionID = &id }
-        }
-        if v := strings.TrimSpace(c.FormValue("announcement_is_active")); v != "" {
-            b := strings.EqualFold(v, "true") || v == "1"; req.AnnouncementIsActive = &b
-        }
-        if v := strings.TrimSpace(c.FormValue("remove_attachment")); v != "" {
-            removeAttachment = strings.EqualFold(v, "true") || v == "1"
-        }
+	// parse payload (multipart / json)
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		if v := strings.TrimSpace(c.FormValue("announcement_title")); v != "" { req.AnnouncementTitle = &v }
+		if v := strings.TrimSpace(c.FormValue("announcement_date")); v != "" { req.AnnouncementDate = &v }
+		if v := strings.TrimSpace(c.FormValue("announcement_content")); v != "" { req.AnnouncementContent = &v }
+		if v := strings.TrimSpace(c.FormValue("announcement_is_active")); v != "" {
+			b := strings.EqualFold(v, "true") || v == "1"
+			req.AnnouncementIsActive = &b
+		}
+		if v := strings.TrimSpace(c.FormValue("announcement_theme_id")); v != "" {
+			if id, e := uuid.Parse(v); e == nil { req.AnnouncementThemeID = &id }
+		}
+		if v := strings.TrimSpace(c.FormValue("announcement_class_section_id")); v != "" {
+			if id, e := uuid.Parse(v); e == nil { req.AnnouncementClassSectionID = &id }
+		}
+	} else {
+		if err := c.BodyParser(&req); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
+		}
+	}
 
-        // ==== upload file baru (opsional) ====
-        if fh, ok := pickAnnFile(c); ok && fh != nil {
-            // Hapus file lama (best-effort)
-            if existing.AnnouncementAttachmentURL != nil && *existing.AnnouncementAttachmentURL != "" {
-                if bucket, path, err := helper.ExtractSupabasePath(*existing.AnnouncementAttachmentURL); err == nil {
-                    if unesc, errU := url.PathUnescape(path); errU == nil { path = unesc }
-                    if errDel := helper.DeleteFromSupabase(bucket, path); errDel != nil {
-                        log.Println("[WARN] gagal hapus file lama:", errDel)
-                    }
-                } else {
-                    log.Println("[WARN] extract path gagal:", err)
-                }
-            }
-            // Upload baru ke folder "announcement"
-            folder := "announcement"
-            publicURL, upErr := helper.UploadFileToSupabase(folder, fh)
-            if upErr != nil {
-                return helper.Error(c, fiber.StatusBadRequest, upErr.Error())
-            }
-            req.AnnouncementAttachmentURL = &publicURL
-            // ada file baru → abaikan removeAttachment
-            removeAttachment = false
-        }
-    } else {
-        if err := c.BodyParser(&req); err != nil {
-            return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
-        }
-    }
+	// Normalisasi: uuid.Nil => NULL
+	if req.AnnouncementThemeID != nil && *req.AnnouncementThemeID == uuid.Nil {
+		req.AnnouncementThemeID = nil
+	}
+	if req.AnnouncementClassSectionID != nil && *req.AnnouncementClassSectionID == uuid.Nil {
+		req.AnnouncementClassSectionID = nil
+	}
 
-    // Validasi DTO
-    if err := validateAnnouncement.Struct(req); err != nil {
-        return helper.ValidationError(c, err)
-    }
+	// Validasi DTO
+	if err := validateAnnouncement.Struct(req); err != nil {
+		return helper.ValidationError(c, err)
+	}
 
-    // Admin: paksa global
-    if isAdmin && !isTeacher {
-        req.AnnouncementClassSectionID = nil
-    }
+	// Aturan per-role
+	if isAdmin && !isTeacher {
+		// Admin: paksa GLOBAL
+		req.AnnouncementClassSectionID = nil
+	}
+	if isTeacher && req.AnnouncementClassSectionID != nil {
+		// Teacher set section → pastikan milik masjid
+		if err := h.ensureSectionBelongsToMasjid(*req.AnnouncementClassSectionID, masjidID); err != nil {
+			return err
+		}
+	}
 
-    // Teacher: validasi section bila di-set
-    if isTeacher && req.AnnouncementClassSectionID != nil && *req.AnnouncementClassSectionID != uuid.Nil {
-        if err := h.ensureSectionBelongsToMasjid(*req.AnnouncementClassSectionID, masjidID); err != nil {
-            return err
-        }
-    }
+	// Validasi theme bila diubah
+	if req.AnnouncementThemeID != nil {
+		if err := h.ensureThemeBelongsToMasjid(*req.AnnouncementThemeID, masjidID); err != nil {
+			return err
+		}
+	}
 
-    // Hapus attachment jika diminta & tidak ada upload baru
-    if removeAttachment && (req.AnnouncementAttachmentURL == nil) {
-        if existing.AnnouncementAttachmentURL != nil && *existing.AnnouncementAttachmentURL != "" {
-            if bucket, path, err := helper.ExtractSupabasePath(*existing.AnnouncementAttachmentURL); err == nil {
-                if unesc, errU := url.PathUnescape(path); errU == nil { path = unesc }
-                if errDel := helper.DeleteFromSupabase(bucket, path); errDel != nil {
-                    log.Println("[WARN] gagal hapus file (remove_attachment):", errDel)
-                }
-            }
-        }
-        empty := ""           // ApplyToModel akan set ke NULL
-        req.AnnouncementAttachmentURL = &empty
-    }
+	// Build updates map agar nilai falsy (false / "") juga ter-update
+	updates := map[string]interface{}{}
+	if req.AnnouncementTitle != nil {
+		updates["announcement_title"] = strings.TrimSpace(*req.AnnouncementTitle)
+	}
+	if req.AnnouncementDate != nil {
+		if dt := strings.TrimSpace(*req.AnnouncementDate); dt != "" {
+			if parsed, e := time.Parse("2006-01-02", dt); e == nil {
+				updates["announcement_date"] = parsed
+			} else {
+				return fiber.NewError(fiber.StatusBadRequest, "announcement_date tidak valid (YYYY-MM-DD)")
+			}
+		}
+	}
+	if req.AnnouncementContent != nil {
+		updates["announcement_content"] = strings.TrimSpace(*req.AnnouncementContent)
+	}
+	if req.AnnouncementIsActive != nil {
+		updates["announcement_is_active"] = *req.AnnouncementIsActive
+	}
+	if req.AnnouncementThemeID != nil {
+		// nil -> set NULL
+		updates["announcement_theme_id"] = req.AnnouncementThemeID
+	}
+	if req.AnnouncementClassSectionID != nil {
+		// nil -> set NULL
+		updates["announcement_class_section_id"] = req.AnnouncementClassSectionID
+	}
 
-    // Terapkan perubahan
-    req.ApplyToModel(existing)
+	// Kalau tidak ada perubahan, kembalikan apa adanya
+	if len(updates) == 0 {
+		return helper.JsonUpdated(c, "Tidak ada perubahan", annDTO.NewAnnouncementResponse(existing))
+	}
 
-    // Enforce rule per role
-    if isTeacher && existing.AnnouncementClassSectionID == nil {
-        return fiber.NewError(fiber.StatusBadRequest, "Teacher wajib memilih section (tidak boleh global)")
-    }
-    if isTeacher && !isAdmin && existing.AnnouncementCreatedByUserID != userID {
-        return fiber.NewError(fiber.StatusForbidden, "Hanya pembuat yang boleh mengubah pengumuman ini")
-    }
+	// Enforce rule setelah perubahan diaplikasikan:
+	// - Jika teacher dan hasil akhirnya global → tolak.
+	if isTeacher && !isAdmin {
+		// Prediksi hasil final (pakai updates atau existing)
+		finalSection := existing.AnnouncementClassSectionID
+		if v, ok := updates["announcement_class_section_id"]; ok {
+			if v == nil {
+				finalSection = nil
+			} else if ptr, ok2 := v.(*uuid.UUID); ok2 {
+				finalSection = ptr
+			}
+		}
+		if finalSection == nil {
+			return fiber.NewError(fiber.StatusBadRequest, "Teacher wajib memilih section (tidak boleh global)")
+		}
+		// Hanya pembuat yang boleh update
+		if existing.AnnouncementCreatedByUserID != userID {
+			return fiber.NewError(fiber.StatusForbidden, "Hanya pembuat yang boleh mengubah pengumuman ini")
+		}
+	}
 
-    now := time.Now()
-    existing.AnnouncementUpdatedAt = &now
+	// Jalankan update (trigger DB akan menyentuh updated_at)
+	if err := h.DB.Model(&annModel.AnnouncementModel{}).
+		Where("announcement_id = ? AND announcement_masjid_id = ?", existing.AnnouncementID, masjidID).
+		Updates(updates).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui pengumuman")
+	}
 
-    if err := h.DB.Model(&annModel.AnnouncementModel{}).
-        Where("announcement_id = ? AND announcement_masjid_id = ?", existing.AnnouncementID, masjidID).
-        Updates(existing).Error; err != nil {
-        return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui pengumuman")
-    }
+	// Reload agar updated_at terbaru ikut
+	var after annModel.AnnouncementModel
+	if err := h.DB.
+		Where("announcement_id = ? AND announcement_masjid_id = ?", existing.AnnouncementID, masjidID).
+		First(&after).Error; err == nil {
+		return helper.JsonUpdated(c, "Pengumuman diperbarui", annDTO.NewAnnouncementResponse(&after))
+	}
 
-    return helper.JsonUpdated(c, "Pengumuman diperbarui", annDTO.NewAnnouncementResponse(existing))
+	// Fallback jika reload gagal
+	return helper.JsonUpdated(c, "Pengumuman diperbarui", annDTO.NewAnnouncementResponse(existing))
 }
+
 
 // ambil file dari dua kemungkinan key
 func pickAnnFile(c *fiber.Ctx) (*multipart.FileHeader, bool) {
@@ -623,17 +637,6 @@ func (h *AnnouncementController) Delete(c *fiber.Ctx) error {
 
 	// Opsi hard delete
 	force := strings.EqualFold(c.Query("force"), "true")
-
-	// Jika hard delete → hapus file di Supabase (best-effort)
-	if force && existing.AnnouncementAttachmentURL != nil && *existing.AnnouncementAttachmentURL != "" {
-		if bucket, path, err := helper.ExtractSupabasePath(*existing.AnnouncementAttachmentURL); err == nil {
-			if err := helper.DeleteFromSupabase(bucket, path); err != nil {
-				fmt.Println("[WARN] gagal hapus file di Supabase:", err.Error())
-			}
-		} else {
-			fmt.Println("[WARN] URL Supabase tidak valid, skip delete:", err.Error())
-		}
-	}
 
 	db := h.DB
 	if force {

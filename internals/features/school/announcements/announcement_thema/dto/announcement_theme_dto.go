@@ -16,8 +16,8 @@ import (
 // Create: masjid_id diambil dari token/context, jadi tidak ada di payload
 type CreateAnnouncementThemeRequest struct {
 	AnnouncementThemesName        string  `json:"announcement_themes_name" validate:"required,min=2,max=80"`
-	AnnouncementThemesSlug        string  `json:"announcement_themes_slug" validate:"required,min=2,max=120"` // slug sudah di-generate/normalize di controller
-	AnnouncementThemesColor       *string `json:"announcement_themes_color" validate:"omitempty,hexcolor"`    // contoh: #0ea5e9
+	AnnouncementThemesSlug        string  `json:"announcement_themes_slug" validate:"required,min=2,max=120"`
+	AnnouncementThemesColor       *string `json:"announcement_themes_color" validate:"omitempty,hexcolor"` // contoh: #0ea5e9
 	AnnouncementThemesDescription *string `json:"announcement_themes_description" validate:"omitempty"`
 	AnnouncementThemesIsActive    *bool   `json:"announcement_themes_is_active" validate:"omitempty"`
 }
@@ -36,7 +36,7 @@ func (r CreateAnnouncementThemeRequest) ToModel(masjidID uuid.UUID) *model.Annou
 		AnnouncementThemesMasjidID: masjidID,
 		AnnouncementThemesName:     name,
 		AnnouncementThemesSlug:     slug,
-		AnnouncementThemesIsActive: true, // default
+		AnnouncementThemesIsActive: true, // default true sesuai DDL
 	}
 
 	if r.AnnouncementThemesColor != nil {
@@ -59,8 +59,7 @@ func (r CreateAnnouncementThemeRequest) ToModel(masjidID uuid.UUID) *model.Annou
 		m.AnnouncementThemesIsActive = *r.AnnouncementThemesIsActive
 	}
 
-	now := time.Now()
-	m.AnnouncementThemesCreatedAt = now // UpdatedAt biarkan null
+	// CreatedAt/UpdatedAt biarkan diisi otomatis oleh GORM (autoCreateTime/autoUpdateTime)
 	return m
 }
 
@@ -110,8 +109,7 @@ func (r *UpdateAnnouncementThemeRequest) ApplyToModel(m *model.AnnouncementTheme
 		m.AnnouncementThemesIsActive = *r.AnnouncementThemesIsActive
 	}
 
-	now := time.Now()
-	m.AnnouncementThemesUpdatedAt = &now
+	// UpdatedAt biarkan di-handle autoUpdateTime pada Save/Updates
 }
 
 /* ===================== QUERIES ===================== */
@@ -128,17 +126,17 @@ type ListAnnouncementThemeQuery struct {
 /* ===================== RESPONSES ===================== */
 
 type AnnouncementThemeResponse struct {
-	AnnouncementThemesID         uuid.UUID  `json:"announcement_themes_id"`
-	AnnouncementThemesMasjidID   uuid.UUID  `json:"announcement_themes_masjid_id"`
+	AnnouncementThemesID         uuid.UUID `json:"announcement_themes_id"`
+	AnnouncementThemesMasjidID   uuid.UUID `json:"announcement_themes_masjid_id"`
 
-	AnnouncementThemesName       string     `json:"announcement_themes_name"`
-	AnnouncementThemesSlug       string     `json:"announcement_themes_slug"`
-	AnnouncementThemesColor      *string    `json:"announcement_themes_color,omitempty"`
-	AnnouncementThemesDescription *string   `json:"announcement_themes_description,omitempty"`
-	AnnouncementThemesIsActive   bool       `json:"announcement_themes_is_active"`
+	AnnouncementThemesName       string    `json:"announcement_themes_name"`
+	AnnouncementThemesSlug       string    `json:"announcement_themes_slug"`
+	AnnouncementThemesColor      *string   `json:"announcement_themes_color,omitempty"`
+	AnnouncementThemesDescription *string  `json:"announcement_themes_description,omitempty"`
+	AnnouncementThemesIsActive   bool      `json:"announcement_themes_is_active"`
 
-	AnnouncementThemesCreatedAt  time.Time  `json:"announcement_themes_created_at"`
-	AnnouncementThemesUpdatedAt  *time.Time `json:"announcement_themes_updated_at,omitempty"`
+	AnnouncementThemesCreatedAt  time.Time `json:"announcement_themes_created_at"`
+	AnnouncementThemesUpdatedAt  time.Time `json:"announcement_themes_updated_at"` // NOT NULL di DDL
 }
 
 // Factory response

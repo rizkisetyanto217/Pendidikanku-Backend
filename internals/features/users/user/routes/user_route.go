@@ -41,6 +41,5 @@ func UserAllRoutes(app fiber.Router, db *gorm.DB) {
 	docs.Get("/", docCtrl.List)                              // list dokumen milik user
 	docs.Get("/:doc_type", docCtrl.GetByDocType)             // ambil per jenis
 	docs.Patch("/:doc_type/upload", docCtrl.UpdateMultipart) // update + upload baru
-	docs.Patch("/:doc_type", docCtrl.UpdateMultipartDocument) // update partial lain
 	docs.Delete("/:doc_type", docCtrl.DeleteSoft)            // hapus (soft/hard via query)
 }

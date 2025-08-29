@@ -84,7 +84,6 @@ CREATE TABLE IF NOT EXISTS announcements (
   announcement_date    DATE NOT NULL,
   announcement_content TEXT NOT NULL,
 
-  announcement_attachment_url TEXT,
   announcement_is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
   announcement_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -204,4 +203,93 @@ BEGIN
     BEFORE UPDATE ON announcements
     FOR EACH ROW
     EXECUTE FUNCTION fn_announcements_touch_updated_at();
+END$$;
+
+
+
+-- +migrate Up
+-- =========================================================
+-- ANNOUNCEMENT URLS (child dari announcements, tanpa is_active)
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS announcement_urls (
+  announcement_url_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  announcement_url_masjid_id   UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+
+  -- relasi ke announcements (tenant-safe via composite FK)
+  announcement_url_announcement_id UUID NOT NULL,
+
+  -- data url
+  announcement_url_label       VARCHAR(120),
+  announcement_url_href        TEXT NOT NULL,          -- URL utama
+  announcement_url_trash_url   TEXT,                   -- URL lama dipindah ke trash
+  announcement_url_delete_pending_until TIMESTAMPTZ,   -- jadwal penghapusan permanen
+
+  announcement_url_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  announcement_url_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  announcement_url_deleted_at  TIMESTAMPTZ
+);
+
+-- Composite FK ke announcements (tenant-safe)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname='fk_au_announcement_same_tenant'
+  ) THEN
+    ALTER TABLE announcement_urls
+      ADD CONSTRAINT fk_au_announcement_same_tenant
+      FOREIGN KEY (announcement_url_announcement_id, announcement_url_masjid_id)
+      REFERENCES announcements (announcement_id, announcement_masjid_id)
+      ON UPDATE CASCADE
+      ON DELETE CASCADE;
+  END IF;
+END$$;
+
+-- Composite key bantuan untuk join tenant-safe
+CREATE UNIQUE INDEX IF NOT EXISTS uq_announcement_urls_id_tenant
+  ON announcement_urls (announcement_url_id, announcement_url_masjid_id);
+
+-- Cegah duplikat URL aktif di satu pengumuman (soft-delete aware)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_announcement_urls_announcement_href_live
+  ON announcement_urls (
+    announcement_url_announcement_id,
+    lower(announcement_url_href)
+  )
+  WHERE announcement_url_deleted_at IS NULL;
+
+-- Indeks query umum
+CREATE INDEX IF NOT EXISTS ix_announcement_urls_announcement_live
+  ON announcement_urls (announcement_url_announcement_id)
+  WHERE announcement_url_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_announcement_urls_masjid_live
+  ON announcement_urls (announcement_url_masjid_id)
+  WHERE announcement_url_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_announcement_urls_label_trgm_live
+  ON announcement_urls USING GIN (announcement_url_label gin_trgm_ops)
+  WHERE announcement_url_deleted_at IS NULL;
+
+-- Indeks tambahan untuk monitoring penghapusan pending
+CREATE INDEX IF NOT EXISTS ix_announcement_urls_delete_pending
+  ON announcement_urls (announcement_url_delete_pending_until)
+  WHERE announcement_url_deleted_at IS NULL;
+
+-- Trigger updated_at
+CREATE OR REPLACE FUNCTION fn_announcement_urls_touch_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.announcement_url_updated_at := CURRENT_TIMESTAMP;
+  RETURN NEW;
+END$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_announcement_urls_touch_updated_at') THEN
+    DROP TRIGGER trg_announcement_urls_touch_updated_at ON announcement_urls;
+  END IF;
+  CREATE TRIGGER trg_announcement_urls_touch_updated_at
+    BEFORE UPDATE ON announcement_urls
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_announcement_urls_touch_updated_at();
 END$$;
