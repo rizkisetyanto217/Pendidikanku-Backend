@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	userClassModel "masjidku_backend/internals/features/school/classes/main/model"
+	userClassModel "masjidku_backend/internals/features/school/classes/classes/model"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

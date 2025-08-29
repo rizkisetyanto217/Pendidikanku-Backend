@@ -13,9 +13,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"masjidku_backend/internals/features/school/academics/academic_terms/dto"
-	"masjidku_backend/internals/features/school/academics/academic_terms/model"
-	helper "masjidku_backend/internals/helpers" // ⬅️ sesuaikan path jika beda
+	dto "masjidku_backend/internals/features/school/academics/academic_terms/dto"
+	model "masjidku_backend/internals/features/school/academics/academic_terms/model"
+	helper "masjidku_backend/internals/helpers"
 )
 
 type AcademicTermController struct {
@@ -30,12 +30,12 @@ func NewAcademicTermController(db *gorm.DB) *AcademicTermController {
 	}
 }
 
-// -----------------------------
-// Create
-// -----------------------------
-// file: internals/features/lembaga/academics/academic_year/controller/academic_year_controller.go
+/* -----------------------------
+ * CREATE
+ * ----------------------------- */
+
 func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
-	// A) Deteksi apakah field is_active dikirim (agar false tidak "hilang")
+	// Deteksi apakah field is_active dikirim (supaya false tidak "hilang")
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(c.Body(), &raw); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Body must be valid JSON: "+err.Error())
@@ -53,7 +53,7 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// B) Parse DTO
+	// Parse & validate DTO
 	var body dto.AcademicTermCreateDTO
 	if err := c.BodyParser(&body); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid body: "+err.Error())
@@ -68,58 +68,53 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
-	// C) Validasi tanggal minimal
+	// Validasi tanggal minimal
 	if !body.AcademicTermsEndDate.After(body.AcademicTermsStartDate) {
 		return helper.JsonError(c, fiber.StatusBadRequest, "End date must be after start date")
 	}
 
-	// D) Bentuk entity & hormati nilai explicit is_active bila dikirim
+	// Bentuk entity & hormati nilai explicit is_active bila dikirim
 	ent := body.ToModel(masjidID)
 	if isActiveProvided {
 		ent.AcademicTermsIsActive = isActiveValue
 	}
 
-	// E) Insert — paksa kolom boolean ikut dikirim walau false
-	if err := ctl.DB.
-		Session(&gorm.Session{}).
-		Select(
-			"AcademicTermsMasjidID",
-			"AcademicTermsAcademicYear",
-			"AcademicTermsName",
-			"AcademicTermsStartDate",
-			"AcademicTermsEndDate",
-			"AcademicTermsIsActive",
-		).
-		Create(&ent).Error; err != nil {
+	// Create (CREATE tidak mengabaikan zero value, jadi aman untuk boolean false)
+	if err := ctl.DB.Create(&ent).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Create failed: "+err.Error())
 	}
 
 	return helper.JsonCreated(c, "Academic term created successfully", dto.FromModel(ent))
 }
 
+/* -----------------------------
+ * SEARCH (by year saja)
+ * GET /academics/terms/search?year=2026&pagesize=20&page=1
+ * ----------------------------- */
 
-
-// GET /academics/terms/search?year=2026&pagesize=20&page=1
 func (ctl *AcademicTermController) SearchOnlyByYear(c *fiber.Ctx) error {
 	yearQ := strings.TrimSpace(c.Query("year"))
 	if yearQ == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "Query param 'year' wajib diisi")
 	}
 
-	// multi-tenant via token
 	masjidIDs, err := helper.GetMasjidIDsFromToken(c)
 	if err != nil {
 		return err
 	}
 
-	// paginasi sederhana (fallback default)
+	// paginasi sederhana
 	page := 1
 	pageSize := 20
 	if v := c.Query("page"); v != "" {
-		if n, _ := strconv.Atoi(v); n > 0 { page = n }
+		if n, _ := strconv.Atoi(v); n > 0 {
+			page = n
+		}
 	}
 	if v := c.Query("page_size"); v != "" {
-		if n, _ := strconv.Atoi(v); n > 0 && n <= 200 { pageSize = n }
+		if n, _ := strconv.Atoi(v); n > 0 && n <= 200 {
+			pageSize = n
+		}
 	}
 
 	dbq := ctl.DB.Model(&model.AcademicTermModel{}).
@@ -143,9 +138,9 @@ func (ctl *AcademicTermController) SearchOnlyByYear(c *fiber.Ctx) error {
 	resp := struct {
 		Data       []dto.AcademicTermResponseDTO `json:"data"`
 		Pagination struct {
-			Total    int64 `json:"total"`
-			Page     int   `json:"page"`
-			PageSize int   `json:"page_size"`
+			Total    int64  `json:"total"`
+			Page     int    `json:"page"`
+			PageSize int    `json:"page_size"`
 			Query    string `json:"query"`
 		} `json:"pagination"`
 	}{
@@ -159,10 +154,10 @@ func (ctl *AcademicTermController) SearchOnlyByYear(c *fiber.Ctx) error {
 	return c.JSON(resp)
 }
 
+/* -----------------------------
+ * UPDATE (partial)
+ * ----------------------------- */
 
-// -----------------------------
-// Update (partial) — overlap & multi-active allowed
-// -----------------------------
 func (ctl *AcademicTermController) Update(c *fiber.Ctx) error {
 	idStr := c.Params("id")
 	id, err := uuid.Parse(idStr)
@@ -175,7 +170,6 @@ func (ctl *AcademicTermController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
-	// Parse body (pointer fields => bisa bedakan "tidak dikirim" vs set false)
 	var body dto.AcademicTermUpdateDTO
 	if err := c.BodyParser(&body); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid body: "+err.Error())
@@ -184,7 +178,6 @@ func (ctl *AcademicTermController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Validation failed: "+err.Error())
 	}
 
-	// Ambil entity
 	var ent model.AcademicTermModel
 	if err := ctl.DB.
 		Where("academic_terms_id = ? AND academic_terms_masjid_id = ? AND academic_terms_deleted_at IS NULL", id, masjidID).
@@ -195,7 +188,7 @@ func (ctl *AcademicTermController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Query failed: "+err.Error())
 	}
 
-	// Terapkan perubahan parsial
+	// Apply perubahan parsial
 	body.ApplyUpdates(&ent)
 
 	// Validasi tanggal minimal
@@ -203,11 +196,10 @@ func (ctl *AcademicTermController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "End date must be after start date")
 	}
 
-	// Set updated_at untuk konsistensi response
-	now := time.Now()
-	ent.AcademicTermsUpdatedAt = &now
+	// Set updated_at (model kita pakai non-pointer time.Time)
+	ent.AcademicTermsUpdatedAt = time.Now()
 
-	// Update — Select kolom agar boolean false tidak diabaikan
+	// Update — pakai Select agar kolom boolean false tidak diabaikan
 	if err := ctl.DB.
 		Model(&ent).
 		Select(
@@ -225,11 +217,10 @@ func (ctl *AcademicTermController) Update(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Academic term updated successfully", dto.FromModel(ent))
 }
 
+/* -----------------------------
+ * SOFT DELETE (set inactive + deleted_at)
+ * ----------------------------- */
 
-
-// -----------------------------
-// SoftDelete (set inactive + deleted_at)
-// -----------------------------
 func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 	idStr := c.Params("id")
 	id, err := uuid.Parse(idStr)
@@ -242,6 +233,7 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
+	// Pastikan record milik tenant & belum terhapus
 	var ent model.AcademicTermModel
 	if err := ctl.DB.
 		Where("academic_terms_id = ? AND academic_terms_masjid_id = ? AND academic_terms_deleted_at IS NULL", id, masjidID).
@@ -253,18 +245,23 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 	}
 
 	now := time.Now()
-	ent.AcademicTermsIsActive = false
-	ent.AcademicTermsDeletedAt = &now
-	ent.AcademicTermsUpdatedAt = &now
-
-	// Gunakan Select agar boolean false tidak di-skip oleh GORM
-	if err := ctl.DB.
-		Model(&ent).
-		Select("AcademicTermsIsActive", "AcademicTermsDeletedAt", "AcademicTermsUpdatedAt").
-		Updates(&ent).Error; err != nil {
+	// Gunakan Updates(map) supaya kita bisa set kolom secara eksplisit (termasuk boolean false)
+	if err := ctl.DB.Model(&model.AcademicTermModel{}).
+		Where("academic_terms_id = ?", ent.AcademicTermsID).
+		Updates(map[string]any{
+			"academic_terms_is_active":  false,
+			"academic_terms_deleted_at": now,
+			"academic_terms_updated_at": now,
+		}).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Delete failed: "+err.Error())
 	}
 
-	// Kembalikan body (200) agar konsisten dengan helper.JsonDeleted
+	// Refetch untuk response konsisten (mapper akan konversi gorm.DeletedAt → *time.Time)
+	if err := ctl.DB.First(&ent, "academic_terms_id = ?", ent.AcademicTermsID).Error; err != nil {
+		// kalau gagal refetch, tetap kirim minimal payload
+		ent.AcademicTermsIsActive = false
+		ent.AcademicTermsUpdatedAt = now
+	}
+
 	return helper.JsonDeleted(c, "Academic term deleted (soft) successfully", dto.FromModel(ent))
 }

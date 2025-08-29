@@ -116,7 +116,7 @@ END$$;
 CREATE OR REPLACE FUNCTION fn_touch_user_classes_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.user_classes_updated_at := CURRENT_TIMESTAMPTZ;
+  NEW.user_classes_updated_at := now();
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 

@@ -10,7 +10,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE OR REPLACE FUNCTION fn_touch_class_term_openings_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.class_term_openings_updated_at := CURRENT_TIMESTAMPTZ;
+  NEW.class_term_openings_updated_at := now();
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
@@ -175,7 +175,7 @@ $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION class_term_openings_release(p_opening_id UUID)
 RETURNS VOID AS $$
-DECLARE v_now TIMESTAMP := CURRENT_TIMESTAMPTZ;
+DECLARE v_now TIMESTAMP := now();
 BEGIN
   UPDATE class_term_openings
      SET class_term_openings_quota_taken = GREATEST(class_term_openings_quota_taken - 1, 0),

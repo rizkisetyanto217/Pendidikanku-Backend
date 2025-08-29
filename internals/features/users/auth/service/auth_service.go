@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"masjidku_backend/internals/configs"
-	classModel "masjidku_backend/internals/features/school/classes/main/model"
+	classModel "masjidku_backend/internals/features/school/classes/classes/model"
 	"masjidku_backend/internals/features/lembaga/masjid_admins_teachers/model"
 	progressUserService "masjidku_backend/internals/features/progress/progress/service"
 	authHelper "masjidku_backend/internals/features/users/auth/helper"

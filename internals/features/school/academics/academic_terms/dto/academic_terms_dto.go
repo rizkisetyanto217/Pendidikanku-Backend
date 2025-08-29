@@ -1,4 +1,4 @@
-// file: internals/features/lembaga/academics/academic_year/dto/dto.go
+// file: internals/features/academics/terms/dto/dto.go
 package dto
 
 import (
@@ -10,18 +10,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// =======================
-// Request DTO
-// =======================
+/* ===================== REQUEST DTO ===================== */
 
 type AcademicTermCreateDTO struct {
 	AcademicTermsAcademicYear string    `json:"academic_terms_academic_year" validate:"required,min=4"`
-	// Terima hanya 4 opsi ini
 	AcademicTermsName         string    `json:"academic_terms_name"          validate:"required,oneof=Ganjil Genap Pendek Khusus"`
 	AcademicTermsStartDate    time.Time `json:"academic_terms_start_date"    validate:"required"`
-	// gtefield agar sejalan dg DB CHECK (end >= start)
 	AcademicTermsEndDate      time.Time `json:"academic_terms_end_date"      validate:"required,gtefield=AcademicTermsStartDate"`
-	// pointer: bedakan "tidak dikirim" vs "false"
 	AcademicTermsIsActive     *bool     `json:"academic_terms_is_active,omitempty"`
 }
 
@@ -33,9 +28,9 @@ type AcademicTermUpdateDTO struct {
 	AcademicTermsIsActive     *bool      `json:"academic_terms_is_active,omitempty"`
 }
 
-// (opsional) filter list
+/* ========== LIST/FILTER (query) ========== */
+
 type AcademicTermFilterDTO struct {
-	// NEW: filter by term ID (query:?id=UUID)
 	ID       *string `query:"id"        validate:"omitempty,uuid4"`
 	Year     *string `query:"year"      validate:"omitempty,min=4"`
 	Name     *string `query:"name"      validate:"omitempty,oneof=Ganjil Genap Pendek Khusus"`
@@ -46,9 +41,7 @@ type AcademicTermFilterDTO struct {
 	SortDir  *string `query:"sort_dir"  validate:"omitempty,oneof=asc desc"`
 }
 
-// =======================
-// Response DTO
-// =======================
+/* ===================== RESPONSE DTO ===================== */
 
 type AcademicTermResponseDTO struct {
 	AcademicTermsID           uuid.UUID  `json:"academic_terms_id"`
@@ -59,17 +52,15 @@ type AcademicTermResponseDTO struct {
 	AcademicTermsEndDate      time.Time  `json:"academic_terms_end_date"`
 	AcademicTermsIsActive     bool       `json:"academic_terms_is_active"`
 
-	// Read-only: diisi oleh DB (generated column)
+	// Read-only: diisi DB (generated column)
 	AcademicTermsPeriod *string `json:"academic_terms_period,omitempty"`
 
 	AcademicTermsCreatedAt time.Time  `json:"academic_terms_created_at"`
-	AcademicTermsUpdatedAt *time.Time `json:"academic_terms_updated_at,omitempty"`
+	AcademicTermsUpdatedAt time.Time  `json:"academic_terms_updated_at"` // non-pointer, match model
 	AcademicTermsDeletedAt *time.Time `json:"academic_terms_deleted_at,omitempty"`
 }
 
-// =======================
-// Helpers
-// =======================
+/* ===================== HELPERS ===================== */
 
 func (p *AcademicTermCreateDTO) Normalize() {
 	p.AcademicTermsAcademicYear = strings.TrimSpace(p.AcademicTermsAcademicYear)
@@ -83,7 +74,7 @@ func (p *AcademicTermCreateDTO) WantsActive() bool {
 func (p *AcademicTermCreateDTO) ToModel(masjidID uuid.UUID) model.AcademicTermModel {
 	isActive := true
 	if p.AcademicTermsIsActive != nil {
-		isActive = *p.AcademicTermsIsActive // hormati input eksplisit
+		isActive = *p.AcademicTermsIsActive
 	}
 	return model.AcademicTermModel{
 		AcademicTermsMasjidID:     masjidID,
@@ -113,10 +104,33 @@ func (u *AcademicTermUpdateDTO) ApplyUpdates(ent *model.AcademicTermModel) {
 	}
 }
 
+func (q *AcademicTermFilterDTO) Normalize() {
+	if q.SortDir != nil {
+		s := strings.ToLower(strings.TrimSpace(*q.SortDir))
+		q.SortDir = &s
+	}
+	if q.SortBy != nil {
+		s := strings.ToLower(strings.TrimSpace(*q.SortBy))
+		q.SortBy = &s
+	}
+	if q.Year != nil {
+		s := strings.TrimSpace(*q.Year)
+		q.Year = &s
+	}
+	if q.Name != nil {
+		s := strings.TrimSpace(*q.Name)
+		q.Name = &s
+	}
+}
 
+/* ===================== MAPPERS ===================== */
 
-// Mapper entity -> response
 func FromModel(ent model.AcademicTermModel) AcademicTermResponseDTO {
+	var deletedAt *time.Time
+	if ent.AcademicTermsDeletedAt.Valid {
+		t := ent.AcademicTermsDeletedAt.Time
+		deletedAt = &t
+	}
 	return AcademicTermResponseDTO{
 		AcademicTermsID:           ent.AcademicTermsID,
 		AcademicTermsMasjidID:     ent.AcademicTermsMasjidID,
@@ -128,7 +142,7 @@ func FromModel(ent model.AcademicTermModel) AcademicTermResponseDTO {
 		AcademicTermsPeriod:       ent.AcademicTermsPeriod,
 		AcademicTermsCreatedAt:    ent.AcademicTermsCreatedAt,
 		AcademicTermsUpdatedAt:    ent.AcademicTermsUpdatedAt,
-		AcademicTermsDeletedAt:    ent.AcademicTermsDeletedAt,
+		AcademicTermsDeletedAt:    deletedAt,
 	}
 }
 
@@ -138,24 +152,4 @@ func FromModels(list []model.AcademicTermModel) []AcademicTermResponseDTO {
 		out = append(out, FromModel(it))
 	}
 	return out
-}
-
-// dto/dto.go
-func (q *AcademicTermFilterDTO) Normalize() {
-    if q.SortDir != nil {
-        s := strings.ToLower(strings.TrimSpace(*q.SortDir))
-        q.SortDir = &s
-    }
-    if q.SortBy != nil {
-        s := strings.ToLower(strings.TrimSpace(*q.SortBy))
-        q.SortBy = &s
-    }
-    if q.Year != nil {
-        s := strings.TrimSpace(*q.Year)
-        q.Year = &s
-    }
-    if q.Name != nil {
-        s := strings.TrimSpace(*q.Name)
-        q.Name = &s
-    }
 }

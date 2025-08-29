@@ -3,19 +3,18 @@ package details
 
 import (
 	// ====== Lembaga features ======
-	AcademicYearRoutes "masjidku_backend/internals/features/school/academics/academic_terms/route"
-	AnnouncementRoutes "masjidku_backend/internals/features/school/announcements/announcement/route"
-	AnnouncementThemaRoutes "masjidku_backend/internals/features/school/announcements/announcement_thema/route"
-	ClassBooksRoutes "masjidku_backend/internals/features/school/class_books/route"
-	ClassLessonsRoutes "masjidku_backend/internals/features/school/class_lessons/route"
-	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/school/class_sections/attendance_sessions/route"
-	AttendanceSettingsRoute "masjidku_backend/internals/features/school/class_sections/attendance_sessions_settings/route"
-	ClassSectionsRoutes "masjidku_backend/internals/features/school/class_sections/main/route"
-	ClassesRoutes "masjidku_backend/internals/features/school/classes/main/route"
 	LembagaStatsRoutes "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/route"
 	SemesterStatsRoutes "masjidku_backend/internals/features/lembaga/stats/semester_stats/route"
 	YayasanRoutes "masjidku_backend/internals/features/lembaga/yayasans/route"
-
+	AcademicYearRoutes "masjidku_backend/internals/features/school/academics/academic_terms/route"
+	AnnouncementRoutes "masjidku_backend/internals/features/school/announcements/announcement/route"
+	AnnouncementThemaRoutes "masjidku_backend/internals/features/school/announcements/announcement_thema/route"
+	ClassBooksRoutes "masjidku_backend/internals/features/school/class_subject_books/books/route"
+	SubjectRoutes "masjidku_backend/internals/features/school/class_subject_books/subject/route"
+	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/school/class_attendance_result/attendance_sessions/route"
+	AttendanceSettingsRoute "masjidku_backend/internals/features/school/class_attendance_result/attendance_sessions_settings/route"
+	ClassSectionsRoutes "masjidku_backend/internals/features/school/classes/class_sections/route"
+	ClassesRoutes "masjidku_backend/internals/features/school/classes/classes/route"
 
 	// Tambahkan import route lain di sini saat modul siap:
 	// SectionRoutes "masjidku_backend/internals/features/lembaga/sections/main/route"
@@ -73,7 +72,7 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	AnnouncementThemaRoutes.AnnouncementAdminRoute(r, db)
 	AnnouncementRoutes.AnnouncementAdminRoutes(r, db)
 	SemesterStatsRoutes.UserClassAttendanceSemesterAdminRoutes(r, db)
-	ClassLessonsRoutes.ClassLessonsAdminRoutes(r, db)
+	SubjectRoutes.SubjectAdminRoutes(r, db)
 	ClassBooksRoutes.ClassBooksAdminRoutes(r, db)
 	AttendanceSettingsRoute.ClassAttendanceSettingsAdminRoutes(r, db)
 	AcademicYearRoutes.AcademicYearAdminRoutes(r, db)
