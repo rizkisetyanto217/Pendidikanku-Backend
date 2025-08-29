@@ -9,11 +9,11 @@ import (
 	LectureSessionsQuizRoutes "masjidku_backend/internals/features/masjids/lecture_sessions/quizzes/route"
 	LectureExamsRoutes "masjidku_backend/internals/features/masjids/lectures/exams/route"
 	LectureRoutes "masjidku_backend/internals/features/masjids/lectures/main/route"
-	MasjidAdmin "masjidku_backend/internals/features/masjids/masjid_admins_teachers/route"
-	masjidRoutes "masjidku_backend/internals/features/masjids/masjids/route"
-	MasjidMore "masjidku_backend/internals/features/masjids/masjids_more/route"
+	MasjidAdmin "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/route"
+	masjidRoutes "masjidku_backend/internals/features/lembaga/masjids/route"
+	MasjidMore "masjidku_backend/internals/features/lembaga/masjids_more/route"
 
-	userFollowMasjid "masjidku_backend/internals/features/masjids/user_follow_masjids/route"
+	userFollowMasjid "masjidku_backend/internals/features/lembaga/user_follow_masjids/route"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

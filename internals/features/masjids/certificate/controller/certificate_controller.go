@@ -9,7 +9,7 @@ import (
 	certificateModel "masjidku_backend/internals/features/masjids/certificate/model"
 	lectureExamModel "masjidku_backend/internals/features/masjids/lectures/exams/model"
 	lectureModel "masjidku_backend/internals/features/masjids/lectures/main/model"
-	masjidModel "masjidku_backend/internals/features/masjids/masjids/model"
+	masjidModel "masjidku_backend/internals/features/lembaga/masjids/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

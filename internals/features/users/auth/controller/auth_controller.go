@@ -1,13 +1,13 @@
 package controller
 
 import (
-	masjidAdminModel "masjidku_backend/internals/features/masjids/masjid_admins_teachers/model"
+	masjidAdminModel "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/model"
 	"masjidku_backend/internals/features/users/auth/service"
 	models "masjidku_backend/internals/features/users/user/model"
 	"strings"
 	"time"
 
-	userClassModel "masjidku_backend/internals/features/lembaga/classes/main/model"
+	userClassModel "masjidku_backend/internals/features/school/classes/main/model"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

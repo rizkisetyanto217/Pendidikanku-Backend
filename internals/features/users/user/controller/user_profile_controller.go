@@ -146,12 +146,7 @@ func (upc *UsersProfileController) CreateProfile(c *fiber.Ctx) error {
 }
 
 
-/* =========================
-   PATCH: Update (DTO)
-   ========================= */
-// =========================
-// PATCH /profiles (partial update + optional avatar replace)
-// =========================
+
 // =========================
 // PATCH /profiles (partial update + optional avatar replace)
 // =========================
@@ -162,7 +157,7 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 	}
 	log.Println("[INFO] Updating user profile with user_id:", userID)
 
-	// Ambil profile existing
+	// --- Ambil profile existing
 	var profile profileModel.UsersProfileModel
 	if err := upc.DB.WithContext(c.Context()).
 		Where("user_id = ?", userID).
@@ -178,18 +173,15 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 	isJSON := strings.HasPrefix(ct, fiber.MIMEApplicationJSON)
 	isMultipart := strings.HasPrefix(ct, fiber.MIMEMultipartForm)
 
-	// --- Kumpulkan perubahan dari body ---
+	// --- Kumpulkan perubahan dari body
 	var in profileDTO.UpdateUsersProfileRequest
-	var updateMap map[string]interface{}
-
-	// NOTE: BodyParser bisa handle form-urlencoded; untuk multipart kita ambil manual
 	if isJSON {
 		if err := c.BodyParser(&in); err != nil {
 			log.Println("[ERROR] Invalid request body:", err)
 			return helper.Error(c, fiber.StatusBadRequest, "Invalid request format")
 		}
 	} else {
-		// form-urlencoded / multipart → isi field pointer dari form value (hanya jika ada)
+		// form-urlencoded / multipart -> isi pointer kalau ada
 		setPtr := func(dst **string, name string) {
 			if v := c.FormValue(name); v != "" {
 				val := v
@@ -197,44 +189,51 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 			}
 		}
 		setPtr(&in.DonationName, "donation_name")
-		setPtr(&in.PhotoURL, "photo_url") // bila ingin set direct URL
+		setPtr(&in.PhotoURL, "photo_url") // opsional: bila mau set URL langsung
 		setPtr(&in.PhotoTrashURL, "photo_trash_url")
 		setPtr(&in.PhotoDeletePendingUntil, "photo_delete_pending_until")
 		setPtr(&in.DateOfBirth, "date_of_birth")
 		setPtr(&in.Gender, "gender")
-		setPtr(&in.Location, "location")       // ✅ NEW
-		setPtr(&in.Occupation, "occupation")   // ✅ NEW
+		setPtr(&in.Location, "location")
+		setPtr(&in.Occupation, "occupation")
 		setPtr(&in.PhoneNumber, "phone_number")
 		setPtr(&in.Bio, "bio")
 	}
 
-	// Validasi & translate ke map kolom->nilai
-	var mapErr error
-	updateMap, mapErr = in.ToUpdateMap()
+	updateMap, mapErr := in.ToUpdateMap()
 	if mapErr != nil {
 		return helper.Error(c, fiber.StatusBadRequest, mapErr.Error())
 	}
 
-	// --- Handle penggantian foto lewat file multipart "photo" (prioritas di atas PhotoURL) ---
+	// =========================
+	// Upload avatar (jika ada file) -> pakai helper OSS
+	// =========================
 	var (
-		uploadedNewURL *string
-		oldPhotoURL    *string = profile.PhotoURL
+		newAvatarURL string  // url avatar baru
+		hadNewFile   bool
 	)
+
 	if isMultipart {
-		if fh, errFile := c.FormFile("photo_url"); errFile == nil && fh != nil {
-			// Optional: batasi ukuran & tipe
+		// terima file dengan field "photo" (utama) atau fallback "photo_url"
+		fh, errFile := c.FormFile("photo")
+		if errFile != nil || fh == nil {
+			fh, _ = c.FormFile("photo_url")
+		}
+		if fh != nil {
 			if fh.Size > 5*1024*1024 {
 				return helper.Error(c, fiber.StatusRequestEntityTooLarge, "Max file size 5MB")
 			}
-			svc, errInit := helperOSS.NewOSSServiceFromEnv("")
+
+			ossSvc, errInit := helperOSS.NewOSSServiceFromEnv("") // asumsi sudah ada
 			if errInit != nil {
 				return helper.Error(c, fiber.StatusInternalServerError, "Failed to init file service")
 			}
+
 			ctxUp, cancelUp := context.WithTimeout(c.Context(), 30*time.Second)
 			defer cancelUp()
 
 			dir := fmt.Sprintf("users/%s/avatar", userID.String())
-			publicURL, errUp := svc.UploadAsWebP(ctxUp, fh, dir)
+			publicURL, errUp := ossSvc.UploadAsWebP(ctxUp, fh, dir)
 			if errUp != nil {
 				if strings.Contains(strings.ToLower(errUp.Error()), "format tidak didukung") {
 					return helper.Error(c, fiber.StatusUnsupportedMediaType, "Unsupported image format (use jpg/png/webp)")
@@ -242,28 +241,20 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 				return helper.Error(c, fiber.StatusBadGateway, "Failed to upload avatar")
 			}
 
-			uploadedNewURL = &publicURL
-			updateMap["photo_url"] = publicURL
-
-			// Pindahkan foto lama (kalau ada) ke trash window 7 hari
-			if oldPhotoURL != nil && strings.TrimSpace(*oldPhotoURL) != "" {
-				updateMap["photo_trash_url"] = strings.TrimSpace(*oldPhotoURL)
-				when := time.Now().Add(7 * 24 * time.Hour).UTC()
-				updateMap["photo_delete_pending_until"] = when
-			} else {
-				// kalau tidak ada lama, kosongkan metadata trash
-				updateMap["photo_trash_url"] = nil
-				updateMap["photo_delete_pending_until"] = nil
-			}
+			newAvatarURL = publicURL
+			hadNewFile = true
+			updateMap["photo_url"] = newAvatarURL
 		}
 	}
 
-	// --- Update DB dengan map kolom yang berubah saja ---
+	// =========================
+	// Transaksi DB (update kolom)
+	// =========================
 	tx := upc.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
-		// cleanup file bila sudah terupload
-		if uploadedNewURL != nil {
-			_ = helperOSS.DeleteByPublicURLENV(*uploadedNewURL, 10*time.Second)
+		// kalau upload sukses tapi transaksi gagal start -> hapus file baru
+		if hadNewFile {
+			_ = helperOSS.DeleteByPublicURLENV(newAvatarURL, 10*time.Second)
 		}
 		return helper.Error(c, fiber.StatusInternalServerError, "Failed to start transaction")
 	}
@@ -271,8 +262,8 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 	if len(updateMap) > 0 {
 		if err := tx.Model(&profile).Where("user_id = ?", userID).Updates(updateMap).Error; err != nil {
 			_ = tx.Rollback().Error
-			if uploadedNewURL != nil {
-				_ = helperOSS.DeleteByPublicURLENV(*uploadedNewURL, 10*time.Second)
+			if hadNewFile {
+				_ = helperOSS.DeleteByPublicURLENV(newAvatarURL, 10*time.Second)
 			}
 			log.Println("[ERROR] Failed to update user profile:", err)
 			return helper.Error(c, fiber.StatusInternalServerError, "Failed to update user profile")
@@ -280,13 +271,39 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 	}
 
 	if err := tx.Commit().Error; err != nil {
-		if uploadedNewURL != nil {
-			_ = helperOSS.DeleteByPublicURLENV(*uploadedNewURL, 10*time.Second)
+		if hadNewFile {
+			_ = helperOSS.DeleteByPublicURLENV(newAvatarURL, 10*time.Second)
 		}
 		return helper.Error(c, fiber.StatusInternalServerError, "Failed to commit update")
 	}
 
-	// Refresh
+	// =========================
+	// Post-commit: pindahkan foto lama ke spam + set metadata trash
+	// (dilakukan setelah commit supaya konsisten)
+	// =========================
+	if hadNewFile {
+		if profile.PhotoURL != nil && strings.TrimSpace(*profile.PhotoURL) != "" {
+			oldURL := strings.TrimSpace(*profile.PhotoURL)
+
+			// NOTE: pada titik ini, variable profile masih nilai PRE-UPDATE.
+			// kita pakai oldURL dari pre-update untuk dipindah ke spam.
+			spamURL, errMove := helperOSS.MoveToSpamByPublicURLENV(oldURL, 15*time.Second)
+			if errMove != nil {
+				log.Printf("[WARN] Move old avatar to spam failed: %v", errMove)
+			} else {
+				// tulis metadata trash ke DB (best-effort)
+				_ = upc.DB.WithContext(c.Context()).
+					Model(&profileModel.UsersProfileModel{}).
+					Where("user_id = ?", userID).
+					Updates(map[string]interface{}{
+						"photo_trash_url":           spamURL,
+						"photo_delete_pending_until": time.Now().Add(7 * 24 * time.Hour).UTC(),
+					}).Error
+			}
+		}
+	}
+
+	// Refresh respons
 	if err := upc.DB.WithContext(c.Context()).
 		Where("user_id = ?", userID).First(&profile).Error; err != nil {
 		log.Println("[WARN] Refresh after update failed:", err)
@@ -294,6 +311,7 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 
 	return helper.Success(c, "User profile updated successfully", profileDTO.ToUsersProfileDTO(profile))
 }
+
 
 
 /* =========================

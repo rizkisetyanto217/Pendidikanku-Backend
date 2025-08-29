@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"masjidku_backend/internals/configs"
-	classModel "masjidku_backend/internals/features/lembaga/classes/main/model"
-	matModel "masjidku_backend/internals/features/masjids/masjid_admins_teachers/model"
+	classModel "masjidku_backend/internals/features/school/classes/main/model"
+	matModel "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/model"
 	authModel "masjidku_backend/internals/features/users/auth/model"
 	authRepo "masjidku_backend/internals/features/users/auth/repository"
 	helpers "masjidku_backend/internals/helpers"
