@@ -28,8 +28,7 @@ func NewClassAttendanceSessionController(db *gorm.DB) *ClassAttendanceSessionCon
 	return &ClassAttendanceSessionController{DB: db}
 }
 
-
-// ========================================================= */
+// =========================================================
 /* =========================================================
    GET /admin/class-attendance-sessions/section/:section_id?date_from=&date_to=&limit=&offset=
 ========================================================= */
@@ -500,7 +499,7 @@ func (ctrl *ClassAttendanceSessionController) ListByMasjid(c *fiber.Ctx) error {
 		Order(orderClause).
 		Limit(limit).
 		Offset(offset).
-		Scan(&rows).Error; err != nil {
+		Find(&rows).Error; err != nil {
 		log.Printf("[CAS][%s] ERROR Scan: %v", reqID, err)
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
@@ -620,7 +619,6 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 	}
 
 	// Transaksi kecil
-	// Transaksi kecil
 	err := ctrl.DB.Transaction(func(tx *gorm.DB) error {
 		// 1) Validasi section milik masjid
 		var sec secModel.ClassSectionModel
@@ -716,6 +714,7 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 
 
 // PUT /admin/class-attendance-sessions/:id
+// PUT /admin/class-attendance-sessions/:id
 func (ctrl *ClassAttendanceSessionController) UpdateClassAttendanceSession(c *fiber.Ctx) error {
 	// ===== Role & Tenant (admin ATAU teacher) =====
 	adminMasjidID, _ := helper.GetMasjidIDFromToken(c)
@@ -804,9 +803,7 @@ func (ctrl *ClassAttendanceSessionController) UpdateClassAttendanceSession(c *fi
 			}
 		}
 
-		// 3) (hapus) Validasi guru by user_id — TIDAK DIPERLUKAN lagi
-
-		// 4) Cek unik (aturan baru)
+		// 3) Cek unik (aturan baru)
 		targetDate := existing.ClassAttendanceSessionDate
 		if req.ClassAttendanceSessionDate != nil {
 			targetDate = *req.ClassAttendanceSessionDate
@@ -839,7 +836,7 @@ func (ctrl *ClassAttendanceSessionController) UpdateClassAttendanceSession(c *fi
 			return fiber.NewError(fiber.StatusConflict, "Sesi kehadiran untuk tanggal tersebut sudah ada")
 		}
 
-		// 5) Validasi CSST (jika diubah)
+		// 4) Validasi CSST (jika diubah)
 		if req.ClassAttendanceSessionClassSectionSubjectTeacherId != nil {
 			var csstCnt int64
 			csstQ := tx.Table("class_section_subject_teachers").
@@ -861,7 +858,7 @@ func (ctrl *ClassAttendanceSessionController) UpdateClassAttendanceSession(c *fi
 			}
 		}
 
-		// 6) Terapkan perubahan (patch terarah)
+		// 5) Terapkan perubahan (patch terarah)
 		patch := map[string]interface{}{}
 		if req.ClassAttendanceSessionSectionId != nil {
 			patch["class_attendance_sessions_section_id"] = *req.ClassAttendanceSessionSectionId
@@ -886,7 +883,6 @@ func (ctrl *ClassAttendanceSessionController) UpdateClassAttendanceSession(c *fi
 			patch["class_attendance_sessions_note"] = req.ClassAttendanceSessionNote
 			existing.ClassAttendanceSessionNote = req.ClassAttendanceSessionNote
 		}
-		// (hapus) class_attendance_sessions_teacher_user_id
 
 		if req.ClassAttendanceSessionClassSubjectId != nil {
 			patch["class_attendance_sessions_class_subject_id"] = req.ClassAttendanceSessionClassSubjectId
@@ -910,7 +906,6 @@ func (ctrl *ClassAttendanceSessionController) UpdateClassAttendanceSession(c *fi
 				"class_attendance_sessions_title",
 				"class_attendance_sessions_general_info",
 				"class_attendance_sessions_note",
-				// "class_attendance_sessions_teacher_user_id", // ← DIHAPUS
 				"class_attendance_sessions_class_subject_id",
 				"class_attendance_sessions_class_section_subject_teacher_id",
 				"class_attendance_sessions_updated_at",
@@ -933,11 +928,12 @@ func (ctrl *ClassAttendanceSessionController) UpdateClassAttendanceSession(c *fi
 		return err
 	}
 
-
 	updated := c.Locals("updated_model").(attendanceModel.ClassAttendanceSessionModel)
 	return helper.JsonUpdated(c, "Sesi kehadiran berhasil diperbarui", attendanceDTO.FromClassAttendanceSessionModel(updated))
 }
 
+
+// DELETE /admin/class-attendance-sessions/:id?force=true
 // DELETE /admin/class-attendance-sessions/:id?force=true
 func (ctrl *ClassAttendanceSessionController) DeleteClassAttendanceSession(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)

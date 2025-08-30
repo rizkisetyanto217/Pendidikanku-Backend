@@ -1,4 +1,3 @@
-// internals/features/lembaga/class_sections/attendance_sessions/dto/class_attendance_session_dto.go
 package dto
 
 import (
@@ -69,6 +68,8 @@ type ListClassAttendanceSessionQuery struct {
 
 // internals/features/lembaga/class_sections/attendance_sessions/dto/class_attendance_session_dto.go
 
+// internals/features/lembaga/class_sections/attendance_sessions/dto/class_attendance_session_dto.go
+
 type ClassAttendanceSessionResponse struct {
     ClassAttendanceSessionId                uuid.UUID  `json:"class_attendance_session_id"`
     ClassAttendanceSessionSectionId         uuid.UUID  `json:"class_attendance_session_section_id"`
@@ -78,28 +79,26 @@ type ClassAttendanceSessionResponse struct {
     ClassAttendanceSessionGeneralInfo       string     `json:"class_attendance_session_general_info"`
     ClassAttendanceSessionNote              *string    `json:"class_attendance_session_note,omitempty"`
 
-    // id guru hasil JOIN (users)
-    ClassAttendanceSessionTeacherUserId     *uuid.UUID `json:"class_attendance_session_teacher_user_id,omitempty"`
-
-    // ✅ TAMBAHAN: nama (dan opsional email) guru dari tabel users
+    // Teacher info
+    ClassAttendanceSessionTeacherUserId     *uuid.UUID `json:"class_attendance_session_teacher_user_id,omitempty"`  // <-- Added this line
     ClassAttendanceSessionTeacherName       *string    `json:"class_attendance_session_teacher_name,omitempty"`
-    // (opsional) uncomment kalau mau kirim email juga
-    // ClassAttendanceSessionTeacherEmail   *string    `json:"class_attendance_session_teacher_email,omitempty"`
+    ClassAttendanceSessionTeacherEmail      *string    `json:"class_attendance_session_teacher_email,omitempty"`
 
+    // Class section info
     ClassAttendanceSessionClassSubjectId                 *uuid.UUID `json:"class_attendance_session_class_subject_id,omitempty"`
     ClassAttendanceSessionClassSectionSubjectTeacherId   *uuid.UUID `json:"class_attendance_session_class_section_subject_teacher_id,omitempty"`
 
-	ClassSectionSlug     *string        `json:"class_sections_slug,omitempty"`
-	ClassSectionName     *string        `json:"class_sections_name,omitempty"`
-	ClassSectionCode     *string        `json:"class_sections_code,omitempty"`
-	ClassSectionCapacity *int           `json:"class_sections_capacity,omitempty"`
-	ClassSectionSchedule datatypes.JSON `json:"class_sections_schedule,omitempty"`
-
+    ClassSectionSlug     *string        `json:"class_sections_slug,omitempty"`
+    ClassSectionName     *string        `json:"class_sections_name,omitempty"`
+    ClassSectionCode     *string        `json:"class_sections_code,omitempty"`
+    ClassSectionCapacity *int           `json:"class_sections_capacity,omitempty"`
+    ClassSectionSchedule datatypes.JSON `json:"class_sections_schedule,omitempty"`
 
     ClassAttendanceSessionCreatedAt time.Time  `json:"class_attendance_session_created_at"`
     ClassAttendanceSessionUpdatedAt *time.Time `json:"class_attendance_session_updated_at,omitempty"`
     ClassAttendanceSessionDeletedAt *time.Time `json:"class_attendance_session_deleted_at,omitempty"`
 }
+
 
 // List response + meta
 type ClassAttendanceSessionListResponse struct {

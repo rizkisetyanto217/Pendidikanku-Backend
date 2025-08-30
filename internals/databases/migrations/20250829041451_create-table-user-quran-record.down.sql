@@ -1,89 +1,114 @@
 -- =========================================
--- DOWN Migration: ABSENSI (sessions + urls) & user_quran_records
+-- DOWN Migration (Refactor Final)
 -- =========================================
 BEGIN;
 
 -- =========================================
--- A) ABSENSI: class_attendance_session_url (CHILD) → drop triggers, indexes, table
+-- D) USER ATTENDANCE URLS (child) - drop
 -- =========================================
+-- Drop triggers
+DROP TRIGGER IF EXISTS trg_user_attendance_urls_tenant_guard ON user_attendance_urls;
+DROP TRIGGER IF EXISTS trg_touch_user_attendance_urls_updated_at ON user_attendance_urls;
 
--- Triggers & Functions (defensive)
-DROP TRIGGER  IF EXISTS trg_casu_tenant_guard       ON class_attendance_session_url;
-DROP FUNCTION IF EXISTS fn_casu_tenant_guard();
+-- Drop functions
+DROP FUNCTION IF EXISTS fn_user_attendance_urls_tenant_guard();
+DROP FUNCTION IF EXISTS fn_touch_user_attendance_urls_updated_at();
 
-DROP TRIGGER  IF EXISTS trg_touch_casu_updated_at   ON class_attendance_session_url;
-DROP FUNCTION IF EXISTS fn_touch_casu_updated_at();
+-- Drop indexes
+DROP INDEX IF EXISTS uq_uau_attendance_href;
+DROP INDEX IF EXISTS brin_uau_created_at;
+DROP INDEX IF EXISTS idx_uau_attendance_alive;
+DROP INDEX IF EXISTS idx_uau_uploader_user;
+DROP INDEX IF EXISTS idx_uau_uploader_teacher;
+DROP INDEX IF EXISTS idx_user_attendance_urls_masjid_created_at;
+DROP INDEX IF EXISTS idx_user_attendance_urls_attendance;
 
--- Indexes (defensive)
-DROP INDEX IF EXISTS uq_casu_href_per_session_alive;
-DROP INDEX IF EXISTS idx_casu_session_alive;
-DROP INDEX IF EXISTS idx_casu_created_at;
-DROP INDEX IF EXISTS uq_casu_primary_per_session_alive; -- if ever existed
-
--- Table (child)
-DROP TABLE IF EXISTS class_attendance_session_url CASCADE;
-
-
--- =========================================
--- B) ABSENSI: class_attendance_sessions (PARENT) → drop triggers, indexes, table
--- =========================================
-
--- Triggers & Functions (defensive)
-DROP TRIGGER  IF EXISTS trg_cas_validate_links       ON class_attendance_sessions;
-DROP FUNCTION IF EXISTS fn_cas_validate_links();
-
-DROP TRIGGER  IF EXISTS trg_cas_touch_updated_at     ON class_attendance_sessions;
-DROP FUNCTION IF EXISTS fn_touch_class_attendance_sessions_updated_at();
-
--- Indexes (defensive)
-DROP INDEX IF EXISTS idx_cas_section;
-DROP INDEX IF EXISTS idx_cas_masjid;
-DROP INDEX IF EXISTS idx_cas_date;
-DROP INDEX IF EXISTS idx_cas_class_subject;
-DROP INDEX IF EXISTS idx_cas_csst;
-DROP INDEX IF EXISTS idx_cas_teacher_user;
-DROP INDEX IF EXISTS uq_cas_section_date_when_cs_null;
-DROP INDEX IF EXISTS uq_cas_section_cs_date_when_cs_not_null;
-
--- Table (parent)
-DROP TABLE IF EXISTS class_attendance_sessions CASCADE;
-
+-- Drop table
+DROP TABLE IF EXISTS user_attendance_urls;
 
 -- =========================================
--- C) USER QURAN RECORDS (+ images)
---    (sesuai pola yang kamu pakai sebelumnya)
+-- C) USER ATTENDANCE (parent) - drop
 -- =========================================
+-- Drop triggers
+DROP TRIGGER IF EXISTS trg_user_attendance_tenant_guard ON user_attendance;
+DROP TRIGGER IF EXISTS trg_touch_user_attendance_updated_at ON user_attendance;
 
--- Triggers & Functions
-DROP TRIGGER  IF EXISTS set_ts_user_quran_records ON user_quran_records;
-DROP FUNCTION IF EXISTS trg_set_ts_user_quran_records();
+-- Drop functions
+DROP FUNCTION IF EXISTS fn_user_attendance_tenant_guard();
+DROP FUNCTION IF EXISTS fn_touch_user_attendance_updated_at();
 
--- Indexes (defensive; table drop akan menghapus juga, tapi eksplisit)
-DROP INDEX IF EXISTS idx_user_quran_records_session;
-DROP INDEX IF EXISTS idx_uqr_masjid_created_at;
-DROP INDEX IF EXISTS idx_uqr_user_created_at;
-DROP INDEX IF EXISTS idx_uqr_source_kind;
-DROP INDEX IF EXISTS idx_uqr_status_next;
-DROP INDEX IF EXISTS gin_uqr_scope_trgm;
-DROP INDEX IF EXISTS brin_uqr_created_at;
-DROP INDEX IF EXISTS idx_uqr_teacher;
-DROP INDEX IF EXISTS uidx_uqr_dedup;
+-- Drop indexes
+DROP INDEX IF EXISTS brin_user_attendance_created_at;
+DROP INDEX IF EXISTS idx_user_attendance_status;
+DROP INDEX IF EXISTS idx_user_attendance_user;
+DROP INDEX IF EXISTS idx_user_attendance_session;
+DROP INDEX IF EXISTS uq_user_attendance_alive;
 
--- CHILD indexes
-DROP INDEX IF EXISTS idx_user_quran_record_images_record;
+-- Drop table
+DROP TABLE IF EXISTS user_attendance;
+
+-- =========================================
+-- B) USER QURAN URLS (child) - drop
+-- =========================================
+-- Drop trigger & function
+DROP TRIGGER IF EXISTS set_ts_user_quran_urls ON user_quran_urls;
+DROP FUNCTION IF EXISTS trg_set_ts_user_quran_urls();
+
+-- Drop indexes
+DROP INDEX IF EXISTS uq_uqri_record_href;
+DROP INDEX IF EXISTS brin_uqri_created_at;
+DROP INDEX IF EXISTS idx_uqri_record_alive;
+DROP INDEX IF EXISTS idx_uqri_uploader_user;
+DROP INDEX IF EXISTS idx_uqri_uploader_teacher;
 DROP INDEX IF EXISTS idx_uqri_created_at;
-DROP INDEX IF EXISTS idx_uqri_uploader_role;
+DROP INDEX IF EXISTS idx_user_quran_urls_record;
 
--- CHILD table
-DROP TABLE IF EXISTS user_quran_record_images CASCADE;
+-- Drop table
+DROP TABLE IF EXISTS user_quran_urls;
 
--- PARENT table
-DROP TABLE IF EXISTS user_quran_records CASCADE;
+-- =========================================
+-- A) USER QURAN RECORDS (parent) - rollback kolom & index
+-- =========================================
 
--- Catatan:
--- - Jangan drop EXTENSION pg_trgm / pgcrypto di sini (bisa dipakai object lain)
---   Jika perlu benar-benar bersih, lakukan manual:
---   DROP EXTENSION IF EXISTS pg_trgm;
---   DROP EXTENSION IF EXISTS pgcrypto;
+-- 1) Kembalikan kolom lama (status, next) bila belum ada
+ALTER TABLE user_quran_records
+  ADD COLUMN IF NOT EXISTS user_quran_records_status VARCHAR(24);
+
+ALTER TABLE user_quran_records
+  ADD COLUMN IF NOT EXISTS user_quran_records_next VARCHAR(24);
+
+-- 2) Isi kembali kolom "next" dari boolean "is_next"
+UPDATE user_quran_records
+SET user_quran_records_next = CASE
+  WHEN user_quran_records_is_next IS TRUE THEN 'next'
+  WHEN user_quran_records_is_next IS FALSE THEN 'no'
+  ELSE NULL
+END
+WHERE user_quran_records_next IS NULL;
+
+-- 3) Bersihkan index yang ditambahkan UP (aman jika tidak ada)
+DROP INDEX IF EXISTS brin_uqr_created_at;
+DROP INDEX IF EXISTS gin_uqr_scope_trgm;
+DROP INDEX IF EXISTS idx_uqr_teacher;
+DROP INDEX IF EXISTS idx_uqr_is_next;
+DROP INDEX IF EXISTS idx_uqr_source_kind;
+DROP INDEX IF EXISTS idx_uqr_user_created_at;
+DROP INDEX IF EXISTS idx_uqr_masjid_created_at;
+DROP INDEX IF EXISTS idx_user_quran_records_session;
+
+-- 4) Hapus kolom baru dari UP
+ALTER TABLE user_quran_records
+  DROP COLUMN IF EXISTS user_quran_records_is_next;
+
+ALTER TABLE user_quran_records
+  DROP COLUMN IF EXISTS user_quran_records_score;
+
+-- 5) Kembalikan index gabungan lama (status, next) jika diperlukan
+CREATE INDEX IF NOT EXISTS idx_uqr_status_next
+  ON user_quran_records(user_quran_records_status, user_quran_records_next);
+
+-- 6) Drop trigger & function updated_at yang ditambahkan UP
+DROP TRIGGER IF EXISTS set_ts_user_quran_records ON user_quran_records;
+DROP FUNCTION IF EXISTS trg_set_ts_user_quran_records();
 
 COMMIT;

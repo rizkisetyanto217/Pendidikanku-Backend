@@ -4,7 +4,7 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
 
 -- =========================================================
--- 1) TABLE: class_attendance_sessions
+-- 1) TABEL class_attendance_sessions (dengan perubahan relasi ke masjid_teachers)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_sessions_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_sessions_general_info TEXT NOT NULL,
   class_attendance_sessions_note  TEXT,
 
-  class_attendance_sessions_teacher_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  -- GANTI: refer ke masjid_teachers, bukan users
+  class_attendance_sessions_teacher_id UUID REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE SET NULL,
 
   class_attendance_sessions_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_attendance_sessions_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -101,7 +102,7 @@ CREATE INDEX IF NOT EXISTS idx_cas_csst
   ON class_attendance_sessions(class_attendance_sessions_class_section_subject_teacher_id);
 
 CREATE INDEX IF NOT EXISTS idx_cas_teacher_user
-  ON class_attendance_sessions(class_attendance_sessions_teacher_user_id);
+  ON class_attendance_sessions(class_attendance_sessions_teacher_id);
 
 -- Unik: jika class_subject_id IS NULL → unik per (masjid, section, date)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_section_date_when_cs_null
@@ -263,7 +264,6 @@ BEGIN
     FOR EACH ROW
     EXECUTE FUNCTION fn_touch_class_attendance_sessions_updated_at();
 END$$;
-
 
 -- =========================================================
 -- 6) TABLE: class_attendance_session_url (multi URL per sesi) — no is_primary/order
