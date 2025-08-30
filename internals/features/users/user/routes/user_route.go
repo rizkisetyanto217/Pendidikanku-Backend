@@ -3,21 +3,24 @@ package routes
 import (
 	"log"
 
-	// docController "masjidku_backend/internals/features/users/user/controller" // ⬅️ controller dokumen
-	// formalController "masjidku_backend/internals/features/users/user/controller"
 	userController "masjidku_backend/internals/features/users/user/controller"
 
+	"github.com/go-playground/validator/v10" // ⬅️ TAMBAH
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
 
-func UserAllRoutes(app fiber.Router, db *gorm.DB) {
+func UserUserRoutes(app fiber.Router, db *gorm.DB) {
 	log.Println("[DEBUG] ❗ Masuk UserAllRoutes")
 
 	selfCtrl := userController.NewUserSelfController(db)
 	userProfileCtrl := userController.NewUsersProfileController(db)
 	formalCtrl := userController.NewUsersProfileFormalController(db)
-	docCtrl := userController.NewUsersProfileDocumentController(db) // ⬅️ inisialisasi
+	docCtrl := userController.NewUsersProfileDocumentController(db)
+
+	// ✅ INJECT: controller UsersTeacher (pakai validator lokal)
+	v := validator.New()
+	usersTeacherCtrl := userController.NewUsersTeacherController(db, v)
 
 	// ✅ Profil diri (JWT)
 	app.Get("/users/me", selfCtrl.GetMe)
@@ -37,9 +40,14 @@ func UserAllRoutes(app fiber.Router, db *gorm.DB) {
 
 	// ✅ Documents (punya sendiri)
 	docs := app.Group("/users/profile/documents")
-	docs.Post("/upload/many", docCtrl.CreateMultipartMany)    // upload banyak
-	docs.Get("/", docCtrl.List)                              // list dokumen milik user
-	docs.Get("/:doc_type", docCtrl.GetByDocType)             // ambil per jenis
-	docs.Patch("/:doc_type/upload", docCtrl.UpdateMultipart) // update + upload baru
-	docs.Delete("/:doc_type", docCtrl.DeleteSoft)            // hapus (soft/hard via query)
+	docs.Post("/upload/many", docCtrl.CreateMultipartMany)
+	docs.Get("/", docCtrl.List)
+	docs.Get("/:doc_type", docCtrl.GetByDocType)
+	docs.Patch("/:doc_type/upload", docCtrl.UpdateMultipart)
+	docs.Delete("/:doc_type", docCtrl.DeleteSoft)
+
+	// ✅ ✅ INJECT: PUBLIC/GENERAL READ untuk users_teacher
+	app.Get("/users-teacher", usersTeacherCtrl.List)
+	app.Get("/users-teacher/:id", usersTeacherCtrl.GetByID)
+	app.Get("/users-teacher/by-user/:user_id", usersTeacherCtrl.GetByUserID)
 }

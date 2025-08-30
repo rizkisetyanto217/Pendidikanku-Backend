@@ -3,9 +3,7 @@ package controller
 
 import (
 	"errors"
-	"mime/multipart"
 	"strings"
-	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -25,7 +23,7 @@ var validate = validator.New()
 
 /* =========================================================
    CREATE  - POST /admin/class-books
-   Body: form-data / JSON (support upload)
+   Body: JSON (atau form sederhana, tanpa upload file)
    ========================================================= */
 func (h *BooksController) Create(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
@@ -38,27 +36,6 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	req.BooksMasjidID = masjidID
-
-	// Ambil URL gambar dari form jika ada
-	if v := strings.TrimSpace(c.FormValue("books_image_url")); v != "" && req.BooksImageURL == nil {
-		req.BooksImageURL = &v
-	}
-
-	// Upload file (prioritas di atas URL teks)
-	var fileHeader *multipart.FileHeader
-	for _, key := range []string{"books_image", "books_image_url", "image", "file"} {
-		if fh, ferr := c.FormFile(key); ferr == nil && fh != nil {
-			fileHeader = fh
-			break
-		}
-	}
-	if fileHeader != nil {
-		publicURL, upErr := helper.UploadImageToSupabase("books", fileHeader)
-		if upErr != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Upload gambar gagal: "+upErr.Error())
-		}
-		req.BooksImageURL = &publicURL
-	}
 
 	// Normalisasi + auto slug (kalau kosong)
 	req.Normalize()
@@ -95,8 +72,6 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 
 	// Simpan
 	m := req.ToModel()
-	now := time.Now()
-	m.BooksCreatedAt = now
 	if err := h.DB.Create(m).Error; err != nil {
 		msg := strings.ToLower(err.Error())
 		if strings.Contains(msg, "uq_books_slug_per_masjid") || strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
@@ -107,14 +82,9 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Buku berhasil dibuat", dto.ToBooksResponse(m))
 }
 
-
-// --- helpers kecil ---
-func sPtr(v *string) string  { if v == nil { return "" }; return *v }
-func bPtr(v *bool) bool      { if v == nil { return false }; return *v }
-
 /* =========================================================
    UPDATE - PUT /admin/class-books/:id
-   Body: form-data / JSON (support upload dan clear image)
+   Body: JSON / form sederhana (tanpa upload file)
    ========================================================= */
 func (h *BooksController) Update(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
@@ -129,36 +99,6 @@ func (h *BooksController) Update(c *fiber.Ctx) error {
 	var req dto.BooksUpdateRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
-	}
-
-	// Ambil URL teks dari form jika ada
-	if v := strings.TrimSpace(c.FormValue("books_image_url")); v != "" && req.BooksImageURL == nil {
-		req.BooksImageURL = &v
-	}
-
-	// Upload file (prioritas)
-	var fileHeader *multipart.FileHeader
-	for _, key := range []string{"books_image", "books_image_url", "image", "file"} {
-		if fh, ferr := c.FormFile(key); ferr == nil && fh != nil {
-			fileHeader = fh
-			break
-		}
-	}
-	var newUploadedURL *string
-	if fileHeader != nil {
-		publicURL, upErr := helper.UploadImageToSupabase("books", fileHeader)
-		if upErr != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Upload gambar gagal: "+upErr.Error())
-		}
-		newUploadedURL = &publicURL
-		req.BooksImageURL = newUploadedURL
-	}
-
-	// Clear image jika dikirim explicit kosong
-	wantClearImage := false
-	if req.BooksImageURL != nil && strings.TrimSpace(*req.BooksImageURL) == "" {
-		req.BooksImageURL = nil
-		wantClearImage = true
 	}
 
 	// Normalisasi & validasi
@@ -187,9 +127,6 @@ func (h *BooksController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 
-	// Simpan URL lama untuk cleanup
-	oldURL := m.BooksImageURL
-
 	// Cek unik slug per masjid jika berubah
 	if req.BooksSlug != nil {
 		needCheck := (m.BooksSlug == nil) || !strings.EqualFold(*m.BooksSlug, *req.BooksSlug)
@@ -211,27 +148,9 @@ func (h *BooksController) Update(c *fiber.Ctx) error {
 		}
 	}
 
-	// Apply ke model
+	// Apply ke model & simpan
 	req.ApplyToModel(&m)
 
-	// Handle clear image
-	if wantClearImage {
-		if oldURL != nil && *oldURL != "" {
-			if bucket, path, exErr := helper.ExtractSupabasePath(*oldURL); exErr == nil {
-				_ = helper.DeleteFromSupabase(bucket, path)
-			}
-		}
-		m.BooksImageURL = nil
-	}
-
-	// Jika upload baru & beda dari lama → hapus lama
-	if newUploadedURL != nil && oldURL != nil && *oldURL != *newUploadedURL {
-		if bucket, path, exErr := helper.ExtractSupabasePath(*oldURL); exErr == nil {
-			_ = helper.DeleteFromSupabase(bucket, path)
-		}
-	}
-
-	// Save
 	if err := h.DB.Save(&m).Error; err != nil {
 		msg := strings.ToLower(err.Error())
 		if strings.Contains(msg, "uq_books_slug_per_masjid") || strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
@@ -244,7 +163,7 @@ func (h *BooksController) Update(c *fiber.Ctx) error {
 }
 
 /* =========================================================
-   DELETE (soft) - DELETE /admin/class-books/:id?delete_image=true
+   DELETE (soft) - DELETE /admin/class-books/:id
    ========================================================= */
 func (h *BooksController) Delete(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
@@ -260,25 +179,12 @@ func (h *BooksController) Delete(c *fiber.Ctx) error {
 	var m model.BooksModel
 	if err := h.DB.First(&m, "books_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-		 return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 	if m.BooksMasjidID != masjidID {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
-	}
-
-	// Opsional: hapus file di storage
-	deletedImage := false
-	if strings.EqualFold(c.Query("delete_image"), "true") && m.BooksImageURL != nil && *m.BooksImageURL != "" {
-		if bucket, path, exErr := helper.ExtractSupabasePath(*m.BooksImageURL); exErr == nil {
-			_ = helper.DeleteFromSupabase(bucket, path)
-			deletedImage = true
-		}
-		m.BooksImageURL = nil
-		_ = h.DB.Model(&model.BooksModel{}).
-			Where("books_id = ?", id).
-			Update("books_image_url", nil).Error // best-effort
 	}
 
 	// Soft delete (gorm.DeletedAt)
@@ -287,7 +193,6 @@ func (h *BooksController) Delete(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonDeleted(c, "Buku berhasil dihapus", fiber.Map{
-		"books_id":      id,
-		"deleted_image": deletedImage,
+		"books_id": id,
 	})
 }

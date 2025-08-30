@@ -16,6 +16,7 @@ import (
 func ClassBooksAdminRoutes(r fiber.Router, db *gorm.DB) {
 	booksCtl := &cbController.BooksController{DB: db}
 	csbCtl   := &cbController.ClassSubjectBookController{DB: db}
+	bookURLCtl := cbController.NewBookURLController(db) // ⬅️ tambah ini
 
 	// Wajib role admin/dkm/owner
 	adminGuard := auth.OnlyRolesSlice(
@@ -25,17 +26,25 @@ func ClassBooksAdminRoutes(r fiber.Router, db *gorm.DB) {
 
 	// /api/a/class-books
 	books := r.Group("/", adminGuard)
-	books.Post("/",   booksCtl.Create)            // ➕ buat buku
-	books.Get("/",    booksCtl.ListWithUsages)    // 📄 list + usages
-	books.Get("/:id", booksCtl.GetWithUsagesByID) // 📄 detail
-	books.Put("/:id", booksCtl.Update)            // ✏️ update
-	books.Delete("/:id", booksCtl.Delete)         // 🗑️ soft delete
+	books.Post("/",   booksCtl.Create)
+	books.Get("/",    booksCtl.ListWithUsages)
+	books.Get("/:id", booksCtl.GetWithUsagesByID)
+	books.Put("/:id", booksCtl.Update)
+	books.Delete("/:id", booksCtl.Delete)
 
-	// /api/a/class-subject-books
+	// /api/a/class-books/class-subject-books
 	csb := r.Group("/class-subject-books", adminGuard)
-	csb.Post("/",     csbCtl.Create)   // ➕ pasang buku ke subject
-	csb.Get("/",      csbCtl.List)     // 📄 list relasi
-	csb.Get("/:id",   csbCtl.GetByID)  // 📄 detail relasi
-	csb.Put("/:id",   csbCtl.Update)   // ✏️ update relasi
-	csb.Delete("/:id", csbCtl.Delete)  // 🗑️ soft/hard
+	csb.Post("/",     csbCtl.Create)
+	csb.Get("/",      csbCtl.List)
+	csb.Get("/:id",   csbCtl.GetByID)
+	csb.Put("/:id",   csbCtl.Update)
+	csb.Delete("/:id", csbCtl.Delete)
+
+	// /api/a/class-books/book-urls  ⬅️ TAMBAHAN
+	urls := r.Group("/book-urls", adminGuard)
+	urls.Get("/filter", bookURLCtl.Filter)
+	urls.Get("/:id",    bookURLCtl.GetByID)
+	urls.Post("/",      bookURLCtl.Create)
+	urls.Patch("/:id",  bookURLCtl.Update)
+	urls.Delete("/:id", bookURLCtl.Delete)
 }

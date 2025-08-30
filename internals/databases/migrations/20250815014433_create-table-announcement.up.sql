@@ -1,4 +1,5 @@
 -- +migrate Up
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- =========================================================
@@ -65,16 +66,53 @@ END$$;
 
 
 
--- =========================================================
--- announcements (timestamps -> TIMESTAMP)
--- =========================================================
+
+-- class_sections: butuh UNIQUE (class_sections_id, class_sections_masjid_id)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname='uq_class_sections_id_masjid'
+  ) THEN
+    ALTER TABLE class_sections
+      ADD CONSTRAINT uq_class_sections_id_masjid
+      UNIQUE (class_sections_id, class_sections_masjid_id);
+  END IF;
+END$$;
+
+-- masjid_teachers: untuk FK komposit (teacher_id, masjid_id) → harus unik
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname='uq_masjid_teachers_id_tenant'
+  ) THEN
+    ALTER TABLE masjid_teachers
+      ADD CONSTRAINT uq_masjid_teachers_id_tenant
+      UNIQUE (masjid_teacher_id, masjid_teacher_masjid_id);
+  END IF;
+END$$;
+
+-- announcement_themes: asumsikan sudah punya (announcement_themes_id, announcement_themes_masjid_id)
+-- kalau belum, aktifkan uniknya:
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname='uq_announcement_themes_id_tenant'
+  ) THEN
+    ALTER TABLE announcement_themes
+      ADD CONSTRAINT uq_announcement_themes_id_tenant
+      UNIQUE (announcement_themes_id, announcement_themes_masjid_id);
+  END IF;
+END$$;
+
+-- ===== Buat/ubah tabel announcements agar sesuai skema baru =====
 CREATE TABLE IF NOT EXISTS announcements (
   announcement_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   announcement_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  announcement_created_by_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  -- >>> GANTI: sumber pembuat sekarang teacher_id, bukan user_id
+  announcement_created_by_teacher_id UUID NULL,
 
-  -- target 1 section (NULL = GLOBAL)
+  -- target section (NULL = global)
   announcement_class_section_id UUID NULL,
 
   -- tema (tenant-safe via composite FK)
@@ -91,13 +129,80 @@ CREATE TABLE IF NOT EXISTS announcements (
   announcement_deleted_at TIMESTAMPTZ,
 
   -- FTS
-  announcement_search tsvector GENERATED ALWAYS AS (
-    setweight(to_tsvector('simple', coalesce(announcement_title,   '')), 'A') ||
-    setweight(to_tsvector('simple', coalesce(announcement_content, '')), 'B')
-  ) STORED
+  announcement_search tsvector
+    GENERATED ALWAYS AS (
+      setweight(to_tsvector('simple', coalesce(announcement_title,   '')), 'A') ||
+      setweight(to_tsvector('simple', coalesce(announcement_content, '')), 'B')
+    ) STORED
 );
 
--- Tenant-safe composite FK ke THEME
+-- Kalau kolom teacher_id belum ada (pada DB lama), tambahkan
+ALTER TABLE announcements
+  ADD COLUMN IF NOT EXISTS announcement_created_by_teacher_id UUID;
+
+-- ====== (KOMPATIBILITAS) Backfill dari kolom lama user_id kalau masih ada ======
+-- 1) Tambahkan kolom lama jika belum ada? Tidak. Kita hanya baca kalau memang ada.
+-- 2) Backfill teacher_id dari user_id jika pasangan guru ditemukan
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public'
+      AND table_name='announcements'
+      AND column_name='announcement_created_by_user_id'
+  ) THEN
+    WITH mapped AS (
+      SELECT a.announcement_id, mt.masjid_teacher_id
+      FROM announcements a
+      JOIN LATERAL (
+        SELECT masjid_teacher_id
+        FROM masjid_teachers
+        WHERE masjid_teacher_masjid_id = a.announcement_masjid_id
+          AND masjid_teacher_user_id   = a.announcement_created_by_user_id
+          AND masjid_teacher_deleted_at IS NULL
+        ORDER BY masjid_teacher_created_at ASC
+        LIMIT 1
+      ) mt ON TRUE
+      WHERE a.announcement_created_by_teacher_id IS NULL
+        AND a.announcement_created_by_user_id    IS NOT NULL
+    )
+    UPDATE announcements a
+       SET announcement_created_by_teacher_id = m.masjid_teacher_id
+      FROM mapped m
+     WHERE a.announcement_id = m.announcement_id;
+  END IF;
+END$$;
+
+-- ===== Bersihkan FK lama yang menunjuk ke users (jika ada) =====
+DO $$
+DECLARE r RECORD;
+BEGIN
+  FOR r IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid='announcements'::regclass
+      AND contype='f'
+      AND pg_get_constraintdef(oid) ILIKE '%(announcement_created_by_user_id)%users(%'
+  LOOP
+    EXECUTE format('ALTER TABLE announcements DROP CONSTRAINT %I', r.conname);
+  END LOOP;
+END$$;
+
+-- ===== Tenant-safe composite FK ke masjid_teachers (teacher_id, masjid_id) =====
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname='fk_ann_created_by_teacher_same_tenant'
+  ) THEN
+    ALTER TABLE announcements
+      ADD CONSTRAINT fk_ann_created_by_teacher_same_tenant
+      FOREIGN KEY (announcement_created_by_teacher_id, announcement_masjid_id)
+      REFERENCES masjid_teachers (masjid_teacher_id, masjid_teacher_masjid_id)
+      ON UPDATE CASCADE ON DELETE SET NULL;
+  END IF;
+END$$;
+
+-- ===== Tenant-safe composite FK ke announcement_themes =====
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -111,41 +216,25 @@ BEGIN
   END IF;
 END$$;
 
--- Pastikan class_sections punya UNIQUE (id, masjid_id) untuk composite FK
+-- ===== Tenant-safe composite FK ke class_sections =====
+-- Drop FK single-column lawas ke class_sections jika masih ada
 DO $$
+DECLARE r RECORD;
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname='uq_class_sections_id_masjid'
-  ) THEN
-    ALTER TABLE class_sections
-      ADD CONSTRAINT uq_class_sections_id_masjid
-      UNIQUE (class_sections_id, class_sections_masjid_id);
-  END IF;
+  FOR r IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid='announcements'::regclass
+      AND contype='f'
+      AND pg_get_constraintdef(oid) ILIKE '%(announcement_class_section_id)%class_sections%'
+      AND pg_get_constraintdef(oid) NOT ILIKE '%(announcement_class_section_id, announcement_masjid_id)%'
+  LOOP
+    EXECUTE format('ALTER TABLE announcements DROP CONSTRAINT %I', r.conname);
+  END LOOP;
 END$$;
 
--- Tenant-safe composite FK ke SECTION
 DO $$
 BEGIN
-  -- drop FK single-column lama kalau ada
-  PERFORM 1 FROM pg_constraint
-    WHERE conrelid='announcements'::regclass AND contype='f'
-      AND pg_get_constraintdef(oid) ILIKE '%(announcement_class_section_id)%class_sections%';
-  IF FOUND THEN
-    DO $inner$
-    DECLARE r RECORD;
-    BEGIN
-      FOR r IN
-        SELECT conname
-        FROM pg_constraint
-        WHERE conrelid='announcements'::regclass AND contype='f'
-          AND pg_get_constraintdef(oid) ILIKE '%(announcement_class_section_id)%class_sections%'
-      LOOP
-        EXECUTE format('ALTER TABLE announcements DROP CONSTRAINT %I', r.conname);
-      END LOOP;
-    END;
-    $inner$;
-  END IF;
-
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname='fk_ann_section_same_tenant'
   ) THEN
@@ -157,15 +246,16 @@ BEGIN
   END IF;
 END$$;
 
--- Composite key (opsional) untuk join tenant-safe
+-- ===== Indeks / GIN / TRGM =====
 CREATE UNIQUE INDEX IF NOT EXISTS uq_announcements_id_tenant
   ON announcements (announcement_id, announcement_masjid_id);
 
--- “live only” (aktif & belum terhapus)
+-- indeks “live” per tanggal
 CREATE INDEX IF NOT EXISTS ix_announcements_tenant_date_live
   ON announcements (announcement_masjid_id, announcement_date DESC)
   WHERE announcement_deleted_at IS NULL AND announcement_is_active = TRUE;
 
+-- tema, section, created_by (versi teacher)
 CREATE INDEX IF NOT EXISTS ix_announcements_theme_live
   ON announcements (announcement_theme_id)
   WHERE announcement_deleted_at IS NULL AND announcement_is_active = TRUE;
@@ -174,10 +264,13 @@ CREATE INDEX IF NOT EXISTS ix_announcements_section_live
   ON announcements (announcement_class_section_id)
   WHERE announcement_deleted_at IS NULL AND announcement_is_active = TRUE;
 
-CREATE INDEX IF NOT EXISTS ix_announcements_created_by_live
-  ON announcements (announcement_created_by_user_id, announcement_created_at DESC)
+-- Hapus index lama berbasis user_id (kalau ada), lalu buat index teacher
+DROP INDEX IF EXISTS ix_announcements_created_by_live;
+CREATE INDEX IF NOT EXISTS ix_announcements_created_by_teacher_live
+  ON announcements (announcement_created_at DESC, announcement_created_by_teacher_id)
   WHERE announcement_deleted_at IS NULL AND announcement_is_active = TRUE;
 
+-- FTS & TRGM (judul)
 CREATE INDEX IF NOT EXISTS ix_announcements_search_gin_live
   ON announcements USING GIN (announcement_search)
   WHERE announcement_deleted_at IS NULL AND announcement_is_active = TRUE;
@@ -186,7 +279,7 @@ CREATE INDEX IF NOT EXISTS ix_announcements_title_trgm_live
   ON announcements USING GIN (announcement_title gin_trgm_ops)
   WHERE announcement_deleted_at IS NULL AND announcement_is_active = TRUE;
 
--- Trigger updated_at
+-- ===== Trigger updated_at =====
 CREATE OR REPLACE FUNCTION fn_announcements_touch_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -203,6 +296,21 @@ BEGIN
     BEFORE UPDATE ON announcements
     FOR EACH ROW
     EXECUTE FUNCTION fn_announcements_touch_updated_at();
+END$$;
+
+-- ===== (Opsional) Drop kolom lama user_id jika masih ada =====
+-- Jalankan bagian ini hanya jika kamu sudah pasti tidak pakai kolom lama lagi.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public'
+      AND table_name='announcements'
+      AND column_name='announcement_created_by_user_id'
+  ) THEN
+    ALTER TABLE announcements
+      DROP COLUMN announcement_created_by_user_id;
+  END IF;
 END$$;
 
 

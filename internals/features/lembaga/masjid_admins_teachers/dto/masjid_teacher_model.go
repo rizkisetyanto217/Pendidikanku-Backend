@@ -20,8 +20,8 @@ type MasjidTeacher struct {
 // 📥 Create Request DTO
 // ========================
 type CreateMasjidTeacherRequest struct {
-	MasjidTeacherMasjidID string `json:"masjid_teacher_masjid_id" validate:"required,uuid"`
-	MasjidTeacherUserID   string `json:"masjid_teacher_user_id" validate:"required,uuid"`
+	MasjidTeacherUserID string `json:"masjid_teacher_user_id" validate:"required,uuid"`
+
 }
 
 // ========================

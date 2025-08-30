@@ -1,6 +1,10 @@
+-- =========================================================
+-- UP MIGRATION
+-- =========================================================
+CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
 
 -- =========================================================
--- 1) TABLE
+-- 1) TABLE: class_attendance_sessions
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_sessions_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -8,10 +12,10 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_sessions_section_id UUID NOT NULL,
   class_attendance_sessions_masjid_id  UUID NOT NULL,
 
-  -- Kurikulum: refer ke class_subjects (boleh NULL saat awal input)
+  -- Kurikulum (opsional)
   class_attendance_sessions_class_subject_id UUID,
 
-  -- Penugasan guru per section+subject (opsional)
+  -- Penugasan guru (opsional)
   class_attendance_sessions_class_section_subject_teacher_id UUID,
 
   class_attendance_sessions_date  DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -27,7 +31,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
 );
 
 -- =========================================================
--- 2) FOREIGN KEYS
+-- 2) FOREIGN KEYS (idempotent)
 -- =========================================================
 
 -- (a) Tenant-safe: composite FK ke class_sections(id, masjid_id)
@@ -44,7 +48,7 @@ BEGIN
   END IF;
 END$$;
 
--- (b) Kurikulum: FK ke class_subjects (bukan subjects langsung)
+-- (b) Kurikulum: FK ke class_subjects
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_cas_subject') THEN
@@ -79,10 +83,8 @@ BEGIN
 END$$;
 
 -- =========================================================
--- 3) INDEXES (termasuk unik soft-delete aware)
+-- 3) INDEXES (soft-delete aware)
 -- =========================================================
-
--- Query umum
 CREATE INDEX IF NOT EXISTS idx_cas_section
   ON class_attendance_sessions(class_attendance_sessions_section_id);
 
@@ -124,17 +126,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_section_cs_date_when_cs_not_null
 
 -- =========================================================
 -- 4) TRIGGERS: validasi konsistensi relasi (DEFERRABLE)
---    - pastikan masjid session = masjid section = masjid class_subject
---    - pastikan class_subject.class_id sama dengan section.class_id (jika kolom class_id ada)
---    - pastikan CSS teacher cocok: masjid & section sama, dan subject-nya match class_subject
---    - auto-isi teacher_user_id dari CSS teacher jika NULL
 -- =========================================================
-
 CREATE OR REPLACE FUNCTION fn_cas_validate_links()
 RETURNS TRIGGER AS $$
 DECLARE
   v_sec_masjid UUID;
-  v_sec_class  UUID;        -- boleh NULL jika tidak ada kolom class_id
+  v_sec_class  UUID;
   v_cs_masjid  UUID;
   v_cs_class   UUID;
   v_cs_subject UUID;
@@ -143,7 +140,7 @@ DECLARE
   v_css_subj   UUID;
   v_css_teacher UUID;
 BEGIN
-  -- 1) Section → masjid & (opsional) class_id
+  -- Section
   SELECT class_sections_masjid_id, class_sections_class_id
     INTO v_sec_masjid, v_sec_class
   FROM class_sections
@@ -154,13 +151,12 @@ BEGIN
     RAISE EXCEPTION 'Section invalid/terhapus';
   END IF;
 
-  -- 2) Cocokkan masjid session vs section
   IF NEW.class_attendance_sessions_masjid_id <> v_sec_masjid THEN
     RAISE EXCEPTION 'Masjid mismatch: session(%) vs section(%)',
       NEW.class_attendance_sessions_masjid_id, v_sec_masjid;
   END IF;
 
-  -- 3) Class_subject (opsional): cek masjid & (opsional) class_id
+  -- Class_subject (opsional)
   IF NEW.class_attendance_sessions_class_subject_id IS NOT NULL THEN
     SELECT class_subjects_masjid_id, class_subjects_class_id, class_subjects_subject_id
       INTO v_cs_masjid, v_cs_class, v_cs_subject
@@ -177,13 +173,12 @@ BEGIN
         v_cs_masjid, NEW.class_attendance_sessions_masjid_id;
     END IF;
 
-    -- Jika kedua sisi punya class_id, pastikan sama
     IF v_sec_class IS NOT NULL AND v_cs_class IS NOT NULL AND v_sec_class <> v_cs_class THEN
       RAISE EXCEPTION 'class_subject.class_id berbeda dengan section.class_id';
     END IF;
   END IF;
 
-  -- 4) CSS Teacher (opsional): cek masjid, section, subject harus match
+  -- CSS Teacher (opsional)
   IF NEW.class_attendance_sessions_class_section_subject_teacher_id IS NOT NULL THEN
     SELECT
       class_section_subject_teachers_masjid_id,
@@ -207,10 +202,8 @@ BEGIN
       RAISE EXCEPTION 'Section CSS(%) != session(%)', v_css_sec, NEW.class_attendance_sessions_section_id;
     END IF;
 
-    -- Jika class_subject diisi, pastikan subject CSS sama dengan subject milik class_subject
     IF NEW.class_attendance_sessions_class_subject_id IS NOT NULL THEN
       IF v_cs_subject IS NULL THEN
-        -- ambil ulang jika belum diisi dari langkah (3)
         SELECT class_subjects_subject_id INTO v_cs_subject
         FROM class_subjects
         WHERE class_subjects_id = NEW.class_attendance_sessions_class_subject_id;
@@ -221,7 +214,6 @@ BEGIN
       END IF;
     END IF;
 
-    -- Auto-isi teacher_user_id dari CSS Teacher bila belum diset
     IF NEW.class_attendance_sessions_teacher_user_id IS NULL THEN
       NEW.class_attendance_sessions_teacher_user_id := v_css_teacher;
     END IF;
@@ -231,7 +223,6 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
--- Buat constraint trigger (DEFERRABLE)
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_cas_validate_links') THEN
@@ -252,12 +243,12 @@ BEGIN
 END$$;
 
 -- =========================================================
--- 5) (Opsional) updated_at auto
+-- 5) Touch updated_at otomatis
 -- =========================================================
 CREATE OR REPLACE FUNCTION fn_touch_class_attendance_sessions_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.class_attendance_sessions_updated_at := CURRENT_TIMESTAMPTZ;
+  NEW.class_attendance_sessions_updated_at := CURRENT_TIMESTAMP;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
@@ -271,4 +262,193 @@ BEGIN
     BEFORE UPDATE ON class_attendance_sessions
     FOR EACH ROW
     EXECUTE FUNCTION fn_touch_class_attendance_sessions_updated_at();
+END$$;
+
+
+-- =========================================================
+-- 6) TABLE: class_attendance_session_url (multi URL per sesi) — no is_primary/order
+-- =========================================================
+CREATE TABLE IF NOT EXISTS class_attendance_session_url (
+  class_attendance_session_url_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  class_attendance_session_url_masjid_id  UUID NOT NULL,
+  class_attendance_session_url_session_id UUID NOT NULL,
+
+  class_attendance_session_url_label      VARCHAR(120),
+
+  class_attendance_session_url_href       TEXT NOT NULL,
+  class_attendance_session_url_trash_url  TEXT,
+  class_attendance_session_url_delete_pending_until TIMESTAMPTZ,
+
+  class_attendance_session_url_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_attendance_session_url_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_attendance_session_url_deleted_at TIMESTAMPTZ,
+
+  CONSTRAINT fk_casu_session
+    FOREIGN KEY (class_attendance_session_url_session_id)
+    REFERENCES class_attendance_sessions(class_attendance_sessions_id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+
+  CONSTRAINT fk_casu_masjid
+    FOREIGN KEY (class_attendance_session_url_masjid_id)
+    REFERENCES masjids(masjid_id)
+    ON UPDATE CASCADE ON DELETE CASCADE
+);
+
+-- Jika sebelumnya tabel sudah ada dan berisi kolom is_primary/order → hapus
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public'
+      AND table_name='class_attendance_session_url'
+      AND column_name='class_attendance_session_url_is_primary'
+  ) THEN
+    EXECUTE 'ALTER TABLE class_attendance_session_url DROP COLUMN class_attendance_session_url_is_primary';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public'
+      AND table_name='class_attendance_session_url'
+      AND column_name='class_attendance_session_url_order'
+  ) THEN
+    EXECUTE 'ALTER TABLE class_attendance_session_url DROP COLUMN class_attendance_session_url_order';
+  END IF;
+END$$;
+
+-- Drop index lama yang bergantung pada is_primary (jika ada)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='uq_casu_primary_per_session_alive') THEN
+    EXECUTE 'DROP INDEX uq_casu_primary_per_session_alive';
+  END IF;
+END$$;
+
+-- Tenant guard
+CREATE OR REPLACE FUNCTION fn_casu_tenant_guard()
+RETURNS TRIGGER AS $$
+DECLARE v_mid UUID;
+BEGIN
+  SELECT class_attendance_sessions_masjid_id
+    INTO v_mid
+  FROM class_attendance_sessions
+  WHERE class_attendance_sessions_id = NEW.class_attendance_session_url_session_id
+    AND class_attendance_sessions_deleted_at IS NULL;
+
+  IF v_mid IS NULL THEN
+    RAISE EXCEPTION 'Session tidak valid/terhapus';
+  END IF;
+
+  IF NEW.class_attendance_session_url_masjid_id IS DISTINCT FROM v_mid THEN
+    RAISE EXCEPTION 'Masjid mismatch: url(%) vs session(%)',
+      NEW.class_attendance_session_url_masjid_id, v_mid;
+  END IF;
+
+  RETURN NEW;
+END
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_casu_tenant_guard') THEN
+    DROP TRIGGER trg_casu_tenant_guard ON class_attendance_session_url;
+  END IF;
+
+  CREATE TRIGGER trg_casu_tenant_guard
+  BEFORE INSERT OR UPDATE ON class_attendance_session_url
+  FOR EACH ROW EXECUTE FUNCTION fn_casu_tenant_guard();
+END$$;
+
+-- Indexes & unique (tanpa primary-per-session)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_casu_href_per_session_alive
+  ON class_attendance_session_url (
+    class_attendance_session_url_session_id,
+    lower(class_attendance_session_url_href)
+  )
+  WHERE class_attendance_session_url_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_casu_session_alive
+  ON class_attendance_session_url (class_attendance_session_url_session_id)
+  WHERE class_attendance_session_url_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_casu_created_at
+  ON class_attendance_session_url (class_attendance_session_url_created_at DESC);
+
+-- Touch updated_at
+CREATE OR REPLACE FUNCTION fn_touch_casu_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.class_attendance_session_url_updated_at := CURRENT_TIMESTAMP;
+  RETURN NEW;
+END$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_touch_casu_updated_at') THEN
+    DROP TRIGGER trg_touch_casu_updated_at ON class_attendance_session_url;
+  END IF;
+
+  CREATE TRIGGER trg_touch_casu_updated_at
+  BEFORE UPDATE ON class_attendance_session_url
+  FOR EACH ROW EXECUTE FUNCTION fn_touch_casu_updated_at();
+END$$;
+
+-- =========================================================
+-- 7) BACKFILL dari kolom lama di sessions (jika ada), lalu DROP kolom lama
+-- =========================================================
+DO $$
+DECLARE
+  has_img   boolean;
+  has_trash boolean;
+  has_due   boolean;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public'
+      AND table_name='class_attendance_sessions'
+      AND column_name='class_attendance_sessions_image_url'
+  ) INTO has_img;
+
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public'
+      AND table_name='class_attendance_sessions'
+      AND column_name='class_attendance_sessions_image_trash_url'
+  ) INTO has_trash;
+
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public'
+      AND table_name='class_attendance_sessions'
+      AND column_name='class_attendance_sessions_image_delete_pending_until'
+  ) INTO has_due;
+
+  IF has_img THEN
+    EXECUTE $ins$
+      INSERT INTO class_attendance_session_url (
+        class_attendance_session_url_masjid_id,
+        class_attendance_session_url_session_id,
+        class_attendance_session_url_label,
+        class_attendance_session_url_href,
+        class_attendance_session_url_trash_url,
+        class_attendance_session_url_delete_pending_until
+      )
+      SELECT
+        s.class_attendance_sessions_masjid_id,
+        s.class_attendance_sessions_id,
+        'Cover',
+        s.class_attendance_sessions_image_url,
+        CASE WHEN $1 THEN s.class_attendance_sessions_image_trash_url ELSE NULL END,
+        CASE WHEN $2 THEN s.class_attendance_sessions_image_delete_pending_until ELSE NULL END
+      FROM class_attendance_sessions s
+      WHERE s.class_attendance_sessions_image_url IS NOT NULL
+        AND btrim(s.class_attendance_sessions_image_url) <> ''
+        AND NOT EXISTS (
+          SELECT 1 FROM class_attendance_session_url u
+          WHERE u.class_attendance_session_url_session_id = s.class_attendance_sessions_id
+            AND u.class_attendance_session_url_deleted_at IS NULL
+            AND lower(u.class_attendance_session_url_href) = lower(s.class_attendance_sessions_image_url)
+        )
+    $ins$ USING has_trash, has_due;
+  END IF;
 END$$;

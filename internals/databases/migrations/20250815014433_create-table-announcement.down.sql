@@ -1,177 +1,136 @@
 -- +migrate Down
+BEGIN;
+
 -- =========================================================
--- DOWN (SAFE & IDEMPOTENT)
--- Target:
---   - announcement_urls
---   - announcements
---   - announcement_themes
--- Catatan:
---  - Tidak pakai BEGIN/COMMIT manual.
---  - Putus FK yang MEREFERENSIKAN target sebelum DROP TABLE.
---  - TIDAK lagi mencoba drop constraint 'uq_class_sections_id_masjid'.
+-- 1) ANNOUNCEMENT_URLS — drop trigger, index, FK, table
 -- =========================================================
 
+-- Trigger & function
+DROP TRIGGER IF EXISTS trg_announcement_urls_touch_updated_at ON announcement_urls;
+DROP FUNCTION IF EXISTS fn_announcement_urls_touch_updated_at();
 
--------------------------------
--- Util 1: Putus semua FK yang menunjuk ke sebuah tabel (dipanggil per-target)
--------------------------------
--- Putus semua FK yang MEREFERENSIKAN public.announcement_urls
+-- Indexes
+DROP INDEX IF EXISTS ix_announcement_urls_delete_pending;
+DROP INDEX IF EXISTS ix_announcement_urls_label_trgm_live;
+DROP INDEX IF EXISTS ix_announcement_urls_masjid_live;
+DROP INDEX IF EXISTS ix_announcement_urls_announcement_live;
+DROP INDEX IF EXISTS uq_announcement_urls_announcement_href_live;
+DROP INDEX IF EXISTS uq_announcement_urls_id_tenant;
+
+-- FK (composite ke announcements)
+ALTER TABLE IF EXISTS announcement_urls
+  DROP CONSTRAINT IF EXISTS fk_au_announcement_same_tenant;
+
+-- Table
+DROP TABLE IF EXISTS announcement_urls;
+
+
+-- =========================================================
+-- 2) ANNOUNCEMENTS — rollback teacher_id → user_id, drop FK/index/trigger
+-- =========================================================
+
+-- Trigger & function
+DROP TRIGGER IF EXISTS trg_announcements_touch_updated_at ON announcements;
+DROP FUNCTION IF EXISTS fn_announcements_touch_updated_at();
+
+-- Hapus FK komposit yang dibuat saat Up
+ALTER TABLE IF EXISTS announcements
+  DROP CONSTRAINT IF EXISTS fk_ann_section_same_tenant,
+  DROP CONSTRAINT IF EXISTS fk_ann_theme_same_tenant,
+  DROP CONSTRAINT IF EXISTS fk_ann_created_by_teacher_same_tenant;
+
+-- Tambahkan kembali kolom lama user_id (jika belum ada)
+ALTER TABLE announcements
+  ADD COLUMN IF NOT EXISTS announcement_created_by_user_id UUID;
+
+-- Backfill user_id dari teacher_id via masjid_teachers
 DO $$
-DECLARE
-  target regclass := to_regclass('public.announcement_urls');
-  r RECORD;
 BEGIN
-  IF target IS NOT NULL THEN
-    FOR r IN
-      SELECT ns.nspname AS src_schema, c.relname AS src_table, con.conname AS constraint_name
-      FROM pg_constraint con
-      JOIN pg_class      c  ON c.oid = con.conrelid
-      JOIN pg_namespace  ns ON ns.oid = c.relnamespace
-      WHERE con.contype = 'f'
-        AND con.confrelid = target
-    LOOP
-      EXECUTE format('ALTER TABLE %I.%I DROP CONSTRAINT %I',
-                     r.src_schema, r.src_table, r.constraint_name);
-    END LOOP;
+  UPDATE announcements a
+     SET announcement_created_by_user_id = mt.masjid_teacher_user_id
+    FROM masjid_teachers mt
+   WHERE a.announcement_created_by_teacher_id IS NOT NULL
+     AND mt.masjid_teacher_id = a.announcement_created_by_teacher_id
+     AND mt.masjid_teacher_masjid_id = a.announcement_masjid_id
+     AND (a.announcement_created_by_user_id IS NULL
+          OR a.announcement_created_by_user_id <> mt.masjid_teacher_user_id);
+END$$;
+
+-- Hapus kolom teacher_id
+ALTER TABLE announcements
+  DROP COLUMN IF EXISTS announcement_created_by_teacher_id;
+
+-- Pulihkan FK lama ke users (best-effort, nama baru agar tidak bentrok)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid='announcements'::regclass
+      AND conname='fk_ann_created_by_user'
+  ) THEN
+    ALTER TABLE announcements
+      ADD CONSTRAINT fk_ann_created_by_user
+      FOREIGN KEY (announcement_created_by_user_id)
+      REFERENCES users(id)
+      ON UPDATE CASCADE
+      ON DELETE SET NULL;
   END IF;
 END$$;
 
--- Putus semua FK yang MEREFERENSIKAN public.announcements
+-- (Opsional) Pulihkan FK single-column ke class_sections (sebelum migrasi komposit)
 DO $$
-DECLARE
-  target regclass := to_regclass('public.announcements');
-  r RECORD;
 BEGIN
-  IF target IS NOT NULL THEN
-    FOR r IN
-      SELECT ns.nspname AS src_schema, c.relname AS src_table, con.conname AS constraint_name
-      FROM pg_constraint con
-      JOIN pg_class      c  ON c.oid = con.conrelid
-      JOIN pg_namespace  ns ON ns.oid = c.relnamespace
-      WHERE con.contype = 'f'
-        AND con.confrelid = target
-    LOOP
-      EXECUTE format('ALTER TABLE %I.%I DROP CONSTRAINT %I',
-                     r.src_schema, r.src_table, r.constraint_name);
-    END LOOP;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid='announcements'::regclass
+      AND conname='fk_ann_section_single'
+  ) THEN
+    ALTER TABLE announcements
+      ADD CONSTRAINT fk_ann_section_single
+      FOREIGN KEY (announcement_class_section_id)
+      REFERENCES class_sections (class_sections_id)
+      ON UPDATE CASCADE
+      ON DELETE SET NULL;
   END IF;
 END$$;
 
--- Putus semua FK yang MEREFERENSIKAN public.announcement_themes
-DO $$
-DECLARE
-  target regclass := to_regclass('public.announcement_themes');
-  r RECORD;
-BEGIN
-  IF target IS NOT NULL THEN
-    FOR r IN
-      SELECT ns.nspname AS src_schema, c.relname AS src_table, con.conname AS constraint_name
-      FROM pg_constraint con
-      JOIN pg_class      c  ON c.oid = con.conrelid
-      JOIN pg_namespace  ns ON ns.oid = c.relnamespace
-      WHERE con.contype = 'f'
-        AND con.confrelid = target
-    LOOP
-      EXECUTE format('ALTER TABLE %I.%I DROP CONSTRAINT %I',
-                     r.src_schema, r.src_table, r.constraint_name);
-    END LOOP;
-  END IF;
-END$$;
+-- Hapus index yang dibuat saat Up
+DROP INDEX IF EXISTS ix_announcements_title_trgm_live;
+DROP INDEX IF EXISTS ix_announcements_search_gin_live;
+DROP INDEX IF EXISTS ix_announcements_created_by_teacher_live;
+DROP INDEX IF EXISTS ix_announcements_section_live;
+DROP INDEX IF EXISTS ix_announcements_theme_live;
+DROP INDEX IF EXISTS ix_announcements_tenant_date_live;
+DROP INDEX IF EXISTS uq_announcements_id_tenant;
+
+-- (Opsional) Kembalikan index lama berbasis user_id (kalau memang ingin restore)
+CREATE INDEX IF NOT EXISTS ix_announcements_created_by_live
+  ON announcements (announcement_created_by_user_id, announcement_created_at DESC)
+  WHERE announcement_deleted_at IS NULL AND announcement_is_active = TRUE;
 
 
--------------------------------
--- 1) announcement_urls (child of announcements)
--------------------------------
--- Drop trigger
-DO $$
-BEGIN
-  IF to_regclass('public.announcement_urls') IS NOT NULL
-     AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_announcement_urls_touch_updated_at') THEN
-    EXECUTE 'DROP TRIGGER trg_announcement_urls_touch_updated_at ON public.announcement_urls';
-  END IF;
-END$$;
+-- =========================================================
+-- 3) ANNOUNCEMENT_THEMES — drop trigger, index/unique, table
+-- =========================================================
 
--- Drop function
-DROP FUNCTION IF EXISTS public.fn_announcement_urls_touch_updated_at();
+-- Trigger & function
+DROP TRIGGER IF EXISTS trg_announcement_themes_touch_updated_at ON announcement_themes;
+DROP FUNCTION IF EXISTS fn_announcement_themes_touch_updated_at();
 
--- Drop indexes (aman walau tabel ikut hilang)
-DROP INDEX IF EXISTS public.uq_announcement_urls_id_tenant;
-DROP INDEX IF EXISTS public.uq_announcement_urls_announcement_href_live;
-DROP INDEX IF EXISTS public.ix_announcement_urls_announcement_live;
-DROP INDEX IF EXISTS public.ix_announcement_urls_masjid_live;
-DROP INDEX IF EXISTS public.ix_announcement_urls_label_trgm_live;
-DROP INDEX IF EXISTS public.ix_announcement_urls_delete_pending;
+-- Hapus constraint unik komposit jika ada (karena Up bisa menambahkan sebagai CONSTRAINT)
+ALTER TABLE IF EXISTS announcement_themes
+  DROP CONSTRAINT IF EXISTS uq_announcement_themes_id_tenant;
 
--- Drop table
-DROP TABLE IF EXISTS public.announcement_urls;
+-- Indexes (yang dibuat sebagai UNIQUE INDEX atau index biasa)
+DROP INDEX IF EXISTS uq_announcement_themes_id_tenant;
+DROP INDEX IF EXISTS ix_announcement_themes_name_trgm_live;
+DROP INDEX IF EXISTS ix_announcement_themes_tenant_active_live;
+DROP INDEX IF EXISTS uq_announcement_themes_tenant_slug_live;
+DROP INDEX IF EXISTS uq_announcement_themes_tenant_name_live;
 
+-- Table
+DROP TABLE IF EXISTS announcement_themes;
 
--------------------------------
--- 2) announcements (child of announcement_themes; parent of urls yang sudah di-drop)
--------------------------------
--- Putus FK yang ditambahkan di Up (jaga-jaga)
-DO $$
-BEGIN
-  IF to_regclass('public.announcements') IS NOT NULL THEN
-    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_ann_theme_same_tenant') THEN
-      EXECUTE 'ALTER TABLE public.announcements DROP CONSTRAINT fk_ann_theme_same_tenant';
-    END IF;
-    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_ann_section_same_tenant') THEN
-      EXECUTE 'ALTER TABLE public.announcements DROP CONSTRAINT fk_ann_section_same_tenant';
-    END IF;
-  END IF;
-END$$;
-
--- Drop trigger
-DO $$
-BEGIN
-  IF to_regclass('public.announcements') IS NOT NULL
-     AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_announcements_touch_updated_at') THEN
-    EXECUTE 'DROP TRIGGER trg_announcements_touch_updated_at ON public.announcements';
-  END IF;
-END$$;
-
--- Drop function
-DROP FUNCTION IF EXISTS public.fn_announcements_touch_updated_at();
-
--- Drop indexes
-DROP INDEX IF EXISTS public.uq_announcements_id_tenant;
-DROP INDEX IF EXISTS public.ix_announcements_tenant_date_live;
-DROP INDEX IF EXISTS public.ix_announcements_theme_live;
-DROP INDEX IF EXISTS public.ix_announcements_section_live;
-DROP INDEX IF EXISTS public.ix_announcements_created_by_live;
-DROP INDEX IF EXISTS public.ix_announcements_search_gin_live;
-DROP INDEX IF EXISTS public.ix_announcements_title_trgm_live;
-
--- Drop table
-DROP TABLE IF EXISTS public.announcements;
-
--- ⚠️ Tidak menyentuh constraint/UNIQUE pada class_sections lagi untuk menghindari konflik dependensi.
-
-
--------------------------------
--- 3) announcement_themes (parent)
--------------------------------
--- Drop trigger
-DO $$
-BEGIN
-  IF to_regclass('public.announcement_themes') IS NOT NULL
-     AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_announcement_themes_touch_updated_at') THEN
-    EXECUTE 'DROP TRIGGER trg_announcement_themes_touch_updated_at ON public.announcement_themes';
-  END IF;
-END$$;
-
--- Drop function
-DROP FUNCTION IF EXISTS public.fn_announcement_themes_touch_updated_at();
-
--- Drop indexes
-DROP INDEX IF EXISTS public.uq_announcement_themes_tenant_name_live;
-DROP INDEX IF EXISTS public.uq_announcement_themes_tenant_slug_live;
-DROP INDEX IF EXISTS public.ix_announcement_themes_tenant_active_live;
-DROP INDEX IF EXISTS public.ix_announcement_themes_name_trgm_live;
-DROP INDEX IF EXISTS public.uq_announcement_themes_id_tenant;
-
--- Drop table
-DROP TABLE IF EXISTS public.announcement_themes;
-
--- (Tidak drop EXTENSION pg_trgm agar tidak mengganggu objek lain)
+COMMIT;

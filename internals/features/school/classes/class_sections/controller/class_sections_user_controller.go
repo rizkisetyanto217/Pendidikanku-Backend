@@ -10,13 +10,18 @@ import (
 )
 
 // GET /admin/class-sections/slug/:slug
+// Mengambil data section berdasarkan slug dan memastikan data milik masjid yang valid
 func (ctrl *ClassSectionController) GetClassSectionBySlug(c *fiber.Ctx) error {
-	masjidID, err := helper.GetUserIDFromToken(c)
+	// Ambil masjid ID dari token user
+	masjidID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
+
+	// Ambil slug dari URL params dan normalisasi
 	slug := helper.GenerateSlug(c.Params("slug"))
 
+	// Ambil data section berdasarkan slug yang diberikan
 	var m secModel.ClassSectionModel
 	if err := ctrl.DB.First(&m, "class_sections_slug = ? AND class_sections_deleted_at IS NULL", slug).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -24,8 +29,12 @@ func (ctrl *ClassSectionController) GetClassSectionBySlug(c *fiber.Ctx) error {
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
+
+	// Pastikan section milik masjid yang valid (tenant)
 	if m.ClassSectionsMasjidID == nil || *m.ClassSectionsMasjidID != masjidID {
 		return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengakses section milik masjid lain")
 	}
-	return helper.JsonOK(c, "OK", secDTO.NewClassSectionResponse(&m))
+
+	// Kembalikan response yang sudah diformat
+	return helper.JsonOK(c, "OK", secDTO.NewClassSectionResponse(&m, ""))
 }

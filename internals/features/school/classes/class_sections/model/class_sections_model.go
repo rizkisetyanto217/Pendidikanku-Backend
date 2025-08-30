@@ -1,4 +1,3 @@
-// internals/features/lembaga/classes/sections/main/model/class_section_model.go
 package model
 
 import (
@@ -12,6 +11,7 @@ type ClassSectionModel struct {
 	ClassSectionsID        uuid.UUID  `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:class_sections_id" json:"class_sections_id"`
 	ClassSectionsClassID   uuid.UUID  `gorm:"type:uuid;not null;column:class_sections_class_id" json:"class_sections_class_id"`
 	ClassSectionsMasjidID  *uuid.UUID `gorm:"type:uuid;column:class_sections_masjid_id" json:"class_sections_masjid_id,omitempty"`
+	// Mengganti dari teacher_id yang sebelumnya mengarah ke users(id) menjadi mengarah ke masjid_teachers(id)
 	ClassSectionsTeacherID *uuid.UUID `gorm:"type:uuid;column:class_sections_teacher_id" json:"class_sections_teacher_id,omitempty"`
 
 	ClassSectionsSlug     string         `gorm:"size:160;uniqueIndex:idx_sections_slug;not null;column:class_sections_slug" json:"class_sections_slug"`
@@ -26,6 +26,7 @@ type ClassSectionModel struct {
 	ClassSectionsDeletedAt *time.Time `gorm:"column:class_sections_deleted_at" json:"class_sections_deleted_at,omitempty"`
 }
 
+// Menentukan nama tabel secara eksplisit
 func (ClassSectionModel) TableName() string {
 	return "class_sections"
 }

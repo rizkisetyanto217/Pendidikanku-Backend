@@ -3,7 +3,6 @@ package controller
 
 import (
 	"fmt"
-	"mime/multipart"
 	"strings"
 	"time"
 
@@ -43,7 +42,6 @@ func (h *AnnouncementController) GetByID(c *fiber.Ctx) error {
 	}
 	return helper.Success(c, "OK", annDTO.NewAnnouncementResponse(m))
 }
-
 
 
 // ===================== LIST =====================
@@ -244,6 +242,7 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	})
 }
 
+
 // ===================== Utils =====================
 
 // aman: kembalikan []uuid.UUID, skip kosong
@@ -272,11 +271,14 @@ func parseUUIDsCSV(s string) ([]uuid.UUID, error) {
 // internals/features/lembaga/announcements/announcement/controller/announcement_controller.go
 
 // POST /admin/announcements
+// POST /admin/announcements
 func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
+
+	// Mengambil userID dari token
 	userID, err := helper.GetUserIDFromToken(c)
 	if err != nil {
 		return err
@@ -299,11 +301,12 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusForbidden, "Tidak diizinkan")
 	}
 
+	// Request DTO
 	var req annDTO.CreateAnnouncementRequest
 	ct := c.Get("Content-Type")
 
+	// Parse data
 	if strings.HasPrefix(ct, "multipart/form-data") {
-		// ----- parse text fields -----
 		req.AnnouncementTitle = strings.TrimSpace(c.FormValue("announcement_title"))
 		req.AnnouncementDate = strings.TrimSpace(c.FormValue("announcement_date"))
 		req.AnnouncementContent = strings.TrimSpace(c.FormValue("announcement_content"))
@@ -324,23 +327,22 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 		}
 
 	} else {
-		// JSON
+		// JSON Parsing
 		if err := c.BodyParser(&req); err != nil {
 			return helper.Error(c, fiber.StatusBadRequest, "Payload tidak valid")
 		}
 	}
 
-	// Validasi DTO (title, date, content, dll)
+	// Validasi DTO
 	if err := validateAnnouncement.Struct(req); err != nil {
 		return helper.ValidationError(c, err)
 	}
 
-	// ====== ATURAN ROLE (Admin menang prioritas) ======
+	// Aturan role (Admin menang prioritas)
 	if isAdmin {
-		// Admin selalu boleh GLOBAL
 		req.AnnouncementClassSectionID = nil
 	} else if isTeacher {
-		// Teacher wajib pilih section dan harus milik masjid
+		// Teacher wajib memilih section yang milik masjid
 		if req.AnnouncementClassSectionID == nil || *req.AnnouncementClassSectionID == uuid.Nil {
 			return helper.Error(c, fiber.StatusBadRequest, "Teacher wajib memilih section")
 		}
@@ -349,14 +351,14 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// validasi theme bila ada
+	// Validasi tema bila ada
 	if req.AnnouncementThemeID != nil {
 		if err := h.ensureThemeBelongsToMasjid(*req.AnnouncementThemeID, masjidID); err != nil {
 			return err
 		}
 	}
 
-	// simpan
+	// Simpan pengumuman
 	m := req.ToModel(masjidID, userID)
 	if err := h.DB.Create(m).Error; err != nil {
 		return helper.Error(c, fiber.StatusInternalServerError, "Gagal membuat pengumuman")
@@ -411,9 +413,10 @@ func (h *AnnouncementController) findWithTenantGuard(id, masjidID uuid.UUID) (*a
 }
 
 
+
 // ===================== UPDATE =====================
 // PUT /admin/announcements/:id
-// PUT /admin/announcements/:id
+// ===================== UPDATE =====================
 // PUT /admin/announcements/:id
 func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
@@ -446,6 +449,7 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 
 	// parse payload (multipart / json)
 	if strings.HasPrefix(ct, "multipart/form-data") {
+		// Parsing form fields
 		if v := strings.TrimSpace(c.FormValue("announcement_title")); v != "" { req.AnnouncementTitle = &v }
 		if v := strings.TrimSpace(c.FormValue("announcement_date")); v != "" { req.AnnouncementDate = &v }
 		if v := strings.TrimSpace(c.FormValue("announcement_content")); v != "" { req.AnnouncementContent = &v }
@@ -460,6 +464,7 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 			if id, e := uuid.Parse(v); e == nil { req.AnnouncementClassSectionID = &id }
 		}
 	} else {
+		// JSON Parsing
 		if err := c.BodyParser(&req); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 		}
@@ -533,6 +538,8 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 
 	// Enforce rule setelah perubahan diaplikasikan:
 	// - Jika teacher dan hasil akhirnya global → tolak.
+	// Enforce rule setelah perubahan diaplikasikan:
+	// - Jika teacher dan hasil akhirnya global → tolak.
 	if isTeacher && !isAdmin {
 		// Prediksi hasil final (pakai updates atau existing)
 		finalSection := existing.AnnouncementClassSectionID
@@ -547,10 +554,11 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusBadRequest, "Teacher wajib memilih section (tidak boleh global)")
 		}
 		// Hanya pembuat yang boleh update
-		if existing.AnnouncementCreatedByUserID != userID {
+		if existing.AnnouncementCreatedByTeacherID != nil && *existing.AnnouncementCreatedByTeacherID != userID {
 			return fiber.NewError(fiber.StatusForbidden, "Hanya pembuat yang boleh mengubah pengumuman ini")
 		}
 	}
+
 
 	// Jalankan update (trigger DB akan menyentuh updated_at)
 	if err := h.DB.Model(&annModel.AnnouncementModel{}).
@@ -569,18 +577,6 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 
 	// Fallback jika reload gagal
 	return helper.JsonUpdated(c, "Pengumuman diperbarui", annDTO.NewAnnouncementResponse(existing))
-}
-
-
-// ambil file dari dua kemungkinan key
-func pickAnnFile(c *fiber.Ctx) (*multipart.FileHeader, bool) {
-    if f, err := c.FormFile("attachment"); err == nil && f != nil {
-        return f, true
-    }
-    if f, err := c.FormFile("announcement_attachment_url"); err == nil && f != nil {
-        return f, true
-    }
-    return nil, false
 }
 
 
@@ -630,7 +626,8 @@ func (h *AnnouncementController) Delete(c *fiber.Ctx) error {
 		if existing.AnnouncementClassSectionID == nil {
 			return fiber.NewError(fiber.StatusForbidden, "Teacher tidak boleh menghapus pengumuman global")
 		}
-		if existing.AnnouncementCreatedByUserID != userID {
+		// Periksa jika AnnouncementCreatedByTeacherID bukan nil dan membandingkannya dengan userID
+		if existing.AnnouncementCreatedByTeacherID != nil && *existing.AnnouncementCreatedByTeacherID != userID {
 			return fiber.NewError(fiber.StatusForbidden, "Hanya pembuat yang boleh menghapus pengumuman ini")
 		}
 	}
@@ -657,3 +654,4 @@ func (h *AnnouncementController) Delete(c *fiber.Ctx) error {
 		"announcement_id": existing.AnnouncementID,
 	})
 }
+

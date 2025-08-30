@@ -214,6 +214,7 @@ END$$;
 DROP INDEX IF EXISTS idx_cs_masjid_class_year_active;
 DROP INDEX IF EXISTS idx_cs_masjid_subject_year_active;
 
+
 -- ===== Tabel class_subjects (fresh install friendly) =====
 CREATE TABLE IF NOT EXISTS class_subjects (
   class_subjects_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -391,40 +392,37 @@ CREATE TRIGGER set_timestamptz_class_subjects
 BEFORE UPDATE ON class_subjects
 FOR EACH ROW EXECUTE FUNCTION trg_set_timestamptz_class_subjects();
 
+
+
+
 -- =========================================================
 -- CLASS SECTION SUBJECT TEACHERS (soft delete friendly)
 -- =========================================================
 
 -- 1) TABLE
+
+-- 1) TABLE
 CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teachers_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  class_section_subject_teachers_masjid_id  UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
-  class_section_subject_teachers_section_id UUID NOT NULL REFERENCES class_sections(class_sections_id) ON DELETE CASCADE,
-  class_section_subject_teachers_subject_id UUID NOT NULL REFERENCES subjects(subjects_id) ON DELETE RESTRICT,
-  class_section_subject_teachers_teacher_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  class_section_subject_teachers_masjid_id  UUID NOT NULL
+    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  class_section_subject_teachers_is_active   BOOLEAN   NOT NULL DEFAULT TRUE,
+  class_section_subject_teachers_section_id UUID NOT NULL
+    REFERENCES class_sections(class_sections_id) ON DELETE CASCADE,
+
+  class_section_subject_teachers_subject_id UUID NOT NULL
+    REFERENCES subjects(subjects_id) ON DELETE RESTRICT,
+
+  -- ✅ GANTI: refer ke masjid_teachers, bukan users
+  class_section_subject_teachers_teacher_id UUID NOT NULL
+    REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE RESTRICT,
+
+  class_section_subject_teachers_is_active   BOOLEAN     NOT NULL DEFAULT TRUE,
   class_section_subject_teachers_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_section_subject_teachers_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_section_subject_teachers_deleted_at  TIMESTAMPTZ NULL
 );
-
--- 1b) Tambah kolom deleted_at jika belum ada (idempotent)
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.tables
-    WHERE table_schema='public' AND table_name='class_section_subject_teachers'
-  ) AND NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema='public' AND table_name='class_section_subject_teachers'
-      AND column_name='class_section_subject_teachers_deleted_at'
-  ) THEN
-    ALTER TABLE class_section_subject_teachers
-      ADD COLUMN class_section_subject_teachers_deleted_at TIMESTAMPTZ;
-  END IF;
-END$$;
 
 -- 2) TENANT-SAFE FK: (section_id, masjid_id) → class_sections(id, masjid_id)
 DO $$
@@ -443,66 +441,19 @@ BEGIN
   END IF;
 END$$;
 
--- 2.9) PRECONDITION untuk FK ke masjid_teachers:
---      wajib UNIQUE penuh di (masjid_teacher_masjid_id, masjid_teacher_user_id)
-DO $$
-DECLARE
-  _dup_exists boolean;
-BEGIN
-  -- cek duplikat pasangan di SELURUH baris (termasuk soft-deleted)
-  SELECT EXISTS (
-    SELECT 1
-    FROM masjid_teachers
-    GROUP BY masjid_teacher_masjid_id, masjid_teacher_user_id
-    HAVING COUNT(*) > 1
-  ) INTO _dup_exists;
-
-  IF _dup_exists THEN
-    RAISE EXCEPTION
-      'Tidak bisa tambah UNIQUE (masjid_teacher_masjid_id, masjid_teacher_user_id) di masjid_teachers: ada duplikat. Bersihkan dulu (termasuk baris soft-deleted).';
-  END IF;
-
-  -- tambah UNIQUE penuh bila belum ada
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'uq_masjid_teachers_membership'
-  ) THEN
-    ALTER TABLE masjid_teachers
-      ADD CONSTRAINT uq_masjid_teachers_membership
-      UNIQUE (masjid_teacher_masjid_id, masjid_teacher_user_id);
-  END IF;
-END$$;
-
--- 3) TENANT-SAFE MEMBERSHIP FK → masjid_teachers (kolom yang benar)
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'fk_csst_teacher_membership'
-  ) THEN
-    ALTER TABLE class_section_subject_teachers
-      ADD CONSTRAINT fk_csst_teacher_membership
-      FOREIGN KEY (
-        class_section_subject_teachers_masjid_id,
-        class_section_subject_teachers_teacher_user_id
-      )
-      REFERENCES masjid_teachers (masjid_teacher_masjid_id, masjid_teacher_user_id)
-      ON UPDATE CASCADE
-      ON DELETE RESTRICT;
-  END IF;
-END$$;
-
--- 4) UNIQUE aktif: cegah duplikasi assignment aktif
+-- 3) UNIQUE aktif: cegah duplikasi assignment aktif pada kombinasi (section, subject, teacher)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_active_unique
 ON class_section_subject_teachers (
   class_section_subject_teachers_section_id,
   class_section_subject_teachers_subject_id,
-  class_section_subject_teachers_teacher_user_id
+  class_section_subject_teachers_teacher_id
 )
 WHERE class_section_subject_teachers_is_active = TRUE
   AND class_section_subject_teachers_deleted_at IS NULL;
 
--- 5) INDEX umum (soft-delete aware)
-CREATE INDEX IF NOT EXISTS idx_csst_teacher_alive
-  ON class_section_subject_teachers (class_section_subject_teachers_teacher_user_id)
+-- 4) INDEX umum (soft-delete aware)
+CREATE INDEX IF NOT EXISTS idx_csst_teacher_id_alive
+  ON class_section_subject_teachers (class_section_subject_teachers_teacher_id)
   WHERE class_section_subject_teachers_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_csst_masjid_alive
@@ -517,7 +468,7 @@ CREATE INDEX IF NOT EXISTS idx_csst_section_subject_active_alive
   WHERE class_section_subject_teachers_is_active = TRUE
     AND class_section_subject_teachers_deleted_at IS NULL;
 
--- 6) TRIGGER updated_at
+-- 5) TRIGGER updated_at
 CREATE OR REPLACE FUNCTION trg_set_timestamp_class_sec_subj_teachers()
 RETURNS trigger AS $$
 BEGIN
@@ -531,27 +482,32 @@ CREATE TRIGGER set_timestamp_class_sec_subj_teachers
 BEFORE UPDATE ON class_section_subject_teachers
 FOR EACH ROW EXECUTE FUNCTION trg_set_timestamp_class_sec_subj_teachers();
 
--- 7) VALIDASI TENANT
+-- 6) TENANT VALIDATION
+--    Pastikan:
+--    - section.masjid_id == row.masjid_id
+--    - subject.masjid_id == row.masjid_id
+--    - teacher.masjid_id == row.masjid_id (via masjid_teachers)
 CREATE OR REPLACE FUNCTION fn_class_sec_subj_teachers_validate_tenant()
 RETURNS TRIGGER AS $BODY$
 DECLARE
-  v_sec_masjid UUID;
-  v_sub_masjid UUID;
-  has_sec_deleted_at BOOLEAN := FALSE;
-  has_sub_deleted_at BOOLEAN := FALSE;
+  v_sec_masjid    UUID;
+  v_sub_masjid    UUID;
+  v_teacher_mjid  UUID;
+  has_sec_deleted BOOLEAN := FALSE;
+  has_sub_deleted BOOLEAN := FALSE;
 BEGIN
   SELECT EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_schema='public' AND table_name='class_sections' AND column_name='class_sections_deleted_at'
-  ) INTO has_sec_deleted_at;
+  ) INTO has_sec_deleted;
 
   SELECT EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_schema='public' AND table_name='subjects' AND column_name='subjects_deleted_at'
-  ) INTO has_sub_deleted_at;
+  ) INTO has_sub_deleted;
 
-  -- validasi section
-  IF has_sec_deleted_at THEN
+  -- validasi SECTION → masjid
+  IF has_sec_deleted THEN
     SELECT class_sections_masjid_id INTO v_sec_masjid
     FROM class_sections
     WHERE class_sections_id = NEW.class_section_subject_teachers_section_id
@@ -563,15 +519,16 @@ BEGIN
   END IF;
 
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'Section % tidak ditemukan / sudah dihapus', NEW.class_section_subject_teachers_section_id;
+    RAISE EXCEPTION 'Section % tidak ditemukan / sudah dihapus',
+      NEW.class_section_subject_teachers_section_id;
   END IF;
   IF v_sec_masjid IS DISTINCT FROM NEW.class_section_subject_teachers_masjid_id THEN
     RAISE EXCEPTION 'Masjid mismatch: section(%) != row_masjid(%)',
       v_sec_masjid, NEW.class_section_subject_teachers_masjid_id;
   END IF;
 
-  -- validasi subject
-  IF has_sub_deleted_at THEN
+  -- validasi SUBJECT → masjid
+  IF has_sub_deleted THEN
     SELECT subjects_masjid_id INTO v_sub_masjid
     FROM subjects
     WHERE subjects_id = NEW.class_section_subject_teachers_subject_id
@@ -583,11 +540,26 @@ BEGIN
   END IF;
 
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'Subject % tidak ditemukan / sudah dihapus', NEW.class_section_subject_teachers_subject_id;
+    RAISE EXCEPTION 'Subject % tidak ditemukan / sudah dihapus',
+      NEW.class_section_subject_teachers_subject_id;
   END IF;
   IF v_sub_masjid IS DISTINCT FROM NEW.class_section_subject_teachers_masjid_id THEN
     RAISE EXCEPTION 'Masjid mismatch: subject(%) != row_masjid(%)',
       v_sub_masjid, NEW.class_section_subject_teachers_masjid_id;
+  END IF;
+
+  -- validasi TEACHER → masjid (via masjid_teachers)
+  SELECT masjid_teacher_masjid_id INTO v_teacher_mjid
+  FROM masjid_teachers
+  WHERE masjid_teacher_id = NEW.class_section_subject_teachers_teacher_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Teacher % tidak valid (masjid_teachers)',
+      NEW.class_section_subject_teachers_teacher_id;
+  END IF;
+  IF v_teacher_mjid IS DISTINCT FROM NEW.class_section_subject_teachers_masjid_id THEN
+    RAISE EXCEPTION 'Masjid mismatch: teacher(%) != row_masjid(%)',
+      v_teacher_mjid, NEW.class_section_subject_teachers_masjid_id;
   END IF;
 
   RETURN NEW;
@@ -604,11 +576,13 @@ BEGIN
   AFTER INSERT OR UPDATE OF
     class_section_subject_teachers_masjid_id,
     class_section_subject_teachers_section_id,
-    class_section_subject_teachers_subject_id
+    class_section_subject_teachers_subject_id,
+    class_section_subject_teachers_teacher_id
   ON class_section_subject_teachers
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW
   EXECUTE FUNCTION fn_class_sec_subj_teachers_validate_tenant();
 END$$;
+
 
 COMMIT;

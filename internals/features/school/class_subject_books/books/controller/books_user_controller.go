@@ -11,6 +11,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// helper kecil untuk nilai non-nil
+func sPtr(v *string) string { if v == nil { return "" }; return *v }
+func bPtr(v *bool) bool     { if v == nil { return false }; return *v }
+
 // ----------------------------------------------------------
 // GET /api/a/class-books/with-usages
 // Tampilkan SEMUA buku (books = parent) + daftar pemakaian
@@ -28,8 +32,12 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 
 	limit := 20
 	offset := 0
-	if q.Limit != nil && *q.Limit > 0 && *q.Limit <= 200 { limit = *q.Limit }
-	if q.Offset != nil && *q.Offset >= 0 { offset = *q.Offset }
+	if q.Limit != nil && *q.Limit > 0 && *q.Limit <= 200 {
+		limit = *q.Limit
+	}
+	if q.Offset != nil && *q.Offset >= 0 {
+		offset = *q.Offset
+	}
 
 	// order
 	orderBy := "b.books_created_at"
@@ -67,20 +75,6 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 	if q.Author != nil && strings.TrimSpace(*q.Author) != "" {
 		base = base.Where("b.books_author ILIKE ?", strings.TrimSpace(*q.Author))
 	}
-	if q.HasImage != nil {
-		if *q.HasImage {
-			base = base.Where("b.books_image_url IS NOT NULL AND b.books_image_url <> ''")
-		} else {
-			base = base.Where("(b.books_image_url IS NULL OR b.books_image_url = '')")
-		}
-	}
-	if q.HasURL != nil {
-		if *q.HasURL {
-			base = base.Where("b.books_url IS NOT NULL AND b.books_url <> ''")
-		} else {
-			base = base.Where("(b.books_url IS NULL OR b.books_url = '')")
-		}
-	}
 
 	// ---- LEFT JOIN pemakaian
 	base = base.
@@ -114,14 +108,12 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 	// scan flat rows, lalu group di Go
 	type row struct {
 		// book
-		BID        uuid.UUID  `gorm:"column:books_id"`
-		BMasjidID  uuid.UUID  `gorm:"column:books_masjid_id"`
-		BTitle     string     `gorm:"column:books_title"`
-		BAuthor    *string    `gorm:"column:books_author"`
-		BDesc      *string    `gorm:"column:books_desc"`
-		BURL       *string    `gorm:"column:books_url"`
-		BImageURL  *string    `gorm:"column:books_image_url"`
-		BSlug      *string    `gorm:"column:books_slug"`
+		BID       uuid.UUID `gorm:"column:books_id"`
+		BMasjidID uuid.UUID `gorm:"column:books_masjid_id"`
+		BTitle    string    `gorm:"column:books_title"`
+		BAuthor   *string   `gorm:"column:books_author"`
+		BDesc     *string   `gorm:"column:books_desc"`
+		BSlug     *string   `gorm:"column:books_slug"`
 
 		// usage
 		CSBID *uuid.UUID `gorm:"column:class_subject_books_id"`
@@ -146,8 +138,6 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 			b.books_title,
 			b.books_author,
 			b.books_desc,
-			b.books_url,
-			b.books_image_url,
 			b.books_slug,
 
 			csb.class_subject_books_id,
@@ -181,8 +171,6 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 				BooksTitle:    r.BTitle,
 				BooksAuthor:   r.BAuthor,
 				BooksDesc:     r.BDesc,
-				BooksURL:      r.BURL,
-				BooksImageURL: r.BImageURL,
 				BooksSlug:     r.BSlug,
 				Usages:        []dto.BookUsage{},
 			}
@@ -255,8 +243,6 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 					BooksTitle:    b.BooksTitle,
 					BooksAuthor:   b.BooksAuthor,
 					BooksDesc:     b.BooksDesc,
-					BooksURL:      b.BooksURL,
-					BooksImageURL: b.BooksImageURL,
 					BooksSlug:     b.BooksSlug,
 					Usages:        []dto.BookUsage{},
 				})
@@ -309,14 +295,12 @@ func (h *BooksController) GetWithUsagesByID(c *fiber.Ctx) error {
 		`)
 
 	type row struct {
-		BID        uuid.UUID  `gorm:"column:books_id"`
-		BMasjidID  uuid.UUID  `gorm:"column:books_masjid_id"`
-		BTitle     string     `gorm:"column:books_title"`
-		BAuthor    *string    `gorm:"column:books_author"`
-		BDesc      *string    `gorm:"column:books_desc"`
-		BURL       *string    `gorm:"column:books_url"`
-		BImageURL  *string    `gorm:"column:books_image_url"`
-		BSlug      *string    `gorm:"column:books_slug"`
+		BID       uuid.UUID `gorm:"column:books_id"`
+		BMasjidID uuid.UUID `gorm:"column:books_masjid_id"`
+		BTitle    string    `gorm:"column:books_title"`
+		BAuthor   *string   `gorm:"column:books_author"`
+		BDesc     *string   `gorm:"column:books_desc"`
+		BSlug     *string   `gorm:"column:books_slug"`
 
 		CSBID *uuid.UUID `gorm:"column:class_subject_books_id"`
 		CSID  *uuid.UUID `gorm:"column:class_subjects_id"`
@@ -339,8 +323,6 @@ func (h *BooksController) GetWithUsagesByID(c *fiber.Ctx) error {
 			b.books_title,
 			b.books_author,
 			b.books_desc,
-			b.books_url,
-			b.books_image_url,
 			b.books_slug,
 
 			csb.class_subject_books_id,
@@ -369,8 +351,6 @@ func (h *BooksController) GetWithUsagesByID(c *fiber.Ctx) error {
 		BooksTitle:    rows[0].BTitle,
 		BooksAuthor:   rows[0].BAuthor,
 		BooksDesc:     rows[0].BDesc,
-		BooksURL:      rows[0].BURL,
-		BooksImageURL: rows[0].BImageURL,
 		BooksSlug:     rows[0].BSlug,
 		Usages:        []dto.BookUsage{},
 	}

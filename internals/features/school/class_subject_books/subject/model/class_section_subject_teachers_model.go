@@ -9,17 +9,22 @@ import (
 )
 
 type ClassSectionSubjectTeacherModel struct {
+	// PK
 	ClassSectionSubjectTeachersID uuid.UUID `json:"class_section_subject_teachers_id" gorm:"column:class_section_subject_teachers_id;type:uuid;default:gen_random_uuid();primaryKey"`
 
-	ClassSectionSubjectTeacherModelMasjidID     uuid.UUID      `json:"class_section_subject_teachers_masjid_id" gorm:"column:class_section_subject_teachers_masjid_id;type:uuid;not null"`
-	ClassSectionSubjectTeacherModelSectionID    uuid.UUID      `json:"class_section_subject_teachers_section_id" gorm:"column:class_section_subject_teachers_section_id;type:uuid;not null"`
-	ClassSectionSubjectTeacherModelSubjectID    uuid.UUID      `json:"class_section_subject_teachers_subject_id" gorm:"column:class_section_subject_teachers_subject_id;type:uuid;not null"`
-	ClassSectionSubjectTeacherModelTeacherUserID uuid.UUID     `json:"class_section_subject_teachers_teacher_user_id" gorm:"column:class_section_subject_teachers_teacher_user_id;type:uuid;not null"`
+	// FK & data inti
+	ClassSectionSubjectTeachersMasjidID  uuid.UUID `json:"class_section_subject_teachers_masjid_id"  gorm:"column:class_section_subject_teachers_masjid_id;type:uuid;not null"`
+	ClassSectionSubjectTeachersSectionID uuid.UUID `json:"class_section_subject_teachers_section_id" gorm:"column:class_section_subject_teachers_section_id;type:uuid;not null"`
+	ClassSectionSubjectTeachersSubjectID uuid.UUID `json:"class_section_subject_teachers_subject_id" gorm:"column:class_section_subject_teachers_subject_id;type:uuid;not null"`
 
-	ClassSectionSubjectTeacherModelIsActive  bool           `json:"class_section_subject_teachers_is_active"  gorm:"column:class_section_subject_teachers_is_active;not null;default:true"`
-	ClassSectionSubjectTeacherModelCreatedAt time.Time      `json:"class_section_subject_teachers_created_at" gorm:"column:class_section_subject_teachers_created_at;not null;default:CURRENT_TIMESTAMP"`
-	ClassSectionSubjectTeacherModelUpdatedAt *time.Time     `json:"class_section_subject_teachers_updated_at" gorm:"column:class_section_subject_teachers_updated_at"`
-	ClassSectionSubjectTeacherModelDeletedAt gorm.DeletedAt `json:"class_section_subject_teachers_deleted_at" gorm:"column:class_section_subject_teachers_deleted_at;index"`
+	// ✅ GANTI: mengacu ke masjid_teachers.masjid_teacher_id (BUKAN users.id)
+	ClassSectionSubjectTeachersTeacherID uuid.UUID `json:"class_section_subject_teachers_teacher_id" gorm:"column:class_section_subject_teachers_teacher_id;type:uuid;not null"`
+
+	// Status & audit
+	ClassSectionSubjectTeachersIsActive  bool           `json:"class_section_subject_teachers_is_active"  gorm:"column:class_section_subject_teachers_is_active;not null;default:true"`
+	ClassSectionSubjectTeachersCreatedAt time.Time      `json:"class_section_subject_teachers_created_at" gorm:"column:class_section_subject_teachers_created_at;not null;autoCreateTime"`
+	ClassSectionSubjectTeachersUpdatedAt *time.Time     `json:"class_section_subject_teachers_updated_at" gorm:"column:class_section_subject_teachers_updated_at;autoUpdateTime"`
+	ClassSectionSubjectTeachersDeletedAt gorm.DeletedAt `json:"class_section_subject_teachers_deleted_at" gorm:"column:class_section_subject_teachers_deleted_at;index"`
 }
 
 func (ClassSectionSubjectTeacherModel) TableName() string {

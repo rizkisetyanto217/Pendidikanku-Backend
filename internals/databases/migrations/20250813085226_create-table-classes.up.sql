@@ -146,7 +146,8 @@ CREATE TABLE IF NOT EXISTS class_sections (
 
   class_sections_slug VARCHAR(160) NOT NULL,
 
-  class_sections_teacher_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  -- Ganti dari teacher_id yang sebelumnya mengarah ke users(id)
+  class_sections_teacher_id UUID REFERENCES masjid_teachers(id) ON DELETE SET NULL,
 
   class_sections_name VARCHAR(100) NOT NULL,
   class_sections_code VARCHAR(50),
@@ -245,6 +246,9 @@ BEGIN
 END$$;
 
 COMMIT;
+
+
+
 
 -- =========================================================
 -- ENUM & TABLE: class_pricing_options (idempotent)

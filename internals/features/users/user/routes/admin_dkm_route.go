@@ -1,11 +1,11 @@
 package routes
 
 import (
-	"masjidku_backend/internals/constants" // ⬅️ ini tambahin
-	// formalController "masjidku_backend/internals/features/users/user/controller"
+	"masjidku_backend/internals/constants"
 	userController "masjidku_backend/internals/features/users/user/controller"
 	authMiddleware "masjidku_backend/internals/middlewares/auth"
 
+	"github.com/go-playground/validator/v10" // ⬅️ TAMBAH
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
@@ -14,7 +14,10 @@ func UserAdminRoutes(app fiber.Router, db *gorm.DB) {
 	adminCtrl := userController.NewAdminUserController(db)
 	userProfileCtrl := userController.NewUsersProfileController(db)
 	formalCtrl := userController.NewUsersProfileFormalController(db)
-	// docCtrl := docController.NewUsersProfileDocumentController(db) // ⬅️ inisialisasi
+
+	// ✅ INJECT: controller UsersTeacher (pakai validator lokal)
+	v := validator.New()
+	usersTeacherCtrl := userController.NewUsersTeacherController(db, v)
 
 	// 🔐 /users – hanya teacher & above
 	users := app.Group("/users",
@@ -48,12 +51,14 @@ func UserAdminRoutes(app fiber.Router, db *gorm.DB) {
 	usersFormal.Get("/:user_id", formalCtrl.AdminGetByUserID)
 	usersFormal.Delete("/:user_id", formalCtrl.AdminDeleteByUserID)
 
-	// // ✅ NEW: Admin akses dokumen profile by user_id
-	// usersDocs := app.Group("/users-profile-documents",
-	// 	authMiddleware.OnlyRolesSlice(constants.RoleErrorTeacher("Akses Dokumen User"), constants.TeacherAndAbove),
-	// )
-	// // list semua dokumen milik user tertentu
-	// usersDocs.Get("/:user_id", docCtrl.AdminListByUserID)
-	// // hapus dokumen tertentu milik user_id
-	// usersDocs.Delete("/:user_id/:doc_type", docCtrl.AdminDeleteByUserIDAndType)
+	// ✅ ✅ INJECT: ADMIN ROUTES untuk users_teacher (CRUD lengkap)
+	usersTeacher := app.Group("/users-teacher",
+		authMiddleware.OnlyRolesSlice(constants.RoleErrorTeacher("Kelola Profil Pengajar"), constants.TeacherAndAbove),
+	)
+	usersTeacher.Post("/", usersTeacherCtrl.Create)
+	usersTeacher.Get("/", usersTeacherCtrl.List)
+	usersTeacher.Get("/:id", usersTeacherCtrl.GetByID)
+	usersTeacher.Get("/by-user/:user_id", usersTeacherCtrl.GetByUserID)
+	usersTeacher.Patch("/:id", usersTeacherCtrl.Update)
+	usersTeacher.Delete("/:id", usersTeacherCtrl.Delete)
 }

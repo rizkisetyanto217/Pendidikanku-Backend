@@ -18,7 +18,6 @@ type ClassSectionSubjectTeacherController struct {
 	DB *gorm.DB
 }
 
-
 // ===============================
 // CREATE (force masjid_id dari token)
 // POST /admin/class-section-subject-teachers
@@ -36,12 +35,12 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 
 	// build dari DTO, lalu force tenant
 	row := req.ToModel()
-	row.ClassSectionSubjectTeacherModelMasjidID = masjidID
+	row.ClassSectionSubjectTeachersMasjidID = masjidID
 
 	if err := ctl.DB.Create(&row).Error; err != nil {
 		msg := strings.ToLower(err.Error())
-		// unique constraint
-		if strings.Contains(msg, "uq_class_sec_subj_teachers_active") ||
+		// unique constraint (nama index dari migration: uq_csst_active_unique)
+		if strings.Contains(msg, "uq_csst_active_unique") ||
 			strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
 			return helper.JsonError(c, fiber.StatusConflict, "Penugasan guru untuk section+subject ini sudah aktif (duplikat).")
 		}
@@ -165,11 +164,11 @@ func (ctl *ClassSectionSubjectTeacherController) GetByID(c *fiber.Ctx) error {
 	}
 
 	// tenant guard
-	if row.ClassSectionSubjectTeacherModelMasjidID != masjidID {
+	if row.ClassSectionSubjectTeachersMasjidID != masjidID {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
 	// soft-delete guard
-	if !withDeleted && row.ClassSectionSubjectTeacherModelDeletedAt.Valid {
+	if !withDeleted && row.ClassSectionSubjectTeachersDeletedAt.Valid {
 		return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan")
 	}
 
@@ -207,7 +206,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 	}
 
 	// tenant guard
-	if row.ClassSectionSubjectTeacherModelMasjidID != masjidID {
+	if row.ClassSectionSubjectTeachersMasjidID != masjidID {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
 
@@ -216,7 +215,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 
 	if err := ctl.DB.Save(&row).Error; err != nil {
 		msg := strings.ToLower(err.Error())
-		if strings.Contains(msg, "uq_class_sec_subj_teachers_active") ||
+		if strings.Contains(msg, "uq_csst_active_unique") ||
 			strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
 			return helper.JsonError(c, fiber.StatusConflict, "Penugasan guru untuk section+subject ini sudah aktif (duplikat).")
 		}
@@ -251,10 +250,10 @@ func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
-	if row.ClassSectionSubjectTeacherModelMasjidID != masjidID {
+	if row.ClassSectionSubjectTeachersMasjidID != masjidID {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
-	if row.ClassSectionSubjectTeacherModelDeletedAt.Valid {
+	if row.ClassSectionSubjectTeachersDeletedAt.Valid {
 		// idempotent
 		return helper.JsonDeleted(c, "Sudah terhapus", fiber.Map{"id": id})
 	}

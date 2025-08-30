@@ -127,31 +127,30 @@ func (r CreateClassSubjectRequest) ToModel() csModel.ClassSubjectModel {
 }
 
 func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
-    var deletedAt *time.Time
-    if m.ClassSubjectsDeletedAt.Valid {
-        t := m.ClassSubjectsDeletedAt.Time
-        deletedAt = &t
-    }
+	var deletedAt *time.Time
+	if m.ClassSubjectsDeletedAt.Valid {
+		t := m.ClassSubjectsDeletedAt.Time
+		deletedAt = &t
+	}
 
-    return ClassSubjectResponse{
-        ID:           m.ClassSubjectsID,
-        MasjidID:     m.ClassSubjectsMasjidID,
-        ClassID:      m.ClassSubjectsClassID,
-        SubjectID:    m.ClassSubjectsSubjectID,
-        TermID:       m.ClassSubjectsTermID,
-        OrderIndex:   m.ClassSubjectsOrderIndex,
-        HoursPerWeek: m.ClassSubjectsHoursPerWeek,
-        MinScore:     m.ClassSubjectsMinPassingScore,
-        Weight:       m.ClassSubjectsWeightOnReport,
-        IsCore:       m.ClassSubjectsIsCore,
-        Desc:         m.ClassSubjectsDesc,
-        IsActive:     m.ClassSubjectsIsActive,
-        CreatedAt:    m.ClassSubjectsCreatedAt,
-        UpdatedAt:    m.ClassSubjectsUpdatedAt,
-        DeletedAt:    deletedAt,
-    }
+	return ClassSubjectResponse{
+		ID:           m.ClassSubjectsID,
+		MasjidID:     m.ClassSubjectsMasjidID,
+		ClassID:      m.ClassSubjectsClassID,
+		SubjectID:    m.ClassSubjectsSubjectID,
+		TermID:       m.ClassSubjectsTermID,
+		OrderIndex:   m.ClassSubjectsOrderIndex,
+		HoursPerWeek: m.ClassSubjectsHoursPerWeek,
+		MinScore:     m.ClassSubjectsMinPassingScore,
+		Weight:       m.ClassSubjectsWeightOnReport,
+		IsCore:       m.ClassSubjectsIsCore,
+		Desc:         m.ClassSubjectsDesc,
+		IsActive:     m.ClassSubjectsIsActive,
+		CreatedAt:    m.ClassSubjectsCreatedAt,
+		UpdatedAt:    m.ClassSubjectsUpdatedAt,
+		DeletedAt:    deletedAt,
+	}
 }
-
 
 func FromClassSubjectModels(list []csModel.ClassSubjectModel) []ClassSubjectResponse {
 	out := make([]ClassSubjectResponse, 0, len(list))
@@ -203,28 +202,24 @@ func (r UpdateClassSubjectRequest) Apply(m *csModel.ClassSubjectModel) {
 }
 
 /* =========================================================
-   4) NESTED: class_subject_books + book (versi baru: simple books)
+   4) NESTED: class_subject_books + book (simple books)
    ========================================================= */
 
 type BookLite struct {
-	BooksID       uuid.UUID `json:"books_id"`
-	BooksTitle    string    `json:"books_title"`
-	BooksAuthor   *string   `json:"books_author,omitempty"`
-	BooksDesc     *string   `json:"books_desc,omitempty"`
-	BooksURL      *string   `json:"books_url,omitempty"`
-	BooksImageURL *string   `json:"books_image_url,omitempty"`
-	BooksSlug     *string   `json:"books_slug,omitempty"`
+	BooksID     uuid.UUID `json:"books_id"`
+	BooksTitle  string    `json:"books_title"`
+	BooksAuthor *string   `json:"books_author,omitempty"`
+	BooksDesc   *string   `json:"books_desc,omitempty"`
+	BooksSlug   *string   `json:"books_slug,omitempty"`
 }
 
 func bookLiteFromModel(b booksModel.BooksModel) BookLite {
 	return BookLite{
-		BooksID:       b.BooksID,
-		BooksTitle:    b.BooksTitle,
-		BooksAuthor:   b.BooksAuthor,
-		BooksDesc:     b.BooksDesc,
-		BooksURL:      b.BooksURL,
-		BooksImageURL: b.BooksImageURL,
-		BooksSlug:     b.BooksSlug,
+		BooksID:     b.BooksID,
+		BooksTitle:  b.BooksTitle,
+		BooksAuthor: b.BooksAuthor,
+		BooksDesc:   b.BooksDesc,
+		BooksSlug:   b.BooksSlug,
 	}
 }
 

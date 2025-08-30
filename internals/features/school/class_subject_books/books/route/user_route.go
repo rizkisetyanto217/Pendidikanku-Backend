@@ -14,14 +14,20 @@ import (
 func ClassBooksUserRoutes(r fiber.Router, db *gorm.DB) {
 	booksCtl := &cbController.BooksController{DB: db}
 	csbCtl   := &cbController.ClassSubjectBookController{DB: db}
+	bookURLCtl := cbController.NewBookURLController(db) // ⬅️ tambah ini
 
-	// /api/u/class-books (read only)
+	// /api/u/class-books
 	books := r.Group("/")
 	books.Get("/",    booksCtl.ListWithUsages)
 	books.Get("/:id", booksCtl.GetWithUsagesByID)
 
-	// /api/u/class-subject-books (read only)
+	// /api/u/class-books/class-subject-books
 	csb := r.Group("/class-subject-books")
 	csb.Get("/",    csbCtl.List)
 	csb.Get("/:id", csbCtl.GetByID)
+
+	// /api/u/class-books/book-urls  ⬅️ TAMBAHAN (read-only)
+	urls := r.Group("/book-urls")
+	urls.Get("/filter", bookURLCtl.Filter)
+	urls.Get("/:id",    bookURLCtl.GetByID)
 }

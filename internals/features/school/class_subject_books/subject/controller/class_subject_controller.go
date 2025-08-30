@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+
 	booksModel "masjidku_backend/internals/features/school/class_subject_books/books/model"
 	csDTO "masjidku_backend/internals/features/school/class_subject_books/subject/dto"
 	csModel "masjidku_backend/internals/features/school/class_subject_books/subject/model"
@@ -107,10 +108,14 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Class subject berhasil dibuat", csDTO.FromClassSubjectModel(m))
 }
 
-/* =========================================================
-   GET DETAIL
-   GET /admin/class-subjects/:id?with_deleted=&include=books,teachers&teacher_user_id=&section_id=&only_active=
-   ========================================================= */
+// GET /admin/class-subjects/:id
+// Query:
+//   with_deleted=true|false
+//   include=books,teachers
+//   section_id=<uuid>                (opsional)
+//   only_active=true|false           (default: true)
+//   teacher_id=<masjid_teacher_id>   (✅ direkomendasikan)
+//   teacher_user_id=<users.id>       (opsional; akan dipetakan ke teacher_id)
 func (h *ClassSubjectController) GetByID(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
@@ -126,18 +131,44 @@ func (h *ClassSubjectController) GetByID(c *fiber.Ctx) error {
 	includeParam := strings.ToLower(strings.TrimSpace(c.Query("include")))
 	includeBooks := strings.Contains(includeParam, "books")
 
-	// --- parse filter guru opsional
+	// --- filter opsional (pakai teacher_id; teacher_user_id dimap ke teacher_id)
 	var teacherID *uuid.UUID
-	if v := strings.TrimSpace(c.Query("teacher_user_id")); v != "" {
-		tid, err := uuid.Parse(v)
+	if s := strings.TrimSpace(c.Query("teacher_id")); s != "" {
+		tid, err := uuid.Parse(s)
 		if err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "teacher_user_id tidak valid")
+			return fiber.NewError(fiber.StatusBadRequest, "teacher_id tidak valid")
 		}
 		teacherID = &tid
 	}
+	// back-compat: teacher_user_id -> map ke masjid_teacher_id
+	noTeacherMatch := false
+	if teacherID == nil {
+		if s := strings.TrimSpace(c.Query("teacher_user_id")); s != "" {
+			uid, err := uuid.Parse(s)
+			if err != nil {
+				return fiber.NewError(fiber.StatusBadRequest, "teacher_user_id tidak valid")
+			}
+			var mtID uuid.UUID
+			mapErr := h.DB.
+				Table("masjid_teachers").
+				Select("masjid_teacher_id").
+				Where("masjid_teacher_masjid_id = ? AND masjid_teacher_user_id = ? AND masjid_teacher_deleted_at IS NULL",
+					masjidID, uid).
+				Take(&mtID).Error
+			if mapErr == nil {
+				teacherID = &mtID
+			} else if mapErr == gorm.ErrRecordNotFound {
+				// user tsb bukan guru di tenant ini → kosongkan hasil guru
+				noTeacherMatch = true
+			} else {
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal memetakan teacher_user_id")
+			}
+		}
+	}
+
 	var sectionID *uuid.UUID
-	if v := strings.TrimSpace(c.Query("section_id")); v != "" {
-		sid, err := uuid.Parse(v)
+	if s := strings.TrimSpace(c.Query("section_id")); s != "" {
+		sid, err := uuid.Parse(s)
 		if err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "section_id tidak valid")
 		}
@@ -157,7 +188,6 @@ func (h *ClassSubjectController) GetByID(c *fiber.Ctx) error {
 	if m.ClassSubjectsMasjidID != masjidID {
 		return fiber.NewError(fiber.StatusForbidden, "Akses ditolak")
 	}
-	// perbaiki cek soft delete (gorm.DeletedAt)
 	if !withDeleted && m.ClassSubjectsDeletedAt.Valid {
 		return fiber.NewError(fiber.StatusNotFound, "Data tidak ditemukan")
 	}
@@ -222,7 +252,7 @@ func (h *ClassSubjectController) GetByID(c *fiber.Ctx) error {
 	if includeTeachers {
 		type CSST = csModel.ClassSectionSubjectTeacherModel
 
-		// Subquery: semua section milik class ini & belum dihapus
+		// semua section milik class ini (belum dihapus)
 		sub := h.DB.
 			Table("class_sections").
 			Select("class_sections_id").
@@ -235,18 +265,22 @@ func (h *ClassSubjectController) GetByID(c *fiber.Ctx) error {
 				AND class_section_subject_teachers_deleted_at IS NULL
 			`, masjidID, m.ClassSubjectsSubjectID)
 
-		// Batasi ke section milik class ini, kecuali user tegas minta section tertentu
 		if sectionID != nil {
 			q = q.Where("class_section_subject_teachers_section_id = ?", *sectionID)
 		} else {
 			q = q.Where("class_section_subject_teachers_section_id IN (?)", sub)
 		}
-
 		if onlyActive {
 			q = q.Where("class_section_subject_teachers_is_active = TRUE")
 		}
+
+		// jika teacher_user_id diberikan tapi tidak ada mapping → kosongkan hasil
+		if noTeacherMatch {
+			q = q.Where("1=0")
+		}
+		// filter guru by masjid_teacher_id
 		if teacherID != nil {
-			q = q.Where("class_section_subject_teachers_teacher_user_id = ?", *teacherID)
+			q = q.Where("class_section_subject_teachers_teacher_id = ?", *teacherID)
 		}
 
 		var rows []CSST
@@ -257,12 +291,12 @@ func (h *ClassSubjectController) GetByID(c *fiber.Ctx) error {
 		teachers := make([]fiber.Map, 0, len(rows))
 		for _, r := range rows {
 			teachers = append(teachers, fiber.Map{
-				"class_section_subject_teachers_id":              r.ClassSectionSubjectTeachersID,
-				"class_section_subject_teachers_section_id":      r.ClassSectionSubjectTeacherModelSectionID,
-				"class_section_subject_teachers_teacher_user_id": r.ClassSectionSubjectTeacherModelTeacherUserID,
-				"class_section_subject_teachers_is_active":       r.ClassSectionSubjectTeacherModelIsActive,
-				"class_section_subject_teachers_created_at":      r.ClassSectionSubjectTeacherModelCreatedAt,
-				"class_section_subject_teachers_updated_at":      r.ClassSectionSubjectTeacherModelUpdatedAt,
+				"class_section_subject_teachers_id":         r.ClassSectionSubjectTeachersID,
+				"class_section_subject_teachers_section_id": r.ClassSectionSubjectTeachersSectionID,
+				"class_section_subject_teachers_teacher_id": r.ClassSectionSubjectTeachersTeacherID, // ✅ kolom baru
+				"class_section_subject_teachers_is_active":  r.ClassSectionSubjectTeachersIsActive,
+				"class_section_subject_teachers_created_at": r.ClassSectionSubjectTeachersCreatedAt,
+				"class_section_subject_teachers_updated_at": r.ClassSectionSubjectTeachersUpdatedAt,
 			})
 		}
 		out["class_section_subject_teachers"] = teachers
@@ -270,6 +304,7 @@ func (h *ClassSubjectController) GetByID(c *fiber.Ctx) error {
 
 	return helper.JsonOK(c, "Detail class subject", out)
 }
+
 
 /* =========================================================
    LIST

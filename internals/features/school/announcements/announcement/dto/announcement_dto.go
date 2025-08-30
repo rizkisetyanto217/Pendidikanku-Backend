@@ -30,7 +30,7 @@ func (r CreateAnnouncementRequest) ToModel(masjidID, createdBy uuid.UUID) *model
 
 	m := &model.AnnouncementModel{
 		AnnouncementMasjidID:        masjidID,
-		AnnouncementCreatedByUserID: createdBy,
+		AnnouncementCreatedByTeacherID: &createdBy, // Menggunakan teacher_id
 		AnnouncementThemeID:         r.AnnouncementThemeID,
 		AnnouncementClassSectionID:  r.AnnouncementClassSectionID,
 		AnnouncementTitle:           title,
@@ -142,7 +142,7 @@ func NewAnnouncementResponse(m *model.AnnouncementModel) *AnnouncementResponse {
 		AnnouncementMasjidID:        m.AnnouncementMasjidID,
 		AnnouncementThemeID:         m.AnnouncementThemeID,
 		AnnouncementClassSectionID:  m.AnnouncementClassSectionID,
-		AnnouncementCreatedByUserID: m.AnnouncementCreatedByUserID,
+		AnnouncementCreatedByUserID: *m.AnnouncementCreatedByTeacherID, // Sesuaikan dengan teacher_id
 		AnnouncementTitle:           m.AnnouncementTitle,
 		AnnouncementDate:            m.AnnouncementDate,
 		AnnouncementContent:         m.AnnouncementContent,

@@ -23,7 +23,7 @@ func UserRoutes(app *fiber.App, db *gorm.DB) {
 
 	// 🔓 Prefix user biasa: /api/u/...
 	userGroup := api.Group("/u") // 👤 user login biasa
-	userRoute.UserAllRoutes(userGroup, db)
+	userRoute.UserUserRoutes(userGroup, db)
 	surveyRoute.SurveyUserRoutes(userGroup, db)
 	tokenRoute.RegisterTokenRoutes(userGroup, db)   // 🔓 Token routes
 }

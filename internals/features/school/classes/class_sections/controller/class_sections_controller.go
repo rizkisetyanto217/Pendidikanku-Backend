@@ -34,28 +34,49 @@ var validate = validator.New()
 
 // GET /admin/class-sections/:id
 func (ctrl *ClassSectionController) GetClassSectionByID(c *fiber.Ctx) error {
+	// Extract Masjid ID from Token
 	masjidID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
-		return err
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan dalam token")
 	}
 
+	// Parse Section ID from URL Parameter
 	sectionID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	var m secModel.ClassSectionModel
-	if err := ctrl.DB.First(&m, "class_sections_id = ? AND class_sections_deleted_at IS NULL", sectionID).Error; err != nil {
+	// Fetch Class Section Data
+	var classSection secModel.ClassSectionModel
+	if err := ctrl.DB.First(&classSection, "class_sections_id = ? AND class_sections_deleted_at IS NULL", sectionID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return fiber.NewError(fiber.StatusNotFound, "Section tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Section tidak ditemukan")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data section")
 	}
-	if m.ClassSectionsMasjidID == nil || *m.ClassSectionsMasjidID != masjidID {
-		return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengakses section milik masjid lain")
+
+	// Ensure Class Section Belongs to Current Masjid
+	if classSection.ClassSectionsMasjidID == nil || *classSection.ClassSectionsMasjidID != masjidID {
+		return helper.JsonError(c, fiber.StatusForbidden, "Tidak boleh mengakses section milik masjid lain")
 	}
-	return helper.JsonOK(c, "OK", ucsDTO.NewClassSectionResponse(&m))
+
+	// Fetch Teacher Data from masjid_teachers
+	var teacherName string
+	if classSection.ClassSectionsTeacherID != nil {
+		if err := ctrl.DB.Raw(`
+			SELECT users.full_name
+			FROM masjid_teachers
+			JOIN users ON masjid_teachers.masjid_teacher_user_id = users.id
+			WHERE masjid_teachers.id = ?`, *classSection.ClassSectionsTeacherID).Scan(&teacherName).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data pengajar")
+		}
+	}
+
+	// Create Response DTO and return
+	response := ucsDTO.NewClassSectionResponse(&classSection, teacherName)
+	return helper.JsonOK(c, "OK", response)
 }
+
 
 // GET /admin/class-sections/:id/participants
 // Mengambil peserta yang TERDAFTAR (masih assigned) pada section tertentu.
@@ -100,7 +121,7 @@ func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) err
 		return helper.JsonOK(c, "OK", []*ucsDTO.UserClassSectionResponse{})
 	}
 
-	/* ===== Enrichment (mirip ListUserClassSections) ===== */
+	// ===== Enrichment (mirip ListUserClassSections) =====
 
 	// 1) Kumpulkan user_class_id unik
 	ucSet := make(map[uuid.UUID]struct{}, len(rows))
@@ -119,7 +140,6 @@ func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) err
 		UserID      uuid.UUID  `gorm:"column:user_classes_user_id"`
 		Status      string     `gorm:"column:user_classes_status"`
 		StartedAt   *time.Time `gorm:"column:user_classes_started_at"`
-		// EndedAt sudah tidak ada
 	}
 
 	ucMetaByID := make(map[uuid.UUID]ucMeta, len(userClassIDs))
@@ -139,7 +159,6 @@ func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) err
 			userIDByUC[r.UserClassID] = r.UserID
 		}
 	}
-
 
 	// 3) Kumpulkan user_id unik
 	uSet := make(map[uuid.UUID]struct{}, len(userClassIDs))
@@ -248,6 +267,7 @@ func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) err
 
 
 
+// GET /admin/class-sections
 // GET /admin/class-sections
 func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
@@ -361,7 +381,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 				t = &uCopy
 			}
 		}
-		resp := ucsDTO.NewClassSectionResponse(&rows[i])
+		resp := ucsDTO.NewClassSectionResponse(&rows[i], t.FullName)
 		resp.Teacher = t
 		out = append(out, resp)
 	}
@@ -371,66 +391,68 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 
 
 // GET /admin/class-sections/:id/books
+// GET /admin/class-sections/:id/books
 func (ctrl *ClassSectionController) ListBooksBySection(c *fiber.Ctx) error {
-    masjidID, err := helper.GetMasjidIDFromToken(c)
-    if err != nil { return err }
+	masjidID, err := helper.GetMasjidIDFromToken(c)
+	if err != nil {
+		return err
+	}
 
-    sectionID, err := uuid.Parse(c.Params("id"))
-    if err != nil {
-        return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
-    }
+	sectionID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+	}
 
-    type row struct {
-        BooksID             uuid.UUID  `json:"books_id"`
-        BooksTitle          string     `json:"books_title"`
-        BooksAuthor         *string    `json:"books_author,omitempty"`
-        BooksDesc           *string    `json:"books_desc,omitempty"`
-        BooksImageURL       *string    `json:"books_image_url,omitempty"`
-        BooksURL            *string    `json:"books_url,omitempty"`
-        BooksSlug           *string    `json:"books_slug,omitempty"`
-        ClassSubjectsID     uuid.UUID  `json:"class_subjects_id"`
-        SubjectsID          *uuid.UUID `json:"subjects_id,omitempty"`
-        ClassSubjectBooksID uuid.UUID  `json:"class_subject_books_id"`
-        TeacherUserID       *uuid.UUID `json:"teacher_user_id,omitempty"` // enrichment
-    }
+	type row struct {
+		BooksID             uuid.UUID  `json:"books_id"`
+		BooksTitle          string     `json:"books_title"`
+		BooksAuthor         *string    `json:"books_author,omitempty"`
+		BooksDesc           *string    `json:"books_desc,omitempty"`
+		BooksImageURL       *string    `json:"books_image_url,omitempty"`
+		BooksURL            *string    `json:"books_url,omitempty"`
+		BooksSlug           *string    `json:"books_slug,omitempty"`
+		ClassSubjectsID     uuid.UUID  `json:"class_subjects_id"`
+		SubjectsID          *uuid.UUID `json:"subjects_id,omitempty"`
+		ClassSubjectBooksID uuid.UUID  `json:"class_subject_books_id"`
+		TeacherUserID       *uuid.UUID `json:"teacher_user_id,omitempty"` // enrichment
+	}
 
-    var out []row
-    q := ctrl.DB.
-        Table("class_sections AS sect").
-        // ❗️SST tidak jadi syarat; hanya LEFT JOIN untuk info guru
-        Select(`
-            DISTINCT b.books_id, b.books_title, b.books_author, b.books_desc, b.books_image_url, b.books_url, b.books_slug,
-            cs.class_subjects_id,
-            cs.class_subjects_subject_id AS subjects_id,
-            csb.class_subject_books_id,
-            sst.class_section_subject_teachers_teacher_user_id AS teacher_user_id`).
-        Joins(`JOIN class_subjects AS cs
-                 ON cs.class_subjects_class_id = sect.class_sections_class_id
-                AND cs.class_subjects_deleted_at IS NULL`).
-        Joins(`JOIN class_subject_books AS csb
-                 ON csb.class_subject_books_class_subject_id = cs.class_subjects_id
-                AND csb.class_subject_books_deleted_at IS NULL
-                AND csb.class_subject_books_is_active = TRUE
-                AND csb.class_subject_books_masjid_id = ?`, masjidID).
-        Joins(`JOIN books AS b
-                 ON b.books_id = csb.class_subject_books_book_id
-                AND b.books_deleted_at IS NULL
-                AND b.books_masjid_id = ?`, masjidID).
-        Joins(`LEFT JOIN class_section_subject_teachers AS sst
-                 ON sst.class_section_subject_teachers_section_id = sect.class_sections_id
-                AND sst.class_section_subject_teachers_subject_id = cs.class_subjects_subject_id
-                AND sst.class_section_subject_teachers_deleted_at IS NULL
-                AND sst.class_section_subject_teachers_is_active = TRUE`).
-        Where(`sect.class_sections_id = ?
-               AND sect.class_sections_deleted_at IS NULL
-               AND sect.class_sections_masjid_id = ?`,
-            sectionID, masjidID)
+	var out []row
+	q := ctrl.DB.
+		Table("class_sections AS sect").
+		Select(`
+			DISTINCT b.books_id, b.books_title, b.books_author, b.books_desc, b.books_image_url, b.books_url, b.books_slug,
+			cs.class_subjects_id,
+			cs.class_subjects_subject_id AS subjects_id,
+			csb.class_subject_books_id,
+			sst.class_section_subject_teachers_teacher_user_id AS teacher_user_id`).
+		Joins(`JOIN class_subjects AS cs
+				ON cs.class_subjects_class_id = sect.class_sections_class_id
+				AND cs.class_subjects_deleted_at IS NULL`).
+		Joins(`JOIN class_subject_books AS csb
+				ON csb.class_subject_books_class_subject_id = cs.class_subjects_id
+				AND csb.class_subject_books_deleted_at IS NULL
+				AND csb.class_subject_books_is_active = TRUE
+				AND csb.class_subject_books_masjid_id = ?`, masjidID).
+		Joins(`JOIN books AS b
+				ON b.books_id = csb.class_subject_books_book_id
+				AND b.books_deleted_at IS NULL
+				AND b.books_masjid_id = ?`, masjidID).
+		Joins(`LEFT JOIN class_section_subject_teachers AS sst
+				ON sst.class_section_subject_teachers_section_id = sect.class_sections_id
+				AND sst.class_section_subject_teachers_subject_id = cs.class_subjects_subject_id
+				AND sst.class_section_subject_teachers_deleted_at IS NULL
+				AND sst.class_section_subject_teachers_is_active = TRUE`).
+		Where(`sect.class_sections_id = ?
+				AND sect.class_sections_deleted_at IS NULL
+				AND sect.class_sections_masjid_id = ?`,
+			sectionID, masjidID)
 
-    if err := q.Scan(&out).Error; err != nil {
-        return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil buku")
-    }
-    // Kalau tidak ada baris, out = nil (bisa kamu ubah ke [] jika mau)
-    return helper.JsonOK(c, "OK", out)
+	if err := q.Scan(&out).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil buku")
+	}
+	// Kalau tidak ada baris, out = nil (bisa kamu ubah ke [] jika mau)
+	return helper.JsonOK(c, "OK", out)
 }
 
 
@@ -443,6 +465,8 @@ func (ctrl *ClassSectionController) ListBooksBySection(c *fiber.Ctx) error {
 //   - class_id         : uuid (opsional)
 //   - teacher_id       : uuid (opsional)
 //   - enrich_teacher   : bool (default true) -> embed data guru seperti ListClassSections
+// GET /admin/class-sections/search
+// Search for class sections based on various query parameters
 func (ctrl *ClassSectionController) SearchClassSections(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
@@ -529,7 +553,7 @@ func (ctrl *ClassSectionController) SearchClassSections(c *fiber.Ctx) error {
 	if !enrichTeacher || len(rows) == 0 {
 		out := make([]*ucsDTO.ClassSectionResponse, 0, len(rows))
 		for i := range rows {
-			out = append(out, ucsDTO.NewClassSectionResponse(&rows[i]))
+			out = append(out, ucsDTO.NewClassSectionResponse(&rows[i], ""))
 		}
 		return helper.JsonOK(c, "OK", out)
 	}
@@ -572,6 +596,7 @@ func (ctrl *ClassSectionController) SearchClassSections(c *fiber.Ctx) error {
 		}
 	}
 
+	// ---- Build response with teacher ----
 	out := make([]*ucsDTO.ClassSectionResponse, 0, len(rows))
 	for i := range rows {
 		var t *ucsDTO.UserLite
@@ -581,7 +606,7 @@ func (ctrl *ClassSectionController) SearchClassSections(c *fiber.Ctx) error {
 				t = &uCopy
 			}
 		}
-		resp := ucsDTO.NewClassSectionResponse(&rows[i])
+		resp := ucsDTO.NewClassSectionResponse(&rows[i], t.FullName)
 		resp.Teacher = t
 		out = append(out, resp)
 	}
@@ -590,6 +615,7 @@ func (ctrl *ClassSectionController) SearchClassSections(c *fiber.Ctx) error {
 }
 
 
+// POST /admin/class-sections
 // POST /admin/class-sections
 func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
@@ -675,11 +701,13 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	}
 	// === TRANSACTION END ===
 
-	return helper.JsonCreated(c, "Section berhasil dibuat", ucsDTO.NewClassSectionResponse(m))
+	return helper.JsonCreated(c, "Section berhasil dibuat", ucsDTO.NewClassSectionResponse(m, ""))
 }
 
 
 // PUT /admin/class-sections/:id
+// PUT /admin/class-sections/:id
+// Update class section details
 func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
 	if err != nil {
@@ -691,13 +719,13 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// Parse & normalisasi payload lebih dulu
+	// Parse & normalize the request payload
 	var req ucsDTO.UpdateClassSectionRequest
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
-	// Normalisasi slug bila dikirim; atau auto dari name bila name dikirim
+	// Normalize slug if provided or auto-generate from name if name is provided
 	if req.ClassSectionsSlug != nil {
 		s := helper.GenerateSlug(*req.ClassSectionsSlug)
 		if s == "" {
@@ -712,15 +740,15 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		req.ClassSectionsSlug = &s
 	}
 
-	// Cegah ganti tenant dari luar
+	// Ensure tenant is correct
 	req.ClassSectionsMasjidID = &masjidID
 
-	// Validasi payload
+	// Validate the request payload
 	if err := validate.Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// ===== TRANSACTION START =====
+	// Begin the transaction
 	tx := ctrl.DB.Begin()
 	if tx.Error != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, tx.Error.Error())
@@ -732,7 +760,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 	}()
 
-	// Ambil existing + LOCK (hindari race)
+	// Fetch existing section data and lock it
 	var existing secModel.ClassSectionModel
 	if err := tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -744,13 +772,13 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Guard tenant
+	// Ensure tenant matches
 	if existing.ClassSectionsMasjidID == nil || *existing.ClassSectionsMasjidID != masjidID {
 		tx.Rollback()
 		return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengubah section milik masjid lain")
 	}
-	
-	// Jika class_id diganti, validasi class milik tenant
+
+	// If class_id changes, validate the new class belongs to the same masjid
 	if req.ClassSectionsClassID != nil {
 		var cls classModel.ClassModel
 		if err := tx.
@@ -763,14 +791,14 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi class")
 		}
 
-		// cls.ClassMasjidID adalah uuid.UUID (bukan *uuid.UUID), jadi langsung compare
+		// Compare masjid ID
 		if cls.ClassMasjidID != masjidID {
 			tx.Rollback()
 			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh memindahkan section ke class milik masjid lain")
 		}
 	}
 
-	// Cek unik slug (exclude current)
+	// Check if slug is unique excluding the current section
 	if req.ClassSectionsSlug != nil && *req.ClassSectionsSlug != existing.ClassSectionsSlug {
 		var cnt int64
 		if err := tx.Model(&secModel.ClassSectionModel{}).
@@ -785,7 +813,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 	}
 
-	// Cek unik (class_id, name) exclude current
+	// Ensure (class_id, name) is unique excluding current
 	targetClassID := existing.ClassSectionsClassID
 	if req.ClassSectionsClassID != nil {
 		targetClassID = *req.ClassSectionsClassID
@@ -811,14 +839,14 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 	}
 
-	// Hitung perubahan status aktif
+	// Track changes in active status
 	wasActive := existing.ClassSectionsIsActive
 	newActive := wasActive
 	if req.ClassSectionsIsActive != nil {
 		newActive = *req.ClassSectionsIsActive
 	}
 
-	// Apply & save
+	// Apply the changes to the existing model
 	req.ApplyToModel(&existing)
 	if err := tx.Model(&secModel.ClassSectionModel{}).
 		Where("class_sections_id = ?", existing.ClassSectionsID).
@@ -827,10 +855,10 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui section")
 	}
 
-	// Sinkronkan lembaga_stats jika status aktif berubah
+	// Update lembaga_stats if active status changed
 	if wasActive != newActive {
 		stats := service.NewLembagaStatsService()
-		// pastikan baris stats ada (idempotent)
+		// Ensure the stats entry exists (idempotent)
 		if err := stats.EnsureForMasjid(tx, masjidID); err != nil {
 			tx.Rollback()
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal inisialisasi lembaga_stats: "+err.Error())
@@ -845,19 +873,17 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 	}
 
-	// Commit
+	// Commit transaction
 	if err := tx.Commit().Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
-	// ===== TRANSACTION END =====
 
-	return helper.JsonUpdated(c, "Section berhasil diperbarui", ucsDTO.NewClassSectionResponse(&existing))
+	return helper.JsonUpdated(c, "Section berhasil diperbarui", ucsDTO.NewClassSectionResponse(&existing, ""))
 }
 
 
 
-
-
+// DELETE /admin/class-sections/:id  (soft delete)
 // DELETE /admin/class-sections/:id  (soft delete)
 func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
@@ -880,7 +906,7 @@ func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 		}
 	}()
 
-	// Lock row agar anti race & pastikan belum soft-deleted
+	// Lock row to prevent race conditions and ensure it hasn't been soft-deleted
 	var m secModel.ClassSectionModel
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		First(&m, "class_sections_id = ? AND class_sections_deleted_at IS NULL", sectionID).Error; err != nil {
@@ -897,10 +923,10 @@ func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusForbidden, "Tidak boleh menghapus section milik masjid lain")
 	}
 
-	// simpan status aktif sebelum delete
+	// Save active status before delete
 	wasActive := m.ClassSectionsIsActive
 
-	// Soft delete
+	// Perform soft delete
 	now := time.Now()
 	if err := tx.Model(&secModel.ClassSectionModel{}).
 		Where("class_sections_id = ?", m.ClassSectionsID).
@@ -913,10 +939,10 @@ func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus section")
 	}
 
-	// Decrement stats hanya jika sebelumnya aktif
+	// Decrement stats if the section was active
 	if wasActive {
 		stats := service.NewLembagaStatsService()
-		// pastikan baris stats ada
+		// Ensure stats entry exists
 		if err := stats.EnsureForMasjid(tx, masjidID); err != nil {
 			tx.Rollback()
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal inisialisasi lembaga_stats: "+err.Error())
