@@ -129,6 +129,7 @@ func (h *SubjectsController) CreateSubject(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Subject berhasil dibuat", subjectDTO.FromSubjectModel(m))
 }
 
+
 /* =========================================================
    GET BY ID
    GET /admin/subjects/:id[?with_deleted=true]
@@ -146,23 +147,33 @@ func (h *SubjectsController) GetSubject(c *fiber.Ctx) error {
 
 	withDeleted := strings.EqualFold(c.Query("with_deleted"), "true")
 
+	var q *gorm.DB = h.DB
+	if withDeleted {
+		// sertakan baris soft-deleted
+		q = q.Unscoped()
+	}
+
 	var m subjectModel.SubjectsModel
-	if err := h.DB.First(&m, "subjects_id = ?", id).Error; err != nil {
+	// 🚧 Penting: filter tenant di query (bukan setelah fetch)
+	if err := q.
+		Where("subjects_id = ? AND subjects_masjid_id = ?", id, masjidID).
+		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.NewError(fiber.StatusNotFound, "Subject tidak ditemukan")
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
-	if m.SubjectsMasjidID != masjidID {
-		return fiber.NewError(fiber.StatusForbidden, "Akses ditolak")
-	}
-	// jika soft-deleted dan tidak diminta with_deleted → treat as 404
-	if !withDeleted && m.SubjectsDeletedAt != nil {
+
+	// Jika tidak minta with_deleted, dan record ternyata soft-deleted → 404
+	// Catatan: tanpa Unscoped(), GORM default-nya memang menyembunyikan soft-deleted,
+	// tapi check ini berguna kalau suatu saat query di atas diubah.
+	if !withDeleted && m.SubjectsDeletedAt.Valid {
 		return fiber.NewError(fiber.StatusNotFound, "Subject tidak ditemukan")
 	}
 
 	return helper.JsonOK(c, "Detail subject ditemukan", subjectDTO.FromSubjectModel(m))
 }
+
 
 /* =========================================================
    LIST
@@ -268,6 +279,8 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 
 // UPDATE (partial)
 // PUT /admin/subjects/:id
+// UPDATE (partial)
+// PUT /admin/subjects/:id
 func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
@@ -300,13 +313,12 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 		s := strings.TrimSpace(*req.Desc)
 		req.Desc = &s
 	}
-	// normalize / generate slug:
-	// - jika slug dikirim → normalize
-	// - else jika name dikirim → regenerate dari name
+
+	// normalize / generate slug
 	if req.Slug != nil {
 		s := helper.GenerateSlug(strings.TrimSpace(*req.Slug))
 		if s == "" {
-			req.Slug = nil // kosongkan bila hasil normalisasi empty
+			req.Slug = nil
 		} else {
 			req.Slug = &s
 		}
@@ -321,9 +333,8 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// transaksi
 	if err := h.DB.Transaction(func(tx *gorm.DB) error {
-		// ambil existing
+		// Ambil existing
 		var m subjectModel.SubjectsModel
 		if err := tx.First(&m, "subjects_id = ?", id).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -334,11 +345,11 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 		if m.SubjectsMasjidID != masjidID {
 			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengubah subject milik masjid lain")
 		}
-		if m.SubjectsDeletedAt != nil {
+		if m.SubjectsDeletedAt.Valid { // <-- gorm.DeletedAt check
 			return fiber.NewError(fiber.StatusBadRequest, "Subject sudah dihapus")
 		}
 
-		// jika code berubah → cek duplikat (abaikan soft-deleted & diri sendiri)
+		// Cek duplikat code (jika berubah)
 		if req.Code != nil && *req.Code != m.SubjectsCode {
 			var cnt int64
 			if err := tx.Model(&subjectModel.SubjectsModel{}).
@@ -356,9 +367,8 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 			}
 		}
 
-		// jika slug berubah → cek duplikat per masjid (abaikan soft-deleted & diri sendiri)
+		// Cek duplikat slug (jika berubah/dikirim)
 		if req.Slug != nil {
-			// cek hanya jika slug berubah (case-insensitive)
 			needCheck := m.SubjectsSlug == nil || !strings.EqualFold(*m.SubjectsSlug, *req.Slug)
 			if needCheck {
 				var cnt int64
@@ -379,13 +389,15 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 			}
 		}
 
-
-		// apply perubahan ke model
+		// Apply perubahan ke model
 		req.Apply(&m)
-		now := time.Now()
-		m.SubjectsUpdatedAt = &now
 
-		// patch spesifik (hindari overwrite tak sengaja)
+		// Set updated_at (non-pointer). Sebenarnya Updates() + autoUpdateTime juga akan set,
+		// tapi kita set manual supaya eksplisit & sebagai fallback bila tag tidak terbaca.
+		now := time.Now()
+		m.SubjectsUpdatedAt = now
+
+		// Patch spesifik (hindari overwrite tak sengaja)
 		patch := map[string]interface{}{
 			"subjects_masjid_id":  m.SubjectsMasjidID,
 			"subjects_code":       m.SubjectsCode,
@@ -394,7 +406,6 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 			"subjects_is_active":  m.SubjectsIsActive,
 			"subjects_updated_at": m.SubjectsUpdatedAt,
 		}
-		// update slug hanya jika memang diubah/dikirim
 		if req.Slug != nil {
 			patch["subjects_slug"] = m.SubjectsSlug
 		}
@@ -409,7 +420,6 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 			case strings.Contains(msg, "uq_subjects_slug_per_masjid"):
 				return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
 			case strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique"):
-				// fallback umum dari DB
 				return fiber.NewError(fiber.StatusConflict, "Duplikasi data (kode/slug)")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui subject")
@@ -426,11 +436,18 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 }
 
 
+
 /* =========================================================
    DELETE
    DELETE /admin/subjects/:id?force=true
    - force=true (admin saja): hard delete (DELETE FROM)
    - default: soft delete dengan set subjects_deleted_at = now()
+   ========================================================= */
+/* =========================================================
+   DELETE
+   DELETE /admin/subjects/:id?force=true
+   - force=true (admin saja): hard delete (Unscoped)
+   - default: soft delete (gorm.DeletedAt)
    ========================================================= */
 func (h *SubjectsController) DeleteSubject(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
@@ -463,11 +480,10 @@ func (h *SubjectsController) DeleteSubject(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh menghapus subject milik masjid lain")
 		}
 
-		// TODO (opsional): cek relasi (kelas/mapel pakai subject ini). Blokir jika ada & force=false.
-
 		if force {
-			// hard delete
-			if err := tx.Delete(&subjectModel.SubjectsModel{}, "subjects_id = ?", id).Error; err != nil {
+			// Hard delete (abaikan soft delete)
+			if err := tx.Unscoped().
+				Delete(&subjectModel.SubjectsModel{}, "subjects_id = ?", id).Error; err != nil {
 				msg := strings.ToLower(err.Error())
 				if strings.Contains(msg, "constraint") || strings.Contains(msg, "foreign") || strings.Contains(msg, "violat") {
 					return fiber.NewError(fiber.StatusBadRequest, "Tidak dapat menghapus karena masih ada data terkait")
@@ -475,20 +491,15 @@ func (h *SubjectsController) DeleteSubject(c *fiber.Ctx) error {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus subject")
 			}
 		} else {
-			// soft delete manual (karena tidak pakai gorm.DeletedAt)
-			if m.SubjectsDeletedAt != nil {
-				// sudah terhapus
+			// Soft delete pakai gorm.DeletedAt
+			if m.SubjectsDeletedAt.Valid {
 				return fiber.NewError(fiber.StatusBadRequest, "Subject sudah dihapus")
 			}
-			now := time.Now()
-			if err := tx.Model(&subjectModel.SubjectsModel{}).
-				Where("subjects_id = ?", id).
-				Updates(map[string]interface{}{
-					"subjects_deleted_at": &now,
-					"subjects_updated_at": &now,
-				}).Error; err != nil {
+			if err := tx.
+				Delete(&subjectModel.SubjectsModel{}, "subjects_id = ?", id).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus subject")
 			}
+			// GORM akan otomatis set deleted_at dan updated_at (jika autoUpdateTime ada)
 		}
 
 		c.Locals("deleted_subject", m)

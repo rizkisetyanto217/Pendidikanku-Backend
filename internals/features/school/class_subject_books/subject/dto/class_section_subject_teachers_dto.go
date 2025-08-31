@@ -16,11 +16,11 @@ import (
 // Create
 // Catatan: masjid_id bisa dikosongkan di request jika diisi dari token di controller.
 type CreateClassSectionSubjectTeacherRequest struct {
-	ClassSectionSubjectTeachersMasjidID  *uuid.UUID `json:"class_section_subject_teachers_masjid_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeachersSectionID uuid.UUID  `json:"class_section_subject_teachers_section_id" validate:"required,uuid"`
-	ClassSectionSubjectTeachersSubjectID uuid.UUID  `json:"class_section_subject_teachers_subject_id" validate:"required,uuid"`
+	ClassSectionSubjectTeachersMasjidID     *uuid.UUID `json:"class_section_subject_teachers_masjid_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeachersSectionID    uuid.UUID  `json:"class_section_subject_teachers_section_id" validate:"required,uuid"`
+	ClassSectionSubjectTeachersClassSubjectsID uuid.UUID `json:"class_section_subject_teachers_class_subjects_id" validate:"required,uuid"`
 
-	// ✅ sekarang pakai masjid_teacher_id
+	// pakai masjid_teachers.masjid_teacher_id
 	ClassSectionSubjectTeachersTeacherID uuid.UUID `json:"class_section_subject_teachers_teacher_id" validate:"required,uuid"`
 
 	ClassSectionSubjectTeachersIsActive *bool `json:"class_section_subject_teachers_is_active" validate:"omitempty"`
@@ -28,11 +28,10 @@ type CreateClassSectionSubjectTeacherRequest struct {
 
 // Update (partial)
 type UpdateClassSectionSubjectTeacherRequest struct {
-	ClassSectionSubjectTeachersMasjidID  *uuid.UUID `json:"class_section_subject_teachers_masjid_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeachersSectionID *uuid.UUID `json:"class_section_subject_teachers_section_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeachersSubjectID *uuid.UUID `json:"class_section_subject_teachers_subject_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeachersMasjidID        *uuid.UUID `json:"class_section_subject_teachers_masjid_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeachersSectionID       *uuid.UUID `json:"class_section_subject_teachers_section_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeachersClassSubjectsID *uuid.UUID `json:"class_section_subject_teachers_class_subjects_id" validate:"omitempty,uuid"`
 
-	// ✅ tetap pakai masjid_teacher_id
 	ClassSectionSubjectTeachersTeacherID *uuid.UUID `json:"class_section_subject_teachers_teacher_id" validate:"omitempty,uuid"`
 
 	ClassSectionSubjectTeachersIsActive *bool `json:"class_section_subject_teachers_is_active" validate:"omitempty"`
@@ -43,12 +42,11 @@ type UpdateClassSectionSubjectTeacherRequest struct {
    ========================================================= */
 
 type ClassSectionSubjectTeacherResponse struct {
-	ClassSectionSubjectTeachersID        uuid.UUID  `json:"class_section_subject_teachers_id"`
-	ClassSectionSubjectTeachersMasjidID  uuid.UUID  `json:"class_section_subject_teachers_masjid_id"`
-	ClassSectionSubjectTeachersSectionID uuid.UUID  `json:"class_section_subject_teachers_section_id"`
-	ClassSectionSubjectTeachersSubjectID uuid.UUID  `json:"class_section_subject_teachers_subject_id"`
+	ClassSectionSubjectTeachersID            uuid.UUID  `json:"class_section_subject_teachers_id"`
+	ClassSectionSubjectTeachersMasjidID      uuid.UUID  `json:"class_section_subject_teachers_masjid_id"`
+	ClassSectionSubjectTeachersSectionID     uuid.UUID  `json:"class_section_subject_teachers_section_id"`
+	ClassSectionSubjectTeachersClassSubjectsID uuid.UUID `json:"class_section_subject_teachers_class_subjects_id"`
 
-	// ✅ expose masjid_teacher_id
 	ClassSectionSubjectTeachersTeacherID uuid.UUID `json:"class_section_subject_teachers_teacher_id"`
 
 	ClassSectionSubjectTeachersIsActive  bool       `json:"class_section_subject_teachers_is_active"`
@@ -63,10 +61,9 @@ type ClassSectionSubjectTeacherResponse struct {
 
 func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectionSubjectTeacherModel {
 	m := csstModel.ClassSectionSubjectTeacherModel{
-		ClassSectionSubjectTeachersSectionID: r.ClassSectionSubjectTeachersSectionID,
-		ClassSectionSubjectTeachersSubjectID: r.ClassSectionSubjectTeachersSubjectID,
-		// ✅ map ke masjid_teacher_id
-		ClassSectionSubjectTeachersTeacherID: r.ClassSectionSubjectTeachersTeacherID,
+		ClassSectionSubjectTeachersSectionID:       r.ClassSectionSubjectTeachersSectionID,
+		ClassSectionSubjectTeachersClassSubjectsID: r.ClassSectionSubjectTeachersClassSubjectsID,
+		ClassSectionSubjectTeachersTeacherID:       r.ClassSectionSubjectTeachersTeacherID,
 	}
 	if r.ClassSectionSubjectTeachersMasjidID != nil {
 		m.ClassSectionSubjectTeachersMasjidID = *r.ClassSectionSubjectTeachersMasjidID
@@ -84,17 +81,16 @@ func (r UpdateClassSectionSubjectTeacherRequest) Apply(m *csstModel.ClassSection
 	if r.ClassSectionSubjectTeachersSectionID != nil {
 		m.ClassSectionSubjectTeachersSectionID = *r.ClassSectionSubjectTeachersSectionID
 	}
-	if r.ClassSectionSubjectTeachersSubjectID != nil {
-		m.ClassSectionSubjectTeachersSubjectID = *r.ClassSectionSubjectTeachersSubjectID
+	if r.ClassSectionSubjectTeachersClassSubjectsID != nil {
+		m.ClassSectionSubjectTeachersClassSubjectsID = *r.ClassSectionSubjectTeachersClassSubjectsID
 	}
 	if r.ClassSectionSubjectTeachersTeacherID != nil {
-		// ✅ set masjid_teacher_id
 		m.ClassSectionSubjectTeachersTeacherID = *r.ClassSectionSubjectTeachersTeacherID
 	}
 	if r.ClassSectionSubjectTeachersIsActive != nil {
 		m.ClassSectionSubjectTeachersIsActive = *r.ClassSectionSubjectTeachersIsActive
 	}
-	// updated_at otomatis oleh GORM/trigger
+	// updated_at: dipegang GORM/trigger DB
 }
 
 func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherModel) ClassSectionSubjectTeacherResponse {
@@ -104,15 +100,15 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		deletedAt = &t
 	}
 	return ClassSectionSubjectTeacherResponse{
-		ClassSectionSubjectTeachersID:        m.ClassSectionSubjectTeachersID,
-		ClassSectionSubjectTeachersMasjidID:  m.ClassSectionSubjectTeachersMasjidID,
-		ClassSectionSubjectTeachersSectionID: m.ClassSectionSubjectTeachersSectionID,
-		ClassSectionSubjectTeachersSubjectID: m.ClassSectionSubjectTeachersSubjectID,
-		ClassSectionSubjectTeachersTeacherID: m.ClassSectionSubjectTeachersTeacherID, // ✅ expose
-		ClassSectionSubjectTeachersIsActive:  m.ClassSectionSubjectTeachersIsActive,
-		ClassSectionSubjectTeachersCreatedAt: m.ClassSectionSubjectTeachersCreatedAt,
-		ClassSectionSubjectTeachersUpdatedAt: m.ClassSectionSubjectTeachersUpdatedAt,
-		ClassSectionSubjectTeachersDeletedAt: deletedAt,
+		ClassSectionSubjectTeachersID:              m.ClassSectionSubjectTeachersID,
+		ClassSectionSubjectTeachersMasjidID:        m.ClassSectionSubjectTeachersMasjidID,
+		ClassSectionSubjectTeachersSectionID:       m.ClassSectionSubjectTeachersSectionID,
+		ClassSectionSubjectTeachersClassSubjectsID: m.ClassSectionSubjectTeachersClassSubjectsID,
+		ClassSectionSubjectTeachersTeacherID:       m.ClassSectionSubjectTeachersTeacherID,
+		ClassSectionSubjectTeachersIsActive:        m.ClassSectionSubjectTeachersIsActive,
+		ClassSectionSubjectTeachersCreatedAt:       m.ClassSectionSubjectTeachersCreatedAt,
+		ClassSectionSubjectTeachersUpdatedAt:       m.ClassSectionSubjectTeachersUpdatedAt,
+		ClassSectionSubjectTeachersDeletedAt:       deletedAt,
 	}
 }
 

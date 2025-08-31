@@ -91,6 +91,8 @@ type BooksWithUsagesListQuery struct {
    RESPONSE
    ========================= */
 
+// internals/features/lembaga/class_books/dto/books_dto.go
+
 type BooksResponse struct {
 	BooksID       uuid.UUID `json:"books_id"`
 	BooksMasjidID uuid.UUID `json:"books_masjid_id"`
@@ -100,10 +102,12 @@ type BooksResponse struct {
 	BooksDesc   *string `json:"books_desc,omitempty"`
 	BooksSlug   *string `json:"books_slug,omitempty"`
 
-	BooksCreatedAt int64 `json:"books_created_at_unix"`
-	BooksUpdatedAt int64 `json:"books_updated_at_unix"` // NOT NULL di DB
-	BooksDeleted   bool  `json:"books_is_deleted"`
+	// 🔄 ubah dari *_unix (int64) -> time.Time (RFC3339)
+	BooksCreatedAt time.Time `json:"books_created_at"`
+	BooksUpdatedAt time.Time `json:"books_updated_at"`
+	BooksDeleted   bool      `json:"books_is_deleted"`
 }
+
 
 type PageInfo struct {
 	Limit  int `json:"limit"`
@@ -153,17 +157,20 @@ func (r *BooksUpdateRequest) Normalize() {
 
 func ToBooksResponse(m *model.BooksModel) BooksResponse {
 	return BooksResponse{
-		BooksID:        m.BooksID,
-		BooksMasjidID:  m.BooksMasjidID,
-		BooksTitle:     m.BooksTitle,
-		BooksAuthor:    m.BooksAuthor,
-		BooksDesc:      m.BooksDesc,
-		BooksSlug:      m.BooksSlug,
-		BooksCreatedAt: m.BooksCreatedAt.Unix(),
-		BooksUpdatedAt: m.BooksUpdatedAt.Unix(),             // non-nullable
+		BooksID:       m.BooksID,
+		BooksMasjidID: m.BooksMasjidID,
+		BooksTitle:    m.BooksTitle,
+		BooksAuthor:   m.BooksAuthor,
+		BooksDesc:     m.BooksDesc,
+		BooksSlug:     m.BooksSlug,
+
+		// langsung pakai time.Time dari model (Go akan encode RFC3339)
+		BooksCreatedAt: m.BooksCreatedAt,
+		BooksUpdatedAt: m.BooksUpdatedAt,
 		BooksDeleted:   !m.BooksDeletedAt.Time.IsZero(),
 	}
 }
+
 
 func (r *BooksCreateRequest) ToModel() *model.BooksModel {
 	// biarkan autoCreateTime/autoUpdateTime bekerja; created_at akan diisi DB

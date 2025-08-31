@@ -226,21 +226,12 @@ func (ctrl *MasjidAdminController) GetAdminsByMasjid(c *fiber.Ctx) error {
 }
 
 
-/* =========================================================
-   PUT /api/a/masjid-admins/revoke
-   Body:
-     { "masjid_admin_user_id":"...", "masjid_admin_masjid_id":"..." }
-   Behaviour:
-     - Jika target owner → idempotent OK (owner tidak punya record admin).
-     - Jika bukan admin / sudah nonaktif → idempotent OK.
-     - Jika aktif → nonaktifkan.
-   ========================================================= */
-type revokeReq struct {
-	MasjidAdminUserID   string `json:"masjid_admin_user_id"`
-	MasjidAdminMasjidID string `json:"masjid_admin_masjid_id"`
-}
-
 func (ctrl *MasjidAdminController) RevokeAdmin(c *fiber.Ctx) error {
+	type revokeReq struct {
+		MasjidAdminUserID   string `json:"masjid_admin_user_id"`
+		MasjidAdminMasjidID string `json:"masjid_admin_masjid_id"`
+	}
+
 	var req revokeReq
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid input")
@@ -248,7 +239,7 @@ func (ctrl *MasjidAdminController) RevokeAdmin(c *fiber.Ctx) error {
 
 	userID := strings.TrimSpace(req.MasjidAdminUserID)
 	masjidID := strings.TrimSpace(req.MasjidAdminMasjidID)
-	if masjidID == "" { // masih boleh fallback dari header/query/locals
+	if masjidID == "" {
 		masjidID = extractMasjidID(c, "")
 	}
 
@@ -258,48 +249,57 @@ func (ctrl *MasjidAdminController) RevokeAdmin(c *fiber.Ctx) error {
 	if _, ok := mustParseUUID(c, userID, "masjid_admin_user_id"); !ok { return nil }
 	if _, ok := mustParseUUID(c, masjidID, "masjid_admin_masjid_id"); !ok { return nil }
 
-	// Transaksi: revoke admin + demote kalau perlu
-	return ctrl.DB.Transaction(func(tx *gorm.DB) error {
-		// 1) Target owner? → idempotent OK
-		role, err := ctrl.userRole(userID)
-	 if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "User tidak ditemukan")
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil role user")
+	// 1) Cek role di luar transaksi (tidak mengubah state)
+	role, err := ctrl.userRole(userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "User tidak ditemukan")
 		}
-		if role == constants.RoleOwner {
-			return helper.JsonUpdated(c, "Target adalah owner—tidak ada admin yang perlu dicabut (idempotent)", nil)
-		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil role user")
+	}
+	if role == constants.RoleOwner {
+		return helper.JsonUpdated(c, "Target adalah owner—tidak ada admin yang perlu dicabut (idempotent)", nil)
+	}
 
-		// 2) Revoke jika masih aktif
+	// 2) Lakukan perubahan dalam transaksi, tapi JANGAN kirim response di dalamnya
+	var message string
+	err = ctrl.DB.Transaction(func(tx *gorm.DB) error {
+		// Revoke jika masih aktif
 		res := tx.Model(&model.MasjidAdminModel{}).
 			Where("masjid_admin_user_id = ? AND masjid_admin_masjid_id = ? AND masjid_admin_is_active = TRUE",
 				userID, masjidID).
 			Update("masjid_admin_is_active", false)
 		if res.Error != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menonaktifkan admin")
+			return res.Error
 		}
 
-		// 3) Setelah revoke (atau idempotent), cek apakah user masih admin di masjid lain.
+		// Cek apakah ada record admin (aktif/nonaktif) untuk pasangan ini
+		var cnt int64
+		if err := tx.Model(&model.MasjidAdminModel{}).
+			Where("masjid_admin_user_id = ? AND masjid_admin_masjid_id = ?", userID, masjidID).
+			Count(&cnt).Error; err != nil {
+			return err
+		}
+
+		// Demote jika user sudah tidak admin di masjid manapun
 		if err := demoteUserIfNoOtherAdmin(tx, userID); err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui role user")
+			return err
 		}
 
-		if res.RowsAffected == 0 {
-			// Apakah ada record sama sekali (meskipun sudah nonaktif)?
-			var cnt int64
-			if err := tx.Model(&model.MasjidAdminModel{}).
-				Where("masjid_admin_user_id = ? AND masjid_admin_masjid_id = ?", userID, masjidID).
-				Count(&cnt).Error; err != nil {
-			 return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek data admin")
-			}
-			if cnt == 0 {
-				return helper.JsonUpdated(c, "Tidak ada admin untuk user & masjid ini (idempotent)", nil)
-			}
-			return helper.JsonUpdated(c, "Admin sudah nonaktif sebelumnya (idempotent)", nil)
+		// Tentukan pesan hasil (tanpa kirim response)
+		if res.RowsAffected > 0 {
+			message = "Admin berhasil dinonaktifkan"
+		} else if cnt == 0 {
+			message = "Tidak ada admin untuk user & masjid ini (idempotent)"
+		} else {
+			message = "Admin sudah nonaktif sebelumnya (idempotent)"
 		}
-
-		return helper.JsonUpdated(c, "Admin berhasil dinonaktifkan", nil)
+		return nil // <- penting: commit
 	})
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mencabut admin")
+	}
+
+	// 3) Setelah commit, baru kirim response
+	return helper.JsonUpdated(c, message, nil)
 }

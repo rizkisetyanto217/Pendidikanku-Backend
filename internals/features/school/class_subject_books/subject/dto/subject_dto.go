@@ -64,7 +64,7 @@ type SubjectResponse struct {
 	Desc      *string    `json:"subjects_desc,omitempty"`
 	IsActive  bool       `json:"subjects_is_active"`
 	CreatedAt time.Time  `json:"subjects_created_at"`
-	UpdatedAt *time.Time `json:"subjects_updated_at,omitempty"`
+	UpdatedAt time.Time  `json:"subjects_updated_at"` // <- non-pointer, selaras model NOT NULL
 	DeletedAt *time.Time `json:"subjects_deleted_at,omitempty"`
 }
 
@@ -120,6 +120,10 @@ func (r CreateSubjectRequest) ToModel() subjectModel.SubjectsModel {
 }
 
 func FromSubjectModel(m subjectModel.SubjectsModel) SubjectResponse {
+	var deletedAt *time.Time
+	if m.SubjectsDeletedAt.Valid {
+		deletedAt = &m.SubjectsDeletedAt.Time
+	}
 	return SubjectResponse{
 		ID:        m.SubjectsID,
 		MasjidID:  m.SubjectsMasjidID,
@@ -130,9 +134,10 @@ func FromSubjectModel(m subjectModel.SubjectsModel) SubjectResponse {
 		IsActive:  m.SubjectsIsActive,
 		CreatedAt: m.SubjectsCreatedAt,
 		UpdatedAt: m.SubjectsUpdatedAt,
-		DeletedAt: m.SubjectsDeletedAt,
+		DeletedAt: deletedAt, // sekarang aman
 	}
 }
+
 
 func FromSubjectModels(models []subjectModel.SubjectsModel) []SubjectResponse {
 	out := make([]SubjectResponse, 0, len(models))

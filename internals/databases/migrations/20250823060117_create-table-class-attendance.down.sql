@@ -1,138 +1,215 @@
--- =========================================================
--- DOWN MIGRATION
--- =========================================================
+-- =========================================
+-- DOWN Migration (Refactor Final) — destructive & idempotent
+-- Mengembalikan DB ke sebelum UP:
+-- - Drop: user_attendance_urls, user_attendance
+-- - Drop: user_quran_urls, user_quran_records
+-- - Drop: semua trigger & function & index yang dibuat di UP
+-- =========================================
+BEGIN;
 
--- 1) Kembalikan kolom lama di class_attendance_sessions (jika belum ada)
-ALTER TABLE class_attendance_sessions
-  ADD COLUMN IF NOT EXISTS class_attendance_sessions_image_url TEXT,
-  ADD COLUMN IF NOT EXISTS class_attendance_sessions_image_trash_url TEXT,
-  ADD COLUMN IF NOT EXISTS class_attendance_sessions_image_delete_pending_until TIMESTAMPTZ;
+-- ---------------------------------------------------------
+-- D) USER ATTENDANCE URLS (child) — drop triggers, functions, indexes, table
+-- ---------------------------------------------------------
 
--- 2) BACKFILL dari class_attendance_session_url -> kolom lama (1 URL per session)
---    Prioritas: label mengandung 'cover' (case-insensitive), lalu yang paling awal dibuat.
-WITH ranked AS (
-  SELECT
-    u.class_attendance_session_url_session_id AS sid,
-    u.class_attendance_session_url_href       AS href,
-    u.class_attendance_session_url_trash_url  AS trash,
-    u.class_attendance_session_url_delete_pending_until AS due,
-    ROW_NUMBER() OVER (
-      PARTITION BY u.class_attendance_session_url_session_id
-      ORDER BY
-        CASE WHEN COALESCE(u.class_attendance_session_url_label,'') ILIKE '%cover%' THEN 0 ELSE 1 END,
-        u.class_attendance_session_url_created_at ASC,
-        u.class_attendance_session_url_id ASC
-    ) AS rn
-  FROM class_attendance_session_url u
-  WHERE u.class_attendance_session_url_deleted_at IS NULL
-)
-UPDATE class_attendance_sessions s
-SET
-  class_attendance_sessions_image_url = r.href,
-  class_attendance_sessions_image_trash_url = r.trash,
-  class_attendance_sessions_image_delete_pending_until = r.due
-FROM ranked r
-WHERE r.sid = s.class_attendance_sessions_id
-  AND r.rn = 1
-  AND (s.class_attendance_sessions_image_url IS NULL OR btrim(s.class_attendance_sessions_image_url) = '');
-
--- 3) Hapus TRIGGER/FUNCTION di class_attendance_session_url
+-- Drop triggers
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_casu_tenant_guard') THEN
-    EXECUTE 'DROP TRIGGER trg_casu_tenant_guard ON class_attendance_session_url';
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_user_attendance_urls_tenant_guard') THEN
+    DROP TRIGGER trg_user_attendance_urls_tenant_guard ON user_attendance_urls;
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname='fn_casu_tenant_guard') THEN
-    EXECUTE 'DROP FUNCTION fn_casu_tenant_guard()';
-  END IF;
-
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_touch_casu_updated_at') THEN
-    EXECUTE 'DROP TRIGGER trg_touch_casu_updated_at ON class_attendance_session_url';
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname='fn_touch_casu_updated_at') THEN
-    EXECUTE 'DROP FUNCTION fn_touch_casu_updated_at()';
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_touch_user_attendance_urls_updated_at') THEN
+    DROP TRIGGER trg_touch_user_attendance_urls_updated_at ON user_attendance_urls;
   END IF;
 END$$;
 
--- 4) Hapus INDEX di class_attendance_session_url
+-- Drop indexes
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='uq_casu_href_per_session_alive') THEN
-    EXECUTE 'DROP INDEX uq_casu_href_per_session_alive';
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='uq_uau_attendance_href') THEN
+    EXECUTE 'DROP INDEX uq_uau_attendance_href';
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='idx_casu_session_alive') THEN
-    EXECUTE 'DROP INDEX idx_casu_session_alive';
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_uau_attendance_alive') THEN
+    EXECUTE 'DROP INDEX idx_uau_attendance_alive';
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='idx_casu_created_at') THEN
-    EXECUTE 'DROP INDEX idx_casu_created_at';
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='brin_uau_created_at') THEN
+    EXECUTE 'DROP INDEX brin_uau_created_at';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_user_attendance_urls_attendance') THEN
+    EXECUTE 'DROP INDEX idx_user_attendance_urls_attendance';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_user_attendance_urls_masjid_created_at') THEN
+    EXECUTE 'DROP INDEX idx_user_attendance_urls_masjid_created_at';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_uau_uploader_teacher') THEN
+    EXECUTE 'DROP INDEX idx_uau_uploader_teacher';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_uau_uploader_user') THEN
+    EXECUTE 'DROP INDEX idx_uau_uploader_user';
   END IF;
 END$$;
 
--- 5) DROP TABLE class_attendance_session_url
-DROP TABLE IF EXISTS class_attendance_session_url;
-
--- 6) Hapus TRIGGER/FUNCTION yang ditambahkan di class_attendance_sessions (validasi & touch)
+-- Drop functions khusus attendance_urls
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_cas_validate_links') THEN
-    EXECUTE 'DROP TRIGGER trg_cas_validate_links ON class_attendance_sessions';
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname='fn_user_attendance_urls_tenant_guard') THEN
+    DROP FUNCTION fn_user_attendance_urls_tenant_guard() CASCADE;
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'fn_cas_validate_links') THEN
-    EXECUTE 'DROP FUNCTION fn_cas_validate_links()';
-  END IF;
-
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_cas_touch_updated_at') THEN
-    EXECUTE 'DROP TRIGGER trg_cas_touch_updated_at ON class_attendance_sessions';
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'fn_touch_class_attendance_sessions_updated_at') THEN
-    EXECUTE 'DROP FUNCTION fn_touch_class_attendance_sessions_updated_at()';
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname='fn_touch_user_attendance_urls_updated_at') THEN
+    DROP FUNCTION fn_touch_user_attendance_urls_updated_at() CASCADE;
   END IF;
 END$$;
 
--- 7) (OPSIONAL) Hapus index yang dibuat oleh UP pada class_attendance_sessions
---    Uncomment bila ingin benar-benar mengembalikan ke skema tanpa constraint unik tsb.
+-- Drop table
+DROP TABLE IF EXISTS user_attendance_urls;
+
+-- ---------------------------------------------------------
+-- C) USER ATTENDANCE (parent) — drop triggers, functions, indexes, table
+-- ---------------------------------------------------------
+
+-- Drop triggers
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='uq_cas_section_date_when_cs_null') THEN
-    EXECUTE 'DROP INDEX uq_cas_section_date_when_cs_null';
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_user_attendance_tenant_guard') THEN
+    DROP TRIGGER trg_user_attendance_tenant_guard ON user_attendance;
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='uq_cas_section_cs_date_when_cs_not_null') THEN
-    EXECUTE 'DROP INDEX uq_cas_section_cs_date_when_cs_not_null';
-  END IF;
-
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='idx_cas_section') THEN
-    EXECUTE 'DROP INDEX idx_cas_section';
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='idx_cas_masjid') THEN
-    EXECUTE 'DROP INDEX idx_cas_masjid';
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='idx_cas_date') THEN
-    EXECUTE 'DROP INDEX idx_cas_date';
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='idx_cas_class_subject') THEN
-    EXECUTE 'DROP INDEX idx_cas_class_subject';
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='idx_cas_csst') THEN
-    EXECUTE 'DROP INDEX idx_cas_csst';
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='idx_cas_teacher_user') THEN
-    EXECUTE 'DROP INDEX idx_cas_teacher_user';
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_touch_user_attendance_updated_at') THEN
+    DROP TRIGGER trg_touch_user_attendance_updated_at ON user_attendance;
   END IF;
 END$$;
 
--- 8) (OPSIONAL) Hapus FK yang ditambahkan UP
---    WARNING: menghapus FK bisa membuka risiko inkonsistensi. Lanjutkan hanya jika memang perlu.
+-- Drop indexes
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_cas_section_masjid_pair') THEN
-    ALTER TABLE class_attendance_sessions DROP CONSTRAINT fk_cas_section_masjid_pair;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='uq_user_attendance_alive') THEN
+    EXECUTE 'DROP INDEX uq_user_attendance_alive';
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_cas_class_subject') THEN
-    ALTER TABLE class_attendance_sessions DROP CONSTRAINT fk_cas_class_subject;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='brin_user_attendance_created_at') THEN
+    EXECUTE 'DROP INDEX brin_user_attendance_created_at';
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_cas_class_section_subject_teacher') THEN
-    ALTER TABLE class_attendance_sessions DROP CONSTRAINT fk_cas_class_section_subject_teacher;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_user_attendance_session') THEN
+    EXECUTE 'DROP INDEX idx_user_attendance_session';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_user_attendance_user') THEN
+    EXECUTE 'DROP INDEX idx_user_attendance_user';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_user_attendance_status') THEN
+    EXECUTE 'DROP INDEX idx_user_attendance_status';
   END IF;
 END$$;
 
--- Selesai.
+-- Drop functions khusus attendance
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname='fn_user_attendance_tenant_guard') THEN
+    DROP FUNCTION fn_user_attendance_tenant_guard() CASCADE;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname='fn_touch_user_attendance_updated_at') THEN
+    DROP FUNCTION fn_touch_user_attendance_updated_at() CASCADE;
+  END IF;
+END$$;
+
+-- Drop table
+DROP TABLE IF EXISTS user_attendance;
+
+-- ---------------------------------------------------------
+-- B) USER QURAN URLS (child) — drop triggers, functions, indexes, table
+-- ---------------------------------------------------------
+
+-- Drop triggers
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='set_ts_user_quran_urls') THEN
+    DROP TRIGGER set_ts_user_quran_urls ON user_quran_urls;
+  END IF;
+END$$;
+
+-- Drop indexes
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='uq_uqri_record_href') THEN
+    EXECUTE 'DROP INDEX uq_uqri_record_href';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_uqri_record_alive') THEN
+    EXECUTE 'DROP INDEX idx_uqri_record_alive';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='brin_uqri_created_at') THEN
+    EXECUTE 'DROP INDEX brin_uqri_created_at';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_user_quran_urls_record') THEN
+    EXECUTE 'DROP INDEX idx_user_quran_urls_record';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_uqri_created_at') THEN
+    EXECUTE 'DROP INDEX idx_uqri_created_at';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_uqri_uploader_teacher') THEN
+    EXECUTE 'DROP INDEX idx_uqri_uploader_teacher';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_uqri_uploader_user') THEN
+    EXECUTE 'DROP INDEX idx_uqri_uploader_user';
+  END IF;
+END$$;
+
+-- Drop functions khusus quran_urls
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname='trg_set_ts_user_quran_urls') THEN
+    DROP FUNCTION trg_set_ts_user_quran_urls() CASCADE;
+  END IF;
+END$$;
+
+-- Drop table
+DROP TABLE IF EXISTS user_quran_urls;
+
+-- ---------------------------------------------------------
+-- A) USER QURAN RECORDS (parent) — drop triggers, functions, indexes, table
+-- ---------------------------------------------------------
+
+-- Drop trigger
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='set_ts_user_quran_records') THEN
+    DROP TRIGGER set_ts_user_quran_records ON user_quran_records;
+  END IF;
+END$$;
+
+-- Drop indexes
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='gin_uqr_scope_trgm') THEN
+    EXECUTE 'DROP INDEX gin_uqr_scope_trgm';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='brin_uqr_created_at') THEN
+    EXECUTE 'DROP INDEX brin_uqr_created_at';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_user_quran_records_session') THEN
+    EXECUTE 'DROP INDEX idx_user_quran_records_session';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_uqr_masjid_created_at') THEN
+    EXECUTE 'DROP INDEX idx_uqr_masjid_created_at';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_uqr_user_created_at') THEN
+    EXECUTE 'DROP INDEX idx_uqr_user_created_at';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_uqr_source_kind') THEN
+    EXECUTE 'DROP INDEX idx_uqr_source_kind';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_uqr_is_next') THEN
+    EXECUTE 'DROP INDEX idx_uqr_is_next';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname='idx_uqr_teacher') THEN
+    EXECUTE 'DROP INDEX idx_uqr_teacher';
+  END IF;
+END$$;
+
+-- Drop functions khusus quran_records
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname='trg_set_ts_user_quran_records') THEN
+    DROP FUNCTION trg_set_ts_user_quran_records() CASCADE;
+  END IF;
+END$$;
+
+-- Drop table
+DROP TABLE IF EXISTS user_quran_records;
+
+COMMIT;

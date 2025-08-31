@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // SubjectsModel merepresentasikan tabel "subjects" (lihat SQL).
@@ -23,9 +24,10 @@ type SubjectsModel struct {
 
 	SubjectsIsActive bool `gorm:"column:subjects_is_active;not null;default:true" json:"subjects_is_active"`
 
-	SubjectsCreatedAt time.Time  `gorm:"column:subjects_created_at;not null;default:CURRENT_TIMESTAMP" json:"subjects_created_at"`
-	SubjectsUpdatedAt *time.Time `gorm:"column:subjects_updated_at" json:"subjects_updated_at,omitempty"`
-	SubjectsDeletedAt *time.Time `gorm:"column:subjects_deleted_at" json:"subjects_deleted_at,omitempty"`
+	SubjectsCreatedAt time.Time `gorm:"column:subjects_created_at;not null;autoCreateTime"`
+	SubjectsUpdatedAt time.Time `gorm:"column:subjects_updated_at;not null;autoUpdateTime"`
+	SubjectsDeletedAt gorm.DeletedAt `gorm:"column:subjects_deleted_at;index" json:"subjects_deleted_at,omitempty"`
+
 }
 
 func (SubjectsModel) TableName() string { return "subjects" }

@@ -1,5 +1,5 @@
 -- =========================================
--- UP Migration (Refactor Final)
+-- UP Migration (Refactor Final) — FIX masjid_teachers FK
 -- =========================================
 BEGIN;
 
@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS user_quran_records (
     REFERENCES class_attendance_sessions(class_attendance_sessions_id)
     ON DELETE SET NULL,
 
+  -- masih refer ke users (legacy, kalau dipakai)
   user_quran_records_teacher_user_id UUID
     REFERENCES users(id) ON DELETE SET NULL,
 
@@ -33,11 +34,11 @@ CREATE TABLE IF NOT EXISTS user_quran_records (
   user_quran_records_user_note    TEXT,
   user_quran_records_teacher_note TEXT,
 
-  -- ✅ nilai (0..100, boleh desimal)
+  -- nilai (0..100, boleh desimal)
   user_quran_records_score NUMERIC(5,2)
     CHECK (user_quran_records_score >= 0 AND user_quran_records_score <= 100),
 
-  -- ✅ pengganti "next": boolean (nullable)
+  -- pengganti "next": boolean (nullable)
   user_quran_records_is_next BOOLEAN,
 
   user_quran_records_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -45,9 +46,13 @@ CREATE TABLE IF NOT EXISTS user_quran_records (
   user_quran_records_deleted_at TIMESTAMPTZ
 );
 
--- Tambah kolom is_next bila belum ada
+-- Tambah kolom (idempotent)
 ALTER TABLE user_quran_records
   ADD COLUMN IF NOT EXISTS user_quran_records_is_next BOOLEAN;
+
+ALTER TABLE user_quran_records
+  ADD COLUMN IF NOT EXISTS user_quran_records_score NUMERIC(5,2)
+    CHECK (user_quran_records_score >= 0 AND user_quran_records_score <= 100);
 
 -- Migrasi next (VARCHAR) -> is_next (BOOLEAN) jika kolom lama ada
 DO $$
@@ -77,11 +82,6 @@ END$$;
 -- Hapus kolom "status" jika ada
 ALTER TABLE user_quran_records
   DROP COLUMN IF EXISTS user_quran_records_status;
-
--- Tambah kolom score bila belum ada
-ALTER TABLE user_quran_records
-  ADD COLUMN IF NOT EXISTS user_quran_records_score NUMERIC(5,2)
-    CHECK (user_quran_records_score >= 0 AND user_quran_records_score <= 100);
 
 -- Trigger updated_at
 CREATE OR REPLACE FUNCTION trg_set_ts_user_quran_records()
@@ -123,15 +123,15 @@ CREATE INDEX IF NOT EXISTS idx_uqr_teacher
   ON user_quran_records(user_quran_records_teacher_user_id);
 
 CREATE INDEX IF NOT EXISTS gin_uqr_scope_trgm
-  ON user_quran_records USING gin (user_quran_records_scope gin_trgm_ops)
+  ON user_quran_records USING GIN (user_quran_records_scope gin_trgm_ops)
   WHERE user_quran_records_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS brin_uqr_created_at
-  ON user_quran_records USING brin (user_quran_records_created_at);
+  ON user_quran_records USING BRIN (user_quran_records_created_at);
 
 
 -- =========================================
--- B) USER QURAN RECORD IMAGES (child, final)
+-- B) USER QURAN URLS (child)
 -- =========================================
 CREATE TABLE IF NOT EXISTS user_quran_urls (
   user_quran_urls_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -149,18 +149,37 @@ CREATE TABLE IF NOT EXISTS user_quran_urls (
   user_quran_urls_trash_url            TEXT,
   user_quran_urls_delete_pending_until TIMESTAMPTZ,
 
-  -- uploader: bisa dari masjid_teachers atau users (salah satu boleh NULL)
-  user_quran_urls_uploader_teacher_id UUID
-    REFERENCES masjid_teachers(masjid_teachers_id)
-    ON DELETE SET NULL,
-  user_quran_urls_uploader_user_id UUID
-    REFERENCES users(id)
-    ON DELETE SET NULL,
+  -- uploader (salah satu boleh NULL)
+  user_quran_urls_uploader_teacher_id UUID,
+  user_quran_urls_uploader_user_id    UUID
+    REFERENCES users(id) ON DELETE SET NULL,
 
   user_quran_urls_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_quran_urls_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_quran_urls_deleted_at TIMESTAMPTZ
 );
+
+-- Tambahkan FK ke masjid_teachers(masjid_teacher_id) bila tabel & kolomnya ada
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema='public' AND table_name='masjid_teachers'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='masjid_teachers' AND column_name='masjid_teacher_id'
+  ) THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_uqri_uploader_teacher') THEN
+      ALTER TABLE user_quran_urls
+        ADD CONSTRAINT fk_uqri_uploader_teacher
+        FOREIGN KEY (user_quran_urls_uploader_teacher_id)
+        REFERENCES masjid_teachers(masjid_teacher_id)
+        ON DELETE SET NULL;
+    END IF;
+  ELSE
+    RAISE NOTICE 'masjid_teachers / masjid_teacher_id belum ada; lewati FK user_quran_urls → masjid_teachers.';
+  END IF;
+END$$;
 
 -- Trigger updated_at untuk images
 CREATE OR REPLACE FUNCTION trg_set_ts_user_quran_urls()
@@ -201,7 +220,7 @@ CREATE INDEX IF NOT EXISTS idx_uqri_record_alive
   WHERE user_quran_urls_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS brin_uqri_created_at
-  ON user_quran_urls USING brin (user_quran_urls_created_at);
+  ON user_quran_urls USING BRIN (user_quran_urls_created_at);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_uqri_record_href
   ON user_quran_urls(user_quran_urls_record_id, user_quran_urls_href)
@@ -286,7 +305,7 @@ CREATE INDEX IF NOT EXISTS idx_user_attendance_status
   ON user_attendance(user_attendance_status);
 
 CREATE INDEX IF NOT EXISTS brin_user_attendance_created_at
-  ON user_attendance USING brin (user_attendance_created_at);
+  ON user_attendance USING BRIN (user_attendance_created_at);
 
 -- Touch updated_at
 CREATE OR REPLACE FUNCTION fn_touch_user_attendance_updated_at()
@@ -304,7 +323,8 @@ BEGIN
 
   CREATE TRIGGER trg_touch_user_attendance_updated_at
   BEFORE UPDATE ON user_attendance
-  FOR EACH ROW EXECUTE FUNCTION fn_touch_user_attendance_updated_at();
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_touch_user_attendance_updated_at();
 END$$;
 
 -- =========================================
@@ -332,18 +352,37 @@ CREATE TABLE IF NOT EXISTS user_attendance_urls (
   user_attendance_urls_trash_url            TEXT,
   user_attendance_urls_delete_pending_until TIMESTAMPTZ,
 
-  -- uploader: bisa dari masjid_teachers atau users (salah satu/null keduanya ok)
-  user_attendance_urls_uploader_teacher_id UUID
-    REFERENCES masjid_teachers(masjid_teachers_id)
-    ON DELETE SET NULL,
-  user_attendance_urls_uploader_user_id UUID
-    REFERENCES users(id)
-    ON DELETE SET NULL,
+  -- uploader (bisa teacher/user; salah satu/null keduanya ok)
+  user_attendance_urls_uploader_teacher_id UUID,
+  user_attendance_urls_uploader_user_id    UUID
+    REFERENCES users(id) ON DELETE SET NULL,
 
   user_attendance_urls_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_attendance_urls_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_attendance_urls_deleted_at TIMESTAMPTZ
 );
+
+-- Tambahkan FK ke masjid_teachers(masjid_teacher_id) bila tabel & kolomnya ada
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema='public' AND table_name='masjid_teachers'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='masjid_teachers' AND column_name='masjid_teacher_id'
+  ) THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_uau_uploader_teacher') THEN
+      ALTER TABLE user_attendance_urls
+        ADD CONSTRAINT fk_uau_uploader_teacher
+        FOREIGN KEY (user_attendance_urls_uploader_teacher_id)
+        REFERENCES masjid_teachers(masjid_teacher_id)
+        ON DELETE SET NULL;
+    END IF;
+  ELSE
+    RAISE NOTICE 'masjid_teachers / masjid_teacher_id belum ada; lewati FK user_attendance_urls → masjid_teachers.';
+  END IF;
+END$$;
 
 -- Tenant guard: masjid child harus sama dengan masjid parent attendance
 CREATE OR REPLACE FUNCTION fn_user_attendance_urls_tenant_guard()
@@ -396,7 +435,8 @@ BEGIN
 
   CREATE TRIGGER trg_touch_user_attendance_urls_updated_at
   BEFORE UPDATE ON user_attendance_urls
-  FOR EACH ROW EXECUTE FUNCTION fn_touch_user_attendance_urls_updated_at();
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_touch_user_attendance_urls_updated_at();
 END$$;
 
 -- Indexes dasar
@@ -418,12 +458,10 @@ CREATE INDEX IF NOT EXISTS idx_uau_attendance_alive
   WHERE user_attendance_urls_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS brin_uau_created_at
-  ON user_attendance_urls USING brin (user_attendance_urls_created_at);
+  ON user_attendance_urls USING BRIN (user_attendance_urls_created_at);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_uau_attendance_href
   ON user_attendance_urls(user_attendance_urls_attendance_id, user_attendance_urls_href)
   WHERE user_attendance_urls_deleted_at IS NULL;
-
-
 
 COMMIT;

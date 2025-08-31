@@ -12,11 +12,13 @@ import (
 	"image/png"
 	"io"
 	"log"
+	"math"
 	"mime"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,82 +26,311 @@ import (
 	"github.com/chai2010/webp"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"golang.org/x/image/draw"
 )
 
-// ConvertToWebP: decode (jpeg/png/webp) lalu re-encode ke webp
-func ConvertToWebP(file multipart.File, filename string) ([]byte, error) {
-	ext := strings.ToLower(filepath.Ext(filename))
+func getEnv(k string) string { return strings.TrimSpace(os.Getenv(k)) }
 
-	var img image.Image
-	var err error
+func envInt(key string, def int) int {
+	if v := getEnv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return def
+}
+func envFloat(key string, def float32) float32 {
+	if v := getEnv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 32); err == nil && f >= 0 {
+			return float32(f)
+		}
+	}
+	return def
+}
 
-	switch ext {
-	case ".jpg", ".jpeg":
-		img, err = jpeg.Decode(file)
-	case ".png":
-		img, err = png.Decode(file)
-	case ".webp": // sudah webp, tinggal baca langsung
+var (
+	// batas ukuran uploader di controller (tetap dipakai sebagai guard ringan)
+	maxUploadSize = int64(5 * 1024 * 1024)
+)
+
+/* =======================================================================
+   Konfigurasi WebP (ENV-Driven) + Opsi per-call
+======================================================================= */
+
+type WebPOptions struct {
+	MaxW         int     // batas lebar (resize keep-aspect)
+	MaxH         int     // batas tinggi
+	TargetKB     int     // target ukuran; 0 = non-aktif (pakai Quality saja)
+	Quality      float32 // default quality saat TargetKB=0 atau initial guess
+	MinQ         float32 // min quality utk binary search
+	MaxQ         float32 // max quality utk binary search
+	ToleranceKB  int     // toleransi di atas target
+	Lossless     bool    // jarang dipakai; default false (foto = lossy)
+	// + tambahkan di WebPOptions
+	MinW       int     // lebar minimum saat iterative downscale
+	MinH       int     // tinggi minimum
+	ScaleStep  float32 // faktor perkecil tiap iterasi (0<step<1), mis. 0.85 = 85%
+
+}
+
+
+
+
+func defaultWebPOptionsFromEnv() WebPOptions {
+	return WebPOptions{
+		MaxW:        envInt("IMAGE_WEBP_MAX_W", 1600),
+		MaxH:        envInt("IMAGE_WEBP_MAX_H", 1600),
+		TargetKB:    envInt("IMAGE_WEBP_TARGET_KB", 0),
+		Quality:     envFloat("IMAGE_WEBP_QUALITY", 80),
+		MinQ:        envFloat("IMAGE_WEBP_MIN_Q", 45),
+		MaxQ:        envFloat("IMAGE_WEBP_MAX_Q", 85),
+		ToleranceKB: envInt("IMAGE_WEBP_TOLERANCE_KB", 8),
+		Lossless:    false,
+		MinW:      envInt("IMAGE_WEBP_MIN_W", 480),
+		MinH:      envInt("IMAGE_WEBP_MIN_H", 480),
+		ScaleStep: envFloat("IMAGE_WEBP_SCALE_STEP", 0.85),
+	}
+}
+
+/* =======================================================================
+   Decode gambar (jpeg/png/webp) dari []byte dengan sniff MIME
+======================================================================= */
+
+func decodeImage(all []byte, filename string) (image.Image, error) {
+	if len(all) == 0 {
+		return nil, fmt.Errorf("empty file")
+	}
+	head := all
+	if len(head) > 512 {
+		head = head[:512]
+	}
+	ct := http.DetectContentType(head)
+
+	var (
+		img image.Image
+		err error
+	)
+
+	switch {
+	case strings.Contains(ct, "jpeg"):
+		img, err = jpeg.Decode(bytes.NewReader(all))
+	case strings.Contains(ct, "png"):
+		img, err = png.Decode(bytes.NewReader(all))
+	case strings.Contains(ct, "webp"):
+		img, err = webp.Decode(bytes.NewReader(all))
+	default:
+		// fallback by extension
+		ext := strings.ToLower(filepath.Ext(filename))
+		switch ext {
+		case ".jpg", ".jpeg":
+			img, err = jpeg.Decode(bytes.NewReader(all))
+		case ".png":
+			img, err = png.Decode(bytes.NewReader(all))
+		case ".webp":
+			img, err = webp.Decode(bytes.NewReader(all))
+		default:
+			return nil, fmt.Errorf("format tidak didukung: %s / %s", ct, ext)
+		}
+	}
+	return img, err
+}
+
+/* =======================================================================
+   Resize helper (keep aspect). Pakai CatmullRom (kualitas bagus).
+======================================================================= */
+
+func downscaleIfNeeded(src image.Image, maxW, maxH int) image.Image {
+	if maxW <= 0 && maxH <= 0 {
+		return src
+	}
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if (maxW > 0 && w > maxW) || (maxH > 0 && h > maxH) {
+		scale := 1.0
+		if maxW > 0 {
+			scale = math.Min(scale, float64(maxW)/float64(w))
+		}
+		if maxH > 0 {
+			scale = math.Min(scale, float64(maxH)/float64(h))
+		}
+		nw := int(math.Round(float64(w) * scale))
+		nh := int(math.Round(float64(h) * scale))
+		if nw < 1 {
+			nw = 1
+		}
+		if nh < 1 {
+			nh = 1
+		}
+		dst := image.NewRGBA(image.Rect(0, 0, nw, nh))
+		draw.CatmullRom.Scale(dst, dst.Bounds(), src, b, draw.Over, nil)
+		return dst
+	}
+	return src
+}
+
+/* =======================================================================
+   Encode WebP
+   - Jika TargetKB > 0 → binary search quality hingga <= target+tol
+   - Jika TargetKB = 0 → encode sekali dengan Quality
+======================================================================= */
+
+func encodeToWebP(img image.Image, opt WebPOptions) ([]byte, error) {
+	// Lossless langsung encode (jarang dipakai untuk foto)
+	if opt.Lossless {
 		buf := new(bytes.Buffer)
-		if _, err := buf.ReadFrom(file); err != nil {
+		if err := webp.Encode(buf, img, &webp.Options{Lossless: true}); err != nil {
 			return nil, err
 		}
 		return buf.Bytes(), nil
-	default:
-		return nil, fmt.Errorf("format tidak didukung: %s", ext)
 	}
+
+	// Helper: encode dengan quality tertentu
+	encodeQ := func(im image.Image, q float32) ([]byte, error) {
+		buf := new(bytes.Buffer)
+		if err := webp.Encode(buf, im, &webp.Options{Lossless: false, Quality: q}); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
+	}
+
+	// Tanpa target ukuran → encode sekali
+	if opt.TargetKB <= 0 {
+		q := opt.Quality
+		if q <= 0 {
+			q = 80
+		}
+		return encodeQ(img, q)
+	}
+
+	target := opt.TargetKB * 1024
+	tol := opt.ToleranceKB * 1024
+	if tol <= 0 {
+		tol = 8 * 1024
+	}
+	minQ := opt.MinQ
+	maxQ := opt.MaxQ
+	if minQ <= 0 { minQ = 45 }
+	if maxQ <= 0 { maxQ = 85 }
+	if minQ > maxQ { minQ, maxQ = maxQ, minQ }
+
+	minW := opt.MinW
+	minH := opt.MinH
+	if minW <= 0 { minW = 480 }
+	if minH <= 0 { minH = 480 }
+	step := opt.ScaleStep
+	if step <= 0 || step >= 1 { step = 0.85 }
+
+	// Mulai dari img yang sudah di-downscale awal (di ConvertToWebPWithOptions)
+	cur := img
+	last := []byte(nil)
+
+	// Ulang sampai masuk target atau mentok minimum size
+	for attempt := 0; attempt < 6; attempt++ {
+		// ---- Binary search quality pada dimensi saat ini ----
+		low, high := minQ, maxQ
+		best := []byte(nil)
+
+		for i := 0; i < 8; i++ { // 7–8 iterasi cukup
+			q := (low + high) / 2
+			data, err := encodeQ(cur, q)
+			if err != nil {
+				return nil, err
+			}
+			if len(data) <= target+tol {
+				best = data
+				high = q // coba kompresi lebih tinggi (q lebih kecil)
+			} else {
+				low = q // masih gede → turunkan quality
+			}
+		}
+		if best == nil {
+			// fallback pakai low
+			var err error
+			best, err = encodeQ(cur, low)
+			if err != nil { return nil, err }
+		}
+		last = best
+
+		// Sudah pas?
+		if len(best) <= target+tol {
+			return best, nil
+		}
+
+		// Belum pas → perkecil dimensi lagi (iterative downscale)
+		b := cur.Bounds()
+		cw, ch := b.Dx(), b.Dy()
+		if cw <= minW && ch <= minH {
+			// Udah mentok minimum — kembalikan hasil terakhir terbaik
+			return best, nil
+		}
+
+		// Estimasi skala: gunakan sqrt rasio target/actual, lalu kalikan safety 0.95
+		ratio := float64(target+tol) / float64(len(best))
+		scale := math.Sqrt(ratio) * 0.95
+		if scale >= 1.0 {
+			scale = float64(step) // fallback kecilin sedikit
+		}
+		// clamp ke step maksimum (jangan terlalu agresif turun sekaligus)
+		if scale > float64(step) {
+			scale = float64(step)
+		} else if scale < 0.5 {
+			scale = 0.5
+		}
+
+		nw := int(math.Round(float64(cw) * scale))
+		nh := int(math.Round(float64(ch) * scale))
+		if nw < minW { nw = minW }
+		if nh < minH { nh = minH }
+		if nw >= cw && nh >= ch {
+			// tidak mengecil → paksa step
+			nw = int(float64(cw) * float64(step))
+			nh = int(float64(ch) * float64(step))
+			if nw < minW { nw = minW }
+			if nh < minH { nh = minH }
+		}
+
+		dst := image.NewRGBA(image.Rect(0, 0, nw, nh))
+		draw.CatmullRom.Scale(dst, dst.Bounds(), cur, b, draw.Over, nil)
+		cur = dst
+	}
+
+	// Fallback: kembalikan hasil terakhir
+	return last, nil
+}
+
+/* =======================================================================
+   API utama untuk re-encode: ConvertToWebP / ConvertToWebPWithOptions
+======================================================================= */
+
+// ConvertToWebP (kompat lama): pakai opsi dari ENV (resize + Q/target)
+func ConvertToWebP(file multipart.File, filename string) ([]byte, error) {
+	opts := defaultWebPOptionsFromEnv()
+	return ConvertToWebPWithOptions(file, filename, opts)
+}
+
+// ConvertToWebPWithOptions: baca → decode → resize (opsional) → encode webp
+func ConvertToWebPWithOptions(file multipart.File, filename string, opts WebPOptions) ([]byte, error) {
+	all, err := io.ReadAll(file)
+	if err != nil {
+		return nil, err
+	}
+	if len(all) == 0 {
+		return nil, fmt.Errorf("empty file")
+	}
+
+	img, err := decodeImage(all, filename)
 	if err != nil {
 		return nil, err
 	}
 
-	buf := new(bytes.Buffer)
-	// quality bisa 80-95, sesuaikan
-	if err := webp.Encode(buf, img, &webp.Options{Lossless: false, Quality: 85}); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	img = downscaleIfNeeded(img, opts.MaxW, opts.MaxH)
+	return encodeToWebP(img, opts)
 }
 
-// UploadAsWebP: konversi dulu ke WebP, lalu upload dengan ekstensi .webp
-func (s *OSSService) UploadAsWebP(ctx context.Context, fh *multipart.FileHeader, keyPrefix string) (string, error) {
-	src, err := fh.Open()
-	if err != nil {
-		return "", fmt.Errorf("open file: %w", err)
-	}
-	defer src.Close()
+/* =======================================================================
+   OSS Service (tetap kompat)
+======================================================================= */
 
-	webpData, err := ConvertToWebP(src, fh.Filename)
-	if err != nil {
-		return "", err
-	}
-
-	// ganti ekstensi jadi .webp
-	base := strings.TrimSuffix(fh.Filename, filepath.Ext(fh.Filename))
-	key := s.buildObjectKey(base + ".webp")
-	if keyPrefix != "" {
-		key = keyPrefix + "/" + key
-	}
-
-	// Upload ke OSS
-	opts := []oss.Option{
-		oss.WithContext(ctx),
-		oss.ContentType("image/webp"),
-		oss.ContentDisposition("inline"),
-	}
-	if err := s.Bucket.PutObject(key, bytes.NewReader(webpData), opts...); err != nil {
-		return "", err
-	}
-	return s.PublicURL(key), nil
-}
-
-
-func init() {
-	// Daftarkan beberapa MIME yang mungkin belum dikenal environment tertentu
-	_ = mime.AddExtensionType(".webp", "image/webp")
-	_ = mime.AddExtensionType(".avif", "image/avif")
-	_ = mime.AddExtensionType(".svg", "image/svg+xml")
-}
-
-// OSSService membungkus client + bucket + info env
 type OSSService struct {
 	Client     *oss.Client
 	Bucket     *oss.Bucket
@@ -108,14 +339,12 @@ type OSSService struct {
 	Prefix     string // optional: "uploads/"
 }
 
-// NewOSSServiceFromEnv: inisialisasi dari ENV + verifikasi ringan lokasi bucket
-// Env: ALI_OSS_ENDPOINT, ALI_OSS_ACCESS_KEY, ALI_OSS_SECRET_KEY, ALI_OSS_SECURITY_TOKEN (opsional), ALI_OSS_BUCKET
 func NewOSSServiceFromEnv(prefix string) (*OSSService, error) {
-	endpoint := strings.TrimSpace(getEnv("ALI_OSS_ENDPOINT"))
-	ak := strings.TrimSpace(getEnv("ALI_OSS_ACCESS_KEY"))
-	sk := strings.TrimSpace(getEnv("ALI_OSS_SECRET_KEY"))
-	sts := strings.TrimSpace(getEnv("ALI_OSS_SECURITY_TOKEN"))
-	bucketName := strings.TrimSpace(getEnv("ALI_OSS_BUCKET"))
+	endpoint := getEnv("ALI_OSS_ENDPOINT")
+	ak := getEnv("ALI_OSS_ACCESS_KEY")
+	sk := getEnv("ALI_OSS_SECRET_KEY")
+	sts := getEnv("ALI_OSS_SECURITY_TOKEN")
+	bucketName := getEnv("ALI_OSS_BUCKET")
 	if endpoint == "" || ak == "" || sk == "" || bucketName == "" {
 		return nil, fmt.Errorf("missing env: ALI_OSS_ENDPOINT/ACCESS_KEY/SECRET_KEY/BUCKET")
 	}
@@ -138,7 +367,7 @@ func NewOSSServiceFromEnv(prefix string) (*OSSService, error) {
 		return nil, fmt.Errorf("client.Bucket: %w", err)
 	}
 
-	// Verifikasi ringan lokasi bucket (boleh dilewati bila ditolak RAM policy)
+	// Verifikasi ringan lokasi bucket
 	if loc, err := client.GetBucketLocation(bucketName); err != nil {
 		if se, ok := err.(oss.ServiceError); ok && se.StatusCode == 403 && se.Code == "AccessDenied" {
 			log.Printf("[OSS] warn: skip location check due to AccessDenied (bucket=%s). Continuing.", bucketName)
@@ -158,82 +387,59 @@ func NewOSSServiceFromEnv(prefix string) (*OSSService, error) {
 	}, nil
 }
 
-// -------------------- PUBLIC UTIL --------------------
+/* =======================================================================
+   Upload helpers
+======================================================================= */
 
-// PublicURL menebak URL publik (untuk bucket public-read) atau override via ALI_OSS_PUBLIC_BASE
-func (s *OSSService) PublicURL(key string) string {
-	if key == "" {
-		return ""
-	}
-	if base := strings.TrimSpace(os.Getenv("ALI_OSS_PUBLIC_BASE")); base != "" {
-		return strings.TrimRight(base, "/") + "/" + key
-	}
-	if s.Endpoint == "" || s.BucketName == "" {
-		return ""
-	}
-	end := s.Endpoint
-	end = strings.TrimPrefix(end, "https://")
-	end = strings.TrimPrefix(end, "http://")
-	return fmt.Sprintf("https://%s.%s/%s", s.BucketName, end, key)
+// UploadAsWebP: kompat lama → gunakan opsi dari ENV
+func (s *OSSService) UploadAsWebP(ctx context.Context, fh *multipart.FileHeader, keyPrefix string) (string, error) {
+	return s.UploadAsWebPWithOptions(ctx, fh, keyPrefix, defaultWebPOptionsFromEnv())
 }
 
-// ExtractKeyFromPublicURL: mengembalikan object key dari URL publik
-// - Jika ALI_OSS_PUBLIC_BASE diset, diekstrak relatif terhadap base itu.
-// - Jika tidak, fallback pola "https://bucket.endpoint/<key>"
-func ExtractKeyFromPublicURL(publicURL string) (string, error) {
-	if publicURL == "" {
-		return "", fmt.Errorf("empty url")
+// UploadAsWebPWithOptions: recompress ke webp sesuai opsi, lalu upload .webp
+func (s *OSSService) UploadAsWebPWithOptions(ctx context.Context, fh *multipart.FileHeader, keyPrefix string, opt WebPOptions) (string, error) {
+	if fh == nil {
+		return "", fmt.Errorf("nil file header")
+	}
+	if fh.Size > maxUploadSize {
+		return "", fmt.Errorf("file too large (max %d bytes)", maxUploadSize)
 	}
 
-	// 1) coba dengan ALI_OSS_PUBLIC_BASE
-	if base := strings.TrimSpace(os.Getenv("ALI_OSS_PUBLIC_BASE")); base != "" {
-		base = strings.TrimRight(base, "/") + "/"
-		if strings.HasPrefix(publicURL, base) {
-			return strings.TrimPrefix(publicURL, base), nil
-		}
-	}
-
-	// 2) fallback: hapus scheme lalu ambil path setelah domain
-	u := publicURL
-	if i := strings.Index(u, "://"); i >= 0 {
-		u = u[i+3:]
-	}
-	if i := strings.Index(u, "/"); i >= 0 {
-		return u[i+1:], nil
-	}
-	return "", fmt.Errorf("cannot extract key from url: %s", publicURL)
-}
-
-// SignURLGET buat link sementara GET
-func (s *OSSService) SignURLGET(key string, expire time.Duration) (string, error) {
-	return s.Bucket.SignURL(key, oss.HTTPGet, int64(expire.Seconds()))
-}
-
-// SignURLPUT buat link sementara PUT (direct upload dari client)
-func (s *OSSService) SignURLPUT(key string, expire time.Duration, contentType string) (string, error) {
-	opts := []oss.Option{}
-	if contentType != "" {
-		opts = append(opts, oss.ContentType(contentType))
-	}
-	return s.Bucket.SignURL(key, oss.HTTPPut, int64(expire.Seconds()), opts...)
-}
-
-// Exists cek apakah object ada (HEAD)
-func (s *OSSService) Exists(ctx context.Context, key string) (bool, error) {
-	_, err := s.Bucket.GetObjectMeta(key, oss.WithContext(ctx))
+	src, err := fh.Open()
 	if err != nil {
-		if isNotFound(err) {
-			return false, nil
-		}
-		return false, err
+		return "", fmt.Errorf("open file: %w", err)
 	}
-	return true, nil
+	defer src.Close()
+
+	webpData, err := ConvertToWebPWithOptions(src, fh.Filename, opt)
+	if err != nil {
+		low := strings.ToLower(err.Error())
+		if strings.Contains(low, "format tidak didukung") {
+			return "", fiber.NewError(fiber.StatusUnsupportedMediaType, "Unsupported image format (pakai jpg/png/webp)")
+		}
+		return "", err
+	}
+
+	// ganti ekstensi jadi .webp
+	base := strings.TrimSuffix(fh.Filename, filepath.Ext(fh.Filename))
+	key := s.buildObjectKey(base + ".webp")
+	if keyPrefix != "" {
+		key = strings.Trim(keyPrefix, "/") + "/" + key
+	}
+
+	opts := []oss.Option{
+		oss.WithContext(ctx),
+		oss.ContentType("image/webp"),
+		oss.ContentDisposition("inline"),
+		oss.CacheControl("public, max-age=31536000, immutable"),
+	}
+	if err := s.Bucket.PutObject(key, bytes.NewReader(webpData), opts...); err != nil {
+		return "", err
+	}
+	return s.PublicURL(key), nil
 }
 
-// -------------------- CREATE (UPLOAD) --------------------
-
-// UploadFromFormFile: upload dari multipart file + set header agar inline dan Content-Type benar.
-// Menghasilkan key final dan contentType terdeteksi.
+// UploadFromFormFile: upload apa adanya (tanpa recompress)
 func (s *OSSService) UploadFromFormFile(ctx context.Context, fh *multipart.FileHeader) (string, string, error) {
 	if fh == nil {
 		return "", "", fmt.Errorf("nil file header")
@@ -263,7 +469,6 @@ func (s *OSSService) UploadFromFormFile(ctx context.Context, fh *multipart.FileH
 	return key, ct, nil
 }
 
-// UploadStream: upload dari io.Reader/Seeker (misal bytes.Reader)
 func (s *OSSService) UploadStream(ctx context.Context, key string, r io.Reader, contentType string, inline bool, cacheForever bool) error {
 	if key == "" {
 		return fmt.Errorf("empty key")
@@ -284,9 +489,10 @@ func (s *OSSService) UploadStream(ctx context.Context, key string, r io.Reader, 
 	return s.Bucket.PutObject(key, r, opts...)
 }
 
-// -------------------- UPDATE --------------------
+/* =======================================================================
+   Update & Delete
+======================================================================= */
 
-// UpdateMeta: perbarui metadata (tanpa reupload) via CopyObject+MetaReplace
 func (s *OSSService) UpdateMeta(ctx context.Context, key string, newContentType string, inline bool, cacheForever bool) error {
 	if key == "" {
 		return fmt.Errorf("empty key")
@@ -312,7 +518,6 @@ func (s *OSSService) UpdateMeta(ctx context.Context, key string, newContentType 
 	return err
 }
 
-// ReplaceObject: ganti isi object dari sourceKey ke dstKey (server-side copy) + set metadata baru
 func (s *OSSService) ReplaceObject(ctx context.Context, dstKey, srcKey string, contentType string, inline bool, cacheForever bool) error {
 	if dstKey == "" || srcKey == "" {
 		return fmt.Errorf("empty key")
@@ -334,8 +539,6 @@ func (s *OSSService) ReplaceObject(ctx context.Context, dstKey, srcKey string, c
 	return err
 }
 
-// -------------------- DELETE --------------------
-
 func (s *OSSService) DeleteObject(ctx context.Context, key string) error {
 	return s.Bucket.DeleteObject(key, oss.WithContext(ctx))
 }
@@ -348,7 +551,49 @@ func (s *OSSService) DeleteObjects(ctx context.Context, keys []string) error {
 	return err
 }
 
-// -------------------- INTERNAL UTILS --------------------
+/* =======================================================================
+   Public URL & Key utils
+======================================================================= */
+
+func (s *OSSService) PublicURL(key string) string {
+	if key == "" {
+		return ""
+	}
+	if base := strings.TrimSpace(os.Getenv("ALI_OSS_PUBLIC_BASE")); base != "" {
+		return strings.TrimRight(base, "/") + "/" + key
+	}
+	if s.Endpoint == "" || s.BucketName == "" {
+		return ""
+	}
+	end := s.Endpoint
+	end = strings.TrimPrefix(end, "https://")
+	end = strings.TrimPrefix(end, "http://")
+	return fmt.Sprintf("https://%s.%s/%s", s.BucketName, end, key)
+}
+
+func ExtractKeyFromPublicURL(publicURL string) (string, error) {
+	if publicURL == "" {
+		return "", fmt.Errorf("empty url")
+	}
+	if base := strings.TrimSpace(os.Getenv("ALI_OSS_PUBLIC_BASE")); base != "" {
+		base = strings.TrimRight(base, "/") + "/"
+		if strings.HasPrefix(publicURL, base) {
+			return strings.TrimPrefix(publicURL, base), nil
+		}
+	}
+	u := publicURL
+	if i := strings.Index(u, "://"); i >= 0 {
+		u = u[i+3:]
+	}
+	if i := strings.Index(u, "/"); i >= 0 {
+		return u[i+1:], nil
+	}
+	return "", fmt.Errorf("cannot extract key from url: %s", publicURL)
+}
+
+/* =======================================================================
+   Misc utils
+======================================================================= */
 
 func (s *OSSService) buildObjectKey(filename string) string {
 	ext := strings.ToLower(filepath.Ext(filename))
@@ -388,12 +633,11 @@ func randHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// detectContentType: tentukan contentType dari ekstensi + sniff 512B, lalu hard-override utk jenis tertentu
+// detectContentType: tentukan contentType dari ekstensi + sniff 512B, lalu hard-override utk format modern
 func detectContentType(src multipart.File, filename string) (string, io.Reader, error) {
 	ext := strings.ToLower(filepath.Ext(filename))
 	ct := mime.TypeByExtension(ext)
 
-	// Sniff 512 byte
 	head := make([]byte, 512)
 	n, _ := io.ReadFull(io.LimitReader(src, 512), head)
 	if seeker, ok := src.(io.Seeker); ok {
@@ -407,7 +651,6 @@ func detectContentType(src multipart.File, filename string) (string, io.Reader, 
 		}
 	}
 
-	// Hard override agar tidak jatuh ke octet-stream untuk format gambar modern
 	switch ext {
 	case ".webp":
 		ct = "image/webp"
@@ -416,18 +659,14 @@ func detectContentType(src multipart.File, filename string) (string, io.Reader, 
 	case ".svg":
 		ct = "image/svg+xml"
 	}
-
 	if ct == "" {
 		ct = "application/octet-stream"
 	}
 
-	// Jika seekable, kembalikan src setelah reset
 	if seeker, ok := src.(io.Seeker); ok {
 		seeker.Seek(0, io.SeekStart)
 		return ct, src, nil
 	}
-
-	// Jika tidak seekable (jarang), gabungkan head + sisa
 	combined := append([]byte{}, head[:n]...)
 	body, _ := io.ReadAll(src)
 	combined = append(combined, body...)
@@ -441,9 +680,9 @@ func isNotFound(err error) bool {
 	return false
 }
 
-func getEnv(k string) string { return strings.TrimSpace(os.Getenv(k)) }
-
-// -------------------- PATH & SUBDIR HELPERS --------------------
+/* =======================================================================
+   Path helpers & convenience wrappers (kompat lama)
+======================================================================= */
 
 func safePart(s string) string {
 	s = strings.TrimSpace(s)
@@ -465,7 +704,7 @@ func joinParts(parts ...string) string {
 	return strings.Join(clean, "/")
 }
 
-// UploadFromFormFileToDir: mirip UploadFromFormFile tetapi key berada di sub-direktori `dir`
+// UploadFromFormFileToDir: upload apa adanya (tanpa recompress) ke subdir
 func (s *OSSService) UploadFromFormFileToDir(ctx context.Context, dir string, fh *multipart.FileHeader) (string, string, error) {
 	if fh == nil {
 		return "", "", fmt.Errorf("nil file header")
@@ -512,10 +751,7 @@ func (s *OSSService) UploadFromFormFileToDir(ctx context.Context, dir string, fh
 	return key, ct, nil
 }
 
-// -------------------- HIGH-LEVEL HELPERS --------------------
-
-// UploadImageToOSSScoped: convenience upload ke path "masjids/{masjid_id}/{kategori}"
-// Gunakan NewOSSServiceFromEnv("") agar tersimpan di root bucket (tanpa "uploads")
+// UploadImageToOSSScoped: helper praktis ke "masjids/{masjid_id}/{kategori}" (tanpa recompress)
 func UploadImageToOSSScoped(masjidID uuid.UUID, kategori string, fh *multipart.FileHeader) (string, error) {
 	if masjidID == uuid.Nil {
 		return "", fmt.Errorf("masjidID kosong/invalid")
@@ -524,7 +760,6 @@ func UploadImageToOSSScoped(masjidID uuid.UUID, kategori string, fh *multipart.F
 		kategori = "misc"
 	}
 
-	// base prefix kosong → langsung root bucket
 	svc, err := NewOSSServiceFromEnv("")
 	if err != nil {
 		return "", err
@@ -541,24 +776,15 @@ func UploadImageToOSSScoped(masjidID uuid.UUID, kategori string, fh *multipart.F
 	return svc.PublicURL(key), nil
 }
 
-// UploadImageToOSS: helper lama (kompatibilitas)
-// Inisialisasi OSSService dari env tiap dipanggil (cukup untuk use-case ringan).
-// uploadImageToOSS: selalu upload sebagai WebP (jpg/png dikonversi; webp passthrough)
-// uploadImageToOSS: selalu upload sebagai WebP (jpg/png dikonversi; webp passthrough)
-func UploadImageToOSS(
-	ctx context.Context,
-	svc *OSSService,           // <- pakai tipe lokal, bukan helperOSS.OSSService
-	masjidID uuid.UUID,
-	slot string,
-	fh *multipart.FileHeader,
-) (string, error) {
+// UploadImageToOSS: helper lama — selalu convert ke WebP
+func UploadImageToOSS(ctx context.Context, svc *OSSService, masjidID uuid.UUID, slot string, fh *multipart.FileHeader) (string, error) {
 	if fh == nil {
 		return "", fiber.NewError(fiber.StatusBadRequest, "File tidak ditemukan")
 	}
 	if masjidID == uuid.Nil {
 		return "", fiber.NewError(fiber.StatusBadRequest, "masjid_id tidak valid")
 	}
-	if fh.Size > 5*1024*1024 {
+	if fh.Size > maxUploadSize {
 		return "", fiber.NewError(fiber.StatusRequestEntityTooLarge, "Ukuran gambar maksimal 5MB")
 	}
 
@@ -578,10 +804,10 @@ func UploadImageToOSS(
 	return url, nil
 }
 
+/* =======================================================================
+   Delete helpers by public URL
+======================================================================= */
 
-// -------------------- DELETE BY PUBLIC URL (SINGLE & BATCH) --------------------
-
-// DeleteByPublicURL (method): hapus satu objek berdasarkan public URL.
 func (s *OSSService) DeleteByPublicURL(ctx context.Context, publicURL string) error {
 	if strings.TrimSpace(publicURL) == "" {
 		return fmt.Errorf("empty public url")
@@ -593,24 +819,17 @@ func (s *OSSService) DeleteByPublicURL(ctx context.Context, publicURL string) er
 	return s.DeleteObject(ctx, key)
 }
 
-// DeleteManyByPublicURL (method): hapus banyak objek berdasarkan public URL.
-// Akan melakukan chunking ≤ 1000 key per request (batas DeleteObjects OSS).
-// Mengembalikan daftar URL yang sukses dihapus dan map error per-URL yang gagal.
 func (s *OSSService) DeleteManyByPublicURL(ctx context.Context, publicURLs []string) (deleted []string, failed map[string]error) {
 	failed = make(map[string]error)
 	if len(publicURLs) == 0 {
 		return nil, failed
 	}
 
-	// 1) Ubah URL -> key, kumpulkan mapping untuk laporan yang jelas
-	type item struct {
-		url string
-		key string
-	}
+	type item struct{ url, key string }
 	items := make([]item, 0, len(publicURLs))
 	for _, u := range publicURLs {
 		u = strings.TrimSpace(u)
-	if u == "" {
+		if u == "" {
 			continue
 		}
 		key, err := ExtractKeyFromPublicURL(u)
@@ -624,7 +843,6 @@ func (s *OSSService) DeleteManyByPublicURL(ctx context.Context, publicURLs []str
 		return nil, failed
 	}
 
-	// 2) Chunking keys (≤1000 per batch)
 	const maxChunk = 1000
 	for start := 0; start < len(items); start += maxChunk {
 		end := start + maxChunk
@@ -640,29 +858,21 @@ func (s *OSSService) DeleteManyByPublicURL(ctx context.Context, publicURLs []str
 			urlByKey[it.key] = it.url
 		}
 
-		// 3) DeleteObjects batch
-		if _, err := s.Bucket.DeleteObjects(keys, oss.WithContext(ctx)); err != nil {
-			// jika ingin lebih granular, bisa parse ServiceError.XML
+		if _, err := s.Bucket.DeleteObjects(keys, oss.WithContext(context.Background())); err != nil {
 			for _, k := range keys {
 				u := urlByKey[k]
 				failed[u] = fmt.Errorf("delete: %w", err)
 			}
 			continue
 		}
-
-		// 4) Tandai berhasil
 		for _, k := range keys {
 			deleted = append(deleted, urlByKey[k])
 		}
 	}
-
 	return deleted, failed
 }
 
-// -------------------- CONVENIENCE (INISIASI DARI ENV) --------------------
-
-// DeleteByPublicURLENV: helper cepat untuk hapus satu URL tanpa harus bikin service manual.
-// Gunakan NewOSSServiceFromEnv("") agar konsisten dengan UploadImageToOSSScoped (root bucket).
+// Convenient wrappers pakai ENV
 func DeleteByPublicURLENV(publicURL string, timeout time.Duration) error {
 	if timeout <= 0 {
 		timeout = 15 * time.Second
@@ -676,8 +886,6 @@ func DeleteByPublicURLENV(publicURL string, timeout time.Duration) error {
 	return svc.DeleteByPublicURL(ctx, publicURL)
 }
 
-// DeleteManyByPublicURLENV: helper cepat batch-delete berdasarkan public URL.
-// Mengembalikan daftar yang sukses dan map error per URL.
 func DeleteManyByPublicURLENV(publicURLs []string, timeoutPerBatch time.Duration) (deleted []string, failed map[string]error, err error) {
 	if timeoutPerBatch <= 0 {
 		timeoutPerBatch = 30 * time.Second
@@ -690,4 +898,10 @@ func DeleteManyByPublicURLENV(publicURLs []string, timeoutPerBatch time.Duration
 	defer cancel()
 	deleted, failed = svc.DeleteManyByPublicURL(ctx, publicURLs)
 	return deleted, failed, nil
+}
+
+func init() {
+	_ = mime.AddExtensionType(".webp", "image/webp")
+	_ = mime.AddExtensionType(".avif", "image/avif")
+	_ = mime.AddExtensionType(".svg", "image/svg+xml")
 }

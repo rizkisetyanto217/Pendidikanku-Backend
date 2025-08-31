@@ -79,13 +79,20 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 		}
 		typ := strings.TrimSpace(c.FormValue("book_url_type"))
 
-		// Ambil file (opsional, tapi minimal harus ada file ATAU href)
-		fh, ferr := c.FormFile("file")
+		// --- Ambil file (prioritas: book_url_href -> file -> book_url_file)
+		var (
+			href string
+		)
+		fh, ferr := c.FormFile("book_url_href") // <- dukung "book_url_href" sebagai FILE
+		if ferr != nil || fh == nil || fh.Size == 0 {
+			fh, ferr = c.FormFile("file") // kompat lama
+		}
+		if ferr != nil || fh == nil || fh.Size == 0 {
+			fh, ferr = c.FormFile("book_url_file") // alternatif
+		}
 
-		// Jika ada file → upload + convert webp
-		var href string
 		if ferr == nil && fh != nil && fh.Size > 0 {
-			// Batas ukuran (5MB contoh; sesuaikan kalau mau)
+			// --- Mode FILE ---
 			if fh.Size > 5*1024*1024 {
 				return fiber.NewError(fiber.StatusRequestEntityTooLarge, "Ukuran gambar maksimal 5MB")
 			}
@@ -95,7 +102,6 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 				return fiber.NewError(fiber.StatusBadGateway, "OSS init gagal")
 			}
 
-			// Folder tujuan
 			dir := fmt.Sprintf("masjids/%s/book-urls/%s", masjidID.String(), bookID.String())
 			newURL, upErr := svc.UploadAsWebP(c.Context(), fh, dir)
 			if upErr != nil {
@@ -112,7 +118,7 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 				typ = bookdto.BookURLTypeCover
 			}
 		} else {
-			// Tanpa file → boleh pakai href manual
+			// --- Mode URL TEXT ---
 			h := strings.TrimSpace(c.FormValue("book_url_href"))
 			if h == "" {
 				return fiber.NewError(fiber.StatusBadRequest, "Wajib mengirim file atau book_url_href")
@@ -124,11 +130,11 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 		}
 
 		mdl := bookmodel.BookURLModel{
-			BookURLMasjidID: masjidID,
-			BookURLBookID:   bookID,
-			BookURLLabel:    lbl,
-			BookURLType:     bookdto.NormalizeBookURLType(typ),
-			BookURLHref:     href,
+			BookURLMasjidID:           masjidID,
+			BookURLBookID:             bookID,
+			BookURLLabel:              lbl,
+			BookURLType:               bookdto.NormalizeBookURLType(typ),
+			BookURLHref:               href, // sesuai kolom SQL
 		}
 
 		if err := ctl.DB.WithContext(c.Context()).Create(&mdl).Error; err != nil {
@@ -184,6 +190,7 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 		"data":    resp,
 	})
 }
+
 
 /* =========================================================
  * UPDATE (partial JSON)

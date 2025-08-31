@@ -13,11 +13,11 @@ type ClassSectionSubjectTeacherModel struct {
 	ClassSectionSubjectTeachersID uuid.UUID `json:"class_section_subject_teachers_id" gorm:"column:class_section_subject_teachers_id;type:uuid;default:gen_random_uuid();primaryKey"`
 
 	// FK & data inti
-	ClassSectionSubjectTeachersMasjidID  uuid.UUID `json:"class_section_subject_teachers_masjid_id"  gorm:"column:class_section_subject_teachers_masjid_id;type:uuid;not null"`
-	ClassSectionSubjectTeachersSectionID uuid.UUID `json:"class_section_subject_teachers_section_id" gorm:"column:class_section_subject_teachers_section_id;type:uuid;not null"`
-	ClassSectionSubjectTeachersSubjectID uuid.UUID `json:"class_section_subject_teachers_subject_id" gorm:"column:class_section_subject_teachers_subject_id;type:uuid;not null"`
+	ClassSectionSubjectTeachersMasjidID         uuid.UUID `json:"class_section_subject_teachers_masjid_id"          gorm:"column:class_section_subject_teachers_masjid_id;type:uuid;not null"`
+	ClassSectionSubjectTeachersSectionID        uuid.UUID `json:"class_section_subject_teachers_section_id"         gorm:"column:class_section_subject_teachers_section_id;type:uuid;not null"`
+	ClassSectionSubjectTeachersClassSubjectsID  uuid.UUID `json:"class_section_subject_teachers_class_subjects_id"  gorm:"column:class_section_subject_teachers_class_subjects_id;type:uuid;not null"`
 
-	// ✅ GANTI: mengacu ke masjid_teachers.masjid_teacher_id (BUKAN users.id)
+	// ✅ refer ke masjid_teachers.masjid_teacher_id (BUKAN users.id)
 	ClassSectionSubjectTeachersTeacherID uuid.UUID `json:"class_section_subject_teachers_teacher_id" gorm:"column:class_section_subject_teachers_teacher_id;type:uuid;not null"`
 
 	// Status & audit

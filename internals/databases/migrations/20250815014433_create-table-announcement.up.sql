@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- =========================================================
--- announcement_themes (timestamps -> TIMESTAMP)
+-- announcement_themes
 -- =========================================================
 CREATE TABLE IF NOT EXISTS announcement_themes (
   announcement_themes_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -41,9 +41,44 @@ CREATE INDEX IF NOT EXISTS ix_announcement_themes_name_trgm_live
   ON announcement_themes USING GIN (announcement_themes_name gin_trgm_ops)
   WHERE announcement_themes_deleted_at IS NULL;
 
--- Tenant-safe composite FK target
-CREATE UNIQUE INDEX IF NOT EXISTS uq_announcement_themes_id_tenant
-  ON announcement_themes (announcement_themes_id, announcement_themes_masjid_id);
+-- ========= Tenant-safe composite UNIQUE (simple & safe) =========
+DO $$
+DECLARE
+  has_constraint boolean;
+  has_index boolean;
+BEGIN
+  -- 1) Sudah ada constraint?
+  SELECT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'announcement_themes'::regclass
+      AND conname  = 'uq_announcement_themes_id_tenant'
+  ) INTO has_constraint;
+
+  IF NOT has_constraint THEN
+    -- 2) Apakah ada index lama bernama uq_announcement_themes_id_tenant ?
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_class
+      WHERE relname = 'uq_announcement_themes_id_tenant'
+        AND relkind = 'i'   -- index
+    ) INTO has_index;
+
+    IF has_index THEN
+      -- 3) Attach index lama sebagai UNIQUE constraint
+      EXECUTE '
+        ALTER TABLE announcement_themes
+          ADD CONSTRAINT uq_announcement_themes_id_tenant
+          UNIQUE USING INDEX uq_announcement_themes_id_tenant
+      ';
+    ELSE
+      -- 4) Buat constraint baru (Postgres auto-bikin index)
+      ALTER TABLE announcement_themes
+        ADD CONSTRAINT uq_announcement_themes_id_tenant
+        UNIQUE (announcement_themes_id, announcement_themes_masjid_id);
+    END IF;
+  END IF;
+END$$;
 
 -- Trigger updated_at
 CREATE OR REPLACE FUNCTION fn_announcement_themes_touch_updated_at()
@@ -65,7 +100,9 @@ BEGIN
 END$$;
 
 
-
+-- =========================================================
+-- Kebutuhan UNIQUE komposit di tabel lain (untuk FK tenant-safe)
+-- =========================================================
 
 -- class_sections: butuh UNIQUE (class_sections_id, class_sections_masjid_id)
 DO $$
@@ -91,25 +128,15 @@ BEGIN
   END IF;
 END$$;
 
--- announcement_themes: asumsikan sudah punya (announcement_themes_id, announcement_themes_masjid_id)
--- kalau belum, aktifkan uniknya:
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname='uq_announcement_themes_id_tenant'
-  ) THEN
-    ALTER TABLE announcement_themes
-      ADD CONSTRAINT uq_announcement_themes_id_tenant
-      UNIQUE (announcement_themes_id, announcement_themes_masjid_id);
-  END IF;
-END$$;
 
--- ===== Buat/ubah tabel announcements agar sesuai skema baru =====
+-- =========================================================
+-- announcements
+-- =========================================================
 CREATE TABLE IF NOT EXISTS announcements (
   announcement_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   announcement_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  -- >>> GANTI: sumber pembuat sekarang teacher_id, bukan user_id
+  -- GANTI: sumber pembuat sekarang teacher_id, bukan user_id
   announcement_created_by_teacher_id UUID NULL,
 
   -- target section (NULL = global)
@@ -136,13 +163,11 @@ CREATE TABLE IF NOT EXISTS announcements (
     ) STORED
 );
 
--- Kalau kolom teacher_id belum ada (pada DB lama), tambahkan
+-- Pastikan kolom teacher_id ada
 ALTER TABLE announcements
   ADD COLUMN IF NOT EXISTS announcement_created_by_teacher_id UUID;
 
--- ====== (KOMPATIBILITAS) Backfill dari kolom lama user_id kalau masih ada ======
--- 1) Tambahkan kolom lama jika belum ada? Tidak. Kita hanya baca kalau memang ada.
--- 2) Backfill teacher_id dari user_id jika pasangan guru ditemukan
+-- Backfill dari user_id (jika ada)
 DO $$
 BEGIN
   IF EXISTS (
@@ -173,7 +198,7 @@ BEGIN
   END IF;
 END$$;
 
--- ===== Bersihkan FK lama yang menunjuk ke users (jika ada) =====
+-- Drop FK lama ke users jika ada
 DO $$
 DECLARE r RECORD;
 BEGIN
@@ -188,12 +213,10 @@ BEGIN
   END LOOP;
 END$$;
 
--- ===== Tenant-safe composite FK ke masjid_teachers (teacher_id, masjid_id) =====
+-- Tenant-safe FKs
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname='fk_ann_created_by_teacher_same_tenant'
-  ) THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_ann_created_by_teacher_same_tenant') THEN
     ALTER TABLE announcements
       ADD CONSTRAINT fk_ann_created_by_teacher_same_tenant
       FOREIGN KEY (announcement_created_by_teacher_id, announcement_masjid_id)
@@ -202,12 +225,9 @@ BEGIN
   END IF;
 END$$;
 
--- ===== Tenant-safe composite FK ke announcement_themes =====
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname='fk_ann_theme_same_tenant'
-  ) THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_ann_theme_same_tenant') THEN
     ALTER TABLE announcements
       ADD CONSTRAINT fk_ann_theme_same_tenant
       FOREIGN KEY (announcement_theme_id, announcement_masjid_id)
@@ -216,8 +236,7 @@ BEGIN
   END IF;
 END$$;
 
--- ===== Tenant-safe composite FK ke class_sections =====
--- Drop FK single-column lawas ke class_sections jika masih ada
+-- Drop FK lama ke class_sections (single-col) kalau ada
 DO $$
 DECLARE r RECORD;
 BEGIN
@@ -235,9 +254,7 @@ END$$;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname='fk_ann_section_same_tenant'
-  ) THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_ann_section_same_tenant') THEN
     ALTER TABLE announcements
       ADD CONSTRAINT fk_ann_section_same_tenant
       FOREIGN KEY (announcement_class_section_id, announcement_masjid_id)
@@ -246,16 +263,14 @@ BEGIN
   END IF;
 END$$;
 
--- ===== Indeks / GIN / TRGM =====
+-- Indexes
 CREATE UNIQUE INDEX IF NOT EXISTS uq_announcements_id_tenant
   ON announcements (announcement_id, announcement_masjid_id);
 
--- indeks “live” per tanggal
 CREATE INDEX IF NOT EXISTS ix_announcements_tenant_date_live
   ON announcements (announcement_masjid_id, announcement_date DESC)
   WHERE announcement_deleted_at IS NULL AND announcement_is_active = TRUE;
 
--- tema, section, created_by (versi teacher)
 CREATE INDEX IF NOT EXISTS ix_announcements_theme_live
   ON announcements (announcement_theme_id)
   WHERE announcement_deleted_at IS NULL AND announcement_is_active = TRUE;
@@ -264,13 +279,11 @@ CREATE INDEX IF NOT EXISTS ix_announcements_section_live
   ON announcements (announcement_class_section_id)
   WHERE announcement_deleted_at IS NULL AND announcement_is_active = TRUE;
 
--- Hapus index lama berbasis user_id (kalau ada), lalu buat index teacher
 DROP INDEX IF EXISTS ix_announcements_created_by_live;
 CREATE INDEX IF NOT EXISTS ix_announcements_created_by_teacher_live
   ON announcements (announcement_created_at DESC, announcement_created_by_teacher_id)
   WHERE announcement_deleted_at IS NULL AND announcement_is_active = TRUE;
 
--- FTS & TRGM (judul)
 CREATE INDEX IF NOT EXISTS ix_announcements_search_gin_live
   ON announcements USING GIN (announcement_search)
   WHERE announcement_deleted_at IS NULL AND announcement_is_active = TRUE;
@@ -279,7 +292,7 @@ CREATE INDEX IF NOT EXISTS ix_announcements_title_trgm_live
   ON announcements USING GIN (announcement_title gin_trgm_ops)
   WHERE announcement_deleted_at IS NULL AND announcement_is_active = TRUE;
 
--- ===== Trigger updated_at =====
+-- Trigger updated_at
 CREATE OR REPLACE FUNCTION fn_announcements_touch_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -298,8 +311,7 @@ BEGIN
     EXECUTE FUNCTION fn_announcements_touch_updated_at();
 END$$;
 
--- ===== (Opsional) Drop kolom lama user_id jika masih ada =====
--- Jalankan bagian ini hanya jika kamu sudah pasti tidak pakai kolom lama lagi.
+-- Drop kolom lama user_id kalau masih ada
 DO $$
 BEGIN
   IF EXISTS (
@@ -314,36 +326,29 @@ BEGIN
 END$$;
 
 
-
--- +migrate Up
 -- =========================================================
--- ANNOUNCEMENT URLS (child dari announcements, tanpa is_active)
+-- announcement_urls
 -- =========================================================
-
 CREATE TABLE IF NOT EXISTS announcement_urls (
   announcement_url_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   announcement_url_masjid_id   UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  -- relasi ke announcements (tenant-safe via composite FK)
   announcement_url_announcement_id UUID NOT NULL,
 
-  -- data url
   announcement_url_label       VARCHAR(120),
-  announcement_url_href        TEXT NOT NULL,          -- URL utama
-  announcement_url_trash_url   TEXT,                   -- URL lama dipindah ke trash
-  announcement_url_delete_pending_until TIMESTAMPTZ,   -- jadwal penghapusan permanen
+  announcement_url_href        TEXT NOT NULL,
+  announcement_url_trash_url   TEXT,
+  announcement_url_delete_pending_until TIMESTAMPTZ,
 
   announcement_url_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   announcement_url_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   announcement_url_deleted_at  TIMESTAMPTZ
 );
 
--- Composite FK ke announcements (tenant-safe)
+-- Composite FK ke announcements
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname='fk_au_announcement_same_tenant'
-  ) THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_au_announcement_same_tenant') THEN
     ALTER TABLE announcement_urls
       ADD CONSTRAINT fk_au_announcement_same_tenant
       FOREIGN KEY (announcement_url_announcement_id, announcement_url_masjid_id)
@@ -353,19 +358,14 @@ BEGIN
   END IF;
 END$$;
 
--- Composite key bantuan untuk join tenant-safe
+-- Indexes
 CREATE UNIQUE INDEX IF NOT EXISTS uq_announcement_urls_id_tenant
   ON announcement_urls (announcement_url_id, announcement_url_masjid_id);
 
--- Cegah duplikat URL aktif di satu pengumuman (soft-delete aware)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_announcement_urls_announcement_href_live
-  ON announcement_urls (
-    announcement_url_announcement_id,
-    lower(announcement_url_href)
-  )
+  ON announcement_urls (announcement_url_announcement_id, lower(announcement_url_href))
   WHERE announcement_url_deleted_at IS NULL;
 
--- Indeks query umum
 CREATE INDEX IF NOT EXISTS ix_announcement_urls_announcement_live
   ON announcement_urls (announcement_url_announcement_id)
   WHERE announcement_url_deleted_at IS NULL;
@@ -378,7 +378,6 @@ CREATE INDEX IF NOT EXISTS ix_announcement_urls_label_trgm_live
   ON announcement_urls USING GIN (announcement_url_label gin_trgm_ops)
   WHERE announcement_url_deleted_at IS NULL;
 
--- Indeks tambahan untuk monitoring penghapusan pending
 CREATE INDEX IF NOT EXISTS ix_announcement_urls_delete_pending
   ON announcement_urls (announcement_url_delete_pending_until)
   WHERE announcement_url_deleted_at IS NULL;

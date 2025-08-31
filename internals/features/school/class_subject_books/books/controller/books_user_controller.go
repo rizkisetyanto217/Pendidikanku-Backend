@@ -15,9 +15,10 @@ import (
 func sPtr(v *string) string { if v == nil { return "" }; return *v }
 func bPtr(v *bool) bool     { if v == nil { return false }; return *v }
 
+
 // ----------------------------------------------------------
-// GET /api/a/class-books/with-usages
-// Tampilkan SEMUA buku (books = parent) + daftar pemakaian
+// GET /api/a/books/with-usages  (atau /api/a/class-books/books)
+// Tampilkan SEMUA buku (parent) + daftar pemakaian (usages)
 // ----------------------------------------------------------
 func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
@@ -59,12 +60,11 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 	// ---- BOOKS as driver
 	base := h.DB.Table("books AS b").
 		Where("b.books_masjid_id = ?", masjidID)
-
 	if q.WithDeleted == nil || !*q.WithDeleted {
 		base = base.Where("b.books_deleted_at IS NULL")
 	}
 
-	// filter/q sama seperti List biasa
+	// filter
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
 		needle := "%" + strings.TrimSpace(*q.Q) + "%"
 		base = base.Where(h.DB.
@@ -76,7 +76,7 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 		base = base.Where("b.books_author ILIKE ?", strings.TrimSpace(*q.Author))
 	}
 
-	// ---- LEFT JOIN pemakaian
+	// ---- LEFT JOIN pemakaian (REF: gunakan *_class_subjects_id, bukan *_subject_id)
 	base = base.
 		Joins(`
 			LEFT JOIN class_subject_books AS csb
@@ -86,15 +86,18 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 		Joins(`
 			LEFT JOIN class_subjects AS cs
 			  ON cs.class_subjects_id = csb.class_subject_books_class_subject_id
+			 AND (cs.class_subjects_deleted_at IS NULL OR cs.class_subjects_deleted_at IS NULL) -- hardening
 		`).
 		Joins(`
 			LEFT JOIN class_section_subject_teachers AS csst
-			  ON csst.class_section_subject_teachers_subject_id = cs.class_subjects_subject_id
+			  ON csst.class_section_subject_teachers_class_subjects_id = cs.class_subjects_id
 			 AND csst.class_section_subject_teachers_deleted_at IS NULL
+			 AND csst.class_section_subject_teachers_masjid_id = b.books_masjid_id
 		`).
 		Joins(`
 			LEFT JOIN class_sections AS sec
 			  ON sec.class_sections_id = csst.class_section_subject_teachers_section_id
+			 AND (sec.class_sections_deleted_at IS NULL OR sec.class_sections_deleted_at IS NULL)
 		`)
 
 	// total distinct book
@@ -118,8 +121,8 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 		// usage
 		CSBID *uuid.UUID `gorm:"column:class_subject_books_id"`
 		CSID  *uuid.UUID `gorm:"column:class_subjects_id"`
-		SID   *uuid.UUID `gorm:"column:subjects_id"`
-		CID   *uuid.UUID `gorm:"column:classes_id"`
+		SID   *uuid.UUID `gorm:"column:subjects_id"` // dari cs.class_subjects_subject_id
+		CID   *uuid.UUID `gorm:"column:classes_id"`  // dari cs.class_subjects_class_id
 
 		// section
 		SecID   *uuid.UUID `gorm:"column:class_sections_id"`
@@ -160,7 +163,7 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 
 	// group by book
 	bookMap := make(map[uuid.UUID]*dto.BookWithUsagesResponse)
-	order := make([]uuid.UUID, 0, len(rows))
+	orderIDs := make([]uuid.UUID, 0, len(rows))
 
 	for _, r := range rows {
 		b := bookMap[r.BID]
@@ -175,10 +178,10 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 				Usages:        []dto.BookUsage{},
 			}
 			bookMap[r.BID] = b
-			order = append(order, r.BID)
+			orderIDs = append(orderIDs, r.BID)
 		}
 
-		// jika buku belum dipakai, lewati usage
+		// bila belum dipakai, lewati
 		if r.CSBID == nil {
 			continue
 		}
@@ -226,16 +229,18 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 	}
 
 	// flatten sesuai order
-	items := make([]dto.BookWithUsagesResponse, 0, len(order))
-	for _, id := range order {
+	items := make([]dto.BookWithUsagesResponse, 0, len(orderIDs))
+	for _, id := range orderIDs {
 		items = append(items, *bookMap[id])
 	}
 	// edge case: jika tidak ada satupun row, ambil daftar buku polos (tanpa usages)
 	if len(rows) == 0 {
 		var onlyBooks []model.BooksModel
-		if err := h.DB.Where("books_masjid_id = ? AND books_deleted_at IS NULL", masjidID).
+		if err := h.DB.
+			Where("books_masjid_id = ? AND books_deleted_at IS NULL", masjidID).
 			Order(orderBy + " " + sortDir).
-			Limit(limit).Offset(offset).Find(&onlyBooks).Error; err == nil {
+			Limit(limit).Offset(offset).
+			Find(&onlyBooks).Error; err == nil {
 			for _, b := range onlyBooks {
 				items = append(items, dto.BookWithUsagesResponse{
 					BooksID:       b.BooksID,
@@ -258,8 +263,8 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 }
 
 // ----------------------------------------------------------
-// GET /api/a/class-books/:id/with-usages
-// Bentuk hasil sama persis dgn ListWithUsages, tapi 1 buku
+// GET /api/a/books/:id/with-usages  (atau /api/a/class-books/books/:id)
+// Detail 1 buku + usages
 // ----------------------------------------------------------
 func (h *BooksController) GetWithUsagesByID(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
@@ -271,7 +276,6 @@ func (h *BooksController) GetWithUsagesByID(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// gunakan query yang sama, tapi filter b.books_id
 	base := h.DB.Table("books AS b").
 		Where("b.books_masjid_id = ? AND b.books_id = ?", masjidID, bookID).
 		Where("b.books_deleted_at IS NULL").
@@ -283,15 +287,18 @@ func (h *BooksController) GetWithUsagesByID(c *fiber.Ctx) error {
 		Joins(`
 			LEFT JOIN class_subjects AS cs
 			  ON cs.class_subjects_id = csb.class_subject_books_class_subject_id
+			 AND (cs.class_subjects_deleted_at IS NULL OR cs.class_subjects_deleted_at IS NULL)
 		`).
 		Joins(`
 			LEFT JOIN class_section_subject_teachers AS csst
-			  ON csst.class_section_subject_teachers_subject_id = cs.class_subjects_subject_id
+			  ON csst.class_section_subject_teachers_class_subjects_id = cs.class_subjects_id
 			 AND csst.class_section_subject_teachers_deleted_at IS NULL
+			 AND csst.class_section_subject_teachers_masjid_id = b.books_masjid_id
 		`).
 		Joins(`
 			LEFT JOIN class_sections AS sec
 			  ON sec.class_sections_id = csst.class_section_subject_teachers_section_id
+			 AND (sec.class_sections_deleted_at IS NULL OR sec.class_sections_deleted_at IS NULL)
 		`)
 
 	type row struct {
@@ -344,7 +351,6 @@ func (h *BooksController) GetWithUsagesByID(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusNotFound, "Buku tidak ditemukan")
 	}
 
-	// group 1 buku
 	out := dto.BookWithUsagesResponse{
 		BooksID:       rows[0].BID,
 		BooksMasjidID: rows[0].BMasjidID,
@@ -373,7 +379,6 @@ func (h *BooksController) GetWithUsagesByID(c *fiber.Ctx) error {
 			usageIndex[*r.CSBID] = idx
 		}
 		if r.SecID != nil {
-			// de-dup sederhana
 			exists := false
 			for _, s := range out.Usages[idx].Sections {
 				if s.ClassSectionsID == *r.SecID {

@@ -1,11 +1,19 @@
--- =========================================================
--- UP MIGRATION
--- =========================================================
-CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
+-- =========================================
+-- UP MIGRATION (Idempotent, from scratch / normalize)
+-- =========================================
+BEGIN;
 
--- =========================================================
--- 1) TABEL class_attendance_sessions (dengan perubahan relasi ke masjid_teachers)
--- =========================================================
+-- ---------------------------------------------------------
+-- 0) EXTENSIONS
+-- ---------------------------------------------------------
+CREATE EXTENSION IF NOT EXISTS pgcrypto;  -- gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- ---------------------------------------------------------
+-- 1) TABLE: class_attendance_sessions (normalize columns)
+--    - kompatibel dengan skema lama (teacher_user_id)
+--    - tambah kolom baru teacher_id (FK -> masjid_teachers)
+-- ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_sessions_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -15,7 +23,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   -- Kurikulum (opsional)
   class_attendance_sessions_class_subject_id UUID,
 
-  -- Penugasan guru (opsional)
+  -- Penugasan guru (opsional, relasi CSS Teacher)
   class_attendance_sessions_class_section_subject_teacher_id UUID,
 
   class_attendance_sessions_date  DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -23,17 +31,42 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_sessions_general_info TEXT NOT NULL,
   class_attendance_sessions_note  TEXT,
 
-  -- GANTI: refer ke masjid_teachers, bukan users
-  class_attendance_sessions_teacher_id UUID REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE SET NULL,
+  -- KOMPAT: kolom lama (opsional) jika masih dipakai aplikasi
+  class_attendance_sessions_teacher_user_id UUID,
+
+  -- BARU: refer ke masjid_teachers (yang diinginkan)
+  class_attendance_sessions_teacher_id UUID,
 
   class_attendance_sessions_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_attendance_sessions_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_attendance_sessions_deleted_at TIMESTAMPTZ
 );
 
--- =========================================================
+-- Pastikan kolom2 penting ada (idempotent ALTER)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='class_attendance_sessions'
+      AND column_name='class_attendance_sessions_teacher_user_id'
+  ) THEN
+    ALTER TABLE class_attendance_sessions
+      ADD COLUMN class_attendance_sessions_teacher_user_id UUID;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='class_attendance_sessions'
+      AND column_name='class_attendance_sessions_teacher_id'
+  ) THEN
+    ALTER TABLE class_attendance_sessions
+      ADD COLUMN class_attendance_sessions_teacher_id UUID;
+  END IF;
+END$$;
+
+-- ---------------------------------------------------------
 -- 2) FOREIGN KEYS (idempotent)
--- =========================================================
+-- ---------------------------------------------------------
 
 -- (a) Tenant-safe: composite FK ke class_sections(id, masjid_id)
 DO $$
@@ -83,9 +116,28 @@ BEGIN
   END IF;
 END$$;
 
--- =========================================================
+-- (d) FK baru ke masjid_teachers (jika tabelnya sudah ada)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_class WHERE relname='masjid_teachers' AND relkind='r') THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint WHERE conname='fk_cas_masjid_teacher'
+    ) THEN
+      ALTER TABLE class_attendance_sessions
+        ADD CONSTRAINT fk_cas_masjid_teacher
+        FOREIGN KEY (class_attendance_sessions_teacher_id)
+        REFERENCES masjid_teachers(masjid_teacher_id)
+        ON UPDATE CASCADE ON DELETE SET NULL;
+    END IF;
+  ELSE
+    RAISE NOTICE 'Table masjid_teachers belum ada; FK akan ditambahkan di migration berikutnya.';
+  END IF;
+END$$;
+
+-- ---------------------------------------------------------
 -- 3) INDEXES (soft-delete aware)
--- =========================================================
+-- ---------------------------------------------------------
+
 CREATE INDEX IF NOT EXISTS idx_cas_section
   ON class_attendance_sessions(class_attendance_sessions_section_id);
 
@@ -101,7 +153,22 @@ CREATE INDEX IF NOT EXISTS idx_cas_class_subject
 CREATE INDEX IF NOT EXISTS idx_cas_csst
   ON class_attendance_sessions(class_attendance_sessions_class_section_subject_teacher_id);
 
-CREATE INDEX IF NOT EXISTS idx_cas_teacher_user
+-- Bersihkan index lama yang menyesatkan namanya (jika ada)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname='public' AND indexname='idx_cas_teacher_user'
+  ) THEN
+    EXECUTE 'DROP INDEX idx_cas_teacher_user';
+  END IF;
+END$$;
+
+-- Index untuk kolom lama & baru (aman kalau salah satunya tidak terpakai)
+CREATE INDEX IF NOT EXISTS idx_cas_teacher_user_id
+  ON class_attendance_sessions(class_attendance_sessions_teacher_user_id);
+
+CREATE INDEX IF NOT EXISTS idx_cas_teacher_id
   ON class_attendance_sessions(class_attendance_sessions_teacher_id);
 
 -- Unik: jika class_subject_id IS NULL → unik per (masjid, section, date)
@@ -125,9 +192,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_section_cs_date_when_cs_not_null
   WHERE class_attendance_sessions_class_subject_id IS NOT NULL
     AND class_attendance_sessions_deleted_at IS NULL;
 
--- =========================================================
--- 4) TRIGGERS: validasi konsistensi relasi (DEFERRABLE)
--- =========================================================
+-- ---------------------------------------------------------
+-- 4) TRIGGERS: validasi konsistensi relasi (DEFERRABLE) + touch updated_at
+-- ---------------------------------------------------------
+
+-- Function validator (recreate to be safe / or ensure exists)
 CREATE OR REPLACE FUNCTION fn_cas_validate_links()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -139,7 +208,7 @@ DECLARE
   v_css_masjid UUID;
   v_css_sec    UUID;
   v_css_subj   UUID;
-  v_css_teacher UUID;
+  v_css_teacher UUID; -- teacher_user_id dari CSS table
 BEGIN
   -- Section
   SELECT class_sections_masjid_id, class_sections_class_id
@@ -215,6 +284,7 @@ BEGIN
       END IF;
     END IF;
 
+    -- Kompat: auto-set kolom lama jika masih dipakai
     IF NEW.class_attendance_sessions_teacher_user_id IS NULL THEN
       NEW.class_attendance_sessions_teacher_user_id := v_css_teacher;
     END IF;
@@ -224,6 +294,7 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
+-- (Re)create constraint trigger
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_cas_validate_links') THEN
@@ -236,16 +307,15 @@ BEGIN
       class_attendance_sessions_section_id,
       class_attendance_sessions_class_subject_id,
       class_attendance_sessions_class_section_subject_teacher_id,
-      class_attendance_sessions_teacher_user_id
+      class_attendance_sessions_teacher_user_id,
+      class_attendance_sessions_teacher_id
     ON class_attendance_sessions
     DEFERRABLE INITIALLY DEFERRED
     FOR EACH ROW
     EXECUTE FUNCTION fn_cas_validate_links();
 END$$;
 
--- =========================================================
--- 5) Touch updated_at otomatis
--- =========================================================
+-- Touch updated_at
 CREATE OR REPLACE FUNCTION fn_touch_class_attendance_sessions_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -265,9 +335,9 @@ BEGIN
     EXECUTE FUNCTION fn_touch_class_attendance_sessions_updated_at();
 END$$;
 
--- =========================================================
--- 6) TABLE: class_attendance_session_url (multi URL per sesi) — no is_primary/order
--- =========================================================
+-- ---------------------------------------------------------
+-- 5) TABLE: class_attendance_session_url (multi URL per sesi)
+-- ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS class_attendance_session_url (
   class_attendance_session_url_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   class_attendance_session_url_masjid_id  UUID NOT NULL,
@@ -281,50 +351,34 @@ CREATE TABLE IF NOT EXISTS class_attendance_session_url (
 
   class_attendance_session_url_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_attendance_session_url_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_attendance_session_url_deleted_at TIMESTAMPTZ,
-
-  CONSTRAINT fk_casu_session
-    FOREIGN KEY (class_attendance_session_url_session_id)
-    REFERENCES class_attendance_sessions(class_attendance_sessions_id)
-    ON UPDATE CASCADE ON DELETE CASCADE,
-
-  CONSTRAINT fk_casu_masjid
-    FOREIGN KEY (class_attendance_session_url_masjid_id)
-    REFERENCES masjids(masjid_id)
-    ON UPDATE CASCADE ON DELETE CASCADE
+  class_attendance_session_url_deleted_at TIMESTAMPTZ
 );
 
--- Jika sebelumnya tabel sudah ada dan berisi kolom is_primary/order → hapus
+-- FK URL
 DO $$
 BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema='public'
-      AND table_name='class_attendance_session_url'
-      AND column_name='class_attendance_session_url_is_primary'
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname='fk_casu_session'
   ) THEN
-    EXECUTE 'ALTER TABLE class_attendance_session_url DROP COLUMN class_attendance_session_url_is_primary';
+    ALTER TABLE class_attendance_session_url
+      ADD CONSTRAINT fk_casu_session
+      FOREIGN KEY (class_attendance_session_url_session_id)
+      REFERENCES class_attendance_sessions(class_attendance_sessions_id)
+      ON UPDATE CASCADE ON DELETE CASCADE;
   END IF;
 
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema='public'
-      AND table_name='class_attendance_session_url'
-      AND column_name='class_attendance_session_url_order'
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname='fk_casu_masjid'
   ) THEN
-    EXECUTE 'ALTER TABLE class_attendance_session_url DROP COLUMN class_attendance_session_url_order';
+    ALTER TABLE class_attendance_session_url
+      ADD CONSTRAINT fk_casu_masjid
+      FOREIGN KEY (class_attendance_session_url_masjid_id)
+      REFERENCES masjids(masjid_id)
+      ON UPDATE CASCADE ON DELETE CASCADE;
   END IF;
 END$$;
 
--- Drop index lama yang bergantung pada is_primary (jika ada)
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname='uq_casu_primary_per_session_alive') THEN
-    EXECUTE 'DROP INDEX uq_casu_primary_per_session_alive';
-  END IF;
-END$$;
-
--- Tenant guard
+-- Guard tenant (BEFORE INSERT/UPDATE)
 CREATE OR REPLACE FUNCTION fn_casu_tenant_guard()
 RETURNS TRIGGER AS $$
 DECLARE v_mid UUID;
@@ -359,7 +413,7 @@ BEGIN
   FOR EACH ROW EXECUTE FUNCTION fn_casu_tenant_guard();
 END$$;
 
--- Indexes & unique (tanpa primary-per-session)
+-- Indexes & unique (tanpa is_primary/order)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_casu_href_per_session_alive
   ON class_attendance_session_url (
     class_attendance_session_url_session_id,
@@ -374,7 +428,7 @@ CREATE INDEX IF NOT EXISTS idx_casu_session_alive
 CREATE INDEX IF NOT EXISTS idx_casu_created_at
   ON class_attendance_session_url (class_attendance_session_url_created_at DESC);
 
--- Touch updated_at
+-- Touch updated_at (URL)
 CREATE OR REPLACE FUNCTION fn_touch_casu_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -393,9 +447,9 @@ BEGIN
   FOR EACH ROW EXECUTE FUNCTION fn_touch_casu_updated_at();
 END$$;
 
--- =========================================================
--- 7) BACKFILL dari kolom lama di sessions (jika ada), lalu DROP kolom lama
--- =========================================================
+-- ---------------------------------------------------------
+-- 6) BACKFILL dari kolom lama cover image (jika ada) → masuk table URL
+-- ---------------------------------------------------------
 DO $$
 DECLARE
   has_img   boolean;
@@ -452,3 +506,5 @@ BEGIN
     $ins$ USING has_trash, has_due;
   END IF;
 END$$;
+
+COMMIT;

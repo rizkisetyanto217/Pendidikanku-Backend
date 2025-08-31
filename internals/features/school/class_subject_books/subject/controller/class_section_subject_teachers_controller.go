@@ -2,21 +2,29 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	modelMasjidTeacher "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/model"
+	modelCSST "masjidku_backend/internals/features/school/class_subject_books/subject/model"
+	modelClassSection "masjidku_backend/internals/features/school/classes/class_sections/model"
+
 	dto "masjidku_backend/internals/features/school/class_subject_books/subject/dto"
-	model "masjidku_backend/internals/features/school/class_subject_books/subject/model"
 	helper "masjidku_backend/internals/helpers"
 )
 
 type ClassSectionSubjectTeacherController struct {
 	DB *gorm.DB
 }
+
+
+
 
 // ===============================
 // CREATE (force masjid_id dari token)
@@ -32,28 +40,92 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid: "+err.Error())
 	}
-
-	// build dari DTO, lalu force tenant
-	row := req.ToModel()
-	row.ClassSectionSubjectTeachersMasjidID = masjidID
-
-	if err := ctl.DB.Create(&row).Error; err != nil {
-		msg := strings.ToLower(err.Error())
-		// unique constraint (nama index dari migration: uq_csst_active_unique)
-		if strings.Contains(msg, "uq_csst_active_unique") ||
-			strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
-			return helper.JsonError(c, fiber.StatusConflict, "Penugasan guru untuk section+subject ini sudah aktif (duplikat).")
-		}
-		// foreign key
-		if strings.Contains(msg, "sqlstate 23503") || strings.Contains(msg, "foreign key") {
-			return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal: pastikan section/subject/guru ada dan sesuai tenant.")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Insert gagal: "+err.Error())
+	if err := validator.New().Struct(req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	return helper.JsonCreated(c, "Penugasan guru berhasil dibuat", dto.FromClassSectionSubjectTeacherModel(row))
-}
+	return ctl.DB.Transaction(func(tx *gorm.DB) error {
+		// 1) SECTION harus ada & tenant cocok (ambil class_id dari section)
+		var sec modelClassSection.ClassSectionModel
+		if err := tx.
+			Where("class_sections_id = ? AND class_sections_masjid_id = ?",
+				req.ClassSectionSubjectTeachersSectionID, masjidID).
+			First(&sec).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusBadRequest, "Section tidak ditemukan / beda tenant")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek section")
+		}
 
+		// 2) CLASS_SUBJECTS harus ada; tenant sama; dan class_id (cs) == class_id (section)
+		var cs struct {
+			ClassSubjectsID       uuid.UUID `gorm:"column:class_subjects_id"`
+			ClassSubjectsMasjidID uuid.UUID `gorm:"column:class_subjects_masjid_id"`
+			ClassSubjectsClassID  uuid.UUID `gorm:"column:class_subjects_class_id"`
+		}
+		if err := tx.Table("class_subjects").
+			Select("class_subjects_id, class_subjects_masjid_id, class_subjects_class_id").
+			Where("class_subjects_id = ? AND class_subjects_deleted_at IS NULL",
+				req.ClassSectionSubjectTeachersClassSubjectsID).
+			Take(&cs).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusBadRequest, "class_subjects tidak ditemukan / sudah dihapus")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek class_subjects")
+		}
+		if cs.ClassSubjectsMasjidID != masjidID {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Masjid mismatch: class_subjects milik masjid lain")
+		}
+		if cs.ClassSubjectsClassID != sec.ClassSectionsClassID {
+			return helper.JsonError(c, fiber.StatusBadRequest,
+				"Class mismatch: class_subjects.class_id != class_sections.class_id")
+		}
+
+		// 3) TEACHER harus ada & tenant cocok
+		if err := tx.
+			Where("masjid_teacher_id = ? AND masjid_teacher_masjid_id = ?",
+				req.ClassSectionSubjectTeachersTeacherID, masjidID).
+			First(&modelMasjidTeacher.MasjidTeacherModel{}).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak ditemukan / bukan guru masjid ini")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek guru")
+		}
+
+		// 4) Build row + force tenant + default aktif
+		row := req.ToModel()
+		row.ClassSectionSubjectTeachersMasjidID = masjidID
+		if !row.ClassSectionSubjectTeachersIsActive {
+			row.ClassSectionSubjectTeachersIsActive = true
+		}
+
+		if err := tx.Create(&row).Error; err != nil {
+			msg := strings.ToLower(err.Error())
+			switch {
+			case strings.Contains(msg, "uq_csst_active_by_cs"),
+				strings.Contains(msg, "uq_csst_active_unique"),
+				strings.Contains(msg, "duplicate"),
+				strings.Contains(msg, "unique"):
+				return helper.JsonError(c, fiber.StatusConflict, "Penugasan guru untuk class_subjects ini sudah aktif (duplikat).")
+
+			case strings.Contains(msg, "23503"), strings.Contains(msg, "foreign key"):
+				switch {
+				case strings.Contains(msg, "fk_csst_section_masjid"):
+					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (SECTION): section tidak ditemukan / beda tenant")
+				case strings.Contains(msg, "class_subjects"):
+					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (CLASS_SUBJECTS): tidak ditemukan / beda tenant")
+				case strings.Contains(msg, "masjid_teachers"):
+					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (GURU): guru tidak ditemukan / beda tenant")
+				default:
+					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal: pastikan section/class_subjects/guru valid")
+				}
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Insert gagal: "+err.Error())
+		}
+
+		return helper.JsonCreated(c, "Penugasan guru berhasil dibuat", dto.FromClassSectionSubjectTeacherModel(row))
+	})
+}
 // ===============================
 // LIST
 // GET /admin/class-section-subject-teachers?is_active=&with_deleted=&limit=&offset=&order_by=&sort=
@@ -87,7 +159,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		q.Offset = intPtr(0)
 	}
 
-	tx := ctl.DB.Model(&model.ClassSectionSubjectTeacherModel{}).
+	tx := ctl.DB.Model(&modelCSST.ClassSectionSubjectTeacherModel{}).
 		Where("class_section_subject_teachers_masjid_id IN ?", masjidIDs)
 
 	// exclude soft-deleted by default
@@ -117,7 +189,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
-	var rows []model.ClassSectionSubjectTeacherModel
+	var rows []modelCSST.ClassSectionSubjectTeacherModel
 	if err := tx.
 		Order(orderBy + " " + sort).
 		Limit(*q.Limit).
@@ -153,7 +225,7 @@ func (ctl *ClassSectionSubjectTeacherController) GetByID(c *fiber.Ctx) error {
 
 	withDeleted := strings.EqualFold(c.Query("with_deleted"), "true")
 
-	var row model.ClassSectionSubjectTeacherModel
+	var row modelCSST.ClassSectionSubjectTeacherModel
 	if err := ctl.DB.
 		Where("class_section_subject_teachers_id = ?", id).
 		First(&row).Error; err != nil {
@@ -194,8 +266,11 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(http.StatusBadRequest, "Payload tidak valid")
 	}
+	if err := validator.New().Struct(req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
 
-	var row model.ClassSectionSubjectTeacherModel
+	var row modelCSST.ClassSectionSubjectTeacherModel
 	if err := ctl.DB.
 		Where("class_section_subject_teachers_id = ? AND class_section_subject_teachers_deleted_at IS NULL", id).
 		First(&row).Error; err != nil {
@@ -210,17 +285,70 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
 
+	// (opsional) precheck konsistensi jika section_id / class_subjects_id berubah
+	if req.ClassSectionSubjectTeachersSectionID != nil || req.ClassSectionSubjectTeachersClassSubjectsID != nil {
+		sectionID := row.ClassSectionSubjectTeachersSectionID
+		if req.ClassSectionSubjectTeachersSectionID != nil {
+			sectionID = *req.ClassSectionSubjectTeachersSectionID
+		}
+		classSubjectsID := row.ClassSectionSubjectTeachersClassSubjectsID
+		if req.ClassSectionSubjectTeachersClassSubjectsID != nil {
+			classSubjectsID = *req.ClassSectionSubjectTeachersClassSubjectsID
+		}
+
+		// cek section milik tenant
+		if err := ctl.DB.
+			Where("class_sections_id = ? AND class_sections_masjid_id = ?", sectionID, masjidID).
+			First(&modelClassSection.ClassSectionModel{}).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusBadRequest, "Section tidak ditemukan / beda tenant")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek section")
+		}
+
+		// cek class_subjects cocok
+		var cs struct {
+			ClassSubjectsMasjidID uuid.UUID `gorm:"column:class_subjects_masjid_id"`
+			ClassSubjectsClassID  uuid.UUID `gorm:"column:class_subjects_class_id"`
+		}
+		if err := ctl.DB.Table("class_subjects").
+			Select("class_subjects_masjid_id, class_subjects_class_id").
+			Where("class_subjects_id = ? AND class_subjects_deleted_at IS NULL", classSubjectsID).
+			Take(&cs).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusBadRequest, "class_subjects tidak ditemukan / sudah dihapus")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek class_subjects")
+		}
+		if cs.ClassSubjectsMasjidID != masjidID {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Masjid mismatch: class_subjects milik masjid lain")
+		}
+		if cs.ClassSubjectsClassID != sectionID {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Section mismatch: class_subjects.class_id != section_id yang dikirim")
+		}
+	}
+
 	// partial update via DTO
 	req.Apply(&row)
 
 	if err := ctl.DB.Save(&row).Error; err != nil {
 		msg := strings.ToLower(err.Error())
-		if strings.Contains(msg, "uq_csst_active_unique") ||
+		if strings.Contains(msg, "uq_csst_active_by_cs") ||
+			strings.Contains(msg, "uq_csst_active_unique") ||
 			strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
-			return helper.JsonError(c, fiber.StatusConflict, "Penugasan guru untuk section+subject ini sudah aktif (duplikat).")
+			return helper.JsonError(c, fiber.StatusConflict, "Penugasan guru untuk class_subjects ini sudah aktif (duplikat).")
 		}
 		if strings.Contains(msg, "sqlstate 23503") || strings.Contains(msg, "foreign key") {
-			return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal: pastikan section/subject/guru ada dan sesuai tenant.")
+			switch {
+			case strings.Contains(msg, "fk_csst_section_masjid"):
+				return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (SECTION): section tidak ditemukan / beda tenant")
+			case strings.Contains(msg, "fk_csst_to_class_subjects"), strings.Contains(msg, "class_subjects"):
+				return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (CLASS_SUBJECTS): tidak ditemukan / beda tenant")
+			case strings.Contains(msg, "masjid_teachers"):
+				return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (GURU): guru tidak ditemukan / beda tenant")
+			default:
+				return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal: pastikan section/class_subjects/guru valid")
+			}
 		}
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
@@ -243,7 +371,7 @@ func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 		return fiber.NewError(http.StatusBadRequest, "ID tidak valid")
 	}
 
-	var row model.ClassSectionSubjectTeacherModel
+	var row modelCSST.ClassSectionSubjectTeacherModel
 	if err := ctl.DB.First(&row, "class_section_subject_teachers_id = ?", id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan")
@@ -259,7 +387,7 @@ func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 	}
 
 	if err := ctl.DB.
-		Model(&model.ClassSectionSubjectTeacherModel{}).
+		Model(&modelCSST.ClassSectionSubjectTeacherModel{}).
 		Where("class_section_subject_teachers_id = ?", id).
 		Update("class_section_subject_teachers_deleted_at", gorm.Expr("NOW()")).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())

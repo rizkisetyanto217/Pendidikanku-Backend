@@ -266,8 +266,6 @@ func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) err
 }
 
 
-
-// GET /admin/class-sections
 // GET /admin/class-sections
 func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromToken(c)
@@ -275,6 +273,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 		return err
 	}
 
+	// parse query (punya default)
 	var q ucsDTO.ListClassSectionQuery
 	q.Limit = 20
 	q.Offset = 0
@@ -331,7 +330,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// ---- Kumpulkan teacher IDs unik ----
+	// ---- Kumpulkan teacher IDs unik dari section ----
 	teacherSet := make(map[uuid.UUID]struct{}, len(rows))
 	for i := range rows {
 		if rows[i].ClassSectionsTeacherID != nil {
@@ -343,51 +342,108 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 		teacherIDs = append(teacherIDs, id)
 	}
 
-	// ---- Ambil data users (guru) ----
-	userMap := map[uuid.UUID]ucsDTO.UserLite{}
+	// ---- Petakan class_sections_teacher_id -> users.id (tangani 2 skema) ----
+	// skema 1 (baru): class_sections_teacher_id = masjid_teachers.masjid_teacher_id
+	// skema 2 (lama): class_sections_teacher_id = users.id
+	teacherToUser := make(map[uuid.UUID]uuid.UUID) // key: teacher_id dari section; val: users.id
 	if len(teacherIDs) > 0 {
-		// pakai model users kamu; minimal kolom id, user_name, email, is_active
+		type mtRow struct {
+			ID     uuid.UUID `gorm:"column:masjid_teacher_id"`
+			UserID uuid.UUID `gorm:"column:masjid_teacher_user_id"`
+		}
+		var mts []mtRow
+		// coba cari di masjid_teachers
+		if err := ctrl.DB.
+			Table("masjid_teachers").
+			Select("masjid_teacher_id, masjid_teacher_user_id").
+			Where("masjid_teacher_id IN ?", teacherIDs).
+			Find(&mts).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data relasi pengajar")
+		}
+		found := make(map[uuid.UUID]struct{}, len(mts))
+		for _, r := range mts {
+			teacherToUser[r.ID] = r.UserID
+			found[r.ID] = struct{}{}
+		}
+		// untuk teacher_id yang tidak ditemukan di masjid_teachers → fallback ke users.id
+		for _, tid := range teacherIDs {
+			if _, ok := found[tid]; !ok {
+				teacherToUser[tid] = tid
+			}
+		}
+	}
+
+	// ---- Ambil data users (guru) berdasarkan users.id yang sudah dipetakan ----
+	userIDsSet := make(map[uuid.UUID]struct{}, len(teacherToUser))
+	for _, uid := range teacherToUser {
+		userIDsSet[uid] = struct{}{}
+	}
+	userIDs := make([]uuid.UUID, 0, len(userIDsSet))
+	for uid := range userIDsSet {
+		userIDs = append(userIDs, uid)
+	}
+
+	userMap := map[uuid.UUID]ucsDTO.UserLite{} // key: users.id
+	if len(userIDs) > 0 {
 		type userRow struct {
 			ID       uuid.UUID `gorm:"column:id"`
 			UserName string    `gorm:"column:user_name"`
+			FullName *string   `gorm:"column:full_name"` // bisa NULL
 			Email    string    `gorm:"column:email"`
 			IsActive bool      `gorm:"column:is_active"`
 		}
 		var urs []userRow
 		if err := ctrl.DB.
 			Table("users").
-			Select("id, user_name, email, is_active").
-			Where("id IN ?", teacherIDs).
+			Select("id, user_name, full_name, email, is_active").
+			Where("id IN ?", userIDs).
 			Find(&urs).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data guru")
 		}
 		for _, u := range urs {
+			full := ""
+			if u.FullName != nil {
+				full = *u.FullName
+			}
 			userMap[u.ID] = ucsDTO.UserLite{
 				ID:       u.ID,
 				UserName: u.UserName,
+				FullName: full,
 				Email:    u.Email,
 				IsActive: u.IsActive,
 			}
 		}
 	}
 
-	// ---- Bangun response + embed teacher ----
+	// ---- Bangun response + embed teacher (nil-safe) ----
 	out := make([]*ucsDTO.ClassSectionResponse, 0, len(rows))
 	for i := range rows {
 		var t *ucsDTO.UserLite
+		teacherName := "" // aman buat NewClassSectionResponse
+
 		if rows[i].ClassSectionsTeacherID != nil {
-			if ul, ok := userMap[*rows[i].ClassSectionsTeacherID]; ok {
-				uCopy := ul
-				t = &uCopy
+			if uid, ok := teacherToUser[*rows[i].ClassSectionsTeacherID]; ok {
+				if ul, ok := userMap[uid]; ok {
+					uCopy := ul // supaya dapat pointer stable
+					t = &uCopy
+					if ul.FullName != "" {
+						teacherName = ul.FullName
+					} else {
+						teacherName = ul.UserName
+					}
+				}
 			}
 		}
-		resp := ucsDTO.NewClassSectionResponse(&rows[i], t.FullName)
+
+		resp := ucsDTO.NewClassSectionResponse(&rows[i], teacherName) // tidak deref t saat nil
 		resp.Teacher = t
 		out = append(out, resp)
 	}
 
 	return helper.JsonOK(c, "OK", out)
 }
+
+
 
 
 // GET /admin/class-sections/:id/books
