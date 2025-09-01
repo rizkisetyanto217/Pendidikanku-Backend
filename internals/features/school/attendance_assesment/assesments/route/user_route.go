@@ -4,7 +4,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	ctr "masjidku_backend/internals/features/school/attendance_assesment/assesment/controller"
+	ctr "masjidku_backend/internals/features/school/attendance_assesment/assesments/controller"
 )
 
 // AssessmentUserRoutes mendaftarkan route user untuk assessment types

@@ -2,7 +2,7 @@
 package dto
 
 import (
-	"masjidku_backend/internals/features/school/attendance_assesment/assesment/model"
+	"masjidku_backend/internals/features/school/attendance_assesment/assesments/model"
 	"time"
 
 	"github.com/google/uuid"

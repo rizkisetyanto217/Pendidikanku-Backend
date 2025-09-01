@@ -4,7 +4,6 @@ package controller
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -14,8 +13,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "masjidku_backend/internals/features/school/attendance_assesment/assesment/dto"
-	model "masjidku_backend/internals/features/school/attendance_assesment/assesment/model"
+	dto "masjidku_backend/internals/features/school/attendance_assesment/assesments/dto"
+	model "masjidku_backend/internals/features/school/attendance_assesment/assesments/model"
 	helper "masjidku_backend/internals/helpers"
 )
 
@@ -60,14 +59,14 @@ func mapToResponse(m *model.AssessmentTypeModel) dto.AssessmentTypeResponse {
 }
 
 func isUniqueViolation(err error) bool {
-	// aman untuk pgx/pq: cari code 23505 atau frasa umum
 	if err == nil {
 		return false
 	}
 	s := err.Error()
-	return strings.Contains(s, "SQLSTATE 23505") ||
-		strings.Contains(strings.ToLower(s), "duplicate key value") ||
-		strings.Contains(strings.ToLower(s), "unique constraint")
+	slow := strings.ToLower(s)
+	return strings.Contains(s, "sqlstate 23505") ||
+		strings.Contains(slow, "duplicate key value") ||
+		strings.Contains(slow, "unique constraint")
 }
 
 func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
@@ -107,11 +106,9 @@ func atoiOr(def int, s string) int {
 
 // GET /assessment-types?masjid_id=&active=&q=&limit=&offset=&sort_by=&sort_dir=
 func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
-	// Ambil tenant dari token (prioritas), kalau tidak ada gunakan query masjid_id (wajib salah satu)
 	masjidIDFromToken, _ := helper.GetMasjidIDFromToken(c)
 
 	var filt dto.ListAssessmentTypeFilter
-	// manual parse query agar fleksibel
 	if q := c.Query("masjid_id"); q != "" {
 		if v, err := uuid.Parse(q); err == nil {
 			filt.MasjidID = v
@@ -121,7 +118,7 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		filt.MasjidID = masjidIDFromToken
 	}
 	if filt.MasjidID == uuid.Nil {
-		return fiber.NewError(fiber.StatusBadRequest, "masjid_id wajib (token atau query)")
+		return helper.Error(c, fiber.StatusBadRequest, "masjid_id wajib (token atau query)")
 	}
 
 	if v := c.Query("active"); v != "" {
@@ -142,12 +139,10 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		filt.SortDir = &[]string{sd}[0] // asc|desc
 	}
 
-	// validasi ringan
 	if err := ctl.Validator.Struct(&filt); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return helper.ValidationError(c, err)
 	}
 
-	// Query builder
 	qry := ctl.DB.Model(&model.AssessmentTypeModel{}).
 		Where("assessment_types_masjid_id = ?", filt.MasjidID)
 
@@ -164,7 +159,7 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 
 	var total int64
 	if err := qry.Count(&total).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	var rows []model.AssessmentTypeModel
@@ -172,7 +167,7 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		Order(getSortClause(filt.SortBy, filt.SortDir)).
 		Limit(filt.Limit).Offset(filt.Offset).
 		Find(&rows).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	out := make([]dto.AssessmentTypeResponse, 0, len(rows))
@@ -180,24 +175,25 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		out = append(out, mapToResponse(&rows[i]))
 	}
 
-	return c.Status(http.StatusOK).JSON(dto.ListAssessmentTypeResponse{
+	resp := dto.ListAssessmentTypeResponse{
 		Data:   out,
 		Total:  total,
 		Limit:  filt.Limit,
 		Offset: filt.Offset,
-	})
+	}
+	return helper.Success(c, "OK", resp)
 }
 
 // GET /assessment-types/:id
 func (ctl *AssessmentTypeController) GetByID(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+		return helper.Error(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	masjidIDFromToken, _ := helper.GetMasjidIDFromToken(c)
 	if masjidIDFromToken == uuid.Nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+		return helper.Error(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
 
 	var row model.AssessmentTypeModel
@@ -205,88 +201,84 @@ func (ctl *AssessmentTypeController) GetByID(c *fiber.Ctx) error {
 		Where("assessment_types_id = ? AND assessment_types_masjid_id = ?", id, masjidIDFromToken).
 		First(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(fiber.StatusNotFound, "Data tidak ditemukan")
+			return helper.Error(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return c.Status(http.StatusOK).JSON(mapToResponse(&row))
+	return helper.Success(c, "OK", mapToResponse(&row))
 }
 
 // POST /assessment-types
 func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 	var req dto.CreateAssessmentTypeRequest
 	if err := c.BodyParser(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.Error(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
-	// Ambil masjid_id dari token (override demi keamanan tenant)
 	masjidIDFromToken, _ := helper.GetMasjidIDFromToken(c)
 	if masjidIDFromToken == uuid.Nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+		return helper.Error(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
 	req.MasjidID = masjidIDFromToken
 
 	if err := ctl.Validator.Struct(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return helper.ValidationError(c, err)
 	}
 
 	now := time.Now()
 	row := model.AssessmentTypeModel{
-		ID:            uuid.Nil, // biarkan DB generate (gen_random_uuid) atau pakai BeforeCreate jika mau app-side
+		ID:            uuid.Nil, // biarkan DB generate (gen_random_uuid) atau BeforeCreate
 		MasjidID:      req.MasjidID,
 		Key:           strings.TrimSpace(req.Key),
 		Name:          strings.TrimSpace(req.Name),
 		WeightPercent: req.WeightPercent,
-		IsActive:      true, // default
+		IsActive:      true,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
-
-	// override IsActive jika dikirim
 	if req.IsActive != nil {
 		row.IsActive = *req.IsActive
 	}
 
 	if err := ctl.DB.Create(&row).Error; err != nil {
 		if isUniqueViolation(err) {
-			return fiber.NewError(fiber.StatusConflict, "Key sudah dipakai untuk masjid ini")
+			return helper.Error(c, fiber.StatusConflict, "Key sudah dipakai untuk masjid ini")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return c.Status(http.StatusCreated).JSON(mapToResponse(&row))
+	return helper.SuccessWithCode(c, fiber.StatusCreated, "Assessment type dibuat", mapToResponse(&row))
 }
 
 // PUT /assessment-types/:id  (partial update)
 func (ctl *AssessmentTypeController) Update(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+		return helper.Error(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	var req dto.UpdateAssessmentTypeRequest
 	if err := c.BodyParser(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.Error(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	if err := ctl.Validator.Struct(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return helper.ValidationError(c, err)
 	}
 
 	masjidIDFromToken, _ := helper.GetMasjidIDFromToken(c)
 	if masjidIDFromToken == uuid.Nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+		return helper.Error(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
 
-	// pastikan ownership
 	var existing model.AssessmentTypeModel
 	if err := ctl.DB.
 		Where("assessment_types_id = ? AND assessment_types_masjid_id = ?", id, masjidIDFromToken).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(fiber.StatusNotFound, "Data tidak ditemukan")
+			return helper.Error(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	updates := map[string]interface{}{}
@@ -300,41 +292,39 @@ func (ctl *AssessmentTypeController) Update(c *fiber.Ctx) error {
 		updates["assessment_types_is_active"] = *req.IsActive
 	}
 	if len(updates) == 0 {
-		return c.Status(http.StatusOK).JSON(mapToResponse(&existing))
+		return helper.Success(c, "OK", mapToResponse(&existing))
 	}
-
 	updates["assessment_types_updated_at"] = time.Now()
 
 	if err := ctl.DB.Model(&model.AssessmentTypeModel{}).
 		Where("assessment_types_id = ? AND assessment_types_masjid_id = ?", id, masjidIDFromToken).
 		Updates(updates).Error; err != nil {
 		if isUniqueViolation(err) {
-			return fiber.NewError(fiber.StatusConflict, "Key sudah dipakai untuk masjid ini")
+			return helper.Error(c, fiber.StatusConflict, "Key sudah dipakai untuk masjid ini")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// reload
 	var after model.AssessmentTypeModel
 	if err := ctl.DB.
 		Where("assessment_types_id = ?", id).
 		First(&after).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return c.Status(http.StatusOK).JSON(mapToResponse(&after))
+	return helper.Success(c, "Assessment type diperbarui", mapToResponse(&after))
 }
 
 // DELETE /assessment-types/:id (soft delete)
 func (ctl *AssessmentTypeController) Delete(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+		return helper.Error(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	masjidIDFromToken, _ := helper.GetMasjidIDFromToken(c)
 	if masjidIDFromToken == uuid.Nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+		return helper.Error(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
 
 	var row model.AssessmentTypeModel
@@ -342,14 +332,15 @@ func (ctl *AssessmentTypeController) Delete(c *fiber.Ctx) error {
 		Where("assessment_types_id = ? AND assessment_types_masjid_id = ?", id, masjidIDFromToken).
 		First(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(fiber.StatusNotFound, "Data tidak ditemukan")
+			return helper.Error(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	if err := ctl.DB.Delete(&row).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return c.SendStatus(http.StatusNoContent)
+	// Jika ingin strict 204 tanpa body, ganti ke: return c.SendStatus(fiber.StatusNoContent)
+	return helper.SuccessWithCode(c, fiber.StatusNoContent, "Assessment type dihapus", nil)
 }
