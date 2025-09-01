@@ -191,3 +191,5 @@ BEFORE UPDATE ON users_profile_documents
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 COMMIT;
+
+

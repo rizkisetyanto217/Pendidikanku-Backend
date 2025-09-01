@@ -9,10 +9,10 @@ import (
 	AcademicYearRoutes "masjidku_backend/internals/features/school/academics/academic_terms/route"
 	AnnouncementRoutes "masjidku_backend/internals/features/school/announcements/announcement/route"
 	AnnouncementThemaRoutes "masjidku_backend/internals/features/school/announcements/announcement_thema/route"
+	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/school/attendance_assesment/attendance_sessions/route"
+	AttendanceSettingsRoute "masjidku_backend/internals/features/school/attendance_assesment/attendance_sessions_settings/route"
 	ClassBooksRoutes "masjidku_backend/internals/features/school/class_subject_books/books/route"
 	SubjectRoutes "masjidku_backend/internals/features/school/class_subject_books/subject/route"
-	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/school/class_attendance_result/attendance_sessions/route"
-	AttendanceSettingsRoute "masjidku_backend/internals/features/school/class_attendance_result/attendance_sessions_settings/route"
 	ClassSectionsRoutes "masjidku_backend/internals/features/school/classes/class_sections/route"
 	ClassesRoutes "masjidku_backend/internals/features/school/classes/classes/route"
 
