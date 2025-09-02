@@ -7,7 +7,7 @@ import (
 
 	"masjidku_backend/internals/configs"
 	classModel "masjidku_backend/internals/features/school/classes/classes/model"
-	matModel "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/model"
+	matModel "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/admins_teachers/model"
 	authModel "masjidku_backend/internals/features/users/auth/model"
 	authRepo "masjidku_backend/internals/features/users/auth/repository"
 	helpers "masjidku_backend/internals/helpers"

@@ -14,13 +14,13 @@ import (
    ======================================================= */
 
 // CreateUserRequest — untuk register / create by admin
+// (Tanpa field Role — role dikelola via user_roles)
 type CreateUserRequest struct {
 	UserName         string  `json:"user_name" validate:"required,min=3,max=50"`
-	FullName         string  `json:"full_name" validate:"required,min=3,max=100"` // ⇐ disamakan dgn model/DDL
+	FullName         string  `json:"full_name" validate:"required,min=3,max=100"`
 	Email            string  `json:"email" validate:"required,email,max=255"`
 	Password         string  `json:"password" validate:"required,min=8"`
 	GoogleID         *string `json:"google_id,omitempty"`
-	Role             string  `json:"role" validate:"omitempty,oneof=owner user teacher treasurer admin dkm author student"`
 	SecurityQuestion string  `json:"security_question" validate:"required"`
 	SecurityAnswer   string  `json:"security_answer" validate:"required,min=3,max=255"`
 	IsActive         *bool   `json:"is_active,omitempty"`
@@ -30,21 +30,19 @@ type CreateUserRequest struct {
 func (r *CreateUserRequest) Normalize() {
 	r.UserName = strings.TrimSpace(r.UserName)
 	r.FullName = strings.TrimSpace(r.FullName)
-	r.Email = strings.TrimSpace(strings.ToLower(r.Email)) // citext di DB, tapi tetap normalize
-	r.Role = strings.TrimSpace(r.Role)
+	r.Email = strings.TrimSpace(strings.ToLower(r.Email)) // citext di DB, tetap normalize
 	r.SecurityQuestion = strings.TrimSpace(r.SecurityQuestion)
 	r.SecurityAnswer = strings.TrimSpace(r.SecurityAnswer)
 }
 
-// ToModel — konversi ke model (ingat: hash password di controller!)
+// ToModel — konversi ke model (hash password di service/controller!)
 func (r *CreateUserRequest) ToModel() *uModel.UserModel {
 	m := &uModel.UserModel{
 		UserName:         r.UserName,
-		FullName:         r.FullName,
+		FullName:         &r.FullName, // model pakai *string
 		Email:            r.Email,
 		Password:         r.Password, // hash di controller
 		GoogleID:         r.GoogleID,
-		Role:             r.Role,
 		SecurityQuestion: r.SecurityQuestion,
 		SecurityAnswer:   r.SecurityAnswer,
 	}
@@ -57,11 +55,10 @@ func (r *CreateUserRequest) ToModel() *uModel.UserModel {
 // UpdateUserRequest — partial update (pakai pointer agar bisa bedakan omit vs null)
 type UpdateUserRequest struct {
 	UserName         *string `json:"user_name,omitempty" validate:"omitempty,min=3,max=50"`
-	FullName         *string `json:"full_name,omitempty" validate:"omitempty,min=3,max=100"` // ⇐ update 100
+	FullName         *string `json:"full_name,omitempty" validate:"omitempty,min=3,max=100"`
 	Email            *string `json:"email,omitempty" validate:"omitempty,email,max=255"`
 	Password         *string `json:"password,omitempty" validate:"omitempty,min=8"`
 	GoogleID         *string `json:"google_id,omitempty"`
-	Role             *string `json:"role,omitempty" validate:"omitempty,oneof=owner user teacher treasurer admin dkm author student"`
 	SecurityQuestion *string `json:"security_question,omitempty" validate:"omitempty"`
 	SecurityAnswer   *string `json:"security_answer,omitempty" validate:"omitempty,min=3,max=255"`
 	IsActive         *bool   `json:"is_active,omitempty"`
@@ -81,10 +78,6 @@ func (r *UpdateUserRequest) Normalize() {
 		v := strings.TrimSpace(strings.ToLower(*r.Email))
 		r.Email = &v
 	}
-	if r.Role != nil {
-		v := strings.TrimSpace(*r.Role)
-		r.Role = &v
-	}
 	if r.SecurityQuestion != nil {
 		v := strings.TrimSpace(*r.SecurityQuestion)
 		r.SecurityQuestion = &v
@@ -101,7 +94,8 @@ func (r *UpdateUserRequest) ApplyToModel(m *uModel.UserModel) {
 		m.UserName = *r.UserName
 	}
 	if r.FullName != nil {
-		m.FullName = *r.FullName
+		// model: *string
+		m.FullName = r.FullName
 	}
 	if r.Email != nil {
 		m.Email = *r.Email
@@ -111,9 +105,6 @@ func (r *UpdateUserRequest) ApplyToModel(m *uModel.UserModel) {
 	}
 	if r.GoogleID != nil {
 		m.GoogleID = r.GoogleID // bisa di-nil-kan
-	}
-	if r.Role != nil {
-		m.Role = *r.Role
 	}
 	if r.SecurityQuestion != nil {
 		m.SecurityQuestion = *r.SecurityQuestion
@@ -127,27 +118,60 @@ func (r *UpdateUserRequest) ApplyToModel(m *uModel.UserModel) {
 }
 
 /* =======================================================
+   ROLE MANAGEMENT DTOs (via user_roles)
+   ======================================================= */
+
+// GrantRoleRequest — endpoint: POST /api/a/user-roles/grant
+type GrantRoleRequest struct {
+	UserID    uuid.UUID  `json:"user_id" validate:"required"`
+	RoleName  string     `json:"role_name" validate:"required"`
+	MasjidID  *uuid.UUID `json:"masjid_id,omitempty"` // null = global
+	AssignedBy *uuid.UUID `json:"assigned_by,omitempty"`
+}
+
+// RevokeRoleRequest — endpoint: POST /api/a/user-roles/revoke
+type RevokeRoleRequest struct {
+	UserID   uuid.UUID  `json:"user_id" validate:"required"`
+	RoleName string     `json:"role_name" validate:"required"`
+	MasjidID *uuid.UUID `json:"masjid_id,omitempty"` // null = global
+}
+
+/* =======================================================
    RESPONSE DTOs
    ======================================================= */
 
-// Default response (tanpa deleted_at; aman untuk publik)
+// Default user response (tanpa deleted_at, tanpa role)
 type UserResponse struct {
 	ID        uuid.UUID `json:"id"`
 	UserName  string    `json:"user_name"`
-	FullName  string    `json:"full_name"`
+	FullName  *string   `json:"full_name,omitempty"`
 	Email     string    `json:"email"`
 	GoogleID  *string   `json:"google_id,omitempty"`
-	Role      string    `json:"role"`
 	IsActive  bool      `json:"is_active"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
-	// NOTE: Password, SecurityQuestion, SecurityAnswer disembunyikan
 }
 
-// Opsi: response yang menyertakan deleted_at (pakai kalau perlu admin-only)
+// UserResponseWithDeletedAt — admin-only (expose deleted_at)
 type UserResponseWithDeletedAt struct {
 	UserResponse
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+}
+
+// RolesClaim (cermin dari fn_user_roles_claim)
+type MasjidRole struct {
+	MasjidID uuid.UUID `json:"masjid_id"`
+	Roles    []string  `json:"roles"`
+}
+type RolesClaim struct {
+	RoleGlobal  []string     `json:"role_global"`
+	MasjidRoles []MasjidRole `json:"masjid_roles"`
+}
+
+// UserWithRolesResponse — gabungan user + roles claim
+type UserWithRolesResponse struct {
+	User  UserResponse `json:"user"`
+	Roles RolesClaim   `json:"roles"`
 }
 
 // FromModel — map model ke UserResponse
@@ -161,7 +185,6 @@ func FromModel(m *uModel.UserModel) *UserResponse {
 		FullName:  m.FullName,
 		Email:     m.Email,
 		GoogleID:  m.GoogleID,
-		Role:      m.Role,
 		IsActive:  m.IsActive,
 		CreatedAt: m.CreatedAt,
 		UpdatedAt: m.UpdatedAt,
@@ -176,7 +199,7 @@ func FromModelList(list []uModel.UserModel) []UserResponse {
 	return out
 }
 
-// FromModelWithDeletedAt — gunakan bila kamu butuh expose deleted_at (admin tools)
+// FromModelWithDeletedAt — gunakan bila butuh expose deleted_at (admin tools)
 func FromModelWithDeletedAt(m *uModel.UserModel) *UserResponseWithDeletedAt {
 	if m == nil {
 		return nil

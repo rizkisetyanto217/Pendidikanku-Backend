@@ -1,7 +1,7 @@
 package controller
 
 import (
-	masjidAdminModel "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/model"
+	masjidAdminModel "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/admins_teachers/model"
 	"masjidku_backend/internals/features/users/auth/service"
 	models "masjidku_backend/internals/features/users/user/model"
 	"strings"
@@ -182,7 +182,6 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 		"id":                 user.ID,
 		"user_name":          user.UserName,
 		"email":              user.Email,
-		"role":               user.Role,
 		"masjid_admin_ids":   masjidAdminIDs,
 		"masjid_teacher_ids": masjidTeacherIDs,
 		"masjid_student_ids": masjidStudentIDs,

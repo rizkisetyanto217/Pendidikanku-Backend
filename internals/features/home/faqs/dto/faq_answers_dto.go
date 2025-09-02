@@ -1,6 +1,7 @@
 package dto
 
 import (
+	"strings"
 	"time"
 
 	faqmodel "masjidku_backend/internals/features/home/faqs/model"
@@ -13,12 +14,12 @@ import (
 type FaqAnswerDTO struct {
 	FaqAnswerID         string     `json:"faq_answer_id"`
 	FaqAnswerQuestionID string     `json:"faq_answer_question_id"`
-	FaqAnswerAnsweredBy *string    `json:"faq_answer_answered_by,omitempty"` // nullable
-	AnsweredByName      *string    `json:"answered_by_name,omitempty"`       // opsional, dari relasi User
+	FaqAnswerAnsweredBy *string    `json:"faq_answer_answered_by,omitempty"` // nullable; diisi id/username penjawab jika ada
+	AnsweredByName      *string    `json:"answered_by_name,omitempty"`       // opsional; human readable name dari relasi User
 	FaqAnswerMasjidID   string     `json:"faq_answer_masjid_id"`
 	FaqAnswerText       string     `json:"faq_answer_text"`
 	FaqAnswerCreatedAt  time.Time  `json:"faq_answer_created_at"`
-	FaqAnswerUpdatedAt  *time.Time `json:"faq_answer_updated_at,omitempty"` // opsional kalau mau tampilkan updated_at
+	FaqAnswerUpdatedAt  *time.Time `json:"faq_answer_updated_at,omitempty"` // nullable; hanya jika non-zero
 }
 
 // ====================
@@ -36,24 +37,27 @@ type UpdateFaqAnswerRequest struct {
 }
 
 // ====================
-/* Converters */
+// Converters
 // ====================
 
 // Model → DTO (single)
 func ToFaqAnswerDTO(m faqmodel.FaqAnswerModel) FaqAnswerDTO {
 	var answeredByName *string
+
+	// Relasi User opsional: pastikan di-preload saat query (Preload("User"))
 	if m.User != nil {
-		// Pilih field nama yang kamu pakai di user; contoh: UserName
-		if m.User.UserName != "" {
-			n := m.User.UserName
-			answeredByName = &n
-		} else if m.User.FullName != "" {
-			n := m.User.FullName
-			answeredByName = &n
+		// Prioritas pakai UserName (string), fallback ke FullName (*string) bila ada
+		if name := strings.TrimSpace(m.User.UserName); name != "" {
+			n := name            // buat salinan lokal agar aman
+			answeredByName = &n  // pointer ke salinan lokal
+		} else if m.User.FullName != nil {
+			if fn := strings.TrimSpace(*m.User.FullName); fn != "" {
+				answeredByName = m.User.FullName // sudah *string
+			}
 		}
 	}
 
-	// UpdatedAt optional: kalau zero value, biarkan nil
+	// UpdatedAt optional → pointer hanya jika non-zero
 	var updatedAtPtr *time.Time
 	if !m.FaqAnswerUpdatedAt.IsZero() {
 		ut := m.FaqAnswerUpdatedAt
@@ -64,7 +68,7 @@ func ToFaqAnswerDTO(m faqmodel.FaqAnswerModel) FaqAnswerDTO {
 		FaqAnswerID:         m.FaqAnswerID,
 		FaqAnswerQuestionID: m.FaqAnswerQuestionID,
 		FaqAnswerAnsweredBy: m.FaqAnswerAnsweredBy, // *string
-		AnsweredByName:      answeredByName,
+		AnsweredByName:      answeredByName,        // *string
 		FaqAnswerMasjidID:   m.FaqAnswerMasjidID,
 		FaqAnswerText:       m.FaqAnswerText,
 		FaqAnswerCreatedAt:  m.FaqAnswerCreatedAt,
@@ -82,7 +86,7 @@ func ToFaqAnswerDTOs(list []faqmodel.FaqAnswerModel) []FaqAnswerDTO {
 }
 
 // Create Request → Model
-// `answeredBy` ambil dari token; boleh nil jika sistem mengizinkan jawaban anonim/moderator sistem
+// `answeredBy` biasanya diisi dari token (username/id penjawab).
 func (r CreateFaqAnswerRequest) ToModel(answeredBy *string) faqmodel.FaqAnswerModel {
 	return faqmodel.FaqAnswerModel{
 		FaqAnswerQuestionID: r.FaqAnswerQuestionID,

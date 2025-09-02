@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"masjidku_backend/internals/configs"
-	lembagaModel "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/model"
+	lembagaModel "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/admins_teachers/model"
 	progressUserService "masjidku_backend/internals/features/progress/progress/service"
 	classModel "masjidku_backend/internals/features/school/classes/classes/model"
 	authHelper "masjidku_backend/internals/features/users/auth/helper"
@@ -92,9 +92,6 @@ func Register(db *gorm.DB, c *fiber.Ctx) error {
 	if err := c.BodyParser(&input); err != nil {
 		return helpers.Error(c, fiber.StatusBadRequest, "Invalid request body")
 	}
-
-	// Force ke "user"
-	input.Role = "user"
 
 	if err := authHelper.ValidateRegisterInput(input.UserName, input.Email, input.Password, input.SecurityAnswer); err != nil {
 		return helpers.Error(c, fiber.StatusBadRequest, err.Error())
@@ -268,7 +265,7 @@ func collectMasjidRoleIDs(db *gorm.DB, userID uuid.UUID) (
 ========================== */
 
 func fetchTeacherRecords(db *gorm.DB, user userModel.UserModel) []TeacherRecord {
-	if !strings.EqualFold(strings.TrimSpace(user.Role), "teacher") {
+	if !strings.EqualFold(strings.TrimSpace(user.Email), "teacher") {
 		return nil
 	}
 	if !hasTable(db, "masjid_teachers") {
@@ -328,7 +325,6 @@ func issueTokensWithRoles(
 		"id":                 user.ID.String(),
 		"user_name":          user.UserName,
 		"full_name":          user.FullName,
-		"role":               user.Role,
 		"masjid_admin_ids":   masjidAdminIDs,
 		"masjid_teacher_ids": masjidTeacherIDs,
 		"masjid_student_ids": masjidStudentIDs,
@@ -382,7 +378,6 @@ func issueTokensWithRoles(
 		"user_name":          user.UserName,
 		"email":              user.Email,
 		"full_name":          user.FullName,
-		"role":               user.Role,
 		"masjid_admin_ids":   masjidAdminIDs,
 		"masjid_teacher_ids": masjidTeacherIDs,
 		"masjid_student_ids": masjidStudentIDs,
@@ -458,7 +453,6 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 			Email:            email,
 			Password:         generateDummyPassword(),
 			GoogleID:         &googleID,
-			Role:             "user",
 			SecurityQuestion: "Created by Google",
 			SecurityAnswer:   "google_auth",
 			CreatedAt:        nowUTC(),

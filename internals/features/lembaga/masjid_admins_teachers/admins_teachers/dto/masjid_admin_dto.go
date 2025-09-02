@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"masjidku_backend/internals/features/lembaga/masjid_admins_teachers/model"
+	"masjidku_backend/internals/features/lembaga/masjid_admins_teachers/admins_teachers/model"
 )
 
 // =========================

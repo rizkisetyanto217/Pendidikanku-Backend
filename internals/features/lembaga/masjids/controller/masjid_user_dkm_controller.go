@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	masjidAdminModel "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/model"
+	masjidAdminModel "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/admins_teachers/model"
 	"masjidku_backend/internals/features/lembaga/masjids/dto"
 	"masjidku_backend/internals/features/lembaga/masjids/model"
 	userModel "masjidku_backend/internals/features/users/user/model"

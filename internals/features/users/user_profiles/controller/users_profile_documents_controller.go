@@ -15,13 +15,11 @@ import (
 	pq "github.com/lib/pq"
 	"gorm.io/gorm"
 
-	// Perbaiki path DTO & Model ke users/profile
-	"masjidku_backend/internals/features/users/user/dto"
-	"masjidku_backend/internals/features/users/user/model"
+	// DTO & Model (users/profile)
+	"masjidku_backend/internals/features/users/user_profiles/dto"
+	"masjidku_backend/internals/features/users/user_profiles/model"
 
-	// Alias helper:
-	// - resp: khusus response JSON standar
-	// - util: helper lain yang sudah ada (token, upload, dll)
+	// Helpers
 	helper "masjidku_backend/internals/helpers"
 	helperOSS "masjidku_backend/internals/helpers/oss"
 
@@ -42,7 +40,7 @@ func NewUsersProfileDocumentController(db *gorm.DB) *UsersProfileDocumentControl
 
 /* =========================
    Helpers
-   ========================= */
+========================= */
 
 func isUniqueViolation(err error) bool {
 	var pqErr *pq.Error
@@ -63,11 +61,9 @@ func parseRFC3339Ptr(s *string) (*time.Time, error) {
 	return &t, nil
 }
 
-
 /* =========================
-   CREATE - JSON
-   ========================= */
-// POST /users/profile/documents/upload/many
+   CREATE - MULTIPART (many)
+========================= */
 // POST /users/profile/documents/upload/many
 func (uc *UsersProfileDocumentController) CreateMultipartMany(c *fiber.Ctx) error {
 	userID, err := helper.GetUserIDFromToken(c)
@@ -75,13 +71,12 @@ func (uc *UsersProfileDocumentController) CreateMultipartMany(c *fiber.Ctx) erro
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
 
-	// Ambil semua file dari form-data
 	form, err := c.MultipartForm()
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Form-data tidak valid")
 	}
 	files := form.File["files"]
-	docTypes := form.Value["doc_type"] // opsional: align dengan files
+	docTypes := form.Value["doc_type"] // opsional: sejajarkan dengan files
 
 	if len(files) == 0 {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Tidak ada file yang diunggah (field 'files')")
@@ -90,7 +85,7 @@ func (uc *UsersProfileDocumentController) CreateMultipartMany(c *fiber.Ctx) erro
 		return helper.JsonError(c, fiber.StatusBadRequest, "Jumlah doc_type harus sama dengan jumlah files")
 	}
 
-	// Init OSS sekali
+	// Init OSS
 	svc, err := helperOSS.NewOSSServiceFromEnv("")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal init OSS")
@@ -110,11 +105,10 @@ func (uc *UsersProfileDocumentController) CreateMultipartMany(c *fiber.Ctx) erro
 	}()
 
 	out := make([]dto.UserProfileDocumentResponse, 0, len(files))
-	// Folder target di bucket
 	baseDir := fmt.Sprintf("users/documents/%s", userID.String())
 
 	for i, fh := range files {
-		// Tentukan docType (pakai input atau fallback dari nama file)
+		// Tentukan docType
 		var docType string
 		if len(docTypes) > 0 {
 			docType = strings.TrimSpace(docTypes[i])
@@ -129,13 +123,13 @@ func (uc *UsersProfileDocumentController) CreateMultipartMany(c *fiber.Ctx) erro
 			}
 			docType = base
 		}
-		// Validasi singkat docType
+		// Validasi docType
 		if err := uc.Validator.Var(docType, "required,max=50"); err != nil {
 			_ = tx.Rollback().Error
 			return helper.JsonError(c, fiber.StatusBadRequest, fmt.Sprintf("doc_type[%d] tidak valid", i))
 		}
 
-		// Upload via helper OSS (konversi ke .webp bila jpg/png; webp passthrough)
+		// Upload → webp
 		url, upErr := svc.UploadAsWebP(ctx, fh, baseDir)
 		if upErr != nil {
 			_ = tx.Rollback().Error
@@ -146,7 +140,7 @@ func (uc *UsersProfileDocumentController) CreateMultipartMany(c *fiber.Ctx) erro
 			return helper.JsonError(c, fiber.StatusBadGateway, fmt.Sprintf("Gagal upload ke OSS: %v", upErr))
 		}
 
-		// Simpan ke DB
+		// Simpan DB
 		m := dto.ToModelCreateMultipart(userID, docType, url)
 		if err := tx.Create(&m).Error; err != nil {
 			if isUniqueViolation(err) {
@@ -166,23 +160,19 @@ func (uc *UsersProfileDocumentController) CreateMultipartMany(c *fiber.Ctx) erro
 	return helper.JsonCreated(c, "Dokumen berhasil diunggah", out)
 }
 
-
 /* =========================
    LIST + FILTER + PAGINATION
-   ========================= */
-
+========================= */
 func (uc *UsersProfileDocumentController) List(c *fiber.Ctx) error {
 	userID, err := helper.GetUserIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
 
-	// Bind query
 	var q dto.ListUserProfileDocumentQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
-	// default pagination
 	page := 1
 	limit := 20
 	if q.Page > 0 {
@@ -211,13 +201,13 @@ func (uc *UsersProfileDocumentController) List(c *fiber.Ctx) error {
 	// count
 	var total int64
 	if err := dbq.Count(&total).Error; err != nil {
-		return httpErr(c, err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
 	// data
 	var rows []model.UsersProfileDocumentModel
 	if err := dbq.Order("uploaded_at DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
-		return httpErr(c, err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
 	respRows := make([]dto.UserProfileDocumentResponse, 0, len(rows))
@@ -236,8 +226,7 @@ func (uc *UsersProfileDocumentController) List(c *fiber.Ctx) error {
 
 /* =========================
    GET BY DOC TYPE
-   ========================= */
-
+========================= */
 func (uc *UsersProfileDocumentController) GetByDocType(c *fiber.Ctx) error {
 	userID, err := helper.GetUserIDFromToken(c)
 	if err != nil {
@@ -255,16 +244,15 @@ func (uc *UsersProfileDocumentController) GetByDocType(c *fiber.Ctx) error {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Dokumen tidak ditemukan")
 		}
-		return httpErr(c, err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
 	return helper.JsonOK(c, "Sukses mengambil dokumen", dto.ToResponse(m))
 }
 
-
 /* =========================
-   UPDATE - MULTIPART (partial, single source of truth)
-   ========================= */
+   UPDATE - MULTIPART (partial)
+========================= */
 func (uc *UsersProfileDocumentController) UpdateMultipart(c *fiber.Ctx) error {
 	userID, err := helper.GetUserIDFromToken(c)
 	if err != nil {
@@ -283,19 +271,18 @@ func (uc *UsersProfileDocumentController) UpdateMultipart(c *fiber.Ctx) error {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Dokumen tidak ditemukan")
 		}
-		return httpErr(c, err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// Ambil field lain yang mungkin ikut diubah (opsional)
+	// Ambil field lain (opsional)
 	var in dto.UpdateUserProfileDocumentMultipart
 	if err := c.BodyParser(&in); err != nil {
 		log.Println("[WARN] BodyParser multipart:", err)
 	}
 
-	// ==== Upload file baru (opsional) → pakai helper OSS ====
+	// Upload file baru (opsional)
 	var newURL *string
 	if fh, err := c.FormFile("file"); err == nil && fh != nil {
-		// Init OSS sekali
 		svc, err := helperOSS.NewOSSServiceFromEnv("")
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal init OSS")
@@ -303,10 +290,8 @@ func (uc *UsersProfileDocumentController) UpdateMultipart(c *fiber.Ctx) error {
 		ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
 		defer cancel()
 
-		// Simpan ke folder: users/documents/<userID>
 		dir := fmt.Sprintf("users/documents/%s", userID.String())
-
-		u, upErr := svc.UploadAsWebP(ctx, fh, dir) // konversi jpg/png → webp, webp passthrough
+		u, upErr := svc.UploadAsWebP(ctx, fh, dir)
 		if upErr != nil {
 			lc := strings.ToLower(upErr.Error())
 			if strings.Contains(lc, "format tidak didukung") {
@@ -317,7 +302,7 @@ func (uc *UsersProfileDocumentController) UpdateMultipart(c *fiber.Ctx) error {
 		newURL = &u
 	}
 
-	// ==== Validasi ringan pada URL input opsional ====
+	// Validasi URL opsional
 	if in.FileURL != nil {
 		if err := uc.Validator.Var(in.FileURL, "omitempty,url"); err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "file_url tidak valid")
@@ -329,7 +314,7 @@ func (uc *UsersProfileDocumentController) UpdateMultipart(c *fiber.Ctx) error {
 		}
 	}
 
-	// ==== Parse waktu pending delete (opsional) ====
+	// Parse pending delete
 	var pendingAt *time.Time
 	if in.FileDeletePendingUntil != nil {
 		t, err := parseRFC3339Ptr(in.FileDeletePendingUntil)
@@ -339,30 +324,27 @@ func (uc *UsersProfileDocumentController) UpdateMultipart(c *fiber.Ctx) error {
 		pendingAt = t
 	}
 
-	// ==== Apply perubahan non-URL dulu ====
+	// Apply perubahan non-URL
 	dto.ApplyModelUpdateMultipart(&m, nil, in.FileTrashURL, pendingAt)
 
-	// ==== Atur sumber FileURL: prioritas hasil upload baru ====
+	// Sumber FileURL: upload baru > file_url
 	if newURL != nil {
 		m.FileURL = *newURL
 	} else if in.FileURL != nil {
 		m.FileURL = *in.FileURL
 	}
 
-	// ==== Simpan ====
+	// Simpan
 	if err := uc.DB.WithContext(c.Context()).Save(&m).Error; err != nil {
-		return httpErr(c, err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui dokumen")
 	}
 
 	return helper.JsonUpdated(c, "Dokumen berhasil diperbarui", dto.ToResponse(m))
 }
 
-
-
 /* =========================
-   DELETE - SOFT
-   ========================= */
-
+   DELETE - SOFT / HARD
+========================= */
 func (uc *UsersProfileDocumentController) DeleteSoft(c *fiber.Ctx) error {
 	userID, err := helper.GetUserIDFromToken(c)
 	if err != nil {
@@ -373,7 +355,7 @@ func (uc *UsersProfileDocumentController) DeleteSoft(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "doc_type wajib di path")
 	}
 
-	// Optionally: ?hard=true untuk hard delete (hati-hati)
+	// ?hard=true untuk hard delete
 	hard := false
 	if v := c.Query("hard"); v != "" {
 		b, _ := strconv.ParseBool(v)
@@ -388,19 +370,18 @@ func (uc *UsersProfileDocumentController) DeleteSoft(c *fiber.Ctx) error {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Dokumen tidak ditemukan")
 		}
-		return httpErr(c, err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
 	if hard {
 		if err := uc.DB.WithContext(c.Context()).Unscoped().Delete(&m).Error; err != nil {
-			return httpErr(c, err)
+			return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 		}
 		return helper.JsonDeleted(c, "Dokumen dihapus permanen", fiber.Map{"doc_type": docType})
 	}
 
-	// Soft delete
 	if err := uc.DB.WithContext(c.Context()).Delete(&m).Error; err != nil {
-		return httpErr(c, err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 	return helper.JsonDeleted(c, "Dokumen berhasil dihapus", fiber.Map{"doc_type": docType})
 }

@@ -6,9 +6,10 @@ import (
 
 	surveyRoute "masjidku_backend/internals/features/users/survey/route"
 	tokenRoute "masjidku_backend/internals/features/users/token/route"
-	userRoute "masjidku_backend/internals/features/users/user/routes"
+	userRoute "masjidku_backend/internals/features/users/user/route"
 	rateLimiter "masjidku_backend/internals/middlewares"
 	authMiddleware "masjidku_backend/internals/middlewares/auth"
+	teacherProfile "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/teachers/route"
 )
 
 func UserRoutes(app *fiber.App, db *gorm.DB) {
@@ -26,4 +27,7 @@ func UserRoutes(app *fiber.App, db *gorm.DB) {
 	userRoute.UserUserRoutes(userGroup, db)
 	surveyRoute.SurveyUserRoutes(userGroup, db)
 	tokenRoute.RegisterTokenRoutes(userGroup, db)   // 🔓 Token routes
+	// teacherProfile.UsersTeacherTeacherRoute(userGroup, db)
+	teacherProfile.UsersTeacherUserRoute(userGroup, db)
+	
 }

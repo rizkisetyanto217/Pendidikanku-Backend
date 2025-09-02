@@ -2,7 +2,7 @@ package route
 
 import (
 	"masjidku_backend/internals/constants"
-	adminTeacherCtrl "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/controller"
+	adminTeacherCtrl "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/admins_teachers/controller"
 	authMiddleware "masjidku_backend/internals/middlewares/auth"
 	masjidkuMiddleware "masjidku_backend/internals/middlewares/features"
 

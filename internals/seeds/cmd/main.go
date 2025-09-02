@@ -11,7 +11,7 @@ import (
 	level "masjidku_backend/internals/seeds/progress/levels"
 	rank "masjidku_backend/internals/seeds/progress/ranks"
 
-	users "masjidku_backend/internals/seeds/users/auth"
+	// users "masjidku_backend/internals/seeds/users/auth"
 	survey "masjidku_backend/internals/seeds/users/surveys/survey_questions"
 	user_survey "masjidku_backend/internals/seeds/users/surveys/user_surveys"
 	tooltips "masjidku_backend/internals/seeds/utils/tooltips"
@@ -30,7 +30,7 @@ func main() {
 	case "all":
 		seeds.RunAllSeeds(db)
 	case "users":
-		users.SeedUsersFromJSON(db, "internals/seeds/users/auth/data_users.json")
+		// users.SeedUsersFromJSON(db, "internals/seeds/users/auth/data_users.json")
 	case "users_profile":
 		// userProfiles.SeedUsersProfileFromJSON(db, "internals/seeds/users/users/data_users_profiles.json")
 	

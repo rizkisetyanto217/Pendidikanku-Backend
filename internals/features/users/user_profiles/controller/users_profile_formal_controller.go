@@ -6,8 +6,8 @@ import (
 	"log"
 	"net/http"
 
-	"masjidku_backend/internals/features/users/user/dto"
-	"masjidku_backend/internals/features/users/user/model"
+	"masjidku_backend/internals/features/users/user_profiles/dto"
+	"masjidku_backend/internals/features/users/user_profiles/model"
 	helper "masjidku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"

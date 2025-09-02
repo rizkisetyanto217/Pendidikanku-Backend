@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"masjidku_backend/internals/features/users/user/dto"
-	"masjidku_backend/internals/features/users/user/model"
+	"masjidku_backend/internals/features/lembaga/masjid_admins_teachers/teachers/dto"
+	"masjidku_backend/internals/features/lembaga/masjid_admins_teachers/teachers/model"
 	helper "masjidku_backend/internals/helpers"
 
 	// <— SESUAIKAN path helper-nya
