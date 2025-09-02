@@ -70,7 +70,8 @@ type BookWithUsagesResponse struct {
 	BooksAuthor *string `json:"books_author,omitempty"`
 	BooksDesc   *string `json:"books_desc,omitempty"`
 	BooksSlug   *string `json:"books_slug,omitempty"`
-
+	BooksURL      *string `json:"books_url,omitempty"`
+	BooksImageURL *string `json:"books_image_url,omitempty"`
 	Usages []BookUsage `json:"usages"`
 }
 

@@ -133,8 +133,8 @@ func (s *LembagaStatsService) RecomputeFromSources(tx *gorm.DB, masjidID uuid.UU
 	if err := tx.Raw(`
 		SELECT COALESCE(COUNT(*),0) AS n
 		FROM masjid_teachers
-		WHERE masjid_teachers_masjid_id = ?
-		  AND masjid_teachers_deleted_at IS NULL
+		WHERE masjid_teacher_masjid_id = ?
+		  AND masjid_teacher_deleted_at IS NULL
 	`, masjidID).Scan(&struct{ N *int }{&r.Teachers}).Error; err != nil {
 		return r, err
 	}

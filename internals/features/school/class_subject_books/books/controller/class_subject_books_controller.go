@@ -20,8 +20,6 @@ type ClassSubjectBookController struct {
 	DB *gorm.DB
 }
 
-func intPtr(v int) *int { return &v }
-
 /* =========================================================
    CREATE
    POST /admin/class-subject-books
@@ -254,32 +252,76 @@ func (h *ClassSubjectBookController) GetByID(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "Detail class_subject_book", resp)
 }
 
-
 /* =========================================================
    LIST
-   GET /admin/class-subject-books[?with_deleted=true]
+   GET /admin/class-subject-books
+   Query:
+     - q                : cari di desc
+     - class_subject_id : UUID
+     - class_id         : UUID (via class_sections -> class_id)
+     - section_id       : UUID
+     - subject_id       : UUID (via class_subjects)
+     - teacher_id       : UUID (filter via CSST)
+     - is_active        : bool
+     - with_deleted     : bool
+     - sort             : created_at_asc|created_at_desc|updated_at_asc|updated_at_desc
+     - limit, offset
    ========================================================= */
 func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil { return err }
-
-	var q csbDTO.ListClassSubjectBookQuery
-	q.Limit, q.Offset = intPtr(20), intPtr(0)
-	if err := c.QueryParser(&q); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
+	// ===== tenant: dukung teacher/student/dkm/admin (union)
+	masjidIDs, err := helper.GetMasjidIDsFromToken(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
-	if q.Limit == nil || *q.Limit <= 0 || *q.Limit > 200 { q.Limit = intPtr(20) }
-	if q.Offset == nil || *q.Offset < 0 { q.Offset = intPtr(0) }
 
+	// ===== parse query sederhana
+	var q csbDTO.ListClassSubjectBookQuery
+	if err := c.QueryParser(&q); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
+	}
+
+	limit := 20
+	offset := 0
+	if q.Limit != nil && *q.Limit > 0 && *q.Limit <= 200 {
+		limit = *q.Limit
+	}
+	if q.Offset != nil && *q.Offset >= 0 {
+		offset = *q.Offset
+	}
+
+	// ===== base query
 	qBase := h.DB.Table("class_subject_books AS csb").
-		Where("csb.class_subject_books_masjid_id = ?", masjidID)
+		Where("csb.class_subject_books_masjid_id IN ?", masjidIDs)
 
-	// exclude soft-deleted
+	// exclude soft-deleted default
 	if q.WithDeleted == nil || !*q.WithDeleted {
 		qBase = qBase.Where("csb.class_subject_books_deleted_at IS NULL")
 	}
 
-	// filters
+	// ===== JOIN yang diperlukan
+	qBase = qBase.
+		Joins(`
+			LEFT JOIN class_subjects AS cs
+			  ON cs.class_subjects_id = csb.class_subject_books_class_subject_id
+		`).
+		Joins(`
+			LEFT JOIN class_sections AS sec
+			  ON sec.class_sections_class_id = cs.class_subjects_class_id
+			 AND sec.class_sections_deleted_at IS NULL
+		`).
+		Joins(`
+			LEFT JOIN books AS b
+			  ON b.books_id = csb.class_subject_books_book_id
+		`).
+		// Perbaikan: CSST join via CLASS_SUBJECT (kolom jamak)
+		Joins(`
+			LEFT JOIN class_section_subject_teachers AS csst
+			  ON csst.class_section_subject_teachers_section_id = sec.class_sections_id
+			 AND csst.class_section_subject_teachers_class_subjects_id = cs.class_subjects_id
+			 AND csst.class_section_subject_teachers_deleted_at IS NULL
+		`)
+
+	// ===== filters
 	if q.ClassSubjectID != nil {
 		qBase = qBase.Where("csb.class_subject_books_class_subject_id = ?", *q.ClassSubjectID)
 	}
@@ -293,50 +335,52 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		qq := "%" + strings.TrimSpace(*q.Q) + "%"
 		qBase = qBase.Where("csb.class_subject_books_desc ILIKE ?", qq)
 	}
-
-	// ===== JOIN yang benar =====
-	qBase = qBase.
-		Joins(`
-			LEFT JOIN class_subjects AS cs
-			  ON cs.class_subjects_id = csb.class_subject_books_class_subject_id
-		`).
-		// hubungkan ke section via CLASS, bukan via kolom section di class_subjects (memang tidak ada)
-		Joins(`
-			LEFT JOIN class_sections AS sec
-			  ON sec.class_sections_class_id = cs.class_subjects_class_id
-		`).
-		Joins(`
-			LEFT JOIN books AS b
-			  ON b.books_id = csb.class_subject_books_book_id
-		`).
-		// opsional: hanya section yang memang mengajar subject tsb (agar tidak “semua section di kelas”)
-		Joins(`
-			LEFT JOIN class_section_subject_teachers AS csst
-			  ON csst.class_section_subject_teachers_section_id = sec.class_sections_id
-			 AND csst.class_section_subject_teachers_subject_id = cs.class_subjects_subject_id
-			 AND csst.class_section_subject_teachers_deleted_at IS NULL
-		`)
-
-	// (opsional) filter by section_id → aman karena sudah JOIN sec
+	// filter by section_id
 	if sid := strings.TrimSpace(c.Query("section_id")); sid != "" {
 		secID, e := uuid.Parse(sid)
 		if e != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "section_id tidak valid")
+			return helper.JsonError(c, fiber.StatusBadRequest, "section_id tidak valid")
 		}
 		qBase = qBase.Where("sec.class_sections_id = ?", secID)
 	}
+	// filter by class_id
+	if cid := strings.TrimSpace(c.Query("class_id")); cid != "" {
+		classID, e := uuid.Parse(cid)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "class_id tidak valid")
+		}
+		qBase = qBase.Where("sec.class_sections_class_id = ?", classID)
+	}
+	// filter by subject_id (via class_subjects)
+	if sub := strings.TrimSpace(c.Query("subject_id")); sub != "" {
+		subID, e := uuid.Parse(sub)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "subject_id tidak valid")
+		}
+		qBase = qBase.Where("cs.class_subjects_subject_id = ?", subID)
+	}
+	// filter by teacher_id (via CSST)
+	if tid := strings.TrimSpace(c.Query("teacher_id")); tid != "" {
+		teacherID, e := uuid.Parse(tid)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "teacher_id tidak valid")
+		}
+		qBase = qBase.Where("csst.class_section_subject_teachers_teacher_id = ?", teacherID)
+	}
 
-	// total distinct
+	// ===== total distinct
 	var total int64
 	if err := qBase.Session(&gorm.Session{}).
 		Distinct("csb.class_subject_books_id").
 		Count(&total).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung total data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
-	// sort
+	// ===== sorting whitelist
 	sort := "created_at_desc"
-	if q.Sort != nil { sort = strings.ToLower(strings.TrimSpace(*q.Sort)) }
+	if q.Sort != nil {
+		sort = strings.ToLower(strings.TrimSpace(*q.Sort))
+	}
 	switch sort {
 	case "created_at_asc":
 		qBase = qBase.Order("csb.class_subject_books_created_at ASC")
@@ -348,7 +392,39 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		qBase = qBase.Order("csb.class_subject_books_created_at DESC")
 	}
 
-	// scan struct ringan
+	// ===== tambah JOIN ke book_urls untuk ambil satu URL utama & satu cover
+	qData := qBase.
+		Joins(`
+			LEFT JOIN LATERAL (
+				SELECT bu.book_url_href
+				FROM book_urls AS bu
+				WHERE bu.book_url_book_id = b.books_id
+				  AND bu.book_url_deleted_at IS NULL
+				  AND bu.book_url_type IN ('download','purchase','desc')
+				ORDER BY
+				  CASE bu.book_url_type
+				    WHEN 'download' THEN 1
+				    WHEN 'purchase' THEN 2
+				    WHEN 'desc' THEN 3
+				    ELSE 9
+				  END,
+				  bu.book_url_created_at DESC
+				LIMIT 1
+			) bu ON TRUE
+		`).
+		Joins(`
+			LEFT JOIN LATERAL (
+				SELECT bu2.book_url_href
+				FROM book_urls AS bu2
+				WHERE bu2.book_url_book_id = b.books_id
+				  AND bu2.book_url_deleted_at IS NULL
+				  AND bu2.book_url_type = 'cover'
+				ORDER BY bu2.book_url_created_at DESC
+				LIMIT 1
+			) bu_cover ON TRUE
+		`)
+
+	// ===== scan struct ringan
 	type row struct {
 		ID             uuid.UUID  `gorm:"column:class_subject_books_id"`
 		MasjidID       uuid.UUID  `gorm:"column:class_subject_books_masjid_id"`
@@ -369,7 +445,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		BImageURL *string    `gorm:"column:books_image_url"`
 		BSlug     *string    `gorm:"column:books_slug"`
 
-		// section
+		// section (via class)
 		SecID       *uuid.UUID `gorm:"column:class_sections_id"`
 		SecName     *string    `gorm:"column:class_sections_name"`
 		SecSlug     *string    `gorm:"column:class_sections_slug"`
@@ -379,7 +455,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	}
 
 	var rows []row
-	if err := qBase.
+	if err := qData.
 		Select(`
 			csb.class_subject_books_id,
 			csb.class_subject_books_masjid_id,
@@ -395,8 +471,8 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 			b.books_masjid_id,
 			b.books_title,
 			b.books_author,
-			b.books_url,
-			b.books_image_url,
+			bu.book_url_href AS books_url,          -- dari book_urls (utama)
+			bu_cover.book_url_href AS books_image_url, -- dari book_urls (cover)
 			b.books_slug,
 
 			sec.class_sections_id,
@@ -406,13 +482,13 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 			sec.class_sections_capacity,
 			sec.class_sections_is_active
 		`).
-		Limit(*q.Limit).
-		Offset(*q.Offset).
+		Limit(limit).
+		Offset(offset).
 		Scan(&rows).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// map dto
+	// ===== map ke DTO (tetap sama)
 	items := make([]csbDTO.ClassSubjectBookResponse, 0, len(rows))
 	for _, r := range rows {
 		resp := csbDTO.ClassSubjectBookResponse{
@@ -451,12 +527,11 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonList(c, items, csbDTO.Pagination{
-		Limit:  *q.Limit,
-		Offset: *q.Offset,
+		Limit:  limit,
+		Offset: offset,
 		Total:  int(total),
 	})
 }
-
 
 // helpers
 func derefUUID(v *uuid.UUID) uuid.UUID { if v == nil { return uuid.Nil }; return *v }

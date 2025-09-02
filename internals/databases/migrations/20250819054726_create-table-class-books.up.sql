@@ -252,14 +252,6 @@ BEGIN
 END$$;
 
 -- =========================================
--- Hapus kolom URL lama di books (jika masih ada)
--- =========================================
-ALTER TABLE books
-  DROP COLUMN IF EXISTS books_image_url,
-  DROP COLUMN IF EXISTS books_url;
-
-
--- =========================================
 -- CLASS_SUBJECT_BOOKS (relasi + status aktif)
 -- =========================================
 CREATE TABLE IF NOT EXISTS class_subject_books (

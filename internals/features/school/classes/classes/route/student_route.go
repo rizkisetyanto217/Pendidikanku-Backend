@@ -9,20 +9,29 @@ import (
 )
 
 func ClassUserRoutes(r fiber.Router, db *gorm.DB) {
-	h := ctrl.NewUserMyClassController(db)
 
-	g := r.Group("/user-classes")
-	g.Get("/", h.ListMyUserClasses)      // GET list enrolment milik user
-	g.Get("/:id", h.GetMyUserClassByID)  // GET detail enrolment milik user
-	g.Post("/", h.SelfEnroll)            // PMB: daftar kelas (status=inactive)
+	// ===== Classes (READ-ONLY untuk user) =====
+	cls := ctrl.NewClassController(db)
+
+	classes := r.Group("/classes")
+	classes.Get("/", cls.ListClasses)            // list kelas (read-only)
+	classes.Get("/search", cls.SearchWithSubjects)
+	classes.Get("/slug/:slug", cls.GetClassBySlug)
+	classes.Get("/:id", cls.GetClassByID)
+
+
+	// ===== "My User Classes" (enrolment milik user) =====
+	my := ctrl.NewUserMyClassController(db)
+
+	uc := r.Group("/user-classes")
+	uc.Get("/", my.ListMyUserClasses)     // GET list enrolment milik user
+	uc.Get("/:id", my.GetMyUserClassByID) // GET detail enrolment milik user
+	uc.Post("/", my.SelfEnroll)           // PMB: daftar kelas (status=inactive)
+
 
 	// ===== CPO (Class Pricing Options) - USER (read-only) =====
 	cpo := ctrl.NewCPOController(db)
-
-	// by class_id
-	r.Get("/classes/:class_id/pricing-options", cpo.UserListCPO)     // ?type=&limit=&offset=
+	r.Get("/classes/:class_id/pricing-options", cpo.UserListCPO)       // ?type=&limit=&offset=
 	r.Get("/classes/:class_id/pricing-options/latest", cpo.UserLatestCPO)
-
-	// by pricing option id
-	r.Get("/pricing-options/:id", cpo.UserGetCPOByID)
+	r.Get("/pricing-options/:id", cpo.UserGetCPOByID)                   // by pricing option id
 }

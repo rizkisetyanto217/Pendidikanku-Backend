@@ -16,9 +16,10 @@ func sPtr(v *string) string { if v == nil { return "" }; return *v }
 func bPtr(v *bool) bool     { if v == nil { return false }; return *v }
 
 
+
 // ----------------------------------------------------------
 // GET /api/a/books/with-usages  (atau /api/a/class-books/books)
-// Tampilkan SEMUA buku (parent) + daftar pemakaian (usages)
+// Tampilkan SEMUA buku (parent) + daftar pemakaian (usages) + URL utama & cover
 // ----------------------------------------------------------
 func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
@@ -86,7 +87,7 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 		Joins(`
 			LEFT JOIN class_subjects AS cs
 			  ON cs.class_subjects_id = csb.class_subject_books_class_subject_id
-			 AND (cs.class_subjects_deleted_at IS NULL OR cs.class_subjects_deleted_at IS NULL) -- hardening
+			 AND (cs.class_subjects_deleted_at IS NULL OR cs.class_subjects_deleted_at IS NULL)
 		`).
 		Joins(`
 			LEFT JOIN class_section_subject_teachers AS csst
@@ -98,6 +99,36 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 			LEFT JOIN class_sections AS sec
 			  ON sec.class_sections_id = csst.class_section_subject_teachers_section_id
 			 AND (sec.class_sections_deleted_at IS NULL OR sec.class_sections_deleted_at IS NULL)
+		`).
+		// === URL utama & cover dari book_urls ===
+		Joins(`
+			LEFT JOIN LATERAL (
+				SELECT bu.book_url_href
+				FROM book_urls AS bu
+				WHERE bu.book_url_book_id = b.books_id
+				  AND bu.book_url_deleted_at IS NULL
+				  AND bu.book_url_type IN ('download','purchase','desc')
+				ORDER BY
+				  CASE bu.book_url_type
+				    WHEN 'download' THEN 1
+				    WHEN 'purchase' THEN 2
+				    WHEN 'desc' THEN 3
+				    ELSE 9
+				  END,
+				  bu.book_url_created_at DESC
+				LIMIT 1
+			) bu ON TRUE
+		`).
+		Joins(`
+			LEFT JOIN LATERAL (
+				SELECT bu2.book_url_href
+				FROM book_urls AS bu2
+				WHERE bu2.book_url_book_id = b.books_id
+				  AND bu2.book_url_deleted_at IS NULL
+				  AND bu2.book_url_type = 'cover'
+				ORDER BY bu2.book_url_created_at DESC
+				LIMIT 1
+			) bu_cover ON TRUE
 		`)
 
 	// total distinct book
@@ -117,6 +148,8 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 		BAuthor   *string   `gorm:"column:books_author"`
 		BDesc     *string   `gorm:"column:books_desc"`
 		BSlug     *string   `gorm:"column:books_slug"`
+		BURL      *string   `gorm:"column:books_url"`        // URL utama (download/purchase/desc)
+		BImageURL *string   `gorm:"column:books_image_url"`  // URL cover
 
 		// usage
 		CSBID *uuid.UUID `gorm:"column:class_subject_books_id"`
@@ -142,6 +175,8 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 			b.books_author,
 			b.books_desc,
 			b.books_slug,
+			bu.book_url_href       AS books_url,
+			bu_cover.book_url_href AS books_image_url,
 
 			csb.class_subject_books_id,
 			cs.class_subjects_id,
@@ -175,6 +210,8 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 				BooksAuthor:   r.BAuthor,
 				BooksDesc:     r.BDesc,
 				BooksSlug:     r.BSlug,
+				BooksURL:      r.BURL,      // ← URL utama
+				BooksImageURL: r.BImageURL, // ← cover
 				Usages:        []dto.BookUsage{},
 			}
 			bookMap[r.BID] = b
@@ -249,6 +286,8 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 					BooksAuthor:   b.BooksAuthor,
 					BooksDesc:     b.BooksDesc,
 					BooksSlug:     b.BooksSlug,
+					BooksURL:      nil,
+					BooksImageURL: nil,
 					Usages:        []dto.BookUsage{},
 				})
 			}
@@ -261,6 +300,7 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 		"total":  int(total),
 	})
 }
+
 
 // ----------------------------------------------------------
 // GET /api/a/books/:id/with-usages  (atau /api/a/class-books/books/:id)

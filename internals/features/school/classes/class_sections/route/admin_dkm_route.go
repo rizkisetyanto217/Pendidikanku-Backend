@@ -22,8 +22,8 @@ func ClassSectionAdminRoutes(r fiber.Router, db *gorm.DB) {
 	sections.Get("/books/:id", sectionH.ListBooksBySection)
 	sections.Get("/students/:id", sectionH.ListRegisteredParticipants)
 	sections.Get("/slug/:slug", sectionH.GetClassSectionBySlug)
-	sections.Get("/:id", sectionH.GetClassSectionByID)
-	sections.Put("/:id", sectionH.UpdateClassSection)
+	sections.Get("/by-id/:id", sectionH.GetClassSectionByID)
+	sections.Put("/by-id/:id", sectionH.UpdateClassSection)
 	sections.Delete("/:id", sectionH.SoftDeleteClassSection)
 
 	// ================== USER CLASS SECTIONS ==================

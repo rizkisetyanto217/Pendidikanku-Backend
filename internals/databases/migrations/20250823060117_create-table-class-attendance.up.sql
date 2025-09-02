@@ -235,7 +235,7 @@ BEGIN
 
   -- TEACHER (opsional)
   IF NEW.class_attendance_sessions_teacher_id IS NOT NULL THEN
-    SELECT masjid_teachers_masjid_id
+    SELECT masjid_teacher_masjid_id
       INTO v_t_masjid
     FROM masjid_teachers
     WHERE masjid_teacher_id = NEW.class_attendance_sessions_teacher_id;

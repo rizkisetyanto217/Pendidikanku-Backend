@@ -9,8 +9,8 @@ import (
 	AcademicYearRoutes "masjidku_backend/internals/features/school/academics/academic_terms/route"
 	AnnouncementRoutes "masjidku_backend/internals/features/school/announcements/announcement/route"
 	AnnouncementThemaRoutes "masjidku_backend/internals/features/school/announcements/announcement_thema/route"
-	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/school/attendance_assesment/attendance_sessions/route"
-	AttendanceSettingsRoute "masjidku_backend/internals/features/school/attendance_assesment/attendance_sessions_settings/route"
+	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/school/sessions_assesment/sessions/route"
+	AttendanceSettingsRoute "masjidku_backend/internals/features/school/sessions_assesment/assesments_settings/route"
 	ClassBooksRoutes "masjidku_backend/internals/features/school/class_subject_books/books/route"
 	SubjectRoutes "masjidku_backend/internals/features/school/class_subject_books/subject/route"
 	ClassSectionsRoutes "masjidku_backend/internals/features/school/classes/class_sections/route"
@@ -51,6 +51,8 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	SemesterStatsRoutes.UserClassAttendanceSemesterUserRoutes(r, db)
 	AcademicYearRoutes.AcademicYearUserRoutes(r, db)
 	ClassBooksRoutes.ClassBooksUserRoutes(r, db)
+	ClassSectionsRoutes.ClassSectionUserRoutes(r, db)
+	ClassAttendanceSessionsRoutes.AttendanceSessionsTeacherRoutes(r, db)
 
 
 	// Classes (user actions: enroll, progress, dsb)
@@ -67,7 +69,6 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// Classes (CRUD admin)
 	ClassesRoutes.ClassAdminRoutes(r, db)
 	ClassSectionsRoutes.ClassSectionAdminRoutes(r, db)
-	ClassAttendanceSessionsRoutes.AttendanceSessionsTeacherRoutes(r, db)
 	LembagaStatsRoutes.LembagaStatsAdminRoutes(r, db)
 	AnnouncementThemaRoutes.AnnouncementAdminRoute(r, db)
 	AnnouncementRoutes.AnnouncementAdminRoutes(r, db)

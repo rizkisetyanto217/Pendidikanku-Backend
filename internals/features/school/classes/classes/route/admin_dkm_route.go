@@ -17,7 +17,7 @@ func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	classes := admin.Group("/classes", masjidkuMiddleware.IsMasjidAdmin())
 	{
 		classes.Post("/", classHandler.CreateClass)
-		classes.Get("/", classHandler.ListClasses)
+		classes.Get("/list", classHandler.ListClasses)
 		classes.Get("/search", classHandler.SearchWithSubjects)
 		classes.Get("/slug/:slug", classHandler.GetClassBySlug)
 		classes.Get("/:id", classHandler.GetClassByID)
