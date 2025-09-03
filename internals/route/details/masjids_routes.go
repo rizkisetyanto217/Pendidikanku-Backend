@@ -9,7 +9,7 @@ import (
 	LectureSessionsQuizRoutes "masjidku_backend/internals/features/masjids/lecture_sessions/quizzes/route"
 	LectureExamsRoutes "masjidku_backend/internals/features/masjids/lectures/exams/route"
 	LectureRoutes "masjidku_backend/internals/features/masjids/lectures/main/route"
-	MasjidAdmin "masjidku_backend/internals/features/lembaga/masjid_teachers/admins_teachers/route"
+	MasjidAdmin "masjidku_backend/internals/features/lembaga/teachers/route"
 	masjidRoutes "masjidku_backend/internals/features/lembaga/masjids/route"
 	MasjidMore "masjidku_backend/internals/features/lembaga/masjids_more/route"
 

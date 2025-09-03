@@ -1,7 +1,7 @@
 package controller
 
 import (
-	masjidAdminModel "masjidku_backend/internals/features/lembaga/masjid_teachers/admins_teachers/model"
+	masjidAdminModel "masjidku_backend/internals/features/lembaga/teachers/model"
 	"masjidku_backend/internals/features/users/auth/service"
 	models "masjidku_backend/internals/features/users/user/model"
 	"strings"
