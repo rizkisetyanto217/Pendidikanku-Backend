@@ -14,7 +14,6 @@ func AdviceAdminRoutes(router fiber.Router, db *gorm.DB) {
 	adviceCtrl := homeController.NewAdviceController(db)
 
 	admin := router.Group("/advices",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola saran"),
 			constants.AdminAndAbove, // admin, dkm, owner

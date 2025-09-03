@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"masjidku_backend/internals/features/lembaga/stats/lembaga_stats/service"
 	ucsDTO "masjidku_backend/internals/features/school/classes/class_sections/dto"
@@ -35,7 +36,7 @@ var validate = validator.New()
 // GET /admin/class-sections/:id
 func (ctrl *ClassSectionController) GetClassSectionByID(c *fiber.Ctx) error {
 	// Extract Masjid ID from Token
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan dalam token")
 	}
@@ -84,7 +85,7 @@ func (ctrl *ClassSectionController) GetClassSectionByID(c *fiber.Ctx) error {
 // - Hanya baris dengan user_class_sections_unassigned_at IS NULL
 // - Enrich: user_classes.status/started_at/ended_at, users, users_profile
 func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -270,7 +271,7 @@ func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) err
 // POST /admin/class-sections
 // POST /admin/class-sections
 func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -361,7 +362,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 // PUT /admin/class-sections/:id
 // Update class section details
 func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -538,7 +539,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 // DELETE /admin/class-sections/:id  (soft delete)
 // DELETE /admin/class-sections/:id  (soft delete)
 func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}

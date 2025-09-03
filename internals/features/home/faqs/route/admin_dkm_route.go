@@ -15,7 +15,6 @@ import (
 // CUD & manajemen FAQ (login + admin/dkm/owner)
 func FaqAdminRoutes(api fiber.Router, db *gorm.DB) {
 	admin := api.Group("/",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola FAQ"),
 			constants.AdminAndAbove,

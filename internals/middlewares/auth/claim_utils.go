@@ -14,7 +14,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	helper "masjidku_backend/internals/helpers"
+	helper "masjidku_backend/internals/helpers/auth"
 )
 
 /* =======================

@@ -9,6 +9,7 @@ import (
 	subjectDTO "masjidku_backend/internals/features/school/class_subject_books/subject/dto"
 	subjectModel "masjidku_backend/internals/features/school/class_subject_books/subject/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -24,7 +25,7 @@ type SubjectsController struct {
 // POST /admin/subjects
 func (h *SubjectsController) CreateSubject(c *fiber.Ctx) error {
 	// tenant guard (admin/teacher)
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -135,7 +136,7 @@ func (h *SubjectsController) CreateSubject(c *fiber.Ctx) error {
    GET /admin/subjects/:id[?with_deleted=true]
    ========================================================= */
 func (h *SubjectsController) GetSubject(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -182,7 +183,7 @@ func (h *SubjectsController) GetSubject(c *fiber.Ctx) error {
    sort: asc|desc
    ========================================================= */
 func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -282,7 +283,7 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 // UPDATE (partial)
 // PUT /admin/subjects/:id
 func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -450,13 +451,13 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
    - default: soft delete (gorm.DeletedAt)
    ========================================================= */
 func (h *SubjectsController) DeleteSubject(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
 
 	// Hanya admin boleh force delete
-	adminMasjidID, _ := helper.GetMasjidIDFromToken(c)
+	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
 	isAdmin := adminMasjidID != uuid.Nil && adminMasjidID == masjidID
 	force := strings.EqualFold(c.Query("force"), "true")
 	if force && !isAdmin {

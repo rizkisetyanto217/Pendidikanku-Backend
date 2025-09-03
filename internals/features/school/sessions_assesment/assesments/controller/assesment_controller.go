@@ -15,6 +15,7 @@ import (
 	dto "masjidku_backend/internals/features/school/sessions_assesment/assesments/dto"
 	model "masjidku_backend/internals/features/school/sessions_assesment/assesments/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
 type AssessmentController struct {
@@ -80,7 +81,7 @@ func (ctl *AssessmentController) assertTeacherBelongsToMasjid(masjidID uuid.UUID
 // GET /assessments
 // Query (opsional): type_id, section_id, subject_id, csst_id, is_published, q, limit, offset, sort_by, sort_dir
 func (ctl *AssessmentController) List(c *fiber.Ctx) error {
-	masjidIDFromToken, _ := helper.GetMasjidIDFromToken(c)
+	masjidIDFromToken, _ := helperAuth.GetMasjidIDFromToken(c)
 	if masjidIDFromToken == uuid.Nil {
 		return helper.Error(c, http.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
@@ -198,7 +199,7 @@ func (ctl *AssessmentController) GetByID(c *fiber.Ctx) error {
 		return helper.Error(c, http.StatusBadRequest, "ID tidak valid")
 	}
 
-	masjidIDFromToken, _ := helper.GetMasjidIDFromToken(c)
+	masjidIDFromToken, _ := helperAuth.GetMasjidIDFromToken(c)
 	if masjidIDFromToken == uuid.Nil {
 		return helper.Error(c, http.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
@@ -224,7 +225,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	}
 
 	// Tenant override dari token
-	masjidIDFromToken, _ := helper.GetMasjidIDFromToken(c)
+	masjidIDFromToken, _ := helperAuth.GetMasjidIDFromToken(c)
 	if masjidIDFromToken == uuid.Nil {
 		return helper.Error(c, http.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
@@ -294,7 +295,7 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		return helper.ValidationError(c, err)
 	}
 
-	masjidIDFromToken, _ := helper.GetMasjidIDFromToken(c)
+	masjidIDFromToken, _ := helperAuth.GetMasjidIDFromToken(c)
 	if masjidIDFromToken == uuid.Nil {
 		return helper.Error(c, http.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
@@ -380,7 +381,7 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 		return helper.Error(c, http.StatusBadRequest, "ID tidak valid")
 	}
 
-	masjidIDFromToken, _ := helper.GetMasjidIDFromToken(c)
+	masjidIDFromToken, _ := helperAuth.GetMasjidIDFromToken(c)
 	if masjidIDFromToken == uuid.Nil {
 		return helper.Error(c, http.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}

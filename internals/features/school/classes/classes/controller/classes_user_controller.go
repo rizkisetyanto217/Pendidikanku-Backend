@@ -5,6 +5,7 @@ import (
 	"masjidku_backend/internals/features/school/classes/classes/dto"
 	"masjidku_backend/internals/features/school/classes/classes/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,7 +19,7 @@ import (
 // GET /admin/classes/slug/:slug
 func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
 	// Ambil masjid dari token (ganti ke GetUserIDFromToken jika itu yang tersedia di project)
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -48,7 +49,7 @@ func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
 
 // GET /admin/classes
 func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
-	masjidIDs, err := helper.GetMasjidIDsFromToken(c) // ✅ teacher / dkm / admin / student (union)
+	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c) // ✅ teacher / dkm / admin / student (union)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
@@ -135,7 +136,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 
 
 func (ctl *ClassController) SearchWithSubjects(c *fiber.Ctx) error {
-	masjidIDs, err := helper.GetMasjidIDsFromToken(c) // ✅ teacher / dkm / admin / student
+	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c) // ✅ teacher / dkm / admin / student
 	if err != nil { 
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}

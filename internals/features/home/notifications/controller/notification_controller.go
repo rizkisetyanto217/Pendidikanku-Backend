@@ -7,6 +7,7 @@ import (
 	"masjidku_backend/internals/features/home/notifications/dto"
 	"masjidku_backend/internals/features/home/notifications/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -206,7 +207,7 @@ func (ctrl *NotificationController) DeleteNotification(c *fiber.Ctx) error {
 	// global notification (notification_masjid_id == NULL) bebas dari scope ini;
 	// kalau ingin dibatasi, tambahkan pengecekan role di sini.
 	if notif.NotificationMasjidID != nil {
-		masjidID, terr := helper.GetMasjidIDFromTokenPreferTeacher(c)
+		masjidID, terr := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 		if terr != nil || *notif.NotificationMasjidID != masjidID {
 			return helper.JsonError(c, fiber.StatusForbidden, "Tidak punya akses untuk menghapus notifikasi ini")
 		}

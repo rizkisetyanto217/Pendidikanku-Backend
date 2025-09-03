@@ -12,7 +12,6 @@ import (
 // Wajib login; semua role yang diizinkan
 func NotificationUserRoutes(user fiber.Router, db *gorm.DB) {
 	r := user.Group("/",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			"❌ Hanya pengguna terautentikasi yang boleh mengakses fitur notifikasi.",
 			constants.AllowedRoles,

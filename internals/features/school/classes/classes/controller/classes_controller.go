@@ -17,6 +17,7 @@ import (
 	"masjidku_backend/internals/features/school/classes/classes/model"
 	helper "masjidku_backend/internals/helpers"
 	helperOSS "masjidku_backend/internals/helpers/oss"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/go-playground/validator/v10"
 )
@@ -39,7 +40,7 @@ var validate = validator.New()
 
 // POST /admin/classes
 func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -172,7 +173,7 @@ SAVE_OK:
 // UPDATE /admin/classes/:id
 // UPDATE /admin/classes/:id
 func (ctrl *ClassController) UpdateClass(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -357,7 +358,7 @@ func (ctrl *ClassController) UpdateClass(c *fiber.Ctx) error {
 
 // GET /admin/classes/:id
 func (ctrl *ClassController) GetClassByID(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -385,7 +386,7 @@ func (ctrl *ClassController) GetClassByID(c *fiber.Ctx) error {
 
 // DELETE /admin/classes/:id (soft delete)
 func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}

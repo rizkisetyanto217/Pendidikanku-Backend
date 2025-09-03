@@ -13,7 +13,6 @@ import (
 func MasjidMoreAdminRoutes(router fiber.Router, db *gorm.DB) {
 	// Group besar: wajib login + role admin/dkm/owner
 	adminOrOwner := router.Group("/",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola data tambahan masjid"),
 			constants.AdminAndAbove, // admin, dkm, owner

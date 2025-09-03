@@ -15,6 +15,7 @@ import (
 	"masjidku_backend/internals/features/school/classes/classes/dto"
 	"masjidku_backend/internals/features/school/classes/classes/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
 /* ================= Controller & Constructor ================= */
@@ -69,7 +70,7 @@ func mapCPOList(list []model.ClassPricingOption) []dto.ClassPricingOptionResp {
 
 // GET /user/classes/:class_id/pricing-options?type=ONE_TIME|RECURRING&limit=&offset=
 func (ctl *CPOController) UserListCPO(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -123,7 +124,7 @@ func (ctl *CPOController) UserListCPO(c *fiber.Ctx) error {
 
 // GET /user/classes/:class_id/pricing-options/latest?type=ONE_TIME|RECURRING
 func (ctl *CPOController) UserLatestCPO(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -170,7 +171,7 @@ func (ctl *CPOController) UserLatestCPO(c *fiber.Ctx) error {
 
 // GET /user/pricing-options/:id
 func (ctl *CPOController) UserGetCPOByID(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -197,7 +198,7 @@ func (ctl *CPOController) UserGetCPOByID(c *fiber.Ctx) error {
 
 // POST /admin-dkm/classes/:class_id/pricing-options
 func (ctl *CPOController) AdminCreateCPO(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -239,7 +240,7 @@ func (ctl *CPOController) AdminCreateCPO(c *fiber.Ctx) error {
 
 // GET /admin-dkm/classes/:class_id/pricing-options?type=&include_deleted=true|false&limit=&offset=
 func (ctl *CPOController) AdminListCPO(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -299,7 +300,7 @@ func (ctl *CPOController) AdminListCPO(c *fiber.Ctx) error {
 
 // GET /admin-dkm/classes/:class_id/pricing-options/latest?type=
 func (ctl *CPOController) AdminLatestCPO(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -345,7 +346,7 @@ func (ctl *CPOController) AdminLatestCPO(c *fiber.Ctx) error {
 
 // GET /admin-dkm/pricing-options/:id
 func (ctl *CPOController) AdminGetCPOByID(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -367,7 +368,7 @@ func (ctl *CPOController) AdminGetCPOByID(c *fiber.Ctx) error {
 
 // PUT /admin-dkm/pricing-options/:id  (full replace)
 func (ctl *CPOController) AdminReplaceCPO(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -424,7 +425,7 @@ func (ctl *CPOController) AdminReplaceCPO(c *fiber.Ctx) error {
 
 // DELETE /admin-dkm/pricing-options/:id (soft delete)
 func (ctl *CPOController) AdminSoftDeleteCPO(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -457,7 +458,7 @@ func (ctl *CPOController) AdminSoftDeleteCPO(c *fiber.Ctx) error {
 
 // POST /admin-dkm/pricing-options/:id/restore
 func (ctl *CPOController) AdminRestoreCPO(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}

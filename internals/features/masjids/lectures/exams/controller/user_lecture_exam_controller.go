@@ -9,6 +9,7 @@ import (
 	"masjidku_backend/internals/features/masjids/lectures/exams/dto"
 	"masjidku_backend/internals/features/masjids/lectures/exams/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -46,7 +47,7 @@ func (ctrl *UserLectureExamController) CreateUserLectureExam(c *fiber.Ctx) error
 	}
 
 	// user_id dari token (wajib sesuai migrasi)
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "User ID tidak ditemukan di token")
 	}

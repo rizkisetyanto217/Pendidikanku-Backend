@@ -2,10 +2,11 @@ package routes
 
 import (
 	"log"
+	"os"
 	"time"
 
-	authMiddleware "masjidku_backend/internals/middlewares/auth"
-	masjidkuMiddleware "masjidku_backend/internals/middlewares/features"
+	masjidkuMiddleware "masjidku_backend/internals/middlewares/auth_masjid" // AuthJWT + MasjidContext
+	featuresMiddleware "masjidku_backend/internals/middlewares/features"
 	routeDetails "masjidku_backend/internals/route/details"
 
 	"github.com/gofiber/fiber/v2"
@@ -30,40 +31,55 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	log.Println("[INFO] Setting up UtilsRoutes...")
 	routeDetails.UtilsRoutes(app, db)
 
-	// ===================== SHARED GROUPS =====================
+	// ===================== GROUPS =====================
 
-	// PUBLIC: pakai SecondAuth biar bisa baca user_id kalau ada token (opsional)
+	// PUBLIC → AuthJWT opsional
 	log.Println("[INFO] Setting up PUBLIC group...")
-	public := app.Group("/public", authMiddleware.SecondAuthMiddleware(db))
-
-	// PRIVATE (user login)
-	log.Println("[INFO] Setting up PRIVATE group...")
-	private := app.Group("/api/u", authMiddleware.AuthMiddleware(db))
-
-	// ADMIN (login + must be admin/dkm/owner + scope masjid)
-	log.Println("[INFO] Setting up ADMIN group (Auth + IsMasjidAdmin)...")
-	admin := app.Group("/api/a",
-		authMiddleware.AuthMiddleware(db),
-		masjidkuMiddleware.IsMasjidAdmin(), 
+	public := app.Group("/public",
+		masjidkuMiddleware.AuthJWT(masjidkuMiddleware.AuthJWTOpts{
+			Secret:              os.Getenv("JWT_SECRET"),
+			AllowCookieFallback: true,
+		}),
 	)
 
-	// ===================== MASJID ROUTES =====================
+	// PRIVATE → user login biasa
+	log.Println("[INFO] Setting up PRIVATE group...")
+	private := app.Group("/api/u",
+		masjidkuMiddleware.AuthJWT(masjidkuMiddleware.AuthJWTOpts{
+			Secret:              os.Getenv("JWT_SECRET"),
+			AllowCookieFallback: true,
+		}),
+	)
+
+	// ADMIN → login + harus admin/dkm/owner + konteks masjid
+	// ⚠️ Penting: IsMasjidAdmin DIPASANG SEKALI di sini (jangan di sub-routes).
+	log.Println("[INFO] Setting up ADMIN group (Auth + MasjidContext + Scope + RoleCheck)...")
+	admin := app.Group("/api/a",
+		masjidkuMiddleware.AuthJWT(masjidkuMiddleware.AuthJWTOpts{
+			Secret:              os.Getenv("JWT_SECRET"),
+			AllowCookieFallback: true,
+		}),
+		masjidkuMiddleware.MasjidContext(masjidkuMiddleware.MasjidContextOpts{
+			DB:      db,
+			AppMode: masjidkuMiddleware.ModeDKM, // validasi role dkm/owner di level masjid
+		}),
+		featuresMiddleware.UseMasjidScope(), // ⟵ pilih active_masjid_id & active_role (auto-pick kalau 1)
+		featuresMiddleware.IsMasjidAdmin(),  // ⟵ authorize
+	)
+
+	// ===================== MOUNT ROUTES =====================
 	log.Println("[INFO] Mounting Masjid routes...")
 	routeDetails.MasjidPublicRoutes(public, db)
 	routeDetails.MasjidUserRoutes(private, db)
-	routeDetails.MasjidAdminRoutes(admin, db) // ⬅️ semua admin masjid lewat group ini
+	routeDetails.MasjidAdminRoutes(admin, db) // gunakan router 'admin' yg sudah diproteksi
 
-	// ===================== LEMBAGA ROUTES =====================
-	// Catatan: kalau rute lembaga juga butuh scope masjid, tetap pakai `admin` ini.
-	// Kalau tidak butuh scope, buat group sendiri tanpa IsMasjidAdmin (di luar /api/a).
 	log.Println("[INFO] Mounting Lembaga routes...")
 	routeDetails.LembagaPublicRoutes(public, db)
 	routeDetails.LembagaUserRoutes(private, db)
 	routeDetails.LembagaAdminRoutes(admin, db)
 
-	// ===================== HOME ROUTES =====================
 	log.Println("[INFO] Mounting Home routes...")
 	routeDetails.HomePublicRoutes(public, db)
 	routeDetails.HomePrivateRoutes(private, db)
-	routeDetails.HomeAdminRoutes(admin, db) // ⬅️ pakai group admin yang sama
+	routeDetails.HomeAdminRoutes(admin, db)
 }

@@ -14,7 +14,6 @@ import (
 func LectureSessionAdminRoutes(api fiber.Router, db *gorm.DB) {
 	// Guard global: login + role admin/dkm/owner + scope masjid
 	admin := api.Group("/",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola sesi kajian"),
 			constants.AdminAndAbove,

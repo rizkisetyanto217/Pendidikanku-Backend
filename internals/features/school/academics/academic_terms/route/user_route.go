@@ -3,7 +3,6 @@ package route
 
 import (
 	academicTermCtl "masjidku_backend/internals/features/school/academics/academic_terms/controller"
-	authMiddleware "masjidku_backend/internals/middlewares/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -20,10 +19,7 @@ func AcademicYearUserRoutes(user fiber.Router, db *gorm.DB) {
 	// ================================
 	termCtl := academicTermCtl.NewAcademicTermController(db)
 
-	r := user.Group("/academic-terms",
-		// pakai auth supaya helper.GetMasjidIDsFromToken(c) bekerja
-		authMiddleware.AuthMiddleware(db),
-	)
+	r := user.Group("/academic-terms")
 
 	// Read-only Academic Terms
 	r.Get("/", termCtl.List)
@@ -36,9 +32,7 @@ func AcademicYearUserRoutes(user fiber.Router, db *gorm.DB) {
 	// =========================================
 	openCtl := academicTermCtl.NewClassTermOpeningController(db)
 
-	open := user.Group("/class-term-openings",
-		authMiddleware.AuthMiddleware(db),
-	)
+	open := user.Group("/class-term-openings"	)
 
 	open.Get("/", openCtl.GetAllClassTermOpenings) // dukung filter via query
 	open.Get("/:id", openCtl.GetClassTermOpeningByID)

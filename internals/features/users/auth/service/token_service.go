@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"masjidku_backend/internals/configs"
-	classModel "masjidku_backend/internals/features/school/classes/classes/model"
-	matModel "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/admins_teachers/model"
 	authModel "masjidku_backend/internals/features/users/auth/model"
 	authRepo "masjidku_backend/internals/features/users/auth/repository"
 	helpers "masjidku_backend/internals/helpers"
@@ -49,7 +47,7 @@ func RefreshToken(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.Error(c, fiber.StatusUnauthorized, "Refresh token expired")
 	}
 
-	// 4) Verifikasi signature & claim
+	// 4) Verifikasi signature & claim (lewatkan claim validation time—kita cek manual)
 	claims := jwt.MapClaims{}
 	parser := jwt.Parser{SkipClaimsValidation: true}
 	if _, err := parser.ParseWithClaims(refreshToken, claims, func(t *jwt.Token) (interface{}, error) {
@@ -73,112 +71,20 @@ func RefreshToken(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.Error(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan")
 	}
 
-	// 6) Kumpulkan ulang masjid IDs (admin/teacher/student/union)
-	adminIDs, teacherIDs, studentIDs, unionIDs, err := collectMasjidIDsFull(db.WithContext(c.Context()), user.ID)
+	// 6) Ambil roles_global & masjid_roles (pakai fn_user_roles_claim jika ada)
+	rolesClaim, err := getUserRolesClaim(c.Context(), db, user.ID)
 	if err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data masjid user")
+		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil roles user")
 	}
 
-	// 7) ROTATE: revoke token lama
+	// 7) ROTATE: revoke token lama (idempotent)
 	if err := RevokeRefreshTokenByID(db.WithContext(c.Context()), rt.ID); err != nil {
 		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mencabut refresh token lama")
 	}
 
-	// 8) Issue pasangan token baru
-	return issueTokensWithRoles(c, db, *user, adminIDs, teacherIDs, studentIDs, unionIDs)
+	// 8) Issue pasangan token baru + set cookies + response (berbasis rolesClaim saja)
+	return issueTokensWithRoles(c, db, *user, rolesClaim)
 }
-
-// ==========================================================
-// Helper: ambil daftar masjid per peran + union untuk user
-//   - Toleran jika tabel peran belum ada (dev friendly, tanpa pgconn).
-// ==========================================================
-// ==========================================================
-// Helper: ambil daftar masjid per peran + union untuk user
-//   - Toleran jika tabel peran belum ada (dev friendly, tanpa pgconn).
-// ==========================================================
-func collectMasjidIDsFull(db *gorm.DB, userID uuid.UUID) (
-	adminIDs []string,
-	teacherIDs []string,
-	studentIDs []string,
-	unionIDs []string,
-	err error,
-) {
-	// Bisa skip role lookup sementara (setup awal)
-	if os.Getenv("AUTH_SKIP_ROLE_LOOKUP") == "1" {
-		return nil, nil, nil, nil, nil
-	}
-
-	adminSet := map[string]struct{}{}
-	teacherSet := map[string]struct{}{}
-	studentSet := map[string]struct{}{}
-
-	mig := db.Migrator()
-
-	// 1) Admin/DKM → masjid_admins (aktif) — hanya query jika tabel ada
-	if mig.HasTable(&matModel.MasjidAdminModel{}) || mig.HasTable("masjid_admins") {
-		var rows []matModel.MasjidAdminModel
-		if e := db.
-			Where("masjid_admin_user_id = ? AND masjid_admin_is_active = TRUE", userID).
-			Find(&rows).Error; e != nil {
-			return nil, nil, nil, nil, e
-		}
-		for _, r := range rows {
-			adminSet[r.MasjidAdminMasjidID.String()] = struct{}{}
-		}
-	}
-
-	// 2) Teacher → masjid_teachers — hanya query jika tabel ada (singular cols + soft delete)
-	if mig.HasTable(&matModel.MasjidTeacherModel{}) || mig.HasTable("masjid_teachers") {
-		var rows []matModel.MasjidTeacherModel
-		if e := db.
-			Where("masjid_teacher_user_id = ? AND masjid_teacher_deleted_at IS NULL", userID).
-			Find(&rows).Error; e != nil {
-			return nil, nil, nil, nil, e
-		}
-		for _, r := range rows {
-			teacherSet[r.MasjidTeacherMasjidID.String()] = struct{}{}
-		}
-	}
-
-	// 3) Student → user_classes (aktif) — hanya query jika tabel ada
-	if mig.HasTable(&classModel.UserClassesModel{}) || mig.HasTable("user_classes") {
-		var rows []struct {
-			MasjidID *uuid.UUID `gorm:"column:user_classes_masjid_id"`
-		}
-		if e := db.
-			Model(&classModel.UserClassesModel{}).
-			Where(`
-				user_classes_user_id = ?
-				AND user_classes_status = ?
-				AND user_classes_deleted_at IS NULL
-			`, userID, classModel.UserClassStatusActive).
-			Select("user_classes_masjid_id").
-			Find(&rows).Error; e != nil {
-			return nil, nil, nil, nil, e
-		}
-		for _, r := range rows {
-			if r.MasjidID != nil {
-				studentSet[r.MasjidID.String()] = struct{}{}
-			}
-		}
-	}
-
-	// Build slices
-	for id := range adminSet   { adminIDs = append(adminIDs, id) }
-	for id := range teacherSet { teacherIDs = append(teacherIDs, id) }
-	for id := range studentSet { studentIDs = append(studentIDs, id) }
-
-	// Union
-	unionMap := map[string]struct{}{}
-	for id := range adminSet   { unionMap[id] = struct{}{} }
-	for id := range teacherSet { unionMap[id] = struct{}{} }
-	for id := range studentSet { unionMap[id] = struct{}{} }
-	for id := range unionMap   { unionIDs = append(unionIDs, id) }
-
-	return
-}
-
-
 
 // ========================== Mini-repo (tanpa dependensi baru) ==========================
 

@@ -11,9 +11,9 @@ import (
 	masjidAdminModel "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/admins_teachers/model"
 	"masjidku_backend/internals/features/lembaga/masjids/dto"
 	"masjidku_backend/internals/features/lembaga/masjids/model"
-	userModel "masjidku_backend/internals/features/users/user/model"
 	helper "masjidku_backend/internals/helpers"
 	helperOSS "masjidku_backend/internals/helpers/oss"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -21,7 +21,7 @@ import (
 )
 
 // =========================
-// Helpers lokal
+// Helpers lokal ringan
 // =========================
 
 func strPtrOrNil(s string, lower bool) *string {
@@ -40,18 +40,22 @@ func boolFromForm(v string) bool {
 	return v == "true" || v == "1" || strings.ToLower(v) == "yes"
 }
 
+// =========================
+// CreateMasjidDKM
+// =========================
+
 // CreateMasjidDKM — schema terbaru (OSS + auto convert WebP + 3 slot gambar)
 func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 	log.Println("[INFO] Received request to create masjid (schema terbaru)")
 
 	// 1) Auth
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
-	// 2) Content-Type check
-	if !strings.Contains(c.Get("Content-Type"), "multipart/form-data") {
+	// 2) Content-Type check (toleran)
+	if mf, _ := c.MultipartForm(); mf == nil && !strings.Contains(c.Get("Content-Type"), "multipart/form-data") {
 		return helper.JsonError(c, fiber.StatusUnsupportedMediaType, "Gunakan multipart/form-data")
 	}
 
@@ -125,15 +129,20 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 
 		newID := uuid.New()
 
-		// b) Siapkan OSS bila ada file upload
+		// b) Siapkan OSS bila ada file upload (hanya jika ada salah satu file)
 		var (
 			svc    *helperOSS.OSSService
 			ossErr error
 		)
-		// cek apakah ada salah satu file gambar
-		if f, _ := c.FormFile("masjid_image_url"); f != nil ||
-			func() bool { f, _ := c.FormFile("masjid_image_main_url"); return f != nil }() ||
-			func() bool { f, _ := c.FormFile("masjid_image_bg_url"); return f != nil }() {
+		hasAnyFile := func(keys ...string) bool {
+			for _, k := range keys {
+				if f, _ := c.FormFile(k); f != nil {
+					return true
+				}
+			}
+			return false
+		}
+		if hasAnyFile("masjid_image_url", "masjid_image_main_url", "masjid_image_bg_url") {
 			svc, ossErr = helperOSS.NewOSSServiceFromEnv("")
 			if ossErr != nil {
 				return fiber.NewError(500, "OSS init gagal")
@@ -151,33 +160,33 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 
 		// DEFAULT
 		if fh, err := c.FormFile("masjid_image_url"); err == nil && fh != nil {
-			if url, uerr := helperOSS.UploadImageToOSS(ctx, svc, newID, "default", fh); uerr != nil {
+			url, uerr := helperOSS.UploadImageToOSS(ctx, svc, newID, "default", fh)
+			if uerr != nil {
 				return uerr
-			} else {
-				imgDefaultURL = &url
 			}
+			imgDefaultURL = &url
 		} else if v := strings.TrimSpace(c.FormValue("masjid_image_url")); v != "" {
 			imgDefaultURL = strPtrOrNil(v, false)
 		}
 
 		// MAIN
 		if fh, err := c.FormFile("masjid_image_main_url"); err == nil && fh != nil {
-			if url, uerr := helperOSS.UploadImageToOSS(ctx, svc, newID, "main", fh); uerr != nil {
+			url, uerr := helperOSS.UploadImageToOSS(ctx, svc, newID, "main", fh)
+			if uerr != nil {
 				return uerr
-			} else {
-				imgMainURL = &url
 			}
+			imgMainURL = &url
 		} else if v := strings.TrimSpace(c.FormValue("masjid_image_main_url")); v != "" {
 			imgMainURL = strPtrOrNil(v, false)
 		}
 
 		// BACKGROUND
 		if fh, err := c.FormFile("masjid_image_bg_url"); err == nil && fh != nil {
-			if url, uerr := helperOSS.UploadImageToOSS(ctx, svc, newID, "bg", fh); uerr != nil {
+			url, uerr := helperOSS.UploadImageToOSS(ctx, svc, newID, "bg", fh)
+			if uerr != nil {
 				return uerr
-			} else {
-				imgBgURL = &url
 			}
+			imgBgURL = &url
 		} else if v := strings.TrimSpace(c.FormValue("masjid_image_bg_url")); v != "" {
 			imgBgURL = strPtrOrNil(v, false)
 		}
@@ -185,22 +194,22 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 		// d) Domain pointer (kosong → NULL), case-insensitive
 		domainPtr := strPtrOrNil(domain, true)
 
-		// e) Simpan masjid (pakai pointer-friendly fields)
+		// e) Simpan masjid
 		newMasjid := model.MasjidModel{
-			MasjidID:                newID,
-			MasjidYayasanID:         yayasanID,
-			MasjidName:              name,
-			MasjidBioShort:          strPtrOrNil(bio, false),
-			MasjidLocation:          strPtrOrNil(location, false),
-			MasjidLatitude:          latPtr,
-			MasjidLongitude:         longPtr,
-			MasjidGoogleMapsURL:     strPtrOrNil(gmapsURL, false),
-			MasjidImageURL:          imgDefaultURL,
-			MasjidImageMainURL:      imgMainURL,
-			MasjidImageBgURL:        imgBgURL,
-			MasjidDomain:            domainPtr,
-			MasjidSlug:              slug,
-			MasjidIsActive:          true,
+			MasjidID:                 newID,
+			MasjidYayasanID:          yayasanID,
+			MasjidName:               name,
+			MasjidBioShort:           strPtrOrNil(bio, false),
+			MasjidLocation:           strPtrOrNil(location, false),
+			MasjidLatitude:           latPtr,
+			MasjidLongitude:          longPtr,
+			MasjidGoogleMapsURL:      strPtrOrNil(gmapsURL, false),
+			MasjidImageURL:           imgDefaultURL,
+			MasjidImageMainURL:       imgMainURL,
+			MasjidImageBgURL:         imgBgURL,
+			MasjidDomain:             domainPtr,
+			MasjidSlug:               slug,
+			MasjidIsActive:           true,
 			MasjidVerificationStatus: model.VerificationStatus(verifStatus),
 			MasjidVerificationNotes:  strPtrOrNil(verifNotes, false),
 			MasjidCurrentPlanID:      planIDPtr,
@@ -219,7 +228,7 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 			return fiber.NewError(500, "Gagal menyimpan masjid")
 		}
 
-		// f) Jadikan pembuat sebagai admin masjid
+		// f) Jadikan pembuat sebagai admin masjid (DKM)
 		admin := masjidAdminModel.MasjidAdminModel{
 			MasjidAdminID:       uuid.New(),
 			MasjidAdminMasjidID: newMasjid.MasjidID,
@@ -230,11 +239,15 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 			return fiber.NewError(500, "Gagal membuat admin masjid")
 		}
 
-		// g) Upgrade role user menjadi dkm jika masih "user"
-		if err := tx.Model(&userModel.UserModel{}).
-			Where("id = ? AND role = ?", userID, "user").
-			Update("role", "dkm").Error; err != nil {
-			return fiber.NewError(500, "Gagal upgrade role user")
+		// g1) (opsional) pastikan creator minimal punya global 'user' — best-effort
+		if err := helperAuth.EnsureGlobalRole(tx, userID, "user", &userID); err != nil {
+			log.Printf("[WARN] ensureGlobalRole(user) gagal: %v", err)
+			// tidak fatal
+		}
+
+		// g2) (WAJIB) Grant peran scoped 'dkm' via user_roles (atomic)
+		if err := helperAuth.GrantScopedRoleDKM(tx, userID, newMasjid.MasjidID); err != nil {
+			return fiber.NewError(500, "Gagal grant peran DKM")
 		}
 
 		// h) Build response DTO

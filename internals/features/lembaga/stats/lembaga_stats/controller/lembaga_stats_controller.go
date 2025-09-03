@@ -9,7 +9,7 @@ import (
 
 	dto "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/dto"
 	model "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/model"
-	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
 type LembagaStatsController struct {
@@ -22,7 +22,7 @@ func NewLembagaStatsController(db *gorm.DB) *LembagaStatsController {
 
 /* GET /api/a/lembaga-stats  (tenant dari token) */
 func (h *LembagaStatsController) GetMyLembagaStats(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -50,7 +50,7 @@ func (h *LembagaStatsController) GetMyLembagaStats(c *fiber.Ctx) error {
 /* POST /api/a/lembaga-stats  (create default 0; tenant dari token) */
 func (h *LembagaStatsController) CreateMyLembagaStats(c *fiber.Ctx) error {
 	// NOTE: samakan import helper vs helpers sesuai project-mu
-	masjidID, err := helper.GetMasjidIDFromToken(c) // <- kalau pkg kamu "helper", ganti jadi helper.GetMasjidIDFromToken
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c) // <- kalau pkg kamu "helper", ganti jadi helper.GetMasjidIDFromToken
 	if err != nil {
 		return err
 	}
@@ -92,7 +92,7 @@ func (h *LembagaStatsController) CreateMyLembagaStats(c *fiber.Ctx) error {
 
 // PUT /api/a/lembaga-stats  (update lembaga stats milik tenant dari token)
 func (h *LembagaStatsController) UpdateMyLembagaStats(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}

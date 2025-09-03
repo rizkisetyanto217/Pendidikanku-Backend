@@ -2,7 +2,6 @@ package route
 
 import (
 	homeController "masjidku_backend/internals/features/home/advices/controller"
-	authMiddleware "masjidku_backend/internals/middlewares/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -13,7 +12,6 @@ func AllAdviceRoutes(router fiber.Router, db *gorm.DB) {
 	adviceCtrl := homeController.NewAdviceController(db)
 
 	user := router.Group("/advices",
-		authMiddleware.AuthMiddleware(db), // user harus login
 	)
 
 	user.Post("/", adviceCtrl.CreateAdvice)                 // ➕ Buat saran (oleh user)

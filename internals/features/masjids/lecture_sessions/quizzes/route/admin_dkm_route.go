@@ -14,7 +14,6 @@ import (
 // CUD + laporan internal
 func LectureSessionsQuizAdminRoutes(api fiber.Router, db *gorm.DB) {
 	admin := api.Group("/",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola quiz"),
 			constants.AdminAndAbove,

@@ -12,7 +12,6 @@ import (
 // Aksi/riwayat milik user login
 func LectureSessionsQuizUserRoutes(api fiber.Router, db *gorm.DB) {
 	user := api.Group("/",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			"❌ Hanya pengguna terautentikasi yang boleh mengakses fitur quiz (user).",
 			constants.AllowedRoles,

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	secModel "masjidku_backend/internals/features/school/classes/class_sections/model"
 	attendanceDTO "masjidku_backend/internals/features/school/sessions_assesment/sessions/dto"
@@ -35,16 +36,16 @@ func NewClassAttendanceSessionController(db *gorm.DB) *ClassAttendanceSessionCon
    GET /admin/class-attendance-sessions/section/:section_id?date_from=&date_to=&limit=&offset=
 ========================================================= */
 func (ctrl *ClassAttendanceSessionController) ListBySection(c *fiber.Ctx) error {
-    masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+    masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
     if err != nil { return err }
 
-    userID, _ := helper.GetUserIDFromToken(c)
+    userID, _ := helperAuth.GetUserIDFromToken(c)
     isAdmin := func() bool {
-        if mid, err := helper.GetMasjidIDFromToken(c); err == nil && mid == masjidID { return true }
+        if mid, err := helperAuth.GetMasjidIDFromToken(c); err == nil && mid == masjidID { return true }
         return false
     }()
     isTeacher := func() bool {
-        if mid, err := helper.GetTeacherMasjidIDFromToken(c); err == nil && mid == masjidID { return true }
+        if mid, err := helperAuth.GetTeacherMasjidIDFromToken(c); err == nil && mid == masjidID { return true }
         return false
     }()
 
@@ -182,11 +183,11 @@ func (ctrl *ClassAttendanceSessionController) ListBySection(c *fiber.Ctx) error 
 // =========================================================
 func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ctx) error {
 	// ===== Auth: harus teacher
-	masjidID, err := helper.GetTeacherMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetTeacherMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "masjid_teacher_ids tidak ditemukan di token")
 	}
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "User tidak terautentik")
 	}
@@ -321,8 +322,8 @@ func (ctrl *ClassAttendanceSessionController) ListByMasjid(c *fiber.Ctx) error {
     reqID := uuid.New().String()
 
     // ===== Guard & tenant resolve =====
-    adminMasjidID, _ := helper.GetMasjidIDFromToken(c)
-    teacherMasjidID, _ := helper.GetTeacherMasjidIDFromToken(c)
+    adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
+    teacherMasjidID, _ := helperAuth.GetTeacherMasjidIDFromToken(c)
     isAdmin := adminMasjidID != uuid.Nil
     isTeacher := teacherMasjidID != uuid.Nil
 
@@ -581,18 +582,18 @@ func (ctrl *ClassAttendanceSessionController) ListByMasjid(c *fiber.Ctx) error {
 // import "log"
 func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fiber.Ctx) error {
 	// ===== Tenant & Role Guard (admin ATAU teacher) — ikuti helper
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil || masjidID == uuid.Nil {
 		log.Printf("[CAS:create] unauthorized: no admin/teacher tenant in token: %v", err)
 		return fiber.NewError(fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
 	}
-	role := helper.GetRole(c)
+	role := helperAuth.GetRole(c)
 
 	// butuh ini untuk validasi “teacher hanya boleh memakai dirinya sendiri”
-	teacherMasjidID, _ := helper.GetTeacherMasjidIDFromToken(c)
+	teacherMasjidID, _ := helperAuth.GetTeacherMasjidIDFromToken(c)
 
 	// user_id dari token (boleh gagal; nanti dicek saat perlu)
-	userID, _ := helper.GetUserIDFromToken(c)
+	userID, _ := helperAuth.GetUserIDFromToken(c)
 
 	log.Printf("[CAS:create] start masjid_id=%s user_id=%s role=%s", masjidID, userID, role)
 
@@ -785,8 +786,8 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 // PUT /admin/class-attendance-sessions/:id
 func (ctrl *ClassAttendanceSessionController) UpdateClassAttendanceSession(c *fiber.Ctx) error {
 	// ===== Role & Tenant (admin ATAU teacher) =====
-	adminMasjidID, _ := helper.GetMasjidIDFromToken(c)
-	teacherMasjidID, _ := helper.GetTeacherMasjidIDFromToken(c)
+	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
+	teacherMasjidID, _ := helperAuth.GetTeacherMasjidIDFromToken(c)
 
 	var masjidID uuid.UUID
 	switch {
@@ -1025,11 +1026,11 @@ func (ctrl *ClassAttendanceSessionController) UpdateClassAttendanceSession(c *fi
 
 // DELETE /admin/class-attendance-sessions/:id?force=true
 func (ctrl *ClassAttendanceSessionController) DeleteClassAttendanceSession(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
-	adminMasjidID, _ := helper.GetMasjidIDFromToken(c)
+	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
 	isAdmin := adminMasjidID != uuid.Nil && adminMasjidID == masjidID
 
 	sessionID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))

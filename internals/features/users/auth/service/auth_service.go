@@ -1,12 +1,15 @@
 package service
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/json"
 	"log"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	googleAuthIDTokenVerifier "github.com/futurenda/google-auth-id-token-verifier"
@@ -16,15 +19,14 @@ import (
 	"gorm.io/gorm"
 
 	"masjidku_backend/internals/configs"
-	lembagaModel "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/admins_teachers/model"
 	progressUserService "masjidku_backend/internals/features/progress/progress/service"
-	classModel "masjidku_backend/internals/features/school/classes/classes/model"
 	authHelper "masjidku_backend/internals/features/users/auth/helper"
 	authModel "masjidku_backend/internals/features/users/auth/model"
 	authRepo "masjidku_backend/internals/features/users/auth/repository"
 	userModel "masjidku_backend/internals/features/users/user/model"
 	userProfileService "masjidku_backend/internals/features/users/user/service"
 	helpers "masjidku_backend/internals/helpers"
+	helpersAuth "masjidku_backend/internals/helpers/auth"
 )
 
 /* ==========================
@@ -34,11 +36,70 @@ import (
 const (
 	accessTTLDefault  = 24 * time.Hour
 	refreshTTLDefault = 7 * 24 * time.Hour
+
+	// timeouts untuk query hot path (aman disesuaikan)
+	qryTimeoutShort = 800 * time.Millisecond
+	qryTimeoutLong  = 1200 * time.Millisecond
 )
 
 type TeacherRecord struct {
-	ID       uuid.UUID `json:"masjid_teacher_id"`
-	MasjidID uuid.UUID `json:"masjid_id"`
+	ID       uuid.UUID `json:"masjid_teacher_id" gorm:"column:masjid_teacher_id"`
+	MasjidID uuid.UUID `json:"masjid_id"        gorm:"column:masjid_teacher_masjid_id"`
+}
+
+/* ==========================
+   Meta schema cache (prewarm)
+========================== */
+
+type authMeta struct {
+	once sync.Once
+	// tables
+	HasMasjidAdmins   bool
+	HasMasjidTeachers bool
+	HasUserClasses    bool
+	HasRoles          bool
+	HasUserRoles      bool
+	// functions
+	HasFnGrantRole      bool
+	HasFnUserRolesClaim bool
+	HasFnRolePriority   bool
+
+	Ready bool
+}
+
+var meta authMeta
+
+// Panggil sekali saat app start setelah DB siap: service.PrewarmAuthMeta(db)
+func PrewarmAuthMeta(db *gorm.DB) {
+	meta.once.Do(func() {
+		meta.HasMasjidAdmins = quickHasTable(db, "masjid_admins")
+		meta.HasMasjidTeachers = quickHasTable(db, "masjid_teachers")
+		meta.HasUserClasses = quickHasTable(db, "user_classes")
+		meta.HasRoles = quickHasTable(db, "roles")
+		meta.HasUserRoles = quickHasTable(db, "user_roles")
+		meta.HasFnGrantRole = quickHasFunction(db, "fn_grant_role")
+		meta.HasFnUserRolesClaim = quickHasFunction(db, "fn_user_roles_claim")
+		meta.HasFnRolePriority = quickHasFunction(db, "fn_role_priority")
+		meta.Ready = true
+	})
+}
+
+func quickHasTable(db *gorm.DB, table string) bool {
+	if db == nil || table == "" {
+		return false
+	}
+	var exists bool
+	_ = db.Raw(`SELECT to_regclass((SELECT current_schema()) || '.' || ?) IS NOT NULL`, table).Scan(&exists).Error
+	return exists
+}
+
+func quickHasFunction(db *gorm.DB, name string) bool {
+	if db == nil || name == "" {
+		return false
+	}
+	var ok bool
+	_ = db.Raw(`SELECT EXISTS(SELECT 1 FROM pg_proc WHERE proname = ?)`, name).Scan(&ok).Error
+	return ok
 }
 
 /* ==========================
@@ -75,12 +136,40 @@ func strptr(s string) *string {
 
 func computeRefreshHash(token, secret string) []byte {
 	m := hmac.New(sha256.New, []byte(secret))
-	m.Write([]byte(token))
+	_, _ = m.Write([]byte(token))
 	return m.Sum(nil)
 }
 
-func hasTable(db *gorm.DB, table string) bool {
-	return db != nil && db.Migrator().HasTable(table)
+func rolesClaimHas(rc helpersAuth.RolesClaim, role string) bool {
+	role = strings.ToLower(role)
+	for _, r := range rc.RolesGlobal {
+		if strings.EqualFold(r, role) {
+			return true
+		}
+	}
+	for _, mr := range rc.MasjidRoles {
+		for _, r := range mr.Roles {
+			if strings.EqualFold(r, role) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Derive masjid_ids (opsional, untuk kompat) dari masjid_roles.
+func deriveMasjidIDsFromRolesClaim(rc helpersAuth.RolesClaim) []string {
+	set := map[string]struct{}{}
+	for _, mr := range rc.MasjidRoles {
+		if mr.MasjidID != uuid.Nil {
+			set[mr.MasjidID.String()] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(set))
+	for id := range set {
+		out = append(out, id)
+	}
+	return out
 }
 
 /* ==========================
@@ -116,15 +205,170 @@ func Register(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.Error(c, fiber.StatusInternalServerError, "Failed to create user")
 	}
 
-	// Inisialisasi entitas turunan (best-effort)
-	if hasTable(db, "user_progress") {
+	// Best-effort init entitas turunan
+	if meta.Ready && quickHasTable(db, "user_progress") {
 		_ = progressUserService.CreateInitialUserProgress(db, input.ID)
 	}
-	if hasTable(db, "users_profile") {
+	if meta.Ready && quickHasTable(db, "users_profile") {
 		userProfileService.CreateInitialUserProfile(db, input.ID)
 	}
 
+	// Grant default role "user"
+	if err := grantDefaultUserRole(c.Context(), db, input.ID); err != nil {
+		log.Printf("[register] grant default role 'user' failed: %v", err)
+	}
+
 	return helpers.SuccessWithCode(c, fiber.StatusCreated, "Registration successful", nil)
+}
+
+/* ==========================
+   Helpers (role)
+========================== */
+
+func grantDefaultUserRole(ctx context.Context, db *gorm.DB, userID uuid.UUID) error {
+	if !meta.Ready || !meta.HasRoles || !meta.HasUserRoles {
+		return nil
+	}
+
+	// Prefer function bila ada
+	if meta.HasFnGrantRole {
+		var idStr string
+		if err := db.WithContext(ctx).
+			Raw(`SELECT fn_grant_role(?::uuid, ?::text, NULL::uuid, NULL::uuid)::text`, userID.String(), "user").
+			Scan(&idStr).Error; err != nil {
+			return err
+		}
+		if idStr != "" {
+			if _, perr := uuid.Parse(idStr); perr != nil {
+				log.Printf("[grantDefaultUserRole] warning: parse uuid failed: %v", perr)
+			}
+		}
+		return nil
+	}
+
+	// Fallback manual
+	var roleIDStr string
+	if err := db.WithContext(ctx).
+		Raw(`SELECT role_id::text FROM roles WHERE role_name = 'user' LIMIT 1`).
+		Scan(&roleIDStr).Error; err != nil {
+		return err
+	}
+	if roleIDStr == "" {
+		if err := db.WithContext(ctx).
+			Raw(`INSERT INTO roles(role_name) VALUES ('user') RETURNING role_id::text`).
+			Scan(&roleIDStr).Error; err != nil {
+			return err
+		}
+	}
+
+	var exists bool
+	if err := db.WithContext(ctx).
+		Raw(`SELECT EXISTS(
+		       SELECT 1 FROM user_roles
+		       WHERE user_id = ?::uuid AND role_id = ?::uuid AND masjid_id IS NULL AND deleted_at IS NULL
+		     )`, userID.String(), roleIDStr).
+		Scan(&exists).Error; err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
+	return db.WithContext(ctx).
+		Exec(`INSERT INTO user_roles(user_id, role_id, masjid_id, assigned_at)
+		      VALUES (?::uuid, ?::uuid, NULL, now())`,
+			userID.String(), roleIDStr).Error
+}
+
+// Ambil roles via function claim (jika ada) atau fallback query manual
+func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (helpersAuth.RolesClaim, error) {
+	out := helpersAuth.RolesClaim{
+		RolesGlobal: make([]string, 0),
+		MasjidRoles: make([]helpersAuth.MasjidRolesEntry, 0),
+	}
+
+	// Pakai fn_user_roles_claim bila ada
+	if meta.Ready && meta.HasFnUserRolesClaim {
+		var jsonStr string
+		if err := db.WithContext(ctx).
+			Raw(`SELECT fn_user_roles_claim(?::uuid)::text`, userID.String()).
+			Scan(&jsonStr).Error; err != nil {
+			return out, err
+		}
+		if strings.TrimSpace(jsonStr) != "" {
+			if err := json.Unmarshal([]byte(jsonStr), &out); err != nil {
+				return out, err
+			}
+		}
+		return out, nil
+	}
+
+	// Fallback manual
+	orderBy := "r.role_name ASC"
+	if meta.Ready && meta.HasFnRolePriority {
+		orderBy = "fn_role_priority(r.role_name) DESC, r.role_name ASC"
+	}
+
+	// Global
+	{
+		ctxG, cancel := context.WithTimeout(ctx, qryTimeoutShort)
+		defer cancel()
+		var globals []string
+		if err := db.WithContext(ctxG).Raw(`
+			SELECT r.role_name
+			FROM user_roles ur
+			JOIN roles r ON r.role_id = ur.role_id
+			WHERE ur.user_id = ?::uuid
+			  AND ur.deleted_at IS NULL
+			  AND ur.masjid_id IS NULL
+			GROUP BY r.role_name
+			ORDER BY `+orderBy, userID.String()).
+			Scan(&globals).Error; err != nil {
+			return out, err
+		}
+		out.RolesGlobal = globals
+	}
+
+	// Scoped
+	var masjidIDs []uuid.UUID
+	{
+		ctxS, cancel := context.WithTimeout(ctx, qryTimeoutShort)
+		defer cancel()
+		if err := db.WithContext(ctxS).Raw(`
+			SELECT ur.masjid_id
+			FROM user_roles ur
+			WHERE ur.user_id = ?::uuid
+			  AND ur.deleted_at IS NULL
+			  AND ur.masjid_id IS NOT NULL
+			GROUP BY ur.masjid_id
+		`, userID.String()).
+			Scan(&masjidIDs).Error; err != nil {
+			return out, err
+		}
+	}
+	for _, mid := range masjidIDs {
+		ctxR, cancel := context.WithTimeout(ctx, qryTimeoutShort)
+		var roles []string
+		err := db.WithContext(ctxR).Raw(`
+			SELECT r.role_name
+			FROM user_roles ur
+			JOIN roles r ON r.role_id = ur.role_id
+			WHERE ur.user_id = ?::uuid
+			  AND ur.deleted_at IS NULL
+			  AND ur.masjid_id = ?::uuid
+			GROUP BY r.role_name
+			ORDER BY `+orderBy, userID.String(), mid.String()).
+			Scan(&roles).Error
+		cancel()
+		if err != nil {
+			return out, err
+		}
+		out.MasjidRoles = append(out.MasjidRoles, helpersAuth.MasjidRolesEntry{
+			MasjidID: mid,
+			Roles:    roles,
+		})
+	}
+	return out, nil
 }
 
 /* ==========================
@@ -163,145 +407,44 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data user")
 	}
 
-	// Peran per masjid (tahan 42P01)
-	masjidAdminIDs, masjidTeacherIDs, masjidStudentIDs, masjidIDs, err := collectMasjidRoleIDs(db, userFull.ID)
+	// Roles (roles_global & masjid_roles)
+	rolesClaim, err := getUserRolesClaim(c.Context(), db, userFull.ID)
 	if err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil roles user")
 	}
 
-	// Issue tokens
-	return issueTokensWithRoles(c, db, *userFull, masjidAdminIDs, masjidTeacherIDs, masjidStudentIDs, masjidIDs)
-}
-
-/* ==========================
-   Helper: Kumpulkan peran per masjid
-========================== */
-
-func collectMasjidRoleIDs(db *gorm.DB, userID uuid.UUID) (
-	masjidAdminIDs []string,
-	masjidTeacherIDs []string,
-	masjidStudentIDs []string,
-	masjidIDs []string,
-	err error,
-) {
-	adminSet := map[string]struct{}{}
-	teacherSet := map[string]struct{}{}
-	studentSet := map[string]struct{}{}
-
-	// Admin/DKM
-	if hasTable(db, "masjid_admins") {
-		var adminMasjids []lembagaModel.MasjidAdminModel
-		if e := db.
-			Where("masjid_admin_user_id = ? AND masjid_admin_is_active = TRUE", userID).
-			Find(&adminMasjids).Error; e != nil {
-			return nil, nil, nil, nil, e
-		}
-		for _, m := range adminMasjids {
-			adminSet[m.MasjidAdminMasjidID.String()] = struct{}{}
-		}
-	}
-
-	// Teacher
-	if hasTable(db, "masjid_teachers") {
-		var teacherRows []lembagaModel.MasjidTeacherModel
-		if e := db.
-			Where("masjid_teacher_user_id = ? AND masjid_teacher_deleted_at IS NULL", userID).
-			Find(&teacherRows).Error; e != nil {
-			return nil, nil, nil, nil, e
-		}
-		for _, t := range teacherRows {
-			teacherSet[t.MasjidTeacherMasjidID.String()] = struct{}{}
-		}
-	}
-
-	// Student (user_classes aktif)
-	if hasTable(db, "user_classes") {
-		var rows []struct {
-			MasjidID *uuid.UUID `gorm:"column:user_classes_masjid_id"`
-		}
-		if e := db.Model(&classModel.UserClassesModel{}).
-			Where(`
-				user_classes_user_id = ?
-				AND user_classes_status = ?
-				AND user_classes_deleted_at IS NULL
-			`, userID, classModel.UserClassStatusActive).
-			Select("user_classes_masjid_id").
-			Find(&rows).Error; e != nil {
-			return nil, nil, nil, nil, e
-		}
-		for _, r := range rows {
-			if r.MasjidID != nil {
-				studentSet[r.MasjidID.String()] = struct{}{}
-			}
-		}
-	}
-
-	// Build slices + union
-	unionSet := map[string]struct{}{}
-	masjidAdminIDs = make([]string, 0, len(adminSet))
-	for id := range adminSet {
-		masjidAdminIDs = append(masjidAdminIDs, id)
-		unionSet[id] = struct{}{}
-	}
-	masjidTeacherIDs = make([]string, 0, len(teacherSet))
-	for id := range teacherSet {
-		masjidTeacherIDs = append(masjidTeacherIDs, id)
-		unionSet[id] = struct{}{}
-	}
-	masjidStudentIDs = make([]string, 0, len(studentSet))
-	for id := range studentSet {
-		masjidStudentIDs = append(masjidStudentIDs, id)
-		unionSet[id] = struct{}{}
-	}
-	masjidIDs = make([]string, 0, len(unionSet))
-	for id := range unionSet {
-		masjidIDs = append(masjidIDs, id)
-	}
-	return
-}
-
-/* ==========================
-   Helper: Ambil Teacher Records (untuk role teacher)
-========================== */
-
-func fetchTeacherRecords(db *gorm.DB, user userModel.UserModel) []TeacherRecord {
-	if !strings.EqualFold(strings.TrimSpace(user.Email), "teacher") {
-		return nil
-	}
-	if !hasTable(db, "masjid_teachers") {
-		return nil
-	}
-
-	var rows []lembagaModel.MasjidTeacherModel
-	if err := db.
-		Where("masjid_teacher_user_id = ? AND masjid_teacher_deleted_at IS NULL", user.ID).
-		Find(&rows).Error; err != nil {
-		log.Printf("[WARN] fetch teacher_records failed: %v", err)
-		return nil
-	}
-
-	recs := make([]TeacherRecord, 0, len(rows))
-	for _, r := range rows {
-		recs = append(recs, TeacherRecord{
-			ID:       r.MasjidTeacherID,
-			MasjidID: r.MasjidTeacherMasjidID,
-		})
-	}
-	return recs
+	// Issue tokens — cukup berdasarkan rolesClaim
+	return issueTokensWithRoles(c, db, *userFull, rolesClaim)
 }
 
 /* ==========================
    ISSUE TOKENS + Response
 ========================== */
 
+func fetchTeacherRecords(db *gorm.DB, userID uuid.UUID) []TeacherRecord {
+	if !meta.Ready || !meta.HasMasjidTeachers {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), qryTimeoutShort)
+	defer cancel()
+
+	var out []TeacherRecord
+	if err := db.WithContext(ctx).
+		Table("masjid_teachers").
+		Select("masjid_teacher_id, masjid_teacher_masjid_id").
+		Where("masjid_teacher_user_id = ? AND masjid_teacher_deleted_at IS NULL", userID).
+		Scan(&out).Error; err != nil {
+		log.Printf("[WARN] fetchTeacherRecords: %v", err)
+		return nil
+	}
+	return out
+}
+
 func issueTokensWithRoles(
 	c *fiber.Ctx,
 	db *gorm.DB,
 	user userModel.UserModel,
-	masjidAdminIDs []string,
-	masjidTeacherIDs []string,
-	masjidStudentIDs []string,
-	masjidIDs []string,
+	rolesClaim helpersAuth.RolesClaim,
 ) error {
 	// secrets
 	jwtSecret, err := getJWTSecret()
@@ -315,25 +458,40 @@ func issueTokensWithRoles(
 
 	now := nowUTC()
 
-	// (baru) teacher_records bila role teacher
-	teacherRecords := fetchTeacherRecords(db, user)
+	// teacher_records hanya jika user punya role "teacher" (opsional)
+	var teacherRecords []TeacherRecord
+	if rolesClaimHas(rolesClaim, "teacher") {
+		teacherRecords = fetchTeacherRecords(db, user.ID)
+	}
 
-	// ACCESS TOKEN
+	// Flag owner dari claim
+	isOwner := rolesClaimHas(rolesClaim, "owner")
+
+	// (opsional) derive masjid_ids dari masjid_roles untuk kompatibilitas
+	masjidIDs := deriveMasjidIDsFromRolesClaim(rolesClaim)
+
+	// Autopick active masjid jika user single-tenant
+	activeMasjidID := helpersAuth.GetActiveMasjidIDIfSingle(rolesClaim)
+
+	// ACCESS TOKEN — tanpa owner_user_roles
 	accessClaims := jwt.MapClaims{
-		"typ":                "access",
-		"sub":                user.ID.String(),
-		"id":                 user.ID.String(),
-		"user_name":          user.UserName,
-		"full_name":          user.FullName,
-		"masjid_admin_ids":   masjidAdminIDs,
-		"masjid_teacher_ids": masjidTeacherIDs,
-		"masjid_student_ids": masjidStudentIDs,
-		"masjid_ids":         masjidIDs,
-		"iat":                now.Unix(),
-		"exp":                now.Add(accessTTLDefault).Unix(),
+		"typ":          "access",
+		"sub":          user.ID.String(),
+		"id":           user.ID.String(),
+		"user_name":    user.UserName,
+		"full_name":    user.FullName,
+		"roles_global": rolesClaim.RolesGlobal,
+		"masjid_roles": rolesClaim.MasjidRoles,
+		"masjid_ids":   masjidIDs, // boleh dihapus kalau tidak perlu kompat
+		"is_owner":     isOwner,
+		"iat":          now.Unix(),
+		"exp":          now.Add(accessTTLDefault).Unix(),
 	}
 	if len(teacherRecords) > 0 {
 		accessClaims["teacher_records"] = teacherRecords
+	}
+	if activeMasjidID != nil {
+		accessClaims["active_masjid_id"] = *activeMasjidID
 	}
 
 	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString([]byte(jwtSecret))
@@ -354,14 +512,13 @@ func issueTokensWithRoles(
 		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal membuat refresh token")
 	}
 
-	// Simpan refresh token hashed
+	// Simpan refresh token hashed (opsi cepat)
 	tokenHash := computeRefreshHash(refreshToken, refreshSecret)
 	ua := c.Get("User-Agent")
 	ip := c.IP()
-
-	if err := authRepo.CreateRefreshToken(db, &authModel.RefreshTokenModel{
+	if err := createRefreshTokenFast(db, &authModel.RefreshTokenModel{
 		UserID:    user.ID,
-		Token:     tokenHash, // simpan hash
+		Token:     tokenHash,
 		ExpiresAt: now.Add(refreshTTLDefault),
 		UserAgent: strptr(ua),
 		IP:        strptr(ip),
@@ -372,19 +529,22 @@ func issueTokensWithRoles(
 	// Set cookies
 	setAuthCookies(c, accessToken, refreshToken, now)
 
-	// Response body
+	// Response body — tanpa owner_user_roles
 	respUser := fiber.Map{
-		"id":                 user.ID,
-		"user_name":          user.UserName,
-		"email":              user.Email,
-		"full_name":          user.FullName,
-		"masjid_admin_ids":   masjidAdminIDs,
-		"masjid_teacher_ids": masjidTeacherIDs,
-		"masjid_student_ids": masjidStudentIDs,
-		"masjid_ids":         masjidIDs,
+		"id":           user.ID,
+		"user_name":    user.UserName,
+		"email":        user.Email,
+		"full_name":    user.FullName,
+		"roles_global": rolesClaim.RolesGlobal,
+		"masjid_roles": rolesClaim.MasjidRoles,
+		"masjid_ids":   masjidIDs, // optional kompat
+		"is_owner":     isOwner,
 	}
 	if len(teacherRecords) > 0 {
 		respUser["teacher_records"] = teacherRecords
+	}
+	if activeMasjidID != nil {
+		respUser["active_masjid_id"] = *activeMasjidID
 	}
 
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
@@ -392,9 +552,21 @@ func issueTokensWithRoles(
 		"status":  "success",
 		"message": "Login berhasil",
 		"data": fiber.Map{
-			"access_token": accessToken,
 			"user":         respUser,
+			"access_token": accessToken,
 		},
+	})
+}
+
+// Insert refresh_token dengan latency lebih rendah.
+// Aman untuk token (konsekuensi: kemungkinan kecil lose jika crash tepat sesudah commit).
+func createRefreshTokenFast(db *gorm.DB, rt *authModel.RefreshTokenModel) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		// turunkan sinkronisasi walau cuma untuk transaksi ini
+		if err := tx.Exec(`SET LOCAL synchronous_commit = OFF`).Error; err != nil {
+			log.Printf("[WARN] set synchronous_commit=OFF failed: %v", err)
+		}
+		return authRepo.CreateRefreshToken(tx, rt)
 	})
 }
 
@@ -410,7 +582,7 @@ func setAuthCookies(c *fiber.Ctx, accessToken, refreshToken string, now time.Tim
 	})
 	c.Cookie(&fiber.Cookie{
 		Name:     "refresh_token",
-		Value:    refreshToken, // plaintext ke client
+		Value:    refreshToken,
 		HTTPOnly: true,
 		Secure:   true,
 		SameSite: "None",
@@ -467,10 +639,10 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 			return helpers.Error(c, fiber.StatusInternalServerError, "Failed to create Google user")
 		}
 
-		if hasTable(db, "user_progress") {
+		if meta.Ready && quickHasTable(db, "user_progress") {
 			_ = progressUserService.CreateInitialUserProgress(db, newUser.ID)
 		}
-		if hasTable(db, "users_profile") {
+		if meta.Ready && quickHasTable(db, "users_profile") {
 			userProfileService.CreateInitialUserProfile(db, newUser.ID)
 		}
 
@@ -486,14 +658,14 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.Error(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan. Hubungi admin.")
 	}
 
-	// Peran per masjid
-	masjidAdminIDs, masjidTeacherIDs, masjidStudentIDs, masjidIDs, err := collectMasjidRoleIDs(db, userFull.ID)
+	// Roles (roles_global & masjid_roles)
+	rolesClaim, err := getUserRolesClaim(c.Context(), db, userFull.ID)
 	if err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil roles user")
 	}
 
-	// Issue tokens
-	return issueTokensWithRoles(c, db, *userFull, masjidAdminIDs, masjidTeacherIDs, masjidStudentIDs, masjidIDs)
+	// Issue tokens — cukup berdasarkan rolesClaim
+	return issueTokensWithRoles(c, db, *userFull, rolesClaim)
 }
 
 /* ==========================
@@ -529,14 +701,7 @@ func Logout(db *gorm.DB, c *fiber.Ctx) error {
 
 	// Hapus refresh token dari DB jika ada di cookie
 	if rt := helpers.GetRefreshTokenFromCookie(c); rt != "" {
-		// Catatan: jika repo DeleteRefreshToken menerima plaintext dan melakukan hash internal, cukup ini:
 		_ = authRepo.DeleteRefreshToken(db, rt)
-
-		// Jika kamu juga menyediakan opsi hapus by hash (mis. DeleteRefreshTokenHashed),
-		// aktifkan fallback di bawah:
-		// if refreshSecret, err := getRefreshSecret(); err == nil {
-		// 	_ = authRepo.DeleteRefreshTokenHashed(db, computeRefreshHash(rt, refreshSecret))
-		// }
 	}
 
 	// Hapus cookies
@@ -558,17 +723,12 @@ func Logout(db *gorm.DB, c *fiber.Ctx) error {
 }
 
 func resolveBlacklistTTL(accessToken string) time.Duration {
-	// default dev/test
 	ttl := 2 * time.Minute
-
-	// override via env
 	if v := os.Getenv("BLACKLIST_TTL_SECONDS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return time.Duration(n) * time.Second
 		}
 	}
-
-	// produksi: pakai sisa umur JWT + buffer
 	jwtSecret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
 	if jwtSecret == "" || accessToken == "" {
 		return ttl
@@ -579,12 +739,10 @@ func resolveBlacklistTTL(accessToken string) time.Duration {
 		if claims, ok := tok.Claims.(jwt.MapClaims); ok && tok.Valid {
 			if exp, ok := claims["exp"].(float64); ok {
 				until := time.Until(time.Unix(int64(exp), 0))
-				switch {
-				case until > 0:
+				if until > 0 {
 					return until + 60*time.Second
-				default:
-					return time.Minute
 				}
+				return time.Minute
 			}
 		}
 	}

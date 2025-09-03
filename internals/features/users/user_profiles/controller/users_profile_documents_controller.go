@@ -21,6 +21,7 @@ import (
 
 	// Helpers
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 	helperOSS "masjidku_backend/internals/helpers/oss"
 
 	"github.com/go-playground/validator/v10"
@@ -66,7 +67,7 @@ func parseRFC3339Ptr(s *string) (*time.Time, error) {
 ========================= */
 // POST /users/profile/documents/upload/many
 func (uc *UsersProfileDocumentController) CreateMultipartMany(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -164,7 +165,7 @@ func (uc *UsersProfileDocumentController) CreateMultipartMany(c *fiber.Ctx) erro
    LIST + FILTER + PAGINATION
 ========================= */
 func (uc *UsersProfileDocumentController) List(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -228,7 +229,7 @@ func (uc *UsersProfileDocumentController) List(c *fiber.Ctx) error {
    GET BY DOC TYPE
 ========================= */
 func (uc *UsersProfileDocumentController) GetByDocType(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -254,7 +255,7 @@ func (uc *UsersProfileDocumentController) GetByDocType(c *fiber.Ctx) error {
    UPDATE - MULTIPART (partial)
 ========================= */
 func (uc *UsersProfileDocumentController) UpdateMultipart(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -346,7 +347,7 @@ func (uc *UsersProfileDocumentController) UpdateMultipart(c *fiber.Ctx) error {
    DELETE - SOFT / HARD
 ========================= */
 func (uc *UsersProfileDocumentController) DeleteSoft(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}

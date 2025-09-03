@@ -16,6 +16,7 @@ import (
 	dto "masjidku_backend/internals/features/school/academics/academic_terms/dto"
 	model "masjidku_backend/internals/features/school/academics/academic_terms/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
 type AcademicTermController struct {
@@ -63,7 +64,7 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Validation failed: "+err.Error())
 	}
 
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
@@ -98,7 +99,7 @@ func (ctl *AcademicTermController) SearchOnlyByYear(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Query param 'year' wajib diisi")
 	}
 
-	masjidIDs, err := helper.GetMasjidIDsFromToken(c)
+	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -165,7 +166,7 @@ func (ctl *AcademicTermController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid id")
 	}
 
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
@@ -228,7 +229,7 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid id")
 	}
 
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}

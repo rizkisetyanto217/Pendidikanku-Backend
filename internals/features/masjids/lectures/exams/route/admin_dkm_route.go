@@ -14,7 +14,6 @@ import (
 func LectureExamsAdminRoutes(router fiber.Router, db *gorm.DB) {
 	// Group besar: wajib login + role admin/dkm/owner + scope masjid
 	adminOrOwner := router.Group("/",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola ujian"),
 			constants.AdminAndAbove, // admin, dkm, owner

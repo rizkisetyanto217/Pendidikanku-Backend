@@ -16,7 +16,6 @@ func PostAdminRoutes(router fiber.Router, db *gorm.DB) {
 	themeCtrl := postController.NewPostThemeController(db)
 
 	admin := router.Group("/",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola postingan & tema"),
 			constants.AdminAndAbove, // admin, dkm, owner

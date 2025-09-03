@@ -13,6 +13,7 @@ import (
 
 	dto "masjidku_backend/internals/features/school/sessions_assesment/submissions/dto"
 	model "masjidku_backend/internals/features/school/sessions_assesment/submissions/model"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 	helper "masjidku_backend/internals/helpers"
 )
 
@@ -42,8 +43,8 @@ func NewSubmissionController(db *gorm.DB) *SubmissionController {
 
 // ============ Helpers ============
 func (ctrl *SubmissionController) tenantMasjidID(c *fiber.Ctx) (uuid.UUID, error) {
-	adminMasjidID, _ := helper.GetMasjidIDFromToken(c)
-	teacherMasjidID, _ := helper.GetTeacherMasjidIDFromToken(c)
+	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
+	teacherMasjidID, _ := helperAuth.GetTeacherMasjidIDFromToken(c)
 
 	switch {
 	case adminMasjidID != uuid.Nil:

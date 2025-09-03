@@ -13,7 +13,6 @@ import (
 // Login wajib + role admin/dkm/owner + scope masjid
 func NotificationAdminRoutes(api fiber.Router, db *gorm.DB) {
 	admin := api.Group("/",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola notifikasi"),
 			constants.AdminAndAbove, // admin, dkm, owner

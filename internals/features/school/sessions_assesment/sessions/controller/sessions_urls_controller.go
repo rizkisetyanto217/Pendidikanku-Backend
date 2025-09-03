@@ -13,6 +13,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	sessiondto "masjidku_backend/internals/features/school/sessions_assesment/sessions/dto"
 	sessionmodel "masjidku_backend/internals/features/school/sessions_assesment/sessions/model"
@@ -49,7 +50,7 @@ func (ctl *ClassAttendanceSessionURLController) Create(c *fiber.Ctx) error {
 	)
 
 	// ===== Auth (teacher)
-	masjidID, err := helper.GetTeacherMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetTeacherMasjidIDFromToken(c)
 	if err != nil {
 		log.Printf("%s auth failed: %v", logp, err)
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
@@ -226,7 +227,7 @@ func (ctl *ClassAttendanceSessionURLController) Create(c *fiber.Ctx) error {
  * PATCH /api/a/class-attendance-session-urls/:id
  * ========================================================= */
 func (ctl *ClassAttendanceSessionURLController) Update(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -364,7 +365,7 @@ func (ctl *ClassAttendanceSessionURLController) Update(c *fiber.Ctx) error {
  * GET /api/a/class-attendance-session-urls/:id
  * ========================================================= */
 func (ctl *ClassAttendanceSessionURLController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -392,7 +393,7 @@ func (ctl *ClassAttendanceSessionURLController) GetByID(c *fiber.Ctx) error {
  * GET /api/a/class-attendance-session-urls/filter?session_id=&search=&only_alive=&page=&limit=&sort=
  * ========================================================= */
 func (ctl *ClassAttendanceSessionURLController) Filter(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -479,7 +480,7 @@ func (ctl *ClassAttendanceSessionURLController) Filter(c *fiber.Ctx) error {
  * DELETE /api/a/class-attendance-session-urls/:id
  * ========================================================= */
 func (ctl *ClassAttendanceSessionURLController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}

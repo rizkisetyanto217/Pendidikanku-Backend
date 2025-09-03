@@ -13,6 +13,7 @@ import (
 	annDTO "masjidku_backend/internals/features/school/announcements/announcement_thema/dto"
 	annModel "masjidku_backend/internals/features/school/announcements/announcement_thema/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
 type AnnouncementThemeController struct {
@@ -52,7 +53,7 @@ func isUniqueErr(err error) bool {
 
 // POST /admin/announcement-themes
 func (h *AnnouncementThemeController) Create(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -92,7 +93,7 @@ func (h *AnnouncementThemeController) Create(c *fiber.Ctx) error {
 
 // GET /admin/announcement-themes/:id
 func (h *AnnouncementThemeController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -111,7 +112,7 @@ func (h *AnnouncementThemeController) GetByID(c *fiber.Ctx) error {
 
 // GET /admin/announcement-themes
 func (h *AnnouncementThemeController) List(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -200,7 +201,7 @@ func (h *AnnouncementThemeController) List(c *fiber.Ctx) error {
 
 // GET /admin/announcement-themes/search?q=tema&limit=10&active_only=true
 func (h *AnnouncementThemeController) SearchByName(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -264,7 +265,7 @@ func (h *AnnouncementThemeController) SearchByName(c *fiber.Ctx) error {
 // PUT /admin/announcement-themes/:id
 // PUT /admin/announcement-themes/:id
 func (h *AnnouncementThemeController) Update(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -313,7 +314,7 @@ func (h *AnnouncementThemeController) Update(c *fiber.Ctx) error {
 
 // DELETE /admin/announcement-themes/:id  (soft delete)
 func (h *AnnouncementThemeController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}

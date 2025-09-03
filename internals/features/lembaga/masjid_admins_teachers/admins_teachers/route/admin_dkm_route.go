@@ -16,7 +16,6 @@ func MasjidAdminRoutes(api fiber.Router, db *gorm.DB) {
 
 	// 🛡️ /masjid-admins → OWNER only (tetap)
 	masjidAdmins := api.Group("/masjid-admins/owner",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorOwner("mengelola admin masjid"),
 			constants.OwnerOnly,
@@ -29,7 +28,6 @@ func MasjidAdminRoutes(api fiber.Router, db *gorm.DB) {
 
 	// 🎓 /masjid-teachers → DKM + Admin + Owner
 	masjidTeachers := api.Group("/masjid-teachers",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola guru masjid"),
 			constants.AdminAndAbove, // admin, dkm, owner

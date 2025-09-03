@@ -18,8 +18,7 @@ import (
 
 	dto "masjidku_backend/internals/features/school/sessions_assesment/sessions/dto"
 	model "masjidku_backend/internals/features/school/sessions_assesment/sessions/model"
-
-	helpers "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	helperOSS "masjidku_backend/internals/helpers/oss" // alias sama saja; jelas bahwa UploadImageToOSS dkk dari file oss_file.go
 )
@@ -53,7 +52,7 @@ g.Delete("/:id", ctl.SoftDelete) // soft delete
 // =============================
 // POST /api/a/user-attendance-urls
 func (ctl *UserAttendanceUrlController) CreateJSON(c *fiber.Ctx) error {
-	masjidID, err := helpers.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -90,7 +89,7 @@ func (ctl *UserAttendanceUrlController) CreateJSON(c *fiber.Ctx) error {
 // - user_attendance_urls_uploader_teacher_id (uuid, optional)
 // - user_attendance_urls_uploader_user_id (uuid, optional)
 func (ctl *UserAttendanceUrlController) CreateMultipart(c *fiber.Ctx) error {
-	masjidID, err := helpers.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -177,7 +176,7 @@ func (ctl *UserAttendanceUrlController) CreateMultipart(c *fiber.Ctx) error {
 // Multipart: kirim 'file' untuk ganti file; opsional label/href lain akan diabaikan
 // Query opsional: ?trash_days=7 (default 7)
 func (ctl *UserAttendanceUrlController) Update(c *fiber.Ctx) error {
-	masjidID, err := helpers.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -278,7 +277,7 @@ func (ctl *UserAttendanceUrlController) Update(c *fiber.Ctx) error {
 
 // GET /api/a/user-attendance-urls/:id
 func (ctl *UserAttendanceUrlController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := helpers.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -304,7 +303,7 @@ func (ctl *UserAttendanceUrlController) GetByID(c *fiber.Ctx) error {
 
 // GET /api/a/user-attendance-urls?attendance_id=:attId&limit=20&offset=0
 func (ctl *UserAttendanceUrlController) ListByAttendance(c *fiber.Ctx) error {
-	masjidID, err := helpers.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -339,7 +338,7 @@ func (ctl *UserAttendanceUrlController) ListByAttendance(c *fiber.Ctx) error {
 
 // DELETE /api/a/user-attendance-urls/:id  (soft delete)
 func (ctl *UserAttendanceUrlController) SoftDelete(c *fiber.Ctx) error {
-	masjidID, err := helpers.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}

@@ -12,7 +12,6 @@ import (
 // User login: kelola/lihat sertifikat milik sendiri
 func CertificateUserRoutes(api fiber.Router, db *gorm.DB) {
 	user := api.Group("/",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			"❌ Hanya pengguna terautentikasi yang boleh mengakses sertifikat.",
 			constants.AllowedRoles,

@@ -8,6 +8,7 @@ import (
 	"masjidku_backend/internals/features/masjids/events/dto"
 	"masjidku_backend/internals/features/masjids/events/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -249,7 +250,7 @@ func (ctrl *EventController) DeleteEvent(c *fiber.Ctx) error {
 	}
 
 	// Scope tenant
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err // sudah dalam bentuk fiber.Error dari helper
 	}

@@ -4,6 +4,7 @@ import (
 	dto "masjidku_backend/internals/features/school/class_subject_books/books/dto"
 	model "masjidku_backend/internals/features/school/class_subject_books/books/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -22,7 +23,7 @@ func bPtr(v *bool) bool     { if v == nil { return false }; return *v }
 // Tampilkan SEMUA buku (parent) + daftar pemakaian (usages) + URL utama & cover
 // ----------------------------------------------------------
 func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -307,7 +308,7 @@ func (h *BooksController) ListWithUsages(c *fiber.Ctx) error {
 // Detail 1 buku + usages
 // ----------------------------------------------------------
 func (h *BooksController) GetWithUsagesByID(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}

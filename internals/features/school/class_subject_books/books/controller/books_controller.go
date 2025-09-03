@@ -13,6 +13,7 @@ import (
 	dto "masjidku_backend/internals/features/school/class_subject_books/books/dto"
 	model "masjidku_backend/internals/features/school/class_subject_books/books/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
 type BooksController struct {
@@ -26,7 +27,7 @@ var validate = validator.New()
    Body: JSON (atau form sederhana, tanpa upload file)
    ========================================================= */
 func (h *BooksController) Create(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -87,7 +88,7 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
    Body: JSON / form sederhana (tanpa upload file)
    ========================================================= */
 func (h *BooksController) Update(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -166,7 +167,7 @@ func (h *BooksController) Update(c *fiber.Ctx) error {
    DELETE (soft) - DELETE /admin/class-books/:id
    ========================================================= */
 func (h *BooksController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}

@@ -11,6 +11,7 @@ import (
 	dto "masjidku_backend/internals/features/school/sessions_assesment/assesments_settings/dto"
 	mdl "masjidku_backend/internals/features/school/sessions_assesment/assesments_settings/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -29,7 +30,7 @@ func NewClassAttendanceSettingController(db *gorm.DB) *ClassAttendanceSettingCon
 // GET /class_attendance_settings
 // - Ambil settings utk masjid di token (prefer teacher → union → admin)
 func (ctl *ClassAttendanceSettingController) GetBySchool(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -54,7 +55,7 @@ func (ctl *ClassAttendanceSettingController) GetBySchool(c *fiber.Ctx) error {
 // - Membuat baris baru untuk masjid di token (admin-only).
 // - Jika sudah ada → 409 Conflict.
 func (ctl *ClassAttendanceSettingController) CreateBySchool(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c) // admin-only
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c) // admin-only
 	if err != nil {
 		return err
 	}
@@ -99,7 +100,7 @@ func (ctl *ClassAttendanceSettingController) CreateBySchool(c *fiber.Ctx) error 
 // - Partial update: hanya field yang dikirim yang di-update.
 
 func (ctl *ClassAttendanceSettingController) UpdateBySchool(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c) // admin-only
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c) // admin-only
 	if err != nil {
 		return err
 	}

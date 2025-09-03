@@ -23,7 +23,6 @@ func AcademicYearAdminRoutes(api fiber.Router, db *gorm.DB) {
 	termCtl := academicTermCtl.NewAcademicTermController(db)
 
 	adminTerms := api.Group("/academic-terms",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola academic terms"),
 			constants.AdminAndAbove,
@@ -45,7 +44,6 @@ func AcademicYearAdminRoutes(api fiber.Router, db *gorm.DB) {
 	openingCtl := academicTermCtl.NewClassTermOpeningController(db)
 
 	open := api.Group("/class-term-openings",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola class term openings"),
 			constants.AdminAndAbove,

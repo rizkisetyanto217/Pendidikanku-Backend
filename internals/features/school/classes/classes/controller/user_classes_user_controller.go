@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	ucDTO "masjidku_backend/internals/features/school/classes/classes/dto"
 	classModel "masjidku_backend/internals/features/school/classes/classes/model"
@@ -30,7 +31,7 @@ var userValidate = validator.New()
 
 // GET /api/u/user-classes
 func (h *UserMyClassController) ListMyUserClasses(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -92,7 +93,7 @@ func (h *UserMyClassController) ListMyUserClasses(c *fiber.Ctx) error {
 
 // GET /api/u/user-classes/:id
 func (h *UserMyClassController) GetMyUserClassByID(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -121,7 +122,7 @@ func (h *UserMyClassController) GetMyUserClassByID(c *fiber.Ctx) error {
 
 // POST /api/u/user-classes
 func (h *UserMyClassController) SelfEnroll(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return err
 	}

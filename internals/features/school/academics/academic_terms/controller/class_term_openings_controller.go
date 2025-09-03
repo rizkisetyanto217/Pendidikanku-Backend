@@ -8,6 +8,7 @@ import (
 	openDTO "masjidku_backend/internals/features/school/academics/academic_terms/dto"
 	openModel "masjidku_backend/internals/features/school/academics/academic_terms/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -93,7 +94,7 @@ func (ct *ClassTermOpeningController) CreateClassTermOpening(c *fiber.Ctx) error
 		return fiber.NewError(fiber.StatusBadRequest, "invalid body: "+err.Error())
 	}
 
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -262,7 +263,7 @@ func (ct *ClassTermOpeningController) UpdateClassTermOpening(c *fiber.Ctx) error
 		return fiber.NewError(fiber.StatusBadRequest, "invalid id")
 	}
 
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -356,7 +357,7 @@ func (ct *ClassTermOpeningController) DeleteClassTermOpening(c *fiber.Ctx) error
 		return fiber.NewError(fiber.StatusBadRequest, "invalid id")
 	}
 
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}

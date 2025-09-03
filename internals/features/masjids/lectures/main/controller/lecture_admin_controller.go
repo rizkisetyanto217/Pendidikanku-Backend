@@ -9,6 +9,7 @@ import (
 	"masjidku_backend/internals/features/masjids/lectures/main/model"
 	helper "masjidku_backend/internals/helpers"
 	helperOSS "masjidku_backend/internals/helpers/oss"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 	"net/url"
 	"strconv"
 	"strings"
@@ -43,12 +44,12 @@ func (ctrl *LectureController) GetAllLectures(c *fiber.Ctx) error {
 // 🟢 POST /api/a/lectures
 func (ctrl *LectureController) CreateLecture(c *fiber.Ctx) error {
 	// --- auth wajib ---
-	if _, err := helper.GetUserIDFromToken(c); err != nil {
+	if _, err := helperAuth.GetUserIDFromToken(c); err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
 	// --- scope masjid: hanya dari token (prefer teacher -> dkm -> union -> admin) ---
-	masjidUUID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidUUID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil || masjidUUID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid ID tidak valid atau tidak ter-scope")
 	}
@@ -255,7 +256,7 @@ func (ctrl *LectureController) UpdateLecture(c *fiber.Ctx) error {
 	reqID := uuid.New().String()[0:8]
 
 	// ---------- AUTH ----------
-	if uid, err := helper.GetUserIDFromToken(c); err != nil {
+	if uid, err := helperAuth.GetUserIDFromToken(c); err != nil {
 		log.Printf("[LECTURE][%s] ❌ auth fail: %v", reqID, err)
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	} else {
@@ -263,7 +264,7 @@ func (ctrl *LectureController) UpdateLecture(c *fiber.Ctx) error {
 	}
 
 	// ---------- SCOPE ----------
-	masjidUUID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidUUID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil || masjidUUID == uuid.Nil {
 		log.Printf("[LECTURE][%s] ❌ scope fail: masjid invalid (%v)", reqID, err)
 		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid ID tidak valid atau tidak ter-scope")

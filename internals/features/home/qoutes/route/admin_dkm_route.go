@@ -14,7 +14,6 @@ func QuoteAdminRoutes(router fiber.Router, db *gorm.DB) {
 	ctrl := homeController.NewQuoteController(db)
 
 	admin := router.Group("/quotes",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola quotes"),
 			constants.AdminAndAbove, // admin, dkm, owner

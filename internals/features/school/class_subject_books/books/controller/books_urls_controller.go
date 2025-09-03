@@ -15,7 +15,7 @@ import (
 
 	bookdto "masjidku_backend/internals/features/school/class_subject_books/books/dto"
 	bookmodel "masjidku_backend/internals/features/school/class_subject_books/books/model"
-	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 	helperOSS "masjidku_backend/internals/helpers/oss"
 )
 
@@ -37,7 +37,7 @@ func NewBookURLController(db *gorm.DB) *BookURLController {
  * Body: CreateBookURLRequest
  * ========================================================= */
 func (ctl *BookURLController) Create(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -195,7 +195,7 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
  * PATCH /api/a/book-urls/:id
  * ========================================================= */
 func (ctl *BookURLController) Update(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -353,7 +353,7 @@ func (ctl *BookURLController) Update(c *fiber.Ctx) error {
  * GET /api/a/book-urls/:id
  * ========================================================= */
 func (ctl *BookURLController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -384,7 +384,7 @@ func (ctl *BookURLController) GetByID(c *fiber.Ctx) error {
  * GET /api/a/book-urls/filter?book_id=&type=&search=&only_alive=&page=&limit=&sort=
  * ========================================================= */
 func (ctl *BookURLController) Filter(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -476,7 +476,7 @@ func (ctl *BookURLController) Filter(c *fiber.Ctx) error {
  * DELETE /api/a/book-urls/:id
  * ========================================================= */
 func (ctl *BookURLController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}

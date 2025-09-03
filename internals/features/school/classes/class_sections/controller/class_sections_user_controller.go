@@ -4,6 +4,7 @@ import (
 	ucsDTO "masjidku_backend/internals/features/school/classes/class_sections/dto"
 	secModel "masjidku_backend/internals/features/school/classes/class_sections/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -14,7 +15,7 @@ import (
 // GET /admin/class-sections
 func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	// 🔁 izinkan akses berdasarkan semua klaim masjid (teacher/DKM/admin/student)
-	masjidIDs, err := helper.GetMasjidIDsFromToken(c)
+	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -187,7 +188,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 
 // GET /admin/class-sections/:id/books
 func (ctrl *ClassSectionController) ListBooksBySection(c *fiber.Ctx) error {
-	masjidIDs, err := helper.GetMasjidIDsFromToken(c) // 🔁 multi-tenant read
+	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c) // 🔁 multi-tenant read
 	if err != nil {
 		return err
 	}
@@ -251,7 +252,7 @@ func (ctrl *ClassSectionController) ListBooksBySection(c *fiber.Ctx) error {
 
 // GET /admin/class-sections/search
 func (ctrl *ClassSectionController) SearchClassSections(c *fiber.Ctx) error {
-	masjidIDs, err := helper.GetMasjidIDsFromToken(c) // 🔁 multi-tenant read
+	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c) // 🔁 multi-tenant read
 	if err != nil {
 		return err
 	}
@@ -455,7 +456,7 @@ func (ctrl *ClassSectionController) SearchClassSections(c *fiber.Ctx) error {
 // Mengambil data section berdasarkan slug dan memastikan data milik masjid yang valid
 func (ctrl *ClassSectionController) GetClassSectionBySlug(c *fiber.Ctx) error {
 	// Ambil masjid ID dari token user
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}

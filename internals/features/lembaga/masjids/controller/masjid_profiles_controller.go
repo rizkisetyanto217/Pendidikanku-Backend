@@ -9,6 +9,7 @@ import (
 	"masjidku_backend/internals/features/lembaga/masjids/dto"
 	"masjidku_backend/internals/features/lembaga/masjids/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -27,14 +28,14 @@ func NewMasjidProfileController(db *gorm.DB) *MasjidProfileController {
 // 🟢 CREATE PROFILE (Admin-only, masjid_id dari token)
 func (mpc *MasjidProfileController) CreateMasjidProfile(c *fiber.Ctx) error {
 	// (opsional) enforce admin
-	if !helper.IsAdmin(c) {
+	if !helperAuth.IsAdmin(c) {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Akses ditolak: hanya admin"})
 	}
 
 	log.Println("[INFO] Create masjid profile")
 
 	// ✅ Ambil masjid_id dari token
-	masjidUUID, err := helper.GetMasjidIDFromToken(c)
+	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err // helper sudah kasih 401/400 sesuai kondisi
 	}
@@ -93,12 +94,12 @@ func (mpc *MasjidProfileController) CreateMasjidProfile(c *fiber.Ctx) error {
 // 🟡 UPDATE PROFILE (Admin-only, masjid_id dari token)
 func (mpc *MasjidProfileController) UpdateMasjidProfile(c *fiber.Ctx) error {
 	// (opsional) enforce admin
-	if !helper.IsAdmin(c) {
+	if !helperAuth.IsAdmin(c) {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Akses ditolak: hanya admin"})
 	}
 
 	// ✅ Ambil masjid_id dari token
-	masjidUUID, err := helper.GetMasjidIDFromToken(c)
+	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -177,14 +178,14 @@ func (mpc *MasjidProfileController) UpdateMasjidProfile(c *fiber.Ctx) error {
 // 🗑️ DELETE /api/a/masjid-profiles         -> pakai ID dari token
 // 🗑️ DELETE /api/a/masjid-profiles/:id     -> :id harus sama dengan ID dari token
 func (mpc *MasjidProfileController) DeleteMasjidProfile(c *fiber.Ctx) error {
-	if !helper.IsAdmin(c) {
+	if !helperAuth.IsAdmin(c) {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
 			"error": "Akses ditolak: hanya admin yang dapat menghapus profil masjid",
 		})
 	}
 
 	// token scope
-	tokenMasjidID, err := helper.GetMasjidIDFromToken(c)
+	tokenMasjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}

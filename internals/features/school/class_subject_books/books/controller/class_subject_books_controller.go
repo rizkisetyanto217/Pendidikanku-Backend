@@ -9,6 +9,7 @@ import (
 	csbDTO "masjidku_backend/internals/features/school/class_subject_books/books/dto"
 	csbModel "masjidku_backend/internals/features/school/class_subject_books/books/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -26,7 +27,7 @@ type ClassSubjectBookController struct {
    Body: CreateClassSubjectBookRequest
    ========================================================= */
 func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -87,7 +88,7 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
    GET /admin/class-subject-books/:id[?with_deleted=true][&section_id=...]
    ========================================================= */
 func (h *ClassSubjectBookController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -269,7 +270,7 @@ func (h *ClassSubjectBookController) GetByID(c *fiber.Ctx) error {
    ========================================================= */
 func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	// ===== tenant: dukung teacher/student/dkm/admin (union)
-	masjidIDs, err := helper.GetMasjidIDsFromToken(c)
+	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
@@ -542,7 +543,7 @@ func derefBool(b *bool) bool          { if b == nil { return false }; return *b 
 // UPDATE (partial)
 // PUT /admin/class-subject-books/:id
 func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -633,13 +634,13 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 // - force=true (admin saja): hard delete
 // - default: soft delete (gorm.DeletedAt)
 func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
 
 	// hanya admin yang boleh hard-delete
-	adminMasjidID, _ := helper.GetMasjidIDFromToken(c)
+	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
 	isAdmin := adminMasjidID != uuid.Nil && adminMasjidID == masjidID
 	force := strings.EqualFold(c.Query("force"), "true")
 	if force && !isAdmin {

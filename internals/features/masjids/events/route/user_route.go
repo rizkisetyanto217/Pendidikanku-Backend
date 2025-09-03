@@ -12,7 +12,6 @@ import (
 // Harus login; role apa pun yang diperbolehkan
 func EventUserRoutes(api fiber.Router, db *gorm.DB) {
 	user := api.Group("/",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			"❌ Hanya pengguna terautentikasi yang boleh mengakses fitur event user.",
 			constants.AllowedRoles,

@@ -11,6 +11,7 @@ import (
 	dto "masjidku_backend/internals/features/payment/spp/dto"
 	model "masjidku_backend/internals/features/payment/spp/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
 type UserSppBillingItemController struct {
@@ -64,7 +65,7 @@ func (h *UserSppBillingItemController) loadItemByIDTenant(id, masjidID uuid.UUID
 /* ======================== LIST ======================== */
 // GET /admin/user-spp-billings?billing_id=...&status=...&user_id=...&limit=...&offset=...
 func (h *UserSppBillingItemController) List(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil { return err }
 
 	var q dto.ListUserSppBillingQuery
@@ -132,7 +133,7 @@ func (h *UserSppBillingItemController) List(c *fiber.Ctx) error {
 // GET /admin/user-spp-billings/me
 func (h *UserSppBillingItemController) ListMine(c *fiber.Ctx) error {
 	// masjid dari helper yang sudah ada
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -211,7 +212,7 @@ func (h *UserSppBillingItemController) ListMine(c *fiber.Ctx) error {
 /* ====================== GET BY ID ====================== */
 // GET /admin/user-spp-billings/:id
 func (h *UserSppBillingItemController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil { return err }
 
 	id, err := uuid.Parse(c.Params("id"))
@@ -228,7 +229,7 @@ func (h *UserSppBillingItemController) GetByID(c *fiber.Ctx) error {
 /* ======================== UPDATE (PUT, partial) ======================== */
 // PUT /admin/user-spp-billings/:id
 func (h *UserSppBillingItemController) Update(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil { return err }
 
 	id, err := uuid.Parse(c.Params("id"))
@@ -302,7 +303,7 @@ func (h *UserSppBillingItemController) Update(c *fiber.Ctx) error {
 /* ======================== DELETE ======================= */
 // DELETE /admin/user-spp-billings/:id
 func (h *UserSppBillingItemController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil { return err }
 
 	id, err := uuid.Parse(c.Params("id"))

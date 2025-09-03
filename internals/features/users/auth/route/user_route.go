@@ -3,7 +3,6 @@ package route
 import (
 	controller "masjidku_backend/internals/features/users/auth/controller"
 	rateLimiter "masjidku_backend/internals/middlewares"
-	authMw "masjidku_backend/internals/middlewares/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -23,7 +22,7 @@ func AuthRoutes(app *fiber.App, db *gorm.DB) {
 	publicAuth.Post("/login-google", authController.LoginGoogle)
 	publicAuth.Post("/refresh-token", authController.RefreshToken)
 
-	protectedAuth := app.Group("/api/auth", authMw.AuthMiddleware(db))
+	protectedAuth := app.Group("/api/auth")
 	protectedAuth.Post("/logout", authController.Logout)
 	protectedAuth.Post("/change-password", authController.ChangePassword)
 	// ⬇️ Tambahkan ini:

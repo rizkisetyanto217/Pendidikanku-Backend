@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	ucsDTO "masjidku_backend/internals/features/school/classes/class_sections/dto"
 
@@ -114,7 +115,7 @@ func (h *UserClassSectionController) ensureSingleActivePerUserClass(userClassID,
 
 // POST /admin/user-class-sections
 func (h *UserClassSectionController) CreateUserClassSection(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -203,7 +204,7 @@ func (h *UserClassSectionController) CreateUserClassSection(c *fiber.Ctx) error 
 // PUT /admin/user-class-sections/:id
 // UpdateUserClassSection: tanpa kolom status, aktif = unassigned_at IS NULL
 func (h *UserClassSectionController) UpdateUserClassSection(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -270,7 +271,7 @@ func (h *UserClassSectionController) UpdateUserClassSection(c *fiber.Ctx) error 
 
 // GET /admin/user-class-sections/:id
 func (h *UserClassSectionController) GetUserClassSectionByID(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -288,7 +289,7 @@ func (h *UserClassSectionController) GetUserClassSectionByID(c *fiber.Ctx) error
 
 // GET /admin/user-class-sections
 func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -509,7 +510,7 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 
 // POST /admin/user-class-sections/:id/end  -> unassign/akhiri penempatan
 func (h *UserClassSectionController) EndUserClassSection(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -555,7 +556,7 @@ func (h *UserClassSectionController) EndUserClassSection(c *fiber.Ctx) error {
 // Soft delete (default). Hard delete bila query ?hard=true.
 // Tetap guard: tidak boleh menghapus jika masih aktif (unassigned_at IS NULL).
 func (h *UserClassSectionController) DeleteUserClassSection(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -635,7 +636,7 @@ func (h *UserClassSectionController) findUCSWithTenantGuard2(id, masjidID uuid.U
 
 // POST /admin/user-class-sections/:id/restore
 func (h *UserClassSectionController) RestoreUserClassSection(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}

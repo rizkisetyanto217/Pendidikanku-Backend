@@ -14,6 +14,7 @@ import (
 
 	"masjidku_backend/internals/features/school/academics/academic_terms/dto"
 	"masjidku_backend/internals/features/school/academics/academic_terms/model"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 	helper "masjidku_backend/internals/helpers"
 )
 
@@ -33,7 +34,7 @@ func (ctl *AcademicTermController) GetByID(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid id")
 	}
 
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
@@ -70,7 +71,7 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	}
 
 	// multi-tenant
-	masjidIDs, err := helper.GetMasjidIDsFromToken(c)
+	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
@@ -200,7 +201,7 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 	masjidIDParam := strings.TrimSpace(c.Query("id")) // dimaknai sebagai masjid_id
 
 	// multi-tenant via token
-	masjidIDs, err := helper.GetMasjidIDsFromToken(c)
+	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
 	if err != nil {
 		return err
 	}

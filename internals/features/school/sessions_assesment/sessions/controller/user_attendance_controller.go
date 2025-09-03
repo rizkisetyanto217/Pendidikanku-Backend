@@ -7,7 +7,8 @@ import (
 	"time"
 
 	attDTO "masjidku_backend/internals/features/school/sessions_assesment/sessions/dto"
-	resp "masjidku_backend/internals/helpers"
+	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	attModel "masjidku_backend/internals/features/school/sessions_assesment/sessions/model"
 
@@ -68,20 +69,20 @@ func (ctl *UserAttendanceController) buildListQuery(c *fiber.Ctx, q attDTO.ListU
 		case "present", "absent", "excused", "late":
 			tx = tx.Where("user_attendance_status = ?", s)
 		default:
-			return nil, resp.JsonError(c, fiber.StatusBadRequest, "status tidak valid (present/absent/excused/late)")
+			return nil, helper.JsonError(c, fiber.StatusBadRequest, "status tidak valid (present/absent/excused/late)")
 		}
 	}
 	if q.CreatedFrom != nil && strings.TrimSpace(*q.CreatedFrom) != "" {
 		t, err := time.Parse(dateLayout, strings.TrimSpace(*q.CreatedFrom))
 		if err != nil {
-			return nil, resp.JsonError(c, fiber.StatusBadRequest, "created_from invalid format, expected YYYY-MM-DD")
+			return nil, helper.JsonError(c, fiber.StatusBadRequest, "created_from invalid format, expected YYYY-MM-DD")
 		}
 		tx = tx.Where("user_attendance_created_at >= ?", t)
 	}
 	if q.CreatedTo != nil && strings.TrimSpace(*q.CreatedTo) != "" {
 		t, err := time.Parse(dateLayout, strings.TrimSpace(*q.CreatedTo))
 		if err != nil {
-			return nil, resp.JsonError(c, fiber.StatusBadRequest, "created_to invalid format, expected YYYY-MM-DD")
+			return nil, helper.JsonError(c, fiber.StatusBadRequest, "created_to invalid format, expected YYYY-MM-DD")
 		}
 		tx = tx.Where("user_attendance_created_at < ?", t.Add(24*time.Hour))
 	}
@@ -106,45 +107,45 @@ func (ctl *UserAttendanceController) buildListQuery(c *fiber.Ctx, q attDTO.ListU
 // POST /user-attendance
 func (ctl *UserAttendanceController) Create(c *fiber.Ctx) error {
 	// prefer TEACHER -> DKM -> MASJID_IDS -> ADMIN
-	masjidID, err := resp.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
-		return resp.JsonError(c, fiber.StatusUnauthorized, err.Error())
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
 	var req attDTO.CreateUserAttendanceRequest
 	if err := c.BodyParser(&req); err != nil {
-		return resp.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	if err := ctl.Validator.Struct(&req); err != nil {
-		return resp.JsonError(c, fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// tenant guard by session
 	if err := ctl.ensureSessionBelongsToMasjid(c, req.UserAttendanceSessionID, masjidID); err != nil {
 		var fe *fiber.Error
 		if errors.As(err, &fe) {
-			return resp.JsonError(c, fe.Code, fe.Message)
+			return helper.JsonError(c, fe.Code, fe.Message)
 		}
-		return resp.JsonError(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	m := req.ToModel(masjidID)
 	if err := ctl.DB.WithContext(c.Context()).Create(m).Error; err != nil {
-		return resp.JsonError(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return resp.JsonCreated(c, "Berhasil membuat kehadiran", attDTO.NewUserAttendanceResponse(m))
+	return helper.JsonCreated(c, "Berhasil membuat kehadiran", attDTO.NewUserAttendanceResponse(m))
 }
 
 // GET /user-attendance/:id
 func (ctl *UserAttendanceController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := resp.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
-		return resp.JsonError(c, fiber.StatusUnauthorized, err.Error())
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return resp.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	var m attModel.UserAttendanceModel
@@ -152,35 +153,35 @@ func (ctl *UserAttendanceController) GetByID(c *fiber.Ctx) error {
 		Where("user_attendance_id = ? AND user_attendance_masjid_id = ?", id, masjidID).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return resp.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
-		return resp.JsonError(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return resp.JsonOK(c, "OK", attDTO.NewUserAttendanceResponse(&m))
+	return helper.JsonOK(c, "OK", attDTO.NewUserAttendanceResponse(&m))
 }
 
 // GET /user-attendance
 func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
-	masjidID, err := resp.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
-		return resp.JsonError(c, fiber.StatusUnauthorized, err.Error())
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
 	var q attDTO.ListUserAttendanceQuery
 	if err := c.QueryParser(&q); err != nil {
-		return resp.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 
 	tx, err := ctl.buildListQuery(c, q, masjidID)
 	if err != nil {
-		// buildListQuery sudah return response JSON error
+		// buildListQuery sudah return helperonse JSON error
 		return err
 	}
 
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
-		return resp.JsonError(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	limit := q.Limit
@@ -194,10 +195,10 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 
 	var rows []attModel.UserAttendanceModel
 	if err := tx.Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
-		return resp.JsonError(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return resp.JsonList(c, attDTO.FromUserAttendanceModels(rows), fiber.Map{
+	return helper.JsonList(c, attDTO.FromUserAttendanceModels(rows), fiber.Map{
 		"total":  total,
 		"limit":  limit,
 		"offset": offset,
@@ -206,13 +207,13 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 
 // PATCH /user-attendance/:id
 func (ctl *UserAttendanceController) Update(c *fiber.Ctx) error {
-	masjidID, err := resp.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
-		return resp.JsonError(c, fiber.StatusUnauthorized, err.Error())
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return resp.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	var m attModel.UserAttendanceModel
@@ -220,17 +221,17 @@ func (ctl *UserAttendanceController) Update(c *fiber.Ctx) error {
 		Where("user_attendance_id = ? AND user_attendance_masjid_id = ?", id, masjidID).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return resp.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
-		return resp.JsonError(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	var req attDTO.UpdateUserAttendanceRequest
 	if err := c.BodyParser(&req); err != nil {
-		return resp.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	if err := ctl.Validator.Struct(&req); err != nil {
-		return resp.JsonError(c, fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// Jika session diganti, cek kepemilikan tenant
@@ -238,9 +239,9 @@ func (ctl *UserAttendanceController) Update(c *fiber.Ctx) error {
 		if err := ctl.ensureSessionBelongsToMasjid(c, *req.UserAttendanceSessionID, masjidID); err != nil {
 			var fe *fiber.Error
 			if errors.As(err, &fe) {
-				return resp.JsonError(c, fe.Code, fe.Message)
+				return helper.JsonError(c, fe.Code, fe.Message)
 			}
-			return resp.JsonError(c, fiber.StatusInternalServerError, err.Error())
+			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
 	}
 
@@ -257,29 +258,29 @@ func (ctl *UserAttendanceController) Update(c *fiber.Ctx) error {
 			"user_attendance_updated_at",
 		).
 		Updates(&m).Error; err != nil {
-		return resp.JsonError(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return resp.JsonUpdated(c, "Berhasil mengubah kehadiran", attDTO.NewUserAttendanceResponse(&m))
+	return helper.JsonUpdated(c, "Berhasil mengubah kehadiran", attDTO.NewUserAttendanceResponse(&m))
 }
 
 // DELETE /user-attendance/:id  (soft delete)
 func (ctl *UserAttendanceController) Delete(c *fiber.Ctx) error {
-	masjidID, err := resp.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
-		return resp.JsonError(c, fiber.StatusUnauthorized, err.Error())
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return resp.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	if err := ctl.DB.WithContext(c.Context()).
 		Where("user_attendance_id = ? AND user_attendance_masjid_id = ?", id, masjidID).
 		Delete(&attModel.UserAttendanceModel{}).Error; err != nil {
-		return resp.JsonError(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	// 200 OK dengan body (mengikuti helper JsonDeleted)
-	return resp.JsonDeleted(c, "Berhasil menghapus kehadiran", fiber.Map{"id": id})
+	return helper.JsonDeleted(c, "Berhasil menghapus kehadiran", fiber.Map{"id": id})
 }

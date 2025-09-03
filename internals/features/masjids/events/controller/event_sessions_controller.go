@@ -8,6 +8,7 @@ import (
 	"masjidku_backend/internals/features/masjids/events/dto"
 	"masjidku_backend/internals/features/masjids/events/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -307,7 +308,7 @@ func (ctrl *EventSessionController) UpdateEventSession(c *fiber.Ctx) error {
 	}
 
 	// Authorization by masjid
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil || session.EventSessionMasjidID != masjidID {
 		return helper.JsonError(c, fiber.StatusForbidden, "Tidak punya akses untuk update event session ini")
 	}
@@ -354,7 +355,7 @@ func (ctrl *EventSessionController) DeleteEventSession(c *fiber.Ctx) error {
 	}
 
 	// Authorization by masjid
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil || session.EventSessionMasjidID != masjidID {
 		return helper.JsonError(c, fiber.StatusForbidden, "Tidak punya akses untuk menghapus event session ini")
 	}

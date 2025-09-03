@@ -14,6 +14,7 @@ import (
 	modelLecture "masjidku_backend/internals/features/masjids/lectures/main/model"
 
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -71,7 +72,7 @@ func (ctrl *UserLectureSessionsQuizController) CreateUserLectureSessionsQuiz(c *
 	// 🔒 (opsional tapi disarankan) enforce akses masjid dari token
 	//    — lewati untuk pengguna anonim
 	if !isAnonymous {
-		allowedMasjidUUIDs, err := helper.GetMasjidIDsFromToken(c)
+		allowedMasjidUUIDs, err := helperAuth.GetMasjidIDsFromToken(c)
 		if err == nil && len(allowedMasjidUUIDs) > 0 {
 			var ok bool
 			if sid, e := uuid.Parse(session.MasjidID); e == nil {

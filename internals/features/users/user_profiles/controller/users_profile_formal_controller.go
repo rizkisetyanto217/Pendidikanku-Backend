@@ -9,6 +9,7 @@ import (
 	"masjidku_backend/internals/features/users/user_profiles/dto"
 	"masjidku_backend/internals/features/users/user_profiles/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -27,7 +28,7 @@ func NewUsersProfileFormalController(db *gorm.DB) *UsersProfileFormalController 
  * Auth: GET /api/a/users-profile-formal (punya sendiri)
  * =========================================================== */
 func (ctl *UsersProfileFormalController) GetMine(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, http.StatusUnauthorized, "Unauthorized")
 	}
@@ -51,7 +52,7 @@ func (ctl *UsersProfileFormalController) GetMine(c *fiber.Ctx) error {
  * Auth: PUT /api/a/users-profile-formal (upsert idempotent)
  * =========================================================== */
 func (ctl *UsersProfileFormalController) UpsertMine(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, http.StatusUnauthorized, "Unauthorized")
 	}
@@ -91,7 +92,7 @@ func (ctl *UsersProfileFormalController) UpsertMine(c *fiber.Ctx) error {
  * Auth: PATCH /api/a/users-profile-formal (partial update)
  * =========================================================== */
 func (ctl *UsersProfileFormalController) PatchMine(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, http.StatusUnauthorized, "Unauthorized")
 	}
@@ -136,7 +137,7 @@ func (ctl *UsersProfileFormalController) PatchMine(c *fiber.Ctx) error {
  * Auth: DELETE /api/a/users-profile-formal (soft delete own)
  * =========================================================== */
 func (ctl *UsersProfileFormalController) DeleteMine(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, http.StatusUnauthorized, "Unauthorized")
 	}

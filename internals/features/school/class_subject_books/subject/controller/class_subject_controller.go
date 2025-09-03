@@ -16,6 +16,7 @@ import (
 	csModel "masjidku_backend/internals/features/school/class_subject_books/subject/model"
 
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
 type ClassSubjectController struct {
@@ -42,7 +43,7 @@ func wantIncludeBooks(c *fiber.Ctx) bool {
    POST /admin/class-subjects
    ========================================================= */
 func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -117,7 +118,7 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 //   teacher_id=<masjid_teacher_id>   (✅ direkomendasikan)
 //   teacher_user_id=<users.id>       (opsional; akan dipetakan ke teacher_id)
 func (h *ClassSubjectController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -311,7 +312,7 @@ func (h *ClassSubjectController) GetByID(c *fiber.Ctx) error {
    GET /admin/class-subjects?q=&is_active=&term_id=&order_by=&sort=&limit=&offset=&with_deleted=&include=books
    ========================================================= */
 func (h *ClassSubjectController) List(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil { return err }
 
 	includeBooks := wantIncludeBooks(c)
@@ -468,7 +469,7 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
    PUT /admin/class-subjects/:id
    ========================================================= */
 func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil { return err }
 
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
@@ -597,11 +598,11 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
    DELETE /admin/class-subjects/:id?force=true
    ========================================================= */
 func (h *ClassSubjectController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil { return err }
 
 	// Hanya admin yang boleh hard delete
-	adminMasjidID, _ := helper.GetMasjidIDFromToken(c)
+	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
 	isAdmin := adminMasjidID != uuid.Nil && adminMasjidID == masjidID
 	force := strings.EqualFold(c.Query("force"), "true")
 	if force && !isAdmin {

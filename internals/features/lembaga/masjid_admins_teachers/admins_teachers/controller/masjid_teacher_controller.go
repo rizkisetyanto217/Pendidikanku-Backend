@@ -8,6 +8,7 @@ import (
 	"masjidku_backend/internals/features/lembaga/masjid_admins_teachers/admins_teachers/dto"
 	"masjidku_backend/internals/features/lembaga/masjid_admins_teachers/admins_teachers/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	statsSvc "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/service"
 
@@ -48,7 +49,7 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 	}
 
 	// 🔐 Admin-only
-	masjidUUID, err := helper.GetMasjidIDFromToken(c)
+	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return helper.FromFiberError(c, err)
 	}
@@ -140,7 +141,7 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
    ============================================ */
 func (ctrl *MasjidTeacherController) GetByMasjid(c *fiber.Ctx) error {
 	// 👥 Prefer TEACHER -> UNION masjid_ids -> ADMIN
-	masjidUUID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidUUID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return helper.FromFiberError(c, err)
 	}
@@ -190,7 +191,7 @@ func (ctrl *MasjidTeacherController) Delete(c *fiber.Ctx) error {
 	}
 
 	// 🔐 Admin-only
-	masjidUUID, err := helper.GetMasjidIDFromToken(c)
+	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return helper.FromFiberError(c, err)
 	}

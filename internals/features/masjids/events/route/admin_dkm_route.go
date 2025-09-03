@@ -13,7 +13,6 @@ import (
 // Login wajib + role admin/dkm/owner + scope masjid
 func EventAdminRoutes(api fiber.Router, db *gorm.DB) {
 	admin := api.Group("/",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola event"),
 			constants.AdminAndAbove, // admin, dkm, owner

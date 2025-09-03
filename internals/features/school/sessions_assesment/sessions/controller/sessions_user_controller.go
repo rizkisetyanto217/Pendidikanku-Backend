@@ -11,6 +11,7 @@ import (
 	attendanceDTO "masjidku_backend/internals/features/school/sessions_assesment/sessions/dto"
 	attendanceModel "masjidku_backend/internals/features/school/sessions_assesment/sessions/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -107,7 +108,7 @@ func (ctrl *ClassAttendanceSessionController) isTeacherOfSession(session attenda
 
 func (ctrl *ClassAttendanceSessionController) GetClassAttendanceSession(c *fiber.Ctx) error {
 	// Tenant (admin/teacher)
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -128,9 +129,9 @@ func (ctrl *ClassAttendanceSessionController) GetClassAttendanceSession(c *fiber
 	}
 
 	// Role guard
-	userID, _ := helper.GetUserIDFromToken(c)
-	adminMasjidID, _ := helper.GetMasjidIDFromToken(c)
-	teacherMasjidID, _ := helper.GetTeacherMasjidIDFromToken(c)
+	userID, _ := helperAuth.GetUserIDFromToken(c)
+	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
+	teacherMasjidID, _ := helperAuth.GetTeacherMasjidIDFromToken(c)
 
 	isAdmin := adminMasjidID != uuid.Nil && adminMasjidID == masjidID
 	isTeacher := teacherMasjidID != uuid.Nil && teacherMasjidID == masjidID
@@ -183,15 +184,15 @@ func (ctrl *ClassAttendanceSessionController) GetClassAttendanceSession(c *fiber
 
 func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fiber.Ctx) error {
 	// Tenant (admin/teacher)
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
 
 	// Role
-	userID, _ := helper.GetUserIDFromToken(c)
-	adminMasjidID, _ := helper.GetMasjidIDFromToken(c)
-	teacherMasjidID, _ := helper.GetTeacherMasjidIDFromToken(c)
+	userID, _ := helperAuth.GetUserIDFromToken(c)
+	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
+	teacherMasjidID, _ := helperAuth.GetTeacherMasjidIDFromToken(c)
 
 	isAdmin := adminMasjidID != uuid.Nil && adminMasjidID == masjidID
 	isTeacher := teacherMasjidID != uuid.Nil && teacherMasjidID == masjidID

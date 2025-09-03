@@ -17,6 +17,7 @@ import (
 
 	dto "masjidku_backend/internals/features/school/class_subject_books/subject/dto"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
 type ClassSectionSubjectTeacherController struct {
@@ -31,7 +32,7 @@ type ClassSectionSubjectTeacherController struct {
 // POST /admin/class-section-subject-teachers
 // ===============================
 func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -142,7 +143,7 @@ type listQuery struct {
 }
 
 func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
-	masjidIDs, err := helper.GetMasjidIDsFromToken(c)
+	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -213,7 +214,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 // GET /admin/class-section-subject-teachers/:id[?with_deleted=true]
 // ===============================
 func (ctl *ClassSectionSubjectTeacherController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -252,7 +253,7 @@ func (ctl *ClassSectionSubjectTeacherController) GetByID(c *fiber.Ctx) error {
 // PUT /admin/class-section-subject-teachers/:id
 // ===============================
 func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -361,7 +362,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 // DELETE /admin/class-section-subject-teachers/:id
 // ===============================
 func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}

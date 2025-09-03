@@ -14,6 +14,7 @@ import (
 	classModel "masjidku_backend/internals/features/school/classes/classes/model"
 	userModel "masjidku_backend/internals/features/users/user/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	openingSvc "masjidku_backend/internals/features/school/academics/academic_terms/services"
 	statsSvc "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/service"
@@ -109,7 +110,7 @@ func (h *UserClassController) checkActiveEnrollmentConflict(
 
 // file: internals/features/lembaga/classes/user_classes/main/controller/user_class_controller.go
 func (h *UserClassController) UpdateUserClass(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -314,7 +315,7 @@ func (h *UserClassController) UpdateUserClass(c *fiber.Ctx) error {
 
 
 func (h *UserClassController) GetUserClassByID(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -332,7 +333,7 @@ func (h *UserClassController) GetUserClassByID(c *fiber.Ctx) error {
 
 
 func (h *UserClassController) ListUserClasses(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c) // benar: tenant guard
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c) // benar: tenant guard
 	if err != nil {
 		return err
 	}
@@ -405,7 +406,7 @@ func (h *UserClassController) ListUserClasses(c *fiber.Ctx) error {
 // file: internals/features/lembaga/classes/user_classes/main/controller/user_class_controller.go
 
 func (h *UserClassController) EndUserClass(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -468,7 +469,7 @@ func (h *UserClassController) EndUserClass(c *fiber.Ctx) error {
 
 // DELETE /admin/user-classes/:id
 func (h *UserClassController) DeleteUserClass(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}

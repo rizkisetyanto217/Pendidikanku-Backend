@@ -9,7 +9,7 @@ import (
 
 	"masjidku_backend/internals/features/school/announcements/announcement/dto"
 	"masjidku_backend/internals/features/school/announcements/announcement/model"
-	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 	helperOSS "masjidku_backend/internals/helpers/oss"
 
 	"github.com/go-playground/validator/v10"
@@ -38,7 +38,7 @@ func NewAnnouncementURLController(db *gorm.DB) *AnnouncementURLController {
 ========================================================= */
 // POST /api/a/announcement-urls
 func (ctl *AnnouncementURLController) Create(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -270,7 +270,7 @@ func (ctl *AnnouncementURLController) Create(c *fiber.Ctx) error {
    GET /api/a/announcement-urls?announcement_id=...&q=...&with_deleted=false
 ========================================================= */
 func (ctl *AnnouncementURLController) List(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -333,7 +333,7 @@ func (ctl *AnnouncementURLController) List(c *fiber.Ctx) error {
    GET /api/a/announcement-urls/:id
 ========================================================= */
 func (ctl *AnnouncementURLController) Detail(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -380,7 +380,7 @@ func (ctl *AnnouncementURLController) Detail(c *fiber.Ctx) error {
    PATCH /api/a/announcement-urls/:id
 ========================================================= */
 func (ctl *AnnouncementURLController) Update(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -542,7 +542,7 @@ func (ctl *AnnouncementURLController) Update(c *fiber.Ctx) error {
    DELETE /api/a/announcement-urls/:id
 ========================================================= */
 func (ctl *AnnouncementURLController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}
@@ -580,7 +580,7 @@ func (ctl *AnnouncementURLController) Delete(c *fiber.Ctx) error {
    PATCH /api/a/announcement-urls/:id/restore
 ========================================================= */
 func (ctl *AnnouncementURLController) Restore(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromToken(c)
+	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}

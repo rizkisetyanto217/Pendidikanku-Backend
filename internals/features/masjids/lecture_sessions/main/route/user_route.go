@@ -12,7 +12,6 @@ import (
 // User routes (login wajib; untuk tindakan atas nama user sendiri)
 func LectureSessionUserRoutes(api fiber.Router, db *gorm.DB) {
 	r := api.Group("/",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			"❌ Hanya pengguna terautentikasi yang boleh mengakses fitur sesi kajian.",
 			constants.AllowedRoles,

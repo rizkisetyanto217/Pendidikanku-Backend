@@ -12,7 +12,6 @@ import (
 // Pengguna login bisa kirim pertanyaan & baca FAQ
 func FaqUserRoutes(api fiber.Router, db *gorm.DB) {
 	user := api.Group("/",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			"❌ Hanya pengguna terautentikasi yang boleh mengakses fitur FAQ.",
 			constants.AllowedRoles,

@@ -13,7 +13,6 @@ import (
 // Admin/DKM/Owner: kelola master certificate + user certificates (internal)
 func CertificateAdminRoutes(api fiber.Router, db *gorm.DB) {
 	admin := api.Group("/",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola sertifikat"),
 			constants.AdminAndAbove, // admin, dkm, owner

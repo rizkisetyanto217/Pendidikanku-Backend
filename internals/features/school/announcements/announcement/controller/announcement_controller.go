@@ -15,6 +15,7 @@ import (
 	annModel "masjidku_backend/internals/features/school/announcements/announcement/model"
 	annThemeModel "masjidku_backend/internals/features/school/announcements/announcement_thema/model" // import model tema agar tidak bentrok dengan model announcementModel
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
 type AnnouncementController struct{ DB *gorm.DB }
@@ -27,7 +28,7 @@ var validateAnnouncement = validator.New()
 // ===================== GET BY ID =====================
 // GET /admin/announcements/:id
 func (h *AnnouncementController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
@@ -47,7 +48,7 @@ func (h *AnnouncementController) GetByID(c *fiber.Ctx) error {
 // ===================== LIST =====================
 // GET /admin/announcements
 func (h *AnnouncementController) List(c *fiber.Ctx) error {
-	masjidIDs, err := helper.GetMasjidIDsFromToken(c)
+	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -273,26 +274,26 @@ func parseUUIDsCSV(s string) ([]uuid.UUID, error) {
 // POST /admin/announcements
 // POST /admin/announcements
 func (h *AnnouncementController) Create(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
 
 	// Mengambil userID dari token
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return err
 	}
 
 	// role detection
 	isAdmin := func() bool {
-		if id, err := helper.GetMasjidIDFromToken(c); err == nil && id == masjidID {
+		if id, err := helperAuth.GetMasjidIDFromToken(c); err == nil && id == masjidID {
 			return true
 		}
 		return false
 	}()
 	isTeacher := func() bool {
-		if id, err := helper.GetTeacherMasjidIDFromToken(c); err == nil && id == masjidID {
+		if id, err := helperAuth.GetTeacherMasjidIDFromToken(c); err == nil && id == masjidID {
 			return true
 		}
 		return false
@@ -419,9 +420,9 @@ func (h *AnnouncementController) findWithTenantGuard(id, masjidID uuid.UUID) (*a
 // ===================== UPDATE =====================
 // PUT /admin/announcements/:id
 func (h *AnnouncementController) Update(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil { return err }
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil { return err }
 
 	annID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
@@ -429,11 +430,11 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 
 	// role detection
 	isAdmin := func() bool {
-		if id, err := helper.GetMasjidIDFromToken(c); err == nil && id == masjidID { return true }
+		if id, err := helperAuth.GetMasjidIDFromToken(c); err == nil && id == masjidID { return true }
 		return false
 	}()
 	isTeacher := func() bool {
-		if id, err := helper.GetTeacherMasjidIDFromToken(c); err == nil && id == masjidID { return true }
+		if id, err := helperAuth.GetTeacherMasjidIDFromToken(c); err == nil && id == masjidID { return true }
 		return false
 	}()
 	if !isAdmin && !isTeacher {
@@ -584,11 +585,11 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 // DELETE /admin/announcements/:id (soft delete)
 // DELETE /admin/announcements/:id
 func (h *AnnouncementController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helper.GetMasjidIDFromTokenPreferTeacher(c)
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -599,13 +600,13 @@ func (h *AnnouncementController) Delete(c *fiber.Ctx) error {
 
 	// role detection
 	isAdmin := func() bool {
-		if id, err := helper.GetMasjidIDFromToken(c); err == nil && id == masjidID {
+		if id, err := helperAuth.GetMasjidIDFromToken(c); err == nil && id == masjidID {
 			return true
 		}
 		return false
 	}()
 	isTeacher := func() bool {
-		if id, err := helper.GetTeacherMasjidIDFromToken(c); err == nil && id == masjidID {
+		if id, err := helperAuth.GetTeacherMasjidIDFromToken(c); err == nil && id == masjidID {
 			return true
 		}
 		return false

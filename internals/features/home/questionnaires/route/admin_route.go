@@ -17,7 +17,6 @@ func QuestionAdminRoutes(router fiber.Router, db *gorm.DB) {
 
 	// Group besar: login + role admin/dkm/owner + scope masjid
 	adminOrOwner := router.Group("/",
-		authMiddleware.AuthMiddleware(db),
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola soal & jawaban ujian sesi"),
 			constants.AdminAndAbove, // admin, dkm, owner

@@ -8,7 +8,9 @@ import (
 	userdto "masjidku_backend/internals/features/users/user/dto"
 	"masjidku_backend/internals/features/users/user/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
+
 
 type UserSelfController struct {
 	DB *gorm.DB
@@ -24,7 +26,7 @@ func NewUserSelfController(db *gorm.DB) *UserSelfController {
 
 // GET /api/u/users/me
 func (uc *UserSelfController) GetMe(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return err // sudah fiber.NewError dgn kode yang sesuai
 	}
@@ -43,7 +45,7 @@ func (uc *UserSelfController) GetMe(c *fiber.Ctx) error {
 
 // PATCH /api/u/users/me
 func (uc *UserSelfController) UpdateMe(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -83,7 +85,7 @@ func (uc *UserSelfController) UpdateMe(c *fiber.Ctx) error {
 
 // DELETE /api/u/users/me — soft delete diri sendiri
 func (uc *UserSelfController) DeleteMe(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -101,7 +103,7 @@ func (uc *UserSelfController) DeleteMe(c *fiber.Ctx) error {
 
 // POST /api/u/users/me/restore — pulihkan akun sendiri
 func (uc *UserSelfController) RestoreMe(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return err
 	}

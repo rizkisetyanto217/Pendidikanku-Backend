@@ -2,7 +2,6 @@ package route
 
 import (
 	questionController "masjidku_backend/internals/features/masjids/lecture_sessions/questions/controller"
-	authMiddleware "masjidku_backend/internals/middlewares/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -14,7 +13,7 @@ func LectureSessionsQuestionUserRoutes(router fiber.Router, db *gorm.DB) {
 
 	// Login wajib, tanpa guard role
 	userQuestions := router.Group("/lecture-sessions-user-questions",
-		authMiddleware.AuthMiddleware(db),
+
 	)
 
 	userQuestions.Post("/", userQuestionCtrl.CreateLectureSessionsUserQuestion) // 📝 Submit jawaban

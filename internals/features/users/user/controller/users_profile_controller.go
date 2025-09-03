@@ -12,6 +12,7 @@ import (
 	profileModel "masjidku_backend/internals/features/users/user/model"
 	helper "masjidku_backend/internals/helpers"
 	helperOSS "masjidku_backend/internals/helpers/oss"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -49,7 +50,7 @@ func (upc *UsersProfileController) GetProfiles(c *fiber.Ctx) error {
    GET: My profile (DTO)
    ========================= */
 func (upc *UsersProfileController) GetProfile(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return httpErr(c, err)
 	}
@@ -74,7 +75,7 @@ func (upc *UsersProfileController) GetProfile(c *fiber.Ctx) error {
 // POST /profiles (Create only)
 // =========================
 func (upc *UsersProfileController) CreateProfile(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return httpErr(c, err)
 	}
@@ -151,7 +152,7 @@ func (upc *UsersProfileController) CreateProfile(c *fiber.Ctx) error {
 // PATCH /profiles (partial update + optional avatar replace)
 // =========================
 func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return httpErr(c, err)
 	}
@@ -318,7 +319,7 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
    DELETE: Soft delete
    ========================= */
 func (upc *UsersProfileController) DeleteProfile(c *fiber.Ctx) error {
-	userID, err := helper.GetUserIDFromToken(c)
+	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return httpErr(c, err)
 	}

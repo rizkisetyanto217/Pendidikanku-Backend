@@ -18,6 +18,7 @@ import (
 	"masjidku_backend/internals/features/lembaga/masjids/model"
 	helper "masjidku_backend/internals/helpers"
 	helperOSS "masjidku_backend/internals/helpers/oss"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/chai2010/webp"
 	"github.com/gofiber/fiber/v2"
@@ -172,11 +173,11 @@ func handleImageField(ctx context.Context, svc *helperOSS.OSSService, existing *
 
 // 🟢 UPDATE MASJID (Partial Update) — PUT /api/a/masjids
 func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
-	if !helper.IsAdmin(c) {
+	if !helperAuth.IsAdmin(c) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 
-	masjidUUID, err := helper.GetMasjidIDFromToken(c)
+	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
@@ -459,8 +460,8 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 // 🗑️ DELETE /api/a/masjids           -> admin: pakai ID token; owner: 400 (perlu :id)
 // 🗑️ DELETE /api/a/masjids/:id       -> owner: boleh; admin: hanya jika :id sama dgn ID token
 func (mc *MasjidController) DeleteMasjid(c *fiber.Ctx) error {
-	isAdmin := helper.IsAdmin(c)
-	isOwner := helper.IsOwner(c)
+	isAdmin := helperAuth.IsAdmin(c)
+	isOwner := helperAuth.IsOwner(c)
 
 	if !isAdmin && !isOwner {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
@@ -473,7 +474,7 @@ func (mc *MasjidController) DeleteMasjid(c *fiber.Ctx) error {
 	var tokenMasjidID uuid.UUID
 	var tokenErr error
 	if isAdmin {
-		tokenMasjidID, tokenErr = helper.GetMasjidIDFromToken(c)
+		tokenMasjidID, tokenErr = helperAuth.GetMasjidIDFromToken(c)
 		if tokenErr != nil {
 			return helper.JsonError(c, fiber.StatusUnauthorized, tokenErr.Error())
 		}
@@ -494,7 +495,7 @@ func (mc *MasjidController) DeleteMasjid(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusForbidden, "Tidak boleh menghapus masjid di luar scope Anda")
 		}
 		if isOwner {
-			userID, err := helper.GetUserIDFromToken(c)
+			userID, err := helperAuth.GetUserIDFromToken(c)
 			if err != nil {
 				return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 			}
