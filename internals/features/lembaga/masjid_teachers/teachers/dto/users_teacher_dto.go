@@ -1,7 +1,7 @@
 package dto
 
 import (
-	"masjidku_backend/internals/features/lembaga/masjid_admins_teachers/teachers/model"
+	"masjidku_backend/internals/features/lembaga/masjid_teachers/teachers/model"
 	"time"
 
 	"github.com/google/uuid"

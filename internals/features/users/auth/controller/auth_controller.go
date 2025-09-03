@@ -1,7 +1,7 @@
 package controller
 
 import (
-	masjidAdminModel "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/admins_teachers/model"
+	masjidAdminModel "masjidku_backend/internals/features/lembaga/masjid_teachers/admins_teachers/model"
 	"masjidku_backend/internals/features/users/auth/service"
 	models "masjidku_backend/internals/features/users/user/model"
 	"strings"
@@ -63,17 +63,6 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 	studentSet := map[string]struct{}{}
 
 	// Admin/DKM (pakai kolom singular)
-	{
-		var rows []masjidAdminModel.MasjidAdminModel
-		if err := ac.DB.
-			Where("masjid_admin_user_id = ? AND masjid_admin_is_active = TRUE", user.ID).
-			Find(&rows).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data masjid admin")
-		}
-		for _, r := range rows {
-			adminSet[r.MasjidAdminMasjidID.String()] = struct{}{}
-		}
-	}
 
 	// Teacher (pakai kolom singular + model baru)
 	{

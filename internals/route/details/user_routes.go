@@ -4,9 +4,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	teacherProfile "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/teachers/route"
+	teacherProfile "masjidku_backend/internals/features/lembaga/masjid_teachers/teachers/route"
 	surveyRoute "masjidku_backend/internals/features/users/survey/route"
-	tokenRoute "masjidku_backend/internals/features/users/token/route"
 	userRoute "masjidku_backend/internals/features/users/user/route"
 	rateLimiter "masjidku_backend/internals/middlewares"
 )
@@ -24,7 +23,6 @@ func UserRoutes(app *fiber.App, db *gorm.DB) {
 	userGroup := api.Group("/u") // 👤 user login biasa
 	userRoute.UserUserRoutes(userGroup, db)
 	surveyRoute.SurveyUserRoutes(userGroup, db)
-	tokenRoute.RegisterTokenRoutes(userGroup, db)   // 🔓 Token routes
 	// teacherProfile.UsersTeacherTeacherRoute(userGroup, db)
 	teacherProfile.UsersTeacherUserRoute(userGroup, db)
 	

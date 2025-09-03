@@ -2,7 +2,7 @@ package route
 
 import (
 	"masjidku_backend/internals/constants"
-	adminTeacherCtrl "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/admins_teachers/controller"
+	adminTeacherCtrl "masjidku_backend/internals/features/lembaga/masjid_teachers/admins_teachers/controller"
 	authMiddleware "masjidku_backend/internals/middlewares/auth"
 	masjidkuMiddleware "masjidku_backend/internals/middlewares/features"
 
@@ -11,20 +11,7 @@ import (
 )
 
 func MasjidAdminRoutes(api fiber.Router, db *gorm.DB) {
-	ctrlAdmin := adminTeacherCtrl.NewMasjidAdminController(db)
-	ctrlTeacher := adminTeacherCtrl.NewMasjidTeacherController(db)
-
-	// 🛡️ /masjid-admins → OWNER only (tetap)
-	masjidAdmins := api.Group("/masjid-admins/owner",
-		authMiddleware.OnlyRolesSlice(
-			constants.RoleErrorOwner("mengelola admin masjid"),
-			constants.OwnerOnly,
-		),
-		masjidkuMiddleware.IsMasjidAdmin(), 
-	)
-	masjidAdmins.Post("/",          ctrlAdmin.AddAdmin)
-	masjidAdmins.Post("/by-masjid", ctrlAdmin.GetAdminsByMasjid)
-	masjidAdmins.Put("/revoke",     ctrlAdmin.RevokeAdmin)
+	ctrlTeacher := adminTeacherCtrl.NewMasjidTeacherController(db) // inject db ke controller (admin)
 
 	// 🎓 /masjid-teachers → DKM + Admin + Owner
 	masjidTeachers := api.Group("/masjid-teachers",

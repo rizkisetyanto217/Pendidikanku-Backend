@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	"masjidku_backend/internals/features/lembaga/masjid_admins_teachers/admins_teachers/dto"
-	"masjidku_backend/internals/features/lembaga/masjid_admins_teachers/admins_teachers/model"
+	"masjidku_backend/internals/features/lembaga/masjid_teachers/admins_teachers/dto"
+	"masjidku_backend/internals/features/lembaga/masjid_teachers/admins_teachers/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 

@@ -8,12 +8,11 @@ import (
 	"strings"
 	"time"
 
-	masjidAdminModel "masjidku_backend/internals/features/lembaga/masjid_admins_teachers/admins_teachers/model"
 	"masjidku_backend/internals/features/lembaga/masjids/dto"
 	"masjidku_backend/internals/features/lembaga/masjids/model"
 	helper "masjidku_backend/internals/helpers"
-	helperOSS "masjidku_backend/internals/helpers/oss"
 	helperAuth "masjidku_backend/internals/helpers/auth"
+	helperOSS "masjidku_backend/internals/helpers/oss"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -228,16 +227,6 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 			return fiber.NewError(500, "Gagal menyimpan masjid")
 		}
 
-		// f) Jadikan pembuat sebagai admin masjid (DKM)
-		admin := masjidAdminModel.MasjidAdminModel{
-			MasjidAdminID:       uuid.New(),
-			MasjidAdminMasjidID: newMasjid.MasjidID,
-			MasjidAdminUserID:   userID,
-			MasjidAdminIsActive: true,
-		}
-		if err := tx.Create(&admin).Error; err != nil {
-			return fiber.NewError(500, "Gagal membuat admin masjid")
-		}
 
 		// g1) (opsional) pastikan creator minimal punya global 'user' — best-effort
 		if err := helperAuth.EnsureGlobalRole(tx, userID, "user", &userID); err != nil {
