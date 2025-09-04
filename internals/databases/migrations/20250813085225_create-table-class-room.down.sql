@@ -1,5 +1,6 @@
 BEGIN;
 
+DROP INDEX IF EXISTS idx_class_rooms_description_trgm;
 -- Drop indeks eksplisit (opsional; tabel drop juga akan menghapus)
 DROP INDEX IF EXISTS idx_class_rooms_location_trgm;
 DROP INDEX IF EXISTS idx_class_rooms_name_trgm;

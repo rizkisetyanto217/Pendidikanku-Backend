@@ -17,8 +17,8 @@ import (
 
 	helper "masjidku_backend/internals/helpers"
 
-	"masjidku_backend/internals/features/school/schedule_daily_rooms/rooms/dto"
-	"masjidku_backend/internals/features/school/schedule_daily_rooms/rooms/model"
+	"masjidku_backend/internals/features/school/academics/rooms/dto"
+	"masjidku_backend/internals/features/school/academics/rooms/model"
 )
 
 /* =======================================================
@@ -70,7 +70,7 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan")
 	}
 
-	// Filters legacy (search, is_active, etc) + legacy sort (q.Sort)
+	// Filters legacy (search, is_active, dll) + legacy sort (q.Sort)
 	var q dto.ListClassRoomsQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, "Query tidak valid")
@@ -112,10 +112,14 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	db := ctl.DB.WithContext(reqCtx(c)).Model(&model.ClassRoomModel{}).
 		Where("class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", masjidID)
 
-	// search → LIKE ke name + location (case-insensitive)
+	// search → LIKE ke name + location + description (case-insensitive)
 	if q.Search != "" {
 		s := "%" + strings.ToLower(q.Search) + "%"
-		db = db.Where("(LOWER(class_rooms_name) LIKE ? OR LOWER(COALESCE(class_rooms_location,'')) LIKE ?)", s, s)
+		db = db.Where(`
+			LOWER(class_rooms_name) LIKE ?
+			OR LOWER(COALESCE(class_rooms_location,'')) LIKE ?
+			OR LOWER(COALESCE(class_rooms_description,'')) LIKE ?
+		`, s, s, s)
 	}
 
 	if q.IsActive != nil {
@@ -198,15 +202,16 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	}
 
 	m := model.ClassRoomModel{
-		ClassRoomsMasjidID:  masjidID,
-		ClassRoomsName:      req.ClassRoomsName,
-		ClassRoomsCode:      req.ClassRoomsCode,
-		ClassRoomsLocation:  req.ClassRoomsLocation,
-		ClassRoomsFloor:     req.ClassRoomsFloor,
-		ClassRoomsCapacity:  req.ClassRoomsCapacity,
-		ClassRoomsIsVirtual: req.ClassRoomsIsVirtual,
-		ClassRoomsIsActive:  req.ClassRoomsIsActive,
-		ClassRoomsFeatures:  req.ClassRoomsFeatures,
+		ClassRoomsMasjidID:     masjidID,
+		ClassRoomsName:         req.ClassRoomsName,
+		ClassRoomsCode:         req.ClassRoomsCode,
+		ClassRoomsLocation:     req.ClassRoomsLocation,
+		ClassRoomsFloor:        req.ClassRoomsFloor,
+		ClassRoomsCapacity:     req.ClassRoomsCapacity,
+		ClassRoomsDescription:  req.ClassRoomsDescription, // NEW
+		ClassRoomsIsVirtual:    req.ClassRoomsIsVirtual,
+		ClassRoomsIsActive:     req.ClassRoomsIsActive,
+		ClassRoomsFeatures:     req.ClassRoomsFeatures,
 	}
 
 	if err := ctl.DB.WithContext(reqCtx(c)).Create(&m).Error; err != nil {
@@ -267,6 +272,9 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 	}
 	if req.ClassRoomsCapacity != nil {
 		updates["class_rooms_capacity"] = *req.ClassRoomsCapacity
+	}
+	if req.ClassRoomsDescription != nil { // NEW
+		updates["class_rooms_description"] = *req.ClassRoomsDescription
 	}
 	if req.ClassRoomsIsVirtual != nil {
 		updates["class_rooms_is_virtual"] = *req.ClassRoomsIsVirtual

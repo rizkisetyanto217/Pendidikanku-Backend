@@ -9,7 +9,7 @@ import (
 )
 
 /* =======================================================
-   Enum status (menyesuaikan session_status_enum di SQL)
+   Enum status (sinkron dengan session_status_enum di DB)
    ======================================================= */
 type SessionStatus string
 
@@ -38,6 +38,9 @@ type ClassScheduleModel struct {
 
 	// Room (nullable)
 	ClassSchedulesRoomID *uuid.UUID `json:"class_schedules_room_id,omitempty" gorm:"type:uuid;column:class_schedules_room_id"`
+
+	// ✨ Guru (nullable) → masjid_teachers
+	ClassSchedulesTeacherID *uuid.UUID `json:"class_schedules_teacher_id,omitempty" gorm:"type:uuid;column:class_schedules_teacher_id"`
 
 	// Pola berulang
 	ClassSchedulesDayOfWeek int       `json:"class_schedules_day_of_week" gorm:"type:int;not null;column:class_schedules_day_of_week"` // 1..7

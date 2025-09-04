@@ -5,7 +5,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	"masjidku_backend/internals/features/school/schedule_daily_rooms/rooms/controller"
+	"masjidku_backend/internals/features/school/academics/rooms/controller"
 )
 
 // RoomsUserRoutes — route USER (read-only).
@@ -17,6 +17,6 @@ func RoomsUserRoutes(user fiber.Router, db *gorm.DB) {
 	g := user.Group("/class-rooms")
 
 	// Read-only endpoints
-	g.Get("/", ctl.List)
+	g.Get("/list", ctl.List)
 	g.Get("/:id", ctl.GetByID)
 }

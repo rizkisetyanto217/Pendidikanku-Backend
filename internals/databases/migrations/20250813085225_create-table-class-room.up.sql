@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS class_rooms (
   class_rooms_location  TEXT,
   class_rooms_floor     INT,
   class_rooms_capacity  INT CHECK (class_rooms_capacity >= 0),
+  class_rooms_description TEXT,
 
   -- karakteristik
   class_rooms_is_virtual BOOLEAN NOT NULL DEFAULT FALSE,

@@ -9,7 +9,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
-	m "masjidku_backend/internals/features/school/schedule_daily_rooms/schedule_daily/model"
+	m "masjidku_backend/internals/features/school/sessions_assesment/schedule_daily/model"
 )
 
 

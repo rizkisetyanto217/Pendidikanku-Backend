@@ -36,25 +36,26 @@ func NewMasjidTeacherController(db *gorm.DB) *MasjidTeacherController {
    Body: { "masjid_teacher_user_id": "<uuid>" }
    (masjid didapat dari token)
    ============================================ */
-// POST /api/a/masjid-teachers
-// Body: { "masjid_teacher_user_id": "<uuid>" }
-// (masjid didapat dari token)
 func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 	var body dto.CreateMasjidTeacherRequest
 	if err := c.BodyParser(&body); err != nil {
 		return helper.Error(c, fiber.StatusBadRequest, "Invalid request")
 	}
-	if err := validator.New().Struct(body); err != nil {
+	if err := validator.New(validator.WithRequiredStructEnabled()).Struct(body); err != nil {
 		return helper.ValidationError(c, err)
 	}
 
-	// 🔐 Admin-only
+	// 🔐 scope & actor
 	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return helper.FromFiberError(c, err)
 	}
+	actorUUID := uuid.Nil
+	if u, err := helperAuth.GetUserIDFromToken(c); err == nil {
+		actorUUID = u
+	}
 
-	// Parse user_id (validated as uuid by validator)
+	// parse user_id
 	userUUID, err := uuid.Parse(body.MasjidTeacherUserID)
 	if err != nil {
 		return helper.Error(c, fiber.StatusBadRequest, "masjid_teacher_user_id tidak valid")
@@ -62,36 +63,34 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 
 	var created model.MasjidTeacherModel
 	if err := ctrl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// 0) Pastikan user ada & ambil role saat ini (lock agar konsisten)
-		type userRow struct {
-			ID   uuid.UUID
-			Role string
-		}
-		var u userRow
-		if err := tx.
-			Raw(`SELECT id, role FROM users WHERE id = ? AND deleted_at IS NULL FOR UPDATE`, userUUID).
-			Scan(&u).Error; err != nil {
+		// 0) pastikan user ada (lock)
+		var exists bool
+		if err := tx.Raw(`
+			SELECT EXISTS(
+				SELECT 1 FROM users
+				WHERE id = ? AND deleted_at IS NULL
+				FOR UPDATE
+			)
+		`, userUUID).Scan(&exists).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membaca data user")
 		}
-		if u.ID == uuid.Nil {
+		if !exists {
 			return fiber.NewError(fiber.StatusNotFound, "User tidak ditemukan")
 		}
 
-		// 1) Idempotent: tolak bila sudah terdaftar sebagai guru aktif di masjid ini
-		var exists int64
+		// 1) idempotent: tolak jika sudah terdaftar aktif di masjid ini
+		var dup int64
 		if err := tx.Model(&model.MasjidTeacherModel{}).
-			Where(
-				"masjid_teacher_masjid_id = ? AND masjid_teacher_user_id = ? AND masjid_teacher_deleted_at IS NULL",
-				masjidUUID, userUUID,
-			).
-			Count(&exists).Error; err != nil {
+			Where("masjid_teacher_masjid_id = ? AND masjid_teacher_user_id = ? AND masjid_teacher_deleted_at IS NULL",
+				masjidUUID, userUUID).
+			Count(&dup).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi pengajar")
 		}
-		if exists > 0 {
+		if dup > 0 {
 			return fiber.NewError(fiber.StatusConflict, "Pengajar sudah terdaftar")
 		}
 
-		// 2) Create guru
+		// 2) create masjid_teacher
 		rec := model.MasjidTeacherModel{
 			MasjidTeacherMasjidID: masjidUUID,
 			MasjidTeacherUserID:   userUUID,
@@ -101,18 +100,19 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 		}
 		created = rec
 
-		// 3) Promosikan role user → teacher (hanya jika masih user/student; tidak menurunkan owner/admin/dll)
-		if err := tx.Exec(`
-			UPDATE users
-			SET role = 'teacher', updated_at = NOW()
-			WHERE id = ?
-			  AND deleted_at IS NULL
-			  AND role IN ('user','student')
-		`, userUUID).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui role user")
+		// 3) grant role 'teacher' (scoped ke masjid), idempotent & revive-safe
+		var assignedBy any // kirim NULL jika actor tidak ada → hindari FK 23503
+		if actorUUID != uuid.Nil {
+			assignedBy = actorUUID
+		}
+		if err := tx.Exec(
+			`SELECT fn_grant_role(?, 'teacher', ?, ?)`,
+			userUUID, masjidUUID, assignedBy,
+		).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menetapkan role 'teacher'")
 		}
 
-		// 4) Statistik (anti minus & race-safe; pastikan baris ada lalu +1)
+		// 4) statistik (opsional)
 		if err := ctrl.Stats.EnsureForMasjid(tx, masjidUUID); err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memastikan baris statistik")
 		}
@@ -132,8 +132,10 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 		MasjidTeacherCreatedAt: created.MasjidTeacherCreatedAt,
 		MasjidTeacherUpdatedAt: created.MasjidTeacherUpdatedAt,
 	}
-	return helper.Success(c, "Pengajar berhasil ditambahkan (role user dipromosikan bila perlu)", resp)
+	return helper.Success(c, "Pengajar berhasil ditambahkan & role 'teacher' diberikan", resp)
 }
+
+
 
 /* ============================================
    GET /api/a/masjid-teachers/by-masjid

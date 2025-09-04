@@ -18,7 +18,8 @@ type AcademicTermCreateDTO struct {
 	AcademicTermsStartDate    time.Time  `json:"academic_terms_start_date"    validate:"required"`
 	AcademicTermsEndDate      time.Time  `json:"academic_terms_end_date"      validate:"required,gtefield=AcademicTermsStartDate"`
 	AcademicTermsIsActive     *bool      `json:"academic_terms_is_active,omitempty"`
-	AcademicTermsAngkatan     *int       `json:"academic_terms_angkatan,omitempty" validate:"omitempty,gte=1900,lte=3000"`
+	AcademicTermsAngkatan     *int       `json:"academic_terms_angkatan,omitempty" validate:"omitempty,gt=0"`
+
 }
 
 type AcademicTermUpdateDTO struct {
@@ -27,8 +28,9 @@ type AcademicTermUpdateDTO struct {
 	AcademicTermsStartDate    *time.Time `json:"academic_terms_start_date,omitempty"`
 	AcademicTermsEndDate      *time.Time `json:"academic_terms_end_date,omitempty"`
 	AcademicTermsIsActive     *bool      `json:"academic_terms_is_active,omitempty"`
-	AcademicTermsAngkatan     *int       `json:"academic_terms_angkatan,omitempty" validate:"omitempty,gte=1900,lte=3000"`
+	AcademicTermsAngkatan     *int       `json:"academic_terms_angkatan,omitempty" validate:"omitempty,gt=0"`
 }
+
 
 /* ========== LIST/FILTER (query) ========== */
 

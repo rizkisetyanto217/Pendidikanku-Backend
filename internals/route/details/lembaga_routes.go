@@ -13,8 +13,8 @@ import (
 	SubjectRoutes "masjidku_backend/internals/features/school/subject_books/subject/route"
 	ClassSectionsRoutes "masjidku_backend/internals/features/school/classes/class_sections/route"
 	ClassesRoutes "masjidku_backend/internals/features/school/classes/classes/route"
-	RoomsRoutes "masjidku_backend/internals/features/school/schedule_daily_rooms/rooms/route"
-	ScheduleRoutes "masjidku_backend/internals/features/school/schedule_daily_rooms/schedule_daily/route"
+	RoomsRoutes "masjidku_backend/internals/features/school/academics/rooms/route"
+	ScheduleRoutes "masjidku_backend/internals/features/school/sessions_assesment/schedule_daily/route"
 	AttendanceSettingsRoute "masjidku_backend/internals/features/school/sessions_assesment/assesments_settings/route"
 	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/school/sessions_assesment/sessions/route"
 

@@ -2,25 +2,17 @@
 package controller
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"image/jpeg"
-	"image/png"
-	"log"
-	"mime/multipart"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"masjidku_backend/internals/features/lembaga/masjids/dto"
-	"masjidku_backend/internals/features/lembaga/masjids/model"
+	dto "masjidku_backend/internals/features/lembaga/masjids/dto"
+	model "masjidku_backend/internals/features/lembaga/masjids/model"
 	helper "masjidku_backend/internals/helpers"
-	helperOSS "masjidku_backend/internals/helpers/oss"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
-	"github.com/chai2010/webp"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -34,25 +26,10 @@ func NewMasjidController(db *gorm.DB) *MasjidController {
 	return &MasjidController{DB: db}
 }
 
-// =========================
-// Helpers (local)
-// =========================
+/* =========================
+   Helpers
+   ========================= */
 
-func strVal(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return strings.TrimSpace(*p)
-}
-func setPtr(dst **string, v string) {
-	trim := strings.TrimSpace(v)
-	if trim == "" {
-		*dst = nil
-		return
-	}
-	val := trim
-	*dst = &val
-}
 func normalizePtr(v string, toLower bool) *string {
 	trim := strings.TrimSpace(v)
 	if trim == "" {
@@ -65,113 +42,22 @@ func normalizePtr(v string, toLower bool) *string {
 	return &trim
 }
 
-// upload & set URL baru + pindahkan URL lama ke trash (spam/) + due 30 hari
-func handleImageField(ctx context.Context, svc *helperOSS.OSSService, existing *model.MasjidModel, slot string, file *multipart.FileHeader, directURL string) (string, error) {
-	// Ambil pointer ke field sesuai slot
-	var (
-		curr **string
-		trash **string
-		due **time.Time
-		keyPrefix = "masjids/" + existing.MasjidID.String() + "/images"
-	)
-
-	switch slot {
-	case "default":
-		curr = &existing.MasjidImageURL
-		trash = &existing.MasjidImageTrashURL
-		due = &existing.MasjidImageDeletePendingUntil
-	case "main":
-		curr = &existing.MasjidImageMainURL
-		trash = &existing.MasjidImageMainTrashURL
-		due = &existing.MasjidImageMainDeletePendingUntil
-	case "bg":
-		curr = &existing.MasjidImageBgURL
-		trash = &existing.MasjidImageBgTrashURL
-		due = &existing.MasjidImageBgDeletePendingUntil
-	default:
-		return "", fmt.Errorf("slot gambar tidak dikenal: %s", slot)
+func ensureSlugUpdate(db *gorm.DB, existingSlug, candidate string) (string, error) {
+	base := helper.GenerateSlug(candidate)
+	if base == "" {
+		return "", fmt.Errorf("slug kosong")
 	}
-
-	oldURL := strVal(*curr)
-	var newURL string
-
-	// Path A: upload file
-	if file != nil {
-		ext := strings.ToLower(filepath.Ext(file.Filename))
-		const maxBytes = 5 * 1024 * 1024
-		if file.Size > maxBytes {
-			return "", fmt.Errorf("ukuran gambar maksimal 5MB")
-		}
-
-		keyBase := helper.GenerateSlug(strings.TrimSuffix(file.Filename, ext))
-		if keyBase == "" {
-			keyBase = "image"
-		}
-		key := keyPrefix + "/" + keyBase + "_" + time.Now().Format("20060102_150405") + ".webp"
-
-		src, err := file.Open()
-		if err != nil {
-			return "", fmt.Errorf("gagal membuka file upload")
-		}
-		defer src.Close()
-
-		var webpBuf *bytes.Buffer
-		switch ext {
-		case ".jpg", ".jpeg":
-			img, derr := jpeg.Decode(src)
-			if derr != nil {
-				return "", fmt.Errorf("file JPEG tidak valid")
-			}
-			webpBuf = new(bytes.Buffer)
-			if err := webp.Encode(webpBuf, img, &webp.Options{Lossless: false, Quality: 85}); err != nil {
-				return "", fmt.Errorf("gagal konversi JPEG ke WebP")
-			}
-		case ".png":
-			img, derr := png.Decode(src)
-			if derr != nil {
-				return "", fmt.Errorf("file PNG tidak valid")
-			}
-			webpBuf = new(bytes.Buffer)
-			if err := webp.Encode(webpBuf, img, &webp.Options{Lossless: false, Quality: 85}); err != nil {
-				return "", fmt.Errorf("gagal konversi PNG ke WebP")
-			}
-		case ".webp":
-			all := new(bytes.Buffer)
-			if _, err := all.ReadFrom(src); err != nil {
-				return "", fmt.Errorf("gagal membaca file WebP")
-			}
-			webpBuf = all
-		default:
-			return "", fmt.Errorf("format tidak didukung (jpg, jpeg, png, webp)")
-		}
-
-		if err := svc.UploadStream(ctx, key, bytes.NewReader(webpBuf.Bytes()), "image/webp", true, true); err != nil {
-			return "", fmt.Errorf("gagal upload gambar ke OSS")
-		}
-		newURL = svc.PublicURL(key)
-	} else {
-		// Path B: set via direct URL (JSON/form value)
-		newURL = strings.TrimSpace(directURL)
+	if base == existingSlug {
+		return existingSlug, nil
 	}
-
-	// Jika berubah → pindahkan lama ke spam + set trash & due
-	if oldURL != "" && newURL != "" && oldURL != newURL {
-		if spamURL, mErr := helperOSS.MoveToSpamByPublicURLENV(oldURL, 15*time.Second); mErr == nil {
-			*trash = &spamURL
-			d := time.Now().Add(30 * 24 * time.Hour)
-			*due = &d
-		}
-	}
-	// set URL baru
-	if newURL == "" {
-		*curr = nil // clear
-	} else {
-		setPtr(curr, newURL)
-	}
-	return newURL, nil
+	return helper.EnsureUniqueSlug(db, base, "masjids", "masjid_slug")
 }
 
-// 🟢 UPDATE MASJID (Partial Update) — PUT /api/a/masjids
+/* =========================
+   UPDATE MASJID (Partial)
+   PUT /api/a/masjids
+   ========================= */
+
 func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 	if !helperAuth.IsAdmin(c) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
@@ -187,16 +73,9 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusNotFound, "Masjid tidak ditemukan")
 	}
 
-	ensureSlugUpdate := func(candidate string) (string, error) {
-		base := helper.GenerateSlug(candidate)
-		if base == "" {
-			return "", fmt.Errorf("slug kosong")
-		}
-		if base == existing.MasjidSlug {
-			return existing.MasjidSlug, nil
-		}
-		return helper.EnsureUniqueSlug(mc.DB, base, "masjids", "masjid_slug")
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_ = ctx // (disiapkan bila butuh context ke depannya)
 
 	// =========================
 	// MULTIPART
@@ -221,7 +100,7 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 		// strings
 		if v := strings.TrimSpace(c.FormValue("masjid_name")); v != "" {
 			existing.MasjidName = v
-			if newSlug, err := ensureSlugUpdate(v); err == nil {
+			if newSlug, err := ensureSlugUpdate(mc.DB, existing.MasjidSlug, v); err == nil {
 				existing.MasjidSlug = newSlug
 			}
 		}
@@ -236,35 +115,9 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 			existing.MasjidDomain = normalizePtr(raw, true)
 		}
 		if v := strings.TrimSpace(c.FormValue("masjid_slug")); v != "" {
-			if newSlug, err := ensureSlugUpdate(v); err == nil {
+			if newSlug, err := ensureSlugUpdate(mc.DB, existing.MasjidSlug, v); err == nil {
 				existing.MasjidSlug = newSlug
 			}
-		}
-		if raw, ok := getField("masjid_google_maps_url"); ok {
-			existing.MasjidGoogleMapsURL = normalizePtr(raw, false)
-		}
-
-		// sosial
-		if raw, ok := getField("masjid_instagram_url"); ok {
-			existing.MasjidInstagramURL = normalizePtr(raw, false)
-		}
-		if raw, ok := getField("masjid_whatsapp_url"); ok {
-			existing.MasjidWhatsappURL = normalizePtr(raw, false)
-		}
-		if raw, ok := getField("masjid_youtube_url"); ok {
-			existing.MasjidYoutubeURL = normalizePtr(raw, false)
-		}
-		if raw, ok := getField("masjid_facebook_url"); ok {
-			existing.MasjidFacebookURL = normalizePtr(raw, false)
-		}
-		if raw, ok := getField("masjid_tiktok_url"); ok {
-			existing.MasjidTiktokURL = normalizePtr(raw, false)
-		}
-		if raw, ok := getField("masjid_whatsapp_group_ikhwan_url"); ok {
-			existing.MasjidWhatsappGroupIkhwanURL = normalizePtr(raw, false)
-		}
-		if raw, ok := getField("masjid_whatsapp_group_akhwat_url"); ok {
-			existing.MasjidWhatsappGroupAkhwatURL = normalizePtr(raw, false)
 		}
 
 		// numeric
@@ -284,7 +137,8 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 			existing.MasjidIsActive = v == "true" || v == "1"
 		}
 		if v := strings.TrimSpace(c.FormValue("masjid_verification_status")); v != "" {
-			if v == "pending" || v == "approved" || v == "rejected" {
+			switch v {
+			case "pending", "approved", "rejected":
 				existing.MasjidVerificationStatus = model.VerificationStatus(v)
 			}
 		}
@@ -301,53 +155,6 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 			existing.MasjidIsIslamicSchool = v == "true" || v == "1"
 		}
 
-		// OSS init (jika ada file)
-		var svc *helperOSS.OSSService
-		var initErr error
-		if fDef, _ := c.FormFile("masjid_image_url"); fDef != nil ||
-			func() bool { f, _ := c.FormFile("masjid_image_main_url"); return f != nil }() ||
-			func() bool { f, _ := c.FormFile("masjid_image_bg_url"); return f != nil }() {
-			svc, initErr = helperOSS.NewOSSServiceFromEnv("")
-			if initErr != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "OSS init gagal")
-			}
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-		defer cancel()
-
-		// Gambar DEFAULT
-		if fh, err := c.FormFile("masjid_image_url"); err == nil && fh != nil {
-			if _, err := handleImageField(ctx, svc, &existing, "default", fh, ""); err != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-			}
-		} else if raw, ok := getField("masjid_image_url"); ok {
-			if _, err := handleImageField(ctx, nil, &existing, "default", nil, raw); err != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-			}
-		}
-
-		// Gambar MAIN
-		if fh, err := c.FormFile("masjid_image_main_url"); err == nil && fh != nil {
-			if _, err := handleImageField(ctx, svc, &existing, "main", fh, ""); err != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-			}
-		} else if raw, ok := getField("masjid_image_main_url"); ok {
-			if _, err := handleImageField(ctx, nil, &existing, "main", nil, raw); err != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-			}
-		}
-
-		// Gambar BACKGROUND
-		if fh, err := c.FormFile("masjid_image_bg_url"); err == nil && fh != nil {
-			if _, err := handleImageField(ctx, svc, &existing, "bg", fh, ""); err != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-			}
-		} else if raw, ok := getField("masjid_image_bg_url"); ok {
-			if _, err := handleImageField(ctx, nil, &existing, "bg", nil, raw); err != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-			}
-		}
-
 	// =========================
 	// JSON (partial)
 	// =========================
@@ -359,12 +166,12 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 
 		if input.MasjidName != nil {
 			existing.MasjidName = *input.MasjidName
-			if newSlug, err := ensureSlugUpdate(*input.MasjidName); err == nil {
+			if newSlug, err := ensureSlugUpdate(mc.DB, existing.MasjidSlug, *input.MasjidName); err == nil {
 				existing.MasjidSlug = newSlug
 			}
 		}
 		if input.MasjidSlug != nil {
-			if newSlug, err := ensureSlugUpdate(*input.MasjidSlug); err == nil {
+			if newSlug, err := ensureSlugUpdate(mc.DB, existing.MasjidSlug, *input.MasjidSlug); err == nil {
 				existing.MasjidSlug = newSlug
 			}
 		}
@@ -373,9 +180,6 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 		}
 		if input.MasjidLocation != nil {
 			existing.MasjidLocation = normalizePtr(*input.MasjidLocation, false)
-		}
-		if input.MasjidGoogleMapsURL != nil {
-			existing.MasjidGoogleMapsURL = normalizePtr(*input.MasjidGoogleMapsURL, false)
 		}
 		if input.MasjidLatitude != nil {
 			existing.MasjidLatitude = input.MasjidLatitude
@@ -389,36 +193,14 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 			existing.MasjidDomain = normalizePtr(*input.MasjidDomain, true)
 		}
 
-		// Sosial
-		if input.MasjidInstagramURL != nil {
-			existing.MasjidInstagramURL = normalizePtr(*input.MasjidInstagramURL, false)
-		}
-		if input.MasjidWhatsappURL != nil {
-			existing.MasjidWhatsappURL = normalizePtr(*input.MasjidWhatsappURL, false)
-		}
-		if input.MasjidYoutubeURL != nil {
-			existing.MasjidYoutubeURL = normalizePtr(*input.MasjidYoutubeURL, false)
-		}
-		if input.MasjidFacebookURL != nil {
-			existing.MasjidFacebookURL = normalizePtr(*input.MasjidFacebookURL, false)
-		}
-		if input.MasjidTiktokURL != nil {
-			existing.MasjidTiktokURL = normalizePtr(*input.MasjidTiktokURL, false)
-		}
-		if input.MasjidWhatsappGroupIkhwanURL != nil {
-			existing.MasjidWhatsappGroupIkhwanURL = normalizePtr(*input.MasjidWhatsappGroupIkhwanURL, false)
-		}
-		if input.MasjidWhatsappGroupAkhwatURL != nil {
-			existing.MasjidWhatsappGroupAkhwatURL = normalizePtr(*input.MasjidWhatsappGroupAkhwatURL, false)
-		}
-
 		// Flags & verif
 		if input.MasjidIsActive != nil {
 			existing.MasjidIsActive = *input.MasjidIsActive
 		}
 		if input.MasjidVerificationStatus != nil {
 			v := strings.TrimSpace(*input.MasjidVerificationStatus)
-			if v == "pending" || v == "approved" || v == "rejected" {
+			switch v {
+			case "pending", "approved", "rejected":
 				existing.MasjidVerificationStatus = model.VerificationStatus(v)
 			}
 		}
@@ -431,24 +213,6 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 		if input.MasjidIsIslamicSchool != nil {
 			existing.MasjidIsIslamicSchool = *input.MasjidIsIslamicSchool
 		}
-
-		// Gambar via JSON (default/main/bg)
-		// Tidak perlu init OSS; hanya pindah trash old → spam bila URL berubah
-		if input.MasjidImageURL != nil {
-			if _, err := handleImageField(context.Background(), nil, &existing, "default", nil, *input.MasjidImageURL); err != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-			}
-		}
-		if input.MasjidImageMainURL != nil {
-			if _, err := handleImageField(context.Background(), nil, &existing, "main", nil, *input.MasjidImageMainURL); err != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-			}
-		}
-		if input.MasjidImageBgURL != nil {
-			if _, err := handleImageField(context.Background(), nil, &existing, "bg", nil, *input.MasjidImageBgURL); err != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-			}
-		}
 	}
 
 	if err := mc.DB.Save(&existing).Error; err != nil {
@@ -456,6 +220,10 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 	}
 	return helper.JsonOK(c, "Masjid berhasil diperbarui", dto.FromModelMasjid(&existing))
 }
+
+/* =========================
+   DELETE
+   ========================= */
 
 // 🗑️ DELETE /api/a/masjids           -> admin: pakai ID token; owner: 400 (perlu :id)
 // 🗑️ DELETE /api/a/masjids/:id       -> owner: boleh; admin: hanya jika :id sama dgn ID token
@@ -513,32 +281,17 @@ func (mc *MasjidController) DeleteMasjid(c *fiber.Ctx) error {
 		targetID = pathUUID
 	}
 
-	log.Printf("[INFO] Deleting masjid ID: %s (isAdmin=%v isOwner=%v)\n", targetID.String(), isAdmin, isOwner)
-
 	// Ambil data existing
 	var existing model.MasjidModel
 	if err := mc.DB.First(&existing, "masjid_id = ?", targetID).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusNotFound, "Masjid tidak ditemukan")
 	}
 
-	// Pindahkan semua gambar aktif ke spam/ (biar cron reaper yang hapus kemudian)
-	urls := []string{strVal(existing.MasjidImageURL), strVal(existing.MasjidImageMainURL), strVal(existing.MasjidImageBgURL)}
-	for _, u := range urls {
-		if u == "" {
-			continue
-		}
-		if _, err := helperOSS.MoveToSpamByPublicURLENV(u, 15*time.Second); err != nil {
-			log.Printf("[WARN] move to spam gagal: %v\n", err)
-		}
-	}
-
-	// Soft delete record
+	// Soft delete record (kolom masjid_deleted_at)
 	if err := mc.DB.Delete(&existing).Error; err != nil {
-		log.Printf("[ERROR] Failed to delete masjid: %v\n", err)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus masjid")
 	}
 
-	log.Printf("[SUCCESS] Masjid deleted: %s\n", targetID.String())
 	return helper.JsonDeleted(c, "Masjid berhasil dihapus", fiber.Map{
 		"masjid_id": targetID.String(),
 	})

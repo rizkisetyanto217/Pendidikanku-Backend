@@ -14,8 +14,8 @@ import (
 
 	helper "masjidku_backend/internals/helpers"
 
-	d "masjidku_backend/internals/features/school/schedule_daily_rooms/schedule_daily/dto"
-	m "masjidku_backend/internals/features/school/schedule_daily_rooms/schedule_daily/model"
+	d "masjidku_backend/internals/features/school/sessions_assesment/schedule_daily/dto"
+	m "masjidku_backend/internals/features/school/sessions_assesment/schedule_daily/model"
 )
 
 /* =========================

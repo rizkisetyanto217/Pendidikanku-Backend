@@ -15,7 +15,7 @@ BEGIN
 END$$;
 
 -- =========================================================
--- CLASS_SCHEDULES (pakai class_subjects; tanpa semester_id & teacher_id)
+-- CLASS_SCHEDULES (pakai class_subjects; + relasi ke masjid_teachers)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   -- room (nullable)
   class_schedules_room_id UUID
     REFERENCES class_rooms(class_room_id) ON DELETE SET NULL,
+
+  -- ✨ guru (nullable) → masjid_teachers
+  class_schedules_teacher_id UUID,
 
   -- pola berulang
   class_schedules_day_of_week INT  NOT NULL CHECK (class_schedules_day_of_week BETWEEN 1 AND 7),
@@ -67,6 +70,19 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedules_deleted_at TIMESTAMPTZ
 );
 
+-- Pastikan kolom teacher ada (idempotent kalau tabel lama)
+ALTER TABLE class_schedules
+  ADD COLUMN IF NOT EXISTS class_schedules_teacher_id UUID;
+
+-- FK ke masjid_teachers (idempotent): drop kalau ada salah, lalu add
+ALTER TABLE class_schedules
+  DROP CONSTRAINT IF EXISTS fk_class_schedules_teacher;
+ALTER TABLE class_schedules
+  ADD CONSTRAINT fk_class_schedules_teacher
+  FOREIGN KEY (class_schedules_teacher_id)
+  REFERENCES masjid_teachers(masjid_teacher_id)
+  ON DELETE SET NULL;
+
 -- =========================
 -- Indexing
 -- =========================
@@ -85,6 +101,12 @@ CREATE INDEX IF NOT EXISTS idx_class_schedules_class_subject
 CREATE INDEX IF NOT EXISTS idx_class_schedules_active
   ON class_schedules (class_schedules_is_active)
   WHERE class_schedules_is_active AND class_schedules_deleted_at IS NULL;
+
+-- ✨ index untuk teacher
+CREATE INDEX IF NOT EXISTS idx_class_schedules_teacher_dow
+  ON class_schedules (class_schedules_teacher_id, class_schedules_day_of_week);
+CREATE INDEX IF NOT EXISTS idx_class_schedules_teacher
+  ON class_schedules (class_schedules_teacher_id);
 
 -- =========================
 -- Exclusion Constraints (anti-bentrok)
@@ -109,16 +131,26 @@ ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_section_overlap
   )
   WHERE (class_schedules_is_active AND class_schedules_deleted_at IS NULL);
 
--- (Tidak ada teacher overlap karena kolom teacher ditiadakan)
+-- ✨ anti-bentrok per-guru (opsional tapi disarankan)
+ALTER TABLE class_schedules DROP CONSTRAINT IF EXISTS excl_sched_teacher_overlap;
+ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_teacher_overlap
+  EXCLUDE USING gist (
+    class_schedules_masjid_id   WITH =,
+    class_schedules_teacher_id  WITH =,
+    class_schedules_day_of_week WITH =,
+    class_schedules_time_range  WITH &&
+  )
+  WHERE (class_schedules_is_active AND class_schedules_teacher_id IS NOT NULL AND class_schedules_deleted_at IS NULL);
 
 -- =========================
--- Validator konsistensi (tenant & class)
+-- Validator konsistensi (tenant & class & teacher)
 -- =========================
 CREATE OR REPLACE FUNCTION fn_class_schedules_validate_links()
 RETURNS TRIGGER AS $$
 DECLARE
   v_sec_masjid UUID; v_sec_class UUID;
   v_cs_masjid  UUID; v_cs_class  UUID;
+  v_t_masjid   UUID;
 BEGIN
   -- SECTION
   SELECT class_sections_masjid_id, class_sections_class_id
@@ -142,7 +174,7 @@ BEGIN
     RAISE EXCEPTION 'Class_subjects invalid/terhapus';
   END IF;
 
-  -- Tenant harus sama
+  -- Tenant harus sama (schedule vs section & class_subjects)
   IF NEW.class_schedules_masjid_id <> v_sec_masjid THEN
     RAISE EXCEPTION 'Masjid mismatch: schedule(%) vs section(%)',
       NEW.class_schedules_masjid_id, v_sec_masjid;
@@ -158,16 +190,36 @@ BEGIN
       v_sec_class, v_cs_class;
   END IF;
 
+  -- ✨ TEACHER (opsional): jika diisi, harus satu tenant & alive
+  IF NEW.class_schedules_teacher_id IS NOT NULL THEN
+    SELECT masjid_teacher_masjid_id
+      INTO v_t_masjid
+    FROM masjid_teachers
+    WHERE masjid_teacher_id = NEW.class_schedules_teacher_id
+      AND masjid_teacher_deleted_at IS NULL;
+
+    IF v_t_masjid IS NULL THEN
+      RAISE EXCEPTION 'Teacher invalid/terhapus';
+    END IF;
+
+    IF NEW.class_schedules_masjid_id <> v_t_masjid THEN
+      RAISE EXCEPTION 'Masjid mismatch: schedule(%) vs teacher(%)',
+        NEW.class_schedules_masjid_id, v_t_masjid;
+    END IF;
+  END IF;
+
   RETURN NEW;
 END
 $$ LANGUAGE plpgsql;
 
+-- Perbarui trigger (tambahkan kolom teacher di daftar event)
 DROP TRIGGER IF EXISTS trg_class_schedules_validate_links ON class_schedules;
 CREATE CONSTRAINT TRIGGER trg_class_schedules_validate_links
   AFTER INSERT OR UPDATE OF
     class_schedules_masjid_id,
     class_schedules_section_id,
-    class_schedules_class_subject_id
+    class_schedules_class_subject_id,
+    class_schedules_teacher_id
   ON class_schedules
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW

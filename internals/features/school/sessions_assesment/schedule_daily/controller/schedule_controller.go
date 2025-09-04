@@ -15,8 +15,8 @@ import (
 
 	helper "masjidku_backend/internals/helpers"
 
-	d "masjidku_backend/internals/features/school/schedule_daily_rooms/schedule_daily/dto"
-	m "masjidku_backend/internals/features/school/schedule_daily_rooms/schedule_daily/model"
+	d "masjidku_backend/internals/features/school/sessions_assesment/schedule_daily/dto"
+	m "masjidku_backend/internals/features/school/sessions_assesment/schedule_daily/model"
 )
 
 /* =========================
@@ -79,7 +79,7 @@ func mapPGError(err error) (int, string) {
 	if errors.As(err, &pgErr) {
 		switch pgErr.SQLState() {
 		case "23P01":
-			return http.StatusConflict, "Bentrok jadwal: time range overlap (room/section)."
+			return http.StatusConflict, "Bentrok jadwal: time range overlap (room/section/teacher)."
 		case "23503":
 			return http.StatusBadRequest, "Referensi tidak ditemukan (FK violation)."
 		case "23505":
@@ -119,7 +119,8 @@ type listQuery struct {
 	SectionID      string `query:"section_id"`
 	ClassSubjectID string `query:"class_subject_id"`
 	RoomID         string `query:"room_id"`
-	Status         string `query:"status"` // scheduled|ongoing|completed|canceled
+	TeacherID      string `query:"teacher_id"` // ✨ baru
+	Status         string `query:"status"`     // scheduled|ongoing|completed|canceled
 	Active         *bool  `query:"active"`
 	DayOfWeek      *int   `query:"dow"`        // 1..7
 	OnDate         string `query:"on_date"`    // YYYY-MM-DD (di antara start_date & end_date) + DOW match
@@ -172,6 +173,12 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, http.StatusBadRequest, "room_id invalid")
 		}
 		db = db.Where("class_schedules_room_id = ?", q.RoomID)
+	}
+	if q.TeacherID != "" { // ✨ filter teacher
+		if _, err := uuid.Parse(q.TeacherID); err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, "teacher_id invalid")
+		}
+		db = db.Where("class_schedules_teacher_id = ?", q.TeacherID)
 	}
 	if q.Status != "" {
 		switch m.SessionStatus(q.Status) {

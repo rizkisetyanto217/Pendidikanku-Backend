@@ -17,7 +17,7 @@ func ClassSectionAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// ================== CLASS SECTIONS ==================
 	sections := r.Group("/class-sections", masjidkuMiddleware.IsMasjidAdmin())
 	sections.Post("/", sectionH.CreateClassSection)
-	sections.Get("/", sectionH.ListClassSections)
+	sections.Get("/list", sectionH.ListClassSections)
 	sections.Get("/search", sectionH.SearchClassSections)
 	sections.Get("/books/:id", sectionH.ListBooksBySection)
 	sections.Get("/students/:id", sectionH.ListRegisteredParticipants)
@@ -29,7 +29,7 @@ func ClassSectionAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// ================== USER CLASS SECTIONS ==================
 	userClassSections := r.Group("/user-class-sections", masjidkuMiddleware.IsMasjidAdmin())
 	userClassSections.Post("/", ucsH.CreateUserClassSection)
-	userClassSections.Get("/", ucsH.ListUserClassSections)
+	userClassSections.Get("/list", ucsH.ListUserClassSections)
 	userClassSections.Get("/:id", ucsH.GetUserClassSectionByID)
 	userClassSections.Put("/:id", ucsH.UpdateUserClassSection)
 	userClassSections.Post("/:id/end", ucsH.EndUserClassSection) // unassign/akhiri penempatan

@@ -48,25 +48,6 @@ CREATE TABLE IF NOT EXISTS academic_terms (
   CHECK (academic_terms_end_date >= academic_terms_start_date)
 );
 
--- Tambahkan kolom angkatan bila tabel sudah eksis (idempotent)
-ALTER TABLE academic_terms
-  ADD COLUMN IF NOT EXISTS academic_terms_angkatan INTEGER;
-
--- Constraint range angkatan (idempotent)
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'chk_academic_terms_angkatan_range'
-      AND conrelid = 'academic_terms'::regclass
-  ) THEN
-    ALTER TABLE academic_terms
-      ADD CONSTRAINT chk_academic_terms_angkatan_range
-      CHECK (academic_terms_angkatan IS NULL OR academic_terms_angkatan BETWEEN 1900 AND 9999);
-  END IF;
-END$$;
-
-
 -- Bersihkan constraint/index lama (opsional; aman kalau tidak ada)
 DROP INDEX IF EXISTS uq_academic_terms_tenant_year_name_live;
 

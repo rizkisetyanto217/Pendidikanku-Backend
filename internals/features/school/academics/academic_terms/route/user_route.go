@@ -22,7 +22,7 @@ func AcademicYearUserRoutes(user fiber.Router, db *gorm.DB) {
 	r := user.Group("/academic-terms")
 
 	// Read-only Academic Terms
-	r.Get("/", termCtl.List)
+	r.Get("/list", termCtl.List)
 	r.Get("/search-with-class", termCtl.SearchByYear) // taruh sebelum :id agar tidak bentrok
 	r.Get("/:id", termCtl.GetByID)
 
@@ -34,6 +34,6 @@ func AcademicYearUserRoutes(user fiber.Router, db *gorm.DB) {
 
 	open := user.Group("/class-term-openings"	)
 
-	open.Get("/", openCtl.GetAllClassTermOpenings) // dukung filter via query
+	open.Get("/list", openCtl.GetAllClassTermOpenings) // dukung filter via query
 	open.Get("/:id", openCtl.GetClassTermOpeningByID)
 }

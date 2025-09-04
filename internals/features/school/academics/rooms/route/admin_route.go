@@ -5,7 +5,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	"masjidku_backend/internals/features/school/schedule_daily_rooms/rooms/controller"
+	"masjidku_backend/internals/features/school/academics/rooms/controller"
 )
 
 // RoomsAdminRoutes — route khusus ADMIN (CRUD penuh + restore).
@@ -17,7 +17,7 @@ func RoomsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	g := admin.Group("/class-rooms")
 
 	// Read
-	g.Get("/", ctl.List)
+	g.Get("/list", ctl.List)
 	g.Get("/:id", ctl.GetByID)
 
 	// Write

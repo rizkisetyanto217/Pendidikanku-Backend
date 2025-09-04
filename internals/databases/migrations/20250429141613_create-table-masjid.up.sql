@@ -1,6 +1,9 @@
 -- =========================================================
 -- PRASYARAT EXTENSIONS
 -- =========================================================
+-- =========================================================
+-- PRASYARAT EXTENSIONS
+-- =========================================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;      -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;       -- trigram search
 CREATE EXTENSION IF NOT EXISTS cube;          -- earthdistance requirement
@@ -17,7 +20,7 @@ BEGIN
 END$$;
 
 -- =========================================================
--- TABEL MASJIDS (FRESH CREATE)
+-- TABEL MASJIDS (FRESH CREATE, TANPA URL)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS masjids (
   masjid_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -31,31 +34,6 @@ CREATE TABLE IF NOT EXISTS masjids (
   masjid_location   TEXT,
   masjid_latitude   DECIMAL(9,6),
   masjid_longitude  DECIMAL(9,6),
-
-  -- Media (default)
-  masjid_image_url  TEXT,
-  masjid_image_trash_url TEXT,
-  masjid_image_delete_pending_until TIMESTAMP,
-
-  -- Media (MAIN)
-  masjid_image_main_url  TEXT,
-  masjid_image_main_trash_url TEXT,
-  masjid_image_main_delete_pending_until TIMESTAMP,
-
-  -- Media (BACKGROUND)
-  masjid_image_bg_url  TEXT,
-  masjid_image_bg_trash_url TEXT,
-  masjid_image_bg_delete_pending_until TIMESTAMP,
-
-  -- Maps & sosial
-  masjid_google_maps_url TEXT,
-  masjid_instagram_url   TEXT,
-  masjid_whatsapp_url    TEXT,
-  masjid_youtube_url     TEXT,
-  masjid_facebook_url    TEXT,
-  masjid_tiktok_url      TEXT,
-  masjid_whatsapp_group_ikhwan_url TEXT,
-  masjid_whatsapp_group_akhwat_url TEXT,
 
   -- Domain & slug
   masjid_domain VARCHAR(50),
@@ -130,27 +108,13 @@ CREATE INDEX IF NOT EXISTS idx_masjids_search
 CREATE INDEX IF NOT EXISTS idx_masjids_earth
   ON masjids USING gist (ll_to_earth(masjid_latitude::float8, masjid_longitude::float8));
 
--- GC gambar default/main/bg: pilih yang due (trash ada & due lewat)
-CREATE INDEX IF NOT EXISTS idx_masjids_image_gc_due
-  ON masjids (masjid_image_delete_pending_until)
-  WHERE masjid_image_trash_url IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_masjids_image_main_gc_due
-  ON masjids (masjid_image_main_delete_pending_until)
-  WHERE masjid_image_main_trash_url IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_masjids_image_bg_gc_due
-  ON masjids (masjid_image_bg_delete_pending_until)
-  WHERE masjid_image_bg_trash_url IS NOT NULL;
-
 -- Index relasi yayasan
 CREATE INDEX IF NOT EXISTS idx_masjids_yayasan
   ON masjids (masjid_yayasan_id);
 
 -- =========================================================
--- TRIGGERS
+-- TRIGGER: Sinkronisasi verifikasi (HANYA INI YANG DIPERTAHANKAN)
 -- =========================================================
-
-
--- 2) Sinkronisasi verifikasi → boolean flag + timestamptz
 CREATE OR REPLACE FUNCTION sync_masjid_verification_flags() RETURNS trigger AS $$
 BEGIN
   IF NEW.masjid_verification_status = 'approved' THEN
@@ -170,56 +134,6 @@ CREATE TRIGGER trg_sync_verification
 BEFORE INSERT OR UPDATE ON masjids
 FOR EACH ROW
 EXECUTE FUNCTION sync_masjid_verification_flags();
-
--- 3) Image Trash 30 hari: default + main + background
-CREATE OR REPLACE FUNCTION handle_masjid_image_trash() RETURNS trigger AS $$
-BEGIN
-  IF TG_OP = 'UPDATE' THEN
-    -- SLOT DEFAULT
-    IF NEW.masjid_image_url IS DISTINCT FROM OLD.masjid_image_url THEN
-      IF OLD.masjid_image_trash_url IS NOT NULL
-         AND NEW.masjid_image_url = OLD.masjid_image_trash_url THEN
-        NEW.masjid_image_trash_url := NULL;
-        NEW.masjid_image_delete_pending_until := NULL;
-      ELSIF OLD.masjid_image_url IS NOT NULL THEN
-        NEW.masjid_image_trash_url := OLD.masjid_image_url;
-        NEW.masjid_image_delete_pending_until := now() + INTERVAL '30 days';
-      END IF;
-    END IF;
-
-    -- SLOT MAIN
-    IF NEW.masjid_image_main_url IS DISTINCT FROM OLD.masjid_image_main_url THEN
-      IF OLD.masjid_image_main_trash_url IS NOT NULL
-         AND NEW.masjid_image_main_url = OLD.masjid_image_main_trash_url THEN
-        NEW.masjid_image_main_trash_url := NULL;
-        NEW.masjid_image_main_delete_pending_until := NULL;
-      ELSIF OLD.masjid_image_main_url IS NOT NULL THEN
-        NEW.masjid_image_main_trash_url := OLD.masjid_image_main_url;
-        NEW.masjid_image_main_delete_pending_until := now() + INTERVAL '30 days';
-      END IF;
-    END IF;
-
-    -- SLOT BACKGROUND
-    IF NEW.masjid_image_bg_url IS DISTINCT FROM OLD.masjid_image_bg_url THEN
-      IF OLD.masjid_image_bg_trash_url IS NOT NULL
-         AND NEW.masjid_image_bg_url = OLD.masjid_image_bg_trash_url THEN
-        NEW.masjid_image_bg_trash_url := NULL;
-        NEW.masjid_image_bg_delete_pending_until := NULL;
-      ELSIF OLD.masjid_image_bg_url IS NOT NULL THEN
-        NEW.masjid_image_bg_trash_url := OLD.masjid_image_bg_url;
-        NEW.masjid_image_bg_delete_pending_until := now() + INTERVAL '30 days';
-      END IF;
-    END IF;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_handle_masjid_image_trash ON masjids;
-CREATE TRIGGER trg_handle_masjid_image_trash
-BEFORE UPDATE ON masjids
-FOR EACH ROW
-EXECUTE FUNCTION handle_masjid_image_trash();
 
 -- =========================================================
 -- RELATIONSHIPS

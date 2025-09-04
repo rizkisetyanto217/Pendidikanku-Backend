@@ -2,7 +2,7 @@
 package routes
 
 import (
-	dailyctl "masjidku_backend/internals/features/school/schedule_daily_rooms/schedule_daily/controller"
+	dailyctl "masjidku_backend/internals/features/school/sessions_assesment/schedule_daily/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
