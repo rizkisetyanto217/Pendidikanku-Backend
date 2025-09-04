@@ -149,19 +149,6 @@ CREATE INDEX IF NOT EXISTS idx_masjids_yayasan
 -- TRIGGERS
 -- =========================================================
 
--- 1) Auto-updated_at
-CREATE OR REPLACE FUNCTION set_updated_at_masjids() RETURNS trigger AS $$
-BEGIN
-  NEW.masjid_updated_at := now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_set_updated_at_masjids ON masjids;
-CREATE TRIGGER trg_set_updated_at_masjids
-BEFORE UPDATE ON masjids
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at_masjids();
 
 -- 2) Sinkronisasi verifikasi → boolean flag + timestamptz
 CREATE OR REPLACE FUNCTION sync_masjid_verification_flags() RETURNS trigger AS $$

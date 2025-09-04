@@ -46,18 +46,5 @@ CREATE INDEX IF NOT EXISTS idx_masjid_stats_masjid_id_updated_at
 CREATE INDEX IF NOT EXISTS idx_masjid_stats_updated_at_desc
   ON masjid_stats (masjid_stats_updated_at DESC);
 
--- =========================
--- TRIGGER updated_at
--- =========================
-CREATE OR REPLACE FUNCTION set_updated_at_masjid_stats() RETURNS trigger AS $$
-BEGIN
-  NEW.masjid_stats_updated_at = now();
-  RETURN NEW;
-END; $$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_set_updated_at_masjid_stats ON masjid_stats;
-CREATE TRIGGER trg_set_updated_at_masjid_stats
-BEFORE UPDATE ON masjid_stats
-FOR EACH ROW EXECUTE FUNCTION set_updated_at_masjid_stats();
 
 COMMIT;

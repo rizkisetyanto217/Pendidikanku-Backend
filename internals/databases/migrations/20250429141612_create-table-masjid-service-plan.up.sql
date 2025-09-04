@@ -26,14 +26,6 @@ CREATE TABLE IF NOT EXISTS masjid_service_plans (
   masjid_service_plan_deleted_at TIMESTAMPTZ NULL
 );
 
--- Trigger updated_at
-CREATE OR REPLACE FUNCTION set_updated_at_masjid_service_plans() RETURNS trigger AS $$
-BEGIN
-  NEW.masjid_service_plan_updated_at := now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
 DROP TRIGGER IF EXISTS trg_set_updated_at_masjid_service_plans ON masjid_service_plans;
 CREATE TRIGGER trg_set_updated_at_masjid_service_plans
 BEFORE UPDATE ON masjid_service_plans

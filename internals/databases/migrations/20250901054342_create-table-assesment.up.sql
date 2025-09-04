@@ -36,23 +36,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_types_masjid_key
 CREATE INDEX IF NOT EXISTS idx_assessment_types_masjid_active
   ON assessment_types(assessment_types_masjid_id, assessment_types_is_active);
 
--- auto update timestamp
-CREATE OR REPLACE FUNCTION fn_touch_assessment_types_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.assessment_types_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_touch_assessment_types_updated_at') THEN
-    DROP TRIGGER trg_touch_assessment_types_updated_at ON assessment_types;
-  END IF;
-  CREATE TRIGGER trg_touch_assessment_types_updated_at
-  BEFORE UPDATE ON assessment_types
-  FOR EACH ROW EXECUTE FUNCTION fn_touch_assessment_types_updated_at();
-END$$;
 
 
 -- =========================================================
@@ -151,25 +134,6 @@ CREATE INDEX IF NOT EXISTS brin_assessments_created_at
 --   ) BETWEEN 0 AND 1
 -- ;
 
--- auto update timestamp
-CREATE OR REPLACE FUNCTION fn_touch_assessments_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.assessments_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_touch_assessments_updated_at') THEN
-    DROP TRIGGER trg_touch_assessments_updated_at ON assessments;
-  END IF;
-  CREATE TRIGGER trg_touch_assessments_updated_at
-  BEFORE UPDATE ON assessments
-  FOR EACH ROW EXECUTE FUNCTION fn_touch_assessments_updated_at();
-END$$;
-
-
 
 -- =========================================================
 -- 3) ASSESSMENT URLS (tanpa mime/size/checksum/audience)
@@ -215,22 +179,5 @@ CREATE INDEX IF NOT EXISTS idx_assessment_urls_publish_flags
 CREATE INDEX IF NOT EXISTS brin_assessment_urls_created_at
   ON assessment_urls USING BRIN (assessment_urls_created_at);
 
--- auto update timestamp
-CREATE OR REPLACE FUNCTION fn_touch_assessment_urls_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.assessment_urls_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_touch_assessment_urls_updated_at') THEN
-    DROP TRIGGER trg_touch_assessment_urls_updated_at ON assessment_urls;
-  END IF;
-  CREATE TRIGGER trg_touch_assessment_urls_updated_at
-  BEFORE UPDATE ON assessment_urls
-  FOR EACH ROW EXECUTE FUNCTION fn_touch_assessment_urls_updated_at();
-END$$;
 
 COMMIT;

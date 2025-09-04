@@ -23,18 +23,6 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     CONSTRAINT ck_rt_expiry_future CHECK (expires_at > created_at)
 );
 
--- Trigger auto-UPDATE updated_at
-CREATE OR REPLACE FUNCTION set_refresh_tokens_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END; $$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_refresh_tokens_updated_at ON refresh_tokens;
-CREATE TRIGGER trg_refresh_tokens_updated_at
-BEFORE UPDATE ON refresh_tokens
-FOR EACH ROW EXECUTE FUNCTION set_refresh_tokens_updated_at();
 
 -- INDEXING (disetel untuk pola query umum)
 

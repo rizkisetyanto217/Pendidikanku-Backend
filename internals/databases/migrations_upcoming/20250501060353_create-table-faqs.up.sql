@@ -19,15 +19,6 @@ CREATE TABLE IF NOT EXISTS faq_answers (
   ) STORED
 );
 
--- ---------------------------------------------------------
--- Functions (faq_answers + helper yang juga dipakai faq_questions)
--- ---------------------------------------------------------
-CREATE OR REPLACE FUNCTION fn_touch_updated_at_fqa()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.faq_answer_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
 
 -- helper: re-evaluate is_answered (butuh faq_answers sudah ada)
 CREATE OR REPLACE FUNCTION fn_reevaluate_question_answered(p_question_id UUID)

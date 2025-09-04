@@ -11,30 +11,10 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
--- -------------------------------------------------
--- Trigger functions: touch updated_at kolom spesifik
--- -------------------------------------------------
-CREATE OR REPLACE FUNCTION fn_touch_post_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.post_updated_at := CURRENT_TIMESTAMPTZ;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION fn_touch_post_like_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.post_like_updated_at := CURRENT_TIMESTAMPTZ;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
 -- =================================================
 -- =======================  UP  ====================
 -- =================================================
 
--- =========================
--- post_themes
--- =========================
 CREATE TABLE IF NOT EXISTS post_themes (
   post_theme_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   post_theme_name        VARCHAR(100) NOT NULL,
@@ -80,12 +60,6 @@ CREATE TABLE IF NOT EXISTS posts (
     CHECK (post_type IN ('text','image','video','link','masjid','motivasi'))
 );
 
--- Trigger: touch post_updated_at
-DROP TRIGGER IF EXISTS trg_posts_touch ON posts;
-CREATE TRIGGER trg_posts_touch
-BEFORE UPDATE ON posts
-FOR EACH ROW
-EXECUTE FUNCTION fn_touch_post_updated_at();
 
 -- Indexing (posts)
 -- 1) Listing default per masjid, hanya yang published & belum dihapus
@@ -135,13 +109,6 @@ CREATE TABLE IF NOT EXISTS post_likes (
 
   CONSTRAINT unique_post_like UNIQUE (post_like_post_id, post_like_user_id)
 );
-
--- Trigger: touch post_like_updated_at
-DROP TRIGGER IF EXISTS trg_post_likes_touch ON post_likes;
-CREATE TRIGGER trg_post_likes_touch
-BEFORE UPDATE ON post_likes
-FOR EACH ROW
-EXECUTE FUNCTION fn_touch_post_like_updated_at();
 
 -- Indexing (likes)
 -- 1) Aggregasi cepat: total like per post (hanya yang liked=TRUE)

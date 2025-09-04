@@ -30,16 +30,4 @@ CREATE INDEX IF NOT EXISTS idx_mtj_masjid_alive
   ON masjid_teachers (masjid_teacher_masjid_id)
   WHERE masjid_teacher_deleted_at IS NULL;
 
--- updated_at trigger
-CREATE OR REPLACE FUNCTION set_updated_at_mtj() RETURNS trigger AS $$
-BEGIN
-  NEW.masjid_teacher_updated_at := now();
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_set_updated_at_mtj ON masjid_teachers;
-CREATE TRIGGER trg_set_updated_at_mtj
-BEFORE UPDATE ON masjid_teachers
-FOR EACH ROW EXECUTE FUNCTION set_updated_at_mtj();
-
 COMMIT;

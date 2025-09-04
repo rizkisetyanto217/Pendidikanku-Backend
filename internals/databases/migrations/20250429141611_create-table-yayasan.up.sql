@@ -125,20 +125,6 @@ CREATE INDEX IF NOT EXISTS idx_yayasans_logo_gc_due
 -- TRIGGERS
 -- =========================================================
 
--- 1) Auto-updated_at
-CREATE OR REPLACE FUNCTION set_updated_at_yayasans() RETURNS trigger AS $$
-BEGIN
-  NEW.yayasan_updated_at := now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_set_updated_at_yayasans ON yayasans;
-CREATE TRIGGER trg_set_updated_at_yayasans
-BEFORE UPDATE ON yayasans
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at_yayasans();
-
 -- 2) Sinkronisasi verifikasi → boolean flag + timestamptz
 CREATE OR REPLACE FUNCTION sync_yayasan_verification_flags() RETURNS trigger AS $$
 BEGIN

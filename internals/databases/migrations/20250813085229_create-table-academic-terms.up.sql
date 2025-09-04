@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 CREATE OR REPLACE FUNCTION fn_touch_academic_terms_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
-  NEW.academic_terms_updated_at := CURRENT_TIMESTAMPTZ;
+  NEW.academic_terms_updated_at := CURRENT_TIMESTAMP;
   RETURN NEW;
 END$$ LANGUAGE plpgsql;
 
@@ -27,6 +27,9 @@ CREATE TABLE IF NOT EXISTS academic_terms (
   academic_terms_start_date    TIMESTAMPTZ NOT NULL,
   academic_terms_end_date      TIMESTAMPTZ NOT NULL,
   academic_terms_is_active     BOOLEAN   NOT NULL DEFAULT TRUE,
+
+  -- NEW: angkatan (opsional). Disimpan sebagai tahun masuk/angkatan (mis. 2024).
+  academic_terms_angkatan      INTEGER,
 
   -- half-open range [start, end) - IMMUTABLE via explicit timezone
   academic_terms_period        DATERANGE GENERATED ALWAYS AS
@@ -45,11 +48,24 @@ CREATE TABLE IF NOT EXISTS academic_terms (
   CHECK (academic_terms_end_date >= academic_terms_start_date)
 );
 
--- Trigger: touch updated_at
-DROP TRIGGER IF EXISTS trg_touch_academic_terms ON academic_terms;
-CREATE TRIGGER trg_touch_academic_terms
-BEFORE UPDATE ON academic_terms
-FOR EACH ROW EXECUTE FUNCTION fn_touch_academic_terms_updated_at();
+-- Tambahkan kolom angkatan bila tabel sudah eksis (idempotent)
+ALTER TABLE academic_terms
+  ADD COLUMN IF NOT EXISTS academic_terms_angkatan INTEGER;
+
+-- Constraint range angkatan (idempotent)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'chk_academic_terms_angkatan_range'
+      AND conrelid = 'academic_terms'::regclass
+  ) THEN
+    ALTER TABLE academic_terms
+      ADD CONSTRAINT chk_academic_terms_angkatan_range
+      CHECK (academic_terms_angkatan IS NULL OR academic_terms_angkatan BETWEEN 1900 AND 9999);
+  END IF;
+END$$;
+
 
 -- Bersihkan constraint/index lama (opsional; aman kalau tidak ada)
 DROP INDEX IF EXISTS uq_academic_terms_tenant_year_name_live;
@@ -117,6 +133,11 @@ CREATE INDEX IF NOT EXISTS ix_academic_terms_year
 DROP INDEX IF EXISTS ix_academic_terms_year_trgm;
 CREATE INDEX IF NOT EXISTS ix_academic_terms_year_trgm_lower
   ON academic_terms USING GIN (lower(academic_terms_academic_year) gin_trgm_ops)
+  WHERE academic_terms_deleted_at IS NULL;
+
+-- NEW: index per-tenant untuk angkatan (filtering cepat)
+CREATE INDEX IF NOT EXISTS ix_academic_terms_tenant_angkatan
+  ON academic_terms (academic_terms_masjid_id, academic_terms_angkatan)
   WHERE academic_terms_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_academic_terms_tenant_created_at

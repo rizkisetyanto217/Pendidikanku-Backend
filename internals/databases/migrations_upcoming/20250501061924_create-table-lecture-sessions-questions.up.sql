@@ -7,23 +7,6 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ---------------------------------------------------------
--- Touch updated_at helpers
--- ---------------------------------------------------------
-CREATE OR REPLACE FUNCTION fn_touch_updated_at_ls_questions()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.lecture_sessions_question_updated_at := CURRENT_TIMESTAMPTZ;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION fn_touch_updated_at_ls_user_questions()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.lecture_sessions_user_question_updated_at := CURRENT_TIMESTAMPTZ;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
--- ---------------------------------------------------------
 -- Table: lecture_sessions_questions
 -- ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS lecture_sessions_questions (
@@ -103,12 +86,6 @@ CREATE INDEX IF NOT EXISTS idx_ls_questions_trgm
   ON lecture_sessions_questions USING GIN (LOWER(lecture_sessions_question) gin_trgm_ops)
   WHERE lecture_sessions_question_deleted_at IS NULL;
 
--- Trigger updated_at
-DROP TRIGGER IF EXISTS trg_ls_questions_touch ON lecture_sessions_questions;
-CREATE TRIGGER trg_ls_questions_touch
-BEFORE UPDATE ON lecture_sessions_questions
-FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_ls_questions();
-
 -- ---------------------------------------------------------
 -- Table: lecture_sessions_user_questions
 -- ---------------------------------------------------------
@@ -152,9 +129,3 @@ CREATE INDEX IF NOT EXISTS idx_ls_user_questions_qid_answer
   ON lecture_sessions_user_questions(lecture_sessions_user_question_question_id,
                                     lecture_sessions_user_question_answer)
   WHERE lecture_sessions_user_question_deleted_at IS NULL;
-
--- Trigger updated_at
-DROP TRIGGER IF EXISTS trg_ls_user_questions_touch ON lecture_sessions_user_questions;
-CREATE TRIGGER trg_ls_user_questions_touch
-BEFORE UPDATE ON lecture_sessions_user_questions
-FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_ls_user_questions();

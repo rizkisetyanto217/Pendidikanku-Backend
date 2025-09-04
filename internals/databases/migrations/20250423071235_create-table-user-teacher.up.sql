@@ -7,14 +7,6 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
--- Utility: updated_at trigger fn (aman berulang)
-CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
-BEGIN
-  NEW.updated_at := now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
 -- Tabel inti
 CREATE TABLE IF NOT EXISTS users_teacher (
   users_teacher_id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -72,11 +64,5 @@ CREATE INDEX IF NOT EXISTS idx_users_teacher_active
 
 CREATE INDEX IF NOT EXISTS brin_users_teacher_created_at
   ON users_teacher USING brin (users_teacher_created_at);
-
--- Trigger updated_at
-DROP TRIGGER IF EXISTS trg_set_updated_at_users_teacher ON users_teacher;
-CREATE TRIGGER trg_set_updated_at_users_teacher
-BEFORE UPDATE ON users_teacher
-FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 COMMIT;

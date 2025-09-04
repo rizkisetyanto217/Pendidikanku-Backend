@@ -60,24 +60,6 @@ CREATE INDEX IF NOT EXISTS idx_submissions_masjid
 CREATE INDEX IF NOT EXISTS brin_submissions_created_at
   ON submissions USING BRIN (submissions_created_at);
 
--- auto update timestamp
-CREATE OR REPLACE FUNCTION fn_touch_submissions_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.submissions_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_touch_submissions_updated_at') THEN
-    DROP TRIGGER trg_touch_submissions_updated_at ON submissions;
-  END IF;
-  CREATE TRIGGER trg_touch_submissions_updated_at
-  BEFORE UPDATE ON submissions
-  FOR EACH ROW EXECUTE FUNCTION fn_touch_submissions_updated_at();
-END$$;
-
 
 -- =========================================================
 -- 5) SUBMISSION URLS (lampiran kiriman user)
@@ -111,20 +93,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_submission_urls_submission_href
 CREATE INDEX IF NOT EXISTS brin_submission_urls_created_at
   ON submission_urls USING BRIN (submission_urls_created_at);
 
--- auto update timestamp
-CREATE OR REPLACE FUNCTION fn_touch_submission_urls_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.submission_urls_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_touch_submission_urls_updated_at') THEN
-    DROP TRIGGER trg_touch_submission_urls_updated_at ON submission_urls;
-  END IF;
-  CREATE TRIGGER trg_touch_submission_urls_updated_at
-  BEFORE UPDATE ON submission_urls
-  FOR EACH ROW EXECUTE FUNCTION fn_touch_submission_urls_updated_at();
-END$$;

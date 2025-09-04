@@ -9,14 +9,6 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram index
 CREATE EXTENSION IF NOT EXISTS citext;     -- case-insensitive text
 CREATE EXTENSION IF NOT EXISTS btree_gin;  -- opsional utk kombinasi tertentu
 
--- ---------- SHARED: updated_at trigger ----------
-CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
-BEGIN
-  NEW.updated_at := now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
 -- =========================================================
 -- 1) USERS (tanpa kolom role)
 -- =========================================================
@@ -58,10 +50,6 @@ ALTER TABLE users
   ) STORED;
 CREATE INDEX IF NOT EXISTS idx_users_user_search ON users USING gin (user_search);
 
-DROP TRIGGER IF EXISTS trg_set_updated_at_users ON users;
-CREATE TRIGGER trg_set_updated_at_users
-BEFORE UPDATE ON users
-FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- =========================================================
 -- 2) USERS_PROFILE
@@ -95,10 +83,5 @@ CREATE INDEX IF NOT EXISTS idx_users_profile_phone
   ON users_profile(phone_number) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_users_profile_location
   ON users_profile(location) WHERE deleted_at IS NULL;
-
-DROP TRIGGER IF EXISTS trg_set_updated_at_users_profile ON users_profile;
-CREATE TRIGGER trg_set_updated_at_users_profile
-BEFORE UPDATE ON users_profile
-FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 COMMIT;

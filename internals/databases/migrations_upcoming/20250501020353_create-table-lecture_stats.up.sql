@@ -29,19 +29,6 @@ CREATE INDEX IF NOT EXISTS idx_lecture_stats_masjid_id  ON lecture_stats(lecture
 CREATE INDEX IF NOT EXISTS idx_lecture_stats_masjid_recent
   ON lecture_stats(lecture_stats_masjid_id, lecture_stats_updated_at DESC);
 
--- Trigger: touch updated_at (TIMESTAMPTZ)
-CREATE OR REPLACE FUNCTION fn_touch_lecture_stats_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.lecture_stats_updated_at := CURRENT_TIMESTAMPTZ;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_touch_lecture_stats_updated_at ON lecture_stats;
-CREATE TRIGGER trg_touch_lecture_stats_updated_at
-BEFORE UPDATE ON lecture_stats
-FOR EACH ROW
-EXECUTE FUNCTION fn_touch_lecture_stats_updated_at();
 
 -- =========================================
 -- Recalc function: hitung ulang statistik

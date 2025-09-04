@@ -11,16 +11,6 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
--- -------------------------------------------------
--- Trigger functions: touch updated_at
--- -------------------------------------------------
-CREATE OR REPLACE FUNCTION fn_touch_updated_at_generic()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at := CURRENT_TIMESTAMPTZ;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
 -- (Opsional) Validasi jawaban user pada user_surveys
 -- - Jika survey_question_answer (opsi) TIDAK NULL, maka jawaban user harus salah satu elemen opsi tsb
 CREATE OR REPLACE FUNCTION fn_validate_user_survey_answer()
@@ -64,13 +54,6 @@ CREATE TABLE IF NOT EXISTS survey_questions (
   -- Atau, jika per "survey"/section nanti, tambahkan kolom scope lalu unique (scope, order)
   CONSTRAINT chk_order_index_nonneg CHECK (survey_question_order_index >= 0)
 );
-
--- Trigger: touch updated_at
-DROP TRIGGER IF EXISTS trg_survey_questions_touch ON survey_questions;
-CREATE TRIGGER trg_survey_questions_touch
-BEFORE UPDATE ON survey_questions
-FOR EACH ROW
-EXECUTE FUNCTION fn_touch_updated_at_generic();
 
 -- Indexing (survey_questions)
 CREATE INDEX IF NOT EXISTS idx_survey_questions_order
@@ -171,12 +154,6 @@ CREATE TABLE IF NOT EXISTS user_test_exams (
   CONSTRAINT uq_user_test_exams_user_exam UNIQUE (user_test_exam_user_id, user_test_exam_test_exam_id)
 );
 
--- Trigger: touch updated_at
-DROP TRIGGER IF EXISTS trg_user_test_exams_touch ON user_test_exams;
-CREATE TRIGGER trg_user_test_exams_touch
-BEFORE UPDATE ON user_test_exams
-FOR EACH ROW
-EXECUTE FUNCTION fn_touch_updated_at_generic();
 
 -- Indexing (user_test_exams)
 -- Rekap cepat per exam

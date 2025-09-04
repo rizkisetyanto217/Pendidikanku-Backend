@@ -75,7 +75,7 @@ func mapPGError(err error) *fiber.Error {
 	if errors.As(err, &pgErr) {
 		switch pgErr.SQLState() {
 		case "23P01":
-			return fiber.NewError(http.StatusConflict, "Bentrok jadwal: time range overlap (room/section/teacher).")
+			return fiber.NewError(http.StatusConflict, "Bentrok jadwal: time range overlap (room/section).")
 		case "23503":
 			return fiber.NewError(http.StatusBadRequest, "Referensi tidak ditemukan (FK violation).")
 		case "23505":
@@ -86,27 +86,42 @@ func mapPGError(err error) *fiber.Error {
 	return fiber.NewError(http.StatusInternalServerError, err.Error())
 }
 
+func parseTimeOfDayParam(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, fmt.Errorf("empty time")
+	}
+	// support HH:mm lalu HH:mm:ss
+	if t, err := time.Parse("15:04", s); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse("15:04:05", s); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("invalid time format (want HH:mm or HH:mm:ss)")
+}
+
 /* =========================
    Query: List
    ========================= */
 
 type listQuery struct {
 	// Filter
-	MasjidID   string `query:"masjid_id"`
-	SectionID  string `query:"section_id"`
-	TeacherID  string `query:"teacher_id"`
-	RoomID     string `query:"room_id"`
-	Status     string `query:"status"` // scheduled|ongoing|finished|canceled
-	Active     *bool  `query:"active"`
-	DayOfWeek  *int   `query:"dow"`        // 1..7
-	OnDate     string `query:"on_date"`    // YYYY-MM-DD: filter yg jatuh tempo di tanggal ini (di antara start_date & end_date) dan DOW match
-	StartAfter string `query:"start_after"`// HH:mm / HH:mm:ss → start_time >=
-	EndBefore  string `query:"end_before"` // HH:mm / HH:mm:ss → end_time <=
+	MasjidID       string `query:"masjid_id"`
+	SectionID      string `query:"section_id"`
+	ClassSubjectID string `query:"class_subject_id"`
+	RoomID         string `query:"room_id"`
+	Status         string `query:"status"` // scheduled|ongoing|finished|canceled
+	Active         *bool  `query:"active"`
+	DayOfWeek      *int   `query:"dow"`        // 1..7
+	OnDate         string `query:"on_date"`    // YYYY-MM-DD (di antara start_date & end_date) + DOW match
+	StartAfter     string `query:"start_after"`// HH:mm / HH:mm:ss → start_time >=
+	EndBefore      string `query:"end_before"` // HH:mm / HH:mm:ss → end_time <=
 
 	// Pagination & sort
 	Limit  int    `query:"limit"`
 	Offset int    `query:"offset"`
-	SortBy string `query:"sort_by"` // contoh: start_time,end_time,created_at (default: start_time)
+	SortBy string `query:"sort_by"` // start_time|end_time|created_at|updated_at (default: start_time)
 	Order  string `query:"order"`   // asc|desc (default: asc)
 }
 
@@ -138,11 +153,11 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		}
 		db = db.Where("class_schedules_section_id = ?", q.SectionID)
 	}
-	if q.TeacherID != "" {
-		if _, err := uuid.Parse(q.TeacherID); err != nil {
-			return fiber.NewError(http.StatusBadRequest, "teacher_id invalid")
+	if q.ClassSubjectID != "" {
+		if _, err := uuid.Parse(q.ClassSubjectID); err != nil {
+			return fiber.NewError(http.StatusBadRequest, "class_subject_id invalid")
 		}
-		db = db.Where("class_schedules_teacher_id = ?", q.TeacherID)
+		db = db.Where("class_schedules_class_subject_id = ?", q.ClassSubjectID)
 	}
 	if q.RoomID != "" {
 		if _, err := uuid.Parse(q.RoomID); err != nil {
@@ -174,7 +189,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		if err != nil {
 			return fiber.NewError(http.StatusBadRequest, "on_date invalid (YYYY-MM-DD)")
 		}
-		// day of week postgres: 0=Sun..6=Sat; kita pakai 1..7
+		// Go: Sunday(0)..Saturday(6) → ISO: Monday(1)..Sunday(7)
 		dow := int(d.Weekday()) // 0..6
 		if dow == 0 {
 			dow = 7
@@ -185,14 +200,14 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 
 	// Time window
 	if strings.TrimSpace(q.StartAfter) != "" {
-		t, err := http.ParseTime(q.StartAfter)
+		t, err := parseTimeOfDayParam(q.StartAfter)
 		if err != nil {
 			return fiber.NewError(http.StatusBadRequest, "start_after invalid (HH:mm/HH:mm:ss)")
 		}
 		db = db.Where("class_schedules_start_time >= ?", t)
 	}
 	if strings.TrimSpace(q.EndBefore) != "" {
-		t, err := http.ParseTime(q.EndBefore)
+		t, err := parseTimeOfDayParam(q.EndBefore)
 		if err != nil {
 			return fiber.NewError(http.StatusBadRequest, "end_before invalid (HH:mm/HH:mm:ss)")
 		}

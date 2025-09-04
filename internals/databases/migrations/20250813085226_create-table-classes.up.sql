@@ -32,34 +32,6 @@ CREATE TABLE IF NOT EXISTS classes (
   class_deleted_at            TIMESTAMPTZ
 );
 
--- guard kolom lama
-ALTER TABLE classes
-  ADD COLUMN IF NOT EXISTS class_code VARCHAR(40),
-  ADD COLUMN IF NOT EXISTS class_trash_url TEXT,
-  ADD COLUMN IF NOT EXISTS class_delete_pending_until TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS class_mode VARCHAR(20);
-
-DO $$
-BEGIN
-  BEGIN ALTER TABLE classes ALTER COLUMN class_mode DROP NOT NULL; EXCEPTION WHEN others THEN NULL; END;
-  BEGIN ALTER TABLE classes ALTER COLUMN class_mode DROP DEFAULT;   EXCEPTION WHEN others THEN NULL; END;
-END$$;
-
--- bersihkan unique lama
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'classes_class_slug_key') THEN
-    ALTER TABLE classes DROP CONSTRAINT classes_class_slug_key;
-  ELSIF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'class_slug_key') THEN
-    ALTER TABLE classes DROP CONSTRAINT class_slug_key;
-  END IF;
-
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'classes_class_code_key') THEN
-    ALTER TABLE classes DROP CONSTRAINT classes_class_code_key;
-  ELSIF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'class_code_key') THEN
-    ALTER TABLE classes DROP CONSTRAINT class_code_key;
-  END IF;
-END$$;
 
 -- unique komposit
 DO $$
@@ -114,26 +86,6 @@ CREATE INDEX IF NOT EXISTS idx_classes_masjid_mode_visible
   WHERE class_deleted_at IS NULL
     AND class_delete_pending_until IS NULL;
 
--- trigger
-CREATE OR REPLACE FUNCTION fn_classes_touch_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.class_updated_at := NOW();
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_classes_touch_updated_at') THEN
-    DROP TRIGGER trg_classes_touch_updated_at ON classes;
-  END IF;
-
-  CREATE TRIGGER trg_classes_touch_updated_at
-    BEFORE UPDATE ON classes
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_classes_touch_updated_at();
-END$$;
-
 COMMIT;
 
 -- =========================================================
@@ -141,6 +93,9 @@ COMMIT;
 -- =========================================================
 BEGIN;
 
+-- =========================================================
+-- CLASS_SECTIONS (UP) — with total_students
+-- =========================================================
 CREATE TABLE IF NOT EXISTS class_sections (
   class_sections_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -159,20 +114,30 @@ CREATE TABLE IF NOT EXISTS class_sections (
     CHECK (class_sections_capacity IS NULL OR class_sections_capacity >= 0),
   class_sections_schedule JSONB,
 
+  -- denormalized counter (disimpan)
+  class_sections_total_students INT NOT NULL DEFAULT 0,
+
   class_sections_is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
   class_sections_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  class_sections_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_sections_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   class_sections_deleted_at TIMESTAMPTZ
 );
 
--- FK ke masjid_teachers, deteksi kolom PK
+-- Guard nilai tidak boleh negatif (idempotent)
+ALTER TABLE class_sections
+  DROP CONSTRAINT IF EXISTS class_sections_total_students_nonneg_chk;
+ALTER TABLE class_sections
+  ADD  CONSTRAINT class_sections_total_students_nonneg_chk
+  CHECK (class_sections_total_students >= 0);
+
+-- FK ke masjid_teachers, deteksi kolom PK secara dinamis (idempotent)
 DO $$
 DECLARE
-  fk_name text;
+  fk_name   text;
   target_col text;
 BEGIN
-  -- cek FK lama
+  -- cek FK lama pada kolom class_sections_teacher_id
   SELECT tc.constraint_name
     INTO fk_name
   FROM information_schema.table_constraints tc
@@ -201,7 +166,7 @@ BEGIN
     RAISE EXCEPTION 'Tidak menemukan kolom PK di masjid_teachers';
   END IF;
 
-  -- jika FK lama salah arah, drop
+  -- jika FK lama tidak menunjuk ke kolom yang tepat, drop
   IF fk_name IS NOT NULL THEN
     PERFORM 1
     FROM information_schema.referential_constraints rc
@@ -217,7 +182,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- buat FK benar kalau belum ada
+  -- buat FK yang benar jika belum ada
   IF fk_name IS NULL THEN
     EXECUTE format($sql$
       ALTER TABLE class_sections
@@ -229,7 +194,7 @@ BEGIN
   END IF;
 END$$;
 
--- unique + index
+-- uniques & indexes (idempotent)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_class_name
   ON class_sections (class_sections_class_id, class_sections_name)
   WHERE class_sections_deleted_at IS NULL;
@@ -250,34 +215,20 @@ BEGIN
   END IF;
 END$$;
 
-CREATE INDEX IF NOT EXISTS idx_sections_class       ON class_sections(class_sections_class_id);
-CREATE INDEX IF NOT EXISTS idx_sections_active      ON class_sections(class_sections_is_active);
-CREATE INDEX IF NOT EXISTS idx_sections_masjid      ON class_sections(class_sections_masjid_id);
-CREATE INDEX IF NOT EXISTS idx_sections_created_at  ON class_sections(class_sections_created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_sections_slug        ON class_sections(class_sections_slug);
-CREATE INDEX IF NOT EXISTS idx_sections_teacher     ON class_sections(class_sections_teacher_id);
+CREATE INDEX IF NOT EXISTS idx_sections_class        ON class_sections(class_sections_class_id);
+CREATE INDEX IF NOT EXISTS idx_sections_active       ON class_sections(class_sections_is_active);
+CREATE INDEX IF NOT EXISTS idx_sections_masjid       ON class_sections(class_sections_masjid_id);
+CREATE INDEX IF NOT EXISTS idx_sections_created_at   ON class_sections(class_sections_created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sections_slug         ON class_sections(class_sections_slug);
+CREATE INDEX IF NOT EXISTS idx_sections_teacher      ON class_sections(class_sections_teacher_id);
 
--- trigger
-CREATE OR REPLACE FUNCTION fn_class_sections_touch_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.class_sections_updated_at := now();
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_class_sections_touch_updated_at') THEN
-    DROP TRIGGER trg_class_sections_touch_updated_at ON class_sections;
-  END IF;
-
-  CREATE TRIGGER trg_class_sections_touch_updated_at
-    BEFORE UPDATE ON class_sections
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_class_sections_touch_updated_at();
-END$$;
+-- indeks untuk total_students (sorting/filter cepat; hanya alive)
+CREATE INDEX IF NOT EXISTS idx_sections_total_students_alive
+  ON class_sections (class_sections_total_students)
+  WHERE class_sections_deleted_at IS NULL;
 
 COMMIT;
+
 
 -- =========================================================
 -- CLASS_PRICING_OPTIONS
@@ -321,25 +272,6 @@ CREATE INDEX IF NOT EXISTS idx_class_pricing_options_label_per_class
   ON class_pricing_options (class_pricing_options_class_id, lower(class_pricing_options_label))
   WHERE class_pricing_options_deleted_at IS NULL;
 
--- trigger
-CREATE OR REPLACE FUNCTION fn_class_pricing_options_touch_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.class_pricing_options_updated_at := now();
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_class_pricing_options_touch_updated_at') THEN
-    DROP TRIGGER trg_class_pricing_options_touch_updated_at ON class_pricing_options;
-  END IF;
-
-  CREATE TRIGGER trg_class_pricing_options_touch_updated_at
-    BEFORE UPDATE ON class_pricing_options
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_class_pricing_options_touch_updated_at();
-END$$;
 
 -- views
 DROP VIEW IF EXISTS v_cpo_latest_per_type;

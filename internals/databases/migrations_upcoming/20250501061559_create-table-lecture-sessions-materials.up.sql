@@ -6,22 +6,6 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram index
 
--- ---------------------------------------------------------
--- Trigger functions: updated_at (TIMESTAMP)
--- ---------------------------------------------------------
-CREATE OR REPLACE FUNCTION fn_touch_updated_at_lsmaterials()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.lecture_sessions_material_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION fn_touch_updated_at_lsassets()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.lecture_sessions_asset_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
 
 -- ---------------------------------------------------------
 -- TABEL: lecture_sessions_materials
@@ -68,13 +52,8 @@ CREATE INDEX IF NOT EXISTS idx_lsmat_summary_trgm
   ON lecture_sessions_materials USING GIN (LOWER(lecture_sessions_material_summary) gin_trgm_ops)
   WHERE lecture_sessions_material_deleted_at IS NULL;
 
--- Trigger updated_at
-DROP TRIGGER IF EXISTS trg_lsmat_touch ON lecture_sessions_materials;
-CREATE TRIGGER trg_lsmat_touch
-BEFORE UPDATE ON lecture_sessions_materials
-FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_lsmaterials();
 
--- ---------------------------------------------------------
+ ---------------------------------------------------------
 -- TABEL: lecture_sessions_assets
 -- ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS lecture_sessions_assets (
@@ -133,9 +112,3 @@ CREATE INDEX IF NOT EXISTS idx_lsasset_title_tsv_gin
 CREATE INDEX IF NOT EXISTS idx_lsasset_title_trgm
   ON lecture_sessions_assets USING GIN (LOWER(lecture_sessions_asset_title) gin_trgm_ops)
   WHERE lecture_sessions_asset_deleted_at IS NULL;
-
--- Trigger updated_at
-DROP TRIGGER IF EXISTS trg_lsasset_touch ON lecture_sessions_assets;
-CREATE TRIGGER trg_lsasset_touch
-BEFORE UPDATE ON lecture_sessions_assets
-FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_lsassets();

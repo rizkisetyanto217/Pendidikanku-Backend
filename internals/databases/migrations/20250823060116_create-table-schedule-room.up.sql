@@ -1,7 +1,22 @@
 BEGIN;
 
+-- =========================
+-- Prasyarat
+-- =========================
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
+-- Enum status jadwal
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'session_status_enum') THEN
+    CREATE TYPE session_status_enum AS ENUM ('scheduled','ongoing','completed','canceled');
+  END IF;
+END$$;
+
 -- =========================================================
--- CLASS_ROOMS — explicit timestamps + soft delete
+-- CLASS_ROOMS (timestamps standar GORM; tanpa trigger)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_rooms (
   class_room_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -23,91 +38,61 @@ CREATE TABLE IF NOT EXISTS class_rooms (
   -- daftar fasilitas (opsional)
   class_rooms_features  JSONB NOT NULL DEFAULT '[]'::jsonb,
 
-  -- timestamps eksplisit
-  class_rooms_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  class_rooms_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  class_rooms_deleted_at TIMESTAMPTZ
+  -- timestamps standar GORM (isi/update oleh aplikasi)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
 );
 
--- Jika tabel sudah ada: tambahkan kolom timestamps eksplisit (aman berulang)
-ALTER TABLE class_rooms
-  ADD COLUMN IF NOT EXISTS class_rooms_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  ADD COLUMN IF NOT EXISTS class_rooms_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  ADD COLUMN IF NOT EXISTS class_rooms_deleted_at TIMESTAMPTZ;
-
--- Backfill dari kolom generic jika ada
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name='class_rooms' AND column_name='created_at') THEN
-    UPDATE class_rooms
-    SET class_rooms_created_at = COALESCE(class_rooms_created_at, created_at)
-    WHERE class_rooms_created_at IS NULL;
-  END IF;
-
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name='class_rooms' AND column_name='updated_at') THEN
-    UPDATE class_rooms
-    SET class_rooms_updated_at = COALESCE(class_rooms_updated_at, updated_at)
-    WHERE class_rooms_updated_at IS NULL;
-  END IF;
-END$$;
-
--- Uniques per tenant (case-insensitive) → partial pada baris alive
-DROP INDEX IF EXISTS uq_class_rooms_tenant_name_ci;
+-- Uniques per tenant (case-insensitive) → hanya baris alive
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_name_ci
   ON class_rooms (class_rooms_masjid_id, lower(class_rooms_name))
-  WHERE class_rooms_deleted_at IS NULL;
+  WHERE deleted_at IS NULL;
 
-DROP INDEX IF EXISTS uq_class_rooms_tenant_code_ci;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_code_ci
   ON class_rooms (class_rooms_masjid_id, lower(class_rooms_code))
-  WHERE class_rooms_deleted_at IS NULL
+  WHERE deleted_at IS NULL
     AND class_rooms_code IS NOT NULL
     AND length(trim(class_rooms_code)) > 0;
 
 -- Indeks bantu
-DROP INDEX IF EXISTS idx_class_rooms_tenant_active;
 CREATE INDEX IF NOT EXISTS idx_class_rooms_tenant_active
   ON class_rooms (class_rooms_masjid_id, class_rooms_is_active)
-  WHERE class_rooms_deleted_at IS NULL;
+  WHERE deleted_at IS NULL;
 
--- (opsional) filter alive untuk GIN/TRGM agar lebih ringkas
-DROP INDEX IF EXISTS idx_class_rooms_features_gin;
 CREATE INDEX IF NOT EXISTS idx_class_rooms_features_gin
   ON class_rooms USING GIN (class_rooms_features jsonb_path_ops)
-  WHERE class_rooms_deleted_at IS NULL;
+  WHERE deleted_at IS NULL;
 
-DROP INDEX IF EXISTS idx_class_rooms_name_trgm;
 CREATE INDEX IF NOT EXISTS idx_class_rooms_name_trgm
   ON class_rooms USING GIN (class_rooms_name gin_trgm_ops)
-  WHERE class_rooms_deleted_at IS NULL;
+  WHERE deleted_at IS NULL;
 
-DROP INDEX IF EXISTS idx_class_rooms_location_trgm;
 CREATE INDEX IF NOT EXISTS idx_class_rooms_location_trgm
   ON class_rooms USING GIN (class_rooms_location gin_trgm_ops)
-  WHERE class_rooms_deleted_at IS NULL;
+  WHERE deleted_at IS NULL;
 
 -- =========================================================
--- CLASS_SCHEDULES — explicit timestamps + soft delete
+-- CLASS_SCHEDULES (pakai class_subjects; tanpa semester_id & teacher_id)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant / scope
-  class_schedules_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_schedules_masjid_id UUID NOT NULL
+    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   -- induk jadwal → section
   class_schedules_section_id  UUID NOT NULL
     REFERENCES class_sections(class_sections_id) ON DELETE CASCADE,
 
-  -- opsional override
-  class_schedules_subject_id  UUID REFERENCES subjects(subject_id) ON DELETE RESTRICT,
-  class_schedules_semester_id UUID REFERENCES academic_terms(academic_terms_id) ON DELETE CASCADE,
-  class_schedules_teacher_id  UUID REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE SET NULL,
+  -- mapel konteks (kelas+mapel[+term]) → class_subjects
+  class_schedules_class_subject_id UUID NOT NULL
+    REFERENCES class_subjects(class_subjects_id) ON DELETE RESTRICT,
 
   -- room (nullable)
-  class_schedules_room_id UUID REFERENCES class_rooms(class_room_id) ON DELETE SET NULL,
+  class_schedules_room_id UUID
+    REFERENCES class_rooms(class_room_id) ON DELETE SET NULL,
 
   -- pola berulang
   class_schedules_day_of_week INT  NOT NULL CHECK (class_schedules_day_of_week BETWEEN 1 AND 7),
@@ -121,7 +106,6 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   -- status & metadata
   class_schedules_status      session_status_enum NOT NULL DEFAULT 'scheduled',
   class_schedules_is_active   BOOLEAN NOT NULL DEFAULT TRUE,
-  class_schedules_room_label  TEXT,
 
   -- generated: rentang menit [start, end)
   class_schedules_time_range int4range
@@ -135,87 +119,34 @@ CREATE TABLE IF NOT EXISTS class_schedules (
       )
     ) STORED,
 
-  -- timestamps eksplisit
-  class_schedules_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  class_schedules_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  class_schedules_deleted_at TIMESTAMPTZ
+  -- timestamps standar GORM (dikelola aplikasi)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
 );
 
--- Backfill dari kolom generic jika ada
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name='class_schedules' AND column_name='created_at') THEN
-    UPDATE class_schedules
-    SET class_schedules_created_at = COALESCE(class_schedules_created_at, created_at)
-    WHERE class_schedules_created_at IS NULL;
-  END IF;
-
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name='class_schedules' AND column_name='updated_at') THEN
-    UPDATE class_schedules
-    SET class_schedules_updated_at = COALESCE(class_schedules_updated_at, updated_at)
-    WHERE class_schedules_updated_at IS NULL;
-  END IF;
-END$$;
-
--- Pastikan FK (teacher → masjid_teachers, term → academic_terms)
-DO $$
-DECLARE fkname text;
-BEGIN
-  SELECT tc.constraint_name INTO fkname
-  FROM information_schema.table_constraints tc
-  JOIN information_schema.key_column_usage kcu
-    ON tc.constraint_name = kcu.constraint_name AND tc.table_name = kcu.table_name
-  WHERE tc.table_name='class_schedules' AND tc.constraint_type='FOREIGN KEY'
-    AND kcu.column_name='class_schedules_teacher_id'
-  LIMIT 1;
-  IF fkname IS NOT NULL THEN
-    EXECUTE format('ALTER TABLE class_schedules DROP CONSTRAINT %I', fkname);
-  END IF;
-  ALTER TABLE class_schedules
-    ADD CONSTRAINT fk_class_schedules_teacher
-    FOREIGN KEY (class_schedules_teacher_id)
-    REFERENCES masjid_teachers(masjid_teacher_id)
-    ON DELETE SET NULL;
-
-  SELECT tc.constraint_name INTO fkname
-  FROM information_schema.table_constraints tc
-  JOIN information_schema.key_column_usage kcu
-    ON tc.constraint_name = kcu.constraint_name AND tc.table_name = kcu.table_name
-  WHERE tc.table_name='class_schedules' AND tc.constraint_type='FOREIGN KEY'
-    AND kcu.column_name='class_schedules_semester_id'
-  LIMIT 1;
-  IF fkname IS NOT NULL THEN
-    EXECUTE format('ALTER TABLE class_schedules DROP CONSTRAINT %I', fkname);
-  END IF;
-  ALTER TABLE class_schedules
-    ADD CONSTRAINT fk_class_schedules_term
-    FOREIGN KEY (class_schedules_semester_id)
-    REFERENCES academic_terms(academic_terms_id)
-    ON DELETE CASCADE;
-END$$;
-
--- Indexing & Optimizations
-CREATE INDEX IF NOT EXISTS idx_class_schedules_tenant_term_dow
-  ON class_schedules (class_schedules_masjid_id, class_schedules_semester_id, class_schedules_day_of_week);
+-- =========================
+-- Indexing
+-- =========================
+CREATE INDEX IF NOT EXISTS idx_class_schedules_tenant_dow
+  ON class_schedules (class_schedules_masjid_id, class_schedules_day_of_week);
 
 CREATE INDEX IF NOT EXISTS idx_class_schedules_section_dow_time
   ON class_schedules (class_schedules_section_id, class_schedules_day_of_week, class_schedules_start_time, class_schedules_end_time);
 
-CREATE INDEX IF NOT EXISTS idx_class_schedules_teacher_dow_time
-  ON class_schedules (class_schedules_teacher_id, class_schedules_day_of_week, class_schedules_start_time, class_schedules_end_time);
-
 CREATE INDEX IF NOT EXISTS idx_class_schedules_room_dow
   ON class_schedules (class_schedules_room_id, class_schedules_day_of_week);
 
--- Recreate visible/active index agar hanya baris alive
-DROP INDEX IF EXISTS idx_class_schedules_active;
+CREATE INDEX IF NOT EXISTS idx_class_schedules_class_subject
+  ON class_schedules (class_schedules_class_subject_id);
+
 CREATE INDEX IF NOT EXISTS idx_class_schedules_active
   ON class_schedules (class_schedules_is_active)
-  WHERE class_schedules_is_active AND class_schedules_deleted_at IS NULL;
+  WHERE class_schedules_is_active AND deleted_at IS NULL;
 
--- Exclusion Constraints (anti-bentrok) — tambahkan filter deleted_at IS NULL
+-- =========================
+-- Exclusion Constraints (anti-bentrok)
+-- =========================
 ALTER TABLE class_schedules DROP CONSTRAINT IF EXISTS excl_sched_room_overlap;
 ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_room_overlap
   EXCLUDE USING gist (
@@ -224,7 +155,7 @@ ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_room_overlap
     class_schedules_day_of_week WITH =,
     class_schedules_time_range  WITH &&
   )
-  WHERE (class_schedules_is_active AND class_schedules_room_id IS NOT NULL AND class_schedules_deleted_at IS NULL);
+  WHERE (class_schedules_is_active AND class_schedules_room_id IS NOT NULL AND deleted_at IS NULL);
 
 ALTER TABLE class_schedules DROP CONSTRAINT IF EXISTS excl_sched_section_overlap;
 ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_section_overlap
@@ -234,103 +165,70 @@ ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_section_overlap
     class_schedules_day_of_week WITH =,
     class_schedules_time_range  WITH &&
   )
-  WHERE (class_schedules_is_active AND class_schedules_deleted_at IS NULL);
+  WHERE (class_schedules_is_active AND deleted_at IS NULL);
 
--- (Opsional) Anti bentrok guru override
-ALTER TABLE class_schedules DROP CONSTRAINT IF EXISTS excl_sched_teacher_overlap;
-ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_teacher_overlap
-  EXCLUDE USING gist (
-    class_schedules_masjid_id   WITH =,
-    class_schedules_teacher_id  WITH =,
-    class_schedules_day_of_week WITH =,
-    class_schedules_time_range  WITH &&
-  )
-  WHERE (class_schedules_is_active AND class_schedules_teacher_id IS NOT NULL AND class_schedules_deleted_at IS NULL);
+-- (Tidak ada teacher overlap lagi karena kolom teacher dihapus)
 
--- Validators (tenant/periode term & kecocokan guru)
-CREATE OR REPLACE FUNCTION fn_validate_schedule_term()
-RETURNS trigger AS $$
+-- =========================
+-- Validator konsistensi (tenant & class)
+-- =========================
+CREATE OR REPLACE FUNCTION fn_class_schedules_validate_links()
+RETURNS TRIGGER AS $$
 DECLARE
-  v_term_masjid uuid;
-  v_period      daterange;
+  v_sec_masjid UUID; v_sec_class UUID;
+  v_cs_masjid  UUID; v_cs_class  UUID;
 BEGIN
-  IF NEW.class_schedules_semester_id IS NULL THEN
-    RETURN NEW;
+  -- SECTION
+  SELECT class_sections_masjid_id, class_sections_class_id
+    INTO v_sec_masjid, v_sec_class
+  FROM class_sections
+  WHERE class_sections_id = NEW.class_schedules_section_id
+    AND class_sections_deleted_at IS NULL;
+
+  IF v_sec_masjid IS NULL THEN
+    RAISE EXCEPTION 'Section invalid/terhapus';
   END IF;
 
-  SELECT academic_terms_masjid_id, academic_terms_period
-    INTO v_term_masjid, v_period
-  FROM academic_terms
-  WHERE academic_terms_id = NEW.class_schedules_semester_id;
+  -- CLASS_SUBJECTS
+  SELECT class_subjects_masjid_id, class_subjects_class_id
+    INTO v_cs_masjid, v_cs_class
+  FROM class_subjects
+  WHERE class_subjects_id = NEW.class_schedules_class_subject_id
+    AND class_subjects_deleted_at IS NULL;
 
-  IF v_term_masjid IS NULL THEN
-    RAISE EXCEPTION 'Academic term tidak ditemukan (id=%)', NEW.class_schedules_semester_id;
+  IF v_cs_masjid IS NULL THEN
+    RAISE EXCEPTION 'Class_subjects invalid/terhapus';
   END IF;
 
-  IF v_term_masjid <> NEW.class_schedules_masjid_id THEN
-    RAISE EXCEPTION 'Masjid term (%) ≠ masjid schedule (%)', v_term_masjid, NEW.class_schedules_masjid_id;
+  -- Tenant harus sama
+  IF NEW.class_schedules_masjid_id <> v_sec_masjid THEN
+    RAISE EXCEPTION 'Masjid mismatch: schedule(%) vs section(%)',
+      NEW.class_schedules_masjid_id, v_sec_masjid;
+  END IF;
+  IF NEW.class_schedules_masjid_id <> v_cs_masjid THEN
+    RAISE EXCEPTION 'Masjid mismatch: schedule(%) vs class_subjects(%)',
+      NEW.class_schedules_masjid_id, v_cs_masjid;
   END IF;
 
-  IF NEW.class_schedules_start_date::date < lower(v_period)
-     OR NEW.class_schedules_start_date::date >= upper(v_period) THEN
-    RAISE EXCEPTION 'Tanggal mulai jadwal (%) di luar periode term (%)',
-      NEW.class_schedules_start_date::date, v_period;
+  -- Class harus sama (section vs class_subjects)
+  IF v_sec_class <> v_cs_class THEN
+    RAISE EXCEPTION 'Class mismatch: section.class_id(%) != class_subjects.class_id(%)',
+      v_sec_class, v_cs_class;
   END IF;
 
   RETURN NEW;
-END$$ LANGUAGE plpgsql;
+END
+$$ LANGUAGE plpgsql;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_validate_schedule_term') THEN
-    CREATE TRIGGER trg_validate_schedule_term
-      BEFORE INSERT OR UPDATE OF
-        class_schedules_semester_id,
-        class_schedules_masjid_id,
-        class_schedules_start_date
-      ON class_schedules
-      FOR EACH ROW
-      EXECUTE FUNCTION fn_validate_schedule_term();
-  END IF;
-END$$;
-
-CREATE OR REPLACE FUNCTION fn_validate_schedule_teacher_mtj()
-RETURNS trigger AS $$
-DECLARE v_teacher_masjid uuid;
-BEGIN
-  IF NEW.class_schedules_teacher_id IS NULL THEN
-    RETURN NEW;
-  END IF;
-
-  SELECT masjid_teacher_masjid_id
-    INTO v_teacher_masjid
-  FROM masjid_teachers
-  WHERE masjid_teacher_id = NEW.class_schedules_teacher_id
-    AND masjid_teacher_deleted_at IS NULL;
-
-  IF v_teacher_masjid IS NULL THEN
-    RAISE EXCEPTION 'Guru override tidak ditemukan / sudah dihapus';
-  END IF;
-
-  IF v_teacher_masjid <> NEW.class_schedules_masjid_id THEN
-    RAISE EXCEPTION 'Masjid guru override (%) ≠ masjid schedule (%)',
-      v_teacher_masjid, NEW.class_schedules_masjid_id;
-  END IF;
-
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_validate_schedule_teacher_mtj') THEN
-    CREATE TRIGGER trg_validate_schedule_teacher_mtj
-      BEFORE INSERT OR UPDATE OF
-        class_schedules_teacher_id,
-        class_schedules_masjid_id
-      ON class_schedules
-      FOR EACH ROW
-      EXECUTE FUNCTION fn_validate_schedule_teacher_mtj();
-  END IF;
-END$$;
+DROP TRIGGER IF EXISTS trg_class_schedules_validate_links ON class_schedules;
+CREATE CONSTRAINT TRIGGER trg_class_schedules_validate_links
+  AFTER INSERT OR UPDATE OF
+    class_schedules_masjid_id,
+    class_schedules_section_id,
+    class_schedules_class_subject_id
+  ON class_schedules
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_class_schedules_validate_links();
 
 COMMIT;

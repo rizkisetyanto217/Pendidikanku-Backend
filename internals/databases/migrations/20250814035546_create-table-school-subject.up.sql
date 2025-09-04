@@ -112,24 +112,6 @@ CREATE INDEX IF NOT EXISTS idx_subjects_masjid_alive
   ON subjects(subjects_masjid_id)
   WHERE subjects_deleted_at IS NULL;
 
--- triggers subjects
-CREATE OR REPLACE FUNCTION fn_subjects_touch_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.subjects_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_subjects_touch_updated_at') THEN
-    DROP TRIGGER trg_subjects_touch_updated_at ON subjects;
-  END IF;
-  CREATE TRIGGER trg_subjects_touch_updated_at
-    BEFORE UPDATE ON subjects
-    FOR EACH ROW EXECUTE FUNCTION fn_subjects_touch_updated_at();
-END$$;
-
 CREATE OR REPLACE FUNCTION fn_subjects_normalize()
 RETURNS TRIGGER AS $$
 DECLARE v_slug text;

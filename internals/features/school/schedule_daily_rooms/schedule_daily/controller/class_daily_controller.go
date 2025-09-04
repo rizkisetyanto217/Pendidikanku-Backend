@@ -36,48 +36,25 @@ func parseDateParam(s string) (time.Time, error) {
 	return time.Parse("2006-01-02", s)
 }
 
-func parseTimeOfDayParam(s string) (time.Time, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return time.Time{}, fmt.Errorf("empty time")
-	}
-	// support HH:mm and HH:mm:ss
-	if t, err := time.Parse("15:04", s); err == nil {
-		return t, nil
-	}
-	if t, err := time.Parse("15:04:05", s); err == nil {
-		return t, nil
-	}
-	return time.Time{}, fmt.Errorf("invalid time format (want HH:mm or HH:mm:ss)")
-}
-
 /* =========================
    Query: List
    ========================= */
 
 type listQueryDaily struct {
 	// Filter
-	MasjidID        string `query:"masjid_id"`
-	SectionID       string `query:"section_id"`
-	TeacherID       string `query:"teacher_id"`
-	RoomID          string `query:"room_id"`
-	ScheduleID      string `query:"schedule_id"`
-	AttendanceID    string `query:"attendance_id"`
-	SubjectID       string `query:"subject_id"`
-	AcademicTermsID string `query:"academic_terms_id"`
-	Status          string `query:"status"` // scheduled|ongoing|finished|canceled
-	Active          *bool  `query:"active"`
-	DayOfWeek       *int   `query:"dow"`     // 1..7
-	OnDate          string `query:"on_date"` // YYYY-MM-DD (exact date)
-	From            string `query:"from"`    // YYYY-MM-DD
-	To              string `query:"to"`      // YYYY-MM-DD
-	StartAfter      string `query:"start_after"` // HH:mm / HH:mm:ss → start_time >=
-	EndBefore       string `query:"end_before"`  // HH:mm / HH:mm:ss → end_time <=
+	MasjidID   string `query:"masjid_id"`
+	SectionID  string `query:"section_id"`
+	ScheduleID string `query:"schedule_id"`
+	Active     *bool  `query:"active"`
+	DayOfWeek  *int   `query:"dow"`     // 1..7
+	OnDate     string `query:"on_date"` // YYYY-MM-DD (exact date)
+	From       string `query:"from"`    // YYYY-MM-DD
+	To         string `query:"to"`      // YYYY-MM-DD
 
 	// Pagination & sort
 	Limit  int    `query:"limit"`
 	Offset int    `query:"offset"`
-	SortBy string `query:"sort_by"` // date|start_time|end_time|created_at|updated_at (default: date,start_time)
+	SortBy string `query:"sort_by"` // date|created_at|updated_at (default: date)
 	Order  string `query:"order"`   // asc|desc (default: asc)
 }
 
@@ -109,49 +86,11 @@ func (ctl *ClassDailyController) List(c *fiber.Ctx) error {
 		}
 		db = db.Where("class_daily_section_id = ?", q.SectionID)
 	}
-	if q.TeacherID != "" {
-		if _, err := uuid.Parse(q.TeacherID); err != nil {
-			return fiber.NewError(http.StatusBadRequest, "teacher_id invalid")
-		}
-		db = db.Where("class_daily_teacher_id = ?", q.TeacherID)
-	}
-	if q.RoomID != "" {
-		if _, err := uuid.Parse(q.RoomID); err != nil {
-			return fiber.NewError(http.StatusBadRequest, "room_id invalid")
-		}
-		db = db.Where("class_daily_room_id = ?", q.RoomID)
-	}
 	if q.ScheduleID != "" {
 		if _, err := uuid.Parse(q.ScheduleID); err != nil {
 			return fiber.NewError(http.StatusBadRequest, "schedule_id invalid")
 		}
 		db = db.Where("class_daily_schedule_id = ?", q.ScheduleID)
-	}
-	if q.AttendanceID != "" {
-		if _, err := uuid.Parse(q.AttendanceID); err != nil {
-			return fiber.NewError(http.StatusBadRequest, "attendance_id invalid")
-		}
-		db = db.Where("class_daily_attendance_id = ?", q.AttendanceID)
-	}
-	if q.SubjectID != "" {
-		if _, err := uuid.Parse(q.SubjectID); err != nil {
-			return fiber.NewError(http.StatusBadRequest, "subject_id invalid")
-		}
-		db = db.Where("class_daily_subject_id = ?", q.SubjectID)
-	}
-	if q.AcademicTermsID != "" {
-		if _, err := uuid.Parse(q.AcademicTermsID); err != nil {
-			return fiber.NewError(http.StatusBadRequest, "academic_terms_id invalid")
-		}
-		db = db.Where("class_daily_academic_terms_id = ?", q.AcademicTermsID)
-	}
-	if q.Status != "" {
-		switch m.SessionStatus(q.Status) {
-		case m.SessionScheduled, m.SessionOngoing, m.SessionFinished, m.SessionCanceled:
-			db = db.Where("class_daily_status = ?", q.Status)
-		default:
-			return fiber.NewError(http.StatusBadRequest, "status invalid")
-		}
 	}
 	if q.Active != nil {
 		db = db.Where("class_daily_is_active = ?", *q.Active)
@@ -165,29 +104,29 @@ func (ctl *ClassDailyController) List(c *fiber.Ctx) error {
 
 	// on_date filter (exact)
 	if strings.TrimSpace(q.OnDate) != "" {
-		d, err := parseDateParam(q.OnDate)
+		dt, err := parseDateParam(q.OnDate)
 		if err != nil {
 			return fiber.NewError(http.StatusBadRequest, "on_date invalid (YYYY-MM-DD)")
 		}
-		db = db.Where("class_daily_date = ?", d)
+		db = db.Where("class_daily_date = ?", dt)
 	}
 
 	// Range date
 	if strings.TrimSpace(q.From) != "" || strings.TrimSpace(q.To) != "" {
 		var from, to *time.Time
 		if strings.TrimSpace(q.From) != "" {
-			d, err := parseDateParam(q.From)
+			dt, err := parseDateParam(q.From)
 			if err != nil {
 				return fiber.NewError(http.StatusBadRequest, "from invalid (YYYY-MM-DD)")
 			}
-			from = &d
+			from = &dt
 		}
 		if strings.TrimSpace(q.To) != "" {
-			d, err := parseDateParam(q.To)
+			dt, err := parseDateParam(q.To)
 			if err != nil {
 				return fiber.NewError(http.StatusBadRequest, "to invalid (YYYY-MM-DD)")
 			}
-			to = &d
+			to = &dt
 		}
 		if from != nil && to != nil {
 			db = db.Where("class_daily_date BETWEEN ? AND ?", *from, *to)
@@ -198,36 +137,16 @@ func (ctl *ClassDailyController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// Time window
-	if strings.TrimSpace(q.StartAfter) != "" {
-		t, err := parseTimeOfDayParam(q.StartAfter)
-		if err != nil {
-			return fiber.NewError(http.StatusBadRequest, "start_after invalid (HH:mm/HH:mm:ss)")
-		}
-		db = db.Where("class_daily_start_time >= ?", t)
-	}
-	if strings.TrimSpace(q.EndBefore) != "" {
-		t, err := parseTimeOfDayParam(q.EndBefore)
-		if err != nil {
-			return fiber.NewError(http.StatusBadRequest, "end_before invalid (HH:mm/HH:mm:ss)")
-		}
-		db = db.Where("class_daily_end_time <= ?", t)
-	}
-
 	// Sort & pagination
 	sortBy := "class_daily_date"
 	if s := strings.TrimSpace(q.SortBy); s != "" {
 		switch s {
 		case "date":
 			sortBy = "class_daily_date"
-		case "start_time":
-			sortBy = "class_daily_start_time"
-		case "end_time":
-			sortBy = "class_daily_end_time"
 		case "created_at":
-			sortBy = "class_daily_created_at"
+			sortBy = "created_at"
 		case "updated_at":
-			sortBy = "class_daily_updated_at"
+			sortBy = "updated_at"
 		default:
 			// keep default
 		}
@@ -245,12 +164,9 @@ func (ctl *ClassDailyController) List(c *fiber.Ctx) error {
 	}
 
 	var rows []m.ClassDailyModel
-	tx := db.Where("class_daily_deleted_at IS NULL").
+	tx := db.Where("deleted_at IS NULL").
 		Order(sortBy + " " + order)
-	// Stabilize sort when primary sort is date
-	if sortBy == "class_daily_date" {
-		tx = tx.Order("class_daily_start_time " + order)
-	}
+
 	if err := tx.Limit(q.Limit).Offset(q.Offset).Find(&rows).Error; err != nil {
 		return mapPGError(err)
 	}
@@ -279,7 +195,7 @@ func (ctl *ClassDailyController) GetByID(c *fiber.Ctx) error {
 
 	var row m.ClassDailyModel
 	if err := ctl.DB.
-		Where("class_daily_id = ? AND class_daily_deleted_at IS NULL", id).
+		Where("class_daily_id = ? AND deleted_at IS NULL", id).
 		First(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.NewError(http.StatusNotFound, "daily occurrence not found")
@@ -333,7 +249,7 @@ func (ctl *ClassDailyController) Update(c *fiber.Ctx) error {
 
 	var existing m.ClassDailyModel
 	if err := ctl.DB.
-		Where("class_daily_id = ? AND class_daily_deleted_at IS NULL", id).
+		Where("class_daily_id = ? AND deleted_at IS NULL", id).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.NewError(http.StatusNotFound, "daily occurrence not found")
@@ -376,7 +292,7 @@ func (ctl *ClassDailyController) Patch(c *fiber.Ctx) error {
 
 	var existing m.ClassDailyModel
 	if err := ctl.DB.
-		Where("class_daily_id = ? AND class_daily_deleted_at IS NULL", id).
+		Where("class_daily_id = ? AND deleted_at IS NULL", id).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.NewError(http.StatusNotFound, "daily occurrence not found")
@@ -419,7 +335,7 @@ func (ctl *ClassDailyController) Delete(c *fiber.Ctx) error {
 
 	var existing m.ClassDailyModel
 	if err := ctl.DB.
-		Where("class_daily_id = ? AND class_daily_deleted_at IS NULL", id).
+		Where("class_daily_id = ? AND deleted_at IS NULL", id).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.NewError(http.StatusNotFound, "daily occurrence not found")
@@ -432,7 +348,7 @@ func (ctl *ClassDailyController) Delete(c *fiber.Ctx) error {
 		return fiber.NewError(http.StatusForbidden, err.Error())
 	}
 
-	// GORM soft delete → akan set class_daily_deleted_at
+	// GORM soft delete → set deleted_at
 	if err := ctl.DB.Delete(&existing).Error; err != nil {
 		return mapPGError(err)
 	}

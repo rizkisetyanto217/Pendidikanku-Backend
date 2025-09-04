@@ -6,23 +6,6 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram index
 
--- ---------------------------------------------------------
--- Trigger functions: updated_at (TIMESTAMPTZ)
--- ---------------------------------------------------------
-CREATE OR REPLACE FUNCTION fn_touch_updated_at_lexams()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.lecture_exam_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION fn_touch_updated_at_user_lexams()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.user_lecture_exam_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
 -- ============================
 -- Tabel: lecture_exams
 -- ============================
@@ -73,12 +56,6 @@ CREATE INDEX IF NOT EXISTS idx_lexams_desc_trgm
   ON lecture_exams USING GIN (LOWER(lecture_exam_description) gin_trgm_ops)
   WHERE lecture_exam_deleted_at IS NULL;
 
--- Trigger updated_at
-DROP TRIGGER IF EXISTS trg_lexams_touch ON lecture_exams;
-CREATE TRIGGER trg_lexams_touch
-BEFORE UPDATE ON lecture_exams
-FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_lexams();
-
 -- ================================
 -- Tabel: user_lecture_exams
 -- ================================
@@ -124,9 +101,3 @@ CREATE INDEX IF NOT EXISTS idx_ulexams_masjid_created_desc
 CREATE INDEX IF NOT EXISTS idx_ulexams_username_trgm
   ON user_lecture_exams USING GIN (LOWER(user_lecture_exam_user_name) gin_trgm_ops)
   WHERE user_lecture_exam_deleted_at IS NULL;
-
--- Trigger updated_at
-DROP TRIGGER IF EXISTS trg_user_lexams_touch ON user_lecture_exams;
-CREATE TRIGGER trg_user_lexams_touch
-BEFORE UPDATE ON user_lecture_exams
-FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_user_lexams();

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	ucsDTO "masjidku_backend/internals/features/school/classes/class_sections/dto"
 	secModel "masjidku_backend/internals/features/school/classes/class_sections/model"
 	helper "masjidku_backend/internals/helpers"
@@ -464,19 +465,19 @@ func (ctrl *ClassSectionController) GetClassSectionBySlug(c *fiber.Ctx) error {
 	// Ambil slug dari URL params dan normalisasi
 	slug := helper.GenerateSlug(c.Params("slug"))
 
-	// Ambil data section berdasarkan slug yang diberikan
+	// Ambil data section milik masjid ini, slug case-insensitive, dan belum terhapus
 	var m secModel.ClassSectionModel
-	if err := ctrl.DB.First(&m, "class_sections_slug = ? AND class_sections_deleted_at IS NULL", slug).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+	if err := ctrl.DB.
+		Where("class_sections_masjid_id = ? AND lower(class_sections_slug) = lower(?) AND class_sections_deleted_at IS NULL",
+			masjidID, slug).
+		First(&m).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.NewError(fiber.StatusNotFound, "Section tidak ditemukan")
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Pastikan section milik masjid yang valid (tenant)
-	if m.ClassSectionsMasjidID == nil || *m.ClassSectionsMasjidID != masjidID {
-		return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengakses section milik masjid lain")
-	}
+	// Tidak perlu cek tenant lagi karena sudah difilter di query
 
 	// Kembalikan response yang sudah diformat
 	return helper.JsonOK(c, "OK", ucsDTO.NewClassSectionResponse(&m, ""))

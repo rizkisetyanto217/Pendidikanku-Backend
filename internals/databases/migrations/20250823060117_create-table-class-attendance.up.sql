@@ -153,6 +153,16 @@ CREATE INDEX IF NOT EXISTS idx_cas_date
 
 CREATE INDEX IF NOT EXISTS idx_cas_class_subject
   ON class_attendance_sessions(class_attendance_sessions_class_subject_id);
+-- Percepat join CAS ↔ class_daily via (masjid, section, date)
+CREATE INDEX IF NOT EXISTS idx_cas_masjid_section_date_alive
+  ON class_attendance_sessions (
+    class_attendance_sessions_masjid_id,
+    class_attendance_sessions_section_id,
+    class_attendance_sessions_date DESC
+  )
+  WHERE class_attendance_sessions_deleted_at IS NULL;
+
+
 
 -- Rapikan index guru (hapus nama lama kalau ada)
 DO $$
@@ -273,26 +283,6 @@ BEGIN
     EXECUTE FUNCTION fn_cas_validate_links();
 END$$;
 
--- Touch updated_at
-CREATE OR REPLACE FUNCTION fn_touch_class_attendance_sessions_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.class_attendance_sessions_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_cas_touch_updated_at') THEN
-    DROP TRIGGER trg_cas_touch_updated_at ON class_attendance_sessions;
-  END IF;
-
-  CREATE TRIGGER trg_cas_touch_updated_at
-    BEFORE UPDATE ON class_attendance_sessions
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_touch_class_attendance_sessions_updated_at();
-END$$;
-
 
 -- =========================================================
 -- 6) TABLE: class_attendance_session_url (multi URL per sesi) — no is_primary/order
@@ -402,25 +392,6 @@ CREATE INDEX IF NOT EXISTS idx_casu_session_alive
 
 CREATE INDEX IF NOT EXISTS idx_casu_created_at
   ON class_attendance_session_url (class_attendance_session_url_created_at DESC);
-
--- Touch updated_at
-CREATE OR REPLACE FUNCTION fn_touch_casu_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.class_attendance_session_url_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_touch_casu_updated_at') THEN
-    DROP TRIGGER trg_touch_casu_updated_at ON class_attendance_session_url;
-  END IF;
-
-  CREATE TRIGGER trg_touch_casu_updated_at
-  BEFORE UPDATE ON class_attendance_session_url
-  FOR EACH ROW EXECUTE FUNCTION fn_touch_casu_updated_at();
-END$$;
 
 -- =========================================================
 -- 7) BACKFILL dari kolom lama di sessions (jika ada), lalu DROP kolom lama

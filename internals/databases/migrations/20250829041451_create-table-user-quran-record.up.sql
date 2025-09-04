@@ -1,5 +1,5 @@
 -- =========================================
--- UP Migration (Refactor Final) — FIX masjid_teachers FK
+-- UP Migration (Refactor Final) — NO timestamp triggers
 -- =========================================
 BEGIN;
 
@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS user_quran_records (
   -- pengganti "next": boolean (nullable)
   user_quran_records_is_next BOOLEAN,
 
+  -- timestamps (dikelola aplikasi/GORM)
   user_quran_records_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_quran_records_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_quran_records_deleted_at TIMESTAMPTZ
@@ -79,29 +80,9 @@ BEGIN
   END IF;
 END$$;
 
--- Hapus kolom "status" jika ada
-ALTER TABLE user_quran_records
-  DROP COLUMN IF EXISTS user_quran_records_status;
-
--- Trigger updated_at
-CREATE OR REPLACE FUNCTION trg_set_ts_user_quran_records()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.user_quran_records_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='set_ts_user_quran_records') THEN
-    DROP TRIGGER set_ts_user_quran_records ON user_quran_records;
-  END IF;
-
-  CREATE TRIGGER set_ts_user_quran_records
-  BEFORE UPDATE ON user_quran_records
-  FOR EACH ROW
-  EXECUTE FUNCTION trg_set_ts_user_quran_records();
-END$$;
+-- Bersihkan trigger timestamp lama kalau ada (biar GORM yang kelola)
+DROP TRIGGER IF EXISTS set_ts_user_quran_records ON user_quran_records;
+DROP FUNCTION IF EXISTS trg_set_ts_user_quran_records();
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_user_quran_records_session
@@ -154,6 +135,7 @@ CREATE TABLE IF NOT EXISTS user_quran_urls (
   user_quran_urls_uploader_user_id    UUID
     REFERENCES users(id) ON DELETE SET NULL,
 
+  -- timestamps (dikelola aplikasi/GORM)
   user_quran_urls_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_quran_urls_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_quran_urls_deleted_at TIMESTAMPTZ
@@ -181,25 +163,9 @@ BEGIN
   END IF;
 END$$;
 
--- Trigger updated_at untuk images
-CREATE OR REPLACE FUNCTION trg_set_ts_user_quran_urls()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.user_quran_urls_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='set_ts_user_quran_urls') THEN
-    DROP TRIGGER set_ts_user_quran_urls ON user_quran_urls;
-  END IF;
-
-  CREATE TRIGGER set_ts_user_quran_urls
-  BEFORE UPDATE ON user_quran_urls
-  FOR EACH ROW
-  EXECUTE FUNCTION trg_set_ts_user_quran_urls();
-END$$;
+-- Bersihkan trigger timestamp lama kalau ada (biar GORM yang kelola)
+DROP TRIGGER IF EXISTS set_ts_user_quran_urls ON user_quran_urls;
+DROP FUNCTION IF EXISTS trg_set_ts_user_quran_urls();
 
 -- Indexes dasar
 CREATE INDEX IF NOT EXISTS idx_user_quran_urls_record
@@ -249,6 +215,7 @@ CREATE TABLE IF NOT EXISTS user_attendance (
   user_attendance_user_note    TEXT,
   user_attendance_teacher_note TEXT,
 
+  -- timestamps (dikelola aplikasi/GORM)
   user_attendance_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_attendance_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_attendance_deleted_at TIMESTAMPTZ
@@ -278,16 +245,10 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_user_attendance_tenant_guard') THEN
-    DROP TRIGGER trg_user_attendance_tenant_guard ON user_attendance;
-  END IF;
-
-  CREATE TRIGGER trg_user_attendance_tenant_guard
+DROP TRIGGER IF EXISTS trg_user_attendance_tenant_guard ON user_attendance;
+CREATE TRIGGER trg_user_attendance_tenant_guard
   BEFORE INSERT OR UPDATE ON user_attendance
   FOR EACH ROW EXECUTE FUNCTION fn_user_attendance_tenant_guard();
-END$$;
 
 -- Unique: 1 baris aktif per (masjid, session, user)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_user_attendance_alive
@@ -307,25 +268,7 @@ CREATE INDEX IF NOT EXISTS idx_user_attendance_status
 CREATE INDEX IF NOT EXISTS brin_user_attendance_created_at
   ON user_attendance USING BRIN (user_attendance_created_at);
 
--- Touch updated_at
-CREATE OR REPLACE FUNCTION fn_touch_user_attendance_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.user_attendance_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
 
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_touch_user_attendance_updated_at') THEN
-    DROP TRIGGER trg_touch_user_attendance_updated_at ON user_attendance;
-  END IF;
-
-  CREATE TRIGGER trg_touch_user_attendance_updated_at
-  BEFORE UPDATE ON user_attendance
-  FOR EACH ROW
-  EXECUTE FUNCTION fn_touch_user_attendance_updated_at();
-END$$;
 
 -- =========================================
 -- D) USER ATTENDANCE URLS (child)
@@ -357,6 +300,7 @@ CREATE TABLE IF NOT EXISTS user_attendance_urls (
   user_attendance_urls_uploader_user_id    UUID
     REFERENCES users(id) ON DELETE SET NULL,
 
+  -- timestamps (dikelola aplikasi/GORM)
   user_attendance_urls_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_attendance_urls_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_attendance_urls_deleted_at TIMESTAMPTZ
@@ -408,36 +352,10 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_user_attendance_urls_tenant_guard') THEN
-    DROP TRIGGER trg_user_attendance_urls_tenant_guard ON user_attendance_urls;
-  END IF;
-
-  CREATE TRIGGER trg_user_attendance_urls_tenant_guard
+DROP TRIGGER IF EXISTS trg_user_attendance_urls_tenant_guard ON user_attendance_urls;
+CREATE TRIGGER trg_user_attendance_urls_tenant_guard
   BEFORE INSERT OR UPDATE ON user_attendance_urls
   FOR EACH ROW EXECUTE FUNCTION fn_user_attendance_urls_tenant_guard();
-END$$;
-
--- Touch updated_at
-CREATE OR REPLACE FUNCTION fn_touch_user_attendance_urls_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.user_attendance_urls_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_touch_user_attendance_urls_updated_at') THEN
-    DROP TRIGGER trg_touch_user_attendance_urls_updated_at ON user_attendance_urls;
-  END IF;
-
-  CREATE TRIGGER trg_touch_user_attendance_urls_updated_at
-  BEFORE UPDATE ON user_attendance_urls
-  FOR EACH ROW
-  EXECUTE FUNCTION fn_touch_user_attendance_urls_updated_at();
-END$$;
 
 -- Indexes dasar
 CREATE INDEX IF NOT EXISTS idx_user_attendance_urls_attendance

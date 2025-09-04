@@ -11,15 +11,6 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
--- =========================================================
--- Trigger function: touch updated_at
--- =========================================================
-CREATE OR REPLACE FUNCTION fn_touch_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW."updated_at" := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
 
 -- =========================================================
 -- ========================  UP  ===========================
@@ -37,13 +28,6 @@ CREATE TABLE IF NOT EXISTS advices (
   advice_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   advice_deleted_at  TIMESTAMPTZ
 );
-
--- Trigger: touch updated_at
-DROP TRIGGER IF EXISTS trg_advices_touch ON advices;
-CREATE TRIGGER trg_advices_touch
-BEFORE UPDATE ON advices
-FOR EACH ROW
-EXECUTE FUNCTION fn_touch_updated_at();
 
 -- Indexes for advices
 CREATE INDEX IF NOT EXISTS idx_advices_user_created_at
@@ -71,11 +55,6 @@ CREATE TABLE IF NOT EXISTS articles (
   article_deleted_at  TIMESTAMPTZ
 );
 
-DROP TRIGGER IF EXISTS trg_articles_touch ON articles;
-CREATE TRIGGER trg_articles_touch
-BEFORE UPDATE ON articles
-FOR EACH ROW
-EXECUTE FUNCTION fn_touch_updated_at();
 
 CREATE INDEX IF NOT EXISTS idx_articles_masjid_active
   ON articles(article_masjid_id, article_order_id NULLS LAST)
@@ -115,12 +94,6 @@ CREATE TABLE IF NOT EXISTS carousels (
     FOREIGN KEY (carousel_article_id) REFERENCES articles(article_id) ON DELETE SET NULL
 );
 
-DROP TRIGGER IF EXISTS trg_carousels_touch ON carousels;
-CREATE TRIGGER trg_carousels_touch
-BEFORE UPDATE ON carousels
-FOR EACH ROW
-EXECUTE FUNCTION fn_touch_updated_at();
-
 CREATE INDEX IF NOT EXISTS idx_carousels_active_order
   ON carousels(carousel_is_active, carousel_order NULLS LAST)
   WHERE carousel_deleted_at IS NULL;
@@ -155,15 +128,6 @@ CREATE TABLE IF NOT EXISTS quotes (
     quote_display_order IS NULL OR quote_display_order >= 1
   )
 );
-
--- =========================================================
--- Trigger: auto-touch updated_at
--- =========================================================
-DROP TRIGGER IF EXISTS trg_quotes_touch ON quotes;
-CREATE TRIGGER trg_quotes_touch
-BEFORE UPDATE ON quotes
-FOR EACH ROW
-EXECUTE FUNCTION fn_touch_updated_at();
 
 -- =========================================================
 -- Indexes (hanya baris aktif: quote_deleted_at IS NULL)

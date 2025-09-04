@@ -2,16 +2,6 @@
 BEGIN;
 
 -- =========================================================
--- 0) Utility: fungsi set_updated_at() (reusable)
--- =========================================================
-CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger AS $$
-BEGIN
-  NEW.updated_at := now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- =========================================================
 -- 1) USERS_PROFILE_FORMAL (fresh)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS users_profile_formal (
@@ -44,12 +34,6 @@ CREATE INDEX IF NOT EXISTS idx_users_profile_formal_mother_phone
   ON users_profile_formal(mother_phone) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_users_profile_formal_guardian_phone
   ON users_profile_formal(guardian_phone) WHERE deleted_at IS NULL;
-
--- Trigger updated_at
-DROP TRIGGER IF EXISTS trg_set_updated_at_users_profile_formal ON users_profile_formal;
-CREATE TRIGGER trg_set_updated_at_users_profile_formal
-BEFORE UPDATE ON users_profile_formal
-FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 
 -- =========================================================
@@ -91,10 +75,5 @@ CREATE INDEX IF NOT EXISTS idx_users_profile_documents_user_uploaded_alive
   ON users_profile_documents(user_id, uploaded_at DESC)
   WHERE deleted_at IS NULL;
 
--- Trigger updated_at
-DROP TRIGGER IF EXISTS trg_set_updated_at_users_profile_documents ON users_profile_documents;
-CREATE TRIGGER trg_set_updated_at_users_profile_documents
-BEFORE UPDATE ON users_profile_documents
-FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 COMMIT;

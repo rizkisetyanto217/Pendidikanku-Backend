@@ -10,30 +10,6 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS btree_gin;
 
-/* -------------------------------------------------------
-   Trigger functions: updated_at per tabel
-------------------------------------------------------- */
-CREATE OR REPLACE FUNCTION fn_touch_events_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.event_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION fn_touch_event_sessions_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.event_session_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION fn_touch_user_event_regs_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.user_event_registration_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
 
 /* -------------------------------------------------------
    TABEL: events
@@ -80,12 +56,6 @@ DROP INDEX IF EXISTS ux_events_slug_per_masjid_lower;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_events_slug_per_masjid_lower_alive
   ON events (event_masjid_id, LOWER(event_slug))
   WHERE event_deleted_at IS NULL;
-
--- Trigger updated_at
-DROP TRIGGER IF EXISTS trg_events_touch ON events;
-CREATE TRIGGER trg_events_touch
-BEFORE UPDATE ON events
-FOR EACH ROW EXECUTE FUNCTION fn_touch_events_updated_at();
 
 
 /* -------------------------------------------------------
@@ -143,12 +113,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_event_sessions_slug_ci_alive
   ON event_sessions (LOWER(event_session_slug))
   WHERE event_session_deleted_at IS NULL;
 
--- Trigger updated_at
-DROP TRIGGER IF EXISTS trg_event_sessions_touch ON event_sessions;
-CREATE TRIGGER trg_event_sessions_touch
-BEFORE UPDATE ON event_sessions
-FOR EACH ROW EXECUTE FUNCTION fn_touch_event_sessions_updated_at();
-
 
 /* -------------------------------------------------------
    TABEL: user_event_registrations
@@ -190,11 +154,5 @@ ALTER TABLE user_event_registrations
 CREATE UNIQUE INDEX IF NOT EXISTS ux_user_event_regs_session_user_alive
   ON user_event_registrations (user_event_registration_event_session_id, user_event_registration_user_id)
   WHERE user_event_registration_deleted_at IS NULL;
-
--- Trigger updated_at
-DROP TRIGGER IF EXISTS trg_user_event_regs_touch ON user_event_registrations;
-CREATE TRIGGER trg_user_event_regs_touch
-BEFORE UPDATE ON user_event_registrations
-FOR EACH ROW EXECUTE FUNCTION fn_touch_user_event_regs_updated_at();
 
 COMMIT;

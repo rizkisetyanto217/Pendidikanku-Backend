@@ -6,22 +6,6 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram index
 
--- ---------------------------------------------------------
--- Trigger functions: updated_at (TIMESTAMPTZ)
--- ---------------------------------------------------------
-CREATE OR REPLACE FUNCTION fn_touch_updated_at_lsquiz()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.lecture_sessions_quiz_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION fn_touch_updated_at_user_lsquiz()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.user_lecture_sessions_quiz_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
 
 -- ---------------------------------------------------------
 -- TABEL: lecture_sessions_quiz
@@ -84,12 +68,6 @@ CREATE INDEX IF NOT EXISTS idx_lsquiz_desc_trgm
   ON lecture_sessions_quiz USING GIN (LOWER(lecture_sessions_quiz_description) gin_trgm_ops)
   WHERE lecture_sessions_quiz_deleted_at IS NULL;
 
--- Trigger updated_at
-DROP TRIGGER IF EXISTS trg_lsquiz_touch ON lecture_sessions_quiz;
-CREATE TRIGGER trg_lsquiz_touch
-BEFORE UPDATE ON lecture_sessions_quiz
-FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_lsquiz();
-
 -- ---------------------------------------------------------
 -- TABEL: user_lecture_sessions_quiz
 -- ---------------------------------------------------------
@@ -146,9 +124,3 @@ CREATE INDEX IF NOT EXISTS idx_ulsq_user_created_desc
 CREATE INDEX IF NOT EXISTS idx_ulsq_masjid_created_desc
   ON user_lecture_sessions_quiz (user_lecture_sessions_quiz_masjid_id, user_lecture_sessions_quiz_created_at DESC)
   WHERE user_lecture_sessions_quiz_deleted_at IS NULL;
-
--- Trigger updated_at
-DROP TRIGGER IF EXISTS trg_user_lsquiz_touch ON user_lecture_sessions_quiz;
-CREATE TRIGGER trg_user_lsquiz_touch
-BEFORE UPDATE ON user_lecture_sessions_quiz
-FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_user_lsquiz();

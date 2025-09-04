@@ -4,7 +4,8 @@ package controller
 import (
 	"encoding/json"
 	"errors"
-	"strconv"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -80,7 +81,7 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 		ent.AcademicTermsIsActive = isActiveValue
 	}
 
-	// Create (CREATE tidak mengabaikan zero value, jadi aman untuk boolean false)
+	// Create
 	if err := ctl.DB.Create(&ent).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Create failed: "+err.Error())
 	}
@@ -89,71 +90,68 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 }
 
 /* -----------------------------
- * SEARCH (by year saja)
- * GET /academics/terms/search?year=2026&pagesize=20&page=1
+ * SEARCH (by year saja + optional angkatan)
+ * GET /academics/terms/search?year=2026&angkatan=10&page=1&page_size=20
  * ----------------------------- */
 
+// GET /academics/terms/search?year=2026&per_page=20&page=1&sort_by=start_date&sort=desc
 func (ctl *AcademicTermController) SearchOnlyByYear(c *fiber.Ctx) error {
-	yearQ := strings.TrimSpace(c.Query("year"))
-	if yearQ == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "Query param 'year' wajib diisi")
-	}
+    yearQ := strings.TrimSpace(c.Query("year"))
+    if yearQ == "" {
+        return fiber.NewError(fiber.StatusBadRequest, "Query param 'year' wajib diisi")
+    }
 
-	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
-	if err != nil {
-		return err
-	}
+    masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
+    if err != nil {
+        return err
+    }
 
-	// paginasi sederhana
-	page := 1
-	pageSize := 20
-	if v := c.Query("page"); v != "" {
-		if n, _ := strconv.Atoi(v); n > 0 {
-			page = n
-		}
-	}
-	if v := c.Query("page_size"); v != "" {
-		if n, _ := strconv.Atoi(v); n > 0 && n <= 200 {
-			pageSize = n
-		}
-	}
+    // ==== Pagination (helper) ====
+    rawQ := string(c.Request().URI().QueryString())
+    httpReq := &http.Request{URL: &url.URL{RawQuery: rawQ}}
+    p := helper.ParseWith(httpReq, "start_date", "desc", helper.DefaultOpts)
 
-	dbq := ctl.DB.Model(&model.AcademicTermModel{}).
-		Where("academic_terms_masjid_id IN (?) AND academic_terms_deleted_at IS NULL", masjidIDs).
-		Where("academic_terms_academic_year ILIKE ?", "%"+yearQ+"%")
+    // Kolom sort yang diizinkan
+    allowedSort := map[string]string{
+        "start_date": "academic_terms_start_date",
+        "end_date":   "academic_terms_end_date",
+        "created_at": "academic_terms_created_at",
+        "updated_at": "academic_terms_updated_at",
+        "name":       "academic_terms_name",
+        "year":       "academic_terms_academic_year",
+        "angkatan":   "academic_terms_angkatan",
+    }
+    orderClause, err := p.SafeOrderClause(allowedSort, "start_date")
+    if err != nil {
+        return fiber.NewError(fiber.StatusBadRequest, "sort_by tidak valid")
+    }
+    orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
 
-	var total int64
-	if err := dbq.Count(&total).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Count failed: "+err.Error())
-	}
+    // ==== Query ====
+    dbq := ctl.DB.Model(&model.AcademicTermModel{}).
+        Where("academic_terms_masjid_id IN (?) AND academic_terms_deleted_at IS NULL", masjidIDs).
+        Where("academic_terms_academic_year ILIKE ?", "%"+yearQ+"%")
 
-	var list []model.AcademicTermModel
-	if err := dbq.
-		Order("academic_terms_start_date DESC").
-		Limit(pageSize).
-		Offset((page - 1) * pageSize).
-		Find(&list).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Query failed: "+err.Error())
-	}
+    var total int64
+    if err := dbq.Count(&total).Error; err != nil {
+        return fiber.NewError(fiber.StatusInternalServerError, "Count failed: "+err.Error())
+    }
 
-	resp := struct {
-		Data       []dto.AcademicTermResponseDTO `json:"data"`
-		Pagination struct {
-			Total    int64  `json:"total"`
-			Page     int    `json:"page"`
-			PageSize int    `json:"page_size"`
-			Query    string `json:"query"`
-		} `json:"pagination"`
-	}{
-		Data: dto.FromModels(list),
-	}
-	resp.Pagination.Total = total
-	resp.Pagination.Page = page
-	resp.Pagination.PageSize = pageSize
-	resp.Pagination.Query = yearQ
+    var list []model.AcademicTermModel
+    if err := dbq.
+        Order(orderExpr).
+        Limit(p.Limit()).
+        Offset(p.Offset()).
+        Find(&list).Error; err != nil {
+        return fiber.NewError(fiber.StatusInternalServerError, "Query failed: "+err.Error())
+    }
 
-	return c.JSON(resp)
+    meta := helper.BuildMeta(total, p)
+    return helper.JsonList(c, dto.FromModels(list), meta)
 }
+
+
+
 
 /* -----------------------------
  * UPDATE (partial)
@@ -197,10 +195,10 @@ func (ctl *AcademicTermController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "End date must be after start date")
 	}
 
-	// Set updated_at (model kita pakai non-pointer time.Time)
+	// Set updated_at
 	ent.AcademicTermsUpdatedAt = time.Now()
 
-	// Update — pakai Select agar kolom boolean false tidak diabaikan
+	// Update — pakai Select agar kolom boolean & integer 0 tidak diabaikan
 	if err := ctl.DB.
 		Model(&ent).
 		Select(
@@ -209,6 +207,7 @@ func (ctl *AcademicTermController) Update(c *fiber.Ctx) error {
 			"AcademicTermsStartDate",
 			"AcademicTermsEndDate",
 			"AcademicTermsIsActive",
+			"AcademicTermsAngkatan",   // <-- kolom baru
 			"AcademicTermsUpdatedAt",
 		).
 		Updates(&ent).Error; err != nil {
@@ -246,7 +245,7 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 	}
 
 	now := time.Now()
-	// Gunakan Updates(map) supaya kita bisa set kolom secara eksplisit (termasuk boolean false)
+	// Gunakan Updates(map) supaya eksplisit
 	if err := ctl.DB.Model(&model.AcademicTermModel{}).
 		Where("academic_terms_id = ?", ent.AcademicTermsID).
 		Updates(map[string]any{
@@ -257,9 +256,8 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Delete failed: "+err.Error())
 	}
 
-	// Refetch untuk response konsisten (mapper akan konversi gorm.DeletedAt → *time.Time)
+	// Refetch untuk response konsisten
 	if err := ctl.DB.First(&ent, "academic_terms_id = ?", ent.AcademicTermsID).Error; err != nil {
-		// kalau gagal refetch, tetap kirim minimal payload
 		ent.AcademicTermsIsActive = false
 		ent.AcademicTermsUpdatedAt = now
 	}

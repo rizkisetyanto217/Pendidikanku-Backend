@@ -11,15 +11,6 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
--- -------------------------------------------------
--- Trigger helpers
--- -------------------------------------------------
-CREATE OR REPLACE FUNCTION fn_touch_updated_at_generic()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at := CURRENT_TIMESTAMPTZ;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
 
 -- =====================================================================
 -- ===============================  UP  =================================
@@ -38,12 +29,6 @@ CREATE TABLE IF NOT EXISTS certificates (
   updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Touch updated_at on UPDATE
-DROP TRIGGER IF EXISTS trg_certificates_touch ON certificates;
-CREATE TRIGGER trg_certificates_touch
-BEFORE UPDATE ON certificates
-FOR EACH ROW
-EXECUTE FUNCTION fn_touch_updated_at_generic();
 
 -- Indexes (certificates)
 -- 1) Listing per lecture + terbaru
@@ -81,13 +66,6 @@ CREATE TABLE IF NOT EXISTS user_certificates (
   -- satu certificate hanya boleh sekali per user (hindari duplikat)
   CONSTRAINT uq_user_cert_user_certificate UNIQUE (user_cert_user_id, user_cert_certificate_id)
 );
-
--- Touch updated_at on UPDATE
-DROP TRIGGER IF EXISTS trg_user_certificates_touch ON user_certificates;
-CREATE TRIGGER trg_user_certificates_touch
-BEFORE UPDATE ON user_certificates
-FOR EACH ROW
-EXECUTE FUNCTION fn_touch_updated_at_generic();
 
 -- Indexes (user_certificates)
 -- 1) Query profil user: sertifikat terbaru

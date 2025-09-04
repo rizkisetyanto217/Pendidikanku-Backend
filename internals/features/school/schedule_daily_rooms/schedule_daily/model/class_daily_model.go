@@ -8,13 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-/* =======================================================
-   Enum status (selaras dengan session_status_enum di DB)
-   ======================================================= */
-/* =======================================================
-   ClassDailyModel — map ke tabel class_daily (occurrence harian)
-   ======================================================= */
-
+// ClassDailyModel memetakan ke tabel class_daily
 type ClassDailyModel struct {
 	// PK
 	ClassDailyID uuid.UUID `json:"class_daily_id" gorm:"type:uuid;primaryKey;column:class_daily_id;default:gen_random_uuid()"`
@@ -22,45 +16,25 @@ type ClassDailyModel struct {
 	// Tenant / scope
 	ClassDailyMasjidID uuid.UUID `json:"class_daily_masjid_id" gorm:"type:uuid;not null;column:class_daily_masjid_id"`
 
-	// Tanggal occurrence
+	// Tanggal occurrence (DATE)
 	ClassDailyDate time.Time `json:"class_daily_date" gorm:"type:date;not null;column:class_daily_date"`
-
-	// Link sumber (opsional)
-	ClassDailyScheduleID   *uuid.UUID `json:"class_daily_schedule_id,omitempty" gorm:"type:uuid;column:class_daily_schedule_id"`
-	ClassDailyAttendanceID *uuid.UUID `json:"class_daily_attendance_id,omitempty" gorm:"type:uuid;column:class_daily_attendance_id"`
 
 	// Section wajib
 	ClassDailySectionID uuid.UUID `json:"class_daily_section_id" gorm:"type:uuid;not null;column:class_daily_section_id"`
 
-	// Snapshot/override (opsional)
-	ClassDailySubjectID       *uuid.UUID `json:"class_daily_subject_id,omitempty" gorm:"type:uuid;column:class_daily_subject_id"`
-	ClassDailyAcademicTermsID *uuid.UUID `json:"class_daily_academic_terms_id,omitempty" gorm:"type:uuid;column:class_daily_academic_terms_id"`
-	ClassDailyTeacherID       *uuid.UUID `json:"class_daily_teacher_id,omitempty" gorm:"type:uuid;column:class_daily_teacher_id"`
-	ClassDailyRoomID          *uuid.UUID `json:"class_daily_room_id,omitempty" gorm:"type:uuid;column:class_daily_room_id"`
+	// Flag aktif
+	ClassDailyIsActive bool `json:"class_daily_is_active" gorm:"type:boolean;not null;default:true;column:class_daily_is_active"`
 
-	// Waktu pada tanggal tsb
-	ClassDailyStartTime time.Time `json:"class_daily_start_time" gorm:"type:time;not null;column:class_daily_start_time"`
-	ClassDailyEndTime   time.Time `json:"class_daily_end_time"   gorm:"type:time;not null;column:class_daily_end_time"`
+	// Kolom generated (read-only) 1=Mon .. 7=Sun
+	ClassDailyDayOfWeek int `json:"class_daily_day_of_week" gorm:"->;column:class_daily_day_of_week"`
 
-	// Status & metadata
-	ClassDailyStatus    SessionStatus `json:"class_daily_status"    gorm:"type:text;not null;default:'scheduled';column:class_daily_status"`
-	ClassDailyIsActive  bool          `json:"class_daily_is_active" gorm:"type:boolean;not null;default:true;column:class_daily_is_active"`
-	ClassDailyRoomLabel *string       `json:"class_daily_room_label,omitempty" gorm:"type:text;column:class_daily_room_label"`
-
-	// Kolom generated (read-only)
-	ClassDailyTimeRange *string `json:"class_daily_time_range,omitempty" gorm:"->;column:class_daily_time_range"`
-	ClassDailyDayOfWeek int     `json:"class_daily_day_of_week" gorm:"->;column:class_daily_day_of_week"`
-
-	// Timestamps eksplisit (auto create/update)
+	// Timestamps eksplisit (sesuai skema SQL)
 	ClassDailyCreatedAt time.Time      `json:"class_daily_created_at" gorm:"column:class_daily_created_at;not null;autoCreateTime"`
 	ClassDailyUpdatedAt time.Time      `json:"class_daily_updated_at" gorm:"column:class_daily_updated_at;not null;autoUpdateTime"`
-	ClassDailyDeletedAt gorm.DeletedAt `json:"class_daily_deleted_at" gorm:"column:class_daily_deleted_at;index"`
+	ClassDailyDeletedAt gorm.DeletedAt `json:"class_daily_deleted_at,omitempty" gorm:"column:class_daily_deleted_at;index"`
 }
 
-/* =======================================================
-   Table name
-   ======================================================= */
-
+// TableName override
 func (ClassDailyModel) TableName() string {
 	return "class_daily"
 }

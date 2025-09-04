@@ -36,8 +36,10 @@ var validateUCS = validator.New()
 /* =============== Helpers =============== */
 
 // Pastikan user_class (enrolment) & class_section berada pada masjid yg sama (masjidID token)
-func (h *UserClassSectionController) ensureParentsBelongToMasjid(userClassID, sectionID, masjidID uuid.UUID) error {
-	// --- Cek user_classes (harus belum soft-deleted & tenant sama)
+func (h *UserClassSectionController) ensureParentsBelongToMasjid(
+	userClassID, sectionID, masjidID uuid.UUID,
+) error {
+	// Cek user_classes (tenant sama & belum terhapus)
 	{
 		var uc ucModel.UserClassesModel
 		if err := h.DB.
@@ -49,14 +51,12 @@ func (h *UserClassSectionController) ensureParentsBelongToMasjid(userClassID, se
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi enrolment")
 		}
-
-		// ✅ uc.UserClassesMasjidID adalah uuid.UUID (value), cukup compare langsung
 		if uc.UserClassesMasjidID != masjidID {
 			return fiber.NewError(fiber.StatusForbidden, "Enrolment bukan milik masjid Anda")
 		}
 	}
 
-	// --- Cek class_sections (harus belum soft-deleted & tenant sama)
+	// Cek class_sections (tenant sama & belum terhapus)
 	{
 		var sec secModel.ClassSectionModel
 		if err := h.DB.
@@ -68,17 +68,16 @@ func (h *UserClassSectionController) ensureParentsBelongToMasjid(userClassID, se
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi section")
 		}
-
-		// Jika di model kamu ClassSectionsMasjidID bertipe *uuid.UUID (pointer), tetap gunakan pengecekan ini:
-		if sec.ClassSectionsMasjidID == nil || *sec.ClassSectionsMasjidID != masjidID {
+		if sec.ClassSectionsMasjidID != masjidID {
 			return fiber.NewError(fiber.StatusForbidden, "Section bukan milik masjid Anda")
 		}
-		// Jika nantinya kamu ubah jadi uuid.UUID (value), ganti blok di atas dengan:
-		// if sec.ClassSectionsMasjidID != masjidID { ... }
 	}
 
 	return nil
 }
+
+
+
 // Ambil row user_class_sections + pastikan tenant sama
 func (h *UserClassSectionController) findUCSWithTenantGuard(ucsID, masjidID uuid.UUID) (*secModel.UserClassSectionsModel, error) {
 	var m secModel.UserClassSectionsModel

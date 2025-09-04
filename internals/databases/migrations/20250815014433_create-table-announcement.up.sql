@@ -80,26 +80,6 @@ BEGIN
   END IF;
 END$$;
 
--- Trigger updated_at
-CREATE OR REPLACE FUNCTION fn_announcement_themes_touch_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.announcement_themes_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_announcement_themes_touch_updated_at') THEN
-    DROP TRIGGER trg_announcement_themes_touch_updated_at ON announcement_themes;
-  END IF;
-  CREATE TRIGGER trg_announcement_themes_touch_updated_at
-    BEFORE UPDATE ON announcement_themes
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_announcement_themes_touch_updated_at();
-END$$;
-
-
 -- =========================================================
 -- Kebutuhan UNIQUE komposit di tabel lain (untuk FK tenant-safe)
 -- =========================================================
@@ -292,24 +272,6 @@ CREATE INDEX IF NOT EXISTS ix_announcements_title_trgm_live
   ON announcements USING GIN (announcement_title gin_trgm_ops)
   WHERE announcement_deleted_at IS NULL AND announcement_is_active = TRUE;
 
--- Trigger updated_at
-CREATE OR REPLACE FUNCTION fn_announcements_touch_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.announcement_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_announcements_touch_updated_at') THEN
-    DROP TRIGGER trg_announcements_touch_updated_at ON announcements;
-  END IF;
-  CREATE TRIGGER trg_announcements_touch_updated_at
-    BEFORE UPDATE ON announcements
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_announcements_touch_updated_at();
-END$$;
 
 -- Drop kolom lama user_id kalau masih ada
 DO $$
@@ -381,22 +343,3 @@ CREATE INDEX IF NOT EXISTS ix_announcement_urls_label_trgm_live
 CREATE INDEX IF NOT EXISTS ix_announcement_urls_delete_pending
   ON announcement_urls (announcement_url_delete_pending_until)
   WHERE announcement_url_deleted_at IS NULL;
-
--- Trigger updated_at
-CREATE OR REPLACE FUNCTION fn_announcement_urls_touch_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.announcement_url_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_announcement_urls_touch_updated_at') THEN
-    DROP TRIGGER trg_announcement_urls_touch_updated_at ON announcement_urls;
-  END IF;
-  CREATE TRIGGER trg_announcement_urls_touch_updated_at
-    BEFORE UPDATE ON announcement_urls
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_announcement_urls_touch_updated_at();
-END$$;

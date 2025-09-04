@@ -55,18 +55,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_profile_teacher_dkm_masjid_user_role_alive
   WHERE masjid_profile_teacher_dkm_user_id IS NOT NULL
     AND masjid_profile_teacher_dkm_deleted_at IS NULL;
 
--- Trigger untuk updated_at
-CREATE OR REPLACE FUNCTION set_updated_at_profile_teacher_dkm() RETURNS trigger AS $$
-BEGIN
-  NEW.masjid_profile_teacher_dkm_updated_at = now();
-  RETURN NEW;
-END; $$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_set_updated_at_profile_teacher_dkm ON masjid_profile_teacher_dkm;
-CREATE TRIGGER trg_set_updated_at_profile_teacher_dkm
-BEFORE UPDATE ON masjid_profile_teacher_dkm
-FOR EACH ROW EXECUTE FUNCTION set_updated_at_profile_teacher_dkm();
-
 
 -- =========================================================
 -- T2) masjid_tags  → TABLE
@@ -92,17 +80,11 @@ CREATE INDEX IF NOT EXISTS gin_masjid_tags_name_trgm
 CREATE INDEX IF NOT EXISTS idx_masjid_tags_created_at_desc
   ON masjid_tags (masjid_tag_created_at DESC);
 
--- Trigger untuk updated_at
-CREATE OR REPLACE FUNCTION set_updated_at_masjid_tags() RETURNS trigger AS $$
-BEGIN
-  NEW.masjid_tag_updated_at = now();
-  RETURN NEW;
-END; $$ LANGUAGE plpgsql;
-
 DROP TRIGGER IF EXISTS trg_set_updated_at_masjid_tags ON masjid_tags;
 CREATE TRIGGER trg_set_updated_at_masjid_tags
 BEFORE UPDATE ON masjid_tags
 FOR EACH ROW EXECUTE FUNCTION set_updated_at_masjid_tags();
+
 
 -- =========================================================
 -- T3) masjid_tag_relations  → TABLE dulu

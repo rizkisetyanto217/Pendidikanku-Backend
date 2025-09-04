@@ -1,81 +1,44 @@
 BEGIN;
 
--- CLASS_ROOMS: kembalikan index ke versi non-partial
-DROP TRIGGER IF EXISTS trg_touch_updated_at_class_rooms ON class_rooms;
-DROP FUNCTION IF EXISTS fn_touch_updated_at_class_rooms();
+-- =========================
+-- Bersihkan TRIGGER & FUNCTION validator
+-- =========================
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_class_schedules_validate_links') THEN
+    DROP TRIGGER trg_class_schedules_validate_links ON class_schedules;
+  END IF;
+END$$;
 
-DROP INDEX IF EXISTS idx_class_rooms_features_gin;
-CREATE INDEX IF NOT EXISTS idx_class_rooms_features_gin
-  ON class_rooms USING GIN (class_rooms_features jsonb_path_ops);
+DROP FUNCTION IF EXISTS fn_class_schedules_validate_links();
 
-DROP INDEX IF EXISTS idx_class_rooms_name_trgm;
-CREATE INDEX IF NOT EXISTS idx_class_rooms_name_trgm
-  ON class_rooms USING GIN (class_rooms_name gin_trgm_ops);
-
-DROP INDEX IF EXISTS idx_class_rooms_location_trgm;
-CREATE INDEX IF NOT EXISTS idx_class_rooms_location_trgm
-  ON class_rooms USING GIN (class_rooms_location gin_trgm_ops);
-
-DROP INDEX IF EXISTS idx_class_rooms_tenant_active;
-CREATE INDEX IF NOT EXISTS idx_class_rooms_tenant_active
-  ON class_rooms (class_rooms_masjid_id, class_rooms_is_active);
-
-DROP INDEX IF EXISTS uq_class_rooms_tenant_name_ci;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_name_ci
-  ON class_rooms (class_rooms_masjid_id, lower(class_rooms_name));
-
-DROP INDEX IF EXISTS uq_class_rooms_tenant_code_ci;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_code_ci
-  ON class_rooms (class_rooms_masjid_id, lower(class_rooms_code))
-  WHERE class_rooms_code IS NOT NULL AND length(trim(class_rooms_code)) > 0;
-
--- CLASS_SCHEDULES: drop trigger & kembalikan index/constraints ke non-deleted filter
-DROP TRIGGER IF EXISTS trg_touch_updated_at_class_schedules ON class_schedules;
-DROP FUNCTION IF EXISTS fn_touch_updated_at_class_schedules();
-
--- validator
-DROP TRIGGER IF EXISTS trg_validate_schedule_teacher_mtj ON class_schedules;
-DROP FUNCTION IF EXISTS fn_validate_schedule_teacher_mtj();
-
-DROP TRIGGER IF EXISTS trg_validate_schedule_term ON class_schedules;
-DROP FUNCTION IF EXISTS fn_validate_schedule_term();
-
--- exclusion constraints: versi tanpa deleted_at
-ALTER TABLE class_schedules DROP CONSTRAINT IF EXISTS excl_sched_teacher_overlap;
-ALTER TABLE class_schedules DROP CONSTRAINT IF EXISTS excl_sched_section_overlap;
-ALTER TABLE class_schedules DROP CONSTRAINT IF EXISTS excl_sched_room_overlap;
-
-ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_room_overlap
-  EXCLUDE USING gist (
-    class_schedules_masjid_id   WITH =,
-    class_schedules_room_id     WITH =,
-    class_schedules_day_of_week WITH =,
-    class_schedules_time_range  WITH &&
-  )
-  WHERE (class_schedules_is_active AND class_schedules_room_id IS NOT NULL);
-
-ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_section_overlap
-  EXCLUDE USING gist (
-    class_schedules_masjid_id   WITH =,
-    class_schedules_section_id  WITH =,
-    class_schedules_day_of_week WITH =,
-    class_schedules_time_range  WITH &&
-  )
-  WHERE (class_schedules_is_active);
-
-ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_teacher_overlap
-  EXCLUDE USING gist (
-    class_schedules_masjid_id   WITH =,
-    class_schedules_teacher_id  WITH =,
-    class_schedules_day_of_week WITH =,
-    class_schedules_time_range  WITH &&
-  )
-  WHERE (class_schedules_is_active AND class_schedules_teacher_id IS NOT NULL);
-
--- active index: non-deleted filter
+-- =========================
+-- Hapus index & constraint di CLASS_SCHEDULES
+-- (opsional; akan ikut hilang saat DROP TABLE, tapi eksplisit aman)
+-- =========================
 DROP INDEX IF EXISTS idx_class_schedules_active;
-CREATE INDEX IF NOT EXISTS idx_class_schedules_active
-  ON class_schedules (class_schedules_is_active)
-  WHERE class_schedules_is_active;
+DROP INDEX IF EXISTS idx_class_schedules_class_subject;
+DROP INDEX IF EXISTS idx_class_schedules_room_dow;
+DROP INDEX IF EXISTS idx_class_schedules_section_dow_time;
+DROP INDEX IF EXISTS idx_class_schedules_tenant_dow;
+
+ALTER TABLE IF EXISTS class_schedules DROP CONSTRAINT IF EXISTS excl_sched_room_overlap;
+ALTER TABLE IF EXISTS class_schedules DROP CONSTRAINT IF EXISTS excl_sched_section_overlap;
+
+-- =========================
+-- Hapus index di CLASS_ROOMS (opsional eksplisit)
+-- =========================
+DROP INDEX IF EXISTS uq_class_rooms_tenant_name_ci;
+DROP INDEX IF EXISTS uq_class_rooms_tenant_code_ci;
+DROP INDEX IF EXISTS idx_class_rooms_tenant_active;
+DROP INDEX IF EXISTS idx_class_rooms_features_gin;
+DROP INDEX IF EXISTS idx_class_rooms_name_trgm;
+DROP INDEX IF EXISTS idx_class_rooms_location_trgm;
+
+-- =========================
+-- DROP TABLES
+-- =========================
+DROP TABLE IF EXISTS class_schedules;
+DROP TABLE IF EXISTS class_rooms;
 
 COMMIT;

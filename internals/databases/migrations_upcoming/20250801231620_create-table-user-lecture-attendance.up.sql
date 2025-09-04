@@ -10,16 +10,6 @@ BEGIN;
 -- -------------------------------------------------
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- -------------------------------------------------
--- Trigger helper (idempotent)
--- -------------------------------------------------
-CREATE OR REPLACE FUNCTION fn_touch_updated_at_generic()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.user_lecture_sessions_attendance_updated_at := CURRENT_TIMESTAMPTZ;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
 -- =====================================================================
 -- ===============================  UP  =================================
 -- =====================================================================
@@ -48,12 +38,6 @@ CREATE TABLE IF NOT EXISTS user_lecture_sessions_attendance (
   user_lecture_sessions_attendance_deleted_at  TIMESTAMPTZ NULL
 );
 
--- Trigger: auto-touch updated_at
-DROP TRIGGER IF EXISTS trg_attendance_touch ON user_lecture_sessions_attendance;
-CREATE TRIGGER trg_attendance_touch
-BEFORE UPDATE ON user_lecture_sessions_attendance
-FOR EACH ROW
-EXECUTE FUNCTION fn_touch_updated_at_generic();
 
 -- =================================================
 -- Indexing (query-first design)

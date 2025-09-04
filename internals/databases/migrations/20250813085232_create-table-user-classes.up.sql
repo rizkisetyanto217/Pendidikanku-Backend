@@ -110,20 +110,6 @@ BEGIN
   END IF;
 END$$;
 
--- =========================================================
--- Trigger: auto touch updated_at
--- =========================================================
-CREATE OR REPLACE FUNCTION fn_touch_user_classes_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.user_classes_updated_at := now();
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_touch_user_classes ON user_classes;
-CREATE TRIGGER trg_touch_user_classes
-BEFORE UPDATE ON user_classes
-FOR EACH ROW EXECUTE FUNCTION fn_touch_user_classes_updated_at();
 
 -- =========================================================
 -- Indexes & Partial Unique

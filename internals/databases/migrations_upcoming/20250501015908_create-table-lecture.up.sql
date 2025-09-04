@@ -162,13 +162,6 @@ CREATE INDEX IF NOT EXISTS idx_user_lectures_paid_partial
   ON user_lectures(user_lecture_masjid_id, user_lecture_has_paid, user_lecture_payment_time)
   WHERE user_lecture_has_paid = TRUE AND user_lecture_deleted_at IS NULL;
 
--- Trigger updated_at
-DROP TRIGGER IF EXISTS trg_user_lectures_touch ON user_lectures;
-CREATE TRIGGER trg_user_lectures_touch
-BEFORE UPDATE ON user_lectures
-FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_user_lectures();
-
-
 
 -- ---------------------------------------------------------
 -- TABEL: lecture_schedules
@@ -234,11 +227,5 @@ CREATE INDEX IF NOT EXISTS idx_lecture_schedules_title_trgm
 
 CREATE INDEX IF NOT EXISTS idx_lecture_schedules_place_trgm
   ON lecture_schedules USING GIN (lecture_schedules_place gin_trgm_ops);
-
--- Trigger updated_at
-DROP TRIGGER IF EXISTS trg_lecture_schedules_touch ON lecture_schedules;
-CREATE TRIGGER trg_lecture_schedules_touch
-BEFORE UPDATE ON lecture_schedules
-FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_lecture_schedules();
 
 COMMIT;

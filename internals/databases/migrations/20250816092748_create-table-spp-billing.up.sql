@@ -129,19 +129,6 @@ CREATE INDEX IF NOT EXISTS ix_spp_billings_term_live
 CREATE INDEX IF NOT EXISTS idx_spp_billings_masjid ON spp_billings (spp_billing_masjid_id);
 CREATE INDEX IF NOT EXISTS idx_spp_billings_class  ON spp_billings (spp_billing_class_id);
 
--- Trigger updated_at
-CREATE OR REPLACE FUNCTION set_spp_billing_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.spp_billing_updated_at = CURRENT_TIMESTAMP;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_spp_billings_set_timestamp ON spp_billings;
-CREATE TRIGGER trg_spp_billings_set_timestamp
-BEFORE UPDATE ON spp_billings
-FOR EACH ROW EXECUTE FUNCTION set_spp_billing_updated_at();
 
 -- =========================================================
 -- USER SPP BILLINGS (tetap)
@@ -173,21 +160,6 @@ END$$;
 
 CREATE INDEX IF NOT EXISTS idx_user_spp_billings_billing ON user_spp_billings (user_spp_billing_billing_id);
 CREATE INDEX IF NOT EXISTS idx_user_spp_billings_user    ON user_spp_billings (user_spp_billing_user_id);
-
-CREATE OR REPLACE FUNCTION set_user_spp_billing_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.user_spp_billing_updated_at = CURRENT_TIMESTAMP;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_user_spp_billings_set_timestamp ON user_spp_billings;
-CREATE TRIGGER trg_user_spp_billings_set_timestamp
-BEFORE UPDATE ON user_spp_billings
-FOR EACH ROW EXECUTE FUNCTION set_user_spp_billing_updated_at();
-
-
 
 
 -- =========================================================
@@ -264,20 +236,6 @@ CREATE INDEX IF NOT EXISTS idx_donations_user_id          ON donations (donation
 CREATE INDEX IF NOT EXISTS idx_donations_masjid_id        ON donations (donation_masjid_id);
 CREATE INDEX IF NOT EXISTS idx_donations_user_spp_billing_id ON donations (donation_user_spp_billing_id);
 CREATE INDEX IF NOT EXISTS idx_donations_parent_order_id  ON donations (donation_parent_order_id);
-
--- Trigger UPDATED_AT khusus donations (tanpa dependensi global)
-CREATE OR REPLACE FUNCTION set_donations_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = CURRENT_TIMESTAMP;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_donations_set_timestamp ON donations;
-CREATE TRIGGER trg_donations_set_timestamp
-BEFORE UPDATE ON donations
-FOR EACH ROW EXECUTE FUNCTION set_donations_updated_at();
 
 -- Sinkronisasi status USER SPP → 'paid' saat donasi SPP 'paid'
 CREATE OR REPLACE FUNCTION donations_sync_user_spp_paid()

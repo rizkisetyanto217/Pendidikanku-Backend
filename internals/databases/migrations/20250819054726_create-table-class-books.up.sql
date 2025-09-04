@@ -172,20 +172,6 @@ CREATE INDEX IF NOT EXISTS idx_book_urls_type_alive
 CREATE INDEX IF NOT EXISTS idx_book_urls_created_at
   ON book_urls (book_url_created_at DESC);
 
--- Touch updated_at di UPDATE
-CREATE OR REPLACE FUNCTION trg_touch_book_urls_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.book_url_updated_at := NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS tg_touch_book_urls_updated_at ON book_urls;
-CREATE TRIGGER tg_touch_book_urls_updated_at
-BEFORE UPDATE ON book_urls
-FOR EACH ROW EXECUTE FUNCTION trg_touch_book_urls_updated_at();
-
 -- =========================================
 -- BACKFILL dari kolom lama di books (jika masih ada)
 -- =========================================

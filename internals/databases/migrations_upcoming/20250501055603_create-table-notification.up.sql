@@ -23,19 +23,6 @@ CREATE TABLE IF NOT EXISTS notifications (
     notification_deleted_at  TIMESTAMPTZ
 );
 
--- Trigger: auto-update updated_at
-CREATE OR REPLACE FUNCTION set_notifications_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.notification_updated_at := NOW();
-  RETURN NEW;
-END; $$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_notifications_set_updated_at ON notifications;
-CREATE TRIGGER trg_notifications_set_updated_at
-BEFORE UPDATE ON notifications
-FOR EACH ROW EXECUTE FUNCTION set_notifications_updated_at();
-
 -- Indexing yang efektif untuk query umum (alive only):
 -- 1) List per masjid (ORDER BY terbaru)
 CREATE INDEX IF NOT EXISTS idx_notifications_masjid_created_alive

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"masjidku_backend/internals/features/school/academics/academic_terms/model"
+	model "masjidku_backend/internals/features/school/academics/academic_terms/model" // sesuaikan bila path model berbeda
 
 	"github.com/google/uuid"
 )
@@ -13,11 +13,12 @@ import (
 /* ===================== REQUEST DTO ===================== */
 
 type AcademicTermCreateDTO struct {
-	AcademicTermsAcademicYear string    `json:"academic_terms_academic_year" validate:"required,min=4"`
-	AcademicTermsName         string    `json:"academic_terms_name"          validate:"required,oneof=Ganjil Genap Pendek Khusus"`
-	AcademicTermsStartDate    time.Time `json:"academic_terms_start_date"    validate:"required"`
-	AcademicTermsEndDate      time.Time `json:"academic_terms_end_date"      validate:"required,gtefield=AcademicTermsStartDate"`
-	AcademicTermsIsActive     *bool     `json:"academic_terms_is_active,omitempty"`
+	AcademicTermsAcademicYear string     `json:"academic_terms_academic_year" validate:"required,min=4"`
+	AcademicTermsName         string     `json:"academic_terms_name"          validate:"required,oneof=Ganjil Genap Pendek Khusus"`
+	AcademicTermsStartDate    time.Time  `json:"academic_terms_start_date"    validate:"required"`
+	AcademicTermsEndDate      time.Time  `json:"academic_terms_end_date"      validate:"required,gtefield=AcademicTermsStartDate"`
+	AcademicTermsIsActive     *bool      `json:"academic_terms_is_active,omitempty"`
+	AcademicTermsAngkatan     *int       `json:"academic_terms_angkatan,omitempty" validate:"omitempty,gte=1900,lte=3000"`
 }
 
 type AcademicTermUpdateDTO struct {
@@ -26,6 +27,7 @@ type AcademicTermUpdateDTO struct {
 	AcademicTermsStartDate    *time.Time `json:"academic_terms_start_date,omitempty"`
 	AcademicTermsEndDate      *time.Time `json:"academic_terms_end_date,omitempty"`
 	AcademicTermsIsActive     *bool      `json:"academic_terms_is_active,omitempty"`
+	AcademicTermsAngkatan     *int       `json:"academic_terms_angkatan,omitempty" validate:"omitempty,gte=1900,lte=3000"`
 }
 
 /* ========== LIST/FILTER (query) ========== */
@@ -35,9 +37,11 @@ type AcademicTermFilterDTO struct {
 	Year     *string `query:"year"      validate:"omitempty,min=4"`
 	Name     *string `query:"name"      validate:"omitempty,oneof=Ganjil Genap Pendek Khusus"`
 	Active   *bool   `query:"active"    validate:"omitempty"`
+	Angkatan *int    `query:"angkatan"  validate:"omitempty,gte=1900,lte=3000"`
+
 	Page     int     `query:"page"      validate:"omitempty,min=1"`
 	PageSize int     `query:"page_size" validate:"omitempty,min=1,max=200"`
-	SortBy   *string `query:"sort_by"   validate:"omitempty,oneof=created_at updated_at start_date end_date name year"`
+	SortBy   *string `query:"sort_by"   validate:"omitempty,oneof=created_at updated_at start_date end_date name year angkatan"`
 	SortDir  *string `query:"sort_dir"  validate:"omitempty,oneof=asc desc"`
 }
 
@@ -52,11 +56,13 @@ type AcademicTermResponseDTO struct {
 	AcademicTermsEndDate      time.Time  `json:"academic_terms_end_date"`
 	AcademicTermsIsActive     bool       `json:"academic_terms_is_active"`
 
+	AcademicTermsAngkatan     *int       `json:"academic_terms_angkatan,omitempty"`
+
 	// Read-only: diisi DB (generated column)
 	AcademicTermsPeriod *string `json:"academic_terms_period,omitempty"`
 
 	AcademicTermsCreatedAt time.Time  `json:"academic_terms_created_at"`
-	AcademicTermsUpdatedAt time.Time  `json:"academic_terms_updated_at"` // non-pointer, match model
+	AcademicTermsUpdatedAt time.Time  `json:"academic_terms_updated_at"`
 	AcademicTermsDeletedAt *time.Time `json:"academic_terms_deleted_at,omitempty"`
 }
 
@@ -83,6 +89,7 @@ func (p *AcademicTermCreateDTO) ToModel(masjidID uuid.UUID) model.AcademicTermMo
 		AcademicTermsStartDate:    p.AcademicTermsStartDate,
 		AcademicTermsEndDate:      p.AcademicTermsEndDate,
 		AcademicTermsIsActive:     isActive,
+		AcademicTermsAngkatan:     p.AcademicTermsAngkatan, // NEW
 	}
 }
 
@@ -101,6 +108,9 @@ func (u *AcademicTermUpdateDTO) ApplyUpdates(ent *model.AcademicTermModel) {
 	}
 	if u.AcademicTermsIsActive != nil {
 		ent.AcademicTermsIsActive = *u.AcademicTermsIsActive
+	}
+	if u.AcademicTermsAngkatan != nil {
+		ent.AcademicTermsAngkatan = u.AcademicTermsAngkatan // NEW
 	}
 }
 
@@ -139,6 +149,7 @@ func FromModel(ent model.AcademicTermModel) AcademicTermResponseDTO {
 		AcademicTermsStartDate:    ent.AcademicTermsStartDate,
 		AcademicTermsEndDate:      ent.AcademicTermsEndDate,
 		AcademicTermsIsActive:     ent.AcademicTermsIsActive,
+		AcademicTermsAngkatan:     ent.AcademicTermsAngkatan, // NEW
 		AcademicTermsPeriod:       ent.AcademicTermsPeriod,
 		AcademicTermsCreatedAt:    ent.AcademicTermsCreatedAt,
 		AcademicTermsUpdatedAt:    ent.AcademicTermsUpdatedAt,

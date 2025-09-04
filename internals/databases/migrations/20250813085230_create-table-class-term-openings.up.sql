@@ -94,12 +94,6 @@ BEGIN
   END IF;
 END$$;
 
--- Trigger: touch updated_at
-DROP TRIGGER IF EXISTS trg_touch_class_term_openings ON class_term_openings;
-CREATE TRIGGER trg_touch_class_term_openings
-BEFORE UPDATE ON class_term_openings
-FOR EACH ROW EXECUTE FUNCTION fn_touch_class_term_openings_updated_at();
-
 -- Cegah kuota over-taken
 CREATE OR REPLACE FUNCTION fn_cto_quota_nonnegative()
 RETURNS TRIGGER AS $$

@@ -3,6 +3,8 @@ package controller
 
 import (
 	"errors"
+	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -14,8 +16,8 @@ import (
 
 	"masjidku_backend/internals/features/school/academics/academic_terms/dto"
 	"masjidku_backend/internals/features/school/academics/academic_terms/model"
-	helperAuth "masjidku_backend/internals/helpers/auth"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
 /* ================= Controller & Constructor ================= */
@@ -54,107 +56,90 @@ func (ctl *AcademicTermController) GetByID(c *fiber.Ctx) error {
 
 // GET /api/a/academic-terms
 // List (multi-tenant via token) + Filter + Pagination + Sorting
+// GET /api/a/academic-terms
 func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
-	var q dto.AcademicTermFilterDTO
-	if err := c.QueryParser(&q); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid query: "+err.Error())
-	}
-	q.Normalize()
+    var q dto.AcademicTermFilterDTO
+    if err := c.QueryParser(&q); err != nil {
+        return helper.JsonError(c, fiber.StatusBadRequest, "Invalid query: "+err.Error())
+    }
+    q.Normalize()
 
-	// validate
-	v := ctl.Validator
-	if v == nil {
-		v = fallbackValidator
-	}
-	if err := v.Struct(&q); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Validation failed: "+err.Error())
-	}
+    v := ctl.Validator
+    if v == nil {
+        v = fallbackValidator
+    }
+    if err := v.Struct(&q); err != nil {
+        return helper.JsonError(c, fiber.StatusBadRequest, "Validation failed: "+err.Error())
+    }
 
-	// multi-tenant
-	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
+    masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
+    if err != nil {
+        return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+    }
 
-	// paging default
-	page := q.Page
-	if page == 0 {
-		page = 1
-	}
-	pageSize := q.PageSize
-	if pageSize == 0 {
-		pageSize = 20
-	}
+    // ==== Pagination (helper) ====
+    rawQ := string(c.Request().URI().QueryString())
+    httpReq := &http.Request{URL: &url.URL{RawQuery: rawQ}}
+    p := helper.ParseWith(httpReq, "created_at", "desc", helper.AdminOpts)
 
-	dbq := ctl.DB.Model(&model.AcademicTermModel{}).
-		Where("academic_terms_masjid_id IN (?) AND academic_terms_deleted_at IS NULL", masjidIDs)
+    allowedSort := map[string]string{
+        "created_at": "academic_terms_created_at",
+        "updated_at": "academic_terms_updated_at",
+        "start_date": "academic_terms_start_date",
+        "end_date":   "academic_terms_end_date",
+        "name":       "academic_terms_name",
+        "year":       "academic_terms_academic_year",
+        "angkatan":   "academic_terms_angkatan",
+    }
+    orderClause, err := p.SafeOrderClause(allowedSort, "created_at")
+    if err != nil {
+        return helper.JsonError(c, fiber.StatusBadRequest, "sort_by tidak valid")
+    }
+    orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
 
-	// filter by ID (robust: abaikan nilai kosong/invalid, jangan 400)
-	if rawID, has := c.Queries()["id"]; has {
-		cleaned := strings.TrimSpace(rawID)
-		cleaned = strings.Trim(cleaned, `"' {}`) // bersihkan kutip/kurung nyasar
-		low := strings.ToLower(cleaned)
-		if cleaned != "" && low != "null" && low != "undefined" {
-			if termID, err := uuid.Parse(cleaned); err == nil {
-				dbq = dbq.Where("academic_terms_id = ?", termID)
-			}
-			// else: biarkan, jangan return 400 agar "get all" tetap jalan
-		}
-	}
+    dbq := ctl.DB.Model(&model.AcademicTermModel{}).
+        Where("academic_terms_masjid_id IN (?) AND academic_terms_deleted_at IS NULL", masjidIDs)
 
-	// filters lain
-	if q.Year != nil && strings.TrimSpace(*q.Year) != "" {
-		dbq = dbq.Where("academic_terms_academic_year = ?", strings.TrimSpace(*q.Year))
-	}
-	if q.Name != nil && strings.TrimSpace(*q.Name) != "" {
-		dbq = dbq.Where("academic_terms_name = ?", strings.TrimSpace(*q.Name))
-	}
-	if q.Active != nil {
-		dbq = dbq.Where("academic_terms_is_active = ?", *q.Active)
-	}
+    // filter ID (robust)
+    if rawID, has := c.Queries()["id"]; has {
+        cleaned := strings.Trim(rawID, `"' {}`)
+        low := strings.ToLower(strings.TrimSpace(cleaned))
+        if cleaned != "" && low != "null" && low != "undefined" {
+            if termID, err := uuid.Parse(cleaned); err == nil {
+                dbq = dbq.Where("academic_terms_id = ?", termID)
+            }
+        }
+    }
+    if q.Year != nil && strings.TrimSpace(*q.Year) != "" {
+        dbq = dbq.Where("academic_terms_academic_year = ?", strings.TrimSpace(*q.Year))
+    }
+    if q.Name != nil && strings.TrimSpace(*q.Name) != "" {
+        dbq = dbq.Where("academic_terms_name = ?", strings.TrimSpace(*q.Name))
+    }
+    if q.Active != nil {
+        dbq = dbq.Where("academic_terms_is_active = ?", *q.Active)
+    }
+    // NEW: filter angkatan
+    if q.Angkatan != nil {
+        dbq = dbq.Where("academic_terms_angkatan = ?", *q.Angkatan)
+    }
 
-	// sorting
-	sortBy := "academic_terms_created_at"
-	if q.SortBy != nil {
-		switch *q.SortBy {
-		case "created_at":
-			sortBy = "academic_terms_created_at"
-		case "updated_at":
-			sortBy = "academic_terms_updated_at"
-		case "start_date":
-			sortBy = "academic_terms_start_date"
-		case "end_date":
-			sortBy = "academic_terms_end_date"
-		case "name":
-			sortBy = "academic_terms_name"
-		case "year":
-			sortBy = "academic_terms_academic_year"
-		}
-	}
-	sortDir := "desc"
-	if q.SortDir != nil && (*q.SortDir == "asc" || *q.SortDir == "desc") {
-		sortDir = *q.SortDir
-	}
+    var total int64
+    if err := dbq.Count(&total).Error; err != nil {
+        return helper.JsonError(c, fiber.StatusInternalServerError, "Count failed: "+err.Error())
+    }
 
-	// total
-	var total int64
-	if err := dbq.Count(&total).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Count failed: "+err.Error())
-	}
+    var list []model.AcademicTermModel
+    if err := dbq.
+        Order(orderExpr).
+        Limit(p.Limit()).
+        Offset(p.Offset()).
+        Find(&list).Error; err != nil {
+        return helper.JsonError(c, fiber.StatusInternalServerError, "Query failed: "+err.Error())
+    }
 
-	// data
-	var list []model.AcademicTermModel
-	if err := dbq.
-		Order(sortBy + " " + sortDir).
-		Limit(pageSize).
-		Offset((page - 1) * pageSize).
-		Find(&list).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Query failed: "+err.Error())
-	}
-
-	return helper.JsonList(c, dto.FromModels(list), fiber.Map{
-		"total": total, "page": page, "page_size": pageSize,
-	})
+    meta := helper.BuildMeta(total, p)
+    return helper.JsonList(c, dto.FromModels(list), meta)
 }
 
 /* ================= Extra: Search By Year (dengan openings & class) ================= */
@@ -196,175 +181,181 @@ type AcademicTermWithOpeningsResponse struct {
 }
 
 // GET /api/a/academic-terms/search?year=2026&id=<masjid_id>&page_size=20&page=1
+// GET /api/a/academic-terms/search?year=2026&id=<masjid_id>&angkatan=10&per_page=20&page=1
 func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
-	yearQ := strings.TrimSpace(c.Query("year"))
-	masjidIDParam := strings.TrimSpace(c.Query("id")) // dimaknai sebagai masjid_id
+    yearQ := strings.TrimSpace(c.Query("year"))
+    masjidIDParam := strings.TrimSpace(c.Query("id"))
 
-	// multi-tenant via token
-	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
-	if err != nil {
-		return err
-	}
+    // ==== Pagination (helper) ====
+    rawQ := string(c.Request().URI().QueryString())
+    httpReq := &http.Request{URL: &url.URL{RawQuery: rawQ}}
+    p := helper.ParseWith(httpReq, "start_date", "desc", helper.AdminOpts)
 
-	// jika masjid_id diberikan, validasi & limit ke masjid tsb (authorization)
-	if masjidIDParam != "" {
-		wantID, err := uuid.Parse(masjidIDParam)
-		if err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "invalid 'id' (must be uuid masjid_id)")
-		}
-		authorized := false
-		for _, id := range masjidIDs {
-			if id == wantID {
-				authorized = true
-				break
-			}
-		}
-		if !authorized {
-			return fiber.NewError(fiber.StatusForbidden, "masjid_id tidak diizinkan untuk user ini")
-		}
-		masjidIDs = []uuid.UUID{wantID}
-	}
+    // kolom sort yang diizinkan untuk terms
+    allowedSort := map[string]string{
+        "start_date": "academic_terms_start_date",
+        "end_date":   "academic_terms_end_date",
+        "created_at": "academic_terms_created_at",
+        "updated_at": "academic_terms_updated_at",
+        "name":       "academic_terms_name",
+        "year":       "academic_terms_academic_year",
+        "angkatan":   "academic_terms_angkatan",
+    }
+    orderClause, err := p.SafeOrderClause(allowedSort, "start_date")
+    if err != nil {
+        return fiber.NewError(fiber.StatusBadRequest, "sort_by tidak valid")
+    }
+    orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
 
-	// paginasi sederhana (default)
-	page := 1
-	pageSize := 20
-	if v := c.Query("page"); v != "" {
-		if n, _ := strconv.Atoi(v); n > 0 {
-			page = n
-		}
-	}
-	if v := c.Query("page_size"); v != "" {
-		if n, _ := strconv.Atoi(v); n > 0 && n <= 200 {
-			pageSize = n
-		}
-	}
+    // multi-tenant
+    masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
+    if err != nil {
+        return err
+    }
+    // jika masjid_id spesifik diberikan → authorize
+    if masjidIDParam != "" {
+        wantID, err := uuid.Parse(masjidIDParam)
+        if err != nil {
+            return fiber.NewError(fiber.StatusBadRequest, "invalid 'id' (must be uuid masjid_id)")
+        }
+        ok := false
+        for _, id := range masjidIDs {
+            if id == wantID { ok = true; break }
+        }
+        if !ok {
+            return fiber.NewError(fiber.StatusForbidden, "masjid_id tidak diizinkan untuk user ini")
+        }
+        masjidIDs = []uuid.UUID{wantID}
+    }
 
-	dbq := ctl.DB.Model(&model.AcademicTermModel{}).
-		Where("academic_terms_masjid_id IN (?) AND academic_terms_deleted_at IS NULL", masjidIDs)
+    // filter angkatan (opsional)
+    var angkatan *int
+    if s := strings.TrimSpace(c.Query("angkatan")); s != "" {
+        v, convErr := strconv.Atoi(s)
+        if convErr != nil || v < 0 {
+            return fiber.NewError(fiber.StatusBadRequest, "angkatan harus berupa angka >= 0")
+        }
+        angkatan = &v
+    }
 
-	// filter
-	if yearQ != "" {
-		dbq = dbq.Where("academic_terms_academic_year ILIKE ?", "%"+yearQ+"%")
-	}
+    dbq := ctl.DB.Model(&model.AcademicTermModel{}).
+        Where("academic_terms_masjid_id IN (?) AND academic_terms_deleted_at IS NULL", masjidIDs)
+    if yearQ != "" {
+        dbq = dbq.Where("academic_terms_academic_year ILIKE ?", "%"+yearQ+"%")
+    }
+    if angkatan != nil {
+        dbq = dbq.Where("academic_terms_angkatan = ?", *angkatan)
+    }
 
-	// count
-	var total int64
-	if err := dbq.Count(&total).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Count failed: "+err.Error())
-	}
+    var total int64
+    if err := dbq.Count(&total).Error; err != nil {
+        return fiber.NewError(fiber.StatusInternalServerError, "Count failed: "+err.Error())
+    }
 
-	// ambil terms
-	var list []model.AcademicTermModel
-	if err := dbq.
-		Order("academic_terms_start_date DESC").
-		Limit(pageSize).
-		Offset((page - 1) * pageSize).
-		Find(&list).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Query failed: "+err.Error())
-	}
+    var list []model.AcademicTermModel
+    if err := dbq.
+        Order(orderExpr).
+        Limit(p.Limit()).
+        Offset(p.Offset()).
+        Find(&list).Error; err != nil {
+        return fiber.NewError(fiber.StatusInternalServerError, "Query failed: "+err.Error())
+    }
 
-	// kumpulkan term_ids
-	termIDs := make([]uuid.UUID, 0, len(list))
-	for _, t := range list {
-		termIDs = append(termIDs, t.AcademicTermsID)
-	}
+    // kumpulkan term_ids
+    termIDs := make([]uuid.UUID, 0, len(list))
+    for _, t := range list { termIDs = append(termIDs, t.AcademicTermsID) }
 
-	// map term_id -> openings[]
-	openingMap := make(map[uuid.UUID][]OpeningWithClass, len(list))
-	if len(termIDs) > 0 {
-		type row struct {
-			// opening
-			ClassTermOpeningsID                    uuid.UUID
-			ClassTermOpeningsMasjidID              uuid.UUID
-			ClassTermOpeningsClassID               uuid.UUID
-			ClassTermOpeningsTermID                uuid.UUID
-			ClassTermOpeningsIsOpen                bool
-			ClassTermOpeningsRegistrationOpensAt   *time.Time
-			ClassTermOpeningsRegistrationClosesAt  *time.Time
-			ClassTermOpeningsQuotaTotal            *int
-			ClassTermOpeningsQuotaTaken            int
-			ClassTermOpeningsFeeOverrideMonthlyIDR *int
-			ClassTermOpeningsNotes                 *string
-			ClassTermOpeningsCreatedAt             time.Time
-			ClassTermOpeningsUpdatedAt             *time.Time
-			ClassTermOpeningsDeletedAt             *time.Time
-			// class
-			ClassID            uuid.UUID
-			ClassMasjidID      *uuid.UUID
-			ClassName          string
-			ClassSlug          string
-			ClassDescription   *string
-			ClassLevel         *string
-			ClassImageURL      *string
-			ClassIsActive      bool
-		}
+    // map term_id -> openings[]
+    openingMap := make(map[uuid.UUID][]OpeningWithClass, len(list))
+    if len(termIDs) > 0 {
+        type row struct {
+            // opening
+            ClassTermOpeningsID                    uuid.UUID
+            ClassTermOpeningsMasjidID              uuid.UUID
+            ClassTermOpeningsClassID               uuid.UUID
+            ClassTermOpeningsTermID                uuid.UUID
+            ClassTermOpeningsIsOpen                bool
+            ClassTermOpeningsRegistrationOpensAt   *time.Time
+            ClassTermOpeningsRegistrationClosesAt  *time.Time
+            ClassTermOpeningsQuotaTotal            *int
+            ClassTermOpeningsQuotaTaken            int
+            ClassTermOpeningsFeeOverrideMonthlyIDR *int
+            ClassTermOpeningsNotes                 *string
+            ClassTermOpeningsCreatedAt             time.Time
+            ClassTermOpeningsUpdatedAt             *time.Time
+            ClassTermOpeningsDeletedAt             *time.Time
+            // class
+            ClassID       uuid.UUID
+            ClassMasjidID *uuid.UUID
+            ClassName     string
+            ClassSlug     string
+            ClassDescription *string
+            ClassLevel       *string
+            ClassImageURL    *string
+            ClassIsActive    bool
+        }
 
-		var rows []row
-		if err := ctl.DB.
-			Table("class_term_openings AS o").
-			Select(`
-				o.class_term_openings_id, o.class_term_openings_masjid_id, o.class_term_openings_class_id,
-				o.class_term_openings_term_id, o.class_term_openings_is_open,
-				o.class_term_openings_registration_opens_at, o.class_term_openings_registration_closes_at,
-				o.class_term_openings_quota_total, o.class_term_openings_quota_taken,
-				o.class_term_openings_fee_override_monthly_idr, o.class_term_openings_notes,
-				o.class_term_openings_created_at, o.class_term_openings_updated_at, o.class_term_openings_deleted_at,
-				c.class_id, c.class_masjid_id, c.class_name, c.class_slug, c.class_description,
-				c.class_level, c.class_image_url, c.class_fee_monthly_idr, c.class_is_active
-			`).
-			Joins("JOIN classes c ON c.class_id = o.class_term_openings_class_id AND c.class_deleted_at IS NULL").
-			Where("o.class_term_openings_term_id IN (?)", termIDs).
-			Where("o.class_term_openings_masjid_id IN (?)", masjidIDs).
-			Where("o.class_term_openings_deleted_at IS NULL").
-			Order("o.class_term_openings_created_at DESC").
-			Find(&rows).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Query openings failed: "+err.Error())
-		}
+        var rows []row
+        if err := ctl.DB.
+            Table("class_term_openings AS o").
+            Select(`
+                o.class_term_openings_id, o.class_term_openings_masjid_id, o.class_term_openings_class_id,
+                o.class_term_openings_term_id, o.class_term_openings_is_open,
+                o.class_term_openings_registration_opens_at, o.class_term_openings_registration_closes_at,
+                o.class_term_openings_quota_total, o.class_term_openings_quota_taken,
+                o.class_term_openings_fee_override_monthly_idr, o.class_term_openings_notes,
+                o.class_term_openings_created_at, o.class_term_openings_updated_at, o.class_term_openings_deleted_at,
+                c.class_id, c.class_masjid_id, c.class_name, c.class_slug, c.class_description,
+                c.class_level, c.class_image_url, c.class_is_active
+            `).
+            Joins("JOIN classes c ON c.class_id = o.class_term_openings_class_id AND c.class_deleted_at IS NULL").
+            Where("o.class_term_openings_term_id IN (?)", termIDs).
+            Where("o.class_term_openings_masjid_id IN (?)", masjidIDs).
+            Where("o.class_term_openings_deleted_at IS NULL").
+            Order("o.class_term_openings_created_at DESC").
+            Find(&rows).Error; err != nil {
+            return fiber.NewError(fiber.StatusInternalServerError, "Query openings failed: "+err.Error())
+        }
 
-		for _, r := range rows {
-			item := OpeningWithClass{
-				ClassTermOpeningsID:                    r.ClassTermOpeningsID,
-				ClassTermOpeningsMasjidID:              r.ClassTermOpeningsMasjidID,
-				ClassTermOpeningsClassID:               r.ClassTermOpeningsClassID,
-				ClassTermOpeningsTermID:                r.ClassTermOpeningsTermID,
-				ClassTermOpeningsIsOpen:                r.ClassTermOpeningsIsOpen,
-				ClassTermOpeningsRegistrationOpensAt:   r.ClassTermOpeningsRegistrationOpensAt,
-				ClassTermOpeningsRegistrationClosesAt:  r.ClassTermOpeningsRegistrationClosesAt,
-				ClassTermOpeningsQuotaTotal:            r.ClassTermOpeningsQuotaTotal,
-				ClassTermOpeningsQuotaTaken:            r.ClassTermOpeningsQuotaTaken,
-				ClassTermOpeningsFeeOverrideMonthlyIDR: r.ClassTermOpeningsFeeOverrideMonthlyIDR,
-				ClassTermOpeningsNotes:                 r.ClassTermOpeningsNotes,
-				ClassTermOpeningsCreatedAt:             r.ClassTermOpeningsCreatedAt,
-				ClassTermOpeningsUpdatedAt:             r.ClassTermOpeningsUpdatedAt,
-				ClassTermOpeningsDeletedAt:             r.ClassTermOpeningsDeletedAt,
-			}
-			item.Class.ClassID = r.ClassID
-			item.Class.ClassMasjidID = r.ClassMasjidID
-			item.Class.ClassName = r.ClassName
-			item.Class.ClassSlug = r.ClassSlug
-			item.Class.ClassDescription = r.ClassDescription
-			item.Class.ClassLevel = r.ClassLevel
-			item.Class.ClassImageURL = r.ClassImageURL
-			item.Class.ClassIsActive = r.ClassIsActive
+        for _, r := range rows {
+            item := OpeningWithClass{
+                ClassTermOpeningsID:                    r.ClassTermOpeningsID,
+                ClassTermOpeningsMasjidID:              r.ClassTermOpeningsMasjidID,
+                ClassTermOpeningsClassID:               r.ClassTermOpeningsClassID,
+                ClassTermOpeningsTermID:                r.ClassTermOpeningsTermID,
+                ClassTermOpeningsIsOpen:                r.ClassTermOpeningsIsOpen,
+                ClassTermOpeningsRegistrationOpensAt:   r.ClassTermOpeningsRegistrationOpensAt,
+                ClassTermOpeningsRegistrationClosesAt:  r.ClassTermOpeningsRegistrationClosesAt,
+                ClassTermOpeningsQuotaTotal:            r.ClassTermOpeningsQuotaTotal,
+                ClassTermOpeningsQuotaTaken:            r.ClassTermOpeningsQuotaTaken,
+                ClassTermOpeningsFeeOverrideMonthlyIDR: r.ClassTermOpeningsFeeOverrideMonthlyIDR,
+                ClassTermOpeningsNotes:                 r.ClassTermOpeningsNotes,
+                ClassTermOpeningsCreatedAt:             r.ClassTermOpeningsCreatedAt,
+                ClassTermOpeningsUpdatedAt:             r.ClassTermOpeningsUpdatedAt,
+                ClassTermOpeningsDeletedAt:             r.ClassTermOpeningsDeletedAt,
+            }
+            item.Class.ClassID = r.ClassID
+            item.Class.ClassMasjidID = r.ClassMasjidID
+            item.Class.ClassName = r.ClassName
+            item.Class.ClassSlug = r.ClassSlug
+            item.Class.ClassDescription = r.ClassDescription
+            item.Class.ClassLevel = r.ClassLevel
+            item.Class.ClassImageURL = r.ClassImageURL
+            item.Class.ClassIsActive = r.ClassIsActive
 
-			openingMap[r.ClassTermOpeningsTermID] = append(openingMap[r.ClassTermOpeningsTermID], item)
-		}
-	}
+            openingMap[r.ClassTermOpeningsTermID] = append(openingMap[r.ClassTermOpeningsTermID], item)
+        }
+    }
 
-	termsDTO := dto.FromModels(list)
-	out := make([]AcademicTermWithOpeningsResponse, 0, len(termsDTO))
-	for i, t := range list {
-		out = append(out, AcademicTermWithOpeningsResponse{
-			AcademicTermResponseDTO: termsDTO[i],
-			Openings:                openingMap[t.AcademicTermsID],
-		})
-	}
+    termsDTO := dto.FromModels(list)
+    out := make([]AcademicTermWithOpeningsResponse, 0, len(termsDTO))
+    for i, t := range list {
+        out = append(out, AcademicTermWithOpeningsResponse{
+            AcademicTermResponseDTO: termsDTO[i],
+            Openings:                openingMap[t.AcademicTermsID],
+        })
+    }
 
-	return helper.JsonList(c, out, fiber.Map{
-		"total":     total,
-		"page":      page,
-		"page_size": pageSize,
-		"query":     yearQ,
-		"masjid_id": masjidIDParam,
-	})
+    meta := helper.BuildMeta(total, p)
+    return helper.JsonList(c, out, meta)
 }

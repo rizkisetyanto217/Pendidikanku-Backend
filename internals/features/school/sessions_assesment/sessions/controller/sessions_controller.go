@@ -36,143 +36,143 @@ func NewClassAttendanceSessionController(db *gorm.DB) *ClassAttendanceSessionCon
    GET /admin/class-attendance-sessions/section/:section_id?date_from=&date_to=&limit=&offset=
 ========================================================= */
 func (ctrl *ClassAttendanceSessionController) ListBySection(c *fiber.Ctx) error {
-    masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-    if err != nil { return err }
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil { return err }
 
-    userID, _ := helperAuth.GetUserIDFromToken(c)
-    isAdmin := func() bool {
-        if mid, err := helperAuth.GetMasjidIDFromToken(c); err == nil && mid == masjidID { return true }
-        return false
-    }()
-    isTeacher := func() bool {
-        if mid, err := helperAuth.GetTeacherMasjidIDFromToken(c); err == nil && mid == masjidID { return true }
-        return false
-    }()
+	userID, _ := helperAuth.GetUserIDFromToken(c)
+	isAdmin := func() bool {
+		if mid, err := helperAuth.GetMasjidIDFromToken(c); err == nil && mid == masjidID { return true }
+		return false
+	}()
+	isTeacher := func() bool {
+		if mid, err := helperAuth.GetTeacherMasjidIDFromToken(c); err == nil && mid == masjidID { return true }
+		return false
+	}()
 
-    secID, err := uuid.Parse(strings.TrimSpace(c.Params("section_id")))
-    if err != nil { return fiber.NewError(fiber.StatusBadRequest, "section_id tidak valid") }
+	secID, err := uuid.Parse(strings.TrimSpace(c.Params("section_id")))
+	if err != nil { return fiber.NewError(fiber.StatusBadRequest, "section_id tidak valid") }
 
-    var sec secModel.ClassSectionModel
-    if err := ctrl.DB.
-        Select("class_sections_id, class_sections_masjid_id").
-        First(&sec, "class_sections_id = ? AND class_sections_deleted_at IS NULL", secID).Error; err != nil {
-        if errors.Is(err, gorm.ErrRecordNotFound) {
-            return fiber.NewError(fiber.StatusNotFound, "Section tidak ditemukan")
-        }
-        return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi section")
-    }
-    if sec.ClassSectionsMasjidID == nil || *sec.ClassSectionsMasjidID != masjidID {
-        return fiber.NewError(fiber.StatusForbidden, "Section bukan milik masjid Anda")
-    }
+	var sec secModel.ClassSectionModel
+	if err := ctrl.DB.
+		Select("class_sections_id, class_sections_masjid_id").
+		First(&sec, "class_sections_id = ? AND class_sections_deleted_at IS NULL", secID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fiber.NewError(fiber.StatusNotFound, "Section tidak ditemukan")
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi section")
+	}
 
-    // Guard siswa/ortu
-    if !isAdmin && !isTeacher {
-        if userID == uuid.Nil {
-            return fiber.NewError(fiber.StatusUnauthorized, "User tidak terautentik")
-        }
-        var cnt int64
-        if err := ctrl.DB.Table("user_class_sections AS ucs").
-            Joins("JOIN user_classes uc ON uc.user_classes_id = ucs.user_class_sections_user_class_id").
-            Where(`
-                ucs.user_class_sections_section_id = ?
-                AND ucs.user_class_sections_masjid_id = ?
-                AND uc.user_classes_user_id = ?
-                AND ucs.user_class_sections_unassigned_at IS NULL
-                AND uc.user_classes_status = 'active'
-            `, secID, masjidID, userID).
-            Count(&cnt).Error; err != nil {
-            return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek keanggotaan section")
-        }
-        if cnt == 0 {
-            return fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada section ini")
-        }
-    }
+	// ✅ cukup compare value
+	if sec.ClassSectionsMasjidID != masjidID {
+		return fiber.NewError(fiber.StatusForbidden, "Section bukan milik masjid Anda")
+	}
 
-    // ===== Pagination & sorting
-    rawQ := string(c.Request().URI().QueryString())
-    httpReq := &http.Request{URL: &url.URL{RawQuery: rawQ}}
-    p := helper.ParseWith(httpReq, "date", "desc", helper.AdminOpts)
+	// Guard siswa/ortu
+	if !isAdmin && !isTeacher {
+		if userID == uuid.Nil {
+			return fiber.NewError(fiber.StatusUnauthorized, "User tidak terautentik")
+		}
+		var cnt int64
+		if err := ctrl.DB.Table("user_class_sections AS ucs").
+			Joins("JOIN user_classes uc ON uc.user_classes_id = ucs.user_class_sections_user_class_id").
+			Where(`
+				ucs.user_class_sections_section_id = ?
+				AND ucs.user_class_sections_masjid_id = ?
+				AND uc.user_classes_user_id = ?
+				AND ucs.user_class_sections_unassigned_at IS NULL
+				AND uc.user_classes_status = 'active'
+			`, secID, masjidID, userID).
+			Count(&cnt).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek keanggotaan section")
+		}
+		if cnt == 0 {
+			return fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada section ini")
+		}
+	}
 
-    allowedSort := map[string]string{
-        "date":       "class_attendance_sessions_date",
-        "created_at": "class_attendance_sessions_created_at",
-        "title":      "class_attendance_sessions_title",
-    }
-    orderClause, err := p.SafeOrderClause(allowedSort, "date")
-    if err != nil {
-        return fiber.NewError(fiber.StatusBadRequest, "sort_by tidak valid")
-    }
-    orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
+	// ===== Pagination & sorting
+	rawQ := string(c.Request().URI().QueryString())
+	httpReq := &http.Request{URL: &url.URL{RawQuery: rawQ}}
+	p := helper.ParseWith(httpReq, "date", "desc", helper.AdminOpts)
 
-    // ===== Filter tanggal
-    parseYmd := func(s string) (*time.Time, error) {
-        s = strings.TrimSpace(s)
-        if s == "" { return nil, nil }
-        t, err := time.Parse("2006-01-02", s)
-        if err != nil { return nil, err }
-        tt := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
-        return &tt, nil
-    }
-    df, err := parseYmd(c.Query("date_from"))
-    if err != nil { return fiber.NewError(fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)") }
-    dt, err := parseYmd(c.Query("date_to"))
-    if err != nil { return fiber.NewError(fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)") }
+	allowedSort := map[string]string{
+		"date":       "class_attendance_sessions_date",
+		"created_at": "class_attendance_sessions_created_at",
+		"title":      "class_attendance_sessions_title",
+	}
+	orderClause, err := p.SafeOrderClause(allowedSort, "date")
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "sort_by tidak valid")
+	}
+	orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
 
-    // ===== Base query
-    qBase := ctrl.DB.Model(&attendanceModel.ClassAttendanceSessionModel{}).
-        Where(`
-            class_attendance_sessions_masjid_id = ?
-            AND class_attendance_sessions_section_id = ?
-        `, masjidID, secID)
+	// ===== Filter tanggal
+	parseYmd := func(s string) (*time.Time, error) {
+		s = strings.TrimSpace(s)
+		if s == "" { return nil, nil }
+		t, err := time.Parse("2006-01-02", s)
+		if err != nil { return nil, err }
+		tt := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
+		return &tt, nil
+	}
+	df, err := parseYmd(c.Query("date_from"))
+	if err != nil { return fiber.NewError(fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)") }
+	dt, err := parseYmd(c.Query("date_to"))
+	if err != nil { return fiber.NewError(fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)") }
 
-    if df != nil && dt != nil {
-        qBase = qBase.Where("class_attendance_sessions_date BETWEEN ? AND ?", *df, *dt)
-    } else if df != nil {
-        qBase = qBase.Where("class_attendance_sessions_date >= ?", *df)
-    } else if dt != nil {
-        qBase = qBase.Where("class_attendance_sessions_date <= ?", *dt)
-    }
+	// ===== Base query
+	qBase := ctrl.DB.Model(&attendanceModel.ClassAttendanceSessionModel{}).
+		Where(`
+			class_attendance_sessions_masjid_id = ?
+			AND class_attendance_sessions_section_id = ?
+		`, masjidID, secID)
 
-    // total
-    var total int64
-    if err := qBase.Count(&total).Error; err != nil {
-        return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung total data")
-    }
+	if df != nil && dt != nil {
+		qBase = qBase.Where("class_attendance_sessions_date BETWEEN ? AND ?", *df, *dt)
+	} else if df != nil {
+		qBase = qBase.Where("class_attendance_sessions_date >= ?", *df)
+	} else if dt != nil {
+		qBase = qBase.Where("class_attendance_sessions_date <= ?", *dt)
+	}
 
-    // data
-    var rows []attendanceModel.ClassAttendanceSessionModel
-    if err := qBase.
-        // select tanpa CSST; sertakan teacher_id agar ikut di-serialize
-        Select(`
-            class_attendance_sessions_id,
-            class_attendance_sessions_section_id,
-            class_attendance_sessions_masjid_id,
-            class_attendance_sessions_class_subject_id,
-            class_attendance_sessions_teacher_id,
-            class_attendance_sessions_date,
-            class_attendance_sessions_title,
-            class_attendance_sessions_general_info,
-            class_attendance_sessions_note,
-            class_attendance_sessions_created_at,
-            class_attendance_sessions_updated_at,
-            class_attendance_sessions_deleted_at
-        `).
-        Order(orderExpr).
-        // secondary order untuk stabilitas
-        Order("class_attendance_sessions_created_at DESC").
-        Limit(p.Limit()).
-        Offset(p.Offset()).
-        Find(&rows).Error; err != nil {
-        return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
-    }
+	// total
+	var total int64
+	if err := qBase.Count(&total).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung total data")
+	}
 
-    out := make([]attendanceDTO.ClassAttendanceSessionResponse, 0, len(rows))
-    for _, r := range rows {
-        out = append(out, attendanceDTO.FromClassAttendanceSessionModel(r))
-    }
+	// data
+	var rows []attendanceModel.ClassAttendanceSessionModel
+	if err := qBase.
+		Select(`
+			class_attendance_sessions_id,
+			class_attendance_sessions_section_id,
+			class_attendance_sessions_masjid_id,
+			class_attendance_sessions_class_subject_id,
+			class_attendance_sessions_teacher_id,
+			class_attendance_sessions_date,
+			class_attendance_sessions_title,
+			class_attendance_sessions_general_info,
+			class_attendance_sessions_note,
+			class_attendance_sessions_created_at,
+			class_attendance_sessions_updated_at,
+			class_attendance_sessions_deleted_at
+		`).
+		Order(orderExpr).
+		Order("class_attendance_sessions_created_at DESC").
+		Limit(p.Limit()).
+		Offset(p.Offset()).
+		Find(&rows).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+	}
 
-    meta := helper.BuildMeta(total, p)
-    return helper.JsonList(c, out, meta)
+	out := make([]attendanceDTO.ClassAttendanceSessionResponse, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, attendanceDTO.FromClassAttendanceSessionModel(r))
+	}
+
+	meta := helper.BuildMeta(total, p)
+	return helper.JsonList(c, out, meta)
 }
 
 

@@ -59,21 +59,6 @@ CREATE TABLE IF NOT EXISTS lecture_sessions (
   ) STORED
 );
 
--- Trigger: auto-update updated_at
-CREATE OR REPLACE FUNCTION set_lecture_sessions_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.lecture_session_updated_at := CURRENT_TIMESTAMPTZ;
-  RETURN NEW;
-END; $$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_lecture_sessions_set_updated_at ON lecture_sessions;
-CREATE TRIGGER trg_lecture_sessions_set_updated_at
-BEFORE UPDATE ON lecture_sessions
-FOR EACH ROW EXECUTE FUNCTION set_lecture_sessions_updated_at();
-
--- Indexes
-
 -- Slug unik case-insensitive, abaikan yang soft-deleted
 CREATE UNIQUE INDEX IF NOT EXISTS uq_ls_slug_ci
   ON lecture_sessions (LOWER(lecture_session_slug))
@@ -148,19 +133,6 @@ CREATE TABLE IF NOT EXISTS user_lecture_sessions (
     OR (user_lecture_session_grade_result >= 0 AND user_lecture_session_grade_result <= 100)
   )
 );
-
--- Trigger: auto-update updated_at
-CREATE OR REPLACE FUNCTION set_user_lecture_sessions_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.user_lecture_session_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END; $$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_user_lecture_sessions_set_updated_at ON user_lecture_sessions;
-CREATE TRIGGER trg_user_lecture_sessions_set_updated_at
-BEFORE UPDATE ON user_lecture_sessions
-FOR EACH ROW EXECUTE FUNCTION set_user_lecture_sessions_updated_at();
 
 -- Indexes
 -- Peserta per session (alive only)

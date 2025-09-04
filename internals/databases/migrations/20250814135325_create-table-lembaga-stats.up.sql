@@ -29,26 +29,6 @@ BEGIN
   END IF;
 END$$;
 
--- Touch updated_at
-CREATE OR REPLACE FUNCTION fn_lembaga_stats_touch_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.lembaga_stats_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_lembaga_stats_touch_updated_at') THEN
-    DROP TRIGGER trg_lembaga_stats_touch_updated_at ON lembaga_stats;
-  END IF;
-
-  CREATE TRIGGER trg_lembaga_stats_touch_updated_at
-    BEFORE UPDATE ON lembaga_stats
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_lembaga_stats_touch_updated_at();
-END$$;
-
 CREATE INDEX IF NOT EXISTS idx_lembaga_stats_updated_at
   ON lembaga_stats(lembaga_stats_updated_at);
 
@@ -168,28 +148,6 @@ CREATE INDEX IF NOT EXISTS ix_ucass_masjid_term
 CREATE INDEX IF NOT EXISTS ix_ucass_term
   ON user_class_attendance_semester_stats (user_class_attendance_semester_stats_term_id)
   WHERE user_class_attendance_semester_stats_term_id IS NOT NULL;
-
--- ============================
--- Trigger: touch updated_at
--- ============================
-CREATE OR REPLACE FUNCTION fn_ucass_touch_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.user_class_attendance_semester_stats_updated_at := CURRENT_TIMESTAMP;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_ucass_touch_updated_at') THEN
-    DROP TRIGGER trg_ucass_touch_updated_at ON user_class_attendance_semester_stats;
-  END IF;
-
-  CREATE TRIGGER trg_ucass_touch_updated_at
-    BEFORE UPDATE ON user_class_attendance_semester_stats
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_ucass_touch_updated_at();
-END$$;
 
 -- ============================
 -- Constraint trigger: validasi tenant & periode vs term
