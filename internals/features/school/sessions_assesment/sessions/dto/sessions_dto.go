@@ -15,12 +15,14 @@ import (
 
 // Create
 type CreateClassAttendanceSessionRequest struct {
-	ClassAttendanceSessionSectionId     uuid.UUID  `json:"class_attendance_session_section_id"     validate:"required"`
-	ClassAttendanceSessionMasjidId      uuid.UUID  `json:"class_attendance_session_masjid_id"      validate:"required"`
-	ClassAttendanceSessionClassSubjectId uuid.UUID `json:"class_attendance_session_class_subject_id" validate:"required"`
-	ClassAttendanceSessionTeacherId      *uuid.UUID `json:"class_attendance_session_teacher_id"     validate:"omitempty"`
+	ClassAttendanceSessionSectionId       uuid.UUID  `json:"class_attendance_session_section_id"        validate:"required"`
+	ClassAttendanceSessionMasjidId        uuid.UUID  `json:"class_attendance_session_masjid_id"         validate:"required"`
+	ClassAttendanceSessionClassSubjectId   uuid.UUID  `json:"class_attendance_session_class_subject_id"   validate:"required"`
+	ClassAttendanceSessionTeacherId       *uuid.UUID `json:"class_attendance_session_teacher_id"         validate:"omitempty"`
+	ClassAttendanceSessionClassRoomId     *uuid.UUID `json:"class_attendance_session_class_room_id"      validate:"omitempty"`
 
-	ClassAttendanceSessionDate        time.Time  `json:"class_attendance_session_date"         validate:"required"`
+	// pointer => boleh kosong agar pakai DEFAULT CURRENT_DATE di DB
+	ClassAttendanceSessionDate        *time.Time `json:"class_attendance_session_date"         validate:"omitempty"`
 	ClassAttendanceSessionTitle       *string    `json:"class_attendance_session_title"        validate:"omitempty,max=500"`
 	ClassAttendanceSessionGeneralInfo string     `json:"class_attendance_session_general_info" validate:"required"`
 	ClassAttendanceSessionNote        *string    `json:"class_attendance_session_note"         validate:"omitempty"`
@@ -28,10 +30,11 @@ type CreateClassAttendanceSessionRequest struct {
 
 // Update (partial)
 type UpdateClassAttendanceSessionRequest struct {
-	ClassAttendanceSessionSectionId      *uuid.UUID `json:"class_attendance_session_section_id"      validate:"omitempty"`
-	ClassAttendanceSessionMasjidId       *uuid.UUID `json:"class_attendance_session_masjid_id"       validate:"omitempty"`
-	ClassAttendanceSessionClassSubjectId *uuid.UUID `json:"class_attendance_session_class_subject_id" validate:"omitempty"`
-	ClassAttendanceSessionTeacherId      *uuid.UUID `json:"class_attendance_session_teacher_id"      validate:"omitempty"`
+	ClassAttendanceSessionSectionId       *uuid.UUID `json:"class_attendance_session_section_id"        validate:"omitempty"`
+	ClassAttendanceSessionMasjidId        *uuid.UUID `json:"class_attendance_session_masjid_id"         validate:"omitempty"`
+	ClassAttendanceSessionClassSubjectId  *uuid.UUID `json:"class_attendance_session_class_subject_id"   validate:"omitempty"`
+	ClassAttendanceSessionTeacherId       *uuid.UUID `json:"class_attendance_session_teacher_id"         validate:"omitempty"`
+	ClassAttendanceSessionClassRoomId     *uuid.UUID `json:"class_attendance_session_class_room_id"      validate:"omitempty"`
 
 	ClassAttendanceSessionDate        *time.Time `json:"class_attendance_session_date"         validate:"omitempty"`
 	ClassAttendanceSessionTitle       *string    `json:"class_attendance_session_title"        validate:"omitempty,max=500"`
@@ -45,16 +48,18 @@ List query (opsional untuk handler list):
 - Filter umum & sort (whitelist di controller)
 */
 type ListClassAttendanceSessionQuery struct {
-	Limit         *int       `query:"limit"            validate:"omitempty,min=1,max=200"`
-	Offset        *int       `query:"offset"           validate:"omitempty,min=0"`
-	Section       *uuid.UUID `query:"section_id"       validate:"omitempty"`
-	TeacherId     *uuid.UUID `query:"teacher_id"       validate:"omitempty"`
+	Limit          *int       `query:"limit"            validate:"omitempty,min=1,max=200"`
+	Offset         *int       `query:"offset"           validate:"omitempty,min=0"`
+	Section        *uuid.UUID `query:"section_id"       validate:"omitempty"`
+	TeacherId      *uuid.UUID `query:"teacher_id"       validate:"omitempty"`
 	ClassSubjectId *uuid.UUID `query:"class_subject_id" validate:"omitempty"`
-	DateFrom      *time.Time `query:"date_from"        validate:"omitempty"`
-	DateTo        *time.Time `query:"date_to"          validate:"omitempty"`
-	Keyword       *string    `query:"q"                validate:"omitempty,max=100"`
-	OrderBy       *string    `query:"order_by"         validate:"omitempty,oneof=date created_at title"`
-	Sort          *string    `query:"sort"             validate:"omitempty,oneof=asc desc"`
+	RoomId         *uuid.UUID `query:"room_id"          validate:"omitempty"`
+	DateFrom       *time.Time `query:"date_from"        validate:"omitempty"`
+	DateTo         *time.Time `query:"date_to"          validate:"omitempty"`
+	Keyword        *string    `query:"q"                validate:"omitempty,max=100"`
+	// created_at dihapus, sesuai skema baru
+	OrderBy *string `query:"order_by"         validate:"omitempty,oneof=date title"`
+	Sort    *string `query:"sort"             validate:"omitempty,oneof=asc desc"`
 }
 
 /* =========================================================
@@ -62,13 +67,15 @@ type ListClassAttendanceSessionQuery struct {
    ========================================================= */
 
 type ClassAttendanceSessionResponse struct {
-	ClassAttendanceSessionId        uuid.UUID  `json:"class_attendance_session_id"`
-	ClassAttendanceSessionSectionId uuid.UUID  `json:"class_attendance_session_section_id"`
-	ClassAttendanceSessionMasjidId  uuid.UUID  `json:"class_attendance_session_masjid_id"`
-
-	// Pointer supaya kompatibel dengan SELECT controller (r.SubjectID *uuid.UUID)
+	ClassAttendanceSessionId             uuid.UUID  `json:"class_attendance_session_id"`
+	ClassAttendanceSessionSectionId      uuid.UUID  `json:"class_attendance_session_section_id"`
+	ClassAttendanceSessionMasjidId       uuid.UUID  `json:"class_attendance_session_masjid_id"`
 	ClassAttendanceSessionClassSubjectId *uuid.UUID `json:"class_attendance_session_class_subject_id,omitempty"`
 
+	// Room (opsional)
+	ClassAttendanceSessionClassRoomId *uuid.UUID `json:"class_attendance_session_class_room_id,omitempty"`
+
+	// date dari model adalah *time.Time; response dibuat non-pointer agar konsisten tampil
 	ClassAttendanceSessionDate        time.Time  `json:"class_attendance_session_date"`
 	ClassAttendanceSessionTitle       *string    `json:"class_attendance_session_title,omitempty"`
 	ClassAttendanceSessionGeneralInfo string     `json:"class_attendance_session_general_info"`
@@ -86,12 +93,11 @@ type ClassAttendanceSessionResponse struct {
 	ClassSectionCapacity *int           `json:"class_sections_capacity,omitempty"`
 	ClassSectionSchedule datatypes.JSON `json:"class_sections_schedule,omitempty"`
 
-	ClassAttendanceSessionCreatedAt time.Time  `json:"class_attendance_session_created_at"`
-	ClassAttendanceSessionUpdatedAt *time.Time `json:"class_attendance_session_updated_at,omitempty"`
+	// timestamps DB-side ditiadakan, hanya soft delete
 	ClassAttendanceSessionDeletedAt *time.Time `json:"class_attendance_session_deleted_at,omitempty"`
 }
 
-// List response + meta (jika masih dipakai di beberapa handler)
+// List response + meta
 type ClassAttendanceSessionListResponse struct {
 	Items []ClassAttendanceSessionResponse `json:"items"`
 	Meta  ListMeta                         `json:"meta"`
@@ -109,11 +115,13 @@ type ListMeta struct {
 
 func (r CreateClassAttendanceSessionRequest) ToModel() attendanceModel.ClassAttendanceSessionModel {
 	return attendanceModel.ClassAttendanceSessionModel{
-		ClassAttendanceSessionSectionId:      r.ClassAttendanceSessionSectionId,
-		ClassAttendanceSessionMasjidId:       r.ClassAttendanceSessionMasjidId,
-		ClassAttendanceSessionClassSubjectId: r.ClassAttendanceSessionClassSubjectId, // model: uuid.UUID (NOT NULL)
-		ClassAttendanceSessionTeacherId:      r.ClassAttendanceSessionTeacherId,       // model: *uuid.UUID
+		ClassAttendanceSessionSectionId:       r.ClassAttendanceSessionSectionId,
+		ClassAttendanceSessionMasjidId:        r.ClassAttendanceSessionMasjidId,
+		ClassAttendanceSessionClassSubjectId:  r.ClassAttendanceSessionClassSubjectId,  // model: uuid.UUID (NOT NULL)
+		ClassAttendanceSessionTeacherId:       r.ClassAttendanceSessionTeacherId,       // model: *uuid.UUID
+		ClassAttendanceSessionClassRoomId:     r.ClassAttendanceSessionClassRoomId,     // model: *uuid.UUID
 
+		// model pakai *time.Time → langsung assign pointer dari request
 		ClassAttendanceSessionDate:        r.ClassAttendanceSessionDate,
 		ClassAttendanceSessionTitle:       r.ClassAttendanceSessionTitle,
 		ClassAttendanceSessionGeneralInfo: r.ClassAttendanceSessionGeneralInfo,
@@ -122,13 +130,20 @@ func (r CreateClassAttendanceSessionRequest) ToModel() attendanceModel.ClassAtte
 }
 
 func FromClassAttendanceSessionModel(m attendanceModel.ClassAttendanceSessionModel) ClassAttendanceSessionResponse {
+	// deleted_at
 	var deletedAt *time.Time
 	if m.ClassAttendanceSessionDeletedAt.Valid {
 		deletedAt = &m.ClassAttendanceSessionDeletedAt.Time
 	}
 
-	// model: subject wajib (uuid.UUID) → DTO: pointer
+	// subject wajib (uuid.UUID) → DTO pointer
 	subj := m.ClassAttendanceSessionClassSubjectId
+
+	// date: model *time.Time → response time.Time (zero jika nil)
+	var date time.Time
+	if m.ClassAttendanceSessionDate != nil {
+		date = *m.ClassAttendanceSessionDate
+	}
 
 	return ClassAttendanceSessionResponse{
 		ClassAttendanceSessionId:             m.ClassAttendanceSessionId,
@@ -136,20 +151,18 @@ func FromClassAttendanceSessionModel(m attendanceModel.ClassAttendanceSessionMod
 		ClassAttendanceSessionMasjidId:       m.ClassAttendanceSessionMasjidId,
 		ClassAttendanceSessionClassSubjectId: &subj,
 
-		ClassAttendanceSessionDate:        m.ClassAttendanceSessionDate,
+		ClassAttendanceSessionClassRoomId: m.ClassAttendanceSessionClassRoomId,
+
+		ClassAttendanceSessionDate:        date,
 		ClassAttendanceSessionTitle:       m.ClassAttendanceSessionTitle,
 		ClassAttendanceSessionGeneralInfo: m.ClassAttendanceSessionGeneralInfo,
 		ClassAttendanceSessionNote:        m.ClassAttendanceSessionNote,
 
 		ClassAttendanceSessionTeacherId: m.ClassAttendanceSessionTeacherId,
 
-		ClassAttendanceSessionCreatedAt: m.ClassAttendanceSessionCreatedAt,
-		// ⬇️ ini kuncinya: address-of time.Time
-		ClassAttendanceSessionUpdatedAt: &m.ClassAttendanceSessionUpdatedAt,
 		ClassAttendanceSessionDeletedAt: deletedAt,
 	}
 }
-
 
 // Batch mapper
 func FromClassAttendanceSessionModels(models []attendanceModel.ClassAttendanceSessionModel) []ClassAttendanceSessionResponse {
@@ -177,9 +190,12 @@ func (r UpdateClassAttendanceSessionRequest) Apply(m *attendanceModel.ClassAtten
 	if r.ClassAttendanceSessionTeacherId != nil {
 		m.ClassAttendanceSessionTeacherId = r.ClassAttendanceSessionTeacherId
 	}
+	if r.ClassAttendanceSessionClassRoomId != nil {
+		m.ClassAttendanceSessionClassRoomId = r.ClassAttendanceSessionClassRoomId
+	}
 
 	if r.ClassAttendanceSessionDate != nil {
-		m.ClassAttendanceSessionDate = *r.ClassAttendanceSessionDate
+		m.ClassAttendanceSessionDate = r.ClassAttendanceSessionDate
 	}
 	if r.ClassAttendanceSessionTitle != nil {
 		m.ClassAttendanceSessionTitle = r.ClassAttendanceSessionTitle
@@ -190,5 +206,5 @@ func (r UpdateClassAttendanceSessionRequest) Apply(m *attendanceModel.ClassAtten
 	if r.ClassAttendanceSessionNote != nil {
 		m.ClassAttendanceSessionNote = r.ClassAttendanceSessionNote
 	}
-	// updated_at: diisi trigger DB / GORM autoUpdateTime
+	// updated_at dihapus dari skema; GORM tetap bisa mengatur field internal jika Anda menambahkannya kembali nanti.
 }

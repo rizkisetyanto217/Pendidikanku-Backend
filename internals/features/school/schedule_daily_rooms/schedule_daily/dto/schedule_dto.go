@@ -81,32 +81,32 @@ func strPtrOrNil(s *string) *string {
 
 type CreateClassScheduleRequest struct {
 	// Required
-	ClassSchedulesMasjidID      string `json:"class_schedules_masjid_id"       validate:"required,uuid4"`
-	ClassSchedulesSectionID     string `json:"class_schedules_section_id"      validate:"required,uuid4"`
+	ClassSchedulesMasjidID       string `json:"class_schedules_masjid_id"        validate:"required,uuid4"`
+	ClassSchedulesSectionID      string `json:"class_schedules_section_id"       validate:"required,uuid4"`
 	ClassSchedulesClassSubjectID string `json:"class_schedules_class_subject_id" validate:"required,uuid4"`
-	ClassSchedulesDayOfWeek     int    `json:"class_schedules_day_of_week"     validate:"required,gte=1,lte=7"`
-	ClassSchedulesStartTime     string `json:"class_schedules_start_time"      validate:"required"` // "HH:mm" / "HH:mm:ss"
-	ClassSchedulesEndTime       string `json:"class_schedules_end_time"        validate:"required"`
-	ClassSchedulesStartDate     string `json:"class_schedules_start_date"      validate:"required"` // "YYYY-MM-DD"
-	ClassSchedulesEndDate       string `json:"class_schedules_end_date"        validate:"required"`
+	ClassSchedulesDayOfWeek      int    `json:"class_schedules_day_of_week"      validate:"required,gte=1,lte=7"`
+	ClassSchedulesStartTime      string `json:"class_schedules_start_time"       validate:"required"` // "HH:mm" / "HH:mm:ss"
+	ClassSchedulesEndTime        string `json:"class_schedules_end_time"         validate:"required"`
+	ClassSchedulesStartDate      string `json:"class_schedules_start_date"       validate:"required"` // "YYYY-MM-DD"
+	ClassSchedulesEndDate        string `json:"class_schedules_end_date"         validate:"required"`
 
 	// Optional
-	ClassSchedulesRoomID   *string          `json:"class_schedules_room_id,omitempty"   validate:"omitempty,uuid4"`
-	ClassSchedulesStatus    *m.SessionStatus `json:"class_schedules_status,omitempty"    validate:"omitempty,oneof=scheduled ongoing finished canceled"`
-	ClassSchedulesIsActive  *bool            `json:"class_schedules_is_active,omitempty"`
+	ClassSchedulesRoomID  *string          `json:"class_schedules_room_id,omitempty"  validate:"omitempty,uuid4"`
+	ClassSchedulesStatus  *m.SessionStatus `json:"class_schedules_status,omitempty"   validate:"omitempty,oneof=scheduled ongoing completed canceled"`
+	ClassSchedulesIsActive *bool            `json:"class_schedules_is_active,omitempty"`
 }
 
 type UpdateClassScheduleRequest struct {
 	// Required — update penuh (PUT-like)
-	ClassSchedulesMasjidID       string `json:"class_schedules_masjid_id"       validate:"required,uuid4"`
-	ClassSchedulesSectionID      string `json:"class_schedules_section_id"      validate:"required,uuid4"`
+	ClassSchedulesMasjidID       string `json:"class_schedules_masjid_id"        validate:"required,uuid4"`
+	ClassSchedulesSectionID      string `json:"class_schedules_section_id"       validate:"required,uuid4"`
 	ClassSchedulesClassSubjectID string `json:"class_schedules_class_subject_id" validate:"required,uuid4"`
-	ClassSchedulesDayOfWeek      int    `json:"class_schedules_day_of_week"     validate:"required,gte=1,lte=7"`
-	ClassSchedulesStartTime      string `json:"class_schedules_start_time"      validate:"required"`
-	ClassSchedulesEndTime        string `json:"class_schedules_end_time"        validate:"required"`
-	ClassSchedulesStartDate      string `json:"class_schedules_start_date"      validate:"required"`
-	ClassSchedulesEndDate        string `json:"class_schedules_end_date"        validate:"required"`
-	ClassSchedulesStatus         string `json:"class_schedules_status"          validate:"required,oneof=scheduled ongoing finished canceled"`
+	ClassSchedulesDayOfWeek      int    `json:"class_schedules_day_of_week"      validate:"required,gte=1,lte=7"`
+	ClassSchedulesStartTime      string `json:"class_schedules_start_time"       validate:"required"`
+	ClassSchedulesEndTime        string `json:"class_schedules_end_time"         validate:"required"`
+	ClassSchedulesStartDate      string `json:"class_schedules_start_date"       validate:"required"`
+	ClassSchedulesEndDate        string `json:"class_schedules_end_date"         validate:"required"`
+	ClassSchedulesStatus         string `json:"class_schedules_status"           validate:"required,oneof=scheduled ongoing completed canceled"`
 	ClassSchedulesIsActive       bool   `json:"class_schedules_is_active"`
 
 	// Optional
@@ -115,16 +115,16 @@ type UpdateClassScheduleRequest struct {
 
 type PatchClassScheduleRequest struct {
 	// Semua optional — hanya field non-nil yang di-apply
-	ClassSchedulesMasjidID       *string          `json:"class_schedules_masjid_id,omitempty"       validate:"omitempty,uuid4"`
-	ClassSchedulesSectionID      *string          `json:"class_schedules_section_id,omitempty"      validate:"omitempty,uuid4"`
-	ClassSchedulesClassSubjectID *string          `json:"class_schedules_class_subject_id,omitempty" validate:"omitempty,uuid4"`
-	ClassSchedulesDayOfWeek      *int             `json:"class_schedules_day_of_week,omitempty"     validate:"omitempty,gte=1,lte=7"`
+	ClassSchedulesMasjidID       *string          `json:"class_schedules_masjid_id,omitempty"        validate:"omitempty,uuid4"`
+	ClassSchedulesSectionID      *string          `json:"class_schedules_section_id,omitempty"       validate:"omitempty,uuid4"`
+	ClassSchedulesClassSubjectID *string          `json:"class_schedules_class_subject_id,omitempty"  validate:"omitempty,uuid4"`
+	ClassSchedulesDayOfWeek      *int             `json:"class_schedules_day_of_week,omitempty"       validate:"omitempty,gte=1,lte=7"`
 	ClassSchedulesStartTime      *string          `json:"class_schedules_start_time,omitempty"`
 	ClassSchedulesEndTime        *string          `json:"class_schedules_end_time,omitempty"`
 	ClassSchedulesStartDate      *string          `json:"class_schedules_start_date,omitempty"`
 	ClassSchedulesEndDate        *string          `json:"class_schedules_end_date,omitempty"`
-	ClassSchedulesRoomID         *string          `json:"class_schedules_room_id,omitempty"         validate:"omitempty,uuid4"`
-	ClassSchedulesStatus         *m.SessionStatus `json:"class_schedules_status,omitempty"          validate:"omitempty,oneof=scheduled ongoing finished canceled"`
+	ClassSchedulesRoomID         *string          `json:"class_schedules_room_id,omitempty"           validate:"omitempty,uuid4"`
+	ClassSchedulesStatus         *m.SessionStatus `json:"class_schedules_status,omitempty"            validate:"omitempty,oneof=scheduled ongoing completed canceled"`
 	ClassSchedulesIsActive       *bool            `json:"class_schedules_is_active,omitempty"`
 }
 
@@ -343,7 +343,7 @@ func (p *PatchClassScheduleRequest) ApplyPatch(dst *m.ClassScheduleModel) error 
 	// Status & active
 	if p.ClassSchedulesStatus != nil {
 		switch *p.ClassSchedulesStatus {
-		case m.SessionScheduled, m.SessionOngoing, m.SessionFinished, m.SessionCanceled:
+		case m.SessionScheduled, m.SessionOngoing, m.SessionCompleted, m.SessionCanceled:
 			dst.ClassSchedulesStatus = *p.ClassSchedulesStatus
 		default:
 			return errors.New("invalid class_schedules_status")
@@ -361,11 +361,11 @@ func (p *PatchClassScheduleRequest) ApplyPatch(dst *m.ClassScheduleModel) error 
    ======================================================= */
 
 type ClassScheduleResponse struct {
-	ClassScheduleID            uuid.UUID       `json:"class_schedule_id"`
-	ClassSchedulesMasjidID     uuid.UUID       `json:"class_schedules_masjid_id"`
-	ClassSchedulesSectionID    uuid.UUID       `json:"class_schedules_section_id"`
-	ClassSchedulesClassSubjectID uuid.UUID     `json:"class_schedules_class_subject_id"`
-	ClassSchedulesRoomID       *uuid.UUID      `json:"class_schedules_room_id,omitempty"`
+	ClassScheduleID             uuid.UUID       `json:"class_schedule_id"`
+	ClassSchedulesMasjidID      uuid.UUID       `json:"class_schedules_masjid_id"`
+	ClassSchedulesSectionID     uuid.UUID       `json:"class_schedules_section_id"`
+	ClassSchedulesClassSubjectID uuid.UUID      `json:"class_schedules_class_subject_id"`
+	ClassSchedulesRoomID        *uuid.UUID      `json:"class_schedules_room_id,omitempty"`
 
 	ClassSchedulesDayOfWeek int    `json:"class_schedules_day_of_week"`
 	ClassSchedulesStartTime string `json:"class_schedules_start_time"` // HH:mm:ss
@@ -376,18 +376,24 @@ type ClassScheduleResponse struct {
 	ClassSchedulesStatus   m.SessionStatus `json:"class_schedules_status"`
 	ClassSchedulesIsActive bool            `json:"class_schedules_is_active"`
 
-	ClassSchedulesTimeRange *string   `json:"class_schedules_time_range,omitempty"`
-	ClassSchedulesCreatedAt time.Time `json:"class_schedules_created_at"`
-	ClassSchedulesUpdatedAt time.Time `json:"class_schedules_updated_at"`
+	ClassSchedulesTimeRange  *string    `json:"class_schedules_time_range,omitempty"`
+	ClassSchedulesCreatedAt  time.Time  `json:"class_schedules_created_at"`
+	ClassSchedulesUpdatedAt  time.Time  `json:"class_schedules_updated_at"`
+	ClassSchedulesDeletedAt  *time.Time `json:"class_schedules_deleted_at,omitempty"`
 }
 
 func NewClassScheduleResponse(src *m.ClassScheduleModel) ClassScheduleResponse {
+	var deletedAt *time.Time
+	if src.ClassSchedulesDeletedAt.Valid {
+		deletedAt = &src.ClassSchedulesDeletedAt.Time
+	}
+
 	return ClassScheduleResponse{
-		ClassScheduleID:             src.ClassScheduleID,
-		ClassSchedulesMasjidID:      src.ClassSchedulesMasjidID,
-		ClassSchedulesSectionID:     src.ClassSchedulesSectionID,
+		ClassScheduleID:              src.ClassScheduleID,
+		ClassSchedulesMasjidID:       src.ClassSchedulesMasjidID,
+		ClassSchedulesSectionID:      src.ClassSchedulesSectionID,
 		ClassSchedulesClassSubjectID: src.ClassSchedulesClassSubjectID,
-		ClassSchedulesRoomID:        src.ClassSchedulesRoomID,
+		ClassSchedulesRoomID:         src.ClassSchedulesRoomID,
 
 		ClassSchedulesDayOfWeek: src.ClassSchedulesDayOfWeek,
 		ClassSchedulesStartTime: src.ClassSchedulesStartTime.Format("15:04:05"),
@@ -401,6 +407,7 @@ func NewClassScheduleResponse(src *m.ClassScheduleModel) ClassScheduleResponse {
 		ClassSchedulesTimeRange: src.ClassSchedulesTimeRange,
 		ClassSchedulesCreatedAt: src.ClassSchedulesCreatedAt,
 		ClassSchedulesUpdatedAt: src.ClassSchedulesUpdatedAt,
+		ClassSchedulesDeletedAt: deletedAt,
 	}
 }
 

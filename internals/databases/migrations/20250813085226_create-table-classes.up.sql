@@ -91,10 +91,8 @@ COMMIT;
 -- =========================================================
 -- CLASS_SECTIONS
 -- =========================================================
-BEGIN;
-
 -- =========================================================
--- CLASS_SECTIONS (UP) — with total_students
+-- CLASS_SECTIONS (UP) — lengkap + relasi ke CLASS_ROOMS
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_sections (
   class_sections_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -106,7 +104,12 @@ CREATE TABLE IF NOT EXISTS class_sections (
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   class_sections_slug VARCHAR(160) NOT NULL,
+
+  -- Guru pengampu (opsional) → masjid_teachers
   class_sections_teacher_id UUID,
+
+  -- Ruang belajar (opsional) → class_rooms
+  class_sections_class_room_id UUID,
 
   class_sections_name VARCHAR(100) NOT NULL,
   class_sections_code VARCHAR(50),
@@ -124,20 +127,23 @@ CREATE TABLE IF NOT EXISTS class_sections (
   class_sections_deleted_at TIMESTAMPTZ
 );
 
--- Guard nilai tidak boleh negatif (idempotent)
+-- =========================================================
+-- Guard nilai total_students tidak boleh negatif (idempotent)
+-- =========================================================
 ALTER TABLE class_sections
   DROP CONSTRAINT IF EXISTS class_sections_total_students_nonneg_chk;
 ALTER TABLE class_sections
   ADD  CONSTRAINT class_sections_total_students_nonneg_chk
   CHECK (class_sections_total_students >= 0);
 
--- FK ke masjid_teachers, deteksi kolom PK secara dinamis (idempotent)
+-- =========================================================
+-- FK ke masjid_teachers (idempotent)
+-- =========================================================
 DO $$
 DECLARE
   fk_name   text;
   target_col text;
 BEGIN
-  -- cek FK lama pada kolom class_sections_teacher_id
   SELECT tc.constraint_name
     INTO fk_name
   FROM information_schema.table_constraints tc
@@ -149,7 +155,6 @@ BEGIN
     AND kcu.column_name = 'class_sections_teacher_id'
   LIMIT 1;
 
-  -- deteksi nama kolom PK di masjid_teachers
   SELECT column_name
     INTO target_col
   FROM information_schema.columns
@@ -166,7 +171,6 @@ BEGIN
     RAISE EXCEPTION 'Tidak menemukan kolom PK di masjid_teachers';
   END IF;
 
-  -- jika FK lama tidak menunjuk ke kolom yang tepat, drop
   IF fk_name IS NOT NULL THEN
     PERFORM 1
     FROM information_schema.referential_constraints rc
@@ -182,7 +186,6 @@ BEGIN
     END IF;
   END IF;
 
-  -- buat FK yang benar jika belum ada
   IF fk_name IS NULL THEN
     EXECUTE format($sql$
       ALTER TABLE class_sections
@@ -194,7 +197,75 @@ BEGIN
   END IF;
 END$$;
 
--- uniques & indexes (idempotent)
+-- =========================================================
+-- FK ke class_rooms (idempotent)
+-- =========================================================
+DO $$
+DECLARE
+  fk_name text;
+BEGIN
+  SELECT tc.constraint_name
+    INTO fk_name
+  FROM information_schema.table_constraints tc
+  JOIN information_schema.key_column_usage kcu
+    ON tc.constraint_name = kcu.constraint_name
+   AND tc.table_name = kcu.table_name
+  WHERE tc.table_name = 'class_sections'
+    AND tc.constraint_type = 'FOREIGN KEY'
+    AND kcu.column_name = 'class_sections_class_room_id'
+  LIMIT 1;
+
+  IF fk_name IS NOT NULL THEN
+    PERFORM 1
+    FROM information_schema.referential_constraints rc
+    JOIN information_schema.constraint_column_usage ccu
+      ON rc.unique_constraint_name = ccu.constraint_name
+    WHERE rc.constraint_name = fk_name
+      AND ccu.table_name = 'class_rooms'
+      AND ccu.column_name = 'class_room_id';
+
+    IF NOT FOUND THEN
+      EXECUTE format('ALTER TABLE class_sections DROP CONSTRAINT %I', fk_name);
+      fk_name := NULL;
+    END IF;
+  END IF;
+
+  IF fk_name IS NULL THEN
+    ALTER TABLE class_sections
+      ADD CONSTRAINT fk_class_sections_class_room
+      FOREIGN KEY (class_sections_class_room_id)
+      REFERENCES class_rooms(class_room_id)
+      ON DELETE SET NULL;
+  END IF;
+END$$;
+
+-- =========================================================
+-- Constraint konsistensi tenant (masjid) antara section & room
+-- =========================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'ck_sections_room_same_masjid'
+  ) THEN
+    ALTER TABLE class_sections
+      ADD CONSTRAINT ck_sections_room_same_masjid
+      CHECK (
+        class_sections_class_room_id IS NULL
+        OR EXISTS (
+          SELECT 1
+          FROM class_rooms r
+          WHERE r.class_room_id = class_sections_class_room_id
+            AND r.class_rooms_masjid_id = class_sections.class_sections_masjid_id
+            AND r.deleted_at IS NULL
+        )
+      ) NOT VALID;
+    ALTER TABLE class_sections VALIDATE CONSTRAINT ck_sections_room_same_masjid;
+  END IF;
+END$$;
+
+-- =========================================================
+-- Indexes & Uniques
+-- =========================================================
 CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_class_name
   ON class_sections (class_sections_class_id, class_sections_name)
   WHERE class_sections_deleted_at IS NULL;
@@ -208,7 +279,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_class_sections_id_masjid
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_class_sections_id_masjid') THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_class_sections_id_masjid'
+  ) THEN
     ALTER TABLE class_sections
       ADD CONSTRAINT uq_class_sections_id_masjid
       UNIQUE USING INDEX uq_class_sections_id_masjid;
@@ -221,13 +294,15 @@ CREATE INDEX IF NOT EXISTS idx_sections_masjid       ON class_sections(class_sec
 CREATE INDEX IF NOT EXISTS idx_sections_created_at   ON class_sections(class_sections_created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sections_slug         ON class_sections(class_sections_slug);
 CREATE INDEX IF NOT EXISTS idx_sections_teacher      ON class_sections(class_sections_teacher_id);
+CREATE INDEX IF NOT EXISTS idx_sections_class_room   ON class_sections(class_sections_class_room_id);
 
--- indeks untuk total_students (sorting/filter cepat; hanya alive)
 CREATE INDEX IF NOT EXISTS idx_sections_total_students_alive
   ON class_sections (class_sections_total_students)
   WHERE class_sections_deleted_at IS NULL;
 
 COMMIT;
+
+
 
 
 -- =========================================================

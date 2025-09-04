@@ -15,27 +15,29 @@ import (
 
 // Create: always active when created (server sets IsActive = true)
 type CreateClassSectionRequest struct {
-	ClassSectionsMasjidID  uuid.UUID      `json:"class_sections_masjid_id"`                         // required (schema: NOT NULL)
-	ClassSectionsClassID   uuid.UUID      `json:"class_sections_class_id"`                          // required
-	ClassSectionsTeacherID *uuid.UUID     `json:"class_sections_teacher_id,omitempty"`              // refers to masjid_teachers.*
-	ClassSectionsSlug      string         `json:"class_sections_slug,omitempty"`                    // optional (can be generated server-side)
-	ClassSectionsName      string         `json:"class_sections_name"`                              // required
-	ClassSectionsCode      *string        `json:"class_sections_code,omitempty"`
-	ClassSectionsCapacity  *int           `json:"class_sections_capacity,omitempty"`                // >= 0
-	ClassSectionsSchedule  json.RawMessage `json:"class_sections_schedule,omitempty"`               // JSONB blob
+	ClassSectionsMasjidID     uuid.UUID       `json:"class_sections_masjid_id"`                 // required
+	ClassSectionsClassID      uuid.UUID       `json:"class_sections_class_id"`                  // required
+	ClassSectionsTeacherID    *uuid.UUID      `json:"class_sections_teacher_id,omitempty"`      // masjid_teachers.*
+	ClassSectionsClassRoomID  *uuid.UUID      `json:"class_sections_class_room_id,omitempty"`   // class_rooms.class_room_id (opsional)
+	ClassSectionsSlug         string          `json:"class_sections_slug,omitempty"`            // optional (can be generated server-side)
+	ClassSectionsName         string          `json:"class_sections_name"`                      // required
+	ClassSectionsCode         *string         `json:"class_sections_code,omitempty"`
+	ClassSectionsCapacity     *int            `json:"class_sections_capacity,omitempty"`        // >= 0
+	ClassSectionsSchedule     json.RawMessage `json:"class_sections_schedule,omitempty"`        // JSONB blob
 }
 
 func (r *CreateClassSectionRequest) ToModel() *m.ClassSectionModel {
 	out := &m.ClassSectionModel{
-		ClassSectionsClassID:   r.ClassSectionsClassID,
-		ClassSectionsMasjidID:  r.ClassSectionsMasjidID,
-		ClassSectionsTeacherID: r.ClassSectionsTeacherID,
-		ClassSectionsSlug:      r.ClassSectionsSlug,
-		ClassSectionsName:      r.ClassSectionsName,
-		ClassSectionsCode:      r.ClassSectionsCode,
-		ClassSectionsCapacity:  r.ClassSectionsCapacity,
-		ClassSectionsIsActive:  true, // forced on create
-		// ClassSectionsTotalStudents stays default (0)
+		ClassSectionsClassID:      r.ClassSectionsClassID,
+		ClassSectionsMasjidID:     r.ClassSectionsMasjidID,
+		ClassSectionsTeacherID:    r.ClassSectionsTeacherID,
+		ClassSectionsClassRoomID:  r.ClassSectionsClassRoomID,
+		ClassSectionsSlug:         r.ClassSectionsSlug,
+		ClassSectionsName:         r.ClassSectionsName,
+		ClassSectionsCode:         r.ClassSectionsCode,
+		ClassSectionsCapacity:     r.ClassSectionsCapacity,
+		ClassSectionsIsActive:     true, // forced on create
+		// ClassSectionsTotalStudents default (0)
 	}
 	if len(r.ClassSectionsSchedule) > 0 {
 		out.ClassSectionsSchedule = datatypes.JSON(r.ClassSectionsSchedule)
@@ -45,15 +47,16 @@ func (r *CreateClassSectionRequest) ToModel() *m.ClassSectionModel {
 
 // Update (PATCH-like at DTO level; controller may enforce PUT semantics)
 type UpdateClassSectionRequest struct {
-	ClassSectionsMasjidID  *uuid.UUID       `json:"class_sections_masjid_id,omitempty"`
-	ClassSectionsClassID   *uuid.UUID       `json:"class_sections_class_id,omitempty"`
-	ClassSectionsTeacherID *uuid.UUID       `json:"class_sections_teacher_id,omitempty"` // masjid_teachers.*
-	ClassSectionsSlug      *string          `json:"class_sections_slug,omitempty"`
-	ClassSectionsName      *string          `json:"class_sections_name,omitempty"`
-	ClassSectionsCode      *string          `json:"class_sections_code,omitempty"`
-	ClassSectionsCapacity  *int             `json:"class_sections_capacity,omitempty"` // >= 0
-	ClassSectionsSchedule  *json.RawMessage `json:"class_sections_schedule,omitempty"`
-	ClassSectionsIsActive  *bool            `json:"class_sections_is_active,omitempty"`
+	ClassSectionsMasjidID     *uuid.UUID      `json:"class_sections_masjid_id,omitempty"`
+	ClassSectionsClassID      *uuid.UUID      `json:"class_sections_class_id,omitempty"`
+	ClassSectionsTeacherID    *uuid.UUID      `json:"class_sections_teacher_id,omitempty"`     // masjid_teachers.*
+	ClassSectionsClassRoomID  *uuid.UUID      `json:"class_sections_class_room_id,omitempty"`  // class_rooms.*
+	ClassSectionsSlug         *string         `json:"class_sections_slug,omitempty"`
+	ClassSectionsName         *string         `json:"class_sections_name,omitempty"`
+	ClassSectionsCode         *string         `json:"class_sections_code,omitempty"`
+	ClassSectionsCapacity     *int            `json:"class_sections_capacity,omitempty"`       // >= 0
+	ClassSectionsSchedule     *json.RawMessage `json:"class_sections_schedule,omitempty"`
+	ClassSectionsIsActive     *bool           `json:"class_sections_is_active,omitempty"`
 }
 
 func (r *UpdateClassSectionRequest) ApplyToModel(dst *m.ClassSectionModel) {
@@ -65,6 +68,9 @@ func (r *UpdateClassSectionRequest) ApplyToModel(dst *m.ClassSectionModel) {
 	}
 	if r.ClassSectionsTeacherID != nil {
 		dst.ClassSectionsTeacherID = r.ClassSectionsTeacherID
+	}
+	if r.ClassSectionsClassRoomID != nil {
+		dst.ClassSectionsClassRoomID = r.ClassSectionsClassRoomID
 	}
 	if r.ClassSectionsSlug != nil {
 		dst.ClassSectionsSlug = *r.ClassSectionsSlug
@@ -89,18 +95,18 @@ func (r *UpdateClassSectionRequest) ApplyToModel(dst *m.ClassSectionModel) {
 /* ===================== Queries ===================== */
 
 type ListClassSectionQuery struct {
-	Limit      int        `query:"limit"`
-	Offset     int        `query:"offset"`
-	ActiveOnly *bool      `query:"active_only"`
-	Search     *string    `query:"search"`     // name/code/slug (controller handles)
-	ClassID    *uuid.UUID `query:"class_id"`   // filter by class
-	TeacherID  *uuid.UUID `query:"teacher_id"` // filter by teacher (masjid_teachers.*)
-	Sort       *string    `query:"sort"`       // name_asc|name_desc|created_at_asc|created_at_desc
+	Limit      int         `query:"limit"`
+	Offset     int         `query:"offset"`
+	ActiveOnly *bool       `query:"active_only"`
+	Search     *string     `query:"search"`      // name/code/slug (controller handles)
+	ClassID    *uuid.UUID  `query:"class_id"`    // filter by class
+	TeacherID  *uuid.UUID  `query:"teacher_id"`  // filter by teacher (masjid_teachers.*)
+	RoomID     *uuid.UUID  `query:"room_id"`     // filter by class_rooms.class_room_id
+	Sort       *string     `query:"sort"`        // name_asc|name_desc|created_at_asc|created_at_desc
 }
 
 /* ===================== Responses ===================== */
 
-// NOTE: This is an enrichment stub. ID here is expected to be masjid_teacher_id.
 type UserLite struct {
 	ID       uuid.UUID `json:"id"`
 	UserName string    `json:"user_name"`
@@ -110,24 +116,25 @@ type UserLite struct {
 }
 
 type ClassSectionResponse struct {
-	ClassSectionsID          uuid.UUID      `json:"class_sections_id"`
-	ClassSectionsClassID     uuid.UUID      `json:"class_sections_class_id"`
-	ClassSectionsMasjidID    uuid.UUID      `json:"class_sections_masjid_id"`
-	ClassSectionsTeacherID   *uuid.UUID     `json:"class_sections_teacher_id,omitempty"`
+	ClassSectionsID            uuid.UUID       `json:"class_sections_id"`
+	ClassSectionsClassID       uuid.UUID       `json:"class_sections_class_id"`
+	ClassSectionsMasjidID      uuid.UUID       `json:"class_sections_masjid_id"`
+	ClassSectionsTeacherID     *uuid.UUID      `json:"class_sections_teacher_id,omitempty"`
+	ClassSectionsClassRoomID   *uuid.UUID      `json:"class_sections_class_room_id,omitempty"`
 
-	ClassSectionsSlug        string         `json:"class_sections_slug"`
-	ClassSectionsName        string         `json:"class_sections_name"`
-	ClassSectionsCode        *string        `json:"class_sections_code,omitempty"`
-	ClassSectionsCapacity    *int           `json:"class_sections_capacity,omitempty"`
-	ClassSectionsSchedule    json.RawMessage `json:"class_sections_schedule,omitempty"`
+	ClassSectionsSlug          string          `json:"class_sections_slug"`
+	ClassSectionsName          string          `json:"class_sections_name"`
+	ClassSectionsCode          *string         `json:"class_sections_code,omitempty"`
+	ClassSectionsCapacity      *int            `json:"class_sections_capacity,omitempty"`
+	ClassSectionsSchedule      json.RawMessage `json:"class_sections_schedule,omitempty"`
 
-	// Denormalized counter (no need to COUNT on read)
-	ClassSectionsTotalStudents int `json:"class_sections_total_students"`
+	// Denormalized counter
+	ClassSectionsTotalStudents int            `json:"class_sections_total_students"`
 
-	ClassSectionsIsActive     bool      `json:"class_sections_is_active"`
-	ClassSectionsCreatedAt    time.Time `json:"class_sections_created_at"`
-	ClassSectionsUpdatedAt    time.Time `json:"class_sections_updated_at"`
-	ClassSectionsDeletedAt    *time.Time `json:"class_sections_deleted_at,omitempty"`
+	ClassSectionsIsActive      bool           `json:"class_sections_is_active"`
+	ClassSectionsCreatedAt     time.Time      `json:"class_sections_created_at"`
+	ClassSectionsUpdatedAt     time.Time      `json:"class_sections_updated_at"`
+	ClassSectionsDeletedAt     *time.Time     `json:"class_sections_deleted_at,omitempty"`
 
 	Teacher *UserLite `json:"teacher,omitempty"` // enrichment (optional)
 }
@@ -145,6 +152,7 @@ func NewClassSectionResponse(src *m.ClassSectionModel, teacherName string) *Clas
 		ClassSectionsClassID:       src.ClassSectionsClassID,
 		ClassSectionsMasjidID:      src.ClassSectionsMasjidID,
 		ClassSectionsTeacherID:     src.ClassSectionsTeacherID,
+		ClassSectionsClassRoomID:   src.ClassSectionsClassRoomID,
 
 		ClassSectionsSlug:          src.ClassSectionsSlug,
 		ClassSectionsName:          src.ClassSectionsName,

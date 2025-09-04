@@ -14,6 +14,7 @@ import (
 )
 
 // GET /admin/class-sections
+// GET /admin/class-sections
 func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	// 🔁 izinkan akses berdasarkan semua klaim masjid (teacher/DKM/admin/student)
 	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
@@ -42,6 +43,10 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	}
 	if q.TeacherID != nil {
 		tx = tx.Where("class_sections_teacher_id = ?", *q.TeacherID)
+	}
+	// NEW: filter by class room
+	if q.RoomID != nil {
+		tx = tx.Where("class_sections_class_room_id = ?", *q.RoomID)
 	}
 	if q.Search != nil && strings.TrimSpace(*q.Search) != "" {
 		s := "%" + strings.ToLower(strings.TrimSpace(*q.Search)) + "%"

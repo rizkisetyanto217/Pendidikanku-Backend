@@ -13,6 +13,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	helper "masjidku_backend/internals/helpers"
+
 	d "masjidku_backend/internals/features/school/schedule_daily_rooms/schedule_daily/dto"
 	m "masjidku_backend/internals/features/school/schedule_daily_rooms/schedule_daily/model"
 )
@@ -62,12 +64,14 @@ func enforceMasjidScope(c *fiber.Ctx, bodyMasjidID *uuid.UUID) error {
 	return nil
 }
 
+// --- PG error mapping ---
+
 type pgSQLErr interface {
 	SQLState() string
 	Error() string
 }
 
-func mapPGError(err error) *fiber.Error {
+func mapPGError(err error) (int, string) {
 	// 23P01 = exclusion_violation
 	// 23503 = foreign_key_violation
 	// 23505 = unique_violation
@@ -75,15 +79,19 @@ func mapPGError(err error) *fiber.Error {
 	if errors.As(err, &pgErr) {
 		switch pgErr.SQLState() {
 		case "23P01":
-			return fiber.NewError(http.StatusConflict, "Bentrok jadwal: time range overlap (room/section).")
+			return http.StatusConflict, "Bentrok jadwal: time range overlap (room/section)."
 		case "23503":
-			return fiber.NewError(http.StatusBadRequest, "Referensi tidak ditemukan (FK violation).")
+			return http.StatusBadRequest, "Referensi tidak ditemukan (FK violation)."
 		case "23505":
-			return fiber.NewError(http.StatusConflict, "Data duplikat (unique violation).")
+			return http.StatusConflict, "Data duplikat (unique violation)."
 		}
 	}
-	// Default
-	return fiber.NewError(http.StatusInternalServerError, err.Error())
+	return http.StatusInternalServerError, err.Error()
+}
+
+func writePGError(c *fiber.Ctx, err error) error {
+	code, msg := mapPGError(err)
+	return helper.JsonError(c, code, msg)
 }
 
 func parseTimeOfDayParam(s string) (time.Time, error) {
@@ -111,7 +119,7 @@ type listQuery struct {
 	SectionID      string `query:"section_id"`
 	ClassSubjectID string `query:"class_subject_id"`
 	RoomID         string `query:"room_id"`
-	Status         string `query:"status"` // scheduled|ongoing|finished|canceled
+	Status         string `query:"status"` // scheduled|ongoing|completed|canceled
 	Active         *bool  `query:"active"`
 	DayOfWeek      *int   `query:"dow"`        // 1..7
 	OnDate         string `query:"on_date"`    // YYYY-MM-DD (di antara start_date & end_date) + DOW match
@@ -128,7 +136,7 @@ type listQuery struct {
 func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	var q listQuery
 	if err := c.QueryParser(&q); err != nil {
-		return fiber.NewError(http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
 	db := ctl.DB.Model(&m.ClassScheduleModel{})
@@ -143,34 +151,34 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	// Filters
 	if q.MasjidID != "" {
 		if _, err := uuid.Parse(q.MasjidID); err != nil {
-			return fiber.NewError(http.StatusBadRequest, "masjid_id invalid")
+			return helper.JsonError(c, http.StatusBadRequest, "masjid_id invalid")
 		}
 		db = db.Where("class_schedules_masjid_id = ?", q.MasjidID)
 	}
 	if q.SectionID != "" {
 		if _, err := uuid.Parse(q.SectionID); err != nil {
-			return fiber.NewError(http.StatusBadRequest, "section_id invalid")
+			return helper.JsonError(c, http.StatusBadRequest, "section_id invalid")
 		}
 		db = db.Where("class_schedules_section_id = ?", q.SectionID)
 	}
 	if q.ClassSubjectID != "" {
 		if _, err := uuid.Parse(q.ClassSubjectID); err != nil {
-			return fiber.NewError(http.StatusBadRequest, "class_subject_id invalid")
+			return helper.JsonError(c, http.StatusBadRequest, "class_subject_id invalid")
 		}
 		db = db.Where("class_schedules_class_subject_id = ?", q.ClassSubjectID)
 	}
 	if q.RoomID != "" {
 		if _, err := uuid.Parse(q.RoomID); err != nil {
-			return fiber.NewError(http.StatusBadRequest, "room_id invalid")
+			return helper.JsonError(c, http.StatusBadRequest, "room_id invalid")
 		}
 		db = db.Where("class_schedules_room_id = ?", q.RoomID)
 	}
 	if q.Status != "" {
 		switch m.SessionStatus(q.Status) {
-		case m.SessionScheduled, m.SessionOngoing, m.SessionFinished, m.SessionCanceled:
+		case m.SessionScheduled, m.SessionOngoing, m.SessionCompleted, m.SessionCanceled:
 			db = db.Where("class_schedules_status = ?", q.Status)
 		default:
-			return fiber.NewError(http.StatusBadRequest, "status invalid")
+			return helper.JsonError(c, http.StatusBadRequest, "status invalid")
 		}
 	}
 	if q.Active != nil {
@@ -178,7 +186,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	}
 	if q.DayOfWeek != nil {
 		if *q.DayOfWeek < 1 || *q.DayOfWeek > 7 {
-			return fiber.NewError(http.StatusBadRequest, "dow must be 1..7")
+			return helper.JsonError(c, http.StatusBadRequest, "dow must be 1..7")
 		}
 		db = db.Where("class_schedules_day_of_week = ?", *q.DayOfWeek)
 	}
@@ -187,7 +195,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	if strings.TrimSpace(q.OnDate) != "" {
 		d, err := time.Parse("2006-01-02", q.OnDate)
 		if err != nil {
-			return fiber.NewError(http.StatusBadRequest, "on_date invalid (YYYY-MM-DD)")
+			return helper.JsonError(c, http.StatusBadRequest, "on_date invalid (YYYY-MM-DD)")
 		}
 		// Go: Sunday(0)..Saturday(6) → ISO: Monday(1)..Sunday(7)
 		dow := int(d.Weekday()) // 0..6
@@ -202,14 +210,14 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	if strings.TrimSpace(q.StartAfter) != "" {
 		t, err := parseTimeOfDayParam(q.StartAfter)
 		if err != nil {
-			return fiber.NewError(http.StatusBadRequest, "start_after invalid (HH:mm/HH:mm:ss)")
+			return helper.JsonError(c, http.StatusBadRequest, "start_after invalid (HH:mm/HH:mm:ss)")
 		}
 		db = db.Where("class_schedules_start_time >= ?", t)
 	}
 	if strings.TrimSpace(q.EndBefore) != "" {
 		t, err := parseTimeOfDayParam(q.EndBefore)
 		if err != nil {
-			return fiber.NewError(http.StatusBadRequest, "end_before invalid (HH:mm/HH:mm:ss)")
+			return helper.JsonError(c, http.StatusBadRequest, "end_before invalid (HH:mm/HH:mm:ss)")
 		}
 		db = db.Where("class_schedules_end_time <= ?", t)
 	}
@@ -249,7 +257,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		Limit(q.Limit).
 		Offset(q.Offset).
 		Find(&rows).Error; err != nil {
-		return mapPGError(err)
+		return writePGError(c, err)
 	}
 
 	// Map ke response
@@ -257,11 +265,14 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	for i := range rows {
 		out = append(out, d.NewClassScheduleResponse(&rows[i]))
 	}
-	return c.Status(http.StatusOK).JSON(fiber.Map{
-		"data":   out,
+
+	// pagination meta sederhana
+	meta := fiber.Map{
 		"limit":  q.Limit,
 		"offset": q.Offset,
-	})
+	}
+
+	return helper.JsonList(c, out, meta)
 }
 
 /* =========================
@@ -271,7 +282,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 func (ctl *ClassScheduleController) GetByID(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return fiber.NewError(http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
 	var row m.ClassScheduleModel
@@ -279,12 +290,12 @@ func (ctl *ClassScheduleController) GetByID(c *fiber.Ctx) error {
 		Where("class_schedule_id = ? AND class_schedules_deleted_at IS NULL", id).
 		First(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(http.StatusNotFound, "schedule not found")
+			return helper.JsonError(c, http.StatusNotFound, "schedule not found")
 		}
-		return mapPGError(err)
+		return writePGError(c, err)
 	}
 
-	return c.Status(http.StatusOK).JSON(d.NewClassScheduleResponse(&row))
+	return helper.JsonOK(c, "OK", d.NewClassScheduleResponse(&row))
 }
 
 /* =========================
@@ -294,27 +305,27 @@ func (ctl *ClassScheduleController) GetByID(c *fiber.Ctx) error {
 func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 	var req d.CreateClassScheduleRequest
 	if err := c.BodyParser(&req); err != nil {
-		return fiber.NewError(http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 	if err := req.Validate(ctl.Validate); err != nil {
-		return fiber.NewError(http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
 	var model m.ClassScheduleModel
 	if err := req.ApplyToModel(&model); err != nil {
-		return fiber.NewError(http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
 	// Enforce masjid scope bila ada
 	if err := enforceMasjidScope(c, &model.ClassSchedulesMasjidID); err != nil {
-		return fiber.NewError(http.StatusForbidden, err.Error())
+		return helper.JsonError(c, http.StatusForbidden, err.Error())
 	}
 
 	if err := ctl.DB.Create(&model).Error; err != nil {
-		return mapPGError(err)
+		return writePGError(c, err)
 	}
 
-	return c.Status(http.StatusCreated).JSON(d.NewClassScheduleResponse(&model))
+	return helper.JsonCreated(c, "Schedule created", d.NewClassScheduleResponse(&model))
 }
 
 /* =========================
@@ -324,7 +335,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 func (ctl *ClassScheduleController) Update(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return fiber.NewError(http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
 	var existing m.ClassScheduleModel
@@ -332,32 +343,32 @@ func (ctl *ClassScheduleController) Update(c *fiber.Ctx) error {
 		Where("class_schedule_id = ? AND class_schedules_deleted_at IS NULL", id).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(http.StatusNotFound, "schedule not found")
+			return helper.JsonError(c, http.StatusNotFound, "schedule not found")
 		}
-		return mapPGError(err)
+		return writePGError(c, err)
 	}
 
 	var req d.UpdateClassScheduleRequest
 	if err := c.BodyParser(&req); err != nil {
-		return fiber.NewError(http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 	if err := req.Validate(ctl.Validate); err != nil {
-		return fiber.NewError(http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 	if err := req.ApplyToModel(&existing); err != nil {
-		return fiber.NewError(http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
 	// Enforce masjid scope
 	if err := enforceMasjidScope(c, &existing.ClassSchedulesMasjidID); err != nil {
-		return fiber.NewError(http.StatusForbidden, err.Error())
+		return helper.JsonError(c, http.StatusForbidden, err.Error())
 	}
 
 	if err := ctl.DB.Save(&existing).Error; err != nil {
-		return mapPGError(err)
+		return writePGError(c, err)
 	}
 
-	return c.Status(http.StatusOK).JSON(d.NewClassScheduleResponse(&existing))
+	return helper.JsonUpdated(c, "Schedule updated", d.NewClassScheduleResponse(&existing))
 }
 
 /* =========================
@@ -367,7 +378,7 @@ func (ctl *ClassScheduleController) Update(c *fiber.Ctx) error {
 func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return fiber.NewError(http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
 	var existing m.ClassScheduleModel
@@ -375,33 +386,33 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 		Where("class_schedule_id = ? AND class_schedules_deleted_at IS NULL", id).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(http.StatusNotFound, "schedule not found")
+			return helper.JsonError(c, http.StatusNotFound, "schedule not found")
 		}
-		return mapPGError(err)
+		return writePGError(c, err)
 	}
 
 	var req d.PatchClassScheduleRequest
 	if err := c.BodyParser(&req); err != nil {
-		return fiber.NewError(http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 	if err := req.Validate(ctl.Validate); err != nil {
-		return fiber.NewError(http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
 	if err := req.ApplyPatch(&existing); err != nil {
-		return fiber.NewError(http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
 	// Enforce masjid scope
 	if err := enforceMasjidScope(c, &existing.ClassSchedulesMasjidID); err != nil {
-		return fiber.NewError(http.StatusForbidden, err.Error())
+		return helper.JsonError(c, http.StatusForbidden, err.Error())
 	}
 
 	if err := ctl.DB.Save(&existing).Error; err != nil {
-		return mapPGError(err)
+		return writePGError(c, err)
 	}
 
-	return c.Status(http.StatusOK).JSON(d.NewClassScheduleResponse(&existing))
+	return helper.JsonUpdated(c, "Schedule updated", d.NewClassScheduleResponse(&existing))
 }
 
 /* =========================
@@ -411,7 +422,7 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return fiber.NewError(http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
 	var existing m.ClassScheduleModel
@@ -419,20 +430,20 @@ func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 		Where("class_schedule_id = ? AND class_schedules_deleted_at IS NULL", id).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(http.StatusNotFound, "schedule not found")
+			return helper.JsonError(c, http.StatusNotFound, "schedule not found")
 		}
-		return mapPGError(err)
+		return writePGError(c, err)
 	}
 
 	// Enforce masjid scope
 	if err := enforceMasjidScope(c, &existing.ClassSchedulesMasjidID); err != nil {
-		return fiber.NewError(http.StatusForbidden, err.Error())
+		return helper.JsonError(c, http.StatusForbidden, err.Error())
 	}
 
 	// GORM soft delete → akan set class_schedules_deleted_at
 	if err := ctl.DB.Delete(&existing).Error; err != nil {
-		return mapPGError(err)
+		return writePGError(c, err)
 	}
 
-	return c.SendStatus(http.StatusNoContent)
+	return helper.JsonDeleted(c, "Schedule deleted", d.NewClassScheduleResponse(&existing))
 }

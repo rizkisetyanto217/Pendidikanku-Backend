@@ -4,6 +4,7 @@ package controller
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	helper "masjidku_backend/internals/helpers"
 
 	"masjidku_backend/internals/features/school/schedule_daily_rooms/rooms/dto"
 	"masjidku_backend/internals/features/school/schedule_daily_rooms/rooms/model"
@@ -28,6 +31,14 @@ type ClassRoomController struct {
 
 func NewClassRoomController(db *gorm.DB, v *validator.Validate) *ClassRoomController {
 	return &ClassRoomController{DB: db, Validate: v}
+}
+
+/* =========================
+   Fiber → *http.Request (untuk pagination helper)
+   ========================= */
+func stdReqFromFiber(c *fiber.Ctx) *http.Request {
+	u := &url.URL{RawQuery: string(c.Request().URI().QueryString())}
+	return &http.Request{URL: u}
 }
 
 /* =======================================================
@@ -49,14 +60,47 @@ func NewClassRoomController(db *gorm.DB, v *validator.Validate) *ClassRoomContro
 func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	masjidID, ok := mustMasjidID(c)
 	if !ok {
-		return c.Status(http.StatusUnauthorized).JSON(errResp("Masjid scope tidak ditemukan"))
+		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan")
 	}
 
+	// Filters legacy (search, is_active, etc) + legacy sort (q.Sort)
 	var q dto.ListClassRoomsQuery
 	if err := c.QueryParser(&q); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(errResp("Query tidak valid"))
+		return helper.JsonError(c, http.StatusBadRequest, "Query tidak valid")
 	}
 	q.Normalize()
+
+	// Pagination & sorting via helper (default: created_at DESC)
+	p := helper.ParseWith(stdReqFromFiber(c), "created_at", "desc", helper.AdminOpts)
+
+	// Whitelist kolom sorting utk sort_by/order dari helper
+	allowedSort := map[string]string{
+		"name":       "class_rooms_name",
+		"created_at": "class_rooms_created_at",
+		"updated_at": "class_rooms_updated_at",
+	}
+	orderCol := allowedSort["created_at"]
+	if col, ok := allowedSort[strings.ToLower(p.SortBy)]; ok {
+		orderCol = col
+	}
+	orderDir := "DESC"
+	if strings.ToLower(p.SortOrder) == "asc" {
+		orderDir = "ASC"
+	}
+
+	// Override jika user pakai legacy q.Sort (name_asc|name_desc|created_asc|created_desc)
+	if s := strings.ToLower(strings.TrimSpace(q.Sort)); s != "" {
+		switch s {
+		case "name_asc":
+			orderCol, orderDir = "class_rooms_name", "ASC"
+		case "name_desc":
+			orderCol, orderDir = "class_rooms_name", "DESC"
+		case "created_asc":
+			orderCol, orderDir = "class_rooms_created_at", "ASC"
+		case "created_desc":
+			orderCol, orderDir = "class_rooms_created_at", "DESC"
+		}
+	}
 
 	db := ctl.DB.Model(&model.ClassRoomModel{}).
 		Where("class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", masjidID)
@@ -77,28 +121,22 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		db = db.Where("class_rooms_code IS NOT NULL AND length(trim(class_rooms_code)) > 0")
 	}
 
-	// sorting sederhana
-	switch q.Sort {
-	case "name_asc":
-		db = db.Order("class_rooms_name ASC")
-	case "name_desc":
-		db = db.Order("class_rooms_name DESC")
-	case "created_asc":
-		db = db.Order("class_rooms_created_at ASC")
-	case "created_desc", "":
-		db = db.Order("class_rooms_created_at DESC")
-	default:
-		db = db.Order("class_rooms_created_at DESC")
-	}
-
+	// Count total
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(errResp("Gagal menghitung data"))
+		return helper.JsonError(c, http.StatusInternalServerError, "Gagal menghitung data")
 	}
 
+	// Sorting & pagination
+	db = db.Order(orderCol + " " + orderDir)
+	if !p.All {
+		db = db.Limit(p.Limit()).Offset(p.Offset())
+	}
+
+	// Query data
 	var rows []model.ClassRoomModel
-	if err := db.Limit(q.Limit).Offset(q.Offset).Find(&rows).Error; err != nil {
-		return c.Status(http.StatusInternalServerError).JSON(errResp("Gagal mengambil data"))
+	if err := db.Find(&rows).Error; err != nil {
+		return helper.JsonError(c, http.StatusInternalServerError, "Gagal mengambil data")
 	}
 
 	out := make([]dto.ClassRoomResponse, 0, len(rows))
@@ -106,22 +144,18 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		out = append(out, dto.ToClassRoomResponse(m))
 	}
 
-	return c.JSON(okResp(fiber.Map{
-		"items": out,
-		"total": total,
-		"limit": q.Limit,
-		"offset": q.Offset,
-	}))
+	meta := helper.BuildMeta(total, p)
+	return helper.JsonList(c, out, meta)
 }
 
 func (ctl *ClassRoomController) GetByID(c *fiber.Ctx) error {
 	masjidID, ok := mustMasjidID(c)
 	if !ok {
-		return c.Status(http.StatusUnauthorized).JSON(errResp("Masjid scope tidak ditemukan"))
+		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan")
 	}
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
-		return c.Status(http.StatusBadRequest).JSON(errResp("ID tidak valid"))
+		return helper.JsonError(c, http.StatusBadRequest, "ID tidak valid")
 	}
 
 	var m model.ClassRoomModel
@@ -130,28 +164,28 @@ func (ctl *ClassRoomController) GetByID(c *fiber.Ctx) error {
 		id, masjidID,
 	).First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return c.Status(http.StatusNotFound).JSON(errResp("Data tidak ditemukan"))
+			return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan")
 		}
-		return c.Status(http.StatusInternalServerError).JSON(errResp("Gagal mengambil data"))
+		return helper.JsonError(c, http.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	return c.JSON(okResp(dto.ToClassRoomResponse(m)))
+	return helper.JsonOK(c, "OK", dto.ToClassRoomResponse(m))
 }
 
 func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	masjidID, ok := mustMasjidID(c)
 	if !ok {
-		return c.Status(http.StatusUnauthorized).JSON(errResp("Masjid scope tidak ditemukan"))
+		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan")
 	}
 
 	var req dto.CreateClassRoomRequest
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(errResp("Payload tidak valid"))
+		return helper.JsonError(c, http.StatusBadRequest, "Payload tidak valid")
 	}
 	req.Normalize()
 
 	if err := ctl.Validate.Struct(&req); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(errValid(err))
+		return helper.JsonError(c, http.StatusBadRequest, "Validasi gagal: "+err.Error())
 	}
 
 	m := model.ClassRoomModel{
@@ -168,31 +202,31 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 
 	if err := ctl.DB.Create(&m).Error; err != nil {
 		if isUniqueViolation(err) {
-			return c.Status(http.StatusConflict).JSON(errResp("Nama/Kode ruang sudah digunakan"))
+			return helper.JsonError(c, http.StatusConflict, "Nama/Kode ruang sudah digunakan")
 		}
-		return c.Status(http.StatusInternalServerError).JSON(errResp("Gagal menyimpan data"))
+		return helper.JsonError(c, http.StatusInternalServerError, "Gagal menyimpan data")
 	}
 
-	return c.Status(http.StatusCreated).JSON(okResp(dto.ToClassRoomResponse(m)))
+	return helper.JsonCreated(c, "Created", dto.ToClassRoomResponse(m))
 }
 
 func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 	masjidID, ok := mustMasjidID(c)
 	if !ok {
-		return c.Status(http.StatusUnauthorized).JSON(errResp("Masjid scope tidak ditemukan"))
+		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan")
 	}
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
-		return c.Status(http.StatusBadRequest).JSON(errResp("ID tidak valid"))
+		return helper.JsonError(c, http.StatusBadRequest, "ID tidak valid")
 	}
 
 	var req dto.UpdateClassRoomRequest
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(errResp("Payload tidak valid"))
+		return helper.JsonError(c, http.StatusBadRequest, "Payload tidak valid")
 	}
 	req.Normalize()
 	if err := ctl.Validate.Struct(&req); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(errValid(err))
+		return helper.JsonError(c, http.StatusBadRequest, "Validasi gagal: "+err.Error())
 	}
 
 	// Ambil record yang masih alive & tenant match
@@ -201,9 +235,9 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 		Where("class_room_id = ? AND class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", id, masjidID).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return c.Status(http.StatusNotFound).JSON(errResp("Data tidak ditemukan"))
+			return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan")
 		}
-		return c.Status(http.StatusInternalServerError).JSON(errResp("Gagal mengambil data"))
+		return helper.JsonError(c, http.StatusInternalServerError, "Gagal mengambil data")
 	}
 
 	// Apply perubahan hanya yang dikirim
@@ -236,32 +270,32 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 	updates["class_rooms_updated_at"] = time.Now()
 
 	if len(updates) == 0 {
-		return c.Status(http.StatusBadRequest).JSON(errResp("Tidak ada field untuk diupdate"))
+		return helper.JsonError(c, http.StatusBadRequest, "Tidak ada field untuk diupdate")
 	}
 
 	if err := ctl.DB.Model(&m).Clauses(clause.Returning{}).Updates(updates).Error; err != nil {
 		if isUniqueViolation(err) {
-			return c.Status(http.StatusConflict).JSON(errResp("Nama/Kode ruang sudah digunakan"))
+			return helper.JsonError(c, http.StatusConflict, "Nama/Kode ruang sudah digunakan")
 		}
-		return c.Status(http.StatusInternalServerError).JSON(errResp("Gagal mengubah data"))
+		return helper.JsonError(c, http.StatusInternalServerError, "Gagal mengubah data")
 	}
 
-	return c.JSON(okResp(dto.ToClassRoomResponse(m)))
+	return helper.JsonUpdated(c, "Updated", dto.ToClassRoomResponse(m))
 }
 
 func (ctl *ClassRoomController) Patch(c *fiber.Ctx) error {
 	masjidID, ok := mustMasjidID(c)
 	if !ok {
-		return c.Status(http.StatusUnauthorized).JSON(errResp("Masjid scope tidak ditemukan"))
+		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan")
 	}
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
-		return c.Status(http.StatusBadRequest).JSON(errResp("ID tidak valid"))
+		return helper.JsonError(c, http.StatusBadRequest, "ID tidak valid")
 	}
 
 	var req dto.PatchClassRoomRequest
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(errResp("Payload tidak valid"))
+		return helper.JsonError(c, http.StatusBadRequest, "Payload tidak valid")
 	}
 	req.Normalize()
 
@@ -271,58 +305,58 @@ func (ctl *ClassRoomController) Patch(c *fiber.Ctx) error {
 		Where("class_room_id = ? AND class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", id, masjidID).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return c.Status(http.StatusNotFound).JSON(errResp("Data tidak ditemukan"))
+			return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan")
 		}
-		return c.Status(http.StatusInternalServerError).JSON(errResp("Gagal mengambil data"))
+		return helper.JsonError(c, http.StatusInternalServerError, "Gagal mengambil data")
 	}
 
 	updates := req.BuildUpdateMap()
 	if len(updates) == 0 {
-		return c.Status(http.StatusBadRequest).JSON(errResp("Tidak ada field untuk diupdate"))
+		return helper.JsonError(c, http.StatusBadRequest, "Tidak ada field untuk diupdate")
 	}
 	updates["class_rooms_updated_at"] = time.Now()
 
 	if err := ctl.DB.Model(&m).Clauses(clause.Returning{}).Updates(updates).Error; err != nil {
 		if isUniqueViolation(err) {
-			return c.Status(http.StatusConflict).JSON(errResp("Nama/Kode ruang sudah digunakan"))
+			return helper.JsonError(c, http.StatusConflict, "Nama/Kode ruang sudah digunakan")
 		}
-		return c.Status(http.StatusInternalServerError).JSON(errResp("Gagal mengubah data"))
+		return helper.JsonError(c, http.StatusInternalServerError, "Gagal mengubah data")
 	}
 
-	return c.JSON(okResp(dto.ToClassRoomResponse(m)))
+	return helper.JsonUpdated(c, "Updated", dto.ToClassRoomResponse(m))
 }
 
 func (ctl *ClassRoomController) Delete(c *fiber.Ctx) error {
 	masjidID, ok := mustMasjidID(c)
 	if !ok {
-		return c.Status(http.StatusUnauthorized).JSON(errResp("Masjid scope tidak ditemukan"))
+		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan")
 	}
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
-		return c.Status(http.StatusBadRequest).JSON(errResp("ID tidak valid"))
+		return helper.JsonError(c, http.StatusBadRequest, "ID tidak valid")
 	}
 
-	// Pastikan tenant match
+	// Pastikan tenant match & alive → soft delete
 	tx := ctl.DB.Model(&model.ClassRoomModel{}).
 		Where("class_room_id = ? AND class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", id, masjidID).
 		Update("class_rooms_deleted_at", time.Now())
 	if tx.Error != nil {
-		return c.Status(http.StatusInternalServerError).JSON(errResp("Gagal menghapus data"))
+		return helper.JsonError(c, http.StatusInternalServerError, "Gagal menghapus data")
 	}
 	if tx.RowsAffected == 0 {
-		return c.Status(http.StatusNotFound).JSON(errResp("Data tidak ditemukan / sudah terhapus"))
+		return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan / sudah terhapus")
 	}
-	return c.JSON(okResp(fiber.Map{"deleted": true}))
+	return helper.JsonDeleted(c, "Deleted", fiber.Map{"deleted": true})
 }
 
 func (ctl *ClassRoomController) Restore(c *fiber.Ctx) error {
 	masjidID, ok := mustMasjidID(c)
 	if !ok {
-		return c.Status(http.StatusUnauthorized).JSON(errResp("Masjid scope tidak ditemukan"))
+		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan")
 	}
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
-		return c.Status(http.StatusBadRequest).JSON(errResp("ID tidak valid"))
+		return helper.JsonError(c, http.StatusBadRequest, "ID tidak valid")
 	}
 
 	// Hanya bisa restore jika baris soft-deleted & tenant match
@@ -335,12 +369,12 @@ func (ctl *ClassRoomController) Restore(c *fiber.Ctx) error {
 	if tx.Error != nil {
 		if isUniqueViolation(tx.Error) {
 			// Restore bisa bentrok dengan partial unique (nama/kode sudah dipakai baris alive lain)
-			return c.Status(http.StatusConflict).JSON(errResp("Gagal restore: nama/kode sudah dipakai entri lain"))
+			return helper.JsonError(c, http.StatusConflict, "Gagal restore: nama/kode sudah dipakai entri lain")
 		}
-		return c.Status(http.StatusInternalServerError).JSON(errResp("Gagal restore data"))
+		return helper.JsonError(c, http.StatusInternalServerError, "Gagal restore data")
 	}
 	if tx.RowsAffected == 0 {
-		return c.Status(http.StatusNotFound).JSON(errResp("Data tidak ditemukan / tidak dalam keadaan terhapus"))
+		return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan / tidak dalam keadaan terhapus")
 	}
 
 	// Return row terbaru
@@ -348,9 +382,10 @@ func (ctl *ClassRoomController) Restore(c *fiber.Ctx) error {
 	if err := ctl.DB.
 		Where("class_room_id = ? AND class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", id, masjidID).
 		First(&m).Error; err != nil {
-		return c.Status(http.StatusOK).JSON(okResp(fiber.Map{"restored": true}))
+		// kalau gagal ambil ulang, minimal beri flag restored
+		return helper.JsonOK(c, "Restored", fiber.Map{"restored": true})
 	}
-	return c.JSON(okResp(dto.ToClassRoomResponse(m)))
+	return helper.JsonOK(c, "Restored", dto.ToClassRoomResponse(m))
 }
 
 /* =======================================================
@@ -376,20 +411,8 @@ func mustMasjidID(c *fiber.Ctx) (uuid.UUID, bool) {
 	}
 }
 
-// Sederhana: adaptasikan ke helper error kamu kalau ada
-func okResp(data interface{}) fiber.Map {
-	return fiber.Map{"code": 200, "status": "success", "data": data}
-}
-func errResp(msg string) fiber.Map {
-	return fiber.Map{"code": 400, "status": "error", "message": msg}
-}
-func errValid(err error) fiber.Map {
-	return fiber.Map{"code": 422, "status": "error", "message": "Validasi gagal", "details": err.Error()}
-}
-
 // Deteksi unique violation Postgres (kode "23505")
 func isUniqueViolation(err error) bool {
-	// tanpa import pgx/pgconn biar portable: cek substring
 	if err == nil {
 		return false
 	}

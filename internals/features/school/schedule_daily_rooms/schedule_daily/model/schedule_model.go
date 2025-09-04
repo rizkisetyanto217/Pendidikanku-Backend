@@ -9,22 +9,20 @@ import (
 )
 
 /* =======================================================
-   Enum status (menyesuaikan session_status_enum)
+   Enum status (menyesuaikan session_status_enum di SQL)
    ======================================================= */
-
 type SessionStatus string
 
 const (
 	SessionScheduled SessionStatus = "scheduled"
 	SessionOngoing   SessionStatus = "ongoing"
-	SessionFinished  SessionStatus = "finished"
+	SessionCompleted SessionStatus = "completed"
 	SessionCanceled  SessionStatus = "canceled"
 )
 
 /* =======================================================
    ClassScheduleModel — map ke tabel class_schedules
    ======================================================= */
-
 type ClassScheduleModel struct {
 	// PK
 	ClassScheduleID uuid.UUID `json:"class_schedule_id" gorm:"type:uuid;primaryKey;column:class_schedule_id;default:gen_random_uuid()"`
@@ -51,16 +49,16 @@ type ClassScheduleModel struct {
 	ClassSchedulesEndDate   time.Time `json:"class_schedules_end_date"   gorm:"type:date;not null;column:class_schedules_end_date"`
 
 	// Status & metadata
-	ClassSchedulesStatus   SessionStatus `json:"class_schedules_status"   gorm:"type:text;not null;default:'scheduled';column:class_schedules_status"`
+	ClassSchedulesStatus   SessionStatus `json:"class_schedules_status"   gorm:"type:session_status_enum;not null;default:'scheduled';column:class_schedules_status"`
 	ClassSchedulesIsActive bool          `json:"class_schedules_is_active" gorm:"type:boolean;not null;default:true;column:class_schedules_is_active"`
 
-	// Kolom generated (read-only)
+	// Kolom generated (read-only; int4range dibaca sebagai string representasi)
 	ClassSchedulesTimeRange *string `json:"class_schedules_time_range,omitempty" gorm:"->;column:class_schedules_time_range"`
 
-	// Timestamps eksplisit (nama field eksplisit, kolom tetap created_at/updated_at/deleted_at)
-	ClassSchedulesCreatedAt time.Time      `json:"class_schedules_created_at" gorm:"column:created_at;not null;autoCreateTime"`
-	ClassSchedulesUpdatedAt time.Time      `json:"class_schedules_updated_at" gorm:"column:updated_at;not null;autoUpdateTime"`
-	ClassSchedulesDeletedAt gorm.DeletedAt `json:"class_schedules_deleted_at" gorm:"column:deleted_at;index"`
+	// Timestamps eksplisit (sesuai skema SQL)
+	ClassSchedulesCreatedAt time.Time      `json:"class_schedules_created_at" gorm:"column:class_schedules_created_at;autoCreateTime"`
+	ClassSchedulesUpdatedAt time.Time      `json:"class_schedules_updated_at" gorm:"column:class_schedules_updated_at;autoUpdateTime"`
+	ClassSchedulesDeletedAt gorm.DeletedAt `json:"class_schedules_deleted_at,omitempty" gorm:"column:class_schedules_deleted_at;index"`
 }
 
 func (ClassScheduleModel) TableName() string { return "class_schedules" }

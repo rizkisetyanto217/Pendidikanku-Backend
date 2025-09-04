@@ -4,7 +4,6 @@ package controller
 import (
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 
 	bookdto "masjidku_backend/internals/features/school/subject_books/books/dto"
 	bookmodel "masjidku_backend/internals/features/school/subject_books/books/model"
+	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 	helperOSS "masjidku_backend/internals/helpers/oss"
 )
@@ -32,14 +32,14 @@ func NewBookURLController(db *gorm.DB) *BookURLController {
 }
 
 /* =========================================================
- * CREATE (JSON)
+ * CREATE (JSON / MULTIPART)
  * POST /api/a/book-urls
- * Body: CreateBookURLRequest
+ * Body: CreateBookURLRequest atau multipart {file?, book_url_href?, ...}
  * ========================================================= */
 func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
 
 	ct := strings.ToLower(strings.TrimSpace(c.Get(fiber.HeaderContentType)))
@@ -50,11 +50,11 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 		// Wajib: book_id
 		bookIDStr := strings.TrimSpace(c.FormValue("book_url_book_id"))
 		if bookIDStr == "" {
-			return fiber.NewError(fiber.StatusBadRequest, "book_url_book_id wajib diisi")
+			return helper.JsonError(c, fiber.StatusBadRequest, "book_url_book_id wajib diisi")
 		}
 		bookID, e := uuid.Parse(bookIDStr)
 		if e != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "book_url_book_id tidak valid")
+			return helper.JsonError(c, fiber.StatusBadRequest, "book_url_book_id tidak valid")
 		}
 
 		// Pastikan book milik masjid yang aktif
@@ -66,10 +66,10 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 					WHERE books_id = ? AND books_masjid_id = ? AND books_deleted_at IS NULL
 				)`, bookID, masjidID).
 			Scan(&ok).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa buku")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memeriksa buku")
 		}
 		if !ok {
-			return fiber.NewError(fiber.StatusNotFound, "Buku tidak ditemukan / berbeda masjid")
+			return helper.JsonError(c, fiber.StatusNotFound, "Buku tidak ditemukan / berbeda masjid")
 		}
 
 		// Optional: label & type
@@ -87,12 +87,12 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 		if ferr == nil && fh != nil && fh.Size > 0 {
 			// Batas ukuran (5MB contoh; sesuaikan kalau mau)
 			if fh.Size > 5*1024*1024 {
-				return fiber.NewError(fiber.StatusRequestEntityTooLarge, "Ukuran gambar maksimal 5MB")
+				return helper.JsonError(c, fiber.StatusRequestEntityTooLarge, "Ukuran gambar maksimal 5MB")
 			}
 
 			svc, err := helperOSS.NewOSSServiceFromEnv("")
 			if err != nil {
-				return fiber.NewError(fiber.StatusBadGateway, "OSS init gagal")
+				return helper.JsonError(c, fiber.StatusBadGateway, "OSS init gagal")
 			}
 
 			// Folder tujuan
@@ -101,9 +101,9 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 			if upErr != nil {
 				low := strings.ToLower(upErr.Error())
 				if strings.Contains(low, "format tidak didukung") {
-					return fiber.NewError(fiber.StatusUnsupportedMediaType, "Unsupported image format (pakai jpg/png/webp)")
+					return helper.JsonError(c, fiber.StatusUnsupportedMediaType, "Unsupported image format (pakai jpg/png/webp)")
 				}
-				return fiber.NewError(fiber.StatusBadGateway, "Gagal upload file")
+				return helper.JsonError(c, fiber.StatusBadGateway, "Gagal upload file")
 			}
 			href = newURL
 
@@ -115,7 +115,7 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 			// Tanpa file → boleh pakai href manual
 			h := strings.TrimSpace(c.FormValue("book_url_href"))
 			if h == "" {
-				return fiber.NewError(fiber.StatusBadRequest, "Wajib mengirim file atau book_url_href")
+				return helper.JsonError(c, fiber.StatusBadRequest, "Wajib mengirim file atau book_url_href")
 			}
 			href = h
 			if strings.TrimSpace(typ) == "" {
@@ -133,25 +133,22 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 
 		if err := ctl.DB.WithContext(c.Context()).Create(&mdl).Error; err != nil {
 			if errors.Is(err, gorm.ErrDuplicatedKey) {
-				return fiber.NewError(fiber.StatusConflict, "URL sudah ada untuk buku ini")
+				return helper.JsonError(c, fiber.StatusConflict, "URL sudah ada untuk buku ini")
 			}
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan URL buku")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan URL buku")
 		}
 
 		resp := bookdto.NewBookURLResponse(mdl)
-		return c.JSON(fiber.Map{
-			"message": "Berhasil membuat URL buku",
-			"data":    resp,
-		})
+		return helper.JsonCreated(c, "Berhasil membuat URL buku", resp)
 	}
 
 	// ============== JSON: perilaku lama (tanpa file) ==============
 	var req bookdto.CreateBookURLRequest
 	if err := c.BodyParser(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	if err := ctl.validator.Struct(req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// Pastikan book milik masjid yang aktif
@@ -163,33 +160,25 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 				WHERE books_id = ? AND books_masjid_id = ? AND books_deleted_at IS NULL
 			)`, req.BookURLBookID, masjidID).
 		Scan(&ok).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa buku")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memeriksa buku")
 	}
 	if !ok {
-		return fiber.NewError(fiber.StatusNotFound, "Buku tidak ditemukan / berbeda masjid")
+		return helper.JsonError(c, fiber.StatusNotFound, "Buku tidak ditemukan / berbeda masjid")
 	}
 
 	mdl := req.ToModel(masjidID)
 
 	if err := ctl.DB.WithContext(c.Context()).Create(&mdl).Error; err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			return fiber.NewError(fiber.StatusConflict, "URL sudah ada untuk buku ini")
+			return helper.JsonError(c, fiber.StatusConflict, "URL sudah ada untuk buku ini")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan URL buku")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan URL buku")
 	}
 
 	resp := bookdto.NewBookURLResponse(mdl)
-	return c.JSON(fiber.Map{
-		"message": "Berhasil membuat URL buku",
-		"data":    resp,
-	})
+	return helper.JsonCreated(c, "Berhasil membuat URL buku", resp)
 }
 
-/* =========================================================
- * UPDATE (partial JSON)
- * PATCH /api/a/book-urls/:id
- * Body: UpdateBookURLRequest
- * ========================================================= */
 /* =========================================================
  * UPDATE (JSON or MULTIPART, partial + file rotate)
  * PATCH /api/a/book-urls/:id
@@ -197,12 +186,12 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 func (ctl *BookURLController) Update(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
 
 	id, perr := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if perr != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	var mdl bookmodel.BookURLModel
@@ -210,9 +199,9 @@ func (ctl *BookURLController) Update(c *fiber.Ctx) error {
 		Where("book_url_id = ? AND book_url_masjid_id = ?", id, masjidID).
 		First(&mdl).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(fiber.StatusNotFound, "Data tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
 	ct := strings.ToLower(strings.TrimSpace(c.Get(fiber.HeaderContentType)))
@@ -233,12 +222,12 @@ func (ctl *BookURLController) Update(c *fiber.Ctx) error {
 		if fh, ferr := c.FormFile("file"); ferr == nil && fh != nil && fh.Size > 0 {
 			// batas ukuran contoh 5MB
 			if fh.Size > 5*1024*1024 {
-				return fiber.NewError(fiber.StatusRequestEntityTooLarge, "Ukuran gambar maksimal 5MB")
+				return helper.JsonError(c, fiber.StatusRequestEntityTooLarge, "Ukuran gambar maksimal 5MB")
 			}
 
 			svc, err := helperOSS.NewOSSServiceFromEnv("")
 			if err != nil {
-				return fiber.NewError(fiber.StatusBadGateway, "OSS init gagal")
+				return helper.JsonError(c, fiber.StatusBadGateway, "OSS init gagal")
 			}
 
 			// simpan di masjids/<masjid_id>/book-urls/<book_id>
@@ -247,9 +236,9 @@ func (ctl *BookURLController) Update(c *fiber.Ctx) error {
 			if upErr != nil {
 				low := strings.ToLower(upErr.Error())
 				if strings.Contains(low, "format tidak didukung") {
-					return fiber.NewError(fiber.StatusUnsupportedMediaType, "Unsupported image format (pakai jpg/png/webp)")
+					return helper.JsonError(c, fiber.StatusUnsupportedMediaType, "Unsupported image format (pakai jpg/png/webp)")
 				}
-				return fiber.NewError(fiber.StatusBadGateway, "Gagal upload file")
+				return helper.JsonError(c, fiber.StatusBadGateway, "Gagal upload file")
 			}
 
 			// Pindahkan file lama (jika ada) ke spam/ + jadwalkan hapus
@@ -267,8 +256,7 @@ func (ctl *BookURLController) Update(c *fiber.Ctx) error {
 			// Set href ke URL baru
 			mdl.BookURLHref = newURL
 		} else {
-			// Tanpa file → boleh update href manual (opsional)
-			// Ambil seluruh form supaya bisa cek "apakah field dikirim?"
+			// Tanpa file → boleh update href/trash_url/due manual (opsional)
 			form, _ := c.MultipartForm()
 
 			if h := strings.TrimSpace(c.FormValue("book_url_href")); h != "" {
@@ -278,7 +266,6 @@ func (ctl *BookURLController) Update(c *fiber.Ctx) error {
 			// Optional: trash_url manual
 			if form != nil {
 				if vals, exists := form.Value["book_url_trash_url"]; exists {
-					// field dikirim (meski kosong)
 					if len(vals) == 0 || strings.TrimSpace(vals[0]) == "" {
 						mdl.BookURLTrashURL = nil
 					} else {
@@ -299,10 +286,10 @@ func (ctl *BookURLController) Update(c *fiber.Ctx) error {
 		// ====== JSON ======
 		var req bookdto.UpdateBookURLRequest
 		if err := c.BodyParser(&req); err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
+			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 		}
 		if err := ctl.validator.Struct(req); err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 		}
 
 		// Terapkan perubahan
@@ -335,18 +322,14 @@ func (ctl *BookURLController) Update(c *fiber.Ctx) error {
 
 	if err := ctl.DB.WithContext(c.Context()).Save(&mdl).Error; err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			return fiber.NewError(fiber.StatusConflict, "URL sudah ada untuk buku ini")
+			return helper.JsonError(c, fiber.StatusConflict, "URL sudah ada untuk buku ini")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui data")
 	}
 
 	resp := bookdto.NewBookURLResponse(mdl)
-	return c.JSON(fiber.Map{
-		"message": "Berhasil memperbarui",
-		"data":    resp,
-	})
+	return helper.JsonUpdated(c, "Berhasil memperbarui", resp)
 }
-
 
 /* =========================================================
  * GET BY ID
@@ -355,12 +338,12 @@ func (ctl *BookURLController) Update(c *fiber.Ctx) error {
 func (ctl *BookURLController) GetByID(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
 
 	id, perr := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if perr != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	var mdl bookmodel.BookURLModel
@@ -368,15 +351,13 @@ func (ctl *BookURLController) GetByID(c *fiber.Ctx) error {
 		Where("book_url_id = ? AND book_url_masjid_id = ?", id, masjidID).
 		First(&mdl).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(fiber.StatusNotFound, "Data tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
 	resp := bookdto.NewBookURLResponse(mdl)
-	return c.JSON(fiber.Map{
-		"data": resp,
-	})
+	return helper.JsonOK(c, "OK", resp)
 }
 
 /* =========================================================
@@ -386,15 +367,15 @@ func (ctl *BookURLController) GetByID(c *fiber.Ctx) error {
 func (ctl *BookURLController) Filter(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
 
 	var q bookdto.FilterBookURLRequest
 	if err := c.QueryParser(&q); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 	if err := ctl.validator.Struct(q); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	page := 1
@@ -446,12 +427,12 @@ func (ctl *BookURLController) Filter(c *fiber.Ctx) error {
 
 	var total int64
 	if err := dbq.Count(&total).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
 	}
 
 	var rows []bookmodel.BookURLModel
 	if err := dbq.Order(order).Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
 	resps := make([]bookdto.BookURLResponse, 0, len(rows))
@@ -459,17 +440,18 @@ func (ctl *BookURLController) Filter(c *fiber.Ctx) error {
 		resps = append(resps, bookdto.NewBookURLResponse(m))
 	}
 
-	return c.JSON(fiber.Map{
-		"data": resps,
-		"meta": fiber.Map{
-			"page":  page,
-			"limit": limit,
-			"total": total,
-			"pages": int(math.Ceil(float64(total) / float64(limit))),
-		},
-	})
-}
+	// meta pakai helper.BuildMeta biar konsisten formatnya
+	p := helper.Params{
+		Page:      page,
+		PerPage:   limit,
+		SortBy:    "created_at",
+		SortOrder: "desc",
+		All:       false,
+	}
+	meta := helper.BuildMeta(total, p)
 
+	return helper.JsonList(c, resps, meta)
+}
 
 /* =========================================================
  * DELETE (soft) + move file to spam/
@@ -478,12 +460,12 @@ func (ctl *BookURLController) Filter(c *fiber.Ctx) error {
 func (ctl *BookURLController) Delete(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
-		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
 
 	id, perr := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if perr != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	var mdl bookmodel.BookURLModel
@@ -491,9 +473,9 @@ func (ctl *BookURLController) Delete(c *fiber.Ctx) error {
 		Where("book_url_id = ? AND book_url_masjid_id = ?", id, masjidID).
 		First(&mdl).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(fiber.StatusNotFound, "Data tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
 	// 1) Coba pindahkan file aktif ke spam/ (best-effort)
@@ -512,22 +494,20 @@ func (ctl *BookURLController) Delete(c *fiber.Ctx) error {
 
 		// Simpan status trash sebelum soft-delete (biar ikut terekam di row)
 		if err := ctl.DB.WithContext(c.Context()).Save(&mdl).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui status trash")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui status trash")
 		}
 	}
 
 	// 2) Soft delete row
 	if err := ctl.DB.WithContext(c.Context()).Delete(&mdl).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus data")
 	}
 
-	return c.JSON(fiber.Map{
-		"message": "Berhasil menghapus",
-		"data": fiber.Map{
-			"book_url_id":              mdl.BookURLID,
-			"moved_to_spam_url":        spamURL,                          // bisa kosong kalau href kosong
-			"delete_pending_until":     mdl.BookURLDeletePendingUntil,    // diisi jika href ada
-			"deleted_at":               time.Now(),
-		},
+	// (opsional) total halaman baru kalau kamu perlu — di sini kita cukup return payload sederhana
+	return helper.JsonDeleted(c, "Berhasil menghapus", fiber.Map{
+		"book_url_id":          mdl.BookURLID,
+		"moved_to_spam_url":    spamURL,                       // bisa kosong kalau href kosong
+		"delete_pending_until": mdl.BookURLDeletePendingUntil, // diisi jika href ada
+		"deleted_at":           time.Now(),
 	})
 }

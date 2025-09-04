@@ -31,13 +31,11 @@ type ClassRoomModel struct {
 	// Daftar fasilitas (opsional) → JSONB default '[]'
 	ClassRoomsFeatures datatypes.JSON `json:"class_rooms_features" gorm:"type:jsonb;not null;default:'[]';column:class_rooms_features"`
 
-	// Timestamps eksplisit
-	ClassRoomsCreatedAt time.Time      `json:"class_rooms_created_at" gorm:"column:class_rooms_created_at;not null;autoCreateTime"`
-	ClassRoomsUpdatedAt time.Time      `json:"class_rooms_updated_at" gorm:"column:class_rooms_updated_at;not null;autoUpdateTime"`
+	// Timestamps eksplisit (mengikuti skema SQL)
+	ClassRoomsCreatedAt time.Time      `json:"class_rooms_created_at" gorm:"column:class_rooms_created_at;autoCreateTime"`
+	ClassRoomsUpdatedAt time.Time      `json:"class_rooms_updated_at" gorm:"column:class_rooms_updated_at;autoUpdateTime"`
 	ClassRoomsDeletedAt gorm.DeletedAt `json:"class_rooms_deleted_at,omitempty" gorm:"column:class_rooms_deleted_at;index"`
 }
 
 // TableName mengikat model ke tabel class_rooms
-func (ClassRoomModel) TableName() string {
-	return "class_rooms"
-}
+func (ClassRoomModel) TableName() string { return "class_rooms" }

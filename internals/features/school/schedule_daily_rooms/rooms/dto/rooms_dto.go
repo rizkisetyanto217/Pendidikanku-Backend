@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"masjidku_backend/internals/features/school/schedule_daily_rooms/rooms/model"
+	classroomsModel "masjidku_backend/internals/features/school/schedule_daily_rooms/rooms/model"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
@@ -77,13 +77,13 @@ type CreateClassRoomRequest struct {
 }
 
 type UpdateClassRoomRequest struct {
-	ClassRoomsName      *string        `json:"class_rooms_name,omitempty" validate:"omitempty,min=3,max=100"`
-	ClassRoomsCode      *string        `json:"class_rooms_code,omitempty" validate:"omitempty,max=50"`
-	ClassRoomsLocation  *string        `json:"class_rooms_location,omitempty" validate:"omitempty,max=100"`
-	ClassRoomsFloor     *int           `json:"class_rooms_floor,omitempty" validate:"omitempty"`
-	ClassRoomsCapacity  *int           `json:"class_rooms_capacity,omitempty" validate:"omitempty,min=0"`
-	ClassRoomsIsVirtual *bool          `json:"class_rooms_is_virtual,omitempty"`
-	ClassRoomsIsActive  *bool          `json:"class_rooms_is_active,omitempty"`
+	ClassRoomsName      *string         `json:"class_rooms_name,omitempty" validate:"omitempty,min=3,max=100"`
+	ClassRoomsCode      *string         `json:"class_rooms_code,omitempty" validate:"omitempty,max=50"`
+	ClassRoomsLocation  *string         `json:"class_rooms_location,omitempty" validate:"omitempty,max=100"`
+	ClassRoomsFloor     *int            `json:"class_rooms_floor,omitempty" validate:"omitempty"`
+	ClassRoomsCapacity  *int            `json:"class_rooms_capacity,omitempty" validate:"omitempty,min=0"`
+	ClassRoomsIsVirtual *bool           `json:"class_rooms_is_virtual,omitempty"`
+	ClassRoomsIsActive  *bool           `json:"class_rooms_is_active,omitempty"`
 	ClassRoomsFeatures  *datatypes.JSON `json:"class_rooms_features,omitempty"`
 }
 
@@ -182,9 +182,15 @@ type ClassRoomResponse struct {
 	ClassRoomsFeatures  datatypes.JSON `json:"class_rooms_features"`
 	ClassRoomsCreatedAt time.Time      `json:"class_rooms_created_at"`
 	ClassRoomsUpdatedAt time.Time      `json:"class_rooms_updated_at"`
+	ClassRoomsDeletedAt *time.Time     `json:"class_rooms_deleted_at,omitempty"`
 }
 
-func ToClassRoomResponse(m model.ClassRoomModel) ClassRoomResponse {
+func ToClassRoomResponse(m classroomsModel.ClassRoomModel) ClassRoomResponse {
+	var deletedAt *time.Time
+	if m.ClassRoomsDeletedAt.Valid {
+		deletedAt = &m.ClassRoomsDeletedAt.Time
+	}
+
 	return ClassRoomResponse{
 		ClassRoomID:         m.ClassRoomID,
 		ClassRoomsMasjidID:  m.ClassRoomsMasjidID,
@@ -198,6 +204,7 @@ func ToClassRoomResponse(m model.ClassRoomModel) ClassRoomResponse {
 		ClassRoomsFeatures:  m.ClassRoomsFeatures,
 		ClassRoomsCreatedAt: m.ClassRoomsCreatedAt,
 		ClassRoomsUpdatedAt: m.ClassRoomsUpdatedAt,
+		ClassRoomsDeletedAt: deletedAt,
 	}
 }
 

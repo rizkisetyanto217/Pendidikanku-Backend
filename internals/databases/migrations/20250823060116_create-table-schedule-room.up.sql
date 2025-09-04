@@ -8,6 +8,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 -- Enum status jadwal
+-- Enum status jadwal
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'session_status_enum') THEN
@@ -39,38 +40,50 @@ CREATE TABLE IF NOT EXISTS class_rooms (
   class_rooms_features  JSONB NOT NULL DEFAULT '[]'::jsonb,
 
   -- timestamps standar GORM (isi/update oleh aplikasi)
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  deleted_at TIMESTAMPTZ
+  class_rooms_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_rooms_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_rooms_deleted_at TIMESTAMPTZ
 );
 
 -- Uniques per tenant (case-insensitive) → hanya baris alive
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_name_ci
   ON class_rooms (class_rooms_masjid_id, lower(class_rooms_name))
-  WHERE deleted_at IS NULL;
+  WHERE class_rooms_deleted_at IS NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_code_ci
   ON class_rooms (class_rooms_masjid_id, lower(class_rooms_code))
-  WHERE deleted_at IS NULL
+  WHERE class_rooms_deleted_at IS NULL
     AND class_rooms_code IS NOT NULL
     AND length(trim(class_rooms_code)) > 0;
 
 -- Indeks bantu
 CREATE INDEX IF NOT EXISTS idx_class_rooms_tenant_active
   ON class_rooms (class_rooms_masjid_id, class_rooms_is_active)
-  WHERE deleted_at IS NULL;
+  WHERE class_rooms_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_class_rooms_features_gin
   ON class_rooms USING GIN (class_rooms_features jsonb_path_ops)
-  WHERE deleted_at IS NULL;
+  WHERE class_rooms_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_class_rooms_name_trgm
   ON class_rooms USING GIN (class_rooms_name gin_trgm_ops)
-  WHERE deleted_at IS NULL;
+  WHERE class_rooms_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_class_rooms_location_trgm
   ON class_rooms USING GIN (class_rooms_location gin_trgm_ops)
-  WHERE deleted_at IS NULL;
+  WHERE class_rooms_deleted_at IS NULL;
+
+
+
+-- Pastikan enums dan extension yang dibutuhkan
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'session_status_enum') THEN
+    CREATE TYPE session_status_enum AS ENUM ('scheduled','ongoing','completed','canceled');
+  END IF;
+END$$;
+
+CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 -- =========================================================
 -- CLASS_SCHEDULES (pakai class_subjects; tanpa semester_id & teacher_id)
@@ -104,8 +117,8 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedules_end_date    DATE NOT NULL CHECK (class_schedules_end_date >= class_schedules_start_date),
 
   -- status & metadata
-  class_schedules_status      session_status_enum NOT NULL DEFAULT 'scheduled',
-  class_schedules_is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+  class_schedules_status    session_status_enum NOT NULL DEFAULT 'scheduled',
+  class_schedules_is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
   -- generated: rentang menit [start, end)
   class_schedules_time_range int4range
@@ -120,9 +133,9 @@ CREATE TABLE IF NOT EXISTS class_schedules (
     ) STORED,
 
   -- timestamps standar GORM (dikelola aplikasi)
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  deleted_at TIMESTAMPTZ
+  class_schedules_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_schedules_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_schedules_deleted_at TIMESTAMPTZ
 );
 
 -- =========================
@@ -142,7 +155,7 @@ CREATE INDEX IF NOT EXISTS idx_class_schedules_class_subject
 
 CREATE INDEX IF NOT EXISTS idx_class_schedules_active
   ON class_schedules (class_schedules_is_active)
-  WHERE class_schedules_is_active AND deleted_at IS NULL;
+  WHERE class_schedules_is_active AND class_schedules_deleted_at IS NULL;
 
 -- =========================
 -- Exclusion Constraints (anti-bentrok)
@@ -155,7 +168,7 @@ ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_room_overlap
     class_schedules_day_of_week WITH =,
     class_schedules_time_range  WITH &&
   )
-  WHERE (class_schedules_is_active AND class_schedules_room_id IS NOT NULL AND deleted_at IS NULL);
+  WHERE (class_schedules_is_active AND class_schedules_room_id IS NOT NULL AND class_schedules_deleted_at IS NULL);
 
 ALTER TABLE class_schedules DROP CONSTRAINT IF EXISTS excl_sched_section_overlap;
 ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_section_overlap
@@ -165,7 +178,7 @@ ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_section_overlap
     class_schedules_day_of_week WITH =,
     class_schedules_time_range  WITH &&
   )
-  WHERE (class_schedules_is_active AND deleted_at IS NULL);
+  WHERE (class_schedules_is_active AND class_schedules_deleted_at IS NULL);
 
 -- (Tidak ada teacher overlap lagi karena kolom teacher dihapus)
 
