@@ -1,7 +1,7 @@
--- 20250829_01_classes.up.sql (REVISED & IDEMPOTENT, schema default)
+-- 20250829_01_classes.up.sql (REVISED & IDEMPOTENT)
 
 -- =========================================================
--- CLASSES (tenant-safe, indexes, triggers)
+-- CLASSES (tenant-safe, indexes)
 -- =========================================================
 BEGIN;
 
@@ -32,8 +32,7 @@ CREATE TABLE IF NOT EXISTS classes (
   class_deleted_at            TIMESTAMPTZ
 );
 
-
--- unique komposit
+-- unique komposit (idempotent)
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_classes_id_masjid') THEN
@@ -42,7 +41,7 @@ BEGIN
   END IF;
 END$$;
 
--- index
+-- indexes
 CREATE INDEX IF NOT EXISTS idx_classes_masjid         ON classes (class_masjid_id);
 CREATE INDEX IF NOT EXISTS idx_classes_active         ON classes (class_is_active);
 CREATE INDEX IF NOT EXISTS idx_classes_created_at     ON classes (class_created_at DESC);
@@ -88,12 +87,26 @@ CREATE INDEX IF NOT EXISTS idx_classes_masjid_mode_visible
 
 COMMIT;
 
+
 -- =========================================================
--- CLASS_SECTIONS
+-- CLASS_SECTIONS (lengkap + relasi; fix: tanpa subquery di CHECK)
 -- =========================================================
--- =========================================================
--- CLASS_SECTIONS (UP) — lengkap + relasi ke CLASS_ROOMS
--- =========================================================
+BEGIN;
+
+-- 0) Siapkan UNIQUE untuk pasangan (class_room_id, class_rooms_masjid_id) agar bisa dipakai composite FK.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables
+             WHERE table_name='class_rooms' AND table_schema=current_schema()) THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='uq_class_rooms_id_masjid') THEN
+      ALTER TABLE class_rooms
+        ADD CONSTRAINT uq_class_rooms_id_masjid
+        UNIQUE (class_room_id, class_rooms_masjid_id);
+    END IF;
+  END IF;
+END$$;
+
+-- 1) TABLE
 CREATE TABLE IF NOT EXISTS class_sections (
   class_sections_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -127,18 +140,14 @@ CREATE TABLE IF NOT EXISTS class_sections (
   class_sections_deleted_at TIMESTAMPTZ
 );
 
--- =========================================================
--- Guard nilai total_students tidak boleh negatif (idempotent)
--- =========================================================
+-- 2) Guard nilai total_students
 ALTER TABLE class_sections
   DROP CONSTRAINT IF EXISTS class_sections_total_students_nonneg_chk;
 ALTER TABLE class_sections
   ADD  CONSTRAINT class_sections_total_students_nonneg_chk
   CHECK (class_sections_total_students >= 0);
 
--- =========================================================
--- FK ke masjid_teachers (idempotent)
--- =========================================================
+-- 3) FK ke masjid_teachers (idempotent; cari kolom PK yang tersedia)
 DO $$
 DECLARE
   fk_name   text;
@@ -167,45 +176,46 @@ BEGIN
            END
   LIMIT 1;
 
+  -- Jika tabel masjid_teachers belum ada, biarkan tanpa FK (opsional).
   IF target_col IS NULL THEN
-    RAISE EXCEPTION 'Tidak menemukan kolom PK di masjid_teachers';
-  END IF;
+    -- Tidak melakukan apa-apa.
+  ELSE
+    -- Pastikan FK sesuai target_col
+    IF fk_name IS NOT NULL THEN
+      PERFORM 1
+      FROM information_schema.referential_constraints rc
+      JOIN information_schema.constraint_column_usage ccu
+        ON rc.unique_constraint_name = ccu.constraint_name
+      WHERE rc.constraint_name = fk_name
+        AND ccu.table_name = 'masjid_teachers'
+        AND ccu.column_name = target_col;
 
-  IF fk_name IS NOT NULL THEN
-    PERFORM 1
-    FROM information_schema.referential_constraints rc
-    JOIN information_schema.constraint_column_usage ccu
-      ON rc.unique_constraint_name = ccu.constraint_name
-    WHERE rc.constraint_name = fk_name
-      AND ccu.table_name = 'masjid_teachers'
-      AND ccu.column_name = target_col;
-
-    IF NOT FOUND THEN
-      EXECUTE format('ALTER TABLE class_sections DROP CONSTRAINT %I', fk_name);
-      fk_name := NULL;
+      IF NOT FOUND THEN
+        EXECUTE format('ALTER TABLE class_sections DROP CONSTRAINT %I', fk_name);
+        fk_name := NULL;
+      END IF;
     END IF;
-  END IF;
 
-  IF fk_name IS NULL THEN
-    EXECUTE format($sql$
-      ALTER TABLE class_sections
-      ADD CONSTRAINT fk_class_sections_teacher
-      FOREIGN KEY (class_sections_teacher_id)
-      REFERENCES masjid_teachers(%I)
-      ON DELETE SET NULL
-    $sql$, target_col);
+    IF fk_name IS NULL THEN
+      EXECUTE format($sql$
+        ALTER TABLE class_sections
+        ADD CONSTRAINT fk_class_sections_teacher
+        FOREIGN KEY (class_sections_teacher_id)
+        REFERENCES masjid_teachers(%I)
+        ON DELETE SET NULL
+      $sql$, target_col);
+    END IF;
   END IF;
 END$$;
 
--- =========================================================
--- FK ke class_rooms (idempotent)
--- =========================================================
+-- 4) FK ke class_rooms → ganti menjadi COMPOSITE FK (room_id, masjid_id)
+--    a) Drop FK lama single-column bila ada
 DO $$
 DECLARE
-  fk_name text;
+  v_fk text;
 BEGIN
   SELECT tc.constraint_name
-    INTO fk_name
+  INTO v_fk
   FROM information_schema.table_constraints tc
   JOIN information_schema.key_column_usage kcu
     ON tc.constraint_name = kcu.constraint_name
@@ -215,57 +225,32 @@ BEGIN
     AND kcu.column_name = 'class_sections_class_room_id'
   LIMIT 1;
 
-  IF fk_name IS NOT NULL THEN
-    PERFORM 1
-    FROM information_schema.referential_constraints rc
-    JOIN information_schema.constraint_column_usage ccu
-      ON rc.unique_constraint_name = ccu.constraint_name
-    WHERE rc.constraint_name = fk_name
-      AND ccu.table_name = 'class_rooms'
-      AND ccu.column_name = 'class_room_id';
-
-    IF NOT FOUND THEN
-      EXECUTE format('ALTER TABLE class_sections DROP CONSTRAINT %I', fk_name);
-      fk_name := NULL;
-    END IF;
-  END IF;
-
-  IF fk_name IS NULL THEN
-    ALTER TABLE class_sections
-      ADD CONSTRAINT fk_class_sections_class_room
-      FOREIGN KEY (class_sections_class_room_id)
-      REFERENCES class_rooms(class_room_id)
-      ON DELETE SET NULL;
+  IF v_fk IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE class_sections DROP CONSTRAINT %I', v_fk);
   END IF;
 END$$;
 
--- =========================================================
--- Constraint konsistensi tenant (masjid) antara section & room
--- =========================================================
+--    b) Tambah composite FK (NULL-safe)
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'ck_sections_room_same_masjid'
-  ) THEN
-    ALTER TABLE class_sections
-      ADD CONSTRAINT ck_sections_room_same_masjid
-      CHECK (
-        class_sections_class_room_id IS NULL
-        OR EXISTS (
-          SELECT 1
-          FROM class_rooms r
-          WHERE r.class_room_id = class_sections_class_room_id
-            AND r.class_rooms_masjid_id = class_sections.class_sections_masjid_id
-            AND r.deleted_at IS NULL
-        )
-      ) NOT VALID;
-    ALTER TABLE class_sections VALIDATE CONSTRAINT ck_sections_room_same_masjid;
+  IF EXISTS (SELECT 1 FROM information_schema.tables
+             WHERE table_name='class_rooms' AND table_schema=current_schema()) THEN
+    -- Pastikan constraint belum ada
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_sections_room_same_masjid') THEN
+      ALTER TABLE class_sections
+        ADD CONSTRAINT fk_sections_room_same_masjid
+        FOREIGN KEY (class_sections_class_room_id, class_sections_masjid_id)
+        REFERENCES class_rooms (class_room_id, class_rooms_masjid_id)
+        ON DELETE SET NULL;
+    END IF;
   END IF;
 END$$;
 
--- =========================================================
--- Indexes & Uniques
--- =========================================================
+-- 5) Hapus constraint lama berbasis subquery jika sempat dibuat
+ALTER TABLE IF EXISTS class_sections
+  DROP CONSTRAINT IF EXISTS ck_sections_room_same_masjid;
+
+-- 6) Indexes & Uniques
 CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_class_name
   ON class_sections (class_sections_class_id, class_sections_name)
   WHERE class_sections_deleted_at IS NULL;
@@ -303,10 +288,8 @@ CREATE INDEX IF NOT EXISTS idx_sections_total_students_alive
 COMMIT;
 
 
-
-
 -- =========================================================
--- CLASS_PRICING_OPTIONS
+-- CLASS_PRICING_OPTIONS (enum, table, indexes, views)
 -- =========================================================
 BEGIN;
 
@@ -331,11 +314,13 @@ CREATE TABLE IF NOT EXISTS class_pricing_options (
   class_pricing_options_deleted_at        TIMESTAMPTZ
 );
 
--- index
+-- indexes
 CREATE INDEX IF NOT EXISTS idx_class_pricing_options_class_id
   ON class_pricing_options (class_pricing_options_class_id);
+
 CREATE INDEX IF NOT EXISTS idx_class_pricing_options_created_at
   ON class_pricing_options (class_pricing_options_created_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_class_pricing_options_class_type_created_at
   ON class_pricing_options (
     class_pricing_options_class_id,
@@ -343,12 +328,12 @@ CREATE INDEX IF NOT EXISTS idx_class_pricing_options_class_type_created_at
     class_pricing_options_created_at DESC
   )
   WHERE class_pricing_options_deleted_at IS NULL;
+
 CREATE INDEX IF NOT EXISTS idx_class_pricing_options_label_per_class
   ON class_pricing_options (class_pricing_options_class_id, lower(class_pricing_options_label))
   WHERE class_pricing_options_deleted_at IS NULL;
 
-
--- views
+-- views (drop alias lama jika ada; buat view baru)
 DROP VIEW IF EXISTS v_cpo_latest_per_type;
 CREATE OR REPLACE VIEW v_class_pricing_options_latest_per_type AS
 SELECT DISTINCT ON (class_pricing_options_class_id, class_pricing_options_price_type) *

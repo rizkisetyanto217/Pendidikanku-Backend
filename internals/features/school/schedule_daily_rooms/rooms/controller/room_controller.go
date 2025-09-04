@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/url"
@@ -30,7 +31,17 @@ type ClassRoomController struct {
 }
 
 func NewClassRoomController(db *gorm.DB, v *validator.Validate) *ClassRoomController {
+	if v == nil {
+		v = validator.New(validator.WithRequiredStructEnabled())
+	}
 	return &ClassRoomController{DB: db, Validate: v}
+}
+
+// jaga-jaga kalau ada controller lama yang di-init tanpa validator
+func (ctl *ClassRoomController) ensureValidator() {
+	if ctl.Validate == nil {
+		ctl.Validate = validator.New(validator.WithRequiredStructEnabled())
+	}
 }
 
 /* =========================
@@ -41,21 +52,17 @@ func stdReqFromFiber(c *fiber.Ctx) *http.Request {
 	return &http.Request{URL: u}
 }
 
+// ambil context standar (kalau Fiber mendukung UserContext)
+func reqCtx(c *fiber.Ctx) context.Context {
+	if uc := c.UserContext(); uc != nil {
+		return uc
+	}
+	return context.Background()
+}
+
 /* =======================================================
    ROUTES
    ======================================================= */
-// Contoh mount:
-//   func RegisterClassRoomRoutes(r fiber.Router, db *gorm.DB, v *validator.Validate) {
-//       ctl := NewClassRoomController(db, v)
-//       g := r.Group("/class-rooms")
-//       g.Get("/", ctl.List)
-//       g.Get("/:id", ctl.GetByID)
-//       g.Post("/", ctl.Create)
-//       g.Put("/:id", ctl.Update)
-//       g.Patch("/:id", ctl.Patch)
-//       g.Delete("/:id", ctl.Delete)      // soft delete
-//       g.Post("/:id/restore", ctl.Restore)
-//   }
 
 func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	masjidID, ok := mustMasjidID(c)
@@ -102,10 +109,10 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	db := ctl.DB.Model(&model.ClassRoomModel{}).
+	db := ctl.DB.WithContext(reqCtx(c)).Model(&model.ClassRoomModel{}).
 		Where("class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", masjidID)
 
-	// search → ILIKE ke name + location
+	// search → LIKE ke name + location (case-insensitive)
 	if q.Search != "" {
 		s := "%" + strings.ToLower(q.Search) + "%"
 		db = db.Where("(LOWER(class_rooms_name) LIKE ? OR LOWER(COALESCE(class_rooms_location,'')) LIKE ?)", s, s)
@@ -127,7 +134,7 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, "Gagal menghitung data")
 	}
 
-	// Sorting & pagination
+	// Sorting & pagination (kolom di-whitelist di atas, aman untuk concat)
 	db = db.Order(orderCol + " " + orderDir)
 	if !p.All {
 		db = db.Limit(p.Limit()).Offset(p.Offset())
@@ -159,7 +166,7 @@ func (ctl *ClassRoomController) GetByID(c *fiber.Ctx) error {
 	}
 
 	var m model.ClassRoomModel
-	if err := ctl.DB.Where(
+	if err := ctl.DB.WithContext(reqCtx(c)).Where(
 		"class_room_id = ? AND class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL",
 		id, masjidID,
 	).First(&m).Error; err != nil {
@@ -173,6 +180,8 @@ func (ctl *ClassRoomController) GetByID(c *fiber.Ctx) error {
 }
 
 func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
+	ctl.ensureValidator()
+
 	masjidID, ok := mustMasjidID(c)
 	if !ok {
 		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan")
@@ -200,7 +209,7 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 		ClassRoomsFeatures:  req.ClassRoomsFeatures,
 	}
 
-	if err := ctl.DB.Create(&m).Error; err != nil {
+	if err := ctl.DB.WithContext(reqCtx(c)).Create(&m).Error; err != nil {
 		if isUniqueViolation(err) {
 			return helper.JsonError(c, http.StatusConflict, "Nama/Kode ruang sudah digunakan")
 		}
@@ -211,6 +220,8 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 }
 
 func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
+	ctl.ensureValidator()
+
 	masjidID, ok := mustMasjidID(c)
 	if !ok {
 		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan")
@@ -231,7 +242,7 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 
 	// Ambil record yang masih alive & tenant match
 	var m model.ClassRoomModel
-	if err := ctl.DB.
+	if err := ctl.DB.WithContext(reqCtx(c)).
 		Where("class_room_id = ? AND class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", id, masjidID).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -240,23 +251,22 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Apply perubahan hanya yang dikirim
+	// Apply perubahan hanya yang dikirim (gunakan nilai, bukan pointer)
 	updates := map[string]interface{}{}
 	if req.ClassRoomsName != nil {
 		updates["class_rooms_name"] = *req.ClassRoomsName
 	}
 	if req.ClassRoomsCode != nil {
-		// kosongkan string → tetap string kosong (bukan NULL)
-		updates["class_rooms_code"] = req.ClassRoomsCode
+		updates["class_rooms_code"] = *req.ClassRoomsCode // empty string => disimpan "", bukan NULL
 	}
 	if req.ClassRoomsLocation != nil {
-		updates["class_rooms_location"] = req.ClassRoomsLocation
+		updates["class_rooms_location"] = *req.ClassRoomsLocation
 	}
 	if req.ClassRoomsFloor != nil {
-		updates["class_rooms_floor"] = req.ClassRoomsFloor
+		updates["class_rooms_floor"] = *req.ClassRoomsFloor
 	}
 	if req.ClassRoomsCapacity != nil {
-		updates["class_rooms_capacity"] = req.ClassRoomsCapacity
+		updates["class_rooms_capacity"] = *req.ClassRoomsCapacity
 	}
 	if req.ClassRoomsIsVirtual != nil {
 		updates["class_rooms_is_virtual"] = *req.ClassRoomsIsVirtual
@@ -273,7 +283,7 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, "Tidak ada field untuk diupdate")
 	}
 
-	if err := ctl.DB.Model(&m).Clauses(clause.Returning{}).Updates(updates).Error; err != nil {
+	if err := ctl.DB.WithContext(reqCtx(c)).Model(&m).Clauses(clause.Returning{}).Updates(updates).Error; err != nil {
 		if isUniqueViolation(err) {
 			return helper.JsonError(c, http.StatusConflict, "Nama/Kode ruang sudah digunakan")
 		}
@@ -301,7 +311,7 @@ func (ctl *ClassRoomController) Patch(c *fiber.Ctx) error {
 
 	// Ambil record alive & tenant match
 	var m model.ClassRoomModel
-	if err := ctl.DB.
+	if err := ctl.DB.WithContext(reqCtx(c)).
 		Where("class_room_id = ? AND class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", id, masjidID).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -316,7 +326,7 @@ func (ctl *ClassRoomController) Patch(c *fiber.Ctx) error {
 	}
 	updates["class_rooms_updated_at"] = time.Now()
 
-	if err := ctl.DB.Model(&m).Clauses(clause.Returning{}).Updates(updates).Error; err != nil {
+	if err := ctl.DB.WithContext(reqCtx(c)).Model(&m).Clauses(clause.Returning{}).Updates(updates).Error; err != nil {
 		if isUniqueViolation(err) {
 			return helper.JsonError(c, http.StatusConflict, "Nama/Kode ruang sudah digunakan")
 		}
@@ -337,7 +347,7 @@ func (ctl *ClassRoomController) Delete(c *fiber.Ctx) error {
 	}
 
 	// Pastikan tenant match & alive → soft delete
-	tx := ctl.DB.Model(&model.ClassRoomModel{}).
+	tx := ctl.DB.WithContext(reqCtx(c)).Model(&model.ClassRoomModel{}).
 		Where("class_room_id = ? AND class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", id, masjidID).
 		Update("class_rooms_deleted_at", time.Now())
 	if tx.Error != nil {
@@ -360,7 +370,7 @@ func (ctl *ClassRoomController) Restore(c *fiber.Ctx) error {
 	}
 
 	// Hanya bisa restore jika baris soft-deleted & tenant match
-	tx := ctl.DB.Model(&model.ClassRoomModel{}).
+	tx := ctl.DB.WithContext(reqCtx(c)).Model(&model.ClassRoomModel{}).
 		Where("class_room_id = ? AND class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NOT NULL", id, masjidID).
 		Updates(map[string]interface{}{
 			"class_rooms_deleted_at": nil,
@@ -379,7 +389,7 @@ func (ctl *ClassRoomController) Restore(c *fiber.Ctx) error {
 
 	// Return row terbaru
 	var m model.ClassRoomModel
-	if err := ctl.DB.
+	if err := ctl.DB.WithContext(reqCtx(c)).
 		Where("class_room_id = ? AND class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", id, masjidID).
 		First(&m).Error; err != nil {
 		// kalau gagal ambil ulang, minimal beri flag restored
@@ -416,6 +426,10 @@ func isUniqueViolation(err error) bool {
 	if err == nil {
 		return false
 	}
+	// string fallback (kompatibel untuk lib/pq & pgx yang dibungkus)
 	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "duplicate key") || strings.Contains(s, "unique constraint")
+	if strings.Contains(s, "duplicate key") || strings.Contains(s, "unique constraint") || strings.Contains(s, "23505") {
+		return true
+	}
+	return false
 }
