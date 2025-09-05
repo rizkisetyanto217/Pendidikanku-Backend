@@ -1,8 +1,9 @@
-// package: internals/helpers/helper.go  (atau sesuai path "package helper")
-
+// package: internals/helpers/helper.go
 package helper
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -10,21 +11,32 @@ import (
 	"gorm.io/gorm"
 )
 
+/* ============================================
+   Locals Keys (middleware should set these)
+   ============================================ */
+
 const (
-	LocRole   = "role"
-	LocUserID = "user_id"
+	LocRole   = "role"    // optional, legacy single role
+	LocUserID = "user_id" // string | uuid
 
-	LocMasjidIDs        = "masjid_ids"
-	LocMasjidAdminIDs   = "masjid_admin_ids"
-	LocMasjidDKMIDs     = "masjid_dkm_ids"
-	LocMasjidTeacherIDs = "masjid_teacher_ids"
-	LocMasjidStudentIDs = "masjid_student_ids"
+	// Generic lists (legacy / optional)
+	LocMasjidIDs        = "masjid_ids"         // []string | []uuid.UUID
+	LocMasjidAdminIDs   = "masjid_admin_ids"   // []string | []uuid.UUID
+	LocMasjidDKMIDs     = "masjid_dkm_ids"     // []string | []uuid.UUID
+	LocMasjidTeacherIDs = "masjid_teacher_ids" // []string | []uuid.UUID
+	LocMasjidStudentIDs = "masjid_student_ids" // []string | []uuid.UUID
 
-	LocRolesGlobal = "roles_global"
-	LocMasjidRoles = "masjid_roles"
-	LocIsOwner     = "is_owner"
+	// New structured claims (from your token)
+	LocRolesGlobal    = "roles_global"     // []string
+	LocMasjidRoles    = "masjid_roles"     // []MasjidRolesEntry | []map[string]any
+	LocIsOwner        = "is_owner"         // bool | "true"/"false"
+	LocActiveMasjidID = "active_masjid_id" // string UUID
+	LocTeacherRecords = "teacher_records"  // []TeacherRecordEntry | []map[string]any
 )
 
+/* ============================================
+   Types for structured claims
+   ============================================ */
 
 type MasjidRolesEntry struct {
 	MasjidID uuid.UUID `json:"masjid_id"`
@@ -36,10 +48,15 @@ type RolesClaim struct {
 	MasjidRoles []MasjidRolesEntry `json:"masjid_roles"`
 }
 
+type TeacherRecordEntry struct {
+	MasjidTeacherID uuid.UUID `json:"masjid_teacher_id"`
+	MasjidID        uuid.UUID `json:"masjid_id"`
+}
 
-// ---------------------------
-// Quick schema helpers (LOCAL)
-// ---------------------------
+/* ============================================
+   Quick schema helpers (LOCAL)
+   ============================================ */
+
 func quickHasTable(db *gorm.DB, table string) bool {
 	if db == nil || table == "" {
 		return false
@@ -57,9 +74,59 @@ func quickHasFunction(db *gorm.DB, name string) bool {
 	return ok
 }
 
-// ---------------------------
-// Locals parsers
-// ---------------------------
+// Cek apakah di Locals ada klaim UUID untuk key tertentu (mis. LocMasjidAdminIDs/LocMasjidDKMIDs)
+func HasUUIDClaim(c *fiber.Ctx, key string) bool {
+	ids, err := parseUUIDSliceFromLocals(c, key)
+	return err == nil && len(ids) > 0
+}
+
+/* ============================================
+   JWT fallback utilities (no signature verify)
+   ============================================ */
+
+func readJWTClaims(c *fiber.Ctx) map[string]any {
+	auth := strings.TrimSpace(c.Get("Authorization"))
+	if auth == "" {
+		return nil
+	}
+	parts := strings.SplitN(auth, " ", 2)
+	token := parts[len(parts)-1]
+	seg := strings.Split(token, ".")
+	if len(seg) < 2 {
+		return nil
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(seg[1])
+	if err != nil {
+		return nil
+	}
+	var m map[string]any
+	_ = json.Unmarshal(payload, &m)
+	return m
+}
+func claimString(claims map[string]any, key string) string {
+	if claims == nil {
+		return ""
+	}
+	if v, ok := claims[key]; ok {
+		if s, ok2 := v.(string); ok2 {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
+}
+func claimAny(claims map[string]any, key string) any {
+	if claims == nil {
+		return nil
+	}
+	if v, ok := claims[key]; ok {
+		return v
+	}
+	return nil
+}
+
+/* ============================================
+   Locals parsers (robust to various shapes)
+   ============================================ */
 
 func normalizeLocalsToStrings(v any) []string {
 	out := make([]string, 0)
@@ -137,12 +204,21 @@ func parseUUIDSliceFromLocals(c *fiber.Ctx, key string) ([]uuid.UUID, error) {
 	return out, nil
 }
 
-// ---------------------------
-// Claims helpers
-// ---------------------------
+/* ============================================
+   helpers: roles_global & masjid_roles
+   ============================================ */
 
 func GetRolesGlobal(c *fiber.Ctx) []string {
+	// 1) locals
 	v := c.Locals(LocRolesGlobal)
+	if v == nil {
+		// 2) JWT fallback
+		if arr := claimAny(readJWTClaims(c), "roles_global"); arr != nil {
+			v = arr
+			// cache ke locals
+			c.Locals(LocRolesGlobal, arr)
+		}
+	}
 	out := make([]string, 0)
 	switch t := v.(type) {
 	case []string:
@@ -187,17 +263,344 @@ func GetRole(c *fiber.Ctx) string {
 	return ""
 }
 
-func HasUUIDClaim(c *fiber.Ctx, key string) bool {
-	ids, err := parseUUIDSliceFromLocals(c, key)
-	return err == nil && len(ids) > 0
+// Parse masjid_roles → []MasjidRolesEntry (robust)
+func parseMasjidRoles(c *fiber.Ctx) ([]MasjidRolesEntry, error) {
+	v := c.Locals(LocMasjidRoles)
+	if v == nil {
+		// JWT fallback
+		if any := claimAny(readJWTClaims(c), "masjid_roles"); any != nil {
+			v = any
+			c.Locals(LocMasjidRoles, any)
+		}
+	}
+	if v == nil {
+		return nil, fiber.NewError(fiber.StatusUnauthorized, LocMasjidRoles+" tidak ditemukan di token")
+	}
+
+	switch t := v.(type) {
+	case []MasjidRolesEntry:
+		out := make([]MasjidRolesEntry, 0, len(t))
+		for _, mr := range t {
+			if mr.MasjidID != uuid.Nil && len(mr.Roles) > 0 {
+				out = append(out, mr)
+			}
+		}
+		if len(out) == 0 {
+			return nil, fiber.NewError(fiber.StatusUnauthorized, LocMasjidRoles+" kosong")
+		}
+		return out, nil
+
+	case []map[string]interface{}:
+		out := make([]MasjidRolesEntry, 0, len(t))
+		for _, m := range t {
+			var e MasjidRolesEntry
+			if s, ok := m["masjid_id"].(string); ok {
+				if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
+					e.MasjidID = id
+				}
+			}
+			if rr, ok := m["roles"].([]interface{}); ok {
+				for _, it := range rr {
+					if rs, ok := it.(string); ok {
+						rs = strings.ToLower(strings.TrimSpace(rs))
+						if rs != "" {
+							e.Roles = append(e.Roles, rs)
+						}
+					}
+				}
+			}
+			if e.MasjidID != uuid.Nil && len(e.Roles) > 0 {
+				out = append(out, e)
+			}
+		}
+		if len(out) == 0 {
+			return nil, fiber.NewError(fiber.StatusUnauthorized, LocMasjidRoles+" kosong/invalid")
+		}
+		return out, nil
+
+	case []interface{}:
+		// kadang JWT decode kasih []any
+		out := make([]MasjidRolesEntry, 0, len(t))
+		for _, it := range t {
+			if m, ok := it.(map[string]any); ok {
+				var e MasjidRolesEntry
+				if s, ok := m["masjid_id"].(string); ok {
+					if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
+						e.MasjidID = id
+					}
+				}
+				if rr, ok := m["roles"].([]interface{}); ok {
+					for _, r := range rr {
+						if rs, ok := r.(string); ok {
+							rs = strings.ToLower(strings.TrimSpace(rs))
+							if rs != "" {
+								e.Roles = append(e.Roles, rs)
+							}
+						}
+					}
+				}
+				if e.MasjidID != uuid.Nil && len(e.Roles) > 0 {
+					out = append(out, e)
+				}
+			}
+		}
+		if len(out) == 0 {
+			return nil, fiber.NewError(fiber.StatusUnauthorized, LocMasjidRoles+" kosong/invalid")
+		}
+		return out, nil
+	}
+	return nil, fiber.NewError(fiber.StatusBadRequest, LocMasjidRoles+" format tidak didukung")
 }
 
-// ---------------------------
-// Single-tenant getters
-// ---------------------------
+func getMasjidIDsFromMasjidRoles(c *fiber.Ctx) ([]uuid.UUID, error) {
+	entries, err := parseMasjidRoles(c)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[uuid.UUID]struct{}{}
+	out := make([]uuid.UUID, 0, len(entries))
+	for _, e := range entries {
+		if _, ok := seen[e.MasjidID]; !ok {
+			seen[e.MasjidID] = struct{}{}
+			out = append(out, e.MasjidID)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fiber.NewError(fiber.StatusUnauthorized, "masjid_id tidak ada pada masjid_roles")
+	}
+	return out, nil
+}
 
-func GetUserIDFromToken(c *fiber.Ctx) (uuid.UUID, error) { return parseFirstUUIDFromLocals(c, LocUserID) }
+func HasRoleInMasjid(c *fiber.Ctx, masjidID uuid.UUID, role string) bool {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role == "" || masjidID == uuid.Nil {
+		return false
+	}
+	entries, err := parseMasjidRoles(c)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.MasjidID == masjidID {
+			for _, r := range e.Roles {
+				if r == role {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
 
+/* ============================================
+   teacher_records & active_masjid_id
+   ============================================ */
+
+func GetActiveMasjidIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
+	v := c.Locals(LocActiveMasjidID)
+	if v == nil {
+		// JWT fallback
+		if s := claimString(readJWTClaims(c), "active_masjid_id"); s != "" {
+			c.Locals(LocActiveMasjidID, s)
+			v = s
+		}
+	}
+	if v == nil {
+		return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, LocActiveMasjidID+" tidak ditemukan di token")
+	}
+	s := ""
+	switch t := v.(type) {
+	case string:
+		s = t
+	case uuid.UUID:
+		if t != uuid.Nil {
+			return t, nil
+		}
+	}
+	id, err := uuid.Parse(strings.TrimSpace(s))
+	if err != nil || id == uuid.Nil {
+		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, LocActiveMasjidID+" tidak valid")
+	}
+	return id, nil
+}
+
+func parseTeacherRecordsFromLocals(c *fiber.Ctx) ([]TeacherRecordEntry, error) {
+	v := c.Locals(LocTeacherRecords)
+	if v == nil {
+		// JWT fallback
+		if any := claimAny(readJWTClaims(c), "teacher_records"); any != nil {
+			v = any
+			c.Locals(LocTeacherRecords, any)
+		}
+	}
+	if v == nil {
+		return nil, fiber.NewError(fiber.StatusUnauthorized, LocTeacherRecords+" tidak ditemukan di token")
+	}
+
+	switch t := v.(type) {
+	case []TeacherRecordEntry:
+		out := make([]TeacherRecordEntry, 0, len(t))
+		for _, tr := range t {
+			if tr.MasjidID != uuid.Nil && tr.MasjidTeacherID != uuid.Nil {
+				out = append(out, tr)
+			}
+		}
+		if len(out) == 0 {
+			return nil, fiber.NewError(fiber.StatusUnauthorized, LocTeacherRecords+" kosong")
+		}
+		return out, nil
+
+	case []map[string]interface{}:
+		out := make([]TeacherRecordEntry, 0, len(t))
+		for _, m := range t {
+			var tr TeacherRecordEntry
+			if s, ok := m["masjid_id"].(string); ok {
+				if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
+					tr.MasjidID = id
+				}
+			}
+			if s, ok := m["masjid_teacher_id"].(string); ok {
+				if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
+					tr.MasjidTeacherID = id
+				}
+			}
+			if tr.MasjidID != uuid.Nil && tr.MasjidTeacherID != uuid.Nil {
+				out = append(out, tr)
+			}
+		}
+		if len(out) == 0 {
+			return nil, fiber.NewError(fiber.StatusUnauthorized, LocTeacherRecords+" kosong/invalid")
+		}
+		return out, nil
+
+	case []interface{}:
+		out := make([]TeacherRecordEntry, 0, len(t))
+		for _, it := range t {
+			if m, ok := it.(map[string]interface{}); ok {
+				var tr TeacherRecordEntry
+				if s, ok := m["masjid_id"].(string); ok {
+					if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
+						tr.MasjidID = id
+					}
+				}
+				if s, ok := m["masjid_teacher_id"].(string); ok {
+					if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
+						tr.MasjidTeacherID = id
+					}
+				}
+				if tr.MasjidID != uuid.Nil && tr.MasjidTeacherID != uuid.Nil {
+					out = append(out, tr)
+				}
+			}
+		}
+		if len(out) == 0 {
+			return nil, fiber.NewError(fiber.StatusUnauthorized, LocTeacherRecords+" kosong/invalid")
+		}
+		return out, nil
+	}
+	return nil, fiber.NewError(fiber.StatusBadRequest, LocTeacherRecords+" format tidak didukung")
+}
+
+func GetTeacherRecordsFromToken(c *fiber.Ctx) ([]TeacherRecordEntry, error) {
+	return parseTeacherRecordsFromLocals(c)
+}
+
+func GetMasjidTeacherIDsFromToken(c *fiber.Ctx) ([]uuid.UUID, error) {
+	recs, err := parseTeacherRecordsFromLocals(c)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]uuid.UUID, 0, len(recs))
+	seen := map[uuid.UUID]struct{}{}
+	for _, r := range recs {
+		if r.MasjidTeacherID == uuid.Nil {
+			continue
+		}
+		if _, ok := seen[r.MasjidTeacherID]; !ok {
+			seen[r.MasjidTeacherID] = struct{}{}
+			out = append(out, r.MasjidTeacherID)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fiber.NewError(fiber.StatusUnauthorized, "masjid_teacher_id tidak ditemukan di token")
+	}
+	return out, nil
+}
+
+func GetMasjidTeacherIDForMasjid(c *fiber.Ctx, masjidID uuid.UUID) (uuid.UUID, error) {
+	if masjidID == uuid.Nil {
+		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "masjid_id wajib")
+	}
+	recs, err := parseTeacherRecordsFromLocals(c)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	for _, r := range recs {
+		if r.MasjidID == masjidID && r.MasjidTeacherID != uuid.Nil {
+			return r.MasjidTeacherID, nil
+		}
+	}
+	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "masjid_teacher_id untuk masjid tersebut tidak ada di token")
+}
+
+func GetPrimaryMasjidTeacherID(c *fiber.Ctx) (uuid.UUID, error) {
+	recs, err := parseTeacherRecordsFromLocals(c)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if act, err2 := GetActiveMasjidIDFromToken(c); err2 == nil && act != uuid.Nil {
+		if mt, e := GetMasjidTeacherIDForMasjid(c, act); e == nil {
+			return mt, nil
+		}
+	}
+	if len(recs) > 0 && recs[0].MasjidTeacherID != uuid.Nil {
+		return recs[0].MasjidTeacherID, nil
+	}
+	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "masjid_teacher_id tidak tersedia")
+}
+
+/* ============================================
+   Single-tenant getters (compat + new token)
+   ============================================ */
+
+func GetUserIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
+	// 1) standar: user_id
+	if id, err := parseFirstUUIDFromLocals(c, LocUserID); err == nil && id != uuid.Nil {
+		return id, nil
+	}
+	// 2) fallback: sub
+	if v := c.Locals("sub"); v != nil {
+		if s, ok := v.(string); ok {
+			if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
+				c.Locals(LocUserID, id.String())
+				return id, nil
+			}
+		}
+	}
+	// 3) fallback: id
+	if v := c.Locals("id"); v != nil {
+		if s, ok := v.(string); ok {
+			if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
+				c.Locals(LocUserID, id.String())
+				return id, nil
+			}
+		}
+	}
+	// 4) JWT fallback: id/sub/user_id
+	claims := readJWTClaims(c)
+	for _, k := range []string{"id", "sub", "user_id"} {
+		if s := claimString(claims, k); s != "" {
+			if id, err := uuid.Parse(s); err == nil {
+				c.Locals(LocUserID, id.String())
+				return id, nil
+			}
+		}
+	}
+
+	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "user_id tidak ditemukan di token")
+}
+
+// Admin/DKM only (legacy behavior) — jangan melebar ke teacher.
 func GetMasjidIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
 	if id, err := parseFirstUUIDFromLocals(c, LocMasjidDKMIDs); err == nil {
 		return id, nil
@@ -205,38 +608,79 @@ func GetMasjidIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
 	return parseFirstUUIDFromLocals(c, LocMasjidAdminIDs)
 }
 
-func GetDKMMasjidIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
-	if id, err := parseFirstUUIDFromLocals(c, LocMasjidDKMIDs); err == nil {
-		return id, nil
-	}
-	return parseFirstUUIDFromLocals(c, LocMasjidAdminIDs)
-}
-
-func GetTeacherMasjidIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
-	return parseFirstUUIDFromLocals(c, LocMasjidTeacherIDs)
-}
-
+// Prefer teacher scope: pakai teacher_records + active_masjid_id → fallbacks terurut.
 func GetMasjidIDFromTokenPreferTeacher(c *fiber.Ctx) (uuid.UUID, error) {
-	if id, err := parseFirstUUIDFromLocals(c, LocMasjidTeacherIDs); err == nil {
+	// 1) teacher_records (baru)
+	if recs, err := parseTeacherRecordsFromLocals(c); err == nil && len(recs) > 0 {
+		if act, err2 := GetActiveMasjidIDFromToken(c); err2 == nil && act != uuid.Nil {
+			for _, r := range recs {
+				if r.MasjidID == act {
+					return act, nil
+				}
+			}
+		}
+		return recs[0].MasjidID, nil
+	}
+	// 2) DKM/Admin (legacy)
+	if id, err := GetMasjidIDFromToken(c); err == nil {
 		return id, nil
 	}
-	if id, err := GetDKMMasjidIDFromToken(c); err == nil {
-		return id, nil
-	}
+	// 3) masjid_ids (generic)
 	if ids, err := parseUUIDSliceFromLocals(c, LocMasjidIDs); err == nil && len(ids) > 0 {
 		return ids[0], nil
 	}
+	// 4) masjid_roles (ambil yang pertama)
+	if ids, err := getMasjidIDsFromMasjidRoles(c); err == nil && len(ids) > 0 {
+		return ids[0], nil
+	}
+	// 5) fallback admin
 	return parseFirstUUIDFromLocals(c, LocMasjidAdminIDs)
 }
 
-// ---------------------------
-// Multi-tenant getter
-// ---------------------------
+// Untuk kode lama yang mengira "TeacherMasjidID" adalah masjid_id tempat dia mengajar.
+func GetTeacherMasjidIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
+	if recs, err := parseTeacherRecordsFromLocals(c); err == nil && len(recs) > 0 {
+		if act, err2 := GetActiveMasjidIDFromToken(c); err2 == nil && act != uuid.Nil {
+			for _, r := range recs {
+				if r.MasjidID == act {
+					return act, nil
+				}
+			}
+		}
+		return recs[0].MasjidID, nil
+	}
+	// legacy
+	return parseFirstUUIDFromLocals(c, LocMasjidTeacherIDs)
+}
+
+/* ============================================
+   Multi-tenant getter
+   ============================================ */
 
 func GetMasjidIDsFromToken(c *fiber.Ctx) ([]uuid.UUID, error) {
-	if ids, err := parseUUIDSliceFromLocals(c, LocMasjidIDs); err == nil {
+	// 1) explicit masjid_ids
+	if ids, err := parseUUIDSliceFromLocals(c, LocMasjidIDs); err == nil && len(ids) > 0 {
 		return ids, nil
 	}
+	// 2) teacher_records
+	if recs, err := parseTeacherRecordsFromLocals(c); err == nil && len(recs) > 0 {
+		seen := map[uuid.UUID]struct{}{}
+		out := make([]uuid.UUID, 0, len(recs))
+		for _, r := range recs {
+			if _, ok := seen[r.MasjidID]; !ok {
+				seen[r.MasjidID] = struct{}{}
+				out = append(out, r.MasjidID)
+			}
+		}
+		if len(out) > 0 {
+			return out, nil
+		}
+	}
+	// 3) masjid_roles
+	if ids, err := getMasjidIDsFromMasjidRoles(c); err == nil && len(ids) > 0 {
+		return ids, nil
+	}
+	// 4) legacy grouped claims
 	groups := []string{LocMasjidTeacherIDs, LocMasjidDKMIDs, LocMasjidAdminIDs, LocMasjidStudentIDs}
 	seen := map[uuid.UUID]struct{}{}
 	out := make([]uuid.UUID, 0, 4)
@@ -270,9 +714,9 @@ func GetMasjidIDsFromToken(c *fiber.Ctx) ([]uuid.UUID, error) {
 	return out, nil
 }
 
-// ---------------------------
-// Role helpers
-// ---------------------------
+/* ============================================
+   Role helpers (aware of masjid_roles & teacher_records)
+   ============================================ */
 
 func IsOwner(c *fiber.Ctx) bool {
 	if v := c.Locals(LocIsOwner); v != nil {
@@ -290,68 +734,99 @@ func IsOwner(c *fiber.Ctx) bool {
 }
 
 func IsDKM(c *fiber.Ctx) bool {
-	role := strings.ToLower(GetRole(c))
-	if role == "dkm" {
+	if strings.ToLower(GetRole(c)) == "dkm" {
 		return true
 	}
+	// cek masjid_roles untuk role "dkm"
+	if ids, err := getMasjidIDsFromMasjidRoles(c); err == nil && len(ids) > 0 {
+		for _, id := range ids {
+			if HasRoleInMasjid(c, id, "dkm") {
+				return true
+			}
+		}
+	}
+	// legacy locals
 	return HasUUIDClaim(c, LocMasjidDKMIDs) || HasUUIDClaim(c, LocMasjidAdminIDs)
 }
 
 func IsTeacher(c *fiber.Ctx) bool {
+	// kalau ada teacher_records → teacher
+	if recs, err := parseTeacherRecordsFromLocals(c); err == nil && len(recs) > 0 {
+		return true
+	}
 	if strings.EqualFold(GetRole(c), "teacher") {
 		return true
 	}
-	return HasGlobalRole(c, "teacher")
+	if HasGlobalRole(c, "teacher") {
+		return true
+	}
+	// cek masjid_roles
+	if ids, err := getMasjidIDsFromMasjidRoles(c); err == nil && len(ids) > 0 {
+		for _, id := range ids {
+			if HasRoleInMasjid(c, id, "teacher") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func IsStudent(c *fiber.Ctx) bool {
 	if strings.EqualFold(GetRole(c), "student") {
 		return true
 	}
-	return HasGlobalRole(c, "student")
+	if HasGlobalRole(c, "student") {
+		return true
+	}
+	if ids, err := getMasjidIDsFromMasjidRoles(c); err == nil && len(ids) > 0 {
+		for _, id := range ids {
+			if HasRoleInMasjid(c, id, "student") {
+				return true
+			}
+		}
+	}
+	return HasUUIDClaim(c, LocMasjidStudentIDs)
 }
 
 func IsAdmin(c *fiber.Ctx) bool {
 	if IsOwner(c) || IsDKM(c) {
 		return true
 	}
-	role := strings.ToLower(GetRole(c))
-	if role == "admin" {
+	if strings.ToLower(GetRole(c)) == "admin" || HasGlobalRole(c, "admin") {
 		return true
 	}
+	// admin per masjid via masjid_roles
+	if ids, err := getMasjidIDsFromMasjidRoles(c); err == nil && len(ids) > 0 {
+		for _, id := range ids {
+			if HasRoleInMasjid(c, id, "admin") {
+				return true
+			}
+		}
+	}
+	// legacy locals
 	return HasUUIDClaim(c, LocMasjidAdminIDs) || HasUUIDClaim(c, LocMasjidDKMIDs)
 }
 
-
-
-// pastikan import:
-// "github.com/google/uuid"
-// "gorm.io/gorm"
-// "strings"
+/* ============================================
+   DB-role helpers (unchanged)
+   ============================================ */
 
 func EnsureGlobalRole(tx *gorm.DB, userID uuid.UUID, roleName string, assignedBy *uuid.UUID) error {
-	// kalau table belum ada, skip
 	if !quickHasTable(tx, "roles") || !quickHasTable(tx, "user_roles") {
 		return nil
 	}
-
-	// Prefer function
 	if quickHasFunction(tx, "fn_grant_role") {
 		var idStr string
-		// cast ke text supaya scan ke string mulus
 		if assignedBy != nil {
 			return tx.Raw(`
 				SELECT fn_grant_role(?::uuid, ?::text, NULL::uuid, ?::uuid)::text
-			`, userID, strings.ToLower(roleName), *assignedBy).
-				Scan(&idStr).Error
+			`, userID, strings.ToLower(roleName), *assignedBy).Scan(&idStr).Error
 		}
 		return tx.Raw(`
 			SELECT fn_grant_role(?::uuid, ?::text, NULL::uuid, NULL::uuid)::text
-		`, userID, strings.ToLower(roleName)).
-			Scan(&idStr).Error
+		`, userID, strings.ToLower(roleName)).Scan(&idStr).Error
 	}
 
-	// --- fallback manual idempotent ---
 	var roleID string
 	if err := tx.Raw(`SELECT role_id::text FROM roles WHERE LOWER(role_name)=LOWER(?) LIMIT 1`,
 		roleName).Scan(&roleID).Error; err != nil {
@@ -390,12 +865,9 @@ func EnsureGlobalRole(tx *gorm.DB, userID uuid.UUID, roleName string, assignedBy
 }
 
 func GrantScopedRoleDKM(tx *gorm.DB, userID, masjidID uuid.UUID) error {
-	// kalau table belum ada, skip
 	if !quickHasTable(tx, "roles") || !quickHasTable(tx, "user_roles") {
 		return nil
 	}
-
-	// Prefer function
 	if quickHasFunction(tx, "fn_grant_role") {
 		var idStr string
 		return tx.Raw(`
@@ -403,7 +875,6 @@ func GrantScopedRoleDKM(tx *gorm.DB, userID, masjidID uuid.UUID) error {
 		`, userID, masjidID, userID).Scan(&idStr).Error
 	}
 
-	// --- fallback manual idempotent ---
 	var roleID string
 	if err := tx.Raw(`SELECT role_id::text FROM roles WHERE LOWER(role_name)='dkm' LIMIT 1`).
 		Scan(&roleID).Error; err != nil {
@@ -435,9 +906,10 @@ func GrantScopedRoleDKM(tx *gorm.DB, userID, masjidID uuid.UUID) error {
 	`, userID, roleID, masjidID, userID).Error
 }
 
+/* ============================================
+   Misc
+   ============================================ */
 
-
-// getActiveMasjidIDIfSingle mengembalikan masjid_id jika user hanya punya satu masjid.
 func GetActiveMasjidIDIfSingle(rc RolesClaim) *string {
 	if len(rc.MasjidRoles) == 1 && rc.MasjidRoles[0].MasjidID != uuid.Nil {
 		id := rc.MasjidRoles[0].MasjidID.String()

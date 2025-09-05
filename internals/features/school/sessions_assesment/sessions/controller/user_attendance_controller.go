@@ -2,6 +2,8 @@
 package controller
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -29,6 +31,21 @@ func NewUserAttendanceController(db *gorm.DB) *UserAttendanceController {
 		Validator: validator.New(),
 	}
 }
+
+
+// letakkan di file controller yang sama
+func isDuplicateKey(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	// umumnya driver menuliskan salah satu dari ini
+	return strings.Contains(s, "duplicate key") ||
+		strings.Contains(s, "violates unique constraint") ||
+		strings.Contains(s, "unique constraint") ||
+		strings.Contains(s, "sqlstate 23505")
+}
+
 
 const dateLayout = "2006-01-02"
 
@@ -105,6 +122,7 @@ func (ctl *UserAttendanceController) buildListQuery(c *fiber.Ctx, q attDTO.ListU
 // ===============================
 
 // POST /user-attendance
+// POST /user-attendance
 func (ctl *UserAttendanceController) Create(c *fiber.Ctx) error {
 	// prefer TEACHER -> DKM -> MASJID_IDS -> ADMIN
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
@@ -112,8 +130,80 @@ func (ctl *UserAttendanceController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
+	body := bytes.TrimSpace(c.Body())
+	if len(body) == 0 {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload kosong")
+	}
+
+	// =========================
+	// BULK: jika payload berupa array JSON
+	// =========================
+	if body[0] == '[' {
+		var reqs []attDTO.CreateUserAttendanceRequest
+		if err := json.Unmarshal(body, &reqs); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid (array)")
+		}
+		if len(reqs) == 0 {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Items kosong")
+		}
+
+		// Validasi dan kumpulkan session unik
+		sessions := make(map[uuid.UUID]struct{})
+		for i := range reqs {
+			if err := ctl.Validator.Struct(&reqs[i]); err != nil {
+				return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+			}
+			sessions[reqs[i].UserAttendanceSessionID] = struct{}{}
+		}
+
+		// Tenant guard per session unik
+		for sid := range sessions {
+			if err := ctl.ensureSessionBelongsToMasjid(c, sid, masjidID); err != nil {
+				var fe *fiber.Error
+				if errors.As(err, &fe) {
+					return helper.JsonError(c, fe.Code, fe.Message)
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+			}
+		}
+
+		// Build models
+		models := make([]*attModel.UserAttendanceModel, 0, len(reqs))
+		for i := range reqs {
+			models = append(models, reqs[i].ToModel(masjidID))
+		}
+
+		// Insert in transaction (all-or-nothing)
+		tx := ctl.DB.WithContext(c.Context()).Begin()
+		if err := tx.CreateInBatches(models, 200).Error; err != nil {
+			tx.Rollback()
+			if isDuplicateKey(err) {
+				return helper.JsonError(c, fiber.StatusConflict, "Beberapa kehadiran sudah tercatat (duplikat)")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+		}
+		if err := tx.Commit().Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+		}
+
+		// Build responses
+		// sebelumnya: out := make([]attDTO.UserAttendanceResponse, 0, len(models))
+		out := make([]*attDTO.UserAttendanceResponse, 0, len(models))
+		for _, m := range models {
+			out = append(out, attDTO.NewUserAttendanceResponse(m)) // New... mengembalikan *Response
+		}
+		return helper.JsonCreated(c, "Berhasil membuat kehadiran (bulk)", fiber.Map{
+			"created": len(out),
+			"items":   out,
+		})
+
+	}
+
+	// =========================
+	// SINGLE: payload object JSON (perilaku lama)
+	// =========================
 	var req attDTO.CreateUserAttendanceRequest
-	if err := c.BodyParser(&req); err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	if err := ctl.Validator.Struct(&req); err != nil {
@@ -131,11 +221,15 @@ func (ctl *UserAttendanceController) Create(c *fiber.Ctx) error {
 
 	m := req.ToModel(masjidID)
 	if err := ctl.DB.WithContext(c.Context()).Create(m).Error; err != nil {
+		if isDuplicateKey(err) {
+			return helper.JsonError(c, fiber.StatusConflict, "Kehadiran sudah tercatat (duplikat)")
+		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	return helper.JsonCreated(c, "Berhasil membuat kehadiran", attDTO.NewUserAttendanceResponse(m))
 }
+
 
 // GET /user-attendance/:id
 func (ctl *UserAttendanceController) GetByID(c *fiber.Ctx) error {

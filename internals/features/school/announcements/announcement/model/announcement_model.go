@@ -37,6 +37,7 @@ type AnnouncementModel struct {
 
 	// Relasi tema (tenant-safe composite FK)
 	Theme                         *themeModel.AnnouncementThemeModel `gorm:"foreignKey:AnnouncementThemeID,AnnouncementMasjidID;references:AnnouncementThemesID,AnnouncementThemesMasjidID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"-"`
+	
 }
 
 func (AnnouncementModel) TableName() string { return "announcements" }

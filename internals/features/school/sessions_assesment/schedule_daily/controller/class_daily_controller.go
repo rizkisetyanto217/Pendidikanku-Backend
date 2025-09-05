@@ -5,14 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
-"net/url" 
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	d "masjidku_backend/internals/features/school/sessions_assesment/schedule_daily/dto"
 	m "masjidku_backend/internals/features/school/sessions_assesment/schedule_daily/model"
@@ -29,14 +31,12 @@ type ClassDailyController struct {
 func NewClassDailyController(db *gorm.DB) *ClassDailyController {
 	return &ClassDailyController{DB: db}
 }
+
 // convert Fiber ctx to a minimal *http.Request that only carries the query string
 func stdReqFromFiber(c *fiber.Ctx) *http.Request {
-	u := &url.URL{
-		RawQuery: string(c.Request().URI().QueryString()),
-	}
+	u := &url.URL{RawQuery: string(c.Request().URI().QueryString())}
 	return &http.Request{URL: u}
 }
-
 
 /* =========================
    Small helpers
@@ -48,6 +48,15 @@ func parseDateParam(s string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("empty date")
 	}
 	return time.Parse("2006-01-02", s)
+}
+
+func containsUUID(list []uuid.UUID, id uuid.UUID) bool {
+	for _, x := range list {
+		if x == id {
+			return true
+		}
+	}
+	return false
 }
 
 /* =========================
@@ -67,19 +76,18 @@ type listQueryDaily struct {
 }
 
 func (ctl *ClassDailyController) List(c *fiber.Ctx) error {
-	// Parse pagination & sorting (pakai preset Admin)
-	// default sort: date ASC
- 	p := helper.ParseWith(stdReqFromFiber(c), "date", "asc", helper.AdminOpts)
+	// Pagination & sorting (default: date ASC)
+	p := helper.ParseWith(stdReqFromFiber(c), "date", "asc", helper.AdminOpts)
 
-	// Whitelist kolom sorting
+	// Whitelist kolom sorting → pakai nama kolom di DB
 	allowedSort := map[string]string{
 		"date":       "class_daily_date",
-		"created_at": "created_at",
-		"updated_at": "updated_at",
+		"created_at": "class_daily_created_at",
+		"updated_at": "class_daily_updated_at",
 	}
-	orderCol, ok := allowedSort[strings.ToLower(p.SortBy)]
-	if !ok {
-		orderCol = allowedSort["date"]
+	orderCol := allowedSort["date"]
+	if col, ok := allowedSort[strings.ToLower(p.SortBy)]; ok {
+		orderCol = col
 	}
 	orderDir := "ASC"
 	if strings.ToLower(p.SortOrder) == "desc" {
@@ -92,34 +100,55 @@ func (ctl *ClassDailyController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, "Query tidak valid")
 	}
 
-	db := ctl.DB.Model(&m.ClassDailyModel{}).Where("deleted_at IS NULL")
+	// Masjid scope
+	accessibleMasjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
+	if err != nil || len(accessibleMasjidIDs) == 0 {
+		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan")
+	}
 
-	// Masjid scope dari Locals override filter masjid jika ada
-	if loc := c.Locals("masjid_id"); loc != nil {
-		if s := strings.TrimSpace(fmt.Sprintf("%v", loc)); s != "" {
-			q.MasjidID = s
+	// masjid_id explicit → must be in scope
+	var filterMasjidIDs []uuid.UUID
+	if s := strings.TrimSpace(q.MasjidID); s != "" {
+		mid, e := uuid.Parse(s)
+		if e != nil {
+			return helper.JsonError(c, http.StatusBadRequest, "masjid_id invalid")
 		}
+		if !containsUUID(accessibleMasjidIDs, mid) {
+			return helper.JsonError(c, http.StatusForbidden, "Tidak punya akses ke masjid tersebut")
+		}
+		filterMasjidIDs = []uuid.UUID{mid}
+	} else {
+		filterMasjidIDs = accessibleMasjidIDs
+	}
+
+	// ❌ HAPUS filter manual deleted_at — GORM soft delete sudah otomatis
+	db := ctl.DB.Model(&m.ClassDailyModel{})
+
+	// Scope masjid
+	if len(filterMasjidIDs) == 1 {
+		db = db.Where("class_daily_masjid_id = ?", filterMasjidIDs[0])
+	} else {
+		db = db.Where("class_daily_masjid_id IN ?", filterMasjidIDs)
 	}
 
 	// Filters
-	if q.MasjidID != "" {
-		if _, err := uuid.Parse(q.MasjidID); err != nil {
-			return helper.JsonError(c, http.StatusBadRequest, "masjid_id invalid")
-		}
-		db = db.Where("class_daily_masjid_id = ?", q.MasjidID)
-	}
-	if q.SectionID != "" {
-		if _, err := uuid.Parse(q.SectionID); err != nil {
+	if s := strings.TrimSpace(q.SectionID); s != "" {
+		if _, err := uuid.Parse(s); err != nil {
 			return helper.JsonError(c, http.StatusBadRequest, "section_id invalid")
 		}
-		db = db.Where("class_daily_section_id = ?", q.SectionID)
+		db = db.Where("class_daily_section_id = ?", s)
 	}
-	if q.ScheduleID != "" {
-		if _, err := uuid.Parse(q.ScheduleID); err != nil {
+
+	// NOTE: Kolom class_daily_schedule_id belum ada di DDL class_daily.
+	// Jika belum kamu tambahkan, JANGAN aktifkan filter ini.
+	if s := strings.TrimSpace(q.ScheduleID); s != "" {
+		if _, err := uuid.Parse(s); err != nil {
 			return helper.JsonError(c, http.StatusBadRequest, "schedule_id invalid")
 		}
-		db = db.Where("class_daily_schedule_id = ?", q.ScheduleID)
+		// Uncomment HANYA jika kolom sudah ada:
+		// db = db.Where("class_daily_schedule_id = ?", s)
 	}
+
 	if q.Active != nil {
 		db = db.Where("class_daily_is_active = ?", *q.Active)
 	}
@@ -130,9 +159,9 @@ func (ctl *ClassDailyController) List(c *fiber.Ctx) error {
 		db = db.Where("class_daily_day_of_week = ?", *q.DayOfWeek)
 	}
 
-	// on_date filter (exact)
-	if strings.TrimSpace(q.OnDate) != "" {
-		dt, err := parseDateParam(q.OnDate)
+	// on_date (exact)
+	if s := strings.TrimSpace(q.OnDate); s != "" {
+		dt, err := parseDateParam(s)
 		if err != nil {
 			return helper.JsonError(c, http.StatusBadRequest, "on_date invalid (YYYY-MM-DD)")
 		}
@@ -142,15 +171,15 @@ func (ctl *ClassDailyController) List(c *fiber.Ctx) error {
 	// Range date
 	if strings.TrimSpace(q.From) != "" || strings.TrimSpace(q.To) != "" {
 		var from, to *time.Time
-		if strings.TrimSpace(q.From) != "" {
-			dt, err := parseDateParam(q.From)
+		if s := strings.TrimSpace(q.From); s != "" {
+			dt, err := parseDateParam(s)
 			if err != nil {
 				return helper.JsonError(c, http.StatusBadRequest, "from invalid (YYYY-MM-DD)")
 			}
 			from = &dt
 		}
-		if strings.TrimSpace(q.To) != "" {
-			dt, err := parseDateParam(q.To)
+		if s := strings.TrimSpace(q.To); s != "" {
+			dt, err := parseDateParam(s)
 			if err != nil {
 				return helper.JsonError(c, http.StatusBadRequest, "to invalid (YYYY-MM-DD)")
 			}
@@ -165,7 +194,7 @@ func (ctl *ClassDailyController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// Count total
+	// Count
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
 		code, msg := mapPGError(err)
@@ -185,15 +214,13 @@ func (ctl *ClassDailyController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, code, msg)
 	}
 
-	// Map ke response
+	// Map response
 	out := make([]d.ClassDailyResponse, 0, len(rows))
 	for i := range rows {
 		out = append(out, d.NewClassDailyResponse(&rows[i]))
 	}
 
-	// Meta
 	meta := helper.BuildMeta(total, p)
-
 	return helper.JsonList(c, out, meta)
 }
 
@@ -202,11 +229,13 @@ func (ctl *ClassDailyController) List(c *fiber.Ctx) error {
    ========================= */
 
 func (ctl *ClassDailyController) GetByID(c *fiber.Ctx) error {
-	id, err := parseUUIDParam(c, "id")
+	idStr := strings.TrimSpace(c.Params("id"))
+	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, "ID tidak valid")
 	}
 
+	// Ambil data
 	var row m.ClassDailyModel
 	if err := ctl.DB.
 		Where("class_daily_id = ? AND deleted_at IS NULL", id).
@@ -216,6 +245,15 @@ func (ctl *ClassDailyController) GetByID(c *fiber.Ctx) error {
 		}
 		code, msg := mapPGError(err)
 		return helper.JsonError(c, code, msg)
+	}
+
+	// Enforce scope via helper
+	accessibleMasjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
+	if err != nil || len(accessibleMasjidIDs) == 0 {
+		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan")
+	}
+	if !containsUUID(accessibleMasjidIDs, row.ClassDailyMasjidID) {
+		return helper.JsonError(c, http.StatusForbidden, "Tidak punya akses ke masjid tersebut")
 	}
 
 	return helper.JsonOK(c, "OK", d.NewClassDailyResponse(&row))
@@ -228,9 +266,8 @@ func (ctl *ClassDailyController) GetByID(c *fiber.Ctx) error {
 func (ctl *ClassDailyController) Create(c *fiber.Ctx) error {
 	var req d.CreateClassDailyRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, "Payload tidak valid")
 	}
-	// validator optional (nil)
 	if err := req.Validate(nil); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
@@ -240,9 +277,20 @@ func (ctl *ClassDailyController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	// Enforce masjid scope bila ada
-	if err := enforceMasjidScope(c, &model.ClassDailyMasjidID); err != nil {
-		return helper.JsonError(c, http.StatusForbidden, err.Error())
+	// Tentukan masjid_id dengan helper:
+	// - kalau tidak diisi request → pakai active masjid dari token
+	// - apapun nilainya harus belong ke scope user
+	accessibleMasjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
+	if err != nil || len(accessibleMasjidIDs) == 0 {
+		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan")
+	}
+	if model.ClassDailyMasjidID == uuid.Nil {
+		if mid, e := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); e == nil && mid != uuid.Nil {
+			model.ClassDailyMasjidID = mid
+		}
+	}
+	if model.ClassDailyMasjidID == uuid.Nil || !containsUUID(accessibleMasjidIDs, model.ClassDailyMasjidID) {
+		return helper.JsonError(c, http.StatusForbidden, "Tidak punya akses ke masjid tersebut")
 	}
 
 	if err := ctl.DB.Create(&model).Error; err != nil {
@@ -258,9 +306,10 @@ func (ctl *ClassDailyController) Create(c *fiber.Ctx) error {
    ========================= */
 
 func (ctl *ClassDailyController) Update(c *fiber.Ctx) error {
-	id, err := parseUUIDParam(c, "id")
+	idStr := strings.TrimSpace(c.Params("id"))
+	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, "ID tidak valid")
 	}
 
 	var existing m.ClassDailyModel
@@ -274,9 +323,18 @@ func (ctl *ClassDailyController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, code, msg)
 	}
 
+	// Enforce scope
+	accessibleMasjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
+	if err != nil || len(accessibleMasjidIDs) == 0 {
+		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan")
+	}
+	if !containsUUID(accessibleMasjidIDs, existing.ClassDailyMasjidID) {
+		return helper.JsonError(c, http.StatusForbidden, "Tidak punya akses ke masjid tersebut")
+	}
+
 	var req d.UpdateClassDailyRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, "Payload tidak valid")
 	}
 	if err := req.Validate(nil); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
@@ -285,9 +343,9 @@ func (ctl *ClassDailyController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	// Enforce masjid scope
-	if err := enforceMasjidScope(c, &existing.ClassDailyMasjidID); err != nil {
-		return helper.JsonError(c, http.StatusForbidden, err.Error())
+	// (Opsional) kalau request mau mengubah masjid_id, pastikan masih in-scope
+	if existing.ClassDailyMasjidID != uuid.Nil && !containsUUID(accessibleMasjidIDs, existing.ClassDailyMasjidID) {
+		return helper.JsonError(c, http.StatusForbidden, "Tidak punya akses ke masjid tersebut")
 	}
 
 	if err := ctl.DB.Save(&existing).Error; err != nil {
@@ -303,9 +361,10 @@ func (ctl *ClassDailyController) Update(c *fiber.Ctx) error {
    ========================= */
 
 func (ctl *ClassDailyController) Patch(c *fiber.Ctx) error {
-	id, err := parseUUIDParam(c, "id")
+	idStr := strings.TrimSpace(c.Params("id"))
+	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, "ID tidak valid")
 	}
 
 	var existing m.ClassDailyModel
@@ -319,9 +378,18 @@ func (ctl *ClassDailyController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, code, msg)
 	}
 
+	// Enforce scope
+	accessibleMasjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
+	if err != nil || len(accessibleMasjidIDs) == 0 {
+		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan")
+	}
+	if !containsUUID(accessibleMasjidIDs, existing.ClassDailyMasjidID) {
+		return helper.JsonError(c, http.StatusForbidden, "Tidak punya akses ke masjid tersebut")
+	}
+
 	var req d.PatchClassDailyRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, "Payload tidak valid")
 	}
 	if err := req.Validate(nil); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
@@ -330,9 +398,9 @@ func (ctl *ClassDailyController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	// Enforce masjid scope
-	if err := enforceMasjidScope(c, &existing.ClassDailyMasjidID); err != nil {
-		return helper.JsonError(c, http.StatusForbidden, err.Error())
+	// (Opsional) kalau patch mengubah masjid_id, cek scope lagi
+	if existing.ClassDailyMasjidID != uuid.Nil && !containsUUID(accessibleMasjidIDs, existing.ClassDailyMasjidID) {
+		return helper.JsonError(c, http.StatusForbidden, "Tidak punya akses ke masjid tersebut")
 	}
 
 	if err := ctl.DB.Save(&existing).Error; err != nil {
@@ -348,9 +416,10 @@ func (ctl *ClassDailyController) Patch(c *fiber.Ctx) error {
    ========================= */
 
 func (ctl *ClassDailyController) Delete(c *fiber.Ctx) error {
-	id, err := parseUUIDParam(c, "id")
+	idStr := strings.TrimSpace(c.Params("id"))
+	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, http.StatusBadRequest, "ID tidak valid")
 	}
 
 	var existing m.ClassDailyModel
@@ -364,9 +433,13 @@ func (ctl *ClassDailyController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, code, msg)
 	}
 
-	// Enforce masjid scope
-	if err := enforceMasjidScope(c, &existing.ClassDailyMasjidID); err != nil {
-		return helper.JsonError(c, http.StatusForbidden, err.Error())
+	// Enforce scope
+	accessibleMasjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
+	if err != nil || len(accessibleMasjidIDs) == 0 {
+		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan")
+	}
+	if !containsUUID(accessibleMasjidIDs, existing.ClassDailyMasjidID) {
+		return helper.JsonError(c, http.StatusForbidden, "Tidak punya akses ke masjid tersebut")
 	}
 
 	// GORM soft delete → set deleted_at

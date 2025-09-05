@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/gofiber/fiber/v2"
 )
 
 const (
@@ -159,4 +161,61 @@ func BuildMeta(total int64, p Params) Meta {
 		meta.NextPage = &next
 	}
 	return meta
+}
+
+
+// ParseFiber: parse pagination/sorting langsung dari Fiber ctx.
+// Menggunakan Options/Params/DefaultPage/atoiDefault/firstNonEmpty yang sudah ada di package helper.
+func ParseFiber(c *fiber.Ctx, defaultSortBy, defaultSortOrder string, opt Options) Params {
+	q := c.Queries()
+
+	page := atoiDefault(q["page"], DefaultPage)
+	if page < 1 {
+		page = DefaultPage
+	}
+
+	perRaw := strings.TrimSpace(firstNonEmpty(q["per_page"], q["limit"]))
+	all := false
+	per := opt.DefaultPerPage
+
+	if opt.AllowAll && strings.EqualFold(perRaw, "all") {
+		all = true
+		page = 1
+		if opt.AllHardCap > 0 {
+			per = opt.AllHardCap
+		} else {
+			per = opt.MaxPerPage
+		}
+	} else {
+		if n, err := strconv.Atoi(perRaw); err == nil && n > 0 {
+			per = n
+		}
+		if per > opt.MaxPerPage {
+			per = opt.MaxPerPage
+		}
+		if per < 1 {
+			per = opt.DefaultPerPage
+		}
+	}
+
+	sortBy := strings.TrimSpace(q["sort_by"])
+	if sortBy == "" {
+		sortBy = defaultSortBy
+	}
+
+	order := strings.ToLower(strings.TrimSpace(firstNonEmpty(q["order"], q["sort"])))
+	if order != "asc" && order != "desc" {
+		order = strings.ToLower(defaultSortOrder)
+		if order != "asc" && order != "desc" {
+			order = "desc"
+		}
+	}
+
+	return Params{
+		Page:      page,
+		PerPage:   per,
+		SortBy:    sortBy,
+		SortOrder: order,
+		All:       all,
+	}
 }

@@ -3,7 +3,6 @@ package controller
 
 import (
 	"errors"
-	"strconv"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
@@ -14,9 +13,13 @@ import (
 	dto "masjidku_backend/internals/features/school/sessions_assesment/assesments/dto"
 	model "masjidku_backend/internals/features/school/sessions_assesment/assesments/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
-// AssessmentUrlsController mengelola endpoint CRUD assessment_urls
+/* =======================================================
+   CONTROLLER
+   ======================================================= */
+
 type AssessmentUrlsController struct {
 	DB        *gorm.DB
 	Validator *validator.Validate
@@ -25,53 +28,63 @@ type AssessmentUrlsController struct {
 func NewAssessmentUrlsController(db *gorm.DB) *AssessmentUrlsController {
 	return &AssessmentUrlsController{
 		DB:        db,
-		Validator: validator.New(),
+		Validator: validator.New(validator.WithRequiredStructEnabled()),
+	}
+}
+
+func (ctl *AssessmentUrlsController) ensureValidator() {
+	if ctl.Validator == nil {
+		ctl.Validator = validator.New(validator.WithRequiredStructEnabled())
 	}
 }
 
 /* ==========================
-   Helpers
+   Utils
    ========================== */
 
-func isDuplicateKey(err error) bool {
+func isPGUniqueViolation(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(err.Error()), "duplicate key value") ||
-		strings.Contains(strings.ToLower(err.Error()), "unique constraint") ||
-		strings.Contains(strings.ToLower(err.Error()), "sqlstate 23505")
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "duplicate key") || strings.Contains(s, "unique constraint") || strings.Contains(s, "23505")
 }
 
 /* ==========================
-   Routes (contoh):
-   g := app.Group("/api/a")
-   urls := controller.NewAssessmentUrlsController(db)
-   g.Post("/assessment-urls", urls.Create)                           // body contains assessment_id
-   g.Get("/assessment-urls", urls.List)                              // ?assessment_id=&q=&is_published=&is_active=&page=&per_page=
-   g.Get("/assessment-urls/:id", urls.GetByID)
-   g.Patch("/assessment-urls/:id", urls.Update)
-   g.Delete("/assessment-urls/:id", urls.Delete)
-
-   // Optional nested (kalau mau):
-   g.Post("/assessments/:assessment_id/urls", urls.Create)
-   g.Get("/assessments/:assessment_id/urls", urls.List)
+   Routes
    ========================== */
 
-// Create — buat URL untuk sebuah assessment
+// POST /assessment-urls
+// POST /assessments/:assessment_id/urls
 func (ctl *AssessmentUrlsController) Create(c *fiber.Ctx) error {
+	ctl.ensureValidator()
+
+	// 🔐 Gate: hanya Admin/DKM/Teacher
+	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
+	}
+
 	var req dto.CreateAssessmentUrlsRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
-	// Allow path param override (opsional)
-	if pathID := strings.TrimSpace(c.Params("assessment_id")); pathID != "" {
-		if id, err := uuid.Parse(pathID); err == nil {
+
+	// Optional: ambil dari path param jika ada
+	if s := strings.TrimSpace(c.Params("assessment_id")); s != "" {
+		if id, err := uuid.Parse(s); err == nil {
 			req.AssessmentUrlsAssessmentID = id
+		} else {
+			return helper.JsonError(c, fiber.StatusBadRequest, "assessment_id pada path tidak valid")
 		}
 	}
+
 	if err := ctl.Validator.Struct(&req); err != nil {
-		return helper.ValidationError(c, err)
+		return helper.JsonError(c, fiber.StatusBadRequest, "Validasi gagal: "+err.Error())
 	}
+
+	// (Opsional, jika ingin mengikat ke masjid aktif)
+	// activeMasjidID, _ := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	// TODO: validasi bahwa assessment milik masjid tersebut (join ke tabel assessments) bila diperlukan.
 
 	m := &model.AssessmentUrlsModel{
 		AssessmentUrlsAssessmentID:    req.AssessmentUrlsAssessmentID,
@@ -88,39 +101,50 @@ func (ctl *AssessmentUrlsController) Create(c *fiber.Ctx) error {
 	}
 
 	if err := ctl.DB.Create(m).Error; err != nil {
-		if isDuplicateKey(err) {
-			return helper.Error(c, fiber.StatusConflict, "URL sudah terdaftar untuk assessment ini")
+		if isPGUniqueViolation(err) {
+			return helper.JsonError(c, fiber.StatusConflict, "URL sudah terdaftar untuk assessment ini")
 		}
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan data")
 	}
 
-	return helper.SuccessWithCode(c, fiber.StatusCreated, "Assessment URL dibuat", dto.ToAssessmentUrlsResponse(m))
+	return helper.JsonCreated(c, "Assessment URL dibuat", dto.ToAssessmentUrlsResponse(m))
 }
 
-// Update — patch-like
+// PATCH-like: PATCH /assessment-urls/:id
 func (ctl *AssessmentUrlsController) Update(c *fiber.Ctx) error {
+	ctl.ensureValidator()
+
+	// 🔐 Gate: hanya Admin/DKM/Teacher
+	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+	return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
+	}
+
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	var req dto.UpdateAssessmentUrlsRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	if err := ctl.Validator.Struct(&req); err != nil {
-		return helper.ValidationError(c, err)
+		return helper.JsonError(c, fiber.StatusBadRequest, "Validasi gagal: "+err.Error())
 	}
 
 	var existing model.AssessmentUrlsModel
 	if err := ctl.DB.First(&existing, "assessment_urls_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.Error(c, fiber.StatusNotFound, "Data tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	updates := map[string]interface{}{}
+	// (Opsional) Pastikan user berhak mengubah data ini berdasarkan masjid assessment
+	// activeMasjidID, _ := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	// TODO: join ke assessments untuk cek kepemilikan jika diperlukan.
+
+	updates := map[string]any{}
 	if req.AssessmentUrlsLabel != nil {
 		updates["assessment_urls_label"] = *req.AssessmentUrlsLabel
 	}
@@ -131,7 +155,8 @@ func (ctl *AssessmentUrlsController) Update(c *fiber.Ctx) error {
 		updates["assessment_urls_trash_url"] = *req.AssessmentUrlsTrashURL
 	}
 	if req.AssessmentUrlsDeletePendingAt != nil {
-		updates["assessment_urls_delete_pending_until"] = *req.AssessmentUrlsDeletePendingAt
+		// ✅ perbaikan nama kolom
+		updates["assessment_urls_delete_pending_at"] = *req.AssessmentUrlsDeletePendingAt
 	}
 	if req.AssessmentUrlsIsPublished != nil {
 		updates["assessment_urls_is_published"] = *req.AssessmentUrlsIsPublished
@@ -153,127 +178,151 @@ func (ctl *AssessmentUrlsController) Update(c *fiber.Ctx) error {
 	}
 
 	if len(updates) == 0 {
-		// tidak ada perubahan
-		return helper.Success(c, "OK", dto.ToAssessmentUrlsResponse(&existing))
+		return helper.JsonOK(c, "OK", dto.ToAssessmentUrlsResponse(&existing))
 	}
 
 	if err := ctl.DB.Model(&existing).
 		Where("assessment_urls_id = ?", id).
 		Updates(updates).Error; err != nil {
-		if isDuplicateKey(err) {
-			return helper.Error(c, fiber.StatusConflict, "URL sudah terdaftar untuk assessment ini")
+		if isPGUniqueViolation(err) {
+			return helper.JsonError(c, fiber.StatusConflict, "URL sudah terdaftar untuk assessment ini")
 		}
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengubah data")
 	}
 
 	// reload
 	if err := ctl.DB.First(&existing, "assessment_urls_id = ?", id).Error; err != nil {
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memuat ulang data")
 	}
-	return helper.Success(c, "Assessment URL diperbarui", dto.ToAssessmentUrlsResponse(&existing))
+	return helper.JsonUpdated(c, "Assessment URL diperbarui", dto.ToAssessmentUrlsResponse(&existing))
 }
 
-// GetByID
+// GET /assessment-urls/:id
 func (ctl *AssessmentUrlsController) GetByID(c *fiber.Ctx) error {
+	// (Opsional) batasi hanya Admin/DKM/Teacher
+	// if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+	// 	return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
+	// }
+
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 	var m model.AssessmentUrlsModel
 	if err := ctl.DB.First(&m, "assessment_urls_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.Error(c, fiber.StatusNotFound, "Data tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
-	return helper.Success(c, "OK", dto.ToAssessmentUrlsResponse(&m))
+	return helper.JsonOK(c, "OK", dto.ToAssessmentUrlsResponse(&m))
 }
 
-// List dengan filter & pagination
+// GET /assessment-urls
+// GET /assessments/:assessment_id/urls
 func (ctl *AssessmentUrlsController) List(c *fiber.Ctx) error {
-	var (
-		assessmentIDStr = strings.TrimSpace(c.Query("assessment_id"))
-		q               = strings.TrimSpace(c.Query("q"))
-		isPublishedStr  = strings.TrimSpace(c.Query("is_published")) // "true"/"false"
-		isActiveStr     = strings.TrimSpace(c.Query("is_active"))    // "true"/"false"
-		pageStr         = strings.TrimSpace(c.Query("page", "1"))
-		perPageStr      = strings.TrimSpace(c.Query("per_page", "20"))
-	)
+	// (Opsional) batasi hanya Admin/DKM/Teacher
+	// if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+	// 	return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
+	// }
 
-	page, _ := strconv.Atoi(pageStr)
-	if page < 1 {
-		page = 1
-	}
-	perPage, _ := strconv.Atoi(perPageStr)
-	if perPage <= 0 || perPage > 200 {
-		perPage = 20
-	}
-	offset := (page - 1) * perPage
+	// pagination helper (default: created_at desc)
+	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
 
-	db := ctl.DB.Model(&model.AssessmentUrlsModel{})
-	if assessmentIDStr != "" {
-		if assessmentID, err := uuid.Parse(assessmentIDStr); err == nil {
-			db = db.Where("assessment_urls_assessment_id = ?", assessmentID)
+	// optional filter by path param
+	var assessmentID *uuid.UUID
+	if s := strings.TrimSpace(c.Params("assessment_id")); s != "" {
+		if id, err := uuid.Parse(s); err == nil {
+			assessmentID = &id
 		} else {
-			return helper.Error(c, fiber.StatusBadRequest, "assessment_id tidak valid")
+			return helper.JsonError(c, fiber.StatusBadRequest, "assessment_id pada path tidak valid")
 		}
 	}
+
+	// query string filters
+	if assessmentID == nil {
+		if s := strings.TrimSpace(c.Query("assessment_id")); s != "" {
+			if id, err := uuid.Parse(s); err == nil {
+				assessmentID = &id
+			} else {
+				return helper.JsonError(c, fiber.StatusBadRequest, "assessment_id tidak valid")
+			}
+		}
+	}
+	q := strings.TrimSpace(c.Query("q"))
+	isPublishedStr := strings.TrimSpace(c.Query("is_published"))
+	isActiveStr := strings.TrimSpace(c.Query("is_active"))
+
+	db := ctl.DB.Model(&model.AssessmentUrlsModel{})
+	if assessmentID != nil {
+		db = db.Where("assessment_urls_assessment_id = ?", *assessmentID)
+	}
 	if q != "" {
-		db = db.Where("(assessment_urls_label ILIKE ? OR assessment_urls_href ILIKE ?)", "%"+q+"%", "%"+q+"%")
+		like := "%" + strings.ToLower(q) + "%"
+		db = db.Where("(LOWER(assessment_urls_label) LIKE ? OR LOWER(assessment_urls_href) LIKE ?)", like, like)
 	}
 	if isPublishedStr != "" {
-		if v, err := strconv.ParseBool(isPublishedStr); err == nil {
-			db = db.Where("assessment_urls_is_published = ?", v)
-		} else {
-			return helper.Error(c, fiber.StatusBadRequest, "is_published harus boolean")
+		switch strings.ToLower(isPublishedStr) {
+		case "true", "1", "t", "yes", "y":
+			db = db.Where("assessment_urls_is_published = ?", true)
+		case "false", "0", "f", "no", "n":
+			db = db.Where("assessment_urls_is_published = ?", false)
+		default:
+			return helper.JsonError(c, fiber.StatusBadRequest, "is_published harus boolean")
 		}
 	}
 	if isActiveStr != "" {
-		if v, err := strconv.ParseBool(isActiveStr); err == nil {
-			db = db.Where("assessment_urls_is_active = ?", v)
-		} else {
-			return helper.Error(c, fiber.StatusBadRequest, "is_active harus boolean")
+		switch strings.ToLower(isActiveStr) {
+		case "true", "1", "t", "yes", "y":
+			db = db.Where("assessment_urls_is_active = ?", true)
+		case "false", "0", "f", "no", "n":
+			db = db.Where("assessment_urls_is_active = ?", false)
+		default:
+			return helper.JsonError(c, fiber.StatusBadRequest, "is_active harus boolean")
 		}
 	}
 
+	// total
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
 	}
 
+	// fetch
+	if !p.All {
+		db = db.Limit(p.Limit()).Offset(p.Offset())
+	}
 	var rows []model.AssessmentUrlsModel
-	if err := db.
-		Order("assessment_urls_created_at DESC").
-		Limit(perPage).
-		Offset(offset).
-		Find(&rows).Error; err != nil {
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+	if err := db.Order("assessment_urls_created_at DESC").Find(&rows).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	out := make([]dto.AssessmentUrlsResponse, 0, len(rows))
+	items := make([]dto.AssessmentUrlsResponse, 0, len(rows))
 	for i := range rows {
-		out = append(out, dto.ToAssessmentUrlsResponse(&rows[i]))
+		items = append(items, dto.ToAssessmentUrlsResponse(&rows[i]))
 	}
 
-	resp := fiber.Map{
-		"data":       out,
-		"page":       page,
-		"per_page":   perPage,
-		"total":      total,
-		"total_page": (total + int64(perPage) - 1) / int64(perPage),
-	}
-	return helper.Success(c, "OK", resp)
+	return helper.JsonList(c, items, helper.BuildMeta(total, p))
 }
 
-// Delete — soft delete
+// DELETE /assessment-urls/:id  (soft-delete bila model di-tag gorm.DeletedAt)
 func (ctl *AssessmentUrlsController) Delete(c *fiber.Ctx) error {
+	// 🔐 Gate: hanya Admin/DKM/Teacher
+	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
+	}
+
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
+
+	// (Opsional) validasi kepemilikan by masjid
+	// activeMasjidID, _ := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	// TODO: join ke assessments untuk verifikasi.
+
 	if err := ctl.DB.Delete(&model.AssessmentUrlsModel{}, "assessment_urls_id = ?", id).Error; err != nil {
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus data")
 	}
-	// Catatan: 204 umumnya tanpa body; jika ingin strict gunakan c.SendStatus(204).
-	return helper.SuccessWithCode(c, fiber.StatusNoContent, "Assessment URL dihapus", nil)
+	return helper.JsonDeleted(c, "Assessment URL dihapus", fiber.Map{"deleted": true})
 }

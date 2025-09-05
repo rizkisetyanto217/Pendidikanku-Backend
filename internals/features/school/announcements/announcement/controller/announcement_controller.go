@@ -16,6 +16,7 @@ import (
 	annThemeModel "masjidku_backend/internals/features/school/announcements/announcement_thema/model" // import model tema agar tidak bentrok dengan model announcementModel
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
+	// annURLModel "masjidku_backend/internals/features/school/announcements/announcement_urls/model"
 )
 
 type AnnouncementController struct{ DB *gorm.DB }
@@ -45,9 +46,14 @@ func (h *AnnouncementController) GetByID(c *fiber.Ctx) error {
 }
 
 
+
+
+// ===================== LIST =====================
+// GET /admin/announcements
 // ===================== LIST =====================
 // GET /admin/announcements
 func (h *AnnouncementController) List(c *fiber.Ctx) error {
+	// 1) scope masjid
 	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
 	if err != nil {
 		return err
@@ -56,28 +62,29 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusForbidden, "Tidak ada akses masjid")
 	}
 
+	// 2) pagination via helper.ParseFiber
+	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
+
+	// 3) parse query
 	var q annDTO.ListAnnouncementQuery
-	// default pagination
-	q.Limit, q.Offset = 20, 0
 	if err := c.QueryParser(&q); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
 	}
 
-	// ===== Base query (TANPA preload untuk hindari panic nil *UUID)
+	// 4) base query
 	tx := h.DB.Model(&annModel.AnnouncementModel{}).
 		Where("announcement_masjid_id IN ?", masjidIDs)
 
-	// ===== Filter: Theme
+	// ---- filter Theme
 	if q.ThemeID != nil {
 		if *q.ThemeID == uuid.Nil {
-			// kalau dikirim uuid.Nil → treat sebagai "tanpa tema"
 			tx = tx.Where("announcement_theme_id IS NULL")
 		} else {
 			tx = tx.Where("announcement_theme_id = ?", *q.ThemeID)
 		}
 	}
 
-	// ===== Filter: Section vs Global (NULL)
+	// ---- filter Section vs Global
 	includeGlobal := true
 	if q.IncludeGlobal != nil {
 		includeGlobal = *q.IncludeGlobal
@@ -93,16 +100,13 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	switch {
 	case onlyGlobal:
 		tx = tx.Where("announcement_class_section_id IS NULL")
-
 	case len(sectionIDs) > 0:
 		if includeGlobal {
 			tx = tx.Where("(announcement_class_section_id IN ? OR announcement_class_section_id IS NULL)", sectionIDs)
 		} else {
 			tx = tx.Where("announcement_class_section_id IN ?", sectionIDs)
 		}
-
 	case q.SectionID != nil:
-		// jika SectionID = uuid.Nil → anggap GLOBAL
 		if *q.SectionID == uuid.Nil {
 			tx = tx.Where("announcement_class_section_id IS NULL")
 		} else if includeGlobal {
@@ -112,7 +116,7 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ===== Filter: Attachment
+	// ---- filter Attachment
 	if q.HasAttachment != nil {
 		if *q.HasAttachment {
 			tx = tx.Where("announcement_attachment_url IS NOT NULL AND announcement_attachment_url <> ''")
@@ -121,12 +125,12 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ===== Filter: is_active
+	// ---- filter is_active
 	if q.IsActive != nil {
 		tx = tx.Where("announcement_is_active = ?", *q.IsActive)
 	}
 
-	// ===== Filter: Date range (YYYY-MM-DD)
+	// ---- filter date range
 	parseDate := func(s string) (time.Time, error) {
 		return time.Parse("2006-01-02", strings.TrimSpace(s))
 	}
@@ -145,13 +149,13 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		tx = tx.Where("announcement_date <= ?", t)
 	}
 
-	// ===== Total (hitung sebelum limit/offset)
+	// 5) total
 	var total int64
 	if err := tx.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung data")
 	}
 
-	// ===== Sorting
+	// 6) sorting
 	orderExpr := "announcement_date DESC"
 	if q.Sort != nil {
 		switch strings.ToLower(strings.TrimSpace(*q.Sort)) {
@@ -168,44 +172,29 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ===== Pagination guard
-	if q.Limit <= 0 {
-		q.Limit = 20
-	}
-	if q.Limit > 100 {
-		q.Limit = 100
-	}
-	if q.Offset < 0 {
-		q.Offset = 0
-	}
-
-	// ===== Fetch rows (tanpa preload)
+	// 7) fetch rows
 	var rows []annModel.AnnouncementModel
 	if err := tx.
 		Order(orderExpr).
-		Limit(q.Limit).
-		Offset(q.Offset).
+		Limit(p.Limit()).
+		Offset(p.Offset()).
 		Find(&rows).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// ===== Batch-load Theme lalu inject (hindari panic di preload)
+	// 8) batch-load Theme
 	themeIDs := make([]uuid.UUID, 0, len(rows))
-	seen := map[uuid.UUID]struct{}{}
+	seenTheme := map[uuid.UUID]struct{}{}
 	for i := range rows {
 		if rows[i].AnnouncementThemeID != nil {
 			id := *rows[i].AnnouncementThemeID
-			if id == uuid.Nil {
-				// treat sebagai NULL, skip
-				continue
-			}
-			if _, ok := seen[id]; !ok {
-				seen[id] = struct{}{}
+			if id == uuid.Nil { continue }
+			if _, ok := seenTheme[id]; !ok {
+				seenTheme[id] = struct{}{}
 				themeIDs = append(themeIDs, id)
 			}
 		}
 	}
-
 	if len(themeIDs) > 0 {
 		var themes []annThemeModel.AnnouncementThemeModel
 		if err := h.DB.
@@ -217,7 +206,7 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		}
 		tmap := make(map[uuid.UUID]*annThemeModel.AnnouncementThemeModel, len(themes))
 		for i := range themes {
-			t := themes[i] // copy untuk ambil address stabil
+			t := themes[i]
 			tmap[t.AnnouncementThemesID] = &t
 		}
 		for i := range rows {
@@ -229,18 +218,46 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ===== Map ke response DTO
-	items := make([]*annDTO.AnnouncementResponse, 0, len(rows))
+	// 8b) batch-load URLs
+	annIDs := make([]uuid.UUID, 0, len(rows))
 	for i := range rows {
-		items = append(items, annDTO.NewAnnouncementResponse(&rows[i]))
+		annIDs = append(annIDs, rows[i].AnnouncementID)
+	}
+	urlMap := make(map[uuid.UUID][]*annDTO.AnnouncementURLLite, len(rows))
+	if len(annIDs) > 0 {
+		var urlRows []annModel.AnnouncementURLModel
+		if err := h.DB.
+			Where("announcement_url_deleted_at IS NULL").
+			Where("announcement_url_announcement_id IN ?", annIDs).
+			Find(&urlRows).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memuat URL")
+		}
+		for i := range urlRows {
+			u := urlRows[i]
+			urlMap[u.AnnouncementURLAnnouncementID] = append(urlMap[u.AnnouncementURLAnnouncementID],
+				&annDTO.AnnouncementURLLite{
+					ID:    u.AnnouncementURLID,
+					Label: u.AnnouncementURLLabel,
+					Href:  u.AnnouncementURLHref,
+				},
+			)
+		}
 	}
 
-	// ===== Return konsisten JsonList
-	return helper.JsonList(c, items, annDTO.Pagination{
-		Limit:  q.Limit,
-		Offset: q.Offset,
-		Total:  int(total),
-	})
+	// 9) map ke response DTO + inject Urls
+	items := make([]*annDTO.AnnouncementResponse, 0, len(rows))
+	for i := range rows {
+		resp := annDTO.NewAnnouncementResponse(&rows[i])
+		if resp != nil {
+			if urls := urlMap[rows[i].AnnouncementID]; len(urls) > 0 {
+				resp.Urls = urls
+			}
+			items = append(items, resp)
+		}
+	}
+
+	// 10) response standar
+	return helper.JsonList(c, items, helper.BuildMeta(total, p))
 }
 
 
@@ -273,19 +290,15 @@ func parseUUIDsCSV(s string) ([]uuid.UUID, error) {
 
 // POST /admin/announcements
 // POST /admin/announcements
+// internals/features/lembaga/announcements/announcement/controller/announcement_controller.go
+
 func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
 
-	// Mengambil userID dari token
-	userID, err := helperAuth.GetUserIDFromToken(c)
-	if err != nil {
-		return err
-	}
-
-	// role detection
+	// role detection (tetap versi kamu biar minimal diff)
 	isAdmin := func() bool {
 		if id, err := helperAuth.GetMasjidIDFromToken(c); err == nil && id == masjidID {
 			return true
@@ -306,7 +319,7 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 	var req annDTO.CreateAnnouncementRequest
 	ct := c.Get("Content-Type")
 
-	// Parse data
+	// Parse body
 	if strings.HasPrefix(ct, "multipart/form-data") {
 		req.AnnouncementTitle = strings.TrimSpace(c.FormValue("announcement_title"))
 		req.AnnouncementDate = strings.TrimSpace(c.FormValue("announcement_date"))
@@ -326,9 +339,7 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 			b := strings.EqualFold(v, "true") || v == "1"
 			req.AnnouncementIsActive = &b
 		}
-
 	} else {
-		// JSON Parsing
 		if err := c.BodyParser(&req); err != nil {
 			return helper.Error(c, fiber.StatusBadRequest, "Payload tidak valid")
 		}
@@ -341,9 +352,10 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 
 	// Aturan role (Admin menang prioritas)
 	if isAdmin {
+		// Admin/DKM → pengumuman global (tanpa section)
 		req.AnnouncementClassSectionID = nil
 	} else if isTeacher {
-		// Teacher wajib memilih section yang milik masjid
+		// Teacher wajib pilih section yang milik masjid
 		if req.AnnouncementClassSectionID == nil || *req.AnnouncementClassSectionID == uuid.Nil {
 			return helper.Error(c, fiber.StatusBadRequest, "Teacher wajib memilih section")
 		}
@@ -352,21 +364,37 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// Validasi tema bila ada
+	// Validasi tema
 	if req.AnnouncementThemeID != nil {
 		if err := h.ensureThemeBelongsToMasjid(*req.AnnouncementThemeID, masjidID); err != nil {
 			return err
 		}
 	}
 
-	// Simpan pengumuman
-	m := req.ToModel(masjidID, userID)
+	// Bangun model dari DTO (tanpa set teacher_id di sini)
+	m := req.ToModel(masjidID)
+
+	// Set who created:
+	// 1) kalau teacher → isi FK ke masjid_teachers
+	if isTeacher {
+		mtID, err := helperAuth.GetMasjidTeacherIDForMasjid(c, masjidID)
+		if err != nil {
+			return helper.Error(c, fiber.StatusForbidden, "Akun Anda tidak terdaftar sebagai guru di masjid ini")
+		}
+		m.AnnouncementCreatedByTeacherID = &mtID
+	} else {
+		// Admin/DKM → harus NULL agar lolos FK
+		m.AnnouncementCreatedByTeacherID = nil
+	}
+
+	// 2) (opsional) kalau model punya kolom created_by_user_id, isi userID
+	// m.AnnouncementCreatedByUserID = &userID
+
 	if err := h.DB.Create(m).Error; err != nil {
 		return helper.Error(c, fiber.StatusInternalServerError, "Gagal membuat pengumuman")
 	}
 	return helper.Success(c, "Pengumuman berhasil dibuat", annDTO.NewAnnouncementResponse(m))
 }
-
 
 // Pastikan section milik masjid ini
 func (h *AnnouncementController) ensureSectionBelongsToMasjid(sectionID, masjidID uuid.UUID) error {

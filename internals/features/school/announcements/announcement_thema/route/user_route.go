@@ -14,5 +14,5 @@ func AnnouncementUserRoute(r fiber.Router, db *gorm.DB) {
 	ctl := annCtl.NewAnnouncementThemeController(db)
 
 	themes := r.Group("/announcement-themes")
-	themes.Get("/", ctl.List)         // List
+	themes.Get("/list", ctl.List)         // List
 }

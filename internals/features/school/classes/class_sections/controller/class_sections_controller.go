@@ -481,7 +481,8 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	var existing secModel.ClassSectionModel
 	if err := tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		First(&existing, "class_sections_id = ? AND class_sections_deleted_at IS NULL", sectionID).Error; err != nil {
+		Where("class_sections_id = ? AND class_sections_deleted_at IS NULL", sectionID).
+		First(&existing).Error; err != nil {
 		_ = tx.Rollback()
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Section tidak ditemukan")
@@ -497,11 +498,14 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 
 	// Jika class_id berubah → pastikan class se-masjid
 	if req.ClassSectionsClassID != nil {
-		var cls classModel.ClassModel
+		var cls struct {
+			ClassMasjidID uuid.UUID `gorm:"column:class_masjid_id"`
+		}
 		if err := tx.
-			Select("class_id, class_masjid_id").
+			Model(&classModel.ClassModel{}).
+			Select("class_masjid_id").
 			Where("class_id = ? AND class_deleted_at IS NULL", *req.ClassSectionsClassID).
-			First(&cls).Error; err != nil {
+			Take(&cls).Error; err != nil {
 			_ = tx.Rollback()
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Class tidak ditemukan")
@@ -516,20 +520,21 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 
 	// Jika teacher_id berubah → pastikan se-masjid
 	if req.ClassSectionsTeacherID != nil {
-		var teacherMasjid uuid.UUID
-		if err := tx.Raw(`
-			SELECT masjid_teacher_masjid_id
-			FROM masjid_teachers
-			WHERE masjid_teacher_id = ? AND masjid_teacher_deleted_at IS NULL
-		`, *req.ClassSectionsTeacherID).Scan(&teacherMasjid).Error; err != nil {
+		var mt struct {
+			MasjidTeacherMasjidID uuid.UUID `gorm:"column:masjid_teacher_masjid_id"`
+		}
+		if err := tx.
+			Table("masjid_teachers").
+			Select("masjid_teacher_masjid_id").
+			Where("masjid_teacher_id = ? AND masjid_teacher_deleted_at IS NULL", *req.ClassSectionsTeacherID).
+			Take(&mt).Error; err != nil {
 			_ = tx.Rollback()
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusBadRequest, "Pengajar tidak ditemukan")
+			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi pengajar")
 		}
-		if teacherMasjid == uuid.Nil {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusBadRequest, "Pengajar tidak ditemukan")
-		}
-		if teacherMasjid != masjidID {
+		if mt.MasjidTeacherMasjidID != masjidID {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusForbidden, "Pengajar bukan milik masjid Anda")
 		}
@@ -537,20 +542,21 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 
 	// Jika class_room_id berubah/diisi → pastikan room ada, alive, se-masjid
 	if req.ClassSectionsClassRoomID != nil {
-		var roomMasjid uuid.UUID
-		if err := tx.Raw(`
-			SELECT class_rooms_masjid_id
-			FROM class_rooms
-			WHERE class_room_id = ? AND deleted_at IS NULL
-		`, *req.ClassSectionsClassRoomID).Scan(&roomMasjid).Error; err != nil {
+		var room struct {
+			ClassRoomsMasjidID uuid.UUID `gorm:"column:class_rooms_masjid_id"`
+		}
+		if err := tx.
+			Table("class_rooms").
+			Select("class_rooms_masjid_id").
+			Where("class_room_id = ? AND class_rooms_deleted_at IS NULL", *req.ClassSectionsClassRoomID).
+			Take(&room).Error; err != nil {
 			_ = tx.Rollback()
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusBadRequest, "Ruang kelas tidak ditemukan")
+			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi ruang kelas")
 		}
-		if roomMasjid == uuid.Nil {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusBadRequest, "Ruang kelas tidak ditemukan")
-		}
-		if roomMasjid != masjidID {
+		if room.ClassRoomsMasjidID != masjidID {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusForbidden, "Ruang kelas bukan milik masjid Anda")
 		}
@@ -613,9 +619,9 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 
 	// Apply perubahan & simpan
 	req.ApplyToModel(&existing)
-	if err := tx.Model(&secModel.ClassSectionModel{}).
-		Where("class_sections_id = ?", existing.ClassSectionsID).
-		Updates(&existing).Error; err != nil {
+
+	// Pakai Save supaya nilai nol/false ikut ter-update
+	if err := tx.Save(&existing).Error; err != nil {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui section")
 	}

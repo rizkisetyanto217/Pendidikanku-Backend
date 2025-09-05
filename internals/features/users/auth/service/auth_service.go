@@ -47,6 +47,7 @@ type TeacherRecord struct {
 	MasjidID uuid.UUID `json:"masjid_id"        gorm:"column:masjid_teacher_masjid_id"`
 }
 
+
 /* ==========================
    Meta schema cache (prewarm)
 ========================== */
@@ -422,23 +423,148 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 ========================== */
 
 func fetchTeacherRecords(db *gorm.DB, userID uuid.UUID) []TeacherRecord {
-	if !meta.Ready || !meta.HasMasjidTeachers {
-		return nil
+	// Pastikan meta sudah di-warm
+	if !meta.Ready {
+		PrewarmAuthMeta(db)
 	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), qryTimeoutShort)
 	defer cancel()
 
 	var out []TeacherRecord
-	if err := db.WithContext(ctx).
+	err := db.WithContext(ctx).
 		Table("masjid_teachers").
 		Select("masjid_teacher_id, masjid_teacher_masjid_id").
-		Where("masjid_teacher_user_id = ? AND masjid_teacher_deleted_at IS NULL", userID).
-		Scan(&out).Error; err != nil {
+		Where("masjid_teacher_user_id = ? AND (masjid_teacher_deleted_at IS NULL)", userID).
+		Scan(&out).Error
+
+	if err != nil {
+		low := strings.ToLower(err.Error())
+		// Kalau tabel belum ada, jangan panik — anggap tidak ada record
+		if strings.Contains(low, "does not exist") ||
+			strings.Contains(low, "undefined table") ||
+			strings.Contains(low, "no such table") {
+			return nil
+		}
 		log.Printf("[WARN] fetchTeacherRecords: %v", err)
 		return nil
 	}
+
 	return out
 }
+// ==========================
+// Helpers (roles / teacher)
+// ==========================
+
+func masjidIDSetFromClaim(rc helpersAuth.RolesClaim) map[uuid.UUID]struct{} {
+	set := make(map[uuid.UUID]struct{}, len(rc.MasjidRoles))
+	for _, mr := range rc.MasjidRoles {
+		if mr.MasjidID != uuid.Nil {
+			set[mr.MasjidID] = struct{}{}
+		}
+	}
+	return set
+}
+
+// Ambil teacher_records hanya jika user punya role "teacher".
+// (Opsional) filter agar hanya masjid yang ada di masjid_roles claim.
+func buildTeacherRecords(db *gorm.DB, userID uuid.UUID, rc helpersAuth.RolesClaim) []TeacherRecord {
+	if !rolesClaimHas(rc, "teacher") {
+		return nil
+	}
+	list := fetchTeacherRecords(db, userID)
+	if len(list) == 0 {
+		return nil
+	}
+	allow := masjidIDSetFromClaim(rc)
+	if len(allow) == 0 {
+		return list
+	}
+	out := make([]TeacherRecord, 0, len(list))
+	for _, t := range list {
+		if _, ok := allow[t.MasjidID]; ok {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// ==========================
+// Helpers (JWT claims & resp)
+// ==========================
+
+func buildRefreshClaims(userID uuid.UUID, now time.Time) jwt.MapClaims {
+	return jwt.MapClaims{
+		"typ": "refresh",
+		"sub": userID.String(),
+		"id":  userID.String(),
+		"iat": now.Unix(),
+		"exp": now.Add(refreshTTLDefault).Unix(),
+	}
+}
+// akses token claims builder — pakai *string
+func buildAccessClaims(
+	user userModel.UserModel,
+	rc helpersAuth.RolesClaim,
+	masjidIDs []string,
+	isOwner bool,
+	activeMasjidID *string,          // <-- UBAH: *string
+	teacherRecords []TeacherRecord,
+	now time.Time,
+) jwt.MapClaims {
+	claims := jwt.MapClaims{
+		"typ":          "access",
+		"sub":          user.ID.String(),
+		"id":           user.ID.String(),
+		"user_name":    user.UserName,
+		"full_name":    user.FullName,
+		"roles_global": rc.RolesGlobal,
+		"masjid_roles": rc.MasjidRoles,
+		"masjid_ids":   masjidIDs,
+		"is_owner":     isOwner,
+		"iat":          now.Unix(),
+		"exp":          now.Add(accessTTLDefault).Unix(),
+	}
+	if len(teacherRecords) > 0 {
+		claims["teacher_records"] = teacherRecords
+	}
+	if activeMasjidID != nil {
+		claims["active_masjid_id"] = *activeMasjidID // string langsung
+	}
+	return claims
+}
+
+// login response user builder — pakai *string
+func buildLoginResponseUser(
+	user userModel.UserModel,
+	rc helpersAuth.RolesClaim,
+	masjidIDs []string,
+	isOwner bool,
+	activeMasjidID *string,           // <-- UBAH: *string
+	teacherRecords []TeacherRecord,
+) fiber.Map {
+	resp := fiber.Map{
+		"id":           user.ID,
+		"user_name":    user.UserName,
+		"email":        user.Email,
+		"full_name":    user.FullName,
+		"roles_global": rc.RolesGlobal,
+		"masjid_roles": rc.MasjidRoles,
+		"masjid_ids":   masjidIDs,
+		"is_owner":     isOwner,
+	}
+	if len(teacherRecords) > 0 {
+		resp["teacher_records"] = teacherRecords
+	}
+	if activeMasjidID != nil {
+		resp["active_masjid_id"] = *activeMasjidID // string langsung
+	}
+	return resp
+}
+
+// ==========================
+// ISSUE TOKENS (refactor)
+// ==========================
 
 func issueTokensWithRoles(
 	c *fiber.Ctx,
@@ -458,64 +584,33 @@ func issueTokensWithRoles(
 
 	now := nowUTC()
 
-	// teacher_records hanya jika user punya role "teacher" (opsional)
-	var teacherRecords []TeacherRecord
-	if rolesClaimHas(rolesClaim, "teacher") {
-		teacherRecords = fetchTeacherRecords(db, user.ID)
+	if !meta.Ready {
+	PrewarmAuthMeta(db)
 	}
 
-	// Flag owner dari claim
+	// Derivatives dari claim
 	isOwner := rolesClaimHas(rolesClaim, "owner")
+	masjidIDs := deriveMasjidIDsFromRolesClaim(rolesClaim)                 // kompat opsional
+	activeMasjidID := helpersAuth.GetActiveMasjidIDIfSingle(rolesClaim)   // autopick aktif
+	teacherRecords := buildTeacherRecords(db, user.ID, rolesClaim)         // ambil + filter
 
-	// (opsional) derive masjid_ids dari masjid_roles untuk kompatibilitas
-	masjidIDs := deriveMasjidIDsFromRolesClaim(rolesClaim)
+	// Access & Refresh claims
+	accessClaims := buildAccessClaims(user, rolesClaim, masjidIDs, isOwner, activeMasjidID, teacherRecords, now)
+	refreshClaims := buildRefreshClaims(user.ID, now)
 
-	// Autopick active masjid jika user single-tenant
-	activeMasjidID := helpersAuth.GetActiveMasjidIDIfSingle(rolesClaim)
-
-	// ACCESS TOKEN — tanpa owner_user_roles
-	accessClaims := jwt.MapClaims{
-		"typ":          "access",
-		"sub":          user.ID.String(),
-		"id":           user.ID.String(),
-		"user_name":    user.UserName,
-		"full_name":    user.FullName,
-		"roles_global": rolesClaim.RolesGlobal,
-		"masjid_roles": rolesClaim.MasjidRoles,
-		"masjid_ids":   masjidIDs, // boleh dihapus kalau tidak perlu kompat
-		"is_owner":     isOwner,
-		"iat":          now.Unix(),
-		"exp":          now.Add(accessTTLDefault).Unix(),
-	}
-	if len(teacherRecords) > 0 {
-		accessClaims["teacher_records"] = teacherRecords
-	}
-	if activeMasjidID != nil {
-		accessClaims["active_masjid_id"] = *activeMasjidID
-	}
-
+	// Sign tokens
 	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString([]byte(jwtSecret))
 	if err != nil {
 		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal membuat access token")
-	}
-
-	// REFRESH TOKEN
-	refreshClaims := jwt.MapClaims{
-		"typ": "refresh",
-		"sub": user.ID.String(),
-		"id":  user.ID.String(),
-		"iat": now.Unix(),
-		"exp": now.Add(refreshTTLDefault).Unix(),
 	}
 	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).SignedString([]byte(refreshSecret))
 	if err != nil {
 		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal membuat refresh token")
 	}
 
-	// Simpan refresh token hashed (opsi cepat)
+	// Simpan refresh token (hashed)
 	tokenHash := computeRefreshHash(refreshToken, refreshSecret)
-	ua := c.Get("User-Agent")
-	ip := c.IP()
+	ua, ip := c.Get("User-Agent"), c.IP()
 	if err := createRefreshTokenFast(db, &authModel.RefreshTokenModel{
 		UserID:    user.ID,
 		Token:     tokenHash,
@@ -526,27 +621,11 @@ func issueTokensWithRoles(
 		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal menyimpan refresh token")
 	}
 
-	// Set cookies
+	// Cookies
 	setAuthCookies(c, accessToken, refreshToken, now)
 
-	// Response body — tanpa owner_user_roles
-	respUser := fiber.Map{
-		"id":           user.ID,
-		"user_name":    user.UserName,
-		"email":        user.Email,
-		"full_name":    user.FullName,
-		"roles_global": rolesClaim.RolesGlobal,
-		"masjid_roles": rolesClaim.MasjidRoles,
-		"masjid_ids":   masjidIDs, // optional kompat
-		"is_owner":     isOwner,
-	}
-	if len(teacherRecords) > 0 {
-		respUser["teacher_records"] = teacherRecords
-	}
-	if activeMasjidID != nil {
-		respUser["active_masjid_id"] = *activeMasjidID
-	}
-
+	// Response
+	respUser := buildLoginResponseUser(user, rolesClaim, masjidIDs, isOwner, activeMasjidID, teacherRecords)
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"code":    200,
 		"status":  "success",

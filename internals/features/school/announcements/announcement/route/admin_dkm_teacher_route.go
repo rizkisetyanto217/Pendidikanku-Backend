@@ -17,7 +17,7 @@ func AnnouncementAdminRoutes(r fiber.Router, db *gorm.DB) {
 	grp := r.Group("/announcements") // hasil akhir: /admin/announcements
 
 
-	grp.Get("/", ctl.List)      // ← get all
+	grp.Get("/list", ctl.List)      // ← get all
 	grp.Post("/", ctl.Create)      // Create (Admin: global; Teacher: wajib section)
 	grp.Get("/:id", ctl.GetByID) // ← get by id
 
@@ -29,7 +29,7 @@ func AnnouncementAdminRoutes(r fiber.Router, db *gorm.DB) {
 	grp2 := r.Group("/announcement-urls")
 
 	// list & create (tanpa/ dengan trailing slash)
-	grp2.Get("/", ctl2.List)
+	grp2.Get("/list", ctl2.List)
 	grp2.Post("/", ctl2.Create)
 
 	// detail & update & delete & restore

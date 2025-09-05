@@ -14,8 +14,8 @@ func AnnouncementUserRoutes(r fiber.Router, db *gorm.DB) {
 	ctl2 := annCtl.NewAnnouncementURLController(db)
 
 	grp := r.Group("/announcements") // hasil akhir: /admin/announcements
-
-	grp.Get("/", ctl.List)      // ← get all
+	grp.Post("/", ctl.Create)      // Create (Admin: global; Teacher: wajib section)
+	grp.Get("/list", ctl.List)      // ← get all
 	grp.Get("/:id", ctl.GetByID) // ← get by id
 
 	// (opsional, kalau sudah ada handlernya)
@@ -25,7 +25,7 @@ func AnnouncementUserRoutes(r fiber.Router, db *gorm.DB) {
 	grp2 := r.Group("/announcement-urls")
 
 	// list & detail saja untuk user
-	grp2.Get("", ctl2.List)
-	grp2.Get("/", ctl2.List)
+	grp2.Post("/", ctl2.Create)
+	grp2.Get("/list", ctl2.List)
 	grp2.Get("/:id", ctl2.Detail)
 }
