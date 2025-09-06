@@ -27,11 +27,5 @@ func ClassUserRoutes(r fiber.Router, db *gorm.DB) {
 	uc.Get("/", my.ListMyUserClasses)     // GET list enrolment milik user
 	uc.Get("/:id", my.GetMyUserClassByID) // GET detail enrolment milik user
 	uc.Post("/", my.SelfEnroll)           // PMB: daftar kelas (status=inactive)
-
-
-	// ===== CPO (Class Pricing Options) - USER (read-only) =====
-	cpo := ctrl.NewCPOController(db)
-	r.Get("/classes/:class_id/pricing-options", cpo.UserListCPO)       // ?type=&limit=&offset=
-	r.Get("/classes/:class_id/pricing-options/latest", cpo.UserLatestCPO)
-	r.Get("/pricing-options/:id", cpo.UserGetCPOByID)                   // by pricing option id
+           // by pricing option id
 }

@@ -1,6 +1,11 @@
--- (Opsional) pgcrypto untuk gen_random_uuid()
+-- =========================================================
+-- PRASYARAT
+-- =========================================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+-- =========================================================
+-- TABEL: MASJID_SERVICE_PLANS
+-- =========================================================
 CREATE TABLE IF NOT EXISTS masjid_service_plans (
   masjid_service_plan_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -26,13 +31,31 @@ CREATE TABLE IF NOT EXISTS masjid_service_plans (
   masjid_service_plan_deleted_at TIMESTAMPTZ NULL
 );
 
-DROP TRIGGER IF EXISTS trg_set_updated_at_masjid_service_plans ON masjid_service_plans;
-CREATE TRIGGER trg_set_updated_at_masjid_service_plans
-BEFORE UPDATE ON masjid_service_plans
-FOR EACH ROW
-EXECUTE FUNCTION set_updated_at_masjid_service_plans();
+-- =========================================================
+-- INDEXING PENTING
+-- =========================================================
 
--- Seed data dasar
+-- 1) Lookup by code (case-insensitive)
+CREATE INDEX IF NOT EXISTS idx_msp_code_lower
+  ON masjid_service_plans (LOWER(masjid_service_plan_code));
+
+-- 2) Daftar plan aktif (soft-delete aware)
+CREATE INDEX IF NOT EXISTS idx_msp_active_alive
+  ON masjid_service_plans (masjid_service_plan_is_active)
+  WHERE masjid_service_plan_deleted_at IS NULL;
+
+-- 3) Listing aktif + urut harga bulanan (untuk katalog)
+CREATE INDEX IF NOT EXISTS idx_msp_active_price_monthly_alive
+  ON masjid_service_plans (masjid_service_plan_is_active, masjid_service_plan_price_monthly)
+  WHERE masjid_service_plan_deleted_at IS NULL;
+
+-- 4) Arsip/sort waktu yang hemat (besar tabel aman)
+CREATE INDEX IF NOT EXISTS brin_msp_created_at
+  ON masjid_service_plans USING brin (masjid_service_plan_created_at);
+
+-- =========================================================
+-- SEED DATA
+-- =========================================================
 INSERT INTO masjid_service_plans (
   masjid_service_plan_code, masjid_service_plan_name, masjid_service_plan_description,
   masjid_service_plan_max_teachers, masjid_service_plan_max_students, masjid_service_plan_max_storage_mb,

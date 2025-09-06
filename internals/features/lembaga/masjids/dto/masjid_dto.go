@@ -2,10 +2,12 @@
 package dto
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 
 	"masjidku_backend/internals/features/lembaga/masjids/model"
 )
@@ -14,33 +16,34 @@ import (
    REQUEST DTO — CREATE / UPDATE (writable fields only)
    Catatan:
    - is_verified & verified_at TIDAK diterima dari client
-     (diset otomatis lewat trigger saat verification_status berubah)
    - masjid_domain: "" => NULL, disimpan lower-case
+   - masjid_levels: optional (tags), contoh: ["kursus","ilmu_quran"]
 ========================================================= */
 
 type MasjidRequest struct {
 	// Relasi (opsional)
-	MasjidYayasanID   *uuid.UUID `json:"masjid_yayasan_id,omitempty"`
+	MasjidYayasanID     *uuid.UUID `json:"masjid_yayasan_id,omitempty"`
 	MasjidCurrentPlanID *uuid.UUID `json:"masjid_current_plan_id,omitempty"`
 
-	// Identitas & lokasi
-	MasjidName       string   `json:"masjid_name"`
-	MasjidBioShort   string   `json:"masjid_bio_short"`
-	MasjidLocation   string   `json:"masjid_location"`
-	MasjidLatitude   *float64 `json:"masjid_latitude,omitempty"`
-	MasjidLongitude  *float64 `json:"masjid_longitude,omitempty"`
+	// Identitas & lokasi ringkas
+	MasjidName     string `json:"masjid_name"`
+	MasjidBioShort string `json:"masjid_bio_short"`
+	MasjidLocation string `json:"masjid_location"`
 
 	// Domain & slug
 	MasjidDomain string `json:"masjid_domain"` // "" => NULL (lower-case)
 	MasjidSlug   string `json:"masjid_slug"`
 
-	// Aktivasi & Verifikasi (writable)
+	// Aktivasi & Verifikasi
 	MasjidIsActive           bool   `json:"masjid_is_active"`
 	MasjidVerificationStatus string `json:"masjid_verification_status"` // 'pending' | 'approved' | 'rejected'
 	MasjidVerificationNotes  string `json:"masjid_verification_notes"`
 
-	// Flag sekolah/pesantren
+	// Flag
 	MasjidIsIslamicSchool bool `json:"masjid_is_islamic_school"`
+
+	// Levels (tags)
+	MasjidLevels []string `json:"masjid_levels"`
 }
 
 /* =========================================================
@@ -48,27 +51,28 @@ type MasjidRequest struct {
 ========================================================= */
 
 type MasjidResponse struct {
-	MasjidID           string     `json:"masjid_id"`
-	MasjidYayasanID    *uuid.UUID `json:"masjid_yayasan_id,omitempty"`
+	MasjidID            string     `json:"masjid_id"`
+	MasjidYayasanID     *uuid.UUID `json:"masjid_yayasan_id,omitempty"`
 	MasjidCurrentPlanID *uuid.UUID `json:"masjid_current_plan_id,omitempty"`
 
-	MasjidName       string   `json:"masjid_name"`
-	MasjidBioShort   string   `json:"masjid_bio_short"`
-	MasjidDomain     string   `json:"masjid_domain"`
-	MasjidSlug       string   `json:"masjid_slug"`
-	MasjidLocation   string   `json:"masjid_location"`
-	MasjidLatitude   *float64 `json:"masjid_latitude,omitempty"`
-	MasjidLongitude  *float64 `json:"masjid_longitude,omitempty"`
+	MasjidName     string `json:"masjid_name"`
+	MasjidBioShort string `json:"masjid_bio_short"`
+	MasjidDomain   string `json:"masjid_domain"`
+	MasjidSlug     string `json:"masjid_slug"`
+	MasjidLocation string `json:"masjid_location"`
 
-	// Verifikasi (read-only hasil trigger)
+	// Verifikasi (read-only dari server)
 	MasjidIsActive           bool       `json:"masjid_is_active"`
 	MasjidIsVerified         bool       `json:"masjid_is_verified"`
 	MasjidVerificationStatus string     `json:"masjid_verification_status"`
 	MasjidVerifiedAt         *time.Time `json:"masjid_verified_at,omitempty"`
 	MasjidVerificationNotes  string     `json:"masjid_verification_notes"`
 
-	// Flag sekolah/pesantren
+	// Flag
 	MasjidIsIslamicSchool bool `json:"masjid_is_islamic_school"`
+
+	// Levels (tags)
+	MasjidLevels []string `json:"masjid_levels"`
 
 	// Audit
 	MasjidCreatedAt time.Time `json:"masjid_created_at"`
@@ -77,6 +81,9 @@ type MasjidResponse struct {
 
 /* =========================================================
    PARTIAL UPDATE DTO — pointer semua writable fields
+   Catatan:
+   - MasjidLevels pakai pointer ke slice; nil = tidak diubah,
+     &[]{} = set jadi array kosong.
 ========================================================= */
 
 type MasjidUpdateRequest struct {
@@ -84,24 +91,25 @@ type MasjidUpdateRequest struct {
 	MasjidYayasanID     *uuid.UUID `json:"masjid_yayasan_id"`
 	MasjidCurrentPlanID *uuid.UUID `json:"masjid_current_plan_id"`
 
-	// Identitas & lokasi
-	MasjidName       *string  `json:"masjid_name"`
-	MasjidBioShort   *string  `json:"masjid_bio_short"`
-	MasjidLocation   *string  `json:"masjid_location"`
-	MasjidLatitude   *float64 `json:"masjid_latitude"`
-	MasjidLongitude  *float64 `json:"masjid_longitude"`
+	// Identitas & lokasi ringkas
+	MasjidName     *string `json:"masjid_name"`
+	MasjidBioShort *string `json:"masjid_bio_short"`
+	MasjidLocation *string `json:"masjid_location"`
 
 	// Domain & slug
 	MasjidDomain *string `json:"masjid_domain"` // "" => NULL, lower-case
 	MasjidSlug   *string `json:"masjid_slug"`
 
-	// Aktivasi & Verifikasi
+	// Aktivasi & verifikasi
 	MasjidIsActive           *bool   `json:"masjid_is_active"`
-	MasjidVerificationStatus *string `json:"masjid_verification_status"` // trigger set flags
+	MasjidVerificationStatus *string `json:"masjid_verification_status"`
 	MasjidVerificationNotes  *string `json:"masjid_verification_notes"`
 
-	// Flag sekolah/pesantren
+	// Flag
 	MasjidIsIslamicSchool *bool `json:"masjid_is_islamic_school"`
+
+	// Levels (tags)
+	MasjidLevels *[]string `json:"masjid_levels"`
 }
 
 /* =========================================================
@@ -109,18 +117,17 @@ type MasjidUpdateRequest struct {
 ========================================================= */
 
 func FromModelMasjid(m *model.MasjidModel) MasjidResponse {
+	levels, _ := m.GetLevels() // kalau error, biarkan jadi [] kosong
 	return MasjidResponse{
-		MasjidID:           m.MasjidID.String(),
-		MasjidYayasanID:    m.MasjidYayasanID,
+		MasjidID:            m.MasjidID.String(),
+		MasjidYayasanID:     m.MasjidYayasanID,
 		MasjidCurrentPlanID: m.MasjidCurrentPlanID,
 
-		MasjidName:      m.MasjidName,
-		MasjidBioShort:  valOrEmpty(m.MasjidBioShort),
-		MasjidDomain:    valOrEmpty(m.MasjidDomain),
-		MasjidSlug:      m.MasjidSlug,
-		MasjidLocation:  valOrEmpty(m.MasjidLocation),
-		MasjidLatitude:  m.MasjidLatitude,
-		MasjidLongitude: m.MasjidLongitude,
+		MasjidName:     m.MasjidName,
+		MasjidBioShort: valOrEmpty(m.MasjidBioShort),
+		MasjidDomain:   valOrEmpty(m.MasjidDomain),
+		MasjidSlug:     m.MasjidSlug,
+		MasjidLocation: valOrEmpty(m.MasjidLocation),
 
 		MasjidIsActive:           m.MasjidIsActive,
 		MasjidIsVerified:         m.MasjidIsVerified,
@@ -129,6 +136,7 @@ func FromModelMasjid(m *model.MasjidModel) MasjidResponse {
 		MasjidVerificationNotes:  valOrEmpty(m.MasjidVerificationNotes),
 
 		MasjidIsIslamicSchool: m.MasjidIsIslamicSchool,
+		MasjidLevels:          levels,
 
 		MasjidCreatedAt: m.MasjidCreatedAt,
 		MasjidUpdatedAt: m.MasjidUpdatedAt,
@@ -137,27 +145,32 @@ func FromModelMasjid(m *model.MasjidModel) MasjidResponse {
 
 // ToModelMasjid: buat instance model dari request (untuk INSERT)
 func ToModelMasjid(in *MasjidRequest, id uuid.UUID) *model.MasjidModel {
-	return &model.MasjidModel{
-		MasjidID:           id,
-		MasjidYayasanID:    in.MasjidYayasanID,
+	m := &model.MasjidModel{
+		MasjidID:            id,
+		MasjidYayasanID:     in.MasjidYayasanID,
 		MasjidCurrentPlanID: in.MasjidCurrentPlanID,
 
-		MasjidName:      in.MasjidName,
-		MasjidBioShort:  normalizeOptionalStringToPtr(in.MasjidBioShort),
-		MasjidLocation:  normalizeOptionalStringToPtr(in.MasjidLocation),
-		MasjidLatitude:  in.MasjidLatitude,
-		MasjidLongitude: in.MasjidLongitude,
+		MasjidName:     in.MasjidName,
+		MasjidBioShort: normalizeOptionalStringToPtr(in.MasjidBioShort),
+		MasjidLocation: normalizeOptionalStringToPtr(in.MasjidLocation),
 
 		MasjidDomain: normalizeDomainToPtr(in.MasjidDomain),
 		MasjidSlug:   in.MasjidSlug,
 
-		// Flags/verify — is_verified & verified_at TIDAK di-set manual
 		MasjidIsActive:           in.MasjidIsActive,
 		MasjidVerificationStatus: model.VerificationStatus(in.MasjidVerificationStatus),
 		MasjidVerificationNotes:  normalizeOptionalStringToPtr(in.MasjidVerificationNotes),
 
 		MasjidIsIslamicSchool: in.MasjidIsIslamicSchool,
 	}
+
+	// Set levels (JSONB)
+	if len(in.MasjidLevels) > 0 {
+		if b, err := json.Marshal(in.MasjidLevels); err == nil {
+			m.MasjidLevels = datatypes.JSON(b)
+		}
+	}
+	return m
 }
 
 /* =========================================================
@@ -174,7 +187,7 @@ func ApplyMasjidUpdate(m *model.MasjidModel, u *MasjidUpdateRequest) {
 		m.MasjidCurrentPlanID = u.MasjidCurrentPlanID
 	}
 
-	// Identitas & lokasi
+	// Identitas & lokasi ringkas
 	if u.MasjidName != nil {
 		m.MasjidName = *u.MasjidName
 	}
@@ -183,12 +196,6 @@ func ApplyMasjidUpdate(m *model.MasjidModel, u *MasjidUpdateRequest) {
 	}
 	if u.MasjidLocation != nil {
 		m.MasjidLocation = normalizeOptionalStringToPtr(*u.MasjidLocation)
-	}
-	if u.MasjidLatitude != nil {
-		m.MasjidLatitude = u.MasjidLatitude
-	}
-	if u.MasjidLongitude != nil {
-		m.MasjidLongitude = u.MasjidLongitude
 	}
 
 	// Domain & slug
@@ -210,9 +217,19 @@ func ApplyMasjidUpdate(m *model.MasjidModel, u *MasjidUpdateRequest) {
 		m.MasjidVerificationNotes = normalizeOptionalStringToPtr(*u.MasjidVerificationNotes)
 	}
 
-	// Flag sekolah/pesantren
+	// Flag
 	if u.MasjidIsIslamicSchool != nil {
 		m.MasjidIsIslamicSchool = *u.MasjidIsIslamicSchool
+	}
+
+	// Levels (tags)
+	if u.MasjidLevels != nil {
+		if b, err := json.Marshal(*u.MasjidLevels); err == nil {
+			m.MasjidLevels = datatypes.JSON(b)
+		} else {
+			// jika ingin mengosongkan, kirim &[]string{}
+			m.MasjidLevels = datatypes.JSON([]byte("[]"))
+		}
 	}
 }
 
@@ -226,7 +243,7 @@ func normalizeOptionalStringToPtr(s string) *string {
 	if trim == "" {
 		return nil
 	}
-	return strPtr(trim)
+	return &trim
 }
 
 // Domain: "" -> nil; non-empty -> lower(trim)
@@ -246,5 +263,3 @@ func valOrEmpty(s *string) string {
 	}
 	return *s
 }
-
-func strPtr(s string) *string { return &s }

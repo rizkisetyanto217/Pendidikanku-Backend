@@ -37,30 +37,4 @@ func AcademicYearAdminRoutes(api fiber.Router, db *gorm.DB) {
 	adminTerms.Put("/:id", termCtl.Update)
 	adminTerms.Delete("/:id", termCtl.Delete)
 
-	// =========================================
-	// Class Term Openings (standalone, not nested)
-	// => /api/a/class-term-openings/...
-	// =========================================
-	openingCtl := academicTermCtl.NewClassTermOpeningController(db)
-
-	open := api.Group("/class-term-openings",
-		authMiddleware.OnlyRolesSlice(
-			constants.RoleErrorAdmin("mengelola class term openings"),
-			constants.AdminAndAbove,
-		),
-		masjidkuMiddleware.IsMasjidAdmin(),
-	)
-
-	// List (supports filters & pagination)
-	open.Get("/list", openingCtl.GetAllClassTermOpenings)
-	// Detail
-	open.Get("/:id", openingCtl.GetClassTermOpeningByID)
-	// Create
-	open.Post("/", openingCtl.CreateClassTermOpening)
-	// Update (partial)
-	open.Put("/:id", openingCtl.UpdateClassTermOpening)
-	// Soft delete
-	open.Delete("/:id", openingCtl.DeleteClassTermOpening)
-	// Optional: restore soft-deleted
-	open.Post("/:id/restore", openingCtl.RestoreClassTermOpening)
 }

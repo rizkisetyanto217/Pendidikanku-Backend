@@ -26,14 +26,5 @@ func AcademicYearUserRoutes(user fiber.Router, db *gorm.DB) {
 	r.Get("/search-with-class", termCtl.SearchByYear) // taruh sebelum :id agar tidak bentrok
 	r.Get("/:id", termCtl.GetByID)
 
-	// =========================================
-	// Class Term Openings (standalone, read-only)
-	// => /api/u/class-term-openings/...
-	// =========================================
-	openCtl := academicTermCtl.NewClassTermOpeningController(db)
 
-	open := user.Group("/class-term-openings"	)
-
-	open.Get("/list", openCtl.GetAllClassTermOpenings) // dukung filter via query
-	open.Get("/:id", openCtl.GetClassTermOpeningByID)
 }

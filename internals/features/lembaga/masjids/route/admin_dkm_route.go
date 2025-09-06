@@ -10,9 +10,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// Tambahkan *validator.Validate agar bisa diteruskan ke controller
 func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
-	masjidCtrl  := controller.NewMasjidController(db)
-	profileCtrl := controller.NewMasjidProfileController(db)
+	masjidCtrl  := controller.NewMasjidController(db)          // asumsi constructor ini tetap
+	profileCtrl := controller.NewMasjidProfileController(db, nil) // << sesuai controller terbaru
 
 	// =========================
 	// 🕌 MASJID
@@ -25,9 +26,9 @@ func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	masjidsAdmin := masjids.Group("/",
 		auth.OnlyRolesSlice(constants.RoleErrorAdmin("aksi ini untuk admin/owner"), constants.AdminAndAbove),
 	)
-	masjidsAdmin.Put("/",      masjidCtrl.UpdateMasjid)
-	masjidsAdmin.Delete("/",   masjidCtrl.DeleteMasjid)     // by body
-	masjidsAdmin.Delete("/:id", masjidCtrl.DeleteMasjid)    // by param
+	masjidsAdmin.Put("/",       masjidCtrl.UpdateMasjid)
+	masjidsAdmin.Delete("/",    masjidCtrl.DeleteMasjid)     // by body (kalau memang controller kamu dukung)
+	masjidsAdmin.Delete("/:id", masjidCtrl.DeleteMasjid)     // by param
 
 	// =========================
 	// 🏷️ MASJID PROFILE
@@ -37,8 +38,10 @@ func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	profiles := admin.Group("/masjid-profiles",
 		auth.OnlyRolesSlice(constants.RoleErrorAdmin("aksi ini untuk admin/owner"), constants.AdminAndAbove),
 	)
-	profiles.Post("/",        profileCtrl.CreateMasjidProfile)
-	profiles.Put("/",         profileCtrl.UpdateMasjidProfile)
-	profiles.Delete("/",      profileCtrl.DeleteMasjidProfile)
-	profiles.Delete("/:id",   profileCtrl.DeleteMasjidProfile)
+
+	// Sesuaikan dengan handler yang ada di MasjidProfileController:
+	// Create (POST /), Update (PATCH /:id), Delete (DELETE /:id)
+	profiles.Post("/",        profileCtrl.Create)
+	profiles.Patch("/:id",    profileCtrl.Update)
+	profiles.Delete("/:id",   profileCtrl.Delete)
 }

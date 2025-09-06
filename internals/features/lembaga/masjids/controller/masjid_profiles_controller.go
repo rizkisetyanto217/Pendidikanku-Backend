@@ -4,241 +4,358 @@ package controller
 import (
 	"errors"
 	"log"
-	"net/url"
+	"math"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
-	"masjidku_backend/internals/features/lembaga/masjids/dto"
-	"masjidku_backend/internals/features/lembaga/masjids/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
-
+	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+
+	d "masjidku_backend/internals/features/lembaga/masjids/dto"
+	m "masjidku_backend/internals/features/lembaga/masjids/model"
+
+	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
+/* =======================================================
+   Controller & Constructor
+   ======================================================= */
+
 type MasjidProfileController struct {
-	DB *gorm.DB
+	DB       *gorm.DB
+	Validate *validator.Validate
 }
 
-func NewMasjidProfileController(db *gorm.DB) *MasjidProfileController {
-	return &MasjidProfileController{DB: db}
+func NewMasjidProfileController(db *gorm.DB, v *validator.Validate) *MasjidProfileController {
+	return &MasjidProfileController{DB: db, Validate: v}
 }
 
-// 🟢 CREATE PROFILE (Admin-only, masjid_id dari token)
-func (mpc *MasjidProfileController) CreateMasjidProfile(c *fiber.Ctx) error {
+/* =======================================================
+   Helpers
+   ======================================================= */
+
+
+func isUniqueViolation(err error) bool {
+	// Postgres unique_violation code = 23505
+	return err != nil && strings.Contains(err.Error(), "duplicate key value violates unique constraint")
+}
+
+/* =======================================================
+   Handlers
+   ======================================================= */
+
+// Create (Admin-only). Satu masjid cuma boleh punya 1 profile.
+func (ctl *MasjidProfileController) Create(c *fiber.Ctx) error {
 	if !helperAuth.IsAdmin(c) {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak: hanya admin")
+		return helper.Error(c, http.StatusForbidden, "Akses ditolak: admin saja")
 	}
 
-	log.Println("[INFO] Create masjid profile")
-
-	// Ambil masjid_id dari token
-	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
-	if err != nil {
-		// helperAuth kemungkinan sudah mengembalikan *fiber.Error; propagasi apa adanya
-		return err
+	var req d.MasjidProfileCreateRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.Error(c, http.StatusBadRequest, "Payload tidak valid: "+err.Error())
 	}
-
-	// Ambil form values
-	desc := c.FormValue("masjid_profile_description")
-	tahunStr := c.FormValue("masjid_profile_founded_year")
-	tahun, _ := strconv.Atoi(strings.TrimSpace(tahunStr))
-
-	// Cek duplikat
-	var existing model.MasjidProfileModel
-	if err := mpc.DB.
-		Where("masjid_profile_masjid_id = ?", masjidUUID).
-		First(&existing).Error; err == nil {
-		// ketemu → sudah ada
-		return helper.JsonError(c, fiber.StatusConflict, "Profil masjid sudah ada")
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		// error lain → 500
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memeriksa profil masjid")
-	}
-	// kalau ErrRecordNotFound → lanjut create
-
-
-	// Upload file jika ada
-	upload := func(field string) string {
-		file, ferr := c.FormFile(field)
-		if ferr != nil || file == nil {
-			return ""
+	if ctl.Validate != nil {
+		if err := ctl.Validate.Struct(&req); err != nil {
+			return helper.ValidationError(c, err)
 		}
-		uploadedURL, uerr := helper.UploadImageToSupabase("masjids", file)
-		if uerr != nil {
-			return ""
+	}
+
+	// (Opsional) Override masjid_id dari token kalau ingin strict tenant
+	// (Opsional) Override masjid_id dari token kalau ingin strict tenant
+	if tokenMasjidID, err := helperAuth.GetMasjidIDFromToken(c); err == nil && tokenMasjidID != uuid.Nil {
+		req.MasjidProfileMasjidID = tokenMasjidID.String()
+	}
+
+
+	model := d.ToModelMasjidProfileCreate(&req)
+
+	// Pastikan belum ada profile utk masjid ini (UNIQUE)
+	var count int64
+	if err := ctl.DB.Model(&m.MasjidProfileModel{}).
+		Where("masjid_profile_masjid_id = ?", model.MasjidProfileMasjidID).
+		Count(&count).Error; err != nil {
+		return helper.Error(c, http.StatusInternalServerError, "DB error: "+err.Error())
+	}
+	if count > 0 {
+		return helper.Error(c, http.StatusConflict, "Profil untuk masjid ini sudah ada")
+	}
+
+	if err := ctl.DB.Create(model).Error; err != nil {
+		if isUniqueViolation(err) {
+			return helper.Error(c, http.StatusConflict, "Duplikasi NPSN/NSS/masjid_id")
 		}
-		return uploadedURL
-	}
-	logoURL := upload("masjid_profile_logo_url")
-	ttdURL := upload("masjid_profile_ttd_ketua_dkm_url")
-	stempelURL := upload("masjid_profile_stamp_url")
-
-	// Simpan
-	profile := model.MasjidProfileModel{
-		MasjidProfileMasjidID:       masjidUUID,
-		MasjidProfileDescription:    desc,
-		MasjidProfileFoundedYear:    tahun,
-		MasjidProfileLogoURL:        logoURL,
-		MasjidProfileTTDKetuaDKMURL: ttdURL,
-		MasjidProfileStampURL:       stempelURL,
-	}
-	if err := mpc.DB.Create(&profile).Error; err != nil {
-		log.Printf("[ERROR] Gagal simpan profil: %v", err)
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan profil")
+		return helper.Error(c, http.StatusInternalServerError, "Gagal membuat profil: "+err.Error())
 	}
 
-	return helper.JsonCreated(c, "Profil masjid berhasil dibuat", dto.FromModelMasjidProfile(&profile))
+	resp := d.FromModelMasjidProfile(model)
+	return helper.SuccessWithCode(c, http.StatusCreated, "Profil masjid berhasil dibuat", resp)
 }
 
-// 🟡 UPDATE PROFILE (Admin-only, masjid_id dari token)
-func (mpc *MasjidProfileController) UpdateMasjidProfile(c *fiber.Ctx) error {
-	if !helperAuth.IsAdmin(c) {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak: hanya admin")
-	}
-
-	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
+// GET /:id
+func (ctl *MasjidProfileController) GetByID(c *fiber.Ctx) error {
+	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return err
+		return helper.Error(c, http.StatusBadRequest, err.Error())
 	}
-	log.Printf("[INFO] Update profil masjid: %s\n", masjidUUID.String())
 
-	// Ambil entri lama
-	var existing model.MasjidProfileModel
-	if err := mpc.DB.
-		Where("masjid_profile_masjid_id = ?", masjidUUID).
-		First(&existing).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return helper.JsonError(c, fiber.StatusNotFound, "Profil masjid tidak ditemukan")
+	var p m.MasjidProfileModel
+	if err := ctl.DB.First(&p, "masjid_profile_id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.Error(c, http.StatusNotFound, "Profil tidak ditemukan")
 		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil profil masjid")
+		return helper.Error(c, http.StatusInternalServerError, "DB error: "+err.Error())
 	}
-
-	// Field text
-	if v := c.FormValue("masjid_profile_description"); v != "" {
-		existing.MasjidProfileDescription = v
-	}
-	if v := c.FormValue("masjid_profile_founded_year"); v != "" {
-		if tahun, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
-			existing.MasjidProfileFoundedYear = tahun
-		}
-	}
-
-	// File handler (hapus lama → upload baru; best-effort delete)
-	handleFileUpdate := func(fieldName, oldURL string, setter func(string)) error {
-		file, ferr := c.FormFile(fieldName)
-		if ferr == nil && file != nil {
-			if oldURL != "" {
-				if parsed, perr := url.Parse(oldURL); perr == nil {
-					cleaned := strings.TrimPrefix(parsed.Path, "/storage/v1/object/public/")
-					if u, uerr := url.QueryUnescape(cleaned); uerr == nil {
-						if parts := strings.SplitN(u, "/", 2); len(parts) == 2 {
-							_ = helper.DeleteFromSupabase(parts[0], parts[1])
-						}
-					}
-				}
-			}
-			newURL, uerr := helper.UploadImageToSupabase("masjids", file)
-			if uerr != nil {
-				return uerr
-			}
-			setter(newURL)
-		}
-		return nil
-	}
-
-	if err := handleFileUpdate("masjid_profile_logo_url", existing.MasjidProfileLogoURL, func(u string) {
-		existing.MasjidProfileLogoURL = u
-	}); err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal upload logo")
-	}
-	if err := handleFileUpdate("masjid_profile_ttd_ketua_dkm_url", existing.MasjidProfileTTDKetuaDKMURL, func(u string) {
-		existing.MasjidProfileTTDKetuaDKMURL = u
-	}); err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal upload TTD Ketua DKM")
-	}
-	if err := handleFileUpdate("masjid_profile_stamp_url", existing.MasjidProfileStampURL, func(u string) {
-		existing.MasjidProfileStampURL = u
-	}); err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal upload stempel")
-	}
-
-	// Simpan
-	if err := mpc.DB.Save(&existing).Error; err != nil {
-		log.Printf("[ERROR] Gagal update profil masjid: %v\n", err)
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update profil masjid")
-	}
-
-	return helper.JsonUpdated(c, "Profil masjid berhasil diperbarui", dto.FromModelMasjidProfile(&existing))
+	return helper.Success(c, "OK", d.FromModelMasjidProfile(&p))
 }
 
-// 🗑️ DELETE /api/a/masjid-profiles         -> pakai ID dari token
-// 🗑️ DELETE /api/a/masjid-profiles/:id     -> :id harus sama dengan ID dari token
-func (mpc *MasjidProfileController) DeleteMasjidProfile(c *fiber.Ctx) error {
-	if !helperAuth.IsAdmin(c) {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak: hanya admin yang dapat menghapus profil masjid")
-	}
-
-	// token scope
-	tokenMasjidID, err := helperAuth.GetMasjidIDFromToken(c)
+// GET /by-masjid/:masjid_id
+func (ctl *MasjidProfileController) GetByMasjidID(c *fiber.Ctx) error {
+	masjidID, err := parseUUIDParam(c, "masjid_id")
 	if err != nil {
-		return err
+		return helper.Error(c, http.StatusBadRequest, err.Error())
 	}
 
-	// cek optional :id
-	targetID := tokenMasjidID
-	if s := strings.TrimSpace(c.Params("id")); s != "" {
-		pathUUID, perr := uuid.Parse(s)
-		if perr != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Format ID pada path tidak valid")
+	var p m.MasjidProfileModel
+	if err := ctl.DB.First(&p, "masjid_profile_masjid_id = ?", masjidID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.Error(c, http.StatusNotFound, "Profil untuk masjid ini belum ada")
 		}
-		if pathUUID != tokenMasjidID {
-			return helper.JsonError(c, fiber.StatusForbidden, "Tidak boleh menghapus profil di luar scope Anda")
-		}
-		targetID = pathUUID
+		return helper.Error(c, http.StatusInternalServerError, "DB error: "+err.Error())
+	}
+	return helper.Success(c, "OK", d.FromModelMasjidProfile(&p))
+}
+
+// GET / (list + filter + pagination)
+func (ctl *MasjidProfileController) List(c *fiber.Ctx) error {
+	q := strings.TrimSpace(c.Query("q"))
+	pageStr := c.Query("page", "1")
+	limitStr := c.Query("limit", "20")
+
+	page, _ := strconv.Atoi(pageStr)
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(limitStr)
+	if limit < 1 || limit > 1000 {
+		limit = 20
+	}
+	offset := (page - 1) * limit
+
+	dbq := ctl.DB.Model(&m.MasjidProfileModel{}).Where("masjid_profile_deleted_at IS NULL")
+
+	// Full-text search (tsvector)
+	if q != "" {
+		dbq = dbq.Where("masjid_profile_search @@ plainto_tsquery('simple', ?)", q)
 	}
 
-	log.Printf("[INFO] Deleting masjid profile for masjid ID: %s\n", targetID.String())
+	// Filters
 
-	// cari profil
-	var existing model.MasjidProfileModel
-	if err := mpc.DB.Where("masjid_profile_masjid_id = ?", targetID).First(&existing).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return helper.JsonError(c, fiber.StatusNotFound, "Profil masjid tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mencari profil masjid")
+	if acc := strings.TrimSpace(c.Query("accreditation")); acc != "" {
+		dbq = dbq.Where("masjid_profile_school_accreditation = ?", acc)
 	}
-
-	// hapus file (best-effort)
-	deletePublicURL := func(u string) {
-		if u == "" {
-			return
-		}
-		if parsed, perr := url.Parse(u); perr == nil {
-			raw := strings.TrimPrefix(parsed.Path, "/storage/v1/object/public/")
-			if u2, uerr := url.QueryUnescape(raw); uerr == nil {
-				if parts := strings.SplitN(u2, "/", 2); len(parts) == 2 {
-					_ = helper.DeleteFromSupabase(parts[0], parts[1])
-				}
-			}
+	if ib := strings.TrimSpace(c.Query("is_boarding")); ib != "" {
+		switch strings.ToLower(ib) {
+		case "true", "1", "yes", "y":
+			dbq = dbq.Where("masjid_profile_school_is_boarding = TRUE")
+		case "false", "0", "no", "n":
+			dbq = dbq.Where("masjid_profile_school_is_boarding = FALSE")
 		}
 	}
-	deletePublicURL(existing.MasjidProfileLogoURL)
-	deletePublicURL(existing.MasjidProfileTTDKetuaDKMURL)
-	deletePublicURL(existing.MasjidProfileStampURL)
-
-	// hapus record
-	if err := mpc.DB.
-		Where("masjid_profile_masjid_id = ?", targetID).
-		Delete(&model.MasjidProfileModel{}).Error; err != nil {
-		log.Printf("[ERROR] Failed to delete masjid profile: %v\n", err)
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus profil masjid")
+	if fyMin := strings.TrimSpace(c.Query("founded_year_min")); fyMin != "" {
+		if v, err := strconv.Atoi(fyMin); err == nil {
+			dbq = dbq.Where("masjid_profile_founded_year >= ?", v)
+		}
+	}
+	if fyMax := strings.TrimSpace(c.Query("founded_year_max")); fyMax != "" {
+		if v, err := strconv.Atoi(fyMax); err == nil {
+			dbq = dbq.Where("masjid_profile_founded_year <= ?", v)
+		}
 	}
 
-	log.Printf("[SUCCESS] Masjid profile deleted for masjid ID %s\n", targetID.String())
-	return helper.JsonDeleted(c, "Profil masjid berhasil dihapus", fiber.Map{
-		"masjid_id": targetID.String(),
+	// Count
+	var total int64
+	if err := dbq.Count(&total).Error; err != nil {
+		return helper.Error(c, http.StatusInternalServerError, "DB error: "+err.Error())
+	}
+
+	// Data
+	var rows []m.MasjidProfileModel
+	if err := dbq.
+		Order("masjid_profile_created_at DESC").
+		Offset(offset).Limit(limit).
+		Find(&rows).Error; err != nil {
+		return helper.Error(c, http.StatusInternalServerError, "DB error: "+err.Error())
+	}
+
+	items := make([]d.MasjidProfileResponse, 0, len(rows))
+	for i := range rows {
+		items = append(items, d.FromModelMasjidProfile(&rows[i]))
+	}
+
+	return helper.Success(c, "OK", fiber.Map{
+		"items":      items,
+		"page":       page,
+		"limit":      limit,
+		"total":      total,
+		"totalPages": int(math.Ceil(float64(total) / float64(limit))),
 	})
 }
+
+// GET /nearest?lat=..&lon=..&limit=..
+func (ctl *MasjidProfileController) Nearest(c *fiber.Ctx) error {
+	latStr := strings.TrimSpace(c.Query("lat"))
+	lonStr := strings.TrimSpace(c.Query("lon"))
+	limitStr := strings.TrimSpace(c.Query("limit", "10"))
+
+	if latStr == "" || lonStr == "" {
+		return helper.Error(c, http.StatusBadRequest, "lat & lon wajib")
+	}
+	lat, err := strconv.ParseFloat(latStr, 64)
+	if err != nil {
+		return helper.Error(c, http.StatusBadRequest, "lat tidak valid")
+	}
+	lon, err := strconv.ParseFloat(lonStr, 64)
+	if err != nil {
+		return helper.Error(c, http.StatusBadRequest, "lon tidak valid")
+	}
+	limit, _ := strconv.Atoi(limitStr)
+	if limit < 1 || limit > 200 {
+		limit = 10
+	}
+
+	type rowWithDist struct {
+		m.MasjidProfileModel
+		Distance float64 `gorm:"column:distance"`
+	}
+
+	var rows []rowWithDist
+
+	// earth_distance return meter (butuh extension earthdistance + cube)
+	sql := `
+	SELECT mp.*,
+		earth_distance(
+			ll_to_earth(?, ?),
+			ll_to_earth(mp.masjid_profile_latitude::float8, mp.masjid_profile_longitude::float8)
+		) as distance
+	FROM masjids_profiles mp
+	WHERE mp.masjid_profile_latitude IS NOT NULL
+	AND mp.masjid_profile_longitude IS NOT NULL
+	AND mp.masjid_profile_deleted_at IS NULL
+	ORDER BY distance ASC
+	LIMIT ?;
+	`
+	if err := ctl.DB.Raw(sql, lat, lon, limit).Scan(&rows).Error; err != nil {
+		return helper.Error(c, http.StatusInternalServerError, "DB error: "+err.Error())
+	}
+
+	type item struct {
+		d.MasjidProfileResponse
+		Distance float64 `json:"distance_meters"`
+	}
+
+	out := make([]item, 0, len(rows))
+	for i := range rows {
+		resp := d.FromModelMasjidProfile(&rows[i].MasjidProfileModel)
+		out = append(out, item{MasjidProfileResponse: resp, Distance: rows[i].Distance})
+	}
+
+	return helper.Success(c, "OK", fiber.Map{"items": out})
+}
+
+// PATCH /:id
+func (ctl *MasjidProfileController) Update(c *fiber.Ctx) error {
+	if !helperAuth.IsOwner(c) && !helperAuth.IsAdmin(c) {
+		// ganti sesuai kebijakan aksesmu; minimal admin
+		return helper.Error(c, http.StatusForbidden, "Akses ditolak")
+	}
+
+	id, err := parseUUIDParam(c, "id")
+	if err != nil {
+		return helper.Error(c, http.StatusBadRequest, err.Error())
+	}
+
+	var req d.MasjidProfileUpdateRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.Error(c, http.StatusBadRequest, "Payload tidak valid: "+err.Error())
+	}
+
+	var p m.MasjidProfileModel
+	if err := ctl.DB.First(&p, "masjid_profile_id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.Error(c, http.StatusNotFound, "Profil tidak ditemukan")
+		}
+		return helper.Error(c, http.StatusInternalServerError, "DB error: "+err.Error())
+	}
+
+	// Terapkan patch ke struct in-memory
+	d.ApplyPatchToModel(&p, &req)
+
+	// Update selective fields (hindari overwrite kolom generated/read-only)
+	if err := ctl.DB.Model(&p).
+		Omit(
+			"masjid_profile_id",
+			"masjid_profile_masjid_id",
+			"masjid_profile_search",
+			"masjid_profile_created_at",
+		).
+		Select("*").
+		Updates(&p).Error; err != nil {
+
+		if isUniqueViolation(err) {
+			return helper.Error(c, http.StatusConflict, "Duplikasi NPSN/NSS")
+		}
+		return helper.Error(c, http.StatusInternalServerError, "Gagal update: "+err.Error())
+	}
+
+	// Reload to get updated_at
+	if err := ctl.DB.First(&p, "masjid_profile_id = ?", id).Error; err != nil {
+		log.Println("[WARN] reload after update:", err)
+	}
+
+	return helper.Success(c, "Profil masjid berhasil diperbarui", d.FromModelMasjidProfile(&p))
+}
+
+// DELETE (soft)
+func (ctl *MasjidProfileController) Delete(c *fiber.Ctx) error {
+	if !helperAuth.IsAdmin(c) {
+		return helper.Error(c, http.StatusForbidden, "Akses ditolak: admin saja")
+	}
+
+	id, err := parseUUIDParam(c, "id")
+	if err != nil {
+		return helper.Error(c, http.StatusBadRequest, err.Error())
+	}
+
+	// Soft delete pakai timestamp ke kolom deleted_at
+	if err := ctl.DB.
+		Model(&m.MasjidProfileModel{}).
+		Where("masjid_profile_id = ?", id).
+		Update("masjid_profile_deleted_at", time.Now()).
+		Error; err != nil {
+		return helper.Error(c, http.StatusInternalServerError, "Gagal menghapus: "+err.Error())
+	}
+
+	return helper.Success(c, "Profil masjid dihapus (soft delete)", fiber.Map{"deleted": true})
+}
+
+/* =======================================================
+   Notes
+   =======================================================
+
+- Pastikan extensions:
+  CREATE EXTENSION IF NOT EXISTS earthdistance;
+  CREATE EXTENSION IF NOT EXISTS cube;
+
+- Index di DDL (GIN tsvector, GIST ll_to_earth) akan mempercepat query /search & nearest.
+
+- Tenant-safe (opsional):
+  * Create: override masjid_id dari token (sudah disiapkan).
+  * Get/Update/Delete: validasi p.MasjidProfileMasjidID == tokenMasjidID untuk non-admin.
+
+- Jika ingin update super-aman (map only changed fields), ganti blok Updates dengan map dari field non-nil pada req.
+*/

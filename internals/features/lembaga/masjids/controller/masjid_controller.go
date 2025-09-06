@@ -3,8 +3,8 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -53,6 +53,39 @@ func ensureSlugUpdate(db *gorm.DB, existingSlug, candidate string) (string, erro
 	return helper.EnsureUniqueSlug(db, base, "masjids", "masjid_slug")
 }
 
+// sync verifikasi (tanpa trigger)
+func syncVerificationFlags(m *model.MasjidModel) {
+	if m.MasjidVerificationStatus == model.VerificationApproved {
+		m.MasjidIsVerified = true
+		if m.MasjidVerifiedAt == nil {
+			now := time.Now().UTC()
+			m.MasjidVerifiedAt = &now
+		}
+	} else {
+		m.MasjidIsVerified = false
+		m.MasjidVerifiedAt = nil
+	}
+}
+
+// set levels (tags) dari slice string ke model
+func setLevels(m *model.MasjidModel, levels []string) {
+	// bersihkan: trim, buang kosong, dedup
+	seen := map[string]struct{}{}
+	clean := make([]string, 0, len(levels))
+	for _, v := range levels {
+		t := strings.TrimSpace(v)
+		if t == "" {
+			continue
+		}
+		if _, ok := seen[t]; ok {
+			continue
+		}
+		seen[t] = struct{}{}
+		clean = append(clean, t)
+	}
+	_ = m.SetLevels(clean) // abaikan error marshal (input slice aman)
+}
+
 /* =========================
    UPDATE MASJID (Partial)
    PUT /api/a/masjids
@@ -75,13 +108,12 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	_ = ctx // (disiapkan bila butuh context ke depannya)
+	_ = ctx // reserved
 
 	// =========================
 	// MULTIPART
 	// =========================
 	if strings.Contains(c.Get("Content-Type"), "multipart/form-data") {
-		// akses langsung nilai multipart form jika key ada (termasuk empty string)
 		mf, _ := c.MultipartForm()
 		getField := func(key string) (string, bool) {
 			if mf == nil {
@@ -95,6 +127,13 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 				return "", true
 			}
 			return vals[0], true
+		}
+		getMulti := func(key string) ([]string, bool) {
+			if mf == nil {
+				return nil, false
+			}
+			vals, ok := mf.Value[key]
+			return vals, ok
 		}
 
 		// strings
@@ -110,25 +149,13 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 		if raw, ok := getField("masjid_location"); ok {
 			existing.MasjidLocation = normalizePtr(raw, false)
 		}
-		// domain: hanya update kalau key ada di form; "" -> NULL; else lower
+		// domain: hanya update kalau key ada; "" -> NULL; else lower
 		if raw, ok := getField("masjid_domain"); ok {
 			existing.MasjidDomain = normalizePtr(raw, true)
 		}
 		if v := strings.TrimSpace(c.FormValue("masjid_slug")); v != "" {
 			if newSlug, err := ensureSlugUpdate(mc.DB, existing.MasjidSlug, v); err == nil {
 				existing.MasjidSlug = newSlug
-			}
-		}
-
-		// numeric
-		if v := c.FormValue("masjid_latitude"); v != "" {
-			if lat, err := strconv.ParseFloat(v, 64); err == nil {
-				existing.MasjidLatitude = &lat
-			}
-		}
-		if v := c.FormValue("masjid_longitude"); v != "" {
-			if lng, err := strconv.ParseFloat(v, 64); err == nil {
-				existing.MasjidLongitude = &lng
 			}
 		}
 
@@ -152,7 +179,33 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 		}
 		// flag sekolah
 		if v := c.FormValue("masjid_is_islamic_school"); v != "" {
-			existing.MasjidIsIslamicSchool = v == "true" || v == "1"
+			existing.MasjidIsIslamicSchool = (v == "true" || v == "1")
+		}
+
+		// levels (tags): dukung 3 variasi
+		// 1) masjid_levels sebagai JSON string: '["kursus","ilmu_quran"]'
+		if raw, ok := getField("masjid_levels"); ok {
+			trim := strings.TrimSpace(raw)
+			if trim == "" {
+				setLevels(&existing, []string{}) // kosongkan
+			} else {
+				var arr []string
+				if err := json.Unmarshal([]byte(trim), &arr); err == nil {
+					setLevels(&existing, arr)
+				} else {
+					// fallback: comma-separated
+					parts := strings.Split(trim, ",")
+					setLevels(&existing, parts)
+				}
+			}
+		}
+		// 2) multiple: masjid_levels[]
+		if vals, ok := getMulti("masjid_levels[]"); ok {
+			setLevels(&existing, vals)
+		}
+		// 3) multiple: masjid_levels (repeated keys)
+		if vals, ok := getMulti("masjid_levels"); ok && len(vals) > 1 {
+			setLevels(&existing, vals)
 		}
 
 	// =========================
@@ -181,12 +234,6 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 		if input.MasjidLocation != nil {
 			existing.MasjidLocation = normalizePtr(*input.MasjidLocation, false)
 		}
-		if input.MasjidLatitude != nil {
-			existing.MasjidLatitude = input.MasjidLatitude
-		}
-		if input.MasjidLongitude != nil {
-			existing.MasjidLongitude = input.MasjidLongitude
-		}
 
 		// domain: "" → NULL; else lower
 		if input.MasjidDomain != nil {
@@ -213,7 +260,15 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 		if input.MasjidIsIslamicSchool != nil {
 			existing.MasjidIsIslamicSchool = *input.MasjidIsIslamicSchool
 		}
+
+		// Levels (tags)
+		if input.MasjidLevels != nil {
+			setLevels(&existing, *input.MasjidLevels)
+		}
 	}
+
+	// sinkronisasi flag verifikasi (tanpa trigger)
+	syncVerificationFlags(&existing)
 
 	if err := mc.DB.Save(&existing).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui masjid")

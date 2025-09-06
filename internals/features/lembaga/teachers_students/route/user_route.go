@@ -1,8 +1,7 @@
-// internals/features/users/user_profiles/routes/users_teacher_routes.go
 package route
 
 import (
-	teacherController "masjidku_backend/internals/features/lembaga/teachers/controller"
+	teacherController "masjidku_backend/internals/features/lembaga/teachers_students/controller"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -16,13 +15,15 @@ import (
 func UsersTeacherUserRoute(userRoute fiber.Router, db *gorm.DB) {
 	v := validator.New()
 	ctl := teacherController.NewUsersTeacherController(db, v)
+	std := teacherController.New(db, v)
 
 	g := userRoute.Group("/user-teachers")
-
-	// Route dengan segmen statis didaftarkan dulu (aman di Fiber, tapi lebih jelas).
 	g.Get("/by-user/:user_id", ctl.GetByUserID)
-
-	// List & detail
 	g.Get("/", ctl.List)
 	g.Get("/:id", ctl.GetByID)
+
+	// ==== STUDENT READ-ONLY ====
+	gs := userRoute.Group("/user-students")
+	gs.Get("/", std.List)
+	gs.Get("/:id", std.GetByID)
 }

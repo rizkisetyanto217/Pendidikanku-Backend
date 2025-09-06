@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	modelMasjidTeacher "masjidku_backend/internals/features/lembaga/teachers/model"
+	modelMasjidTeacher "masjidku_backend/internals/features/lembaga/teachers_students/model"
 	modelCSST "masjidku_backend/internals/features/school/subject_books/subject/model"
 	modelClassSection "masjidku_backend/internals/features/school/classes/class_sections/model"
 
