@@ -79,8 +79,14 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 		}
 		typ := strings.TrimSpace(c.FormValue("book_url_type"))
 
-		// Ambil file (opsional, tapi minimal harus ada file ATAU href)
+		// Ambil file (opsional, minimal harus ada file ATAU href)
 		fh, ferr := c.FormFile("file")
+		if ferr != nil || fh == nil || fh.Size == 0 {
+			// fallback: ada yang upload file di key book_url_href
+			if alt, e2 := c.FormFile("book_url_href"); e2 == nil && alt != nil && alt.Size > 0 {
+				fh, ferr = alt, nil
+			}
+		}
 
 		// Jika ada file → upload + convert webp
 		var href string

@@ -141,7 +141,11 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
    GET /api/a/masjid-teachers/by-masjid
    (masjid diambil dari token prefer TEACHER)
    ============================================ */
-func (ctrl *MasjidTeacherController) GetByMasjid(c *fiber.Ctx) error {
+/* ============================================
+   GET /api/a/masjid-teachers/by-masjid
+   (masjid diambil dari token prefer TEACHER)
+   ============================================ */
+func (ctrl *MasjidTeacherController) ListTeachers(c *fiber.Ctx) error {
 	// 👥 Prefer TEACHER -> UNION masjid_ids -> ADMIN
 	masjidUUID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
@@ -153,22 +157,25 @@ func (ctrl *MasjidTeacherController) GetByMasjid(c *fiber.Ctx) error {
 		MasjidTeacherMasjidID  string    `json:"masjid_teacher_masjid_id"`
 		MasjidTeacherUserID    string    `json:"masjid_teacher_user_id"`
 		UserName               string    `json:"user_name"`
+		FullName               string    `json:"full_name"` // <— ditambahkan
 		MasjidTeacherCreatedAt time.Time `json:"masjid_teacher_created_at"`
 		MasjidTeacherUpdatedAt time.Time `json:"masjid_teacher_updated_at"`
 	}
+
 	var result []MasjidTeacherWithName
 
 	if err := ctrl.DB.WithContext(c.Context()).
 		Table("masjid_teachers").
-		Select(`
-			masjid_teachers.masjid_teacher_id        AS masjid_teacher_id,
-			masjid_teachers.masjid_teacher_masjid_id AS masjid_teacher_masjid_id,
-			masjid_teachers.masjid_teacher_user_id   AS masjid_teacher_user_id,
-			users.user_name                           AS user_name,
-			masjid_teachers.masjid_teacher_created_at AS masjid_teacher_created_at,
-			masjid_teachers.masjid_teacher_updated_at AS masjid_teacher_updated_at
-		`).
 		Joins("JOIN users ON users.id = masjid_teachers.masjid_teacher_user_id").
+		Select(`
+			masjid_teachers.masjid_teacher_id         AS masjid_teacher_id,
+			masjid_teachers.masjid_teacher_masjid_id  AS masjid_teacher_masjid_id,
+			masjid_teachers.masjid_teacher_user_id    AS masjid_teacher_user_id,
+			users.user_name                            AS user_name,
+			COALESCE(users.full_name, '')              AS full_name,       -- <— ini dia
+			masjid_teachers.masjid_teacher_created_at  AS masjid_teacher_created_at,
+			masjid_teachers.masjid_teacher_updated_at  AS masjid_teacher_updated_at
+		`).
 		Where("masjid_teachers.masjid_teacher_masjid_id = ? AND masjid_teachers.masjid_teacher_deleted_at IS NULL", masjidUUID).
 		Order("masjid_teachers.masjid_teacher_created_at DESC").
 		Scan(&result).Error; err != nil {

@@ -8,35 +8,34 @@ import (
 	"gorm.io/gorm"
 )
 
-// ScheduleAdminRoutes mendaftarkan route untuk ADMIN (CRUD penuh)
+// ScheduleAdminRoutes mendaftarkan route untuk ADMIN (CRUD penuh + sinkronisasi CAS)
 func ScheduleAdminRoutes(admin fiber.Router, db *gorm.DB) {
-	// Controller untuk class_daily (occurrence)
-	daily := dailyctl.NewClassDailyController(db)
-
-	grpDaily := admin.Group("/class-daily")
-	grpDaily.Get("/", daily.List)
-	grpDaily.Get("/:id", daily.GetByID)
-	grpDaily.Post("/", daily.Create)
-	grpDaily.Put("/:id", daily.Update)
-	grpDaily.Patch("/:id", daily.Patch)
-	grpDaily.Delete("/:id", daily.Delete)
-
-	// Controller untuk class_schedules (rencana)
-	// Constructor jadwal masih menerima validator, kirim nil sesuai arahan "tanpa validator"
+	// constructor controller (validator nil sesuai arsitektur sekarang)
 	sched := dailyctl.New(db, nil)
 
 	grpSched := admin.Group("/class-schedules")
-	grpSched.Get("/", sched.List)
-	grpSched.Get("/:id", sched.GetByID)
-	grpSched.Post("/", sched.Create)
-	grpSched.Put("/:id", sched.Update)
-	grpSched.Patch("/:id", sched.Patch)
+
+	// CRUD jadwal
+	grpSched.Get("/list", sched.List)
+	// Proyeksi jadwal mingguan → occurrences (kalender)
+	// Query: ?from=YYYY-MM-DD&to=YYYY-MM-DD
+	grpSched.Get("/occurrences", sched.ListOccurrences)
+
+
+
+	grpSched.Get("/:id",  sched.GetByID)
+	grpSched.Post("/",    sched.Create)
+	grpSched.Put("/:id",  sched.Update)
+	grpSched.Patch("/:id",sched.Patch)
 	grpSched.Delete("/:id", sched.Delete)
+
+
+
+	// Sinkronisasi CAS dari jadwal
+	// Query: ?date=YYYY-MM-DD (jika kosong → today, lokal)
+	grpSched.Post("/ensure-cas", sched.EnsureCASForDate)
+
+	// Sinkronisasi CAS untuk rentang
+	// Query: ?from=YYYY-MM-DD&to=YYYY-MM-DD
+	grpSched.Post("/ensure-cas-range", sched.EnsureCASForRange)
 }
-
-/*
-Contoh mount di main.go:
-
-  apiAdmin := app.Group("/api/a") // sudah ada middleware auth + scope admin
-  routes.ScheduleAdminRoutes(apiAdmin, db)
-*/

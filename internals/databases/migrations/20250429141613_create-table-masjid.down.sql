@@ -16,17 +16,29 @@ DROP FUNCTION IF EXISTS sync_masjid_verification_flags();
 -- DROP TABLES (child -> parent)
 -- =============================
 
+-- Catatan: jika ada tabel lain yang FK ke tabel-tabel ini,
+-- drop dulu tabel/constraint tersebut. Hindari CASCADE kecuali memang ingin hard teardown.
+
 DROP TABLE IF EXISTS masjids_profiles;
 DROP TABLE IF EXISTS user_follow_masjid;
 DROP TABLE IF EXISTS masjids;
 
 -- =============================
--- DROP ENUM (jika tidak dipakai)
+-- DROP ENUM (hanya jika tidak dipakai)
 -- =============================
 DO $$
+DECLARE
+  cnt int;
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'verification_status_enum') THEN
-    DROP TYPE verification_status_enum;
+  -- Hitung berapa kolom yang masih memakai tipe enum ini
+  SELECT COUNT(*) INTO cnt
+  FROM pg_attribute a
+  WHERE a.atttypid = 'verification_status_enum'::regtype
+    AND a.attnum > 0
+    AND NOT a.attisdropped;
+
+  IF cnt = 0 THEN
+    EXECUTE 'DROP TYPE verification_status_enum';
   END IF;
 END$$;
 

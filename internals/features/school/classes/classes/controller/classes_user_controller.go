@@ -48,29 +48,78 @@ func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
 
 
 // GET /admin/classes
+// GET /admin/classes  (public-friendly; auth optional utk list saja)
 func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
-	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c) // ✅ teacher / dkm / admin / student (union)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+	// 1) Coba ambil masjid dari token (jika ada)
+	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c) // boleh gagal bila publik
+	if err != nil || len(masjidIDs) == 0 {
+		masjidIDs = []uuid.UUID{} // fallback ke query
+
+		// --- coba dari ?masjid_id= (bisa comma-separated)
+		rawIDs := strings.TrimSpace(c.Query("masjid_id"))
+		if rawIDs != "" {
+			for _, part := range strings.Split(rawIDs, ",") {
+				part = strings.TrimSpace(part)
+				if part == "" {
+					continue
+				}
+				if id, e := uuid.Parse(part); e == nil {
+					masjidIDs = append(masjidIDs, id)
+				} else {
+					return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id tidak valid")
+				}
+			}
+		}
+
+		// --- atau dari ?masjid_slug= (bisa comma-separated)
+		if len(masjidIDs) == 0 {
+			rawSlugs := strings.TrimSpace(c.Query("masjid_slug"))
+			if rawSlugs != "" {
+				slugs := make([]string, 0, 4)
+				for _, s := range strings.Split(rawSlugs, ",") {
+					s = strings.TrimSpace(s)
+					if s != "" {
+						slugs = append(slugs, s)
+					}
+				}
+				if len(slugs) > 0 {
+					var ids []uuid.UUID
+					if err := ctrl.DB.
+						Table("masjids").
+						Select("masjid_id").
+						Where("masjid_slug IN ?", slugs).
+						Where("masjid_deleted_at IS NULL").
+						Scan(&ids).Error; err != nil {
+						return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membaca masjid_slug")
+					}
+					masjidIDs = append(masjidIDs, ids...)
+				}
+			}
+		}
+
+		// --- jika tetap kosong → tolak (demi tenant safety)
+		if len(masjidIDs) == 0 {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Tanpa auth, wajib kirim masjid_id atau masjid_slug")
+		}
 	}
 
-	// --- parse filter ringan via Fiber (mode, code, active, search)
+	// 2) parse filter ringan via Fiber (mode, code, active, search)
 	var q dto.ListClassQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 
-	// --- pagination + sorting via helper.ParseWith (pakai AdminOpts)
+	// 3) pagination + sorting via helper.ParseWith (pakai AdminOpts)
 	rawQuery := string(c.Request().URI().QueryString())
 	httpReq, _ := http.NewRequest("GET", "http://local?"+rawQuery, nil)
 	p := helper.ParseWith(httpReq, "created_at", "desc", helper.AdminOpts)
 
-	// base query
+	// 4) base query (tenant-safe)
 	tx := ctrl.DB.Model(&model.ClassModel{}).
-		Where("class_masjid_id IN ?", masjidIDs). // ✅ support multi-masjid
+		Where("class_masjid_id IN ?", masjidIDs).
 		Where("class_deleted_at IS NULL")
 
-	// filters
+	// 5) filters
 	if q.ActiveOnly != nil {
 		tx = tx.Where("class_is_active = ?", *q.ActiveOnly)
 	}
@@ -89,13 +138,13 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		`, s, s, s)
 	}
 
-	// total sebelum paging
+	// 6) total
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
-	// sorting whitelist (pakai p.SortBy + p.SortOrder)
+	// 7) sorting whitelist
 	sortBy := strings.ToLower(strings.TrimSpace(p.SortBy))
 	order := strings.ToLower(strings.TrimSpace(p.SortOrder))
 	if order != "asc" && order != "desc" {
@@ -112,7 +161,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		tx = tx.Order("class_created_at " + strings.ToUpper(order))
 	}
 
-	// data + paging
+	// 8) data + paging
 	var rows []model.ClassModel
 	if err := tx.
 		Limit(p.Limit()).
@@ -126,10 +175,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		items = append(items, dto.NewClassResponse(&rows[i]))
 	}
 
-	// meta dari helper
 	meta := helper.BuildMeta(total, p)
-
-	// respons standar
 	return helper.JsonList(c, items, meta)
 }
 

@@ -46,16 +46,13 @@ func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
 }
 
 // Ambil masjid_id aktif dari token (teacher/admin/dkm) dan pastikan konsisten dengan body.
-// Jika token tidak punya scope masjid (akses publik/umum), tidak dipaksa.
+// Jika token tidak punya scope masjid, dilepas (public).
 func enforceMasjidScopeAuth(c *fiber.Ctx, bodyMasjidID *uuid.UUID) error {
 	if bodyMasjidID == nil || *bodyMasjidID == uuid.Nil {
-		// tidak ada info untuk divalidasi
 		return nil
 	}
 	act, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil || act == uuid.Nil {
-		// tidak ada scope → biarkan lewat (public route) atau kembalikan 403 jika mau ketat
-		// return fiber.NewError(fiber.StatusForbidden, "Masjid scope tidak ditemukan di token")
 		return nil
 	}
 	if act != *bodyMasjidID {
@@ -99,7 +96,6 @@ func parseTimeOfDayParam(s string) (time.Time, error) {
 	if s == "" {
 		return time.Time{}, fmt.Errorf("empty time")
 	}
-	// support HH:mm lalu HH:mm:ss
 	if t, err := time.Parse("15:04", s); err == nil {
 		return t, nil
 	}
@@ -118,9 +114,10 @@ type listQuery struct {
 	MasjidID       string `query:"masjid_id"`
 	SectionID      string `query:"section_id"`
 	ClassSubjectID string `query:"class_subject_id"`
+	CSSTID         string `query:"csst_id"` // ✨ baru: filter by class_schedules_csst_id
 	RoomID         string `query:"room_id"`
-	TeacherID      string `query:"teacher_id"` // ✨ baru
-	Status         string `query:"status"`     // scheduled|ongoing|completed|canceled
+	TeacherID      string `query:"teacher_id"`
+	Status         string `query:"status"` // scheduled|ongoing|completed|canceled
 	Active         *bool  `query:"active"`
 	DayOfWeek      *int   `query:"dow"`        // 1..7
 	OnDate         string `query:"on_date"`    // YYYY-MM-DD
@@ -166,13 +163,19 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		}
 		db = db.Where("class_schedules_class_subject_id = ?", q.ClassSubjectID)
 	}
+	if q.CSSTID != "" {
+		if _, err := uuid.Parse(q.CSSTID); err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, "csst_id invalid")
+		}
+		db = db.Where("class_schedules_csst_id = ?", q.CSSTID)
+	}
 	if q.RoomID != "" {
 		if _, err := uuid.Parse(q.RoomID); err != nil {
 			return helper.JsonError(c, http.StatusBadRequest, "room_id invalid")
 		}
 		db = db.Where("class_schedules_room_id = ?", q.RoomID)
 	}
-	if q.TeacherID != "" { // ✨ filter teacher
+	if q.TeacherID != "" {
 		if _, err := uuid.Parse(q.TeacherID); err != nil {
 			return helper.JsonError(c, http.StatusBadRequest, "teacher_id invalid")
 		}
@@ -196,7 +199,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		db = db.Where("class_schedules_day_of_week = ?", *q.DayOfWeek)
 	}
 
-	// on_date filter → tanggal di rentang start..end, dan DOW match
+	// on_date filter → tanggal dalam rentang start..end, dan DOW match
 	if strings.TrimSpace(q.OnDate) != "" {
 		dt, err := time.Parse("2006-01-02", q.OnDate)
 		if err != nil {
@@ -270,7 +273,6 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		out = append(out, d.NewClassScheduleResponse(&rows[i]))
 	}
 
-	// pagination meta sederhana
 	meta := fiber.Map{
 		"limit":  q.Limit,
 		"offset": q.Offset,
@@ -305,9 +307,8 @@ func (ctl *ClassScheduleController) GetByID(c *fiber.Ctx) error {
 /* =========================
    Create
    ========================= */
-
 func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
-	// 🔐 hanya Admin/DKM/Teacher
+	// 🔐 Admin/DKM/Teacher
 	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
@@ -316,6 +317,15 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
+
+	// 🔒 Ambil masjid_id dari token (admin/teacher) & override body
+	actMasjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || actMasjidID == uuid.Nil {
+		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan di token")
+	}
+	req.ClassSchedulesMasjidID = actMasjidID.String()
+
+	// Validasi setelah di-inject
 	if err := req.Validate(ctl.Validate); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
@@ -325,10 +335,10 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	// Enforce masjid scope via helperAuth
-	if err := enforceMasjidScopeAuth(c, &model.ClassSchedulesMasjidID); err != nil {
-		return helper.JsonError(c, http.StatusForbidden, err.Error())
-	}
+	// (Opsional; redundant karena sudah di-override, tapi aman)
+	// if err := enforceMasjidScopeAuth(c, &model.ClassSchedulesMasjidID); err != nil {
+	// 	return helper.JsonError(c, http.StatusForbidden, err.Error())
+	// }
 
 	if err := ctl.DB.Create(&model).Error; err != nil {
 		return writePGError(c, err)
@@ -342,7 +352,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
    ========================= */
 
 func (ctl *ClassScheduleController) Update(c *fiber.Ctx) error {
-	// 🔐 hanya Admin/DKM/Teacher
+	// 🔐 Admin/DKM/Teacher
 	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
@@ -390,7 +400,7 @@ func (ctl *ClassScheduleController) Update(c *fiber.Ctx) error {
    ========================= */
 
 func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
-	// 🔐 hanya Admin/DKM/Teacher
+	// 🔐 Admin/DKM/Teacher
 	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
@@ -439,7 +449,7 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
    ========================= */
 
 func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
-	// 🔐 hanya Admin/DKM/Teacher
+	// 🔐 Admin/DKM/Teacher
 	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}

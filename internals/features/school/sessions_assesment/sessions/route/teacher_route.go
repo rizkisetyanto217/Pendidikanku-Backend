@@ -1,3 +1,4 @@
+// file: internals/features/school/sessions_assesment/sessions/route/teacher_routes.go
 package route
 
 import (
@@ -6,6 +7,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
+
+
 
 func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	// Controller untuk sessions
@@ -27,7 +30,7 @@ func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	// =====================
 	ua := uaCtrl.NewUserAttendanceController(db)
 	uaGroup := r.Group("/user-sessions")
-	uaGroup.Get("/", ua.List)         // list tenant-safe
+	uaGroup.Get("/list", ua.List)         // list tenant-safe
 	uaGroup.Post("/", ua.Create)      // create
 	uaGroup.Get("/:id", ua.GetByID)   // detail
 	uaGroup.Patch("/:id", ua.Update)  // partial update
@@ -45,14 +48,23 @@ func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	urlGroup.Delete("/:id", urlCtl.Delete) // soft delete (+ move to spam)
 
 	// =====================
-	// User Attendance URLs (CRUD)  <-- DITAMBAHKAN
+	// User Attendance URLs (CRUD)
 	// =====================
 	uauCtl := uaCtrl.NewUserAttendanceUrlController(db)
 	uauGroup := r.Group("/user-session-urls")
-	uauGroup.Post("/", uauCtl.CreateJSON)         // create via JSON (href langsung)
+	uauGroup.Post("/", uauCtl.CreateJSON)             // create via JSON (href langsung)
 	uauGroup.Post("/multipart", uauCtl.CreateMultipart) // create via multipart (upload -> OSS -> href)
-	uauGroup.Patch("/:id", uauCtl.Update)         // update (JSON atau multipart)
-	uauGroup.Get("/:id", uauCtl.GetByID)          // detail by id
-	uauGroup.Get("/", uauCtl.ListByAttendance)    // ?attendance_id=...&limit=&offset=
-	uauGroup.Delete("/:id", uauCtl.SoftDelete)    // soft delete
+	uauGroup.Patch("/:id", uauCtl.Update)             // update (JSON atau multipart)
+	uauGroup.Get("/:id", uauCtl.GetByID)              // detail by id
+	uauGroup.Get("/", uauCtl.ListByAttendance)        // ?attendance_id=...&limit=&offset=
+	uauGroup.Delete("/:id", uauCtl.SoftDelete)        // soft delete
+
+	// =====================
+	// Occurrences (Schedule & Attendance)
+	// =====================
+	occ := uaCtrl.NewOccurrenceController(db)
+	// rencana (berulang mingguan → di-expand by date range)
+	r.Get("/class-schedules/occurrences", occ.ListScheduleOccurrences)
+	// sesi kehadiran aktual (langsung dari CAS)
+	r.Get("/class-attendance-sessions/occurrences", occ.ListAttendanceOccurrences)
 }

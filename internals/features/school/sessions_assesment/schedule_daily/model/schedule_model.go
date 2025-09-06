@@ -6,6 +6,8 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+
+	dbtime "masjidku_backend/internals/helpers/dbtime"
 )
 
 /* =======================================================
@@ -33,19 +35,22 @@ type ClassScheduleModel struct {
 	// Induk jadwal → section
 	ClassSchedulesSectionID uuid.UUID `json:"class_schedules_section_id" gorm:"type:uuid;not null;column:class_schedules_section_id"`
 
-	// Mapel konteks (kelas+mapel[+term]) → class_subjects
+	// Kurikulum (kelas+mapel[+term]) → class_subjects
 	ClassSchedulesClassSubjectID uuid.UUID `json:"class_schedules_class_subject_id" gorm:"type:uuid;not null;column:class_schedules_class_subject_id"`
+
+	// Assignment CSST (section+class_subject+teacher)
+	ClassSchedulesCSSTID *uuid.UUID `json:"class_schedules_csst_id,omitempty" gorm:"type:uuid;column:class_schedules_csst_id"`
 
 	// Room (nullable)
 	ClassSchedulesRoomID *uuid.UUID `json:"class_schedules_room_id,omitempty" gorm:"type:uuid;column:class_schedules_room_id"`
 
-	// ✨ Guru (nullable) → masjid_teachers
+	// Guru cache (nullable) → masjid_teachers
 	ClassSchedulesTeacherID *uuid.UUID `json:"class_schedules_teacher_id,omitempty" gorm:"type:uuid;column:class_schedules_teacher_id"`
 
 	// Pola berulang
 	ClassSchedulesDayOfWeek int       `json:"class_schedules_day_of_week" gorm:"type:int;not null;column:class_schedules_day_of_week"` // 1..7
-	ClassSchedulesStartTime time.Time `json:"class_schedules_start_time" gorm:"type:time;not null;column:class_schedules_start_time"`
-	ClassSchedulesEndTime   time.Time `json:"class_schedules_end_time"   gorm:"type:time;not null;column:class_schedules_end_time"`
+	ClassSchedulesStartTime dbtime.Tod `json:"class_schedules_start_time"   gorm:"type:time;not null;column:class_schedules_start_time"`
+	ClassSchedulesEndTime   dbtime.Tod `json:"class_schedules_end_time"     gorm:"type:time;not null;column:class_schedules_end_time"`
 
 	// Batas berlaku
 	ClassSchedulesStartDate time.Time `json:"class_schedules_start_date" gorm:"type:date;not null;column:class_schedules_start_date"`
@@ -55,7 +60,7 @@ type ClassScheduleModel struct {
 	ClassSchedulesStatus   SessionStatus `json:"class_schedules_status"   gorm:"type:session_status_enum;not null;default:'scheduled';column:class_schedules_status"`
 	ClassSchedulesIsActive bool          `json:"class_schedules_is_active" gorm:"type:boolean;not null;default:true;column:class_schedules_is_active"`
 
-	// Kolom generated (read-only; int4range dibaca sebagai string representasi)
+	// Kolom generated (read-only; int4range -> string representasi)
 	ClassSchedulesTimeRange *string `json:"class_schedules_time_range,omitempty" gorm:"->;column:class_schedules_time_range"`
 
 	// Timestamps eksplisit (sesuai skema SQL)

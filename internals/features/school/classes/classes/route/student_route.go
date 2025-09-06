@@ -14,7 +14,7 @@ func ClassUserRoutes(r fiber.Router, db *gorm.DB) {
 	cls := ctrl.NewClassController(db)
 
 	classes := r.Group("/classes")
-	classes.Get("/", cls.ListClasses)            // list kelas (read-only)
+	classes.Get("/list", cls.ListClasses)            // list kelas (read-only)
 	classes.Get("/search", cls.SearchWithSubjects)
 	classes.Get("/slug/:slug", cls.GetClassBySlug)
 	classes.Get("/:id", cls.GetClassByID)

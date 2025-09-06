@@ -26,7 +26,7 @@ func ClassBooksAdminRoutes(r fiber.Router, db *gorm.DB) {
 
 	// /api/a/class-books
 	books := r.Group("/books", adminGuard)
-	books.Get("/with-usages", booksCtl.ListWithUsages)
+	books.Get("/list", booksCtl.List)
 	books.Post("/",   booksCtl.Create)
 	books.Get("/:id", booksCtl.GetWithUsagesByID)
 	books.Put("/:id", booksCtl.Update)

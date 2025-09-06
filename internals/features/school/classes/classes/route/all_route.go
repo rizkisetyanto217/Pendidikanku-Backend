@@ -13,5 +13,6 @@ func ClassAllRoutes(admin fiber.Router, db *gorm.DB) {
 
 	// /admin/classes (semua pakai IsMasjidAdmin)
 	classes := admin.Group("/classes")
+	classes.Get("/list", h.ListClasses)      
 	classes.Get("/slug/:slug", h.GetClassBySlug)
 }

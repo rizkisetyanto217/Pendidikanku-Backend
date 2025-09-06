@@ -10,22 +10,14 @@ import (
 
 // ScheduleUserRoutes mendaftarkan route untuk USER (read-only)
 func ScheduleUserRoutes(user fiber.Router, db *gorm.DB) {
-	// class_daily (occurrence harian)
-	daily := dailyctl.NewClassDailyController(db)
-	dg := user.Group("/class-daily")
-	dg.Get("/", daily.List)
-	dg.Get("/:id", daily.GetByID)
+	sched := dailyctl.New(db, nil)
 
-	// class_schedules (rencana)
-	sched := dailyctl.New(db, nil) // validator nil
 	sg := user.Group("/class-schedules")
-	sg.Get("/", sched.List)
+	sg.Get("/list",    sched.List)
+		// Proyeksi jadwal → occurrences (kalender pengguna)
+	// Query: ?from=YYYY-MM-DD&to=YYYY-MM-DD
+	sg.Get("/occurrences", sched.ListOccurrences)
 	sg.Get("/:id", sched.GetByID)
+
+
 }
-
-/*
-Contoh mount di main.go:
-
-  apiUser := app.Group("/api/u") // middleware auth user/public sesuai kebutuhan
-  routes.ScheduleUserRoutes(apiUser, db)
-*/

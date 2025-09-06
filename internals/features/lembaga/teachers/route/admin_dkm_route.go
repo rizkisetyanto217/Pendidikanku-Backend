@@ -22,7 +22,7 @@ func MasjidAdminRoutes(api fiber.Router, db *gorm.DB) {
 		masjidkuMiddleware.IsMasjidAdmin(), // scoping masjid_id dari token
 	)
 
-	masjidTeachers.Post("/",         ctrlTeacher.Create)
-	masjidTeachers.Get("/by-masjid", ctrlTeacher.GetByMasjid)
-	masjidTeachers.Delete("/:id",    ctrlTeacher.Delete)
+	masjidTeachers.Post("/", ctrlTeacher.Create)
+	masjidTeachers.Get("/list", ctrlTeacher.ListTeachers)
+	masjidTeachers.Delete("/:id", ctrlTeacher.Delete)
 }

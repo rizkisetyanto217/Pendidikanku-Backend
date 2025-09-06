@@ -61,6 +61,16 @@ func scopeClassSubject(id *uuid.UUID) func(*gorm.DB) *gorm.DB {
 	}
 }
 
+// (baru) filter by CSST
+func scopeCSST(id *uuid.UUID) func(*gorm.DB) *gorm.DB {
+	return func(db *gorm.DB) *gorm.DB {
+		if id == nil {
+			return db
+		}
+		return db.Where("class_attendance_sessions_csst_id = ?", *id)
+	}
+}
+
 // Filter berdasarkan masjid_teacher_id yang tersimpan di CAS.teacher_id
 func scopeTeacherId(teacherId *uuid.UUID) func(*gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
@@ -177,9 +187,10 @@ func (ctrl *ClassAttendanceSessionController) GetClassAttendanceSession(c *fiber
 }
 
 /* ==========================================================================================
-   GET /admin/class-attendance-sessions?section_id=&teacher_id=&teacher_user_id=&class_subject_id=&date_from=&date_to=&limit=&offset=
+   GET /admin/class-attendance-sessions?section_id=&teacher_id=&teacher_user_id=&class_subject_id=&csst_id=&date_from=&date_to=&limit=&offset=
    - teacher_id        → masjid_teacher_id (langsung ke CAS.teacher_id)
    - teacher_user_id   → users.id (legacy), lewat JOIN ke masjid_teachers
+   - csst_id           → class_section_subject_teachers_id (baru, opsional)
 ========================================================================================== */
 
 func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fiber.Ctx) error {
@@ -198,24 +209,21 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	isTeacher := teacherMasjidID != uuid.Nil && teacherMasjidID == masjidID
 
 	// ===== Pagination & sorting (via helper) =====
-	// bikin http.Request minimal supaya helper bisa parse query
 	rawQ := string(c.Request().URI().QueryString())
 	httpReq := &http.Request{URL: &url.URL{RawQuery: rawQ}}
 
 	// pakai preset AdminOpts (endpoint /admin/...)
 	p := helper.ParseWith(httpReq, "date", "desc", helper.AdminOpts)
 
-	// whitelist kolom sort
+	// whitelist kolom sort (tanpa created_at karena tidak ada di skema)
 	allowedSort := map[string]string{
-		"date":       "class_attendance_sessions_date",
-		"created_at": "class_attendance_sessions_created_at",
-		"title":      "class_attendance_sessions_title",
+		"date":  "class_attendance_sessions_date",
+		"title": "class_attendance_sessions_title",
 	}
 	orderClause, err := p.SafeOrderClause(allowedSort, "date")
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "sort_by tidak valid")
 	}
-	// GORM butuh "col DIR" (tanpa "ORDER BY ")
 	orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
 
 	// ===== Query params filter lain =====
@@ -270,6 +278,16 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		}
 	}
 
+	// (baru) optional: csst_id
+	var csstIDPtr *uuid.UUID
+	if s := strings.TrimSpace(c.Query("csst_id")); s != "" {
+		if id, e := uuid.Parse(s); e == nil {
+			csstIDPtr = &id
+		} else {
+			return fiber.NewError(fiber.StatusBadRequest, "csst_id tidak valid")
+		}
+	}
+
 	// ===== Base query + scopes =====
 	qBase := ctrl.DB.Model(&attendanceModel.ClassAttendanceSessionModel{}).
 		Scopes(
@@ -277,6 +295,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			scopeDateBetween(df, dt),
 			scopeSection(sectionIDPtr),
 			scopeClassSubject(classSubjectIDPtr),
+			scopeCSST(csstIDPtr),
 			scopeTeacherId(teacherIdPtr), // langsung ke CAS.teacher_id
 		)
 
@@ -329,8 +348,8 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	var rows []attendanceModel.ClassAttendanceSessionModel
 	if err := qBase.
 		Order(orderExpr).
-		// secondary order untuk stabilitas bila sort_by sama
-		Order("class_attendance_sessions_created_at DESC").
+		// secondary order untuk stabilitas (tanpa created_at di skema)
+		Order("class_attendance_sessions_id DESC").
 		Limit(p.Limit()).
 		Offset(p.Offset()).
 		Find(&rows).Error; err != nil {

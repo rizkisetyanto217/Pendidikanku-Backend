@@ -11,7 +11,7 @@ import (
 // Contoh penggunaan middleware auth jika ada:
 // import mw "masjidku_backend/internals/middlewares"
 
-func AttendanceSessionsUserRoutes(r fiber.Router, db *gorm.DB) {
+func AttendanceSessionsAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// Attendance Sessions
 	attendanceSessionController := uaCtrl.NewClassAttendanceSessionController(db)
 	attendanceSessionGroup := r.Group("/class-attendance-sessions" /* , mw.AuthRequired() */)
