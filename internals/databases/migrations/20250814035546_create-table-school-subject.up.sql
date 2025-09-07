@@ -1,6 +1,6 @@
 -- =========================================================
--- FRESH/SAFE INSTALL: Subjects, Class-Subjects, CSST (refer to class_subjects)
--- Idempotent & ready for use
+-- FRESH/SAFE INSTALL (MINIMAL): Subjects, Class-Subjects, CSST
+-- Tanpa trigger & tanpa function validasi/normalisasi
 -- =========================================================
 BEGIN;
 
@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS subjects (
   subjects_deleted_at TIMESTAMPTZ
 );
 
+-- Pastikan kolom slug ada (idempotent)
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -38,7 +39,7 @@ BEGIN
   END IF;
 END$$;
 
--- Backfill slug unik per masjid (soft-delete aware)
+-- (Opsional) Backfill slug unik per masjid (soft-delete aware) — bukan trigger, hanya sekali jalan.
 WITH base AS (
   SELECT s.subjects_id, s.subjects_masjid_id,
          COALESCE(NULLIF(trim(s.subjects_slug), ''),
@@ -74,6 +75,7 @@ FROM final_slug f
 WHERE s.subjects_id = f.subjects_id
   AND (s.subjects_slug IS NULL OR trim(s.subjects_slug) = '');
 
+-- NOT NULL & CHECK sederhana (tidak pakai trigger normalisasi)
 DO $$
 BEGIN
   BEGIN
@@ -92,6 +94,7 @@ BEGIN
   END IF;
 END$$;
 
+-- Index & unik soft-delete aware
 CREATE UNIQUE INDEX IF NOT EXISTS uq_subjects_code_per_masjid
   ON subjects (subjects_masjid_id, lower(subjects_code))
   WHERE subjects_deleted_at IS NULL;
@@ -112,36 +115,16 @@ CREATE INDEX IF NOT EXISTS idx_subjects_masjid_alive
   ON subjects(subjects_masjid_id)
   WHERE subjects_deleted_at IS NULL;
 
-CREATE OR REPLACE FUNCTION fn_subjects_normalize()
-RETURNS TRIGGER AS $$
-DECLARE v_slug text;
-BEGIN
-  NEW.subjects_code := trim(NEW.subjects_code);
-  NEW.subjects_name := trim(NEW.subjects_name);
-  IF NEW.subjects_desc IS NOT NULL THEN NEW.subjects_desc := NULLIF(trim(NEW.subjects_desc), ''); END IF;
-  IF NEW.subjects_slug IS NOT NULL THEN NEW.subjects_slug := NULLIF(trim(NEW.subjects_slug), ''); END IF;
-
-  IF NEW.subjects_slug IS NULL OR NEW.subjects_slug = '' THEN
-    v_slug := COALESCE(NEW.subjects_name, NEW.subjects_code);
-    v_slug := lower(regexp_replace(v_slug, '[^a-z0-9]+', '-', 'g'));
-    v_slug := regexp_replace(v_slug, '(^-+|-+$)', '', 'g');
-    IF v_slug IS NULL OR v_slug = '' THEN
-      v_slug := 'subject-' || substring(replace(NEW.subjects_id::text,'-','') for 8);
-    END IF;
-    NEW.subjects_slug := v_slug;
-  END IF;
-  RETURN NEW;
-END$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
+-- =========================
+-- BERSIH-BERSIH: Hapus trigger/func lama (jika ada)
+-- =========================
+DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_subjects_normalize') THEN
     DROP TRIGGER trg_subjects_normalize ON subjects;
   END IF;
-  CREATE TRIGGER trg_subjects_normalize
-    BEFORE INSERT OR UPDATE OF subjects_name, subjects_code, subjects_slug, subjects_desc
-    ON subjects FOR EACH ROW EXECUTE FUNCTION fn_subjects_normalize();
-END$$;
+EXCEPTION WHEN others THEN NULL; END $$;
+
+DROP FUNCTION IF EXISTS fn_subjects_normalize() CASCADE;
 
 -- =========================================================
 -- CLASS_SUBJECTS
@@ -180,7 +163,7 @@ BEGIN
   END IF;
 END$$;
 
--- FK ke academic_terms (jika kolom ada)
+-- FK ke academic_terms (jika kolom/table ada)
 DO $$
 BEGIN
   IF EXISTS (
@@ -208,20 +191,7 @@ ON class_subjects (
 )
 WHERE class_subjects_deleted_at IS NULL;
 
--- updated_at trigger
-CREATE OR REPLACE FUNCTION trg_set_timestamptz_class_subjects()
-RETURNS trigger AS $$
-BEGIN
-  NEW.class_subjects_updated_at = now();
-  RETURN NEW;
-END; $$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS set_timestamptz_class_subjects ON class_subjects;
-CREATE TRIGGER set_timestamptz_class_subjects
-BEFORE UPDATE ON class_subjects
-FOR EACH ROW EXECUTE FUNCTION trg_set_timestamptz_class_subjects();
-
--- (Opsional kuat) jadikan pair (id, masjid) unik utk validasi tenant downstream
+-- (Opsional kuat) id + masjid unik
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='uq_class_subjects_id_masjid') THEN
@@ -231,8 +201,14 @@ BEGIN
   END IF;
 END$$;
 
+-- =========================
+-- BERSIH-BERSIH: Hapus trigger timestamp jika ada
+-- =========================
+DROP TRIGGER IF EXISTS set_timestamptz_class_subjects ON class_subjects;
+DROP FUNCTION IF EXISTS trg_set_timestamptz_class_subjects() CASCADE;
+
 -- =========================================================
--- CLASS SECTION SUBJECT TEACHERS (→ class_subjects, manual section_id)
+-- CLASS SECTION SUBJECT TEACHERS (CSST)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teachers_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -273,7 +249,7 @@ BEGIN
   END IF;
 END$$;
 
--- Unique aktif: satu guru per class_subjects (aktif & belum terhapus)
+-- Unique aktif: satu guru per kombinasi (class_subjects, teacher) saat aktif & tidak terhapus
 DROP INDEX IF EXISTS uq_csst_active_unique;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_active_by_cs
 ON class_section_subject_teachers (
@@ -300,104 +276,17 @@ CREATE INDEX IF NOT EXISTS idx_csst_by_masjid_alive
   ON class_section_subject_teachers (class_section_subject_teachers_masjid_id)
   WHERE class_section_subject_teachers_deleted_at IS NULL;
 
--- Touch updated_at
-CREATE OR REPLACE FUNCTION trg_set_timestamp_class_sec_subj_teachers()
-RETURNS trigger AS $$
-BEGIN
-  NEW.class_section_subject_teachers_updated_at = NOW();
-  RETURN NEW;
-END; $$ LANGUAGE plpgsql;
-
+-- =========================
+-- BERSIH-BERSIH: Hapus semua trigger/func validasi/“aneh” di CSST (jika ada)
+-- =========================
 DROP TRIGGER IF EXISTS set_timestamp_class_sec_subj_teachers ON class_section_subject_teachers;
-CREATE TRIGGER set_timestamp_class_sec_subj_teachers
-BEFORE UPDATE ON class_section_subject_teachers
-FOR EACH ROW EXECUTE FUNCTION trg_set_timestamp_class_sec_subj_teachers();
+DROP FUNCTION IF EXISTS trg_set_timestamp_class_sec_subj_teachers() CASCADE;
 
--- Validasi konsistensi (bandingkan class_id vs class_id, bukan section_id)
-CREATE OR REPLACE FUNCTION fn_csst_validate_consistency()
-RETURNS TRIGGER AS $$
-DECLARE
-  v_cs_masjid    UUID;
-  v_cs_class     UUID;
-  v_sec_class    UUID;
-  v_teacher_mjid UUID;
-BEGIN
-  -- ambil konteks dari class_subjects
-  SELECT class_subjects_masjid_id, class_subjects_class_id
-    INTO v_cs_masjid, v_cs_class
-  FROM class_subjects
-  WHERE class_subjects_id = NEW.class_section_subject_teachers_class_subjects_id
-    AND class_subjects_deleted_at IS NULL;
+DROP TRIGGER IF EXISTS trg_csst_validate_consistency ON class_section_subject_teachers;
+DROP FUNCTION IF EXISTS fn_csst_validate_consistency() CASCADE;
 
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'class_subjects % tidak ditemukan/terhapus',
-      NEW.class_section_subject_teachers_class_subjects_id;
-  END IF;
-
-  -- ambil class_id dari section (section -> class_id)
-  SELECT class_sections_class_id
-    INTO v_sec_class
-  FROM class_sections
-  WHERE class_sections_id = NEW.class_section_subject_teachers_section_id
-    AND class_sections_deleted_at IS NULL;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Section % tidak ditemukan/terhapus',
-      NEW.class_section_subject_teachers_section_id;
-  END IF;
-
-  -- tenant harus sama (row vs class_subjects)
-  IF v_cs_masjid IS DISTINCT FROM NEW.class_section_subject_teachers_masjid_id THEN
-    RAISE EXCEPTION 'Masjid mismatch: class_subjects(%) != row_masjid(%)',
-      v_cs_masjid, NEW.class_section_subject_teachers_masjid_id;
-  END IF;
-
-  -- kelas dari class_subjects harus sama dengan kelas dari section
-  IF v_cs_class IS DISTINCT FROM v_sec_class THEN
-    RAISE EXCEPTION 'Class mismatch: class_subjects.class_id(%) != class_sections.class_id(%)',
-      v_cs_class, v_sec_class;
-  END IF;
-
-  -- guru harus milik masjid ini
-  SELECT masjid_teacher_masjid_id INTO v_teacher_mjid
-  FROM masjid_teachers
-  WHERE masjid_teacher_id = NEW.class_section_subject_teachers_teacher_id;
-
-  IF v_teacher_mjid IS NULL THEN
-    RAISE EXCEPTION 'Teacher % tidak valid (masjid_teachers)',
-      NEW.class_section_subject_teachers_teacher_id;
-  END IF;
-
-  IF v_teacher_mjid IS DISTINCT FROM NEW.class_section_subject_teachers_masjid_id THEN
-    RAISE EXCEPTION 'Masjid mismatch: teacher(%) != row_masjid(%)',
-      v_teacher_mjid, NEW.class_section_subject_teachers_masjid_id;
-  END IF;
-
-  RETURN NEW;
-END
-$$ LANGUAGE plpgsql;
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_csst_validate_consistency') THEN
-    DROP TRIGGER trg_csst_validate_consistency ON class_section_subject_teachers;
-  END IF;
-
-  -- DEFERRABLE: aman dipakai saat insert dalam satu transaksi
-  CREATE CONSTRAINT TRIGGER trg_csst_validate_consistency
-  AFTER INSERT OR UPDATE OF
-    class_section_subject_teachers_masjid_id,
-    class_section_subject_teachers_section_id,
-    class_section_subject_teachers_class_subjects_id,
-    class_section_subject_teachers_teacher_id
-  ON class_section_subject_teachers
-  DEFERRABLE INITIALLY DEFERRED
-  FOR EACH ROW
-  EXECUTE FUNCTION fn_csst_validate_consistency();
-END$$;
-
--- cleanup artefak lama (jika ada)
+-- Artefak lama (jika pernah dibuat)
 DROP TRIGGER IF EXISTS trg_csst_sync_section_from_cs ON class_section_subject_teachers;
-DROP FUNCTION IF EXISTS fn_csst_sync_section_from_cs();
+DROP FUNCTION IF EXISTS fn_csst_sync_section_from_cs() CASCADE;
 
 COMMIT;

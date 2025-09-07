@@ -23,7 +23,7 @@ func ClassSectionUserRoutes(r fiber.Router, db *gorm.DB) {
 	pub.Get("/slug/:slug", sectionH.GetClassSectionBySlug)
 	pub.Get("/:id", sectionH.GetClassSectionByID)
 	// resource terkait (tidak mengekspos data sensitif user)
-	pub.Get("/books/:id", sectionH.ListBooksBySection)
+	// pub.Get("/books/:id", sectionH.ListBooksBySection)
 
 	// ================== USER (READ-ONLY) ==================
 	user := r.Group("/user-class-sections")

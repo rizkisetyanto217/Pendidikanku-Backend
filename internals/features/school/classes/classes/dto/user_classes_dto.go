@@ -4,7 +4,7 @@ package dto
 import (
 	"time"
 
-	ucModel "masjidku_backend/internals/features/school/classes/classes/model"
+	ucmodel "masjidku_backend/internals/features/school/classes/classes/model"
 
 	"github.com/google/uuid"
 )
@@ -21,40 +21,38 @@ type CreateUserClassRequest struct {
 	// Tenant. Di handler bisa diisi dari token; tetap optional di payload.
 	UserClassesMasjidID *uuid.UUID `json:"user_classes_masjid_id" validate:"omitempty"`
 
-	// FK -> academic_terms(academic_terms_id); di DB juga divalidasi komposit dg masjid_id
+	// FK -> academic_terms(academic_terms_id)
 	UserClassesTermID uuid.UUID `json:"user_classes_term_id" validate:"required"`
 
-	// (Opsional) jejak opening
-	UserClassesOpeningID *uuid.UUID `json:"user_classes_opening_id" validate:"omitempty"`
+	// (Opsional) relasi ke masjid_students
+	UserClassesMasjidStudentID *uuid.UUID `json:"user_classes_masjid_student_id" validate:"omitempty"`
 
-	// Status dibatasi oleh CHECK ('active','inactive','ended')
+	// Status dibatasi oleh CHECK ('active','inactive','ended'); default 'active'
 	UserClassesStatus *string `json:"user_classes_status" validate:"omitempty,oneof=active inactive ended"`
 
-	// Snapshot biaya per siswa
-	UserClassesFeeOverrideMonthlyIDR *int    `json:"user_classes_fee_override_monthly_idr" validate:"omitempty,gte=0"`
-	UserClassesNotes                 *string `json:"user_classes_notes" validate:"omitempty"`
+	// Jejak waktu enrolment
+	UserClassesJoinedAt *time.Time `json:"user_classes_joined_at" validate:"omitempty"`
+	UserClassesLeftAt   *time.Time `json:"user_classes_left_at" validate:"omitempty"`
 }
 
-func (r *CreateUserClassRequest) ToModel(masjidIDFromCtx *uuid.UUID) *ucModel.UserClassesModel {
+func (r *CreateUserClassRequest) ToModel(masjidIDFromCtx *uuid.UUID) *ucmodel.UserClassesModel {
 	// Tentukan masjid_id final (payload > context)
 	var masjidID uuid.UUID
 	if r.UserClassesMasjidID != nil {
 		masjidID = *r.UserClassesMasjidID
 	} else if masjidIDFromCtx != nil {
 		masjidID = *masjidIDFromCtx
-	} else {
-		// Biarkan zero-value; sebaiknya handler validasi ini sebelum save
 	}
 
-	m := &ucModel.UserClassesModel{
-		UserClassesUserID:                r.UserClassesUserID,
-		UserClassesClassID:               r.UserClassesClassID,
-		UserClassesMasjidID:              masjidID,
-		UserClassesTermID:                r.UserClassesTermID,
-		UserClassesOpeningID:             r.UserClassesOpeningID,
-		UserClassesNotes:                 r.UserClassesNotes,
-		UserClassesFeeOverrideMonthlyIDR: r.UserClassesFeeOverrideMonthlyIDR,
-		UserClassesStatus:                ucModel.UserClassStatusActive, // default
+	m := &ucmodel.UserClassesModel{
+		UserClassesUserID:           r.UserClassesUserID,
+		UserClassesClassID:          r.UserClassesClassID,
+		UserClassesMasjidID:         masjidID,
+		UserClassesTermID:           r.UserClassesTermID,
+		UserClassesMasjidStudentID:  r.UserClassesMasjidStudentID,
+		UserClassesStatus:           ucmodel.UserClassStatusActive, // default
+		UserClassesJoinedAt:         r.UserClassesJoinedAt,
+		UserClassesLeftAt:           r.UserClassesLeftAt,
 	}
 
 	if r.UserClassesStatus != nil && *r.UserClassesStatus != "" {
@@ -65,22 +63,26 @@ func (r *CreateUserClassRequest) ToModel(masjidIDFromCtx *uuid.UUID) *ucModel.Us
 }
 
 type UpdateUserClassRequest struct {
-	UserClassesUserID                *uuid.UUID `json:"user_classes_user_id" validate:"omitempty"`
-	UserClassesClassID               *uuid.UUID `json:"user_classes_class_id" validate:"omitempty"`
+	UserClassesUserID           *uuid.UUID `json:"user_classes_user_id" validate:"omitempty"`
+	UserClassesClassID          *uuid.UUID `json:"user_classes_class_id" validate:"omitempty"`
 
-	// Boleh diubah jika skenario pindah tenant dibuka, tapi hati‑hati dengan FK komposit lain.
-	UserClassesMasjidID              *uuid.UUID `json:"user_classes_masjid_id" validate:"omitempty"`
+	// Boleh diubah jika skenario pindah tenant dibuka (hati-hati dgn FK komposit)
+	UserClassesMasjidID         *uuid.UUID `json:"user_classes_masjid_id" validate:"omitempty"`
 
-	// Term & Opening
-	UserClassesTermID                *uuid.UUID `json:"user_classes_term_id" validate:"omitempty"`
-	UserClassesOpeningID             *uuid.UUID `json:"user_classes_opening_id" validate:"omitempty"`
+	// Term
+	UserClassesTermID           *uuid.UUID `json:"user_classes_term_id" validate:"omitempty"`
 
-	UserClassesStatus                *string    `json:"user_classes_status" validate:"omitempty,oneof=active inactive ended"`
-	UserClassesFeeOverrideMonthlyIDR *int       `json:"user_classes_fee_override_monthly_idr" validate:"omitempty,gte=0"`
-	UserClassesNotes                 *string    `json:"user_classes_notes" validate:"omitempty"`
+	// Masjid student (opsional)
+	UserClassesMasjidStudentID  *uuid.UUID `json:"user_classes_masjid_student_id" validate:"omitempty"`
+
+	UserClassesStatus           *string    `json:"user_classes_status" validate:"omitempty,oneof=active inactive ended"`
+
+	// Jejak waktu enrolment
+	UserClassesJoinedAt         *time.Time `json:"user_classes_joined_at" validate:"omitempty"`
+	UserClassesLeftAt           *time.Time `json:"user_classes_left_at" validate:"omitempty"`
 }
 
-func (r *UpdateUserClassRequest) ApplyToModel(m *ucModel.UserClassesModel) {
+func (r *UpdateUserClassRequest) ApplyToModel(m *ucmodel.UserClassesModel) {
 	if r.UserClassesUserID != nil {
 		m.UserClassesUserID = *r.UserClassesUserID
 	}
@@ -93,79 +95,84 @@ func (r *UpdateUserClassRequest) ApplyToModel(m *ucModel.UserClassesModel) {
 	if r.UserClassesTermID != nil {
 		m.UserClassesTermID = *r.UserClassesTermID
 	}
-	if r.UserClassesOpeningID != nil {
-		m.UserClassesOpeningID = r.UserClassesOpeningID
+	if r.UserClassesMasjidStudentID != nil {
+		m.UserClassesMasjidStudentID = r.UserClassesMasjidStudentID
 	}
 	if r.UserClassesStatus != nil {
 		m.UserClassesStatus = *r.UserClassesStatus
 	}
-	if r.UserClassesFeeOverrideMonthlyIDR != nil {
-		m.UserClassesFeeOverrideMonthlyIDR = r.UserClassesFeeOverrideMonthlyIDR
+	if r.UserClassesJoinedAt != nil {
+		m.UserClassesJoinedAt = r.UserClassesJoinedAt
 	}
-	if r.UserClassesNotes != nil {
-		m.UserClassesNotes = r.UserClassesNotes
+	if r.UserClassesLeftAt != nil {
+		m.UserClassesLeftAt = r.UserClassesLeftAt
 	}
 
-	now := time.Now()
-	m.UserClassesUpdatedAt = &now
+	// Model pakai non-pointer UpdatedAt; isi manual agar segera berubah.
+	m.UserClassesUpdatedAt = time.Now()
 }
 
 /* ===================== QUERIES ===================== */
 
 type ListUserClassQuery struct {
-	UserID     *uuid.UUID `query:"user_id"`    // filter by user
-	ClassID    *uuid.UUID `query:"class_id"`   // filter by class
-	MasjidID   *uuid.UUID `query:"masjid_id"`  // tenant
-	TermID     *uuid.UUID `query:"term_id"`    // filter by term
-	OpeningID  *uuid.UUID `query:"opening_id"` // filter by opening (opsional)
-	Status     *string    `query:"status"`     // active|inactive|ended
-	ActiveNow  *bool      `query:"active_now"`
+	UserID            *uuid.UUID `query:"user_id"`              // filter by user
+	ClassID           *uuid.UUID `query:"class_id"`             // filter by class
+	MasjidID          *uuid.UUID `query:"masjid_id"`            // tenant
+	TermID            *uuid.UUID `query:"term_id"`              // filter by term
+	MasjidStudentID   *uuid.UUID `query:"masjid_student_id"`    // filter by masjid_students
+	Status            *string    `query:"status"`               // active|inactive|ended
+	ActiveNow         *bool      `query:"active_now"`           // bantu flag business logic (status='active' && left_at IS NULL), opsional
+
+	// Filter rentang joined
+	JoinedFrom        *time.Time `query:"joined_from"`
+	JoinedTo          *time.Time `query:"joined_to"`
 
 	Limit  int     `query:"limit" validate:"omitempty,min=1,max=200"`
 	Offset int     `query:"offset" validate:"omitempty,min=0"`
 
-	// Disederhanakan: created_at_desc|created_at_asc (karena tidak ada started_at di tabel)
-	Sort *string `query:"sort"` // created_at_desc|created_at_asc
+	// created_at_desc|created_at_asc|joined_at_desc|joined_at_asc
+	Sort *string `query:"sort"`
 }
 
 /* ===================== RESPONSES ===================== */
 
 type UserClassResponse struct {
-	UserClassesID                    uuid.UUID  `json:"user_classes_id"`
-	UserClassesUserID                uuid.UUID  `json:"user_classes_user_id"`
-	UserClassesClassID               uuid.UUID  `json:"user_classes_class_id"`
-	UserClassesMasjidID              uuid.UUID  `json:"user_classes_masjid_id"`
+	UserClassesID           uuid.UUID  `json:"user_classes_id"`
+	UserClassesUserID       uuid.UUID  `json:"user_classes_user_id"`
+	UserClassesClassID      uuid.UUID  `json:"user_classes_class_id"`
+	UserClassesMasjidID     uuid.UUID  `json:"user_classes_masjid_id"`
 
-	UserClassesTermID                uuid.UUID  `json:"user_classes_term_id"`
-	UserClassesOpeningID             *uuid.UUID `json:"user_classes_opening_id,omitempty"`
+	UserClassesTermID       uuid.UUID  `json:"user_classes_term_id"`
+	UserClassesMasjidStudentID *uuid.UUID `json:"user_classes_masjid_student_id,omitempty"`
 
-	UserClassesStatus                string     `json:"user_classes_status"`
+	UserClassesStatus       string     `json:"user_classes_status"`
 
-	UserClassesFeeOverrideMonthlyIDR *int       `json:"user_classes_fee_override_monthly_idr,omitempty"`
-	UserClassesNotes                 *string    `json:"user_classes_notes,omitempty"`
+	UserClassesJoinedAt     *time.Time `json:"user_classes_joined_at,omitempty"`
+	UserClassesLeftAt       *time.Time `json:"user_classes_left_at,omitempty"`
 
-	UserClassesCreatedAt             time.Time  `json:"user_classes_created_at"`
-	UserClassesUpdatedAt             *time.Time `json:"user_classes_updated_at,omitempty"`
+	UserClassesCreatedAt    time.Time  `json:"user_classes_created_at"`
+	UserClassesUpdatedAt    time.Time  `json:"user_classes_updated_at"`
 }
 
-func NewUserClassResponse(m *ucModel.UserClassesModel) *UserClassResponse {
+func NewUserClassResponse(m *ucmodel.UserClassesModel) *UserClassResponse {
 	if m == nil {
 		return nil
 	}
 	return &UserClassResponse{
-		UserClassesID:                    m.UserClassesID,
-		UserClassesUserID:                m.UserClassesUserID,
-		UserClassesClassID:               m.UserClassesClassID,
-		UserClassesMasjidID:              m.UserClassesMasjidID,
+		UserClassesID:            m.UserClassesID,
+		UserClassesUserID:        m.UserClassesUserID,
+		UserClassesClassID:       m.UserClassesClassID,
+		UserClassesMasjidID:      m.UserClassesMasjidID,
 
-		UserClassesTermID:                m.UserClassesTermID,
-		UserClassesOpeningID:             m.UserClassesOpeningID,
+		UserClassesTermID:        m.UserClassesTermID,
+		UserClassesMasjidStudentID: m.UserClassesMasjidStudentID,
 
-		UserClassesStatus:                m.UserClassesStatus,
-		UserClassesFeeOverrideMonthlyIDR: m.UserClassesFeeOverrideMonthlyIDR,
-		UserClassesNotes:                 m.UserClassesNotes,
+		UserClassesStatus:        m.UserClassesStatus,
 
-		UserClassesCreatedAt:             m.UserClassesCreatedAt,
-		UserClassesUpdatedAt:             m.UserClassesUpdatedAt,
+		UserClassesJoinedAt:      m.UserClassesJoinedAt,
+		UserClassesLeftAt:        m.UserClassesLeftAt,
+
+		UserClassesCreatedAt:     m.UserClassesCreatedAt,
+		UserClassesUpdatedAt:     m.UserClassesUpdatedAt,
 	}
 }

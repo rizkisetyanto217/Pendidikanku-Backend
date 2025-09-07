@@ -1,8 +1,9 @@
-// internals/route/classes_admin_routes.go
+// internals/route/classes_all_routes.go
 package route
 
 import (
 	classctrl "masjidku_backend/internals/features/school/classes/classes/controller"
+
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -11,8 +12,14 @@ import (
 func ClassAllRoutes(admin fiber.Router, db *gorm.DB) {
 	h := classctrl.NewClassController(db)
 
-	// /admin/classes (semua pakai IsMasjidAdmin)
+	// /admin/classes (READ endpoints umum)
 	classes := admin.Group("/classes")
-	classes.Get("/list", h.ListClasses)      
+	classes.Get("/list", h.ListClasses)
 	classes.Get("/slug/:slug", h.GetClassBySlug)
+
+	// /admin/class-parents (READ endpoints umum)
+	cp := classctrl.NewClassParentController(db, nil)
+	classParents := admin.Group("/class-parents")
+	classParents.Get("/list", cp.List)
+	classParents.Get("/:id", cp.GetByID)
 }

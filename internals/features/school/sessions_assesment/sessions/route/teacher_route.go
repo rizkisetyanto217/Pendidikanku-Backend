@@ -67,4 +67,14 @@ func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	r.Get("/class-schedules/occurrences", occ.ListScheduleOccurrences)
 	// sesi kehadiran aktual (langsung dari CAS)
 	r.Get("/class-attendance-sessions/occurrences", occ.ListAttendanceOccurrences)
+
+
+	uattCtl := uaCtrl.NewUserAttendanceTypeController(db)
+	uatt := r.Group("/user-attendance-types")
+	uatt.Post("/", uattCtl.Create)
+	uatt.Get("/", uattCtl.List)
+	uatt.Get("/:id", uattCtl.GetByID)
+	uatt.Patch("/:id", uattCtl.Patch)
+	uatt.Delete("/:id", uattCtl.Delete)
+	uatt.Post("/:id/restore", uattCtl.Restore)
 }

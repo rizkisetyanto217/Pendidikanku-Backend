@@ -1,4 +1,4 @@
-// internals/features/lembaga/classes/user_class_sections/main/dto/user_class_section_dto.go
+// file: internals/features/lembaga/classes/user_class_sections/main/dto/user_class_section_dto.go
 package dto
 
 import (
@@ -15,7 +15,7 @@ type CreateUserClassSectionRequest struct {
 	UserClassSectionsUserClassID  uuid.UUID  `json:"user_class_sections_user_class_id" validate:"required"`
 	UserClassSectionsSectionID    uuid.UUID  `json:"user_class_sections_section_id" validate:"required"`
 	UserClassSectionsMasjidID     *uuid.UUID `json:"user_class_sections_masjid_id" validate:"omitempty"`
-	UserClassSectionsAssignedAt   *time.Time `json:"user_class_sections_assigned_at" validate:"omitempty"`
+	UserClassSectionsAssignedAt   *time.Time `json:"user_class_sections_assigned_at" validate:"omitempty"`   // nil => pakai DEFAULT CURRENT_DATE di DB
 	UserClassSectionsUnassignedAt *time.Time `json:"user_class_sections_unassigned_at" validate:"omitempty"`
 }
 
@@ -24,17 +24,12 @@ func (r *CreateUserClassSectionRequest) ToModel() *ucsModel.UserClassSectionsMod
 		UserClassSectionsUserClassID: r.UserClassSectionsUserClassID,
 		UserClassSectionsSectionID:   r.UserClassSectionsSectionID,
 		UserClassSectionsMasjidID:    uuid.Nil,
+		// Biarkan nil agar DEFAULT CURRENT_DATE di DB jalan
+		UserClassSectionsAssignedAt:   r.UserClassSectionsAssignedAt,
+		UserClassSectionsUnassignedAt: r.UserClassSectionsUnassignedAt,
 	}
 	if r.UserClassSectionsMasjidID != nil {
 		m.UserClassSectionsMasjidID = *r.UserClassSectionsMasjidID
-	}
-	if r.UserClassSectionsAssignedAt != nil {
-		m.UserClassSectionsAssignedAt = *r.UserClassSectionsAssignedAt
-	} else {
-		m.UserClassSectionsAssignedAt = time.Now()
-	}
-	if r.UserClassSectionsUnassignedAt != nil {
-		m.UserClassSectionsUnassignedAt = r.UserClassSectionsUnassignedAt
 	}
 	return m
 }
@@ -59,13 +54,12 @@ func (r *UpdateUserClassSectionRequest) ApplyToModel(m *ucsModel.UserClassSectio
 		m.UserClassSectionsMasjidID = *r.UserClassSectionsMasjidID
 	}
 	if r.UserClassSectionsAssignedAt != nil {
-		m.UserClassSectionsAssignedAt = *r.UserClassSectionsAssignedAt
+		m.UserClassSectionsAssignedAt = r.UserClassSectionsAssignedAt
 	}
 	if r.UserClassSectionsUnassignedAt != nil {
 		m.UserClassSectionsUnassignedAt = r.UserClassSectionsUnassignedAt
 	}
-	now := time.Now()
-	m.UserClassSectionsUpdatedAt = now
+	m.UserClassSectionsUpdatedAt = time.Now()
 }
 
 /* ===================== QUERIES ===================== */
@@ -74,7 +68,6 @@ type ListUserClassSectionQuery struct {
 	UserClassID *uuid.UUID `query:"user_class_id"`
 	SectionID   *uuid.UUID `query:"section_id"`
 	MasjidID    *uuid.UUID `query:"masjid_id"`
-	Status      *string    `query:"status"`      // active|inactive|ended
 	ActiveOnly  *bool      `query:"active_only"` // true => unassigned_at IS NULL
 
 	Limit  int     `query:"limit" validate:"omitempty,min=1,max=200"`
@@ -89,15 +82,15 @@ type UserClassSectionResponse struct {
 	UserClassSectionsUserClassID  uuid.UUID  `json:"user_class_sections_user_class_id"`
 	UserClassSectionsSectionID    uuid.UUID  `json:"user_class_sections_section_id"`
 	UserClassSectionsMasjidID     uuid.UUID  `json:"user_class_sections_masjid_id"`
-	UserClassSectionsAssignedAt   time.Time  `json:"user_class_sections_assigned_at"`
+	UserClassSectionsAssignedAt   *time.Time `json:"user_class_sections_assigned_at,omitempty"`
 	UserClassSectionsUnassignedAt *time.Time `json:"user_class_sections_unassigned_at,omitempty"`
 
-	// Tambahan dari user_classes
+	// Tambahan dari user_classes (opsional, jika di-join di handler)
 	UserClassesStatus string `json:"user_classes_status,omitempty"`
 
-	UserClassSectionsCreatedAt time.Time   `json:"user_class_sections_created_at"`
-	UserClassSectionsUpdatedAt time.Time   `json:"user_class_sections_updated_at"`
-	UserClassSectionsDeletedAt *time.Time  `json:"user_class_sections_deleted_at,omitempty"`
+	UserClassSectionsCreatedAt time.Time  `json:"user_class_sections_created_at"`
+	UserClassSectionsUpdatedAt time.Time  `json:"user_class_sections_updated_at"`
+	UserClassSectionsDeletedAt *time.Time `json:"user_class_sections_deleted_at,omitempty"`
 
 	User    *UcsUser        `json:"user,omitempty"`
 	Profile *UcsUserProfile `json:"profile,omitempty"`
@@ -117,7 +110,7 @@ func NewUserClassSectionResponse(m *ucsModel.UserClassSectionsModel) *UserClassS
 		UserClassSectionsCreatedAt:    m.UserClassSectionsCreatedAt,
 		UserClassSectionsUpdatedAt:    m.UserClassSectionsUpdatedAt,
 	}
-	// DeletedAt opsional: hanya diisi jika ada (gorm.DeletedAt valid)
+	// DeletedAt opsional: isi jika valid
 	if m.UserClassSectionsDeletedAt.Valid {
 		t := m.UserClassSectionsDeletedAt.Time
 		resp.UserClassSectionsDeletedAt = &t

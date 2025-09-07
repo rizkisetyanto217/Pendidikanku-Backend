@@ -4,6 +4,7 @@ package route
 import (
 	classctrl "masjidku_backend/internals/features/school/classes/classes/controller"
 
+
 	masjidkuMiddleware "masjidku_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"
@@ -21,21 +22,32 @@ func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
 		classes.Get("/search", classHandler.SearchWithSubjects)
 		classes.Get("/slug/:slug", classHandler.GetClassBySlug)
 		classes.Get("/:id", classHandler.GetClassByID)
-		classes.Put("/:id", classHandler.UpdateClass)
+		classes.Patch("/:id", classHandler.PatchClass)
 		classes.Delete("/:id", classHandler.SoftDeleteClass)
+	}
+
+	// Controller class parents
+	parentHandler := classctrl.NewClassParentController(db, nil)
+
+	classParents := admin.Group("/class-parents", masjidkuMiddleware.IsMasjidAdmin())
+	{
+		classParents.Post("/", parentHandler.Create)
+		classParents.Get("/list", parentHandler.List)
+		classParents.Get("/:id", parentHandler.GetByID)
+		// dukung PUT & PATCH untuk fleksibilitas klien
+		classParents.Put("/:id", parentHandler.Update)
+		classParents.Patch("/:id", parentHandler.Update)
+		classParents.Delete("/:id", parentHandler.Delete)
 	}
 
 	// // Controller user classes
 	// userClassHandler := classctrl.NewUserClassController(db)
-
 	// userClasses := admin.Group("/user-classes", masjidkuMiddleware.IsMasjidAdmin())
 	// {
-	// 	// userClasses.Post("/", userClassHandler.CreateUserClass)
 	// 	userClasses.Get("/", userClassHandler.ListUserClasses)
 	// 	userClasses.Get("/:id", userClassHandler.GetUserClassByID)
 	// 	userClasses.Put("/:id", userClassHandler.UpdateUserClass)
 	// 	userClasses.Delete("/:id", userClassHandler.EndUserClass)
 	// 	userClasses.Delete("/remove/:id", userClassHandler.DeleteUserClass)
 	// }
-
 }

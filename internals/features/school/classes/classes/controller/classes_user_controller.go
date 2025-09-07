@@ -2,10 +2,6 @@
 package controller
 
 import (
-	"masjidku_backend/internals/features/school/classes/classes/dto"
-	"masjidku_backend/internals/features/school/classes/classes/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,16 +10,21 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+
+	"masjidku_backend/internals/features/school/classes/classes/dto"
+	"masjidku_backend/internals/features/school/classes/classes/model"
+	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
 // GET /admin/classes/slug/:slug
 func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
-	// Ambil masjid dari token (ganti ke GetUserIDFromToken jika itu yang tersedia di project)
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
 
+	// slugify ringan (lower + trim + safe)
 	slug := helper.GenerateSlug(c.Params("slug"))
 
 	var m model.ClassModel
@@ -37,44 +38,39 @@ func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
 		First(&m).Error; err != nil {
 
 		if err == gorm.ErrRecordNotFound {
-			return fiber.NewError(fiber.StatusNotFound, "Kelas tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Kelas tidak ditemukan")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Tidak perlu cek masjid lagi karena sudah difilter di WHERE
-	return helper.JsonOK(c, "Data diterima", dto.NewClassResponse(&m))
+	return helper.JsonOK(c, "Data diterima", dto.FromModel(&m))
 }
 
-
-// GET /admin/classes
-// GET /admin/classes  (public-friendly; auth optional utk list saja)
+// GET /admin/classes  (public-friendly; auth optional utk list)
 func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
-	// 1) Coba ambil masjid dari token (jika ada)
-	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c) // boleh gagal bila publik
+	// 1) Ambil tenant scope dari token jika ada
+	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
 	if err != nil || len(masjidIDs) == 0 {
-		masjidIDs = []uuid.UUID{} // fallback ke query
+		masjidIDs = []uuid.UUID{}
 
-		// --- coba dari ?masjid_id= (bisa comma-separated)
-		rawIDs := strings.TrimSpace(c.Query("masjid_id"))
-		if rawIDs != "" {
+		// ?masjid_id=... (comma-separated)
+		if rawIDs := strings.TrimSpace(c.Query("masjid_id")); rawIDs != "" {
 			for _, part := range strings.Split(rawIDs, ",") {
 				part = strings.TrimSpace(part)
 				if part == "" {
 					continue
 				}
-				if id, e := uuid.Parse(part); e == nil {
-					masjidIDs = append(masjidIDs, id)
-				} else {
+				id, e := uuid.Parse(part)
+				if e != nil {
 					return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id tidak valid")
 				}
+				masjidIDs = append(masjidIDs, id)
 			}
 		}
 
-		// --- atau dari ?masjid_slug= (bisa comma-separated)
+		// ?masjid_slug=... (comma-separated)
 		if len(masjidIDs) == 0 {
-			rawSlugs := strings.TrimSpace(c.Query("masjid_slug"))
-			if rawSlugs != "" {
+			if rawSlugs := strings.TrimSpace(c.Query("masjid_slug")); rawSlugs != "" {
 				slugs := make([]string, 0, 4)
 				for _, s := range strings.Split(rawSlugs, ",") {
 					s = strings.TrimSpace(s)
@@ -97,45 +93,66 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			}
 		}
 
-		// --- jika tetap kosong → tolak (demi tenant safety)
 		if len(masjidIDs) == 0 {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Tanpa auth, wajib kirim masjid_id atau masjid_slug")
 		}
 	}
 
-	// 2) parse filter ringan via Fiber (mode, code, active, search)
+	// 2) Parse filter (sesuai DTO baru)
 	var q dto.ListClassQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
+	q.Normalize()
 
-	// 3) pagination + sorting via helper.ParseWith (pakai AdminOpts)
+	// 3) Pagination & sorting via helper.ParseWith (AdminOpts)
 	rawQuery := string(c.Request().URI().QueryString())
 	httpReq, _ := http.NewRequest("GET", "http://local?"+rawQuery, nil)
 	p := helper.ParseWith(httpReq, "created_at", "desc", helper.AdminOpts)
 
-	// 4) base query (tenant-safe)
+	// 4) Base query (tenant-safe, alive only)
 	tx := ctrl.DB.Model(&model.ClassModel{}).
 		Where("class_masjid_id IN ?", masjidIDs).
-		Where("class_deleted_at IS NULL")
+		Where("class_deleted_at IS NULL").
+		Where("class_delete_pending_until IS NULL")
 
-	// 5) filters
-	if q.ActiveOnly != nil {
-		tx = tx.Where("class_is_active = ?", *q.ActiveOnly)
+	// 5) Apply filters (DDL baru)
+	if q.ParentID != nil {
+		tx = tx.Where("class_parent_id = ?", *q.ParentID)
 	}
-	if q.Mode != nil && strings.TrimSpace(*q.Mode) != "" {
-		tx = tx.Where("LOWER(class_mode) = LOWER(?)", strings.TrimSpace(*q.Mode))
+	if q.TermID != nil {
+		tx = tx.Where("class_term_id = ?", *q.TermID)
 	}
-	if q.Code != nil && strings.TrimSpace(*q.Code) != "" {
-		tx = tx.Where("LOWER(class_code) = LOWER(?)", strings.TrimSpace(*q.Code))
+	if q.IsOpen != nil {
+		tx = tx.Where("class_is_open = ?", *q.IsOpen)
+	}
+	if q.IsActive != nil {
+		tx = tx.Where("class_is_active = ?", *q.IsActive)
+	}
+	if q.DeliveryMode != nil && strings.TrimSpace(*q.DeliveryMode) != "" {
+		tx = tx.Where("LOWER(class_delivery_mode) = LOWER(?)", strings.TrimSpace(*q.DeliveryMode))
+	}
+	if q.Slug != nil && strings.TrimSpace(*q.Slug) != "" {
+		tx = tx.Where("LOWER(class_slug) = LOWER(?)", strings.TrimSpace(*q.Slug))
 	}
 	if q.Search != nil && strings.TrimSpace(*q.Search) != "" {
 		s := "%" + strings.ToLower(strings.TrimSpace(*q.Search)) + "%"
 		tx = tx.Where(`
-			LOWER(class_name) LIKE ? OR
-			LOWER(COALESCE(class_level, '')) LIKE ? OR
-			LOWER(COALESCE(class_description, '')) LIKE ?
-		`, s, s, s)
+			LOWER(COALESCE(class_notes, '')) LIKE ?
+			OR LOWER(class_slug) LIKE ?
+		`, s, s)
+	}
+	if q.StartGe != nil {
+		tx = tx.Where("class_start_date >= ?", *q.StartGe)
+	}
+	if q.StartLe != nil {
+		tx = tx.Where("class_start_date <= ?", *q.StartLe)
+	}
+	if q.RegOpenGe != nil {
+		tx = tx.Where("class_registration_opens_at >= ?", *q.RegOpenGe)
+	}
+	if q.RegCloseLe != nil {
+		tx = tx.Where("class_registration_closes_at <= ?", *q.RegCloseLe)
 	}
 
 	// 6) total
@@ -144,17 +161,34 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
-	// 7) sorting whitelist
+	// 7) Sorting whitelist (sesuai kolom baru)
 	sortBy := strings.ToLower(strings.TrimSpace(p.SortBy))
 	order := strings.ToLower(strings.TrimSpace(p.SortOrder))
 	if order != "asc" && order != "desc" {
 		order = "desc"
 	}
 	switch sortBy {
-	case "name":
-		tx = tx.Order("class_name " + strings.ToUpper(order))
-	case "mode":
-		tx = tx.Order("LOWER(class_mode) " + strings.ToUpper(order)).Order("class_created_at DESC")
+	case "slug":
+		tx = tx.Order("LOWER(class_slug) " + strings.ToUpper(order)).
+			Order("class_created_at DESC")
+	case "start_date":
+		tx = tx.Order("class_start_date " + strings.ToUpper(order)).
+			Order("class_created_at DESC")
+	case "is_open":
+		tx = tx.Order("class_is_open " + strings.ToUpper(order)).
+			Order("class_created_at DESC")
+	case "is_active":
+		tx = tx.Order("class_is_active " + strings.ToUpper(order)).
+			Order("class_created_at DESC")
+	case "delivery_mode":
+		tx = tx.Order("LOWER(class_delivery_mode) " + strings.ToUpper(order)).
+			Order("class_created_at DESC")
+	case "reg_open":
+		tx = tx.Order("class_registration_opens_at " + strings.ToUpper(order)).
+			Order("class_created_at DESC")
+	case "reg_close":
+		tx = tx.Order("class_registration_closes_at " + strings.ToUpper(order)).
+			Order("class_created_at DESC")
 	case "created_at":
 		fallthrough
 	default:
@@ -170,30 +204,33 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	items := make([]*dto.ClassResponse, 0, len(rows))
+	items := make([]dto.ClassResponse, 0, len(rows))
 	for i := range rows {
-		items = append(items, dto.NewClassResponse(&rows[i]))
+		items = append(items, dto.FromModel(&rows[i]))
 	}
 
 	meta := helper.BuildMeta(total, p)
 	return helper.JsonList(c, items, meta)
 }
 
-
-
+// GET /admin/classes/search-with-subjects?q=...&limit=&offset=
 func (ctl *ClassController) SearchWithSubjects(c *fiber.Ctx) error {
-	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c) // ✅ teacher / dkm / admin / student
-	if err != nil { 
+	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
+	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
 	q := strings.TrimSpace(c.Query("q"))
 	limit, _ := strconv.Atoi(c.Query("limit", "20"))
 	offset, _ := strconv.Atoi(c.Query("offset", "0"))
-	if limit <= 0 || limit > 200 { limit = 20 }
-	if offset < 0 { offset = 0 }
+	if limit <= 0 || limit > 200 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
 
-	like := "%" + q + "%"
+	like := "%" + strings.ToLower(q) + "%"
 
 	// ----- base filter: classes x class_subjects x subjects -----
 	filter := ctl.DB.Table("classes AS c").
@@ -209,13 +246,14 @@ func (ctl *ClassController) SearchWithSubjects(c *fiber.Ctx) error {
 			c.class_masjid_id IN ?
 			AND c.class_deleted_at IS NULL
 			AND c.class_delete_pending_until IS NULL
-		`, masjidIDs) // ✅ IN ? untuk multi masjid
+		`, masjidIDs)
 
 	if q != "" {
-		filter = filter.Where(
-			`(c.class_name ILIKE ? OR c.class_slug ILIKE ? OR s.subjects_name ILIKE ?)`,
-			like, like, like,
-		)
+		filter = filter.Where(`
+			LOWER(c.class_slug) LIKE ? OR
+			LOWER(COALESCE(c.class_notes,'')) LIKE ? OR
+			LOWER(s.subjects_name) LIKE ?
+		`, like, like, like)
 	}
 
 	// ----- total kelas unik -----
@@ -226,16 +264,16 @@ func (ctl *ClassController) SearchWithSubjects(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total")
 	}
 
-	// ----- page of class_ids (pakai GROUP BY agar ORDER BY sah) -----
+	// ----- page of class_ids (urut slug biar stabil)
 	type idRow struct {
-		ClassID   uuid.UUID `gorm:"column:class_id"`
-		ClassName string    `gorm:"column:class_name"`
+		ClassID  uuid.UUID `gorm:"column:class_id"`
+		ClassSlug string   `gorm:"column:class_slug"`
 	}
 	var idRows []idRow
 	if err := filter.
-		Select("c.class_id, c.class_name").
-		Group("c.class_id, c.class_name").
-		Order("c.class_name ASC").
+		Select("c.class_id, c.class_slug").
+		Group("c.class_id, c.class_slug").
+		Order("LOWER(c.class_slug) ASC").
 		Limit(limit).Offset(offset).
 		Scan(&idRows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil daftar kelas")
@@ -244,17 +282,18 @@ func (ctl *ClassController) SearchWithSubjects(c *fiber.Ctx) error {
 		return helper.JsonList(c, []any{}, fiber.Map{"limit": limit, "offset": offset, "total": int(total)})
 	}
 	classIDs := make([]uuid.UUID, 0, len(idRows))
-	for _, r := range idRows { classIDs = append(classIDs, r.ClassID) }
+	for _, r := range idRows {
+		classIDs = append(classIDs, r.ClassID)
+	}
 
 	// ----- detail kelas untuk page IDs -----
 	type classRow struct {
 		ClassID          uuid.UUID  `gorm:"column:class_id" json:"class_id"`
 		ClassMasjidID    uuid.UUID  `gorm:"column:class_masjid_id" json:"class_masjid_id"`
-		ClassName        string     `gorm:"column:class_name" json:"class_name"`
-		ClassSlug        *string    `gorm:"column:class_slug" json:"class_slug,omitempty"`
-		ClassDescription *string    `gorm:"column:class_description" json:"class_description,omitempty"`
-		ClassLevel       *string    `gorm:"column:class_level" json:"class_level,omitempty"`
+		ClassSlug        string     `gorm:"column:class_slug" json:"class_slug"`
+		ClassNotes       *string    `gorm:"column:class_notes" json:"class_notes,omitempty"`
 		ClassImageURL    *string    `gorm:"column:class_image_url" json:"class_image_url,omitempty"`
+		ClassDeliveryMode string    `gorm:"column:class_delivery_mode" json:"class_delivery_mode"`
 		ClassIsActive    bool       `gorm:"column:class_is_active" json:"class_is_active"`
 		ClassCreatedAt   time.Time  `gorm:"column:class_created_at" json:"class_created_at"`
 	}
@@ -267,10 +306,11 @@ func (ctl *ClassController) SearchWithSubjects(c *fiber.Ctx) error {
 			AND c.class_delete_pending_until IS NULL
 		`, masjidIDs).
 		Select(`
-			c.class_id, c.class_masjid_id, c.class_name, c.class_slug,
-			c.class_description, c.class_level, c.class_image_url, c.class_is_active, c.class_created_at
+			c.class_id, c.class_masjid_id, c.class_slug,
+			c.class_notes, c.class_image_url, c.class_delivery_mode,
+			c.class_is_active, c.class_created_at
 		`).
-		Order("c.class_name ASC").
+		Order("LOWER(c.class_slug) ASC").
 		Scan(&clsRows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil detail kelas")
 	}
@@ -306,28 +346,30 @@ func (ctl *ClassController) SearchWithSubjects(c *fiber.Ctx) error {
 	type ClassHit struct {
 		ClassID          uuid.UUID     `json:"class_id"`
 		ClassMasjidID    uuid.UUID     `json:"class_masjid_id"`
-		ClassName        string        `json:"class_name"`
-		ClassSlug        *string       `json:"class_slug,omitempty"`
-		ClassDescription *string       `json:"class_description,omitempty"`
-		ClassLevel       *string       `json:"class_level,omitempty"`
+		ClassSlug        string        `json:"class_slug"`
+		ClassNotes       *string       `json:"class_notes,omitempty"`
 		ClassImageURL    *string       `json:"class_image_url,omitempty"`
+		ClassDeliveryMode string       `json:"class_delivery_mode"`
 		ClassIsActive    bool          `json:"class_is_active"`
 		ClassCreatedAt   time.Time     `json:"class_created_at"`
 		Subjects         []SubjectLite `json:"subjects"`
 	}
 
 	byClass := make(map[uuid.UUID]*ClassHit, len(clsRows))
-	order := make([]uuid.UUID, 0, len(clsRows))
+	orderIDs := make([]uuid.UUID, 0, len(clsRows))
 	for _, cr := range clsRows {
 		byClass[cr.ClassID] = &ClassHit{
-			ClassID: cr.ClassID, ClassMasjidID: cr.ClassMasjidID,
-			ClassName: cr.ClassName, ClassSlug: cr.ClassSlug,
-			ClassDescription: cr.ClassDescription, ClassLevel: cr.ClassLevel,
-			ClassImageURL: cr.ClassImageURL,
-			ClassIsActive: cr.ClassIsActive, ClassCreatedAt: cr.ClassCreatedAt,
-			Subjects: []SubjectLite{},
+			ClassID:          cr.ClassID,
+			ClassMasjidID:    cr.ClassMasjidID,
+			ClassSlug:        cr.ClassSlug,
+			ClassNotes:       cr.ClassNotes,
+			ClassImageURL:    cr.ClassImageURL,
+			ClassDeliveryMode: cr.ClassDeliveryMode,
+			ClassIsActive:    cr.ClassIsActive,
+			ClassCreatedAt:   cr.ClassCreatedAt,
+			Subjects:         []SubjectLite{},
 		}
-		order = append(order, cr.ClassID)
+		orderIDs = append(orderIDs, cr.ClassID)
 	}
 	for _, sr := range sjRows {
 		if hit := byClass[sr.ClassID]; hit != nil {
@@ -338,8 +380,11 @@ func (ctl *ClassController) SearchWithSubjects(c *fiber.Ctx) error {
 			})
 		}
 	}
-	out := make([]ClassHit, 0, len(order))
-	for _, id := range order { out = append(out, *byClass[id]) }
+
+	out := make([]ClassHit, 0, len(orderIDs))
+	for _, id := range orderIDs {
+		out = append(out, *byClass[id])
+	}
 
 	return helper.JsonList(c, out, fiber.Map{
 		"limit": limit, "offset": offset, "total": int(total),

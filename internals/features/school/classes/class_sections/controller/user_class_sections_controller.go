@@ -1,4 +1,4 @@
-// internals/features/lembaga/classes/user_class_sections/main/controller/user_class_section_controller.go
+// file: internals/features/lembaga/classes/user_class_sections/main/controller/user_class_section_controller.go
 package controller
 
 import (
@@ -16,9 +16,7 @@ import (
 
 	ucsDTO "masjidku_backend/internals/features/school/classes/class_sections/dto"
 
-	semstats "masjidku_backend/internals/features/lembaga/stats/semester_stats/service"
-
-	// untuk validasi parent (cek tenant & eksistensi)
+	// parent validators
 	secModel "masjidku_backend/internals/features/school/classes/class_sections/model"
 	ucModel "masjidku_backend/internals/features/school/classes/classes/model"
 )
@@ -58,8 +56,14 @@ func (h *UserClassSectionController) ensureParentsBelongToMasjid(
 
 	// Cek class_sections (tenant sama & belum terhapus)
 	{
-		var sec secModel.ClassSectionModel
+		type clsSection struct {
+			ClassSectionsID       uuid.UUID  `gorm:"column:class_sections_id"`
+			ClassSectionsMasjidID uuid.UUID  `gorm:"column:class_sections_masjid_id"`
+			DeletedAt             *time.Time `gorm:"column:class_sections_deleted_at"`
+		}
+		var sec clsSection
 		if err := h.DB.
+			Table("class_sections").
 			Select("class_sections_id, class_sections_masjid_id, class_sections_deleted_at").
 			Where("class_sections_id = ? AND class_sections_deleted_at IS NULL", sectionID).
 			First(&sec).Error; err != nil {
@@ -75,8 +79,6 @@ func (h *UserClassSectionController) ensureParentsBelongToMasjid(
 
 	return nil
 }
-
-
 
 // Ambil row user_class_sections + pastikan tenant sama
 func (h *UserClassSectionController) findUCSWithTenantGuard(ucsID, masjidID uuid.UUID) (*secModel.UserClassSectionsModel, error) {
@@ -95,8 +97,7 @@ func (h *UserClassSectionController) findUCSWithTenantGuard(ucsID, masjidID uuid
 func (h *UserClassSectionController) ensureSingleActivePerUserClass(userClassID, excludeID uuid.UUID) error {
 	var cnt int64
 	tx := h.DB.Model(&secModel.UserClassSectionsModel{}).
-		Where("user_class_sections_user_class_id = ? AND user_class_sections_unassigned_at IS NULL",
-			userClassID)
+		Where("user_class_sections_user_class_id = ? AND user_class_sections_unassigned_at IS NULL", userClassID)
 	if excludeID != uuid.Nil {
 		tx = tx.Where("user_class_sections_id <> ?", excludeID)
 	}
@@ -109,8 +110,7 @@ func (h *UserClassSectionController) ensureSingleActivePerUserClass(userClassID,
 	return nil
 }
 
-
-// internals/features/lembaga/classes/user_class_sections/main/controller/user_class_section_controller.go
+/* =============== Handlers =============== */
 
 // POST /admin/user-class-sections
 func (h *UserClassSectionController) CreateUserClassSection(c *fiber.Ctx) error {
@@ -153,52 +153,14 @@ func (h *UserClassSectionController) CreateUserClassSection(c *fiber.Ctx) error 
 		}
 	}
 
-	// ===== TRANSACTION START =====
-	tx := h.DB.Begin()
-	if tx.Error != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, tx.Error.Error())
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-			panic(r)
-		}
-	}()
-
-	// Simpan penempatan section
+	// Simpan penempatan section (no extra services / stats)
 	m := req.ToModel()
-	if err := tx.Create(m).Error; err != nil {
-		tx.Rollback()
-		// Tanpa AsPGError: cukup response generic (pre-check di atas sudah mencegah duplikasi aktif)
+	if err := h.DB.Create(m).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat penempatan section")
 	}
 
-	// Gunakan assigned_at sebagai anchor utk menentukan semester kalender
-	anchor := m.UserClassSectionsAssignedAt
-
-	// Upsert 1 baris semester stats (idempotent via ON CONFLICT DO NOTHING)
-	semSvc := semstats.NewSemesterStatsService()
-	if err := semSvc.EnsureSemesterStatsForUserClassWithAnchor(
-		tx,
-		masjidID,
-		req.UserClassSectionsUserClassID,
-		req.UserClassSectionsSectionID,
-		anchor,
-	); err != nil {
-		tx.Rollback()
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal inisialisasi semester stats: "+err.Error())
-	}
-
-	// Commit
-	if err := tx.Commit().Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
-	}
-	// ===== TRANSACTION END =====
-
 	return helper.JsonCreated(c, "Penempatan section berhasil dibuat", ucsDTO.NewUserClassSectionResponse(m))
 }
-
-
 
 // PUT /admin/user-class-sections/:id
 // UpdateUserClassSection: tanpa kolom status, aktif = unassigned_at IS NULL
@@ -267,7 +229,6 @@ func (h *UserClassSectionController) UpdateUserClassSection(c *fiber.Ctx) error 
 	return helper.JsonUpdated(c, "Penempatan section berhasil diperbarui", ucsDTO.NewUserClassSectionResponse(existing))
 }
 
-
 // GET /admin/user-class-sections/:id
 func (h *UserClassSectionController) GetUserClassSectionByID(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
@@ -284,7 +245,6 @@ func (h *UserClassSectionController) GetUserClassSectionByID(c *fiber.Ctx) error
 	}
 	return helper.JsonOK(c, "OK", ucsDTO.NewUserClassSectionResponse(m))
 }
-
 
 // GET /admin/user-class-sections
 func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
@@ -314,14 +274,6 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 	}
 	if q.SectionID != nil {
 		tx = tx.Where("user_class_sections_section_id = ?", *q.SectionID)
-	}
-	if q.Status != nil {
-		switch strings.ToLower(strings.TrimSpace(*q.Status)) {
-		case "active":
-			tx = tx.Where("user_class_sections_unassigned_at IS NULL")
-		case "inactive":
-			tx = tx.Where("user_class_sections_unassigned_at IS NOT NULL")
-		}
 	}
 	if q.ActiveOnly != nil && *q.ActiveOnly {
 		tx = tx.Where("user_class_sections_unassigned_at IS NULL")
@@ -369,47 +321,76 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 		}
 	}
 
-	// 2) Ambil mapping user_class -> (user_id, status, started_at)
+	// 2) Ambil mapping user_class -> (masjid_student_id, status, joined_at)
 	type ucMeta struct {
-		UserClassID uuid.UUID  `gorm:"column:user_classes_id"`
-		UserID      uuid.UUID  `gorm:"column:user_classes_user_id"`
-		Status      string     `gorm:"column:user_classes_status"`
-		StartedAt   *time.Time `gorm:"column:user_classes_started_at"`
-		// EndedAt dihapus karena kolomnya sudah tidak ada
+		UserClassID      uuid.UUID  `gorm:"column:user_classes_id"`
+		MasjidStudentID  uuid.UUID  `gorm:"column:user_classes_masjid_student_id"`
+		Status           string     `gorm:"column:user_classes_status"`
+		JoinedAt         *time.Time `gorm:"column:user_classes_joined_at"`
 	}
 
 	ucMetaByID := make(map[uuid.UUID]ucMeta, len(userClassIDs))
-	userIDByUC := make(map[uuid.UUID]uuid.UUID, len(userClassIDs))
+	studentIDByUC := make(map[uuid.UUID]uuid.UUID, len(userClassIDs))
 
 	{
 		var ucRows []ucMeta
 		if err := h.DB.
 			Table("user_classes").
-			Select("user_classes_id, user_classes_user_id, user_classes_status, user_classes_started_at").
+			Select("user_classes_id, user_classes_masjid_student_id, user_classes_status, user_classes_joined_at").
 			Where("user_classes_id IN ?", userClassIDs).
 			Find(&ucRows).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data user_class")
 		}
 		for _, r := range ucRows {
 			ucMetaByID[r.UserClassID] = r
-			userIDByUC[r.UserClassID] = r.UserID
+			studentIDByUC[r.UserClassID] = r.MasjidStudentID
 		}
 	}
 
+	// 3) Kumpulkan masjid_student_id unik → ambil user_id dari masjid_students
+	msSet := make(map[uuid.UUID]struct{}, len(userClassIDs))
+	masjidStudentIDs := make([]uuid.UUID, 0, len(userClassIDs))
+	for _, sid := range studentIDByUC {
+		if _, ok := msSet[sid]; !ok {
+			msSet[sid] = struct{}{}
+			masjidStudentIDs = append(masjidStudentIDs, sid)
+		}
+	}
 
-	// 3) Kumpulkan user_id unik
+	// Map masjid_student_id → user_id
+	userIDByMasjidStudent := make(map[uuid.UUID]uuid.UUID, len(masjidStudentIDs))
+	if len(masjidStudentIDs) > 0 {
+		var msRows []struct {
+			MasjidStudentID uuid.UUID `gorm:"column:masjid_student_id"`
+			UserID          uuid.UUID `gorm:"column:user_id"` // ganti kolom ini jika di schema Anda namanya berbeda
+		}
+		if err := h.DB.
+			Table("masjid_students").
+			Select("masjid_student_id, user_id").
+			Where("masjid_student_id IN ?", masjidStudentIDs).
+			Find(&msRows).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil mapping masjid_student → user")
+		}
+		for _, r := range msRows {
+			userIDByMasjidStudent[r.MasjidStudentID] = r.UserID
+		}
+	}
+
+	// 4) Kumpulkan user_id unik
 	uSet := make(map[uuid.UUID]struct{}, len(userClassIDs))
 	userIDs := make([]uuid.UUID, 0, len(userClassIDs))
-	for _, uc := range userClassIDs {
-		if uid, ok := userIDByUC[uc]; ok {
-			if _, seen := uSet[uid]; !seen {
-				uSet[uid] = struct{}{}
-				userIDs = append(userIDs, uid)
+	for _, ucID := range userClassIDs {
+		if sid, ok := studentIDByUC[ucID]; ok {
+			if uid, ok2 := userIDByMasjidStudent[sid]; ok2 {
+				if _, seen := uSet[uid]; !seen {
+					uSet[uid] = struct{}{}
+					userIDs = append(userIDs, uid)
+				}
 			}
 		}
 	}
 
-	// 4) Ambil users -> map[user_id]UcsUser
+	// 5) Ambil users -> map[user_id]UcsUser
 	userMap := make(map[uuid.UUID]ucsDTO.UcsUser, len(userIDs))
 	if len(userIDs) > 0 {
 		var urs []struct {
@@ -435,7 +416,7 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 		}
 	}
 
-	// 5) Ambil users_profile -> map[user_id]UcsUserProfile
+	// 6) Ambil users_profile -> map[user_id]UcsUserProfile
 	profileMap := make(map[uuid.UUID]ucsDTO.UcsUserProfile, len(userIDs))
 	if len(userIDs) > 0 {
 		var prs []struct {
@@ -477,25 +458,26 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 		}
 	}
 
-	// 6) Build response + set user_classes status & enrichments
+	// 7) Build response + set user_classes status & enrichments
 	resp := make([]*ucsDTO.UserClassSectionResponse, 0, len(rows))
 	for i := range rows {
 		r := ucsDTO.NewUserClassSectionResponse(&rows[i])
 
 		ucID := rows[i].UserClassSectionsUserClassID
 		if meta, ok := ucMetaByID[ucID]; ok {
-			// isi status dari user_classes (pastikan field ada di DTO kamu)
 			r.UserClassesStatus = meta.Status
 		}
 
-		if uid, ok := userIDByUC[ucID]; ok {
-			if u, ok := userMap[uid]; ok {
-				uCopy := u
-				r.User = &uCopy
-			}
-			if p, ok := profileMap[uid]; ok {
-				pCopy := p
-				r.Profile = &pCopy
+		if sid, ok := studentIDByUC[ucID]; ok {
+			if uid, ok := userIDByMasjidStudent[sid]; ok {
+				if u, ok := userMap[uid]; ok {
+					uCopy := u
+					r.User = &uCopy
+				}
+				if p, ok := profileMap[uid]; ok {
+					pCopy := p
+					r.Profile = &pCopy
+				}
 			}
 		}
 
@@ -505,15 +487,12 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "OK", resp)
 }
 
-
-
 // POST /admin/user-class-sections/:id/end  -> unassign/akhiri penempatan
 func (h *UserClassSectionController) EndUserClassSection(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return err
 	}
-
 	ucsID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
@@ -529,11 +508,12 @@ func (h *UserClassSectionController) EndUserClassSection(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Penempatan sudah diakhiri sebelumnya")
 	}
 
-	now := time.Now()
+	// Set ke tanggal hari ini (kolom DATE di DB)
+	today := time.Now().Truncate(24 * time.Hour)
+
 	updates := map[string]any{
-		// status dihapus — cukup set unassigned_at sebagai penanda sudah diakhiri
-		"user_class_sections_unassigned_at": now,
-		"user_class_sections_updated_at":    now,
+		"user_class_sections_unassigned_at": &today,
+		"user_class_sections_updated_at":    time.Now(),
 	}
 
 	if err := h.DB.Model(&secModel.UserClassSectionsModel{}).
@@ -544,12 +524,10 @@ func (h *UserClassSectionController) EndUserClassSection(c *fiber.Ctx) error {
 
 	return helper.JsonUpdated(c, "Penempatan diakhiri", fiber.Map{
 		"user_class_sections_id":            m.UserClassSectionsID,
-		"user_class_sections_unassigned_at": now,
-		"is_active":                         false, // kompas kompatibilitas: aktif = unassigned_at == NULL
+		"user_class_sections_unassigned_at": today,
+		"is_active":                         false, // aktif = unassigned_at == NULL
 	})
 }
-
-// internals/features/lembaga/classes/user_class_sections/main/controller/user_class_section_controller.go
 
 // DELETE /admin/user-class-sections/:id
 // Soft delete (default). Hard delete bila query ?hard=true.
@@ -576,7 +554,7 @@ func (h *UserClassSectionController) DeleteUserClassSection(c *fiber.Ctx) error 
 		return err
 	}
 	if m == nil {
-		return fiber.NewError(fiber.StatusNotFound, "Penempatan tidak ditemukan")
+	 return fiber.NewError(fiber.StatusNotFound, "Penempatan tidak ditemukan")
 	}
 
 	// Larang hapus jika masih aktif (aktif = unassigned_at IS NULL)
@@ -631,7 +609,6 @@ func (h *UserClassSectionController) findUCSWithTenantGuard2(id, masjidID uuid.U
 	}
 	return &m, nil
 }
-
 
 // POST /admin/user-class-sections/:id/restore
 func (h *UserClassSectionController) RestoreUserClassSection(c *fiber.Ctx) error {

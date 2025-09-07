@@ -9,10 +9,10 @@ import (
 	"time"
 
 	attDTO "masjidku_backend/internals/features/school/sessions_assesment/sessions/dto"
+	attModel "masjidku_backend/internals/features/school/sessions_assesment/sessions/model"
+
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
-
-	attModel "masjidku_backend/internals/features/school/sessions_assesment/sessions/model"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -32,7 +32,6 @@ func NewUserAttendanceController(db *gorm.DB) *UserAttendanceController {
 	}
 }
 
-
 // letakkan di file controller yang sama
 func isDuplicateKey(err error) bool {
 	if err == nil {
@@ -45,7 +44,6 @@ func isDuplicateKey(err error) bool {
 		strings.Contains(s, "unique constraint") ||
 		strings.Contains(s, "sqlstate 23505")
 }
-
 
 const dateLayout = "2006-01-02"
 
@@ -77,8 +75,11 @@ func (ctl *UserAttendanceController) buildListQuery(c *fiber.Ctx, q attDTO.ListU
 	if q.SessionID != nil {
 		tx = tx.Where("user_attendance_session_id = ?", *q.SessionID)
 	}
-	if q.UserID != nil {
-		tx = tx.Where("user_attendance_user_id = ?", *q.UserID)
+	if q.StudentID != nil {
+		tx = tx.Where("user_attendance_masjid_student_id = ?", *q.StudentID)
+	}
+	if q.TypeID != nil {
+		tx = tx.Where("user_attendance_type_id = ?", *q.TypeID)
 	}
 	if q.Status != nil && strings.TrimSpace(*q.Status) != "" {
 		s := strings.ToLower(strings.TrimSpace(*q.Status))
@@ -89,6 +90,17 @@ func (ctl *UserAttendanceController) buildListQuery(c *fiber.Ctx, q attDTO.ListU
 			return nil, helper.JsonError(c, fiber.StatusBadRequest, "status tidak valid (present/absent/excused/late)")
 		}
 	}
+	// filter nilai
+	if q.ScoreFrom != nil {
+		tx = tx.Where("user_attendance_score IS NOT NULL AND user_attendance_score >= ?", *q.ScoreFrom)
+	}
+	if q.ScoreTo != nil {
+		tx = tx.Where("user_attendance_score IS NOT NULL AND user_attendance_score <= ?", *q.ScoreTo)
+	}
+	if q.IsPassed != nil {
+		tx = tx.Where("user_attendance_is_passed = ?", *q.IsPassed)
+	}
+
 	if q.CreatedFrom != nil && strings.TrimSpace(*q.CreatedFrom) != "" {
 		t, err := time.Parse(dateLayout, strings.TrimSpace(*q.CreatedFrom))
 		if err != nil {
@@ -121,7 +133,6 @@ func (ctl *UserAttendanceController) buildListQuery(c *fiber.Ctx, q attDTO.ListU
 // Handlers
 // ===============================
 
-// POST /user-attendance
 // POST /user-attendance
 func (ctl *UserAttendanceController) Create(c *fiber.Ctx) error {
 	// prefer TEACHER -> DKM -> MASJID_IDS -> ADMIN
@@ -187,20 +198,18 @@ func (ctl *UserAttendanceController) Create(c *fiber.Ctx) error {
 		}
 
 		// Build responses
-		// sebelumnya: out := make([]attDTO.UserAttendanceResponse, 0, len(models))
 		out := make([]*attDTO.UserAttendanceResponse, 0, len(models))
 		for _, m := range models {
-			out = append(out, attDTO.NewUserAttendanceResponse(m)) // New... mengembalikan *Response
+			out = append(out, attDTO.NewUserAttendanceResponse(m))
 		}
 		return helper.JsonCreated(c, "Berhasil membuat kehadiran (bulk)", fiber.Map{
 			"created": len(out),
 			"items":   out,
 		})
-
 	}
 
 	// =========================
-	// SINGLE: payload object JSON (perilaku lama)
+	// SINGLE: payload object JSON
 	// =========================
 	var req attDTO.CreateUserAttendanceRequest
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -229,7 +238,6 @@ func (ctl *UserAttendanceController) Create(c *fiber.Ctx) error {
 
 	return helper.JsonCreated(c, "Berhasil membuat kehadiran", attDTO.NewUserAttendanceResponse(m))
 }
-
 
 // GET /user-attendance/:id
 func (ctl *UserAttendanceController) GetByID(c *fiber.Ctx) error {
@@ -269,7 +277,7 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 
 	tx, err := ctl.buildListQuery(c, q, masjidID)
 	if err != nil {
-		// buildListQuery sudah return helperonse JSON error
+		// buildListQuery sudah mengirim JSON error
 		return err
 	}
 
@@ -345,8 +353,12 @@ func (ctl *UserAttendanceController) Update(c *fiber.Ctx) error {
 		Model(&m).
 		Select(
 			"user_attendance_session_id",
-			"user_attendance_user_id",
+			"user_attendance_masjid_student_id",
 			"user_attendance_status",
+			"user_attendance_type_id",
+			"user_attendance_desc",
+			"user_attendance_score",
+			"user_attendance_is_passed",
 			"user_attendance_user_note",
 			"user_attendance_teacher_note",
 			"user_attendance_updated_at",

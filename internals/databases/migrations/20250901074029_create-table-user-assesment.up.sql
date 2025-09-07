@@ -1,6 +1,9 @@
 -- =========================================================
 -- 4) SUBMISSIONS (pengumpulan tugas oleh user)
 -- =========================================================
+-- =========================================================
+-- 4) SUBMISSIONS (pengumpulan tugas oleh siswa) — FINAL
+-- =========================================================
 CREATE TABLE IF NOT EXISTS submissions (
   submissions_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -12,8 +15,9 @@ CREATE TABLE IF NOT EXISTS submissions (
     REFERENCES assessments(assessments_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
-  submissions_user_id UUID NOT NULL
-    REFERENCES users(id)  -- langsung ke tabel users
+  -- pengumpul: relasi ke masjid_students (BUKAN users langsung)
+  submissions_student_id UUID NOT NULL
+    REFERENCES masjid_students(masjid_student_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   -- isi & status pengumpulan
@@ -27,7 +31,12 @@ CREATE TABLE IF NOT EXISTS submissions (
   -- penilaian
   submissions_score    NUMERIC(5,2) CHECK (submissions_score >= 0 AND submissions_score <= 100),
   submissions_feedback TEXT,
-  submissions_graded_by_teacher_id UUID,  -- FK opsional ke masjid_teachers
+
+  -- pengoreksi: relasi ke masjid_teachers
+  submissions_graded_by_teacher_id UUID
+    REFERENCES masjid_teachers(masjid_teacher_id)
+    ON UPDATE CASCADE ON DELETE SET NULL,
+
   submissions_graded_at TIMESTAMPTZ,
 
   submissions_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -35,27 +44,31 @@ CREATE TABLE IF NOT EXISTS submissions (
   submissions_deleted_at TIMESTAMPTZ
 );
 
--- (Opsional) tambahkan FK grader jika tabel tersedia :
--- ALTER TABLE submissions
---   ADD CONSTRAINT fk_submissions_graded_by_teacher
---   FOREIGN KEY (submissions_graded_by_teacher_id)
---   REFERENCES masjid_teachers(masjid_teachers_id)
---   ON UPDATE CASCADE ON DELETE SET NULL;
-
--- Unik 1 submission aktif per (assessment, user)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_submissions_assessment_user
-  ON submissions(submissions_assessment_id, submissions_user_id)
+-- Unik: 1 submission aktif per (assessment, student)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_submissions_assessment_student_alive
+  ON submissions(submissions_assessment_id, submissions_student_id)
   WHERE submissions_deleted_at IS NULL;
 
--- indeks bantu
+-- Indeks bantu
 CREATE INDEX IF NOT EXISTS idx_submissions_assessment
   ON submissions(submissions_assessment_id);
 
-CREATE INDEX IF NOT EXISTS idx_submissions_user
-  ON submissions(submissions_user_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_student
+  ON submissions(submissions_student_id);
 
 CREATE INDEX IF NOT EXISTS idx_submissions_masjid
   ON submissions(submissions_masjid_id);
+
+CREATE INDEX IF NOT EXISTS idx_submissions_status_alive
+  ON submissions(submissions_status)
+  WHERE submissions_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_submissions_graded_by_teacher
+  ON submissions(submissions_graded_by_teacher_id);
+
+-- Time-based
+CREATE INDEX IF NOT EXISTS idx_submissions_submitted_at
+  ON submissions(submissions_submitted_at);
 
 CREATE INDEX IF NOT EXISTS brin_submissions_created_at
   ON submissions USING BRIN (submissions_created_at);

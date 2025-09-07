@@ -77,32 +77,6 @@ CREATE TABLE IF NOT EXISTS assessments (
   assessments_deleted_at TIMESTAMPTZ
 );
 
--- (Opsional) FK jika tabel referensi tersedia:
--- ALTER TABLE assessments
---   ADD CONSTRAINT fk_assessments_class_section
---     FOREIGN KEY (assessments_class_section_id)
---     REFERENCES class_sections(class_sections_id)
---     ON UPDATE CASCADE ON DELETE SET NULL;
---
--- ALTER TABLE assessments
---   ADD CONSTRAINT fk_assessments_class_subjects
---     FOREIGN KEY (assessments_class_subjects_id)
---     REFERENCES class_subjects(class_subjects_id)
---     ON UPDATE CASCADE ON DELETE SET NULL;
---
--- ALTER TABLE assessments
---   ADD CONSTRAINT fk_assessments_csst
---     FOREIGN KEY (assessments_class_section_subject_teacher_id)
---     REFERENCES class_section_subject_teachers(class_section_subject_teachers_id)
---     ON UPDATE CASCADE ON DELETE SET NULL;
---
--- FK ke masjid_teachers (bukan users)
--- ALTER TABLE assessments
---   ADD CONSTRAINT fk_assessments_created_by_teacher
---     FOREIGN KEY (assessments_created_by_teacher_id)
---     REFERENCES masjid_teachers(masjid_teachers_id)
---     ON UPDATE CASCADE ON DELETE SET NULL;
-
 -- indeks
 CREATE INDEX IF NOT EXISTS idx_assessments_masjid_created_at
   ON assessments(assessments_masjid_id, assessments_created_at DESC);
@@ -125,14 +99,7 @@ CREATE INDEX IF NOT EXISTS idx_assessments_created_by_teacher
 CREATE INDEX IF NOT EXISTS brin_assessments_created_at
   ON assessments USING BRIN (assessments_created_at);
 
--- (Opsional) batasi konteks ganda: CSST vs teacher global (aktifkan bila perlu)
--- ALTER TABLE assessments
---   ADD CONSTRAINT chk_assessments_single_context
---   CHECK (
---     COALESCE((assessments_class_section_subject_teacher_id IS NOT NULL)::int, 0) +
---     COALESCE((assessments_created_by_teacher_id IS NOT NULL)::int, 0)
---   ) BETWEEN 0 AND 1
--- ;
+
 
 
 -- =========================================================

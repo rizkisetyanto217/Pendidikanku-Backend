@@ -19,7 +19,7 @@ func ClassSectionAdminRoutes(r fiber.Router, db *gorm.DB) {
 	sections.Post("/", sectionH.CreateClassSection)
 	sections.Get("/list", sectionH.ListClassSections)
 	sections.Get("/search", sectionH.SearchClassSections)
-	sections.Get("/books/:id", sectionH.ListBooksBySection)
+	// sections.Get("/books/:id", sectionH.ListBooksBySection)
 	sections.Get("/students/:id", sectionH.ListRegisteredParticipants)
 	sections.Get("/slug/:slug", sectionH.GetClassSectionBySlug)
 	sections.Get("/by-id/:id", sectionH.GetClassSectionByID)

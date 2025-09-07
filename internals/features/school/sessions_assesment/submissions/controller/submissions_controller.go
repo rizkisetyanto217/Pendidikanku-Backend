@@ -13,8 +13,8 @@ import (
 
 	dto "masjidku_backend/internals/features/school/sessions_assesment/submissions/dto"
 	model "masjidku_backend/internals/features/school/sessions_assesment/submissions/model"
-	helperAuth "masjidku_backend/internals/helpers/auth"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
 type SubmissionController struct {
@@ -82,8 +82,8 @@ func applyFilters(q *gorm.DB, f *dto.ListSubmissionsQuery) *gorm.DB {
 	if f.AssessmentID != nil {
 		q = q.Where("submissions_assessment_id = ?", *f.AssessmentID)
 	}
-	if f.UserID != nil {
-		q = q.Where("submissions_user_id = ?", *f.UserID)
+	if f.StudentID != nil {
+		q = q.Where("submissions_student_id = ?", *f.StudentID)
 	}
 	if f.Status != nil {
 		q = q.Where("submissions_status = ?", *f.Status)
@@ -144,7 +144,7 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 	sub := &model.Submission{
 		SubmissionMasjidID:     body.SubmissionMasjidID,
 		SubmissionAssessmentID: body.SubmissionAssessmentID,
-		SubmissionUserID:       body.SubmissionUserID,
+		SubmissionStudentID:    body.SubmissionStudentID,
 
 		SubmissionText:        body.SubmissionText,
 		SubmissionStatus:      status,
@@ -160,8 +160,8 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 	}
 
 	if err := ctrl.DB.Create(sub).Error; err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "duplicate key") {
-			return helper.Error(c, fiber.StatusConflict, "Submission untuk assessment & user ini sudah ada")
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate key") || strings.Contains(strings.ToLower(err.Error()), "unique constraint") {
+			return helper.Error(c, fiber.StatusConflict, "Submission untuk assessment & student ini sudah ada")
 		}
 		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
 	}

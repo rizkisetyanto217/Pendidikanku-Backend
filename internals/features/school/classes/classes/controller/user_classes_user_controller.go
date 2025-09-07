@@ -1,9 +1,10 @@
-// internals/features/lembaga/classes/user_classes/main/controller/user_my_class_controller.go
+// file: internals/features/lembaga/classes/user_classes/main/controller/user_my_class_controller.go
 package controller
 
 import (
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -14,7 +15,7 @@ import (
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	ucDTO "masjidku_backend/internals/features/school/classes/classes/dto"
-	classModel "masjidku_backend/internals/features/school/classes/classes/model"
+	ucModel "masjidku_backend/internals/features/school/classes/classes/model"
 )
 
 type UserMyClassController struct {
@@ -43,11 +44,11 @@ func (h *UserMyClassController) ListMyUserClasses(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
 	}
 
-	// Base query
-	tx := h.DB.Model(&classModel.UserClassesModel{}).
+	// Base query (join classes untuk memastikan kelas tidak terhapus/pending delete)
+	tx := h.DB.Model(&ucModel.UserClassesModel{}).
 		Joins("JOIN classes ON classes.class_id = user_classes.user_classes_class_id").
 		Where(
-			"user_classes_user_id = ? AND classes.class_deleted_at IS NULL AND classes.class_delete_pending_until IS NULL",
+			"user_classes_user_id = ? AND classes.class_deleted_at IS NULL AND classes.class_delete_pending_until IS NULL AND user_classes_deleted_at IS NULL",
 			userID,
 		)
 
@@ -55,18 +56,46 @@ func (h *UserMyClassController) ListMyUserClasses(c *fiber.Ctx) error {
 	if q.ClassID != nil {
 		tx = tx.Where("user_classes_class_id = ?", *q.ClassID)
 	}
+	if q.MasjidID != nil {
+		tx = tx.Where("user_classes_masjid_id = ?", *q.MasjidID)
+	}
+	if q.TermID != nil {
+		tx = tx.Where("user_classes_term_id = ?", *q.TermID)
+	}
+	if q.MasjidStudentID != nil {
+		tx = tx.Where("user_classes_masjid_student_id = ?", *q.MasjidStudentID)
+	}
 	if q.Status != nil && strings.TrimSpace(*q.Status) != "" {
 		tx = tx.Where("user_classes_status = ?", strings.TrimSpace(*q.Status))
 	}
+	if q.ActiveNow != nil && *q.ActiveNow {
+		// Active now = status active & belum left
+		tx = tx.Where("user_classes_status = 'active' AND user_classes_left_at IS NULL")
+	}
+	// Rentang joined_at (inklusif)
+	if q.JoinedFrom != nil {
+		tx = tx.Where("user_classes_joined_at IS NOT NULL AND user_classes_joined_at >= ?", *q.JoinedFrom)
+	}
+	if q.JoinedTo != nil {
+		tx = tx.Where("user_classes_joined_at IS NOT NULL AND user_classes_joined_at <= ?", *q.JoinedTo)
+	}
 
 	// Sorting
-	sort := "started_at_desc"
+	sort := "created_at_desc"
 	if q.Sort != nil {
 		sort = strings.ToLower(strings.TrimSpace(*q.Sort))
 	}
 	switch sort {
-	default:
+	case "created_at_asc":
 		tx = tx.Order("user_classes_created_at ASC")
+	case "joined_at_desc":
+		tx = tx.Order("user_classes_joined_at DESC NULLS LAST").Order("user_classes_created_at DESC")
+	case "joined_at_asc":
+		tx = tx.Order("user_classes_joined_at ASC NULLS LAST").Order("user_classes_created_at ASC")
+	case "created_at_desc":
+		fallthrough
+	default:
+		tx = tx.Order("user_classes_created_at DESC")
 	}
 
 	// Limit & Offset
@@ -78,7 +107,7 @@ func (h *UserMyClassController) ListMyUserClasses(c *fiber.Ctx) error {
 	}
 
 	// Eksekusi
-	var rows []classModel.UserClassesModel
+	var rows []ucModel.UserClassesModel
 	if err := tx.Find(&rows).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
@@ -102,11 +131,11 @@ func (h *UserMyClassController) GetMyUserClassByID(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	var m classModel.UserClassesModel
-	err = h.DB.Model(&classModel.UserClassesModel{}).
+	var m ucModel.UserClassesModel
+	err = h.DB.Model(&ucModel.UserClassesModel{}).
 		Joins("JOIN classes ON classes.class_id = user_classes.user_classes_class_id").
 		Where(
-			"user_classes_id = ? AND user_classes_user_id = ? AND classes.class_deleted_at IS NULL AND classes.class_delete_pending_until IS NULL",
+			"user_classes_id = ? AND user_classes_user_id = ? AND classes.class_deleted_at IS NULL AND classes.class_delete_pending_until IS NULL AND user_classes_deleted_at IS NULL",
 			ucID, userID,
 		).
 		First(&m).Error
@@ -120,6 +149,8 @@ func (h *UserMyClassController) GetMyUserClassByID(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "OK", ucDTO.NewUserClassResponse(&m))
 }
 
+/* ================== USER: SELF ENROLL ================== */
+
 // POST /api/u/user-classes
 func (h *UserMyClassController) SelfEnroll(c *fiber.Ctx) error {
 	userID, err := helperAuth.GetUserIDFromToken(c)
@@ -128,10 +159,11 @@ func (h *UserMyClassController) SelfEnroll(c *fiber.Ctx) error {
 	}
 
 	type selfEnrollRequest struct {
-		ClassID   uuid.UUID  `json:"user_classes_class_id" validate:"required"`
-		TermID    uuid.UUID  `json:"user_classes_term_id"  validate:"required"`
-		OpeningID *uuid.UUID `json:"user_classes_opening_id" validate:"omitempty"`
-		Notes     *string    `json:"user_classes_notes" validate:"omitempty"`
+		ClassID          uuid.UUID  `json:"user_classes_class_id" validate:"required"`
+		TermID           uuid.UUID  `json:"user_classes_term_id"  validate:"required"`
+		MasjidStudentID  *uuid.UUID `json:"user_classes_masjid_student_id" validate:"omitempty"`
+		// Opsional jika ingin set joined_at saat self enroll:
+		JoinedAt         *time.Time `json:"user_classes_joined_at" validate:"omitempty"`
 	}
 	var req selfEnrollRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -142,7 +174,7 @@ func (h *UserMyClassController) SelfEnroll(c *fiber.Ctx) error {
 	}
 
 	// Ambil kelas aktif + masjid_id (kelas tidak boleh soft-deleted & tidak pending delete)
-	var cls classModel.ClassModel
+	var cls ucModel.ClassModel
 	if err := h.DB.
 		Select("class_id, class_is_active, class_masjid_id").
 		Where("class_id = ? AND class_deleted_at IS NULL AND class_delete_pending_until IS NULL", req.ClassID).
@@ -155,7 +187,6 @@ func (h *UserMyClassController) SelfEnroll(c *fiber.Ctx) error {
 	if !cls.ClassIsActive {
 		return fiber.NewError(fiber.StatusBadRequest, "Kelas sedang tidak aktif")
 	}
-	// MasjidID sekarang NOT NULL (uuid.UUID), langsung pakai
 	masjidID := cls.ClassMasjidID
 
 	// Validasi term milik masjid ini
@@ -171,16 +202,16 @@ func (h *UserMyClassController) SelfEnroll(c *fiber.Ctx) error {
 		}
 	}
 
-	// Validasi optional opening
-	if req.OpeningID != nil {
+	// (Opsional) validasi masjid_student milik tenant ini
+	if req.MasjidStudentID != nil {
 		var count int64
-		if err := h.DB.Table("class_term_openings").
-			Where("class_term_openings_id = ? AND class_term_openings_masjid_id = ?", *req.OpeningID, masjidID).
+		if err := h.DB.Table("masjid_students").
+			Where("masjid_student_id = ? AND masjid_student_masjid_id = ?", *req.MasjidStudentID, masjidID).
 			Count(&count).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa opening")
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa data siswa masjid")
 		}
 		if count == 0 {
-			return fiber.NewError(fiber.StatusBadRequest, "Opening tidak valid untuk masjid ini")
+			return fiber.NewError(fiber.StatusBadRequest, "Data siswa masjid tidak valid untuk tenant ini")
 		}
 	}
 
@@ -200,16 +231,16 @@ func (h *UserMyClassController) SelfEnroll(c *fiber.Ctx) error {
 		}
 	}
 
-	// Buat enrolment 'inactive' (pending approval)
-	m := &classModel.UserClassesModel{
-		UserClassesUserID:                userID,
-		UserClassesClassID:               req.ClassID,
-		UserClassesMasjidID:              masjidID, // value langsung
-		UserClassesTermID:                req.TermID,
-		UserClassesOpeningID:             req.OpeningID,
-		UserClassesStatus:                classModel.UserClassStatusInactive,
-		UserClassesFeeOverrideMonthlyIDR: nil,
-		UserClassesNotes:                 req.Notes,
+	// Buat enrolment 'inactive' (pending approval); joined_at opsional
+	m := &ucModel.UserClassesModel{
+		UserClassesUserID:          userID,
+		UserClassesClassID:         req.ClassID,
+		UserClassesMasjidID:        masjidID,
+		UserClassesTermID:          req.TermID,
+		UserClassesMasjidStudentID: req.MasjidStudentID,
+		UserClassesStatus:          ucModel.UserClassStatusInactive,
+		UserClassesJoinedAt:        req.JoinedAt,
+		// left_at biarkan NULL
 	}
 
 	if err := h.DB.Create(m).Error; err != nil {
