@@ -9,15 +9,31 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- trigram (untuk GIN ILIKE opsional)
 -- =========================================================
 -- ENUMS (tanpa DO block)
 -- =========================================================
-CREATE TYPE IF NOT EXISTS billing_cycle_enum AS ENUM ('one_time','monthly','quarterly','semester','yearly');
-CREATE TYPE IF NOT EXISTS class_delivery_mode_enum AS ENUM ('online','offline','hybrid');
+-- Extensions aman dipanggil berulang
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+BEGIN;
+
+-- Enums aman: pakai DO-block guard (hindari CREATE TYPE IF NOT EXISTS)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'billing_cycle_enum') THEN
+    CREATE TYPE billing_cycle_enum AS ENUM ('one_time','monthly','quarterly','semester','yearly');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'class_delivery_mode_enum') THEN
+    CREATE TYPE class_delivery_mode_enum AS ENUM ('online','offline','hybrid');
+  END IF;
+END$$;
 
 -- =========================================================
--- TABLE: class_parent (level = SMALLINT)
+-- TABLE: class_parents (level = SMALLINT)
 -- =========================================================
-CREATE TABLE IF NOT EXISTS class_parent (
+CREATE TABLE IF NOT EXISTS class_parents (
   class_parent_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_parent_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_parent_masjid_id UUID NOT NULL
+    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   class_parent_name  VARCHAR(120) NOT NULL,
   class_parent_code  VARCHAR(40),
@@ -39,32 +55,40 @@ CREATE TABLE IF NOT EXISTS class_parent (
   UNIQUE (class_parent_id, class_parent_masjid_id),
 
   -- guard
-  CONSTRAINT ck_class_parent_level_range
+  CONSTRAINT ck_class_parents_level_range
     CHECK (class_parent_level IS NULL OR class_parent_level BETWEEN 0 AND 100)
 );
 
--- Indexes (tanpa pembersihan/DO)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_class_parent_code_per_masjid_active
-  ON class_parent (class_parent_masjid_id, lower(class_parent_code))
+-- Indexes
+CREATE UNIQUE INDEX IF NOT EXISTS uq_class_parents_code_per_masjid_active
+  ON class_parents (class_parent_masjid_id, LOWER(class_parent_code))
   WHERE class_parent_deleted_at IS NULL
     AND class_parent_delete_pending_until IS NULL
     AND class_parent_code IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_class_parent_masjid     ON class_parent (class_parent_masjid_id);
-CREATE INDEX IF NOT EXISTS idx_class_parent_active     ON class_parent (class_parent_is_active);
-CREATE INDEX IF NOT EXISTS idx_class_parent_created_at ON class_parent (class_parent_created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_class_parent_code       ON class_parent (class_parent_code);
-CREATE INDEX IF NOT EXISTS idx_class_parent_level      ON class_parent (class_parent_level)
+CREATE INDEX IF NOT EXISTS idx_class_parents_masjid
+  ON class_parents (class_parent_masjid_id);
+
+CREATE INDEX IF NOT EXISTS idx_class_parents_active
+  ON class_parents (class_parent_is_active);
+
+CREATE INDEX IF NOT EXISTS idx_class_parents_created_at
+  ON class_parents (class_parent_created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_class_parents_code
+  ON class_parents (class_parent_code);
+
+CREATE INDEX IF NOT EXISTS idx_class_parents_level
+  ON class_parents (class_parent_level)
   WHERE class_parent_deleted_at IS NULL;
 
+COMMIT;
 
 
-
--- 20250907_create_or_update_classes_with_image_url.up.sql
 BEGIN;
 
 -- =========================================================
--- TABLE: classes (tanpa name/code; pakai delivery_mode)
+-- TABLE: classes
 -- =========================================================
 CREATE TABLE IF NOT EXISTS classes (
   class_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -87,13 +111,13 @@ CREATE TABLE IF NOT EXISTS classes (
     OR class_registration_closes_at >= class_registration_opens_at
   ),
 
-  -- Kuota (tanpa trigger; guard dasar)
+  -- Kuota
   class_quota_total INT CHECK (class_quota_total IS NULL OR class_quota_total >= 0),
   class_quota_taken INT NOT NULL DEFAULT 0 CHECK (class_quota_taken >= 0),
   CONSTRAINT ck_class_quota_le_total
     CHECK (class_quota_total IS NULL OR class_quota_taken <= class_quota_total),
 
-  -- Pricing (ringkas, 1:1)
+  -- Pricing
   class_registration_fee_idr BIGINT,
   class_tuition_fee_idr      BIGINT,
   class_billing_cycle        billing_cycle_enum NOT NULL DEFAULT 'monthly',
@@ -106,9 +130,9 @@ CREATE TABLE IF NOT EXISTS classes (
 
   -- Catatan & media
   class_notes TEXT,
-  class_image_url TEXT,  -- << ditambahkan
+  class_image_url TEXT,
 
-  -- Mode di child
+  -- Mode delivery
   class_delivery_mode class_delivery_mode_enum,
 
   -- Status
@@ -124,12 +148,13 @@ CREATE TABLE IF NOT EXISTS classes (
   -- tenant-safe pair
   UNIQUE (class_id, class_masjid_id),
 
-  -- FKs (komposit) — asumsi unique pair sudah ada di tabel rujukan
+  -- FK komposit: PASTIKAN refer ke class_parents (plural)
   CONSTRAINT fk_classes_parent_same_masjid
     FOREIGN KEY (class_parent_id, class_masjid_id)
-    REFERENCES class_parent (class_parent_id, class_parent_masjid_id)
+    REFERENCES class_parents (class_parent_id, class_parent_masjid_id)
     ON DELETE CASCADE,
 
+  -- optional: term pair (hapus jika tabel academic_terms belum ada)
   CONSTRAINT fk_classes_term_masjid_pair
     FOREIGN KEY (class_term_id, class_masjid_id)
     REFERENCES academic_terms (academic_terms_id, academic_terms_masjid_id)
@@ -137,9 +162,9 @@ CREATE TABLE IF NOT EXISTS classes (
     ON DELETE RESTRICT
 );
 
--- Indexes classes
+-- Indexes
 CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_slug_per_masjid_active
-  ON classes (class_masjid_id, lower(class_slug))
+  ON classes (class_masjid_id, LOWER(class_slug))
   WHERE class_deleted_at IS NULL
     AND class_delete_pending_until IS NULL;
 
@@ -161,6 +186,7 @@ CREATE INDEX IF NOT EXISTS ix_classes_reg_window_live
   ON classes (class_masjid_id, class_registration_opens_at, class_registration_closes_at)
   WHERE class_deleted_at IS NULL;
 
+-- Trigram untuk notes (pakai pg_trgm)
 CREATE INDEX IF NOT EXISTS gin_classes_notes_trgm_alive
   ON classes USING GIN (LOWER(class_notes) gin_trgm_ops)
   WHERE class_deleted_at IS NULL;

@@ -16,7 +16,7 @@ import (
 
 // CREATE
 type CreateClassParentRequest struct {
-	ClassParentMasjidID        uuid.UUID `json:"class_parent_masjid_id" validate:"required"`
+	ClassParentMasjidID        uuid.UUID `json:"class_parent_masjid_id"`
 	ClassParentName            string    `json:"class_parent_name" validate:"required,max=120"`
 	ClassParentCode            string    `json:"class_parent_code" validate:"omitempty,max=40"`
 	ClassParentDescription     string    `json:"class_parent_description" validate:"omitempty"`

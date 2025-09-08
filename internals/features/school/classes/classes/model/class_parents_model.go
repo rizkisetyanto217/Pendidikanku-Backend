@@ -35,5 +35,5 @@ type ClassParentModel struct {
 }
 
 func (ClassParentModel) TableName() string {
-	return "class_parent"
+	return "class_parents"
 }

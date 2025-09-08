@@ -7,6 +7,7 @@ import (
 	SemesterStatsRoutes "masjidku_backend/internals/features/lembaga/stats/semester_stats/route"
 	YayasanRoutes "masjidku_backend/internals/features/lembaga/yayasans/route"
 	AcademicYearRoutes "masjidku_backend/internals/features/school/academics/academic_terms/route"
+	CertificateRoutes "masjidku_backend/internals/features/school/academics/certificates/route"
 	RoomsRoutes "masjidku_backend/internals/features/school/academics/rooms/route"
 	AnnouncementRoutes "masjidku_backend/internals/features/school/announcements/announcement/route"
 	AnnouncementThemaRoutes "masjidku_backend/internals/features/school/announcements/announcement_thema/route"
@@ -58,6 +59,7 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	RoomsRoutes.RoomsUserRoutes(r, db)
 	ScheduleRoutes.ScheduleUserRoutes(r, db)
 	SubjectRoutes.SubjectUserRoutes(r, db)
+	CertificateRoutes.CertificateUserRoutes(r, db)
 
 
 
@@ -87,6 +89,7 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	RoomsRoutes.RoomsAdminRoutes(r, db)
 	ScheduleRoutes.ScheduleAdminRoutes(r, db)
 	ClassAttendanceSessionsRoutes.AttendanceSessionsAdminRoutes(r, db)
+	CertificateRoutes.CertificateAdminRoutes(r, db)
 
 
 	// Tambahkan modul lain (admin) di sini:

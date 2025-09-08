@@ -175,9 +175,15 @@ CREATE TABLE IF NOT EXISTS masjids_profiles (
       OR (masjid_profile_latitude BETWEEN -90 AND 90 AND masjid_profile_longitude BETWEEN -180 AND 180)
     ),
   CONSTRAINT chk_mpp_contact_email
-    CHECK (masjid_profile_contact_email IS NULL OR masjid_profile_contact_email ~ '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$'),
+  CHECK (
+    masjid_profile_contact_email IS NULL
+    OR masjid_profile_contact_email ~* $$^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$$
+  ),
   CONSTRAINT chk_mpp_school_email
-    CHECK (masjid_profile_school_email IS NULL OR masjid_profile_school_email ~ '^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$'),
+  CHECK (
+    masjid_profile_school_email IS NULL
+    OR masjid_profile_school_email ~* $$^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$$
+  ),
   CONSTRAINT chk_mpp_student_capacity
     CHECK (masjid_profile_school_student_capacity IS NULL OR masjid_profile_school_student_capacity >= 0),
   CONSTRAINT chk_mpp_school_accreditation

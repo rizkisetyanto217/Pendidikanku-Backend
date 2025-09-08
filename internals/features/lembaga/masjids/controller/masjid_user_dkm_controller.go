@@ -12,6 +12,7 @@ import (
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -20,6 +21,9 @@ import (
 // =======================================================
 // Helpers lokal
 // =======================================================
+/* =======================================================
+   Helpers lokal
+======================================================= */
 
 func strPtrOrNil(s string, lower bool) *string {
 	t := strings.TrimSpace(s)
@@ -33,8 +37,13 @@ func strPtrOrNil(s string, lower bool) *string {
 	return &t
 }
 
-func boolFromForm(v string) bool {
-	return v == "true" || v == "1" || strings.ToLower(v) == "yes"
+func parseBool(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "ya", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // parse masjid_levels dari multipart/JSON form
@@ -111,12 +120,94 @@ func clampInt(vs string, def, min, max int) int {
 	return v
 }
 
+func ptrStr(s string) *string {
+	ss := strings.TrimSpace(s)
+	if ss == "" {
+		return nil
+	}
+	return &ss
+}
 
-// =======================================================
-// POST /api/a/masjids (CreateMasjidDKM)
-// =======================================================
+func ptrStrTrim(s string) *string { return ptrStr(s) }
 
-// CreateMasjidDKM — versi inti (tanpa media/sosial/Maps)
+func normalizeDomain(raw string) string {
+	d := strings.ToLower(strings.TrimSpace(raw))
+	d = strings.TrimPrefix(d, "http://")
+	d = strings.TrimPrefix(d, "https://")
+	d = strings.TrimSuffix(d, "/")
+	return d
+}
+
+func normalizeDomainPtr(raw string) *string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	n := normalizeDomain(raw)
+	if n == "" {
+		return nil
+	}
+	return &n
+}
+
+/* =======================================================
+   DTO request
+======================================================= */
+
+// Dipakai oleh JSON & multipart (parser form)
+type MasjidProfilePayload struct {
+	Description string     `json:"description"`
+	FoundedYear *int       `json:"founded_year"`
+
+	Address      string    `json:"address"`
+	ContactPhone string    `json:"contact_phone"`
+	ContactEmail string    `json:"contact_email"`
+
+	GoogleMapsURL string   `json:"google_maps_url"`
+	InstagramURL  string   `json:"instagram_url"`
+	WhatsappURL   string   `json:"whatsapp_url"`
+	YoutubeURL    string   `json:"youtube_url"`
+	FacebookURL   string   `json:"facebook_url"`
+	TiktokURL     string   `json:"tiktok_url"`
+	WhatsappGroupIkhwanURL string `json:"whatsapp_group_ikhwan_url"`
+	WhatsappGroupAkhwatURL string `json:"whatsapp_group_akhwat_url"`
+	WebsiteURL    string   `json:"website_url"`
+
+	Latitude  *float64    `json:"latitude"`
+	Longitude *float64    `json:"longitude"`
+
+	SchoolNPSN            string     `json:"school_npsn"`
+	SchoolNSS             string     `json:"school_nss"`
+	SchoolAccreditation   string     `json:"school_accreditation"`
+	SchoolPrincipalUserID *uuid.UUID `json:"school_principal_user_id"`
+	SchoolPhone           string     `json:"school_phone"`
+	SchoolEmail           string     `json:"school_email"`
+	SchoolAddress         string     `json:"school_address"`
+	SchoolStudentCapacity *int       `json:"school_student_capacity"`
+	SchoolIsBoarding      *bool      `json:"school_is_boarding"`
+}
+
+var validateCreateMasjid = validator.New()
+
+type createMasjidRequest struct {
+	MasjidName            string     `json:"masjid_name" validate:"required"`
+	MasjidBioShort        *string    `json:"masjid_bio_short"`
+	MasjidLocation        *string    `json:"masjid_location"`
+	MasjidDomain          *string    `json:"masjid_domain"`
+	MasjidIsIslamicSchool bool       `json:"masjid_is_islamic_school"`
+	MasjidYayasanID       *uuid.UUID `json:"masjid_yayasan_id"`
+	MasjidCurrentPlanID   *uuid.UUID `json:"masjid_current_plan_id"`
+
+	MasjidVerificationStatus string  `json:"masjid_verification_status"` // pending|approved|rejected
+	MasjidVerificationNotes  *string `json:"masjid_verification_notes"`
+
+	Levels  []string               `json:"levels"`  // tags
+	Profile *MasjidProfilePayload  `json:"profile"` // <<— NAMED TYPE
+}
+
+/* =======================================================
+   POST /api/a/masjids (CreateMasjidDKM) — refactor total
+======================================================= */
+
 func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 	// Auth
 	userID, err := helperAuth.GetUserIDFromToken(c)
@@ -124,52 +215,86 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
-	// Terima multipart / JSON
-	isMultipart := strings.Contains(c.Get("Content-Type"), "multipart/form-data")
-	if !isMultipart && !strings.Contains(c.Get("Content-Type"), "application/json") {
-		if mf, _ := c.MultipartForm(); mf == nil {
+	ct := strings.ToLower(c.Get("Content-Type"))
+	isJSON := strings.Contains(ct, "application/json")
+	isMultipart := strings.Contains(ct, "multipart/form-data")
+
+	var req createMasjidRequest
+
+	// Parse input
+	switch {
+	case isJSON:
+		if err := c.BodyParser(&req); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "JSON invalid: "+err.Error())
+		}
+		if req.MasjidVerificationStatus == "" {
+			req.MasjidVerificationStatus = "pending"
+		}
+		if err := validateCreateMasjid.Struct(req); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Validasi gagal: "+err.Error())
+		}
+
+	case isMultipart:
+		// required
+		name := strings.TrimSpace(c.FormValue("masjid_name"))
+		if name == "" {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Nama masjid wajib diisi")
+		}
+		req.MasjidName = name
+		req.MasjidBioShort = ptrStrTrim(c.FormValue("masjid_bio_short"))
+		req.MasjidLocation = ptrStrTrim(c.FormValue("masjid_location"))
+		req.MasjidDomain = normalizeDomainPtr(c.FormValue("masjid_domain"))
+		req.MasjidIsIslamicSchool = parseBool(c.FormValue("masjid_is_islamic_school"))
+
+		if s := strings.TrimSpace(c.FormValue("masjid_yayasan_id")); s != "" {
+			if id, err := uuid.Parse(s); err == nil {
+				req.MasjidYayasanID = &id
+			}
+		}
+		if s := strings.TrimSpace(c.FormValue("masjid_current_plan_id")); s != "" {
+			if id, err := uuid.Parse(s); err == nil {
+				req.MasjidCurrentPlanID = &id
+			}
+		}
+
+		req.MasjidVerificationStatus = strings.TrimSpace(c.FormValue("masjid_verification_status"))
+		if req.MasjidVerificationStatus == "" {
+			req.MasjidVerificationStatus = "pending"
+		}
+		req.MasjidVerificationNotes = ptrStrTrim(c.FormValue("masjid_verification_notes"))
+
+		// levels[] (array)
+		req.Levels = parseLevelsFromRequest(c)
+
+		// profile_* (opsional)
+		if p := parseProfileFromForm(c); p != nil {
+			req.Profile = p // tipe sama: *MasjidProfilePayload
+		}
+
+	default:
+		// fallback: coba parse JSON
+		if err := c.BodyParser(&req); err != nil {
 			return helper.JsonError(c, fiber.StatusUnsupportedMediaType, "Gunakan multipart/form-data atau application/json")
+		}
+		if req.MasjidVerificationStatus == "" {
+			req.MasjidVerificationStatus = "pending"
 		}
 	}
 
-	// Fields inti
-	name := strings.TrimSpace(c.FormValue("masjid_name"))
-	if name == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Nama masjid wajib diisi")
+	// Validasi akhir
+	if strings.TrimSpace(req.MasjidName) == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "masjid_name wajib diisi")
 	}
-	baseSlug := helper.GenerateSlug(name)
+
+	// Slug base & normalisasi domain
+	baseSlug := helper.GenerateSlug(req.MasjidName)
 	if baseSlug == "" {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Nama masjid tidak valid untuk slug")
 	}
-
-	bio := c.FormValue("masjid_bio_short")
-	location := c.FormValue("masjid_location")
-	domain := c.FormValue("masjid_domain")
-	isIslamicSchool := boolFromForm(c.FormValue("masjid_is_islamic_school"))
-
-	// Relasi opsional
-	var yayasanID *uuid.UUID
-	if s := strings.TrimSpace(c.FormValue("masjid_yayasan_id")); s != "" {
-		if id, err := uuid.Parse(s); err == nil {
-			yayasanID = &id
-		}
+	if req.MasjidDomain != nil {
+		norm := normalizeDomain(*req.MasjidDomain)
+		req.MasjidDomain = &norm
 	}
-	var planIDPtr *uuid.UUID
-	if s := strings.TrimSpace(c.FormValue("masjid_current_plan_id")); s != "" {
-		if id, err := uuid.Parse(s); err == nil {
-			planIDPtr = &id
-		}
-	}
-
-	// Verifikasi
-	verifStatus := strings.TrimSpace(c.FormValue("masjid_verification_status"))
-	if verifStatus == "" {
-		verifStatus = "pending"
-	}
-	verifNotes := c.FormValue("masjid_verification_notes")
-
-	// Levels (tags)
-	reqLevels := parseLevelsFromRequest(c)
 
 	// Transaksi
 	var respDTO dto.MasjidResponse
@@ -181,44 +306,78 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 		}
 
 		newID := uuid.New()
-		domainPtr := strPtrOrNil(domain, true)
 
-		// Build record
+		// Build Masjid
 		newMasjid := model.MasjidModel{
 			MasjidID:            newID,
-			MasjidYayasanID:     yayasanID,
-			MasjidCurrentPlanID: planIDPtr,
+			MasjidYayasanID:     req.MasjidYayasanID,
+			MasjidCurrentPlanID: req.MasjidCurrentPlanID,
 
-			MasjidName:     name,
-			MasjidBioShort: strPtrOrNil(bio, false),
-			MasjidLocation: strPtrOrNil(location, false),
+			MasjidName:     req.MasjidName,
+			MasjidBioShort: req.MasjidBioShort,
+			MasjidLocation: req.MasjidLocation,
 
-			MasjidDomain: domainPtr,
+			MasjidDomain: req.MasjidDomain,
 			MasjidSlug:   slug,
 
 			MasjidIsActive:           true,
-			MasjidVerificationStatus: model.VerificationStatus(verifStatus),
-			MasjidVerificationNotes:  strPtrOrNil(verifNotes, false),
+			MasjidVerificationStatus: model.VerificationStatus(req.MasjidVerificationStatus),
+			MasjidVerificationNotes:  req.MasjidVerificationNotes,
 
-			MasjidIsIslamicSchool: isIslamicSchool,
+			MasjidIsIslamicSchool: req.MasjidIsIslamicSchool,
 		}
-		// Set levels JSONB
-		if len(reqLevels) > 0 {
-			_ = newMasjid.SetLevels(reqLevels)
-		} else {
-			_ = newMasjid.SetLevels([]string{})
-		}
-		// Sinkron flag verifikasi
+		_ = newMasjid.SetLevels(req.Levels)
 		syncVerificationFlags(&newMasjid)
 
-		// Simpan
 		if err := tx.Create(&newMasjid).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan masjid")
 		}
 
+		// Optional: create profile 1:1
+		if req.Profile != nil {
+			profile := model.MasjidProfileModel{
+				MasjidProfileMasjidID: newMasjid.MasjidID,
+
+				MasjidProfileDescription:  ptrStr(req.Profile.Description),
+				MasjidProfileFoundedYear:  req.Profile.FoundedYear,
+
+				MasjidProfileAddress:      ptrStr(req.Profile.Address),
+				MasjidProfileContactPhone: ptrStr(req.Profile.ContactPhone),
+				MasjidProfileContactEmail: ptrStr(req.Profile.ContactEmail),
+
+				MasjidProfileGoogleMapsURL:          ptrStr(req.Profile.GoogleMapsURL),
+				MasjidProfileInstagramURL:           ptrStr(req.Profile.InstagramURL),
+				MasjidProfileWhatsappURL:            ptrStr(req.Profile.WhatsappURL),
+				MasjidProfileYoutubeURL:             ptrStr(req.Profile.YoutubeURL),
+				MasjidProfileFacebookURL:            ptrStr(req.Profile.FacebookURL),
+				MasjidProfileTiktokURL:              ptrStr(req.Profile.TiktokURL),
+				MasjidProfileWhatsappGroupIkhwanURL: ptrStr(req.Profile.WhatsappGroupIkhwanURL),
+				MasjidProfileWhatsappGroupAkhwatURL: ptrStr(req.Profile.WhatsappGroupAkhwatURL),
+				MasjidProfileWebsiteURL:             ptrStr(req.Profile.WebsiteURL),
+
+				MasjidProfileLatitude:  req.Profile.Latitude,
+				MasjidProfileLongitude: req.Profile.Longitude,
+
+				MasjidProfileSchoolNPSN:            ptrStr(req.Profile.SchoolNPSN),
+				MasjidProfileSchoolNSS:             ptrStr(req.Profile.SchoolNSS),
+				MasjidProfileSchoolAccreditation:   ptrStr(req.Profile.SchoolAccreditation),
+				MasjidProfileSchoolPrincipalUserID: req.Profile.SchoolPrincipalUserID,
+				MasjidProfileSchoolPhone:           ptrStr(req.Profile.SchoolPhone),
+				MasjidProfileSchoolEmail:           ptrStr(req.Profile.SchoolEmail),
+				MasjidProfileSchoolAddress:         ptrStr(req.Profile.SchoolAddress),
+				MasjidProfileSchoolStudentCapacity: req.Profile.SchoolStudentCapacity,
+			}
+			if req.Profile.SchoolIsBoarding != nil {
+				profile.MasjidProfileSchoolIsBoarding = *req.Profile.SchoolIsBoarding
+			}
+
+			if err := tx.Create(&profile).Error; err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan profil masjid")
+			}
+		}
+
 		// Role best-effort
 		_ = helperAuth.EnsureGlobalRole(tx, userID, "user", &userID)
-		// Grant DKM wajib
 		if err := helperAuth.GrantScopedRoleDKM(tx, userID, newMasjid.MasjidID); err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal grant peran DKM")
 		}
@@ -234,6 +393,85 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonCreated(c, "Masjid berhasil dibuat", respDTO)
+}
+
+/* =======================================================
+   Parser profile (multipart) — return *MasjidProfilePayload
+======================================================= */
+
+func parseProfileFromForm(c *fiber.Ctx) *MasjidProfilePayload {
+	hasAny := false
+	p := &MasjidProfilePayload{}
+
+	// text fields
+	if v := strings.TrimSpace(c.FormValue("profile_description")); v != "" {
+		p.Description = v
+		hasAny = true
+	}
+	if v := strings.TrimSpace(c.FormValue("profile_founded_year")); v != "" {
+		if i, err := strconv.Atoi(v); err == nil {
+			p.FoundedYear = &i
+			hasAny = true
+		}
+	}
+
+	if v := strings.TrimSpace(c.FormValue("profile_address")); v != "" { p.Address = v; hasAny = true }
+	if v := strings.TrimSpace(c.FormValue("profile_contact_phone")); v != "" { p.ContactPhone = v; hasAny = true }
+	if v := strings.TrimSpace(c.FormValue("profile_contact_email")); v != "" { p.ContactEmail = v; hasAny = true }
+
+	if v := strings.TrimSpace(c.FormValue("profile_google_maps_url")); v != "" { p.GoogleMapsURL = v; hasAny = true }
+	if v := strings.TrimSpace(c.FormValue("profile_instagram_url")); v != "" { p.InstagramURL = v; hasAny = true }
+	if v := strings.TrimSpace(c.FormValue("profile_whatsapp_url")); v != "" { p.WhatsappURL = v; hasAny = true }
+	if v := strings.TrimSpace(c.FormValue("profile_youtube_url")); v != "" { p.YoutubeURL = v; hasAny = true }
+	if v := strings.TrimSpace(c.FormValue("profile_facebook_url")); v != "" { p.FacebookURL = v; hasAny = true }
+	if v := strings.TrimSpace(c.FormValue("profile_tiktok_url")); v != "" { p.TiktokURL = v; hasAny = true }
+	if v := strings.TrimSpace(c.FormValue("profile_whatsapp_group_ikhwan_url")); v != "" { p.WhatsappGroupIkhwanURL = v; hasAny = true }
+	if v := strings.TrimSpace(c.FormValue("profile_whatsapp_group_akhwat_url")); v != "" { p.WhatsappGroupAkhwatURL = v; hasAny = true }
+	if v := strings.TrimSpace(c.FormValue("profile_website_url")); v != "" { p.WebsiteURL = v; hasAny = true }
+
+	// numeric
+	if v := strings.TrimSpace(c.FormValue("profile_latitude")); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			p.Latitude = &f
+			hasAny = true
+		}
+	}
+	if v := strings.TrimSpace(c.FormValue("profile_longitude")); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			p.Longitude = &f
+			hasAny = true
+		}
+	}
+
+	// sekolah
+	if v := strings.TrimSpace(c.FormValue("profile_school_npsn")); v != "" { p.SchoolNPSN = v; hasAny = true }
+	if v := strings.TrimSpace(c.FormValue("profile_school_nss")); v != "" { p.SchoolNSS = v; hasAny = true }
+	if v := strings.TrimSpace(c.FormValue("profile_school_accreditation")); v != "" { p.SchoolAccreditation = v; hasAny = true }
+	if v := strings.TrimSpace(c.FormValue("profile_school_principal_user_id")); v != "" {
+		if id, err := uuid.Parse(v); err == nil {
+			p.SchoolPrincipalUserID = &id
+			hasAny = true
+		}
+	}
+	if v := strings.TrimSpace(c.FormValue("profile_school_phone")); v != "" { p.SchoolPhone = v; hasAny = true }
+	if v := strings.TrimSpace(c.FormValue("profile_school_email")); v != "" { p.SchoolEmail = v; hasAny = true }
+	if v := strings.TrimSpace(c.FormValue("profile_school_address")); v != "" { p.SchoolAddress = v; hasAny = true }
+	if v := strings.TrimSpace(c.FormValue("profile_school_student_capacity")); v != "" {
+		if i, err := strconv.Atoi(v); err == nil {
+			p.SchoolStudentCapacity = &i
+			hasAny = true
+		}
+	}
+	if v := strings.TrimSpace(c.FormValue("profile_school_is_boarding")); v != "" {
+		b := parseBool(v)
+		p.SchoolIsBoarding = &b
+		hasAny = true
+	}
+
+	if !hasAny {
+		return nil
+	}
+	return p
 }
 
 // =======================================================

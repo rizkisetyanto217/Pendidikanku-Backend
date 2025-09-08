@@ -29,25 +29,15 @@ type MasjidURLController struct {
 	Validate *validator.Validate
 }
 
+// allowed types; kalau kamu punya d.MasjidURLTypeOneOf, boleh ganti pakai itu
+const oneOfTypes = "oneof=logo stempel ttd_ketua banner profile_cover gallery qr other bg_behind_main main linktree_bg"
+
 func NewMasjidURLController(db *gorm.DB, v *validator.Validate) *MasjidURLController {
+	if v == nil {
+		v = validator.New()
+	}
 	return &MasjidURLController{DB: db, Validate: v}
 }
-
-/* =========================================
-   ROUTE REGISTER (contoh)
-========================================= */
-
-// Contoh pemakaian di route:
-// func RegisterMasjidURLRoutes(r fiber.Router, db *gorm.DB, v *validator.Validate) {
-// 	ctl := NewMasjidURLController(db, v)
-// 	g := r.Group("/masjid-urls")
-// 	g.Post("/", ctl.Create)
-// 	g.Get("/", ctl.List)
-// 	g.Get("/:id", ctl.GetByID)
-// 	g.Patch("/:id", ctl.Patch)
-// 	g.Patch("/bulk", ctl.BulkPatch)
-// 	g.Delete("/:id", ctl.Delete) // soft delete
-// }
 
 /* =========================================
    HELPERS
@@ -61,7 +51,7 @@ func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
 	return uuid.Parse(idStr)
 }
 
-// Ambil masjid_id dari payload (admin) atau dari Locals (non-admin)
+// Hanya dipakai create JSON (bukan public list). Untuk list, masjid_id selalu dari query.
 func resolveMasjidID(c *fiber.Ctx, given *uuid.UUID) (uuid.UUID, error) {
 	if given != nil {
 		return *given, nil
@@ -74,23 +64,25 @@ func resolveMasjidID(c *fiber.Ctx, given *uuid.UUID) (uuid.UUID, error) {
 	return uuid.Nil, errors.New("masjid_id is required")
 }
 
+
 /* =========================================
    HANDLERS
 ========================================= */
 
 // POST /masjid-urls
+// - multipart: upload file ke OSS, generate public URL
+// - json: pakai file_url langsung
 func (h *MasjidURLController) Create(c *fiber.Ctx) error {
 	ctype := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
 
-	// ==== CABANG MULTIPART: upload ke Alibaba Cloud OSS ====
+	// ====== MULTIPART ======
 	if strings.HasPrefix(ctype, "multipart/form-data") {
-		// ambil field
 		typeStr := strings.TrimSpace(c.FormValue("type"))
 		if err := h.Validate.Var(typeStr, "required,"+d.MasjidURLTypeOneOf); err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "type invalid")
 		}
 
-		// masjid_id dari form atau Locals
+		// ambil masjid_id dari form atau dari Locals
 		var finalMasjidID uuid.UUID
 		if s := strings.TrimSpace(c.FormValue("masjid_id")); s != "" {
 			id, err := uuid.Parse(s)
@@ -106,7 +98,19 @@ func (h *MasjidURLController) Create(c *fiber.Ctx) error {
 			finalMasjidID = id
 		}
 
-		// optional bools
+		// ambil file dari beberapa kemungkinan field
+		fh, err := helperOSS.GetImageFile(c)
+		if err != nil || fh == nil {
+			// fallback ke "file" untuk kompat lama
+			if fh2, err2 := c.FormFile("masjid_url_file_url"); err2 == nil && fh2 != nil {
+				fh = fh2
+			}
+		}
+		if fh == nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "file is required")
+		}
+
+		// parse bool opsional
 		parseBoolPtr := func(name string) (*bool, error) {
 			v := strings.TrimSpace(c.FormValue(name))
 			if v == "" {
@@ -127,25 +131,17 @@ func (h *MasjidURLController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 		}
 
-		// file wajib
-		fh, err := c.FormFile("file")
-		if err != nil || fh == nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "file is required")
-		}
-
-		// init OSS service
-		svc, err := helperOSS.NewOSSServiceFromEnv("") // pakai env ALI_OSS_*
+		// init OSS dari ENV
+		svc, err := helperOSS.NewOSSServiceFromEnv("")
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusBadGateway, "OSS init: "+err.Error())
 		}
-
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		// upload + convert ke webp → public URL
+		// upload & convert ke webp (helper.UploadImageToOSS)
 		publicURL, err := helperOSS.UploadImageToOSS(ctx, svc, finalMasjidID, typeStr, fh)
 		if err != nil {
-			// helper sudah balikin Fiber error utk format/size; cukup forward msg-nya
 			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 		}
 
@@ -165,14 +161,13 @@ func (h *MasjidURLController) Create(c *fiber.Ctx) error {
 			MasjidURLIsPrimary: isPrimary,
 			MasjidURLIsActive:  isActive,
 		}
-
 		if err := h.DB.Create(row).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusConflict, err.Error())
 		}
 		return helper.JsonCreated(c, "created", d.ToMasjidURLResponse(row))
 	}
 
-	// ==== CABANG JSON: tetap dukung payload body (pakai file_url langsung) ====
+	// ====== JSON ======
 	var req d.CreateMasjidURLRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid payload")
@@ -193,7 +188,6 @@ func (h *MasjidURLController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "created", d.ToMasjidURLResponse(row))
 }
 
-
 // GET /masjid-urls/:id
 func (h *MasjidURLController) GetByID(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
@@ -210,7 +204,8 @@ func (h *MasjidURLController) GetByID(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "ok", d.ToMasjidURLResponse(&row))
 }
 
-// GET /masjid-urls?masjid_id=...&type=...&only_active=true&only_primary=false&page=1&per_page=20
+// GET /masjid-urls/list?masjid_id=...&type=...&only_active=true&only_primary=false&page=1&per_page=20
+// PUBLIC-FRIENDLY: tidak akses Locals/guard; hanya pakai querystring.
 func (h *MasjidURLController) List(c *fiber.Ctx) error {
 	var q d.ListMasjidURLQuery
 
@@ -246,10 +241,27 @@ func (h *MasjidURLController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	if err := h.Validate.Struct(&q); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	// aman walau ada perubahan dto: fallback default kalau Normalize() tidak ada/berbeda
+	if h.Validate != nil {
+		if err := h.Validate.Struct(&q); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		}
 	}
-	q.Normalize()
+	// fallback normalize
+	// after
+	if q.Page <= 0 {
+		q.Page = 1
+	}
+	if q.PerPage <= 0 {
+		q.PerPage = 20
+	}
+	if q.PerPage < 1 {
+		q.PerPage = 1
+	}
+	if q.PerPage > 100 {
+		q.PerPage = 100
+	}
+
 
 	tx := h.DB.Model(&m.MasjidURL{}).Where("masjid_url_masjid_id = ?", q.MasjidID)
 	if q.Type != nil && *q.Type != "" {
@@ -280,9 +292,6 @@ func (h *MasjidURLController) List(c *fiber.Ctx) error {
 	return helper.JsonList(c, d.ToMasjidURLResponseSlice(rows), pg)
 }
 
-
-// PATCH /masjid-urls/:id
-
 // PATCH /masjid-urls/:id
 func (h *MasjidURLController) Patch(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
@@ -290,7 +299,6 @@ func (h *MasjidURLController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Ambil row dulu (perlu masjid_id & file_url lama)
 	var row m.MasjidURL
 	if err := h.DB.First(&row, "masjid_url_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -302,18 +310,15 @@ func (h *MasjidURLController) Patch(c *fiber.Ctx) error {
 
 	ctype := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
 	if strings.HasPrefix(ctype, "multipart/form-data") {
-		// ====== CABANG MULTIPART: optional file replace + fields ======
-
-		// Optional: type (kalau kosong, pakai yang lama)
-		typeStr := strings.TrimSpace(c.FormValue("type"))
-		if typeStr != "" {
-			if err := h.Validate.Var(typeStr, "oneof=logo stempel ttd_ketua banner profile_cover gallery qr other bg_behind_main main linktree_bg"); err != nil {
+		// type (opsional)
+		if typeStr := strings.TrimSpace(c.FormValue("type")); typeStr != "" {
+			if err := h.Validate.Var(typeStr, oneOfTypes); err != nil {
 				return helper.JsonError(c, fiber.StatusBadRequest, "type invalid")
 			}
 			row.MasjidURLType = m.MasjidURLType(typeStr)
 		}
 
-		// Optional: booleans
+		// booleans (opsional)
 		parseBoolPtr := func(name string) (*bool, error) {
 			v := strings.TrimSpace(c.FormValue(name))
 			if v == "" {
@@ -336,11 +341,10 @@ func (h *MasjidURLController) Patch(c *fiber.Ctx) error {
 			row.MasjidURLIsActive = *b
 		}
 
-		// Optional: file (kalau ada → upload & replace)
-		fh, _ := c.FormFile("file")
+		// file (opsional)
+		fh, _ := c.FormFile("masjid_url_file_url")
 		var newURL string
 		if fh != nil {
-			// init OSS
 			svc, err := helperOSS.NewOSSServiceFromEnv("")
 			if err != nil {
 				return helper.JsonError(c, fiber.StatusBadGateway, "OSS init: "+err.Error())
@@ -349,13 +353,10 @@ func (h *MasjidURLController) Patch(c *fiber.Ctx) error {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			// slot pakai type terbaru (kalau kosong, pakai existing)
 			slot := string(row.MasjidURLType)
-			if typeStr != "" {
+			if typeStr := strings.TrimSpace(c.FormValue("type")); typeStr != "" {
 				slot = typeStr
 			}
-
-			// upload + convert → public URL
 			publicURL, upErr := helperOSS.UploadImageToOSS(ctx, svc, row.MasjidURLMasjidID, slot, fh)
 			if upErr != nil {
 				return helper.JsonError(c, fiber.StatusBadRequest, upErr.Error())
@@ -363,38 +364,34 @@ func (h *MasjidURLController) Patch(c *fiber.Ctx) error {
 			newURL = publicURL
 			row.MasjidURLFileURL = publicURL
 
-			// Simpan DB dengan URL baru
 			if err := h.DB.Save(&row).Error; err != nil {
-				// rollback: hapus file baru supaya nggak orphan
-				_ = helperOSS.DeleteByPublicURLENV(publicURL, 15*time.Second)
+				_ = helperOSS.DeleteByPublicURLENV(publicURL, 15*time.Second) // rollback
 				return helper.JsonError(c, fiber.StatusConflict, err.Error())
 			}
 
-			// Pindahkan file lama ke spam/ (best-effort)
+			// move lama ke spam (best-effort)
 			if strings.TrimSpace(oldURL) != "" && oldURL != newURL {
-				if _, err := helperOSS.MoveToSpamByPublicURLENV(oldURL, 0); err != nil {
-					// best-effort: log ajah kalau kamu punya logger
-					// log.Printf("[WARN] move to spam failed: %v", err)
-				}
+				_, _ = helperOSS.MoveToSpamByPublicURLENV(oldURL, 0)
 			}
-
 			return helper.JsonUpdated(c, "updated", d.ToMasjidURLResponse(&row))
 		}
 
-		// Tidak ada file, hanya fields → simpan biasa
+		// tidak ada file → save fields saja
 		if err := h.DB.Save(&row).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusConflict, err.Error())
 		}
 		return helper.JsonUpdated(c, "updated", d.ToMasjidURLResponse(&row))
 	}
 
-	// ====== CABANG JSON: pakai DTO PatchMasjidURLRequest (tanpa file) ======
+	// ==== JSON PATCH (tanpa file) ====
 	var req d.PatchMasjidURLRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid payload")
 	}
-	if err := h.Validate.Struct(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	if h.Validate != nil {
+		if err := h.Validate.Struct(&req); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		}
 	}
 
 	req.Apply(&row)
@@ -405,14 +402,15 @@ func (h *MasjidURLController) Patch(c *fiber.Ctx) error {
 }
 
 // PATCH /masjid-urls/bulk
-// PATCH /masjid-urls/bulk
 func (h *MasjidURLController) BulkPatch(c *fiber.Ctx) error {
 	var req d.BulkPatchMasjidURLRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid payload")
 	}
-	if err := h.Validate.Struct(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	if h.Validate != nil {
+		if err := h.Validate.Struct(&req); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		}
 	}
 
 	err := h.DB.Transaction(func(tx *gorm.DB) error {
@@ -433,9 +431,9 @@ func (h *MasjidURLController) BulkPatch(c *fiber.Ctx) error {
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusConflict, err.Error())
 	}
-
 	return helper.JsonOK(c, "bulk updated", fiber.Map{"updated": len(req.Items)})
 }
+
 // DELETE /masjid-urls/:id (soft delete + move to spam)
 func (h *MasjidURLController) Delete(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
@@ -451,7 +449,7 @@ func (h *MasjidURLController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Pindahkan file lama ke spam/ (best-effort)
+	// move file lama ke spam (best-effort)
 	var spamURL string
 	var ossWarn string
 	if strings.TrimSpace(row.MasjidURLFileURL) != "" {
@@ -462,14 +460,12 @@ func (h *MasjidURLController) Delete(c *fiber.Ctx) error {
 		}
 	}
 
-	// Soft delete di DB
+	// soft delete DB
 	if err := h.DB.Delete(&row).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	resp := fiber.Map{
-		"masjid_url_id": id,
-	}
+	resp := fiber.Map{"masjid_url_id": id}
 	if spamURL != "" {
 		resp["moved_to_spam"] = spamURL
 	}
@@ -479,14 +475,13 @@ func (h *MasjidURLController) Delete(c *fiber.Ctx) error {
 	return helper.JsonDeleted(c, "deleted", resp)
 }
 
-// Hard delete (admin only) — hapus file di OSS lalu hard delete row
+// Hard delete (admin-only)
 func (h *MasjidURLController) HardDelete(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Load row termasuk yang sudah soft-deleted
 	var row m.MasjidURL
 	if err := h.DB.Unscoped().First(&row, "masjid_url_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -495,22 +490,17 @@ func (h *MasjidURLController) HardDelete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Hapus objek di OSS (best-effort)
 	var ossWarn string
 	if strings.TrimSpace(row.MasjidURLFileURL) != "" {
 		if err := helperOSS.DeleteByPublicURLENV(row.MasjidURLFileURL, 15*time.Second); err != nil {
 			ossWarn = err.Error()
 		}
 	}
-
-	// Hard delete row dari DB
 	if err := h.DB.Unscoped().Delete(&m.MasjidURL{}, "masjid_url_id = ?", id).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	resp := fiber.Map{
-		"masjid_url_id": id,
-	}
+	resp := fiber.Map{"masjid_url_id": id}
 	if ossWarn != "" {
 		resp["oss_warning"] = ossWarn
 	}

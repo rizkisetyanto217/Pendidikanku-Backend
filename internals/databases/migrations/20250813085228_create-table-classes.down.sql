@@ -4,7 +4,7 @@ BEGIN;
 DROP TABLE IF EXISTS classes;
 
 -- Lalu parent
-DROP TABLE IF EXISTS class_parent;
+DROP TABLE IF EXISTS class_parents;
 
 -- Hapus enum mode (hanya dipakai oleh classes di migration ini)
 DROP TYPE IF EXISTS class_delivery_mode_enum;
