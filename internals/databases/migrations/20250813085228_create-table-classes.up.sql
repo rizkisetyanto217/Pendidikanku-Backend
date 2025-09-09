@@ -6,12 +6,6 @@ BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- trigram (untuk GIN ILIKE opsional)
 
--- =========================================================
--- ENUMS (tanpa DO block)
--- =========================================================
--- Extensions aman dipanggil berulang
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 BEGIN;
 
@@ -85,10 +79,36 @@ CREATE INDEX IF NOT EXISTS idx_class_parents_level
 COMMIT;
 
 
+
+-- 20250909_classes_three_statuses_initial.up.sql
 BEGIN;
 
 -- =========================================================
--- TABLE: classes
+-- EXTENSIONS (aman bila sudah ada)
+-- =========================================================
+CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- trigram ops
+
+-- =========================================================
+-- ENUMS (pakai DO-block guard; lebih kompatibel)
+-- =========================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'billing_cycle_enum') THEN
+    CREATE TYPE billing_cycle_enum AS ENUM ('one_time','monthly','quarterly','semester','yearly');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'class_delivery_mode_enum') THEN
+    CREATE TYPE class_delivery_mode_enum AS ENUM ('online','offline','hybrid');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'class_status_enum') THEN
+    CREATE TYPE class_status_enum AS ENUM ('active','inactive','completed');
+  END IF;
+END$$;
+
+-- =========================================================
+-- TABLE: classes  (tanpa class_is_active; gunakan class_status)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS classes (
   class_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -132,11 +152,14 @@ CREATE TABLE IF NOT EXISTS classes (
   class_notes TEXT,
   class_image_url TEXT,
 
-  -- Mode delivery
+  -- Mode & Status (3 status sederhana)
   class_delivery_mode class_delivery_mode_enum,
+  class_status class_status_enum NOT NULL DEFAULT 'active',
+  class_completed_at TIMESTAMPTZ,
 
-  -- Status
-  class_is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  -- Jika completed ⇒ pendaftaran ditutup
+  CONSTRAINT ck_classes_completed_closed
+    CHECK (class_status <> 'completed' OR class_is_open = FALSE),
 
   class_trash_url TEXT,
   class_delete_pending_until TIMESTAMPTZ,
@@ -148,21 +171,21 @@ CREATE TABLE IF NOT EXISTS classes (
   -- tenant-safe pair
   UNIQUE (class_id, class_masjid_id),
 
-  -- FK komposit: PASTIKAN refer ke class_parents (plural)
+  -- FKs (komposit)
   CONSTRAINT fk_classes_parent_same_masjid
     FOREIGN KEY (class_parent_id, class_masjid_id)
     REFERENCES class_parents (class_parent_id, class_parent_masjid_id)
     ON DELETE CASCADE,
 
-  -- optional: term pair (hapus jika tabel academic_terms belum ada)
   CONSTRAINT fk_classes_term_masjid_pair
     FOREIGN KEY (class_term_id, class_masjid_id)
     REFERENCES academic_terms (academic_terms_id, academic_terms_masjid_id)
-    ON UPDATE CASCADE
-    ON DELETE RESTRICT
+    ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
--- Indexes
+-- =========================================================
+-- INDEXES
+-- =========================================================
 CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_slug_per_masjid_active
   ON classes (class_masjid_id, LOWER(class_slug))
   WHERE class_deleted_at IS NULL
@@ -170,7 +193,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_slug_per_masjid_active
 
 CREATE INDEX IF NOT EXISTS idx_classes_masjid      ON classes (class_masjid_id);
 CREATE INDEX IF NOT EXISTS idx_classes_parent      ON classes (class_parent_id);
-CREATE INDEX IF NOT EXISTS idx_classes_active      ON classes (class_is_active);
+
+CREATE INDEX IF NOT EXISTS idx_classes_status_alive
+  ON classes (class_status)
+  WHERE class_deleted_at IS NULL;
+
 CREATE INDEX IF NOT EXISTS idx_classes_created_at  ON classes (class_created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_classes_slug        ON classes (class_slug);
 
@@ -186,7 +213,7 @@ CREATE INDEX IF NOT EXISTS ix_classes_reg_window_live
   ON classes (class_masjid_id, class_registration_opens_at, class_registration_closes_at)
   WHERE class_deleted_at IS NULL;
 
--- Trigram untuk notes (pakai pg_trgm)
+-- GIN trigram pada expression LOWER(class_notes)
 CREATE INDEX IF NOT EXISTS gin_classes_notes_trgm_alive
   ON classes USING GIN (LOWER(class_notes) gin_trgm_ops)
   WHERE class_deleted_at IS NULL;

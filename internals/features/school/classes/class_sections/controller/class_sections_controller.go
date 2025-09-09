@@ -72,6 +72,7 @@ func (ctrl *ClassSectionController) GetClassSectionByID(c *fiber.Ctx) error {
 }
 
 // GET /admin/class-sections/:id/participants
+// GET /admin/class-sections/:id/participants
 func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
@@ -88,6 +89,7 @@ func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) err
 	if v := c.QueryInt("limit"); v > 0 && v <= 200 { limit = v }
 	if v := c.QueryInt("offset"); v >= 0 { offset = v }
 
+	// Ambil penempatan aktif di section ini + tenant guard
 	var rows []secModel.UserClassSectionsModel
 	if err := ctrl.DB.
 		Model(&secModel.UserClassSectionsModel{}).
@@ -104,6 +106,8 @@ func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) err
 	}
 
 	// === enrichment minimal ===
+
+	// 1) Kumpulkan user_class_id unik
 	ucSet := make(map[uuid.UUID]struct{}, len(rows))
 	userClassIDs := make([]uuid.UUID, 0, len(rows))
 	for i := range rows {
@@ -114,52 +118,85 @@ func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) err
 		}
 	}
 
+	// 2) Ambil metadata enrolment (map UC -> masjid_student_id, status, joined_at)
 	type ucMeta struct {
-		UserClassID uuid.UUID  `gorm:"column:user_classes_id"`
-		UserID      uuid.UUID  `gorm:"column:user_classes_user_id"`
-		Status      string     `gorm:"column:user_classes_status"`
-		StartedAt   *time.Time `gorm:"column:user_classes_started_at"`
+		UserClassID     uuid.UUID  `gorm:"column:user_classes_id"`
+		MasjidStudentID uuid.UUID  `gorm:"column:user_classes_masjid_student_id"`
+		Status          string     `gorm:"column:user_classes_status"`
+		JoinedAt        *time.Time `gorm:"column:user_classes_joined_at"`
 	}
 	ucMetaByID := make(map[uuid.UUID]ucMeta, len(userClassIDs))
-	userIDByUC := make(map[uuid.UUID]uuid.UUID, len(userClassIDs))
-
+	studentIDByUC := make(map[uuid.UUID]uuid.UUID, len(userClassIDs))
 	{
 		var ucRows []ucMeta
 		if err := ctrl.DB.
 			Table("user_classes").
-			Select("user_classes_id, user_classes_user_id, user_classes_status, user_classes_started_at").
+			Select("user_classes_id, user_classes_masjid_student_id, user_classes_status, user_classes_joined_at").
 			Where("user_classes_id IN ?", userClassIDs).
 			Find(&ucRows).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data enrolment")
 		}
 		for _, r := range ucRows {
 			ucMetaByID[r.UserClassID] = r
-			userIDByUC[r.UserClassID] = r.UserID
+			studentIDByUC[r.UserClassID] = r.MasjidStudentID
 		}
 	}
 
+	// 3) Kumpulkan masjid_student_id unik → map ke user_id
+	msSet := make(map[uuid.UUID]struct{}, len(userClassIDs))
+	masjidStudentIDs := make([]uuid.UUID, 0, len(userClassIDs))
+	for _, sid := range studentIDByUC {
+		if _, ok := msSet[sid]; !ok {
+			msSet[sid] = struct{}{}
+			masjidStudentIDs = append(masjidStudentIDs, sid)
+		}
+	}
+
+	userIDByMasjidStudent := make(map[uuid.UUID]uuid.UUID, len(masjidStudentIDs))
+	if len(masjidStudentIDs) > 0 {
+		var msRows []struct {
+			MasjidStudentID uuid.UUID `gorm:"column:masjid_student_id"`
+			UserID          uuid.UUID `gorm:"column:masjid_student_user_id"`
+		}
+		if err := ctrl.DB.
+			Table("masjid_students").
+			Select("masjid_student_id, masjid_student_user_id").
+			Where("masjid_student_id IN ?", masjidStudentIDs).
+			Find(&msRows).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil mapping masjid_student → user")
+		}
+		for _, r := range msRows {
+			userIDByMasjidStudent[r.MasjidStudentID] = r.UserID
+		}
+	}
+
+	// 4) Kumpulkan user_id unik
 	uSet := make(map[uuid.UUID]struct{}, len(userClassIDs))
 	userIDs := make([]uuid.UUID, 0, len(userClassIDs))
 	for _, uc := range userClassIDs {
-		if uid, ok := userIDByUC[uc]; ok {
-			if _, seen := uSet[uid]; !seen {
-				uSet[uid] = struct{}{}
-				userIDs = append(userIDs, uid)
+		if sid, ok := studentIDByUC[uc]; ok {
+			if uid, ok2 := userIDByMasjidStudent[sid]; ok2 {
+				if _, seen := uSet[uid]; !seen {
+					uSet[uid] = struct{}{}
+					userIDs = append(userIDs, uid)
+				}
 			}
 		}
 	}
 
+	// 5) Ambil users (termasuk full_name)
 	userMap := make(map[uuid.UUID]ucsDTO.UcsUser, len(userIDs))
 	if len(userIDs) > 0 {
 		var urs []struct {
 			ID       uuid.UUID `gorm:"column:id"`
 			UserName string    `gorm:"column:user_name"`
+			FullName *string   `gorm:"column:full_name"`
 			Email    string    `gorm:"column:email"`
 			IsActive bool      `gorm:"column:is_active"`
 		}
 		if err := ctrl.DB.
 			Table("users").
-			Select("id, user_name, email, is_active").
+			Select("id, user_name, full_name, email, is_active").
 			Where("id IN ?", userIDs).
 			Find(&urs).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data user")
@@ -168,30 +205,32 @@ func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) err
 			userMap[u.ID] = ucsDTO.UcsUser{
 				ID:       u.ID,
 				UserName: u.UserName,
+				FullName: u.FullName,
 				Email:    u.Email,
 				IsActive: u.IsActive,
 			}
 		}
 	}
 
+	// 6) Ambil users_profile (skema baru)
 	profileMap := make(map[uuid.UUID]ucsDTO.UcsUserProfile, len(userIDs))
 	if len(userIDs) > 0 {
 		var prs []struct {
-			UserID       uuid.UUID  `gorm:"column:user_id"`
-			DonationName string     `gorm:"column:donation_name"`
-			FullName     string     `gorm:"column:full_name"`
-			FatherName   string     `gorm:"column:father_name"`
-			MotherName   string     `gorm:"column:mother_name"`
-			DateOfBirth  *time.Time `gorm:"column:date_of_birth"`
-			Gender       *string    `gorm:"column:gender"`
-			PhoneNumber  string     `gorm:"column:phone_number"`
-			Bio          string     `gorm:"column:bio"`
-			Location     string     `gorm:"column:location"`
-			Occupation   string     `gorm:"column:occupation"`
+			UserID                  uuid.UUID  `gorm:"column:user_id"`
+			DonationName            *string    `gorm:"column:donation_name"`
+			PhotoURL                *string    `gorm:"column:photo_url"`
+			PhotoTrashURL           *string    `gorm:"column:photo_trash_url"`
+			PhotoDeletePendingUntil *time.Time `gorm:"column:photo_delete_pending_until"`
+			DateOfBirth             *time.Time `gorm:"column:date_of_birth"`
+			Gender                  *string    `gorm:"column:gender"`
+			PhoneNumber             *string    `gorm:"column:phone_number"`
+			Bio                     *string    `gorm:"column:bio"`
+			Location                *string    `gorm:"column:location"`
+			Occupation              *string    `gorm:"column:occupation"`
 		}
 		if err := ctrl.DB.
 			Table("users_profile").
-			Select(`user_id, donation_name, full_name, father_name, mother_name,
+			Select(`user_id, donation_name, photo_url, photo_trash_url, photo_delete_pending_until,
 			        date_of_birth, gender, phone_number, bio, location, occupation`).
 			Where("user_id IN ?", userIDs).
 			Where("deleted_at IS NULL").
@@ -200,21 +239,22 @@ func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) err
 		}
 		for _, p := range prs {
 			profileMap[p.UserID] = ucsDTO.UcsUserProfile{
-				UserID:       p.UserID,
-				DonationName: p.DonationName,
-				FullName:     p.FullName,
-				FatherName:   p.FatherName,
-				MotherName:   p.MotherName,
-				DateOfBirth:  p.DateOfBirth,
-				Gender:       p.Gender,
-				PhoneNumber:  p.PhoneNumber,
-				Bio:          p.Bio,
-				Location:     p.Location,
-				Occupation:   p.Occupation,
+				UserID:                  p.UserID,
+				DonationName:            p.DonationName,
+				PhotoURL:                p.PhotoURL,
+				PhotoTrashURL:           p.PhotoTrashURL,
+				PhotoDeletePendingUntil: p.PhotoDeletePendingUntil,
+				DateOfBirth:             p.DateOfBirth,
+				Gender:                  p.Gender,
+				PhoneNumber:             p.PhoneNumber,
+				Bio:                     p.Bio,
+				Location:                p.Location,
+				Occupation:              p.Occupation,
 			}
 		}
 	}
 
+	// 7) Susun response
 	resp := make([]*ucsDTO.UserClassSectionResponse, 0, len(rows))
 	for i := range rows {
 		r := ucsDTO.NewUserClassSectionResponse(&rows[i])
@@ -223,21 +263,25 @@ func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) err
 		if meta, ok := ucMetaByID[ucID]; ok {
 			r.UserClassesStatus = meta.Status
 		}
-		if uid, ok := userIDByUC[ucID]; ok {
-			if u, ok := userMap[uid]; ok {
-				uCopy := u
-				r.User = &uCopy
-			}
-			if p, ok := profileMap[uid]; ok {
-				pCopy := p
-				r.Profile = &pCopy
+		if sid, ok := studentIDByUC[ucID]; ok {
+			if uid, ok2 := userIDByMasjidStudent[sid]; ok2 {
+				if u, ok3 := userMap[uid]; ok3 {
+					uCopy := u
+					r.User = &uCopy
+				}
+				if p, ok3 := profileMap[uid]; ok3 {
+					pCopy := p
+					r.Profile = &pCopy
+				}
 			}
 		}
+
 		resp = append(resp, r)
 	}
 
 	return helper.JsonOK(c, "OK", resp)
 }
+
 
 // POST /admin/class-sections
 func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {

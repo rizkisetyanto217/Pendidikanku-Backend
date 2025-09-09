@@ -32,7 +32,6 @@ func NewClassController(db *gorm.DB) *ClassController {
 	return &ClassController{DB: db}
 }
 
-// single validator instance for this package (tidak perlu di-inject)
 var validate = validator.New()
 
 /* =========================== CREATE =========================== */
@@ -71,9 +70,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
 		defer cancel()
 
-		// path: masjids/{masjidID}/classes
 		dir := fmt.Sprintf("masjids/%s/classes", masjidID.String())
-
 		publicURL, upErr := svc.UploadAsWebP(ctx, fh, dir)
 		if upErr != nil {
 			low := strings.ToLower(upErr.Error())
@@ -129,8 +126,8 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat data kelas")
 	}
 
-	// 📈 Update lembaga_stats
-	if m.ClassIsActive {
+	// 📈 Update lembaga_stats bila status = active
+	if m.ClassStatus == model.ClassStatusActive {
 		statsSvc := service.NewLembagaStatsService()
 		if err := statsSvc.EnsureForMasjid(tx, masjidID); err != nil {
 			_ = tx.Rollback().Error
@@ -232,11 +229,11 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengubah kelas di masjid lain")
 	}
 
-	// --- Track perubahan aktif → update stats jika berubah
-	wasActive := existing.ClassIsActive
+	// --- Track perubahan ACTIVE → update stats jika berubah
+	wasActive := (existing.ClassStatus == model.ClassStatusActive)
 	newActive := wasActive
-	if req.ClassIsActive != nil && req.ClassIsActive.Set {
-		newActive = req.ClassIsActive.Value
+	if req.ClassStatus != nil && req.ClassStatus.Set {
+		newActive = (req.ClassStatus.Value == model.ClassStatusActive)
 	}
 
 	// --- Slug unik per masjid (jika di-patch & berbeda)
@@ -258,7 +255,6 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 			_ = tx.Rollback().Error
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat slug unik: "+gErr.Error())
 		}
-
 		// Jika user minta slug spesifik tapi bentrok → 409
 		if req.ClassSlug.Value != "" && uni != req.ClassSlug.Value {
 			_ = tx.Rollback().Error
@@ -272,7 +268,6 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		existing.ClassImageURL != nil && *existing.ClassImageURL != *req.ClassImageURL.Value {
 
 		if spamURL, mvErr := helperOSS.MoveToSpamByPublicURLENV(*existing.ClassImageURL, 0); mvErr == nil {
-			// bila belum ada trash yang di-patch, isi otomatis
 			if req.ClassTrashURL == nil {
 				req.ClassTrashURL = &dto.PatchField[*string]{Set: true, Value: &spamURL}
 			} else if !req.ClassTrashURL.Set || req.ClassTrashURL.Value == nil || *req.ClassTrashURL.Value == "" {
@@ -280,7 +275,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 				req.ClassTrashURL.Value = &spamURL
 			}
 		}
-		// best-effort; jika gagal pindah ke spam tetap lanjut patch data
+		// best-effort
 	}
 
 	// --- Apply & Save
@@ -301,7 +296,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		}
 	}
 
-	// --- Update statistik jika status aktif berubah
+	// --- Update statistik jika transisi active berubah
 	if wasActive != newActive {
 		stats := service.NewLembagaStatsService()
 		if err := stats.EnsureForMasjid(tx, masjidID); err != nil {
@@ -388,7 +383,7 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	wasActive := m.ClassIsActive
+	wasActive := (m.ClassStatus == model.ClassStatusActive)
 
 	// Optional: pindahkan gambar ke spam/ (OSS) jika diminta ?delete_image=true
 	deletedImage := false
@@ -398,18 +393,18 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 			newTrashURL = spamURL
 			deletedImage = true
 		}
-		// best-effort walau gagal memindahkan
+		// best-effort
 	}
 
 	now := time.Now()
 	updates := map[string]any{
 		"class_deleted_at": now,
-		"class_is_active":  false,
 		"class_updated_at": now,
+		// opsional: tandai non-aktif saat dihapus (tidak wajib karena row sudah soft-delete)
+		"class_status": "inactive",
 	}
 	if deletedImage {
 		updates["class_image_url"] = nil
-		// simpan jejak spam url jika ada
 		if newTrashURL != "" {
 			updates["class_trash_url"] = newTrashURL
 		}
@@ -423,7 +418,7 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus data")
 	}
 
-	// Decrement stats jika sebelumnya aktif
+	// Decrement stats jika sebelumnya ACTIVE
 	if wasActive {
 		stats := service.NewLembagaStatsService()
 		if err := stats.EnsureForMasjid(tx, masjidID); err != nil {

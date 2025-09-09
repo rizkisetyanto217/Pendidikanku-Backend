@@ -18,6 +18,9 @@ import (
 	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
+/* ========================================================
+   Controller
+======================================================== */
 type AssessmentController struct {
 	DB        *gorm.DB
 	Validator *validator.Validate
@@ -30,56 +33,68 @@ func NewAssessmentController(db *gorm.DB) *AssessmentController {
 	}
 }
 
-/* =========================
+/* ========================================================
    Helpers
-   ========================= */
+======================================================== */
 
 func toResponse(m *model.AssessmentModel) dto.AssessmentResponse {
+	var deletedAt *time.Time
+	if m.AssessmentsDeletedAt.Valid {
+		t := m.AssessmentsDeletedAt.Time
+		deletedAt = &t
+	}
+
 	return dto.AssessmentResponse{
-		ID:                             m.ID,
-		MasjidID:                       m.MasjidID,
-		ClassSectionID:                 m.ClassSectionID,
-		ClassSubjectsID:                m.ClassSubjectsID,
-		ClassSectionSubjectTeacherID:   m.ClassSectionSubjectTeacherID,
-		TypeID:                         m.TypeID,
-		Title:                          m.Title,
-		Description:                    m.Description,
-		StartAt:                        m.StartAt,
-		DueAt:                          m.DueAt,
-		MaxScore:                       m.MaxScore,
-		IsPublished:                    m.IsPublished,
-		AllowSubmission:                m.AllowSubmission,
-		CreatedByTeacherID:             m.CreatedByTeacherID,
-		CreatedAt:                      m.CreatedAt,
-		UpdatedAt:                      m.UpdatedAt,
+		AssessmentsID:                           m.AssessmentsID,
+		AssessmentsMasjidID:                     m.AssessmentsMasjidID,
+		AssessmentsClassSectionSubjectTeacherID: m.AssessmentsClassSectionSubjectTeacherID,
+		AssessmentsTypeID:                       m.AssessmentsTypeID,
+
+		AssessmentsTitle:       m.AssessmentsTitle,
+		AssessmentsDescription: m.AssessmentsDescription,
+
+		AssessmentsStartAt: m.AssessmentsStartAt,
+		AssessmentsDueAt:   m.AssessmentsDueAt,
+
+		AssessmentsMaxScore: m.AssessmentsMaxScore,
+
+		AssessmentsIsPublished:     m.AssessmentsIsPublished,
+		AssessmentsAllowSubmission: m.AssessmentsAllowSubmission,
+
+		AssessmentsCreatedByTeacherID: m.AssessmentsCreatedByTeacherID,
+
+		AssessmentsCreatedAt: m.AssessmentsCreatedAt,
+		AssessmentsUpdatedAt: m.AssessmentsUpdatedAt,
+		AssessmentsDeletedAt: deletedAt,
 	}
 }
 
-
-// Optional: pastikan created_by_teacher_id (jika ada) memang milik masjid
+// Validasi opsional: created_by_teacher_id (jika ada) memang milik masjid
 func (ctl *AssessmentController) assertTeacherBelongsToMasjid(masjidID uuid.UUID, teacherID *uuid.UUID) error {
 	if teacherID == nil || *teacherID == uuid.Nil {
 		return nil
 	}
 	var n int64
+	// Sesuaikan kolom sesuai DDL masjid_teachers (umumnya PK: masjid_teacher_id)
+	// dan kolom tenant: masjid_teachers_masjid_id
 	err := ctl.DB.Table("masjid_teachers").
-		Where("masjid_teachers_id = ? AND masjid_teacher_masjid_id = ? AND masjid_teachers_deleted_at IS NULL", *teacherID, masjidID).
+		Where("masjid_teacher_id = ? AND masjid_teachers_masjid_id = ? AND masjid_teachers_deleted_at IS NULL", *teacherID, masjidID).
 		Count(&n).Error
 	if err != nil {
 		return err
 	}
 	if n == 0 {
-		return errors.New("created_by_teacher_id bukan milik masjid ini")
+		return errors.New("assessments_created_by_teacher_id bukan milik masjid ini")
 	}
 	return nil
 }
 
-/* =========================
+/* ========================================================
    Handlers
-   ========================= */
+======================================================== */
 
 // GET /assessments
-// Query (opsional): type_id, section_id, subject_id, csst_id, is_published, q, limit, offset, sort_by, sort_dir
+// Query (opsional): type_id, csst_id, is_published, q, limit, offset, sort_by, sort_dir
 func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	masjidIDFromToken, _ := helperAuth.GetMasjidIDFromToken(c)
 	if masjidIDFromToken == uuid.Nil {
@@ -87,38 +102,22 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	}
 
 	var (
-		typeIDStr    = strings.TrimSpace(c.Query("type_id"))
-		sectionIDStr = strings.TrimSpace(c.Query("section_id"))
-		subjectIDStr = strings.TrimSpace(c.Query("subject_id"))
-		csstIDStr    = strings.TrimSpace(c.Query("csst_id"))
-		qStr         = strings.TrimSpace(c.Query("q"))
-		isPubStr     = strings.TrimSpace(c.Query("is_published"))
-		limit        = atoiOr(20, c.Query("limit"))
-		offset       = atoiOr(0, c.Query("offset"))
-		sortBy       = strings.TrimSpace(c.Query("sort_by"))
-		sortDir      = strings.TrimSpace(c.Query("sort_dir"))
+		typeIDStr = strings.TrimSpace(c.Query("type_id"))
+		csstIDStr = strings.TrimSpace(c.Query("csst_id"))
+		qStr      = strings.TrimSpace(c.Query("q"))
+		isPubStr  = strings.TrimSpace(c.Query("is_published"))
+		limit     = atoiOr(20, c.Query("limit"))
+		offset    = atoiOr(0, c.Query("offset"))
+		sortBy    = strings.TrimSpace(c.Query("sort_by"))
+		sortDir   = strings.TrimSpace(c.Query("sort_dir"))
 	)
 
-	var typeID, sectionID, subjectID, csstID *uuid.UUID
+	var typeID, csstID *uuid.UUID
 	if typeIDStr != "" {
 		if u, err := uuid.Parse(typeIDStr); err == nil {
 			typeID = &u
 		} else {
 			return helper.Error(c, http.StatusBadRequest, "type_id tidak valid")
-		}
-	}
-	if sectionIDStr != "" {
-		if u, err := uuid.Parse(sectionIDStr); err == nil {
-			sectionID = &u
-		} else {
-			return helper.Error(c, http.StatusBadRequest, "section_id tidak valid")
-		}
-	}
-	if subjectIDStr != "" {
-		if u, err := uuid.Parse(subjectIDStr); err == nil {
-			subjectID = &u
-		} else {
-			return helper.Error(c, http.StatusBadRequest, "subject_id tidak valid")
 		}
 	}
 	if csstIDStr != "" {
@@ -137,10 +136,12 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 
 	var sbPtr, sdPtr *string
 	if sortBy != "" {
-		sbPtr = &sortBy // title|created_at|start_at|due_at
+		// Disarankan: title|created_at|start_at|due_at
+		sbPtr = &sortBy
 	}
 	if sortDir != "" {
-		sdPtr = &sortDir // asc|desc
+		// asc|desc
+		sdPtr = &sortDir
 	}
 
 	qry := ctl.DB.Model(&model.AssessmentModel{}).
@@ -148,12 +149,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 
 	if typeID != nil {
 		qry = qry.Where("assessments_type_id = ?", *typeID)
-	}
-	if sectionID != nil {
-		qry = qry.Where("assessments_class_section_id = ?", *sectionID)
-	}
-	if subjectID != nil {
-		qry = qry.Where("assessments_class_subjects_id = ?", *subjectID)
 	}
 	if csstID != nil {
 		qry = qry.Where("assessments_class_section_subject_teacher_id = ?", *csstID)
@@ -196,7 +191,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 func (ctl *AssessmentController) GetByID(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return helper.Error(c, http.StatusBadRequest, "ID tidak valid")
+		return helper.Error(c, http.StatusBadRequest, "assessments_id tidak valid")
 	}
 
 	masjidIDFromToken, _ := helperAuth.GetMasjidIDFromToken(c)
@@ -229,49 +224,56 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	if masjidIDFromToken == uuid.Nil {
 		return helper.Error(c, http.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
-	req.MasjidID = masjidIDFromToken
+	req.AssessmentsMasjidID = masjidIDFromToken
 
 	if err := ctl.Validator.Struct(&req); err != nil {
 		return helper.ValidationError(c, err)
 	}
 
 	// Validasi opsional: teacher creator harus milik masjid
-	if err := ctl.assertTeacherBelongsToMasjid(req.MasjidID, req.CreatedByTeacherID); err != nil {
+	if err := ctl.assertTeacherBelongsToMasjid(req.AssessmentsMasjidID, req.AssessmentsCreatedByTeacherID); err != nil {
 		return helper.Error(c, http.StatusBadRequest, err.Error())
 	}
 
 	now := time.Now()
+
 	row := model.AssessmentModel{
-		ID:                           uuid.Nil, // biarkan DB generate
-		MasjidID:                     req.MasjidID,
-		ClassSectionID:               req.ClassSectionID,
-		ClassSubjectsID:              req.ClassSubjectsID,
-		ClassSectionSubjectTeacherID: req.ClassSectionSubjectTeacherID,
-		TypeID:           req.TypeID,
-		Title:            strings.TrimSpace(req.Title),
-		Description:      nil,
-		StartAt:          req.StartAt,
-		DueAt:            req.DueAt,
-		MaxScore:         100,
-		IsPublished:      true,
-		AllowSubmission:  true,
-		CreatedByTeacherID: req.CreatedByTeacherID,
-		CreatedAt:          now,
-		UpdatedAt:          now,
+		// Biarkan DB generate via DEFAULT gen_random_uuid()
+		AssessmentsID:                           uuid.Nil,
+		AssessmentsMasjidID:                     req.AssessmentsMasjidID,
+		AssessmentsClassSectionSubjectTeacherID: req.AssessmentsClassSectionSubjectTeacherID,
+		AssessmentsTypeID:                       req.AssessmentsTypeID,
+
+		AssessmentsTitle:       strings.TrimSpace(req.AssessmentsTitle),
+		AssessmentsDescription: nil,
+
+		AssessmentsStartAt: req.AssessmentsStartAt,
+		AssessmentsDueAt:   req.AssessmentsDueAt,
+
+		// default DB 100, tapi kalau kamu ingin set manual:
+		AssessmentsMaxScore: 100,
+
+		AssessmentsIsPublished:     true,
+		AssessmentsAllowSubmission: true,
+
+		AssessmentsCreatedByTeacherID: req.AssessmentsCreatedByTeacherID,
+
+		AssessmentsCreatedAt: now,
+		AssessmentsUpdatedAt: now,
 	}
 
-	if req.Description != nil {
-		d := strings.TrimSpace(*req.Description)
-		row.Description = &d
+	if req.AssessmentsDescription != nil {
+		d := strings.TrimSpace(*req.AssessmentsDescription)
+		row.AssessmentsDescription = &d
 	}
-	if req.MaxScore >= 0 { // validator sudah cek 0..100
-		row.MaxScore = req.MaxScore
+	if req.AssessmentsMaxScore != nil {
+		row.AssessmentsMaxScore = *req.AssessmentsMaxScore
 	}
-	if req.IsPublished != nil {
-		row.IsPublished = *req.IsPublished
+	if req.AssessmentsIsPublished != nil {
+		row.AssessmentsIsPublished = *req.AssessmentsIsPublished
 	}
-	if req.AllowSubmission != nil {
-		row.AllowSubmission = *req.AllowSubmission
+	if req.AssessmentsAllowSubmission != nil {
+		row.AssessmentsAllowSubmission = *req.AssessmentsAllowSubmission
 	}
 
 	if err := ctl.DB.Create(&row).Error; err != nil {
@@ -284,7 +286,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return helper.Error(c, http.StatusBadRequest, "ID tidak valid")
+		return helper.Error(c, http.StatusBadRequest, "assessments_id tidak valid")
 	}
 
 	var req dto.PatchAssessmentRequest
@@ -310,48 +312,43 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		return helper.Error(c, http.StatusInternalServerError, err.Error())
 	}
 
-	if req.CreatedByTeacherID != nil {
-		if err := ctl.assertTeacherBelongsToMasjid(masjidIDFromToken, req.CreatedByTeacherID); err != nil {
+	if req.AssessmentsCreatedByTeacherID != nil {
+		if err := ctl.assertTeacherBelongsToMasjid(masjidIDFromToken, req.AssessmentsCreatedByTeacherID); err != nil {
 			return helper.Error(c, http.StatusBadRequest, err.Error())
 		}
 	}
 
 	updates := map[string]interface{}{}
-	if req.Title != nil {
-		updates["assessments_title"] = strings.TrimSpace(*req.Title)
+
+	if req.AssessmentsTitle != nil {
+		updates["assessments_title"] = strings.TrimSpace(*req.AssessmentsTitle)
 	}
-	if req.Description != nil {
-		updates["assessments_description"] = strings.TrimSpace(*req.Description)
+	if req.AssessmentsDescription != nil {
+		updates["assessments_description"] = strings.TrimSpace(*req.AssessmentsDescription)
 	}
-	if req.StartAt != nil {
-		updates["assessments_start_at"] = *req.StartAt
+	if req.AssessmentsStartAt != nil {
+		updates["assessments_start_at"] = *req.AssessmentsStartAt
 	}
-	if req.DueAt != nil {
-		updates["assessments_due_at"] = *req.DueAt
+	if req.AssessmentsDueAt != nil {
+		updates["assessments_due_at"] = *req.AssessmentsDueAt
 	}
-	if req.MaxScore != nil {
-		updates["assessments_max_score"] = *req.MaxScore
+	if req.AssessmentsMaxScore != nil {
+		updates["assessments_max_score"] = *req.AssessmentsMaxScore
 	}
-	if req.IsPublished != nil {
-		updates["assessments_is_published"] = *req.IsPublished
+	if req.AssessmentsIsPublished != nil {
+		updates["assessments_is_published"] = *req.AssessmentsIsPublished
 	}
-	if req.AllowSubmission != nil {
-		updates["assessments_allow_submission"] = *req.AllowSubmission
+	if req.AssessmentsAllowSubmission != nil {
+		updates["assessments_allow_submission"] = *req.AssessmentsAllowSubmission
 	}
-	if req.TypeID != nil {
-		updates["assessments_type_id"] = *req.TypeID
+	if req.AssessmentsTypeID != nil {
+		updates["assessments_type_id"] = *req.AssessmentsTypeID
 	}
-	if req.ClassSectionID != nil {
-		updates["assessments_class_section_id"] = *req.ClassSectionID
+	if req.AssessmentsClassSectionSubjectTeacherID != nil {
+		updates["assessments_class_section_subject_teacher_id"] = *req.AssessmentsClassSectionSubjectTeacherID
 	}
-	if req.ClassSubjectsID != nil {
-		updates["assessments_class_subjects_id"] = *req.ClassSubjectsID
-	}
-	if req.ClassSectionSubjectTeacherID != nil {
-		updates["assessments_class_section_subject_teacher_id"] = *req.ClassSectionSubjectTeacherID
-	}
-	if req.CreatedByTeacherID != nil {
-		updates["assessments_created_by_teacher_id"] = *req.CreatedByTeacherID
+	if req.AssessmentsCreatedByTeacherID != nil {
+		updates["assessments_created_by_teacher_id"] = *req.AssessmentsCreatedByTeacherID
 	}
 
 	if len(updates) == 0 {
@@ -367,18 +364,20 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	}
 
 	var after model.AssessmentModel
-	if err := ctl.DB.Where("assessments_id = ?", id).First(&after).Error; err != nil {
+	if err := ctl.DB.
+		Where("assessments_id = ? AND assessments_masjid_id = ?", id, masjidIDFromToken).
+		First(&after).Error; err != nil {
 		return helper.Error(c, http.StatusInternalServerError, err.Error())
 	}
 
 	return helper.Success(c, "Assessment berhasil diperbarui", toResponse(&after))
 }
 
-// DELETE /assessments/:id (soft)
+// DELETE /assessments/:id (soft delete)
 func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return helper.Error(c, http.StatusBadRequest, "ID tidak valid")
+		return helper.Error(c, http.StatusBadRequest, "assessments_id tidak valid")
 	}
 
 	masjidIDFromToken, _ := helperAuth.GetMasjidIDFromToken(c)

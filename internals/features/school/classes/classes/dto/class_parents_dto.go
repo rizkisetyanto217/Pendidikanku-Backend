@@ -188,3 +188,45 @@ func (r *UpdateClassParentRequest) ApplyPatch(m *model.ClassParentModel) {
 		m.ClassParentDeletePendingUntil = r.ClassParentDeletePendingAt
 	}
 }
+
+
+// // import "encoding/json"
+
+// // >>> Tambahkan ini:
+// func (p *PatchField[T]) UnmarshalJSON(b []byte) error {
+// 	type env struct {
+// 		Set   *bool `json:"set"`
+// 		Value *json.RawMessage `json:"value"`
+// 	}
+
+// 	// Kalau bentuknya objek, coba baca sebagai {set, value}
+// 	if len(b) > 0 && b[0] == '{' {
+// 		var e env
+// 		if err := json.Unmarshal(b, &e); err == nil {
+// 			// Kalau user kirim { "value": ... } tanpa "set", anggap set=true
+// 			if e.Set != nil {
+// 				p.Set = *e.Set
+// 			} else {
+// 				p.Set = true
+// 			}
+// 			if e.Value != nil {
+// 				var v T
+// 				if err := json.Unmarshal(*e.Value, &v); err != nil {
+// 					return err
+// 				}
+// 				p.Value = v
+// 			}
+// 			return nil
+// 		}
+// 		// kalau gagal parse sebagai objek, teruskan ke branch nilai mentah
+// 	}
+
+// 	// Nilai mentah: anggap set=true dan unmarshal langsung ke T
+// 	var v T
+// 	if err := json.Unmarshal(b, &v); err != nil {
+// 		return err
+// 	}
+// 	p.Set = true
+// 	p.Value = v
+// 	return nil
+// }

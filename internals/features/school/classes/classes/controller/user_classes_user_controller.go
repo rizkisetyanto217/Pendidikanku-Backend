@@ -28,6 +28,77 @@ func NewUserMyClassController(db *gorm.DB) *UserMyClassController {
 
 var userValidate = validator.New()
 
+/* ================ helpers ================ */
+
+// pastikan kelas valid & ambil masjid_id
+type classInfo struct {
+	ClassID       uuid.UUID `gorm:"column:class_id"`
+	ClassStatus   string    `gorm:"column:class_status"`
+	ClassMasjidID uuid.UUID `gorm:"column:class_masjid_id"`
+}
+
+// ensure/resolve masjid_student untuk (user, masjid)
+// - kalau preferredID diberikan, validasi kepemilikan & tenant
+// - kalau tidak ada, cari yang alive; jika tidak ada → buat baru (status=inactive)
+func (h *UserMyClassController) ensureMasjidStudentForUser(tx *gorm.DB, userID, masjidID uuid.UUID, preferredID *uuid.UUID) (uuid.UUID, error) {
+	// jika user menyuplai ID → validasi
+	if preferredID != nil && *preferredID != uuid.Nil {
+		var ok bool
+		err := tx.Raw(`
+			SELECT EXISTS(
+			  SELECT 1 FROM masjid_students
+			  WHERE masjid_student_id = ? 
+			    AND masjid_student_user_id = ?
+			    AND masjid_student_masjid_id = ?
+			    AND masjid_student_deleted_at IS NULL
+			)
+		`, *preferredID, userID, masjidID).Scan(&ok).Error
+		if err != nil {
+			return uuid.Nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa data siswa masjid")
+		}
+		if !ok {
+			return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "masjid_student_id tidak valid untuk akun/tenant ini")
+		}
+		return *preferredID, nil
+	}
+
+	// cari yang alive lebih dulu (scan sebagai TEXT → parse UUID)
+	var msIDStr string
+	if err := tx.Raw(`
+		SELECT masjid_student_id::text
+		FROM masjid_students
+		WHERE masjid_student_user_id = ? 
+		  AND masjid_student_masjid_id = ? 
+		  AND masjid_student_deleted_at IS NULL
+		ORDER BY masjid_student_created_at DESC
+		LIMIT 1
+	`, userID, masjidID).Scan(&msIDStr).Error; err != nil {
+		return uuid.Nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data siswa masjid")
+	}
+	if msIDStr != "" {
+		msID, err := uuid.Parse(msIDStr)
+		if err != nil {
+			return uuid.Nil, fiber.NewError(fiber.StatusInternalServerError, "masjid_student_id tidak valid")
+		}
+		return msID, nil
+	}
+
+	// buat baru (status INACTIVE) + RETURNING ::text → parse
+	if err := tx.Raw(`
+		INSERT INTO masjid_students (masjid_student_masjid_id, masjid_student_user_id, masjid_student_status)
+		VALUES (?, ?, 'inactive')
+		RETURNING masjid_student_id::text
+	`, masjidID, userID).Scan(&msIDStr).Error; err != nil {
+		return uuid.Nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat data siswa masjid")
+	}
+
+	msID, err := uuid.Parse(msIDStr)
+	if err != nil {
+		return uuid.Nil, fiber.NewError(fiber.StatusInternalServerError, "masjid_student_id tidak valid")
+	}
+	return msID, nil
+}
+
 /* ================== USER: LIST & DETAIL ================== */
 
 // GET /api/u/user-classes
@@ -44,23 +115,24 @@ func (h *UserMyClassController) ListMyUserClasses(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
 	}
 
-	// Base query (join classes untuk memastikan kelas tidak terhapus/pending delete)
+	// Base query:
+	// join classes (agar kelas bukan deleted/pending) + join masjid_students untuk limit ke user yang login
 	tx := h.DB.Model(&ucModel.UserClassesModel{}).
 		Joins("JOIN classes ON classes.class_id = user_classes.user_classes_class_id").
-		Where(
-			"user_classes_user_id = ? AND classes.class_deleted_at IS NULL AND classes.class_delete_pending_until IS NULL AND user_classes_deleted_at IS NULL",
-			userID,
-		)
+		Joins("JOIN masjid_students ms ON ms.masjid_student_id = user_classes.user_classes_masjid_student_id AND ms.masjid_student_deleted_at IS NULL").
+		Where(`
+			ms.masjid_student_user_id = ?
+			AND classes.class_deleted_at IS NULL 
+			AND classes.class_delete_pending_until IS NULL 
+			AND user_classes_deleted_at IS NULL
+		`, userID)
 
-	// Filter opsional
+	// Filter opsional (tanpa term_id & user_id karena tidak ada di DDL)
 	if q.ClassID != nil {
 		tx = tx.Where("user_classes_class_id = ?", *q.ClassID)
 	}
 	if q.MasjidID != nil {
 		tx = tx.Where("user_classes_masjid_id = ?", *q.MasjidID)
-	}
-	if q.TermID != nil {
-		tx = tx.Where("user_classes_term_id = ?", *q.TermID)
 	}
 	if q.MasjidStudentID != nil {
 		tx = tx.Where("user_classes_masjid_student_id = ?", *q.MasjidStudentID)
@@ -68,8 +140,10 @@ func (h *UserMyClassController) ListMyUserClasses(c *fiber.Ctx) error {
 	if q.Status != nil && strings.TrimSpace(*q.Status) != "" {
 		tx = tx.Where("user_classes_status = ?", strings.TrimSpace(*q.Status))
 	}
+	if q.Result != nil && strings.TrimSpace(*q.Result) != "" {
+		tx = tx.Where("user_classes_result = ?", strings.TrimSpace(*q.Result))
+	}
 	if q.ActiveNow != nil && *q.ActiveNow {
-		// Active now = status active & belum left
 		tx = tx.Where("user_classes_status = 'active' AND user_classes_left_at IS NULL")
 	}
 	// Rentang joined_at (inklusif)
@@ -92,6 +166,10 @@ func (h *UserMyClassController) ListMyUserClasses(c *fiber.Ctx) error {
 		tx = tx.Order("user_classes_joined_at DESC NULLS LAST").Order("user_classes_created_at DESC")
 	case "joined_at_asc":
 		tx = tx.Order("user_classes_joined_at ASC NULLS LAST").Order("user_classes_created_at ASC")
+	case "completed_at_desc":
+		tx = tx.Order("user_classes_completed_at DESC NULLS LAST").Order("user_classes_created_at DESC")
+	case "completed_at_asc":
+		tx = tx.Order("user_classes_completed_at ASC NULLS LAST").Order("user_classes_created_at ASC")
 	case "created_at_desc":
 		fallthrough
 	default:
@@ -134,10 +212,14 @@ func (h *UserMyClassController) GetMyUserClassByID(c *fiber.Ctx) error {
 	var m ucModel.UserClassesModel
 	err = h.DB.Model(&ucModel.UserClassesModel{}).
 		Joins("JOIN classes ON classes.class_id = user_classes.user_classes_class_id").
-		Where(
-			"user_classes_id = ? AND user_classes_user_id = ? AND classes.class_deleted_at IS NULL AND classes.class_delete_pending_until IS NULL AND user_classes_deleted_at IS NULL",
-			ucID, userID,
-		).
+		Joins("JOIN masjid_students ms ON ms.masjid_student_id = user_classes.user_classes_masjid_student_id AND ms.masjid_student_deleted_at IS NULL").
+		Where(`
+			user_classes_id = ?
+			AND ms.masjid_student_user_id = ?
+			AND classes.class_deleted_at IS NULL
+			AND classes.class_delete_pending_until IS NULL
+			AND user_classes_deleted_at IS NULL
+		`, ucID, userID).
 		First(&m).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -159,11 +241,11 @@ func (h *UserMyClassController) SelfEnroll(c *fiber.Ctx) error {
 	}
 
 	type selfEnrollRequest struct {
-		ClassID          uuid.UUID  `json:"user_classes_class_id" validate:"required"`
-		TermID           uuid.UUID  `json:"user_classes_term_id"  validate:"required"`
-		MasjidStudentID  *uuid.UUID `json:"user_classes_masjid_student_id" validate:"omitempty"`
-		// Opsional jika ingin set joined_at saat self enroll:
-		JoinedAt         *time.Time `json:"user_classes_joined_at" validate:"omitempty"`
+		ClassID         uuid.UUID  `json:"user_classes_class_id" validate:"required"`
+		// Opsional: biarkan kosong, nanti di-resolve/auto-create
+		MasjidStudentID *uuid.UUID `json:"user_classes_masjid_student_id" validate:"omitempty"`
+		// Opsional jika ingin set joined_at saat self-enroll
+		JoinedAt        *time.Time `json:"user_classes_joined_at" validate:"omitempty"`
 	}
 	var req selfEnrollRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -173,10 +255,11 @@ func (h *UserMyClassController) SelfEnroll(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// Ambil kelas aktif + masjid_id (kelas tidak boleh soft-deleted & tidak pending delete)
-	var cls ucModel.ClassModel
+	// Ambil kelas (aktif) + masjid_id (kelas tidak boleh soft-deleted & tidak pending delete)
+	var cls classInfo
 	if err := h.DB.
-		Select("class_id, class_is_active, class_masjid_id").
+		Select("class_id, class_status, class_masjid_id").
+		Table("classes").
 		Where("class_id = ? AND class_deleted_at IS NULL AND class_delete_pending_until IS NULL", req.ClassID).
 		First(&cls).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -184,71 +267,53 @@ func (h *UserMyClassController) SelfEnroll(c *fiber.Ctx) error {
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa kelas")
 	}
-	if !cls.ClassIsActive {
+	if !strings.EqualFold(cls.ClassStatus, ucModel.UserClassStatusActive) {
 		return fiber.NewError(fiber.StatusBadRequest, "Kelas sedang tidak aktif")
 	}
 	masjidID := cls.ClassMasjidID
 
-	// Validasi term milik masjid ini
-	{
-		var count int64
-		if err := h.DB.Table("academic_terms").
-			Where("academic_terms_id = ? AND academic_terms_masjid_id = ?", req.TermID, masjidID).
-			Count(&count).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa term akademik")
+	return h.DB.Transaction(func(tx *gorm.DB) error {
+		// Resolve / buat masjid_student_id untuk user+tenant ini
+		msID, err := h.ensureMasjidStudentForUser(tx, userID, masjidID, req.MasjidStudentID)
+		if err != nil {
+			return err
 		}
-		if count == 0 {
-			return fiber.NewError(fiber.StatusBadRequest, "Term akademik tidak ditemukan di masjid ini")
-		}
-	}
 
-	// (Opsional) validasi masjid_student milik tenant ini
-	if req.MasjidStudentID != nil {
-		var count int64
-		if err := h.DB.Table("masjid_students").
-			Where("masjid_student_id = ? AND masjid_student_masjid_id = ?", *req.MasjidStudentID, masjidID).
-			Count(&count).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa data siswa masjid")
+		// Cegah duplikasi berjalan pada kombinasi (masjid_student, class, masjid)
+		// (larang ada 'active' atau 'inactive' kedua; 'completed' boleh buat histori)
+		{
+			var cnt int64
+			if err := tx.Table("user_classes").
+				Where("user_classes_deleted_at IS NULL").
+				Where("user_classes_masjid_student_id = ? AND user_classes_class_id = ? AND user_classes_masjid_id = ?",
+					msID, req.ClassID, masjidID).
+				Where("user_classes_status IN ('active','inactive')").
+				Count(&cnt).Error; err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa duplikasi pendaftaran")
+			}
+			if cnt > 0 {
+				return fiber.NewError(fiber.StatusConflict, "Anda sudah memiliki pendaftaran berjalan untuk kelas ini")
+			}
 		}
-		if count == 0 {
-			return fiber.NewError(fiber.StatusBadRequest, "Data siswa masjid tidak valid untuk tenant ini")
-		}
-	}
 
-	// Cegah duplikasi berjalan (active/inactive) pada (user,class,term,masjid)
-	{
-		var cnt int64
-		if err := h.DB.Table("user_classes").
-			Where("user_classes_deleted_at IS NULL").
-			Where("user_classes_user_id = ? AND user_classes_class_id = ? AND user_classes_term_id = ? AND user_classes_masjid_id = ?",
-				userID, req.ClassID, req.TermID, masjidID).
-			Where("user_classes_status IN ('active','inactive')").
-			Count(&cnt).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memeriksa duplikasi pendaftaran")
+		// Buat enrolment 'inactive' (pending approval); joined_at opsional
+		m := &ucModel.UserClassesModel{
+			UserClassesMasjidStudentID: msID,
+			UserClassesClassID:         req.ClassID,
+			UserClassesMasjidID:        masjidID,
+			UserClassesStatus:          ucModel.UserClassStatusInactive,
+			UserClassesJoinedAt:        req.JoinedAt,
+			// left_at biarkan NULL; result/completed_at hanya untuk status completed
 		}
-		if cnt > 0 {
-			return fiber.NewError(fiber.StatusConflict, "Anda sudah memiliki pendaftaran berjalan untuk kelas & term ini")
+
+		if err := tx.Create(m).Error; err != nil {
+			// unik index aktif hanya mengikat status='active', tapi guard di atas melarang inactive duplikat juga
+			if errors.Is(err, gorm.ErrDuplicatedKey) {
+				return fiber.NewError(fiber.StatusConflict, "Pendaftaran untuk kelas ini sudah ada")
+			}
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat pendaftaran")
 		}
-	}
 
-	// Buat enrolment 'inactive' (pending approval); joined_at opsional
-	m := &ucModel.UserClassesModel{
-		UserClassesUserID:          userID,
-		UserClassesClassID:         req.ClassID,
-		UserClassesMasjidID:        masjidID,
-		UserClassesTermID:          req.TermID,
-		UserClassesMasjidStudentID: req.MasjidStudentID,
-		UserClassesStatus:          ucModel.UserClassStatusInactive,
-		UserClassesJoinedAt:        req.JoinedAt,
-		// left_at biarkan NULL
-	}
-
-	if err := h.DB.Create(m).Error; err != nil {
-		if errors.Is(err, gorm.ErrDuplicatedKey) {
-			return fiber.NewError(fiber.StatusConflict, "Pendaftaran untuk kelas & term ini sudah ada")
-		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat pendaftaran")
-	}
-
-	return helper.JsonCreated(c, "Pendaftaran berhasil dikirim, menunggu persetujuan admin", ucDTO.NewUserClassResponse(m))
+		return helper.JsonCreated(c, "Pendaftaran berhasil dikirim, menunggu persetujuan admin", ucDTO.NewUserClassResponse(m))
+	})
 }

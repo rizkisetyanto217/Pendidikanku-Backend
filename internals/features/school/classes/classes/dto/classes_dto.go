@@ -1,6 +1,7 @@
 package dto
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -10,9 +11,7 @@ import (
 	"github.com/google/uuid"
 )
 
-/* =========================================================
-   GENERIC: PatchField[T]
-   ========================================================= */
+/* ===================== PatchField ===================== */
 
 type PatchField[T any] struct {
 	Set   bool `json:"set"`
@@ -23,48 +22,95 @@ func (p *PatchField[T]) IsZero() bool {
 	return p == nil || !p.Set
 }
 
+// >>> WAJIB pakai nama ini (tanpa angka 2)
+func (p *PatchField[T]) UnmarshalJSON(b []byte) error {
+	type env struct {
+		Set   *bool            `json:"set"`
+		Value *json.RawMessage `json:"value"`
+	}
+	if len(b) > 0 && b[0] == '{' {
+		var e env
+		if err := json.Unmarshal(b, &e); err == nil {
+			if e.Set != nil {
+				p.Set = *e.Set
+			} else {
+				p.Set = true
+			}
+			if e.Value != nil {
+				var v T
+				if err := json.Unmarshal(*e.Value, &v); err != nil {
+					return err
+				}
+				p.Value = v
+			}
+			return nil
+		}
+	}
+	var v T
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	p.Set = true
+	p.Value = v
+	return nil
+}
+
+// >>> Biar form-data juga bisa: "online", "1500003", "true", dst.
+func (p *PatchField[T]) UnmarshalText(b []byte) error {
+	quoted, _ := json.Marshal(string(b))
+	var v T
+	if err := json.Unmarshal(quoted, &v); err != nil {
+		if err2 := json.Unmarshal(b, &v); err2 != nil {
+			return err
+		}
+	}
+	p.Set = true
+	p.Value = v
+	return nil
+}
+
 /* =========================================================
    REQUEST: CREATE (sinkron dengan DDL & model)
    ========================================================= */
 
 type CreateClassRequest struct {
 	// Wajib
-	ClassMasjidID uuid.UUID `json:"class_masjid_id" validate:"required"`
-	ClassParentID uuid.UUID `json:"class_parent_id" validate:"required"`
-	ClassSlug     string    `json:"class_slug"      validate:"required,min=1,max=160"`
+	ClassMasjidID uuid.UUID `json:"class_masjid_id"              form:"class_masjid_id"              validate:"required"`
+	ClassParentID uuid.UUID `json:"class_parent_id"              form:"class_parent_id"              validate:"required"`
+	ClassSlug     string    `json:"class_slug"                   form:"class_slug"                   validate:"required,min=1,max=160"`
 
 	// Periode
-	ClassStartDate *time.Time `json:"class_start_date,omitempty"`
-	ClassEndDate   *time.Time `json:"class_end_date,omitempty"`
+	ClassStartDate *time.Time `json:"class_start_date,omitempty"         form:"class_start_date"`
+	ClassEndDate   *time.Time `json:"class_end_date,omitempty"           form:"class_end_date"`
 
 	// Registrasi / Term
-	ClassTermID               *uuid.UUID `json:"class_term_id,omitempty"`
-	ClassIsOpen               *bool      `json:"class_is_open,omitempty"` // default true (kalau nil)
-	ClassRegistrationOpensAt  *time.Time `json:"class_registration_opens_at,omitempty"`
-	ClassRegistrationClosesAt *time.Time `json:"class_registration_closes_at,omitempty"`
+	ClassTermID               *uuid.UUID `json:"class_term_id,omitempty"                form:"class_term_id"`
+	ClassIsOpen               *bool      `json:"class_is_open,omitempty"                form:"class_is_open"`
+	ClassRegistrationOpensAt  *time.Time `json:"class_registration_opens_at,omitempty"  form:"class_registration_opens_at"`
+	ClassRegistrationClosesAt *time.Time `json:"class_registration_closes_at,omitempty" form:"class_registration_closes_at"`
 
 	// Kuota
-	ClassQuotaTotal *int `json:"class_quota_total,omitempty"` // nullable
-	// ClassQuotaTaken tidak dikirim saat create (default 0 oleh DB)
+	ClassQuotaTotal *int `json:"class_quota_total,omitempty" form:"class_quota_total"`
 
 	// Pricing
-	ClassRegistrationFeeIDR *int64  `json:"class_registration_fee_idr,omitempty"`
-	ClassTuitionFeeIDR      *int64  `json:"class_tuition_fee_idr,omitempty"`
-	ClassBillingCycle       *string `json:"class_billing_cycle,omitempty"` // default "monthly"
-	ClassProviderProductID  *string `json:"class_provider_product_id,omitempty"`
-	ClassProviderPriceID    *string `json:"class_provider_price_id,omitempty"`
+	ClassRegistrationFeeIDR *int64  `json:"class_registration_fee_idr,omitempty" form:"class_registration_fee_idr"`
+	ClassTuitionFeeIDR      *int64  `json:"class_tuition_fee_idr,omitempty"      form:"class_tuition_fee_idr"`
+	ClassBillingCycle       *string `json:"class_billing_cycle,omitempty"         form:"class_billing_cycle"`
+	ClassProviderProductID  *string `json:"class_provider_product_id,omitempty"   form:"class_provider_product_id"`
+	ClassProviderPriceID    *string `json:"class_provider_price_id,omitempty"     form:"class_provider_price_id"`
 
 	// Catatan & media
-	ClassNotes    *string `json:"class_notes,omitempty"`
-	ClassImageURL *string `json:"class_image_url,omitempty"`
+	ClassNotes    *string `json:"class_notes,omitempty"     form:"class_notes"`
+	ClassImageURL *string `json:"class_image_url,omitempty" form:"class_image_url"`
 
-	// Mode & status
-	ClassDeliveryMode *string `json:"class_delivery_mode,omitempty"` // enum
-	ClassIsActive     *bool   `json:"class_is_active,omitempty"`     // default true
+	// Mode & Status (baru)
+	ClassDeliveryMode *string    `json:"class_delivery_mode,omitempty" form:"class_delivery_mode"` // enum
+	ClassStatus       *string    `json:"class_status,omitempty"        form:"class_status"`        // enum: active|inactive|completed
+	ClassCompletedAt  *time.Time `json:"class_completed_at,omitempty"  form:"class_completed_at"`
 
 	// Trash (opsional)
-	ClassTrashURL           *string    `json:"class_trash_url,omitempty"`
-	ClassDeletePendingUntil *time.Time `json:"class_delete_pending_until,omitempty"`
+	ClassTrashURL           *string    `json:"class_trash_url,omitempty"            form:"class_trash_url"`
+	ClassDeletePendingUntil *time.Time `json:"class_delete_pending_until,omitempty" form:"class_delete_pending_until"`
 }
 
 func (r *CreateClassRequest) Normalize() {
@@ -78,14 +124,15 @@ func (r *CreateClassRequest) Normalize() {
 		x := strings.ToLower(strings.TrimSpace(*r.ClassDeliveryMode))
 		r.ClassDeliveryMode = &x
 	}
+	if r.ClassStatus != nil {
+		x := strings.ToLower(strings.TrimSpace(*r.ClassStatus))
+		r.ClassStatus = &x
+	}
 	if r.ClassIsOpen == nil {
 		def := true
 		r.ClassIsOpen = &def
 	}
-	if r.ClassIsActive == nil {
-		def := true
-		r.ClassIsActive = &def
-	}
+	// bersihkan string opsional
 	if r.ClassNotes != nil {
 		s := strings.TrimSpace(*r.ClassNotes)
 		if s == "" {
@@ -126,6 +173,13 @@ func (r *CreateClassRequest) Normalize() {
 			r.ClassTrashURL = &s
 		}
 	}
+
+	// Jika status completed → auto close pendaftaran (selaras constraint DB)
+	if r.ClassStatus != nil && *r.ClassStatus == model.ClassStatusCompleted {
+		f := false
+		r.ClassIsOpen = &f
+		// CompletedAt boleh diisi, kalau kosong biarin nil (DB tidak paksa)
+	}
 }
 
 func (r *CreateClassRequest) Validate() error {
@@ -138,63 +192,71 @@ func (r *CreateClassRequest) Validate() error {
 	if r.ClassSlug == "" {
 		return errors.New("class_slug required")
 	}
-	// window (cek ringan, DB juga cek via constraint)
-	if r.ClassRegistrationOpensAt != nil && r.ClassRegistrationClosesAt != nil {
-		if r.ClassRegistrationClosesAt.Before(*r.ClassRegistrationOpensAt) {
-			return errors.New("class_registration_closes_at must be >= class_registration_opens_at")
-		}
+	if r.ClassRegistrationOpensAt != nil && r.ClassRegistrationClosesAt != nil &&
+		r.ClassRegistrationClosesAt.Before(*r.ClassRegistrationOpensAt) {
+		return errors.New("class_registration_closes_at must be >= class_registration_opens_at")
 	}
-	// kuota non-neg (DB juga cek)
 	if r.ClassQuotaTotal != nil && *r.ClassQuotaTotal < 0 {
 		return errors.New("class_quota_total must be >= 0")
 	}
-	// fee non-neg (DB juga cek)
 	if r.ClassRegistrationFeeIDR != nil && *r.ClassRegistrationFeeIDR < 0 {
 		return errors.New("class_registration_fee_idr must be >= 0")
 	}
 	if r.ClassTuitionFeeIDR != nil && *r.ClassTuitionFeeIDR < 0 {
 		return errors.New("class_tuition_fee_idr must be >= 0")
 	}
+	// enum guards (soft)
+	if r.ClassBillingCycle != nil {
+		switch *r.ClassBillingCycle {
+		case model.BillingCycleOneTime, model.BillingCycleMonthly, model.BillingCycleQuarter, model.BillingCycleSemester, model.BillingCycleYearly:
+		default:
+			return errors.New("invalid class_billing_cycle")
+		}
+	}
+	if r.ClassDeliveryMode != nil {
+		switch *r.ClassDeliveryMode {
+		case model.ClassDeliveryModeOffline, model.ClassDeliveryModeOnline, model.ClassDeliveryModeHybrid:
+		default:
+			return errors.New("invalid class_delivery_mode")
+		}
+	}
+	if r.ClassStatus != nil {
+		switch *r.ClassStatus {
+		case model.ClassStatusActive, model.ClassStatusInactive, model.ClassStatusCompleted:
+		default:
+			return errors.New("invalid class_status")
+		}
+	}
 	return nil
 }
 
 func (r *CreateClassRequest) ToModel() *model.ClassModel {
 	m := &model.ClassModel{
-		ClassMasjidID: r.ClassMasjidID,
-		ClassParentID: r.ClassParentID,
-		ClassSlug:     r.ClassSlug,
-
-		ClassStartDate: r.ClassStartDate,
-		ClassEndDate:   r.ClassEndDate,
-
+		ClassMasjidID:             r.ClassMasjidID,
+		ClassParentID:             r.ClassParentID,
+		ClassSlug:                 r.ClassSlug,
+		ClassStartDate:            r.ClassStartDate,
+		ClassEndDate:              r.ClassEndDate,
 		ClassTermID:               r.ClassTermID,
-		ClassIsOpen:               true,
+		ClassIsOpen:               true, // default
 		ClassRegistrationOpensAt:  r.ClassRegistrationOpensAt,
 		ClassRegistrationClosesAt: r.ClassRegistrationClosesAt,
-
-		ClassQuotaTotal: r.ClassQuotaTotal,
-		// ClassQuotaTaken: default 0 (DB)
-
-		ClassRegistrationFeeIDR: r.ClassRegistrationFeeIDR,
-		ClassTuitionFeeIDR:      r.ClassTuitionFeeIDR,
-		ClassBillingCycle:       model.BillingCycleMonthly, // default
-		ClassProviderProductID:  r.ClassProviderProductID,
-		ClassProviderPriceID:    r.ClassProviderPriceID,
-
-		ClassNotes:       r.ClassNotes,
-		ClassImageURL:    r.ClassImageURL,
-		ClassDeliveryMode: model.ClassDeliveryModeOffline, // default
-		ClassIsActive:     true,
-
-		ClassTrashURL:           r.ClassTrashURL,
-		ClassDeletePendingUntil: r.ClassDeletePendingUntil,
+		ClassQuotaTotal:           r.ClassQuotaTotal,
+		ClassRegistrationFeeIDR:   r.ClassRegistrationFeeIDR,
+		ClassTuitionFeeIDR:        r.ClassTuitionFeeIDR,
+		ClassBillingCycle:         model.BillingCycleMonthly, // default DB
+		ClassProviderProductID:    r.ClassProviderProductID,
+		ClassProviderPriceID:      r.ClassProviderPriceID,
+		ClassNotes:                r.ClassNotes,
+		ClassImageURL:             r.ClassImageURL,
+		ClassDeliveryMode:         model.ClassDeliveryModeOffline, // default app-side
+		ClassStatus:               model.ClassStatusActive,         // default DB
+		ClassCompletedAt:          r.ClassCompletedAt,
+		ClassTrashURL:             r.ClassTrashURL,
+		ClassDeletePendingUntil:   r.ClassDeletePendingUntil,
 	}
-
 	if r.ClassIsOpen != nil {
 		m.ClassIsOpen = *r.ClassIsOpen
-	}
-	if r.ClassIsActive != nil {
-		m.ClassIsActive = *r.ClassIsActive
 	}
 	if r.ClassBillingCycle != nil && *r.ClassBillingCycle != "" {
 		m.ClassBillingCycle = *r.ClassBillingCycle
@@ -202,7 +264,13 @@ func (r *CreateClassRequest) ToModel() *model.ClassModel {
 	if r.ClassDeliveryMode != nil && *r.ClassDeliveryMode != "" {
 		m.ClassDeliveryMode = *r.ClassDeliveryMode
 	}
-
+	if r.ClassStatus != nil && *r.ClassStatus != "" {
+		m.ClassStatus = *r.ClassStatus
+		// safety: jika completed tapi lupa close
+		if m.ClassStatus == model.ClassStatusCompleted {
+			m.ClassIsOpen = false
+		}
+	}
 	return m
 }
 
@@ -211,33 +279,34 @@ func (r *CreateClassRequest) ToModel() *model.ClassModel {
    ========================================================= */
 
 type PatchClassRequest struct {
-	ClassSlug *PatchField[string] `json:"class_slug,omitempty"`
+	ClassSlug *PatchField[string] `json:"class_slug,omitempty"                    form:"class_slug"`
 
-	ClassStartDate *PatchField[*time.Time] `json:"class_start_date,omitempty"`
-	ClassEndDate   *PatchField[*time.Time] `json:"class_end_date,omitempty"`
+	ClassStartDate *PatchField[*time.Time] `json:"class_start_date,omitempty"          form:"class_start_date"`
+	ClassEndDate   *PatchField[*time.Time] `json:"class_end_date,omitempty"            form:"class_end_date"`
 
-	ClassTermID               *PatchField[*uuid.UUID] `json:"class_term_id,omitempty"`
-	ClassIsOpen               *PatchField[bool]       `json:"class_is_open,omitempty"`
-	ClassRegistrationOpensAt  *PatchField[*time.Time] `json:"class_registration_opens_at,omitempty"`
-	ClassRegistrationClosesAt *PatchField[*time.Time] `json:"class_registration_closes_at,omitempty"`
+	ClassTermID               *PatchField[*uuid.UUID] `json:"class_term_id,omitempty"                form:"class_term_id"`
+	ClassIsOpen               *PatchField[bool]       `json:"class_is_open,omitempty"                form:"class_is_open"`
+	ClassRegistrationOpensAt  *PatchField[*time.Time] `json:"class_registration_opens_at,omitempty"  form:"class_registration_opens_at"`
+	ClassRegistrationClosesAt *PatchField[*time.Time] `json:"class_registration_closes_at,omitempty" form:"class_registration_closes_at"`
 
-	ClassQuotaTotal *PatchField[*int] `json:"class_quota_total,omitempty"`
-	ClassQuotaTaken *PatchField[int]  `json:"class_quota_taken,omitempty"`
+	ClassQuotaTotal *PatchField[*int] `json:"class_quota_total,omitempty" form:"class_quota_total"`
+	ClassQuotaTaken *PatchField[int]  `json:"class_quota_taken,omitempty" form:"class_quota_taken"`
 
-	ClassRegistrationFeeIDR *PatchField[*int64] `json:"class_registration_fee_idr,omitempty"`
-	ClassTuitionFeeIDR      *PatchField[*int64] `json:"class_tuition_fee_idr,omitempty"`
-	ClassBillingCycle       *PatchField[string]  `json:"class_billing_cycle,omitempty"`
-	ClassProviderProductID  *PatchField[*string] `json:"class_provider_product_id,omitempty"`
-	ClassProviderPriceID    *PatchField[*string] `json:"class_provider_price_id,omitempty"`
+	ClassRegistrationFeeIDR *PatchField[*int64] `json:"class_registration_fee_idr,omitempty" form:"class_registration_fee_idr"`
+	ClassTuitionFeeIDR      *PatchField[*int64] `json:"class_tuition_fee_idr,omitempty"      form:"class_tuition_fee_idr"`
+	ClassBillingCycle       *PatchField[string] `json:"class_billing_cycle,omitempty"         form:"class_billing_cycle"`
+	ClassProviderProductID  *PatchField[*string] `json:"class_provider_product_id,omitempty"  form:"class_provider_product_id"`
+	ClassProviderPriceID    *PatchField[*string] `json:"class_provider_price_id,omitempty"    form:"class_provider_price_id"`
 
-	ClassNotes    *PatchField[*string] `json:"class_notes,omitempty"`
-	ClassImageURL *PatchField[*string] `json:"class_image_url,omitempty"`
+	ClassNotes    *PatchField[*string] `json:"class_notes,omitempty"     form:"class_notes"`
+	ClassImageURL *PatchField[*string] `json:"class_image_url,omitempty" form:"class_image_url"`
 
-	ClassDeliveryMode *PatchField[string] `json:"class_delivery_mode,omitempty"`
-	ClassIsActive     *PatchField[bool]   `json:"class_is_active,omitempty"`
+	ClassDeliveryMode *PatchField[string]     `json:"class_delivery_mode,omitempty" form:"class_delivery_mode"`
+	ClassStatus       *PatchField[string]     `json:"class_status,omitempty"        form:"class_status"`
+	ClassCompletedAt  *PatchField[*time.Time] `json:"class_completed_at,omitempty"  form:"class_completed_at"`
 
-	ClassTrashURL           *PatchField[*string]    `json:"class_trash_url,omitempty"`
-	ClassDeletePendingUntil *PatchField[*time.Time] `json:"class_delete_pending_until,omitempty"`
+	ClassTrashURL           *PatchField[*string]    `json:"class_trash_url,omitempty"            form:"class_trash_url"`
+	ClassDeletePendingUntil *PatchField[*time.Time] `json:"class_delete_pending_until,omitempty" form:"class_delete_pending_until"`
 }
 
 func (r *PatchClassRequest) Normalize() {
@@ -249,6 +318,9 @@ func (r *PatchClassRequest) Normalize() {
 	}
 	if r.ClassDeliveryMode != nil && r.ClassDeliveryMode.Set {
 		r.ClassDeliveryMode.Value = strings.ToLower(strings.TrimSpace(r.ClassDeliveryMode.Value))
+	}
+	if r.ClassStatus != nil && r.ClassStatus.Set {
+		r.ClassStatus.Value = strings.ToLower(strings.TrimSpace(r.ClassStatus.Value))
 	}
 	if r.ClassNotes != nil && r.ClassNotes.Set && r.ClassNotes.Value != nil {
 		s := strings.TrimSpace(*r.ClassNotes.Value)
@@ -293,26 +365,45 @@ func (r *PatchClassRequest) Normalize() {
 }
 
 func (r *PatchClassRequest) Validate() error {
-	// registrasi window
 	if r.ClassRegistrationOpensAt != nil && r.ClassRegistrationOpensAt.Set &&
 		r.ClassRegistrationClosesAt != nil && r.ClassRegistrationClosesAt.Set &&
 		r.ClassRegistrationOpensAt.Value != nil && r.ClassRegistrationClosesAt.Value != nil &&
 		r.ClassRegistrationClosesAt.Value.Before(*r.ClassRegistrationOpensAt.Value) {
 		return errors.New("class_registration_closes_at must be >= class_registration_opens_at")
 	}
-	// kuota non-neg
 	if r.ClassQuotaTotal != nil && r.ClassQuotaTotal.Set && r.ClassQuotaTotal.Value != nil && *r.ClassQuotaTotal.Value < 0 {
 		return errors.New("class_quota_total must be >= 0")
 	}
 	if r.ClassQuotaTaken != nil && r.ClassQuotaTaken.Set && r.ClassQuotaTaken.Value < 0 {
 		return errors.New("class_quota_taken must be >= 0")
 	}
-	// fee non-neg
 	if r.ClassRegistrationFeeIDR != nil && r.ClassRegistrationFeeIDR.Set && r.ClassRegistrationFeeIDR.Value != nil && *r.ClassRegistrationFeeIDR.Value < 0 {
 		return errors.New("class_registration_fee_idr must be >= 0")
 	}
 	if r.ClassTuitionFeeIDR != nil && r.ClassTuitionFeeIDR.Set && r.ClassTuitionFeeIDR.Value != nil && *r.ClassTuitionFeeIDR.Value < 0 {
 		return errors.New("class_tuition_fee_idr must be >= 0")
+	}
+	// enums
+	if r.ClassBillingCycle != nil && r.ClassBillingCycle.Set {
+		switch r.ClassBillingCycle.Value {
+		case model.BillingCycleOneTime, model.BillingCycleMonthly, model.BillingCycleQuarter, model.BillingCycleSemester, model.BillingCycleYearly:
+		default:
+			return errors.New("invalid class_billing_cycle")
+		}
+	}
+	if r.ClassDeliveryMode != nil && r.ClassDeliveryMode.Set {
+		switch r.ClassDeliveryMode.Value {
+		case model.ClassDeliveryModeOffline, model.ClassDeliveryModeOnline, model.ClassDeliveryModeHybrid:
+		default:
+			return errors.New("invalid class_delivery_mode")
+		}
+	}
+	if r.ClassStatus != nil && r.ClassStatus.Set {
+		switch r.ClassStatus.Value {
+		case model.ClassStatusActive, model.ClassStatusInactive, model.ClassStatusCompleted:
+		default:
+			return errors.New("invalid class_status")
+		}
 	}
 	return nil
 }
@@ -369,8 +460,15 @@ func (r *PatchClassRequest) Apply(m *model.ClassModel) {
 	if r.ClassDeliveryMode != nil && r.ClassDeliveryMode.Set {
 		m.ClassDeliveryMode = r.ClassDeliveryMode.Value
 	}
-	if r.ClassIsActive != nil && r.ClassIsActive.Set {
-		m.ClassIsActive = r.ClassIsActive.Value
+	if r.ClassStatus != nil && r.ClassStatus.Set {
+		m.ClassStatus = r.ClassStatus.Value
+		// selaras constraint DB: jika completed → is_open = false (kecuali user sudah set explicit)
+		if m.ClassStatus == model.ClassStatusCompleted && (r.ClassIsOpen == nil || (r.ClassIsOpen != nil && !r.ClassIsOpen.Set)) {
+			m.ClassIsOpen = false
+		}
+	}
+	if r.ClassCompletedAt != nil && r.ClassCompletedAt.Set {
+		m.ClassCompletedAt = r.ClassCompletedAt.Value
 	}
 	if r.ClassTrashURL != nil && r.ClassTrashURL.Set {
 		m.ClassTrashURL = r.ClassTrashURL.Value
@@ -411,8 +509,9 @@ type ClassResponse struct {
 	ClassNotes    *string `json:"class_notes,omitempty"`
 	ClassImageURL *string `json:"class_image_url,omitempty"`
 
-	ClassDeliveryMode string `json:"class_delivery_mode"`
-	ClassIsActive     bool   `json:"class_is_active"`
+	ClassDeliveryMode string     `json:"class_delivery_mode"`
+	ClassStatus       string     `json:"class_status"`
+	ClassCompletedAt  *time.Time `json:"class_completed_at,omitempty"`
 
 	ClassTrashURL           *string    `json:"class_trash_url,omitempty"`
 	ClassDeletePendingUntil *time.Time `json:"class_delete_pending_until,omitempty"`
@@ -449,7 +548,8 @@ func FromModel(m *model.ClassModel) ClassResponse {
 		ClassNotes:                m.ClassNotes,
 		ClassImageURL:             m.ClassImageURL,
 		ClassDeliveryMode:         m.ClassDeliveryMode,
-		ClassIsActive:             m.ClassIsActive,
+		ClassStatus:               m.ClassStatus,
+		ClassCompletedAt:          m.ClassCompletedAt,
 		ClassTrashURL:             m.ClassTrashURL,
 		ClassDeletePendingUntil:   m.ClassDeletePendingUntil,
 		ClassCreatedAt:            m.ClassCreatedAt,
@@ -467,25 +567,34 @@ type ListClassQuery struct {
 	ParentID     *uuid.UUID `query:"parent_id"`
 	TermID       *uuid.UUID `query:"term_id"`
 	IsOpen       *bool      `query:"is_open"`
-	IsActive     *bool      `query:"is_active"`
+	Status       *string    `query:"status"`        // enum: active|inactive|completed
 	DeliveryMode *string    `query:"delivery_mode"` // enum; lower-case di repo
 	Slug         *string    `query:"slug"`          // exact/ilike di repo
 	Search       *string    `query:"search"`        // cari di notes (trigram)
+
 	StartGe      *time.Time `query:"start_ge"`
 	StartLe      *time.Time `query:"start_le"`
 	RegOpenGe    *time.Time `query:"reg_open_ge"`
 	RegCloseLe   *time.Time `query:"reg_close_le"`
 
+	// opsional filter untuk completed range
+	CompletedGe *time.Time `query:"completed_ge"`
+	CompletedLe *time.Time `query:"completed_le"`
+
 	Limit  int     `query:"limit"  validate:"omitempty,min=1,max=200"`
 	Offset int     `query:"offset" validate:"omitempty,min=0"`
-	SortBy *string `query:"sort_by"`  // created_at|slug|start_date|is_open|is_active|delivery_mode
-	Order  *string `query:"order"`    // asc|desc
+	SortBy *string `query:"sort_by"` // created_at|slug|start_date|is_open|status|delivery_mode
+	Order  *string `query:"order"`   // asc|desc
 }
 
 func (q *ListClassQuery) Normalize() {
 	if q.DeliveryMode != nil {
 		x := strings.ToLower(strings.TrimSpace(*q.DeliveryMode))
 		q.DeliveryMode = &x
+	}
+	if q.Status != nil {
+		x := strings.ToLower(strings.TrimSpace(*q.Status))
+		q.Status = &x
 	}
 	if q.Slug != nil {
 		x := strings.TrimSpace(strings.ToLower(*q.Slug))

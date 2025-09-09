@@ -1,13 +1,11 @@
 BEGIN;
 
--- =========================================================
--- PRASYARAT
--- =========================================================
-CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
-CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- opsional untuk pencarian
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- =========================================================
--- TABEL: user_classes (FINAL; enrolment ke masjid_students)
+-- TABEL: user_classes
 -- =========================================================
 CREATE TABLE IF NOT EXISTS user_classes (
   user_classes_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -20,13 +18,18 @@ CREATE TABLE IF NOT EXISTS user_classes (
   user_classes_masjid_id UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE RESTRICT,
 
-  -- status enrolment
+  -- lifecycle enrolment
   user_classes_status TEXT NOT NULL DEFAULT 'active'
-    CHECK (user_classes_status IN ('active','inactive','ended')),
+    CHECK (user_classes_status IN ('active','inactive','completed')),
+
+  -- outcome (hasil akhir) - diisi hanya kalau completed
+  user_classes_result TEXT
+    CHECK (user_classes_result IN ('passed','failed')),
 
   -- jejak waktu enrolment per kelas
-  user_classes_joined_at TIMESTAMPTZ,
-  user_classes_left_at   TIMESTAMPTZ,
+  user_classes_joined_at    TIMESTAMPTZ,
+  user_classes_left_at      TIMESTAMPTZ,
+  user_classes_completed_at TIMESTAMPTZ,
 
   user_classes_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_classes_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -37,6 +40,18 @@ CREATE TABLE IF NOT EXISTS user_classes (
     user_classes_left_at IS NULL
     OR user_classes_joined_at IS NULL
     OR user_classes_left_at >= user_classes_joined_at
+  ),
+
+  -- Outcome hanya saat completed (dan sebaliknya harus NULL)
+  CONSTRAINT chk_uc_result_only_when_completed CHECK (
+    (user_classes_status = 'completed' AND user_classes_result IS NOT NULL)
+    OR (user_classes_status <> 'completed' AND user_classes_result IS NULL)
+  ),
+
+  -- Kalau completed, lengkapi completed_at (opsional: boleh kamu paksa NOT NULL)
+  CONSTRAINT chk_uc_completed_at_when_completed CHECK (
+    user_classes_status <> 'completed'
+    OR user_classes_completed_at IS NOT NULL
   ),
 
   -- FK tenant-safe (komposit) ke classes
@@ -60,7 +75,7 @@ CREATE TABLE IF NOT EXISTS user_classes (
 -- Indeks & Partial Unique (soft-delete aware)
 -- =======================
 
--- ❗ Cegah enrol aktif ganda per (masjid_student, class, masjid)
+-- Hanya cegah enrol AKTIF ganda (result tidak ikut campur)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_uc_active_per_student_class
   ON user_classes (user_classes_masjid_student_id, user_classes_class_id, user_classes_masjid_id)
   WHERE user_classes_deleted_at IS NULL
@@ -94,10 +109,9 @@ CREATE INDEX IF NOT EXISTS ix_uc_tenant_class_active
   WHERE user_classes_deleted_at IS NULL
     AND user_classes_status = 'active';
 
--- (Opsional, ringan) BRIN untuk range besar
+-- (Opsional) BRIN untuk range besar
 CREATE INDEX IF NOT EXISTS brin_uc_created_at
   ON user_classes USING BRIN (user_classes_created_at);
-
 
 
 -- =========================================================

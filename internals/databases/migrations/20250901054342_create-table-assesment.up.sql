@@ -39,20 +39,27 @@ CREATE INDEX IF NOT EXISTS idx_assessment_types_masjid_active
 
 
 -- =========================================================
--- 2) ASSESSMENTS (tanpa weight_override) — FINAL
+-- ASSESSMENTS — CLEAN RELATION (ONLY TO CSST)
 -- =========================================================
+BEGIN;
+
+-- Pastikan unique index tenant-safe ada di CSST
+CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_masjid
+ON class_section_subject_teachers (
+  class_section_subject_teachers_id,
+  class_section_subject_teachers_masjid_id
+);
+
+-- Table assessments
 CREATE TABLE IF NOT EXISTS assessments (
   assessments_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   assessments_masjid_id UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  -- opsional relasi kelas/mapel/pengampu
-  assessments_class_section_id UUID,
-  assessments_class_subjects_id UUID,
-  assessments_class_section_subject_teacher_id UUID, -- (full name csst)
+  -- Hanya relasi ke CSST (tenant-safe)
+  assessments_class_section_subject_teacher_id UUID NULL,
 
-  -- tipe (FK ke master)
   assessments_type_id UUID
     REFERENCES assessment_types(assessment_types_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
@@ -69,15 +76,50 @@ CREATE TABLE IF NOT EXISTS assessments (
   assessments_is_published     BOOLEAN NOT NULL DEFAULT TRUE,
   assessments_allow_submission BOOLEAN NOT NULL DEFAULT TRUE,
 
-  -- creator (guru global; beda dengan CSST pengampu spesifik)
-  assessments_created_by_teacher_id UUID,  -- -> FK ke masjid_teachers
+  assessments_created_by_teacher_id UUID,  -- FK ke masjid_teachers
 
   assessments_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   assessments_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   assessments_deleted_at TIMESTAMPTZ
 );
 
--- indeks
+-- FK ke CSST
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'fk_assessments_csst'
+  ) THEN
+    ALTER TABLE assessments
+      ADD CONSTRAINT fk_assessments_csst
+      FOREIGN KEY (assessments_class_section_subject_teacher_id)
+      REFERENCES class_section_subject_teachers(class_section_subject_teachers_id)
+      ON UPDATE CASCADE ON DELETE SET NULL;
+  END IF;
+END$$;
+
+-- Composite tenant-safe FK (masjid_id harus match)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'fk_assessments_csst_masjid_tenant_safe'
+  ) THEN
+    ALTER TABLE assessments
+      ADD CONSTRAINT fk_assessments_csst_masjid_tenant_safe
+      FOREIGN KEY (
+        assessments_class_section_subject_teacher_id,
+        assessments_masjid_id
+      )
+      REFERENCES class_section_subject_teachers(
+        class_section_subject_teachers_id,
+        class_section_subject_teachers_masjid_id
+      )
+      ON UPDATE CASCADE ON DELETE SET NULL;
+  END IF;
+END$$;
+
+-- =========================================================
+-- Indeks
+-- =========================================================
 CREATE INDEX IF NOT EXISTS idx_assessments_masjid_created_at
   ON assessments(assessments_masjid_id, assessments_created_at DESC);
 
@@ -87,18 +129,13 @@ CREATE INDEX IF NOT EXISTS idx_assessments_type_id
 CREATE INDEX IF NOT EXISTS idx_assessments_csst
   ON assessments(assessments_class_section_subject_teacher_id);
 
-CREATE INDEX IF NOT EXISTS idx_assessments_section
-  ON assessments(assessments_class_section_id);
-
-CREATE INDEX IF NOT EXISTS idx_assessments_subject
-  ON assessments(assessments_class_subjects_id);
-
 CREATE INDEX IF NOT EXISTS idx_assessments_created_by_teacher
   ON assessments(assessments_created_by_teacher_id);
 
 CREATE INDEX IF NOT EXISTS brin_assessments_created_at
   ON assessments USING BRIN (assessments_created_at);
 
+COMMIT;
 
 
 

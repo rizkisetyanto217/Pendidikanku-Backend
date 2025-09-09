@@ -9,7 +9,8 @@ import (
 	secModel "masjidku_backend/internals/features/school/classes/class_sections/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
-// <- helper pagination (alias biar tak bentrok)
+
+	// <- helper pagination (alias biar tak bentrok)
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -227,17 +228,21 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 			}
 
 			var cr []classLite
-			if err := ctrl.DB.
+				if err := ctrl.DB.
 				Table("classes AS c").
-				Select("c.class_id AS id, cp.class_parent_name AS name, c.class_slug AS slug").
-				Joins(`JOIN class_parent AS cp
+				Select(`
+					c.class_id AS id,
+					cp.class_parent_name AS name,
+					c.class_slug AS slug
+				`).
+				Joins(`JOIN public.class_parents AS cp
 						ON cp.class_parent_id = c.class_parent_id
 						AND cp.class_parent_masjid_id = c.class_masjid_id
 						AND cp.class_parent_deleted_at IS NULL`).
 				Where("c.class_id IN ? AND c.class_deleted_at IS NULL", classIDs).
 				Find(&cr).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data classes")
-			}
+				}
 			for _, r := range cr {
 				classMap[r.ID] = r // langsung masuk; no warning
 			}

@@ -14,34 +14,28 @@ import (
    1) REQUEST DTO
    ========================================================= */
 
-// Create
+// CREATE: tanpa section_id & class_subject_id; pakai CSST (wajib)
 type CreateClassAttendanceSessionRequest struct {
-	ClassAttendanceSessionSectionId      uuid.UUID  `json:"class_attendance_session_section_id"        validate:"required"`
-	ClassAttendanceSessionMasjidId       uuid.UUID  `json:"class_attendance_session_masjid_id"         validate:"required"`
-	ClassAttendanceSessionClassSubjectId  uuid.UUID  `json:"class_attendance_session_class_subject_id"   validate:"required"`
-	// (baru) CSST optional
-	ClassAttendanceSessionCSSTId         *uuid.UUID `json:"class_attendance_session_csst_id"           validate:"omitempty"`
+	ClassAttendanceSessionMasjidId uuid.UUID `json:"class_attendance_session_masjid_id"  validate:"required"`
+	ClassAttendanceSessionCSSTId   uuid.UUID `json:"class_attendance_session_csst_id"    validate:"required"`
 
-	ClassAttendanceSessionTeacherId   *uuid.UUID `json:"class_attendance_session_teacher_id"         validate:"omitempty"`
-	ClassAttendanceSessionClassRoomId *uuid.UUID `json:"class_attendance_session_class_room_id"      validate:"omitempty"`
+	ClassAttendanceSessionTeacherId   *uuid.UUID `json:"class_attendance_session_teacher_id"    validate:"omitempty,uuid"`
+	ClassAttendanceSessionClassRoomId *uuid.UUID `json:"class_attendance_session_class_room_id" validate:"omitempty,uuid"`
 
-	// pointer => boleh kosong agar pakai DEFAULT CURRENT_DATE di DB
+	// pointer => bisa nil agar pakai DEFAULT CURRENT_DATE dari DB
 	ClassAttendanceSessionDate        *time.Time `json:"class_attendance_session_date"         validate:"omitempty"`
 	ClassAttendanceSessionTitle       *string    `json:"class_attendance_session_title"        validate:"omitempty,max=500"`
 	ClassAttendanceSessionGeneralInfo string     `json:"class_attendance_session_general_info" validate:"required"`
 	ClassAttendanceSessionNote        *string    `json:"class_attendance_session_note"         validate:"omitempty"`
 }
 
-// Update (partial)
+// UPDATE (partial): tetap tanpa section_id & class_subject_id
 type UpdateClassAttendanceSessionRequest struct {
-	ClassAttendanceSessionSectionId      *uuid.UUID `json:"class_attendance_session_section_id"        validate:"omitempty"`
-	ClassAttendanceSessionMasjidId       *uuid.UUID `json:"class_attendance_session_masjid_id"         validate:"omitempty"`
-	ClassAttendanceSessionClassSubjectId *uuid.UUID `json:"class_attendance_session_class_subject_id"   validate:"omitempty"`
-	// (baru) CSST optional
-	ClassAttendanceSessionCSSTId         *uuid.UUID `json:"class_attendance_session_csst_id"           validate:"omitempty"`
+	ClassAttendanceSessionMasjidId *uuid.UUID `json:"class_attendance_session_masjid_id"  validate:"omitempty,uuid"`
+	ClassAttendanceSessionCSSTId   *uuid.UUID `json:"class_attendance_session_csst_id"    validate:"omitempty,uuid"`
 
-	ClassAttendanceSessionTeacherId   *uuid.UUID `json:"class_attendance_session_teacher_id"         validate:"omitempty"`
-	ClassAttendanceSessionClassRoomId *uuid.UUID `json:"class_attendance_session_class_room_id"      validate:"omitempty"`
+	ClassAttendanceSessionTeacherId   *uuid.UUID `json:"class_attendance_session_teacher_id"    validate:"omitempty,uuid"`
+	ClassAttendanceSessionClassRoomId *uuid.UUID `json:"class_attendance_session_class_room_id" validate:"omitempty,uuid"`
 
 	ClassAttendanceSessionDate        *time.Time `json:"class_attendance_session_date"         validate:"omitempty"`
 	ClassAttendanceSessionTitle       *string    `json:"class_attendance_session_title"        validate:"omitempty,max=500"`
@@ -50,27 +44,30 @@ type UpdateClassAttendanceSessionRequest struct {
 }
 
 /*
-List query (opsional untuk handler list):
-- Limit/Offset default di controller
-- Filter umum & sort (whitelist di controller)
+List query (untuk handler list):
+- Filter bawaan (tanpa kolom yang dihapus dari tabel).
+- section_id & class_subject_id tetap disediakan SEBAGAI FILTER OPSIONAL
+  (kalau di controller kamu melakukan JOIN via CSST → section/subject).
 */
 type ListClassAttendanceSessionQuery struct {
-	Limit          *int       `query:"limit"            validate:"omitempty,min=1,max=200"`
-	Offset         *int       `query:"offset"           validate:"omitempty,min=0"`
-	Section        *uuid.UUID `query:"section_id"       validate:"omitempty"`
-	TeacherId      *uuid.UUID `query:"teacher_id"       validate:"omitempty"`
-	ClassSubjectId *uuid.UUID `query:"class_subject_id" validate:"omitempty"`
-	RoomId         *uuid.UUID `query:"room_id"          validate:"omitempty"`
-	// (baru) filter CSST
-	CSSTId         *uuid.UUID `query:"csst_id"          validate:"omitempty"`
+	Limit  *int `query:"limit"  validate:"omitempty,min=1,max=200"`
+	Offset *int `query:"offset" validate:"omitempty,min=0"`
 
-	DateFrom *time.Time `query:"date_from"        validate:"omitempty"`
-	DateTo   *time.Time `query:"date_to"          validate:"omitempty"`
-	Keyword  *string    `query:"q"                validate:"omitempty,max=100"`
+	// Filter utama sesuai kolom tabel
+	TeacherId *uuid.UUID `query:"teacher_id" validate:"omitempty,uuid"`
+	RoomId    *uuid.UUID `query:"room_id"    validate:"omitempty,uuid"`
+	CSSTId    *uuid.UUID `query:"csst_id"    validate:"omitempty,uuid"`
 
-	// created_at dihapus, sesuai skema baru
-	OrderBy *string `query:"order_by"         validate:"omitempty,oneof=date title"`
-	Sort    *string `query:"sort"             validate:"omitempty,oneof=asc desc"`
+	// Filter turunan via JOIN (opsional)
+	SectionId      *uuid.UUID `query:"section_id"       validate:"omitempty,uuid"`
+	ClassSubjectId *uuid.UUID `query:"class_subject_id"  validate:"omitempty,uuid"`
+
+	DateFrom *time.Time `query:"date_from" validate:"omitempty"`
+	DateTo   *time.Time `query:"date_to"   validate:"omitempty"`
+	Keyword  *string    `query:"q"         validate:"omitempty,max=100"`
+
+	OrderBy *string `query:"order_by" validate:"omitempty,oneof=date title"`
+	Sort    *string `query:"sort"     validate:"omitempty,oneof=asc desc"`
 }
 
 /* =========================================================
@@ -78,36 +75,34 @@ type ListClassAttendanceSessionQuery struct {
    ========================================================= */
 
 type ClassAttendanceSessionResponse struct {
-	ClassAttendanceSessionId             uuid.UUID  `json:"class_attendance_session_id"`
-	ClassAttendanceSessionSectionId      uuid.UUID  `json:"class_attendance_session_section_id"`
-	ClassAttendanceSessionMasjidId       uuid.UUID  `json:"class_attendance_session_masjid_id"`
-	ClassAttendanceSessionClassSubjectId *uuid.UUID `json:"class_attendance_session_class_subject_id,omitempty"`
+	ClassAttendanceSessionId        uuid.UUID  `json:"class_attendance_session_id"`
+	ClassAttendanceSessionMasjidId  uuid.UUID  `json:"class_attendance_session_masjid_id"`
 
-	// (baru) CSST optional
-	ClassAttendanceSessionCSSTId *uuid.UUID `json:"class_attendance_session_csst_id,omitempty"`
-
-	// Room (opsional)
+	// Kolom utama tabel
+	ClassAttendanceSessionCSSTId      uuid.UUID  `json:"class_attendance_session_csst_id"`
 	ClassAttendanceSessionClassRoomId *uuid.UUID `json:"class_attendance_session_class_room_id,omitempty"`
 
-	// date dari model adalah *time.Time; response dibuat non-pointer agar konsisten tampil
+	// Tanggal sebagai non-pointer untuk tampilan; (zero jika memang NULL di DB — mestinya tidak, ada DEFAULT)
 	ClassAttendanceSessionDate        time.Time  `json:"class_attendance_session_date"`
 	ClassAttendanceSessionTitle       *string    `json:"class_attendance_session_title,omitempty"`
 	ClassAttendanceSessionGeneralInfo string     `json:"class_attendance_session_general_info"`
 	ClassAttendanceSessionNote        *string    `json:"class_attendance_session_note,omitempty"`
 
-	// Teacher info
+	// Teacher
 	ClassAttendanceSessionTeacherId    *uuid.UUID `json:"class_attendance_session_teacher_id,omitempty"`
 	ClassAttendanceSessionTeacherName  *string    `json:"class_attendance_session_teacher_name,omitempty"`
 	ClassAttendanceSessionTeacherEmail *string    `json:"class_attendance_session_teacher_email,omitempty"`
 
-	// Class section info (opsional)
-	ClassSectionSlug     *string        `json:"class_sections_slug,omitempty"`
-	ClassSectionName     *string        `json:"class_sections_name,omitempty"`
-	ClassSectionCode     *string        `json:"class_sections_code,omitempty"`
-	ClassSectionCapacity *int           `json:"class_sections_capacity,omitempty"`
-	ClassSectionSchedule datatypes.JSON `json:"class_sections_schedule,omitempty"`
+	// Enrichment opsional (hasil JOIN, bukan kolom tabel)
+	ClassSectionId        *uuid.UUID     `json:"class_sections_id,omitempty"`
+	ClassSubjectId        *uuid.UUID     `json:"class_subjects_id,omitempty"`
+	ClassSectionSlug      *string        `json:"class_sections_slug,omitempty"`
+	ClassSectionName      *string        `json:"class_sections_name,omitempty"`
+	ClassSectionCode      *string        `json:"class_sections_code,omitempty"`
+	ClassSectionCapacity  *int           `json:"class_sections_capacity,omitempty"`
+	ClassSectionSchedule  datatypes.JSON `json:"class_sections_schedule,omitempty"`
 
-	// timestamps DB-side ditiadakan, hanya soft delete
+	// Soft delete
 	ClassAttendanceSessionDeletedAt *time.Time `json:"class_attendance_session_deleted_at,omitempty"`
 }
 
@@ -129,22 +124,14 @@ type ListMeta struct {
 
 func (r CreateClassAttendanceSessionRequest) ToModel() attendanceModel.ClassAttendanceSessionModel {
 	return attendanceModel.ClassAttendanceSessionModel{
-		ClassAttendanceSessionSectionId:      r.ClassAttendanceSessionSectionId,
 		ClassAttendanceSessionMasjidId:       r.ClassAttendanceSessionMasjidId,
-		ClassAttendanceSessionClassSubjectId: r.ClassAttendanceSessionClassSubjectId,
-
-		// (baru) CSST
-		ClassAttendanceSessionCSSTId: r.ClassAttendanceSessionCSSTId,
-
-		// optional
-		ClassAttendanceSessionTeacherId:   r.ClassAttendanceSessionTeacherId,
-		ClassAttendanceSessionClassRoomId: r.ClassAttendanceSessionClassRoomId,
-
-		// model pakai *time.Time → langsung assign pointer dari request
-		ClassAttendanceSessionDate:        r.ClassAttendanceSessionDate,
-		ClassAttendanceSessionTitle:       r.ClassAttendanceSessionTitle,
-		ClassAttendanceSessionGeneralInfo: r.ClassAttendanceSessionGeneralInfo,
-		ClassAttendanceSessionNote:        r.ClassAttendanceSessionNote,
+		ClassAttendanceSessionCSSTId:         r.ClassAttendanceSessionCSSTId,
+		ClassAttendanceSessionTeacherId:      r.ClassAttendanceSessionTeacherId,
+		ClassAttendanceSessionClassRoomId:    r.ClassAttendanceSessionClassRoomId,
+		ClassAttendanceSessionDate:           r.ClassAttendanceSessionDate,  // pointer → biar DEFAULT CURRENT_DATE kepakai kalau nil
+		ClassAttendanceSessionTitle:          r.ClassAttendanceSessionTitle,
+		ClassAttendanceSessionGeneralInfo:    r.ClassAttendanceSessionGeneralInfo,
+		ClassAttendanceSessionNote:           r.ClassAttendanceSessionNote,
 	}
 }
 
@@ -155,10 +142,7 @@ func FromClassAttendanceSessionModel(m attendanceModel.ClassAttendanceSessionMod
 		deletedAt = &m.ClassAttendanceSessionDeletedAt.Time
 	}
 
-	// subject wajib (uuid.UUID) → DTO pointer
-	subj := m.ClassAttendanceSessionClassSubjectId
-
-	// date: model *time.Time → response time.Time (zero jika nil)
+	// date: model *time.Time → response time.Time
 	var date time.Time
 	if m.ClassAttendanceSessionDate != nil {
 		date = *m.ClassAttendanceSessionDate
@@ -166,23 +150,16 @@ func FromClassAttendanceSessionModel(m attendanceModel.ClassAttendanceSessionMod
 
 	return ClassAttendanceSessionResponse{
 		ClassAttendanceSessionId:             m.ClassAttendanceSessionId,
-		ClassAttendanceSessionSectionId:      m.ClassAttendanceSessionSectionId,
 		ClassAttendanceSessionMasjidId:       m.ClassAttendanceSessionMasjidId,
-		ClassAttendanceSessionClassSubjectId: &subj,
-
-		// (baru) CSST
-		ClassAttendanceSessionCSSTId: m.ClassAttendanceSessionCSSTId,
-
-		ClassAttendanceSessionClassRoomId: m.ClassAttendanceSessionClassRoomId,
-
-		ClassAttendanceSessionDate:        date,
-		ClassAttendanceSessionTitle:       m.ClassAttendanceSessionTitle,
-		ClassAttendanceSessionGeneralInfo: m.ClassAttendanceSessionGeneralInfo,
-		ClassAttendanceSessionNote:        m.ClassAttendanceSessionNote,
-
-		ClassAttendanceSessionTeacherId: m.ClassAttendanceSessionTeacherId,
-
-		ClassAttendanceSessionDeletedAt: deletedAt,
+		ClassAttendanceSessionCSSTId:         m.ClassAttendanceSessionCSSTId,
+		ClassAttendanceSessionClassRoomId:    m.ClassAttendanceSessionClassRoomId,
+		ClassAttendanceSessionDate:           date,
+		ClassAttendanceSessionTitle:          m.ClassAttendanceSessionTitle,
+		ClassAttendanceSessionGeneralInfo:    m.ClassAttendanceSessionGeneralInfo,
+		ClassAttendanceSessionNote:           m.ClassAttendanceSessionNote,
+		ClassAttendanceSessionTeacherId:      m.ClassAttendanceSessionTeacherId,
+		ClassAttendanceSessionDeletedAt:      deletedAt,
+		// Enrichment opsional (Section/Subject, Name, dsb) diisi di controller jika melakukan JOIN
 	}
 }
 
@@ -200,27 +177,18 @@ func FromClassAttendanceSessionModels(models []attendanceModel.ClassAttendanceSe
    ========================================================= */
 
 func (r UpdateClassAttendanceSessionRequest) Apply(m *attendanceModel.ClassAttendanceSessionModel) {
-	if r.ClassAttendanceSessionSectionId != nil {
-		m.ClassAttendanceSessionSectionId = *r.ClassAttendanceSessionSectionId
-	}
 	if r.ClassAttendanceSessionMasjidId != nil {
 		m.ClassAttendanceSessionMasjidId = *r.ClassAttendanceSessionMasjidId
 	}
-	if r.ClassAttendanceSessionClassSubjectId != nil {
-		m.ClassAttendanceSessionClassSubjectId = *r.ClassAttendanceSessionClassSubjectId
-	}
-	// (baru) CSST
 	if r.ClassAttendanceSessionCSSTId != nil {
-		m.ClassAttendanceSessionCSSTId = r.ClassAttendanceSessionCSSTId
+		m.ClassAttendanceSessionCSSTId = *r.ClassAttendanceSessionCSSTId
 	}
-
 	if r.ClassAttendanceSessionTeacherId != nil {
 		m.ClassAttendanceSessionTeacherId = r.ClassAttendanceSessionTeacherId
 	}
 	if r.ClassAttendanceSessionClassRoomId != nil {
 		m.ClassAttendanceSessionClassRoomId = r.ClassAttendanceSessionClassRoomId
 	}
-
 	if r.ClassAttendanceSessionDate != nil {
 		m.ClassAttendanceSessionDate = r.ClassAttendanceSessionDate
 	}

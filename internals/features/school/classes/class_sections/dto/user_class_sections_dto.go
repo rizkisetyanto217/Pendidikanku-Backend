@@ -15,16 +15,15 @@ type CreateUserClassSectionRequest struct {
 	UserClassSectionsUserClassID  uuid.UUID  `json:"user_class_sections_user_class_id" validate:"required"`
 	UserClassSectionsSectionID    uuid.UUID  `json:"user_class_sections_section_id" validate:"required"`
 	UserClassSectionsMasjidID     *uuid.UUID `json:"user_class_sections_masjid_id" validate:"omitempty"`
-	UserClassSectionsAssignedAt   *time.Time `json:"user_class_sections_assigned_at" validate:"omitempty"`   // nil => pakai DEFAULT CURRENT_DATE di DB
+	UserClassSectionsAssignedAt   *time.Time `json:"user_class_sections_assigned_at" validate:"omitempty"`   // nil => DEFAULT CURRENT_DATE (DB)
 	UserClassSectionsUnassignedAt *time.Time `json:"user_class_sections_unassigned_at" validate:"omitempty"`
 }
 
 func (r *CreateUserClassSectionRequest) ToModel() *ucsModel.UserClassSectionsModel {
 	m := &ucsModel.UserClassSectionsModel{
-		UserClassSectionsUserClassID: r.UserClassSectionsUserClassID,
-		UserClassSectionsSectionID:   r.UserClassSectionsSectionID,
-		UserClassSectionsMasjidID:    uuid.Nil,
-		// Biarkan nil agar DEFAULT CURRENT_DATE di DB jalan
+		UserClassSectionsUserClassID:  r.UserClassSectionsUserClassID,
+		UserClassSectionsSectionID:    r.UserClassSectionsSectionID,
+		UserClassSectionsMasjidID:     uuid.Nil,
 		UserClassSectionsAssignedAt:   r.UserClassSectionsAssignedAt,
 		UserClassSectionsUnassignedAt: r.UserClassSectionsUnassignedAt,
 	}
@@ -40,7 +39,6 @@ type UpdateUserClassSectionRequest struct {
 	UserClassSectionsMasjidID     *uuid.UUID `json:"user_class_sections_masjid_id" validate:"omitempty"`
 	UserClassSectionsAssignedAt   *time.Time `json:"user_class_sections_assigned_at" validate:"omitempty"`
 	UserClassSectionsUnassignedAt *time.Time `json:"user_class_sections_unassigned_at" validate:"omitempty"`
-	// Tidak expose DeletedAt di update request
 }
 
 func (r *UpdateUserClassSectionRequest) ApplyToModel(m *ucsModel.UserClassSectionsModel) {
@@ -85,7 +83,7 @@ type UserClassSectionResponse struct {
 	UserClassSectionsAssignedAt   *time.Time `json:"user_class_sections_assigned_at,omitempty"`
 	UserClassSectionsUnassignedAt *time.Time `json:"user_class_sections_unassigned_at,omitempty"`
 
-	// Tambahan dari user_classes (opsional, jika di-join di handler)
+	// Tambahan dari user_classes (opsional)
 	UserClassesStatus string `json:"user_classes_status,omitempty"`
 
 	UserClassSectionsCreatedAt time.Time  `json:"user_class_sections_created_at"`
@@ -110,7 +108,6 @@ func NewUserClassSectionResponse(m *ucsModel.UserClassSectionsModel) *UserClassS
 		UserClassSectionsCreatedAt:    m.UserClassSectionsCreatedAt,
 		UserClassSectionsUpdatedAt:    m.UserClassSectionsUpdatedAt,
 	}
-	// DeletedAt opsional: isi jika valid
 	if m.UserClassSectionsDeletedAt.Valid {
 		t := m.UserClassSectionsDeletedAt.Time
 		resp.UserClassSectionsDeletedAt = &t
@@ -123,25 +120,26 @@ func (r *UserClassSectionResponse) WithUser(u *UcsUser, p *UcsUserProfile) *User
 	return r
 }
 
-/* ========== Tipe ringkas (rename dari UserLite/UserProfileLite) ========== */
+/* ========== Tipe ringkas untuk enrichment ========== */
 
 type UcsUser struct {
-	ID       uuid.UUID `json:"id"`
-	UserName string    `json:"user_name"`
-	Email    string    `json:"email"`
-	IsActive bool      `json:"is_active"`
+	ID       uuid.UUID  `json:"id"`
+	UserName string     `json:"user_name"`
+	FullName *string    `json:"full_name,omitempty"` // dari tabel users
+	Email    string     `json:"email"`
+	IsActive bool       `json:"is_active"`
 }
 
 type UcsUserProfile struct {
-	UserID       uuid.UUID  `json:"user_id"`
-	DonationName string     `json:"donation_name"`
-	FullName     string     `json:"full_name"`
-	FatherName   string     `json:"father_name"`
-	MotherName   string     `json:"mother_name"`
-	DateOfBirth  *time.Time `json:"date_of_birth,omitempty"`
-	Gender       *string    `json:"gender,omitempty"` // "male" | "female"
-	PhoneNumber  string     `json:"phone_number"`
-	Bio          string     `json:"bio"`
-	Location     string     `json:"location"`
-	Occupation   string     `json:"occupation"`
+	UserID                  uuid.UUID  `json:"user_id"`
+	DonationName            *string    `json:"donation_name,omitempty"`
+	PhotoURL                *string    `json:"photo_url,omitempty"`
+	PhotoTrashURL           *string    `json:"photo_trash_url,omitempty"`
+	PhotoDeletePendingUntil *time.Time `json:"photo_delete_pending_until,omitempty"`
+	DateOfBirth             *time.Time `json:"date_of_birth,omitempty"`
+	Gender                  *string    `json:"gender,omitempty"` // "male" | "female"
+	PhoneNumber             *string    `json:"phone_number,omitempty"`
+	Bio                     *string    `json:"bio,omitempty"`
+	Location                *string    `json:"location,omitempty"`
+	Occupation              *string    `json:"occupation,omitempty"`
 }

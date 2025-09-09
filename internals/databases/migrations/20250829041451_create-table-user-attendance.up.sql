@@ -77,9 +77,11 @@ CREATE TABLE IF NOT EXISTS user_attendance (
     CHECK (user_attendance_status IN ('present','absent','excused','late')),
 
   -- Relasi ke USER_TYPE (jenis kegiatan per siswa), nullable
+   -- Relasi ke USER_ATTENDANCE_TYPE (jenis kegiatan per siswa), nullable
   user_attendance_type_id UUID
-    REFERENCES user_type(user_type_id)
+    REFERENCES public.user_attendance_type(user_attendance_type_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
+
 
   -- Kolom 'user_quran' sederhana
   user_attendance_desc       TEXT,           -- deskripsi bacaan hari itu
@@ -136,6 +138,7 @@ CREATE INDEX IF NOT EXISTS gin_user_attendance_desc_trgm
   ON user_attendance USING GIN (user_attendance_desc gin_trgm_ops)
   WHERE user_attendance_deleted_at IS NULL;
 
+
 -- =========================================
 -- C) USER ATTENDANCE URLS (child, multi-lampiran)
 -- =========================================
@@ -152,9 +155,9 @@ CREATE TABLE IF NOT EXISTS user_attendance_urls (
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   -- Relasi ke USER_TYPE (MEDIA_KIND: AUDIO/IMAGE/VIDEO/FILE) - nullable
-  user_attendance_urls_type_id UUID
-    REFERENCES user_type(user_type_id)
-    ON UPDATE CASCADE ON DELETE SET NULL,
+  user_attendance_type_id UUID
+  REFERENCES public.user_attendance_type(user_attendance_type_id)
+  ON UPDATE CASCADE ON DELETE SET NULL,
 
   -- Metadata
   user_attendance_urls_label VARCHAR(120),
@@ -196,7 +199,7 @@ CREATE INDEX IF NOT EXISTS idx_uau_uploader_student
   WHERE user_attendance_urls_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_uau_type_id
-  ON user_attendance_urls(user_attendance_urls_type_id)
+  ON user_attendance_urls(user_attendance_type_id)
   WHERE user_attendance_urls_deleted_at IS NULL;
 
 -- Optimizations
