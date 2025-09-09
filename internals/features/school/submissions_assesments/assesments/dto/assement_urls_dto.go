@@ -2,7 +2,7 @@
 package dto
 
 import (
-	"masjidku_backend/internals/features/school/submissions_assesment/assesments/model"
+	"masjidku_backend/internals/features/school/submissions_assesments/assesments/model"
 	"time"
 
 	"github.com/google/uuid"
@@ -10,21 +10,21 @@ import (
 
 // ==== CREATE REQUEST ====
 // field wajib: AssessmentUrlsAssessmentID, AssessmentUrlsHref
+// dto/create.go
 type CreateAssessmentUrlsRequest struct {
-	AssessmentUrlsAssessmentID uuid.UUID `json:"assessment_urls_assessment_id" validate:"required"`
-	AssessmentUrlsLabel        *string   `json:"assessment_urls_label"`
-	AssessmentUrlsHref         string    `json:"assessment_urls_href" validate:"required,url"`
-
-	AssessmentUrlsTrashURL        *string    `json:"assessment_urls_trash_url"`
-	AssessmentUrlsDeletePendingAt *time.Time `json:"assessment_urls_delete_pending_until"`
-
-	AssessmentUrlsIsPublished bool       `json:"assessment_urls_is_published"`
-	AssessmentUrlsIsActive    bool       `json:"assessment_urls_is_active"`
-	AssessmentUrlsPublishedAt *time.Time `json:"assessment_urls_published_at"`
-	AssessmentUrlsExpiresAt   *time.Time `json:"assessment_urls_expires_at"`
-	AssessmentUrlsPublicSlug  *string    `json:"assessment_urls_public_slug"`
-	AssessmentUrlsPublicToken *string    `json:"assessment_urls_public_token"`
+    AssessmentUrlsAssessmentID uuid.UUID  `json:"assessment_urls_assessment_id" form:"assessment_urls_assessment_id" validate:"required"`
+    AssessmentUrlsLabel        string     `json:"assessment_urls_label"        form:"assessment_urls_label"        validate:"required"`
+    AssessmentUrlsHref         string     `json:"assessment_urls_href"         form:"assessment_urls_href"         validate:"omitempty,url"`
+    AssessmentUrlsTrashURL     *string    `json:"assessment_urls_trash_url"    form:"assessment_urls_trash_url"    validate:"omitempty,url"`
+    AssessmentUrlsDeletePendingAt *time.Time `json:"assessment_urls_delete_pending_at" form:"assessment_urls_delete_pending_at"`
+    AssessmentUrlsIsPublished  *bool      `json:"assessment_urls_is_published" form:"assessment_urls_is_published"`
+    AssessmentUrlsIsActive     *bool      `json:"assessment_urls_is_active"    form:"assessment_urls_is_active"`
+    AssessmentUrlsPublishedAt  *time.Time `json:"assessment_urls_published_at" form:"assessment_urls_published_at"`
+    AssessmentUrlsExpiresAt    *time.Time `json:"assessment_urls_expires_at"   form:"assessment_urls_expires_at"`
+    AssessmentUrlsPublicSlug   *string    `json:"assessment_urls_public_slug"  form:"assessment_urls_public_slug"`
+    AssessmentUrlsPublicToken  *string    `json:"assessment_urls_public_token" form:"assessment_urls_public_token"`
 }
+
 
 // ==== UPDATE REQUEST ====
 // patch-like, semua optional

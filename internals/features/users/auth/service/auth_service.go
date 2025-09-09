@@ -47,7 +47,6 @@ type TeacherRecord struct {
 	MasjidID uuid.UUID `json:"masjid_id"        gorm:"column:masjid_teacher_masjid_id"`
 }
 
-
 /* ==========================
    Meta schema cache (prewarm)
 ========================== */
@@ -180,20 +179,20 @@ func deriveMasjidIDsFromRolesClaim(rc helpersAuth.RolesClaim) []string {
 func Register(db *gorm.DB, c *fiber.Ctx) error {
 	var input userModel.UserModel
 	if err := c.BodyParser(&input); err != nil {
-		return helpers.Error(c, fiber.StatusBadRequest, "Invalid request body")
+		return helpers.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 
 	if err := authHelper.ValidateRegisterInput(input.UserName, input.Email, input.Password, input.SecurityAnswer); err != nil {
-		return helpers.Error(c, fiber.StatusBadRequest, err.Error())
+		return helpers.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 	if err := input.Validate(); err != nil {
-		return helpers.Error(c, fiber.StatusBadRequest, err.Error())
+		return helpers.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// Hash password
 	passwordHash, err := authHelper.HashPassword(input.Password)
 	if err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, "Password hashing failed")
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "Password hashing failed")
 	}
 	input.Password = passwordHash
 
@@ -201,9 +200,9 @@ func Register(db *gorm.DB, c *fiber.Ctx) error {
 	if err := authRepo.CreateUser(db, &input); err != nil {
 		low := strings.ToLower(err.Error())
 		if strings.Contains(low, "duplicate key") || strings.Contains(low, "unique") {
-			return helpers.Error(c, fiber.StatusBadRequest, "Email already registered")
+			return helpers.JsonError(c, fiber.StatusBadRequest, "Email already registered")
 		}
-		return helpers.Error(c, fiber.StatusInternalServerError, "Failed to create user")
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to create user")
 	}
 
 	// Best-effort init entitas turunan
@@ -219,7 +218,7 @@ func Register(db *gorm.DB, c *fiber.Ctx) error {
 		log.Printf("[register] grant default role 'user' failed: %v", err)
 	}
 
-	return helpers.SuccessWithCode(c, fiber.StatusCreated, "Registration successful", nil)
+	return helpers.JsonCreated(c, "Registration successful", nil)
 }
 
 /* ==========================
@@ -382,36 +381,36 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 		Password   string `json:"password"`
 	}
 	if err := c.BodyParser(&input); err != nil {
-		return helpers.Error(c, fiber.StatusBadRequest, "Invalid input format")
+		return helpers.JsonError(c, fiber.StatusBadRequest, "Invalid input format")
 	}
 	input.Identifier = strings.TrimSpace(input.Identifier)
 
 	if err := authHelper.ValidateLoginInput(input.Identifier, input.Password); err != nil {
-		return helpers.Error(c, fiber.StatusBadRequest, err.Error())
+		return helpers.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// Minimal user
 	userLight, err := authRepo.FindUserByEmailOrUsernameLight(db, input.Identifier)
 	if err != nil {
-		return helpers.Error(c, fiber.StatusUnauthorized, "Identifier atau Password salah")
+		return helpers.JsonError(c, fiber.StatusUnauthorized, "Identifier atau Password salah")
 	}
 	if !userLight.IsActive {
-		return helpers.Error(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan. Hubungi admin.")
+		return helpers.JsonError(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan. Hubungi admin.")
 	}
 	if err := authHelper.CheckPasswordHash(userLight.Password, input.Password); err != nil {
-		return helpers.Error(c, fiber.StatusUnauthorized, "Identifier atau Password salah")
+		return helpers.JsonError(c, fiber.StatusUnauthorized, "Identifier atau Password salah")
 	}
 
 	// Full user
 	userFull, err := authRepo.FindUserByID(db, userLight.ID)
 	if err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data user")
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data user")
 	}
 
 	// Roles (roles_global & masjid_roles)
 	rolesClaim, err := getUserRolesClaim(c.Context(), db, userFull.ID)
 	if err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil roles user")
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil roles user")
 	}
 
 	// Issue tokens — cukup berdasarkan rolesClaim
@@ -452,6 +451,7 @@ func fetchTeacherRecords(db *gorm.DB, userID uuid.UUID) []TeacherRecord {
 
 	return out
 }
+
 // ==========================
 // Helpers (roles / teacher)
 // ==========================
@@ -502,13 +502,14 @@ func buildRefreshClaims(userID uuid.UUID, now time.Time) jwt.MapClaims {
 		"exp": now.Add(refreshTTLDefault).Unix(),
 	}
 }
+
 // akses token claims builder — pakai *string
 func buildAccessClaims(
 	user userModel.UserModel,
 	rc helpersAuth.RolesClaim,
 	masjidIDs []string,
 	isOwner bool,
-	activeMasjidID *string,          // <-- UBAH: *string
+	activeMasjidID *string, // *string
 	teacherRecords []TeacherRecord,
 	now time.Time,
 ) jwt.MapClaims {
@@ -540,7 +541,7 @@ func buildLoginResponseUser(
 	rc helpersAuth.RolesClaim,
 	masjidIDs []string,
 	isOwner bool,
-	activeMasjidID *string,           // <-- UBAH: *string
+	activeMasjidID *string, // *string
 	teacherRecords []TeacherRecord,
 ) fiber.Map {
 	resp := fiber.Map{
@@ -575,24 +576,24 @@ func issueTokensWithRoles(
 	// secrets
 	jwtSecret, err := getJWTSecret()
 	if err != nil {
-		return err
+		return helpers.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	refreshSecret, err := getRefreshSecret()
 	if err != nil {
-		return err
+		return helpers.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	now := nowUTC()
 
 	if !meta.Ready {
-	PrewarmAuthMeta(db)
+		PrewarmAuthMeta(db)
 	}
 
 	// Derivatives dari claim
 	isOwner := rolesClaimHas(rolesClaim, "owner")
-	masjidIDs := deriveMasjidIDsFromRolesClaim(rolesClaim)                 // kompat opsional
-	activeMasjidID := helpersAuth.GetActiveMasjidIDIfSingle(rolesClaim)   // autopick aktif
-	teacherRecords := buildTeacherRecords(db, user.ID, rolesClaim)         // ambil + filter
+	masjidIDs := deriveMasjidIDsFromRolesClaim(rolesClaim)               // kompat opsional
+	activeMasjidID := helpersAuth.GetActiveMasjidIDIfSingle(rolesClaim) // autopick aktif
+	teacherRecords := buildTeacherRecords(db, user.ID, rolesClaim)       // ambil + filter
 
 	// Access & Refresh claims
 	accessClaims := buildAccessClaims(user, rolesClaim, masjidIDs, isOwner, activeMasjidID, teacherRecords, now)
@@ -601,11 +602,11 @@ func issueTokensWithRoles(
 	// Sign tokens
 	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString([]byte(jwtSecret))
 	if err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal membuat access token")
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat access token")
 	}
 	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).SignedString([]byte(refreshSecret))
 	if err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal membuat refresh token")
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat refresh token")
 	}
 
 	// Simpan refresh token (hashed)
@@ -618,7 +619,7 @@ func issueTokensWithRoles(
 		UserAgent: strptr(ua),
 		IP:        strptr(ip),
 	}); err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal menyimpan refresh token")
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan refresh token")
 	}
 
 	// Cookies
@@ -626,14 +627,9 @@ func issueTokensWithRoles(
 
 	// Response
 	respUser := buildLoginResponseUser(user, rolesClaim, masjidIDs, isOwner, activeMasjidID, teacherRecords)
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"code":    200,
-		"status":  "success",
-		"message": "Login berhasil",
-		"data": fiber.Map{
-			"user":         respUser,
-			"access_token": accessToken,
-		},
+	return helpers.JsonOK(c, "Login berhasil", fiber.Map{
+		"user":         respUser,
+		"access_token": accessToken,
 	})
 }
 
@@ -679,19 +675,19 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 		IDToken string `json:"id_token"`
 	}
 	if err := c.BodyParser(&input); err != nil {
-		return helpers.Error(c, fiber.StatusBadRequest, "Invalid request body")
+		return helpers.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 
 	// Verifikasi token Google
 	v := googleAuthIDTokenVerifier.Verifier{}
 	if err := v.VerifyIDToken(input.IDToken, []string{configs.GoogleClientID}); err != nil {
-		return helpers.Error(c, fiber.StatusUnauthorized, "Invalid Google ID Token")
+		return helpers.JsonError(c, fiber.StatusUnauthorized, "Invalid Google ID Token")
 	}
 
 	// Decode claim
 	claimSet, err := googleAuthIDTokenVerifier.Decode(input.IDToken)
 	if err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, "Failed to decode ID Token")
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to decode ID Token")
 	}
 	email, name, googleID := claimSet.Email, claimSet.Name, claimSet.Sub
 
@@ -713,9 +709,9 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 		if err := authRepo.CreateUser(db, &newUser); err != nil {
 			low := strings.ToLower(err.Error())
 			if strings.Contains(low, "duplicate key") || strings.Contains(low, "unique") {
-				return helpers.Error(c, fiber.StatusBadRequest, "Email already registered")
+				return helpers.JsonError(c, fiber.StatusBadRequest, "Email already registered")
 			}
-			return helpers.Error(c, fiber.StatusInternalServerError, "Failed to create Google user")
+			return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to create Google user")
 		}
 
 		if meta.Ready && quickHasTable(db, "user_progress") {
@@ -731,16 +727,16 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 	// Full user + guard aktif
 	userFull, err := authRepo.FindUserByID(db, user.ID)
 	if err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data user")
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data user")
 	}
 	if !userFull.IsActive {
-		return helpers.Error(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan. Hubungi admin.")
+		return helpers.JsonError(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan. Hubungi admin.")
 	}
 
 	// Roles (roles_global & masjid_roles)
 	rolesClaim, err := getUserRolesClaim(c.Context(), db, userFull.ID)
 	if err != nil {
-		return helpers.Error(c, fiber.StatusInternalServerError, "Gagal mengambil roles user")
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil roles user")
 	}
 
 	// Issue tokens — cukup berdasarkan rolesClaim
@@ -759,7 +755,7 @@ func Logout(db *gorm.DB, c *fiber.Ctx) error {
 
 	if usesCookieAuth {
 		if err := helpers.CheckCSRFCookieHeader(c); err != nil {
-			return err
+			return helpers.JsonError(c, fiber.StatusForbidden, err.Error())
 		}
 	}
 
@@ -798,7 +794,7 @@ func Logout(db *gorm.DB, c *fiber.Ctx) error {
 		})
 	}
 
-	return helpers.Success(c, "Logout successful", nil)
+	return helpers.JsonOK(c, "Logout successful", nil)
 }
 
 func resolveBlacklistTTL(accessToken string) time.Duration {
@@ -843,22 +839,22 @@ func CheckSecurityAnswer(db *gorm.DB, c *fiber.Ctx) error {
 		Answer string `json:"security_answer"`
 	}
 	if err := c.BodyParser(&input); err != nil {
-		return helpers.Error(c, fiber.StatusBadRequest, "Invalid request format")
+		return helpers.JsonError(c, fiber.StatusBadRequest, "Invalid request format")
 	}
 	if err := authHelper.ValidateSecurityAnswerInput(input.Email, input.Answer); err != nil {
-		return helpers.Error(c, fiber.StatusBadRequest, err.Error())
+		return helpers.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	user, err := authRepo.FindUserByEmail(db, input.Email)
 	if err != nil {
-		return helpers.Error(c, fiber.StatusNotFound, "User not found")
+		return helpers.JsonError(c, fiber.StatusNotFound, "User not found")
 	}
 
 	if !strings.EqualFold(strings.TrimSpace(input.Answer), strings.TrimSpace(user.SecurityAnswer)) {
-		return helpers.Error(c, fiber.StatusBadRequest, "Incorrect security answer")
+		return helpers.JsonError(c, fiber.StatusBadRequest, "Incorrect security answer")
 	}
 
-	return helpers.Success(c, "Security answer correct", fiber.Map{
+	return helpers.JsonOK(c, "Security answer correct", fiber.Map{
 		"email": user.Email,
 	})
 }

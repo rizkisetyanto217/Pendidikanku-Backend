@@ -13,10 +13,9 @@ import (
 
 	annDTO "masjidku_backend/internals/features/school/announcements/announcement/dto"
 	annModel "masjidku_backend/internals/features/school/announcements/announcement/model"
-	annThemeModel "masjidku_backend/internals/features/school/announcements/announcement_thema/model" // import model tema agar tidak bentrok dengan model announcementModel
+	annThemeModel "masjidku_backend/internals/features/school/announcements/announcement_thema/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
-	// annURLModel "masjidku_backend/internals/features/school/announcements/announcement_urls/model"
 )
 
 type AnnouncementController struct{ DB *gorm.DB }
@@ -25,41 +24,36 @@ func NewAnnouncementController(db *gorm.DB) *AnnouncementController { return &An
 
 var validateAnnouncement = validator.New()
 
-
 // ===================== GET BY ID =====================
 // GET /admin/announcements/:id
 func (h *AnnouncementController) GetByID(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
-		return err
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 	annID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	m, err := h.findWithTenantGuard(annID, masjidID)
 	if err != nil {
+		// findWithTenantGuard sudah kembalikan JsonError-style; tetap propagate apa adanya
 		return err
 	}
-	return helper.Success(c, "OK", annDTO.NewAnnouncementResponse(m))
+	return helper.JsonOK(c, "OK", annDTO.NewAnnouncementResponse(m))
 }
 
-
-
-
-// ===================== LIST =====================
-// GET /admin/announcements
 // ===================== LIST =====================
 // GET /admin/announcements
 func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	// 1) scope masjid
 	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
 	if err != nil {
-		return err
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 	if len(masjidIDs) == 0 {
-		return fiber.NewError(fiber.StatusForbidden, "Tidak ada akses masjid")
+		return helper.JsonError(c, fiber.StatusForbidden, "Tidak ada akses masjid")
 	}
 
 	// 2) pagination via helper.ParseFiber
@@ -68,7 +62,7 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	// 3) parse query
 	var q annDTO.ListAnnouncementQuery
 	if err := c.QueryParser(&q); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 
 	// 4) base query
@@ -94,7 +88,7 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	sectionIDsCSV := strings.TrimSpace(c.Query("section_ids"))
 	sectionIDs, parseErr := parseUUIDsCSV(sectionIDsCSV)
 	if parseErr != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "section_ids berisi UUID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "section_ids berisi UUID tidak valid")
 	}
 
 	switch {
@@ -137,14 +131,14 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	if q.DateFrom != nil && strings.TrimSpace(*q.DateFrom) != "" {
 		t, err := parseDate(*q.DateFrom)
 		if err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)")
+			return helper.JsonError(c, fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)")
 		}
 		tx = tx.Where("announcement_date >= ?", t)
 	}
 	if q.DateTo != nil && strings.TrimSpace(*q.DateTo) != "" {
 		t, err := parseDate(*q.DateTo)
 		if err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)")
+			return helper.JsonError(c, fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)")
 		}
 		tx = tx.Where("announcement_date <= ?", t)
 	}
@@ -152,7 +146,7 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	// 5) total
 	var total int64
 	if err := tx.Session(&gorm.Session{}).Count(&total).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
 	}
 
 	// 6) sorting
@@ -179,7 +173,7 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		Limit(p.Limit()).
 		Offset(p.Offset()).
 		Find(&rows).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
 	// 8) batch-load Theme
@@ -188,7 +182,9 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	for i := range rows {
 		if rows[i].AnnouncementThemeID != nil {
 			id := *rows[i].AnnouncementThemeID
-			if id == uuid.Nil { continue }
+			if id == uuid.Nil {
+				continue
+			}
 			if _, ok := seenTheme[id]; !ok {
 				seenTheme[id] = struct{}{}
 				themeIDs = append(themeIDs, id)
@@ -202,7 +198,7 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 			Where("announcement_themes_deleted_at IS NULL").
 			Where("announcement_themes_id IN ?", themeIDs).
 			Find(&themes).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memuat tema")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memuat tema")
 		}
 		tmap := make(map[uuid.UUID]*annThemeModel.AnnouncementThemeModel, len(themes))
 		for i := range themes {
@@ -230,7 +226,7 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 			Where("announcement_url_deleted_at IS NULL").
 			Where("announcement_url_announcement_id IN ?", annIDs).
 			Find(&urlRows).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memuat URL")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memuat URL")
 		}
 		for i := range urlRows {
 			u := urlRows[i]
@@ -260,10 +256,8 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	return helper.JsonList(c, items, helper.BuildMeta(total, p))
 }
 
-
 // ===================== Utils =====================
 
-// aman: kembalikan []uuid.UUID, skip kosong
 func parseUUIDsCSV(s string) ([]uuid.UUID, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -273,7 +267,7 @@ func parseUUIDsCSV(s string) ([]uuid.UUID, error) {
 	out := make([]uuid.UUID, 0, len(parts))
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
-		if p == "" { // SKIP item kosong
+		if p == "" {
 			continue
 		}
 		id, err := uuid.Parse(p)
@@ -285,20 +279,15 @@ func parseUUIDsCSV(s string) ([]uuid.UUID, error) {
 	return out, nil
 }
 
-
-// internals/features/lembaga/announcements/announcement/controller/announcement_controller.go
-
+// ===================== CREATE =====================
 // POST /admin/announcements
-// POST /admin/announcements
-// internals/features/lembaga/announcements/announcement/controller/announcement_controller.go
-
 func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
-		return err
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
-	// role detection (tetap versi kamu biar minimal diff)
+	// role detection
 	isAdmin := func() bool {
 		if id, err := helperAuth.GetMasjidIDFromToken(c); err == nil && id == masjidID {
 			return true
@@ -312,7 +301,7 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 		return false
 	}()
 	if !isAdmin && !isTeacher {
-		return fiber.NewError(fiber.StatusForbidden, "Tidak diizinkan")
+		return helper.JsonError(c, fiber.StatusForbidden, "Tidak diizinkan")
 	}
 
 	// Request DTO
@@ -341,23 +330,21 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 		}
 	} else {
 		if err := c.BodyParser(&req); err != nil {
-			return helper.Error(c, fiber.StatusBadRequest, "Payload tidak valid")
+			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 		}
 	}
 
 	// Validasi DTO
 	if err := validateAnnouncement.Struct(req); err != nil {
-		return helper.ValidationError(c, err)
+		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
 	}
 
-	// Aturan role (Admin menang prioritas)
+	// Aturan role (Admin prioritas)
 	if isAdmin {
-		// Admin/DKM → pengumuman global (tanpa section)
-		req.AnnouncementClassSectionID = nil
+		req.AnnouncementClassSectionID = nil // global
 	} else if isTeacher {
-		// Teacher wajib pilih section yang milik masjid
 		if req.AnnouncementClassSectionID == nil || *req.AnnouncementClassSectionID == uuid.Nil {
-			return helper.Error(c, fiber.StatusBadRequest, "Teacher wajib memilih section")
+			return helper.JsonError(c, fiber.StatusBadRequest, "Teacher wajib memilih section")
 		}
 		if err := h.ensureSectionBelongsToMasjid(*req.AnnouncementClassSectionID, masjidID); err != nil {
 			return err
@@ -371,29 +358,24 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// Bangun model dari DTO (tanpa set teacher_id di sini)
+	// Bangun model dari DTO
 	m := req.ToModel(masjidID)
 
 	// Set who created:
-	// 1) kalau teacher → isi FK ke masjid_teachers
 	if isTeacher {
 		mtID, err := helperAuth.GetMasjidTeacherIDForMasjid(c, masjidID)
 		if err != nil {
-			return helper.Error(c, fiber.StatusForbidden, "Akun Anda tidak terdaftar sebagai guru di masjid ini")
+			return helper.JsonError(c, fiber.StatusForbidden, "Akun Anda tidak terdaftar sebagai guru di masjid ini")
 		}
 		m.AnnouncementCreatedByTeacherID = &mtID
 	} else {
-		// Admin/DKM → harus NULL agar lolos FK
 		m.AnnouncementCreatedByTeacherID = nil
 	}
 
-	// 2) (opsional) kalau model punya kolom created_by_user_id, isi userID
-	// m.AnnouncementCreatedByUserID = &userID
-
 	if err := h.DB.Create(m).Error; err != nil {
-		return helper.Error(c, fiber.StatusInternalServerError, "Gagal membuat pengumuman")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat pengumuman")
 	}
-	return helper.Success(c, "Pengumuman berhasil dibuat", annDTO.NewAnnouncementResponse(m))
+	return helper.JsonCreated(c, "Pengumuman berhasil dibuat", annDTO.NewAnnouncementResponse(m))
 }
 
 // Pastikan section milik masjid ini
@@ -404,10 +386,10 @@ func (h *AnnouncementController) ensureSectionBelongsToMasjid(sectionID, masjidI
 		Joins("JOIN classes ON classes.class_id = class_sections.class_sections_class_id").
 		Where("class_sections.class_sections_id = ? AND classes.class_masjid_id = ?", sectionID, masjidID).
 		Count(&cnt).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi section")
+		return helper.JsonError(nil, fiber.StatusInternalServerError, "Gagal validasi section")
 	}
 	if cnt == 0 {
-		return fiber.NewError(fiber.StatusBadRequest, "Section bukan milik masjid Anda")
+		return helper.JsonError(nil, fiber.StatusBadRequest, "Section bukan milik masjid Anda")
 	}
 	return nil
 }
@@ -420,82 +402,97 @@ func (h *AnnouncementController) ensureThemeBelongsToMasjid(themeID, masjidID uu
 		Where("announcement_themes_id = ? AND announcement_themes_masjid_id = ? AND announcement_themes_deleted_at IS NULL",
 			themeID, masjidID).
 		Count(&cnt).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi tema")
+		return helper.JsonError(nil, fiber.StatusInternalServerError, "Gagal validasi tema")
 	}
 	if cnt == 0 {
-		return fiber.NewError(fiber.StatusBadRequest, "Tema tidak ditemukan atau bukan milik masjid Anda")
+		return helper.JsonError(nil, fiber.StatusBadRequest, "Tema tidak ditemukan atau bukan milik masjid Anda")
 	}
 	return nil
 }
-
 
 // --- tenant guard fetch
 func (h *AnnouncementController) findWithTenantGuard(id, masjidID uuid.UUID) (*annModel.AnnouncementModel, error) {
 	var m annModel.AnnouncementModel
 	if err := h.DB.Where("announcement_id = ? AND announcement_masjid_id = ?", id, masjidID).First(&m).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fiber.NewError(fiber.StatusNotFound, "Pengumuman tidak ditemukan")
+			return nil, helper.JsonError(nil, fiber.StatusNotFound, "Pengumuman tidak ditemukan")
 		}
-		return nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil pengumuman")
+		return nil, helper.JsonError(nil, fiber.StatusInternalServerError, "Gagal mengambil pengumuman")
 	}
 	return &m, nil
 }
 
-
-
-// ===================== UPDATE =====================
-// PUT /admin/announcements/:id
 // ===================== UPDATE =====================
 // PUT /admin/announcements/:id
 func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil { return err }
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+	}
 	userID, err := helperAuth.GetUserIDFromToken(c)
-	if err != nil { return err }
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+	}
 
 	annID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil { return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid") }
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+	}
 
 	// role detection
 	isAdmin := func() bool {
-		if id, err := helperAuth.GetMasjidIDFromToken(c); err == nil && id == masjidID { return true }
+		if id, err := helperAuth.GetMasjidIDFromToken(c); err == nil && id == masjidID {
+			return true
+		}
 		return false
 	}()
 	isTeacher := func() bool {
-		if id, err := helperAuth.GetTeacherMasjidIDFromToken(c); err == nil && id == masjidID { return true }
+		if id, err := helperAuth.GetTeacherMasjidIDFromToken(c); err == nil && id == masjidID {
+			return true
+		}
 		return false
 	}()
 	if !isAdmin && !isTeacher {
-		return fiber.NewError(fiber.StatusForbidden, "Tidak diizinkan")
+		return helper.JsonError(c, fiber.StatusForbidden, "Tidak diizinkan")
 	}
 
 	// fetch existing (tenant-safe)
 	existing, err := h.findWithTenantGuard(annID, masjidID)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	var req annDTO.UpdateAnnouncementRequest
 	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
 
 	// parse payload (multipart / json)
 	if strings.HasPrefix(ct, "multipart/form-data") {
-		// Parsing form fields
-		if v := strings.TrimSpace(c.FormValue("announcement_title")); v != "" { req.AnnouncementTitle = &v }
-		if v := strings.TrimSpace(c.FormValue("announcement_date")); v != "" { req.AnnouncementDate = &v }
-		if v := strings.TrimSpace(c.FormValue("announcement_content")); v != "" { req.AnnouncementContent = &v }
+		if v := strings.TrimSpace(c.FormValue("announcement_title")); v != "" {
+			req.AnnouncementTitle = &v
+		}
+		if v := strings.TrimSpace(c.FormValue("announcement_date")); v != "" {
+			req.AnnouncementDate = &v
+		}
+		if v := strings.TrimSpace(c.FormValue("announcement_content")); v != "" {
+			req.AnnouncementContent = &v
+		}
 		if v := strings.TrimSpace(c.FormValue("announcement_is_active")); v != "" {
 			b := strings.EqualFold(v, "true") || v == "1"
 			req.AnnouncementIsActive = &b
 		}
 		if v := strings.TrimSpace(c.FormValue("announcement_theme_id")); v != "" {
-			if id, e := uuid.Parse(v); e == nil { req.AnnouncementThemeID = &id }
+			if id, e := uuid.Parse(v); e == nil {
+				req.AnnouncementThemeID = &id
+			}
 		}
 		if v := strings.TrimSpace(c.FormValue("announcement_class_section_id")); v != "" {
-			if id, e := uuid.Parse(v); e == nil { req.AnnouncementClassSectionID = &id }
+			if id, e := uuid.Parse(v); e == nil {
+				req.AnnouncementClassSectionID = &id
+			}
 		}
 	} else {
-		// JSON Parsing
 		if err := c.BodyParser(&req); err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
+			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 		}
 	}
 
@@ -509,16 +506,14 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 
 	// Validasi DTO
 	if err := validateAnnouncement.Struct(req); err != nil {
-		return helper.ValidationError(c, err)
+		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
 	}
 
 	// Aturan per-role
 	if isAdmin && !isTeacher {
-		// Admin: paksa GLOBAL
-		req.AnnouncementClassSectionID = nil
+		req.AnnouncementClassSectionID = nil // Admin → GLOBAL
 	}
 	if isTeacher && req.AnnouncementClassSectionID != nil {
-		// Teacher set section → pastikan milik masjid
 		if err := h.ensureSectionBelongsToMasjid(*req.AnnouncementClassSectionID, masjidID); err != nil {
 			return err
 		}
@@ -541,7 +536,7 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 			if parsed, e := time.Parse("2006-01-02", dt); e == nil {
 				updates["announcement_date"] = parsed
 			} else {
-				return fiber.NewError(fiber.StatusBadRequest, "announcement_date tidak valid (YYYY-MM-DD)")
+				return helper.JsonError(c, fiber.StatusBadRequest, "announcement_date tidak valid (YYYY-MM-DD)")
 			}
 		}
 	}
@@ -552,25 +547,19 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 		updates["announcement_is_active"] = *req.AnnouncementIsActive
 	}
 	if req.AnnouncementThemeID != nil {
-		// nil -> set NULL
-		updates["announcement_theme_id"] = req.AnnouncementThemeID
+		updates["announcement_theme_id"] = req.AnnouncementThemeID // nil → set NULL
 	}
 	if req.AnnouncementClassSectionID != nil {
-		// nil -> set NULL
-		updates["announcement_class_section_id"] = req.AnnouncementClassSectionID
+		updates["announcement_class_section_id"] = req.AnnouncementClassSectionID // nil → set NULL
 	}
 
-	// Kalau tidak ada perubahan, kembalikan apa adanya
+	// Tidak ada perubahan
 	if len(updates) == 0 {
 		return helper.JsonUpdated(c, "Tidak ada perubahan", annDTO.NewAnnouncementResponse(existing))
 	}
 
 	// Enforce rule setelah perubahan diaplikasikan:
-	// - Jika teacher dan hasil akhirnya global → tolak.
-	// Enforce rule setelah perubahan diaplikasikan:
-	// - Jika teacher dan hasil akhirnya global → tolak.
 	if isTeacher && !isAdmin {
-		// Prediksi hasil final (pakai updates atau existing)
 		finalSection := existing.AnnouncementClassSectionID
 		if v, ok := updates["announcement_class_section_id"]; ok {
 			if v == nil {
@@ -580,20 +569,19 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 			}
 		}
 		if finalSection == nil {
-			return fiber.NewError(fiber.StatusBadRequest, "Teacher wajib memilih section (tidak boleh global)")
+			return helper.JsonError(c, fiber.StatusBadRequest, "Teacher wajib memilih section (tidak boleh global)")
 		}
 		// Hanya pembuat yang boleh update
 		if existing.AnnouncementCreatedByTeacherID != nil && *existing.AnnouncementCreatedByTeacherID != userID {
-			return fiber.NewError(fiber.StatusForbidden, "Hanya pembuat yang boleh mengubah pengumuman ini")
+			return helper.JsonError(c, fiber.StatusForbidden, "Hanya pembuat yang boleh mengubah pengumuman ini")
 		}
 	}
 
-
-	// Jalankan update (trigger DB akan menyentuh updated_at)
+	// Jalankan update
 	if err := h.DB.Model(&annModel.AnnouncementModel{}).
 		Where("announcement_id = ? AND announcement_masjid_id = ?", existing.AnnouncementID, masjidID).
 		Updates(updates).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui pengumuman")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui pengumuman")
 	}
 
 	// Reload agar updated_at terbaru ikut
@@ -608,22 +596,20 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Pengumuman diperbarui", annDTO.NewAnnouncementResponse(existing))
 }
 
-
 // ===================== DELETE =====================
-// DELETE /admin/announcements/:id (soft delete)
-// DELETE /admin/announcements/:id
+// DELETE /admin/announcements/:id (soft/hard via ?force=true)
 func (h *AnnouncementController) Delete(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
-		return err
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
-		return err
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 	annID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	// role detection
@@ -640,7 +626,7 @@ func (h *AnnouncementController) Delete(c *fiber.Ctx) error {
 		return false
 	}()
 	if !isAdmin && !isTeacher {
-		return fiber.NewError(fiber.StatusForbidden, "Tidak diizinkan")
+		return helper.JsonError(c, fiber.StatusForbidden, "Tidak diizinkan")
 	}
 
 	existing, err := h.findWithTenantGuard(annID, masjidID)
@@ -648,16 +634,13 @@ func (h *AnnouncementController) Delete(c *fiber.Ctx) error {
 		return err
 	}
 
-	// Rule delete:
-	// - Admin: boleh hapus apapun di masjidnya.
-	// - Teacher: TIDAK boleh hapus global (section NULL) dan hanya boleh hapus yang dia buat.
+	// Rule delete
 	if isTeacher && !isAdmin {
 		if existing.AnnouncementClassSectionID == nil {
-			return fiber.NewError(fiber.StatusForbidden, "Teacher tidak boleh menghapus pengumuman global")
+			return helper.JsonError(c, fiber.StatusForbidden, "Teacher tidak boleh menghapus pengumuman global")
 		}
-		// Periksa jika AnnouncementCreatedByTeacherID bukan nil dan membandingkannya dengan userID
 		if existing.AnnouncementCreatedByTeacherID != nil && *existing.AnnouncementCreatedByTeacherID != userID {
-			return fiber.NewError(fiber.StatusForbidden, "Hanya pembuat yang boleh menghapus pengumuman ini")
+			return helper.JsonError(c, fiber.StatusForbidden, "Hanya pembuat yang boleh menghapus pengumuman ini")
 		}
 	}
 
@@ -672,7 +655,7 @@ func (h *AnnouncementController) Delete(c *fiber.Ctx) error {
 	if err := db.
 		Where("announcement_id = ? AND announcement_masjid_id = ?", existing.AnnouncementID, masjidID).
 		Delete(&annModel.AnnouncementModel{}).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus pengumuman")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus pengumuman")
 	}
 
 	msg := "Pengumuman dihapus"
@@ -683,4 +666,3 @@ func (h *AnnouncementController) Delete(c *fiber.Ctx) error {
 		"announcement_id": existing.AnnouncementID,
 	})
 }
-

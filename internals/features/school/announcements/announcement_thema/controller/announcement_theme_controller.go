@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
@@ -28,15 +29,14 @@ var validateAnnouncementTheme = validator.New()
 
 /* ================= Helpers ================= */
 
+// Hanya mengembalikan error Go biasa; mapping status → JSON dilakukan di handler.
 func (h *AnnouncementThemeController) findThemeWithTenantGuard(id, masjidID uuid.UUID) (*annModel.AnnouncementThemeModel, error) {
 	var m annModel.AnnouncementThemeModel
-	if err := h.DB.
+	err := h.DB.
 		Where("announcement_themes_id = ? AND announcement_themes_masjid_id = ?", id, masjidID).
-		First(&m).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, fiber.NewError(fiber.StatusNotFound, "Tema tidak ditemukan")
-		}
-		return nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil tema")
+		First(&m).Error
+	if err != nil {
+		return nil, err
 	}
 	return &m, nil
 }
@@ -55,12 +55,12 @@ func isUniqueErr(err error) bool {
 func (h *AnnouncementThemeController) Create(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
-		return err
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
 	var req annDTO.CreateAnnouncementThemeRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
 	// --- Generate/normalize slug sebelum validasi ---
@@ -76,45 +76,47 @@ func (h *AnnouncementThemeController) Create(c *fiber.Ctx) error {
 	// ------------------------------------------------
 
 	if err := validateAnnouncementTheme.Struct(req); err != nil {
-		return helper.ValidationError(c, err)
+		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
 	}
 
 	m := req.ToModel(masjidID)
 
 	if err := h.DB.Create(m).Error; err != nil {
 		if isUniqueErr(err) {
-			return helper.Error(c, fiber.StatusConflict, "Nama atau slug tema sudah dipakai")
+			return helper.JsonError(c, fiber.StatusConflict, "Nama atau slug tema sudah dipakai")
 		}
-		return helper.Error(c, fiber.StatusInternalServerError, "Gagal membuat tema")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat tema")
 	}
 
-	return helper.Success(c, "Tema berhasil dibuat", annDTO.NewAnnouncementThemeResponse(m))
+	return helper.JsonCreated(c, "Tema berhasil dibuat", annDTO.NewAnnouncementThemeResponse(m))
 }
 
 // GET /admin/announcement-themes/:id
 func (h *AnnouncementThemeController) GetByID(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
-		return err
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
-	id, err := uuid.Parse(c.Params("id"))
+	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	m, err := h.findThemeWithTenantGuard(id, masjidID)
 	if err != nil {
-		return err
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "Tema tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil tema")
 	}
 	return helper.JsonOK(c, "OK", annDTO.NewAnnouncementThemeResponse(m))
 }
-
 
 // GET /admin/announcement-themes
 func (h *AnnouncementThemeController) List(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
-		return err
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
 	var q annDTO.ListAnnouncementThemeQuery
@@ -126,7 +128,7 @@ func (h *AnnouncementThemeController) List(c *fiber.Ctx) error {
 
 	tx := h.DB.Model(&annModel.AnnouncementThemeModel{}).
 		Where("announcement_themes_masjid_id = ?", masjidID).
-		Where("announcement_themes_deleted_at IS NULL") // <-- hapus baris ini jika tidak pakai soft delete
+		Where("announcement_themes_deleted_at IS NULL") // hapus jika tidak pakai soft delete
 
 	// ===== Filters
 	if q.Name != nil && strings.TrimSpace(*q.Name) != "" {
@@ -186,24 +188,18 @@ func (h *AnnouncementThemeController) List(c *fiber.Ctx) error {
 	}
 
 	// ===== Return konsisten dengan JsonList
-	// Opsi 1 (pakai struct Pagination kalau sudah ada di annDTO):
 	return helper.JsonList(c, resp, annDTO.Pagination{
 		Limit:  q.Limit,
 		Offset: q.Offset,
 		Total:  int(total),
 	})
-
-	// Opsi 2 (kalau belum punya annDTO.Pagination, ganti dengan):
-	// return helper.JsonList(c, resp, fiber.Map{"limit": q.Limit, "offset": q.Offset, "total": int(total)})
 }
-
-
 
 // GET /admin/announcement-themes/search?q=tema&limit=10&active_only=true
 func (h *AnnouncementThemeController) SearchByName(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
-		return err
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
 	// ambil query "q" (fallback ke "name")
@@ -240,12 +236,7 @@ func (h *AnnouncementThemeController) SearchByName(c *fiber.Ctx) error {
 	}
 
 	like := "%" + q + "%"
-	// kalau ingin fuzzy pakai trigram (opsional):
-	// tx = tx.Where("announcement_themes_name ILIKE ?", like).
-	//     Order(gorm.Expr("similarity(announcement_themes_name, ?) DESC, announcement_themes_name ASC", q)).
-	//     Limit(limit)
 
-	// versi simpel: ILIKE + order by name
 	tx = tx.Where("announcement_themes_name ILIKE ?", like).
 		Order("announcement_themes_name ASC").
 		Limit(limit)
@@ -263,25 +254,27 @@ func (h *AnnouncementThemeController) SearchByName(c *fiber.Ctx) error {
 }
 
 // PUT /admin/announcement-themes/:id
-// PUT /admin/announcement-themes/:id
 func (h *AnnouncementThemeController) Update(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
-		return err
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
-	id, err := uuid.Parse(c.Params("id"))
+	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	existing, err := h.findThemeWithTenantGuard(id, masjidID)
 	if err != nil {
-		return err
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "Tema tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil tema")
 	}
 
 	var req annDTO.UpdateAnnouncementThemeRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
 	// --- Normalize slug jika dikirim ---
@@ -289,38 +282,37 @@ func (h *AnnouncementThemeController) Update(c *fiber.Ctx) error {
 		s := strings.TrimSpace(*req.AnnouncementThemesSlug)
 		s = helper.GenerateSlug(s)
 		if s == "" {
-			return helper.Error(c, fiber.StatusBadRequest, "Slug tidak valid")
+			return helper.JsonError(c, fiber.StatusBadRequest, "Slug tidak valid")
 		}
 		req.AnnouncementThemesSlug = &s
 	}
 	// -----------------------------------
 
 	if err := validateAnnouncementTheme.Struct(req); err != nil {
-		return helper.ValidationError(c, err)
+		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
 	}
 
 	req.ApplyToModel(existing)
 
 	if err := h.DB.Save(existing).Error; err != nil {
 		if isUniqueErr(err) {
-			return helper.Error(c, fiber.StatusConflict, "Nama atau slug tema sudah dipakai")
+			return helper.JsonError(c, fiber.StatusConflict, "Nama atau slug tema sudah dipakai")
 		}
-		return helper.Error(c, fiber.StatusInternalServerError, "Gagal memperbarui tema")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui tema")
 	}
 
 	return helper.JsonUpdated(c, "Tema diperbarui", annDTO.NewAnnouncementThemeResponse(existing))
 }
 
-
 // DELETE /admin/announcement-themes/:id  (soft delete)
 func (h *AnnouncementThemeController) Delete(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
-		return err
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
-	id, err := uuid.Parse(c.Params("id"))
+	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	res := h.DB.
@@ -328,10 +320,10 @@ func (h *AnnouncementThemeController) Delete(c *fiber.Ctx) error {
 		Delete(&annModel.AnnouncementThemeModel{})
 
 	if res.Error != nil {
-		return helper.Error(c, fiber.StatusInternalServerError, "Gagal menghapus tema")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus tema")
 	}
 	if res.RowsAffected == 0 {
-		return helper.Error(c, fiber.StatusNotFound, "Tema tidak ditemukan")
+		return helper.JsonError(c, fiber.StatusNotFound, "Tema tidak ditemukan")
 	}
 
 	return helper.JsonDeleted(c, "Tema dihapus", fiber.Map{

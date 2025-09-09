@@ -18,9 +18,7 @@ type AdminUserController struct {
 	DB *gorm.DB
 }
 
-func NewAdminUserController(db *gorm.DB) *AdminUserController {
-	return &AdminUserController{DB: db}
-}
+func NewAdminUserController(db *gorm.DB) *AdminUserController { return &AdminUserController{DB: db} }
 
 func parseBool(q string) bool {
 	switch strings.ToLower(strings.TrimSpace(q)) {
@@ -46,7 +44,7 @@ func (ac *AdminUserController) GetUsers(c *fiber.Ctx) error {
 	}
 	if err := tx.Find(&users).Error; err != nil {
 		log.Println("[ERROR] Failed to fetch users:", err)
-		return helper.Error(c, fiber.StatusInternalServerError, "Failed to retrieve users")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve users")
 	}
 
 	if withDeleted {
@@ -56,14 +54,14 @@ func (ac *AdminUserController) GetUsers(c *fiber.Ctx) error {
 				resp = append(resp, *r)
 			}
 		}
-		return helper.Success(c, "Users fetched successfully", fiber.Map{
+		return helper.JsonOK(c, "Users fetched successfully", fiber.Map{
 			"total": len(resp),
 			"users": resp,
 		})
 	}
 
 	resp := userdto.FromModelList(users)
-	return helper.Success(c, "Users fetched successfully", fiber.Map{
+	return helper.JsonOK(c, "Users fetched successfully", fiber.Map{
 		"total": len(resp),
 		"users": resp,
 	})
@@ -74,7 +72,7 @@ func (ac *AdminUserController) GetUsers(c *fiber.Ctx) error {
 func (ac *AdminUserController) SearchUsers(c *fiber.Ctx) error {
 	query := strings.TrimSpace(c.Query("q"))
 	if query == "" {
-		return helper.Error(c, fiber.StatusBadRequest, "Query tidak boleh kosong")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak boleh kosong")
 	}
 	withDeleted := parseBool(c.Query("with_deleted"))
 
@@ -88,7 +86,7 @@ func (ac *AdminUserController) SearchUsers(c *fiber.Ctx) error {
 	}
 	if err := tx.Find(&users).Error; err != nil {
 		log.Println("[ERROR] SearchUsers gagal:", err)
-		return helper.Error(c, fiber.StatusInternalServerError, "Gagal mencari pengguna")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mencari pengguna")
 	}
 
 	if withDeleted {
@@ -98,14 +96,14 @@ func (ac *AdminUserController) SearchUsers(c *fiber.Ctx) error {
 				resp = append(resp, *r)
 			}
 		}
-		return helper.Success(c, "Hasil pencarian user", fiber.Map{
+		return helper.JsonOK(c, "Hasil pencarian user", fiber.Map{
 			"total": len(resp),
 			"users": resp,
 		})
 	}
 
 	resp := userdto.FromModelList(users)
-	return helper.Success(c, "Hasil pencarian user", fiber.Map{
+	return helper.JsonOK(c, "Hasil pencarian user", fiber.Map{
 		"total": len(resp),
 		"users": resp,
 	})
@@ -117,7 +115,7 @@ func (ac *AdminUserController) GetUserByID(c *fiber.Ctx) error {
 	id := c.Params("id")
 	uid, err := uuid.Parse(id)
 	if err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Invalid UUID format")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid UUID format")
 	}
 	withDeleted := parseBool(c.Query("with_deleted"))
 
@@ -127,13 +125,13 @@ func (ac *AdminUserController) GetUserByID(c *fiber.Ctx) error {
 		tx = tx.Unscoped()
 	}
 	if err := tx.First(&user, "id = ?", uid).Error; err != nil {
-		return helper.Error(c, fiber.StatusNotFound, "User not found")
+		return helper.JsonError(c, fiber.StatusNotFound, "User not found")
 	}
 
 	if withDeleted {
-		return helper.Success(c, "User fetched successfully", userdto.FromModelWithDeletedAt(&user))
+		return helper.JsonOK(c, "User fetched successfully", userdto.FromModelWithDeletedAt(&user))
 	}
-	return helper.Success(c, "User fetched successfully", userdto.FromModel(&user))
+	return helper.JsonOK(c, "User fetched successfully", userdto.FromModel(&user))
 }
 
 // ==============================
@@ -151,51 +149,46 @@ func (ac *AdminUserController) CreateUser(c *fiber.Ctx) error {
 		for i := range manyReq {
 			manyReq[i].Normalize()
 			if err := v.Struct(&manyReq[i]); err != nil {
-				return helper.ErrorWithDetails(c, fiber.StatusBadRequest, "Validation error", err.Error())
+				return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
 			}
 			m := manyReq[i].ToModel()
 
-			// TODO: hash password
-			// hashed, _ := helper.HashPassword(m.Password)
-			// m.Password = hashed
+			// TODO: hash password di sini kalau diperlukan
 
-			// double guard (opsional)
 			if err := m.Validate(); err != nil {
-				return helper.ErrorWithDetails(c, fiber.StatusBadRequest, "Validation error", err.Error())
+				return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
 			}
 			users = append(users, *m)
 		}
 		if err := ac.DB.Create(&users).Error; err != nil {
 			log.Println("[ERROR] Failed to create multiple users:", err)
-			return helper.Error(c, fiber.StatusInternalServerError, "Failed to create multiple users")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to create multiple users")
 		}
-		return helper.SuccessWithCode(c, fiber.StatusCreated, "Users created successfully", userdto.FromModelList(users))
+		return helper.JsonCreated(c, "Users created successfully", userdto.FromModelList(users))
 	}
 
 	// fallback: single DTO
 	var oneReq userdto.CreateUserRequest
 	if err := c.BodyParser(&oneReq); err != nil {
 		log.Println("[ERROR] Invalid input format:", err)
-		return helper.Error(c, fiber.StatusBadRequest, "Invalid input format")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid input format")
 	}
 	oneReq.Normalize()
 	if err := v.Struct(&oneReq); err != nil {
-		return helper.ErrorWithDetails(c, fiber.StatusBadRequest, "Validation error", err.Error())
+		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
 	}
 	u := oneReq.ToModel()
 
-	// TODO: hash password
-	// hashed, _ := helper.HashPassword(u.Password)
-	// u.Password = hashed
+	// TODO: hash password di sini kalau diperlukan
 
 	if err := u.Validate(); err != nil {
-		return helper.ErrorWithDetails(c, fiber.StatusBadRequest, "Validation error", err.Error())
+		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
 	}
 	if err := ac.DB.Create(u).Error; err != nil {
 		log.Println("[ERROR] Failed to create user:", err)
-		return helper.Error(c, fiber.StatusInternalServerError, "Failed to create user")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to create user")
 	}
-	return helper.SuccessWithCode(c, fiber.StatusCreated, "User created successfully", userdto.FromModel(u))
+	return helper.JsonCreated(c, "User created successfully", userdto.FromModel(u))
 }
 
 // ==============================
@@ -206,17 +199,17 @@ func (ac *AdminUserController) CreateUser(c *fiber.Ctx) error {
 func (ac *AdminUserController) DeleteUser(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := uuid.Parse(id); err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Invalid UUID format")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid UUID format")
 	}
 	tx := ac.DB.Delete(&model.UserModel{}, "id = ?", id)
 	if tx.Error != nil {
 		log.Println("[ERROR] Failed to delete user:", tx.Error)
-		return helper.Error(c, fiber.StatusInternalServerError, "Failed to delete user")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to delete user")
 	}
 	if tx.RowsAffected == 0 {
-		return helper.Error(c, fiber.StatusNotFound, "User not found")
+		return helper.JsonError(c, fiber.StatusNotFound, "User not found")
 	}
-	return helper.Success(c, "User deleted successfully", fiber.Map{"id": id})
+	return helper.JsonDeleted(c, "User deleted successfully", fiber.Map{"id": id})
 }
 
 // GET /api/a/users/deleted
@@ -227,7 +220,7 @@ func (ac *AdminUserController) GetDeletedUsers(c *fiber.Ctx) error {
 		Order("deleted_at DESC").
 		Find(&users).Error; err != nil {
 		log.Println("[ERROR] Failed to fetch deleted users:", err)
-		return helper.Error(c, fiber.StatusInternalServerError, "Failed to retrieve deleted users")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve deleted users")
 	}
 	resp := make([]userdto.UserResponseWithDeletedAt, 0, len(users))
 	for i := range users {
@@ -235,7 +228,7 @@ func (ac *AdminUserController) GetDeletedUsers(c *fiber.Ctx) error {
 			resp = append(resp, *r)
 		}
 	}
-	return helper.Success(c, "Deleted users fetched successfully", fiber.Map{
+	return helper.JsonOK(c, "Deleted users fetched successfully", fiber.Map{
 		"total": len(resp),
 		"users": resp,
 	})
@@ -245,31 +238,31 @@ func (ac *AdminUserController) GetDeletedUsers(c *fiber.Ctx) error {
 func (ac *AdminUserController) RestoreUser(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := uuid.Parse(id); err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Invalid UUID format")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid UUID format")
 	}
 	if err := ac.DB.Unscoped().
 		Model(&model.UserModel{}).
 		Where("id = ?", id).
 		Update("deleted_at", nil).Error; err != nil {
 		log.Println("[ERROR] Failed to restore user:", err)
-		return helper.Error(c, fiber.StatusInternalServerError, "Failed to restore user")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to restore user")
 	}
-	return helper.Success(c, "User restored successfully", fiber.Map{"id": id})
+	return helper.JsonUpdated(c, "User restored successfully", fiber.Map{"id": id})
 }
 
 // DELETE /api/a/users/:id/force
 func (ac *AdminUserController) ForceDeleteUser(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if _, err := uuid.Parse(id); err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Invalid UUID format")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid UUID format")
 	}
 	tx := ac.DB.Unscoped().Delete(&model.UserModel{}, "id = ?", id)
 	if tx.Error != nil {
 		log.Println("[ERROR] Failed to force delete user:", tx.Error)
-		return helper.Error(c, fiber.StatusInternalServerError, "Failed to force delete user")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to force delete user")
 	}
 	if tx.RowsAffected == 0 {
-		return helper.Error(c, fiber.StatusNotFound, "User not found")
+		return helper.JsonError(c, fiber.StatusNotFound, "User not found")
 	}
-	return helper.Success(c, "User permanently deleted", fiber.Map{"id": id})
+	return helper.JsonDeleted(c, "User permanently deleted", fiber.Map{"id": id})
 }

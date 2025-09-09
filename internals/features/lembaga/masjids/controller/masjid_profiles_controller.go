@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"math"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -39,7 +38,6 @@ func NewMasjidProfileController(db *gorm.DB, v *validator.Validate) *MasjidProfi
    Helpers
    ======================================================= */
 
-
 func isUniqueViolation(err error) bool {
 	// Postgres unique_violation code = 23505
 	return err != nil && strings.Contains(err.Error(), "duplicate key value violates unique constraint")
@@ -50,27 +48,27 @@ func isUniqueViolation(err error) bool {
    ======================================================= */
 
 // Create (Admin-only). Satu masjid cuma boleh punya 1 profile.
+// POST /
 func (ctl *MasjidProfileController) Create(c *fiber.Ctx) error {
 	if !helperAuth.IsAdmin(c) {
-		return helper.Error(c, http.StatusForbidden, "Akses ditolak: admin saja")
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak: admin saja")
 	}
 
 	var req d.MasjidProfileCreateRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.Error(c, http.StatusBadRequest, "Payload tidak valid: "+err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid: "+err.Error())
 	}
 	if ctl.Validate != nil {
 		if err := ctl.Validate.Struct(&req); err != nil {
-			return helper.ValidationError(c, err)
+			// Gantikan ValidationError → 422 Unprocessable
+			return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
 		}
 	}
 
 	// (Opsional) Override masjid_id dari token kalau ingin strict tenant
-	// (Opsional) Override masjid_id dari token kalau ingin strict tenant
 	if tokenMasjidID, err := helperAuth.GetMasjidIDFromToken(c); err == nil && tokenMasjidID != uuid.Nil {
 		req.MasjidProfileMasjidID = tokenMasjidID.String()
 	}
-
 
 	model := d.ToModelMasjidProfileCreate(&req)
 
@@ -79,55 +77,55 @@ func (ctl *MasjidProfileController) Create(c *fiber.Ctx) error {
 	if err := ctl.DB.Model(&m.MasjidProfileModel{}).
 		Where("masjid_profile_masjid_id = ?", model.MasjidProfileMasjidID).
 		Count(&count).Error; err != nil {
-		return helper.Error(c, http.StatusInternalServerError, "DB error: "+err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error: "+err.Error())
 	}
 	if count > 0 {
-		return helper.Error(c, http.StatusConflict, "Profil untuk masjid ini sudah ada")
+		return helper.JsonError(c, fiber.StatusConflict, "Profil untuk masjid ini sudah ada")
 	}
 
 	if err := ctl.DB.Create(model).Error; err != nil {
 		if isUniqueViolation(err) {
-			return helper.Error(c, http.StatusConflict, "Duplikasi NPSN/NSS/masjid_id")
+			return helper.JsonError(c, fiber.StatusConflict, "Duplikasi NPSN/NSS/masjid_id")
 		}
-		return helper.Error(c, http.StatusInternalServerError, "Gagal membuat profil: "+err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat profil: "+err.Error())
 	}
 
 	resp := d.FromModelMasjidProfile(model)
-	return helper.SuccessWithCode(c, http.StatusCreated, "Profil masjid berhasil dibuat", resp)
+	return helper.JsonCreated(c, "Profil masjid berhasil dibuat", resp)
 }
 
 // GET /:id
 func (ctl *MasjidProfileController) GetByID(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return helper.Error(c, http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	var p m.MasjidProfileModel
 	if err := ctl.DB.First(&p, "masjid_profile_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.Error(c, http.StatusNotFound, "Profil tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Profil tidak ditemukan")
 		}
-		return helper.Error(c, http.StatusInternalServerError, "DB error: "+err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error: "+err.Error())
 	}
-	return helper.Success(c, "OK", d.FromModelMasjidProfile(&p))
+	return helper.JsonOK(c, "OK", d.FromModelMasjidProfile(&p))
 }
 
 // GET /by-masjid/:masjid_id
 func (ctl *MasjidProfileController) GetByMasjidID(c *fiber.Ctx) error {
 	masjidID, err := parseUUIDParam(c, "masjid_id")
 	if err != nil {
-		return helper.Error(c, http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	var p m.MasjidProfileModel
 	if err := ctl.DB.First(&p, "masjid_profile_masjid_id = ?", masjidID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.Error(c, http.StatusNotFound, "Profil untuk masjid ini belum ada")
+			return helper.JsonError(c, fiber.StatusNotFound, "Profil untuk masjid ini belum ada")
 		}
-		return helper.Error(c, http.StatusInternalServerError, "DB error: "+err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error: "+err.Error())
 	}
-	return helper.Success(c, "OK", d.FromModelMasjidProfile(&p))
+	return helper.JsonOK(c, "OK", d.FromModelMasjidProfile(&p))
 }
 
 // GET / (list + filter + pagination)
@@ -154,7 +152,6 @@ func (ctl *MasjidProfileController) List(c *fiber.Ctx) error {
 	}
 
 	// Filters
-
 	if acc := strings.TrimSpace(c.Query("accreditation")); acc != "" {
 		dbq = dbq.Where("masjid_profile_school_accreditation = ?", acc)
 	}
@@ -180,7 +177,7 @@ func (ctl *MasjidProfileController) List(c *fiber.Ctx) error {
 	// Count
 	var total int64
 	if err := dbq.Count(&total).Error; err != nil {
-		return helper.Error(c, http.StatusInternalServerError, "DB error: "+err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error: "+err.Error())
 	}
 
 	// Data
@@ -189,7 +186,7 @@ func (ctl *MasjidProfileController) List(c *fiber.Ctx) error {
 		Order("masjid_profile_created_at DESC").
 		Offset(offset).Limit(limit).
 		Find(&rows).Error; err != nil {
-		return helper.Error(c, http.StatusInternalServerError, "DB error: "+err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error: "+err.Error())
 	}
 
 	items := make([]d.MasjidProfileResponse, 0, len(rows))
@@ -197,8 +194,8 @@ func (ctl *MasjidProfileController) List(c *fiber.Ctx) error {
 		items = append(items, d.FromModelMasjidProfile(&rows[i]))
 	}
 
-	return helper.Success(c, "OK", fiber.Map{
-		"items":      items,
+	// Pakai JsonList: data & pagination dipisah
+	return helper.JsonList(c, items, fiber.Map{
 		"page":       page,
 		"limit":      limit,
 		"total":      total,
@@ -213,15 +210,15 @@ func (ctl *MasjidProfileController) Nearest(c *fiber.Ctx) error {
 	limitStr := strings.TrimSpace(c.Query("limit", "10"))
 
 	if latStr == "" || lonStr == "" {
-		return helper.Error(c, http.StatusBadRequest, "lat & lon wajib")
+		return helper.JsonError(c, fiber.StatusBadRequest, "lat & lon wajib")
 	}
 	lat, err := strconv.ParseFloat(latStr, 64)
 	if err != nil {
-		return helper.Error(c, http.StatusBadRequest, "lat tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "lat tidak valid")
 	}
 	lon, err := strconv.ParseFloat(lonStr, 64)
 	if err != nil {
-		return helper.Error(c, http.StatusBadRequest, "lon tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "lon tidak valid")
 	}
 	limit, _ := strconv.Atoi(limitStr)
 	if limit < 1 || limit > 200 {
@@ -250,7 +247,7 @@ func (ctl *MasjidProfileController) Nearest(c *fiber.Ctx) error {
 	LIMIT ?;
 	`
 	if err := ctl.DB.Raw(sql, lat, lon, limit).Scan(&rows).Error; err != nil {
-		return helper.Error(c, http.StatusInternalServerError, "DB error: "+err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error: "+err.Error())
 	}
 
 	type item struct {
@@ -264,32 +261,32 @@ func (ctl *MasjidProfileController) Nearest(c *fiber.Ctx) error {
 		out = append(out, item{MasjidProfileResponse: resp, Distance: rows[i].Distance})
 	}
 
-	return helper.Success(c, "OK", fiber.Map{"items": out})
+	return helper.JsonOK(c, "OK", fiber.Map{"items": out})
 }
 
 // PATCH /:id
 func (ctl *MasjidProfileController) Update(c *fiber.Ctx) error {
 	if !helperAuth.IsOwner(c) && !helperAuth.IsAdmin(c) {
 		// ganti sesuai kebijakan aksesmu; minimal admin
-		return helper.Error(c, http.StatusForbidden, "Akses ditolak")
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return helper.Error(c, http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	var req d.MasjidProfileUpdateRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.Error(c, http.StatusBadRequest, "Payload tidak valid: "+err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid: "+err.Error())
 	}
 
 	var p m.MasjidProfileModel
 	if err := ctl.DB.First(&p, "masjid_profile_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.Error(c, http.StatusNotFound, "Profil tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Profil tidak ditemukan")
 		}
-		return helper.Error(c, http.StatusInternalServerError, "DB error: "+err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error: "+err.Error())
 	}
 
 	// Terapkan patch ke struct in-memory
@@ -307,9 +304,9 @@ func (ctl *MasjidProfileController) Update(c *fiber.Ctx) error {
 		Updates(&p).Error; err != nil {
 
 		if isUniqueViolation(err) {
-			return helper.Error(c, http.StatusConflict, "Duplikasi NPSN/NSS")
+			return helper.JsonError(c, fiber.StatusConflict, "Duplikasi NPSN/NSS")
 		}
-		return helper.Error(c, http.StatusInternalServerError, "Gagal update: "+err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update: "+err.Error())
 	}
 
 	// Reload to get updated_at
@@ -317,18 +314,19 @@ func (ctl *MasjidProfileController) Update(c *fiber.Ctx) error {
 		log.Println("[WARN] reload after update:", err)
 	}
 
-	return helper.Success(c, "Profil masjid berhasil diperbarui", d.FromModelMasjidProfile(&p))
+	return helper.JsonUpdated(c, "Profil masjid berhasil diperbarui", d.FromModelMasjidProfile(&p))
 }
 
 // DELETE (soft)
+// DELETE /:id
 func (ctl *MasjidProfileController) Delete(c *fiber.Ctx) error {
 	if !helperAuth.IsAdmin(c) {
-		return helper.Error(c, http.StatusForbidden, "Akses ditolak: admin saja")
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak: admin saja")
 	}
 
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return helper.Error(c, http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// Soft delete pakai timestamp ke kolom deleted_at
@@ -337,10 +335,10 @@ func (ctl *MasjidProfileController) Delete(c *fiber.Ctx) error {
 		Where("masjid_profile_id = ?", id).
 		Update("masjid_profile_deleted_at", time.Now()).
 		Error; err != nil {
-		return helper.Error(c, http.StatusInternalServerError, "Gagal menghapus: "+err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus: "+err.Error())
 	}
 
-	return helper.Success(c, "Profil masjid dihapus (soft delete)", fiber.Map{"deleted": true})
+	return helper.JsonDeleted(c, "Profil masjid dihapus (soft delete)", fiber.Map{"deleted": true})
 }
 
 /* =======================================================

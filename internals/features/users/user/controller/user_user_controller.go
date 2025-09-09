@@ -11,6 +11,9 @@ import (
 	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
+// ==============================
+// Controller
+// ==============================
 
 type UserSelfController struct {
 	DB *gorm.DB
@@ -18,6 +21,17 @@ type UserSelfController struct {
 
 func NewUserSelfController(db *gorm.DB) *UserSelfController {
 	return &UserSelfController{DB: db}
+}
+
+// translate fiber.Error → JsonError
+func toJSONErr(c *fiber.Ctx, err error) error {
+	if err == nil {
+		return nil
+	}
+	if fe, ok := err.(*fiber.Error); ok {
+		return helper.JsonError(c, fe.Code, fe.Message)
+	}
+	return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 }
 
 // ==============================
@@ -28,15 +42,15 @@ func NewUserSelfController(db *gorm.DB) *UserSelfController {
 func (uc *UserSelfController) GetMe(c *fiber.Ctx) error {
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
-		return err // sudah fiber.NewError dgn kode yang sesuai
+		return toJSONErr(c, err)
 	}
 
 	var user model.UserModel
 	// Unscoped supaya profil tetap bisa dilihat walau soft-deleted
 	if err := uc.DB.Unscoped().First(&user, "id = ?", userID).Error; err != nil {
-		return helper.Error(c, fiber.StatusNotFound, "User not found")
+		return helper.JsonError(c, fiber.StatusNotFound, "User not found")
 	}
-	return helper.Success(c, "User profile fetched successfully", userdto.FromModelWithDeletedAt(&user))
+	return helper.JsonOK(c, "User profile fetched successfully", userdto.FromModelWithDeletedAt(&user))
 }
 
 // ==============================
@@ -47,36 +61,36 @@ func (uc *UserSelfController) GetMe(c *fiber.Ctx) error {
 func (uc *UserSelfController) UpdateMe(c *fiber.Ctx) error {
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
-		return err
+		return toJSONErr(c, err)
 	}
 
 	var user model.UserModel
 	// pakai Unscoped untuk cek status deleted_at
 	if err := uc.DB.Unscoped().First(&user, "id = ?", userID).Error; err != nil {
-		return helper.Error(c, fiber.StatusNotFound, "User not found")
+		return helper.JsonError(c, fiber.StatusNotFound, "User not found")
 	}
 	if user.DeletedAt.Valid {
-		return helper.Error(c, fiber.StatusForbidden, "Akun Anda dalam status terhapus. Pulihkan akun terlebih dahulu sebelum mengubah profil.")
+		return helper.JsonError(c, fiber.StatusForbidden, "Akun Anda dalam status terhapus. Pulihkan akun terlebih dahulu sebelum mengubah profil.")
 	}
 
 	var input userdto.UpdateUserRequest
 	if err := c.BodyParser(&input); err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Invalid request body")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 	input.Normalize()
 
 	v := validator.New()
 	if err := v.Struct(&input); err != nil {
-		return helper.ErrorWithDetails(c, fiber.StatusBadRequest, "Validation error", err.Error())
+		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
 	}
 
 	input.ApplyToModel(&user)
 
 	if err := uc.DB.Save(&user).Error; err != nil {
-		return helper.Error(c, fiber.StatusInternalServerError, "Failed to update user")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to update user")
 	}
 
-	return helper.Success(c, "User updated successfully", userdto.FromModel(&user))
+	return helper.JsonUpdated(c, "User updated successfully", userdto.FromModel(&user))
 }
 
 // ==============================
@@ -87,33 +101,33 @@ func (uc *UserSelfController) UpdateMe(c *fiber.Ctx) error {
 func (uc *UserSelfController) DeleteMe(c *fiber.Ctx) error {
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
-		return err
+		return toJSONErr(c, err)
 	}
 
 	tx := uc.DB.Delete(&model.UserModel{}, "id = ?", userID)
 	if tx.Error != nil {
-		return helper.Error(c, fiber.StatusInternalServerError, "Failed to delete account")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to delete account")
 	}
 	if tx.RowsAffected == 0 {
-		return helper.Error(c, fiber.StatusNotFound, "User not found")
+		return helper.JsonError(c, fiber.StatusNotFound, "User not found")
 	}
 
-	return helper.Success(c, "Account deleted successfully", fiber.Map{"id": userID.String()})
+	return helper.JsonDeleted(c, "Account deleted successfully", fiber.Map{"id": userID.String()})
 }
 
 // POST /api/u/users/me/restore — pulihkan akun sendiri
 func (uc *UserSelfController) RestoreMe(c *fiber.Ctx) error {
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
-		return err
+		return toJSONErr(c, err)
 	}
 
 	if err := uc.DB.Unscoped().
 		Model(&model.UserModel{}).
 		Where("id = ?", userID).
 		Update("deleted_at", nil).Error; err != nil {
-		return helper.Error(c, fiber.StatusInternalServerError, "Failed to restore account")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to restore account")
 	}
 
-	return helper.Success(c, "Account restored successfully", fiber.Map{"id": userID.String()})
+	return helper.JsonUpdated(c, "Account restored successfully", fiber.Map{"id": userID.String()})
 }

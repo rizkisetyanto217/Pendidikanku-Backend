@@ -31,6 +31,18 @@ func NewMasjidTeacherController(db *gorm.DB) *MasjidTeacherController {
 	}
 }
 
+// translate error → JsonError
+func toJSONErr(c *fiber.Ctx, err error) error {
+	if err == nil {
+		return nil
+	}
+	var fe *fiber.Error
+	if errors.As(err, &fe) {
+		return helper.JsonError(c, fe.Code, fe.Message)
+	}
+	return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+}
+
 /* ============================================
    POST /api/a/masjid-teachers
    Body: { "masjid_teacher_user_id": "<uuid>" }
@@ -39,16 +51,16 @@ func NewMasjidTeacherController(db *gorm.DB) *MasjidTeacherController {
 func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 	var body dto.CreateMasjidTeacherRequest
 	if err := c.BodyParser(&body); err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Invalid request")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request")
 	}
 	if err := validator.New(validator.WithRequiredStructEnabled()).Struct(body); err != nil {
-		return helper.ValidationError(c, err)
+		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
 	}
 
 	// 🔐 scope & actor
 	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
-		return helper.FromFiberError(c, err)
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 	actorUUID := uuid.Nil
 	if u, err := helperAuth.GetUserIDFromToken(c); err == nil {
@@ -58,7 +70,7 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 	// parse user_id
 	userUUID, err := uuid.Parse(body.MasjidTeacherUserID)
 	if err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "masjid_teacher_user_id tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "masjid_teacher_user_id tidak valid")
 	}
 
 	var created model.MasjidTeacherModel
@@ -122,7 +134,7 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 
 		return nil
 	}); err != nil {
-		return helper.FromFiberError(c, err)
+		return toJSONErr(c, err)
 	}
 
 	resp := dto.MasjidTeacherResponse{
@@ -132,15 +144,9 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 		MasjidTeacherCreatedAt: created.MasjidTeacherCreatedAt,
 		MasjidTeacherUpdatedAt: created.MasjidTeacherUpdatedAt,
 	}
-	return helper.Success(c, "Pengajar berhasil ditambahkan & role 'teacher' diberikan", resp)
+	return helper.JsonCreated(c, "Pengajar berhasil ditambahkan & role 'teacher' diberikan", resp)
 }
 
-
-
-/* ============================================
-   GET /api/a/masjid-teachers/by-masjid
-   (masjid diambil dari token prefer TEACHER)
-   ============================================ */
 /* ============================================
    GET /api/a/masjid-teachers/by-masjid
    (masjid diambil dari token prefer TEACHER)
@@ -149,7 +155,7 @@ func (ctrl *MasjidTeacherController) ListTeachers(c *fiber.Ctx) error {
 	// 👥 Prefer TEACHER -> UNION masjid_ids -> ADMIN
 	masjidUUID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
-		return helper.FromFiberError(c, err)
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
 	type MasjidTeacherWithName struct {
@@ -157,7 +163,7 @@ func (ctrl *MasjidTeacherController) ListTeachers(c *fiber.Ctx) error {
 		MasjidTeacherMasjidID  string    `json:"masjid_teacher_masjid_id"`
 		MasjidTeacherUserID    string    `json:"masjid_teacher_user_id"`
 		UserName               string    `json:"user_name"`
-		FullName               string    `json:"full_name"` // <— ditambahkan
+		FullName               string    `json:"full_name"`
 		MasjidTeacherCreatedAt time.Time `json:"masjid_teacher_created_at"`
 		MasjidTeacherUpdatedAt time.Time `json:"masjid_teacher_updated_at"`
 	}
@@ -172,7 +178,7 @@ func (ctrl *MasjidTeacherController) ListTeachers(c *fiber.Ctx) error {
 			masjid_teachers.masjid_teacher_masjid_id  AS masjid_teacher_masjid_id,
 			masjid_teachers.masjid_teacher_user_id    AS masjid_teacher_user_id,
 			users.user_name                            AS user_name,
-			COALESCE(users.full_name, '')              AS full_name,       -- <— ini dia
+			COALESCE(users.full_name, '')              AS full_name,
 			masjid_teachers.masjid_teacher_created_at  AS masjid_teacher_created_at,
 			masjid_teachers.masjid_teacher_updated_at  AS masjid_teacher_updated_at
 		`).
@@ -180,10 +186,10 @@ func (ctrl *MasjidTeacherController) ListTeachers(c *fiber.Ctx) error {
 		Order("masjid_teachers.masjid_teacher_created_at DESC").
 		Scan(&result).Error; err != nil {
 		log.Println("[ERROR] Gagal join masjid_teachers ke users:", err)
-		return helper.Error(c, fiber.StatusInternalServerError, "Gagal mengambil data pengajar")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data pengajar")
 	}
 
-	return helper.Success(c, "Daftar pengajar ditemukan", fiber.Map{
+	return helper.JsonOK(c, "Daftar pengajar ditemukan", fiber.Map{
 		"total":    len(result),
 		"teachers": result,
 	})
@@ -196,13 +202,13 @@ func (ctrl *MasjidTeacherController) ListTeachers(c *fiber.Ctx) error {
 func (ctrl *MasjidTeacherController) Delete(c *fiber.Ctx) error {
 	id := c.Params("id")
 	if id == "" {
-		return helper.Error(c, fiber.StatusBadRequest, "ID tidak boleh kosong")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak boleh kosong")
 	}
 
 	// 🔐 Admin-only
 	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
-		return helper.FromFiberError(c, err)
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
 	var rows int64
@@ -238,7 +244,7 @@ func (ctrl *MasjidTeacherController) Delete(c *fiber.Ctx) error {
 		}
 		return nil
 	}); err != nil {
-		return helper.FromFiberError(c, err)
+		return toJSONErr(c, err)
 	}
 
 	return helper.JsonDeleted(c, "Pengajar berhasil dihapus", fiber.Map{

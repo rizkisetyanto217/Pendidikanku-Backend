@@ -46,6 +46,7 @@ func MasjidUserRoutes(r fiber.Router, db *gorm.DB) {
 	LectureExamsRoutes.LectureExamsUserRoutes(r, db)
 	LectureSessionsQuestionRoutes.LectureSessionsQuestionUserRoutes(r, db)
 	CertificateRoutes.CertificateUserRoutes(r, db)
+
 	
 	// LectureRoutes.UserLectureRoutes(r, db)
 }
