@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	submissionsModel "masjidku_backend/internals/features/school/submissions_assesment/submissions/model"
+	submissionsModel "masjidku_backend/internals/features/school/submissions_assesments/submissions/model"
 
 	"github.com/google/uuid"
 )

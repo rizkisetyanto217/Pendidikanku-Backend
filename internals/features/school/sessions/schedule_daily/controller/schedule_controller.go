@@ -309,7 +309,7 @@ func (ctl *ClassScheduleController) GetByID(c *fiber.Ctx) error {
    ========================= */
 func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 	// 🔐 Admin/DKM/Teacher
-	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
 
@@ -353,7 +353,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 
 func (ctl *ClassScheduleController) Update(c *fiber.Ctx) error {
 	// 🔐 Admin/DKM/Teacher
-	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
 
@@ -401,7 +401,7 @@ func (ctl *ClassScheduleController) Update(c *fiber.Ctx) error {
 
 func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 	// 🔐 Admin/DKM/Teacher
-	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
 
@@ -450,7 +450,7 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 
 func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 	// 🔐 Admin/DKM/Teacher
-	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
 

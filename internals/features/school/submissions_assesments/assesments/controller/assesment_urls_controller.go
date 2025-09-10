@@ -101,7 +101,7 @@ func toNullString(s string) sql.NullString {
 func (ctl *AssessmentUrlsController) Create(c *fiber.Ctx) error {
 	ctl.ensureValidator()
 
-	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 
@@ -192,7 +192,7 @@ func (ctl *AssessmentUrlsController) Update(c *fiber.Ctx) error {
 	ctl.ensureValidator()
 
 	// 🔐 Gate: Admin/DKM/Teacher
-	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 
@@ -452,7 +452,7 @@ func (ctl *AssessmentUrlsController) List(c *fiber.Ctx) error {
 // DELETE /assessment-urls/:id  (soft-delete bila model pakai gorm.DeletedAt)
 func (ctl *AssessmentUrlsController) Delete(c *fiber.Ctx) error {
 	// 🔐 Gate: Admin/DKM/Teacher
-	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 

@@ -55,7 +55,7 @@ type ScheduleOccurrenceResponse struct {
 
 func (ctl *ClassScheduleController) ListOccurrences(c *fiber.Ctx) error {
 	// 🔐 akses
-	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
 
@@ -147,7 +147,7 @@ func (ctl *ClassScheduleController) ListOccurrences(c *fiber.Ctx) error {
 // POST /api/a/class-schedules/ensure-cas?date=YYYY-MM-DD
 func (ctl *ClassScheduleController) EnsureCASForDate(c *fiber.Ctx) error {
 	// 🔐 hanya Admin/DKM/Teacher
-	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
@@ -238,7 +238,7 @@ func (ctl *ClassScheduleController) EnsureCASForDate(c *fiber.Ctx) error {
 // POST /api/a/class-schedules/ensure-cas-range?from=YYYY-MM-DD&to=YYYY-MM-DD
 func (ctl *ClassScheduleController) EnsureCASForRange(c *fiber.Ctx) error {
 	// 🔐 hanya Admin/DKM/Teacher
-	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)

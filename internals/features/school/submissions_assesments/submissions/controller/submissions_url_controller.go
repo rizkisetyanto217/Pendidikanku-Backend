@@ -17,11 +17,11 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "masjidku_backend/internals/features/school/submissions_assesment/submissions/dto"
-	model "masjidku_backend/internals/features/school/submissions_assesment/submissions/model"
+	dto "masjidku_backend/internals/features/school/submissions_assesments/submissions/dto"
+	model "masjidku_backend/internals/features/school/submissions_assesments/submissions/model"
 	helper "masjidku_backend/internals/helpers"
-	helperOSS "masjidku_backend/internals/helpers/oss"
 	helperAuth "masjidku_backend/internals/helpers/auth"
+	helperOSS "masjidku_backend/internals/helpers/oss"
 )
 
 /* =======================================================
@@ -37,6 +37,12 @@ func NewSubmissionUrlsController(db *gorm.DB) *SubmissionUrlsController {
 	return &SubmissionUrlsController{
 		DB:        db,
 		Validator: validator.New(),
+	}
+}
+
+func (ctl *SubmissionUrlsController) ensureValidator() {
+	if ctl.Validator == nil {
+		ctl.Validator = validator.New(validator.WithRequiredStructEnabled())
 	}
 }
 
@@ -57,51 +63,83 @@ func isUniqueViolation(err error) bool {
 	return strings.Contains(s, "23505") || strings.Contains(s, "duplicate key") || strings.Contains(s, "unique constraint")
 }
 
+// formatValidationErr merangkum error validator menjadi pesan ringkas.
+func formatValidationErr(err error) string {
+	if errs, ok := err.(validator.ValidationErrors); ok {
+		var b strings.Builder
+		for i, e := range errs {
+			if i > 0 {
+				b.WriteString("; ")
+			}
+			b.WriteString(strings.ToLower(e.Field()))
+			b.WriteString(": ")
+			b.WriteString(e.Tag())
+			if p := e.Param(); p != "" {
+				b.WriteString("=")
+				b.WriteString(p)
+			}
+		}
+		return "Validasi gagal: " + b.String()
+	}
+	return "Validasi gagal: " + err.Error()
+}
+
 // --- Scope helpers (tanpa asumsi struct submission model) ---
-// Kita anggap tabel utama bernama `submissions` dengan kolom:
-//   submissions_id (UUID PK), submissions_masjid_id (UUID nullable), submissions_user_id (UUID nullable)
-func assertSubmissionScope(db *gorm.DB, submissionID uuid.UUID, userID uuid.UUID, masjidIDs []uuid.UUID) (bool, error) {
+// Tabel `submissions` diasumsikan memiliki kolom:
+//   submissions_id (UUID PK), submissions_masjid_id (UUID), submissions_student_id (UUID)
+// TABEL: submissions(submissions_id, submissions_masjid_id, submissions_student_id)
+// assertSubmissionScope: cek bahwa submission dimiliki student tsb ATAU berada pada salah satu masjid scope
+// assertSubmissionScope: cek bahwa submission dimiliki salah satu student scope
+// ATAU berada pada salah satu masjid scope. Hindari ANY(?::uuid[]), pakai IN ?.
+func assertSubmissionScope(db *gorm.DB, submissionID uuid.UUID, studentIDs []uuid.UUID, masjidIDs []uuid.UUID) (bool, error) {
 	if submissionID == uuid.Nil {
 		return false, fiber.NewError(fiber.StatusBadRequest, "submission_id wajib")
 	}
-	// Build query: submission dimiliki user ATAU berada di salah satu masjid scope user
+
 	q := db.
 		Table("submissions").
 		Select("1").
-		Where("submissions_id = ?", submissionID).
-		Where(db.
-			Where("submissions_user_id = ?::uuid", userID).
-			Or("submissions_masjid_id = ANY(?::uuid[])", uuidSliceToAnyArray(masjidIDs)),
-		).
-		Limit(1)
+		Where("submissions_id = ?", submissionID)
+
+	// Bangun OR conditions dinamis
+	ors := make([]string, 0, 2)
+	args := make([]any, 0, 2)
+
+	if len(studentIDs) > 0 {
+		// GORM otomatis ekspansi slice untuk IN (…)
+		ors = append(ors, "submissions_student_id IN ?")
+		args = append(args, studentIDs)
+	}
+	if len(masjidIDs) > 0 {
+		ors = append(ors, "submissions_masjid_id IN ?")
+		args = append(args, masjidIDs)
+	}
+
+	// Kalau keduanya kosong → tidak ada scope; tolak halus (return false, nil)
+	if len(ors) == 0 {
+		return false, nil
+	}
+
+	q = q.Where("("+strings.Join(ors, " OR ")+")", args...).Limit(1)
 
 	var ok int
 	if err := q.Scan(&ok).Error; err != nil {
-		// Jika tabel submissions belum ada (dev mode), fallback: izinkan admin/DKM
-		// -> tetapi tanpa info role, balikan error agar caller bisa putuskan
 		return false, err
 	}
 	return ok == 1, nil
 }
 
-func uuidSliceToAnyArray(in []uuid.UUID) []uuid.UUID { // GORM psql driver paham uuid[] langsung
-	if len(in) == 0 {
-		// Agar ANY('{}') tidak error, tetap kembalikan slice kosong
-		return []uuid.UUID{}
-	}
-	return in
-}
 
-func mustGetUserAndMasjidScope(c *fiber.Ctx) (userID uuid.UUID, masjidIDs []uuid.UUID, err error) {
-	userID, err = helperAuth.GetUserIDFromToken(c)
+// BARU: ambil daftar masjid_student_id (student scope) + masjid scope dari token
+func mustGetStudentAndMasjidScope(c *fiber.Ctx) (studentIDs []uuid.UUID, masjidIDs []uuid.UUID, err error) {
+	studentIDs, err = helperAuth.GetMasjidStudentIDsFromToken(c)
 	if err != nil {
-		return
-	}
-	masjidIDs, err = helperAuth.GetMasjidIDsFromToken(c)
-	if err != nil {
-		// Boleh jadi user hanya owner submission (tanpa masjid scope) → kita pakai slice kosong
-		masjidIDs = []uuid.UUID{}
+		studentIDs = []uuid.UUID{} // token bisa saja tanpa student_records
 		err = nil
+	}
+	masjidIDs, err2 := helperAuth.GetMasjidIDsFromToken(c)
+	if err2 != nil {
+		masjidIDs = []uuid.UUID{}
 	}
 	return
 }
@@ -111,7 +149,14 @@ func mustGetUserAndMasjidScope(c *fiber.Ctx) (userID uuid.UUID, masjidIDs []uuid
    ========================== */
 
 // Create — dukung JSON & multipart upload ke OSS
+// Create — dukung JSON & multipart upload ke OSS (fleksibel nama field)
+// - Scope: student_ids (dari token) ATAU masjid_ids (dari token) harus cocok dengan baris submission
+
+// =========================== CREATE ===========================
+// Create — dukung JSON & multipart upload ke OSS
 func (ctl *SubmissionUrlsController) Create(c *fiber.Ctx) error {
+	ctl.ensureValidator()
+
 	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
 
 	// ========= MULTIPART FORM-DATA =========
@@ -126,7 +171,7 @@ func (ctl *SubmissionUrlsController) Create(c *fiber.Ctx) error {
 		}
 		// Jika belum ada dari path → coba dari form field
 		if req.SubmissionUrlsSubmissionID == uuid.Nil {
-			if s := strings.TrimSpace(c.FormValue("submission_id")); s != "" {
+			if s := strings.TrimSpace(c.FormValue("submission_urls_submission_id")); s != "" {
 				if id, err := uuid.Parse(s); err == nil {
 					req.SubmissionUrlsSubmissionID = id
 				}
@@ -134,17 +179,18 @@ func (ctl *SubmissionUrlsController) Create(c *fiber.Ctx) error {
 		}
 
 		// --- SECURITY: pastikan user boleh akses submission ini ---
-		userID, masjidIDs, err := mustGetUserAndMasjidScope(c)
+		studentIDs, masjidIDs, err := mustGetStudentAndMasjidScope(c)
 		if err != nil {
 			return helper.JsonError(c, http.StatusUnauthorized, err.Error())
 		}
 		if req.SubmissionUrlsSubmissionID == uuid.Nil {
 			return helper.JsonError(c, http.StatusBadRequest, "submission_id wajib (path atau form field)")
 		}
-		if ok, err := assertSubmissionScope(ctl.DB, req.SubmissionUrlsSubmissionID, userID, masjidIDs); err != nil {
-			// jika error query, untuk menghindari kebocoran, tolak akses
+		ok, err := assertSubmissionScope(ctl.DB.WithContext(c.Context()), req.SubmissionUrlsSubmissionID, studentIDs, masjidIDs)
+		if err != nil {
 			return helper.JsonError(c, http.StatusForbidden, "Akses ditolak (scope tidak tervalidasi)")
-		} else if !ok {
+		}
+		if !ok {
 			return helper.JsonError(c, http.StatusForbidden, "Akses ditolak untuk submission tersebut")
 		}
 
@@ -172,7 +218,12 @@ func (ctl *SubmissionUrlsController) Create(c *fiber.Ctx) error {
 		}
 
 		// File (opsional)
+		// File (opsional) — dukung "file" ATAU "submission_urls_href"
 		fh, _ := c.FormFile("file")
+		if fh == nil {
+			fh, _ = c.FormFile("submission_urls_href")
+		}
+
 		uploadedURL := ""
 		if fh != nil {
 			svc, err := helperOSS.NewOSSServiceFromEnv("")
@@ -191,13 +242,14 @@ func (ctl *SubmissionUrlsController) Create(c *fiber.Ctx) error {
 			req.SubmissionUrlsHref = uploadedURL
 		}
 
+
 		// Validasi
 		if err := ctl.Validator.Struct(&req); err != nil {
 			// rollback object jika tadi upload sukses
 			if uploadedURL != "" {
 				_ = helperOSS.DeleteByPublicURLENV(uploadedURL, 15*time.Second)
 			}
-			return helper.ValidationError(c, err)
+			return helper.JsonError(c, http.StatusBadRequest, formatValidationErr(err))
 		}
 
 		row := &model.SubmissionUrlsModel{
@@ -212,7 +264,7 @@ func (ctl *SubmissionUrlsController) Create(c *fiber.Ctx) error {
 			row.SubmissionUrlsIsActive = *req.SubmissionUrlsIsActive
 		}
 
-		if err := ctl.DB.Create(row).Error; err != nil {
+		if err := ctl.DB.WithContext(c.Context()).Create(row).Error; err != nil {
 			// rollback object kalau barusan upload
 			if uploadedURL != "" {
 				_ = helperOSS.DeleteByPublicURLENV(uploadedURL, 15*time.Second)
@@ -240,19 +292,19 @@ func (ctl *SubmissionUrlsController) Create(c *fiber.Ctx) error {
 	}
 
 	// --- SECURITY ---
-	userID, masjidIDs, err := mustGetUserAndMasjidScope(c)
+	studentIDs, masjidIDs, err := mustGetStudentAndMasjidScope(c)
 	if err != nil {
 		return helper.JsonError(c, http.StatusUnauthorized, err.Error())
 	}
 	if req.SubmissionUrlsSubmissionID == uuid.Nil {
 		return helper.JsonError(c, http.StatusBadRequest, "submission_id wajib")
 	}
-	if ok, err := assertSubmissionScope(ctl.DB, req.SubmissionUrlsSubmissionID, userID, masjidIDs); err != nil || !ok {
+	if ok, err := assertSubmissionScope(ctl.DB.WithContext(c.Context()), req.SubmissionUrlsSubmissionID, studentIDs, masjidIDs); err != nil || !ok {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak untuk submission tersebut")
 	}
 
 	if err := ctl.Validator.Struct(&req); err != nil {
-		return helper.ValidationError(c, err)
+		return helper.JsonError(c, http.StatusBadRequest, formatValidationErr(err))
 	}
 
 	row := &model.SubmissionUrlsModel{
@@ -267,7 +319,7 @@ func (ctl *SubmissionUrlsController) Create(c *fiber.Ctx) error {
 		row.SubmissionUrlsIsActive = *req.SubmissionUrlsIsActive
 	}
 
-	if err := ctl.DB.Create(row).Error; err != nil {
+	if err := ctl.DB.WithContext(c.Context()).Create(row).Error; err != nil {
 		if isUniqueViolation(err) {
 			return helper.JsonError(c, http.StatusConflict, "Href sudah terdaftar untuk submission ini")
 		}
@@ -276,6 +328,7 @@ func (ctl *SubmissionUrlsController) Create(c *fiber.Ctx) error {
 
 	return helper.JsonCreated(c, "Created", dto.ToSubmissionUrlResponse(row))
 }
+
 
 // Update — dukung JSON & multipart (upload baru menimpa href lama)
 func (ctl *SubmissionUrlsController) Update(c *fiber.Ctx) error {
@@ -294,11 +347,11 @@ func (ctl *SubmissionUrlsController) Update(c *fiber.Ctx) error {
 	}
 
 	// --- SECURITY: pastikan boleh akses submission induknya ---
-	userID, masjidIDs, err := mustGetUserAndMasjidScope(c)
+	studentIDs, masjidIDs, err := mustGetStudentAndMasjidScope(c)
 	if err != nil {
 		return helper.JsonError(c, http.StatusUnauthorized, err.Error())
 	}
-	if ok, err := assertSubmissionScope(ctl.DB, existing.SubmissionUrlsSubmissionID, userID, masjidIDs); err != nil || !ok {
+	if ok, err := assertSubmissionScope(ctl.DB, existing.SubmissionUrlsSubmissionID, studentIDs, masjidIDs); err != nil || !ok {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak untuk submission tersebut")
 	}
 
@@ -335,6 +388,9 @@ func (ctl *SubmissionUrlsController) Update(c *fiber.Ctx) error {
 
 		// File (opsional)
 		fh, _ := c.FormFile("file")
+		if fh == nil {
+			fh, _ = c.FormFile("submission_urls_href")
+		}
 		newUploadedURL := ""
 		if fh != nil {
 			svc, err := helperOSS.NewOSSServiceFromEnv("")
@@ -358,7 +414,7 @@ func (ctl *SubmissionUrlsController) Update(c *fiber.Ctx) error {
 			if newUploadedURL != "" {
 				_ = helperOSS.DeleteByPublicURLENV(newUploadedURL, 15*time.Second)
 			}
-			return helper.ValidationError(c, err)
+			return helper.JsonError(c, http.StatusBadRequest, formatValidationErr(err))
 		}
 
 		updates := dto.BuildSubmissionUrlUpdates(&req)
@@ -400,7 +456,7 @@ func (ctl *SubmissionUrlsController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, "Payload tidak valid")
 	}
 	if err := ctl.Validator.Struct(&req); err != nil {
-		return helper.ValidationError(c, err)
+		return helper.JsonError(c, http.StatusBadRequest, formatValidationErr(err))
 	}
 
 	updates := dto.BuildSubmissionUrlUpdates(&req)
@@ -439,11 +495,11 @@ func (ctl *SubmissionUrlsController) GetByID(c *fiber.Ctx) error {
 	}
 
 	// --- SECURITY ---
-	userID, masjidIDs, err := mustGetUserAndMasjidScope(c)
+	studentIDs, masjidIDs, err := mustGetStudentAndMasjidScope(c)
 	if err != nil {
 		return helper.JsonError(c, http.StatusUnauthorized, err.Error())
 	}
-	if ok, err := assertSubmissionScope(ctl.DB, row.SubmissionUrlsSubmissionID, userID, masjidIDs); err != nil || !ok {
+	if ok, err := assertSubmissionScope(ctl.DB, row.SubmissionUrlsSubmissionID, studentIDs, masjidIDs); err != nil || !ok {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak untuk submission tersebut")
 	}
 
@@ -477,7 +533,7 @@ func (ctl *SubmissionUrlsController) List(c *fiber.Ctx) error {
 	q := strings.TrimSpace(c.Query("q"))
 	isActiveStr := strings.TrimSpace(c.Query("is_active"))
 
-	userID, masjidIDs, err := mustGetUserAndMasjidScope(c)
+	studentIDs, masjidIDs, err := mustGetStudentAndMasjidScope(c)
 	if err != nil {
 		return helper.JsonError(c, http.StatusUnauthorized, err.Error())
 	}
@@ -490,23 +546,34 @@ func (ctl *SubmissionUrlsController) List(c *fiber.Ctx) error {
 		if err != nil {
 			return helper.JsonError(c, http.StatusBadRequest, "submission_id tidak valid")
 		}
-		if ok, err := assertSubmissionScope(ctl.DB, sid, userID, masjidIDs); err != nil || !ok {
+		if ok, err := assertSubmissionScope(ctl.DB, sid, studentIDs, masjidIDs); err != nil || !ok {
 			return helper.JsonError(c, http.StatusForbidden, "Akses ditolak untuk submission tersebut")
 		}
 		db = db.Where("submission_urls_submission_id = ?", sid)
-	} else {
-		// Tanpa submission_id → batasi berdasarkan scope user via subquery ke submissions
-		db = db.Where(`
-			EXISTS (
-				SELECT 1 FROM submissions s
-				WHERE s.submissions_id = submission_urls_submission_id
-				  AND (
-					   s.submissions_user_id = ?::uuid
-					OR s.submissions_masjid_id = ANY(?::uuid[])
-				  )
-			)
-		`, userID, uuidSliceToAnyArray(masjidIDs))
-	}
+		} else {
+			// Tanpa submission_id → batasi berdasar scope via subquery EXISTS + IN ?
+			if len(studentIDs) == 0 && len(masjidIDs) == 0 {
+				return helper.JsonError(c, http.StatusUnauthorized, "Scope tidak tersedia pada token")
+			}
+
+			subConds := []string{}
+			args := []any{}
+
+			if len(studentIDs) > 0 {
+				subConds = append(subConds, "s.submissions_student_id IN ?")
+				args = append(args, studentIDs)
+			}
+			if len(masjidIDs) > 0 {
+				subConds = append(subConds, "s.submissions_masjid_id IN ?")
+				args = append(args, masjidIDs)
+			}
+
+			whereSQL := "EXISTS (SELECT 1 FROM submissions s WHERE s.submissions_id = submission_urls_submission_id AND (" +
+				strings.Join(subConds, " OR ") + "))"
+
+			db = db.Where(whereSQL, args...)
+		}
+
 
 	if q != "" {
 		like := "%" + q + "%"
@@ -564,11 +631,11 @@ func (ctl *SubmissionUrlsController) Delete(c *fiber.Ctx) error {
 	}
 
 	// --- SECURITY ---
-	userID, masjidIDs, err := mustGetUserAndMasjidScope(c)
+	studentIDs, masjidIDs, err := mustGetStudentAndMasjidScope(c)
 	if err != nil {
 		return helper.JsonError(c, http.StatusUnauthorized, err.Error())
 	}
-	if ok, err := assertSubmissionScope(ctl.DB, existing.SubmissionUrlsSubmissionID, userID, masjidIDs); err != nil || !ok {
+	if ok, err := assertSubmissionScope(ctl.DB, existing.SubmissionUrlsSubmissionID, studentIDs, masjidIDs); err != nil || !ok {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak untuk submission tersebut")
 	}
 

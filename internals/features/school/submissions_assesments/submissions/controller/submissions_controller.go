@@ -11,8 +11,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "masjidku_backend/internals/features/school/submissions_assesment/submissions/dto"
-	model "masjidku_backend/internals/features/school/submissions_assesment/submissions/model"
+	dto "masjidku_backend/internals/features/school/submissions_assesments/submissions/dto"
+	model "masjidku_backend/internals/features/school/submissions_assesments/submissions/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 )
@@ -119,23 +119,34 @@ func applySort(q *gorm.DB, sort string) *gorm.DB {
 // ============ Handlers ============
 
 // POST /
+// POST /
 func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 	var body dto.CreateSubmissionRequest
 	if err := c.BodyParser(&body); err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
+
+	// ===== Ambil masjid & student dari token (user/student) =====
+	masjidID, err := helperAuth.GetActiveMasjidIDFromToken(c)
+	if err != nil || masjidID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid aktif tidak ditemukan di token")
+	}
+	studentID, err := helperAuth.GetMasjidStudentIDForMasjid(c, masjidID)
+	if err != nil || studentID == uuid.Nil {
+		// Tidak punya student record di masjid tsb
+		return helper.JsonError(c, fiber.StatusForbidden, "Hanya siswa terdaftar yang diizinkan membuat submission")
+	}
+
+	// Paksa/override masjid & student dari token agar aman
+	body.SubmissionMasjidID = masjidID
+	body.SubmissionStudentID = studentID
+
+	// ===== Validasi payload setelah di-override =====
 	if err := ctrl.Validator.Struct(&body); err != nil {
-		return helper.ValidationError(c, err)
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	tenantMasjidID, err := ctrl.tenantMasjidID(c)
-	if err != nil {
-		return helper.Error(c, fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
-	}
-	if body.SubmissionMasjidID != tenantMasjidID {
-		return helper.Error(c, fiber.StatusForbidden, "Masjid ID tidak sesuai tenant")
-	}
-
+	// Status default = submitted (bisa override kalau dikirim)
 	status := model.SubmissionStatusSubmitted
 	if body.SubmissionStatus != nil {
 		status = *body.SubmissionStatus
@@ -143,7 +154,7 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 
 	sub := &model.Submission{
 		SubmissionMasjidID:     body.SubmissionMasjidID,
-		SubmissionAssessmentID: body.SubmissionAssessmentID,
+		SubmissionAssessmentID: body.SubmissionAssessmentID, // wajib dikirim client
 		SubmissionStudentID:    body.SubmissionStudentID,
 
 		SubmissionText:        body.SubmissionText,
@@ -160,35 +171,36 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 	}
 
 	if err := ctrl.DB.Create(sub).Error; err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "duplicate key") || strings.Contains(strings.ToLower(err.Error()), "unique constraint") {
-			return helper.Error(c, fiber.StatusConflict, "Submission untuk assessment & student ini sudah ada")
+		le := strings.ToLower(err.Error())
+		if strings.Contains(le, "duplicate key") || strings.Contains(le, "unique constraint") {
+			return helper.JsonError(c, fiber.StatusConflict, "Submission untuk assessment & student ini sudah ada")
 		}
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.SuccessWithCode(c, fiber.StatusCreated, "Submission berhasil dibuat", dto.FromModel(sub))
+	return helper.JsonCreated(c, "Submission berhasil dibuat", dto.FromModel(sub))
 }
 
+
+// GET /
 // GET /
 func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 	var q dto.ListSubmissionsQuery
 	if err := c.QueryParser(&q); err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Query tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 	if err := ctrl.Validator.Struct(&q); err != nil {
-		return helper.ValidationError(c, err)
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	tenantMasjidID, err := ctrl.tenantMasjidID(c)
-	if err != nil {
-		return helper.Error(c, fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
-	}
-	// default filter by tenant
-	if q.MasjidID == nil {
+	// ← HANYA set default tenant bila memang ada (admin/guru),
+	//    kalau tidak ada (uuid.Nil) BIARKAN kosong agar tidak mem-filter ke Nil.
+	if tenantMasjidID, _ := ctrl.tenantMasjidID(c); tenantMasjidID != uuid.Nil && q.MasjidID == nil {
 		q.MasjidID = &tenantMasjidID
-	} else if *q.MasjidID != tenantMasjidID {
-		return helper.Error(c, fiber.StatusForbidden, "Masjid ID tidak sesuai tenant")
 	}
+
+	// ❌ HAPUS blok yang memaksa q.MasjidID dan Forbidden:
+	// if q.MasjidID == nil { q.MasjidID = &tenantMasjidID } else if *q.MasjidID != tenantMasjidID { ... }
 
 	page := clampPage(q.Page)
 	perPage := clampPerPage(q.PerPage)
@@ -198,13 +210,13 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 	dbq = applyFilters(dbq, &q)
 
 	if err := dbq.Count(&total).Error; err != nil {
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	var rows []model.Submission
 	dbq = applySort(dbq, q.Sort)
 	if err := dbq.Offset((page - 1) * perPage).Limit(perPage).Find(&rows).Error; err != nil {
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	out := make([]dto.SubmissionResponse, 0, len(rows))
@@ -212,81 +224,82 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		out = append(out, dto.FromModel(&rows[i]))
 	}
 
-	resp := fiber.Map{
-		"items": out,
-		"pagination": fiber.Map{
-			"page":        page,
-			"per_page":    perPage,
-			"total":       total,
-			"total_pages": int(math.Ceil(float64(total) / float64(perPage))),
-		},
+	pagination := fiber.Map{
+		"page":        page,
+		"per_page":    perPage,
+		"total":       total,
+		"total_pages": int(math.Ceil(float64(total) / float64(perPage))),
 	}
 
-	return helper.Success(c, "OK", resp)
+	return helper.JsonList(c, out, pagination)
 }
+
 
 // GET /:id
 func (ctrl *SubmissionController) GetByID(c *fiber.Ctx) error {
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	tenantMasjidID, err := ctrl.tenantMasjidID(c)
 	if err != nil {
-		return helper.Error(c, fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
 	}
 
 	var sub model.Submission
 	if err := ctrl.DB.
 		First(&sub, "submissions_id = ? AND submissions_masjid_id = ?", id, tenantMasjidID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return helper.Error(c, fiber.StatusNotFound, "Submission tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Submission tidak ditemukan")
 		}
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.Success(c, "OK", dto.FromModel(&sub))
+	return helper.JsonOK(c, "OK", dto.FromModel(&sub))
 }
 
 // PATCH /:id
 func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	tenantMasjidID, err := ctrl.tenantMasjidID(c)
 	if err != nil {
-		return helper.Error(c, fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
 	}
 
 	var sub model.Submission
 	if err := ctrl.DB.
 		First(&sub, "submissions_id = ? AND submissions_masjid_id = ?", id, tenantMasjidID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return helper.Error(c, fiber.StatusNotFound, "Submission tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Submission tidak ditemukan")
 		}
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	var body dto.PatchSubmissionRequest
 	if err := c.BodyParser(&body); err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
+	}
+	// Validasi enum & range
+	if err := ctrl.Validator.Struct(&body); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Validasi enum & range
 	if body.SubmissionStatus != nil && body.SubmissionStatus.ShouldUpdate() && !body.SubmissionStatus.IsNull() {
 		switch *body.SubmissionStatus.Value {
 		case model.SubmissionStatusDraft, model.SubmissionStatusSubmitted, model.SubmissionStatusResubmitted,
 			model.SubmissionStatusGraded, model.SubmissionStatusReturned:
 		default:
-			return helper.Error(c, fiber.StatusBadRequest, "submissions_status invalid")
+			return helper.JsonError(c, fiber.StatusBadRequest, "submissions_status invalid")
 		}
 	}
 	if body.SubmissionScore != nil && body.SubmissionScore.ShouldUpdate() && !body.SubmissionScore.IsNull() {
 		if *body.SubmissionScore.Value < 0 || *body.SubmissionScore.Value > 100 {
-			return helper.Error(c, fiber.StatusBadRequest, "submissions_score harus 0..100")
+			return helper.JsonError(c, fiber.StatusBadRequest, "submissions_score harus 0..100")
 		}
 	}
 
@@ -304,46 +317,48 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 
 	if len(updates) > 0 {
 		if err := ctrl.DB.Model(&sub).Updates(updates).Error; err != nil {
-			return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
 	}
 
 	if err := ctrl.DB.First(&sub, "submissions_id = ?", id).Error; err != nil {
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.Success(c, "Submission diperbarui", dto.FromModel(&sub))
+	return helper.JsonUpdated(c, "Submission diperbarui", dto.FromModel(&sub))
 }
 
 // PATCH /:id/grade
 func (ctrl *SubmissionController) Grade(c *fiber.Ctx) error {
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	tenantMasjidID, err := ctrl.tenantMasjidID(c)
 	if err != nil {
-		return helper.Error(c, fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
 	}
 
 	var sub model.Submission
 	if err := ctrl.DB.
 		First(&sub, "submissions_id = ? AND submissions_masjid_id = ?", id, tenantMasjidID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return helper.Error(c, fiber.StatusNotFound, "Submission tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Submission tidak ditemukan")
 		}
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	var body dto.GradeSubmissionRequest
 	if err := c.BodyParser(&body); err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
-
+	if err := ctrl.Validator.Struct(&body); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
 	if body.SubmissionScore != nil && body.SubmissionScore.ShouldUpdate() && !body.SubmissionScore.IsNull() {
 		if *body.SubmissionScore.Value < 0 || *body.SubmissionScore.Value > 100 {
-			return helper.Error(c, fiber.StatusBadRequest, "submissions_score harus 0..100")
+			return helper.JsonError(c, fiber.StatusBadRequest, "submissions_score harus 0..100")
 		}
 	}
 
@@ -367,45 +382,45 @@ func (ctrl *SubmissionController) Grade(c *fiber.Ctx) error {
 	}
 
 	if len(updates) == 0 {
-		return helper.Success(c, "OK", dto.FromModel(&sub))
+		return helper.JsonOK(c, "OK", dto.FromModel(&sub))
 	}
 
 	if err := ctrl.DB.Model(&sub).Updates(updates).Error; err != nil {
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	if err := ctrl.DB.First(&sub, "submissions_id = ?", id).Error; err != nil {
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.Success(c, "Submission dinilai", dto.FromModel(&sub))
+	return helper.JsonUpdated(c, "Submission dinilai", dto.FromModel(&sub))
 }
 
 // DELETE /:id (soft delete)
 func (ctrl *SubmissionController) Delete(c *fiber.Ctx) error {
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return helper.Error(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	tenantMasjidID, err := ctrl.tenantMasjidID(c)
 	if err != nil {
-		return helper.Error(c, fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
 	}
 
 	var sub model.Submission
 	if err := ctrl.DB.Select("submissions_id").
 		First(&sub, "submissions_id = ? AND submissions_masjid_id = ?", id, tenantMasjidID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return helper.Error(c, fiber.StatusNotFound, "Submission tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Submission tidak ditemukan")
 		}
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	if err := ctrl.DB.Delete(&sub).Error; err != nil {
-		return helper.Error(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Catatan: 204 umumnya tanpa body; jika ingin strict, gunakan c.SendStatus(204).
-	return helper.SuccessWithCode(c, fiber.StatusNoContent, "Submission dihapus", nil)
+	// Gunakan 200 agar bisa kirim body
+	return helper.JsonDeleted(c, "Submission dihapus", nil)
 }

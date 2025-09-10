@@ -4,7 +4,6 @@ package controller
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -93,16 +92,6 @@ func getSortClause(sortBy, sortDir *string) string {
 }
 
 
-func atoiOr(def int, s string) int {
-	if s == "" {
-		return def
-	}
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return def
-	}
-	return n
-}
 
 /* ========================= Handlers ========================= */
 

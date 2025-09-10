@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	model "masjidku_backend/internals/features/school/submissions_assesment/submissions/model"
+	model "masjidku_backend/internals/features/school/submissions_assesments/submissions/model"
 )
 
 // ==== CREATE REQUEST ====

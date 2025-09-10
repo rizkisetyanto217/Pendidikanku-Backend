@@ -71,7 +71,7 @@ type AttendanceOccurrenceResponse struct {
 // =====================================================
 func (ctl *OccurrenceController) ListScheduleOccurrences(c *fiber.Ctx) error {
 	// guard role
-	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
@@ -192,7 +192,7 @@ WHERE s.class_schedules_masjid_id = ?
 // =====================================================
 func (ctl *OccurrenceController) ListAttendanceOccurrences(c *fiber.Ctx) error {
 	// guard role
-	if !(helperAuth.IsAdmin(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)

@@ -92,7 +92,7 @@ func setLevels(m *model.MasjidModel, levels []string) {
    ========================= */
 
 func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
-	if !helperAuth.IsAdmin(c) {
+	if !helperAuth.IsOwner(c) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 
@@ -283,7 +283,7 @@ func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
 // 🗑️ DELETE /api/a/masjids           -> admin: pakai ID token; owner: 400 (perlu :id)
 // 🗑️ DELETE /api/a/masjids/:id       -> owner: boleh; admin: hanya jika :id sama dgn ID token
 func (mc *MasjidController) DeleteMasjid(c *fiber.Ctx) error {
-	isAdmin := helperAuth.IsAdmin(c)
+	isAdmin := helperAuth.IsOwner(c)
 	isOwner := helperAuth.IsOwner(c)
 
 	if !isAdmin && !isOwner {

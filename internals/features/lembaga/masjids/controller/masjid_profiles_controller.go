@@ -50,7 +50,7 @@ func isUniqueViolation(err error) bool {
 // Create (Admin-only). Satu masjid cuma boleh punya 1 profile.
 // POST /
 func (ctl *MasjidProfileController) Create(c *fiber.Ctx) error {
-	if !helperAuth.IsAdmin(c) {
+	if !helperAuth.IsDKM(c) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak: admin saja")
 	}
 
@@ -266,7 +266,7 @@ func (ctl *MasjidProfileController) Nearest(c *fiber.Ctx) error {
 
 // PATCH /:id
 func (ctl *MasjidProfileController) Update(c *fiber.Ctx) error {
-	if !helperAuth.IsOwner(c) && !helperAuth.IsAdmin(c) {
+	if !helperAuth.IsOwner(c) && !helperAuth.IsDKM(c) {
 		// ganti sesuai kebijakan aksesmu; minimal admin
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
@@ -320,7 +320,7 @@ func (ctl *MasjidProfileController) Update(c *fiber.Ctx) error {
 // DELETE (soft)
 // DELETE /:id
 func (ctl *MasjidProfileController) Delete(c *fiber.Ctx) error {
-	if !helperAuth.IsAdmin(c) {
+	if !helperAuth.IsOwner(c) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak: admin saja")
 	}
 
