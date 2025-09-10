@@ -20,6 +20,7 @@ import (
 	SubjectRoutes "masjidku_backend/internals/features/school/subject_books/subject/route"
 	AssessmentsRoutes "masjidku_backend/internals/features/school/submissions_assesments/assesments/route"
 	SubmissionsRoutes "masjidku_backend/internals/features/school/submissions_assesments/submissions/route"
+	QuizzesRoutes "masjidku_backend/internals/features/school/submissions_assesments/quizzes/route"
 
 
 	// Tambahkan import route lain di sini saat modul siap:
@@ -66,6 +67,9 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	AssessmentsRoutes.AssessmentUserRoutes(r, db)
 	AssessmentsRoutes.AssessmentTeacherRoutes(r, db)
 	SubmissionsRoutes.SubmissionUserRoutes(r, db)
+	QuizzesRoutes.QuizzesTeacherRoutes(r, db)
+	QuizzesRoutes.QuizzesUserRoutes(r, db)
+
 
 
 
@@ -98,6 +102,7 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	CertificateRoutes.CertificateAdminRoutes(r, db)
 	AssessmentsRoutes.AssessmentAdminRoutes(r, db)
 	SubmissionsRoutes.SubmissionAdminRoutes(r, db)
+	QuizzesRoutes.QuizzesAdminRoutes(r, db)
 
 
 	// Tambahkan modul lain (admin) di sini:
