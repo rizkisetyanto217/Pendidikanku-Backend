@@ -9,61 +9,62 @@ import (
 
 /*
 Catatan:
-- Pasang middleware auth pada router parent (RequireTeacher).
-- Semua endpoint berada di bawah base: /api/t/quizzes
+- Pasang middleware RequireTeacher di parent router `r` (prefix: /api/t).
+- Path hasil:
+  - /api/t/quizzes-teacher/...
+  - /api/t/quiz-questions-teacher/...
+  - (alias kompat) /api/t/quiz-items-teacher/...
+  - /api/t/quizzes-teacher/attempt-answers-teacher/...
+  - /api/t/quizzes-teacher/attempts-teacher/...
 */
 
 func QuizzesTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	// ============================
-	// QUIZZES (master)
+	// QUIZZES (master) -> /api/t/quizzes-teacher
 	// ============================
-	ctrl := quizcontroller.NewQuizController(db)
-	g := r.Group("/quizzes")
+	quizCtrl := quizcontroller.NewQuizController(db)
+	quizzes := r.Group("/quizzes-teacher")
 
-	g.Get("/list", ctrl.List)   // GET    /api/t/quizzes/list
-	g.Get("/:id", ctrl.GetByID) // GET    /api/t/quizzes/:id
-	g.Post("/", ctrl.Create)    // POST   /api/t/quizzes
-	g.Patch("/:id", ctrl.Patch) // PATCH  /api/t/quizzes/:id
-	g.Delete("/:id", ctrl.Delete) // DELETE /api/t/quizzes/:id
+	quizzes.Post("/",      quizCtrl.Create)   // POST   /api/t/quizzes-teacher
+	quizzes.Patch("/:id",  quizCtrl.Patch)    // PATCH  /api/t/quizzes-teacher/:id
+	quizzes.Delete("/:id", quizCtrl.Delete)   // DELETE /api/t/quizzes-teacher/:id
 
 	// ============================
-	// QUIZ ITEMS (soal & opsi)
-	// Base: /api/t/quizzes/items
+	// QUIZ QUESTIONS (soal & opsi JSONB) -> /api/t/quiz-questions-teacher
 	// ============================
-	itemsCtrl := quizcontroller.NewQuizItemsController(db)
-	items := g.Group("/items")
+	qqCtrl := quizcontroller.NewQuizQuestionsController(db)
+	qq := r.Group("/quiz-questions-teacher")
 
-	items.Post("/", itemsCtrl.Create)                                  // POST   /api/t/quizzes/items
-	items.Post("/bulk-single", itemsCtrl.BulkCreateSingle)             // POST   /api/t/quizzes/items/bulk-single
-	items.Get("/", itemsCtrl.ListByQuiz)                               // GET    /api/t/quizzes/items?quiz_id=...
-	items.Get("/by-question/:question_id", itemsCtrl.ListByQuestion)   // GET    /api/t/quizzes/items/by-question/:question_id
-	items.Get("/:id", itemsCtrl.GetByID)                               // GET    /api/t/quizzes/items/:id
-	items.Put("/:id", itemsCtrl.Patch)                                 // PUT    /api/t/quizzes/items/:id
-	items.Delete("/:id", itemsCtrl.Delete)                             // DELETE /api/t/quizzes/items/:id
+	// Rekomendasi expose full CRUD untuk kebutuhan guru
+	qq.Get("/",      qqCtrl.List)    // GET    /api/t/quiz-questions-teacher?quiz_id=&type=&q=&page=&per_page=&sort=
+	qq.Get("/list",  qqCtrl.List)    // alias
+	qq.Get("/:id",   qqCtrl.GetByID) // GET    /api/t/quiz-questions-teacher/:id
+	qq.Post("/",     qqCtrl.Create)  // POST   /api/t/quiz-questions-teacher
+	qq.Patch("/:id", qqCtrl.Patch)   // PATCH  /api/t/quiz-questions-teacher/:id
+	qq.Delete("/:id", qqCtrl.Delete) // DELETE /api/t/quiz-questions-teacher/:id
 
-	// =========================================
-	// USER QUIZ ATTEMPT ANSWERS
-	// Base: /api/t/quizzes/attempt-answers
-	// =========================================
+	// ============================
+	// USER QUIZ ATTEMPT ANSWERS (guru review/ubah)
+	// child dari /quizzes-teacher
+	// ============================
 	uqaCtrl := quizcontroller.NewUserQuizAttemptAnswersController(db)
-	ans := g.Group("/attempt-answers")
+	ans := quizzes.Group("/user-quiz-attempts")
 
-	ans.Get("/", uqaCtrl.List)          // GET    /api/t/quizzes/attempt-answers?attempt_id=...&question_id=...
-	ans.Get("/:id", uqaCtrl.GetByID)    // GET    /api/t/quizzes/attempt-answers/:id
-	ans.Post("/", uqaCtrl.Create)       // POST   /api/t/quizzes/attempt-answers
-	ans.Patch("/:id", uqaCtrl.Patch)    // PATCH  /api/t/quizzes/attempt-answers/:id
-	ans.Delete("/:id", uqaCtrl.Delete)  // DELETE /api/t/quizzes/attempt-answers/:id
+	ans.Get("/",       uqaCtrl.List)     // GET    /api/t/quizzes-teacher/attempt-answers-teacher?attempt_id=...&question_id=...
+	ans.Get("/:id",    uqaCtrl.GetByID)  // GET    /api/t/quizzes-teacher/attempt-answers-teacher/:id
+	ans.Post("/",      uqaCtrl.Create)   // POST   /api/t/quizzes-teacher/attempt-answers-teacher
+	ans.Patch("/:id",  uqaCtrl.Patch)    // PATCH  /api/t/quizzes-teacher/attempt-answers-teacher/:id
+	ans.Delete("/:id", uqaCtrl.Delete)   // DELETE /api/t/quizzes-teacher/attempt-answers-teacher/:id
 
-	// =========================================
+	// ============================
 	// USER QUIZ ATTEMPTS
-	// Base: /api/t/quizzes/attempts
-	// =========================================
+	// child dari /quizzes-teacher
+	// ============================
 	uqAttemptCtrl := quizcontroller.NewUserQuizAttemptsController(db)
-	attempts := g.Group("/attempts")
+	attempts := quizzes.Group("/user-quiz-attempt-answers")
 
-	attempts.Get("/", uqAttemptCtrl.List)         // GET    /api/t/quizzes/attempts?quiz_id=&student_id=&status=&active_only=true
-	attempts.Get("/:id", uqAttemptCtrl.GetByID)   // GET    /api/t/quizzes/attempts/:id
-	attempts.Post("/", uqAttemptCtrl.Create)      // POST   /api/t/quizzes/attempts
-	attempts.Patch("/:id", uqAttemptCtrl.Patch)   // PATCH  /api/t/quizzes/attempts/:id
-	attempts.Delete("/:id", uqAttemptCtrl.Delete) // DELETE /api/t/quizzes/attempts/:id
+	attempts.Get("/",      uqAttemptCtrl.List)    // GET    /api/t/quizzes-teacher/attempts-teacher?quiz_id=&student_id=&status=&active_only=true
+	attempts.Post("/",     uqAttemptCtrl.Create)  // POST   /api/t/quizzes-teacher/attempts-teacher
+	attempts.Patch("/:id", uqAttemptCtrl.Patch)   // PATCH  /api/t/quizzes-teacher/attempts-teacher/:id
+	attempts.Delete("/:id", uqAttemptCtrl.Delete) // DELETE /api/t/quizzes-teacher/attempts-teacher/:id
 }

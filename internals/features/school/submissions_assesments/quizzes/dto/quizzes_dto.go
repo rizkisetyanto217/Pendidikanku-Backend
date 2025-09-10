@@ -43,7 +43,7 @@ func (f UpdateField[T]) Val() T             { return f.value }
    CREATE (POST /quizzes)
 ============================== */
 type CreateQuizRequest struct {
-	QuizzesMasjidID      uuid.UUID  `json:"quizzes_masjid_id" validate:"required"`
+	QuizzesMasjidID      uuid.UUID  `json:"quizzes_masjid_id"`
 	QuizzesAssessmentID  *uuid.UUID `json:"quizzes_assessment_id" validate:"omitempty"`
 	QuizzesTitle         string     `json:"quizzes_title" validate:"required,max=180"`
 	QuizzesDescription   *string    `json:"quizzes_description" validate:"omitempty"`
@@ -51,9 +51,11 @@ type CreateQuizRequest struct {
 	QuizzesTimeLimitSec  *int       `json:"quizzes_time_limit_sec" validate:"omitempty,gte=0"`
 }
 
+
+
 // ToModel: builder model dari payload Create (GORM isi timestamps)
 func (r *CreateQuizRequest) ToModel() *model.QuizModel {
-	isPub := false
+	isPub := true
 	if r.QuizzesIsPublished != nil {
 		isPub = *r.QuizzesIsPublished
 	}
@@ -133,6 +135,7 @@ func (p *PatchQuizRequest) ToUpdates() map[string]any {
 type ListQuizzesQuery struct {
 	// filter dasar
 	MasjidID     *uuid.UUID `query:"masjid_id" validate:"omitempty"`
+	ID           *uuid.UUID `query:"id"        validate:"omitempty,uuid"` // <— filter by ID
 	AssessmentID *uuid.UUID `query:"assessment_id" validate:"omitempty"`
 	IsPublished  *bool      `query:"is_published" validate:"omitempty"`
 	Q            string     `query:"q" validate:"omitempty,max=120"`
@@ -141,7 +144,16 @@ type ListQuizzesQuery struct {
 	Page    int    `query:"page" validate:"omitempty,gte=0"`
 	PerPage int    `query:"per_page" validate:"omitempty,gte=0,lte=200"`
 	Sort    string `query:"sort" validate:"omitempty,oneof=created_at desc_created_at title desc_title published desc_published"`
+
+	// NEW:
+	WithQuestions     bool   `query:"with_questions"`
+	QuestionsLimit    int    `query:"questions_limit" validate:"omitempty,min=1,max=200"`
+	QuestionsOrder    string `query:"questions_order" validate:"omitempty,oneof=created_at desc_created_at"`
+	WithQuestionsCount bool  `query:"with_questions_count"`
 }
+
+
+
 
 /* ==============================
    RESPONSE DTOs
@@ -159,6 +171,9 @@ type QuizResponse struct {
 	QuizzesCreatedAt     time.Time  `json:"quizzes_created_at"`
 	QuizzesUpdatedAt     time.Time  `json:"quizzes_updated_at"`
 	QuizzesDeletedAt     *time.Time `json:"quizzes_deleted_at,omitempty"`
+
+	Questions       []*QuizQuestionResponse `json:"questions,omitempty"`
+	QuestionsCount  *int                    `json:"questions_count,omitempty"`
 }
 
 type ListQuizResponse struct {
@@ -197,4 +212,17 @@ func FromModels(ms []model.QuizModel) []QuizResponse {
 		out = append(out, FromModel(&ms[i]))
 	}
 	return out
+}
+
+
+func FromModelWithQuestions(m *model.QuizModel) QuizResponse {
+	resp := FromModel(m)
+	if len(m.Questions) > 0 {
+		arr := make([]*QuizQuestionResponse, 0, len(m.Questions))
+		for i := range m.Questions {
+			arr = append(arr, FromModelQuizQuestion(&m.Questions[i]))
+		}
+		resp.Questions = arr
+	}
+	return resp
 }

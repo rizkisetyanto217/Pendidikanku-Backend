@@ -20,6 +20,9 @@ type QuizModel struct {
 	QuizzesCreatedAt time.Time       `gorm:"column:quizzes_created_at;not null;autoCreateTime" json:"quizzes_created_at"`
 	QuizzesUpdatedAt time.Time       `gorm:"column:quizzes_updated_at;not null;autoUpdateTime" json:"quizzes_updated_at"`
 	QuizzesDeletedAt gorm.DeletedAt  `gorm:"column:quizzes_deleted_at;index"                   json:"quizzes_deleted_at,omitempty"`
+
+	Questions []QuizQuestionModel `gorm:"foreignKey:QuizQuestionsQuizID;references:QuizzesID"`
+
 }
 
 // TableName overrides the table name used by GORM.

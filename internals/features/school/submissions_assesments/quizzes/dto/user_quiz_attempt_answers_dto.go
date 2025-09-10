@@ -12,25 +12,28 @@ import (
 /* ===================== REQUESTS ===================== */
 
 // Create — wajib attempt_id & question_id, dan persis salah satu: selected_option_id ATAU text
+// Create — attempt_id & question_id wajib.
+// selected_option_id TIDAK wajib; text juga tidak wajib DI LEVEL VALIDATOR.
+// XOR akan dicek manual di controller (dan juga dijaga DB constraint).
 type CreateUserQuizAttemptAnswerRequest struct {
-	UserQuizAttemptAnswersAttemptID  uuid.UUID  `json:"user_quiz_attempt_answers_attempt_id" validate:"required"`
-	UserQuizAttemptAnswersQuestionID uuid.UUID  `json:"user_quiz_attempt_answers_question_id" validate:"required"`
+	UserQuizAttemptAnswersAttemptID        uuid.UUID  `json:"user_quiz_attempt_answers_attempt_id" validate:"required"`
+	UserQuizAttemptAnswersQuestionID       uuid.UUID  `json:"user_quiz_attempt_answers_question_id" validate:"required"`
 
-	// XOR rules:
-	// - selected_option_id required_without=text, dan excluded_with=text
-	// - text required_without=selected_option_id, dan excluded_with=selected_option_id
-	UserQuizAttemptAnswersSelectedOptionID *uuid.UUID `json:"user_quiz_attempt_answers_selected_option_id" validate:"omitempty,required_without=UserQuizAttemptAnswersText,excluded_with=UserQuizAttemptAnswersText"`
-	UserQuizAttemptAnswersText             *string    `json:"user_quiz_attempt_answers_text" validate:"omitempty,required_without=UserQuizAttemptAnswersSelectedOptionID,excluded_with=UserQuizAttemptAnswersSelectedOptionID"`
+	// Tidak wajib. Kalau diisi, harus UUID valid. Tidak boleh bersamaan dengan Text (excluded_with).
+	UserQuizAttemptAnswersSelectedOptionID *uuid.UUID `json:"user_quiz_attempt_answers_selected_option_id" validate:"omitempty,excluded_with=UserQuizAttemptAnswersText"`
 
-	// Optional (biasanya diisi backend saat auto grade / manual grade)
-	UserQuizAttemptAnswersIsCorrect   *bool      `json:"user_quiz_attempt_answers_is_correct" validate:"omitempty"`
-	UserQuizAttemptAnswersEarnedPoints *float64  `json:"user_quiz_attempt_answers_earned_points" validate:"omitempty,gte=0,lte=9999.99"`
+	// Tidak wajib. Tidak boleh bersamaan dengan SelectedOptionID (excluded_with).
+	UserQuizAttemptAnswersText             *string    `json:"user_quiz_attempt_answers_text" validate:"omitempty"`
+
+	// Opsi penilaian (biasanya backend yang isi).
+	UserQuizAttemptAnswersIsCorrect        *bool      `json:"user_quiz_attempt_answers_is_correct" validate:"omitempty"`
+	UserQuizAttemptAnswersEarnedPoints     *float64   `json:"user_quiz_attempt_answers_earned_points" validate:"omitempty,gte=0,lte=9999.99"`
 	UserQuizAttemptAnswersGradedByTeacherID *uuid.UUID `json:"user_quiz_attempt_answers_graded_by_teacher_id" validate:"omitempty"`
-	UserQuizAttemptAnswersGradedAt          *time.Time `json:"user_quiz_attempt_answers_graded_at" validate:"omitempty"`
-	UserQuizAttemptAnswersFeedback          *string    `json:"user_quiz_attempt_answers_feedback" validate:"omitempty"`
+	UserQuizAttemptAnswersGradedAt         *time.Time `json:"user_quiz_attempt_answers_graded_at" validate:"omitempty"`
+	UserQuizAttemptAnswersFeedback         *string    `json:"user_quiz_attempt_answers_feedback" validate:"omitempty"`
 
-	// answered_at biarkan default dari DB; boleh diisi jika perlu import data historis
-	UserQuizAttemptAnswersAnsweredAt *time.Time `json:"user_quiz_attempt_answers_answered_at" validate:"omitempty"`
+	// Optional import historis
+	UserQuizAttemptAnswersAnsweredAt       *time.Time `json:"user_quiz_attempt_answers_answered_at" validate:"omitempty"`
 }
 
 // Patch/Update — semua opsional; tetap jaga XOR bila salah satu diubah.

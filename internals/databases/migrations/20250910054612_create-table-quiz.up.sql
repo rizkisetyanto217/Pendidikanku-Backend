@@ -32,11 +32,11 @@ CREATE TABLE IF NOT EXISTS quizzes (
 
 -- Indeks bantu (dasar)
 CREATE INDEX IF NOT EXISTS idx_quizzes_masjid_published
-  ON quizzes(quizzes_masjid_id, quizzes_is_published)
+  ON quizzes (quizzes_masjid_id, quizzes_is_published)
   WHERE quizzes_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_quizzes_assessment
-  ON quizzes(quizzes_assessment_id)
+  ON quizzes (quizzes_assessment_id)
   WHERE quizzes_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS brin_quizzes_created_at
@@ -60,79 +60,115 @@ CREATE INDEX IF NOT EXISTS idx_quizzes_masjid_created_desc
   ON quizzes (quizzes_masjid_id, quizzes_created_at DESC)
   WHERE quizzes_deleted_at IS NULL;
 
+
+
 -- =========================================
--- 2) QUIZ ITEMS (soal + opsi gabung)
---    SINGLE: 1 soal = banyak baris (1 baris = 1 opsi), tepat 1 opsi benar.
---    ESSAY : 1 soal = 1 baris; kolom opsi = NULL.
+-- 2) QUIZ QUESTIONS (soal + opsi via JSONB)
 -- =========================================
-CREATE TABLE IF NOT EXISTS quiz_items (
-  quiz_items_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  quiz_items_quiz_id UUID NOT NULL
+CREATE TABLE IF NOT EXISTS quiz_questions (
+  quiz_questions_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  quiz_questions_quiz_id   UUID NOT NULL
     REFERENCES quizzes(quizzes_id) ON DELETE CASCADE,
 
-  -- Info soal (shared oleh baris-barisnya)
-  quiz_items_question_id   UUID NOT NULL,                       -- ID soal (dipakai lintas opsi)
-  quiz_items_question_type VARCHAR(8)  NOT NULL                  -- 'single' | 'essay'
-    CHECK (quiz_items_question_type IN ('single','essay')),
-  quiz_items_question_text TEXT NOT NULL,
-  quiz_items_points        NUMERIC(6,2) NOT NULL DEFAULT 1
-    CHECK (quiz_items_points >= 0),
+  -- denormalisasi tenant (untuk filter cepat)
+  quiz_questions_masjid_id UUID NOT NULL
+    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  -- Info opsi (hanya untuk SINGLE; NULL untuk ESSAY)
-  quiz_items_option_id        UUID,      -- NULL jika ESSAY
-  quiz_items_option_text      TEXT,      -- NULL jika ESSAY
-  quiz_items_option_is_correct BOOLEAN   -- TRUE tepat satu; NULL jika ESSAY
+  -- tipe soal
+  quiz_questions_type VARCHAR(8) NOT NULL
+    CHECK (quiz_questions_type IN ('single','essay')),
+
+  quiz_questions_text   TEXT NOT NULL,
+  quiz_questions_points NUMERIC(6,2) NOT NULL DEFAULT 1
+    CHECK (quiz_questions_points >= 0),
+
+  -- opsi/jawaban:
+  --  - SINGLE: JSONB (object A..D ATAU array elemen {text,is_correct,...})
+  --  - ESSAY : NULL
+  quiz_questions_answers JSONB,
+  quiz_questions_correct CHAR(1)
+    CHECK (quiz_questions_correct IN ('A','B','C','D')),
+
+  quiz_questions_explanation TEXT,
+
+  quiz_questions_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  quiz_questions_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  quiz_questions_deleted_at TIMESTAMPTZ
 );
 
--- Konsistensi bentuk data terhadap tipe soal
-ALTER TABLE quiz_items
-  ADD CONSTRAINT IF NOT EXISTS ck_quiz_items_shape
+-- ===============================
+-- CHECK constraints (tanpa subquery)
+-- ===============================
+-- Bersihkan dulu biar idempotent
+ALTER TABLE quiz_questions DROP CONSTRAINT IF EXISTS ck_qq_essay_shape;
+ALTER TABLE quiz_questions DROP CONSTRAINT IF EXISTS ck_qq_single_answers_required;
+ALTER TABLE quiz_questions DROP CONSTRAINT IF EXISTS ck_qq_single_answers_shape;
+
+-- ESSAY: answers & correct harus NULL
+ALTER TABLE quiz_questions
+  ADD CONSTRAINT ck_qq_essay_shape
   CHECK (
-    (quiz_items_question_type = 'single'
-      AND quiz_items_option_id IS NOT NULL
-      AND quiz_items_option_text IS NOT NULL
-      AND quiz_items_option_is_correct IS NOT NULL)
-    OR
-    (quiz_items_question_type = 'essay'
-      AND quiz_items_option_id IS NULL
-      AND quiz_items_option_text IS NULL
-      AND quiz_items_option_is_correct IS NULL)
+    quiz_questions_type <> 'essay'
+    OR (quiz_questions_answers IS NULL AND quiz_questions_correct IS NULL)
   );
 
--- SINGLE: tepat satu opsi benar per soal
-CREATE UNIQUE INDEX IF NOT EXISTS uq_single_correct_per_question
-  ON quiz_items(quiz_items_question_id)
-  WHERE quiz_items_question_type = 'single'
-    AND quiz_items_option_is_correct = TRUE;
+-- SINGLE: answers wajib ada
+ALTER TABLE quiz_questions
+  ADD CONSTRAINT ck_qq_single_answers_required
+  CHECK (
+    quiz_questions_type <> 'single'
+    OR quiz_questions_answers IS NOT NULL
+  );
 
--- SINGLE: hindari duplikasi option_id dalam satu soal
-CREATE UNIQUE INDEX IF NOT EXISTS uq_question_option_pair
-  ON quiz_items(quiz_items_question_id, quiz_items_option_id)
-  WHERE quiz_items_question_type = 'single';
+-- SINGLE: bentuk jawaban harus object ATAU array (tanpa subquery)
+ALTER TABLE quiz_questions
+  ADD CONSTRAINT ck_qq_single_answers_shape
+  CHECK (
+    quiz_questions_type <> 'single'
+    OR jsonb_typeof(quiz_questions_answers) IN ('object','array')
+  );
 
--- ESSAY: pastikan hanya satu baris per question_id
-CREATE UNIQUE INDEX IF NOT EXISTS uq_essay_single_row_per_question
-  ON quiz_items(quiz_items_question_id)
-  WHERE quiz_items_question_type = 'essay';
+-- ===============================
+-- Indexes (partial: hanya row hidup)
+-- ===============================
+-- Filter umum
+CREATE INDEX IF NOT EXISTS idx_qq_quiz
+  ON quiz_questions (quiz_questions_quiz_id)
+  WHERE quiz_questions_deleted_at IS NULL;
 
--- Indeks bantu
-CREATE INDEX IF NOT EXISTS idx_quiz_items_quiz
-  ON quiz_items(quiz_items_quiz_id);
+CREATE INDEX IF NOT EXISTS idx_qq_masjid
+  ON quiz_questions (quiz_questions_masjid_id)
+  WHERE quiz_questions_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_quiz_items_question
-  ON quiz_items(quiz_items_question_id);
+-- Sort terbaru per masjid
+CREATE INDEX IF NOT EXISTS idx_qq_masjid_created_desc
+  ON quiz_questions (quiz_questions_masjid_id, quiz_questions_created_at DESC)
+  WHERE quiz_questions_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_quiz_items_type
-  ON quiz_items(quiz_items_question_type);
+-- Time-series
+CREATE INDEX IF NOT EXISTS brin_qq_created_at
+  ON quiz_questions USING BRIN (quiz_questions_created_at);
 
--- Optimasi akses umum: ambil baris per kuis & group by soal
-CREATE INDEX IF NOT EXISTS idx_quiz_items_quiz_question
-  ON quiz_items (quiz_items_quiz_id, quiz_items_question_id);
+-- GIN untuk JSONB answers
+CREATE INDEX IF NOT EXISTS gin_qq_answers
+  ON quiz_questions USING GIN (quiz_questions_answers jsonb_path_ops)
+  WHERE quiz_questions_deleted_at IS NULL;
 
--- Filter cepat hanya ESSAY per kuis
-CREATE INDEX IF NOT EXISTS idx_quiz_items_quiz_essay
-  ON quiz_items (quiz_items_quiz_id)
-  WHERE quiz_items_question_type = 'essay';
+-- Trigram untuk pencarian teks (wajib double parentheses + operator class)
+CREATE INDEX IF NOT EXISTS trgm_qq_text
+  ON quiz_questions USING GIN ((LOWER(quiz_questions_text)) gin_trgm_ops)
+  WHERE quiz_questions_deleted_at IS NULL;
+
+-- Full-text search index (expression)
+CREATE INDEX IF NOT EXISTS gin_qq_tsv
+  ON quiz_questions USING GIN (
+    (
+      setweight(to_tsvector('simple', COALESCE(quiz_questions_text, '')), 'A') ||
+      setweight(to_tsvector('simple', COALESCE(quiz_questions_explanation, '')), 'B')
+    )
+  )
+  WHERE quiz_questions_deleted_at IS NULL;
 
 
 
@@ -164,38 +200,32 @@ CREATE TABLE IF NOT EXISTS user_quiz_attempts (
   user_quiz_attempts_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Indeks bantu attempts (dasar)
+-- Index attempts
 CREATE INDEX IF NOT EXISTS idx_uqa_quiz_student
-  ON user_quiz_attempts(user_quiz_attempts_quiz_id, user_quiz_attempts_student_id);
+  ON user_quiz_attempts (user_quiz_attempts_quiz_id, user_quiz_attempts_student_id);
 
 CREATE INDEX IF NOT EXISTS idx_uqa_status
-  ON user_quiz_attempts(user_quiz_attempts_status);
+  ON user_quiz_attempts (user_quiz_attempts_status);
 
 CREATE INDEX IF NOT EXISTS brin_uqa_started_at
   ON user_quiz_attempts USING BRIN (user_quiz_attempts_started_at);
 
--- Optimasi akses umum
--- latest attempt per (quiz, student)
 CREATE INDEX IF NOT EXISTS idx_uqa_quiz_student_started_desc
   ON user_quiz_attempts (user_quiz_attempts_quiz_id, user_quiz_attempts_student_id, user_quiz_attempts_started_at DESC);
 
--- akses per tenant (masjid) → per kuis
 CREATE INDEX IF NOT EXISTS idx_uqa_masjid_quiz
   ON user_quiz_attempts (user_quiz_attempts_masjid_id, user_quiz_attempts_quiz_id);
 
--- dashboard siswa/guru
 CREATE INDEX IF NOT EXISTS idx_uqa_student
   ON user_quiz_attempts (user_quiz_attempts_student_id);
 
 CREATE INDEX IF NOT EXISTS idx_uqa_student_status
   ON user_quiz_attempts (user_quiz_attempts_student_id, user_quiz_attempts_status);
 
--- attempts aktif saja
 CREATE INDEX IF NOT EXISTS idx_uqa_quiz_active
   ON user_quiz_attempts (user_quiz_attempts_quiz_id)
   WHERE user_quiz_attempts_status IN ('in_progress','submitted');
 
--- time-series tambahan
 CREATE INDEX IF NOT EXISTS brin_uqa_created_at
   ON user_quiz_attempts USING BRIN (user_quiz_attempts_created_at);
 
@@ -203,8 +233,6 @@ CREATE INDEX IF NOT EXISTS brin_uqa_created_at
 
 -- =========================================
 -- 4) USER QUIZ ATTEMPT ANSWERS (jawaban per soal)
---    SINGLE → isi selected_option_id.
---    ESSAY  → isi text; dinilai manual oleh guru.
 -- =========================================
 CREATE TABLE IF NOT EXISTS user_quiz_attempt_answers (
   user_quiz_attempt_answers_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -212,7 +240,8 @@ CREATE TABLE IF NOT EXISTS user_quiz_attempt_answers (
   user_quiz_attempt_answers_attempt_id UUID NOT NULL
     REFERENCES user_quiz_attempts(user_quiz_attempts_id) ON DELETE CASCADE,
 
-  user_quiz_attempt_answers_question_id UUID NOT NULL,            -- harus cocok dgn question_id di quiz_items
+  -- harus cocok dgn quiz_questions_id
+  user_quiz_attempt_answers_question_id UUID NOT NULL,
 
   -- SINGLE: isi option; ESSAY: NULL
   user_quiz_attempt_answers_selected_option_id UUID,
@@ -245,11 +274,10 @@ CREATE TABLE IF NOT EXISTS user_quiz_attempt_answers (
     )
 );
 
--- Indeks bantu answers
+-- Index answers
 CREATE INDEX IF NOT EXISTS idx_user_answers_question
-  ON user_quiz_attempt_answers(user_quiz_attempt_answers_question_id);
+  ON user_quiz_attempt_answers (user_quiz_attempt_answers_question_id);
 
--- Time-series: answered_at
 CREATE INDEX IF NOT EXISTS brin_user_answers_answered_at
   ON user_quiz_attempt_answers USING BRIN (user_quiz_attempt_answers_answered_at);
 

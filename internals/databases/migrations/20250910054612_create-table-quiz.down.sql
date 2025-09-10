@@ -4,40 +4,37 @@
 BEGIN;
 
 -- =========================================
--- 4) QUIZ ATTEMPT ANSWERS
+-- 4) USER QUIZ ATTEMPT ANSWERS
 -- =========================================
-DROP INDEX IF EXISTS brin_answers_answered_at;
-DROP INDEX IF EXISTS idx_answers_question;
-DROP TABLE IF EXISTS quiz_attempt_answers;
+DROP INDEX IF EXISTS brin_user_answers_answered_at;
+DROP INDEX IF EXISTS idx_user_answers_question;
+DROP TABLE IF EXISTS user_quiz_attempt_answers;
 
 -- =========================================
--- 3) QUIZ ATTEMPTS
+-- 3) USER QUIZ ATTEMPTS
 -- =========================================
-DROP INDEX IF EXISTS brin_attempts_created_at;
-DROP INDEX IF EXISTS idx_attempts_quiz_active;
-DROP INDEX IF EXISTS idx_attempts_student_status;
-DROP INDEX IF EXISTS idx_attempts_student;
-DROP INDEX IF EXISTS idx_attempts_masjid_quiz;
-DROP INDEX IF EXISTS idx_attempts_quiz_student_started_desc;
-DROP INDEX IF EXISTS brin_attempts_started_at;
-DROP INDEX IF EXISTS idx_attempts_status;
-DROP INDEX IF EXISTS idx_attempts_quiz_student;
-DROP TABLE IF EXISTS quiz_attempts;
+DROP INDEX IF EXISTS brin_uqa_created_at;
+DROP INDEX IF EXISTS idx_uqa_quiz_active;
+DROP INDEX IF EXISTS idx_uqa_student_status;
+DROP INDEX IF EXISTS idx_uqa_student;
+DROP INDEX IF EXISTS idx_uqa_masjid_quiz;
+DROP INDEX IF EXISTS idx_uqa_quiz_student_started_desc;
+DROP INDEX IF EXISTS brin_uqa_started_at;
+DROP INDEX IF EXISTS idx_uqa_status;
+DROP INDEX IF EXISTS idx_uqa_quiz_student;
+DROP TABLE IF EXISTS user_quiz_attempts;
 
 -- =========================================
--- 2) QUIZ ITEMS
+-- 2) QUIZ QUESTIONS
 -- =========================================
-DROP INDEX IF EXISTS idx_quiz_items_quiz_essay;
-DROP INDEX IF EXISTS idx_quiz_items_quiz_question;
-DROP INDEX IF EXISTS idx_quiz_items_type;
-DROP INDEX IF EXISTS idx_quiz_items_question;
-DROP INDEX IF EXISTS idx_quiz_items_quiz;
-DROP INDEX IF EXISTS uq_essay_single_row_per_question;
-DROP INDEX IF EXISTS uq_question_option_pair;
-DROP INDEX IF EXISTS uq_single_correct_per_question;
--- (opsional) constraint akan ikut terhapus saat DROP TABLE:
--- ALTER TABLE IF EXISTS quiz_items DROP CONSTRAINT IF EXISTS ck_quiz_items_shape;
-DROP TABLE IF EXISTS quiz_items;
+DROP INDEX IF EXISTS gin_qq_tsv;
+DROP INDEX IF EXISTS trgm_qq_text;
+DROP INDEX IF EXISTS gin_qq_answers;
+DROP INDEX IF EXISTS brin_qq_created_at;
+DROP INDEX IF EXISTS idx_qq_masjid_created_desc;
+DROP INDEX IF EXISTS idx_qq_masjid;
+DROP INDEX IF EXISTS idx_qq_quiz;
+DROP TABLE IF EXISTS quiz_questions;
 
 -- =========================================
 -- 1) QUIZZES
@@ -51,9 +48,7 @@ DROP INDEX IF EXISTS idx_quizzes_assessment;
 DROP INDEX IF EXISTS idx_quizzes_masjid_published;
 DROP TABLE IF EXISTS quizzes;
 
--- =========================================
--- Extensions (umumnya jangan di-drop; uncomment jika yakin tidak dipakai)
--- =========================================
+-- (Extensions biasanya dibiarkan)
 -- DROP EXTENSION IF EXISTS pg_trgm;
 -- DROP EXTENSION IF EXISTS pgcrypto;
 

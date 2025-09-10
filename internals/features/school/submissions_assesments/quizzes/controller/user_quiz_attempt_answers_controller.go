@@ -7,15 +7,20 @@ import (
 	"strings"
 	"time"
 
-	"masjidku_backend/internals/features/school/submissions_assesments/quizzes/dto"
-	"masjidku_backend/internals/features/school/submissions_assesments/quizzes/model"
+	qdto "masjidku_backend/internals/features/school/submissions_assesments/quizzes/dto"
+	qmodel "masjidku_backend/internals/features/school/submissions_assesments/quizzes/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+/* ============================================================
+   Controller
+============================================================ */
 
 type UserQuizAttemptAnswersController struct {
 	DB *gorm.DB
@@ -35,9 +40,119 @@ func (ctl *UserQuizAttemptAnswersController) ensureValidator() {
 	}
 }
 
+/* ============================================================
+   Helpers — scope & relasi
+============================================================ */
+
+type attemptCore struct {
+	MasjidID  uuid.UUID `gorm:"column:user_quiz_attempts_masjid_id"`
+	StudentID uuid.UUID `gorm:"column:user_quiz_attempts_student_id"`
+	QuizID    uuid.UUID `gorm:"column:user_quiz_attempts_quiz_id"`
+}
+
+// Load minimal kolom attempt utk cek scope
+func (ctl *UserQuizAttemptAnswersController) loadAttemptCore(id uuid.UUID) (*attemptCore, error) {
+	if id == uuid.Nil {
+		return nil, fiber.NewError(http.StatusBadRequest, "attempt_id wajib")
+	}
+
+	var core attemptCore
+	err := ctl.DB.
+		Table("user_quiz_attempts").
+		Select("user_quiz_attempts_masjid_id, user_quiz_attempts_student_id, user_quiz_attempts_quiz_id").
+		Where("user_quiz_attempts_id = ?", id).
+		Take(&core).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fiber.NewError(http.StatusNotFound, "attempt tidak ditemukan")
+		}
+		return nil, err
+	}
+	if core.QuizID == uuid.Nil {
+		return nil, fiber.NewError(http.StatusConflict, "attempt belum terhubung ke quiz")
+	}
+	return &core, nil
+}
+
+// Pastikan question_id milik quiz yg sama dgn attempt & belum deleted
+func (ctl *UserQuizAttemptAnswersController) questionBelongsToQuiz(questionID, quizID uuid.UUID) (bool, error) {
+	if questionID == uuid.Nil || quizID == uuid.Nil {
+		return false, fiber.NewError(http.StatusBadRequest, "question_id/quiz_id wajib")
+	}
+	var ok bool
+	if err := ctl.DB.
+		Raw(`
+			SELECT EXISTS(
+				SELECT 1
+				FROM quiz_questions
+				WHERE quiz_questions_id = ?
+				  AND quiz_questions_quiz_id = ?
+				  AND quiz_questions_deleted_at IS NULL
+			)`, questionID, quizID).
+		Scan(&ok).Error; err != nil {
+		return false, err
+	}
+	return ok, nil
+}
+
+// Scope enforcement:
+// - Student: hanya boleh akses attempt miliknya (student_id cocok & terdaftar di masjid attempt).
+// - Admin/DKM/Teacher/Owner: boleh jika punya role di masjid attempt.
+func (ctl *UserQuizAttemptAnswersController) ensureScopeForAttempt(c *fiber.Ctx, core *attemptCore) error {
+	if core == nil {
+		return fiber.NewError(http.StatusInternalServerError, "internal: attemptCore nil")
+	}
+
+	// Student flow
+	if helperAuth.IsStudent(c) {
+		sid, err := helperAuth.GetMasjidStudentIDForMasjid(c, core.MasjidID)
+		if err != nil {
+			return fiber.NewError(http.StatusForbidden, "tidak terdaftar sebagai student pada masjid attempt")
+		}
+		if sid != core.StudentID {
+			return fiber.NewError(http.StatusForbidden, "attempt bukan milik kamu")
+		}
+		return nil
+	}
+
+	// Non-student: cek role di masjid
+	if helperAuth.HasRoleInMasjid(c, core.MasjidID, "dkm") ||
+		helperAuth.HasRoleInMasjid(c, core.MasjidID, "teacher") ||
+		helperAuth.IsOwner(c) {
+		return nil
+	}
+
+	return fiber.NewError(http.StatusUnauthorized, "akses ditolak untuk masjid terkait")
+}
+
+/* ============================================================
+   Tiny helpers
+============================================================ */
+
+func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
+	s := strings.TrimSpace(c.Params(name))
+	return uuid.Parse(s)
+}
+
+func exactlyOneFilled(optID *uuid.UUID, text *string) bool {
+	hasOpt := optID != nil
+	hasText := text != nil && strings.TrimSpace(*text) != ""
+	// XOR: true jika tepat satu
+	return (hasOpt || hasText) && !(hasOpt && hasText)
+}
+
+func validationMessage(err error) string {
+	return "validasi gagal: " + err.Error()
+}
+
+/* ============================================================
+   Handlers
+============================================================ */
+
 // GET /user-quiz-attempt-answers?attempt_id=...&question_id=...&sort_by=&order=&page=&per_page=
 func (ctl *UserQuizAttemptAnswersController) List(c *fiber.Ctx) error {
-	// Wajib minimal filter attempt_id supaya efisien
+	// Wajib minimal filter attempt_id supaya efisien & untuk scope
 	attemptIDStr := strings.TrimSpace(c.Query("attempt_id"))
 	if attemptIDStr == "" {
 		return helper.JsonError(c, http.StatusBadRequest, "attempt_id wajib diisi")
@@ -47,11 +162,28 @@ func (ctl *UserQuizAttemptAnswersController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, "attempt_id tidak valid")
 	}
 
+	core, err := ctl.loadAttemptCore(attemptID)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, http.StatusInternalServerError, "gagal memuat attempt")
+	}
+	if err := ctl.ensureScopeForAttempt(c, core); err != nil {
+		return helper.JsonError(c, err.(*fiber.Error).Code, err.Error())
+	}
+
 	var questionID *uuid.UUID
 	if s := strings.TrimSpace(c.Query("question_id")); s != "" {
 		qid, err := uuid.Parse(s)
 		if err != nil {
 			return helper.JsonError(c, http.StatusBadRequest, "question_id tidak valid")
+		}
+		// optional: validasi question belongs to quiz
+		if ok, e := ctl.questionBelongsToQuiz(qid, core.QuizID); e != nil {
+			return helper.JsonError(c, http.StatusInternalServerError, "gagal validasi question")
+		} else if !ok {
+			return helper.JsonError(c, http.StatusBadRequest, "question_id tidak milik quiz dari attempt ini")
 		}
 		questionID = &qid
 	}
@@ -68,7 +200,7 @@ func (ctl *UserQuizAttemptAnswersController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, "sort_by tidak valid")
 	}
 
-	q := ctl.DB.Model(&model.UserQuizAttemptAnswerModel{}).
+	q := ctl.DB.Model(&qmodel.UserQuizAttemptAnswerModel{}).
 		Where("user_quiz_attempt_answers_attempt_id = ?", attemptID)
 
 	if questionID != nil {
@@ -80,20 +212,18 @@ func (ctl *UserQuizAttemptAnswersController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, "gagal menghitung data")
 	}
 
-	var rows []model.UserQuizAttemptAnswerModel
+	var rows []qmodel.UserQuizAttemptAnswerModel
 	if err := q.
 		Limit(params.Limit()).
 		Offset(params.Offset()).
-		// RAW order by aman dari whitelist
-		Order(orderClause).
+		Order(orderClause). // RAW order dari whitelist
 		Find(&rows).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, "gagal mengambil data")
 	}
 
-	// mapping ke response
-	resp := make([]*dto.UserQuizAttemptAnswerResponse, 0, len(rows))
+	resp := make([]*qdto.UserQuizAttemptAnswerResponse, 0, len(rows))
 	for i := range rows {
-		resp = append(resp, dto.ToUserQuizAttemptAnswerResponse(&rows[i]))
+		resp = append(resp, qdto.ToUserQuizAttemptAnswerResponse(&rows[i]))
 	}
 
 	meta := helper.BuildMeta(total, params)
@@ -107,7 +237,7 @@ func (ctl *UserQuizAttemptAnswersController) GetByID(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, "id tidak valid")
 	}
 
-	var m model.UserQuizAttemptAnswerModel
+	var m qmodel.UserQuizAttemptAnswerModel
 	if err := ctl.DB.First(&m, "user_quiz_attempt_answers_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "data tidak ditemukan")
@@ -115,48 +245,75 @@ func (ctl *UserQuizAttemptAnswersController) GetByID(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, "gagal mengambil data")
 	}
 
-	return helper.JsonOK(c, "OK", dto.ToUserQuizAttemptAnswerResponse(&m))
+	// Scope by attempt
+	core, err := ctl.loadAttemptCore(m.UserQuizAttemptAnswersAttemptID)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, http.StatusInternalServerError, "gagal memuat attempt")
+	}
+	if err := ctl.ensureScopeForAttempt(c, core); err != nil {
+		return helper.JsonError(c, err.(*fiber.Error).Code, err.Error())
+	}
+
+	return helper.JsonOK(c, "OK", qdto.ToUserQuizAttemptAnswerResponse(&m))
 }
 
 // POST /user-quiz-attempt-answers
 func (ctl *UserQuizAttemptAnswersController) Create(c *fiber.Ctx) error {
 	ctl.ensureValidator()
 
-	var req dto.CreateUserQuizAttemptAnswerRequest
+	var req qdto.CreateUserQuizAttemptAnswerRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, "payload tidak valid")
 	}
-
-	// Validasi dasar
 	if err := ctl.V.Struct(&req); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, validationMessage(err))
 	}
 
-	// Guard XOR tambahan di server (selain validator + constraint DB)
+	// Load attempt & scope
+	core, err := ctl.loadAttemptCore(req.UserQuizAttemptAnswersAttemptID)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, http.StatusInternalServerError, "gagal memuat attempt")
+	}
+	if err := ctl.ensureScopeForAttempt(c, core); err != nil {
+		return helper.JsonError(c, err.(*fiber.Error).Code, err.Error())
+	}
+
+	// Validasi: question_id harus milik quiz attempt
+	if ok, e := ctl.questionBelongsToQuiz(req.UserQuizAttemptAnswersQuestionID, core.QuizID); e != nil {
+		return helper.JsonError(c, http.StatusInternalServerError, "gagal validasi question")
+	} else if !ok {
+		return helper.JsonError(c, http.StatusBadRequest, "question_id tidak milik quiz dari attempt ini")
+	}
+
+	// Guard XOR tambahan di server
 	if !exactlyOneFilled(req.UserQuizAttemptAnswersSelectedOptionID, req.UserQuizAttemptAnswersText) {
 		return helper.JsonError(c, http.StatusBadRequest, "isi tepat salah satu: selected_option_id ATAU text")
 	}
 
 	m := req.ToModel()
 
-	// Pastikan answered_at terisi (biarkan DB default jika kosong)
+	// answered_at default
 	if m.UserQuizAttemptAnswersAnsweredAt.IsZero() {
 		m.UserQuizAttemptAnswersAnsweredAt = time.Now()
 	}
 
-	// Simpan
 	if err := ctl.DB.Create(m).Error; err != nil {
 		if isUniqueViolation(err) {
 			return helper.JsonError(c, http.StatusConflict, "jawaban untuk (attempt_id, question_id) sudah ada")
 		}
-		// DB constraint XOR juga akan fail → kirim pesan ramah
 		if isCheckViolation(err) {
-			return helper.JsonError(c, http.StatusBadRequest, "DB menolak: isi tepat salah satu antara selected_option_id atau text")
+			return helper.JsonError(c, http.StatusBadRequest, "DB menolak: XOR selected_option_id vs text tidak terpenuhi")
 		}
 		return helper.JsonError(c, http.StatusInternalServerError, "gagal menyimpan data")
 	}
 
-	return helper.JsonCreated(c, "Berhasil membuat jawaban", dto.ToUserQuizAttemptAnswerResponse(m))
+	return helper.JsonCreated(c, "Berhasil membuat jawaban", qdto.ToUserQuizAttemptAnswerResponse(m))
 }
 
 // PATCH /user-quiz-attempt-answers/:id
@@ -168,7 +325,7 @@ func (ctl *UserQuizAttemptAnswersController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, "id tidak valid")
 	}
 
-	var req dto.UpdateUserQuizAttemptAnswerRequest
+	var req qdto.UpdateUserQuizAttemptAnswerRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, "payload tidak valid")
 	}
@@ -176,7 +333,7 @@ func (ctl *UserQuizAttemptAnswersController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, validationMessage(err))
 	}
 
-	var m model.UserQuizAttemptAnswerModel
+	var m qmodel.UserQuizAttemptAnswerModel
 	if err := ctl.DB.First(&m, "user_quiz_attempt_answers_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "data tidak ditemukan")
@@ -184,8 +341,19 @@ func (ctl *UserQuizAttemptAnswersController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, "gagal mengambil data")
 	}
 
-	// Jika user mengirim salah satu dari option/text, pastikan XOR terpenuhi pada nilai akhir
-	// (nilai akhir = existing + patch)
+	// Scope by attempt
+	core, err := ctl.loadAttemptCore(m.UserQuizAttemptAnswersAttemptID)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, http.StatusInternalServerError, "gagal memuat attempt")
+	}
+	if err := ctl.ensureScopeForAttempt(c, core); err != nil {
+		return helper.JsonError(c, err.(*fiber.Error).Code, err.Error())
+	}
+
+	// Jika user mengirim salah satu dari option/text, cek XOR pada nilai akhir
 	if req.UserQuizAttemptAnswersSelectedOptionID != nil || req.UserQuizAttemptAnswersText != nil {
 		nextOption := m.UserQuizAttemptAnswersSelectedOptionID
 		nextText := m.UserQuizAttemptAnswersText
@@ -200,10 +368,8 @@ func (ctl *UserQuizAttemptAnswersController) Patch(c *fiber.Ctx) error {
 		}
 	}
 
-	// Apply dan simpan
+	// Apply & save (kolom whitelist)
 	req.Apply(&m)
-
-	// Hanya update kolom yang berubah
 	if err := ctl.DB.Model(&m).Select(
 		"user_quiz_attempt_answers_selected_option_id",
 		"user_quiz_attempt_answers_text",
@@ -220,7 +386,7 @@ func (ctl *UserQuizAttemptAnswersController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, "gagal memperbarui data")
 	}
 
-	return helper.JsonUpdated(c, "Berhasil memperbarui jawaban", dto.ToUserQuizAttemptAnswerResponse(&m))
+	return helper.JsonUpdated(c, "Berhasil memperbarui jawaban", qdto.ToUserQuizAttemptAnswerResponse(&m))
 }
 
 // DELETE /user-quiz-attempt-answers/:id
@@ -230,28 +396,33 @@ func (ctl *UserQuizAttemptAnswersController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, "id tidak valid")
 	}
 
-	if err := ctl.DB.Delete(&model.UserQuizAttemptAnswerModel{}, "user_quiz_attempt_answers_id = ?", id).Error; err != nil {
+	// Ambil attempt_id dulu untuk cek scope
+	var attemptID uuid.UUID
+	if err := ctl.DB.
+		Table("user_quiz_attempt_answers").
+		Select("user_quiz_attempt_answers_attempt_id").
+		Where("user_quiz_attempt_answers_id = ?", id).
+		Take(&attemptID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, http.StatusNotFound, "data tidak ditemukan")
+		}
+		return helper.JsonError(c, http.StatusInternalServerError, "gagal mengambil data")
+	}
+
+	core, err := ctl.loadAttemptCore(attemptID)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, http.StatusInternalServerError, "gagal memuat attempt")
+	}
+	if err := ctl.ensureScopeForAttempt(c, core); err != nil {
+		return helper.JsonError(c, err.(*fiber.Error).Code, err.Error())
+	}
+
+	if err := ctl.DB.Delete(&qmodel.UserQuizAttemptAnswerModel{}, "user_quiz_attempt_answers_id = ?", id).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, "gagal menghapus data")
 	}
 
 	return helper.JsonDeleted(c, "Berhasil menghapus jawaban", fiber.Map{"id": id})
-}
-
-/* ===================== Helpers ===================== */
-
-func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
-	s := strings.TrimSpace(c.Params(name))
-	return uuid.Parse(s)
-}
-
-func exactlyOneFilled(optID *uuid.UUID, text *string) bool {
-	hasOpt := optID != nil
-	hasText := text != nil && strings.TrimSpace(*text) != ""
-	// XOR: true jika tepat satu
-	return (hasOpt || hasText) && !(hasOpt && hasText)
-}
-
-func validationMessage(err error) string {
-	// Bisa kamu kembangkan jadi multilanguage/detail per-field
-	return "validasi gagal: " + err.Error()
 }

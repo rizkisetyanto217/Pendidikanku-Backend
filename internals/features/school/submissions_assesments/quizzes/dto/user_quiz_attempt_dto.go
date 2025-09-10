@@ -15,21 +15,31 @@ import (
    Use case: memulai attempt (status default 'in_progress')
 ========================================================================================== */
 
-type CreateUserQuizAttemptRequest struct {
-	UserQuizAttemptsMasjidID uuid.UUID `json:"user_quiz_attempts_masjid_id" validate:"required"`
-	UserQuizAttemptsQuizID   uuid.UUID `json:"user_quiz_attempts_quiz_id" validate:"required"`
-	UserQuizAttemptsStudentID uuid.UUID `json:"user_quiz_attempts_student_id" validate:"required"`
+// file: .../dto/user_quiz_attempt_dto.go
 
-	// Optional override (kalau tidak diisi → default NOW() di DB)
-	UserQuizAttemptsStartedAt *time.Time `json:"user_quiz_attempts_started_at" validate:"omitempty"`
+type CreateUserQuizAttemptRequest struct {
+	// Opsional: server akan derive dari quiz
+	UserQuizAttemptsMasjidID   *uuid.UUID `json:"user_quiz_attempts_masjid_id" validate:"omitempty,uuid"`
+
+	// Wajib
+	UserQuizAttemptsQuizID     uuid.UUID  `json:"user_quiz_attempts_quiz_id" validate:"required,uuid"`
+
+	// Opsional: siswa tidak perlu kirim; admin/dkm/teacher wajib kirim
+	UserQuizAttemptsStudentID  *uuid.UUID `json:"user_quiz_attempts_student_id" validate:"omitempty,uuid"`
+
+	// Opsional
+	UserQuizAttemptsStartedAt  *time.Time `json:"user_quiz_attempts_started_at" validate:"omitempty"`
 }
 
 func (r *CreateUserQuizAttemptRequest) ToModel() *qmodel.UserQuizAttemptModel {
 	m := &qmodel.UserQuizAttemptModel{
-		UserQuizAttemptsMasjidID:  r.UserQuizAttemptsMasjidID,
-		UserQuizAttemptsQuizID:    r.UserQuizAttemptsQuizID,
-		UserQuizAttemptsStudentID: r.UserQuizAttemptsStudentID,
-		// Status, created_at, updated_at default oleh DB; started_at optional override
+		UserQuizAttemptsQuizID: r.UserQuizAttemptsQuizID,
+	}
+	if r.UserQuizAttemptsMasjidID != nil {
+		m.UserQuizAttemptsMasjidID = *r.UserQuizAttemptsMasjidID
+	}
+	if r.UserQuizAttemptsStudentID != nil {
+		m.UserQuizAttemptsStudentID = *r.UserQuizAttemptsStudentID
 	}
 	if r.UserQuizAttemptsStartedAt != nil {
 		m.UserQuizAttemptsStartedAt = *r.UserQuizAttemptsStartedAt

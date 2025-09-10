@@ -9,56 +9,50 @@ import (
 
 /*
 Catatan:
-- UserRoutes (publik read-only + submit jawaban)
-- Base: /api/u/quizzes
-- Filter di controller wajib pastikan hanya quizzes_is_published = true
+- Base (user/public): /api/u
+- Controller sisi user WAJIB filter quizzes_is_published = true.
 */
 
-// =========================================
-// User Routes (Publik Read-Only + Create Attempt Answer)
-// Base: /api/u/quizzes
-// =========================================
 func QuizzesUserRoutes(r fiber.Router, db *gorm.DB) {
-	ctrl := quizcontroller.NewQuizController(db)
-	g := r.Group("/quizzes")
+	// ============================
+	// QUIZZES (read-only publik)
+	// ============================
+	quizCtrl := quizcontroller.NewQuizController(db)
+	quizzes := r.Group("/quizzes") // -> /api/u/quizzes
 
-	// Quizzes
-	g.Get("/list", ctrl.List)   // GET /api/u/quizzes/list
-	g.Get("/:id", ctrl.GetByID) // GET /api/u/quizzes/:id
+	quizzes.Get("/list", quizCtrl.List)   // alias
 
 	// ============================
-	// QUIZ ITEMS (soal & opsi) — read only
-	// Base: /api/u/quizzes/items
+	// QUIZ QUESTIONS (read-only)
 	// ============================
-	itemsCtrl := quizcontroller.NewQuizItemsController(db)
-	items := g.Group("/items")
+	qqCtrl := quizcontroller.NewQuizQuestionsController(db)
+	qq := r.Group("/quiz-questions") // -> /api/u/quiz-questions
 
-	items.Get("/", itemsCtrl.ListByQuiz)                             // GET /api/u/quizzes/items?quiz_id=...
-	items.Get("/by-question/:question_id", itemsCtrl.ListByQuestion) // GET /api/u/quizzes/items/by-question/:question_id
-	items.Get("/:id", itemsCtrl.GetByID)                             // GET /api/u/quizzes/items/:id
+	qq.Get("/",     qqCtrl.List)    // GET /api/u/quiz-questions?quiz_id=&type=&q=&page=&per_page=&sort=
+	qq.Get("/list", qqCtrl.List)    // alias
+	qq.Get("/:id",  qqCtrl.GetByID) // GET /api/u/quiz-questions/:id
 
-		// =========================================
-	// USER QUIZ ATTEMPTS
-	// Base: /api/a/quizzes/attempts
-	// =========================================
+	// ============================
+	// USER QUIZ ATTEMPTS (user)
+	// tetap nested di /quizzes
+	// ============================
 	uqAttemptCtrl := quizcontroller.NewUserQuizAttemptsController(db)
-	attempts := g.Group("/attempts")
+	attempts := r.Group("/user-quiz-attempts") // -> /api/u/quizzes/attempts
 
-	attempts.Get("/", uqAttemptCtrl.List)        // GET    /api/a/quizzes/attempts?quiz_id=&student_id=&status=&active_only=true
-	attempts.Get("/:id", uqAttemptCtrl.GetByID)  // GET    /api/a/quizzes/attempts/:id
-	attempts.Post("/", uqAttemptCtrl.Create)     // POST   /api/a/quizzes/attempts
-	attempts.Patch("/:id", uqAttemptCtrl.Patch)  // PATCH  /api/a/quizzes/attempts/:id
-	attempts.Delete("/:id", uqAttemptCtrl.Delete) // DELETE /api/a/quizzes/attempts/:id
+	attempts.Get("/list",  uqAttemptCtrl.List) // alias
+	attempts.Post("/",     uqAttemptCtrl.Create)
+	attempts.Patch("/:id", uqAttemptCtrl.Patch)
+	attempts.Delete("/:id", uqAttemptCtrl.Delete)
 
-	// =========================================
-	// USER QUIZ ATTEMPT ANSWERS
-	// Base: /api/u/quizzes/attempt-answers
-	// =========================================
+	// ============================
+	// USER QUIZ ATTEMPT ANSWERS (submit jawaban)
+	// tetap nested di /quizzes
+	// ============================
 	uqaCtrl := quizcontroller.NewUserQuizAttemptAnswersController(db)
-	ans := g.Group("/attempt-answers")
+	ans := r.Group("/user-quiz-attempt-answers") // -> /api/u/quizzes/attempt-answers
 
-	ans.Get("/", uqaCtrl.List)       // GET  /api/u/quizzes/attempt-answers?attempt_id=...
-	ans.Get("/:id", uqaCtrl.GetByID) // GET  /api/u/quizzes/attempt-answers/:id
-	ans.Post("/", uqaCtrl.Create)    // POST /api/u/quizzes/attempt-answers
-	// ⚠️ Tidak ada PATCH/DELETE untuk user
+	ans.Get("/list",  uqaCtrl.List) // alias
+	ans.Get("/:id",   uqaCtrl.GetByID)
+	ans.Post("/",     uqaCtrl.Create)
+	// (User tidak memiliki PATCH/DELETE untuk jawaban)
 }

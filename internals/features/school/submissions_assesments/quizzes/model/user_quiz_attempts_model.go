@@ -104,9 +104,9 @@ func (m *UserQuizAttemptModel) BeforeSave(_ any) error {
 	return nil
 }
 
-/* =============================================================================
+/* ===================================================================
    Helper methods
-============================================================================= */
+=================================================================== */
 func (m *UserQuizAttemptModel) IsActive() bool {
 	return m.UserQuizAttemptsStatus == UserAttemptInProgress || m.UserQuizAttemptsStatus == UserAttemptSubmitted
 }
