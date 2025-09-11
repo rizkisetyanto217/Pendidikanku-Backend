@@ -51,28 +51,22 @@ func reqCtx(c *fiber.Ctx) context.Context {
 	return context.Background()
 }
 
-/* =======================================================
-   ROUTES
-   ======================================================= */
-
 func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
-	// ambil scope masjid dari token/locals (teacher-aware)
+	// scope masjid
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil || masjidID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid scope tidak ditemukan")
 	}
 
-	// Filters legacy (search, is_active, dll) + legacy sort (q.Sort)
+	// parse qparams legacy
 	var q dto.ListClassRoomsQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 	q.Normalize()
 
-	// Pagination & sorting via helper (tanpa net/http)
+	// sort & paging
 	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
-
-	// Whitelist kolom sorting utk sort_by/order dari helper
 	allowedSort := map[string]string{
 		"name":       "class_rooms_name",
 		"created_at": "class_rooms_created_at",
@@ -86,25 +80,35 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	if strings.ToLower(p.SortOrder) == "asc" {
 		orderDir = "ASC"
 	}
-
-	// Override jika user pakai legacy q.Sort (name_asc|name_desc|created_asc|created_desc)
-	if s := strings.ToLower(strings.TrimSpace(q.Sort)); s != "" {
-		switch s {
-		case "name_asc":
-			orderCol, orderDir = "class_rooms_name", "ASC"
-		case "name_desc":
-			orderCol, orderDir = "class_rooms_name", "DESC"
-		case "created_asc":
-			orderCol, orderDir = "class_rooms_created_at", "ASC"
-		case "created_desc":
-			orderCol, orderDir = "class_rooms_created_at", "DESC"
-		}
+	// legacy override
+	switch strings.ToLower(strings.TrimSpace(q.Sort)) {
+	case "name_asc":
+		orderCol, orderDir = "class_rooms_name", "ASC"
+	case "name_desc":
+		orderCol, orderDir = "class_rooms_name", "DESC"
+	case "created_asc":
+		orderCol, orderDir = "class_rooms_created_at", "ASC"
+	case "created_desc":
+		orderCol, orderDir = "class_rooms_created_at", "DESC"
 	}
 
 	db := ctl.DB.WithContext(reqCtx(c)).Model(&model.ClassRoomModel{}).
 		Where("class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", masjidID)
 
-	// search → LIKE ke name + location + description (case-insensitive)
+	// === NEW: filter by class_room_id (atau id) ===
+	roomID := strings.TrimSpace(c.Query("class_room_id"))
+	if roomID == "" {
+		roomID = strings.TrimSpace(c.Query("id")) // fallback opsional
+	}
+	if roomID != "" {
+		id, err := uuid.Parse(roomID)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "class_room_id tidak valid")
+		}
+		db = db.Where("class_room_id = ?", id)
+	}
+
+	// search
 	if q.Search != "" {
 		s := "%" + strings.ToLower(q.Search) + "%"
 		db = db.Where(`
@@ -113,7 +117,7 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 			OR LOWER(COALESCE(class_rooms_description,'')) LIKE ?
 		`, s, s, s)
 	}
-
+	// flags
 	if q.IsActive != nil {
 		db = db.Where("class_rooms_is_active = ?", *q.IsActive)
 	}
@@ -124,19 +128,19 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		db = db.Where("class_rooms_code IS NOT NULL AND length(trim(class_rooms_code)) > 0")
 	}
 
-	// Count total
+	// count
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
 	}
 
-	// Sorting & pagination (kolom di-whitelist di atas, aman untuk concat)
+	// order & paging
 	db = db.Order(orderCol + " " + orderDir)
 	if !p.All {
 		db = db.Limit(p.Limit()).Offset(p.Offset())
 	}
 
-	// Query data
+	// fetch
 	var rows []model.ClassRoomModel
 	if err := db.Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
@@ -151,29 +155,6 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	return helper.JsonList(c, out, meta)
 }
 
-func (ctl *ClassRoomController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil || masjidID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid scope tidak ditemukan")
-	}
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-
-	var m model.ClassRoomModel
-	if err := ctl.DB.WithContext(reqCtx(c)).Where(
-		"class_room_id = ? AND class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL",
-		id, masjidID,
-	).First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-
-	return helper.JsonOK(c, "OK", dto.ToClassRoomResponse(m))
-}
 
 func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	ctl.ensureValidator()

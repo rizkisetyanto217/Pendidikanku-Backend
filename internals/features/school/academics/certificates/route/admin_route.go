@@ -13,7 +13,6 @@ func CertificateAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// langsung pakai full prefix
 	uss := r.Group("/user-subject-summary")
 	uss.Get("/", ussCtl.List)
-	uss.Get("/:id", ussCtl.GetByID)
 	uss.Post("/", ussCtl.Create)
 	uss.Patch("/:id", ussCtl.Update)
 	uss.Delete("/:id", ussCtl.Delete)

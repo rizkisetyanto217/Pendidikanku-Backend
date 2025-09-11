@@ -18,7 +18,6 @@ func RoomsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 
 	// Read
 	g.Get("/list", ctl.List)
-	g.Get("/:id", ctl.GetByID)
 
 	// Write
 	g.Post("/", ctl.Create)

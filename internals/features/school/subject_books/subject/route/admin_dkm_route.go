@@ -18,7 +18,7 @@ func SubjectAdminRoutes(r fiber.Router, db *gorm.DB) {
 	subjects := r.Group("/subjects")
 	subjects.Post("/", subjectCtl.CreateSubject)      // POST   /admin/subjects
 	subjects.Get("/list", subjectCtl.ListSubjects)        // GET    /admin/subjects
-	subjects.Get("/:id", subjectCtl.GetSubject)       // GET    /admin/subjects/:id
+
 	subjects.Put("/:id", subjectCtl.UpdateSubject)    // PUT    /admin/subjects/:id
 	subjects.Delete("/:id", subjectCtl.DeleteSubject) // DELETE /admin/subjects/:id?force=true
 
@@ -27,7 +27,6 @@ func SubjectAdminRoutes(r fiber.Router, db *gorm.DB) {
 	classSubjects := r.Group("/class-subjects")
 	classSubjects.Post("/", classSubjectCtl.Create)      // POST   /admin/class-subjects
 	classSubjects.Get("/list", classSubjectCtl.List)         // GET    /admin/class-subjects
-	classSubjects.Get("/:id", classSubjectCtl.GetByID)   // GET    /admin/class-subjects/:id
 	classSubjects.Put("/:id", classSubjectCtl.Update)    // PUT    /admin/class-subjects/:id
 	classSubjects.Delete("/:id", classSubjectCtl.Delete) // DELETE /admin/class-subjects/:id?force=true
 
@@ -36,7 +35,6 @@ func SubjectAdminRoutes(r fiber.Router, db *gorm.DB) {
 	csst := r.Group("/class-section-subject-teachers")
 	csst.Post("/", csstCtl.Create)      // POST   /admin/class-section-subject-teachers
 	csst.Get("/list", csstCtl.List)         // GET    /admin/class-section-subject-teachers
-	csst.Get("/:id", csstCtl.GetByID)   // GET    /admin/class-section-subject-teachers/:id
 	csst.Put("/:id", csstCtl.Update)    // PUT    /admin/class-section-subject-teachers/:id
 	csst.Delete("/:id", csstCtl.Delete) // DELETE /admin/class-section-subject-teachers/:id (soft delete)
 }

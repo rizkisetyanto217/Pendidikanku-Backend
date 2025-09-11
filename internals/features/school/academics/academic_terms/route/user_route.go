@@ -24,7 +24,6 @@ func AcademicYearUserRoutes(user fiber.Router, db *gorm.DB) {
 	// Read-only Academic Terms
 	r.Get("/list", termCtl.List)
 	r.Get("/search-with-class", termCtl.SearchByYear) // taruh sebelum :id agar tidak bentrok
-	r.Get("/:id", termCtl.GetByID)
 
 
 }

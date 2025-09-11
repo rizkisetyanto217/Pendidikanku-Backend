@@ -24,30 +24,15 @@ func NewAnnouncementController(db *gorm.DB) *AnnouncementController { return &An
 
 var validateAnnouncement = validator.New()
 
-// ===================== GET BY ID =====================
-// GET /admin/announcements/:id
-func (h *AnnouncementController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
-	annID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-
-	m, err := h.findWithTenantGuard(annID, masjidID)
-	if err != nil {
-		// findWithTenantGuard sudah kembalikan JsonError-style; tetap propagate apa adanya
-		return err
-	}
-	return helper.JsonOK(c, "OK", annDTO.NewAnnouncementResponse(m))
-}
 
 // ===================== LIST =====================
 // GET /admin/announcements
+// ===================== LIST =====================
+// GET /admin/announcements
 func (h *AnnouncementController) List(c *fiber.Ctx) error {
-	// 1) scope masjid
+	// ---------------------------
+	// 1) Tenant scope (masjid)
+	// ---------------------------
 	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
@@ -56,20 +41,50 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusForbidden, "Tidak ada akses masjid")
 	}
 
-	// 2) pagination via helper.ParseFiber
+	// ---------------------------
+	// 2) Pagination & default sort
+	// ---------------------------
 	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
 
-	// 3) parse query
+	// ---------------------------
+	// 3) Parse DTO query
+	// ---------------------------
 	var q annDTO.ListAnnouncementQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 
-	// 4) base query
+	// ---------------------------
+	// 4) Base query (tenant-safe)
+	// ---------------------------
 	tx := h.DB.Model(&annModel.AnnouncementModel{}).
 		Where("announcement_masjid_id IN ?", masjidIDs)
 
-	// ---- filter Theme
+	// ---------------------------
+	// 4a) Filter by Announcement ID (single/multi)
+	//     ?id=uuid[,uuid...] atau ?announcement_id=uuid[,uuid...]
+	// ---------------------------
+	if raw := strings.TrimSpace(c.Query("id")); raw != "" {
+		ids, e := parseUUIDsCSV(raw)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "id berisi UUID tidak valid")
+		}
+		if len(ids) > 0 {
+			tx = tx.Where("announcement_id IN ?", ids)
+		}
+	} else if raw := strings.TrimSpace(c.Query("announcement_id")); raw != "" {
+		ids, e := parseUUIDsCSV(raw)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "announcement_id berisi UUID tidak valid")
+		}
+		if len(ids) > 0 {
+			tx = tx.Where("announcement_id IN ?", ids)
+		}
+	}
+
+	// ---------------------------
+	// 4b) Filter Theme
+	// ---------------------------
 	if q.ThemeID != nil {
 		if *q.ThemeID == uuid.Nil {
 			tx = tx.Where("announcement_theme_id IS NULL")
@@ -78,16 +93,17 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ---- filter Section vs Global
+	// ---------------------------
+	// 4c) Filter Section vs Global
+	// ---------------------------
 	includeGlobal := true
 	if q.IncludeGlobal != nil {
 		includeGlobal = *q.IncludeGlobal
 	}
 	onlyGlobal := q.OnlyGlobal != nil && *q.OnlyGlobal
 
-	sectionIDsCSV := strings.TrimSpace(c.Query("section_ids"))
-	sectionIDs, parseErr := parseUUIDsCSV(sectionIDsCSV)
-	if parseErr != nil {
+	sectionIDs, secErr := parseUUIDsCSV(strings.TrimSpace(c.Query("section_ids")))
+	if secErr != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "section_ids berisi UUID tidak valid")
 	}
 
@@ -110,7 +126,9 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ---- filter Attachment
+	// ---------------------------
+	// 4d) Filter attachment
+	// ---------------------------
 	if q.HasAttachment != nil {
 		if *q.HasAttachment {
 			tx = tx.Where("announcement_attachment_url IS NOT NULL AND announcement_attachment_url <> ''")
@@ -119,54 +137,65 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ---- filter is_active
+	// ---------------------------
+	// 4e) Filter is_active
+	// ---------------------------
 	if q.IsActive != nil {
 		tx = tx.Where("announcement_is_active = ?", *q.IsActive)
 	}
 
-	// ---- filter date range
+	// ---------------------------
+	// 4f) Filter date range (YYYY-MM-DD)
+	// ---------------------------
 	parseDate := func(s string) (time.Time, error) {
 		return time.Parse("2006-01-02", strings.TrimSpace(s))
 	}
 	if q.DateFrom != nil && strings.TrimSpace(*q.DateFrom) != "" {
-		t, err := parseDate(*q.DateFrom)
-		if err != nil {
+		t, e := parseDate(*q.DateFrom)
+		if e != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)")
 		}
 		tx = tx.Where("announcement_date >= ?", t)
 	}
 	if q.DateTo != nil && strings.TrimSpace(*q.DateTo) != "" {
-		t, err := parseDate(*q.DateTo)
-		if err != nil {
+		t, e := parseDate(*q.DateTo)
+		if e != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)")
 		}
 		tx = tx.Where("announcement_date <= ?", t)
 	}
 
-	// 5) total
+	// ---------------------------
+	// 5) Total
+	// ---------------------------
 	var total int64
 	if err := tx.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
 	}
 
-	// 6) sorting
-	orderExpr := "announcement_date DESC"
+	// ---------------------------
+	// 6) Sorting (map-based)
+	// ---------------------------
+	sortKey := "date_desc"
 	if q.Sort != nil {
-		switch strings.ToLower(strings.TrimSpace(*q.Sort)) {
-		case "date_asc":
-			orderExpr = "announcement_date ASC"
-		case "created_at_desc":
-			orderExpr = "announcement_created_at DESC"
-		case "created_at_asc":
-			orderExpr = "announcement_created_at ASC"
-		case "title_asc":
-			orderExpr = "announcement_title ASC"
-		case "title_desc":
-			orderExpr = "announcement_title DESC"
-		}
+		sortKey = strings.ToLower(strings.TrimSpace(*q.Sort))
+	}
+	sortMap := map[string]string{
+		"date_desc":       "announcement_date DESC",
+		"date_asc":        "announcement_date ASC",
+		"created_at_desc": "announcement_created_at DESC",
+		"created_at_asc":  "announcement_created_at ASC",
+		"title_asc":       "announcement_title ASC",
+		"title_desc":      "announcement_title DESC",
+	}
+	orderExpr, ok := sortMap[sortKey]
+	if !ok {
+		orderExpr = sortMap["date_desc"]
 	}
 
-	// 7) fetch rows
+	// ---------------------------
+	// 7) Fetch rows
+	// ---------------------------
 	var rows []annModel.AnnouncementModel
 	if err := tx.
 		Order(orderExpr).
@@ -176,19 +205,22 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// 8) batch-load Theme
+	// ---------------------------
+	// 8) Batch-load Themes
+	// ---------------------------
 	themeIDs := make([]uuid.UUID, 0, len(rows))
-	seenTheme := map[uuid.UUID]struct{}{}
+	seenTheme := make(map[uuid.UUID]struct{}, len(rows))
 	for i := range rows {
-		if rows[i].AnnouncementThemeID != nil {
-			id := *rows[i].AnnouncementThemeID
-			if id == uuid.Nil {
-				continue
-			}
-			if _, ok := seenTheme[id]; !ok {
-				seenTheme[id] = struct{}{}
-				themeIDs = append(themeIDs, id)
-			}
+		if rows[i].AnnouncementThemeID == nil {
+			continue
+		}
+		id := *rows[i].AnnouncementThemeID
+		if id == uuid.Nil {
+			continue
+		}
+		if _, ok := seenTheme[id]; !ok {
+			seenTheme[id] = struct{}{}
+			themeIDs = append(themeIDs, id)
 		}
 	}
 	if len(themeIDs) > 0 {
@@ -202,7 +234,7 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		}
 		tmap := make(map[uuid.UUID]*annThemeModel.AnnouncementThemeModel, len(themes))
 		for i := range themes {
-			t := themes[i]
+			t := themes[i] // copy
 			tmap[t.AnnouncementThemesID] = &t
 		}
 		for i := range rows {
@@ -214,7 +246,9 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 8b) batch-load URLs
+	// ---------------------------
+	// 8b) Batch-load URLs
+	// ---------------------------
 	annIDs := make([]uuid.UUID, 0, len(rows))
 	for i := range rows {
 		annIDs = append(annIDs, rows[i].AnnouncementID)
@@ -240,11 +274,12 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 9) map ke response DTO + inject Urls
+	// ---------------------------
+	// 9) Map ke DTO + inject Urls
+	// ---------------------------
 	items := make([]*annDTO.AnnouncementResponse, 0, len(rows))
 	for i := range rows {
-		resp := annDTO.NewAnnouncementResponse(&rows[i])
-		if resp != nil {
+		if resp := annDTO.NewAnnouncementResponse(&rows[i]); resp != nil {
 			if urls := urlMap[rows[i].AnnouncementID]; len(urls) > 0 {
 				resp.Urls = urls
 			}
@@ -252,7 +287,9 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 10) response standar
+	// ---------------------------
+	// 10) Response standar
+	// ---------------------------
 	return helper.JsonList(c, items, helper.BuildMeta(total, p))
 }
 

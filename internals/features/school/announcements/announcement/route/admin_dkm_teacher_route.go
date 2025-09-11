@@ -19,7 +19,6 @@ func AnnouncementAdminRoutes(r fiber.Router, db *gorm.DB) {
 
 	grp.Get("/list", ctl.List)      // ← get all
 	grp.Post("/", ctl.Create)      // Create (Admin: global; Teacher: wajib section)
-	grp.Get("/:id", ctl.GetByID) // ← get by id
 
 	grp.Put("/:id", ctl.Update)    // Update (role-aware)
 	grp.Delete("/:id", ctl.Delete) // Delete (role-aware)

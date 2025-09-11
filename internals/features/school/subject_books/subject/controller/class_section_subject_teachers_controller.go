@@ -12,8 +12,8 @@ import (
 	"gorm.io/gorm"
 
 	modelMasjidTeacher "masjidku_backend/internals/features/lembaga/teachers_students/model"
-	modelCSST "masjidku_backend/internals/features/school/subject_books/subject/model"
 	modelClassSection "masjidku_backend/internals/features/school/classes/class_sections/model"
+	modelCSST "masjidku_backend/internals/features/school/subject_books/subject/model"
 
 	dto "masjidku_backend/internals/features/school/subject_books/subject/dto"
 	helper "masjidku_backend/internals/helpers"
@@ -24,7 +24,11 @@ type ClassSectionSubjectTeacherController struct {
 	DB *gorm.DB
 }
 
-
+func NewClassSectionSubjectTeacherController(db *gorm.DB) *ClassSectionSubjectTeacherController {
+	return &ClassSectionSubjectTeacherController{
+		DB: db,
+	}
+}
 
 
 // ===============================
@@ -127,126 +131,9 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		return helper.JsonCreated(c, "Penugasan guru berhasil dibuat", dto.FromClassSectionSubjectTeacherModel(row))
 	})
 }
-// ===============================
-// LIST
-// GET /admin/class-section-subject-teachers?is_active=&with_deleted=&limit=&offset=&order_by=&sort=
-// order_by: created_at|updated_at
-// sort: asc|desc
-// ===============================
-type listQuery struct {
-	IsActive    *bool   `query:"is_active"`
-	WithDeleted *bool   `query:"with_deleted"`
-	Limit       *int    `query:"limit"`
-	Offset      *int    `query:"offset"`
-	OrderBy     *string `query:"order_by"`
-	Sort        *string `query:"sort"`
-}
 
-func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
-	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
-	if err != nil {
-		return err
-	}
 
-	var q listQuery
-	q.Limit, q.Offset = intPtr(20), intPtr(0)
-	if err := c.QueryParser(&q); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
-	}
-	if q.Limit == nil || *q.Limit <= 0 || *q.Limit > 200 {
-		q.Limit = intPtr(20)
-	}
-	if q.Offset == nil || *q.Offset < 0 {
-		q.Offset = intPtr(0)
-	}
 
-	tx := ctl.DB.Model(&modelCSST.ClassSectionSubjectTeacherModel{}).
-		Where("class_section_subject_teachers_masjid_id IN ?", masjidIDs)
-
-	// exclude soft-deleted by default
-	if q.WithDeleted == nil || !*q.WithDeleted {
-		tx = tx.Where("class_section_subject_teachers_deleted_at IS NULL")
-	}
-	if q.IsActive != nil {
-		tx = tx.Where("class_section_subject_teachers_is_active = ?", *q.IsActive)
-	}
-
-	orderBy := "class_section_subject_teachers_created_at"
-	if q.OrderBy != nil {
-		switch strings.ToLower(*q.OrderBy) {
-		case "created_at":
-			orderBy = "class_section_subject_teachers_created_at"
-		case "updated_at":
-			orderBy = "class_section_subject_teachers_updated_at"
-		}
-	}
-	sort := "ASC"
-	if q.Sort != nil && strings.ToLower(*q.Sort) == "desc" {
-		sort = "DESC"
-	}
-
-	var total int64
-	if err := tx.Count(&total).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
-	}
-
-	var rows []modelCSST.ClassSectionSubjectTeacherModel
-	if err := tx.
-		Order(orderBy + " " + sort).
-		Limit(*q.Limit).
-		Offset(*q.Offset).
-		Find(&rows).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-
-	return helper.JsonList(c,
-		dto.FromClassSectionSubjectTeacherModels(rows),
-		fiber.Map{
-			"limit":  *q.Limit,
-			"offset": *q.Offset,
-			"total":  int(total),
-		},
-	)
-}
-
-// ===============================
-// GET BY ID
-// GET /admin/class-section-subject-teachers/:id[?with_deleted=true]
-// ===============================
-func (ctl *ClassSectionSubjectTeacherController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil {
-		return err
-	}
-
-	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil {
-		return fiber.NewError(http.StatusBadRequest, "ID tidak valid")
-	}
-
-	withDeleted := strings.EqualFold(c.Query("with_deleted"), "true")
-
-	var row modelCSST.ClassSectionSubjectTeacherModel
-	if err := ctl.DB.
-		Where("class_section_subject_teachers_id = ?", id).
-		First(&row).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan")
-		}
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
-	}
-
-	// tenant guard
-	if row.ClassSectionSubjectTeachersMasjidID != masjidID {
-		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
-	}
-	// soft-delete guard
-	if !withDeleted && row.ClassSectionSubjectTeachersDeletedAt.Valid {
-		return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan")
-	}
-
-	return helper.JsonOK(c, "Detail penugasan guru", dto.FromClassSectionSubjectTeacherModel(row))
-}
 
 // ===============================
 // UPDATE (partial)

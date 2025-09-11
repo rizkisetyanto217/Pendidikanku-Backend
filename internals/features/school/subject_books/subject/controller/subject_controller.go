@@ -132,51 +132,6 @@ func (h *SubjectsController) CreateSubject(c *fiber.Ctx) error {
 
 
 /* =========================================================
-   GET BY ID
-   GET /admin/subjects/:id[?with_deleted=true]
-   ========================================================= */
-func (h *SubjectsController) GetSubject(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil {
-		return err
-	}
-
-	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
-	}
-
-	withDeleted := strings.EqualFold(c.Query("with_deleted"), "true")
-
-	var q *gorm.DB = h.DB
-	if withDeleted {
-		// sertakan baris soft-deleted
-		q = q.Unscoped()
-	}
-
-	var m subjectModel.SubjectsModel
-	// 🚧 Penting: filter tenant di query (bukan setelah fetch)
-	if err := q.
-		Where("subjects_id = ? AND subjects_masjid_id = ?", id, masjidID).
-		First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(fiber.StatusNotFound, "Subject tidak ditemukan")
-		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-
-	// Jika tidak minta with_deleted, dan record ternyata soft-deleted → 404
-	// Catatan: tanpa Unscoped(), GORM default-nya memang menyembunyikan soft-deleted,
-	// tapi check ini berguna kalau suatu saat query di atas diubah.
-	if !withDeleted && m.SubjectsDeletedAt.Valid {
-		return fiber.NewError(fiber.StatusNotFound, "Subject tidak ditemukan")
-	}
-
-	return helper.JsonOK(c, "Detail subject ditemukan", subjectDTO.FromSubjectModel(m))
-}
-
-
-/* =========================================================
    LIST
    GET /admin/subjects?q=&is_active=&order_by=&sort=&limit=&offset=&with_deleted=
    order_by: code|name|created_at|updated_at

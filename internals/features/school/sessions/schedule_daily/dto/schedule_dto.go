@@ -36,8 +36,6 @@ func parseDate(s string) (time.Time, error) {
 	return t, nil
 }
 
-// NOTE: tetap mengembalikan time.Time supaya gampang dibandingkan,
-// nanti saat set ke model dikonversi ke dbtime.Tod dengan dbtime.From(t)
 func parseTime(s string) (time.Time, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -67,23 +65,33 @@ func uuidPtrFromString(s *string) (*uuid.UUID, error) {
 	return &id, nil
 }
 
+func uuidFromStringRequired(s string) (uuid.UUID, error) {
+	ss := strings.TrimSpace(s)
+	if ss == "" {
+		return uuid.Nil, errors.New("empty uuid")
+	}
+	return uuid.Parse(ss)
+}
+
 /* =======================================================
    Request DTOs (FE kirim string untuk date & time)
    ======================================================= */
 
 type CreateClassScheduleRequest struct {
-	// Required
-	ClassSchedulesMasjidID       string `json:"class_schedules_masjid_id"        validate:"required,uuid4"`
-	ClassSchedulesSectionID      string `json:"class_schedules_section_id"       validate:"required,uuid4"`
-	ClassSchedulesClassSubjectID string `json:"class_schedules_class_subject_id" validate:"required,uuid4"`
-	ClassSchedulesDayOfWeek      int    `json:"class_schedules_day_of_week"      validate:"required,gte=1,lte=7"`
-	ClassSchedulesStartTime      string `json:"class_schedules_start_time"       validate:"required"` // "HH:mm" / "HH:mm:ss"
-	ClassSchedulesEndTime        string `json:"class_schedules_end_time"         validate:"required"`
-	ClassSchedulesStartDate      string `json:"class_schedules_start_date"       validate:"required"` // "YYYY-MM-DD"
-	ClassSchedulesEndDate        string `json:"class_schedules_end_date"         validate:"required"`
+	// Always required
+	ClassSchedulesMasjidID  string `json:"class_schedules_masjid_id"  validate:"required,uuid4"`
+	ClassSchedulesDayOfWeek int    `json:"class_schedules_day_of_week" validate:"required,gte=1,lte=7"`
+	ClassSchedulesStartTime string `json:"class_schedules_start_time"  validate:"required"`
+	ClassSchedulesEndTime   string `json:"class_schedules_end_time"    validate:"required"`
+	ClassSchedulesStartDate string `json:"class_schedules_start_date"  validate:"required"`
+	ClassSchedulesEndDate   string `json:"class_schedules_end_date"    validate:"required"`
 
-	// Optional
-	ClassSchedulesCSSTID    *string          `json:"class_schedules_csst_id,omitempty"    validate:"omitempty,uuid4"`
+	// Target: pilih salah satu
+	ClassSchedulesCSSTID         *string `json:"class_schedules_csst_id,omitempty"          validate:"omitempty,uuid4"`
+	ClassSchedulesSectionID      *string `json:"class_schedules_section_id,omitempty"       validate:"omitempty,uuid4"`
+	ClassSchedulesClassSubjectID *string `json:"class_schedules_class_subject_id,omitempty" validate:"omitempty,uuid4"`
+
+	// Optional lain
 	ClassSchedulesRoomID    *string          `json:"class_schedules_room_id,omitempty"    validate:"omitempty,uuid4"`
 	ClassSchedulesTeacherID *string          `json:"class_schedules_teacher_id,omitempty" validate:"omitempty,uuid4"`
 	ClassSchedulesStatus    *m.SessionStatus `json:"class_schedules_status,omitempty"     validate:"omitempty,oneof=scheduled ongoing completed canceled"`
@@ -91,39 +99,45 @@ type CreateClassScheduleRequest struct {
 }
 
 type UpdateClassScheduleRequest struct {
-	// Required — update penuh (PUT-like)
-	ClassSchedulesMasjidID       string `json:"class_schedules_masjid_id"        validate:"required,uuid4"`
-	ClassSchedulesSectionID      string `json:"class_schedules_section_id"       validate:"required,uuid4"`
-	ClassSchedulesClassSubjectID string `json:"class_schedules_class_subject_id" validate:"required,uuid4"`
-	ClassSchedulesDayOfWeek      int    `json:"class_schedules_day_of_week"      validate:"required,gte=1,lte=7"`
-	ClassSchedulesStartTime      string `json:"class_schedules_start_time"       validate:"required"`
-	ClassSchedulesEndTime        string `json:"class_schedules_end_time"         validate:"required"`
-	ClassSchedulesStartDate      string `json:"class_schedules_start_date"       validate:"required"`
-	ClassSchedulesEndDate        string `json:"class_schedules_end_date"         validate:"required"`
-	ClassSchedulesStatus         string `json:"class_schedules_status"           validate:"required,oneof=scheduled ongoing completed canceled"`
-	ClassSchedulesIsActive       bool   `json:"class_schedules_is_active"`
+	// PUT-like (required dasar)
+	ClassSchedulesMasjidID  string `json:"class_schedules_masjid_id"  validate:"required,uuid4"`
+	ClassSchedulesDayOfWeek int    `json:"class_schedules_day_of_week" validate:"required,gte=1,lte=7"`
+	ClassSchedulesStartTime string `json:"class_schedules_start_time"  validate:"required"`
+	ClassSchedulesEndTime   string `json:"class_schedules_end_time"    validate:"required"`
+	ClassSchedulesStartDate string `json:"class_schedules_start_date"  validate:"required"`
+	ClassSchedulesEndDate   string `json:"class_schedules_end_date"    validate:"required"`
+	ClassSchedulesStatus    string `json:"class_schedules_status"      validate:"required,oneof=scheduled ongoing completed canceled"`
+	ClassSchedulesIsActive  bool   `json:"class_schedules_is_active"`
 
-	// Optional
-	ClassSchedulesCSSTID    *string `json:"class_schedules_csst_id,omitempty"    validate:"omitempty,uuid4"`
+	// Target: pilih salah satu
+	ClassSchedulesCSSTID         *string `json:"class_schedules_csst_id,omitempty"          validate:"omitempty,uuid4"`
+	ClassSchedulesSectionID      *string `json:"class_schedules_section_id,omitempty"       validate:"omitempty,uuid4"`
+	ClassSchedulesClassSubjectID *string `json:"class_schedules_class_subject_id,omitempty" validate:"omitempty,uuid4"`
+
+	// Optional lain
 	ClassSchedulesRoomID    *string `json:"class_schedules_room_id,omitempty"    validate:"omitempty,uuid4"`
 	ClassSchedulesTeacherID *string `json:"class_schedules_teacher_id,omitempty" validate:"omitempty,uuid4"`
 }
 
 type PatchClassScheduleRequest struct {
-	// Semua optional — hanya field non-nil yang di-apply
+	// Semua optional—akan di-apply selectively
 	ClassSchedulesMasjidID       *string          `json:"class_schedules_masjid_id,omitempty"        validate:"omitempty,uuid4"`
-	ClassSchedulesSectionID      *string          `json:"class_schedules_section_id,omitempty"       validate:"omitempty,uuid4"`
-	ClassSchedulesClassSubjectID *string          `json:"class_schedules_class_subject_id,omitempty" validate:"omitempty,uuid4"`
 	ClassSchedulesDayOfWeek      *int             `json:"class_schedules_day_of_week,omitempty"      validate:"omitempty,gte=1,lte=7"`
 	ClassSchedulesStartTime      *string          `json:"class_schedules_start_time,omitempty"`
 	ClassSchedulesEndTime        *string          `json:"class_schedules_end_time,omitempty"`
 	ClassSchedulesStartDate      *string          `json:"class_schedules_start_date,omitempty"`
 	ClassSchedulesEndDate        *string          `json:"class_schedules_end_date,omitempty"`
-	ClassSchedulesCSSTID         *string          `json:"class_schedules_csst_id,omitempty"          validate:"omitempty,uuid4"`
-	ClassSchedulesRoomID         *string          `json:"class_schedules_room_id,omitempty"          validate:"omitempty,uuid4"`
-	ClassSchedulesTeacherID      *string          `json:"class_schedules_teacher_id,omitempty"       validate:"omitempty,uuid4"`
 	ClassSchedulesStatus         *m.SessionStatus `json:"class_schedules_status,omitempty"           validate:"omitempty,oneof=scheduled ongoing completed canceled"`
 	ClassSchedulesIsActive       *bool            `json:"class_schedules_is_active,omitempty"`
+
+	// Target: pilih salah satu
+	ClassSchedulesCSSTID         *string `json:"class_schedules_csst_id,omitempty"          validate:"omitempty,uuid4"`
+	ClassSchedulesSectionID      *string `json:"class_schedules_section_id,omitempty"       validate:"omitempty,uuid4"`
+	ClassSchedulesClassSubjectID *string `json:"class_schedules_class_subject_id,omitempty" validate:"omitempty,uuid4"`
+
+	// Lain
+	ClassSchedulesRoomID    *string `json:"class_schedules_room_id,omitempty"    validate:"omitempty,uuid4"`
+	ClassSchedulesTeacherID *string `json:"class_schedules_teacher_id,omitempty" validate:"omitempty,uuid4"`
 }
 
 /* =======================================================
@@ -131,7 +145,22 @@ type PatchClassScheduleRequest struct {
    ======================================================= */
 
 func RegisterClassScheduleValidators(v *validator.Validate) {
-	// Enum status sudah ditangani dengan tag oneof.
+	// Tag validation standar sudah cukup;
+	// rule "pilih salah satu target" dicek di Apply* (business guard).
+}
+
+/* =======================================================
+   Guard bisnis: target harus valid (CSST) atau (Section+Subject)
+   ======================================================= */
+
+func ensureTargetValid(csstID, sectionID, subjectID *uuid.UUID) error {
+	if csstID != nil {
+		return nil
+	}
+	if sectionID != nil && subjectID != nil {
+		return nil
+	}
+	return errors.New("wajib pilih salah satu: csst_id ATAU (section_id & class_subject_id)")
 }
 
 /* =======================================================
@@ -139,9 +168,10 @@ func RegisterClassScheduleValidators(v *validator.Validate) {
    ======================================================= */
 
 func (r *CreateClassScheduleRequest) ApplyToModel(dst *m.ClassScheduleModel) error {
-	masjidID, _ := uuid.Parse(r.ClassSchedulesMasjidID)
-	sectionID, _ := uuid.Parse(r.ClassSchedulesSectionID)
-	classSubjectID, _ := uuid.Parse(r.ClassSchedulesClassSubjectID)
+	masjidID, err := uuidFromStringRequired(r.ClassSchedulesMasjidID)
+	if err != nil {
+		return fmt.Errorf("class_schedules_masjid_id: %w", err)
+	}
 
 	startDate, err := parseDate(r.ClassSchedulesStartDate)
 	if err != nil {
@@ -167,28 +197,43 @@ func (r *CreateClassScheduleRequest) ApplyToModel(dst *m.ClassScheduleModel) err
 		return errors.New("class_schedules_end_time must be greater than start_time")
 	}
 
+	secID, err := uuidPtrFromString(r.ClassSchedulesSectionID)
+	if err != nil {
+		return fmt.Errorf("class_schedules_section_id: %w", err)
+	}
+	subjID, err := uuidPtrFromString(r.ClassSchedulesClassSubjectID)
+	if err != nil {
+		return fmt.Errorf("class_schedules_class_subject_id: %w", err)
+	}
 	csstID, err := uuidPtrFromString(r.ClassSchedulesCSSTID)
 	if err != nil {
-		return err
+		return fmt.Errorf("class_schedules_csst_id: %w", err)
 	}
 	roomID, err := uuidPtrFromString(r.ClassSchedulesRoomID)
 	if err != nil {
-		return err
+		return fmt.Errorf("class_schedules_room_id: %w", err)
 	}
 	teacherID, err := uuidPtrFromString(r.ClassSchedulesTeacherID)
 	if err != nil {
+		return fmt.Errorf("class_schedules_teacher_id: %w", err)
+	}
+
+	if err := ensureTargetValid(csstID, secID, subjID); err != nil {
 		return err
 	}
 
-	dst.ClassSchedulesMasjidID = masjidID
-	dst.ClassSchedulesSectionID = sectionID
-	dst.ClassSchedulesClassSubjectID = classSubjectID
-	dst.ClassSchedulesCSSTID = csstID
+	dst.ClassSchedulesMasjidID       = masjidID
+	dst.ClassSchedulesSectionID      = secID
+	dst.ClassSchedulesClassSubjectID = subjID
+	dst.ClassSchedulesCSSTID         = csstID
+	dst.ClassSchedulesRoomID         = roomID
+	dst.ClassSchedulesTeacherID      = teacherID
+
 	dst.ClassSchedulesDayOfWeek = r.ClassSchedulesDayOfWeek
 	dst.ClassSchedulesStartTime = dbtime.From(startTime)
-	dst.ClassSchedulesEndTime = dbtime.From(endTime)
+	dst.ClassSchedulesEndTime   = dbtime.From(endTime)
 	dst.ClassSchedulesStartDate = startDate
-	dst.ClassSchedulesEndDate = endDate
+	dst.ClassSchedulesEndDate   = endDate
 
 	if r.ClassSchedulesStatus != nil {
 		dst.ClassSchedulesStatus = *r.ClassSchedulesStatus
@@ -201,16 +246,14 @@ func (r *CreateClassScheduleRequest) ApplyToModel(dst *m.ClassScheduleModel) err
 		dst.ClassSchedulesIsActive = true
 	}
 
-	dst.ClassSchedulesRoomID = roomID
-	dst.ClassSchedulesTeacherID = teacherID
-
 	return nil
 }
 
 func (r *UpdateClassScheduleRequest) ApplyToModel(dst *m.ClassScheduleModel) error {
-	masjidID, _ := uuid.Parse(r.ClassSchedulesMasjidID)
-	sectionID, _ := uuid.Parse(r.ClassSchedulesSectionID)
-	classSubjectID, _ := uuid.Parse(r.ClassSchedulesClassSubjectID)
+	masjidID, err := uuidFromStringRequired(r.ClassSchedulesMasjidID)
+	if err != nil {
+		return fmt.Errorf("class_schedules_masjid_id: %w", err)
+	}
 
 	startDate, err := parseDate(r.ClassSchedulesStartDate)
 	if err != nil {
@@ -236,34 +279,46 @@ func (r *UpdateClassScheduleRequest) ApplyToModel(dst *m.ClassScheduleModel) err
 		return errors.New("class_schedules_end_time must be greater than start_time")
 	}
 
+	secID, err := uuidPtrFromString(r.ClassSchedulesSectionID)
+	if err != nil {
+		return fmt.Errorf("class_schedules_section_id: %w", err)
+	}
+	subjID, err := uuidPtrFromString(r.ClassSchedulesClassSubjectID)
+	if err != nil {
+		return fmt.Errorf("class_schedules_class_subject_id: %w", err)
+	}
 	csstID, err := uuidPtrFromString(r.ClassSchedulesCSSTID)
 	if err != nil {
-		return err
+		return fmt.Errorf("class_schedules_csst_id: %w", err)
 	}
 	roomID, err := uuidPtrFromString(r.ClassSchedulesRoomID)
 	if err != nil {
-		return err
+		return fmt.Errorf("class_schedules_room_id: %w", err)
 	}
 	teacherID, err := uuidPtrFromString(r.ClassSchedulesTeacherID)
 	if err != nil {
+		return fmt.Errorf("class_schedules_teacher_id: %w", err)
+	}
+
+	if err := ensureTargetValid(csstID, secID, subjID); err != nil {
 		return err
 	}
 
-	dst.ClassSchedulesMasjidID = masjidID
-	dst.ClassSchedulesSectionID = sectionID
-	dst.ClassSchedulesClassSubjectID = classSubjectID
-	dst.ClassSchedulesCSSTID = csstID
+	dst.ClassSchedulesMasjidID       = masjidID
+	dst.ClassSchedulesSectionID      = secID
+	dst.ClassSchedulesClassSubjectID = subjID
+	dst.ClassSchedulesCSSTID         = csstID
+	dst.ClassSchedulesRoomID         = roomID
+	dst.ClassSchedulesTeacherID      = teacherID
+
 	dst.ClassSchedulesDayOfWeek = r.ClassSchedulesDayOfWeek
 	dst.ClassSchedulesStartTime = dbtime.From(startTime)
-	dst.ClassSchedulesEndTime = dbtime.From(endTime)
+	dst.ClassSchedulesEndTime   = dbtime.From(endTime)
 	dst.ClassSchedulesStartDate = startDate
-	dst.ClassSchedulesEndDate = endDate
+	dst.ClassSchedulesEndDate   = endDate
 
-	dst.ClassSchedulesStatus = m.SessionStatus(r.ClassSchedulesStatus)
+	dst.ClassSchedulesStatus   = m.SessionStatus(r.ClassSchedulesStatus)
 	dst.ClassSchedulesIsActive = r.ClassSchedulesIsActive
-
-	dst.ClassSchedulesRoomID = roomID
-	dst.ClassSchedulesTeacherID = teacherID
 
 	return nil
 }
@@ -275,32 +330,38 @@ func (r *UpdateClassScheduleRequest) ApplyToModel(dst *m.ClassScheduleModel) err
 func (p *PatchClassScheduleRequest) ApplyPatch(dst *m.ClassScheduleModel) error {
 	// IDs
 	if p.ClassSchedulesMasjidID != nil {
-		id, err := uuid.Parse(strings.TrimSpace(*p.ClassSchedulesMasjidID))
+		id, err := uuidFromStringRequired(*p.ClassSchedulesMasjidID)
 		if err != nil {
 			return fmt.Errorf("class_schedules_masjid_id: %w", err)
 		}
 		dst.ClassSchedulesMasjidID = id
 	}
-	if p.ClassSchedulesSectionID != nil {
-		id, err := uuid.Parse(strings.TrimSpace(*p.ClassSchedulesSectionID))
-		if err != nil {
-			return fmt.Errorf("class_schedules_section_id: %w", err)
-		}
-		dst.ClassSchedulesSectionID = id
-	}
-	if p.ClassSchedulesClassSubjectID != nil {
-		id, err := uuid.Parse(strings.TrimSpace(*p.ClassSchedulesClassSubjectID))
-		if err != nil {
-			return fmt.Errorf("class_schedules_class_subject_id: %w", err)
-		}
-		dst.ClassSchedulesClassSubjectID = id
-	}
+
+	// Target (CSST vs Section+Subject)
+	var (
+		newCSST, newSec, newSub *uuid.UUID
+		err error
+	)
 	if p.ClassSchedulesCSSTID != nil {
-		idp, err := uuidPtrFromString(p.ClassSchedulesCSSTID)
+		newCSST, err = uuidPtrFromString(p.ClassSchedulesCSSTID)
 		if err != nil {
 			return fmt.Errorf("class_schedules_csst_id: %w", err)
 		}
-		dst.ClassSchedulesCSSTID = idp
+		dst.ClassSchedulesCSSTID = newCSST
+	}
+	if p.ClassSchedulesSectionID != nil {
+		newSec, err = uuidPtrFromString(p.ClassSchedulesSectionID)
+		if err != nil {
+			return fmt.Errorf("class_schedules_section_id: %w", err)
+		}
+		dst.ClassSchedulesSectionID = newSec
+	}
+	if p.ClassSchedulesClassSubjectID != nil {
+		newSub, err = uuidPtrFromString(p.ClassSchedulesClassSubjectID)
+		if err != nil {
+			return fmt.Errorf("class_schedules_class_subject_id: %w", err)
+		}
+		dst.ClassSchedulesClassSubjectID = newSub
 	}
 
 	// Day of week
@@ -326,17 +387,15 @@ func (p *PatchClassScheduleRequest) ApplyPatch(dst *m.ClassScheduleModel) error 
 		}
 		dst.ClassSchedulesEndTime = dbtime.From(t)
 	}
-	// Ensure time validity if any changed
 	if p.ClassSchedulesStartTime != nil || p.ClassSchedulesEndTime != nil {
-		st := dst.ClassSchedulesStartTime.Time // <-- ambil embedded time.Time
-		et := dst.ClassSchedulesEndTime.Time   // <-- ambil embedded time.Time
+		st := dst.ClassSchedulesStartTime.Time
+		et := dst.ClassSchedulesEndTime.Time
 		if !et.After(st) {
 			return errors.New("class_schedules_end_time must be greater than start_time")
 		}
 	}
 
-
-	// Date
+	// Dates
 	if p.ClassSchedulesStartDate != nil {
 		d, err := parseDate(*p.ClassSchedulesStartDate)
 		if err != nil {
@@ -351,14 +410,13 @@ func (p *PatchClassScheduleRequest) ApplyPatch(dst *m.ClassScheduleModel) error 
 		}
 		dst.ClassSchedulesEndDate = d
 	}
-	// Ensure date validity if any changed
 	if p.ClassSchedulesStartDate != nil || p.ClassSchedulesEndDate != nil {
 		if dst.ClassSchedulesEndDate.Before(dst.ClassSchedulesStartDate) {
 			return errors.New("class_schedules_end_date must be >= class_schedules_start_date")
 		}
 	}
 
-	// Room
+	// Room & Teacher
 	if p.ClassSchedulesRoomID != nil {
 		idp, err := uuidPtrFromString(p.ClassSchedulesRoomID)
 		if err != nil {
@@ -366,8 +424,6 @@ func (p *PatchClassScheduleRequest) ApplyPatch(dst *m.ClassScheduleModel) error 
 		}
 		dst.ClassSchedulesRoomID = idp
 	}
-
-	// Teacher
 	if p.ClassSchedulesTeacherID != nil {
 		idp, err := uuidPtrFromString(p.ClassSchedulesTeacherID)
 		if err != nil {
@@ -376,7 +432,7 @@ func (p *PatchClassScheduleRequest) ApplyPatch(dst *m.ClassScheduleModel) error 
 		dst.ClassSchedulesTeacherID = idp
 	}
 
-	// Status & active
+	// Status & Active
 	if p.ClassSchedulesStatus != nil {
 		switch *p.ClassSchedulesStatus {
 		case m.SessionScheduled, m.SessionOngoing, m.SessionCompleted, m.SessionCanceled:
@@ -389,6 +445,11 @@ func (p *PatchClassScheduleRequest) ApplyPatch(dst *m.ClassScheduleModel) error 
 		dst.ClassSchedulesIsActive = *p.ClassSchedulesIsActive
 	}
 
+	// Final guard: pastikan target valid setelah patch
+	if err := ensureTargetValid(dst.ClassSchedulesCSSTID, dst.ClassSchedulesSectionID, dst.ClassSchedulesClassSubjectID); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -399,17 +460,19 @@ func (p *PatchClassScheduleRequest) ApplyPatch(dst *m.ClassScheduleModel) error 
 type ClassScheduleResponse struct {
 	ClassScheduleID              uuid.UUID       `json:"class_schedule_id"`
 	ClassSchedulesMasjidID       uuid.UUID       `json:"class_schedules_masjid_id"`
-	ClassSchedulesSectionID      uuid.UUID       `json:"class_schedules_section_id"`
-	ClassSchedulesClassSubjectID uuid.UUID       `json:"class_schedules_class_subject_id"`
+
+	// opsional → pointer
+	ClassSchedulesSectionID      *uuid.UUID      `json:"class_schedules_section_id,omitempty"`
+	ClassSchedulesClassSubjectID *uuid.UUID      `json:"class_schedules_class_subject_id,omitempty"`
 	ClassSchedulesCSSTID         *uuid.UUID      `json:"class_schedules_csst_id,omitempty"`
 	ClassSchedulesRoomID         *uuid.UUID      `json:"class_schedules_room_id,omitempty"`
 	ClassSchedulesTeacherID      *uuid.UUID      `json:"class_schedules_teacher_id,omitempty"`
 
-	ClassSchedulesDayOfWeek int    `json:"class_schedules_day_of_week"`
-	ClassSchedulesStartTime string `json:"class_schedules_start_time"` // HH:mm:ss
-	ClassSchedulesEndTime   string `json:"class_schedules_end_time"`
-	ClassSchedulesStartDate string `json:"class_schedules_start_date"` // YYYY-MM-DD
-	ClassSchedulesEndDate   string `json:"class_schedules_end_date"`
+	ClassSchedulesDayOfWeek int           `json:"class_schedules_day_of_week"`
+	ClassSchedulesStartTime string        `json:"class_schedules_start_time"` // HH:mm:ss
+	ClassSchedulesEndTime   string        `json:"class_schedules_end_time"`
+	ClassSchedulesStartDate string        `json:"class_schedules_start_date"` // YYYY-MM-DD
+	ClassSchedulesEndDate   string        `json:"class_schedules_end_date"`
 
 	ClassSchedulesStatus   m.SessionStatus `json:"class_schedules_status"`
 	ClassSchedulesIsActive bool            `json:"class_schedules_is_active"`
@@ -425,13 +488,10 @@ func NewClassScheduleResponse(src *m.ClassScheduleModel) ClassScheduleResponse {
 	if src.ClassSchedulesDeletedAt.Valid {
 		deletedAt = &src.ClassSchedulesDeletedAt.Time
 	}
-
-	// NOTE: Jika dbtime.Tod tidak embed time.Time, ganti Format(...) dengan:
-	// src.ClassSchedulesStartTime.Time().Format("15:04:05")
-	// src.ClassSchedulesEndTime.Time().Format("15:04:05")
 	return ClassScheduleResponse{
 		ClassScheduleID:              src.ClassScheduleID,
 		ClassSchedulesMasjidID:       src.ClassSchedulesMasjidID,
+
 		ClassSchedulesSectionID:      src.ClassSchedulesSectionID,
 		ClassSchedulesClassSubjectID: src.ClassSchedulesClassSubjectID,
 		ClassSchedulesCSSTID:         src.ClassSchedulesCSSTID,

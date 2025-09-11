@@ -18,17 +18,15 @@ func SubjectUserRoutes(r fiber.Router, db *gorm.DB) {
 	subjectCtl := &subjectsController.SubjectsController{DB: db}
 	subjects := r.Group("/subjects")
 	subjects.Get("/list", subjectCtl.ListSubjects)  // GET /user/subjects?q=&is_active=&...
-	subjects.Get("/:id", subjectCtl.GetSubject) // GET /user/subjects/:id
 
 	// CLASS SUBJECTS (mapel per kelas) — read-only
 	classSubjectCtl := &subjectsController.ClassSubjectController{DB: db}
 	classSubjects := r.Group("/class-subjects")
 	classSubjects.Get("/list", classSubjectCtl.List)       // GET /user/class-subjects?include=books,teachers...
-	classSubjects.Get("/:id", classSubjectCtl.GetByID) // GET /user/class-subjects/:id
+
 
 	// CLASS SECTION SUBJECT TEACHERS — read-only
 	csstCtl := &subjectsController.ClassSectionSubjectTeacherController{DB: db}
 	csst := r.Group("/class-section-subject-teachers")
 	csst.Get("/list", csstCtl.List)       // GET /user/class-section-subject-teachers?section_id=&subject_id=&...
-	csst.Get("/:id", csstCtl.GetByID) // GET /user/class-section-subject-teachers/:id
 }

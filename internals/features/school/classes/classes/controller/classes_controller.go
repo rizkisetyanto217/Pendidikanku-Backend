@@ -321,32 +321,6 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Kelas berhasil diperbarui", dto.FromModel(&existing))
 }
 
-/* ========================== GET BY ID ========================== */
-// GET /admin/classes/:id
-func (ctrl *ClassController) GetClassByID(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
-	if err != nil {
-		return err
-	}
-
-	classID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
-	}
-
-	var m model.ClassModel
-	if err := ctrl.DB.
-		Where("class_id = ? AND class_masjid_id = ? AND class_deleted_at IS NULL", classID, masjidID).
-		First(&m).Error; err != nil {
-
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(fiber.StatusNotFound, "Kelas tidak ditemukan")
-		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-
-	return helper.JsonOK(c, "Data diterima", dto.FromModel(&m))
-}
 
 /* =========================== SOFT DELETE =========================== */
 // DELETE /admin/classes/:id

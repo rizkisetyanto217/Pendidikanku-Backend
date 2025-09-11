@@ -32,7 +32,6 @@ func AcademicYearAdminRoutes(api fiber.Router, db *gorm.DB) {
 
 	adminTerms.Get("/list", termCtl.List)
 	adminTerms.Get("/search", termCtl.SearchOnlyByYear) // taruh sebelum :id utk hindari bentrok
-	adminTerms.Get("/:id", termCtl.GetByID)
 	adminTerms.Post("/", termCtl.Create)
 	adminTerms.Put("/:id", termCtl.Update)
 	adminTerms.Delete("/:id", termCtl.Delete)

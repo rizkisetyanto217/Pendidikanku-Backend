@@ -135,13 +135,6 @@ func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
 	return uuid.Parse(s)
 }
 
-func exactlyOneFilled(optID *uuid.UUID, text *string) bool {
-	hasOpt := optID != nil
-	hasText := text != nil && strings.TrimSpace(*text) != ""
-	// XOR: true jika tepat satu
-	return (hasOpt || hasText) && !(hasOpt && hasText)
-}
-
 func validationMessage(err error) string {
 	return "validasi gagal: " + err.Error()
 }
@@ -268,8 +261,13 @@ func (ctl *UserQuizAttemptAnswersController) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, "payload tidak valid")
 	}
+	// Trim & basic sanitize untuk text
+	req.UserQuizAttemptAnswersText = strings.TrimSpace(req.UserQuizAttemptAnswersText)
 	if err := ctl.V.Struct(&req); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, validationMessage(err))
+	}
+	if req.UserQuizAttemptAnswersText == "" {
+		return helper.JsonError(c, http.StatusBadRequest, "text jawaban wajib diisi")
 	}
 
 	// Load attempt & scope
@@ -291,12 +289,7 @@ func (ctl *UserQuizAttemptAnswersController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, "question_id tidak milik quiz dari attempt ini")
 	}
 
-	// Guard XOR tambahan di server
-	if !exactlyOneFilled(req.UserQuizAttemptAnswersSelectedOptionID, req.UserQuizAttemptAnswersText) {
-		return helper.JsonError(c, http.StatusBadRequest, "isi tepat salah satu: selected_option_id ATAU text")
-	}
-
-	m := req.ToModel()
+	m := req.ToModel() // QuizID dibiarkan nil, trigger akan mengisi
 
 	// answered_at default
 	if m.UserQuizAttemptAnswersAnsweredAt.IsZero() {
@@ -307,8 +300,9 @@ func (ctl *UserQuizAttemptAnswersController) Create(c *fiber.Ctx) error {
 		if isUniqueViolation(err) {
 			return helper.JsonError(c, http.StatusConflict, "jawaban untuk (attempt_id, question_id) sudah ada")
 		}
+		// Check violation bisa terjadi jika text kosong (cek DB) atau FK komposit gagal
 		if isCheckViolation(err) {
-			return helper.JsonError(c, http.StatusBadRequest, "DB menolak: XOR selected_option_id vs text tidak terpenuhi")
+			return helper.JsonError(c, http.StatusBadRequest, "DB menolak: text kosong atau format tidak valid")
 		}
 		return helper.JsonError(c, http.StatusInternalServerError, "gagal menyimpan data")
 	}
@@ -329,8 +323,15 @@ func (ctl *UserQuizAttemptAnswersController) Patch(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, "payload tidak valid")
 	}
+	if req.UserQuizAttemptAnswersText != nil {
+		trimmed := strings.TrimSpace(*req.UserQuizAttemptAnswersText)
+		req.UserQuizAttemptAnswersText = &trimmed
+	}
 	if err := ctl.V.Struct(&req); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, validationMessage(err))
+	}
+	if req.UserQuizAttemptAnswersText != nil && *req.UserQuizAttemptAnswersText == "" {
+		return helper.JsonError(c, http.StatusBadRequest, "text jawaban tidak boleh kosong")
 	}
 
 	var m qmodel.UserQuizAttemptAnswerModel
@@ -353,25 +354,9 @@ func (ctl *UserQuizAttemptAnswersController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, err.(*fiber.Error).Code, err.Error())
 	}
 
-	// Jika user mengirim salah satu dari option/text, cek XOR pada nilai akhir
-	if req.UserQuizAttemptAnswersSelectedOptionID != nil || req.UserQuizAttemptAnswersText != nil {
-		nextOption := m.UserQuizAttemptAnswersSelectedOptionID
-		nextText := m.UserQuizAttemptAnswersText
-		if req.UserQuizAttemptAnswersSelectedOptionID != nil {
-			nextOption = req.UserQuizAttemptAnswersSelectedOptionID
-		}
-		if req.UserQuizAttemptAnswersText != nil {
-			nextText = req.UserQuizAttemptAnswersText
-		}
-		if !exactlyOneFilled(nextOption, nextText) {
-			return helper.JsonError(c, http.StatusBadRequest, "isi tepat salah satu: selected_option_id ATAU text")
-		}
-	}
-
 	// Apply & save (kolom whitelist)
 	req.Apply(&m)
 	if err := ctl.DB.Model(&m).Select(
-		"user_quiz_attempt_answers_selected_option_id",
 		"user_quiz_attempt_answers_text",
 		"user_quiz_attempt_answers_is_correct",
 		"user_quiz_attempt_answers_earned_points",
@@ -381,7 +366,7 @@ func (ctl *UserQuizAttemptAnswersController) Patch(c *fiber.Ctx) error {
 		"user_quiz_attempt_answers_answered_at",
 	).Updates(&m).Error; err != nil {
 		if isCheckViolation(err) {
-			return helper.JsonError(c, http.StatusBadRequest, "DB menolak: XOR selected_option_id vs text tidak terpenuhi")
+			return helper.JsonError(c, http.StatusBadRequest, "DB menolak: text kosong/tidak valid")
 		}
 		return helper.JsonError(c, http.StatusInternalServerError, "gagal memperbarui data")
 	}
@@ -397,16 +382,20 @@ func (ctl *UserQuizAttemptAnswersController) Delete(c *fiber.Ctx) error {
 	}
 
 	// Ambil attempt_id dulu untuk cek scope
-	var attemptID uuid.UUID
+	var attemptIDStr string
 	if err := ctl.DB.
-		Table("user_quiz_attempt_answers").
-		Select("user_quiz_attempt_answers_attempt_id").
-		Where("user_quiz_attempt_answers_id = ?", id).
-		Take(&attemptID).Error; err != nil {
+		Raw(`SELECT user_quiz_attempt_answers_attempt_id::text
+			 FROM user_quiz_attempt_answers
+			 WHERE user_quiz_attempt_answers_id = ?`, id).
+		Scan(&attemptIDStr).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "data tidak ditemukan")
 		}
 		return helper.JsonError(c, http.StatusInternalServerError, "gagal mengambil data")
+	}
+	attemptID, err := uuid.Parse(strings.TrimSpace(attemptIDStr))
+	if err != nil {
+		return helper.JsonError(c, http.StatusInternalServerError, "attempt_id tidak valid")
 	}
 
 	core, err := ctl.loadAttemptCore(attemptID)

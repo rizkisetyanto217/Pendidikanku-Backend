@@ -19,7 +19,6 @@ func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
 		classes.Get("/list", classHandler.ListClasses)
 		classes.Get("/search", classHandler.SearchWithSubjects)
 		classes.Get("/slug/:slug", classHandler.GetClassBySlug)
-		classes.Get("/:id", classHandler.GetClassByID)
 		classes.Patch("/:id", classHandler.PatchClass)
 		classes.Delete("/:id", classHandler.SoftDeleteClass)
 	}

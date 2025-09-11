@@ -2,7 +2,6 @@
 package controller
 
 import (
-	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -12,7 +11,6 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 
 	"masjidku_backend/internals/features/school/academics/academic_terms/dto"
 	"masjidku_backend/internals/features/school/academics/academic_terms/model"
@@ -27,32 +25,6 @@ var fallbackValidator = validator.New()
 
 /* ================= Handlers ================= */
 
-// GET /api/a/academic-terms/:id
-// GetByID (scoped ke masjid di token)
-func (ctl *AcademicTermController) GetByID(c *fiber.Ctx) error {
-	idStr := c.Params("id")
-	id, err := uuid.Parse(idStr)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid id")
-	}
-
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
-
-	var ent model.AcademicTermModel
-	if err := ctl.DB.
-		Where("academic_terms_id = ? AND academic_terms_masjid_id = ? AND academic_terms_deleted_at IS NULL", id, masjidID).
-		First(&ent).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Record not found")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Query failed: "+err.Error())
-	}
-
-	return helper.JsonOK(c, "Academic term fetched successfully", dto.FromModel(ent))
-}
 
 // GET /api/a/academic-terms
 // List (multi-tenant via token) + Filter + Pagination + Sorting

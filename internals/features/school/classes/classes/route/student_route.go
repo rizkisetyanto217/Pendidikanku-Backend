@@ -16,7 +16,6 @@ func ClassUserRoutes(r fiber.Router, db *gorm.DB) {
 	classes.Get("/list", cls.ListClasses)    // list kelas (read-only)
 	classes.Get("/search", cls.SearchWithSubjects)
 	classes.Get("/slug/:slug", cls.GetClassBySlug)
-	classes.Get("/:id", cls.GetClassByID)
 
 	// ===== Class Parents (READ-ONLY untuk user) =====
 	cp := ctrl.NewClassParentController(db, nil)

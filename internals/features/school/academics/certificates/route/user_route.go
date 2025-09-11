@@ -13,5 +13,4 @@ func CertificateUserRoutes(r fiber.Router, db *gorm.DB) {
 	// langsung pakai full prefix
 	uss := r.Group("/user-subject-summary")
 	uss.Get("/", ussCtl.List)     // batasi hasil via middleware (student_id dari token)
-	uss.Get("/:id", ussCtl.GetByID)
 }

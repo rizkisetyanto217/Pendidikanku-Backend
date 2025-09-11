@@ -25,11 +25,11 @@ CREATE TABLE IF NOT EXISTS class_schedules (
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   -- induk jadwal → section
-  class_schedules_section_id UUID NOT NULL
+  class_schedules_section_id UUID SET NULL
     REFERENCES class_sections(class_sections_id) ON DELETE CASCADE,
 
   -- konteks kurikulum (kelas+mapel[+term]) → class_subjects
-  class_schedules_class_subject_id UUID NOT NULL
+  class_schedules_class_subject_id UUID SET NULL
     REFERENCES class_subjects(class_subjects_id) ON DELETE RESTRICT,
 
   -- assignment CSST (section+class_subject+teacher)
@@ -172,5 +172,15 @@ ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_teacher_overlap
     class_schedules_time_range  WITH &&
   )
   WHERE (class_schedules_is_active AND class_schedules_teacher_id IS NOT NULL AND class_schedules_deleted_at IS NULL);
+
+ALTER TABLE class_schedules
+  DROP CONSTRAINT IF EXISTS ck_class_schedules_link_shape,
+  ADD CONSTRAINT ck_class_schedules_link_shape
+  CHECK (
+    (class_schedules_csst_id IS NOT NULL AND class_schedules_section_id IS NULL AND class_schedules_class_subject_id IS NULL)
+    OR
+    (class_schedules_csst_id IS NULL AND class_schedules_section_id IS NOT NULL AND class_schedules_class_subject_id IS NOT NULL)
+  );
+
 
 COMMIT;

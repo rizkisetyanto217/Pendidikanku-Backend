@@ -29,15 +29,6 @@ func NewUserSubjectSummaryController(db *gorm.DB) *UserSubjectSummaryController 
 	}
 }
 
-func (ctl *UserSubjectSummaryController) Register(app *fiber.App) {
-	g := app.Group("/api/user-subject-summaries")
-	g.Get("/", ctl.List)                 // ?masjid_id=&student_id=&class_subjects_id=&term_id=&passed=&min_score=&max_score=&page=&page_size=&order_by=
-	g.Get("/:id", ctl.GetByID)           // path id
-	g.Post("/", ctl.Create)              // create
-	g.Patch("/:id", ctl.Update)          // partial update
-	g.Delete("/:id", ctl.Delete)         // soft delete
-	g.Post("/:id/restore", ctl.Restore)  // optional restore
-}
 
 // ---------------- Helpers ----------------
 
@@ -228,24 +219,6 @@ func (ctl *UserSubjectSummaryController) List(c *fiber.Ctx) error {
 	return helper.JsonList(c, items, pagination)
 }
 
-// GET /api/user-subject-summaries/:id
-func (ctl *UserSubjectSummaryController) GetByID(c *fiber.Ctx) error {
-	id, err := parseUUIDParam(c, "id")
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
-	}
-
-	var m models.UserSubjectSummary
-	if err := ctl.DB.Where("user_subject_summary_id = ? AND user_subject_summary_deleted_at IS NULL", id).
-		First(&m).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return helper.JsonError(c, fiber.StatusNotFound, "not found")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "query failed: "+err.Error())
-	}
-
-	return helper.JsonOK(c, "ok", dto.FromModelUserSubjectSummary(m))
-}
 
 // POST /api/user-subject-summaries
 func (ctl *UserSubjectSummaryController) Create(c *fiber.Ctx) error {

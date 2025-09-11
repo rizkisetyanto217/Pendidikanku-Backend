@@ -11,42 +11,32 @@ import (
 
 /* ===================== REQUESTS ===================== */
 
-// Create — wajib attempt_id & question_id, dan persis salah satu: selected_option_id ATAU text
-// Create — attempt_id & question_id wajib.
-// selected_option_id TIDAK wajib; text juga tidak wajib DI LEVEL VALIDATOR.
-// XOR akan dicek manual di controller (dan juga dijaga DB constraint).
+// Create — wajib: attempt_id, question_id, dan text (SINGLE: label/A-D; ESSAY: uraian)
 type CreateUserQuizAttemptAnswerRequest struct {
-	UserQuizAttemptAnswersAttemptID        uuid.UUID  `json:"user_quiz_attempt_answers_attempt_id" validate:"required"`
-	UserQuizAttemptAnswersQuestionID       uuid.UUID  `json:"user_quiz_attempt_answers_question_id" validate:"required"`
+	UserQuizAttemptAnswersAttemptID  uuid.UUID `json:"user_quiz_attempt_answers_attempt_id" validate:"required"`
+	UserQuizAttemptAnswersQuestionID uuid.UUID `json:"user_quiz_attempt_answers_question_id" validate:"required"`
 
-	// Tidak wajib. Kalau diisi, harus UUID valid. Tidak boleh bersamaan dengan Text (excluded_with).
-	UserQuizAttemptAnswersSelectedOptionID *uuid.UUID `json:"user_quiz_attempt_answers_selected_option_id" validate:"omitempty,excluded_with=UserQuizAttemptAnswersText"`
+	// Jawaban user — wajib, akan ditrim/validasi lagi di controller bila perlu
+	UserQuizAttemptAnswersText string `json:"user_quiz_attempt_answers_text" validate:"required"`
 
-	// Tidak wajib. Tidak boleh bersamaan dengan SelectedOptionID (excluded_with).
-	UserQuizAttemptAnswersText             *string    `json:"user_quiz_attempt_answers_text" validate:"omitempty"`
-
-	// Opsi penilaian (biasanya backend yang isi).
-	UserQuizAttemptAnswersIsCorrect        *bool      `json:"user_quiz_attempt_answers_is_correct" validate:"omitempty"`
-	UserQuizAttemptAnswersEarnedPoints     *float64   `json:"user_quiz_attempt_answers_earned_points" validate:"omitempty,gte=0,lte=9999.99"`
+	// Opsi penilaian (biasanya backend yang isi)
+	UserQuizAttemptAnswersIsCorrect    *bool      `json:"user_quiz_attempt_answers_is_correct" validate:"omitempty"`
+	UserQuizAttemptAnswersEarnedPoints *float64   `json:"user_quiz_attempt_answers_earned_points" validate:"omitempty,gte=0,lte=9999.99"`
 	UserQuizAttemptAnswersGradedByTeacherID *uuid.UUID `json:"user_quiz_attempt_answers_graded_by_teacher_id" validate:"omitempty"`
-	UserQuizAttemptAnswersGradedAt         *time.Time `json:"user_quiz_attempt_answers_graded_at" validate:"omitempty"`
-	UserQuizAttemptAnswersFeedback         *string    `json:"user_quiz_attempt_answers_feedback" validate:"omitempty"`
+	UserQuizAttemptAnswersGradedAt          *time.Time `json:"user_quiz_attempt_answers_graded_at" validate:"omitempty"`
+	UserQuizAttemptAnswersFeedback          *string    `json:"user_quiz_attempt_answers_feedback" validate:"omitempty"`
 
 	// Optional import historis
-	UserQuizAttemptAnswersAnsweredAt       *time.Time `json:"user_quiz_attempt_answers_answered_at" validate:"omitempty"`
+	UserQuizAttemptAnswersAnsweredAt *time.Time `json:"user_quiz_attempt_answers_answered_at" validate:"omitempty"`
 }
 
-// Patch/Update — semua opsional; tetap jaga XOR bila salah satu diubah.
-// Catatan: jika keduanya kosong (tidak diubah), validator tidak memaksa.
+// Patch/Update — semua opsional; attempt_id/question_id tidak boleh diganti.
 type UpdateUserQuizAttemptAnswerRequest struct {
-	// Tidak mengizinkan ganti attempt_id / question_id demi konsistensi UNIQUE(attempt,question)
-	// Jika sangat perlu, lakukan via delete+create.
+	// Jawaban baru (opsional). Controller boleh trim & cek non-empty bila dikirim.
+	UserQuizAttemptAnswersText *string `json:"user_quiz_attempt_answers_text" validate:"omitempty"`
 
-	UserQuizAttemptAnswersSelectedOptionID *uuid.UUID `json:"user_quiz_attempt_answers_selected_option_id" validate:"omitempty,excluded_with=UserQuizAttemptAnswersText"`
-	UserQuizAttemptAnswersText             *string    `json:"user_quiz_attempt_answers_text" validate:"omitempty,excluded_with=UserQuizAttemptAnswersSelectedOptionID"`
-
-	UserQuizAttemptAnswersIsCorrect   *bool      `json:"user_quiz_attempt_answers_is_correct" validate:"omitempty"`
-	UserQuizAttemptAnswersEarnedPoints *float64  `json:"user_quiz_attempt_answers_earned_points" validate:"omitempty,gte=0,lte=9999.99"`
+	UserQuizAttemptAnswersIsCorrect    *bool      `json:"user_quiz_attempt_answers_is_correct" validate:"omitempty"`
+	UserQuizAttemptAnswersEarnedPoints *float64   `json:"user_quiz_attempt_answers_earned_points" validate:"omitempty,gte=0,lte=9999.99"`
 	UserQuizAttemptAnswersGradedByTeacherID *uuid.UUID `json:"user_quiz_attempt_answers_graded_by_teacher_id" validate:"omitempty"`
 	UserQuizAttemptAnswersGradedAt          *time.Time `json:"user_quiz_attempt_answers_graded_at" validate:"omitempty"`
 	UserQuizAttemptAnswersFeedback          *string    `json:"user_quiz_attempt_answers_feedback" validate:"omitempty"`
@@ -57,17 +47,20 @@ type UpdateUserQuizAttemptAnswerRequest struct {
 /* ===================== RESPONSES ===================== */
 
 type UserQuizAttemptAnswerResponse struct {
-	UserQuizAttemptAnswersID              uuid.UUID  `json:"user_quiz_attempt_answers_id"`
-	UserQuizAttemptAnswersAttemptID       uuid.UUID  `json:"user_quiz_attempt_answers_attempt_id"`
-	UserQuizAttemptAnswersQuestionID      uuid.UUID  `json:"user_quiz_attempt_answers_question_id"`
-	UserQuizAttemptAnswersSelectedOptionID *uuid.UUID `json:"user_quiz_attempt_answers_selected_option_id,omitempty"`
-	UserQuizAttemptAnswersText            *string    `json:"user_quiz_attempt_answers_text,omitempty"`
-	UserQuizAttemptAnswersIsCorrect       *bool      `json:"user_quiz_attempt_answers_is_correct,omitempty"`
-	UserQuizAttemptAnswersEarnedPoints    float64    `json:"user_quiz_attempt_answers_earned_points"`
+	UserQuizAttemptAnswersID         uuid.UUID `json:"user_quiz_attempt_answers_id"`
+	UserQuizAttemptAnswersQuizID     uuid.UUID `json:"user_quiz_attempt_answers_quiz_id"`
+	UserQuizAttemptAnswersAttemptID  uuid.UUID `json:"user_quiz_attempt_answers_attempt_id"`
+	UserQuizAttemptAnswersQuestionID uuid.UUID `json:"user_quiz_attempt_answers_question_id"`
+
+	UserQuizAttemptAnswersText       string     `json:"user_quiz_attempt_answers_text"`
+	UserQuizAttemptAnswersIsCorrect  *bool      `json:"user_quiz_attempt_answers_is_correct,omitempty"`
+	UserQuizAttemptAnswersEarnedPoints float64  `json:"user_quiz_attempt_answers_earned_points"`
+
 	UserQuizAttemptAnswersGradedByTeacherID *uuid.UUID `json:"user_quiz_attempt_answers_graded_by_teacher_id,omitempty"`
-	UserQuizAttemptAnswersGradedAt        *time.Time `json:"user_quiz_attempt_answers_graded_at,omitempty"`
-	UserQuizAttemptAnswersFeedback        *string    `json:"user_quiz_attempt_answers_feedback,omitempty"`
-	UserQuizAttemptAnswersAnsweredAt      time.Time  `json:"user_quiz_attempt_answers_answered_at"`
+	UserQuizAttemptAnswersGradedAt          *time.Time `json:"user_quiz_attempt_answers_graded_at,omitempty"`
+	UserQuizAttemptAnswersFeedback          *string    `json:"user_quiz_attempt_answers_feedback,omitempty"`
+
+	UserQuizAttemptAnswersAnsweredAt time.Time `json:"user_quiz_attempt_answers_answered_at"`
 }
 
 /* ===================== CONVERTERS ===================== */
@@ -76,27 +69,31 @@ func ToUserQuizAttemptAnswerResponse(m *model.UserQuizAttemptAnswerModel) *UserQ
 	if m == nil {
 		return nil
 	}
+	var qid uuid.UUID
+	if m.UserQuizAttemptAnswersQuizID != nil {
+		qid = *m.UserQuizAttemptAnswersQuizID
+	}
 	return &UserQuizAttemptAnswerResponse{
-		UserQuizAttemptAnswersID:               m.UserQuizAttemptAnswersID,
-		UserQuizAttemptAnswersAttemptID:        m.UserQuizAttemptAnswersAttemptID,
-		UserQuizAttemptAnswersQuestionID:       m.UserQuizAttemptAnswersQuestionID,
-		UserQuizAttemptAnswersSelectedOptionID: m.UserQuizAttemptAnswersSelectedOptionID,
-		UserQuizAttemptAnswersText:             m.UserQuizAttemptAnswersText,
-		UserQuizAttemptAnswersIsCorrect:        m.UserQuizAttemptAnswersIsCorrect,
-		UserQuizAttemptAnswersEarnedPoints:     m.UserQuizAttemptAnswersEarnedPoints,
+		UserQuizAttemptAnswersID:          m.UserQuizAttemptAnswersID,
+		UserQuizAttemptAnswersQuizID:      qid,
+		UserQuizAttemptAnswersAttemptID:   m.UserQuizAttemptAnswersAttemptID,
+		UserQuizAttemptAnswersQuestionID:  m.UserQuizAttemptAnswersQuestionID,
+		UserQuizAttemptAnswersText:        m.UserQuizAttemptAnswersText,
+		UserQuizAttemptAnswersIsCorrect:   m.UserQuizAttemptAnswersIsCorrect,
+		UserQuizAttemptAnswersEarnedPoints: m.UserQuizAttemptAnswersEarnedPoints,
 		UserQuizAttemptAnswersGradedByTeacherID: m.UserQuizAttemptAnswersGradedByTeacherID,
-		UserQuizAttemptAnswersGradedAt:         m.UserQuizAttemptAnswersGradedAt,
-		UserQuizAttemptAnswersFeedback:         m.UserQuizAttemptAnswersFeedback,
-		UserQuizAttemptAnswersAnsweredAt:       m.UserQuizAttemptAnswersAnsweredAt,
+		UserQuizAttemptAnswersGradedAt:    m.UserQuizAttemptAnswersGradedAt,
+		UserQuizAttemptAnswersFeedback:    m.UserQuizAttemptAnswersFeedback,
+		UserQuizAttemptAnswersAnsweredAt:  m.UserQuizAttemptAnswersAnsweredAt,
 	}
 }
 
 func (r *CreateUserQuizAttemptAnswerRequest) ToModel() *model.UserQuizAttemptAnswerModel {
 	m := &model.UserQuizAttemptAnswerModel{
-		UserQuizAttemptAnswersAttemptID:        r.UserQuizAttemptAnswersAttemptID,
-		UserQuizAttemptAnswersQuestionID:       r.UserQuizAttemptAnswersQuestionID,
-		UserQuizAttemptAnswersSelectedOptionID: r.UserQuizAttemptAnswersSelectedOptionID,
-		UserQuizAttemptAnswersText:             r.UserQuizAttemptAnswersText,
+		UserQuizAttemptAnswersAttemptID: r.UserQuizAttemptAnswersAttemptID,
+		UserQuizAttemptAnswersQuestionID: r.UserQuizAttemptAnswersQuestionID,
+		// QuizID dibiarkan nil: akan diisi trigger dari attempt_id
+		UserQuizAttemptAnswersText: r.UserQuizAttemptAnswersText,
 	}
 	if r.UserQuizAttemptAnswersIsCorrect != nil {
 		m.UserQuizAttemptAnswersIsCorrect = r.UserQuizAttemptAnswersIsCorrect
@@ -121,11 +118,8 @@ func (r *CreateUserQuizAttemptAnswerRequest) ToModel() *model.UserQuizAttemptAns
 
 // Apply ke model untuk PATCH (partial)
 func (r *UpdateUserQuizAttemptAnswerRequest) Apply(m *model.UserQuizAttemptAnswerModel) {
-	if r.UserQuizAttemptAnswersSelectedOptionID != nil {
-		m.UserQuizAttemptAnswersSelectedOptionID = r.UserQuizAttemptAnswersSelectedOptionID
-	}
 	if r.UserQuizAttemptAnswersText != nil {
-		m.UserQuizAttemptAnswersText = r.UserQuizAttemptAnswersText
+		m.UserQuizAttemptAnswersText = *r.UserQuizAttemptAnswersText
 	}
 	if r.UserQuizAttemptAnswersIsCorrect != nil {
 		m.UserQuizAttemptAnswersIsCorrect = r.UserQuizAttemptAnswersIsCorrect

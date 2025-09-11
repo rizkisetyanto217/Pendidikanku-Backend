@@ -18,5 +18,4 @@ func RoomsUserRoutes(user fiber.Router, db *gorm.DB) {
 
 	// Read-only endpoints
 	g.Get("/list", ctl.List)
-	g.Get("/:id", ctl.GetByID)
 }

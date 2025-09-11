@@ -159,7 +159,38 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	if q.IsOpen != nil {
 		tx = tx.Where("class_is_open = ?", *q.IsOpen)
 	}
-	// 🔁 NEW: status (active|inactive|completed)
+	// 🔁 NEW: filter by ID (single/multi; comma-separated)
+	// ?id=<uuid>[,uuid...]  atau  ?class_id=<uuid>[,uuid...]
+	if raw := strings.TrimSpace(c.Query("id")); raw != "" {
+		var ids []uuid.UUID
+		for _, part := range strings.Split(raw, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" { continue }
+			id, err := uuid.Parse(part)
+			if err != nil {
+				return helper.JsonError(c, fiber.StatusBadRequest, "id tidak valid")
+			}
+			ids = append(ids, id)
+		}
+		if len(ids) > 0 {
+			tx = tx.Where("class_id IN ?", ids)
+		}
+	} else if raw := strings.TrimSpace(c.Query("class_id")); raw != "" {
+		var ids []uuid.UUID
+		for _, part := range strings.Split(raw, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" { continue }
+			id, err := uuid.Parse(part)
+			if err != nil {
+				return helper.JsonError(c, fiber.StatusBadRequest, "class_id tidak valid")
+			}
+			ids = append(ids, id)
+		}
+		if len(ids) > 0 {
+			tx = tx.Where("class_id IN ?", ids)
+		}
+	}
+
 	if q.Status != nil && strings.TrimSpace(*q.Status) != "" {
 		tx = tx.Where("class_status = ?", strings.ToLower(strings.TrimSpace(*q.Status)))
 	}
@@ -185,13 +216,13 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	if q.RegCloseLe != nil {
 		tx = tx.Where("class_registration_closes_at <= ?", *q.RegCloseLe)
 	}
-	// OPTIONAL ranges baru kalau dipakai di DTO
 	if q.CompletedGe != nil {
 		tx = tx.Where("class_completed_at >= ?", *q.CompletedGe)
 	}
 	if q.CompletedLe != nil {
 		tx = tx.Where("class_completed_at <= ?", *q.CompletedLe)
 	}
+
 
 	// 6) total
 	var total int64

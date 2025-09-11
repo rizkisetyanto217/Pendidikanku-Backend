@@ -207,6 +207,8 @@ END$$;
 DROP TRIGGER IF EXISTS set_timestamptz_class_subjects ON class_subjects;
 DROP FUNCTION IF EXISTS trg_set_timestamptz_class_subjects() CASCADE;
 
+
+
 -- =========================================================
 -- CLASS SECTION SUBJECT TEACHERS (CSST)
 -- =========================================================
