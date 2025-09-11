@@ -14,7 +14,7 @@ import (
 	ClassSectionsRoutes "masjidku_backend/internals/features/school/classes/class_sections/route"
 	ClassesRoutes "masjidku_backend/internals/features/school/classes/classes/route"
 	AttendanceSettingsRoute "masjidku_backend/internals/features/school/sessions/assesments_settings/route"
-	ScheduleRoutes "masjidku_backend/internals/features/school/sessions/schedule_daily/route"
+	ScheduleRoutes "masjidku_backend/internals/features/school/sessions/schedule/route"
 	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/school/sessions/sessions/route"
 	ClassBooksRoutes "masjidku_backend/internals/features/school/subject_books/books/route"
 	SubjectRoutes "masjidku_backend/internals/features/school/subject_books/subject/route"

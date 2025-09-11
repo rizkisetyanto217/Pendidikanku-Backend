@@ -2,7 +2,7 @@
 package routes
 
 import (
-	dailyctl "masjidku_backend/internals/features/school/sessions/schedule_daily/controller"
+	dailyctl "masjidku_backend/internals/features/school/sessions/schedule/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -21,15 +21,10 @@ func ScheduleAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// Query: ?from=YYYY-MM-DD&to=YYYY-MM-DD
 	grpSched.Get("/occurrences", sched.ListOccurrences)
 
-
-
-	grpSched.Get("/:id",  sched.GetByID)
 	grpSched.Post("/",    sched.Create)
 	grpSched.Put("/:id",  sched.Update)
 	grpSched.Patch("/:id",sched.Patch)
 	grpSched.Delete("/:id", sched.Delete)
-
-
 
 	// Sinkronisasi CAS dari jadwal
 	// Query: ?date=YYYY-MM-DD (jika kosong → today, lokal)

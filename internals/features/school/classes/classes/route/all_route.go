@@ -21,5 +21,4 @@ func ClassAllRoutes(admin fiber.Router, db *gorm.DB) {
 	cp := classctrl.NewClassParentController(db, nil)
 	classParents := admin.Group("/class-parents")
 	classParents.Get("/list", cp.List)
-	classParents.Get("/:id", cp.GetByID)
 }

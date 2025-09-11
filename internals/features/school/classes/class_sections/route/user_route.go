@@ -18,10 +18,8 @@ func ClassSectionUserRoutes(r fiber.Router, db *gorm.DB) {
 	// daftar section publik (support filter via query: term_id, grade, subject_id, teacher_id, q, page, size)
 	pub.Get("/list", sectionH.ListClassSections)
 	// pencarian cepat (q=keyword) – jika Anda ingin pisah dari list
-	pub.Get("/search", sectionH.SearchClassSections)
 	// detail by slug/id (untuk landing/SEO)
 	pub.Get("/slug/:slug", sectionH.GetClassSectionBySlug)
-	pub.Get("/:id", sectionH.GetClassSectionByID)
 	// resource terkait (tidak mengekspos data sensitif user)
 	// pub.Get("/books/:id", sectionH.ListBooksBySection)
 

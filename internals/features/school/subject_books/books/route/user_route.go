@@ -19,7 +19,6 @@ func ClassBooksUserRoutes(r fiber.Router, db *gorm.DB) {
 	// /api/u/class-books
 	books := r.Group("/books")
 	books.Get("/list", booksCtl.List)
-	books.Get("/by-id/:id", booksCtl.GetWithUsagesByID)
 
 	// /api/u/class-books/class-subject-books
 	csb := r.Group("/class-subject-books")

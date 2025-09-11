@@ -16,8 +16,8 @@ import (
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
-	d "masjidku_backend/internals/features/school/sessions/schedule_daily/dto"
-	m "masjidku_backend/internals/features/school/sessions/schedule_daily/model"
+	d "masjidku_backend/internals/features/school/sessions/schedule/dto"
+	m "masjidku_backend/internals/features/school/sessions/schedule/model"
 )
 
 /* =========================
@@ -111,24 +111,26 @@ func parseTimeOfDayParam(s string) (time.Time, error) {
 
 type listQuery struct {
 	// Filter
-	MasjidID       string `query:"masjid_id"`
-	SectionID      string `query:"section_id"`
-	ClassSubjectID string `query:"class_subject_id"`
-	CSSTID         string `query:"csst_id"` // ✨ baru: filter by class_schedules_csst_id
-	RoomID         string `query:"room_id"`
-	TeacherID      string `query:"teacher_id"`
-	Status         string `query:"status"` // scheduled|ongoing|completed|canceled
-	Active         *bool  `query:"active"`
-	DayOfWeek      *int   `query:"dow"`        // 1..7
-	OnDate         string `query:"on_date"`    // YYYY-MM-DD
-	StartAfter     string `query:"start_after"`// HH:mm / HH:mm:ss → start_time >=
-	EndBefore      string `query:"end_before"` // HH:mm / HH:mm:ss → end_time <=
+	MasjidID         string `query:"masjid_id"`
+	SectionID        string `query:"section_id"`
+	ClassSubjectID   string `query:"class_subject_id"`
+	CSSTID           string `query:"csst_id"`
+	RoomID           string `query:"room_id"`
+	TeacherID        string `query:"teacher_id"`
+	Status           string `query:"status"`
+	Active           *bool  `query:"active"`
+	DayOfWeek        *int   `query:"dow"`
+	OnDate           string `query:"on_date"`
+	StartAfter       string `query:"start_after"`
+	EndBefore        string `query:"end_before"`
+	ClassScheduleID  string `query:"class_schedule_id"`   // <— NEW (single)
+	ClassScheduleIDs string `query:"class_schedule_ids"`  // <— NEW (comma-separated)
 
 	// Pagination & sort
 	Limit  int    `query:"limit"`
 	Offset int    `query:"offset"`
-	SortBy string `query:"sort_by"` // start_time|end_time|created_at|updated_at (default: start_time)
-	Order  string `query:"order"`   // asc|desc (default: asc)
+	SortBy string `query:"sort_by"`
+	Order  string `query:"order"`
 }
 
 func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
@@ -137,112 +139,22 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	db := ctl.DB.Model(&m.ClassScheduleModel{})
-
-	// Jika token memiliki scope masjid → override filter masjid
+	// Tenant override dari token (teacher-aware)
 	if act, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && act != uuid.Nil {
 		q.MasjidID = act.String()
 	}
 
-	// Filters
-	if q.MasjidID != "" {
-		if _, err := uuid.Parse(q.MasjidID); err != nil {
-			return helper.JsonError(c, http.StatusBadRequest, "masjid_id invalid")
-		}
-		db = db.Where("class_schedules_masjid_id = ?", q.MasjidID)
+	// Whitelist sorting
+	sortCol := map[string]string{
+		"start_time": "class_schedules_start_time",
+		"end_time":   "class_schedules_end_time",
+		"created_at": "class_schedules_created_at",
+		"updated_at": "class_schedules_updated_at",
 	}
-	if q.SectionID != "" {
-		if _, err := uuid.Parse(q.SectionID); err != nil {
-			return helper.JsonError(c, http.StatusBadRequest, "section_id invalid")
-		}
-		db = db.Where("class_schedules_section_id = ?", q.SectionID)
-	}
-	if q.ClassSubjectID != "" {
-		if _, err := uuid.Parse(q.ClassSubjectID); err != nil {
-			return helper.JsonError(c, http.StatusBadRequest, "class_subject_id invalid")
-		}
-		db = db.Where("class_schedules_class_subject_id = ?", q.ClassSubjectID)
-	}
-	if q.CSSTID != "" {
-		if _, err := uuid.Parse(q.CSSTID); err != nil {
-			return helper.JsonError(c, http.StatusBadRequest, "csst_id invalid")
-		}
-		db = db.Where("class_schedules_csst_id = ?", q.CSSTID)
-	}
-	if q.RoomID != "" {
-		if _, err := uuid.Parse(q.RoomID); err != nil {
-			return helper.JsonError(c, http.StatusBadRequest, "room_id invalid")
-		}
-		db = db.Where("class_schedules_room_id = ?", q.RoomID)
-	}
-	if q.TeacherID != "" {
-		if _, err := uuid.Parse(q.TeacherID); err != nil {
-			return helper.JsonError(c, http.StatusBadRequest, "teacher_id invalid")
-		}
-		db = db.Where("class_schedules_teacher_id = ?", q.TeacherID)
-	}
-	if q.Status != "" {
-		switch m.SessionStatus(q.Status) {
-		case m.SessionScheduled, m.SessionOngoing, m.SessionCompleted, m.SessionCanceled:
-			db = db.Where("class_schedules_status = ?", q.Status)
-		default:
-			return helper.JsonError(c, http.StatusBadRequest, "status invalid")
-		}
-	}
-	if q.Active != nil {
-		db = db.Where("class_schedules_is_active = ?", *q.Active)
-	}
-	if q.DayOfWeek != nil {
-		if *q.DayOfWeek < 1 || *q.DayOfWeek > 7 {
-			return helper.JsonError(c, http.StatusBadRequest, "dow must be 1..7")
-		}
-		db = db.Where("class_schedules_day_of_week = ?", *q.DayOfWeek)
-	}
-
-	// on_date filter → tanggal dalam rentang start..end, dan DOW match
-	if strings.TrimSpace(q.OnDate) != "" {
-		dt, err := time.Parse("2006-01-02", q.OnDate)
-		if err != nil {
-			return helper.JsonError(c, http.StatusBadRequest, "on_date invalid (YYYY-MM-DD)")
-		}
-		dow := int(dt.Weekday()) // Go: Sunday(0)..Saturday(6)
-		if dow == 0 {
-			dow = 7 // ISO Monday(1)..Sunday(7)
-		}
-		db = db.Where("? BETWEEN class_schedules_start_date AND class_schedules_end_date", dt).
-			Where("class_schedules_day_of_week = ?", dow)
-	}
-
-	// Time window
-	if strings.TrimSpace(q.StartAfter) != "" {
-		t, err := parseTimeOfDayParam(q.StartAfter)
-		if err != nil {
-			return helper.JsonError(c, http.StatusBadRequest, "start_after invalid (HH:mm/HH:mm:ss)")
-		}
-		db = db.Where("class_schedules_start_time >= ?", t)
-	}
-	if strings.TrimSpace(q.EndBefore) != "" {
-		t, err := parseTimeOfDayParam(q.EndBefore)
-		if err != nil {
-			return helper.JsonError(c, http.StatusBadRequest, "end_before invalid (HH:mm/HH:mm:ss)")
-		}
-		db = db.Where("class_schedules_end_time <= ?", t)
-	}
-
-	// Sort & pagination
 	sortBy := "class_schedules_start_time"
 	if s := strings.TrimSpace(q.SortBy); s != "" {
-		switch s {
-		case "start_time":
-			sortBy = "class_schedules_start_time"
-		case "end_time":
-			sortBy = "class_schedules_end_time"
-		case "created_at":
-			sortBy = "class_schedules_created_at"
-		case "updated_at":
-			sortBy = "class_schedules_updated_at"
-		default:
-			// keep default
+		if col, ok := sortCol[s]; ok {
+			sortBy = col
 		}
 	}
 	order := "ASC"
@@ -250,6 +162,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		order = "DESC"
 	}
 
+	// Pagination clamp
 	if q.Limit <= 0 || q.Limit > 200 {
 		q.Limit = 50
 	}
@@ -257,9 +170,139 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		q.Offset = 0
 	}
 
+	// ===== Build base query with filters =====
+	tx := ctl.DB.Model(&m.ClassScheduleModel{}).
+		Where("class_schedules_deleted_at IS NULL")
+
+	// by masjid
+	if s := strings.TrimSpace(q.MasjidID); s != "" {
+		if _, err := uuid.Parse(s); err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, "masjid_id invalid")
+		}
+		tx = tx.Where("class_schedules_masjid_id = ?", s)
+	}
+
+	// by ids (NEW)
+	if s := strings.TrimSpace(q.ClassScheduleID); s != "" {
+		if _, err := uuid.Parse(s); err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, "class_schedule_id invalid")
+		}
+		tx = tx.Where("class_schedules_id = ?", s)
+	}
+	if s := strings.TrimSpace(q.ClassScheduleIDs); s != "" {
+		parts := strings.Split(s, ",")
+		ids := make([]uuid.UUID, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			u, err := uuid.Parse(p)
+			if err != nil {
+				return helper.JsonError(c, http.StatusBadRequest, "class_schedule_ids mengandung UUID tidak valid")
+			}
+			ids = append(ids, u)
+		}
+		if len(ids) > 0 {
+			tx = tx.Where("class_schedules_id IN ?", ids)
+		}
+	}
+
+	// by foreign keys
+	if s := strings.TrimSpace(q.SectionID); s != "" {
+		if _, err := uuid.Parse(s); err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, "section_id invalid")
+		}
+		tx = tx.Where("class_schedules_section_id = ?", s)
+	}
+	if s := strings.TrimSpace(q.ClassSubjectID); s != "" {
+		if _, err := uuid.Parse(s); err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, "class_subject_id invalid")
+		}
+		tx = tx.Where("class_schedules_class_subject_id = ?", s)
+	}
+	if s := strings.TrimSpace(q.CSSTID); s != "" {
+		if _, err := uuid.Parse(s); err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, "csst_id invalid")
+		}
+		tx = tx.Where("class_schedules_csst_id = ?", s)
+	}
+	if s := strings.TrimSpace(q.RoomID); s != "" {
+		if _, err := uuid.Parse(s); err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, "room_id invalid")
+		}
+		tx = tx.Where("class_schedules_room_id = ?", s)
+	}
+	if s := strings.TrimSpace(q.TeacherID); s != "" {
+		if _, err := uuid.Parse(s); err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, "teacher_id invalid")
+		}
+		tx = tx.Where("class_schedules_teacher_id = ?", s)
+	}
+
+	// by status
+	if s := strings.TrimSpace(q.Status); s != "" {
+		switch m.SessionStatus(s) {
+		case m.SessionScheduled, m.SessionOngoing, m.SessionCompleted, m.SessionCanceled:
+			tx = tx.Where("class_schedules_status = ?", s)
+		default:
+			return helper.JsonError(c, http.StatusBadRequest, "status invalid")
+		}
+	}
+
+	// by active
+	if q.Active != nil {
+		tx = tx.Where("class_schedules_is_active = ?", *q.Active)
+	}
+
+	// by day-of-week
+	if q.DayOfWeek != nil {
+		if *q.DayOfWeek < 1 || *q.DayOfWeek > 7 {
+			return helper.JsonError(c, http.StatusBadRequest, "dow must be 1..7")
+		}
+		tx = tx.Where("class_schedules_day_of_week = ?", *q.DayOfWeek)
+	}
+
+	// by on_date (toleran end_date NULL)
+	if s := strings.TrimSpace(q.OnDate); s != "" {
+		dt, err := time.Parse("2006-01-02", s)
+		if err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, "on_date invalid (YYYY-MM-DD)")
+		}
+		dow := int(dt.Weekday()) // Sunday(0)..Saturday(6)
+		if dow == 0 {
+			dow = 7 // ISO 1..7
+		}
+		tx = tx.
+			Where("?::date BETWEEN class_schedules_start_date AND COALESCE(class_schedules_end_date, ?::date)", dt, dt).
+			Where("class_schedules_day_of_week = ?", dow)
+	}
+
+	// by time windows
+	if s := strings.TrimSpace(q.StartAfter); s != "" {
+		tm, err := parseTimeOfDayParam(s)
+		if err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, "start_after invalid (HH:mm/HH:mm:ss)")
+		}
+		tx = tx.Where("class_schedules_start_time >= ?", tm)
+	}
+	if s := strings.TrimSpace(q.EndBefore); s != "" {
+		tm, err := parseTimeOfDayParam(s)
+		if err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, "end_before invalid (HH:mm/HH:mm:ss)")
+		}
+		tx = tx.Where("class_schedules_end_time <= ?", tm)
+	}
+
+	// ===== Count total =====
+	var total int64
+	if err := tx.Count(&total).Error; err != nil {
+		return writePGError(c, err)
+	}
+
+	// ===== Fetch page =====
 	var rows []m.ClassScheduleModel
-	if err := db.
-		Where("class_schedules_deleted_at IS NULL").
+	if err := tx.
 		Order(sortBy + " " + order).
 		Limit(q.Limit).
 		Offset(q.Offset).
@@ -273,35 +316,22 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		out = append(out, d.NewClassScheduleResponse(&rows[i]))
 	}
 
+	// Meta
+	nextOffset := q.Offset + q.Limit
+	hasMore := nextOffset < int(total)
+
 	meta := fiber.Map{
-		"limit":  q.Limit,
-		"offset": q.Offset,
+		"limit":       q.Limit,
+		"offset":      q.Offset,
+		"count":       len(out),
+		"total":       total,
+		"has_more":    hasMore,
+		"next_offset": func() *int { if hasMore { return &nextOffset }; return nil }(),
+		"sort_by":     q.SortBy,
+		"order":       strings.ToLower(order),
 	}
 
 	return helper.JsonList(c, out, meta)
-}
-
-/* =========================
-   GetByID
-   ========================= */
-
-func (ctl *ClassScheduleController) GetByID(c *fiber.Ctx) error {
-	id, err := parseUUIDParam(c, "id")
-	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
-	}
-
-	var row m.ClassScheduleModel
-	if err := ctl.DB.
-		Where("class_schedule_id = ? AND class_schedules_deleted_at IS NULL", id).
-		First(&row).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, http.StatusNotFound, "schedule not found")
-		}
-		return writePGError(c, err)
-	}
-
-	return helper.JsonOK(c, "OK", d.NewClassScheduleResponse(&row))
 }
 
 /* =========================

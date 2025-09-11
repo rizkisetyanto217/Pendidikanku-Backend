@@ -55,6 +55,9 @@ CREATE INDEX IF NOT EXISTS idx_uatt_masjid_created_desc
 CREATE INDEX IF NOT EXISTS brin_uatt_created_at
   ON user_attendance_type USING BRIN (user_attendance_type_created_at);
 
+
+
+
 -- =========================================
 -- B) USER ATTENDANCE (per siswa per sesi)
 -- =========================================

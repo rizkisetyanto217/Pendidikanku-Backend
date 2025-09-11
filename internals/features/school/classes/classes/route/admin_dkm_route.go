@@ -17,7 +17,6 @@ func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	{
 		classes.Post("/", classHandler.CreateClass)
 		classes.Get("/list", classHandler.ListClasses)
-		classes.Get("/search", classHandler.SearchWithSubjects)
 		classes.Get("/slug/:slug", classHandler.GetClassBySlug)
 		classes.Patch("/:id", classHandler.PatchClass)
 		classes.Delete("/:id", classHandler.SoftDeleteClass)
@@ -30,7 +29,6 @@ func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	{
 		classParents.Post("/", parentHandler.Create)
 		classParents.Get("/list", parentHandler.List)
-		classParents.Get("/:id", parentHandler.GetByID)
 		classParents.Put("/:id", parentHandler.Update)
 		classParents.Patch("/:id", parentHandler.Update)
 		classParents.Delete("/:id", parentHandler.Delete)

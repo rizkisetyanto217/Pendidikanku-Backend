@@ -2,7 +2,7 @@
 package routes
 
 import (
-	dailyctl "masjidku_backend/internals/features/school/sessions/schedule_daily/controller"
+	dailyctl "masjidku_backend/internals/features/school/sessions/schedule/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -17,7 +17,6 @@ func ScheduleUserRoutes(user fiber.Router, db *gorm.DB) {
 		// Proyeksi jadwal → occurrences (kalender pengguna)
 	// Query: ?from=YYYY-MM-DD&to=YYYY-MM-DD
 	sg.Get("/occurrences", sched.ListOccurrences)
-	sg.Get("/:id", sched.GetByID)
 
 
 }

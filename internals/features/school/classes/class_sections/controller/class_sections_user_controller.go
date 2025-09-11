@@ -20,15 +20,35 @@ import (
 /* ================= List ================= */
 
 // GET /admin/class-sections
+// GET /admin/class-sections
 func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
-	// 🔁 izinkan akses berdasarkan semua klaim masjid (teacher/DKM/admin/student)
+	// 🔁 multi-tenant read (semua klaim masjid)
 	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
 	if err != nil {
 		return err
 	}
 
-	// ------------ Pagination & sorting (helper) ------------
-	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
+	// ------------ Search term (gabungan q & search) ------------
+	rawQ := strings.TrimSpace(c.Query("q"))
+	rawSearch := strings.TrimSpace(c.Query("search"))
+	searchTerm := rawSearch
+	if rawQ != "" {
+		searchTerm = rawQ
+		// mengikuti perilaku Search lama → q minimal 2 karakter
+		if len([]rune(searchTerm)) < 2 {
+			return fiber.NewError(fiber.StatusBadRequest, "Parameter q minimal 2 karakter")
+		}
+	}
+
+	// ------------ Pagination & sorting (dynamic default) ------------
+	defaultSortBy := "created_at"
+	defaultSortOrder := "desc"
+	if searchTerm != "" {
+		defaultSortBy = "name"
+		defaultSortOrder = "asc"
+	}
+	p := helper.ParseFiber(c, defaultSortBy, defaultSortOrder, helper.AdminOpts)
+
 	// kolom yang diizinkan untuk sort
 	allowed := map[string]string{
 		"name":       "class_sections_name",
@@ -37,7 +57,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	orderClause, _ := helper.Params{
 		SortBy:    p.SortBy,
 		SortOrder: p.SortOrder,
-	}.SafeOrderClause(allowed, "created_at")
+	}.SafeOrderClause(allowed, defaultSortBy)
 	orderClause = strings.TrimPrefix(orderClause, "ORDER BY ")
 
 	// ------------ Parse includes ------------
@@ -54,8 +74,10 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	wantTeacher := includeAll || includes["teacher"] || includes["teachers"]
 
 	// ------------ Filters ------------
-	search := strings.TrimSpace(c.Query("search"))
-	var classID, teacherID, roomID *uuid.UUID
+	var (
+		classID, teacherID, roomID *uuid.UUID
+		activeOnly                 *bool
+	)
 	if s := strings.TrimSpace(c.Query("class_id")); s != "" {
 		if id, e := uuid.Parse(s); e == nil {
 			classID = &id
@@ -77,7 +99,6 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusBadRequest, "room_id tidak valid")
 		}
 	}
-	var activeOnly *bool
 	if s := strings.TrimSpace(c.Query("active_only")); s != "" {
 		b := c.QueryBool("active_only")
 		activeOnly = &b
@@ -100,10 +121,11 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	if roomID != nil {
 		tx = tx.Where("class_sections_class_room_id = ?", *roomID)
 	}
-	if search != "" {
-		s := "%" + strings.ToLower(search) + "%"
-		tx = tx.Where(`LOWER(class_sections_name) LIKE ? 
-		               OR LOWER(class_sections_code) LIKE ? 
+	// 🔎 unified search
+	if searchTerm != "" {
+		s := "%" + strings.ToLower(searchTerm) + "%"
+		tx = tx.Where(`LOWER(class_sections_name) LIKE ?
+		               OR LOWER(class_sections_code) LIKE ?
 		               OR LOWER(class_sections_slug) LIKE ?`, s, s, s)
 	}
 
@@ -212,7 +234,6 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 		Name string    `json:"name" gorm:"column:name"`
 		Slug string    `json:"slug,omitempty" gorm:"column:slug"`
 	}
-
 	classMap := map[uuid.UUID]classLite{}
 	if wantClass && len(rows) > 0 {
 		cSet := map[uuid.UUID]struct{}{}
@@ -226,9 +247,8 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 			for id := range cSet {
 				classIDs = append(classIDs, id)
 			}
-
 			var cr []classLite
-				if err := ctrl.DB.
+			if err := ctrl.DB.
 				Table("classes AS c").
 				Select(`
 					c.class_id AS id,
@@ -242,20 +262,18 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 				Where("c.class_id IN ? AND c.class_deleted_at IS NULL", classIDs).
 				Find(&cr).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data classes")
-				}
+			}
 			for _, r := range cr {
-				classMap[r.ID] = r // langsung masuk; no warning
+				classMap[r.ID] = r
 			}
 		}
 	}
 
-
 	/* ========= Prefetch ROOMS ========= */
 	type roomLite struct {
-	ID   uuid.UUID `json:"id"   gorm:"column:id"`
-	Name string    `json:"name" gorm:"column:name"`
+		ID   uuid.UUID `json:"id"   gorm:"column:id"`
+		Name string    `json:"name" gorm:"column:name"`
 	}
-
 	roomMap := map[uuid.UUID]roomLite{}
 	if wantRoom && len(rows) > 0 {
 		rSet := map[uuid.UUID]struct{}{}
@@ -269,7 +287,6 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 			for id := range rSet {
 				roomIDs = append(roomIDs, id)
 			}
-
 			var rr []roomLite
 			if err := ctrl.DB.
 				Table("class_rooms").
@@ -279,11 +296,10 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data rooms")
 			}
 			for _, r := range rr {
-				roomMap[r.ID] = r // no warning
+				roomMap[r.ID] = r
 			}
 		}
 	}
-
 
 	/* ========= Build response ========= */
 	type sectionWithExpand struct {
@@ -339,105 +355,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	})
 }
 
-/* ================= Search ================= */
 
-// GET /admin/class-sections/search
-func (ctrl *ClassSectionController) SearchClassSections(c *fiber.Ctx) error {
-	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c) // 🔁 multi-tenant read
-	if err != nil {
-		return err
-	}
-	q := strings.TrimSpace(c.Query("q"))
-	if len(q) < 2 {
-		return fiber.NewError(fiber.StatusBadRequest, "Parameter q minimal 2 karakter")
-	}
-
-	// pagination + sorting (pakai nama/created_at)
-	p := helper.ParseFiber(c, "name", "asc", helper.AdminOpts)
-	allowed := map[string]string{
-		"name":       "class_sections_name",
-		"created_at": "class_sections_created_at",
-	}
-	orderClause, _ := helper.Params{SortBy: p.SortBy, SortOrder: p.SortOrder}.
-		SafeOrderClause(allowed, "name")
-	orderClause = strings.TrimPrefix(orderClause, "ORDER BY ")
-
-	// optional filters
-	var activeOnly *bool
-	if s := strings.TrimSpace(c.Query("active_only")); s != "" {
-		b := c.QueryBool("active_only")
-		activeOnly = &b
-	}
-	var classID *uuid.UUID
-	if s := strings.TrimSpace(c.Query("class_id")); s != "" {
-		id, er := uuid.Parse(s)
-		if er != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "class_id tidak valid")
-		}
-		classID = &id
-	}
-	var teacherID *uuid.UUID
-	if s := strings.TrimSpace(c.Query("teacher_id")); s != "" {
-		id, er := uuid.Parse(s)
-		if er != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "teacher_id tidak valid")
-		}
-		teacherID = &id
-	}
-
-	// base query
-	tx := ctrl.DB.Model(&secModel.ClassSectionModel{}).
-		Where("class_sections_deleted_at IS NULL").
-		Where("class_sections_masjid_id IN ?", masjidIDs)
-
-	// filters
-	if activeOnly != nil {
-		tx = tx.Where("class_sections_is_active = ?", *activeOnly)
-	}
-	if classID != nil {
-		tx = tx.Where("class_sections_class_id = ?", *classID)
-	}
-	if teacherID != nil {
-		tx = tx.Where("class_sections_teacher_id = ?", *teacherID)
-	}
-
-	// search
-	s := "%" + strings.ToLower(q) + "%"
-	tx = tx.Where(`LOWER(class_sections_name) LIKE ?
-	               OR LOWER(class_sections_code) LIKE ?
-	               OR LOWER(class_sections_slug) LIKE ?`, s, s, s)
-
-	// total
-	var total int64
-	if err := tx.Count(&total).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung total")
-	}
-
-	// fetch
-	if orderClause != "" {
-		tx = tx.Order(orderClause)
-	}
-	if !p.All {
-		tx = tx.Limit(p.Limit()).Offset(p.Offset())
-	}
-
-	var rows []secModel.ClassSectionModel
-	if err := tx.Find(&rows).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mencari data")
-	}
-
-	// tanpa enrichment guru (ringkas)
-	out := make([]*ucsDTO.ClassSectionResponse, 0, len(rows))
-	for i := range rows {
-		out = append(out, ucsDTO.NewClassSectionResponse(&rows[i], ""))
-	}
-
-	meta := helper.BuildMeta(total, p)
-	return helper.JsonOK(c, "OK", fiber.Map{
-		"data": out,
-		"meta": meta,
-	})
-}
 
 /* ================= Get by Slug ================= */
 

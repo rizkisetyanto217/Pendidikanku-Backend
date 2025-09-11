@@ -30,47 +30,6 @@ func NewClassSectionController(db *gorm.DB) *ClassSectionController {
 
 /* ================= Handlers (ADMIN) ================= */
 
-// GET /admin/class-sections/:id
-func (ctrl *ClassSectionController) GetClassSectionByID(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan dalam token")
-	}
-
-	sectionID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-
-	var classSection secModel.ClassSectionModel
-	if err := ctrl.DB.
-		Where("class_sections_id = ? AND class_sections_masjid_id = ? AND class_sections_deleted_at IS NULL",
-			sectionID, masjidID).
-		First(&classSection).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Section tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data section")
-	}
-
-	// Ambil nama pengajar (opsional)
-	var teacherName string
-	if classSection.ClassSectionsTeacherID != nil {
-		if err := ctrl.DB.Raw(`
-			SELECT u.full_name
-			FROM masjid_teachers mt
-			JOIN users u ON mt.masjid_teacher_user_id = u.id
-			WHERE mt.masjid_teacher_id = ? AND mt.masjid_teacher_deleted_at IS NULL
-		`, *classSection.ClassSectionsTeacherID).
-			Scan(&teacherName).Error; err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data pengajar")
-		}
-	}
-
-	resp := ucsDTO.NewClassSectionResponse(&classSection, teacherName)
-	return helper.JsonOK(c, "OK", resp)
-}
-
 // GET /admin/class-sections/:id/participants
 // GET /admin/class-sections/:id/participants
 func (ctrl *ClassSectionController) ListRegisteredParticipants(c *fiber.Ctx) error {

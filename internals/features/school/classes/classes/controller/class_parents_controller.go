@@ -2,6 +2,8 @@ package controller
 
 import (
 	"errors"
+	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -36,14 +38,36 @@ func (ctl *ClassParentController) v() *validator.Validate {
 	return ctl.Validate
 }
 
-// ---------- helpers ----------
+// ---------- helpers ----------//
+//  ---------- helpers ----------
 func clampLimit(limit, def, max int) int {
 	if limit <= 0 { return def }
 	if limit > max { return max }
 	return limit
 }
 
-// unik code per masjid (alive only), excludeID opsional
+// slugify code dari nama: huruf/angka + '-' ; uppercase; pangkas max 32
+var nonAlnum = regexp.MustCompile(`[^a-zA-Z0-9]+`)
+const maxCodeLen = 32
+
+func slugifyCode(from string) string {
+	s := strings.TrimSpace(from)
+	if s == "" {
+		return "CP"
+	}
+	s = nonAlnum.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	if s == "" {
+		s = "CP"
+	}
+	s = strings.ToUpper(s)
+	if len(s) > maxCodeLen {
+		s = s[:maxCodeLen]
+	}
+	return s
+}
+
+// cek eksistensi unik (sudah ada di file kamu)
 func (ctl *ClassParentController) codeExists(masjidID uuid.UUID, code string, excludeID *uuid.UUID) (bool, error) {
 	code = strings.TrimSpace(code)
 	if code == "" {
@@ -68,6 +92,35 @@ func (ctl *ClassParentController) codeExists(masjidID uuid.UUID, code string, ex
 	return n > 0, nil
 }
 
+// generate code unik dari base; tambahkan -1, -2, ... bila bentrok
+func (ctl *ClassParentController) ensureUniqueCode(masjidID uuid.UUID, base string, excludeID *uuid.UUID) (string, error) {
+	if base = strings.TrimSpace(base); base == "" {
+		base = "CP"
+	}
+	base = slugifyCode(base)
+
+	code := base
+	for i := 0; ; i++ {
+		if i > 0 {
+			suf := fmt.Sprintf("-%d", i)
+			code = base
+			if len(code)+len(suf) > maxCodeLen {
+				code = code[:maxCodeLen-len(suf)]
+			}
+			code += suf
+		}
+		exists, err := ctl.codeExists(masjidID, code, excludeID)
+		if err != nil {
+			return "", err
+		}
+		if !exists {
+			return code, nil
+		}
+	}
+}
+
+
+// ---------- CREATE ----------
 // ---------- CREATE ----------
 func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 	var req cpdto.CreateClassParentRequest
@@ -79,17 +132,15 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Masjid dari token (bukan dari body)
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
-	// Kalau client tetap kirim masjid_id dan beda → tolak
 	if req.ClassParentMasjidID != uuid.Nil && req.ClassParentMasjidID != masjidID {
 		return helper.JsonError(c, fiber.StatusForbidden, "class_parent_masjid_id pada body tidak boleh berbeda dengan token")
 	}
 
-	// Unik code per masjid
+	// Validasi unik jika user KIRIM code
 	if code := strings.TrimSpace(req.ClassParentCode); code != "" {
 		exists, err := ctl.codeExists(masjidID, code, nil)
 		if err != nil {
@@ -103,7 +154,16 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 	m := req.ToModel()
 	m.ClassParentMasjidID = masjidID
 
-	// Multipart image? → upload ke OSS (scope masjid)
+	// >>> NEW: generate code kalau kosong
+	if strings.TrimSpace(m.ClassParentCode) == "" {
+		gen, err := ctl.ensureUniqueCode(masjidID, m.ClassParentName, nil)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat kode unik")
+		}
+		m.ClassParentCode = gen
+	}
+
+	// multipart image (opsional)
 	if fh, err := helperOSS.GetImageFile(c); err == nil && fh != nil {
 		publicURL, upErr := helperOSS.UploadImageToOSSScoped(masjidID, "class-parents", fh)
 		if upErr != nil {
@@ -123,92 +183,10 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Class parent berhasil dibuat", cpdto.ToClassParentResponse(m))
 }
 
-// ---------- GET BY ID (tenant-safe) ----------
-func (ctl *ClassParentController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil {
-		return err
-	}
-	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
 
-	var m cpmodel.ClassParentModel
-	if err := ctl.DB.WithContext(c.Context()).
-		Where("class_parent_id = ? AND class_parent_masjid_id = ? AND class_parent_deleted_at IS NULL", id, masjidID).
-		First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
-	}
 
-	return helper.JsonOK(c, "OK", cpdto.ToClassParentResponse(m))
-}
 
-// ---------- LIST (tenant-safe) ----------
-func (ctl *ClassParentController) List(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil {
-		return err
-	}
-
-	var q cpdto.ListClassParentQuery
-	if err := c.QueryParser(&q); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
-	}
-
-	q.Limit = clampLimit(q.Limit, 20, 200)
-	if q.Offset < 0 { q.Offset = 0 }
-
-	tx := ctl.DB.WithContext(c.Context()).
-		Model(&cpmodel.ClassParentModel{}).
-		Where("class_parent_masjid_id = ? AND class_parent_deleted_at IS NULL", masjidID)
-
-	if q.Active != nil {
-		tx = tx.Where("class_parent_is_active = ?", *q.Active)
-	}
-	if q.LevelMin != nil {
-		tx = tx.Where("(class_parent_level IS NOT NULL AND class_parent_level >= ?)", *q.LevelMin)
-	}
-	if q.LevelMax != nil {
-		tx = tx.Where("(class_parent_level IS NOT NULL AND class_parent_level <= ?)", *q.LevelMax)
-	}
-	if q.CreatedGt != nil {
-		tx = tx.Where("class_parent_created_at > ?", *q.CreatedGt)
-	}
-	if q.CreatedLt != nil {
-		tx = tx.Where("class_parent_created_at < ?", *q.CreatedLt)
-	}
-	if s := strings.TrimSpace(q.Q); s != "" {
-		pat := "%" + s + "%"
-		tx = tx.Where(`
-			class_parent_name ILIKE ? OR
-			class_parent_code ILIKE ? OR
-			class_parent_description ILIKE ?
-		`, pat, pat, pat)
-	}
-
-	var total int64
-	if err := tx.Count(&total).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
-	}
-
-	var rows []cpmodel.ClassParentModel
-	if err := tx.
-		Order("class_parent_created_at DESC").
-		Limit(q.Limit).
-		Offset(q.Offset).
-		Find(&rows).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
-	}
-
-	resps := cpdto.ToClassParentResponses(rows)
-	meta := cpdto.NewPaginationMeta(total, q.Limit, q.Offset, len(resps))
-	return helper.JsonList(c, resps, meta)
-}
-
+// ---------- UPDATE (PATCH, tenant-safe) ----------
 // ---------- UPDATE (PATCH, tenant-safe) ----------
 func (ctl *ClassParentController) Update(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
@@ -238,21 +216,32 @@ func (ctl *ClassParentController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// unik code bila diubah
-	if req.ClassParentCode != nil && strings.TrimSpace(*req.ClassParentCode) != "" {
-		exists, err := ctl.codeExists(masjidID, *req.ClassParentCode, &m.ClassParentID)
-		if err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
-		}
-		if exists {
-			return helper.JsonError(c, fiber.StatusConflict, "Kode sudah digunakan pada masjid ini")
+	// Terapkan patch (nama dkk mungkin berubah)
+	req.ApplyPatch(&m)
+
+	// >>> NEW: handle code bila dikirim di PATCH
+	if req.ClassParentCode != nil {
+		newCode := strings.TrimSpace(*req.ClassParentCode)
+		if newCode == "" {
+			// user mengosongkan → generate dari nama terbaru
+			gen, err := ctl.ensureUniqueCode(masjidID, m.ClassParentName, &m.ClassParentID)
+			if err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat kode unik")
+			}
+			m.ClassParentCode = gen
+		} else {
+			exists, err := ctl.codeExists(masjidID, newCode, &m.ClassParentID)
+			if err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
+			}
+			if exists {
+				return helper.JsonError(c, fiber.StatusConflict, "Kode sudah digunakan pada masjid ini")
+			}
+			m.ClassParentCode = newCode
 		}
 	}
 
-	// apply patch
-	req.ApplyPatch(&m)
-
-	// clear image via empty string → pindah ke spam
+	// clear image via empty string → spam-kan
 	if req.ClassParentImageURL != nil &&
 		strings.TrimSpace(*req.ClassParentImageURL) == "" &&
 		strings.TrimSpace(m.ClassParentImageURL) != "" {

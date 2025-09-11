@@ -16,7 +16,6 @@ func AttendanceSessionsAdminRoutes(r fiber.Router, db *gorm.DB) {
 	attendanceSessionController := uaCtrl.NewClassAttendanceSessionController(db)
 	attendanceSessionGroup := r.Group("/sessions" /* , mw.AuthRequired() */)
 	attendanceSessionGroup.Get("/list", attendanceSessionController.ListClassAttendanceSessions)  // GET /.../class-attendance-sessions
-	attendanceSessionGroup.Get("/:id", attendanceSessionController.GetClassAttendanceSession) // GET /.../class-attendance-sessions/:id
 
 	// User Attendance (read-only untuk user)
 	ua := uaCtrl.NewUserAttendanceController(db)

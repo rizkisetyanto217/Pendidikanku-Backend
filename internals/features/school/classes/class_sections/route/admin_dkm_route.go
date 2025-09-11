@@ -18,11 +18,8 @@ func ClassSectionAdminRoutes(r fiber.Router, db *gorm.DB) {
 	sections := r.Group("/class-sections", masjidkuMiddleware.IsMasjidAdmin())
 	sections.Post("/", sectionH.CreateClassSection)
 	sections.Get("/list", sectionH.ListClassSections)
-	sections.Get("/search", sectionH.SearchClassSections)
-	// sections.Get("/books/:id", sectionH.ListBooksBySection)
 	sections.Get("/students/:id", sectionH.ListRegisteredParticipants)
 	sections.Get("/slug/:slug", sectionH.GetClassSectionBySlug)
-	sections.Get("/by-id/:id", sectionH.GetClassSectionByID)
 	sections.Put("/:id", sectionH.UpdateClassSection)
 	sections.Delete("/:id", sectionH.SoftDeleteClassSection)
 
