@@ -38,7 +38,6 @@ func QuizzesTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	// Rekomendasi expose full CRUD untuk kebutuhan guru
 	qq.Get("/",      qqCtrl.List)    // GET    /api/t/quiz-questions-teacher?quiz_id=&type=&q=&page=&per_page=&sort=
 	qq.Get("/list",  qqCtrl.List)    // alias
-	qq.Get("/:id",   qqCtrl.GetByID) // GET    /api/t/quiz-questions-teacher/:id
 	qq.Post("/",     qqCtrl.Create)  // POST   /api/t/quiz-questions-teacher
 	qq.Patch("/:id", qqCtrl.Patch)   // PATCH  /api/t/quiz-questions-teacher/:id
 	qq.Delete("/:id", qqCtrl.Delete) // DELETE /api/t/quiz-questions-teacher/:id
@@ -51,7 +50,6 @@ func QuizzesTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	ans := quizzes.Group("/user-quiz-attempts")
 
 	ans.Get("/",       uqaCtrl.List)     // GET    /api/t/quizzes-teacher/attempt-answers-teacher?attempt_id=...&question_id=...
-	ans.Get("/:id",    uqaCtrl.GetByID)  // GET    /api/t/quizzes-teacher/attempt-answers-teacher/:id
 	ans.Post("/",      uqaCtrl.Create)   // POST   /api/t/quizzes-teacher/attempt-answers-teacher
 	ans.Patch("/:id",  uqaCtrl.Patch)    // PATCH  /api/t/quizzes-teacher/attempt-answers-teacher/:id
 	ans.Delete("/:id", uqaCtrl.Delete)   // DELETE /api/t/quizzes-teacher/attempt-answers-teacher/:id

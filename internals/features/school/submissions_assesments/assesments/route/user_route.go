@@ -1,36 +1,30 @@
 package route
 
 import (
+	ctr "masjidku_backend/internals/features/school/submissions_assesments/assesments/controller"
+
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
-
 	// ctr "masjidku_backend/internals/features/school/submissions_assesments/assesments/controller"
 )
 
-// AssessmentUserRoutes mendaftarkan route user untuk assessment types
-// AssessmentUserRoutes mendaftarkan route USER (read-only)
-
-// AssessmentUserRoutes mendaftarkan route USER (read-only)
+// Register TEACHER routes for assessment types, assessments, and assessment urls
 func AssessmentUserRoutes(r fiber.Router, db *gorm.DB) {
-	// typeCtrl := ctr.NewAssessmentTypeController(db)
-	// assessCtrl := ctr.NewAssessmentController(db)
-	// urlsCtrl := ctr.NewAssessmentUrlsController(db)
+	typeCtrl := ctr.NewAssessmentTypeController(db)
+	assessCtrl := ctr.NewAssessmentController(db)
+	urlsCtrl := ctr.NewAssessmentUrlsController(db)
 
-	// // ---------- Assessment Types (USER: read-only) ----------
-	// typeGroup := r.Group("/assessment-types")
-	// typeGroup.Get("/list", typeCtrl.List)
-	// typeGroup.Get("/:id", typeCtrl.GetByID)
+	// ---------- Assessment Types (TEACHER: read-only) ----------
+	typeGroup := r.Group("/assessment-types")
+	typeGroup.Get("/list", typeCtrl.List)    // ?active=&q=&limit=&offset=&sort_by=&sort_dir=
 
-	// // ---------- Assessments (USER: read-only) ----------
-	// assessGroup := r.Group("/assessments")
-	// assessGroup.Get("/list", assessCtrl.List)
-	// assessGroup.Get("/:id", assessCtrl.GetByID)
+	// ---------- Assessments (TEACHER: manage own masjid scope) ----------
+	assessGroup := r.Group("/assessments")
+	assessGroup.Get("/list", assessCtrl.List)       // list + filter
 
-	// // ---------- Assessment URLs (USER: read-only) ----------
-	// urlGroup := r.Group("/assessment-urls")
-	// urlGroup.Get("/list", urlsCtrl.List)
-	// urlGroup.Get("/:id", urlsCtrl.GetByID)
+	// ---------- Assessment URLs (TEACHER) ----------
+	urlGroup := r.Group("/assessment-urls")
+	urlGroup.Get("/list", urlsCtrl.List)            // ?assessment_id=&q=&is_published=&is_active=&page=&per_page=
 
-	// // Nested list per assessment
-	// r.Get("/assessments/:assessment_id/urls", urlsCtrl.List)
+	r.Get("/assessments/:assessment_id/urls", urlsCtrl.List)
 }

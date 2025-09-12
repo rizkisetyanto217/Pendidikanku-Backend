@@ -198,38 +198,6 @@ func (h *UserMyClassController) ListMyUserClasses(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "OK", resp)
 }
 
-// GET /api/u/user-classes/:id
-func (h *UserMyClassController) GetMyUserClassByID(c *fiber.Ctx) error {
-	userID, err := helperAuth.GetUserIDFromToken(c)
-	if err != nil {
-		return err
-	}
-	ucID, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
-	}
-
-	var m ucModel.UserClassesModel
-	err = h.DB.Model(&ucModel.UserClassesModel{}).
-		Joins("JOIN classes ON classes.class_id = user_classes.user_classes_class_id").
-		Joins("JOIN masjid_students ms ON ms.masjid_student_id = user_classes.user_classes_masjid_student_id AND ms.masjid_student_deleted_at IS NULL").
-		Where(`
-			user_classes_id = ?
-			AND ms.masjid_student_user_id = ?
-			AND classes.class_deleted_at IS NULL
-			AND classes.class_delete_pending_until IS NULL
-			AND user_classes_deleted_at IS NULL
-		`, ucID, userID).
-		First(&m).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return fiber.NewError(fiber.StatusNotFound, "Enrolment tidak ditemukan")
-		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-
-	return helper.JsonOK(c, "OK", ucDTO.NewUserClassResponse(&m))
-}
 
 /* ================== USER: SELF ENROLL ================== */
 

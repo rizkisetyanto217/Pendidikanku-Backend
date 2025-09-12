@@ -67,37 +67,28 @@ type enrollReq struct {
 	JoinedAt      *time.Time `json:"joined_at" validate:"omitempty"`
 }
 
-/* ================ Helpers kecil ================ */
-
-// Ambil masjid_id dari body; jika kosong, ambil dari token via helperAuth
-// Jika body mengirim masjid_id yang berbeda dengan token → 403
-func (h *MembershipController) resolveMasjidID(c *fiber.Ctx, bodyMasjidID *uuid.UUID) (uuid.UUID, error) {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	if bodyMasjidID != nil && *bodyMasjidID != uuid.Nil && *bodyMasjidID != masjidID {
-		return uuid.Nil, fiber.NewError(fiber.StatusForbidden, "masjid_id pada body tidak boleh berbeda dengan token")
-	}
-	return masjidID, nil
-}
-
 /* ================== Handlers ================== */
 
 // POST /api/a/membership/enrollment/activate
 func (h *MembershipController) ActivateEnrollment(c *fiber.Ctx) error {
 	var req enrollReq
 	if err := c.BodyParser(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "payload invalid")
+	 return fiber.NewError(fiber.StatusBadRequest, "payload invalid")
 	}
 	if err := h.V.Struct(req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	 return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	masjidID, err := h.resolveMasjidID(c, req.MasjidID)
-	if err != nil {
-		return err
+	// ⬇️ Ambil masjid dari token; jika body kirim masjid_id, wajib sama
+	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || mid == uuid.Nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
+	if req.MasjidID != nil && *req.MasjidID != uuid.Nil && *req.MasjidID != mid {
+		return fiber.NewError(fiber.StatusForbidden, "masjid_id pada body tidak boleh berbeda dengan token")
+	}
+	masjidID := mid
+
 	assignedBy, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return err
@@ -110,10 +101,10 @@ func (h *MembershipController) ActivateEnrollment(c *fiber.Ctx) error {
 		// 1) hooks membership (role + ms status)
 		if err := h.Svc.OnEnrollmentActivated(tx, req.UserID, masjidID, assignedBy); err != nil {
 			log.Printf("[membership] ActivateEnrollment hooks ERROR: %v", err)
-			return err
+		 return err
 		}
 
-		// 2) (opsional) approve enrolment -> status active
+		// 2) (opsional) approve enrolment
 		if req.UserClassesID != nil && *req.UserClassesID != uuid.Nil {
 			var row struct {
 				MasjidID uuid.UUID `gorm:"column:user_classes_masjid_id"`
@@ -158,7 +149,6 @@ func (h *MembershipController) ActivateEnrollment(c *fiber.Ctx) error {
 				Where("user_classes_id = ? AND user_classes_deleted_at IS NULL", *req.UserClassesID).
 				Updates(updates).Error; err != nil {
 
-				// Unik index/constraint active per (msid,class,masjid)
 				if strings.Contains(strings.ToLower(err.Error()), "duplicate") || errors.Is(err, gorm.ErrDuplicatedKey) {
 					return fiber.NewError(fiber.StatusConflict, "Sudah ada enrolment aktif untuk kelas ini")
 				}
@@ -187,10 +177,15 @@ func (h *MembershipController) DeactivateEnrollment(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	masjidID, err := h.resolveMasjidID(c, req.MasjidID)
-	if err != nil {
-		return err
+	// ⬇️ Ambil masjid dari token; jika body kirim masjid_id, wajib sama
+	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || mid == uuid.Nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
+	if req.MasjidID != nil && *req.MasjidID != uuid.Nil && *req.MasjidID != mid {
+		return fiber.NewError(fiber.StatusForbidden, "masjid_id pada body tidak boleh berbeda dengan token")
+	}
+	masjidID := mid
 
 	log.Printf("[membership] DeactivateEnrollment IN user=%s masjid=%s user_classes_id=%v",
 		req.UserID, masjidID, req.UserClassesID)
@@ -201,7 +196,7 @@ func (h *MembershipController) DeactivateEnrollment(c *fiber.Ctx) error {
 			return err
 		}
 
-		// 2) (opsional) set enrolment -> inactive bila user_classes_id dikirim
+		// 2) (opsional) set enrolment -> inactive
 		if req.UserClassesID != nil && *req.UserClassesID != uuid.Nil {
 			var row struct {
 				MasjidID uuid.UUID `gorm:"column:user_classes_masjid_id"`
@@ -259,12 +254,11 @@ func (h *MembershipController) GrantRole(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// jika role scoped tapi masjid_id kosong -> pakai token
 	masjidID := req.MasjidID
 	if masjidID == nil && roleNeedsScope(req.RoleName) {
 		mID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-		if err != nil {
-			return err
+		if err != nil || mID == uuid.Nil {
+			return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 		}
 		masjidID = &mID
 	}
@@ -275,7 +269,7 @@ func (h *MembershipController) GrantRole(c *fiber.Ctx) error {
 
 	return h.DB.Transaction(func(tx *gorm.DB) error {
 		if err := h.Svc.GrantRole(tx, req.UserID, req.RoleName, masjidID, assignedBy); err != nil {
-		 return err
+			return err
 		}
 		return helper.JsonOK(c, "role granted", fiber.Map{
 			"user_id":   req.UserID,
@@ -299,8 +293,8 @@ func (h *MembershipController) RevokeRole(c *fiber.Ctx) error {
 	masjidID := req.MasjidID
 	if masjidID == nil && roleNeedsScope(req.RoleName) {
 		mID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-		if err != nil {
-			return err
+		if err != nil || mID == uuid.Nil {
+			return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 		}
 		masjidID = &mID
 	}
@@ -327,10 +321,16 @@ func (h *MembershipController) EnsureMasjidStudent(c *fiber.Ctx) error {
 	if err := h.V.Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
-	masjidID, err := h.resolveMasjidID(c, req.MasjidID)
-	if err != nil {
-		return err
+
+	// ⬇️ Ambil masjid dari token; jika body kirim masjid_id, wajib sama
+	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || mid == uuid.Nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
+	if req.MasjidID != nil && *req.MasjidID != uuid.Nil && *req.MasjidID != mid {
+		return fiber.NewError(fiber.StatusForbidden, "masjid_id pada body tidak boleh berbeda dengan token")
+	}
+	masjidID := mid
 
 	return h.DB.Transaction(func(tx *gorm.DB) error {
 		if err := h.Svc.EnsureMasjidStudentStatus(tx, req.UserID, masjidID, req.Status); err != nil {
@@ -350,7 +350,6 @@ func roleNeedsScope(role string) bool {
 	case "owner", "admin", "treasurer", "dkm", "teacher", "student":
 		return true
 	default:
-		// "author" & "user" sering global — sesuaikan kebijakanmu
 		return false
 	}
 }

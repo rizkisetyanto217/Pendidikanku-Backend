@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"log"
 	"strings"
 
@@ -33,18 +34,54 @@ func parseBool(q string) bool {
 // ==============================
 
 // GET /api/a/users
-// ?with_deleted=1  → include soft-deleted (Unscoped) dan expose deleted_at
-func (ac *AdminUserController) GetUsers(c *fiber.Ctx) error {
-	withDeleted := parseBool(c.Query("with_deleted"))
+// Query:
+//   q=namaOrEmail (opsional; jika diisi → filter/search)
+//   with_deleted=1 (opsional; include soft-deleted + expose deleted_at)
 
+func (ac *AdminUserController) ListUsers(c *fiber.Ctx) error {
+	// flags
+	withDeleted := strings.EqualFold(c.Query("with_deleted"), "1") ||
+		strings.EqualFold(c.Query("with_deleted"), "true")
+
+	// DETAIL via ?id=...
+	if id := strings.TrimSpace(c.Query("id")); id != "" {
+		var u model.UserModel
+		tx := ac.DB
+		if withDeleted {
+			tx = tx.Unscoped()
+		}
+		if err := tx.First(&u, "id = ?", id).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusNotFound, "User tidak ditemukan")
+			}
+			log.Println("[ERROR] GetUserByID:", err)
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil user")
+		}
+
+		if withDeleted {
+			if r := userdto.FromModelWithDeletedAt(&u); r != nil {
+				return helper.JsonOK(c, "User fetched successfully", r)
+			}
+		}
+		return helper.JsonOK(c, "User fetched successfully", userdto.FromModel(&u))
+	}
+
+	// LIST / SEARCH via ?q=
+	q := strings.TrimSpace(c.Query("q"))
 	var users []model.UserModel
+
 	tx := ac.DB.Order("created_at DESC")
 	if withDeleted {
 		tx = tx.Unscoped()
 	}
+	if q != "" {
+		like := "%" + q + "%"
+		tx = tx.Where("user_name ILIKE ? OR email ILIKE ? OR full_name ILIKE ?", like, like, like)
+	}
+
 	if err := tx.Find(&users).Error; err != nil {
-		log.Println("[ERROR] Failed to fetch users:", err)
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve users")
+		log.Println("[ERROR] ListUsers:", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data pengguna")
 	}
 
 	if withDeleted {
@@ -65,73 +102,6 @@ func (ac *AdminUserController) GetUsers(c *fiber.Ctx) error {
 		"total": len(resp),
 		"users": resp,
 	})
-}
-
-// GET /api/a/users/search?q=namaOrEmail
-// ?with_deleted=1 → include soft-deleted + expose deleted_at
-func (ac *AdminUserController) SearchUsers(c *fiber.Ctx) error {
-	query := strings.TrimSpace(c.Query("q"))
-	if query == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak boleh kosong")
-	}
-	withDeleted := parseBool(c.Query("with_deleted"))
-
-	q := "%" + query + "%"
-	var users []model.UserModel
-
-	tx := ac.DB.Where("user_name ILIKE ? OR email ILIKE ? OR full_name ILIKE ?", q, q, q).
-		Order("created_at DESC")
-	if withDeleted {
-		tx = tx.Unscoped()
-	}
-	if err := tx.Find(&users).Error; err != nil {
-		log.Println("[ERROR] SearchUsers gagal:", err)
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mencari pengguna")
-	}
-
-	if withDeleted {
-		resp := make([]userdto.UserResponseWithDeletedAt, 0, len(users))
-		for i := range users {
-			if r := userdto.FromModelWithDeletedAt(&users[i]); r != nil {
-				resp = append(resp, *r)
-			}
-		}
-		return helper.JsonOK(c, "Hasil pencarian user", fiber.Map{
-			"total": len(resp),
-			"users": resp,
-		})
-	}
-
-	resp := userdto.FromModelList(users)
-	return helper.JsonOK(c, "Hasil pencarian user", fiber.Map{
-		"total": len(resp),
-		"users": resp,
-	})
-}
-
-// GET /api/a/users/:id
-// ?with_deleted=1 → boleh ambil yang soft-deleted + expose deleted_at
-func (ac *AdminUserController) GetUserByID(c *fiber.Ctx) error {
-	id := c.Params("id")
-	uid, err := uuid.Parse(id)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid UUID format")
-	}
-	withDeleted := parseBool(c.Query("with_deleted"))
-
-	var user model.UserModel
-	tx := ac.DB
-	if withDeleted {
-		tx = tx.Unscoped()
-	}
-	if err := tx.First(&user, "id = ?", uid).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusNotFound, "User not found")
-	}
-
-	if withDeleted {
-		return helper.JsonOK(c, "User fetched successfully", userdto.FromModelWithDeletedAt(&user))
-	}
-	return helper.JsonOK(c, "User fetched successfully", userdto.FromModel(&user))
 }
 
 // ==============================

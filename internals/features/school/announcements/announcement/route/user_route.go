@@ -26,5 +26,4 @@ func AnnouncementUserRoutes(r fiber.Router, db *gorm.DB) {
 	// list & detail saja untuk user
 	grp2.Post("/", ctl2.Create)
 	grp2.Get("/list", ctl2.List)
-	grp2.Get("/:id", ctl2.Detail)
 }

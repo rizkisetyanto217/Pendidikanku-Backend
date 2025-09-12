@@ -23,11 +23,8 @@ func AttendanceSessionsUserRoutes(r fiber.Router, db *gorm.DB) {
 	// =====================
 	urlCtl := uaCtrl.NewClassAttendanceSessionURLController(db)
 	urlGroup := r.Group("/session-urls")
-	urlGroup.Post("/", urlCtl.Create)      // create (JSON atau multipart file)
-	urlGroup.Patch("/:id", urlCtl.Update)  // update (JSON atau multipart file)
-	urlGroup.Get("/:id", urlCtl.GetByID)   // detail
-	urlGroup.Get("/filter", urlCtl.Filter) // list/filter
-	urlGroup.Delete("/:id", urlCtl.Delete) // soft delete (+ move to spam)
+	urlGroup.Get("/list", urlCtl.List) // list
+
 
 	// User Attendance (read-only untuk user)
 	ua := uaCtrl.NewUserAttendanceController(db)
@@ -36,7 +33,6 @@ func AttendanceSessionsUserRoutes(r fiber.Router, db *gorm.DB) {
 	uaGroup.Post("/", ua.Create)      // create
 	uaGroup.Patch("/:id", ua.Update)  // partial update
 	uaGroup.Delete("/:id", ua.Delete) // soft delete
-
 
 	// =====================
 	// User Attendance URLs (CRUD)

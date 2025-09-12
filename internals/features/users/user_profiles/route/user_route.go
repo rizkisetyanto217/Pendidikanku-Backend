@@ -5,29 +5,31 @@ import (
 
 	userController "masjidku_backend/internals/features/users/user_profiles/controller"
 
-	// ⬅️ TAMBAH
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
 
-func UserProfileUserRoutes(app fiber.Router, db *gorm.DB) {
-	log.Println("[DEBUG] ❗ Masuk UserAllRoutes")
+func UserProfileUserRoutes(r fiber.Router, db *gorm.DB) {
+	log.Println("[DEBUG] ❗ Masuk UserProfileUserRoutes")
 
 	formalCtrl := userController.NewUsersProfileFormalController(db)
 	docCtrl := userController.NewUsersProfileDocumentController(db)
 
-	// ✅ Formal profile (punya sendiri)
-	app.Get("/users-profiles-formal", formalCtrl.GetMine)
-	app.Put("/users-profiles-formal", formalCtrl.UpsertMine)
-	app.Patch("/users-profiles-formal", formalCtrl.PatchMine)
-	app.Delete("/users-profiles-formal", formalCtrl.DeleteMine)
+	// Base: /users/profile
+	base := r.Group("/users/profile")
 
-	// ✅ Documents (punya sendiri)
-	docs := app.Group("/users/profile/documents")
-	docs.Post("/upload/many", docCtrl.CreateMultipartMany)
-	docs.Get("/", docCtrl.List)
-	docs.Get("/:doc_type", docCtrl.GetByDocType)
-	docs.Patch("/:doc_type/upload", docCtrl.UpdateMultipart)
-	docs.Delete("/:doc_type", docCtrl.DeleteSoft)
+	// /users/profile/formal  (punya sendiri)
+	formal := base.Group("/formal")
+	formal.Get("/",  formalCtrl.GetMine)
+	formal.Put("/",  formalCtrl.UpsertMine)
+	formal.Patch("/", formalCtrl.PatchMine)
+	formal.Delete("/", formalCtrl.DeleteMine)
 
+	// /users/profile/documents (punya sendiri)
+	docs := base.Group("/documents")
+	docs.Get("",                docCtrl.List)                 // GET /users/profile/documents
+	docs.Get("/:doc_type",      docCtrl.GetByDocType)         // GET /users/profile/documents/:doc_type
+	docs.Post("/upload/many",   docCtrl.CreateMultipartMany)  // POST /users/profile/documents/upload/many
+	docs.Patch("/:doc_type/upload", docCtrl.UpdateMultipart)  // PATCH /users/profile/documents/:doc_type/upload
+	docs.Delete("/:doc_type",   docCtrl.DeleteSoft)           // DELETE /users/profile/documents/:doc_type
 }

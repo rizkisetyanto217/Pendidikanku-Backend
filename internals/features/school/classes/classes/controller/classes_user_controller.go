@@ -68,11 +68,6 @@ func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
 }
 
 
-
-// GET /admin/classes  (public-friendly; auth optional utk list)
-// GANTI fungsi ListClasses dengan versi ini
-// GET /admin/classes  (public-friendly; auth optional utk list)
-// Refactor total: gabungan list + search (q), dukung filter parent_name, include term/parent/subjects
 // GET /admin/classes  (public-friendly; auth optional utk list)
 // Refactor total: gabungan list + search (q), filter parent_name via JOIN dinamis (class_parents/class_parent)
 func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {

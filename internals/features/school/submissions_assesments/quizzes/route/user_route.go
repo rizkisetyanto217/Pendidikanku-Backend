@@ -30,7 +30,6 @@ func QuizzesUserRoutes(r fiber.Router, db *gorm.DB) {
 
 	qq.Get("/",     qqCtrl.List)    // GET /api/u/quiz-questions?quiz_id=&type=&q=&page=&per_page=&sort=
 	qq.Get("/list", qqCtrl.List)    // alias
-	qq.Get("/:id",  qqCtrl.GetByID) // GET /api/u/quiz-questions/:id
 
 	// ============================
 	// USER QUIZ ATTEMPTS (user)
@@ -52,7 +51,6 @@ func QuizzesUserRoutes(r fiber.Router, db *gorm.DB) {
 	ans := r.Group("/user-quiz-attempt-answers") // -> /api/u/quizzes/attempt-answers
 
 	ans.Get("/list",  uqaCtrl.List) // alias
-	ans.Get("/:id",   uqaCtrl.GetByID)
 	ans.Post("/",     uqaCtrl.Create)
 	// (User tidak memiliki PATCH/DELETE untuk jawaban)
 }

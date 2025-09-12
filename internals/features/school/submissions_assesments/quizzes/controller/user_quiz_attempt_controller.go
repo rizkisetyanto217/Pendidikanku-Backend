@@ -122,9 +122,6 @@ func (ctl *UserQuizAttemptsController) ensureMasjidScope(c *fiber.Ctx, masjidID 
 }
 
 
-
-// POST /user-quiz-attempts
-// POST /user-quiz-attempts
 // POST /user-quiz-attempts
 func (ctl *UserQuizAttemptsController) Create(c *fiber.Ctx) error {
 	ctl.ensureValidator()
@@ -164,7 +161,6 @@ func (ctl *UserQuizAttemptsController) Create(c *fiber.Ctx) error {
 }
 
 
-// PATCH /user-quiz-attempts/:id
 // PATCH /user-quiz-attempts/:id
 func (ctl *UserQuizAttemptsController) Patch(c *fiber.Ctx) error {
 	ctl.ensureValidator()

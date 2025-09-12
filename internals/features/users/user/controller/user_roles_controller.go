@@ -79,29 +79,6 @@ func (ctl *UserRoleController) Create(c *fiber.Ctx) error {
 }
 
 // =====================================================
-// GET BY ID: GET /authz/user-roles/:id
-// =====================================================
-
-func (ctl *UserRoleController) GetByID(c *fiber.Ctx) error {
-	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-
-	var m model.UserRole
-	if err := ctl.DB.WithContext(c.Context()).
-		Where("user_role_id = ?", id).
-		First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
-	}
-
-	return helper.JsonOK(c, "OK", dto.FromModelUserRole(m))
-}
-
-// =====================================================
 // LIST: GET /authz/user-roles?user_id=&role_id=&masjid_id=&only_alive=&limit=&offset=&order_by=&sort=
 // Note: masjid_id= null  (string literal "null") untuk filter global
 // =====================================================

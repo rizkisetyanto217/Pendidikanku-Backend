@@ -223,36 +223,6 @@ func (ctl *UserQuizAttemptAnswersController) List(c *fiber.Ctx) error {
 	return helper.JsonList(c, resp, meta)
 }
 
-// GET /user-quiz-attempt-answers/:id
-func (ctl *UserQuizAttemptAnswersController) GetByID(c *fiber.Ctx) error {
-	id, err := parseUUIDParam(c, "id")
-	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "id tidak valid")
-	}
-
-	var m qmodel.UserQuizAttemptAnswerModel
-	if err := ctl.DB.First(&m, "user_quiz_attempt_answers_id = ?", id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, http.StatusNotFound, "data tidak ditemukan")
-		}
-		return helper.JsonError(c, http.StatusInternalServerError, "gagal mengambil data")
-	}
-
-	// Scope by attempt
-	core, err := ctl.loadAttemptCore(m.UserQuizAttemptAnswersAttemptID)
-	if err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, http.StatusInternalServerError, "gagal memuat attempt")
-	}
-	if err := ctl.ensureScopeForAttempt(c, core); err != nil {
-		return helper.JsonError(c, err.(*fiber.Error).Code, err.Error())
-	}
-
-	return helper.JsonOK(c, "OK", qdto.ToUserQuizAttemptAnswerResponse(&m))
-}
-
 // POST /user-quiz-attempt-answers
 func (ctl *UserQuizAttemptAnswersController) Create(c *fiber.Ctx) error {
 	ctl.ensureValidator()

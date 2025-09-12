@@ -30,8 +30,7 @@ func AcademicYearAdminRoutes(api fiber.Router, db *gorm.DB) {
 		masjidkuMiddleware.IsMasjidAdmin(),
 	)
 
-	adminTerms.Get("/list", termCtl.List)
-	adminTerms.Get("/search", termCtl.SearchOnlyByYear) // taruh sebelum :id utk hindari bentrok
+	
 	adminTerms.Post("/", termCtl.Create)
 	adminTerms.Put("/:id", termCtl.Update)
 	adminTerms.Delete("/:id", termCtl.Delete)

@@ -17,15 +17,12 @@ func ClassSectionAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// ================== CLASS SECTIONS ==================
 	sections := r.Group("/class-sections", masjidkuMiddleware.IsMasjidAdmin())
 	sections.Post("/", sectionH.CreateClassSection)
-	sections.Get("/list", sectionH.ListClassSections)
-	sections.Get("/slug/:slug", sectionH.GetClassSectionBySlug)
 	sections.Put("/:id", sectionH.UpdateClassSection)
 	sections.Delete("/:id", sectionH.SoftDeleteClassSection)
 
 	// ================== USER CLASS SECTIONS ==================
 	userClassSections := r.Group("/user-class-sections", masjidkuMiddleware.IsMasjidAdmin())
 	userClassSections.Post("/", ucsH.CreateUserClassSection)
-	userClassSections.Get("/list", ucsH.ListUserClassSections)
 	userClassSections.Put("/:id", ucsH.UpdateUserClassSection)
 	userClassSections.Post("/:id/end", ucsH.EndUserClassSection) // unassign/akhiri penempatan
 	userClassSections.Delete("/:id", ucsH.DeleteUserClassSection)

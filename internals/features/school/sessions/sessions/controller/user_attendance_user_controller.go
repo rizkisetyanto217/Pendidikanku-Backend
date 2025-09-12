@@ -17,10 +17,13 @@ import (
 // GET /user-attendance/:id
 // Query opsional: ?include=urls  (atau include_urls=1|true|yes)
 func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+	// ambil masjid_id prefer teacher
+	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || mid == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
+	// authorize: anggota masjid (semua role)
+	if err := helperAuth.EnsureMemberMasjid(c, mid); err != nil { return err }
 
 	// --- include flags (berlaku utk single & list) ---
 	includeParam := strings.ToLower(strings.TrimSpace(c.Query("include")))
@@ -46,7 +49,7 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 				user_attendance_id = ?
 				AND user_attendance_masjid_id = ?
 				AND user_attendance_deleted_at IS NULL
-			`, id, masjidID).
+			`, id, mid).
 			First(&m).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -68,7 +71,7 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 				user_attendance_urls_masjid_id = ?
 				AND user_attendance_urls_attendance_id = ?
 				AND user_attendance_urls_deleted_at IS NULL
-			`, masjidID, m.UserAttendanceID).
+			`, mid, m.UserAttendanceID).
 			Order("user_attendance_urls_created_at DESC").
 			Find(&urlRows).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil URL lampiran")
@@ -102,7 +105,7 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 
-	tx, err := ctl.buildListQuery(c, q, masjidID)
+	tx, err := ctl.buildListQuery(c, q, mid)
 	if err != nil {
 		return err // builder sudah mengirim JSON error bila perlu
 	}
@@ -170,7 +173,7 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 				user_attendance_urls_masjid_id = ?
 				AND user_attendance_urls_attendance_id IN ?
 				AND user_attendance_urls_deleted_at IS NULL
-			`, masjidID, ids).
+			`, mid, ids).
 			Order("user_attendance_urls_created_at DESC").
 			Find(&urlRows).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil URL lampiran")

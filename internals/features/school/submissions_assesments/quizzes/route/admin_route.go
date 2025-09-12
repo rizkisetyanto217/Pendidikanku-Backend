@@ -37,7 +37,6 @@ func QuizzesAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// List: sediakan "/" dan "/list" sebagai alias
 	qs.Get("/",     qqCtrl.List)    // GET /api/a/quizzes/questions?quiz_id=&type=&q=&page=&per_page=&sort=
 	qs.Get("/list", qqCtrl.List)    // alias
-	qs.Get("/:id",  qqCtrl.GetByID) // GET /api/a/quizzes/questions/:id
 	qs.Post("/",    qqCtrl.Create)  // POST /api/a/quizzes/questions
 	qs.Patch("/:id", qqCtrl.Patch)  // PATCH /api/a/quizzes/questions/:id
 	qs.Delete("/:id", qqCtrl.Delete) // DELETE /api/a/quizzes/questions/:id
@@ -50,7 +49,6 @@ func QuizzesAdminRoutes(r fiber.Router, db *gorm.DB) {
 	ans := g.Group("/attempt-answers") // -> /api/a/quizzes/attempt-answers
 
 	ans.Get("/",     uqaCtrl.List)     // GET    /api/a/quizzes/attempt-answers?attempt_id=...&question_id=...
-	ans.Get("/:id",  uqaCtrl.GetByID)  // GET    /api/a/quizzes/attempt-answers/:id
 	ans.Post("/",    uqaCtrl.Create)   // POST   /api/a/quizzes/attempt-answers
 	ans.Patch("/:id", uqaCtrl.Patch)   // PATCH  /api/a/quizzes/attempt-answers/:id
 	ans.Delete("/:id", uqaCtrl.Delete) // DELETE /api/a/quizzes/attempt-answers/:id

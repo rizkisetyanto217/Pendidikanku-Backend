@@ -5,15 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"strings"
 	"time"
+
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	sessiondto "masjidku_backend/internals/features/school/sessions/sessions/dto"
 	sessionmodel "masjidku_backend/internals/features/school/sessions/sessions/model"
@@ -32,6 +32,22 @@ func NewClassAttendanceSessionURLController(db *gorm.DB) *ClassAttendanceSession
 		validator: validator.New(),
 	}
 }
+
+// resolver masjid yang “longgar”: teacher → active_masjid → first masjid
+func (ctl *ClassAttendanceSessionURLController) resolveMasjidIDAny(c *fiber.Ctx) (uuid.UUID, error) {
+	if id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+		return id, nil
+	}
+	if id, err := helperAuth.GetActiveMasjidIDFromToken(c); err == nil && id != uuid.Nil {
+		return id, nil
+	}
+	if ids, err := helperAuth.GetMasjidIDsFromToken(c); err == nil && len(ids) > 0 && ids[0] != uuid.Nil {
+		return ids[0], nil
+	}
+	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
+}
+
+
 
 /* =========================================================
  * CREATE (JSON or MULTIPART)
@@ -354,43 +370,21 @@ func (ctl *ClassAttendanceSessionURLController) Update(c *fiber.Ctx) error {
 
 
 /* =========================================================
- * GET BY ID
- * GET /api/a/class-attendance-session-urls/:id
- * ========================================================= */
-func (ctl *ClassAttendanceSessionURLController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
-	}
-
-	id, perr := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if perr != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-
-	var mdl sessionmodel.ClassAttendanceSessionURLModel
-	if err := ctl.DB.WithContext(c.Context()).
-		Where("class_attendance_session_url_id = ? AND class_attendance_session_url_masjid_id = ?", id, masjidID).
-		First(&mdl).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-
-	return helper.JsonOK(c, "OK", sessiondto.NewClassAttendanceSessionURLResponse(mdl))
-}
-
-/* =========================================================
  * FILTER / LIST
  * GET /api/a/class-attendance-session-urls/filter?session_id=&search=&only_alive=&page=&limit=&sort=
  * ========================================================= */
-func (ctl *ClassAttendanceSessionURLController) Filter(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
+ // FILTER / LIST
+// GET /api/a/class-attendance-session-urls/filter?session_id=&search=&only_alive=
+//   &page=&per_page= (alias: limit) &sort_by=&order=asc|desc
+// Back-compat: ?sort=created_at_asc|created_at_desc|label_asc|label_desc
+func (ctl *ClassAttendanceSessionURLController) List(c *fiber.Ctx) error {
+	// Semua role boleh selama punya masjid terkait (tenant-scoped)
+	masjidID, err := ctl.resolveMasjidIDAny(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
 
+	// Filter DTO
 	var q sessiondto.FilterClassAttendanceSessionURLRequest
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
@@ -399,20 +393,48 @@ func (ctl *ClassAttendanceSessionURLController) Filter(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	page := 1
-	limit := 20
-	if q.Page != nil && *q.Page > 0 {
-		page = *q.Page
-	}
-	if q.Limit != nil && *q.Limit > 0 {
-		limit = *q.Limit
-	}
-	offset := (page - 1) * limit
+	// Pagination & sorting (pakai helper paginate)
+	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
 
+	// Back-compat: map ?sort=... -> p.SortBy / p.SortOrder
+	if q.Sort != nil && strings.TrimSpace(*q.Sort) != "" {
+		switch strings.ToLower(strings.TrimSpace(*q.Sort)) {
+		case "created_at_asc":
+			p.SortBy, p.SortOrder = "created_at", "asc"
+		case "created_at_desc":
+			p.SortBy, p.SortOrder = "created_at", "desc"
+		case "label_asc":
+			p.SortBy, p.SortOrder = "label", "asc"
+		case "label_desc":
+			p.SortBy, p.SortOrder = "label", "desc"
+		}
+	}
+
+	// Whitelist kolom sort
+	allowed := map[string]string{
+		"created_at": "class_attendance_session_url_created_at",
+		"label":      "class_attendance_session_url_label",
+	}
+	orderClause, err := p.SafeOrderClause(allowed, "created_at")
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "sort_by tidak valid")
+	}
+	orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
+	// Khusus sort label → NULLS LAST + tie-break by created_at desc
+	if p.SortBy == "label" {
+		dir := "ASC"
+		if strings.ToLower(p.SortOrder) == "desc" {
+			dir = "DESC"
+		}
+		orderExpr = "class_attendance_session_url_label " + dir + " NULLS LAST, class_attendance_session_url_created_at DESC"
+	}
+
+	// Base query
 	dbq := ctl.DB.WithContext(c.Context()).
 		Model(&sessionmodel.ClassAttendanceSessionURLModel{}).
 		Where("class_attendance_session_url_masjid_id = ?", masjidID)
 
+	// only_alive (default true)
 	onlyAlive := true
 	if q.OnlyAlive != nil {
 		onlyAlive = *q.OnlyAlive
@@ -421,6 +443,7 @@ func (ctl *ClassAttendanceSessionURLController) Filter(c *fiber.Ctx) error {
 		dbq = dbq.Where("class_attendance_session_url_deleted_at IS NULL")
 	}
 
+	// Filters
 	if q.SessionID != nil {
 		dbq = dbq.Where("class_attendance_session_url_session_id = ?", *q.SessionID)
 	}
@@ -429,42 +452,31 @@ func (ctl *ClassAttendanceSessionURLController) Filter(c *fiber.Ctx) error {
 		dbq = dbq.Where("(class_attendance_session_url_label ILIKE ? OR class_attendance_session_url_href ILIKE ?)", s, s)
 	}
 
-	order := "class_attendance_session_url_created_at DESC"
-	if q.Sort != nil {
-		switch *q.Sort {
-		case "created_at_asc":
-			order = "class_attendance_session_url_created_at ASC"
-		case "label_asc":
-			order = "class_attendance_session_url_label ASC NULLS LAST, class_attendance_session_url_created_at DESC"
-		case "label_desc":
-			order = "class_attendance_session_url_label DESC NULLS LAST, class_attendance_session_url_created_at DESC"
-		case "created_at_desc":
-			order = "class_attendance_session_url_created_at DESC"
-		}
-	}
-
+	// Total
 	var total int64
-	if err := dbq.Count(&total).Error; err != nil {
+	if err := dbq.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
 	}
 
+	// Page data (hormati per_page, offset dari helper)
+	qdb := dbq.Order(orderExpr)
+	if !p.All {
+		qdb = qdb.Limit(p.Limit()).Offset(p.Offset())
+	}
+
 	var rows []sessionmodel.ClassAttendanceSessionURLModel
-	if err := dbq.Order(order).Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+	if err := qdb.Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
+	// DTO + meta paginate
 	resps := make([]sessiondto.ClassAttendanceSessionURLResponse, 0, len(rows))
 	for _, m := range rows {
 		resps = append(resps, sessiondto.NewClassAttendanceSessionURLResponse(m))
 	}
+	meta := helper.BuildMeta(total, p)
 
-	pagination := fiber.Map{
-		"page":  page,
-		"limit": limit,
-		"total": total,
-		"pages": int(math.Ceil(float64(total) / float64(limit))),
-	}
-	return helper.JsonList(c, resps, pagination)
+	return helper.JsonList(c, resps, meta)
 }
 
 

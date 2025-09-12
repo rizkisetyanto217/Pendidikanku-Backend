@@ -38,7 +38,6 @@ func (ctl *ClassParentController) v() *validator.Validate {
 	return ctl.Validate
 }
 
-// ---------- helpers ----------//
 //  ---------- helpers ----------
 func clampLimit(limit, def, max int) int {
 	if limit <= 0 { return def }

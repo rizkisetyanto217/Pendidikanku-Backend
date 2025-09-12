@@ -212,8 +212,6 @@ func NewClassSectionResponse(src *m.ClassSectionModel, teacherName string) *Clas
 		ClassSectionsCreatedAt:    src.ClassSectionsCreatedAt,
 		ClassSectionsUpdatedAt:    src.ClassSectionsUpdatedAt,
 		ClassSectionsDeletedAt:    deletedAt,
-
-		Teacher: &UserLite{FullName: teacherName},
 	}
 }
 

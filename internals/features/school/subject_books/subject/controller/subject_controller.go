@@ -134,8 +134,6 @@ func (h *SubjectsController) CreateSubject(c *fiber.Ctx) error {
 
 // UPDATE (partial)
 // PUT /admin/subjects/:id
-// UPDATE (partial)
-// PUT /admin/subjects/:id
 func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
@@ -297,12 +295,6 @@ func (h *SubjectsController) UpdateSubject(c *fiber.Ctx) error {
    DELETE /admin/subjects/:id?force=true
    - force=true (admin saja): hard delete (DELETE FROM)
    - default: soft delete dengan set subjects_deleted_at = now()
-   ========================================================= */
-/* =========================================================
-   DELETE
-   DELETE /admin/subjects/:id?force=true
-   - force=true (admin saja): hard delete (Unscoped)
-   - default: soft delete (gorm.DeletedAt)
    ========================================================= */
 func (h *SubjectsController) DeleteSubject(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)

@@ -25,8 +25,8 @@ func MasjidAdminRoutes(api fiber.Router, db *gorm.DB) {
 		),
 		masjidkuMiddleware.IsMasjidAdmin(), // scoping masjid_id dari token
 	)
+	masjidTeachers.Get("/list", ctrlTeacher.List)
 	masjidTeachers.Post("/", ctrlTeacher.Create)
-	masjidTeachers.Get("/list", ctrlTeacher.ListTeachers)
 	masjidTeachers.Delete("/:id", ctrlTeacher.Delete)
 
 	// 🧑‍🎓 /masjid-students → DKM + Admin + Owner
@@ -38,9 +38,6 @@ func MasjidAdminRoutes(api fiber.Router, db *gorm.DB) {
 		masjidkuMiddleware.IsMasjidAdmin(),
 	)
 	masjidStudents.Post("/", ctrlStudent.Create)
-	masjidStudents.Get("/", ctrlStudent.List)
-	masjidStudents.Get("/list", ctrlStudent.List) // alias, mengikuti pola teachers
-	masjidStudents.Get("/:id", ctrlStudent.GetByID)
 	masjidStudents.Put("/:id", ctrlStudent.Update)
 	masjidStudents.Patch("/:id", ctrlStudent.Patch)
 	masjidStudents.Delete("/:id", ctrlStudent.Delete)

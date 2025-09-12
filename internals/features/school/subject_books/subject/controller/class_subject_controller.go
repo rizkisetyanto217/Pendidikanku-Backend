@@ -21,20 +21,6 @@ type ClassSubjectController struct {
 	DB *gorm.DB
 }
 
-/* ======================= Helpers ======================= */
-
-func wantIncludeBooks(c *fiber.Ctx) bool {
-	inc := strings.ToLower(strings.TrimSpace(c.Query("include")))
-	if inc == "" {
-		return false
-	}
-	for _, p := range strings.Split(inc, ",") {
-		if strings.TrimSpace(p) == "books" || strings.TrimSpace(p) == "book" {
-			return true
-		}
-	}
-	return false
-}
 
 /* =========================================================
    CREATE

@@ -23,7 +23,6 @@ func SubmissionAdminRoutes(r fiber.Router, db *gorm.DB) {
 	urlFlat := r.Group("/submission-urls")
 	urlFlat.Post("/", urlsCtrl.Create)
 	urlFlat.Get("/list", urlsCtrl.List)        // ?submission_id=&q=&is_active=&page=&per_page=
-	urlFlat.Get("/:id", urlsCtrl.GetByID)  // detail URL
 	urlFlat.Patch("/:id", urlsCtrl.Update) // update
 	urlFlat.Delete("/:id", urlsCtrl.Delete)
 
@@ -37,7 +36,6 @@ func SubmissionAdminRoutes(r fiber.Router, db *gorm.DB) {
 
 	sub := r.Group("/submissions")
 	sub.Get("/list", subCtrl.List)             // GET   /submissions
-	sub.Get("/:id", subCtrl.GetByID)       // GET   /submissions/:id
 	sub.Post("/", subCtrl.Create)          // POST  /submissions
 	sub.Patch("/:id", subCtrl.Patch)       // PATCH /submissions/:id
 	sub.Patch("/:id/grade", subCtrl.Grade) // PATCH /submissions/:id/grade

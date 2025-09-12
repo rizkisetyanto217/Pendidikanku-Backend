@@ -25,6 +25,5 @@ func ClassUserRoutes(r fiber.Router, db *gorm.DB) {
 	my := ctrl.NewUserMyClassController(db)
 	uc := r.Group("/user-classes")
 	uc.Get("/", my.ListMyUserClasses)     // GET list enrolment milik user
-	uc.Get("/:id", my.GetMyUserClassByID) // GET detail enrolment milik user
 	uc.Post("/", my.SelfEnroll)           // PMB: daftar kelas (status=inactive, by pricing option id)
 }

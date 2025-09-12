@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"strings"
 
+	helper "masjidku_backend/internals/helpers"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -686,4 +688,95 @@ func GetActiveMasjidIDIfSingle(rc RolesClaim) *string {
 		return &id
 	}
 	return nil
+}
+
+
+
+// ============================
+// Authorization helpers (generic & reusable)
+// ============================
+
+func ensureRolesInMasjid(c *fiber.Ctx, masjidID uuid.UUID, roles []string, legacyFallback func() bool, forbidMessage string) error {
+	if masjidID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id wajib")
+	}
+
+	// Global override
+	if IsOwner(c) || HasGlobalRole(c, "superadmin") {
+		return nil
+	}
+
+	// Scoped roles check via structured claims
+	var allowed bool
+	for _, r := range roles {
+		if HasRoleInMasjid(c, masjidID, strings.ToLower(strings.TrimSpace(r))) {
+			allowed = true
+			break
+		}
+	}
+
+	// Legacy fallback (untuk token lama yg mungkin belum punya masjid_roles terstruktur)
+	if !allowed && legacyFallback != nil && legacyFallback() {
+		allowed = true
+	}
+
+	if !allowed {
+		if strings.TrimSpace(forbidMessage) == "" {
+			forbidMessage = "Tidak diizinkan"
+		}
+		return helper.JsonError(c, fiber.StatusForbidden, forbidMessage)
+	}
+	return nil
+}
+
+// ====== Publik wrappers ======
+
+// Untuk endpoint yang boleh diakses SEMUA role masjid (student/teacher/dkm/admin/bendahara)
+// serta owner/superadmin. Cocok untuk READ/list.
+func EnsureMemberMasjid(c *fiber.Ctx, masjidID uuid.UUID) error {
+	roles := []string{"student", "teacher", "dkm", "admin", "bendahara"}
+	legacy := func() bool {
+		// Jika token lama hanya punya flag global peran (tanpa scope), izinkan jika dia student/teacher/dkm.
+		return IsStudent(c) || IsTeacher(c) || IsDKM(c)
+	}
+	return ensureRolesInMasjid(c, masjidID, roles, legacy, "Akses hanya untuk anggota masjid ini")
+}
+
+// Untuk endpoint MUTASI (create/update/delete) yang butuh staff (teacher/dkm/admin/bendahara)
+// serta owner/superadmin.
+func EnsureStaffMasjid(c *fiber.Ctx, masjidID uuid.UUID) error {
+	roles := []string{"teacher", "dkm", "admin", "bendahara"}
+	legacy := func() bool {
+		// Mutasi minimal teacher/DKM pada token lama
+		return IsTeacher(c) || IsDKM(c)
+	}
+	return ensureRolesInMasjid(c, masjidID, roles, legacy, "Hanya guru/DKM yang diizinkan")
+}
+
+// Spesifik student saja (READ terbatas milik student)
+func EnsureStudentMasjid(c *fiber.Ctx, masjidID uuid.UUID) error {
+	roles := []string{"student"}
+	legacy := func() bool { return IsStudent(c) }
+	return ensureRolesInMasjid(c, masjidID, roles, legacy, "Hanya murid yang diizinkan")
+}
+
+// Spesifik teacher saja
+func EnsureTeacherMasjid(c *fiber.Ctx, masjidID uuid.UUID) error {
+	roles := []string{"teacher"}
+	legacy := func() bool { return IsTeacher(c) }
+	return ensureRolesInMasjid(c, masjidID, roles, legacy, "Hanya guru yang diizinkan")
+}
+
+// Spesifik DKM saja
+func EnsureDKMMasjid(c *fiber.Ctx, masjidID uuid.UUID) error {
+	roles := []string{"dkm", "admin"} // sering admin se-level DKM
+	legacy := func() bool { return IsDKM(c) }
+	return ensureRolesInMasjid(c, masjidID, roles, legacy, "Hanya DKM yang diizinkan")
+}
+
+// DKM atau Teacher
+func EnsureDKMOrTeacherMasjid(c *fiber.Ctx, masjidID uuid.UUID) error {
+	roles := []string{"dkm", "admin", "teacher"}
+	legacy := func() bool { return IsDKM(c) || IsTeacher(c) }
+	return ensureRolesInMasjid(c, masjidID, roles, legacy, "Hanya DKM/Guru yang diizinkan")
 }

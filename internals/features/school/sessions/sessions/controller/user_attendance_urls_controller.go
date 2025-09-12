@@ -39,20 +39,6 @@ func NewUserAttendanceUrlController(db *gorm.DB) *UserAttendanceUrlController {
 	}
 }
 
-// ----------------- Masjid resolver (longgar: yang penting login) -----------------
-func (ctl *UserAttendanceUrlController) resolveMasjidIDAny(c *fiber.Ctx) (uuid.UUID, error) {
-	if id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-		return id, nil
-	}
-	if id, err := helperAuth.GetActiveMasjidIDFromToken(c); err == nil && id != uuid.Nil {
-		return id, nil
-	}
-	if ids, err := helperAuth.GetMasjidIDsFromToken(c); err == nil && len(ids) > 0 && ids[0] != uuid.Nil {
-		return ids[0], nil
-	}
-	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
-}
-
 // ----------------- Attendance resolvers -----------------
 
 // Ambil attendance_id dari query/path (baca beberapa alias)
@@ -124,8 +110,13 @@ func (ctl *UserAttendanceUrlController) guardAttendanceTenant(c *fiber.Ctx, attI
 // =========================================================
 
 func (ctl *UserAttendanceUrlController) ListByAttendance(c *fiber.Ctx) error {
-	masjidID, err := ctl.resolveMasjidIDAny(c)
-	if err != nil { return err }
+	// ambil masjid_id prefer teacher
+	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || mid == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	}
+	// authorize: anggota masjid (semua role)
+	if err := helperAuth.EnsureMemberMasjid(c, mid); err != nil { return err }
 
 	attID, hasAttID, err := ctl.resolveAttendanceIDOptional(c)
 	if err != nil { return err }
@@ -135,11 +126,11 @@ func (ctl *UserAttendanceUrlController) ListByAttendance(c *fiber.Ctx) error {
 
 	// Base query
 	tx := ctl.DB.WithContext(c.Context()).
-		Where("user_attendance_urls_masjid_id = ? AND user_attendance_urls_deleted_at IS NULL", masjidID)
+		Where("user_attendance_urls_masjid_id = ? AND user_attendance_urls_deleted_at IS NULL", mid)
 
 	// Jika ada attendance_id, guard & filter
 	if hasAttID {
-		if err := ctl.guardAttendanceTenant(c, attID, masjidID); err != nil {
+		if err := ctl.guardAttendanceTenant(c, attID, mid); err != nil {
 			return err
 		}
 		tx = tx.Where("user_attendance_urls_attendance_id = ?", attID)
@@ -171,12 +162,17 @@ func (ctl *UserAttendanceUrlController) ListByAttendance(c *fiber.Ctx) error {
 // - user_attendance_urls_uploader_student_id (uuid, optional)
 // =========================================================
 func (ctl *UserAttendanceUrlController) CreateMultipart(c *fiber.Ctx) error {
-	masjidID, err := ctl.resolveMasjidIDAny(c)
-	if err != nil { return err }
+	// ambil masjid_id prefer teacher
+	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || mid == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	}
+	// authorize: anggota masjid (semua role)
+	if err := helperAuth.EnsureMemberMasjid(c, mid); err != nil { return err }
 
 	attID, err := ctl.resolveAttendanceIDFromForm(c)
 	if err != nil { return err }
-	if err := ctl.guardAttendanceTenant(c, attID, masjidID); err != nil { return err }
+	if err := ctl.guardAttendanceTenant(c, attID, mid); err != nil { return err }
 
 	// optional fields
 	var labelPtr *string
@@ -217,7 +213,7 @@ func (ctl *UserAttendanceUrlController) CreateMultipart(c *fiber.Ctx) error {
 	defer cancel()
 
 	// upload apa adanya (bukan re-encode), ke: masjids/{masjid_id}/files/attendance/{attendance_id}/<file>
-	dir := fmt.Sprintf("masjids/%s/files/attendance/%s", masjidID.String(), attID.String())
+	dir := fmt.Sprintf("masjids/%s/files/attendance/%s", mid.String(), attID.String())
 	key, _, upErr := svc.UploadFromFormFileToDir(ctx, dir, fh)
 	if upErr != nil {
 		// helper UploadFromFormFileToDir sudah return error detail
@@ -240,7 +236,7 @@ func (ctl *UserAttendanceUrlController) CreateMultipart(c *fiber.Ctx) error {
 	}
 
 	// persist
-	m := dto.NewUserAttendanceURLModelFromCreate(req, masjidID)
+	m := dto.NewUserAttendanceURLModelFromCreate(req, mid)
 	if err := ctl.DB.WithContext(c.Context()).Create(&m).Error; err != nil {
 		_ = helperOSS.DeleteByPublicURLENV(publicURL, 10*time.Second) // rollback file
 		// nama index unik di migration: uq_uau_attendance_href_alive
@@ -262,15 +258,24 @@ func (ctl *UserAttendanceUrlController) CreateMultipart(c *fiber.Ctx) error {
 // PATCH /api/a/user-attendance-urls/:id
 // =========================================================
 func (ctl *UserAttendanceUrlController) Update(c *fiber.Ctx) error {
-	masjidID, err := ctl.resolveMasjidIDAny(c)
-	if err != nil { return err }
+
+
+		// ambil masjid_id prefer teacher
+	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || mid == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	}
+	// authorize: anggota masjid (semua role)
+	if err := helperAuth.EnsureMemberMasjid(c, mid); err != nil { return err }
+
+
 	id, perr := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if perr != nil { return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid") }
 
 	var m model.UserAttendanceURLModel
 	if err := ctl.DB.WithContext(c.Context()).
 		Where("user_attendance_urls_id = ? AND user_attendance_urls_masjid_id = ? AND user_attendance_urls_deleted_at IS NULL",
-			id, masjidID).
+			id, mid).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.NewError(http.StatusNotFound, "Data tidak ditemukan")
@@ -301,7 +306,7 @@ func (ctl *UserAttendanceUrlController) Update(c *fiber.Ctx) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		slot := fmt.Sprintf("attendance/%s", m.UserAttendanceURLsAttendanceID.String())
-		newURL, upErr := helperOSS.UploadImageToOSS(ctx, svc, masjidID, slot, fh)
+		newURL, upErr := helperOSS.UploadImageToOSS(ctx, svc, mid, slot, fh)
 		if upErr != nil { return upErr }
 
 		now := time.Now()
@@ -345,15 +350,22 @@ func (ctl *UserAttendanceUrlController) Update(c *fiber.Ctx) error {
 // DELETE (soft)
 // =========================================================
 func (ctl *UserAttendanceUrlController) SoftDelete(c *fiber.Ctx) error {
-	masjidID, err := ctl.resolveMasjidIDAny(c)
-	if err != nil { return err }
+
+	// ambil masjid_id prefer teacher
+	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || mid == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	}
+	// authorize: anggota masjid (semua role)
+	if err := helperAuth.EnsureMemberMasjid(c, mid); err != nil { return err }
+
 	id, perr := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if perr != nil { return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid") }
 
 	var m model.UserAttendanceURLModel
 	if err := ctl.DB.WithContext(c.Context()).
 		Where("user_attendance_urls_id = ? AND user_attendance_urls_masjid_id = ? AND user_attendance_urls_deleted_at IS NULL",
-			id, masjidID).
+			id, mid).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.NewError(http.StatusNotFound, "Data tidak ditemukan")

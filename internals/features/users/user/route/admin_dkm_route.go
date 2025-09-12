@@ -20,9 +20,7 @@ func UserAdminRoutes(app fiber.Router, db *gorm.DB) {
 	)
 
 	// List & search & get by ID
-	users.Get("/", adminCtrl.GetUsers)
-	users.Get("/search", adminCtrl.SearchUsers)
-	users.Get("/:id", adminCtrl.GetUserByID)
+	users.Get("/list", adminCtrl.ListUsers)
 
 	// Create (single/batch) & delete (soft)
 	users.Post("/", adminCtrl.CreateUser)

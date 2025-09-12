@@ -16,9 +16,6 @@ func RoomsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	ctl := controller.NewClassRoomController(db, nil) // validator nil
 	g := admin.Group("/class-rooms")
 
-	// Read
-	g.Get("/list", ctl.List)
-
 	// Write
 	g.Post("/", ctl.Create)
 	g.Put("/:id", ctl.Update)

@@ -36,34 +36,6 @@ func NewQuizQuestionsController(db *gorm.DB) *QuizQuestionsController {
    Tenant helpers
 ========================================================= */
 
-// Admin/Teacher only (untuk write)
-func (ctl *QuizQuestionsController) tenantMasjidID(c *fiber.Ctx) (uuid.UUID, error) {
-	if id, _ := helperAuth.GetMasjidIDFromToken(c); id != uuid.Nil {
-		return id, nil
-	}
-	if id, _ := helperAuth.GetTeacherMasjidIDFromToken(c); id != uuid.Nil {
-		return id, nil
-	}
-	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "Hanya admin/guru yang diizinkan")
-}
-
-// ANY (admin/teacher/student) — untuk read
-func (ctl *QuizQuestionsController) tenantMasjidIDAny(c *fiber.Ctx) (uuid.UUID, error) {
-	if id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-		return id, nil
-	}
-	if id, err := helperAuth.GetActiveMasjidID(c); err == nil && id != uuid.Nil {
-		return id, nil
-	}
-	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "Butuh autentikasi")
-}
-
-/* =========================================================
-   Filters & sort helpers
-========================================================= */
-
-
-
 
 func (ctl *QuizQuestionsController) applyFilters(db *gorm.DB, masjidID uuid.UUID, quizID *uuid.UUID, qType string, q string) *gorm.DB {
 	db = db.Where("quiz_questions_masjid_id = ? AND quiz_questions_deleted_at IS NULL", masjidID)
@@ -99,149 +71,7 @@ func (ctl *QuizQuestionsController) applySort(db *gorm.DB, sort string) *gorm.DB
 	}
 }
 
-/* =========================================================
-   READ (User/Admin/Teacher)
-========================================================= */
 
-// GET /quiz-questions
-// Query: quiz_id, type, q, page, per_page, sort
-func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
-	masjidID, err := ctl.tenantMasjidIDAny(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
-
-	var (
-		quizID *uuid.UUID
-	)
-	if s := strings.TrimSpace(c.Query("quiz_id")); s != "" {
-		if id, e := uuid.Parse(s); e == nil {
-			quizID = &id
-		} else {
-			return helper.JsonError(c, fiber.StatusBadRequest, "quiz_id tidak valid")
-		}
-	}
-	qType := c.Query("type") // "single"|"essay"|empty
-	q := c.Query("q")
-	sort := c.Query("sort")
-
-	// pagination (simple)
-	limit := atoiOr(20, c.Query("per_page"), c.Query("limit"))
-	offset := pageOffset(atoiOr(0, c.Query("page")), limit)
-
-	dbq := ctl.DB.Model(&qmodel.QuizQuestionModel{})
-	dbq = ctl.applyFilters(dbq, masjidID, quizID, qType, q)
-
-	var total int64
-	if err := dbq.Count(&total).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-
-	dbq = ctl.applySort(dbq, sort)
-	if limit > 0 {
-		dbq = dbq.Offset(offset).Limit(limit)
-	}
-
-	var rows []qmodel.QuizQuestionModel
-	if err := dbq.Find(&rows).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-	out := qdto.FromModelsQuizQuestions(rows)
-
-	meta := fiber.Map{
-		"total":    total,
-		"page":     atoiOr(0, c.Query("page")),
-		"per_page": limit,
-	}
-	return helper.JsonList(c, out, meta)
-}
-
-// GET /quiz-questions/public
-// Sama seperti List tapi hanya yang kuisnya published
-func (ctl *QuizQuestionsController) ListPublic(c *fiber.Ctx) error {
-	masjidID, err := ctl.tenantMasjidIDAny(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
-
-	var quizID *uuid.UUID
-	if s := strings.TrimSpace(c.Query("quiz_id")); s != "" {
-		if id, e := uuid.Parse(s); e == nil {
-			quizID = &id
-		} else {
-			return helper.JsonError(c, fiber.StatusBadRequest, "quiz_id tidak valid")
-		}
-	}
-	qType := c.Query("type")
-	q := c.Query("q")
-	sort := c.Query("sort")
-	limit := atoiOr(20, c.Query("per_page"), c.Query("limit"))
-	offset := pageOffset(atoiOr(0, c.Query("page")), limit)
-
-	// join ke quizzes untuk filter published
-	dbq := ctl.DB.Table("quiz_questions qqq").
-		Select("qqq.*").
-		Joins("JOIN quizzes qq ON qq.quizzes_id = qqq.quiz_questions_quiz_id").
-		Where("qqq.quiz_questions_masjid_id = ? AND qqq.quiz_questions_deleted_at IS NULL", masjidID).
-		Where("qq.quizzes_is_published = ?", true)
-
-	if quizID != nil && *quizID != uuid.Nil {
-		dbq = dbq.Where("qqq.quiz_questions_quiz_id = ?", *quizID)
-	}
-	if t := strings.ToLower(strings.TrimSpace(qType)); t == "single" || t == "essay" {
-		dbq = dbq.Where("qqq.quiz_questions_type = ?", t)
-	}
-	if s := strings.TrimSpace(q); s != "" {
-		like := "%" + strings.ToLower(s) + "%"
-		dbq = dbq.Where("(LOWER(qqq.quiz_questions_text) LIKE ? OR LOWER(COALESCE(qqq.quiz_questions_explanation,'')) LIKE ?)", like, like)
-	}
-
-	var total int64
-	if err := dbq.Count(&total).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-
-	dbq = ctl.applySort(dbq, sort)
-	if limit > 0 {
-		dbq = dbq.Offset(offset).Limit(limit)
-	}
-
-	var rows []qmodel.QuizQuestionModel
-	if err := dbq.Find(&rows).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-	out := qdto.FromModelsQuizQuestions(rows)
-
-	meta := fiber.Map{
-		"total":    total,
-		"page":     atoiOr(0, c.Query("page")),
-		"per_page": limit,
-	}
-	return helper.JsonList(c, out, meta)
-}
-
-// GET /quiz-questions/:id
-func (ctl *QuizQuestionsController) GetByID(c *fiber.Ctx) error {
-	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-	masjidID, err := ctl.tenantMasjidIDAny(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
-
-	var m qmodel.QuizQuestionModel
-	if err := ctl.DB.
-		First(&m, "quiz_questions_id = ? AND quiz_questions_masjid_id = ? AND quiz_questions_deleted_at IS NULL", id, masjidID).
-		Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Soal tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-	return helper.JsonOK(c, "OK", qdto.FromModelQuizQuestion(&m))
-}
 
 /* =========================================================
    WRITE (Admin/Teacher)
@@ -257,13 +87,17 @@ func (ctl *QuizQuestionsController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	tenantMasjidID, err := ctl.tenantMasjidID(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+	mid, err := helperAuth.GetMasjidIDFromToken(c) // ini prefer DKM/Admin (bukan teacher)
+	if err != nil || mid == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	}
+	if err := helperAuth.EnsureDKMMasjid(c, mid); err != nil {
+		return err
 	}
 
+
 	// Force masjid_id dari tenant
-	req.QuizQuestionsMasjidID = tenantMasjidID
+	req.QuizQuestionsMasjidID = mid
 
 	// Safety: pastikan quiz_id milik masjid tenant
 	var ok bool
@@ -272,7 +106,7 @@ func (ctl *QuizQuestionsController) Create(c *fiber.Ctx) error {
 		  SELECT 1 FROM quizzes
 		  WHERE quizzes_id = ? AND quizzes_masjid_id = ?
 		)
-	`, req.QuizQuestionsQuizID, tenantMasjidID).Scan(&ok).Error; err != nil {
+	`, req.QuizQuestionsQuizID, mid).Scan(&ok).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	if !ok {
@@ -302,14 +136,18 @@ func (ctl *QuizQuestionsController) Patch(c *fiber.Ctx) error {
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
-	tenantMasjidID, err := ctl.tenantMasjidID(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+	mid, err := helperAuth.GetMasjidIDFromToken(c) // ini prefer DKM/Admin (bukan teacher)
+	if err != nil || mid == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
+	if err := helperAuth.EnsureDKMMasjid(c, mid); err != nil {
+		return err
+	}
+
 
 	var m qmodel.QuizQuestionModel
 	if err := ctl.DB.
-		First(&m, "quiz_questions_id = ? AND quiz_questions_masjid_id = ? AND quiz_questions_deleted_at IS NULL", id, tenantMasjidID).
+		First(&m, "quiz_questions_id = ? AND quiz_questions_masjid_id = ? AND quiz_questions_deleted_at IS NULL", id, mid).
 		Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Soal tidak ditemukan")
@@ -332,7 +170,7 @@ func (ctl *QuizQuestionsController) Patch(c *fiber.Ctx) error {
 		var ok bool
 		if err := ctl.DB.Raw(`
 			SELECT EXISTS(SELECT 1 FROM quizzes WHERE quizzes_id = ? AND quizzes_masjid_id = ?)
-		`, newQID, tenantMasjidID).Scan(&ok).Error; err != nil {
+		`, newQID, mid).Scan(&ok).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
 		if !ok {
@@ -366,15 +204,19 @@ func (ctl *QuizQuestionsController) Delete(c *fiber.Ctx) error {
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
-	tenantMasjidID, err := ctl.tenantMasjidID(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+	mid, err := helperAuth.GetMasjidIDFromToken(c) // ini prefer DKM/Admin (bukan teacher)
+	if err != nil || mid == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
 	}
+	if err := helperAuth.EnsureDKMMasjid(c, mid); err != nil {
+		return err
+	}
+
 
 	// pastikan exist dan milik tenant
 	var m qmodel.QuizQuestionModel
 	if err := ctl.DB.Select("quiz_questions_id").
-		First(&m, "quiz_questions_id = ? AND quiz_questions_masjid_id = ? AND quiz_questions_deleted_at IS NULL", id, tenantMasjidID).
+		First(&m, "quiz_questions_id = ? AND quiz_questions_masjid_id = ? AND quiz_questions_deleted_at IS NULL", id, mid).
 		Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Soal tidak ditemukan")

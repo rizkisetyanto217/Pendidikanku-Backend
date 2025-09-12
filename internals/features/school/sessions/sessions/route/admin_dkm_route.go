@@ -25,10 +25,9 @@ func AttendanceSessionsAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// =====================
 	// Class Attendance Session URLs (read-only untuk user)
 	// =====================
-	urlCtl := uaCtrl.NewClassAttendanceSessionURLController(db)
-	urlGroup := r.Group("/session-urls")
-	urlGroup.Get("/filter", urlCtl.Filter) // list/filter
-	urlGroup.Get("/:id", urlCtl.GetByID)   // detail by id
+	// urlCtl := uaCtrl.NewClassAttendanceSessionURLController(db)
+	// urlGroup := r.Group("/session-urls")
+	// urlGroup.Get("/filter", urlCtl.Filter) // list/filter
 
 	// =====================
 	// User Attendance URLs (read-only)

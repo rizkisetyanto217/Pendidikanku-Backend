@@ -28,7 +28,6 @@ var fallbackValidator = validator.New()
 
 // GET /api/a/academic-terms
 // List (multi-tenant via token) + Filter + Pagination + Sorting
-// GET /api/a/academic-terms
 func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
     var q dto.AcademicTermFilterDTO
     if err := c.QueryParser(&q); err != nil {

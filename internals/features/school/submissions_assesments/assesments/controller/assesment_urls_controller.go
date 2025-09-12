@@ -3,7 +3,6 @@ package controller
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"mime/multipart"
@@ -81,28 +80,16 @@ func strPtr(s string) *string {
 	return &s
 }
 
-// -- tambahkan import: "database/sql"
-func toNullString(s string) sql.NullString {
-	s = strings.TrimSpace(s)
-	return sql.NullString{String: s, Valid: s != ""}
-}
 
-
-/* ==========================
-   Routes
-   ========================== */
-
-// POST /masjids/:masjid_id/images/:slot
-// Form-Data: image | file | photo | picture | class_parent_image
-// POST /assessment-urls
-// POST /assessments/:assessment_id/urls
-// POST /assessment-urls
-// POST /assessments/:assessment_id/urls
 func (ctl *AssessmentUrlsController) Create(c *fiber.Ctx) error {
 	ctl.ensureValidator()
 
-	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
+	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || mid == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	}
+	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, mid); err != nil {
+		return err
 	}
 
 	var req dto.CreateAssessmentUrlsRequest
@@ -187,13 +174,16 @@ func (ctl *AssessmentUrlsController) Create(c *fiber.Ctx) error {
 
 
 // PATCH /assessment-urls/:id
-// PATCH /assessment-urls/:id
 func (ctl *AssessmentUrlsController) Update(c *fiber.Ctx) error {
 	ctl.ensureValidator()
 
 	// 🔐 Gate: Admin/DKM/Teacher
-	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
+	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || mid == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	}
+	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, mid); err != nil {
+		return err
 	}
 
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
@@ -351,109 +341,18 @@ func (ctl *AssessmentUrlsController) Update(c *fiber.Ctx) error {
 }
 
 
-// GET /assessment-urls/:id
-func (ctl *AssessmentUrlsController) GetByID(c *fiber.Ctx) error {
-	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-	var m model.AssessmentUrlsModel
-	if err := ctl.DB.First(&m, "assessment_urls_id = ?", id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-	return helper.JsonOK(c, "OK", dto.ToAssessmentUrlsResponse(&m))
-}
 
-// GET /assessment-urls
-// GET /assessments/:assessment_id/urls
-func (ctl *AssessmentUrlsController) List(c *fiber.Ctx) error {
-	// pagination (default: created_at desc)
-	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
 
-	// optional filter by path param
-	var assessmentID *uuid.UUID
-	if s := strings.TrimSpace(c.Params("assessment_id")); s != "" {
-		if id, err := uuid.Parse(s); err == nil {
-			assessmentID = &id
-		} else {
-			return helper.JsonError(c, fiber.StatusBadRequest, "assessment_id pada path tidak valid")
-		}
-	}
-
-	// query string filters
-	if assessmentID == nil {
-		if s := strings.TrimSpace(c.Query("assessment_id")); s != "" {
-			if id, err := uuid.Parse(s); err == nil {
-				assessmentID = &id
-			} else {
-				return helper.JsonError(c, fiber.StatusBadRequest, "assessment_id tidak valid")
-			}
-		}
-	}
-	q := strings.TrimSpace(c.Query("q"))
-	isPublishedStr := strings.TrimSpace(c.Query("is_published"))
-	isActiveStr := strings.TrimSpace(c.Query("is_active"))
-
-	db := ctl.DB.Model(&model.AssessmentUrlsModel{})
-	if assessmentID != nil {
-		db = db.Where("assessment_urls_assessment_id = ?", *assessmentID)
-	}
-	if q != "" {
-		like := "%" + strings.ToLower(q) + "%"
-		db = db.Where("(LOWER(assessment_urls_label) LIKE ? OR LOWER(assessment_urls_href) LIKE ?)", like, like)
-	}
-	if isPublishedStr != "" {
-		switch strings.ToLower(isPublishedStr) {
-		case "true", "1", "t", "yes", "y":
-			db = db.Where("assessment_urls_is_published = ?", true)
-		case "false", "0", "f", "no", "n":
-			db = db.Where("assessment_urls_is_published = ?", false)
-		default:
-			return helper.JsonError(c, fiber.StatusBadRequest, "is_published harus boolean")
-		}
-	}
-	if isActiveStr != "" {
-		switch strings.ToLower(isActiveStr) {
-		case "true", "1", "t", "yes", "y":
-			db = db.Where("assessment_urls_is_active = ?", true)
-		case "false", "0", "f", "no", "n":
-			db = db.Where("assessment_urls_is_active = ?", false)
-		default:
-			return helper.JsonError(c, fiber.StatusBadRequest, "is_active harus boolean")
-		}
-	}
-
-	// total
-	var total int64
-	if err := db.Count(&total).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
-	}
-
-	// fetch
-	if !p.All {
-		db = db.Limit(p.Limit()).Offset(p.Offset())
-	}
-	var rows []model.AssessmentUrlsModel
-	if err := db.Order("assessment_urls_created_at DESC").Find(&rows).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-
-	items := make([]dto.AssessmentUrlsResponse, 0, len(rows))
-	for i := range rows {
-		items = append(items, dto.ToAssessmentUrlsResponse(&rows[i]))
-	}
-
-	return helper.JsonList(c, items, helper.BuildMeta(total, p))
-}
 
 // DELETE /assessment-urls/:id  (soft-delete bila model pakai gorm.DeletedAt)
 func (ctl *AssessmentUrlsController) Delete(c *fiber.Ctx) error {
 	// 🔐 Gate: Admin/DKM/Teacher
-	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
+	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || mid == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	}
+	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, mid); err != nil {
+		return err
 	}
 
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))

@@ -17,17 +17,13 @@ func UsersTeacherRoute(app fiber.Router, db *gorm.DB) {
     // ===== TEACHER =====
     g := app.Group("/user-teachers")
     g.Post("/", teacherCtrl.Create)
-    g.Get("/:id", teacherCtrl.GetByID)
-    g.Get("/by-user/:user_id", teacherCtrl.GetByUserID)
     g.Get("/", teacherCtrl.List)
     g.Put("/:id", teacherCtrl.Update)
     g.Delete("/:id", teacherCtrl.Delete)
 
     // ===== STUDENT (BARU) =====
-    s := app.Group("/user-students")
+    s := app.Group("/masjid-students")
     s.Post("/", studentCtrl.Create)
-    s.Get("/", studentCtrl.List)
-    s.Get("/:id", studentCtrl.GetByID)
     s.Put("/:id", studentCtrl.Update)
     s.Patch("/:id", studentCtrl.Patch)
     s.Delete("/:id", studentCtrl.Delete)

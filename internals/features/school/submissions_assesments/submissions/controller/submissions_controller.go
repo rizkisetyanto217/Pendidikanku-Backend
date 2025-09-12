@@ -2,7 +2,6 @@
 package controller
 
 import (
-	"math"
 	"strings"
 	"time"
 
@@ -29,53 +28,18 @@ func NewSubmissionController(db *gorm.DB) *SubmissionController {
 	}
 }
 
-// ===== Contoh registrasi route =====
-// func RegisterSubmissionRoutes(app *fiber.App, db *gorm.DB) {
-// 	ctrl := NewSubmissionController(db)
-// 	g := app.Group("/api/a/submissions")
-// 	g.Get("/", ctrl.List)
-// 	g.Get("/:id", ctrl.GetByID)
-// 	g.Post("/", ctrl.Create)
-// 	g.Patch("/:id", ctrl.Patch)
-// 	g.Patch("/:id/grade", ctrl.Grade)
-// 	g.Delete("/:id", ctrl.Delete)
-// }
-
-// ============ Helpers ============
-func (ctrl *SubmissionController) tenantMasjidID(c *fiber.Ctx) (uuid.UUID, error) {
-	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
-	teacherMasjidID, _ := helperAuth.GetTeacherMasjidIDFromToken(c)
-
-	switch {
-	case adminMasjidID != uuid.Nil:
-		return adminMasjidID, nil
-	case teacherMasjidID != uuid.Nil:
-		return teacherMasjidID, nil
-	default:
-		return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
-	}
-}
-
 func clampPage(n int) int {
-	if n <= 0 {
-		return 1
-	}
+	if n <= 0 { return 1 }
 	return n
 }
 func clampPerPage(n int) int {
-	if n <= 0 {
-		return 20
-	}
-	if n > 200 {
-		return 200
-	}
+	if n <= 0 { return 20 }
+	if n > 200 { return 200 }
 	return n
 }
 
 func applyFilters(q *gorm.DB, f *dto.ListSubmissionsQuery) *gorm.DB {
-	if f == nil {
-		return q
-	}
+	if f == nil { return q }
 	if f.MasjidID != nil {
 		q = q.Where("submissions_masjid_id = ?", *f.MasjidID)
 	}
@@ -116,37 +80,42 @@ func applySort(q *gorm.DB, sort string) *gorm.DB {
 	}
 }
 
-// ============ Handlers ============
+/* =========================
+   Handlers
+========================= */
 
-// POST /
-// POST /
+// POST / (STUDENT ONLY)
 func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 	var body dto.CreateSubmissionRequest
 	if err := c.BodyParser(&body); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
-	// ===== Ambil masjid & student dari token (user/student) =====
-	masjidID, err := helperAuth.GetActiveMasjidIDFromToken(c)
-	if err != nil || masjidID == uuid.Nil {
+	// Ambil masjid aktif & pastikan caller adalah STUDENT di masjid tsb
+	mid, err := helperAuth.GetActiveMasjidIDFromToken(c)
+	if err != nil || mid == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid aktif tidak ditemukan di token")
 	}
-	studentID, err := helperAuth.GetMasjidStudentIDForMasjid(c, masjidID)
-	if err != nil || studentID == uuid.Nil {
-		// Tidak punya student record di masjid tsb
+	if err := helperAuth.EnsureStudentMasjid(c, mid); err != nil {
+		return err
+	}
+
+	// Ambil student_id milik caller pada masjid tsb
+	sid, err := helperAuth.GetMasjidStudentIDForMasjid(c, mid)
+	if err != nil || sid == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusForbidden, "Hanya siswa terdaftar yang diizinkan membuat submission")
 	}
 
-	// Paksa/override masjid & student dari token agar aman
-	body.SubmissionMasjidID = masjidID
-	body.SubmissionStudentID = studentID
+	// Paksa tenant & identitas student dari token
+	body.SubmissionMasjidID = mid
+	body.SubmissionStudentID = sid
 
-	// ===== Validasi payload setelah di-override =====
+	// Validasi payload setelah override
 	if err := ctrl.Validator.Struct(&body); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Status default = submitted (bisa override kalau dikirim)
+	// Default status
 	status := model.SubmissionStatusSubmitted
 	if body.SubmissionStatus != nil {
 		status = *body.SubmissionStatus
@@ -154,23 +123,22 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 
 	sub := &model.Submission{
 		SubmissionMasjidID:     body.SubmissionMasjidID,
-		SubmissionAssessmentID: body.SubmissionAssessmentID, // wajib dikirim client
+		SubmissionAssessmentID: body.SubmissionAssessmentID,
 		SubmissionStudentID:    body.SubmissionStudentID,
-
-		SubmissionText:        body.SubmissionText,
-		SubmissionStatus:      status,
-		SubmissionSubmittedAt: body.SubmissionSubmittedAt,
-		SubmissionIsLate:      body.SubmissionIsLate,
+		SubmissionText:         body.SubmissionText,
+		SubmissionStatus:       status,
+		SubmissionSubmittedAt:  body.SubmissionSubmittedAt,
+		SubmissionIsLate:       body.SubmissionIsLate,
 	}
 
-	// Auto isi submitted_at jika status submitted/resubmitted tapi belum ada waktu
+	// Auto submitted_at bila perlu
 	if (sub.SubmissionStatus == model.SubmissionStatusSubmitted || sub.SubmissionStatus == model.SubmissionStatusResubmitted) &&
 		sub.SubmissionSubmittedAt == nil {
 		now := time.Now()
 		sub.SubmissionSubmittedAt = &now
 	}
 
-	if err := ctrl.DB.Create(sub).Error; err != nil {
+	if err := ctrl.DB.WithContext(c.Context()).Create(sub).Error; err != nil {
 		le := strings.ToLower(err.Error())
 		if strings.Contains(le, "duplicate key") || strings.Contains(le, "unique constraint") {
 			return helper.JsonError(c, fiber.StatusConflict, "Submission untuk assessment & student ini sudah ada")
@@ -182,98 +150,25 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 }
 
 
-// GET /
-// GET /
-func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
-	var q dto.ListSubmissionsQuery
-	if err := c.QueryParser(&q); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
-	}
-	if err := ctrl.Validator.Struct(&q); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
 
-	// ← HANYA set default tenant bila memang ada (admin/guru),
-	//    kalau tidak ada (uuid.Nil) BIARKAN kosong agar tidak mem-filter ke Nil.
-	if tenantMasjidID, _ := ctrl.tenantMasjidID(c); tenantMasjidID != uuid.Nil && q.MasjidID == nil {
-		q.MasjidID = &tenantMasjidID
-	}
-
-	// ❌ HAPUS blok yang memaksa q.MasjidID dan Forbidden:
-	// if q.MasjidID == nil { q.MasjidID = &tenantMasjidID } else if *q.MasjidID != tenantMasjidID { ... }
-
-	page := clampPage(q.Page)
-	perPage := clampPerPage(q.PerPage)
-
-	var total int64
-	dbq := ctrl.DB.Model(&model.Submission{})
-	dbq = applyFilters(dbq, &q)
-
-	if err := dbq.Count(&total).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-
-	var rows []model.Submission
-	dbq = applySort(dbq, q.Sort)
-	if err := dbq.Offset((page - 1) * perPage).Limit(perPage).Find(&rows).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-
-	out := make([]dto.SubmissionResponse, 0, len(rows))
-	for i := range rows {
-		out = append(out, dto.FromModel(&rows[i]))
-	}
-
-	pagination := fiber.Map{
-		"page":        page,
-		"per_page":    perPage,
-		"total":       total,
-		"total_pages": int(math.Ceil(float64(total) / float64(perPage))),
-	}
-
-	return helper.JsonList(c, out, pagination)
-}
-
-
-// GET /:id
-func (ctrl *SubmissionController) GetByID(c *fiber.Ctx) error {
-	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-
-	tenantMasjidID, err := ctrl.tenantMasjidID(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
-	}
-
-	var sub model.Submission
-	if err := ctrl.DB.
-		First(&sub, "submissions_id = ? AND submissions_masjid_id = ?", id, tenantMasjidID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return helper.JsonError(c, fiber.StatusNotFound, "Submission tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-
-	return helper.JsonOK(c, "OK", dto.FromModel(&sub))
-}
-
-// PATCH /:id
+// PATCH /:id (WRITE — DKM/Teacher/Admin)
 func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	tenantMasjidID, err := ctrl.tenantMasjidID(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
+	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || mid == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	}
+	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, mid); err != nil {
+		return err
 	}
 
 	var sub model.Submission
-	if err := ctrl.DB.
-		First(&sub, "submissions_id = ? AND submissions_masjid_id = ?", id, tenantMasjidID).Error; err != nil {
+	if err := ctrl.DB.WithContext(c.Context()).
+		First(&sub, "submissions_id = ? AND submissions_masjid_id = ?", id, mid).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return helper.JsonError(c, fiber.StatusNotFound, "Submission tidak ditemukan")
 		}
@@ -284,11 +179,11 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
-	// Validasi enum & range
 	if err := ctrl.Validator.Struct(&body); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
+	// Validasi enum / range
 	if body.SubmissionStatus != nil && body.SubmissionStatus.ShouldUpdate() && !body.SubmissionStatus.IsNull() {
 		switch *body.SubmissionStatus.Value {
 		case model.SubmissionStatusDraft, model.SubmissionStatusSubmitted, model.SubmissionStatusResubmitted,
@@ -305,7 +200,7 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 
 	updates := body.ToUpdates()
 
-	// Auto: jika status jadi submitted/resubmitted dan submitted_at kosong di payload & sebelumnya kosong -> isi now
+	// Auto submitted_at jika berubah ke submitted/resubmitted
 	if v, ok := updates["submissions_status"]; ok {
 		if st, ok2 := v.(model.SubmissionStatus); ok2 {
 			if (st == model.SubmissionStatusSubmitted || st == model.SubmissionStatusResubmitted) &&
@@ -316,33 +211,37 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 	}
 
 	if len(updates) > 0 {
-		if err := ctrl.DB.Model(&sub).Updates(updates).Error; err != nil {
+		if err := ctrl.DB.WithContext(c.Context()).Model(&sub).Updates(updates).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
 	}
 
-	if err := ctrl.DB.First(&sub, "submissions_id = ?", id).Error; err != nil {
+	if err := ctrl.DB.WithContext(c.Context()).
+		First(&sub, "submissions_id = ?", id).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	return helper.JsonUpdated(c, "Submission diperbarui", dto.FromModel(&sub))
 }
 
-// PATCH /:id/grade
+// PATCH /:id/grade (WRITE — DKM/Teacher/Admin)
 func (ctrl *SubmissionController) Grade(c *fiber.Ctx) error {
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	tenantMasjidID, err := ctrl.tenantMasjidID(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
+	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || mid == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	}
+	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, mid); err != nil {
+		return err
 	}
 
 	var sub model.Submission
-	if err := ctrl.DB.
-		First(&sub, "submissions_id = ? AND submissions_masjid_id = ?", id, tenantMasjidID).Error; err != nil {
+	if err := ctrl.DB.WithContext(c.Context()).
+		First(&sub, "submissions_id = ? AND submissions_masjid_id = ?", id, mid).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return helper.JsonError(c, fiber.StatusNotFound, "Submission tidak ditemukan")
 		}
@@ -364,7 +263,7 @@ func (ctrl *SubmissionController) Grade(c *fiber.Ctx) error {
 
 	updates := body.ToUpdates()
 
-	// Otomatis status=graded jika ada perubahan score/feedback/graded_by/graded_at
+	// Auto status graded saat ada field grading
 	if _, ok := updates["submissions_score"]; ok {
 		updates["submissions_status"] = model.SubmissionStatusGraded
 	} else if _, ok := updates["submissions_feedback"]; ok {
@@ -375,7 +274,7 @@ func (ctrl *SubmissionController) Grade(c *fiber.Ctx) error {
 		updates["submissions_status"] = model.SubmissionStatusGraded
 	}
 
-	// graded_at default now bila ada grading field namun graded_at tidak diberikan
+	// graded_at default now bila ada perubahan grading tanpa graded_at
 	if updates["submissions_graded_at"] == nil &&
 		(updates["submissions_score"] != nil || updates["submissions_feedback"] != nil || updates["submissions_graded_by_teacher_id"] != nil) {
 		updates["submissions_graded_at"] = time.Now()
@@ -385,42 +284,48 @@ func (ctrl *SubmissionController) Grade(c *fiber.Ctx) error {
 		return helper.JsonOK(c, "OK", dto.FromModel(&sub))
 	}
 
-	if err := ctrl.DB.Model(&sub).Updates(updates).Error; err != nil {
+	if err := ctrl.DB.WithContext(c.Context()).Model(&sub).Updates(updates).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	if err := ctrl.DB.First(&sub, "submissions_id = ?", id).Error; err != nil {
+	if err := ctrl.DB.WithContext(c.Context()).
+		First(&sub, "submissions_id = ?", id).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	return helper.JsonUpdated(c, "Submission dinilai", dto.FromModel(&sub))
 }
 
-// DELETE /:id (soft delete)
+// DELETE /:id (WRITE — DKM/Teacher/Admin)
 func (ctrl *SubmissionController) Delete(c *fiber.Ctx) error {
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	tenantMasjidID, err := ctrl.tenantMasjidID(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
+	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || mid == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	}
+	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, mid); err != nil {
+		return err
 	}
 
 	var sub model.Submission
-	if err := ctrl.DB.Select("submissions_id").
-		First(&sub, "submissions_id = ? AND submissions_masjid_id = ?", id, tenantMasjidID).Error; err != nil {
+	if err := ctrl.DB.WithContext(c.Context()).
+		Select("submissions_id").
+		First(&sub, "submissions_id = ? AND submissions_masjid_id = ?", id, mid).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return helper.JsonError(c, fiber.StatusNotFound, "Submission tidak ditemukan")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	if err := ctrl.DB.Delete(&sub).Error; err != nil {
+	if err := ctrl.DB.WithContext(c.Context()).Delete(&sub).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Gunakan 200 agar bisa kirim body
-	return helper.JsonDeleted(c, "Submission dihapus", nil)
+	return helper.JsonDeleted(c, "Submission dihapus", fiber.Map{
+		"submissions_id": id,
+	})
 }

@@ -13,10 +13,6 @@ import (
 // Base group example: /api/u
 // ================================
 func AcademicYearUserRoutes(user fiber.Router, db *gorm.DB) {
-	// ================================
-	// Academic Terms (read-only)
-	// => /api/u/academic-terms/...
-	// ================================
 	termCtl := academicTermCtl.NewAcademicTermController(db)
 
 	r := user.Group("/academic-terms")
@@ -24,6 +20,4 @@ func AcademicYearUserRoutes(user fiber.Router, db *gorm.DB) {
 	// Read-only Academic Terms
 	r.Get("/list", termCtl.List)
 	r.Get("/search-with-class", termCtl.SearchByYear) // taruh sebelum :id agar tidak bentrok
-
-
 }

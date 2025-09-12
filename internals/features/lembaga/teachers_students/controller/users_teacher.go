@@ -98,54 +98,6 @@ func (ctl *UsersTeacherController) Create(c *fiber.Ctx) error {
 }
 
 /* =========================
-   GET BY ID
-========================= */
-
-func (ctl *UsersTeacherController) GetByID(c *fiber.Ctx) error {
-	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-
-	var m model.UserTeacher
-	if err := ctl.DB.WithContext(c.Context()).
-		Where("users_teacher_id = ?", id).
-		First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
-	}
-
-	resp := dto.ToUsersTeacherResponse(m, ctl.getFullName(m.UsersTeacherUserID))
-	return helper.JsonOK(c, "OK", resp)
-}
-
-/* =========================
-   GET BY USER ID
-========================= */
-
-func (ctl *UsersTeacherController) GetByUserID(c *fiber.Ctx) error {
-	userID, err := uuid.Parse(strings.TrimSpace(c.Params("user_id")))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "User ID tidak valid")
-	}
-
-	var m model.UserTeacher
-	if err := ctl.DB.WithContext(c.Context()).
-		Where("users_teacher_user_id = ?", userID).
-		First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
-	}
-
-	resp := dto.ToUsersTeacherResponse(m, ctl.getFullName(m.UsersTeacherUserID))
-	return helper.JsonOK(c, "OK", resp)
-}
-
-/* =========================
    LIST (q/active/verified + paging)
 ========================= */
 

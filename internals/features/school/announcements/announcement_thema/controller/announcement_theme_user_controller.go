@@ -34,16 +34,6 @@ func parseInclude(raw string) map[string]bool {
 	return m
 }
 
-// NOTE: sesuaikan nama struct model announcement & url sesuai package kamu.
-// Di sini diasumsikan:
-//
-// type AnnouncementModel struct { ... fields eksplisit announcement_* ... }
-// func (a AnnouncementModel) GetID() uuid.UUID { return a.AnnouncementID }
-// func (a AnnouncementModel) GetThemeID() *uuid.UUID { return pointer dari a.AnnouncementThemeID }
-// func (a AnnouncementModel) GetThemeIDVal() uuid.UUID { return *a.AnnouncementThemeID } // hati2 nil, hanya pakai bila non-nil
-// func (a AnnouncementModel) GetSectionID() *uuid.UUID { return a.AnnouncementClassSectionID }
-// func (a AnnouncementModel) GetCreatedByTeacherID() *uuid.UUID { return a.AnnouncementCreatedByTeacherID }
-//
 // type AnnouncementURLModel struct { ... fields eksplisit announcement_url_* ... }
 // func (u AnnouncementURLModel) GetAnnouncementID() uuid.UUID { return u.AnnouncementURLAnnouncementID }
 //

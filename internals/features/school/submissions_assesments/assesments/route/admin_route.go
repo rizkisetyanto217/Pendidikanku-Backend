@@ -18,16 +18,12 @@ func AssessmentAdminRoutes(r fiber.Router, db *gorm.DB) {
 
 	// ---------- Assessment Types (ADMIN: full CRUD) ----------
 	typeGroup := r.Group("/assessment-types")
-	typeGroup.Get("/list", typeCtrl.List)          // ?masjid_id=&active=&q=&limit=&offset=&sort_by=&sort_dir=
-	typeGroup.Get("/:id", typeCtrl.GetByID)    // detail
 	typeGroup.Post("/", typeCtrl.Create)       // create
 	typeGroup.Patch("/:id", typeCtrl.Patch)     // partial update (PUT-as-PATCH)
 	typeGroup.Delete("/:id", typeCtrl.Delete)  // soft delete
 
 	// ---------- Assessments (ADMIN) ----------
 	assessGroup := r.Group("/assessments")
-	assessGroup.Get("/list", assessCtrl.List)        // list + filter
-	assessGroup.Get("/:id", assessCtrl.GetByID)  // detail
 	assessGroup.Post("/", assessCtrl.Create)      // create
 	assessGroup.Put("/:id", assessCtrl.Patch)    // partial update (PUT-as-PATCH)
 	assessGroup.Patch("/:id", assessCtrl.Patch)  // partial update (PATCH)
@@ -35,8 +31,6 @@ func AssessmentAdminRoutes(r fiber.Router, db *gorm.DB) {
 
 	// ---------- Assessment URLs (ADMIN) ----------
 	urlGroup := r.Group("/assessment-urls")
-	urlGroup.Get("/list", urlsCtrl.List)            // ?assessment_id=&q=&is_published=&is_active=&page=&per_page=
-	urlGroup.Get("/:id", urlsCtrl.GetByID)
 	urlGroup.Post("/", urlsCtrl.Create)
 	urlGroup.Put("/:id", urlsCtrl.Update)       // PUT-as-PATCH (controller Update = patch-like)
 	urlGroup.Patch("/:id", urlsCtrl.Update)     // PATCH
@@ -44,5 +38,4 @@ func AssessmentAdminRoutes(r fiber.Router, db *gorm.DB) {
 
 	// Nested endpoints (opsional, mempermudah akses per assessment)
 	r.Post("/assessments/:assessment_id/urls", urlsCtrl.Create)
-	r.Get("/assessments/:assessment_id/urls", urlsCtrl.List)
 }

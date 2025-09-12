@@ -25,7 +25,6 @@ func SubmissionUserRoutes(r fiber.Router, db *gorm.DB) {
 	g := r.Group("/submission-urls")
 	g.Post("/", ctrl.Create)     // buat URL milik submission user
 	g.Get("/list", ctrl.List)        // list dengan filter ?submission_id= milik user
-	g.Get("/:id", ctrl.GetByID)  // detail (owner-only)
 	g.Patch("/:id", ctrl.Update) // edit (owner-only)
 	g.Delete("/:id", ctrl.Delete)
 
@@ -39,7 +38,6 @@ func SubmissionUserRoutes(r fiber.Router, db *gorm.DB) {
 
 	sub := r.Group("/submissions")
 	sub.Get("/list", subCtrl.List)             // GET   /submissions
-	sub.Get("/:id", subCtrl.GetByID)       // GET   /submissions/:id
 	sub.Post("/", subCtrl.Create)          // POST  /submissions
 	sub.Patch("/:id", subCtrl.Patch)       // PATCH /submissions/:id
 	sub.Patch("/:id/grade", subCtrl.Grade) // PATCH /submissions/:id/grade

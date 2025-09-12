@@ -18,12 +18,9 @@ func UsersTeacherUserRoute(userRoute fiber.Router, db *gorm.DB) {
 	std := teacherController.New(db, v)
 
 	g := userRoute.Group("/user-teachers")
-	g.Get("/by-user/:user_id", ctl.GetByUserID)
-	g.Get("/", ctl.List)
-	g.Get("/:id", ctl.GetByID)
+	g.Get("/list", ctl.List)
 
 	// ==== STUDENT READ-ONLY ====
-	gs := userRoute.Group("/user-students")
-	gs.Get("/", std.List)
-	gs.Get("/:id", std.GetByID)
+	gs := userRoute.Group("/masjid-students")
+	gs.Get("/list", std.List)
 }

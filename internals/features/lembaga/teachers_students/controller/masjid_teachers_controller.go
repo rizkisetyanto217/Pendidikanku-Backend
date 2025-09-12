@@ -3,7 +3,7 @@ package controller
 import (
 	"errors"
 	"log"
-	"time"
+	"strings"
 
 	"masjidku_backend/internals/features/lembaga/teachers_students/dto"
 	"masjidku_backend/internals/features/lembaga/teachers_students/model"
@@ -42,6 +42,165 @@ func toJSONErr(c *fiber.Ctx, err error) error {
 	}
 	return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 }
+
+
+// GET /api/a/masjid-teachers
+// Query:
+//   page, per_page|limit, sort_by, order
+//   id, user_id
+//   include=user
+func (ctrl *MasjidTeacherController) List(c *fiber.Ctx) error {
+	// 🔐 Scope masjid dari token
+	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+	}
+
+	// Pagination & sorting
+	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
+	allowedSort := map[string]string{
+		"created_at": "masjid_teacher_created_at",
+		"updated_at": "masjid_teacher_updated_at",
+	}
+	orderClause, err := p.SafeOrderClause(allowedSort, "created_at")
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid sort_by")
+	}
+	orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
+
+	// Filters
+	idStr := strings.TrimSpace(c.Query("id"))
+	userIDStr := strings.TrimSpace(c.Query("user_id"))
+
+	var (
+		rowID  uuid.UUID
+		userID uuid.UUID
+	)
+	if idStr != "" {
+		v, er := uuid.Parse(idStr)
+		if er != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "id invalid")
+		}
+		rowID = v
+	}
+	if userIDStr != "" {
+		v, er := uuid.Parse(userIDStr)
+		if er != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "user_id invalid")
+		}
+		userID = v
+	}
+
+	// Base query
+	tx := ctrl.DB.WithContext(c.Context()).
+		Model(&model.MasjidTeacherModel{}).
+		Where("masjid_teacher_masjid_id = ? AND masjid_teacher_deleted_at IS NULL", masjidUUID)
+
+	if rowID != uuid.Nil {
+		tx = tx.Where("masjid_teacher_id = ?", rowID)
+	}
+	if userID != uuid.Nil {
+		tx = tx.Where("masjid_teacher_user_id = ?", userID)
+	}
+
+	// Count
+	var total int64
+	if err := tx.Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	// Data
+	var rows []model.MasjidTeacherModel
+	if err := tx.Order(orderExpr).Limit(p.Limit()).Offset(p.Offset()).Find(&rows).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	// include=user ?
+	wantUser := false
+	if inc := strings.ToLower(strings.TrimSpace(c.Query("include"))); inc != "" {
+		for _, part := range strings.Split(inc, ",") {
+			if strings.TrimSpace(part) == "user" {
+				wantUser = true
+				break
+			}
+		}
+	}
+
+	// DTO dasar
+	base := make([]dto.MasjidTeacherResponse, 0, len(rows))
+	userIDsSet := make(map[uuid.UUID]struct{}, len(rows))
+	for _, r := range rows {
+		base = append(base, dto.MasjidTeacherResponse{
+			MasjidTeacherID:        r.MasjidTeacherID.String(),
+			MasjidTeacherMasjidID:  r.MasjidTeacherMasjidID.String(),
+			MasjidTeacherUserID:    r.MasjidTeacherUserID.String(),
+			MasjidTeacherCreatedAt: r.MasjidTeacherCreatedAt,
+			MasjidTeacherUpdatedAt: r.MasjidTeacherUpdatedAt,
+			// DeletedAt tidak dikirim (sudah difilter IS NULL)
+		})
+		if wantUser && r.MasjidTeacherUserID != uuid.Nil {
+			userIDsSet[r.MasjidTeacherUserID] = struct{}{}
+		}
+	}
+
+	// Tidak minta user -> return
+	if !wantUser {
+		meta := helper.BuildMeta(total, p)
+		return helper.JsonList(c, base, meta)
+	}
+
+	// Bulk fetch users
+	type UserLite struct {
+		ID       uuid.UUID `json:"id"`
+		UserName string    `json:"user_name"`
+		FullName *string   `json:"full_name,omitempty"`
+		Email    string    `json:"email"`
+		IsActive bool      `json:"is_active"`
+	}
+
+	userIDs := make([]uuid.UUID, 0, len(userIDsSet))
+	for id := range userIDsSet {
+		userIDs = append(userIDs, id)
+	}
+
+	userMap := make(map[uuid.UUID]UserLite, len(userIDs))
+	if len(userIDs) > 0 {
+		var urows []UserLite
+		if err := ctrl.DB.
+			Table("users").
+			Select("id, user_name, full_name, email, is_active").
+			Where("id IN ?", userIDs).
+			Where("deleted_at IS NULL").
+			Find(&urows).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+		}
+		for _, u := range urows {
+			userMap[u.ID] = u
+		}
+	}
+
+	// Gabungkan
+	type Item struct {
+		dto.MasjidTeacherResponse `json:",inline"`
+		User                      *UserLite `json:"user,omitempty"`
+	}
+	out := make([]Item, 0, len(base))
+	for i, r := range rows {
+		var u *UserLite
+		if v, ok := userMap[r.MasjidTeacherUserID]; ok {
+			tmp := v
+			u = &tmp
+		}
+		out = append(out, Item{
+			MasjidTeacherResponse: base[i],
+			User:                  u,
+		})
+	}
+
+	meta := helper.BuildMeta(total, p)
+	return helper.JsonList(c, out, meta)
+}
+
 
 /* ============================================
    POST /api/a/masjid-teachers
@@ -145,54 +304,6 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 		MasjidTeacherUpdatedAt: created.MasjidTeacherUpdatedAt,
 	}
 	return helper.JsonCreated(c, "Pengajar berhasil ditambahkan & role 'teacher' diberikan", resp)
-}
-
-/* ============================================
-   GET /api/a/masjid-teachers/by-masjid
-   (masjid diambil dari token prefer TEACHER)
-   ============================================ */
-func (ctrl *MasjidTeacherController) ListTeachers(c *fiber.Ctx) error {
-	// 👥 Prefer TEACHER -> UNION masjid_ids -> ADMIN
-	masjidUUID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
-
-	type MasjidTeacherWithName struct {
-		MasjidTeacherID        string    `json:"masjid_teacher_id"`
-		MasjidTeacherMasjidID  string    `json:"masjid_teacher_masjid_id"`
-		MasjidTeacherUserID    string    `json:"masjid_teacher_user_id"`
-		UserName               string    `json:"user_name"`
-		FullName               string    `json:"full_name"`
-		MasjidTeacherCreatedAt time.Time `json:"masjid_teacher_created_at"`
-		MasjidTeacherUpdatedAt time.Time `json:"masjid_teacher_updated_at"`
-	}
-
-	var result []MasjidTeacherWithName
-
-	if err := ctrl.DB.WithContext(c.Context()).
-		Table("masjid_teachers").
-		Joins("JOIN users ON users.id = masjid_teachers.masjid_teacher_user_id").
-		Select(`
-			masjid_teachers.masjid_teacher_id         AS masjid_teacher_id,
-			masjid_teachers.masjid_teacher_masjid_id  AS masjid_teacher_masjid_id,
-			masjid_teachers.masjid_teacher_user_id    AS masjid_teacher_user_id,
-			users.user_name                            AS user_name,
-			COALESCE(users.full_name, '')              AS full_name,
-			masjid_teachers.masjid_teacher_created_at  AS masjid_teacher_created_at,
-			masjid_teachers.masjid_teacher_updated_at  AS masjid_teacher_updated_at
-		`).
-		Where("masjid_teachers.masjid_teacher_masjid_id = ? AND masjid_teachers.masjid_teacher_deleted_at IS NULL", masjidUUID).
-		Order("masjid_teachers.masjid_teacher_created_at DESC").
-		Scan(&result).Error; err != nil {
-		log.Println("[ERROR] Gagal join masjid_teachers ke users:", err)
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data pengajar")
-	}
-
-	return helper.JsonOK(c, "Daftar pengajar ditemukan", fiber.Map{
-		"total":    len(result),
-		"teachers": result,
-	})
 }
 
 /* ============================================
