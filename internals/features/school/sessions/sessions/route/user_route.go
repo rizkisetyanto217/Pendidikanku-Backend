@@ -17,27 +17,37 @@ func AttendanceSessionsUserRoutes(r fiber.Router, db *gorm.DB) {
 	attendanceSessionGroup := r.Group("/sessions" /* , mw.AuthRequired() */)
 	attendanceSessionGroup.Get("/list", attendanceSessionController.ListClassAttendanceSessions)  // GET /.../class-attendance-sessions
 
-	// User Attendance (read-only untuk user)
-	ua := uaCtrl.NewUserAttendanceController(db)
-	uaGroup := r.Group("/user-attendance")
-	uaGroup.Get("/", ua.List)
-	uaGroup.Get("/:id", ua.GetByID)
 
 	// =====================
 	// Class Attendance Session URLs (read-only untuk user)
 	// =====================
 	urlCtl := uaCtrl.NewClassAttendanceSessionURLController(db)
 	urlGroup := r.Group("/session-urls")
+	urlGroup.Post("/", urlCtl.Create)      // create (JSON atau multipart file)
+	urlGroup.Patch("/:id", urlCtl.Update)  // update (JSON atau multipart file)
+	urlGroup.Get("/:id", urlCtl.GetByID)   // detail
 	urlGroup.Get("/filter", urlCtl.Filter) // list/filter
-	urlGroup.Get("/:id", urlCtl.GetByID)   // detail by id
+	urlGroup.Delete("/:id", urlCtl.Delete) // soft delete (+ move to spam)
+
+	// User Attendance (read-only untuk user)
+	ua := uaCtrl.NewUserAttendanceController(db)
+	uaGroup := r.Group("/user-sessions")
+	uaGroup.Get("/list", ua.List)
+	uaGroup.Post("/", ua.Create)      // create
+	uaGroup.Patch("/:id", ua.Update)  // partial update
+	uaGroup.Delete("/:id", ua.Delete) // soft delete
+
 
 	// =====================
-	// User Attendance URLs (read-only)
+	// User Attendance URLs (CRUD)
 	// =====================
 	uauCtl := uaCtrl.NewUserAttendanceUrlController(db)
-	uauGroup := r.Group("/user-attendance-urls")
-	uauGroup.Get("/", uauCtl.ListByAttendance) // ?attendance_id=...&limit=&offset=
-	uauGroup.Get("/:id", uauCtl.GetByID)       // detail by id
+	uauGroup := r.Group("/user-session-urls")
+	uauGroup.Post("/", uauCtl.CreateMultipart) // create via multipart (upload -> OSS -> href)
+	uauGroup.Patch("/:id", uauCtl.Update)             // update (JSON atau multipart)
+	uauGroup.Get("/list", uauCtl.ListByAttendance)        // ?attendance_id=...&limit=&offset=
+	uauGroup.Delete("/:id", uauCtl.SoftDelete)        // soft delete
+
 
 	// =====================
 	// Occurrences (Schedule & Attendance)

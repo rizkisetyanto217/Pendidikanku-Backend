@@ -23,10 +23,8 @@ func ClassBooksUserRoutes(r fiber.Router, db *gorm.DB) {
 	// /api/u/class-books/class-subject-books
 	csb := r.Group("/class-subject-books")
 	csb.Get("/list", csbCtl.List)
-	csb.Get("/:id", csbCtl.GetByID)
 
 	// /api/u/class-books/book-urls  ⬅️ TAMBAHAN (read-only)
 	urls := r.Group("/book-urls")
-	urls.Get("/filter", bookURLCtl.Filter)
-	urls.Get("/:id",    bookURLCtl.GetByID)
+	urls.Get("/list", bookURLCtl.List)
 }

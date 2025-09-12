@@ -229,23 +229,6 @@ func (h *UserClassSectionController) UpdateUserClassSection(c *fiber.Ctx) error 
 	return helper.JsonUpdated(c, "Penempatan section berhasil diperbarui", ucsDTO.NewUserClassSectionResponse(existing))
 }
 
-// GET /admin/user-class-sections/:id
-func (h *UserClassSectionController) GetUserClassSectionByID(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
-	if err != nil {
-		return err
-	}
-	ucsID, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
-	}
-	m, err := h.findUCSWithTenantGuard(ucsID, masjidID)
-	if err != nil {
-		return err
-	}
-	return helper.JsonOK(c, "OK", ucsDTO.NewUserClassSectionResponse(m))
-}
-
 // GET /admin/user-class-sections
 // GET /admin/user-class-sections
 func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {

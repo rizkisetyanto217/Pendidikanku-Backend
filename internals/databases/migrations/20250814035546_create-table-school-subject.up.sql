@@ -126,6 +126,9 @@ EXCEPTION WHEN others THEN NULL; END $$;
 
 DROP FUNCTION IF EXISTS fn_subjects_normalize() CASCADE;
 
+
+
+
 -- =========================================================
 -- CLASS_SUBJECTS
 -- =========================================================

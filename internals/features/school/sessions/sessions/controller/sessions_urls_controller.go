@@ -37,9 +37,6 @@ func NewClassAttendanceSessionURLController(db *gorm.DB) *ClassAttendanceSession
  * CREATE (JSON or MULTIPART)
  * POST /api/a/class-attendance-session-urls
  * ========================================================= */
-// CREATE (JSON or MULTIPART)
-// CREATE (JSON or MULTIPART)
-// CREATE (JSON or MULTIPART)
 func (ctl *ClassAttendanceSessionURLController) Create(c *fiber.Ctx) error {
 	const logp = "[CASURL:create]"
 	const (
@@ -218,10 +215,6 @@ func (ctl *ClassAttendanceSessionURLController) Create(c *fiber.Ctx) error {
 }
 
 
-/* =========================================================
- * UPDATE (JSON or MULTIPART, partial + optional file rotate)
- * PATCH /api/a/class-attendance-session-urls/:id
- * ========================================================= */
 /* =========================================================
  * UPDATE (JSON or MULTIPART, partial + optional file rotate)
  * PATCH /api/a/class-attendance-session-urls/:id

@@ -114,18 +114,35 @@ type ListClassSubjectBookQuery struct {
    ========================================================= */
 
 // Ringkas data buku yang ikut di-embed di item CSB
-type BookLite struct {
-	BooksID         uuid.UUID  `json:"books_id"`
-	BooksMasjidID   uuid.UUID  `json:"books_masjid_id"`
-	BooksTitle      string     `json:"books_title"`
-	BooksAuthor     *string    `json:"books_author,omitempty"`
-	BooksURL        *string    `json:"books_url,omitempty"`
-	BooksImageURL   *string    `json:"books_image_url,omitempty"`
-	BooksSlug       *string    `json:"books_slug,omitempty"`
-	BooksCreatedAtUnix *int64  `json:"books_created_at_unix,omitempty"`
-	BooksUpdatedAtUnix *int64  `json:"books_updated_at_unix,omitempty"`
-	BooksIsDeleted     *bool   `json:"books_is_deleted,omitempty"`
+// BookURLLite: sesuaikan tag json dengan kolommu di DB
+type BookURLLite struct {
+	BookURLID               uuid.UUID  `json:"book_url_id"`
+	BookURLMasjidID         uuid.UUID  `json:"book_url_masjid_id"`
+	BookURLBookID           uuid.UUID  `json:"book_url_book_id"`
+	BookURLLabel            *string    `json:"book_url_label,omitempty"`
+	BookURLType             string     `json:"book_url_type"`
+	BookURLHref             string     `json:"book_url_href"`
+	BookURLTrashURL         *string    `json:"book_url_trash_url,omitempty"`
+	BookURLDeletePendingUntil *time.Time `json:"book_url_delete_pending_until,omitempty"`
+	BookURLCreatedAt        time.Time  `json:"book_url_created_at"`
+	BookURLUpdatedAt        time.Time  `json:"book_url_updated_at"`
+	BookURLDeletedAt        *time.Time `json:"book_url_deleted_at,omitempty"`
 }
+
+// Tambahkan field berikut ke BookLite
+type BookLite struct {
+	BooksID       uuid.UUID  `json:"books_id"`
+	BooksMasjidID uuid.UUID  `json:"books_masjid_id"`
+	BooksTitle    string     `json:"books_title"`
+	BooksAuthor   *string    `json:"books_author,omitempty"`
+	BooksURL      *string    `json:"books_url,omitempty"`       // primary (opsional)
+	BooksImageURL *string    `json:"books_image_url,omitempty"` // cover (opsional)
+	BooksSlug     *string    `json:"books_slug,omitempty"`
+
+	// ⬇️ BARU: semua URL
+	BookURLs []BookURLLite `json:"book_urls,omitempty"`
+}
+
 
 type ClassSubjectBookResponse struct {
 	ClassSubjectBooksID             uuid.UUID  `json:"class_subject_books_id"`

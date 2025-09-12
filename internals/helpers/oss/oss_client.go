@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -919,4 +920,39 @@ func init() {
 	_ = mime.AddExtensionType(".webp", "image/webp")
 	_ = mime.AddExtensionType(".avif", "image/avif")
 	_ = mime.AddExtensionType(".svg", "image/svg+xml")
+}
+
+
+// internals/helpers/oss_file.go
+func UploadAnyToOSS(ctx context.Context, svc *OSSService, masjidID uuid.UUID, slot string, fh *multipart.FileHeader) (string, error) {
+	if fh == nil { return "", fiber.NewError(fiber.StatusBadRequest, "File tidak ditemukan") }
+	if masjidID == uuid.Nil { return "", fiber.NewError(fiber.StatusBadRequest, "masjid_id tidak valid") }
+	if fh.Size > maxUploadSize { return "", fiber.NewError(fiber.StatusRequestEntityTooLarge, "Ukuran file maksimal 5MB") }
+
+	slot = strings.Trim(strings.ToLower(strings.TrimSpace(slot)), "/")
+	if slot == "" { slot = "default" }
+
+	// sniff cepat: kalau image → ke WebP; selain itu → upload mentah
+	name := strings.ToLower(fh.Filename)
+	isImage := strings.HasSuffix(name, ".jpg") || strings.HasSuffix(name, ".jpeg") ||
+		strings.HasSuffix(name, ".png") || strings.HasSuffix(name, ".webp")
+
+	if isImage {
+		dir := fmt.Sprintf("masjids/%s/images/%s", masjidID.String(), slot)
+		if url, err := svc.UploadAsWebP(ctx, fh, dir); err == nil {
+			return url, nil
+		} else {
+			var fe *fiber.Error
+			if errors.As(err, &fe) { return "", fe }
+			return "", fiber.NewError(fiber.StatusBadGateway, "Gagal upload ke OSS")
+		}
+	}
+
+	// non-image → simpan mentah
+	dir := fmt.Sprintf("masjids/%s/files/%s", masjidID.String(), slot)
+	key, _, err := svc.UploadFromFormFileToDir(ctx, dir, fh)
+	if err != nil {
+		return "", fiber.NewError(fiber.StatusBadGateway, "Gagal upload ke OSS")
+	}
+	return svc.PublicURL(key), nil
 }

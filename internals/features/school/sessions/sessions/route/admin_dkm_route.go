@@ -13,15 +13,14 @@ import (
 
 func AttendanceSessionsAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// Attendance Sessions
-	attendanceSessionController := uaCtrl.NewClassAttendanceSessionController(db)
-	attendanceSessionGroup := r.Group("/sessions" /* , mw.AuthRequired() */)
-	attendanceSessionGroup.Get("/list", attendanceSessionController.ListClassAttendanceSessions)  // GET /.../class-attendance-sessions
+	// attendanceSessionController := uaCtrl.NewClassAttendanceSessionController(db)
+	// attendanceSessionGroup := r.Group("/sessions" /* , mw.AuthRequired() */)
+	// attendanceSessionGroup.Get("/list", attendanceSessionController.ListClassAttendanceSessions)  // GET /.../class-attendance-sessions
 
 	// User Attendance (read-only untuk user)
-	ua := uaCtrl.NewUserAttendanceController(db)
-	uaGroup := r.Group("/user-attendance")
-	uaGroup.Get("/", ua.List)
-	uaGroup.Get("/:id", ua.GetByID)
+	// ua := uaCtrl.NewUserAttendanceController(db)
+	// uaGroup := r.Group("/user-attendance")
+	// uaGroup.Get("/", ua.List)
 
 	// =====================
 	// Class Attendance Session URLs (read-only untuk user)
@@ -37,7 +36,6 @@ func AttendanceSessionsAdminRoutes(r fiber.Router, db *gorm.DB) {
 	uauCtl := uaCtrl.NewUserAttendanceUrlController(db)
 	uauGroup := r.Group("/user-attendance-urls")
 	uauGroup.Get("/", uauCtl.ListByAttendance) // ?attendance_id=...&limit=&offset=
-	uauGroup.Get("/:id", uauCtl.GetByID)       // detail by id
 
 	// =====================
 	// Occurrences (Schedule & Attendance)

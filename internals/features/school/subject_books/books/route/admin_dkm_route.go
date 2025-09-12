@@ -26,7 +26,6 @@ func ClassBooksAdminRoutes(r fiber.Router, db *gorm.DB) {
 
 	// /api/a/class-books
 	books := r.Group("/books", adminGuard)
-	books.Get("/list", booksCtl.List)
 	books.Post("/",   booksCtl.Create)
 	books.Put("/:id", booksCtl.Update)
 	books.Delete("/:id", booksCtl.Delete)
@@ -34,15 +33,11 @@ func ClassBooksAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// /api/a/class-books/class-subject-books
 	csb := r.Group("/class-subject-books", adminGuard)
 	csb.Post("/",     csbCtl.Create)
-	csb.Get("/",      csbCtl.List)
-	csb.Get("/:id",   csbCtl.GetByID)
 	csb.Put("/:id",   csbCtl.Update)
 	csb.Delete("/:id", csbCtl.Delete)
 
 	// /api/a/class-books/book-urls  ⬅️ TAMBAHAN
 	urls := r.Group("/book-urls", adminGuard)
-	urls.Get("/filter", bookURLCtl.Filter)
-	urls.Get("/:id",    bookURLCtl.GetByID)
 	urls.Post("/",      bookURLCtl.Create)
 	urls.Patch("/:id",  bookURLCtl.Update)
 	urls.Delete("/:id", bookURLCtl.Delete)

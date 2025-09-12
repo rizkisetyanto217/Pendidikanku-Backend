@@ -125,18 +125,52 @@ type ListAnnouncementThemeQuery struct {
 
 /* ===================== RESPONSES ===================== */
 
+// ===== EMBEDS: Announcement & URLs (penamaan eksplisit) =====
+
+type AnnouncementURLResponseEmbed struct {
+	AnnouncementURLID                 uuid.UUID  `json:"announcement_url_id"`
+	AnnouncementURLLabel              *string    `json:"announcement_url_label,omitempty"`
+	AnnouncementURLHref               string     `json:"announcement_url_href"`
+	AnnouncementURLTrashURL           *string    `json:"announcement_url_trash_url,omitempty"`
+	AnnouncementURLDeletePendingUntil *time.Time `json:"announcement_url_delete_pending_until,omitempty"`
+	AnnouncementURLCreatedAt          time.Time  `json:"announcement_url_created_at"`
+	AnnouncementURLUpdatedAt          time.Time  `json:"announcement_url_updated_at"`
+	AnnouncementURLDeletedAt          *time.Time `json:"announcement_url_deleted_at,omitempty"`
+}
+
+type AnnouncementResponseEmbed struct {
+	AnnouncementID                 uuid.UUID  `json:"announcement_id"`
+	AnnouncementMasjidID           uuid.UUID  `json:"announcement_masjid_id"`
+	AnnouncementThemeID            *uuid.UUID `json:"announcement_theme_id,omitempty"`
+	AnnouncementClassSectionID     *uuid.UUID `json:"announcement_class_section_id,omitempty"`
+	AnnouncementTitle              string     `json:"announcement_title"`
+	AnnouncementDate               time.Time  `json:"announcement_date"`
+	AnnouncementContent            string     `json:"announcement_content"`
+	AnnouncementIsActive           bool       `json:"announcement_is_active"`
+	AnnouncementCreatedByTeacherID *uuid.UUID `json:"announcement_created_by_teacher_id,omitempty"`
+	AnnouncementCreatedAt          time.Time  `json:"announcement_created_at"`
+	AnnouncementUpdatedAt          time.Time  `json:"announcement_updated_at"`
+	AnnouncementDeletedAt          *time.Time `json:"announcement_deleted_at,omitempty"`
+
+	// Diisi jika include=announcements.urls / include=urls
+	AnnouncementURLs []AnnouncementURLResponseEmbed `json:"announcement_urls,omitempty"`
+}
+
 type AnnouncementThemeResponse struct {
-	AnnouncementThemesID         uuid.UUID `json:"announcement_themes_id"`
-	AnnouncementThemesMasjidID   uuid.UUID `json:"announcement_themes_masjid_id"`
+	AnnouncementThemesID          uuid.UUID `json:"announcement_themes_id"`
+	AnnouncementThemesMasjidID    uuid.UUID `json:"announcement_themes_masjid_id"`
 
-	AnnouncementThemesName       string    `json:"announcement_themes_name"`
-	AnnouncementThemesSlug       string    `json:"announcement_themes_slug"`
-	AnnouncementThemesColor      *string   `json:"announcement_themes_color,omitempty"`
-	AnnouncementThemesDescription *string  `json:"announcement_themes_description,omitempty"`
-	AnnouncementThemesIsActive   bool      `json:"announcement_themes_is_active"`
+	AnnouncementThemesName        string    `json:"announcement_themes_name"`
+	AnnouncementThemesSlug        string    `json:"announcement_themes_slug"`
+	AnnouncementThemesColor       *string   `json:"announcement_themes_color,omitempty"`
+	AnnouncementThemesDescription *string   `json:"announcement_themes_description,omitempty"`
+	AnnouncementThemesIsActive    bool      `json:"announcement_themes_is_active"`
 
-	AnnouncementThemesCreatedAt  time.Time `json:"announcement_themes_created_at"`
-	AnnouncementThemesUpdatedAt  time.Time `json:"announcement_themes_updated_at"` // NOT NULL di DDL
+	AnnouncementThemesCreatedAt   time.Time `json:"announcement_themes_created_at"`
+	AnnouncementThemesUpdatedAt   time.Time `json:"announcement_themes_updated_at"` // NOT NULL di DDL
+
+	// Opsional: diisi bila include=announcements / announcements.urls
+	Announcements []AnnouncementResponseEmbed `json:"announcements,omitempty"`
 }
 
 // Factory response

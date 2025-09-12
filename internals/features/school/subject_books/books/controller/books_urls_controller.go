@@ -337,40 +337,12 @@ func (ctl *BookURLController) Update(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Berhasil memperbarui", resp)
 }
 
-/* =========================================================
- * GET BY ID
- * GET /api/a/book-urls/:id
- * ========================================================= */
-func (ctl *BookURLController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
-	}
-
-	id, perr := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if perr != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-
-	var mdl bookmodel.BookURLModel
-	if err := ctl.DB.WithContext(c.Context()).
-		Where("book_url_id = ? AND book_url_masjid_id = ?", id, masjidID).
-		First(&mdl).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-
-	resp := bookdto.NewBookURLResponse(mdl)
-	return helper.JsonOK(c, "OK", resp)
-}
 
 /* =========================================================
  * FILTER / LIST
  * GET /api/a/book-urls/filter?book_id=&type=&search=&only_alive=&page=&limit=&sort=
  * ========================================================= */
-func (ctl *BookURLController) Filter(c *fiber.Ctx) error {
+func (ctl *BookURLController) List(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")

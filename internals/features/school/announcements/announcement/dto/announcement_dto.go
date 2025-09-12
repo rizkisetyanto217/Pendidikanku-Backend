@@ -121,6 +121,7 @@ type AnnouncementThemeLite struct {
 type AnnouncementURLLite struct {
 	ID    uuid.UUID `json:"id"`
 	Label *string   `json:"label,omitempty"`
+	AnnouncementID uuid.UUID  `json:"announcement_id"` // ✅ baru
 	Href  string    `json:"href"`
 }
 

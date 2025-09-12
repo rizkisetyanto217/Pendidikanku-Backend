@@ -9,7 +9,6 @@ import (
 	"time"
 
 	attendanceDTO "masjidku_backend/internals/features/school/sessions/sessions/dto"
-	attendanceModel "masjidku_backend/internals/features/school/sessions/sessions/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
@@ -67,58 +66,7 @@ func parseYmd(s string) (*time.Time, error) {
 	return &tt, nil
 }
 
-// isTeacherOfSession: user (guru) dianggap pengajar sesi bila:
-// - CAS.teacher_id milik user tsb (masjid_teachers.user_id = userID, masjid sama), ATAU
-// - CSST.teacher_id milik user tsb (CSST is_active & not deleted, masjid sama).
-// cek apakah user (guru) adalah pengajar sesi (CAS.teacher_id atau CSST.teacher_id)
-func (ctrl *ClassAttendanceSessionController) isTeacherOfSession(session attendanceModel.ClassAttendanceSessionModel, userID, masjidID uuid.UUID) (bool, error) {
-	// via CAS.teacher_id
-	if session.ClassAttendanceSessionTeacherId != nil {
-		var cnt int64
-		if err := ctrl.DB.Table("masjid_teachers AS mt").
-			Where("mt.masjid_teacher_id = ?", *session.ClassAttendanceSessionTeacherId).
-			Where("mt.masjid_teacher_user_id = ?", userID).
-			Where("mt.masjid_teacher_masjid_id = ?", masjidID).
-			Count(&cnt).Error; err != nil {
-			return false, err
-		}
-		if cnt > 0 {
-			return true, nil
-		}
-	}
-	// via CSST.teacher_id
-	if session.ClassAttendanceSessionCSSTId != uuid.Nil {
-		var cnt int64
-		if err := ctrl.DB.Table("class_section_subject_teachers AS csst").
-			Joins("JOIN masjid_teachers mt ON mt.masjid_teacher_id = csst.class_section_subject_teachers_teacher_id").
-			Where(`
-				csst.class_section_subject_teachers_id = ?
-				AND csst.class_section_subject_teachers_deleted_at IS NULL
-				AND csst.class_section_subject_teachers_is_active = TRUE
-				AND csst.class_section_subject_teachers_masjid_id = ?
-				AND mt.masjid_teacher_user_id = ?
-				AND mt.masjid_teacher_masjid_id = ?
-			`, session.ClassAttendanceSessionCSSTId, masjidID, userID, masjidID).
-			Count(&cnt).Error; err != nil {
-			return false, err
-		}
-		return cnt > 0, nil
-	}
-	return false, nil
-}
 
-
-/* ==========================================================================================
-   GET /admin/class-attendance-sessions
-     ?id=&session_id=&cas_id=&teacher_id=&teacher_user_id=&section_id=&class_subject_id=&csst_id=
-     &date_from=&date_to=&limit=&offset=&q=&sort_by=&sort=
-   - id / session_id / cas_id → filter ke CAS.id (boleh comma-separated)
-   - teacher_id      → masjid_teacher_id (CAS.teacher_id atau CSST.teacher_id)
-   - teacher_user_id → users.id (JOIN ke masjid_teachers)
-   - section_id      → filter via CSST.section_id
-   - class_subject_id→ filter via CSST.class_subjects_id
-   - csst_id         → langsung ke CAS.csst_id
-========================================================================================== */
 /* ==========================================================================================
    GET /admin/class-attendance-sessions
      ?id=&session_id=&cas_id=&teacher_id=&teacher_user_id=&section_id=&class_subject_id=&csst_id=
@@ -137,13 +85,13 @@ func (ctrl *ClassAttendanceSessionController) isTeacherOfSession(session attenda
 ========================================================================================== */
 
 func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fiber.Ctx) error {
-	// ===== Tenant (admin/teacher) =====
+	// ===== Tenant (ambil masjid aktif dari token) =====
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
 
-	// ===== Role =====
+	// ===== Role (dipakai hanya untuk UA scope, bukan untuk sesi) =====
 	userID, _ := helperAuth.GetUserIDFromToken(c)
 	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
 	teacherMasjidID, _ := helperAuth.GetTeacherMasjidIDFromToken(c)
@@ -315,46 +263,9 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			 OR cas.class_attendance_sessions_general_info ILIKE ?)`, *like, *like)
 	}
 
-	// ===== Scope by role =====
-	if !isAdmin {
-		if isTeacher {
-			if userID == uuid.Nil {
-				return fiber.NewError(fiber.StatusUnauthorized, "User tidak terautentik")
-			}
-			// Guru: hanya sesi yang diajar oleh dirinya (CAS.teacher_id / CSST.teacher_id)
-			qBase = qBase.
-				Joins(`LEFT JOIN masjid_teachers mt1 ON mt1.masjid_teacher_id = cas.class_attendance_sessions_teacher_id`).
-				Joins(`LEFT JOIN masjid_teachers mt2 ON mt2.masjid_teacher_id = csst.class_section_subject_teachers_teacher_id`).
-				Where(`
-					(mt1.masjid_teacher_user_id = ? AND mt1.masjid_teacher_masjid_id = ?)
-				 OR (mt2.masjid_teacher_user_id = ? AND mt2.masjid_teacher_masjid_id = ?)`,
-					userID, masjidID, userID, masjidID,
-				)
-		} else {
-			// Siswa/Ortu: hanya sesi di section yang dia ikuti (aktif)
-			if userID == uuid.Nil {
-				return fiber.NewError(fiber.StatusUnauthorized, "User tidak terautentik")
-			}
-			qBase = qBase.Where(`
-				EXISTS (
-				  SELECT 1
-				  FROM user_class_sections ucs
-				  JOIN user_classes uc
-				    ON uc.user_classes_id = ucs.user_class_sections_user_class_id
-				  JOIN masjid_students ms
-				    ON ms.masjid_student_id = uc.user_classes_masjid_student_id
-				   AND ms.masjid_student_deleted_at IS NULL
-				  WHERE ucs.user_class_sections_masjid_id = cas.class_attendance_sessions_masjid_id
-				    AND ucs.user_class_sections_section_id = csst.class_section_subject_teachers_section_id
-				    AND ucs.user_class_sections_unassigned_at IS NULL
-				    AND uc.user_classes_status = 'active'
-				    AND ms.masjid_student_user_id = ?
-				    AND ms.masjid_student_masjid_id = ?
-				)`,
-				userID, masjidID,
-			)
-		}
-	}
+	// ====== ⛔ ROLE SCOPE DIHAPUS UNTUK LIST SESSIONS ======
+	// Semua user pada masjid yang sama boleh melihat daftar sesi.
+	// (Tetap ada scope peran di bagian UA di bawah.)
 
 	// ===== Total (distinct id) =====
 	var total int64
@@ -480,7 +391,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			uaQ = uaQ.Where("ua.user_attendance_is_passed = ?", *uaIsPassedPtr)
 		}
 
-		// Role-scope untuk Student/Ortu: hanya UA milik dirinya
+		// 🔐 Role-scope untuk Student/Ortu: hanya UA milik dirinya
 		if !isAdmin && !isTeacher {
 			if userID == uuid.Nil {
 				return fiber.NewError(fiber.StatusUnauthorized, "User tidak terautentik")
@@ -524,7 +435,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 				ua.user_attendance_created_at,
 				ua.user_attendance_updated_at
 			`).
-			// urutkan stabil: by session, kemudian created_at
 			Order("ua.user_attendance_session_id ASC, ua.user_attendance_created_at ASC, ua.user_attendance_id ASC").
 			Find(&uaRows).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil user_attendance")
@@ -549,7 +459,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	}
 
 	// ===== Compose output =====
-	// Base DTO yang sudah ada
 	buildBase := func(r row) attendanceDTO.ClassAttendanceSessionResponse {
 		return attendanceDTO.ClassAttendanceSessionResponse{
 			ClassAttendanceSessionId:          r.ID,
@@ -567,7 +476,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		}
 	}
 
-	// Jika include UA, tambahkan field baru; kalau tidak, kirim base saja
 	if wantUA {
 		type SessionWithUA struct {
 			attendanceDTO.ClassAttendanceSessionResponse
