@@ -21,18 +21,6 @@ type AdminUserController struct {
 
 func NewAdminUserController(db *gorm.DB) *AdminUserController { return &AdminUserController{DB: db} }
 
-func parseBool(q string) bool {
-	switch strings.ToLower(strings.TrimSpace(q)) {
-	case "1", "true", "yes", "y", "on":
-		return true
-	}
-	return false
-}
-
-// ==============================
-// READ (ADMIN)
-// ==============================
-
 // GET /api/a/users
 // Query:
 //   q=namaOrEmail (opsional; jika diisi → filter/search)
@@ -161,6 +149,24 @@ func (ac *AdminUserController) CreateUser(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "User created successfully", userdto.FromModel(u))
 }
 
+// POST /api/a/users/:id/restore
+func (ac *AdminUserController) RestoreUser(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if _, err := uuid.Parse(id); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid UUID format")
+	}
+	if err := ac.DB.Unscoped().
+		Model(&model.UserModel{}).
+		Where("id = ?", id).
+		Update("deleted_at", nil).Error; err != nil {
+		log.Println("[ERROR] Failed to restore user:", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to restore user")
+	}
+	return helper.JsonUpdated(c, "User restored successfully", fiber.Map{"id": id})
+}
+
+
+
 // ==============================
 // DELETE (soft), RESTORE, FORCE DELETE (ADMIN)
 // ==============================
@@ -180,59 +186,4 @@ func (ac *AdminUserController) DeleteUser(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusNotFound, "User not found")
 	}
 	return helper.JsonDeleted(c, "User deleted successfully", fiber.Map{"id": id})
-}
-
-// GET /api/a/users/deleted
-func (ac *AdminUserController) GetDeletedUsers(c *fiber.Ctx) error {
-	var users []model.UserModel
-	if err := ac.DB.Unscoped().
-		Where("deleted_at IS NOT NULL").
-		Order("deleted_at DESC").
-		Find(&users).Error; err != nil {
-		log.Println("[ERROR] Failed to fetch deleted users:", err)
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to retrieve deleted users")
-	}
-	resp := make([]userdto.UserResponseWithDeletedAt, 0, len(users))
-	for i := range users {
-		if r := userdto.FromModelWithDeletedAt(&users[i]); r != nil {
-			resp = append(resp, *r)
-		}
-	}
-	return helper.JsonOK(c, "Deleted users fetched successfully", fiber.Map{
-		"total": len(resp),
-		"users": resp,
-	})
-}
-
-// POST /api/a/users/:id/restore
-func (ac *AdminUserController) RestoreUser(c *fiber.Ctx) error {
-	id := c.Params("id")
-	if _, err := uuid.Parse(id); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid UUID format")
-	}
-	if err := ac.DB.Unscoped().
-		Model(&model.UserModel{}).
-		Where("id = ?", id).
-		Update("deleted_at", nil).Error; err != nil {
-		log.Println("[ERROR] Failed to restore user:", err)
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to restore user")
-	}
-	return helper.JsonUpdated(c, "User restored successfully", fiber.Map{"id": id})
-}
-
-// DELETE /api/a/users/:id/force
-func (ac *AdminUserController) ForceDeleteUser(c *fiber.Ctx) error {
-	id := c.Params("id")
-	if _, err := uuid.Parse(id); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid UUID format")
-	}
-	tx := ac.DB.Unscoped().Delete(&model.UserModel{}, "id = ?", id)
-	if tx.Error != nil {
-		log.Println("[ERROR] Failed to force delete user:", tx.Error)
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to force delete user")
-	}
-	if tx.RowsAffected == 0 {
-		return helper.JsonError(c, fiber.StatusNotFound, "User not found")
-	}
-	return helper.JsonDeleted(c, "User permanently deleted", fiber.Map{"id": id})
 }

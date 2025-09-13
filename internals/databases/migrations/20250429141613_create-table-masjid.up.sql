@@ -94,6 +94,12 @@ CREATE INDEX IF NOT EXISTS idx_masjids_search
 CREATE INDEX IF NOT EXISTS brin_masjids_created_at
   ON masjids USING brin (masjid_created_at);
 
+-- Status
+CREATE INDEX IF NOT EXISTS idx_masjids_active_alive
+  ON masjids(masjid_is_active)
+  WHERE masjid_deleted_at IS NULL;
+
+
 -- =========================================================
 -- USER_FOLLOW_MASJID (relasi sederhana)
 -- =========================================================

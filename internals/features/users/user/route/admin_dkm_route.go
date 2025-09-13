@@ -27,9 +27,7 @@ func UserAdminRoutes(app fiber.Router, db *gorm.DB) {
 	users.Delete("/:id", adminCtrl.DeleteUser)
 
 	// Admin-only: lihat deleted, restore, force delete
-	users.Get("/deleted", adminCtrl.GetDeletedUsers)
 	users.Post("/:id/restore", adminCtrl.RestoreUser)
-	users.Delete("/:id/force", adminCtrl.ForceDeleteUser)
 
 	// 🔐 Tambahan: admin bisa lihat semua user profile
 	app.Get("/users-profiles",

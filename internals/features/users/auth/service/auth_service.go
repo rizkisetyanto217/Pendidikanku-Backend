@@ -19,7 +19,6 @@ import (
 	"gorm.io/gorm"
 
 	"masjidku_backend/internals/configs"
-	progressUserService "masjidku_backend/internals/features/progress/progress/service"
 	authHelper "masjidku_backend/internals/features/users/auth/helper"
 	authModel "masjidku_backend/internals/features/users/auth/model"
 	authRepo "masjidku_backend/internals/features/users/auth/repository"
@@ -182,45 +181,79 @@ func deriveMasjidIDsFromRolesClaim(rc helpersAuth.RolesClaim) []string {
 /* ==========================
    REGISTER
 ========================== */
-
 func Register(db *gorm.DB, c *fiber.Ctx) error {
 	var input userModel.UserModel
 	if err := c.BodyParser(&input); err != nil {
 		return helpers.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 
-	if err := authHelper.ValidateRegisterInput(input.UserName, input.Email, input.Password, input.SecurityAnswer); err != nil {
-		return helpers.JsonError(c, fiber.StatusBadRequest, err.Error())
+	// ---------- Normalisasi ringan ----------
+	input.UserName = strings.TrimSpace(input.UserName)
+	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
+	if input.FullName != nil {
+		f := strings.TrimSpace(*input.FullName)
+		input.FullName = &f
 	}
+	if input.GoogleID != nil {
+		g := strings.TrimSpace(*input.GoogleID)
+		if g == "" {
+			input.GoogleID = nil
+		} else {
+			input.GoogleID = &g
+		}
+	}
+	if input.Password != nil {
+		p := strings.TrimSpace(*input.Password)
+		if p == "" {
+			input.Password = nil
+		} else {
+			input.Password = &p
+		}
+	}
+
+	// ---------- Validasi bisnis: minimal password ATAU google_id ----------
+	if (input.Password == nil || *input.Password == "") && (input.GoogleID == nil || *input.GoogleID == "") {
+		return helpers.JsonError(c, fiber.StatusBadRequest, "password atau google_id wajib diisi salah satu")
+	}
+
+	// ---------- Validasi field sesuai tag di model ----------
 	if err := input.Validate(); err != nil {
 		return helpers.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Hash password
-	passwordHash, err := authHelper.HashPassword(input.Password)
-	if err != nil {
-		return helpers.JsonError(c, fiber.StatusInternalServerError, "Password hashing failed")
+	// ---------- Hash password (jika ada) ----------
+	if input.Password != nil && *input.Password != "" {
+		hashed, err := authHelper.HashPassword(*input.Password)
+		if err != nil {
+			return helpers.JsonError(c, fiber.StatusInternalServerError, "Password hashing failed")
+		}
+		input.Password = &hashed
 	}
-	input.Password = passwordHash
 
-	// Create user
+	// created_at/updated_at default by DB; is_active default true by DB
+
+	// ---------- Create user ----------
 	if err := authRepo.CreateUser(db, &input); err != nil {
 		low := strings.ToLower(err.Error())
-		if strings.Contains(low, "duplicate key") || strings.Contains(low, "unique") {
+		switch {
+		case strings.Contains(low, "uq_users_email") || strings.Contains(low, "users_email_key") || strings.Contains(low, "email") && strings.Contains(low, "unique"):
 			return helpers.JsonError(c, fiber.StatusBadRequest, "Email already registered")
+		case strings.Contains(low, "users_user_name") && strings.Contains(low, "unique"):
+			return helpers.JsonError(c, fiber.StatusBadRequest, "Username already taken")
+		case strings.Contains(low, "uq_users_google_id") || strings.Contains(low, "google_id") && strings.Contains(low, "unique"):
+			return helpers.JsonError(c, fiber.StatusBadRequest, "Google account already linked to another user")
+		default:
+			return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to create user")
 		}
-		return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to create user")
 	}
 
-	// Best-effort init entitas turunan
-	if meta.Ready && quickHasTable(db, "user_progress") {
-		_ = progressUserService.CreateInitialUserProgress(db, input.ID)
-	}
+	// ---------- Best-effort init entitas turunan ----------
 	if meta.Ready && quickHasTable(db, "users_profile") {
+		// CreateInitialUserProfile tidak mengembalikan apa-apa → cukup panggil
 		userProfileService.CreateInitialUserProfile(db, input.ID)
 	}
 
-	// Grant default role "user"
+	// ---------- Grant default role "user" ----------
 	if err := grantDefaultUserRole(c.Context(), db, input.ID); err != nil {
 		log.Printf("[register] grant default role 'user' failed: %v", err)
 	}
@@ -396,19 +429,27 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Minimal user
+	// Ambil minimal user (include kolom password)
 	userLight, err := authRepo.FindUserByEmailOrUsernameLight(db, input.Identifier)
 	if err != nil {
+		// Jangan bocorkan apakah identifier valid — balas generik
 		return helpers.JsonError(c, fiber.StatusUnauthorized, "Identifier atau Password salah")
 	}
 	if !userLight.IsActive {
 		return helpers.JsonError(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan. Hubungi admin.")
 	}
-	if err := authHelper.CheckPasswordHash(userLight.Password, input.Password); err != nil {
+
+	// 🔒 Tolak jika akun tidak punya password (akun SSO/Google-only)
+	if userLight.Password == nil || *userLight.Password == "" {
+		return helpers.JsonError(c, fiber.StatusUnauthorized, "Akun ini tidak memiliki password. Silakan login dengan Google atau set password terlebih dahulu.")
+	}
+
+	// ✅ Cek hash (dereference pointer)
+	if err := authHelper.CheckPasswordHash(*userLight.Password, input.Password); err != nil {
 		return helpers.JsonError(c, fiber.StatusUnauthorized, "Identifier atau Password salah")
 	}
 
-	// Full user
+	// Ambil full user
 	userFull, err := authRepo.FindUserByID(db, userLight.ID)
 	if err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data user")
@@ -423,6 +464,7 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 	// Issue tokens — cukup berdasarkan rolesClaim
 	return issueTokensWithRoles(c, db, *userFull, rolesClaim)
 }
+
 
 /* ==========================
    ISSUE TOKENS + Response
@@ -751,8 +793,11 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 	if err := c.BodyParser(&input); err != nil {
 		return helpers.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
+	if strings.TrimSpace(input.IDToken) == "" {
+		return helpers.JsonError(c, fiber.StatusBadRequest, "id_token is required")
+	}
 
-	// Verifikasi token Google
+	// Verifikasi token Google (audience = client_id aplikasi kita)
 	v := googleAuthIDTokenVerifier.Verifier{}
 	if err := v.VerifyIDToken(input.IDToken, []string{configs.GoogleClientID}); err != nil {
 		return helpers.JsonError(c, fiber.StatusUnauthorized, "Invalid Google ID Token")
@@ -763,42 +808,86 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 	if err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to decode ID Token")
 	}
-	email, name, googleID := claimSet.Email, claimSet.Name, claimSet.Sub
+	email := strings.ToLower(strings.TrimSpace(claimSet.Email))
+	name := strings.TrimSpace(claimSet.Name)
+	googleID := strings.TrimSpace(claimSet.Sub)
 
-	// Cari by google_id
-	user, err := authRepo.FindUserByGoogleID(db, googleID)
-	if err != nil {
-		// User belum ada -> buat baru
-		newUser := userModel.UserModel{
-			UserName:         name,
-			Email:            email,
-			Password:         generateDummyPassword(),
-			GoogleID:         &googleID,
-			SecurityQuestion: "Created by Google",
-			SecurityAnswer:   "google_auth",
-			CreatedAt:        nowUTC(),
-			UpdatedAt:        nowUTC(),
-			IsActive:         true,
-		}
-		if err := authRepo.CreateUser(db, &newUser); err != nil {
-			low := strings.ToLower(err.Error())
-			if strings.Contains(low, "duplicate key") || strings.Contains(low, "unique") {
-				return helpers.JsonError(c, fiber.StatusBadRequest, "Email already registered")
-			}
-			return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to create Google user")
-		}
-
-		if meta.Ready && quickHasTable(db, "user_progress") {
-			_ = progressUserService.CreateInitialUserProgress(db, newUser.ID)
-		}
-		if meta.Ready && quickHasTable(db, "users_profile") {
-			userProfileService.CreateInitialUserProfile(db, newUser.ID)
-		}
-
-		user = &newUser
+	if email == "" || googleID == "" {
+		return helpers.JsonError(c, fiber.StatusUnauthorized, "Google token missing required fields")
 	}
 
-	// Full user + guard aktif
+	// 1) Coba cari user by google_id
+	user, err := authRepo.FindUserByGoogleID(db, googleID)
+	if err != nil {
+		// 2) Tidak ada: coba cari by email
+		userByEmail, err2 := authRepo.FindUserByEmail(db, email)
+		if err2 == nil && userByEmail != nil {
+			// a) Sudah ada akun dengan email tsb → link google_id (kalau belum)
+			if userByEmail.GoogleID == nil || *userByEmail.GoogleID == "" {
+				now := time.Now().UTC()
+				userByEmail.GoogleID = &googleID
+				if userByEmail.EmailVerifiedAt == nil {
+					userByEmail.EmailVerifiedAt = &now
+				}
+				if err := db.Model(userByEmail).Select(
+					"google_id", "email_verified_at", "updated_at",
+				).Updates(map[string]any{
+					"google_id":        userByEmail.GoogleID,
+					"email_verified_at": userByEmail.EmailVerifiedAt,
+					"updated_at":        now,
+				}).Error; err != nil {
+					return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to link Google account")
+				}
+			}
+			user = userByEmail
+		} else {
+			// b) Tidak ada email di DB → buat user baru (tanpa password)
+			now := time.Now().UTC()
+			fullName := ptrIfNotEmpty(name)
+
+			// Tentukan username yang aman & unik
+			baseUsername := suggestUsername(name, email)
+			username := baseUsername
+			for i := 0; i < 5; i++ { // sampai 5 kali coba unik
+				if exists, _ := authRepo.IsUsernameTaken(db, username); !exists {
+					break
+				}
+				username = baseUsername + "-" + shortRand()
+			}
+
+			newUser := userModel.UserModel{
+				UserName:        username,
+				FullName:        fullName,
+				Email:           email,
+				Password:        nil,            // Google-only (no local password yet)
+				GoogleID:        &googleID,
+				IsActive:        true,
+				EmailVerifiedAt: &now,
+				CreatedAt:       now,
+				UpdatedAt:       now,
+			}
+			if err := authRepo.CreateUser(db, &newUser); err != nil {
+				low := strings.ToLower(err.Error())
+				switch {
+				case strings.Contains(low, "uq_users_email") || strings.Contains(low, "users_email_key"):
+					return helpers.JsonError(c, fiber.StatusBadRequest, "Email already registered")
+				case strings.Contains(low, "users_user_name") && strings.Contains(low, "unique"):
+					return helpers.JsonError(c, fiber.StatusBadRequest, "Username already taken")
+				case strings.Contains(low, "uq_users_google_id"):
+					return helpers.JsonError(c, fiber.StatusBadRequest, "Google account already linked to another user")
+				default:
+					return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to create Google user")
+				}
+			}
+			if meta.Ready && quickHasTable(db, "users_profile") {
+				userProfileService.CreateInitialUserProfile(db, newUser.ID)
+			}
+
+			user = &newUser
+		}
+	}
+
+	// 3) Ambil full user + guard aktif
 	userFull, err := authRepo.FindUserByID(db, user.ID)
 	if err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data user")
@@ -807,14 +896,67 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.JsonError(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan. Hubungi admin.")
 	}
 
-	// Roles (roles_global & masjid_roles)
+	// 4) Roles (roles_global & masjid_roles)
 	rolesClaim, err := getUserRolesClaim(c.Context(), db, userFull.ID)
 	if err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil roles user")
 	}
 
-	// Issue tokens — cukup berdasarkan rolesClaim
+	// 5) Issue tokens — cukup berdasarkan rolesClaim
 	return issueTokensWithRoles(c, db, *userFull, rolesClaim)
+}
+
+/* ==========================
+   Helpers khusus login Google
+========================== */
+
+func ptrIfNotEmpty(s string) *string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// suggestUsername: dari nama → slug-ish; fallback ambil bagian local dari email
+func suggestUsername(name, email string) string {
+	cand := strings.ToLower(strings.TrimSpace(name))
+	cand = strings.ReplaceAll(cand, "  ", " ")
+	cand = strings.ReplaceAll(cand, " ", "-")
+	cand = sanitizeUsername(cand)
+	if cand == "" {
+		if i := strings.Index(email, "@"); i > 0 {
+			cand = sanitizeUsername(email[:i])
+		}
+	}
+	if cand == "" {
+		cand = "user"
+	}
+	if len(cand) > 50 {
+		cand = cand[:50]
+	}
+	return cand
+}
+
+// sanitizeUsername: simpan huruf/angka/dash/underscore saja
+func sanitizeUsername(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_':
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func shortRand() string {
+	// ringkas: 4 chars hex dari unixnano
+	return strconv.FormatInt(time.Now().UnixNano()%0xffff, 16)
 }
 
 /* ==========================
@@ -902,33 +1044,6 @@ func resolveBlacklistTTL(accessToken string) time.Duration {
    UTIL
 ========================== */
 
-func generateDummyPassword() string {
-	hash, _ := authHelper.HashPassword("RandomDummyPassword123!")
-	return hash
-}
-
-func CheckSecurityAnswer(db *gorm.DB, c *fiber.Ctx) error {
-	var input struct {
-		Email  string `json:"email"`
-		Answer string `json:"security_answer"`
-	}
-	if err := c.BodyParser(&input); err != nil {
-		return helpers.JsonError(c, fiber.StatusBadRequest, "Invalid request format")
-	}
-	if err := authHelper.ValidateSecurityAnswerInput(input.Email, input.Answer); err != nil {
-		return helpers.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
-
-	user, err := authRepo.FindUserByEmail(db, input.Email)
-	if err != nil {
-		return helpers.JsonError(c, fiber.StatusNotFound, "User not found")
-	}
-
-	if !strings.EqualFold(strings.TrimSpace(input.Answer), strings.TrimSpace(user.SecurityAnswer)) {
-		return helpers.JsonError(c, fiber.StatusBadRequest, "Incorrect security answer")
-	}
-
-	return helpers.JsonOK(c, "Security answer correct", fiber.Map{
-		"email": user.Email,
-	})
-}
+// func CheckSecurityAnswer(db *gorm.DB, c *fiber.Ctx) error {
+// 	return helpers.JsonError(c, fiber.StatusGone, "Security Q/A sudah tidak didukung. Gunakan alur reset password via email OTP atau magic link.")
+// }

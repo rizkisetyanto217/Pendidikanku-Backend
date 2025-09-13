@@ -17,7 +17,6 @@ func AuthRoutes(app *fiber.App, db *gorm.DB) {
 
 	publicAuth.Post("/login", rateLimiter.LoginRateLimiter(), authController.Login)
 	publicAuth.Post("/register", rateLimiter.RegisterRateLimiter(), authController.Register)
-	publicAuth.Post("/forgot-password/check", rateLimiter.ForgotPasswordRateLimiter(), authController.CheckSecurityAnswer)
 	publicAuth.Post("/forgot-password/reset", authController.ResetPassword)
 	publicAuth.Post("/login-google", authController.LoginGoogle)
 	publicAuth.Post("/refresh-token", authController.RefreshToken)

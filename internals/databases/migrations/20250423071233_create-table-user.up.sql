@@ -1,16 +1,19 @@
 -- =========================================================
--- UP #1 — USERS & USERS_PROFILE (tanpa kolom role)
+-- UP — USERS & USERS_PROFILE (from scratch, lengkap + idempotent)
+-- Fokus: USERS (skinny + google_id + email_verified_at),
+--        USERS_PROFILE (kolom eksplisit: users_profile_*)
+--        Termasuk index & FTS.
 -- =========================================================
 BEGIN;
 
--- ---------- EXTENSIONS (sekali saja di awal project) ----------
+-- ---------- EXTENSIONS (aman diulang) ----------
 CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram index
 CREATE EXTENSION IF NOT EXISTS citext;     -- case-insensitive text
 CREATE EXTENSION IF NOT EXISTS btree_gin;  -- opsional utk kombinasi tertentu
 
 -- =========================================================
--- 1) USERS (tanpa kolom role)
+-- 1) USERS (skinny + google_id; TANPA security_question/answer)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS users (
   id                 UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -19,9 +22,8 @@ CREATE TABLE IF NOT EXISTS users (
   email              CITEXT       NOT NULL,
   password           VARCHAR(250),
   google_id          VARCHAR(255),
-  security_question  TEXT         NOT NULL,
-  security_answer    VARCHAR(255) NOT NULL,
   is_active          BOOLEAN      NOT NULL DEFAULT TRUE,
+  email_verified_at  TIMESTAMPTZ,
   created_at         TIMESTAMPTZ  NOT NULL DEFAULT now(),
   updated_at         TIMESTAMPTZ  NOT NULL DEFAULT now(),
   deleted_at         TIMESTAMPTZ,
@@ -50,38 +52,52 @@ ALTER TABLE users
   ) STORED;
 CREATE INDEX IF NOT EXISTS idx_users_user_search ON users USING gin (user_search);
 
-
 -- =========================================================
--- 2) USERS_PROFILE
+-- 2) USERS_PROFILE (kolom eksplisit: users_profile_*)
+--    (tanpa phone_verified_at; tambah display_name & social_links)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS users_profile (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  donation_name VARCHAR(50),
-  photo_url     VARCHAR(255),
-  photo_trash_url TEXT,
-  photo_delete_pending_until TIMESTAMPTZ,
-  date_of_birth DATE,
-  gender        VARCHAR(10),
-  location      VARCHAR(100),
-  occupation    VARCHAR(50),
-  phone_number  VARCHAR(20),
-  bio           VARCHAR(300),
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  deleted_at    TIMESTAMPTZ,
+  users_profile_id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  users_profile_user_id                    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
-  CONSTRAINT uq_users_profile_user_id UNIQUE (user_id),
-  CONSTRAINT ck_users_profile_gender CHECK (gender IS NULL OR gender IN ('male','female'))
+  users_profile_donation_name              VARCHAR(50),
+  users_profile_photo_url                  VARCHAR(255),
+  users_profile_photo_trash_url            TEXT,
+  users_profile_photo_delete_pending_until TIMESTAMPTZ,
+
+  users_profile_date_of_birth              DATE,
+  users_profile_gender                     VARCHAR(10),
+  users_profile_location                   VARCHAR(100),
+  users_profile_occupation                 VARCHAR(50),
+  users_profile_phone_number               VARCHAR(20),
+
+  users_profile_bio                        VARCHAR(300),
+  users_profile_social_links               JSONB,
+
+  users_profile_created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+  users_profile_updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+  users_profile_deleted_at                 TIMESTAMPTZ,
+
+  CONSTRAINT uq_users_profile_user_id UNIQUE (users_profile_user_id),
+  CONSTRAINT ck_users_profile_gender CHECK (users_profile_gender IS NULL OR users_profile_gender IN ('male','female'))
 );
 
+-- Indexes bantu (alive only)
 CREATE INDEX IF NOT EXISTS idx_users_profile_user_id_alive
-  ON users_profile(user_id) WHERE deleted_at IS NULL;
+  ON users_profile(users_profile_user_id) WHERE users_profile_deleted_at IS NULL;
+
 CREATE INDEX IF NOT EXISTS idx_users_profile_gender
-  ON users_profile(gender) WHERE deleted_at IS NULL;
+  ON users_profile(users_profile_gender) WHERE users_profile_deleted_at IS NULL;
+
 CREATE INDEX IF NOT EXISTS idx_users_profile_phone
-  ON users_profile(phone_number) WHERE deleted_at IS NULL;
+  ON users_profile(users_profile_phone_number) WHERE users_profile_deleted_at IS NULL;
+
 CREATE INDEX IF NOT EXISTS idx_users_profile_location
-  ON users_profile(location) WHERE deleted_at IS NULL;
+  ON users_profile(users_profile_location) WHERE users_profile_deleted_at IS NULL;
+
+-- (Opsional) bantu pencarian nama tampilan
+CREATE INDEX IF NOT EXISTS idx_users_profile_display_name_trgm
+  ON users_profile USING gin (users_profile_display_name gin_trgm_ops)
+  WHERE users_profile_deleted_at IS NULL;
 
 COMMIT;

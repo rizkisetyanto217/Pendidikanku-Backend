@@ -38,7 +38,7 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 	if err := ac.DB.First(&user, "id = ?", userUUID).Error; err != nil {
 		return fiber.NewError(fiber.StatusNotFound, "User not found")
 	}
-	user.Password = ""
+	user.Password = nil
 
 	// Parse ?include=union,class_ids (opsional)
 	includeQ := strings.TrimSpace(c.Query("include"))
@@ -260,8 +260,4 @@ func (rc *AuthController) RefreshToken(c *fiber.Ctx) error {
 
 func (ac *AuthController) ResetPassword(c *fiber.Ctx) error {
 	return service.ResetPassword(ac.DB, c)
-}
-
-func (ac *AuthController) CheckSecurityAnswer(c *fiber.Ctx) error {
-	return service.CheckSecurityAnswer(ac.DB, c)
 }

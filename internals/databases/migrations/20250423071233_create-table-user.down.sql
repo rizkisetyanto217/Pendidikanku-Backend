@@ -1,30 +1,26 @@
 -- =========================================================
--- DOWN #1 — USERS & USERS_PROFILE
+-- DOWN — USERS & USERS_PROFILE (rollback)
 -- =========================================================
 BEGIN;
 
--- ---------- USERS_PROFILE ----------
--- drop triggers
-DROP TRIGGER IF EXISTS trg_set_updated_at_users_profile ON users_profile;
-
--- drop indexes
+-- -------------------------------
+-- 1) Hapus index di users_profile
+-- -------------------------------
+DROP INDEX IF EXISTS idx_users_profile_display_name_trgm;
 DROP INDEX IF EXISTS idx_users_profile_location;
 DROP INDEX IF EXISTS idx_users_profile_phone;
 DROP INDEX IF EXISTS idx_users_profile_gender;
 DROP INDEX IF EXISTS idx_users_profile_user_id_alive;
 
--- drop table
-DROP TABLE IF EXISTS users_profile;
+-- -------------------------------
+-- 2) Hapus tabel users_profile
+-- -------------------------------
+DROP TABLE IF EXISTS users_profile CASCADE;
 
--- ---------- USERS ----------
--- drop trigger
-DROP TRIGGER IF EXISTS trg_set_updated_at_users ON users;
-
--- drop FTS column + index
+-- -------------------------------
+-- 3) Hapus index di users
+-- -------------------------------
 DROP INDEX IF EXISTS idx_users_user_search;
-ALTER TABLE IF EXISTS users DROP COLUMN IF EXISTS user_search;
-
--- drop other indexes
 DROP INDEX IF EXISTS idx_users_full_name_lower;
 DROP INDEX IF EXISTS idx_users_user_name_lower;
 DROP INDEX IF EXISTS idx_users_full_name_trgm;
@@ -33,11 +29,18 @@ DROP INDEX IF EXISTS idx_users_is_active;
 DROP INDEX IF EXISTS idx_users_full_name;
 DROP INDEX IF EXISTS idx_users_user_name;
 
--- drop table
-DROP TABLE IF EXISTS users;
+-- -------------------------------
+-- 4) Hapus tabel users
+-- -------------------------------
+DROP TABLE IF EXISTS users CASCADE;
 
--- NOTE:
--- Fungsi set_updated_at() bisa dipakai tabel lain. Hanya drop jika memang dibuat khusus migration ini.
--- DROP FUNCTION IF EXISTS set_updated_at();
+-- -------------------------------
+-- 5) (Opsional) Hapus extensions
+-- -------------------------------
+-- Note: hati-hati jika dipakai tabel lain.
+-- DROP EXTENSION IF EXISTS btree_gin;
+-- DROP EXTENSION IF EXISTS citext;
+-- DROP EXTENSION IF EXISTS pg_trgm;
+-- DROP EXTENSION IF EXISTS pgcrypto;
 
 COMMIT;

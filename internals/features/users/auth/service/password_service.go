@@ -47,7 +47,6 @@ func ResetPassword(db *gorm.DB, c *fiber.Ctx) error {
 }
 
 // ========================== CHANGE PASSWORD ==========================
-// ========================== CHANGE PASSWORD ==========================
 func ChangePassword(db *gorm.DB, c *fiber.Ctx) error {
 	var input struct {
 		CurrentPassword string `json:"current_password"`
@@ -57,7 +56,7 @@ func ChangePassword(db *gorm.DB, c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid input format")
 	}
 
-	// Ambil user_id dari Locals dengan aman
+	// user_id dari Locals
 	v := c.Locals("user_id")
 	userIDStr, ok := v.(string)
 	if !ok || userIDStr == "" {
@@ -74,18 +73,26 @@ func ChangePassword(db *gorm.DB, c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "User not found")
 	}
 
-	// Cek password lama
-	if err := authHelper.CheckPasswordHash(user.Password, input.CurrentPassword); err != nil {
+	// 🔹 Handle akun SSO (password belum pernah di-set)
+	if user.Password == nil || *user.Password == "" {
+		// Boleh pilih salah satu policy:
+		// 1) Tolak penggantian karena belum punya password lama:
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Password auth not enabled for this account. Set a password via reset/first-time setup.")
+		// 2) (Alternatif) Izinkan set pertama kali tanpa current_password, jika itu kebijakanmu.
+	}
+
+	// 🔹 Cek password lama  (dereference pointer)
+	if err := authHelper.CheckPasswordHash(*user.Password, input.CurrentPassword); err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Current password incorrect")
 	}
 
-	// Hash password baru
+	// 🔹 Hash password baru (pakai helper-mu)
 	newHash, err := authHelper.HashPassword(input.NewPassword)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to hash new password")
 	}
 
-	// Update password
+	// 🔹 Update password
 	if err := authRepo.UpdateUserPassword(db, userID, newHash); err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to update password")
 	}

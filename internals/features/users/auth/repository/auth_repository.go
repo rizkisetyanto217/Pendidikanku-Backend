@@ -2,6 +2,7 @@
 package repository
 
 import (
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -97,4 +98,24 @@ func CleanupExpiredBlacklist(db *gorm.DB) (int64, error) {
 	// Kolom di DB: expired_at (bukan expires_at)
 	res := db.Exec(`DELETE FROM token_blacklist WHERE expired_at <= ?`, time.Now().UTC())
 	return res.RowsAffected, res.Error
+}
+
+
+
+
+
+// IsUsernameTaken — cek apakah username sudah dipakai
+func IsUsernameTaken(db *gorm.DB, username string) (bool, error) {
+	if username == "" {
+		return false, errors.New("username cannot be empty")
+	}
+
+	var exists bool
+	err := db.
+		Raw(`SELECT EXISTS(SELECT 1 FROM users WHERE user_name = ? AND deleted_at IS NULL)`, username).
+		Scan(&exists).Error
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
 }
