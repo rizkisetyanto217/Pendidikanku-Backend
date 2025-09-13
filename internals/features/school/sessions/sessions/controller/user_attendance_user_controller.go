@@ -64,26 +64,8 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 			return helper.JsonOK(c, "OK", attResp)
 		}
 
-		// load URLs untuk attendance ini
-		var urlRows []attModel.UserAttendanceURLModel
-		if err := ctl.DB.WithContext(c.Context()).
-			Where(`
-				user_attendance_urls_masjid_id = ?
-				AND user_attendance_urls_attendance_id = ?
-				AND user_attendance_urls_deleted_at IS NULL
-			`, mid, m.UserAttendanceID).
-			Order("user_attendance_urls_created_at DESC").
-			Find(&urlRows).Error; err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil URL lampiran")
-		}
-
-		urlResp := make([]attDTO.UserAttendanceURLResponse, 0, len(urlRows))
-		for _, ur := range urlRows {
-			urlResp = append(urlResp, attDTO.ToUserAttendanceURLResponse(ur))
-		}
 		return helper.JsonOK(c, "OK", fiber.Map{
 			"attendance": attResp,
-			"urls":       urlResp,
 		})
 	}
 
@@ -159,37 +141,13 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 		})
 	}
 
-	// include=urls → batch load semua URL untuk attendance di halaman
-	ids := make([]uuid.UUID, 0, len(rows))
-	for _, r := range rows {
-		ids = append(ids, r.UserAttendanceID)
-	}
-
-	urlsByAtt := map[uuid.UUID][]attDTO.UserAttendanceURLResponse{}
-	if len(ids) > 0 {
-		var urlRows []attModel.UserAttendanceURLModel
-		if err := ctl.DB.WithContext(c.Context()).
-			Where(`
-				user_attendance_urls_masjid_id = ?
-				AND user_attendance_urls_attendance_id IN ?
-				AND user_attendance_urls_deleted_at IS NULL
-			`, mid, ids).
-			Order("user_attendance_urls_created_at DESC").
-			Find(&urlRows).Error; err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil URL lampiran")
-		}
-		for _, ur := range urlRows {
-			attID := ur.UserAttendanceURLsAttendanceID
-			urlsByAtt[attID] = append(urlsByAtt[attID], attDTO.ToUserAttendanceURLResponse(ur))
-		}
-	}
 
 	attDtos := attDTO.FromUserAttendanceModels(rows)
 	items := make([]fiber.Map, 0, len(rows))
-	for i, r := range rows {
+	for i, _ := range rows {
 		items = append(items, fiber.Map{
 			"attendance": attDtos[i],
-			"urls":       urlsByAtt[r.UserAttendanceID], // kosong => [] di JSON
+
 		})
 	}
 

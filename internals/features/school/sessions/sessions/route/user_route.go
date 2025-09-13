@@ -18,14 +18,6 @@ func AttendanceSessionsUserRoutes(r fiber.Router, db *gorm.DB) {
 	attendanceSessionGroup.Get("/list", attendanceSessionController.ListClassAttendanceSessions)  // GET /.../class-attendance-sessions
 
 
-	// =====================
-	// Class Attendance Session URLs (read-only untuk user)
-	// =====================
-	urlCtl := uaCtrl.NewClassAttendanceSessionURLController(db)
-	urlGroup := r.Group("/session-urls")
-	urlGroup.Get("/list", urlCtl.List) // list
-
-
 	// User Attendance (read-only untuk user)
 	ua := uaCtrl.NewUserAttendanceController(db)
 	uaGroup := r.Group("/user-sessions")
@@ -33,17 +25,6 @@ func AttendanceSessionsUserRoutes(r fiber.Router, db *gorm.DB) {
 	uaGroup.Post("/", ua.Create)      // create
 	uaGroup.Patch("/:id", ua.Update)  // partial update
 	uaGroup.Delete("/:id", ua.Delete) // soft delete
-
-	// =====================
-	// User Attendance URLs (CRUD)
-	// =====================
-	uauCtl := uaCtrl.NewUserAttendanceUrlController(db)
-	uauGroup := r.Group("/user-session-urls")
-	uauGroup.Post("/", uauCtl.CreateMultipart) // create via multipart (upload -> OSS -> href)
-	uauGroup.Patch("/:id", uauCtl.Update)             // update (JSON atau multipart)
-	uauGroup.Get("/list", uauCtl.ListByAttendance)        // ?attendance_id=...&limit=&offset=
-	uauGroup.Delete("/:id", uauCtl.SoftDelete)        // soft delete
-
 
 	// =====================
 	// Occurrences (Schedule & Attendance)

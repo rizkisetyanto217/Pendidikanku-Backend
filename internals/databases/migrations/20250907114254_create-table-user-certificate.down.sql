@@ -3,13 +3,6 @@
 -- =========================================
 BEGIN;
 
--- ===============================
--- DROP INDEXES: certificate_urls
--- ===============================
-DROP INDEX IF EXISTS uq_certificate_urls_cert_href_alive;
-DROP INDEX IF EXISTS idx_certificate_urls_publish_flags;
-DROP INDEX IF EXISTS brin_certificate_urls_created_at;
-
 -- ===========================
 -- DROP INDEXES: certificates
 -- ===========================
@@ -29,7 +22,6 @@ DROP INDEX IF EXISTS idx_certificate_templates_active;
 -- =========================
 -- DROP TABLES (child first)
 -- =========================
-DROP TABLE IF EXISTS certificate_urls;
 DROP TABLE IF EXISTS certificates;
 DROP TABLE IF EXISTS certificate_templates;
 

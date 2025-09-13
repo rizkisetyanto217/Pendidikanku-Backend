@@ -3,28 +3,9 @@
 -- =========================================
 BEGIN;
 
--- =========================================
--- A) ASSESSMENT URLS (child of assessments)
--- =========================================
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_touch_assessment_urls_updated_at') THEN
-    DROP TRIGGER trg_touch_assessment_urls_updated_at ON assessment_urls;
-  END IF;
-END$$;
-
-DROP FUNCTION IF EXISTS fn_touch_assessment_urls_updated_at() RESTRICT;
-
--- indexes
-DROP INDEX IF EXISTS uq_assessment_urls_assessment_href;
-DROP INDEX IF EXISTS idx_assessment_urls_publish_flags;
-DROP INDEX IF EXISTS brin_assessment_urls_created_at;
-
--- table
-DROP TABLE IF EXISTS assessment_urls;
 
 -- =========================================
--- B) ASSESSMENTS
+-- A) ASSESSMENTS
 -- =========================================
 DO $$
 BEGIN
@@ -48,7 +29,7 @@ DROP INDEX IF EXISTS brin_assessments_created_at;
 DROP TABLE IF EXISTS assessments;
 
 -- =========================================
--- C) ASSESSMENT TYPES (master)
+-- B) ASSESSMENT TYPES (master)
 -- =========================================
 DO $$
 BEGIN

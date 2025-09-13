@@ -43,6 +43,11 @@ func isUniqueViolation(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "duplicate key value violates unique constraint")
 }
 
+func parseUUIDParam(c *fiber.Ctx, key string) (uuid.UUID, error) {
+	idStr := c.Params(key)
+	return uuid.Parse(idStr)
+}
+
 /* =======================================================
    Handlers
    ======================================================= */
@@ -94,39 +99,7 @@ func (ctl *MasjidProfileController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Profil masjid berhasil dibuat", resp)
 }
 
-// GET /:id
-func (ctl *MasjidProfileController) GetByID(c *fiber.Ctx) error {
-	id, err := parseUUIDParam(c, "id")
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
 
-	var p m.MasjidProfileModel
-	if err := ctl.DB.First(&p, "masjid_profile_id = ?", id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Profil tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error: "+err.Error())
-	}
-	return helper.JsonOK(c, "OK", d.FromModelMasjidProfile(&p))
-}
-
-// GET /by-masjid/:masjid_id
-func (ctl *MasjidProfileController) GetByMasjidID(c *fiber.Ctx) error {
-	masjidID, err := parseUUIDParam(c, "masjid_id")
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
-
-	var p m.MasjidProfileModel
-	if err := ctl.DB.First(&p, "masjid_profile_masjid_id = ?", masjidID).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Profil untuk masjid ini belum ada")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error: "+err.Error())
-	}
-	return helper.JsonOK(c, "OK", d.FromModelMasjidProfile(&p))
-}
 
 // GET / (list + filter + pagination)
 func (ctl *MasjidProfileController) List(c *fiber.Ctx) error {

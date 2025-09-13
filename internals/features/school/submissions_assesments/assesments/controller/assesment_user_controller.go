@@ -58,26 +58,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	urlsPublishedOnly := eqTrue(c.Query("urls_published_only"))
 	urlsLimitPer := atoiOr(0, c.Query("urls_limit_per")) // 0 = tanpa batas
 
-	// whitelist order untuk URLs
-	urlsOrderRaw := strings.ToLower(strings.TrimSpace(c.Query("urls_order")))
-	urlsOrderCol := "assessment_urls_created_at"
-	urlsOrderDir := "DESC"
-	if urlsOrderRaw != "" {
-		parts := strings.Fields(urlsOrderRaw) // ex: "published_at asc"
-		if len(parts) >= 1 {
-			switch parts[0] {
-			case "created_at":
-				urlsOrderCol = "assessment_urls_created_at"
-			case "published_at":
-				urlsOrderCol = "assessment_urls_published_at"
-			}
-		}
-		if len(parts) >= 2 && (parts[1] == "asc" || parts[1] == "desc") {
-			urlsOrderDir = strings.ToUpper(parts[1])
-		}
-	}
-	urlsOrderClause := urlsOrderCol + " " + urlsOrderDir
-
 	// --- parse filter id ---
 	var typeID, csstID *uuid.UUID
 	if typeIDStr != "" {
@@ -156,7 +136,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	type assessmentWithExpand struct {
 		dto.AssessmentResponse
 		Type      *typeLite                   `json:"type,omitempty"`
-		URLs      []model.AssessmentUrlsModel `json:"urls,omitempty"`
 		URLsCount *int                        `json:"urls_count,omitempty"`
 	}
 
@@ -214,52 +193,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// --- URLs (batch, tanpa N+1) ---
-	if withURLs && len(rows) > 0 {
-		ids := make([]uuid.UUID, len(rows))
-		indexByID := make(map[uuid.UUID]int, len(rows))
-		for i := range rows {
-			ids[i] = rows[i].AssessmentsID
-			indexByID[rows[i].AssessmentsID] = i
-		}
-
-		uqry := ctl.DB.WithContext(c.Context()).
-			Model(&model.AssessmentUrlsModel{}).
-			Where("assessment_urls_deleted_at IS NULL").
-			Where("assessment_urls_assessment_id IN ?", ids)
-
-		if urlsPublishedOnly {
-			uqry = uqry.Where("assessment_urls_is_published = ? AND assessment_urls_is_active = ?", true, true)
-		}
-		uqry = uqry.Order(urlsOrderClause)
-
-		var urlRows []model.AssessmentUrlsModel
-		if err := uqry.Find(&urlRows).Error; err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil URL")
-		}
-
-		group := make(map[uuid.UUID][]model.AssessmentUrlsModel, len(ids))
-		for i := range urlRows {
-			aID := urlRows[i].AssessmentUrlsAssessmentID
-			group[aID] = append(group[aID], urlRows[i])
-		}
-
-		if urlsLimitPer > 0 {
-			for k, arr := range group {
-				if len(arr) > urlsLimitPer {
-					group[k] = arr[:urlsLimitPer]
-				}
-			}
-		}
-
-		for aID, arr := range group {
-			if idx, ok := indexByID[aID]; ok {
-				out[idx].URLs = arr
-				cnt := len(arr)
-				out[idx].URLsCount = &cnt
-			}
-		}
-	}
 
 	// --- ringkasan types untuk meta (unik per page) ---
 	typeList := make([]typeLite, 0, len(typeMap))

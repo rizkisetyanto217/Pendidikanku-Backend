@@ -8,10 +8,8 @@ import (
 	"strings"
 	"time"
 
-
 	sessiondto "masjidku_backend/internals/features/school/sessions/sessions/dto"
 
-	sessionmodel "masjidku_backend/internals/features/school/sessions/sessions/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
@@ -69,15 +67,6 @@ func parseYmd(s string) (*time.Time, error) {
 	return &tt, nil
 }
 
-/* ==========================================================================================
-   GET /admin/class-attendance-sessions
-     ?id=&session_id=&cas_id=&teacher_id=&teacher_user_id=&section_id=&class_subject_id=&csst_id=
-     &date_from=&date_to=&limit=&offset=&q=&sort_by=&sort=
-     &include=... (user_attendance|user_attendances|attendance|ua[,urls|ua_urls])
-
-   -- Filter untuk user_attendance (aktif bila include user_attendance/ua)
-     &ua_status=&ua_type_id=&ua_student_id=&masjid_student_id=&ua_q=&ua_is_passed=
-========================================================================================== */
 
 // GET /admin/class-attendance-sessions
 //   ?id=&session_id=&cas_id=&teacher_id=&teacher_user_id=&section_id=&class_subject_id=&csst_id=
@@ -103,8 +92,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		if p := strings.TrimSpace(part); p != "" { includeSet[p] = true }
 	}
 	wantUA := includeAll || includeSet["user_attendance"] || includeSet["user_attendances"] || includeSet["attendance"] || includeSet["ua"]
-	wantSessionURLs := includeAll || includeSet["urls"] || includeSet["session_urls"] || includeSet["casu"]
-	wantUAURLs := wantUA && (includeAll || includeSet["ua_urls"])
 
 	// ===== Pagination & sorting =====
 	rawQ := string(c.Request().URI().QueryString())
@@ -279,7 +266,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		TeacherNote       *string    `json:"user_attendance_teacher_note,omitempty"`
 		CreatedAt         time.Time  `json:"user_attendance_created_at"`
 		UpdatedAt         time.Time  `json:"user_attendance_updated_at"`
-		Urls              []sessiondto.UserAttendanceURLResponse `json:"urls,omitempty"` // lampiran per-UA
 	}
 	uaMap := map[uuid.UUID][]UserAttendanceLite{}
 
@@ -385,54 +371,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			uaIDs = append(uaIDs, r.ID)
 		}
 
-		// --- (Opsional) UA URLs ---
-		if wantUAURLs && len(uaIDs) > 0 {
-			var urlRows []sessionmodel.UserAttendanceURLModel
-			if err := ctrl.DB.WithContext(c.Context()).
-				Where(`
-					user_attendance_urls_masjid_id = ?
-					AND user_attendance_urls_attendance_id IN ?
-					AND user_attendance_urls_deleted_at IS NULL
-				`, masjidID, uaIDs).
-				Order("user_attendance_urls_created_at DESC").
-				Find(&urlRows).Error; err != nil {
-				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil URL lampiran UA")
-			}
-			urlsByUA := make(map[uuid.UUID][]sessiondto.UserAttendanceURLResponse, len(urlRows))
-			for _, ur := range urlRows {
-				attID := ur.UserAttendanceURLsAttendanceID
-				urlsByUA[attID] = append(urlsByUA[attID], sessiondto.ToUserAttendanceURLResponse(ur))
-			}
-			for sid, arr := range uaMap {
-				for i := range arr {
-					if urls := urlsByUA[arr[i].UserAttendanceID]; len(urls) > 0 {
-						arr[i].Urls = urls
-					}
-				}
-				uaMap[sid] = arr
-			}
-		}
-	}
-
-	// ===== Session URLs (opsional; include=urls|session_urls|casu|all) =====
-	type SessionURLResp = sessiondto.ClassAttendanceSessionURLResponse
-	urlsBySession := map[uuid.UUID][]SessionURLResp{}
-	if wantSessionURLs && len(pageIDs) > 0 {
-		var rawRows []sessionmodel.ClassAttendanceSessionURLModel
-		if err := ctrl.DB.WithContext(c.Context()).
-			Where(`
-				class_attendance_session_url_masjid_id = ?
-				AND class_attendance_session_url_session_id IN ?
-				AND class_attendance_session_url_deleted_at IS NULL
-			`, masjidID, pageIDs).
-			Order("class_attendance_session_url_created_at DESC").
-			Find(&rawRows).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil URL sesi")
-		}
-		for _, r := range rawRows {
-			sid := r.ClassAttendanceSessionURLSessionID // ⚠️ kapital ID
-			urlsBySession[sid] = append(urlsBySession[sid], sessiondto.NewClassAttendanceSessionURLResponse(r))
-		}
 	}
 
 	// ===== Compose output =====
@@ -456,21 +394,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	meta := helper.BuildMeta(total, p)
 
 	switch {
-	case wantUA && wantSessionURLs:
-		type SessionWithUAAndURLs struct {
-			sessiondto.ClassAttendanceSessionResponse
-			Urls           []SessionURLResp     `json:"urls,omitempty"`
-			UserAttendance []UserAttendanceLite `json:"user_attendance,omitempty"`
-		}
-		out := make([]SessionWithUAAndURLs, 0, len(rows))
-		for _, r := range rows {
-			out = append(out, SessionWithUAAndURLs{
-				ClassAttendanceSessionResponse: buildBase(r),
-				Urls:           urlsBySession[r.ID],
-				UserAttendance: uaMap[r.ID],
-			})
-		}
-		return helper.JsonList(c, out, meta)
 
 	case wantUA:
 		type SessionWithUA struct {
@@ -482,20 +405,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			out = append(out, SessionWithUA{
 				ClassAttendanceSessionResponse: buildBase(r),
 				UserAttendance:                 uaMap[r.ID],
-			})
-		}
-		return helper.JsonList(c, out, meta)
-
-	case wantSessionURLs:
-		type SessionWithURLs struct {
-			sessiondto.ClassAttendanceSessionResponse
-			Urls []SessionURLResp `json:"urls,omitempty"`
-		}
-		out := make([]SessionWithURLs, 0, len(rows))
-		for _, r := range rows {
-			out = append(out, SessionWithURLs{
-				ClassAttendanceSessionResponse: buildBase(r),
-				Urls:                           urlsBySession[r.ID],
 			})
 		}
 		return helper.JsonList(c, out, meta)

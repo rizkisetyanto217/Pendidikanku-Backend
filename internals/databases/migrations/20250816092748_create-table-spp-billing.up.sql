@@ -259,21 +259,3 @@ DROP TRIGGER IF EXISTS trg_donations_sync_user_spp_paid ON donations;
 CREATE TRIGGER trg_donations_sync_user_spp_paid
 AFTER INSERT OR UPDATE OF donation_status ON donations
 FOR EACH ROW EXECUTE FUNCTION donations_sync_user_spp_paid();
-
-
--- =========================================================
--- Likes
--- =========================================================
-CREATE TABLE IF NOT EXISTS donation_likes (
-  donation_like_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  donation_like_is_liked BOOLEAN DEFAULT TRUE,
-  donation_like_donation_id UUID NOT NULL REFERENCES donations(donation_id) ON DELETE CASCADE,
-  donation_like_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  donation_like_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  donation_like_masjid_id UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE,
-  CONSTRAINT unique_donation_like UNIQUE (donation_like_donation_id, donation_like_user_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_donation_likes_donation_id ON donation_likes(donation_like_donation_id);
-CREATE INDEX IF NOT EXISTS idx_donation_likes_user_id     ON donation_likes(donation_like_user_id);
-CREATE INDEX IF NOT EXISTS idx_donation_likes_updated_at  ON donation_likes(donation_like_updated_at);

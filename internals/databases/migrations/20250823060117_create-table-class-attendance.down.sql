@@ -1,24 +1,6 @@
 BEGIN;
 
 -- =========================
--- Bersihkan: URL indexes
--- =========================
-DROP INDEX IF EXISTS uq_casu_href_per_session_alive;
-DROP INDEX IF EXISTS idx_casu_session_alive;
-DROP INDEX IF EXISTS idx_casu_masjid_created_alive;
-DROP INDEX IF EXISTS idx_casu_created_at;
-
--- (jika ada trigger/function lama yang kebetulan hidup)
-DROP TRIGGER IF EXISTS trg_casu_tenant_guard ON class_attendance_session_url;
-DROP FUNCTION IF EXISTS fn_casu_tenant_guard();
-
--- =========================
--- Drop tabel URL
--- =========================
-DROP TABLE IF EXISTS class_attendance_session_url CASCADE;
-
-
--- =========================
 -- Bersihkan: CAS indexes
 -- =========================
 DROP INDEX IF EXISTS idx_cas_masjid_teacher_date_alive;

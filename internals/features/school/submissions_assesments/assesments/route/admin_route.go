@@ -14,7 +14,6 @@ import (
 func AssessmentAdminRoutes(r fiber.Router, db *gorm.DB) {
 	typeCtrl := ctr.NewAssessmentTypeController(db)
 	assessCtrl := ctr.NewAssessmentController(db)
-	urlsCtrl := ctr.NewAssessmentUrlsController(db)
 
 	// ---------- Assessment Types (ADMIN: full CRUD) ----------
 	typeGroup := r.Group("/assessment-types")
@@ -29,13 +28,4 @@ func AssessmentAdminRoutes(r fiber.Router, db *gorm.DB) {
 	assessGroup.Patch("/:id", assessCtrl.Patch)  // partial update (PATCH)
 	assessGroup.Delete("/:id", assessCtrl.Delete) // soft delete
 
-	// ---------- Assessment URLs (ADMIN) ----------
-	urlGroup := r.Group("/assessment-urls")
-	urlGroup.Post("/", urlsCtrl.Create)
-	urlGroup.Put("/:id", urlsCtrl.Update)       // PUT-as-PATCH (controller Update = patch-like)
-	urlGroup.Patch("/:id", urlsCtrl.Update)     // PATCH
-	urlGroup.Delete("/:id", urlsCtrl.Delete)
-
-	// Nested endpoints (opsional, mempermudah akses per assessment)
-	r.Post("/assessments/:assessment_id/urls", urlsCtrl.Create)
 }

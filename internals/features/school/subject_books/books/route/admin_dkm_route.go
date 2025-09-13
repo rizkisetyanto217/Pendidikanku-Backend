@@ -16,7 +16,6 @@ import (
 func ClassBooksAdminRoutes(r fiber.Router, db *gorm.DB) {
 	booksCtl := &cbController.BooksController{DB: db}
 	csbCtl   := &cbController.ClassSubjectBookController{DB: db}
-	bookURLCtl := cbController.NewBookURLController(db) // ⬅️ tambah ini
 
 	// Wajib role admin/dkm/owner
 	adminGuard := auth.OnlyRolesSlice(
@@ -36,9 +35,4 @@ func ClassBooksAdminRoutes(r fiber.Router, db *gorm.DB) {
 	csb.Put("/:id",   csbCtl.Update)
 	csb.Delete("/:id", csbCtl.Delete)
 
-	// /api/a/class-books/book-urls  ⬅️ TAMBAHAN
-	urls := r.Group("/book-urls", adminGuard)
-	urls.Post("/",      bookURLCtl.Create)
-	urls.Patch("/:id",  bookURLCtl.Update)
-	urls.Delete("/:id", bookURLCtl.Delete)
 }

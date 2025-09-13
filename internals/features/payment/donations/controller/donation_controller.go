@@ -218,12 +218,6 @@ func (ctrl *DonationController) GetDonationsByMasjidSlug(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "Masjid dengan slug tersebut tidak ditemukan")
 	}
 
-	// 🧑 Ambil user_id (opsional)
-	var userID string
-	if uid, ok := c.Locals("user_id").(string); ok {
-		userID = uid
-	}
-
 	// 📥 Ambil donasi 'completed' untuk masjid ini (exclude soft-deleted)
 	var donations []model.Donation
 	if err := ctrl.DB.
@@ -240,40 +234,12 @@ func (ctrl *DonationController) GetDonationsByMasjidSlug(c *fiber.Ctx) error {
 		IsLikedByUser bool `json:"is_liked_by_user"`
 	}
 
-	response := make([]DonationWithLike, 0, len(donations))
-	for _, d := range donations {
-		// Count likes
-		var count int64
-		if err := ctrl.DB.
-			Model(&model.DonationLikeModel{}).
-			Where("donation_like_donation_id = ? AND donation_like_is_liked = TRUE", d.DonationID).
-			Count(&count).Error; err != nil {
-			count = 0
-		}
 
-		liked := false
-		if userID != "" {
-			var like model.DonationLikeModel
-			if err := ctrl.DB.
-				Where("donation_like_donation_id = ? AND donation_like_user_id = ? AND donation_like_is_liked = TRUE",
-					d.DonationID, userID).
-				First(&like).Error; err == nil {
-				liked = true
-			}
-		}
-
-		response = append(response, DonationWithLike{
-			Donation:      d,
-			LikeCount:     int(count),
-			IsLikedByUser: liked,
-		})
-	}
 
 	// ✅ pakai helper JSON konsisten
 	return helper.JsonOK(
 		c,
-		"Data donasi berhasil diambil.",
-		response,
+		"Data donasi berhasil diambil.", nil,
 	)
 }
 
@@ -529,35 +495,9 @@ func (ctrl *DonationController) GetDonationsByUserIDWithSlug(c *fiber.Ctx) error
 		IsLikedByUser bool `json:"is_liked_by_user"`
 	}
 
-	response := make([]DonationWithLike, 0, len(donations))
-	for _, d := range donations {
-		var count int64
-		if err := ctrl.DB.
-			Model(&model.DonationLikeModel{}).
-			Where("donation_like_donation_id = ? AND donation_like_is_liked = TRUE", d.DonationID).
-			Count(&count).Error; err != nil {
-			count = 0
-		}
-
-		liked := false
-		var like model.DonationLikeModel
-		if err := ctrl.DB.
-			Where("donation_like_donation_id = ? AND donation_like_user_id = ? AND donation_like_is_liked = TRUE",
-				d.DonationID, userUUID).
-			First(&like).Error; err == nil {
-			liked = true
-		}
-
-		response = append(response, DonationWithLike{
-			Donation:      d,
-			LikeCount:     int(count),
-			IsLikedByUser: liked,
-		})
-	}
-
 	return helper.JsonOK(
 		c,
 		"Data donasi user berhasil diambil.",
-		response,
+		nil,
 	)
 }

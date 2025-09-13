@@ -2,31 +2,7 @@
 BEGIN;
 
 -- =========================================================
--- 1) ANNOUNCEMENT_URLS — drop trigger, index, FK, table
--- =========================================================
-
--- Trigger & function
-DROP TRIGGER IF EXISTS trg_announcement_urls_touch_updated_at ON announcement_urls;
-DROP FUNCTION IF EXISTS fn_announcement_urls_touch_updated_at();
-
--- Indexes
-DROP INDEX IF EXISTS ix_announcement_urls_delete_pending;
-DROP INDEX IF EXISTS ix_announcement_urls_label_trgm_live;
-DROP INDEX IF EXISTS ix_announcement_urls_masjid_live;
-DROP INDEX IF EXISTS ix_announcement_urls_announcement_live;
-DROP INDEX IF EXISTS uq_announcement_urls_announcement_href_live;
-DROP INDEX IF EXISTS uq_announcement_urls_id_tenant;
-
--- FK (composite ke announcements)
-ALTER TABLE IF EXISTS announcement_urls
-  DROP CONSTRAINT IF EXISTS fk_au_announcement_same_tenant;
-
--- Table
-DROP TABLE IF EXISTS announcement_urls;
-
-
--- =========================================================
--- 2) ANNOUNCEMENTS — drop trigger, fk, index, table
+-- 1) ANNOUNCEMENTS — drop trigger, fk, index, table
 -- =========================================================
 
 -- Trigger & function
@@ -58,7 +34,7 @@ DROP TABLE IF EXISTS announcements CASCADE;
 
 
 -- =========================================================
--- 3) ANNOUNCEMENT_THEMES — drop trigger, index/unique, table
+-- 2) ANNOUNCEMENT_THEMES — drop trigger, index/unique, table
 -- =========================================================
 
 -- Trigger & function

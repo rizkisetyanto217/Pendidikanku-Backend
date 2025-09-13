@@ -24,11 +24,5 @@ func AllDonationRoutes(api fiber.Router, db *gorm.DB) {
 	
 	api.Get("/by-id/:id", donationCtrl.GetDonationByID)
 
-	// ========== Donation Like Routes ==========
-	donationLikeCtrl := donationController.NewDonationLikeController(db)
-
-	api.Post("/likes/:slug/toggle", donationLikeCtrl.ToggleDonationLike)
-	api.Get("/likes/count/:donation_id", donationLikeCtrl.GetDonationLikeCount)
-	api.Get("/likes/is-liked/:donation_id", donationLikeCtrl.IsDonationLikedByUser)
 	
 }

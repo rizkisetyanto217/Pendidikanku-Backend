@@ -145,33 +145,3 @@ CREATE TRIGGER trg_sync_yayasan_verification
 BEFORE INSERT OR UPDATE ON yayasans
 FOR EACH ROW
 EXECUTE FUNCTION sync_yayasan_verification_flags();
-
--- 3) Logo “Trash 30 hari”
---    - Saat yayasan_logo_url diganti/di-clear, masukkan URL lama ke trash + set due 30 hari
---    - Jika restore (mengisi kembali dengan nilai trash), kosongkan trash & due
-CREATE OR REPLACE FUNCTION handle_yayasan_logo_trash() RETURNS trigger AS $$
-BEGIN
-  IF TG_OP = 'UPDATE' THEN
-    IF NEW.yayasan_logo_url IS DISTINCT FROM OLD.yayasan_logo_url THEN
-      -- restore
-      IF OLD.yayasan_logo_trash_url IS NOT NULL
-         AND NEW.yayasan_logo_url = OLD.yayasan_logo_trash_url THEN
-        NEW.yayasan_logo_trash_url := NULL;
-        NEW.yayasan_logo_delete_pending_until := NULL;
-      -- move to trash + schedule delete 30 days
-      ELSIF OLD.yayasan_logo_url IS NOT NULL
-         AND (NEW.yayasan_logo_url IS DISTINCT FROM OLD.yayasan_logo_url) THEN
-        NEW.yayasan_logo_trash_url := OLD.yayasan_logo_url;
-        NEW.yayasan_logo_delete_pending_until := now() + INTERVAL '30 days';
-      END IF;
-    END IF;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_handle_yayasan_logo_trash ON yayasans;
-CREATE TRIGGER trg_handle_yayasan_logo_trash
-BEFORE UPDATE ON yayasans
-FOR EACH ROW
-EXECUTE FUNCTION handle_yayasan_logo_trash();

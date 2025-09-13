@@ -24,14 +24,6 @@ func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	sGroup.Get("/teacher/me", sessionController.ListMyTeachingSessions)
 	sGroup.Get("/section/:section_id", sessionController.ListBySection)
 
-	// =====================
-	// Class Attendance Session URLs (read-only untuk user)
-	// =====================
-	urlCtl := uaCtrl.NewClassAttendanceSessionURLController(db)
-	urlGroup := r.Group("/session-urls")
-	urlGroup.Post("/", urlCtl.Create)      // create (JSON atau multipart file)
-	urlGroup.Patch("/:id", urlCtl.Update)  // update (JSON atau multipart file)
-	urlGroup.Delete("/:id", urlCtl.Delete) // soft delete (+ move to spam)
 
 
 	// =====================

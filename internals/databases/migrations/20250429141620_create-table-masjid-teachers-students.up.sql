@@ -155,19 +155,6 @@ CREATE TABLE IF NOT EXISTS masjid_students (
   masjid_student_deleted_at TIMESTAMPTZ
 );
 
--- Cleanup kolom lama (idempotent)
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name='masjid_students' AND column_name='masjid_student_joined_at') THEN
-    ALTER TABLE masjid_students DROP COLUMN masjid_student_joined_at;
-  END IF;
-
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name='masjid_students' AND column_name='masjid_student_left_at') THEN
-    ALTER TABLE masjid_students DROP COLUMN masjid_student_left_at;
-  END IF;
-END$$;
 
 -- Pair unik (tenant-safe join ops)
 DO $$

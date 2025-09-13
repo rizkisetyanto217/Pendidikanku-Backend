@@ -29,12 +29,6 @@ func AttendanceSessionsAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// urlGroup := r.Group("/session-urls")
 	// urlGroup.Get("/filter", urlCtl.Filter) // list/filter
 
-	// =====================
-	// User Attendance URLs (read-only)
-	// =====================
-	uauCtl := uaCtrl.NewUserAttendanceUrlController(db)
-	uauGroup := r.Group("/user-attendance-urls")
-	uauGroup.Get("/", uauCtl.ListByAttendance) // ?attendance_id=...&limit=&offset=
 
 	// =====================
 	// Occurrences (Schedule & Attendance)

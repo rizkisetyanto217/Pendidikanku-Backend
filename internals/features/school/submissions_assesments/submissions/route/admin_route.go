@@ -16,20 +16,6 @@ type Middleware = fiber.Handler
 //   - /api/a/submissions/:submission_id/urls (nested untuk URLs)
 //   - /api/a/submissions (CRUD submissions)
 func SubmissionAdminRoutes(r fiber.Router, db *gorm.DB) {
-	// Controller untuk URLs
-	urlsCtrl := urlscontroller.NewSubmissionUrlsController(db)
-
-	// flat URLs
-	urlFlat := r.Group("/submission-urls")
-	urlFlat.Post("/", urlsCtrl.Create)
-	urlFlat.Get("/list", urlsCtrl.List)        // ?submission_id=&q=&is_active=&page=&per_page=
-	urlFlat.Patch("/:id", urlsCtrl.Update) // update
-	urlFlat.Delete("/:id", urlsCtrl.Delete)
-
-	// nested URLs (lebih natural: /submissions/:submission_id/urls)
-	urlNested := r.Group("/submissions/:submission_id/urls")
-	urlNested.Post("/", urlsCtrl.Create)
-	urlNested.Get("/", urlsCtrl.List)
 
 	// Controller untuk Submissions
 	subCtrl := urlscontroller.NewSubmissionController(db)

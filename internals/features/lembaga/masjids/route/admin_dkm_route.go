@@ -16,7 +16,6 @@ func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// controllers
 	masjidCtrl     := controller.NewMasjidController(db)
 	profileCtrl    := controller.NewMasjidProfileController(db, validator.New())
-	masjidURLCtrl  := controller.NewMasjidURLController(db, validator.New()) // << tambah controller URL
 
 	// guard admin/dkm/owner
 	guard := auth.OnlyRolesSlice(
@@ -49,28 +48,5 @@ func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	profiles.Patch("/:id",   profileCtrl.Update)                     // PATCH  /api/a/masjid-profiles/:id
 	profiles.Delete("/:id",  profileCtrl.Delete)                     // DELETE /api/a/masjid-profiles/:id
 
-	// ==========================================
-	// 🖼️ MASJID URLS (Admin/DKM) — KHUSUS FILE
-	// ==========================================
-	// Group khusus agar mudah tracking record per-file.
-	// Biasanya tabel: masjid_urls (kolom umum: id, masjid_id, type, file_url, is_primary, is_active, order_index, created_at, ...)
-	urls := admin.Group("/masjid-urls", guard)
 
-	// List & detail
-	urls.Get("/list", masjidURLCtrl.List)                                // GET    /api/a/masjid-urls?masjid_id=&type=&is_primary=&is_active=&q=&page=&page_size=
-	urls.Get("/:id", masjidURLCtrl.GetByID)                          // GET    /api/a/masjid-urls/:id
-
-	// Create / Update / Delete
-	urls.Post("/", masjidURLCtrl.Create)                             // POST   /api/a/masjid-urls           (masjid_id, type, file_url, is_primary, is_active, order_index, label, ...)
-	urls.Patch("/:id", masjidURLCtrl.Patch)                         // PATCH  /api/a/masjid-urls/:id
-	urls.Delete("/:id", masjidURLCtrl.Delete)                        // DELETE /api/a/masjid-urls/:id
-	// urls.Post("/:id/restore", masjidURLCtrl.Restore)                 // POST   /api/a/masjid-urls/:id/restore
-
-	// Aksi khusus
-	// urls.Post("/:id/set-primary", masjidURLCtrl.SetPrimary)          // POST   /api/a/masjid-urls/:id/set-primary  (opsional body: {"primary_type":"logo|cover|favicon|gallery"})
-	// urls.Post("/reorder", masjidURLCtrl.Reorder)                     // POST   /api/a/masjid-urls/reorder         (body: [{"id":"...","order_index":1}, ...])
-
-	// (Opsional) nested create/list by masjid, kalau mau pemakaian natural:
-	// masjids.Post("/:id/urls", guard, masjidURLCtrl.CreateForMasjid) // POST /api/a/masjids/:id/urls
-	// masjids.Get("/:id/urls/raw", guard, masjidURLCtrl.ListByMasjid) // GET  /api/a/masjids/:id/urls/raw (data mentah tabel masjid_urls)
 }
