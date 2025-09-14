@@ -5,13 +5,11 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
 	cpdto "masjidku_backend/internals/features/school/classes/classes/dto"
 	cpmodel "masjidku_backend/internals/features/school/classes/classes/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
-	helperOSS "masjidku_backend/internals/helpers/oss"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -162,15 +160,6 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		m.ClassParentCode = gen
 	}
 
-	// multipart image (opsional)
-	if fh, err := helperOSS.GetImageFile(c); err == nil && fh != nil {
-		publicURL, upErr := helperOSS.UploadImageToOSSScoped(masjidID, "class-parents", fh)
-		if upErr != nil {
-			return helper.JsonError(c, fiber.StatusBadGateway, "Upload gambar gagal: "+upErr.Error())
-		}
-		m.ClassParentImageURL = publicURL
-	}
-
 	if err := ctl.DB.WithContext(c.Context()).Create(&m).Error; err != nil {
 		low := strings.ToLower(err.Error())
 		if strings.Contains(low, "uq_class_parent") && strings.Contains(low, "code") {
@@ -183,9 +172,6 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 }
 
 
-
-
-// ---------- UPDATE (PATCH, tenant-safe) ----------
 // ---------- UPDATE (PATCH, tenant-safe) ----------
 func (ctl *ClassParentController) Update(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
@@ -240,31 +226,12 @@ func (ctl *ClassParentController) Update(c *fiber.Ctx) error {
 		}
 	}
 
-	// clear image via empty string → spam-kan
-	if req.ClassParentImageURL != nil &&
-		strings.TrimSpace(*req.ClassParentImageURL) == "" &&
-		strings.TrimSpace(m.ClassParentImageURL) != "" {
-		_, _ = helperOSS.MoveToSpamByPublicURLENV(m.ClassParentImageURL, 15*time.Second)
-		m.ClassParentImageURL = ""
-	}
-
-	// file baru? upload & replace + spam-kan lama
-	if fh, err := helperOSS.GetImageFile(c); err == nil && fh != nil {
-		publicURL, upErr := helperOSS.UploadImageToOSSScoped(masjidID, "class-parents", fh)
-		if upErr != nil {
-			return helper.JsonError(c, fiber.StatusBadGateway, "Upload gambar gagal: "+upErr.Error())
-		}
-		if strings.TrimSpace(m.ClassParentImageURL) != "" {
-			_, _ = helperOSS.MoveToSpamByPublicURLENV(m.ClassParentImageURL, 15*time.Second)
-		}
-		m.ClassParentImageURL = publicURL
-	}
-
 	if err := ctl.DB.WithContext(c.Context()).Save(&m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui data")
 	}
 	return helper.JsonUpdated(c, "Class parent berhasil diperbarui", cpdto.ToClassParentResponse(m))
 }
+
 
 // ---------- DELETE (soft, tenant-safe) ----------
 func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
@@ -285,10 +252,6 @@ func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
-	}
-
-	if strings.TrimSpace(m.ClassParentImageURL) != "" {
-		_, _ = helperOSS.MoveToSpamByPublicURLENV(m.ClassParentImageURL, 15*time.Second)
 	}
 
 	// soft delete (pastikan model pakai gorm.DeletedAt di kolom class_parent_deleted_at)

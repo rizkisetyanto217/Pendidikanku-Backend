@@ -52,37 +52,82 @@ ALTER TABLE users
   ) STORED;
 CREATE INDEX IF NOT EXISTS idx_users_user_search ON users USING gin (user_search);
 
+
+
 -- =========================================================
--- 2) USERS_PROFILE (kolom eksplisit: users_profile_*)
---    (tanpa phone_verified_at; tambah display_name & social_links)
+-- TABEL: users_profile
 -- =========================================================
 CREATE TABLE IF NOT EXISTS users_profile (
-  users_profile_id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  users_profile_user_id                    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  users_profile_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  users_profile_user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
-  users_profile_donation_name              VARCHAR(50),
-  users_profile_photo_url                  VARCHAR(255),
-  users_profile_photo_trash_url            TEXT,
-  users_profile_photo_delete_pending_until TIMESTAMPTZ,
+  -- Identitas dasar
+  users_profile_donation_name   VARCHAR(50),
+  users_profile_date_of_birth   DATE,
+  users_profile_gender          VARCHAR(10),
+  users_profile_location        VARCHAR(100),
+  users_profile_phone_number    VARCHAR(20),
+  users_profile_bio             VARCHAR(300),
 
-  users_profile_date_of_birth              DATE,
-  users_profile_gender                     VARCHAR(10),
-  users_profile_location                   VARCHAR(100),
-  users_profile_occupation                 VARCHAR(50),
-  users_profile_phone_number               VARCHAR(20),
+  -- Konten panjang & riwayat
+  users_profile_biography_long  TEXT,
+  users_profile_experience      TEXT,
+  users_profile_certifications  TEXT,
 
-  users_profile_bio                        VARCHAR(300),
-  users_profile_social_links               JSONB,
+  -- Sosial media utama
+  users_profile_instagram_url   TEXT,
+  users_profile_whatsapp_url    TEXT,
+  users_profile_youtube_url     TEXT,
+  users_profile_facebook_url    TEXT,
+  users_profile_tiktok_url      TEXT,
 
-  users_profile_created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
-  users_profile_updated_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
-  users_profile_deleted_at                 TIMESTAMPTZ,
+  -- Sosial media tambahan
+  users_profile_telegram_username VARCHAR(50),
+  users_profile_linkedin_url      TEXT,
+  users_profile_twitter_url       TEXT,
+  users_profile_github_url        TEXT,
 
+  -- Privasi
+  users_profile_is_public_profile BOOLEAN NOT NULL DEFAULT TRUE,
+
+  -- Verifikasi
+  users_profile_is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  users_profile_verified_at    TIMESTAMPTZ,
+  users_profile_verified_by    UUID,
+
+  -- Pendidikan & pekerjaan
+  users_profile_education   TEXT,
+  users_profile_company     TEXT,
+  users_profile_position    TEXT,
+
+  users_profile_interests TEXT[],
+  users_profile_skills TEXT[],
+
+  -- Audit record standar
+  users_profile_created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  users_profile_updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  users_profile_deleted_at  TIMESTAMPTZ,
+
+  -- Constraints
   CONSTRAINT uq_users_profile_user_id UNIQUE (users_profile_user_id),
-  CONSTRAINT ck_users_profile_gender CHECK (users_profile_gender IS NULL OR users_profile_gender IN ('male','female'))
+  CONSTRAINT ck_users_profile_gender CHECK (
+    users_profile_gender IS NULL OR users_profile_gender IN ('male','female')
+  ),
+  CONSTRAINT ck_users_profile_slug_format CHECK (
+    users_profile_slug IS NULL OR users_profile_slug ~ '^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$'
+  )
 );
 
--- Indexes bantu (alive only)
+-- =========================================================
+-- INDEXES
+-- =========================================================
+
+-- Slug unik (alive only)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_users_profile_slug_alive
+  ON users_profile (users_profile_slug)
+  WHERE users_profile_deleted_at IS NULL AND users_profile_slug IS NOT NULL;
+
+-- Index bantu umum
 CREATE INDEX IF NOT EXISTS idx_users_profile_user_id_alive
   ON users_profile(users_profile_user_id) WHERE users_profile_deleted_at IS NULL;
 
@@ -95,9 +140,9 @@ CREATE INDEX IF NOT EXISTS idx_users_profile_phone
 CREATE INDEX IF NOT EXISTS idx_users_profile_location
   ON users_profile(users_profile_location) WHERE users_profile_deleted_at IS NULL;
 
--- (Opsional) bantu pencarian nama tampilan
-CREATE INDEX IF NOT EXISTS idx_users_profile_display_name_trgm
-  ON users_profile USING gin (users_profile_display_name gin_trgm_ops)
-  WHERE users_profile_deleted_at IS NULL;
+-- Telegram lookup
+CREATE INDEX IF NOT EXISTS idx_users_profile_telegram
+  ON users_profile(users_profile_telegram_username)
+  WHERE users_profile_deleted_at IS NULL AND users_profile_telegram_username IS NOT NULL;
 
 COMMIT;

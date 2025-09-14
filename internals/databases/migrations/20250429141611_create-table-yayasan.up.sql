@@ -34,10 +34,6 @@ CREATE TABLE IF NOT EXISTS yayasans (
   yayasan_latitude  DECIMAL(9,6),
   yayasan_longitude DECIMAL(9,6),
 
-  -- Media & maps
-  yayasan_logo_url              TEXT,
-  yayasan_logo_trash_url        TEXT,        -- URL lama saat diganti (masuk trash)
-  yayasan_logo_delete_pending_until TIMESTAMP, -- auto-delete 30 hari
   yayasan_google_maps_url       TEXT,
 
   -- Domain & slug

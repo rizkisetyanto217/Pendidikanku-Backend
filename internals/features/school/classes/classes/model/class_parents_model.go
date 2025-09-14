@@ -19,14 +19,9 @@ type ClassParentModel struct {
 	// Detail
 	ClassParentDescription string  `gorm:"column:class_parent_description;type:text" json:"class_parent_description"`
 	ClassParentLevel       *int16  `gorm:"column:class_parent_level;type:smallint" json:"class_parent_level"`
-	ClassParentImageURL    string  `gorm:"column:class_parent_image_url;type:text" json:"class_parent_image_url"`
 
 	// Status
 	ClassParentIsActive bool `gorm:"column:class_parent_is_active;not null;default:true" json:"class_parent_is_active"`
-
-	// Misc
-	ClassParentTrashURL           string     `gorm:"column:class_parent_trash_url;type:text" json:"class_parent_trash_url"`
-	ClassParentDeletePendingUntil *time.Time `gorm:"column:class_parent_delete_pending_until;type:timestamptz" json:"class_parent_delete_pending_until"`
 
 	// Audit
 	ClassParentCreatedAt time.Time      `gorm:"column:class_parent_created_at;not null;autoCreateTime" json:"class_parent_created_at"`

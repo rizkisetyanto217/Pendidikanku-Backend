@@ -1,9 +1,7 @@
 package controller
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -17,7 +15,6 @@ import (
 	"masjidku_backend/internals/features/school/classes/classes/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
-	helperOSS "masjidku_backend/internals/helpers/oss"
 
 	"github.com/go-playground/validator/v10"
 )
@@ -59,27 +56,6 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	}
 	if err := validate.Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-
-	// 🖼️ (Opsional) upload gambar → otomatis konversi ke WebP
-	if fh, ferr := c.FormFile("class_image_url"); ferr == nil && fh != nil {
-		svc, err := helperOSS.NewOSSServiceFromEnv("")
-		if err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Init OSS gagal: "+err.Error())
-		}
-		ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
-		defer cancel()
-
-		dir := fmt.Sprintf("masjids/%s/classes", masjidID.String())
-		publicURL, upErr := svc.UploadAsWebP(ctx, fh, dir)
-		if upErr != nil {
-			low := strings.ToLower(upErr.Error())
-			if strings.Contains(low, "format tidak didukung") {
-				return fiber.NewError(fiber.StatusUnsupportedMediaType, "Format tidak didukung (jpg/png/webp)")
-			}
-			return fiber.NewError(fiber.StatusBadGateway, "Upload gambar gagal: "+upErr.Error())
-		}
-		req.ClassImageURL = &publicURL
 	}
 
 	m := req.ToModel() // -> *model.ClassModel
@@ -146,7 +122,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Kelas berhasil dibuat", dto.FromModel(m))
 }
 
-/* ============================ PATCH ============================ */
+
 // PATCH /admin/classes/:id
 func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
@@ -166,31 +142,6 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
-	// --- Upload gambar baru (multipart) → override patch field
-	if fh, ferr := c.FormFile("class_image_url"); ferr == nil && fh != nil {
-		svc, err := helperOSS.NewOSSServiceFromEnv("")
-		if err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Init OSS gagal: "+err.Error())
-		}
-		ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
-		defer cancel()
-
-		dir := fmt.Sprintf("masjids/%s/classes", masjidID.String())
-		publicURL, upErr := svc.UploadAsWebP(ctx, fh, dir)
-		if upErr != nil {
-			low := strings.ToLower(upErr.Error())
-			if strings.Contains(low, "format tidak didukung") {
-				return fiber.NewError(fiber.StatusUnsupportedMediaType, "Format tidak didukung (jpg/png/webp)")
-			}
-			return fiber.NewError(fiber.StatusBadGateway, "Upload gambar gagal: "+upErr.Error())
-		}
-		if req.ClassImageURL == nil {
-			req.ClassImageURL = &dto.PatchField[*string]{Set: true, Value: &publicURL}
-		} else {
-			req.ClassImageURL.Set = true
-			req.ClassImageURL.Value = &publicURL
-		}
-	}
 
 	// --- Normalisasi & Validasi
 	req.Normalize()
@@ -263,20 +214,6 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		req.ClassSlug.Value = uni
 	}
 
-	// --- Jika ada gambar baru & berbeda → pindahkan yang lama ke spam/
-	if req.ClassImageURL != nil && req.ClassImageURL.Set && req.ClassImageURL.Value != nil &&
-		existing.ClassImageURL != nil && *existing.ClassImageURL != *req.ClassImageURL.Value {
-
-		if spamURL, mvErr := helperOSS.MoveToSpamByPublicURLENV(*existing.ClassImageURL, 0); mvErr == nil {
-			if req.ClassTrashURL == nil {
-				req.ClassTrashURL = &dto.PatchField[*string]{Set: true, Value: &spamURL}
-			} else if !req.ClassTrashURL.Set || req.ClassTrashURL.Value == nil || *req.ClassTrashURL.Value == "" {
-				req.ClassTrashURL.Set = true
-				req.ClassTrashURL.Value = &spamURL
-			}
-		}
-		// best-effort
-	}
 
 	// --- Apply & Save
 	req.Apply(&existing)
@@ -322,7 +259,6 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 }
 
 
-/* =========================== SOFT DELETE =========================== */
 // DELETE /admin/classes/:id
 func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
@@ -359,16 +295,7 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 
 	wasActive := (m.ClassStatus == model.ClassStatusActive)
 
-	// Optional: pindahkan gambar ke spam/ (OSS) jika diminta ?delete_image=true
-	deletedImage := false
-	newTrashURL := ""
-	if strings.EqualFold(c.Query("delete_image"), "true") && m.ClassImageURL != nil && *m.ClassImageURL != "" {
-		if spamURL, mvErr := helperOSS.MoveToSpamByPublicURLENV(*m.ClassImageURL, 0); mvErr == nil {
-			newTrashURL = spamURL
-			deletedImage = true
-		}
-		// best-effort
-	}
+
 
 	now := time.Now()
 	updates := map[string]any{
@@ -377,12 +304,7 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 		// opsional: tandai non-aktif saat dihapus (tidak wajib karena row sudah soft-delete)
 		"class_status": "inactive",
 	}
-	if deletedImage {
-		updates["class_image_url"] = nil
-		if newTrashURL != "" {
-			updates["class_trash_url"] = newTrashURL
-		}
-	}
+
 
 	if err := tx.Model(&model.ClassModel{}).
 		Where("class_id = ?", m.ClassID).
@@ -411,7 +333,5 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 
 	return helper.JsonDeleted(c, "Kelas berhasil dihapus", fiber.Map{
 		"class_id":      m.ClassID,
-		"deleted_image": deletedImage,
-		"trash_url":     newTrashURL,
 	})
 }

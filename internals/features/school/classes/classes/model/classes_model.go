@@ -43,16 +43,11 @@ type ClassModel struct {
 
 	// Catatan & media
 	ClassNotes    *string `gorm:"column:class_notes"     json:"class_notes,omitempty"`
-	ClassImageURL *string `gorm:"column:class_image_url" json:"class_image_url,omitempty"`
 
 	// Mode & Status
 	ClassDeliveryMode string     `gorm:"column:class_delivery_mode;type:class_delivery_mode_enum"          json:"class_delivery_mode"`
 	ClassStatus       string     `gorm:"column:class_status;type:class_status_enum;not null;default:'active'" json:"class_status"`
 	ClassCompletedAt  *time.Time `gorm:"column:class_completed_at;type:timestamptz"                         json:"class_completed_at,omitempty"`
-
-	// Penghapusan terjadwal / trash
-	ClassTrashURL           *string    `gorm:"column:class_trash_url"                             json:"class_trash_url,omitempty"`
-	ClassDeletePendingUntil *time.Time `gorm:"column:class_delete_pending_until;type:timestamptz" json:"class_delete_pending_until,omitempty"`
 
 	// Timestamps (soft delete)
 	ClassCreatedAt time.Time      `gorm:"column:class_created_at;type:timestamptz;not null;default:now()" json:"class_created_at"`

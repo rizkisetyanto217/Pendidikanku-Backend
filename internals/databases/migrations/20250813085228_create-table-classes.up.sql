@@ -34,12 +34,8 @@ CREATE TABLE IF NOT EXISTS class_parents (
 
   class_parent_description TEXT,
   class_parent_level SMALLINT,
-  class_parent_image_url TEXT,
 
   class_parent_is_active BOOLEAN NOT NULL DEFAULT TRUE,
-
-  class_parent_trash_url TEXT,
-  class_parent_delete_pending_until TIMESTAMPTZ,
 
   class_parent_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   class_parent_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -150,8 +146,6 @@ CREATE TABLE IF NOT EXISTS classes (
 
   -- Catatan & media
   class_notes TEXT,
-  class_image_url TEXT,
-
   -- Mode & Status (3 status sederhana)
   class_delivery_mode class_delivery_mode_enum,
   class_status class_status_enum NOT NULL DEFAULT 'active',
@@ -161,8 +155,6 @@ CREATE TABLE IF NOT EXISTS classes (
   CONSTRAINT ck_classes_completed_closed
     CHECK (class_status <> 'completed' OR class_is_open = FALSE),
 
-  class_trash_url TEXT,
-  class_delete_pending_until TIMESTAMPTZ,
 
   class_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   class_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),

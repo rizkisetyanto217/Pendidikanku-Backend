@@ -101,16 +101,12 @@ type CreateClassRequest struct {
 
 	// Catatan & media
 	ClassNotes    *string `json:"class_notes,omitempty"     form:"class_notes"`
-	ClassImageURL *string `json:"class_image_url,omitempty" form:"class_image_url"`
 
 	// Mode & Status (baru)
 	ClassDeliveryMode *string    `json:"class_delivery_mode,omitempty" form:"class_delivery_mode"` // enum
 	ClassStatus       *string    `json:"class_status,omitempty"        form:"class_status"`        // enum: active|inactive|completed
 	ClassCompletedAt  *time.Time `json:"class_completed_at,omitempty"  form:"class_completed_at"`
 
-	// Trash (opsional)
-	ClassTrashURL           *string    `json:"class_trash_url,omitempty"            form:"class_trash_url"`
-	ClassDeletePendingUntil *time.Time `json:"class_delete_pending_until,omitempty" form:"class_delete_pending_until"`
 }
 
 func (r *CreateClassRequest) Normalize() {
@@ -141,14 +137,7 @@ func (r *CreateClassRequest) Normalize() {
 			r.ClassNotes = &s
 		}
 	}
-	if r.ClassImageURL != nil {
-		s := strings.TrimSpace(*r.ClassImageURL)
-		if s == "" {
-			r.ClassImageURL = nil
-		} else {
-			r.ClassImageURL = &s
-		}
-	}
+
 	if r.ClassProviderProductID != nil {
 		s := strings.TrimSpace(*r.ClassProviderProductID)
 		if s == "" {
@@ -165,14 +154,7 @@ func (r *CreateClassRequest) Normalize() {
 			r.ClassProviderPriceID = &s
 		}
 	}
-	if r.ClassTrashURL != nil {
-		s := strings.TrimSpace(*r.ClassTrashURL)
-		if s == "" {
-			r.ClassTrashURL = nil
-		} else {
-			r.ClassTrashURL = &s
-		}
-	}
+
 
 	// Jika status completed → auto close pendaftaran (selaras constraint DB)
 	if r.ClassStatus != nil && *r.ClassStatus == model.ClassStatusCompleted {
@@ -248,12 +230,9 @@ func (r *CreateClassRequest) ToModel() *model.ClassModel {
 		ClassProviderProductID:    r.ClassProviderProductID,
 		ClassProviderPriceID:      r.ClassProviderPriceID,
 		ClassNotes:                r.ClassNotes,
-		ClassImageURL:             r.ClassImageURL,
 		ClassDeliveryMode:         model.ClassDeliveryModeOffline, // default app-side
 		ClassStatus:               model.ClassStatusActive,         // default DB
 		ClassCompletedAt:          r.ClassCompletedAt,
-		ClassTrashURL:             r.ClassTrashURL,
-		ClassDeletePendingUntil:   r.ClassDeletePendingUntil,
 	}
 	if r.ClassIsOpen != nil {
 		m.ClassIsOpen = *r.ClassIsOpen
@@ -299,14 +278,11 @@ type PatchClassRequest struct {
 	ClassProviderPriceID    *PatchField[*string] `json:"class_provider_price_id,omitempty"    form:"class_provider_price_id"`
 
 	ClassNotes    *PatchField[*string] `json:"class_notes,omitempty"     form:"class_notes"`
-	ClassImageURL *PatchField[*string] `json:"class_image_url,omitempty" form:"class_image_url"`
 
 	ClassDeliveryMode *PatchField[string]     `json:"class_delivery_mode,omitempty" form:"class_delivery_mode"`
 	ClassStatus       *PatchField[string]     `json:"class_status,omitempty"        form:"class_status"`
 	ClassCompletedAt  *PatchField[*time.Time] `json:"class_completed_at,omitempty"  form:"class_completed_at"`
 
-	ClassTrashURL           *PatchField[*string]    `json:"class_trash_url,omitempty"            form:"class_trash_url"`
-	ClassDeletePendingUntil *PatchField[*time.Time] `json:"class_delete_pending_until,omitempty" form:"class_delete_pending_until"`
 }
 
 func (r *PatchClassRequest) Normalize() {
@@ -330,14 +306,6 @@ func (r *PatchClassRequest) Normalize() {
 			r.ClassNotes.Value = &s
 		}
 	}
-	if r.ClassImageURL != nil && r.ClassImageURL.Set && r.ClassImageURL.Value != nil {
-		s := strings.TrimSpace(*r.ClassImageURL.Value)
-		if s == "" {
-			r.ClassImageURL.Value = nil
-		} else {
-			r.ClassImageURL.Value = &s
-		}
-	}
 	if r.ClassProviderProductID != nil && r.ClassProviderProductID.Set && r.ClassProviderProductID.Value != nil {
 		s := strings.TrimSpace(*r.ClassProviderProductID.Value)
 		if s == "" {
@@ -354,14 +322,7 @@ func (r *PatchClassRequest) Normalize() {
 			r.ClassProviderPriceID.Value = &s
 		}
 	}
-	if r.ClassTrashURL != nil && r.ClassTrashURL.Set && r.ClassTrashURL.Value != nil {
-		s := strings.TrimSpace(*r.ClassTrashURL.Value)
-		if s == "" {
-			r.ClassTrashURL.Value = nil
-		} else {
-			r.ClassTrashURL.Value = &s
-		}
-	}
+
 }
 
 func (r *PatchClassRequest) Validate() error {
@@ -454,9 +415,7 @@ func (r *PatchClassRequest) Apply(m *model.ClassModel) {
 	if r.ClassNotes != nil && r.ClassNotes.Set {
 		m.ClassNotes = r.ClassNotes.Value
 	}
-	if r.ClassImageURL != nil && r.ClassImageURL.Set {
-		m.ClassImageURL = r.ClassImageURL.Value
-	}
+
 	if r.ClassDeliveryMode != nil && r.ClassDeliveryMode.Set {
 		m.ClassDeliveryMode = r.ClassDeliveryMode.Value
 	}
@@ -470,12 +429,7 @@ func (r *PatchClassRequest) Apply(m *model.ClassModel) {
 	if r.ClassCompletedAt != nil && r.ClassCompletedAt.Set {
 		m.ClassCompletedAt = r.ClassCompletedAt.Value
 	}
-	if r.ClassTrashURL != nil && r.ClassTrashURL.Set {
-		m.ClassTrashURL = r.ClassTrashURL.Value
-	}
-	if r.ClassDeletePendingUntil != nil && r.ClassDeletePendingUntil.Set {
-		m.ClassDeletePendingUntil = r.ClassDeletePendingUntil.Value
-	}
+
 }
 
 /* =========================================================
@@ -507,14 +461,10 @@ type ClassResponse struct {
 	ClassProviderPriceID    *string `json:"class_provider_price_id,omitempty"`
 
 	ClassNotes    *string `json:"class_notes,omitempty"`
-	ClassImageURL *string `json:"class_image_url,omitempty"`
 
 	ClassDeliveryMode string     `json:"class_delivery_mode"`
 	ClassStatus       string     `json:"class_status"`
 	ClassCompletedAt  *time.Time `json:"class_completed_at,omitempty"`
-
-	ClassTrashURL           *string    `json:"class_trash_url,omitempty"`
-	ClassDeletePendingUntil *time.Time `json:"class_delete_pending_until,omitempty"`
 
 	ClassCreatedAt time.Time  `json:"class_created_at"`
 	ClassUpdatedAt time.Time  `json:"class_updated_at"`
@@ -546,12 +496,9 @@ func FromModel(m *model.ClassModel) ClassResponse {
 		ClassProviderProductID:    m.ClassProviderProductID,
 		ClassProviderPriceID:      m.ClassProviderPriceID,
 		ClassNotes:                m.ClassNotes,
-		ClassImageURL:             m.ClassImageURL,
 		ClassDeliveryMode:         m.ClassDeliveryMode,
 		ClassStatus:               m.ClassStatus,
 		ClassCompletedAt:          m.ClassCompletedAt,
-		ClassTrashURL:             m.ClassTrashURL,
-		ClassDeletePendingUntil:   m.ClassDeletePendingUntil,
 		ClassCreatedAt:            m.ClassCreatedAt,
 		ClassUpdatedAt:            m.ClassUpdatedAt,
 		ClassDeletedAt:            delAt,

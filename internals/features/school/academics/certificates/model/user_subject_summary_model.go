@@ -33,10 +33,6 @@ type UserSubjectSummary struct {
 	UserSubjectSummaryCertificateGenerated bool       `gorm:"column:user_subject_summary_certificate_generated;not null;default:false" json:"user_subject_summary_certificate_generated"`
 	UserSubjectSummaryNote                *string    `gorm:"column:user_subject_summary_note" json:"user_subject_summary_note,omitempty"`
 
-	// housekeeping
-	UserSubjectSummaryTrashURL            *string    `gorm:"column:user_subject_summary_trash_url" json:"user_subject_summary_trash_url,omitempty"`
-	UserSubjectSummaryDeletePendingUntil  *time.Time `gorm:"column:user_subject_summary_delete_pending_until" json:"user_subject_summary_delete_pending_until,omitempty"`
-
 	UserSubjectSummaryCreatedAt           time.Time  `gorm:"column:user_subject_summary_created_at;not null;default:now()" json:"user_subject_summary_created_at"`
 	UserSubjectSummaryUpdatedAt           time.Time  `gorm:"column:user_subject_summary_updated_at;not null;default:now()" json:"user_subject_summary_updated_at"`
 	UserSubjectSummaryDeletedAt           *time.Time `gorm:"column:user_subject_summary_deleted_at" json:"user_subject_summary_deleted_at,omitempty"`

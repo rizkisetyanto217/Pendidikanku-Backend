@@ -21,9 +21,7 @@ type CreateClassParentRequest struct {
 	ClassParentCode            string    `json:"class_parent_code" validate:"omitempty,max=40"`
 	ClassParentDescription     string    `json:"class_parent_description" validate:"omitempty"`
 	ClassParentLevel           *int16    `json:"class_parent_level" validate:"omitempty,gte=0,lte=100"`
-	ClassParentImageURL        string    `json:"class_parent_image_url" validate:"omitempty,url"`
 	ClassParentIsActive        *bool     `json:"class_parent_is_active" validate:"omitempty"`
-	ClassParentTrashURL        string    `json:"class_parent_trash_url" validate:"omitempty,url"`
 	ClassParentDeletePendingAt *time.Time `json:"class_parent_delete_pending_until" validate:"omitempty"`
 }
 
@@ -33,9 +31,7 @@ type UpdateClassParentRequest struct {
 	ClassParentCode            *string    `json:"class_parent_code" validate:"omitempty,max=40"`
 	ClassParentDescription     *string    `json:"class_parent_description" validate:"omitempty"`
 	ClassParentLevel           *int16     `json:"class_parent_level" validate:"omitempty,gte=0,lte=100"`
-	ClassParentImageURL        *string    `json:"class_parent_image_url" validate:"omitempty,url"`
 	ClassParentIsActive        *bool      `json:"class_parent_is_active" validate:"omitempty"`
-	ClassParentTrashURL        *string    `json:"class_parent_trash_url" validate:"omitempty,url"`
 	ClassParentDeletePendingAt *time.Time `json:"class_parent_delete_pending_until" validate:"omitempty"`
 }
 
@@ -64,11 +60,8 @@ type ClassParentResponse struct {
 	ClassParentCode            string     `json:"class_parent_code"`
 	ClassParentDescription     string     `json:"class_parent_description"`
 	ClassParentLevel           *int16     `json:"class_parent_level"`
-	ClassParentImageURL        string     `json:"class_parent_image_url"`
-
 	ClassParentIsActive        bool       `json:"class_parent_is_active"`
 
-	ClassParentTrashURL        string     `json:"class_parent_trash_url"`
 	ClassParentDeletePendingAt *time.Time `json:"class_parent_delete_pending_until"`
 
 	ClassParentCreatedAt       string     `json:"class_parent_created_at"`
@@ -104,12 +97,8 @@ func ToClassParentResponse(m model.ClassParentModel) ClassParentResponse {
 		ClassParentCode:            m.ClassParentCode,
 		ClassParentDescription:     m.ClassParentDescription,
 		ClassParentLevel:           m.ClassParentLevel,
-		ClassParentImageURL:        m.ClassParentImageURL,
 
 		ClassParentIsActive:        m.ClassParentIsActive,
-
-		ClassParentTrashURL:        m.ClassParentTrashURL,
-		ClassParentDeletePendingAt: m.ClassParentDeletePendingUntil,
 
 		ClassParentCreatedAt:       m.ClassParentCreatedAt.Format(time.RFC3339),
 		ClassParentUpdatedAt:       m.ClassParentUpdatedAt.Format(time.RFC3339),
@@ -149,10 +138,7 @@ func (r *CreateClassParentRequest) ToModel() model.ClassParentModel {
 		ClassParentCode:            strings.TrimSpace(r.ClassParentCode),
 		ClassParentDescription:     strings.TrimSpace(r.ClassParentDescription),
 		ClassParentLevel:           r.ClassParentLevel,
-		ClassParentImageURL:        strings.TrimSpace(r.ClassParentImageURL),
 		ClassParentIsActive:        true, // default DB juga true
-		ClassParentTrashURL:        strings.TrimSpace(r.ClassParentTrashURL),
-		ClassParentDeletePendingUntil: r.ClassParentDeletePendingAt,
 	}
 
 	if r.ClassParentIsActive != nil {
@@ -175,58 +161,10 @@ func (r *UpdateClassParentRequest) ApplyPatch(m *model.ClassParentModel) {
 	if r.ClassParentLevel != nil {
 		m.ClassParentLevel = r.ClassParentLevel
 	}
-	if r.ClassParentImageURL != nil {
-		m.ClassParentImageURL = strings.TrimSpace(*r.ClassParentImageURL)
-	}
+
 	if r.ClassParentIsActive != nil {
 		m.ClassParentIsActive = *r.ClassParentIsActive
 	}
-	if r.ClassParentTrashURL != nil {
-		m.ClassParentTrashURL = strings.TrimSpace(*r.ClassParentTrashURL)
-	}
-	if r.ClassParentDeletePendingAt != nil {
-		m.ClassParentDeletePendingUntil = r.ClassParentDeletePendingAt
-	}
+
 }
 
-
-// // import "encoding/json"
-
-// // >>> Tambahkan ini:
-// func (p *PatchField[T]) UnmarshalJSON(b []byte) error {
-// 	type env struct {
-// 		Set   *bool `json:"set"`
-// 		Value *json.RawMessage `json:"value"`
-// 	}
-
-// 	// Kalau bentuknya objek, coba baca sebagai {set, value}
-// 	if len(b) > 0 && b[0] == '{' {
-// 		var e env
-// 		if err := json.Unmarshal(b, &e); err == nil {
-// 			// Kalau user kirim { "value": ... } tanpa "set", anggap set=true
-// 			if e.Set != nil {
-// 				p.Set = *e.Set
-// 			} else {
-// 				p.Set = true
-// 			}
-// 			if e.Value != nil {
-// 				var v T
-// 				if err := json.Unmarshal(*e.Value, &v); err != nil {
-// 					return err
-// 				}
-// 				p.Value = v
-// 			}
-// 			return nil
-// 		}
-// 		// kalau gagal parse sebagai objek, teruskan ke branch nilai mentah
-// 	}
-
-// 	// Nilai mentah: anggap set=true dan unmarshal langsung ke T
-// 	var v T
-// 	if err := json.Unmarshal(b, &v); err != nil {
-// 		return err
-// 	}
-// 	p.Set = true
-// 	p.Value = v
-// 	return nil
-// }

@@ -25,11 +25,6 @@ type CreateYayasanRequest struct {
 	YayasanLatitude  *float64 `json:"yayasan_latitude" validate:"omitempty"`
 	YayasanLongitude *float64 `json:"yayasan_longitude" validate:"omitempty"`
 
-	// Media & maps
-	YayasanLogoURL               *string    `json:"yayasan_logo_url" validate:"omitempty,url"`
-	YayasanGoogleMapsURL         *string    `json:"yayasan_google_maps_url" validate:"omitempty,url"`
-	YayasanLogoDeletePendingUntil *time.Time `json:"yayasan_logo_delete_pending_until,omitempty" validate:"omitempty"`
-
 	// Domain & slug
 	YayasanDomain *string `json:"yayasan_domain" validate:"omitempty,max=80"`
 	YayasanSlug    string  `json:"yayasan_slug" validate:"required,min=3,max=120"`
@@ -61,10 +56,6 @@ func (r *CreateYayasanRequest) ToModel() *yModel.YayasanModel {
 		YayasanProvince: r.YayasanProvince,
 		YayasanLatitude:  r.YayasanLatitude,
 		YayasanLongitude: r.YayasanLongitude,
-
-		YayasanLogoURL:               r.YayasanLogoURL,
-		YayasanGoogleMapsURL:         r.YayasanGoogleMapsURL,
-		YayasanLogoDeletePendingUntil: r.YayasanLogoDeletePendingUntil,
 
 		YayasanDomain: r.YayasanDomain,
 		YayasanSlug:   r.YayasanSlug,
@@ -116,9 +107,7 @@ type UpdateYayasanRequest struct {
 	YayasanLatitude  *float64 `json:"yayasan_latitude" validate:"omitempty"`
 	YayasanLongitude *float64 `json:"yayasan_longitude" validate:"omitempty"`
 
-	YayasanLogoURL               *string    `json:"yayasan_logo_url" validate:"omitempty,url"`
 	YayasanGoogleMapsURL         *string    `json:"yayasan_google_maps_url" validate:"omitempty,url"`
-	YayasanLogoDeletePendingUntil *time.Time `json:"yayasan_logo_delete_pending_until,omitempty" validate:"omitempty"`
 
 	YayasanDomain *string `json:"yayasan_domain" validate:"omitempty,max=80"`
 	YayasanSlug   *string `json:"yayasan_slug" validate:"omitempty,min=3,max=120"`
@@ -166,15 +155,10 @@ func (r *UpdateYayasanRequest) ApplyToModel(m *yModel.YayasanModel) {
 		m.YayasanLongitude = r.YayasanLongitude
 	}
 
-	if r.YayasanLogoURL != nil {
-		m.YayasanLogoURL = r.YayasanLogoURL
-	}
 	if r.YayasanGoogleMapsURL != nil {
 		m.YayasanGoogleMapsURL = r.YayasanGoogleMapsURL
 	}
-	if r.YayasanLogoDeletePendingUntil != nil {
-		m.YayasanLogoDeletePendingUntil = r.YayasanLogoDeletePendingUntil
-	}
+
 
 	if r.YayasanDomain != nil {
 		m.YayasanDomain = r.YayasanDomain
@@ -253,9 +237,6 @@ type YayasanResponse struct {
 	YayasanLatitude  *float64 `json:"yayasan_latitude,omitempty"`
 	YayasanLongitude *float64 `json:"yayasan_longitude,omitempty"`
 
-	YayasanLogoURL               *string    `json:"yayasan_logo_url,omitempty"`
-	YayasanLogoTrashURL          *string    `json:"yayasan_logo_trash_url,omitempty"`
-	YayasanLogoDeletePendingUntil *time.Time `json:"yayasan_logo_delete_pending_until,omitempty"`
 	YayasanGoogleMapsURL         *string    `json:"yayasan_google_maps_url,omitempty"`
 
 	YayasanDomain *string `json:"yayasan_domain,omitempty"`
@@ -297,9 +278,6 @@ func NewYayasanResponse(m *yModel.YayasanModel) *YayasanResponse {
 		YayasanLatitude:  m.YayasanLatitude,
 		YayasanLongitude: m.YayasanLongitude,
 
-		YayasanLogoURL:               m.YayasanLogoURL,
-		YayasanLogoTrashURL:          m.YayasanLogoTrashURL,
-		YayasanLogoDeletePendingUntil: m.YayasanLogoDeletePendingUntil,
 		YayasanGoogleMapsURL:         m.YayasanGoogleMapsURL,
 
 		YayasanDomain: m.YayasanDomain,

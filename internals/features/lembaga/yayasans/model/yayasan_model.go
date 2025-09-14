@@ -60,9 +60,6 @@ type YayasanModel struct {
 	YayasanLongitude *float64 `gorm:"type:decimal(9,6);column:yayasan_longitude" json:"yayasan_longitude,omitempty"`
 
 	// Media & maps
-	YayasanLogoURL               *string    `gorm:"column:yayasan_logo_url" json:"yayasan_logo_url,omitempty"`
-	YayasanLogoTrashURL          *string    `gorm:"column:yayasan_logo_trash_url" json:"yayasan_logo_trash_url,omitempty"`
-	YayasanLogoDeletePendingUntil *time.Time `gorm:"column:yayasan_logo_delete_pending_until" json:"yayasan_logo_delete_pending_until,omitempty"`
 	YayasanGoogleMapsURL         *string    `gorm:"column:yayasan_google_maps_url" json:"yayasan_google_maps_url,omitempty"`
 
 	// Domain & slug

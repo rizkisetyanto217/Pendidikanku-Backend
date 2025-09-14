@@ -76,10 +76,6 @@ CREATE TABLE IF NOT EXISTS certificates (
   -- payload dinamis (backend-driven): mis. nama penerima, skor akhir, ranking, signers, dsb
   certificates_metadata JSONB,
 
-  -- housekeeping & soft-delete
-  certificates_trash_url            TEXT,
-  certificates_delete_pending_until TIMESTAMPTZ,
-
   certificates_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   certificates_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   certificates_deleted_at TIMESTAMPTZ

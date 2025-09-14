@@ -45,8 +45,7 @@ CREATE TABLE IF NOT EXISTS user_subject_summary (
   -- status lulus — dihitung di-backend
   user_subject_summary_passed BOOLEAN NOT NULL DEFAULT FALSE,
 
-  -- ringkasan komponen (opsional): simpan kontribusi per type (tugas/kuis/UTS/UAS)
-  -- contoh: {"tugas":{"weight":20,"score":86},"kuis":{"weight":10,"score":90},...}
+
   user_subject_summary_breakdown JSONB,
 
   -- metrik progres (opsional)
@@ -60,9 +59,6 @@ CREATE TABLE IF NOT EXISTS user_subject_summary (
   -- catatan bebas
   user_subject_summary_note TEXT,
 
-  -- housekeeping
-  user_subject_summary_trash_url            TEXT,
-  user_subject_summary_delete_pending_until TIMESTAMPTZ,
 
   user_subject_summary_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_subject_summary_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

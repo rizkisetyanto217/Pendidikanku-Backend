@@ -32,9 +32,6 @@ type ClassSectionModel struct {
 	ClassSectionsCapacity      *int  `gorm:"column:class_sections_capacity" json:"class_sections_capacity,omitempty"`
 	ClassSectionsTotalStudents int   `gorm:"not null;default:0;column:class_sections_total_students" json:"class_sections_total_students"`
 
-	// Group link (URL)
-	ClassSectionsGroupURL *string `gorm:"column:class_sections_group_url;type:text" json:"class_sections_group_url,omitempty"`
-
 	// Status
 	ClassSectionsIsActive bool `gorm:"not null;default:true;column:class_sections_is_active;index:idx_sections_active" json:"class_sections_is_active"`
 

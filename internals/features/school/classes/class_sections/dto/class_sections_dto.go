@@ -25,7 +25,6 @@ type CreateClassSectionRequest struct {
 
 	ClassSectionsCapacity *int    `json:"class_sections_capacity,omitempty"`  // >= 0
 	ClassSectionsSchedule *string `json:"class_sections_schedule,omitempty"`  // teks bebas, ex: "Jumat 19:00–21:00"
-	ClassSectionsGroupURL *string `json:"class_sections_group_url,omitempty"` // URL (WA group, dsb.)
 }
 
 func (r *CreateClassSectionRequest) ToModel() *m.ClassSectionModel {
@@ -41,7 +40,6 @@ func (r *CreateClassSectionRequest) ToModel() *m.ClassSectionModel {
 
 		ClassSectionsCapacity:  r.ClassSectionsCapacity,
 		ClassSectionsSchedule:  nil,
-		ClassSectionsGroupURL:  nil,
 		ClassSectionsIsActive:  true, // default aktif
 		// ClassSectionsTotalStudents default 0 dari DB
 	}
@@ -58,11 +56,6 @@ func (r *CreateClassSectionRequest) ToModel() *m.ClassSectionModel {
 		out.ClassSectionsSchedule = &s
 	}
 
-	// optional group url
-	if r.ClassSectionsGroupURL != nil {
-		u := strings.TrimSpace(*r.ClassSectionsGroupURL)
-		out.ClassSectionsGroupURL = &u
-	}
 
 	return out
 }
@@ -124,11 +117,6 @@ func (r *UpdateClassSectionRequest) ApplyToModel(dst *m.ClassSectionModel) {
 		s := strings.TrimSpace(*r.ClassSectionsSchedule)
 		dst.ClassSectionsSchedule = &s
 	}
-	if r.ClassSectionsGroupURL != nil {
-		u := strings.TrimSpace(*r.ClassSectionsGroupURL)
-		dst.ClassSectionsGroupURL = &u
-	}
-
 	if r.ClassSectionsIsActive != nil {
 		dst.ClassSectionsIsActive = *r.ClassSectionsIsActive
 	}
@@ -170,7 +158,6 @@ type ClassSectionResponse struct {
 
 	ClassSectionsCapacity     *int     `json:"class_sections_capacity,omitempty"`
 	ClassSectionsSchedule     *string  `json:"class_sections_schedule,omitempty"`
-	ClassSectionsGroupURL     *string  `json:"class_sections_group_url,omitempty"`
 
 	// Denormalized counter
 	ClassSectionsTotalStudents int       `json:"class_sections_total_students"`
@@ -204,7 +191,6 @@ func NewClassSectionResponse(src *m.ClassSectionModel, teacherName string) *Clas
 
 		ClassSectionsCapacity:     src.ClassSectionsCapacity,
 		ClassSectionsSchedule:     src.ClassSectionsSchedule,
-		ClassSectionsGroupURL:     src.ClassSectionsGroupURL,
 
 		ClassSectionsTotalStudents: src.ClassSectionsTotalStudents,
 

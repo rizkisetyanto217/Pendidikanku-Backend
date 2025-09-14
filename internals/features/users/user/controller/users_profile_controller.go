@@ -1,18 +1,14 @@
 package controller
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	profileDTO "masjidku_backend/internals/features/users/user/dto"
 	profileModel "masjidku_backend/internals/features/users/user/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
-	helperOSS "masjidku_backend/internals/helpers/oss"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -37,13 +33,14 @@ func httpErr(c *fiber.Ctx, err error) error {
    GET: All profiles (DTO)
    ========================= */
 func (upc *UsersProfileController) GetProfiles(c *fiber.Ctx) error {
-	log.Println("[INFO] Fetching all user profiles")
+	log.Println("[INFO] Fetching all users_profile")
 	var profiles []profileModel.UsersProfileModel
-	if err := upc.DB.Find(&profiles).Error; err != nil {
-		log.Println("[ERROR] Failed to fetch user profiles:", err)
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to fetch user profiles")
+	if err := upc.DB.WithContext(c.Context()).
+		Find(&profiles).Error; err != nil {
+		log.Println("[ERROR] Failed to fetch users_profile:", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to fetch profiles")
 	}
-	return helper.JsonOK(c, "User profiles fetched successfully", profileDTO.ToUsersProfileDTOs(profiles))
+	return helper.JsonOK(c, "Profiles fetched", profileDTO.ToUsersProfileDTOs(profiles))
 }
 
 /* =========================
@@ -54,17 +51,19 @@ func (upc *UsersProfileController) GetProfile(c *fiber.Ctx) error {
 	if err != nil {
 		return httpErr(c, err)
 	}
-	log.Println("[INFO] Fetching user profile with user_id:", userID)
+	log.Println("[INFO] Fetching users_profile with users_profile_user_id:", userID)
 
 	var profile profileModel.UsersProfileModel
-	if err := upc.DB.Where("user_id = ?", userID).First(&profile).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+	if err := upc.DB.WithContext(c.Context()).
+		Where("users_profile_user_id = ?", userID).
+		First(&profile).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "User profile not found")
 		}
 		log.Println("[ERROR] DB error:", err)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to fetch user profile")
 	}
-	return helper.JsonOK(c, "User profile fetched successfully", profileDTO.ToUsersProfileDTO(profile))
+	return helper.JsonOK(c, "Profile fetched", profileDTO.ToUsersProfileDTO(profile))
 }
 
 /* =========================
@@ -80,53 +79,19 @@ func (upc *UsersProfileController) CreateProfile(c *fiber.Ctx) error {
 	if err := c.BodyParser(&in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request format")
 	}
-	// Validasi sederhana
-	if strings.TrimSpace(in.DonationName) == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Donation name is required")
-	}
-	if in.PhoneNumber != nil {
-		v := strings.TrimSpace(*in.PhoneNumber)
+
+	// normalisasi ringan (contoh: nomor telp tanpa spasi)
+	if in.UsersProfilePhoneNumber != nil {
+		v := strings.TrimSpace(*in.UsersProfilePhoneNumber)
 		v = strings.ReplaceAll(v, " ", "")
-		in.PhoneNumber = &v
+		in.UsersProfilePhoneNumber = &v
 	}
 
-	// (opsional) upload avatar multipart field "photo" → WebP → OSS
-	var uploadedAvatarURL *string
-	if fh, errFile := c.FormFile("photo"); errFile == nil && fh != nil {
-		if fh.Size > 5*1024*1024 {
-			return helper.JsonError(c, fiber.StatusRequestEntityTooLarge, "Max file size 5MB")
-		}
-
-		svc, errInit := helperOSS.NewOSSServiceFromEnv("")
-		if errInit != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to init file service")
-		}
-
-		ctx, cancel := context.WithTimeout(c.Context(), 30*time.Second)
-		defer cancel()
-
-		dir := fmt.Sprintf("users/%s/avatar", userID.String())
-		publicURL, errUp := svc.UploadAsWebP(ctx, fh, dir)
-		if errUp != nil {
-			if strings.Contains(strings.ToLower(errUp.Error()), "format tidak didukung") {
-				return helper.JsonError(c, fiber.StatusUnsupportedMediaType, "Unsupported image format (use jpg/png/webp)")
-			}
-			return helper.JsonError(c, fiber.StatusBadGateway, "Failed to upload avatar")
-		}
-		uploadedAvatarURL = &publicURL
-		in.PhotoURL = uploadedAvatarURL
-	}
-
-	// Build model dari DTO
+	// build model dari DTO
 	row := in.ToModel(userID)
 
 	db := upc.DB.WithContext(c.Context())
 	if err := db.Create(&row).Error; err != nil {
-		// Rollback avatar jika DB gagal
-		if uploadedAvatarURL != nil {
-			_ = helperOSS.DeleteByPublicURLENV(*uploadedAvatarURL, 10*time.Second)
-		}
-
 		le := strings.ToLower(err.Error())
 		if strings.Contains(le, "duplicate key") || strings.Contains(le, "unique constraint") {
 			return helper.JsonError(c, fiber.StatusConflict, "User profile already exists")
@@ -134,23 +99,23 @@ func (upc *UsersProfileController) CreateProfile(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to create user profile")
 	}
 
-	return helper.JsonCreated(c, "User profile created successfully", profileDTO.ToUsersProfileDTO(row))
+	return helper.JsonCreated(c, "User profile created", profileDTO.ToUsersProfileDTO(row))
 }
 
 /* =========================
-   PATCH /profiles (partial update + optional avatar replace)
+   PATCH /profiles (partial update)
    ========================= */
 func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return httpErr(c, err)
 	}
-	log.Println("[INFO] Updating user profile with user_id:", userID)
+	log.Println("[INFO] Patching users_profile with users_profile_user_id:", userID)
 
-	// --- Ambil profile existing
+	// pastikan ada record
 	var profile profileModel.UsersProfileModel
 	if err := upc.DB.WithContext(c.Context()).
-		Where("user_id = ?", userID).
+		Where("users_profile_user_id = ?", userID).
 		First(&profile).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "User profile not found")
@@ -161,9 +126,7 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 
 	ct := strings.TrimSpace(c.Get(fiber.HeaderContentType))
 	isJSON := strings.HasPrefix(ct, fiber.MIMEApplicationJSON)
-	isMultipart := strings.HasPrefix(ct, fiber.MIMEMultipartForm)
 
-	// --- Kumpulkan perubahan dari body
 	var in profileDTO.UpdateUsersProfileRequest
 	if isJSON {
 		if err := c.BodyParser(&in); err != nil {
@@ -171,23 +134,49 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request format")
 		}
 	} else {
-		// form-urlencoded / multipart -> isi pointer kalau ada
+		// form-urlencoded / multipart tanpa file
 		setPtr := func(dst **string, name string) {
 			if v := c.FormValue(name); v != "" {
 				val := v
 				*dst = &val
 			}
 		}
-		setPtr(&in.DonationName, "donation_name")
-		setPtr(&in.PhotoURL, "photo_url")
-		setPtr(&in.PhotoTrashURL, "photo_trash_url")
-		setPtr(&in.PhotoDeletePendingUntil, "photo_delete_pending_until")
-		setPtr(&in.DateOfBirth, "date_of_birth")
-		setPtr(&in.Gender, "gender")
-		setPtr(&in.Location, "location")
-		setPtr(&in.Occupation, "occupation")
-		setPtr(&in.PhoneNumber, "phone_number")
-		setPtr(&in.Bio, "bio")
+		setPtr(&in.UsersProfileDonationName, "users_profile_donation_name")
+		setPtr(&in.UsersProfileDateOfBirth, "users_profile_date_of_birth")
+		setPtr(&in.UsersProfileGender, "users_profile_gender")
+		setPtr(&in.UsersProfileLocation, "users_profile_location")
+		setPtr(&in.UsersProfilePhoneNumber, "users_profile_phone_number")
+		setPtr(&in.UsersProfileBio, "users_profile_bio")
+
+		setPtr(&in.UsersProfileBiographyLong, "users_profile_biography_long")
+		setPtr(&in.UsersProfileExperience, "users_profile_experience")
+		setPtr(&in.UsersProfileCertifications, "users_profile_certifications")
+
+		setPtr(&in.UsersProfileInstagramURL, "users_profile_instagram_url")
+		setPtr(&in.UsersProfileWhatsappURL, "users_profile_whatsapp_url")
+		setPtr(&in.UsersProfileYoutubeURL, "users_profile_youtube_url")
+		setPtr(&in.UsersProfileFacebookURL, "users_profile_facebook_url")
+		setPtr(&in.UsersProfileTiktokURL, "users_profile_tiktok_url")
+
+		setPtr(&in.UsersProfileTelegramUsername, "users_profile_telegram_username")
+		setPtr(&in.UsersProfileLinkedinURL, "users_profile_linkedin_url")
+		setPtr(&in.UsersProfileTwitterURL, "users_profile_twitter_url")
+		setPtr(&in.UsersProfileGithubURL, "users_profile_github_url")
+
+		setPtr(&in.UsersProfileEducation, "users_profile_education")
+		setPtr(&in.UsersProfileCompany, "users_profile_company")
+		setPtr(&in.UsersProfilePosition, "users_profile_position")
+
+
+		// note: interests & skills (array) via form-encoding bisa di-handle custom (comma-separated),
+		// tapi karena validasi/DTO-mu mengharapkan JSON array, rekomendasi: kirim PATCH sebagai JSON.
+	}
+
+	// normalisasi ringan
+	if in.UsersProfilePhoneNumber != nil {
+		v := strings.TrimSpace(*in.UsersProfilePhoneNumber)
+		v = strings.ReplaceAll(v, " ", "")
+		in.UsersProfilePhoneNumber = &v
 	}
 
 	updateMap, mapErr := in.ToUpdateMap()
@@ -195,105 +184,27 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, mapErr.Error())
 	}
 
-	// =========================
-	// Upload avatar (jika ada file) -> pakai helper OSS
-	// =========================
-	var (
-		newAvatarURL string
-		hadNewFile   bool
-	)
-
-	if isMultipart {
-		fh, errFile := c.FormFile("photo")
-		if errFile != nil || fh == nil {
-			fh, _ = c.FormFile("photo_url")
-		}
-		if fh != nil {
-			if fh.Size > 5*1024*1024 {
-				return helper.JsonError(c, fiber.StatusRequestEntityTooLarge, "Max file size 5MB")
-			}
-
-			ossSvc, errInit := helperOSS.NewOSSServiceFromEnv("")
-			if errInit != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to init file service")
-			}
-
-			ctxUp, cancelUp := context.WithTimeout(c.Context(), 30*time.Second)
-			defer cancelUp()
-
-			dir := fmt.Sprintf("users/%s/avatar", userID.String())
-			publicURL, errUp := ossSvc.UploadAsWebP(ctxUp, fh, dir)
-			if errUp != nil {
-				if strings.Contains(strings.ToLower(errUp.Error()), "format tidak didukung") {
-					return helper.JsonError(c, fiber.StatusUnsupportedMediaType, "Unsupported image format (use jpg/png/webp)")
-				}
-				return helper.JsonError(c, fiber.StatusBadGateway, "Failed to upload avatar")
-			}
-
-			newAvatarURL = publicURL
-			hadNewFile = true
-			updateMap["photo_url"] = newAvatarURL
-		}
+	if len(updateMap) == 0 {
+		return helper.JsonOK(c, "No changes", profileDTO.ToUsersProfileDTO(profile))
 	}
 
-	// =========================
-	// Transaksi DB (update kolom)
-	// =========================
-	tx := upc.DB.WithContext(c.Context()).Begin()
-	if tx.Error != nil {
-		if hadNewFile {
-			_ = helperOSS.DeleteByPublicURLENV(newAvatarURL, 10*time.Second)
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to start transaction")
-	}
-
-	if len(updateMap) > 0 {
-		if err := tx.Model(&profile).Where("user_id = ?", userID).Updates(updateMap).Error; err != nil {
-			_ = tx.Rollback().Error
-			if hadNewFile {
-				_ = helperOSS.DeleteByPublicURLENV(newAvatarURL, 10*time.Second)
-			}
-			log.Println("[ERROR] Failed to update user profile:", err)
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to update user profile")
-		}
-	}
-
-	if err := tx.Commit().Error; err != nil {
-		if hadNewFile {
-			_ = helperOSS.DeleteByPublicURLENV(newAvatarURL, 10*time.Second)
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to commit update")
-	}
-
-	// =========================
-	// Post-commit: pindahkan foto lama ke spam + set metadata trash
-	// =========================
-	if hadNewFile {
-		if profile.PhotoURL != nil && strings.TrimSpace(*profile.PhotoURL) != "" {
-			oldURL := strings.TrimSpace(*profile.PhotoURL)
-
-			spamURL, errMove := helperOSS.MoveToSpamByPublicURLENV(oldURL, 15*time.Second)
-			if errMove != nil {
-				log.Printf("[WARN] Move old avatar to spam failed: %v", errMove)
-			} else {
-				_ = upc.DB.WithContext(c.Context()).
-					Model(&profileModel.UsersProfileModel{}).
-					Where("user_id = ?", userID).
-					Updates(map[string]interface{}{
-						"photo_trash_url":            spamURL,
-						"photo_delete_pending_until": time.Now().Add(7 * 24 * time.Hour).UTC(),
-					}).Error
-			}
-		}
-	}
-
-	// Refresh respons
+	// apply PATCH (partial) — pakai nama kolom DB di map
 	if err := upc.DB.WithContext(c.Context()).
-		Where("user_id = ?", userID).First(&profile).Error; err != nil {
-		log.Println("[WARN] Refresh after update failed:", err)
+		Model(&profileModel.UsersProfileModel{}).
+		Where("users_profile_user_id = ?", userID).
+		Updates(updateMap).Error; err != nil {
+		log.Println("[ERROR] Failed to patch users_profile:", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to update user profile")
 	}
 
-	return helper.JsonUpdated(c, "User profile updated successfully", profileDTO.ToUsersProfileDTO(profile))
+	// refresh buat response
+	if err := upc.DB.WithContext(c.Context()).
+		Where("users_profile_user_id = ?", userID).
+		First(&profile).Error; err != nil {
+		log.Println("[WARN] Refresh after patch failed:", err)
+	}
+
+	return helper.JsonUpdated(c, "User profile updated", profileDTO.ToUsersProfileDTO(profile))
 }
 
 /* =========================
@@ -304,21 +215,23 @@ func (upc *UsersProfileController) DeleteProfile(c *fiber.Ctx) error {
 	if err != nil {
 		return httpErr(c, err)
 	}
-	log.Println("[INFO] Deleting user profile with user_id:", userID)
+	log.Println("[INFO] Soft deleting users_profile with users_profile_user_id:", userID)
 
 	var profile profileModel.UsersProfileModel
-	if err := upc.DB.Where("user_id = ?", userID).First(&profile).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+	if err := upc.DB.WithContext(c.Context()).
+		Where("users_profile_user_id = ?", userID).
+		First(&profile).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "User profile not found")
 		}
 		log.Println("[ERROR] DB error:", err)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to fetch user profile")
 	}
 
-	if err := upc.DB.Delete(&profile).Error; err != nil {
-		log.Println("[ERROR] Failed to delete user profile:", err)
+	if err := upc.DB.WithContext(c.Context()).Delete(&profile).Error; err != nil {
+		log.Println("[ERROR] Failed to delete users_profile:", err)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to delete user profile")
 	}
 
-	return helper.JsonDeleted(c, "User profile deleted successfully", nil)
+	return helper.JsonDeleted(c, "User profile deleted", nil)
 }
