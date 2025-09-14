@@ -8,8 +8,9 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS citext;     -- case-insensitive text
 CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram index
 
+
 /* =========================================================
-   1) USERS_PROFILE_FORMAL (global: orang tua, wali, alamat, identitas, kesehatan)
+   1) USERS_PROFILE_FORMAL
    ========================================================= */
 CREATE TABLE IF NOT EXISTS users_profile_formal (
   users_profile_formal_id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -43,43 +44,17 @@ CREATE TABLE IF NOT EXISTS users_profile_formal (
   users_profile_formal_religion            VARCHAR(30),
   users_profile_formal_nationality         VARCHAR(50),
 
-  -- Kondisi keluarga & ekonomi
-  users_profile_formal_parent_marital_status VARCHAR(20), -- married/divorced/widowed/separated/other
-  users_profile_formal_household_income    VARCHAR(50),
-  users_profile_formal_number_of_siblings  SMALLINT,
-  users_profile_formal_transport_mode      VARCHAR(30),   -- walk/bicycle/motorcycle/car/bus/train/other
-  users_profile_formal_residence_status    VARCHAR(30),   -- own/rent/dorm/other
-  users_profile_formal_language_at_home    VARCHAR(50),
-  users_profile_formal_distance_to_school_km NUMERIC(6,2),
-
   -- Kesehatan ringkas
   users_profile_formal_medical_notes       TEXT,
-  users_profile_formal_allergies           TEXT,
   users_profile_formal_special_needs       TEXT,
-  users_profile_formal_disability_status   VARCHAR(20),   -- none/low/medium/high
-  users_profile_formal_immunization_notes  TEXT,
-  users_profile_formal_bpjs_number         VARCHAR(30),
-  users_profile_formal_emergency_priority  SMALLINT,
-
-  -- Dokumen dasar
-  users_profile_formal_doc_birth_certificate_url  TEXT,
-  users_profile_formal_doc_family_card_url        TEXT,
-  users_profile_formal_doc_parent_id_url          TEXT,
 
   -- Verifikasi dokumen
-  users_profile_formal_document_verification_status VARCHAR(20), -- pending/verified/rejected
+  users_profile_formal_document_verification_status VARCHAR(20),
   users_profile_formal_document_verification_notes  TEXT,
   users_profile_formal_document_verified_by         UUID,
   users_profile_formal_document_verified_at         TIMESTAMPTZ,
 
-  -- Ekstensibilitas
-  users_profile_formal_home_geo_lat      NUMERIC(9,6),
-  users_profile_formal_home_geo_lng      NUMERIC(9,6),
-  users_profile_formal_meta              JSONB,
-
   -- Audit
-  users_profile_formal_created_by        UUID,
-  users_profile_formal_updated_by        UUID,
   users_profile_formal_created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   users_profile_formal_updated_at        TIMESTAMPTZ,
   users_profile_formal_deleted_at        TIMESTAMPTZ,
@@ -87,19 +62,7 @@ CREATE TABLE IF NOT EXISTS users_profile_formal (
   -- Unik per user
   CONSTRAINT uq_users_profile_formal_user UNIQUE (users_profile_formal_user_id),
 
-  -- Hygiene sederhana
-  CONSTRAINT ck_users_profile_formal_parent_marital_status CHECK (
-    users_profile_formal_parent_marital_status IS NULL OR
-    users_profile_formal_parent_marital_status IN ('married','divorced','widowed','separated','other')
-  ),
-  CONSTRAINT ck_users_profile_formal_transport_mode CHECK (
-    users_profile_formal_transport_mode IS NULL OR
-    users_profile_formal_transport_mode IN ('walk','bicycle','motorcycle','car','bus','train','other')
-  ),
-  CONSTRAINT ck_users_profile_formal_disability_status CHECK (
-    users_profile_formal_disability_status IS NULL OR
-    users_profile_formal_disability_status IN ('none','low','medium','high')
-  ),
+  -- Hygiene sesuai kolom eksisting
   CONSTRAINT ck_users_profile_formal_postal_code CHECK (
     users_profile_formal_postal_code IS NULL OR users_profile_formal_postal_code ~ '^[0-9]{5,6}$'
   ),
@@ -108,227 +71,170 @@ CREATE TABLE IF NOT EXISTS users_profile_formal (
   )
 );
 
--- Index bantu (alive only)
+-- Index (alive only)
 CREATE INDEX IF NOT EXISTS idx_users_profile_formal_user_alive
   ON users_profile_formal (users_profile_formal_user_id)
   WHERE users_profile_formal_deleted_at IS NULL;
 
-
-/* =========================================================
-   2) USER_MASJID_MEMBERSHIPS (pivot user ↔ masjid)
-   ========================================================= */
-CREATE TABLE IF NOT EXISTS user_masjid_memberships (
-  user_masjid_membership_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_masjid_membership_masjid_id     UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
-  user_masjid_membership_user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-
-  user_masjid_membership_code          VARCHAR(50),
-  user_masjid_membership_status        TEXT NOT NULL DEFAULT 'active' CHECK (
-    user_masjid_membership_status IN ('active','inactive','alumni')
-  ),
-
-  -- catatan & meta
-  user_masjid_membership_note          TEXT,
-  user_masjid_membership_notes_internal TEXT,
-
-  -- tambahan operasional
-  user_masjid_membership_joined_at     TIMESTAMPTZ,
-  user_masjid_membership_left_at       TIMESTAMPTZ,
-  user_masjid_membership_role          TEXT,  -- student/teacher/staff/parent/volunteer/other
-  user_masjid_membership_registration_channel TEXT, -- online/offline/referral/import/other
-  user_masjid_membership_source        TEXT,  -- import/api/form/etc
-
-  -- audit by
-  user_masjid_membership_created_by    UUID,
-  user_masjid_membership_updated_by    UUID,
-  user_masjid_membership_deactivated_reason TEXT,
-  user_masjid_membership_deactivated_by UUID,
-  user_masjid_membership_deactivated_at TIMESTAMPTZ,
-  user_masjid_membership_reactivated_by UUID,
-  user_masjid_membership_reactivated_at TIMESTAMPTZ,
-
-  -- audit timestamps
-  user_masjid_membership_created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  user_masjid_membership_updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  user_masjid_membership_deleted_at    TIMESTAMPTZ,
-
-  -- hygiene
-  CONSTRAINT ck_user_masjid_membership_role CHECK (
-    user_masjid_membership_role IS NULL OR
-    user_masjid_membership_role IN ('student','teacher','staff','parent','volunteer','other')
-  ),
-  CONSTRAINT ck_user_masjid_membership_registration_channel CHECK (
-    user_masjid_membership_registration_channel IS NULL OR
-    user_masjid_membership_registration_channel IN ('online','offline','referral','import','other')
+CREATE INDEX IF NOT EXISTS idx_upf_verif_status_alive
+  ON users_profile_formal (
+    users_profile_formal_document_verification_status,
+    users_profile_formal_updated_at DESC
   )
-);
+  WHERE users_profile_formal_deleted_at IS NULL;
 
--- Unik: 1 user aktif per masjid (soft-delete aware)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_umm_user_per_masjid_live
-  ON user_masjid_memberships (user_masjid_membership_masjid_id, user_masjid_membership_user_id)
-  WHERE user_masjid_membership_deleted_at IS NULL
-    AND user_masjid_membership_status = 'active';
+CREATE INDEX IF NOT EXISTS idx_upf_nik_alive
+  ON users_profile_formal (users_profile_formal_nik)
+  WHERE users_profile_formal_deleted_at IS NULL
+    AND users_profile_formal_nik IS NOT NULL;
 
--- Code unik per masjid (case-insensitive; alive only)
-CREATE UNIQUE INDEX IF NOT EXISTS ux_umm_code_alive_ci
-  ON user_masjid_memberships (user_masjid_membership_masjid_id, LOWER(user_masjid_membership_code))
-  WHERE user_masjid_membership_deleted_at IS NULL
-    AND user_masjid_membership_code IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_upf_birth_date_alive
+  ON users_profile_formal (users_profile_formal_birth_date)
+  WHERE users_profile_formal_deleted_at IS NULL;
 
--- Lookups umum
-CREATE INDEX IF NOT EXISTS idx_umm_masjid_alive
-  ON user_masjid_memberships (user_masjid_membership_masjid_id)
-  WHERE user_masjid_membership_deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_upf_city_province_alive
+  ON users_profile_formal (users_profile_formal_city, users_profile_formal_province)
+  WHERE users_profile_formal_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_umm_user_alive
-  ON user_masjid_memberships (user_masjid_membership_user_id)
-  WHERE user_masjid_membership_deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_upf_address_trgm
+  ON users_profile_formal USING GIN (users_profile_formal_address_line gin_trgm_ops);
 
-CREATE INDEX IF NOT EXISTS ix_umm_status_created
-  ON user_masjid_memberships (user_masjid_membership_status, user_masjid_membership_created_at DESC)
-  WHERE user_masjid_membership_deleted_at IS NULL;
 
 
 /* =========================================================
-   3) USER_MASJID_MEMBERSHIP_ACADEMICS (akademik per membership/tahun)
+   2) MASJID_STUDENTS (pivot user ↔ masjid, role fixed student)
    ========================================================= */
-CREATE TABLE IF NOT EXISTS user_masjid_membership_academics (
-  user_masjid_membership_academics_id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_masjid_membership_id                       UUID NOT NULL REFERENCES user_masjid_memberships(user_masjid_membership_id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS masjid_students (
+  masjid_student_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  -- Identitas akademik
-  user_masjid_membership_academics_student_local_id   VARCHAR(50),
-  user_masjid_membership_academics_nisn               VARCHAR(20),
-  user_masjid_membership_academics_education_level    VARCHAR(10) CHECK (
-    user_masjid_membership_academics_education_level IN ('tk','sd','smp','sma','smk','ma','pt')
+  masjid_student_masjid_id UUID NOT NULL
+    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+
+  masjid_student_user_id UUID NOT NULL
+    REFERENCES users(id) ON DELETE CASCADE,
+
+  -- Identitas siswa di tenant
+  masjid_student_code VARCHAR(50),   -- kartu/member code (opsional)
+  masjid_student_nim  VARCHAR(50),   -- NIM/NIS/NISN lokal per masjid/sekolah
+
+  -- Status keanggotaan
+  masjid_student_status TEXT NOT NULL DEFAULT 'active'
+    CHECK (masjid_student_status IN ('active','inactive','alumni')),
+
+  -- Operasional (histori)
+  masjid_student_joined_at TIMESTAMPTZ,
+  masjid_student_left_at   TIMESTAMPTZ,
+
+  -- Catatan umum santri
+  masjid_student_note TEXT,
+
+  -- Penempatan akademik (snapshot ringan)
+  masjid_student_current_class_id UUID,           -- FK opsional ke class_sections/rooms
+
+  -- Audit core
+  masjid_student_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  masjid_student_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  masjid_student_deleted_at TIMESTAMPTZ,
+
+  -- Validasi pola (opsional & ringan)
+  CONSTRAINT ck_ms_nim_format CHECK (
+    masjid_student_nim IS NULL OR masjid_student_nim ~ '^[A-Za-z0-9._-]{3,30}$'
   ),
-  user_masjid_membership_academics_grade_level        SMALLINT,
-  user_masjid_membership_academics_class_name         VARCHAR(20),
-  user_masjid_membership_academics_academic_year      VARCHAR(9),   -- "YYYY/YYYY"
-  user_masjid_membership_academics_semester           SMALLINT,     -- 1/2
-  user_masjid_membership_academics_enrollment_status  VARCHAR(12) DEFAULT 'active' CHECK (
-    user_masjid_membership_academics_enrollment_status IN ('active','graduated','moved','inactive','suspended')
-  ),
-  user_masjid_membership_academics_admission_date     DATE,
-  user_masjid_membership_academics_graduation_date    DATE,
-  user_masjid_membership_academics_major              VARCHAR(50),
-  user_masjid_membership_academics_curriculum         VARCHAR(50),
-  user_masjid_membership_academics_homeroom_teacher   VARCHAR(100),
-
-  -- Nilai & catatan
-  user_masjid_membership_academics_gpa                   NUMERIC(4,2),     -- bebas skala, validasi di app
-  user_masjid_membership_academics_scholarship_status    BOOLEAN,
-  user_masjid_membership_academics_attendance_percentage NUMERIC(5,2),    -- 0..100
-  user_masjid_membership_academics_behavior_score        SMALLINT,
-  user_masjid_membership_academics_warning_level         SMALLINT,        -- 0..3
-  user_masjid_membership_academics_notes                 TEXT,
-
-  -- Dokumen
-  user_masjid_membership_academics_doc_report_card_url   TEXT,
-  user_masjid_membership_academics_certificate_url       TEXT,
-
-  -- Enrichment
-  user_masjid_membership_academics_stream                VARCHAR(30),
-  user_masjid_membership_academics_advisor_name          VARCHAR(100),
-  user_masjid_membership_academics_credit_total          SMALLINT,
-  user_masjid_membership_academics_special_program       VARCHAR(50),
-  user_masjid_membership_academics_remedial_required     BOOLEAN,
-  user_masjid_membership_academics_promoted              BOOLEAN,
-  user_masjid_membership_academics_promoted_to_grade     SMALLINT,
-
-  -- Audit
-  user_masjid_membership_academics_created_by            UUID,
-  user_masjid_membership_academics_updated_by            UUID,
-  user_masjid_membership_academics_created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-  user_masjid_membership_academics_updated_at            TIMESTAMPTZ,
-  user_masjid_membership_academics_deleted_at            TIMESTAMPTZ,
-
-  -- Hygiene
-  CONSTRAINT ck_umma_academic_year_format CHECK (
-    user_masjid_membership_academics_academic_year IS NULL OR
-    user_masjid_membership_academics_academic_year ~ '^[0-9]{4}/[0-9]{4}$'
-  ),
-  CONSTRAINT ck_umma_semester CHECK (
-    user_masjid_membership_academics_semester IS NULL OR
-    user_masjid_membership_academics_semester IN (1,2)
-  ),
-  CONSTRAINT ck_umma_attendance_pct CHECK (
-    user_masjid_membership_academics_attendance_percentage IS NULL OR
-    (user_masjid_membership_academics_attendance_percentage >= 0 AND user_masjid_membership_academics_attendance_percentage <= 100)
-  )
 );
 
--- Unik per membership & tahun ajaran (alive only) — kalau mau simpan 1 baris per TA
-CREATE UNIQUE INDEX IF NOT EXISTS uq_umma_membership_year_alive
-  ON user_masjid_membership_academics (user_masjid_membership_id, user_masjid_membership_academics_academic_year)
-  WHERE user_masjid_membership_academics_deleted_at IS NULL;
+-- Pair unik (tenant-safe join ops) — idempotent via DO
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_ms_id_masjid') THEN
+    ALTER TABLE masjid_students
+      ADD CONSTRAINT uq_ms_id_masjid UNIQUE (masjid_student_id, masjid_student_masjid_id);
+  END IF;
+END$$;
 
--- Lookups umum
-CREATE INDEX IF NOT EXISTS idx_umma_level_class_year_alive
-  ON user_masjid_membership_academics (
-    user_masjid_membership_academics_education_level,
-    user_masjid_membership_academics_grade_level,
-    user_masjid_membership_academics_class_name,
-    user_masjid_membership_academics_academic_year
-  )
-  WHERE user_masjid_membership_academics_deleted_at IS NULL;
+-- Unik: 1 user AKTIF per masjid (soft-delete aware)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ms_user_per_masjid_live
+  ON masjid_students (masjid_student_masjid_id, masjid_student_user_id)
+  WHERE masjid_student_deleted_at IS NULL
+    AND masjid_student_status = 'active';
 
+-- Unik CODE per masjid (case-insensitive; alive only)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_ms_code_alive_ci
+  ON masjid_students (masjid_student_masjid_id, LOWER(masjid_student_code))
+  WHERE masjid_student_deleted_at IS NULL
+    AND masjid_student_code IS NOT NULL;
 
-/* =========================================================
-   4) USER_MASJID_MEMBERSHIP_HISTORY (opsional: riwayat status)
-   ========================================================= */
-CREATE TABLE IF NOT EXISTS user_masjid_membership_history (
-  user_masjid_membership_history_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_masjid_membership_id           UUID NOT NULL REFERENCES user_masjid_memberships(user_masjid_membership_id) ON DELETE CASCADE,
-  user_masjid_membership_history_prev_status TEXT,
-  user_masjid_membership_history_new_status  TEXT,
-  user_masjid_membership_history_reason      TEXT,
-  user_masjid_membership_history_changed_by  UUID,
-  user_masjid_membership_history_changed_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+-- Unik NIM per masjid (case-insensitive; alive only)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_ms_nim_alive_ci
+  ON masjid_students (masjid_student_masjid_id, LOWER(masjid_student_nim))
+  WHERE masjid_student_deleted_at IS NULL
+    AND masjid_student_nim IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_ummh_membership_changed_at
-  ON user_masjid_membership_history (user_masjid_membership_id, user_masjid_membership_history_changed_at DESC);
+-- Lookups umum per tenant (alive only) + created_at untuk pagination
+CREATE INDEX IF NOT EXISTS ix_ms_tenant_status_created
+  ON masjid_students (masjid_student_masjid_id, masjid_student_status, masjid_student_created_at DESC)
+  WHERE masjid_student_deleted_at IS NULL;
 
+CREATE INDEX IF NOT EXISTS idx_ms_masjid_alive
+  ON masjid_students (masjid_student_masjid_id)
+  WHERE masjid_student_deleted_at IS NULL;
 
-/* =========================================================
-   5) USER_CONSENT_LOGS (opsional: log persetujuan)
-   ========================================================= */
-CREATE TABLE IF NOT EXISTS user_consent_logs (
-  user_consent_log_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id                   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  user_consent_log_type     TEXT,          -- photo/trip/data_processing/messaging/other
-  user_consent_log_granted  BOOLEAN,
-  user_consent_log_context  JSONB,
-  user_consent_log_ip       INET,
-  user_consent_log_user_agent TEXT,
-  user_consent_log_created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+CREATE INDEX IF NOT EXISTS idx_ms_user_alive
+  ON masjid_students (masjid_student_user_id)
+  WHERE masjid_student_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_user_consent_logs_user_created
-  ON user_consent_logs (user_id, user_consent_log_created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ms_masjid_status_alive
+  ON masjid_students (masjid_student_masjid_id, masjid_student_status)
+  WHERE masjid_student_deleted_at IS NULL;
 
+CREATE INDEX IF NOT EXISTS idx_ms_user_status_alive
+  ON masjid_students (masjid_student_user_id, masjid_student_status)
+  WHERE masjid_student_deleted_at IS NULL;
 
-/* =========================================================
-   6) USER_MASJID_MEMBERSHIP_FINANCE (opsional: administrasi biaya)
-   ========================================================= */
-CREATE TABLE IF NOT EXISTS user_masjid_membership_finance (
-  user_masjid_membership_finance_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_masjid_membership_id           UUID NOT NULL REFERENCES user_masjid_memberships(user_masjid_membership_id) ON DELETE CASCADE,
+CREATE INDEX IF NOT EXISTS idx_ms_joined_at_alive
+  ON masjid_students (masjid_student_joined_at DESC)
+  WHERE masjid_student_deleted_at IS NULL;
 
-  user_masjid_membership_finance_fee_plan         VARCHAR(50),
-  user_masjid_membership_finance_fee_amount       NUMERIC(12,2),
-  user_masjid_membership_finance_fee_currency     VARCHAR(10),
-  user_masjid_membership_finance_scholarship_amount NUMERIC(12,2),
-  user_masjid_membership_finance_payment_status   VARCHAR(20),  -- current/overdue/cleared
-  user_masjid_membership_finance_last_payment_at  TIMESTAMPTZ,
-  user_masjid_membership_finance_notes            TEXT,
+CREATE INDEX IF NOT EXISTS idx_ms_left_at_alive
+  ON masjid_students (masjid_student_left_at)
+  WHERE masjid_student_deleted_at IS NULL
+    AND masjid_student_left_at IS NOT NULL;
 
-  user_masjid_membership_finance_created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  user_masjid_membership_finance_updated_at       TIMESTAMPTZ
-);
+CREATE INDEX IF NOT EXISTS idx_ms_created_at_alive
+  ON masjid_students (masjid_student_created_at DESC)
+  WHERE masjid_student_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_ummf_membership_status
-  ON user_masjid_membership_finance (user_masjid_membership_id, user_masjid_membership_finance_payment_status);
+-- Teks: catatan santri, pakai ILIKE
+CREATE INDEX IF NOT EXISTS gin_ms_note_trgm_alive
+  ON masjid_students USING GIN (LOWER(masjid_student_note) gin_trgm_ops)
+  WHERE masjid_student_deleted_at IS NULL;
+
+-- BRIN untuk range waktu besar (timeline ingestion)
+CREATE INDEX IF NOT EXISTS brin_ms_created_at
+  ON masjid_students USING BRIN (masjid_student_created_at);
+
+-- Tambahan index untuk kolom rekomendasi (aktif bila kolom dipakai)
+CREATE INDEX IF NOT EXISTS idx_ms_intake_year_alive
+  ON masjid_students (masjid_student_intake_year)
+  WHERE masjid_student_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ms_admission_batch_alive
+  ON masjid_students (masjid_student_masjid_id, masjid_student_admission_batch)
+  WHERE masjid_student_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ms_current_class_alive
+  ON masjid_students (masjid_student_current_class_id)
+  WHERE masjid_student_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ms_grade_alive
+  ON masjid_students (masjid_student_current_grade)
+  WHERE masjid_student_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ms_verified_alive
+  ON masjid_students (masjid_student_is_verified, masjid_student_verified_at DESC)
+  WHERE masjid_student_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ms_status_changed_alive
+  ON masjid_students (masjid_student_status, masjid_student_status_changed_at DESC)
+  WHERE masjid_student_deleted_at IS NULL;
 
 COMMIT;

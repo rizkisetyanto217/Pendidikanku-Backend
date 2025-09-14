@@ -130,6 +130,8 @@ CREATE INDEX IF NOT EXISTS brin_mtj_joined_at
 CREATE INDEX IF NOT EXISTS brin_mtj_created_at
   ON masjid_teachers USING BRIN (masjid_teacher_created_at);
 
+
+
 -- =========================================================
 -- TABEL: MASJID_STUDENTS (ringkas, tanpa joined/left)
 -- =========================================================
@@ -146,6 +148,10 @@ CREATE TABLE IF NOT EXISTS masjid_students (
 
   masjid_student_status TEXT NOT NULL DEFAULT 'active'
     CHECK (masjid_student_status IN ('active','inactive','alumni')),
+
+    -- Operasional
+  masjid_student_joined_at     TIMESTAMPTZ,
+  masjid_student_left_at       TIMESTAMPTZ,
 
   -- catatan umum santri
   masjid_student_note TEXT,

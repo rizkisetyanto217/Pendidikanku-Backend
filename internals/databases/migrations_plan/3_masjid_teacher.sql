@@ -26,9 +26,6 @@ CREATE TABLE IF NOT EXISTS user_teachers (
   user_teacher_user_id              UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
 
   -- Profil ringkas (GLOBAL)
-  user_teacher_avatar_url           TEXT,
-  user_teacher_avatar_deleted_url   TEXT,
-  user_teacher_avatar_delete_pending_until TIMESTAMPTZ,
   user_teacher_field                VARCHAR(80),
   user_teacher_short_bio            VARCHAR(300),
   user_teacher_greeting             TEXT,
