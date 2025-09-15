@@ -1,8 +1,8 @@
 package controller
 
 import (
-	annModel "masjidku_backend/internals/features/school/other/announcement/model"
-	annThemeModel "masjidku_backend/internals/features/school/other/announcement/model"
+	annModel "masjidku_backend/internals/features/school/others/announcements/model"
+	annThemeModel "masjidku_backend/internals/features/school/others/announcements/model"
 	"strings"
 	"time"
 
@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	annDTO "masjidku_backend/internals/features/school/other/announcement/dto"
+	annDTO "masjidku_backend/internals/features/school/others/announcements/dto"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 )

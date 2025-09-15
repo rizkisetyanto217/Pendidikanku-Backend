@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS user_attendance_type (
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   user_attendance_type_code  VARCHAR(32) NOT NULL,  -- ex: SETORAN, MURAJAAH, TILAWAH
+  user_attendance_type_color       VARCHAR(20),
+  user_attendance_type_slug        VARCHAR(120),
   user_attendance_type_label VARCHAR(80),
   user_attendance_type_desc  TEXT,
 
@@ -141,5 +143,123 @@ CREATE INDEX IF NOT EXISTS gin_user_attendance_desc_trgm
   ON user_attendance USING GIN (user_attendance_desc gin_trgm_ops)
   WHERE user_attendance_deleted_at IS NULL;
 
+
+COMMIT;
+
+
+
+BEGIN;
+
+-- =========================================================
+-- USER_ATTENDANCE_URLS — selaras dengan pola announcement_urls
+--  - tambah: kind, object_key, object_key_old, mime
+--  - tambah: order, is_primary
+--  - pertahankan: uploader fields, tenant guard via FK
+-- =========================================================
+CREATE TABLE IF NOT EXISTS user_attendance_urls (
+  user_attendance_url_id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Tenant & owner
+  user_attendance_url_masjid_id            UUID NOT NULL
+    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  user_attendance_url_attendance_id        UUID NOT NULL
+    REFERENCES user_attendance(user_attendance_id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+
+  -- (opsional) tipe media eksternal (lookup table)
+  user_attendance_type_id                  UUID
+    REFERENCES public.user_attendance_type(user_attendance_type_id)
+    ON UPDATE CASCADE ON DELETE SET NULL,
+
+  -- Jenis/peran aset (mis. 'image','video','attachment','link','audio', dll.)
+  user_attendance_url_kind                 VARCHAR(24) NOT NULL,
+
+  -- Lokasi file/link
+  user_attendance_url_href                 TEXT,        -- URL publik (boleh NULL jika pakai object storage)
+  user_attendance_url_object_key           TEXT,        -- object key aktif di storage
+  user_attendance_url_object_key_old       TEXT,        -- object key lama (retensi in-place replace)
+  user_attendance_url_mime                 VARCHAR(80), -- opsional
+
+  -- Metadata tampilan
+  user_attendance_url_label                VARCHAR(160),
+  user_attendance_url_order                INT NOT NULL DEFAULT 0,
+  user_attendance_url_is_primary           BOOLEAN NOT NULL DEFAULT FALSE,
+
+  -- Housekeeping (retensi/purge)
+  user_attendance_url_trash_url            TEXT,
+  user_attendance_url_delete_pending_until TIMESTAMPTZ,
+
+  -- Uploader (opsional)
+  user_attendance_url_uploader_teacher_id  UUID, -- FK ke masjid_teachers bisa ditambah di skrip terpisah jika diperlukan
+  user_attendance_url_uploader_student_id  UUID
+    REFERENCES masjid_students(masjid_student_id) ON DELETE SET NULL,
+
+  -- Audit
+  user_attendance_url_created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_attendance_url_updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_attendance_url_deleted_at           TIMESTAMPTZ
+);
+
+-- =========================================================
+-- INDEXING / OPTIMIZATION (paritas dg announcement_urls)
+-- =========================================================
+
+-- Lookup per attendance (live only) + urutan tampil
+CREATE INDEX IF NOT EXISTS ix_uau_by_owner_live
+  ON user_attendance_urls (
+    user_attendance_url_attendance_id,
+    user_attendance_url_kind,
+    user_attendance_url_is_primary DESC,
+    user_attendance_url_order,
+    user_attendance_url_created_at
+  )
+  WHERE user_attendance_url_deleted_at IS NULL;
+
+-- Filter per tenant (live only)
+CREATE INDEX IF NOT EXISTS ix_uau_by_masjid_live
+  ON user_attendance_urls (user_attendance_url_masjid_id)
+  WHERE user_attendance_url_deleted_at IS NULL;
+
+-- Satu primary per (attendance, kind) (live only)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_uau_primary_per_kind_alive
+  ON user_attendance_urls (user_attendance_url_attendance_id, user_attendance_url_kind)
+  WHERE user_attendance_url_deleted_at IS NULL
+    AND user_attendance_url_is_primary = TRUE;
+
+-- Anti-duplikat href per attendance (live only) — opsional
+CREATE UNIQUE INDEX IF NOT EXISTS uq_uau_attendance_href_alive
+  ON user_attendance_urls (user_attendance_url_attendance_id, LOWER(user_attendance_url_href))
+  WHERE user_attendance_url_deleted_at IS NULL
+    AND user_attendance_url_href IS NOT NULL;
+
+-- Kandidat purge:
+--  - baris AKTIF dengan object_key_old (in-place replace)
+--  - baris SOFT-DELETED dengan object_key (versi-per-baris)
+CREATE INDEX IF NOT EXISTS ix_uau_purge_due
+  ON user_attendance_urls (user_attendance_url_delete_pending_until)
+  WHERE user_attendance_url_delete_pending_until IS NOT NULL
+    AND (
+      (user_attendance_url_deleted_at IS NULL  AND user_attendance_url_object_key_old IS NOT NULL) OR
+      (user_attendance_url_deleted_at IS NOT NULL AND user_attendance_url_object_key     IS NOT NULL)
+    );
+
+-- Uploader lookups (live only)
+CREATE INDEX IF NOT EXISTS ix_uau_uploader_teacher_live
+  ON user_attendance_urls (user_attendance_url_uploader_teacher_id)
+  WHERE user_attendance_url_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_uau_uploader_student_live
+  ON user_attendance_urls (user_attendance_url_uploader_student_id)
+  WHERE user_attendance_url_deleted_at IS NULL;
+
+-- Time-scan (arsip/waktu)
+CREATE INDEX IF NOT EXISTS brin_uau_created_at
+  ON user_attendance_urls USING BRIN (user_attendance_url_created_at);
+
+-- (opsional) pencarian label cepat (live only)
+-- CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- CREATE INDEX IF NOT EXISTS gin_uau_label_trgm_live
+--   ON user_attendance_urls USING GIN (user_attendance_url_label gin_trgm_ops)
+--   WHERE user_attendance_url_deleted_at IS NULL;
 
 COMMIT;

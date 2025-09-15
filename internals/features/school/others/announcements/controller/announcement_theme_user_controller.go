@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	anModel "masjidku_backend/internals/features/school/other/announcement/model"
-	annDTO "masjidku_backend/internals/features/school/other/announcement/dto"
-	annModel "masjidku_backend/internals/features/school/other/announcement/model"
+	anModel "masjidku_backend/internals/features/school/others/announcements/model"
+	annDTO "masjidku_backend/internals/features/school/others/announcements/dto"
+	annModel "masjidku_backend/internals/features/school/others/announcements/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 

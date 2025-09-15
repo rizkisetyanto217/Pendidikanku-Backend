@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS class_schedule_overrides (
   class_schedule_overrides_deleted_at TIMESTAMPTZ
 );
 
+
 -- =========================================================
 -- CLASS_EVENTS — event ad-hoc/special (FINAL)
 -- =========================================================

@@ -18,8 +18,8 @@ CREATE TABLE IF NOT EXISTS class_rooms (
   -- identitas ruang
   class_rooms_name      TEXT NOT NULL,
   class_rooms_code      TEXT,
+  class_rooms_slug      VARCHAR(50),
   class_rooms_location  TEXT,
-  class_rooms_floor     INT,
   class_rooms_capacity  INT CHECK (class_rooms_capacity >= 0),
   class_rooms_description TEXT,
 

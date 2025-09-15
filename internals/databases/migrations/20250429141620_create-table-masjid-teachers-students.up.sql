@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS masjid_teachers (
   -- Identitas/kepegawaian (level masjid)
   masjid_teacher_code        VARCHAR(50),              -- kode internal (unik per masjid; alive only)
   masjid_teacher_nip         VARCHAR(50),              -- NIP/NIM/NIK lokal (unik per masjid; alive only)
-  masjid_teacher_title       VARCHAR(80),              -- jabatan/gelar (Ust., Ustdz., dsb.)
+  masjid_teacher_slug        VARCHAR(50),              -- unik per masjid (alive)
   masjid_teacher_employment  teacher_employment_enum,  -- status kepegawaian
   masjid_teacher_is_active   BOOLEAN NOT NULL DEFAULT TRUE,
 
@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS masjid_students (
 
   masjid_student_user_id UUID NOT NULL
     REFERENCES users(id) ON DELETE CASCADE,
+  masjid_student_slug VARCHAR(50) NOT NULL UNIQUE,
 
   masjid_student_code VARCHAR(50),
 

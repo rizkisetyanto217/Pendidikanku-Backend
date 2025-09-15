@@ -41,7 +41,6 @@ CREATE TABLE IF NOT EXISTS class_rooms (
 
   -- lokasi fisik ringkas (abaikan jika virtual)
   class_rooms_location TEXT,
-  class_rooms_floor SMALLINT,
   class_rooms_capacity INT CHECK (class_rooms_capacity >= 0),
 
   -- status/visibilitas

@@ -11,8 +11,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	d "masjidku_backend/internals/features/school/sessions/schedule/dto"
-	m "masjidku_backend/internals/features/school/sessions/schedule/model"
+	d "masjidku_backend/internals/features/school/sessions/schedules/dto"
+	m "masjidku_backend/internals/features/school/sessions/schedules/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 )

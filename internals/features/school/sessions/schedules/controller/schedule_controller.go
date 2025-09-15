@@ -16,8 +16,8 @@ import (
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
-	d "masjidku_backend/internals/features/school/sessions/schedule/dto"
-	m "masjidku_backend/internals/features/school/sessions/schedule/model"
+	d "masjidku_backend/internals/features/school/sessions/schedules/dto"
+	m "masjidku_backend/internals/features/school/sessions/schedules/model"
 )
 
 /* =========================

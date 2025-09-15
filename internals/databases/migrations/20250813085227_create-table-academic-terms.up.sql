@@ -29,10 +29,12 @@ CREATE TABLE IF NOT EXISTS academic_terms (
   academic_terms_is_active     BOOLEAN   NOT NULL DEFAULT TRUE,
 
   academic_terms_code          VARCHAR(24),     -- ex: 2026GJ
-  academic_terms_slug          VARCHAR(60),     -- URL-friendly per tenant
+  academic_terms_slug          VARCHAR(50),     -- URL-friendly per tenant
 
   -- NEW: angkatan (opsional). Disimpan sebagai tahun masuk/angkatan (mis. 2024).
   academic_terms_angkatan      INTEGER,
+
+  academic_terms_description TEXT,
 
   -- half-open range [start, end) - IMMUTABLE via explicit timezone
   academic_terms_period        DATERANGE GENERATED ALWAYS AS

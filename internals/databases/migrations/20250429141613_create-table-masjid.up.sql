@@ -1,11 +1,19 @@
 
 
+BEGIN;
+
+-- =========================================================
+-- EXTENSIONS
+-- =========================================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;      -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;       -- trigram search
 CREATE EXTENSION IF NOT EXISTS cube;          -- earthdistance requirement
 CREATE EXTENSION IF NOT EXISTS earthdistance; -- ll_to_earth()
 
--- ENUM verifikasi
+-- =========================================================
+-- ENUMS
+-- =========================================================
+-- (existing) verifikasi
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'verification_status_enum') THEN
@@ -13,15 +21,31 @@ BEGIN
   END IF;
 END$$;
 
+-- (new) tenant profile / peruntukan
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tenant_profile_enum') THEN
+    CREATE TYPE tenant_profile_enum AS ENUM (
+      'teacher_solo',        -- (1) Guru saja, tanpa dashboard admin
+      'teacher_plus_school', -- (2) Guru + sekolah, dashboard digabung
+      'school_basic',        -- (3) Sekolah kecil/menengah
+      'school_complex'       -- (4) Sekolah kompleks
+    );
+  END IF;
+END$$;
+
 -- =========================================================
--- MASJIDS (inti/operasional) - TANPA KOORDINAT
+-- MASJIDS (inti/operasional) - versi ringkas & idempotent
+-- CATATAN:
+-- - CREATE TABLE IF NOT EXISTS tidak menambah kolom bila tabel sudah ada.
+-- - Tidak ada ALTER/CONSTRAINT tambahan, aturan bisnis di-handle di backend.
 -- =========================================================
 CREATE TABLE IF NOT EXISTS masjids (
   masjid_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Relasi
-  masjid_yayasan_id     UUID REFERENCES yayasans (yayasan_id) ON UPDATE CASCADE ON DELETE SET NULL,
-  masjid_current_plan_id UUID REFERENCES masjid_service_plans (masjid_service_plan_id),
+  masjid_yayasan_id       UUID REFERENCES yayasans (yayasan_id) ON UPDATE CASCADE ON DELETE SET NULL,
+  masjid_current_plan_id  UUID REFERENCES masjid_service_plans (masjid_service_plan_id),
 
   -- Identitas & lokasi ringkas
   masjid_name      VARCHAR(100) NOT NULL,
@@ -47,33 +71,41 @@ CREATE TABLE IF NOT EXISTS masjids (
   -- Flag
   masjid_is_islamic_school BOOLEAN NOT NULL DEFAULT FALSE,
 
+  -- Peruntukan tenant (langsung di definisi tabel)
+  masjid_tenant_profile tenant_profile_enum NOT NULL DEFAULT 'teacher_solo',
+
   -- Levels (tag-style; contoh: ["Kursus","Ilmu Qur'an","Sekolah Nonformal"])
   masjid_levels JSONB,
 
-  -- Full-text search (GENERATED; tanpa trigger)
+  -- Full-text search (GENERATED; memasukkan tenant_profile)
   masjid_search tsvector GENERATED ALWAYS AS (
     setweight(to_tsvector('simple', coalesce(masjid_name,'')), 'A')
     || setweight(to_tsvector('simple', coalesce(masjid_location,'')), 'B')
     || setweight(to_tsvector('simple', coalesce(masjid_bio_short,'')), 'C')
     || setweight(to_tsvector('simple', coalesce(masjid_levels::text,'')), 'D')
+    || setweight(to_tsvector('simple', coalesce(masjid_tenant_profile::text,'')), 'D')
   ) STORED,
 
   -- Audit
-  masjid_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  masjid_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-   masjid_last_activity_at     TIMESTAMPTZ,
-  masjid_deleted_at TIMESTAMPTZ,
+  masjid_created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  masjid_updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  masjid_last_activity_at TIMESTAMPTZ,
+  masjid_deleted_at       TIMESTAMPTZ,
 
   -- Validasi ringan
   CONSTRAINT chk_masjid_levels_is_array
     CHECK (masjid_levels IS NULL OR jsonb_typeof(masjid_levels) = 'array')
 );
 
--- INDEXES (masjids)
+-- =========================================================
+-- INDEXES
+-- =========================================================
 CREATE INDEX IF NOT EXISTS idx_masjids_name_trgm
   ON masjids USING gin (masjid_name gin_trgm_ops);
+
 CREATE INDEX IF NOT EXISTS idx_masjids_location_trgm
   ON masjids USING gin (masjid_location gin_trgm_ops);
+
 CREATE INDEX IF NOT EXISTS idx_masjids_name_lower
   ON masjids (LOWER(masjid_name));
 
@@ -84,6 +116,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_masjids_domain_ci
 -- FK helpers
 CREATE INDEX IF NOT EXISTS idx_masjids_yayasan
   ON masjids (masjid_yayasan_id);
+
 CREATE INDEX IF NOT EXISTS idx_masjids_current_plan
   ON masjids (masjid_current_plan_id);
 
@@ -94,36 +127,20 @@ CREATE INDEX IF NOT EXISTS gin_masjids_levels
 -- FTS & arsip waktu
 CREATE INDEX IF NOT EXISTS idx_masjids_search
   ON masjids USING gin (masjid_search);
+
 CREATE INDEX IF NOT EXISTS brin_masjids_created_at
   ON masjids USING brin (masjid_created_at);
 
--- Status
+-- Status (aktif & tidak terhapus)
 CREATE INDEX IF NOT EXISTS idx_masjids_active_alive
   ON masjids(masjid_is_active)
   WHERE masjid_deleted_at IS NULL;
 
+-- Peruntukan tenant (filter cepat)
+CREATE INDEX IF NOT EXISTS idx_masjids_tenant_profile
+  ON masjids (masjid_tenant_profile);
 
--- =========================================================
--- USER_FOLLOW_MASJID (relasi sederhana)
--- =========================================================
-CREATE TABLE IF NOT EXISTS user_follow_masjid (
-  user_follow_masjid_user_id    UUID NOT NULL,
-  user_follow_masjid_masjid_id  UUID NOT NULL,
-  user_follow_masjid_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT pk_user_follow_masjid
-    PRIMARY KEY (user_follow_masjid_user_id, user_follow_masjid_masjid_id),
-  CONSTRAINT fk_user_follow_masjid_user
-    FOREIGN KEY (user_follow_masjid_user_id) REFERENCES users(id) ON DELETE CASCADE,
-  CONSTRAINT fk_user_follow_masjid_masjid
-    FOREIGN KEY (user_follow_masjid_masjid_id) REFERENCES masjids(masjid_id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_user_follow_masjid_user_id
-  ON user_follow_masjid (user_follow_masjid_user_id);
-CREATE INDEX IF NOT EXISTS idx_user_follow_masjid_masjid_id
-  ON user_follow_masjid (user_follow_masjid_masjid_id);
-CREATE INDEX IF NOT EXISTS idx_user_follow_masjid_created_at
-  ON user_follow_masjid (user_follow_masjid_created_at);
-
+COMMIT;
 
 
 -- =========================================================
@@ -155,18 +172,11 @@ CREATE TABLE IF NOT EXISTS masjids_profiles (
   masjid_profile_whatsapp_group_akhwat_url TEXT,
   masjid_profile_website_url               TEXT,
 
-  -- Koordinat (di profiles)
-  masjid_profile_latitude  DECIMAL(9,6),
-  masjid_profile_longitude DECIMAL(9,6),
-
   -- Profil sekolah (opsional) — TANPA school_type
   masjid_profile_school_npsn              VARCHAR(20),
   masjid_profile_school_nss               VARCHAR(20),
   masjid_profile_school_accreditation     VARCHAR(10),
   masjid_profile_school_principal_user_id UUID REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL,
-  masjid_profile_school_phone             VARCHAR(30),
-  masjid_profile_school_email             VARCHAR(120),
-  masjid_profile_school_address           TEXT,
   masjid_profile_school_student_capacity  INT,
   masjid_profile_school_is_boarding       BOOLEAN NOT NULL DEFAULT FALSE,
 

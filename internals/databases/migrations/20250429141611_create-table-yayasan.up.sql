@@ -23,15 +23,11 @@ CREATE TABLE IF NOT EXISTS yayasans (
 
   -- Identitas & legal
   yayasan_name        VARCHAR(150) NOT NULL,
-  yayasan_legal_number TEXT,                 -- nomor akta/pendirian/penyesuaian
-  yayasan_legal_date   DATE,                 -- tanggal akta
 
   -- Kontak & lokasi
   yayasan_address   TEXT,
   yayasan_city      TEXT,
   yayasan_province  TEXT,
-  yayasan_latitude  DECIMAL(9,6),
-  yayasan_longitude DECIMAL(9,6),
 
   yayasan_google_maps_url       TEXT,
 
@@ -45,14 +41,6 @@ CREATE TABLE IF NOT EXISTS yayasans (
   yayasan_verification_status verification_status_enum NOT NULL DEFAULT 'pending',
   yayasan_verified_at TIMESTAMPTZ NULL,
   yayasan_verification_notes TEXT,
-
-  -- Sosial
-  yayasan_website_url  TEXT,
-  yayasan_instagram_url TEXT,
-  yayasan_whatsapp_url  TEXT,
-  yayasan_youtube_url   TEXT,
-  yayasan_facebook_url  TEXT,
-  yayasan_tiktok_url    TEXT,
 
   -- Full-text search gabungan (name + alamat + kota/provinsi)
   yayasan_search tsvector GENERATED ALWAYS AS (

@@ -4,7 +4,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	annCtl "masjidku_backend/internals/features/school/other/announcement/controller"
+	annCtl "masjidku_backend/internals/features/school/others/announcements/controller"
 )
 
 // Rute ADMIN/TEACHER untuk Announcements.

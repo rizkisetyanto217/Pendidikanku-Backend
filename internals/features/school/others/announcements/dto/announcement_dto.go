@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	model "masjidku_backend/internals/features/school/other/announcement/model"
+	model "masjidku_backend/internals/features/school/others/announcements/model"
 )
 
 /* ===================== REQUESTS ===================== */

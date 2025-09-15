@@ -21,7 +21,6 @@ CREATE TABLE IF NOT EXISTS masjid_service_plans (
 
   masjid_service_plan_allow_custom_domain    BOOLEAN NOT NULL DEFAULT FALSE,
   masjid_service_plan_allow_certificates     BOOLEAN NOT NULL DEFAULT FALSE,
-  masjid_service_plan_allow_priority_support BOOLEAN NOT NULL DEFAULT FALSE,
 
   masjid_service_plan_price_monthly NUMERIC(12,2),
   masjid_service_plan_price_yearly  NUMERIC(12,2),

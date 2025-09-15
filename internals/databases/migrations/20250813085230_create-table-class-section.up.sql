@@ -9,11 +9,10 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- untuk GIN trigram (opsional ILIKE)
 -- =========================================================
 -- BERSIHKAN DATA & SKEMA LAMA
 -- =========================================================
--- Drop total agar benar-benar fresh (akan ikut menjatuhkan FK yang mereferensikan table ini)
 DROP TABLE IF EXISTS class_sections CASCADE;
 
 -- =========================================================
--- CREATE: class_sections (versi sederhana, tanpa trigger)
+-- CREATE: class_sections (versi sederhana, + image 2-slot)
 -- =========================================================
 CREATE TABLE class_sections (
   class_sections_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -24,6 +23,7 @@ CREATE TABLE class_sections (
 
   class_sections_class_id      UUID NOT NULL,
   class_sections_teacher_id    UUID,
+  class_sections_assistant_teacher_id UUID,
   class_sections_class_room_id UUID,
 
   -- Identitas
@@ -32,17 +32,21 @@ CREATE TABLE class_sections (
   class_sections_code  VARCHAR(50),
 
   -- Jadwal simple (teks bebas, contoh: "Jumat 19:00–21:00")
-  class_sections_schedule VARCHAR(200),
+  class_sections_schedule TEXT,
 
   -- Kapasitas & counter (dikelola backend)
   class_sections_capacity       INT,
   class_sections_total_students INT NOT NULL DEFAULT 0,
 
-    -- Meeting / Group
+  -- Meeting / Group
   class_sections_group_url                TEXT,
 
-
-
+  -- Image (single file, 2-slot + retensi 30 hari)
+  class_sections_image_url                   TEXT,
+  class_sections_image_object_key            TEXT,
+  class_sections_image_url_old               TEXT,
+  class_sections_image_object_key_old        TEXT,
+  class_sections_image_delete_pending_until  TIMESTAMPTZ,
 
   -- Status & audit
   class_sections_is_active  BOOLEAN     NOT NULL DEFAULT TRUE,
@@ -111,7 +115,7 @@ CREATE INDEX IF NOT EXISTS idx_sections_class      ON class_sections (class_sect
 CREATE INDEX IF NOT EXISTS idx_sections_teacher    ON class_sections (class_sections_teacher_id);
 CREATE INDEX IF NOT EXISTS idx_sections_class_room ON class_sections (class_sections_class_room_id);
 
--- Listing umum: tenant-first + filter + pagination stabil
+-- Listing umum
 CREATE INDEX IF NOT EXISTS ix_sections_masjid_active_created
   ON class_sections (class_sections_masjid_id, class_sections_is_active, class_sections_created_at DESC)
   WHERE class_sections_deleted_at IS NULL;
@@ -148,14 +152,17 @@ CREATE INDEX IF NOT EXISTS idx_sections_group_url_alive
 CREATE INDEX IF NOT EXISTS brin_sections_created_at
   ON class_sections USING BRIN (class_sections_created_at);
 
+-- Purge kandidat image lama (due)
+CREATE INDEX IF NOT EXISTS idx_sections_image_purge_due
+  ON class_sections (class_sections_image_delete_pending_until)
+  WHERE class_sections_image_object_key_old IS NOT NULL;
+
 -- =========================================================
 -- PULIHKAN FK DARI TABEL LAIN (JIKA ADA), TANPA TRIGGER
 -- =========================================================
--- user_class_sections → class_sections (komposit)
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='user_class_sections' AND table_schema=current_schema()) THEN
-    -- buang FK lama jika (masih) ada dengan nama lain
     IF EXISTS (
       SELECT 1 FROM information_schema.table_constraints
       WHERE table_name='user_class_sections' AND constraint_type='FOREIGN KEY' AND constraint_name='fk_ucs_section_masjid_pair'
@@ -163,7 +170,6 @@ BEGIN
       ALTER TABLE user_class_sections DROP CONSTRAINT fk_ucs_section_masjid_pair;
     END IF;
 
-    -- tambah lagi FK komposit yang benar
     ALTER TABLE user_class_sections
       ADD CONSTRAINT fk_ucs_section_masjid_pair
       FOREIGN KEY (user_class_sections_section_id, user_class_sections_masjid_id)
@@ -172,7 +178,6 @@ BEGIN
   END IF;
 END$$;
 
--- class_schedules → class_sections (komposit)
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='class_schedules' AND table_schema=current_schema()) THEN

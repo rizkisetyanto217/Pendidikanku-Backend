@@ -10,8 +10,8 @@ import (
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	// SCHEDULE (pakai path yang konsisten dengan DTO kamu)
-	schedDTO "masjidku_backend/internals/features/school/sessions/schedule/dto"
-	schedModel "masjidku_backend/internals/features/school/sessions/schedule/model"
+	schedDTO "masjidku_backend/internals/features/school/sessions/schedules/dto"
+	schedModel "masjidku_backend/internals/features/school/sessions/schedules/model"
 
 	// ATTENDANCE
 	attendanceDTO "masjidku_backend/internals/features/school/sessions/sessions/dto"

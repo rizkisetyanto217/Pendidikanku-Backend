@@ -72,3 +72,86 @@ CREATE INDEX IF NOT EXISTS idx_submissions_submitted_at
 
 CREATE INDEX IF NOT EXISTS brin_submissions_created_at
   ON submissions USING BRIN (submissions_created_at);
+
+
+
+-- =========================================================
+-- 5) SUBMISSION URLS (lampiran kiriman user) — selaras dgn announcement_urls
+-- =========================================================
+CREATE TABLE IF NOT EXISTS submission_urls (
+  submission_url_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Tenant & owner
+  submission_url_masjid_id       UUID NOT NULL
+    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  submission_url_submission_id   UUID NOT NULL
+    REFERENCES submissions(submissions_id) ON UPDATE CASCADE ON DELETE CASCADE,
+
+  -- Jenis/peran aset (selaras: 'image','video','attachment','link', dst.)
+  submission_url_kind            VARCHAR(24) NOT NULL,
+
+  -- Lokasi file/link
+  submission_url_href            TEXT,        -- URL publik (bisa null jika pakai object storage saja)
+  submission_url_object_key      TEXT,        -- object key aktif di storage
+  submission_url_object_key_old  TEXT,        -- object key lama (retensi in-place replace)
+  submission_url_mime            VARCHAR(80), -- opsional
+
+  -- Tampilan
+  submission_url_label           VARCHAR(160),
+  submission_url_order           INT NOT NULL DEFAULT 0,
+  submission_url_is_primary      BOOLEAN NOT NULL DEFAULT FALSE,
+
+  -- Audit & retensi
+  submission_url_created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  submission_url_updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  submission_url_deleted_at      TIMESTAMPTZ,          -- soft delete (versi-per-baris)
+  submission_url_delete_pending_until TIMESTAMPTZ      -- tenggat purge (baris aktif dgn *_old atau baris soft-deleted)
+);
+
+-- =========================================================
+-- INDEXING / OPTIMIZATION (paritas dg announcement_urls)
+-- =========================================================
+
+-- Lookup per submission (live only) + urutan tampil
+CREATE INDEX IF NOT EXISTS ix_sub_urls_by_owner_live
+  ON submission_urls (
+    submission_url_submission_id,
+    submission_url_kind,
+    submission_url_is_primary DESC,
+    submission_url_order,
+    submission_url_created_at
+  )
+  WHERE submission_url_deleted_at IS NULL;
+
+-- Filter per tenant (live only)
+CREATE INDEX IF NOT EXISTS ix_sub_urls_by_masjid_live
+  ON submission_urls (submission_url_masjid_id)
+  WHERE submission_url_deleted_at IS NULL;
+
+-- Satu primary per (submission, kind) (live only)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sub_urls_primary_per_kind_alive
+  ON submission_urls (submission_url_submission_id, submission_url_kind)
+  WHERE submission_url_deleted_at IS NULL
+    AND submission_url_is_primary = TRUE;
+
+-- Anti-duplikat href per submission (live only) — opsional, berguna utk link eksternal
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sub_urls_submission_href_alive
+  ON submission_urls (submission_url_submission_id, submission_url_href)
+  WHERE submission_url_deleted_at IS NULL
+    AND submission_url_href IS NOT NULL;
+
+-- Kandidat purge:
+--  - baris AKTIF dengan object_key_old (in-place replace)
+--  - baris SOFT-DELETED dengan object_key (versi-per-baris)
+CREATE INDEX IF NOT EXISTS ix_sub_urls_purge_due
+  ON submission_urls (submission_url_delete_pending_until)
+  WHERE submission_url_delete_pending_until IS NOT NULL
+    AND (
+      (submission_url_deleted_at IS NULL  AND submission_url_object_key_old IS NOT NULL) OR
+      (submission_url_deleted_at IS NOT NULL AND submission_url_object_key     IS NOT NULL)
+    );
+
+-- (opsional) pencarian label (live only)
+CREATE INDEX IF NOT EXISTS gin_sub_urls_label_trgm_live
+  ON submission_urls USING GIN (submission_url_label gin_trgm_ops)
+  WHERE submission_url_deleted_at IS NULL;

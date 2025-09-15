@@ -15,7 +15,7 @@ BEGIN
 END$$;
 
 -- =========================================================
--- Tabel: CLASS_SCHEDULES (include CSST; tanpa trigger validasi/sync)
+-- Tabel: CLASS_SCHEDULES (kompatibel dgn class_events)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -25,11 +25,11 @@ CREATE TABLE IF NOT EXISTS class_schedules (
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   -- induk jadwal → section
-  class_schedules_section_id UUID SET NULL
+  class_schedules_section_id UUID
     REFERENCES class_sections(class_sections_id) ON DELETE CASCADE,
 
   -- konteks kurikulum (kelas+mapel[+term]) → class_subjects
-  class_schedules_class_subject_id UUID SET NULL
+  class_schedules_class_subject_id UUID
     REFERENCES class_subjects(class_subjects_id) ON DELETE RESTRICT,
 
   -- assignment CSST (section+class_subject+teacher)
@@ -41,18 +41,25 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedules_room_id UUID
     REFERENCES class_rooms(class_room_id) ON DELETE SET NULL,
 
-  -- cache guru (optional; aplikasi boleh isi langsung atau via proses terpisah)
+  -- cache guru (opsional)
   class_schedules_teacher_id UUID
     REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE SET NULL,
 
+  -- ===== relasi ke EVENT (opsional; satu event terkait jadwal ini)
+  class_schedules_event_id UUID
+    REFERENCES class_events(class_events_id) ON DELETE SET NULL,
+
   -- pola berulang
-  class_schedules_day_of_week INT  NOT NULL CHECK (class_schedules_day_of_week BETWEEN 1 AND 7),
+  class_schedules_day_of_week INT  NOT NULL
+    CHECK (class_schedules_day_of_week BETWEEN 1 AND 7),
   class_schedules_start_time  TIME NOT NULL,
-  class_schedules_end_time    TIME NOT NULL CHECK (class_schedules_end_time > class_schedules_start_time),
+  class_schedules_end_time    TIME NOT NULL
+    CHECK (class_schedules_end_time > class_schedules_start_time),
 
   -- batas berlaku
   class_schedules_start_date  DATE NOT NULL,
-  class_schedules_end_date    DATE NOT NULL CHECK (class_schedules_end_date >= class_schedules_start_date),
+  class_schedules_end_date    DATE NOT NULL
+    CHECK (class_schedules_end_date >= class_schedules_start_date),
 
   -- status & metadata
   class_schedules_status    session_status_enum NOT NULL DEFAULT 'scheduled',
@@ -79,39 +86,32 @@ CREATE TABLE IF NOT EXISTS class_schedules (
 -- =========================
 -- Indexing (read pattern umum)
 -- =========================
--- Lookup per tenant + hari
 CREATE INDEX IF NOT EXISTS idx_class_schedules_tenant_dow
   ON class_schedules (class_schedules_masjid_id, class_schedules_day_of_week);
 
--- Section timetable
 CREATE INDEX IF NOT EXISTS idx_class_schedules_section_dow_time
   ON class_schedules (class_schedules_section_id, class_schedules_day_of_week, class_schedules_start_time, class_schedules_end_time);
 
--- Room usage per hari
 CREATE INDEX IF NOT EXISTS idx_class_schedules_room_dow
   ON class_schedules (class_schedules_room_id, class_schedules_day_of_week);
 
--- Subject filtering
 CREATE INDEX IF NOT EXISTS idx_class_schedules_class_subject
   ON class_schedules (class_schedules_class_subject_id);
 
--- Active rows (soft delete aware)
 CREATE INDEX IF NOT EXISTS idx_class_schedules_active
   ON class_schedules (class_schedules_is_active)
   WHERE class_schedules_is_active AND class_schedules_deleted_at IS NULL;
 
--- Teacher lookups
 CREATE INDEX IF NOT EXISTS idx_class_schedules_teacher_dow
   ON class_schedules (class_schedules_teacher_id, class_schedules_day_of_week);
+
 CREATE INDEX IF NOT EXISTS idx_class_schedules_teacher
   ON class_schedules (class_schedules_teacher_id);
 
--- CSST reference (untuk join ringan; soft-delete aware)
 CREATE INDEX IF NOT EXISTS idx_class_schedules_csst
   ON class_schedules (class_schedules_csst_id)
   WHERE class_schedules_deleted_at IS NULL;
 
--- Performa query umum by tenant + section/teacher (alive)
 CREATE INDEX IF NOT EXISTS idx_sched_masjid_section_alive
   ON class_schedules (class_schedules_masjid_id, class_schedules_section_id)
   WHERE class_schedules_is_active AND class_schedules_deleted_at IS NULL;
@@ -124,23 +124,22 @@ CREATE INDEX IF NOT EXISTS idx_sched_masjid_subject_alive
   ON class_schedules (class_schedules_masjid_id, class_schedules_class_subject_id)
   WHERE class_schedules_is_active AND class_schedules_deleted_at IS NULL;
 
--- (Opsional kuat) GiST untuk pencarian slot by hari+range (selain untuk constraint)
--- Membantu query "find all overlaps on DOW" secara cepat.
+-- lookup event
+CREATE INDEX IF NOT EXISTS idx_class_schedules_event
+  ON class_schedules (class_schedules_event_id);
+
+-- (Opsional kuat) GiST untuk pencarian slot by hari+range
 CREATE INDEX IF NOT EXISTS gist_sched_dow_timerange
   ON class_schedules
-  USING gist (
-    class_schedules_day_of_week,
-    class_schedules_time_range
-  );
+  USING gist (class_schedules_day_of_week, class_schedules_time_range);
 
--- (Opsional) Per tanggal (jika sering filter by date-range efektif)
+-- (Opsional) Per tanggal (jika sering filter by date-range)
 CREATE INDEX IF NOT EXISTS idx_sched_date_bounds
   ON class_schedules (class_schedules_start_date, class_schedules_end_date);
 
 -- =========================
 -- Exclusion Constraints (anti-bentrok inti)
 -- =========================
--- Room overlap
 ALTER TABLE class_schedules DROP CONSTRAINT IF EXISTS excl_sched_room_overlap;
 ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_room_overlap
   EXCLUDE USING gist (
@@ -151,7 +150,6 @@ ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_room_overlap
   )
   WHERE (class_schedules_is_active AND class_schedules_room_id IS NOT NULL AND class_schedules_deleted_at IS NULL);
 
--- Section overlap
 ALTER TABLE class_schedules DROP CONSTRAINT IF EXISTS excl_sched_section_overlap;
 ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_section_overlap
   EXCLUDE USING gist (
@@ -162,7 +160,6 @@ ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_section_overlap
   )
   WHERE (class_schedules_is_active AND class_schedules_deleted_at IS NULL);
 
--- Teacher overlap
 ALTER TABLE class_schedules DROP CONSTRAINT IF EXISTS excl_sched_teacher_overlap;
 ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_teacher_overlap
   EXCLUDE USING gist (
@@ -173,6 +170,7 @@ ALTER TABLE class_schedules ADD CONSTRAINT excl_sched_teacher_overlap
   )
   WHERE (class_schedules_is_active AND class_schedules_teacher_id IS NOT NULL AND class_schedules_deleted_at IS NULL);
 
+-- Bentuk link yang valid (CSST penuh ATAU pair section+class_subject)
 ALTER TABLE class_schedules
   DROP CONSTRAINT IF EXISTS ck_class_schedules_link_shape,
   ADD CONSTRAINT ck_class_schedules_link_shape
@@ -181,6 +179,5 @@ ALTER TABLE class_schedules
     OR
     (class_schedules_csst_id IS NULL AND class_schedules_section_id IS NOT NULL AND class_schedules_class_subject_id IS NOT NULL)
   );
-
 
 COMMIT;
