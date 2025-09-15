@@ -24,8 +24,7 @@ CREATE TABLE IF NOT EXISTS submissions (
   -- Isi jawaban
   submissions_text TEXT,                                   -- jawaban teks
   submissions_answer_url TEXT,                             -- file/link jawaban
-  submissions_answer_mime VARCHAR(100),                    -- MIME
-  submissions_answer_size_bytes BIGINT,                    -- ukuran file (opsional)
+
   submissions_answer_type VARCHAR(16) DEFAULT 'text'       -- jenis jawaban
     CHECK (submissions_answer_type IN ('text','file','link')),
 
@@ -70,12 +69,6 @@ CREATE TABLE IF NOT EXISTS submissions (
   submissions_graded_at TIMESTAMPTZ,
   submissions_is_auto_graded BOOLEAN DEFAULT FALSE,        -- nilai otomatis/manual
   submissions_internal_notes TEXT,                         -- catatan internal guru
-
-  -- Metadata klien
-  submissions_source VARCHAR(10) DEFAULT 'web'
-    CHECK (submissions_source IN ('web','android','ios','api')),
-  submissions_client_ip INET,
-  submissions_user_agent TEXT,
 
   -- Audit
   submissions_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

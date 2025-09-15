@@ -72,10 +72,6 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedules_attachments_count   INT,
 
   -- modality & meeting
-  class_schedules_modality            TEXT,      -- 'onsite'|'online'|'hybrid'
-  class_schedules_meeting_url         TEXT,
-  class_schedules_meeting_code        VARCHAR(64),
-  class_schedules_is_recorded         BOOLEAN DEFAULT FALSE,
   class_schedules_recording_url       TEXT,
 
   -- pengajar & kapasitas
@@ -100,22 +96,6 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedules_reminder_minutes_before INT[], -- {1440,60,10}
   class_schedules_reminder_channels   TEXT[],    -- ['push','email','wa','sms']
 
-  -- pembatalan & reschedule (jejak)
-  class_schedules_canceled_at         TIMESTAMPTZ,
-  class_schedules_canceled_reason     TEXT,
-  class_schedules_rescheduled_from_id UUID,
-  class_schedules_rescheduled_at      TIMESTAMPTZ,
-
-  -- fasilitas ruangan
-  class_schedules_room_setup          TEXT,
-  class_schedules_equipment_required  TEXT[],
-  class_schedules_equipment_provided  TEXT[],
-
-  -- meta umum
-  class_schedules_tags                TEXT[],
-  class_schedules_external_ref        TEXT,
-  class_schedules_notes               TEXT,
-  class_schedules_extra               JSONB,
 
   -- audit & optimistic locking
   class_schedules_created_by_user_id  UUID,
@@ -241,18 +221,10 @@ CREATE TABLE IF NOT EXISTS class_events (
   class_events_canceled_at      TIMESTAMPTZ,
   class_events_canceled_reason  TEXT,
 
-  -- meta
-  class_events_external_ref     TEXT,
-  class_events_tags             TEXT[],
-  class_events_notes            TEXT,
-  class_events_extra            JSONB,
-
   -- audit & locking
   class_events_created_by_user_id UUID,
   class_events_updated_by_user_id UUID,
   class_events_deleted_by_user_id UUID,
-  class_events_row_version      INT DEFAULT 1,
-  class_events_etag             TEXT,
 
   class_events_created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_events_updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),

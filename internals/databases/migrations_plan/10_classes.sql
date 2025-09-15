@@ -55,27 +55,9 @@ CREATE TABLE IF NOT EXISTS class_parents (
 
   -- Publishing & visibility
   class_parent_is_active      BOOLEAN     NOT NULL DEFAULT TRUE,
-  class_parent_publish_at     TIMESTAMPTZ,
-  class_parent_unpublish_at   TIMESTAMPTZ,
-
-  -- Cleanup (grace period)
-  class_parent_delete_pending_until TIMESTAMPTZ,
-  class_parent_delete_reason  TEXT,
-
-  -- SEO & meta
-  class_parent_seo_title       VARCHAR(70),
-  class_parent_seo_description VARCHAR(160),
-  class_parent_tags            TEXT[],
-  class_parent_meta            JSONB      NOT NULL DEFAULT '{}'::jsonb,
 
   -- Ringkasan/cache & audit-by-user
   class_parent_total_classes   INT        NOT NULL DEFAULT 0,
-  class_parent_created_by      UUID,
-  class_parent_updated_by      UUID,
-
-  -- Audit & moderation
-  class_parent_deleted_by      UUID,
-  class_parent_restored_at     TIMESTAMPTZ,
 
   class_parent_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   class_parent_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -155,7 +137,6 @@ CREATE TABLE IF NOT EXISTS classes (
   -- Relasi
   class_parent_id UUID NOT NULL,
   class_term_id   UUID,
-  class_main_teacher_id UUID,        -- optional: FK ke users(id) bisa ditambah nanti
 
   -- Identitas & konten
   class_slug           VARCHAR(160) NOT NULL,
@@ -168,10 +149,6 @@ CREATE TABLE IF NOT EXISTS classes (
   class_banner_url     TEXT,
   class_canonical_url  TEXT,
 
-  -- Waktu kelas
-  class_start_date DATE,
-  class_end_date   DATE,
-
   -- Registrasi / Term
   class_is_open BOOLEAN NOT NULL DEFAULT TRUE,
   class_registration_opens_at  TIMESTAMPTZ,
@@ -180,11 +157,6 @@ CREATE TABLE IF NOT EXISTS classes (
   -- Kuota
   class_quota_total INT CHECK (class_quota_total IS NULL OR class_quota_total >= 0),
   class_quota_taken INT NOT NULL DEFAULT 0 CHECK (class_quota_taken >= 0),
-
-  -- Enrollment flow
-  class_enrollment_requires_approval BOOLEAN NOT NULL DEFAULT FALSE,
-  class_waitlist_enabled             BOOLEAN NOT NULL DEFAULT FALSE,
-  class_waitlist_count               INT     NOT NULL DEFAULT 0,
 
   -- Pricing
   class_registration_fee_idr BIGINT,
@@ -199,20 +171,6 @@ CREATE TABLE IF NOT EXISTS classes (
   class_discount_starts_at    TIMESTAMPTZ,
   class_discount_ends_at      TIMESTAMPTZ,
 
-  -- Delivery & status
-  class_delivery_mode class_delivery_mode_enum,
-  class_language_code VARCHAR(10),   -- 'id', 'en-US'
-  class_language_level VARCHAR(20),  -- beginner/intermediate/advanced
-  class_subtitle_available BOOLEAN NOT NULL DEFAULT FALSE,
-  class_timezone      VARCHAR(40),   -- 'Asia/Jakarta'
-  class_location_text VARCHAR(160),  -- lokasi singkat utk offline
-  class_location_lat  NUMERIC(9,6),
-  class_location_lng  NUMERIC(9,6),
-  class_meeting_platform VARCHAR(30),
-  class_meeting_url   TEXT,
-  class_meeting_code  VARCHAR(60),
-  class_meeting_provider_event_id VARCHAR(120),
-  class_meeting_passcode          VARCHAR(40),
 
   class_status       class_status_enum     NOT NULL DEFAULT 'active',
   class_status_reason TEXT,
@@ -220,59 +178,15 @@ CREATE TABLE IF NOT EXISTS classes (
 
   -- Visibility & lifecycle
   class_is_public      BOOLEAN           NOT NULL DEFAULT TRUE, -- legacy flag
-  class_visibility     class_visibility_enum,
-  class_visibility_reason TEXT,
   class_display_order  SMALLINT,
-  class_publish_at     TIMESTAMPTZ,
-  class_unpublish_at   TIMESTAMPTZ,
-  class_archived_at    TIMESTAMPTZ,
-  class_archived_reason TEXT,
-  class_delete_pending_until TIMESTAMPTZ,
-  class_delete_reason  TEXT,
-  class_deleted_by     UUID,
-  class_restored_at    TIMESTAMPTZ,
 
   -- Tagging/kategori & referensi eksternal
   class_tags         TEXT[],
   class_category     VARCHAR(60),
   class_category_enum class_category_enum,
-  class_external_ref VARCHAR(100),
-
-  -- Jadwal generik & durasi default
-  class_rrule                   TEXT,        -- FREQ=WEEKLY;BYDAY=MO,WE
-  class_duration_minutes        SMALLINT,    -- 0..32767
-  class_default_meeting_day     SMALLINT,    -- 0=Sun..6=Sat
-  class_default_meeting_time    TIME,
 
   -- Prasyarat/usia
-  class_min_age         SMALLINT,
-  class_max_age         SMALLINT,
   class_requirements    JSONB     NOT NULL DEFAULT '{}'::jsonb,
-
-  -- Pembayaran tambahan
-  class_currency        CHAR(3)   DEFAULT 'IDR',  -- ISO 4217
-  class_tax_inclusive   BOOLEAN   NOT NULL DEFAULT TRUE,
-  class_trial_days      SMALLINT,
-
-  -- Akademik
-  class_credit_hours    SMALLINT,
-
-  -- Catatan admin & SEO/meta/OG
-  class_notes            TEXT,
-  class_seo_title        VARCHAR(70),
-  class_seo_description  VARCHAR(160),
-  class_og_image_url     TEXT,
-  class_meta             JSONB     NOT NULL DEFAULT '{}'::jsonb,
-  class_i18n             JSONB     NOT NULL DEFAULT '{}'::jsonb,
-
-  -- Audit by user & ops/integrasi
-  class_created_by      UUID,
-  class_updated_by      UUID,
-  class_last_synced_at  TIMESTAMPTZ,
-  class_row_version     BIGINT    NOT NULL DEFAULT 1,
-
-  -- Search materialized
-  class_search_tsv      tsvector,
 
   -- Audit
   class_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

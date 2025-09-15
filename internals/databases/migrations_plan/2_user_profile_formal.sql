@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS users_profile_formal (
   -- Alamat domisili
   users_profile_formal_address_line        TEXT,
   users_profile_formal_subdistrict         VARCHAR(100),
-  users_profile_formal_city                VARCHAR(100),
+  users_profile_formal_cit,y                VARCHAR(100),
   users_profile_formal_province            VARCHAR(100),
   users_profile_formal_postal_code         VARCHAR(10),
 

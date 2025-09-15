@@ -38,6 +38,11 @@ CREATE TABLE class_sections (
   class_sections_capacity       INT,
   class_sections_total_students INT NOT NULL DEFAULT 0,
 
+    -- Meeting / Group
+  class_sections_group_url                TEXT,
+
+
+
 
   -- Status & audit
   class_sections_is_active  BOOLEAN     NOT NULL DEFAULT TRUE,

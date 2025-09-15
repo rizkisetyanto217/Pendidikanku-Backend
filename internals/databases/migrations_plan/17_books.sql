@@ -23,8 +23,6 @@ CREATE TABLE IF NOT EXISTS books (
   books_slug               VARCHAR(160),
 
   -- Bibliografis
-  books_isbn13             VARCHAR(13),
-  books_isbn10             VARCHAR(10),
   books_publisher          TEXT,
   books_publication_year   SMALLINT,
   books_publication_date   DATE,
@@ -43,33 +41,6 @@ CREATE TABLE IF NOT EXISTS books (
   -- Fisik & format
   books_format             TEXT,            -- 'paperback'|'hardcover'|'ebook'|'audio'
   books_page_count         INT,
-  books_dimensions         JSONB,           -- {width_mm, height_mm, thickness_mm}
-  books_weight_grams       INT,
-  books_cover_url          TEXT,
-  books_gallery_urls       TEXT[],
-
-  -- Digital/akses
-  books_file_urls          TEXT[],
-  books_access_urls        TEXT[],
-  books_license_type       TEXT,
-  books_license_expires_at TIMESTAMPTZ,
-  books_drm_info           JSONB,
-
-  -- Inventori & sirkulasi
-  books_inventory_total    INT,
-  books_inventory_available INT,
-  books_shelf_location     TEXT,
-  books_barcode            VARCHAR(64),
-  books_call_number        VARCHAR(64),
-  books_is_reference_only  BOOLEAN DEFAULT FALSE,
-
-  -- Akuisisi & biaya
-  books_acquired_from      TEXT,
-  books_acquired_at        DATE,
-  books_procurement_ref    TEXT,
-  books_currency           VARCHAR(10) DEFAULT 'IDR',
-  books_cost_cents         BIGINT,
-  books_replacement_cost_cents BIGINT,
 
   -- Sirkulasi lanjutan
   books_table_of_contents  JSONB,
@@ -81,34 +52,6 @@ CREATE TABLE IF NOT EXISTS books (
   books_status             TEXT,            -- 'active'|'archived'|'out_of_print'
   books_visibility_scope   TEXT,
   books_is_active          BOOLEAN NOT NULL DEFAULT TRUE,
-
-  -- Engagement
-  books_borrow_count       INT,
-  books_last_borrowed_at   TIMESTAMPTZ,
-  books_last_returned_at   TIMESTAMPTZ,
-  books_download_count     INT,
-  books_view_count         INT,
-  books_avg_rating         NUMERIC(3,2),
-
-  -- SEO/metadata
-  books_meta_title         VARCHAR(180),
-  books_meta_description   VARCHAR(240),
-  books_external_ref       TEXT,
-  books_extra              JSONB,
-
-  -- Kreator tambahan
-  books_translators        TEXT[],
-  books_illustrators       TEXT[],
-
-  -- Compliance
-  books_age_restriction_min INT,
-  books_is_sensitive       BOOLEAN DEFAULT FALSE,
-  books_deleted_reason     TEXT,
-
-  -- Source/import
-  books_vendor_sku         TEXT,
-  books_source_system      TEXT,
-  books_import_batch_id    TEXT,
 
   -- Audit & concurrency
   books_created_by_user_id UUID,
@@ -150,16 +93,6 @@ CREATE TABLE IF NOT EXISTS class_subject_books (
   class_subject_books_start_date     DATE,
   class_subject_books_end_date       DATE,
 
-  -- Peran & referensi
-  class_subject_books_role           TEXT,
-  class_subject_books_prerequisite_book_ids UUID[],
-
-  -- Target & akses
-  class_subject_books_grade_levels   INT[],
-  class_subject_books_delivery_type  TEXT,
-  class_subject_books_access_url     TEXT,
-  class_subject_books_license_type   TEXT,
-  class_subject_books_license_expires_at TIMESTAMPTZ,
 
   -- Penilaian & bobot
   class_subject_books_assessment_weight NUMERIC(6,3),
@@ -180,9 +113,6 @@ CREATE TABLE IF NOT EXISTS class_subject_books (
   class_subject_books_teacher_notes  TEXT,
   class_subject_books_external_ref   TEXT,
   class_subject_books_extra          JSONB,
-
-  -- Multi-campus
-  class_subject_books_campus_id      UUID,
 
   -- Audit & concurrency
   class_subject_books_created_by_user_id UUID,

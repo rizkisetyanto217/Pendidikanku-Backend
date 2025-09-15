@@ -31,36 +31,15 @@ CREATE TABLE IF NOT EXISTS academic_terms (
   academic_terms_slug          VARCHAR(60),     -- URL-friendly per tenant
   academic_terms_sequence      SMALLINT,        -- urutan dalam tahun ajaran (1=Ganjil, 2=Genap, ...)
   academic_terms_color         VARCHAR(16),
-  academic_terms_sort_weight   SMALLINT DEFAULT 0,
 
   -- ===== Penjadwalan operasional =====
-  academic_terms_timezone      VARCHAR(50),     -- override TZ tenant (opsional)
   academic_terms_registration_start TIMESTAMPTZ,
   academic_terms_registration_end   TIMESTAMPTZ,
-  academic_terms_grading_start      TIMESTAMPTZ,
-  academic_terms_grading_end        TIMESTAMPTZ,
-  academic_terms_week_count    SMALLINT,
-  academic_terms_min_credits   SMALLINT,
-  academic_terms_max_credits   SMALLINT,
 
-  -- ===== Kontrol & lifecycle =====
-  academic_terms_is_default    BOOLEAN   NOT NULL DEFAULT FALSE,
-  academic_terms_lock_enrollment BOOLEAN NOT NULL DEFAULT FALSE,
-  academic_terms_lock_grades     BOOLEAN NOT NULL DEFAULT FALSE,
-  academic_terms_frozen_at     TIMESTAMPTZ,
-  academic_terms_archived_at   TIMESTAMPTZ,
-
-  -- ===== Relasi & referensi antar term =====
-  academic_terms_prev_id UUID REFERENCES academic_terms(academic_terms_id) ON DELETE SET NULL,
-  academic_terms_next_id UUID REFERENCES academic_terms(academic_terms_id) ON DELETE SET NULL,
 
   -- ===== Kebijakan & metadata =====
-  academic_terms_carry_over_policy JSONB,   -- aturan remedial/lanjut
-  academic_terms_fee_policy        JSONB,   -- biaya administrasi per term
   academic_terms_public_notes      TEXT,
-  academic_terms_internal_notes    TEXT,
   academic_terms_metadata          JSONB,
-  academic_terms_translations      JSONB,
 
   -- half-open range [start, end) - normalisasi ke UTC date
   academic_terms_period        DATERANGE GENERATED ALWAYS AS

@@ -122,10 +122,6 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_sessions_attendance_weight      NUMERIC(5,2),
   class_attendance_sessions_assessment_weight      NUMERIC(5,2),
 
-  -- 8) Kapasitas
-  class_attendance_sessions_expected_students INT,
-  class_attendance_sessions_capacity          INT,
-  class_attendance_sessions_waitlist_capacity INT,
 
   -- 9) Rekap hasil kehadiran
   class_attendance_sessions_present_count INT,
@@ -138,14 +134,6 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   -- 10) Publikasi & notifikasi
   class_attendance_sessions_is_published     BOOLEAN DEFAULT TRUE,
   class_attendance_sessions_publish_at       TIMESTAMPTZ,
-  class_attendance_sessions_notify_on_create BOOLEAN DEFAULT FALSE,
-  class_attendance_sessions_notify_on_change BOOLEAN DEFAULT FALSE,
-  class_attendance_sessions_reminder_minutes_before INT[],
-  class_attendance_sessions_reminder_channels       TEXT[],
-
-  -- 11) Metadata
-  class_attendance_sessions_tags  TEXT[],
-  class_attendance_sessions_extra JSONB,
 
   -- 12) Audit & versioning
   class_attendance_sessions_created_by_user_id UUID,
@@ -166,16 +154,6 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_sessions_checkin_qr_code    TEXT,
   class_attendance_sessions_checkin_policy     TEXT,
 
-  -- 15) Lokasi
-  class_attendance_sessions_location_name TEXT,
-  class_attendance_sessions_location_lat  NUMERIC(9,6),
-  class_attendance_sessions_location_lng  NUMERIC(9,6),
-
-  -- 16) Quality metrics
-  class_attendance_sessions_started_late_minutes SMALLINT,
-  class_attendance_sessions_room_occupied_ratio  NUMERIC(5,2),
-  class_attendance_sessions_anomaly_flags        TEXT[],
-
   -- 17) Lock & approval
   class_attendance_sessions_locked_at          TIMESTAMPTZ,
   class_attendance_sessions_locked_by_user_id  UUID,
@@ -184,13 +162,6 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_sessions_approved_by_user_id UUID,
   class_attendance_sessions_approval_note      TEXT,
 
-  -- 18) Integrasi
-  class_attendance_sessions_dedup_key TEXT,
-  class_attendance_sessions_checksum  TEXT,
-
-  -- 19) Proctoring
-  class_attendance_sessions_proctor_ids      UUID[],
-  class_attendance_sessions_proctoring_notes TEXT,
 
   -- 20) Kanal & perangkat
   class_attendance_sessions_created_via    TEXT,  -- 'web','mobile','api'

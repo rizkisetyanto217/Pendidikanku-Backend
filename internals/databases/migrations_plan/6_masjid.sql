@@ -36,14 +36,12 @@ CREATE TABLE IF NOT EXISTS masjids (
 
   -- Identitas & lokasi ringkas
   masjid_name      VARCHAR(100) NOT NULL,
-  masjid_alt_names TEXT[],                  -- alias untuk pencarian
   masjid_bio_short TEXT,
   masjid_location  TEXT,                    -- "Kota, Provinsi"
   masjid_city      VARCHAR(80),
   masjid_province  VARCHAR(80),
-  masjid_country_code CHAR(2) DEFAULT 'ID', -- ISO-3166-1 alpha-2
+
   masjid_timezone  VARCHAR(50),             -- ex: Asia/Jakarta
-  masjid_language_code VARCHAR(10) DEFAULT 'id', -- ex: id, en
 
   -- Domain & slug
   masjid_domain VARCHAR(50),
@@ -55,24 +53,13 @@ CREATE TABLE IF NOT EXISTS masjids (
   masjid_verification_status  verification_status_enum NOT NULL DEFAULT 'pending',
   masjid_verified_at          TIMESTAMPTZ,
   masjid_verification_notes   TEXT,
-  masjid_status_reason        TEXT,                 -- alasan nonaktif/suspended
-  masjid_suspension_until     TIMESTAMPTZ,
-  masjid_maintenance_mode     BOOLEAN NOT NULL DEFAULT FALSE,
-  masjid_private_mode         BOOLEAN NOT NULL DEFAULT FALSE,
 
-  -- Trial/billing lifecycle
-  masjid_trial_started_at     TIMESTAMPTZ,
-  masjid_trial_ends_at        TIMESTAMPTZ,
-  masjid_billing_status       VARCHAR(20),          -- trial|active|past_due|canceled
-  masjid_plan_valid_until     DATE,
 
   -- Branding/SEO
   masjid_tagline              VARCHAR(120),
   masjid_logo_url             TEXT,
   masjid_banner_url           TEXT,
   masjid_profile_cover_url    TEXT,
-  masjid_seo_title            VARCHAR(160),
-  masjid_seo_description      VARCHAR(300),
 
   -- Kontak & admin
   masjid_official_email       CITEXT,
@@ -80,61 +67,22 @@ CREATE TABLE IF NOT EXISTS masjids (
   masjid_contact_person_name  VARCHAR(100),
   masjid_contact_person_phone VARCHAR(30),
 
-  -- Registrasi/legal eksternal
-  masjid_registration_number  VARCHAR(60),
-  masjid_kemenag_id           VARCHAR(40),
-
-  -- Domain custom status
-  masjid_domain_dns_status    VARCHAR(20),          -- pending|verified|failed
   masjid_domain_verified_at   TIMESTAMPTZ,
 
   -- Flag & levels
   masjid_is_islamic_school BOOLEAN NOT NULL DEFAULT FALSE,
-  masjid_levels JSONB,                              -- tag array
-  masjid_feature_flags JSONB,                       -- toggles fitur
+
   masjid_theme_preset_code VARCHAR(64),             -- refer ui_theme_presets.code
-  masjid_theme_custom JSONB,                        -- { primary:"#...", secondary:"#...", ... }
-  masjid_default_currency CHAR(3) DEFAULT 'IDR',
+  masjid_theme_custom JSONB,                        -- { 
 
-  -- Kapasitas & arah kiblat
-  masjid_capacity_men    INT,
-  masjid_capacity_women  INT,
-  masjid_qibla_bearing_deg NUMERIC(6,3),
-  masjid_accessibility_notes TEXT,
-
-  -- Donasi & batas minimum
-  masjid_donation_min_amount BIGINT,
-
-  -- Integrasi/ID eksternal & engagement
-  masjid_external_ids JSONB,                        -- NEW: map IDs (Xendit, EMIS, dsb.)
-  masjid_last_engagement_at TIMESTAMPTZ,            -- NEW: interaksi terakhir (donasi/kajian/follow)
-
-  -- Keamanan & compliance
-  masjid_is_flagged BOOLEAN NOT NULL DEFAULT FALSE, -- NEW
-  masjid_flagged_reason TEXT,                       -- NEW
 
   -- Audit waktu & IP
   masjid_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   masjid_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   masjid_deleted_at TIMESTAMPTZ,
-  masjid_onboarding_completed_at TIMESTAMPTZ,
   masjid_last_activity_at     TIMESTAMPTZ,
-  masjid_last_indexed_at      TIMESTAMPTZ,
   masjid_ip_created           INET,                 -- NEW
   masjid_ip_updated           INET,                 -- NEW
-
-  -- Visibility & moderation
-  masjid_is_listed_public     BOOLEAN NOT NULL DEFAULT TRUE,
-  masjid_moderation_notes     TEXT,
-
-  -- Cache agregat
-  masjid_cached_followers_count INT DEFAULT 0,
-  masjid_cached_posts_count     INT DEFAULT 0,
-  masjid_cached_teachers_count  INT DEFAULT 0,
-  masjid_cached_students_count  INT DEFAULT 0,
-
-  -- i18n
-  masjid_translations JSONB,
 
   -- Search (generated)
   masjid_search tsvector GENERATED ALWAYS AS (
@@ -291,47 +239,12 @@ CREATE TABLE IF NOT EXISTS masjids_profiles (
   -- Alamat & kontak publik
   masjid_profile_address       TEXT,
   masjid_profile_contact_phone VARCHAR(30),
-  masjid_profile_contact_email VARCHAR(120),
-  masjid_profile_contact_phone_alt VARCHAR(30),
   masjid_profile_contact_email_alt VARCHAR(120),
-  masjid_profile_email_public_optin BOOLEAN NOT NULL DEFAULT TRUE,
-
-  -- Sosial/link publik
-  masjid_profile_google_maps_url           TEXT,
-  masjid_profile_instagram_url             TEXT,
-  masjid_profile_whatsapp_url              TEXT,
-  masjid_profile_youtube_url               TEXT,
-  masjid_profile_facebook_url              TEXT,
-  masjid_profile_tiktok_url                TEXT,
-  masjid_profile_whatsapp_group_ikhwan_url TEXT,
-  masjid_profile_whatsapp_group_akhwat_url TEXT,
-  masjid_profile_telegram_url              TEXT,
-  masjid_profile_threads_url               TEXT,
-  masjid_profile_website_url               TEXT,
-  masjid_profile_map_iframe_url            TEXT,
-  masjid_profile_social_handles            JSONB,   -- NEW: fleksibel sosial
 
   -- Lokasi detail & geospasial
-  masjid_profile_latitude   DECIMAL(9,6),
-  masjid_profile_longitude  DECIMAL(9,6),
   masjid_profile_google_place_id VARCHAR(64),
   masjid_profile_postal_code     VARCHAR(20),
   masjid_profile_geo_admin       JSONB,         -- {kelurahan, kecamatan, kab_kota, provinsi}
-  masjid_profile_geohash         VARCHAR(20),
-  masjid_profile_timezone_offset SMALLINT,      -- NEW: menit offset (mis. 420)
-  masjid_profile_language_codes  TEXT[],        -- NEW: tambahan bahasa profil
-
-  -- Jam operasional
-  masjid_profile_opening_hours       JSONB,
-  masjid_profile_opening_hours_notes TEXT,
-
-  -- Fasilitas
-  masjid_profile_facilities          JSONB,     -- {"parking":true,...}
-  masjid_profile_accessible          BOOLEAN,
-  masjid_profile_parking_capacity    INT,
-  masjid_profile_wudu_spots          INT,
-  masjid_profile_restrooms           INT,
-  masjid_profile_worshipper_capacity INT,
 
   -- Profil sekolah (opsional)
   masjid_profile_school_npsn              VARCHAR(20),
@@ -348,7 +261,6 @@ CREATE TABLE IF NOT EXISTS masjids_profiles (
   masjid_profile_donation_bank_name    VARCHAR(60),
   masjid_profile_donation_account_no   VARCHAR(60),
   masjid_profile_donation_account_name VARCHAR(120),
-  masjid_profile_bank_swift_code       VARCHAR(15),
   masjid_profile_donation_min_amount   BIGINT,
   masjid_profile_donation_url          TEXT,
   masjid_profile_qris_image_url        TEXT,
@@ -361,9 +273,6 @@ CREATE TABLE IF NOT EXISTS masjids_profiles (
   -- Konten, layanan, legal, analitik
   masjid_profile_services        JSONB,     -- katalog layanan (filter)
   masjid_profile_photo_gallery_count INT,
-  masjid_profile_translations    JSONB,     -- i18n long-form
-  masjid_profile_legal_docs      JSONB,     -- NEW: akta, sertifikat, izin
-  masjid_profile_page_views      BIGINT,    -- NEW: counter tampilan
 
   -- Search (generated)
   masjid_profile_search tsvector GENERATED ALWAYS AS (

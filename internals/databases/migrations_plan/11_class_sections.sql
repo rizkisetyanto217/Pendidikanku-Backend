@@ -50,75 +50,29 @@ CREATE TABLE class_sections (
   class_sections_rrule                TEXT,         -- ex: FREQ=WEEKLY;BYDAY=FR
   class_sections_duration_minutes     SMALLINT,     -- 0..32767
   class_sections_default_meeting_day  SMALLINT,     -- 0=Sun..6=Sat
-  class_sections_default_meeting_time TIME,
 
   -- Tanggal efektif & jumlah sesi
   class_sections_start_date     DATE,
   class_sections_end_date       DATE,
-  class_sections_total_meetings SMALLINT,
 
   -- Meeting / Group
   class_sections_group_url                TEXT,
-  class_sections_meeting_platform         VARCHAR(30),  -- 'zoom','gmeet',...
-  class_sections_meeting_url              TEXT,
-  class_sections_meeting_code             VARCHAR(60),
-  class_sections_meeting_provider_event_id VARCHAR(120),
-  class_sections_meeting_passcode         VARCHAR(40),
 
-  -- Lokasi offline
-  class_sections_location_text VARCHAR(160),
-  class_sections_location_lat  NUMERIC(9,6),
-  class_sections_location_lng  NUMERIC(9,6),
 
   -- Kapasitas & enrollment
   class_sections_capacity       INT,
   class_sections_total_students INT NOT NULL DEFAULT 0,
   class_sections_enrollment_requires_approval BOOLEAN NOT NULL DEFAULT FALSE,
-  class_sections_waitlist_enabled             BOOLEAN NOT NULL DEFAULT FALSE,
-  class_sections_waitlist_count               INT     NOT NULL DEFAULT 0,
-  class_sections_waitlist_limit               INT,                     -- NULL = no limit
   class_sections_invite_only                  BOOLEAN NOT NULL DEFAULT FALSE,
   class_sections_invite_code                  VARCHAR(32),
 
-  -- Window pendaftaran per section
-  class_sections_registration_opens_at  TIMESTAMPTZ,
-  class_sections_registration_closes_at TIMESTAMPTZ,
-
   -- Kehadiran
   class_sections_attendance_required       BOOLEAN  NOT NULL DEFAULT TRUE,
-  class_sections_attendance_grace_minutes  SMALLINT,
-  class_sections_no_show_policy            TEXT,
 
   -- Visibility & publishing
   class_sections_is_active      BOOLEAN NOT NULL DEFAULT TRUE,
-  class_sections_visibility     class_visibility_enum,
-  class_sections_publish_at     TIMESTAMPTZ,
-  class_sections_unpublish_at   TIMESTAMPTZ,
-  class_sections_archived_at    TIMESTAMPTZ,
-  class_sections_delete_pending_until TIMESTAMPTZ,
-  class_sections_delete_reason  TEXT,
-  class_sections_deleted_by     UUID,
-  class_sections_restored_at    TIMESTAMPTZ,
-
-  -- Kualitas/ulasan ringan
-  class_sections_rating_avg   NUMERIC(3,2),
-  class_sections_rating_count INT NOT NULL DEFAULT 0,
-
-  -- Integrasi & metadata
-  class_sections_external_ref   VARCHAR(100),
-  class_sections_lms_course_id  VARCHAR(120),
-  class_sections_tags           TEXT[],
-  class_sections_meta           JSONB NOT NULL DEFAULT '{}'::jsonb,
-
-  -- Kualifikasi peserta
-  class_sections_min_age        SMALLINT,
-  class_sections_max_age        SMALLINT,
-  class_sections_requirements   JSONB NOT NULL DEFAULT '{}'::jsonb,
 
   -- Audit & optimistic locking
-  class_sections_created_by  UUID,
-  class_sections_updated_by  UUID,
-  class_sections_row_version BIGINT NOT NULL DEFAULT 1,
   class_sections_created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   class_sections_updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   class_sections_deleted_at  TIMESTAMPTZ,

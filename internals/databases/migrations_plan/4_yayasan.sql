@@ -34,15 +34,7 @@ CREATE TABLE IF NOT EXISTS yayasans (
   yayasan_address                TEXT,
   yayasan_city                   TEXT,
   yayasan_province               TEXT,
-  yayasan_district_kecamatan     VARCHAR(100),
-  yayasan_subdistrict_kelurahan  VARCHAR(100),
-  yayasan_postal_code            VARCHAR(10),
-  yayasan_province_code          VARCHAR(10),
-  yayasan_city_code              VARCHAR(10),
-  yayasan_plus_code              VARCHAR(20),    -- Google Plus Code
-  yayasan_location_source        VARCHAR(20),    -- 'manual'|'geocoded'
-  yayasan_latitude               DECIMAL(9,6),
-  yayasan_longitude              DECIMAL(9,6),
+  yayasan_post_code            VARCHAR(10),
   yayasan_google_maps_url        TEXT,
 
   -- Domain & Slug
@@ -58,14 +50,17 @@ CREATE TABLE IF NOT EXISTS yayasans (
   yayasan_verified_document_url  TEXT,
   yayasan_last_reviewed_at       TIMESTAMPTZ,
 
-  -- Sosial Media
-  yayasan_website_url            TEXT,
-  yayasan_instagram_url          TEXT,
-  yayasan_whatsapp_url           TEXT,
-  yayasan_youtube_url            TEXT,
-  yayasan_facebook_url           TEXT,
-  yayasan_tiktok_url             TEXT,
-
+  -- Sosial/link publik
+  yayasan_google_maps_url           TEXT,
+  yayasan_instagram_url             TEXT,
+  yayasan_whatsapp_url              TEXT,
+  yayasan_youtube_url               TEXT,
+  yayasan_facebook_url              TEXT,
+  yayasan_tiktok_url                TEXT,
+  yayasan_whatsapp_group_ikhwan_url TEXT,
+  yayasan_whatsapp_group_akhwat_url TEXT,
+  yayasan_telegram_url              TEXT,
+  yayasan_website_url               TEXT,
   -- Kontak
   yayasan_email                  CITEXT,
   yayasan_phone_number           VARCHAR(32),

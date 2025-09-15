@@ -34,7 +34,6 @@ CREATE TABLE IF NOT EXISTS spp_billings (
   spp_billing_period_end       DATE,
 
   -- nominal & mata uang
-  spp_billing_currency         VARCHAR(10) DEFAULT 'IDR',
   spp_billing_amount_cents     BIGINT,
   spp_billing_min_amount_cents BIGINT,
   spp_billing_max_amount_cents BIGINT,
@@ -52,11 +51,6 @@ CREATE TABLE IF NOT EXISTS spp_billings (
   spp_billing_penalty_cap_cents BIGINT,
   spp_billing_waiver_policy     TEXT,
 
-  -- kebijakan & visibilitas
-  spp_billing_visibility_scope TEXT,
-  spp_billing_timezone         TEXT,
-  spp_billing_locale           VARCHAR(20),
-
   -- penjadwalan & siklus
   spp_billing_status           TEXT,
   spp_billing_status_reason    TEXT,
@@ -69,39 +63,6 @@ CREATE TABLE IF NOT EXISTS spp_billings (
   spp_billing_reminder_days_before INT[],
   spp_billing_reminder_days_after  INT[],
   spp_billing_reminder_channels    TEXT[],
-
-  -- kebijakan kontrol
-  spp_billing_allow_partial_payment BOOLEAN DEFAULT TRUE,
-  spp_billing_allow_overpay          BOOLEAN DEFAULT FALSE,
-  spp_billing_auto_penalty           BOOLEAN DEFAULT TRUE,
-  spp_billing_auto_close_when_paid   BOOLEAN DEFAULT TRUE,
-
-  -- prorata & kalkulasi
-  spp_billing_is_prorated            BOOLEAN DEFAULT FALSE,
-  spp_billing_prorate_note           TEXT,
-  spp_billing_days_in_period         INT,
-  spp_billing_effective_amount_cents BIGINT,
-
-  -- akuntansi & rekonsiliasi
-  spp_billing_gl_account_code        VARCHAR(40),
-  spp_billing_cost_center_code       VARCHAR(40),
-  spp_billing_reconciled_at          TIMESTAMPTZ,
-  spp_billing_reconciled_by_user_id  UUID,
-
-  -- approval workflow
-  spp_billing_moderation_status      TEXT,
-  spp_billing_approved_by_user_id    UUID,
-  spp_billing_approved_at            TIMESTAMPTZ,
-  spp_billing_rejection_reason       TEXT,
-
-  -- penomoran & idempotensi
-  spp_billing_seq INT,
-  spp_billing_public_no VARCHAR(40),
-  spp_billing_dedup_key TEXT,
-
-  -- multi-currency
-  spp_billing_fx_rate NUMERIC(18,8),
-  spp_billing_fx_currency VARCHAR(10),
 
   -- closedown
   spp_billing_closed_by_user_id UUID,

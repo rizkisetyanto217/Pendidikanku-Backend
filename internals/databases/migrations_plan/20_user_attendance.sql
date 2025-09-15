@@ -34,10 +34,6 @@ CREATE TABLE IF NOT EXISTS user_attendance_type (
   user_attendance_type_require_evidence    BOOLEAN DEFAULT FALSE,
   user_attendance_type_visible_to_guardian BOOLEAN DEFAULT TRUE,
   user_attendance_type_allowed_channels    TEXT[],   -- ['web','mobile','kiosk','api']
-  user_attendance_type_require_geo         BOOLEAN DEFAULT FALSE,
-  user_attendance_type_require_face        BOOLEAN DEFAULT FALSE, -- selfie/face match
-  user_attendance_type_require_checkin_window BOOLEAN DEFAULT FALSE,
-  user_attendance_type_visible_roles       TEXT[],   -- ['teacher','guardian','student']
 
   -- Rentang aktif
   user_attendance_type_active_from DATE,
@@ -63,10 +59,6 @@ CREATE TABLE IF NOT EXISTS user_attendance_type (
   user_attendance_type_form_schema JSONB,  -- JSON Schema form
   user_attendance_type_rubric      JSONB,  -- rubrik skoring
   user_attendance_type_export_mapping JSONB,
-
-  -- Lain-lain
-  user_attendance_type_tags  TEXT[],
-  user_attendance_type_extra JSONB,
 
   -- Audit
   user_attendance_type_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -149,45 +141,14 @@ CREATE TABLE IF NOT EXISTS user_attendance (
   user_attendance_teacher_note TEXT,
 
   -- bukti, audit & idempotensi
-  user_attendance_external_ref  TEXT,
-  user_attendance_dedup_key     TEXT,
-  user_attendance_tags          TEXT[],
-  user_attendance_extra         JSONB,
-
-  user_attendance_marked_by_user_id UUID,
-  user_attendance_marked_at         TIMESTAMPTZ,
-
-  user_attendance_evidence_urls     TEXT[],
-  user_attendance_evidence_note     TEXT,
   user_attendance_verified          BOOLEAN DEFAULT FALSE,
   user_attendance_verified_by_user_id UUID,
   user_attendance_verified_at       TIMESTAMPTZ,
-
-  -- Geo & device
-  user_attendance_lat     NUMERIC(9,6),
-  user_attendance_lng     NUMERIC(9,6),
-  user_attendance_device  JSONB,
-  user_attendance_ip      INET,
-  user_attendance_channel TEXT,    -- 'web'|'mobile'|'kiosk'|'api'
-
-  -- waktu aktual
-  user_attendance_checked_in_at  TIMESTAMPTZ,
-  user_attendance_checked_out_at TIMESTAMPTZ,
-  user_attendance_late_minutes   INT,
 
   -- alasan/justifikasi
   user_attendance_excuse_type TEXT,  -- 'sick'|'leave'|'traffic'|...
   user_attendance_excuse_note TEXT,
 
-  -- workflow pembatalan/perubahan
-  user_attendance_voided_at       TIMESTAMPTZ,
-  user_attendance_voided_by_user_id UUID,
-  user_attendance_void_reason     TEXT,
-
-  -- lock & approval
-  user_attendance_locked          BOOLEAN DEFAULT FALSE,
-  user_attendance_locked_at       TIMESTAMPTZ,
-  user_attendance_locked_by_user_id UUID,
 
   user_attendance_approved        BOOLEAN,
   user_attendance_approved_at     TIMESTAMPTZ,
@@ -203,23 +164,10 @@ CREATE TABLE IF NOT EXISTS user_attendance (
   user_attendance_reviewed_at     TIMESTAMPTZ,
   user_attendance_review_note     TEXT,
 
-  -- acknowledgement wali
-  user_attendance_guardian_acknowledged_at TIMESTAMPTZ,
-  user_attendance_guardian_user_id UUID,
-  user_attendance_guardian_note   TEXT,
-
   -- keamanan & kualitas bukti
   user_attendance_face_match_score  NUMERIC(5,2),  -- 0..100
   user_attendance_geo_accuracy_m    INT,           -- akurasi GPS (meter)
   user_attendance_violation_flags   TEXT[],        -- ['geo_mismatch','late_checkin',...]
-
-  -- ekspor
-  user_attendance_exported_at     TIMESTAMPTZ,
-  user_attendance_export_batch_id TEXT,
-
-  -- concurrency
-  user_attendance_row_version INT DEFAULT 1,
-  user_attendance_etag        TEXT,
 
   -- FTS (desc & notes)
   user_attendance_search tsvector

@@ -148,6 +148,15 @@ CREATE TABLE IF NOT EXISTS class_subjects (
   class_subjects_is_core           BOOLEAN NOT NULL DEFAULT FALSE,
   class_subjects_desc              TEXT,
 
+    -- Kebijakan penilaian (granular)
+  class_subjects_weight_assignment SMALLINT,
+  class_subjects_weight_quiz       SMALLINT,
+  class_subjects_weight_mid        SMALLINT,
+  class_subjects_weight_final      SMALLINT,
+  class_subjects_min_attendance_percent SMALLINT CHECK (
+    class_subjects_min_attendance_percent IS NULL OR (class_subjects_min_attendance_percent BETWEEN 0 AND 100)
+  ),
+
   class_subjects_is_active   BOOLEAN     NOT NULL DEFAULT TRUE,
   class_subjects_created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   class_subjects_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -232,6 +241,8 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   -- guru → masjid_teachers
   class_section_subject_teachers_teacher_id UUID NOT NULL
     REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE RESTRICT,
+  
+  class_section_subject_teachers_notes TEXT,
 
   class_section_subject_teachers_is_active   BOOLEAN     NOT NULL DEFAULT TRUE,
   class_section_subject_teachers_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),

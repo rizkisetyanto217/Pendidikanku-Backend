@@ -21,9 +21,6 @@ CREATE TABLE IF NOT EXISTS announcements (
   announcement_class_section_id  UUID,        -- simple single-target (legacy)
   announcement_section_ids       UUID[],      -- multi section
   announcement_class_ids         UUID[],      -- multi class
-  announcement_grade_levels      INT[],       -- target tingkat
-  announcement_audience_tags     TEXT[],      -- target by tag
-  announcement_audience_query    JSONB,       -- rule dynamic segmentasi (opsional)
 
   -- theme (opsional, putuskan ON DELETE sesuai kebutuhan)
   announcement_theme_id          UUID,
@@ -51,22 +48,9 @@ CREATE TABLE IF NOT EXISTS announcements (
   announcement_date              DATE,        -- tanggal tampil (opsional)
   announcement_publish_at        TIMESTAMPTZ, -- jadwal tayang
   announcement_expire_at         TIMESTAMPTZ, -- kadaluarsa konten
-  announcement_embargo_until     TIMESTAMPTZ, -- hold sampai waktu tertentu
-  announcement_recurrence_rule   TEXT,        -- RRULE (opsional)
-  announcement_resend_policy     TEXT,        -- 'none'|'once'|'daily'... (opsional)
-  announcement_is_active         BOOLEAN NOT NULL DEFAULT TRUE,
-  announcement_is_pinned         BOOLEAN NOT NULL DEFAULT FALSE,
-  announcement_pin_until         TIMESTAMPTZ, -- auto unpin
-  announcement_priority          SMALLINT,    -- 1 = paling tinggi
-  announcement_is_silent         BOOLEAN DEFAULT FALSE, -- kirim tanpa notif
 
-  -- delivery channels
-  announcement_via_web           BOOLEAN NOT NULL DEFAULT TRUE,
-  announcement_via_push          BOOLEAN NOT NULL DEFAULT FALSE,
-  announcement_via_email         BOOLEAN NOT NULL DEFAULT FALSE,
-  announcement_via_sms           BOOLEAN NOT NULL DEFAULT FALSE,
-  announcement_via_whatsapp      BOOLEAN NOT NULL DEFAULT FALSE,
-  announcement_sent_via          JSONB,       -- ringkasan channel terpakai
+  announcement_is_active         BOOLEAN NOT NULL DEFAULT TRUE,
+
 
   -- delivery & engagement metrics
   announcement_total_recipients  INT,
@@ -79,21 +63,7 @@ CREATE TABLE IF NOT EXISTS announcements (
 
   -- interaction
   announcement_allow_comments    BOOLEAN NOT NULL DEFAULT FALSE,
-  announcement_require_ack       BOOLEAN NOT NULL DEFAULT FALSE,
-  announcement_allow_reactions   BOOLEAN NOT NULL DEFAULT FALSE,
-  announcement_reaction_counts   JSONB,   -- { "like": 12, "love": 3, ... }
-  announcement_poll              JSONB,   -- { "question":"...", "options":[...]}
-  announcement_poll_ends_at      TIMESTAMPTZ,
 
-  -- categorization & integration
-  announcement_tags              TEXT[],
-  announcement_campaign_code     VARCHAR(80),
-  announcement_utm               JSONB,   -- {source, medium, ...}
-  announcement_source            TEXT,    -- 'manual'|'import'|'api'
-  announcement_template_id       UUID,
-  announcement_content_version   INT DEFAULT 1,
-  announcement_draft_note        TEXT,
-  announcement_external_ref      TEXT,
 
   -- compliance / access / i18n
   announcement_slug              VARCHAR(160),
@@ -104,11 +74,6 @@ CREATE TABLE IF NOT EXISTS announcements (
   announcement_approved_at       TIMESTAMPTZ,
   announcement_rejection_reason  TEXT,
   announcement_visibility_scope  TEXT,    -- 'tenant'|'campus'|'class'... (sesuaikan)
-  announcement_exclude_section_ids UUID[],
-  announcement_min_app_version   TEXT,
-  announcement_is_sensitive      BOOLEAN DEFAULT FALSE,
-  announcement_requires_login    BOOLEAN DEFAULT TRUE,
-  announcement_data_retention_days INT,
 
   -- audit
   announcement_created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -207,27 +172,6 @@ CREATE TABLE IF NOT EXISTS announcement_themes (
   -- behavior & options
   announcement_themes_is_active   BOOLEAN NOT NULL DEFAULT TRUE,
   announcement_themes_is_default  BOOLEAN NOT NULL DEFAULT FALSE,
-  announcement_themes_order_index INT,
-  announcement_themes_options     JSONB,
-  announcement_themes_tags        TEXT[],
-  announcement_themes_external_ref TEXT,
-
-  -- dark mode & typography
-  announcement_themes_is_dark     BOOLEAN DEFAULT FALSE,
-  announcement_themes_font_family VARCHAR(120),
-  announcement_themes_font_scale  NUMERIC(4,2),
-  announcement_themes_design_tokens JSONB,   -- design tokens { "radius":"1rem","colors":{...} }
-
-  -- locale & versioning
-  announcement_themes_locale      VARCHAR(20),   -- 'id-ID','en-US'
-  announcement_themes_is_rtl      BOOLEAN DEFAULT FALSE,
-  announcement_themes_version     INT DEFAULT 1,
-  announcement_themes_preview_url TEXT,
-  announcement_themes_is_locked   BOOLEAN DEFAULT FALSE,
-
-  -- audit
-  announcement_themes_created_by_user_id UUID,
-  announcement_themes_updated_by_user_id UUID,
 
   -- timestamps
   announcement_themes_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),

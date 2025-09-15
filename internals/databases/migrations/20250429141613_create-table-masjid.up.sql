@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS masjids (
   masjid_name      VARCHAR(100) NOT NULL,
   masjid_bio_short TEXT,
   masjid_location  TEXT,                -- ringkas: "Kota, Provinsi"
+  masjid_city      VARCHAR(80),
 
   -- Domain & slug
   masjid_domain VARCHAR(50),
@@ -41,6 +42,10 @@ CREATE TABLE IF NOT EXISTS masjids (
   masjid_verification_status verification_status_enum NOT NULL DEFAULT 'pending',
   masjid_verified_at TIMESTAMPTZ,
   masjid_verification_notes TEXT,
+
+  -- Kontak & admin
+  masjid_contact_person_name  VARCHAR(100),
+  masjid_contact_person_phone VARCHAR(30),
 
   -- Flag
   masjid_is_islamic_school BOOLEAN NOT NULL DEFAULT FALSE,
@@ -59,6 +64,7 @@ CREATE TABLE IF NOT EXISTS masjids (
   -- Audit
   masjid_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   masjid_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+   masjid_last_activity_at     TIMESTAMPTZ,
   masjid_deleted_at TIMESTAMPTZ,
 
   -- Validasi ringan

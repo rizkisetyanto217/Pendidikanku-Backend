@@ -25,7 +25,6 @@ CREATE TABLE IF NOT EXISTS yayasans (
   yayasan_name        VARCHAR(150) NOT NULL,
   yayasan_legal_number TEXT,                 -- nomor akta/pendirian/penyesuaian
   yayasan_legal_date   DATE,                 -- tanggal akta
-  yayasan_npwp         VARCHAR(32),          -- opsional: NPWP yayasan
 
   -- Kontak & lokasi
   yayasan_address   TEXT,

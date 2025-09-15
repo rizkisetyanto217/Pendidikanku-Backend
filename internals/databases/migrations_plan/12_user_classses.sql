@@ -41,27 +41,10 @@ CREATE TABLE IF NOT EXISTS user_classes (
   user_classes_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_classes_deleted_at TIMESTAMPTZ,
 
-  -- audit aktor
-  user_classes_created_by_user_id UUID,
-  user_classes_updated_by_user_id UUID,
 
   -- sumber & kanal pendaftaran
-  user_classes_enrollment_source TEXT
-    CHECK (user_classes_enrollment_source IN ('manual','import','self_service','api')),
-  user_classes_enrollment_channel TEXT
-    CHECK (user_classes_enrollment_channel IN ('web','mobile','admin')),
   user_classes_enrollment_note TEXT,
 
-  -- status keutamaan / transfer
-  user_classes_is_primary BOOLEAN DEFAULT TRUE,
-  user_classes_is_transferred BOOLEAN DEFAULT FALSE,
-  user_classes_transferred_from_class_id UUID,
-  user_classes_transfer_reason TEXT,
-
-  -- konteks akademik
-  user_classes_academic_year_id UUID,
-  user_classes_term SMALLINT CHECK (user_classes_term BETWEEN 1 AND 6),
-  user_classes_teacher_id UUID,  -- wali/pembimbing utama
 
   -- engagement & metrik cache
   user_classes_progress_percent SMALLINT
@@ -216,16 +199,6 @@ CREATE TABLE IF NOT EXISTS user_class_sections (
   user_class_sections_reason TEXT,
   user_class_sections_assignment_source TEXT
     CHECK (user_class_sections_assignment_source IN ('manual','import','promotion','api')),
-
-  -- ketepatan waktu & proteksi
-  user_class_sections_effective_at   TIMESTAMPTZ,
-  user_class_sections_effective_until TIMESTAMPTZ,
-  user_class_sections_is_locked BOOLEAN DEFAULT FALSE,
-
-  -- denormalisasi untuk query cepat
-  user_class_sections_class_id UUID,
-  user_class_sections_academic_year_id UUID,
-  user_class_sections_term SMALLINT CHECK (user_class_sections_term BETWEEN 1 AND 6),
 
   -- meta akademik & posisi
   user_class_sections_subject_group TEXT,  -- ex: IPA/IPS, Kelompok A/B

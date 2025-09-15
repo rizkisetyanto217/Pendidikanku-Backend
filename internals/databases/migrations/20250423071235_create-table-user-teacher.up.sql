@@ -25,7 +25,6 @@ CREATE TABLE user_teachers (
   -- Metadata fleksibel
   users_teacher_specialties      JSONB,
   users_teacher_certificates     JSONB,
-  users_teacher_links            JSONB,
 
   -- Status
   users_teacher_is_verified      BOOLEAN     NOT NULL DEFAULT FALSE,

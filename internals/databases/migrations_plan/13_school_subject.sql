@@ -27,24 +27,13 @@ CREATE TABLE IF NOT EXISTS subjects (
   subjects_stream       TEXT,           -- Cambridge/Nasional
   subjects_level_min    SMALLINT,
   subjects_level_max    SMALLINT,
-  subjects_is_compulsory BOOLEAN NOT NULL DEFAULT FALSE,
   subjects_credit_units NUMERIC(4,2) CHECK (subjects_credit_units IS NULL OR subjects_credit_units >= 0),
   subjects_color_hex    VARCHAR(9),     -- #RRGGBB[AA]
-  subjects_aliases      TEXT[],
-  subjects_tags         TEXT[],
   subjects_icon_url     TEXT,
   subjects_external_ref TEXT,
 
   -- Opsional kurikulum & integrasi
   subjects_syllabus_url     TEXT,
-  subjects_learning_outcomes TEXT,
-  subjects_language         VARCHAR(20), -- 'id','en',...
-  subjects_department       TEXT,
-  subjects_prerequisite_subject_ids UUID[],
-
-  -- Audit aktor
-  subjects_created_by_user_id UUID,
-  subjects_updated_by_user_id UUID,
 
   subjects_is_active  BOOLEAN     NOT NULL DEFAULT TRUE,
   subjects_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -130,20 +119,6 @@ CREATE TABLE IF NOT EXISTS class_subjects (
     class_subjects_min_attendance_percent IS NULL OR (class_subjects_min_attendance_percent BETWEEN 0 AND 100)
   ),
 
-  -- Periode efektif binding
-  class_subjects_effective_at    TIMESTAMPTZ,
-  class_subjects_effective_until TIMESTAMPTZ,
-
-  -- Denormalisasi cepat
-  class_subjects_class_level    SMALLINT,
-  class_subjects_subject_group  TEXT,
-  class_subjects_subject_stream TEXT,
-
-  -- Audit & integrasi
-  class_subjects_created_by_user_id UUID,
-  class_subjects_updated_by_user_id UUID,
-  class_subjects_external_ref TEXT,
-  class_subjects_tags TEXT[],
 
   -- Tambahan opsional (kapasitas & policy)
   class_subjects_exam_type TEXT CHECK (class_subjects_exam_type IN ('uas','un','tryout')),

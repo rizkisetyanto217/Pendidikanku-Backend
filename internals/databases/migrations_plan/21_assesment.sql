@@ -116,13 +116,6 @@ CREATE TABLE IF NOT EXISTS assessments (
   assessments_status TEXT NOT NULL DEFAULT 'draft'
     CHECK (assessments_status IN ('draft','scheduled','open','closed','archived')),
 
-  -- Proctoring sederhana (opsional)
-  assessments_randomize_questions  BOOLEAN,
-  assessments_plagiarism_check     BOOLEAN,
-
-  -- Ordering manual
-  assessments_order INT,
-
   -- Audit
   assessments_created_by_teacher_id UUID,  -- ke masjid_teachers (opsional)
 

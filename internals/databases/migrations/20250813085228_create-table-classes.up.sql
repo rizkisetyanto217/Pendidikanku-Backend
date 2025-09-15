@@ -31,11 +31,15 @@ CREATE TABLE IF NOT EXISTS class_parents (
 
   class_parent_name  VARCHAR(120) NOT NULL,
   class_parent_code  VARCHAR(40),
+  class_parent_slug           VARCHAR(160),
+
 
   class_parent_description TEXT,
   class_parent_level SMALLINT,
 
   class_parent_is_active BOOLEAN NOT NULL DEFAULT TRUE,
+
+  class_parent_total_classes   INT        NOT NULL DEFAULT 0,
 
   class_parent_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   class_parent_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -117,8 +121,7 @@ CREATE TABLE IF NOT EXISTS classes (
   class_end_date DATE,
 
   -- Registrasi / Term
-  class_term_id UUID,
-  class_is_open BOOLEAN NOT NULL DEFAULT TRUE,
+  class_term_id UUID,\
   class_registration_opens_at  TIMESTAMPTZ,
   class_registration_closes_at TIMESTAMPTZ,
   CONSTRAINT ck_class_reg_window CHECK (
@@ -139,10 +142,6 @@ CREATE TABLE IF NOT EXISTS classes (
   class_billing_cycle        billing_cycle_enum NOT NULL DEFAULT 'monthly',
   class_provider_product_id  TEXT,
   class_provider_price_id    TEXT,
-  CONSTRAINT ck_classes_pricing_nonneg CHECK (
-    (class_registration_fee_idr IS NULL OR class_registration_fee_idr >= 0) AND
-    (class_tuition_fee_idr      IS NULL OR class_tuition_fee_idr >= 0)
-  ),
 
   -- Catatan & media
   class_notes TEXT,
