@@ -60,15 +60,8 @@ CREATE TABLE IF NOT EXISTS user_classes (
   user_classes_total_hours NUMERIC(6,2)
     CHECK (user_classes_total_hours IS NULL OR user_classes_total_hours >= 0),
 
-  -- flags tambahan
-  user_classes_is_repeated BOOLEAN DEFAULT FALSE,
-  user_classes_dropout_reason TEXT,
-
   -- billing ringan
   user_classes_is_paid BOOLEAN,
-  user_classes_price_cents INT CHECK (user_classes_price_cents >= 0),
-  user_classes_currency CHAR(3),
-  user_classes_billing_plan_id UUID,
 
   -- reward/sertifikasi
   user_classes_honor_points INT DEFAULT 0 CHECK (user_classes_honor_points >= 0),

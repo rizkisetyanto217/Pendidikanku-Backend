@@ -11,6 +11,7 @@ import (
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -143,8 +144,10 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 		}
 		setPtr(&in.UsersProfileDonationName, "users_profile_donation_name")
 		setPtr(&in.UsersProfileDateOfBirth, "users_profile_date_of_birth")
+		setPtr(&in.UserProfilePlaceOfBirth, "user_profile_place_of_birth") // ← ADA di DDL
 		setPtr(&in.UsersProfileGender, "users_profile_gender")
 		setPtr(&in.UsersProfileLocation, "users_profile_location")
+		setPtr(&in.UsersProfileCity, "users_profile_city")                 // ← ADA di DDL
 		setPtr(&in.UsersProfilePhoneNumber, "users_profile_phone_number")
 		setPtr(&in.UsersProfileBio, "users_profile_bio")
 
@@ -152,24 +155,29 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 		setPtr(&in.UsersProfileExperience, "users_profile_experience")
 		setPtr(&in.UsersProfileCertifications, "users_profile_certifications")
 
+		// Socials yang ada di tabel
 		setPtr(&in.UsersProfileInstagramURL, "users_profile_instagram_url")
 		setPtr(&in.UsersProfileWhatsappURL, "users_profile_whatsapp_url")
-		setPtr(&in.UsersProfileYoutubeURL, "users_profile_youtube_url")
-		setPtr(&in.UsersProfileFacebookURL, "users_profile_facebook_url")
-		setPtr(&in.UsersProfileTiktokURL, "users_profile_tiktok_url")
-
-		setPtr(&in.UsersProfileTelegramUsername, "users_profile_telegram_username")
 		setPtr(&in.UsersProfileLinkedinURL, "users_profile_linkedin_url")
-		setPtr(&in.UsersProfileTwitterURL, "users_profile_twitter_url")
 		setPtr(&in.UsersProfileGithubURL, "users_profile_github_url")
+		setPtr(&in.UsersProfileYoutubeURL, "users_profile_youtube_url")
 
-		setPtr(&in.UsersProfileEducation, "users_profile_education")
-		setPtr(&in.UsersProfileCompany, "users_profile_company")
-		setPtr(&in.UsersProfilePosition, "users_profile_position")
+		// Privacy & verification
+		if v := c.FormValue("users_profile_is_public_profile"); v != "" {
+			val := strings.ToLower(strings.TrimSpace(v))
+			in.UsersProfileIsPublicProfile = parseBoolPtr(val)
+		}
+		if v := c.FormValue("users_profile_is_verified"); v != "" {
+			val := strings.ToLower(strings.TrimSpace(v))
+			in.UsersProfileIsVerified = parseBoolPtr(val)
+		}
+		setPtr(&in.UsersProfileVerifiedAt, "users_profile_verified_at")
+		if v := c.FormValue("users_profile_verified_by"); v != "" {
+			vv := strings.TrimSpace(v)
+			in.UsersProfileVerifiedBy = parseUUIDPtr(vv)
+		}
 
-
-		// note: interests & skills (array) via form-encoding bisa di-handle custom (comma-separated),
-		// tapi karena validasi/DTO-mu mengharapkan JSON array, rekomendasi: kirim PATCH sebagai JSON.
+		// NOTE: interests & skills (array) sebaiknya via JSON.
 	}
 
 	// normalisasi ringan
@@ -234,4 +242,29 @@ func (upc *UsersProfileController) DeleteProfile(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonDeleted(c, "User profile deleted", nil)
+}
+
+/* =========================
+   Helpers (local)
+   ========================= */
+
+func parseBoolPtr(s string) *bool {
+	switch strings.ToLower(s) {
+	case "true", "1", "yes", "y", "on":
+		b := true
+		return &b
+	case "false", "0", "no", "n", "off":
+		b := false
+		return &b
+	default:
+		return nil
+	}
+}
+
+func parseUUIDPtr(s string) *uuid.UUID {
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return nil
+	}
+	return &id
 }

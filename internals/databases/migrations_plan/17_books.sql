@@ -25,11 +25,7 @@ CREATE TABLE IF NOT EXISTS books (
   -- Bibliografis
   books_publisher          TEXT,
   books_publication_year   SMALLINT,
-  books_publication_date   DATE,
-  books_edition            VARCHAR(40),
-  books_series_name        TEXT,
-  books_series_index       INT,
-  books_volume             VARCHAR(20),
+
 
   -- Klasifikasi & kurikulum
   books_tags               TEXT[],
@@ -38,15 +34,6 @@ CREATE TABLE IF NOT EXISTS books (
   books_grade_levels       INT[],
   books_curriculum_notes   TEXT,
 
-  -- Fisik & format
-  books_format             TEXT,            -- 'paperback'|'hardcover'|'ebook'|'audio'
-  books_page_count         INT,
-
-  -- Sirkulasi lanjutan
-  books_table_of_contents  JSONB,
-  books_loan_policy        JSONB,           -- {max_days, renewals, penalty_cents}
-  books_max_loan_days      INT,
-  books_late_fee_cents     BIGINT,
 
   -- Visibilitas & status
   books_status             TEXT,            -- 'active'|'archived'|'out_of_print'

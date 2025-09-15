@@ -1,8 +1,5 @@
--- =========================================================
--- =====================   U P   ===========================
--- =========================================================
 
--- PRASYARAT
+
 CREATE EXTENSION IF NOT EXISTS pgcrypto;      -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;       -- trigram search
 CREATE EXTENSION IF NOT EXISTS cube;          -- earthdistance requirement

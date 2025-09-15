@@ -71,6 +71,7 @@ func (ctl *UsersTeacherController) Create(c *fiber.Ctx) error {
 	// Normalize whitespace di string-field (sebelum ToModel -> NULL-kan jika kosong)
 	req.UsersTeacherField = strings.TrimSpace(req.UsersTeacherField)
 	req.UsersTeacherShortBio = strings.TrimSpace(req.UsersTeacherShortBio)
+	req.UsersTeacherLongBio = strings.TrimSpace(req.UsersTeacherLongBio)
 	req.UsersTeacherGreeting = strings.TrimSpace(req.UsersTeacherGreeting)
 	req.UsersTeacherEducation = strings.TrimSpace(req.UsersTeacherEducation)
 	req.UsersTeacherActivity = strings.TrimSpace(req.UsersTeacherActivity)
@@ -202,6 +203,7 @@ func (ctl *UsersTeacherController) Update(c *fiber.Ctx) error {
 	// Normalize whitespace pada string-pointer sebelum ApplyPatch
 	req.UsersTeacherField = trimPtr(req.UsersTeacherField)
 	req.UsersTeacherShortBio = trimPtr(req.UsersTeacherShortBio)
+	req.UsersTeacherLongBio = trimPtr(req.UsersTeacherLongBio)
 	req.UsersTeacherGreeting = trimPtr(req.UsersTeacherGreeting)
 	req.UsersTeacherEducation = trimPtr(req.UsersTeacherEducation)
 	req.UsersTeacherActivity = trimPtr(req.UsersTeacherActivity)

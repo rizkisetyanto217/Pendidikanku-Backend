@@ -46,10 +46,6 @@ CREATE TABLE IF NOT EXISTS spp_billings (
   -- denda & grace period
   spp_billing_due_date         DATE,
   spp_billing_grace_days       SMALLINT,
-  spp_billing_penalty_flat_cents BIGINT,
-  spp_billing_penalty_daily_cents BIGINT,
-  spp_billing_penalty_cap_cents BIGINT,
-  spp_billing_waiver_policy     TEXT,
 
   -- penjadwalan & siklus
   spp_billing_status           TEXT,

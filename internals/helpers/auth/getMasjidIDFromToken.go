@@ -780,3 +780,13 @@ func EnsureDKMOrTeacherMasjid(c *fiber.Ctx, masjidID uuid.UUID) error {
 	legacy := func() bool { return IsDKM(c) || IsTeacher(c) }
 	return ensureRolesInMasjid(c, masjidID, roles, legacy, "Hanya DKM/Guru yang diizinkan")
 }
+
+
+func OwnerOnly() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if !IsOwner(c) {
+			return helper.JsonError(c, fiber.StatusForbidden, "Hanya owner yang diizinkan")
+		}
+		return c.Next()
+	}
+}

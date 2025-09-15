@@ -54,8 +54,6 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   -- 1) Konteks akademik
   class_attendance_sessions_section_id       UUID,
   class_attendance_sessions_class_subject_id UUID,
-  class_attendance_sessions_term_id          UUID,
-  class_attendance_sessions_academic_year_id UUID,
   class_attendance_sessions_schedule_id      UUID,
   class_attendance_sessions_event_id         UUID,
 
@@ -131,42 +129,16 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_sessions_sick_count    INT,
   class_attendance_sessions_leave_count   INT,
 
-  -- 10) Publikasi & notifikasi
-  class_attendance_sessions_is_published     BOOLEAN DEFAULT TRUE,
-  class_attendance_sessions_publish_at       TIMESTAMPTZ,
 
   -- 12) Audit & versioning
   class_attendance_sessions_created_by_user_id UUID,
   class_attendance_sessions_updated_by_user_id UUID,
-  class_attendance_sessions_row_version        INT DEFAULT 1,
-  class_attendance_sessions_etag               TEXT,
+
 
   -- 13) Timestamps
   class_attendance_sessions_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_attendance_sessions_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-  -- 14) Check-in/Check-out
-  class_attendance_sessions_checkin_opens_at   TIMESTAMPTZ,
-  class_attendance_sessions_checkin_closes_at  TIMESTAMPTZ,
-  class_attendance_sessions_checkout_opens_at  TIMESTAMPTZ,
-  class_attendance_sessions_checkout_closes_at TIMESTAMPTZ,
-  class_attendance_sessions_checkin_radius_m   INT,
-  class_attendance_sessions_checkin_qr_code    TEXT,
-  class_attendance_sessions_checkin_policy     TEXT,
-
-  -- 17) Lock & approval
-  class_attendance_sessions_locked_at          TIMESTAMPTZ,
-  class_attendance_sessions_locked_by_user_id  UUID,
-  class_attendance_sessions_lock_reason        TEXT,
-  class_attendance_sessions_approved_at        TIMESTAMPTZ,
-  class_attendance_sessions_approved_by_user_id UUID,
-  class_attendance_sessions_approval_note      TEXT,
-
-
-  -- 20) Kanal & perangkat
-  class_attendance_sessions_created_via    TEXT,  -- 'web','mobile','api'
-  class_attendance_sessions_creator_device JSONB, -- {ua,os,app_ver}
-  class_attendance_sessions_creator_ip     INET
 );
 
 COMMIT;

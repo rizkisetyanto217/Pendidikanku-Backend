@@ -144,10 +144,6 @@ CREATE TABLE IF NOT EXISTS classes (
   class_code           VARCHAR(40),
   class_summary        VARCHAR(300),
   class_description    TEXT,
-  class_thumbnail_url  TEXT,
-  class_thumbnail_alt  VARCHAR(160),
-  class_banner_url     TEXT,
-  class_canonical_url  TEXT,
 
   -- Registrasi / Term
   class_is_open BOOLEAN NOT NULL DEFAULT TRUE,

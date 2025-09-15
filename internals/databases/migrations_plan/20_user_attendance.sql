@@ -149,7 +149,6 @@ CREATE TABLE IF NOT EXISTS user_attendance (
   user_attendance_excuse_type TEXT,  -- 'sick'|'leave'|'traffic'|...
   user_attendance_excuse_note TEXT,
 
-
   user_attendance_approved        BOOLEAN,
   user_attendance_approved_at     TIMESTAMPTZ,
   user_attendance_approved_by_user_id UUID,
@@ -163,11 +162,6 @@ CREATE TABLE IF NOT EXISTS user_attendance (
   user_attendance_reviewed_by_user_id UUID,
   user_attendance_reviewed_at     TIMESTAMPTZ,
   user_attendance_review_note     TEXT,
-
-  -- keamanan & kualitas bukti
-  user_attendance_face_match_score  NUMERIC(5,2),  -- 0..100
-  user_attendance_geo_accuracy_m    INT,           -- akurasi GPS (meter)
-  user_attendance_violation_flags   TEXT[],        -- ['geo_mismatch','late_checkin',...]
 
   -- FTS (desc & notes)
   user_attendance_search tsvector

@@ -13,29 +13,28 @@ import (
 //
 
 type CreateUsersTeacherRequest struct {
-	UsersTeacherUserID           uuid.UUID      `json:"users_teacher_user_id" validate:"required"`
-	UsersTeacherField            string         `json:"users_teacher_field" validate:"omitempty,max=80"`
-	UsersTeacherShortBio         string         `json:"users_teacher_short_bio" validate:"omitempty,max=300"`
-	UsersTeacherGreeting         string         `json:"users_teacher_greeting" validate:"omitempty"`
-	UsersTeacherEducation        string         `json:"users_teacher_education" validate:"omitempty"`
-	UsersTeacherActivity         string         `json:"users_teacher_activity" validate:"omitempty"`
-	UsersTeacherExperienceYears  *int16         `json:"users_teacher_experience_years" validate:"omitempty"`
-	UsersTeacherSpecialties      datatypes.JSON `json:"users_teacher_specialties" validate:"omitempty"`
-	UsersTeacherCertificates     datatypes.JSON `json:"users_teacher_certificates" validate:"omitempty"`
-	UsersTeacherLinks            datatypes.JSON `json:"users_teacher_links" validate:"omitempty"`
-	UsersTeacherIsVerified       *bool          `json:"users_teacher_is_verified" validate:"omitempty"`
-	UsersTeacherIsActive         *bool          `json:"users_teacher_is_active" validate:"omitempty"`
+	UsersTeacherUserID          uuid.UUID      `json:"users_teacher_user_id" validate:"required"`
+	UsersTeacherField           string         `json:"users_teacher_field" validate:"omitempty,max=80"`
+	UsersTeacherShortBio        string         `json:"users_teacher_short_bio" validate:"omitempty,max=300"`
+	UsersTeacherLongBio         string         `json:"users_teacher_long_bio" validate:"omitempty"`
+	UsersTeacherGreeting        string         `json:"users_teacher_greeting" validate:"omitempty"`
+	UsersTeacherEducation       string         `json:"users_teacher_education" validate:"omitempty"`
+	UsersTeacherActivity        string         `json:"users_teacher_activity" validate:"omitempty"`
+	UsersTeacherExperienceYears *int16         `json:"users_teacher_experience_years" validate:"omitempty"`
+	UsersTeacherSpecialties     datatypes.JSON `json:"users_teacher_specialties" validate:"omitempty"`
+	UsersTeacherCertificates    datatypes.JSON `json:"users_teacher_certificates" validate:"omitempty"`
+	UsersTeacherIsVerified      *bool          `json:"users_teacher_is_verified" validate:"omitempty"`
+	UsersTeacherIsActive        *bool          `json:"users_teacher_is_active" validate:"omitempty"`
 }
 
 // ToModel: mapping Create → model.UserTeacher
 func (r CreateUsersTeacherRequest) ToModel() model.UserTeacher {
 	m := model.UserTeacher{
-		UsersTeacherUserID:         r.UsersTeacherUserID,
-		UsersTeacherSpecialties:    r.UsersTeacherSpecialties,
-		UsersTeacherCertificates:   r.UsersTeacherCertificates,
-		UsersTeacherLinks:          r.UsersTeacherLinks,
-		UsersTeacherIsVerified:     false, // default by DB, set eksplisit agar konsisten
-		UsersTeacherIsActive:       true,  // default by DB
+		UsersTeacherUserID:       r.UsersTeacherUserID,
+		UsersTeacherSpecialties:  r.UsersTeacherSpecialties,
+		UsersTeacherCertificates: r.UsersTeacherCertificates,
+		UsersTeacherIsVerified:   false, // default by DB, set eksplisit agar konsisten
+		UsersTeacherIsActive:     true,  // default by DB
 	}
 
 	// String optional → *string (NULL jika kosong)
@@ -44,6 +43,9 @@ func (r CreateUsersTeacherRequest) ToModel() model.UserTeacher {
 	}
 	if p := nilIfEmpty(r.UsersTeacherShortBio); p != nil {
 		m.UsersTeacherShortBio = p
+	}
+	if p := nilIfEmpty(r.UsersTeacherLongBio); p != nil {
+		m.UsersTeacherLongBio = p
 	}
 	if p := nilIfEmpty(r.UsersTeacherGreeting); p != nil {
 		m.UsersTeacherGreeting = p
@@ -78,19 +80,19 @@ func (r CreateUsersTeacherRequest) ToModel() model.UserTeacher {
 type UpdateUsersTeacherRequest struct {
 	UsersTeacherField           *string         `json:"users_teacher_field" validate:"omitempty,max=80"`
 	UsersTeacherShortBio        *string         `json:"users_teacher_short_bio" validate:"omitempty,max=300"`
+	UsersTeacherLongBio         *string         `json:"users_teacher_long_bio" validate:"omitempty"`
 	UsersTeacherGreeting        *string         `json:"users_teacher_greeting" validate:"omitempty"`
 	UsersTeacherEducation       *string         `json:"users_teacher_education" validate:"omitempty"`
 	UsersTeacherActivity        *string         `json:"users_teacher_activity" validate:"omitempty"`
 	UsersTeacherExperienceYears *int16          `json:"users_teacher_experience_years" validate:"omitempty"`
 	UsersTeacherSpecialties     *datatypes.JSON `json:"users_teacher_specialties" validate:"omitempty"`
 	UsersTeacherCertificates    *datatypes.JSON `json:"users_teacher_certificates" validate:"omitempty"`
-	UsersTeacherLinks           *datatypes.JSON `json:"users_teacher_links" validate:"omitempty"`
 	UsersTeacherIsVerified      *bool           `json:"users_teacher_is_verified" validate:"omitempty"`
 	UsersTeacherIsActive        *bool           `json:"users_teacher_is_active" validate:"omitempty"`
 
 	// Kolom yang ingin DIKOSONGKAN (set NULL) secara eksplisit
 	// contoh: "__clear": ["users_teacher_field","users_teacher_specialties"]
-	Clear []string `json:"__clear,omitempty" validate:"omitempty,dive,oneof=users_teacher_field users_teacher_short_bio users_teacher_greeting users_teacher_education users_teacher_activity users_teacher_experience_years users_teacher_specialties users_teacher_certificates users_teacher_links"`
+	Clear []string `json:"__clear,omitempty" validate:"omitempty,dive,oneof=users_teacher_field users_teacher_short_bio users_teacher_long_bio users_teacher_greeting users_teacher_education users_teacher_activity users_teacher_experience_years users_teacher_specialties users_teacher_certificates"`
 }
 
 // ApplyPatch: terapkan update parsial ke model.
@@ -100,11 +102,13 @@ type UpdateUsersTeacherRequest struct {
 func (r UpdateUsersTeacherRequest) ApplyPatch(m *model.UserTeacher) {
 	// 1) Setter biasa (tanpa NULL)
 	if r.UsersTeacherField != nil {
-		// assignment langsung: empty string "" tetap disimpan (bukan NULL)
 		m.UsersTeacherField = r.UsersTeacherField
 	}
 	if r.UsersTeacherShortBio != nil {
 		m.UsersTeacherShortBio = r.UsersTeacherShortBio
+	}
+	if r.UsersTeacherLongBio != nil {
+		m.UsersTeacherLongBio = r.UsersTeacherLongBio
 	}
 	if r.UsersTeacherGreeting != nil {
 		m.UsersTeacherGreeting = r.UsersTeacherGreeting
@@ -124,9 +128,6 @@ func (r UpdateUsersTeacherRequest) ApplyPatch(m *model.UserTeacher) {
 	if r.UsersTeacherCertificates != nil {
 		m.UsersTeacherCertificates = *r.UsersTeacherCertificates
 	}
-	if r.UsersTeacherLinks != nil {
-		m.UsersTeacherLinks = *r.UsersTeacherLinks
-	}
 	if r.UsersTeacherIsVerified != nil {
 		m.UsersTeacherIsVerified = *r.UsersTeacherIsVerified
 	}
@@ -141,6 +142,8 @@ func (r UpdateUsersTeacherRequest) ApplyPatch(m *model.UserTeacher) {
 			m.UsersTeacherField = nil
 		case "users_teacher_short_bio":
 			m.UsersTeacherShortBio = nil
+		case "users_teacher_long_bio":
+			m.UsersTeacherLongBio = nil
 		case "users_teacher_greeting":
 			m.UsersTeacherGreeting = nil
 		case "users_teacher_education":
@@ -153,8 +156,6 @@ func (r UpdateUsersTeacherRequest) ApplyPatch(m *model.UserTeacher) {
 			m.UsersTeacherSpecialties = nil
 		case "users_teacher_certificates":
 			m.UsersTeacherCertificates = nil
-		case "users_teacher_links":
-			m.UsersTeacherLinks = nil
 		}
 	}
 }
@@ -164,22 +165,22 @@ func (r UpdateUsersTeacherRequest) ApplyPatch(m *model.UserTeacher) {
 //
 
 type UsersTeacherResponse struct {
-	UsersTeacherID               uuid.UUID      `json:"users_teacher_id"`
-	UsersTeacherUserID           uuid.UUID      `json:"users_teacher_user_id"`
-	FullName                     string         `json:"full_name"` // dari join users
-	UsersTeacherField            string         `json:"users_teacher_field"`
-	UsersTeacherShortBio         string         `json:"users_teacher_short_bio"`
-	UsersTeacherGreeting         string         `json:"users_teacher_greeting"`
-	UsersTeacherEducation        string         `json:"users_teacher_education"`
-	UsersTeacherActivity         string         `json:"users_teacher_activity"`
-	UsersTeacherExperienceYears  *int16         `json:"users_teacher_experience_years"`
-	UsersTeacherSpecialties      datatypes.JSON `json:"users_teacher_specialties"`
-	UsersTeacherCertificates     datatypes.JSON `json:"users_teacher_certificates"`
-	UsersTeacherLinks            datatypes.JSON `json:"users_teacher_links"`
-	UsersTeacherIsVerified       bool           `json:"users_teacher_is_verified"`
-	UsersTeacherIsActive         bool           `json:"users_teacher_is_active"`
-	UsersTeacherCreatedAt        string         `json:"users_teacher_created_at"`
-	UsersTeacherUpdatedAt        string         `json:"users_teacher_updated_at"`
+	UsersTeacherID              uuid.UUID      `json:"users_teacher_id"`
+	UsersTeacherUserID          uuid.UUID      `json:"users_teacher_user_id"`
+	FullName                    string         `json:"full_name"` // dari join users
+	UsersTeacherField           string         `json:"users_teacher_field"`
+	UsersTeacherShortBio        string         `json:"users_teacher_short_bio"`
+	UsersTeacherLongBio         string         `json:"users_teacher_long_bio"`
+	UsersTeacherGreeting        string         `json:"users_teacher_greeting"`
+	UsersTeacherEducation       string         `json:"users_teacher_education"`
+	UsersTeacherActivity        string         `json:"users_teacher_activity"`
+	UsersTeacherExperienceYears *int16         `json:"users_teacher_experience_years"`
+	UsersTeacherSpecialties     datatypes.JSON `json:"users_teacher_specialties"`
+	UsersTeacherCertificates    datatypes.JSON `json:"users_teacher_certificates"`
+	UsersTeacherIsVerified      bool           `json:"users_teacher_is_verified"`
+	UsersTeacherIsActive        bool           `json:"users_teacher_is_active"`
+	UsersTeacherCreatedAt       string         `json:"users_teacher_created_at"`
+	UsersTeacherUpdatedAt       string         `json:"users_teacher_updated_at"`
 }
 
 // Mapping model → response
@@ -190,13 +191,13 @@ func ToUsersTeacherResponse(m model.UserTeacher, fullName string) UsersTeacherRe
 		FullName:                    fullName,
 		UsersTeacherField:           deref(m.UsersTeacherField),
 		UsersTeacherShortBio:        deref(m.UsersTeacherShortBio),
+		UsersTeacherLongBio:         deref(m.UsersTeacherLongBio),
 		UsersTeacherGreeting:        deref(m.UsersTeacherGreeting),
 		UsersTeacherEducation:       deref(m.UsersTeacherEducation),
 		UsersTeacherActivity:        deref(m.UsersTeacherActivity),
 		UsersTeacherExperienceYears: m.UsersTeacherExperienceYears,
 		UsersTeacherSpecialties:     m.UsersTeacherSpecialties,
 		UsersTeacherCertificates:    m.UsersTeacherCertificates,
-		UsersTeacherLinks:           m.UsersTeacherLinks,
 		UsersTeacherIsVerified:      m.UsersTeacherIsVerified,
 		UsersTeacherIsActive:        m.UsersTeacherIsActive,
 		UsersTeacherCreatedAt:       m.UsersTeacherCreatedAt.Format(time.RFC3339),

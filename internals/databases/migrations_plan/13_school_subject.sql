@@ -122,10 +122,6 @@ CREATE TABLE IF NOT EXISTS class_subjects (
 
   -- Tambahan opsional (kapasitas & policy)
   class_subjects_exam_type TEXT CHECK (class_subjects_exam_type IN ('uas','un','tryout')),
-  class_subjects_practice_hours INT CHECK (class_subjects_practice_hours IS NULL OR class_subjects_practice_hours >= 0),
-  class_subjects_max_students INT CHECK (class_subjects_max_students IS NULL OR class_subjects_max_students >= 0),
-  class_subjects_enrollment_policy TEXT, -- "manual/self_service/require_prereq/..."
-  class_subjects_is_remedial BOOLEAN DEFAULT FALSE,
   class_subjects_notes TEXT,
   class_subjects_materials_url TEXT,
 

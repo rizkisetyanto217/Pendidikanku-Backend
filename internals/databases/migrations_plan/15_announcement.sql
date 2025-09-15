@@ -69,11 +69,8 @@ CREATE TABLE IF NOT EXISTS announcements (
   announcement_slug              VARCHAR(160),
   announcement_locale            VARCHAR(20),
   announcement_timezone          TEXT,
-  announcement_moderation_status TEXT,    -- 'pending'|'approved'|'rejected'
   announcement_approved_by_user_id UUID,
   announcement_approved_at       TIMESTAMPTZ,
-  announcement_rejection_reason  TEXT,
-  announcement_visibility_scope  TEXT,    -- 'tenant'|'campus'|'class'... (sesuaikan)
 
   -- audit
   announcement_created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),

@@ -29,13 +29,12 @@ CREATE TABLE IF NOT EXISTS academic_terms (
   -- ===== Identitas & tampilan =====
   academic_terms_code          VARCHAR(24),     -- ex: 2026GJ
   academic_terms_slug          VARCHAR(60),     -- URL-friendly per tenant
-  academic_terms_sequence      SMALLINT,        -- urutan dalam tahun ajaran (1=Ganjil, 2=Genap, ...)
+
   academic_terms_color         VARCHAR(16),
 
   -- ===== Penjadwalan operasional =====
   academic_terms_registration_start TIMESTAMPTZ,
   academic_terms_registration_end   TIMESTAMPTZ,
-
 
   -- ===== Kebijakan & metadata =====
   academic_terms_public_notes      TEXT,

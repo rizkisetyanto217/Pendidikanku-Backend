@@ -31,15 +31,6 @@ CREATE TABLE IF NOT EXISTS user_classes (
   user_classes_paid_until TIMESTAMPTZ,
   user_classes_paid_grace_days SMALLINT NOT NULL DEFAULT 0 CHECK (user_classes_paid_grace_days BETWEEN 0 AND 100)
 
-    -- engagement & metrik cache
-  user_classes_progress_percent SMALLINT
-    CHECK (user_classes_progress_percent BETWEEN 0 AND 100),
-  user_classes_attendance_count INT DEFAULT 0
-    CHECK (user_classes_attendance_count >= 0),
-  user_classes_absence_count INT DEFAULT 0
-    CHECK (user_classes_absence_count >= 0),
-  user_classes_grade_average NUMERIC(5,2),
-
   -- jejak waktu enrolment per kelas
   user_classes_joined_at    TIMESTAMPTZ,
   user_classes_left_at      TIMESTAMPTZ,

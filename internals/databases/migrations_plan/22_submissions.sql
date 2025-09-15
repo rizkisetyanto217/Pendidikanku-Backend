@@ -33,8 +33,6 @@ CREATE TABLE IF NOT EXISTS submissions (
     CHECK (submissions_status IN ('draft','submitted','resubmitted','graded','returned')),
   submissions_started_at   TIMESTAMPTZ,                    -- mulai mengerjakan
   submissions_submitted_at TIMESTAMPTZ,
-  submissions_is_late      BOOLEAN,
-  submissions_late_by_seconds INT,
   submissions_late_reason TEXT,
 
   -- Penilaian
@@ -50,11 +48,6 @@ CREATE TABLE IF NOT EXISTS submissions (
     CHECK (submissions_weight_snapshot_percent IS NULL OR (submissions_weight_snapshot_percent >= 0 AND submissions_weight_snapshot_percent <= 100)),
   submissions_min_pass_score_snapshot NUMERIC(5,2)
     CHECK (submissions_min_pass_score_snapshot IS NULL OR (submissions_min_pass_score_snapshot >= 0 AND submissions_min_pass_score_snapshot <= 100)),
-
-  -- Proctoring / integritas
-  submissions_plagiarism_score NUMERIC(5,2)
-    CHECK (submissions_plagiarism_score IS NULL OR (submissions_plagiarism_score >= 0 AND submissions_plagiarism_score <= 100)),
-  submissions_plagiarism_report_url TEXT,
 
   -- Feedback
   submissions_feedback TEXT,

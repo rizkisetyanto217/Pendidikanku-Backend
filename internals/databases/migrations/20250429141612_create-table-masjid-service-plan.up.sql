@@ -1,9 +1,5 @@
--- =========================================================
--- UP Migration — masjid_service_plans (refactor final)
--- =========================================================
 BEGIN;
 
--- Prasyarat
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ---------------------------------------------------------

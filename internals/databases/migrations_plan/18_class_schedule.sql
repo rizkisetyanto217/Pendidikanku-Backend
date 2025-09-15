@@ -26,7 +26,6 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedules_class_subject_id    UUID REFERENCES class_subjects(class_subjects_id) ON DELETE RESTRICT,
   class_schedules_csst_id             UUID REFERENCES class_section_subject_teachers(class_section_subject_teachers_id) ON UPDATE CASCADE ON DELETE SET NULL,
   class_schedules_room_id             UUID REFERENCES class_rooms(class_room_id) ON DELETE SET NULL,
-  class_schedules_teacher_id          UUID REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE SET NULL,
 
   -- pola rutin (weekly)
   class_schedules_day_of_week         INT  NOT NULL CHECK (class_schedules_day_of_week BETWEEN 1 AND 7),
@@ -61,15 +60,11 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   -- metadata sesi
   class_schedules_title               VARCHAR(160),
   class_schedules_topic               TEXT,
-  class_schedules_session_type        TEXT,      -- 'lecture'|'lab'|'exam'|'makeup'|...
-  class_schedules_lesson_plan_id      UUID,
   class_schedules_syllabus_ref        TEXT,
   class_schedules_learning_objectives TEXT[],
 
   -- materi & lampiran
   class_schedules_materials           JSONB,     -- {links:[], files:[]}
-  class_schedules_attachments         JSONB,
-  class_schedules_attachments_count   INT,
 
   -- modality & meeting
   class_schedules_recording_url       TEXT,
@@ -91,10 +86,6 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedules_visibility_scope    TEXT,      -- 'tenant'|'campus'|'class'|'section'
   class_schedules_is_published        BOOLEAN DEFAULT TRUE,
   class_schedules_publish_at          TIMESTAMPTZ,
-  class_schedules_notify_on_create    BOOLEAN DEFAULT FALSE,
-  class_schedules_notify_on_change    BOOLEAN DEFAULT FALSE,
-  class_schedules_reminder_minutes_before INT[], -- {1440,60,10}
-  class_schedules_reminder_channels   TEXT[],    -- ['push','email','wa','sms']
 
 
   -- audit & optimistic locking
@@ -197,29 +188,15 @@ CREATE TABLE IF NOT EXISTS class_events (
 
   -- kapasitas & RSVP
   class_events_capacity         INT,
-  class_events_waitlist_capacity INT,
   class_events_enrollment_policy TEXT,          -- 'open'|'invite'|'closed'
-  class_events_rsvp_required    BOOLEAN DEFAULT FALSE,
-  class_events_require_attendance BOOLEAN DEFAULT FALSE,
-  class_events_checkin_code     VARCHAR(16),
 
   -- publikasi & reminder
   class_events_is_published     BOOLEAN DEFAULT TRUE,
   class_events_publish_at       TIMESTAMPTZ,
-  class_events_notify_on_create BOOLEAN DEFAULT FALSE,
-  class_events_notify_on_change BOOLEAN DEFAULT FALSE,
-  class_events_reminder_minutes_before INT[],
-  class_events_reminder_channels TEXT[],
 
   -- media & lampiran
   class_events_banner_url       TEXT,
   class_events_attachments      JSONB,
-  class_events_attachments_count INT,
-
-  -- status & pembatalan
-  class_events_status           TEXT,          -- 'planned'|'ongoing'|'completed'|'canceled'
-  class_events_canceled_at      TIMESTAMPTZ,
-  class_events_canceled_reason  TEXT,
 
   -- audit & locking
   class_events_created_by_user_id UUID,

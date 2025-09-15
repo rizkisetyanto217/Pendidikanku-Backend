@@ -64,8 +64,10 @@ CREATE TABLE IF NOT EXISTS users_profile (
   -- Identitas dasar
   users_profile_donation_name   VARCHAR(50),
   users_profile_date_of_birth   DATE,
+  user_profile_place_of_birth   VARCHAR(100),
   users_profile_gender          VARCHAR(10),
   users_profile_location        VARCHAR(100),
+  users_profile_city            VARCHAR(100),
   users_profile_phone_number    VARCHAR(20),
   users_profile_bio             VARCHAR(300),
 
@@ -77,14 +79,8 @@ CREATE TABLE IF NOT EXISTS users_profile (
   -- Sosial media utama
   users_profile_instagram_url   TEXT,
   users_profile_whatsapp_url    TEXT,
-  users_profile_youtube_url     TEXT,
-  users_profile_facebook_url    TEXT,
-  users_profile_tiktok_url      TEXT,
-
-  -- Sosial media tambahan
-  users_profile_telegram_username VARCHAR(50),
+  users_profile_youtube_url    TEXT,
   users_profile_linkedin_url      TEXT,
-  users_profile_twitter_url       TEXT,
   users_profile_github_url        TEXT,
 
   -- Privasi
