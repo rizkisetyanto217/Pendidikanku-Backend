@@ -1,20 +1,13 @@
 BEGIN;
 
-DROP INDEX IF EXISTS idx_class_rooms_description_trgm;
--- Drop indeks eksplisit (opsional; tabel drop juga akan menghapus)
-DROP INDEX IF EXISTS idx_class_rooms_location_trgm;
-DROP INDEX IF EXISTS idx_class_rooms_name_trgm;
-DROP INDEX IF EXISTS idx_class_rooms_features_gin;
-DROP INDEX IF EXISTS idx_class_rooms_tenant_active;
+-- Hapus tabel yang bergantung dulu
+DROP TABLE IF EXISTS class_room_virtual_links;
 
--- Unique indexes
-DROP INDEX IF EXISTS uq_class_rooms_tenant_code_ci;
-DROP INDEX IF EXISTS uq_class_rooms_tenant_name_ci;
-
--- Drop table
+-- Lalu tabel induk
 DROP TABLE IF EXISTS class_rooms;
 
--- Catatan:
--- - Extensions (pgcrypto, pg_trgm) TIDAK di-drop agar tidak berdampak ke objek lain.
-
 COMMIT;
+
+-- (opsional) jika memang ingin ikut melepas extension:
+-- DROP EXTENSION IF EXISTS pg_trgm;
+-- DROP EXTENSION IF EXISTS pgcrypto;

@@ -11,7 +11,7 @@ import (
 
 func UsersTeacherRoute(app fiber.Router, db *gorm.DB) {
     v := validator.New()
-    teacherCtrl := teacherController.NewUsersTeacherController(db, v)
+    teacherCtrl := teacherController.NewUserTeacherController(db, v)
     studentCtrl := teacherController.New(db, v) // reuse controller student (punya CRUD lengkap)
 
     // ===== TEACHER =====

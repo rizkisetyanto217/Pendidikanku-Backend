@@ -107,3 +107,12 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// TeacherRoutes.TeacherAdminRoutes(r, db)
 	// FinanceRoutes.FinanceAdminRoutes(r, db)
 }
+
+
+
+
+/* ===================== SUPER ADMIN ===================== */
+// Endpoint khusus super admin (token + guard super admin)
+func LembagaOwnerRoutes(r fiber.Router, db *gorm.DB) {
+	
+} 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"sort"
 	"strings"
 
@@ -464,5 +465,21 @@ func IsMasjidAdmin() fiber.Handler {
 
 		log.Println("    ✅ akses diijinkan | role:", role, "| masjid_id:", mid)
 		return c.Next()
+	}
+}
+
+// IsOwnerGlobal memastikan roles_global mengandung "owner"
+func IsOwnerGlobal() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		rc, ok := c.Locals("roles_claim").(helper.RolesClaim) // <- pakai helper.RolesClaim
+		if !ok {
+			return fiber.NewError(http.StatusUnauthorized, "Roles claim tidak ditemukan")
+		}
+		for _, r := range rc.RolesGlobal {
+			if strings.EqualFold(r, "owner") {
+				return c.Next()
+			}
+		}
+		return fiber.NewError(http.StatusForbidden, "Akses khusus owner")
 	}
 }

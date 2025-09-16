@@ -146,6 +146,18 @@ func computeRefreshHash(token, secret string) []byte {
 	return m.Sum(nil)
 }
 
+// Cek role hanya di roles_global (bukan scoped)
+func hasGlobalRole(rc helpersAuth.RolesClaim, role string) bool {
+	role = strings.ToLower(role)
+	for _, r := range rc.RolesGlobal {
+		if strings.EqualFold(r, role) {
+			return true
+		}
+	}
+	return false
+}
+
+
 func rolesClaimHas(rc helpersAuth.RolesClaim, role string) bool {
 	role = strings.ToLower(role)
 	for _, r := range rc.RolesGlobal {
@@ -340,6 +352,15 @@ func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (help
 				return out, err
 			}
 		}
+
+		// jaga-jaga kalau function kirim null
+		if out.RolesGlobal == nil {
+			out.RolesGlobal = []string{}
+		}
+		if out.MasjidRoles == nil {
+			out.MasjidRoles = []helpersAuth.MasjidRolesEntry{}
+		}
+
 		return out, nil
 	}
 
@@ -704,7 +725,7 @@ func issueTokensWithRoles(
 	}
 
 	// Derivatives dari claim
-	isOwner := rolesClaimHas(rolesClaim, "owner")
+	isOwner := hasGlobalRole(rolesClaim, "owner")
 	masjidIDs := deriveMasjidIDsFromRolesClaim(rolesClaim)               // kompat opsional
 	activeMasjidID := helpersAuth.GetActiveMasjidIDIfSingle(rolesClaim) // autopick aktif
 	teacherRecords := buildTeacherRecords(db, user.ID, rolesClaim)       // ambil + filter
@@ -796,6 +817,8 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 	if strings.TrimSpace(input.IDToken) == "" {
 		return helpers.JsonError(c, fiber.StatusBadRequest, "id_token is required")
 	}
+
+	
 
 	// Verifikasi token Google (audience = client_id aplikasi kita)
 	v := googleAuthIDTokenVerifier.Verifier{}

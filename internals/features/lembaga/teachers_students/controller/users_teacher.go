@@ -15,20 +15,20 @@ import (
 	"gorm.io/gorm"
 )
 
-type UsersTeacherController struct {
+type UserTeacherController struct {
 	DB       *gorm.DB
 	Validate *validator.Validate
 }
 
-func NewUsersTeacherController(db *gorm.DB, validate *validator.Validate) *UsersTeacherController {
-	return &UsersTeacherController{DB: db, Validate: validate}
+func NewUserTeacherController(db *gorm.DB, validate *validator.Validate) *UserTeacherController {
+	return &UserTeacherController{DB: db, Validate: validate}
 }
 
 /* =========================
    Helpers (private)
 ========================= */
 
-func (ctl *UsersTeacherController) getFullName(userID uuid.UUID) string {
+func (ctl *UserTeacherController) getFullName(userID uuid.UUID) string {
 	var fullName string
 	_ = ctl.DB.Raw(
 		"SELECT full_name FROM users WHERE id = ? AND deleted_at IS NULL",
@@ -59,8 +59,8 @@ func trimPtr(p *string) *string {
    CREATE
 ========================= */
 
-func (ctl *UsersTeacherController) Create(c *fiber.Ctx) error {
-	var req dto.CreateUsersTeacherRequest
+func (ctl *UserTeacherController) Create(c *fiber.Ctx) error {
+	var req dto.CreateUserTeacherRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
@@ -68,22 +68,22 @@ func (ctl *UsersTeacherController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Normalize whitespace di string-field (sebelum ToModel -> NULL-kan jika kosong)
-	req.UsersTeacherField = strings.TrimSpace(req.UsersTeacherField)
-	req.UsersTeacherShortBio = strings.TrimSpace(req.UsersTeacherShortBio)
-	req.UsersTeacherLongBio = strings.TrimSpace(req.UsersTeacherLongBio)
-	req.UsersTeacherGreeting = strings.TrimSpace(req.UsersTeacherGreeting)
-	req.UsersTeacherEducation = strings.TrimSpace(req.UsersTeacherEducation)
-	req.UsersTeacherActivity = strings.TrimSpace(req.UsersTeacherActivity)
+	// Normalize whitespace di string-field
+	req.UserTeacherField = strings.TrimSpace(req.UserTeacherField)
+	req.UserTeacherShortBio = strings.TrimSpace(req.UserTeacherShortBio)
+	req.UserTeacherLongBio = strings.TrimSpace(req.UserTeacherLongBio)
+	req.UserTeacherGreeting = strings.TrimSpace(req.UserTeacherGreeting)
+	req.UserTeacherEducation = strings.TrimSpace(req.UserTeacherEducation)
+	req.UserTeacherActivity = strings.TrimSpace(req.UserTeacherActivity)
 
-	// Cek duplikasi profil (unique per user)
-	var count int64
+	// Cek duplikasi profil (unik per user)
+	var exists int64
 	if err := ctl.DB.Model(&model.UserTeacher{}).
-		Where("users_teacher_user_id = ? AND users_teacher_deleted_at IS NULL", req.UsersTeacherUserID).
-		Count(&count).Error; err != nil {
+		Where("user_teacher_user_id = ?", req.UserTeacherUserID).
+		Count(&exists).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
-	if count > 0 {
+	if exists > 0 {
 		return helper.JsonError(c, fiber.StatusConflict, "User sudah memiliki profil pengajar")
 	}
 
@@ -94,7 +94,7 @@ func (ctl *UsersTeacherController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat profil pengajar")
 	}
 
-	resp := dto.ToUsersTeacherResponse(m, ctl.getFullName(m.UsersTeacherUserID))
+	resp := dto.ToUserTeacherResponse(m, ctl.getFullName(m.UserTeacherUserID))
 	return helper.JsonCreated(c, "Profil pengajar berhasil dibuat", resp)
 }
 
@@ -102,7 +102,7 @@ func (ctl *UsersTeacherController) Create(c *fiber.Ctx) error {
    LIST (q/active/verified + paging)
 ========================= */
 
-func (ctl *UsersTeacherController) List(c *fiber.Ctx) error {
+func (ctl *UserTeacherController) List(c *fiber.Ctx) error {
 	type Query struct {
 		Q        string `query:"q"`
 		Active   *bool  `query:"active"`
@@ -122,18 +122,18 @@ func (ctl *UsersTeacherController) List(c *fiber.Ctx) error {
 	tx := ctl.DB.WithContext(c.Context()).Model(&model.UserTeacher{})
 
 	if q.Active != nil {
-		tx = tx.Where("users_teacher_is_active = ?", *q.Active)
+		tx = tx.Where("user_teacher_is_active = ?", *q.Active)
 	}
 	if q.Verified != nil {
-		tx = tx.Where("users_teacher_is_verified = ?", *q.Verified)
+		tx = tx.Where("user_teacher_is_verified = ?", *q.Verified)
 	}
 	if s := strings.TrimSpace(q.Q); s != "" {
-		// gunakan FTS + fallback ILIKE
+		// FTS + fallback ILIKE
 		tx = tx.Where(`
-			users_teacher_search @@ plainto_tsquery('simple', ?) OR
-			users_teacher_field ILIKE ? OR
-			users_teacher_short_bio ILIKE ? OR
-			users_teacher_education ILIKE ?
+			user_teacher_search @@ plainto_tsquery('simple', ?) OR
+			user_teacher_field ILIKE ? OR
+			user_teacher_short_bio ILIKE ? OR
+			user_teacher_education ILIKE ?
 		`, s, "%"+s+"%", "%"+s+"%", "%"+s+"%")
 	}
 
@@ -143,15 +143,15 @@ func (ctl *UsersTeacherController) List(c *fiber.Ctx) error {
 	}
 
 	var rows []model.UserTeacher
-	if err := tx.Order("users_teacher_created_at DESC").
+	if err := tx.Order("user_teacher_created_at DESC").
 		Limit(q.Limit).Offset(q.Offset).
 		Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	resps := make([]dto.UsersTeacherResponse, 0, len(rows))
+	resps := make([]dto.UserTeacherResponse, 0, len(rows))
 	for _, m := range rows {
-		resps = append(resps, dto.ToUsersTeacherResponse(m, ctl.getFullName(m.UsersTeacherUserID)))
+		resps = append(resps, dto.ToUserTeacherResponse(m, ctl.getFullName(m.UserTeacherUserID)))
 	}
 
 	pagination := fiber.Map{
@@ -176,13 +176,13 @@ func (ctl *UsersTeacherController) List(c *fiber.Ctx) error {
    UPDATE (PATCH)
 ========================= */
 
-func (ctl *UsersTeacherController) Update(c *fiber.Ctx) error {
+func (ctl *UserTeacherController) Update(c *fiber.Ctx) error {
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	var req dto.UpdateUsersTeacherRequest
+	var req dto.UpdateUserTeacherRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
@@ -192,7 +192,7 @@ func (ctl *UsersTeacherController) Update(c *fiber.Ctx) error {
 
 	var m model.UserTeacher
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("users_teacher_id = ?", id).
+		Where("user_teacher_id = ?", id).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -201,21 +201,22 @@ func (ctl *UsersTeacherController) Update(c *fiber.Ctx) error {
 	}
 
 	// Normalize whitespace pada string-pointer sebelum ApplyPatch
-	req.UsersTeacherField = trimPtr(req.UsersTeacherField)
-	req.UsersTeacherShortBio = trimPtr(req.UsersTeacherShortBio)
-	req.UsersTeacherLongBio = trimPtr(req.UsersTeacherLongBio)
-	req.UsersTeacherGreeting = trimPtr(req.UsersTeacherGreeting)
-	req.UsersTeacherEducation = trimPtr(req.UsersTeacherEducation)
-	req.UsersTeacherActivity = trimPtr(req.UsersTeacherActivity)
+	req.UserTeacherField = trimPtr(req.UserTeacherField)
+	req.UserTeacherShortBio = trimPtr(req.UserTeacherShortBio)
+	req.UserTeacherLongBio = trimPtr(req.UserTeacherLongBio)
+	req.UserTeacherGreeting = trimPtr(req.UserTeacherGreeting)
+	req.UserTeacherEducation = trimPtr(req.UserTeacherEducation)
+	req.UserTeacherActivity = trimPtr(req.UserTeacherActivity)
 
 	// Terapkan patch (termasuk __clear → NULL)
 	req.ApplyPatch(&m)
 
+	// Save: karena kita pakai pointer utk field opsional, nilai yang tidak diubah tidak ter-overwrite
 	if err := ctl.DB.WithContext(c.Context()).Save(&m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui data")
 	}
 
-	resp := dto.ToUsersTeacherResponse(m, ctl.getFullName(m.UsersTeacherUserID))
+	resp := dto.ToUserTeacherResponse(m, ctl.getFullName(m.UserTeacherUserID))
 	return helper.JsonUpdated(c, "Profil pengajar berhasil diperbarui", resp)
 }
 
@@ -223,17 +224,17 @@ func (ctl *UsersTeacherController) Update(c *fiber.Ctx) error {
    DELETE (soft)
 ========================= */
 
-func (ctl *UsersTeacherController) Delete(c *fiber.Ctx) error {
+func (ctl *UserTeacherController) Delete(c *fiber.Ctx) error {
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("users_teacher_id = ?", id).
+		Where("user_teacher_id = ?", id).
 		Delete(&model.UserTeacher{}).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus data")
 	}
 
-	return helper.JsonDeleted(c, "Profil pengajar berhasil dihapus", fiber.Map{"users_teacher_id": id})
+	return helper.JsonDeleted(c, "Profil pengajar berhasil dihapus", fiber.Map{"user_teacher_id": id})
 }

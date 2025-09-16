@@ -15,57 +15,63 @@ const (
 	Female Gender = "female"
 )
 
-type UsersProfileModel struct {
+type UserProfileModel struct {
 	// PK
-	UsersProfileID uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid();column:users_profile_id" json:"users_profile_id"`
+	UserProfileID uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid();column:user_profile_id" json:"user_profile_id"`
 
 	// FK & Unique per user
-	UsersProfileUserID uuid.UUID `gorm:"type:uuid;not null;column:users_profile_user_id;uniqueIndex:uq_users_profile_user_id" json:"users_profile_user_id"`
+	UserProfileUserID uuid.UUID `gorm:"type:uuid;not null;column:user_profile_user_id;uniqueIndex:uq_user_profile_user_id" json:"user_profile_user_id"`
 
 	// Identitas dasar
-	UsersProfileDonationName *string    `gorm:"size:50;column:users_profile_donation_name" json:"users_profile_donation_name,omitempty"`
-	UsersProfileDateOfBirth  *time.Time `gorm:"type:date;column:users_profile_date_of_birth" json:"users_profile_date_of_birth,omitempty"`
-	// Perhatikan: nama kolom di SQL adalah user_profile_place_of_birth (tanpa 's' setelah user)
-	UserProfilePlaceOfBirth *string `gorm:"size:100;column:user_profile_place_of_birth" json:"user_profile_place_of_birth,omitempty"`
-	UsersProfileGender      *Gender `gorm:"type:varchar(10);column:users_profile_gender" json:"users_profile_gender,omitempty"`
-	UsersProfileLocation    *string `gorm:"size:100;column:users_profile_location" json:"users_profile_location,omitempty"`
-	UsersProfileCity        *string `gorm:"size:100;column:users_profile_city" json:"users_profile_city,omitempty"`
-	UsersProfilePhoneNumber *string `gorm:"size:20;column:users_profile_phone_number" json:"users_profile_phone_number,omitempty"`
-	UsersProfileBio         *string `gorm:"size:300;column:users_profile_bio" json:"users_profile_bio,omitempty"`
+	UserProfileSlug          *string    `gorm:"size:80;column:user_profile_slug" json:"user_profile_slug,omitempty"`
+	UserProfileDonationName  *string    `gorm:"size:50;column:user_profile_donation_name" json:"user_profile_donation_name,omitempty"`
+	UserProfileDateOfBirth   *time.Time `gorm:"type:date;column:user_profile_date_of_birth" json:"user_profile_date_of_birth,omitempty"`
+	UserProfilePlaceOfBirth  *string    `gorm:"size:100;column:user_profile_place_of_birth" json:"user_profile_place_of_birth,omitempty"`
+	UserProfileGender        *Gender    `gorm:"type:varchar(10);column:user_profile_gender" json:"user_profile_gender,omitempty"`
+	UserProfileLocation      *string    `gorm:"size:100;column:user_profile_location" json:"user_profile_location,omitempty"`
+	UserProfileCity          *string    `gorm:"size:100;column:user_profile_city" json:"user_profile_city,omitempty"`
+	UserProfilePhoneNumber   *string    `gorm:"size:20;column:user_profile_phone_number" json:"user_profile_phone_number,omitempty"`
+	UserProfileBio           *string    `gorm:"size:300;column:user_profile_bio" json:"user_profile_bio,omitempty"`
 
 	// Konten panjang & riwayat
-	UsersProfileBiographyLong *string `gorm:"type:text;column:users_profile_biography_long" json:"users_profile_biography_long,omitempty"`
-	UsersProfileExperience    *string `gorm:"type:text;column:users_profile_experience" json:"users_profile_experience,omitempty"`
-	UsersProfileCertifications *string `gorm:"type:text;column:users_profile_certifications" json:"users_profile_certifications,omitempty"`
+	UserProfileBiographyLong  *string `gorm:"type:text;column:user_profile_biography_long" json:"user_profile_biography_long,omitempty"`
+	UserProfileExperience     *string `gorm:"type:text;column:user_profile_experience" json:"user_profile_experience,omitempty"`
+	UserProfileCertifications *string `gorm:"type:text;column:user_profile_certifications" json:"user_profile_certifications,omitempty"`
 
-	// Sosial media utama (sesuai SQL)
-	UsersProfileInstagramURL *string `gorm:"type:text;column:users_profile_instagram_url" json:"users_profile_instagram_url,omitempty"`
-	UsersProfileWhatsappURL  *string `gorm:"type:text;column:users_profile_whatsapp_url" json:"users_profile_whatsapp_url,omitempty"`
-	UsersProfileLinkedinURL  *string `gorm:"type:text;column:users_profile_linkedin_url" json:"users_profile_linkedin_url,omitempty"`
-	UsersProfileGithubURL    *string `gorm:"type:text;column:users_profile_github_url" json:"users_profile_github_url,omitempty"`
-	UsersProfileYoutubeURL   *string `gorm:"type:text;column:users_profile_youtube_url" json:"users_profile_youtube_url,omitempty"`
+	// Sosial media
+	UserProfileInstagramURL    *string `gorm:"type:text;column:user_profile_instagram_url" json:"user_profile_instagram_url,omitempty"`
+	UserProfileWhatsappURL     *string `gorm:"type:text;column:user_profile_whatsapp_url" json:"user_profile_whatsapp_url,omitempty"`
+	UserProfileYoutubeURL      *string `gorm:"type:text;column:user_profile_youtube_url" json:"user_profile_youtube_url,omitempty"`
+	UserProfileLinkedinURL     *string `gorm:"type:text;column:user_profile_linkedin_url" json:"user_profile_linkedin_url,omitempty"`
+	UserProfileGithubURL       *string `gorm:"type:text;column:user_profile_github_url" json:"user_profile_github_url,omitempty"`
+	UserProfileTelegramUsername *string `gorm:"size:50;column:user_profile_telegram_username" json:"user_profile_telegram_username,omitempty"`
 
-	// Privasi
-	UsersProfileIsPublicProfile bool `gorm:"not null;default:true;column:users_profile_is_public_profile" json:"users_profile_is_public_profile"`
+	// Avatar (single file, 2-slot + retensi 30 hari)
+	UserProfileAvatarURL                 *string    `gorm:"type:text;column:user_profile_avatar_url" json:"user_profile_avatar_url,omitempty"`
+	UserProfileAvatarObjectKey           *string    `gorm:"type:text;column:user_profile_avatar_object_key" json:"user_profile_avatar_object_key,omitempty"`
+	UserProfileAvatarURLOld              *string    `gorm:"type:text;column:user_profile_avatar_url_old" json:"user_profile_avatar_url_old,omitempty"`
+	UserProfileAvatarObjectKeyOld        *string    `gorm:"type:text;column:user_profile_avatar_object_key_old" json:"user_profile_avatar_object_key_old,omitempty"`
+	UserProfileAvatarDeletePendingUntil  *time.Time `gorm:"column:user_profile_avatar_delete_pending_until" json:"user_profile_avatar_delete_pending_until,omitempty"`
 
-	// Verifikasi (bukan verifikasi dokumen; ini flag profil terverifikasi)
-	UsersProfileIsVerified bool        `gorm:"not null;default:false;column:users_profile_is_verified" json:"users_profile_is_verified"`
-	UsersProfileVerifiedAt *time.Time  `gorm:"column:users_profile_verified_at" json:"users_profile_verified_at,omitempty"`
-	UsersProfileVerifiedBy *uuid.UUID  `gorm:"type:uuid;column:users_profile_verified_by" json:"users_profile_verified_by,omitempty"`
+	// Privasi & verifikasi
+	UserProfileIsPublicProfile bool       `gorm:"not null;default:true;column:user_profile_is_public_profile" json:"user_profile_is_public_profile"`
+	UserProfileIsVerified      bool       `gorm:"not null;default:false;column:user_profile_is_verified" json:"user_profile_is_verified"`
+	UserProfileVerifiedAt      *time.Time `gorm:"column:user_profile_verified_at" json:"user_profile_verified_at,omitempty"`
+	UserProfileVerifiedBy      *uuid.UUID `gorm:"type:uuid;column:user_profile_verified_by" json:"user_profile_verified_by,omitempty"`
 
 	// Pendidikan & pekerjaan
-	UsersProfileEducation *string `gorm:"type:text;column:users_profile_education" json:"users_profile_education,omitempty"`
-	UsersProfileCompany   *string `gorm:"type:text;column:users_profile_company" json:"users_profile_company,omitempty"`
-	UsersProfilePosition  *string `gorm:"type:text;column:users_profile_position" json:"users_profile_position,omitempty"`
+	UserProfileEducation *string `gorm:"type:text;column:user_profile_education" json:"user_profile_education,omitempty"`
+	UserProfileCompany   *string `gorm:"type:text;column:user_profile_company" json:"user_profile_company,omitempty"`
+	UserProfilePosition  *string `gorm:"type:text;column:user_profile_position" json:"user_profile_position,omitempty"`
 
 	// Interests & skills (text[])
-	UsersProfileInterests pq.StringArray `gorm:"type:text[];column:users_profile_interests" json:"users_profile_interests"`
-	UsersProfileSkills    pq.StringArray `gorm:"type:text[];column:users_profile_skills" json:"users_profile_skills"`
+	UserProfileInterests pq.StringArray `gorm:"type:text[];column:user_profile_interests" json:"user_profile_interests"`
+	UserProfileSkills    pq.StringArray `gorm:"type:text[];column:user_profile_skills" json:"user_profile_skills"`
 
 	// Audit
-	UsersProfileCreatedAt time.Time      `gorm:"autoCreateTime;column:users_profile_created_at" json:"users_profile_created_at"`
-	UsersProfileUpdatedAt time.Time      `gorm:"autoUpdateTime;column:users_profile_updated_at" json:"users_profile_updated_at"`
-	UsersProfileDeletedAt gorm.DeletedAt `gorm:"column:users_profile_deleted_at;index" json:"users_profile_deleted_at,omitempty"`
+	UserProfileCreatedAt time.Time      `gorm:"autoCreateTime;column:user_profile_created_at" json:"user_profile_created_at"`
+	UserProfileUpdatedAt time.Time      `gorm:"autoUpdateTime;column:user_profile_updated_at" json:"user_profile_updated_at"`
+	UserProfileDeletedAt gorm.DeletedAt `gorm:"column:user_profile_deleted_at;index" json:"user_profile_deleted_at,omitempty"`
 }
 
-func (UsersProfileModel) TableName() string { return "users_profile" }
+func (UserProfileModel) TableName() string { return "users_profile" }

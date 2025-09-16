@@ -13,11 +13,12 @@ import (
 )
 
 /* =========================================================
-   REQUEST DTO — CREATE / UPDATE (writable fields only)
+   REQUEST DTO — CREATE (writable fields only)
    Catatan:
    - is_verified & verified_at TIDAK diterima dari client
    - masjid_domain: "" => NULL, disimpan lower-case
    - masjid_levels: optional (tags), contoh: ["kursus","ilmu_quran"]
+   - masjid_tenant_profile: "teacher_solo" | "teacher_plus_school" | "school_basic" | "school_complex"
 ========================================================= */
 
 type MasjidRequest struct {
@@ -29,6 +30,7 @@ type MasjidRequest struct {
 	MasjidName     string `json:"masjid_name"`
 	MasjidBioShort string `json:"masjid_bio_short"`
 	MasjidLocation string `json:"masjid_location"`
+	MasjidCity     string `json:"masjid_city"`
 
 	// Domain & slug
 	MasjidDomain string `json:"masjid_domain"` // "" => NULL (lower-case)
@@ -39,8 +41,13 @@ type MasjidRequest struct {
 	MasjidVerificationStatus string `json:"masjid_verification_status"` // 'pending' | 'approved' | 'rejected'
 	MasjidVerificationNotes  string `json:"masjid_verification_notes"`
 
-	// Flag
-	MasjidIsIslamicSchool bool `json:"masjid_is_islamic_school"`
+	// Kontak
+	MasjidContactPersonName  string `json:"masjid_contact_person_name"`
+	MasjidContactPersonPhone string `json:"masjid_contact_person_phone"`
+
+	// Flag & profil tenant
+	MasjidIsIslamicSchool bool   `json:"masjid_is_islamic_school"`
+	MasjidTenantProfile   string `json:"masjid_tenant_profile"`
 
 	// Levels (tags)
 	MasjidLevels []string `json:"masjid_levels"`
@@ -60,6 +67,7 @@ type MasjidResponse struct {
 	MasjidDomain   string `json:"masjid_domain"`
 	MasjidSlug     string `json:"masjid_slug"`
 	MasjidLocation string `json:"masjid_location"`
+	MasjidCity     string `json:"masjid_city"`
 
 	// Verifikasi (read-only dari server)
 	MasjidIsActive           bool       `json:"masjid_is_active"`
@@ -68,15 +76,21 @@ type MasjidResponse struct {
 	MasjidVerifiedAt         *time.Time `json:"masjid_verified_at,omitempty"`
 	MasjidVerificationNotes  string     `json:"masjid_verification_notes"`
 
-	// Flag
-	MasjidIsIslamicSchool bool `json:"masjid_is_islamic_school"`
+	// Kontak
+	MasjidContactPersonName  string `json:"masjid_contact_person_name"`
+	MasjidContactPersonPhone string `json:"masjid_contact_person_phone"`
+
+	// Flag & profil tenant
+	MasjidIsIslamicSchool bool   `json:"masjid_is_islamic_school"`
+	MasjidTenantProfile   string `json:"masjid_tenant_profile"`
 
 	// Levels (tags)
 	MasjidLevels []string `json:"masjid_levels"`
 
 	// Audit
-	MasjidCreatedAt time.Time `json:"masjid_created_at"`
-	MasjidUpdatedAt time.Time `json:"masjid_updated_at"`
+	MasjidCreatedAt     time.Time  `json:"masjid_created_at"`
+	MasjidUpdatedAt     time.Time  `json:"masjid_updated_at"`
+	MasjidLastActivityAt *time.Time `json:"masjid_last_activity_at,omitempty"`
 }
 
 /* =========================================================
@@ -84,6 +98,7 @@ type MasjidResponse struct {
    Catatan:
    - MasjidLevels pakai pointer ke slice; nil = tidak diubah,
      &[]{} = set jadi array kosong.
+   - Clear[] untuk set kolom tertentu menjadi NULL eksplisit.
 ========================================================= */
 
 type MasjidUpdateRequest struct {
@@ -95,6 +110,7 @@ type MasjidUpdateRequest struct {
 	MasjidName     *string `json:"masjid_name"`
 	MasjidBioShort *string `json:"masjid_bio_short"`
 	MasjidLocation *string `json:"masjid_location"`
+	MasjidCity     *string `json:"masjid_city"`
 
 	// Domain & slug
 	MasjidDomain *string `json:"masjid_domain"` // "" => NULL, lower-case
@@ -105,11 +121,19 @@ type MasjidUpdateRequest struct {
 	MasjidVerificationStatus *string `json:"masjid_verification_status"`
 	MasjidVerificationNotes  *string `json:"masjid_verification_notes"`
 
-	// Flag
-	MasjidIsIslamicSchool *bool `json:"masjid_is_islamic_school"`
+	// Kontak
+	MasjidContactPersonName  *string `json:"masjid_contact_person_name"`
+	MasjidContactPersonPhone *string `json:"masjid_contact_person_phone"`
+
+	// Flag & profil tenant
+	MasjidIsIslamicSchool *bool   `json:"masjid_is_islamic_school"`
+	MasjidTenantProfile   *string `json:"masjid_tenant_profile"`
 
 	// Levels (tags)
 	MasjidLevels *[]string `json:"masjid_levels"`
+
+	// Clear → set NULL eksplisit
+	Clear []string `json:"__clear,omitempty" validate:"omitempty,dive,oneof=masjid_domain masjid_bio_short masjid_location masjid_city masjid_contact_person_name masjid_contact_person_phone masjid_levels"`
 }
 
 /* =========================================================
@@ -128,6 +152,7 @@ func FromModelMasjid(m *model.MasjidModel) MasjidResponse {
 		MasjidDomain:   valOrEmpty(m.MasjidDomain),
 		MasjidSlug:     m.MasjidSlug,
 		MasjidLocation: valOrEmpty(m.MasjidLocation),
+		MasjidCity:     valOrEmpty(m.MasjidCity),
 
 		MasjidIsActive:           m.MasjidIsActive,
 		MasjidIsVerified:         m.MasjidIsVerified,
@@ -135,11 +160,16 @@ func FromModelMasjid(m *model.MasjidModel) MasjidResponse {
 		MasjidVerifiedAt:         m.MasjidVerifiedAt,
 		MasjidVerificationNotes:  valOrEmpty(m.MasjidVerificationNotes),
 
+		MasjidContactPersonName:  valOrEmpty(m.MasjidContactPersonName),
+		MasjidContactPersonPhone: valOrEmpty(m.MasjidContactPersonPhone),
+
 		MasjidIsIslamicSchool: m.MasjidIsIslamicSchool,
+		MasjidTenantProfile:   string(m.MasjidTenantProfile),
 		MasjidLevels:          levels,
 
-		MasjidCreatedAt: m.MasjidCreatedAt,
-		MasjidUpdatedAt: m.MasjidUpdatedAt,
+		MasjidCreatedAt:      m.MasjidCreatedAt,
+		MasjidUpdatedAt:      m.MasjidUpdatedAt,
+		MasjidLastActivityAt: m.MasjidLastActivityAt,
 	}
 }
 
@@ -153,21 +183,27 @@ func ToModelMasjid(in *MasjidRequest, id uuid.UUID) *model.MasjidModel {
 		MasjidName:     in.MasjidName,
 		MasjidBioShort: normalizeOptionalStringToPtr(in.MasjidBioShort),
 		MasjidLocation: normalizeOptionalStringToPtr(in.MasjidLocation),
+		MasjidCity:     normalizeOptionalStringToPtr(in.MasjidCity),
 
 		MasjidDomain: normalizeDomainToPtr(in.MasjidDomain),
 		MasjidSlug:   in.MasjidSlug,
 
 		MasjidIsActive:           in.MasjidIsActive,
-		MasjidVerificationStatus: model.VerificationStatus(in.MasjidVerificationStatus),
+		MasjidVerificationStatus: model.VerificationStatus(normalizeVerification(in.MasjidVerificationStatus)),
 		MasjidVerificationNotes:  normalizeOptionalStringToPtr(in.MasjidVerificationNotes),
 
+		MasjidContactPersonName:  normalizeOptionalStringToPtr(in.MasjidContactPersonName),
+		MasjidContactPersonPhone: normalizeOptionalStringToPtr(in.MasjidContactPersonPhone),
+
 		MasjidIsIslamicSchool: in.MasjidIsIslamicSchool,
+		MasjidTenantProfile:   model.TenantProfile(normalizeTenantProfile(in.MasjidTenantProfile)),
 	}
 
-	// Set levels (JSONB)
+	// Set levels (JSONB) → pointer agar bisa NULL
 	if len(in.MasjidLevels) > 0 {
 		if b, err := json.Marshal(in.MasjidLevels); err == nil {
-			m.MasjidLevels = datatypes.JSON(b)
+			val := datatypes.JSON(b)
+			m.MasjidLevels = &val
 		}
 	}
 	return m
@@ -189,13 +225,16 @@ func ApplyMasjidUpdate(m *model.MasjidModel, u *MasjidUpdateRequest) {
 
 	// Identitas & lokasi ringkas
 	if u.MasjidName != nil {
-		m.MasjidName = *u.MasjidName
+		m.MasjidName = strings.TrimSpace(*u.MasjidName)
 	}
 	if u.MasjidBioShort != nil {
-		m.MasjidBioShort = normalizeOptionalStringToPtr(*u.MasjidBioShort)
+		m.MasjidBioShort = normalizeOptionalStringToPtr(strings.TrimSpace(*u.MasjidBioShort))
 	}
 	if u.MasjidLocation != nil {
-		m.MasjidLocation = normalizeOptionalStringToPtr(*u.MasjidLocation)
+		m.MasjidLocation = normalizeOptionalStringToPtr(strings.TrimSpace(*u.MasjidLocation))
+	}
+	if u.MasjidCity != nil {
+		m.MasjidCity = normalizeOptionalStringToPtr(strings.TrimSpace(*u.MasjidCity))
 	}
 
 	// Domain & slug
@@ -203,7 +242,7 @@ func ApplyMasjidUpdate(m *model.MasjidModel, u *MasjidUpdateRequest) {
 		m.MasjidDomain = normalizeDomainToPtr(*u.MasjidDomain)
 	}
 	if u.MasjidSlug != nil {
-		m.MasjidSlug = *u.MasjidSlug
+		m.MasjidSlug = strings.TrimSpace(*u.MasjidSlug)
 	}
 
 	// Aktivasi & verifikasi
@@ -211,24 +250,54 @@ func ApplyMasjidUpdate(m *model.MasjidModel, u *MasjidUpdateRequest) {
 		m.MasjidIsActive = *u.MasjidIsActive
 	}
 	if u.MasjidVerificationStatus != nil {
-		m.MasjidVerificationStatus = model.VerificationStatus(*u.MasjidVerificationStatus)
+		m.MasjidVerificationStatus = model.VerificationStatus(normalizeVerification(*u.MasjidVerificationStatus))
 	}
 	if u.MasjidVerificationNotes != nil {
-		m.MasjidVerificationNotes = normalizeOptionalStringToPtr(*u.MasjidVerificationNotes)
+		m.MasjidVerificationNotes = normalizeOptionalStringToPtr(strings.TrimSpace(*u.MasjidVerificationNotes))
 	}
 
-	// Flag
+	// Kontak
+	if u.MasjidContactPersonName != nil {
+		m.MasjidContactPersonName = normalizeOptionalStringToPtr(strings.TrimSpace(*u.MasjidContactPersonName))
+	}
+	if u.MasjidContactPersonPhone != nil {
+		m.MasjidContactPersonPhone = normalizeOptionalStringToPtr(strings.TrimSpace(*u.MasjidContactPersonPhone))
+	}
+
+	// Flag & profil tenant
 	if u.MasjidIsIslamicSchool != nil {
 		m.MasjidIsIslamicSchool = *u.MasjidIsIslamicSchool
+	}
+	if u.MasjidTenantProfile != nil {
+		m.MasjidTenantProfile = model.TenantProfile(normalizeTenantProfile(*u.MasjidTenantProfile))
 	}
 
 	// Levels (tags)
 	if u.MasjidLevels != nil {
+		// &[]{} → set jadi array kosong (bukan NULL)
 		if b, err := json.Marshal(*u.MasjidLevels); err == nil {
-			m.MasjidLevels = datatypes.JSON(b)
-		} else {
-			// jika ingin mengosongkan, kirim &[]string{}
-			m.MasjidLevels = datatypes.JSON([]byte("[]"))
+			val := datatypes.JSON(b)
+			m.MasjidLevels = &val
+		}
+	}
+
+	// Clear → NULL eksplisit
+	for _, col := range u.Clear {
+		switch strings.TrimSpace(strings.ToLower(col)) {
+		case "masjid_domain":
+			m.MasjidDomain = nil
+		case "masjid_bio_short":
+			m.MasjidBioShort = nil
+		case "masjid_location":
+			m.MasjidLocation = nil
+		case "masjid_city":
+			m.MasjidCity = nil
+		case "masjid_contact_person_name":
+			m.MasjidContactPersonName = nil
+		case "masjid_contact_person_phone":
+			m.MasjidContactPersonPhone = nil
+		case "masjid_levels":
+			m.MasjidLevels = nil
 		}
 	}
 }
@@ -262,4 +331,28 @@ func valOrEmpty(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+func normalizeVerification(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "approved":
+		return "approved"
+	case "rejected":
+		return "rejected"
+	default:
+		return "pending"
+	}
+}
+
+func normalizeTenantProfile(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "teacher_plus_school":
+		return "teacher_plus_school"
+	case "school_basic":
+		return "school_basic"
+	case "school_complex":
+		return "school_complex"
+	default:
+		return "teacher_solo"
+	}
 }

@@ -55,20 +55,6 @@ var (
 )
 
 
-// getImageFile tries common form field names and returns (nil, nil) if none found.
-func GetImageFile(c *fiber.Ctx) (*multipart.FileHeader, error) {
-    names := []string{"class_parent_image", "image", "file", "photo", "picture"}
-    for _, n := range names {
-        fh, err := c.FormFile(n)
-        if err == nil && fh != nil {
-            return fh, nil
-        }
-        // If the key isn't present, Fiber returns an error; ignore and keep trying
-    }
-    return nil, nil
-}
-
-
 /* =======================================================================
    Konfigurasi WebP (ENV-Driven) + Opsi per-call
 ======================================================================= */

@@ -1,20 +1,9 @@
+-- =========================================================
+-- DOWN Migration — TABEL YAYASANS (FOUNDATION) CLEAN (v2)
+-- =========================================================
 BEGIN;
 
--- =========================================================
--- ROLLBACK: TABEL YAYASANS (DROP triggers, functions, indexes, table)
--- =========================================================
-
--- 1) Triggers (jika ada)
-DROP TRIGGER IF EXISTS trg_set_updated_at_yayasans ON yayasans;
-DROP TRIGGER IF EXISTS trg_sync_yayasan_verification ON yayasans;
-DROP TRIGGER IF EXISTS trg_handle_yayasan_logo_trash ON yayasans;
-
--- 2) Functions (jika ada)
-DROP FUNCTION IF EXISTS set_updated_at_yayasans();
-DROP FUNCTION IF EXISTS sync_yayasan_verification_flags();
-DROP FUNCTION IF EXISTS handle_yayasan_logo_trash();
-
--- 3) Indexes (jika ada)
+-- 1) Drop indexes (aman meski tabel sudah ter-drop sebelumnya)
 DROP INDEX IF EXISTS idx_yayasans_name_trgm;
 DROP INDEX IF EXISTS idx_yayasans_city_trgm;
 DROP INDEX IF EXISTS idx_yayasans_name_lower;
@@ -27,18 +16,36 @@ DROP INDEX IF EXISTS idx_yayasans_search;
 DROP INDEX IF EXISTS idx_yayasans_earth;
 DROP INDEX IF EXISTS idx_yayasans_logo_gc_due;
 
--- 4) Table
+-- 2) Drop table
 DROP TABLE IF EXISTS yayasans;
 
--- =========================================================
--- ROLLBACK: PERUBAHAN PADA MASJIDS (kolom & index relasi yayasan)
--- =========================================================
+-- 3) (Opsional) Drop enum verification_status_enum
+--    Hanya dijalankan jika enum TIDAK dipakai oleh tabel/kolom lain.
+DO $$
+DECLARE
+  used_count INT;
+BEGIN
+  -- Cek apakah tipe enum masih dipakai oleh kolom manapun
+  SELECT COUNT(*)
+    INTO used_count
+  FROM pg_attribute a
+  JOIN pg_class c ON a.attrelid = c.oid
+  JOIN pg_type  t ON a.atttypid = t.oid
+  WHERE t.typname = 'verification_status_enum'
+    AND a.attnum > 0               -- kolom nyata
+    AND c.relkind IN ('r','p','v','m','f');  -- table/partition/view/mview/foreign
 
--- Index relasi yayasan
-DROP INDEX IF EXISTS idx_masjids_yayasan;
-
--- Kolom relasi yayasan (otomatis drop FK constraint yang menempel)
-ALTER TABLE IF EXISTS masjids
-  DROP COLUMN IF EXISTS masjid_yayasan_id;
+  IF used_count = 0 THEN
+    DROP TYPE IF EXISTS verification_status_enum;
+  END IF;
+END$$;
 
 COMMIT;
+
+-- Catatan:
+-- - Extensions (pgcrypto, pg_trgm, cube, earthdistance) sengaja TIDAK di-drop
+--   karena bisa dipakai objek lain. Jika tetap ingin mencabut, lakukan manual:
+--   DROP EXTENSION IF EXISTS earthdistance;
+--   DROP EXTENSION IF EXISTS cube;
+--   DROP EXTENSION IF EXISTS pg_trgm;
+--   DROP EXTENSION IF EXISTS pgcrypto;

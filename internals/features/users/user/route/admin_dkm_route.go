@@ -12,7 +12,7 @@ import (
 
 func UserAdminRoutes(app fiber.Router, db *gorm.DB) {
 	adminCtrl := userController.NewAdminUserController(db)
-	userProfileCtrl := userController.NewUsersProfileController(db)
+	userProfileCtrl := userController.NewUsersProfileController(db, nil)
 
 	// 🔐 /users – hanya teacher & above
 	users := app.Group("/users",

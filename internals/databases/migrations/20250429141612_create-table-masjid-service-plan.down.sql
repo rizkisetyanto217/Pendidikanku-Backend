@@ -1,30 +1,33 @@
 BEGIN;
 
--- 1) Trigger
-DROP TRIGGER IF EXISTS trg_set_updated_at_masjid_service_plans ON public.masjid_service_plans;
+-- 1) Drop index yang dibuat di UP
+DROP INDEX IF EXISTS ux_msp_code_ci;
+DROP INDEX IF EXISTS idx_msp_active_alive;
+DROP INDEX IF EXISTS idx_msp_active_price_monthly_alive;
+DROP INDEX IF EXISTS brin_msp_created_at;
 
--- 2) Function (harus pakai tanda kurung)
-DROP FUNCTION IF EXISTS public.set_updated_at_masjid_service_plans();
-
--- 3) Putus semua FK yang REFER ke tabel ini
+-- 2) Hapus seed yang dimasukkan oleh UP (jika tabel ada)
 DO $$
-DECLARE r RECORD;
 BEGIN
-  FOR r IN
-    SELECT conrelid::regclass AS tbl, conname
-    FROM pg_constraint
-    WHERE confrelid = 'public.masjid_service_plans'::regclass
-      AND contype   = 'f'
-  LOOP
-    EXECUTE format('ALTER TABLE %s DROP CONSTRAINT IF EXISTS %I', r.tbl, r.conname);
-  END LOOP;
+  IF to_regclass('public.masjid_service_plans') IS NOT NULL THEN
+    EXECUTE $SQL$
+      DELETE FROM public.masjid_service_plans
+      WHERE lower(masjid_service_plan_code) IN ('basic','premium','exclusive');
+    $SQL$;
+  END IF;
 END$$;
 
--- 4) Drop table
--- a) Coba tanpa CASCADE dulu:
-DROP TABLE IF EXISTS public.masjid_service_plans;
+-- 3) Buang kolom generated CI
+ALTER TABLE IF EXISTS masjid_service_plans
+  DROP COLUMN IF EXISTS masjid_service_plan_code_ci;
 
--- b) Jika masih ada dependensi (mis. view) dan kamu mau “paksa”, ganti dengan:
--- DROP TABLE IF EXISTS public.masjid_service_plans CASCADE;
+-- 4) Kembalikan index fungsional lama (case-insensitive) bila tabel ada
+DO $$
+BEGIN
+  IF to_regclass('public.masjid_service_plans') IS NOT NULL THEN
+    EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS ux_msp_code_lower
+             ON public.masjid_service_plans (LOWER(masjid_service_plan_code))';
+  END IF;
+END$$;
 
 COMMIT;

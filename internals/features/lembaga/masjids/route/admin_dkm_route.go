@@ -3,8 +3,10 @@ package route
 
 import (
 	"masjidku_backend/internals/constants"
-	"masjidku_backend/internals/features/lembaga/masjids/controller"
 	"masjidku_backend/internals/middlewares/auth"
+
+	masjidctl "masjidku_backend/internals/features/lembaga/masjids/controller"
+
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -14,8 +16,9 @@ import (
 // Registrasi semua route Admin/DKM untuk fitur Masjid
 func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// controllers
-	masjidCtrl     := controller.NewMasjidController(db)
-	profileCtrl    := controller.NewMasjidProfileController(db, validator.New())
+	masjidCtrl  := masjidctl.NewMasjidController(db)
+	profileCtrl := masjidctl.NewMasjidProfileController(db, validator.New())
+	planCtrl    := masjidctl.NewMasjidServicePlanController(db) // ✅ dari paket yg benar
 
 	// guard admin/dkm/owner
 	guard := auth.OnlyRolesSlice(
@@ -27,26 +30,33 @@ func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// 🕌 MASJID (Admin/DKM)
 	// =========================
 	masjids := admin.Group("/masjids")
+	masjids.Get("/", guard, masjidCtrl.GetMasjids)
+	masjids.Get("/:id_or_slug", guard, masjidCtrl.GetMasjid)
+	masjids.Get("/:id/profile", guard, masjidCtrl.GetMasjidProfile)
+	masjids.Get("/:id/urls", guard, masjidCtrl.GetMasjidURLs)
 
-	// READ (admin-only) – kalau ingin public, pindahkan ke public routes
-	masjids.Get("/", guard, masjidCtrl.GetMasjids)                   // GET    /api/a/masjids
-	masjids.Get("/:id_or_slug", guard, masjidCtrl.GetMasjid)         // GET    /api/a/masjids/:id_or_slug
-	masjids.Get("/:id/profile", guard, masjidCtrl.GetMasjidProfile)  // GET    /api/a/masjids/:id/profile
-	masjids.Get("/:id/urls", guard, masjidCtrl.GetMasjidURLs)        // GET    /api/a/masjids/:id/urls (view gabungan)
-
-	// WRITE
-	masjids.Post("/", guard, masjidCtrl.CreateMasjidDKM)             // POST   /api/a/masjids
-	masjids.Put("/", guard, masjidCtrl.UpdateMasjid)                 // PUT    /api/a/masjids    (by body)
-	masjids.Delete("/", guard, masjidCtrl.DeleteMasjid)              // DELETE /api/a/masjids    (by body)
-	masjids.Delete("/:id", guard, masjidCtrl.DeleteMasjid)           // DELETE /api/a/masjids/:id
+	masjids.Post("/", guard, masjidCtrl.CreateMasjidDKM)
+	masjids.Put("/", guard, masjidCtrl.UpdateMasjid)
+	masjids.Delete("/", guard, masjidCtrl.DeleteMasjid)
+	masjids.Delete("/:id", guard, masjidCtrl.DeleteMasjid)
 
 	// ================================
 	// 🏷️ MASJID PROFILE (Admin/DKM)
 	// ================================
 	profiles := admin.Group("/masjid-profiles", guard)
-	profiles.Post("/",       profileCtrl.Create)                     // POST   /api/a/masjid-profiles
-	profiles.Patch("/:id",   profileCtrl.Update)                     // PATCH  /api/a/masjid-profiles/:id
-	profiles.Delete("/:id",  profileCtrl.Delete)                     // DELETE /api/a/masjid-profiles/:id
+	profiles.Post("/",      profileCtrl.Create)
+	profiles.Patch("/:id",  profileCtrl.Update)
+	profiles.Delete("/:id", profileCtrl.Delete)
 
-
+	// ===================================
+	// 🧩 SERVICE PLANS (Admin/Owner) — GLOBAL (tanpa MASJID_CTX)
+	// ===================================
+	// Alias kompat lama:
+	alias := admin.Group("/masjid-service-plans", guard)
+	alias.Get("/",             planCtrl.List)
+	alias.Get("/:id",          planCtrl.Detail)
+	alias.Post("/",            planCtrl.Create)
+	alias.Patch("/:id",        planCtrl.Update)
+	alias.Delete("/:id",       planCtrl.Delete)
+	alias.Post("/:id/restore", planCtrl.Restore)
 }

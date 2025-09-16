@@ -1,5 +1,3 @@
-
-
 BEGIN;
 
 -- =========================================================
@@ -35,10 +33,7 @@ BEGIN
 END$$;
 
 -- =========================================================
--- MASJIDS (inti/operasional) - versi ringkas & idempotent
--- CATATAN:
--- - CREATE TABLE IF NOT EXISTS tidak menambah kolom bila tabel sudah ada.
--- - Tidak ada ALTER/CONSTRAINT tambahan, aturan bisnis di-handle di backend.
+-- MASJIDS (tanpa GENERATED FTS)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS masjids (
   masjid_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -77,15 +72,6 @@ CREATE TABLE IF NOT EXISTS masjids (
   -- Levels (tag-style; contoh: ["Kursus","Ilmu Qur'an","Sekolah Nonformal"])
   masjid_levels JSONB,
 
-  -- Full-text search (GENERATED; memasukkan tenant_profile)
-  masjid_search tsvector GENERATED ALWAYS AS (
-    setweight(to_tsvector('simple', coalesce(masjid_name,'')), 'A')
-    || setweight(to_tsvector('simple', coalesce(masjid_location,'')), 'B')
-    || setweight(to_tsvector('simple', coalesce(masjid_bio_short,'')), 'C')
-    || setweight(to_tsvector('simple', coalesce(masjid_levels::text,'')), 'D')
-    || setweight(to_tsvector('simple', coalesce(masjid_tenant_profile::text,'')), 'D')
-  ) STORED,
-
   -- Audit
   masjid_created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   masjid_updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -97,9 +83,11 @@ CREATE TABLE IF NOT EXISTS masjids (
     CHECK (masjid_levels IS NULL OR jsonb_typeof(masjid_levels) = 'array')
 );
 
--- =========================================================
+-- Bersih-bersih jika versi lama pernah membuat kolom/index FTS
+DROP INDEX IF EXISTS idx_masjids_search;
+ALTER TABLE masjids DROP COLUMN IF EXISTS masjid_search;
+
 -- INDEXES
--- =========================================================
 CREATE INDEX IF NOT EXISTS idx_masjids_name_trgm
   ON masjids USING gin (masjid_name gin_trgm_ops);
 
@@ -124,10 +112,7 @@ CREATE INDEX IF NOT EXISTS idx_masjids_current_plan
 CREATE INDEX IF NOT EXISTS gin_masjids_levels
   ON masjids USING gin (masjid_levels);
 
--- FTS & arsip waktu
-CREATE INDEX IF NOT EXISTS idx_masjids_search
-  ON masjids USING gin (masjid_search);
-
+-- Arsip waktu
 CREATE INDEX IF NOT EXISTS brin_masjids_created_at
   ON masjids USING brin (masjid_created_at);
 
@@ -140,11 +125,8 @@ CREATE INDEX IF NOT EXISTS idx_masjids_active_alive
 CREATE INDEX IF NOT EXISTS idx_masjids_tenant_profile
   ON masjids (masjid_tenant_profile);
 
-COMMIT;
-
-
 -- =========================================================
--- TABEL: masjids_profiles (tanpa school_type)
+-- masjids_profiles (tanpa GENERATED FTS)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS masjids_profiles (
   masjid_profile_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -180,6 +162,14 @@ CREATE TABLE IF NOT EXISTS masjids_profiles (
   masjid_profile_school_student_capacity  INT,
   masjid_profile_school_is_boarding       BOOLEAN NOT NULL DEFAULT FALSE,
 
+  -- Lokasi koordinat (untuk earthdistance)
+  masjid_profile_latitude  DOUBLE PRECISION,
+  masjid_profile_longitude DOUBLE PRECISION,
+
+  -- Atribut tambahan yang direferensikan di cek/index
+  masjid_profile_school_email   VARCHAR(120),
+  masjid_profile_school_address TEXT,
+
   -- Audit
   masjid_profile_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   masjid_profile_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -209,28 +199,18 @@ CREATE TABLE IF NOT EXISTS masjids_profiles (
     CHECK (masjid_profile_school_accreditation IS NULL OR masjid_profile_school_accreditation IN ('A','B','C','Ungraded','-'))
 );
 
--- =========================================================
--- (RE)CREATE KOLOM FTS TANPA school_type
--- =========================================================
+-- Tambah kolom jika tabel lama belum punya (idempotent)
 ALTER TABLE masjids_profiles
-  ADD COLUMN IF NOT EXISTS masjid_profile_search tsvector GENERATED ALWAYS AS (
-    setweight(to_tsvector('simple', coalesce(masjid_profile_description,'')), 'A')
-    || setweight(to_tsvector('simple', coalesce(masjid_profile_address, masjid_profile_school_address, '')), 'B')
-    || setweight(
-         to_tsvector('simple',
-           coalesce(masjid_profile_instagram_url,'') || ' ' ||
-           coalesce(masjid_profile_youtube_url,'')   || ' ' ||
-           coalesce(masjid_profile_facebook_url,'')  || ' ' ||
-           coalesce(masjid_profile_tiktok_url,'')    || ' ' ||
-           coalesce(masjid_profile_website_url,'')   || ' ' ||
-           coalesce(masjid_profile_google_maps_url,'')
-         ), 'D'
-       )
-  ) STORED;
+  ADD COLUMN IF NOT EXISTS masjid_profile_latitude  DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS masjid_profile_longitude DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS masjid_profile_school_email   VARCHAR(120),
+  ADD COLUMN IF NOT EXISTS masjid_profile_school_address TEXT;
 
--- =========================================================
+-- Bersih-bersih jika versi lama pernah membuat kolom/index FTS
+DROP INDEX IF EXISTS idx_mpp_search;
+ALTER TABLE masjids_profiles DROP COLUMN IF EXISTS masjid_profile_search;
+
 -- INDEXES
--- =========================================================
 -- Lookups dasar
 CREATE INDEX IF NOT EXISTS idx_mpp_masjid_id
   ON masjids_profiles (masjid_profile_masjid_id);
@@ -255,9 +235,7 @@ CREATE INDEX IF NOT EXISTS idx_mpp_earth
     ll_to_earth(masjid_profile_latitude::float8, masjid_profile_longitude::float8)
   );
 
--- Full-text search & arsip waktu
-CREATE INDEX IF NOT EXISTS idx_mpp_search
-  ON masjids_profiles USING gin (masjid_profile_search);
+-- Arsip waktu
 CREATE INDEX IF NOT EXISTS brin_mpp_created_at
   ON masjids_profiles USING brin (masjid_profile_created_at);
 
@@ -266,3 +244,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_mpp_npsn
   ON masjids_profiles (masjid_profile_school_npsn);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_mpp_nss
   ON masjids_profiles (masjid_profile_school_nss);
+
+COMMIT;

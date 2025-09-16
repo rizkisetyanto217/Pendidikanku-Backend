@@ -13,7 +13,7 @@ func UserUserRoutes(app fiber.Router, db *gorm.DB) {
 	log.Println("[DEBUG] ❗ Masuk UserUserRoutes")
 
 	selfCtrl := userController.NewUserSelfController(db)
-	userProfileCtrl := userController.NewUsersProfileController(db)
+	userProfileCtrl := userController.NewUsersProfileController(db, nil)
 
 	// ===== /users/me (JWT; data diri) =====
 	app.Get("/users/me", selfCtrl.GetMe)

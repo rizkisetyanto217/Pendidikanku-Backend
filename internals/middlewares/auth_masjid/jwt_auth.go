@@ -102,6 +102,35 @@ func AuthJWT(o AuthJWTOpts) fiber.Handler {
 			}
 		}
 
+		// === Build & set roles_claim (struct) ===
+		rc := helperAuth.RolesClaim{
+			RolesGlobal: readStringSlice(claims["roles_global"]),
+			MasjidRoles: make([]helperAuth.MasjidRolesEntry, 0),
+		}
+		if v, ok := claims["masjid_roles"]; ok {
+			switch arr := v.(type) {
+			case []any:
+				for _, it := range arr {
+					m, ok := it.(map[string]any)
+					if !ok {
+						continue
+					}
+					var mid uuid.UUID
+					if s, ok := m["masjid_id"].(string); ok {
+						if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
+							mid = id
+						}
+					}
+					roles := readStringSlice(m["roles"])
+					rc.MasjidRoles = append(rc.MasjidRoles, helperAuth.MasjidRolesEntry{
+						MasjidID: mid,
+						Roles:    roles,
+					})
+				}
+			}
+		}
+		c.Locals("roles_claim", rc) // ✅ penting untuk IsOwnerGlobal & middleware lain
+
 		// Turunkan "role" legacy supaya guard lama tidak error "Role not found"
 		EnsureLegacyRoleLocal(c)
 

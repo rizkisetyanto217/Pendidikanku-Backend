@@ -65,3 +65,9 @@ func MasjidAdminRoutes(r fiber.Router, db *gorm.DB) {
 	LectureSessionsQuizRoutes.LectureSessionsQuizAdminRoutes(r, db)
 	CertificateRoutes.CertificateAdminRoutes(r, db)
 }
+
+
+func MasjidOwnerRoutes(r fiber.Router, db *gorm.DB) {
+	// Ini endpoint khusus super admin
+	masjidRoutes.MasjidOwnerRoutes(r, db)
+}

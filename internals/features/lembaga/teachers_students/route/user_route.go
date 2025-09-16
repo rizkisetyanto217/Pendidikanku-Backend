@@ -14,7 +14,7 @@ import (
 //   routes.UsersTeacherUserRoute(user, db)
 func UsersTeacherUserRoute(userRoute fiber.Router, db *gorm.DB) {
 	v := validator.New()
-	ctl := teacherController.NewUsersTeacherController(db, v)
+	ctl := teacherController.NewUserTeacherController(db, v)
 	std := teacherController.New(db, v)
 
 	g := userRoute.Group("/user-teachers")

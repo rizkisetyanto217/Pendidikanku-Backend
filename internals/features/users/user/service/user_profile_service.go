@@ -15,7 +15,7 @@ import (
 func CreateInitialUserProfile(db *gorm.DB, userID uuid.UUID) error {
 	// Cek apakah sudah ada profil untuk user ini
 	var count int64
-	if err := db.Model(&profilemodel.UsersProfileModel{}).
+	if err := db.Model(&profilemodel.UserProfileModel{}).
 		Where("users_profile_user_id = ?", userID).
 		Count(&count).Error; err != nil {
 		return err
@@ -25,10 +25,10 @@ func CreateInitialUserProfile(db *gorm.DB, userID uuid.UUID) error {
 		return nil
 	}
 
-	profile := profilemodel.UsersProfileModel{
-		UsersProfileUserID: userID,
+	profile := profilemodel.UserProfileModel{
+		UserProfileUserID: userID,
 		// Kolom lain biarkan default DB (is_public_profile = true, is_verified = false, dst)
-		UsersProfileGender: nil, // atau pointer ke profilemodel.Male/Female jika mau default
+		UserProfileGender: nil, // atau pointer ke profilemodel.Male/Female jika mau default
 	}
 
 	if err := db.Create(&profile).Error; err != nil {
@@ -37,7 +37,7 @@ func CreateInitialUserProfile(db *gorm.DB, userID uuid.UUID) error {
 	}
 
 	// Validasi sanity: pastikan row tercipta
-	if profile.UsersProfileID == uuid.Nil {
+	if profile.UserProfileID == uuid.Nil {
 		return errors.New("users_profile creation failed: empty users_profile_id")
 	}
 	return nil

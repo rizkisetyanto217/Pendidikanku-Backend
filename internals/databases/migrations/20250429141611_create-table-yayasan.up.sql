@@ -1,35 +1,48 @@
 -- =========================================================
--- TABEL YAYASANS (FOUNDATION)
+-- UP Migration — TABEL YAYASANS (FOUNDATION) CLEAN (v2)
 -- =========================================================
--- ===== Prasyarat: extensions yg dipakai index =====
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-CREATE EXTENSION IF NOT EXISTS cube;
+
+-- ===== Prasyarat: extensions =====
+CREATE EXTENSION IF NOT EXISTS pgcrypto;     -- gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pg_trgm;      -- trigram index
+CREATE EXTENSION IF NOT EXISTS cube;         -- earthdistance dep
 CREATE EXTENSION IF NOT EXISTS earthdistance;
 
-
--- ===== Enum verifikasi (pending|approved|rejected) =====
+-- ===== Enum verifikasi =====
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_type WHERE typname = 'verification_status_enum'
-  ) THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'verification_status_enum') THEN
     CREATE TYPE verification_status_enum AS ENUM ('pending','approved','rejected');
   END IF;
 END$$;
 
-
+-- =========================================================
+-- TABLE yayasans
+-- =========================================================
 CREATE TABLE IF NOT EXISTS yayasans (
   yayasan_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  -- Identitas & legal
+  -- Identitas
   yayasan_name        VARCHAR(150) NOT NULL,
+  yayasan_description TEXT,
+  yayasan_bio         TEXT,
 
   -- Kontak & lokasi
   yayasan_address   TEXT,
   yayasan_city      TEXT,
   yayasan_province  TEXT,
+  yayasan_latitude  DOUBLE PRECISION,
+  yayasan_longitude DOUBLE PRECISION,
 
-  yayasan_google_maps_url       TEXT,
+  -- Media & maps
+  yayasan_google_maps_url TEXT,
+
+  -- Logo (single file, 2-slot + retensi 30 hari)
+  yayasan_logo_url                   TEXT,
+  yayasan_logo_object_key            TEXT,
+  yayasan_logo_url_old               TEXT,
+  yayasan_logo_object_key_old        TEXT,
+  yayasan_logo_delete_pending_until  TIMESTAMPTZ,
 
   -- Domain & slug
   yayasan_domain VARCHAR(80),
@@ -79,7 +92,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_yayasans_domain_ci_unique
   ON yayasans (LOWER(yayasan_domain))
   WHERE yayasan_domain IS NOT NULL;
 
--- Flag & status (hanya row “alive”)
+-- Flag & status (row “alive” saja)
 CREATE INDEX IF NOT EXISTS idx_yayasans_active
   ON yayasans (yayasan_is_active) WHERE yayasan_deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_yayasans_verified
@@ -99,32 +112,7 @@ CREATE INDEX IF NOT EXISTS idx_yayasans_search
 CREATE INDEX IF NOT EXISTS idx_yayasans_earth
   ON yayasans USING gist (ll_to_earth(yayasan_latitude::float8, yayasan_longitude::float8));
 
--- GC logo: pilih yang sudah due (trash tidak kosong dan due sudah lewat)
+-- GC logo: pilih yang sudah due (old url tidak kosong dan due sudah lewat)
 CREATE INDEX IF NOT EXISTS idx_yayasans_logo_gc_due
   ON yayasans (yayasan_logo_delete_pending_until)
-  WHERE yayasan_logo_trash_url IS NOT NULL;
-
--- =========================================================
--- TRIGGERS
--- =========================================================
-
--- 2) Sinkronisasi verifikasi → boolean flag + timestamptz
-CREATE OR REPLACE FUNCTION sync_yayasan_verification_flags() RETURNS trigger AS $$
-BEGIN
-  IF NEW.yayasan_verification_status = 'approved' THEN
-    NEW.yayasan_is_verified := TRUE;
-    IF NEW.yayasan_verified_at IS NULL THEN
-      NEW.yayasan_verified_at := now();
-    END IF;
-  ELSE
-    NEW.yayasan_is_verified := FALSE;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_sync_yayasan_verification ON yayasans;
-CREATE TRIGGER trg_sync_yayasan_verification
-BEFORE INSERT OR UPDATE ON yayasans
-FOR EACH ROW
-EXECUTE FUNCTION sync_yayasan_verification_flags();
+  WHERE yayasan_logo_url_old IS NOT NULL;

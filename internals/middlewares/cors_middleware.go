@@ -29,3 +29,5 @@ func CorsMiddleware() fiber.Handler {
 		MaxAge: 600,
 	})
 }
+
+

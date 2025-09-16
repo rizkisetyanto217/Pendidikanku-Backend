@@ -82,7 +82,6 @@ CREATE TABLE IF NOT EXISTS class_room_virtual_links (
 
   -- identitas link
   class_room_virtual_link_label    TEXT NOT NULL,
-  class_room_virtual_link_provider virtual_provider_enum NOT NULL DEFAULT 'custom',
   class_room_virtual_link_join_url TEXT NOT NULL,
   class_room_virtual_link_host_url TEXT,
   class_room_virtual_link_meeting_id TEXT,
@@ -115,10 +114,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_room_vlinks_url_ci
 -- Query umum
 CREATE INDEX IF NOT EXISTS idx_room_vlinks_active
   ON class_room_virtual_links (class_room_virtual_link_room_id, class_room_virtual_link_is_active)
-  WHERE class_room_virtual_link_deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS idx_room_vlinks_provider
-  ON class_room_virtual_links (class_room_virtual_link_room_id, class_room_virtual_link_provider)
   WHERE class_room_virtual_link_deleted_at IS NULL;
 
 COMMIT;

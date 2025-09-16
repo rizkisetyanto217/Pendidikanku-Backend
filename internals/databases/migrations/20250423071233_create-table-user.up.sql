@@ -53,8 +53,6 @@ ALTER TABLE users
 CREATE INDEX IF NOT EXISTS idx_users_user_search ON users USING gin (user_search);
 
 
-BEGIN;
-
 CREATE TABLE IF NOT EXISTS users_profile (
   user_profile_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_profile_user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
