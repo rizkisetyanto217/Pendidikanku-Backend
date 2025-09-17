@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS user_classes (
     -- billing ringan
   user_classes_register_paid_at TIMESTAMPTZ,
   user_classes_paid_until TIMESTAMPTZ,
-  user_classes_paid_grace_days SMALLINT NOT NULL DEFAULT 0 CHECK (user_classes_paid_grace_days BETWEEN 0 AND 100)
+  user_classes_paid_grace_days SMALLINT NOT NULL DEFAULT 0 CHECK (user_classes_paid_grace_days BETWEEN 0 AND 100),
 
   -- jejak waktu enrolment per kelas
   user_classes_joined_at    TIMESTAMPTZ,

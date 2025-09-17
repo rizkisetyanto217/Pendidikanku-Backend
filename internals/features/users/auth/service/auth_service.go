@@ -112,6 +112,111 @@ func quickHasFunction(db *gorm.DB, name string) bool {
    Small Helpers
 ========================== */
 
+// Kumpulkan masjid_id (UUID) dari claim
+func masjidUUIDsFromClaim(rc helpersAuth.RolesClaim) []uuid.UUID {
+	out := make([]uuid.UUID, 0, len(rc.MasjidRoles))
+	for _, mr := range rc.MasjidRoles {
+		if mr.MasjidID != uuid.Nil {
+			out = append(out, mr.MasjidID)
+		}
+	}
+	return out
+}
+
+// Ambil map {masjid_id: tenant_profile} untuk banyak masjid sekaligus
+func getTenantProfilesMapStr(ctx context.Context, db *gorm.DB, ids []uuid.UUID) map[string]string {
+	res := make(map[string]string)
+	if db == nil || len(ids) == 0 {
+		return res
+	}
+
+	// Build IN (?, ?, ?)
+	ph := make([]string, 0, len(ids))
+	args := make([]any, 0, len(ids))
+	for _, id := range ids {
+		ph = append(ph, "?")
+		args = append(args, id)
+	}
+
+	type row struct {
+		ID      uuid.UUID `gorm:"column:masjid_id"`
+		Profile string    `gorm:"column:masjid_tenant_profile"`
+	}
+
+	ctxQ, cancel := context.WithTimeout(ctx, qryTimeoutShort)
+	defer cancel()
+
+	var rows []row
+	q := `
+		SELECT masjid_id, masjid_tenant_profile::text
+		FROM masjids
+		WHERE masjid_id IN (` + strings.Join(ph, ",") + `)
+	`
+	if err := db.WithContext(ctxQ).Raw(q, args...).Scan(&rows).Error; err != nil {
+		log.Printf("[WARN] getTenantProfilesMapStr: %v", err)
+		return res
+	}
+	for _, r := range rows {
+		if strings.TrimSpace(r.Profile) != "" {
+			res[r.ID.String()] = r.Profile
+		}
+	}
+	return res
+}
+  
+
+// letakkan di dekat helper lain (atas file)
+// Ambil masjid_tenant_profile sebagai string (enum::text) untuk masjid aktif
+func getMasjidTenantProfileStr(ctx context.Context, db *gorm.DB, masjidID uuid.UUID) *string {
+	if db == nil || masjidID == uuid.Nil {
+		return nil
+	}
+	ctxQ, cancel := context.WithTimeout(ctx, qryTimeoutShort)
+	defer cancel()
+
+	var s string
+	err := db.WithContext(ctxQ).
+		Raw(`SELECT masjid_tenant_profile::text FROM masjids WHERE masjid_id = ? LIMIT 1`, masjidID).
+		Scan(&s).Error
+	if err != nil {
+		low := strings.ToLower(err.Error())
+		if strings.Contains(low, "does not exist") ||
+			strings.Contains(low, "undefined") ||
+			strings.Contains(low, "no such table") {
+			return nil
+		}
+		log.Printf("[WARN] getMasjidTenantProfileStr: %v", err)
+		return nil
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// Satu item masjid: roles + tenant_profile
+type MasjidRoleWithTenant struct {
+	MasjidID       uuid.UUID `json:"masjid_id"`
+	Roles          []string  `json:"roles"`
+	TenantProfile  string    `json:"tenant_profile"`
+}
+
+// Gabungkan claim masjid_roles dengan map tenant_profiles
+func combineRolesWithTenant(rc helpersAuth.RolesClaim, tp map[string]string) []MasjidRoleWithTenant {
+	out := make([]MasjidRoleWithTenant, 0, len(rc.MasjidRoles))
+	for _, mr := range rc.MasjidRoles {
+		out = append(out, MasjidRoleWithTenant{
+			MasjidID:      mr.MasjidID,
+			Roles:         mr.Roles,
+			TenantProfile: strings.TrimSpace(tp[mr.MasjidID.String()]),
+		})
+	}
+	return out
+}
+
+
+
 func nowUTC() time.Time { return time.Now().UTC() }
 
 func getJWTSecret() (string, error) {
@@ -626,13 +731,15 @@ func buildRefreshClaims(userID uuid.UUID, now time.Time) jwt.MapClaims {
 	}
 }
 
-// akses token claims builder — pakai *string
+// 🔄 build access claims — masjid_roles sudah berisi tenant_profile
 func buildAccessClaims(
 	user userModel.UserModel,
 	rc helpersAuth.RolesClaim,
 	masjidIDs []string,
 	isOwner bool,
-	activeMasjidID *string, // *string
+	activeMasjidID *string,
+	tenantProfile *string,             // single (active), opsional
+	masjidRoles []MasjidRoleWithTenant, // ⬅️ gabungan
 	teacherRecords []TeacherRecord,
 	studentRecords []StudentRecord,
 	now time.Time,
@@ -644,17 +751,20 @@ func buildAccessClaims(
 		"user_name":    user.UserName,
 		"full_name":    user.FullName,
 		"roles_global": rc.RolesGlobal,
-		"masjid_roles": rc.MasjidRoles,
+		"masjid_roles": masjidRoles, // ⬅️ sudah gabungan
 		"masjid_ids":   masjidIDs,
 		"is_owner":     isOwner,
 		"iat":          now.Unix(),
 		"exp":          now.Add(accessTTLDefault).Unix(),
 	}
+	if activeMasjidID != nil {
+		claims["active_masjid_id"] = *activeMasjidID
+	}
+	if tenantProfile != nil && *tenantProfile != "" {
+		claims["masjid_tenant_profile"] = *tenantProfile // tetap ada untuk convenience
+	}
 	if len(teacherRecords) > 0 {
 		claims["teacher_records"] = teacherRecords
-	}
-	if activeMasjidID != nil {
-		claims["active_masjid_id"] = *activeMasjidID // string langsung
 	}
 	if len(studentRecords) > 0 {
 		claims["student_records"] = studentRecords
@@ -662,13 +772,15 @@ func buildAccessClaims(
 	return claims
 }
 
-// login response user builder — pakai *string
+// 🔄 build response user — “masjid_roles” juga sudah include tenant_profile
 func buildLoginResponseUser(
 	user userModel.UserModel,
 	rc helpersAuth.RolesClaim,
 	masjidIDs []string,
 	isOwner bool,
-	activeMasjidID *string, // *string
+	activeMasjidID *string,
+	tenantProfile *string,               // single (active), opsional
+	masjidRoles []MasjidRoleWithTenant,  // ⬅️ gabungan
 	teacherRecords []TeacherRecord,
 	studentRecords []StudentRecord,
 ) fiber.Map {
@@ -678,15 +790,18 @@ func buildLoginResponseUser(
 		"email":        user.Email,
 		"full_name":    user.FullName,
 		"roles_global": rc.RolesGlobal,
-		"masjid_roles": rc.MasjidRoles,
+		"masjid_roles": masjidRoles, // ⬅️ sudah gabungan
 		"masjid_ids":   masjidIDs,
 		"is_owner":     isOwner,
 	}
+	if activeMasjidID != nil {
+		resp["active_masjid_id"] = *activeMasjidID
+	}
+	if tenantProfile != nil && *tenantProfile != "" {
+		resp["masjid_tenant_profile"] = *tenantProfile // masih disediakan
+	}
 	if len(teacherRecords) > 0 {
 		resp["teacher_records"] = teacherRecords
-	}
-	if activeMasjidID != nil {
-		resp["active_masjid_id"] = *activeMasjidID // string langsung
 	}
 	if len(studentRecords) > 0 {
 		resp["student_records"] = studentRecords
@@ -694,10 +809,10 @@ func buildLoginResponseUser(
 	return resp
 }
 
+
 // ==========================
 // ISSUE TOKENS (refactor)
 // ==========================
-
 func issueTokensWithRoles(
 	c *fiber.Ctx,
 	db *gorm.DB,
@@ -715,24 +830,49 @@ func issueTokensWithRoles(
 	}
 
 	now := nowUTC()
-
 	if !meta.Ready {
 		PrewarmAuthMeta(db)
 	}
 
-	// Derivatives dari claim
 	isOwner := hasGlobalRole(rolesClaim, "owner")
-	masjidIDs := deriveMasjidIDsFromRolesClaim(rolesClaim)               // kompat opsional
-	activeMasjidID := helpersAuth.GetActiveMasjidIDIfSingle(rolesClaim) // autopick aktif
-	teacherRecords := buildTeacherRecords(db, user.ID, rolesClaim)       // ambil + filter
-	studentRecords := buildStudentRecords(db, user.ID, rolesClaim) // ambil + filter
+	masjidIDs := deriveMasjidIDsFromRolesClaim(rolesClaim)
+	activeMasjidID := helpersAuth.GetActiveMasjidIDIfSingle(rolesClaim)
+	teacherRecords := buildTeacherRecords(db, user.ID, rolesClaim)
+	studentRecords := buildStudentRecords(db, user.ID, rolesClaim)
 
+	// Ambil semua tenant_profile per masjid → gabungkan ke masjid_roles
+	tpMap := getTenantProfilesMapStr(c.Context(), db, masjidUUIDsFromClaim(rolesClaim))
+	combined := combineRolesWithTenant(rolesClaim, tpMap)
 
-	// Access & Refresh claims
-	accessClaims := buildAccessClaims(user, rolesClaim, masjidIDs, isOwner, activeMasjidID, teacherRecords, studentRecords, now)
+	// Tentukan single tenantProfile (kalau ada activeMasjidID); fallback deterministik
+	var tenantProfile *string
+	if activeMasjidID != nil {
+		if mid, err := uuid.Parse(*activeMasjidID); err == nil {
+			tenantProfile = getMasjidTenantProfileStr(c.Context(), db, mid)
+		}
+	}
+	if tenantProfile == nil && len(combined) > 0 {
+		// fallback: pilih yang id terkecil (string compare) biar deterministik
+		minID, prof := "", ""
+		for _, it := range combined {
+			id := it.MasjidID.String()
+			if minID == "" || id < minID {
+				minID, prof = id, it.TenantProfile
+			}
+		}
+		if strings.TrimSpace(prof) != "" {
+			p := prof
+			tenantProfile = &p
+		}
+	}
+
+	// Build claims & response (pakai gabungan)
+	accessClaims := buildAccessClaims(
+		user, rolesClaim, masjidIDs, isOwner, activeMasjidID, tenantProfile, combined, teacherRecords, studentRecords, now,
+	)
 	refreshClaims := buildRefreshClaims(user.ID, now)
 
-	// Sign tokens
+	// Sign
 	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString([]byte(jwtSecret))
 	if err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat access token")
@@ -742,15 +882,14 @@ func issueTokensWithRoles(
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat refresh token")
 	}
 
-	// Simpan refresh token (hashed)
+	// Store refresh
 	tokenHash := computeRefreshHash(refreshToken, refreshSecret)
-	ua, ip := c.Get("User-Agent"), c.IP()
 	if err := createRefreshTokenFast(db, &authModel.RefreshTokenModel{
 		UserID:    user.ID,
 		Token:     tokenHash,
 		ExpiresAt: now.Add(refreshTTLDefault),
-		UserAgent: strptr(ua),
-		IP:        strptr(ip),
+		UserAgent: strptr(c.Get("User-Agent")),
+		IP:        strptr(c.IP()),
 	}); err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan refresh token")
 	}
@@ -759,12 +898,16 @@ func issueTokensWithRoles(
 	setAuthCookies(c, accessToken, refreshToken, now)
 
 	// Response
-	respUser := buildLoginResponseUser(user, rolesClaim, masjidIDs, isOwner, activeMasjidID, teacherRecords, studentRecords)
+	respUser := buildLoginResponseUser(
+		user, rolesClaim, masjidIDs, isOwner, activeMasjidID, tenantProfile, combined, teacherRecords, studentRecords,
+	)
+
 	return helpers.JsonOK(c, "Login berhasil", fiber.Map{
 		"user":         respUser,
 		"access_token": accessToken,
 	})
 }
+
 
 // Insert refresh_token dengan latency lebih rendah.
 // Aman untuk token (konsekuensi: kemungkinan kecil lose jika crash tepat sesudah commit).

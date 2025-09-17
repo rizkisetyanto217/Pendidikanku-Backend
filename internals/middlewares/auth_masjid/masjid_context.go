@@ -13,6 +13,8 @@ import (
 	"gorm.io/gorm"
 )
 
+//? Digunakan untuk mengambil masjid_id & masjid_slug dari token JWT
+
 /* ==========================
    Consts & Types
 ========================== */

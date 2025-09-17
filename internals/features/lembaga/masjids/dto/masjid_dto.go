@@ -22,6 +22,9 @@ import (
    - Media (logo/background): hanya kolom current (url & object_key) yang boleh di-set.
 ========================================================= */
 
+
+
+
 type MasjidRequest struct {
 	// Relasi (opsional)
 	MasjidYayasanID     *uuid.UUID `json:"masjid_yayasan_id,omitempty"`
@@ -58,6 +61,39 @@ type MasjidRequest struct {
 	MasjidLogoObjectKey     string `json:"masjid_logo_object_key"`
 	MasjidBackgroundURL     string `json:"masjid_background_url"`
 	MasjidBackgroundObjectKey string `json:"masjid_background_object_key"`
+}
+
+/* =======================================================
+   DTO request (profile payload)
+======================================================= */
+
+type MasjidProfilePayload struct {
+	Description string     `json:"description"`
+	FoundedYear *int       `json:"founded_year"`
+
+	Address      string `json:"address"`
+	ContactPhone string `json:"contact_phone"`
+	ContactEmail string `json:"contact_email"`
+
+	GoogleMapsURL string `json:"google_maps_url"`
+	InstagramURL  string `json:"instagram_url"`
+	WhatsappURL   string `json:"whatsapp_url"`
+	YoutubeURL    string `json:"youtube_url"`
+	FacebookURL   string `json:"facebook_url"`
+	TiktokURL     string `json:"tiktok_url"`
+	WhatsappGroupIkhwanURL string `json:"whatsapp_group_ikhwan_url"`
+	WhatsappGroupAkhwatURL string `json:"whatsapp_group_akhwat_url"`
+	WebsiteURL    string `json:"website_url"`
+
+	SchoolNPSN            string     `json:"school_npsn"`
+	SchoolNSS             string     `json:"school_nss"`
+	SchoolAccreditation   string     `json:"school_accreditation"`
+	SchoolPrincipalUserID *uuid.UUID `json:"school_principal_user_id"`
+	SchoolPhone           string     `json:"school_phone"`
+	SchoolEmail           string     `json:"school_email"`
+	SchoolAddress         string     `json:"school_address"`
+	SchoolStudentCapacity *int       `json:"school_student_capacity"`
+	SchoolIsBoarding      *bool      `json:"school_is_boarding"`
 }
 
 /* =========================================================
@@ -124,45 +160,47 @@ type MasjidResponse struct {
    - Media: hanya current (url & object_key) yang boleh diubah.
 ========================================================= */
 
+// file: internals/features/masjids/masjids/dto/masjid_dto.go
+
 type MasjidUpdateRequest struct {
-	// Relasi
-	MasjidYayasanID     *uuid.UUID `json:"masjid_yayasan_id"`
-	MasjidCurrentPlanID *uuid.UUID `json:"masjid_current_plan_id"`
+    // Relasi
+    MasjidYayasanID     *uuid.UUID `json:"masjid_yayasan_id"     form:"masjid_yayasan_id"`
+    MasjidCurrentPlanID *uuid.UUID `json:"masjid_current_plan_id" form:"masjid_current_plan_id"`
 
-	// Identitas & lokasi ringkas
-	MasjidName     *string `json:"masjid_name"`
-	MasjidBioShort *string `json:"masjid_bio_short"`
-	MasjidLocation *string `json:"masjid_location"`
-	MasjidCity     *string `json:"masjid_city"`
+    // Identitas & lokasi ringkas
+    MasjidName     *string `json:"masjid_name"     form:"masjid_name"`
+    MasjidBioShort *string `json:"masjid_bio_short" form:"masjid_bio_short"`
+    MasjidLocation *string `json:"masjid_location" form:"masjid_location"`
+    MasjidCity     *string `json:"masjid_city"     form:"masjid_city"`
 
-	// Domain & slug
-	MasjidDomain *string `json:"masjid_domain"` // "" => NULL, lower-case
-	MasjidSlug   *string `json:"masjid_slug"`
+    // Domain & slug
+    MasjidDomain *string `json:"masjid_domain" form:"masjid_domain"`
+    MasjidSlug   *string `json:"masjid_slug"   form:"masjid_slug"`
 
-	// Aktivasi & verifikasi
-	MasjidIsActive           *bool   `json:"masjid_is_active"`
-	MasjidVerificationStatus *string `json:"masjid_verification_status"`
-	MasjidVerificationNotes  *string `json:"masjid_verification_notes"`
+    // Aktivasi & verifikasi
+    MasjidIsActive           *bool   `json:"masjid_is_active"            form:"masjid_is_active"`
+    MasjidVerificationStatus *string `json:"masjid_verification_status"  form:"masjid_verification_status"`
+    MasjidVerificationNotes  *string `json:"masjid_verification_notes"   form:"masjid_verification_notes"`
 
-	// Kontak
-	MasjidContactPersonName  *string `json:"masjid_contact_person_name"`
-	MasjidContactPersonPhone *string `json:"masjid_contact_person_phone"`
+    // Kontak
+    MasjidContactPersonName  *string `json:"masjid_contact_person_name"  form:"masjid_contact_person_name"`
+    MasjidContactPersonPhone *string `json:"masjid_contact_person_phone" form:"masjid_contact_person_phone"`
 
-	// Flag & profil tenant
-	MasjidIsIslamicSchool *bool   `json:"masjid_is_islamic_school"`
-	MasjidTenantProfile   *string `json:"masjid_tenant_profile"`
+    // Flag & profil tenant
+    MasjidIsIslamicSchool *bool   `json:"masjid_is_islamic_school" form:"masjid_is_islamic_school"`
+    MasjidTenantProfile   *string `json:"masjid_tenant_profile"    form:"masjid_tenant_profile"`
 
-	// Levels (tags)
-	MasjidLevels *[]string `json:"masjid_levels"`
+    // Levels (tags)
+    MasjidLevels *[]string `json:"masjid_levels" form:"masjid_levels"`
 
-	// Media (current only)
-	MasjidLogoURL            *string `json:"masjid_logo_url"`
-	MasjidLogoObjectKey      *string `json:"masjid_logo_object_key"`
-	MasjidBackgroundURL      *string `json:"masjid_background_url"`
-	MasjidBackgroundObjectKey *string `json:"masjid_background_object_key"`
+    // Media (current only)
+    MasjidLogoURL             *string `json:"masjid_logo_url"             form:"masjid_logo_url"`
+    MasjidLogoObjectKey       *string `json:"masjid_logo_object_key"      form:"masjid_logo_object_key"`
+    MasjidBackgroundURL       *string `json:"masjid_background_url"       form:"masjid_background_url"`
+    MasjidBackgroundObjectKey *string `json:"masjid_background_object_key" form:"masjid_background_object_key"`
 
-	// Clear → set NULL eksplisit (hanya kolom yang boleh di-null-kan langsung)
-	Clear []string `json:"__clear,omitempty" validate:"omitempty,dive,oneof=masjid_domain masjid_bio_short masjid_location masjid_city masjid_contact_person_name masjid_contact_person_phone masjid_levels masjid_logo_url masjid_logo_object_key masjid_background_url masjid_background_object_key"`
+    // Clear (boleh dikirim berulang: __clear=a&__clear=b)
+    Clear []string `json:"__clear,omitempty" form:"__clear"`
 }
 
 /* =========================================================

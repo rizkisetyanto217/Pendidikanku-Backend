@@ -91,8 +91,9 @@ BEFORE UPDATE ON user_teachers
 FOR EACH ROW
 EXECUTE FUNCTION ut_on_avatar_change();
 
+
 -- =========================================================
--- TABEL: MASJID_TEACHERS (penugasan per masjid, TANPA duplikasi profil)
+-- TABEL: MASJID_TEACHERS (tanpa NIP)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS masjid_teachers (
   masjid_teacher_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -103,7 +104,6 @@ CREATE TABLE IF NOT EXISTS masjid_teachers (
 
   -- Identitas/kepegawaian (KHUSUS MASJID)
   masjid_teacher_code        VARCHAR(50),              -- unik per masjid (alive)
-  masjid_teacher_nip         VARCHAR(50),              -- unik per masjid (alive)
   masjid_teacher_title       VARCHAR(80),              -- Ust./Ustdz./dsb.
   masjid_teacher_employment  teacher_employment_enum,  -- status kepegawaian
   masjid_teacher_is_active   BOOLEAN NOT NULL DEFAULT TRUE,
@@ -154,11 +154,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_mtj_code_alive_ci
   WHERE masjid_teacher_deleted_at IS NULL
     AND masjid_teacher_code IS NOT NULL;
 
--- Unik NIP per masjid (CI; alive only)
-CREATE UNIQUE INDEX IF NOT EXISTS ux_mtj_nip_alive_ci
-  ON masjid_teachers (masjid_teacher_masjid_id, LOWER(masjid_teacher_nip))
-  WHERE masjid_teacher_deleted_at IS NULL
-    AND masjid_teacher_nip IS NOT NULL;
+-- (NIP constraint dihapus)
 
 -- Lookups umum (per tenant), alive only
 CREATE INDEX IF NOT EXISTS ix_mtj_tenant_active_public_created
@@ -209,7 +205,7 @@ FOR EACH ROW
 EXECUTE FUNCTION mtj_touch_updated_at();
 
 -- =========================================================
--- VIEW: v_masjid_teachers_enriched (gabung profil global + penugasan)
+-- VIEW: v_masjid_teachers_enriched (tanpa NIP)
 -- =========================================================
 CREATE OR REPLACE VIEW v_masjid_teachers_enriched AS
 SELECT
@@ -219,7 +215,6 @@ SELECT
 
   -- status kepegawaian per masjid
   mt.masjid_teacher_code,
-  mt.masjid_teacher_nip,
   mt.masjid_teacher_title,
   mt.masjid_teacher_employment,
   mt.masjid_teacher_is_active,

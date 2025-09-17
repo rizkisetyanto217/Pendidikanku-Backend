@@ -59,7 +59,7 @@ type MasjidTeacherModel struct {
 	// Identitas/Kepegawaian
 	MasjidTeacherCode       *string                  `gorm:"column:masjid_teacher_code;type:varchar(50)"      json:"masjid_teacher_code,omitempty"`
 	MasjidTeacherSlug       *string                  `gorm:"column:masjid_teacher_slug;type:varchar(50)"      json:"masjid_teacher_slug,omitempty"`
-	MasjidTeacherNIP        *string                  `gorm:"column:masjid_teacher_nip;type:varchar(50)"       json:"masjid_teacher_nip,omitempty"` // lihat catatan di bawah
+
 	MasjidTeacherEmployment *TeacherEmploymentStatus `gorm:"column:masjid_teacher_employment;type:teacher_employment_enum" json:"masjid_teacher_employment,omitempty"`
 	MasjidTeacherIsActive   bool                     `gorm:"column:masjid_teacher_is_active;not null;default:true"        json:"masjid_teacher_is_active"`
 

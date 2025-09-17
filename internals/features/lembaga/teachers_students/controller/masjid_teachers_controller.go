@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
 	"time"
 
@@ -95,225 +94,24 @@ func parseDateYYYYMMDD(s string) (*time.Time, error) {
 	return &t, nil
 }
 
-/* ===================== LIST ===================== */
-// GET /api/a/masjid-teachers
-// Query: page, per_page|limit, sort_by(created_at|updated_at), order
-//        id, user_id, employment, active, verified, public,
-//        joined_from, joined_to (YYYY-MM-DD), q (notes/code/slug ILIKE)
-//        include=user
-func (ctrl *MasjidTeacherController) List(c *fiber.Ctx) error {
-	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
-
-	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
-	allowedSort := map[string]string{
-		"created_at": "masjid_teacher_created_at",
-		"updated_at": "masjid_teacher_updated_at",
-	}
-	orderClause, err := p.SafeOrderClause(allowedSort, "created_at")
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid sort_by")
-	}
-	orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
-
-	// filters
-	idStr := strings.TrimSpace(c.Query("id"))
-	userIDStr := strings.TrimSpace(c.Query("user_id"))
-	employment := strings.ToLower(strings.TrimSpace(c.Query("employment")))
-	activeStr := strings.TrimSpace(c.Query("active"))
-	verifiedStr := strings.TrimSpace(c.Query("verified"))
-	publicStr := strings.TrimSpace(c.Query("public"))
-	joinedFromStr := strings.TrimSpace(c.Query("joined_from"))
-	joinedToStr := strings.TrimSpace(c.Query("joined_to"))
-	q := strings.TrimSpace(c.Query("q"))
-
-	var (
-		rowID  uuid.UUID
-		userID uuid.UUID
-	)
-	if idStr != "" {
-		v, er := uuid.Parse(idStr)
-		if er != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "id invalid")
-		}
-		rowID = v
-	}
-	if userIDStr != "" {
-		v, er := uuid.Parse(userIDStr)
-		if er != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "user_id invalid")
-		}
-		userID = v
-	}
-
-	tx := ctrl.DB.WithContext(c.Context()).
-		Model(&yModel.MasjidTeacherModel{}).
-		Where("masjid_teacher_masjid_id = ? AND masjid_teacher_deleted_at IS NULL", masjidUUID)
-
-	if rowID != uuid.Nil {
-		tx = tx.Where("masjid_teacher_id = ?", rowID)
-	}
-	if userID != uuid.Nil {
-		tx = tx.Where("masjid_teacher_user_id = ?", userID)
-	}
-	if employment != "" {
-		tx = tx.Where("masjid_teacher_employment = ?", employment)
-	}
-	if activeStr != "" {
-		if b, er := strconv.ParseBool(activeStr); er == nil {
-			tx = tx.Where("masjid_teacher_is_active = ?", b)
-		}
-	}
-	if verifiedStr != "" {
-		if b, er := strconv.ParseBool(verifiedStr); er == nil {
-			tx = tx.Where("masjid_teacher_is_verified = ?", b)
-		}
-	}
-	if publicStr != "" {
-		if b, er := strconv.ParseBool(publicStr); er == nil {
-			tx = tx.Where("masjid_teacher_is_public = ?", b)
-		}
-	}
-	if joinedFromStr != "" {
-		if t, er := parseDateYYYYMMDD(joinedFromStr); er == nil {
-			tx = tx.Where("masjid_teacher_joined_at IS NOT NULL AND masjid_teacher_joined_at >= ?", t)
-		} else {
-			return helper.JsonError(c, fiber.StatusBadRequest, "joined_from invalid (YYYY-MM-DD)")
-		}
-	}
-	if joinedToStr != "" {
-		if t, er := parseDateYYYYMMDD(joinedToStr); er == nil {
-			tx = tx.Where("masjid_teacher_joined_at IS NOT NULL AND masjid_teacher_joined_at <= ?", t)
-		} else {
-			return helper.JsonError(c, fiber.StatusBadRequest, "joined_to invalid (YYYY-MM-DD)")
-		}
-	}
-	if q != "" {
-		pat := "%" + q + "%"
-		tx = tx.Where(`(masjid_teacher_notes ILIKE ? OR masjid_teacher_code ILIKE ? OR masjid_teacher_slug ILIKE ?)`, pat, pat, pat)
-	}
-
-	// count
-	var total int64
-	if err := tx.Count(&total).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-
-	// data
-	var rows []yModel.MasjidTeacherModel
-	if err := tx.Order(orderExpr).Limit(p.Limit()).Offset(p.Offset()).Find(&rows).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-
-	// include=user ?
-	wantUser := false
-	if inc := strings.ToLower(strings.TrimSpace(c.Query("include"))); inc != "" {
-		for _, part := range strings.Split(inc, ",") {
-			if strings.TrimSpace(part) == "user" {
-				wantUser = true
-				break
-			}
-		}
-	}
-
-	// DTO dasar
-	base := make([]*yDTO.MasjidTeacherResponse, 0, len(rows))
-	userIDsSet := make(map[uuid.UUID]struct{}, len(rows))
-	for i := range rows {
-		base = append(base, yDTO.NewMasjidTeacherResponse(&rows[i]))
-		if wantUser && rows[i].MasjidTeacherUserID != uuid.Nil {
-			userIDsSet[rows[i].MasjidTeacherUserID] = struct{}{}
-		}
-	}
-
-	if !wantUser {
-		meta := helper.BuildMeta(total, p)
-		return helper.JsonList(c, base, meta)
-	}
-
-	// bulk fetch users
-	type UserLite struct {
-		ID       uuid.UUID `json:"id"`
-		UserName string    `json:"user_name"`
-		FullName *string   `json:"full_name,omitempty"`
-		Email    string    `json:"email"`
-		IsActive bool      `json:"is_active"`
-	}
-
-	userIDs := make([]uuid.UUID, 0, len(userIDsSet))
-	for id := range userIDsSet {
-		userIDs = append(userIDs, id)
-	}
-
-	userMap := make(map[uuid.UUID]UserLite, len(userIDs))
-	if len(userIDs) > 0 {
-		var urows []UserLite
-		if err := ctrl.DB.
-			Table("users").
-			Select("id, user_name, full_name, email, is_active").
-			Where("id IN ?", userIDs).
-			Where("deleted_at IS NULL").
-			Find(&urows).Error; err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-		}
-		for _, u := range urows {
-			userMap[u.ID] = u
-		}
-	}
-
-	type Item struct {
-		*yDTO.MasjidTeacherResponse `json:",inline"`
-		User                        *UserLite `json:"user,omitempty"`
-	}
-	out := make([]Item, 0, len(base))
-	for i := range rows {
-		var u *UserLite
-		if v, ok := userMap[rows[i].MasjidTeacherUserID]; ok {
-			tmp := v
-			u = &tmp
-		}
-		out = append(out, Item{MasjidTeacherResponse: base[i], User: u})
-	}
-
-	meta := helper.BuildMeta(total, p)
-	return helper.JsonList(c, out, meta)
-}
-
-/* ===================== DETAIL ===================== */
-// GET /api/a/masjid-teachers/:id
-func (ctrl *MasjidTeacherController) Detail(c *fiber.Ctx) error {
-	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
-	id := strings.TrimSpace(c.Params("id"))
-	if id == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak boleh kosong")
-	}
-	rowID, err := uuid.Parse(id)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-
-	var row yModel.MasjidTeacherModel
-	if err := ctrl.DB.WithContext(c.Context()).
-		First(&row,
-			"masjid_teacher_id = ? AND masjid_teacher_masjid_id = ? AND masjid_teacher_deleted_at IS NULL",
-			rowID, masjidUUID,
-		).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Pengajar tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-	return helper.JsonOK(c, "Detail pengajar", yDTO.NewMasjidTeacherResponse(&row))
-}
 
 /* ===================== CREATE ===================== */
 // POST /api/a/masjid-teachers
 func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
+	// ===== Masjid context (DKM only) =====
+	masjidID, err := helperAuth.GetActiveMasjidID(c)
+	if err != nil {
+		if id2, err2 := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err2 == nil {
+			masjidID = id2
+		} else {
+			return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid context tidak ditemukan")
+		}
+	}
+	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
+		return err
+	}
+
+	// ===== Payload =====
 	var body yDTO.CreateMasjidTeacherRequest
 	if err := c.BodyParser(&body); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request")
@@ -322,13 +120,8 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
 	}
 
-	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
-
-	// Build model dari DTO (pakai masjid dari token; user dari body)
-	rec, err := body.ToModel(masjidUUID.String(), body.MasjidTeacherUserID)
+	// Build model dari DTO (pakai masjid dari context; user dari body)
+	rec, err := body.ToModel(masjidID.String(), body.MasjidTeacherUserID)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
@@ -399,10 +192,19 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 /* ===================== UPDATE ===================== */
 // PATCH /api/a/masjid-teachers/:id
 func (ctrl *MasjidTeacherController) Update(c *fiber.Ctx) error {
-	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
+	// ===== Masjid context (DKM only) =====
+	masjidID, err := helperAuth.GetActiveMasjidID(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+		if id2, err2 := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err2 == nil {
+			masjidID = id2
+		} else {
+			return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid context tidak ditemukan")
+		}
 	}
+	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
+		return err
+	}
+
 	id := strings.TrimSpace(c.Params("id"))
 	if id == "" {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak boleh kosong")
@@ -421,7 +223,7 @@ func (ctrl *MasjidTeacherController) Update(c *fiber.Ctx) error {
 	if err := ctrl.DB.WithContext(c.Context()).
 		Clauses(clause.Locking{Strength: "UPDATE"}).
 		First(&before, "masjid_teacher_id = ? AND masjid_teacher_masjid_id = ? AND masjid_teacher_deleted_at IS NULL",
-			rowID, masjidUUID).
+			rowID, masjidID).
 		Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Pengajar tidak ditemukan")
@@ -431,7 +233,7 @@ func (ctrl *MasjidTeacherController) Update(c *fiber.Ctx) error {
 
 	// Larang pindah masjid (cross-tenant) lewat PATCH
 	if req.MasjidTeacherMasjidID != nil {
-		if reqID, er := uuid.Parse(strings.TrimSpace(*req.MasjidTeacherMasjidID)); er != nil || reqID != masjidUUID {
+		if reqID, er := uuid.Parse(strings.TrimSpace(*req.MasjidTeacherMasjidID)); er != nil || reqID != masjidID {
 			return helper.JsonError(c, fiber.StatusForbidden, "Tidak boleh memindahkan pengajar ke masjid lain lewat endpoint ini")
 		}
 	}
@@ -452,12 +254,12 @@ func (ctrl *MasjidTeacherController) Update(c *fiber.Ctx) error {
 
 	// Statistik: jika status aktif berubah, adjust counter
 	if wasActive != before.MasjidTeacherIsActive {
-		if err := ctrl.Stats.EnsureForMasjid(ctrl.DB, masjidUUID); err == nil {
+		if err := ctrl.Stats.EnsureForMasjid(ctrl.DB, masjidID); err == nil {
 			delta := -1
 			if before.MasjidTeacherIsActive {
 				delta = +1
 			}
-			_ = ctrl.Stats.IncActiveTeachers(ctrl.DB, masjidUUID, delta)
+			_ = ctrl.Stats.IncActiveTeachers(ctrl.DB, masjidID, delta)
 		}
 	}
 
@@ -467,14 +269,22 @@ func (ctrl *MasjidTeacherController) Update(c *fiber.Ctx) error {
 /* ===================== DELETE ===================== */
 // DELETE /api/a/masjid-teachers/:id (soft)
 func (ctrl *MasjidTeacherController) Delete(c *fiber.Ctx) error {
+	// ===== Masjid context (DKM only) =====
+	masjidID, err := helperAuth.GetActiveMasjidID(c)
+	if err != nil {
+		if id2, err2 := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err2 == nil {
+			masjidID = id2
+		} else {
+			return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid context tidak ditemukan")
+		}
+	}
+	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
+		return err
+	}
+
 	id := strings.TrimSpace(c.Params("id"))
 	if id == "" {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak boleh kosong")
-	}
-
-	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
 	var rows int64
@@ -484,7 +294,7 @@ func (ctrl *MasjidTeacherController) Delete(c *fiber.Ctx) error {
 			Clauses(clause.Locking{Strength: "UPDATE"}).
 			First(&teacher,
 				"masjid_teacher_id = ? AND masjid_teacher_masjid_id = ? AND masjid_teacher_deleted_at IS NULL",
-				id, masjidUUID,
+				id, masjidID,
 			).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fiber.NewError(fiber.StatusNotFound, "Pengajar tidak ditemukan atau sudah dihapus")
@@ -502,8 +312,8 @@ func (ctrl *MasjidTeacherController) Delete(c *fiber.Ctx) error {
 
 		if rows > 0 && teacher.MasjidTeacherIsActive {
 			// turunkan statistik aktif
-			if err := ctrl.Stats.EnsureForMasjid(tx, masjidUUID); err == nil {
-				_ = ctrl.Stats.IncActiveTeachers(tx, masjidUUID, -1)
+			if err := ctrl.Stats.EnsureForMasjid(tx, masjidID); err == nil {
+				_ = ctrl.Stats.IncActiveTeachers(tx, masjidID, -1)
 			}
 		}
 		return nil

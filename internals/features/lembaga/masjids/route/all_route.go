@@ -19,14 +19,14 @@ func AllMasjidRoutes(user fiber.Router, db *gorm.DB) {
 	masjid.Get("/verified",      masjidCtrl.GetAllVerifiedMasjids)
 	masjid.Get("/verified/:id",  masjidCtrl.GetVerifiedMasjidByID)
 
-	masjid.Get("/",              masjidCtrl.GetAllMasjids)    // 📄 Semua masjid
+	masjid.Get("/list",              masjidCtrl.GetAllMasjids)    // 📄 Semua masjid
 	masjid.Get("/:slug",         masjidCtrl.GetMasjidBySlug)  // 🔍 Detail by slug
 
 	// 📄 Group: /masjid-profiles
 	profile := user.Group("/masjid-profiles")
 
 	// Read-only endpoints yang tersedia di controller
-	profile.Get("/",                     profileCtrl.List)             // list + filter + pagination
+	profile.Get("/list",                     profileCtrl.List)             // list + filter + pagination
 	profile.Get("/nearest",              profileCtrl.Nearest)          // nearest?lat=&lon=&limit=
 
 

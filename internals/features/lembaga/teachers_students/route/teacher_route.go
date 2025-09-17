@@ -17,7 +17,6 @@ func UsersTeacherRoute(app fiber.Router, db *gorm.DB) {
     // ===== TEACHER =====
     g := app.Group("/user-teachers")
     g.Post("/", teacherCtrl.Create)
-    g.Get("/", teacherCtrl.List)
     g.Put("/:id", teacherCtrl.Update)
     g.Delete("/:id", teacherCtrl.Delete)
 

@@ -53,10 +53,10 @@ func bindAndValidate[T any](c *fiber.Ctx, v *validator.Validate, dst *T) error {
 	return nil
 }
 
-/* ============================================
+/* =========================================================
    CREATE (DKM only)
-   POST /admin/academic-terms
-============================================ */
+   POST /admin/academic-terms  (disarankan juga rute: /admin/masjids/:masjid_id/academic-terms)
+========================================================= */
 
 func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 	var p dto.AcademicTermCreateDTO
@@ -69,21 +69,17 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusBadRequest, "Tanggal akhir harus >= tanggal mulai")
 	}
 
-	masjidID, err := helperAuth.GetActiveMasjidID(c)
+	// === Masjid context (eksplisit & DKM only) ===
+	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		if id2, err2 := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err2 == nil {
-			masjidID = id2
-		} else {
-			return httpErr(c, fiber.StatusUnauthorized, "Masjid context tidak ditemukan")
-		}
+		return httpErr(c, err.(*fiber.Error).Code, err.Error())
+	}
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
+		return httpErr(c, err.(*fiber.Error).Code, err.Error())
 	}
 
-	// === DKM only ===
-	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
-		return err
-	}
-
-	// Uniqueness check (per masjid) untuk code/slug jika diisi
+	// Uniqueness per masjid untuk code/slug (opsional)
 	if strings.TrimSpace(p.AcademicTermsCode) != "" {
 		var cnt int64
 		if err := ctl.DB.Model(&model.AcademicTermModel{}).
@@ -114,11 +110,11 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Berhasil membuat tahun akademik", dto.FromModel(ent))
 }
 
-/* ============================================
+/* =========================================================
    PUT/PATCH (DKM only)
    PUT /admin/academic-terms/:id
    PATCH /admin/academic-terms/:id
-============================================ */
+========================================================= */
 
 func (ctl *AcademicTermController) Update(c *fiber.Ctx) error { return ctl.updateCommon(c, false) }
 func (ctl *AcademicTermController) Patch(c *fiber.Ctx) error  { return ctl.updateCommon(c, true) }
@@ -130,18 +126,14 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 		return httpErr(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	masjidID, err := helperAuth.GetActiveMasjidID(c)
+	// === Masjid context (eksplisit & DKM only) ===
+	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		if id2, err2 := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err2 == nil {
-			masjidID = id2
-		} else {
-			return httpErr(c, fiber.StatusUnauthorized, "Masjid context tidak ditemukan")
-		}
+		return httpErr(c, err.(*fiber.Error).Code, err.Error())
 	}
-
-	// === DKM only
-	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
-		return err
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
+		return httpErr(c, err.(*fiber.Error).Code, err.Error())
 	}
 
 	var ent model.AcademicTermModel
@@ -224,10 +216,10 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 	return helper.JsonUpdated(c, "Berhasil memperbarui tahun akademik", dto.FromModel(ent))
 }
 
-/* ============================================
+/* =========================================================
    DELETE (soft) — DKM only
    DELETE /admin/academic-terms/:id
-============================================ */
+========================================================= */
 
 func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 	idStr := c.Params("id")
@@ -236,25 +228,21 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	masjidID, err := helperAuth.GetActiveMasjidID(c)
+	// === Masjid context (eksplisit & DKM only) ===
+	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		if id2, err2 := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err2 == nil {
-			masjidID = id2
-		} else {
-			return httpErr(c, fiber.StatusUnauthorized, "Masjid context tidak ditemukan")
-		}
+		return httpErr(c, err.(*fiber.Error).Code, err.Error())
 	}
-
-	// === DKM only
-	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
-		return err
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
+		return httpErr(c, err.(*fiber.Error).Code, err.Error())
 	}
 
 	var ent model.AcademicTermModel
 	if err := ctl.DB.
 		Where("academic_terms_masjid_id = ? AND academic_terms_id = ?", masjidID, id).
 		First(&ent).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 			return httpErr(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengambil data")
@@ -263,9 +251,12 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 	if err := ctl.DB.Delete(&ent).Error; err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal menghapus data")
 	}
-	// kirim id yang dihapus biar jelas
-	return helper.JsonDeleted(c, "Berhasil menghapus tahun akademik", fiber.Map{"academic_terms_id": id})
+	return helper.JsonDeleted(c, "Berhasil menghapus tahun akademik", fiber.Map{
+		"academic_terms_id": id,
+	})
 }
+
+
 
 /* ============================================
    RESTORE (soft-deleted) — DKM only
@@ -303,9 +294,9 @@ func (ctl *AcademicTermController) Restore(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	if ent.AcademicTermsDeletedAt.Valid == false {
-		return helper.JsonOK(c, "OK", dto.FromModel(ent))
-	}
+	// if ent.AcademicTermsDeletedAt.Valid == false {
+	// 	return helper.JsonOK(c, "OK", dto.FromModel(ent))
+	// }
 
 	if err := ctl.DB.Unscoped().
 		Model(&ent).

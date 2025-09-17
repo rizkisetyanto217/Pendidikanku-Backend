@@ -14,18 +14,6 @@ import (
 	helper "masjidku_backend/internals/helpers/auth"
 )
 
-/* ==========================
-   Small helpers
-========================== */
-
-func contains(xs []string, want string) bool {
-	for _, x := range xs {
-		if strings.TrimSpace(x) == strings.TrimSpace(want) {
-			return true
-		}
-	}
-	return false
-}
 
 // baca slice string dari Locals apapun tipenya
 func getLocalsAsStrings(c *fiber.Ctx, key string) []string {

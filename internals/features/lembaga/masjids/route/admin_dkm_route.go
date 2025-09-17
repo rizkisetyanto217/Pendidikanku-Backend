@@ -36,8 +36,8 @@ func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	masjids.Get("/:id/urls", guard, masjidCtrl.GetMasjidURLs)
 
 	masjids.Post("/", guard, masjidCtrl.CreateMasjidDKM)
-	masjids.Put("/", guard, masjidCtrl.UpdateMasjidFile)
-	masjids.Delete("/:id", guard, masjidCtrl.DeleteMasjidFile)
+	masjids.Put("/:id", guard, masjidCtrl.Patch)
+	masjids.Delete("/:id", guard, masjidCtrl.Delete)
 
 	// ================================
 	// 🏷️ MASJID PROFILE (Admin/DKM)

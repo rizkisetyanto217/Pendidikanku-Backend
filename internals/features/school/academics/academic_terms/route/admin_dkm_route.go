@@ -11,18 +11,11 @@ import (
 	masjidkuMiddleware "masjidku_backend/internals/middlewares/features"
 )
 
-// ================================
-// Admin/DKM routes (manage)
-// Base group example: /api/a
-// ================================
 func AcademicYearAdminRoutes(api fiber.Router, db *gorm.DB) {
-	// ================================
-	// Academic Terms (CRUD + search)
-	// => /api/a/academic-terms/...
-	// ================================
 	termCtl := academicTermCtl.NewAcademicTermController(db, nil)
 
-	adminTerms := api.Group("/academic-terms",
+	// Guard global (Admin/DKM + masjid admin check)
+	base := api.Group("",
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola academic terms"),
 			constants.AdminAndAbove,
@@ -30,9 +23,21 @@ func AcademicYearAdminRoutes(api fiber.Router, db *gorm.DB) {
 		masjidkuMiddleware.IsMasjidAdmin(),
 	)
 
-	
-	adminTerms.Post("/", termCtl.Create)
-	adminTerms.Put("/:id", termCtl.Update)
-	adminTerms.Delete("/:id", termCtl.Delete)
+	// 1) GENERIC: konteks via Header/Query/Host (tetap didukung)
+	base.Post("/academic-terms", termCtl.Create)
+	base.Put("/academic-terms/:id", termCtl.Update)
+	base.Patch("/academic-terms/:id", termCtl.Patch)
+	base.Delete("/academic-terms/:id", termCtl.Delete)
 
+	// 2) PATH-SCOPED by masjid_id
+	base.Post("/masjids/:masjid_id/academic-terms", termCtl.Create)
+	base.Put("/masjids/:masjid_id/academic-terms/:id", termCtl.Update)
+	base.Patch("/masjids/:masjid_id/academic-terms/:id", termCtl.Patch)
+	base.Delete("/masjids/:masjid_id/academic-terms/:id", termCtl.Delete)
+
+	// 3) PATH-SCOPED by masjid_slug
+	base.Post("/m/:masjid_slug/academic-terms", termCtl.Create)
+	base.Put("/m/:masjid_slug/academic-terms/:id", termCtl.Update)
+	base.Patch("/m/:masjid_slug/academic-terms/:id", termCtl.Patch)
+	base.Delete("/m/:masjid_slug/academic-terms/:id", termCtl.Delete)
 }

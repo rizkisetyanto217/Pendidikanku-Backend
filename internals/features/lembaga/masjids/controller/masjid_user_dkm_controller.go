@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"mime/multipart"
 	"strconv"
 	"strings"
 	"time"
@@ -132,173 +133,99 @@ func splitCSV(s string) []string {
 }
 
 
-
-/* =======================================================
-   DTO request (profile payload)
-======================================================= */
-
-type MasjidProfilePayload struct {
-	Description string     `json:"description"`
-	FoundedYear *int       `json:"founded_year"`
-
-	Address      string `json:"address"`
-	ContactPhone string `json:"contact_phone"`
-	ContactEmail string `json:"contact_email"`
-
-	GoogleMapsURL string `json:"google_maps_url"`
-	InstagramURL  string `json:"instagram_url"`
-	WhatsappURL   string `json:"whatsapp_url"`
-	YoutubeURL    string `json:"youtube_url"`
-	FacebookURL   string `json:"facebook_url"`
-	TiktokURL     string `json:"tiktok_url"`
-	WhatsappGroupIkhwanURL string `json:"whatsapp_group_ikhwan_url"`
-	WhatsappGroupAkhwatURL string `json:"whatsapp_group_akhwat_url"`
-	WebsiteURL    string `json:"website_url"`
-
-	Latitude  *float64 `json:"latitude"`
-	Longitude *float64 `json:"longitude"`
-
-	SchoolNPSN            string     `json:"school_npsn"`
-	SchoolNSS             string     `json:"school_nss"`
-	SchoolAccreditation   string     `json:"school_accreditation"`
-	SchoolPrincipalUserID *uuid.UUID `json:"school_principal_user_id"`
-	SchoolPhone           string     `json:"school_phone"`
-	SchoolEmail           string     `json:"school_email"`
-	SchoolAddress         string     `json:"school_address"`
-	SchoolStudentCapacity *int       `json:"school_student_capacity"`
-	SchoolIsBoarding      *bool      `json:"school_is_boarding"`
-}
-
-
-
-/* =======================================================
-   Parsers (levels & profile)
-======================================================= */
-func normalizeStringSlice(in []string) []string {
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		t := strings.TrimSpace(s)
-		if t == "" {
-			continue
-		}
-		// optional: lower-case
-		t = strings.ToLower(t)
-		if _, ok := seen[t]; ok {
-			continue
-		}
-		seen[t] = struct{}{}
-		out = append(out, t)
-	}
-	return out
-}
-
 /* =======================================================
    CreateMasjidDKM — multipart only, with logs & lazy OSS
 ======================================================= */
+// tambahkan di imports file controller:
+//   "mime/multipart"
 
+/* =======================================================
+   CreateMasjidDKM — multipart (logo/background) + kompat file+slot
+======================================================= */
 func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 	t0 := time.Now()
 	rid := uuid.New().String()
 	lg := func(msg string, kv ...any) {
-		b := strings.Builder{}
-		b.WriteString("[CreateMasjidDKM][rid=")
-		b.WriteString(rid)
-		b.WriteString("] ")
+		var b strings.Builder
+		b.WriteString("[CreateMasjidDKM][rid="); b.WriteString(rid); b.WriteString("] ")
 		b.WriteString(msg)
 		for i := 0; i+1 < len(kv); i += 2 {
-			b.WriteString(" | ")
-			b.WriteString(strings.TrimSpace(toStr(kv[i])))
-			b.WriteString("=")
-			b.WriteString(toStr(kv[i+1]))
+			b.WriteString(" | "); b.WriteString(strings.TrimSpace(toStr(kv[i])))
+			b.WriteString("="); b.WriteString(toStr(kv[i+1]))
 		}
 		log.Println(b.String())
 	}
 	defer func() { lg("DONE", "dur", time.Since(t0).String()) }()
 
-	// Auth
+	// ── Auth
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		lg("auth failed", "err", err.Error())
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
 
+	// ── Content-Type harus multipart
 	ct := strings.ToLower(c.Get("Content-Type"))
-	isMultipart := strings.Contains(ct, "multipart/form-data")
-	lg("request begin", "ct", ct, "isMultipart", isMultipart)
-	if !isMultipart {
-		lg("unsupported media type")
+	if !strings.Contains(ct, "multipart/form-data") {
+		lg("unsupported media type", "ct", ct)
 		return helper.JsonError(c, fiber.StatusUnsupportedMediaType, "Gunakan multipart/form-data")
 	}
 
-	// Basic fields
+	// ── Basic fields
 	name := strings.TrimSpace(c.FormValue("masjid_name"))
 	if name == "" {
 		lg("validation failed", "reason", "masjid_name kosong")
 		return helper.JsonError(c, fiber.StatusBadRequest, "masjid_name wajib diisi")
 	}
-	domain := normalizeDomainPtr(c.FormValue("masjid_domain"))
-	bioShort := ptrStrTrim(c.FormValue("masjid_bio_short"))
-	location := ptrStrTrim(c.FormValue("masjid_location"))
-	city := ptrStrTrim(c.FormValue("masjid_city"))
-	isSchool := parseBool(c.FormValue("masjid_is_islamic_school"))
+	domain    := normalizeDomainPtr(c.FormValue("masjid_domain"))
+	bioShort  := ptrStrTrim(c.FormValue("masjid_bio_short"))
+	location  := ptrStrTrim(c.FormValue("masjid_location"))
+	city      := ptrStrTrim(c.FormValue("masjid_city"))
+	isSchool  := parseBool(c.FormValue("masjid_is_islamic_school"))
 
 	var yayasanID, planID *uuid.UUID
 	if s := strings.TrimSpace(c.FormValue("masjid_yayasan_id")); s != "" {
-		if id, e := uuid.Parse(s); e == nil {
-			yayasanID = &id
-		}
+		if id, e := uuid.Parse(s); e == nil { yayasanID = &id }
 	}
 	if s := strings.TrimSpace(c.FormValue("masjid_current_plan_id")); s != "" {
-		if id, e := uuid.Parse(s); e == nil {
-			planID = &id
-		}
+		if id, e := uuid.Parse(s); e == nil { planID = &id }
 	}
 
 	verifStatus := strings.TrimSpace(c.FormValue("masjid_verification_status"))
-	if verifStatus == "" {
-		verifStatus = "pending"
-	}
+	if verifStatus == "" { verifStatus = "pending" }
 	verifNotes := ptrStrTrim(c.FormValue("masjid_verification_notes"))
 
-	levels := parseLevelsFromMultipart(c)
+	levels  := parseLevelsFromMultipart(c)
 	profile := parseProfileFromForm(c)
 
-	// File (opsional)
-	fileHeader, _ := c.FormFile("file")
-	slot := strings.ToLower(strings.TrimSpace(c.Query("slot")))
-	if slot == "" {
-		slot = "logo"
-	}
+	// ── Files (opsional)
+	// Baru: dukung "logo" & "background" langsung
+	logoFH, _ := c.FormFile("logo")
+	bgFH,   _ := c.FormFile("background")
+
+	// Kompat lama: "file" + "slot"
+	compatFH, _ := c.FormFile("file")
+	slot := strings.ToLower(strings.TrimSpace(c.FormValue("slot")))
+	if slot == "" { slot = "logo" }
 	if slot != "logo" && slot != "background" && slot != "misc" {
 		lg("validation failed", "reason", "slot invalid", "slot", slot)
 		return helper.JsonError(c, fiber.StatusBadRequest, "slot harus salah satu dari: logo, background, misc")
 	}
 
-	var fileSize int64
-	var fileName, fileCT string
-	if fileHeader != nil {
-		fileSize = fileHeader.Size
-		fileName = fileHeader.Filename
-		if fileHeader.Header != nil {
-			fileCT = fileHeader.Header.Get("Content-Type")
-		}
-	}
-	lg("parsed form",
+	lg("request begin",
 		"name", name,
 		"domain", safeStrPtr(domain),
 		"city", safeStrPtr(city),
 		"isSchool", isSchool,
 		"levels_len", len(levels),
 		"hasProfile", profile != nil,
-		"slot", slot,
-		"hasFile", fileHeader != nil,
-		"fileName", fileName,
-		"fileSize", fileSize,
-		"fileCT", fileCT,
+		"hasLogo", logoFH != nil,
+		"hasBackground", bgFH != nil,
+		"compatSlot", slot,
+		"hasCompatFile", compatFH != nil,
 	)
 
-	// TX
+	// ── TX
 	var resp dto.MasjidResponse
 	txErr := mc.DB.Transaction(func(tx *gorm.DB) error {
 		base := helper.SuggestSlugFromName(name)
@@ -334,7 +261,6 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 			MasjidUpdatedAt: now,
 		}
 		_ = m.SetLevels(levels)
-		// NOTE: fungsi ini diasumsikan sudah ada di package yang sama
 		syncVerificationFlags(&m)
 
 		if err := tx.Create(&m).Error; err != nil {
@@ -343,7 +269,7 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 		}
 		lg("db create masjid ok", "masjid_id", m.MasjidID.String())
 
-		// Profile opsional
+		// ── Profile opsional
 		if profile != nil {
 			p := model.MasjidProfileModel{
 				MasjidProfileMasjidID:               m.MasjidID,
@@ -361,8 +287,6 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 				MasjidProfileWhatsappGroupIkhwanURL: ptrStr(profile.WhatsappGroupIkhwanURL),
 				MasjidProfileWhatsappGroupAkhwatURL: ptrStr(profile.WhatsappGroupAkhwatURL),
 				MasjidProfileWebsiteURL:             ptrStr(profile.WebsiteURL),
-				MasjidProfileLatitude:               profile.Latitude,
-				MasjidProfileLongitude:              profile.Longitude,
 				MasjidProfileSchoolNPSN:             ptrStr(profile.SchoolNPSN),
 				MasjidProfileSchoolNSS:              ptrStr(profile.SchoolNSS),
 				MasjidProfileSchoolAccreditation:    ptrStr(profile.SchoolAccreditation),
@@ -382,58 +306,74 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 			lg("db create profile ok")
 		}
 
-		// Upload file opsional (LAZY INIT OSS di sini)
-		if fileHeader != nil {
-			lg("upload begin", "slot", slot, "size", fileHeader.Size, "name", fileHeader.Filename)
-
+		// ── Upload file opsional
+		if logoFH != nil || bgFH != nil || compatFH != nil {
+			// init OSS hanya jika diperlukan
 			if err := mc.ensureOSS(); err != nil {
 				lg("oss not configured", "err", err.Error())
 				return fiber.NewError(fiber.StatusFailedDependency, err.Error())
 			}
 			lg("oss ready", "bucket", mc.OSS.BucketName)
 
-			publicURL, upErr := helperOSS.UploadAnyToOSS(c.Context(), mc.OSS, m.MasjidID, slot, fileHeader)
-			if upErr != nil {
-				var fe *fiber.Error
-				if errors.As(upErr, &fe) {
-					lg("upload failed (fiber error)", "code", fe.Code, "msg", fe.Message)
-					return fiber.NewError(fe.Code, fe.Message)
-				}
-				lg("upload failed", "err", upErr.Error())
-				return fiber.NewError(fiber.StatusBadGateway, "Gagal upload ke OSS")
-			}
-			lg("upload ok", "url", publicURL)
+			// helper upload + set metadata
+			uploadOne := func(slot string, fh *multipart.FileHeader) error {
+				if fh == nil { return nil }
+				lg("upload begin", "slot", slot, "name", fh.Filename, "size", fh.Size)
 
-			retUntil := now.Add(defaultRetention)
-			switch slot {
-			case "logo":
-				if m.MasjidLogoURL != nil && strings.TrimSpace(*m.MasjidLogoURL) != "" {
-					m.MasjidLogoURLOld = m.MasjidLogoURL
-					m.MasjidLogoObjectKeyOld = m.MasjidLogoObjectKey
-					m.MasjidLogoDeletePendingUntil = &retUntil
+				publicURL, upErr := helperOSS.UploadAnyToOSS(c.Context(), mc.OSS, m.MasjidID, slot, fh)
+				if upErr != nil {
+					var fe *fiber.Error
+					if errors.As(upErr, &fe) {
+						lg("upload failed (fiber error)", "code", fe.Code, "msg", fe.Message)
+						return fiber.NewError(fe.Code, fe.Message)
+					}
+					lg("upload failed", "err", upErr.Error())
+					return fiber.NewError(fiber.StatusBadGateway, "Gagal upload ke OSS")
 				}
-				m.MasjidLogoURL = &publicURL
-				if key, err := helperOSS.ExtractKeyFromPublicURL(publicURL); err == nil {
-					m.MasjidLogoObjectKey = &key
-					lg("metadata set (logo)", "key", key)
+				lg("upload ok", "slot", slot, "url", publicURL)
+
+				retUntil := time.Now().Add(defaultRetention)
+				switch slot {
+				case "logo":
+					if m.MasjidLogoURL != nil && strings.TrimSpace(*m.MasjidLogoURL) != "" {
+						m.MasjidLogoURLOld = m.MasjidLogoURL
+						m.MasjidLogoObjectKeyOld = m.MasjidLogoObjectKey
+						m.MasjidLogoDeletePendingUntil = &retUntil
+					}
+					m.MasjidLogoURL = &publicURL
+					if key, err := helperOSS.ExtractKeyFromPublicURL(publicURL); err == nil {
+						m.MasjidLogoObjectKey = &key
+					}
+				case "background":
+					if m.MasjidBackgroundURL != nil && strings.TrimSpace(*m.MasjidBackgroundURL) != "" {
+						m.MasjidBackgroundURLOld = m.MasjidBackgroundURL
+						m.MasjidBackgroundObjectKeyOld = m.MasjidBackgroundObjectKey
+						m.MasjidBackgroundDeletePendingUntil = &retUntil
+					}
+					m.MasjidBackgroundURL = &publicURL
+					if key, err := helperOSS.ExtractKeyFromPublicURL(publicURL); err == nil {
+						m.MasjidBackgroundObjectKey = &key
+					}
+				default: // "misc"
+					// tidak menyentuh metadata
+				}
+				return nil
+			}
+
+			// upload logo & background jika ada
+			if err := uploadOne("logo", logoFH); err != nil { return err }
+			if err := uploadOne("background", bgFH); err != nil { return err }
+
+			// kompat lama (hanya jika slot tsb belum diisi dari field baru, atau slot == misc)
+			if compatFH != nil {
+				useCompat := (slot == "logo" && logoFH == nil) ||
+					(slot == "background" && bgFH == nil) ||
+					(slot == "misc")
+				if useCompat {
+					if err := uploadOne(slot, compatFH); err != nil { return err }
 				} else {
-					lg("extract key failed (logo)", "err", err.Error())
+					lg("skip compat file because explicit field already present", "slot", slot)
 				}
-			case "background":
-				if m.MasjidBackgroundURL != nil && strings.TrimSpace(*m.MasjidBackgroundURL) != "" {
-					m.MasjidBackgroundURLOld = m.MasjidBackgroundURL
-					m.MasjidBackgroundObjectKeyOld = m.MasjidBackgroundObjectKey
-					m.MasjidBackgroundDeletePendingUntil = &retUntil
-				}
-				m.MasjidBackgroundURL = &publicURL
-				if key, err := helperOSS.ExtractKeyFromPublicURL(publicURL); err == nil {
-					m.MasjidBackgroundObjectKey = &key
-					lg("metadata set (background)", "key", key)
-				} else {
-					lg("extract key failed (background)", "err", err.Error())
-				}
-			case "misc":
-				lg("metadata untouched for misc")
 			}
 
 			m.MasjidUpdatedAt = time.Now()
@@ -442,9 +382,11 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan metadata file")
 			}
 			lg("db save metadata ok")
+		} else {
+			lg("no files attached")
 		}
 
-		// Roles
+		// ── Roles
 		_ = helperAuth.EnsureGlobalRole(tx, userID, "user", &userID)
 		if err := helperAuth.GrantScopedRoleDKM(tx, userID, m.MasjidID); err != nil {
 			lg("grant role failed", "err", err.Error())
@@ -456,6 +398,7 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 		lg("build response ok", "masjid_id", resp.MasjidID, "slug", resp.MasjidSlug)
 		return nil
 	})
+
 	if txErr != nil {
 		if fe, ok := txErr.(*fiber.Error); ok {
 			lg("tx failed (fiber error)", "code", fe.Code, "msg", fe.Message)
@@ -470,20 +413,22 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 }
 
 
+
 // ========== Parser profile (multipart) ==========
-// ========== Parser profile (multipart) ==========
-func parseProfileFromForm(c *fiber.Ctx) *MasjidProfilePayload {
+func parseProfileFromForm(c *fiber.Ctx) *dto.MasjidProfilePayload {
 	log.Println("[parseProfileFromForm] begin")
 	hasAny := false
-	p := &MasjidProfilePayload{}
+	p := &dto.MasjidProfilePayload{}
 
 	// text fields
 	if v := strings.TrimSpace(c.FormValue("profile_description")); v != "" {
-		p.Description = v; hasAny = true
+		p.Description = v
+		hasAny = true
 	}
 	if v := strings.TrimSpace(c.FormValue("profile_founded_year")); v != "" {
 		if i, err := strconv.Atoi(v); err == nil {
-			p.FoundedYear = &i; hasAny = true
+			p.FoundedYear = &i
+			hasAny = true
 		} else {
 			log.Println("[parseProfileFromForm] invalid founded_year:", v, "err:", err)
 		}
@@ -503,22 +448,6 @@ func parseProfileFromForm(c *fiber.Ctx) *MasjidProfilePayload {
 	if v := strings.TrimSpace(c.FormValue("profile_whatsapp_group_akhwat_url")); v != "" { p.WhatsappGroupAkhwatURL = v; hasAny = true }
 	if v := strings.TrimSpace(c.FormValue("profile_website_url")); v != "" { p.WebsiteURL = v; hasAny = true }
 
-	// numeric (lat/long)
-	if v := strings.TrimSpace(c.FormValue("profile_latitude")); v != "" {
-		if f, err := strconv.ParseFloat(strings.ReplaceAll(v, ",", "."), 64); err == nil {
-			p.Latitude = &f; hasAny = true
-		} else {
-			log.Println("[parseProfileFromForm] invalid latitude:", v, "err:", err)
-		}
-	}
-	if v := strings.TrimSpace(c.FormValue("profile_longitude")); v != "" {
-		if f, err := strconv.ParseFloat(strings.ReplaceAll(v, ",", "."), 64); err == nil {
-			p.Longitude = &f; hasAny = true
-		} else {
-			log.Println("[parseProfileFromForm] invalid longitude:", v, "err:", err)
-		}
-	}
-
 	// sekolah
 	if v := strings.TrimSpace(c.FormValue("profile_school_npsn")); v != "" { p.SchoolNPSN = v; hasAny = true }
 	if v := strings.TrimSpace(c.FormValue("profile_school_nss")); v != "" { p.SchoolNSS = v; hasAny = true }
@@ -526,13 +455,14 @@ func parseProfileFromForm(c *fiber.Ctx) *MasjidProfilePayload {
 
 	if v := strings.TrimSpace(c.FormValue("profile_school_principal_user_id")); v != "" {
 		if id, err := uuid.Parse(v); err == nil {
-			p.SchoolPrincipalUserID = &id; hasAny = true
+			p.SchoolPrincipalUserID = &id
+			hasAny = true
 		} else {
 			log.Println("[parseProfileFromForm] invalid principal_user_id:", v, "err:", err)
 		}
 	}
 
-	// ⚠️ CATATAN: jika kolom DB `masjid_profile_school_phone` TIDAK ada, hapus dua baris berikut
+	// ⚠️ Jika kolom/field SchoolPhone tidak ada di DB/DTO, hapus blok ini
 	if v := strings.TrimSpace(c.FormValue("profile_school_phone")); v != "" { p.SchoolPhone = v; hasAny = true }
 
 	if v := strings.TrimSpace(c.FormValue("profile_school_email")); v != "" { p.SchoolEmail = v; hasAny = true }
@@ -540,14 +470,16 @@ func parseProfileFromForm(c *fiber.Ctx) *MasjidProfilePayload {
 
 	if v := strings.TrimSpace(c.FormValue("profile_school_student_capacity")); v != "" {
 		if i, err := strconv.Atoi(v); err == nil {
-			p.SchoolStudentCapacity = &i; hasAny = true
+			p.SchoolStudentCapacity = &i
+			hasAny = true
 		} else {
 			log.Println("[parseProfileFromForm] invalid student_capacity:", v, "err:", err)
 		}
 	}
 	if v := strings.TrimSpace(c.FormValue("profile_school_is_boarding")); v != "" {
 		b := parseBool(v)
-		p.SchoolIsBoarding = &b; hasAny = true
+		p.SchoolIsBoarding = &b
+		hasAny = true
 	}
 
 	if !hasAny {
@@ -557,6 +489,7 @@ func parseProfileFromForm(c *fiber.Ctx) *MasjidProfilePayload {
 	log.Println("[parseProfileFromForm] parsed OK")
 	return p
 }
+
 
 
 // =======================================================
