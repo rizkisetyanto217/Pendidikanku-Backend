@@ -20,7 +20,7 @@ func AcademicYearAdminRoutes(api fiber.Router, db *gorm.DB) {
 	// Academic Terms (CRUD + search)
 	// => /api/a/academic-terms/...
 	// ================================
-	termCtl := academicTermCtl.NewAcademicTermController(db)
+	termCtl := academicTermCtl.NewAcademicTermController(db, nil)
 
 	adminTerms := api.Group("/academic-terms",
 		authMiddleware.OnlyRolesSlice(

@@ -18,4 +18,12 @@ func RoomsUserRoutes(user fiber.Router, db *gorm.DB) {
 
 	// Read-only endpoints
 	g.Get("/list", ctl.List)
+
+	ctl2 := controller.NewClassRoomVirtualLinkController(db)
+	h := user.Group("/class-room-virtual-links")
+
+	// Read-only endpoints
+	h.Get("/", ctl2.List)      // e.g. /api/u/class-room-virtual-links
+	h.Get("/list", ctl2.List)  // alias kalau mau konsisten dengan pola /list
+	h.Get("/:id", ctl2.Detail) // optional detail
 }

@@ -10,7 +10,7 @@ import (
 )
 
 func YayasanAdminRoutes(admin fiber.Router, db *gorm.DB) {
-	yayasanCtrl := ycontroller.NewYayasanController(db)
+	yayasanCtrl := ycontroller.NewYayasanController(db, nil, nil)
 
 	// =========================
 	// 🏢 YAYASAN (ADMIN AREA)
@@ -30,9 +30,7 @@ func YayasanAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// CRUD + restore (soft-delete aware)
 	yayasansAdmin.Post("/",      yayasanCtrl.Create)
 	yayasansAdmin.Get("/",       yayasanCtrl.List)
-	yayasansAdmin.Get("/:id",    yayasanCtrl.Detail)
 	yayasansAdmin.Patch("/:id",  yayasanCtrl.Update)
 	yayasansAdmin.Delete("/",    yayasanCtrl.Delete)  // by body
 	yayasansAdmin.Delete("/:id", yayasanCtrl.Delete)  // by param
-	yayasansAdmin.Post("/:id/restore", yayasanCtrl.Restore)
 }

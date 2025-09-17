@@ -68,8 +68,6 @@ type CreateYayasanRequest struct {
 	YayasanAddress   *string  `json:"yayasan_address" validate:"omitempty"`
 	YayasanCity      *string  `json:"yayasan_city" validate:"omitempty"`
 	YayasanProvince  *string  `json:"yayasan_province" validate:"omitempty"`
-	YayasanLatitude  *float64 `json:"yayasan_latitude" validate:"omitempty"`
-	YayasanLongitude *float64 `json:"yayasan_longitude" validate:"omitempty"`
 
 	// Media & maps
 	YayasanGoogleMapsURL *string `json:"yayasan_google_maps_url" validate:"omitempty,url"`
@@ -98,8 +96,6 @@ func (r *CreateYayasanRequest) ToModel() *yModel.YayasanModel {
 		YayasanAddress:      r.YayasanAddress,
 		YayasanCity:         r.YayasanCity,
 		YayasanProvince:     r.YayasanProvince,
-		YayasanLatitude:     r.YayasanLatitude,
-		YayasanLongitude:    r.YayasanLongitude,
 		YayasanGoogleMapsURL: r.YayasanGoogleMapsURL,
 
 		YayasanLogoURL:       r.YayasanLogoURL,
@@ -133,8 +129,6 @@ type UpdateYayasanRequest struct {
 	YayasanAddress   PatchField[string]  `json:"yayasan_address"`
 	YayasanCity      PatchField[string]  `json:"yayasan_city"`
 	YayasanProvince  PatchField[string]  `json:"yayasan_province"`
-	YayasanLatitude  PatchField[float64] `json:"yayasan_latitude"`
-	YayasanLongitude PatchField[float64] `json:"yayasan_longitude"`
 
 	// Media & maps
 	YayasanGoogleMapsURL PatchField[string] `json:"yayasan_google_maps_url"`
@@ -166,10 +160,6 @@ func (r *UpdateYayasanRequest) ApplyToModel(m *yModel.YayasanModel) {
 	applyPatch(&m.YayasanProvince,    r.YayasanProvince)
 	applyPatch(&m.YayasanGoogleMapsURL, r.YayasanGoogleMapsURL)
 	applyPatch(&m.YayasanDomain,      r.YayasanDomain)
-
-	// float pointers
-	applyPatch(&m.YayasanLatitude,  r.YayasanLatitude)
-	applyPatch(&m.YayasanLongitude, r.YayasanLongitude)
 
 	// scalar string (non-pointer): name & slug
 	applyPatchScalar(&m.YayasanName, r.YayasanName)
@@ -239,8 +229,6 @@ type YayasanResponse struct {
 	YayasanAddress   *string  `json:"yayasan_address,omitempty"`
 	YayasanCity      *string  `json:"yayasan_city,omitempty"`
 	YayasanProvince  *string  `json:"yayasan_province,omitempty"`
-	YayasanLatitude  *float64 `json:"yayasan_latitude,omitempty"`
-	YayasanLongitude *float64 `json:"yayasan_longitude,omitempty"`
 
 	// Media & maps
 	YayasanGoogleMapsURL *string `json:"yayasan_google_maps_url,omitempty"`
@@ -280,8 +268,6 @@ func NewYayasanResponse(m *yModel.YayasanModel) *YayasanResponse {
 		YayasanAddress:      m.YayasanAddress,
 		YayasanCity:         m.YayasanCity,
 		YayasanProvince:     m.YayasanProvince,
-		YayasanLatitude:     m.YayasanLatitude,
-		YayasanLongitude:    m.YayasanLongitude,
 		YayasanGoogleMapsURL: m.YayasanGoogleMapsURL,
 
 		YayasanLogoURL:                m.YayasanLogoURL,

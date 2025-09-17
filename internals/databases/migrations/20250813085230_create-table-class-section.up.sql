@@ -1,18 +1,72 @@
+-- =========================================================
+-- CLASS SECTIONS — FULL REFACTOR (idempotent, no triggers)
+-- =========================================================
 BEGIN;
 
--- =========================================================
--- PRASYARAT
--- =========================================================
+-- ---------- PRASYARAT ----------
 CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
-CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- untuk GIN trigram (opsional ILIKE)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- GIN trigram ops
 
 -- =========================================================
--- BERSIHKAN DATA & SKEMA LAMA
+-- 0) NORMALISASI TABEL REFERENSI (syarat FK komposit)
+--    Pastikan pasangan kolom referensi bersifat UNIQUE
+-- =========================================================
+
+-- classes: UNIQUE (class_id, class_masjid_id)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid='classes'::regclass AND conname='uq_classes_id_masjid' AND contype='u'
+  ) THEN
+    ALTER TABLE classes
+      ADD CONSTRAINT uq_classes_id_masjid UNIQUE (class_id, class_masjid_id);
+  END IF;
+END$$;
+
+-- masjid_teachers: UNIQUE (masjid_teacher_id, masjid_teacher_masjid_id)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid='masjid_teachers'::regclass AND conname='uq_masjid_teachers_id_masjid' AND contype='u'
+  ) THEN
+    ALTER TABLE masjid_teachers
+      ADD CONSTRAINT uq_masjid_teachers_id_masjid UNIQUE (masjid_teacher_id, masjid_teacher_masjid_id);
+  END IF;
+END$$;
+
+-- class_rooms: selaraskan nama kolom + UNIQUE (class_room_id, class_rooms_masjid_id)
+DO $$
+BEGIN
+  -- rename kolom jika masih bernama class_room_masjid_id
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='class_rooms' AND column_name='class_room_masjid_id'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='class_rooms' AND column_name='class_rooms_masjid_id'
+  ) THEN
+    ALTER TABLE class_rooms RENAME COLUMN class_room_masjid_id TO class_rooms_masjid_id;
+  END IF;
+
+  -- tambahkan UNIQUE komposit
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid='class_rooms'::regclass AND conname='uq_class_rooms_id_masjid' AND contype='u'
+  ) THEN
+    ALTER TABLE class_rooms
+      ADD CONSTRAINT uq_class_rooms_id_masjid UNIQUE (class_room_id, class_rooms_masjid_id);
+  END IF;
+END$$;
+
+-- =========================================================
+-- 1) DROP TABEL LAMA (bila ada)
 -- =========================================================
 DROP TABLE IF EXISTS class_sections CASCADE;
 
 -- =========================================================
--- CREATE: class_sections (versi sederhana, + image 2-slot)
+-- 2) CREATE: class_sections
 -- =========================================================
 CREATE TABLE class_sections (
   class_sections_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -21,27 +75,27 @@ CREATE TABLE class_sections (
   class_sections_masjid_id UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  class_sections_class_id      UUID NOT NULL,
-  class_sections_teacher_id    UUID,
-  class_sections_assistant_teacher_id UUID,
-  class_sections_class_room_id UUID,
+  class_sections_class_id               UUID NOT NULL,
+  class_sections_teacher_id             UUID,
+  class_sections_assistant_teacher_id   UUID,
+  class_sections_class_room_id          UUID,
 
   -- Identitas
   class_sections_slug  VARCHAR(160) NOT NULL,
   class_sections_name  VARCHAR(100) NOT NULL,
   class_sections_code  VARCHAR(50),
 
-  -- Jadwal simple (teks bebas, contoh: "Jumat 19:00–21:00")
+  -- Jadwal simple
   class_sections_schedule TEXT,
 
-  -- Kapasitas & counter (dikelola backend)
+  -- Kapasitas & counter
   class_sections_capacity       INT,
   class_sections_total_students INT NOT NULL DEFAULT 0,
 
   -- Meeting / Group
-  class_sections_group_url                TEXT,
+  class_sections_group_url  TEXT,
 
-  -- Image (single file, 2-slot + retensi 30 hari)
+  -- Image (2-slot + retensi 30 hari)
   class_sections_image_url                   TEXT,
   class_sections_image_object_key            TEXT,
   class_sections_image_url_old               TEXT,
@@ -54,9 +108,7 @@ CREATE TABLE class_sections (
   class_sections_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   class_sections_deleted_at TIMESTAMPTZ,
 
-  -- ======================
-  -- CHECK guards ringan
-  -- ======================
+  -- ============== CHECK guards ==============
   CONSTRAINT ck_sections_capacity_nonneg
     CHECK (class_sections_capacity IS NULL OR class_sections_capacity >= 0),
   CONSTRAINT ck_sections_total_nonneg
@@ -66,9 +118,7 @@ CREATE TABLE class_sections (
   CONSTRAINT ck_sections_group_url_scheme
     CHECK (class_sections_group_url IS NULL OR class_sections_group_url ~* '^(https?)://'),
 
-  -- ======================
-  -- FK KOMPOSIT tenant-safe
-  -- ======================
+  -- ============== FK KOMPOSIT tenant-safe ==============
   CONSTRAINT fk_sections_class_same_masjid
     FOREIGN KEY (class_sections_class_id, class_sections_masjid_id)
     REFERENCES classes (class_id, class_masjid_id)
@@ -90,7 +140,7 @@ CREATE TABLE class_sections (
 );
 
 -- =========================================================
--- INDEXES & UNIQUES
+-- 3) INDEXES (performant & minimal)
 -- =========================================================
 
 -- Unik: slug per masjid (alive only, case-insensitive)
@@ -106,14 +156,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_class_name_alive
 -- (Opsional) Unik: code per class (alive only, case-insensitive)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_code_per_class_alive
   ON class_sections (class_sections_class_id, LOWER(class_sections_code))
-  WHERE class_sections_deleted_at IS NULL
-    AND class_sections_code IS NOT NULL;
+  WHERE class_sections_deleted_at IS NULL AND class_sections_code IS NOT NULL;
 
--- Lookup dasar FKs
-CREATE INDEX IF NOT EXISTS idx_sections_masjid     ON class_sections (class_sections_masjid_id);
-CREATE INDEX IF NOT EXISTS idx_sections_class      ON class_sections (class_sections_class_id);
-CREATE INDEX IF NOT EXISTS idx_sections_teacher    ON class_sections (class_sections_teacher_id);
-CREATE INDEX IF NOT EXISTS idx_sections_class_room ON class_sections (class_sections_class_room_id);
+-- FK-friendly composite indexes (cocok dengan FK komposit)
+CREATE INDEX IF NOT EXISTS idx_sections_class_masjid
+  ON class_sections (class_sections_class_id, class_sections_masjid_id)
+  WHERE class_sections_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_sections_teacher_masjid
+  ON class_sections (class_sections_teacher_id, class_sections_masjid_id)
+  WHERE class_sections_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_sections_room_masjid
+  ON class_sections (class_sections_class_room_id, class_sections_masjid_id)
+  WHERE class_sections_deleted_at IS NULL;
+
+-- Lookup dasar (single column) — optional jika di atas sudah ada
+CREATE INDEX IF NOT EXISTS idx_sections_masjid
+  ON class_sections (class_sections_masjid_id);
 
 -- Listing umum
 CREATE INDEX IF NOT EXISTS ix_sections_masjid_active_created
@@ -145,10 +205,9 @@ CREATE INDEX IF NOT EXISTS gin_sections_slug_trgm_alive
 -- Lookup by group_url (opsional)
 CREATE INDEX IF NOT EXISTS idx_sections_group_url_alive
   ON class_sections (class_sections_group_url)
-  WHERE class_sections_deleted_at IS NULL
-    AND class_sections_group_url IS NOT NULL;
+  WHERE class_sections_deleted_at IS NULL AND class_sections_group_url IS NOT NULL;
 
--- BRIN untuk tabel besar berbasis waktu (ringan)
+-- BRIN waktu (hemat storage)
 CREATE INDEX IF NOT EXISTS brin_sections_created_at
   ON class_sections USING BRIN (class_sections_created_at);
 
@@ -158,8 +217,10 @@ CREATE INDEX IF NOT EXISTS idx_sections_image_purge_due
   WHERE class_sections_image_object_key_old IS NOT NULL;
 
 -- =========================================================
--- PULIHKAN FK DARI TABEL LAIN (JIKA ADA), TANPA TRIGGER
+-- 4) PULIHKAN FK DI TABEL LAIN (jika ada), TANPA TRIGGER
 -- =========================================================
+
+-- user_class_sections → (section_id, masjid_id) → class_sections
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='user_class_sections' AND table_schema=current_schema()) THEN
@@ -178,6 +239,7 @@ BEGIN
   END IF;
 END$$;
 
+-- class_schedules → (section_id, masjid_id) → class_sections
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='class_schedules' AND table_schema=current_schema()) THEN

@@ -16,7 +16,7 @@ import (
 // Registrasi semua route Admin/DKM untuk fitur Masjid
 func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// controllers
-	masjidCtrl  := masjidctl.NewMasjidController(db)
+	masjidCtrl  := masjidctl.NewMasjidController(db, validator.New(), nil)
 	profileCtrl := masjidctl.NewMasjidProfileController(db, validator.New())
 	planCtrl    := masjidctl.NewMasjidServicePlanController(db) // ✅ dari paket yg benar
 
@@ -36,9 +36,8 @@ func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	masjids.Get("/:id/urls", guard, masjidCtrl.GetMasjidURLs)
 
 	masjids.Post("/", guard, masjidCtrl.CreateMasjidDKM)
-	masjids.Put("/", guard, masjidCtrl.UpdateMasjid)
-	masjids.Delete("/", guard, masjidCtrl.DeleteMasjid)
-	masjids.Delete("/:id", guard, masjidCtrl.DeleteMasjid)
+	masjids.Put("/", guard, masjidCtrl.UpdateMasjidFile)
+	masjids.Delete("/:id", guard, masjidCtrl.DeleteMasjidFile)
 
 	// ================================
 	// 🏷️ MASJID PROFILE (Admin/DKM)
@@ -54,9 +53,7 @@ func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// Alias kompat lama:
 	alias := admin.Group("/masjid-service-plans", guard)
 	alias.Get("/",             planCtrl.List)
-	alias.Get("/:id",          planCtrl.Detail)
 	alias.Post("/",            planCtrl.Create)
-	alias.Patch("/:id",        planCtrl.Update)
-	alias.Delete("/:id",       planCtrl.Delete)
-	alias.Post("/:id/restore", planCtrl.Restore)
+	alias.Patch("/:id",        planCtrl.Patch)
+	alias.Delete("/:id",       planCtrl.SoftDelete)
 }

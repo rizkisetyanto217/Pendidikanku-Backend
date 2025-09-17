@@ -44,6 +44,8 @@ DELETE FROM schema_migrations WHERE version = 20250306232632;
 
 Kemudian jalankan ulang migrasi:
 
+# Akun Owner
+SELECT fn_grant_role('2d3cf5f4-02ee-4844-b698-cce52aa30262'::uuid, 'owner', NULL, NULL);
 
 
 # JWT

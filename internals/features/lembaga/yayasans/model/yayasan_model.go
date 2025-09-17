@@ -3,6 +3,7 @@ package model
 
 import (
 	"database/sql/driver"
+	"fmt"
 	"strings"
 	"time"
 
@@ -11,10 +12,10 @@ import (
 )
 
 /*
-Verifikasi (mengikuti ENUM di DB):
-- "pending"
-- "approved"
-- "rejected"
+  verification_status_enum:
+  - "pending"
+  - "approved"
+  - "rejected"
 */
 type YayasanVerificationStatus string
 
@@ -24,24 +25,27 @@ const (
 	YayasanVerificationRejected YayasanVerificationStatus = "rejected"
 )
 
-// Normalisasi lower-case saat scan/save (aman bila sumber mixed-case)
+// Scan/Value agar enum selalu dinormalisasi ke lower-case
 func (s *YayasanVerificationStatus) Scan(value any) error {
 	switch v := value.(type) {
+	case nil:
+		*s = ""
 	case string:
 		*s = YayasanVerificationStatus(strings.ToLower(strings.TrimSpace(v)))
 	case []byte:
 		*s = YayasanVerificationStatus(strings.ToLower(strings.TrimSpace(string(v))))
-	case nil:
-		*s = ""
 	default:
-		*s = YayasanVerificationStatus(strings.ToLower(strings.TrimSpace(v.(string))))
+		*s = YayasanVerificationStatus(strings.ToLower(strings.TrimSpace(fmt.Sprint(v))))
 	}
 	return nil
 }
 func (s YayasanVerificationStatus) Value() (driver.Value, error) {
-	return string(YayasanVerificationStatus(strings.ToLower(strings.TrimSpace(string(s))))), nil
+	return strings.ToLower(strings.TrimSpace(string(s))), nil
 }
 
+// -----------------------------
+// GORM model
+// -----------------------------
 
 type YayasanModel struct {
 	// PK
@@ -49,25 +53,23 @@ type YayasanModel struct {
 
 	// Identitas
 	YayasanName        string  `gorm:"type:varchar(150);not null;column:yayasan_name" json:"yayasan_name"`
-	YayasanDescription *string `gorm:"column:yayasan_description" json:"yayasan_description,omitempty"`
-	YayasanBio         *string `gorm:"column:yayasan_bio" json:"yayasan_bio,omitempty"`
+	YayasanDescription *string `gorm:"type:text;column:yayasan_description" json:"yayasan_description,omitempty"`
+	YayasanBio         *string `gorm:"type:text;column:yayasan_bio" json:"yayasan_bio,omitempty"`
 
 	// Kontak & lokasi
-	YayasanAddress   *string  `gorm:"column:yayasan_address" json:"yayasan_address,omitempty"`
-	YayasanCity      *string  `gorm:"column:yayasan_city" json:"yayasan_city,omitempty"`
-	YayasanProvince  *string  `gorm:"column:yayasan_province" json:"yayasan_province,omitempty"`
-	YayasanLatitude  *float64 `gorm:"type:double precision;column:yayasan_latitude" json:"yayasan_latitude,omitempty"`
-	YayasanLongitude *float64 `gorm:"type:double precision;column:yayasan_longitude" json:"yayasan_longitude,omitempty"`
+	YayasanAddress   *string  `gorm:"type:text;column:yayasan_address" json:"yayasan_address,omitempty"`
+	YayasanCity      *string  `gorm:"type:text;column:yayasan_city" json:"yayasan_city,omitempty"`
+	YayasanProvince  *string  `gorm:"type:text;column:yayasan_province" json:"yayasan_province,omitempty"`
 
 	// Media & maps
-	YayasanGoogleMapsURL *string `gorm:"column:yayasan_google_maps_url" json:"yayasan_google_maps_url,omitempty"`
+	YayasanGoogleMapsURL *string `gorm:"type:text;column:yayasan_google_maps_url" json:"yayasan_google_maps_url,omitempty"`
 
-	// Logo (single file, 2-slot + retensi 30 hari)
-	YayasanLogoURL                 *string    `gorm:"column:yayasan_logo_url" json:"yayasan_logo_url,omitempty"`
-	YayasanLogoObjectKey           *string    `gorm:"column:yayasan_logo_object_key" json:"yayasan_logo_object_key,omitempty"`
-	YayasanLogoURLOld              *string    `gorm:"column:yayasan_logo_url_old" json:"yayasan_logo_url_old,omitempty"`
-	YayasanLogoObjectKeyOld        *string    `gorm:"column:yayasan_logo_object_key_old" json:"yayasan_logo_object_key_old,omitempty"`
-	YayasanLogoDeletePendingUntil  *time.Time `gorm:"column:yayasan_logo_delete_pending_until" json:"yayasan_logo_delete_pending_until,omitempty"`
+	// Logo (single file, 2-slot + retensi)
+	YayasanLogoURL                *string    `gorm:"type:text;column:yayasan_logo_url" json:"yayasan_logo_url,omitempty"`
+	YayasanLogoObjectKey          *string    `gorm:"type:text;column:yayasan_logo_object_key" json:"yayasan_logo_object_key,omitempty"`
+	YayasanLogoURLOld             *string    `gorm:"type:text;column:yayasan_logo_url_old" json:"yayasan_logo_url_old,omitempty"`
+	YayasanLogoObjectKeyOld       *string    `gorm:"type:text;column:yayasan_logo_object_key_old" json:"yayasan_logo_object_key_old,omitempty"`
+	YayasanLogoDeletePendingUntil *time.Time `gorm:"column:yayasan_logo_delete_pending_until" json:"yayasan_logo_delete_pending_until,omitempty"`
 
 	// Domain & slug
 	YayasanDomain *string `gorm:"type:varchar(80);column:yayasan_domain" json:"yayasan_domain,omitempty"`
@@ -78,9 +80,9 @@ type YayasanModel struct {
 	YayasanIsVerified         bool                      `gorm:"not null;default:false;column:yayasan_is_verified" json:"yayasan_is_verified"`
 	YayasanVerificationStatus YayasanVerificationStatus `gorm:"type:verification_status_enum;not null;default:'pending';column:yayasan_verification_status" json:"yayasan_verification_status"`
 	YayasanVerifiedAt         *time.Time                `gorm:"column:yayasan_verified_at" json:"yayasan_verified_at,omitempty"`
-	YayasanVerificationNotes  *string                   `gorm:"column:yayasan_verification_notes" json:"yayasan_verification_notes,omitempty"`
+	YayasanVerificationNotes  *string                   `gorm:"type:text;column:yayasan_verification_notes" json:"yayasan_verification_notes,omitempty"`
 
-	// Search (generated tsvector) – read-only di GORM
+	// Full-text search (generated, read-only)
 	YayasanSearch *string `gorm:"type:tsvector;column:yayasan_search;->" json:"-"`
 
 	// Audit

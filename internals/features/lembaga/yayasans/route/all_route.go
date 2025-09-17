@@ -9,9 +9,8 @@ import (
 )
 
 func AllYayasanRoutes(r fiber.Router, db *gorm.DB) {
-	h := yCtrl.NewYayasanController(db)
+	h := yCtrl.NewYayasanController(db, nil, nil)
 
 	g := r.Group("/yayasans")
 	g.Get("/", h.List)    // List public
-	g.Get("/:id", h.Detail) // Detail by ID
 }

@@ -31,9 +31,7 @@ CREATE TABLE IF NOT EXISTS yayasans (
   yayasan_address   TEXT,
   yayasan_city      TEXT,
   yayasan_province  TEXT,
-  yayasan_latitude  DOUBLE PRECISION,
-  yayasan_longitude DOUBLE PRECISION,
-
+  
   -- Media & maps
   yayasan_google_maps_url TEXT,
 
@@ -66,11 +64,7 @@ CREATE TABLE IF NOT EXISTS yayasans (
   -- Audit
   yayasan_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   yayasan_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  yayasan_deleted_at TIMESTAMPTZ,
-
-  -- Validasi koordinat
-  CONSTRAINT yayasans_lat_chk CHECK (yayasan_latitude  BETWEEN -90  AND 90),
-  CONSTRAINT yayasans_lon_chk CHECK (yayasan_longitude BETWEEN -180 AND 180)
+  yayasan_deleted_at TIMESTAMPTZ
 );
 
 -- =========================================================
@@ -107,10 +101,6 @@ CREATE INDEX IF NOT EXISTS idx_yayasans_slug_alive
 -- Full-text search gabungan
 CREATE INDEX IF NOT EXISTS idx_yayasans_search
   ON yayasans USING gin (yayasan_search);
-
--- Geospatial nearest-neighbor
-CREATE INDEX IF NOT EXISTS idx_yayasans_earth
-  ON yayasans USING gist (ll_to_earth(yayasan_latitude::float8, yayasan_longitude::float8));
 
 -- GC logo: pilih yang sudah due (old url tidak kosong dan due sudah lewat)
 CREATE INDEX IF NOT EXISTS idx_yayasans_logo_gc_due

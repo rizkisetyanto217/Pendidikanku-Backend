@@ -1,44 +1,31 @@
 package service
 
 import (
-	"errors"
+	"context"
 	"log"
-
-	profilemodel "masjidku_backend/internals/features/users/user/model"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	profilemodel "masjidku_backend/internals/features/users/user/model"
 )
 
-// CreateInitialUserProfile membuat profile kosong untuk user tertentu.
-// Mengembalikan error agar bisa di-handle di caller.
-func CreateInitialUserProfile(db *gorm.DB, userID uuid.UUID) error {
-	// Cek apakah sudah ada profil untuk user ini
-	var count int64
-	if err := db.Model(&profilemodel.UserProfileModel{}).
-		Where("users_profile_user_id = ?", userID).
-		Count(&count).Error; err != nil {
-		return err
-	}
-	if count > 0 {
-		// sudah ada, tidak perlu buat lagi
-		return nil
-	}
+func EnsureProfileRow(ctx context.Context, db *gorm.DB, userID uuid.UUID) error {
+    log.Printf("[EnsureProfileRow] called for user_id=%s", userID)
 
-	profile := profilemodel.UserProfileModel{
-		UserProfileUserID: userID,
-		// Kolom lain biarkan default DB (is_public_profile = true, is_verified = false, dst)
-		UserProfileGender: nil, // atau pointer ke profilemodel.Male/Female jika mau default
-	}
+    p := profilemodel.UserProfileModel{UserProfileUserID: userID}
+    err := db.WithContext(ctx).
+        Clauses(clause.OnConflict{
+            Columns:   []clause.Column{{Name: "user_profile_user_id"}},
+            DoNothing: true,
+        }).
+        Create(&p).Error
 
-	if err := db.Create(&profile).Error; err != nil {
-		log.Printf("[ERROR] Failed to create users_profile: %v", err)
-		return err
-	}
-
-	// Validasi sanity: pastikan row tercipta
-	if profile.UserProfileID == uuid.Nil {
-		return errors.New("users_profile creation failed: empty users_profile_id")
-	}
-	return nil
+    if err != nil {
+        log.Printf("[EnsureProfileRow] ERROR: %v", err)
+    } else {
+        log.Printf("[EnsureProfileRow] DONE: inserted or skipped (user_id=%s, profile_id=%s)", userID, p.UserProfileID)
+    }
+    return err
 }

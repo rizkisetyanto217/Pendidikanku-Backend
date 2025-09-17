@@ -9,7 +9,7 @@ import (
 )
 
 func AllMasjidRoutes(user fiber.Router, db *gorm.DB) {
-	masjidCtrl  := controller.NewMasjidController(db)
+	masjidCtrl  := controller.NewMasjidController(db, nil, nil)
 	profileCtrl := controller.NewMasjidProfileController(db, nil)
 
 	// 🕌 Group: /masjids

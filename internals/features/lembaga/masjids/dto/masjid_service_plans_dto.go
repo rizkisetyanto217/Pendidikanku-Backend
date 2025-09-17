@@ -7,7 +7,7 @@ import (
 	"time"
 
 	mModel "masjidku_backend/internals/features/lembaga/masjids/model"
-	helperOSS "masjidku_backend/internals/helpers/oss"
+
 	"github.com/google/uuid"
 )
 
@@ -235,10 +235,7 @@ func (r *UpdateMasjidServicePlanRequest) ApplyToModelWithImageSwap(m *mModel.Mas
 	return nil
 }
 
-// ApplyToModel wrapper: default gunakan retensi global dari helper (RETENTION_DAYS).
-func (r *UpdateMasjidServicePlanRequest) ApplyToModel(m *mModel.MasjidServicePlan) {
-	_ = r.ApplyToModelWithImageSwap(m, helperOSS.TrashRetention())
-}
+
 
 /* =========================================================
    LIST QUERY (untuk handler List)

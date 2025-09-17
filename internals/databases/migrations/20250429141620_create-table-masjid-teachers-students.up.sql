@@ -35,8 +35,7 @@ CREATE TABLE IF NOT EXISTS masjid_teachers (
   masjid_teacher_user_id   UUID NOT NULL REFERENCES users(id)          ON DELETE CASCADE,
 
   -- Identitas/kepegawaian (level masjid)
-  masjid_teacher_code        VARCHAR(50),              -- kode internal (unik per masjid; alive only)
-  masjid_teacher_nip         VARCHAR(50),              -- NIP/NIM/NIK lokal (unik per masjid; alive only)
+  masjid_teacher_code        VARCHAR(50),              -- kode internal 
   masjid_teacher_slug        VARCHAR(50),              -- unik per masjid (alive)
   masjid_teacher_employment  teacher_employment_enum,  -- status kepegawaian
   masjid_teacher_is_active   BOOLEAN NOT NULL DEFAULT TRUE,
@@ -89,12 +88,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_mtj_code_alive_ci
   ON masjid_teachers (masjid_teacher_masjid_id, LOWER(masjid_teacher_code))
   WHERE masjid_teacher_deleted_at IS NULL
     AND masjid_teacher_code IS NOT NULL;
-
--- Unik NIP per masjid (case-insensitive; alive only)
-CREATE UNIQUE INDEX IF NOT EXISTS ux_mtj_nip_alive_ci
-  ON masjid_teachers (masjid_teacher_masjid_id, LOWER(masjid_teacher_nip))
-  WHERE masjid_teacher_deleted_at IS NULL
-    AND masjid_teacher_nip IS NOT NULL;
 
 -- Lookups umum (per tenant), alive only
 -- (masjid_id, filter…) + created_at untuk pagination/stable sort

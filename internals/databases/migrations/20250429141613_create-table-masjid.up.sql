@@ -1,7 +1,9 @@
 BEGIN;
 
+BEGIN;
+
 -- =========================================================
--- EXTENSIONS
+-- EXTENSIONS (idempotent)
 -- =========================================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;      -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;       -- trigram search
@@ -66,11 +68,25 @@ CREATE TABLE IF NOT EXISTS masjids (
   -- Flag
   masjid_is_islamic_school BOOLEAN NOT NULL DEFAULT FALSE,
 
-  -- Peruntukan tenant (langsung di definisi tabel)
+  -- Peruntukan tenant
   masjid_tenant_profile tenant_profile_enum NOT NULL DEFAULT 'teacher_solo',
 
   -- Levels (tag-style; contoh: ["Kursus","Ilmu Qur'an","Sekolah Nonformal"])
   masjid_levels JSONB,
+
+  -- Media: logo (2-slot + retensi hapus)
+  masjid_logo_url                  TEXT,
+  masjid_logo_object_key           TEXT,
+  masjid_logo_url_old              TEXT,
+  masjid_logo_object_key_old       TEXT,
+  masjid_logo_delete_pending_until TIMESTAMPTZ,
+
+  -- Media: background (2-slot + retensi hapus)
+  masjid_background_url                    TEXT,
+  masjid_background_object_key             TEXT,
+  masjid_background_url_old                TEXT,
+  masjid_background_object_key_old         TEXT,
+  masjid_background_delete_pending_until   TIMESTAMPTZ,
 
   -- Audit
   masjid_created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -87,19 +103,26 @@ CREATE TABLE IF NOT EXISTS masjids (
 DROP INDEX IF EXISTS idx_masjids_search;
 ALTER TABLE masjids DROP COLUMN IF EXISTS masjid_search;
 
+-- =========================================================
 -- INDEXES
+-- =========================================================
+-- Trigram search
 CREATE INDEX IF NOT EXISTS idx_masjids_name_trgm
   ON masjids USING gin (masjid_name gin_trgm_ops);
 
 CREATE INDEX IF NOT EXISTS idx_masjids_location_trgm
   ON masjids USING gin (masjid_location gin_trgm_ops);
 
+-- Name (CI)
 CREATE INDEX IF NOT EXISTS idx_masjids_name_lower
   ON masjids (LOWER(masjid_name));
 
--- Domain unik CI (tanpa WHERE/partial)
+-- Domain unik CI
 CREATE UNIQUE INDEX IF NOT EXISTS ux_masjids_domain_ci
   ON masjids (LOWER(masjid_domain));
+
+CREATE INDEX IF NOT EXISTS idx_masjids_slug_lower ON masjids (LOWER(masjid_slug));
+
 
 -- FK helpers
 CREATE INDEX IF NOT EXISTS idx_masjids_yayasan
@@ -108,7 +131,7 @@ CREATE INDEX IF NOT EXISTS idx_masjids_yayasan
 CREATE INDEX IF NOT EXISTS idx_masjids_current_plan
   ON masjids (masjid_current_plan_id);
 
--- Levels (JSONB) => operator ?, ?|, ?&, @>
+-- Levels (JSONB)
 CREATE INDEX IF NOT EXISTS gin_masjids_levels
   ON masjids USING gin (masjid_levels);
 
@@ -121,9 +144,19 @@ CREATE INDEX IF NOT EXISTS idx_masjids_active_alive
   ON masjids(masjid_is_active)
   WHERE masjid_deleted_at IS NULL;
 
--- Peruntukan tenant (filter cepat)
+-- Peruntukan tenant
 CREATE INDEX IF NOT EXISTS idx_masjids_tenant_profile
   ON masjids (masjid_tenant_profile);
+
+-- Media cleanup retensi
+CREATE INDEX IF NOT EXISTS brin_masjids_logo_delete_pending_until
+  ON masjids USING brin (masjid_logo_delete_pending_until);
+
+CREATE INDEX IF NOT EXISTS brin_masjids_background_delete_pending_until
+  ON masjids USING brin (masjid_background_delete_pending_until);
+
+COMMIT;
+
 
 -- =========================================================
 -- masjids_profiles (tanpa GENERATED FTS)

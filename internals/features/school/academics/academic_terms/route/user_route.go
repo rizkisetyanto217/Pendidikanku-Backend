@@ -13,7 +13,7 @@ import (
 // Base group example: /api/u
 // ================================
 func AcademicYearUserRoutes(user fiber.Router, db *gorm.DB) {
-	termCtl := academicTermCtl.NewAcademicTermController(db)
+	termCtl := academicTermCtl.NewAcademicTermController(db, nil)
 
 	r := user.Group("/academic-terms")
 

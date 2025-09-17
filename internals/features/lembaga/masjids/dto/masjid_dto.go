@@ -19,6 +19,7 @@ import (
    - masjid_domain: "" => NULL, disimpan lower-case
    - masjid_levels: optional (tags), contoh: ["kursus","ilmu_quran"]
    - masjid_tenant_profile: "teacher_solo" | "teacher_plus_school" | "school_basic" | "school_complex"
+   - Media (logo/background): hanya kolom current (url & object_key) yang boleh di-set.
 ========================================================= */
 
 type MasjidRequest struct {
@@ -51,10 +52,17 @@ type MasjidRequest struct {
 
 	// Levels (tags)
 	MasjidLevels []string `json:"masjid_levels"`
+
+	// Media (current only; opsional untuk seed awal)
+	MasjidLogoURL           string `json:"masjid_logo_url"`
+	MasjidLogoObjectKey     string `json:"masjid_logo_object_key"`
+	MasjidBackgroundURL     string `json:"masjid_background_url"`
+	MasjidBackgroundObjectKey string `json:"masjid_background_object_key"`
 }
 
 /* =========================================================
    RESPONSE DTO — lengkap untuk client (sesuai kolom SQL)
+   Catatan: kolom *_old & *_delete_pending_until adalah read-only.
 ========================================================= */
 
 type MasjidResponse struct {
@@ -87,9 +95,23 @@ type MasjidResponse struct {
 	// Levels (tags)
 	MasjidLevels []string `json:"masjid_levels"`
 
+	// Media — LOGO (current + shadow/retensi)
+	MasjidLogoURL                string     `json:"masjid_logo_url"`
+	MasjidLogoObjectKey          string     `json:"masjid_logo_object_key"`
+	MasjidLogoURLOld             string     `json:"masjid_logo_url_old"`
+	MasjidLogoObjectKeyOld       string     `json:"masjid_logo_object_key_old"`
+	MasjidLogoDeletePendingUntil *time.Time `json:"masjid_logo_delete_pending_until,omitempty"`
+
+	// Media — BACKGROUND (current + shadow/retensi)
+	MasjidBackgroundURL                string     `json:"masjid_background_url"`
+	MasjidBackgroundObjectKey          string     `json:"masjid_background_object_key"`
+	MasjidBackgroundURLOld             string     `json:"masjid_background_url_old"`
+	MasjidBackgroundObjectKeyOld       string     `json:"masjid_background_object_key_old"`
+	MasjidBackgroundDeletePendingUntil *time.Time `json:"masjid_background_delete_pending_until,omitempty"`
+
 	// Audit
-	MasjidCreatedAt     time.Time  `json:"masjid_created_at"`
-	MasjidUpdatedAt     time.Time  `json:"masjid_updated_at"`
+	MasjidCreatedAt      time.Time  `json:"masjid_created_at"`
+	MasjidUpdatedAt      time.Time  `json:"masjid_updated_at"`
 	MasjidLastActivityAt *time.Time `json:"masjid_last_activity_at,omitempty"`
 }
 
@@ -99,6 +121,7 @@ type MasjidResponse struct {
    - MasjidLevels pakai pointer ke slice; nil = tidak diubah,
      &[]{} = set jadi array kosong.
    - Clear[] untuk set kolom tertentu menjadi NULL eksplisit.
+   - Media: hanya current (url & object_key) yang boleh diubah.
 ========================================================= */
 
 type MasjidUpdateRequest struct {
@@ -132,8 +155,14 @@ type MasjidUpdateRequest struct {
 	// Levels (tags)
 	MasjidLevels *[]string `json:"masjid_levels"`
 
-	// Clear → set NULL eksplisit
-	Clear []string `json:"__clear,omitempty" validate:"omitempty,dive,oneof=masjid_domain masjid_bio_short masjid_location masjid_city masjid_contact_person_name masjid_contact_person_phone masjid_levels"`
+	// Media (current only)
+	MasjidLogoURL            *string `json:"masjid_logo_url"`
+	MasjidLogoObjectKey      *string `json:"masjid_logo_object_key"`
+	MasjidBackgroundURL      *string `json:"masjid_background_url"`
+	MasjidBackgroundObjectKey *string `json:"masjid_background_object_key"`
+
+	// Clear → set NULL eksplisit (hanya kolom yang boleh di-null-kan langsung)
+	Clear []string `json:"__clear,omitempty" validate:"omitempty,dive,oneof=masjid_domain masjid_bio_short masjid_location masjid_city masjid_contact_person_name masjid_contact_person_phone masjid_levels masjid_logo_url masjid_logo_object_key masjid_background_url masjid_background_object_key"`
 }
 
 /* =========================================================
@@ -167,6 +196,20 @@ func FromModelMasjid(m *model.MasjidModel) MasjidResponse {
 		MasjidTenantProfile:   string(m.MasjidTenantProfile),
 		MasjidLevels:          levels,
 
+		// Media — logo
+		MasjidLogoURL:                valOrEmpty(m.MasjidLogoURL),
+		MasjidLogoObjectKey:          valOrEmpty(m.MasjidLogoObjectKey),
+		MasjidLogoURLOld:             valOrEmpty(m.MasjidLogoURLOld),
+		MasjidLogoObjectKeyOld:       valOrEmpty(m.MasjidLogoObjectKeyOld),
+		MasjidLogoDeletePendingUntil: m.MasjidLogoDeletePendingUntil,
+
+		// Media — background
+		MasjidBackgroundURL:                valOrEmpty(m.MasjidBackgroundURL),
+		MasjidBackgroundObjectKey:          valOrEmpty(m.MasjidBackgroundObjectKey),
+		MasjidBackgroundURLOld:             valOrEmpty(m.MasjidBackgroundURLOld),
+		MasjidBackgroundObjectKeyOld:       valOrEmpty(m.MasjidBackgroundObjectKeyOld),
+		MasjidBackgroundDeletePendingUntil: m.MasjidBackgroundDeletePendingUntil,
+
 		MasjidCreatedAt:      m.MasjidCreatedAt,
 		MasjidUpdatedAt:      m.MasjidUpdatedAt,
 		MasjidLastActivityAt: m.MasjidLastActivityAt,
@@ -197,6 +240,12 @@ func ToModelMasjid(in *MasjidRequest, id uuid.UUID) *model.MasjidModel {
 
 		MasjidIsIslamicSchool: in.MasjidIsIslamicSchool,
 		MasjidTenantProfile:   model.TenantProfile(normalizeTenantProfile(in.MasjidTenantProfile)),
+
+		// Media current (opsional)
+		MasjidLogoURL:           normalizeOptionalStringToPtr(in.MasjidLogoURL),
+		MasjidLogoObjectKey:     normalizeOptionalStringToPtr(in.MasjidLogoObjectKey),
+		MasjidBackgroundURL:     normalizeOptionalStringToPtr(in.MasjidBackgroundURL),
+		MasjidBackgroundObjectKey: normalizeOptionalStringToPtr(in.MasjidBackgroundObjectKey),
 	}
 
 	// Set levels (JSONB) → pointer agar bisa NULL
@@ -212,6 +261,9 @@ func ToModelMasjid(in *MasjidRequest, id uuid.UUID) *model.MasjidModel {
 /* =========================================================
    APPLY UPDATE — patch model dari MasjidUpdateRequest
    (gunakan sebelum db.Save / db.Updates)
+   NOTE:
+   - Logic 2-slot (copy ke *_old + set delete_pending_until) dilakukan di SERVICE,
+     bukan di DTO. Di sini hanya mengisi nilai current jika ada.
 ========================================================= */
 
 func ApplyMasjidUpdate(m *model.MasjidModel, u *MasjidUpdateRequest) {
@@ -274,11 +326,24 @@ func ApplyMasjidUpdate(m *model.MasjidModel, u *MasjidUpdateRequest) {
 
 	// Levels (tags)
 	if u.MasjidLevels != nil {
-		// &[]{} → set jadi array kosong (bukan NULL)
 		if b, err := json.Marshal(*u.MasjidLevels); err == nil {
 			val := datatypes.JSON(b)
 			m.MasjidLevels = &val
 		}
+	}
+
+	// Media (current only) — 2-slot handling lakukan di service
+	if u.MasjidLogoURL != nil {
+		m.MasjidLogoURL = normalizeOptionalStringToPtr(strings.TrimSpace(*u.MasjidLogoURL))
+	}
+	if u.MasjidLogoObjectKey != nil {
+		m.MasjidLogoObjectKey = normalizeOptionalStringToPtr(strings.TrimSpace(*u.MasjidLogoObjectKey))
+	}
+	if u.MasjidBackgroundURL != nil {
+		m.MasjidBackgroundURL = normalizeOptionalStringToPtr(strings.TrimSpace(*u.MasjidBackgroundURL))
+	}
+	if u.MasjidBackgroundObjectKey != nil {
+		m.MasjidBackgroundObjectKey = normalizeOptionalStringToPtr(strings.TrimSpace(*u.MasjidBackgroundObjectKey))
 	}
 
 	// Clear → NULL eksplisit
@@ -298,6 +363,14 @@ func ApplyMasjidUpdate(m *model.MasjidModel, u *MasjidUpdateRequest) {
 			m.MasjidContactPersonPhone = nil
 		case "masjid_levels":
 			m.MasjidLevels = nil
+		case "masjid_logo_url":
+			m.MasjidLogoURL = nil
+		case "masjid_logo_object_key":
+			m.MasjidLogoObjectKey = nil
+		case "masjid_background_url":
+			m.MasjidBackgroundURL = nil
+		case "masjid_background_object_key":
+			m.MasjidBackgroundObjectKey = nil
 		}
 	}
 }

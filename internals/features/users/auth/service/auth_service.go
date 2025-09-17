@@ -191,7 +191,7 @@ func deriveMasjidIDsFromRolesClaim(rc helpersAuth.RolesClaim) []string {
 }
 
 /* ==========================
-   REGISTER
+   REGISTER (refactor: tx + upsert profile)
 ========================== */
 func Register(db *gorm.DB, c *fiber.Ctx) error {
 	var input userModel.UserModel
@@ -203,24 +203,15 @@ func Register(db *gorm.DB, c *fiber.Ctx) error {
 	input.UserName = strings.TrimSpace(input.UserName)
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 	if input.FullName != nil {
-		f := strings.TrimSpace(*input.FullName)
-		input.FullName = &f
+		f := strings.TrimSpace(*input.FullName); input.FullName = &f
 	}
 	if input.GoogleID != nil {
 		g := strings.TrimSpace(*input.GoogleID)
-		if g == "" {
-			input.GoogleID = nil
-		} else {
-			input.GoogleID = &g
-		}
+		if g == "" { input.GoogleID = nil } else { input.GoogleID = &g }
 	}
 	if input.Password != nil {
 		p := strings.TrimSpace(*input.Password)
-		if p == "" {
-			input.Password = nil
-		} else {
-			input.Password = &p
-		}
+		if p == "" { input.Password = nil } else { input.Password = &p }
 	}
 
 	// ---------- Validasi bisnis: minimal password ATAU google_id ----------
@@ -242,32 +233,45 @@ func Register(db *gorm.DB, c *fiber.Ctx) error {
 		input.Password = &hashed
 	}
 
-	// created_at/updated_at default by DB; is_active default true by DB
-
-	// ---------- Create user ----------
-	if err := authRepo.CreateUser(db, &input); err != nil {
-		low := strings.ToLower(err.Error())
-		switch {
-		case strings.Contains(low, "uq_users_email") || strings.Contains(low, "users_email_key") || strings.Contains(low, "email") && strings.Contains(low, "unique"):
-			return helpers.JsonError(c, fiber.StatusBadRequest, "Email already registered")
-		case strings.Contains(low, "users_user_name") && strings.Contains(low, "unique"):
-			return helpers.JsonError(c, fiber.StatusBadRequest, "Username already taken")
-		case strings.Contains(low, "uq_users_google_id") || strings.Contains(low, "google_id") && strings.Contains(low, "unique"):
-			return helpers.JsonError(c, fiber.StatusBadRequest, "Google account already linked to another user")
-		default:
-			return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to create user")
+	// ---------- TRANSACTION: create user → ensure users_profile → grant role ----------
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		// Create user
+		if err := authRepo.CreateUser(tx, &input); err != nil {
+			low := strings.ToLower(err.Error())
+			switch {
+			case strings.Contains(low, "uq_users_email") || strings.Contains(low, "users_email_key") || (strings.Contains(low, "email") && strings.Contains(low, "unique")):
+				return fiber.NewError(fiber.StatusBadRequest, "Email already registered")
+			case strings.Contains(low, "users_user_name") && strings.Contains(low, "unique"):
+				return fiber.NewError(fiber.StatusBadRequest, "Username already taken")
+			case strings.Contains(low, "uq_users_google_id") || (strings.Contains(low, "google_id") && strings.Contains(low, "unique")):
+				return fiber.NewError(fiber.StatusBadRequest, "Google account already linked to another user")
+			default:
+				return fiber.NewError(fiber.StatusInternalServerError, "Failed to create user")
+			}
 		}
-	}
 
-	// ---------- Best-effort init entitas turunan ----------
-	if meta.Ready && quickHasTable(db, "users_profile") {
-		// CreateInitialUserProfile tidak mengembalikan apa-apa → cukup panggil
-		userProfileService.CreateInitialUserProfile(db, input.ID)
-	}
+		log.Printf("[register] ensuring users_profile for user_id=%s", input.ID)
 
-	// ---------- Grant default role "user" ----------
-	if err := grantDefaultUserRole(c.Context(), db, input.ID); err != nil {
-		log.Printf("[register] grant default role 'user' failed: %v", err)
+		// Ensure users_profile ada (idempotent & anti-race)
+		if err := userProfileService.EnsureProfileRow(c.Context(), tx, input.ID); err != nil {
+			log.Printf("[register] ensure users_profile ERROR: %v", err)
+			return fiber.NewError(fiber.StatusInternalServerError, "Failed to initialize user profile")
+		}
+
+		log.Printf("[register] ensure users_profile OK for user_id=%s", input.ID)
+
+		// Grant default role
+		if err := grantDefaultUserRole(c.Context(), tx, input.ID); err != nil {
+			log.Printf("[register] grant default role 'user' failed: %v", err)
+		}
+
+		return nil
+	}); err != nil {
+		// mapping fiber.Error dari dalam tx
+		if fe, ok := err.(*fiber.Error); ok {
+			return helpers.JsonError(c, fe.Code, fe.Message)
+		}
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "Registration failed")
 	}
 
 	return helpers.JsonCreated(c, "Registration successful", nil)
@@ -334,102 +338,94 @@ func grantDefaultUserRole(ctx context.Context, db *gorm.DB, userID uuid.UUID) er
 
 // Ambil roles via function claim (jika ada) atau fallback query manual
 func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (helpersAuth.RolesClaim, error) {
-	out := helpersAuth.RolesClaim{
-		RolesGlobal: make([]string, 0),
-		MasjidRoles: make([]helpersAuth.MasjidRolesEntry, 0),
-	}
+    out := helpersAuth.RolesClaim{RolesGlobal: []string{}, MasjidRoles: []helpersAuth.MasjidRolesEntry{}}
 
-	// Pakai fn_user_roles_claim bila ada
-	if meta.Ready && meta.HasFnUserRolesClaim {
-		var jsonStr string
-		if err := db.WithContext(ctx).
-			Raw(`SELECT fn_user_roles_claim(?::uuid)::text`, userID.String()).
-			Scan(&jsonStr).Error; err != nil {
-			return out, err
-		}
-		if strings.TrimSpace(jsonStr) != "" {
-			if err := json.Unmarshal([]byte(jsonStr), &out); err != nil {
-				return out, err
-			}
-		}
+    // Pakai fungsi hanya jika benar-benar ada (cek cached)
+    useFn := meta.Ready && meta.HasFnUserRolesClaim
+    if !useFn {
+        useFn = quickHasFunction(db, "fn_user_roles_claim")
+    }
 
-		// jaga-jaga kalau function kirim null
-		if out.RolesGlobal == nil {
-			out.RolesGlobal = []string{}
-		}
-		if out.MasjidRoles == nil {
-			out.MasjidRoles = []helpersAuth.MasjidRolesEntry{}
-		}
+    if useFn {
+        var jsonStr string
+        if err := db.WithContext(ctx).
+            Raw(`SELECT fn_user_roles_claim(?::uuid)::text`, userID.String()).
+            Scan(&jsonStr).Error; err == nil && strings.TrimSpace(jsonStr) != "" {
+            var tmp helpersAuth.RolesClaim
+            if err := json.Unmarshal([]byte(jsonStr), &tmp); err == nil {
+                // kalau fungsi ngembaliin kosong, JANGAN langsung pulang — lanjut fallback manual
+                if len(tmp.RolesGlobal) > 0 || len(tmp.MasjidRoles) > 0 {
+                    return tmp, nil
+                }
+            }
+        }
+    }
 
-		return out, nil
-	}
+    // ===== Fallback manual yang pasti jalan =====
+    orderBy := "r.role_name ASC"
+    if quickHasFunction(db, "fn_role_priority") {
+        orderBy = "fn_role_priority(r.role_name) DESC, r.role_name ASC"
+    }
 
-	// Fallback manual
-	orderBy := "r.role_name ASC"
-	if meta.Ready && meta.HasFnRolePriority {
-		orderBy = "fn_role_priority(r.role_name) DESC, r.role_name ASC"
-	}
+    // Global
+    {
+        ctxG, cancel := context.WithTimeout(ctx, qryTimeoutLong) // kasih napas lebih
+        defer cancel()
+        var globals []string
+        if err := db.WithContext(ctxG).Raw(`
+            SELECT r.role_name
+            FROM user_roles ur
+            JOIN roles r ON r.role_id = ur.role_id
+            WHERE ur.user_id = ?::uuid
+              AND ur.deleted_at IS NULL
+              AND ur.masjid_id IS NULL
+            GROUP BY r.role_name
+            ORDER BY `+orderBy, userID.String(),
+        ).Scan(&globals).Error; err != nil {
+            return out, err
+        }
+        out.RolesGlobal = globals
+    }
 
-	// Global
-	{
-		ctxG, cancel := context.WithTimeout(ctx, qryTimeoutShort)
-		defer cancel()
-		var globals []string
-		if err := db.WithContext(ctxG).Raw(`
-			SELECT r.role_name
-			FROM user_roles ur
-			JOIN roles r ON r.role_id = ur.role_id
-			WHERE ur.user_id = ?::uuid
-			  AND ur.deleted_at IS NULL
-			  AND ur.masjid_id IS NULL
-			GROUP BY r.role_name
-			ORDER BY `+orderBy, userID.String()).
-			Scan(&globals).Error; err != nil {
-			return out, err
-		}
-		out.RolesGlobal = globals
-	}
-
-	// Scoped
-	var masjidIDs []uuid.UUID
-	{
-		ctxS, cancel := context.WithTimeout(ctx, qryTimeoutShort)
-		defer cancel()
-		if err := db.WithContext(ctxS).Raw(`
-			SELECT ur.masjid_id
-			FROM user_roles ur
-			WHERE ur.user_id = ?::uuid
-			  AND ur.deleted_at IS NULL
-			  AND ur.masjid_id IS NOT NULL
-			GROUP BY ur.masjid_id
-		`, userID.String()).
-			Scan(&masjidIDs).Error; err != nil {
-			return out, err
-		}
-	}
-	for _, mid := range masjidIDs {
-		ctxR, cancel := context.WithTimeout(ctx, qryTimeoutShort)
-		var roles []string
-		err := db.WithContext(ctxR).Raw(`
-			SELECT r.role_name
-			FROM user_roles ur
-			JOIN roles r ON r.role_id = ur.role_id
-			WHERE ur.user_id = ?::uuid
-			  AND ur.deleted_at IS NULL
-			  AND ur.masjid_id = ?::uuid
-			GROUP BY r.role_name
-			ORDER BY `+orderBy, userID.String(), mid.String()).
-			Scan(&roles).Error
-		cancel()
-		if err != nil {
-			return out, err
-		}
-		out.MasjidRoles = append(out.MasjidRoles, helpersAuth.MasjidRolesEntry{
-			MasjidID: mid,
-			Roles:    roles,
-		})
-	}
-	return out, nil
+    // Scoped
+    var masjidIDs []uuid.UUID
+    {
+        ctxS, cancel := context.WithTimeout(ctx, qryTimeoutLong)
+        defer cancel()
+        if err := db.WithContext(ctxS).Raw(`
+            SELECT ur.masjid_id
+            FROM user_roles ur
+            WHERE ur.user_id = ?::uuid
+              AND ur.deleted_at IS NULL
+              AND ur.masjid_id IS NOT NULL
+            GROUP BY ur.masjid_id
+        `, userID.String()).Scan(&masjidIDs).Error; err != nil {
+            return out, err
+        }
+    }
+    for _, mid := range masjidIDs {
+        ctxR, cancel := context.WithTimeout(ctx, qryTimeoutLong)
+        var roles []string
+        err := db.WithContext(ctxR).Raw(`
+            SELECT r.role_name
+            FROM user_roles ur
+            JOIN roles r ON r.role_id = ur.role_id
+            WHERE ur.user_id = ?::uuid
+              AND ur.deleted_at IS NULL
+              AND ur.masjid_id = ?::uuid
+            GROUP BY r.role_name
+            ORDER BY `+orderBy, userID.String(), mid.String()).
+            Scan(&roles).Error
+        cancel()
+        if err != nil {
+            return out, err
+        }
+        out.MasjidRoles = append(out.MasjidRoles, helpersAuth.MasjidRolesEntry{
+            MasjidID: mid,
+            Roles:    roles,
+        })
+    }
+    return out, nil
 }
 
 /* ==========================
@@ -804,7 +800,7 @@ func setAuthCookies(c *fiber.Ctx, accessToken, refreshToken string, now time.Tim
 }
 
 /* ==========================
-   LOGIN GOOGLE
+   LOGIN GOOGLE (refactor: tx + upsert profile)
 ========================== */
 
 func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
@@ -817,8 +813,6 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 	if strings.TrimSpace(input.IDToken) == "" {
 		return helpers.JsonError(c, fiber.StatusBadRequest, "id_token is required")
 	}
-
-	
 
 	// Verifikasi token Google (audience = client_id aplikasi kita)
 	v := googleAuthIDTokenVerifier.Verifier{}
@@ -845,51 +839,93 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 		// 2) Tidak ada: coba cari by email
 		userByEmail, err2 := authRepo.FindUserByEmail(db, email)
 		if err2 == nil && userByEmail != nil {
-			// a) Sudah ada akun dengan email tsb → link google_id (kalau belum)
-			if userByEmail.GoogleID == nil || *userByEmail.GoogleID == "" {
+			// ============== LINK GOOGLE_ID KE AKUN EMAIL (TRANSAKSI) ==============
+			if err := db.Transaction(func(tx *gorm.DB) error {
 				now := time.Now().UTC()
-				userByEmail.GoogleID = &googleID
-				if userByEmail.EmailVerifiedAt == nil {
-					userByEmail.EmailVerifiedAt = &now
+
+				// Link google_id kalau belum terisi
+				if userByEmail.GoogleID == nil || *userByEmail.GoogleID == "" {
+					userByEmail.GoogleID = &googleID
+					if userByEmail.EmailVerifiedAt == nil {
+						userByEmail.EmailVerifiedAt = &now
+					}
+					if err := tx.Model(userByEmail).Select(
+						"google_id", "email_verified_at", "updated_at",
+					).Updates(map[string]any{
+						"google_id":         userByEmail.GoogleID,
+						"email_verified_at": userByEmail.EmailVerifiedAt,
+						"updated_at":        now,
+					}).Error; err != nil {
+						return err
+					}
 				}
-				if err := db.Model(userByEmail).Select(
-					"google_id", "email_verified_at", "updated_at",
-				).Updates(map[string]any{
-					"google_id":        userByEmail.GoogleID,
-					"email_verified_at": userByEmail.EmailVerifiedAt,
-					"updated_at":        now,
-				}).Error; err != nil {
+
+				// Pastikan users_profile ada (idempotent)
+				if err := userProfileService.EnsureProfileRow(c.Context(), tx, userByEmail.ID); err != nil {
+					return err
+				}
+
+				// (Opsional) grant default role "user" — best effort
+				if err := grantDefaultUserRole(c.Context(), tx, userByEmail.ID); err != nil {
+					log.Printf("[login-google] grant default role failed: %v", err)
+				}
+				return nil
+			}); err != nil {
+				low := strings.ToLower(err.Error())
+				switch {
+				case strings.Contains(low, "uq_users_google_id"):
+					return helpers.JsonError(c, fiber.StatusBadRequest, "Google account already linked to another user")
+				default:
 					return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to link Google account")
 				}
 			}
 			user = userByEmail
 		} else {
-			// b) Tidak ada email di DB → buat user baru (tanpa password)
-			now := time.Now().UTC()
-			fullName := ptrIfNotEmpty(name)
+			// ============== BUAT AKUN BARU DARI GOOGLE (TRANSAKSI) ==============
+			if err := db.Transaction(func(tx *gorm.DB) error {
+				now := time.Now().UTC()
+				fullName := ptrIfNotEmpty(name)
 
-			// Tentukan username yang aman & unik
-			baseUsername := suggestUsername(name, email)
-			username := baseUsername
-			for i := 0; i < 5; i++ { // sampai 5 kali coba unik
-				if exists, _ := authRepo.IsUsernameTaken(db, username); !exists {
-					break
+				// Tentukan username unik
+				baseUsername := suggestUsername(name, email)
+				username := baseUsername
+				for i := 0; i < 5; i++ {
+					exists, _ := authRepo.IsUsernameTaken(tx, username)
+					if !exists {
+						break
+					}
+					username = baseUsername + "-" + shortRand()
 				}
-				username = baseUsername + "-" + shortRand()
-			}
 
-			newUser := userModel.UserModel{
-				UserName:        username,
-				FullName:        fullName,
-				Email:           email,
-				Password:        nil,            // Google-only (no local password yet)
-				GoogleID:        &googleID,
-				IsActive:        true,
-				EmailVerifiedAt: &now,
-				CreatedAt:       now,
-				UpdatedAt:       now,
-			}
-			if err := authRepo.CreateUser(db, &newUser); err != nil {
+				newUser := userModel.UserModel{
+					UserName:        username,
+					FullName:        fullName,
+					Email:           email,
+					Password:        nil, // Google-only
+					GoogleID:        &googleID,
+					IsActive:        true,
+					EmailVerifiedAt: &now,
+					CreatedAt:       now,
+					UpdatedAt:       now,
+				}
+
+				if err := authRepo.CreateUser(tx, &newUser); err != nil {
+					return err
+				}
+
+				// Pastikan users_profile ada (idempotent)
+				if err := userProfileService.EnsureProfileRow(c.Context(), tx, newUser.ID); err != nil {
+					return err
+				}
+
+				// (Opsional) grant default role "user" — best effort
+				if err := grantDefaultUserRole(c.Context(), tx, newUser.ID); err != nil {
+					log.Printf("[login-google] grant default role failed: %v", err)
+				}
+
+				user = &newUser
+				return nil
+			}); err != nil {
 				low := strings.ToLower(err.Error())
 				switch {
 				case strings.Contains(low, "uq_users_email") || strings.Contains(low, "users_email_key"):
@@ -902,11 +938,6 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 					return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to create Google user")
 				}
 			}
-			if meta.Ready && quickHasTable(db, "users_profile") {
-				userProfileService.CreateInitialUserProfile(db, newUser.ID)
-			}
-
-			user = &newUser
 		}
 	}
 

@@ -21,9 +21,8 @@ func MasjidOwnerRoutes(admin fiber.Router, db *gorm.DB) {
 	// alias lama (opsional):
 	alias := admin.Group("/masjid-service-plans", guard)
 	alias.Get("/",             plan.List)
-	alias.Get("/:id",          plan.Detail)
 	alias.Post("/",            plan.Create)
-	alias.Patch("/:id",        plan.Update)
-	alias.Delete("/:id",       plan.Delete)
+	alias.Patch("/:id",        plan.Patch)
+	alias.Delete("/:id",       plan.SoftDelete)
 	alias.Post("/:id/restore", plan.Restore)
 }

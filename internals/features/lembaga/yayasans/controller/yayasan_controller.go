@@ -1,268 +1,286 @@
-// internals/features/lembaga/yayasans/controller/yayasan_controller.go
+// file: internals/features/lembaga/yayasans/controller/yayasan_files_controller.go
 package controller
 
 import (
 	"errors"
-	"net/http"
-	"strconv"
+	"fmt"
 	"strings"
 	"time"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	yDTO "masjidku_backend/internals/features/lembaga/yayasans/dto"
 	yModel "masjidku_backend/internals/features/lembaga/yayasans/model"
 	helper "masjidku_backend/internals/helpers"
+	helperOSS "masjidku_backend/internals/helpers/oss"
 )
 
+/*
+Endpoint ringkas (disamain spt Masjid):
+
+GET    /api/yayasans/:id/files
+POST   /api/yayasans/:id/files?slot=logo|misc     (form-data: file)   → upload
+PUT    /api/yayasans/:id/files
+PATCH  /api/yayasans/:id/files                    (JSON {slot,url})   → update metadata+object_key
+DELETE /api/yayasans/:id/files                    (JSON {url})        → move to spam & bersihkan metadata bila perlu
+*/
+
 type YayasanController struct {
-	DB *gorm.DB
+	DB       *gorm.DB
+	Validate *validator.Validate
+	OSS      *helperOSS.OSSService
 }
 
-func NewYayasanController(db *gorm.DB) *YayasanController {
-	return &YayasanController{DB: db}
+func NewYayasanController(db *gorm.DB, v *validator.Validate, oss *helperOSS.OSSService) *YayasanController {
+	return &YayasanController{DB: db, Validate: v, OSS: oss}
 }
 
-func isUniqueViolation(err error) bool {
-	// Postgres unique_violation code = 23505
-	return err != nil && strings.Contains(err.Error(), "duplicate key value violates unique constraint")
+const defaultRetention = 30 * 24 * time.Hour // 30 hari
+
+// ===== helpers lokal =====
+
+func parseYayasanID(c *fiber.Ctx) (uuid.UUID, error) {
+	s := strings.TrimSpace(c.Params("id"))
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+	}
+	return id, nil
 }
 
-
-/* ===================== HANDLERS ===================== */
-
-// POST /admin/yayasans
-func (h *YayasanController) Create(c *fiber.Ctx) error {
-	var req yDTO.CreateYayasanRequest
-	if err := c.BodyParser(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
+func safeStr(s *string) string {
+	if s == nil {
+		return ""
 	}
-	// validasi minimal
-	if strings.TrimSpace(req.YayasanName) == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Nama yayasan wajib diisi")
+	return *s
+}
+
+func ensureOSS(oss *helperOSS.OSSService) error {
+	if oss == nil {
+		return fiber.NewError(fiber.StatusFailedDependency, "OSS belum dikonfigurasi")
 	}
-	if strings.TrimSpace(req.YayasanSlug) == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Slug wajib diisi")
+	return nil
+}
+
+func withinYayasanScope(yayasanID uuid.UUID, publicURL string) bool {
+	// guard sederhana: wajib mengandung /yayasans/{id}/
+	want := "/yayasans/" + yayasanID.String() + "/"
+	return strings.Contains(publicURL, want)
+}
+
+// ===== LIST =====
+// GET /api/yayasans/:id/files
+func (yc *YayasanController) List(c *fiber.Ctx) error {
+	id, err := parseYayasanID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	m := req.ToModel()
-	if err := h.DB.Create(m).Error; err != nil {
-		// opsional: deteksi unique violation slug/domain
-		if isUniqueViolation(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Slug/domain sudah digunakan")
+	var m yModel.YayasanModel
+	if err := yc.DB.First(&m, "yayasan_id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "Yayasan tidak ditemukan")
 		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat yayasan")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil yayasan")
 	}
 
-	return helper.JsonCreated(c, "Yayasan berhasil dibuat", yDTO.NewYayasanResponse(m))
+	return helper.JsonOK(c, "OK", fiber.Map{
+		"logo_url":                        safeStr(m.YayasanLogoURL),
+		"logo_url_old":                    safeStr(m.YayasanLogoURLOld),
+		"logo_delete_pending_until":       m.YayasanLogoDeletePendingUntil,
+	})
 }
 
-// PATCH /admin/yayasans/:id
-// Mendukung tri-state PATCH via dto.UpdateYayasanRequest + ApplyToModel
-func (h *YayasanController) Update(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
+// ===== CREATE (UPLOAD) =====
+// POST /api/yayasans/:id/files?slot=logo|misc
+// form-data: file
+func (yc *YayasanController) Create(c *fiber.Ctx) error {
+	if err := ensureOSS(yc.OSS); err != nil {
+		return helper.JsonError(c, fiber.StatusFailedDependency, err.Error())
+	}
+	id, err := parseYayasanID(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-
-	var req yDTO.UpdateYayasanRequest
-	if err := c.BodyParser(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
+	slot := strings.ToLower(strings.TrimSpace(c.Query("slot")))
+	if slot == "" {
+		slot = "misc"
 	}
-
-	m, err := h.findByID(id, false)
+	fh, err := c.FormFile("file")
 	if err != nil {
-		return err
+		return helper.JsonError(c, fiber.StatusBadRequest, "file tidak ditemukan")
 	}
 
-	// apply tri-state patch ke model
-	req.ApplyToModel(m)
+	// pastikan yayasan ada
+	var m yModel.YayasanModel
+	if err := yc.DB.First(&m, "yayasan_id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "Yayasan tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil yayasan")
+	}
 
-	// set updated_at (jaga-jaga; GORM autoUpdateTime juga akan set)
+	// Upload:
+	// - jika slot == "logo" → selalu re-encode ke WebP dan taruh di "yayasans/{id}/images/logo/"
+	// - selain itu → upload mentah ke "yayasans/{id}/files/{slot}/"
+	var publicURL string
+	if slot == "logo" {
+		prefix := "yayasans/" + id.String() + "/images/logo"
+		url, upErr := yc.OSS.UploadAsWebP(c.Context(), fh, prefix)
+		if upErr != nil {
+			var fe *fiber.Error
+			if errors.As(upErr, &fe) {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusBadGateway, "Gagal upload ke OSS")
+		}
+		publicURL = url
+	} else {
+		// upload mentah ke subdir files/{slot}
+		prefix := "yayasans/" + id.String() + "/files/" + slot
+		// manfaatkan UploadFromFormFileToDir untuk bebas ekstensi
+		key, _, upErr := yc.OSS.UploadFromFormFileToDir(c.Context(), prefix, fh)
+		if upErr != nil {
+			return helper.JsonError(c, fiber.StatusBadGateway, "Gagal upload ke OSS")
+		}
+		publicURL = yc.OSS.PublicURL(key)
+	}
+
+	// update metadata untuk slot singleton (logo) + 2-slot retensi
 	now := time.Now()
+	retUntil := now.Add(defaultRetention)
+
+	if slot == "logo" {
+		// shift current → old (retensi)
+		if m.YayasanLogoURL != nil && strings.TrimSpace(*m.YayasanLogoURL) != "" {
+			m.YayasanLogoURLOld = m.YayasanLogoURL
+			m.YayasanLogoObjectKeyOld = m.YayasanLogoObjectKey
+			m.YayasanLogoDeletePendingUntil = &retUntil
+		}
+		m.YayasanLogoURL = &publicURL
+		if key, err := helperOSS.KeyFromPublicURL(publicURL); err == nil {
+			m.YayasanLogoObjectKey = &key
+		}
+		m.YayasanUpdatedAt = now
+
+		if err := yc.DB.Save(&m).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan metadata")
+		}
+	}
+
+	return helper.JsonCreated(c, "Upload sukses", fiber.Map{
+		"url":  publicURL,
+		"slot": slot,
+	})
+}
+
+// ===== UPDATE (metadata URL) =====
+// PUT/PATCH /api/yayasans/:id/files
+// Body: { "slot":"logo", "url":"https://..." }
+type updateYayasanFileReq struct {
+	Slot string `json:"slot"`
+	URL  string `json:"url"`
+}
+
+func (yc *YayasanController) Update(c *fiber.Ctx) error {
+	id, err := parseYayasanID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+	var body updateYayasanFileReq
+	if err := c.BodyParser(&body); err != nil || strings.TrimSpace(body.Slot) == "" || strings.TrimSpace(body.URL) == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid (slot & url wajib)")
+	}
+	slot := strings.ToLower(strings.TrimSpace(body.Slot))
+
+	var m yModel.YayasanModel
+	if err := yc.DB.First(&m, "yayasan_id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "Yayasan tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil yayasan")
+	}
+
+	key, kerr := helperOSS.KeyFromPublicURL(body.URL)
+	if kerr != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "URL tidak valid untuk OSS")
+	}
+
+	now := time.Now()
+	switch slot {
+	case "logo":
+		m.YayasanLogoURL = &body.URL
+		m.YayasanLogoObjectKey = &key
+	default:
+		return helper.JsonError(c, fiber.StatusBadRequest, "slot tidak dikenal (pakai: logo|misc)")
+	}
 	m.YayasanUpdatedAt = now
 
-	if err := h.DB.Save(m).Error; err != nil {
-		if isUniqueViolation(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Slug/domain sudah digunakan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui yayasan")
+	if err := yc.DB.Save(&m).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui metadata")
 	}
-
-	return helper.JsonUpdated(c, "Yayasan diperbarui", yDTO.NewYayasanResponse(m))
+	return helper.JsonOK(c, "Metadata diperbarui", fiber.Map{
+		"slot": slot,
+		"url":  body.URL,
+	})
 }
 
-// DELETE /admin/yayasans/:id (soft default, ?hard=true untuk hard delete)
-func (h *YayasanController) Delete(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-	hard := strings.EqualFold(c.Query("hard"), "true")
-
-	m, err := h.findByID(id, hard)
-	if err != nil {
-		return err
-	}
-
-	if hard {
-		if err := h.DB.Unscoped().Delete(&yModel.YayasanModel{}, "yayasan_id = ?", m.YayasanID).Error; err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus permanen")
-		}
-		return helper.JsonDeleted(c, "Yayasan dihapus permanen", fiber.Map{"id": m.YayasanID})
-	}
-
-	if err := h.DB.Delete(&yModel.YayasanModel{}, "yayasan_id = ?", m.YayasanID).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus yayasan")
-	}
-	return helper.JsonDeleted(c, "Yayasan dihapus", fiber.Map{"id": m.YayasanID})
+// ===== DELETE (move ke spam + cleanup metadata jika perlu) =====
+// DELETE /api/yayasans/:id/files
+// Body: { "url":"https://..." }
+type deleteYayasanFileReq struct {
+	URL string `json:"url"`
 }
 
-// POST /admin/yayasans/:id/restore
-func (h *YayasanController) Restore(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
+func (yc *YayasanController) Delete(c *fiber.Ctx) error {
+	id, err := parseYayasanID(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+	var body deleteYayasanFileReq
+	if err := c.BodyParser(&body); err != nil || strings.TrimSpace(body.URL) == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid (butuh url)")
 	}
 
-	m, err := h.findByID(id, true)
-	if err != nil {
-		return err
-	}
-	if !m.YayasanDeletedAt.Valid {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Yayasan tidak dalam status terhapus")
+	// keamanan: hanya izinkan URL dalam scope yayasan
+	if !withinYayasanScope(id, body.URL) {
+		return helper.JsonError(c, fiber.StatusForbidden, "URL di luar scope yayasan ini")
 	}
 
-	if err := h.DB.Unscoped().
-		Model(&yModel.YayasanModel{}).
-		Where("yayasan_id = ?", id).
-		Update("yayasan_deleted_at", nil).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memulihkan yayasan")
+	// pindah ke spam/.. (pakai helper yang sama dengan Masjid)
+	spamURL, mvErr := helperOSS.MoveToSpamByPublicURLENV(body.URL, 15*time.Second)
+	if mvErr != nil {
+		return helper.JsonError(c, fiber.StatusBadGateway, fmt.Sprintf("Gagal memindahkan ke spam: %v", mvErr))
 	}
 
-	// refresh
-	m, _ = h.findByID(id, false)
-	return helper.JsonOK(c, "Yayasan dipulihkan", yDTO.NewYayasanResponse(m))
-}
-
-// GET /admin/yayasans/:id
-func (h *YayasanController) Detail(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-	m, err := h.findByID(id, false)
-	if err != nil {
-		return err
-	}
-	return helper.JsonOK(c, "Detail yayasan", yDTO.NewYayasanResponse(m))
-}
-
-// GET /admin/yayasans dan /public/yayasans
-// Filter: slug, domain, city, province, active, verified, verification_status, q (FTS/ILIKE)
-func (h *YayasanController) List(c *fiber.Ctx) error {
-	// 1) Ambil params paginasi
-	req, _ := http.NewRequest("GET", "http://local"+c.OriginalURL(), nil)
-	p := helper.ParseWith(req, "created_at", "desc", helper.AdminOpts)
-
-	// 2) ORDER BY aman (whitelist)
-	orderClause, err := p.SafeOrderClause(map[string]string{
-		"created_at": "yayasan_created_at",
-		"updated_at": "yayasan_updated_at",
-		"name":       "lower(yayasan_name)",
-		"city":       "lower(yayasan_city)",
-		"province":   "lower(yayasan_province)",
-	}, "created_at")
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "sort_by tidak dikenal")
-	}
-
-	orderExpr := strings.TrimSpace(orderClause)
-	if strings.HasPrefix(strings.ToUpper(orderExpr), "ORDER BY ") {
-		orderExpr = strings.TrimSpace(orderExpr[len("ORDER BY "):])
-	}
-
-	dbq := h.DB.Model(&yModel.YayasanModel{})
-
-	// Filters
-	if v := strings.TrimSpace(c.Query("slug")); v != "" {
-		dbq = dbq.Where("yayasan_slug = ?", v)
-	}
-	if v := strings.TrimSpace(c.Query("domain")); v != "" {
-		dbq = dbq.Where("LOWER(yayasan_domain) = LOWER(?)", v)
-	}
-	if v := strings.TrimSpace(c.Query("city")); v != "" {
-		dbq = dbq.Where("yayasan_city ILIKE ?", "%"+v+"%")
-	}
-	if v := strings.TrimSpace(c.Query("province")); v != "" {
-		dbq = dbq.Where("yayasan_province ILIKE ?", "%"+v+"%")
-	}
-	if v := c.Query("active"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			dbq = dbq.Where("yayasan_is_active = ?", b)
-		}
-	}
-	if v := c.Query("verified"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			dbq = dbq.Where("yayasan_is_verified = ?", b)
-		}
-	}
-	if v := strings.TrimSpace(c.Query("verification_status")); v != "" {
-		// normalisasi input
-		v = strings.ToLower(v)
-		if v == "pending" || v == "approved" || v == "rejected" {
-			dbq = dbq.Where("yayasan_verification_status = ?", v)
-		}
-	}
-	// q: gunakan FTS pada yayasan_search; fallback ke ILIKE name
-	if q := strings.TrimSpace(c.Query("q")); q != "" {
-		// gunakan plainto_tsquery(simple)
-		dbq = dbq.Where(
-			"(yayasan_search @@ plainto_tsquery('simple', ?)) OR (yayasan_name ILIKE ?)",
-			q, "%"+q+"%",
-		)
-	}
-
-	// total
-	var total int64
-	if err := dbq.Count(&total).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
-	}
-
-	// data
-	var rows []yModel.YayasanModel
-	if err := dbq.
-		Order(orderExpr).
-		Limit(p.Limit()).
-		Offset(p.Offset()).
-		Find(&rows).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-
-	items := make([]*yDTO.YayasanResponse, 0, len(rows))
-	for i := range rows {
-		items = append(items, yDTO.NewYayasanResponse(&rows[i]))
-	}
-
-	meta := helper.BuildMeta(total, p)
-	return helper.JsonList(c, items, meta)
-}
-
-/* ===================== HELPERS ===================== */
-
-func (h *YayasanController) findByID(id uuid.UUID, includeDeleted bool) (*yModel.YayasanModel, error) {
+	// jika URL tsb sedang dipakai di metadata → kosongkan
 	var m yModel.YayasanModel
-	q := h.DB.Model(&yModel.YayasanModel{})
-	if includeDeleted {
-		q = q.Unscoped()
-	}
-	if err := q.Where("yayasan_id = ?", id).First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fiber.NewError(fiber.StatusNotFound, "Yayasan tidak ditemukan")
+	if err := yc.DB.First(&m, "yayasan_id = ?", id).Error; err == nil {
+		changed := false
+		now := time.Now()
+
+		if m.YayasanLogoURL != nil && *m.YayasanLogoURL == body.URL {
+			m.YayasanLogoURL = nil
+			m.YayasanLogoObjectKey = nil
+			changed = true
 		}
-		return nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+		if m.YayasanLogoURLOld != nil && *m.YayasanLogoURLOld == body.URL {
+			m.YayasanLogoURLOld = nil
+			m.YayasanLogoObjectKeyOld = nil
+			m.YayasanLogoDeletePendingUntil = nil
+			changed = true
+		}
+
+		if changed {
+			m.YayasanUpdatedAt = now
+			_ = yc.DB.Save(&m).Error
+		}
 	}
-	return &m, nil
+
+	return helper.JsonOK(c, "Dipindahkan ke spam", fiber.Map{
+		"from_url": body.URL,
+		"spam_url": spamURL,
+	})
 }

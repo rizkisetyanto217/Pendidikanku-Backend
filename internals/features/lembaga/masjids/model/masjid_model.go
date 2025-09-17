@@ -47,14 +47,14 @@ type MasjidModel struct {
 	MasjidCity     *string `gorm:"type:varchar(80);column:masjid_city" json:"masjid_city,omitempty"`
 
 	// Domain & Slug
-	// NOTE: Unik domain via index LOWER(domain) di DB → jangan pakai tag unique di sini.
+	// Catatan: Domain unik case-insensitive via UNIQUE INDEX LOWER(masjid_domain) di DB.
 	MasjidDomain *string `gorm:"type:varchar(50);column:masjid_domain" json:"masjid_domain,omitempty"`
 	MasjidSlug   string  `gorm:"type:varchar(100);uniqueIndex;not null;column:masjid_slug" json:"masjid_slug"`
 
 	// Status & Verifikasi
 	MasjidIsActive           bool               `gorm:"not null;default:true;column:masjid_is_active" json:"masjid_is_active"`
 	MasjidIsVerified         bool               `gorm:"not null;default:false;column:masjid_is_verified" json:"masjid_is_verified"`
-	MasjidVerificationStatus VerificationStatus `gorm:"type:verification_status_enum;default:'pending';column:masjid_verification_status" json:"masjid_verification_status"`
+	MasjidVerificationStatus VerificationStatus `gorm:"type:verification_status_enum;not null;default:'pending';column:masjid_verification_status" json:"masjid_verification_status"`
 	MasjidVerifiedAt         *time.Time         `gorm:"column:masjid_verified_at" json:"masjid_verified_at,omitempty"`
 	MasjidVerificationNotes  *string            `gorm:"type:text;column:masjid_verification_notes" json:"masjid_verification_notes,omitempty"`
 
@@ -69,14 +69,25 @@ type MasjidModel struct {
 	// Levels (JSONB tags) — pointer agar bisa NULL
 	MasjidLevels *datatypes.JSON `gorm:"type:jsonb;column:masjid_levels" json:"masjid_levels,omitempty"`
 
-	// Full-text search (generated; read-only)
-	MasjidSearch string `gorm:"type:tsvector;->;<-:false;column:masjid_search" json:"masjid_search,omitempty"`
+	// ===== Media: LOGO (2-slot + retensi hapus) =====
+	MasjidLogoURL                *string    `gorm:"type:text;column:masjid_logo_url" json:"masjid_logo_url,omitempty"`
+	MasjidLogoObjectKey          *string    `gorm:"type:text;column:masjid_logo_object_key" json:"masjid_logo_object_key,omitempty"`
+	MasjidLogoURLOld             *string    `gorm:"type:text;column:masjid_logo_url_old" json:"masjid_logo_url_old,omitempty"`
+	MasjidLogoObjectKeyOld       *string    `gorm:"type:text;column:masjid_logo_object_key_old" json:"masjid_logo_object_key_old,omitempty"`
+	MasjidLogoDeletePendingUntil *time.Time `gorm:"column:masjid_logo_delete_pending_until" json:"masjid_logo_delete_pending_until,omitempty"`
+
+	// ===== Media: BACKGROUND (2-slot + retensi hapus) =====
+	MasjidBackgroundURL                *string    `gorm:"type:text;column:masjid_background_url" json:"masjid_background_url,omitempty"`
+	MasjidBackgroundObjectKey          *string    `gorm:"type:text;column:masjid_background_object_key" json:"masjid_background_object_key,omitempty"`
+	MasjidBackgroundURLOld             *string    `gorm:"type:text;column:masjid_background_url_old" json:"masjid_background_url_old,omitempty"`
+	MasjidBackgroundObjectKeyOld       *string    `gorm:"type:text;column:masjid_background_object_key_old" json:"masjid_background_object_key_old,omitempty"`
+	MasjidBackgroundDeletePendingUntil *time.Time `gorm:"column:masjid_background_delete_pending_until" json:"masjid_background_delete_pending_until,omitempty"`
 
 	// Audit
-	MasjidCreatedAt     time.Time      `gorm:"column:masjid_created_at;autoCreateTime" json:"masjid_created_at"`
-	MasjidUpdatedAt     time.Time      `gorm:"column:masjid_updated_at;autoUpdateTime"  json:"masjid_updated_at"`
-	MasjidLastActivityAt *time.Time     `gorm:"column:masjid_last_activity_at"          json:"masjid_last_activity_at,omitempty"`
-	MasjidDeletedAt     gorm.DeletedAt `gorm:"column:masjid_deleted_at;index"           json:"masjid_deleted_at,omitempty"`
+	MasjidCreatedAt      time.Time      `gorm:"column:masjid_created_at;autoCreateTime" json:"masjid_created_at"`
+	MasjidUpdatedAt      time.Time      `gorm:"column:masjid_updated_at;autoUpdateTime"  json:"masjid_updated_at"`
+	MasjidLastActivityAt *time.Time     `gorm:"column:masjid_last_activity_at"           json:"masjid_last_activity_at,omitempty"`
+	MasjidDeletedAt      gorm.DeletedAt `gorm:"column:masjid_deleted_at;index"           json:"masjid_deleted_at,omitempty"`
 }
 
 func (MasjidModel) TableName() string { return "masjids" }

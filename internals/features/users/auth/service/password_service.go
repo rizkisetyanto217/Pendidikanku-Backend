@@ -99,4 +99,3 @@ func ChangePassword(db *gorm.DB, c *fiber.Ctx) error {
 
 	return helper.JsonUpdated(c, "Password changed successfully", nil)
 }
-

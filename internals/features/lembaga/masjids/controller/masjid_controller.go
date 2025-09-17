@@ -1,353 +1,209 @@
-// file: internals/features/masjids/masjids/controller/masjid_controller.go
 package controller
 
 import (
-	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	dto "masjidku_backend/internals/features/lembaga/masjids/dto"
-	model "masjidku_backend/internals/features/lembaga/masjids/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
-
+	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+
+	model "masjidku_backend/internals/features/lembaga/masjids/model"
+	helper "masjidku_backend/internals/helpers"
+	helperOSS "masjidku_backend/internals/helpers/oss"
 )
 
+/*
+Endpoint ringkas:
+
+GET    /api/masjids/:id/files                    → ListMasjidFiles (list primary URLs)
+POST   /api/masjids/:id/files?slot=logo|background|misc
+       form-data: file                            → CreateMasjidFile (upload create)
+PUT    /api/masjids/:id/files
+PATCH  /api/masjids/:id/files
+       JSON { "slot":"logo|background", "url":"https://..." }
+                                                → UpdateMasjidFile (update metadata + object_key)
+DELETE /api/masjids/:id/files
+       JSON { "url":"https://..." }             → DeleteMasjidFile (pindah ke spam/ + bersihkan metadata bila perlu)
+*/
+
 type MasjidController struct {
-	DB *gorm.DB
+	DB       *gorm.DB
+	Validate *validator.Validate
+	OSS      *helperOSS.OSSService
 }
 
-func NewMasjidController(db *gorm.DB) *MasjidController {
-	return &MasjidController{DB: db}
+func NewMasjidController(db *gorm.DB, v *validator.Validate, oss *helperOSS.OSSService) *MasjidController {
+	return &MasjidController{DB: db, Validate: v, OSS: oss}
 }
 
-/* =========================
-   Helpers
-   ========================= */
+const defaultRetention = 30 * 24 * time.Hour // 30 hari
 
-func normalizePtr(v string, toLower bool) *string {
-	trim := strings.TrimSpace(v)
-	if trim == "" {
-		return nil
-	}
-	if toLower {
-		l := strings.ToLower(trim)
-		return &l
-	}
-	return &trim
-}
+// ========== helpers lokal ==========
 
-func ensureSlugUpdate(db *gorm.DB, existingSlug, candidate string) (string, error) {
-	base := helper.GenerateSlug(candidate)
-	if base == "" {
-		return "", fmt.Errorf("slug kosong")
-	}
-	if base == existingSlug {
-		return existingSlug, nil
-	}
-	return helper.EnsureUniqueSlug(db, base, "masjids", "masjid_slug")
-}
-
-// sync verifikasi (tanpa trigger)
-func syncVerificationFlags(m *model.MasjidModel) {
-	if m.MasjidVerificationStatus == model.VerificationApproved {
-		m.MasjidIsVerified = true
-		if m.MasjidVerifiedAt == nil {
-			now := time.Now().UTC()
-			m.MasjidVerifiedAt = &now
-		}
-	} else {
-		m.MasjidIsVerified = false
-		m.MasjidVerifiedAt = nil
-	}
-}
-
-// set levels (tags) dari slice string ke model
-func setLevels(m *model.MasjidModel, levels []string) {
-	// bersihkan: trim, buang kosong, dedup
-	seen := map[string]struct{}{}
-	clean := make([]string, 0, len(levels))
-	for _, v := range levels {
-		t := strings.TrimSpace(v)
-		if t == "" {
-			continue
-		}
-		if _, ok := seen[t]; ok {
-			continue
-		}
-		seen[t] = struct{}{}
-		clean = append(clean, t)
-	}
-	_ = m.SetLevels(clean) // abaikan error marshal (input slice aman)
-}
-
-/* =========================
-   UPDATE MASJID (Partial)
-   PUT /api/a/masjids
-   ========================= */
-
-func (mc *MasjidController) UpdateMasjid(c *fiber.Ctx) error {
-	if !helperAuth.IsOwner(c) {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
-	}
-
-	masjidUUID, err := helperAuth.GetMasjidIDFromToken(c)
+func parseMasjidID(c *fiber.Ctx) (uuid.UUID, error) {
+	s := strings.TrimSpace(c.Params("id"))
+	id, err := uuid.Parse(s)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
-
-	var existing model.MasjidModel
-	if err := mc.DB.First(&existing, "masjid_id = ?", masjidUUID).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusNotFound, "Masjid tidak ditemukan")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	_ = ctx // reserved
-
-	// =========================
-	// MULTIPART
-	// =========================
-	if strings.Contains(c.Get("Content-Type"), "multipart/form-data") {
-		mf, _ := c.MultipartForm()
-		getField := func(key string) (string, bool) {
-			if mf == nil {
-				return "", false
-			}
-			vals, ok := mf.Value[key]
-			if !ok {
-				return "", false
-			}
-			if len(vals) == 0 {
-				return "", true
-			}
-			return vals[0], true
-		}
-		getMulti := func(key string) ([]string, bool) {
-			if mf == nil {
-				return nil, false
-			}
-			vals, ok := mf.Value[key]
-			return vals, ok
-		}
-
-		// strings
-		if v := strings.TrimSpace(c.FormValue("masjid_name")); v != "" {
-			existing.MasjidName = v
-			if newSlug, err := ensureSlugUpdate(mc.DB, existing.MasjidSlug, v); err == nil {
-				existing.MasjidSlug = newSlug
-			}
-		}
-		if raw, ok := getField("masjid_bio_short"); ok {
-			existing.MasjidBioShort = normalizePtr(raw, false)
-		}
-		if raw, ok := getField("masjid_location"); ok {
-			existing.MasjidLocation = normalizePtr(raw, false)
-		}
-		// domain: hanya update kalau key ada; "" -> NULL; else lower
-		if raw, ok := getField("masjid_domain"); ok {
-			existing.MasjidDomain = normalizePtr(raw, true)
-		}
-		if v := strings.TrimSpace(c.FormValue("masjid_slug")); v != "" {
-			if newSlug, err := ensureSlugUpdate(mc.DB, existing.MasjidSlug, v); err == nil {
-				existing.MasjidSlug = newSlug
-			}
-		}
-
-		// flags & plan
-		if v := c.FormValue("masjid_is_active"); v != "" {
-			existing.MasjidIsActive = v == "true" || v == "1"
-		}
-		if v := strings.TrimSpace(c.FormValue("masjid_verification_status")); v != "" {
-			switch v {
-			case "pending", "approved", "rejected":
-				existing.MasjidVerificationStatus = model.VerificationStatus(v)
-			}
-		}
-		if raw, ok := getField("masjid_verification_notes"); ok {
-			existing.MasjidVerificationNotes = normalizePtr(raw, false)
-		}
-		if v := c.FormValue("masjid_current_plan_id"); v != "" {
-			if planID, err := uuid.Parse(v); err == nil {
-				existing.MasjidCurrentPlanID = &planID
-			}
-		}
-		// flag sekolah
-		if v := c.FormValue("masjid_is_islamic_school"); v != "" {
-			existing.MasjidIsIslamicSchool = (v == "true" || v == "1")
-		}
-
-		// levels (tags): dukung 3 variasi
-		// 1) masjid_levels sebagai JSON string: '["kursus","ilmu_quran"]'
-		if raw, ok := getField("masjid_levels"); ok {
-			trim := strings.TrimSpace(raw)
-			if trim == "" {
-				setLevels(&existing, []string{}) // kosongkan
-			} else {
-				var arr []string
-				if err := json.Unmarshal([]byte(trim), &arr); err == nil {
-					setLevels(&existing, arr)
-				} else {
-					// fallback: comma-separated
-					parts := strings.Split(trim, ",")
-					setLevels(&existing, parts)
-				}
-			}
-		}
-		// 2) multiple: masjid_levels[]
-		if vals, ok := getMulti("masjid_levels[]"); ok {
-			setLevels(&existing, vals)
-		}
-		// 3) multiple: masjid_levels (repeated keys)
-		if vals, ok := getMulti("masjid_levels"); ok && len(vals) > 1 {
-			setLevels(&existing, vals)
-		}
-
-	// =========================
-	// JSON (partial)
-	// =========================
-	} else {
-		var input dto.MasjidUpdateRequest
-		if err := c.BodyParser(&input); err != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Format JSON tidak valid")
-		}
-
-		if input.MasjidName != nil {
-			existing.MasjidName = *input.MasjidName
-			if newSlug, err := ensureSlugUpdate(mc.DB, existing.MasjidSlug, *input.MasjidName); err == nil {
-				existing.MasjidSlug = newSlug
-			}
-		}
-		if input.MasjidSlug != nil {
-			if newSlug, err := ensureSlugUpdate(mc.DB, existing.MasjidSlug, *input.MasjidSlug); err == nil {
-				existing.MasjidSlug = newSlug
-			}
-		}
-		if input.MasjidBioShort != nil {
-			existing.MasjidBioShort = normalizePtr(*input.MasjidBioShort, false)
-		}
-		if input.MasjidLocation != nil {
-			existing.MasjidLocation = normalizePtr(*input.MasjidLocation, false)
-		}
-
-		// domain: "" → NULL; else lower
-		if input.MasjidDomain != nil {
-			existing.MasjidDomain = normalizePtr(*input.MasjidDomain, true)
-		}
-
-		// Flags & verif
-		if input.MasjidIsActive != nil {
-			existing.MasjidIsActive = *input.MasjidIsActive
-		}
-		if input.MasjidVerificationStatus != nil {
-			v := strings.TrimSpace(*input.MasjidVerificationStatus)
-			switch v {
-			case "pending", "approved", "rejected":
-				existing.MasjidVerificationStatus = model.VerificationStatus(v)
-			}
-		}
-		if input.MasjidVerificationNotes != nil {
-			existing.MasjidVerificationNotes = normalizePtr(*input.MasjidVerificationNotes, false)
-		}
-		if input.MasjidCurrentPlanID != nil {
-			existing.MasjidCurrentPlanID = input.MasjidCurrentPlanID
-		}
-		if input.MasjidIsIslamicSchool != nil {
-			existing.MasjidIsIslamicSchool = *input.MasjidIsIslamicSchool
-		}
-
-		// Levels (tags)
-		if input.MasjidLevels != nil {
-			setLevels(&existing, *input.MasjidLevels)
-		}
-	}
-
-	// sinkronisasi flag verifikasi (tanpa trigger)
-	syncVerificationFlags(&existing)
-
-	if err := mc.DB.Save(&existing).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui masjid")
-	}
-	return helper.JsonOK(c, "Masjid berhasil diperbarui", dto.FromModelMasjid(&existing))
+	return id, nil
 }
 
-/* =========================
-   DELETE
-   ========================= */
+func safeStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
 
-// 🗑️ DELETE /api/a/masjids           -> admin: pakai ID token; owner: 400 (perlu :id)
-// 🗑️ DELETE /api/a/masjids/:id       -> owner: boleh; admin: hanya jika :id sama dgn ID token
-func (mc *MasjidController) DeleteMasjid(c *fiber.Ctx) error {
-	isAdmin := helperAuth.IsOwner(c)
-	isOwner := helperAuth.IsOwner(c)
+func ensureOSS(oss *helperOSS.OSSService) error {
+	if oss == nil {
+		return fiber.NewError(fiber.StatusFailedDependency, "OSS belum dikonfigurasi")
+	}
+	return nil
+}
 
-	if !isAdmin && !isOwner {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
+func withinMasjidScope(masjidID uuid.UUID, publicURL string) bool {
+	// guard sederhana: pastikan path mengandung /masjids/{id}/
+	want := "/masjids/" + masjidID.String() + "/"
+	return strings.Contains(publicURL, want)
+}
+
+// ========== UPDATE (metadata URL) ==========
+// PUT/PATCH /api/masjids/:id/files
+// Body: { "slot":"logo|background", "url":"https://..." }
+type updateFileReq struct {
+	Slot string `json:"slot"`
+	URL  string `json:"url"`
+}
+
+func (mc *MasjidController) UpdateMasjidFile(c *fiber.Ctx) error {
+	id, err := parseMasjidID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+	var body updateFileReq
+	if err := c.BodyParser(&body); err != nil || strings.TrimSpace(body.Slot) == "" || strings.TrimSpace(body.URL) == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid (slot & url wajib)")
+	}
+	slot := strings.ToLower(strings.TrimSpace(body.Slot))
+
+	var m model.MasjidModel
+	if err := mc.DB.First(&m, "masjid_id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "Masjid tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil masjid")
 	}
 
-	pathID := strings.TrimSpace(c.Params("id"))
-	var targetID uuid.UUID
-
-	// Masjid ID dari token untuk admin
-	var tokenMasjidID uuid.UUID
-	var tokenErr error
-	if isAdmin {
-		tokenMasjidID, tokenErr = helperAuth.GetMasjidIDFromToken(c)
-		if tokenErr != nil {
-			return helper.JsonError(c, fiber.StatusUnauthorized, tokenErr.Error())
-		}
+	key, kerr := helperOSS.KeyFromPublicURL(body.URL)
+	if kerr != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "URL tidak valid untuk OSS")
 	}
 
-	// Aturan path
-	if pathID == "" {
-		if isOwner {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Owner harus menyertakan ID masjid di path")
-		}
-		targetID = tokenMasjidID
-	} else {
-		pathUUID, err := uuid.Parse(pathID)
-		if err != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Format ID masjid tidak valid")
-		}
-		if isAdmin && pathUUID != tokenMasjidID {
-			return helper.JsonError(c, fiber.StatusForbidden, "Tidak boleh menghapus masjid di luar scope Anda")
-		}
-		if isOwner {
-			userID, err := helperAuth.GetUserIDFromToken(c)
-			if err != nil {
-				return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-			}
-			var count int64
-			if err := mc.DB.
-				Table("masjid_admins_teachers").
-				Where("masjid_admins_user_id = ? AND masjid_admins_masjid_id = ? AND masjid_admins_is_active = TRUE", userID, pathUUID).
-				Count(&count).Error; err != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memverifikasi kepemilikan")
-			}
-			if count == 0 {
-				return helper.JsonError(c, fiber.StatusForbidden, "Anda bukan owner/admin masjid ini")
-			}
-		}
-		targetID = pathUUID
+	now := time.Now()
+	switch slot {
+	case "logo":
+		m.MasjidLogoURL = &body.URL
+		m.MasjidLogoObjectKey = &key
+	case "background":
+		m.MasjidBackgroundURL = &body.URL
+		m.MasjidBackgroundObjectKey = &key
+	default:
+		return helper.JsonError(c, fiber.StatusBadRequest, "slot tidak dikenal (pakai: logo|background)")
 	}
+	m.MasjidUpdatedAt = now
 
-	// Ambil data existing
-	var existing model.MasjidModel
-	if err := mc.DB.First(&existing, "masjid_id = ?", targetID).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusNotFound, "Masjid tidak ditemukan")
+	if err := mc.DB.Save(&m).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui metadata")
 	}
-
-	// Soft delete record (kolom masjid_deleted_at)
-	if err := mc.DB.Delete(&existing).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus masjid")
-	}
-
-	return helper.JsonDeleted(c, "Masjid berhasil dihapus", fiber.Map{
-		"masjid_id": targetID.String(),
+	return helper.JsonOK(c, "Metadata diperbarui", fiber.Map{
+		"slot": slot,
+		"url":  body.URL,
 	})
 }
+
+// ========== DELETE (pindah ke spam/) ==========
+// DELETE /api/masjids/:id/files
+// Body: { "url":"https://..." }
+type deleteReq struct {
+	URL string `json:"url"`
+}
+
+func (mc *MasjidController) DeleteMasjidFile(c *fiber.Ctx) error {
+	id, err := parseMasjidID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+	var body deleteReq
+	if err := c.BodyParser(&body); err != nil || strings.TrimSpace(body.URL) == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid (butuh url)")
+	}
+
+	// keamanan: batasi hanya URL di scope masjid ini
+	if !withinMasjidScope(id, body.URL) {
+		return helper.JsonError(c, fiber.StatusForbidden, "URL di luar scope masjid ini")
+	}
+
+	// pindahkan ke spam/<YYYY/MM/DD/HHMMSS__basename> (pakai helper baru)
+	spamURL, mvErr := helperOSS.MoveToSpamByPublicURLENV(body.URL, 15*time.Second)
+	if mvErr != nil {
+		return helper.JsonError(c, fiber.StatusBadGateway, fmt.Sprintf("Gagal memindahkan ke spam: %v", mvErr))
+	}
+
+	// jika URL yang dihapus kebetulan adalah current/old di metadata → kosongkan
+	var m model.MasjidModel
+	if err := mc.DB.First(&m, "masjid_id = ?", id).Error; err == nil {
+		changed := false
+		now := time.Now()
+
+		if m.MasjidLogoURL != nil && *m.MasjidLogoURL == body.URL {
+			m.MasjidLogoURL = nil
+			m.MasjidLogoObjectKey = nil
+			changed = true
+		}
+		if m.MasjidLogoURLOld != nil && *m.MasjidLogoURLOld == body.URL {
+			m.MasjidLogoURLOld = nil
+			m.MasjidLogoObjectKeyOld = nil
+			m.MasjidLogoDeletePendingUntil = nil
+			changed = true
+		}
+		if m.MasjidBackgroundURL != nil && *m.MasjidBackgroundURL == body.URL {
+			m.MasjidBackgroundURL = nil
+			m.MasjidBackgroundObjectKey = nil
+			changed = true
+		}
+		if m.MasjidBackgroundURLOld != nil && *m.MasjidBackgroundURLOld == body.URL {
+			m.MasjidBackgroundURLOld = nil
+			m.MasjidBackgroundObjectKeyOld = nil
+			m.MasjidBackgroundDeletePendingUntil = nil
+			changed = true
+		}
+		if changed {
+			m.MasjidUpdatedAt = now
+			_ = mc.DB.Save(&m).Error
+		}
+	}
+
+	return helper.JsonOK(c, "Dipindahkan ke spam", fiber.Map{
+		"from_url": body.URL,
+		"spam_url": spamURL,
+	})
+}
+
+/*
+(opsional) Router wiring:
+
+func RegisterMasjidMediaRoutes(app *fiber.App, ctl *MasjidController) {
+	g := app.Group("/api/masjids")
+	g.Get("/:id/files", ctl.ListMasjidFiles)
+	g.Post("/:id/files", ctl.CreateMasjidFile)
+	g.Put("/:id/files", ctl.UpdateMasjidFile)
+	g.Patch("/:id/files", ctl.UpdateMasjidFile)
+	g.Delete("/:id/files", ctl.DeleteMasjidFile)
+}
+*/

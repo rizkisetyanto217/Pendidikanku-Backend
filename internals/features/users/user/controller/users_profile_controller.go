@@ -1,9 +1,11 @@
+// internals/features/users/user/controller/users_profile_controller.go
 package controller
 
 import (
 	"context"
 	"errors"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"strings"
 	"time"
@@ -20,22 +22,34 @@ import (
 )
 
 // =============================================================
-// UsersProfileController (versi pakai BlobService)
+// UsersProfileController (versi pakai OSSService helper terbaru)
 // =============================================================
 
 type UsersProfileController struct {
-	DB   *gorm.DB
-	Blob helperOSS.BlobService
+	DB  *gorm.DB
+	OSS *helperOSS.OSSService
 }
 
-func NewUsersProfileController(db *gorm.DB, blob helperOSS.BlobService) *UsersProfileController {
-	return &UsersProfileController{DB: db, Blob: blob}
+// Sediakan dua cara inisialisasi:
+// 1) inject OSS yg sudah dibuat di main
+func NewUsersProfileController(db *gorm.DB, oss *helperOSS.OSSService) *UsersProfileController {
+	return &UsersProfileController{DB: db, OSS: oss}
+}
+
+// 2) atau build dari ENV langsung (opsional)
+func NewUsersProfileControllerFromEnv(db *gorm.DB) *UsersProfileController {
+	oss, err := helperOSS.NewOSSServiceFromEnv("")
+	if err != nil {
+		log.Printf("[WARN] OSS init gagal: %v", err)
+	}
+	return &UsersProfileController{DB: db, OSS: oss}
 }
 
 func httpErr(c *fiber.Ctx, err error) error {
 	if fe, ok := err.(*fiber.Error); ok {
 		return helper.JsonError(c, fe.Code, fe.Message)
 	}
+	// default: unauthorized agar tetap backward-compatible dgn versi lama
 	return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 }
 
@@ -106,9 +120,7 @@ func (upc *UsersProfileController) CreateProfile(c *fiber.Ctx) error {
 }
 
 /* =========================
-   PATCH /profiles (partial update)
-   - Mendukung JSON dan form-urlencoded/multipart TANPA file
-   - Upload avatar/cover gunakan endpoint terpisah (lihat bawah)
+   PATCH /profiles (partial update, no file)
    ========================= */
 func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 	userID, err := helperAuth.GetUserIDFromToken(c)
@@ -232,29 +244,31 @@ func (upc *UsersProfileController) DeleteProfile(c *fiber.Ctx) error {
 }
 
 // =============================================================
-//  Upload avatar/cover memakai BlobService
-//  (endpoint terpisah agar concern update teks vs file jelas)
+//  Upload avatar/cover memakai OSSService helper terbaru
 // =============================================================
 
 // POST /api/a/users/profile/avatar  (multipart: image)
-// Header/Retrieval masjid_id: ambil dari header X-Masjid-Id atau form masjid_id (fallback)
 func (upc *UsersProfileController) UploadAvatar(c *fiber.Ctx) error {
+	if upc.OSS == nil {
+		return helper.JsonError(c, fiber.StatusServiceUnavailable, "OSS belum dikonfigurasi")
+	}
+
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil { return httpErr(c, err) }
 
 	masjidID, err := getMasjidIDFromCtx(c)
 	if err != nil { return helper.JsonError(c, fiber.StatusBadRequest, err.Error()) }
 
-	fh, err := helperOSS.TryGetImageFile(c)
-	if err != nil || fh == nil { return helper.JsonError(c, fiber.StatusBadRequest, "Gambar tidak ditemukan (field: image/file/photo/picture)") }
+	fh, err := getImageFormFile(c)
+	if err != nil { return helper.JsonError(c, fiber.StatusBadRequest, err.Error()) }
 
 	ctx, cancel := context.WithTimeout(c.Context(), 30*time.Second)
 	defer cancel()
 
-	url, err := upc.Blob.UploadImage(ctx, masjidID, "user-avatar", fh)
+	url, err := helperOSS.UploadImageToOSS(ctx, upc.OSS, masjidID, "user-avatar", fh)
 	if err != nil { return httpErr(c, err) }
 
-	// Optional: simpan ke kolom avatar_url kalau ada (tanpa hard dependency)
+	// Optional: simpan ke kolom avatar_url kalau ada
 	if err := upc.DB.WithContext(c.Context()).
 		Model(&profileModel.UserProfileModel{}).
 		Where("user_profile_user_id = ?", userID).
@@ -266,19 +280,23 @@ func (upc *UsersProfileController) UploadAvatar(c *fiber.Ctx) error {
 
 // POST /api/a/users/profile/cover  (multipart: image)
 func (upc *UsersProfileController) UploadCover(c *fiber.Ctx) error {
+	if upc.OSS == nil {
+		return helper.JsonError(c, fiber.StatusServiceUnavailable, "OSS belum dikonfigurasi")
+	}
+
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil { return httpErr(c, err) }
 
 	masjidID, err := getMasjidIDFromCtx(c)
 	if err != nil { return helper.JsonError(c, fiber.StatusBadRequest, err.Error()) }
 
-	fh, err := helperOSS.TryGetImageFile(c)
-	if err != nil || fh == nil { return helper.JsonError(c, fiber.StatusBadRequest, "Gambar tidak ditemukan (field: image/file/photo/picture)") }
+	fh, err := getImageFormFile(c)
+	if err != nil { return helper.JsonError(c, fiber.StatusBadRequest, err.Error()) }
 
 	ctx, cancel := context.WithTimeout(c.Context(), 30*time.Second)
 	defer cancel()
 
-	url, err := upc.Blob.UploadImage(ctx, masjidID, "user-cover", fh)
+	url, err := helperOSS.UploadImageToOSS(ctx, upc.OSS, masjidID, "user-cover", fh)
 	if err != nil { return httpErr(c, err) }
 
 	if err := upc.DB.WithContext(c.Context()).
@@ -290,9 +308,9 @@ func (upc *UsersProfileController) UploadCover(c *fiber.Ctx) error {
 	return c.Status(http.StatusCreated).JSON(fiber.Map{"url": url})
 }
 
-// Helper: cari masjid_id dari header atau form
+// Helper: ambil masjid_id dari header/form/token
 func getMasjidIDFromCtx(c *fiber.Ctx) (uuid.UUID, error) {
-	// 1) Header umum yang sering kamu pakai
+	// 1) Header umum
 	if v := strings.TrimSpace(c.Get("X-Masjid-Id")); v != "" {
 		if id, err := uuid.Parse(v); err == nil { return id, nil }
 	}
@@ -300,31 +318,41 @@ func getMasjidIDFromCtx(c *fiber.Ctx) (uuid.UUID, error) {
 	if v := strings.TrimSpace(c.FormValue("masjid_id")); v != "" {
 		if id, err := uuid.Parse(v); err == nil { return id, nil }
 	}
-	// 3) (Opsional) dari token jika ada helper-nya
+	// 3) Dari token
 	if id, err := helperAuth.GetMasjidIDFromToken(c); err == nil && id != uuid.Nil {
 		return id, nil
 	}
 	return uuid.Nil, errors.New("masjid_id tidak ditemukan pada header/form/token")
 }
 
+// Helper: cari file dari beberapa nama field umum
+func getImageFormFile(c *fiber.Ctx) (*multipart.FileHeader, error) {
+	names := []string{"image", "file", "photo", "picture", "avatar", "cover"}
+	for _, n := range names {
+		if fh, err := c.FormFile(n); err == nil && fh != nil {
+			return fh, nil
+		}
+	}
+	return nil, errors.New("Gambar tidak ditemukan (field: image/file/photo/picture/avatar/cover)")
+}
 
 func parseBoolPtr(s string) *bool {
-    switch strings.ToLower(s) {
-    case "true", "1", "yes", "y", "on":
-        b := true
-        return &b
-    case "false", "0", "no", "n", "off":
-        b := false
-        return &b
-    default:
-        return nil
-    }
+	switch strings.ToLower(s) {
+	case "true", "1", "yes", "y", "on":
+		b := true
+		return &b
+	case "false", "0", "no", "n", "off":
+		b := false
+		return &b
+	default:
+		return nil
+	}
 }
 
 func parseUUIDPtr(s string) *uuid.UUID {
-    id, err := uuid.Parse(s)
-    if err != nil {
-        return nil
-    }
-    return &id
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return nil
+	}
+	return &id
 }
