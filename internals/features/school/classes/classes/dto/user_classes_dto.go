@@ -1,209 +1,310 @@
-// file: internals/features/lembaga/classes/user_classes/main/dto/user_class_dto.go
+// file: internals/features/school/enrolments/user_classes/dto/user_class_dto.go
 package dto
 
 import (
+	"encoding/json"
+	"strings"
 	"time"
 
-	ucmodel "masjidku_backend/internals/features/school/classes/classes/model"
-
 	"github.com/google/uuid"
+
+	m "masjidku_backend/internals/features/school/classes/classes/model"
 )
 
-/* ===================== REQUESTS ===================== */
+/* =========================================================
+   PATCH FIELD — tri-state (absent | null | value)
+   ========================================================= */
 
-type CreateUserClassRequest struct {
-	// FK -> classes(class_id)
-	UserClassesClassID uuid.UUID `json:"user_classes_class_id" validate:"required"`
-
-	// Tenant. Di handler bisa diisi dari token; tetap optional di payload.
-	UserClassesMasjidID *uuid.UUID `json:"user_classes_masjid_id" validate:"omitempty"`
-
-	// Wajib: relasi ke masjid_students (DDL: NOT NULL)
-	UserClassesMasjidStudentID uuid.UUID `json:"user_classes_masjid_student_id" validate:"required"`
-
-	// Status dibatasi CHECK ('active','inactive','completed'); default 'active'
-	UserClassesStatus *string `json:"user_classes_status" validate:"omitempty,oneof=active inactive completed"`
-
-	// Outcome (hasil akhir) — hanya valid saat status=completed
-	UserClassesResult *string `json:"user_classes_result" validate:"omitempty,oneof=passed failed"`
-
-	// Jejak waktu enrolment
-	UserClassesJoinedAt    *time.Time `json:"user_classes_joined_at" validate:"omitempty"`
-	UserClassesLeftAt      *time.Time `json:"user_classes_left_at" validate:"omitempty"`
-	UserClassesCompletedAt *time.Time `json:"user_classes_completed_at" validate:"omitempty"`
+type PatchFieldUC[T any] struct {
+	Present bool
+	Value   *T
 }
 
-func (r *CreateUserClassRequest) ToModel(masjidIDFromCtx *uuid.UUID) *ucmodel.UserClassesModel {
-	// Tentukan masjid_id final (payload > context)
-	var masjidID uuid.UUID
-	if r.UserClassesMasjidID != nil {
-		masjidID = *r.UserClassesMasjidID
-	} else if masjidIDFromCtx != nil {
-		masjidID = *masjidIDFromCtx
-	}
-
-	status := ucmodel.UserClassStatusActive
-	if r.UserClassesStatus != nil && *r.UserClassesStatus != "" {
-		status = *r.UserClassesStatus
-	}
-
-	m := &ucmodel.UserClassesModel{
-		UserClassesMasjidStudentID: r.UserClassesMasjidStudentID,
-		UserClassesClassID:         r.UserClassesClassID,
-		UserClassesMasjidID:        masjidID,
-		UserClassesStatus:          status,
-		UserClassesResult:          r.UserClassesResult,     // boleh nil
-		UserClassesJoinedAt:        r.UserClassesJoinedAt,   // boleh nil
-		UserClassesLeftAt:          r.UserClassesLeftAt,     // boleh nil
-		UserClassesCompletedAt:     r.UserClassesCompletedAt, // boleh nil
-	}
-
-	// Guard ringan: jika status=completed tapi completed_at kosong → isi now
-	if m.UserClassesStatus == ucmodel.UserClassStatusCompleted && m.UserClassesCompletedAt == nil {
-		now := time.Now()
-		m.UserClassesCompletedAt = &now
-	}
-
-	// Guard ringan: jika status!=completed → kosongkan result & completed_at (biarkan layer controller/DB enforce)
-	if m.UserClassesStatus != ucmodel.UserClassStatusCompleted {
-		m.UserClassesResult = nil
-		m.UserClassesCompletedAt = nil
-	}
-
-	return m
-}
-
-type UpdateUserClassRequest struct {
-	UserClassesClassID         *uuid.UUID `json:"user_classes_class_id" validate:"omitempty"`
-	// Boleh diubah jika skenario pindah tenant dibuka (hati-hati FK komposit)
-	UserClassesMasjidID        *uuid.UUID `json:"user_classes_masjid_id" validate:"omitempty"`
-	// Boleh update relasi masjid_students (DDL: NOT NULL di model, jadi pointer hanya untuk signal update)
-	UserClassesMasjidStudentID *uuid.UUID `json:"user_classes_masjid_student_id" validate:"omitempty"`
-
-	// Status: active|inactive|completed
-	UserClassesStatus *string `json:"user_classes_status" validate:"omitempty,oneof=active inactive completed"`
-
-	// Outcome: passed|failed (hanya berlaku saat completed)
-	UserClassesResult *string `json:"user_classes_result" validate:"omitempty,oneof=passed failed"`
-
-	// Jejak waktu
-	UserClassesJoinedAt    *time.Time `json:"user_classes_joined_at" validate:"omitempty"`
-	UserClassesLeftAt      *time.Time `json:"user_classes_left_at" validate:"omitempty"`
-	UserClassesCompletedAt *time.Time `json:"user_classes_completed_at" validate:"omitempty"`
-}
-
-func (r *UpdateUserClassRequest) ApplyToModel(m *ucmodel.UserClassesModel) {
-	if r.UserClassesClassID != nil {
-		m.UserClassesClassID = *r.UserClassesClassID
-	}
-	if r.UserClassesMasjidID != nil {
-		m.UserClassesMasjidID = *r.UserClassesMasjidID
-	}
-	if r.UserClassesMasjidStudentID != nil {
-		m.UserClassesMasjidStudentID = *r.UserClassesMasjidStudentID
-	}
-
-	if r.UserClassesJoinedAt != nil {
-		m.UserClassesJoinedAt = r.UserClassesJoinedAt
-	}
-	if r.UserClassesLeftAt != nil {
-		m.UserClassesLeftAt = r.UserClassesLeftAt
-	}
-
-	// Update status lebih dulu
-	if r.UserClassesStatus != nil {
-		m.UserClassesStatus = *r.UserClassesStatus
-	}
-
-	// Update result/completed_at
-	if r.UserClassesResult != nil {
-		m.UserClassesResult = r.UserClassesResult
-	}
-	if r.UserClassesCompletedAt != nil {
-		m.UserClassesCompletedAt = r.UserClassesCompletedAt
-	}
-
-	// Konsistensi ringan:
-	// - Jika status=completed & completed_at kosong → isi now
-	// - Jika status!=completed → kosongkan result & completed_at
-	if m.UserClassesStatus == ucmodel.UserClassStatusCompleted {
-		if m.UserClassesCompletedAt == nil {
-			now := time.Now()
-			m.UserClassesCompletedAt = &now
-		}
-		// result boleh nil (belum diputuskan lulus/gagal) — biarkan
-	} else {
-		m.UserClassesResult = nil
-		m.UserClassesCompletedAt = nil
-	}
-
-	// Model pakai non-pointer UpdatedAt; isi manual agar segera berubah.
-	m.UserClassesUpdatedAt = time.Now()
-}
-
-/* ===================== QUERIES ===================== */
-
-type ListUserClassQuery struct {
-	ClassID         *uuid.UUID `query:"class_id"`          // filter by class
-	MasjidID        *uuid.UUID `query:"masjid_id"`         // tenant
-	MasjidStudentID *uuid.UUID `query:"masjid_student_id"` // filter by masjid_students
-
-	// status: active|inactive|completed
-	Status *string `query:"status"`
-
-	// result: passed|failed (hanya relevan bila status=completed)
-	Result *string `query:"result"`
-
-	// ActiveNow: status='active' && left_at IS NULL
-	ActiveNow *bool `query:"active_now"`
-
-	// Filter rentang joined
-	JoinedFrom *time.Time `query:"joined_from"`
-	JoinedTo   *time.Time `query:"joined_to"`
-
-	Limit  int `query:"limit" validate:"omitempty,min=1,max=200"`
-	Offset int `query:"offset" validate:"omitempty,min=0"`
-
-	// created_at_desc|created_at_asc|joined_at_desc|joined_at_asc|completed_at_desc|completed_at_asc
-	Sort *string `query:"sort"`
-}
-
-/* ===================== RESPONSES ===================== */
-
-type UserClassResponse struct {
-	UserClassesID              uuid.UUID  `json:"user_classes_id"`
-	UserClassesClassID         uuid.UUID  `json:"user_classes_class_id"`
-	UserClassesMasjidID        uuid.UUID  `json:"user_classes_masjid_id"`
-	UserClassesMasjidStudentID uuid.UUID  `json:"user_classes_masjid_student_id"`
-
-	UserClassesStatus          string     `json:"user_classes_status"`
-	UserClassesResult          *string    `json:"user_classes_result,omitempty"`
-
-	UserClassesJoinedAt        *time.Time `json:"user_classes_joined_at,omitempty"`
-	UserClassesLeftAt          *time.Time `json:"user_classes_left_at,omitempty"`
-	UserClassesCompletedAt     *time.Time `json:"user_classes_completed_at,omitempty"`
-
-	UserClassesCreatedAt       time.Time  `json:"user_classes_created_at"`
-	UserClassesUpdatedAt       time.Time  `json:"user_classes_updated_at"`
-}
-
-func NewUserClassResponse(m *ucmodel.UserClassesModel) *UserClassResponse {
-	if m == nil {
+func (p *PatchFieldUC[T]) UnmarshalJSON(b []byte) error {
+	p.Present = true
+	if string(b) == "null" {
+		p.Value = nil
 		return nil
 	}
-	return &UserClassResponse{
-		UserClassesID:              m.UserClassesID,
-		UserClassesClassID:         m.UserClassesClassID,
-		UserClassesMasjidID:        m.UserClassesMasjidID,
-		UserClassesMasjidStudentID: m.UserClassesMasjidStudentID,
-
-		UserClassesStatus:      m.UserClassesStatus,
-		UserClassesResult:      m.UserClassesResult,
-		UserClassesJoinedAt:    m.UserClassesJoinedAt,
-		UserClassesLeftAt:      m.UserClassesLeftAt,
-		UserClassesCompletedAt: m.UserClassesCompletedAt,
-
-		UserClassesCreatedAt: m.UserClassesCreatedAt,
-		UserClassesUpdatedAt: m.UserClassesUpdatedAt,
+	var v T
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
 	}
+	p.Value = &v
+	return nil
+}
+
+func (p PatchFieldUC[T]) Get() (*T, bool) { return p.Value, p.Present }
+
+/* =========================================================
+   CREATE REQUEST / RESPONSE
+   ========================================================= */
+
+type UserClassesCreateRequest struct {
+	// Wajib
+	UserClassesMasjidStudentID uuid.UUID `json:"user_classes_masjid_student_id" validate:"required"`
+	UserClassesClassID         uuid.UUID `json:"user_classes_class_id" validate:"required"`
+	UserClassesMasjidID        uuid.UUID `json:"user_classes_masjid_id" validate:"required"`
+
+	// Opsional
+	UserClassesStatus string  `json:"user_classes_status" validate:"omitempty,oneof=active inactive completed"`
+	UserClassesResult *string `json:"user_classes_result" validate:"omitempty,oneof=passed failed"`
+
+	// Billing ringan
+	UserClassesRegisterPaidAt *time.Time `json:"user_classes_register_paid_at"`
+	UserClassesPaidUntil      *time.Time `json:"user_classes_paid_until"`
+	UserClassesPaidGraceDays  *int16     `json:"user_classes_paid_grace_days" validate:"omitempty,min=0"`
+
+	// Lifecycle enrolment
+	UserClassesJoinedAt    *time.Time `json:"user_classes_joined_at"`
+	UserClassesLeftAt      *time.Time `json:"user_classes_left_at"`
+	UserClassesCompletedAt *time.Time `json:"user_classes_completed_at"`
+}
+
+func (r *UserClassesCreateRequest) Normalize() {
+	r.UserClassesStatus = strings.ToLower(strings.TrimSpace(r.UserClassesStatus))
+	trimPtr := func(pp **string) {
+		if pp == nil || *pp == nil {
+			return
+		}
+		v := strings.TrimSpace(**pp)
+		if v == "" {
+			*pp = nil
+		} else {
+			v = strings.ToLower(v)
+			*pp = &v
+		}
+	}
+	trimPtr(&r.UserClassesResult)
+}
+
+func (r UserClassesCreateRequest) ToModel() *m.UserClassesModel {
+	now := time.Now()
+	status := r.UserClassesStatus
+	if status == "" {
+		status = "active"
+	}
+	grace := int16(0)
+	if r.UserClassesPaidGraceDays != nil {
+		grace = *r.UserClassesPaidGraceDays
+	}
+	return &m.UserClassesModel{
+		// ID dibiarkan kosong, diisi hook BeforeCreate
+		UserClassesMasjidStudentID: r.UserClassesMasjidStudentID,
+		UserClassesClassID:         r.UserClassesClassID,
+		UserClassesMasjidID:        r.UserClassesMasjidID,
+
+		UserClassesStatus:         status,
+		UserClassesResult:         r.UserClassesResult,
+		UserClassesRegisterPaidAt: r.UserClassesRegisterPaidAt,
+		UserClassesPaidUntil:      r.UserClassesPaidUntil,
+		UserClassesPaidGraceDays:  grace,
+
+		UserClassesJoinedAt:    r.UserClassesJoinedAt,
+		UserClassesLeftAt:      r.UserClassesLeftAt,
+		UserClassesCompletedAt: r.UserClassesCompletedAt,
+
+		UserClassesCreatedAt: now,
+		UserClassesUpdatedAt: now,
+	}
+}
+
+type UserClassesResponse struct {
+	UserClassesID               uuid.UUID  `json:"user_classes_id"`
+	UserClassesMasjidStudentID  uuid.UUID  `json:"user_classes_masjid_student_id"`
+	UserClassesClassID          uuid.UUID  `json:"user_classes_class_id"`
+	UserClassesMasjidID         uuid.UUID  `json:"user_classes_masjid_id"`
+	UserClassesStatus           string     `json:"user_classes_status"`
+	UserClassesResult           *string    `json:"user_classes_result,omitempty"`
+	UserClassesRegisterPaidAt   *time.Time `json:"user_classes_register_paid_at,omitempty"`
+	UserClassesPaidUntil        *time.Time `json:"user_classes_paid_until,omitempty"`
+	UserClassesPaidGraceDays    int16      `json:"user_classes_paid_grace_days"`
+	UserClassesJoinedAt         *time.Time `json:"user_classes_joined_at,omitempty"`
+	UserClassesLeftAt           *time.Time `json:"user_classes_left_at,omitempty"`
+	UserClassesCompletedAt      *time.Time `json:"user_classes_completed_at,omitempty"`
+	UserClassesCreatedAt        time.Time  `json:"user_classes_created_at"`
+	UserClassesUpdatedAt        time.Time  `json:"user_classes_updated_at"`
+	UserClassesDeletedAt        *time.Time `json:"user_classes_deleted_at,omitempty"`
+}
+
+func FromModelUserClasses(mdl *m.UserClassesModel) UserClassesResponse {
+	var deletedAt *time.Time
+	if mdl.UserClassesDeletedAt.Valid {
+		t := mdl.UserClassesDeletedAt.Time
+		deletedAt = &t
+	}
+	return UserClassesResponse{
+		UserClassesID:              mdl.UserClassesID,
+		UserClassesMasjidStudentID: mdl.UserClassesMasjidStudentID,
+		UserClassesClassID:         mdl.UserClassesClassID,
+		UserClassesMasjidID:        mdl.UserClassesMasjidID,
+		UserClassesStatus:          mdl.UserClassesStatus,
+		UserClassesResult:          mdl.UserClassesResult,
+		UserClassesRegisterPaidAt:  mdl.UserClassesRegisterPaidAt,
+		UserClassesPaidUntil:       mdl.UserClassesPaidUntil,
+		UserClassesPaidGraceDays:   mdl.UserClassesPaidGraceDays,
+		UserClassesJoinedAt:        mdl.UserClassesJoinedAt,
+		UserClassesLeftAt:          mdl.UserClassesLeftAt,
+		UserClassesCompletedAt:     mdl.UserClassesCompletedAt,
+		UserClassesCreatedAt:       mdl.UserClassesCreatedAt,
+		UserClassesUpdatedAt:       mdl.UserClassesUpdatedAt,
+		UserClassesDeletedAt:       deletedAt,
+	}
+}
+
+/* =========================================================
+   PATCH REQUEST — tri-state
+   ========================================================= */
+
+type UserClassesPatchRequest struct {
+	UserClassesStatus PatchFieldUC[string]  `json:"user_classes_status"` // active|inactive|completed
+	UserClassesResult PatchFieldUC[*string] `json:"user_classes_result"` // null → clear
+
+	UserClassesRegisterPaidAt PatchFieldUC[*time.Time] `json:"user_classes_register_paid_at"`
+	UserClassesPaidUntil      PatchFieldUC[*time.Time] `json:"user_classes_paid_until"`
+	UserClassesPaidGraceDays  PatchFieldUC[int16]      `json:"user_classes_paid_grace_days"` // null → reset 0
+
+	UserClassesJoinedAt    PatchFieldUC[*time.Time] `json:"user_classes_joined_at"`
+	UserClassesLeftAt      PatchFieldUC[*time.Time] `json:"user_classes_left_at"`
+	UserClassesCompletedAt PatchFieldUC[*time.Time] `json:"user_classes_completed_at"`
+}
+
+func (p *UserClassesPatchRequest) Normalize() {
+	// status → lowercase
+	if p.UserClassesStatus.Present && p.UserClassesStatus.Value != nil {
+		v := strings.ToLower(strings.TrimSpace(*p.UserClassesStatus.Value))
+		p.UserClassesStatus.Value = &v
+	}
+	// result → trim+lower (ingat: Value bertipe **string)
+	if p.UserClassesResult.Present && p.UserClassesResult.Value != nil && *p.UserClassesResult.Value != nil {
+		v := strings.ToLower(strings.TrimSpace(**p.UserClassesResult.Value))
+		*p.UserClassesResult.Value = &v
+	}
+	// timestamps & angka: no-op
+}
+
+func (p UserClassesPatchRequest) Apply(uc *m.UserClassesModel) {
+	// status
+	if p.UserClassesStatus.Present && p.UserClassesStatus.Value != nil {
+		uc.UserClassesStatus = *p.UserClassesStatus.Value
+	}
+
+	// result (*string dalam Patch → **string di Value)
+	if p.UserClassesResult.Present {
+		if p.UserClassesResult.Value == nil {
+			uc.UserClassesResult = nil
+		} else {
+			uc.UserClassesResult = *p.UserClassesResult.Value
+		}
+	}
+
+	// ===== billing (PatchFieldUC[*time.Time] → **time.Time) =====
+	if p.UserClassesRegisterPaidAt.Present {
+		if p.UserClassesRegisterPaidAt.Value == nil {
+			uc.UserClassesRegisterPaidAt = nil
+		} else {
+			uc.UserClassesRegisterPaidAt = *p.UserClassesRegisterPaidAt.Value
+		}
+	}
+	if p.UserClassesPaidUntil.Present {
+		if p.UserClassesPaidUntil.Value == nil {
+			uc.UserClassesPaidUntil = nil
+		} else {
+			uc.UserClassesPaidUntil = *p.UserClassesPaidUntil.Value
+		}
+	}
+	if p.UserClassesPaidGraceDays.Present {
+		if p.UserClassesPaidGraceDays.Value == nil {
+			uc.UserClassesPaidGraceDays = 0
+		} else {
+			uc.UserClassesPaidGraceDays = *p.UserClassesPaidGraceDays.Value
+		}
+	}
+
+	// ===== lifecycle times (PatchFieldUC[*time.Time]) =====
+	if p.UserClassesJoinedAt.Present {
+		if p.UserClassesJoinedAt.Value == nil {
+			uc.UserClassesJoinedAt = nil
+		} else {
+			uc.UserClassesJoinedAt = *p.UserClassesJoinedAt.Value
+		}
+	}
+	if p.UserClassesLeftAt.Present {
+		if p.UserClassesLeftAt.Value == nil {
+			uc.UserClassesLeftAt = nil
+		} else {
+			uc.UserClassesLeftAt = *p.UserClassesLeftAt.Value
+		}
+	}
+	if p.UserClassesCompletedAt.Present {
+		if p.UserClassesCompletedAt.Value == nil {
+			uc.UserClassesCompletedAt = nil
+		} else {
+			uc.UserClassesCompletedAt = *p.UserClassesCompletedAt.Value
+		}
+	}
+
+	uc.UserClassesUpdatedAt = time.Now()
+}
+
+
+/* =========================================================
+   LIST QUERY + HELPERS
+   ========================================================= */
+
+type ListUserClassesQuery struct {
+	Limit     int         `query:"limit"`
+	Offset    int         `query:"offset"`
+	Status    *string     `query:"status"`      // active|inactive|completed
+	Result    *string     `query:"result"`      // passed|failed
+	ClassID   *uuid.UUID  `query:"class_id"`
+	StudentID *uuid.UUID  `query:"masjid_student_id"`
+	JoinedGt  *time.Time  `query:"joined_gt"`
+	JoinedLt  *time.Time  `query:"joined_lt"`
+	Search    string      `query:"q"`           // opsional
+	PaidDueLt *time.Time  `query:"paid_due_lt"` // paid_until < t
+	PaidDueGt *time.Time  `query:"paid_due_gt"` // paid_until > t
+}
+
+func ToUserClassesResponses(rows []m.UserClassesModel) []UserClassesResponse {
+	out := make([]UserClassesResponse, 0, len(rows))
+	for i := range rows {
+		out = append(out, FromModelUserClasses(&rows[i]))
+	}
+	return out
+}
+
+type PaginationMetaUserClasses struct {
+	Total      int64 `json:"total"`
+	Limit      int   `json:"limit"`
+	Offset     int   `json:"offset"`
+	Count      int   `json:"count"`
+	NextOffset *int  `json:"next_offset,omitempty"`
+	PrevOffset *int  `json:"prev_offset,omitempty"`
+	HasMore    bool  `json:"has_more"`
+}
+
+func NewPaginationMetaUserClasses(total int64, limit, offset, count int) PaginationMeta {
+	if limit <= 0 {
+		limit = 20
+	}
+	meta := PaginationMeta{
+		Total:   total,
+		Limit:   limit,
+		Offset:  offset,
+		Count:   count,
+		HasMore: int64(offset+count) < total,
+	}
+	if offset > 0 {
+		prev := offset - limit
+		if prev < 0 {
+			prev = 0
+		}
+		meta.PrevOffset = &prev
+	}
+	if meta.HasMore {
+		next := offset + count
+		meta.NextOffset = &next
+	}
+	return meta
 }

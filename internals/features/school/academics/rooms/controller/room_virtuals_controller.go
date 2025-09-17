@@ -14,6 +14,7 @@ import (
 	clsDTO "masjidku_backend/internals/features/school/academics/rooms/dto"
 	clsModel "masjidku_backend/internals/features/school/academics/rooms/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
 /* =========================================================
@@ -32,15 +33,24 @@ func NewClassRoomVirtualLinkController(db *gorm.DB) *ClassRoomVirtualLinkControl
 
 // POST /admin/class-room-virtual-links
 func (h *ClassRoomVirtualLinkController) Create(c *fiber.Ctx) error {
+	// --- MASJID SCOPE + DKM ONLY ---
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || masjidID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid scope tidak ditemukan")
+	}
+	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
+		return err
+	}
+
 	var req clsDTO.ClassRoomVirtualLinkCreateRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
+	// Force scope dari token, abaikan masjid_id di body jika ada
+	req.ClassRoomVirtualLinkMasjidID = masjidID
+
 	// Validasi minimal
-	if req.ClassRoomVirtualLinkMasjidID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid ID wajib diisi")
-	}
 	if req.ClassRoomVirtualLinkRoomID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Room ID wajib diisi")
 	}
@@ -61,6 +71,15 @@ func (h *ClassRoomVirtualLinkController) Create(c *fiber.Ctx) error {
 
 // PATCH /admin/class-room-virtual-links/:id
 func (h *ClassRoomVirtualLinkController) Update(c *fiber.Ctx) error {
+	// --- MASJID SCOPE + DKM ONLY ---
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || masjidID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid scope tidak ditemukan")
+	}
+	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
+		return err
+	}
+
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
@@ -69,6 +88,10 @@ func (h *ClassRoomVirtualLinkController) Update(c *fiber.Ctx) error {
 	m, err := h.findByID(id, false)
 	if err != nil {
 		return err
+	}
+	// Cek kepemilikan
+	if m.ClassRoomVirtualLinkMasjidID != masjidID {
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak: bukan milik masjid Anda")
 	}
 
 	var req clsDTO.ClassRoomVirtualLinkUpdateRequest
@@ -87,6 +110,15 @@ func (h *ClassRoomVirtualLinkController) Update(c *fiber.Ctx) error {
 
 // DELETE /admin/class-room-virtual-links/:id?hard=true
 func (h *ClassRoomVirtualLinkController) Delete(c *fiber.Ctx) error {
+	// --- MASJID SCOPE + DKM ONLY ---
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || masjidID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid scope tidak ditemukan")
+	}
+	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
+		return err
+	}
+
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
@@ -96,6 +128,10 @@ func (h *ClassRoomVirtualLinkController) Delete(c *fiber.Ctx) error {
 	m, err := h.findByID(id, hard)
 	if err != nil {
 		return err
+	}
+	// Cek kepemilikan
+	if m.ClassRoomVirtualLinkMasjidID != masjidID {
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak: bukan milik masjid Anda")
 	}
 
 	if hard {
@@ -113,6 +149,15 @@ func (h *ClassRoomVirtualLinkController) Delete(c *fiber.Ctx) error {
 
 // POST /admin/class-room-virtual-links/:id/restore
 func (h *ClassRoomVirtualLinkController) Restore(c *fiber.Ctx) error {
+	// --- MASJID SCOPE + DKM ONLY ---
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || masjidID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid scope tidak ditemukan")
+	}
+	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
+		return err
+	}
+
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
@@ -121,6 +166,10 @@ func (h *ClassRoomVirtualLinkController) Restore(c *fiber.Ctx) error {
 	m, err := h.findByID(id, true)
 	if err != nil {
 		return err
+	}
+	// Cek kepemilikan
+	if m.ClassRoomVirtualLinkMasjidID != masjidID {
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak: bukan milik masjid Anda")
 	}
 	if !m.ClassRoomVirtualLinkDeletedAt.Valid {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Data tidak dalam status terhapus")
@@ -139,6 +188,15 @@ func (h *ClassRoomVirtualLinkController) Restore(c *fiber.Ctx) error {
 
 // GET /admin/class-room-virtual-links/:id
 func (h *ClassRoomVirtualLinkController) Detail(c *fiber.Ctx) error {
+	// --- MASJID SCOPE + DKM ONLY ---
+	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if err != nil || masjidID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid scope tidak ditemukan")
+	}
+	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
+		return err
+	}
+
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
@@ -146,6 +204,10 @@ func (h *ClassRoomVirtualLinkController) Detail(c *fiber.Ctx) error {
 	m, err := h.findByID(id, false)
 	if err != nil {
 		return err
+	}
+	// Cek kepemilikan
+	if m.ClassRoomVirtualLinkMasjidID != masjidID {
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak: bukan milik masjid Anda")
 	}
 	return helper.JsonOK(c, "Detail virtual link", clsDTO.FromModelClassRoomVirtualLink(m))
 }
@@ -157,6 +219,7 @@ func (h *ClassRoomVirtualLinkController) Detail(c *fiber.Ctx) error {
 //   order: asc|desc
 //   limit, page
 func (h *ClassRoomVirtualLinkController) List(c *fiber.Ctx) error {
+	// Sesuai permintaan: LIST tetap tanpa guard helperAuth (publik/admin filter via query)
 	req, _ := http.NewRequest("GET", "http://local"+c.OriginalURL(), nil)
 	p := helper.ParseWith(req, "created_at", "desc", helper.AdminOpts)
 

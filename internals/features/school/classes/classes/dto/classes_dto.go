@@ -1,3 +1,4 @@
+// file: internals/features/school/academics/classes/dto/class_dto.go
 package dto
 
 import (
@@ -22,7 +23,7 @@ func (p *PatchField[T]) IsZero() bool {
 	return p == nil || !p.Set
 }
 
-// >>> WAJIB pakai nama ini (tanpa angka 2)
+// WAJIB pakai nama ini (tanpa angka 2)
 func (p *PatchField[T]) UnmarshalJSON(b []byte) error {
 	type env struct {
 		Set   *bool            `json:"set"`
@@ -55,7 +56,7 @@ func (p *PatchField[T]) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// >>> Biar form-data juga bisa: "online", "1500003", "true", dst.
+// Biar form-data juga bisa: "online", "1500003", "true", dst.
 func (p *PatchField[T]) UnmarshalText(b []byte) error {
 	quoted, _ := json.Marshal(string(b))
 	var v T
@@ -85,7 +86,6 @@ type CreateClassRequest struct {
 
 	// Registrasi / Term
 	ClassTermID               *uuid.UUID `json:"class_term_id,omitempty"                form:"class_term_id"`
-	ClassIsOpen               *bool      `json:"class_is_open,omitempty"                form:"class_is_open"`
 	ClassRegistrationOpensAt  *time.Time `json:"class_registration_opens_at,omitempty"  form:"class_registration_opens_at"`
 	ClassRegistrationClosesAt *time.Time `json:"class_registration_closes_at,omitempty" form:"class_registration_closes_at"`
 
@@ -99,14 +99,21 @@ type CreateClassRequest struct {
 	ClassProviderProductID  *string `json:"class_provider_product_id,omitempty"   form:"class_provider_product_id"`
 	ClassProviderPriceID    *string `json:"class_provider_price_id,omitempty"     form:"class_provider_price_id"`
 
-	// Catatan & media
-	ClassNotes    *string `json:"class_notes,omitempty"     form:"class_notes"`
+	// Catatan
+	ClassNotes *string `json:"class_notes,omitempty" form:"class_notes"`
 
-	// Mode & Status (baru)
+	// Mode & Status (delivery_mode nullable)
 	ClassDeliveryMode *string    `json:"class_delivery_mode,omitempty" form:"class_delivery_mode"` // enum
 	ClassStatus       *string    `json:"class_status,omitempty"        form:"class_status"`        // enum: active|inactive|completed
 	ClassCompletedAt  *time.Time `json:"class_completed_at,omitempty"  form:"class_completed_at"`
 
+	// (opsional) Image 2-slot (biasanya diisi via flow upload)
+	ClassImageURL          *string    `json:"class_image_url,omitempty"            form:"class_image_url"`
+	ClassImageObjectKey    *string    `json:"class_image_object_key,omitempty"     form:"class_image_object_key"`
+	ClassImageURLOld       *string    `json:"class_image_url_old,omitempty"        form:"class_image_url_old"`
+	ClassImageObjectKeyOld *string    `json:"class_image_object_key_old,omitempty" form:"class_image_object_key_old"`
+	// delete_pending_until biasanya diset oleh proses rotasi, bukan saat create
+	ClassImageDeletePendingUntil *time.Time `json:"class_image_delete_pending_until,omitempty" form:"class_image_delete_pending_until"`
 }
 
 func (r *CreateClassRequest) Normalize() {
@@ -124,10 +131,7 @@ func (r *CreateClassRequest) Normalize() {
 		x := strings.ToLower(strings.TrimSpace(*r.ClassStatus))
 		r.ClassStatus = &x
 	}
-	if r.ClassIsOpen == nil {
-		def := true
-		r.ClassIsOpen = &def
-	}
+
 	// bersihkan string opsional
 	if r.ClassNotes != nil {
 		s := strings.TrimSpace(*r.ClassNotes)
@@ -153,14 +157,6 @@ func (r *CreateClassRequest) Normalize() {
 		} else {
 			r.ClassProviderPriceID = &s
 		}
-	}
-
-
-	// Jika status completed → auto close pendaftaran (selaras constraint DB)
-	if r.ClassStatus != nil && *r.ClassStatus == model.ClassStatusCompleted {
-		f := false
-		r.ClassIsOpen = &f
-		// CompletedAt boleh diisi, kalau kosong biarin nil (DB tidak paksa)
 	}
 }
 
@@ -213,6 +209,23 @@ func (r *CreateClassRequest) Validate() error {
 }
 
 func (r *CreateClassRequest) ToModel() *model.ClassModel {
+	// siapkan default agar tidak override default DB dengan empty string
+	billing := model.BillingCycleMonthly
+	if r.ClassBillingCycle != nil && *r.ClassBillingCycle != "" {
+		billing = *r.ClassBillingCycle
+	}
+
+	var delivery *string
+	if r.ClassDeliveryMode != nil && *r.ClassDeliveryMode != "" {
+		d := *r.ClassDeliveryMode
+		delivery = &d
+	}
+
+	status := model.ClassStatusActive
+	if r.ClassStatus != nil && *r.ClassStatus != "" {
+		status = *r.ClassStatus
+	}
+
 	m := &model.ClassModel{
 		ClassMasjidID:             r.ClassMasjidID,
 		ClassParentID:             r.ClassParentID,
@@ -220,35 +233,25 @@ func (r *CreateClassRequest) ToModel() *model.ClassModel {
 		ClassStartDate:            r.ClassStartDate,
 		ClassEndDate:              r.ClassEndDate,
 		ClassTermID:               r.ClassTermID,
-		ClassIsOpen:               true, // default
 		ClassRegistrationOpensAt:  r.ClassRegistrationOpensAt,
 		ClassRegistrationClosesAt: r.ClassRegistrationClosesAt,
 		ClassQuotaTotal:           r.ClassQuotaTotal,
 		ClassRegistrationFeeIDR:   r.ClassRegistrationFeeIDR,
 		ClassTuitionFeeIDR:        r.ClassTuitionFeeIDR,
-		ClassBillingCycle:         model.BillingCycleMonthly, // default DB
+		ClassBillingCycle:         billing,
 		ClassProviderProductID:    r.ClassProviderProductID,
 		ClassProviderPriceID:      r.ClassProviderPriceID,
 		ClassNotes:                r.ClassNotes,
-		ClassDeliveryMode:         model.ClassDeliveryModeOffline, // default app-side
-		ClassStatus:               model.ClassStatusActive,         // default DB
+		ClassDeliveryMode:         delivery,
+		ClassStatus:               status,
 		ClassCompletedAt:          r.ClassCompletedAt,
-	}
-	if r.ClassIsOpen != nil {
-		m.ClassIsOpen = *r.ClassIsOpen
-	}
-	if r.ClassBillingCycle != nil && *r.ClassBillingCycle != "" {
-		m.ClassBillingCycle = *r.ClassBillingCycle
-	}
-	if r.ClassDeliveryMode != nil && *r.ClassDeliveryMode != "" {
-		m.ClassDeliveryMode = *r.ClassDeliveryMode
-	}
-	if r.ClassStatus != nil && *r.ClassStatus != "" {
-		m.ClassStatus = *r.ClassStatus
-		// safety: jika completed tapi lupa close
-		if m.ClassStatus == model.ClassStatusCompleted {
-			m.ClassIsOpen = false
-		}
+
+		// Image fields (opsional)
+		ClassImageURL:                r.ClassImageURL,
+		ClassImageObjectKey:          r.ClassImageObjectKey,
+		ClassImageURLOld:             r.ClassImageURLOld,
+		ClassImageObjectKeyOld:       r.ClassImageObjectKeyOld,
+		ClassImageDeletePendingUntil: r.ClassImageDeletePendingUntil,
 	}
 	return m
 }
@@ -264,7 +267,6 @@ type PatchClassRequest struct {
 	ClassEndDate   *PatchField[*time.Time] `json:"class_end_date,omitempty"            form:"class_end_date"`
 
 	ClassTermID               *PatchField[*uuid.UUID] `json:"class_term_id,omitempty"                form:"class_term_id"`
-	ClassIsOpen               *PatchField[bool]       `json:"class_is_open,omitempty"                form:"class_is_open"`
 	ClassRegistrationOpensAt  *PatchField[*time.Time] `json:"class_registration_opens_at,omitempty"  form:"class_registration_opens_at"`
 	ClassRegistrationClosesAt *PatchField[*time.Time] `json:"class_registration_closes_at,omitempty" form:"class_registration_closes_at"`
 
@@ -277,12 +279,18 @@ type PatchClassRequest struct {
 	ClassProviderProductID  *PatchField[*string] `json:"class_provider_product_id,omitempty"  form:"class_provider_product_id"`
 	ClassProviderPriceID    *PatchField[*string] `json:"class_provider_price_id,omitempty"    form:"class_provider_price_id"`
 
-	ClassNotes    *PatchField[*string] `json:"class_notes,omitempty"     form:"class_notes"`
+	ClassNotes *PatchField[*string] `json:"class_notes,omitempty" form:"class_notes"`
 
-	ClassDeliveryMode *PatchField[string]     `json:"class_delivery_mode,omitempty" form:"class_delivery_mode"`
-	ClassStatus       *PatchField[string]     `json:"class_status,omitempty"        form:"class_status"`
+	ClassDeliveryMode *PatchField[*string]   `json:"class_delivery_mode,omitempty" form:"class_delivery_mode"` // nullable
+	ClassStatus       *PatchField[string]    `json:"class_status,omitempty"        form:"class_status"`
 	ClassCompletedAt  *PatchField[*time.Time] `json:"class_completed_at,omitempty"  form:"class_completed_at"`
 
+	// Image (opsional)
+	ClassImageURL                *PatchField[*string]    `json:"class_image_url,omitempty"                 form:"class_image_url"`
+	ClassImageObjectKey          *PatchField[*string]    `json:"class_image_object_key,omitempty"          form:"class_image_object_key"`
+	ClassImageURLOld             *PatchField[*string]    `json:"class_image_url_old,omitempty"             form:"class_image_url_old"`
+	ClassImageObjectKeyOld       *PatchField[*string]    `json:"class_image_object_key_old,omitempty"      form:"class_image_object_key_old"`
+	ClassImageDeletePendingUntil *PatchField[*time.Time] `json:"class_image_delete_pending_until,omitempty" form:"class_image_delete_pending_until"`
 }
 
 func (r *PatchClassRequest) Normalize() {
@@ -292,8 +300,9 @@ func (r *PatchClassRequest) Normalize() {
 	if r.ClassBillingCycle != nil && r.ClassBillingCycle.Set {
 		r.ClassBillingCycle.Value = strings.ToLower(strings.TrimSpace(r.ClassBillingCycle.Value))
 	}
-	if r.ClassDeliveryMode != nil && r.ClassDeliveryMode.Set {
-		r.ClassDeliveryMode.Value = strings.ToLower(strings.TrimSpace(r.ClassDeliveryMode.Value))
+	if r.ClassDeliveryMode != nil && r.ClassDeliveryMode.Set && r.ClassDeliveryMode.Value != nil {
+		x := strings.ToLower(strings.TrimSpace(*r.ClassDeliveryMode.Value))
+		r.ClassDeliveryMode.Value = &x
 	}
 	if r.ClassStatus != nil && r.ClassStatus.Set {
 		r.ClassStatus.Value = strings.ToLower(strings.TrimSpace(r.ClassStatus.Value))
@@ -322,7 +331,6 @@ func (r *PatchClassRequest) Normalize() {
 			r.ClassProviderPriceID.Value = &s
 		}
 	}
-
 }
 
 func (r *PatchClassRequest) Validate() error {
@@ -352,8 +360,8 @@ func (r *PatchClassRequest) Validate() error {
 			return errors.New("invalid class_billing_cycle")
 		}
 	}
-	if r.ClassDeliveryMode != nil && r.ClassDeliveryMode.Set {
-		switch r.ClassDeliveryMode.Value {
+	if r.ClassDeliveryMode != nil && r.ClassDeliveryMode.Set && r.ClassDeliveryMode.Value != nil {
+		switch *r.ClassDeliveryMode.Value {
 		case model.ClassDeliveryModeOffline, model.ClassDeliveryModeOnline, model.ClassDeliveryModeHybrid:
 		default:
 			return errors.New("invalid class_delivery_mode")
@@ -382,9 +390,6 @@ func (r *PatchClassRequest) Apply(m *model.ClassModel) {
 	if r.ClassTermID != nil && r.ClassTermID.Set {
 		m.ClassTermID = r.ClassTermID.Value
 	}
-	if r.ClassIsOpen != nil && r.ClassIsOpen.Set {
-		m.ClassIsOpen = r.ClassIsOpen.Value
-	}
 	if r.ClassRegistrationOpensAt != nil && r.ClassRegistrationOpensAt.Set {
 		m.ClassRegistrationOpensAt = r.ClassRegistrationOpensAt.Value
 	}
@@ -404,7 +409,10 @@ func (r *PatchClassRequest) Apply(m *model.ClassModel) {
 		m.ClassTuitionFeeIDR = r.ClassTuitionFeeIDR.Value
 	}
 	if r.ClassBillingCycle != nil && r.ClassBillingCycle.Set {
-		m.ClassBillingCycle = r.ClassBillingCycle.Value
+		// jaga agar tidak set empty string; kalau empty, biarkan nilai lama
+		if s := strings.TrimSpace(r.ClassBillingCycle.Value); s != "" {
+			m.ClassBillingCycle = s
+		}
 	}
 	if r.ClassProviderProductID != nil && r.ClassProviderProductID.Set {
 		m.ClassProviderProductID = r.ClassProviderProductID.Value
@@ -417,19 +425,33 @@ func (r *PatchClassRequest) Apply(m *model.ClassModel) {
 	}
 
 	if r.ClassDeliveryMode != nil && r.ClassDeliveryMode.Set {
-		m.ClassDeliveryMode = r.ClassDeliveryMode.Value
+		m.ClassDeliveryMode = r.ClassDeliveryMode.Value // pointer (nullable)
 	}
 	if r.ClassStatus != nil && r.ClassStatus.Set {
-		m.ClassStatus = r.ClassStatus.Value
-		// selaras constraint DB: jika completed → is_open = false (kecuali user sudah set explicit)
-		if m.ClassStatus == model.ClassStatusCompleted && (r.ClassIsOpen == nil || (r.ClassIsOpen != nil && !r.ClassIsOpen.Set)) {
-			m.ClassIsOpen = false
+		if s := strings.TrimSpace(r.ClassStatus.Value); s != "" {
+			m.ClassStatus = s
 		}
 	}
 	if r.ClassCompletedAt != nil && r.ClassCompletedAt.Set {
 		m.ClassCompletedAt = r.ClassCompletedAt.Value
 	}
 
+	// Image
+	if r.ClassImageURL != nil && r.ClassImageURL.Set {
+		m.ClassImageURL = r.ClassImageURL.Value
+	}
+	if r.ClassImageObjectKey != nil && r.ClassImageObjectKey.Set {
+		m.ClassImageObjectKey = r.ClassImageObjectKey.Value
+	}
+	if r.ClassImageURLOld != nil && r.ClassImageURLOld.Set {
+		m.ClassImageURLOld = r.ClassImageURLOld.Value
+	}
+	if r.ClassImageObjectKeyOld != nil && r.ClassImageObjectKeyOld.Set {
+		m.ClassImageObjectKeyOld = r.ClassImageObjectKeyOld.Value
+	}
+	if r.ClassImageDeletePendingUntil != nil && r.ClassImageDeletePendingUntil.Set {
+		m.ClassImageDeletePendingUntil = r.ClassImageDeletePendingUntil.Value
+	}
 }
 
 /* =========================================================
@@ -447,7 +469,6 @@ type ClassResponse struct {
 	ClassEndDate   *time.Time `json:"class_end_date,omitempty"`
 
 	ClassTermID               *uuid.UUID `json:"class_term_id,omitempty"`
-	ClassIsOpen               bool       `json:"class_is_open"`
 	ClassRegistrationOpensAt  *time.Time `json:"class_registration_opens_at,omitempty"`
 	ClassRegistrationClosesAt *time.Time `json:"class_registration_closes_at,omitempty"`
 
@@ -460,11 +481,18 @@ type ClassResponse struct {
 	ClassProviderProductID  *string `json:"class_provider_product_id,omitempty"`
 	ClassProviderPriceID    *string `json:"class_provider_price_id,omitempty"`
 
-	ClassNotes    *string `json:"class_notes,omitempty"`
+	ClassNotes *string `json:"class_notes,omitempty"`
 
-	ClassDeliveryMode string     `json:"class_delivery_mode"`
+	ClassDeliveryMode *string    `json:"class_delivery_mode,omitempty"` // nullable
 	ClassStatus       string     `json:"class_status"`
 	ClassCompletedAt  *time.Time `json:"class_completed_at,omitempty"`
+
+	// Image 2-slot
+	ClassImageURL                *string    `json:"class_image_url,omitempty"`
+	ClassImageObjectKey          *string    `json:"class_image_object_key,omitempty"`
+	ClassImageURLOld             *string    `json:"class_image_url_old,omitempty"`
+	ClassImageObjectKeyOld       *string    `json:"class_image_object_key_old,omitempty"`
+	ClassImageDeletePendingUntil *time.Time `json:"class_image_delete_pending_until,omitempty"`
 
 	ClassCreatedAt time.Time  `json:"class_created_at"`
 	ClassUpdatedAt time.Time  `json:"class_updated_at"`
@@ -485,7 +513,6 @@ func FromModel(m *model.ClassModel) ClassResponse {
 		ClassStartDate:            m.ClassStartDate,
 		ClassEndDate:              m.ClassEndDate,
 		ClassTermID:               m.ClassTermID,
-		ClassIsOpen:               m.ClassIsOpen,
 		ClassRegistrationOpensAt:  m.ClassRegistrationOpensAt,
 		ClassRegistrationClosesAt: m.ClassRegistrationClosesAt,
 		ClassQuotaTotal:           m.ClassQuotaTotal,
@@ -496,12 +523,19 @@ func FromModel(m *model.ClassModel) ClassResponse {
 		ClassProviderProductID:    m.ClassProviderProductID,
 		ClassProviderPriceID:      m.ClassProviderPriceID,
 		ClassNotes:                m.ClassNotes,
-		ClassDeliveryMode:         m.ClassDeliveryMode,
+		ClassDeliveryMode:         m.ClassDeliveryMode, // pointer
 		ClassStatus:               m.ClassStatus,
 		ClassCompletedAt:          m.ClassCompletedAt,
-		ClassCreatedAt:            m.ClassCreatedAt,
-		ClassUpdatedAt:            m.ClassUpdatedAt,
-		ClassDeletedAt:            delAt,
+
+		ClassImageURL:                m.ClassImageURL,
+		ClassImageObjectKey:          m.ClassImageObjectKey,
+		ClassImageURLOld:             m.ClassImageURLOld,
+		ClassImageObjectKeyOld:       m.ClassImageObjectKeyOld,
+		ClassImageDeletePendingUntil: m.ClassImageDeletePendingUntil,
+
+		ClassCreatedAt: m.ClassCreatedAt,
+		ClassUpdatedAt: m.ClassUpdatedAt,
+		ClassDeletedAt: delAt,
 	}
 }
 
@@ -513,16 +547,15 @@ type ListClassQuery struct {
 	MasjidID     *uuid.UUID `query:"masjid_id"`
 	ParentID     *uuid.UUID `query:"parent_id"`
 	TermID       *uuid.UUID `query:"term_id"`
-	IsOpen       *bool      `query:"is_open"`
 	Status       *string    `query:"status"`        // enum: active|inactive|completed
 	DeliveryMode *string    `query:"delivery_mode"` // enum; lower-case di repo
 	Slug         *string    `query:"slug"`          // exact/ilike di repo
 	Search       *string    `query:"search"`        // cari di notes (trigram)
 
-	StartGe      *time.Time `query:"start_ge"`
-	StartLe      *time.Time `query:"start_le"`
-	RegOpenGe    *time.Time `query:"reg_open_ge"`
-	RegCloseLe   *time.Time `query:"reg_close_le"`
+	StartGe   *time.Time `query:"start_ge"`
+	StartLe   *time.Time `query:"start_le"`
+	RegOpenGe *time.Time `query:"reg_open_ge"`
+	RegCloseLe *time.Time `query:"reg_close_le"`
 
 	// opsional filter untuk completed range
 	CompletedGe *time.Time `query:"completed_ge"`
@@ -530,7 +563,7 @@ type ListClassQuery struct {
 
 	Limit  int     `query:"limit"  validate:"omitempty,min=1,max=200"`
 	Offset int     `query:"offset" validate:"omitempty,min=0"`
-	SortBy *string `query:"sort_by"` // created_at|slug|start_date|is_open|status|delivery_mode
+	SortBy *string `query:"sort_by"` // created_at|slug|start_date|status|delivery_mode
 	Order  *string `query:"order"`   // asc|desc
 }
 

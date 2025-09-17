@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	ucModel "masjidku_backend/internals/features/school/classes/classes/model"
-	membership "masjidku_backend/internals/features/school/classes/classes/service"
+	ucmodel "masjidku_backend/internals/features/school/classes/classes/model"
+	membership "masjidku_backend/internals/features/school/classes/classes/service" // <-- sesuaikan jika path servicenya berbeda
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 )
@@ -73,13 +73,13 @@ type enrollReq struct {
 func (h *MembershipController) ActivateEnrollment(c *fiber.Ctx) error {
 	var req enrollReq
 	if err := c.BodyParser(&req); err != nil {
-	 return fiber.NewError(fiber.StatusBadRequest, "payload invalid")
+		return fiber.NewError(fiber.StatusBadRequest, "payload invalid")
 	}
 	if err := h.V.Struct(req); err != nil {
-	 return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// ⬇️ Ambil masjid dari token; jika body kirim masjid_id, wajib sama
+	// Ambil masjid dari token; jika body kirim masjid_id, wajib sama
 	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil || mid == uuid.Nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
@@ -101,7 +101,7 @@ func (h *MembershipController) ActivateEnrollment(c *fiber.Ctx) error {
 		// 1) hooks membership (role + ms status)
 		if err := h.Svc.OnEnrollmentActivated(tx, req.UserID, masjidID, assignedBy); err != nil {
 			log.Printf("[membership] ActivateEnrollment hooks ERROR: %v", err)
-		 return err
+			return err
 		}
 
 		// 2) (opsional) approve enrolment
@@ -112,14 +112,14 @@ func (h *MembershipController) ActivateEnrollment(c *fiber.Ctx) error {
 				ClassID  uuid.UUID `gorm:"column:user_classes_class_id"`
 				Owner    uuid.UUID `gorm:"column:masjid_student_user_id"`
 			}
-			q := tx.Table("user_classes uc").
+			q := tx.Table("user_classes AS uc").
 				Select(`
 					uc.user_classes_masjid_id,
 					uc.user_classes_masjid_student_id,
 					uc.user_classes_class_id,
 					ms.masjid_student_user_id
 				`).
-				Joins(`JOIN masjid_students ms
+				Joins(`JOIN masjid_students AS ms
 					ON ms.masjid_student_id = uc.user_classes_masjid_student_id
 					AND ms.masjid_student_deleted_at IS NULL`).
 				Where("uc.user_classes_id = ? AND uc.user_classes_deleted_at IS NULL", *req.UserClassesID)
@@ -138,14 +138,14 @@ func (h *MembershipController) ActivateEnrollment(c *fiber.Ctx) error {
 			}
 
 			updates := map[string]any{
-				"user_classes_status":     ucModel.UserClassStatusActive,
+				"user_classes_status":     "active",
 				"user_classes_updated_at": time.Now(),
 			}
 			if req.JoinedAt != nil {
 				updates["user_classes_joined_at"] = *req.JoinedAt
 			}
 
-			if err := tx.Model(&ucModel.UserClassesModel{}).
+			if err := tx.Model(&ucmodel.UserClassesModel{}).
 				Where("user_classes_id = ? AND user_classes_deleted_at IS NULL", *req.UserClassesID).
 				Updates(updates).Error; err != nil {
 
@@ -177,7 +177,7 @@ func (h *MembershipController) DeactivateEnrollment(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// ⬇️ Ambil masjid dari token; jika body kirim masjid_id, wajib sama
+	// Ambil masjid dari token; jika body kirim masjid_id, wajib sama
 	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil || mid == uuid.Nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
@@ -202,12 +202,12 @@ func (h *MembershipController) DeactivateEnrollment(c *fiber.Ctx) error {
 				MasjidID uuid.UUID `gorm:"column:user_classes_masjid_id"`
 				Owner    uuid.UUID `gorm:"column:masjid_student_user_id"`
 			}
-			q := tx.Table("user_classes uc").
+			q := tx.Table("user_classes AS uc").
 				Select(`
 					uc.user_classes_masjid_id,
 					ms.masjid_student_user_id
 				`).
-				Joins(`JOIN masjid_students ms
+				Joins(`JOIN masjid_students AS ms
 					ON ms.masjid_student_id = uc.user_classes_masjid_student_id
 					AND ms.masjid_student_deleted_at IS NULL`).
 				Where("uc.user_classes_id = ? AND uc.user_classes_deleted_at IS NULL", *req.UserClassesID)
@@ -225,10 +225,10 @@ func (h *MembershipController) DeactivateEnrollment(c *fiber.Ctx) error {
 				return fiber.NewError(fiber.StatusBadRequest, "Enrolment bukan milik user tersebut")
 			}
 
-			if err := tx.Model(&ucModel.UserClassesModel{}).
+			if err := tx.Model(&ucmodel.UserClassesModel{}).
 				Where("user_classes_id = ? AND user_classes_deleted_at IS NULL", *req.UserClassesID).
 				Updates(map[string]any{
-					"user_classes_status":     ucModel.UserClassStatusInactive,
+					"user_classes_status":     "inactive",
 					"user_classes_updated_at": time.Now(),
 				}).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menonaktifkan enrolment")
@@ -322,7 +322,7 @@ func (h *MembershipController) EnsureMasjidStudent(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// ⬇️ Ambil masjid dari token; jika body kirim masjid_id, wajib sama
+	// Ambil masjid dari token; jika body kirim masjid_id, wajib sama
 	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 	if err != nil || mid == uuid.Nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")

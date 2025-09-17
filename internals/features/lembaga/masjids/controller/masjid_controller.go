@@ -77,29 +77,25 @@ func retentionDuration() time.Duration {
 }
 
 
+// PATCH /api/masjids/:id
 func (mc *MasjidController) Patch(c *fiber.Ctx) error {
     id, err := parseMasjidID(c)
     if err != nil {
         return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
     }
 
-    // ========== AUTH: resolve masjid dari token & cek DKM ==========
-    masjidIDFromToken, err := helperAuth.GetActiveMasjidID(c)
-    if err != nil {
-        if id2, err2 := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err2 == nil {
-            masjidIDFromToken = id2
-        } else {
-            return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid context tidak ditemukan")
-        }
+    // ===== AUTH via helperAuth (DKM only) =====
+    // Pin ke path id agar tidak ambigu dgn header/query/host
+    masjidID, aerr := helperAuth.EnsureMasjidAccessDKM(c, helperAuth.MasjidContext{ID: id})
+    if aerr != nil {
+        // EnsureMasjidAccessDKM sudah return *fiber.Error
+        return helper.JsonError(c, aerr.(*fiber.Error).Code, aerr.Error())
     }
-    if masjidIDFromToken != id {
+    if masjidID != id {
+        // Safety guard (harusnya sama)
         return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak: masjid tidak sesuai")
     }
-    if err := helperAuth.EnsureDKMMasjid(c, masjidIDFromToken); err != nil {
-        // pastikan helper ini sudah mengembalikan *fiber.Error / JSON-friendly error
-        return err
-    }
-    // ===============================================================
+    // ==========================================
 
     // Ambil row existing
     var m model.MasjidModel
@@ -264,10 +260,7 @@ func (mc *MasjidController) Patch(c *fiber.Ctx) error {
     })
 }
 
-
-// ========== DELETE (pindah ke spam/) ==========
-// DELETE /api/masjids/:id/files
-// Body: { "url":"https://..." }
+// DELETE /api/masjids/:id/files { "url": "https://..." }
 type deleteReq struct {
     URL string `json:"url"`
 }
@@ -278,22 +271,15 @@ func (mc *MasjidController) Delete(c *fiber.Ctx) error {
         return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
     }
 
-    // ========== AUTH ==========
-    masjidIDFromToken, err := helperAuth.GetActiveMasjidID(c)
-    if err != nil {
-        if id2, err2 := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err2 == nil {
-            masjidIDFromToken = id2
-        } else {
-            return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid context tidak ditemukan")
-        }
+    // ===== AUTH via helperAuth (DKM only) =====
+    masjidID, aerr := helperAuth.EnsureMasjidAccessDKM(c, helperAuth.MasjidContext{ID: id})
+    if aerr != nil {
+        return helper.JsonError(c, aerr.(*fiber.Error).Code, aerr.Error())
     }
-    if masjidIDFromToken != id {
+    if masjidID != id {
         return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak: masjid tidak sesuai")
     }
-    if err := helperAuth.EnsureDKMMasjid(c, masjidIDFromToken); err != nil {
-        return err
-    }
-    // ==========================
+    // ==========================================
 
     var body deleteReq
     if err := c.BodyParser(&body); err != nil || strings.TrimSpace(body.URL) == "" {

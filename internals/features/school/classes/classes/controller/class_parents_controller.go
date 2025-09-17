@@ -1,264 +1,240 @@
+// file: internals/features/school/classes/classes/controller/class_parent_controller.go
 package controller
 
 import (
-	"errors"
-	"fmt"
-	"regexp"
 	"strings"
+	"time"
 
 	cpdto "masjidku_backend/internals/features/school/classes/classes/dto"
 	cpmodel "masjidku_backend/internals/features/school/classes/classes/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
-	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
 type ClassParentController struct {
-	DB       *gorm.DB
-	Validate *validator.Validate
+	DB        *gorm.DB
+	Validator interface{ Struct(any) error }
 }
 
-func NewClassParentController(db *gorm.DB, v *validator.Validate) *ClassParentController {
-	if v == nil {
-		v = validator.New()
-	}
-	return &ClassParentController{DB: db, Validate: v}
+func NewClassParentController(db *gorm.DB, v interface{ Struct(any) error }) *ClassParentController {
+	return &ClassParentController{DB: db, Validator: v}
 }
 
-func (ctl *ClassParentController) v() *validator.Validate {
-	if ctl.Validate == nil {
-		ctl.Validate = validator.New()
-	}
-	return ctl.Validate
-}
-
-//  ---------- helpers ----------
-func clampLimit(limit, def, max int) int {
-	if limit <= 0 { return def }
-	if limit > max { return max }
-	return limit
-}
-
-// slugify code dari nama: huruf/angka + '-' ; uppercase; pangkas max 32
-var nonAlnum = regexp.MustCompile(`[^a-zA-Z0-9]+`)
-const maxCodeLen = 32
-
-func slugifyCode(from string) string {
-	s := strings.TrimSpace(from)
-	if s == "" {
-		return "CP"
-	}
-	s = nonAlnum.ReplaceAllString(s, "-")
-	s = strings.Trim(s, "-")
-	if s == "" {
-		s = "CP"
-	}
-	s = strings.ToUpper(s)
-	if len(s) > maxCodeLen {
-		s = s[:maxCodeLen]
-	}
-	return s
-}
-
-// cek eksistensi unik (sudah ada di file kamu)
-func (ctl *ClassParentController) codeExists(masjidID uuid.UUID, code string, excludeID *uuid.UUID) (bool, error) {
-	code = strings.TrimSpace(code)
-	if code == "" {
-		return false, nil
-	}
-	tx := ctl.DB.
-		Model(&cpmodel.ClassParentModel{}).
-		Where(`
-			class_parent_masjid_id = ?
-			AND class_parent_deleted_at IS NULL
-			AND class_parent_delete_pending_until IS NULL
-			AND class_parent_code IS NOT NULL
-			AND LOWER(class_parent_code) = LOWER(?)
-		`, masjidID, code)
-	if excludeID != nil {
-		tx = tx.Where("class_parent_id <> ?", *excludeID)
-	}
-	var n int64
-	if err := tx.Count(&n).Error; err != nil {
-		return false, err
-	}
-	return n > 0, nil
-}
-
-// generate code unik dari base; tambahkan -1, -2, ... bila bentrok
-func (ctl *ClassParentController) ensureUniqueCode(masjidID uuid.UUID, base string, excludeID *uuid.UUID) (string, error) {
-	if base = strings.TrimSpace(base); base == "" {
-		base = "CP"
-	}
-	base = slugifyCode(base)
-
-	code := base
-	for i := 0; ; i++ {
-		if i > 0 {
-			suf := fmt.Sprintf("-%d", i)
-			code = base
-			if len(code)+len(suf) > maxCodeLen {
-				code = code[:maxCodeLen-len(suf)]
-			}
-			code += suf
-		}
-		exists, err := ctl.codeExists(masjidID, code, excludeID)
-		if err != nil {
-			return "", err
-		}
-		if !exists {
-			return code, nil
-		}
-	}
-}
-
-
-// ---------- CREATE ----------
-// ---------- CREATE ----------
+/* =========================================================
+   CREATE (staff only)
+   ========================================================= */
 func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
-	var req cpdto.CreateClassParentRequest
-
-	if err := c.BodyParser(&req); err != nil {
+	var p cpdto.ClassParentCreateRequest
+	if err := c.BodyParser(&p); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
-	if err := ctl.v().Struct(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
+	p.Normalize()
 
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	// ---------- MASJID CONTEXT + STAFF ONLY ----------
+	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return err
 	}
-	if req.ClassParentMasjidID != uuid.Nil && req.ClassParentMasjidID != masjidID {
-		return helper.JsonError(c, fiber.StatusForbidden, "class_parent_masjid_id pada body tidak boleh berbeda dengan token")
+	var masjidID uuid.UUID
+	if mc.ID != uuid.Nil {
+		masjidID = mc.ID
+	} else if s := strings.TrimSpace(mc.Slug); s != "" {
+		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		if er != nil {
+			return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+		}
+		masjidID = id
+	} else {
+		// fallback very last resort (single-tenant teacher/admin token)
+		id, er := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+		if er != nil || id == uuid.Nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak ditemukan")
+		}
+		masjidID = id
 	}
 
-	// Validasi unik jika user KIRIM code
-	if code := strings.TrimSpace(req.ClassParentCode); code != "" {
-		exists, err := ctl.codeExists(masjidID, code, nil)
-		if err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
+	// staff check (teacher/dkm/admin/bendahara/owner/superadmin)
+	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
+		return err
+	}
+
+	// Paksa body sesuai context
+	if p.ClassParentMasjidID == uuid.Nil {
+		p.ClassParentMasjidID = masjidID
+	} else if p.ClassParentMasjidID != masjidID {
+		return helper.JsonError(c, fiber.StatusConflict, "class_parent_masjid_id pada body tidak cocok dengan konteks masjid")
+	}
+
+	// --- Uniqueness per masjid ---
+	if p.ClassParentCode != nil {
+		code := strings.TrimSpace(*p.ClassParentCode)
+		if code != "" {
+			var cnt int64
+			if err := ctl.DB.Model(&cpmodel.ClassParentModel{}).
+				Where("class_parent_masjid_id = ? AND class_parent_code = ? AND class_parent_deleted_at IS NULL",
+					masjidID, code).
+				Count(&cnt).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek kode")
+			}
+			if cnt > 0 {
+				return helper.JsonError(c, fiber.StatusConflict, "Kode sudah digunakan")
+			}
 		}
-		if exists {
-			return helper.JsonError(c, fiber.StatusConflict, "Kode sudah digunakan pada masjid ini")
+	}
+	if p.ClassParentSlug != nil {
+		slug := strings.ToLower(strings.TrimSpace(*p.ClassParentSlug))
+		if slug != "" {
+			var cnt int64
+			if err := ctl.DB.Model(&cpmodel.ClassParentModel{}).
+				Where("class_parent_masjid_id = ? AND class_parent_slug = ? AND class_parent_deleted_at IS NULL",
+					masjidID, slug).
+				Count(&cnt).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek slug")
+			}
+			if cnt > 0 {
+				return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan")
+			}
 		}
 	}
 
-	m := req.ToModel()
-	m.ClassParentMasjidID = masjidID
-
-	// >>> NEW: generate code kalau kosong
-	if strings.TrimSpace(m.ClassParentCode) == "" {
-		gen, err := ctl.ensureUniqueCode(masjidID, m.ClassParentName, nil)
-		if err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat kode unik")
-		}
-		m.ClassParentCode = gen
+	ent := p.ToModel()
+	if err := ctl.DB.Create(ent).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan data")
 	}
-
-	if err := ctl.DB.WithContext(c.Context()).Create(&m).Error; err != nil {
-		low := strings.ToLower(err.Error())
-		if strings.Contains(low, "uq_class_parent") && strings.Contains(low, "code") {
-			return helper.JsonError(c, fiber.StatusConflict, "Kode sudah digunakan pada masjid ini")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat class parent")
-	}
-
-	return helper.JsonCreated(c, "Class parent berhasil dibuat", cpdto.ToClassParentResponse(m))
+	return helper.JsonCreated(c, "Berhasil membuat parent kelas", cpdto.FromModelClassParent(ent))
 }
 
-
-// ---------- UPDATE (PATCH, tenant-safe) ----------
-func (ctl *ClassParentController) Update(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+/* =========================================================
+   PATCH (staff only)
+   ========================================================= */
+func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
+	idStr := strings.TrimSpace(c.Params("id"))
+	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
-	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "id tidak valid")
 	}
 
-	var req cpdto.UpdateClassParentRequest
-	if err := c.BodyParser(&req); err != nil {
+	// Ambil record dulu agar tahu masjid_id
+	var ent cpmodel.ClassParentModel
+	if err := ctl.DB.WithContext(c.Context()).
+		Where("class_parent_id = ? AND class_parent_deleted_at IS NULL", id).
+		First(&ent).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
+	}
+
+	// Akses staff pada masjid terkait (guard utama)
+	if err := helperAuth.EnsureStaffMasjid(c, ent.ClassParentMasjidID); err != nil {
+		return err
+	}
+
+	var p cpdto.ClassParentPatchRequest
+	if err := c.BodyParser(&p); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
-	if err := ctl.v().Struct(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	p.Normalize()
+
+	// Uniqueness jika code/slug diubah
+	if p.ClassParentCode.Present && p.ClassParentCode.Value != nil {
+		if v := strings.TrimSpace(**p.ClassParentCode.Value); v != "" {
+			var cnt int64
+			if err := ctl.DB.Model(&cpmodel.ClassParentModel{}).
+				Where("class_parent_masjid_id = ? AND class_parent_code = ? AND class_parent_id <> ? AND class_parent_deleted_at IS NULL",
+					ent.ClassParentMasjidID, v, ent.ClassParentID).
+				Count(&cnt).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek kode")
+			}
+			if cnt > 0 {
+				return helper.JsonError(c, fiber.StatusConflict, "Kode sudah digunakan")
+			}
+		}
+	}
+	if p.ClassParentSlug.Present && p.ClassParentSlug.Value != nil {
+		if v := strings.ToLower(strings.TrimSpace(**p.ClassParentSlug.Value)); v != "" {
+			var cnt int64
+			if err := ctl.DB.Model(&cpmodel.ClassParentModel{}).
+				Where("class_parent_masjid_id = ? AND class_parent_slug = ? AND class_parent_id <> ? AND class_parent_deleted_at IS NULL",
+					ent.ClassParentMasjidID, v, ent.ClassParentID).
+				Count(&cnt).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek slug")
+			}
+			if cnt > 0 {
+				return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan")
+			}
+		}
 	}
 
-	var m cpmodel.ClassParentModel
+	// Terapkan perubahan ke entity
+	p.Apply(&ent)
+
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("class_parent_id = ? AND class_parent_masjid_id = ? AND class_parent_deleted_at IS NULL", id, masjidID).
-		First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
+		Model(&cpmodel.ClassParentModel{}).
+		Where("class_parent_id = ?", ent.ClassParentID).
+		Updates(&ent).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan")
 	}
 
-	// Terapkan patch (nama dkk mungkin berubah)
-	req.ApplyPatch(&m)
+	// muat ulang (best effort)
+	_ = ctl.DB.WithContext(c.Context()).
+		First(&ent, "class_parent_id = ?", ent.ClassParentID).Error
 
-	// >>> NEW: handle code bila dikirim di PATCH
-	if req.ClassParentCode != nil {
-		newCode := strings.TrimSpace(*req.ClassParentCode)
-		if newCode == "" {
-			// user mengosongkan → generate dari nama terbaru
-			gen, err := ctl.ensureUniqueCode(masjidID, m.ClassParentName, &m.ClassParentID)
-			if err != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat kode unik")
-			}
-			m.ClassParentCode = gen
-		} else {
-			exists, err := ctl.codeExists(masjidID, newCode, &m.ClassParentID)
-			if err != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
-			}
-			if exists {
-				return helper.JsonError(c, fiber.StatusConflict, "Kode sudah digunakan pada masjid ini")
-			}
-			m.ClassParentCode = newCode
-		}
-	}
-
-	if err := ctl.DB.WithContext(c.Context()).Save(&m).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui data")
-	}
-	return helper.JsonUpdated(c, "Class parent berhasil diperbarui", cpdto.ToClassParentResponse(m))
+	return helper.JsonOK(c, "Berhasil memperbarui parent kelas", cpdto.FromModelClassParent(&ent))
 }
 
-
-// ---------- DELETE (soft, tenant-safe) ----------
+/* =========================================================
+   DELETE (soft delete, staff only)
+   ========================================================= */
 func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	idStr := strings.TrimSpace(c.Params("id"))
+	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
-	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "id tidak valid")
 	}
 
-	var m cpmodel.ClassParentModel
+	var ent cpmodel.ClassParentModel
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("class_parent_id = ? AND class_parent_masjid_id = ? AND class_parent_deleted_at IS NULL", id, masjidID).
-		First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		Where("class_parent_id = ? AND class_parent_deleted_at IS NULL", id).
+		First(&ent).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// soft delete (pastikan model pakai gorm.DeletedAt di kolom class_parent_deleted_at)
+	// Guard akses staff pada masjid terkait
+	if err := helperAuth.EnsureStaffMasjid(c, ent.ClassParentMasjidID); err != nil {
+		return err
+	}
+
+	now := time.Now()
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("class_parent_id = ? AND class_parent_masjid_id = ?", id, masjidID).
-		Delete(&cpmodel.ClassParentModel{}).Error; err != nil {
+		Model(&cpmodel.ClassParentModel{}).
+		Where("class_parent_id = ?", ent.ClassParentID).
+		Updates(map[string]any{
+			"class_parent_deleted_at": &now,
+			"class_parent_updated_at": now,
+		}).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus data")
 	}
-	return helper.JsonDeleted(c, "Class parent berhasil dihapus", fiber.Map{"class_parent_id": id})
+
+	return helper.JsonOK(c, "Berhasil menghapus parent kelas", fiber.Map{"class_parent_id": ent.ClassParentID})
+}
+
+/* =========================================================
+   Util
+   ========================================================= */
+func clampLimit(v, def, max int) int {
+	if v <= 0 {
+		return def
+	}
+	if v > max {
+		return max
+	}
+	return v
 }

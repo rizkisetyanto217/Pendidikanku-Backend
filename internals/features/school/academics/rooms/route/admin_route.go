@@ -5,7 +5,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	"masjidku_backend/internals/features/school/academics/rooms/controller"
+	clsCtl "masjidku_backend/internals/features/school/academics/rooms/controller"
 )
 
 // RoomsAdminRoutes — route khusus ADMIN (CRUD penuh + restore).
@@ -13,8 +13,9 @@ import (
 //   admin := api.Group("/api/a") // atau sesuai prefix kamu
 //   routes.RoomsAdminRoutes(admin, db)
 func RoomsAdminRoutes(admin fiber.Router, db *gorm.DB) {
-	ctl := controller.NewClassRoomController(db, nil) // validator nil
-	g := admin.Group("/class-rooms")
+	ctl := clsCtl.NewClassRoomController(db, nil) // validator nil
+	// Tambah :masjid_id biar ResolveMasjidContext bisa resolve dari path
+	g := admin.Group("/:masjid_id/class-rooms")
 
 	// Write
 	g.Post("/", ctl.Create)
@@ -25,13 +26,12 @@ func RoomsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	g.Delete("/:id", ctl.Delete)
 	g.Post("/:id/restore", ctl.Restore)
 
-
-	ctl2 := controller.NewClassRoomVirtualLinkController(db)
-	h := admin.Group("/class-room-virtual-links")
+	// Virtual Links
+	ctl2 := clsCtl.NewClassRoomVirtualLinkController(db)
+	h := admin.Group("/:masjid_id/class-room-virtual-links")
 
 	// Create / Read
 	h.Post("/", ctl2.Create)
-	h.Get("/", ctl2.List)
 	h.Get("/:id", ctl2.Detail)
 
 	// Update

@@ -11,8 +11,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"masjidku_backend/internals/features/school/classes/classes/dto"
-	"masjidku_backend/internals/features/school/classes/classes/model"
+	// ✅ gunakan path terbaru
+	dto "masjidku_backend/internals/features/school/classes/classes/dto"
+	model "masjidku_backend/internals/features/school/classes/classes/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 )
@@ -54,7 +55,6 @@ func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
 			class_masjid_id = ?
 			AND lower(class_slug) = lower(?)
 			AND class_deleted_at IS NULL
-			AND class_delete_pending_until IS NULL
 		`, masjidID, slug).
 		First(&m).Error; err != nil {
 
@@ -67,50 +67,49 @@ func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "Data diterima", dto.FromModel(&m))
 }
 
-
 // GET /admin/classes  (public-friendly; auth optional utk list)
 // Refactor total: gabungan list + search (q), filter parent_name via JOIN dinamis (class_parents/class_parent)
 func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 
-		// Deteksi tabel parent yang tersedia: "class_parents" atau "class_parent"
-		detectParentTable := func(db *gorm.DB) string {
+	// Deteksi tabel parent yang tersedia: "class_parents" atau "class_parent"
+	detectParentTable := func(db *gorm.DB) string {
 		// 1) coba to_regclass tanpa schema (mengikuti search_path)
-			var reg *string
-			db.Raw(`SELECT to_regclass('class_parents')::text`).Scan(&reg)
-			if reg != nil && *reg != "" {
-				return "class_parents"
-			}
-			reg = nil
-			db.Raw(`SELECT to_regclass('class_parent')::text`).Scan(&reg)
-			if reg != nil && *reg != "" {
-				return "class_parent"
-			}
+		var reg *string
+		db.Raw(`SELECT to_regclass('class_parents')::text`).Scan(&reg)
+		if reg != nil && *reg != "" {
+			return "class_parents"
+		}
+		reg = nil
+		db.Raw(`SELECT to_regclass('class_parent')::text`).Scan(&reg)
+		if reg != nil && *reg != "" {
+			return "class_parent"
+		}
 
-			// 2) fallback: ambil satu relname dari pg_class (scan ke string langsung)
-			var name string
-			row := db.Raw(`
-				SELECT c.relname
-				FROM pg_catalog.pg_class c
-				JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-				WHERE c.relkind = 'r'
-				AND c.relname IN ('class_parents', 'class_parent')
-				LIMIT 1
-			`).Row()
-			if err := row.Scan(&name); err == nil && name != "" {
-				return name
-			}
+		// 2) fallback: ambil satu relname dari pg_class (scan ke string langsung)
+		var name string
+		row := db.Raw(`
+			SELECT c.relname
+			FROM pg_catalog.pg_class c
+			JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+			WHERE c.relkind = 'r'
+			AND c.relname IN ('class_parents', 'class_parent')
+			LIMIT 1
+		`).Row()
+		if err := row.Scan(&name); err == nil && name != "" {
+			return name
+		}
 
-			// 3) fallback terakhir: coba qualified public (untuk env lama)
-			reg = nil
-			db.Raw(`SELECT to_regclass('public.class_parents')::text`).Scan(&reg)
-			if reg != nil && *reg != "" {
-				return "class_parents"
-			}
-			reg = nil
-			db.Raw(`SELECT to_regclass('public.class_parent')::text`).Scan(&reg)
-			if reg != nil && *reg != "" {
-				return "class_parent"
-			}
+		// 3) fallback terakhir: coba qualified public (untuk env lama)
+		reg = nil
+		db.Raw(`SELECT to_regclass('public.class_parents')::text`).Scan(&reg)
+		if reg != nil && *reg != "" {
+			return "class_parents"
+		}
+		reg = nil
+		db.Raw(`SELECT to_regclass('public.class_parent')::text`).Scan(&reg)
+		if reg != nil && *reg != "" {
+			return "class_parent"
+		}
 
 		return ""
 	}
@@ -181,17 +180,13 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	// Terapkan filter umum (tanpa q) ke query "classes" dengan alias tertentu: "c" atau "classes"
 	applyCommonFilters := func(tx *gorm.DB, aliasClass string, q dto.ListClassQuery) *gorm.DB {
 		tx = tx.
-			Where(aliasClass+".class_deleted_at IS NULL").
-			Where(aliasClass+".class_delete_pending_until IS NULL")
+			Where(aliasClass+".class_deleted_at IS NULL")
 
 		if q.ParentID != nil {
 			tx = tx.Where(aliasClass+".class_parent_id = ?", *q.ParentID)
 		}
 		if q.TermID != nil {
 			tx = tx.Where(aliasClass+".class_term_id = ?", *q.TermID)
-		}
-		if q.IsOpen != nil {
-			tx = tx.Where(aliasClass+".class_is_open = ?", *q.IsOpen)
 		}
 		if raw := strings.TrimSpace(c.Query("id")); raw != "" {
 			var ids []uuid.UUID
@@ -200,24 +195,35 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 					continue
 				}
 				id, err := uuid.Parse(part)
-				if err != nil { return tx.Where("1=0") }
+				if err != nil {
+					return tx.Where("1=0")
+				}
 				ids = append(ids, id)
 			}
-			if len(ids) > 0 { tx = tx.Where(aliasClass+".class_id IN ?", ids) }
+			if len(ids) > 0 {
+				tx = tx.Where(aliasClass+".class_id IN ?", ids)
+			}
 		} else if raw := strings.TrimSpace(c.Query("class_id")); raw != "" {
 			var ids []uuid.UUID
 			for _, part := range strings.Split(raw, ",") {
-				if part = strings.TrimSpace(part); part == "" { continue }
+				if part = strings.TrimSpace(part); part == "" {
+					continue
+				}
 				id, err := uuid.Parse(part)
-				if err != nil { return tx.Where("1=0") }
+				if err != nil {
+					return tx.Where("1=0")
+				}
 				ids = append(ids, id)
 			}
-			if len(ids) > 0 { tx = tx.Where(aliasClass+".class_id IN ?", ids) }
+			if len(ids) > 0 {
+				tx = tx.Where(aliasClass+".class_id IN ?", ids)
+			}
 		}
 		if q.Status != nil && strings.TrimSpace(*q.Status) != "" {
 			tx = tx.Where(aliasClass+".class_status = ?", strings.ToLower(strings.TrimSpace(*q.Status)))
 		}
 		if q.DeliveryMode != nil && strings.TrimSpace(*q.DeliveryMode) != "" {
+			// kolom nullable, tapi kondisi ini tetap valid (match hanya yg non-null)
 			tx = tx.Where("LOWER("+aliasClass+".class_delivery_mode) = LOWER(?)", strings.TrimSpace(*q.DeliveryMode))
 		}
 		if q.Slug != nil && strings.TrimSpace(*q.Slug) != "" {
@@ -228,12 +234,24 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			s := "%" + strings.ToLower(strings.TrimSpace(*q.Search)) + "%"
 			tx = tx.Where(`LOWER(COALESCE(`+aliasClass+`.class_notes,'')) LIKE ? OR LOWER(`+aliasClass+`.class_slug) LIKE ?`, s, s)
 		}
-		if q.StartGe != nil { tx = tx.Where(aliasClass+".class_start_date >= ?", *q.StartGe) }
-		if q.StartLe != nil { tx = tx.Where(aliasClass+".class_start_date <= ?", *q.StartLe) }
-		if q.RegOpenGe != nil { tx = tx.Where(aliasClass+".class_registration_opens_at >= ?", *q.RegOpenGe) }
-		if q.RegCloseLe != nil { tx = tx.Where(aliasClass+".class_registration_closes_at <= ?", *q.RegCloseLe) }
-		if q.CompletedGe != nil { tx = tx.Where(aliasClass+".class_completed_at >= ?", *q.CompletedGe) }
-		if q.CompletedLe != nil { tx = tx.Where(aliasClass+".class_completed_at <= ?", *q.CompletedLe) }
+		if q.StartGe != nil {
+			tx = tx.Where(aliasClass+".class_start_date >= ?", *q.StartGe)
+		}
+		if q.StartLe != nil {
+			tx = tx.Where(aliasClass+".class_start_date <= ?", *q.StartLe)
+		}
+		if q.RegOpenGe != nil {
+			tx = tx.Where(aliasClass+".class_registration_opens_at >= ?", *q.RegOpenGe)
+		}
+		if q.RegCloseLe != nil {
+			tx = tx.Where(aliasClass+".class_registration_closes_at <= ?", *q.RegCloseLe)
+		}
+		if q.CompletedGe != nil {
+			tx = tx.Where(aliasClass+".class_completed_at >= ?", *q.CompletedGe)
+		}
+		if q.CompletedLe != nil {
+			tx = tx.Where(aliasClass+".class_completed_at <= ?", *q.CompletedLe)
+		}
 
 		return tx
 	}
@@ -272,7 +290,9 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 
 	// Pencarian gabungan; saat q != "", auto include subjects
 	searchQ := strings.ToLower(strings.TrimSpace(c.Query("q")))
-	if searchQ != "" { wantSubjects = true }
+	if searchQ != "" {
+		wantSubjects = true
+	}
 	like := "%" + searchQ + "%"
 
 	// Filter tambahan: parent_name
@@ -383,14 +403,14 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		// sorting
 		sortBy := strings.ToLower(strings.TrimSpace(pg.SortBy))
 		order := strings.ToLower(strings.TrimSpace(pg.SortOrder))
-		if order != "asc" && order != "desc" { order = "desc" }
+		if order != "asc" && order != "desc" {
+			order = "desc"
+		}
 		switch sortBy {
 		case "slug":
 			tx = tx.Order("LOWER(class_slug) " + strings.ToUpper(order)).Order("class_created_at DESC")
 		case "start_date":
 			tx = tx.Order("class_start_date " + strings.ToUpper(order)).Order("class_created_at DESC")
-		case "is_open":
-			tx = tx.Order("class_is_open " + strings.ToUpper(order)).Order("class_created_at DESC")
 		case "status":
 			tx = tx.Order("class_status " + strings.ToUpper(order)).Order("class_created_at DESC")
 		case "delivery_mode":
@@ -412,10 +432,12 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 		}
 		if len(idRows) == 0 {
-		 return helper.JsonList(c, []any{}, helper.BuildMeta(total, pg))
+			return helper.JsonList(c, []any{}, helper.BuildMeta(total, pg))
 		}
 		classIDs = make([]uuid.UUID, 0, len(idRows))
-		for _, r := range idRows { classIDs = append(classIDs, r.ClassID) }
+		for _, r := range idRows {
+			classIDs = append(classIDs, r.ClassID)
+		}
 	}
 
 	/* =============================
@@ -425,7 +447,6 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	if err := ctrl.DB.
 		Where("class_id IN ?", classIDs).
 		Where("class_deleted_at IS NULL").
-		Where("class_delete_pending_until IS NULL").
 		Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil detail kelas")
 	}
@@ -440,14 +461,20 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		tSet := map[uuid.UUID]struct{}{}
 		pSet := map[uuid.UUID]struct{}{}
 		for i := range rows {
-			if wantTerm && rows[i].ClassTermID != nil { tSet[*rows[i].ClassTermID] = struct{}{} }
-			if wantParent && rows[i].ClassParentID != uuid.Nil { pSet[rows[i].ClassParentID] = struct{}{} }
+			if wantTerm && rows[i].ClassTermID != nil {
+				tSet[*rows[i].ClassTermID] = struct{}{}
+			}
+			if wantParent && rows[i].ClassParentID != uuid.Nil {
+				pSet[rows[i].ClassParentID] = struct{}{}
+			}
 		}
 
 		// term
 		if wantTerm && len(tSet) > 0 {
 			ids := make([]uuid.UUID, 0, len(tSet))
-			for id := range tSet { ids = append(ids, id) }
+			for id := range tSet {
+				ids = append(ids, id)
+			}
 			type tr struct {
 				ID           uuid.UUID  `gorm:"column:academic_terms_id"`
 				Name         string     `gorm:"column:academic_terms_name"`
@@ -478,7 +505,9 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		// parent (pakai tabel yang terdeteksi saja; tidak ada fallback subquery)
 		if wantParent && len(pSet) > 0 && parentTbl != "" {
 			ids := make([]uuid.UUID, 0, len(pSet))
-			for id := range pSet { ids = append(ids, id) }
+			for id := range pSet {
+				ids = append(ids, id)
+			}
 
 			var ps []parentLite
 			if err := ctrl.DB.
@@ -489,7 +518,9 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 				Find(&ps).Error; err != nil {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil class_parent")
 			}
-			for _, r := range ps { parentMap[r.ID] = r }
+			for _, r := range ps {
+				parentMap[r.ID] = r
+			}
 		}
 	}
 
@@ -504,7 +535,9 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	subjectsMap := map[uuid.UUID][]SubjectLite{}
 	if wantSubjects && len(rows) > 0 {
 		classIDs2 := make([]uuid.UUID, 0, len(rows))
-		for i := range rows { classIDs2 = append(classIDs2, rows[i].ClassID) }
+		for i := range rows {
+			classIDs2 = append(classIDs2, rows[i].ClassID)
+		}
 
 		type subjRow struct {
 			ClassID         uuid.UUID `gorm:"column:class_id"`
@@ -546,22 +579,34 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	}
 
 	rowByID := make(map[uuid.UUID]*model.ClassModel, len(rows))
-	for i := range rows { rowByID[rows[i].ClassID] = &rows[i] }
+	for i := range rows {
+		rowByID[rows[i].ClassID] = &rows[i]
+	}
 
 	out := make([]*classWithExpand, 0, len(classIDs))
 	for _, id := range classIDs {
 		r := rowByID[id]
-		if r == nil { continue }
+		if r == nil {
+			continue
+		}
 		base := dto.FromModel(r)
 		item := &classWithExpand{ClassResponse: &base}
 
 		if wantTerm && r.ClassTermID != nil {
-			if t, ok := termMap[*r.ClassTermID]; ok { tCopy := t; item.Term = &tCopy }
+			if t, ok := termMap[*r.ClassTermID]; ok {
+				tCopy := t
+				item.Term = &tCopy
+			}
 		}
 		if wantParent {
-			if pLite, ok := parentMap[r.ClassParentID]; ok { pCopy := pLite; item.Parent = &pCopy }
+			if pLite, ok := parentMap[r.ClassParentID]; ok {
+				pCopy := pLite
+				item.Parent = &pCopy
+			}
 		}
-		if wantSubjects { item.Subjects = subjectsMap[r.ClassID] }
+		if wantSubjects {
+			item.Subjects = subjectsMap[r.ClassID]
+		}
 
 		out = append(out, item)
 	}

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	classroomsModel "masjidku_backend/internals/features/school/academics/rooms/model"
+	classroomModel "masjidku_backend/internals/features/school/academics/rooms/model"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
@@ -66,27 +66,27 @@ func (ni *NullableInt) UnmarshalJSON(b []byte) error {
    ======================================================= */
 
 type CreateClassRoomRequest struct {
-	ClassRoomsName         string         `json:"class_rooms_name" validate:"required,min=3,max=100"`
-	ClassRoomsCode         *string        `json:"class_rooms_code,omitempty" validate:"omitempty,max=50"`
-	ClassRoomsLocation     *string        `json:"class_rooms_location,omitempty" validate:"omitempty,max=100"`
-	ClassRoomsFloor        *int           `json:"class_rooms_floor,omitempty" validate:"omitempty"`
-	ClassRoomsCapacity     *int           `json:"class_rooms_capacity,omitempty" validate:"omitempty,min=0"`
-	ClassRoomsDescription  *string        `json:"class_rooms_description,omitempty" validate:"omitempty"` // NEW
-	ClassRoomsIsVirtual    bool           `json:"class_rooms_is_virtual"`
-	ClassRoomsIsActive     bool           `json:"class_rooms_is_active"`
-	ClassRoomsFeatures     datatypes.JSON `json:"class_rooms_features" validate:"omitempty"`
+	ClassRoomsName        string         `json:"class_rooms_name" validate:"required,min=3,max=100"`
+	ClassRoomsCode        *string        `json:"class_rooms_code,omitempty" validate:"omitempty,max=50"`
+	ClassRoomsSlug        *string        `json:"class_rooms_slug,omitempty" validate:"omitempty,min=3,max=50"` // NEW
+	ClassRoomsLocation    *string        `json:"class_rooms_location,omitempty" validate:"omitempty,max=100"`
+	ClassRoomsCapacity    *int           `json:"class_rooms_capacity,omitempty" validate:"omitempty,min=0"`
+	ClassRoomsDescription *string        `json:"class_rooms_description,omitempty" validate:"omitempty"`
+	ClassRoomsIsVirtual   bool           `json:"class_rooms_is_virtual"`
+	ClassRoomsIsActive    bool           `json:"class_rooms_is_active"`
+	ClassRoomsFeatures    datatypes.JSON `json:"class_rooms_features" validate:"omitempty"`
 }
 
 type UpdateClassRoomRequest struct {
-	ClassRoomsName         *string         `json:"class_rooms_name,omitempty" validate:"omitempty,min=3,max=100"`
-	ClassRoomsCode         *string         `json:"class_rooms_code,omitempty" validate:"omitempty,max=50"`
-	ClassRoomsLocation     *string         `json:"class_rooms_location,omitempty" validate:"omitempty,max=100"`
-	ClassRoomsFloor        *int            `json:"class_rooms_floor,omitempty" validate:"omitempty"`
-	ClassRoomsCapacity     *int            `json:"class_rooms_capacity,omitempty" validate:"omitempty,min=0"`
-	ClassRoomsDescription  *string         `json:"class_rooms_description,omitempty" validate:"omitempty"` // NEW
-	ClassRoomsIsVirtual    *bool           `json:"class_rooms_is_virtual,omitempty"`
-	ClassRoomsIsActive     *bool           `json:"class_rooms_is_active,omitempty"`
-	ClassRoomsFeatures     *datatypes.JSON `json:"class_rooms_features,omitempty"`
+	ClassRoomsName        *string         `json:"class_rooms_name,omitempty" validate:"omitempty,min=3,max=100"`
+	ClassRoomsCode        *string         `json:"class_rooms_code,omitempty" validate:"omitempty,max=50"`
+	ClassRoomsSlug        *string         `json:"class_rooms_slug,omitempty" validate:"omitempty,min=3,max=50"` // NEW
+	ClassRoomsLocation    *string         `json:"class_rooms_location,omitempty" validate:"omitempty,max=100"`
+	ClassRoomsCapacity    *int            `json:"class_rooms_capacity,omitempty" validate:"omitempty,min=0"`
+	ClassRoomsDescription *string         `json:"class_rooms_description,omitempty" validate:"omitempty"`
+	ClassRoomsIsVirtual   *bool           `json:"class_rooms_is_virtual,omitempty"`
+	ClassRoomsIsActive    *bool           `json:"class_rooms_is_active,omitempty"`
+	ClassRoomsFeatures    *datatypes.JSON `json:"class_rooms_features,omitempty"`
 }
 
 /* =======================================================
@@ -94,15 +94,15 @@ type UpdateClassRoomRequest struct {
    ======================================================= */
 
 type PatchClassRoomRequest struct {
-	ClassRoomsName         Optional[string]         `json:"class_rooms_name,omitempty"`
-	ClassRoomsCode         Optional[NullableString] `json:"class_rooms_code,omitempty"`
-	ClassRoomsLocation     Optional[NullableString] `json:"class_rooms_location,omitempty"`
-	ClassRoomsFloor        Optional[NullableInt]    `json:"class_rooms_floor,omitempty"`
-	ClassRoomsCapacity     Optional[NullableInt]    `json:"class_rooms_capacity,omitempty"`
-	ClassRoomsDescription  Optional[NullableString] `json:"class_rooms_description,omitempty"` // NEW
-	ClassRoomsIsVirtual    Optional[bool]           `json:"class_rooms_is_virtual,omitempty"`
-	ClassRoomsIsActive     Optional[bool]           `json:"class_rooms_is_active,omitempty"`
-	ClassRoomsFeatures     Optional[datatypes.JSON] `json:"class_rooms_features,omitempty"`
+	ClassRoomsName        Optional[string]         `json:"class_rooms_name,omitempty"`
+	ClassRoomsCode        Optional[NullableString] `json:"class_rooms_code,omitempty"`
+	ClassRoomsSlug        Optional[NullableString] `json:"class_rooms_slug,omitempty"` // NEW
+	ClassRoomsLocation    Optional[NullableString] `json:"class_rooms_location,omitempty"`
+	ClassRoomsCapacity    Optional[NullableInt]    `json:"class_rooms_capacity,omitempty"`
+	ClassRoomsDescription Optional[NullableString] `json:"class_rooms_description,omitempty"`
+	ClassRoomsIsVirtual   Optional[bool]           `json:"class_rooms_is_virtual,omitempty"`
+	ClassRoomsIsActive    Optional[bool]           `json:"class_rooms_is_active,omitempty"`
+	ClassRoomsFeatures    Optional[datatypes.JSON] `json:"class_rooms_features,omitempty"`
 }
 
 func (p *PatchClassRoomRequest) Normalize() {
@@ -111,6 +111,10 @@ func (p *PatchClassRoomRequest) Normalize() {
 	}
 	if p.ClassRoomsCode.Present && p.ClassRoomsCode.Value.Valid {
 		p.ClassRoomsCode.Value.Value = strings.TrimSpace(p.ClassRoomsCode.Value.Value)
+	}
+	if p.ClassRoomsSlug.Present && p.ClassRoomsSlug.Value.Valid {
+		s := strings.ToLower(strings.TrimSpace(p.ClassRoomsSlug.Value.Value))
+		p.ClassRoomsSlug.Value.Value = s
 	}
 	if p.ClassRoomsLocation.Present && p.ClassRoomsLocation.Value.Valid {
 		p.ClassRoomsLocation.Value.Value = strings.TrimSpace(p.ClassRoomsLocation.Value.Value)
@@ -134,20 +138,20 @@ func (p *PatchClassRoomRequest) BuildUpdateMap() map[string]interface{} {
 			up["class_rooms_code"] = nil
 		}
 	}
+	if p.ClassRoomsSlug.Present {
+		if p.ClassRoomsSlug.Value.Valid {
+			v := p.ClassRoomsSlug.Value.Value
+			up["class_rooms_slug"] = &v
+		} else {
+			up["class_rooms_slug"] = nil
+		}
+	}
 	if p.ClassRoomsLocation.Present {
 		if p.ClassRoomsLocation.Value.Valid {
 			v := p.ClassRoomsLocation.Value.Value
 			up["class_rooms_location"] = &v
 		} else {
 			up["class_rooms_location"] = nil
-		}
-	}
-	if p.ClassRoomsFloor.Present {
-		if p.ClassRoomsFloor.Value.Valid {
-			v := p.ClassRoomsFloor.Value.Value
-			up["class_rooms_floor"] = &v
-		} else {
-			up["class_rooms_floor"] = nil
 		}
 	}
 	if p.ClassRoomsCapacity.Present {
@@ -184,23 +188,23 @@ func (p *PatchClassRoomRequest) BuildUpdateMap() map[string]interface{} {
    ======================================================= */
 
 type ClassRoomResponse struct {
-	ClassRoomID            uuid.UUID      `json:"class_room_id"`
-	ClassRoomsMasjidID     uuid.UUID      `json:"class_rooms_masjid_id"`
-	ClassRoomsName         string         `json:"class_rooms_name"`
-	ClassRoomsCode         *string        `json:"class_rooms_code,omitempty"`
-	ClassRoomsLocation     *string        `json:"class_rooms_location,omitempty"`
-	ClassRoomsFloor        *int           `json:"class_rooms_floor,omitempty"`
-	ClassRoomsCapacity     *int           `json:"class_rooms_capacity,omitempty"`
-	ClassRoomsDescription  *string        `json:"class_rooms_description,omitempty"` // NEW
-	ClassRoomsIsVirtual    bool           `json:"class_rooms_is_virtual"`
-	ClassRoomsIsActive     bool           `json:"class_rooms_is_active"`
-	ClassRoomsFeatures     datatypes.JSON `json:"class_rooms_features"`
-	ClassRoomsCreatedAt    time.Time      `json:"class_rooms_created_at"`
-	ClassRoomsUpdatedAt    time.Time      `json:"class_rooms_updated_at"`
-	ClassRoomsDeletedAt    *time.Time     `json:"class_rooms_deleted_at,omitempty"`
+	ClassRoomID           uuid.UUID      `json:"class_room_id"`
+	ClassRoomsMasjidID    uuid.UUID      `json:"class_rooms_masjid_id"`
+	ClassRoomsName        string         `json:"class_rooms_name"`
+	ClassRoomsCode        *string        `json:"class_rooms_code,omitempty"`
+	ClassRoomsSlug        *string        `json:"class_rooms_slug,omitempty"` // NEW
+	ClassRoomsLocation    *string        `json:"class_rooms_location,omitempty"`
+	ClassRoomsCapacity    *int           `json:"class_rooms_capacity,omitempty"`
+	ClassRoomsDescription *string        `json:"class_rooms_description,omitempty"`
+	ClassRoomsIsVirtual   bool           `json:"class_rooms_is_virtual"`
+	ClassRoomsIsActive    bool           `json:"class_rooms_is_active"`
+	ClassRoomsFeatures    datatypes.JSON `json:"class_rooms_features"`
+	ClassRoomsCreatedAt   time.Time      `json:"class_rooms_created_at"`
+	ClassRoomsUpdatedAt   time.Time      `json:"class_rooms_updated_at"`
+	ClassRoomsDeletedAt   *time.Time     `json:"class_rooms_deleted_at,omitempty"`
 }
 
-func ToClassRoomResponse(m classroomsModel.ClassRoomModel) ClassRoomResponse {
+func ToClassRoomResponse(m classroomModel.ClassRoomModel) ClassRoomResponse {
 	var deletedAt *time.Time
 	if m.ClassRoomsDeletedAt.Valid {
 		deletedAt = &m.ClassRoomsDeletedAt.Time
@@ -211,10 +215,10 @@ func ToClassRoomResponse(m classroomsModel.ClassRoomModel) ClassRoomResponse {
 		ClassRoomsMasjidID:    m.ClassRoomsMasjidID,
 		ClassRoomsName:        m.ClassRoomsName,
 		ClassRoomsCode:        m.ClassRoomsCode,
+		ClassRoomsSlug:        m.ClassRoomsSlug,
 		ClassRoomsLocation:    m.ClassRoomsLocation,
-		ClassRoomsFloor:       m.ClassRoomsFloor,
 		ClassRoomsCapacity:    m.ClassRoomsCapacity,
-		ClassRoomsDescription: m.ClassRoomsDescription, // NEW
+		ClassRoomsDescription: m.ClassRoomsDescription,
 		ClassRoomsIsVirtual:   m.ClassRoomsIsVirtual,
 		ClassRoomsIsActive:    m.ClassRoomsIsActive,
 		ClassRoomsFeatures:    m.ClassRoomsFeatures,
@@ -261,6 +265,10 @@ func (r *CreateClassRoomRequest) Normalize() {
 		c := strings.TrimSpace(*r.ClassRoomsCode)
 		r.ClassRoomsCode = &c
 	}
+	if r.ClassRoomsSlug != nil {
+		s := strings.ToLower(strings.TrimSpace(*r.ClassRoomsSlug))
+		r.ClassRoomsSlug = &s
+	}
 	if r.ClassRoomsLocation != nil {
 		l := strings.TrimSpace(*r.ClassRoomsLocation)
 		r.ClassRoomsLocation = &l
@@ -279,6 +287,10 @@ func (r *UpdateClassRoomRequest) Normalize() {
 	if r.ClassRoomsCode != nil {
 		v := strings.TrimSpace(*r.ClassRoomsCode)
 		r.ClassRoomsCode = &v
+	}
+	if r.ClassRoomsSlug != nil {
+		v := strings.ToLower(strings.TrimSpace(*r.ClassRoomsSlug))
+		r.ClassRoomsSlug = &v
 	}
 	if r.ClassRoomsLocation != nil {
 		v := strings.TrimSpace(*r.ClassRoomsLocation)

@@ -1,84 +1,28 @@
--- =========================================================
--- CLASS SECTIONS — FULL REFACTOR (idempotent, no triggers)
--- =========================================================
 BEGIN;
 
--- ---------- PRASYARAT ----------
+-- =========================================================
+-- PRASYARAT (aman diulang)
+-- =========================================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
-CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- GIN trigram ops
+CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- trigram index (ILIKE cepat)
 
 -- =========================================================
--- 0) NORMALISASI TABEL REFERENSI (syarat FK komposit)
---    Pastikan pasangan kolom referensi bersifat UNIQUE
+-- CLASS SECTIONS (fresh create)
 -- =========================================================
-
--- classes: UNIQUE (class_id, class_masjid_id)
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conrelid='classes'::regclass AND conname='uq_classes_id_masjid' AND contype='u'
-  ) THEN
-    ALTER TABLE classes
-      ADD CONSTRAINT uq_classes_id_masjid UNIQUE (class_id, class_masjid_id);
-  END IF;
-END$$;
-
--- masjid_teachers: UNIQUE (masjid_teacher_id, masjid_teacher_masjid_id)
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conrelid='masjid_teachers'::regclass AND conname='uq_masjid_teachers_id_masjid' AND contype='u'
-  ) THEN
-    ALTER TABLE masjid_teachers
-      ADD CONSTRAINT uq_masjid_teachers_id_masjid UNIQUE (masjid_teacher_id, masjid_teacher_masjid_id);
-  END IF;
-END$$;
-
--- class_rooms: selaraskan nama kolom + UNIQUE (class_room_id, class_rooms_masjid_id)
-DO $$
-BEGIN
-  -- rename kolom jika masih bernama class_room_masjid_id
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name='class_rooms' AND column_name='class_room_masjid_id'
-  ) AND NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name='class_rooms' AND column_name='class_rooms_masjid_id'
-  ) THEN
-    ALTER TABLE class_rooms RENAME COLUMN class_room_masjid_id TO class_rooms_masjid_id;
-  END IF;
-
-  -- tambahkan UNIQUE komposit
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conrelid='class_rooms'::regclass AND conname='uq_class_rooms_id_masjid' AND contype='u'
-  ) THEN
-    ALTER TABLE class_rooms
-      ADD CONSTRAINT uq_class_rooms_id_masjid UNIQUE (class_room_id, class_rooms_masjid_id);
-  END IF;
-END$$;
-
--- =========================================================
--- 1) DROP TABEL LAMA (bila ada)
--- =========================================================
-DROP TABLE IF EXISTS class_sections CASCADE;
-
--- =========================================================
--- 2) CREATE: class_sections
--- =========================================================
-CREATE TABLE class_sections (
+CREATE TABLE IF NOT EXISTS class_sections (
   class_sections_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Tenant & relasi inti
   class_sections_masjid_id UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  class_sections_class_id               UUID NOT NULL,
-  class_sections_teacher_id             UUID,
-  class_sections_assistant_teacher_id   UUID,
-  class_sections_class_room_id          UUID,
+  class_sections_class_id             UUID NOT NULL,
+  class_sections_teacher_id           UUID,
+  class_sections_assistant_teacher_id UUID,
+  class_sections_class_room_id        UUID,
+
+  -- Leader (ketua kelas) dari masjid_students
+  class_sections_leader_student_id    UUID,
 
   -- Identitas
   class_sections_slug  VARCHAR(160) NOT NULL,
@@ -108,7 +52,7 @@ CREATE TABLE class_sections (
   class_sections_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   class_sections_deleted_at TIMESTAMPTZ,
 
-  -- ============== CHECK guards ==============
+  -- ================= CHECK guards =================
   CONSTRAINT ck_sections_capacity_nonneg
     CHECK (class_sections_capacity IS NULL OR class_sections_capacity >= 0),
   CONSTRAINT ck_sections_total_nonneg
@@ -118,7 +62,8 @@ CREATE TABLE class_sections (
   CONSTRAINT ck_sections_group_url_scheme
     CHECK (class_sections_group_url IS NULL OR class_sections_group_url ~* '^(https?)://'),
 
-  -- ============== FK KOMPOSIT tenant-safe ==============
+  -- ================= FK KOMPOSIT (tenant-safe) =================
+  -- Catatan: pasangan kolom yang direferensikan harus sudah UNIQUE/PK di tabel tujuan.
   CONSTRAINT fk_sections_class_same_masjid
     FOREIGN KEY (class_sections_class_id, class_sections_masjid_id)
     REFERENCES classes (class_id, class_masjid_id)
@@ -134,13 +79,18 @@ CREATE TABLE class_sections (
     REFERENCES class_rooms (class_room_id, class_rooms_masjid_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
+  CONSTRAINT fk_sections_leader_student_same_masjid
+    FOREIGN KEY (class_sections_leader_student_id, class_sections_masjid_id)
+    REFERENCES masjid_students (masjid_student_id, masjid_student_masjid_id)
+    ON UPDATE CASCADE ON DELETE SET NULL,
+
   -- Pair unik untuk join multi-tenant aman
   CONSTRAINT uq_class_sections_id_masjid
     UNIQUE (class_sections_id, class_sections_masjid_id)
 );
 
 -- =========================================================
--- 3) INDEXES (performant & minimal)
+-- INDEXES (performant & minimal)
 -- =========================================================
 
 -- Unik: slug per masjid (alive only, case-insensitive)
@@ -158,20 +108,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_code_per_class_alive
   ON class_sections (class_sections_class_id, LOWER(class_sections_code))
   WHERE class_sections_deleted_at IS NULL AND class_sections_code IS NOT NULL;
 
--- FK-friendly composite indexes (cocok dengan FK komposit)
-CREATE INDEX IF NOT EXISTS idx_sections_class_masjid
+-- FK-friendly composite indexes
+CREATE INDEX IF NOT EXISTS idx_sections_class_masjid_alive
   ON class_sections (class_sections_class_id, class_sections_masjid_id)
   WHERE class_sections_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_sections_teacher_masjid
+CREATE INDEX IF NOT EXISTS idx_sections_teacher_masjid_alive
   ON class_sections (class_sections_teacher_id, class_sections_masjid_id)
   WHERE class_sections_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_sections_room_masjid
+CREATE INDEX IF NOT EXISTS idx_sections_room_masjid_alive
   ON class_sections (class_sections_class_room_id, class_sections_masjid_id)
   WHERE class_sections_deleted_at IS NULL;
 
--- Lookup dasar (single column) — optional jika di atas sudah ada
+-- Leader student lookup
+CREATE INDEX IF NOT EXISTS idx_sections_leader_student_masjid_alive
+  ON class_sections (class_sections_leader_student_id, class_sections_masjid_id)
+  WHERE class_sections_deleted_at IS NULL;
+
+-- Lookup dasar
 CREATE INDEX IF NOT EXISTS idx_sections_masjid
   ON class_sections (class_sections_masjid_id);
 
@@ -193,7 +148,7 @@ CREATE INDEX IF NOT EXISTS ix_sections_room_active_created
   ON class_sections (class_sections_class_room_id, class_sections_is_active, class_sections_created_at DESC)
   WHERE class_sections_deleted_at IS NULL;
 
--- Pencarian teks cepat (ILIKE) pada name/slug (opsional; butuh pg_trgm)
+-- Pencarian teks cepat (ILIKE) pada name/slug
 CREATE INDEX IF NOT EXISTS gin_sections_name_trgm_alive
   ON class_sections USING GIN (LOWER(class_sections_name) gin_trgm_ops)
   WHERE class_sections_deleted_at IS NULL;
@@ -202,7 +157,7 @@ CREATE INDEX IF NOT EXISTS gin_sections_slug_trgm_alive
   ON class_sections USING GIN (LOWER(class_sections_slug) gin_trgm_ops)
   WHERE class_sections_deleted_at IS NULL;
 
--- Lookup by group_url (opsional)
+-- URL group lookup (opsional)
 CREATE INDEX IF NOT EXISTS idx_sections_group_url_alive
   ON class_sections (class_sections_group_url)
   WHERE class_sections_deleted_at IS NULL AND class_sections_group_url IS NOT NULL;
@@ -215,47 +170,5 @@ CREATE INDEX IF NOT EXISTS brin_sections_created_at
 CREATE INDEX IF NOT EXISTS idx_sections_image_purge_due
   ON class_sections (class_sections_image_delete_pending_until)
   WHERE class_sections_image_object_key_old IS NOT NULL;
-
--- =========================================================
--- 4) PULIHKAN FK DI TABEL LAIN (jika ada), TANPA TRIGGER
--- =========================================================
-
--- user_class_sections → (section_id, masjid_id) → class_sections
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='user_class_sections' AND table_schema=current_schema()) THEN
-    IF EXISTS (
-      SELECT 1 FROM information_schema.table_constraints
-      WHERE table_name='user_class_sections' AND constraint_type='FOREIGN KEY' AND constraint_name='fk_ucs_section_masjid_pair'
-    ) THEN
-      ALTER TABLE user_class_sections DROP CONSTRAINT fk_ucs_section_masjid_pair;
-    END IF;
-
-    ALTER TABLE user_class_sections
-      ADD CONSTRAINT fk_ucs_section_masjid_pair
-      FOREIGN KEY (user_class_sections_section_id, user_class_sections_masjid_id)
-      REFERENCES class_sections (class_sections_id, class_sections_masjid_id)
-      ON UPDATE CASCADE ON DELETE CASCADE;
-  END IF;
-END$$;
-
--- class_schedules → (section_id, masjid_id) → class_sections
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='class_schedules' AND table_schema=current_schema()) THEN
-    IF EXISTS (
-      SELECT 1 FROM information_schema.table_constraints
-      WHERE table_name='class_schedules' AND constraint_type='FOREIGN KEY' AND constraint_name='fk_cs_section_same_masjid'
-    ) THEN
-      ALTER TABLE class_schedules DROP CONSTRAINT fk_cs_section_same_masjid;
-    END IF;
-
-    ALTER TABLE class_schedules
-      ADD CONSTRAINT fk_cs_section_same_masjid
-      FOREIGN KEY (class_schedule_section_id, class_schedule_masjid_id)
-      REFERENCES class_sections (class_sections_id, class_sections_masjid_id)
-      ON UPDATE CASCADE ON DELETE CASCADE;
-  END IF;
-END$$;
 
 COMMIT;

@@ -30,11 +30,6 @@ func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// 🕌 MASJID (Admin/DKM)
 	// =========================
 	masjids := admin.Group("/masjids")
-	masjids.Get("/", guard, masjidCtrl.GetMasjids)
-	masjids.Get("/:id_or_slug", guard, masjidCtrl.GetMasjid)
-	masjids.Get("/:id/profile", guard, masjidCtrl.GetMasjidProfile)
-	masjids.Get("/:id/urls", guard, masjidCtrl.GetMasjidURLs)
-
 	masjids.Post("/", guard, masjidCtrl.CreateMasjidDKM)
 	masjids.Put("/:id", guard, masjidCtrl.Patch)
 	masjids.Delete("/:id", guard, masjidCtrl.Delete)

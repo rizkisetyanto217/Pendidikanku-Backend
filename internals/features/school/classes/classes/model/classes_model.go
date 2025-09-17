@@ -1,4 +1,4 @@
-// models/class_model.go
+// file: internals/features/school/academics/classes/model/class_model.go
 package model
 
 import (
@@ -8,56 +8,62 @@ import (
 	"gorm.io/gorm"
 )
 
-// ClassModel merepresentasikan tabel `classes`
+// ClassModel merepresentasikan tabel `classes` sesuai DDL.
 type ClassModel struct {
-	// PK & tenant
-	ClassID       uuid.UUID `gorm:"column:class_id;type:uuid;default:gen_random_uuid();primaryKey" json:"class_id"`
-	ClassMasjidID uuid.UUID `gorm:"column:class_masjid_id;type:uuid;not null"                      json:"class_masjid_id"`
+	// PK & Tenant
+	ClassID       uuid.UUID `json:"class_id"        gorm:"column:class_id;type:uuid;default:gen_random_uuid();primaryKey"`
+	ClassMasjidID uuid.UUID `json:"class_masjid_id" gorm:"column:class_masjid_id;type:uuid;not null"`
 
 	// Parent (FK komposit di DB dg masjid)
-	ClassParentID uuid.UUID `gorm:"column:class_parent_id;type:uuid;not null" json:"class_parent_id"`
+	ClassParentID uuid.UUID `json:"class_parent_id" gorm:"column:class_parent_id;type:uuid;not null"`
 
 	// Identitas (slug)
-	ClassSlug string `gorm:"column:class_slug;type:varchar(160);not null" json:"class_slug"`
+	ClassSlug string `json:"class_slug" gorm:"column:class_slug;type:varchar(160);not null"`
 
 	// Periode kelas (DATE)
-	ClassStartDate *time.Time `gorm:"column:class_start_date;type:date" json:"class_start_date,omitempty"`
-	ClassEndDate   *time.Time `gorm:"column:class_end_date;type:date"   json:"class_end_date,omitempty"`
+	ClassStartDate *time.Time `json:"class_start_date,omitempty" gorm:"column:class_start_date;type:date"`
+	ClassEndDate   *time.Time `json:"class_end_date,omitempty"   gorm:"column:class_end_date;type:date"`
 
-	// Registrasi / Term
-	ClassTermID               *uuid.UUID `gorm:"column:class_term_id;type:uuid"          json:"class_term_id,omitempty"`
-	ClassIsOpen               bool       `gorm:"column:class_is_open;not null;default:true" json:"class_is_open"`
-	ClassRegistrationOpensAt  *time.Time `gorm:"column:class_registration_opens_at;type:timestamptz"  json:"class_registration_opens_at,omitempty"`
-	ClassRegistrationClosesAt *time.Time `gorm:"column:class_registration_closes_at;type:timestamptz" json:"class_registration_closes_at,omitempty"`
+	// Registrasi / Term (tanpa ClassIsOpen — mengikuti DDL)
+	ClassTermID               *uuid.UUID `json:"class_term_id,omitempty"               gorm:"column:class_term_id;type:uuid"`
+	ClassRegistrationOpensAt  *time.Time `json:"class_registration_opens_at,omitempty"  gorm:"column:class_registration_opens_at;type:timestamptz"`
+	ClassRegistrationClosesAt *time.Time `json:"class_registration_closes_at,omitempty" gorm:"column:class_registration_closes_at;type:timestamptz"`
 
 	// Kuota
-	ClassQuotaTotal *int `gorm:"column:class_quota_total"                     json:"class_quota_total,omitempty"`
-	ClassQuotaTaken int   `gorm:"column:class_quota_taken;not null;default:0" json:"class_quota_taken"`
+	ClassQuotaTotal *int `json:"class_quota_total,omitempty" gorm:"column:class_quota_total"`
+	ClassQuotaTaken int  `json:"class_quota_taken"           gorm:"column:class_quota_taken;not null;default:0"`
 
-	// Pricing
-	ClassRegistrationFeeIDR *int64  `gorm:"column:class_registration_fee_idr"                                           json:"class_registration_fee_idr,omitempty"`
-	ClassTuitionFeeIDR      *int64  `gorm:"column:class_tuition_fee_idr"                                                json:"class_tuition_fee_idr,omitempty"`
-	ClassBillingCycle       string  `gorm:"column:class_billing_cycle;type:billing_cycle_enum;not null;default:'monthly'" json:"class_billing_cycle"`
-	ClassProviderProductID  *string `gorm:"column:class_provider_product_id"                                            json:"class_provider_product_id,omitempty"`
-	ClassProviderPriceID    *string `gorm:"column:class_provider_price_id"                                              json:"class_provider_price_id,omitempty"`
+	// Pricing / Billing
+	ClassRegistrationFeeIDR *int64  `json:"class_registration_fee_idr,omitempty" gorm:"column:class_registration_fee_idr"`
+	ClassTuitionFeeIDR      *int64  `json:"class_tuition_fee_idr,omitempty"      gorm:"column:class_tuition_fee_idr"`
+	ClassBillingCycle       string  `json:"class_billing_cycle"                   gorm:"column:class_billing_cycle;type:billing_cycle_enum;not null;default:'monthly'"`
+	ClassProviderProductID  *string `json:"class_provider_product_id,omitempty"  gorm:"column:class_provider_product_id;type:text"`
+	ClassProviderPriceID    *string `json:"class_provider_price_id,omitempty"    gorm:"column:class_provider_price_id;type:text"`
 
-	// Catatan & media
-	ClassNotes    *string `gorm:"column:class_notes"     json:"class_notes,omitempty"`
+	// Catatan
+	ClassNotes *string `json:"class_notes,omitempty" gorm:"column:class_notes;type:text"`
 
 	// Mode & Status
-	ClassDeliveryMode string     `gorm:"column:class_delivery_mode;type:class_delivery_mode_enum"          json:"class_delivery_mode"`
-	ClassStatus       string     `gorm:"column:class_status;type:class_status_enum;not null;default:'active'" json:"class_status"`
-	ClassCompletedAt  *time.Time `gorm:"column:class_completed_at;type:timestamptz"                         json:"class_completed_at,omitempty"`
+	ClassDeliveryMode *string    `json:"class_delivery_mode,omitempty" gorm:"column:class_delivery_mode;type:class_delivery_mode_enum"` // nullable di DDL
+	ClassStatus       string     `json:"class_status"                  gorm:"column:class_status;type:class_status_enum;not null;default:'active'"`
+	ClassCompletedAt  *time.Time `json:"class_completed_at,omitempty"  gorm:"column:class_completed_at;type:timestamptz"`
 
-	// Timestamps (soft delete)
-	ClassCreatedAt time.Time      `gorm:"column:class_created_at;type:timestamptz;not null;default:now()" json:"class_created_at"`
-	ClassUpdatedAt time.Time      `gorm:"column:class_updated_at;type:timestamptz;not null;default:now()" json:"class_updated_at"`
-	ClassDeletedAt gorm.DeletedAt `gorm:"column:class_deleted_at;type:timestamptz;index"                  json:"class_deleted_at,omitempty"`
+	// Single image (2-slot + retensi)
+	ClassImageURL                *string    `json:"class_image_url,omitempty"                 gorm:"column:class_image_url;type:text"`
+	ClassImageObjectKey          *string    `json:"class_image_object_key,omitempty"          gorm:"column:class_image_object_key;type:text"`
+	ClassImageURLOld             *string    `json:"class_image_url_old,omitempty"             gorm:"column:class_image_url_old;type:text"`
+	ClassImageObjectKeyOld       *string    `json:"class_image_object_key_old,omitempty"      gorm:"column:class_image_object_key_old;type:text"`
+	ClassImageDeletePendingUntil *time.Time `json:"class_image_delete_pending_until,omitempty" gorm:"column:class_image_delete_pending_until;type:timestamptz"`
+
+	// Audit (soft delete gaya GORM, kolom tetap `class_deleted_at`)
+	ClassCreatedAt time.Time      `json:"class_created_at"           gorm:"column:class_created_at;type:timestamptz;not null;default:now()"`
+	ClassUpdatedAt time.Time      `json:"class_updated_at"           gorm:"column:class_updated_at;type:timestamptz;not null;default:now()"`
+	ClassDeletedAt gorm.DeletedAt `json:"class_deleted_at,omitempty" gorm:"column:class_deleted_at;type:timestamptz;index"`
 }
 
 func (ClassModel) TableName() string { return "classes" }
 
-// (opsional) enum helpers — pastikan sesuai enum di DB
+// (opsional) enum helpers — pastikan konsisten dg enum di DB
 const (
 	// delivery mode
 	ClassDeliveryModeOffline = "offline"

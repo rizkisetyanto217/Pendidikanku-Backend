@@ -30,10 +30,10 @@ func AcademicYearAdminRoutes(api fiber.Router, db *gorm.DB) {
 	base.Delete("/academic-terms/:id", termCtl.Delete)
 
 	// 2) PATH-SCOPED by masjid_id
-	base.Post("/masjids/:masjid_id/academic-terms", termCtl.Create)
-	base.Put("/masjids/:masjid_id/academic-terms/:id", termCtl.Update)
-	base.Patch("/masjids/:masjid_id/academic-terms/:id", termCtl.Patch)
-	base.Delete("/masjids/:masjid_id/academic-terms/:id", termCtl.Delete)
+	base.Post("/:masjid_id/academic-terms", termCtl.Create)
+	base.Put("/:masjid_id/academic-terms/:id", termCtl.Update)
+	base.Patch("/:masjid_id/academic-terms/:id", termCtl.Patch)
+	base.Delete("/:masjid_id/academic-terms/:id", termCtl.Delete)
 
 	// 3) PATH-SCOPED by masjid_slug
 	base.Post("/m/:masjid_slug/academic-terms", termCtl.Create)

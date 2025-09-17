@@ -25,12 +25,12 @@ func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// Controller class parents
 	parentHandler := classctrl.NewClassParentController(db, nil)
 
-	classParents := admin.Group("/class-parents", masjidkuMiddleware.IsMasjidAdmin())
+	// Prefix masjid_id biar ResolveMasjidContext dapat konteks langsung
+	classParents := admin.Group("/:masjid_id/class-parents", masjidkuMiddleware.IsMasjidAdmin())
 	{
 		classParents.Post("/", parentHandler.Create)
-		classParents.Get("/list", parentHandler.List)
-		classParents.Put("/:id", parentHandler.Update)
-		classParents.Patch("/:id", parentHandler.Update)
+		classParents.Put("/:id", parentHandler.Patch)
+		classParents.Patch("/:id", parentHandler.Patch)
 		classParents.Delete("/:id", parentHandler.Delete)
 	}
 

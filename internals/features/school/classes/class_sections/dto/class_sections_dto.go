@@ -1,229 +1,453 @@
-// file: internals/features/school/classes/sections/main/dto/class_section_dto.go
 package dto
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
-	m "masjidku_backend/internals/features/school/classes/class_sections/model"
-
 	"github.com/google/uuid"
+
+	m "masjidku_backend/internals/features/school/classes/class_sections/model"
 )
 
-/* ===================== Requests ===================== */
+/* =========================================================
+   PATCH FIELD — tri-state (absent | null | value)
+   ========================================================= */
 
-// CREATE (server bisa generate slug jika kosong)
-type CreateClassSectionRequest struct {
-	ClassSectionsMasjidID    uuid.UUID  `json:"class_sections_masjid_id"`                 // required
-	ClassSectionsClassID     uuid.UUID  `json:"class_sections_class_id"`                  // required
-	ClassSectionsTeacherID   *uuid.UUID `json:"class_sections_teacher_id,omitempty"`      // masjid_teachers.*
-	ClassSectionsClassRoomID *uuid.UUID `json:"class_sections_class_room_id,omitempty"`  // class_rooms.class_room_id (opsional)
-
-	ClassSectionsSlug string  `json:"class_sections_slug,omitempty"` // optional
-	ClassSectionsName string  `json:"class_sections_name"`           // required
-	ClassSectionsCode *string `json:"class_sections_code,omitempty"`
-
-	ClassSectionsCapacity *int    `json:"class_sections_capacity,omitempty"`  // >= 0
-	ClassSectionsSchedule *string `json:"class_sections_schedule,omitempty"`  // teks bebas, ex: "Jumat 19:00–21:00"
+type PatchFieldCS[T any] struct {
+	Present bool
+	Value   *T
 }
 
-func (r *CreateClassSectionRequest) ToModel() *m.ClassSectionModel {
-	out := &m.ClassSectionModel{
-		ClassSectionsClassID:     r.ClassSectionsClassID,
-		ClassSectionsMasjidID:    r.ClassSectionsMasjidID,
-		ClassSectionsTeacherID:   r.ClassSectionsTeacherID,
-		ClassSectionsClassRoomID: r.ClassSectionsClassRoomID,
-
-		ClassSectionsSlug: strings.TrimSpace(r.ClassSectionsSlug),
-		ClassSectionsName: strings.TrimSpace(r.ClassSectionsName),
-		ClassSectionsCode: nil,
-
-		ClassSectionsCapacity:  r.ClassSectionsCapacity,
-		ClassSectionsSchedule:  nil,
-		ClassSectionsIsActive:  true, // default aktif
-		// ClassSectionsTotalStudents default 0 dari DB
+func (p *PatchFieldCS[T]) UnmarshalJSON(b []byte) error {
+	p.Present = true
+	if string(b) == "null" {
+		p.Value = nil
+		return nil
 	}
-
-	// optional code
-	if r.ClassSectionsCode != nil {
-		c := strings.TrimSpace(*r.ClassSectionsCode)
-		out.ClassSectionsCode = &c
+	var v T
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
 	}
-
-	// optional schedule
-	if r.ClassSectionsSchedule != nil {
-		s := strings.TrimSpace(*r.ClassSectionsSchedule)
-		out.ClassSectionsSchedule = &s
-	}
-
-
-	return out
+	p.Value = &v
+	return nil
 }
 
-// UPDATE (PATCH semantics: semua optional; kosong "" bisa dipakai utk clear)
-type UpdateClassSectionRequest struct {
-	ClassSectionsMasjidID    *uuid.UUID `json:"class_sections_masjid_id,omitempty"`
-	ClassSectionsClassID     *uuid.UUID `json:"class_sections_class_id,omitempty"`
-	ClassSectionsTeacherID   *uuid.UUID `json:"class_sections_teacher_id,omitempty"`     // masjid_teachers.*
-	ClassSectionsClassRoomID *uuid.UUID `json:"class_sections_class_room_id,omitempty"`  // class_rooms.*
+func (p PatchFieldCS[T]) Get() (*T, bool) { return p.Value, p.Present }
 
-	ClassSectionsSlug *string `json:"class_sections_slug,omitempty"`
-	ClassSectionsName *string `json:"class_sections_name,omitempty"`
-	ClassSectionsCode *string `json:"class_sections_code,omitempty"`
+/* =========================================================
+   CREATE REQUEST / RESPONSE
+   ========================================================= */
 
-	ClassSectionsCapacity *int    `json:"class_sections_capacity,omitempty"`
-	ClassSectionsSchedule *string `json:"class_sections_schedule,omitempty"`
-	ClassSectionsGroupURL *string `json:"class_sections_group_url,omitempty"`
+type ClassSectionCreateRequest struct {
+	// Wajib
+	ClassSectionsMasjidID uuid.UUID `json:"class_sections_masjid_id" validate:"required"`
+	ClassSectionsClassID  uuid.UUID `json:"class_sections_class_id" validate:"required"`
+	ClassSectionsSlug     string    `json:"class_sections_slug" validate:"required,min=1,max=160"`
+	ClassSectionsName     string    `json:"class_sections_name" validate:"required,min=1,max=100"`
 
-	ClassSectionsIsActive *bool `json:"class_sections_is_active,omitempty"`
+	// Opsional
+	ClassSectionsTeacherID          *uuid.UUID `json:"class_sections_teacher_id"`
+	ClassSectionsAssistantTeacherID *uuid.UUID `json:"class_sections_assistant_teacher_id"`
+	ClassSectionsClassRoomID        *uuid.UUID `json:"class_sections_class_room_id"`
+	ClassSectionsLeaderStudentID    *uuid.UUID `json:"class_sections_leader_student_id"`
+
+	ClassSectionsCode     *string `json:"class_sections_code" validate:"omitempty,max=50"`
+	ClassSectionsSchedule *string `json:"class_sections_schedule"`
+	ClassSectionsCapacity *int    `json:"class_sections_capacity"`
+
+	// Bisa diisi saat seed (kalau tidak, biarkan 0)
+	ClassSectionsTotalStudents *int `json:"class_sections_total_students" validate:"omitempty,min=0"`
+
+	ClassSectionsGroupURL *string `json:"class_sections_group_url"`
+
+	// Image (opsional)
+	ClassSectionsImageURL       *string `json:"class_sections_image_url"`
+	ClassSectionsImageObjectKey *string `json:"class_sections_image_object_key"`
+
+	// Status
+	ClassSectionsIsActive *bool `json:"class_sections_is_active"`
 }
 
-// ApplyToModel menerapkan patch ke model (TrimSpace untuk string).
-// Catatan: jika field pointer diberikan & bernilai "" (string kosong),
-// akan disimpan kosong (bukan NULL). Jika ingin benar-benar menghapus (NULL),
-// kirimkan field sebagai tidak-ada (pointer = nil) atau terapkan logika khusus di controller.
-func (r *UpdateClassSectionRequest) ApplyToModel(dst *m.ClassSectionModel) {
-	if r.ClassSectionsMasjidID != nil {
-		dst.ClassSectionsMasjidID = *r.ClassSectionsMasjidID
-	}
-	if r.ClassSectionsClassID != nil {
-		dst.ClassSectionsClassID = *r.ClassSectionsClassID
-	}
-	if r.ClassSectionsTeacherID != nil {
-		dst.ClassSectionsTeacherID = r.ClassSectionsTeacherID
-	}
-	if r.ClassSectionsClassRoomID != nil {
-		dst.ClassSectionsClassRoomID = r.ClassSectionsClassRoomID
+func (r *ClassSectionCreateRequest) Normalize() {
+	trimPtr := func(pp **string, lower bool) {
+		if pp == nil || *pp == nil {
+			return
+		}
+		v := strings.TrimSpace(**pp)
+		if v == "" {
+			*pp = nil
+			return
+		}
+		if lower {
+			v = strings.ToLower(v)
+		}
+		*pp = &v
 	}
 
-	if r.ClassSectionsSlug != nil {
-		s := strings.TrimSpace(*r.ClassSectionsSlug)
-		dst.ClassSectionsSlug = s
-	}
-	if r.ClassSectionsName != nil {
-		n := strings.TrimSpace(*r.ClassSectionsName)
-		dst.ClassSectionsName = n
-	}
-	if r.ClassSectionsCode != nil {
-		c := strings.TrimSpace(*r.ClassSectionsCode)
-		// simpan sebagai pointer; "" akan jadi non-NULL empty string
-		dst.ClassSectionsCode = &c
-	}
+	r.ClassSectionsSlug = strings.ToLower(strings.TrimSpace(r.ClassSectionsSlug))
+	r.ClassSectionsName = strings.TrimSpace(r.ClassSectionsName)
+	trimPtr(&r.ClassSectionsCode, false)
+	trimPtr(&r.ClassSectionsSchedule, false)
+	trimPtr(&r.ClassSectionsGroupURL, false)
+	trimPtr(&r.ClassSectionsImageURL, false)
+	trimPtr(&r.ClassSectionsImageObjectKey, false)
+}
 
-	if r.ClassSectionsCapacity != nil {
-		dst.ClassSectionsCapacity = r.ClassSectionsCapacity
-	}
-	if r.ClassSectionsSchedule != nil {
-		s := strings.TrimSpace(*r.ClassSectionsSchedule)
-		dst.ClassSectionsSchedule = &s
+func (r ClassSectionCreateRequest) ToModel() *m.ClassSectionModel {
+	now := time.Now()
+	cs := &m.ClassSectionModel{
+		ClassSectionsMasjidID: r.ClassSectionsMasjidID,
+		ClassSectionsClassID:  r.ClassSectionsClassID,
+		ClassSectionsSlug:     r.ClassSectionsSlug,
+		ClassSectionsName:     r.ClassSectionsName,
+
+		ClassSectionsTeacherID:          r.ClassSectionsTeacherID,
+		ClassSectionsAssistantTeacherID: r.ClassSectionsAssistantTeacherID,
+		ClassSectionsClassRoomID:        r.ClassSectionsClassRoomID,
+		ClassSectionsLeaderStudentID:    r.ClassSectionsLeaderStudentID,
+
+		ClassSectionsCode:     r.ClassSectionsCode,
+		ClassSectionsSchedule: r.ClassSectionsSchedule,
+		ClassSectionsCapacity: r.ClassSectionsCapacity,
+
+		ClassSectionsGroupURL:        r.ClassSectionsGroupURL,
+		ClassSectionsImageURL:       r.ClassSectionsImageURL,
+		ClassSectionsImageObjectKey: r.ClassSectionsImageObjectKey,
+
+		ClassSectionsCreatedAt: now,
+		ClassSectionsUpdatedAt: now,
 	}
 	if r.ClassSectionsIsActive != nil {
-		dst.ClassSectionsIsActive = *r.ClassSectionsIsActive
+		cs.ClassSectionsIsActive = *r.ClassSectionsIsActive
+	} else {
+		cs.ClassSectionsIsActive = true
 	}
-}
-
-/* ===================== Queries ===================== */
-
-type ListClassSectionQuery struct {
-	Limit      int        `query:"limit"`
-	Offset     int        `query:"offset"`
-	ActiveOnly *bool      `query:"active_only"`
-	Search     *string    `query:"search"`      // name/code/slug (controller handles)
-	ClassID    *uuid.UUID `query:"class_id"`    // filter by class
-	TeacherID  *uuid.UUID `query:"teacher_id"`  // filter by masjid_teacher
-	RoomID     *uuid.UUID `query:"room_id"`     // filter by class_room
-	Sort       *string    `query:"sort"`        // name_asc|name_desc|created_at_asc|created_at_desc
-}
-
-/* ===================== Responses ===================== */
-
-type UserLite struct {
-	ID       uuid.UUID `json:"id"`
-	UserName string    `json:"user_name"`
-	Email    string    `json:"email"`
-	IsActive bool      `json:"is_active"`
-	FullName string    `json:"full_name"`
+	if r.ClassSectionsTotalStudents != nil {
+		cs.ClassSectionsTotalStudents = *r.ClassSectionsTotalStudents
+	}
+	return cs
 }
 
 type ClassSectionResponse struct {
-	ClassSectionsID           uuid.UUID  `json:"class_sections_id"`
-	ClassSectionsClassID      uuid.UUID  `json:"class_sections_class_id"`
-	ClassSectionsMasjidID     uuid.UUID  `json:"class_sections_masjid_id"`
-	ClassSectionsTeacherID    *uuid.UUID `json:"class_sections_teacher_id,omitempty"`
-	ClassSectionsClassRoomID  *uuid.UUID `json:"class_sections_class_room_id,omitempty"`
+	ClassSectionsID       uuid.UUID `json:"class_sections_id"`
+	ClassSectionsMasjidID uuid.UUID `json:"class_sections_masjid_id"`
 
-	ClassSectionsSlug         string   `json:"class_sections_slug"`
-	ClassSectionsName         string   `json:"class_sections_name"`
-	ClassSectionsCode         *string  `json:"class_sections_code,omitempty"`
+	ClassSectionsClassID            uuid.UUID  `json:"class_sections_class_id"`
+	ClassSectionsTeacherID          *uuid.UUID `json:"class_sections_teacher_id"`
+	ClassSectionsAssistantTeacherID *uuid.UUID `json:"class_sections_assistant_teacher_id"`
+	ClassSectionsClassRoomID        *uuid.UUID `json:"class_sections_class_room_id"`
 
-	ClassSectionsCapacity     *int     `json:"class_sections_capacity,omitempty"`
-	ClassSectionsSchedule     *string  `json:"class_sections_schedule,omitempty"`
+	ClassSectionsLeaderStudentID *uuid.UUID `json:"class_sections_leader_student_id"`
 
-	// Denormalized counter
-	ClassSectionsTotalStudents int       `json:"class_sections_total_students"`
+	ClassSectionsSlug string  `json:"class_sections_slug"`
+	ClassSectionsName string  `json:"class_sections_name"`
+	ClassSectionsCode *string `json:"class_sections_code"`
 
-	ClassSectionsIsActive     bool       `json:"class_sections_is_active"`
-	ClassSectionsCreatedAt    time.Time  `json:"class_sections_created_at"`
-	ClassSectionsUpdatedAt    time.Time  `json:"class_sections_updated_at"`
-	ClassSectionsDeletedAt    *time.Time `json:"class_sections_deleted_at,omitempty"`
+	ClassSectionsSchedule *string `json:"class_sections_schedule"`
 
-	Teacher *UserLite `json:"teacher,omitempty"` // enrichment (optional)
+	ClassSectionsCapacity      *int `json:"class_sections_capacity"`
+	ClassSectionsTotalStudents int  `json:"class_sections_total_students"`
+
+	ClassSectionsGroupURL *string `json:"class_sections_group_url"`
+
+	ClassSectionsImageURL                *string    `json:"class_sections_image_url"`
+	ClassSectionsImageObjectKey          *string    `json:"class_sections_image_object_key"`
+	ClassSectionsImageURLOld             *string    `json:"class_sections_image_url_old"`
+	ClassSectionsImageObjectKeyOld       *string    `json:"class_sections_image_object_key_old"`
+	ClassSectionsImageDeletePendingUntil *time.Time `json:"class_sections_image_delete_pending_until"`
+
+	ClassSectionsIsActive  bool       `json:"class_sections_is_active"`
+	ClassSectionsCreatedAt time.Time  `json:"class_sections_created_at"`
+	ClassSectionsUpdatedAt time.Time  `json:"class_sections_updated_at"`
+	ClassSectionsDeletedAt *time.Time `json:"class_sections_deleted_at,omitempty"`
 }
 
-// builder with teacher name only
-func NewClassSectionResponse(src *m.ClassSectionModel, teacherName string) *ClassSectionResponse {
+func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 	var deletedAt *time.Time
-	if !src.ClassSectionsDeletedAt.Time.IsZero() {
-		t := src.ClassSectionsDeletedAt.Time
+	if cs.ClassSectionsDeletedAt.Valid {
+		t := cs.ClassSectionsDeletedAt.Time
 		deletedAt = &t
 	}
+	return ClassSectionResponse{
+		ClassSectionsID:       cs.ClassSectionsID,
+		ClassSectionsMasjidID: cs.ClassSectionsMasjidID,
 
-	return &ClassSectionResponse{
-		ClassSectionsID:           src.ClassSectionsID,
-		ClassSectionsClassID:      src.ClassSectionsClassID,
-		ClassSectionsMasjidID:     src.ClassSectionsMasjidID,
-		ClassSectionsTeacherID:    src.ClassSectionsTeacherID,
-		ClassSectionsClassRoomID:  src.ClassSectionsClassRoomID,
+		ClassSectionsClassID:            cs.ClassSectionsClassID,
+		ClassSectionsTeacherID:          cs.ClassSectionsTeacherID,
+		ClassSectionsAssistantTeacherID: cs.ClassSectionsAssistantTeacherID,
+		ClassSectionsClassRoomID:        cs.ClassSectionsClassRoomID,
 
-		ClassSectionsSlug:         src.ClassSectionsSlug,
-		ClassSectionsName:         src.ClassSectionsName,
-		ClassSectionsCode:         src.ClassSectionsCode,
+		ClassSectionsLeaderStudentID: cs.ClassSectionsLeaderStudentID,
 
-		ClassSectionsCapacity:     src.ClassSectionsCapacity,
-		ClassSectionsSchedule:     src.ClassSectionsSchedule,
+		ClassSectionsSlug: cs.ClassSectionsSlug,
+		ClassSectionsName: cs.ClassSectionsName,
+		ClassSectionsCode: cs.ClassSectionsCode,
 
-		ClassSectionsTotalStudents: src.ClassSectionsTotalStudents,
+		ClassSectionsSchedule: cs.ClassSectionsSchedule,
 
-		ClassSectionsIsActive:     src.ClassSectionsIsActive,
-		ClassSectionsCreatedAt:    src.ClassSectionsCreatedAt,
-		ClassSectionsUpdatedAt:    src.ClassSectionsUpdatedAt,
-		ClassSectionsDeletedAt:    deletedAt,
+		ClassSectionsCapacity:      cs.ClassSectionsCapacity,
+		ClassSectionsTotalStudents: cs.ClassSectionsTotalStudents,
+
+		ClassSectionsGroupURL: cs.ClassSectionsGroupURL,
+
+		ClassSectionsImageURL:                cs.ClassSectionsImageURL,
+		ClassSectionsImageObjectKey:          cs.ClassSectionsImageObjectKey,
+		ClassSectionsImageURLOld:             cs.ClassSectionsImageURLOld,
+		ClassSectionsImageObjectKeyOld:       cs.ClassSectionsImageObjectKeyOld,
+		ClassSectionsImageDeletePendingUntil: cs.ClassSectionsImageDeletePendingUntil,
+
+		ClassSectionsIsActive:  cs.ClassSectionsIsActive,
+		ClassSectionsCreatedAt: cs.ClassSectionsCreatedAt,
+		ClassSectionsUpdatedAt: cs.ClassSectionsUpdatedAt,
+		ClassSectionsDeletedAt: deletedAt,
 	}
 }
 
-// builder with full Teacher object (preferred)
-func NewClassSectionResponseWithTeacher(src *m.ClassSectionModel, t *UserLite) *ClassSectionResponse {
-	teacherName := ""
-	if t != nil {
-		teacherName = t.FullName
-	}
-	resp := NewClassSectionResponse(src, teacherName)
-	resp.Teacher = t
-	return resp
+/* =========================================================
+   PATCH REQUEST — tri-state
+   ========================================================= */
+
+type ClassSectionPatchRequest struct {
+	// String wajib di model
+	ClassSectionsSlug PatchFieldCS[string] `json:"class_sections_slug"`
+	ClassSectionsName PatchFieldCS[string] `json:"class_sections_name"`
+
+	// UUID pointer di model (null → clear)
+	ClassSectionsTeacherID          PatchFieldCS[uuid.UUID] `json:"class_sections_teacher_id"`
+	ClassSectionsAssistantTeacherID PatchFieldCS[uuid.UUID] `json:"class_sections_assistant_teacher_id"`
+	ClassSectionsClassRoomID        PatchFieldCS[uuid.UUID] `json:"class_sections_class_room_id"`
+	ClassSectionsLeaderStudentID    PatchFieldCS[uuid.UUID] `json:"class_sections_leader_student_id"`
+
+	// Pointer string (pakai T=*string supaya bisa **string saat normalize)
+	ClassSectionsCode     PatchFieldCS[*string] `json:"class_sections_code"`
+	ClassSectionsSchedule PatchFieldCS[*string] `json:"class_sections_schedule"`
+	ClassSectionsGroupURL PatchFieldCS[*string] `json:"class_sections_group_url"`
+
+	// Image
+	ClassSectionsImageURL       PatchFieldCS[*string] `json:"class_sections_image_url"`
+	ClassSectionsImageObjectKey PatchFieldCS[*string] `json:"class_sections_image_object_key"`
+
+	// Old / delete pending
+	ClassSectionsImageURLOld             PatchFieldCS[*string]    `json:"class_sections_image_url_old"`
+	ClassSectionsImageObjectKeyOld       PatchFieldCS[*string]    `json:"class_sections_image_object_key_old"`
+	ClassSectionsImageDeletePendingUntil PatchFieldCS[*time.Time] `json:"class_sections_image_delete_pending_until"`
+
+	// Numerik & status
+	ClassSectionsCapacity      PatchFieldCS[int]  `json:"class_sections_capacity"`       // null → set nil
+	ClassSectionsTotalStudents PatchFieldCS[int]  `json:"class_sections_total_students"` // opsional
+	ClassSectionsIsActive      PatchFieldCS[bool] `json:"class_sections_is_active"`
 }
 
-func MapClassSectionsWithTeachers(models []m.ClassSectionModel, users map[uuid.UUID]UserLite) []ClassSectionResponse {
-	out := make([]ClassSectionResponse, 0, len(models))
-	for i := range models {
-		row := &models[i]
-		var t *UserLite
-		if row.ClassSectionsTeacherID != nil {
-			if u, ok := users[*row.ClassSectionsTeacherID]; ok {
-				uCopy := u
-				t = &uCopy
-			}
+func (p *ClassSectionPatchRequest) Normalize() {
+	trim := func(pp **string, lower bool) {
+		if pp == nil || *pp == nil {
+			return
 		}
-		out = append(out, *NewClassSectionResponseWithTeacher(row, t))
+		v := strings.TrimSpace(**pp)
+		if v == "" {
+			*pp = nil
+			return
+		}
+		if lower {
+			v = strings.ToLower(v)
+		}
+		*pp = &v
+	}
+
+	if p.ClassSectionsSlug.Present && p.ClassSectionsSlug.Value != nil {
+		v := strings.ToLower(strings.TrimSpace(*p.ClassSectionsSlug.Value))
+		p.ClassSectionsSlug.Value = &v
+	}
+	if p.ClassSectionsName.Present && p.ClassSectionsName.Value != nil {
+		v := strings.TrimSpace(*p.ClassSectionsName.Value)
+		p.ClassSectionsName.Value = &v
+	}
+
+	if p.ClassSectionsCode.Present { trim(p.ClassSectionsCode.Value, false) }
+	if p.ClassSectionsSchedule.Present { trim(p.ClassSectionsSchedule.Value, false) }
+	if p.ClassSectionsGroupURL.Present { trim(p.ClassSectionsGroupURL.Value, false) }
+	if p.ClassSectionsImageURL.Present { trim(p.ClassSectionsImageURL.Value, false) }
+	if p.ClassSectionsImageObjectKey.Present { trim(p.ClassSectionsImageObjectKey.Value, false) }
+	if p.ClassSectionsImageURLOld.Present { trim(p.ClassSectionsImageURLOld.Value, false) }
+	if p.ClassSectionsImageObjectKeyOld.Present { trim(p.ClassSectionsImageObjectKeyOld.Value, false) }
+}
+
+func (p ClassSectionPatchRequest) Apply(cs *m.ClassSectionModel) {
+	// slug & name
+	if p.ClassSectionsSlug.Present && p.ClassSectionsSlug.Value != nil {
+		cs.ClassSectionsSlug = *p.ClassSectionsSlug.Value
+	}
+	if p.ClassSectionsName.Present && p.ClassSectionsName.Value != nil {
+		cs.ClassSectionsName = *p.ClassSectionsName.Value
+	}
+
+	// UUID pointer fields
+	if p.ClassSectionsTeacherID.Present {
+		if p.ClassSectionsTeacherID.Value == nil {
+			cs.ClassSectionsTeacherID = nil
+		} else {
+			v := *p.ClassSectionsTeacherID.Value
+			cs.ClassSectionsTeacherID = &v
+		}
+	}
+	if p.ClassSectionsAssistantTeacherID.Present {
+		if p.ClassSectionsAssistantTeacherID.Value == nil {
+			cs.ClassSectionsAssistantTeacherID = nil
+		} else {
+			v := *p.ClassSectionsAssistantTeacherID.Value
+			cs.ClassSectionsAssistantTeacherID = &v
+		}
+	}
+	if p.ClassSectionsClassRoomID.Present {
+		if p.ClassSectionsClassRoomID.Value == nil {
+			cs.ClassSectionsClassRoomID = nil
+		} else {
+			v := *p.ClassSectionsClassRoomID.Value
+			cs.ClassSectionsClassRoomID = &v
+		}
+	}
+	if p.ClassSectionsLeaderStudentID.Present {
+		if p.ClassSectionsLeaderStudentID.Value == nil {
+			cs.ClassSectionsLeaderStudentID = nil
+		} else {
+			v := *p.ClassSectionsLeaderStudentID.Value
+			cs.ClassSectionsLeaderStudentID = &v
+		}
+	}
+
+	// **string → pointer string di model
+	if p.ClassSectionsCode.Present {
+		if p.ClassSectionsCode.Value == nil {
+			cs.ClassSectionsCode = nil
+		} else {
+			cs.ClassSectionsCode = *p.ClassSectionsCode.Value
+		}
+	}
+	if p.ClassSectionsSchedule.Present {
+		if p.ClassSectionsSchedule.Value == nil {
+			cs.ClassSectionsSchedule = nil
+		} else {
+			cs.ClassSectionsSchedule = *p.ClassSectionsSchedule.Value
+		}
+	}
+	if p.ClassSectionsGroupURL.Present {
+		if p.ClassSectionsGroupURL.Value == nil {
+			cs.ClassSectionsGroupURL = nil
+		} else {
+			cs.ClassSectionsGroupURL = *p.ClassSectionsGroupURL.Value
+		}
+	}
+	if p.ClassSectionsImageURL.Present {
+		if p.ClassSectionsImageURL.Value == nil {
+			cs.ClassSectionsImageURL = nil
+		} else {
+			cs.ClassSectionsImageURL = *p.ClassSectionsImageURL.Value
+		}
+	}
+	if p.ClassSectionsImageObjectKey.Present {
+		if p.ClassSectionsImageObjectKey.Value == nil {
+			cs.ClassSectionsImageObjectKey = nil
+		} else {
+			cs.ClassSectionsImageObjectKey = *p.ClassSectionsImageObjectKey.Value
+		}
+	}
+	if p.ClassSectionsImageURLOld.Present {
+		if p.ClassSectionsImageURLOld.Value == nil {
+			cs.ClassSectionsImageURLOld = nil
+		} else {
+			cs.ClassSectionsImageURLOld = *p.ClassSectionsImageURLOld.Value
+		}
+	}
+	if p.ClassSectionsImageObjectKeyOld.Present {
+		if p.ClassSectionsImageObjectKeyOld.Value == nil {
+			cs.ClassSectionsImageObjectKeyOld = nil
+		} else {
+			cs.ClassSectionsImageObjectKeyOld = *p.ClassSectionsImageObjectKeyOld.Value
+		}
+	}
+	if p.ClassSectionsImageDeletePendingUntil.Present {
+		if p.ClassSectionsImageDeletePendingUntil.Value == nil {
+			cs.ClassSectionsImageDeletePendingUntil = nil
+		} else {
+			cs.ClassSectionsImageDeletePendingUntil = *p.ClassSectionsImageDeletePendingUntil.Value
+		}
+	}
+
+	// numerik & status
+	if p.ClassSectionsCapacity.Present {
+		if p.ClassSectionsCapacity.Value == nil {
+			cs.ClassSectionsCapacity = nil
+		} else {
+			v := *p.ClassSectionsCapacity.Value
+			cs.ClassSectionsCapacity = &v
+		}
+	}
+	if p.ClassSectionsTotalStudents.Present && p.ClassSectionsTotalStudents.Value != nil {
+		cs.ClassSectionsTotalStudents = *p.ClassSectionsTotalStudents.Value
+	}
+	if p.ClassSectionsIsActive.Present && p.ClassSectionsIsActive.Value != nil {
+		cs.ClassSectionsIsActive = *p.ClassSectionsIsActive.Value
+	}
+
+	cs.ClassSectionsUpdatedAt = time.Now()
+}
+
+/* =========================================================
+   LIST QUERY + HELPERS
+   ========================================================= */
+
+type ListClassSectionQuery struct {
+	Limit     int        `query:"limit"`
+	Offset    int        `query:"offset"`
+	Q         string     `query:"q"`
+	Active    *bool      `query:"active"`
+	ClassID   *uuid.UUID `query:"class_id"`
+	TeacherID *uuid.UUID `query:"teacher_id"`
+	RoomID    *uuid.UUID `query:"room_id"`
+	CreatedGt *time.Time `query:"created_gt"`
+	CreatedLt *time.Time `query:"created_lt"`
+}
+
+func ToClassSectionResponses(rows []m.ClassSectionModel) []ClassSectionResponse {
+	out := make([]ClassSectionResponse, 0, len(rows))
+	for i := range rows {
+		out = append(out, FromModelClassSection(&rows[i]))
 	}
 	return out
+}
+
+type PaginationMeta struct {
+	Total      int64 `json:"total"`
+	Limit      int   `json:"limit"`
+	Offset     int   `json:"offset"`
+	Count      int   `json:"count"`
+	NextOffset *int  `json:"next_offset,omitempty"`
+	PrevOffset *int  `json:"prev_offset,omitempty"`
+	HasMore    bool  `json:"has_more"`
+}
+
+func NewPaginationMeta(total int64, limit, offset, count int) PaginationMeta {
+	if limit <= 0 {
+		limit = 20
+	}
+	meta := PaginationMeta{
+		Total:   total,
+		Limit:   limit,
+		Offset:  offset,
+		Count:   count,
+		HasMore: int64(offset+count) < total,
+	}
+	if offset > 0 {
+		prev := offset - limit
+		if prev < 0 {
+			prev = 0
+		}
+		meta.PrevOffset = &prev
+	}
+	if meta.HasMore {
+		next := offset + count
+		meta.NextOffset = &next
+	}
+	return meta
 }

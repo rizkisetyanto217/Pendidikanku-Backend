@@ -5,7 +5,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	"masjidku_backend/internals/features/school/academics/rooms/controller"
+	clsCtl "masjidku_backend/internals/features/school/academics/rooms/controller"
 )
 
 // RoomsUserRoutes — route USER (read-only).
@@ -13,17 +13,18 @@ import (
 //   user := api.Group("/api/u") // atau "/api/p" jika publik
 //   routes.RoomsUserRoutes(user, db)
 func RoomsUserRoutes(user fiber.Router, db *gorm.DB) {
-	ctl := controller.NewClassRoomController(db, nil) // validator nil
-	g := user.Group("/class-rooms")
+	ctl := clsCtl.NewClassRoomController(db, nil)
+	// Tambah masjid_id agar ResolveMasjidContext bisa resolve dari path
+	g := user.Group("/:masjid_id/class-rooms")
 
 	// Read-only endpoints
 	g.Get("/list", ctl.List)
 
-	ctl2 := controller.NewClassRoomVirtualLinkController(db)
-	h := user.Group("/class-room-virtual-links")
+	ctl2 := clsCtl.NewClassRoomVirtualLinkController(db)
+	h := user.Group("/:masjid_id/class-room-virtual-links")
 
 	// Read-only endpoints
-	h.Get("/", ctl2.List)      // e.g. /api/u/class-room-virtual-links
-	h.Get("/list", ctl2.List)  // alias kalau mau konsisten dengan pola /list
-	h.Get("/:id", ctl2.Detail) // optional detail
+	h.Get("/", ctl2.List)      // e.g. /api/u/masjids/:masjid_id/class-room-virtual-links
+	h.Get("/list", ctl2.List)  // alias /list
+	h.Get("/:id", ctl2.Detail) // detail
 }

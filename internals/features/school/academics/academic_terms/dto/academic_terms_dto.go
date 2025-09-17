@@ -28,7 +28,7 @@ type AcademicTermCreateDTO struct {
 
 type AcademicTermUpdateDTO struct {
 	AcademicTermsAcademicYear *string    `json:"academic_terms_academic_year,omitempty" validate:"omitempty,min=4"`
-	AcademicTermsName         *string    `json:"academic_terms_name,omitempty"          validate:"omitempty,oneof=Ganjil Genap Pendek Khusus"`
+	AcademicTermsName *string `validate:"omitempty,min=1,max=60"`
 	AcademicTermsStartDate    *time.Time `json:"academic_terms_start_date,omitempty"`
 	AcademicTermsEndDate      *time.Time `json:"academic_terms_end_date,omitempty"`
 	AcademicTermsIsActive     *bool      `json:"academic_terms_is_active,omitempty"`

@@ -30,3 +30,5 @@ type UserClassSectionsModel struct {
 }
 
 func (UserClassSectionsModel) TableName() string { return "user_class_sections" }
+
+

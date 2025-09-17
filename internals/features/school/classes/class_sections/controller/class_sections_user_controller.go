@@ -1,4 +1,3 @@
-// internals/features/lembaga/classes/sections/main/controller/class_section_list_controller.go
 package controller
 
 import (
@@ -197,8 +196,17 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	// =========================
 	// Prefetch TEACHER → users (batched)
 	// =========================
+	// Gunakan tipe lokal agar tidak tergantung DTO punya UserLite
+	type userLite struct {
+		ID       uuid.UUID `json:"id"`
+		UserName string    `json:"user_name"`
+		FullName string    `json:"full_name"`
+		Email    string    `json:"email"`
+		IsActive bool      `json:"is_active"`
+	}
+
 	teacherToUser := make(map[uuid.UUID]uuid.UUID) // masjid_teacher_id -> users.id
-	userMap := map[uuid.UUID]ucsDTO.UserLite{}     // users.id -> user lite
+	userMap := map[uuid.UUID]userLite{}            // users.id -> user lite
 	if wantTeacher {
 		tSet := make(map[uuid.UUID]struct{})
 		for i := range rows {
@@ -263,7 +271,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 					if u.FullName != nil {
 						full = *u.FullName
 					}
-					userMap[u.ID] = ucsDTO.UserLite{
+					userMap[u.ID] = userLite{
 						ID:       u.ID,
 						UserName: u.UserName,
 						FullName: full,
@@ -351,7 +359,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data rooms")
 			}
 			for _, r := range rowsRR {
-				roomMap[r.ID] = roomLite(r) // convert, no struct literal (S1016)
+				roomMap[r.ID] = roomLite(r)
 			}
 		}
 	}
@@ -526,33 +534,27 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	// =========================
 	type sectionWithExpand struct {
 		*ucsDTO.ClassSectionResponse `json:",inline"`
-		Class             *classLite              `json:"class,omitempty"`
-		Room              *roomLite               `json:"room,omitempty"`
-		Teacher           *ucsDTO.UserLite        `json:"teacher,omitempty"`
-		Subjects          []subjectLite           `json:"subjects,omitempty"`
-		UserClassSections []userClassSectionLite  `json:"user_class_sections,omitempty"`
+		Class             *classLite             `json:"class,omitempty"`
+		Room              *roomLite              `json:"room,omitempty"`
+		Teacher           *userLite              `json:"teacher,omitempty"`
+		Subjects          []subjectLite          `json:"subjects,omitempty"`
+		UserClassSections []userClassSectionLite `json:"user_class_sections,omitempty"`
 	}
 
 	out := make([]*sectionWithExpand, 0, len(rows))
 	for i := range rows {
-		teacherName := ""
-		var teacherPtr *ucsDTO.UserLite
+		var teacherPtr *userLite
 		if wantTeacher && rows[i].ClassSectionsTeacherID != nil {
 			if uid, ok := teacherToUser[*rows[i].ClassSectionsTeacherID]; ok {
 				if ul, ok := userMap[uid]; ok {
-					if ul.FullName != "" {
-						teacherName = ul.FullName
-					} else {
-						teacherName = ul.UserName
-					}
 					uCopy := ul
 					teacherPtr = &uCopy
 				}
 			}
 		}
-		base := ucsDTO.NewClassSectionResponse(&rows[i], teacherName)
+		base := ucsDTO.FromModelClassSection(&rows[i])
 
-		w := &sectionWithExpand{ClassSectionResponse: base}
+		w := &sectionWithExpand{ClassSectionResponse: &base}
 		if wantTeacher {
 			w.Teacher = teacherPtr
 		}
@@ -619,9 +621,6 @@ func parseUUIDList(s string) ([]uuid.UUID, error) {
 	return out, nil
 }
 
-
-
-
 /* ================= Get by Slug ================= */
 
 // GET /admin/class-sections/slug/:slug
@@ -643,5 +642,5 @@ func (ctrl *ClassSectionController) GetClassSectionBySlug(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	return helper.JsonOK(c, "OK", ucsDTO.NewClassSectionResponse(&m, ""))
+	return helper.JsonOK(c, "OK", ucsDTO.FromModelClassSection(&m))
 }

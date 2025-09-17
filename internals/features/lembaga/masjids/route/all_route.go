@@ -11,6 +11,7 @@ import (
 func AllMasjidRoutes(user fiber.Router, db *gorm.DB) {
 	masjidCtrl  := controller.NewMasjidController(db, nil, nil)
 	profileCtrl := controller.NewMasjidProfileController(db, nil)
+	plan := controller.NewMasjidServicePlanController(db)
 
 	// 🕌 Group: /masjids
 	masjid := user.Group("/masjids")
@@ -29,5 +30,10 @@ func AllMasjidRoutes(user fiber.Router, db *gorm.DB) {
 	profile.Get("/list",                     profileCtrl.List)             // list + filter + pagination
 	profile.Get("/nearest",              profileCtrl.Nearest)          // nearest?lat=&lon=&limit=
 
+
+
+	// alias lama (opsional):
+	alias := user.Group("/masjid-service-plans")
+	alias.Get("/list",             plan.List)
 
 }

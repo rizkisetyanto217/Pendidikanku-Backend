@@ -9,28 +9,61 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
-// ---------- LIST (tenant-safe) ----------
+/* =========================================================
+   LIST (tenant-safe; READ: DKM=semua, member=only_my)
+   ========================================================= */
 func (ctl *ClassParentController) List(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	// -------- resolve konteks masjid (slug/id/header/query/host/token) --------
+	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return err
 	}
 
+	// slug→id bila perlu
+	var masjidID uuid.UUID
+	if mc.ID != uuid.Nil {
+		masjidID = mc.ID
+	} else {
+		id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+		if er != nil {
+			if er == gorm.ErrRecordNotFound {
+				return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve masjid")
+		}
+		masjidID = id
+	}
+
+	// -------- cek role: DKM atau member --------
+	isDKM := helperAuth.EnsureDKMMasjid(c, masjidID) == nil
+	if !isDKM && !helperAuth.UserHasMasjid(c, masjidID) {
+		return fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada masjid ini (membership).")
+	}
+
+	// -------- query params & paging --------
 	var q cpdto.ListClassParentQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
-
 	q.Limit = clampLimit(q.Limit, 20, 200)
-	if q.Offset < 0 { q.Offset = 0 }
+	if q.Offset < 0 {
+		q.Offset = 0
+	}
+
+	// only_my: default true untuk non-DKM, false untuk DKM; override via ?only_my=true/false
+	onlyMy := !isDKM // default
+	if v := strings.TrimSpace(c.Query("only_my")); v != "" {
+		onlyMy = strings.EqualFold(v, "1") || strings.EqualFold(v, "true")
+	}
 
 	tx := ctl.DB.WithContext(c.Context()).
 		Model(&cpmodel.ClassParentModel{}).
 		Where("class_parent_masjid_id = ? AND class_parent_deleted_at IS NULL", masjidID)
 
-	// ===== NEW: filter by class_parent_id (single) =====
+	// ------------------ filter by id(s) ------------------
 	if s := strings.TrimSpace(c.Query("class_parent_id")); s != "" {
 		id, perr := uuid.Parse(s)
 		if perr != nil {
@@ -38,8 +71,6 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		}
 		tx = tx.Where("class_parent_id = ?", id)
 	}
-
-	// ===== NEW: filter by class_parent_ids (comma-separated) =====
 	if s := strings.TrimSpace(c.Query("class_parent_ids")); s != "" {
 		parts := strings.Split(s, ",")
 		ids := make([]uuid.UUID, 0, len(parts))
@@ -59,6 +90,7 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		}
 	}
 
+	// ------------------ filter kolom-kolom ------------------
 	if q.Active != nil {
 		tx = tx.Where("class_parent_is_active = ?", *q.Active)
 	}
@@ -83,6 +115,45 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		`, pat, pat, pat)
 	}
 
+	// ------------------ ONLY_MY (ikutanku) ------------------
+	if onlyMy {
+		userID, uerr := helperAuth.GetUserIDFromToken(c) // ⬅️ gunakan helper yang ADA
+		if uerr != nil || userID == uuid.Nil {
+			return helper.JsonError(c, fiber.StatusUnauthorized, "user_id tidak ditemukan di token")
+		}
+		tx = tx.Where(`
+			EXISTS (
+				SELECT 1
+				FROM classes c
+				JOIN class_sections s
+				  ON s.class_sections_class_id = c.class_id
+				 AND s.class_sections_deleted_at IS NULL
+				LEFT JOIN class_section_students css
+				  ON css.class_section_students_section_id = s.class_sections_id
+				 AND css.class_section_students_deleted_at IS NULL
+				LEFT JOIN masjid_students ms
+				  ON ms.masjid_student_id = css.class_section_students_masjid_student_id
+				 AND ms.masjid_student_deleted_at IS NULL
+				LEFT JOIN masjid_teachers mt
+				  ON mt.masjid_teacher_id = s.class_sections_teacher_id
+				 AND mt.masjid_teacher_deleted_at IS NULL
+				WHERE c.class_parent_id = class_parent_id
+				  AND c.class_masjid_id = ?
+				  AND (
+						-- sebagai siswa (user)
+						(ms.masjid_student_user_id = ?)
+						OR
+						-- sebagai pengajar via masjid_teachers
+						(mt.masjid_teacher_user_id = ?)
+						OR
+						-- fallback bila section menyimpan langsung teacher_user_id
+						(s.class_sections_teacher_user_id = ?)
+				  )
+			)
+		`, masjidID, userID, userID, userID)
+	}
+
+	// ------------------ eksekusi ------------------
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
