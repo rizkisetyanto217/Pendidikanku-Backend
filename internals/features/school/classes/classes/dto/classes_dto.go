@@ -12,73 +12,41 @@ import (
 	"github.com/google/uuid"
 )
 
-/* ===================== PatchField ===================== */
-
-type PatchField[T any] struct {
-	Set   bool `json:"set"`
-	Value T    `json:"value,omitempty"`
+/* =========================================================
+   PATCH FIELD — tri-state (absent | null | value)
+   Disamakan dengan class_parents
+   ========================================================= */
+type PatchFieldClass[T any] struct {
+	Present bool
+	Value   *T
 }
 
-func (p *PatchField[T]) IsZero() bool {
-	return p == nil || !p.Set
-}
-
-// WAJIB pakai nama ini (tanpa angka 2)
-func (p *PatchField[T]) UnmarshalJSON(b []byte) error {
-	type env struct {
-		Set   *bool            `json:"set"`
-		Value *json.RawMessage `json:"value"`
-	}
-	if len(b) > 0 && b[0] == '{' {
-		var e env
-		if err := json.Unmarshal(b, &e); err == nil {
-			if e.Set != nil {
-				p.Set = *e.Set
-			} else {
-				p.Set = true
-			}
-			if e.Value != nil {
-				var v T
-				if err := json.Unmarshal(*e.Value, &v); err != nil {
-					return err
-				}
-				p.Value = v
-			}
-			return nil
-		}
+func (p *PatchFieldClass[T]) UnmarshalJSON(b []byte) error {
+	p.Present = true
+	if string(b) == "null" {
+		p.Value = nil
+		return nil
 	}
 	var v T
 	if err := json.Unmarshal(b, &v); err != nil {
 		return err
 	}
-	p.Set = true
-	p.Value = v
+	p.Value = &v
 	return nil
 }
 
-// Biar form-data juga bisa: "online", "1500003", "true", dst.
-func (p *PatchField[T]) UnmarshalText(b []byte) error {
-	quoted, _ := json.Marshal(string(b))
-	var v T
-	if err := json.Unmarshal(quoted, &v); err != nil {
-		if err2 := json.Unmarshal(b, &v); err2 != nil {
-			return err
-		}
-	}
-	p.Set = true
-	p.Value = v
-	return nil
-}
+// Optional getter
+func (p PatchFieldClass[T]) Get() (*T, bool) { return p.Value, p.Present }
 
 /* =========================================================
-   REQUEST: CREATE (sinkron dengan DDL & model)
+   REQUEST: CREATE (sinkron dengan DDL & model) — multipart-ready
    ========================================================= */
 
 type CreateClassRequest struct {
 	// Wajib
 	ClassMasjidID uuid.UUID `json:"class_masjid_id"              form:"class_masjid_id"              validate:"required"`
 	ClassParentID uuid.UUID `json:"class_parent_id"              form:"class_parent_id"              validate:"required"`
-	ClassSlug     string    `json:"class_slug"                   form:"class_slug"                   validate:"required,min=1,max=160"`
+    ClassSlug string `json:"class_slug" form:"class_slug" validate:"omitempty,min=1,max=160"`
 
 	// Periode
 	ClassStartDate *time.Time `json:"class_start_date,omitempty"         form:"class_start_date"`
@@ -107,18 +75,19 @@ type CreateClassRequest struct {
 	ClassStatus       *string    `json:"class_status,omitempty"        form:"class_status"`        // enum: active|inactive|completed
 	ClassCompletedAt  *time.Time `json:"class_completed_at,omitempty"  form:"class_completed_at"`
 
-	// (opsional) Image 2-slot (biasanya diisi via flow upload)
-	ClassImageURL          *string    `json:"class_image_url,omitempty"            form:"class_image_url"`
-	ClassImageObjectKey    *string    `json:"class_image_object_key,omitempty"     form:"class_image_object_key"`
-	ClassImageURLOld       *string    `json:"class_image_url_old,omitempty"        form:"class_image_url_old"`
-	ClassImageObjectKeyOld *string    `json:"class_image_object_key_old,omitempty" form:"class_image_object_key_old"`
-	// delete_pending_until biasanya diset oleh proses rotasi, bukan saat create
+	// Image 2-slot (opsional; biasanya diisi via flow upload)
+	ClassImageURL                *string    `json:"class_image_url,omitempty"                 form:"class_image_url"`
+	ClassImageObjectKey          *string    `json:"class_image_object_key,omitempty"          form:"class_image_object_key"`
+	ClassImageURLOld             *string    `json:"class_image_url_old,omitempty"             form:"class_image_url_old"`
+	ClassImageObjectKeyOld       *string    `json:"class_image_object_key_old,omitempty"      form:"class_image_object_key_old"`
 	ClassImageDeletePendingUntil *time.Time `json:"class_image_delete_pending_until,omitempty" form:"class_image_delete_pending_until"`
 }
 
 func (r *CreateClassRequest) Normalize() {
+	// slug lower + trim
 	r.ClassSlug = strings.TrimSpace(strings.ToLower(r.ClassSlug))
 
+	// enum strings lower
 	if r.ClassBillingCycle != nil {
 		x := strings.ToLower(strings.TrimSpace(*r.ClassBillingCycle))
 		r.ClassBillingCycle = &x
@@ -132,7 +101,7 @@ func (r *CreateClassRequest) Normalize() {
 		r.ClassStatus = &x
 	}
 
-	// bersihkan string opsional
+	// trim optional strings
 	if r.ClassNotes != nil {
 		s := strings.TrimSpace(*r.ClassNotes)
 		if s == "" {
@@ -141,7 +110,6 @@ func (r *CreateClassRequest) Normalize() {
 			r.ClassNotes = &s
 		}
 	}
-
 	if r.ClassProviderProductID != nil {
 		s := strings.TrimSpace(*r.ClassProviderProductID)
 		if s == "" {
@@ -166,9 +134,6 @@ func (r *CreateClassRequest) Validate() error {
 	}
 	if r.ClassParentID == uuid.Nil {
 		return errors.New("class_parent_id required")
-	}
-	if r.ClassSlug == "" {
-		return errors.New("class_slug required")
 	}
 	if r.ClassRegistrationOpensAt != nil && r.ClassRegistrationClosesAt != nil &&
 		r.ClassRegistrationClosesAt.Before(*r.ClassRegistrationOpensAt) {
@@ -209,18 +174,16 @@ func (r *CreateClassRequest) Validate() error {
 }
 
 func (r *CreateClassRequest) ToModel() *model.ClassModel {
-	// siapkan default agar tidak override default DB dengan empty string
+	// defaults yang konsisten dengan DB
 	billing := model.BillingCycleMonthly
 	if r.ClassBillingCycle != nil && *r.ClassBillingCycle != "" {
 		billing = *r.ClassBillingCycle
 	}
-
 	var delivery *string
 	if r.ClassDeliveryMode != nil && *r.ClassDeliveryMode != "" {
 		d := *r.ClassDeliveryMode
 		delivery = &d
 	}
-
 	status := model.ClassStatusActive
 	if r.ClassStatus != nil && *r.ClassStatus != "" {
 		status = *r.ClassStatus
@@ -257,200 +220,327 @@ func (r *CreateClassRequest) ToModel() *model.ClassModel {
 }
 
 /* =========================================================
-   REQUEST: PATCH (partial / tri-state)
+   REQUEST: PATCH (partial / tri-state) — diseragamkan
    ========================================================= */
-
 type PatchClassRequest struct {
-	ClassSlug *PatchField[string] `json:"class_slug,omitempty"                    form:"class_slug"`
+    ClassSlug PatchFieldClass[string] `json:"class_slug"`
 
-	ClassStartDate *PatchField[*time.Time] `json:"class_start_date,omitempty"          form:"class_start_date"`
-	ClassEndDate   *PatchField[*time.Time] `json:"class_end_date,omitempty"            form:"class_end_date"`
+    // ⬇️ BARU: dukung ganti parent kelas (wajib non-null kalau dipatch)
+    ClassParentID PatchFieldClass[uuid.UUID] `json:"class_parent_id"`
 
-	ClassTermID               *PatchField[*uuid.UUID] `json:"class_term_id,omitempty"                form:"class_term_id"`
-	ClassRegistrationOpensAt  *PatchField[*time.Time] `json:"class_registration_opens_at,omitempty"  form:"class_registration_opens_at"`
-	ClassRegistrationClosesAt *PatchField[*time.Time] `json:"class_registration_closes_at,omitempty" form:"class_registration_closes_at"`
+    ClassStartDate            PatchFieldClass[*time.Time] `json:"class_start_date"`
+    ClassEndDate              PatchFieldClass[*time.Time] `json:"class_end_date"`
+    ClassTermID               PatchFieldClass[*uuid.UUID] `json:"class_term_id"`
+    ClassRegistrationOpensAt  PatchFieldClass[*time.Time] `json:"class_registration_opens_at"`
+    ClassRegistrationClosesAt PatchFieldClass[*time.Time] `json:"class_registration_closes_at"`
 
-	ClassQuotaTotal *PatchField[*int] `json:"class_quota_total,omitempty" form:"class_quota_total"`
-	ClassQuotaTaken *PatchField[int]  `json:"class_quota_taken,omitempty" form:"class_quota_taken"`
+    ClassQuotaTotal PatchFieldClass[*int] `json:"class_quota_total"`
+    ClassQuotaTaken PatchFieldClass[int]  `json:"class_quota_taken"`
 
-	ClassRegistrationFeeIDR *PatchField[*int64] `json:"class_registration_fee_idr,omitempty" form:"class_registration_fee_idr"`
-	ClassTuitionFeeIDR      *PatchField[*int64] `json:"class_tuition_fee_idr,omitempty"      form:"class_tuition_fee_idr"`
-	ClassBillingCycle       *PatchField[string] `json:"class_billing_cycle,omitempty"         form:"class_billing_cycle"`
-	ClassProviderProductID  *PatchField[*string] `json:"class_provider_product_id,omitempty"  form:"class_provider_product_id"`
-	ClassProviderPriceID    *PatchField[*string] `json:"class_provider_price_id,omitempty"    form:"class_provider_price_id"`
+    ClassRegistrationFeeIDR PatchFieldClass[*int64] `json:"class_registration_fee_idr"`
+    ClassTuitionFeeIDR      PatchFieldClass[*int64] `json:"class_tuition_fee_idr"`
+    ClassBillingCycle       PatchFieldClass[string] `json:"class_billing_cycle"`
+    ClassProviderProductID  PatchFieldClass[*string] `json:"class_provider_product_id"`
+    ClassProviderPriceID    PatchFieldClass[*string] `json:"class_provider_price_id"`
 
-	ClassNotes *PatchField[*string] `json:"class_notes,omitempty" form:"class_notes"`
+    ClassNotes PatchFieldClass[*string] `json:"class_notes"`
 
-	ClassDeliveryMode *PatchField[*string]   `json:"class_delivery_mode,omitempty" form:"class_delivery_mode"` // nullable
-	ClassStatus       *PatchField[string]    `json:"class_status,omitempty"        form:"class_status"`
-	ClassCompletedAt  *PatchField[*time.Time] `json:"class_completed_at,omitempty"  form:"class_completed_at"`
+    ClassDeliveryMode PatchFieldClass[*string] `json:"class_delivery_mode"`
+    ClassStatus       PatchFieldClass[string]  `json:"class_status"`
+    ClassCompletedAt  PatchFieldClass[*time.Time] `json:"class_completed_at"`
 
-	// Image (opsional)
-	ClassImageURL                *PatchField[*string]    `json:"class_image_url,omitempty"                 form:"class_image_url"`
-	ClassImageObjectKey          *PatchField[*string]    `json:"class_image_object_key,omitempty"          form:"class_image_object_key"`
-	ClassImageURLOld             *PatchField[*string]    `json:"class_image_url_old,omitempty"             form:"class_image_url_old"`
-	ClassImageObjectKeyOld       *PatchField[*string]    `json:"class_image_object_key_old,omitempty"      form:"class_image_object_key_old"`
-	ClassImageDeletePendingUntil *PatchField[*time.Time] `json:"class_image_delete_pending_until,omitempty" form:"class_image_delete_pending_until"`
+    // Image (opsional)
+    ClassImageURL                PatchFieldClass[*string]    `json:"class_image_url"`
+    ClassImageObjectKey          PatchFieldClass[*string]    `json:"class_image_object_key"`
+    ClassImageURLOld             PatchFieldClass[*string]    `json:"class_image_url_old"`
+    ClassImageObjectKeyOld       PatchFieldClass[*string]    `json:"class_image_object_key_old"`
+    ClassImageDeletePendingUntil PatchFieldClass[*time.Time] `json:"class_image_delete_pending_until"`
 }
 
+
 func (r *PatchClassRequest) Normalize() {
-	if r.ClassSlug != nil && r.ClassSlug.Set {
-		r.ClassSlug.Value = strings.TrimSpace(strings.ToLower(r.ClassSlug.Value))
+	// ---- T=string (Value = *string; deref sekali) ----
+	if r.ClassSlug.Present && r.ClassSlug.Value != nil {
+		s := strings.TrimSpace(strings.ToLower(*r.ClassSlug.Value))
+		r.ClassSlug.Value = &s
 	}
-	if r.ClassBillingCycle != nil && r.ClassBillingCycle.Set {
-		r.ClassBillingCycle.Value = strings.ToLower(strings.TrimSpace(r.ClassBillingCycle.Value))
+	if r.ClassBillingCycle.Present && r.ClassBillingCycle.Value != nil {
+		s := strings.ToLower(strings.TrimSpace(*r.ClassBillingCycle.Value))
+		r.ClassBillingCycle.Value = &s
 	}
-	if r.ClassDeliveryMode != nil && r.ClassDeliveryMode.Set && r.ClassDeliveryMode.Value != nil {
-		x := strings.ToLower(strings.TrimSpace(*r.ClassDeliveryMode.Value))
-		r.ClassDeliveryMode.Value = &x
+	if r.ClassStatus.Present && r.ClassStatus.Value != nil {
+		s := strings.ToLower(strings.TrimSpace(*r.ClassStatus.Value))
+		r.ClassStatus.Value = &s
 	}
-	if r.ClassStatus != nil && r.ClassStatus.Set {
-		r.ClassStatus.Value = strings.ToLower(strings.TrimSpace(r.ClassStatus.Value))
+
+	// ---- T=*string (Value = **string; deref dua kali) ----
+	if r.ClassDeliveryMode.Present && r.ClassDeliveryMode.Value != nil {
+		s := strings.ToLower(strings.TrimSpace(**r.ClassDeliveryMode.Value))
+		if s == "" {
+			// kosong → anggap clear
+			r.ClassDeliveryMode.Value = nil
+		} else {
+			**r.ClassDeliveryMode.Value = s
+		}
 	}
-	if r.ClassNotes != nil && r.ClassNotes.Set && r.ClassNotes.Value != nil {
-		s := strings.TrimSpace(*r.ClassNotes.Value)
+	if r.ClassNotes.Present && r.ClassNotes.Value != nil {
+		s := strings.TrimSpace(**r.ClassNotes.Value)
 		if s == "" {
 			r.ClassNotes.Value = nil
 		} else {
-			r.ClassNotes.Value = &s
+			**r.ClassNotes.Value = s
 		}
 	}
-	if r.ClassProviderProductID != nil && r.ClassProviderProductID.Set && r.ClassProviderProductID.Value != nil {
-		s := strings.TrimSpace(*r.ClassProviderProductID.Value)
+	if r.ClassProviderProductID.Present && r.ClassProviderProductID.Value != nil {
+		s := strings.TrimSpace(**r.ClassProviderProductID.Value)
 		if s == "" {
 			r.ClassProviderProductID.Value = nil
 		} else {
-			r.ClassProviderProductID.Value = &s
+			**r.ClassProviderProductID.Value = s
 		}
 	}
-	if r.ClassProviderPriceID != nil && r.ClassProviderPriceID.Set && r.ClassProviderPriceID.Value != nil {
-		s := strings.TrimSpace(*r.ClassProviderPriceID.Value)
+	if r.ClassProviderPriceID.Present && r.ClassProviderPriceID.Value != nil {
+		s := strings.TrimSpace(**r.ClassProviderPriceID.Value)
 		if s == "" {
 			r.ClassProviderPriceID.Value = nil
 		} else {
-			r.ClassProviderPriceID.Value = &s
+			**r.ClassProviderPriceID.Value = s
 		}
 	}
 }
 
 func (r *PatchClassRequest) Validate() error {
-	if r.ClassRegistrationOpensAt != nil && r.ClassRegistrationOpensAt.Set &&
-		r.ClassRegistrationClosesAt != nil && r.ClassRegistrationClosesAt.Set &&
-		r.ClassRegistrationOpensAt.Value != nil && r.ClassRegistrationClosesAt.Value != nil &&
-		r.ClassRegistrationClosesAt.Value.Before(*r.ClassRegistrationOpensAt.Value) {
-		return errors.New("class_registration_closes_at must be >= class_registration_opens_at")
+	// ---- registrasi window ----
+	if r.ClassRegistrationOpensAt.Present && r.ClassRegistrationClosesAt.Present &&
+		r.ClassRegistrationOpensAt.Value != nil && r.ClassRegistrationClosesAt.Value != nil {
+		open := *r.ClassRegistrationOpensAt.Value   // *time.Time
+		clos := *r.ClassRegistrationClosesAt.Value // *time.Time
+		if clos.Before(*open) {
+			return errors.New("class_registration_closes_at must be >= class_registration_opens_at")
+		}
 	}
-	if r.ClassQuotaTotal != nil && r.ClassQuotaTotal.Set && r.ClassQuotaTotal.Value != nil && *r.ClassQuotaTotal.Value < 0 {
+
+	// ---- angka non-negatif ----
+	// ClassQuotaTotal: T=*int -> Value=**int
+	if r.ClassQuotaTotal.Present && r.ClassQuotaTotal.Value != nil && **r.ClassQuotaTotal.Value < 0 {
 		return errors.New("class_quota_total must be >= 0")
 	}
-	if r.ClassQuotaTaken != nil && r.ClassQuotaTaken.Set && r.ClassQuotaTaken.Value < 0 {
+	// ClassQuotaTaken: jika T=int -> Value=*int (sekali deref sudah cukup)
+	if r.ClassQuotaTaken.Present && r.ClassQuotaTaken.Value != nil && *r.ClassQuotaTaken.Value < 0 {
 		return errors.New("class_quota_taken must be >= 0")
 	}
-	if r.ClassRegistrationFeeIDR != nil && r.ClassRegistrationFeeIDR.Set && r.ClassRegistrationFeeIDR.Value != nil && *r.ClassRegistrationFeeIDR.Value < 0 {
+	// Fee: T=*int64 -> Value=**int64
+	if r.ClassRegistrationFeeIDR.Present && r.ClassRegistrationFeeIDR.Value != nil && **r.ClassRegistrationFeeIDR.Value < int64(0) {
 		return errors.New("class_registration_fee_idr must be >= 0")
 	}
-	if r.ClassTuitionFeeIDR != nil && r.ClassTuitionFeeIDR.Set && r.ClassTuitionFeeIDR.Value != nil && *r.ClassTuitionFeeIDR.Value < 0 {
+	if r.ClassTuitionFeeIDR.Present && r.ClassTuitionFeeIDR.Value != nil && **r.ClassTuitionFeeIDR.Value < int64(0) {
 		return errors.New("class_tuition_fee_idr must be >= 0")
 	}
-	// enums
-	if r.ClassBillingCycle != nil && r.ClassBillingCycle.Set {
-		switch r.ClassBillingCycle.Value {
+
+	// ---- enums ----
+	// billing cycle: T=string -> Value=*string
+	if r.ClassBillingCycle.Present && r.ClassBillingCycle.Value != nil {
+		switch *r.ClassBillingCycle.Value {
 		case model.BillingCycleOneTime, model.BillingCycleMonthly, model.BillingCycleQuarter, model.BillingCycleSemester, model.BillingCycleYearly:
 		default:
 			return errors.New("invalid class_billing_cycle")
 		}
 	}
-	if r.ClassDeliveryMode != nil && r.ClassDeliveryMode.Set && r.ClassDeliveryMode.Value != nil {
-		switch *r.ClassDeliveryMode.Value {
+	// delivery mode: T=*string -> Value=**string
+	if r.ClassDeliveryMode.Present && r.ClassDeliveryMode.Value != nil {
+		switch **r.ClassDeliveryMode.Value {
 		case model.ClassDeliveryModeOffline, model.ClassDeliveryModeOnline, model.ClassDeliveryModeHybrid:
 		default:
 			return errors.New("invalid class_delivery_mode")
 		}
 	}
-	if r.ClassStatus != nil && r.ClassStatus.Set {
-		switch r.ClassStatus.Value {
+	// status: T=string -> Value=*string
+	if r.ClassStatus.Present && r.ClassStatus.Value != nil {
+		switch *r.ClassStatus.Value {
 		case model.ClassStatusActive, model.ClassStatusInactive, model.ClassStatusCompleted:
 		default:
 			return errors.New("invalid class_status")
 		}
 	}
+
+	// ⬇️ BARU: class_parent_id tidak boleh null atau uuid.Nil kalau dipatch
+    if r.ClassParentID.Present {
+        if r.ClassParentID.Value == nil {
+            return errors.New("class_parent_id cannot be null")
+        }
+        if *r.ClassParentID.Value == uuid.Nil {
+            return errors.New("class_parent_id is invalid")
+        }
+    }
+
 	return nil
 }
 
+
 func (r *PatchClassRequest) Apply(m *model.ClassModel) {
-	if r.ClassSlug != nil && r.ClassSlug.Set {
-		m.ClassSlug = r.ClassSlug.Value
+	// ---- T=string (Value = *string) ----
+	if r.ClassSlug.Present && r.ClassSlug.Value != nil {
+		m.ClassSlug = *r.ClassSlug.Value
 	}
-	if r.ClassStartDate != nil && r.ClassStartDate.Set {
-		m.ClassStartDate = r.ClassStartDate.Value
-	}
-	if r.ClassEndDate != nil && r.ClassEndDate.Set {
-		m.ClassEndDate = r.ClassEndDate.Value
-	}
-	if r.ClassTermID != nil && r.ClassTermID.Set {
-		m.ClassTermID = r.ClassTermID.Value
-	}
-	if r.ClassRegistrationOpensAt != nil && r.ClassRegistrationOpensAt.Set {
-		m.ClassRegistrationOpensAt = r.ClassRegistrationOpensAt.Value
-	}
-	if r.ClassRegistrationClosesAt != nil && r.ClassRegistrationClosesAt.Set {
-		m.ClassRegistrationClosesAt = r.ClassRegistrationClosesAt.Value
-	}
-	if r.ClassQuotaTotal != nil && r.ClassQuotaTotal.Set {
-		m.ClassQuotaTotal = r.ClassQuotaTotal.Value
-	}
-	if r.ClassQuotaTaken != nil && r.ClassQuotaTaken.Set {
-		m.ClassQuotaTaken = r.ClassQuotaTaken.Value
-	}
-	if r.ClassRegistrationFeeIDR != nil && r.ClassRegistrationFeeIDR.Set {
-		m.ClassRegistrationFeeIDR = r.ClassRegistrationFeeIDR.Value
-	}
-	if r.ClassTuitionFeeIDR != nil && r.ClassTuitionFeeIDR.Set {
-		m.ClassTuitionFeeIDR = r.ClassTuitionFeeIDR.Value
-	}
-	if r.ClassBillingCycle != nil && r.ClassBillingCycle.Set {
-		// jaga agar tidak set empty string; kalau empty, biarkan nilai lama
-		if s := strings.TrimSpace(r.ClassBillingCycle.Value); s != "" {
+	if r.ClassBillingCycle.Present && r.ClassBillingCycle.Value != nil {
+		if s := strings.TrimSpace(*r.ClassBillingCycle.Value); s != "" {
 			m.ClassBillingCycle = s
 		}
 	}
-	if r.ClassProviderProductID != nil && r.ClassProviderProductID.Set {
-		m.ClassProviderProductID = r.ClassProviderProductID.Value
-	}
-	if r.ClassProviderPriceID != nil && r.ClassProviderPriceID.Set {
-		m.ClassProviderPriceID = r.ClassProviderPriceID.Value
-	}
-	if r.ClassNotes != nil && r.ClassNotes.Set {
-		m.ClassNotes = r.ClassNotes.Value
-	}
-
-	if r.ClassDeliveryMode != nil && r.ClassDeliveryMode.Set {
-		m.ClassDeliveryMode = r.ClassDeliveryMode.Value // pointer (nullable)
-	}
-	if r.ClassStatus != nil && r.ClassStatus.Set {
-		if s := strings.TrimSpace(r.ClassStatus.Value); s != "" {
+	if r.ClassStatus.Present && r.ClassStatus.Value != nil {
+		if s := strings.TrimSpace(*r.ClassStatus.Value); s != "" {
 			m.ClassStatus = s
 		}
 	}
-	if r.ClassCompletedAt != nil && r.ClassCompletedAt.Set {
-		m.ClassCompletedAt = r.ClassCompletedAt.Value
+
+	// ---- T=*time.Time (Value = **time.Time) ----
+	if r.ClassStartDate.Present {
+		if r.ClassStartDate.Value == nil {
+			m.ClassStartDate = nil
+		} else {
+			m.ClassStartDate = *r.ClassStartDate.Value
+		}
+	}
+	if r.ClassEndDate.Present {
+		if r.ClassEndDate.Value == nil {
+			m.ClassEndDate = nil
+		} else {
+			m.ClassEndDate = *r.ClassEndDate.Value
+		}
+	}
+	if r.ClassRegistrationOpensAt.Present {
+		if r.ClassRegistrationOpensAt.Value == nil {
+			m.ClassRegistrationOpensAt = nil
+		} else {
+			m.ClassRegistrationOpensAt = *r.ClassRegistrationOpensAt.Value
+		}
+	}
+	if r.ClassRegistrationClosesAt.Present {
+		if r.ClassRegistrationClosesAt.Value == nil {
+			m.ClassRegistrationClosesAt = nil
+		} else {
+			m.ClassRegistrationClosesAt = *r.ClassRegistrationClosesAt.Value
+		}
+	}
+	if r.ClassCompletedAt.Present {
+		if r.ClassCompletedAt.Value == nil {
+			m.ClassCompletedAt = nil
+		} else {
+			m.ClassCompletedAt = *r.ClassCompletedAt.Value
+		}
 	}
 
-	// Image
-	if r.ClassImageURL != nil && r.ClassImageURL.Set {
-		m.ClassImageURL = r.ClassImageURL.Value
+	// ---- T=*uuid.UUID (Value = **uuid.UUID) ----
+	if r.ClassTermID.Present {
+		if r.ClassTermID.Value == nil {
+			m.ClassTermID = nil
+		} else {
+			m.ClassTermID = *r.ClassTermID.Value
+		}
 	}
-	if r.ClassImageObjectKey != nil && r.ClassImageObjectKey.Set {
-		m.ClassImageObjectKey = r.ClassImageObjectKey.Value
+
+	// ⬇️ BARU
+    if r.ClassParentID.Present && r.ClassParentID.Value != nil {
+        m.ClassParentID = *r.ClassParentID.Value
+    }
+
+	// ---- Kuota ----
+	// T=*int (Value = **int)
+	if r.ClassQuotaTotal.Present {
+		if r.ClassQuotaTotal.Value == nil {
+			m.ClassQuotaTotal = nil
+		} else {
+			m.ClassQuotaTotal = *r.ClassQuotaTotal.Value
+		}
 	}
-	if r.ClassImageURLOld != nil && r.ClassImageURLOld.Set {
-		m.ClassImageURLOld = r.ClassImageURLOld.Value
+	// T=int (Value = *int)
+	if r.ClassQuotaTaken.Present && r.ClassQuotaTaken.Value != nil {
+		m.ClassQuotaTaken = *r.ClassQuotaTaken.Value
 	}
-	if r.ClassImageObjectKeyOld != nil && r.ClassImageObjectKeyOld.Set {
-		m.ClassImageObjectKeyOld = r.ClassImageObjectKeyOld.Value
+
+	// ---- Pricing ----
+	// T=*int64 (Value = **int64)
+	if r.ClassRegistrationFeeIDR.Present {
+		if r.ClassRegistrationFeeIDR.Value == nil {
+			m.ClassRegistrationFeeIDR = nil
+		} else {
+			m.ClassRegistrationFeeIDR = *r.ClassRegistrationFeeIDR.Value
+		}
 	}
-	if r.ClassImageDeletePendingUntil != nil && r.ClassImageDeletePendingUntil.Set {
-		m.ClassImageDeletePendingUntil = r.ClassImageDeletePendingUntil.Value
+	if r.ClassTuitionFeeIDR.Present {
+		if r.ClassTuitionFeeIDR.Value == nil {
+			m.ClassTuitionFeeIDR = nil
+		} else {
+			m.ClassTuitionFeeIDR = *r.ClassTuitionFeeIDR.Value
+		}
+	}
+
+	// ---- Optional strings (pointer) → T=*string (Value=**string) ----
+	if r.ClassProviderProductID.Present {
+		if r.ClassProviderProductID.Value == nil {
+			m.ClassProviderProductID = nil
+		} else {
+			m.ClassProviderProductID = *r.ClassProviderProductID.Value
+		}
+	}
+	if r.ClassProviderPriceID.Present {
+		if r.ClassProviderPriceID.Value == nil {
+			m.ClassProviderPriceID = nil
+		} else {
+			m.ClassProviderPriceID = *r.ClassProviderPriceID.Value
+		}
+	}
+	if r.ClassNotes.Present {
+		if r.ClassNotes.Value == nil {
+			m.ClassNotes = nil
+		} else {
+			m.ClassNotes = *r.ClassNotes.Value
+		}
+	}
+	// delivery_mode nullable (pointer)
+	if r.ClassDeliveryMode.Present {
+		if r.ClassDeliveryMode.Value == nil {
+			m.ClassDeliveryMode = nil
+		} else {
+			m.ClassDeliveryMode = *r.ClassDeliveryMode.Value
+		}
+	}
+
+	// ---- Image fields (semua pointer) → T=*string (Value=**string) ----
+	if r.ClassImageURL.Present {
+		if r.ClassImageURL.Value == nil {
+			m.ClassImageURL = nil
+		} else {
+			m.ClassImageURL = *r.ClassImageURL.Value
+		}
+	}
+	if r.ClassImageObjectKey.Present {
+		if r.ClassImageObjectKey.Value == nil {
+			m.ClassImageObjectKey = nil
+		} else {
+			m.ClassImageObjectKey = *r.ClassImageObjectKey.Value
+		}
+	}
+	if r.ClassImageURLOld.Present {
+		if r.ClassImageURLOld.Value == nil {
+			m.ClassImageURLOld = nil
+		} else {
+			m.ClassImageURLOld = *r.ClassImageURLOld.Value
+		}
+	}
+	if r.ClassImageObjectKeyOld.Present {
+		if r.ClassImageObjectKeyOld.Value == nil {
+			m.ClassImageObjectKeyOld = nil
+		} else {
+			m.ClassImageObjectKeyOld = *r.ClassImageObjectKeyOld.Value
+		}
+	}
+	if r.ClassImageDeletePendingUntil.Present {
+		if r.ClassImageDeletePendingUntil.Value == nil {
+			m.ClassImageDeletePendingUntil = nil
+		} else {
+			m.ClassImageDeletePendingUntil = *r.ClassImageDeletePendingUntil.Value
+		}
 	}
 }
 
@@ -523,7 +613,7 @@ func FromModel(m *model.ClassModel) ClassResponse {
 		ClassProviderProductID:    m.ClassProviderProductID,
 		ClassProviderPriceID:      m.ClassProviderPriceID,
 		ClassNotes:                m.ClassNotes,
-		ClassDeliveryMode:         m.ClassDeliveryMode, // pointer
+		ClassDeliveryMode:         m.ClassDeliveryMode,
 		ClassStatus:               m.ClassStatus,
 		ClassCompletedAt:          m.ClassCompletedAt,
 
@@ -552,12 +642,11 @@ type ListClassQuery struct {
 	Slug         *string    `query:"slug"`          // exact/ilike di repo
 	Search       *string    `query:"search"`        // cari di notes (trigram)
 
-	StartGe   *time.Time `query:"start_ge"`
-	StartLe   *time.Time `query:"start_le"`
-	RegOpenGe *time.Time `query:"reg_open_ge"`
+	StartGe    *time.Time `query:"start_ge"`
+	StartLe    *time.Time `query:"start_le"`
+	RegOpenGe  *time.Time `query:"reg_open_ge"`
 	RegCloseLe *time.Time `query:"reg_close_le"`
 
-	// opsional filter untuk completed range
 	CompletedGe *time.Time `query:"completed_ge"`
 	CompletedLe *time.Time `query:"completed_le"`
 

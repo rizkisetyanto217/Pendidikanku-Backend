@@ -22,14 +22,25 @@ type BooksController struct {
 
 var validate = validator.New()
 
-/* =========================================================
-   CREATE  - POST /admin/class-books
-   Body: JSON (atau form sederhana, tanpa upload file)
-   ========================================================= */
+// =========================================================
+// CREATE  - POST /admin/class-books
+// Body: JSON (atau form sederhana, tanpa upload file)
+// =========================================================
 func (h *BooksController) Create(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	// Pastikan DB tersedia untuk helper slug→id
+	if c.Locals("DB") == nil {
+		c.Locals("DB", h.DB)
+	}
+
+	// Ambil masjid context dari path/header/query/host/token
+	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
+		return err
+	}
+	// Hanya DKM/Admin masjid ini yang boleh create
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
+		return err
 	}
 
 	var req dto.BooksCreateRequest
@@ -51,12 +62,11 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 	if err := validate.Struct(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	// Wajib ada slug hasil generate
 	if req.BooksSlug == nil || *req.BooksSlug == "" {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Slug tidak valid (judul terlalu kosong untuk dibentuk slug)")
 	}
 
-	// Cek unik slug per masjid (case-insensitive, soft-delete aware)
+	// Cek unik slug per masjid (CI, soft-delete aware)
 	var cnt int64
 	if err := h.DB.Model(&model.BooksModel{}).
 		Where(`
@@ -75,7 +85,8 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 	m := req.ToModel()
 	if err := h.DB.Create(m).Error; err != nil {
 		msg := strings.ToLower(err.Error())
-		if strings.Contains(msg, "uq_books_slug_per_masjid") || strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
+		if strings.Contains(msg, "uq_books_slug_per_masjid") ||
+			strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
 			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat data")
@@ -83,15 +94,23 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Buku berhasil dibuat", dto.ToBooksResponse(m))
 }
 
-/* =========================================================
-   UPDATE - PUT /admin/class-books/:id
-   Body: JSON / form sederhana (tanpa upload file)
-   ========================================================= */
+// =========================================================
+// UPDATE - PUT /admin/class-books/:id
+// Body: JSON / form sederhana (tanpa upload file)
+// =========================================================
 func (h *BooksController) Update(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
+	if c.Locals("DB") == nil {
+		c.Locals("DB", h.DB)
 	}
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		return err
+	}
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
+		return err
+	}
+
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
@@ -154,7 +173,8 @@ func (h *BooksController) Update(c *fiber.Ctx) error {
 
 	if err := h.DB.Save(&m).Error; err != nil {
 		msg := strings.ToLower(err.Error())
-		if strings.Contains(msg, "uq_books_slug_per_masjid") || strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
+		if strings.Contains(msg, "uq_books_slug_per_masjid") ||
+			strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
 			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui data")
@@ -163,13 +183,20 @@ func (h *BooksController) Update(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Buku berhasil diperbarui", dto.ToBooksResponse(&m))
 }
 
-/* =========================================================
-   DELETE (soft) - DELETE /admin/class-books/:id
-   ========================================================= */
+// =========================================================
+// DELETE (soft) - DELETE /admin/class-books/:id
+// =========================================================
 func (h *BooksController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	if c.Locals("DB") == nil {
+		c.Locals("DB", h.DB)
+	}
+	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
+		return err
+	}
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
+		return err
 	}
 
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))

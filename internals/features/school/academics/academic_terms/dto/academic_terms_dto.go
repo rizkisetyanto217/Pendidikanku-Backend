@@ -13,12 +13,12 @@ import (
 /* ===================== REQUEST DTO ===================== */
 
 type AcademicTermCreateDTO struct {
-	AcademicTermsAcademicYear string     `json:"academic_terms_academic_year" validate:"required,min=4"`
-	AcademicTermsName         string     `json:"academic_terms_name"          validate:"required,oneof=Ganjil Genap Pendek Khusus"`
-	AcademicTermsStartDate    time.Time  `json:"academic_terms_start_date"    validate:"required"`
-	AcademicTermsEndDate      time.Time  `json:"academic_terms_end_date"      validate:"required,gtefield=AcademicTermsStartDate"`
-	AcademicTermsIsActive     *bool      `json:"academic_terms_is_active,omitempty"`
-	AcademicTermsAngkatan     *int       `json:"academic_terms_angkatan,omitempty" validate:"omitempty,gt=0"`
+	AcademicTermsAcademicYear string    `json:"academic_terms_academic_year" validate:"required,min=4"`
+	AcademicTermsName         string    `json:"academic_terms_name"          validate:"required,oneof=Ganjil Genap Pendek Khusus"`
+	AcademicTermsStartDate    time.Time `json:"academic_terms_start_date"    validate:"required"`
+	AcademicTermsEndDate      time.Time `json:"academic_terms_end_date"      validate:"required,gtefield=AcademicTermsStartDate"`
+	AcademicTermsIsActive     *bool     `json:"academic_terms_is_active,omitempty"`
+	AcademicTermsAngkatan     *int      `json:"academic_terms_angkatan,omitempty" validate:"omitempty,gt=0"`
 
 	// Kolom baru (opsional)
 	AcademicTermsCode        string  `json:"academic_terms_code,omitempty"        validate:"omitempty,min=1,max=24"`
@@ -28,7 +28,7 @@ type AcademicTermCreateDTO struct {
 
 type AcademicTermUpdateDTO struct {
 	AcademicTermsAcademicYear *string    `json:"academic_terms_academic_year,omitempty" validate:"omitempty,min=4"`
-	AcademicTermsName *string `validate:"omitempty,min=1,max=60"`
+	AcademicTermsName         *string    `validate:"omitempty,min=1,max=60"`
 	AcademicTermsStartDate    *time.Time `json:"academic_terms_start_date,omitempty"`
 	AcademicTermsEndDate      *time.Time `json:"academic_terms_end_date,omitempty"`
 	AcademicTermsIsActive     *bool      `json:"academic_terms_is_active,omitempty"`
@@ -60,15 +60,15 @@ type AcademicTermFilterDTO struct {
 /* ===================== RESPONSE DTO ===================== */
 
 type AcademicTermResponseDTO struct {
-	AcademicTermsID           uuid.UUID  `json:"academic_terms_id"`
-	AcademicTermsMasjidID     uuid.UUID  `json:"academic_terms_masjid_id"`
-	AcademicTermsAcademicYear string     `json:"academic_terms_academic_year"`
-	AcademicTermsName         string     `json:"academic_terms_name"`
-	AcademicTermsStartDate    time.Time  `json:"academic_terms_start_date"`
-	AcademicTermsEndDate      time.Time  `json:"academic_terms_end_date"`
-	AcademicTermsIsActive     bool       `json:"academic_terms_is_active"`
+	AcademicTermsID           uuid.UUID `json:"academic_terms_id"`
+	AcademicTermsMasjidID     uuid.UUID `json:"academic_terms_masjid_id"`
+	AcademicTermsAcademicYear string    `json:"academic_terms_academic_year"`
+	AcademicTermsName         string    `json:"academic_terms_name"`
+	AcademicTermsStartDate    time.Time `json:"academic_terms_start_date"`
+	AcademicTermsEndDate      time.Time `json:"academic_terms_end_date"`
+	AcademicTermsIsActive     bool      `json:"academic_terms_is_active"`
 
-	AcademicTermsAngkatan     *int       `json:"academic_terms_angkatan,omitempty"`
+	AcademicTermsAngkatan *int `json:"academic_terms_angkatan,omitempty"`
 
 	// Kolom baru
 	AcademicTermsCode        string  `json:"academic_terms_code,omitempty"`
@@ -251,4 +251,34 @@ func derefOrEmpty(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+type OpeningWithClass struct {
+	// opening
+	ClassTermOpeningsID                    uuid.UUID  `json:"class_term_openings_id"                      gorm:"column:class_term_openings_id"`
+	ClassTermOpeningsMasjidID              uuid.UUID  `json:"class_term_openings_masjid_id"               gorm:"column:class_term_openings_masjid_id"`
+	ClassTermOpeningsClassID               uuid.UUID  `json:"class_term_openings_class_id"                gorm:"column:class_term_openings_class_id"`
+	ClassTermOpeningsTermID                uuid.UUID  `json:"class_term_openings_term_id"                 gorm:"column:class_term_openings_term_id"`
+	ClassTermOpeningsIsOpen                bool       `json:"class_term_openings_is_open"                 gorm:"column:class_term_openings_is_open"`
+	ClassTermOpeningsRegistrationOpensAt   *time.Time `json:"class_term_openings_registration_opens_at"   gorm:"column:class_term_openings_registration_opens_at"`
+	ClassTermOpeningsRegistrationClosesAt  *time.Time `json:"class_term_openings_registration_closes_at"  gorm:"column:class_term_openings_registration_closes_at"`
+	ClassTermOpeningsQuotaTotal            *int       `json:"class_term_openings_quota_total"             gorm:"column:class_term_openings_quota_total"`
+	ClassTermOpeningsQuotaTaken            int        `json:"class_term_openings_quota_taken"             gorm:"column:class_term_openings_quota_taken"`
+	ClassTermOpeningsFeeOverrideMonthlyIDR *int       `json:"class_term_openings_fee_override_monthly_idr" gorm:"column:class_term_openings_fee_override_monthly_idr"`
+	ClassTermOpeningsNotes                 *string    `json:"class_term_openings_notes"                   gorm:"column:class_term_openings_notes"`
+	ClassTermOpeningsCreatedAt             time.Time  `json:"class_term_openings_created_at"              gorm:"column:class_term_openings_created_at"`
+	ClassTermOpeningsUpdatedAt             *time.Time `json:"class_term_openings_updated_at"              gorm:"column:class_term_openings_updated_at"`
+	ClassTermOpeningsDeletedAt             *time.Time `json:"class_term_openings_deleted_at"              gorm:"column:class_term_openings_deleted_at"`
+
+	// class (subset)
+	Class struct {
+		ClassID          uuid.UUID  `json:"class_id"              gorm:"column:class_id"`
+		ClassMasjidID    *uuid.UUID `json:"class_masjid_id"       gorm:"column:class_masjid_id"`
+		ClassName        string     `json:"class_name"            gorm:"column:class_name"`
+		ClassSlug        string     `json:"class_slug"            gorm:"column:class_slug"`
+		ClassDescription *string    `json:"class_description"     gorm:"column:class_description"`
+		ClassLevel       *string    `json:"class_level"           gorm:"column:class_level"`
+		ClassImageURL    *string    `json:"class_image_url"       gorm:"column:class_image_url"`
+		ClassIsActive    bool       `json:"class_is_active"       gorm:"column:class_is_active"`
+	} `json:"class"`
 }

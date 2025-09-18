@@ -3,6 +3,8 @@ package controller
 
 import (
 	"errors"
+	"log"
+	"mime/multipart"
 	"strings"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
+	helperOSS "masjidku_backend/internals/helpers/oss"
 
 	semstats "masjidku_backend/internals/features/lembaga/stats/semester_stats/service"
 	ucsDTO "masjidku_backend/internals/features/school/classes/class_sections/dto"
@@ -32,45 +35,55 @@ func NewClassSectionController(db *gorm.DB) *ClassSectionController {
 
 // POST /admin/class-sections
 func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
+	log.Printf("[SECTIONS][CREATE] ▶️ incoming request")
+
+	// ---- Masjid context (konsisten dgn ClassParent) ----
+	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return err
 	}
+	var masjidID uuid.UUID
+	switch {
+	case mc.ID != uuid.Nil:
+		masjidID = mc.ID
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetMasjidIDBySlug(c, strings.TrimSpace(mc.Slug))
+		if er != nil {
+			return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+		}
+		masjidID = id
+	default:
+		id, er := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+		if er != nil || id == uuid.Nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak ditemukan")
+		}
+		masjidID = id
+	}
+	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
+		return err
+	}
+	log.Printf("[SECTIONS][CREATE] 🕌 masjid_id=%s", masjidID)
 
+	// ---- Parse req ----
 	var req ucsDTO.ClassSectionCreateRequest
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
+	req.ClassSectionsMasjidID = masjidID // paksa tenant
+	log.Printf("[SECTIONS][CREATE] 📩 req: class_id=%s teacher_id=%v room_id=%v name='%s' slug_in='%s'",
+		req.ClassSectionsClassID, req.ClassSectionsTeacherID, req.ClassSectionsClassRoomID,
+		req.ClassSectionsName, req.ClassSectionsSlug)
 
-	// paksa tenant
-	req.ClassSectionsMasjidID = masjidID
-
-	// generate slug bila kosong / normalisasi
-	slugBase := strings.TrimSpace(req.ClassSectionsSlug)
-	if slugBase == "" {
-		slugBase = req.ClassSectionsName
-	}
-	req.ClassSectionsSlug = helper.GenerateSlug(slugBase)
-	if req.ClassSectionsSlug == "" {
-		req.ClassSectionsSlug = "section-" + uuid.NewString()[:8]
-	}
-
-	// sanity
+	// ---- Sanity ringan ----
 	if strings.TrimSpace(req.ClassSectionsName) == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "Nama section wajib diisi")
-	}
-	if len(req.ClassSectionsSlug) > 160 {
-		return fiber.NewError(fiber.StatusBadRequest, "Slug terlalu panjang (maksimal 160)")
 	}
 	if req.ClassSectionsCapacity != nil && *req.ClassSectionsCapacity < 0 {
 		return fiber.NewError(fiber.StatusBadRequest, "Capacity tidak boleh negatif")
 	}
 
-	// map ke model
-	m := req.ToModel()
-	m.ClassSectionsMasjidID = masjidID // enforce
-
-	tx := ctrl.DB.Begin()
+	// ---- TX ----
+	tx := ctrl.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, tx.Error.Error())
 	}
@@ -81,7 +94,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		}
 	}()
 
-	// validasi class se-masjid
+	// ---- Validasi class se-masjid ----
 	{
 		var cls classModel.ClassModel
 		if err := tx.
@@ -100,72 +113,123 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		}
 	}
 
-	// validasi teacher se-masjid
+	// ---- Validasi teacher se-masjid (jika ada) ----
 	if req.ClassSectionsTeacherID != nil {
-		var teacherMasjid uuid.UUID
+		var tMasjid uuid.UUID
 		if err := tx.Raw(`
 			SELECT masjid_teacher_masjid_id
 			FROM masjid_teachers
 			WHERE masjid_teacher_id = ? AND masjid_teacher_deleted_at IS NULL
-		`, *req.ClassSectionsTeacherID).Scan(&teacherMasjid).Error; err != nil {
+		`, *req.ClassSectionsTeacherID).Scan(&tMasjid).Error; err != nil {
 			_ = tx.Rollback()
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi pengajar")
 		}
-		if teacherMasjid == uuid.Nil {
+		if tMasjid == uuid.Nil {
 			_ = tx.Rollback()
 			return fiber.NewError(fiber.StatusBadRequest, "Pengajar tidak ditemukan")
 		}
-		if teacherMasjid != masjidID {
+		if tMasjid != masjidID {
 			_ = tx.Rollback()
 			return fiber.NewError(fiber.StatusForbidden, "Pengajar bukan milik masjid Anda")
 		}
 	}
 
-	// validasi room se-masjid
+	// ---- Validasi room se-masjid (jika ada) ----
 	if req.ClassSectionsClassRoomID != nil {
-		var roomMasjid uuid.UUID
+		var rMasjid uuid.UUID
 		if err := tx.Raw(`
 			SELECT class_rooms_masjid_id
 			FROM class_rooms
 			WHERE class_room_id = ? AND class_rooms_deleted_at IS NULL
-		`, *req.ClassSectionsClassRoomID).Scan(&roomMasjid).Error; err != nil {
+		`, *req.ClassSectionsClassRoomID).Scan(&rMasjid).Error; err != nil {
 			_ = tx.Rollback()
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi ruang kelas")
 		}
-		if roomMasjid == uuid.Nil {
+		if rMasjid == uuid.Nil {
 			_ = tx.Rollback()
 			return fiber.NewError(fiber.StatusBadRequest, "Ruang kelas tidak ditemukan")
 		}
-		if roomMasjid != masjidID {
+		if rMasjid != masjidID {
 			_ = tx.Rollback()
 			return fiber.NewError(fiber.StatusForbidden, "Ruang kelas bukan milik masjid Anda")
 		}
 	}
 
-	// unik slug per masjid
-	if err := tx.
-		Clauses(clause.Locking{Strength: "SHARE"}).
-		Where(`
-			class_sections_masjid_id = ?
-			AND lower(class_sections_slug) = lower(?)
-			AND class_sections_deleted_at IS NULL
-		`, masjidID, m.ClassSectionsSlug).
-		First(&secModel.ClassSectionModel{}).Error; err == nil {
-		_ = tx.Rollback()
-		return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan")
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		_ = tx.Rollback()
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	// ---- Slug unik (CI) per masjid (pola ClassParent) ----
+	var baseSlug string
+	if s := strings.TrimSpace(req.ClassSectionsSlug); s != "" {
+		baseSlug = helper.Slugify(s, 160)
+	} else {
+		baseSlug = helper.Slugify(strings.TrimSpace(req.ClassSectionsName), 160)
+		if baseSlug == "" {
+			baseSlug = "section"
+		}
 	}
+	log.Printf("[SECTIONS][SLUG] baseSlug='%s'", baseSlug)
 
-	// simpan
+	uniqueSlug, uErr := helper.EnsureUniqueSlugCI(
+		c.Context(), tx,
+		"class_sections", "class_sections_slug",
+		baseSlug,
+		func(q *gorm.DB) *gorm.DB {
+			return q.Where("class_sections_masjid_id = ? AND class_sections_deleted_at IS NULL", masjidID)
+		},
+		160,
+	)
+	if uErr != nil {
+		_ = tx.Rollback()
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
+	}
+	log.Printf("[SECTIONS][CREATE] ✅ unique_slug='%s'", uniqueSlug)
+
+	// ---- Map ke model & simpan ----
+	m := req.ToModel()
+	m.ClassSectionsMasjidID = masjidID
+	m.ClassSectionsSlug = uniqueSlug
+
 	if err := tx.Create(m).Error; err != nil {
 		_ = tx.Rollback()
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat section")
 	}
+	log.Printf("[SECTIONS][CREATE] 💾 created section_id=%s", m.ClassSectionsID)
 
-	// update stats bila aktif
+	// ---- Optional upload image (pakai helperOSS seperti Class Parent) ----
+	uploadedURL := ""
+	if fh := pickImageFile(c, "image", "file"); fh != nil {
+		log.Printf("[SECTIONS][CREATE] 📤 uploading image filename=%s size=%d", fh.Filename, fh.Size)
+		url, upErr := helperOSS.UploadImageToOSSScoped(masjidID, "classes/sections", fh)
+		if upErr == nil && strings.TrimSpace(url) != "" {
+			uploadedURL = url
+
+			// derive object key
+			objKey := ""
+			if k, e := helperOSS.ExtractKeyFromPublicURL(uploadedURL); e == nil {
+				objKey = k
+			} else if k2, e2 := helperOSS.KeyFromPublicURL(uploadedURL); e2 == nil {
+				objKey = k2
+			}
+
+			// ✅ persist di DB
+			_ = tx.WithContext(c.Context()).
+				Table("class_sections").
+				Where("class_sections_id = ?", m.ClassSectionsID).
+				Updates(map[string]any{
+					"class_sections_image_url":        uploadedURL,
+					"class_sections_image_object_key": objKey,
+				}).Error
+
+			// ✅ sinkronkan struct utk response
+			m.ClassSectionsImageURL = &uploadedURL
+			m.ClassSectionsImageObjectKey = &objKey
+
+			log.Printf("[SECTIONS][CREATE] ✅ image set url=%s key=%s", uploadedURL, objKey)
+		}
+	}
+
+
+	// ---- Update lembaga_stats bila active ----
 	if m.ClassSectionsIsActive {
+		log.Printf("[SECTIONS][CREATE] 📊 updating lembaga_stats (active +1)")
 		statsSvc := semstats.NewLembagaStatsService()
 		if err := statsSvc.EnsureForMasjid(tx, masjidID); err != nil {
 			_ = tx.Rollback()
@@ -180,18 +244,16 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	if err := tx.Commit().Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
+	log.Printf("[SECTIONS][CREATE] ✅ done")
 
-	return helper.JsonCreated(c, "Section berhasil dibuat", ucsDTO.FromModelClassSection(m))
+	return helper.JsonCreated(c, "Section berhasil dibuat", fiber.Map{
+		"section":            ucsDTO.FromModelClassSection(m),
+		"uploaded_image_url": uploadedURL,
+	})
 }
 
 // PATCH /admin/class-sections/:id   (PATCH semantics)
-// PATCH /admin/class-sections/:id   (PATCH semantics)
 func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
-	if err != nil {
-		return err
-	}
-
 	sectionID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
@@ -202,35 +264,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
-	// Normalisasi/generasi slug hanya jika slug atau name dikirim
-	if req.ClassSectionsSlug.Present && req.ClassSectionsSlug.Value != nil {
-		s := helper.GenerateSlug(strings.TrimSpace(*req.ClassSectionsSlug.Value))
-		if s == "" {
-			s = "section-" + uuid.NewString()[:8]
-		}
-		req.ClassSectionsSlug.Value = &s
-	} else if req.ClassSectionsName.Present && req.ClassSectionsName.Value != nil {
-		s := helper.GenerateSlug(strings.TrimSpace(*req.ClassSectionsName.Value))
-		if s == "" {
-			s = "section-" + uuid.NewString()[:8]
-		}
-		// set juga slug agar konsisten
-		req.ClassSectionsSlug.Present = true
-		req.ClassSectionsSlug.Value = &s
-	}
-
-	// Sanity ringan
-	if req.ClassSectionsSlug.Present && req.ClassSectionsSlug.Value != nil && len(*req.ClassSectionsSlug.Value) > 160 {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Slug terlalu panjang (maks 160)")
-	}
-	if req.ClassSectionsName.Present && req.ClassSectionsName.Value != nil && strings.TrimSpace(*req.ClassSectionsName.Value) == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Nama section wajib diisi")
-	}
-	if req.ClassSectionsCapacity.Present && req.ClassSectionsCapacity.Value != nil && *req.ClassSectionsCapacity.Value < 0 {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Capacity tidak boleh negatif")
-	}
-
-	tx := ctrl.DB.Begin()
+	tx := ctrl.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, tx.Error.Error())
 	}
@@ -253,105 +287,134 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Tenant guard
-	if existing.ClassSectionsMasjidID != masjidID {
+	// ---- Guard staff pada masjid terkait (pola ClassParent) ----
+	if err := helperAuth.EnsureStaffMasjid(c, existing.ClassSectionsMasjidID); err != nil {
 		_ = tx.Rollback()
-		return helper.JsonError(c, fiber.StatusForbidden, "Tidak boleh mengubah section milik masjid lain")
+		return err
 	}
 
-	// Validasi teacher jika berubah
-	if req.ClassSectionsTeacherID.Present && req.ClassSectionsTeacherID.Value != nil {
-		var mt struct{ MasjidTeacherMasjidID uuid.UUID `gorm:"column:masjid_teacher_masjid_id"` }
-		if err := tx.
-			Table("masjid_teachers").
-			Select("masjid_teacher_masjid_id").
-			Where("masjid_teacher_id = ? AND masjid_teacher_deleted_at IS NULL", *req.ClassSectionsTeacherID.Value).
-			Take(&mt).Error; err != nil {
+	// ---- Normalisasi req ringan ----
+	if req.ClassSectionsName.Present && req.ClassSectionsName.Value != nil {
+		name := strings.TrimSpace(*req.ClassSectionsName.Value)
+		if name == "" {
 			_ = tx.Rollback()
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusBadRequest, "Pengajar tidak ditemukan")
-			}
+			return helper.JsonError(c, fiber.StatusBadRequest, "Nama section wajib diisi")
+		}
+	}
+	if req.ClassSectionsCapacity.Present && req.ClassSectionsCapacity.Value != nil && *req.ClassSectionsCapacity.Value < 0 {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusBadRequest, "Capacity tidak boleh negatif")
+	}
+
+	// ---- Validasi teacher kalau diubah ----
+	if req.ClassSectionsTeacherID.Present && req.ClassSectionsTeacherID.Value != nil {
+		var tMasjid uuid.UUID
+		if err := tx.Raw(`
+			SELECT masjid_teacher_masjid_id
+			FROM masjid_teachers
+			WHERE masjid_teacher_id = ? AND masjid_teacher_deleted_at IS NULL
+		`, *req.ClassSectionsTeacherID.Value).Scan(&tMasjid).Error; err != nil {
+			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi pengajar")
 		}
-		if mt.MasjidTeacherMasjidID != masjidID {
+		if tMasjid == uuid.Nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusBadRequest, "Pengajar tidak ditemukan")
+		}
+		if tMasjid != existing.ClassSectionsMasjidID {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusForbidden, "Pengajar bukan milik masjid Anda")
 		}
 	}
 
-	// Validasi room jika berubah
+	// ---- Validasi room kalau diubah ----
 	if req.ClassSectionsClassRoomID.Present && req.ClassSectionsClassRoomID.Value != nil {
-		var room struct{ ClassRoomsMasjidID uuid.UUID `gorm:"column:class_rooms_masjid_id"` }
-		if err := tx.
-			Table("class_rooms").
-			Select("class_rooms_masjid_id").
-			Where("class_room_id = ? AND class_rooms_deleted_at IS NULL", *req.ClassSectionsClassRoomID.Value).
-			Take(&room).Error; err != nil {
+		var rMasjid uuid.UUID
+		if err := tx.Raw(`
+			SELECT class_rooms_masjid_id
+			FROM class_rooms
+			WHERE class_room_id = ? AND class_rooms_deleted_at IS NULL
+		`, *req.ClassSectionsClassRoomID.Value).Scan(&rMasjid).Error; err != nil {
 			_ = tx.Rollback()
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusBadRequest, "Ruang kelas tidak ditemukan")
-			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi ruang kelas")
 		}
-		if room.ClassRoomsMasjidID != masjidID {
+		if rMasjid == uuid.Nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusBadRequest, "Ruang kelas tidak ditemukan")
+		}
+		if rMasjid != existing.ClassSectionsMasjidID {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusForbidden, "Ruang kelas bukan milik masjid Anda")
 		}
 	}
 
-	// Cek unik slug per masjid jika slug diubah
-	if req.ClassSectionsSlug.Present && req.ClassSectionsSlug.Value != nil &&
-		!strings.EqualFold(*req.ClassSectionsSlug.Value, existing.ClassSectionsSlug) {
-		var cnt int64
-		if err := tx.Model(&secModel.ClassSectionModel{}).
-			Where(`
-				class_sections_masjid_id = ?
-				AND lower(class_sections_slug) = lower(?)
-				AND class_sections_id <> ?
-				AND class_sections_deleted_at IS NULL
-			`, masjidID, *req.ClassSectionsSlug.Value, existing.ClassSectionsID).
-			Count(&cnt).Error; err != nil {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	// ---- SLUG handling (pola ClassParent) ----
+	// Jika slug dipatch → generate & unique
+	if req.ClassSectionsSlug.Present && req.ClassSectionsSlug.Value != nil {
+		base := helper.Slugify(strings.TrimSpace(*req.ClassSectionsSlug.Value), 160)
+		if base == "" {
+			// kalau kosong, coba dari name (final)
+			n := existing.ClassSectionsName
+			if req.ClassSectionsName.Present && req.ClassSectionsName.Value != nil {
+				n = strings.TrimSpace(*req.ClassSectionsName.Value)
+			}
+			base = helper.Slugify(n, 160)
+			if base == "" {
+				base = "section"
+			}
 		}
-		if cnt > 0 {
+		uniq, e := helper.EnsureUniqueSlugCI(
+			c.Context(), tx,
+			"class_sections", "class_sections_slug",
+			base,
+			func(q *gorm.DB) *gorm.DB {
+				return q.Where(
+					"class_sections_masjid_id = ? AND class_sections_id <> ? AND class_sections_deleted_at IS NULL",
+					existing.ClassSectionsMasjidID, existing.ClassSectionsID,
+				)
+			},
+			160,
+		)
+		if e != nil {
 			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 		}
+		// set ke request agar Apply() ikut menulis
+		req.ClassSectionsSlug.Value = &uniq
+	} else if req.ClassSectionsName.Present && req.ClassSectionsName.Value != nil {
+		// Slug tidak dipatch, tapi NAME berubah → regen dari NAME
+		base := helper.Slugify(strings.TrimSpace(*req.ClassSectionsName.Value), 160)
+		if base == "" {
+			base = "section"
+		}
+		uniq, e := helper.EnsureUniqueSlugCI(
+			c.Context(), tx,
+			"class_sections", "class_sections_slug",
+			base,
+			func(q *gorm.DB) *gorm.DB {
+				return q.Where(
+					"class_sections_masjid_id = ? AND class_sections_id <> ? AND class_sections_deleted_at IS NULL",
+					existing.ClassSectionsMasjidID, existing.ClassSectionsID,
+				)
+			},
+			160,
+		)
+		if e != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
+		}
+		req.ClassSectionsSlug.Present = true
+		req.ClassSectionsSlug.Value = &uniq
 	}
 
-	// Cek unik (class_id, name) — hanya jika NAME berubah (class_id tidak diubah via PATCH)
-	targetName := existing.ClassSectionsName
-	if req.ClassSectionsName.Present && req.ClassSectionsName.Value != nil {
-		targetName = strings.TrimSpace(*req.ClassSectionsName.Value)
-	}
-	if !strings.EqualFold(targetName, existing.ClassSectionsName) {
-		var cnt int64
-		if err := tx.Model(&secModel.ClassSectionModel{}).
-			Where(`
-				class_sections_class_id = ?
-				AND class_sections_name = ?
-				AND class_sections_id <> ?
-				AND class_sections_deleted_at IS NULL
-			`, existing.ClassSectionsClassID, targetName, existing.ClassSectionsID).
-			Count(&cnt).Error; err != nil {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-		}
-		if cnt > 0 {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusConflict, "Nama section sudah dipakai pada class ini")
-		}
-	}
-
-	// Track perubahan status aktif
+	// ---- Track perubahan status aktif ----
 	wasActive := existing.ClassSectionsIsActive
 	newActive := wasActive
 	if req.ClassSectionsIsActive.Present && req.ClassSectionsIsActive.Value != nil {
 		newActive = *req.ClassSectionsIsActive.Value
 	}
 
-	// Apply patch & save
+	// ---- Apply & save ----
 	req.Normalize()
 	req.Apply(&existing)
 	if err := tx.Save(&existing).Error; err != nil {
@@ -359,10 +422,69 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui section")
 	}
 
-	// Update lembaga_stats jika status aktif berubah
+	// ---- Optional upload image (mirip ClassParent Patch; best-effort) ----
+	uploadedURL := ""
+	if fh := pickImageFile(c, "image", "file"); fh != nil {
+		log.Printf("[SECTIONS][PATCH] 📤 uploading image filename=%s size=%d", fh.Filename, fh.Size)
+		url, upErr := helperOSS.UploadImageToOSSScoped(existing.ClassSectionsMasjidID, "classes/sections", fh)
+		if upErr == nil && strings.TrimSpace(url) != "" {
+			uploadedURL = url
+
+			newObjKey := ""
+			if k, e := helperOSS.ExtractKeyFromPublicURL(uploadedURL); e == nil {
+				newObjKey = k
+			} else if k2, e2 := helperOSS.KeyFromPublicURL(uploadedURL); e2 == nil {
+				newObjKey = k2
+			}
+
+			// Ambil lama dari DB (best-effort)
+			var oldURL, oldObjKey string
+			{
+				type row struct {
+					URL string `gorm:"column:class_sections_image_url"`
+					Key string `gorm:"column:class_sections_image_object_key"`
+				}
+				var r row
+				_ = tx.Table("class_sections").
+					Select("class_sections_image_url, class_sections_image_object_key").
+					Where("class_sections_id = ?", existing.ClassSectionsID).
+					Take(&r).Error
+				oldURL = strings.TrimSpace(r.URL)
+				oldObjKey = strings.TrimSpace(r.Key)
+			}
+
+			// Pindah lama ke spam (jika ada)
+			movedURL := ""
+			if oldURL != "" {
+				if mv, mvErr := helperOSS.MoveToSpamByPublicURLENV(oldURL, 0); mvErr == nil {
+					movedURL = mv
+					// sinkronkan key lama
+					if k, e := helperOSS.ExtractKeyFromPublicURL(movedURL); e == nil {
+						oldObjKey = k
+					} else if k2, e2 := helperOSS.KeyFromPublicURL(movedURL); e2 == nil {
+						oldObjKey = k2
+					}
+				}
+			}
+
+			deletePendingUntil := time.Now().Add(30 * 24 * time.Hour)
+
+			_ = tx.Table("class_sections").
+				Where("class_sections_id = ?", existing.ClassSectionsID).
+				Updates(map[string]any{
+					"class_sections_image_url":                  uploadedURL,
+					"class_sections_image_object_key":           newObjKey,
+					"class_sections_image_url_old":              func() any { if movedURL == "" { return gorm.Expr("NULL") }; return movedURL }(),
+					"class_sections_image_object_key_old":       func() any { if oldObjKey == "" { return gorm.Expr("NULL") }; return oldObjKey }(),
+					"class_sections_image_delete_pending_until": deletePendingUntil,
+				}).Error
+		}
+	}
+
+	// ---- Update stats jika status aktif berubah ----
 	if wasActive != newActive {
 		stats := semstats.NewLembagaStatsService()
-		if err := stats.EnsureForMasjid(tx, masjidID); err != nil {
+		if err := stats.EnsureForMasjid(tx, existing.ClassSectionsMasjidID); err != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal inisialisasi lembaga_stats: "+err.Error())
 		}
@@ -370,7 +492,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		if newActive {
 			delta = +1
 		}
-		if err := stats.IncActiveSections(tx, masjidID, delta); err != nil {
+		if err := stats.IncActiveSections(tx, existing.ClassSectionsMasjidID, delta); err != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update lembaga_stats: "+err.Error())
 		}
@@ -379,24 +501,17 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	if err := tx.Commit().Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
-
 	return helper.JsonUpdated(c, "Section berhasil diperbarui", ucsDTO.FromModelClassSection(&existing))
 }
 
-
 // DELETE /admin/class-sections/:id (soft delete)
 func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
-	if err != nil {
-		return err
-	}
-
 	sectionID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	tx := ctrl.DB.Begin()
+	tx := ctrl.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, tx.Error.Error())
 	}
@@ -418,9 +533,10 @@ func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	if m.ClassSectionsMasjidID != masjidID {
+	// Guard akses staff pada masjid terkait (pola ClassParent)
+	if err := helperAuth.EnsureStaffMasjid(c, m.ClassSectionsMasjidID); err != nil {
 		_ = tx.Rollback()
-		return fiber.NewError(fiber.StatusForbidden, "Tidak boleh menghapus section milik masjid lain")
+		return err
 	}
 
 	wasActive := m.ClassSectionsIsActive
@@ -439,11 +555,11 @@ func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 
 	if wasActive {
 		stats := semstats.NewLembagaStatsService()
-		if err := stats.EnsureForMasjid(tx, masjidID); err != nil {
+		if err := stats.EnsureForMasjid(tx, m.ClassSectionsMasjidID); err != nil {
 			_ = tx.Rollback()
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal inisialisasi lembaga_stats: "+err.Error())
 		}
-		if err := stats.IncActiveSections(tx, masjidID, -1); err != nil {
+		if err := stats.IncActiveSections(tx, m.ClassSectionsMasjidID, -1); err != nil {
 			_ = tx.Rollback()
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal update lembaga_stats: "+err.Error())
 		}
@@ -456,4 +572,13 @@ func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 	return helper.JsonDeleted(c, "Section berhasil dihapus", fiber.Map{
 		"class_sections_id": m.ClassSectionsID,
 	})
+}
+
+func pickImageFile(c *fiber.Ctx, names ...string) *multipart.FileHeader {
+	for _, n := range names {
+		if fh, err := c.FormFile(n); err == nil && fh != nil && fh.Size > 0 {
+			return fh
+		}
+	}
+	return nil
 }

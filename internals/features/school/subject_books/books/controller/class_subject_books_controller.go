@@ -20,13 +20,21 @@ type ClassSubjectBookController struct {
 	DB *gorm.DB
 }
 
-/* =========================================================
-   CREATE
-   POST /admin/class-subject-books
-   Body: CreateClassSubjectBookRequest
-   ========================================================= */
+/*
+=========================================================
+
+	CREATE (DKM/Admin only)
+	POST /admin/class-subject-books
+	Body: CreateClassSubjectBookRequest
+	=========================================================
+*/
 func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	// === Masjid context (eksplisit & DKM/Admin only) ===
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		return err
+	}
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -36,7 +44,7 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
-	// Paksa tenant dari token
+	// Paksa tenant dari context
 	req.ClassSubjectBooksMasjidID = masjidID
 
 	// Normalisasi ringan pada desc
@@ -78,11 +86,20 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Relasi buku berhasil dibuat", csbDTO.FromModel(created))
 }
 
+/*
+	=========================================================
+	  UPDATE (partial) (DKM/Admin only)
+	  PUT /admin/class-subject-books/:id
 
-// UPDATE (partial)
-// PUT /admin/class-subject-books/:id
+=========================================================
+*/
 func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	// === Masjid context (eksplisit & DKM/Admin only) ===
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		return err
+	}
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -97,7 +114,7 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
-	// Force tenant
+	// Force tenant dari context
 	req.ClassSubjectBooksMasjidID = &masjidID
 
 	// Normalisasi ringan untuk desc
@@ -130,7 +147,7 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusBadRequest, "Data sudah dihapus")
 		}
 
-		// Apply perubahan (setter DTO sudah isi UpdatedAt)
+		// Terapkan perubahan (setter DTO sudah isi UpdatedAt)
 		req.Apply(&m)
 
 		patch := map[string]interface{}{
@@ -167,18 +184,27 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Relasi buku berhasil diperbarui", csbDTO.FromModel(updated))
 }
 
+/*
+	=========================================================
+	  DELETE (DKM/Admin; hard delete: admin only)
+	  DELETE /admin/class-subject-books/:id?force=true
+	  - force=true (admin saja): hard delete
+	  - default: soft delete (gorm.DeletedAt)
 
-// DELETE
-// DELETE /admin/class-subject-books/:id?force=true
-// - force=true (admin saja): hard delete
-// - default: soft delete (gorm.DeletedAt)
+=========================================================
+*/
 func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	// === Masjid context (eksplisit & DKM/Admin only) ===
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		return err
+	}
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
 
-	// hanya admin yang boleh hard-delete
+	// hanya admin yang boleh hard-delete (logika eksisting)
 	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
 	isAdmin := adminMasjidID != uuid.Nil && adminMasjidID == masjidID
 	force := strings.EqualFold(c.Query("force"), "true")

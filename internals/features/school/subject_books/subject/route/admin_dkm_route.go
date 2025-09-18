@@ -3,6 +3,7 @@ package router
 
 import (
 	subjectsController "masjidku_backend/internals/features/school/subject_books/subject/controller"
+	masjidkuMiddleware "masjidku_backend/internals/middlewares/features" // ⬅️ tambah ini
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -10,27 +11,56 @@ import (
 
 /*
 Admin routes: full CRUD
-Mount contoh: ClassLessonsAdminRoutes(app.Group("/admin"), db)
+Contoh mount: SubjectAdminRoutes(app.Group("/api/a"), db)
+
+Final paths yang didukung:
+- /api/a/:masjid_id/subjects ...
+- /api/a/:masjid_slug/subjects ...
 */
 func SubjectAdminRoutes(r fiber.Router, db *gorm.DB) {
-	// SUBJECTS (master mapel)
 	subjectCtl := &subjectsController.SubjectsController{DB: db}
-	subjects := r.Group("/subjects")
-	subjects.Post("/", subjectCtl.CreateSubject)      // POST   /admin/subjects
-	subjects.Put("/:id", subjectCtl.UpdateSubject)    // PUT    /admin/subjects/:id
-	subjects.Delete("/:id", subjectCtl.DeleteSubject) // DELETE /admin/subjects/:id?force=true
-
-	// CLASS SUBJECTS (mapel per kelas)
 	classSubjectCtl := &subjectsController.ClassSubjectController{DB: db}
-	classSubjects := r.Group("/class-subjects")
-	classSubjects.Post("/", classSubjectCtl.Create)      // POST   /admin/class-subjects
-	classSubjects.Put("/:id", classSubjectCtl.Update)    // PUT    /admin/class-subjects/:id
-	classSubjects.Delete("/:id", classSubjectCtl.Delete) // DELETE /admin/class-subjects/:id?force=true
-
-	// CLASS SECTION SUBJECT TEACHERS (penugasan guru per section+subject)
 	csstCtl := &subjectsController.ClassSectionSubjectTeacherController{DB: db}
-	csst := r.Group("/class-section-subject-teachers")
-	csst.Post("/", csstCtl.Create)      // POST   /admin/class-section-subject-teachers
-	csst.Put("/:id", csstCtl.Update)    // PUT    /admin/class-section-subject-teachers/:id
-	csst.Delete("/:id", csstCtl.Delete) // DELETE /admin/class-section-subject-teachers/:id (soft delete)
+
+	// ====== BASE: by masjid_id ======
+	baseByID := r.Group("/:masjid_id",
+		masjidkuMiddleware.UseMasjidScope(),  // set ctx masjid dari param
+		masjidkuMiddleware.IsMasjidAdmin(),   // guard DKM/admin
+	)
+
+	subjectsByID := baseByID.Group("/subjects")
+	subjectsByID.Post("/", subjectCtl.CreateSubject)
+	subjectsByID.Put("/:id", subjectCtl.UpdateSubject)
+	subjectsByID.Delete("/:id", subjectCtl.DeleteSubject)
+
+	classSubjectsByID := baseByID.Group("/class-subjects")
+	classSubjectsByID.Post("/", classSubjectCtl.Create)
+	classSubjectsByID.Put("/:id", classSubjectCtl.Update)
+	classSubjectsByID.Delete("/:id", classSubjectCtl.Delete)
+
+	csstByID := baseByID.Group("/class-section-subject-teachers")
+	csstByID.Post("/", csstCtl.Create)
+	csstByID.Put("/:id", csstCtl.Update)
+	csstByID.Delete("/:id", csstCtl.Delete)
+
+	// ====== BASE: by masjid_slug (opsional, kalau mau dukung subdomain/slug) ======
+	baseBySlug := r.Group("/:masjid_slug",
+		masjidkuMiddleware.UseMasjidScope(),
+		masjidkuMiddleware.IsMasjidAdmin(),
+	)
+
+	subjectsBySlug := baseBySlug.Group("/subjects")
+	subjectsBySlug.Post("/", subjectCtl.CreateSubject)
+	subjectsBySlug.Put("/:id", subjectCtl.UpdateSubject)
+	subjectsBySlug.Delete("/:id", subjectCtl.DeleteSubject)
+
+	classSubjectsBySlug := baseBySlug.Group("/class-subjects")
+	classSubjectsBySlug.Post("/", classSubjectCtl.Create)
+	classSubjectsBySlug.Put("/:id", classSubjectCtl.Update)
+	classSubjectsBySlug.Delete("/:id", classSubjectCtl.Delete)
+
+	csstBySlug := baseBySlug.Group("/class-section-subject-teachers")
+	csstBySlug.Post("/", csstCtl.Create)
+	csstBySlug.Put("/:id", csstCtl.Update)
+	csstBySlug.Delete("/:id", csstCtl.Delete)
 }

@@ -10,7 +10,7 @@ import (
 
 type ClassSectionModel struct {
 	// PK & tenant
-	ClassSectionsID       uuid.UUID      `gorm:"column:class_sections_id;type:uuid;primaryKey" json:"class_sections_id"`
+	ClassSectionsID       uuid.UUID      `gorm:"column:class_sections_id;type:uuid;primaryKey;default:gen_random_uuid()" json:"class_sections_id"`
 	ClassSectionsMasjidID uuid.UUID      `gorm:"column:class_sections_masjid_id;type:uuid;not null" json:"class_sections_masjid_id"`
 
 	// Relasi (FK komposit tenant-safe; dikontrol di migration)

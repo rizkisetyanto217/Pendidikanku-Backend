@@ -7,20 +7,22 @@ import (
 	"gorm.io/gorm"
 )
 
-// Panggil dengan: route.ClassBooksUserRoutes(app.Group("/api/u/class-books"), db)
+// Panggil dengan: route.ClassBooksUserRoutes(app.Group("/api/u"), db)
 // Hasil endpoint:
-//   /api/u/class-books
-//   /api/u/class-subject-books
+//   GET /api/u/:masjid_id/class-books/books/list
+//   GET /api/u/:masjid_id/class-books/class-subject-books/list
 func ClassBooksUserRoutes(r fiber.Router, db *gorm.DB) {
 	booksCtl := &cbController.BooksController{DB: db}
-	csbCtl   := &cbController.ClassSubjectBookController{DB: db}
+	csbCtl := &cbController.ClassSubjectBookController{DB: db}
 
-	// /api/u/class-books
-	books := r.Group("/books")
+	// base group pakai masjid_id di path
+	g := r.Group("/:masjid_id/class-books")
+
+	// /api/u/:masjid_id/class-books/books/list
+	books := g.Group("/books")
 	books.Get("/list", booksCtl.List)
 
-	// /api/u/class-books/class-subject-books
-	csb := r.Group("/class-subject-books")
+	// /api/u/:masjid_id/class-books/class-subject-books/list
+	csb := g.Group("/class-subject-books")
 	csb.Get("/list", csbCtl.List)
-
 }

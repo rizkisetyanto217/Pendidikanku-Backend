@@ -21,13 +21,21 @@ type ClassSubjectController struct {
 	DB *gorm.DB
 }
 
+/*
+=========================================================
 
-/* =========================================================
-   CREATE
-   POST /admin/class-subjects
-   ========================================================= */
+	CREATE
+	POST /admin/:masjid_id/class-subjects
+	(atau /admin/:masjid_slug/class-subjects)
+	=========================================================
+*/
 func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	// 🔐 Ambil konteks masjid & pastikan DKM/Admin
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		return err
+	}
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -50,9 +58,8 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	if err := h.DB.Transaction(func(tx *gorm.DB) error {
+	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		// === Cek duplikasi kombinasi (soft delete aware) ===
-		// Unik pada: masjid_id, class_id, subject_id, (term_id nullable)
 		termStr := ""
 		if req.TermID != nil {
 			termStr = req.TermID.String()
@@ -93,17 +100,28 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Class subject berhasil dibuat", csDTO.FromClassSubjectModel(m))
 }
 
+/*
+=========================================================
 
-/* =========================================================
-   UPDATE (partial)
-   PUT /admin/class-subjects/:id
-   ========================================================= */
+	UPDATE (partial)
+	PUT /admin/:masjid_id/class-subjects/:id
+	=========================================================
+*/
 func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil { return err }
+	// 🔐 Context + role check
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		return err
+	}
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
+		return err
+	}
 
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil { return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid") }
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+	}
 
 	var req csDTO.UpdateClassSubjectRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -121,9 +139,11 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	if err := h.DB.Transaction(func(tx *gorm.DB) error {
+	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		var m csModel.ClassSubjectModel
-		if err := tx.First(&m, "class_subjects_id = ?", id).Error; err != nil {
+		if err := tx.
+			Where("class_subjects_id = ?", id).
+			First(&m).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fiber.NewError(fiber.StatusNotFound, "Data tidak ditemukan")
 			}
@@ -151,9 +171,10 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			newSubjectID = *req.SubjectID
 		}
 		if req.TermID != nil {
-			// beda nilai?
 			curr := ""
-			if m.ClassSubjectsTermID != nil { curr = m.ClassSubjectsTermID.String() }
+			if m.ClassSubjectsTermID != nil {
+				curr = m.ClassSubjectsTermID.String()
+			}
 			if req.TermID.String() != curr {
 				shouldCheckDup = true
 			}
@@ -167,7 +188,9 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 
 		if shouldCheckDup {
 			termStr := ""
-			if newTermID != nil { termStr = newTermID.String() }
+			if newTermID != nil {
+				termStr = newTermID.String()
+			}
 
 			var cnt int64
 			if err := tx.Model(&csModel.ClassSubjectModel{}).
@@ -187,7 +210,7 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			}
 		}
 
-		// Apply ke model lalu update
+		// Apply & update
 		req.Apply(&m)
 
 		if err := tx.Model(&csModel.ClassSubjectModel{}).
@@ -203,8 +226,7 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 				"class_subjects_weight_on_report":  m.ClassSubjectsWeightOnReport,
 				"class_subjects_is_core":           m.ClassSubjectsIsCore,
 				"class_subjects_desc":              m.ClassSubjectsDesc,
-				// updated_at akan diisi trigger
-				"class_subjects_is_active": m.ClassSubjectsIsActive,
+				"class_subjects_is_active":         m.ClassSubjectsIsActive,
 			}).Error; err != nil {
 			msg := strings.ToLower(err.Error())
 			if strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
@@ -223,15 +245,25 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Class subject berhasil diperbarui", csDTO.FromClassSubjectModel(m))
 }
 
-/* =========================================================
-   DELETE
-   DELETE /admin/class-subjects/:id?force=true
-   ========================================================= */
-func (h *ClassSubjectController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil { return err }
+/*
+=========================================================
 
-	// Hanya admin yang boleh hard delete
+	DELETE
+	DELETE /admin/:masjid_id/class-subjects/:id?force=true
+	=========================================================
+*/
+func (h *ClassSubjectController) Delete(c *fiber.Ctx) error {
+	// 🔐 Context + role check (DKM/Admin)
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		return err
+	}
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
+		return err
+	}
+
+	// Hanya Admin (bukan sekadar DKM) yang boleh hard delete
 	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
 	isAdmin := adminMasjidID != uuid.Nil && adminMasjidID == masjidID
 	force := strings.EqualFold(c.Query("force"), "true")
@@ -240,9 +272,11 @@ func (h *ClassSubjectController) Delete(c *fiber.Ctx) error {
 	}
 
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil { return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid") }
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+	}
 
-	if err := h.DB.Transaction(func(tx *gorm.DB) error {
+	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		var m csModel.ClassSubjectModel
 		if err := tx.First(&m, "class_subjects_id = ?", id).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -267,7 +301,7 @@ func (h *ClassSubjectController) Delete(c *fiber.Ctx) error {
 			if m.ClassSubjectsDeletedAt.Valid {
 				return fiber.NewError(fiber.StatusBadRequest, "Data sudah dihapus")
 			}
-			// soft delete → GORM akan UPDATE deleted_at; trigger akan set updated_at
+			// soft delete
 			if err := tx.Delete(&csModel.ClassSubjectModel{}, "class_subjects_id = ?", id).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus data")
 			}

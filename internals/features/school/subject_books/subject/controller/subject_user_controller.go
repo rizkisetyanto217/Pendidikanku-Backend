@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	subjectDTO "masjidku_backend/internals/features/school/subject_books/subject/dto"
 	subjectModel "masjidku_backend/internals/features/school/subject_books/subject/model"
 	helper "masjidku_backend/internals/helpers"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 /* =========================================================
@@ -18,9 +20,28 @@ import (
    sort: asc|desc
    ========================================================= */
 func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	// === Masjid context (PUBLIC): no role check ===
+	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
+		// sudah fiber.Error yang proper (bad request kalau kosong)
 		return err
+	}
+
+	var masjidID uuid.UUID
+	if mc.ID != uuid.Nil {
+		masjidID = mc.ID
+	} else if s := strings.TrimSpace(mc.Slug); s != "" {
+		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		if er != nil {
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			}
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal resolve masjid dari slug")
+		}
+		masjidID = id
+	} else {
+		// fallback bila resolver benar-benar tak menemukan konteks
+		return helperAuth.ErrMasjidContextMissing
 	}
 
 	// --- Query params & defaults ---
@@ -46,7 +67,7 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 		tx = tx.Where("subjects_deleted_at IS NULL")
 	}
 
-	// ========== NEW: filter by id / ids (comma-separated) ==========
+	// ========== filter by id / ids (comma-separated) ==========
 	if ids, ok, errResp := uuidListFromQuery(c, "id", "ids"); errResp != nil {
 		return errResp
 	} else if ok {
@@ -107,7 +128,6 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// --- response konsisten: data[] + pagination ---
 	return helper.JsonList(c,
 		subjectDTO.FromSubjectModels(rows),
 		fiber.Map{

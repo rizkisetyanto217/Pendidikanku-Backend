@@ -98,11 +98,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_slug_per_masjid_alive
   ON class_sections (class_sections_masjid_id, LOWER(class_sections_slug))
   WHERE class_sections_deleted_at IS NULL;
 
--- Unik: nama section per class (alive only)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_class_name_alive
-  ON class_sections (class_sections_class_id, class_sections_name)
-  WHERE class_sections_deleted_at IS NULL;
-
 -- (Opsional) Unik: code per class (alive only, case-insensitive)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_code_per_class_alive
   ON class_sections (class_sections_class_id, LOWER(class_sections_code))

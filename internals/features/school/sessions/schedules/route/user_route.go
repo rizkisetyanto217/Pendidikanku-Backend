@@ -12,11 +12,15 @@ import (
 func ScheduleUserRoutes(user fiber.Router, db *gorm.DB) {
 	sched := dailyctl.New(db, nil)
 
-	sg := user.Group("/class-schedules")
-	sg.Get("/list",    sched.List)
-		// Proyeksi jadwal → occurrences (kalender pengguna)
+	// ✅ varian pakai masjid_id di path
+	sg := user.Group("/:masjid_id/class-schedules")
+	sg.Get("/list", sched.List)
+	// Proyeksi jadwal → occurrences (kalender pengguna)
 	// Query: ?from=YYYY-MM-DD&to=YYYY-MM-DD
 	sg.Get("/occurrences", sched.ListOccurrences)
 
-
+	// (opsional) dukung juga slug di path
+	// sgSlug := user.Group("/:masjid_slug/class-schedules")
+	// sgSlug.Get("/list",        sched.List)
+	// sgSlug.Get("/occurrences", sched.ListOccurrences)
 }

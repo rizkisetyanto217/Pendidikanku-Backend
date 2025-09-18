@@ -25,18 +25,22 @@ type ClassSectionSubjectTeacherController struct {
 }
 
 func NewClassSectionSubjectTeacherController(db *gorm.DB) *ClassSectionSubjectTeacherController {
-	return &ClassSectionSubjectTeacherController{
-		DB: db,
-	}
+	return &ClassSectionSubjectTeacherController{DB: db}
 }
 
-
-// ===============================
-// CREATE (force masjid_id dari token)
-// POST /admin/class-section-subject-teachers
-// ===============================
+/* ===============================
+   CREATE (admin/DKM via masjid context)
+   POST /admin/:masjid_id/class-section-subject-teachers
+   /admin/:masjid_slug/class-section-subject-teachers
+   =============================== */
 func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	// ✅ ambil konteks masjid dari path/header/query/host/token
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		return err
+	}
+	// ✅ pastikan caller adalah DKM/Admin masjid tsb (gunakan helper baru)
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -49,11 +53,11 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	return ctl.DB.Transaction(func(tx *gorm.DB) error {
-		// 1) SECTION harus ada & tenant cocok (ambil class_id dari section)
+	return ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
+		// 1) SECTION harus ada & tenant cocok
 		var sec modelClassSection.ClassSectionModel
 		if err := tx.
-			Where("class_sections_id = ? AND class_sections_masjid_id = ?",
+			Where("class_sections_id = ? AND class_sections_masjid_id = ? AND class_sections_deleted_at IS NULL",
 				req.ClassSectionSubjectTeachersSectionID, masjidID).
 			First(&sec).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -62,7 +66,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek section")
 		}
 
-		// 2) CLASS_SUBJECTS harus ada; tenant sama; dan class_id (cs) == class_id (section)
+		// 2) CLASS_SUBJECTS harus ada; tenant sama; dan class_id cocok dgn section.class_id
 		var cs struct {
 			ClassSubjectsID       uuid.UUID `gorm:"column:class_subjects_id"`
 			ClassSubjectsMasjidID uuid.UUID `gorm:"column:class_subjects_masjid_id"`
@@ -88,7 +92,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 
 		// 3) TEACHER harus ada & tenant cocok
 		if err := tx.
-			Where("masjid_teacher_id = ? AND masjid_teacher_masjid_id = ?",
+			Where("masjid_teacher_id = ? AND masjid_teacher_masjid_id = ? AND masjid_teacher_deleted_at IS NULL",
 				req.ClassSectionSubjectTeachersTeacherID, masjidID).
 			First(&modelMasjidTeacher.MasjidTeacherModel{}).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -132,15 +136,16 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 	})
 }
 
-
-
-
-// ===============================
-// UPDATE (partial)
-// PUT /admin/class-section-subject-teachers/:id
-// ===============================
+/* ===============================
+   UPDATE (partial)
+   PUT /admin/:masjid_id/class-section-subject-teachers/:id
+   =============================== */
 func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		return err
+	}
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -159,7 +164,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 	}
 
 	var row modelCSST.ClassSectionSubjectTeacherModel
-	if err := ctl.DB.
+	if err := ctl.DB.WithContext(c.Context()).
 		Where("class_section_subject_teachers_id = ? AND class_section_subject_teachers_deleted_at IS NULL", id).
 		First(&row).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -184,10 +189,11 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			classSubjectsID = *req.ClassSectionSubjectTeachersClassSubjectsID
 		}
 
-		// cek section milik tenant
-		if err := ctl.DB.
-			Where("class_sections_id = ? AND class_sections_masjid_id = ?", sectionID, masjidID).
-			First(&modelClassSection.ClassSectionModel{}).Error; err != nil {
+		// cek section milik tenant + ambil class_id dari section
+		var sec modelClassSection.ClassSectionModel
+		if err := ctl.DB.WithContext(c.Context()).
+			Where("class_sections_id = ? AND class_sections_masjid_id = ? AND class_sections_deleted_at IS NULL", sectionID, masjidID).
+			First(&sec).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Section tidak ditemukan / beda tenant")
 			}
@@ -199,7 +205,8 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			ClassSubjectsMasjidID uuid.UUID `gorm:"column:class_subjects_masjid_id"`
 			ClassSubjectsClassID  uuid.UUID `gorm:"column:class_subjects_class_id"`
 		}
-		if err := ctl.DB.Table("class_subjects").
+		if err := ctl.DB.WithContext(c.Context()).
+			Table("class_subjects").
 			Select("class_subjects_masjid_id, class_subjects_class_id").
 			Where("class_subjects_id = ? AND class_subjects_deleted_at IS NULL", classSubjectsID).
 			Take(&cs).Error; err != nil {
@@ -211,15 +218,16 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 		if cs.ClassSubjectsMasjidID != masjidID {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Masjid mismatch: class_subjects milik masjid lain")
 		}
-		if cs.ClassSubjectsClassID != sectionID {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Section mismatch: class_subjects.class_id != section_id yang dikirim")
+		// ✅ perbaikan: bandingkan ke sec.ClassSectionsClassID (bukan sectionID)
+		if cs.ClassSubjectsClassID != sec.ClassSectionsClassID {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Class mismatch: class_subjects.class_id != class_sections.class_id")
 		}
 	}
 
 	// partial update via DTO
 	req.Apply(&row)
 
-	if err := ctl.DB.Save(&row).Error; err != nil {
+	if err := ctl.DB.WithContext(c.Context()).Save(&row).Error; err != nil {
 		msg := strings.ToLower(err.Error())
 		if strings.Contains(msg, "uq_csst_active_by_cs") ||
 			strings.Contains(msg, "uq_csst_active_unique") ||
@@ -244,12 +252,16 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Penugasan guru berhasil diperbarui", dto.FromClassSectionSubjectTeacherModel(row))
 }
 
-// ===============================
-// DELETE (soft delete)
-// DELETE /admin/class-section-subject-teachers/:id
-// ===============================
+/* ===============================
+   DELETE (soft delete)
+   DELETE /admin/:masjid_id/class-section-subject-teachers/:id
+   =============================== */
 func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		return err
+	}
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -260,7 +272,8 @@ func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 	}
 
 	var row modelCSST.ClassSectionSubjectTeacherModel
-	if err := ctl.DB.First(&row, "class_section_subject_teachers_id = ?", id).Error; err != nil {
+	if err := ctl.DB.WithContext(c.Context()).
+		First(&row, "class_section_subject_teachers_id = ?", id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan")
 		}
@@ -274,7 +287,7 @@ func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 		return helper.JsonDeleted(c, "Sudah terhapus", fiber.Map{"id": id})
 	}
 
-	if err := ctl.DB.
+	if err := ctl.DB.WithContext(c.Context()).
 		Model(&modelCSST.ClassSectionSubjectTeacherModel{}).
 		Where("class_section_subject_teachers_id = ?", id).
 		Update("class_section_subject_teachers_deleted_at", gorm.Expr("NOW()")).Error; err != nil {

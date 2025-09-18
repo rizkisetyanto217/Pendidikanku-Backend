@@ -9,15 +9,16 @@ import (
 )
 
 // ================================
-// User routes (read-only)
-// Base group example: /api/u
+// User routes (read-only) — PUBLIC
+// Base: /api/u/:masjid_id/academic-terms
 // ================================
 func AcademicYearUserRoutes(user fiber.Router, db *gorm.DB) {
 	termCtl := academicTermCtl.NewAcademicTermController(db, nil)
 
-	r := user.Group("/academic-terms")
+	// Masjid context via PATH param :masjid_id
+	r := user.Group("/:masjid_id/academic-terms")
 
 	// Read-only Academic Terms
 	r.Get("/list", termCtl.List)
-	r.Get("/search-with-class", termCtl.SearchByYear) // taruh sebelum :id agar tidak bentrok
+	r.Get("/search-with-class", termCtl.SearchByYear) // taruh sebelum :id bila nanti ada detail
 }

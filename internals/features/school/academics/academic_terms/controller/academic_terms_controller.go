@@ -53,6 +53,7 @@ func bindAndValidate[T any](c *fiber.Ctx, v *validator.Validate, dst *T) error {
 	return nil
 }
 
+
 /* =========================================================
    CREATE (DKM only)
    POST /admin/academic-terms  (disarankan juga rute: /admin/masjids/:masjid_id/academic-terms)
@@ -79,7 +80,7 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 		return httpErr(c, err.(*fiber.Error).Code, err.Error())
 	}
 
-	// Uniqueness per masjid untuk code/slug (opsional)
+	// Uniqueness per masjid untuk code (opsional)
 	if strings.TrimSpace(p.AcademicTermsCode) != "" {
 		var cnt int64
 		if err := ctl.DB.Model(&model.AcademicTermModel{}).
@@ -91,19 +92,32 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 			return httpErr(c, fiber.StatusConflict, "Kode tahun akademik sudah dipakai")
 		}
 	}
-	if strings.TrimSpace(p.AcademicTermsSlug) != "" {
-		var cnt int64
-		if err := ctl.DB.Model(&model.AcademicTermModel{}).
-			Where("academic_terms_masjid_id = ? AND academic_terms_slug = ?", masjidID, p.AcademicTermsSlug).
-			Count(&cnt).Error; err != nil {
-			return httpErr(c, fiber.StatusInternalServerError, "Gagal memeriksa slug")
-		}
-		if cnt > 0 {
-			return httpErr(c, fiber.StatusConflict, "Slug tahun akademik sudah dipakai")
-		}
+
+	// === Slug dari academic_year (abaikan slug dari payload) ===
+	ay := strings.TrimSpace(p.AcademicTermsAcademicYear)
+	if ay == "" {
+		return httpErr(c, fiber.StatusBadRequest, "Academic year wajib diisi")
+	}
+	baseSlug := helper.Slugify(ay, 100)
+
+	uniqueSlug, err := helper.EnsureUniqueSlugCI(
+		c.Context(),
+		ctl.DB,
+		"academic_terms",
+		"academic_terms_slug",
+		baseSlug,
+		func(q *gorm.DB) *gorm.DB {
+			return q.Where("academic_terms_masjid_id = ?", masjidID)
+		},
+		100,
+	)
+	if err != nil {
+		return httpErr(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 	}
 
 	ent := p.ToModel(masjidID)
+	ent.AcademicTermsSlug = uniqueSlug
+
 	if err := ctl.DB.Create(&ent).Error; err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal membuat data")
 	}
@@ -151,11 +165,7 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 		return httpErr(c, err.(*fiber.Error).Code, err.Error())
 	}
 
-	// Normalisasi minimal
-	if p.AcademicTermsSlug != nil {
-		s := strings.ToLower(strings.TrimSpace(*p.AcademicTermsSlug))
-		p.AcademicTermsSlug = &s
-	}
+	// Normalisasi minimal (tanpa menerima slug dari user)
 	if p.AcademicTermsCode != nil {
 		s := strings.TrimSpace(*p.AcademicTermsCode)
 		p.AcademicTermsCode = &s
@@ -163,6 +173,10 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 	if p.AcademicTermsDescription != nil {
 		s := strings.TrimSpace(*p.AcademicTermsDescription)
 		p.AcademicTermsDescription = &s
+	}
+	if p.AcademicTermsAcademicYear != nil {
+		s := strings.TrimSpace(*p.AcademicTermsAcademicYear)
+		p.AcademicTermsAcademicYear = &s
 	}
 
 	// Validasi tanggal jika diubah
@@ -180,7 +194,7 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 		}
 	}
 
-	// Uniqueness check jika code/slug berubah
+	// Uniqueness code jika berubah
 	if p.AcademicTermsCode != nil {
 		var cnt int64
 		if err := ctl.DB.Model(&model.AcademicTermModel{}).
@@ -193,21 +207,30 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 			return httpErr(c, fiber.StatusConflict, "Kode tahun akademik sudah dipakai")
 		}
 	}
-	if p.AcademicTermsSlug != nil && strings.TrimSpace(*p.AcademicTermsSlug) != "" {
-		var cnt int64
-		if err := ctl.DB.Model(&model.AcademicTermModel{}).
-			Where("academic_terms_masjid_id = ? AND academic_terms_slug = ? AND academic_terms_id <> ?",
-				masjidID, *p.AcademicTermsSlug, ent.AcademicTermsID).
-			Count(&cnt).Error; err != nil {
-			return httpErr(c, fiber.StatusInternalServerError, "Gagal memeriksa slug")
+
+	// Terapkan perubahan non-slug
+	p.ApplyUpdates(&ent)
+
+	// Jika academic year berubah, regenerate slug dari academic_year & pastikan unik (exclude current row)
+	if p.AcademicTermsAcademicYear != nil {
+		baseSlug := helper.Slugify(*p.AcademicTermsAcademicYear, 100)
+		uniqueSlug, err := helper.EnsureUniqueSlugCI(
+			c.Context(),
+			ctl.DB,
+			"academic_terms",
+			"academic_terms_slug",
+			baseSlug,
+			func(q *gorm.DB) *gorm.DB {
+				return q.Where("academic_terms_masjid_id = ? AND academic_terms_id <> ?", masjidID, ent.AcademicTermsID)
+			},
+			100,
+		)
+		if err != nil {
+			return httpErr(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 		}
-		if cnt > 0 {
-			return httpErr(c, fiber.StatusConflict, "Slug tahun akademik sudah dipakai")
-		}
+		ent.AcademicTermsSlug = uniqueSlug
 	}
 
-	// Terapkan perubahan
-	p.ApplyUpdates(&ent)
 	ent.AcademicTermsUpdatedAt = time.Now()
 
 	if err := ctl.DB.Save(&ent).Error; err != nil {
@@ -215,6 +238,8 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 	}
 	return helper.JsonUpdated(c, "Berhasil memperbarui tahun akademik", dto.FromModel(ent))
 }
+
+
 
 /* =========================================================
    DELETE (soft) — DKM only

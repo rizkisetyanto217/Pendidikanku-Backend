@@ -9,17 +9,18 @@ import (
 	"gorm.io/gorm"
 )
 
-func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
-	// Controller classes
+
+ func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	classHandler := classctrl.NewClassController(db)
 
-	classes := admin.Group("/classes", masjidkuMiddleware.IsMasjidAdmin())
+	// kalau ada middleware versi by-param, pakai itu:
+	// grp := admin.Group("/:masjid_id/classes", masjidkuMiddleware.IsMasjidAdminByParam("masjid_id"))
+
+	grp := admin.Group("/:masjid_id/classes", masjidkuMiddleware.IsMasjidAdmin())
 	{
-		classes.Post("/", classHandler.CreateClass)
-		classes.Get("/list", classHandler.ListClasses)
-		classes.Get("/slug/:slug", classHandler.GetClassBySlug)
-		classes.Patch("/:id", classHandler.PatchClass)
-		classes.Delete("/:id", classHandler.SoftDeleteClass)
+		grp.Post("/",          classHandler.CreateClass)
+		grp.Patch("/:id",      classHandler.PatchClass)
+		grp.Delete("/:id",     classHandler.SoftDeleteClass)
 	}
 
 	// Controller class parents

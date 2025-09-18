@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"errors"
 	"strings"
 
 	booksModel "masjidku_backend/internals/features/school/subject_books/books/model"
@@ -15,27 +16,45 @@ import (
 	"gorm.io/gorm"
 )
 
-/* =========================================================
-   LIST
-   GET /admin/class-subjects
-   Query:
-     - q                       : cari pada desc (ILIKE)
-     - is_active               : bool
-     - term_id                 : UUID (single)
-     - term_ids                : comma-separated UUIDs (multi)
-     - term_id_isnull          : bool (filter yang tanpa term / NULL)
-     - id / ids                : filter by ID (single / multi)
-     - with_deleted            : bool (default false)
-     - order_by                : order_index|created_at|updated_at (default: created_at)
-     - sort                    : asc|desc (default: asc)
-     - include                 : books (include detail buku)
-     - limit (1..200), offset
-   ========================================================= */
+/*
+=========================================================
+
+	LIST
+	GET /admin/class-subjects
+	Query:
+	  - q                       : cari pada desc (ILIKE)
+	  - is_active               : bool
+	  - term_id                 : UUID (single)
+	  - term_ids                : comma-separated UUIDs (multi)
+	  - term_id_isnull          : bool (filter yang tanpa term / NULL)
+	  - id / ids                : filter by ID (single / multi)
+	  - with_deleted            : bool (default false)
+	  - order_by                : order_index|created_at|updated_at (default: created_at)
+	  - sort                    : asc|desc (default: asc)
+	  - include                 : books (include detail buku)
+	  - limit (1..200), offset
+	=========================================================
+*/
 func (h *ClassSubjectController) List(c *fiber.Ctx) error {
-	// ===== Tenancy: union semua klaim
-	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
+	// ===== Masjid context (PUBLIC): no role check =====
+	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return err
+		return err // fiber.Error dari resolver
+	}
+	var masjidID uuid.UUID
+	if mc.ID != uuid.Nil {
+		masjidID = mc.ID
+	} else if s := strings.TrimSpace(mc.Slug); s != "" {
+		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		if er != nil {
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			}
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal resolve masjid dari slug")
+		}
+		masjidID = id
+	} else {
+		return helperAuth.ErrMasjidContextMissing
 	}
 
 	// ===== Include flags
@@ -54,9 +73,9 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 		offset = *q.Offset
 	}
 
-	// ===== Base query
+	// ===== Base query (single-tenant via context) =====
 	tx := h.DB.Model(&csModel.ClassSubjectModel{}).
-		Where("class_subjects_masjid_id IN ?", masjidIDs)
+		Where("class_subjects_masjid_id = ?", masjidID)
 
 	// ===== Soft delete (default exclude)
 	if q.WithDeleted == nil || !*q.WithDeleted {
@@ -76,19 +95,16 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	}
 
 	// ===== Filter term
-	// term_id single
 	if termID, ok, errResp := uuidFromQuery(c, "term_id", "term_id tidak valid"); errResp != nil {
 		return errResp
 	} else if ok {
 		tx = tx.Where("class_subjects_term_id = ?", *termID)
 	}
-	// term_ids multi
 	if tids, ok, errResp := uuidListFromQuery(c, "term_ids"); errResp != nil {
 		return errResp
 	} else if ok {
 		tx = tx.Where("class_subjects_term_id IN ?", tids)
 	}
-	// term_id_isnull
 	if v := strings.TrimSpace(c.Query("term_id_isnull")); v != "" {
 		if c.QueryBool("term_id_isnull") {
 			tx = tx.Where("class_subjects_term_id IS NULL")
@@ -160,8 +176,7 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 		)
 	}
 
-	// ===== include=books (ambil links & buku dalam batch, tenant-safe)
-	// Kumpulkan CS IDs
+	// ===== include=books (tenant-safe & single masjid)
 	csIDs := make([]uuid.UUID, 0, len(rows))
 	for _, m := range rows {
 		csIDs = append(csIDs, m.ClassSubjectsID)
@@ -174,7 +189,7 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 		var links []booksModel.ClassSubjectBookModel
 		if err := h.DB.
 			Where("class_subject_books_deleted_at IS NULL").
-			Where("class_subject_books_masjid_id IN ?", masjidIDs).
+			Where("class_subject_books_masjid_id = ?", masjidID).
 			Where("class_subject_books_class_subject_id IN ?", csIDs).
 			Find(&links).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil relasi buku")
@@ -194,7 +209,7 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 		var books []booksModel.BooksModel
 		if err := h.DB.
 			Where("books_deleted_at IS NULL").
-			Where("books_masjid_id IN ?", masjidIDs).
+			Where("books_masjid_id = ?", masjidID).
 			Where("books_id IN ?", bookIDs).
 			Find(&books).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data buku")
@@ -204,7 +219,6 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// DTO with books
 	items := make([]csDTO.ClassSubjectWithBooksResponse, 0, len(rows))
 	for _, m := range rows {
 		links := linksByCS[m.ClassSubjectsID]
@@ -245,4 +259,3 @@ func uuidFromQuery(c *fiber.Ctx, key string, badMsg string) (*uuid.UUID, bool, e
 	}
 	return &id, true, nil
 }
-

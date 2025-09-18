@@ -121,14 +121,14 @@ type UpdateClassScheduleRequest struct {
 
 type PatchClassScheduleRequest struct {
 	// Semua optional—akan di-apply selectively
-	ClassSchedulesMasjidID       *string          `json:"class_schedules_masjid_id,omitempty"        validate:"omitempty,uuid4"`
-	ClassSchedulesDayOfWeek      *int             `json:"class_schedules_day_of_week,omitempty"      validate:"omitempty,gte=1,lte=7"`
-	ClassSchedulesStartTime      *string          `json:"class_schedules_start_time,omitempty"`
-	ClassSchedulesEndTime        *string          `json:"class_schedules_end_time,omitempty"`
-	ClassSchedulesStartDate      *string          `json:"class_schedules_start_date,omitempty"`
-	ClassSchedulesEndDate        *string          `json:"class_schedules_end_date,omitempty"`
-	ClassSchedulesStatus         *m.SessionStatus `json:"class_schedules_status,omitempty"           validate:"omitempty,oneof=scheduled ongoing completed canceled"`
-	ClassSchedulesIsActive       *bool            `json:"class_schedules_is_active,omitempty"`
+	ClassSchedulesMasjidID  *string          `json:"class_schedules_masjid_id,omitempty"        validate:"omitempty,uuid4"`
+	ClassSchedulesDayOfWeek *int             `json:"class_schedules_day_of_week,omitempty"      validate:"omitempty,gte=1,lte=7"`
+	ClassSchedulesStartTime *string          `json:"class_schedules_start_time,omitempty"`
+	ClassSchedulesEndTime   *string          `json:"class_schedules_end_time,omitempty"`
+	ClassSchedulesStartDate *string          `json:"class_schedules_start_date,omitempty"`
+	ClassSchedulesEndDate   *string          `json:"class_schedules_end_date,omitempty"`
+	ClassSchedulesStatus    *m.SessionStatus `json:"class_schedules_status,omitempty"           validate:"omitempty,oneof=scheduled ongoing completed canceled"`
+	ClassSchedulesIsActive  *bool            `json:"class_schedules_is_active,omitempty"`
 
 	// Target: pilih salah satu
 	ClassSchedulesCSSTID         *string `json:"class_schedules_csst_id,omitempty"          validate:"omitempty,uuid4"`
@@ -222,18 +222,18 @@ func (r *CreateClassScheduleRequest) ApplyToModel(dst *m.ClassScheduleModel) err
 		return err
 	}
 
-	dst.ClassSchedulesMasjidID       = masjidID
-	dst.ClassSchedulesSectionID      = secID
+	dst.ClassSchedulesMasjidID = masjidID
+	dst.ClassSchedulesSectionID = secID
 	dst.ClassSchedulesClassSubjectID = subjID
-	dst.ClassSchedulesCSSTID         = csstID
-	dst.ClassSchedulesRoomID         = roomID
-	dst.ClassSchedulesTeacherID      = teacherID
+	dst.ClassSchedulesCSSTID = csstID
+	dst.ClassSchedulesRoomID = roomID
+	dst.ClassSchedulesTeacherID = teacherID
 
 	dst.ClassSchedulesDayOfWeek = r.ClassSchedulesDayOfWeek
 	dst.ClassSchedulesStartTime = dbtime.From(startTime)
-	dst.ClassSchedulesEndTime   = dbtime.From(endTime)
+	dst.ClassSchedulesEndTime = dbtime.From(endTime)
 	dst.ClassSchedulesStartDate = startDate
-	dst.ClassSchedulesEndDate   = endDate
+	dst.ClassSchedulesEndDate = endDate
 
 	if r.ClassSchedulesStatus != nil {
 		dst.ClassSchedulesStatus = *r.ClassSchedulesStatus
@@ -304,20 +304,20 @@ func (r *UpdateClassScheduleRequest) ApplyToModel(dst *m.ClassScheduleModel) err
 		return err
 	}
 
-	dst.ClassSchedulesMasjidID       = masjidID
-	dst.ClassSchedulesSectionID      = secID
+	dst.ClassSchedulesMasjidID = masjidID
+	dst.ClassSchedulesSectionID = secID
 	dst.ClassSchedulesClassSubjectID = subjID
-	dst.ClassSchedulesCSSTID         = csstID
-	dst.ClassSchedulesRoomID         = roomID
-	dst.ClassSchedulesTeacherID      = teacherID
+	dst.ClassSchedulesCSSTID = csstID
+	dst.ClassSchedulesRoomID = roomID
+	dst.ClassSchedulesTeacherID = teacherID
 
 	dst.ClassSchedulesDayOfWeek = r.ClassSchedulesDayOfWeek
 	dst.ClassSchedulesStartTime = dbtime.From(startTime)
-	dst.ClassSchedulesEndTime   = dbtime.From(endTime)
+	dst.ClassSchedulesEndTime = dbtime.From(endTime)
 	dst.ClassSchedulesStartDate = startDate
-	dst.ClassSchedulesEndDate   = endDate
+	dst.ClassSchedulesEndDate = endDate
 
-	dst.ClassSchedulesStatus   = m.SessionStatus(r.ClassSchedulesStatus)
+	dst.ClassSchedulesStatus = m.SessionStatus(r.ClassSchedulesStatus)
 	dst.ClassSchedulesIsActive = r.ClassSchedulesIsActive
 
 	return nil
@@ -340,7 +340,7 @@ func (p *PatchClassScheduleRequest) ApplyPatch(dst *m.ClassScheduleModel) error 
 	// Target (CSST vs Section+Subject)
 	var (
 		newCSST, newSec, newSub *uuid.UUID
-		err error
+		err                     error
 	)
 	if p.ClassSchedulesCSSTID != nil {
 		newCSST, err = uuidPtrFromString(p.ClassSchedulesCSSTID)
@@ -458,21 +458,21 @@ func (p *PatchClassScheduleRequest) ApplyPatch(dst *m.ClassScheduleModel) error 
    ======================================================= */
 
 type ClassScheduleResponse struct {
-	ClassScheduleID              uuid.UUID       `json:"class_schedule_id"`
-	ClassSchedulesMasjidID       uuid.UUID       `json:"class_schedules_masjid_id"`
+	ClassScheduleID        uuid.UUID `json:"class_schedule_id"`
+	ClassSchedulesMasjidID uuid.UUID `json:"class_schedules_masjid_id"`
 
 	// opsional → pointer
-	ClassSchedulesSectionID      *uuid.UUID      `json:"class_schedules_section_id,omitempty"`
-	ClassSchedulesClassSubjectID *uuid.UUID      `json:"class_schedules_class_subject_id,omitempty"`
-	ClassSchedulesCSSTID         *uuid.UUID      `json:"class_schedules_csst_id,omitempty"`
-	ClassSchedulesRoomID         *uuid.UUID      `json:"class_schedules_room_id,omitempty"`
-	ClassSchedulesTeacherID      *uuid.UUID      `json:"class_schedules_teacher_id,omitempty"`
+	ClassSchedulesSectionID      *uuid.UUID `json:"class_schedules_section_id,omitempty"`
+	ClassSchedulesClassSubjectID *uuid.UUID `json:"class_schedules_class_subject_id,omitempty"`
+	ClassSchedulesCSSTID         *uuid.UUID `json:"class_schedules_csst_id,omitempty"`
+	ClassSchedulesRoomID         *uuid.UUID `json:"class_schedules_room_id,omitempty"`
+	ClassSchedulesTeacherID      *uuid.UUID `json:"class_schedules_teacher_id,omitempty"`
 
-	ClassSchedulesDayOfWeek int           `json:"class_schedules_day_of_week"`
-	ClassSchedulesStartTime string        `json:"class_schedules_start_time"` // HH:mm:ss
-	ClassSchedulesEndTime   string        `json:"class_schedules_end_time"`
-	ClassSchedulesStartDate string        `json:"class_schedules_start_date"` // YYYY-MM-DD
-	ClassSchedulesEndDate   string        `json:"class_schedules_end_date"`
+	ClassSchedulesDayOfWeek int    `json:"class_schedules_day_of_week"`
+	ClassSchedulesStartTime string `json:"class_schedules_start_time"` // HH:mm:ss
+	ClassSchedulesEndTime   string `json:"class_schedules_end_time"`
+	ClassSchedulesStartDate string `json:"class_schedules_start_date"` // YYYY-MM-DD
+	ClassSchedulesEndDate   string `json:"class_schedules_end_date"`
 
 	ClassSchedulesStatus   m.SessionStatus `json:"class_schedules_status"`
 	ClassSchedulesIsActive bool            `json:"class_schedules_is_active"`
@@ -489,8 +489,8 @@ func NewClassScheduleResponse(src *m.ClassScheduleModel) ClassScheduleResponse {
 		deletedAt = &src.ClassSchedulesDeletedAt.Time
 	}
 	return ClassScheduleResponse{
-		ClassScheduleID:              src.ClassScheduleID,
-		ClassSchedulesMasjidID:       src.ClassSchedulesMasjidID,
+		ClassScheduleID:        src.ClassScheduleID,
+		ClassSchedulesMasjidID: src.ClassSchedulesMasjidID,
 
 		ClassSchedulesSectionID:      src.ClassSchedulesSectionID,
 		ClassSchedulesClassSubjectID: src.ClassSchedulesClassSubjectID,
@@ -512,6 +512,30 @@ func NewClassScheduleResponse(src *m.ClassScheduleModel) ClassScheduleResponse {
 		ClassSchedulesUpdatedAt: src.ClassSchedulesUpdatedAt,
 		ClassSchedulesDeletedAt: deletedAt,
 	}
+}
+
+type ListQuery struct {
+	// Filter
+	MasjidID         string `query:"masjid_id"`
+	SectionID        string `query:"section_id"`
+	ClassSubjectID   string `query:"class_subject_id"`
+	CSSTID           string `query:"csst_id"`
+	RoomID           string `query:"room_id"`
+	TeacherID        string `query:"teacher_id"`
+	Status           string `query:"status"`
+	Active           *bool  `query:"active"`
+	DayOfWeek        *int   `query:"dow"`
+	OnDate           string `query:"on_date"`
+	StartAfter       string `query:"start_after"`
+	EndBefore        string `query:"end_before"`
+	ClassScheduleID  string `query:"class_schedule_id"`  // <— NEW (single)
+	ClassScheduleIDs string `query:"class_schedule_ids"` // <— NEW (comma-separated)
+
+	// Pagination & sort
+	Limit  int    `query:"limit"`
+	Offset int    `query:"offset"`
+	SortBy string `query:"sort_by"`
+	Order  string `query:"order"`
 }
 
 /* =======================================================

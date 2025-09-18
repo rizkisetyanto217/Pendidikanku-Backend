@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	dto "masjidku_backend/internals/features/school/subject_books/books/dto"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
@@ -14,9 +15,18 @@ import (
 )
 
 // helper kecil untuk nilai non-nil
-func sPtr(v *string) string { if v == nil { return "" }; return *v }
-func bPtr(v *bool) bool     { if v == nil { return false }; return *v }
-
+func sPtr(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+func bPtr(v *bool) bool {
+	if v == nil {
+		return false
+	}
+	return *v
+}
 
 // ----------------------------------------------------------
 // GET /api/a/books/list
@@ -30,9 +40,26 @@ func bPtr(v *bool) bool     { if v == nil { return false }; return *v }
 //
 // Catatan: kirim img_* (img_types,img_page,img_per_page) juga akan memaksa include daftar URL.
 func (h *BooksController) List(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	// ===== Masjid context (PUBLIC): no role check =====
+	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
+		return err
+	}
+
+	var masjidID uuid.UUID
+	if mc.ID != uuid.Nil {
+		masjidID = mc.ID
+	} else if s := strings.TrimSpace(mc.Slug); s != "" {
+		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		if er != nil {
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve masjid dari slug")
+		}
+		masjidID = id
+	} else {
+		return helperAuth.ErrMasjidContextMissing
 	}
 
 	var q dto.BooksWithUsagesListQuery
@@ -55,7 +82,6 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	wantCover := includeAll || includes["cover"]
 
 	wantBookURLs := includeAll || includes["urls"] || includes["images"] || includes["book_urls"]
-	// presence of img_* params also implies wanting book URLs
 	if !wantBookURLs && (strings.TrimSpace(c.Query("img_types")) != "" ||
 		strings.TrimSpace(c.Query("img_page")) != "" ||
 		strings.TrimSpace(c.Query("img_per_page")) != "") {
@@ -123,7 +149,6 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 
 	// ======================================================
 	// 1) QUERY DASAR: hanya tabel books (+ optional primary/cover)
-	//    → Hemat: TANPA join usages sama sekali
 	// ======================================================
 	base := h.DB.Table("books AS b").
 		Where("b.books_masjid_id = ?", masjidID)
@@ -201,7 +226,6 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		BImageURL *string   `gorm:"column:books_image_url"`
 	}
 
-	// build SELECT dinamis
 	selectCols := []string{
 		"b.books_id",
 		"b.books_masjid_id",
@@ -226,7 +250,6 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data buku")
 	}
 	if len(bookRows) == 0 {
-		// kosong: balikin list kosong + meta
 		return helper.JsonList(c, []any{}, fiber.Map{"limit": limit, "offset": offset, "total": int(total)})
 	}
 
@@ -241,17 +264,14 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 			BooksAuthor:   r.BAuthor,
 			BooksDesc:     r.BDesc,
 			BooksSlug:     r.BSlug,
-			BooksURL:      r.BURL,      // hanya ada jika wantPrimary
-			BooksImageURL: r.BImageURL, // hanya ada jika wantCover
+			BooksURL:      r.BURL,
+			BooksImageURL: r.BImageURL,
 			Usages:        []dto.BookUsage{},
 		}
 		orderIDs = append(orderIDs, r.BID)
 	}
 
-	// ======================================================
-	// 2) (OPSIONAL) MUAT USAGES untuk book_ids pada halaman
-	//    → query terpisah supaya base query tidak meledak row-nya
-	// ======================================================
+	// 2) (opsional) usages
 	if wantUsages {
 		type usageRow struct {
 			BookID uuid.UUID `gorm:"column:books_id"`
@@ -307,7 +327,6 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 			if b == nil || r.CSBID == nil {
 				continue
 			}
-			// cari usage masuk
 			var u *dto.BookUsage
 			for i := range b.Usages {
 				if b.Usages[i].ClassSubjectBooksID == *r.CSBID {
@@ -348,18 +367,16 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ======================================================
-	// 3) (OPSIONAL) MUAT daftar book_urls (cover/desc/...) dgn pagination per-buku
-	// ======================================================
+	// 3) (opsional) daftar book_urls
 	type bookURLLite struct {
-		BookURLID        uuid.UUID  `json:"book_url_id"         gorm:"column:book_url_id"`
-		BookURLMasjidID  uuid.UUID  `json:"book_url_masjid_id"  gorm:"column:book_url_masjid_id"`
-		BookURLBookID    uuid.UUID  `json:"book_url_book_id"    gorm:"column:book_url_book_id"`
-		BookURLLabel     *string    `json:"book_url_label"      gorm:"column:book_url_label"`
-		BookURLType      string     `json:"book_url_type"       gorm:"column:book_url_type"`
-		BookURLHref      string     `json:"book_url_href"       gorm:"column:book_url_href"`
-		BookURLCreatedAt time.Time  `json:"book_url_created_at" gorm:"column:book_url_created_at"`
-		BookURLUpdatedAt time.Time  `json:"book_url_updated_at" gorm:"column:book_url_updated_at"`
+		BookURLID        uuid.UUID `json:"book_url_id"         gorm:"column:book_url_id"`
+		BookURLMasjidID  uuid.UUID `json:"book_url_masjid_id"  gorm:"column:book_url_masjid_id"`
+		BookURLBookID    uuid.UUID `json:"book_url_book_id"    gorm:"column:book_url_book_id"`
+		BookURLLabel     *string   `json:"book_url_label"      gorm:"column:book_url_label"`
+		BookURLType      string    `json:"book_url_type"       gorm:"column:book_url_type"`
+		BookURLHref      string    `json:"book_url_href"       gorm:"column:book_url_href"`
+		BookURLCreatedAt time.Time `json:"book_url_created_at" gorm:"column:book_url_created_at"`
+		BookURLUpdatedAt time.Time `json:"book_url_updated_at" gorm:"column:book_url_updated_at"`
 	}
 	type pagination struct {
 		Page       int  `json:"page"`
@@ -374,7 +391,6 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		Pagination pagination    `json:"pagination"`
 	}
 
-	// img paging & types (aktif hanya jika diminta)
 	imgPage := 1
 	imgPerPage := 20
 	if wantBookURLs {
@@ -405,7 +421,6 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// kumpulkan url hanya jika perlu
 	urlMap := make(map[uuid.UUID][]bookURLLite, len(orderIDs))
 	if wantBookURLs && len(orderIDs) > 0 {
 		var urlRows []bookURLLite
@@ -432,7 +447,6 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// compose response
 	type bookWithUsagesPlus struct {
 		dto.BookWithUsagesResponse
 		BookURLs *bookURLsPage `json:"book_urls,omitempty"`
@@ -440,7 +454,7 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	items := make([]bookWithUsagesPlus, 0, len(orderIDs))
 	for _, id := range orderIDs {
 		base := bookMap[id]
-		var urlsBlk *bookURLsPage // nil → omitempty
+		var urlsBlk *bookURLsPage
 		if wantBookURLs {
 			all := urlMap[id]
 			blk := &bookURLsPage{

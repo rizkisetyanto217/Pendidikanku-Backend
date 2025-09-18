@@ -38,35 +38,33 @@ func (p PatchFieldCS[T]) Get() (*T, bool) { return p.Value, p.Present }
 /* =========================================================
    CREATE REQUEST / RESPONSE
    ========================================================= */
-
+// dto: internals/features/school/classes/class_sections/dto/create.go
 type ClassSectionCreateRequest struct {
 	// Wajib
-	ClassSectionsMasjidID uuid.UUID `json:"class_sections_masjid_id" validate:"required"`
-	ClassSectionsClassID  uuid.UUID `json:"class_sections_class_id" validate:"required"`
-	ClassSectionsSlug     string    `json:"class_sections_slug" validate:"required,min=1,max=160"`
-	ClassSectionsName     string    `json:"class_sections_name" validate:"required,min=1,max=100"`
+	ClassSectionsMasjidID uuid.UUID `json:"class_sections_masjid_id" form:"class_sections_masjid_id" validate:"required"`
+	ClassSectionsClassID  uuid.UUID `json:"class_sections_class_id"  form:"class_sections_class_id"  validate:"required"`
+	ClassSectionsSlug     string    `json:"class_sections_slug"      form:"class_sections_slug"      validate:"min=1,max=160"`
+	ClassSectionsName     string    `json:"class_sections_name"      form:"class_sections_name"      validate:"required,min=1,max=100"`
 
 	// Opsional
-	ClassSectionsTeacherID          *uuid.UUID `json:"class_sections_teacher_id"`
-	ClassSectionsAssistantTeacherID *uuid.UUID `json:"class_sections_assistant_teacher_id"`
-	ClassSectionsClassRoomID        *uuid.UUID `json:"class_sections_class_room_id"`
-	ClassSectionsLeaderStudentID    *uuid.UUID `json:"class_sections_leader_student_id"`
+	ClassSectionsTeacherID          *uuid.UUID `json:"class_sections_teacher_id"           form:"class_sections_teacher_id"`
+	ClassSectionsAssistantTeacherID *uuid.UUID `json:"class_sections_assistant_teacher_id" form:"class_sections_assistant_teacher_id"`
+	ClassSectionsClassRoomID        *uuid.UUID `json:"class_sections_class_room_id"        form:"class_sections_class_room_id"`
+	ClassSectionsLeaderStudentID    *uuid.UUID `json:"class_sections_leader_student_id"    form:"class_sections_leader_student_id"`
 
-	ClassSectionsCode     *string `json:"class_sections_code" validate:"omitempty,max=50"`
-	ClassSectionsSchedule *string `json:"class_sections_schedule"`
-	ClassSectionsCapacity *int    `json:"class_sections_capacity"`
+	ClassSectionsCode     *string `json:"class_sections_code"     form:"class_sections_code"     validate:"omitempty,max=50"`
+	ClassSectionsSchedule *string `json:"class_sections_schedule" form:"class_sections_schedule"`
+	ClassSectionsCapacity *int    `json:"class_sections_capacity" form:"class_sections_capacity"`
 
-	// Bisa diisi saat seed (kalau tidak, biarkan 0)
-	ClassSectionsTotalStudents *int `json:"class_sections_total_students" validate:"omitempty,min=0"`
-
-	ClassSectionsGroupURL *string `json:"class_sections_group_url"`
+	ClassSectionsTotalStudents *int    `json:"class_sections_total_students" form:"class_sections_total_students" validate:"omitempty,min=0"`
+	ClassSectionsGroupURL      *string `json:"class_sections_group_url"      form:"class_sections_group_url"`
 
 	// Image (opsional)
-	ClassSectionsImageURL       *string `json:"class_sections_image_url"`
-	ClassSectionsImageObjectKey *string `json:"class_sections_image_object_key"`
+	ClassSectionsImageURL       *string `json:"class_sections_image_url"        form:"class_sections_image_url"`
+	ClassSectionsImageObjectKey *string `json:"class_sections_image_object_key" form:"class_sections_image_object_key"`
 
 	// Status
-	ClassSectionsIsActive *bool `json:"class_sections_is_active"`
+	ClassSectionsIsActive *bool `json:"class_sections_is_active" form:"class_sections_is_active"`
 }
 
 func (r *ClassSectionCreateRequest) Normalize() {

@@ -89,7 +89,6 @@ type teacherLite struct {
 	TeacherName       *string    `json:"teacher_name,omitempty"        gorm:"column:teacher_name"`
 }
 
-
 type sectionLite struct {
 	ClassSectionsID   *uuid.UUID `json:"class_sections_id,omitempty"   gorm:"column:class_sections_id"`
 	ClassSectionsName *string    `json:"class_sections_name,omitempty" gorm:"column:class_sections_name"`
@@ -134,7 +133,6 @@ type csstItemWithRefs struct {
 	Section *sectionLite `json:"section,omitempty"`
 	Teacher *teacherLite `json:"teacher,omitempty"`
 }
-
 
 func toCSSTResp(r csstJoinedRow) csstItemWithRefs {
 	out := csstItemWithRefs{CSST: r.ClassSectionSubjectTeacherModel}
@@ -206,10 +204,18 @@ func parseInclude(raw string) map[string]bool {
 		m[p] = true
 	}
 	// alias normalization
-	if m["subjects"] || m["s"] { m["subject"] = true }
-	if m["sections"] || m["sec"] { m["section"] = true }
-	if m["cs"] { m["class_subject"] = true }
-	if m["t"] { m["teacher"] = true }
+	if m["subjects"] || m["s"] {
+		m["subject"] = true
+	}
+	if m["sections"] || m["sec"] {
+		m["section"] = true
+	}
+	if m["cs"] {
+		m["class_subject"] = true
+	}
+	if m["t"] {
+		m["teacher"] = true
+	}
 	if m["all"] {
 		m["subject"], m["section"], m["class_subject"], m["teacher"] = true, true, true, true
 	}
@@ -226,9 +232,25 @@ func parseInclude(raw string) map[string]bool {
 func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	detectCSSTFKs(ctl.DB)
 
-	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
+	// === Masjid context (PUBLIC): no role check ===
+	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return err
+		return err // fiber.Error dari resolver
+	}
+	var masjidID uuid.UUID
+	if mc.ID != uuid.Nil {
+		masjidID = mc.ID
+	} else if s := strings.TrimSpace(mc.Slug); s != "" {
+		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		if er != nil {
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve masjid dari slug")
+		}
+		masjidID = id
+	} else {
+		return helperAuth.ErrMasjidContextMissing
 	}
 
 	// path :id (detail)
@@ -259,7 +281,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	classSubID := strings.TrimSpace(c.Query("class_subject_id"))
 	subjectID := strings.TrimSpace(c.Query("subject_id"))
 	teacherID := strings.TrimSpace(c.Query("teacher_id"))
-	masjidIDOne := strings.TrimSpace(c.Query("masjid_id"))
 	qtext := strings.TrimSpace(strings.ToLower(c.Query("q")))
 	includes := parseInclude(c.Query("include"))
 
@@ -303,7 +324,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	// ================= BASE QUERY (DATA) =================
 	tx := ctl.DB.
 		Table("class_section_subject_teachers AS csst").
-		Where("csst.class_section_subject_teachers_masjid_id IN ?", masjidIDs)
+		Where("csst.class_section_subject_teachers_masjid_id = ?", masjidID)
 
 	if q.WithDeleted == nil || !*q.WithDeleted {
 		tx = tx.Where("csst.class_section_subject_teachers_deleted_at IS NULL")
@@ -316,7 +337,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	selectCols := []string{"csst.*"}
 
 	// ===== JOIN kondisional sesuai include =====
-	// class_subjects — hindari double join saat include subject juga aktif
 	needJoinCS := (includes["class_subject"] || (includes["subject"] && csstClassSubjectFK != "")) && csstClassSubjectFK != ""
 	if needJoinCS {
 		tx = tx.Joins(fmt.Sprintf(`
@@ -330,8 +350,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			)
 		}
 	}
-
-	// subjects
 	if includes["subject"] {
 		if csstClassSubjectFK != "" {
 			tx = tx.Joins(`LEFT JOIN subjects AS s ON s.subjects_id = cs.class_subjects_subject_id`)
@@ -347,8 +365,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			"s.subjects_slug AS subjects_slug",
 		)
 	}
-
-	// sections
 	if includes["section"] {
 		if csstSectionFK == "" {
 			return helper.JsonError(c, fiber.StatusBadRequest, "include=section tidak tersedia (FK class_sections tidak terdeteksi)")
@@ -360,8 +376,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			"sec.class_sections_code AS class_sections_code",
 		)
 	}
-
-	// teacher → join ke masjid_teachers + users (untuk nama)
 	if includes["teacher"] {
 		tx = tx.
 			Joins(`LEFT JOIN masjid_teachers AS mt ON mt.masjid_teacher_id = csst.class_section_subject_teachers_teacher_id`).
@@ -377,15 +391,10 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		)
 	}
 
-	// ============= FILTERS (di DATA tx) =============
+	// ============= FILTERS =============
 	if teacherID != "" {
 		if _, e := uuid.Parse(teacherID); e == nil {
 			tx = tx.Where("csst.class_section_subject_teachers_teacher_id = ?", teacherID)
-		}
-	}
-	if masjidIDOne != "" {
-		if _, e := uuid.Parse(masjidIDOne); e == nil {
-			tx = tx.Where("csst.class_section_subject_teachers_masjid_id = ?", masjidIDOne)
 		}
 	}
 	if sectionID != "" {
@@ -418,6 +427,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			tx = tx.Where("s.subjects_id = ?", subjectID)
 		}
 	}
+	// ====== FILTER qtext di DATA tx ======
 	if qtext != "" {
 		switch {
 		case includes["subject"] && includes["section"]:
@@ -429,7 +439,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		case includes["section"]:
 			tx = tx.Where("(LOWER(sec.class_sections_name) LIKE ? OR LOWER(sec.class_sections_code) LIKE ?)",
 				"%"+qtext+"%", "%"+qtext+"%")
-		// polos: q diabaikan
 		}
 	}
 
@@ -448,10 +457,10 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		return helper.JsonOK(c, "OK", toCSSTResp(row))
 	}
 
-	// ================= COUNT (ringan) =================
+	// ================= COUNT =================
 	countTx := ctl.DB.
 		Table("class_section_subject_teachers AS csst").
-		Where("csst.class_section_subject_teachers_masjid_id IN ?", masjidIDs)
+		Where("csst.class_section_subject_teachers_masjid_id = ?", masjidID)
 
 	if q.WithDeleted == nil || !*q.WithDeleted {
 		countTx = countTx.Where("csst.class_section_subject_teachers_deleted_at IS NULL")
@@ -459,15 +468,9 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	if q.IsActive != nil {
 		countTx = countTx.Where("csst.class_section_subject_teachers_is_active = ?", *q.IsActive)
 	}
-	// filter dasar yg tak butuh join
 	if teacherID != "" {
 		if _, e := uuid.Parse(teacherID); e == nil {
 			countTx = countTx.Where("csst.class_section_subject_teachers_teacher_id = ?", teacherID)
-		}
-	}
-	if masjidIDOne != "" {
-		if _, e := uuid.Parse(masjidIDOne); e == nil {
-			countTx = countTx.Where("csst.class_section_subject_teachers_masjid_id = ?", masjidIDOne)
 		}
 	}
 	if classSubID != "" && csstClassSubjectFK != "" {
@@ -480,8 +483,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			countTx = countTx.Where(fmt.Sprintf("csst.%s = ?", csstSectionFK), sectionID)
 		}
 	}
-
-	// join hanya jika perlu untuk filter/search q/subject
+	// join hanya jika perlu untuk q/subject filter
 	needSubjectJoin := (subjectID != "" || (qtext != "" && (includes["subject"] || includes["section"])))
 	needSectionJoin := (qtext != "" && (includes["section"] || includes["subject"]))
 	if needSubjectJoin {
@@ -496,6 +498,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	if needSectionJoin && csstSectionFK != "" {
 		countTx = countTx.Joins(fmt.Sprintf(`LEFT JOIN class_sections AS sec ON sec.class_sections_id = csst.%s`, csstSectionFK))
 	}
+	// ====== FILTER qtext di COUNT countTx ======
 	if qtext != "" {
 		switch {
 		case includes["subject"] && includes["section"]:

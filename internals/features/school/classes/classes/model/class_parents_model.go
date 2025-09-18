@@ -12,8 +12,8 @@ import (
 // ClassParent merepresentasikan tabel class_parents
 type ClassParentModel struct {
 	// PK & Tenant
-	ClassParentID       uuid.UUID `gorm:"column:class_parent_id;type:uuid;primaryKey" json:"class_parent_id"`
-	ClassParentMasjidID uuid.UUID `gorm:"column:class_parent_masjid_id;type:uuid;not null;index:idx_class_parents_masjid" json:"class_parent_masjid_id"`
+	ClassParentID       uuid.UUID `gorm:"column:class_parent_id;type:uuid;primaryKey;default:gen_random_uuid()" json:"class_parent_id"`
+    ClassParentMasjidID uuid.UUID `gorm:"column:class_parent_masjid_id;type:uuid;not null;index:idx_class_parents_masjid" json:"class_parent_masjid_id"`
 
 	// Identitas
 	ClassParentName        string  `gorm:"column:class_parent_name;type:varchar(120);not null" json:"class_parent_name"`
