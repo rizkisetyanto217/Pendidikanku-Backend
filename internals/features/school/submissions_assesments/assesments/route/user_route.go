@@ -5,20 +5,21 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
-	// ctr "masjidku_backend/internals/features/school/submissions_assesments/assesments/controller"
 )
 
-// Register TEACHER routes for assessment types, assessments, and assessment urls
+// Register USER routes for assessment types (read-only) dan assessments (listing/filter)
 func AssessmentUserRoutes(r fiber.Router, db *gorm.DB) {
 	typeCtrl := ctr.NewAssessmentTypeController(db)
 	assessCtrl := ctr.NewAssessmentController(db)
 
-	// ---------- Assessment Types (TEACHER: read-only) ----------
-	typeGroup := r.Group("/assessment-types")
-	typeGroup.Get("/list", typeCtrl.List)    // ?active=&q=&limit=&offset=&sort_by=&sort_dir=
+	// Base group pakai :masjid_id di path
+	g := r.Group("/:masjid_id")
 
-	// ---------- Assessments (TEACHER: manage own masjid scope) ----------
-	assessGroup := r.Group("/assessments")
-	assessGroup.Get("/list", assessCtrl.List)       // list + filter
+	// ---------- Assessment Types (USER/TEACHER: read-only) ----------
+	typeGroup := g.Group("/assessment-types")
+	typeGroup.Get("/list", typeCtrl.List) // ?active=&q=&limit=&offset=&sort_by=&sort_dir=
 
+	// ---------- Assessments (USER/TEACHER: list + filter) ----------
+	assessGroup := g.Group("/assessments")
+	assessGroup.Get("/list", assessCtrl.List) // list + filter
 }

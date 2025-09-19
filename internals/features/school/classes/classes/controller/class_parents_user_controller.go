@@ -12,21 +12,27 @@ import (
 	"gorm.io/gorm"
 )
 
-/* =========================================================
-   LIST (tenant-safe; READ: DKM=semua, member=only_my)
-   ========================================================= */
+/*
+=========================================================
+
+	LIST (tenant-safe; READ: DKM=semua, member=only_my)
+	=========================================================
+*/
 func (ctl *ClassParentController) List(c *fiber.Ctx) error {
-	// -------- resolve konteks masjid (slug/id/header/query/host/token) --------
+	// -------- PUBLIC: resolve konteks masjid dari path/header/query/host --------
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return err
+		return err // sudah mengembalikan 400 kalau context tidak ada
 	}
 
-	// slug→id bila perlu
+	// slug → id bila perlu
 	var masjidID uuid.UUID
 	if mc.ID != uuid.Nil {
 		masjidID = mc.ID
 	} else {
+		if strings.TrimSpace(mc.Slug) == "" {
+			return helperAuth.ErrMasjidContextMissing
+		}
 		id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
 		if er != nil {
 			if er == gorm.ErrRecordNotFound {
@@ -35,12 +41,6 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve masjid")
 		}
 		masjidID = id
-	}
-
-	// -------- cek role: DKM atau member --------
-	isDKM := helperAuth.EnsureDKMMasjid(c, masjidID) == nil
-	if !isDKM && !helperAuth.UserHasMasjid(c, masjidID) {
-		return fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada masjid ini (membership).")
 	}
 
 	// -------- query params & paging --------
@@ -53,8 +53,8 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		q.Offset = 0
 	}
 
-	// only_my: default true untuk non-DKM, false untuk DKM; override via ?only_my=true/false
-	onlyMy := !isDKM // default
+	// only_my: default false (karena public); aktif hanya jika diminta & user_id valid dari token
+	onlyMy := false
 	if v := strings.TrimSpace(c.Query("only_my")); v != "" {
 		onlyMy = strings.EqualFold(v, "1") || strings.EqualFold(v, "true")
 	}
@@ -115,42 +115,35 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		`, pat, pat, pat)
 	}
 
-	// ------------------ ONLY_MY (ikutanku) ------------------
+	// ------------------ ONLY_MY (opsional; diabaikan jika tidak ada token) ------------------
 	if onlyMy {
-		userID, uerr := helperAuth.GetUserIDFromToken(c) // ⬅️ gunakan helper yang ADA
-		if uerr != nil || userID == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "user_id tidak ditemukan di token")
+		if userID, _ := helperAuth.GetUserIDFromToken(c); userID != uuid.Nil {
+			tx = tx.Where(`
+				EXISTS (
+					SELECT 1
+					FROM classes c
+					JOIN class_sections s
+					  ON s.class_sections_class_id = c.class_id
+					 AND s.class_sections_deleted_at IS NULL
+					LEFT JOIN class_section_students css
+					  ON css.class_section_students_section_id = s.class_sections_id
+					 AND css.class_section_students_deleted_at IS NULL
+					LEFT JOIN masjid_students ms
+					  ON ms.masjid_student_id = css.class_section_students_masjid_student_id
+					 AND ms.masjid_student_deleted_at IS NULL
+					LEFT JOIN masjid_teachers mt
+					  ON mt.masjid_teacher_id = s.class_sections_teacher_id
+					 AND mt.masjid_teacher_deleted_at IS NULL
+					WHERE c.class_parent_id = class_parent_id
+					  AND c.class_masjid_id = ?
+					  AND (
+							(ms.masjid_student_user_id = ?)
+						 OR (mt.masjid_teacher_user_id = ?)
+						 OR (s.class_sections_teacher_user_id = ?)
+					  )
+				)
+			`, masjidID, userID, userID, userID)
 		}
-		tx = tx.Where(`
-			EXISTS (
-				SELECT 1
-				FROM classes c
-				JOIN class_sections s
-				  ON s.class_sections_class_id = c.class_id
-				 AND s.class_sections_deleted_at IS NULL
-				LEFT JOIN class_section_students css
-				  ON css.class_section_students_section_id = s.class_sections_id
-				 AND css.class_section_students_deleted_at IS NULL
-				LEFT JOIN masjid_students ms
-				  ON ms.masjid_student_id = css.class_section_students_masjid_student_id
-				 AND ms.masjid_student_deleted_at IS NULL
-				LEFT JOIN masjid_teachers mt
-				  ON mt.masjid_teacher_id = s.class_sections_teacher_id
-				 AND mt.masjid_teacher_deleted_at IS NULL
-				WHERE c.class_parent_id = class_parent_id
-				  AND c.class_masjid_id = ?
-				  AND (
-						-- sebagai siswa (user)
-						(ms.masjid_student_user_id = ?)
-						OR
-						-- sebagai pengajar via masjid_teachers
-						(mt.masjid_teacher_user_id = ?)
-						OR
-						-- fallback bila section menyimpan langsung teacher_user_id
-						(s.class_sections_teacher_user_id = ?)
-				  )
-			)
-		`, masjidID, userID, userID, userID)
 	}
 
 	// ------------------ eksekusi ------------------

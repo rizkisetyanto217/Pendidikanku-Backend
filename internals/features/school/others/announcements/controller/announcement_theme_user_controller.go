@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	anModel "masjidku_backend/internals/features/school/others/announcements/model"
 	annDTO "masjidku_backend/internals/features/school/others/announcements/dto"
 	annModel "masjidku_backend/internals/features/school/others/announcements/model"
 	helper "masjidku_backend/internals/helpers"
@@ -19,7 +18,6 @@ import (
 )
 
 /* ===================== helpers (local) ===================== */
-
 
 /*
 Refactor note:
@@ -36,13 +34,13 @@ func (h *AnnouncementThemeController) fetchAnnouncementsForThemes(
 	dateFromStr, dateToStr string,
 	sortBy, order string,
 	limitPerTheme int,
-) (map[uuid.UUID][]anModel.AnnouncementModel, error) {
+) (map[uuid.UUID][]annModel.AnnouncementModel, error) {
 
 	if len(themeIDs) == 0 {
-		return map[uuid.UUID][]anModel.AnnouncementModel{}, nil
+		return map[uuid.UUID][]annModel.AnnouncementModel{}, nil
 	}
 
-	q := db.Model(&anModel.AnnouncementModel{}).
+	q := db.Model(&annModel.AnnouncementModel{}).
 		Where("announcement_masjid_id = ?", masjidID).
 		Where("announcement_deleted_at IS NULL").
 		Where("announcement_theme_id IN ?", themeIDs)
@@ -75,13 +73,13 @@ func (h *AnnouncementThemeController) fetchAnnouncementsForThemes(
 	}
 	q = q.Order(orderCol + " " + orderDir)
 
-	var all []anModel.AnnouncementModel
+	var all []annModel.AnnouncementModel
 	if err := q.Find(&all).Error; err != nil {
 		return nil, err
 	}
 
 	// Bucket by theme + apply limit per theme
-	byTheme := make(map[uuid.UUID][]anModel.AnnouncementModel, len(themeIDs))
+	byTheme := make(map[uuid.UUID][]annModel.AnnouncementModel, len(themeIDs))
 	counts := make(map[uuid.UUID]int, len(themeIDs))
 	for i := range all {
 		tidPtr := all[i].AnnouncementThemeID // *uuid.UUID
@@ -100,7 +98,7 @@ func (h *AnnouncementThemeController) fetchAnnouncementsForThemes(
 }
 
 func toAnnouncementEmbeds(
-	src []anModel.AnnouncementModel,
+	src []annModel.AnnouncementModel,
 ) []annDTO.AnnouncementResponseEmbed {
 	if len(src) == 0 {
 		return nil
@@ -127,8 +125,8 @@ func toAnnouncementEmbeds(
 			AnnouncementCreatedByTeacherID: a.AnnouncementCreatedByTeacherID,
 			AnnouncementCreatedAt:          a.AnnouncementCreatedAt,
 			AnnouncementUpdatedAt:          a.AnnouncementUpdatedAt,
-			AnnouncementDeletedAt:          deletedAtPtr,                // ✅ *time.Time
-			AnnouncementThemeID:            a.AnnouncementThemeID,       // *uuid.UUID
+			AnnouncementDeletedAt:          deletedAtPtr,                 // ✅ *time.Time
+			AnnouncementThemeID:            a.AnnouncementThemeID,        // *uuid.UUID
 			AnnouncementClassSectionID:     a.AnnouncementClassSectionID, // *uuid.UUID
 			// AnnouncementURLs:             nil, // tidak digunakan lagi
 		}
@@ -142,21 +140,22 @@ func toAnnouncementEmbeds(
 
 // GET /admin/announcement-themes
 // Opsional:
-//   ?announcement_theme_id=<uuid>  (atau ?id=<uuid> / /admin/announcement-themes/:id)
-//   ?name=..., ?slug=...
-//   ?is_active=true|false  (alias: ?active_only=true|false)
-//   Search: ?q=... (ILIKE name; tetap ikut pagination)
-//   Pagination: ?page=1&per_page=25 (atau limit), sort_by=created_at|updated_at|name|slug, order=asc|desc
-//   Include (opsional):
-//     include=announcements
-//   Filter utk announcements (hanya saat include announcements):
-//     ann_active_only=true|false (default true)
-//     ann_section_id=<uuid>
-//     ann_date_from=YYYY-MM-DD
-//     ann_date_to=YYYY-MM-DD
-//     ann_limit_per_theme=<n> (default 3)
-//     ann_sort_by=date|created_at (default date)
-//     ann_order=asc|desc (default desc)
+//
+//	?announcement_theme_id=<uuid>  (atau ?id=<uuid> / /admin/announcement-themes/:id)
+//	?name=..., ?slug=...
+//	?is_active=true|false  (alias: ?active_only=true|false)
+//	Search: ?q=... (ILIKE name; tetap ikut pagination)
+//	Pagination: ?page=1&per_page=25 (atau limit), sort_by=created_at|updated_at|name|slug, order=asc|desc
+//	Include (opsional):
+//	  include=announcements
+//	Filter utk announcements (hanya saat include announcements):
+//	  ann_active_only=true|false (default true)
+//	  ann_section_id=<uuid>
+//	  ann_date_from=YYYY-MM-DD
+//	  ann_date_to=YYYY-MM-DD
+//	  ann_limit_per_theme=<n> (default 3)
+//	  ann_sort_by=date|created_at (default date)
+//	  ann_order=asc|desc (default desc)
 func (h *AnnouncementThemeController) List(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
 	if err != nil {

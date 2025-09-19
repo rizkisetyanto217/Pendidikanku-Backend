@@ -105,7 +105,6 @@ func parseTimeOfDayParam(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("invalid time format (want HH:mm or HH:mm:ss)")
 }
 
-
 /*
 =========================
 
@@ -113,6 +112,9 @@ func parseTimeOfDayParam(s string) (time.Time, error) {
 	=========================
 */
 func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
+	// 🔁 masjid-context: siapkan DB untuk resolver
+	c.Locals("DB", ctl.DB)
+
 	// 🔐 Admin/DKM/Teacher
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
@@ -123,11 +125,24 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	// 🔒 Ambil masjid_id dari token (admin/teacher) & override body
-	actMasjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil || actMasjidID == uuid.Nil {
-		return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan di token")
+	// 🔁 masjid-context: coba resolve dari path/header/query/host; jika ada → wajib DKM di masjid tsb
+	var actMasjidID uuid.UUID
+	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		id, er := helperAuth.EnsureMasjidAccessDKM(c, mc)
+		if er != nil {
+			return er
+		}
+		actMasjidID = id
+	} else {
+		// fallback ke token (existing behavior)
+		id, er := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+		if er != nil || id == uuid.Nil {
+			return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan di token")
+		}
+		actMasjidID = id
 	}
+
+	// Override body
 	req.ClassSchedulesMasjidID = actMasjidID.String()
 
 	// Validasi setelah di-inject
@@ -139,11 +154,6 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 	if err := req.ApplyToModel(&model); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
-
-	// (Opsional; redundant karena sudah di-override, tapi aman)
-	// if err := enforceMasjidScopeAuth(c, &model.ClassSchedulesMasjidID); err != nil {
-	// 	return helper.JsonError(c, http.StatusForbidden, err.Error())
-	// }
 
 	if err := ctl.DB.Create(&model).Error; err != nil {
 		return writePGError(c, err)
@@ -157,6 +167,9 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
    ========================= */
 
 func (ctl *ClassScheduleController) Update(c *fiber.Ctx) error {
+	// 🔁 masjid-context: siapkan DB untuk resolver
+	c.Locals("DB", ctl.DB)
+
 	// 🔐 Admin/DKM/Teacher
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
@@ -188,9 +201,17 @@ func (ctl *ClassScheduleController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	// Enforce masjid scope
+	// 🔁 masjid-context: izinkan DKM sesuai context meski token scope mismatch
 	if err := enforceMasjidScopeAuth(c, &existing.ClassSchedulesMasjidID); err != nil {
-		return helper.JsonError(c, http.StatusForbidden, err.Error())
+		if mc, er := helperAuth.ResolveMasjidContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassSchedulesMasjidID {
+				// ✅ allow via DKM context
+			} else {
+				return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
+			}
+		} else {
+			return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
+		}
 	}
 
 	if err := ctl.DB.Save(&existing).Error; err != nil {
@@ -205,6 +226,9 @@ func (ctl *ClassScheduleController) Update(c *fiber.Ctx) error {
    ========================= */
 
 func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
+	// 🔁 masjid-context: siapkan DB untuk resolver
+	c.Locals("DB", ctl.DB)
+
 	// 🔐 Admin/DKM/Teacher
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
@@ -232,14 +256,21 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 	if err := req.Validate(ctl.Validate); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
-
 	if err := req.ApplyPatch(&existing); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	// Enforce masjid scope
+	// 🔁 masjid-context: izinkan DKM sesuai context meski token scope mismatch
 	if err := enforceMasjidScopeAuth(c, &existing.ClassSchedulesMasjidID); err != nil {
-		return helper.JsonError(c, http.StatusForbidden, err.Error())
+		if mc, er := helperAuth.ResolveMasjidContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassSchedulesMasjidID {
+				// ✅ allow via DKM context
+			} else {
+				return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
+			}
+		} else {
+			return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
+		}
 	}
 
 	if err := ctl.DB.Save(&existing).Error; err != nil {
@@ -254,6 +285,9 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
    ========================= */
 
 func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
+	// 🔁 masjid-context: siapkan DB untuk resolver
+	c.Locals("DB", ctl.DB)
+
 	// 🔐 Admin/DKM/Teacher
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
@@ -274,9 +308,17 @@ func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 		return writePGError(c, err)
 	}
 
-	// Enforce masjid scope
+	// 🔁 masjid-context: izinkan DKM sesuai context meski token scope mismatch
 	if err := enforceMasjidScopeAuth(c, &existing.ClassSchedulesMasjidID); err != nil {
-		return helper.JsonError(c, http.StatusForbidden, err.Error())
+		if mc, er := helperAuth.ResolveMasjidContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassSchedulesMasjidID {
+				// ✅ allow via DKM context
+			} else {
+				return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
+			}
+		} else {
+			return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
+		}
 	}
 
 	// GORM soft delete → set class_schedules_deleted_at

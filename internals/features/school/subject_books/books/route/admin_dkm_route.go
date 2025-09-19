@@ -5,34 +5,50 @@ import (
 	cbController "masjidku_backend/internals/features/school/subject_books/books/controller"
 	"masjidku_backend/internals/middlewares/auth"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
 
-// Panggil dengan: route.ClassBooksAdminRoutes(app.Group("/api/a/class-books"), db)
-// Hasil endpoint:
+// Panggil: route.ClassBooksAdminRoutes(app.Group("/api/a/class-books"), db)
+// Endpoint hasil:
 //
-//	/api/a/class-books
-//	/api/a/class-subject-books
+//	/api/a/class-books/:masjid-id/books
+//	/api/a/class-books/:masjid-id/class-subject-books
+//	/api/a/class-books/:masjid-id/book-urls
 func ClassBooksAdminRoutes(r fiber.Router, db *gorm.DB) {
 	booksCtl := &cbController.BooksController{DB: db}
 	csbCtl := &cbController.ClassSubjectBookController{DB: db}
+
+	// Book URL controller (punya Create, Patch, Delete)
+	bookURLCtl := &cbController.BookURLController{
+		DB:        db,
+		Validator: validator.New(),
+	}
 
 	adminGuard := auth.OnlyRolesSlice(
 		constants.RoleErrorAdmin("aksi ini untuk admin/owner"),
 		constants.AdminAndAbove,
 	)
 
-	// ➜ Seragam pakai path param
-	g := r.Group("/:masjid_id/class-books", adminGuard)
+	// ► Param pakai dash: :masjid-id
+	g := r.Group("/:masjid-id", adminGuard)
 
+	// Books
 	books := g.Group("/books")
 	books.Post("/", booksCtl.Create)
 	books.Put("/:id", booksCtl.Update)
 	books.Delete("/:id", booksCtl.Delete)
 
+	// Class-Subject-Books
 	csb := g.Group("/class-subject-books")
 	csb.Post("/", csbCtl.Create)
 	csb.Put("/:id", csbCtl.Update)
 	csb.Delete("/:id", csbCtl.Delete)
+
+	// Book URLs
+	bu := g.Group("/book-urls")
+	bu.Post("/", bookURLCtl.Create)    // body berisi book_id, kind, dst
+	bu.Patch("/:id", bookURLCtl.Patch) // partial update + handle primary & rotation object_key
+	bu.Delete("/:id", bookURLCtl.Delete)
 }

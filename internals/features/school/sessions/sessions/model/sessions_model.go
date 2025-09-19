@@ -15,13 +15,16 @@ type ClassAttendanceSessionModel struct {
 	// Tenant
 	ClassAttendanceSessionMasjidId uuid.UUID `gorm:"type:uuid;not null;column:class_attendance_sessions_masjid_id" json:"class_attendance_sessions_masjid_id"`
 
-	// Relasi utama (WAJIB): CSST → menentukan section & subject secara tidak langsung
-	ClassAttendanceSessionCSSTId uuid.UUID `gorm:"type:uuid;not null;column:class_attendance_sessions_csst_id" json:"class_attendance_sessions_csst_id"`
+	// Relasi utama: schedule (bukan CSST)
+	ClassAttendanceSessionScheduleId uuid.UUID `gorm:"type:uuid;not null;column:class_attendance_sessions_schedule_id" json:"class_attendance_sessions_schedule_id"`
 
-	// Opsional: ruang
+	// Opsional: ruangan
 	ClassAttendanceSessionClassRoomId *uuid.UUID `gorm:"type:uuid;column:class_attendance_sessions_class_room_id" json:"class_attendance_sessions_class_room_id,omitempty"`
 
-	// Tanggal sesi (DATE). Pointer agar default CURRENT_DATE dari DB terpakai jika nil saat insert.
+	// Opsional: guru
+	ClassAttendanceSessionTeacherId *uuid.UUID `gorm:"type:uuid;column:class_attendance_sessions_teacher_id" json:"class_attendance_sessions_teacher_id,omitempty"`
+
+	// Tanggal sesi (DATE). Pointer agar default CURRENT_DATE terpakai bila nil saat insert.
 	ClassAttendanceSessionDate *time.Time `gorm:"type:date;not null;default:CURRENT_DATE;column:class_attendance_sessions_date" json:"class_attendance_sessions_date"`
 
 	// Metadata
@@ -29,10 +32,17 @@ type ClassAttendanceSessionModel struct {
 	ClassAttendanceSessionGeneralInfo string  `gorm:"not null;column:class_attendance_sessions_general_info" json:"class_attendance_sessions_general_info"`
 	ClassAttendanceSessionNote        *string `gorm:"column:class_attendance_sessions_note" json:"class_attendance_sessions_note,omitempty"`
 
-	// Guru (opsional) → masjid_teachers
-	ClassAttendanceSessionTeacherId *uuid.UUID `gorm:"type:uuid;column:class_attendance_sessions_teacher_id" json:"class_attendance_sessions_teacher_id,omitempty"`
+	// Rekap kehadiran (nullable di SQL → pointer di model)
+	ClassAttendanceSessionPresentCount *int `gorm:"column:class_attendance_sessions_present_count" json:"class_attendance_sessions_present_count,omitempty"`
+	ClassAttendanceSessionAbsentCount  *int `gorm:"column:class_attendance_sessions_absent_count" json:"class_attendance_sessions_absent_count,omitempty"`
+	ClassAttendanceSessionLateCount    *int `gorm:"column:class_attendance_sessions_late_count" json:"class_attendance_sessions_late_count,omitempty"`
+	ClassAttendanceSessionExcusedCount *int `gorm:"column:class_attendance_sessions_excused_count" json:"class_attendance_sessions_excused_count,omitempty"`
+	ClassAttendanceSessionSickCount    *int `gorm:"column:class_attendance_sessions_sick_count" json:"class_attendance_sessions_sick_count,omitempty"`
+	ClassAttendanceSessionLeaveCount   *int `gorm:"column:class_attendance_sessions_leave_count" json:"class_attendance_sessions_leave_count,omitempty"`
 
-	// Soft delete
+	// Audit & soft delete
+	ClassAttendanceSessionCreatedAt time.Time      `gorm:"not null;default:now();autoCreateTime;column:class_attendance_sessions_created_at" json:"class_attendance_sessions_created_at"`
+	ClassAttendanceSessionUpdatedAt time.Time      `gorm:"not null;default:now();autoUpdateTime;column:class_attendance_sessions_updated_at" json:"class_attendance_sessions_updated_at"`
 	ClassAttendanceSessionDeletedAt gorm.DeletedAt `gorm:"column:class_attendance_sessions_deleted_at;index" json:"class_attendance_sessions_deleted_at,omitempty"`
 }
 

@@ -94,6 +94,7 @@ type CreateClassScheduleRequest struct {
 	// Optional lain
 	ClassSchedulesRoomID    *string          `json:"class_schedules_room_id,omitempty"    validate:"omitempty,uuid4"`
 	ClassSchedulesTeacherID *string          `json:"class_schedules_teacher_id,omitempty" validate:"omitempty,uuid4"`
+	ClassSchedulesEventID   *string          `json:"class_schedules_event_id,omitempty"   validate:"omitempty,uuid4"` // NEW
 	ClassSchedulesStatus    *m.SessionStatus `json:"class_schedules_status,omitempty"     validate:"omitempty,oneof=scheduled ongoing completed canceled"`
 	ClassSchedulesIsActive  *bool            `json:"class_schedules_is_active,omitempty"`
 }
@@ -117,6 +118,7 @@ type UpdateClassScheduleRequest struct {
 	// Optional lain
 	ClassSchedulesRoomID    *string `json:"class_schedules_room_id,omitempty"    validate:"omitempty,uuid4"`
 	ClassSchedulesTeacherID *string `json:"class_schedules_teacher_id,omitempty" validate:"omitempty,uuid4"`
+	ClassSchedulesEventID   *string `json:"class_schedules_event_id,omitempty"   validate:"omitempty,uuid4"` // NEW
 }
 
 type PatchClassScheduleRequest struct {
@@ -138,6 +140,7 @@ type PatchClassScheduleRequest struct {
 	// Lain
 	ClassSchedulesRoomID    *string `json:"class_schedules_room_id,omitempty"    validate:"omitempty,uuid4"`
 	ClassSchedulesTeacherID *string `json:"class_schedules_teacher_id,omitempty" validate:"omitempty,uuid4"`
+	ClassSchedulesEventID   *string `json:"class_schedules_event_id,omitempty"   validate:"omitempty,uuid4"` // NEW
 }
 
 /* =======================================================
@@ -217,6 +220,10 @@ func (r *CreateClassScheduleRequest) ApplyToModel(dst *m.ClassScheduleModel) err
 	if err != nil {
 		return fmt.Errorf("class_schedules_teacher_id: %w", err)
 	}
+	eventID, err := uuidPtrFromString(r.ClassSchedulesEventID) // NEW
+	if err != nil {
+		return fmt.Errorf("class_schedules_event_id: %w", err)
+	}
 
 	if err := ensureTargetValid(csstID, secID, subjID); err != nil {
 		return err
@@ -228,6 +235,7 @@ func (r *CreateClassScheduleRequest) ApplyToModel(dst *m.ClassScheduleModel) err
 	dst.ClassSchedulesCSSTID = csstID
 	dst.ClassSchedulesRoomID = roomID
 	dst.ClassSchedulesTeacherID = teacherID
+	dst.ClassSchedulesEventID = eventID // NEW
 
 	dst.ClassSchedulesDayOfWeek = r.ClassSchedulesDayOfWeek
 	dst.ClassSchedulesStartTime = dbtime.From(startTime)
@@ -299,6 +307,10 @@ func (r *UpdateClassScheduleRequest) ApplyToModel(dst *m.ClassScheduleModel) err
 	if err != nil {
 		return fmt.Errorf("class_schedules_teacher_id: %w", err)
 	}
+	eventID, err := uuidPtrFromString(r.ClassSchedulesEventID) // NEW
+	if err != nil {
+		return fmt.Errorf("class_schedules_event_id: %w", err)
+	}
 
 	if err := ensureTargetValid(csstID, secID, subjID); err != nil {
 		return err
@@ -310,6 +322,7 @@ func (r *UpdateClassScheduleRequest) ApplyToModel(dst *m.ClassScheduleModel) err
 	dst.ClassSchedulesCSSTID = csstID
 	dst.ClassSchedulesRoomID = roomID
 	dst.ClassSchedulesTeacherID = teacherID
+	dst.ClassSchedulesEventID = eventID // NEW
 
 	dst.ClassSchedulesDayOfWeek = r.ClassSchedulesDayOfWeek
 	dst.ClassSchedulesStartTime = dbtime.From(startTime)
@@ -432,6 +445,15 @@ func (p *PatchClassScheduleRequest) ApplyPatch(dst *m.ClassScheduleModel) error 
 		dst.ClassSchedulesTeacherID = idp
 	}
 
+	// NEW: Event
+	if p.ClassSchedulesEventID != nil {
+		idp, err := uuidPtrFromString(p.ClassSchedulesEventID)
+		if err != nil {
+			return fmt.Errorf("class_schedules_event_id: %w", err)
+		}
+		dst.ClassSchedulesEventID = idp
+	}
+
 	// Status & Active
 	if p.ClassSchedulesStatus != nil {
 		switch *p.ClassSchedulesStatus {
@@ -467,6 +489,7 @@ type ClassScheduleResponse struct {
 	ClassSchedulesCSSTID         *uuid.UUID `json:"class_schedules_csst_id,omitempty"`
 	ClassSchedulesRoomID         *uuid.UUID `json:"class_schedules_room_id,omitempty"`
 	ClassSchedulesTeacherID      *uuid.UUID `json:"class_schedules_teacher_id,omitempty"`
+	ClassSchedulesEventID        *uuid.UUID `json:"class_schedules_event_id,omitempty"` // NEW
 
 	ClassSchedulesDayOfWeek int    `json:"class_schedules_day_of_week"`
 	ClassSchedulesStartTime string `json:"class_schedules_start_time"` // HH:mm:ss
@@ -497,6 +520,7 @@ func NewClassScheduleResponse(src *m.ClassScheduleModel) ClassScheduleResponse {
 		ClassSchedulesCSSTID:         src.ClassSchedulesCSSTID,
 		ClassSchedulesRoomID:         src.ClassSchedulesRoomID,
 		ClassSchedulesTeacherID:      src.ClassSchedulesTeacherID,
+		ClassSchedulesEventID:        src.ClassSchedulesEventID, // NEW
 
 		ClassSchedulesDayOfWeek: src.ClassSchedulesDayOfWeek,
 		ClassSchedulesStartTime: src.ClassSchedulesStartTime.Format("15:04:05"),
@@ -514,6 +538,10 @@ func NewClassScheduleResponse(src *m.ClassScheduleModel) ClassScheduleResponse {
 	}
 }
 
+/* =======================================================
+   List Query (tidak diubah; tambahkan kalau butuh filter event)
+   ======================================================= */
+
 type ListQuery struct {
 	// Filter
 	MasjidID         string `query:"masjid_id"`
@@ -528,8 +556,8 @@ type ListQuery struct {
 	OnDate           string `query:"on_date"`
 	StartAfter       string `query:"start_after"`
 	EndBefore        string `query:"end_before"`
-	ClassScheduleID  string `query:"class_schedule_id"`  // <— NEW (single)
-	ClassScheduleIDs string `query:"class_schedule_ids"` // <— NEW (comma-separated)
+	ClassScheduleID  string `query:"class_schedule_id"`  // single
+	ClassScheduleIDs string `query:"class_schedule_ids"` // comma-separated
 
 	// Pagination & sort
 	Limit  int    `query:"limit"`

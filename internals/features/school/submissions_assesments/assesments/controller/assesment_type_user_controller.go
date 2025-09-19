@@ -13,15 +13,43 @@ import (
 )
 
 // GET /assessment-types?active=&q=&limit=&offset=&sort_by=&sort_dir=
+// GET /assessment-types?active=&q=&limit=&offset=&sort_by=&sort_dir=
 func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
-	// ambil masjid_id prefer teacher
-	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil || mid == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	// =========================
+	// 1) Resolve masjid context
+	// =========================
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		// sudah dalam bentuk fiber.Error dari helper
+		return err
 	}
-	// authorize: anggota masjid (semua role)
-	if err := helperAuth.EnsureMemberMasjid(c, mid); err != nil { return err }
 
+	// slug → id (jika perlu)
+	var mid uuid.UUID
+	if mc.ID != uuid.Nil {
+		mid = mc.ID
+	} else if mc.Slug != "" {
+		id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+		if er != nil || id == uuid.Nil {
+			// beri pesan 404 yang ramah
+			return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+		}
+		mid = id
+	} else {
+		// fallback: mestinya tidak terjadi karena ResolveMasjidContext sudah handle
+		return helperAuth.ErrMasjidContextMissing
+	}
+
+	// ==========================================
+	// 2) Authorize: minimal member masjid (any role)
+	// ==========================================
+	if !helperAuth.UserHasMasjid(c, mid) {
+		return fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada masjid ini (membership).")
+	}
+
+	// =========================
+	// 3) Build filter & validate
+	// =========================
 	var filt dto.ListAssessmentTypeFilter
 	filt.AssessmentTypesMasjidID = mid
 
@@ -48,7 +76,9 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Query tenant-scoped
+	// =========================
+	// 4) Query tenant-scoped
+	// =========================
 	qry := ctl.DB.Model(&model.AssessmentTypeModel{}).
 		Where("assessment_types_masjid_id = ?", filt.AssessmentTypesMasjidID)
 
@@ -72,7 +102,9 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 	if err := qry.
 		// khusus tabel ini: name/created_at
 		Order(func() string {
-			if filt.SortBy == nil { return "assessment_types_created_at DESC" }
+			if filt.SortBy == nil {
+				return "assessment_types_created_at DESC"
+			}
 			sb := strings.ToLower(strings.TrimSpace(*filt.SortBy))
 			dir := "DESC"
 			if filt.SortDir != nil && strings.EqualFold(strings.TrimSpace(*filt.SortDir), "asc") {

@@ -16,7 +16,7 @@ func ClassBooksUserRoutes(r fiber.Router, db *gorm.DB) {
 	csbCtl := &cbController.ClassSubjectBookController{DB: db}
 
 	// base group pakai masjid_id di path
-	g := r.Group("/:masjid_id/class-books")
+	g := r.Group("/:masjid_id")
 
 	// /api/u/:masjid_id/class-books/books/list
 	books := g.Group("/books")

@@ -13,12 +13,15 @@ import (
 	"gorm.io/gorm"
 )
 
-/* =========================================================
-   LIST
-   GET /admin/subjects?q=&is_active=&order_by=&sort=&limit=&offset=&with_deleted=&id=&ids=
-   order_by: code|name|created_at|updated_at
-   sort: asc|desc
-   ========================================================= */
+/*
+=========================================================
+
+	LIST
+	GET /admin/subjects?q=&is_active=&order_by=&sort=&limit=&offset=&with_deleted=&id=&ids=
+	order_by: code|name|created_at|updated_at
+	sort: asc|desc
+	=========================================================
+*/
 func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 	// === Masjid context (PUBLIC): no role check ===
 	mc, err := helperAuth.ResolveMasjidContext(c)
@@ -117,6 +120,12 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 			subjects_code,
 			subjects_name,
 			subjects_desc,
+			subjects_slug,
+			subjects_image_url,
+			subjects_image_object_key,
+			subjects_image_url_old,
+			subjects_image_object_key_old,
+			subjects_image_delete_pending_until,
 			subjects_is_active,
 			subjects_created_at,
 			subjects_updated_at,

@@ -1,36 +1,29 @@
-BEGIN;
 
 -- =========================================================
--- Prasyarat
--- =========================================================
-CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
-
--- =========================================================
--- Tabel: class_attendance_sessions (tanpa section_id; pakai CSST)
+-- Tabel: CLASS_ATTENDANCE_SESSIONS → refer ke CLASS_SCHEDULES
 -- =========================================================
 CREATE TABLE class_attendance_sessions (
-  class_attendance_sessions_id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  class_attendance_sessions_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Tenant guard
-  class_attendance_sessions_masjid_id    UUID NOT NULL,
+  class_attendance_sessions_masjid_id     UUID NOT NULL,
 
-  -- Relasi utama: assignment (CSST) → menentukan section & subject
-  class_attendance_sessions_csst_id      UUID NOT NULL,
+  -- Relasi utama: jadwal (bukan CSST)
+  class_attendance_sessions_schedule_id   UUID NOT NULL,
 
-  -- Opsional
-  class_attendance_sessions_class_room_id UUID,
-
-  -- Metadata sesi
-  class_attendance_sessions_date         DATE NOT NULL DEFAULT CURRENT_DATE,
-  class_attendance_sessions_title        TEXT,
-  class_attendance_sessions_general_info TEXT NOT NULL,
-  class_attendance_sessions_note         TEXT,
-
-  -- Guru yang mengajar (tetap/pengganti) → masjid_teachers
-  class_attendance_sessions_teacher_id   UUID
+  -- Opsional override (boleh beda dari jadwal)
+  class_attendance_sessions_class_room_id UUID
+    REFERENCES class_rooms (class_room_id) ON DELETE SET NULL,
+  class_attendance_sessions_teacher_id    UUID
     REFERENCES masjid_teachers (masjid_teacher_id) ON DELETE SET NULL,
 
-    -- 9) Rekap hasil kehadiran
+  -- Metadata sesi
+  class_attendance_sessions_date          DATE NOT NULL DEFAULT CURRENT_DATE,
+  class_attendance_sessions_title         TEXT,
+  class_attendance_sessions_general_info  TEXT NOT NULL,
+  class_attendance_sessions_note          TEXT,
+
+  -- Rekap hasil kehadiran
   class_attendance_sessions_present_count INT,
   class_attendance_sessions_absent_count  INT,
   class_attendance_sessions_late_count    INT,
@@ -39,44 +32,41 @@ CREATE TABLE class_attendance_sessions (
   class_attendance_sessions_leave_count   INT,
 
   -- Soft delete
-  class_attendance_sessions_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_attendance_sessions_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_attendance_sessions_deleted_at   TIMESTAMPTZ,
+  class_attendance_sessions_created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_attendance_sessions_updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_attendance_sessions_deleted_at    TIMESTAMPTZ,
 
-  -- =========================
-  -- Foreign Keys (tenant-safe)
-  -- =========================
-
-  -- csst_id → class_section_subject_teachers(id)
-  CONSTRAINT fk_cas_csst
-    FOREIGN KEY (class_attendance_sessions_csst_id)
-    REFERENCES class_section_subject_teachers (class_section_subject_teachers_id)
-    ON UPDATE CASCADE ON DELETE RESTRICT,
-
-  -- class_room_id → class_rooms(id)
-  CONSTRAINT fk_cas_class_room
-    FOREIGN KEY (class_attendance_sessions_class_room_id)
-    REFERENCES class_rooms (class_room_id)
-    ON UPDATE CASCADE ON DELETE SET NULL
+  -- Tenant-safe FK (komposit) → class_schedules
+  CONSTRAINT fk_cas_schedule_tenant
+    FOREIGN KEY (class_attendance_sessions_masjid_id, class_attendance_sessions_schedule_id)
+    REFERENCES class_schedules (class_schedules_masjid_id, class_schedule_id)
+    ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
--- =========================================================
--- Indexes
--- =========================================================
+-- =========================
+-- Indexing attendance
+-- =========================
 
--- Tenant & tanggal
-CREATE INDEX idx_cas_masjid
-  ON class_attendance_sessions (class_attendance_sessions_masjid_id);
-
-CREATE INDEX idx_cas_date
-  ON class_attendance_sessions (class_attendance_sessions_date DESC);
-
--- CSST reference (alive only)
-CREATE INDEX idx_cas_csst_alive
-  ON class_attendance_sessions (class_attendance_sessions_csst_id)
+-- Unik: satu sesi per (masjid, schedule, date) saat belum soft-deleted
+CREATE UNIQUE INDEX uq_cas_masjid_schedule_date
+  ON class_attendance_sessions (
+    class_attendance_sessions_masjid_id,
+    class_attendance_sessions_schedule_id,
+    class_attendance_sessions_date
+  )
   WHERE class_attendance_sessions_deleted_at IS NULL;
 
--- Query by teacher per masjid per date (alive)
+-- Tenant & tanggal (kalender)
+CREATE INDEX idx_cas_masjid_date
+  ON class_attendance_sessions (class_attendance_sessions_masjid_id, class_attendance_sessions_date DESC)
+  WHERE class_attendance_sessions_deleted_at IS NULL;
+
+-- Lookup berdasarkan schedule (alive)
+CREATE INDEX idx_cas_schedule_alive
+  ON class_attendance_sessions (class_attendance_sessions_schedule_id)
+  WHERE class_attendance_sessions_deleted_at IS NULL;
+
+-- Query per guru per masjid per tanggal (alive)
 CREATE INDEX idx_cas_masjid_teacher_date_alive
   ON class_attendance_sessions (
     class_attendance_sessions_masjid_id,
@@ -85,21 +75,10 @@ CREATE INDEX idx_cas_masjid_teacher_date_alive
   )
   WHERE class_attendance_sessions_deleted_at IS NULL;
 
--- Room optional
-CREATE INDEX idx_cas_class_room
-  ON class_attendance_sessions (class_attendance_sessions_class_room_id);
-
--- Unik: satu sesi per (masjid, CSST, date) saat belum soft-deleted
-CREATE UNIQUE INDEX uq_cas_masjid_csst_date
-  ON class_attendance_sessions (
-    class_attendance_sessions_masjid_id,
-    class_attendance_sessions_csst_id,
-    class_attendance_sessions_date
-  )
+-- Optional: filter ruangan (alive)
+CREATE INDEX idx_cas_class_room_alive
+  ON class_attendance_sessions (class_attendance_sessions_class_room_id)
   WHERE class_attendance_sessions_deleted_at IS NULL;
-
-
-COMMIT;
 
 
 BEGIN;

@@ -146,9 +146,6 @@ func buildClassBaseSlug(
     return base, nil
 }
 
-
-/* =========================== CREATE =========================== */
-// POST /admin/classes
 /* =========================== CREATE =========================== */
 // POST /admin/classes
 func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {

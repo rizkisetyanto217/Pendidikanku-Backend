@@ -12,21 +12,17 @@ import (
 	m "masjidku_backend/internals/features/school/classes/classes/model"
 )
 
-/* =========================================================
-   Helper: JSONMapFlexible — terima object atau string JSON
-   ========================================================= */
+/*
+=========================================================
+Helper: JSONMapFlexible — terima object atau string JSON
+=========================================================
+*/
 type JSONMapFlexible datatypes.JSONMap
-
-func (m *JSONMapFlexible) ensure() {
-	if *m == nil {
-		*m = JSONMapFlexible{}
-	}
-}
 
 // Dipakai saat body JSON (application/json)
 func (m *JSONMapFlexible) UnmarshalJSON(b []byte) error {
-	// Jika value-nya string (mis. "{"a":1}") → unquote lalu parse sebagai object
 	bs := strings.TrimSpace(string(b))
+	// Jika value string (mis. "{"a":1}") → unquote lalu parse sebagai object
 	if len(bs) > 0 && bs[0] == '"' {
 		var raw string
 		if err := json.Unmarshal(b, &raw); err != nil {
@@ -43,7 +39,6 @@ func (m *JSONMapFlexible) UnmarshalJSON(b []byte) error {
 		*m = JSONMapFlexible(tmp)
 		return nil
 	}
-
 	// Bukan string → parse langsung sebagai object
 	tmp := datatypes.JSONMap{}
 	if err := json.Unmarshal(b, &tmp); err != nil {
@@ -73,10 +68,12 @@ func (m JSONMapFlexible) ToJSONMap() datatypes.JSONMap {
 	return datatypes.JSONMap(m)
 }
 
-/* =========================================================
-   PATCH FIELD — tri-state (absent | null | value)
-   ========================================================= */
+/*
+=========================================================
 
+	PATCH FIELD — tri-state (absent | null | value)
+	=========================================================
+*/
 type PatchFieldClassParent[T any] struct {
 	Present bool
 	Value   *T
@@ -84,7 +81,6 @@ type PatchFieldClassParent[T any] struct {
 
 func (p *PatchFieldClassParent[T]) UnmarshalJSON(b []byte) error {
 	p.Present = true
-	// "null" → explicit null
 	if string(b) == "null" {
 		p.Value = nil
 		return nil
@@ -99,23 +95,26 @@ func (p *PatchFieldClassParent[T]) UnmarshalJSON(b []byte) error {
 
 func (p PatchFieldClassParent[T]) Get() (*T, bool) { return p.Value, p.Present }
 
-/* =========================================================
-   CREATE REQUEST / RESPONSE (multipart-ready)
-   ========================================================= */
+/*
+=========================================================
 
+	CREATE REQUEST / RESPONSE (multipart-ready)
+	=========================================================
+*/
 type ClassParentCreateRequest struct {
 	// Wajib
 	ClassParentMasjidID uuid.UUID `json:"class_parent_masjid_id" form:"class_parent_masjid_id" validate:"required"`
 	ClassParentName     string    `json:"class_parent_name" form:"class_parent_name" validate:"required,min=1,max=120"`
 
 	// Opsional
-	ClassParentCode         *string          `json:"class_parent_code" form:"class_parent_code" validate:"omitempty,max=40"`
-	ClassParentSlug         *string          `json:"class_parent_slug" form:"class_parent_slug" validate:"omitempty,max=160"`
-	ClassParentDescription  *string          `json:"class_parent_description" form:"class_parent_description"`
-	ClassParentLevel        *int16           `json:"class_parent_level" form:"class_parent_level" validate:"omitempty,min=0,max=100"`
-	ClassParentIsActive     *bool            `json:"class_parent_is_active" form:"class_parent_is_active"` // default true di DB
-	ClassParentTotalClasses *int32           `json:"class_parent_total_classes" form:"class_parent_total_classes" validate:"omitempty,min=0"`
-	// NOTE: siap untuk JSON object ATAU string JSON saat multipart
+	ClassParentCode         *string `json:"class_parent_code" form:"class_parent_code" validate:"omitempty,max=40"`
+	ClassParentSlug         *string `json:"class_parent_slug" form:"class_parent_slug" validate:"omitempty,max=160"`
+	ClassParentDescription  *string `json:"class_parent_description" form:"class_parent_description"`
+	ClassParentLevel        *int16  `json:"class_parent_level" form:"class_parent_level" validate:"omitempty,min=0,max=100"`
+	ClassParentIsActive     *bool   `json:"class_parent_is_active" form:"class_parent_is_active"`
+	ClassParentTotalClasses *int32  `json:"class_parent_total_classes" form:"class_parent_total_classes" validate:"omitempty,min=0"`
+
+	// ✅ Langsung fleksibel: bisa JSON body object atau string JSON di form-data (Text)
 	ClassParentRequirements JSONMapFlexible `json:"class_parent_requirements" form:"class_parent_requirements"`
 
 	// Slot image (opsional—biasanya terisi setelah upload)
@@ -150,6 +149,13 @@ func (r *ClassParentCreateRequest) Normalize() {
 
 func (r ClassParentCreateRequest) ToModel() *m.ClassParentModel {
 	now := time.Now()
+
+	// Pastikan tidak null (opsional; kalau ingin default {}, bukan null)
+	reqMap := r.ClassParentRequirements.ToJSONMap()
+	if reqMap == nil {
+		reqMap = datatypes.JSONMap{}
+	}
+
 	cp := &m.ClassParentModel{
 		ClassParentMasjidID:     r.ClassParentMasjidID,
 		ClassParentName:         r.ClassParentName,
@@ -157,14 +163,14 @@ func (r ClassParentCreateRequest) ToModel() *m.ClassParentModel {
 		ClassParentSlug:         r.ClassParentSlug,
 		ClassParentDescription:  r.ClassParentDescription,
 		ClassParentLevel:        r.ClassParentLevel,
-		ClassParentRequirements: r.ClassParentRequirements.ToJSONMap(),
+		ClassParentRequirements: reqMap,
 		ClassParentCreatedAt:    now,
 		ClassParentUpdatedAt:    now,
 	}
 	if r.ClassParentIsActive != nil {
 		cp.ClassParentIsActive = *r.ClassParentIsActive
 	} else {
-		cp.ClassParentIsActive = true // default di sisi app (DB juga default true)
+		cp.ClassParentIsActive = true
 	}
 	if r.ClassParentTotalClasses != nil {
 		cp.ClassParentTotalClasses = *r.ClassParentTotalClasses
@@ -176,24 +182,24 @@ func (r ClassParentCreateRequest) ToModel() *m.ClassParentModel {
 }
 
 type ClassParentResponse struct {
-	ClassParentID                     uuid.UUID         `json:"class_parent_id"`
-	ClassParentMasjidID               uuid.UUID         `json:"class_parent_masjid_id"`
-	ClassParentName                   string            `json:"class_parent_name"`
-	ClassParentCode                   *string           `json:"class_parent_code"`
-	ClassParentSlug                   *string           `json:"class_parent_slug"`
-	ClassParentDescription            *string           `json:"class_parent_description"`
-	ClassParentLevel                  *int16            `json:"class_parent_level"`
-	ClassParentIsActive               bool              `json:"class_parent_is_active"`
-	ClassParentTotalClasses           int32             `json:"class_parent_total_classes"`
-	ClassParentRequirements           datatypes.JSONMap `json:"class_parent_requirements"`
-	ClassParentImageURL               *string           `json:"class_parent_image_url"`
-	ClassParentImageObjectKey         *string           `json:"class_parent_image_object_key"`
-	ClassParentImageURLOld            *string           `json:"class_parent_image_url_old"`
-	ClassParentImageObjectKeyOld      *string           `json:"class_parent_image_object_key_old"`
-	ClassParentImageDeletePendingUntil *time.Time       `json:"class_parent_image_delete_pending_until"`
-	ClassParentCreatedAt              time.Time         `json:"class_parent_created_at"`
-	ClassParentUpdatedAt              time.Time         `json:"class_parent_updated_at"`
-	ClassParentDeletedAt              *time.Time        `json:"class_parent_deleted_at,omitempty"`
+	ClassParentID                      uuid.UUID         `json:"class_parent_id"`
+	ClassParentMasjidID                uuid.UUID         `json:"class_parent_masjid_id"`
+	ClassParentName                    string            `json:"class_parent_name"`
+	ClassParentCode                    *string           `json:"class_parent_code"`
+	ClassParentSlug                    *string           `json:"class_parent_slug"`
+	ClassParentDescription             *string           `json:"class_parent_description"`
+	ClassParentLevel                   *int16            `json:"class_parent_level"`
+	ClassParentIsActive                bool              `json:"class_parent_is_active"`
+	ClassParentTotalClasses            int32             `json:"class_parent_total_classes"`
+	ClassParentRequirements            datatypes.JSONMap `json:"class_parent_requirements"`
+	ClassParentImageURL                *string           `json:"class_parent_image_url"`
+	ClassParentImageObjectKey          *string           `json:"class_parent_image_object_key"`
+	ClassParentImageURLOld             *string           `json:"class_parent_image_url_old"`
+	ClassParentImageObjectKeyOld       *string           `json:"class_parent_image_object_key_old"`
+	ClassParentImageDeletePendingUntil *time.Time        `json:"class_parent_image_delete_pending_until"`
+	ClassParentCreatedAt               time.Time         `json:"class_parent_created_at"`
+	ClassParentUpdatedAt               time.Time         `json:"class_parent_updated_at"`
+	ClassParentDeletedAt               *time.Time        `json:"class_parent_deleted_at,omitempty"`
 }
 
 func FromModelClassParent(cp *m.ClassParentModel) ClassParentResponse {
@@ -203,41 +209,42 @@ func FromModelClassParent(cp *m.ClassParentModel) ClassParentResponse {
 		deletedAt = &t
 	}
 	return ClassParentResponse{
-		ClassParentID:                     cp.ClassParentID,
-		ClassParentMasjidID:               cp.ClassParentMasjidID,
-		ClassParentName:                   cp.ClassParentName,
-		ClassParentCode:                   cp.ClassParentCode,
-		ClassParentSlug:                   cp.ClassParentSlug,
-		ClassParentDescription:            cp.ClassParentDescription,
-		ClassParentLevel:                  cp.ClassParentLevel,
-		ClassParentIsActive:               cp.ClassParentIsActive,
-		ClassParentTotalClasses:           cp.ClassParentTotalClasses,
-		ClassParentRequirements:           cp.ClassParentRequirements,
-		ClassParentImageURL:               cp.ClassParentImageURL,
-		ClassParentImageObjectKey:         cp.ClassParentImageObjectKey,
-		ClassParentImageURLOld:            cp.ClassParentImageURLOld,
-		ClassParentImageObjectKeyOld:      cp.ClassParentImageObjectKeyOld,
+		ClassParentID:                      cp.ClassParentID,
+		ClassParentMasjidID:                cp.ClassParentMasjidID,
+		ClassParentName:                    cp.ClassParentName,
+		ClassParentCode:                    cp.ClassParentCode,
+		ClassParentSlug:                    cp.ClassParentSlug,
+		ClassParentDescription:             cp.ClassParentDescription,
+		ClassParentLevel:                   cp.ClassParentLevel,
+		ClassParentIsActive:                cp.ClassParentIsActive,
+		ClassParentTotalClasses:            cp.ClassParentTotalClasses,
+		ClassParentRequirements:            cp.ClassParentRequirements,
+		ClassParentImageURL:                cp.ClassParentImageURL,
+		ClassParentImageObjectKey:          cp.ClassParentImageObjectKey,
+		ClassParentImageURLOld:             cp.ClassParentImageURLOld,
+		ClassParentImageObjectKeyOld:       cp.ClassParentImageObjectKeyOld,
 		ClassParentImageDeletePendingUntil: cp.ClassParentImageDeletePendingUntil,
-		ClassParentCreatedAt:              cp.ClassParentCreatedAt,
-		ClassParentUpdatedAt:              cp.ClassParentUpdatedAt,
-		ClassParentDeletedAt:              deletedAt,
+		ClassParentCreatedAt:               cp.ClassParentCreatedAt,
+		ClassParentUpdatedAt:               cp.ClassParentUpdatedAt,
+		ClassParentDeletedAt:               deletedAt,
 	}
 }
 
-/* =========================================================
-   PATCH REQUEST — tri-state (tetap JSON; bisa juga terima string JSON
-   untuk requirements via JSONMapFlexible bila diperlukan)
-   ========================================================= */
+/*
+=========================================================
 
+	PATCH REQUEST — tri-state (tetap JSON; fleksibel)
+	=========================================================
+*/
 type ClassParentPatchRequest struct {
-	ClassParentName         PatchFieldClassParent[string]            `json:"class_parent_name"`
-	ClassParentCode         PatchFieldClassParent[*string]           `json:"class_parent_code"`
-	ClassParentSlug         PatchFieldClassParent[*string]           `json:"class_parent_slug"`
-	ClassParentDescription  PatchFieldClassParent[*string]           `json:"class_parent_description"`
-	ClassParentLevel        PatchFieldClassParent[*int16]            `json:"class_parent_level"`
-	ClassParentIsActive     PatchFieldClassParent[*bool]             `json:"class_parent_is_active"`
-	ClassParentTotalClasses PatchFieldClassParent[*int32]            `json:"class_parent_total_classes"`
-	ClassParentRequirements PatchFieldClassParent[JSONMapFlexible]   `json:"class_parent_requirements"`
+	ClassParentName         PatchFieldClassParent[string]          `json:"class_parent_name"`
+	ClassParentCode         PatchFieldClassParent[*string]         `json:"class_parent_code"`
+	ClassParentSlug         PatchFieldClassParent[*string]         `json:"class_parent_slug"`
+	ClassParentDescription  PatchFieldClassParent[*string]         `json:"class_parent_description"`
+	ClassParentLevel        PatchFieldClassParent[*int16]          `json:"class_parent_level"`
+	ClassParentIsActive     PatchFieldClassParent[*bool]           `json:"class_parent_is_active"`
+	ClassParentTotalClasses PatchFieldClassParent[*int32]          `json:"class_parent_total_classes"`
+	ClassParentRequirements PatchFieldClassParent[JSONMapFlexible] `json:"class_parent_requirements"`
 
 	// Image (opsional)
 	ClassParentImageURL       PatchFieldClassParent[*string] `json:"class_parent_image_url"`
@@ -269,21 +276,33 @@ func (p *ClassParentPatchRequest) Normalize() {
 		v := strings.TrimSpace(*p.ClassParentName.Value)
 		p.ClassParentName.Value = &v
 	}
-
-	if p.ClassParentCode.Present { trim(p.ClassParentCode.Value, false) }
-	if p.ClassParentSlug.Present { trim(p.ClassParentSlug.Value, true) }
-	if p.ClassParentDescription.Present { trim(p.ClassParentDescription.Value, false) }
-	if p.ClassParentImageURL.Present { trim(p.ClassParentImageURL.Value, false) }
-	if p.ClassParentImageObjectKey.Present { trim(p.ClassParentImageObjectKey.Value, false) }
-	if p.ClassParentImageURLOld.Present { trim(p.ClassParentImageURLOld.Value, false) }
-	if p.ClassParentImageObjectKeyOld.Present { trim(p.ClassParentImageObjectKeyOld.Value, false) }
+	if p.ClassParentCode.Present {
+		trim(p.ClassParentCode.Value, false)
+	}
+	if p.ClassParentSlug.Present {
+		trim(p.ClassParentSlug.Value, true)
+	}
+	if p.ClassParentDescription.Present {
+		trim(p.ClassParentDescription.Value, false)
+	}
+	if p.ClassParentImageURL.Present {
+		trim(p.ClassParentImageURL.Value, false)
+	}
+	if p.ClassParentImageObjectKey.Present {
+		trim(p.ClassParentImageObjectKey.Value, false)
+	}
+	if p.ClassParentImageURLOld.Present {
+		trim(p.ClassParentImageURLOld.Value, false)
+	}
+	if p.ClassParentImageObjectKeyOld.Present {
+		trim(p.ClassParentImageObjectKeyOld.Value, false)
+	}
 }
 
 func (p ClassParentPatchRequest) Apply(cp *m.ClassParentModel) {
 	if p.ClassParentName.Present && p.ClassParentName.Value != nil {
 		cp.ClassParentName = *p.ClassParentName.Value
 	}
-
 	if p.ClassParentCode.Present {
 		if p.ClassParentCode.Value == nil {
 			cp.ClassParentCode = nil
@@ -291,7 +310,6 @@ func (p ClassParentPatchRequest) Apply(cp *m.ClassParentModel) {
 			cp.ClassParentCode = *p.ClassParentCode.Value
 		}
 	}
-
 	if p.ClassParentSlug.Present {
 		if p.ClassParentSlug.Value == nil {
 			cp.ClassParentSlug = nil
@@ -299,7 +317,6 @@ func (p ClassParentPatchRequest) Apply(cp *m.ClassParentModel) {
 			cp.ClassParentSlug = *p.ClassParentSlug.Value
 		}
 	}
-
 	if p.ClassParentDescription.Present {
 		if p.ClassParentDescription.Value == nil {
 			cp.ClassParentDescription = nil
@@ -307,7 +324,6 @@ func (p ClassParentPatchRequest) Apply(cp *m.ClassParentModel) {
 			cp.ClassParentDescription = *p.ClassParentDescription.Value
 		}
 	}
-
 	if p.ClassParentLevel.Present {
 		if p.ClassParentLevel.Value == nil {
 			cp.ClassParentLevel = nil
@@ -315,11 +331,9 @@ func (p ClassParentPatchRequest) Apply(cp *m.ClassParentModel) {
 			cp.ClassParentLevel = *p.ClassParentLevel.Value
 		}
 	}
-
 	if p.ClassParentIsActive.Present && p.ClassParentIsActive.Value != nil {
 		cp.ClassParentIsActive = **p.ClassParentIsActive.Value
 	}
-
 	if p.ClassParentTotalClasses.Present {
 		if p.ClassParentTotalClasses.Value == nil {
 			cp.ClassParentTotalClasses = 0
@@ -327,15 +341,16 @@ func (p ClassParentPatchRequest) Apply(cp *m.ClassParentModel) {
 			cp.ClassParentTotalClasses = **p.ClassParentTotalClasses.Value
 		}
 	}
-
 	if p.ClassParentRequirements.Present {
 		if p.ClassParentRequirements.Value == nil {
 			cp.ClassParentRequirements = datatypes.JSONMap{}
 		} else {
 			cp.ClassParentRequirements = p.ClassParentRequirements.Value.ToJSONMap()
+			if cp.ClassParentRequirements == nil {
+				cp.ClassParentRequirements = datatypes.JSONMap{}
+			}
 		}
 	}
-
 	if p.ClassParentImageURL.Present {
 		if p.ClassParentImageURL.Value == nil {
 			cp.ClassParentImageURL = nil
@@ -350,7 +365,6 @@ func (p ClassParentPatchRequest) Apply(cp *m.ClassParentModel) {
 			cp.ClassParentImageObjectKey = *p.ClassParentImageObjectKey.Value
 		}
 	}
-
 	if p.ClassParentImageURLOld.Present {
 		if p.ClassParentImageURLOld.Value == nil {
 			cp.ClassParentImageURLOld = nil
@@ -372,14 +386,15 @@ func (p ClassParentPatchRequest) Apply(cp *m.ClassParentModel) {
 			cp.ClassParentImageDeletePendingUntil = *p.ClassParentImageDeletePendingUntil.Value
 		}
 	}
-
 	cp.ClassParentUpdatedAt = time.Now()
 }
 
-/* =========================================================
-   LIST QUERY + HELPERS (responses & pagination)
-   ========================================================= */
+/*
+=========================================================
 
+	LIST QUERY + HELPERS (responses & pagination)
+	=========================================================
+*/
 type ListClassParentQuery struct {
 	Limit     int        `query:"limit"`
 	Offset    int        `query:"offset"`

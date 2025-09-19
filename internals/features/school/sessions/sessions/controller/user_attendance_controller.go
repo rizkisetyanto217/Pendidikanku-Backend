@@ -135,10 +135,27 @@ func (ctl *UserAttendanceController) buildListQuery(c *fiber.Ctx, q attDTO.ListU
 
 // POST /user-attendance
 func (ctl *UserAttendanceController) Create(c *fiber.Ctx) error {
-	// prefer TEACHER -> DKM -> MASJID_IDS -> ADMIN
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+	// ── Masjid context via helpers (slug/ID di path/header/query/host) ──
+	c.Locals("DB", ctl.DB) // resolver slug→id perlu DB di context
+	var masjidID uuid.UUID
+	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		// Wajib DKM/Admin untuk context eksplisit
+		if id, er := helperAuth.EnsureMasjidAccessDKM(c, mc); er == nil {
+			masjidID = id
+		} else {
+			var fe *fiber.Error
+			if errors.As(er, &fe) {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
+		}
+	} else {
+		// Fallback: prefer TEACHER → DKM/Admin
+		if id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+			masjidID = id
+		} else {
+			return helper.JsonError(c, fiber.StatusForbidden, "Scope masjid tidak ditemukan")
+		}
 	}
 
 	body := bytes.TrimSpace(c.Body())
@@ -239,13 +256,29 @@ func (ctl *UserAttendanceController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Berhasil membuat kehadiran", attDTO.NewUserAttendanceResponse(m))
 }
 
-
 // PATCH /user-attendance/:id
 func (ctl *UserAttendanceController) Update(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+	// ── Masjid context via helpers ──
+	c.Locals("DB", ctl.DB)
+	var masjidID uuid.UUID
+	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		if id, er := helperAuth.EnsureMasjidAccessDKM(c, mc); er == nil {
+			masjidID = id
+		} else {
+			var fe *fiber.Error
+			if errors.As(er, &fe) {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
+		}
+	} else {
+		if id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+			masjidID = id
+		} else {
+			return helper.JsonError(c, fiber.StatusForbidden, "Scope masjid tidak ditemukan")
+		}
 	}
+
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
@@ -305,10 +338,27 @@ func (ctl *UserAttendanceController) Update(c *fiber.Ctx) error {
 
 // DELETE /user-attendance/:id  (soft delete)
 func (ctl *UserAttendanceController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+	// ── Masjid context via helpers ──
+	c.Locals("DB", ctl.DB)
+	var masjidID uuid.UUID
+	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		if id, er := helperAuth.EnsureMasjidAccessDKM(c, mc); er == nil {
+			masjidID = id
+		} else {
+			var fe *fiber.Error
+			if errors.As(er, &fe) {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
+		}
+	} else {
+		if id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+			masjidID = id
+		} else {
+			return helper.JsonError(c, fiber.StatusForbidden, "Scope masjid tidak ditemukan")
+		}
 	}
+
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")

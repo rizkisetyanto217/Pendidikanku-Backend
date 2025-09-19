@@ -20,17 +20,44 @@ import (
 //   type_id, csst_id, is_published, q, limit, offset, sort_by, sort_dir
 //   with_urls, urls_published_only, urls_limit_per, urls_order
 //   include=types (untuk embed object type per item)
+// GET /assessments
+// Query (opsional):
+//   type_id, csst_id, is_published, q, limit, offset, sort_by, sort_dir
+//   with_urls, urls_published_only, urls_limit_per, urls_order
+//   include=types (untuk embed object type per item)
 func (ctl *AssessmentController) List(c *fiber.Ctx) error {
-
-	// ambil masjid_id prefer teacher
-	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil || mid == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	// =========================
+	// 1) Resolve masjid context
+	// =========================
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		return err
 	}
-	// authorize: anggota masjid (semua role)
-	if err := helperAuth.EnsureMemberMasjid(c, mid); err != nil { return err }
 
+	// slug → id (jika perlu)
+	var mid uuid.UUID
+	if mc.ID != uuid.Nil {
+		mid = mc.ID
+	} else if mc.Slug != "" {
+		id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+		if er != nil || id == uuid.Nil {
+			return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+		}
+		mid = id
+	} else {
+		return helperAuth.ErrMasjidContextMissing
+	}
 
+	// ==========================================
+	// 2) Authorize: minimal member masjid (any role)
+	// ==========================================
+	if !helperAuth.UserHasMasjid(c, mid) {
+		return fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada masjid ini (membership).")
+	}
+
+	// =========================
+	// 3) Query parameters
+	// =========================
 	var (
 		typeIDStr = strings.TrimSpace(c.Query("type_id"))
 		csstIDStr = strings.TrimSpace(c.Query("csst_id"))
@@ -91,7 +118,9 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		sdPtr = &sortDir
 	}
 
-	// --- base query ---
+	// =========================
+	// 4) Base query
+	// =========================
 	qry := ctl.DB.WithContext(c.Context()).
 		Model(&model.AssessmentModel{}).
 		Where("assessments_masjid_id = ?", mid)
@@ -125,23 +154,25 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// --- response skeleton (embed DTO + optional expand) ---
+	// =========================
+	// 5) Build response DTO
+	// =========================
 	type typeLite struct {
 		ID            uuid.UUID `json:"id"             gorm:"column:assessment_types_id"`
 		Key           string    `json:"key"            gorm:"column:assessment_types_key"`
 		Name          string    `json:"name"           gorm:"column:assessment_types_name"`
-		WeightPercent float64   `json:"weight_percent" gorm:"column:assessment_types_weight_percent"` // float64 supaya aman
+		WeightPercent float64   `json:"weight_percent" gorm:"column:assessment_types_weight_percent"`
 		IsActive      bool      `json:"is_active"      gorm:"column:assessment_types_is_active"`
 	}
 	type assessmentWithExpand struct {
 		dto.AssessmentResponse
-		Type      *typeLite                   `json:"type,omitempty"`
-		URLsCount *int                        `json:"urls_count,omitempty"`
+		Type      *typeLite `json:"type,omitempty"`
+		URLsCount *int      `json:"urls_count,omitempty"`
 	}
 
 	out := make([]assessmentWithExpand, 0, len(rows))
 	for i := range rows {
-		out = append(out, assessmentWithExpand{AssessmentResponse: toResponse(&rows[i])})
+		out = append(out, assessmentWithExpand{AssessmentResponse: dto.ToResponse(&rows[i])})
 	}
 
 	// --- kumpulkan TYPE unik dari page ini ---
@@ -159,7 +190,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		typeIDs = append(typeIDs, tid)
 	}
 
-	// --- fetch TYPE batch (cast weight_percent → float8 agar scan → float64 mulus) ---
+	// --- fetch TYPE batch ---
 	typeMap := make(map[uuid.UUID]typeLite, len(typeIDs))
 	if len(typeIDs) > 0 {
 		var trows []typeLite
@@ -193,14 +224,18 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-
 	// --- ringkasan types untuk meta (unik per page) ---
 	typeList := make([]typeLite, 0, len(typeMap))
 	for _, t := range typeMap {
 		typeList = append(typeList, t)
 	}
-	sort.Slice(typeList, func(i, j int) bool { return strings.ToLower(typeList[i].Name) < strings.ToLower(typeList[j].Name) })
+	sort.Slice(typeList, func(i, j int) bool {
+		return strings.ToLower(typeList[i].Name) < strings.ToLower(typeList[j].Name)
+	})
 
+	// =========================
+	// 6) Return response
+	// =========================
 	return helper.JsonList(c, out, fiber.Map{
 		"total":               total,
 		"limit":               limit,

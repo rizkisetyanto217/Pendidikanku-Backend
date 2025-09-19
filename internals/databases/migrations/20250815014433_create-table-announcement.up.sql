@@ -249,8 +249,7 @@ CREATE TABLE IF NOT EXISTS announcement_urls (
   announcement_url_href          TEXT,        -- URL publik
   announcement_url_object_key    TEXT,        -- object key aktif di storage
   announcement_url_object_key_old TEXT,       -- object key lama (retensi in-place replace)
-  announcement_url_mime          VARCHAR(80), -- opsional
-
+  
   -- Tampilan
   announcement_url_label         VARCHAR(160),
   announcement_url_order         INT NOT NULL DEFAULT 0,

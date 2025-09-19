@@ -3,6 +3,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -27,9 +29,12 @@ func NewClassParentController(db *gorm.DB, v interface{ Struct(any) error }) *Cl
 	return &ClassParentController{DB: db, Validator: v}
 }
 
-/* =========================================================
-   CREATE (staff only) — slug unik + optional upload (save to DB)
-   ========================================================= */
+/*
+=========================================================
+
+	CREATE (staff only) — slug unik + optional upload (save to DB)
+	=========================================================
+*/
 func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 	// 1) Parse payload
 	var p cpdto.ClassParentCreateRequest
@@ -37,6 +42,20 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	p.Normalize()
+
+	if len(p.ClassParentRequirements.ToJSONMap()) == 0 {
+		// BodyParser pada multipart kadang tidak memanggil UnmarshalText → parse manual dari form-data
+		raw := strings.TrimSpace(c.FormValue("class_parent_requirements"))
+		if raw != "" {
+			var tmp datatypes.JSONMap
+			if err := json.Unmarshal([]byte(raw), &tmp); err != nil {
+				return helper.JsonError(c, fiber.StatusBadRequest,
+					"class_parent_requirements harus JSON object yang valid: "+err.Error())
+			}
+			// set kembali ke DTO
+			p.ClassParentRequirements = cpdto.JSONMapFlexible(tmp)
+		}
+	}
 
 	// 2) Resolve masjid context + staff guard
 	mc, err := helperAuth.ResolveMasjidContext(c)
@@ -160,10 +179,12 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 	})
 }
 
+/*
+=========================================================
 
-/* =========================================================
-   PATCH (staff only) — handle slug on patch + optional upload
-   ========================================================= */
+	PATCH (staff only) — handle slug on patch + optional upload
+	=========================================================
+*/
 func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 	idStr := strings.TrimSpace(c.Params("id"))
 	id, err := uuid.Parse(idStr)
@@ -193,6 +214,23 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	p.Normalize()
+
+	if !p.ClassParentRequirements.Present {
+		raw := strings.TrimSpace(c.FormValue("class_parent_requirements"))
+		if raw != "" {
+			var tmp datatypes.JSONMap
+			if err := json.Unmarshal([]byte(raw), &tmp); err != nil {
+				return helper.JsonError(
+					c,
+					fiber.StatusBadRequest,
+					"class_parent_requirements harus JSON object yang valid: "+err.Error(),
+				)
+			}
+			flex := cpdto.JSONMapFlexible(tmp)
+			p.ClassParentRequirements.Present = true
+			p.ClassParentRequirements.Value = &flex
+		}
+	}
 
 	// ===== Uniqueness: code (jika diubah) =====
 	if p.ClassParentCode.Present && p.ClassParentCode.Value != nil {
@@ -337,10 +375,20 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 					Model(&cpmodel.ClassParentModel{}).
 					Where("class_parent_id = ?", ent.ClassParentID).
 					Updates(map[string]any{
-						"class_parent_image_url":                  uploadedURL,
-						"class_parent_image_object_key":           newObjKey,
-						"class_parent_image_url_old":              func() any { if movedURL == "" { return gorm.Expr("NULL") }; return movedURL }(),
-						"class_parent_image_object_key_old":       func() any { if oldObjKey == "" { return gorm.Expr("NULL") }; return oldObjKey }(),
+						"class_parent_image_url":        uploadedURL,
+						"class_parent_image_object_key": newObjKey,
+						"class_parent_image_url_old": func() any {
+							if movedURL == "" {
+								return gorm.Expr("NULL")
+							}
+							return movedURL
+						}(),
+						"class_parent_image_object_key_old": func() any {
+							if oldObjKey == "" {
+								return gorm.Expr("NULL")
+							}
+							return oldObjKey
+						}(),
 						"class_parent_image_delete_pending_until": deletePendingUntil,
 					}).Error
 
@@ -375,10 +423,12 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 	})
 }
 
+/*
+=========================================================
 
-/* =========================================================
-   DELETE (soft delete, staff only) + optional file cleanup
-   ========================================================= */
+	DELETE (soft delete, staff only) + optional file cleanup
+	=========================================================
+*/
 func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 	idStr := strings.TrimSpace(c.Params("id"))
 	id, err := uuid.Parse(idStr)
@@ -430,9 +480,12 @@ func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "Berhasil menghapus parent kelas", fiber.Map{"class_parent_id": ent.ClassParentID})
 }
 
-/* =========================================================
-   Util
-   ========================================================= */
+/*
+=========================================================
+
+	Util
+	=========================================================
+*/
 func clampLimit(v, def, max int) int {
 	if v <= 0 {
 		return def
@@ -442,4 +495,3 @@ func clampLimit(v, def, max int) int {
 	}
 	return v
 }
-

@@ -24,23 +24,22 @@ func SubjectAdminRoutes(r fiber.Router, db *gorm.DB) {
 
 	// ====== BASE: by masjid_id ======
 	baseByID := r.Group("/:masjid_id",
-		masjidkuMiddleware.UseMasjidScope(),  // set ctx masjid dari param
-		masjidkuMiddleware.IsMasjidAdmin(),   // guard DKM/admin
+		masjidkuMiddleware.IsMasjidAdmin(), // guard DKM/admin
 	)
 
 	subjectsByID := baseByID.Group("/subjects")
-	subjectsByID.Post("/", subjectCtl.CreateSubject)
-	subjectsByID.Put("/:id", subjectCtl.UpdateSubject)
-	subjectsByID.Delete("/:id", subjectCtl.DeleteSubject)
+	subjectsByID.Post("/", subjectCtl.Create)
+	subjectsByID.Patch("/:id", subjectCtl.Patch)
+	subjectsByID.Delete("/:id", subjectCtl.Delete)
 
 	classSubjectsByID := baseByID.Group("/class-subjects")
 	classSubjectsByID.Post("/", classSubjectCtl.Create)
-	classSubjectsByID.Put("/:id", classSubjectCtl.Update)
+	classSubjectsByID.Patch("/:id", classSubjectCtl.Update)
 	classSubjectsByID.Delete("/:id", classSubjectCtl.Delete)
 
 	csstByID := baseByID.Group("/class-section-subject-teachers")
 	csstByID.Post("/", csstCtl.Create)
-	csstByID.Put("/:id", csstCtl.Update)
+	csstByID.Patch("/:id", csstCtl.Update)
 	csstByID.Delete("/:id", csstCtl.Delete)
 
 	// ====== BASE: by masjid_slug (opsional, kalau mau dukung subdomain/slug) ======
@@ -50,9 +49,9 @@ func SubjectAdminRoutes(r fiber.Router, db *gorm.DB) {
 	)
 
 	subjectsBySlug := baseBySlug.Group("/subjects")
-	subjectsBySlug.Post("/", subjectCtl.CreateSubject)
-	subjectsBySlug.Put("/:id", subjectCtl.UpdateSubject)
-	subjectsBySlug.Delete("/:id", subjectCtl.DeleteSubject)
+	subjectsBySlug.Post("/", subjectCtl.Create)
+	subjectsBySlug.Patch("/:id", subjectCtl.Patch)
+	subjectsBySlug.Delete("/:id", subjectCtl.Delete)
 
 	classSubjectsBySlug := baseBySlug.Group("/class-subjects")
 	classSubjectsBySlug.Post("/", classSubjectCtl.Create)

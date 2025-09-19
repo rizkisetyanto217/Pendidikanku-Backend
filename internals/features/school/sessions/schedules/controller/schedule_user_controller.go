@@ -19,13 +19,24 @@ import (
    ========================= */
 
 func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
+	// supaya resolver slug → ID bisa akses DB
+	c.Locals("DB", ctl.DB)
+
 	var q d.ListQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	// Tenant override dari token (teacher-aware)
-	if act, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && act != uuid.Nil {
+	// ===== Tentukan masjid_id aktif =====
+	// Prefer masjid context eksplisit (wajib DKM/Admin di masjid tsb),
+	// jika tidak ada context → fallback ke token (teacher-aware).
+	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		id, er := helperAuth.EnsureMasjidAccessDKM(c, mc)
+		if er != nil {
+			return er
+		}
+		q.MasjidID = id.String()
+	} else if act, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && act != uuid.Nil {
 		q.MasjidID = act.String()
 	}
 
@@ -67,12 +78,12 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		tx = tx.Where("class_schedules_masjid_id = ?", s)
 	}
 
-	// by ids (NEW)
+	// by ids (FIX: gunakan class_schedule_id)
 	if s := strings.TrimSpace(q.ClassScheduleID); s != "" {
 		if _, err := uuid.Parse(s); err != nil {
 			return helper.JsonError(c, http.StatusBadRequest, "class_schedule_id invalid")
 		}
-		tx = tx.Where("class_schedules_id = ?", s)
+		tx = tx.Where("class_schedule_id = ?", s)
 	}
 	if s := strings.TrimSpace(q.ClassScheduleIDs); s != "" {
 		parts := strings.Split(s, ",")
@@ -89,7 +100,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 			ids = append(ids, u)
 		}
 		if len(ids) > 0 {
-			tx = tx.Where("class_schedules_id IN ?", ids)
+			tx = tx.Where("class_schedule_id IN ?", ids)
 		}
 	}
 
@@ -148,7 +159,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		tx = tx.Where("class_schedules_day_of_week = ?", *q.DayOfWeek)
 	}
 
-	// by on_date (toleran end_date NULL)
+	// by on_date
 	if s := strings.TrimSpace(q.OnDate); s != "" {
 		dt, err := time.Parse("2006-01-02", s)
 		if err != nil {
@@ -159,7 +170,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 			dow = 7 // ISO 1..7
 		}
 		tx = tx.
-			Where("?::date BETWEEN class_schedules_start_date AND COALESCE(class_schedules_end_date, ?::date)", dt, dt).
+			Where("?::date BETWEEN class_schedules_start_date AND class_schedules_end_date", dt).
 			Where("class_schedules_day_of_week = ?", dow)
 	}
 

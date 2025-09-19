@@ -44,6 +44,9 @@ type ClassScheduleModel struct {
 	// Room (nullable)
 	ClassSchedulesRoomID *uuid.UUID `json:"class_schedules_room_id,omitempty" gorm:"type:uuid;column:class_schedules_room_id"`
 
+	// Event (nullable)
+	ClassSchedulesEventID *uuid.UUID `json:"class_schedules_event_id,omitempty" gorm:"type:uuid;column:class_schedules_event_id"`
+
 	// Guru cache (nullable)
 	ClassSchedulesTeacherID *uuid.UUID `json:"class_schedules_teacher_id,omitempty" gorm:"type:uuid;column:class_schedules_teacher_id"`
 

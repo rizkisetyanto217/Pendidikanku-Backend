@@ -137,7 +137,6 @@ CREATE TABLE IF NOT EXISTS book_urls (
   book_url_href                TEXT,        -- URL publik (boleh NULL jika pakai object storage)
   book_url_object_key          TEXT,        -- object key aktif di storage
   book_url_object_key_old      TEXT,        -- object key lama (retensi in-place replace)
-  book_url_mime                VARCHAR(80), -- opsional
 
   -- Tampilan
   book_url_label               VARCHAR(160),

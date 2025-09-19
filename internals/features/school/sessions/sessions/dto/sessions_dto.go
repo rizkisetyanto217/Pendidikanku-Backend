@@ -10,26 +10,42 @@ import (
 	"gorm.io/datatypes"
 )
 
-type ClassAttendanceSessionURL struct {
-	ClassAttendanceSessionURLId                  uuid.UUID  `json:"class_attendance_session_url_id"`
-	ClassAttendanceSessionURLMasjidId            uuid.UUID  `json:"class_attendance_session_url_masjid_id"`
-	ClassAttendanceSessionURLSessionId           uuid.UUID  `json:"class_attendance_session_url_session_id"`
-	ClassAttendanceSessionURLLabel               *string    `json:"class_attendance_session_url_label,omitempty"`
-	ClassAttendanceSessionURLHref                string     `json:"class_attendance_session_url_href"`
-	ClassAttendanceSessionURLTrashURL            *string    `json:"class_attendance_session_url_trash_url,omitempty"`
-	ClassAttendanceSessionURLDeletePendingUntil  *time.Time `json:"class_attendance_session_url_delete_pending_until,omitempty"`
-	ClassAttendanceSessionURLCreatedAt           time.Time  `json:"class_attendance_session_url_created_at"`
-}
+/* =========================================================
+   URL DTO (match ke tabel class_attendance_session_url)
+   ========================================================= */
 
+type ClassAttendanceSessionURL struct {
+	ClassAttendanceSessionURLId        uuid.UUID `json:"class_attendance_session_url_id"`
+	ClassAttendanceSessionURLMasjidId  uuid.UUID `json:"class_attendance_session_url_masjid_id"`
+	ClassAttendanceSessionURLSessionId uuid.UUID `json:"class_attendance_session_url_session_id"`
+
+	// Properti konten
+	ClassAttendanceSessionURLKind         string  `json:"class_attendance_session_url_kind"` // e.g. banner,image,video,attachment,link
+	ClassAttendanceSessionURLHref         *string `json:"class_attendance_session_url_href,omitempty"`
+	ClassAttendanceSessionURLObjectKey    *string `json:"class_attendance_session_url_object_key,omitempty"`
+	ClassAttendanceSessionURLObjectKeyOld *string `json:"class_attendance_session_url_object_key_old,omitempty"`
+	ClassAttendanceSessionURLMime         *string `json:"class_attendance_session_url_mime,omitempty"`
+
+	// Tampilan
+	ClassAttendanceSessionURLLabel     *string `json:"class_attendance_session_url_label,omitempty"`
+	ClassAttendanceSessionURLOrder     int     `json:"class_attendance_session_url_order"`
+	ClassAttendanceSessionURLIsPrimary bool    `json:"class_attendance_session_url_is_primary"`
+
+	// Audit & retensi
+	ClassAttendanceSessionURLCreatedAt          time.Time  `json:"class_attendance_session_url_created_at"`
+	ClassAttendanceSessionURLUpdatedAt          time.Time  `json:"class_attendance_session_url_updated_at"`
+	ClassAttendanceSessionURLDeletedAt          *time.Time `json:"class_attendance_session_url_deleted_at,omitempty"`
+	ClassAttendanceSessionURLDeletePendingUntil *time.Time `json:"class_attendance_session_url_delete_pending_until,omitempty"`
+}
 
 /* =========================================================
    1) REQUEST DTO
    ========================================================= */
 
-// CREATE: tanpa section_id & class_subject_id; pakai CSST (wajib)
+// CREATE: pakai schedule_id (bukan CSST)
 type CreateClassAttendanceSessionRequest struct {
-	ClassAttendanceSessionMasjidId uuid.UUID `json:"class_attendance_session_masjid_id"  validate:"required"`
-	ClassAttendanceSessionCSSTId   uuid.UUID `json:"class_attendance_session_csst_id"    validate:"required"`
+	ClassAttendanceSessionMasjidId   uuid.UUID `json:"class_attendance_session_masjid_id"  validate:"required"`
+	ClassAttendanceSessionScheduleId uuid.UUID `json:"class_attendance_session_schedule_id" validate:"required"`
 
 	ClassAttendanceSessionTeacherId   *uuid.UUID `json:"class_attendance_session_teacher_id"    validate:"omitempty,uuid"`
 	ClassAttendanceSessionClassRoomId *uuid.UUID `json:"class_attendance_session_class_room_id" validate:"omitempty,uuid"`
@@ -41,10 +57,10 @@ type CreateClassAttendanceSessionRequest struct {
 	ClassAttendanceSessionNote        *string    `json:"class_attendance_session_note"         validate:"omitempty"`
 }
 
-// UPDATE (partial): tetap tanpa section_id & class_subject_id
+// UPDATE (partial)
 type UpdateClassAttendanceSessionRequest struct {
-	ClassAttendanceSessionMasjidId *uuid.UUID `json:"class_attendance_session_masjid_id"  validate:"omitempty,uuid"`
-	ClassAttendanceSessionCSSTId   *uuid.UUID `json:"class_attendance_session_csst_id"    validate:"omitempty,uuid"`
+	ClassAttendanceSessionMasjidId   *uuid.UUID `json:"class_attendance_session_masjid_id"  validate:"omitempty,uuid"`
+	ClassAttendanceSessionScheduleId *uuid.UUID `json:"class_attendance_session_schedule_id" validate:"omitempty,uuid"`
 
 	ClassAttendanceSessionTeacherId   *uuid.UUID `json:"class_attendance_session_teacher_id"    validate:"omitempty,uuid"`
 	ClassAttendanceSessionClassRoomId *uuid.UUID `json:"class_attendance_session_class_room_id" validate:"omitempty,uuid"`
@@ -56,23 +72,22 @@ type UpdateClassAttendanceSessionRequest struct {
 }
 
 /*
-List query (untuk handler list):
-- Filter bawaan (tanpa kolom yang dihapus dari tabel).
-- section_id & class_subject_id tetap disediakan SEBAGAI FILTER OPSIONAL
-  (kalau di controller kamu melakukan JOIN via CSST → section/subject).
+List query:
+- Filter utama: teacher/room/schedule/date range/keyword
+- Filter turunan section/subject tetap opsional via JOIN dari schedule → csst → section/subject (di layer repo/controller)
 */
 type ListClassAttendanceSessionQuery struct {
 	Limit  *int `query:"limit"  validate:"omitempty,min=1,max=200"`
 	Offset *int `query:"offset" validate:"omitempty,min=0"`
 
 	// Filter utama sesuai kolom tabel
-	TeacherId *uuid.UUID `query:"teacher_id" validate:"omitempty,uuid"`
-	RoomId    *uuid.UUID `query:"room_id"    validate:"omitempty,uuid"`
-	CSSTId    *uuid.UUID `query:"csst_id"    validate:"omitempty,uuid"`
+	TeacherId  *uuid.UUID `query:"teacher_id"  validate:"omitempty,uuid"`
+	RoomId     *uuid.UUID `query:"room_id"     validate:"omitempty,uuid"`
+	ScheduleId *uuid.UUID `query:"schedule_id" validate:"omitempty,uuid"`
 
 	// Filter turunan via JOIN (opsional)
 	SectionId      *uuid.UUID `query:"section_id"       validate:"omitempty,uuid"`
-	ClassSubjectId *uuid.UUID `query:"class_subject_id"  validate:"omitempty,uuid"`
+	ClassSubjectId *uuid.UUID `query:"class_subject_id" validate:"omitempty,uuid"`
 
 	DateFrom *time.Time `query:"date_from" validate:"omitempty"`
 	DateTo   *time.Time `query:"date_to"   validate:"omitempty"`
@@ -87,37 +102,47 @@ type ListClassAttendanceSessionQuery struct {
    ========================================================= */
 
 type ClassAttendanceSessionResponse struct {
-	ClassAttendanceSessionId        uuid.UUID  `json:"class_attendance_session_id"`
-	ClassAttendanceSessionMasjidId  uuid.UUID  `json:"class_attendance_session_masjid_id"`
+	ClassAttendanceSessionId       uuid.UUID `json:"class_attendance_session_id"`
+	ClassAttendanceSessionMasjidId uuid.UUID `json:"class_attendance_session_masjid_id"`
 
 	// Kolom utama tabel
-	ClassAttendanceSessionCSSTId      uuid.UUID  `json:"class_attendance_session_csst_id"`
+	ClassAttendanceSessionScheduleId  uuid.UUID  `json:"class_attendance_session_schedule_id"`
 	ClassAttendanceSessionClassRoomId *uuid.UUID `json:"class_attendance_session_class_room_id,omitempty"`
 
-	// Tanggal sebagai non-pointer untuk tampilan; (zero jika memang NULL di DB — mestinya tidak, ada DEFAULT)
-	ClassAttendanceSessionDate        time.Time  `json:"class_attendance_session_date"`
-	ClassAttendanceSessionTitle       *string    `json:"class_attendance_session_title,omitempty"`
-	ClassAttendanceSessionGeneralInfo string     `json:"class_attendance_session_general_info"`
-	ClassAttendanceSessionNote        *string    `json:"class_attendance_session_note,omitempty"`
+	// Tanggal sebagai non-pointer untuk tampilan
+	ClassAttendanceSessionDate        time.Time `json:"class_attendance_session_date"`
+	ClassAttendanceSessionTitle       *string   `json:"class_attendance_session_title,omitempty"`
+	ClassAttendanceSessionGeneralInfo string    `json:"class_attendance_session_general_info"`
+	ClassAttendanceSessionNote        *string   `json:"class_attendance_session_note,omitempty"`
 
 	// Teacher
 	ClassAttendanceSessionTeacherId    *uuid.UUID `json:"class_attendance_session_teacher_id,omitempty"`
 	ClassAttendanceSessionTeacherName  *string    `json:"class_attendance_session_teacher_name,omitempty"`
 	ClassAttendanceSessionTeacherEmail *string    `json:"class_attendance_session_teacher_email,omitempty"`
 
-	// Enrichment opsional (hasil JOIN, bukan kolom tabel)
-	ClassSectionId        *uuid.UUID     `json:"class_sections_id,omitempty"`
-	ClassSubjectId        *uuid.UUID     `json:"class_subjects_id,omitempty"`
-	ClassSectionSlug      *string        `json:"class_sections_slug,omitempty"`
-	ClassSectionName      *string        `json:"class_sections_name,omitempty"`
-	ClassSectionCode      *string        `json:"class_sections_code,omitempty"`
-	ClassSectionCapacity  *int           `json:"class_sections_capacity,omitempty"`
-	ClassSectionSchedule  datatypes.JSON `json:"class_sections_schedule,omitempty"`
+	// Rekap kehadiran
+	ClassAttendanceSessionPresentCount *int `json:"class_attendance_session_present_count,omitempty"`
+	ClassAttendanceSessionAbsentCount  *int `json:"class_attendance_session_absent_count,omitempty"`
+	ClassAttendanceSessionLateCount    *int `json:"class_attendance_session_late_count,omitempty"`
+	ClassAttendanceSessionExcusedCount *int `json:"class_attendance_session_excused_count,omitempty"`
+	ClassAttendanceSessionSickCount    *int `json:"class_attendance_session_sick_count,omitempty"`
+	ClassAttendanceSessionLeaveCount   *int `json:"class_attendance_session_leave_count,omitempty"`
 
-	// Soft delete
+	// Enrichment opsional (hasil JOIN, bukan kolom tabel)
+	ClassSectionId       *uuid.UUID     `json:"class_sections_id,omitempty"`
+	ClassSubjectId       *uuid.UUID     `json:"class_subjects_id,omitempty"`
+	ClassSectionSlug     *string        `json:"class_sections_slug,omitempty"`
+	ClassSectionName     *string        `json:"class_sections_name,omitempty"`
+	ClassSectionCode     *string        `json:"class_sections_code,omitempty"`
+	ClassSectionCapacity *int           `json:"class_sections_capacity,omitempty"`
+	ClassSectionSchedule datatypes.JSON `json:"class_sections_schedule,omitempty"`
+
+	// Audit & soft delete
+	ClassAttendanceSessionCreatedAt time.Time  `json:"class_attendance_session_created_at"`
+	ClassAttendanceSessionUpdatedAt time.Time  `json:"class_attendance_session_updated_at"`
 	ClassAttendanceSessionDeletedAt *time.Time `json:"class_attendance_session_deleted_at,omitempty"`
 
-
+	// URLs (opsional)
 	ClassAttendanceSessionUrls []ClassAttendanceSessionURL `json:"class_attendance_session_urls,omitempty"`
 }
 
@@ -139,14 +164,14 @@ type ListMeta struct {
 
 func (r CreateClassAttendanceSessionRequest) ToModel() attendanceModel.ClassAttendanceSessionModel {
 	return attendanceModel.ClassAttendanceSessionModel{
-		ClassAttendanceSessionMasjidId:       r.ClassAttendanceSessionMasjidId,
-		ClassAttendanceSessionCSSTId:         r.ClassAttendanceSessionCSSTId,
-		ClassAttendanceSessionTeacherId:      r.ClassAttendanceSessionTeacherId,
-		ClassAttendanceSessionClassRoomId:    r.ClassAttendanceSessionClassRoomId,
-		ClassAttendanceSessionDate:           r.ClassAttendanceSessionDate,  // pointer → biar DEFAULT CURRENT_DATE kepakai kalau nil
-		ClassAttendanceSessionTitle:          r.ClassAttendanceSessionTitle,
-		ClassAttendanceSessionGeneralInfo:    r.ClassAttendanceSessionGeneralInfo,
-		ClassAttendanceSessionNote:           r.ClassAttendanceSessionNote,
+		ClassAttendanceSessionMasjidId:    r.ClassAttendanceSessionMasjidId,
+		ClassAttendanceSessionScheduleId:  r.ClassAttendanceSessionScheduleId,
+		ClassAttendanceSessionTeacherId:   r.ClassAttendanceSessionTeacherId,
+		ClassAttendanceSessionClassRoomId: r.ClassAttendanceSessionClassRoomId,
+		ClassAttendanceSessionDate:        r.ClassAttendanceSessionDate, // pointer → biar DEFAULT CURRENT_DATE kepakai kalau nil
+		ClassAttendanceSessionTitle:       r.ClassAttendanceSessionTitle,
+		ClassAttendanceSessionGeneralInfo: r.ClassAttendanceSessionGeneralInfo,
+		ClassAttendanceSessionNote:        r.ClassAttendanceSessionNote,
 	}
 }
 
@@ -164,17 +189,30 @@ func FromClassAttendanceSessionModel(m attendanceModel.ClassAttendanceSessionMod
 	}
 
 	return ClassAttendanceSessionResponse{
-		ClassAttendanceSessionId:             m.ClassAttendanceSessionId,
-		ClassAttendanceSessionMasjidId:       m.ClassAttendanceSessionMasjidId,
-		ClassAttendanceSessionCSSTId:         m.ClassAttendanceSessionCSSTId,
-		ClassAttendanceSessionClassRoomId:    m.ClassAttendanceSessionClassRoomId,
-		ClassAttendanceSessionDate:           date,
-		ClassAttendanceSessionTitle:          m.ClassAttendanceSessionTitle,
-		ClassAttendanceSessionGeneralInfo:    m.ClassAttendanceSessionGeneralInfo,
-		ClassAttendanceSessionNote:           m.ClassAttendanceSessionNote,
-		ClassAttendanceSessionTeacherId:      m.ClassAttendanceSessionTeacherId,
-		ClassAttendanceSessionDeletedAt:      deletedAt,
-		// Enrichment opsional (Section/Subject, Name, dsb) diisi di controller jika melakukan JOIN
+		ClassAttendanceSessionId:          m.ClassAttendanceSessionId,
+		ClassAttendanceSessionMasjidId:    m.ClassAttendanceSessionMasjidId,
+		ClassAttendanceSessionScheduleId:  m.ClassAttendanceSessionScheduleId,
+		ClassAttendanceSessionClassRoomId: m.ClassAttendanceSessionClassRoomId,
+		ClassAttendanceSessionDate:        date,
+		ClassAttendanceSessionTitle:       m.ClassAttendanceSessionTitle,
+		ClassAttendanceSessionGeneralInfo: m.ClassAttendanceSessionGeneralInfo,
+		ClassAttendanceSessionNote:        m.ClassAttendanceSessionNote,
+		ClassAttendanceSessionTeacherId:   m.ClassAttendanceSessionTeacherId,
+
+		// Rekap
+		ClassAttendanceSessionPresentCount: m.ClassAttendanceSessionPresentCount,
+		ClassAttendanceSessionAbsentCount:  m.ClassAttendanceSessionAbsentCount,
+		ClassAttendanceSessionLateCount:    m.ClassAttendanceSessionLateCount,
+		ClassAttendanceSessionExcusedCount: m.ClassAttendanceSessionExcusedCount,
+		ClassAttendanceSessionSickCount:    m.ClassAttendanceSessionSickCount,
+		ClassAttendanceSessionLeaveCount:   m.ClassAttendanceSessionLeaveCount,
+
+		// Audit
+		ClassAttendanceSessionCreatedAt: m.ClassAttendanceSessionCreatedAt,
+		ClassAttendanceSessionUpdatedAt: m.ClassAttendanceSessionUpdatedAt,
+		ClassAttendanceSessionDeletedAt: deletedAt,
+
+		// Enrichment (Section/Subject, dst) isi di controller bila JOIN
 	}
 }
 
@@ -195,8 +233,8 @@ func (r UpdateClassAttendanceSessionRequest) Apply(m *attendanceModel.ClassAtten
 	if r.ClassAttendanceSessionMasjidId != nil {
 		m.ClassAttendanceSessionMasjidId = *r.ClassAttendanceSessionMasjidId
 	}
-	if r.ClassAttendanceSessionCSSTId != nil {
-		m.ClassAttendanceSessionCSSTId = *r.ClassAttendanceSessionCSSTId
+	if r.ClassAttendanceSessionScheduleId != nil {
+		m.ClassAttendanceSessionScheduleId = *r.ClassAttendanceSessionScheduleId
 	}
 	if r.ClassAttendanceSessionTeacherId != nil {
 		m.ClassAttendanceSessionTeacherId = r.ClassAttendanceSessionTeacherId

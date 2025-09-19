@@ -58,28 +58,44 @@ type casOccurRow struct {
 
 // responses
 type ScheduleOccurrenceResponse struct {
-	OccurDate string                        `json:"occur_date"`
+	OccurDate string                         `json:"occur_date"`
 	Schedule  schedDTO.ClassScheduleResponse `json:"schedule"`
 }
 type AttendanceOccurrenceResponse struct {
-	OccurDate string                                     `json:"occur_date"`
+	OccurDate string                                       `json:"occur_date"`
 	Session   attendanceDTO.ClassAttendanceSessionResponse `json:"session"`
 }
 
-// =====================================================
-// GET /class-schedules/occurrences?from=&to=&section_id=&class_subject_id=&room_id=&teacher_id=&csst_id=
-// =====================================================
+// file: internals/features/school/sessions_assesment/occurrences/controller/occurrence_controller.go
+
 func (ctl *OccurrenceController) ListScheduleOccurrences(c *fiber.Ctx) error {
-	// guard role
+	// biar resolver slug→id bisa query DB
+	c.Locals("DB", ctl.DB)
+
+	// guard role dasar (tetap)
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil || masjidID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusForbidden, "Scope masjid tidak ditemukan")
+
+	// ===== tentukan masjid_id aktif =====
+	var masjidID uuid.UUID
+	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		// jika context eksplisit (path/header/query/host) → wajib DKM/Admin di masjid tsb
+		id, er := helperAuth.EnsureMasjidAccessDKM(c, mc)
+		if er != nil {
+			return er
+		}
+		masjidID = id
+	} else {
+		// fallback ke token (teacher-aware)
+		id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+		if err != nil || id == uuid.Nil {
+			return helper.JsonError(c, fiber.StatusForbidden, "Scope masjid tidak ditemukan")
+		}
+		masjidID = id
 	}
 
-	// required date range
+	// ===== required date range =====
 	fromStr := strings.TrimSpace(c.Query("from"))
 	toStr := strings.TrimSpace(c.Query("to"))
 	if fromStr == "" || toStr == "" {
@@ -97,32 +113,47 @@ func (ctl *OccurrenceController) ListScheduleOccurrences(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "to harus >= from")
 	}
 
-	// optional filters
+	// ===== optional filters =====
 	var (
 		sectionID, classSubjectID, roomID, teacherID, csstID *uuid.UUID
 	)
 	if s := strings.TrimSpace(c.Query("section_id")); s != "" {
-		id, e := uuid.Parse(s); if e != nil { return helper.JsonError(c, fiber.StatusBadRequest, "section_id invalid") }
+		id, e := uuid.Parse(s)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "section_id invalid")
+		}
 		sectionID = &id
 	}
 	if s := strings.TrimSpace(c.Query("class_subject_id")); s != "" {
-		id, e := uuid.Parse(s); if e != nil { return helper.JsonError(c, fiber.StatusBadRequest, "class_subject_id invalid") }
+		id, e := uuid.Parse(s)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "class_subject_id invalid")
+		}
 		classSubjectID = &id
 	}
 	if s := strings.TrimSpace(c.Query("room_id")); s != "" {
-		id, e := uuid.Parse(s); if e != nil { return helper.JsonError(c, fiber.StatusBadRequest, "room_id invalid") }
+		id, e := uuid.Parse(s)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "room_id invalid")
+		}
 		roomID = &id
 	}
 	if s := strings.TrimSpace(c.Query("teacher_id")); s != "" {
-		id, e := uuid.Parse(s); if e != nil { return helper.JsonError(c, fiber.StatusBadRequest, "teacher_id invalid") }
+		id, e := uuid.Parse(s)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "teacher_id invalid")
+		}
 		teacherID = &id
 	}
 	if s := strings.TrimSpace(c.Query("csst_id")); s != "" {
-		id, e := uuid.Parse(s); if e != nil { return helper.JsonError(c, fiber.StatusBadRequest, "csst_id invalid") }
+		id, e := uuid.Parse(s)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "csst_id invalid")
+		}
 		csstID = &id
 	}
 
-	// build SQL (parameterized)
+	// ===== query raw (unchanged) =====
 	sb := strings.Builder{}
 	sb.WriteString(`
 WITH days AS (
@@ -141,7 +172,6 @@ JOIN class_schedules s
 WHERE s.class_schedules_masjid_id = ?
 `)
 	args := []any{from, to, masjidID}
-
 	if sectionID != nil {
 		sb.WriteString("  AND s.class_schedules_section_id = ?\n")
 		args = append(args, *sectionID)
@@ -164,10 +194,8 @@ WHERE s.class_schedules_masjid_id = ?
 	}
 	sb.WriteString("ORDER BY days.dt, s.class_schedules_start_time;")
 
-	rawSQL := sb.String()
-
 	var rows []schedOccurRow
-	if err := ctl.DB.Raw(rawSQL, args...).Scan(&rows).Error; err != nil {
+	if err := ctl.DB.Raw(sb.String(), args...).Scan(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
@@ -187,20 +215,34 @@ WHERE s.class_schedules_masjid_id = ?
 	return helper.JsonList(c, out, meta)
 }
 
-// =====================================================
-// GET /class-attendance-sessions/occurrences?from=&to=&section_id=&class_subject_id=&room_id=&teacher_id=&csst_id=
-// =====================================================
 func (ctl *OccurrenceController) ListAttendanceOccurrences(c *fiber.Ctx) error {
-	// guard role
+	// biar resolver slug→id bisa query DB
+	c.Locals("DB", ctl.DB)
+
+	// guard role dasar (tetap)
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil || masjidID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusForbidden, "Scope masjid tidak ditemukan")
+
+	// ===== tentukan masjid_id aktif =====
+	var masjidID uuid.UUID
+	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		// jika context eksplisit → wajib DKM/Admin
+		id, er := helperAuth.EnsureMasjidAccessDKM(c, mc)
+		if er != nil {
+			return er
+		}
+		masjidID = id
+	} else {
+		// fallback ke token (teacher-aware)
+		id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+		if err != nil || id == uuid.Nil {
+			return helper.JsonError(c, fiber.StatusForbidden, "Scope masjid tidak ditemukan")
+		}
+		masjidID = id
 	}
 
-	// required date range
+	// ===== required date range =====
 	fromStr := strings.TrimSpace(c.Query("from"))
 	toStr := strings.TrimSpace(c.Query("to"))
 	if fromStr == "" || toStr == "" {
@@ -218,31 +260,47 @@ func (ctl *OccurrenceController) ListAttendanceOccurrences(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "to harus >= from")
 	}
 
-	// optional filters
+	// ===== optional filters (tetap) =====
 	var (
 		sectionID, classSubjectID, roomID, teacherID, csstID *uuid.UUID
 	)
 	if s := strings.TrimSpace(c.Query("section_id")); s != "" {
-		id, e := uuid.Parse(s); if e != nil { return helper.JsonError(c, fiber.StatusBadRequest, "section_id invalid") }
+		id, e := uuid.Parse(s)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "section_id invalid")
+		}
 		sectionID = &id
 	}
 	if s := strings.TrimSpace(c.Query("class_subject_id")); s != "" {
-		id, e := uuid.Parse(s); if e != nil { return helper.JsonError(c, fiber.StatusBadRequest, "class_subject_id invalid") }
+		id, e := uuid.Parse(s)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "class_subject_id invalid")
+		}
 		classSubjectID = &id
 	}
 	if s := strings.TrimSpace(c.Query("room_id")); s != "" {
-		id, e := uuid.Parse(s); if e != nil { return helper.JsonError(c, fiber.StatusBadRequest, "room_id invalid") }
+		id, e := uuid.Parse(s)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "room_id invalid")
+		}
 		roomID = &id
 	}
 	if s := strings.TrimSpace(c.Query("teacher_id")); s != "" {
-		id, e := uuid.Parse(s); if e != nil { return helper.JsonError(c, fiber.StatusBadRequest, "teacher_id invalid") }
+		id, e := uuid.Parse(s)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "teacher_id invalid")
+		}
 		teacherID = &id
 	}
 	if s := strings.TrimSpace(c.Query("csst_id")); s != "" {
-		id, e := uuid.Parse(s); if e != nil { return helper.JsonError(c, fiber.StatusBadRequest, "csst_id invalid") }
+		id, e := uuid.Parse(s)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "csst_id invalid")
+		}
 		csstID = &id
 	}
 
+	// ===== query (sesuai yang ada) =====
 	q := ctl.DB.
 		Table("class_attendance_sessions AS cas").
 		Select("cas.*, cas.class_attendance_sessions_date AS occur_date").

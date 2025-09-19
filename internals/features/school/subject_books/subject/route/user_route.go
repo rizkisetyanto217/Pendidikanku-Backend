@@ -12,12 +12,14 @@ import (
 /*
 User routes: read-only (student/parent/teacher)
 Contoh mount:
-  SubjectUserRoutes(app.Group("/api/u"), db)
+
+	SubjectUserRoutes(app.Group("/api/u"), db)
 
 Sehingga endpoint jadi:
-  GET /api/u/:masjid_id/subjects/list
-  GET /api/u/:masjid_slug/subjects/list
-  dst.
+
+	GET /api/u/:masjid_id/subjects/list
+	GET /api/u/:masjid_slug/subjects/list
+	dst.
 */
 func SubjectUserRoutes(r fiber.Router, db *gorm.DB) {
 	// Controllers
@@ -26,10 +28,8 @@ func SubjectUserRoutes(r fiber.Router, db *gorm.DB) {
 	csstCtl := &subjectsController.ClassSectionSubjectTeacherController{DB: db}
 
 	// ===== Base by masjid_id =====
-	baseByID := r.Group("/:masjid_id",
-		masjidkuMiddleware.UseMasjidScope(), // set ctx masjid dari param
-		// tambahkan middleware auth ringan bila perlu (mis. RequireLogin / IsMasjidMember)
-	)
+	baseByID := r.Group("/:masjid_id") // set ctx masjid dari param
+	// tambahkan middleware auth ringan bila perlu (mis. RequireLogin / IsMasjidMember)
 
 	subjectsByID := baseByID.Group("/subjects")
 	subjectsByID.Get("/list", subjectCtl.ListSubjects)

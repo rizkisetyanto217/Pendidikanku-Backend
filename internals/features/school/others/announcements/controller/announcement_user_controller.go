@@ -1,7 +1,6 @@
 package controller
 
 import (
-	annModel "masjidku_backend/internals/features/school/others/announcements/model"
 	annThemeModel "masjidku_backend/internals/features/school/others/announcements/model"
 	"strings"
 	"time"
@@ -56,7 +55,7 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	}
 
 	// 4) Base query (tenant-safe)
-	tx := h.DB.Model(&annModel.AnnouncementModel{}).
+	tx := h.DB.Model(&annThemeModel.AnnouncementModel{}).
 		Where("announcement_masjid_id IN ?", masjidIDs)
 
 	// 4a) Filter by IDs
@@ -175,7 +174,7 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	}
 
 	// 7) Fetch rows
-	var rows []annModel.AnnouncementModel
+	var rows []annThemeModel.AnnouncementModel
 	if err := tx.
 		Order(orderExpr).
 		Limit(p.Limit()).
@@ -225,11 +224,6 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		}
 	}
 
-
-
-
 	// 10) Response
 	return helper.JsonList(c, nil, helper.BuildMeta(total, p))
 }
-
-
