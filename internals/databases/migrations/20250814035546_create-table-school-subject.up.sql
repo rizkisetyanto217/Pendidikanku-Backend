@@ -60,6 +60,9 @@ CREATE INDEX IF NOT EXISTS idx_subjects_image_purge_due
   ON subjects (subjects_image_delete_pending_until)
   WHERE subjects_image_object_key_old IS NOT NULL;
 
+
+
+
 -- =========================================================
 -- TABLE: class_subjects
 -- =========================================================

@@ -9,6 +9,49 @@ import (
 	model "masjidku_backend/internals/features/school/others/announcements/model"
 )
 
+/* ===================== URL SUB-PAYLOAD (untuk Create) ===================== */
+// Tipis dan bebas siklus import. Controller yang akan mapping ke model URL.
+type AnnouncementURLUpsert struct {
+	AnnouncementURLKind      string  `json:"announcement_url_kind" validate:"required,max=24"`
+	AnnouncementURLHref      *string `json:"announcement_url_href"`
+	AnnouncementURLObjectKey *string `json:"announcement_url_object_key"`
+	AnnouncementURLLabel     *string `json:"announcement_url_label" validate:"omitempty,max=160"`
+	AnnouncementURLOrder     int     `json:"announcement_url_order"`
+	AnnouncementURLIsPrimary bool    `json:"announcement_url_is_primary"`
+}
+
+// Normalisasi ringan biar aman dari whitespace kosong
+func (u *AnnouncementURLUpsert) Normalize() {
+	u.AnnouncementURLKind = strings.TrimSpace(u.AnnouncementURLKind)
+	if u.AnnouncementURLKind == "" {
+		u.AnnouncementURLKind = "attachment"
+	}
+	if u.AnnouncementURLLabel != nil {
+		lbl := strings.TrimSpace(*u.AnnouncementURLLabel)
+		if lbl == "" {
+			u.AnnouncementURLLabel = nil
+		} else {
+			u.AnnouncementURLLabel = &lbl
+		}
+	}
+	if u.AnnouncementURLHref != nil {
+		h := strings.TrimSpace(*u.AnnouncementURLHref)
+		if h == "" {
+			u.AnnouncementURLHref = nil
+		} else {
+			u.AnnouncementURLHref = &h
+		}
+	}
+	if u.AnnouncementURLObjectKey != nil {
+		ok := strings.TrimSpace(*u.AnnouncementURLObjectKey)
+		if ok == "" {
+			u.AnnouncementURLObjectKey = nil
+		} else {
+			u.AnnouncementURLObjectKey = &ok
+		}
+	}
+}
+
 /* ===================== REQUESTS ===================== */
 
 // Create: masjid_id & created_by_* diambil dari context/token oleh controller (BUKAN dari body)
@@ -19,6 +62,10 @@ type CreateAnnouncementRequest struct {
 	AnnouncementDate           string     `json:"announcement_date" validate:"required,datetime=2006-01-02"` // YYYY-MM-DD
 	AnnouncementContent        string     `json:"announcement_content" validate:"required,min=3"`
 	AnnouncementIsActive       *bool      `json:"announcement_is_active" validate:"omitempty"`
+
+	// ⬇️ Tambahan: bisa kirim satu atau lebih URL/files metadata saat create
+	// Controller boleh abaikan kalau mau pakai multipart sepenuhnya.
+	URLs []AnnouncementURLUpsert `json:"urls" validate:"omitempty,dive"`
 }
 
 // ToModel: builder untuk create — TIDAK mengisi created_by_* di sini.
@@ -55,6 +102,9 @@ type UpdateAnnouncementRequest struct {
 	AnnouncementDate           *string    `json:"announcement_date" validate:"omitempty,datetime=2006-01-02"` // YYYY-MM-DD
 	AnnouncementContent        *string    `json:"announcement_content" validate:"omitempty,min=3"`
 	AnnouncementIsActive       *bool      `json:"announcement_is_active" validate:"omitempty"`
+
+	// Catatan: pengelolaan URL saat update disarankan lewat endpoint khusus
+	// (POST /announcements/:id/urls, PATCH /announcement_urls/:id, dsb)
 }
 
 // ApplyToModel: terapkan hanya field yang dikirim
@@ -111,18 +161,17 @@ type AnnouncementThemeLite struct {
 
 // URL ringkas (opsional; jika nanti dipakai lagi)
 type AnnouncementURLLite struct {
-	ID            uuid.UUID `json:"id"`
-	Label         *string   `json:"label,omitempty"`
+	ID             uuid.UUID `json:"id"`
+	Label          *string   `json:"label,omitempty"`
 	AnnouncementID uuid.UUID `json:"announcement_id"`
-	Href          string    `json:"href"`
+	Href           string    `json:"href"`
 }
 
 type AnnouncementResponse struct {
-	AnnouncementID             uuid.UUID  `json:"announcement_id"`
-	AnnouncementMasjidID       uuid.UUID  `json:"announcement_masjid_id"`
-	AnnouncementThemeID        *uuid.UUID `json:"announcement_theme_id,omitempty"`
-	AnnouncementClassSectionID *uuid.UUID `json:"announcement_class_section_id,omitempty"`
-
+	AnnouncementID                 uuid.UUID  `json:"announcement_id"`
+	AnnouncementMasjidID           uuid.UUID  `json:"announcement_masjid_id"`
+	AnnouncementThemeID            *uuid.UUID `json:"announcement_theme_id,omitempty"`
+	AnnouncementClassSectionID     *uuid.UUID `json:"announcement_class_section_id,omitempty"`
 	AnnouncementCreatedByTeacherID *uuid.UUID `json:"announcement_created_by_teacher_id,omitempty"`
 
 	AnnouncementTitle    string    `json:"announcement_title"`
@@ -143,17 +192,17 @@ func NewAnnouncementResponse(m *model.AnnouncementModel) *AnnouncementResponse {
 		return nil
 	}
 	resp := &AnnouncementResponse{
-		AnnouncementID:               m.AnnouncementID,
-		AnnouncementMasjidID:         m.AnnouncementMasjidID,
-		AnnouncementThemeID:          m.AnnouncementThemeID,
-		AnnouncementClassSectionID:   m.AnnouncementClassSectionID,
+		AnnouncementID:                 m.AnnouncementID,
+		AnnouncementMasjidID:           m.AnnouncementMasjidID,
+		AnnouncementThemeID:            m.AnnouncementThemeID,
+		AnnouncementClassSectionID:     m.AnnouncementClassSectionID,
 		AnnouncementCreatedByTeacherID: m.AnnouncementCreatedByTeacherID,
-		AnnouncementTitle:            m.AnnouncementTitle,
-		AnnouncementDate:             m.AnnouncementDate,
-		AnnouncementContent:          m.AnnouncementContent,
-		AnnouncementIsActive:         m.AnnouncementIsActive,
-		AnnouncementCreatedAt:        m.AnnouncementCreatedAt,
-		AnnouncementUpdatedAt:        m.AnnouncementUpdatedAt,
+		AnnouncementTitle:              m.AnnouncementTitle,
+		AnnouncementDate:               m.AnnouncementDate,
+		AnnouncementContent:            m.AnnouncementContent,
+		AnnouncementIsActive:           m.AnnouncementIsActive,
+		AnnouncementCreatedAt:          m.AnnouncementCreatedAt,
+		AnnouncementUpdatedAt:          m.AnnouncementUpdatedAt,
 	}
 
 	// m.Theme adalah VALUE, bukan pointer → tidak bisa dibandingkan dengan nil.
@@ -166,6 +215,6 @@ func NewAnnouncementResponse(m *model.AnnouncementModel) *AnnouncementResponse {
 		}
 	}
 
-	// Urls akan diisi di controller bila diperlukan.
+	// Urls akan diisi di controller bila diperlukan (tetap kompatibel).
 	return resp
 }
