@@ -42,28 +42,21 @@ func (p PatchField[T]) Get() (*T, bool) { return p.Value, p.Present }
 
 /* =========================================================
    CREATE
-   - dipakai untuk JSON maupun multipart (form tags ada)
-   - file upload ditangani terpisah via BindMultipartCreate
    ========================================================= */
 
 type CreateSubjectRequest struct {
-	// Dipaksa dari context/token di controller
 	MasjidID uuid.UUID `json:"subjects_masjid_id" form:"subjects_masjid_id" validate:"required"`
 
-	// Wajib
 	Code string `json:"subjects_code" form:"subjects_code" validate:"required,min=1,max=40"`
 	Name string `json:"subjects_name" form:"subjects_name" validate:"required,min=1,max=120"`
 
-	// Opsional
 	Desc *string `json:"subjects_desc" form:"subjects_desc"`
 
-	// Slug: DB NOT NULL → pastikan diisi (controller biasanya auto-generate)
+	// Slug: NOT NULL di DB — controller biasanya auto-generate
 	Slug *string `json:"subjects_slug" form:"subjects_slug" validate:"omitempty,min=1,max=160"`
 
-	// Status
 	IsActive *bool `json:"subjects_is_active" form:"subjects_is_active"`
 
-	// Image columns (opsional, jika mau set manual tanpa upload)
 	ImageURL                *string    `json:"subjects_image_url"                 form:"subjects_image_url"`
 	ImageObjectKey          *string    `json:"subjects_image_object_key"          form:"subjects_image_object_key"`
 	ImageURLOld             *string    `json:"subjects_image_url_old"             form:"subjects_image_url_old"`
@@ -90,7 +83,16 @@ func (r *CreateSubjectRequest) Normalize() {
 	r.Code = strings.TrimSpace(r.Code)
 	r.Name = strings.TrimSpace(r.Name)
 	trimPtr(&r.Desc, false)
-	trimPtr(&r.Slug, true)
+
+	// slug → sanitasi pakai Slugify(…, 160)
+	if r.Slug != nil {
+		s := helper.Slugify(strings.TrimSpace(*r.Slug), 160)
+		if s == "" {
+			r.Slug = nil
+		} else {
+			r.Slug = &s
+		}
+	}
 
 	trimPtr(&r.ImageURL, false)
 	trimPtr(&r.ImageObjectKey, false)
@@ -101,31 +103,31 @@ func (r *CreateSubjectRequest) Normalize() {
 func (r CreateSubjectRequest) ToModel() m.SubjectsModel {
 	now := time.Now()
 
-	// pastikan slug terisi (fallback dari name)
+	// pastikan slug terisi (fallback dari name) — pakai Slugify
 	slug := ""
 	if r.Slug != nil && strings.TrimSpace(*r.Slug) != "" {
-		slug = *r.Slug
+		slug = helper.Slugify(*r.Slug, 160)
 	} else {
-		s := helper.GenerateSlug(r.Name)
-		slug = s
+		slug = helper.Slugify(r.Name, 160)
+		if slug == "" {
+			slug = "subject"
+		}
 	}
 
 	mm := m.SubjectsModel{
-		SubjectsMasjidID: r.MasjidID,
-		SubjectsCode:     r.Code,
-		SubjectsName:     r.Name,
-		SubjectsDesc:     r.Desc,
-		SubjectsSlug:     slug,
-
+		SubjectsMasjidID:                r.MasjidID,
+		SubjectsCode:                    r.Code,
+		SubjectsName:                    r.Name,
+		SubjectsDesc:                    r.Desc,
+		SubjectsSlug:                    slug,
 		SubjectsImageURL:                r.ImageURL,
 		SubjectsImageObjectKey:          r.ImageObjectKey,
 		SubjectsImageURLOld:             r.ImageURLOld,
 		SubjectsImageObjectKeyOld:       r.ImageObjectKeyOld,
 		SubjectsImageDeletePendingUntil: r.ImageDeletePendingUntil,
-
-		SubjectsIsActive:  true,
-		SubjectsCreatedAt: now,
-		SubjectsUpdatedAt: now,
+		SubjectsIsActive:                true,
+		SubjectsCreatedAt:               now,
+		SubjectsUpdatedAt:               now,
 	}
 	if r.IsActive != nil {
 		mm.SubjectsIsActive = *r.IsActive
@@ -134,7 +136,6 @@ func (r CreateSubjectRequest) ToModel() m.SubjectsModel {
 }
 
 // BindMultipartCreate: ambil text fields + file (opsional)
-// - file field name: "image" atau "file" (ambil yang ada)
 func BindMultipartCreate(c *fiber.Ctx) (CreateSubjectRequest, *multipart.FileHeader, error) {
 	var req CreateSubjectRequest
 
@@ -146,7 +147,7 @@ func BindMultipartCreate(c *fiber.Ctx) (CreateSubjectRequest, *multipart.FileHea
 		req.Desc = &v
 	}
 	if v := strings.TrimSpace(c.FormValue("subjects_slug")); v != "" {
-		s := helper.GenerateSlug(v)
+		s := helper.Slugify(v, 160)
 		if s != "" {
 			req.Slug = &s
 		}
@@ -176,8 +177,6 @@ func BindMultipartCreate(c *fiber.Ctx) (CreateSubjectRequest, *multipart.FileHea
 		}
 	}
 
-	// masjid_id biasa dipaksa di controller (req.MasjidID = ctxMasjidID)
-
 	// file
 	var fh *multipart.FileHeader
 	if f, err := c.FormFile("image"); err == nil && f != nil {
@@ -191,13 +190,9 @@ func BindMultipartCreate(c *fiber.Ctx) (CreateSubjectRequest, *multipart.FileHea
 
 /* =========================================================
    UPDATE (PATCH) — tri-state
-   Support JSON & multipart
-   - Untuk multipart, gunakan BindMultipartPatch agar Present/Null ter-set.
-   - Null-kan field kirimkan flag: <field>__null=true
    ========================================================= */
 
 type UpdateSubjectRequest struct {
-	// Tenant (opsional, biasanya dipaksa di controller)
 	MasjidID *uuid.UUID `json:"subjects_masjid_id" form:"subjects_masjid_id"`
 
 	Code     PatchField[string]  `json:"subjects_code"`
@@ -237,8 +232,9 @@ func (p *UpdateSubjectRequest) Normalize() {
 		v := strings.TrimSpace(*p.Name.Value)
 		p.Name.Value = &v
 	}
+	// slug → sanitasi pakai Slugify(…, 160)
 	if p.Slug.Present && p.Slug.Value != nil {
-		v := helper.GenerateSlug(strings.TrimSpace(*p.Slug.Value))
+		v := helper.Slugify(strings.TrimSpace(*p.Slug.Value), 160)
 		p.Slug.Value = &v
 	}
 
@@ -259,14 +255,12 @@ func (p *UpdateSubjectRequest) Normalize() {
 	}
 }
 
-// Apply perubahan ke model
-// Apply perubahan ke model
 func (p UpdateSubjectRequest) Apply(mo *m.SubjectsModel) {
 	if p.MasjidID != nil {
 		mo.SubjectsMasjidID = *p.MasjidID
 	}
 
-	// scalar (string/bool)
+	// scalar
 	if p.Code.Present && p.Code.Value != nil {
 		mo.SubjectsCode = *p.Code.Value
 	}
@@ -274,13 +268,13 @@ func (p UpdateSubjectRequest) Apply(mo *m.SubjectsModel) {
 		mo.SubjectsName = *p.Name.Value
 	}
 	if p.Slug.Present && p.Slug.Value != nil {
-		mo.SubjectsSlug = *p.Slug.Value // NOT NULL
+		mo.SubjectsSlug = *p.Slug.Value
 	}
 	if p.IsActive.Present && p.IsActive.Value != nil {
 		mo.SubjectsIsActive = *p.IsActive.Value
 	}
 
-	// nullable string (perlu deref **string → *string)
+	// nullable string
 	if p.Desc.Present {
 		if p.Desc.Value == nil {
 			mo.SubjectsDesc = nil
@@ -317,7 +311,7 @@ func (p UpdateSubjectRequest) Apply(mo *m.SubjectsModel) {
 		}
 	}
 
-	// nullable time (perlu deref **time.Time → *time.Time)
+	// nullable time
 	if p.ImageDeletePendingUntil.Present {
 		if p.ImageDeletePendingUntil.Value == nil {
 			mo.SubjectsImageDeletePendingUntil = nil
@@ -330,11 +324,6 @@ func (p UpdateSubjectRequest) Apply(mo *m.SubjectsModel) {
 }
 
 // BindMultipartPatch: baca multipart form → set tri-state
-// Konvensi nullifier: kirimkan "<field>__null=true" untuk set NULL
-// File field: "image" atau "file" (opsional)
-// BindMultipartPatch: baca multipart form → set tri-state
-// Konvensi nullifier: kirimkan "<field>__null=true" untuk set NULL
-// File field: "image" atau "file" (opsional)
 func BindMultipartPatch(c *fiber.Ctx) (UpdateSubjectRequest, *multipart.FileHeader, error) {
 	var req UpdateSubjectRequest
 
@@ -357,25 +346,23 @@ func BindMultipartPatch(c *fiber.Ctx) (UpdateSubjectRequest, *multipart.FileHead
 		v := strings.ToLower(strings.TrimSpace(c.FormValue(k + "__null")))
 		return v == "1" || v == "true" || v == "yes" || v == "on"
 	}
-	// set **string dari string
 	setPtrStr := func(dst **string, s string) {
 		v := s
 		*dst = &v
 	}
-	// set **time.Time dari time.Time
 	setPtrTime := func(dst **time.Time, t time.Time) {
 		v := t
 		*dst = &v
 	}
 
-	// -------- masjid_id (opsional, biasanya di-force di controller) --------
+	// masjid_id (opsional; biasanya di-force di controller)
 	if has("subjects_masjid_id") {
 		if id, err := uuid.Parse(get("subjects_masjid_id")); err == nil {
 			req.MasjidID = &id
 		}
 	}
 
-	// -------- scalar strings --------
+	// scalar strings
 	if has("subjects_code") {
 		req.Code.Present = true
 		v := get("subjects_code")
@@ -388,22 +375,22 @@ func BindMultipartPatch(c *fiber.Ctx) (UpdateSubjectRequest, *multipart.FileHead
 	}
 	if has("subjects_slug") {
 		req.Slug.Present = true
-		v := helper.GenerateSlug(get("subjects_slug"))
+		v := helper.Slugify(get("subjects_slug"), 160)
 		req.Slug.Value = &v
 	}
 
-	// -------- desc (nullable via __null) --------
+	// desc (nullable via __null)
 	if has("subjects_desc") || isNull("subjects_desc") {
 		req.Desc.Present = true
 		if isNull("subjects_desc") {
-			req.Desc.Value = nil // **string = nil artinya set NULL
+			req.Desc.Value = nil
 		} else {
-			req.Desc.Value = new(*string) // allocate **string
+			req.Desc.Value = new(*string)
 			setPtrStr(req.Desc.Value, get("subjects_desc"))
 		}
 	}
 
-	// -------- is_active --------
+	// is_active
 	if has("subjects_is_active") {
 		req.IsActive.Present = true
 		if b, err := parseBoolLoose(get("subjects_is_active")); err == nil {
@@ -411,7 +398,7 @@ func BindMultipartPatch(c *fiber.Ctx) (UpdateSubjectRequest, *multipart.FileHead
 		}
 	}
 
-	// -------- image columns (nullable) --------
+	// image columns (nullable)
 	if has("subjects_image_url") || isNull("subjects_image_url") {
 		req.ImageURL.Present = true
 		if isNull("subjects_image_url") {
@@ -464,7 +451,7 @@ func BindMultipartPatch(c *fiber.Ctx) (UpdateSubjectRequest, *multipart.FileHead
 		}
 	}
 
-	// -------- file (opsional) --------
+	// file (opsional)
 	var fh *multipart.FileHeader
 	if f, err := c.FormFile("image"); err == nil && f != nil {
 		fh = f
@@ -479,7 +466,7 @@ func BindMultipartPatch(c *fiber.Ctx) (UpdateSubjectRequest, *multipart.FileHead
    RESPONSE
    ========================================================= */
 
-/* ================= Helpers (local) ================= */
+// helpers…
 
 func parseBoolLoose(s string) (bool, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
@@ -496,20 +483,10 @@ func parseBoolLoose(s string) (bool, error) {
 	}
 }
 
-// jsonUnmarshal is a tiny indirection so we don't import encoding/json at top
-// if you already import it elsewhere, feel free to inline json.Unmarshal.
-func jsonUnmarshal(b []byte, v any) error {
-	// quick path if v implements UnmarshalJSON — but we still need encoding/json.
-	// We'll just import here locally:
-	return json.Unmarshal(b, v)
-}
+func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
 
-/*
-=========================
+/* ================= Queries & Responses (unchanged) ================= */
 
-	Query struct untuk List
-	=========================
-*/
 type ListSubjectQuery struct {
 	Limit       *int    `query:"limit"`
 	Offset      *int    `query:"offset"`
@@ -520,12 +497,6 @@ type ListSubjectQuery struct {
 	Sort        *string `query:"sort"`     // asc|desc
 }
 
-/*
-=========================
-
-	Response struct
-	=========================
-*/
 type SubjectResponse struct {
 	SubjectsID                      uuid.UUID  `json:"subjects_id"`
 	SubjectsMasjidID                uuid.UUID  `json:"subjects_masjid_id"`
@@ -544,12 +515,6 @@ type SubjectResponse struct {
 	SubjectsDeletedAt               *time.Time `json:"subjects_deleted_at,omitempty"`
 }
 
-/*
-=========================
-
-	Mapper: model → response
-	=========================
-*/
 func FromSubjectModel(mo m.SubjectsModel) SubjectResponse {
 	var deletedAt *time.Time
 	if mo.SubjectsDeletedAt.Valid {

@@ -7,17 +7,40 @@ import (
 	annCtl "masjidku_backend/internals/features/school/others/announcements/controller"
 )
 
-// Rute ADMIN/TEACHER untuk Announcements.
-// Catatan: pastikan router 'r' sudah merupakan group /admin dan sudah ada middleware auth di level atas.
+// Rute ADMIN/TEACHER (harus sudah di-mount di /admin dan ada middleware auth di atasnya)
 func AnnouncementAdminRoutes(r fiber.Router, db *gorm.DB) {
-	ctl := annCtl.NewAnnouncementController(db)
+	ann := annCtl.NewAnnouncementController(db)
+	theme := annCtl.NewAnnouncementThemeController(db)
 
-	grp := r.Group("/announcements") // hasil akhir: /admin/announcements
+	// ================== ANNOUNCEMENTS ==================
 
+	// /admin/:masjid_id/announcements
+	withID := r.Group("/:masjid_id/announcements")
+	withID.Post("/", ann.Create)
+	withID.Put("/:id", ann.Update)
+	withID.Delete("/:id", ann.Delete)
+	withID.Get("/list", ann.List)
 
-	grp.Get("/list", ctl.List)      // ← get all
-	grp.Post("/", ctl.Create)      // Create (Admin: global; Teacher: wajib section)
+	// /admin/by-slug/:masjid_slug/announcements
+	withSlug := r.Group("/by-slug/:masjid_slug/announcements")
+	withSlug.Post("/", ann.Create)
+	withSlug.Put("/:id", ann.Update)
+	withSlug.Delete("/:id", ann.Delete)
+	withSlug.Get("/list", ann.List)
 
-	grp.Put("/:id", ctl.Update)    // Update (role-aware)
-	grp.Delete("/:id", ctl.Delete) // Delete (role-aware)
+	// ================== ANNOUNCEMENT THEMES ==================
+
+	// /admin/:masjid_id/announcement-themes
+	themesID := r.Group("/:masjid_id/announcement-themes")
+	themesID.Post("/", theme.Create)
+	themesID.Put("/:id", theme.Update)
+	themesID.Delete("/:id", theme.Delete)
+	// (opsional) kalau nanti ada List: themesID.Get("/list", theme.List)
+
+	// /admin/by-slug/:masjid_slug/announcement-themes
+	themesSlug := r.Group("/by-slug/:masjid_slug/announcement-themes")
+	themesSlug.Post("/", theme.Create)
+	themesSlug.Put("/:id", theme.Update)
+	themesSlug.Delete("/:id", theme.Delete)
+	// (opsional) kalau nanti ada List: themesSlug.Get("/list", theme.List)
 }

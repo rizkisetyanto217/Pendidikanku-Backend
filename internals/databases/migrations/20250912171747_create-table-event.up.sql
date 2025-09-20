@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS class_events (
   -- referensi tema (opsional)
   class_events_theme_id         UUID
     REFERENCES class_event_themes(class_event_themes_id) ON DELETE SET NULL,
+  
+  class_events_schedule_id      UUID REFERENCES class_schedules (class_schedule_id) ON DELETE CASCADE,
 
   -- target minimal (opsional, salah satu)
   class_events_section_id       UUID,

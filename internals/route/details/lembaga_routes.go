@@ -37,7 +37,7 @@ import (
 // Endpoint publik (boleh diakses tanpa login, atau pakai SecondAuth untuk optional user)
 func LembagaPublicRoutes(r fiber.Router, db *gorm.DB) {
 	ClassesRoutes.ClassAllRoutes(r, db)
-	ClassSectionsRoutes.ClassSectionAllRoutes(r, db)
+	// ClassSectionsRoutes.ClassSectionAllRoutes(r, db)
 	LembagaStatsRoutes.LembagaStatsAllRoutes(r, db)
 	YayasanRoutes.AllYayasanRoutes(r, db)
 	// Classes (public read)

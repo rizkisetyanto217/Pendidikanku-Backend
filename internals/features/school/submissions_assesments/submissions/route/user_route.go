@@ -20,6 +20,5 @@ func SubmissionUserRoutes(r fiber.Router, db *gorm.DB) {
 	sub.Get("/list", subCtrl.List)             // GET   /submissions
 	sub.Post("/", subCtrl.Create)          // POST  /submissions
 	sub.Patch("/:id", subCtrl.Patch)       // PATCH /submissions/:id
-	sub.Patch("/:id/grade", subCtrl.Grade) // PATCH /submissions/:id/grade
 	sub.Delete("/:id", subCtrl.Delete)     // DELETE /submissions/:id
 }

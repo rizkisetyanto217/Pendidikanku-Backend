@@ -1,10 +1,8 @@
-BEGIN;
-
 -- =========================================================
 -- Prasyarat
 -- =========================================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;    -- gen_random_uuid()
-CREATE EXTENSION IF NOT EXISTS btree_gist;  -- GiST equality ops utk EXCLUDE (=, &&)
+CREATE EXTENSION IF NOT EXISTS btree_gist;  -- (masih ok untuk GiST index)
 
 -- Enum status jadwal (idempotent)
 DO $$
@@ -23,31 +21,6 @@ CREATE TABLE class_schedules (
   -- tenant / scope
   class_schedules_masjid_id UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
-
-  -- induk jadwal → section
-  class_schedules_section_id UUID
-    REFERENCES class_sections(class_sections_id) ON DELETE CASCADE,
-
-  -- konteks kurikulum (kelas+mapel[+term]) → class_subjects
-  class_schedules_class_subject_id UUID
-    REFERENCES class_subjects(class_subjects_id) ON DELETE RESTRICT,
-
-  -- assignment CSST (section+class_subject+teacher) — opsional
-  class_schedules_csst_id UUID
-    REFERENCES class_section_subject_teachers(class_section_subject_teachers_id)
-    ON UPDATE CASCADE ON DELETE SET NULL,
-
-  -- room (nullable)
-  class_schedules_room_id UUID
-    REFERENCES class_rooms(class_room_id) ON DELETE SET NULL,
-
-  -- cache guru (opsional)
-  class_schedules_teacher_id UUID
-    REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE SET NULL,
-
-  -- relasi ke EVENT (opsional; satu event terkait jadwal ini)
-  class_schedules_event_id UUID
-    REFERENCES class_events(class_events_id) ON DELETE SET NULL,
 
   -- pola berulang
   class_schedules_day_of_week INT  NOT NULL
@@ -83,50 +56,7 @@ CREATE TABLE class_schedules (
   class_schedules_deleted_at TIMESTAMPTZ,
 
   -- Tenant-safe composite uniqueness (untuk FK CAS)
-  UNIQUE (class_schedules_masjid_id, class_schedule_id),
-
-  -- =========================
-  -- Exclusion Constraints (anti-bentrok inti)
-  -- =========================
-  CONSTRAINT excl_sched_room_overlap
-    EXCLUDE USING gist (
-      class_schedules_masjid_id   WITH =,
-      class_schedules_room_id     WITH =,
-      class_schedules_day_of_week WITH =,
-      class_schedules_time_range  WITH &&
-    )
-    WHERE (class_schedules_is_active
-           AND class_schedules_room_id IS NOT NULL
-           AND class_schedules_deleted_at IS NULL),
-
-  CONSTRAINT excl_sched_section_overlap
-    EXCLUDE USING gist (
-      class_schedules_masjid_id   WITH =,
-      class_schedules_section_id  WITH =,
-      class_schedules_day_of_week WITH =,
-      class_schedules_time_range  WITH &&
-    )
-    WHERE (class_schedules_is_active
-           AND class_schedules_deleted_at IS NULL),
-
-  CONSTRAINT excl_sched_teacher_overlap
-    EXCLUDE USING gist (
-      class_schedules_masjid_id   WITH =,
-      class_schedules_teacher_id  WITH =,
-      class_schedules_day_of_week WITH =,
-      class_schedules_time_range  WITH &&
-    )
-    WHERE (class_schedules_is_active
-           AND class_schedules_teacher_id IS NOT NULL
-           AND class_schedules_deleted_at IS NULL),
-
-  -- Bentuk link yang valid (CSST penuh ATAU pair section+class_subject)
-  CONSTRAINT ck_class_schedules_link_shape
-  CHECK (
-    (class_schedules_csst_id IS NOT NULL AND class_schedules_section_id IS NULL AND class_schedules_class_subject_id IS NULL)
-    OR
-    (class_schedules_csst_id IS NULL AND class_schedules_section_id IS NOT NULL AND class_schedules_class_subject_id IS NOT NULL)
-  )
+  UNIQUE (class_schedules_masjid_id, class_schedule_id)
 );
 
 -- =========================
@@ -135,40 +65,13 @@ CREATE TABLE class_schedules (
 CREATE INDEX idx_class_schedules_tenant_dow
   ON class_schedules (class_schedules_masjid_id, class_schedules_day_of_week);
 
-CREATE INDEX idx_class_schedules_section_dow_time
-  ON class_schedules (class_schedules_section_id, class_schedules_day_of_week, class_schedules_start_time, class_schedules_end_time);
-
-CREATE INDEX idx_class_schedules_room_dow
-  ON class_schedules (class_schedules_room_id, class_schedules_day_of_week);
-
-CREATE INDEX idx_class_schedules_class_subject
-  ON class_schedules (class_schedules_class_subject_id);
-
 CREATE INDEX idx_class_schedules_active
   ON class_schedules (class_schedules_is_active)
   WHERE class_schedules_is_active AND class_schedules_deleted_at IS NULL;
 
-CREATE INDEX idx_class_schedules_teacher_dow
-  ON class_schedules (class_schedules_teacher_id, class_schedules_day_of_week);
-
-CREATE INDEX idx_class_schedules_teacher
-  ON class_schedules (class_schedules_teacher_id);
-
 CREATE INDEX idx_class_schedules_csst
   ON class_schedules (class_schedules_csst_id)
   WHERE class_schedules_deleted_at IS NULL;
-
-CREATE INDEX idx_sched_masjid_section_alive
-  ON class_schedules (class_schedules_masjid_id, class_schedules_section_id)
-  WHERE class_schedules_is_active AND class_schedules_deleted_at IS NULL;
-
-CREATE INDEX idx_sched_masjid_teacher_alive
-  ON class_schedules (class_schedules_masjid_id, class_schedules_teacher_id)
-  WHERE class_schedules_is_active AND class_schedules_deleted_at IS NULL;
-
-CREATE INDEX idx_sched_masjid_subject_alive
-  ON class_schedules (class_schedules_masjid_id, class_schedules_class_subject_id)
-  WHERE class_schedules_is_active AND class_schedules_deleted_at IS NULL;
 
 -- lookup event
 CREATE INDEX idx_class_schedules_event

@@ -40,6 +40,13 @@ func NewSubjectsController(db *gorm.DB, v interface{ Struct(any) error }) *Subje
 	CREATE (staff only) — slug unik + optional upload
 	=========================================================
 */
+
+/*
+=========================================================
+
+	CREATE (staff only) — slug unik + optional upload
+	=========================================================
+*/
 func (h *SubjectsController) Create(c *fiber.Ctx) error {
 	log.Printf("[SUBJECTS][CREATE] ▶️ incoming request")
 	c.Locals("DB", h.DB)
@@ -107,7 +114,7 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// 4) Slug unik (CI) per masjid
+	// 4) Slug unik (CI) per masjid — pakai helpers baru
 	var baseSlug string
 	if p.Slug != nil && strings.TrimSpace(*p.Slug) != "" {
 		baseSlug = helper.Slugify(*p.Slug, 160)
@@ -256,10 +263,10 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 			req.Desc.Value = &ps // **string: pointer ke *string
 		}
 	}
-	// slug
+	// slug (pakai slug helpers terbaru)
 	if req.Slug.Present {
 		if req.Slug.Value != nil {
-			s := helper.GenerateSlug(strings.TrimSpace(*req.Slug.Value))
+			s := helper.Slugify(strings.TrimSpace(*req.Slug.Value), 160)
 			if s == "" {
 				req.Slug.Present = false
 				req.Slug.Value = nil
@@ -272,7 +279,7 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		}
 	} else if req.Name.Present && req.Name.Value != nil {
 		// auto-regenerate slug ketika name berubah dan slug tidak diset eksplisit
-		if s := helper.GenerateSlug(*req.Name.Value); s != "" {
+		if s := helper.Slugify(*req.Name.Value, 160); s != "" {
 			req.Slug.Present = true
 			req.Slug.Value = &s
 		}
@@ -318,7 +325,7 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 	req.Apply(&ent)
 	ent.SubjectsUpdatedAt = time.Now()
 
-	// Jika slug tidak dikirim tetapi name berubah, regen slug yang unik
+	// Jika slug tidak dikirim tetapi name berubah, regen slug yang unik (pakai helpers baru)
 	if !req.Slug.Present && req.Name.Present && ent.SubjectsName != "" {
 		base := helper.Slugify(ent.SubjectsName, 160)
 		if base == "" {

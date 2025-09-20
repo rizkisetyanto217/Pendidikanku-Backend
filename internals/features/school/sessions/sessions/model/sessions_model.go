@@ -18,9 +18,6 @@ type ClassAttendanceSessionModel struct {
 	// Relasi utama: schedule (bukan CSST)
 	ClassAttendanceSessionScheduleId uuid.UUID `gorm:"type:uuid;not null;column:class_attendance_sessions_schedule_id" json:"class_attendance_sessions_schedule_id"`
 
-	// Opsional: ruangan
-	ClassAttendanceSessionClassRoomId *uuid.UUID `gorm:"type:uuid;column:class_attendance_sessions_class_room_id" json:"class_attendance_sessions_class_room_id,omitempty"`
-
 	// Opsional: guru
 	ClassAttendanceSessionTeacherId *uuid.UUID `gorm:"type:uuid;column:class_attendance_sessions_teacher_id" json:"class_attendance_sessions_teacher_id,omitempty"`
 

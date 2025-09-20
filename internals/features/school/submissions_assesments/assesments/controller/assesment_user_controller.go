@@ -26,33 +26,39 @@ import (
 //   with_urls, urls_published_only, urls_limit_per, urls_order
 //   include=types (untuk embed object type per item)
 func (ctl *AssessmentController) List(c *fiber.Ctx) error {
+	// Pastikan helper slug→id bisa akses DB dari context
+	c.Locals("DB", ctl.DB)
+
 	// =========================
 	// 1) Resolve masjid context
 	// =========================
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// slug → id (jika perlu)
 	var mid uuid.UUID
 	if mc.ID != uuid.Nil {
 		mid = mc.ID
-	} else if mc.Slug != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+	} else if s := strings.TrimSpace(mc.Slug); s != "" {
+		id, er := helperAuth.GetMasjidIDBySlug(c, s)
 		if er != nil || id == uuid.Nil {
-			return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
 		}
 		mid = id
 	} else {
-		return helperAuth.ErrMasjidContextMissing
+		return helper.JsonError(c, helperAuth.ErrMasjidContextMissing.Code, helperAuth.ErrMasjidContextMissing.Message)
 	}
 
 	// ==========================================
 	// 2) Authorize: minimal member masjid (any role)
 	// ==========================================
 	if !helperAuth.UserHasMasjid(c, mid) {
-		return fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada masjid ini (membership).")
+		return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar pada masjid ini (membership).")
 	}
 
 	// =========================
@@ -80,7 +86,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	}
 	wantTypes := includeAll || includes["type"] || includes["types"] || eqTrue(c.Query("with_types"))
 
-	// --- opsi URL ---
+	// --- opsi URL (metadata saja untuk response meta) ---
 	withURLs := eqTrue(c.Query("with_urls"))
 	urlsPublishedOnly := eqTrue(c.Query("urls_published_only"))
 	urlsLimitPer := atoiOr(0, c.Query("urls_limit_per")) // 0 = tanpa batas

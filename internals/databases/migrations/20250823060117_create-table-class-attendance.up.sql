@@ -9,7 +9,9 @@ CREATE TABLE class_attendance_sessions (
   class_attendance_sessions_masjid_id     UUID NOT NULL,
 
   -- Relasi utama: jadwal (bukan CSST)
-  class_attendance_sessions_schedule_id   UUID NOT NULL,
+  class_attendance_sessions_schedule_id   UUID REFERENCES class_schedules (class_schedule_id) NOT NULL,
+
+  class_attendance_sessions_CSST_id       UUID REFERENCES class_section_subject_teachers (class_section_subject_teachers_id) NOT NULL,
 
   -- Opsional override (boleh beda dari jadwal)
   class_attendance_sessions_class_room_id UUID
@@ -103,7 +105,6 @@ CREATE TABLE IF NOT EXISTS class_attendance_session_url (
   class_attendance_session_url_href               TEXT,        -- URL publik (boleh NULL jika murni object storage)
   class_attendance_session_url_object_key         TEXT,        -- object key aktif di storage
   class_attendance_session_url_object_key_old     TEXT,        -- object key lama (retensi in-place replace)
-  class_attendance_session_url_mime               VARCHAR(80), -- opsional
 
   -- Tampilan
   class_attendance_session_url_label              VARCHAR(160),

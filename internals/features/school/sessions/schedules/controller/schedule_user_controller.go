@@ -85,55 +85,15 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		}
 		tx = tx.Where("class_schedule_id = ?", s)
 	}
-	if s := strings.TrimSpace(q.ClassScheduleIDs); s != "" {
-		parts := strings.Split(s, ",")
-		ids := make([]uuid.UUID, 0, len(parts))
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p == "" {
-				continue
-			}
-			u, err := uuid.Parse(p)
-			if err != nil {
-				return helper.JsonError(c, http.StatusBadRequest, "class_schedule_ids mengandung UUID tidak valid")
-			}
-			ids = append(ids, u)
-		}
-		if len(ids) > 0 {
-			tx = tx.Where("class_schedule_id IN ?", ids)
-		}
-	}
+
 
 	// by foreign keys
-	if s := strings.TrimSpace(q.SectionID); s != "" {
-		if _, err := uuid.Parse(s); err != nil {
-			return helper.JsonError(c, http.StatusBadRequest, "section_id invalid")
-		}
-		tx = tx.Where("class_schedules_section_id = ?", s)
-	}
-	if s := strings.TrimSpace(q.ClassSubjectID); s != "" {
-		if _, err := uuid.Parse(s); err != nil {
-			return helper.JsonError(c, http.StatusBadRequest, "class_subject_id invalid")
-		}
-		tx = tx.Where("class_schedules_class_subject_id = ?", s)
-	}
+
 	if s := strings.TrimSpace(q.CSSTID); s != "" {
 		if _, err := uuid.Parse(s); err != nil {
 			return helper.JsonError(c, http.StatusBadRequest, "csst_id invalid")
 		}
 		tx = tx.Where("class_schedules_csst_id = ?", s)
-	}
-	if s := strings.TrimSpace(q.RoomID); s != "" {
-		if _, err := uuid.Parse(s); err != nil {
-			return helper.JsonError(c, http.StatusBadRequest, "room_id invalid")
-		}
-		tx = tx.Where("class_schedules_room_id = ?", s)
-	}
-	if s := strings.TrimSpace(q.TeacherID); s != "" {
-		if _, err := uuid.Parse(s); err != nil {
-			return helper.JsonError(c, http.StatusBadRequest, "teacher_id invalid")
-		}
-		tx = tx.Where("class_schedules_teacher_id = ?", s)
 	}
 
 	// by status

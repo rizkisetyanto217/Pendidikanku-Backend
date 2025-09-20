@@ -9,8 +9,8 @@ import (
 	model "masjidku_backend/internals/features/school/others/announcements/model"
 )
 
-/* ===================== URL SUB-PAYLOAD (untuk Create) ===================== */
-// Tipis dan bebas siklus import. Controller yang akan mapping ke model URL.
+/* ===================== URL SUB-PAYLOAD (untuk Create/Update) ===================== */
+
 type AnnouncementURLUpsert struct {
 	AnnouncementURLKind      string  `json:"announcement_url_kind" validate:"required,max=24"`
 	AnnouncementURLHref      *string `json:"announcement_url_href"`
@@ -20,7 +20,6 @@ type AnnouncementURLUpsert struct {
 	AnnouncementURLIsPrimary bool    `json:"announcement_url_is_primary"`
 }
 
-// Normalisasi ringan biar aman dari whitespace kosong
 func (u *AnnouncementURLUpsert) Normalize() {
 	u.AnnouncementURLKind = strings.TrimSpace(u.AnnouncementURLKind)
 	if u.AnnouncementURLKind == "" {
@@ -54,7 +53,6 @@ func (u *AnnouncementURLUpsert) Normalize() {
 
 /* ===================== REQUESTS ===================== */
 
-// Create: masjid_id & created_by_* diambil dari context/token oleh controller (BUKAN dari body)
 type CreateAnnouncementRequest struct {
 	AnnouncementThemeID        *uuid.UUID `json:"announcement_theme_id" validate:"omitempty"`
 	AnnouncementClassSectionID *uuid.UUID `json:"announcement_class_section_id" validate:"omitempty"` // NULL = GLOBAL
@@ -63,12 +61,10 @@ type CreateAnnouncementRequest struct {
 	AnnouncementContent        string     `json:"announcement_content" validate:"required,min=3"`
 	AnnouncementIsActive       *bool      `json:"announcement_is_active" validate:"omitempty"`
 
-	// ⬇️ Tambahan: bisa kirim satu atau lebih URL/files metadata saat create
-	// Controller boleh abaikan kalau mau pakai multipart sepenuhnya.
+	// Lampiran metadata opsional
 	URLs []AnnouncementURLUpsert `json:"urls" validate:"omitempty,dive"`
 }
 
-// ToModel: builder untuk create — TIDAK mengisi created_by_* di sini.
 func (r CreateAnnouncementRequest) ToModel(masjidID uuid.UUID) *model.AnnouncementModel {
 	title := strings.TrimSpace(r.AnnouncementTitle)
 	content := strings.TrimSpace(r.AnnouncementContent)
@@ -97,23 +93,25 @@ func (r CreateAnnouncementRequest) ToModel(masjidID uuid.UUID) *model.Announceme
 
 type UpdateAnnouncementRequest struct {
 	AnnouncementThemeID        *uuid.UUID `json:"announcement_theme_id" validate:"omitempty"`
-	AnnouncementClassSectionID *uuid.UUID `json:"announcement_class_section_id" validate:"omitempty"` // set NULL → GLOBAL
+	AnnouncementClassSectionID *uuid.UUID `json:"announcement_class_section_id" validate:"omitempty"`
 	AnnouncementTitle          *string    `json:"announcement_title" validate:"omitempty,min=3,max=200"`
-	AnnouncementDate           *string    `json:"announcement_date" validate:"omitempty,datetime=2006-01-02"` // YYYY-MM-DD
+	AnnouncementDate           *string    `json:"announcement_date" validate:"omitempty,datetime=2006-01-02"`
 	AnnouncementContent        *string    `json:"announcement_content" validate:"omitempty,min=3"`
 	AnnouncementIsActive       *bool      `json:"announcement_is_active" validate:"omitempty"`
 
-	// Catatan: pengelolaan URL saat update disarankan lewat endpoint khusus
-	// (POST /announcements/:id/urls, PATCH /announcement_urls/:id, dsb)
+	// URL opsional
+	URLs           []AnnouncementURLUpsert `json:"urls" validate:"omitempty,dive"`
+	DeleteURLIDs   []uuid.UUID             `json:"delete_url_ids" validate:"omitempty,dive,uuid"`
+	PrimaryPerKind map[string]uuid.UUID    `json:"primary_per_kind" validate:"omitempty"`
 }
 
-// ApplyToModel: terapkan hanya field yang dikirim
 func (r *UpdateAnnouncementRequest) ApplyToModel(m *model.AnnouncementModel) {
 	if r.AnnouncementThemeID != nil {
 		m.AnnouncementThemeID = r.AnnouncementThemeID
 	}
-	if r.AnnouncementClassSectionID != nil {
-		m.AnnouncementClassSectionID = r.AnnouncementClassSectionID // boleh nil → GLOBAL
+	// Nil = set GLOBAL (boleh nil)
+	if r.AnnouncementClassSectionID != nil || r.AnnouncementClassSectionID == nil {
+		m.AnnouncementClassSectionID = r.AnnouncementClassSectionID
 	}
 	if r.AnnouncementTitle != nil {
 		m.AnnouncementTitle = strings.TrimSpace(*r.AnnouncementTitle)
@@ -135,6 +133,7 @@ func (r *UpdateAnnouncementRequest) ApplyToModel(m *model.AnnouncementModel) {
 
 /* ===================== QUERIES (list) ===================== */
 
+// Tambah field Include mentah supaya bisa diparse di DTO (controller tidak wajib bikin helper lagi)
 type ListAnnouncementQuery struct {
 	Limit         int        `query:"limit"`
 	Offset        int        `query:"offset"`
@@ -142,29 +141,60 @@ type ListAnnouncementQuery struct {
 	SectionID     *uuid.UUID `query:"section_id"`
 	IncludeGlobal *bool      `query:"include_global"`
 	OnlyGlobal    *bool      `query:"only_global"`
-	HasAttachment *bool      `query:"has_attachment"` // kompatibilitas
+	HasAttachment *bool      `query:"has_attachment"`
 	IsActive      *bool      `query:"is_active"`
 	DateFrom      *string    `query:"date_from"`
 	DateTo        *string    `query:"date_to"`
 	Sort          *string    `query:"sort"`
-	IncludePusat  *bool      `query:"include_pusat"` // default true
+	IncludePusat  *bool      `query:"include_pusat"`
+
+	// NEW: raw include param, e.g. "theme,urls"
+	Include string `query:"include"`
+}
+
+// Helper parse include di level DTO
+func (q ListAnnouncementQuery) WantTheme() bool {
+	return hasInclude(q.Include, "theme", "themes", "announcement_theme")
+}
+func (q ListAnnouncementQuery) WantURLs() bool {
+	return hasInclude(q.Include, "urls", "attachments", "announcement_urls")
+}
+func hasInclude(raw string, keys ...string) bool {
+	if raw == "" {
+		return false
+	}
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	parts := strings.Split(raw, ",")
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		for _, k := range keys {
+			if p == k {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 /* ===================== RESPONSES ===================== */
 
-// Theme ringkas
 type AnnouncementThemeLite struct {
 	ID    uuid.UUID `json:"id"`
 	Name  string    `json:"name,omitempty"`
 	Color *string   `json:"color,omitempty"`
 }
 
-// URL ringkas (opsional; jika nanti dipakai lagi)
+// Diperluas agar lebih berguna saat include=urls
 type AnnouncementURLLite struct {
 	ID             uuid.UUID `json:"id"`
 	Label          *string   `json:"label,omitempty"`
 	AnnouncementID uuid.UUID `json:"announcement_id"`
 	Href           string    `json:"href"`
+
+	// NEW (opsional, tidak mengganggu FE lama):
+	Kind      *string `json:"kind,omitempty"`
+	Order     *int    `json:"order,omitempty"`
+	IsPrimary *bool   `json:"is_primary,omitempty"`
 }
 
 type AnnouncementResponse struct {
@@ -186,7 +216,8 @@ type AnnouncementResponse struct {
 	Urls  []*AnnouncementURLLite `json:"urls,omitempty"`
 }
 
-// Factory response (tanpa dereference pointer yang bisa nil)
+/* ===================== Builders & Attach helpers ===================== */
+
 func NewAnnouncementResponse(m *model.AnnouncementModel) *AnnouncementResponse {
 	if m == nil {
 		return nil
@@ -204,9 +235,7 @@ func NewAnnouncementResponse(m *model.AnnouncementModel) *AnnouncementResponse {
 		AnnouncementCreatedAt:          m.AnnouncementCreatedAt,
 		AnnouncementUpdatedAt:          m.AnnouncementUpdatedAt,
 	}
-
-	// m.Theme adalah VALUE, bukan pointer → tidak bisa dibandingkan dengan nil.
-	// Anggap "terisi" jika ID-nya bukan uuid.Nil.
+	// Theme akan terisi jika controller preload / batch-load & assign ke m.Theme
 	if m.Theme.AnnouncementThemesID != uuid.Nil {
 		resp.Theme = &AnnouncementThemeLite{
 			ID:    m.Theme.AnnouncementThemesID,
@@ -214,7 +243,55 @@ func NewAnnouncementResponse(m *model.AnnouncementModel) *AnnouncementResponse {
 			Color: m.Theme.AnnouncementThemesColor,
 		}
 	}
-
-	// Urls akan diisi di controller bila diperlukan (tetap kompatibel).
 	return resp
+}
+
+// AttachTheme: helper optional (kalau theme di-load terpisah)
+func (r *AnnouncementResponse) AttachTheme(th *model.AnnouncementThemeModel) *AnnouncementResponse {
+	if r == nil || th == nil || th.AnnouncementThemesID == uuid.Nil {
+		return r
+	}
+	r.Theme = &AnnouncementThemeLite{
+		ID:    th.AnnouncementThemesID,
+		Name:  th.AnnouncementThemesName,
+		Color: th.AnnouncementThemesColor,
+	}
+	return r
+}
+
+// AttachURLs: convert rows -> URL lites, isi ke response
+func (r *AnnouncementResponse) AttachURLs(rows []model.AnnouncementURLModel) *AnnouncementResponse {
+	if r == nil || len(rows) == 0 {
+		return r
+	}
+	out := make([]*AnnouncementURLLite, 0, len(rows))
+	for i := range rows {
+		// hanya kirim yang punya Href (menjaga kompatibilitas FE lama)
+		if rows[i].AnnouncementURLHref == nil || strings.TrimSpace(*rows[i].AnnouncementURLHref) == "" {
+			continue
+		}
+		l := &AnnouncementURLLite{
+			ID:             rows[i].AnnouncementURLId,
+			Label:          rows[i].AnnouncementURLLabel,
+			AnnouncementID: rows[i].AnnouncementURLAnnouncementId,
+			Href:           *rows[i].AnnouncementURLHref,
+		}
+		// field baru opsional
+		if k := strings.TrimSpace(rows[i].AnnouncementURLKind); k != "" {
+			l.Kind = &rows[i].AnnouncementURLKind
+		}
+		if rows[i].AnnouncementURLOrder != 0 {
+			o := rows[i].AnnouncementURLOrder
+			l.Order = &o
+		}
+		if rows[i].AnnouncementURLIsPrimary {
+			b := true
+			l.IsPrimary = &b
+		}
+		out = append(out, l)
+	}
+	if len(out) > 0 {
+		r.Urls = out
+	}
+	return r
 }

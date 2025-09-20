@@ -71,36 +71,42 @@ func (ctl *AssessmentController) assertTeacherBelongsToMasjid(
 	return nil
 }
 
-// resolve masjid via helper + izinkan DKM/Admin ATAU Teacher masjid tsb
+// Resolver akses: DKM/Admin via helper, atau Teacher pada masjid tsb.
+// Penting: pastikan caller sudah set c.Locals("DB", ctl.DB) sebelum memanggil.
 func resolveMasjidForDKMOrTeacher(c *fiber.Ctx) (uuid.UUID, error) {
+	// 1) Ambil masjid context (path/header/cookie/query/host/token)
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return uuid.Nil, err
 	}
 
-	// slug → id jika perlu
-	masjidID := mc.ID
-	if masjidID == uuid.Nil && strings.TrimSpace(mc.Slug) != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
-		if er != nil {
+	// 2) Coba jalur DKM/Admin (helper sudah handle slug→id internal)
+	if id, er := helperAuth.EnsureMasjidAccessDKM(c, mc); er == nil && id != uuid.Nil {
+		return id, nil
+	}
+
+	// 3) Fallback: izinkan GURU pada masjid ini
+	var masjidID uuid.UUID
+	if mc.ID != uuid.Nil {
+		masjidID = mc.ID
+	} else if s := strings.TrimSpace(mc.Slug); s != "" {
+		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		if er != nil || id == uuid.Nil {
+			// konsistenkan error
 			return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
 		}
 		masjidID = id
+	} else {
+		return uuid.Nil, helperAuth.ErrMasjidContextMissing
 	}
 
-	// 1) DKM/Admin?
-	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err == nil {
-		return masjidID, nil
-	}
-
-	// 2) Teacher di masjid ini?
+	// Guru valid jika token guru terikat ke masjid ini
 	if helperAuth.IsTeacher(c) {
 		if tMid, _ := helperAuth.GetTeacherMasjidIDFromToken(c); tMid != uuid.Nil && tMid == masjidID {
 			return masjidID, nil
 		}
 	}
 
-	// 3) gagal
 	return uuid.Nil, helperAuth.ErrMasjidContextForbidden
 }
 
@@ -110,6 +116,9 @@ func resolveMasjidForDKMOrTeacher(c *fiber.Ctx) (uuid.UUID, error) {
 
 // POST /assessments
 func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
+	// Pastikan helper slug→id bisa akses DB dari context
+	c.Locals("DB", ctl.DB)
+
 	var req dto.CreateAssessmentRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
@@ -118,7 +127,10 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	// 🔒 resolve & authorize (DKM/Admin atau Teacher masjid)
 	mid, err := resolveMasjidForDKMOrTeacher(c)
 	if err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// Enforce tenant dari context (anti cross-tenant injection)
@@ -201,6 +213,9 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 
 // PATCH /assessments/:id
 func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
+	// Pastikan helper slug→id bisa akses DB dari context
+	c.Locals("DB", ctl.DB)
+
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "assessments_id tidak valid")
@@ -217,7 +232,10 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	// 🔒 resolve & authorize
 	mid, err := resolveMasjidForDKMOrTeacher(c)
 	if err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	var existing model.AssessmentModel
@@ -309,6 +327,9 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 
 // DELETE /assessments/:id (soft delete)
 func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
+	// Pastikan helper slug→id bisa akses DB dari context
+	c.Locals("DB", ctl.DB)
+
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "assessments_id tidak valid")
@@ -317,7 +338,10 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 	// 🔒 resolve & authorize
 	mid, err := resolveMasjidForDKMOrTeacher(c)
 	if err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	var row model.AssessmentModel
@@ -340,10 +364,9 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 }
 
 /* ========================================================
-   Helpers
+   Helpers (local)
 ======================================================== */
 
-// helpers kecil lokal
 func atoiOr(def int, s string) int {
 	if s == "" {
 		return def

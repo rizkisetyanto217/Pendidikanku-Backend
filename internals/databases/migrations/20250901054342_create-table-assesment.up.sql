@@ -169,8 +169,7 @@ CREATE TABLE IF NOT EXISTS assessment_urls (
   assessment_url_href            TEXT,        -- URL publik (boleh NULL jika murni object storage)
   assessment_url_object_key      TEXT,        -- object key aktif di storage
   assessment_url_object_key_old  TEXT,        -- object key lama (retensi in-place replace)
-  assessment_url_mime            VARCHAR(80), -- opsional
-
+  
   -- Tampilan
   assessment_url_label           VARCHAR(160),
   assessment_url_order           INT NOT NULL DEFAULT 0,

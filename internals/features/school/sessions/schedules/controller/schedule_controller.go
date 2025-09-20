@@ -76,7 +76,7 @@ func mapPGError(err error) (int, string) {
 	if errors.As(err, &pgErr) {
 		switch pgErr.SQLState() {
 		case "23P01":
-			return http.StatusConflict, "Bentrok jadwal: time range overlap (room/section/teacher)."
+			return http.StatusConflict, "Bentrok jadwal: time range overlap (context: CSST/Hari/Jam)."
 		case "23503":
 			return http.StatusBadRequest, "Referensi tidak ditemukan (FK violation)."
 		case "23505":
@@ -106,10 +106,7 @@ func parseTimeOfDayParam(s string) (time.Time, error) {
 }
 
 /*
-=========================
-
-	Create
-	=========================
+========================= Create =========================
 */
 func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 	// 🔁 masjid-context: siapkan DB untuk resolver
@@ -202,9 +199,9 @@ func (ctl *ClassScheduleController) Update(c *fiber.Ctx) error {
 	}
 
 	// 🔁 masjid-context: izinkan DKM sesuai context meski token scope mismatch
-	if err := enforceMasjidScopeAuth(c, &existing.ClassSchedulesMasjidID); err != nil {
+	if err := enforceMasjidScopeAuth(c, &existing.ClassScheduleMasjidID); err != nil {
 		if mc, er := helperAuth.ResolveMasjidContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassSchedulesMasjidID {
+			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassScheduleMasjidID {
 				// ✅ allow via DKM context
 			} else {
 				return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
@@ -261,9 +258,9 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 	}
 
 	// 🔁 masjid-context: izinkan DKM sesuai context meski token scope mismatch
-	if err := enforceMasjidScopeAuth(c, &existing.ClassSchedulesMasjidID); err != nil {
+	if err := enforceMasjidScopeAuth(c, &existing.ClassScheduleMasjidID); err != nil {
 		if mc, er := helperAuth.ResolveMasjidContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassSchedulesMasjidID {
+			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassScheduleMasjidID {
 				// ✅ allow via DKM context
 			} else {
 				return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
@@ -309,9 +306,9 @@ func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 	}
 
 	// 🔁 masjid-context: izinkan DKM sesuai context meski token scope mismatch
-	if err := enforceMasjidScopeAuth(c, &existing.ClassSchedulesMasjidID); err != nil {
+	if err := enforceMasjidScopeAuth(c, &existing.ClassScheduleMasjidID); err != nil {
 		if mc, er := helperAuth.ResolveMasjidContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassSchedulesMasjidID {
+			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassScheduleMasjidID {
 				// ✅ allow via DKM context
 			} else {
 				return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")

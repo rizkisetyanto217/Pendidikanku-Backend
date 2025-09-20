@@ -17,18 +17,42 @@ import (
 
 // GET /quiz-questions
 // Query: quiz_id, type, q, page, per_page, sort
+// GET /quiz-questions
+// Query: quiz_id, type, q, page, per_page, sort
 func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
-	// ambil masjid_id prefer teacher
-	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil || mid == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
-	}
-	// authorize: anggota masjid (semua role)
-	if err := helperAuth.EnsureMemberMasjid(c, mid); err != nil { return err }
+	// biar helper GetMasjidIDBySlug bisa akses DB dari context
+	c.Locals("DB", ctl.DB)
 
-	var (
-		quizID *uuid.UUID
-	)
+	// 1) Resolve masjid context (path/header/cookie/query/host/token)
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	// slug → id jika perlu
+	var mid uuid.UUID
+	if mc.ID != uuid.Nil {
+		mid = mc.ID
+	} else if s := strings.TrimSpace(mc.Slug); s != "" {
+		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		if er != nil || id == uuid.Nil {
+			return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+		}
+		mid = id
+	} else {
+		return helper.JsonError(c, helperAuth.ErrMasjidContextMissing.Code, helperAuth.ErrMasjidContextMissing.Message)
+	}
+
+	// 2) Authorize: minimal member masjid (semua role)
+	if !helperAuth.UserHasMasjid(c, mid) {
+		return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar pada masjid ini (membership).")
+	}
+
+	// 3) Query params
+	var quizID *uuid.UUID
 	if s := strings.TrimSpace(c.Query("quiz_id")); s != "" {
 		if id, e := uuid.Parse(s); e == nil {
 			quizID = &id
@@ -40,11 +64,12 @@ func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 	q := c.Query("q")
 	sort := c.Query("sort")
 
-	// pagination (simple)
+	// pagination
 	limit := atoiOr(20, c.Query("per_page"), c.Query("limit"))
 	offset := pageOffset(atoiOr(0, c.Query("page")), limit)
 
-	dbq := ctl.DB.Model(&qmodel.QuizQuestionModel{})
+	// 4) Query data (tenant-scoped)
+	dbq := ctl.DB.WithContext(c.Context()).Model(&qmodel.QuizQuestionModel{})
 	dbq = ctl.applyFilters(dbq, mid, quizID, qType, q)
 
 	var total int64
@@ -63,6 +88,7 @@ func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 	}
 	out := qdto.FromModelsQuizQuestions(rows)
 
+	// 5) Response
 	meta := fiber.Map{
 		"total":    total,
 		"page":     atoiOr(0, c.Query("page")),

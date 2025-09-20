@@ -12,7 +12,6 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 /* ================= List ================= */
@@ -420,7 +419,10 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 				Find(&srows).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil subjects")
 			}
-			type subjIdx struct{ ClassID uuid.UUID; Idx int }
+			type subjIdx struct {
+				ClassID uuid.UUID
+				Idx     int
+			}
 			locator := map[uuid.UUID]subjIdx{}
 			for _, sr := range srows {
 				sub := subjectLite{
@@ -534,11 +536,11 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	// =========================
 	type sectionWithExpand struct {
 		*ucsDTO.ClassSectionResponse `json:",inline"`
-		Class             *classLite             `json:"class,omitempty"`
-		Room              *roomLite              `json:"room,omitempty"`
-		Teacher           *userLite              `json:"teacher,omitempty"`
-		Subjects          []subjectLite          `json:"subjects,omitempty"`
-		UserClassSections []userClassSectionLite `json:"user_class_sections,omitempty"`
+		Class                        *classLite             `json:"class,omitempty"`
+		Room                         *roomLite              `json:"room,omitempty"`
+		Teacher                      *userLite              `json:"teacher,omitempty"`
+		Subjects                     []subjectLite          `json:"subjects,omitempty"`
+		UserClassSections            []userClassSectionLite `json:"user_class_sections,omitempty"`
 	}
 
 	out := make([]*sectionWithExpand, 0, len(rows))
@@ -619,28 +621,4 @@ func parseUUIDList(s string) ([]uuid.UUID, error) {
 		return nil, errors.New("daftar kosong")
 	}
 	return out, nil
-}
-
-/* ================= Get by Slug ================= */
-
-// GET /admin/class-sections/slug/:slug
-func (ctrl *ClassSectionController) GetClassSectionBySlug(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
-	if err != nil {
-		return err
-	}
-	slug := helper.GenerateSlug(c.Params("slug"))
-
-	var m secModel.ClassSectionModel
-	if err := ctrl.DB.
-		Where("class_sections_masjid_id = ? AND lower(class_sections_slug) = lower(?) AND class_sections_deleted_at IS NULL",
-			masjidID, slug).
-		First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(fiber.StatusNotFound, "Section tidak ditemukan")
-		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-
-	return helper.JsonOK(c, "OK", ucsDTO.FromModelClassSection(&m))
 }

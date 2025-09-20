@@ -26,10 +26,14 @@ type CreateAnnouncementThemeRequest struct {
 func (r CreateAnnouncementThemeRequest) ToModel(masjidID uuid.UUID) *model.AnnouncementThemeModel {
 	name := strings.TrimSpace(r.AnnouncementThemesName)
 
-	// Safety: rapikan slug lagi (controller juga sudah lakukan)
-	slug := helper.GenerateSlug(strings.TrimSpace(r.AnnouncementThemesSlug))
-	if slug == "" {
-		slug = helper.GenerateSlug(name)
+	// Rapikan slug pakai helpers baru
+	rawSlug := strings.TrimSpace(r.AnnouncementThemesSlug)
+	var slug string
+	if rawSlug == "" {
+		// kalau slug kosong → turunkan dari nama
+		slug = helper.SuggestSlugFromName(name) // default maxLen=100
+	} else {
+		slug = helper.Slugify(rawSlug, 120) // sanitasi input user, batasi 120
 	}
 
 	m := &model.AnnouncementThemeModel{
@@ -59,7 +63,7 @@ func (r CreateAnnouncementThemeRequest) ToModel(masjidID uuid.UUID) *model.Annou
 		m.AnnouncementThemesIsActive = *r.AnnouncementThemesIsActive
 	}
 
-	// CreatedAt/UpdatedAt biarkan diisi otomatis oleh GORM (autoCreateTime/autoUpdateTime)
+	// CreatedAt/UpdatedAt diisi otomatis oleh GORM
 	return m
 }
 
@@ -84,9 +88,13 @@ func (r *UpdateAnnouncementThemeRequest) ApplyToModel(m *model.AnnouncementTheme
 		m.AnnouncementThemesName = strings.TrimSpace(*r.AnnouncementThemesName)
 	}
 	if r.AnnouncementThemesSlug != nil {
-		s := helper.GenerateSlug(strings.TrimSpace(*r.AnnouncementThemesSlug))
-		if s != "" { // jangan set kalau hasil kosong
-			m.AnnouncementThemesSlug = s
+		raw := strings.TrimSpace(*r.AnnouncementThemesSlug)
+		if raw != "" {
+			// sanitasi slug update
+			s := helper.Slugify(raw, 120)
+			if s != "" { // Slugify selalu punya fallback, tapi tetap jaga-jaga
+				m.AnnouncementThemesSlug = s
+			}
 		}
 	}
 	if r.AnnouncementThemesColor != nil {
@@ -109,7 +117,7 @@ func (r *UpdateAnnouncementThemeRequest) ApplyToModel(m *model.AnnouncementTheme
 		m.AnnouncementThemesIsActive = *r.AnnouncementThemesIsActive
 	}
 
-	// UpdatedAt biarkan di-handle autoUpdateTime pada Save/Updates
+	// UpdatedAt di-handle autoUpdateTime
 }
 
 /* ===================== QUERIES ===================== */

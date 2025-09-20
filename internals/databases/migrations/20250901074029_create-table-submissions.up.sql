@@ -94,8 +94,7 @@ CREATE TABLE IF NOT EXISTS submission_urls (
   submission_url_href            TEXT,        -- URL publik (bisa null jika pakai object storage saja)
   submission_url_object_key      TEXT,        -- object key aktif di storage
   submission_url_object_key_old  TEXT,        -- object key lama (retensi in-place replace)
-  submission_url_mime            VARCHAR(80), -- opsional
-
+  
   -- Tampilan
   submission_url_label           VARCHAR(160),
   submission_url_order           INT NOT NULL DEFAULT 0,

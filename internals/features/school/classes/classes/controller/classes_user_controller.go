@@ -68,8 +68,8 @@ func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
 		masjidID = id
 	}
 
-	// 2) Normalisasi slug kelas
-	slug := helper.GenerateSlug(c.Params("slug"))
+	// 2) Normalisasi slug kelas (pakai helpers slug baru)
+	slug := helper.Slugify(c.Params("slug"), 120)
 
 	// 3) Ambil data kelas (public)
 	var m model.ClassModel

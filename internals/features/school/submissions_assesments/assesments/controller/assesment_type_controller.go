@@ -83,6 +83,9 @@ func getSortClause(sortBy, sortDir *string) string {
 
 // POST /assessment-types — staff (DKM/Admin/Owner/Superadmin)
 func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
+	// Pastikan helper slug→id bisa akses DB dari context
+	c.Locals("DB", ctl.DB)
+
 	var req dto.CreateAssessmentTypeRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
@@ -91,11 +94,17 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 	// 🔒 Masjid context + ensure DKM/Admin untuk masjid tsb
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// Validasi bobot 0..100
@@ -147,6 +156,9 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 
 // PATCH /assessment-types/:id — staff
 func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
+	// Pastikan helper slug→id bisa akses DB dari context
+	c.Locals("DB", ctl.DB)
+
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "assessment_types_id tidak valid")
@@ -163,11 +175,17 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 	// 🔒 Masjid context + ensure DKM/Admin
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	var existing model.AssessmentTypeModel
@@ -247,6 +265,9 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 
 // DELETE /assessment-types/:id — staff
 func (ctl *AssessmentTypeController) Delete(c *fiber.Ctx) error {
+	// Pastikan helper slug→id bisa akses DB dari context
+	c.Locals("DB", ctl.DB)
+
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "assessment_types_id tidak valid")
@@ -255,11 +276,17 @@ func (ctl *AssessmentTypeController) Delete(c *fiber.Ctx) error {
 	// 🔒 Masjid context + ensure DKM/Admin
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	var row model.AssessmentTypeModel

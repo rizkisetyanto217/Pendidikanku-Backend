@@ -468,7 +468,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			ClassAttendanceSessionId:          r.ID,
 			ClassAttendanceSessionMasjidId:    r.MasjidID,
 			ClassAttendanceSessionScheduleId:  r.ScheduleID,
-			ClassAttendanceSessionClassRoomId: r.RoomID,
 			ClassAttendanceSessionDate:        r.Date,
 			ClassAttendanceSessionTitle:       r.Title,
 			ClassAttendanceSessionGeneralInfo: r.General,
@@ -504,4 +503,223 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		}
 		return helper.JsonList(c, items, meta)
 	}
+}
+
+// LIST by TEACHER (SELF)
+// GET /api/u/sessions/teacher/me?section_id=&schedule_id=&date_from=&date_to=&limit=&offset=&q=
+func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ctx) error {
+	// Hanya guru (atau admin/DKM) yang boleh akses endpoint ini
+	if !helperAuth.IsTeacher(c) && !helperAuth.IsDKM(c) && !helperAuth.IsOwner(c) {
+		return fiber.NewError(fiber.StatusUnauthorized, "Hanya guru (atau admin) yang diizinkan")
+	}
+
+	// 🎯 Resolusi context masjid
+	mc, er := helperAuth.ResolveMasjidContext(c)
+	if er != nil {
+		return helper.JsonError(c, er.(*fiber.Error).Code, er.Error())
+	}
+
+	var masjidID uuid.UUID
+	switch {
+	case helperAuth.IsOwner(c) || helperAuth.IsDKM(c):
+		id, er := helperAuth.EnsureMasjidAccessDKM(c, mc)
+		if er != nil {
+			return helper.JsonError(c, er.(*fiber.Error).Code, er.Error())
+		}
+		masjidID = id
+
+	default: // Teacher ⇒ wajib member pada masjid context
+		if mc.ID != uuid.Nil {
+			masjidID = mc.ID
+		} else if strings.TrimSpace(mc.Slug) != "" {
+			id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+			if er != nil {
+				return helper.JsonError(c, http.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			}
+			masjidID = id
+		} else if id, er := helperAuth.GetActiveMasjidID(c); er == nil && id != uuid.Nil {
+			masjidID = id
+		}
+		if masjidID == uuid.Nil || !helperAuth.UserHasMasjid(c, masjidID) {
+			return helper.JsonError(c, http.StatusForbidden, "Scope masjid tidak valid untuk Teacher")
+		}
+	}
+
+	userID, err := helperAuth.GetUserIDFromToken(c)
+	if err != nil || userID == uuid.Nil {
+		return fiber.NewError(fiber.StatusUnauthorized, "User tidak terautentik")
+	}
+
+	// ==== lanjutkan kode asli (pagination, query, mapping) ====
+	// Pagination & sorting
+	rawQ := string(c.Request().URI().QueryString())
+	httpReq := &http.Request{URL: &url.URL{RawQuery: rawQ}}
+	p := helper.ParseWith(httpReq, "date", "desc", helper.AdminOpts)
+
+	allowedSort := map[string]string{
+		"date":  "cas.class_attendance_sessions_date",
+		"title": "cas.class_attendance_sessions_title",
+	}
+	orderClause, err := p.SafeOrderClause(allowedSort, "date")
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "sort_by tidak valid")
+	}
+	orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
+
+	// Rentang tanggal
+	df, err := parseYMDLocal(c.Query("date_from"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)")
+	}
+	dt, err := parseYMDLocal(c.Query("date_to"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)")
+	}
+	if df != nil && dt != nil && dt.Before(*df) {
+		return fiber.NewError(fiber.StatusBadRequest, "date_to harus >= date_from")
+	}
+	var lo, hi *time.Time
+	if df != nil {
+		lo = df
+	}
+	if dt != nil {
+		h := dt.Add(24 * time.Hour)
+		hi = &h
+	}
+
+	db := ctrl.DB
+	qBase := db.Table("class_attendance_sessions AS cas").
+		Joins(`
+			LEFT JOIN masjid_teachers AS mt
+			  ON mt.masjid_teacher_id = cas.class_attendance_sessions_teacher_id
+			 AND mt.masjid_teacher_deleted_at IS NULL
+		`).
+		Joins(`
+			LEFT JOIN class_schedules AS cs
+			  ON cs.class_schedule_id = cas.class_attendance_sessions_schedule_id
+			 AND cs.class_schedules_deleted_at IS NULL
+			 AND cs.class_schedules_is_active
+		`).
+		Joins(`
+			LEFT JOIN masjid_teachers AS mt2
+			  ON mt2.masjid_teacher_id = cs.class_schedules_teacher_id
+			 AND mt2.masjid_teacher_deleted_at IS NULL
+		`).
+		Joins(`
+			LEFT JOIN class_section_subject_teachers AS csst
+			  ON csst.class_section_subject_teachers_id = cs.class_schedules_csst_id
+			 AND csst.class_section_subject_teachers_deleted_at IS NULL
+		`).
+		Joins(`
+			LEFT JOIN masjid_teachers AS mt3
+			  ON mt3.masjid_teacher_id = csst.class_section_subject_teachers_teacher_id
+			 AND mt3.masjid_teacher_deleted_at IS NULL
+		`).
+		Where(`
+			cas.class_attendance_sessions_masjid_id = ?
+			AND cas.class_attendance_sessions_deleted_at IS NULL
+			AND (
+			     mt.masjid_teacher_user_id = ?
+			  OR mt2.masjid_teacher_user_id = ?
+			  OR mt3.masjid_teacher_user_id = ?
+			)
+		`, masjidID, userID, userID, userID)
+
+	// Filter tanggal opsional
+	if lo != nil && hi != nil {
+		qBase = qBase.Where("cas.class_attendance_sessions_date >= ? AND cas.class_attendance_sessions_date < ?", *lo, *hi)
+	} else if lo != nil {
+		qBase = qBase.Where("cas.class_attendance_sessions_date >= ?", *lo)
+	} else if hi != nil {
+		qBase = qBase.Where("cas.class_attendance_sessions_date < ?", *hi)
+	}
+
+	// Opsional: section_id
+	if s := strings.TrimSpace(c.Query("section_id")); s != "" {
+		id, e := uuid.Parse(s)
+		if e != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "section_id tidak valid")
+		}
+		qBase = qBase.Where("COALESCE(cs.class_schedules_section_id, csst.class_section_subject_teachers_section_id) = ?", id)
+	}
+
+	// Opsional: schedule_id
+	if s := strings.TrimSpace(c.Query("schedule_id")); s != "" {
+		id, e := uuid.Parse(s)
+		if e != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "schedule_id tidak valid")
+		}
+		qBase = qBase.Where("cas.class_attendance_sessions_schedule_id = ?", id)
+	}
+
+	// Keyword
+	if q := strings.TrimSpace(c.Query("q")); q != "" {
+		pat := "%" + q + "%"
+		qBase = qBase.Where(`(cas.class_attendance_sessions_title ILIKE ? OR cas.class_attendance_sessions_general_info ILIKE ?)`, pat, pat)
+	}
+
+	// Total distinct
+	var total int64
+	if err := qBase.Session(&gorm.Session{}).Distinct("cas.class_attendance_sessions_id").Count(&total).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung total data")
+	}
+
+	// Data
+	type row struct {
+		ID         uuid.UUID  `gorm:"column:id"`
+		MasjidID   uuid.UUID  `gorm:"column:masjid_id"`
+		Date       time.Time  `gorm:"column:date"`
+		Title      *string    `gorm:"column:title"`
+		General    string     `gorm:"column:general"`
+		Note       *string    `gorm:"column:note"`
+		TeacherID  *uuid.UUID `gorm:"column:teacher_id"`
+		RoomID     *uuid.UUID `gorm:"column:room_id"`
+		ScheduleID uuid.UUID  `gorm:"column:schedule_id"`
+		SectionID  *uuid.UUID `gorm:"column:section_id"`
+		SubjectID  *uuid.UUID `gorm:"column:subject_id"`
+		DeletedAt  *time.Time `gorm:"column:deleted_at"`
+	}
+	var rows []row
+	if err := qBase.
+		Select(`
+			cas.class_attendance_sessions_id         AS id,
+			cas.class_attendance_sessions_masjid_id  AS masjid_id,
+			cas.class_attendance_sessions_date       AS date,
+			cas.class_attendance_sessions_title      AS title,
+			cas.class_attendance_sessions_general_info AS general,
+			cas.class_attendance_sessions_note       AS note,
+			cas.class_attendance_sessions_teacher_id AS teacher_id,
+			cas.class_attendance_sessions_class_room_id AS room_id,
+			cas.class_attendance_sessions_schedule_id   AS schedule_id,
+			cas.class_attendance_sessions_deleted_at AS deleted_at,
+			COALESCE(cs.class_schedules_section_id, csst.class_section_subject_teachers_section_id) AS section_id,
+			COALESCE(cs.class_schedules_class_subject_id, csst.class_section_subject_teachers_class_subjects_id) AS subject_id
+		`).
+		Order(orderExpr).
+		Order("cas.class_attendance_sessions_date DESC, cas.class_attendance_sessions_id DESC").
+		Limit(p.Limit()).
+		Offset(p.Offset()).
+		Find(&rows).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+	}
+
+	resp := make([]sessiondto.ClassAttendanceSessionResponse, 0, len(rows))
+	for _, r := range rows {
+		resp = append(resp, sessiondto.ClassAttendanceSessionResponse{
+			ClassAttendanceSessionId:          r.ID,
+			ClassAttendanceSessionMasjidId:    r.MasjidID,
+			ClassAttendanceSessionScheduleId:  r.ScheduleID,
+			ClassAttendanceSessionDate:        r.Date,
+			ClassAttendanceSessionTitle:       r.Title,
+			ClassAttendanceSessionGeneralInfo: r.General,
+			ClassAttendanceSessionNote:        r.Note,
+			ClassAttendanceSessionTeacherId:   r.TeacherID,
+			ClassAttendanceSessionDeletedAt:   r.DeletedAt,
+			ClassSectionId:                    r.SectionID,
+			ClassSubjectId:                    r.SubjectID,
+		})
+	}
+
+	meta := helper.BuildMeta(total, p)
+	return helper.JsonList(c, resp, meta)
 }

@@ -48,13 +48,34 @@ func isUniqueErr(err error) bool {
 	return strings.Contains(s, "duplicate key") || strings.Contains(s, "unique constraint")
 }
 
+// resolveMasjidIDDKM: ambil masjid dari path/header/cookie/query/host/token,
+// lalu pastikan user adalah DKM/Admin masjid tsb.
+// Mengembalikan masjidID atau JSON error yang sudah terformat.
+func (h *AnnouncementThemeController) resolveMasjidIDDKM(c *fiber.Ctx) (uuid.UUID, error) {
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return uuid.Nil, helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return uuid.Nil, helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak valid")
+	}
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return uuid.Nil, helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return uuid.Nil, helper.JsonError(c, fiber.StatusForbidden, "Akses masjid ditolak")
+	}
+	return masjidID, nil
+}
+
 /* ================= Handlers ================= */
 
 // POST /admin/announcement-themes
 func (h *AnnouncementThemeController) Create(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+	masjidID, jerr := h.resolveMasjidIDDKM(c)
+	if jerr != nil {
+		return jerr // sudah JSON
 	}
 
 	var req annDTO.CreateAnnouncementThemeRequest
@@ -62,17 +83,14 @@ func (h *AnnouncementThemeController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
-	// --- Generate/normalize slug sebelum validasi ---
+	// Normalize + rapikan slug pakai helpers baru
 	nameTrim := strings.TrimSpace(req.AnnouncementThemesName)
 	slugTrim := strings.TrimSpace(req.AnnouncementThemesSlug)
-
 	if slugTrim != "" {
-		req.AnnouncementThemesSlug = helper.GenerateSlug(slugTrim)
+		req.AnnouncementThemesSlug = helper.Slugify(slugTrim, 120)
 	} else if nameTrim != "" {
-		req.AnnouncementThemesSlug = helper.GenerateSlug(nameTrim)
+		req.AnnouncementThemesSlug = helper.SuggestSlugFromName(nameTrim) // default maxLen=100
 	}
-	// NB: jika name & slug dua-duanya kosong, biarkan validator yang menolak
-	// ------------------------------------------------
 
 	if err := validateAnnouncementTheme.Struct(req); err != nil {
 		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
@@ -90,36 +108,14 @@ func (h *AnnouncementThemeController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Tema berhasil dibuat", annDTO.NewAnnouncementThemeResponse(m))
 }
 
-
 // GET /admin/announcement-themes
-// Opsional:
-//   ?announcement_theme_id=<uuid>  (atau ?id=<uuid> / /admin/announcement-themes/:id)
-//   ?name=..., ?slug=..., ?is_active=true|false
-//   Pagination: ?page=1&per_page=25 (atau limit), sort_by=created_at|updated_at|name|slug, order=asc|desc
-// import tambahan:
-//   "errors"
-//   "strconv"
-//   "strings"
-//   "github.com/google/uuid"
-//   "gorm.io/gorm"
-
-// helper kecil: cek kolom ada/tidak di tabel (untuk cari nama kolom id)
-func hasColumn(db *gorm.DB, table, col string) bool {
-	var n int64
-	_ = db.Raw(`
-		SELECT COUNT(*)
-		FROM pg_attribute
-		WHERE attrelid = to_regclass(?) AND attname = ? AND NOT attisdropped
-	`, "public."+table, col).Scan(&n).Error
-	return n > 0
-}
-
+// (handler list-mu tetap, tidak diubah di sini)
 
 // PUT /admin/announcement-themes/:id
 func (h *AnnouncementThemeController) Update(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+	masjidID, jerr := h.resolveMasjidIDDKM(c)
+	if jerr != nil {
+		return jerr
 	}
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
@@ -139,16 +135,14 @@ func (h *AnnouncementThemeController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
-	// --- Normalize slug jika dikirim ---
+	// Normalize slug jika dikirim (pakai helpers baru)
 	if req.AnnouncementThemesSlug != nil {
-		s := strings.TrimSpace(*req.AnnouncementThemesSlug)
-		s = helper.GenerateSlug(s)
+		s := helper.Slugify(strings.TrimSpace(*req.AnnouncementThemesSlug), 120)
 		if s == "" {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Slug tidak valid")
 		}
 		req.AnnouncementThemesSlug = &s
 	}
-	// -----------------------------------
 
 	if err := validateAnnouncementTheme.Struct(req); err != nil {
 		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
@@ -168,9 +162,9 @@ func (h *AnnouncementThemeController) Update(c *fiber.Ctx) error {
 
 // DELETE /admin/announcement-themes/:id  (soft delete)
 func (h *AnnouncementThemeController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+	masjidID, jerr := h.resolveMasjidIDDKM(c)
+	if jerr != nil {
+		return jerr
 	}
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {

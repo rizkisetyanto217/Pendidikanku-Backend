@@ -96,9 +96,9 @@ func (ctl *UserQuizAttemptAnswersController) questionBelongsToQuiz(questionID, q
 	return ok, nil
 }
 
-// Scope enforcement:
-// - Student: hanya boleh akses attempt miliknya (student_id cocok & terdaftar di masjid attempt).
-// - Admin/DKM/Teacher/Owner: boleh jika punya role di masjid attempt.
+// Scope enforcement (pakai helpers terbaru):
+// - Student: harus terdaftar sbg student di masjid attempt & student_id harus cocok
+// - Non-student: Owner diizinkan; selain itu wajib DKM/Teacher di masjid attempt
 func (ctl *UserQuizAttemptAnswersController) ensureScopeForAttempt(c *fiber.Ctx, core *attemptCore) error {
 	if core == nil {
 		return fiber.NewError(http.StatusInternalServerError, "internal: attemptCore nil")
@@ -106,6 +106,11 @@ func (ctl *UserQuizAttemptAnswersController) ensureScopeForAttempt(c *fiber.Ctx,
 
 	// Student flow
 	if helperAuth.IsStudent(c) {
+		// Pastikan user adalah student di masjid attempt
+		if err := helperAuth.EnsureStudentMasjid(c, core.MasjidID); err != nil {
+			return err
+		}
+		// Ambil student_id milik caller pada masjid tsb & pastikan milik attempt
 		sid, err := helperAuth.GetMasjidStudentIDForMasjid(c, core.MasjidID)
 		if err != nil {
 			return fiber.NewError(http.StatusForbidden, "tidak terdaftar sebagai student pada masjid attempt")
@@ -116,14 +121,16 @@ func (ctl *UserQuizAttemptAnswersController) ensureScopeForAttempt(c *fiber.Ctx,
 		return nil
 	}
 
-	// Non-student: cek role di masjid
-	if helperAuth.HasRoleInMasjid(c, core.MasjidID, "dkm") ||
-		helperAuth.HasRoleInMasjid(c, core.MasjidID, "teacher") ||
-		helperAuth.IsOwner(c) {
+	// Non-student:
+	// Owner boleh lihat semua masjid
+	if helperAuth.IsOwner(c) {
 		return nil
 	}
-
-	return fiber.NewError(http.StatusUnauthorized, "akses ditolak untuk masjid terkait")
+	// Selain Owner, wajib DKM/Teacher pada masjid attempt
+	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, core.MasjidID); err != nil {
+		return err
+	}
+	return nil
 }
 
 /* ============================================================

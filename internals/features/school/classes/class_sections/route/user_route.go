@@ -19,7 +19,7 @@ func ClassSectionUserRoutes(r fiber.Router, db *gorm.DB) {
 	pub.Get("/list", sectionH.ListClassSections)
 	// pencarian cepat (q=keyword) – jika Anda ingin pisah dari list
 	// detail by slug/id (untuk landing/SEO)
-	pub.Get("/slug/:slug", sectionH.GetClassSectionBySlug)
+	// pub.Get("/slug/:slug", sectionH.GetClassSectionBySlug)
 	// resource terkait (tidak mengekspos data sensitif user)
 	// pub.Get("/books/:id", sectionH.ListBooksBySection)
 

@@ -1,4 +1,4 @@
-// file: internals/features/school/class_schedules/model/class_schedule_model.go
+// file: internals/features/school/schedules/model/class_schedule.go
 package model
 
 import (
@@ -6,13 +6,12 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-
-	dbtime "masjidku_backend/internals/helpers/dbtime"
 )
 
-/* =======================================================
-   Enum status (sinkron dengan session_status_enum di DB)
-   ======================================================= */
+/* =========================
+   Enum
+========================= */
+
 type SessionStatus string
 
 const (
@@ -22,54 +21,67 @@ const (
 	SessionCanceled  SessionStatus = "canceled"
 )
 
-/* =======================================================
-   ClassScheduleModel — map ke tabel class_schedules
-   ======================================================= */
+/* =========================
+   Model: ClassScheduleModel
+========================= */
+
 type ClassScheduleModel struct {
 	// PK
-	ClassScheduleID uuid.UUID `json:"class_schedule_id" gorm:"type:uuid;primaryKey;column:class_schedule_id;default:gen_random_uuid()"`
+	ClassScheduleID uuid.UUID `gorm:"type:uuid;primaryKey;column:class_schedule_id"`
 
-	// Tenant / scope
-	ClassSchedulesMasjidID uuid.UUID `json:"class_schedules_masjid_id" gorm:"type:uuid;not null;column:class_schedules_masjid_id"`
+	// Tenant
+	ClassScheduleMasjidID uuid.UUID `gorm:"type:uuid;not null;column:class_schedules_masjid_id;index"`
 
-	// Induk jadwal → section (nullable, mengikuti DDL terbaru)
-	ClassSchedulesSectionID *uuid.UUID `json:"class_schedules_section_id,omitempty" gorm:"type:uuid;column:class_schedules_section_id"`
+	// Assignment (CSST) — opsional
+	ClassScheduleCSSTID *uuid.UUID                  `gorm:"type:uuid;column:class_schedules_csst_id;index"`
+	ClassScheduleCSST   *ClassSectionSubjectTeacher `gorm:"foreignKey:ClassScheduleCSSTID;references:ClassSectionSubjectTeachersID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL"`
 
-	// Kurikulum → class_subjects (nullable, mengikuti DDL terbaru)
-	ClassSchedulesClassSubjectID *uuid.UUID `json:"class_schedules_class_subject_id,omitempty" gorm:"type:uuid;column:class_schedules_class_subject_id"`
-
-	// Assignment CSST (nullable; XOR dengan dua kolom di atas)
-	ClassSchedulesCSSTID *uuid.UUID `json:"class_schedules_csst_id,omitempty" gorm:"type:uuid;column:class_schedules_csst_id"`
-
-	// Room (nullable)
-	ClassSchedulesRoomID *uuid.UUID `json:"class_schedules_room_id,omitempty" gorm:"type:uuid;column:class_schedules_room_id"`
-
-	// Event (nullable)
-	ClassSchedulesEventID *uuid.UUID `json:"class_schedules_event_id,omitempty" gorm:"type:uuid;column:class_schedules_event_id"`
-
-	// Guru cache (nullable)
-	ClassSchedulesTeacherID *uuid.UUID `json:"class_schedules_teacher_id,omitempty" gorm:"type:uuid;column:class_schedules_teacher_id"`
+	// Event — opsional
+	ClassScheduleEventID *uuid.UUID  `gorm:"type:uuid;column:class_schedules_event_id;index"`
+	ClassScheduleEvent   *ClassEvent `gorm:"foreignKey:ClassScheduleEventID;references:ClassEventsID;constraint:OnDelete:SET NULL"`
 
 	// Pola berulang
-	ClassSchedulesDayOfWeek int        `json:"class_schedules_day_of_week" gorm:"type:int;not null;column:class_schedules_day_of_week"` // 1..7
-	ClassSchedulesStartTime dbtime.Tod `json:"class_schedules_start_time"   gorm:"type:time;not null;column:class_schedules_start_time"`
-	ClassSchedulesEndTime   dbtime.Tod `json:"class_schedules_end_time"     gorm:"type:time;not null;column:class_schedules_end_time"`
+	ClassScheduleDayOfWeek int       `gorm:"column:class_schedules_day_of_week;not null"` // 1..7
+	ClassScheduleStartTime time.Time `gorm:"column:class_schedules_start_time;type:time;not null"`
+	ClassScheduleEndTime   time.Time `gorm:"column:class_schedules_end_time;type:time;not null"`
 
 	// Batas berlaku
-	ClassSchedulesStartDate time.Time `json:"class_schedules_start_date" gorm:"type:date;not null;column:class_schedules_start_date"`
-	ClassSchedulesEndDate   time.Time `json:"class_schedules_end_date"   gorm:"type:date;not null;column:class_schedules_end_date"`
+	ClassScheduleStartDate time.Time `gorm:"column:class_schedules_start_date;type:date;not null"`
+	ClassScheduleEndDate   time.Time `gorm:"column:class_schedules_end_date;type:date;not null"`
 
 	// Status & metadata
-	ClassSchedulesStatus   SessionStatus `json:"class_schedules_status"   gorm:"type:session_status_enum;not null;default:'scheduled';column:class_schedules_status"`
-	ClassSchedulesIsActive bool          `json:"class_schedules_is_active" gorm:"type:boolean;not null;default:true;column:class_schedules_is_active"`
+	ClassScheduleStatus   SessionStatus `gorm:"type:session_status_enum;default:'scheduled';not null;column:class_schedules_status"`
+	ClassScheduleIsActive bool          `gorm:"column:class_schedules_is_active;default:true;not null"`
 
-	// Kolom generated (read-only; int4range -> string representasi)
-	ClassSchedulesTimeRange *string `json:"class_schedules_time_range,omitempty" gorm:"->;column:class_schedules_time_range"`
-
-	// Timestamps (explicit columns; DB juga punya default now())
-	ClassSchedulesCreatedAt time.Time      `json:"class_schedules_created_at" gorm:"column:class_schedules_created_at;autoCreateTime"`
-	ClassSchedulesUpdatedAt time.Time      `json:"class_schedules_updated_at" gorm:"column:class_schedules_updated_at;autoUpdateTime"`
-	ClassSchedulesDeletedAt gorm.DeletedAt `json:"class_schedules_deleted_at,omitempty" gorm:"column:class_schedules_deleted_at;index"`
+	// Timestamps
+	ClassScheduleCreatedAt time.Time      `gorm:"column:class_schedules_created_at;autoCreateTime"`
+	ClassScheduleUpdatedAt time.Time      `gorm:"column:class_schedules_updated_at;autoUpdateTime"`
+	ClassScheduleDeletedAt gorm.DeletedAt `gorm:"column:class_schedules_deleted_at;index"`
 }
 
 func (ClassScheduleModel) TableName() string { return "class_schedules" }
+
+func (cs *ClassScheduleModel) BeforeCreate(tx *gorm.DB) error {
+	if cs.ClassScheduleID == uuid.Nil {
+		cs.ClassScheduleID = uuid.New()
+	}
+	return nil
+}
+
+/* =========================
+   Referenced models (PK eksplisit)
+========================= */
+
+type ClassSectionSubjectTeacher struct {
+	ClassSectionSubjectTeachersID uuid.UUID `gorm:"type:uuid;primaryKey;column:class_section_subject_teachers_id"`
+}
+
+func (ClassSectionSubjectTeacher) TableName() string {
+	return "class_section_subject_teachers"
+}
+
+type ClassEvent struct {
+	ClassEventsID uuid.UUID `gorm:"type:uuid;primaryKey;column:class_events_id"`
+}
+
+func (ClassEvent) TableName() string { return "class_events" }

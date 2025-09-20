@@ -1,78 +1,104 @@
+// file: internals/features/school/others/announcements/controller/announcement_list_controller.go
 package controller
 
 import (
-	annThemeModel "masjidku_backend/internals/features/school/others/announcements/model"
 	"strings"
 	"time"
+
+	annDTO "masjidku_backend/internals/features/school/others/announcements/dto"
+	annModel "masjidku_backend/internals/features/school/others/announcements/model"
+	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-
-	annDTO "masjidku_backend/internals/features/school/others/announcements/dto"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
-// helper kecil untuk include: "urls", "theme"
-func parseInclude(raw string) map[string]bool {
-	m := map[string]bool{}
-	if raw == "" {
-		return m
-	}
-	for _, part := range strings.Split(strings.ToLower(strings.TrimSpace(raw)), ",") {
-		p := strings.TrimSpace(part)
-		if p != "" {
-			m[p] = true
+/* =========================================
+   Helpers
+========================================= */
+
+// Resolve masjid scope utk LIST:
+// - Jika ada context (path/header/cookie/query/host): validasi akses (DKM atau minimal member), return 1 ID
+// - Jika tidak ada: fallback ke semua masjid_ids dari token (multi-tenant)
+func resolveMasjidIDsForList(c *fiber.Ctx, db *gorm.DB) ([]uuid.UUID, error) {
+	// Inject DB agar helper slug→id bisa jalan
+	c.Locals("DB", db)
+
+	// 1) Coba context eksplisit
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		var masjidID uuid.UUID
+		if mc.ID != uuid.Nil {
+			masjidID = mc.ID
+		} else {
+			id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+			if er != nil || id == uuid.Nil {
+				return nil, fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			}
+			masjidID = id
 		}
+		// Minimal member
+		if !helperAuth.UserHasMasjid(c, masjidID) {
+			return nil, helperAuth.ErrMasjidContextForbidden
+		}
+		return []uuid.UUID{masjidID}, nil
 	}
-	return m
+
+	// 2) Fallback: semua masjid_ids dari token
+	ids, e := helperAuth.GetMasjidIDsFromToken(c)
+	if e != nil {
+		return nil, helper.JsonError(c, fiber.StatusUnauthorized, e.Error())
+	}
+	if len(ids) == 0 {
+		return nil, fiber.NewError(fiber.StatusForbidden, "Tidak ada akses masjid")
+	}
+	return ids, nil
 }
 
-// ===================== LIST =====================
+/* =========================================
+   LIST
+========================================= */
+
 // GET /admin/announcements
 func (h *AnnouncementController) List(c *fiber.Ctx) error {
-	// 1) Tenant scope
-	masjidIDs, err := helperAuth.GetMasjidIDsFromToken(c)
+	// 1) Tenant scope (pakai helper context)
+	masjidIDs, err := resolveMasjidIDsForList(c, h.DB)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+		// err bisa dari helper; bungkus ke JSON standar
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	if len(masjidIDs) == 0 {
-		return helper.JsonError(c, fiber.StatusForbidden, "Tidak ada akses masjid")
-	}
-
-	// 1a) Include flags (opsional)
-	inc := parseInclude(c.Query("include"))
-	includeTheme := inc["theme"] || inc["themes"] || inc["announcement_theme"]
 
 	// 2) Pagination & default sort
 	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
 
-	// 3) Parse DTO query
+	// 3) Parse DTO query (+ include langsung dari DTO) // <<< changed
 	var q annDTO.ListAnnouncementQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
+	includeTheme := q.WantTheme() // <<< changed
+	includeURLs := q.WantURLs()   // <<< changed
 
 	// 4) Base query (tenant-safe)
-	tx := h.DB.Model(&annThemeModel.AnnouncementModel{}).
+	tx := h.DB.Model(&annModel.AnnouncementModel{}).
 		Where("announcement_masjid_id IN ?", masjidIDs)
 
 	// 4a) Filter by IDs
 	if raw := strings.TrimSpace(c.Query("id")); raw != "" {
-		ids, e := parseUUIDsCSV(raw)
-		if e != nil {
+		if ids, e := parseUUIDsCSV(raw); e != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "id berisi UUID tidak valid")
-		}
-		if len(ids) > 0 {
+		} else if len(ids) > 0 {
 			tx = tx.Where("announcement_id IN ?", ids)
 		}
 	} else if raw := strings.TrimSpace(c.Query("announcement_id")); raw != "" {
-		ids, e := parseUUIDsCSV(raw)
-		if e != nil {
+		if ids, e := parseUUIDsCSV(raw); e != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "announcement_id berisi UUID tidak valid")
-		}
-		if len(ids) > 0 {
+		} else if len(ids) > 0 {
 			tx = tx.Where("announcement_id IN ?", ids)
 		}
 	}
@@ -86,27 +112,29 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 4c) Filter Section vs Global
+	// 4c) Section vs Global
 	includeGlobal := true
 	if q.IncludeGlobal != nil {
 		includeGlobal = *q.IncludeGlobal
 	}
 	onlyGlobal := q.OnlyGlobal != nil && *q.OnlyGlobal
 
-	sectionIDs, secErr := parseUUIDsCSV(strings.TrimSpace(c.Query("section_ids")))
-	if secErr != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "section_ids berisi UUID tidak valid")
-	}
-	switch {
-	case onlyGlobal:
-		tx = tx.Where("announcement_class_section_id IS NULL")
-	case len(sectionIDs) > 0:
-		if includeGlobal {
-			tx = tx.Where("(announcement_class_section_id IN ? OR announcement_class_section_id IS NULL)", sectionIDs)
-		} else {
-			tx = tx.Where("announcement_class_section_id IN ?", sectionIDs)
+	if rawSecs := strings.TrimSpace(c.Query("section_ids")); rawSecs != "" {
+		sectionIDs, secErr := parseUUIDsCSV(rawSecs)
+		if secErr != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "section_ids berisi UUID tidak valid")
 		}
-	case q.SectionID != nil:
+		switch {
+		case onlyGlobal:
+			tx = tx.Where("announcement_class_section_id IS NULL")
+		case len(sectionIDs) > 0:
+			if includeGlobal {
+				tx = tx.Where("(announcement_class_section_id IN ? OR announcement_class_section_id IS NULL)", sectionIDs)
+			} else {
+				tx = tx.Where("announcement_class_section_id IN ?", sectionIDs)
+			}
+		}
+	} else if q.SectionID != nil {
 		if *q.SectionID == uuid.Nil {
 			tx = tx.Where("announcement_class_section_id IS NULL")
 		} else if includeGlobal {
@@ -116,12 +144,32 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 4d) Filter attachment
+	// 4d) Filter attachment (pakai tabel URLs, bukan kolom lama)
 	if q.HasAttachment != nil {
 		if *q.HasAttachment {
-			tx = tx.Where("announcement_attachment_url IS NOT NULL AND announcement_attachment_url <> ''")
+			tx = tx.Where(`
+				EXISTS (
+					SELECT 1 FROM announcement_urls au
+					WHERE au.announcement_url_announcement_id = announcements.announcement_id
+					  AND au.announcement_url_masjid_id = announcements.announcement_masjid_id
+					  AND au.announcement_url_deleted_at IS NULL
+					  AND (
+						au.announcement_url_href IS NOT NULL AND au.announcement_url_href <> ''
+					  	OR au.announcement_url_object_key IS NOT NULL AND au.announcement_url_object_key <> ''
+					  )
+				)`)
 		} else {
-			tx = tx.Where("(announcement_attachment_url IS NULL OR announcement_attachment_url = '')")
+			tx = tx.Where(`
+				NOT EXISTS (
+					SELECT 1 FROM announcement_urls au
+					WHERE au.announcement_url_announcement_id = announcements.announcement_id
+					  AND au.announcement_url_masjid_id = announcements.announcement_masjid_id
+					  AND au.announcement_url_deleted_at IS NULL
+					  AND (
+						au.announcement_url_href IS NOT NULL AND au.announcement_url_href <> ''
+					  	OR au.announcement_url_object_key IS NOT NULL AND au.announcement_url_object_key <> ''
+					  )
+				)`)
 		}
 	}
 
@@ -174,7 +222,7 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 	}
 
 	// 7) Fetch rows
-	var rows []annThemeModel.AnnouncementModel
+	var rows []annModel.AnnouncementModel
 	if err := tx.
 		Order(orderExpr).
 		Limit(p.Limit()).
@@ -183,7 +231,7 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// 8) Batch-load Themes (HANYA jika include=theme)
+	// 8) Batch-load Themes (include=theme)
 	if includeTheme {
 		themeIDs := make([]uuid.UUID, 0, len(rows))
 		seen := make(map[uuid.UUID]struct{}, len(rows))
@@ -197,9 +245,8 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 				themeIDs = append(themeIDs, id)
 			}
 		}
-
 		if len(themeIDs) > 0 {
-			var themes []annThemeModel.AnnouncementThemeModel
+			var themes []annModel.AnnouncementThemeModel
 			if err := h.DB.
 				Select("announcement_themes_id, announcement_themes_masjid_id, announcement_themes_name, announcement_themes_color").
 				Where("announcement_themes_deleted_at IS NULL").
@@ -207,23 +254,68 @@ func (h *AnnouncementController) List(c *fiber.Ctx) error {
 				Find(&themes).Error; err != nil {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memuat tema")
 			}
-
-			// NOTE: map nilai (bukan pointer) supaya cocok dengan field Theme (value type)
-			tmap := make(map[uuid.UUID]annThemeModel.AnnouncementThemeModel, len(themes))
+			tmap := make(map[uuid.UUID]annModel.AnnouncementThemeModel, len(themes))
 			for i := range themes {
 				tmap[themes[i].AnnouncementThemesID] = themes[i]
 			}
-
 			for i := range rows {
 				if rows[i].AnnouncementThemeID != nil {
 					if th, ok := tmap[*rows[i].AnnouncementThemeID]; ok {
-						rows[i].Theme = th // <- assign value, cocok dengan tipe field
+						rows[i].Theme = th
 					}
 				}
 			}
 		}
 	}
 
+	// 9) Siapkan DTO list
+	out := make([]*annDTO.AnnouncementResponse, 0, len(rows))
+	for i := range rows {
+		out = append(out, annDTO.NewAnnouncementResponse(&rows[i]))
+	}
+
+	// 9a) Batch-load URLs jika diminta (pakai AttachURLs dari DTO) // <<< changed
+	if includeURLs && len(rows) > 0 {
+		annIDs := make([]uuid.UUID, 0, len(rows))
+		for i := range rows {
+			annIDs = append(annIDs, rows[i].AnnouncementID)
+		}
+
+		// Ambil rows sebagai model agar kompatibel dengan AttachURLs
+		var urlRows []annModel.AnnouncementURLModel
+		if err := h.DB.
+			// pilih kolom yang diperlukan AttachURLs (href, label, kind, order, is_primary, ann_id, id)
+			Select(`announcement_url_id,
+			        announcement_url_label,
+			        announcement_url_announcement_id,
+			        announcement_url_href,
+			        announcement_url_object_key,
+			        announcement_url_kind,
+			        announcement_url_order,
+			        announcement_url_is_primary,
+			        announcement_url_created_at`).
+			Where("announcement_url_deleted_at IS NULL").
+			Where("announcement_url_announcement_id IN ?", annIDs).
+			Order("announcement_url_order ASC, announcement_url_created_at ASC").
+			Find(&urlRows).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memuat lampiran")
+		}
+
+		// Group by announcement_id
+		urlMap := make(map[uuid.UUID][]annModel.AnnouncementURLModel, len(rows))
+		for i := range urlRows {
+			aid := urlRows[i].AnnouncementURLAnnouncementId
+			urlMap[aid] = append(urlMap[aid], urlRows[i])
+		}
+
+		// Lampirkan ke DTO
+		for i := range out {
+			if group, ok := urlMap[out[i].AnnouncementID]; ok {
+				out[i].AttachURLs(group)
+			}
+		}
+	}
+
 	// 10) Response
-	return helper.JsonList(c, nil, helper.BuildMeta(total, p))
+	return helper.JsonList(c, out, helper.BuildMeta(total, p))
 }

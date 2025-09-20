@@ -2,15 +2,18 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"strings"
-	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	annDTO "masjidku_backend/internals/features/school/others/announcements/dto"
 	annModel "masjidku_backend/internals/features/school/others/announcements/model"
@@ -50,40 +53,70 @@ func parseUUIDsCSV(s string) ([]uuid.UUID, error) {
 	return out, nil
 }
 
-// ===================== CREATE =====================
-// POST /admin/announcements
-// file: internals/features/school/others/announcements/controller/announcement_controller.go
+// =======================================
+// Masjid resolver (izin DKM atau member)
+// =======================================
 
-// ===================== CREATE =====================
-// POST /admin/announcements
-func (h *AnnouncementController) Create(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+func resolveMasjidIDUsingHelpers(c *fiber.Ctx) (uuid.UUID, string, bool, error) {
+	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+		return uuid.Nil, "", false, err
+	}
+	var masjidID uuid.UUID
+	var slug string = mc.Slug
+
+	if mc.ID != uuid.Nil {
+		masjidID = mc.ID
+	} else if mc.Slug != "" {
+		id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+		if er != nil || id == uuid.Nil {
+			return uuid.Nil, "", false, fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+		}
+		masjidID = id
+	} else {
+		return uuid.Nil, "", false, helperAuth.ErrMasjidContextMissing
 	}
 
-	// role detection
-	isAdmin := func() bool {
-		if id, err := helperAuth.GetMasjidIDFromToken(c); err == nil && id == masjidID {
-			return true
-		}
-		return false
-	}()
+	// Coba DKM/Admin dulu
+	if id, er := helperAuth.EnsureMasjidAccessDKM(c, helperAuth.MasjidContext{ID: masjidID}); er == nil && id != uuid.Nil {
+		return id, slug, true, nil
+	}
+	// Kalau bukan DKM, minimal harus member
+	if !helperAuth.UserHasMasjid(c, masjidID) {
+		return uuid.Nil, "", false, fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada masjid ini (membership).")
+	}
+	return masjidID, slug, false, nil
+}
+
+// ===================== CREATE =====================
+// POST /.../announcements
+
+func (h *AnnouncementController) Create(c *fiber.Ctx) error {
+	// Sisipkan DB utk resolver slug→id
+	c.Locals("DB", h.DB)
+
+	// Resolve masjid & role
+	masjidID, _, isAdminOrDKM, err := resolveMasjidIDUsingHelpers(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
 	isTeacher := func() bool {
 		if id, err := helperAuth.GetTeacherMasjidIDFromToken(c); err == nil && id == masjidID {
 			return true
 		}
 		return false
 	}()
-	if !isAdmin && !isTeacher {
+
+	if !isAdminOrDKM && !isTeacher {
 		return helper.JsonError(c, fiber.StatusForbidden, "Tidak diizinkan")
 	}
 
-	// Request DTO
 	var req annDTO.CreateAnnouncementRequest
-	ct := c.Get("Content-Type")
+	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
+	log.Printf("[ann.create] CT=%q path=%s masjid_id=%s admin_or_dkm=%v teacher=%v",
+		ct, c.OriginalURL(), masjidID, isAdminOrDKM, isTeacher)
 
-	// -------- Parse body --------
+	// ---------- Parse body ----------
 	if strings.HasPrefix(ct, "multipart/form-data") {
 		req.AnnouncementTitle = strings.TrimSpace(c.FormValue("announcement_title"))
 		req.AnnouncementDate = strings.TrimSpace(c.FormValue("announcement_date"))
@@ -104,54 +137,68 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 			req.AnnouncementIsActive = &b
 		}
 
-		// Ambil metadata urls (opsional)
+		// (1) JSON satu field (opsional)
 		if uj := strings.TrimSpace(c.FormValue("urls_json")); uj != "" {
 			if err := json.Unmarshal([]byte(uj), &req.URLs); err != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest, "urls_json tidak valid")
+				log.Printf("[ann.create] urls_json unmarshal error: %v, raw=%s", err, uj)
+				return helper.JsonError(c, fiber.StatusBadRequest, "urls_json tidak valid: "+err.Error())
 			}
 		}
+
+		// (2) Kalau belum ada, coba bracket/array style via helper
+		if len(req.URLs) == 0 {
+			if form, ferr := c.MultipartForm(); ferr == nil && form != nil {
+				ups := helperOSS.ParseURLUpsertsFromMultipart(form, &helperOSS.URLParseOptions{
+					BracketPrefix: "urls", // sesuaikan jika FE pakai prefix lain
+					DefaultKind:   "attachment",
+					// Array*Key dibiarkan default: url_kind[], url_label[], ...
+				})
+				if len(ups) > 0 {
+					for _, u := range ups {
+						req.URLs = append(req.URLs, annDTO.AnnouncementURLUpsert{
+							AnnouncementURLKind:      u.Kind,
+							AnnouncementURLLabel:     u.Label,
+							AnnouncementURLHref:      u.Href,
+							AnnouncementURLObjectKey: u.ObjectKey,
+							AnnouncementURLOrder:     u.Order,
+							AnnouncementURLIsPrimary: u.IsPrimary,
+						})
+					}
+				}
+			}
+		}
+
 	} else {
 		if err := c.BodyParser(&req); err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 		}
 	}
 
-	// Normalisasi sub-payload URL
+	// Normalisasi URL metadata
 	for i := range req.URLs {
 		req.URLs[i].Normalize()
 	}
 
-	// -------- Validasi DTO --------
+	// Validasi
 	if err := validateAnnouncement.Struct(req); err != nil {
 		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
 	}
 
-	// -------- Aturan role (Admin prioritas) --------
-	if isAdmin {
-		req.AnnouncementClassSectionID = nil // global
-	} else if isTeacher {
-		if req.AnnouncementClassSectionID == nil || *req.AnnouncementClassSectionID == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Teacher wajib memilih section")
-		}
-		if err := h.ensureSectionBelongsToMasjid(*req.AnnouncementClassSectionID, masjidID); err != nil {
-			return err
-		}
-	}
-
-	// -------- Mulai transaksi --------
+	// ---------- TX ----------
 	tx := h.DB.Begin()
 	if tx.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memulai transaksi")
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			tx.Rollback()
+			log.Printf("[ann.create] panic: %v (rollback)", r)
+			_ = tx.Rollback().Error
 		}
 	}()
 
-	// Build model Announcement
+	// Build & set created_by
 	m := req.ToModel(masjidID)
-	if isTeacher {
+	if isTeacher && !isAdminOrDKM {
 		mtID, err := helperAuth.GetMasjidTeacherIDForMasjid(c, masjidID)
 		if err != nil {
 			tx.Rollback()
@@ -164,13 +211,14 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 
 	if err := tx.Create(m).Error; err != nil {
 		tx.Rollback()
+		log.Printf("[ann.create] insert announcement error: %v", err)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat pengumuman")
 	}
 
-	// -------- Konstruksi URL items (gabungan JSON + multipart files) --------
+	// ---------- Build URL items ----------
 	var urlItems []annModel.AnnouncementURLModel
 
-	// (a) Dari req.URLs (JSON)
+	// (a) dari JSON / bracket/array (sudah diparse di req.URLs)
 	for _, it := range req.URLs {
 		row := annModel.AnnouncementURLModel{
 			AnnouncementURLMasjidId:       masjidID,
@@ -188,29 +236,35 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 		urlItems = append(urlItems, row)
 	}
 
-	// (b) Dari multipart files (jika ada)
+	// (b) dari files multipart (multi key support + log) via helper
 	if strings.HasPrefix(ct, "multipart/form-data") {
-		form, err := c.MultipartForm()
-		if err == nil && form != nil {
-			files := form.File["files[]"]
-			if len(files) > 0 {
-				// Siapkan OSS
-				oss, err := helperOSS.NewOSSServiceFromEnv("")
-				if err != nil {
+		if form, ferr := c.MultipartForm(); ferr == nil && form != nil {
+			for k, fhs := range form.File {
+				log.Printf("[ann.create] form.File key=%q count=%d", k, len(fhs))
+			}
+			fhs, usedKeys := helperOSS.CollectUploadFiles(form, nil)
+			log.Printf("[ann.create] collected files=%d via keys=%v", len(fhs), usedKeys)
+
+			if len(fhs) > 0 {
+				oss, oerr := helperOSS.NewOSSServiceFromEnv("")
+				if oerr != nil {
 					tx.Rollback()
+					log.Printf("[ann.create] OSS init error: %v", oerr)
 					return helper.JsonError(c, fiber.StatusBadGateway, "OSS tidak siap")
 				}
+				ctx := context.Background()
 
-				// Upload tiap file → tentukan slot metadata yang belum punya href/object_key
-				for _, fh := range files {
-					// upload (image → webp; non-image → raw)
-					publicURL, err := helperOSS.UploadAnyToOSS(c.Context(), oss, masjidID, "announcements", fh)
-					if err != nil {
+				for idx, fh := range fhs {
+					log.Printf("[ann.create] uploading file #%d name=%q size=%d", idx+1, fh.Filename, fh.Size)
+
+					publicURL, uerr := helperOSS.UploadAnyToOSS(ctx, oss, masjidID, "announcements", fh)
+					if uerr != nil {
 						tx.Rollback()
-						return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+						log.Printf("[ann.create] upload error for %q: %v", fh.Filename, uerr)
+						return helper.JsonError(c, fiber.StatusBadRequest, uerr.Error())
 					}
 
-					// cocokkan ke item metadata yang kosong; kalau tidak ada, buat default
+					// cari slot metadata yang kosong
 					var row *annModel.AnnouncementURLModel
 					for i := range urlItems {
 						if urlItems[i].AnnouncementURLHref == nil && urlItems[i].AnnouncementURLObjectKey == nil {
@@ -228,21 +282,24 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 						row = &urlItems[len(urlItems)-1]
 					}
 
-					// set href + object_key (diekstrak dari public URL)
 					row.AnnouncementURLHref = &publicURL
-					if key, err := helperOSS.ExtractKeyFromPublicURL(publicURL); err == nil {
+					if key, kerr := helperOSS.ExtractKeyFromPublicURL(publicURL); kerr == nil {
 						row.AnnouncementURLObjectKey = &key
 					}
-					// Kind default jika belum ada
 					if strings.TrimSpace(row.AnnouncementURLKind) == "" {
 						row.AnnouncementURLKind = "attachment"
 					}
+
+					log.Printf("[ann.create] uploaded -> url=%s kind=%s order=%d primary=%v",
+						publicURL, row.AnnouncementURLKind, row.AnnouncementURLOrder, row.AnnouncementURLIsPrimary)
 				}
+			} else {
+				log.Printf("[ann.create] no files found in multipart form")
 			}
 		}
 	}
 
-	// Validasi ringan konsistensi
+	// Konsistensi
 	for _, it := range urlItems {
 		if it.AnnouncementURLAnnouncementId != m.AnnouncementID {
 			tx.Rollback()
@@ -250,14 +307,14 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// Simpan URLs (bulk) jika ada
+	// Simpan URLs
 	if len(urlItems) > 0 {
 		if err := tx.Create(&urlItems).Error; err != nil {
 			tx.Rollback()
+			log.Printf("[ann.create] insert URLs error: %v", err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan lampiran")
 		}
-
-		// Enforce only-one primary per kind
+		// jaga supaya hanya 1 primary per kind
 		for _, it := range urlItems {
 			if it.AnnouncementURLIsPrimary {
 				if err := tx.Model(&annModel.AnnouncementURLModel{}).
@@ -265,6 +322,7 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 						masjidID, m.AnnouncementID, it.AnnouncementURLKind, it.AnnouncementURLId).
 					Update("announcement_url_is_primary", false).Error; err != nil {
 					tx.Rollback()
+					log.Printf("[ann.create] unset other primary error: %v", err)
 					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal set primary lampiran")
 				}
 			}
@@ -273,106 +331,82 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 
 	// Commit
 	if err := tx.Commit().Error; err != nil {
+		log.Printf("[ann.create] tx commit error: %v", err)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal commit transaksi")
 	}
 
-	// (opsional) embed urls ringkas di response — query cepat
-	// NOTE: kalau kamu mau langsung kembalikan daftar urls, buka komentar di bawah
-	/*
-		var rows []annModel.AnnouncementURLModel
-		_ = h.DB.Where("announcement_url_announcement_id = ?", m.AnnouncementID).
-			Order("announcement_url_order ASC, announcement_url_created_at ASC").
-			Find(&rows)
-		resp := annDTO.NewAnnouncementResponse(m)
-		for _, r := range rows {
-			if r.AnnouncementURLHref == nil { continue }
-			resp.Urls = append(resp.Urls, &annDTO.AnnouncementURLLite{
-				ID:             r.AnnouncementURLId,
-				Label:          r.AnnouncementURLLabel,
-				AnnouncementID: r.AnnouncementURLAnnouncementId,
-				Href:           *r.AnnouncementURLHref,
-			})
+	// isi URLs ringkas utk response
+	var rows []annModel.AnnouncementURLModel
+	_ = h.DB.Where("announcement_url_announcement_id = ?", m.AnnouncementID).
+		Order("announcement_url_order ASC, announcement_url_created_at ASC").
+		Find(&rows)
+	resp := annDTO.NewAnnouncementResponse(m)
+	for _, r := range rows {
+		if r.AnnouncementURLHref == nil {
+			continue
 		}
-		return helper.JsonCreated(c, "Pengumuman & lampiran berhasil dibuat", resp)
-	*/
-
-	// default (tanpa embed URLs)
-	return helper.JsonCreated(c, "Pengumuman berhasil dibuat", annDTO.NewAnnouncementResponse(m))
-}
-
-// Pastikan section milik masjid ini
-func (h *AnnouncementController) ensureSectionBelongsToMasjid(sectionID, masjidID uuid.UUID) error {
-	var cnt int64
-	if err := h.DB.
-		Table("class_sections").
-		Joins("JOIN classes ON classes.class_id = class_sections.class_sections_class_id").
-		Where("class_sections.class_sections_id = ? AND classes.class_masjid_id = ?", sectionID, masjidID).
-		Count(&cnt).Error; err != nil {
-		return helper.JsonError(nil, fiber.StatusInternalServerError, "Gagal validasi section")
+		resp.Urls = append(resp.Urls, &annDTO.AnnouncementURLLite{
+			ID:             r.AnnouncementURLId,
+			Label:          r.AnnouncementURLLabel,
+			AnnouncementID: r.AnnouncementURLAnnouncementId,
+			Href:           *r.AnnouncementURLHref,
+		})
 	}
-	if cnt == 0 {
-		return helper.JsonError(nil, fiber.StatusBadRequest, "Section bukan milik masjid Anda")
-	}
-	return nil
+
+	log.Printf("[ann.create] OK announcement_id=%s urls=%d", m.AnnouncementID, len(resp.Urls))
+	return helper.JsonCreated(c, "Pengumuman & lampiran berhasil dibuat", resp)
 }
 
 // --- tenant guard fetch
-func (h *AnnouncementController) findWithTenantGuard(id, masjidID uuid.UUID) (*annModel.AnnouncementModel, error) {
-	var m annModel.AnnouncementModel
-	if err := h.DB.Where("announcement_id = ? AND announcement_masjid_id = ?", id, masjidID).First(&m).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, helper.JsonError(nil, fiber.StatusNotFound, "Pengumuman tidak ditemukan")
-		}
-		return nil, helper.JsonError(nil, fiber.StatusInternalServerError, "Gagal mengambil pengumuman")
-	}
-	return &m, nil
-}
 
 // ===================== UPDATE =====================
 // PUT /admin/announcements/:id
 func (h *AnnouncementController) Update(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
-	userID, err := helperAuth.GetUserIDFromToken(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
+	// Sisipkan DB utk resolver slug→id (dipakai helperAuth.GetMasjidIDBySlug)
+	c.Locals("DB", h.DB)
 
-	annID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+	// Resolve masjid & role
+	masjidID, _, isAdminOrDKM, err := resolveMasjidIDUsingHelpers(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-
-	// role detection
-	isAdmin := func() bool {
-		if id, err := helperAuth.GetMasjidIDFromToken(c); err == nil && id == masjidID {
-			return true
-		}
-		return false
-	}()
 	isTeacher := func() bool {
 		if id, err := helperAuth.GetTeacherMasjidIDFromToken(c); err == nil && id == masjidID {
 			return true
 		}
 		return false
 	}()
-	if !isAdmin && !isTeacher {
+	if !isAdminOrDKM && !isTeacher {
 		return helper.JsonError(c, fiber.StatusForbidden, "Tidak diizinkan")
 	}
 
-	// fetch existing (tenant-safe)
-	existing, err := h.findWithTenantGuard(annID, masjidID)
-	if err != nil {
-		return err
+	// Param ID
+	rawID := strings.TrimSpace(c.Params("id"))
+	annID, err := uuid.Parse(rawID)
+	if err != nil || annID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "announcement_id tidak valid")
 	}
 
+	// Ambil record existing (beserta Theme minimal untuk response builder)
+	var m annModel.AnnouncementModel
+	if err := h.DB.
+		Preload("Theme").
+		Where("announcement_id = ? AND announcement_masjid_id = ?", annID, masjidID).
+		First(&m).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "Pengumuman tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
+	}
+
+	// ========== Parse body ==========
 	var req annDTO.UpdateAnnouncementRequest
 	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
+	log.Printf("[ann.update] CT=%q path=%s ann_id=%s masjid_id=%s admin_or_dkm=%v teacher=%v",
+		ct, c.OriginalURL(), annID, masjidID, isAdminOrDKM, isTeacher)
 
-	// parse payload (multipart / json)
 	if strings.HasPrefix(ct, "multipart/form-data") {
+		// Text fields
 		if v := strings.TrimSpace(c.FormValue("announcement_title")); v != "" {
 			req.AnnouncementTitle = &v
 		}
@@ -387,181 +421,352 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 			req.AnnouncementIsActive = &b
 		}
 		if v := strings.TrimSpace(c.FormValue("announcement_theme_id")); v != "" {
-			if id, e := uuid.Parse(v); e == nil {
+			if id, err := uuid.Parse(v); err == nil {
 				req.AnnouncementThemeID = &id
 			}
 		}
 		if v := strings.TrimSpace(c.FormValue("announcement_class_section_id")); v != "" {
-			if id, e := uuid.Parse(v); e == nil {
+			// kosongkan jadi NULL kalau string = "null"
+			if strings.EqualFold(v, "null") {
+				req.AnnouncementClassSectionID = nil
+			} else if id, err := uuid.Parse(v); err == nil {
 				req.AnnouncementClassSectionID = &id
 			}
 		}
+
+		// (1) urls_json (append metadata URL baru)
+		if uj := strings.TrimSpace(c.FormValue("urls_json")); uj != "" {
+			if err := json.Unmarshal([]byte(uj), &req.URLs); err != nil {
+				log.Printf("[ann.update] urls_json unmarshal error: %v, raw=%s", err, uj)
+				return helper.JsonError(c, fiber.StatusBadRequest, "urls_json tidak valid: "+err.Error())
+			}
+		}
+
+		// (2) Bracket/array style → append juga (sama seperti Create), via helper
+		if len(req.URLs) == 0 {
+			if form, ferr := c.MultipartForm(); ferr == nil && form != nil {
+				ups := helperOSS.ParseURLUpsertsFromMultipart(form, &helperOSS.URLParseOptions{
+					BracketPrefix: "urls",
+					DefaultKind:   "attachment",
+				})
+				if len(ups) > 0 {
+					for _, u := range ups {
+						req.URLs = append(req.URLs, annDTO.AnnouncementURLUpsert{
+							AnnouncementURLKind:      u.Kind,
+							AnnouncementURLLabel:     u.Label,
+							AnnouncementURLHref:      u.Href,
+							AnnouncementURLObjectKey: u.ObjectKey,
+							AnnouncementURLOrder:     u.Order,
+							AnnouncementURLIsPrimary: u.IsPrimary,
+						})
+					}
+				}
+			}
+		}
+
+		// (3) Delete IDs: url_delete_ids = "uuid1,uuid2"
+		if del := strings.TrimSpace(c.FormValue("url_delete_ids")); del != "" {
+			ids, err := parseUUIDsCSV(del)
+			if err != nil {
+				return helper.JsonError(c, fiber.StatusBadRequest, "url_delete_ids tidak valid")
+			}
+			req.DeleteURLIDs = ids
+		}
+
+		// (4) Set primary per-kind: url_primary_kind[] + url_primary_id[]
+		if form, ferr := c.MultipartForm(); ferr == nil && form != nil {
+			kinds := form.Value["url_primary_kind[]"]
+			ids := form.Value["url_primary_id[]"]
+			for i := 0; i < len(kinds) && i < len(ids); i++ {
+				kind := strings.TrimSpace(kinds[i])
+				if kind == "" {
+					continue
+				}
+				if id, err := uuid.Parse(strings.TrimSpace(ids[i])); err == nil && id != uuid.Nil {
+					if req.PrimaryPerKind == nil {
+						req.PrimaryPerKind = map[string]uuid.UUID{}
+					}
+					req.PrimaryPerKind[kind] = id
+				}
+			}
+		}
 	} else {
+		// JSON
 		if err := c.BodyParser(&req); err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 		}
 	}
 
-	// Normalisasi: uuid.Nil => NULL
-	if req.AnnouncementThemeID != nil && *req.AnnouncementThemeID == uuid.Nil {
-		req.AnnouncementThemeID = nil
-	}
-	if req.AnnouncementClassSectionID != nil && *req.AnnouncementClassSectionID == uuid.Nil {
-		req.AnnouncementClassSectionID = nil
+	// Normalisasi URL metadata (append)
+	for i := range req.URLs {
+		req.URLs[i].Normalize()
 	}
 
-	// Validasi DTO
-	if err := validateAnnouncement.Struct(req); err != nil {
-		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
+	// Validasi ringan (abaikan required pada field nil)
+	if err := validateAnnouncement.StructPartial(req); err != nil {
+		// optional: log/ignore sesuai kebutuhan
 	}
 
-	// Aturan per-role
-	if isAdmin && !isTeacher {
-		req.AnnouncementClassSectionID = nil // Admin → GLOBAL
+	// ========== TX ==========
+	tx := h.DB.Begin()
+	if tx.Error != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memulai transaksi")
 	}
-	if isTeacher && req.AnnouncementClassSectionID != nil {
-		if err := h.ensureSectionBelongsToMasjid(*req.AnnouncementClassSectionID, masjidID); err != nil {
-			return err
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[ann.update] panic: %v (rollback)", r)
+			_ = tx.Rollback().Error
 		}
+	}()
+
+	// Lock row
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("announcement_id = ? AND announcement_masjid_id = ?", annID, masjidID).
+		First(&m).Error; err != nil {
+		tx.Rollback()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "Pengumuman tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Build updates map agar nilai falsy (false / "") juga ter-update
-	updates := map[string]interface{}{}
-	if req.AnnouncementTitle != nil {
-		updates["announcement_title"] = strings.TrimSpace(*req.AnnouncementTitle)
+	// Terapkan perubahan field dasar
+	req.ApplyToModel(&m)
+
+	// Simpan perubahan dasar
+	if err := tx.Save(&m).Error; err != nil {
+		tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan")
 	}
-	if req.AnnouncementDate != nil {
-		if dt := strings.TrimSpace(*req.AnnouncementDate); dt != "" {
-			if parsed, e := time.Parse("2006-01-02", dt); e == nil {
-				updates["announcement_date"] = parsed
-			} else {
-				return helper.JsonError(c, fiber.StatusBadRequest, "announcement_date tidak valid (YYYY-MM-DD)")
+
+	// ====== Operasi URL: append dari metadata/file, delete by IDs, set primary per-kind ======
+
+	// (a) append dari metadata
+	var toInsert []annModel.AnnouncementURLModel
+	for _, it := range req.URLs {
+		row := annModel.AnnouncementURLModel{
+			AnnouncementURLMasjidId:       masjidID,
+			AnnouncementURLAnnouncementId: m.AnnouncementID,
+			AnnouncementURLKind:           strings.TrimSpace(it.AnnouncementURLKind),
+			AnnouncementURLHref:           it.AnnouncementURLHref,
+			AnnouncementURLObjectKey:      it.AnnouncementURLObjectKey,
+			AnnouncementURLLabel:          it.AnnouncementURLLabel,
+			AnnouncementURLOrder:          it.AnnouncementURLOrder,
+			AnnouncementURLIsPrimary:      it.AnnouncementURLIsPrimary,
+		}
+		if row.AnnouncementURLKind == "" {
+			row.AnnouncementURLKind = "attachment"
+		}
+		toInsert = append(toInsert, row)
+	}
+
+	// (b) append dari files multipart (pakai helper)
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		if form, ferr := c.MultipartForm(); ferr == nil && form != nil {
+			for k, fhs := range form.File {
+				log.Printf("[ann.update] form.File key=%q count=%d", k, len(fhs))
+			}
+			fhs, usedKeys := helperOSS.CollectUploadFiles(form, nil)
+			log.Printf("[ann.update] collected files=%d via keys=%v", len(fhs), usedKeys)
+
+			if len(fhs) > 0 {
+				oss, oerr := helperOSS.NewOSSServiceFromEnv("")
+				if oerr != nil {
+					tx.Rollback()
+					log.Printf("[ann.update] OSS init error: %v", oerr)
+					return helper.JsonError(c, fiber.StatusBadGateway, "OSS tidak siap")
+				}
+				ctx := context.Background()
+
+				for idx, fh := range fhs {
+					log.Printf("[ann.update] uploading file #%d name=%q size=%d", idx+1, fh.Filename, fh.Size)
+
+					publicURL, uerr := helperOSS.UploadAnyToOSS(ctx, oss, masjidID, "announcements", fh)
+					if uerr != nil {
+						tx.Rollback()
+						log.Printf("[ann.update] upload error for %q: %v", fh.Filename, uerr)
+						return helper.JsonError(c, fiber.StatusBadRequest, uerr.Error())
+					}
+
+					row := annModel.AnnouncementURLModel{
+						AnnouncementURLMasjidId:       masjidID,
+						AnnouncementURLAnnouncementId: m.AnnouncementID,
+						AnnouncementURLKind:           "attachment",
+						AnnouncementURLOrder:          0, // auto / bisa diatur sesudahnya
+					}
+					row.AnnouncementURLHref = &publicURL
+					if key, kerr := helperOSS.ExtractKeyFromPublicURL(publicURL); kerr == nil {
+						row.AnnouncementURLObjectKey = &key
+					}
+					toInsert = append(toInsert, row)
+				}
 			}
 		}
 	}
-	if req.AnnouncementContent != nil {
-		updates["announcement_content"] = strings.TrimSpace(*req.AnnouncementContent)
-	}
-	if req.AnnouncementIsActive != nil {
-		updates["announcement_is_active"] = *req.AnnouncementIsActive
-	}
-	if req.AnnouncementThemeID != nil {
-		updates["announcement_theme_id"] = req.AnnouncementThemeID // nil → set NULL
-	}
-	if req.AnnouncementClassSectionID != nil {
-		updates["announcement_class_section_id"] = req.AnnouncementClassSectionID // nil → set NULL
+
+	// Insert batch (kalau ada)
+	if len(toInsert) > 0 {
+		if err := tx.Create(&toInsert).Error; err != nil {
+			tx.Rollback()
+			log.Printf("[ann.update] insert new URLs error: %v", err)
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menambah lampiran")
+		}
 	}
 
-	// Tidak ada perubahan
-	if len(updates) == 0 {
-		return helper.JsonUpdated(c, "Tidak ada perubahan", annDTO.NewAnnouncementResponse(existing))
+	// Delete by IDs (scoped ke masjid & ann)
+	if len(req.DeleteURLIDs) > 0 {
+		if err := tx.Where("announcement_url_masjid_id = ? AND announcement_url_announcement_id = ? AND announcement_url_id IN ?",
+			masjidID, m.AnnouncementID, req.DeleteURLIDs).
+			Delete(&annModel.AnnouncementURLModel{}).Error; err != nil {
+			tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus lampiran")
+		}
 	}
 
-	// Enforce rule setelah perubahan diaplikasikan:
-	if isTeacher && !isAdmin {
-		finalSection := existing.AnnouncementClassSectionID
-		if v, ok := updates["announcement_class_section_id"]; ok {
-			if v == nil {
-				finalSection = nil
-			} else if ptr, ok2 := v.(*uuid.UUID); ok2 {
-				finalSection = ptr
+	// Set primary per-kind (jika ada)
+	if len(req.PrimaryPerKind) > 0 {
+		for kind, id := range req.PrimaryPerKind {
+			// Pastikan id milik ann & kind tsb
+			var cnt int64
+			if err := tx.Model(&annModel.AnnouncementURLModel{}).
+				Where("announcement_url_masjid_id = ? AND announcement_url_announcement_id = ? AND announcement_url_id = ? AND announcement_url_kind = ?",
+					masjidID, m.AnnouncementID, id, kind).
+				Count(&cnt).Error; err != nil || cnt == 0 {
+				tx.Rollback()
+				return helper.JsonError(c, fiber.StatusBadRequest, "Primary lampiran tidak valid untuk kind="+kind)
+			}
+			// Unset others
+			if err := tx.Model(&annModel.AnnouncementURLModel{}).
+				Where("announcement_url_masjid_id = ? AND announcement_url_announcement_id = ? AND announcement_url_kind = ?",
+					masjidID, m.AnnouncementID, kind).
+				Update("announcement_url_is_primary", false).Error; err != nil {
+				tx.Rollback()
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal reset primary "+kind)
+			}
+			// Set target
+			if err := tx.Model(&annModel.AnnouncementURLModel{}).
+				Where("announcement_url_id = ?", id).
+				Update("announcement_url_is_primary", true).Error; err != nil {
+				tx.Rollback()
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal set primary "+kind)
 			}
 		}
-		if finalSection == nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Teacher wajib memilih section (tidak boleh global)")
+	}
+
+	// Commit
+	if err := tx.Commit().Error; err != nil {
+		log.Printf("[ann.update] tx commit error: %v", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal commit transaksi")
+	}
+
+	// Response (lengkap dengan Urls ringkas)
+	var rows []annModel.AnnouncementURLModel
+	_ = h.DB.Where("announcement_url_announcement_id = ?", m.AnnouncementID).
+		Order("announcement_url_order ASC, announcement_url_created_at ASC").
+		Find(&rows)
+
+	resp := annDTO.NewAnnouncementResponse(&m)
+	for _, r := range rows {
+		if r.AnnouncementURLHref == nil {
+			continue
 		}
-		// Hanya pembuat yang boleh update
-		if existing.AnnouncementCreatedByTeacherID != nil && *existing.AnnouncementCreatedByTeacherID != userID {
-			return helper.JsonError(c, fiber.StatusForbidden, "Hanya pembuat yang boleh mengubah pengumuman ini")
-		}
+		resp.Urls = append(resp.Urls, &annDTO.AnnouncementURLLite{
+			ID:             r.AnnouncementURLId,
+			Label:          r.AnnouncementURLLabel,
+			AnnouncementID: r.AnnouncementURLAnnouncementId,
+			Href:           *r.AnnouncementURLHref,
+		})
 	}
 
-	// Jalankan update
-	if err := h.DB.Model(&annModel.AnnouncementModel{}).
-		Where("announcement_id = ? AND announcement_masjid_id = ?", existing.AnnouncementID, masjidID).
-		Updates(updates).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui pengumuman")
-	}
-
-	// Reload agar updated_at terbaru ikut
-	var after annModel.AnnouncementModel
-	if err := h.DB.
-		Where("announcement_id = ? AND announcement_masjid_id = ?", existing.AnnouncementID, masjidID).
-		First(&after).Error; err == nil {
-		return helper.JsonUpdated(c, "Pengumuman diperbarui", annDTO.NewAnnouncementResponse(&after))
-	}
-
-	// Fallback jika reload gagal
-	return helper.JsonUpdated(c, "Pengumuman diperbarui", annDTO.NewAnnouncementResponse(existing))
+	log.Printf("[ann.update] OK announcement_id=%s urls=%d", m.AnnouncementID, len(resp.Urls))
+	return helper.JsonOK(c, "Pengumuman berhasil diperbarui", resp)
 }
 
-// ===================== DELETE =====================
-// DELETE /admin/announcements/:id (soft/hard via ?force=true)
+// ===================== DELETE (single attachment) =====================
+// DELETE /.../announcements/:id/urls/:url_id
 func (h *AnnouncementController) Delete(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
-	userID, err := helperAuth.GetUserIDFromToken(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
-	annID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
+	c.Locals("DB", h.DB)
 
-	// role detection
-	isAdmin := func() bool {
-		if id, err := helperAuth.GetMasjidIDFromToken(c); err == nil && id == masjidID {
-			return true
-		}
-		return false
-	}()
+	masjidID, _, isAdminOrDKM, err := resolveMasjidIDUsingHelpers(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
 	isTeacher := func() bool {
 		if id, err := helperAuth.GetTeacherMasjidIDFromToken(c); err == nil && id == masjidID {
 			return true
 		}
 		return false
 	}()
-	if !isAdmin && !isTeacher {
+	if !isAdminOrDKM && !isTeacher {
 		return helper.JsonError(c, fiber.StatusForbidden, "Tidak diizinkan")
 	}
 
-	existing, err := h.findWithTenantGuard(annID, masjidID)
-	if err != nil {
-		return err
+	annID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+	if err != nil || annID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "announcement_id tidak valid")
+	}
+	urlID, err := uuid.Parse(strings.TrimSpace(c.Params("url_id")))
+	if err != nil || urlID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "url_id tidak valid")
 	}
 
-	// Rule delete
-	if isTeacher && !isAdmin {
-		if existing.AnnouncementClassSectionID == nil {
-			return helper.JsonError(c, fiber.StatusForbidden, "Teacher tidak boleh menghapus pengumuman global")
+	// Pastikan ann milik masjid ini
+	var m annModel.AnnouncementModel
+	if err := h.DB.
+		Where("announcement_id = ? AND announcement_masjid_id = ?", annID, masjidID).
+		First(&m).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "Pengumuman tidak ditemukan")
 		}
-		if existing.AnnouncementCreatedByTeacherID != nil && *existing.AnnouncementCreatedByTeacherID != userID {
-			return helper.JsonError(c, fiber.StatusForbidden, "Hanya pembuat yang boleh menghapus pengumuman ini")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil pengumuman")
+	}
+
+	// Ambil URL row
+	var u annModel.AnnouncementURLModel
+	if err := h.DB.
+		Where("announcement_url_id = ? AND announcement_url_masjid_id = ? AND announcement_url_announcement_id = ?",
+			urlID, masjidID, annID).
+		First(&u).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "Lampiran tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil lampiran")
+	}
+
+	// TX (ringan)
+	tx := h.DB.Begin()
+	if tx.Error != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memulai transaksi")
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			_ = tx.Rollback().Error
+		}
+	}()
+
+	// Pindahkan file ke spam (best-effort)
+	if u.AnnouncementURLHref != nil && strings.TrimSpace(*u.AnnouncementURLHref) != "" {
+		if dst, err := helperOSS.MoveToSpamByPublicURLENV(*u.AnnouncementURLHref, 0); err != nil {
+			log.Printf("[ann.url.delete] move-to-spam gagal: %v (href=%s)", err, *u.AnnouncementURLHref)
+		} else {
+			log.Printf("[ann.url.delete] moved to spam: %s", dst)
 		}
 	}
 
-	// Opsi hard delete
-	force := strings.EqualFold(c.Query("force"), "true")
-
-	db := h.DB
-	if force {
-		db = db.Unscoped()
+	// Hapus row (hard)
+	if err := tx.Where(
+		"announcement_url_id = ? AND announcement_url_masjid_id = ? AND announcement_url_announcement_id = ?",
+		urlID, masjidID, annID,
+	).Delete(&annModel.AnnouncementURLModel{}).Error; err != nil {
+		tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus lampiran")
 	}
 
-	if err := db.
-		Where("announcement_id = ? AND announcement_masjid_id = ?", existing.AnnouncementID, masjidID).
-		Delete(&annModel.AnnouncementModel{}).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus pengumuman")
+	if err := tx.Commit().Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal commit transaksi")
 	}
-
-	msg := "Pengumuman dihapus"
-	if force {
-		msg = "Pengumuman dihapus permanen"
-	}
-	return helper.JsonDeleted(c, msg, fiber.Map{
-		"announcement_id": existing.AnnouncementID,
+	return helper.JsonOK(c, "Lampiran berhasil dihapus", fiber.Map{
+		"announcement_id": annID,
+		"url_id":          urlID,
 	})
 }

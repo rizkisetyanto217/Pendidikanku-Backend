@@ -54,39 +54,24 @@ func applyFiltersQuizzes(db *gorm.DB, q *dto.ListQuizzesQuery) *gorm.DB {
 	if q == nil {
 		return db
 	}
-
-	// Partial-index friendly predicate
 	db = db.Where("quizzes_deleted_at IS NULL")
 
-	// Filter by ID (PK)
 	if q.ID != nil && *q.ID != uuid.Nil {
 		db = db.Where("quizzes_id = ?", *q.ID)
 	}
-
-	// Scope tenant
 	if q.MasjidID != nil && *q.MasjidID != uuid.Nil {
 		db = db.Where("quizzes_masjid_id = ?", *q.MasjidID)
 	}
-
-	// Relasi assessment (opsional)
 	if q.AssessmentID != nil && *q.AssessmentID != uuid.Nil {
 		db = db.Where("quizzes_assessment_id = ?", *q.AssessmentID)
 	}
-
-	// Published flag (opsional)
 	if q.IsPublished != nil {
 		db = db.Where("quizzes_is_published = ?", *q.IsPublished)
 	}
-
-	// Pencarian teks (title/description) — manfaatkan gin_trgm_ops
 	if s := strings.TrimSpace(q.Q); s != "" {
 		like := "%" + s + "%"
-		db = db.Where(
-			"(quizzes_title ILIKE ? OR COALESCE(quizzes_description,'') ILIKE ?)",
-			like, like,
-		)
+		db = db.Where("(quizzes_title ILIKE ? OR COALESCE(quizzes_description,'') ILIKE ?)", like, like)
 	}
-
 	return db
 }
 
@@ -99,7 +84,7 @@ func preloadQuestions(tx *gorm.DB, q *dto.ListQuizzesQuery) *gorm.DB {
 		switch strings.ToLower(strings.TrimSpace(q.QuestionsOrder)) {
 		case "created_at":
 			db = db.Order("quiz_questions_created_at ASC")
-		default: // "desc_created_at" or empty
+		default:
 			db = db.Order("quiz_questions_created_at DESC")
 		}
 		if q.QuestionsLimit > 0 {
@@ -107,6 +92,46 @@ func preloadQuestions(tx *gorm.DB, q *dto.ListQuizzesQuery) *gorm.DB {
 		}
 		return db
 	})
+}
+
+/* =======================
+   Auth helper (DKM/Admin ATAU Teacher)
+======================= */
+
+func resolveMasjidForDKMOrTeacher(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) {
+	// injek DB agar GetMasjidIDBySlug bisa jalan
+	c.Locals("DB", db)
+
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	var mid uuid.UUID
+	if mc.ID != uuid.Nil {
+		mid = mc.ID
+	} else if s := strings.TrimSpace(mc.Slug); s != "" {
+		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		if er != nil || id == uuid.Nil {
+			return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+		}
+		mid = id
+	} else {
+		return uuid.Nil, helperAuth.ErrMasjidContextMissing
+	}
+
+	// 1) DKM/Admin?
+	if err := helperAuth.EnsureDKMMasjid(c, mid); err == nil {
+		return mid, nil
+	}
+	// 2) Teacher pada masjid ini?
+	if helperAuth.IsTeacher(c) {
+		if tMid, _ := helperAuth.GetTeacherMasjidIDFromToken(c); tMid != uuid.Nil && tMid == mid {
+			return mid, nil
+		}
+	}
+	// 3) gagal
+	return uuid.Nil, helperAuth.ErrMasjidContextForbidden
 }
 
 /* =======================
@@ -123,15 +148,16 @@ func (ctrl *QuizController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil || mid == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
-	}
-	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, mid); err != nil {
-		return err
+	mid, err := resolveMasjidForDKMOrTeacher(c, ctrl.DB)
+	if err != nil {
+		// helper sudah mengembalikan *fiber.Error; bungkus ke JSON standar
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Force masjid_id ke tenant untuk menghindari spoofing
+	// Force masjid_id dari context (anti spoofing cross-tenant)
 	body.QuizzesMasjidID = mid
 
 	m := body.ToModel()
@@ -148,12 +174,12 @@ func (ctrl *QuizController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil || mid == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
-	}
-	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, mid); err != nil {
-		return err
+	mid, err := resolveMasjidForDKMOrTeacher(c, ctrl.DB)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	var m model.QuizModel
@@ -201,12 +227,12 @@ func (ctrl *QuizController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	mid, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil || mid == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
-	}
-	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, mid); err != nil {
-		return err
+	mid, err := resolveMasjidForDKMOrTeacher(c, ctrl.DB)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	var m model.QuizModel

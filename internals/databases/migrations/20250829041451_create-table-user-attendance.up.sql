@@ -178,7 +178,6 @@ CREATE TABLE IF NOT EXISTS user_attendance_urls (
   user_attendance_url_href                 TEXT,        -- URL publik (boleh NULL jika pakai object storage)
   user_attendance_url_object_key           TEXT,        -- object key aktif di storage
   user_attendance_url_object_key_old       TEXT,        -- object key lama (retensi in-place replace)
-  user_attendance_url_mime                 VARCHAR(80), -- opsional
 
   -- Metadata tampilan
   user_attendance_url_label                VARCHAR(160),

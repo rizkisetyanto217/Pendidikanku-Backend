@@ -36,7 +36,6 @@ func NewQuizQuestionsController(db *gorm.DB) *QuizQuestionsController {
    Tenant helpers
 ========================================================= */
 
-
 func (ctl *QuizQuestionsController) applyFilters(db *gorm.DB, masjidID uuid.UUID, quizID *uuid.UUID, qType string, q string) *gorm.DB {
 	db = db.Where("quiz_questions_masjid_id = ? AND quiz_questions_deleted_at IS NULL", masjidID)
 	if quizID != nil && *quizID != uuid.Nil {
@@ -71,14 +70,15 @@ func (ctl *QuizQuestionsController) applySort(db *gorm.DB, sort string) *gorm.DB
 	}
 }
 
-
-
 /* =========================================================
-   WRITE (Admin/Teacher)
+   WRITE (DKM/Admin)
 ========================================================= */
 
 // POST /quiz-questions
 func (ctl *QuizQuestionsController) Create(c *fiber.Ctx) error {
+	// agar helper slug→id bisa akses DB dari context
+	c.Locals("DB", ctl.DB)
+
 	var req qdto.CreateQuizQuestionRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
@@ -87,16 +87,23 @@ func (ctl *QuizQuestionsController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	mid, err := helperAuth.GetMasjidIDFromToken(c) // ini prefer DKM/Admin (bukan teacher)
-	if err != nil || mid == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	// 🔒 Resolve masjid + wajib DKM/Admin
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	if err := helperAuth.EnsureDKMMasjid(c, mid); err != nil {
-		return err
+	mid, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-
-	// Force masjid_id dari tenant
+	// Force masjid_id dari tenant context
 	req.QuizQuestionsMasjidID = mid
 
 	// Safety: pastikan quiz_id milik masjid tenant
@@ -132,18 +139,29 @@ func (ctl *QuizQuestionsController) Create(c *fiber.Ctx) error {
 
 // PATCH /quiz-questions/:id
 func (ctl *QuizQuestionsController) Patch(c *fiber.Ctx) error {
+	// agar helper slug→id bisa akses DB dari context
+	c.Locals("DB", ctl.DB)
+
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
-	mid, err := helperAuth.GetMasjidIDFromToken(c) // ini prefer DKM/Admin (bukan teacher)
-	if err != nil || mid == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
-	}
-	if err := helperAuth.EnsureDKMMasjid(c, mid); err != nil {
-		return err
-	}
 
+	// 🔒 Resolve masjid + wajib DKM/Admin
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+	mid, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
 
 	var m qmodel.QuizQuestionModel
 	if err := ctl.DB.
@@ -182,7 +200,6 @@ func (ctl *QuizQuestionsController) Patch(c *fiber.Ctx) error {
 	if err := ctl.DB.
 		Model(&qmodel.QuizQuestionModel{}).
 		Where("quiz_questions_id = ?", m.QuizQuestionsID).
-		// gunakan Select(clause.Associations) jika ingin ikut associations (tidak perlu di sini)
 		Select("*").
 		Updates(&m).Error; err != nil {
 		if isCheckViolation(err) {
@@ -200,18 +217,29 @@ func (ctl *QuizQuestionsController) Patch(c *fiber.Ctx) error {
 
 // DELETE /quiz-questions/:id (soft delete: set deleted_at)
 func (ctl *QuizQuestionsController) Delete(c *fiber.Ctx) error {
+	// agar helper slug→id bisa akses DB dari context
+	c.Locals("DB", ctl.DB)
+
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
-	mid, err := helperAuth.GetMasjidIDFromToken(c) // ini prefer DKM/Admin (bukan teacher)
-	if err != nil || mid == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
-	}
-	if err := helperAuth.EnsureDKMMasjid(c, mid); err != nil {
-		return err
-	}
 
+	// 🔒 Resolve masjid + wajib DKM/Admin
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+	mid, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
 
 	// pastikan exist dan milik tenant
 	var m qmodel.QuizQuestionModel

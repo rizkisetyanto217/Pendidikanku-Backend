@@ -25,6 +25,20 @@ Refactor note:
 - Include yang berlaku: "announcements" saja (tanpa ".urls").
 */
 
+// include sederhana untuk flag "announcements"
+func includeAnnouncements(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	for _, part := range strings.Split(strings.ToLower(strings.TrimSpace(raw)), ",") {
+		p := strings.TrimSpace(part)
+		if p == "announcements" || p == "announcement" || p == "ann" {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *AnnouncementThemeController) fetchAnnouncementsForThemes(
 	db *gorm.DB,
 	masjidID uuid.UUID,
@@ -128,7 +142,6 @@ func toAnnouncementEmbeds(
 			AnnouncementDeletedAt:          deletedAtPtr,                 // ✅ *time.Time
 			AnnouncementThemeID:            a.AnnouncementThemeID,        // *uuid.UUID
 			AnnouncementClassSectionID:     a.AnnouncementClassSectionID, // *uuid.UUID
-			// AnnouncementURLs:             nil, // tidak digunakan lagi
 		}
 
 		out = append(out, item)
@@ -139,7 +152,7 @@ func toAnnouncementEmbeds(
 /* ===================== LIST (updated, no-URL) ===================== */
 
 // GET /admin/announcement-themes
-// Opsional:
+// Optional:
 //
 //	?announcement_theme_id=<uuid>  (atau ?id=<uuid> / /admin/announcement-themes/:id)
 //	?name=..., ?slug=...
@@ -157,14 +170,45 @@ func toAnnouncementEmbeds(
 //	  ann_sort_by=date|created_at (default date)
 //	  ann_order=asc|desc (default desc)
 func (h *AnnouncementThemeController) List(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
+	// Pastikan helper slug→id bisa akses DB dari context
+	c.Locals("DB", h.DB) // <<< penting
+
+	// =========================
+	// 1) Resolve masjid context
+	// =========================
+	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// include flags
-	inc := parseInclude(c.Query("include"))
-	incAnn := inc["announcements"] || inc["announcement"] || inc["ann"]
+	// slug → id (jika perlu)
+	var masjidID uuid.UUID
+	if mc.ID != uuid.Nil {
+		masjidID = mc.ID
+	} else if mc.Slug != "" {
+		id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+		if er != nil || id == uuid.Nil {
+			return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+		}
+		masjidID = id
+	} else {
+		return helper.JsonError(c, helperAuth.ErrMasjidContextMissing.Code, helperAuth.ErrMasjidContextMissing.Message)
+	}
+
+	// ==========================================
+	// 2) Authorize: minimal member masjid (any role)
+	// ==========================================
+	if !helperAuth.UserHasMasjid(c, masjidID) {
+		return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar pada masjid ini (membership).")
+	}
+
+	// =========================
+	// 3) Include flags & filters
+	// =========================
+	incAnn := includeAnnouncements(c.Query("include"))
 
 	// parse ann_* filters (only used if incAnn)
 	annActiveOnly := true
@@ -249,14 +293,8 @@ func (h *AnnouncementThemeController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, "announcement_theme_id tidak valid")
 		}
 
-		// auto-detect nama kolom id
-		idCol := "announcement_theme_id"
-		if !hasColumn(h.DB, "announcement_themes", idCol) && hasColumn(h.DB, "announcement_themes", "announcement_themes_id") {
-			idCol = "announcement_themes_id"
-		}
-
 		var one annModel.AnnouncementThemeModel
-		if err := tx.Where(idCol+" = ?", id).Take(&one).Error; err != nil {
+		if err := tx.Where("announcement_themes_id = ?", id).Take(&one).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, fiber.StatusNotFound, "Tema tidak ditemukan")
 			}
