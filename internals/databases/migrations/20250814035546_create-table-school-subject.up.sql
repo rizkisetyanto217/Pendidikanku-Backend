@@ -73,8 +73,6 @@ CREATE TABLE IF NOT EXISTS class_subjects (
   class_subjects_class_id   UUID NOT NULL REFERENCES classes(class_id)     ON DELETE CASCADE,
   class_subjects_subject_id UUID NOT NULL REFERENCES subjects(subjects_id) ON DELETE RESTRICT,
 
-  class_subjects_term_id UUID,
-
   class_subjects_order_index       INT,
   class_subjects_hours_per_week    INT,
   class_subjects_min_passing_score INT,
@@ -107,15 +105,6 @@ CREATE INDEX IF NOT EXISTS idx_cs_class_masjid
   ON class_subjects (class_subjects_class_id, class_subjects_masjid_id)
   WHERE class_subjects_deleted_at IS NULL;
 
--- Unik (soft-delete aware) untuk kombinasi by term
-CREATE UNIQUE INDEX IF NOT EXISTS uq_class_subjects_by_term_alive
-  ON class_subjects (
-    class_subjects_masjid_id,
-    class_subjects_class_id,
-    class_subjects_subject_id,
-    COALESCE(class_subjects_term_id::text,'')
-  )
-  WHERE class_subjects_deleted_at IS NULL;
 
 -- Lookup umum
 CREATE INDEX IF NOT EXISTS idx_class_subjects_subject_alive

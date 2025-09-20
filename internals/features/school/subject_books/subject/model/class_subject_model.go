@@ -17,9 +17,6 @@ type ClassSubjectModel struct {
 	ClassSubjectsClassID   uuid.UUID `json:"class_subjects_class_id"   gorm:"column:class_subjects_class_id;type:uuid;not null"`
 	ClassSubjectsSubjectID uuid.UUID `json:"class_subjects_subject_id" gorm:"column:class_subjects_subject_id;type:uuid;not null"`
 
-	// (Baru) relasi opsional ke academic_terms
-	ClassSubjectsTermID *uuid.UUID `json:"class_subjects_term_id,omitempty" gorm:"column:class_subjects_term_id;type:uuid"`
-
 	// Metadata kurikulum (opsional)
 	ClassSubjectsOrderIndex      *int    `json:"class_subjects_order_index,omitempty"       gorm:"column:class_subjects_order_index"`
 	ClassSubjectsHoursPerWeek    *int    `json:"class_subjects_hours_per_week,omitempty"    gorm:"column:class_subjects_hours_per_week"`

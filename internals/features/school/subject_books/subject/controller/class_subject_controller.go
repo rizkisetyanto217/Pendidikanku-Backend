@@ -60,23 +60,19 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 
 	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		// === Cek duplikasi kombinasi (soft delete aware) ===
-		termStr := ""
-		if req.TermID != nil {
-			termStr = req.TermID.String()
-		}
 
 		var cnt int64
 		if err := tx.Model(&csModel.ClassSubjectModel{}).
 			Where(`
-				class_subjects_masjid_id = ?
-				AND class_subjects_class_id = ?
-				AND class_subjects_subject_id = ?
-				AND COALESCE(class_subjects_term_id::text, '') = COALESCE(?, '')
-				AND class_subjects_deleted_at IS NULL
-			`, req.MasjidID, req.ClassID, req.SubjectID, termStr).
+		class_subjects_masjid_id = ?
+		AND class_subjects_class_id = ?
+		AND class_subjects_subject_id = ?
+		AND class_subjects_deleted_at IS NULL
+	`, req.MasjidID, req.ClassID, req.SubjectID).
 			Count(&cnt).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek duplikasi class subject")
 		}
+
 		if cnt > 0 {
 			return fiber.NewError(fiber.StatusConflict, "Kombinasi kelas+subject+term/semester sudah terdaftar")
 		}
@@ -105,7 +101,8 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 
 	UPDATE (partial)
 	PUT /admin/:masjid_id/class-subjects/:id
-	=========================================================
+
+=========================================================
 */
 func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 	// 🔐 Context + role check
@@ -160,7 +157,6 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 		shouldCheckDup := false
 		newClassID := m.ClassSubjectsClassID
 		newSubjectID := m.ClassSubjectsSubjectID
-		var newTermID *uuid.UUID = m.ClassSubjectsTermID
 
 		if req.ClassID != nil && *req.ClassID != m.ClassSubjectsClassID {
 			shouldCheckDup = true
@@ -170,43 +166,22 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			shouldCheckDup = true
 			newSubjectID = *req.SubjectID
 		}
-		if req.TermID != nil {
-			curr := ""
-			if m.ClassSubjectsTermID != nil {
-				curr = m.ClassSubjectsTermID.String()
-			}
-			if req.TermID.String() != curr {
-				shouldCheckDup = true
-			}
-			if req.TermID == nil {
-				newTermID = nil
-			} else {
-				t := *req.TermID
-				newTermID = &t
-			}
-		}
 
 		if shouldCheckDup {
-			termStr := ""
-			if newTermID != nil {
-				termStr = newTermID.String()
-			}
-
 			var cnt int64
 			if err := tx.Model(&csModel.ClassSubjectModel{}).
 				Where(`
 					class_subjects_masjid_id = ?
 					AND class_subjects_class_id  = ?
 					AND class_subjects_subject_id= ?
-					AND COALESCE(class_subjects_term_id::text,'') = COALESCE(?, '')
 					AND class_subjects_id <> ?
 					AND class_subjects_deleted_at IS NULL
-				`, masjidID, newClassID, newSubjectID, termStr, m.ClassSubjectsID).
+				`, masjidID, newClassID, newSubjectID, m.ClassSubjectsID).
 				Count(&cnt).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek duplikasi class subject")
 			}
 			if cnt > 0 {
-				return fiber.NewError(fiber.StatusConflict, "Kombinasi kelas+subject+term/semester sudah terdaftar")
+				return fiber.NewError(fiber.StatusConflict, "Kombinasi kelas+subject sudah terdaftar")
 			}
 		}
 
@@ -219,7 +194,6 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 				"class_subjects_masjid_id":         m.ClassSubjectsMasjidID,
 				"class_subjects_class_id":          m.ClassSubjectsClassID,
 				"class_subjects_subject_id":        m.ClassSubjectsSubjectID,
-				"class_subjects_term_id":           m.ClassSubjectsTermID,
 				"class_subjects_order_index":       m.ClassSubjectsOrderIndex,
 				"class_subjects_hours_per_week":    m.ClassSubjectsHoursPerWeek,
 				"class_subjects_min_passing_score": m.ClassSubjectsMinPassingScore,
@@ -230,7 +204,7 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			}).Error; err != nil {
 			msg := strings.ToLower(err.Error())
 			if strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
-				return fiber.NewError(fiber.StatusConflict, "Kombinasi kelas+subject+term/semester sudah terdaftar")
+				return fiber.NewError(fiber.StatusConflict, "Kombinasi kelas+subject sudah terdaftar")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui data")
 		}

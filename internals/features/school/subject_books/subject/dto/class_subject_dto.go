@@ -19,7 +19,6 @@ type CreateClassSubjectRequest struct {
 	MasjidID     uuid.UUID  `json:"class_subjects_masjid_id" validate:"required"`
 	ClassID      uuid.UUID  `json:"class_subjects_class_id" validate:"required"`
 	SubjectID    uuid.UUID  `json:"class_subjects_subject_id" validate:"required"`
-	TermID       *uuid.UUID `json:"class_subjects_term_id" validate:"omitempty"`
 
 	OrderIndex   *int    `json:"class_subjects_order_index" validate:"omitempty,min=0"`
 	HoursPerWeek *int    `json:"class_subjects_hours_per_week" validate:"omitempty,min=0"`
@@ -34,7 +33,6 @@ type UpdateClassSubjectRequest struct {
 	MasjidID     *uuid.UUID `json:"class_subjects_masjid_id" validate:"omitempty"`
 	ClassID      *uuid.UUID `json:"class_subjects_class_id" validate:"omitempty"`
 	SubjectID    *uuid.UUID `json:"class_subjects_subject_id" validate:"omitempty"`
-	TermID       *uuid.UUID `json:"class_subjects_term_id" validate:"omitempty"`
 
 	OrderIndex   *int    `json:"class_subjects_order_index" validate:"omitempty,min=0"`
 	HoursPerWeek *int    `json:"class_subjects_hours_per_week" validate:"omitempty,min=0"`
@@ -64,7 +62,6 @@ type ClassSubjectResponse struct {
 	MasjidID     uuid.UUID  `json:"class_subjects_masjid_id"`
 	ClassID      uuid.UUID  `json:"class_subjects_class_id"`
 	SubjectID    uuid.UUID  `json:"class_subjects_subject_id"`
-	TermID       *uuid.UUID `json:"class_subjects_term_id,omitempty"`
 
 	OrderIndex   *int       `json:"class_subjects_order_index,omitempty"`
 	HoursPerWeek *int       `json:"class_subjects_hours_per_week,omitempty"`
@@ -115,7 +112,6 @@ func (r CreateClassSubjectRequest) ToModel() csModel.ClassSubjectModel {
 		ClassSubjectsMasjidID:        r.MasjidID,
 		ClassSubjectsClassID:         r.ClassID,
 		ClassSubjectsSubjectID:       r.SubjectID,
-		ClassSubjectsTermID:          r.TermID,
 		ClassSubjectsOrderIndex:      r.OrderIndex,
 		ClassSubjectsHoursPerWeek:    r.HoursPerWeek,
 		ClassSubjectsMinPassingScore: r.MinScore,
@@ -138,7 +134,6 @@ func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
 		MasjidID:     m.ClassSubjectsMasjidID,
 		ClassID:      m.ClassSubjectsClassID,
 		SubjectID:    m.ClassSubjectsSubjectID,
-		TermID:       m.ClassSubjectsTermID,
 		OrderIndex:   m.ClassSubjectsOrderIndex,
 		HoursPerWeek: m.ClassSubjectsHoursPerWeek,
 		MinScore:     m.ClassSubjectsMinPassingScore,
@@ -169,9 +164,6 @@ func (r UpdateClassSubjectRequest) Apply(m *csModel.ClassSubjectModel) {
 	}
 	if r.SubjectID != nil {
 		m.ClassSubjectsSubjectID = *r.SubjectID
-	}
-	if r.TermID != nil {
-		m.ClassSubjectsTermID = r.TermID
 	}
 	if r.OrderIndex != nil {
 		m.ClassSubjectsOrderIndex = r.OrderIndex
