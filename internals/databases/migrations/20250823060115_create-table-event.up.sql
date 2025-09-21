@@ -1,8 +1,4 @@
-BEGIN;
-
--- ======================================
--- Extensions (aman diulang)
--- ======================================
+-- Extensions (idempotent)
 CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 
 /* =========================================================
@@ -14,9 +10,9 @@ CREATE TABLE IF NOT EXISTS class_event_themes (
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   -- identitas tema
-  class_event_themes_code      VARCHAR(64)  NOT NULL,   -- unik per masjid (slug/kode pendek)
-  class_event_themes_name      VARCHAR(120) NOT NULL,   -- nama tampilan
-  class_event_themes_color_hex VARCHAR(16),             -- opsional (mis. "#1E88E5" atau token)
+  class_event_themes_code      VARCHAR(64)  NOT NULL,
+  class_event_themes_name      VARCHAR(120) NOT NULL,
+  class_event_themes_color_hex VARCHAR(16),
   class_event_themes_is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
   -- audit
@@ -28,20 +24,16 @@ CREATE TABLE IF NOT EXISTS class_event_themes (
     UNIQUE (class_event_themes_masjid_id, class_event_themes_code)
 );
 
--- Index bantu listing (filter per masjid + active)
+-- Index bantu listing
 CREATE INDEX IF NOT EXISTS idx_class_event_themes_masjid_active
-  ON class_event_themes(class_event_themes_masjid_id, class_event_themes_is_active);
+  ON class_event_themes (class_event_themes_masjid_id, class_event_themes_is_active);
 
--- (Opsional) Index untuk pencarian nama tema per masjid
 CREATE INDEX IF NOT EXISTS idx_class_event_themes_masjid_name
-  ON class_event_themes(class_event_themes_masjid_id, class_event_themes_name);
+  ON class_event_themes (class_event_themes_masjid_id, class_event_themes_name);
 
-
-
--- +migrate Up
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
--- Enum delivery mode
+/* =========================================================
+   2) ENUM delivery mode (online/offline/hybrid)
+   ========================================================= */
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'class_delivery_mode_enum') THEN
@@ -49,9 +41,9 @@ BEGIN
   END IF;
 END$$;
 
--- =========================================================
--- TABLE: class_events — event ad-hoc/special
--- =========================================================
+/* =========================================================
+   3) TABLE: class_events — event ad-hoc/special
+   ========================================================= */
 CREATE TABLE IF NOT EXISTS class_events (
   class_events_id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   class_events_masjid_id        UUID NOT NULL
@@ -81,19 +73,17 @@ CREATE TABLE IF NOT EXISTS class_events (
   class_events_end_time         TIME,
 
   -- lokasi / delivery mode
-  class_events_delivery_mode    class_delivery_mode_enum,  -- online|offline|hybrid
-  class_events_room_id          UUID REFERENCES class_rooms(class_room_id),                      -- jika offline/hybrid
-  -- (aktifkan FK ke class_rooms jika perlu)
-  -- REFERENCES class_rooms(class_room_id) ON DELETE SET NULL,
+  class_events_delivery_mode    class_delivery_mode_enum,
+  class_events_room_id          UUID REFERENCES class_rooms(class_room_id),
 
   -- pengajar (internal / tamu)
-  class_events_teacher_id       UUID,   -- referensi guru internal (opsional)
-  class_events_teacher_name     TEXT,   -- pengajar tamu / override nama
-  class_events_teacher_desc     TEXT,   -- deskripsi singkat pengajar
+  class_events_teacher_id       UUID,
+  class_events_teacher_name     TEXT,
+  class_events_teacher_desc     TEXT,
 
   -- kapasitas & RSVP
-  class_events_capacity         INT,                 -- NULL = tanpa batas
-  class_events_enrollment_policy VARCHAR(16),        -- 'open'|'invite'|'closed'
+  class_events_capacity         INT,
+  class_events_enrollment_policy VARCHAR(16),     -- 'open'|'invite'|'closed'
 
   -- status aktif
   class_events_is_active        BOOLEAN NOT NULL DEFAULT TRUE,
@@ -112,44 +102,33 @@ CREATE TABLE IF NOT EXISTS class_events (
     CHECK (class_events_end_date IS NULL OR class_events_end_date >= class_events_date)
 );
 
--- =========================================================
--- Indexes
--- =========================================================
-
--- Tenant + tanggal (list/kalender)
+-- Indexes class_events
 CREATE INDEX IF NOT EXISTS idx_class_events_masjid_date
   ON class_events (class_events_masjid_id, class_events_date);
 
--- Status aktif + urut tanggal
 CREATE INDEX IF NOT EXISTS idx_class_events_active
   ON class_events (class_events_masjid_id, class_events_is_active, class_events_date);
 
--- Tema & delivery mode (filtering)
 CREATE INDEX IF NOT EXISTS idx_class_events_theme
   ON class_events (class_events_masjid_id, class_events_theme_id);
 
 CREATE INDEX IF NOT EXISTS idx_class_events_delivery_mode
   ON class_events (class_events_masjid_id, class_events_delivery_mode);
 
--- Rentang tanggal (opsional kalau sering query range)
 CREATE INDEX IF NOT EXISTS idx_class_events_date_range
   ON class_events (class_events_masjid_id, class_events_date, class_events_end_date);
 
--- Room (kalender ruangan)
 CREATE INDEX IF NOT EXISTS idx_class_events_room
   ON class_events (class_events_masjid_id, class_events_room_id);
 
--- Guru internal (filter per guru)
 CREATE INDEX IF NOT EXISTS idx_class_events_teacher
   ON class_events (class_events_masjid_id, class_events_teacher_id);
 
--- (Opsional, berguna untuk FK tenant-safe dari tabel lain)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_events_id_tenant
   ON class_events (class_events_id, class_events_masjid_id);
 
-
 /* =========================================================
-   5) CLASS_EVENT_URLS — lampiran/URL fleksibel (2-slot + retensi)
+   4) CLASS_EVENT_URLS — lampiran/URL fleksibel
    ========================================================= */
 CREATE TABLE IF NOT EXISTS class_event_urls (
   class_event_url_id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -177,17 +156,31 @@ CREATE TABLE IF NOT EXISTS class_event_urls (
   class_event_url_updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_event_url_deleted_at             TIMESTAMPTZ,
 
-  -- guard
   CONSTRAINT chk_class_event_url_kind_nonempty
     CHECK (length(coalesce(class_event_url_kind,'')) > 0)
 );
 
--- Indeks untuk akses cepat per event/kind/primary
+-- Indexes class_event_urls
 CREATE INDEX IF NOT EXISTS idx_class_event_urls_event_kind
-  ON class_event_urls(class_event_url_event_id, class_event_url_kind);
-CREATE INDEX IF NOT EXISTS idx_class_event_urls_primary
-  ON class_event_urls(class_event_url_event_id, class_event_url_is_primary);
--- (Opsional) ambil semua URL per masjid
-CREATE INDEX IF NOT EXISTS idx_class_event_urls_masjid
-  ON class_event_urls(class_event_url_masjid_id);
+  ON class_event_urls (class_event_url_event_id, class_event_url_kind);
 
+CREATE INDEX IF NOT EXISTS idx_class_event_urls_primary
+  ON class_event_urls (class_event_url_event_id, class_event_url_is_primary);
+
+CREATE INDEX IF NOT EXISTS idx_class_event_urls_masjid
+  ON class_event_urls (class_event_url_masjid_id);
+
+-- Unik satu primary per (event, kind) yang hidup
+CREATE UNIQUE INDEX IF NOT EXISTS uq_class_event_urls_primary_per_kind_alive
+  ON class_event_urls (class_event_url_event_id, class_event_url_kind)
+  WHERE class_event_url_deleted_at IS NULL
+    AND class_event_url_is_primary = TRUE;
+
+-- Kandidat purge (in-place replace & soft-deleted)
+CREATE INDEX IF NOT EXISTS ix_class_event_urls_purge_due
+  ON class_event_urls (class_event_url_delete_pending_until)
+  WHERE class_event_url_delete_pending_until IS NOT NULL
+    AND (
+      (class_event_url_deleted_at IS NULL  AND class_event_url_object_key_old IS NOT NULL) OR
+      (class_event_url_deleted_at IS NOT NULL AND class_event_url_object_key     IS NOT NULL)
+    );

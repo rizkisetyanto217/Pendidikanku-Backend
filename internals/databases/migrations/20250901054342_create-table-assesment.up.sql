@@ -78,9 +78,6 @@ CREATE TABLE IF NOT EXISTS assessments (
   assessments_duration_minutes INT,                 -- menit
   assessments_total_attempts_allowed INT NOT NULL DEFAULT 1,
 
-  assessments_start_at TIMESTAMPTZ,
-  assessments_due_at   TIMESTAMPTZ,
-
   assessments_max_score NUMERIC(5,2) NOT NULL DEFAULT 100
     CHECK (assessments_max_score >= 0 AND assessments_max_score <= 100),
 
@@ -169,7 +166,7 @@ CREATE TABLE IF NOT EXISTS assessment_urls (
   assessment_url_href            TEXT,        -- URL publik (boleh NULL jika murni object storage)
   assessment_url_object_key      TEXT,        -- object key aktif di storage
   assessment_url_object_key_old  TEXT,        -- object key lama (retensi in-place replace)
-  
+
   -- Tampilan
   assessment_url_label           VARCHAR(160),
   assessment_url_order           INT NOT NULL DEFAULT 0,

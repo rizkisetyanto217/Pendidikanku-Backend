@@ -1,27 +1,30 @@
 BEGIN;
 
--- =========================
--- Bersihkan: CAS indexes
--- =========================
-DROP INDEX IF EXISTS idx_cas_masjid_teacher_date_alive;
-DROP INDEX IF EXISTS idx_cas_masjid_subject_date_alive;
-DROP INDEX IF EXISTS idx_cas_masjid_section_date_alive;
-DROP INDEX IF EXISTS uq_cas_masjid_section_subject_date;
+-- =========================================================
+-- class_attendance_session_url
+-- =========================================================
+DROP INDEX IF EXISTS gin_casu_label_trgm_live;
+DROP INDEX IF EXISTS ix_casu_purge_due;
+DROP INDEX IF EXISTS uq_casu_primary_per_kind_alive;
+DROP INDEX IF EXISTS ix_casu_by_masjid_live;
+DROP INDEX IF EXISTS ix_casu_by_owner_live;
 
-DROP INDEX IF EXISTS idx_cas_teacher_id;
-DROP INDEX IF EXISTS idx_cas_class_room;
-DROP INDEX IF EXISTS idx_cas_class_subject;
-DROP INDEX IF EXISTS idx_cas_date;
-DROP INDEX IF EXISTS idx_cas_masjid;
-DROP INDEX IF EXISTS idx_cas_section;
+DROP TABLE IF EXISTS class_attendance_session_url;
 
--- (jika ada trigger/function lama yang kebetulan hidup)
-DROP TRIGGER IF EXISTS trg_cas_validate_links ON class_attendance_sessions;
-DROP FUNCTION IF EXISTS fn_cas_validate_links();
+-- =========================================================
+-- class_attendance_sessions
+-- =========================================================
+DROP INDEX IF EXISTS idx_cas_rule_alive;
+DROP INDEX IF EXISTS idx_cas_override_event_alive;
+DROP INDEX IF EXISTS idx_cas_override_date_alive;
+DROP INDEX IF EXISTS idx_cas_canceled_date_alive;
+DROP INDEX IF EXISTS idx_cas_teacher_date_alive;
+DROP INDEX IF EXISTS idx_cas_schedule_date_alive;
+DROP INDEX IF EXISTS idx_cas_masjid_date_alive;
+DROP INDEX IF EXISTS uq_cas_masjid_schedule_date_alive;
+DROP INDEX IF EXISTS gin_cas_slug_trgm_alive;
+DROP INDEX IF EXISTS uq_cas_slug_per_tenant_alive;
 
--- =========================
--- Drop tabel CAS
--- =========================
-DROP TABLE IF EXISTS class_attendance_sessions CASCADE;
+DROP TABLE IF EXISTS class_attendance_sessions;
 
 COMMIT;

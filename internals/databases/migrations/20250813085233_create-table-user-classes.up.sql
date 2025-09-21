@@ -1,12 +1,4 @@
-BEGIN;
-
-
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-
-BEGIN;
-
--- Extensions aman diulang
+-- safe to repeat
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
@@ -48,20 +40,16 @@ CREATE TABLE IF NOT EXISTS user_classes (
   user_classes_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_classes_deleted_at TIMESTAMPTZ,
 
-  -- Guard tanggal (left >= joined)
+  -- Guards
   CONSTRAINT chk_uc_dates CHECK (
     user_classes_left_at IS NULL
     OR user_classes_joined_at IS NULL
     OR user_classes_left_at >= user_classes_joined_at
   ),
-
-  -- Outcome hanya saat completed (dan sebaliknya harus NULL)
   CONSTRAINT chk_uc_result_only_when_completed CHECK (
     (user_classes_status = 'completed' AND user_classes_result IS NOT NULL)
     OR (user_classes_status <> 'completed' AND user_classes_result IS NULL)
   ),
-
-  -- Kalau completed, lengkapi completed_at
   CONSTRAINT chk_uc_completed_at_when_completed CHECK (
     user_classes_status <> 'completed'
     OR user_classes_completed_at IS NOT NULL
@@ -79,22 +67,17 @@ CREATE TABLE IF NOT EXISTS user_classes (
     REFERENCES masjid_students(masjid_student_id)
     ON UPDATE CASCADE ON DELETE RESTRICT,
 
-  -- Guard unik untuk join aman multi-tenant (opsional)
+  -- Pair unik untuk join multi-tenant aman
   CONSTRAINT uq_user_classes_id_masjid
     UNIQUE (user_classes_id, user_classes_masjid_id)
 );
 
--- =========================================================
--- INDEXES & OPTIMIZATION (tanpa trigger/func)
--- =========================================================
-
--- 1) Cegah enrol AKTIF ganda per (student,class,tenant) — soft-delete aware
+-- INDEXES user_classes
 CREATE UNIQUE INDEX IF NOT EXISTS uq_uc_active_per_student_class
   ON user_classes (user_classes_masjid_student_id, user_classes_class_id, user_classes_masjid_id)
   WHERE user_classes_deleted_at IS NULL
     AND user_classes_status = 'active';
 
--- 2) Lookups umum (tenant-first) + pagination terbaru
 CREATE INDEX IF NOT EXISTS ix_uc_tenant_student_created
   ON user_classes (user_classes_masjid_id, user_classes_masjid_student_id, user_classes_created_at DESC)
   WHERE user_classes_deleted_at IS NULL;
@@ -103,7 +86,6 @@ CREATE INDEX IF NOT EXISTS ix_uc_tenant_status_created
   ON user_classes (user_classes_masjid_id, user_classes_status, user_classes_created_at DESC)
   WHERE user_classes_deleted_at IS NULL;
 
--- 3) Akses cepat (alive only)
 CREATE INDEX IF NOT EXISTS idx_uc_class_alive
   ON user_classes (user_classes_class_id)
   WHERE user_classes_deleted_at IS NULL;
@@ -116,22 +98,15 @@ CREATE INDEX IF NOT EXISTS idx_uc_masjid_student_alive
   ON user_classes (user_classes_masjid_student_id)
   WHERE user_classes_deleted_at IS NULL;
 
--- 4) Enrol aktif per tenant+class (rekap kelas berjalan)
 CREATE INDEX IF NOT EXISTS ix_uc_tenant_class_active
   ON user_classes (user_classes_masjid_id, user_classes_class_id)
   WHERE user_classes_deleted_at IS NULL
     AND user_classes_status = 'active';
 
--- 5) DUNNING/INVOICING:
---    - by tenant, status, paid_until (cari jatuh tempo)
---    - Partial alive agar ringkas
 CREATE INDEX IF NOT EXISTS ix_uc_dunning_tenant_status_due
   ON user_classes (user_classes_masjid_id, user_classes_status, user_classes_paid_until)
   WHERE user_classes_deleted_at IS NULL;
 
--- 6) COHORT & ANALYTICS:
---    - cohort masuk per class (joined_at)
---    - cohort lulus per class (completed_at) untuk status completed
 CREATE INDEX IF NOT EXISTS ix_uc_class_joined_at_alive
   ON user_classes (user_classes_class_id, user_classes_joined_at)
   WHERE user_classes_deleted_at IS NULL;
@@ -141,17 +116,14 @@ CREATE INDEX IF NOT EXISTS ix_uc_class_completed_at_completed
   WHERE user_classes_deleted_at IS NULL
     AND user_classes_status = 'completed';
 
--- 7) BRIN untuk historis besar (hemat storage, scan range by time)
 CREATE INDEX IF NOT EXISTS brin_uc_created_at
   ON user_classes USING BRIN (user_classes_created_at);
 
 CREATE INDEX IF NOT EXISTS brin_uc_updated_at
   ON user_classes USING BRIN (user_classes_updated_at);
 
-COMMIT;
-
 -- =========================================================
--- TABEL: user_class_sections (histori penempatan section) — TANPA TRIGGER
+-- TABEL: user_class_sections (histori penempatan section)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS user_class_sections (
   user_class_sections_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -190,13 +162,12 @@ CREATE TABLE IF NOT EXISTS user_class_sections (
     ON UPDATE CASCADE ON DELETE CASCADE
 );
 
--- Unik: hanya 1 placement aktif per enrolment (soft-delete aware)
+-- INDEXES user_class_sections
 CREATE UNIQUE INDEX IF NOT EXISTS uq_user_class_sections_active_per_user_class
   ON user_class_sections(user_class_sections_user_class_id)
   WHERE user_class_sections_unassigned_at IS NULL
     AND user_class_sections_deleted_at IS NULL;
 
--- Indeks dasar & per tenant
 CREATE INDEX IF NOT EXISTS idx_user_class_sections_user_class
   ON user_class_sections(user_class_sections_user_class_id);
 
@@ -212,7 +183,6 @@ CREATE INDEX IF NOT EXISTS idx_user_class_sections_unassigned_at
 CREATE INDEX IF NOT EXISTS idx_user_class_sections_masjid
   ON user_class_sections(user_class_sections_masjid_id);
 
--- Partial: current placement per tenant
 CREATE INDEX IF NOT EXISTS idx_user_class_sections_masjid_active
   ON user_class_sections(user_class_sections_masjid_id,
                          user_class_sections_user_class_id,
@@ -220,8 +190,5 @@ CREATE INDEX IF NOT EXISTS idx_user_class_sections_masjid_active
   WHERE user_class_sections_unassigned_at IS NULL
     AND user_class_sections_deleted_at IS NULL;
 
--- (Opsional) BRIN waktu
 CREATE INDEX IF NOT EXISTS brin_ucs_created_at
   ON user_class_sections USING BRIN (user_class_sections_created_at);
-
-COMMIT;

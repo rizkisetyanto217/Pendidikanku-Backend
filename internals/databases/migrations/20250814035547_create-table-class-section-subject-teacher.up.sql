@@ -19,20 +19,20 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teachers_class_subjects_id UUID NOT NULL
     REFERENCES class_subjects(class_subjects_id) ON DELETE CASCADE,
 
-  -- ✅ refer ke masjid_teachers.masjid_teacher_id (BUKAN users.id)
+  -- refer ke masjid_teachers (BUKAN users.id)
   class_section_subject_teachers_teacher_id        UUID NOT NULL
     REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE RESTRICT,
 
-  -- >>> SLUG <<<
+  -- Optional slug
   class_section_subject_teachers_slug VARCHAR(160),
 
   class_section_subject_teachers_description       TEXT,
 
-  -- 🔄 Override ruangan (opsional; default-nya dari class_sections.class_rooms_id)
+  -- Override ruangan (opsional; default dari class_sections.class_rooms_id)
   class_section_subject_teachers_room_id           UUID
     REFERENCES class_rooms(class_room_id) ON DELETE SET NULL,
 
-  -- 🔗 Grup pelajaran (default WhatsApp, cukup URL)
+  -- Link grup (WA/Telegram/DS)
   class_section_subject_teachers_group_url         TEXT,
 
   -- Status & audit
@@ -43,10 +43,10 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
 );
 
 -- =========================================================
--- Indexes (soft-delete aware + akses cepat)
+-- CONSTRAINTS / UNIQUENESS (soft-delete aware)
 -- =========================================================
 
--- Cegah duplikasi mapping guru per kombinasi (tenant × section × class_subject × teacher)
+-- Cegah duplikasi mapping guru per kombinasi (tenant × section × subject × teacher)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_unique_alive
   ON class_section_subject_teachers (
     class_section_subject_teachers_masjid_id,
@@ -56,7 +56,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_unique_alive
   )
   WHERE class_section_subject_teachers_deleted_at IS NULL;
 
--- (Opsional) Hanya 1 guru AKTIF per (tenant × section × class_subject)
+-- (Opsional kuat) Hanya 1 guru AKTIF per (tenant × section × subject)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_one_active_per_section_subject_alive
   ON class_section_subject_teachers (
     class_section_subject_teachers_masjid_id,
@@ -66,7 +66,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_one_active_per_section_subject_alive
   WHERE class_section_subject_teachers_deleted_at IS NULL
     AND class_section_subject_teachers_is_active = TRUE;
 
--- Lookup umum
+-- (Opsional) Pair unik id + tenant (buat FK komposit di tempat lain)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_tenant
+  ON class_section_subject_teachers (
+    class_section_subject_teachers_id,
+    class_section_subject_teachers_masjid_id
+  );
+
+-- =========================================================
+-- INDEXES (akses cepat)
+-- =========================================================
+
+-- Lookup umum (soft-delete aware)
 CREATE INDEX IF NOT EXISTS idx_csst_masjid_alive
   ON class_section_subject_teachers (class_section_subject_teachers_masjid_id)
   WHERE class_section_subject_teachers_deleted_at IS NULL;
@@ -83,11 +94,33 @@ CREATE INDEX IF NOT EXISTS idx_csst_teacher_alive
   ON class_section_subject_teachers (class_section_subject_teachers_teacher_id)
   WHERE class_section_subject_teachers_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_csst_active_alive
-  ON class_section_subject_teachers (class_section_subject_teachers_is_active)
-  WHERE class_section_subject_teachers_deleted_at IS NULL;
+-- 🔥 Composite partial indexes (buat resolver publish/feed super cepat)
+-- Jalur utama: per guru (opsional filter subject)
+CREATE INDEX IF NOT EXISTS ix_csst_by_teacher_subject_active
+ON class_section_subject_teachers (
+  class_section_subject_teachers_masjid_id,
+  class_section_subject_teachers_teacher_id,
+  class_section_subject_teachers_class_subjects_id
+)
+WHERE class_section_subject_teachers_deleted_at IS NULL
+  AND class_section_subject_teachers_is_active = TRUE;
 
--- 🔎 Lookup ruangan override (opsional)
+-- Jalur alternatif: per section (rekap siapa gurunya sebuah kelas)
+CREATE INDEX IF NOT EXISTS ix_csst_by_section_teacher_active
+ON class_section_subject_teachers (
+  class_section_subject_teachers_masjid_id,
+  class_section_subject_teachers_section_id,
+  class_section_subject_teachers_teacher_id
+)
+WHERE class_section_subject_teachers_deleted_at IS NULL
+  AND class_section_subject_teachers_is_active = TRUE;
+
+-- (Opsional) index boolean biasanya low-selectivity, boleh di-skip
+-- CREATE INDEX IF NOT EXISTS idx_csst_active_alive
+--   ON class_section_subject_teachers (class_section_subject_teachers_is_active)
+--   WHERE class_section_subject_teachers_deleted_at IS NULL;
+
+-- Lookup ruangan override (opsional)
 CREATE INDEX IF NOT EXISTS idx_csst_room_alive
   ON class_section_subject_teachers (class_section_subject_teachers_room_id)
   WHERE class_section_subject_teachers_deleted_at IS NULL;
@@ -96,7 +129,7 @@ CREATE INDEX IF NOT EXISTS idx_csst_room_alive
 CREATE INDEX IF NOT EXISTS brin_csst_created_at
   ON class_section_subject_teachers USING BRIN (class_section_subject_teachers_created_at);
 
--- >>> SLUG (unik per tenant; soft-delete aware)
+-- SLUG (unik per tenant; soft-delete aware)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_slug_per_tenant_alive
   ON class_section_subject_teachers (
     class_section_subject_teachers_masjid_id,
@@ -105,9 +138,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_slug_per_tenant_alive
   WHERE class_section_subject_teachers_deleted_at IS NULL
     AND class_section_subject_teachers_slug IS NOT NULL;
 
--- (opsional) pencarian cepat slug
+-- Pencarian cepat slug
 CREATE INDEX IF NOT EXISTS gin_csst_slug_trgm_alive
-  ON class_section_subject_teachers USING GIN (lower(class_section_subject_teachers_slug) gin_trgm_ops)
+  ON class_section_subject_teachers
+  USING GIN (lower(class_section_subject_teachers_slug) gin_trgm_ops)
   WHERE class_section_subject_teachers_deleted_at IS NULL
     AND class_section_subject_teachers_slug IS NOT NULL;
 

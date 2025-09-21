@@ -1,7 +1,7 @@
 -- =========================================
 -- UP Migration — TABLES + STRONG FKs + TRIGGER (no selected_option_id)
 -- =========================================
-BEGIN;
+
 
 -- +migrate Up
 CREATE EXTENSION IF NOT EXISTS pgcrypto;

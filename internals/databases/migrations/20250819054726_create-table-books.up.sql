@@ -1,9 +1,4 @@
--- =========================================
--- UP MIGRATION (CLEAN, NO TRIGGERS)
--- =========================================
-BEGIN;
-
--- Prasyarat
+-- Prasyarat (idempotent)
 CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- untuk trigram search (opsional)
 
@@ -55,9 +50,6 @@ CREATE INDEX IF NOT EXISTS gin_books_title_trgm_alive
 CREATE INDEX IF NOT EXISTS gin_books_author_trgm_alive
   ON books USING GIN (LOWER(books_author) gin_trgm_ops)
   WHERE books_deleted_at IS NULL;
-
-
-
 
 -- =========================================
 -- TABEL: class_subject_books (relasi + status)
@@ -137,8 +129,6 @@ CREATE INDEX IF NOT EXISTS ix_csb_tenant_subject_active_created_alive
 CREATE INDEX IF NOT EXISTS brin_csb_created_at
   ON class_subject_books USING BRIN (class_subject_books_created_at);
 
-
-
 -- =========================================
 -- BOOK_URLS — selaras dengan announcement_urls
 -- =========================================
@@ -171,10 +161,7 @@ CREATE TABLE IF NOT EXISTS book_urls (
   book_url_delete_pending_until TIMESTAMPTZ          -- tenggat purge (baris aktif dgn *_old atau baris soft-deleted)
 );
 
--- =========================================
--- INDEXING / OPTIMIZATION (paritas dg announcement_urls)
--- =========================================
-
+-- INDEXING / OPTIMIZATION
 -- Lookup per book (live only) + urutan tampil
 CREATE INDEX IF NOT EXISTS ix_book_urls_by_owner_live
   ON book_urls (
@@ -197,15 +184,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_book_urls_primary_per_kind_alive
   WHERE book_url_deleted_at IS NULL
     AND book_url_is_primary = TRUE;
 
--- Anti-duplikat href per book (live only) — opsional, berguna utk link eksternal
+-- Anti-duplikat href per book (live only)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_book_urls_book_href_alive
   ON book_urls (book_url_book_id, lower(book_url_href))
   WHERE book_url_deleted_at IS NULL
     AND book_url_href IS NOT NULL;
 
--- Kandidat purge:
---  - baris AKTIF dengan object_key_old (in-place replace)
---  - baris SOFT-DELETED dengan object_key (versi-per-baris)
+-- Kandidat purge (in-place replace & soft-deleted)
 CREATE INDEX IF NOT EXISTS ix_book_urls_purge_due
   ON book_urls (book_url_delete_pending_until)
   WHERE book_url_delete_pending_until IS NOT NULL
@@ -219,7 +204,6 @@ CREATE INDEX IF NOT EXISTS brin_book_urls_created_at
   ON book_urls USING BRIN (book_url_created_at);
 
 -- (opsional) pencarian label cepat (live only)
--- CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- CREATE INDEX IF NOT EXISTS gin_book_urls_label_trgm_alive
---   ON book_urls USING GIN (book_url_label gin_trgm_ops)
+--   ON book_urls USING GIN (lower(book_url_label) gin_trgm_ops)
 --   WHERE book_url_deleted_at IS NULL;

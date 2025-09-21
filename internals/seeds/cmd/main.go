@@ -12,7 +12,6 @@ import (
 	// users "masjidku_backend/internals/seeds/users/auth"
 	survey "masjidku_backend/internals/seeds/users/surveys/survey_questions"
 	user_survey "masjidku_backend/internals/seeds/users/surveys/user_surveys"
-	tooltips "masjidku_backend/internals/seeds/utils/tooltips"
 )
 
 func main() {
@@ -31,10 +30,6 @@ func main() {
 		// users.SeedUsersFromJSON(db, "internals/seeds/users/auth/data_users.json")
 	case "users_profile":
 		// userProfiles.SeedUsersProfileFromJSON(db, "internals/seeds/users/users/data_users_profiles.json")
-
-	case "utils":
-		tooltips.SeedTooltipsFromJSON(db, "internals/seeds/utils/tooltips/data_tooltips.json")
-
 	case "survey_test_exam":
 		survey.SeedSurveyQuestionsFromJSON(db, "internals/seeds/users/surveys/survey_questions/data_survey_questions.json")
 		user_survey.SeedUserSurveysFromJSON(db, "internals/seeds/users/surveys/user_surveys/data_user_surveys.json")

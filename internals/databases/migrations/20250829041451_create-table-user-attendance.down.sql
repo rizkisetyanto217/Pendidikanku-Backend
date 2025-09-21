@@ -1,13 +1,10 @@
--- =========================================
--- DOWN Migration (Refactor Final) — NO triggers / NO DO blocks
--- =========================================
-BEGIN;
+-- +migrate Down
 
+-- 1) Child dulu
+DROP TABLE IF EXISTS user_attendance_urls;
 
--- 2) Parent: attendance per siswa per sesi
+-- 2) Lalu parent
 DROP TABLE IF EXISTS user_attendance;
 
--- 3) Master: jenis attendance per masjid
+-- 3) Terakhir master
 DROP TABLE IF EXISTS user_attendance_type;
-
-COMMIT;

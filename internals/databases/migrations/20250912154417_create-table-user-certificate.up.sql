@@ -50,10 +50,6 @@ CREATE TABLE IF NOT EXISTS certificates (
     REFERENCES certificate_templates(certificate_templates_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
-  certificates_user_subject_summary_id UUID
-    REFERENCES user_subject_summary(user_subject_summary_id)
-    ON UPDATE CASCADE ON DELETE SET NULL,
-
   certificates_masjid_student_id UUID NOT NULL
     REFERENCES masjid_students(masjid_student_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
