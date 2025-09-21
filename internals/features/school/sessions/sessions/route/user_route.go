@@ -28,14 +28,6 @@ func AttendanceSessionsUserRoutes(r fiber.Router, db *gorm.DB) {
 	uaGroup.Patch("/:id", ua.Update) // PATCH /:masjid_id/user-sessions/:id
 	uaGroup.Delete("/:id", ua.Delete)
 
-	// =====================
-	// Occurrences (Schedule & Attendance)
-	// =====================
-	occ := uaCtrl.NewOccurrenceController(db)
-	// rencana (berulang mingguan → di-expand by date range)
-	masjidGroup.Get("/class-schedules/occurrences", occ.ListScheduleOccurrences)
-	// sesi kehadiran aktual (langsung dari CAS)
-	masjidGroup.Get("/class-attendance-sessions/occurrences", occ.ListAttendanceOccurrences)
 
 	// User Attendance Types (read-only)
 	uattCtl := uaCtrl.NewUserAttendanceTypeController(db)

@@ -37,9 +37,21 @@ CREATE INDEX IF NOT EXISTS idx_class_event_themes_masjid_name
   ON class_event_themes(class_event_themes_masjid_id, class_event_themes_name);
 
 
-/* =========================================================
-   2) CLASS_EVENTS — event ad-hoc/special
-   ========================================================= */
+
+-- +migrate Up
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- Enum delivery mode
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'class_delivery_mode_enum') THEN
+    CREATE TYPE class_delivery_mode_enum AS ENUM ('online','offline','hybrid');
+  END IF;
+END$$;
+
+-- =========================================================
+-- TABLE: class_events — event ad-hoc/special
+-- =========================================================
 CREATE TABLE IF NOT EXISTS class_events (
   class_events_id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   class_events_masjid_id        UUID NOT NULL
@@ -61,46 +73,37 @@ CREATE TABLE IF NOT EXISTS class_events (
   -- info inti
   class_events_title            VARCHAR(160) NOT NULL,
   class_events_desc             TEXT,
-  class_events_category         VARCHAR(80),
 
   -- waktu
-  class_events_timezone         TEXT,                -- ex: "Asia/Jakarta"
-  class_events_date             DATE NOT NULL,       -- start date
-  class_events_end_date         DATE,                -- opsional multi-hari
-  class_events_start_time       TIME,                -- null utk all-day
+  class_events_date             DATE NOT NULL,   -- start date
+  class_events_end_date         DATE,            -- opsional multi-hari
+  class_events_start_time       TIME,            -- NULL = all-day
   class_events_end_time         TIME,
-  class_events_is_all_day       BOOLEAN NOT NULL DEFAULT FALSE,
 
-  -- lokasi / modality
-  class_events_modality         VARCHAR(16),         -- 'onsite'|'online'|'hybrid'
-  class_events_room_id          UUID,                -- jika onsite
-  class_events_meeting_url      TEXT,                -- jika online/hybrid
+  -- lokasi / delivery mode
+  class_events_delivery_mode    class_delivery_mode_enum,  -- online|offline|hybrid
+  class_events_room_id          UUID REFERENCES class_rooms(class_room_id),                      -- jika offline/hybrid
+  -- (aktifkan FK ke class_rooms jika perlu)
+  -- REFERENCES class_rooms(class_room_id) ON DELETE SET NULL,
 
-  -- pengisi
-  class_events_teacher_id       UUID,
+  -- pengajar (internal / tamu)
+  class_events_teacher_id       UUID,   -- referensi guru internal (opsional)
+  class_events_teacher_name     TEXT,   -- pengajar tamu / override nama
+  class_events_teacher_desc     TEXT,   -- deskripsi singkat pengajar
 
   -- kapasitas & RSVP
   class_events_capacity         INT,                 -- NULL = tanpa batas
   class_events_enrollment_policy VARCHAR(16),        -- 'open'|'invite'|'closed'
 
-  -- publikasi
-  class_events_is_published     BOOLEAN NOT NULL DEFAULT TRUE,
-  class_events_publish_at       TIMESTAMPTZ,
-
-  -- media utama
-  class_events_banner_url       TEXT,
+  -- status aktif
+  class_events_is_active        BOOLEAN NOT NULL DEFAULT TRUE,
 
   -- audit
-  class_events_created_by_user_id UUID,
-  class_events_updated_by_user_id UUID,
-
   class_events_created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_events_updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_events_deleted_at       TIMESTAMPTZ,
 
   -- guards
-  CONSTRAINT chk_class_events_modality
-    CHECK (class_events_modality IS NULL OR class_events_modality IN ('onsite','online','hybrid')),
   CONSTRAINT chk_class_events_enroll_policy
     CHECK (class_events_enrollment_policy IS NULL OR class_events_enrollment_policy IN ('open','invite','closed')),
   CONSTRAINT chk_class_events_capacity_nonneg
@@ -109,23 +112,40 @@ CREATE TABLE IF NOT EXISTS class_events (
     CHECK (class_events_end_date IS NULL OR class_events_end_date >= class_events_date)
 );
 
--- Indeks umum (filter per masjid + tanggal untuk list/kalender)
+-- =========================================================
+-- Indexes
+-- =========================================================
+
+-- Tenant + tanggal (list/kalender)
 CREATE INDEX IF NOT EXISTS idx_class_events_masjid_date
-  ON class_events(class_events_masjid_id, class_events_date);
+  ON class_events (class_events_masjid_id, class_events_date);
 
--- Indeks publikasi (feed publik, urut tanggal)
-CREATE INDEX IF NOT EXISTS idx_class_events_publish
-  ON class_events(class_events_masjid_id, class_events_is_published, class_events_date);
+-- Status aktif + urut tanggal
+CREATE INDEX IF NOT EXISTS idx_class_events_active
+  ON class_events (class_events_masjid_id, class_events_is_active, class_events_date);
 
--- Indeks tema & modality (filtering)
+-- Tema & delivery mode (filtering)
 CREATE INDEX IF NOT EXISTS idx_class_events_theme
-  ON class_events(class_events_masjid_id, class_events_theme_id);
-CREATE INDEX IF NOT EXISTS idx_class_events_modality
-  ON class_events(class_events_masjid_id, class_events_modality);
+  ON class_events (class_events_masjid_id, class_events_theme_id);
 
--- (Opsional) Indeks untuk rentang tanggal (start/end) jika sering query range
+CREATE INDEX IF NOT EXISTS idx_class_events_delivery_mode
+  ON class_events (class_events_masjid_id, class_events_delivery_mode);
+
+-- Rentang tanggal (opsional kalau sering query range)
 CREATE INDEX IF NOT EXISTS idx_class_events_date_range
-  ON class_events(class_events_masjid_id, class_events_date, class_events_end_date);
+  ON class_events (class_events_masjid_id, class_events_date, class_events_end_date);
+
+-- Room (kalender ruangan)
+CREATE INDEX IF NOT EXISTS idx_class_events_room
+  ON class_events (class_events_masjid_id, class_events_room_id);
+
+-- Guru internal (filter per guru)
+CREATE INDEX IF NOT EXISTS idx_class_events_teacher
+  ON class_events (class_events_masjid_id, class_events_teacher_id);
+
+-- (Opsional, berguna untuk FK tenant-safe dari tabel lain)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_class_events_id_tenant
+  ON class_events (class_events_id, class_events_masjid_id);
 
 
 /* =========================================================

@@ -3,7 +3,7 @@
 -- =========================================
 BEGIN;
 
--- Extensions
+-- +migrate Up
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS quizzes (
     REFERENCES assessments(assessments_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
+  -- >>> SLUG (opsional; unik per tenant saat alive)
+  quizzes_slug VARCHAR(160),
+
   quizzes_title VARCHAR(180) NOT NULL,
   quizzes_description TEXT,
   quizzes_is_published BOOLEAN NOT NULL DEFAULT FALSE,
@@ -29,18 +32,41 @@ CREATE TABLE IF NOT EXISTS quizzes (
   quizzes_deleted_at TIMESTAMPTZ
 );
 
--- Indexes (quizzes)
+-- =========================
+-- Indexes / Optimizations
+-- =========================
+
+-- SLUG unik per tenant (alive only, case-insensitive)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_quizzes_slug_per_tenant_alive
+  ON quizzes (quizzes_masjid_id, lower(quizzes_slug))
+  WHERE quizzes_deleted_at IS NULL
+    AND quizzes_slug IS NOT NULL;
+
+-- (opsional) pencarian slug cepat (trigram, alive only)
+CREATE INDEX IF NOT EXISTS gin_quizzes_slug_trgm_alive
+  ON quizzes USING GIN (lower(quizzes_slug) gin_trgm_ops)
+  WHERE quizzes_deleted_at IS NULL
+    AND quizzes_slug IS NOT NULL;
+
+-- (opsional) pair unik id+tenant (berguna untuk FK tenant-safe di masa depan)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_quizzes_id_tenant
+  ON quizzes (quizzes_id, quizzes_masjid_id);
+
+-- Publikasi per tenant (alive only)
 CREATE INDEX IF NOT EXISTS idx_quizzes_masjid_published
   ON quizzes (quizzes_masjid_id, quizzes_is_published)
   WHERE quizzes_deleted_at IS NULL;
 
+-- Relasi assessment (alive only)
 CREATE INDEX IF NOT EXISTS idx_quizzes_assessment
   ON quizzes (quizzes_assessment_id)
   WHERE quizzes_deleted_at IS NULL;
 
+-- Time-range besar (BRIN)
 CREATE INDEX IF NOT EXISTS brin_quizzes_created_at
   ON quizzes USING BRIN (quizzes_created_at);
 
+-- Pencarian judul & deskripsi (trigram, alive only)
 CREATE INDEX IF NOT EXISTS gin_quizzes_title_trgm
   ON quizzes USING GIN (quizzes_title gin_trgm_ops)
   WHERE quizzes_deleted_at IS NULL;
@@ -49,13 +75,18 @@ CREATE INDEX IF NOT EXISTS gin_quizzes_desc_trgm
   ON quizzes USING GIN (quizzes_description gin_trgm_ops)
   WHERE quizzes_deleted_at IS NULL;
 
+-- Kombinasi tenant + assessment (alive only)
 CREATE INDEX IF NOT EXISTS idx_quizzes_masjid_assessment
   ON quizzes (quizzes_masjid_id, quizzes_assessment_id)
   WHERE quizzes_deleted_at IS NULL;
 
+-- Listing terbaru per tenant (alive only)
 CREATE INDEX IF NOT EXISTS idx_quizzes_masjid_created_desc
   ON quizzes (quizzes_masjid_id, quizzes_created_at DESC)
   WHERE quizzes_deleted_at IS NULL;
+
+
+
 
 -- =========================================
 -- 2) QUIZ QUESTIONS

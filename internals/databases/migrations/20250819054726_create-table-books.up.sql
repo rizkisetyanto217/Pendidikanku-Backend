@@ -58,6 +58,7 @@ CREATE INDEX IF NOT EXISTS gin_books_author_trgm_alive
 
 
 
+
 -- =========================================
 -- TABEL: class_subject_books (relasi + status)
 -- =========================================
@@ -72,6 +73,9 @@ CREATE TABLE IF NOT EXISTS class_subject_books (
 
   class_subject_books_book_id UUID NOT NULL
     REFERENCES books(books_id) ON DELETE RESTRICT,
+
+  -- >>> SLUG (opsional; untuk URL/identifier ramah manusia)
+  class_subject_books_slug VARCHAR(160),
 
   class_subject_books_is_active BOOLEAN NOT NULL DEFAULT TRUE,
   class_subject_books_desc      TEXT,
@@ -89,6 +93,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csb_unique_alive
     class_subject_books_book_id
   )
   WHERE class_subject_books_deleted_at IS NULL;
+
+-- Unik SLUG per tenant (alive only, case-insensitive)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_csb_slug_per_tenant_alive
+  ON class_subject_books (
+    class_subject_books_masjid_id,
+    lower(class_subject_books_slug)
+  )
+  WHERE class_subject_books_deleted_at IS NULL
+    AND class_subject_books_slug IS NOT NULL;
+
+-- (opsional) pencarian slug cepat
+CREATE INDEX IF NOT EXISTS gin_csb_slug_trgm_alive
+  ON class_subject_books USING GIN (lower(class_subject_books_slug) gin_trgm_ops)
+  WHERE class_subject_books_deleted_at IS NULL
+    AND class_subject_books_slug IS NOT NULL;
 
 -- Index umum
 CREATE INDEX IF NOT EXISTS idx_csb_masjid
@@ -117,8 +136,6 @@ CREATE INDEX IF NOT EXISTS ix_csb_tenant_subject_active_created_alive
 -- (Opsional) BRIN
 CREATE INDEX IF NOT EXISTS brin_csb_created_at
   ON class_subject_books USING BRIN (class_subject_books_created_at);
-
-COMMIT;
 
 
 

@@ -1,3 +1,4 @@
+// internals/features/lembaga/announcements/dto/announcement_dto.go
 package dto
 
 import (
@@ -8,6 +9,19 @@ import (
 
 	model "masjidku_backend/internals/features/school/others/announcements/model"
 )
+
+/* ===================== Utils ===================== */
+
+func trimPtr(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	t := strings.TrimSpace(*s)
+	if t == "" {
+		return nil
+	}
+	return &t
+}
 
 /* ===================== URL SUB-PAYLOAD (untuk Create/Update) ===================== */
 
@@ -54,12 +68,16 @@ func (u *AnnouncementURLUpsert) Normalize() {
 /* ===================== REQUESTS ===================== */
 
 type CreateAnnouncementRequest struct {
-	AnnouncementThemeID        *uuid.UUID `json:"announcement_theme_id" validate:"omitempty"`
-	AnnouncementClassSectionID *uuid.UUID `json:"announcement_class_section_id" validate:"omitempty"` // NULL = GLOBAL
+	AnnouncementThemeID        *uuid.UUID `json:"announcement_theme_id" validate:"omitempty,uuid"`
+	AnnouncementClassSectionID *uuid.UUID `json:"announcement_class_section_id" validate:"omitempty,uuid"` // NULL = GLOBAL
 	AnnouncementTitle          string     `json:"announcement_title" validate:"required,min=3,max=200"`
 	AnnouncementDate           string     `json:"announcement_date" validate:"required,datetime=2006-01-02"` // YYYY-MM-DD
 	AnnouncementContent        string     `json:"announcement_content" validate:"required,min=3"`
 	AnnouncementIsActive       *bool      `json:"announcement_is_active" validate:"omitempty"`
+	AnnouncementSlug           *string    `json:"announcement_slug" validate:"omitempty,max=160"` // opsional; biasanya digenerate controller
+
+	// (opsional) creator; biasanya diisi dari token controller (teacher)
+	AnnouncementCreatedByTeacherID *uuid.UUID `json:"announcement_created_by_teacher_id" validate:"omitempty,uuid"`
 
 	// Lampiran metadata opsional
 	URLs []AnnouncementURLUpsert `json:"urls" validate:"omitempty,dive"`
@@ -75,13 +93,15 @@ func (r CreateAnnouncementRequest) ToModel(masjidID uuid.UUID) *model.Announceme
 	}
 
 	m := &model.AnnouncementModel{
-		AnnouncementMasjidID:       masjidID,
-		AnnouncementThemeID:        r.AnnouncementThemeID,
-		AnnouncementClassSectionID: r.AnnouncementClassSectionID,
-		AnnouncementTitle:          title,
-		AnnouncementDate:           d,
-		AnnouncementContent:        content,
-		AnnouncementIsActive:       true, // default aktif
+		AnnouncementMasjidID:           masjidID,
+		AnnouncementThemeID:            r.AnnouncementThemeID,
+		AnnouncementClassSectionID:     r.AnnouncementClassSectionID,
+		AnnouncementTitle:              title,
+		AnnouncementDate:               d,
+		AnnouncementContent:            content,
+		AnnouncementIsActive:           true,                             // default aktif
+		AnnouncementCreatedByTeacherID: r.AnnouncementCreatedByTeacherID, // controller boleh override dari token
+		AnnouncementSlug:               trimPtr(r.AnnouncementSlug),      // controller nanti ensure-unique
 	}
 	if r.AnnouncementIsActive != nil {
 		m.AnnouncementIsActive = *r.AnnouncementIsActive
@@ -92,12 +112,14 @@ func (r CreateAnnouncementRequest) ToModel(masjidID uuid.UUID) *model.Announceme
 /* ===================== UPDATE (partial) ===================== */
 
 type UpdateAnnouncementRequest struct {
-	AnnouncementThemeID        *uuid.UUID `json:"announcement_theme_id" validate:"omitempty"`
-	AnnouncementClassSectionID *uuid.UUID `json:"announcement_class_section_id" validate:"omitempty"`
-	AnnouncementTitle          *string    `json:"announcement_title" validate:"omitempty,min=3,max=200"`
-	AnnouncementDate           *string    `json:"announcement_date" validate:"omitempty,datetime=2006-01-02"`
-	AnnouncementContent        *string    `json:"announcement_content" validate:"omitempty,min=3"`
-	AnnouncementIsActive       *bool      `json:"announcement_is_active" validate:"omitempty"`
+	AnnouncementThemeID            *uuid.UUID `json:"announcement_theme_id" validate:"omitempty,uuid"`
+	AnnouncementClassSectionID     *uuid.UUID `json:"announcement_class_section_id" validate:"omitempty,uuid"`
+	AnnouncementTitle              *string    `json:"announcement_title" validate:"omitempty,min=3,max=200"`
+	AnnouncementDate               *string    `json:"announcement_date" validate:"omitempty,datetime=2006-01-02"`
+	AnnouncementContent            *string    `json:"announcement_content" validate:"omitempty,min=3"`
+	AnnouncementIsActive           *bool      `json:"announcement_is_active" validate:"omitempty"`
+	AnnouncementSlug               *string    `json:"announcement_slug" validate:"omitempty,max=160"` // opsional; controller akan normalize+ensure-unique
+	AnnouncementCreatedByTeacherID *uuid.UUID `json:"announcement_created_by_teacher_id" validate:"omitempty,uuid"`
 
 	// URL opsional
 	URLs           []AnnouncementURLUpsert `json:"urls" validate:"omitempty,dive"`
@@ -109,7 +131,7 @@ func (r *UpdateAnnouncementRequest) ApplyToModel(m *model.AnnouncementModel) {
 	if r.AnnouncementThemeID != nil {
 		m.AnnouncementThemeID = r.AnnouncementThemeID
 	}
-	// Nil = set GLOBAL (boleh nil)
+	// Section: nil berarti GLOBAL
 	if r.AnnouncementClassSectionID != nil || r.AnnouncementClassSectionID == nil {
 		m.AnnouncementClassSectionID = r.AnnouncementClassSectionID
 	}
@@ -129,11 +151,18 @@ func (r *UpdateAnnouncementRequest) ApplyToModel(m *model.AnnouncementModel) {
 	if r.AnnouncementIsActive != nil {
 		m.AnnouncementIsActive = *r.AnnouncementIsActive
 	}
+	// Slug: normalize di DTO; ensure-unique di controller
+	if r.AnnouncementSlug != nil {
+		m.AnnouncementSlug = trimPtr(r.AnnouncementSlug)
+	}
+	// (opsional) Creator override — biasanya dari token
+	if r.AnnouncementCreatedByTeacherID != nil {
+		m.AnnouncementCreatedByTeacherID = r.AnnouncementCreatedByTeacherID
+	}
 }
 
 /* ===================== QUERIES (list) ===================== */
 
-// Tambah field Include mentah supaya bisa diparse di DTO (controller tidak wajib bikin helper lagi)
 type ListAnnouncementQuery struct {
 	Limit         int        `query:"limit"`
 	Offset        int        `query:"offset"`
@@ -148,7 +177,7 @@ type ListAnnouncementQuery struct {
 	Sort          *string    `query:"sort"`
 	IncludePusat  *bool      `query:"include_pusat"`
 
-	// NEW: raw include param, e.g. "theme,urls"
+	// raw include param, e.g. "theme,urls"
 	Include string `query:"include"`
 }
 
@@ -159,6 +188,7 @@ func (q ListAnnouncementQuery) WantTheme() bool {
 func (q ListAnnouncementQuery) WantURLs() bool {
 	return hasInclude(q.Include, "urls", "attachments", "announcement_urls")
 }
+
 func hasInclude(raw string, keys ...string) bool {
 	if raw == "" {
 		return false
@@ -191,7 +221,7 @@ type AnnouncementURLLite struct {
 	AnnouncementID uuid.UUID `json:"announcement_id"`
 	Href           string    `json:"href"`
 
-	// NEW (opsional, tidak mengganggu FE lama):
+	// NEW (opsional)
 	Kind      *string `json:"kind,omitempty"`
 	Order     *int    `json:"order,omitempty"`
 	IsPrimary *bool   `json:"is_primary,omitempty"`
@@ -204,6 +234,7 @@ type AnnouncementResponse struct {
 	AnnouncementClassSectionID     *uuid.UUID `json:"announcement_class_section_id,omitempty"`
 	AnnouncementCreatedByTeacherID *uuid.UUID `json:"announcement_created_by_teacher_id,omitempty"`
 
+	AnnouncementSlug     *string   `json:"announcement_slug,omitempty"`
 	AnnouncementTitle    string    `json:"announcement_title"`
 	AnnouncementDate     time.Time `json:"announcement_date"`
 	AnnouncementContent  string    `json:"announcement_content"`
@@ -228,12 +259,15 @@ func NewAnnouncementResponse(m *model.AnnouncementModel) *AnnouncementResponse {
 		AnnouncementThemeID:            m.AnnouncementThemeID,
 		AnnouncementClassSectionID:     m.AnnouncementClassSectionID,
 		AnnouncementCreatedByTeacherID: m.AnnouncementCreatedByTeacherID,
-		AnnouncementTitle:              m.AnnouncementTitle,
-		AnnouncementDate:               m.AnnouncementDate,
-		AnnouncementContent:            m.AnnouncementContent,
-		AnnouncementIsActive:           m.AnnouncementIsActive,
-		AnnouncementCreatedAt:          m.AnnouncementCreatedAt,
-		AnnouncementUpdatedAt:          m.AnnouncementUpdatedAt,
+
+		AnnouncementSlug:     m.AnnouncementSlug,
+		AnnouncementTitle:    m.AnnouncementTitle,
+		AnnouncementDate:     m.AnnouncementDate,
+		AnnouncementContent:  m.AnnouncementContent,
+		AnnouncementIsActive: m.AnnouncementIsActive,
+
+		AnnouncementCreatedAt: m.AnnouncementCreatedAt,
+		AnnouncementUpdatedAt: m.AnnouncementUpdatedAt,
 	}
 	// Theme akan terisi jika controller preload / batch-load & assign ke m.Theme
 	if m.Theme.AnnouncementThemesID != uuid.Nil {
@@ -266,7 +300,7 @@ func (r *AnnouncementResponse) AttachURLs(rows []model.AnnouncementURLModel) *An
 	}
 	out := make([]*AnnouncementURLLite, 0, len(rows))
 	for i := range rows {
-		// hanya kirim yang punya Href (menjaga kompatibilitas FE lama)
+		// hanya kirim yang punya Href (kompat FE lama)
 		if rows[i].AnnouncementURLHref == nil || strings.TrimSpace(*rows[i].AnnouncementURLHref) == "" {
 			continue
 		}

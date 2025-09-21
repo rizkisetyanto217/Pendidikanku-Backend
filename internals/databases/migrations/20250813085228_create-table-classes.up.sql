@@ -94,6 +94,8 @@ CREATE INDEX IF NOT EXISTS idx_class_parents_image_purge_due
   ON class_parents (class_parent_image_delete_pending_until)
   WHERE class_parent_image_object_key_old IS NOT NULL;
 
+
+
 -- =========================================================
 -- TABLE: classes
 -- =========================================================

@@ -12,45 +12,108 @@ import (
 )
 
 /* =========================================================
+   0) helpers
+   ========================================================= */
+
+func trimPtr(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	t := strings.TrimSpace(*s)
+	if t == "" {
+		return nil
+	}
+	return &t
+}
+
+func toInt16Ptr(p *int) *int16 {
+	if p == nil {
+		return nil
+	}
+	v := int16(*p)
+	return &v
+}
+
+func fromInt16Ptr(p *int16) *int {
+	if p == nil {
+		return nil
+	}
+	v := int(*p)
+	return &v
+}
+
+/* =========================================================
    1) REQUEST DTO
    ========================================================= */
 
 type CreateClassSubjectRequest struct {
-	MasjidID     uuid.UUID  `json:"class_subjects_masjid_id" validate:"required"`
-	ClassID      uuid.UUID  `json:"class_subjects_class_id" validate:"required"`
-	SubjectID    uuid.UUID  `json:"class_subjects_subject_id" validate:"required"`
+	MasjidID  uuid.UUID `json:"class_subjects_masjid_id"  validate:"required"`
+	ClassID   uuid.UUID `json:"class_subjects_class_id"   validate:"required"`
+	SubjectID uuid.UUID `json:"class_subjects_subject_id" validate:"required"`
 
-	OrderIndex   *int    `json:"class_subjects_order_index" validate:"omitempty,min=0"`
-	HoursPerWeek *int    `json:"class_subjects_hours_per_week" validate:"omitempty,min=0"`
+	// slug
+	Slug *string `json:"class_subjects_slug" validate:"omitempty,max=160"`
+
+	// kurikulum
+	OrderIndex   *int    `json:"class_subjects_order_index"       validate:"omitempty,min=0"`
+	HoursPerWeek *int    `json:"class_subjects_hours_per_week"    validate:"omitempty,min=0"`
 	MinScore     *int    `json:"class_subjects_min_passing_score" validate:"omitempty,min=0,max=100"`
-	Weight       *int    `json:"class_subjects_weight_on_report" validate:"omitempty,min=0"`
-	IsCore       *bool   `json:"class_subjects_is_core" validate:"omitempty"`
-	Desc         *string `json:"class_subjects_desc" validate:"omitempty"`
-	IsActive     *bool   `json:"class_subjects_is_active" validate:"omitempty"`
+	Weight       *int    `json:"class_subjects_weight_on_report"  validate:"omitempty,min=0"`
+	IsCore       *bool   `json:"class_subjects_is_core"           validate:"omitempty"`
+	Desc         *string `json:"class_subjects_desc"              validate:"omitempty"`
+
+	// bobot penilaian (0..100)
+	WeightAssignment     *int `json:"class_subjects_weight_assignment"       validate:"omitempty,min=0,max=100"`
+	WeightQuiz           *int `json:"class_subjects_weight_quiz"             validate:"omitempty,min=0,max=100"`
+	WeightMid            *int `json:"class_subjects_weight_mid"              validate:"omitempty,min=0,max=100"`
+	WeightFinal          *int `json:"class_subjects_weight_final"            validate:"omitempty,min=0,max=100"`
+	MinAttendancePercent *int `json:"class_subjects_min_attendance_percent"  validate:"omitempty,min=0,max=100"`
+
+	// image (sisi service boleh isi salah satu: url atau object_key)
+	ImageURL       *string `json:"class_subjects_image_url"        validate:"omitempty,max=2000"`
+	ImageObjectKey *string `json:"class_subjects_image_object_key" validate:"omitempty,max=1024"`
+
+	IsActive *bool `json:"class_subjects_is_active" validate:"omitempty"`
 }
 
 type UpdateClassSubjectRequest struct {
-	MasjidID     *uuid.UUID `json:"class_subjects_masjid_id" validate:"omitempty"`
-	ClassID      *uuid.UUID `json:"class_subjects_class_id" validate:"omitempty"`
-	SubjectID    *uuid.UUID `json:"class_subjects_subject_id" validate:"omitempty"`
+	MasjidID  *uuid.UUID `json:"class_subjects_masjid_id"  validate:"omitempty"`
+	ClassID   *uuid.UUID `json:"class_subjects_class_id"   validate:"omitempty"`
+	SubjectID *uuid.UUID `json:"class_subjects_subject_id" validate:"omitempty"`
 
-	OrderIndex   *int    `json:"class_subjects_order_index" validate:"omitempty,min=0"`
-	HoursPerWeek *int    `json:"class_subjects_hours_per_week" validate:"omitempty,min=0"`
+	// slug
+	Slug *string `json:"class_subjects_slug" validate:"omitempty,max=160"`
+
+	// kurikulum
+	OrderIndex   *int    `json:"class_subjects_order_index"       validate:"omitempty,min=0"`
+	HoursPerWeek *int    `json:"class_subjects_hours_per_week"    validate:"omitempty,min=0"`
 	MinScore     *int    `json:"class_subjects_min_passing_score" validate:"omitempty,min=0,max=100"`
-	Weight       *int    `json:"class_subjects_weight_on_report" validate:"omitempty,min=0"`
-	IsCore       *bool   `json:"class_subjects_is_core" validate:"omitempty"`
-	Desc         *string `json:"class_subjects_desc" validate:"omitempty"`
-	IsActive     *bool   `json:"class_subjects_is_active" validate:"omitempty"`
+	Weight       *int    `json:"class_subjects_weight_on_report"  validate:"omitempty,min=0"`
+	IsCore       *bool   `json:"class_subjects_is_core"           validate:"omitempty"`
+	Desc         *string `json:"class_subjects_desc"              validate:"omitempty"`
+
+	// bobot penilaian
+	WeightAssignment     *int `json:"class_subjects_weight_assignment"       validate:"omitempty,min=0,max=100"`
+	WeightQuiz           *int `json:"class_subjects_weight_quiz"             validate:"omitempty,min=0,max=100"`
+	WeightMid            *int `json:"class_subjects_weight_mid"              validate:"omitempty,min=0,max=100"`
+	WeightFinal          *int `json:"class_subjects_weight_final"            validate:"omitempty,min=0,max=100"`
+	MinAttendancePercent *int `json:"class_subjects_min_attendance_percent"  validate:"omitempty,min=0,max=100"`
+
+	// image
+	ImageURL       *string `json:"class_subjects_image_url"        validate:"omitempty,max=2000"`
+	ImageObjectKey *string `json:"class_subjects_image_object_key" validate:"omitempty,max=1024"`
+
+	IsActive *bool `json:"class_subjects_is_active" validate:"omitempty"`
 }
 
 type ListClassSubjectQuery struct {
-	Limit       *int    `query:"limit" validate:"omitempty,min=1,max=200"`
-	Offset      *int    `query:"offset" validate:"omitempty,min=0"`
-	IsActive    *bool   `query:"is_active" validate:"omitempty"`
-	Q           *string `query:"q" validate:"omitempty,max=100"`
-	OrderBy     *string `query:"order_by" validate:"omitempty,oneof=order_index created_at updated_at"`
-	Sort        *string `query:"sort" validate:"omitempty,oneof=asc desc"`
-	WithDeleted *bool   `query:"with_deleted" validate:"omitempty"`
+	Limit       *int    `query:"limit"         validate:"omitempty,min=1,max=200"`
+	Offset      *int    `query:"offset"        validate:"omitempty,min=0"`
+	IsActive    *bool   `query:"is_active"     validate:"omitempty"`
+	Q           *string `query:"q"             validate:"omitempty,max=100"`
+	OrderBy     *string `query:"order_by"      validate:"omitempty,oneof=order_index created_at updated_at"`
+	Sort        *string `query:"sort"          validate:"omitempty,oneof=asc desc"`
+	WithDeleted *bool   `query:"with_deleted"  validate:"omitempty"`
 }
 
 /* =========================================================
@@ -58,21 +121,41 @@ type ListClassSubjectQuery struct {
    ========================================================= */
 
 type ClassSubjectResponse struct {
-	ID           uuid.UUID  `json:"class_subjects_id"`
-	MasjidID     uuid.UUID  `json:"class_subjects_masjid_id"`
-	ClassID      uuid.UUID  `json:"class_subjects_class_id"`
-	SubjectID    uuid.UUID  `json:"class_subjects_subject_id"`
+	ID        uuid.UUID `json:"class_subjects_id"`
+	MasjidID  uuid.UUID `json:"class_subjects_masjid_id"`
+	ClassID   uuid.UUID `json:"class_subjects_class_id"`
+	SubjectID uuid.UUID `json:"class_subjects_subject_id"`
 
-	OrderIndex   *int       `json:"class_subjects_order_index,omitempty"`
-	HoursPerWeek *int       `json:"class_subjects_hours_per_week,omitempty"`
-	MinScore     *int       `json:"class_subjects_min_passing_score,omitempty"`
-	Weight       *int       `json:"class_subjects_weight_on_report,omitempty"`
-	IsCore       bool       `json:"class_subjects_is_core"`
-	Desc         *string    `json:"class_subjects_desc,omitempty"`
-	IsActive     bool       `json:"class_subjects_is_active"`
-	CreatedAt    time.Time  `json:"class_subjects_created_at"`
-	UpdatedAt    *time.Time `json:"class_subjects_updated_at,omitempty"`
-	DeletedAt    *time.Time `json:"class_subjects_deleted_at,omitempty"`
+	// slug
+	Slug *string `json:"class_subjects_slug,omitempty"`
+
+	// kurikulum
+	OrderIndex   *int    `json:"class_subjects_order_index,omitempty"`
+	HoursPerWeek *int    `json:"class_subjects_hours_per_week,omitempty"`
+	MinScore     *int    `json:"class_subjects_min_passing_score,omitempty"`
+	Weight       *int    `json:"class_subjects_weight_on_report,omitempty"`
+	IsCore       bool    `json:"class_subjects_is_core"`
+	Desc         *string `json:"class_subjects_desc,omitempty"`
+
+	// bobot
+	WeightAssignment     *int `json:"class_subjects_weight_assignment,omitempty"`
+	WeightQuiz           *int `json:"class_subjects_weight_quiz,omitempty"`
+	WeightMid            *int `json:"class_subjects_weight_mid,omitempty"`
+	WeightFinal          *int `json:"class_subjects_weight_final,omitempty"`
+	MinAttendancePercent *int `json:"class_subjects_min_attendance_percent,omitempty"`
+
+	// image (termasuk slot lama & retensi untuk admin)
+	ImageURL                *string    `json:"class_subjects_image_url,omitempty"`
+	ImageObjectKey          *string    `json:"class_subjects_image_object_key,omitempty"`
+	ImageURLOld             *string    `json:"class_subjects_image_url_old,omitempty"`
+	ImageObjectKeyOld       *string    `json:"class_subjects_image_object_key_old,omitempty"`
+	ImageDeletePendingUntil *time.Time `json:"class_subjects_image_delete_pending_until,omitempty"`
+
+	// status & timestamps
+	IsActive  bool       `json:"class_subjects_is_active"`
+	CreatedAt time.Time  `json:"class_subjects_created_at"`
+	UpdatedAt *time.Time `json:"class_subjects_updated_at,omitempty"`
+	DeletedAt *time.Time `json:"class_subjects_deleted_at,omitempty"`
 }
 
 type Pagination struct {
@@ -100,26 +183,43 @@ func (r CreateClassSubjectRequest) ToModel() csModel.ClassSubjectModel {
 		isCore = *r.IsCore
 	}
 
-	var desc *string
-	if r.Desc != nil {
-		d := strings.TrimSpace(*r.Desc)
-		if d != "" {
-			desc = &d
-		}
-	}
-
 	return csModel.ClassSubjectModel{
-		ClassSubjectsMasjidID:        r.MasjidID,
-		ClassSubjectsClassID:         r.ClassID,
-		ClassSubjectsSubjectID:       r.SubjectID,
+		ClassSubjectsMasjidID:  r.MasjidID,
+		ClassSubjectsClassID:   r.ClassID,
+		ClassSubjectsSubjectID: r.SubjectID,
+
+		// slug (trim)
+		ClassSubjectsSlug: trimPtr(r.Slug),
+
+		// kurikulum
 		ClassSubjectsOrderIndex:      r.OrderIndex,
 		ClassSubjectsHoursPerWeek:    r.HoursPerWeek,
 		ClassSubjectsMinPassingScore: r.MinScore,
 		ClassSubjectsWeightOnReport:  r.Weight,
 		ClassSubjectsIsCore:          isCore,
-		ClassSubjectsDesc:            desc,
-		ClassSubjectsIsActive:        isActive,
+		ClassSubjectsDesc:            trimPtr(r.Desc),
+
+		// bobot (konversi ke *int16 bila model pakai SMALLINT)
+		ClassSubjectsWeightAssignment: toInt16Ptr(r.WeightAssignment),
+		ClassSubjectsWeightQuiz:       toInt16Ptr(r.WeightQuiz),
+		ClassSubjectsWeightMid:        toInt16Ptr(r.WeightMid),
+		ClassSubjectsWeightFinal:      toInt16Ptr(r.WeightFinal),
+		ClassSubjectsMinAttendancePct: toInt16Ptr(r.MinAttendancePercent),
+
+		// image
+		ClassSubjectsImageURL:       trimPtr(r.ImageURL),
+		ClassSubjectsImageObjectKey: trimPtr(r.ImageObjectKey),
+
+		// status
+		ClassSubjectsIsActive: isActive,
 	}
+}
+
+func timePtrOrNil(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }
 
 func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
@@ -130,20 +230,36 @@ func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
 	}
 
 	return ClassSubjectResponse{
-		ID:           m.ClassSubjectsID,
-		MasjidID:     m.ClassSubjectsMasjidID,
-		ClassID:      m.ClassSubjectsClassID,
-		SubjectID:    m.ClassSubjectsSubjectID,
+		ID:        m.ClassSubjectsID,
+		MasjidID:  m.ClassSubjectsMasjidID,
+		ClassID:   m.ClassSubjectsClassID,
+		SubjectID: m.ClassSubjectsSubjectID,
+
+		Slug: m.ClassSubjectsSlug,
+
 		OrderIndex:   m.ClassSubjectsOrderIndex,
 		HoursPerWeek: m.ClassSubjectsHoursPerWeek,
 		MinScore:     m.ClassSubjectsMinPassingScore,
 		Weight:       m.ClassSubjectsWeightOnReport,
 		IsCore:       m.ClassSubjectsIsCore,
 		Desc:         m.ClassSubjectsDesc,
-		IsActive:     m.ClassSubjectsIsActive,
-		CreatedAt:    m.ClassSubjectsCreatedAt,
-		UpdatedAt:    m.ClassSubjectsUpdatedAt,
-		DeletedAt:    deletedAt,
+
+		WeightAssignment:     fromInt16Ptr(m.ClassSubjectsWeightAssignment),
+		WeightQuiz:           fromInt16Ptr(m.ClassSubjectsWeightQuiz),
+		WeightMid:            fromInt16Ptr(m.ClassSubjectsWeightMid),
+		WeightFinal:          fromInt16Ptr(m.ClassSubjectsWeightFinal),
+		MinAttendancePercent: fromInt16Ptr(m.ClassSubjectsMinAttendancePct),
+
+		ImageURL:                m.ClassSubjectsImageURL,
+		ImageObjectKey:          m.ClassSubjectsImageObjectKey,
+		ImageURLOld:             m.ClassSubjectsImageURLOld,
+		ImageObjectKeyOld:       m.ClassSubjectsImageObjectKeyOld,
+		ImageDeletePendingUntil: m.ClassSubjectsImageDeletePendingUntil,
+
+		IsActive:  m.ClassSubjectsIsActive,
+		CreatedAt: m.ClassSubjectsCreatedAt,
+		UpdatedAt: timePtrOrNil(m.ClassSubjectsUpdatedAt), // <- perbaikan di sini
+		DeletedAt: deletedAt,
 	}
 }
 
@@ -165,6 +281,10 @@ func (r UpdateClassSubjectRequest) Apply(m *csModel.ClassSubjectModel) {
 	if r.SubjectID != nil {
 		m.ClassSubjectsSubjectID = *r.SubjectID
 	}
+	if r.Slug != nil {
+		m.ClassSubjectsSlug = trimPtr(r.Slug)
+	}
+
 	if r.OrderIndex != nil {
 		m.ClassSubjectsOrderIndex = r.OrderIndex
 	}
@@ -181,13 +301,34 @@ func (r UpdateClassSubjectRequest) Apply(m *csModel.ClassSubjectModel) {
 		m.ClassSubjectsIsCore = *r.IsCore
 	}
 	if r.Desc != nil {
-		d := strings.TrimSpace(*r.Desc)
-		if d == "" {
-			m.ClassSubjectsDesc = nil
-		} else {
-			m.ClassSubjectsDesc = &d
-		}
+		m.ClassSubjectsDesc = trimPtr(r.Desc)
 	}
+
+	// bobot
+	if r.WeightAssignment != nil {
+		m.ClassSubjectsWeightAssignment = toInt16Ptr(r.WeightAssignment)
+	}
+	if r.WeightQuiz != nil {
+		m.ClassSubjectsWeightQuiz = toInt16Ptr(r.WeightQuiz)
+	}
+	if r.WeightMid != nil {
+		m.ClassSubjectsWeightMid = toInt16Ptr(r.WeightMid)
+	}
+	if r.WeightFinal != nil {
+		m.ClassSubjectsWeightFinal = toInt16Ptr(r.WeightFinal)
+	}
+	if r.MinAttendancePercent != nil {
+		m.ClassSubjectsMinAttendancePct = toInt16Ptr(r.MinAttendancePercent)
+	}
+
+	// image
+	if r.ImageURL != nil {
+		m.ClassSubjectsImageURL = trimPtr(r.ImageURL)
+	}
+	if r.ImageObjectKey != nil {
+		m.ClassSubjectsImageObjectKey = trimPtr(r.ImageObjectKey)
+	}
+
 	if r.IsActive != nil {
 		m.ClassSubjectsIsActive = *r.IsActive
 	}
@@ -215,7 +356,7 @@ func bookLiteFromModel(b booksModel.BooksModel) BookLite {
 	}
 }
 
-// Disesuaikan: pakai is_active + desc (tanpa valid_from/valid_to/is_primary/notes)
+// Disesuaikan: pakai is_active + desc
 type ClassSubjectBookWithBook struct {
 	ClassSubjectBooksID       uuid.UUID `json:"class_subject_books_id"`
 	ClassSubjectBooksIsActive bool      `json:"class_subject_books_is_active"`

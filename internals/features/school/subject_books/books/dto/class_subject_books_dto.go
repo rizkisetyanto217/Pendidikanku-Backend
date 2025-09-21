@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	model "masjidku_backend/internals/features/school/subject_books/books/model" // <-- pastikan path model benar
+	model "masjidku_backend/internals/features/school/subject_books/books/model"
 
 	"github.com/google/uuid"
 )
@@ -20,6 +20,9 @@ type CreateClassSubjectBookRequest struct {
 	ClassSubjectBooksMasjidID       uuid.UUID `json:"class_subject_books_masjid_id"        validate:"required"`
 	ClassSubjectBooksClassSubjectID uuid.UUID `json:"class_subject_books_class_subject_id" validate:"required"`
 	ClassSubjectBooksBookID         uuid.UUID `json:"class_subject_books_book_id"          validate:"required"`
+
+	// slug opsional; controller yang normalize + ensure-unique
+	ClassSubjectBooksSlug *string `json:"class_subject_books_slug" validate:"omitempty,max=160"`
 
 	ClassSubjectBooksIsActive *bool   `json:"class_subject_books_is_active" validate:"omitempty"`
 	ClassSubjectBooksDesc     *string `json:"class_subject_books_desc"      validate:"omitempty,max=2000"`
@@ -46,10 +49,19 @@ func (r CreateClassSubjectBookRequest) ToModel() model.ClassSubjectBookModel {
 			desc = &d
 		}
 	}
+	var slug *string
+	if r.ClassSubjectBooksSlug != nil {
+		s := strings.TrimSpace(*r.ClassSubjectBooksSlug)
+		if s != "" {
+			slug = &s
+		}
+	}
+
 	return model.ClassSubjectBookModel{
 		ClassSubjectBooksMasjidID:       r.ClassSubjectBooksMasjidID,
 		ClassSubjectBooksClassSubjectID: r.ClassSubjectBooksClassSubjectID,
 		ClassSubjectBooksBookID:         r.ClassSubjectBooksBookID,
+		ClassSubjectBooksSlug:           slug,
 		ClassSubjectBooksIsActive:       isActive,
 		ClassSubjectBooksDesc:           desc,
 	}
@@ -60,6 +72,9 @@ type UpdateClassSubjectBookRequest struct {
 	ClassSubjectBooksMasjidID       *uuid.UUID `json:"class_subject_books_masjid_id"        validate:"omitempty"`
 	ClassSubjectBooksClassSubjectID *uuid.UUID `json:"class_subject_books_class_subject_id" validate:"omitempty"`
 	ClassSubjectBooksBookID         *uuid.UUID `json:"class_subject_books_book_id"          validate:"omitempty"`
+
+	// slug opsional; controller yang normalize + ensure-unique (+ exclude diri sendiri)
+	ClassSubjectBooksSlug *string `json:"class_subject_books_slug" validate:"omitempty,max=160"`
 
 	ClassSubjectBooksIsActive *bool   `json:"class_subject_books_is_active" validate:"omitempty"`
 	ClassSubjectBooksDesc     *string `json:"class_subject_books_desc"      validate:"omitempty,max=2000"`
@@ -89,8 +104,16 @@ func (r *UpdateClassSubjectBookRequest) Apply(m *model.ClassSubjectBookModel) er
 			m.ClassSubjectBooksDesc = &d
 		}
 	}
-	now := time.Now()
-	m.ClassSubjectBooksUpdatedAt = &now
+	// slug: normalize di DTO; ensure-unique di controller
+	if r.ClassSubjectBooksSlug != nil {
+		s := strings.TrimSpace(*r.ClassSubjectBooksSlug)
+		if s == "" {
+			m.ClassSubjectBooksSlug = nil
+		} else {
+			m.ClassSubjectBooksSlug = &s
+		}
+	}
+	// Jangan set UpdatedAt manual—biarkan GORM/DB (kolom NOT NULL + autoUpdateTime)
 	return nil
 }
 
@@ -113,53 +136,51 @@ type ListClassSubjectBookQuery struct {
    3) RESPONSE
    ========================================================= */
 
-// Ringkas data buku yang ikut di-embed di item CSB
-// BookURLLite: sesuaikan tag json dengan kolommu di DB
+// BookURLLite: contoh embed URL buku
 type BookURLLite struct {
-	BookURLID               uuid.UUID  `json:"book_url_id"`
-	BookURLMasjidID         uuid.UUID  `json:"book_url_masjid_id"`
-	BookURLBookID           uuid.UUID  `json:"book_url_book_id"`
-	BookURLLabel            *string    `json:"book_url_label,omitempty"`
-	BookURLType             string     `json:"book_url_type"`
-	BookURLHref             string     `json:"book_url_href"`
-	BookURLTrashURL         *string    `json:"book_url_trash_url,omitempty"`
+	BookURLID                 uuid.UUID  `json:"book_url_id"`
+	BookURLMasjidID           uuid.UUID  `json:"book_url_masjid_id"`
+	BookURLBookID             uuid.UUID  `json:"book_url_book_id"`
+	BookURLLabel              *string    `json:"book_url_label,omitempty"`
+	BookURLType               string     `json:"book_url_type"`
+	BookURLHref               string     `json:"book_url_href"`
+	BookURLTrashURL           *string    `json:"book_url_trash_url,omitempty"`
 	BookURLDeletePendingUntil *time.Time `json:"book_url_delete_pending_until,omitempty"`
-	BookURLCreatedAt        time.Time  `json:"book_url_created_at"`
-	BookURLUpdatedAt        time.Time  `json:"book_url_updated_at"`
-	BookURLDeletedAt        *time.Time `json:"book_url_deleted_at,omitempty"`
+	BookURLCreatedAt          time.Time  `json:"book_url_created_at"`
+	BookURLUpdatedAt          time.Time  `json:"book_url_updated_at"`
+	BookURLDeletedAt          *time.Time `json:"book_url_deleted_at,omitempty"`
 }
 
-// Tambahkan field berikut ke BookLite
+// BookLite (opsional) — dilengkapi daftar URLs
 type BookLite struct {
-	BooksID       uuid.UUID  `json:"books_id"`
-	BooksMasjidID uuid.UUID  `json:"books_masjid_id"`
-	BooksTitle    string     `json:"books_title"`
-	BooksAuthor   *string    `json:"books_author,omitempty"`
-	BooksURL      *string    `json:"books_url,omitempty"`       // primary (opsional)
-	BooksImageURL *string    `json:"books_image_url,omitempty"` // cover (opsional)
-	BooksSlug     *string    `json:"books_slug,omitempty"`
-
-	// ⬇️ BARU: semua URL
-	BookURLs []BookURLLite `json:"book_urls,omitempty"`
+	BooksID       uuid.UUID     `json:"books_id"`
+	BooksMasjidID uuid.UUID     `json:"books_masjid_id"`
+	BooksTitle    string        `json:"books_title"`
+	BooksAuthor   *string       `json:"books_author,omitempty"`
+	BooksURL      *string       `json:"books_url,omitempty"`
+	BooksImageURL *string       `json:"books_image_url,omitempty"`
+	BooksSlug     *string       `json:"books_slug,omitempty"`
+	BookURLs      []BookURLLite `json:"book_urls,omitempty"`
 }
-
 
 type ClassSubjectBookResponse struct {
-	ClassSubjectBooksID             uuid.UUID  `json:"class_subject_books_id"`
-	ClassSubjectBooksMasjidID       uuid.UUID  `json:"class_subject_books_masjid_id"`
-	ClassSubjectBooksClassSubjectID uuid.UUID  `json:"class_subject_books_class_subject_id"`
-	ClassSubjectBooksBookID         uuid.UUID  `json:"class_subject_books_book_id"`
+	ClassSubjectBooksID             uuid.UUID `json:"class_subject_books_id"`
+	ClassSubjectBooksMasjidID       uuid.UUID `json:"class_subject_books_masjid_id"`
+	ClassSubjectBooksClassSubjectID uuid.UUID `json:"class_subject_books_class_subject_id"`
+	ClassSubjectBooksBookID         uuid.UUID `json:"class_subject_books_book_id"`
 
-	ClassSubjectBooksIsActive bool     `json:"class_subject_books_is_active"`
-	ClassSubjectBooksDesc     *string  `json:"class_subject_books_desc,omitempty"`
-	
+	// ⬇️ baru: slug ikut dibalas
+	ClassSubjectBooksSlug *string `json:"class_subject_books_slug,omitempty"`
+
+	ClassSubjectBooksIsActive bool    `json:"class_subject_books_is_active"`
+	ClassSubjectBooksDesc     *string `json:"class_subject_books_desc,omitempty"`
 
 	ClassSubjectBooksCreatedAt time.Time  `json:"class_subject_books_created_at"`
-	ClassSubjectBooksUpdatedAt *time.Time `json:"class_subject_books_updated_at,omitempty"`
+	ClassSubjectBooksUpdatedAt *time.Time  `json:"class_subject_books_updated_at"`
 	ClassSubjectBooksDeletedAt *time.Time `json:"class_subject_books_deleted_at,omitempty"`
 
-	// ✅ tambahan: detail buku hasil JOIN (opsional)
-	Book *BookLite `json:"book,omitempty"`
+	// opsional join
+	Book    *BookLite    `json:"book,omitempty"`
 	Section *SectionLite `json:"section,omitempty"`
 }
 
@@ -188,12 +209,12 @@ func FromModel(m model.ClassSubjectBookModel) ClassSubjectBookResponse {
 		ClassSubjectBooksMasjidID:       m.ClassSubjectBooksMasjidID,
 		ClassSubjectBooksClassSubjectID: m.ClassSubjectBooksClassSubjectID,
 		ClassSubjectBooksBookID:         m.ClassSubjectBooksBookID,
+		ClassSubjectBooksSlug:           m.ClassSubjectBooksSlug,
 		ClassSubjectBooksIsActive:       m.ClassSubjectBooksIsActive,
 		ClassSubjectBooksDesc:           m.ClassSubjectBooksDesc,
 		ClassSubjectBooksCreatedAt:      m.ClassSubjectBooksCreatedAt,
-		ClassSubjectBooksUpdatedAt:      m.ClassSubjectBooksUpdatedAt,
+		ClassSubjectBooksUpdatedAt:      m.ClassSubjectBooksUpdatedAt, // now time.Time (NOT NULL)
 		ClassSubjectBooksDeletedAt:      deletedAt,
-		// Book: nil (controller isi kalau JOIN)
 	}
 }
 
@@ -205,7 +226,7 @@ func FromModels(list []model.ClassSubjectBookModel) []ClassSubjectBookResponse {
 	return out
 }
 
-// (Opsional) helper kalau controller kamu sudah punya kolom join "books_*"
+// (Opsional) helper kalau controller sudah punya kolom join "books_*"
 func WithBook(resp ClassSubjectBookResponse, b *BookLite) ClassSubjectBookResponse {
 	resp.Book = b
 	return resp

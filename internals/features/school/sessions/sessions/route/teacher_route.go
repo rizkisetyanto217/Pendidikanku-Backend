@@ -25,15 +25,6 @@ func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	sGroup.Get("/teacher/me", sessionController.ListMyTeachingSessions)
 
 	// =====================
-	// Occurrences (Schedule & Attendance)
-	// =====================
-	occ := uaCtrl.NewOccurrenceController(db)
-	// rencana (berulang mingguan → di-expand by date range)
-	masjidGroup.Get("/class-schedules/occurrences", occ.ListScheduleOccurrences)
-	// sesi kehadiran aktual (langsung dari CAS)
-	masjidGroup.Get("/class-attendance-sessions/occurrences", occ.ListAttendanceOccurrences)
-
-	// =====================
 	// User Attendance Types (CRUD)
 	// =====================
 	uattCtl := uaCtrl.NewUserAttendanceTypeController(db)

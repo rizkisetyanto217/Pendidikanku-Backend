@@ -1,31 +1,62 @@
+-- +migrate Up
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
--- =========================================================
--- Tabel: CLASS_ATTENDANCE_SESSIONS → refer ke CLASS_SCHEDULES
--- =========================================================
-CREATE TABLE class_attendance_sessions (
-  class_attendance_sessions_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+CREATE TABLE IF NOT EXISTS class_attendance_sessions (
+  class_attendance_sessions_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  -- Tenant guard
-  class_attendance_sessions_masjid_id     UUID NOT NULL,
+  -- tenant guard
+  class_attendance_sessions_masjid_id   UUID NOT NULL,
 
-  -- Relasi utama: jadwal (bukan CSST)
-  class_attendance_sessions_schedule_id   UUID REFERENCES class_schedules (class_schedule_id) NOT NULL,
+  -- relasi utama: header jadwal (template)
+  class_attendance_sessions_schedule_id UUID NOT NULL,
 
-  class_attendance_sessions_CSST_id       UUID REFERENCES class_section_subject_teachers (class_section_subject_teachers_id) NOT NULL,
+  -- FK komposit tenant-safe → schedules (butuh UNIQUE (class_schedules_masjid_id, class_schedule_id) di class_schedules)
+  CONSTRAINT fk_cas_schedule_tenant
+    FOREIGN KEY (class_attendance_sessions_masjid_id, class_attendance_sessions_schedule_id)
+    REFERENCES class_schedules (class_schedules_masjid_id, class_schedule_id)
+    ON UPDATE CASCADE ON DELETE RESTRICT,
 
-  -- Opsional override (boleh beda dari jadwal)
-  class_attendance_sessions_class_room_id UUID
-    REFERENCES class_rooms (class_room_id) ON DELETE SET NULL,
-  class_attendance_sessions_teacher_id    UUID
-    REFERENCES masjid_teachers (masjid_teacher_id) ON DELETE SET NULL,
+  -- (opsional) jejak rule (slot mingguan) asal occurrence
+  class_attendance_sessions_rule_id UUID
+    REFERENCES class_schedule_rules(class_schedule_rules_id) ON DELETE SET NULL,
 
-  -- Metadata sesi
-  class_attendance_sessions_date          DATE NOT NULL DEFAULT CURRENT_DATE,
+  -- >>> SLUG (opsional; unik per tenant saat alive)
+  class_attendance_sessions_slug VARCHAR(160),
+
+  -- occurrence
+  class_attendance_sessions_date      DATE NOT NULL,
+  class_attendance_sessions_starts_at TIMESTAMPTZ,
+  class_attendance_sessions_ends_at   TIMESTAMPTZ,
+
+  -- lifecycle
+  class_attendance_sessions_status            session_status_enum NOT NULL DEFAULT 'scheduled', -- scheduled|ongoing|completed|canceled
+  class_attendance_sessions_attendance_status TEXT NOT NULL DEFAULT 'open',                      -- open|closed
+  class_attendance_sessions_locked            BOOLEAN NOT NULL DEFAULT FALSE,
+
+  -- OVERRIDES (ubah harian tanpa mengubah rules)
+  class_attendance_sessions_is_override BOOLEAN NOT NULL DEFAULT FALSE,
+  class_attendance_sessions_is_canceled BOOLEAN NOT NULL DEFAULT FALSE,
+  class_attendance_sessions_original_start_at TIMESTAMPTZ,
+  class_attendance_sessions_original_end_at   TIMESTAMPTZ,
+  class_attendance_sessions_kind TEXT,                    -- 'lesson','ceremony','counseling','exam', ...
+  class_attendance_sessions_override_reason TEXT,
+
+  -- Override karena EVENT (opsional)
+  class_attendance_sessions_override_event_id UUID
+    REFERENCES class_events(class_events_id) ON DELETE SET NULL,
+  class_attendance_sessions_override_attendance_event_id UUID
+    REFERENCES class_attendance_events(class_attendance_events_id) ON DELETE SET NULL,
+
+  -- override resource (opsional)
+  class_attendance_sessions_teacher_id    UUID REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE SET NULL,
+  class_attendance_sessions_class_room_id UUID REFERENCES class_rooms(class_room_id)         ON DELETE SET NULL,
+  class_attendance_sessions_csst_id       UUID REFERENCES class_section_subject_teachers(class_section_subject_teachers_id) ON DELETE SET NULL,
+
+  -- info & rekap
   class_attendance_sessions_title         TEXT,
-  class_attendance_sessions_general_info  TEXT NOT NULL,
+  class_attendance_sessions_general_info  TEXT NOT NULL DEFAULT '',
   class_attendance_sessions_note          TEXT,
-
-  -- Rekap hasil kehadiran
   class_attendance_sessions_present_count INT,
   class_attendance_sessions_absent_count  INT,
   class_attendance_sessions_late_count    INT,
@@ -33,24 +64,54 @@ CREATE TABLE class_attendance_sessions (
   class_attendance_sessions_sick_count    INT,
   class_attendance_sessions_leave_count   INT,
 
-  -- Soft delete
-  class_attendance_sessions_created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_attendance_sessions_updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_attendance_sessions_deleted_at    TIMESTAMPTZ,
+  -- audit
+  class_attendance_sessions_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_attendance_sessions_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_attendance_sessions_deleted_at TIMESTAMPTZ,
 
-  -- Tenant-safe FK (komposit) → class_schedules
-  CONSTRAINT fk_cas_schedule_tenant
-    FOREIGN KEY (class_attendance_sessions_masjid_id, class_attendance_sessions_schedule_id)
-    REFERENCES class_schedules (class_schedules_masjid_id, class_schedule_id)
-    ON UPDATE CASCADE ON DELETE RESTRICT
+  -- CHECKS (tanpa trigger/func)
+  CONSTRAINT chk_cas_time_order
+    CHECK (
+      class_attendance_sessions_starts_at IS NULL
+      OR class_attendance_sessions_ends_at IS NULL
+      OR class_attendance_sessions_ends_at >= class_attendance_sessions_starts_at
+    ),
+  CONSTRAINT chk_cas_time_order_original
+    CHECK (
+      class_attendance_sessions_original_start_at IS NULL
+      OR class_attendance_sessions_original_end_at IS NULL
+      OR class_attendance_sessions_original_end_at >= class_attendance_sessions_original_start_at
+    ),
+  CONSTRAINT chk_cas_attendance_status
+    CHECK (class_attendance_sessions_attendance_status IN ('open','closed')),
+  CONSTRAINT chk_cas_override_event_requires_flag
+    CHECK (
+      class_attendance_sessions_override_event_id IS NULL
+      OR class_attendance_sessions_is_override = TRUE
+    )
 );
 
--- =========================
--- Indexing attendance
--- =========================
+-- =========================================================
+-- Indexes
+-- =========================================================
 
--- Unik: satu sesi per (masjid, schedule, date) saat belum soft-deleted
-CREATE UNIQUE INDEX uq_cas_masjid_schedule_date
+-- SLUG unik per tenant (alive only, case-insensitive)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_slug_per_tenant_alive
+  ON class_attendance_sessions (
+    class_attendance_sessions_masjid_id,
+    lower(class_attendance_sessions_slug)
+  )
+  WHERE class_attendance_sessions_deleted_at IS NULL
+    AND class_attendance_sessions_slug IS NOT NULL;
+
+-- (opsional) pencarian slug cepat
+CREATE INDEX IF NOT EXISTS gin_cas_slug_trgm_alive
+  ON class_attendance_sessions USING GIN (lower(class_attendance_sessions_slug) gin_trgm_ops)
+  WHERE class_attendance_sessions_deleted_at IS NULL
+    AND class_attendance_sessions_slug IS NOT NULL;
+
+-- Satu baris per (tenant, schedule, date) yang masih hidup
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_masjid_schedule_date_alive
   ON class_attendance_sessions (
     class_attendance_sessions_masjid_id,
     class_attendance_sessions_schedule_id,
@@ -58,18 +119,24 @@ CREATE UNIQUE INDEX uq_cas_masjid_schedule_date
   )
   WHERE class_attendance_sessions_deleted_at IS NULL;
 
--- Tenant & tanggal (kalender)
-CREATE INDEX idx_cas_masjid_date
-  ON class_attendance_sessions (class_attendance_sessions_masjid_id, class_attendance_sessions_date DESC)
+-- Kalender per tenant
+CREATE INDEX IF NOT EXISTS idx_cas_masjid_date_alive
+  ON class_attendance_sessions (
+    class_attendance_sessions_masjid_id,
+    class_attendance_sessions_date DESC
+  )
   WHERE class_attendance_sessions_deleted_at IS NULL;
 
--- Lookup berdasarkan schedule (alive)
-CREATE INDEX idx_cas_schedule_alive
-  ON class_attendance_sessions (class_attendance_sessions_schedule_id)
+-- Per schedule (ambil range tanggal cepat)
+CREATE INDEX IF NOT EXISTS idx_cas_schedule_date_alive
+  ON class_attendance_sessions (
+    class_attendance_sessions_schedule_id,
+    class_attendance_sessions_date DESC
+  )
   WHERE class_attendance_sessions_deleted_at IS NULL;
 
--- Query per guru per masjid per tanggal (alive)
-CREATE INDEX idx_cas_masjid_teacher_date_alive
+-- Lookup per guru
+CREATE INDEX IF NOT EXISTS idx_cas_teacher_date_alive
   ON class_attendance_sessions (
     class_attendance_sessions_masjid_id,
     class_attendance_sessions_teacher_id,
@@ -77,11 +144,37 @@ CREATE INDEX idx_cas_masjid_teacher_date_alive
   )
   WHERE class_attendance_sessions_deleted_at IS NULL;
 
--- Optional: filter ruangan (alive)
-CREATE INDEX idx_cas_class_room_alive
-  ON class_attendance_sessions (class_attendance_sessions_class_room_id)
+-- Quality-of-life untuk operasi mass override/cancel
+CREATE INDEX IF NOT EXISTS idx_cas_canceled_date_alive
+  ON class_attendance_sessions (
+    class_attendance_sessions_masjid_id,
+    class_attendance_sessions_is_canceled,
+    class_attendance_sessions_date DESC
+  )
   WHERE class_attendance_sessions_deleted_at IS NULL;
 
+CREATE INDEX IF NOT EXISTS idx_cas_override_date_alive
+  ON class_attendance_sessions (
+    class_attendance_sessions_masjid_id,
+    class_attendance_sessions_is_override,
+    class_attendance_sessions_date DESC
+  )
+  WHERE class_attendance_sessions_deleted_at IS NULL;
+
+-- Override event lookup
+CREATE INDEX IF NOT EXISTS idx_cas_override_event_alive
+  ON class_attendance_sessions (
+    class_attendance_sessions_masjid_id,
+    class_attendance_sessions_override_event_id
+  )
+  WHERE class_attendance_sessions_deleted_at IS NULL;
+
+-- Join cepat ke rule (opsional)
+CREATE INDEX IF NOT EXISTS idx_cas_rule_alive
+  ON class_attendance_sessions (
+    class_attendance_sessions_rule_id
+  )
+  WHERE class_attendance_sessions_deleted_at IS NULL;
 
 BEGIN;
 

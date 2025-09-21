@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
@@ -148,22 +149,51 @@ func (ctrl *QuizController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
+	// 🔐 Force masjid scope (DKM/Teacher)
 	mid, err := resolveMasjidForDKMOrTeacher(c, ctrl.DB)
 	if err != nil {
-		// helper sudah mengembalikan *fiber.Error; bungkus ke JSON standar
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-
-	// Force masjid_id dari context (anti spoofing cross-tenant)
 	body.QuizzesMasjidID = mid
 
+	// Build model dari DTO
 	m := body.ToModel()
+
+	// 🏷️ Generate slug (selalu kita isi)
+	// - pakai slug dari body kalau ada → normalisasi
+	// - else pakai judul
+	base := ""
+	if body.QuizzesSlug != nil && strings.TrimSpace(*body.QuizzesSlug) != "" {
+		base = helper.Slugify(*body.QuizzesSlug, 160)
+	} else {
+		base = helper.Slugify(body.QuizzesTitle, 160)
+	}
+	// Pastikan unik per tenant, hanya yang belum soft-deleted
+	uniq, err := helper.EnsureUniqueSlugCI(
+		c.Context(),
+		ctrl.DB,
+		"quizzes",
+		"quizzes_slug",
+		base,
+		func(q *gorm.DB) *gorm.DB {
+			return q.Where("quizzes_masjid_id = ? AND quizzes_deleted_at IS NULL", mid)
+		},
+		160,
+	)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyiapkan slug")
+	}
+	m.QuizzesSlug = &uniq
+
+	// Simpan
 	if err := ctrl.DB.WithContext(c.Context()).Create(m).Error; err != nil {
+		// (opsional) bisa mapping 23505 → slug duplikat jika race condition
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
+
 	return helper.JsonCreated(c, "Quiz berhasil dibuat", dto.FromModel(m))
 }
 
@@ -200,6 +230,39 @@ func (ctrl *QuizController) Patch(c *fiber.Ctx) error {
 	}
 
 	updates := body.ToUpdates()
+
+	// --- Optional: handle quizzes_slug dari payload (tidak ada di DTO) ---
+	var slugBody struct {
+		QuizzesSlug *string `json:"quizzes_slug"`
+	}
+	_ = json.Unmarshal(c.Body(), &slugBody) // abaikan error; optional saja
+
+	if slugBody.QuizzesSlug != nil {
+		raw := strings.TrimSpace(*slugBody.QuizzesSlug)
+		if raw == "" {
+			// Kosongkan slug → set NULL
+			updates["quizzes_slug"] = gorm.Expr("NULL")
+		} else {
+			base := helper.Slugify(raw, 160)
+			uniq, err := helper.EnsureUniqueSlugCI(
+				c.Context(),
+				ctrl.DB,
+				"quizzes",
+				"quizzes_slug",
+				base,
+				func(q *gorm.DB) *gorm.DB {
+					// scope: per-tenant, alive-only, exclude diri sendiri
+					return q.Where("quizzes_masjid_id = ? AND quizzes_deleted_at IS NULL AND quizzes_id <> ?", mid, id)
+				},
+				160,
+			)
+			if err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyiapkan slug")
+			}
+			updates["quizzes_slug"] = uniq
+		}
+	}
+
 	if len(updates) == 0 {
 		return helper.JsonOK(c, "Tidak ada perubahan", dto.FromModel(&m))
 	}

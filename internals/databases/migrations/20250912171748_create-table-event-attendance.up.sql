@@ -17,11 +17,6 @@ CREATE TABLE IF NOT EXISTS class_attendance_events (
   class_attendance_events_method    VARCHAR(16), -- 'qr'|'manual'|'geo'|'hybrid'
   class_attendance_events_note      TEXT,
 
-  -- geofence
-  class_attendance_events_lat       DOUBLE PRECISION,
-  class_attendance_events_lng       DOUBLE PRECISION,
-  class_attendance_events_radius_m  INTEGER,
-
   -- audit
   class_attendance_events_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_attendance_events_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -30,12 +25,6 @@ CREATE TABLE IF NOT EXISTS class_attendance_events (
   -- guards
   CONSTRAINT chk_class_attendance_events_method
     CHECK (class_attendance_events_method IS NULL OR class_attendance_events_method IN ('qr','manual','geo','hybrid')),
-  CONSTRAINT chk_class_attendance_events_geo
-    CHECK (
-      (class_attendance_events_lat IS NULL AND class_attendance_events_lng IS NULL AND class_attendance_events_radius_m IS NULL)
-      OR
-      (class_attendance_events_lat IS NOT NULL AND class_attendance_events_lng IS NOT NULL AND class_attendance_events_radius_m IS NOT NULL AND class_attendance_events_radius_m > 0)
-    ),
   CONSTRAINT chk_class_attendance_events_window
     CHECK (class_attendance_events_close_at IS NULL OR class_attendance_events_open_at IS NULL OR class_attendance_events_close_at >= class_attendance_events_open_at)
 );

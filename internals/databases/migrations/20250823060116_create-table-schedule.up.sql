@@ -1,8 +1,9 @@
 -- +migrate Up
 -- ======================================
--- HEADER: class_schedules (rentang & meta, TANPA jam)
+-- EXTENSIONS & ENUMS
 -- ======================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 DO $$
 BEGIN
@@ -14,6 +15,9 @@ BEGIN
   END IF;
 END$$;
 
+-- =========================================================
+-- TABLE: class_schedules (header jadwal)
+-- =========================================================
 CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -21,13 +25,13 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedules_masjid_id UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
+  -- >>> SLUG (opsional; unik per tenant saat alive)
+  class_schedules_slug VARCHAR(160),
+
   -- masa berlaku (header)
   class_schedules_start_date  DATE NOT NULL,
   class_schedules_end_date    DATE NOT NULL
     CHECK (class_schedules_end_date >= class_schedules_start_date),
-
-  -- default konteks
-  class_schedules_timezone    TEXT NOT NULL DEFAULT 'Asia/Jakarta',
 
   -- status & metadata
   class_schedules_status      session_status_enum NOT NULL DEFAULT 'scheduled',
@@ -42,6 +46,17 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   UNIQUE (class_schedules_masjid_id, class_schedule_id)
 );
 
+-- Indexes (class_schedules)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_class_schedules_slug_per_tenant_alive
+  ON class_schedules (class_schedules_masjid_id, lower(class_schedules_slug))
+  WHERE class_schedules_deleted_at IS NULL
+    AND class_schedules_slug IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS gin_class_schedules_slug_trgm_alive
+  ON class_schedules USING GIN (lower(class_schedules_slug) gin_trgm_ops)
+  WHERE class_schedules_deleted_at IS NULL
+    AND class_schedules_slug IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_sched_tenant_alive
   ON class_schedules (class_schedules_masjid_id)
   WHERE class_schedules_deleted_at IS NULL;
@@ -54,10 +69,13 @@ CREATE INDEX IF NOT EXISTS idx_sched_date_bounds_alive
   ON class_schedules (class_schedules_start_date, class_schedules_end_date)
   WHERE class_schedules_deleted_at IS NULL;
 
+CREATE INDEX IF NOT EXISTS brin_class_schedules_created_at
+  ON class_schedules USING BRIN (class_schedules_created_at);
+
+
 
 -- ======================================
--- RULES: class_schedule_rules (SUMBER JAM SATU-SATUNYA)
--- satu baris = satu slot mingguan
+-- TABLE: class_schedule_rules (slot mingguan)
 -- ======================================
 CREATE TABLE IF NOT EXISTS class_schedule_rules (
   class_schedule_rules_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -86,14 +104,13 @@ CREATE TABLE IF NOT EXISTS class_schedule_rules (
   class_schedule_rule_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Indeks
+-- Indexes (class_schedule_rules)
 CREATE INDEX IF NOT EXISTS idx_csr_by_schedule_dow
   ON class_schedule_rules (class_schedule_rule_schedule_id, class_schedule_rule_day_of_week);
 
 CREATE INDEX IF NOT EXISTS idx_csr_by_masjid
   ON class_schedule_rules (class_schedule_rule_masjid_id);
 
--- Cegah duplikasi slot persis sama di satu schedule
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csr_unique_slot_per_schedule
   ON class_schedule_rules (
     class_schedule_rule_schedule_id,
@@ -101,3 +118,55 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csr_unique_slot_per_schedule
     class_schedule_rule_start_time,
     class_schedule_rule_end_time
   );
+
+
+
+-- =========================================================
+-- TABLE: holidays (tenant-wide day-off / rentang libur)
+-- =========================================================
+CREATE TABLE IF NOT EXISTS holidays (
+  holiday_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  holiday_masjid_id UUID NOT NULL
+    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+
+  -- SLUG (opsional; unik per tenant saat alive)
+  holiday_slug VARCHAR(160),
+
+  -- tanggal: satu hari (start=end) atau rentang
+  holiday_start_date DATE NOT NULL,
+  holiday_end_date   DATE NOT NULL CHECK (holiday_end_date >= holiday_start_date),
+
+  holiday_title   VARCHAR(200) NOT NULL,
+  holiday_reason  TEXT,
+
+  holiday_is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  -- untuk libur berulang (fixed-date tiap tahun, contoh 01-01)
+  holiday_is_recurring_yearly BOOLEAN NOT NULL DEFAULT FALSE,
+
+  -- audit
+  holiday_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  holiday_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  holiday_deleted_at TIMESTAMPTZ
+);
+
+-- Indexes (holidays)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_holiday_slug_per_tenant_alive
+  ON holidays (holiday_masjid_id, lower(holiday_slug))
+  WHERE holiday_deleted_at IS NULL
+    AND holiday_slug IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS gin_holiday_slug_trgm_alive
+  ON holidays USING GIN (lower(holiday_slug) gin_trgm_ops)
+  WHERE holiday_deleted_at IS NULL
+    AND holiday_slug IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_holiday_tenant_alive
+  ON holidays (holiday_masjid_id)
+  WHERE holiday_deleted_at IS NULL AND holiday_is_active = TRUE;
+
+CREATE INDEX IF NOT EXISTS idx_holiday_date_range_alive
+  ON holidays (holiday_start_date, holiday_end_date)
+  WHERE holiday_deleted_at IS NULL AND holiday_is_active = TRUE;
+
+CREATE INDEX IF NOT EXISTS brin_holiday_created_at
+  ON holidays USING BRIN (holiday_created_at);

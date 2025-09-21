@@ -63,15 +63,15 @@ CREATE INDEX IF NOT EXISTS idx_subjects_image_purge_due
 
 
 
--- =========================================================
--- TABLE: class_subjects
--- =========================================================
 CREATE TABLE IF NOT EXISTS class_subjects (
   class_subjects_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   class_subjects_masjid_id  UUID NOT NULL REFERENCES masjids(masjid_id)   ON DELETE CASCADE,
   class_subjects_class_id   UUID NOT NULL REFERENCES classes(class_id)     ON DELETE CASCADE,
   class_subjects_subject_id UUID NOT NULL REFERENCES subjects(subjects_id) ON DELETE RESTRICT,
+
+  -- >>> SLUG <<<
+  class_subjects_slug        VARCHAR(160),  -- boleh NULL biar aman backfill
 
   class_subjects_order_index       INT,
   class_subjects_hours_per_week    INT,
@@ -105,7 +105,6 @@ CREATE INDEX IF NOT EXISTS idx_cs_class_masjid
   ON class_subjects (class_subjects_class_id, class_subjects_masjid_id)
   WHERE class_subjects_deleted_at IS NULL;
 
-
 -- Lookup umum
 CREATE INDEX IF NOT EXISTS idx_class_subjects_subject_alive
   ON class_subjects (class_subjects_subject_id)
@@ -120,4 +119,14 @@ CREATE INDEX IF NOT EXISTS idx_class_subjects_image_purge_due
   ON class_subjects (class_subjects_image_delete_pending_until)
   WHERE class_subjects_image_object_key_old IS NOT NULL;
 
-COMMIT;
+-- >>> Index SLUG (unik per tenant; soft-delete aware)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_class_subjects_slug_per_tenant_alive
+  ON class_subjects (class_subjects_masjid_id, lower(class_subjects_slug))
+  WHERE class_subjects_deleted_at IS NULL
+    AND class_subjects_slug IS NOT NULL;
+
+-- (opsional) pencarian cepat slug
+CREATE INDEX IF NOT EXISTS gin_class_subjects_slug_trgm_alive
+  ON class_subjects USING GIN (lower(class_subjects_slug) gin_trgm_ops)
+  WHERE class_subjects_deleted_at IS NULL
+    AND class_subjects_slug IS NOT NULL;

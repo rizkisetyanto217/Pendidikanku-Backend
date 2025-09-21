@@ -88,9 +88,6 @@ func resolveMasjidIDUsingHelpers(c *fiber.Ctx) (uuid.UUID, string, bool, error) 
 	return masjidID, slug, false, nil
 }
 
-// ===================== CREATE =====================
-// POST /.../announcements
-
 func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 	// Sisipkan DB utk resolver slug→id
 	c.Locals("DB", h.DB)
@@ -122,6 +119,12 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 		req.AnnouncementDate = strings.TrimSpace(c.FormValue("announcement_date"))
 		req.AnnouncementContent = strings.TrimSpace(c.FormValue("announcement_content"))
 
+		// NEW: slug dari multipart (opsional)
+		if v := strings.TrimSpace(c.FormValue("announcement_slug")); v != "" {
+			s := helper.Slugify(v, 160)
+			req.AnnouncementSlug = &s
+		}
+
 		if v := strings.TrimSpace(c.FormValue("announcement_theme_id")); v != "" {
 			if id, err := uuid.Parse(v); err == nil {
 				req.AnnouncementThemeID = &id
@@ -145,13 +148,12 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 			}
 		}
 
-		// (2) Kalau belum ada, coba bracket/array style via helper
+		// (2) Bracket/array style
 		if len(req.URLs) == 0 {
 			if form, ferr := c.MultipartForm(); ferr == nil && form != nil {
 				ups := helperOSS.ParseURLUpsertsFromMultipart(form, &helperOSS.URLParseOptions{
-					BracketPrefix: "urls", // sesuaikan jika FE pakai prefix lain
+					BracketPrefix: "urls",
 					DefaultKind:   "attachment",
-					// Array*Key dibiarkan default: url_kind[], url_label[], ...
 				})
 				if len(ups) > 0 {
 					for _, u := range ups {
@@ -171,6 +173,11 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 	} else {
 		if err := c.BodyParser(&req); err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
+		}
+		// Normalisasi slug jika datang via JSON
+		if req.AnnouncementSlug != nil {
+			s := helper.Slugify(*req.AnnouncementSlug, 160)
+			req.AnnouncementSlug = &s
 		}
 	}
 
@@ -209,8 +216,53 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 		m.AnnouncementCreatedByTeacherID = nil
 	}
 
+	// ---------- SLUG: normalize + ensure-unique per tenant (alive-only) ----------
+	// Jika slug kosong → generate dari title
+	baseSlug := ""
+	if m.AnnouncementSlug != nil && strings.TrimSpace(*m.AnnouncementSlug) != "" {
+		baseSlug = helper.Slugify(*m.AnnouncementSlug, 160)
+	} else {
+		baseSlug = helper.Slugify(m.AnnouncementTitle, 160)
+		// fallback kalau title terlalu pendek setelah slugify
+		if baseSlug == "item" || baseSlug == "" {
+			baseSlug = helper.Slugify(
+				fmt.Sprintf("ann-%s", strings.Split(m.AnnouncementID.String(), "-")[0]),
+				160,
+			)
+		}
+	}
+
+	uniqueSlug, err := helper.EnsureUniqueSlugCI(
+		c.Context(),
+		tx,
+		"announcements",
+		"announcement_slug",
+		baseSlug,
+		func(q *gorm.DB) *gorm.DB {
+			// selaras dengan index uq_announcements_slug_per_tenant_alive
+			return q.Where(`
+				announcement_masjid_id = ?
+				AND announcement_deleted_at IS NULL
+			`, masjidID)
+		},
+		160,
+	)
+	if err != nil {
+		tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
+	}
+	// set slug ke model
+	m.AnnouncementSlug = &uniqueSlug
+	// ---------- END SLUG ----------
+
+	// Insert announcement
 	if err := tx.Create(m).Error; err != nil {
 		tx.Rollback()
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "uq_announcements_slug_per_tenant_alive") ||
+			strings.Contains(msg, "announcement_slug") && strings.Contains(msg, "unique") {
+			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan pada tenant ini.")
+		}
 		log.Printf("[ann.create] insert announcement error: %v", err)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat pengumuman")
 	}
@@ -236,7 +288,7 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 		urlItems = append(urlItems, row)
 	}
 
-	// (b) dari files multipart (multi key support + log) via helper
+	// (b) dari files multipart
 	if strings.HasPrefix(ct, "multipart/form-data") {
 		if form, ferr := c.MultipartForm(); ferr == nil && form != nil {
 			for k, fhs := range form.File {
@@ -353,8 +405,16 @@ func (h *AnnouncementController) Create(c *fiber.Ctx) error {
 		})
 	}
 
-	log.Printf("[ann.create] OK announcement_id=%s urls=%d", m.AnnouncementID, len(resp.Urls))
+	log.Printf("[ann.create] OK announcement_id=%s slug=%s urls=%d", m.AnnouncementID, ptrStr(m.AnnouncementSlug), len(resp.Urls))
 	return helper.JsonCreated(c, "Pengumuman & lampiran berhasil dibuat", resp)
+}
+
+// util kecil
+func ptrStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // --- tenant guard fetch
@@ -433,6 +493,11 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 				req.AnnouncementClassSectionID = &id
 			}
 		}
+		// NEW: slug dari multipart (opsional)
+		if v := strings.TrimSpace(c.FormValue("announcement_slug")); v != "" {
+			s := helper.Slugify(v, 160)
+			req.AnnouncementSlug = &s
+		}
 
 		// (1) urls_json (append metadata URL baru)
 		if uj := strings.TrimSpace(c.FormValue("urls_json")); uj != "" {
@@ -495,6 +560,11 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 		if err := c.BodyParser(&req); err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 		}
+		// Normalisasi slug jika datang via JSON
+		if req.AnnouncementSlug != nil {
+			s := helper.Slugify(*req.AnnouncementSlug, 160)
+			req.AnnouncementSlug = &s
+		}
 	}
 
 	// Normalisasi URL metadata (append)
@@ -519,7 +589,7 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 		}
 	}()
 
-	// Lock row
+	// Lock row (fresh)
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("announcement_id = ? AND announcement_masjid_id = ?", annID, masjidID).
 		First(&m).Error; err != nil {
@@ -530,12 +600,76 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Terapkan perubahan field dasar
+	// Simpan nilai lama untuk deteksi perubahan
+	oldTitle := m.AnnouncementTitle
+	oldSlug := ptrStr(m.AnnouncementSlug)
+
+	// Terapkan perubahan field dasar (kecuali slug unik — akan di-handle khusus di bawah)
 	req.ApplyToModel(&m)
 
-	// Simpan perubahan dasar
+	// ===== SLUG handling (normalize & ensure-unique per tenant, exclude diri sendiri) =====
+	// Jika user mengirim slug → pakai itu sebagai base.
+	// Jika tidak, dan slug di DB kosong → generate dari title baru.
+	var baseSlug string
+	wantSlugChange := false
+
+	if req.AnnouncementSlug != nil {
+		if s := strings.TrimSpace(*req.AnnouncementSlug); s != "" {
+			baseSlug = helper.Slugify(s, 160)
+			wantSlugChange = true
+		} else {
+			// "" dianggap ingin mengosongkan → kita generate dari title
+			baseSlug = helper.Slugify(m.AnnouncementTitle, 160)
+			wantSlugChange = true
+		}
+	} else if m.AnnouncementSlug == nil || strings.TrimSpace(ptrStr(m.AnnouncementSlug)) == "" {
+		// slug kosong di DB → generate dari title
+		baseSlug = helper.Slugify(m.AnnouncementTitle, 160)
+		wantSlugChange = true
+	}
+
+	// Optional: kalau mau regenerate saat title berubah meski slug lama ada, aktifkan blok ini:
+	// if !wantSlugChange && oldTitle != m.AnnouncementTitle {
+	// 	baseSlug = helper.Slugify(m.AnnouncementTitle, 160)
+	// 	wantSlugChange = true
+	// }
+
+	if wantSlugChange {
+		if baseSlug == "" || baseSlug == "item" {
+			baseSlug = helper.Slugify(fmt.Sprintf("ann-%s", strings.Split(m.AnnouncementID.String(), "-")[0]), 160)
+		}
+		uniqueSlug, err := helper.EnsureUniqueSlugCI(
+			c.Context(),
+			tx,
+			"announcements",
+			"announcement_slug",
+			baseSlug,
+			func(q *gorm.DB) *gorm.DB {
+				// Selaras index uq_announcements_slug_per_tenant_alive + exclude diri sendiri
+				return q.Where(`
+					announcement_masjid_id = ?
+					AND announcement_deleted_at IS NULL
+					AND announcement_id <> ?
+				`, masjidID, m.AnnouncementID)
+			},
+			160,
+		)
+		if err != nil {
+			tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
+		}
+		m.AnnouncementSlug = &uniqueSlug
+	}
+	// ===== END SLUG =====
+
+	// Simpan perubahan dasar + slug
 	if err := tx.Save(&m).Error; err != nil {
 		tx.Rollback()
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "uq_announcements_slug_per_tenant_alive") ||
+			(strings.Contains(msg, "announcement_slug") && strings.Contains(msg, "unique")) {
+			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan pada tenant ini.")
+		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan")
 	}
 
@@ -592,7 +726,7 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 						AnnouncementURLMasjidId:       masjidID,
 						AnnouncementURLAnnouncementId: m.AnnouncementID,
 						AnnouncementURLKind:           "attachment",
-						AnnouncementURLOrder:          0, // auto / bisa diatur sesudahnya
+						AnnouncementURLOrder:          0,
 					}
 					row.AnnouncementURLHref = &publicURL
 					if key, kerr := helperOSS.ExtractKeyFromPublicURL(publicURL); kerr == nil {
@@ -678,9 +812,12 @@ func (h *AnnouncementController) Update(c *fiber.Ctx) error {
 		})
 	}
 
-	log.Printf("[ann.update] OK announcement_id=%s urls=%d", m.AnnouncementID, len(resp.Urls))
+	log.Printf("[ann.update] OK announcement_id=%s old_slug=%q new_slug=%q urls=%d title_changed=%v",
+		m.AnnouncementID, oldSlug, ptrStr(m.AnnouncementSlug), len(resp.Urls), oldTitle != m.AnnouncementTitle)
 	return helper.JsonOK(c, "Pengumuman berhasil diperbarui", resp)
 }
+
+
 
 // ===================== DELETE (single attachment) =====================
 // DELETE /.../announcements/:id/urls/:url_id

@@ -139,24 +139,21 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 		actMasjidID = id
 	}
 
-	// Override body
-	req.ClassSchedulesMasjidID = actMasjidID.String()
-
-	// Validasi setelah di-inject
-	if err := req.Validate(ctl.Validate); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
+	// ✅ Validasi DTO (pakai tag validate)
+	if ctl.Validate != nil {
+		if err := ctl.Validate.Struct(req); err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, err.Error())
+		}
 	}
 
-	var model m.ClassScheduleModel
-	if err := req.ApplyToModel(&model); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
-	}
+	// ✅ Bangun model dari DTO + masjidID (DTO terbaru)
+	model := req.ToModel(actMasjidID)
 
 	if err := ctl.DB.Create(&model).Error; err != nil {
 		return writePGError(c, err)
 	}
 
-	return helper.JsonCreated(c, "Schedule created", d.NewClassScheduleResponse(&model))
+	return helper.JsonCreated(c, "Schedule created", d.FromModel(model))
 }
 
 /* =========================
@@ -191,17 +188,18 @@ func (ctl *ClassScheduleController) Update(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
-	if err := req.Validate(ctl.Validate); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
+	if ctl.Validate != nil {
+		if err := ctl.Validate.Struct(req); err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, err.Error())
+		}
 	}
-	if err := req.ApplyToModel(&existing); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
-	}
+	// Terapkan perubahan (DTO terbaru)
+	req.Apply(&existing)
 
 	// 🔁 masjid-context: izinkan DKM sesuai context meski token scope mismatch
-	if err := enforceMasjidScopeAuth(c, &existing.ClassScheduleMasjidID); err != nil {
+	if err := enforceMasjidScopeAuth(c, &existing.ClassSchedulesMasjidID); err != nil {
 		if mc, er := helperAuth.ResolveMasjidContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassScheduleMasjidID {
+			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassSchedulesMasjidID {
 				// ✅ allow via DKM context
 			} else {
 				return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
@@ -215,11 +213,11 @@ func (ctl *ClassScheduleController) Update(c *fiber.Ctx) error {
 		return writePGError(c, err)
 	}
 
-	return helper.JsonUpdated(c, "Schedule updated", d.NewClassScheduleResponse(&existing))
+	return helper.JsonUpdated(c, "Schedule updated", d.FromModel(existing))
 }
 
 /* =========================
-   Patch (Partial)
+   Patch (Partial) — gunakan DTO Update yang pointer-based
    ========================= */
 
 func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
@@ -246,21 +244,22 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 		return writePGError(c, err)
 	}
 
-	var req d.PatchClassScheduleRequest
+	// Gunakan UpdateClassScheduleRequest untuk PATCH (semua field pointer)
+	var req d.UpdateClassScheduleRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
-	if err := req.Validate(ctl.Validate); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
+	if ctl.Validate != nil {
+		if err := ctl.Validate.Struct(req); err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, err.Error())
+		}
 	}
-	if err := req.ApplyPatch(&existing); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
-	}
+	req.Apply(&existing)
 
 	// 🔁 masjid-context: izinkan DKM sesuai context meski token scope mismatch
-	if err := enforceMasjidScopeAuth(c, &existing.ClassScheduleMasjidID); err != nil {
+	if err := enforceMasjidScopeAuth(c, &existing.ClassSchedulesMasjidID); err != nil {
 		if mc, er := helperAuth.ResolveMasjidContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassScheduleMasjidID {
+			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassSchedulesMasjidID {
 				// ✅ allow via DKM context
 			} else {
 				return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
@@ -274,7 +273,7 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 		return writePGError(c, err)
 	}
 
-	return helper.JsonUpdated(c, "Schedule updated", d.NewClassScheduleResponse(&existing))
+	return helper.JsonUpdated(c, "Schedule updated", d.FromModel(existing))
 }
 
 /* =========================
@@ -306,9 +305,9 @@ func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 	}
 
 	// 🔁 masjid-context: izinkan DKM sesuai context meski token scope mismatch
-	if err := enforceMasjidScopeAuth(c, &existing.ClassScheduleMasjidID); err != nil {
+	if err := enforceMasjidScopeAuth(c, &existing.ClassSchedulesMasjidID); err != nil {
 		if mc, er := helperAuth.ResolveMasjidContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassScheduleMasjidID {
+			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassSchedulesMasjidID {
 				// ✅ allow via DKM context
 			} else {
 				return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
@@ -323,5 +322,5 @@ func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 		return writePGError(c, err)
 	}
 
-	return helper.JsonDeleted(c, "Schedule deleted", d.NewClassScheduleResponse(&existing))
+	return helper.JsonDeleted(c, "Schedule deleted", d.FromModel(existing))
 }
