@@ -33,6 +33,7 @@ CREATE INDEX IF NOT EXISTS idx_lembaga_stats_updated_at
   ON lembaga_stats(lembaga_stats_updated_at);
 
 
+
 -- =========================================================
 -- user_class_attendance_semester_stats (per semester, pakai term)
 -- =========================================================

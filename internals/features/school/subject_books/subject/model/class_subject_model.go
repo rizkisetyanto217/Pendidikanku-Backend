@@ -35,13 +35,6 @@ type ClassSubjectModel struct {
 	ClassSubjectsWeightFinal        *int16 `json:"class_subjects_weight_final,omitempty"        gorm:"column:class_subjects_weight_final"`
 	ClassSubjectsMinAttendancePct   *int16 `json:"class_subjects_min_attendance_percent,omitempty" gorm:"column:class_subjects_min_attendance_percent"`
 
-	// Single image (2-slot + retensi)
-	ClassSubjectsImageURL                 *string    `json:"class_subjects_image_url,omitempty"                  gorm:"column:class_subjects_image_url"`
-	ClassSubjectsImageObjectKey           *string    `json:"class_subjects_image_object_key,omitempty"           gorm:"column:class_subjects_image_object_key"`
-	ClassSubjectsImageURLOld              *string    `json:"class_subjects_image_url_old,omitempty"              gorm:"column:class_subjects_image_url_old"`
-	ClassSubjectsImageObjectKeyOld        *string    `json:"class_subjects_image_object_key_old,omitempty"       gorm:"column:class_subjects_image_object_key_old"`
-	ClassSubjectsImageDeletePendingUntil  *time.Time `json:"class_subjects_image_delete_pending_until,omitempty" gorm:"column:class_subjects_image_delete_pending_until"`
-
 	// Status & timestamps
 	ClassSubjectsIsActive  bool           `json:"class_subjects_is_active"            gorm:"column:class_subjects_is_active;not null;default:true"`
 	ClassSubjectsCreatedAt time.Time      `json:"class_subjects_created_at"           gorm:"column:class_subjects_created_at;not null;autoCreateTime"`

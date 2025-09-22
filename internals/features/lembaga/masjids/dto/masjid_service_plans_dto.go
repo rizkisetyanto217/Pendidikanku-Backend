@@ -20,10 +20,6 @@ type PatchField[T any] struct {
 	Value   *T
 }
 
-
-
-
-
 func (p *PatchField[T]) UnmarshalJSON(b []byte) error {
 	p.Present = true
 	if string(b) == "null" {
@@ -56,6 +52,10 @@ func applyPatchScalar[T any](dst *T, pf PatchField[T]) {
 	*dst = *pf.Value
 }
 
+/* =========================================================
+   DB error helpers
+========================================================= */
+
 func IsUniqueViolation(err error) bool {
 	if err == nil {
 		return false
@@ -67,29 +67,29 @@ func IsUniqueViolation(err error) bool {
 }
 
 /* =========================================================
-   CREATE REQUEST
+   CREATE REQUEST (match model)
+   - support JSON & multipart (form tag)
 ========================================================= */
 
 type CreateMasjidServicePlanRequest struct {
-	MasjidServicePlanCode        string  `json:"masjid_service_plan_code" validate:"required,min=1,max=30,alphanumdash"`
-	MasjidServicePlanName        string  `json:"masjid_service_plan_name" validate:"required,min=2,max=100"`
-	MasjidServicePlanDescription *string `json:"masjid_service_plan_description" validate:"omitempty,max=2000"`
+	MasjidServicePlanCode        string  `json:"masjid_service_plan_code" form:"masjid_service_plan_code" validate:"required,min=1,max=30,alphanumdash"`
+	MasjidServicePlanName        string  `json:"masjid_service_plan_name" form:"masjid_service_plan_name" validate:"required,min=2,max=100"`
+	MasjidServicePlanDescription *string `json:"masjid_service_plan_description" form:"masjid_service_plan_description" validate:"omitempty,max=2000"`
 
-	// Image (current). Kolom *_old & *_delete_pending_until dikelola service saat swap.
-	MasjidServicePlanImageURL       *string `json:"masjid_service_plan_image_url" validate:"omitempty,url,max=2048"`
-	MasjidServicePlanImageObjectKey *string `json:"masjid_service_plan_image_object_key" validate:"omitempty,max=512"`
+	// Image (current). *_old & *_delete_pending_until dikelola service saat swap.
+	MasjidServicePlanImageURL       *string `json:"masjid_service_plan_image_url" form:"masjid_service_plan_image_url" validate:"omitempty,url,max=2048"`
+	MasjidServicePlanImageObjectKey *string `json:"masjid_service_plan_image_object_key" form:"masjid_service_plan_image_object_key" validate:"omitempty,max=512"`
 
-	MasjidServicePlanMaxTeachers  *int `json:"masjid_service_plan_max_teachers" validate:"omitempty,min=0"`
-	MasjidServicePlanMaxStudents  *int `json:"masjid_service_plan_max_students" validate:"omitempty,min=0"`
-	MasjidServicePlanMaxStorageMB *int `json:"masjid_service_plan_max_storage_mb" validate:"omitempty,min=0"`
+	MasjidServicePlanMaxTeachers  *int     `json:"masjid_service_plan_max_teachers" form:"masjid_service_plan_max_teachers" validate:"omitempty,min=0"`
+	MasjidServicePlanMaxStudents  *int     `json:"masjid_service_plan_max_students" form:"masjid_service_plan_max_students" validate:"omitempty,min=0"`
+	MasjidServicePlanMaxStorageMB *int     `json:"masjid_service_plan_max_storage_mb" form:"masjid_service_plan_max_storage_mb" validate:"omitempty,min=0"`
+	MasjidServicePlanPriceMonthly *float64 `json:"masjid_service_plan_price_monthly" form:"masjid_service_plan_price_monthly" validate:"omitempty,gte=0"`
+	MasjidServicePlanPriceYearly  *float64 `json:"masjid_service_plan_price_yearly" form:"masjid_service_plan_price_yearly" validate:"omitempty,gte=0"`
 
-	MasjidServicePlanPriceMonthly *float64 `json:"masjid_service_plan_price_monthly" validate:"omitempty,gte=0"`
-	MasjidServicePlanPriceYearly  *float64 `json:"masjid_service_plan_price_yearly"  validate:"omitempty,gte=0"`
+	MasjidServicePlanAllowCustomTheme bool `json:"masjid_service_plan_allow_custom_theme" form:"masjid_service_plan_allow_custom_theme"`
+	MasjidServicePlanMaxCustomThemes  *int `json:"masjid_service_plan_max_custom_themes" form:"masjid_service_plan_max_custom_themes" validate:"omitempty,min=0"`
 
-	MasjidServicePlanAllowCustomTheme bool `json:"masjid_service_plan_allow_custom_theme"`
-	MasjidServicePlanMaxCustomThemes  *int `json:"masjid_service_plan_max_custom_themes" validate:"omitempty,min=0"`
-
-	MasjidServicePlanIsActive *bool `json:"masjid_service_plan_is_active" validate:"omitempty"`
+	MasjidServicePlanIsActive *bool `json:"masjid_service_plan_is_active" form:"masjid_service_plan_is_active" validate:"omitempty"`
 }
 
 func (r *CreateMasjidServicePlanRequest) ToModel() *mModel.MasjidServicePlan {
@@ -98,7 +98,6 @@ func (r *CreateMasjidServicePlanRequest) ToModel() *mModel.MasjidServicePlan {
 		MasjidServicePlanName:        r.MasjidServicePlanName,
 		MasjidServicePlanDescription: r.MasjidServicePlanDescription,
 
-		// image current
 		MasjidServicePlanImageURL:       r.MasjidServicePlanImageURL,
 		MasjidServicePlanImageObjectKey: r.MasjidServicePlanImageObjectKey,
 
@@ -112,44 +111,46 @@ func (r *CreateMasjidServicePlanRequest) ToModel() *mModel.MasjidServicePlan {
 		MasjidServicePlanAllowCustomTheme: r.MasjidServicePlanAllowCustomTheme,
 		MasjidServicePlanMaxCustomThemes:  r.MasjidServicePlanMaxCustomThemes,
 	}
+
 	if r.MasjidServicePlanIsActive != nil {
 		m.MasjidServicePlanIsActive = *r.MasjidServicePlanIsActive
+	} else {
+		m.MasjidServicePlanIsActive = true
 	}
 	return m
 }
 
 /* =========================================================
    UPDATE (PATCH) REQUEST
+   - support JSON patch (tri-state)
 ========================================================= */
 
 type UpdateMasjidServicePlanRequest struct {
-	MasjidServicePlanCode        PatchField[string] `json:"masjid_service_plan_code"`
-	MasjidServicePlanName        PatchField[string] `json:"masjid_service_plan_name"`
-	MasjidServicePlanDescription PatchField[string] `json:"masjid_service_plan_description"`
+	MasjidServicePlanCode        PatchField[string] `json:"masjid_service_plan_code" form:"masjid_service_plan_code"`
+	MasjidServicePlanName        PatchField[string] `json:"masjid_service_plan_name" form:"masjid_service_plan_name"`
+	MasjidServicePlanDescription PatchField[string] `json:"masjid_service_plan_description" form:"masjid_service_plan_description"`
 
-	// Image (current only). Service akan mengelola *_old & *_delete_pending_until.
-	MasjidServicePlanImageURL       PatchField[string] `json:"masjid_service_plan_image_url"`
-	MasjidServicePlanImageObjectKey PatchField[string] `json:"masjid_service_plan_image_object_key"`
+	MasjidServicePlanImageURL       PatchField[string] `json:"masjid_service_plan_image_url" form:"masjid_service_plan_image_url"`
+	MasjidServicePlanImageObjectKey PatchField[string] `json:"masjid_service_plan_image_object_key" form:"masjid_service_plan_image_object_key"`
 
-	MasjidServicePlanMaxTeachers  PatchField[int]     `json:"masjid_service_plan_max_teachers"`
-	MasjidServicePlanMaxStudents  PatchField[int]     `json:"masjid_service_plan_max_students"`
-	MasjidServicePlanMaxStorageMB PatchField[int]     `json:"masjid_service_plan_max_storage_mb"`
-	MasjidServicePlanPriceMonthly PatchField[float64] `json:"masjid_service_plan_price_monthly"`
-	MasjidServicePlanPriceYearly  PatchField[float64] `json:"masjid_service_plan_price_yearly"`
+	MasjidServicePlanMaxTeachers  PatchField[int]     `json:"masjid_service_plan_max_teachers" form:"masjid_service_plan_max_teachers"`
+	MasjidServicePlanMaxStudents  PatchField[int]     `json:"masjid_service_plan_max_students" form:"masjid_service_plan_max_students"`
+	MasjidServicePlanMaxStorageMB PatchField[int]     `json:"masjid_service_plan_max_storage_mb" form:"masjid_service_plan_max_storage_mb"`
+	MasjidServicePlanPriceMonthly PatchField[float64] `json:"masjid_service_plan_price_monthly" form:"masjid_service_plan_price_monthly"`
+	MasjidServicePlanPriceYearly  PatchField[float64] `json:"masjid_service_plan_price_yearly" form:"masjid_service_plan_price_yearly"`
 
-	MasjidServicePlanAllowCustomTheme PatchField[bool] `json:"masjid_service_plan_allow_custom_theme"`
-	MasjidServicePlanMaxCustomThemes  PatchField[int]  `json:"masjid_service_plan_max_custom_themes"`
+	MasjidServicePlanAllowCustomTheme PatchField[bool] `json:"masjid_service_plan_allow_custom_theme" form:"masjid_service_plan_allow_custom_theme"`
+	MasjidServicePlanMaxCustomThemes  PatchField[int]  `json:"masjid_service_plan_max_custom_themes" form:"masjid_service_plan_max_custom_themes"`
 
-	MasjidServicePlanIsActive PatchField[bool] `json:"masjid_service_plan_is_active"`
+	MasjidServicePlanIsActive PatchField[bool] `json:"masjid_service_plan_is_active" form:"masjid_service_plan_is_active"`
 }
 
 var (
 	ErrImagePairMismatch = errors.New("if you patch image_url you must also patch image_object_key (both null or both non-null)")
 )
 
-// ApplyToModelWithImageSwap menerapkan patch + menangani 2-slot image (current→old) dan retensi.
 func (r *UpdateMasjidServicePlanRequest) ApplyToModelWithImageSwap(m *mModel.MasjidServicePlan, retention time.Duration) error {
-	// ---------- non-image fields ----------
+	// scalar & pointer fields
 	applyPatchScalar(&m.MasjidServicePlanCode, r.MasjidServicePlanCode)
 	applyPatchScalar(&m.MasjidServicePlanName, r.MasjidServicePlanName)
 	applyPatchPtr(&m.MasjidServicePlanDescription, r.MasjidServicePlanDescription)
@@ -166,18 +167,16 @@ func (r *UpdateMasjidServicePlanRequest) ApplyToModelWithImageSwap(m *mModel.Mas
 
 	applyPatchScalar(&m.MasjidServicePlanIsActive, r.MasjidServicePlanIsActive)
 
-	// ---------- image fields (pair) ----------
+	// image pair
 	imgURLPatched := r.MasjidServicePlanImageURL.Present
 	imgKeyPatched := r.MasjidServicePlanImageObjectKey.Present
 	if imgURLPatched != imgKeyPatched {
 		return ErrImagePairMismatch
 	}
-
 	if imgURLPatched && imgKeyPatched {
 		newURLPtr := r.MasjidServicePlanImageURL.Value
 		newKeyPtr := r.MasjidServicePlanImageObjectKey.Value
 
-		// current
 		var curURL, curKey string
 		if m.MasjidServicePlanImageURL != nil {
 			curURL = *m.MasjidServicePlanImageURL
@@ -194,13 +193,7 @@ func (r *UpdateMasjidServicePlanRequest) ApplyToModelWithImageSwap(m *mModel.Mas
 				if retention > 0 {
 					t := time.Now().Add(retention)
 					m.MasjidServicePlanImageDeletePendingUntil = &t
-				} else {
-					m.MasjidServicePlanImageDeletePendingUntil = nil
 				}
-			} else {
-				m.MasjidServicePlanImageURLOld = nil
-				m.MasjidServicePlanImageObjectKeyOld = nil
-				m.MasjidServicePlanImageDeletePendingUntil = nil
 			}
 			m.MasjidServicePlanImageURL = nil
 			m.MasjidServicePlanImageObjectKey = nil
@@ -208,7 +201,6 @@ func (r *UpdateMasjidServicePlanRequest) ApplyToModelWithImageSwap(m *mModel.Mas
 			// set baru
 			newURL := *newURLPtr
 			newKey := *newKeyPtr
-
 			if newURL != curURL || newKey != curKey {
 				if m.MasjidServicePlanImageURL != nil && m.MasjidServicePlanImageObjectKey != nil {
 					m.MasjidServicePlanImageURLOld = m.MasjidServicePlanImageURL
@@ -216,13 +208,7 @@ func (r *UpdateMasjidServicePlanRequest) ApplyToModelWithImageSwap(m *mModel.Mas
 					if retention > 0 {
 						t := time.Now().Add(retention)
 						m.MasjidServicePlanImageDeletePendingUntil = &t
-					} else {
-						m.MasjidServicePlanImageDeletePendingUntil = nil
 					}
-				} else {
-					m.MasjidServicePlanImageURLOld = nil
-					m.MasjidServicePlanImageObjectKeyOld = nil
-					m.MasjidServicePlanImageDeletePendingUntil = nil
 				}
 				m.MasjidServicePlanImageURL = &newURL
 				m.MasjidServicePlanImageObjectKey = &newKey
@@ -230,15 +216,12 @@ func (r *UpdateMasjidServicePlanRequest) ApplyToModelWithImageSwap(m *mModel.Mas
 		}
 	}
 
-	// updated_at
 	m.MasjidServicePlanUpdatedAt = time.Now()
 	return nil
 }
 
-
-
 /* =========================================================
-   LIST QUERY (untuk handler List)
+   LIST QUERY
 ========================================================= */
 
 type ListMasjidServicePlanQuery struct {
@@ -252,7 +235,7 @@ type ListMasjidServicePlanQuery struct {
 
 	Limit  int     `query:"limit" validate:"omitempty,min=1,max=200"`
 	Offset int     `query:"offset" validate:"omitempty,min=0"`
-	Sort   *string `query:"sort"` // name_asc|name_desc|price_monthly_asc|price_monthly_desc|created_at_desc|created_at_asc|updated_at_desc|updated_at_asc
+	Sort   *string `query:"sort"`
 }
 
 /* =========================================================
@@ -266,7 +249,6 @@ type MasjidServicePlanResponse struct {
 	MasjidServicePlanName        string  `json:"masjid_service_plan_name"`
 	MasjidServicePlanDescription *string `json:"masjid_service_plan_description,omitempty"`
 
-	// Image (current + old + pending)
 	MasjidServicePlanImageURL                *string    `json:"masjid_service_plan_image_url,omitempty"`
 	MasjidServicePlanImageObjectKey          *string    `json:"masjid_service_plan_image_object_key,omitempty"`
 	MasjidServicePlanImageURLOld             *string    `json:"masjid_service_plan_image_url_old,omitempty"`
@@ -276,7 +258,6 @@ type MasjidServicePlanResponse struct {
 	MasjidServicePlanMaxTeachers  *int     `json:"masjid_service_plan_max_teachers,omitempty"`
 	MasjidServicePlanMaxStudents  *int     `json:"masjid_service_plan_max_students,omitempty"`
 	MasjidServicePlanMaxStorageMB *int     `json:"masjid_service_plan_max_storage_mb,omitempty"`
-
 	MasjidServicePlanPriceMonthly *float64 `json:"masjid_service_plan_price_monthly,omitempty"`
 	MasjidServicePlanPriceYearly  *float64 `json:"masjid_service_plan_price_yearly,omitempty"`
 
@@ -304,21 +285,16 @@ func NewMasjidServicePlanResponse(m *mModel.MasjidServicePlan) *MasjidServicePla
 		MasjidServicePlanImageURLOld:             m.MasjidServicePlanImageURLOld,
 		MasjidServicePlanImageObjectKeyOld:       m.MasjidServicePlanImageObjectKeyOld,
 		MasjidServicePlanImageDeletePendingUntil: m.MasjidServicePlanImageDeletePendingUntil,
-
-		MasjidServicePlanMaxTeachers:  m.MasjidServicePlanMaxTeachers,
-		MasjidServicePlanMaxStudents:  m.MasjidServicePlanMaxStudents,
-		MasjidServicePlanMaxStorageMB: m.MasjidServicePlanMaxStorageMB,
-
-		MasjidServicePlanPriceMonthly: m.MasjidServicePlanPriceMonthly,
-		MasjidServicePlanPriceYearly:  m.MasjidServicePlanPriceYearly,
-
-		MasjidServicePlanAllowCustomTheme: m.MasjidServicePlanAllowCustomTheme,
-		MasjidServicePlanMaxCustomThemes:  m.MasjidServicePlanMaxCustomThemes,
-
-		MasjidServicePlanIsActive: m.MasjidServicePlanIsActive,
-
-		MasjidServicePlanCreatedAt: m.MasjidServicePlanCreatedAt,
-		MasjidServicePlanUpdatedAt: m.MasjidServicePlanUpdatedAt,
+		MasjidServicePlanMaxTeachers:             m.MasjidServicePlanMaxTeachers,
+		MasjidServicePlanMaxStudents:             m.MasjidServicePlanMaxStudents,
+		MasjidServicePlanMaxStorageMB:            m.MasjidServicePlanMaxStorageMB,
+		MasjidServicePlanPriceMonthly:            m.MasjidServicePlanPriceMonthly,
+		MasjidServicePlanPriceYearly:             m.MasjidServicePlanPriceYearly,
+		MasjidServicePlanAllowCustomTheme:        m.MasjidServicePlanAllowCustomTheme,
+		MasjidServicePlanMaxCustomThemes:         m.MasjidServicePlanMaxCustomThemes,
+		MasjidServicePlanIsActive:                m.MasjidServicePlanIsActive,
+		MasjidServicePlanCreatedAt:               m.MasjidServicePlanCreatedAt,
+		MasjidServicePlanUpdatedAt:               m.MasjidServicePlanUpdatedAt,
 	}
 	if m.MasjidServicePlanDeletedAt.Valid {
 		t := m.MasjidServicePlanDeletedAt.Time

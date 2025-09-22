@@ -22,16 +22,6 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-/*
-Routes (scope admin/teacher/dkm/bendahara di masjid terkait):
-
-GET    /api/a/masjid-teachers            -> List
-GET    /api/a/masjid-teachers/:id        -> Detail
-POST   /api/a/masjid-teachers            -> Create
-PATCH  /api/a/masjid-teachers/:id        -> Update (tri-state)
-DELETE /api/a/masjid-teachers/:id        -> Soft delete
-*/
-
 type MasjidTeacherController struct {
 	DB    *gorm.DB
 	Stats *statsSvc.LembagaStatsService
@@ -57,31 +47,6 @@ func toJSONErr(c *fiber.Ctx, err error) error {
 	return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 }
 
-func isUniqueViolation(err error) bool {
-	// Postgres code 23505; gorm error message mengandung nama constraint
-	return err != nil && strings.Contains(err.Error(), "duplicate key value")
-}
-
-func uniqueMessage(err error) string {
-	if err == nil {
-		return ""
-	}
-	s := err.Error()
-	switch {
-	case strings.Contains(s, "ux_mtj_masjid_user_alive"):
-		return "User sudah terdaftar sebagai pengajar di masjid ini"
-	case strings.Contains(s, "ux_mtj_code_alive_ci"):
-		return "Kode pengajar sudah digunakan di masjid ini"
-	case strings.Contains(s, "ux_mtj_nip_alive_ci"):
-		return "NIP sudah digunakan di masjid ini"
-	// kalau kamu punya constraint unik lain (slug), tambahkan di sini
-	case strings.Contains(strings.ToLower(s), "slug"):
-		return "Slug pengajar sudah digunakan"
-	default:
-		return "Data unik sudah digunakan"
-	}
-}
-
 func parseDateYYYYMMDD(s string) (*time.Time, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -94,24 +59,73 @@ func parseDateYYYYMMDD(s string) (*time.Time, error) {
 	return &t, nil
 }
 
+// ==== role helpers (idempotent, aware soft-delete) ====
+
+func grantTeacherRole(tx *gorm.DB, userID, masjidID uuid.UUID) error {
+	// revive jika ada baris yang soft-deleted untuk kombinasi yang sama
+	res := tx.Exec(`
+		UPDATE user_roles
+		   SET deleted_at = NULL,
+		       assigned_at = now()
+		 WHERE user_id = ?
+		   AND masjid_id = ?
+		   AND role_id = (SELECT role_id FROM roles WHERE role_name = 'teacher' LIMIT 1)
+		   AND deleted_at IS NOT NULL
+	`, userID, masjidID)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		return nil
+	}
+
+	// insert baru jika belum ada baris alive
+	return tx.Exec(`
+		INSERT INTO user_roles (user_id, role_id, masjid_id, assigned_at)
+		SELECT ?, r.role_id, ?, now()
+		  FROM roles r
+		 WHERE r.role_name = 'teacher'
+		   AND NOT EXISTS (
+			 SELECT 1
+			   FROM user_roles ur
+			  WHERE ur.user_id   = ?
+			    AND ur.role_id   = r.role_id
+			    AND ur.masjid_id = ?
+			    AND ur.deleted_at IS NULL
+		   )
+	`, userID, masjidID, userID, masjidID).Error
+}
+
+func revokeTeacherRole(tx *gorm.DB, userID, masjidID uuid.UUID) error {
+	// soft delete baris role teacher yang masih alive pada masjid ini
+	return tx.Exec(`
+		UPDATE user_roles ur
+		   SET deleted_at = now()
+		 WHERE ur.user_id = ?
+		   AND ur.masjid_id = ?
+		   AND ur.role_id = (SELECT role_id FROM roles WHERE role_name = 'teacher' LIMIT 1)
+		   AND ur.deleted_at IS NULL
+	`, userID, masjidID).Error
+}
 
 /* ===================== CREATE ===================== */
-// POST /api/a/masjid-teachers
+// POST /api/a/masjids/:masjid_id/masjid-teachers
 func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
-	// ===== Masjid context (DKM only) =====
-	masjidID, err := helperAuth.GetActiveMasjidID(c)
-	if err != nil {
-		if id2, err2 := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err2 == nil {
-			masjidID = id2
-		} else {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid context tidak ditemukan")
-		}
+	if c.Locals("DB") == nil {
+		c.Locals("DB", ctrl.DB)
 	}
-	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
+
+	// 🔒 resolve context masjid
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		return err
+	}
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
 		return err
 	}
 
-	// ===== Payload =====
+	// body (tanpa masjid_id, hanya user_id + optional fields)
 	var body yDTO.CreateMasjidTeacherRequest
 	if err := c.BodyParser(&body); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request")
@@ -120,7 +134,7 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
 	}
 
-	// Build model dari DTO (pakai masjid dari context; user dari body)
+	// DTO -> model (paksa masjid dari context/params)
 	rec, err := body.ToModel(masjidID.String(), body.MasjidTeacherUserID)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -128,7 +142,7 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 
 	var created yModel.MasjidTeacherModel
 	if err := ctrl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// 0) pastikan user ada & belum soft-deleted
+		// pastikan user ada
 		var exists bool
 		if err := tx.Raw(`
 			SELECT EXISTS(SELECT 1 FROM users WHERE id = ? AND deleted_at IS NULL)
@@ -139,7 +153,7 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusNotFound, "User tidak ditemukan")
 		}
 
-		// 1) tolak jika sudah ada aktif
+		// cek duplikat alive
 		var dup int64
 		if err := tx.Model(&yModel.MasjidTeacherModel{}).
 			Where("masjid_teacher_masjid_id = ? AND masjid_teacher_user_id = ? AND masjid_teacher_deleted_at IS NULL",
@@ -151,34 +165,23 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusConflict, "Pengajar sudah terdaftar")
 		}
 
-		// 2) insert
+		// insert guru
 		if err := tx.Create(&rec).Error; err != nil {
-			if isUniqueViolation(err) {
-				return fiber.NewError(fiber.StatusConflict, uniqueMessage(err))
-			}
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menambahkan pengajar")
+			return err
 		}
 		created = *rec
 
-		// 3) grant role teacher (idempotent, biarkan function handle revive)
-		actorUUID, _ := helperAuth.GetUserIDFromToken(c)
-		var assignedBy any
-		if actorUUID != uuid.Nil {
-			assignedBy = actorUUID
-		}
-		if err := tx.Exec(
-			`SELECT fn_grant_role(?, 'teacher', ?, ?)`,
-			rec.MasjidTeacherUserID, rec.MasjidTeacherMasjidID, assignedBy,
-		).Error; err != nil {
-			log.Printf("[WARN] fn_grant_role error: %v", err)
-			// tidak fatal untuk create; lanjutkan
-		}
-
-		// 4) statistik
+		// statistik
 		if err := ctrl.Stats.EnsureForMasjid(tx, rec.MasjidTeacherMasjidID); err == nil {
 			if rec.MasjidTeacherIsActive {
 				_ = ctrl.Stats.IncActiveTeachers(tx, rec.MasjidTeacherMasjidID, +1)
 			}
+		}
+
+		// sinkron role teacher (best-effort)
+		if err := grantTeacherRole(tx, rec.MasjidTeacherUserID, rec.MasjidTeacherMasjidID); err != nil {
+			log.Printf("[WARN] grant teacher role failed: %v", err)
+			// tidak fatal
 		}
 
 		return nil
@@ -190,18 +193,18 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 }
 
 /* ===================== UPDATE ===================== */
-// PATCH /api/a/masjid-teachers/:id
+// PATCH /api/a/masjids/:masjid_id/masjid-teachers/:id
 func (ctrl *MasjidTeacherController) Update(c *fiber.Ctx) error {
-	// ===== Masjid context (DKM only) =====
-	masjidID, err := helperAuth.GetActiveMasjidID(c)
-	if err != nil {
-		if id2, err2 := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err2 == nil {
-			masjidID = id2
-		} else {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid context tidak ditemukan")
-		}
+	if c.Locals("DB") == nil {
+		c.Locals("DB", ctrl.DB)
 	}
-	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
+
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		return err
+	}
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
 		return err
 	}
 
@@ -223,37 +226,29 @@ func (ctrl *MasjidTeacherController) Update(c *fiber.Ctx) error {
 	if err := ctrl.DB.WithContext(c.Context()).
 		Clauses(clause.Locking{Strength: "UPDATE"}).
 		First(&before, "masjid_teacher_id = ? AND masjid_teacher_masjid_id = ? AND masjid_teacher_deleted_at IS NULL",
-			rowID, masjidID).
-		Error; err != nil {
+			rowID, masjidID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Pengajar tidak ditemukan")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Larang pindah masjid (cross-tenant) lewat PATCH
-	if req.MasjidTeacherMasjidID != nil {
-		if reqID, er := uuid.Parse(strings.TrimSpace(*req.MasjidTeacherMasjidID)); er != nil || reqID != masjidID {
-			return helper.JsonError(c, fiber.StatusForbidden, "Tidak boleh memindahkan pengajar ke masjid lain lewat endpoint ini")
-		}
-	}
+	wasActive := before.MasjidTeacherIsActive
 
 	// apply tri-state
-	wasActive := before.MasjidTeacherIsActive
 	if err := req.ApplyToModel(&before); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 	before.MasjidTeacherUpdatedAt = time.Now()
 
+	// save
 	if err := ctrl.DB.WithContext(c.Context()).Save(&before).Error; err != nil {
-		if isUniqueViolation(err) {
-			return helper.JsonError(c, fiber.StatusConflict, uniqueMessage(err))
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui pengajar")
+		return toJSONErr(c, err)
 	}
 
-	// Statistik: jika status aktif berubah, adjust counter
+	// statistik & role sinkron jika status aktif berubah
 	if wasActive != before.MasjidTeacherIsActive {
+		// statistik
 		if err := ctrl.Stats.EnsureForMasjid(ctrl.DB, masjidID); err == nil {
 			delta := -1
 			if before.MasjidTeacherIsActive {
@@ -261,24 +256,36 @@ func (ctrl *MasjidTeacherController) Update(c *fiber.Ctx) error {
 			}
 			_ = ctrl.Stats.IncActiveTeachers(ctrl.DB, masjidID, delta)
 		}
+
+		// role teacher
+		if before.MasjidTeacherIsActive {
+			if err := grantTeacherRole(ctrl.DB, before.MasjidTeacherUserID, before.MasjidTeacherMasjidID); err != nil {
+				log.Printf("[WARN] grant teacher role (update) failed: %v", err)
+			}
+		} else {
+			if err := revokeTeacherRole(ctrl.DB, before.MasjidTeacherUserID, before.MasjidTeacherMasjidID); err != nil {
+				log.Printf("[WARN] revoke teacher role (update) failed: %v", err)
+			}
+		}
 	}
 
 	return helper.JsonUpdated(c, "Pengajar diperbarui", yDTO.NewMasjidTeacherResponse(&before))
 }
 
 /* ===================== DELETE ===================== */
-// DELETE /api/a/masjid-teachers/:id (soft)
+// DELETE /api/a/masjids/:masjid_id/masjid-teachers/:id
 func (ctrl *MasjidTeacherController) Delete(c *fiber.Ctx) error {
-	// ===== Masjid context (DKM only) =====
-	masjidID, err := helperAuth.GetActiveMasjidID(c)
-	if err != nil {
-		if id2, err2 := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err2 == nil {
-			masjidID = id2
-		} else {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid context tidak ditemukan")
-		}
+	if c.Locals("DB") == nil {
+		c.Locals("DB", ctrl.DB)
 	}
-	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
+
+	// 🔒 masjid context + DKM/Admin guard
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		return err
+	}
+	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
 		return err
 	}
 
@@ -289,6 +296,7 @@ func (ctrl *MasjidTeacherController) Delete(c *fiber.Ctx) error {
 
 	var rows int64
 	if err := ctrl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
+		// Lock row guru yang mau dihapus
 		var teacher yModel.MasjidTeacherModel
 		if err := tx.
 			Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -297,25 +305,44 @@ func (ctrl *MasjidTeacherController) Delete(c *fiber.Ctx) error {
 				id, masjidID,
 			).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return fiber.NewError(fiber.StatusNotFound, "Pengajar tidak ditemukan atau sudah dihapus")
+				return fiber.NewError(fiber.StatusNotFound, "Pengajar tidak ditemukan")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data pengajar")
 		}
 
+		// Soft-delete guru
 		res := tx.Where("masjid_teacher_id = ?", teacher.MasjidTeacherID).
-			Delete(&yModel.MasjidTeacherModel{}) // soft delete
+			Delete(&yModel.MasjidTeacherModel{})
 		if res.Error != nil {
-			log.Println("[ERROR] Failed to delete masjid teacher:", res.Error)
+			log.Println("[ERROR] delete masjid teacher:", res.Error)
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus pengajar")
 		}
 		rows = res.RowsAffected
 
+		// Update statistik aktif (jika perlu)
 		if rows > 0 && teacher.MasjidTeacherIsActive {
-			// turunkan statistik aktif
 			if err := ctrl.Stats.EnsureForMasjid(tx, masjidID); err == nil {
 				_ = ctrl.Stats.IncActiveTeachers(tx, masjidID, -1)
 			}
 		}
+
+		// Cek apakah masih ada record guru lain (alive) utk user & masjid ini
+		var remain int64
+		if err := tx.Model(&yModel.MasjidTeacherModel{}).
+			Where("masjid_teacher_user_id = ? AND masjid_teacher_masjid_id = ? AND masjid_teacher_deleted_at IS NULL",
+				teacher.MasjidTeacherUserID, teacher.MasjidTeacherMasjidID).
+			Count(&remain).Error; err != nil {
+			log.Printf("[WARN] count remaining teachers failed: %v", err)
+			return nil
+		}
+
+		// Jika sudah tidak ada lagi → cabut role "teacher" pada masjid ini
+		if remain == 0 {
+			if err := revokeTeacherRole(tx, teacher.MasjidTeacherUserID, teacher.MasjidTeacherMasjidID); err != nil {
+				log.Printf("[WARN] revoke teacher role (delete) failed: %v", err)
+			}
+		}
+
 		return nil
 	}); err != nil {
 		return toJSONErr(c, err)

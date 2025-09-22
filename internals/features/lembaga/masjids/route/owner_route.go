@@ -15,13 +15,11 @@ func MasjidOwnerRoutes(admin fiber.Router, db *gorm.DB) {
 		constants.RoleErrorAdmin("aksi ini untuk admin/owner"),
 		constants.AdminAndAbove,
 	)
-	plan := planctl.NewMasjidServicePlanController(db)
-
+	plan := planctl.NewMasjidServicePlanController(db, nil)
 
 	// alias lama (opsional):
 	alias := admin.Group("/masjid-service-plans", guard)
-	alias.Post("/",            plan.Create)
-	alias.Patch("/:id",        plan.Patch)
-	alias.Delete("/:id",       plan.SoftDelete)
-	alias.Post("/:id/restore", plan.Restore)
+	alias.Post("/", plan.Create)
+	alias.Patch("/:id", plan.Patch)
+	alias.Delete("/:id", plan.Delete)
 }

@@ -1,440 +1,394 @@
-// internals/features/masjid/service_plans/controller/masjid_service_plan_controller.go
+// file: internals/features/lembaga/masjids/controller/masjid_service_plan_controller.go
 package controller
 
 import (
-	"errors"
+	"context"
+	"encoding/json"
 	"fmt"
-	"net/http"
-	"os"
-	"strconv"
+	"mime/multipart"
 	"strings"
 	"time"
 
-	spDTO "masjidku_backend/internals/features/lembaga/masjids/dto"
-	spModel "masjidku_backend/internals/features/lembaga/masjids/model"
+	dto "masjidku_backend/internals/features/lembaga/masjids/dto"
+	mModel "masjidku_backend/internals/features/lembaga/masjids/model"
+	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 	helperOSS "masjidku_backend/internals/helpers/oss"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
-/* =========================================================
-   Controller
-========================================================= */
-
 type MasjidServicePlanController struct {
-	DB *gorm.DB
+	DB        *gorm.DB
+	Validator interface{ Struct(any) error }
 }
 
-func NewMasjidServicePlanController(db *gorm.DB) *MasjidServicePlanController {
-	return &MasjidServicePlanController{DB: db}
+func NewMasjidServicePlanController(db *gorm.DB, v interface{ Struct(any) error }) *MasjidServicePlanController {
+	return &MasjidServicePlanController{DB: db, Validator: v}
 }
 
-/* =========================================================
-   Utils
-========================================================= */
+/* ============================== Util ============================== */
 
-func httpErr(c *fiber.Ctx, code int, msg string) error {
-	return c.Status(code).JSON(fiber.Map{"error": msg})
+func clampLimit(v, def, max int) int {
+	if v <= 0 {
+		return def
+	}
+	if v > max {
+		return max
+	}
+	return v
 }
 
-func parseRetentionDays() time.Duration {
-	d := 30 // default 30 hari
-	if v := strings.TrimSpace(os.Getenv("IMAGE_RETENTION_DAYS")); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			d = n
+func pickImageFile(c *fiber.Ctx, names ...string) *multipart.FileHeader {
+	for _, n := range names {
+		if fh, err := c.FormFile(n); err == nil && fh != nil {
+			return fh
 		}
 	}
-	return time.Hour * 24 * time.Duration(d)
+	return nil
 }
 
-func getUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
-	raw := strings.TrimSpace(c.Params(name))
-	id, err := uuid.Parse(raw)
-	if err != nil || id == uuid.Nil {
-		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "invalid "+name)
-	}
-	return id, nil
-}
-
-/* =========================================================
-   Routes wiring (opsional)
-========================================================= */
-
-func (ctl *MasjidServicePlanController) Mount(r fiber.Router) {
-	g := r.Group("/masjid-service-plans")
-	g.Post("/", ctl.Create)
-	g.Get("/", ctl.List)
-	g.Get("/:id", ctl.GetByID)
-	g.Patch("/:id", ctl.Patch)
-	g.Delete("/:id", ctl.SoftDelete)
-	g.Post("/:id/restore", ctl.Restore)
-
-	// Upload image (multipart/form-data, field name: file)
-	g.Post("/:id/image", ctl.UploadImageAndSwap)
-
-	// Cleanup gambar lama yang sudah lewat retensi
-	g.Post("/_cleanup-expired-images", ctl.CleanupExpiredOldImages)
-}
-
-/* =========================================================
-   CREATE
-========================================================= */
+/* ============================== CREATE (owner only) ============================== */
+/* ============================== CREATE (owner only) ============================== */
 
 func (ctl *MasjidServicePlanController) Create(c *fiber.Ctx) error {
-	var req spDTO.CreateMasjidServicePlanRequest
-	if err := c.BodyParser(&req); err != nil {
-		return httpErr(c, fiber.StatusBadRequest, "invalid payload")
+	// 1. Auth: hanya owner
+	if !helperAuth.IsOwner(c) {
+		return helper.JsonError(c, fiber.StatusForbidden, "Hanya owner yang diizinkan")
 	}
 
-	// Validasi sederhana (kamu bisa sambungkan ke validator.v10 bila perlu)
-	if strings.TrimSpace(req.MasjidServicePlanCode) == "" ||
-		strings.TrimSpace(req.MasjidServicePlanName) == "" {
-		return httpErr(c, fiber.StatusBadRequest, "code & name are required")
+	// 2. Parse body
+	var p dto.CreateMasjidServicePlanRequest
+	if err := c.BodyParser(&p); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid: "+err.Error())
 	}
-
-	m := req.ToModel()
-	now := time.Now()
-	m.MasjidServicePlanCreatedAt = now
-	m.MasjidServicePlanUpdatedAt = now
-
-	if err := ctl.DB.Create(m).Error; err != nil {
-		if spDTO.IsUniqueViolation(err) {
-			return httpErr(c, fiber.StatusConflict, "duplicate code")
-		}
-		return httpErr(c, fiber.StatusBadGateway, "db error: "+err.Error())
-	}
-
-	return c.Status(fiber.StatusCreated).JSON(spDTO.NewMasjidServicePlanResponse(m))
-}
-
-/* =========================================================
-   LIST (filter + sort + pagination)
-========================================================= */
-
-func (ctl *MasjidServicePlanController) List(c *fiber.Ctx) error {
-	var q spDTO.ListMasjidServicePlanQuery
-	if err := c.QueryParser(&q); err != nil {
-		return httpErr(c, fiber.StatusBadRequest, "invalid query")
-	}
-
-	db := ctl.DB.Model(&spModel.MasjidServicePlan{})
-
-	if q.Code != nil && strings.TrimSpace(*q.Code) != "" {
-		db = db.Where("masjid_service_plan_code ILIKE ?", "%"+strings.TrimSpace(*q.Code)+"%")
-	}
-	if q.Name != nil && strings.TrimSpace(*q.Name) != "" {
-		db = db.Where("masjid_service_plan_name ILIKE ?", "%"+strings.TrimSpace(*q.Name)+"%")
-	}
-	if q.Active != nil {
-		db = db.Where("masjid_service_plan_is_active = ?", *q.Active)
-	}
-	if q.AllowCustomTheme != nil {
-		db = db.Where("masjid_service_plan_allow_custom_theme = ?", *q.AllowCustomTheme)
-	}
-	if q.PriceMonthlyMin != nil {
-		db = db.Where("(masjid_service_plan_price_monthly IS NOT NULL AND masjid_service_plan_price_monthly >= ?)", *q.PriceMonthlyMin)
-	}
-	if q.PriceMonthlyMax != nil {
-		db = db.Where("(masjid_service_plan_price_monthly IS NOT NULL AND masjid_service_plan_price_monthly <= ?)", *q.PriceMonthlyMax)
-	}
-
-	// Sorting
-	sort := "masjid_service_plan_created_at DESC"
-	if q.Sort != nil {
-		switch *q.Sort {
-		case "name_asc":
-			sort = "masjid_service_plan_name ASC"
-		case "name_desc":
-			sort = "masjid_service_plan_name DESC"
-		case "price_monthly_asc":
-			sort = "masjid_service_plan_price_monthly ASC NULLS LAST"
-		case "price_monthly_desc":
-			sort = "masjid_service_plan_price_monthly DESC NULLS LAST"
-		case "created_at_asc":
-			sort = "masjid_service_plan_created_at ASC"
-		case "created_at_desc":
-			sort = "masjid_service_plan_created_at DESC"
-		case "updated_at_asc":
-			sort = "masjid_service_plan_updated_at ASC"
-		case "updated_at_desc":
-			sort = "masjid_service_plan_updated_at DESC"
+	if ctl.Validator != nil {
+		if err := ctl.Validator.Struct(&p); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 		}
 	}
-	db = db.Order(sort)
 
-	limit := q.Limit
-	if limit <= 0 || limit > 200 {
-		limit = 20
-	}
-	offset := q.Offset
-	if offset < 0 {
-		offset = 0
+	// 3. Precheck unik code (case-insensitive)
+	code := strings.TrimSpace(p.MasjidServicePlanCode)
+	if code != "" {
+		var cnt int64
+		if err := ctl.DB.Model(&mModel.MasjidServicePlan{}).
+			Where("LOWER(masjid_service_plan_code) = LOWER(?) AND masjid_service_plan_deleted_at IS NULL", code).
+			Count(&cnt).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek kode unik")
+		}
+		if cnt > 0 {
+			return helper.JsonError(c, fiber.StatusConflict, "Kode sudah digunakan")
+		}
 	}
 
-	var rows []spModel.MasjidServicePlan
-	if err := db.Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
-		return httpErr(c, fiber.StatusBadGateway, "db error: "+err.Error())
+	// 4. Build entity & insert
+	ent := p.ToModel()
+	if err := ctl.DB.WithContext(c.Context()).Create(ent).Error; err != nil {
+		if dto.IsUniqueViolation(err) {
+			return helper.JsonError(c, fiber.StatusConflict, "Kode sudah digunakan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan data")
 	}
 
-	resp := make([]*spDTO.MasjidServicePlanResponse, 0, len(rows))
-	for i := range rows {
-		resp = append(resp, spDTO.NewMasjidServicePlanResponse(&rows[i]))
+	// 5. Optional upload file (image)
+	uploadedURL := ""
+	if fh := pickImageFile(c, "image", "file"); fh != nil {
+		svc, er := helperOSS.NewOSSServiceFromEnv("")
+		if er != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "OSS init error: "+er.Error())
+		}
+
+		ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
+		defer cancel()
+
+		const keyPrefix = "service-plans"
+		url, upErr := svc.UploadAsWebP(ctx, fh, keyPrefix)
+		if upErr != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Upload gagal: "+upErr.Error())
+		}
+		uploadedURL = url
+
+		// derive object key
+		objKey := ""
+		if k, e := helperOSS.ExtractKeyFromPublicURL(uploadedURL); e == nil {
+			objKey = k
+		} else if k2, e2 := helperOSS.KeyFromPublicURL(uploadedURL); e2 == nil {
+			objKey = k2
+		}
+
+		// update DB
+		if err := ctl.DB.WithContext(c.Context()).
+			Model(&mModel.MasjidServicePlan{}).
+			Where("masjid_service_plan_id = ?", ent.MasjidServicePlanID).
+			Updates(map[string]any{
+				"masjid_service_plan_image_url":        uploadedURL,
+				"masjid_service_plan_image_object_key": objKey,
+			}).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan URL gambar: "+err.Error())
+		}
+
+		// sinkronkan ent
+		ent.MasjidServicePlanImageURL = &uploadedURL
+		if objKey != "" {
+			ent.MasjidServicePlanImageObjectKey = &objKey
+		}
 	}
-	return c.JSON(fiber.Map{
-		"data":   resp,
-		"limit":  limit,
-		"offset": offset,
+
+	// 6. Reload entity untuk response final
+	_ = ctl.DB.WithContext(c.Context()).
+		First(ent, "masjid_service_plan_id = ?", ent.MasjidServicePlanID).Error
+
+	// 7. Response
+	return helper.JsonCreated(c, "Berhasil membuat service plan", fiber.Map{
+		"service_plan":       dto.NewMasjidServicePlanResponse(ent),
+		"uploaded_image_url": uploadedURL,
 	})
 }
 
-/* =========================================================
-   GET BY ID
-========================================================= */
-
-func (ctl *MasjidServicePlanController) GetByID(c *fiber.Ctx) error {
-	id, err := getUUIDParam(c, "id")
-	if err != nil {
-		return err
-	}
-	var m spModel.MasjidServicePlan
-	if err := ctl.DB.First(&m, "masjid_service_plan_id = ?", id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return httpErr(c, fiber.StatusNotFound, "not found")
-		}
-		return httpErr(c, fiber.StatusBadGateway, "db error: "+err.Error())
-	}
-	return c.JSON(spDTO.NewMasjidServicePlanResponse(&m))
-}
-
-/* =========================================================
-   PATCH (JSON) — termasuk mekanisme image 2-slot via DTO.ApplyToModelWithImageSwap
-========================================================= */
+/* ============================== PATCH (owner only) ============================== */
 
 func (ctl *MasjidServicePlanController) Patch(c *fiber.Ctx) error {
-	id, err := getUUIDParam(c, "id")
+	// 1) Auth
+	if !helperAuth.IsOwner(c) {
+		return helper.JsonError(c, fiber.StatusForbidden, "Hanya owner yang diizinkan")
+	}
+
+	// 2) Param id
+	idStr := strings.TrimSpace(c.Params("id"))
+	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return err
+		return helper.JsonError(c, fiber.StatusBadRequest, "id tidak valid")
 	}
 
-	var req spDTO.UpdateMasjidServicePlanRequest
-	if err := c.BodyParser(&req); err != nil {
-		return httpErr(c, fiber.StatusBadRequest, "invalid payload")
-	}
-
-	var m spModel.MasjidServicePlan
-	if err := ctl.DB.First(&m, "masjid_service_plan_id = ?", id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return httpErr(c, fiber.StatusNotFound, "not found")
+	// 3) Load entity
+	var ent mModel.MasjidServicePlan
+	if err := ctl.DB.WithContext(c.Context()).
+		Where("masjid_service_plan_id = ? AND masjid_service_plan_deleted_at IS NULL", id).
+		First(&ent).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
-		return httpErr(c, fiber.StatusBadGateway, "db error: "+err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	if err := req.ApplyToModelWithImageSwap(&m, parseRetentionDays()); err != nil {
-		if errors.Is(err, spDTO.ErrImagePairMismatch) {
-			return httpErr(c, fiber.StatusBadRequest, err.Error())
+	// 4) Parse payload (JSON / multipart)
+	var p dto.UpdateMasjidServicePlanRequest
+	if err := c.BodyParser(&p); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
+	}
+	if raw := strings.TrimSpace(c.FormValue("json_body")); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &p) // best-effort
+	}
+
+	// 5) Terapkan patch ke entity (image pair + retensi 30 hari)
+	if err := p.ApplyToModelWithImageSwap(&ent, 30*24*time.Hour); err != nil {
+		if err == dto.ErrImagePairMismatch {
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 		}
-		return httpErr(c, fiber.StatusBadRequest, "apply patch: "+err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, "Patch tidak valid: "+err.Error())
 	}
 
-	// Simpan
-	if err := ctl.DB.Save(&m).Error; err != nil {
-		if spDTO.IsUniqueViolation(err) {
-			return httpErr(c, fiber.StatusConflict, "duplicate code")
+	// 6) Simpan perubahan non-file
+	if err := ctl.DB.WithContext(c.Context()).
+		Model(&mModel.MasjidServicePlan{}).
+		Where("masjid_service_plan_id = ?", ent.MasjidServicePlanID).
+		Updates(&ent).Error; err != nil {
+		if dto.IsUniqueViolation(err) {
+			return helper.JsonError(c, fiber.StatusConflict, "Kode sudah digunakan")
 		}
-		return httpErr(c, fiber.StatusBadGateway, "db error: "+err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan")
 	}
 
-	return c.JSON(spDTO.NewMasjidServicePlanResponse(&m))
-}
+	// 7) Optional: upload file → override kolom image hasil JSON patch
+	uploadedURL := ""
+	movedOld := ""
 
-/* =========================================================
-   SOFT-DELETE & RESTORE
-========================================================= */
-
-func (ctl *MasjidServicePlanController) SoftDelete(c *fiber.Ctx) error {
-	id, err := getUUIDParam(c, "id")
-	if err != nil {
-		return err
-	}
-	if err := ctl.DB.Delete(&spModel.MasjidServicePlan{}, "masjid_service_plan_id = ?", id).Error; err != nil {
-		return httpErr(c, fiber.StatusBadGateway, "db error: "+err.Error())
-	}
-	return c.SendStatus(http.StatusNoContent)
-}
-
-func (ctl *MasjidServicePlanController) Restore(c *fiber.Ctx) error {
-	id, err := getUUIDParam(c, "id")
-	if err != nil {
-		return err
-	}
-	// Unscoped + Update deleted_at = NULL
-	if err := ctl.DB.Unscoped().
-		Model(&spModel.MasjidServicePlan{}).
-		Where("masjid_service_plan_id = ?", id).
-		Update("masjid_service_plan_deleted_at", gorm.DeletedAt{}).Error; err != nil {
-		return httpErr(c, fiber.StatusBadGateway, "db error: "+err.Error())
-	}
-	return c.SendStatus(http.StatusNoContent)
-}
-
-/* =========================================================
-   UPLOAD IMAGE via multipart (field: "file")
-   - Re-encode ke WebP via helper.OSSService.UploadAsWebP
-   - Swap ke model (current→old) + set delete_pending_until
-========================================================= */
-
-func (ctl *MasjidServicePlanController) UploadImageAndSwap(c *fiber.Ctx) error {
-	id, err := getUUIDParam(c, "id")
-	if err != nil {
-		return err
-	}
-
-	// Ambil record
-	var m spModel.MasjidServicePlan
-	if err := ctl.DB.First(&m, "masjid_service_plan_id = ?", id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return httpErr(c, fiber.StatusNotFound, "not found")
+	if fh := pickImageFile(c, "image", "file"); fh != nil {
+		svc, er := helperOSS.NewOSSServiceFromEnv("")
+		if er != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "OSS init error: "+er.Error())
 		}
-		return httpErr(c, fiber.StatusBadGateway, "db error: "+err.Error())
-	}
 
-	// File wajib
-	fh, err := c.FormFile("file")
-	if err != nil || fh == nil {
-		return httpErr(c, fiber.StatusBadRequest, "missing file")
-	}
+		ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
+		defer cancel()
 
-	// OSS service
-	oss, err := helperOSS.NewOSSServiceFromEnv("")
-	if err != nil {
-		return httpErr(c, fiber.StatusBadGateway, "oss init: "+err.Error())
-	}
-
-	// Upload → dapat public URL (webp)
-	ctx := c.Context()
-	publicURL, upErr := oss.UploadAsWebP(ctx, fh, fmt.Sprintf("masjid-service-plans/%s", id.String()))
-	if upErr != nil {
-		// helper sudah memetakan error media unsupported jadi fiber error
-		return httpErr(c, fiber.StatusBadGateway, upErr.Error())
-	}
-
-	// Swap ke 2-slot (current→old + retention)
-	ret := parseRetentionDays()
-	now := time.Now()
-
-	// Simpan old dulu bila ada current
-	if m.MasjidServicePlanImageURL != nil && m.MasjidServicePlanImageObjectKey != nil {
-		// Extract key dari current
-		curKey, _ := helperOSS.ExtractKeyFromPublicURL(*m.MasjidServicePlanImageURL)
-		m.MasjidServicePlanImageURLOld = m.MasjidServicePlanImageURL
-		m.MasjidServicePlanImageObjectKeyOld = m.MasjidServicePlanImageObjectKey
-		if ret > 0 {
-			t := now.Add(ret)
-			m.MasjidServicePlanImageDeletePendingUntil = &t
-		} else {
-			m.MasjidServicePlanImageDeletePendingUntil = nil
+		const keyPrefix = "service-plans"
+		url, upErr := svc.UploadAsWebP(ctx, fh, keyPrefix)
+		if upErr != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Upload gagal: "+upErr.Error())
 		}
-		// NOTE: kita tidak menghapus object current sekarang; tetap tunggu cleanup retensi
-		_ = curKey
-	} else {
-		m.MasjidServicePlanImageURLOld = nil
-		m.MasjidServicePlanImageObjectKeyOld = nil
-		m.MasjidServicePlanImageDeletePendingUntil = nil
-	}
+		uploadedURL = url
 
-	// Set current dari upload baru
-	// object_key untuk current
-	newKey, err := helperOSS.ExtractKeyFromPublicURL(publicURL)
-	if err != nil {
-		return httpErr(c, fiber.StatusBadGateway, "extract key: "+err.Error())
-	}
-	m.MasjidServicePlanImageURL = &publicURL
-	m.MasjidServicePlanImageObjectKey = &newKey
-	m.MasjidServicePlanUpdatedAt = now
-
-	// Save
-	if err := ctl.DB.Save(&m).Error; err != nil {
-		return httpErr(c, fiber.StatusBadGateway, "db error: "+err.Error())
-	}
-	return c.Status(fiber.StatusOK).JSON(spDTO.NewMasjidServicePlanResponse(&m))
-}
-
-/* =========================================================
-   CLEANUP gambar lama yang sudah lewat retensi
-   - Hapus object OSS untuk *_old jika now > delete_pending_until
-   - Null-kan kolom *_old + *_delete_pending_until
-========================================================= */
-
-func (ctl *MasjidServicePlanController) CleanupExpiredOldImages(c *fiber.Ctx) error {
-	now := time.Now()
-
-	// Ambil kandidat (pakai lock for update untuk menghindari race di multi worker)
-	var plans []spModel.MasjidServicePlan
-	if err := ctl.DB.
-		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("masjid_service_plan_image_url_old IS NOT NULL").
-		Where("masjid_service_plan_image_object_key_old IS NOT NULL").
-		Where("masjid_service_plan_image_delete_pending_until IS NOT NULL").
-		Where("masjid_service_plan_image_delete_pending_until <= ?", now).
-		Find(&plans).Error; err != nil {
-		return httpErr(c, fiber.StatusBadGateway, "db error: "+err.Error())
-	}
-
-	if len(plans) == 0 {
-		return c.JSON(fiber.Map{"deleted": 0})
-	}
-
-	oss, err := helperOSS.NewOSSServiceFromEnv("")
-	if err != nil {
-		return httpErr(c, fiber.StatusBadGateway, "oss init: "+err.Error())
-	}
-
-	deleted := 0
-	for i := range plans {
-		m := &plans[i]
-		if m.MasjidServicePlanImageURLOld == nil {
-			continue
+		// object key baru
+		newObjKey := ""
+		if k, e := helperOSS.ExtractKeyFromPublicURL(uploadedURL); e == nil {
+			newObjKey = k
+		} else if k2, e2 := helperOSS.KeyFromPublicURL(uploadedURL); e2 == nil {
+			newObjKey = k2
 		}
-		oldURL := *m.MasjidServicePlanImageURLOld
-		if strings.TrimSpace(oldURL) == "" {
-			continue
+
+		// data lama (post-patch) → pindah ke spam (soft-delete)
+		oldURL := ""
+		if ent.MasjidServicePlanImageURL != nil {
+			oldURL = *ent.MasjidServicePlanImageURL
 		}
-		// hapus di OSS
-		if err := oss.DeleteByPublicURL(c.Context(), oldURL); err != nil {
-			// jika 404 / not found, kita tetap lanjut null-kan kolom; selain itu, log aja
-			if !isOSSNotFound(err) {
-				// log saja; jangan gagal total
-				// c.App().Logger().Warnf("cleanup: delete %s: %v", oldURL, err)
+		oldObjKey := ""
+		if ent.MasjidServicePlanImageObjectKey != nil {
+			oldObjKey = *ent.MasjidServicePlanImageObjectKey
+		}
+
+		movedURL := ""
+		if strings.TrimSpace(oldURL) != "" {
+			if mv, mvErr := helperOSS.MoveToSpamByPublicURLENV(oldURL, 0); mvErr == nil {
+				movedURL = mv
+				movedOld = mv
+				// sinkronkan key lama sesuai lokasi baru
+				if k, e := helperOSS.ExtractKeyFromPublicURL(movedURL); e == nil {
+					oldObjKey = k
+				} else if k2, e2 := helperOSS.KeyFromPublicURL(movedURL); e2 == nil {
+					oldObjKey = k2
+				}
 			}
 		}
-		// null-kan kolom old
-		m.MasjidServicePlanImageURLOld = nil
-		m.MasjidServicePlanImageObjectKeyOld = nil
-		m.MasjidServicePlanImageDeletePendingUntil = nil
 
-		if err := ctl.DB.Model(m).Updates(map[string]any{
-			"masjid_service_plan_image_url_old":              gorm.Expr("NULL"),
-			"masjid_service_plan_image_object_key_old":       gorm.Expr("NULL"),
-			"masjid_service_plan_image_delete_pending_until": gorm.Expr("NULL"),
-			"masjid_service_plan_updated_at":                 time.Now(),
-		}).Error; err != nil {
-			// log lalu lanjut
-			continue
+		deletePendingUntil := time.Now().Add(30 * 24 * time.Hour)
+
+		// tulis override ke DB
+		if err := ctl.DB.WithContext(c.Context()).
+			Model(&mModel.MasjidServicePlan{}).
+			Where("masjid_service_plan_id = ?", ent.MasjidServicePlanID).
+			Updates(map[string]any{
+				"masjid_service_plan_image_url":        uploadedURL,
+				"masjid_service_plan_image_object_key": newObjKey,
+				"masjid_service_plan_image_url_old": func() any {
+					if movedURL == "" {
+						return gorm.Expr("NULL")
+					}
+					return movedURL
+				}(),
+				"masjid_service_plan_image_object_key_old": func() any {
+					if oldObjKey == "" {
+						return gorm.Expr("NULL")
+					}
+					return oldObjKey
+				}(),
+				"masjid_service_plan_image_delete_pending_until": deletePendingUntil,
+				"masjid_service_plan_updated_at":                 time.Now(),
+			}).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan gambar: "+err.Error())
 		}
-		deleted++
+
+		// sinkronkan ent untuk response
+		ent.MasjidServicePlanImageURL = &uploadedURL
+		if newObjKey != "" {
+			ent.MasjidServicePlanImageObjectKey = &newObjKey
+		} else {
+			ent.MasjidServicePlanImageObjectKey = nil
+		}
+		if movedURL != "" {
+			ent.MasjidServicePlanImageURLOld = &movedURL
+		} else {
+			ent.MasjidServicePlanImageURLOld = nil
+		}
+		if oldObjKey != "" {
+			ent.MasjidServicePlanImageObjectKeyOld = &oldObjKey
+		} else {
+			ent.MasjidServicePlanImageObjectKeyOld = nil
+		}
+		t := deletePendingUntil
+		ent.MasjidServicePlanImageDeletePendingUntil = &t
 	}
 
-	return c.JSON(fiber.Map{"deleted": deleted})
+	// 8) Reload best-effort
+	_ = ctl.DB.WithContext(c.Context()).
+		First(&ent, "masjid_service_plan_id = ?", ent.MasjidServicePlanID).Error
+
+	// 9) Response
+	return helper.JsonOK(c, "Berhasil memperbarui service plan", fiber.Map{
+		"service_plan":        dto.NewMasjidServicePlanResponse(&ent),
+		"uploaded_image_url":  uploadedURL,
+		"moved_old_image_url": movedOld,
+	})
 }
 
-func isOSSNotFound(err error) bool {
-	// mirror helper.isNotFound tapi tanpa ekspor; fallback string check
-	if err == nil {
-		return false
+/* ============================== DELETE (owner only) ============================== */
+
+func (ctl *MasjidServicePlanController) Delete(c *fiber.Ctx) error {
+	// auth: hanya owner
+	if !helperAuth.IsOwner(c) {
+		return helper.JsonError(c, fiber.StatusForbidden, "Hanya owner yang diizinkan")
 	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "404") || strings.Contains(msg, "not found")
+
+	idStr := strings.TrimSpace(c.Params("id"))
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "id tidak valid")
+	}
+
+	var ent mModel.MasjidServicePlan
+	if err := ctl.DB.WithContext(c.Context()).
+		Where("masjid_service_plan_id = ? AND masjid_service_plan_deleted_at IS NULL", id).
+		First(&ent).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
+	}
+
+	now := time.Now()
+	if err := ctl.DB.WithContext(c.Context()).
+		Model(&mModel.MasjidServicePlan{}).
+		Where("masjid_service_plan_id = ?", ent.MasjidServicePlanID).
+		Updates(map[string]any{
+			"masjid_service_plan_deleted_at": &now,
+			"masjid_service_plan_updated_at": now,
+		}).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus data")
+	}
+
+	imageURL := strings.TrimSpace(c.Query("image_url"))
+	if imageURL == "" {
+		if v := strings.TrimSpace(c.FormValue("image_url")); v != "" {
+			imageURL = v
+		}
+	}
+	if imageURL != "" {
+		_, _ = helperOSS.MoveToSpamByPublicURLENV(imageURL, 0)
+	}
+
+	return helper.JsonOK(c, "Berhasil menghapus service plan", fiber.Map{"masjid_service_plan_id": ent.MasjidServicePlanID})
+}
+
+
+
+/* ============================== OPTIONAL: validate code (owner only?) ============================== */
+
+func (ctl *MasjidServicePlanController) ValidateCode(c *fiber.Ctx) error {
+	// Jika mau batasi, aktifkan owner check:
+	// if !helperAuth.IsOwner(c) { return helper.JsonError(c, fiber.StatusForbidden, "Hanya owner yang diizinkan") }
+
+	code := strings.TrimSpace(c.Query("code"))
+	if code == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Parameter code wajib diisi")
+	}
+	var cnt int64
+	if err := ctl.DB.WithContext(c.Context()).
+		Model(&mModel.MasjidServicePlan{}).
+		Where("LOWER(masjid_service_plan_code) = LOWER(?) AND masjid_service_plan_deleted_at IS NULL", code).
+		Count(&cnt).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
+	}
+	return helper.JsonOK(c, "OK", fiber.Map{
+		"code":     code,
+		"is_taken": cnt > 0,
+		"suggestion": func() string {
+			if cnt == 0 {
+				return code
+			}
+			return fmt.Sprintf("%s-%d", helper.Slugify(code, 30), time.Now().Unix()%1000)
+		}(),
+	})
 }

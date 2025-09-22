@@ -51,6 +51,8 @@ CREATE INDEX IF NOT EXISTS gin_books_author_trgm_alive
   ON books USING GIN (LOWER(books_author) gin_trgm_ops)
   WHERE books_deleted_at IS NULL;
 
+
+
 -- =========================================
 -- TABEL: class_subject_books (relasi + status)
 -- =========================================
@@ -128,6 +130,8 @@ CREATE INDEX IF NOT EXISTS ix_csb_tenant_subject_active_created_alive
 -- (Opsional) BRIN
 CREATE INDEX IF NOT EXISTS brin_csb_created_at
   ON class_subject_books USING BRIN (class_subject_books_created_at);
+
+
 
 -- =========================================
 -- BOOK_URLS — selaras dengan announcement_urls

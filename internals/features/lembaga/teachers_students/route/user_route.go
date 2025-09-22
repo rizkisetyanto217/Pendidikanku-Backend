@@ -8,19 +8,25 @@ import (
 	"gorm.io/gorm"
 )
 
-// Routes untuk USER (read-only / publik / logged-in biasa).
-// Contoh mount:
-//   user := api.Group("/api/u")
-//   routes.UsersTeacherUserRoute(user, db)
 func UsersTeacherUserRoute(userRoute fiber.Router, db *gorm.DB) {
 	v := validator.New()
-	ctl := teacherController.NewUserTeacherController(db, v)
+
+	// ❌ WAS: NewUserTeacherController (mengarah ke tabel user_teachers)
+	// ctl := teacherController.NewUserTeacherController(db, v)
+
+	// ✅ USE: MasjidTeacherController (mengarah ke tabel masjid_teachers)
+	tch := teacherController.NewMasjidTeacherController(db)
+
+	// Student controller (sudah oke)
 	std := teacherController.New(db, v)
 
-	g := userRoute.Group("/user-teachers")
-	g.Get("/list", ctl.List)
+	// ===== pakai :masjid_id =====
+	mID := userRoute.Group("/:masjid_id")
+	mID.Get("/masjid-teachers/list", tch.List)
+	mID.Get("/masjid-students/list", std.List)
 
-	// ==== STUDENT READ-ONLY ====
-	gs := userRoute.Group("/masjid-students")
-	gs.Get("/list", std.List)
+	// ===== (opsional) pakai :masjid_slug =====
+	mSlug := userRoute.Group("/m/:masjid_slug")
+	mSlug.Get("/masjid-teachers/list", tch.List)
+	mSlug.Get("/masjid-students/list", std.List)
 }

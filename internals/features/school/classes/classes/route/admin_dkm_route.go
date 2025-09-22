@@ -30,7 +30,6 @@ import (
 	classParents := admin.Group("/:masjid_id/class-parents", masjidkuMiddleware.IsMasjidAdmin())
 	{
 		classParents.Post("/", parentHandler.Create)
-		classParents.Put("/:id", parentHandler.Patch)
 		classParents.Patch("/:id", parentHandler.Patch)
 		classParents.Delete("/:id", parentHandler.Delete)
 	}
@@ -42,7 +41,6 @@ import (
 		userClasses.Get("/list", userClassHandler.ListUserClasses)
 		userClasses.Get("/:id", userClassHandler.GetUserClassByID)
 		userClasses.Put("/:id", userClassHandler.UpdateUserClass)
-		// userClasses.Delete("/:id", userClassHandler.EndUserClass)
 		userClasses.Delete("/remove/:id", userClassHandler.DeleteUserClass)
 	}
 

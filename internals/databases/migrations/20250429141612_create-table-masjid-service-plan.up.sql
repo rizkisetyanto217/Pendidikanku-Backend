@@ -2,6 +2,11 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+
+-- ============================ --
+-- TABLE MASJID SERVICE PLANS --
+-- ============================ --
+
 CREATE TABLE IF NOT EXISTS masjid_service_plans (
   masjid_service_plan_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   masjid_service_plan_code VARCHAR(30)  NOT NULL,

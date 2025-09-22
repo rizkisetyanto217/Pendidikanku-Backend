@@ -15,42 +15,40 @@ import (
 // 📦 DTO Full Mirror (Entity Snapshot)
 // ========================
 type MasjidTeacher struct {
-	MasjidTeacherID              string     `json:"masjid_teacher_id"`
-	MasjidTeacherMasjidID        string     `json:"masjid_teacher_masjid_id"`
-	MasjidTeacherUserID          string     `json:"masjid_teacher_user_id"`
-	MasjidTeacherCode            *string    `json:"masjid_teacher_code,omitempty"`
-	MasjidTeacherSlug            *string    `json:"masjid_teacher_slug,omitempty"`
-	MasjidTeacherEmployment      *string    `json:"masjid_teacher_employment,omitempty"` // enum value as string
-	MasjidTeacherIsActive        bool       `json:"masjid_teacher_is_active"`
-	MasjidTeacherJoinedAt        *time.Time `json:"masjid_teacher_joined_at,omitempty"`
-	MasjidTeacherLeftAt          *time.Time `json:"masjid_teacher_left_at,omitempty"`
-	MasjidTeacherIsVerified      bool       `json:"masjid_teacher_is_verified"`
-	MasjidTeacherVerifiedAt      *time.Time `json:"masjid_teacher_verified_at,omitempty"`
-	MasjidTeacherIsPublic        bool       `json:"masjid_teacher_is_public"`
-	MasjidTeacherNotes           *string    `json:"masjid_teacher_notes,omitempty"`
-	MasjidTeacherCreatedAt       time.Time  `json:"masjid_teacher_created_at"`
-	MasjidTeacherUpdatedAt       time.Time  `json:"masjid_teacher_updated_at"`
-	MasjidTeacherDeletedAt       *time.Time `json:"masjid_teacher_deleted_at,omitempty"`
+	MasjidTeacherID         string     `json:"masjid_teacher_id"`
+	MasjidTeacherMasjidID   string     `json:"masjid_teacher_masjid_id"`
+	MasjidTeacherUserID     string     `json:"masjid_teacher_user_id"`
+	MasjidTeacherCode       *string    `json:"masjid_teacher_code,omitempty"`
+	MasjidTeacherSlug       *string    `json:"masjid_teacher_slug,omitempty"`
+	MasjidTeacherEmployment *string    `json:"masjid_teacher_employment,omitempty"` // enum value as string
+	MasjidTeacherIsActive   bool       `json:"masjid_teacher_is_active"`
+	MasjidTeacherJoinedAt   *time.Time `json:"masjid_teacher_joined_at,omitempty"`
+	MasjidTeacherLeftAt     *time.Time `json:"masjid_teacher_left_at,omitempty"`
+	MasjidTeacherIsVerified bool       `json:"masjid_teacher_is_verified"`
+	MasjidTeacherVerifiedAt *time.Time `json:"masjid_teacher_verified_at,omitempty"`
+	MasjidTeacherIsPublic   bool       `json:"masjid_teacher_is_public"`
+	MasjidTeacherNotes      *string    `json:"masjid_teacher_notes,omitempty"`
+	MasjidTeacherCreatedAt  time.Time  `json:"masjid_teacher_created_at"`
+	MasjidTeacherUpdatedAt  time.Time  `json:"masjid_teacher_updated_at"`
+	MasjidTeacherDeletedAt  *time.Time `json:"masjid_teacher_deleted_at,omitempty"`
 }
 
 // ========================
 // 📥 Create Request DTO
 // ========================
 type CreateMasjidTeacherRequest struct {
-	MasjidTeacherMasjidID  string  `json:"masjid_teacher_masjid_id" validate:"required,uuid"`
-	MasjidTeacherUserID    string  `json:"masjid_teacher_user_id"   validate:"required,uuid"`
-	MasjidTeacherCode      *string `json:"masjid_teacher_code,omitempty"`
-	MasjidTeacherSlug      *string `json:"masjid_teacher_slug,omitempty"`
-	// enum: "tetap","kontrak","paruh_waktu","magang","honorer","relawan","tamu"
-	MasjidTeacherEmployment *string `json:"masjid_teacher_employment,omitempty"`
+	MasjidTeacherUserID     string  `json:"masjid_teacher_user_id"   validate:"required,uuid"`
+	MasjidTeacherCode       *string `json:"masjid_teacher_code,omitempty"`
+	MasjidTeacherSlug       *string `json:"masjid_teacher_slug,omitempty"`
+	MasjidTeacherEmployment *string `json:"masjid_teacher_employment,omitempty"` // enum
 
-	MasjidTeacherIsActive   *bool   `json:"masjid_teacher_is_active,omitempty"` // default true (di DB)
-	MasjidTeacherJoinedAt   *string `json:"masjid_teacher_joined_at,omitempty"` // "YYYY-MM-DD"
-	MasjidTeacherLeftAt     *string `json:"masjid_teacher_left_at,omitempty"`   // "YYYY-MM-DD"
+	MasjidTeacherIsActive *bool   `json:"masjid_teacher_is_active,omitempty"`
+	MasjidTeacherJoinedAt *string `json:"masjid_teacher_joined_at,omitempty"` // YYYY-MM-DD
+	MasjidTeacherLeftAt   *string `json:"masjid_teacher_left_at,omitempty"`   // YYYY-MM-DD
 
-	MasjidTeacherIsVerified *bool   `json:"masjid_teacher_is_verified,omitempty"` // default false
-	MasjidTeacherVerifiedAt *string `json:"masjid_teacher_verified_at,omitempty"` // RFC3339 (atau kosong)
-	MasjidTeacherIsPublic   *bool   `json:"masjid_teacher_is_public,omitempty"`   // default true
+	MasjidTeacherIsVerified *bool   `json:"masjid_teacher_is_verified,omitempty"`
+	MasjidTeacherVerifiedAt *string `json:"masjid_teacher_verified_at,omitempty"` // RFC3339
+	MasjidTeacherIsPublic   *bool   `json:"masjid_teacher_is_public,omitempty"`
 	MasjidTeacherNotes      *string `json:"masjid_teacher_notes,omitempty"`
 }
 
@@ -58,15 +56,14 @@ type CreateMasjidTeacherRequest struct {
 // ✏️ Update Request DTO (tri-state)
 // ========================
 type UpdateMasjidTeacherRequest struct {
-	MasjidTeacherMasjidID  *string `json:"masjid_teacher_masjid_id,omitempty" validate:"omitempty,uuid"` // boleh pindah tenant kalau flow mengizinkan
-	MasjidTeacherUserID    *string `json:"masjid_teacher_user_id,omitempty"   validate:"omitempty,uuid"`
-	MasjidTeacherCode      *string `json:"masjid_teacher_code,omitempty"`
-	MasjidTeacherSlug      *string `json:"masjid_teacher_slug,omitempty"`
+	MasjidTeacherUserID     *string `json:"masjid_teacher_user_id,omitempty"   validate:"omitempty,uuid"`
+	MasjidTeacherCode       *string `json:"masjid_teacher_code,omitempty"`
+	MasjidTeacherSlug       *string `json:"masjid_teacher_slug,omitempty"`
 	MasjidTeacherEmployment *string `json:"masjid_teacher_employment,omitempty"`
 
-	MasjidTeacherIsActive   *bool   `json:"masjid_teacher_is_active,omitempty"`
-	MasjidTeacherJoinedAt   *string `json:"masjid_teacher_joined_at,omitempty"` // "YYYY-MM-DD"
-	MasjidTeacherLeftAt     *string `json:"masjid_teacher_left_at,omitempty"`   // "YYYY-MM-DD"
+	MasjidTeacherIsActive *bool   `json:"masjid_teacher_is_active,omitempty"`
+	MasjidTeacherJoinedAt *string `json:"masjid_teacher_joined_at,omitempty"` // YYYY-MM-DD
+	MasjidTeacherLeftAt   *string `json:"masjid_teacher_left_at,omitempty"`   // YYYY-MM-DD
 
 	MasjidTeacherIsVerified *bool   `json:"masjid_teacher_is_verified,omitempty"`
 	MasjidTeacherVerifiedAt *string `json:"masjid_teacher_verified_at,omitempty"` // RFC3339
@@ -189,25 +186,16 @@ func parseEmploymentPtr(s *string) (*yModel.TeacherEmploymentStatus, error) {
 // ========================
 // 🧱 Mapping ke Model
 // ========================
-
 func (r CreateMasjidTeacherRequest) ToModel(masjidID, userID string) (*yModel.MasjidTeacherModel, error) {
-	// masjidID/userID bisa diambil dari r atau dari token; param ini opsional
-	mz := strings.TrimSpace(masjidID)
-	uu := strings.TrimSpace(userID)
-	if mz == "" {
-		mz = strings.TrimSpace(r.MasjidTeacherMasjidID)
-	}
-	if uu == "" {
-		uu = strings.TrimSpace(r.MasjidTeacherUserID)
-	}
-	if mz == "" || uu == "" {
+	if strings.TrimSpace(masjidID) == "" || strings.TrimSpace(userID) == "" {
 		return nil, fmt.Errorf("masjid_id dan user_id wajib")
 	}
-	mzID, err := uuidFrom(mz)
+
+	mzID, err := uuidFrom(masjidID)
 	if err != nil {
 		return nil, fmt.Errorf("masjid_id tidak valid")
 	}
-	uuID, err := uuidFrom(uu)
+	uuID, err := uuidFrom(userID)
 	if err != nil {
 		return nil, fmt.Errorf("user_id tidak valid")
 	}
@@ -266,13 +254,6 @@ func (r CreateMasjidTeacherRequest) ToModel(masjidID, userID string) (*yModel.Ma
 
 func (r UpdateMasjidTeacherRequest) ApplyToModel(m *yModel.MasjidTeacherModel) error {
 	// scope/user
-	if r.MasjidTeacherMasjidID != nil {
-		id, err := uuidFrom(*r.MasjidTeacherMasjidID)
-		if err != nil {
-			return fmt.Errorf("masjid_id tidak valid")
-		}
-		m.MasjidTeacherMasjidID = id
-	}
 	if r.MasjidTeacherUserID != nil {
 		id, err := uuidFrom(*r.MasjidTeacherUserID)
 		if err != nil {
@@ -322,7 +303,8 @@ func (r UpdateMasjidTeacherRequest) ApplyToModel(m *yModel.MasjidTeacherModel) e
 		}
 		m.MasjidTeacherLeftAt = t
 	}
-	if m.MasjidTeacherJoinedAt != nil && m.MasjidTeacherLeftAt != nil && m.MasjidTeacherLeftAt.Before(*m.MasjidTeacherJoinedAt) {
+	if m.MasjidTeacherJoinedAt != nil && m.MasjidTeacherLeftAt != nil &&
+		m.MasjidTeacherLeftAt.Before(*m.MasjidTeacherJoinedAt) {
 		return fmt.Errorf("left_at harus >= joined_at")
 	}
 
@@ -339,7 +321,7 @@ func (r UpdateMasjidTeacherRequest) ApplyToModel(m *yModel.MasjidTeacherModel) e
 		m.MasjidTeacherNotes = normStrPtr(r.MasjidTeacherNotes)
 	}
 
-	// updated_at: biarkan di-set controller (autoUpdateTime juga jalan)
+	// updated_at biar auto dari controller/DB
 	return nil
 }
 

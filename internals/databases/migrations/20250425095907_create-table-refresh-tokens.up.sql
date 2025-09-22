@@ -1,6 +1,11 @@
 -- butuh pgcrypto untuk gen_random_uuid() & digest()/hmac()
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+
+-- ============================ --
+-- TABLE REFRESH TOKENS --
+-- ============================ --
+
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

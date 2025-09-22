@@ -14,7 +14,7 @@ import (
 
 // Create: minimal wajib masjid_id; field lain opsional
 type MasjidProfileCreateRequest struct {
-	MasjidProfileMasjidID string  `json:"masjid_profile_masjid_id" validate:"required,uuid4"`
+	MasjidProfileMasjidID string `json:"masjid_profile_masjid_id" validate:"required,uuid4"`
 
 	MasjidProfileDescription *string `json:"masjid_profile_description,omitempty"`
 	MasjidProfileFoundedYear *int    `json:"masjid_profile_founded_year,omitempty"`
@@ -44,7 +44,6 @@ type MasjidProfileCreateRequest struct {
 	MasjidProfileSchoolNSS             *string    `json:"masjid_profile_school_nss,omitempty"`
 	MasjidProfileSchoolAccreditation   *string    `json:"masjid_profile_school_accreditation,omitempty"` // A/B/C/Ungraded/-
 	MasjidProfileSchoolPrincipalUserID *uuid.UUID `json:"masjid_profile_school_principal_user_id,omitempty"`
-	MasjidProfileSchoolPhone           *string    `json:"masjid_profile_school_phone,omitempty"`
 	MasjidProfileSchoolEmail           *string    `json:"masjid_profile_school_email,omitempty"`
 	MasjidProfileSchoolAddress         *string    `json:"masjid_profile_school_address,omitempty"`
 	MasjidProfileSchoolStudentCapacity *int       `json:"masjid_profile_school_student_capacity,omitempty"`
@@ -81,7 +80,6 @@ type MasjidProfileUpdateRequest struct {
 	MasjidProfileSchoolNSS             *string    `json:"masjid_profile_school_nss,omitempty"`
 	MasjidProfileSchoolAccreditation   *string    `json:"masjid_profile_school_accreditation,omitempty"`
 	MasjidProfileSchoolPrincipalUserID *uuid.UUID `json:"masjid_profile_school_principal_user_id,omitempty"`
-	MasjidProfileSchoolPhone           *string    `json:"masjid_profile_school_phone,omitempty"`
 	MasjidProfileSchoolEmail           *string    `json:"masjid_profile_school_email,omitempty"`
 	MasjidProfileSchoolAddress         *string    `json:"masjid_profile_school_address,omitempty"`
 	MasjidProfileSchoolStudentCapacity *int       `json:"masjid_profile_school_student_capacity,omitempty"`
@@ -124,14 +122,12 @@ type MasjidProfileResponse struct {
 	MasjidProfileSchoolNSS             *string    `json:"masjid_profile_school_nss,omitempty"`
 	MasjidProfileSchoolAccreditation   *string    `json:"masjid_profile_school_accreditation,omitempty"`
 	MasjidProfileSchoolPrincipalUserID *uuid.UUID `json:"masjid_profile_school_principal_user_id,omitempty"`
-	MasjidProfileSchoolPhone           *string    `json:"masjid_profile_school_phone,omitempty"`
 	MasjidProfileSchoolEmail           *string    `json:"masjid_profile_school_email,omitempty"`
 	MasjidProfileSchoolAddress         *string    `json:"masjid_profile_school_address,omitempty"`
 	MasjidProfileSchoolStudentCapacity *int       `json:"masjid_profile_school_student_capacity,omitempty"`
 	MasjidProfileSchoolIsBoarding      bool       `json:"masjid_profile_school_is_boarding"`
 
-	// Read-only
-	MasjidProfileSearch *string   `json:"masjid_profile_search,omitempty"`
+	// Read-only timestamps
 	MasjidProfileCreatedAt time.Time `json:"masjid_profile_created_at"`
 	MasjidProfileUpdatedAt time.Time `json:"masjid_profile_updated_at"`
 }
@@ -141,12 +137,6 @@ type MasjidProfileResponse struct {
    ======================================================= */
 
 func FromModelMasjidProfile(p *m.MasjidProfileModel) MasjidProfileResponse {
-	var search *string
-	if p.MasjidProfileSearch != "" {
-		tmp := p.MasjidProfileSearch
-		search = &tmp
-	}
-
 	return MasjidProfileResponse{
 		MasjidProfileID:       p.MasjidProfileID.String(),
 		MasjidProfileMasjidID: p.MasjidProfileMasjidID.String(),
@@ -179,13 +169,11 @@ func FromModelMasjidProfile(p *m.MasjidProfileModel) MasjidProfileResponse {
 		MasjidProfileSchoolNSS:             p.MasjidProfileSchoolNSS,
 		MasjidProfileSchoolAccreditation:   p.MasjidProfileSchoolAccreditation,
 		MasjidProfileSchoolPrincipalUserID: p.MasjidProfileSchoolPrincipalUserID,
-		MasjidProfileSchoolPhone:           p.MasjidProfileSchoolPhone,
 		MasjidProfileSchoolEmail:           p.MasjidProfileSchoolEmail,
 		MasjidProfileSchoolAddress:         p.MasjidProfileSchoolAddress,
 		MasjidProfileSchoolStudentCapacity: p.MasjidProfileSchoolStudentCapacity,
 		MasjidProfileSchoolIsBoarding:      p.MasjidProfileSchoolIsBoarding,
 
-		MasjidProfileSearch:   search,
 		MasjidProfileCreatedAt: p.MasjidProfileCreatedAt,
 		MasjidProfileUpdatedAt: p.MasjidProfileUpdatedAt,
 	}
@@ -220,7 +208,6 @@ func ToModelMasjidProfileCreate(req *MasjidProfileCreateRequest) *m.MasjidProfil
 		MasjidProfileSchoolNSS:             req.MasjidProfileSchoolNSS,
 		MasjidProfileSchoolAccreditation:   req.MasjidProfileSchoolAccreditation,
 		MasjidProfileSchoolPrincipalUserID: req.MasjidProfileSchoolPrincipalUserID,
-		MasjidProfileSchoolPhone:           req.MasjidProfileSchoolPhone,
 		MasjidProfileSchoolEmail:           req.MasjidProfileSchoolEmail,
 		MasjidProfileSchoolAddress:         req.MasjidProfileSchoolAddress,
 		MasjidProfileSchoolStudentCapacity: req.MasjidProfileSchoolStudentCapacity,
@@ -297,9 +284,6 @@ func ApplyPatchToModel(p *m.MasjidProfileModel, req *MasjidProfileUpdateRequest)
 	}
 	if req.MasjidProfileSchoolPrincipalUserID != nil {
 		p.MasjidProfileSchoolPrincipalUserID = req.MasjidProfileSchoolPrincipalUserID
-	}
-	if req.MasjidProfileSchoolPhone != nil {
-		p.MasjidProfileSchoolPhone = req.MasjidProfileSchoolPhone
 	}
 	if req.MasjidProfileSchoolEmail != nil {
 		p.MasjidProfileSchoolEmail = req.MasjidProfileSchoolEmail

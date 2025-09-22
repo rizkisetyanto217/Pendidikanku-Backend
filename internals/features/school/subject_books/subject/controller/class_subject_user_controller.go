@@ -148,7 +148,6 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 			class_subjects_masjid_id,
 			class_subjects_class_id,
 			class_subjects_subject_id,
-			class_subjects_term_id,
 			class_subjects_order_index,
 			class_subjects_hours_per_week,
 			class_subjects_min_passing_score,

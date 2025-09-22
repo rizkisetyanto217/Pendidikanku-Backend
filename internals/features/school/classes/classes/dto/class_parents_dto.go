@@ -3,9 +3,11 @@ package dto
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
@@ -447,4 +449,195 @@ func NewPaginationMeta(total int64, limit, offset, count int) PaginationMeta {
 		meta.NextOffset = &next
 	}
 	return meta
+}
+
+// DecodePatchClassParentFromRequest:
+//   - multipart/form-data:
+//     a) kalau ada field "payload" -> unmarshal JSON ke tri-state,
+//     b) kalau tidak ada -> baca form key-value satu per satu (tri-state).
+//   - application/json -> BodyParser biasa (pakai UnmarshalJSON patch fields).
+//
+// Setelah parse -> Normalize().
+func DecodePatchClassParentFromRequest(c *fiber.Ctx, out *ClassParentPatchRequest) error {
+	ct := strings.ToLower(c.Get(fiber.HeaderContentType))
+	if strings.Contains(ct, "multipart/form-data") {
+		if s := strings.TrimSpace(c.FormValue("payload")); s != "" {
+			if err := json.Unmarshal([]byte(s), out); err != nil {
+				return err
+			}
+		} else {
+			if err := decodePatchClassParentMultipart(c, out); err != nil {
+				return err
+			}
+		}
+	} else {
+		if err := c.BodyParser(out); err != nil {
+			return err
+		}
+	}
+	out.Normalize()
+	return nil
+}
+
+func decodePatchClassParentMultipart(c *fiber.Ctx, r *ClassParentPatchRequest) error {
+	form, err := c.MultipartForm()
+	if err != nil || form == nil {
+		return fiber.NewError(fiber.StatusBadRequest, "form-data tidak ditemukan")
+	}
+
+	get := func(k string) (string, bool) {
+		if vs, ok := form.Value[k]; ok {
+			if len(vs) == 0 {
+				return "", true
+			}
+			return vs[0], true
+		}
+		return "", false
+	}
+
+	setStr := func(f *PatchFieldClassParent[string], key string) {
+		if v, ok := get(key); ok {
+			f.Present = true
+			v = strings.TrimSpace(v)
+			f.Value = &v
+		}
+	}
+	setStrPtr := func(f *PatchFieldClassParent[*string], key string, lower bool) {
+		if v, ok := get(key); ok {
+			f.Present = true
+			v = strings.TrimSpace(v)
+			if v == "" {
+				f.Value = nil
+			} else {
+				if lower {
+					v = strings.ToLower(v)
+				}
+				ptr := &v      // ✅ pointer ke string
+				f.Value = &ptr // ✅ pointer ke *string
+			}
+		}
+	}
+
+	setInt16Ptr := func(f *PatchFieldClassParent[*int16], key string) error {
+		if v, ok := get(key); ok {
+			f.Present = true
+			if strings.TrimSpace(v) == "" {
+				f.Value = nil
+				return nil
+			}
+			x, e := strconv.ParseInt(strings.TrimSpace(v), 10, 16)
+			if e != nil {
+				return fiber.NewError(fiber.StatusBadRequest, key+" harus int16")
+			}
+			tmp := int16(x)
+			pp := new(*int16)
+			*pp = &tmp
+			f.Value = pp
+		}
+		return nil
+	}
+	setBoolPtr := func(f *PatchFieldClassParent[*bool], key string) error {
+		if v, ok := get(key); ok {
+			f.Present = true
+			if strings.TrimSpace(v) == "" {
+				f.Value = nil
+				return nil
+			}
+			x, e := strconv.ParseBool(strings.TrimSpace(v))
+			if e != nil {
+				return fiber.NewError(fiber.StatusBadRequest, key+" harus boolean")
+			}
+			pp := new(*bool)
+			*pp = &x
+			f.Value = pp
+		}
+		return nil
+	}
+	setInt32Ptr := func(f *PatchFieldClassParent[*int32], key string) error {
+		if v, ok := get(key); ok {
+			f.Present = true
+			if strings.TrimSpace(v) == "" {
+				f.Value = nil
+				return nil
+			}
+			x, e := strconv.ParseInt(strings.TrimSpace(v), 10, 32)
+			if e != nil {
+				return fiber.NewError(fiber.StatusBadRequest, key+" harus int32")
+			}
+			tmp := int32(x)
+			pp := new(*int32)
+			*pp = &tmp
+			f.Value = pp
+		}
+		return nil
+	}
+	setTimePtr := func(f *PatchFieldClassParent[*time.Time], key string) error {
+		if v, ok := get(key); ok {
+			f.Present = true
+			s := strings.TrimSpace(v)
+			if s == "" {
+				f.Value = nil
+				return nil
+			}
+			// izinkan RFC3339 atau YYYY-MM-DD
+			var t time.Time
+			var e error
+			if t, e = time.Parse(time.RFC3339, s); e != nil {
+				if t, e = time.Parse("2006-01-02", s); e != nil {
+					return fiber.NewError(fiber.StatusBadRequest, key+" format invalid (pakai RFC3339 atau YYYY-MM-DD)")
+				}
+			}
+			pp := new(*time.Time)
+			*pp = &t
+			f.Value = pp
+		}
+		return nil
+	}
+	setJSONMapFlexible := func(f *PatchFieldClassParent[JSONMapFlexible], key string) error {
+		if v, ok := get(key); ok {
+			f.Present = true
+			s := strings.TrimSpace(v)
+			if s == "" {
+				empty := JSONMapFlexible(datatypes.JSONMap{})
+				f.Value = &empty
+				return nil
+			}
+			tmp := datatypes.JSONMap{}
+			if err := json.Unmarshal([]byte(s), &tmp); err != nil {
+				return fiber.NewError(fiber.StatusBadRequest, key+" harus JSON object yang valid: "+err.Error())
+			}
+			val := JSONMapFlexible(tmp)
+			f.Value = &val
+		}
+		return nil
+	}
+
+	// map semua field patch
+	setStr(&r.ClassParentName, "class_parent_name")
+	if err := setInt16Ptr(&r.ClassParentLevel, "class_parent_level"); err != nil {
+		return err
+	}
+	if err := setBoolPtr(&r.ClassParentIsActive, "class_parent_is_active"); err != nil {
+		return err
+	}
+	if err := setInt32Ptr(&r.ClassParentTotalClasses, "class_parent_total_classes"); err != nil {
+		return err
+	}
+
+	setStrPtr(&r.ClassParentCode, "class_parent_code", false)
+	setStrPtr(&r.ClassParentSlug, "class_parent_slug", true)
+	setStrPtr(&r.ClassParentDescription, "class_parent_description", false)
+	if err := setJSONMapFlexible(&r.ClassParentRequirements, "class_parent_requirements"); err != nil {
+		return err
+	}
+
+	setStrPtr(&r.ClassParentImageURL, "class_parent_image_url", false)
+	setStrPtr(&r.ClassParentImageObjectKey, "class_parent_image_object_key", false)
+	setStrPtr(&r.ClassParentImageURLOld, "class_parent_image_url_old", false)
+	setStrPtr(&r.ClassParentImageObjectKeyOld, "class_parent_image_object_key_old", false)
+	if err := setTimePtr(&r.ClassParentImageDeletePendingUntil, "class_parent_image_delete_pending_until"); err != nil {
+		return err
+	}
+
+	return nil
 }

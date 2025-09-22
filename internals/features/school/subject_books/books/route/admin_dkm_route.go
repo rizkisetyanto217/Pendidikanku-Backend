@@ -13,9 +13,9 @@ import (
 // Panggil: route.ClassBooksAdminRoutes(app.Group("/api/a"), db)
 // Endpoint hasil:
 //
-//	/api/a/:masjid-id/books
-//	/api/a/:masjid-id/class-subject-books
-//	/api/a/:masjid-id/book-urls
+//	/api/a/:masjid_id/books
+//	/api/a/:masjid_id/class-subject-books
+//	/api/a/:masjid_id/book-urls
 func ClassBooksAdminRoutes(r fiber.Router, db *gorm.DB) {
 	booksCtl := &cbController.BooksController{DB: db}
 	csbCtl := &cbController.ClassSubjectBookController{DB: db}
@@ -31,19 +31,19 @@ func ClassBooksAdminRoutes(r fiber.Router, db *gorm.DB) {
 		constants.AdminAndAbove,
 	)
 
-	// ► Param pakai dash: :masjid-id
+	// ► Param pakai dash: :masjid_id
 	g := r.Group("/:masjid_id", adminGuard)
 
 	// Books
 	books := g.Group("/books")
 	books.Post("/", booksCtl.Create)
-	books.Put("/:id", booksCtl.Patch)
+	books.Patch("/:id", booksCtl.Patch)
 	books.Delete("/:id", booksCtl.Delete)
 
 	// Class-Subject-Books
 	csb := g.Group("/class-subject-books")
 	csb.Post("/", csbCtl.Create)
-	csb.Put("/:id", csbCtl.Update)
+	csb.Patch("/:id", csbCtl.Update)
 	csb.Delete("/:id", csbCtl.Delete)
 
 	// Book URLs

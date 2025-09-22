@@ -1,5 +1,5 @@
 -- =========================================================
--- UP Migration — TABEL YAYASANS (FOUNDATION) CLEAN (v2)
+-- TABEL YAYASANS (FOUNDATION) CLEAN (v2)
 -- =========================================================
 
 -- ===== Prasyarat: extensions =====

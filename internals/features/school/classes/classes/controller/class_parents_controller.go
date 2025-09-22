@@ -4,6 +4,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type ClassParentController struct {
@@ -179,81 +181,74 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 	})
 }
 
-/*
-=========================================================
-
-	PATCH (staff only) — handle slug on patch + optional upload
-	=========================================================
-*/
+// PATCH /api/a/:masjid_id/class-parents/:id
 func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
-	idStr := strings.TrimSpace(c.Params("id"))
-	id, err := uuid.Parse(idStr)
+	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "id tidak valid")
 	}
 
-	// Ambil record lama
+	// TX + row lock untuk konsistensi slug & uniqueness
+	tx := ctl.DB.WithContext(c.Context()).Begin()
+	if tx.Error != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, tx.Error.Error())
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			_ = tx.Rollback()
+			panic(r)
+		}
+	}()
+
 	var ent cpmodel.ClassParentModel
-	if err := ctl.DB.WithContext(c.Context()).
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("class_parent_id = ? AND class_parent_deleted_at IS NULL", id).
 		First(&ent).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+
+		_ = tx.Rollback()
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// Guard staff pada masjid terkait
+	// Guard staff
 	if err := helperAuth.EnsureStaffMasjid(c, ent.ClassParentMasjidID); err != nil {
+		_ = tx.Rollback()
 		return err
 	}
 
-	// Parse payload
+	// ===== Parse payload (JSON / multipart) → tri-state
 	var p cpdto.ClassParentPatchRequest
-	if err := c.BodyParser(&p); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
-	}
-	p.Normalize()
-
-	if !p.ClassParentRequirements.Present {
-		raw := strings.TrimSpace(c.FormValue("class_parent_requirements"))
-		if raw != "" {
-			var tmp datatypes.JSONMap
-			if err := json.Unmarshal([]byte(raw), &tmp); err != nil {
-				return helper.JsonError(
-					c,
-					fiber.StatusBadRequest,
-					"class_parent_requirements harus JSON object yang valid: "+err.Error(),
-				)
-			}
-			flex := cpdto.JSONMapFlexible(tmp)
-			p.ClassParentRequirements.Present = true
-			p.ClassParentRequirements.Value = &flex
-		}
+	if err := cpdto.DecodePatchClassParentFromRequest(c, &p); err != nil {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// ===== Uniqueness: code (jika diubah) =====
+	// ===== Uniqueness: code (jika diubah & non-empty)
 	if p.ClassParentCode.Present && p.ClassParentCode.Value != nil {
 		if v := strings.TrimSpace(**p.ClassParentCode.Value); v != "" {
 			var cnt int64
-			if err := ctl.DB.Model(&cpmodel.ClassParentModel{}).
+			if err := tx.Model(&cpmodel.ClassParentModel{}).
 				Where(
 					"class_parent_masjid_id = ? AND class_parent_code = ? AND class_parent_id <> ? AND class_parent_deleted_at IS NULL",
 					ent.ClassParentMasjidID, v, ent.ClassParentID,
-				).
-				Count(&cnt).Error; err != nil {
+				).Count(&cnt).Error; err != nil {
+
+				_ = tx.Rollback()
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek kode")
 			}
 			if cnt > 0 {
+				_ = tx.Rollback()
 				return helper.JsonError(c, fiber.StatusConflict, "Kode sudah digunakan")
 			}
 		}
 	}
 
-	// Terapkan patch ke entity (agar dapat nilai final)
+	// Terapkan patch ke entity
 	p.Apply(&ent)
 
-	// ===== Slug handling =====
+	// ===== Slug handling
 	if p.ClassParentSlug.Present {
 		if p.ClassParentSlug.Value != nil {
 			base := helper.Slugify(strings.TrimSpace(**p.ClassParentSlug.Value), 100)
@@ -261,10 +256,8 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 				base = helper.SuggestSlugFromName(ent.ClassParentName)
 			}
 			uniq, err := helper.EnsureUniqueSlugCI(
-				c.Context(),
-				ctl.DB,
-				"class_parents",
-				"class_parent_slug",
+				c.Context(), tx,
+				"class_parents", "class_parent_slug",
 				base,
 				func(q *gorm.DB) *gorm.DB {
 					return q.Where(
@@ -275,53 +268,49 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 				100,
 			)
 			if err != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
-			}
-			slug := uniq
-			ent.ClassParentSlug = &slug
-		}
-	} else {
-		// Slug tidak dipatch, tetapi nama diubah → regen slug
-		if p.ClassParentName.Present && ent.ClassParentName != "" {
-			base := helper.Slugify(ent.ClassParentName, 100)
-			if base == "" {
-				base = "item"
-			}
-			uniq, err := helper.EnsureUniqueSlugCI(
-				c.Context(),
-				ctl.DB,
-				"class_parents",
-				"class_parent_slug",
-				base,
-				func(q *gorm.DB) *gorm.DB {
-					return q.Where(
-						"class_parent_masjid_id = ? AND class_parent_id <> ? AND class_parent_deleted_at IS NULL",
-						ent.ClassParentMasjidID, ent.ClassParentID,
-					)
-				},
-				100,
-			)
-			if err != nil {
+				_ = tx.Rollback()
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 			}
 			ent.ClassParentSlug = &uniq
 		}
+	} else if p.ClassParentName.Present && ent.ClassParentName != "" {
+		// regen bila nama berubah namun slug tidak dipatch
+		base := helper.Slugify(ent.ClassParentName, 100)
+		if base == "" {
+			base = "item"
+		}
+		uniq, err := helper.EnsureUniqueSlugCI(
+			c.Context(), tx,
+			"class_parents", "class_parent_slug",
+			base,
+			func(q *gorm.DB) *gorm.DB {
+				return q.Where(
+					"class_parent_masjid_id = ? AND class_parent_id <> ? AND class_parent_deleted_at IS NULL",
+					ent.ClassParentMasjidID, ent.ClassParentID,
+				)
+			},
+			100,
+		)
+		if err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
+		}
+		ent.ClassParentSlug = &uniq
 	}
 
-	// Simpan patch ke DB
-	if err := ctl.DB.WithContext(c.Context()).
-		Model(&cpmodel.ClassParentModel{}).
+	// Simpan perubahan utama
+	if err := tx.Model(&cpmodel.ClassParentModel{}).
 		Where("class_parent_id = ?", ent.ClassParentID).
 		Updates(&ent).Error; err != nil {
+		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan")
 	}
 
-	// ===== Optional: upload gambar jika ada file =====
+	// ===== Optional: upload image (image|file)
 	uploadedURL := ""
 	movedOld := ""
 
 	if fh := pickImageFile(c, "image", "file"); fh != nil {
-		// upload ke folder yang benar (hindari "classesclass-parents")
 		svc, er := helperOSS.NewOSSServiceFromEnv("")
 		if er == nil {
 			ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
@@ -331,7 +320,6 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 			if url, upErr := svc.UploadAsWebP(ctx, fh, keyPrefix); upErr == nil {
 				uploadedURL = url
 
-				// object key baru
 				newObjKey := ""
 				if k, e := helperOSS.ExtractKeyFromPublicURL(uploadedURL); e == nil {
 					newObjKey = k
@@ -339,7 +327,6 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 					newObjKey = k2
 				}
 
-				// ambil lama dari ent (bukan dari form), lalu pindahkan ke spam
 				oldURL := ""
 				if ent.ClassParentImageURL != nil {
 					oldURL = *ent.ClassParentImageURL
@@ -354,25 +341,17 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 					if mv, mvErr := helperOSS.MoveToSpamByPublicURLENV(oldURL, 0); mvErr == nil {
 						movedURL = mv
 						movedOld = mv
-						// sesuaikan oldObjKey sesuai lokasi baru
 						if k, e := helperOSS.ExtractKeyFromPublicURL(movedURL); e == nil {
 							oldObjKey = k
 						} else if k2, e2 := helperOSS.KeyFromPublicURL(movedURL); e2 == nil {
 							oldObjKey = k2
 						}
-					} else {
-						// gagal pindah → tetap catat yg lama
-						movedURL = oldURL
-						movedOld = ""
 					}
 				}
 
-				// delete pending default 30 hari
 				deletePendingUntil := time.Now().Add(30 * 24 * time.Hour)
 
-				// update kolom image di DB
-				_ = ctl.DB.WithContext(c.Context()).
-					Model(&cpmodel.ClassParentModel{}).
+				_ = tx.Model(&cpmodel.ClassParentModel{}).
 					Where("class_parent_id = ?", ent.ClassParentID).
 					Updates(map[string]any{
 						"class_parent_image_url":        uploadedURL,
@@ -392,7 +371,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 						"class_parent_image_delete_pending_until": deletePendingUntil,
 					}).Error
 
-				// sinkronkan ent untuk response
+				// sinkron utk response
 				ent.ClassParentImageURL = &uploadedURL
 				if newObjKey != "" {
 					ent.ClassParentImageObjectKey = &newObjKey
@@ -412,9 +391,9 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		}
 	}
 
-	// Reload (best effort)
-	_ = ctl.DB.WithContext(c.Context()).
-		First(&ent, "class_parent_id = ?", ent.ClassParentID).Error
+	if err := tx.Commit().Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
 
 	return helper.JsonOK(c, "Berhasil memperbarui parent kelas", fiber.Map{
 		"class_parent":        cpdto.FromModelClassParent(&ent),

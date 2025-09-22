@@ -21,6 +21,6 @@ func AllEventRoutes(api fiber.Router, db *gorm.DB) {
 	sessions := api.Group("/event-sessions")
 	sessions.Get("/", sessionCtrl.GetAllEventSessions)
 	// upcoming publik (opsional filter masjid_id di path)
-	// contoh: /event-sessions/upcoming/masjid-id/<uuid>, atau kosongkan masjid_id untuk semua masjid publik
-	sessions.Get("/upcoming/masjid-id/:masjid_id", sessionCtrl.GetUpcomingEventSessions)
+	// contoh: /event-sessions/upcoming/masjid_id/<uuid>, atau kosongkan masjid_id untuk semua masjid publik
+	sessions.Get("/upcoming/masjid_id/:masjid_id", sessionCtrl.GetUpcomingEventSessions)
 }

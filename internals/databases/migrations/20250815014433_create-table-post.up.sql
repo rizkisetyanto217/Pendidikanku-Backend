@@ -219,6 +219,8 @@ CREATE INDEX IF NOT EXISTS ix_post_section_ids_gin_live
   ON post USING GIN (post_section_ids)
   WHERE post_deleted_at IS NULL AND post_is_active = TRUE AND post_kind = 'announcement';
 
+
+
 -- =====================================================================
 -- TABLE: post_url  (lampiran/link untuk semua jenis post)
 -- =====================================================================

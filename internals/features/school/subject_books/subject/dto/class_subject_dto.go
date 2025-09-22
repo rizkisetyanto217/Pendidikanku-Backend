@@ -69,10 +69,6 @@ type CreateClassSubjectRequest struct {
 	WeightFinal          *int `json:"class_subjects_weight_final"            validate:"omitempty,min=0,max=100"`
 	MinAttendancePercent *int `json:"class_subjects_min_attendance_percent"  validate:"omitempty,min=0,max=100"`
 
-	// image (sisi service boleh isi salah satu: url atau object_key)
-	ImageURL       *string `json:"class_subjects_image_url"        validate:"omitempty,max=2000"`
-	ImageObjectKey *string `json:"class_subjects_image_object_key" validate:"omitempty,max=1024"`
-
 	IsActive *bool `json:"class_subjects_is_active" validate:"omitempty"`
 }
 
@@ -98,10 +94,6 @@ type UpdateClassSubjectRequest struct {
 	WeightMid            *int `json:"class_subjects_weight_mid"              validate:"omitempty,min=0,max=100"`
 	WeightFinal          *int `json:"class_subjects_weight_final"            validate:"omitempty,min=0,max=100"`
 	MinAttendancePercent *int `json:"class_subjects_min_attendance_percent"  validate:"omitempty,min=0,max=100"`
-
-	// image
-	ImageURL       *string `json:"class_subjects_image_url"        validate:"omitempty,max=2000"`
-	ImageObjectKey *string `json:"class_subjects_image_object_key" validate:"omitempty,max=1024"`
 
 	IsActive *bool `json:"class_subjects_is_active" validate:"omitempty"`
 }
@@ -143,13 +135,6 @@ type ClassSubjectResponse struct {
 	WeightMid            *int `json:"class_subjects_weight_mid,omitempty"`
 	WeightFinal          *int `json:"class_subjects_weight_final,omitempty"`
 	MinAttendancePercent *int `json:"class_subjects_min_attendance_percent,omitempty"`
-
-	// image (termasuk slot lama & retensi untuk admin)
-	ImageURL                *string    `json:"class_subjects_image_url,omitempty"`
-	ImageObjectKey          *string    `json:"class_subjects_image_object_key,omitempty"`
-	ImageURLOld             *string    `json:"class_subjects_image_url_old,omitempty"`
-	ImageObjectKeyOld       *string    `json:"class_subjects_image_object_key_old,omitempty"`
-	ImageDeletePendingUntil *time.Time `json:"class_subjects_image_delete_pending_until,omitempty"`
 
 	// status & timestamps
 	IsActive  bool       `json:"class_subjects_is_active"`
@@ -206,10 +191,6 @@ func (r CreateClassSubjectRequest) ToModel() csModel.ClassSubjectModel {
 		ClassSubjectsWeightFinal:      toInt16Ptr(r.WeightFinal),
 		ClassSubjectsMinAttendancePct: toInt16Ptr(r.MinAttendancePercent),
 
-		// image
-		ClassSubjectsImageURL:       trimPtr(r.ImageURL),
-		ClassSubjectsImageObjectKey: trimPtr(r.ImageObjectKey),
-
 		// status
 		ClassSubjectsIsActive: isActive,
 	}
@@ -249,12 +230,6 @@ func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
 		WeightMid:            fromInt16Ptr(m.ClassSubjectsWeightMid),
 		WeightFinal:          fromInt16Ptr(m.ClassSubjectsWeightFinal),
 		MinAttendancePercent: fromInt16Ptr(m.ClassSubjectsMinAttendancePct),
-
-		ImageURL:                m.ClassSubjectsImageURL,
-		ImageObjectKey:          m.ClassSubjectsImageObjectKey,
-		ImageURLOld:             m.ClassSubjectsImageURLOld,
-		ImageObjectKeyOld:       m.ClassSubjectsImageObjectKeyOld,
-		ImageDeletePendingUntil: m.ClassSubjectsImageDeletePendingUntil,
 
 		IsActive:  m.ClassSubjectsIsActive,
 		CreatedAt: m.ClassSubjectsCreatedAt,
@@ -319,14 +294,6 @@ func (r UpdateClassSubjectRequest) Apply(m *csModel.ClassSubjectModel) {
 	}
 	if r.MinAttendancePercent != nil {
 		m.ClassSubjectsMinAttendancePct = toInt16Ptr(r.MinAttendancePercent)
-	}
-
-	// image
-	if r.ImageURL != nil {
-		m.ClassSubjectsImageURL = trimPtr(r.ImageURL)
-	}
-	if r.ImageObjectKey != nil {
-		m.ClassSubjectsImageObjectKey = trimPtr(r.ImageObjectKey)
 	}
 
 	if r.IsActive != nil {

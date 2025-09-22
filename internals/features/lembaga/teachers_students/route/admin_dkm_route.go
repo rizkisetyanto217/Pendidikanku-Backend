@@ -13,24 +13,24 @@ import (
 
 func MasjidAdminRoutes(api fiber.Router, db *gorm.DB) {
 	// ===== CONTROLLERS =====
-	ctrlTeacher := adminTeacherCtrl.NewMasjidTeacherController(db) // teacher (lama)
+	ctrlTeacher := adminTeacherCtrl.NewMasjidTeacherController(db) // teacher (baru refactor)
 	v := validator.New()
-	ctrlStudent := adminTeacherCtrl.New(db, v) // student (baru) – butuh validator
+	ctrlStudent := adminTeacherCtrl.New(db, v) // student controller
 
-	// 🎓 /masjid-teachers → DKM + Admin + Owner
-	masjidTeachers := api.Group("/masjid-teachers",
+	// 🎓 /:masjid_id/masjid-teachers → DKM + Admin + Owner
+	masjidTeachers := api.Group("/:masjid_id/masjid-teachers",
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola guru masjid"),
 			constants.AdminAndAbove, // admin, dkm, owner
 		),
-		masjidkuMiddleware.IsMasjidAdmin(), // scoping masjid_id dari token
+		masjidkuMiddleware.IsMasjidAdmin(),
 	)
-	masjidTeachers.Get("/list", ctrlTeacher.List)
 	masjidTeachers.Post("/", ctrlTeacher.Create)
+	masjidTeachers.Patch("/:id", ctrlTeacher.Update) // 🔥 tambahin update sesuai controller baru
 	masjidTeachers.Delete("/:id", ctrlTeacher.Delete)
 
-	// 🧑‍🎓 /masjid-students → DKM + Admin + Owner
-	masjidStudents := api.Group("/masjid-students",
+	// 🧑‍🎓 /:masjid_id/masjid-students → DKM + Admin + Owner
+	masjidStudents := api.Group("/:masjid_id/masjid-students",
 		authMiddleware.OnlyRolesSlice(
 			constants.RoleErrorAdmin("mengelola siswa/jamaah masjid"),
 			constants.AdminAndAbove,

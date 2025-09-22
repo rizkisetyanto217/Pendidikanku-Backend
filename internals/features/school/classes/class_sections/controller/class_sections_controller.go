@@ -226,7 +226,6 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		}
 	}
 
-
 	// ---- Update lembaga_stats bila active ----
 	if m.ClassSectionsIsActive {
 		log.Printf("[SECTIONS][CREATE] 📊 updating lembaga_stats (active +1)")
@@ -254,16 +253,19 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 
 // PATCH /admin/class-sections/:id   (PATCH semantics)
 func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
+	// ---- Parse section ID ----
 	sectionID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
+	// ---- Decode request (support JSON & multipart) ----
 	var req ucsDTO.ClassSectionPatchRequest
-	if err := c.BodyParser(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
+	if err := ucsDTO.DecodePatchClassSectionFromRequest(c, &req); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
+	// ---- Begin TX ----
 	tx := ctrl.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, tx.Error.Error())
@@ -275,6 +277,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 	}()
 
+	// ---- Ambil data existing (lock) ----
 	var existing secModel.ClassSectionModel
 	if err := tx.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -287,16 +290,15 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// ---- Guard staff pada masjid terkait (pola ClassParent) ----
+	// ---- Guard staff masjid ----
 	if err := helperAuth.EnsureStaffMasjid(c, existing.ClassSectionsMasjidID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
 
-	// ---- Normalisasi req ringan ----
+	// ---- Sanity check ringan ----
 	if req.ClassSectionsName.Present && req.ClassSectionsName.Value != nil {
-		name := strings.TrimSpace(*req.ClassSectionsName.Value)
-		if name == "" {
+		if strings.TrimSpace(*req.ClassSectionsName.Value) == "" {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusBadRequest, "Nama section wajib diisi")
 		}
@@ -348,12 +350,11 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 	}
 
-	// ---- SLUG handling (pola ClassParent) ----
-	// Jika slug dipatch → generate & unique
+	// ---- Slug handling (pola ClassParent) ----
 	if req.ClassSectionsSlug.Present && req.ClassSectionsSlug.Value != nil {
+		// jika slug dipatch
 		base := helper.Slugify(strings.TrimSpace(*req.ClassSectionsSlug.Value), 160)
 		if base == "" {
-			// kalau kosong, coba dari name (final)
 			n := existing.ClassSectionsName
 			if req.ClassSectionsName.Present && req.ClassSectionsName.Value != nil {
 				n = strings.TrimSpace(*req.ClassSectionsName.Value)
@@ -379,10 +380,9 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 		}
-		// set ke request agar Apply() ikut menulis
 		req.ClassSectionsSlug.Value = &uniq
 	} else if req.ClassSectionsName.Present && req.ClassSectionsName.Value != nil {
-		// Slug tidak dipatch, tapi NAME berubah → regen dari NAME
+		// slug tidak dipatch, tapi name berubah
 		base := helper.Slugify(strings.TrimSpace(*req.ClassSectionsName.Value), 160)
 		if base == "" {
 			base = "section"
@@ -414,20 +414,18 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		newActive = *req.ClassSectionsIsActive.Value
 	}
 
-	// ---- Apply & save ----
-	req.Normalize()
+	// ---- Apply perubahan ----
 	req.Apply(&existing)
 	if err := tx.Save(&existing).Error; err != nil {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui section")
 	}
 
-	// ---- Optional upload image (mirip ClassParent Patch; best-effort) ----
+	// ---- Upload image (opsional, multipart) ----
 	uploadedURL := ""
 	if fh := pickImageFile(c, "image", "file"); fh != nil {
 		log.Printf("[SECTIONS][PATCH] 📤 uploading image filename=%s size=%d", fh.Filename, fh.Size)
-		url, upErr := helperOSS.UploadImageToOSSScoped(existing.ClassSectionsMasjidID, "classes/sections", fh)
-		if upErr == nil && strings.TrimSpace(url) != "" {
+		if url, upErr := helperOSS.UploadImageToOSSScoped(existing.ClassSectionsMasjidID, "classes/sections", fh); upErr == nil && strings.TrimSpace(url) != "" {
 			uploadedURL = url
 
 			newObjKey := ""
@@ -437,7 +435,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 				newObjKey = k2
 			}
 
-			// Ambil lama dari DB (best-effort)
+			// ambil lama
 			var oldURL, oldObjKey string
 			{
 				type row struct {
@@ -453,12 +451,11 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 				oldObjKey = strings.TrimSpace(r.Key)
 			}
 
-			// Pindah lama ke spam (jika ada)
+			// move lama ke spam
 			movedURL := ""
 			if oldURL != "" {
 				if mv, mvErr := helperOSS.MoveToSpamByPublicURLENV(oldURL, 0); mvErr == nil {
 					movedURL = mv
-					// sinkronkan key lama
 					if k, e := helperOSS.ExtractKeyFromPublicURL(movedURL); e == nil {
 						oldObjKey = k
 					} else if k2, e2 := helperOSS.KeyFromPublicURL(movedURL); e2 == nil {
@@ -468,20 +465,29 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 			}
 
 			deletePendingUntil := time.Now().Add(30 * 24 * time.Hour)
-
 			_ = tx.Table("class_sections").
 				Where("class_sections_id = ?", existing.ClassSectionsID).
 				Updates(map[string]any{
-					"class_sections_image_url":                  uploadedURL,
-					"class_sections_image_object_key":           newObjKey,
-					"class_sections_image_url_old":              func() any { if movedURL == "" { return gorm.Expr("NULL") }; return movedURL }(),
-					"class_sections_image_object_key_old":       func() any { if oldObjKey == "" { return gorm.Expr("NULL") }; return oldObjKey }(),
+					"class_sections_image_url":        uploadedURL,
+					"class_sections_image_object_key": newObjKey,
+					"class_sections_image_url_old": func() any {
+						if movedURL == "" {
+							return gorm.Expr("NULL")
+						}
+						return movedURL
+					}(),
+					"class_sections_image_object_key_old": func() any {
+						if oldObjKey == "" {
+							return gorm.Expr("NULL")
+						}
+						return oldObjKey
+					}(),
 					"class_sections_image_delete_pending_until": deletePendingUntil,
 				}).Error
 		}
 	}
 
-	// ---- Update stats jika status aktif berubah ----
+	// ---- Update stats kalau status aktif berubah ----
 	if wasActive != newActive {
 		stats := semstats.NewLembagaStatsService()
 		if err := stats.EnsureForMasjid(tx, existing.ClassSectionsMasjidID); err != nil {
@@ -498,10 +504,21 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 	}
 
+	// ---- Commit dulu ----
 	if err := tx.Commit().Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return helper.JsonUpdated(c, "Section berhasil diperbarui", ucsDTO.FromModelClassSection(&existing))
+
+	// ---- Re-fetch terbaru untuk response ----
+	var updated secModel.ClassSectionModel
+	if err := ctrl.DB.WithContext(c.Context()).
+		Where("class_sections_id = ?", sectionID).
+		First(&updated).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data terbaru")
+	}
+
+	return helper.JsonUpdated(c, "Section berhasil diperbarui", ucsDTO.FromModelClassSection(&updated))
+
 }
 
 // DELETE /admin/class-sections/:id (soft delete)

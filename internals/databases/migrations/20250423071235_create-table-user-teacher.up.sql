@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- trigram (untuk index opsional di bawah)
 
 -- =========================================
--- CREATE: user_teachers (fresh)
+-- TABLE user_teachers (fresh)
 -- =========================================
 CREATE TABLE IF NOT EXISTS user_teachers (
   user_teacher_id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),

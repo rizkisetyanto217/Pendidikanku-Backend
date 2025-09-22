@@ -122,6 +122,8 @@ CREATE INDEX IF NOT EXISTS brin_uc_created_at
 CREATE INDEX IF NOT EXISTS brin_uc_updated_at
   ON user_classes USING BRIN (user_classes_updated_at);
 
+
+
 -- =========================================================
 -- TABEL: user_class_sections (histori penempatan section)
 -- =========================================================

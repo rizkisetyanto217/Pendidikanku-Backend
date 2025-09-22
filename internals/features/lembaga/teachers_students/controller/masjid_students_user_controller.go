@@ -7,21 +7,39 @@ import (
 	"time"
 
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
 
 // GET /api/a/masjid-students
-// Query: page|per_page|limit, search, status_in (multi), masjid_id, user_id, created_ge, created_le, sort_by, sort(order)
-// GET /api/a/masjid-students
-// Query: page|per_page|limit, search, status_in (multi), masjid_id, user_id, id,
-//        created_ge, created_le, sort_by, sort(order), include=user
+// Query: page|per_page|limit, search, status_in (multi), user_id, id,
+//
+//	created_ge, created_le, sort_by, sort(order), include=user
 func (h *MasjidStudentController) List(c *fiber.Ctx) error {
-	// Pagination & Sorting via helper
+	// Pastikan DB ada di Locals untuk helper resolver slug→id
+	if c.Locals("DB") == nil {
+		c.Locals("DB", h.DB)
+	}
+
+	// =========================================
+	// 1) Resolve & Enforce Masjid Context (DKM)
+	// =========================================
+	mc, err := helperAuth.ResolveMasjidContext(c)
+	if err != nil {
+		return err // sudah berupa fiber.Error yang rapi
+	}
+	enforcedMasjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
+		return err // 403 jika bukan DKM/member check sesuai helper
+	}
+
+	// =========================================
+	// 2) Pagination & Sorting (whitelist)
+	// =========================================
 	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
 
-	// Whitelist sort key -> kolom DB
 	allowedSort := map[string]string{
 		"created_at": "masjid_student_created_at",
 		"updated_at": "masjid_student_updated_at",
@@ -34,28 +52,21 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 	}
 	orderClause = strings.TrimPrefix(orderClause, "ORDER BY ")
 
-	// Filters
+	// =========================================
+	// 3) Filters (tanpa masjid_id dari query — di-enforce dari context)
+	// =========================================
 	search := strings.TrimSpace(c.Query("search"))
 	var (
-		masjidIDStr = strings.TrimSpace(c.Query("masjid_id"))
-		userIDStr   = strings.TrimSpace(c.Query("user_id"))
-		idStr       = strings.TrimSpace(c.Query("id")) // NEW: filter by masjid_student_id
-		createdGe   = strings.TrimSpace(c.Query("created_ge"))
-		createdLe   = strings.TrimSpace(c.Query("created_le"))
+		userIDStr = strings.TrimSpace(c.Query("user_id"))
+		idStr     = strings.TrimSpace(c.Query("id"))
+		createdGe = strings.TrimSpace(c.Query("created_ge"))
+		createdLe = strings.TrimSpace(c.Query("created_le"))
 	)
 
 	var (
-		masjidID uuid.UUID
-		userID   uuid.UUID
-		rowID    uuid.UUID
+		userID uuid.UUID
+		rowID  uuid.UUID
 	)
-	if masjidIDStr != "" {
-		if v, err := uuid.Parse(masjidIDStr); err == nil {
-			masjidID = v
-		} else {
-			return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id invalid")
-		}
-	}
 	if userIDStr != "" {
 		if v, err := uuid.Parse(userIDStr); err == nil {
 			userID = v
@@ -71,7 +82,7 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// status_in (multi value safe di Fiber v2 + fallback)
+	// status_in (multi)
 	statusIn := getMultiQuery(c, "status_in")
 	normStatus := make([]string, 0, len(statusIn))
 	for _, s := range statusIn {
@@ -86,18 +97,11 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 
 	q := h.DB.Model(&model.MasjidStudentModel{})
 
-	// (Opsional) Enforce MasjidContext dari Locals
-	// if v := c.Locals("masjid_id"); v != nil {
-	// 	if ctxMasjidID, ok := v.(uuid.UUID); ok && ctxMasjidID != uuid.Nil {
-	// 		q = q.Where("masjid_student_masjid_id = ?", ctxMasjidID)
-	// 	}
-	// }
+	// Enforce tenant dari context (anti cross-tenant injection)
+	q = q.Where("masjid_student_masjid_id = ?", enforcedMasjidID)
 
 	if rowID != uuid.Nil {
 		q = q.Where("masjid_student_id = ?", rowID)
-	}
-	if masjidID != uuid.Nil {
-		q = q.Where("masjid_student_masjid_id = ?", masjidID)
 	}
 	if userID != uuid.Nil {
 		q = q.Where("masjid_student_user_id = ?", userID)
@@ -123,7 +127,7 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// search in code or note (case-insensitive)  ← fixed COALESCE typo
+	// Search di code/note (case-insensitive)
 	if search != "" {
 		like := "%" + strings.ToLower(search) + "%"
 		q = q.Where(`
@@ -132,21 +136,22 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 		`, like, like)
 	}
 
-	// count total
+	// =========================================
+	// 4) Count + Fetch
+	// =========================================
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// data
 	var rows []model.MasjidStudentModel
 	if err := q.Order(orderClause).Offset(p.Offset()).Limit(p.Limit()).Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// =========================
-	// include=user (bulk fetch users, no N+1)
-	// =========================
+	// =========================================
+	// 5) include=user (bulk fetch; no N+1)
+	// =========================================
 	include := strings.ToLower(strings.TrimSpace(c.Query("include")))
 	wantUser := false
 	if include != "" {
@@ -158,19 +163,16 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// Response dasar
 	baseResp := make([]dto.MasjidStudentResp, 0, len(rows))
 	for i := range rows {
 		baseResp = append(baseResp, dto.FromModel(&rows[i]))
 	}
 
-	// Kalau tidak minta user → return biasa
 	if !wantUser {
 		meta := helper.BuildMeta(total, p)
 		return helper.JsonList(c, baseResp, meta)
 	}
 
-	// Siapkan struktur response dengan user
 	type UserLite struct {
 		ID       uuid.UUID `json:"id"`
 		UserName string    `json:"user_name"`
@@ -183,7 +185,7 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 		User                  *UserLite `json:"user,omitempty"`
 	}
 
-	// Kumpulkan user_ids unik dari rows (field model: MasjidStudentUserID)
+	// Kumpulkan user_ids unik
 	userIDsSet := make(map[uuid.UUID]struct{}, len(rows))
 	for i := range rows {
 		if rows[i].MasjidStudentUserID != uuid.Nil {
@@ -196,7 +198,6 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 	}
 
 	// Ambil users dalam 1 query
-	// Ambil users dalam 1 query (no S1016)
 	userMap := make(map[uuid.UUID]UserLite, len(userIDs))
 	if len(userIDs) > 0 {
 		var urows []UserLite
@@ -209,12 +210,11 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
 		for _, u := range urows {
-			userMap[u.ID] = u // langsung assign; tidak pakai struct literal
+			userMap[u.ID] = u
 		}
 	}
 
-
-	// Gabungkan
+	// Merge user
 	out := make([]MasjidStudentWithUserResp, 0, len(rows))
 	for i := range rows {
 		base := baseResp[i]

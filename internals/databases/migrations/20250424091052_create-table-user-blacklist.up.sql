@@ -1,4 +1,7 @@
--- === Token Blacklist (legacy/plaintext) ===
+-- ============================ --
+-- TABLE TOKEN BLACKLIST --
+-- ============================ --
+
 CREATE TABLE IF NOT EXISTS token_blacklist (
   id SERIAL PRIMARY KEY,
   token TEXT NOT NULL UNIQUE,

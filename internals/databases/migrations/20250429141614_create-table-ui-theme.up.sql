@@ -6,9 +6,9 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- ---------------------------------------------------------
--- 1) MASTER PRESETS (Sistem)
--- ---------------------------------------------------------
+-- ============================ --
+-- TABLE UI THEME PRESETS --
+-- ============================ --
 CREATE TABLE IF NOT EXISTS ui_theme_presets (
   ui_theme_preset_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   ui_theme_preset_code VARCHAR(64)  NOT NULL UNIQUE,   -- ex: 'default','sunrise','midnight',...
@@ -22,8 +22,11 @@ CREATE TABLE IF NOT EXISTS ui_theme_presets (
   ui_theme_preset_deleted_at TIMESTAMPTZ
 );
 
+
+-- ============================ --
+-- TABLE UI THEME COSTUM PRESETS --
+-- ============================ --
 -- ---------------------------------------------------------
--- 2) CUSTOM PRESETS (per masjid)
 --    - Masjid bisa menyimpan beberapa preset kustom
 --    - Boleh "turunan" dari preset sistem: base_preset_id (opsional)
 -- ---------------------------------------------------------
@@ -52,6 +55,10 @@ CREATE TABLE IF NOT EXISTS ui_theme_custom_presets (
   CONSTRAINT ux_custom_preset_tenant_code UNIQUE (ui_theme_custom_preset_masjid_id, ui_theme_custom_preset_code)
 );
 
+
+-- ============================ --
+-- TABLE UI THEME CHOICES --
+-- ============================ --
 -- ---------------------------------------------------------
 -- 3) CHOICES per MASJID (bisa pilih banyak; 1 default)
 --    - Satu baris mengaktifkan satu pilihan untuk masjid

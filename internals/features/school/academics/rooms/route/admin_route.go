@@ -19,7 +19,6 @@ func RoomsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 
 	// Write
 	g.Post("/", ctl.Create)
-	g.Put("/:id", ctl.Update)
 	g.Patch("/:id", ctl.Patch)
 
 	// Soft delete + restore

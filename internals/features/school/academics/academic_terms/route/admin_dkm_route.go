@@ -25,19 +25,16 @@ func AcademicYearAdminRoutes(api fiber.Router, db *gorm.DB) {
 
 	// 1) GENERIC: konteks via Header/Query/Host (tetap didukung)
 	base.Post("/academic-terms", termCtl.Create)
-	base.Put("/academic-terms/:id", termCtl.Update)
 	base.Patch("/academic-terms/:id", termCtl.Patch)
 	base.Delete("/academic-terms/:id", termCtl.Delete)
 
 	// 2) PATH-SCOPED by masjid_id
 	base.Post("/:masjid_id/academic-terms", termCtl.Create)
-	base.Put("/:masjid_id/academic-terms/:id", termCtl.Update)
 	base.Patch("/:masjid_id/academic-terms/:id", termCtl.Patch)
 	base.Delete("/:masjid_id/academic-terms/:id", termCtl.Delete)
 
 	// 3) PATH-SCOPED by masjid_slug
 	base.Post("/m/:masjid_slug/academic-terms", termCtl.Create)
-	base.Put("/m/:masjid_slug/academic-terms/:id", termCtl.Update)
 	base.Patch("/m/:masjid_slug/academic-terms/:id", termCtl.Patch)
 	base.Delete("/m/:masjid_slug/academic-terms/:id", termCtl.Delete)
 }

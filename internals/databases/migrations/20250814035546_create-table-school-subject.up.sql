@@ -90,13 +90,6 @@ CREATE TABLE IF NOT EXISTS class_subjects (
   class_subjects_weight_final      SMALLINT,
   class_subjects_min_attendance_percent SMALLINT,
 
-  -- Single image (2-slot + retensi 30 hari)
-  class_subjects_image_url                   TEXT,
-  class_subjects_image_object_key            TEXT,
-  class_subjects_image_url_old               TEXT,
-  class_subjects_image_object_key_old        TEXT,
-  class_subjects_image_delete_pending_until  TIMESTAMPTZ,
-
   class_subjects_is_active   BOOLEAN     NOT NULL DEFAULT TRUE,
   class_subjects_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_subjects_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),

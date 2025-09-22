@@ -34,9 +34,9 @@ BEGIN
   END IF;
 END$$;
 
--- =========================================================
--- MASJIDS (tanpa GENERATED FTS)
--- =========================================================
+-- ============================ --
+-- TABLE MASJIDS --
+-- ============================ --
 CREATE TABLE IF NOT EXISTS masjids (
   masjid_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -158,9 +158,9 @@ CREATE INDEX IF NOT EXISTS brin_masjids_background_delete_pending_until
 COMMIT;
 
 
--- =========================================================
--- masjids_profiles (tanpa GENERATED FTS)
--- =========================================================
+-- ============================ --
+-- CREATE MASJIDS PROFILES --
+-- ============================ --
 CREATE TABLE IF NOT EXISTS masjids_profiles (
   masjid_profile_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 

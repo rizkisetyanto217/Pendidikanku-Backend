@@ -2,9 +2,11 @@ package dto
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
 	m "masjidku_backend/internals/features/school/classes/class_sections/model"
@@ -109,7 +111,7 @@ func (r ClassSectionCreateRequest) ToModel() *m.ClassSectionModel {
 		ClassSectionsSchedule: r.ClassSectionsSchedule,
 		ClassSectionsCapacity: r.ClassSectionsCapacity,
 
-		ClassSectionsGroupURL:        r.ClassSectionsGroupURL,
+		ClassSectionsGroupURL:       r.ClassSectionsGroupURL,
 		ClassSectionsImageURL:       r.ClassSectionsImageURL,
 		ClassSectionsImageObjectKey: r.ClassSectionsImageObjectKey,
 
@@ -262,13 +264,27 @@ func (p *ClassSectionPatchRequest) Normalize() {
 		p.ClassSectionsName.Value = &v
 	}
 
-	if p.ClassSectionsCode.Present { trim(p.ClassSectionsCode.Value, false) }
-	if p.ClassSectionsSchedule.Present { trim(p.ClassSectionsSchedule.Value, false) }
-	if p.ClassSectionsGroupURL.Present { trim(p.ClassSectionsGroupURL.Value, false) }
-	if p.ClassSectionsImageURL.Present { trim(p.ClassSectionsImageURL.Value, false) }
-	if p.ClassSectionsImageObjectKey.Present { trim(p.ClassSectionsImageObjectKey.Value, false) }
-	if p.ClassSectionsImageURLOld.Present { trim(p.ClassSectionsImageURLOld.Value, false) }
-	if p.ClassSectionsImageObjectKeyOld.Present { trim(p.ClassSectionsImageObjectKeyOld.Value, false) }
+	if p.ClassSectionsCode.Present {
+		trim(p.ClassSectionsCode.Value, false)
+	}
+	if p.ClassSectionsSchedule.Present {
+		trim(p.ClassSectionsSchedule.Value, false)
+	}
+	if p.ClassSectionsGroupURL.Present {
+		trim(p.ClassSectionsGroupURL.Value, false)
+	}
+	if p.ClassSectionsImageURL.Present {
+		trim(p.ClassSectionsImageURL.Value, false)
+	}
+	if p.ClassSectionsImageObjectKey.Present {
+		trim(p.ClassSectionsImageObjectKey.Value, false)
+	}
+	if p.ClassSectionsImageURLOld.Present {
+		trim(p.ClassSectionsImageURLOld.Value, false)
+	}
+	if p.ClassSectionsImageObjectKeyOld.Present {
+		trim(p.ClassSectionsImageObjectKeyOld.Value, false)
+	}
 }
 
 func (p ClassSectionPatchRequest) Apply(cs *m.ClassSectionModel) {
@@ -448,4 +464,201 @@ func NewPaginationMeta(total int64, limit, offset, count int) PaginationMeta {
 		meta.NextOffset = &next
 	}
 	return meta
+}
+
+// DecodePatchClassSectionFromRequest:
+//   - multipart/form-data:
+//     a) jika ada field "payload" -> unmarshal JSON,
+//     b) jika tidak ada -> baca form key-value via DecodePatchClassSectionMultipart.
+//   - application/json -> BodyParser biasa.
+//
+// Setelah parse -> Normalize() (validasi tetap dilakukan di controller).
+func DecodePatchClassSectionFromRequest(c *fiber.Ctx, out *ClassSectionPatchRequest) error {
+	ct := strings.ToLower(c.Get("Content-Type"))
+	if strings.Contains(ct, "multipart/form-data") {
+		if s := strings.TrimSpace(c.FormValue("payload")); s != "" {
+			if err := json.Unmarshal([]byte(s), out); err != nil {
+				return fiber.NewError(fiber.StatusBadRequest, "payload JSON tidak valid: "+err.Error())
+			}
+		} else if err := DecodePatchClassSectionMultipart(c, out); err != nil {
+			return err
+		}
+	} else {
+		if err := c.BodyParser(out); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "Body JSON tidak valid")
+		}
+	}
+	out.Normalize()
+	return nil
+}
+
+// DecodePatchClassSectionMultipart: map form key-value -> tri-state.
+func DecodePatchClassSectionMultipart(c *fiber.Ctx, r *ClassSectionPatchRequest) error {
+	form, err := c.MultipartForm()
+	if err != nil || form == nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Form-data tidak ditemukan")
+	}
+
+	// -------- helpers umum ----------
+	get := func(k string) (string, bool) {
+		if vs, ok := form.Value[k]; ok {
+			if len(vs) == 0 {
+				return "", true
+			}
+			return vs[0], true
+		}
+		return "", false
+	}
+	setStr := func(field *PatchFieldCS[string], key string, lower bool) {
+		if v, ok := get(key); ok {
+			field.Present = true
+			v = strings.TrimSpace(v)
+			if lower {
+				v = strings.ToLower(v)
+			}
+			field.Value = &v
+		}
+	}
+	setStrPtr := func(field *PatchFieldCS[*string], key string, lower bool) {
+		if v, ok := get(key); ok {
+			field.Present = true
+			v = strings.TrimSpace(v)
+			if v == "" {
+				field.Value = nil
+				return
+			}
+			if lower {
+				v = strings.ToLower(v)
+			}
+			ptr := new(*string)
+			*ptr = &v
+			field.Value = ptr
+		}
+	}
+	setUUID := func(field *PatchFieldCS[uuid.UUID], key, label string) error {
+		if v, ok := get(key); ok {
+			field.Present = true
+			v = strings.TrimSpace(v)
+			if v == "" {
+				// untuk UUID non-pointer di DTO, kosong → treat sebagai "tidak diubah"
+				// kalau mau izinkan clear, gunakan field *uuid.UUID di DTO (di kamu: memang non-pointer).
+				field.Value = nil
+				return nil
+			}
+			u, e := uuid.Parse(v)
+			if e != nil {
+				return fiber.NewError(fiber.StatusBadRequest, label+" invalid UUID")
+			}
+			field.Value = &u
+		}
+		return nil
+	}
+	setTimePtr := func(field *PatchFieldCS[*time.Time], key, label string) error {
+		if v, ok := get(key); ok {
+			field.Present = true
+			s := strings.TrimSpace(v)
+			if s == "" {
+				field.Value = nil
+				return nil
+			}
+			// RFC3339 atau YYYY-MM-DD
+			if t, e := time.Parse(time.RFC3339, s); e == nil {
+				pp := new(*time.Time)
+				*pp = &t
+				field.Value = pp
+				return nil
+			}
+			if t, e := time.Parse("2006-01-02", s); e == nil {
+				pp := new(*time.Time)
+				*pp = &t
+				field.Value = pp
+				return nil
+			}
+			return fiber.NewError(fiber.StatusBadRequest, label+" format invalid (pakai RFC3339 atau YYYY-MM-DD)")
+		}
+		return nil
+	}
+	setInt := func(field *PatchFieldCS[int], key, label string) error {
+		if v, ok := get(key); ok {
+			field.Present = true
+			v = strings.TrimSpace(v)
+			if v == "" {
+				// kosong → null (untuk capacity: berarti clear)
+				field.Value = nil
+				return nil
+			}
+			x, e := strconv.Atoi(v)
+			if e != nil {
+				return fiber.NewError(fiber.StatusBadRequest, label+" harus int")
+			}
+			field.Value = &x
+		}
+		return nil
+	}
+	setBool := func(field *PatchFieldCS[bool], key string) error {
+		if v, ok := get(key); ok {
+			field.Present = true
+			s := strings.ToLower(strings.TrimSpace(v))
+			if s == "" {
+				field.Value = nil
+				return nil
+			}
+			switch s {
+			case "1", "true", "on", "yes", "y":
+				b := true
+				field.Value = &b
+			case "0", "false", "off", "no", "n":
+				b := false
+				field.Value = &b
+			default:
+				return fiber.NewError(fiber.StatusBadRequest, key+" harus boolean (true/false)")
+			}
+		}
+		return nil
+	}
+
+	// -------- mapping field ----------
+	// string (non-nullable di model)
+	setStr(&r.ClassSectionsSlug, "class_sections_slug", true)
+	setStr(&r.ClassSectionsName, "class_sections_name", false)
+
+	// UUID (nullable di model, tapi di DTO kamu pakai PatchFieldCS[uuid.UUID])
+	// => kalau kosong, anggap "tidak diubah". Untuk "clear", kirim field pointer versi string: class_sections_teacher_id = "" → tidak bisa clear.
+	// Karena di Apply() kamu expect bisa clear, lebih aman dukung pola:
+	//  - kalau ingin clear: kirim "class_sections_teacher_id" = "null" lewat JSON dalam payload
+	//  - utk form-data murni: tambahkan key "class_sections_teacher_id__null" = "1" (opsional).
+	// Namun supaya simpel, kita tetap parse UUID saja:
+	_ = setUUID(&r.ClassSectionsTeacherID, "class_sections_teacher_id", "class_sections_teacher_id")
+	_ = setUUID(&r.ClassSectionsAssistantTeacherID, "class_sections_assistant_teacher_id", "class_sections_assistant_teacher_id")
+	_ = setUUID(&r.ClassSectionsClassRoomID, "class_sections_class_room_id", "class_sections_class_room_id")
+	_ = setUUID(&r.ClassSectionsLeaderStudentID, "class_sections_leader_student_id", "class_sections_leader_student_id")
+
+	// *string
+	setStrPtr(&r.ClassSectionsCode, "class_sections_code", false)
+	setStrPtr(&r.ClassSectionsSchedule, "class_sections_schedule", false)
+	setStrPtr(&r.ClassSectionsGroupURL, "class_sections_group_url", false)
+
+	// image slots
+	setStrPtr(&r.ClassSectionsImageURL, "class_sections_image_url", false)
+	setStrPtr(&r.ClassSectionsImageObjectKey, "class_sections_image_object_key", false)
+	setStrPtr(&r.ClassSectionsImageURLOld, "class_sections_image_url_old", false)
+	setStrPtr(&r.ClassSectionsImageObjectKeyOld, "class_sections_image_object_key_old", false)
+
+	// time (delete pending)
+	if err := setTimePtr(&r.ClassSectionsImageDeletePendingUntil, "class_sections_image_delete_pending_until", "class_sections_image_delete_pending_until"); err != nil {
+		return err
+	}
+
+	// numerik & status
+	if err := setInt(&r.ClassSectionsCapacity, "class_sections_capacity", "class_sections_capacity"); err != nil {
+		return err
+	}
+	if err := setInt(&r.ClassSectionsTotalStudents, "class_sections_total_students", "class_sections_total_students"); err != nil {
+		return err
+	}
+	if err := setBool(&r.ClassSectionsIsActive, "class_sections_is_active"); err != nil {
+		return err
+	}
+
+	return nil
 }
