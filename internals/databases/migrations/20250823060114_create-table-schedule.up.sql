@@ -1,9 +1,10 @@
--- +migrate Up
--- ======================================
--- EXTENSIONS & ENUMS
--- ======================================
+
+-- =========================================
+-- EXTENSIONS (idempotent)
+-- =========================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS btree_gin;
 
 DO $$
 BEGIN
@@ -124,53 +125,102 @@ CREATE INDEX IF NOT EXISTS idx_class_schedule_rules_deleted_at
   ON class_schedule_rules (class_schedule_rule_deleted_at);
 
 
+-- =========================================
+-- TABLE: national_holidays (dikelola admin)
+-- Contoh: 17 Agustus, Idul Fitri (bisa rentang), dsb.
+-- =========================================
+CREATE TABLE IF NOT EXISTS national_holidays (
+  national_holiday_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
--- =========================================================
--- TABLE: holidays (tenant-wide day-off / rentang libur)
--- =========================================================
-CREATE TABLE IF NOT EXISTS holidays (
-  holiday_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  holiday_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
-
-  -- SLUG (opsional; unik per tenant saat alive)
-  holiday_slug VARCHAR(160),
+  -- opsional identitas
+  national_holiday_slug VARCHAR(160),
 
   -- tanggal: satu hari (start=end) atau rentang
-  holiday_start_date DATE NOT NULL,
-  holiday_end_date   DATE NOT NULL CHECK (holiday_end_date >= holiday_start_date),
+  national_holiday_start_date DATE NOT NULL,
+  national_holiday_end_date   DATE NOT NULL CHECK (national_holiday_end_date >= national_holiday_start_date),
 
-  holiday_title   VARCHAR(200) NOT NULL,
-  holiday_reason  TEXT,
+  national_holiday_title  VARCHAR(200) NOT NULL,
+  national_holiday_reason TEXT,
 
-  holiday_is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  -- untuk libur berulang (fixed-date tiap tahun, contoh 01-01)
-  holiday_is_recurring_yearly BOOLEAN NOT NULL DEFAULT FALSE,
+  national_holiday_is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  -- jika perlu fixed-date tahunan (mis. 08-17)
+  national_holiday_is_recurring_yearly BOOLEAN NOT NULL DEFAULT FALSE,
 
   -- audit
-  holiday_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  holiday_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  holiday_deleted_at TIMESTAMPTZ
+  national_holiday_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  national_holiday_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  national_holiday_deleted_at TIMESTAMPTZ
 );
 
--- Indexes (holidays)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_holiday_slug_per_tenant_alive
-  ON holidays (holiday_masjid_id, lower(holiday_slug))
-  WHERE holiday_deleted_at IS NULL
-    AND holiday_slug IS NOT NULL;
+-- Indexes (national)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_nat_holiday_slug_alive
+  ON national_holidays (lower(national_holiday_slug))
+  WHERE national_holiday_deleted_at IS NULL
+    AND national_holiday_slug IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS gin_holiday_slug_trgm_alive
-  ON holidays USING GIN (lower(holiday_slug) gin_trgm_ops)
-  WHERE holiday_deleted_at IS NULL
-    AND holiday_slug IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_nat_holiday_date_range_alive
+  ON national_holidays (national_holiday_start_date, national_holiday_end_date)
+  WHERE national_holiday_deleted_at IS NULL
+    AND national_holiday_is_active = TRUE;
 
-CREATE INDEX IF NOT EXISTS idx_holiday_tenant_alive
-  ON holidays (holiday_masjid_id)
-  WHERE holiday_deleted_at IS NULL AND holiday_is_active = TRUE;
+CREATE INDEX IF NOT EXISTS gin_nat_holiday_slug_trgm_alive
+  ON national_holidays USING GIN (lower(national_holiday_slug) gin_trgm_ops)
+  WHERE national_holiday_deleted_at IS NULL
+    AND national_holiday_slug IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_holiday_date_range_alive
-  ON holidays (holiday_start_date, holiday_end_date)
-  WHERE holiday_deleted_at IS NULL AND holiday_is_active = TRUE;
+CREATE INDEX IF NOT EXISTS brin_nat_holiday_created_at
+  ON national_holidays USING BRIN (national_holiday_created_at);
 
-CREATE INDEX IF NOT EXISTS brin_holiday_created_at
-  ON holidays USING BRIN (holiday_created_at);
+-- =========================================
+-- TABLE: school_holidays (libur custom per masjid/sekolah)
+-- Contoh: libur semesteran, class meeting, dll. (berdasarkan masjid_id)
+-- =========================================
+CREATE TABLE IF NOT EXISTS school_holidays (
+  school_holiday_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_holiday_masjid_id UUID NOT NULL
+    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+
+  -- opsional identitas
+  school_holiday_slug VARCHAR(160),
+
+  -- tanggal: satu hari (start=end) atau rentang
+  school_holiday_start_date DATE NOT NULL,
+  school_holiday_end_date   DATE NOT NULL CHECK (school_holiday_end_date >= school_holiday_start_date),
+
+  school_holiday_title  VARCHAR(200) NOT NULL,
+  school_holiday_reason TEXT,
+
+  school_holiday_is_active BOOLEAN NOT NULL DEFAULT TRUE,
+
+  -- biasanya libur sekolah tidak berulang tahunan; tetap disediakan jika perlu
+  school_holiday_is_recurring_yearly BOOLEAN NOT NULL DEFAULT FALSE,
+
+  -- audit
+  school_holiday_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  school_holiday_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  school_holiday_deleted_at TIMESTAMPTZ
+);
+
+-- Indexes (school/tenant)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_school_holiday_slug_per_tenant_alive
+  ON school_holidays (school_holiday_masjid_id, lower(school_holiday_slug))
+  WHERE school_holiday_deleted_at IS NULL
+    AND school_holiday_slug IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_school_holiday_tenant_alive
+  ON school_holidays (school_holiday_masjid_id)
+  WHERE school_holiday_deleted_at IS NULL
+    AND school_holiday_is_active = TRUE;
+
+CREATE INDEX IF NOT EXISTS idx_school_holiday_date_range_alive
+  ON school_holidays (school_holiday_start_date, school_holiday_end_date)
+  WHERE school_holiday_deleted_at IS NULL
+    AND school_holiday_is_active = TRUE;
+
+CREATE INDEX IF NOT EXISTS gin_school_holiday_slug_trgm_alive
+  ON school_holidays USING GIN (lower(school_holiday_slug) gin_trgm_ops)
+  WHERE school_holiday_deleted_at IS NULL
+    AND school_holiday_slug IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS brin_school_holiday_created_at
+  ON school_holidays USING BRIN (school_holiday_created_at);

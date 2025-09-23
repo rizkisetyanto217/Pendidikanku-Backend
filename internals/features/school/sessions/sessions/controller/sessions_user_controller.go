@@ -67,13 +67,44 @@ func parseYmd(s string) (*time.Time, error) {
 	return &tt, nil
 }
 
+func parseUUIDPtr(s string, field string) (*uuid.UUID, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return nil, fiber.NewError(fiber.StatusBadRequest, field+" tidak valid")
+	}
+	return &id, nil
+}
+
+func parseUUIDList(raw string) ([]uuid.UUID, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]uuid.UUID, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		id, err := uuid.Parse(part)
+		if err != nil {
+			return nil, fiber.NewError(fiber.StatusBadRequest, "id tidak valid")
+		}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
 // GET /admin/class-attendance-sessions
 //
-//	?id=&session_id=&cas_id=&teacher_id=&teacher_user_id=&section_id=&class_subject_id=&schedule_id=
+//	?id=&session_id=&cas_id=&teacher_id=&teacher_user_id=&schedule_id=
 //	&date_from=&date_to=&limit=&offset=&q=&sort_by=&sort=
 //	&include=ua,ua_urls,urls|session_urls|casu
-// internals/features/lembaga/class_sections/attendance_sessions/controller/class_attendance_sessions_user_controller.go
-
 func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fiber.Ctx) error {
 	// ===== Masjid context (pakai helpers) =====
 	c.Locals("DB", ctrl.DB) // resolver slug→id butuh DB
@@ -138,41 +169,22 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		return fiber.NewError(fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)")
 	}
 
-	var teacherIdPtr, teacherUserIDPtr, sectionIDPtr, classSubjectIDPtr, scheduleIDPtr *uuid.UUID
-	if s := strings.TrimSpace(c.Query("teacher_id")); s != "" {
-		if id, e := uuid.Parse(s); e == nil {
-			teacherIdPtr = &id
-		} else {
-			return fiber.NewError(fiber.StatusBadRequest, "teacher_id tidak valid")
-		}
+	teacherIdPtr, err := parseUUIDPtr(c.Query("teacher_id"), "teacher_id")
+	if err != nil {
+		return err
 	}
-	if s := strings.TrimSpace(c.Query("teacher_user_id")); s != "" {
-		if id, e := uuid.Parse(s); e == nil {
-			teacherUserIDPtr = &id
-		} else {
-			return fiber.NewError(fiber.StatusBadRequest, "teacher_user_id tidak valid")
-		}
+	teacherUserIDPtr, err := parseUUIDPtr(c.Query("teacher_user_id"), "teacher_user_id")
+	if err != nil {
+		return err
 	}
-	if s := strings.TrimSpace(c.Query("section_id")); s != "" {
-		if id, e := uuid.Parse(s); e == nil {
-			sectionIDPtr = &id
-		} else {
-			return fiber.NewError(fiber.StatusBadRequest, "section_id tidak valid")
-		}
+	// NOTE: section_id & class_subject_id sementara tidak didukung di DB saat ini
+	if strings.TrimSpace(c.Query("section_id")) != "" || strings.TrimSpace(c.Query("class_subject_id")) != "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Filter section_id / class_subject_id belum didukung skema jadwal saat ini")
 	}
-	if s := strings.TrimSpace(c.Query("class_subject_id")); s != "" {
-		if id, e := uuid.Parse(s); e == nil {
-			classSubjectIDPtr = &id
-		} else {
-			return fiber.NewError(fiber.StatusBadRequest, "class_subject_id tidak valid")
-		}
-	}
-	if s := strings.TrimSpace(c.Query("schedule_id")); s != "" {
-		if id, e := uuid.Parse(s); e == nil {
-			scheduleIDPtr = &id
-		} else {
-			return fiber.NewError(fiber.StatusBadRequest, "schedule_id tidak valid")
-		}
+
+	scheduleIDPtr, err := parseUUIDPtr(c.Query("schedule_id"), "schedule_id")
+	if err != nil {
+		return err
 	}
 
 	keyword := strings.TrimSpace(c.Query("q"))
@@ -183,26 +195,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	}
 
 	// ===== Filter by session ID(s) =====
-	parseUUIDList := func(raw string) ([]uuid.UUID, error) {
-		raw = strings.TrimSpace(raw)
-		if raw == "" {
-			return nil, nil
-		}
-		parts := strings.Split(raw, ",")
-		out := make([]uuid.UUID, 0, len(parts))
-		for _, part := range parts {
-			part = strings.TrimSpace(part)
-			if part == "" {
-				continue
-			}
-			id, err := uuid.Parse(part)
-			if err != nil {
-				return nil, fiber.NewError(fiber.StatusBadRequest, "id tidak valid")
-			}
-			out = append(out, id)
-		}
-		return out, nil
-	}
 	var sessionIDs []uuid.UUID
 	if ids, err := parseUUIDList(c.Query("id")); err != nil {
 		return err
@@ -223,42 +215,30 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	qBase := db.Table("class_attendance_sessions AS cas").
 		Scopes(scopeMasjid(masjidID), scopeDateBetween(df, dt), scopeSchedule(scheduleIDPtr)).
 		Where("cas.class_attendance_sessions_deleted_at IS NULL").
-		// JOIN ke class_schedules untuk membawa CSST, lalu turunkan ke section/subject
+		// JOIN ke class_schedules hanya untuk validasi schedule dari CAS
 		Joins(`
 			LEFT JOIN class_schedules AS sch
 			  ON sch.class_schedule_id = cas.class_attendance_sessions_schedule_id
 			 AND sch.class_schedules_masjid_id = cas.class_attendance_sessions_masjid_id
 			 AND sch.class_schedules_deleted_at IS NULL
-		`).
-		Joins(`
-			LEFT JOIN class_section_subject_teachers AS csst
-			  ON csst.class_section_subject_teachers_id = sch.class_schedules_csst_id
-			 AND csst.class_section_subject_teachers_deleted_at IS NULL
 		`)
+
+	// additional filters
 	if len(sessionIDs) > 0 {
 		qBase = qBase.Where("cas.class_attendance_sessions_id IN ?", sessionIDs)
 	}
-	if sectionIDPtr != nil {
-		qBase = qBase.Where("csst.class_section_subject_teachers_section_id = ?", *sectionIDPtr)
-	}
-	if classSubjectIDPtr != nil {
-		qBase = qBase.Where("csst.class_section_subject_teachers_class_subjects_id = ?", *classSubjectIDPtr)
-	}
 	if teacherIdPtr != nil {
-		qBase = qBase.Where(`
-			(cas.class_attendance_sessions_teacher_id = ?
-			 OR csst.class_section_subject_teachers_teacher_id = ?)`,
-			*teacherIdPtr, *teacherIdPtr,
-		)
+		// guru pada CAS saja (karena schedule tidak punya kolom guru)
+		qBase = qBase.Where("cas.class_attendance_sessions_teacher_id = ?", *teacherIdPtr)
 	}
 	if teacherUserIDPtr != nil {
+		// cocokkan user guru pada CAS
 		qBase = qBase.
-			Joins(`LEFT JOIN masjid_teachers mt_cas  ON mt_cas.masjid_teacher_id  = cas.class_attendance_sessions_teacher_id`).
-			Joins(`LEFT JOIN masjid_teachers mt_csst ON mt_csst.masjid_teacher_id = csst.class_section_subject_teachers_teacher_id`).
-			Where(`
-				(mt_cas.masjid_teacher_user_id = ? AND mt_cas.masjid_teacher_masjid_id = ?)
-			 OR (mt_csst.masjid_teacher_user_id = ? AND mt_csst.masjid_teacher_masjid_id = ?)`,
-				*teacherUserIDPtr, masjidID, *teacherUserIDPtr, masjidID,
+			Joins(`LEFT JOIN masjid_teachers mt_cas
+                     ON mt_cas.masjid_teacher_id = cas.class_attendance_sessions_teacher_id
+                    AND mt_cas.masjid_teacher_deleted_at IS NULL`).
+			Where(`mt_cas.masjid_teacher_user_id = ? AND mt_cas.masjid_teacher_masjid_id = ?`,
+				*teacherUserIDPtr, masjidID,
 			)
 	}
 	if like != nil {
@@ -287,8 +267,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		Note       *string    `gorm:"column:class_attendance_sessions_note"`
 		TeacherID  *uuid.UUID `gorm:"column:class_attendance_sessions_teacher_id"`
 		DeletedAt  *time.Time `gorm:"column:class_attendance_sessions_deleted_at"`
-		SectionID  *uuid.UUID `gorm:"column:section_id"`
-		SubjectID  *uuid.UUID `gorm:"column:subject_id"`
+		// SectionID & SubjectID sengaja tidak diseleksi karena tidak tersedia di DB saat ini
 	}
 	var rows []row
 	if err := qBase.
@@ -302,9 +281,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			cas.class_attendance_sessions_general_info,
 			cas.class_attendance_sessions_note,
 			cas.class_attendance_sessions_teacher_id,
-			cas.class_attendance_sessions_deleted_at,
-			csst.class_section_subject_teachers_section_id        AS section_id,
-			csst.class_section_subject_teachers_class_subjects_id AS subject_id
+			cas.class_attendance_sessions_deleted_at
 		`).
 		Order(orderExpr).
 		Order("cas.class_attendance_sessions_date DESC, cas.class_attendance_sessions_id DESC").
@@ -341,16 +318,11 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		// --- Filters UA ---
 		uaStatus := strings.ToLower(strings.TrimSpace(c.Query("ua_status")))
 
-		var uaTypeIDPtr *uuid.UUID
-		if s := strings.TrimSpace(c.Query("ua_type_id")); s != "" {
-			if id, e := uuid.Parse(s); e == nil {
-				uaTypeIDPtr = &id
-			} else {
-				return fiber.NewError(fiber.StatusBadRequest, "ua_type_id tidak valid")
-			}
+		uaTypeIDPtr, err := parseUUIDPtr(c.Query("ua_type_id"), "ua_type_id")
+		if err != nil {
+			return err
 		}
 
-		// reuse local parseUUIDList
 		var uaStudentIDs []uuid.UUID
 		if ids, err := parseUUIDList(c.Query("ua_student_id")); err != nil {
 			return err
@@ -474,15 +446,13 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			ClassAttendanceSessionNote:        r.Note,
 			ClassAttendanceSessionTeacherId:   r.TeacherID,
 			ClassAttendanceSessionDeletedAt:   r.DeletedAt,
-			ClassSectionId:                    r.SectionID,
-			ClassSubjectId:                    r.SubjectID,
+			// Section/Subject dibiarkan nil
 		}
 	}
 
 	meta := helper.BuildMeta(total, p)
 
-	switch {
-	case wantUA:
+	if wantUA {
 		type SessionWithUA struct {
 			sessiondto.ClassAttendanceSessionResponse
 			UserAttendance []UserAttendanceLite `json:"user_attendance,omitempty"`
@@ -495,14 +465,13 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			})
 		}
 		return helper.JsonList(c, out, meta)
-
-	default:
-		items := make([]sessiondto.ClassAttendanceSessionResponse, 0, len(rows))
-		for _, r := range rows {
-			items = append(items, buildBase(r))
-		}
-		return helper.JsonList(c, items, meta)
 	}
+
+	items := make([]sessiondto.ClassAttendanceSessionResponse, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, buildBase(r))
+	}
+	return helper.JsonList(c, items, meta)
 }
 
 // LIST by TEACHER (SELF)

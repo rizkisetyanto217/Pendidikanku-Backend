@@ -244,66 +244,6 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 }
 
 /* =========================
-   Update (PUT)
-   ========================= */
-
-func (ctl *ClassScheduleController) Update(c *fiber.Ctx) error {
-	// 🔁 masjid-context: siapkan DB untuk resolver
-	c.Locals("DB", ctl.DB)
-
-	// 🔐 Admin/DKM/Teacher
-	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
-		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
-	}
-
-	id, err := parseUUIDParam(c, "id")
-	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
-	}
-
-	var existing m.ClassScheduleModel
-	if err := ctl.DB.
-		Where("class_schedule_id = ? AND class_schedules_deleted_at IS NULL", id).
-		First(&existing).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, http.StatusNotFound, "schedule not found")
-		}
-		return writePGError(c, err)
-	}
-
-	var req d.UpdateClassScheduleRequest
-	if err := c.BodyParser(&req); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
-	}
-	if ctl.Validate != nil {
-		if err := ctl.Validate.Struct(req); err != nil {
-			return helper.JsonError(c, http.StatusBadRequest, err.Error())
-		}
-	}
-	// Terapkan perubahan (DTO terbaru)
-	req.Apply(&existing)
-
-	// 🔁 masjid-context: izinkan DKM sesuai context meski token scope mismatch
-	if err := enforceMasjidScopeAuth(c, &existing.ClassSchedulesMasjidID); err != nil {
-		if mc, er := helperAuth.ResolveMasjidContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassSchedulesMasjidID {
-				// ✅ allow via DKM context
-			} else {
-				return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
-			}
-		} else {
-			return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
-		}
-	}
-
-	if err := ctl.DB.Save(&existing).Error; err != nil {
-		return writePGError(c, err)
-	}
-
-	return helper.JsonUpdated(c, "Schedule updated", d.FromModel(existing))
-}
-
-/* =========================
    Patch (Partial) — gunakan DTO Update yang pointer-based
    ========================= */
 
