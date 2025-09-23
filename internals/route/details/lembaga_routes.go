@@ -9,18 +9,17 @@ import (
 	AcademicYearRoutes "masjidku_backend/internals/features/school/academics/academic_terms/route"
 	CertificateRoutes "masjidku_backend/internals/features/school/academics/certificates/route"
 	RoomsRoutes "masjidku_backend/internals/features/school/academics/rooms/route"
-	AnnouncementRoutes "masjidku_backend/internals/features/school/others/announcements/route"
+	ScheduleRoutes "masjidku_backend/internals/features/school/academics/schedules/route"
 	ClassSectionsRoutes "masjidku_backend/internals/features/school/classes/class_sections/route"
+	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/school/classes/class_sessions/route"
 	ClassesRoutes "masjidku_backend/internals/features/school/classes/classes/route"
-	AttendanceSettingsRoute "masjidku_backend/internals/features/school/sessions/assesments_settings/route"
-	ScheduleRoutes "masjidku_backend/internals/features/school/sessions/schedules/route"
-	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/school/sessions/sessions/route"
+	AttendanceSettingsRoute "masjidku_backend/internals/features/school/others/assesments_settings/route"
+	PostRoutes "masjidku_backend/internals/features/school/others/post/route"
 	ClassBooksRoutes "masjidku_backend/internals/features/school/subject_books/books/route"
 	SubjectRoutes "masjidku_backend/internals/features/school/subject_books/subject/route"
 	AssessmentsRoutes "masjidku_backend/internals/features/school/submissions_assesments/assesments/route"
-	SubmissionsRoutes "masjidku_backend/internals/features/school/submissions_assesments/submissions/route"
 	QuizzesRoutes "masjidku_backend/internals/features/school/submissions_assesments/quizzes/route"
-
+	SubmissionsRoutes "masjidku_backend/internals/features/school/submissions_assesments/submissions/route"
 
 	// Tambahkan import route lain di sini saat modul siap:
 	// SectionRoutes "masjidku_backend/internals/features/lembaga/sections/main/route"
@@ -52,7 +51,7 @@ func LembagaPublicRoutes(r fiber.Router, db *gorm.DB) {
 func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	ClassesRoutes.ClassUserRoutes(r, db)
 	ClassAttendanceSessionsRoutes.AttendanceSessionsUserRoutes(r, db)
-	AnnouncementRoutes.AnnouncementUserRoutes(r, db)
+	PostRoutes.PostUserRoutes(r, db)
 	SemesterStatsRoutes.UserClassAttendanceSemesterUserRoutes(r, db)
 	AcademicYearRoutes.AcademicYearUserRoutes(r, db)
 	ClassBooksRoutes.ClassBooksUserRoutes(r, db)
@@ -67,9 +66,6 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	SubmissionsRoutes.SubmissionUserRoutes(r, db)
 	QuizzesRoutes.QuizzesTeacherRoutes(r, db)
 	QuizzesRoutes.QuizzesUserRoutes(r, db)
-
-
-
 
 	// Classes (user actions: enroll, progress, dsb)
 	// ClassRoutes.ClassUserRoutes(r, db)
@@ -86,7 +82,7 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	ClassesRoutes.ClassAdminRoutes(r, db)
 	ClassSectionsRoutes.ClassSectionAdminRoutes(r, db)
 	LembagaStatsRoutes.LembagaStatsAdminRoutes(r, db)
-	AnnouncementRoutes.AnnouncementAdminRoutes(r, db)
+	PostRoutes.PostAdminRoutes(r, db)
 	SemesterStatsRoutes.UserClassAttendanceSemesterAdminRoutes(r, db)
 	SubjectRoutes.SubjectAdminRoutes(r, db)
 	ClassBooksRoutes.ClassBooksAdminRoutes(r, db)
@@ -101,18 +97,14 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	SubmissionsRoutes.SubmissionAdminRoutes(r, db)
 	QuizzesRoutes.QuizzesAdminRoutes(r, db)
 
-
 	// Tambahkan modul lain (admin) di sini:
 	// SectionRoutes.SectionAdminRoutes(r, db)
 	// TeacherRoutes.TeacherAdminRoutes(r, db)
 	// FinanceRoutes.FinanceAdminRoutes(r, db)
 }
 
-
-
-
 /* ===================== SUPER ADMIN ===================== */
 // Endpoint khusus super admin (token + guard super admin)
 func LembagaOwnerRoutes(r fiber.Router, db *gorm.DB) {
-	
-} 
+
+}

@@ -172,55 +172,55 @@ CREATE INDEX IF NOT EXISTS brin_nat_holiday_created_at
   ON national_holidays USING BRIN (national_holiday_created_at);
 
 -- =========================================
--- TABLE: school_holidays (libur custom per masjid/sekolah)
+-- TABLE: masjid_holidays (libur custom per masjid/sekolah)
 -- Contoh: libur semesteran, class meeting, dll. (berdasarkan masjid_id)
 -- =========================================
-CREATE TABLE IF NOT EXISTS school_holidays (
-  school_holiday_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  school_holiday_masjid_id UUID NOT NULL
+CREATE TABLE IF NOT EXISTS masjid_holidays (
+  masjid_holiday_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  masjid_holiday_masjid_id UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   -- opsional identitas
-  school_holiday_slug VARCHAR(160),
+  masjid_holiday_slug VARCHAR(160),
 
   -- tanggal: satu hari (start=end) atau rentang
-  school_holiday_start_date DATE NOT NULL,
-  school_holiday_end_date   DATE NOT NULL CHECK (school_holiday_end_date >= school_holiday_start_date),
+  masjid_holiday_start_date DATE NOT NULL,
+  masjid_holiday_end_date   DATE NOT NULL CHECK (masjid_holiday_end_date >= masjid_holiday_start_date),
 
-  school_holiday_title  VARCHAR(200) NOT NULL,
-  school_holiday_reason TEXT,
+  masjid_holiday_title  VARCHAR(200) NOT NULL,
+  masjid_holiday_reason TEXT,
 
-  school_holiday_is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  masjid_holiday_is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
   -- biasanya libur sekolah tidak berulang tahunan; tetap disediakan jika perlu
-  school_holiday_is_recurring_yearly BOOLEAN NOT NULL DEFAULT FALSE,
+  masjid_holiday_is_recurring_yearly BOOLEAN NOT NULL DEFAULT FALSE,
 
   -- audit
-  school_holiday_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  school_holiday_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  school_holiday_deleted_at TIMESTAMPTZ
+  masjid_holiday_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  masjid_holiday_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  masjid_holiday_deleted_at TIMESTAMPTZ
 );
 
--- Indexes (school/tenant)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_school_holiday_slug_per_tenant_alive
-  ON school_holidays (school_holiday_masjid_id, lower(school_holiday_slug))
-  WHERE school_holiday_deleted_at IS NULL
-    AND school_holiday_slug IS NOT NULL;
+-- Indexes (masjid/tenant)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_masjid_holiday_slug_per_tenant_alive
+  ON masjid_holidays (masjid_holiday_masjid_id, lower(masjid_holiday_slug))
+  WHERE masjid_holiday_deleted_at IS NULL
+    AND masjid_holiday_slug IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_school_holiday_tenant_alive
-  ON school_holidays (school_holiday_masjid_id)
-  WHERE school_holiday_deleted_at IS NULL
-    AND school_holiday_is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_masjid_holiday_tenant_alive
+  ON masjid_holidays (masjid_holiday_masjid_id)
+  WHERE masjid_holiday_deleted_at IS NULL
+    AND masjid_holiday_is_active = TRUE;
 
-CREATE INDEX IF NOT EXISTS idx_school_holiday_date_range_alive
-  ON school_holidays (school_holiday_start_date, school_holiday_end_date)
-  WHERE school_holiday_deleted_at IS NULL
-    AND school_holiday_is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_masjid_holiday_date_range_alive
+  ON masjid_holidays (masjid_holiday_start_date, masjid_holiday_end_date)
+  WHERE masjid_holiday_deleted_at IS NULL
+    AND masjid_holiday_is_active = TRUE;
 
-CREATE INDEX IF NOT EXISTS gin_school_holiday_slug_trgm_alive
-  ON school_holidays USING GIN (lower(school_holiday_slug) gin_trgm_ops)
-  WHERE school_holiday_deleted_at IS NULL
-    AND school_holiday_slug IS NOT NULL;
+CREATE INDEX IF NOT EXISTS gin_masjid_holiday_slug_trgm_alive
+  ON masjid_holidays USING GIN (lower(masjid_holiday_slug) gin_trgm_ops)
+  WHERE masjid_holiday_deleted_at IS NULL
+    AND masjid_holiday_slug IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS brin_school_holiday_created_at
-  ON school_holidays USING BRIN (school_holiday_created_at);
+CREATE INDEX IF NOT EXISTS brin_masjid_holiday_created_at
+  ON masjid_holidays USING BRIN (masjid_holiday_created_at);

@@ -20,7 +20,7 @@ import (
 	database "masjidku_backend/internals/databases"
 
 	payment "masjidku_backend/internals/features/payment/donations/service"
-	attend "masjidku_backend/internals/features/school/sessions/sessions/service"
+	attend "masjidku_backend/internals/features/school/classes/sessions/service"
 	authsched "masjidku_backend/internals/features/users/auth/scheduler"
 
 	osshelper "masjidku_backend/internals/helpers/oss"

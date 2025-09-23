@@ -10,10 +10,14 @@ CREATE TABLE IF NOT EXISTS class_event_themes (
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   -- identitas tema
-  class_event_themes_code      VARCHAR(64)  NOT NULL,
-  class_event_themes_name      VARCHAR(120) NOT NULL,
-  class_event_themes_color_hex VARCHAR(16),
-  class_event_themes_is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  class_event_themes_code       VARCHAR(64)  NOT NULL,
+  class_event_themes_name       VARCHAR(120) NOT NULL,
+
+  -- warna: pilih salah satu dari preset atau custom hex
+  class_event_themes_color       VARCHAR(32),   -- ex: "red", "blue", "green"
+  class_event_themes_custom_color VARCHAR(16),  -- ex: "#FFAA33"
+
+  class_event_themes_is_active  BOOLEAN NOT NULL DEFAULT TRUE,
 
   -- audit
   class_event_themes_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -30,6 +34,7 @@ CREATE INDEX IF NOT EXISTS idx_class_event_themes_masjid_active
 
 CREATE INDEX IF NOT EXISTS idx_class_event_themes_masjid_name
   ON class_event_themes (class_event_themes_masjid_id, class_event_themes_name);
+
 
 /* =========================================================
    2) ENUM delivery mode (online/offline/hybrid)
