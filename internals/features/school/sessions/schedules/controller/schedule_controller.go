@@ -4,20 +4,23 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	d "masjidku_backend/internals/features/school/sessions/schedules/dto"
 	m "masjidku_backend/internals/features/school/sessions/schedules/model"
+	svc "masjidku_backend/internals/features/school/sessions/schedules/services"
+	sessModel "masjidku_backend/internals/features/school/sessions/sessions/model"
 )
 
 /* =========================
@@ -91,69 +94,153 @@ func writePGError(c *fiber.Ctx, err error) error {
 	return helper.JsonError(c, code, msg)
 }
 
-func parseTimeOfDayParam(s string) (time.Time, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return time.Time{}, fmt.Errorf("empty time")
-	}
-	if t, err := time.Parse("15:04", s); err == nil {
-		return t, nil
-	}
-	if t, err := time.Parse("15:04:05", s); err == nil {
-		return t, nil
-	}
-	return time.Time{}, fmt.Errorf("invalid time format (want HH:mm or HH:mm:ss)")
-}
-
 /*
 ========================= Create =========================
 */
+// file: internals/features/lembaga/class_schedules/controller/class_schedule_controller.go
+
 func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
-	// 🔁 masjid-context: siapkan DB untuk resolver
 	c.Locals("DB", ctl.DB)
 
-	// 🔐 Admin/DKM/Teacher
+	// --- guard
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
 
+	// --- body
 	var req d.CreateClassScheduleRequest
 	if err := c.BodyParser(&req); err != nil {
+		log.Printf("[ClassSchedule.Create] BodyParser error: %v", err)
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	// 🔁 masjid-context: coba resolve dari path/header/query/host; jika ada → wajib DKM di masjid tsb
+	// --- masjid scope
 	var actMasjidID uuid.UUID
 	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
 		id, er := helperAuth.EnsureMasjidAccessDKM(c, mc)
 		if er != nil {
+			log.Printf("[ClassSchedule.Create] EnsureMasjidAccessDKM error: %v", er)
 			return er
 		}
 		actMasjidID = id
 	} else {
-		// fallback ke token (existing behavior)
 		id, er := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 		if er != nil || id == uuid.Nil {
+			log.Printf("[ClassSchedule.Create] Masjid scope tidak ditemukan: %v", er)
 			return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan di token")
 		}
 		actMasjidID = id
 	}
 
-	// ✅ Validasi DTO (pakai tag validate)
+	// --- validate
 	if ctl.Validate != nil {
 		if err := ctl.Validate.Struct(req); err != nil {
+			log.Printf("[ClassSchedule.Create] Validation error: %v", err)
 			return helper.JsonError(c, http.StatusBadRequest, err.Error())
 		}
 	}
 
-	// ✅ Bangun model dari DTO + masjidID (DTO terbaru)
+	// --- build schedule
 	model := req.ToModel(actMasjidID)
 
-	if err := ctl.DB.Create(&model).Error; err != nil {
+	var sessionsProvided []sessModel.ClassAttendanceSessionModel
+
+	// --- TX: create schedule + rules + sessions (manual)
+	if err := ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
+		// 1) schedule
+		if er := tx.Create(&model).Error; er != nil {
+			log.Printf("[ClassSchedule.Create] DB.Create(schedule) error: %v", er)
+			return er
+		}
+
+		// 2) rules (opsional)
+		if len(req.Rules) > 0 {
+			ruleModels, er := req.RulesToModels(actMasjidID, model.ClassScheduleID)
+			if er != nil {
+				log.Printf("[ClassSchedule.Create] RulesToModels error: %v", er)
+				return er
+			}
+			if len(ruleModels) > 0 {
+				if er := tx.Create(&ruleModels).Error; er != nil {
+					log.Printf("[ClassSchedule.Create] DB.Create(rules) error: %v", er)
+					return er
+				}
+			}
+		}
+
+		// 3) sessions (opsional, manual dari payload)
+		if len(req.Sessions) > 0 {
+			ms, er := req.SessionsToModels(
+				actMasjidID,
+				model.ClassScheduleID,
+				model.ClassSchedulesStartDate,
+				model.ClassSchedulesEndDate,
+			)
+			if er != nil {
+				log.Printf("[ClassSchedule.Create] SessionsToModels error: %v", er)
+				return helper.JsonError(c, http.StatusBadRequest, er.Error())
+			}
+
+			if len(ms) > 0 {
+				// idempotent insert (butuh unique idx (schedule_id, starts_at) partial alive)
+				if er := tx.
+					Clauses(clause.OnConflict{DoNothing: true}).
+					Create(&ms).Error; er != nil {
+					log.Printf("[ClassSchedule.Create] DB.Create(sessions) error: %v", er)
+					return er
+				}
+				sessionsProvided = ms
+			}
+		}
+
+		return nil
+	}); err != nil {
 		return writePGError(c, err)
 	}
 
-	return helper.JsonCreated(c, "Schedule created", d.FromModel(model))
+	// --- 4) SELALU generate dari rules (tanpa query param)
+	// Ambil default assignment dari payload (pakai entri pertama yang ada nilainya)
+	var defCSST, defRoom, defTeacher *uuid.UUID
+	for _, s := range req.Sessions {
+		if s.CSSTID != nil && defCSST == nil {
+			v := *s.CSSTID
+			defCSST = &v
+		}
+		if s.ClassRoomID != nil && defRoom == nil {
+			v := *s.ClassRoomID
+			defRoom = &v
+		}
+		// NOTE: kalau nanti DTO punya TeacherID, isi juga di sini.
+	}
+
+	gen := svc.Generator{DB: ctl.DB}
+	sessionsGenerated, genErr := gen.GenerateSessionsForScheduleWithOpts(
+		c.Context(),
+		model.ClassScheduleID.String(),
+		&svc.GenerateOptions{
+			TZName:                  "Asia/Jakarta", // TODO: ambil dari profil masjid kalau ada
+			DefaultCSSTID:           defCSST,
+			DefaultRoomID:           defRoom,
+			DefaultTeacherID:        defTeacher,
+			DefaultAttendanceStatus: "open",
+			BatchSize:               500,
+		},
+	)
+	if genErr != nil {
+		log.Printf("[ClassSchedule.Create] GenerateSessionsForSchedule error: %v", genErr)
+	}
+
+	// --- response
+	resp := fiber.Map{
+		"schedule":           d.FromModel(model),
+		"sessions_provided":  len(sessionsProvided),
+		"sessions_generated": sessionsGenerated,
+		"generated":          true,
+	}
+	if genErr != nil {
+		resp["generation_warning"] = genErr.Error()
+	}
+	return helper.JsonCreated(c, "Schedule created", resp)
 }
 
 /* =========================

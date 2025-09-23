@@ -1,3 +1,4 @@
+// file: internals/features/school/sessions/sessions/controller/user_attendance_controller.go
 package controller
 
 import (
@@ -13,14 +14,12 @@ import (
 	"gorm.io/gorm"
 )
 
-// GET /user-attendance
-// GET /user-attendance/:id
-// Query opsional: ?include=urls  (atau include_urls=1|true|yes)
-// GET /user-attendance
-// GET /user-attendance/:id
-// Query opsional: ?include=urls  (atau include_urls=1|true|yes)
+/* =================================================================================
+   LIST / GET BY ID
+   ================================================================================= */
+
 func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
-	// ✅ Resolve masjid context (path/header/cookie/query/subdomain/token)
+	// ✅ Resolve masjid context
 	mc, er := helperAuth.ResolveMasjidContext(c)
 	if er != nil {
 		return helper.JsonError(c, er.(*fiber.Error).Code, er.Error())
@@ -29,14 +28,12 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 	// ✅ Tentukan masjidID + authorize
 	var masjidID uuid.UUID
 	if helperAuth.IsOwner(c) || helperAuth.IsDKM(c) {
-		// Owner/DKM ⇒ validasi + akses penuh masjid tsb
 		id, er := helperAuth.EnsureMasjidAccessDKM(c, mc)
 		if er != nil {
 			return helper.JsonError(c, er.(*fiber.Error).Code, er.Error())
 		}
 		masjidID = id
 	} else {
-		// Member (teacher/siswa/ortu/dll) ⇒ harus menjadi anggota masjid context
 		switch {
 		case mc.ID != uuid.Nil:
 			masjidID = mc.ID
@@ -56,7 +53,7 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// --- include flags (berlaku utk single & list) ---
+	// include flags
 	includeParam := strings.ToLower(strings.TrimSpace(c.Query("include")))
 	includeURLs := includeParam == "urls"
 	if !includeURLs {
@@ -64,7 +61,7 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 		includeURLs = legacy == "1" || legacy == "true" || legacy == "yes"
 	}
 
-	// --- jika ada id (path atau query) → GET BY ID mode ---
+	// --- GET BY ID mode ---
 	if rawID := firstNonEmpty(
 		strings.TrimSpace(c.Params("id")),
 		strings.TrimSpace(c.Query("id")),
@@ -88,20 +85,18 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
 
-		attDTOs := attDTO.FromUserAttendanceModels([]attModel.UserAttendanceModel{m})
-		attResp := attDTOs[0]
-
+		// Tanpa mapper: kembalikan model langsung
 		if !includeURLs {
-			return helper.JsonOK(c, "OK", attResp)
+			return helper.JsonOK(c, "OK", m)
 		}
-
+		// (opsional) load URLs di sini kalau kamu mau. Untuk sekarang hanya bungkus.
 		return helper.JsonOK(c, "OK", fiber.Map{
-			"attendance": attResp,
+			"attendance": m,
+			// "urls": urls, // kalau nanti di-load
 		})
 	}
 
-	// --- LIST mode (tanpa id) ---
-	// Pagination & sorting
+	// --- LIST mode ---
 	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
 	allowedOrder := map[string]string{
 		"id":         "user_attendance_id",
@@ -112,7 +107,6 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "sort_by tidak valid")
 	}
 
-	// Filter builder existing
 	var q attDTO.ListUserAttendanceQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
@@ -120,10 +114,10 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 
 	tx, err := ctl.buildListQuery(c, q, masjidID)
 	if err != nil {
-		return err // builder sudah mengirim JSON error bila perlu
+		return err
 	}
 
-	// Filter by id list (opsional, comma-separated)
+	// filter id list (opsional)
 	if raw := strings.TrimSpace(c.Query("ids")); raw != "" {
 		parts := strings.Split(raw, ",")
 		ids := make([]uuid.UUID, 0, len(parts))
@@ -161,10 +155,9 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Tanpa include: langsung DTO attendance
 	if !includeURLs {
 		meta := helper.BuildMeta(total, p)
-		return helper.JsonList(c, attDTO.FromUserAttendanceModels(rows), fiber.Map{
+		return helper.JsonList(c, rows, fiber.Map{
 			"meta":   meta,
 			"total":  total,
 			"limit":  p.PerPage,
@@ -172,11 +165,11 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 		})
 	}
 
-	attDtos := attDTO.FromUserAttendanceModels(rows)
 	items := make([]fiber.Map, 0, len(rows))
 	for i := range rows {
 		items = append(items, fiber.Map{
-			"attendance": attDtos[i],
+			"attendance": rows[i],
+			// "urls": urlsByAttendance[rows[i].UserAttendanceID] // kalau nanti di-load batch
 		})
 	}
 
@@ -188,6 +181,67 @@ func (ctl *UserAttendanceController) List(c *fiber.Ctx) error {
 		"offset": p.Offset(),
 	})
 }
+
+/*
+=================================================================================
+
+	CREATE — POST /user-attendance
+	Body: dto.UserAttendanceCreateRequest
+	=================================================================================
+*/
+func (ctl *UserAttendanceController) Create(c *fiber.Ctx) error {
+	mc, er := helperAuth.ResolveMasjidContext(c)
+	if er != nil {
+		return helper.JsonError(c, er.(*fiber.Error).Code, er.Error())
+	}
+	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
+	}
+
+	var req attDTO.UserAttendanceCreateRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid: "+err.Error())
+	}
+	// konsistenkan masjid dari context jika ada
+	if mc.ID != uuid.Nil && req.MasjidID != mc.ID {
+		req.MasjidID = mc.ID
+	}
+	if req.MasjidID == uuid.Nil || req.SessionID == uuid.Nil || req.MasjidStudentID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id, session_id, masjid_student_id wajib diisi")
+	}
+
+	var out attModel.UserAttendanceModel
+	if err := ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
+		// 1) create attendance
+		m := req.ToModel()
+		if err := tx.Create(&m).Error; err != nil {
+			return err
+		}
+		// 2) URL create
+		muts, err := attDTO.BuildURLMutations(m.UserAttendanceID, req.MasjidID, req.URLs)
+		if err != nil {
+			return err
+		}
+		if len(muts.ToCreate) > 0 {
+			if err := tx.Create(&muts.ToCreate).Error; err != nil {
+				return err
+			}
+		}
+		// 3) normalize primary
+		if err := ensurePrimaryUnique(tx, m.UserAttendanceID); err != nil {
+			return err
+		}
+		out = m
+		return nil
+	}); err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	// langsung return model
+	return helper.JsonCreated(c, "Created", out)
+}
+
+/* ========================= Helpers ========================= */
 
 // util kecil
 func firstNonEmpty(a, b string) string {

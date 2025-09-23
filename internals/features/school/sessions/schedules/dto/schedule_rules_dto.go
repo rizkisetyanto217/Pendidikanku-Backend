@@ -1,4 +1,3 @@
-// internals/features/school/sessions/schedules/dto/class_schedule_rule_dto.go
 package dto
 
 import (

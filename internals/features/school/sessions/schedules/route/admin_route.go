@@ -16,15 +16,8 @@ func ScheduleAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// ⬇️ tambahkan :masjid_id di path supaya helper ResolveMasjidContext bisa resolve dari path
 	grpSched := admin.Group("/:masjid_id/class-schedules")
 
-	// CRUD jadwal
-	grpSched.Get("/list", sched.List)
-	// Proyeksi jadwal mingguan → occurrences (kalender)
-	// Query: ?from=YYYY-MM-DD&to=YYYY-MM-DD
-
 	grpSched.Post("/", sched.Create)
-	grpSched.Put("/:id", sched.Update)
 	grpSched.Patch("/:id", sched.Patch)
 	grpSched.Delete("/:id", sched.Delete)
-
 
 }

@@ -31,12 +31,10 @@ func RoomsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 
 	// Create / Read
 	h.Post("/", ctl2.Create)
-	h.Get("/:id", ctl2.Detail)
 
 	// Update
 	h.Patch("/:id", ctl2.Update)
 
 	// Soft delete + restore (+ hard delete via ?hard=true)
 	h.Delete("/:id", ctl2.Delete)
-	h.Post("/:id/restore", ctl2.Restore)
 }

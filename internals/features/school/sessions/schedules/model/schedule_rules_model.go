@@ -9,7 +9,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// Go-side enum buat week_parity_enum
 type WeekParityEnum string
 
 const (
@@ -19,31 +18,24 @@ const (
 )
 
 type ClassScheduleRuleModel struct {
-	ClassScheduleRulesID uuid.UUID `json:"class_schedule_rules_id" gorm:"column:class_schedule_rules_id;type:uuid;primaryKey;default:gen_random_uuid()"`
+	ClassScheduleRulesID uuid.UUID `gorm:"column:class_schedule_rules_id;type:uuid;default:gen_random_uuid();primaryKey"`
 
-	// FK komposit → class_schedules (tenant-safe)
-	ClassScheduleRuleMasjidID   uuid.UUID `json:"class_schedule_rule_masjid_id"   gorm:"column:class_schedule_rule_masjid_id;type:uuid;not null"`
-	ClassScheduleRuleScheduleID uuid.UUID `json:"class_schedule_rule_schedule_id" gorm:"column:class_schedule_rule_schedule_id;type:uuid;not null"`
+	ClassScheduleRuleMasjidID   uuid.UUID `gorm:"column:class_schedule_rule_masjid_id;type:uuid;not null"`
+	ClassScheduleRuleScheduleID uuid.UUID `gorm:"column:class_schedule_rule_schedule_id;type:uuid;not null"`
 
-	// Pola mingguan
-	ClassScheduleRuleDayOfWeek int       `json:"class_schedule_rule_day_of_week" gorm:"column:class_schedule_rule_day_of_week;not null"` // 1..7 (ISO)
-	ClassScheduleRuleStartTime time.Time `json:"class_schedule_rule_start_time"  gorm:"column:class_schedule_rule_start_time;type:time;not null"`
-	ClassScheduleRuleEndTime   time.Time `json:"class_schedule_rule_end_time"    gorm:"column:class_schedule_rule_end_time;type:time;not null"`
+	ClassScheduleRuleDayOfWeek int       `gorm:"column:class_schedule_rule_day_of_week;not null"`
+	ClassScheduleRuleStartTime time.Time `gorm:"column:class_schedule_rule_start_time;type:time;not null"`
+	ClassScheduleRuleEndTime   time.Time `gorm:"column:class_schedule_rule_end_time;type:time;not null"`
 
-	// Opsi pola
-	ClassScheduleRuleIntervalWeeks    int            `json:"class_schedule_rule_interval_weeks"     gorm:"column:class_schedule_rule_interval_weeks;not null;default:1"`
-	ClassScheduleRuleStartOffsetWeeks int            `json:"class_schedule_rule_start_offset_weeks" gorm:"column:class_schedule_rule_start_offset_weeks;not null;default:0"`
-	ClassScheduleRuleWeekParity       WeekParityEnum `json:"class_schedule_rule_week_parity"        gorm:"column:class_schedule_rule_week_parity;type:week_parity_enum;not null;default:'all'"`
-	ClassScheduleRuleWeeksOfMonth     pq.Int64Array  `json:"class_schedule_rule_weeks_of_month"     gorm:"column:class_schedule_rule_weeks_of_month;type:int[]"`
-	ClassScheduleRuleLastWeekOfMonth  bool           `json:"class_schedule_rule_last_week_of_month" gorm:"column:class_schedule_rule_last_week_of_month;not null;default:false"`
+	ClassScheduleRuleIntervalWeeks    int            `gorm:"column:class_schedule_rule_interval_weeks;not null;default:1"`
+	ClassScheduleRuleStartOffsetWeeks int            `gorm:"column:class_schedule_rule_start_offset_weeks;not null;default:0"`
+	ClassScheduleRuleWeekParity       WeekParityEnum `gorm:"column:class_schedule_rule_week_parity;type:week_parity_enum;not null;default:'all'"`
+	ClassScheduleRuleWeeksOfMonth     pq.Int64Array  `gorm:"column:class_schedule_rule_weeks_of_month;type:int[]"`
+	ClassScheduleRuleLastWeekOfMonth  bool           `gorm:"column:class_schedule_rule_last_week_of_month;not null;default:false"`
 
-	// Audit
-	ClassScheduleRuleCreatedAt time.Time      `json:"class_schedule_rule_created_at" gorm:"column:class_schedule_rule_created_at;type:timestamptz;not null;autoCreateTime"`
-	ClassScheduleRuleUpdatedAt time.Time      `json:"class_schedule_rule_updated_at" gorm:"column:class_schedule_rule_updated_at;type:timestamptz;not null;autoUpdateTime"`
-	ClassScheduleRuleDeletedAt gorm.DeletedAt `json:"class_schedule_rule_deleted_at" gorm:"column:class_schedule_rule_deleted_at;index"`
-
-	// Optional relation ke header (pakai FK komposit)
-	Schedule ClassScheduleModel `json:"-" gorm:"foreignKey:ClassScheduleRuleScheduleID,ClassScheduleRuleMasjidID;references:ClassScheduleID,ClassSchedulesMasjidID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
+	ClassScheduleRuleCreatedAt time.Time      `gorm:"column:class_schedule_rule_created_at;type:timestamptz;not null;autoCreateTime"`
+	ClassScheduleRuleUpdatedAt time.Time      `gorm:"column:class_schedule_rule_updated_at;type:timestamptz;not null;autoUpdateTime"`
+	ClassScheduleRuleDeletedAt gorm.DeletedAt `gorm:"column:class_schedule_rule_deleted_at;index"`
 }
 
 func (ClassScheduleRuleModel) TableName() string { return "class_schedule_rules" }

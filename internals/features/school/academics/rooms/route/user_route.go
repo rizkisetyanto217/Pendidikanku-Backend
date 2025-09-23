@@ -26,5 +26,4 @@ func RoomsUserRoutes(user fiber.Router, db *gorm.DB) {
 	// Read-only endpoints
 	h.Get("/", ctl2.List)      // e.g. /api/u/masjids/:masjid_id/class-room-virtual-links
 	h.Get("/list", ctl2.List)  // alias /list
-	h.Get("/:id", ctl2.Detail) // detail
 }

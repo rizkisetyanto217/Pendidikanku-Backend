@@ -68,32 +68,50 @@ CREATE INDEX IF NOT EXISTS idx_class_rooms_location_trgm
 
 
 -- =========================================================
+-- ENUM: virtual_platform_enum (idempotent via DO block)
+-- =========================================================
+DO $$
+BEGIN
+IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'virtual_platform_enum') THEN
+CREATE TYPE virtual_platform_enum AS ENUM (
+'zoom',
+'google_meet',
+'microsoft_teams',
+'other'
+);
+END IF;
+END$$;
+
+-- =========================================================
 -- TABLE: class_room_virtual_links
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_room_virtual_links (
-  class_room_virtual_link_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+class_room_virtual_link_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  -- scope
-  class_room_virtual_link_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
-  class_room_virtual_link_room_id UUID NOT NULL
-    REFERENCES class_rooms(class_room_id) ON DELETE CASCADE,
+-- scope
+class_room_virtual_link_masjid_id UUID NOT NULL
+REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+class_room_virtual_link_room_id UUID NOT NULL
+REFERENCES class_rooms(class_room_id) ON DELETE CASCADE,
 
-  -- identitas link
-  class_room_virtual_link_label    TEXT NOT NULL,
-  class_room_virtual_link_join_url TEXT NOT NULL,
-  class_room_virtual_link_host_url TEXT,
-  class_room_virtual_link_meeting_id TEXT,
-  class_room_virtual_link_passcode   TEXT,
-  class_room_virtual_link_notes      TEXT,
+-- identitas link
+class_room_virtual_link_label      TEXT NOT NULL,
+class_room_virtual_link_join_url   TEXT NOT NULL,
+class_room_virtual_link_host_url   TEXT,
+class_room_virtual_link_meeting_id TEXT,
+class_room_virtual_link_passcode   TEXT,
+class_room_virtual_link_notes      TEXT,
 
-  -- status
-  class_room_virtual_link_is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+-- platform
+class_room_virtual_link_platform virtual_platform_enum NOT NULL,
 
-  -- timestamps
-  class_room_virtual_link_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_room_virtual_link_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_room_virtual_link_deleted_at TIMESTAMPTZ
+-- status
+class_room_virtual_link_is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+
+-- timestamps
+class_room_virtual_link_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+class_room_virtual_link_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+class_room_virtual_link_deleted_at TIMESTAMPTZ
 );
 
 -- =======================
@@ -102,20 +120,43 @@ CREATE TABLE IF NOT EXISTS class_room_virtual_links (
 
 -- Unik per room: label (alive only)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_room_vlinks_label_ci
-  ON class_room_virtual_links (class_room_virtual_link_room_id, lower(class_room_virtual_link_label))
-  WHERE class_room_virtual_link_deleted_at IS NULL;
+ON class_room_virtual_links (
+class_room_virtual_link_room_id,
+lower(class_room_virtual_link_label)
+)
+WHERE class_room_virtual_link_deleted_at IS NULL;
 
 -- Hindari duplikasi link pada tenant (alive only)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_room_vlinks_url_ci
-  ON class_room_virtual_links (class_room_virtual_link_masjid_id, lower(class_room_virtual_link_join_url))
-  WHERE class_room_virtual_link_deleted_at IS NULL;
+ON class_room_virtual_links (
+class_room_virtual_link_masjid_id,
+lower(class_room_virtual_link_join_url)
+)
+WHERE class_room_virtual_link_deleted_at IS NULL;
 
--- Query umum
+-- Query umum (by room + active, alive only)
 CREATE INDEX IF NOT EXISTS idx_room_vlinks_active
-  ON class_room_virtual_links (class_room_virtual_link_room_id, class_room_virtual_link_is_active)
-  WHERE class_room_virtual_link_deleted_at IS NULL;
+ON class_room_virtual_links (
+class_room_virtual_link_room_id,
+class_room_virtual_link_is_active
+)
+WHERE class_room_virtual_link_deleted_at IS NULL;
 
+-- Tambahan: filter cepat per platform (alive only)
+CREATE INDEX IF NOT EXISTS idx_room_vlinks_platform_active
+ON class_room_virtual_links (
+class_room_virtual_link_platform,
+class_room_virtual_link_is_active
+)
+WHERE class_room_virtual_link_deleted_at IS NULL;
 
+-- Tambahan: kombinasi tenant + platform (alive only)
+CREATE INDEX IF NOT EXISTS idx_room_vlinks_tenant_platform
+ON class_room_virtual_links (
+class_room_virtual_link_masjid_id,
+class_room_virtual_link_platform
+)
+WHERE class_room_virtual_link_deleted_at IS NULL;
 
 
 -- =========================================================

@@ -1,7 +1,14 @@
 -- +migrate Up
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- =========================================
+-- EXTENSIONS
+-- =========================================
+CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram index (ILIKE search)
+CREATE EXTENSION IF NOT EXISTS btree_gin;  -- opsional, untuk kombinasi index
 
+-- =========================================
+-- TABLE: class_attendance_sessions
+-- =========================================
 CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_sessions_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -11,7 +18,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   -- relasi utama: header jadwal (template)
   class_attendance_sessions_schedule_id UUID NOT NULL,
 
-  -- FK komposit tenant-safe → schedules (butuh UNIQUE (class_schedules_masjid_id, class_schedule_id) di class_schedules)
+  -- FK komposit tenant-safe → schedules
   CONSTRAINT fk_cas_schedule_tenant
     FOREIGN KEY (class_attendance_sessions_masjid_id, class_attendance_sessions_schedule_id)
     REFERENCES class_schedules (class_schedules_masjid_id, class_schedule_id)
@@ -21,7 +28,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_sessions_rule_id UUID
     REFERENCES class_schedule_rules(class_schedule_rules_id) ON DELETE SET NULL,
 
-  -- >>> SLUG (opsional; unik per tenant saat alive)
+  -- SLUG (opsional; unik per tenant saat alive)
   class_attendance_sessions_slug VARCHAR(160),
 
   -- occurrence
@@ -39,14 +46,8 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_sessions_is_canceled BOOLEAN NOT NULL DEFAULT FALSE,
   class_attendance_sessions_original_start_at TIMESTAMPTZ,
   class_attendance_sessions_original_end_at   TIMESTAMPTZ,
-  class_attendance_sessions_kind TEXT,                    -- 'lesson','ceremony','counseling','exam', ...
+  class_attendance_sessions_kind TEXT,                    
   class_attendance_sessions_override_reason TEXT,
-
-  -- Override karena EVENT (opsional)
-  class_attendance_sessions_override_event_id UUID
-    REFERENCES class_events(class_events_id) ON DELETE SET NULL,
-  class_attendance_sessions_override_attendance_event_id UUID
-    REFERENCES class_attendance_events(class_attendance_events_id) ON DELETE SET NULL,
 
   -- override resource (opsional)
   class_attendance_sessions_teacher_id    UUID REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE SET NULL,
@@ -91,9 +92,9 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
     )
 );
 
--- =========================================================
--- Indexes
--- =========================================================
+-- =========================================
+-- INDEXES
+-- =========================================
 
 -- SLUG unik per tenant (alive only, case-insensitive)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_slug_per_tenant_alive
@@ -104,7 +105,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_slug_per_tenant_alive
   WHERE class_attendance_sessions_deleted_at IS NULL
     AND class_attendance_sessions_slug IS NOT NULL;
 
--- (opsional) pencarian slug cepat
+-- pencarian slug cepat
 CREATE INDEX IF NOT EXISTS gin_cas_slug_trgm_alive
   ON class_attendance_sessions USING GIN (lower(class_attendance_sessions_slug) gin_trgm_ops)
   WHERE class_attendance_sessions_deleted_at IS NULL
@@ -169,12 +170,22 @@ CREATE INDEX IF NOT EXISTS idx_cas_override_event_alive
   )
   WHERE class_attendance_sessions_deleted_at IS NULL;
 
--- Join cepat ke rule (opsional)
+-- Join cepat ke rule
 CREATE INDEX IF NOT EXISTS idx_cas_rule_alive
   ON class_attendance_sessions (
     class_attendance_sessions_rule_id
   )
   WHERE class_attendance_sessions_deleted_at IS NULL;
+
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sessions_sched_start
+  ON class_attendance_sessions (
+    class_attendance_sessions_schedule_id,
+    class_attendance_sessions_starts_at
+  );
+
+
+
 
 BEGIN;
 

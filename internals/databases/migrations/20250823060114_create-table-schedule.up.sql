@@ -101,7 +101,8 @@ CREATE TABLE IF NOT EXISTS class_schedule_rules (
 
   -- audit
   class_schedule_rule_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_schedule_rule_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  class_schedule_rule_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_schedule_rule_deleted_at TIMESTAMPTZ
 );
 
 -- Indexes (class_schedule_rules)
@@ -118,6 +119,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csr_unique_slot_per_schedule
     class_schedule_rule_start_time,
     class_schedule_rule_end_time
   );
+
+CREATE INDEX IF NOT EXISTS idx_class_schedule_rules_deleted_at
+  ON class_schedule_rules (class_schedule_rule_deleted_at);
 
 
 

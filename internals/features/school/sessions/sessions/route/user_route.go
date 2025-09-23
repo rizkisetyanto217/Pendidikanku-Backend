@@ -25,7 +25,7 @@ func AttendanceSessionsUserRoutes(r fiber.Router, db *gorm.DB) {
 	uaGroup := masjidGroup.Group("/user-sessions")
 	uaGroup.Get("/list", ua.List)
 	uaGroup.Post("/", ua.CreateWithURLs)     // POST /:masjid_id/user-sessions
-	uaGroup.Patch("/:id", ua.Update) // PATCH /:masjid_id/user-sessions/:id
+	uaGroup.Patch("/:id", ua.Patch) // PATCH /:masjid_id/user-sessions/:id
 	uaGroup.Delete("/:id", ua.Delete)
 
 

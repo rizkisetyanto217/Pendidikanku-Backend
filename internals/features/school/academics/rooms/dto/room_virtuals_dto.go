@@ -13,7 +13,7 @@ import (
 /* =========================================================
    REQUEST DTO — CREATE (writable fields only)
    Catatan:
-   - Field wajib: label, join_url, masjid_id, room_id
+   - Field wajib: label, join_url, masjid_id, room_id, platform
    - HostURL/MeetingID/Passcode/Notes opsional: "" => NULL (di-trim)
 ========================================================= */
 
@@ -23,12 +23,15 @@ type ClassRoomVirtualLinkCreateRequest struct {
 	ClassRoomVirtualLinkRoomID   uuid.UUID `json:"class_room_virtual_link_room_id"`
 
 	// Identitas link
-	ClassRoomVirtualLinkLabel   string `json:"class_room_virtual_link_label"`
-	ClassRoomVirtualLinkJoinURL string `json:"class_room_virtual_link_join_url"`
-	ClassRoomVirtualLinkHostURL string `json:"class_room_virtual_link_host_url"`
+	ClassRoomVirtualLinkLabel     string `json:"class_room_virtual_link_label"`
+	ClassRoomVirtualLinkJoinURL   string `json:"class_room_virtual_link_join_url"`
+	ClassRoomVirtualLinkHostURL   string `json:"class_room_virtual_link_host_url"`
 	ClassRoomVirtualLinkMeetingID string `json:"class_room_virtual_link_meeting_id"`
 	ClassRoomVirtualLinkPasscode  string `json:"class_room_virtual_link_passcode"`
 	ClassRoomVirtualLinkNotes     string `json:"class_room_virtual_link_notes"`
+
+	// Platform (wajib; ex: "zoom" | "google_meet" | "microsoft_teams" | "other")
+	ClassRoomVirtualLinkPlatform string `json:"class_room_virtual_link_platform"`
 
 	// Status
 	ClassRoomVirtualLinkIsActive bool `json:"class_room_virtual_link_is_active"`
@@ -53,6 +56,9 @@ type ClassRoomVirtualLinkResponse struct {
 	ClassRoomVirtualLinkPasscode  string `json:"class_room_virtual_link_passcode"`
 	ClassRoomVirtualLinkNotes     string `json:"class_room_virtual_link_notes"`
 
+	// Platform
+	ClassRoomVirtualLinkPlatform string `json:"class_room_virtual_link_platform"`
+
 	// Status
 	ClassRoomVirtualLinkIsActive bool `json:"class_room_virtual_link_is_active"`
 
@@ -66,6 +72,7 @@ type ClassRoomVirtualLinkResponse struct {
    Catatan:
    - nil → tidak diubah
    - Clear[] → set kolom opsional menjadi NULL eksplisit
+   - Platform TIDAK nullable → tidak ada di Clear
 ========================================================= */
 
 type ClassRoomVirtualLinkUpdateRequest struct {
@@ -80,6 +87,9 @@ type ClassRoomVirtualLinkUpdateRequest struct {
 	ClassRoomVirtualLinkMeetingID *string `json:"class_room_virtual_link_meeting_id"`
 	ClassRoomVirtualLinkPasscode  *string `json:"class_room_virtual_link_passcode"`
 	ClassRoomVirtualLinkNotes     *string `json:"class_room_virtual_link_notes"`
+
+	// Platform (non-nullable)
+	ClassRoomVirtualLinkPlatform *string `json:"class_room_virtual_link_platform"`
 
 	// Status
 	ClassRoomVirtualLinkIsActive *bool `json:"class_room_virtual_link_is_active"`
@@ -104,6 +114,7 @@ func FromModelClassRoomVirtualLink(m *clsModel.ClassRoomVirtualLinkModel) ClassR
 		ClassRoomVirtualLinkMeetingID: valOrEmpty(m.ClassRoomVirtualLinkMeetingID),
 		ClassRoomVirtualLinkPasscode:  valOrEmpty(m.ClassRoomVirtualLinkPasscode),
 		ClassRoomVirtualLinkNotes:     valOrEmpty(m.ClassRoomVirtualLinkNotes),
+		ClassRoomVirtualLinkPlatform:  string(m.ClassRoomVirtualLinkPlatform), // enum -> string
 		ClassRoomVirtualLinkIsActive:  m.ClassRoomVirtualLinkIsActive,
 		ClassRoomVirtualLinkCreatedAt: m.ClassRoomVirtualLinkCreatedAt,
 		ClassRoomVirtualLinkUpdatedAt: m.ClassRoomVirtualLinkUpdatedAt,
@@ -122,7 +133,11 @@ func ToModelClassRoomVirtualLink(in *ClassRoomVirtualLinkCreateRequest, id *uuid
 		ClassRoomVirtualLinkMeetingID: normalizeOptionalStringToPtr(in.ClassRoomVirtualLinkMeetingID),
 		ClassRoomVirtualLinkPasscode:  normalizeOptionalStringToPtr(in.ClassRoomVirtualLinkPasscode),
 		ClassRoomVirtualLinkNotes:     normalizeOptionalStringToPtr(in.ClassRoomVirtualLinkNotes),
-		ClassRoomVirtualLinkIsActive:  in.ClassRoomVirtualLinkIsActive,
+
+		// platform: DTO string -> model enum (string underlying)
+		ClassRoomVirtualLinkPlatform: clsModel.VirtualPlatform(strings.TrimSpace(in.ClassRoomVirtualLinkPlatform)),
+
+		ClassRoomVirtualLinkIsActive: in.ClassRoomVirtualLinkIsActive,
 	}
 	if id != nil && *id != uuid.Nil {
 		out.ClassRoomVirtualLinkID = *id
@@ -162,6 +177,11 @@ func ApplyUpdateClassRoomVirtualLink(m *clsModel.ClassRoomVirtualLinkModel, u *C
 	}
 	if u.ClassRoomVirtualLinkNotes != nil {
 		m.ClassRoomVirtualLinkNotes = normalizeOptionalStringToPtr(strings.TrimSpace(*u.ClassRoomVirtualLinkNotes))
+	}
+
+	// Platform (non-nullable)
+	if u.ClassRoomVirtualLinkPlatform != nil {
+		m.ClassRoomVirtualLinkPlatform = clsModel.VirtualPlatform(strings.TrimSpace(*u.ClassRoomVirtualLinkPlatform))
 	}
 
 	// Status

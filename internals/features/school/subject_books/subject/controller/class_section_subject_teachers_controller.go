@@ -40,12 +40,10 @@ func NewClassSectionSubjectTeacherController(db *gorm.DB) *ClassSectionSubjectTe
    /admin/:masjid_slug/class-section-subject-teachers
    =============================== */
 func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
-	// ✅ ambil konteks masjid dari path/header/query/host/token
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return err
 	}
-	// ✅ pastikan caller adalah DKM/Admin masjid tsb (gunakan helper baru)
 	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
 		return err
@@ -60,7 +58,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 	}
 
 	return ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// 1) SECTION harus ada & tenant cocok
+		// 1) SECTION exists & same tenant
 		var sec modelClassSection.ClassSectionModel
 		if err := tx.
 			Where("class_sections_id = ? AND class_sections_masjid_id = ? AND class_sections_deleted_at IS NULL",
@@ -72,11 +70,11 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek section")
 		}
 
-		// 2) CLASS_SUBJECTS harus ada; tenant sama; dan class_id cocok dgn section.class_id
+		// 2) CLASS_SUBJECTS exists, same tenant, matches section.class_id
 		var cs struct {
-			ClassSubjectsID       uuid.UUID `gorm:"column:class_subjects_id"`
-			ClassSubjectsMasjidID uuid.UUID `gorm:"column:class_subjects_masjid_id"`
-			ClassSubjectsClassID  uuid.UUID `gorm:"column:class_subjects_class_id"`
+			ClassSubjectsID       uuid.UUID
+			ClassSubjectsMasjidID uuid.UUID
+			ClassSubjectsClassID  uuid.UUID
 		}
 		if err := tx.Table("class_subjects").
 			Select("class_subjects_id, class_subjects_masjid_id, class_subjects_class_id").
@@ -92,11 +90,10 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Masjid mismatch: class_subjects milik masjid lain")
 		}
 		if cs.ClassSubjectsClassID != sec.ClassSectionsClassID {
-			return helper.JsonError(c, fiber.StatusBadRequest,
-				"Class mismatch: class_subjects.class_id != class_sections.class_id")
+			return helper.JsonError(c, fiber.StatusBadRequest, "Class mismatch: class_subjects.class_id != class_sections.class_id")
 		}
 
-		// 3) TEACHER harus ada & tenant cocok
+		// 3) TEACHER exists & same tenant (cek saja; tak ambil nama)
 		if err := tx.
 			Where("masjid_teacher_id = ? AND masjid_teacher_masjid_id = ? AND masjid_teacher_deleted_at IS NULL",
 				req.ClassSectionSubjectTeachersTeacherID, masjidID).
@@ -107,67 +104,45 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek guru")
 		}
 
-		// 4) Build row + force tenant + default aktif
+		// 4) Build row
 		row := req.ToModel()
 		row.ClassSectionSubjectTeachersMasjidID = masjidID
 		if !row.ClassSectionSubjectTeachersIsActive {
 			row.ClassSectionSubjectTeachersIsActive = true
 		}
 
-		// ========== SLUG: normalisasi/generate & pastikan unik ==========
-		// Normalisasi jika request mengirim slug
+		// ========== SLUG ==========
 		if row.ClassSectionSubjectTeachersSlug != nil {
 			s := helper.Slugify(*row.ClassSectionSubjectTeachersSlug, 160)
 			row.ClassSectionSubjectTeachersSlug = &s
 		}
-
 		if row.ClassSectionSubjectTeachersSlug == nil || strings.TrimSpace(*row.ClassSectionSubjectTeachersSlug) == "" {
-			// Rakit base slug dari entity terkait (best-effort), fallback aman
-			var sectionName, className, subjectName, teacherName string
+			var sectionName, subjectName string
 
-			// Ambil nama section (abaikan error supaya best-effort)
 			_ = tx.Table("class_sections").
 				Select("class_sections_name").
 				Where("class_sections_id = ? AND class_sections_masjid_id = ?", req.ClassSectionSubjectTeachersSectionID, masjidID).
 				Scan(&sectionName).Error
 
-			// Ambil nama class & subject dari class_subjects
-			_ = tx.Table("class_subjects cs").
-				Select("c.classes_name, s.subjects_name").
-				Joins("JOIN classes c ON c.classes_id = cs.class_subjects_class_id AND c.classes_deleted_at IS NULL").
-				Joins("JOIN subjects s ON s.subjects_id = cs.class_subjects_subject_id AND s.subjects_deleted_at IS NULL").
-				Where("cs.class_subjects_id = ? AND cs.class_subjects_masjid_id = ?", req.ClassSectionSubjectTeachersClassSubjectsID, masjidID).
-				Scan(&struct {
-					ClassesName  *string
-					SubjectsName *string
-				}{&className, &subjectName}).Error
+			_ = tx.Table("class_subjects AS cs").
+				Select("s.subjects_name").
+				Joins("JOIN subjects AS s ON s.subjects_id = cs.class_subjects_subject_id AND s.subjects_deleted_at IS NULL").
+				Where("cs.class_subjects_id = ? AND cs.class_subjects_masjid_id = ? AND cs.class_subjects_deleted_at IS NULL",
+					req.ClassSectionSubjectTeachersClassSubjectsID, masjidID).
+				Scan(&subjectName).Error
 
-			// Ambil nama guru (display), kolom sesuaikan dengan skema kamu
-			_ = tx.Table("masjid_teachers").
-				Select("masjid_teacher_name").
-				Where("masjid_teacher_id = ? AND masjid_teacher_masjid_id = ?", req.ClassSectionSubjectTeachersTeacherID, masjidID).
-				Scan(&teacherName).Error
-
-			parts := []string{}
-			if strings.TrimSpace(className) != "" {
-				parts = append(parts, className)
-			}
+			parts := make([]string, 0, 2)
 			if strings.TrimSpace(sectionName) != "" {
 				parts = append(parts, sectionName)
 			}
 			if strings.TrimSpace(subjectName) != "" {
 				parts = append(parts, subjectName)
 			}
-			// taruh teacher di belakang biar slug tak kepanjangan; bisa dihapus jika tak diinginkan
-			if strings.TrimSpace(teacherName) != "" {
-				parts = append(parts, teacherName)
-			}
 
 			base := "csst"
 			if len(parts) > 0 {
 				base = strings.Join(parts, " ")
 			} else {
-				// ultimate fallback: potongan UUID agar tetap deterministik
 				base = fmt.Sprintf("csst-%s-%s-%s",
 					strings.Split(req.ClassSectionSubjectTeachersSectionID.String(), "-")[0],
 					strings.Split(req.ClassSectionSubjectTeachersClassSubjectsID.String(), "-")[0],
@@ -177,13 +152,10 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			base = helper.Slugify(base, 160)
 
 			uniqueSlug, err := helper.EnsureUniqueSlugCI(
-				c.Context(),
-				tx,
-				"class_section_subject_teachers",
-				"class_section_subject_teachers_slug",
+				c.Context(), tx,
+				"class_section_subject_teachers", "class_section_subject_teachers_slug",
 				base,
 				func(q *gorm.DB) *gorm.DB {
-					// unik per tenant + soft-delete aware (selaras dengan index uq_csst_slug_per_tenant_alive)
 					return q.Where(`
 						class_section_subject_teachers_masjid_id = ?
 						AND class_section_subject_teachers_deleted_at IS NULL
@@ -196,12 +168,9 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			}
 			row.ClassSectionSubjectTeachersSlug = &uniqueSlug
 		} else {
-			// Slug diberikan → pastikan unik juga
 			uniqueSlug, err := helper.EnsureUniqueSlugCI(
-				c.Context(),
-				tx,
-				"class_section_subject_teachers",
-				"class_section_subject_teachers_slug",
+				c.Context(), tx,
+				"class_section_subject_teachers", "class_section_subject_teachers_slug",
 				*row.ClassSectionSubjectTeachersSlug,
 				func(q *gorm.DB) *gorm.DB {
 					return q.Where(`
@@ -218,6 +187,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		}
 		// ========== END SLUG ==========
 
+		// 5) INSERT
 		if err := tx.Create(&row).Error; err != nil {
 			msg := strings.ToLower(err.Error())
 			switch {
@@ -225,12 +195,9 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 				strings.Contains(msg, "uq_csst_unique_alive"),
 				strings.Contains(msg, "duplicate"),
 				strings.Contains(msg, "unique"):
-				// Bisa karena kombinasi guru/section/class_subjects duplikat ATAU slug bentrok
 				return helper.JsonError(c, fiber.StatusConflict, "Penugasan atau slug sudah terdaftar (duplikat).")
-
 			case strings.Contains(msg, "uq_csst_slug_per_tenant_alive"):
 				return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan pada tenant ini.")
-
 			case strings.Contains(msg, "23503"), strings.Contains(msg, "foreign key"):
 				switch {
 				case strings.Contains(msg, "class_sections"):

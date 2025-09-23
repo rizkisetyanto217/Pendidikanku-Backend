@@ -131,12 +131,67 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 			}
 		}
 		// Metadata
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_slug")); v != "" {
+			req.ClassAttendanceSessionSlug = &v
+		}
 		if v := strings.TrimSpace(c.FormValue("class_attendance_session_title")); v != "" {
 			req.ClassAttendanceSessionTitle = &v
 		}
 		req.ClassAttendanceSessionGeneralInfo = strings.TrimSpace(c.FormValue("class_attendance_session_general_info"))
 		if v := strings.TrimSpace(c.FormValue("class_attendance_session_note")); v != "" {
 			req.ClassAttendanceSessionNote = &v
+		}
+
+		// Lifecycle (opsional)
+		parseBoolPtr := func(name string) *bool {
+			if s := strings.TrimSpace(c.FormValue(name)); s != "" {
+				b := s == "1" || strings.EqualFold(s, "true")
+				return &b
+			}
+			return nil
+		}
+		req.ClassAttendanceSessionLocked = parseBoolPtr("class_attendance_session_locked")
+		req.ClassAttendanceSessionIsOverride = parseBoolPtr("class_attendance_session_is_override")
+		req.ClassAttendanceSessionIsCanceled = parseBoolPtr("class_attendance_session_is_canceled")
+
+		// override times / kind / reason
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_original_start_at")); v != "" {
+			if t, err := time.Parse(time.RFC3339, v); err == nil {
+				req.ClassAttendanceSessionOriginalStartAt = &t
+			}
+		}
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_original_end_at")); v != "" {
+			if t, err := time.Parse(time.RFC3339, v); err == nil {
+				req.ClassAttendanceSessionOriginalEndAt = &t
+			}
+		}
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_kind")); v != "" {
+			req.ClassAttendanceSessionKind = &v
+		}
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_override_reason")); v != "" {
+			req.ClassAttendanceSessionOverrideReason = &v
+		}
+
+		// override event/resources (UUID opsional)
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_override_event_id")); v != "" {
+			if id, err := uuid.Parse(v); err == nil {
+				req.ClassAttendanceSessionOverrideEventId = &id
+			}
+		}
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_override_attendance_event_id")); v != "" {
+			if id, err := uuid.Parse(v); err == nil {
+				req.ClassAttendanceSessionOverrideAttendanceEventId = &id
+			}
+		}
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_class_room_id")); v != "" {
+			if id, err := uuid.Parse(v); err == nil {
+				req.ClassAttendanceSessionClassRoomId = &id
+			}
+		}
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_csst_id")); v != "" {
+			if id, err := uuid.Parse(v); err == nil {
+				req.ClassAttendanceSessionCSSTId = &id
+			}
 		}
 
 		// URLs via JSON field
@@ -221,7 +276,6 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 		if req.ClassAttendanceSessionTeacherId == nil {
 			req.ClassAttendanceSessionTeacherId = sch.TeacherID
 		}
-
 		// 2) Validasi TEACHER (opsional)
 		if req.ClassAttendanceSessionTeacherId != nil {
 			var row struct {
@@ -292,7 +346,7 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 				u.Normalize()
 				row := attendanceModel.ClassAttendanceSessionURLModel{
 					ClassAttendanceSessionURLMasjidID:  masjidID,
-					ClassAttendanceSessionURLSessionID: m.ClassAttendanceSessionId,
+					ClassAttendanceSessionURLSessionID: m.ClassAttendanceSessionsID,
 					ClassAttendanceSessionURLKind:      u.Kind,
 					ClassAttendanceSessionURLLabel:     u.Label,
 					ClassAttendanceSessionURLHref:      u.Href,
@@ -313,7 +367,7 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 				u.Normalize()
 				row := attendanceModel.ClassAttendanceSessionURLModel{
 					ClassAttendanceSessionURLMasjidID:  masjidID,
-					ClassAttendanceSessionURLSessionID: m.ClassAttendanceSessionId,
+					ClassAttendanceSessionURLSessionID: m.ClassAttendanceSessionsID,
 					ClassAttendanceSessionURLKind:      u.Kind,
 					ClassAttendanceSessionURLLabel:     u.Label,
 					ClassAttendanceSessionURLHref:      u.Href,
@@ -354,7 +408,7 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 						if row == nil {
 							urlItems = append(urlItems, attendanceModel.ClassAttendanceSessionURLModel{
 								ClassAttendanceSessionURLMasjidID:  masjidID,
-								ClassAttendanceSessionURLSessionID: m.ClassAttendanceSessionId,
+								ClassAttendanceSessionURLSessionID: m.ClassAttendanceSessionsID,
 								ClassAttendanceSessionURLKind:      "attachment",
 								ClassAttendanceSessionURLOrder:     len(urlItems) + 1,
 							})
@@ -374,7 +428,7 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 
 		// Konsistensi foreign & tenant
 		for _, it := range urlItems {
-			if it.ClassAttendanceSessionURLSessionID != m.ClassAttendanceSessionId {
+			if it.ClassAttendanceSessionURLSessionID != m.ClassAttendanceSessionsID {
 				return fiber.NewError(fiber.StatusBadRequest, "URL item tidak merujuk ke sesi yang sama")
 			}
 			if it.ClassAttendanceSessionURLMasjidID != masjidID {
@@ -398,7 +452,7 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 							AND class_attendance_session_url_id <> ?
 							AND class_attendance_session_url_deleted_at IS NULL
 						`,
-							masjidID, m.ClassAttendanceSessionId, it.ClassAttendanceSessionURLKind, it.ClassAttendanceSessionURLID,
+							masjidID, m.ClassAttendanceSessionsID, it.ClassAttendanceSessionURLKind, it.ClassAttendanceSessionURLID,
 						).
 						Update("class_attendance_session_url_is_primary", false).Error; err != nil {
 						return fiber.NewError(fiber.StatusInternalServerError, "Gagal set primary lampiran")
@@ -420,7 +474,7 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 	// Ambil URLs ringkas utk response
 	var rows []attendanceModel.ClassAttendanceSessionURLModel
 	_ = ctrl.DB.
-		Where("class_attendance_session_url_session_id = ? AND class_attendance_session_url_deleted_at IS NULL", m.ClassAttendanceSessionId).
+		Where("class_attendance_session_url_session_id = ? AND class_attendance_session_url_deleted_at IS NULL", m.ClassAttendanceSessionsID).
 		Order("class_attendance_session_url_order ASC, class_attendance_session_url_created_at ASC").
 		Find(&rows)
 
@@ -428,25 +482,11 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 		lite := attendanceDTO.ToClassAttendanceSessionURLLite(&rows[i])
 		// Pastikan Href tidak kosong supaya FE enak render
 		if strings.TrimSpace(lite.Href) != "" {
-			// kamu juga bisa menaruh di resp.ClassAttendanceSessionUrls (versi full) jika mau
-			// di sini contoh: embed lite ke field list full milik response (opsional)
-			resp.ClassAttendanceSessionUrls = append(resp.ClassAttendanceSessionUrls, attendanceDTO.ClassAttendanceSessionURL{
-				ClassAttendanceSessionURLId:        rows[i].ClassAttendanceSessionURLID,
-				ClassAttendanceSessionURLMasjidId:  rows[i].ClassAttendanceSessionURLMasjidID,
-				ClassAttendanceSessionURLSessionId: rows[i].ClassAttendanceSessionURLSessionID,
-				ClassAttendanceSessionURLKind:      rows[i].ClassAttendanceSessionURLKind,
-				ClassAttendanceSessionURLHref:      rows[i].ClassAttendanceSessionURLHref,
-				ClassAttendanceSessionURLObjectKey: rows[i].ClassAttendanceSessionURLObjectKey,
-				ClassAttendanceSessionURLLabel:     rows[i].ClassAttendanceSessionURLLabel,
-				ClassAttendanceSessionURLOrder:     rows[i].ClassAttendanceSessionURLOrder,
-				ClassAttendanceSessionURLIsPrimary: rows[i].ClassAttendanceSessionURLIsPrimary,
-				ClassAttendanceSessionURLCreatedAt: rows[i].ClassAttendanceSessionURLCreatedAt,
-				ClassAttendanceSessionURLUpdatedAt: rows[i].ClassAttendanceSessionURLUpdatedAt,
-			})
+			resp.ClassAttendanceSessionUrls = append(resp.ClassAttendanceSessionUrls, lite)
 		}
 	}
 
-	c.Set("Location", fmt.Sprintf("/admin/class-attendance-sessions/%s", m.ClassAttendanceSessionId.String()))
+	c.Set("Location", fmt.Sprintf("/admin/class-attendance-sessions/%s", m.ClassAttendanceSessionsID.String()))
 	return helper.JsonCreated(c, "Sesi kehadiran & lampiran berhasil dibuat", resp)
 }
 
@@ -481,7 +521,7 @@ func (ctrl *ClassAttendanceSessionController) PatchClassAttendanceSessionUrl(c *
 			masjidID = id
 		}
 		if masjidID == uuid.Nil || !helperAuth.UserHasMasjid(c, masjidID) {
-			return helper.JsonError(c, http.StatusForbidden, "Scope masjid tidak valid untuk Teacher")
+			return helper.JsonError(c, fiber.StatusForbidden, "Scope masjid tidak valid untuk Teacher")
 		}
 	default:
 		return fiber.NewError(fiber.StatusUnauthorized, "Tidak diizinkan")
@@ -500,6 +540,8 @@ func (ctrl *ClassAttendanceSessionController) PatchClassAttendanceSessionUrl(c *
 	if err := c.BodyParser(&p); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
+	// pastikan ID patch sesuai path
+	p.ID = urlID
 	p.Normalize()
 	if err := validator.New().Struct(p); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -549,10 +591,9 @@ func (ctrl *ClassAttendanceSessionController) PatchClassAttendanceSessionUrl(c *
 			} else {
 				if row.ClassAttendanceSessionURLHref != nil && row.ClassAttendanceSessionURLObjectKey != nil {
 					if spamURL, err := helperOSS.MoveToSpamByPublicURLENV(*row.ClassAttendanceSessionURLHref, 10*time.Second); err == nil {
-						// catat object_key lama ke *_old untuk ditandai purge
 						patch["class_attendance_session_url_object_key_old"] = *row.ClassAttendanceSessionURLObjectKey
 						patch["class_attendance_session_url_delete_pending_until"] = time.Now().Add(7 * 24 * time.Hour)
-						_ = spamURL // hanya info; tidak disimpan
+						_ = spamURL
 					}
 				}
 				patch["class_attendance_session_url_href"] = newHref
@@ -615,9 +656,8 @@ func (ctrl *ClassAttendanceSessionController) PatchClassAttendanceSessionUrl(c *
 }
 
 /*
-	=========================================================
-	  DELETE /admin/class-attendance-sessions/:id?force=true
-
+=========================================================
+DELETE /admin/class-attendance-sessions/:id/urls/:url_id?hard=true
 =========================================================
 */
 func (ctrl *ClassAttendanceSessionController) DeleteClassAttendanceSessionUrl(c *fiber.Ctx) error {
@@ -625,22 +665,32 @@ func (ctrl *ClassAttendanceSessionController) DeleteClassAttendanceSessionUrl(c 
 		return fiber.NewError(fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
 	}
 	mc, er := helperAuth.ResolveMasjidContext(c)
-	if er != nil { return helper.JsonError(c, er.(*fiber.Error).Code, er.Error()) }
+	if er != nil {
+		return helper.JsonError(c, er.(*fiber.Error).Code, er.Error())
+	}
 
 	var masjidID uuid.UUID
 	isAdmin := false
 	switch {
 	case helperAuth.IsOwner(c) || helperAuth.IsDKM(c):
-		id, er := helperAuth.EnsureMasjidAccessDKM(c, mc); if er != nil {
+		id, er := helperAuth.EnsureMasjidAccessDKM(c, mc)
+		if er != nil {
 			return helper.JsonError(c, er.(*fiber.Error).Code, er.Error())
 		}
-		masjidID = id; isAdmin = true
+		masjidID = id
+		isAdmin = true
 	case helperAuth.IsTeacher(c):
-		if mc.ID != uuid.Nil { masjidID = mc.ID
+		if mc.ID != uuid.Nil {
+			masjidID = mc.ID
 		} else if strings.TrimSpace(mc.Slug) != "" {
-			id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug); if er != nil { return helper.JsonError(c, http.StatusNotFound, "Masjid (slug) tidak ditemukan") }
+			id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+			if er != nil {
+				return helper.JsonError(c, http.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			}
 			masjidID = id
-		} else if id, er := helperAuth.GetActiveMasjidID(c); er == nil && id != uuid.Nil { masjidID = id }
+		} else if id, er := helperAuth.GetActiveMasjidID(c); er == nil && id != uuid.Nil {
+			masjidID = id
+		}
 		if masjidID == uuid.Nil || !helperAuth.UserHasMasjid(c, masjidID) {
 			return helper.JsonError(c, fiber.StatusForbidden, "Scope masjid tidak valid untuk Teacher")
 		}
@@ -649,12 +699,18 @@ func (ctrl *ClassAttendanceSessionController) DeleteClassAttendanceSessionUrl(c 
 	}
 
 	sessionID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil { return fiber.NewError(fiber.StatusBadRequest, "Session ID tidak valid") }
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "Session ID tidak valid")
+	}
 	urlID, err := uuid.Parse(strings.TrimSpace(c.Params("url_id")))
-	if err != nil { return fiber.NewError(fiber.StatusBadRequest, "URL ID tidak valid") }
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "URL ID tidak valid")
+	}
 
 	hard := strings.EqualFold(c.Query("hard"), "true")
-	if hard && !isAdmin { return fiber.NewError(fiber.StatusForbidden, "Hanya admin yang boleh hard delete") }
+	if hard && !isAdmin {
+		return fiber.NewError(fiber.StatusForbidden, "Hanya admin yang boleh hard delete")
+	}
 
 	if err := ctrl.DB.Transaction(func(tx *gorm.DB) error {
 		var row attendanceModel.ClassAttendanceSessionURLModel
@@ -664,7 +720,9 @@ func (ctrl *ClassAttendanceSessionController) DeleteClassAttendanceSessionUrl(c 
 				AND class_attendance_session_url_masjid_id = ?
 				AND class_attendance_session_url_deleted_at IS NULL
 			`, urlID, sessionID, masjidID).Take(&row).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) { return fiber.NewError(fiber.StatusNotFound, "URL tidak ditemukan") }
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fiber.NewError(fiber.StatusNotFound, "URL tidak ditemukan")
+			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil URL")
 		}
 

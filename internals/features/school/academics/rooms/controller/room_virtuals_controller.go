@@ -1,3 +1,4 @@
+// file: internals/features/school/academics/rooms/controller/class_room_virtual_link_controller.go
 package controller
 
 import (
@@ -25,6 +26,41 @@ type ClassRoomVirtualLinkController struct {
 
 func NewClassRoomVirtualLinkController(db *gorm.DB) *ClassRoomVirtualLinkController {
 	return &ClassRoomVirtualLinkController{DB: db}
+}
+
+/* ===================== helpers ===================== */
+
+// Ambil {masjid_id, id} dari path params dan fetch data.
+// withDeleted=true -> pakai Unscoped (ikut data soft-deleted).
+func (h *ClassRoomVirtualLinkController) findByIDFromParams(c *fiber.Ctx, withDeleted bool) (*clsModel.ClassRoomVirtualLinkModel, error) {
+	masjidIDStr := strings.TrimSpace(c.Params("masjid_id"))
+	idStr := strings.TrimSpace(c.Params("id"))
+
+	masjidID, err := uuid.Parse(masjidIDStr)
+	if err != nil {
+		return nil, helper.JsonError(c, fiber.StatusBadRequest, "masjid_id tidak valid")
+	}
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		return nil, helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+	}
+
+	db := h.DB
+	if withDeleted {
+		db = db.Unscoped()
+	}
+
+	var m clsModel.ClassRoomVirtualLinkModel
+	if err := db.Where(
+		"class_room_virtual_link_id = ? AND class_room_virtual_link_masjid_id = ?",
+		id, masjidID,
+	).First(&m).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
+		}
+		return nil, helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
+	}
+	return &m, nil
 }
 
 /* ===================== HANDLERS ===================== */
@@ -59,10 +95,13 @@ func (h *ClassRoomVirtualLinkController) Create(c *fiber.Ctx) error {
 	if strings.TrimSpace(req.ClassRoomVirtualLinkJoinURL) == "" {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Join URL wajib diisi")
 	}
+	if strings.TrimSpace(req.ClassRoomVirtualLinkPlatform) == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Platform wajib diisi")
+	}
 
 	m := clsDTO.ToModelClassRoomVirtualLink(&req, nil)
 
-	// Pastikan setiap transaksi menulis masjid_id
+	// Tulis
 	if err := h.DB.Create(m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat virtual link")
 	}
@@ -77,17 +116,11 @@ func (h *ClassRoomVirtualLinkController) Update(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
-	if err != nil {
+	if _, err := helperAuth.EnsureMasjidAccessDKM(c, mc); err != nil {
 		return err
 	}
 
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-
-	m, err := h.findByID(masjidID, id, false)
+	m, err := h.findByIDFromParams(c, false)
 	if err != nil {
 		return err
 	}
@@ -113,114 +146,38 @@ func (h *ClassRoomVirtualLinkController) Delete(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
-	if err != nil {
+	if _, err := helperAuth.EnsureMasjidAccessDKM(c, mc); err != nil {
 		return err
 	}
 
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
 	hard := strings.EqualFold(c.Query("hard"), "true")
 
-	m, err := h.findByID(masjidID, id, hard)
+	// Jika hard=true → ambil termasuk yang sudah terhapus (biar bisa di-hard-delete ulang)
+	m, err := h.findByIDFromParams(c, hard)
 	if err != nil {
 		return err
 	}
 
 	if hard {
+		// Hard delete (pakai Unscoped)
 		if err := h.DB.Unscoped().
-			Where("class_room_virtual_link_id = ? AND class_room_virtual_link_masjid_id = ?", m.ClassRoomVirtualLinkID, masjidID).
+			Where("class_room_virtual_link_id = ? AND class_room_virtual_link_masjid_id = ?",
+				m.ClassRoomVirtualLinkID, m.ClassRoomVirtualLinkMasjidID).
 			Delete(&clsModel.ClassRoomVirtualLinkModel{}).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus permanen")
 		}
 		return helper.JsonDeleted(c, "Virtual link dihapus permanen", fiber.Map{"id": m.ClassRoomVirtualLinkID})
 	}
 
+	// Soft delete:
+	// - Jika model menggunakan gorm.DeletedAt → baris di bawah akan set kolom deleted_at otomatis.
+	// - Jika model masih *time.Time → ini akan hard delete; bila ingin soft delete manual,
+	//   ganti ke Update kolom deleted_at = now() sesuai preferensi kamu.
 	if err := h.DB.
-		Where("class_room_virtual_link_id = ? AND class_room_virtual_link_masjid_id = ?", m.ClassRoomVirtualLinkID, masjidID).
+		Where("class_room_virtual_link_id = ? AND class_room_virtual_link_masjid_id = ?",
+			m.ClassRoomVirtualLinkID, m.ClassRoomVirtualLinkMasjidID).
 		Delete(&clsModel.ClassRoomVirtualLinkModel{}).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus virtual link")
 	}
 	return helper.JsonDeleted(c, "Virtual link dihapus", fiber.Map{"id": m.ClassRoomVirtualLinkID})
-}
-
-// POST /admin/:masjid_id/class-room-virtual-links/:id/restore
-func (h *ClassRoomVirtualLinkController) Restore(c *fiber.Ctx) error {
-	// === Masjid context (DKM only) ===
-	mc, err := helperAuth.ResolveMasjidContext(c)
-	if err != nil {
-		return err
-	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
-	if err != nil {
-		return err
-	}
-
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-
-	m, err := h.findByID(masjidID, id, true)
-	if err != nil {
-		return err
-	}
-	if !m.ClassRoomVirtualLinkDeletedAt.Valid {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Data tidak dalam status terhapus")
-	}
-
-	if err := h.DB.Unscoped().
-		Model(&clsModel.ClassRoomVirtualLinkModel{}).
-		Where("class_room_virtual_link_id = ? AND class_room_virtual_link_masjid_id = ?", id, masjidID).
-		Update("class_room_virtual_link_deleted_at", nil).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memulihkan virtual link")
-	}
-
-	m, _ = h.findByID(masjidID, id, false)
-	return helper.JsonOK(c, "Virtual link dipulihkan", clsDTO.FromModelClassRoomVirtualLink(m))
-}
-
-// GET /admin/:masjid_id/class-room-virtual-links/:id
-func (h *ClassRoomVirtualLinkController) Detail(c *fiber.Ctx) error {
-	// === Masjid context (DKM only) ===
-	mc, err := helperAuth.ResolveMasjidContext(c)
-	if err != nil {
-		return err
-	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
-	if err != nil {
-		return err
-	}
-
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-	m, err := h.findByID(masjidID, id, false)
-	if err != nil {
-		return err
-	}
-	return helper.JsonOK(c, "Detail virtual link", clsDTO.FromModelClassRoomVirtualLink(m))
-}
-
-/* ===================== HELPERS ===================== */
-
-// findByID: selalu filter ke masjid_id agar tenant-safe.
-func (h *ClassRoomVirtualLinkController) findByID(masjidID, id uuid.UUID, includeDeleted bool) (*clsModel.ClassRoomVirtualLinkModel, error) {
-	var m clsModel.ClassRoomVirtualLinkModel
-	dbq := h.DB.Model(&clsModel.ClassRoomVirtualLinkModel{})
-	if includeDeleted {
-		dbq = dbq.Unscoped()
-	}
-	if err := dbq.
-		Where("class_room_virtual_link_id = ? AND class_room_virtual_link_masjid_id = ?", id, masjidID).
-		First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fiber.NewError(fiber.StatusNotFound, "Virtual link tidak ditemukan")
-		}
-		return nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-	return &m, nil
 }
