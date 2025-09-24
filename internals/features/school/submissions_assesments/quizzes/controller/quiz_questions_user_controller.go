@@ -11,12 +11,6 @@ import (
 	"github.com/google/uuid"
 )
 
-/* =========================================================
-   READ (User/Admin/Teacher)
-========================================================= */
-
-// GET /quiz-questions
-// Query: quiz_id, type, q, page, per_page, sort
 // GET /quiz-questions
 // Query: quiz_id, type, q, page, per_page, sort
 func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
@@ -47,8 +41,8 @@ func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 	}
 
 	// 2) Authorize: minimal member masjid (semua role)
-	if !helperAuth.UserHasMasjid(c, mid) {
-		return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar pada masjid ini (membership).")
+	if err := helperAuth.EnsureMemberMasjid(c, mid); err != nil {
+		return err
 	}
 
 	// 3) Query params
@@ -64,11 +58,11 @@ func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 	q := c.Query("q")
 	sort := c.Query("sort")
 
-	// pagination
+	// pagination (0-based page; kompatibel dgn pageOffset helper yg sudah ada)
 	limit := atoiOr(20, c.Query("per_page"), c.Query("limit"))
 	offset := pageOffset(atoiOr(0, c.Query("page")), limit)
 
-	// 4) Query data (tenant-scoped)
+	// 4) Query data (tenant-scoped, kolom singular)
 	dbq := ctl.DB.WithContext(c.Context()).Model(&qmodel.QuizQuestionModel{})
 	dbq = ctl.applyFilters(dbq, mid, quizID, qType, q)
 

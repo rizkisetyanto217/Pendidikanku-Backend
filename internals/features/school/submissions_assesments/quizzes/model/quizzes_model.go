@@ -1,4 +1,3 @@
-// internals/features/school/quizzes/model/quiz_model.go
 package model
 
 import (
@@ -8,25 +7,36 @@ import (
 	"gorm.io/gorm"
 )
 
+/* =========================================================
+   Quiz (quizzes)
+   ========================================================= */
+
 type QuizModel struct {
-	QuizzesID           uuid.UUID      `gorm:"column:quizzes_id;type:uuid;primaryKey;default:gen_random_uuid()" json:"quizzes_id"`
-	QuizzesMasjidID     uuid.UUID      `gorm:"column:quizzes_masjid_id;type:uuid;not null"                     json:"quizzes_masjid_id"`
-	QuizzesAssessmentID *uuid.UUID     `gorm:"column:quizzes_assessment_id;type:uuid"                          json:"quizzes_assessment_id,omitempty"`
+	// PK
+	QuizID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:quiz_id" json:"quiz_id"`
 
-	// SLUG (opsional; unik per tenant saat alive)
-	QuizzesSlug *string `gorm:"column:quizzes_slug;type:varchar(160)" json:"quizzes_slug,omitempty"`
+	// Tenant
+	QuizMasjidID uuid.UUID `gorm:"type:uuid;not null;column:quiz_masjid_id" json:"quiz_masjid_id"`
 
-	QuizzesTitle        string   `gorm:"column:quizzes_title;type:varchar(180);not null" json:"quizzes_title"`
-	QuizzesDescription  *string  `gorm:"column:quizzes_description;type:text"            json:"quizzes_description,omitempty"`
-	QuizzesIsPublished  bool     `gorm:"column:quizzes_is_published;not null;default:false" json:"quizzes_is_published"`
-	QuizzesTimeLimitSec *int     `gorm:"column:quizzes_time_limit_sec"                   json:"quizzes_time_limit_sec,omitempty"`
+	// Opsional relasi ke assessments
+	QuizAssessmentID *uuid.UUID `gorm:"type:uuid;column:quiz_assessment_id" json:"quiz_assessment_id,omitempty"`
 
-	QuizzesCreatedAt time.Time     `gorm:"column:quizzes_created_at;type:timestamptz;not null;autoCreateTime" json:"quizzes_created_at"`
-	QuizzesUpdatedAt time.Time     `gorm:"column:quizzes_updated_at;type:timestamptz;not null;autoUpdateTime" json:"quizzes_updated_at"`
-	QuizzesDeletedAt gorm.DeletedAt`gorm:"column:quizzes_deleted_at;index"                                     json:"quizzes_deleted_at,omitempty"`
+	// Slug (opsional; unik per tenant saat alive via migration)
+	QuizSlug *string `gorm:"type:varchar(160);column:quiz_slug" json:"quiz_slug,omitempty"`
 
-	// Relasi ke table pertanyaan (sesuaikan nama field FK di model question-mu)
-	Questions []QuizQuestionModel `gorm:"foreignKey:QuizQuestionsQuizID;references:QuizzesID" json:"-"`
+	// Konten
+	QuizTitle        string  `gorm:"type:varchar(180);not null;column:quiz_title" json:"quiz_title"`
+	QuizDescription  *string `gorm:"type:text;column:quiz_description" json:"quiz_description,omitempty"`
+	QuizIsPublished  bool    `gorm:"type:boolean;not null;default:false;column:quiz_is_published" json:"quiz_is_published"`
+	QuizTimeLimitSec *int    `gorm:"type:int;column:quiz_time_limit_sec" json:"quiz_time_limit_sec,omitempty"`
+
+	// Timestamps (custom names)
+	QuizCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();autoCreateTime;column:quiz_created_at" json:"quiz_created_at"`
+	QuizUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();autoUpdateTime;column:quiz_updated_at" json:"quiz_updated_at"`
+	QuizDeletedAt gorm.DeletedAt `gorm:"column:quiz_deleted_at;index" json:"quiz_deleted_at,omitempty"`
+
+	// Children
+	Questions []QuizQuestionModel `gorm:"foreignKey:QuizQuestionQuizID;references:QuizID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"questions,omitempty"`
 }
 
 func (QuizModel) TableName() string { return "quizzes" }

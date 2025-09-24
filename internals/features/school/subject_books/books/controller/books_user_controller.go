@@ -1,3 +1,4 @@
+// file: internals/features/lembaga/class_books/controller/books_controller.go
 package controller
 
 import (
@@ -30,15 +31,15 @@ func bPtr(v *bool) bool {
 
 // ----------------------------------------------------------
 // GET /api/a/books/list
-// List ringan by default. Expansion on-demand lewat ?include=...
 // include:
-//   - usages         → muat relasi pemakaian (class_subject_books → sections)
+//   - usages         → relasi pemakaian (class_subject_books → sections)
 //   - primary_url    → ambil 1 URL utama (download/purchase/desc) via LATERAL
 //   - cover          → ambil cover terbaru via LATERAL
-//   - urls / images / book_urls → daftar URL (cover/desc/…) + pagination per-buku
+//   - urls/images/book_urls → daftar URL (cover/desc/…) + pagination per-buku
 //   - all            → semua di atas
 //
-// Catatan: kirim img_* (img_types,img_page,img_per_page) juga akan memaksa include daftar URL.
+// Catatan: img_* (img_types,img_page,img_per_page) akan memaksa include daftar URL.
+// GET /api/a/books/list
 func (h *BooksController) List(c *fiber.Ctx) error {
 	// ===== Masjid context (PUBLIC): no role check =====
 	mc, err := helperAuth.ResolveMasjidContext(c)
@@ -88,32 +89,36 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		wantBookURLs = true
 	}
 
-	// ---------- buku pagination ----------
-	limit := 20
-	offset := 0
-	if q.Limit != nil && *q.Limit > 0 && *q.Limit <= 200 {
-		limit = *q.Limit
-	}
-	if q.Offset != nil && *q.Offset >= 0 {
-		offset = *q.Offset
-	}
+	// ---------- Pagination & sorting via helper ----------
+	// default: sort_by=created_at, order=desc, preset AdminOpts
+	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
 
-	// ---------- order ----------
-	orderBy := "b.books_created_at"
+	// Back-compat: ?order_by & ?sort dari DTO lama
 	if q.OrderBy != nil {
 		switch strings.ToLower(strings.TrimSpace(*q.OrderBy)) {
-		case "books_title":
-			orderBy = "b.books_title"
-		case "books_author":
-			orderBy = "b.books_author"
+		case "book_title":
+			p.SortBy = "title"
+		case "book_author":
+			p.SortBy = "author"
 		case "created_at":
-			orderBy = "b.books_created_at"
+			p.SortBy = "created_at"
 		}
 	}
-	sortDir := "DESC"
-	if q.Sort != nil && strings.EqualFold(strings.TrimSpace(*q.Sort), "asc") {
-		sortDir = "ASC"
+	if q.Sort != nil && strings.TrimSpace(*q.Sort) != "" {
+		p.SortOrder = strings.ToLower(strings.TrimSpace(*q.Sort)) // asc|desc (helper sudah guard)
 	}
+
+	// Whitelist ORDER BY (aman)
+	allowedSort := map[string]string{
+		"created_at": "b.book_created_at",
+		"title":      "b.book_title",
+		"author":     "b.book_author",
+	}
+	orderClause, err := p.SafeOrderClause(allowedSort, "created_at")
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "sort_by tidak valid")
+	}
+	orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
 
 	// ---------- Filter by ID (single/multi) ----------
 	parseIDsCSV := func(s string) ([]uuid.UUID, error) {
@@ -141,9 +146,9 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	}
 	if len(idFilter) == 0 {
 		var e2 error
-		idFilter, e2 = parseIDsCSV(c.Query("books_id"))
+		idFilter, e2 = parseIDsCSV(c.Query("book_id")) // singkron ke kolom singular
 		if e2 != nil {
-			return helper.JsonError(c, 400, "books_id berisi UUID tidak valid")
+			return helper.JsonError(c, 400, "book_id berisi UUID tidak valid")
 		}
 	}
 
@@ -151,37 +156,38 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	// 1) QUERY DASAR: hanya tabel books (+ optional primary/cover)
 	// ======================================================
 	base := h.DB.Table("books AS b").
-		Where("b.books_masjid_id = ?", masjidID)
+		Where("b.book_masjid_id = ?", masjidID)
 	if q.WithDeleted == nil || !*q.WithDeleted {
-		base = base.Where("b.books_deleted_at IS NULL")
+		base = base.Where("b.book_deleted_at IS NULL")
 	}
 	if len(idFilter) > 0 {
-		base = base.Where("b.books_id IN ?", idFilter)
-		limit = len(idFilter)
-		offset = 0
+		base = base.Where("b.book_id IN ?", idFilter)
+		// tampilkan semua requested ids dalam satu halaman
+		p.Page = 1
+		p.PerPage = len(idFilter)
 	}
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
 		needle := "%" + strings.TrimSpace(*q.Q) + "%"
 		base = base.Where(h.DB.
-			Where("b.books_title ILIKE ?", needle).
-			Or("b.books_author ILIKE ?", needle).
-			Or("b.books_desc ILIKE ?", needle))
+			Where("b.book_title ILIKE ?", needle).
+			Or("b.book_author ILIKE ?", needle).
+			Or("b.book_desc ILIKE ?", needle))
 	}
 	if q.Author != nil && strings.TrimSpace(*q.Author) != "" {
-		base = base.Where("b.books_author ILIKE ?", strings.TrimSpace(*q.Author))
+		base = base.Where("b.book_author ILIKE ?", strings.TrimSpace(*q.Author))
 	}
 
-	// Tambahkan LATERAL join hanya jika diminta
+	// LATERAL primary_url
 	if wantPrimary {
 		base = base.Joins(`
 			LEFT JOIN LATERAL (
 				SELECT bu.book_url_href
 				FROM book_urls AS bu
-				WHERE bu.book_url_book_id = b.books_id
+				WHERE bu.book_url_book_id = b.book_id
 				  AND bu.book_url_deleted_at IS NULL
-				  AND bu.book_url_type IN ('download','purchase','desc')
+				  AND bu.book_url_kind IN ('download','purchase','desc')
 				ORDER BY
-				  CASE bu.book_url_type
+				  CASE bu.book_url_kind
 				    WHEN 'download' THEN 1
 				    WHEN 'purchase' THEN 2
 				    WHEN 'desc' THEN 3
@@ -192,14 +198,15 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 			) bu ON TRUE
 		`)
 	}
+	// LATERAL cover
 	if wantCover {
 		base = base.Joins(`
 			LEFT JOIN LATERAL (
 				SELECT bu2.book_url_href
 				FROM book_urls AS bu2
-				WHERE bu2.book_url_book_id = b.books_id
+				WHERE bu2.book_url_book_id = b.book_id
 				  AND bu2.book_url_deleted_at IS NULL
-				  AND bu2.book_url_type = 'cover'
+				  AND bu2.book_url_kind = 'cover'
 				ORDER BY bu2.book_url_created_at DESC
 				LIMIT 1
 			) bu_cover ON TRUE
@@ -209,48 +216,49 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	// total books
 	var total int64
 	if err := base.Session(&gorm.Session{}).
-		Distinct("b.books_id").
+		Distinct("b.book_id").
 		Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
 	}
 
 	// select kolom dasar (+optional primary/cover)
 	type bookRow struct {
-		BID       uuid.UUID `gorm:"column:books_id"`
-		BMasjidID uuid.UUID `gorm:"column:books_masjid_id"`
-		BTitle    string    `gorm:"column:books_title"`
-		BAuthor   *string   `gorm:"column:books_author"`
-		BDesc     *string   `gorm:"column:books_desc"`
-		BSlug     *string   `gorm:"column:books_slug"`
-		BURL      *string   `gorm:"column:books_url"`
-		BImageURL *string   `gorm:"column:books_image_url"`
+		BID       uuid.UUID `gorm:"column:book_id"`
+		BMasjidID uuid.UUID `gorm:"column:book_masjid_id"`
+		BTitle    string    `gorm:"column:book_title"`
+		BAuthor   *string   `gorm:"column:book_author"`
+		BDesc     *string   `gorm:"column:book_desc"`
+		BSlug     *string   `gorm:"column:book_slug"`
+		BURL      *string   `gorm:"column:book_url"`
+		BImageURL *string   `gorm:"column:book_image_url"`
 	}
 
 	selectCols := []string{
-		"b.books_id",
-		"b.books_masjid_id",
-		"b.books_title",
-		"b.books_author",
-		"b.books_desc",
-		"b.books_slug",
+		"b.book_id",
+		"b.book_masjid_id",
+		"b.book_title",
+		"b.book_author",
+		"b.book_desc",
+		"b.book_slug",
 	}
 	if wantPrimary {
-		selectCols = append(selectCols, "bu.book_url_href AS books_url")
+		selectCols = append(selectCols, "bu.book_url_href AS book_url")
 	}
 	if wantCover {
-		selectCols = append(selectCols, "bu_cover.book_url_href AS books_image_url")
+		selectCols = append(selectCols, "bu_cover.book_url_href AS book_image_url")
 	}
 
 	var bookRows []bookRow
 	if err := base.
 		Select(strings.Join(selectCols, ",\n")).
-		Order(orderBy + " " + sortDir).
-		Limit(limit).Offset(offset).
+		Order(orderExpr).
+		Limit(p.Limit()).Offset(p.Offset()).
 		Scan(&bookRows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data buku")
 	}
 	if len(bookRows) == 0 {
-		return helper.JsonList(c, []any{}, fiber.Map{"limit": limit, "offset": offset, "total": int(total)})
+		meta := helper.BuildMeta(total, p)
+		return helper.JsonList(c, []any{}, meta)
 	}
 
 	// map dasar buku
@@ -258,15 +266,15 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	orderIDs := make([]uuid.UUID, 0, len(bookRows))
 	for _, r := range bookRows {
 		bookMap[r.BID] = &dto.BookWithUsagesResponse{
-			BooksID:       r.BID,
-			BooksMasjidID: r.BMasjidID,
-			BooksTitle:    r.BTitle,
-			BooksAuthor:   r.BAuthor,
-			BooksDesc:     r.BDesc,
-			BooksSlug:     r.BSlug,
-			BooksURL:      r.BURL,
-			BooksImageURL: r.BImageURL,
-			Usages:        []dto.BookUsage{},
+			BookID:       r.BID,
+			BookMasjidID: r.BMasjidID,
+			BookTitle:    r.BTitle,
+			BookAuthor:   r.BAuthor,
+			BookDesc:     r.BDesc,
+			BookSlug:     r.BSlug,
+			BookURL:      r.BURL,
+			BookImageURL: r.BImageURL,
+			Usages:       []dto.BookUsage{},
 		}
 		orderIDs = append(orderIDs, r.BID)
 	}
@@ -274,50 +282,50 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	// 2) (opsional) usages
 	if wantUsages {
 		type usageRow struct {
-			BookID uuid.UUID `gorm:"column:books_id"`
+			BookID uuid.UUID `gorm:"column:book_id"`
 
-			CSBID *uuid.UUID `gorm:"column:class_subject_books_id"`
-			CSID  *uuid.UUID `gorm:"column:class_subjects_id"`
-			SID   *uuid.UUID `gorm:"column:subjects_id"`
-			CID   *uuid.UUID `gorm:"column:classes_id"`
+			CSBID *uuid.UUID `gorm:"column:class_subject_book_id"`
+			CSID  *uuid.UUID `gorm:"column:class_subject_id"`
+			SID   *uuid.UUID `gorm:"column:subject_id"`
+			CID   *uuid.UUID `gorm:"column:class_id"`
 
-			SecID   *uuid.UUID `gorm:"column:class_sections_id"`
-			SecName *string    `gorm:"column:class_sections_name"`
-			SecSlug *string    `gorm:"column:class_sections_slug"`
-			SecCode *string    `gorm:"column:class_sections_code"`
-			SecCap  *int       `gorm:"column:class_sections_capacity"`
-			SecAct  *bool      `gorm:"column:class_sections_is_active"`
+			SecID   *uuid.UUID `gorm:"column:class_section_id"`
+			SecName *string    `gorm:"column:class_section_name"`
+			SecSlug *string    `gorm:"column:class_section_slug"`
+			SecCode *string    `gorm:"column:class_section_code"`
+			SecCap  *int       `gorm:"column:class_section_capacity"`
+			SecAct  *bool      `gorm:"column:class_section_is_active"`
 		}
 		var urows []usageRow
 		if err := h.DB.Table("books AS b").
 			Select(`
-				b.books_id,
-				csb.class_subject_books_id,
-				cs.class_subjects_id,
-				cs.class_subjects_subject_id AS subjects_id,
-				cs.class_subjects_class_id   AS classes_id,
-				sec.class_sections_id,
-				sec.class_sections_name,
-				sec.class_sections_slug,
-				sec.class_sections_code,
-				sec.class_sections_capacity,
-				sec.class_sections_is_active
+				b.book_id,
+				csb.class_subject_book_id,
+				cs.class_subject_id,
+				cs.class_subject_subject_id AS subject_id,
+				cs.class_subject_class_id   AS class_id,
+				sec.class_section_id,
+				sec.class_section_name,
+				sec.class_section_slug,
+				sec.class_section_code,
+				sec.class_section_capacity,
+				sec.class_section_is_active
 			`).
 			Joins(`LEFT JOIN class_subject_books AS csb
-					ON csb.class_subject_books_book_id = b.books_id
-					AND csb.class_subject_books_deleted_at IS NULL`).
+					ON csb.class_subject_book_book_id = b.book_id
+					AND csb.class_subject_book_deleted_at IS NULL`).
 			Joins(`LEFT JOIN class_subjects AS cs
-					ON cs.class_subjects_id = csb.class_subject_books_class_subject_id
-					AND cs.class_subjects_deleted_at IS NULL`).
+					ON cs.class_subject_id = csb.class_subject_book_class_subject_id
+					AND cs.class_subject_deleted_at IS NULL`).
 			Joins(`LEFT JOIN class_section_subject_teachers AS csst
-					ON csst.class_section_subject_teachers_class_subjects_id = cs.class_subjects_id
-					AND csst.class_section_subject_teachers_deleted_at IS NULL
-					AND csst.class_section_subject_teachers_masjid_id = b.books_masjid_id`).
+					ON csst.class_section_subject_teacher_class_subject_id = cs.class_subject_id
+					AND csst.class_section_subject_teacher_deleted_at IS NULL
+					AND csst.class_section_subject_teacher_masjid_id = b.book_masjid_id`).
 			Joins(`LEFT JOIN class_sections AS sec
-					ON sec.class_sections_id = csst.class_section_subject_teachers_section_id
-					AND sec.class_sections_deleted_at IS NULL`).
-			Where("b.books_masjid_id = ?", masjidID).
-			Where("b.books_id IN ?", orderIDs).
+					ON sec.class_section_id = csst.class_section_subject_teacher_section_id
+					AND sec.class_section_deleted_at IS NULL`).
+			Where("b.book_masjid_id = ?", masjidID).
+			Where("b.book_id IN ?", orderIDs).
 			Scan(&urows).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memuat usages")
 		}
@@ -329,18 +337,18 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 			}
 			var u *dto.BookUsage
 			for i := range b.Usages {
-				if b.Usages[i].ClassSubjectBooksID == *r.CSBID {
+				if b.Usages[i].ClassSubjectBookID == *r.CSBID {
 					u = &b.Usages[i]
 					break
 				}
 			}
 			if u == nil {
 				u = &dto.BookUsage{
-					ClassSubjectBooksID: *r.CSBID,
-					ClassSubjectID:      r.CSID,
-					SubjectsID:          r.SID,
-					ClassesID:           r.CID,
-					Sections:            []dto.BookUsageSectionLite{},
+					ClassSubjectBookID: *r.CSBID,
+					ClassSubjectID:     r.CSID,
+					SubjectID:          r.SID,
+					ClassID:            r.CID,
+					Sections:           []dto.BookUsageSectionLite{},
 				}
 				b.Usages = append(b.Usages, *u)
 				u = &b.Usages[len(b.Usages)-1]
@@ -348,32 +356,32 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 			if r.SecID != nil {
 				exists := false
 				for _, s := range u.Sections {
-					if s.ClassSectionsID == *r.SecID {
+					if s.ClassSectionID == *r.SecID {
 						exists = true
 						break
 					}
 				}
 				if !exists {
 					u.Sections = append(u.Sections, dto.BookUsageSectionLite{
-						ClassSectionsID:       *r.SecID,
-						ClassSectionsName:     sPtr(r.SecName),
-						ClassSectionsSlug:     sPtr(r.SecSlug),
-						ClassSectionsCode:     r.SecCode,
-						ClassSectionsCapacity: r.SecCap,
-						ClassSectionsIsActive: bPtr(r.SecAct),
+						ClassSectionID:       *r.SecID,
+						ClassSectionName:     sPtr(r.SecName),
+						ClassSectionSlug:     sPtr(r.SecSlug),
+						ClassSectionCode:     r.SecCode,
+						ClassSectionCapacity: r.SecCap,
+						ClassSectionIsActive: bPtr(r.SecAct),
 					})
 				}
 			}
 		}
 	}
 
-	// 3) (opsional) daftar book_urls
+	// 3) (opsional) daftar book_urls (cover/desc/…)
 	type bookURLLite struct {
 		BookURLID        uuid.UUID `json:"book_url_id"         gorm:"column:book_url_id"`
 		BookURLMasjidID  uuid.UUID `json:"book_url_masjid_id"  gorm:"column:book_url_masjid_id"`
 		BookURLBookID    uuid.UUID `json:"book_url_book_id"    gorm:"column:book_url_book_id"`
 		BookURLLabel     *string   `json:"book_url_label"      gorm:"column:book_url_label"`
-		BookURLType      string    `json:"book_url_type"       gorm:"column:book_url_type"`
+		BookURLKind      string    `json:"book_url_kind"       gorm:"column:book_url_kind"`
 		BookURLHref      string    `json:"book_url_href"       gorm:"column:book_url_href"`
 		BookURLCreatedAt time.Time `json:"book_url_created_at" gorm:"column:book_url_created_at"`
 		BookURLUpdatedAt time.Time `json:"book_url_updated_at" gorm:"column:book_url_updated_at"`
@@ -405,18 +413,18 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 			}
 		}
 	}
-	var imgTypes []string
+	var imgKinds []string
 	if wantBookURLs {
-		imgTypes = []string{"cover", "desc"}
+		imgKinds = []string{"cover", "desc"}
 		if v := strings.TrimSpace(c.Query("img_types")); v != "" {
 			var out []string
-			for _, p := range strings.Split(v, ",") {
-				if p = strings.ToLower(strings.TrimSpace(p)); p != "" {
-					out = append(out, p)
+			for _, p2 := range strings.Split(v, ",") {
+				if p2 = strings.ToLower(strings.TrimSpace(p2)); p2 != "" {
+					out = append(out, p2)
 				}
 			}
 			if len(out) > 0 {
-				imgTypes = out
+				imgKinds = out
 			}
 		}
 	}
@@ -430,14 +438,14 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 				book_url_masjid_id,
 				book_url_book_id,
 				book_url_label,
-				book_url_type,
+				book_url_kind,
 				book_url_href,
 				book_url_created_at,
 				book_url_updated_at
 			`).
 			Where("book_url_book_id IN ?", orderIDs).
 			Where("book_url_deleted_at IS NULL").
-			Where("book_url_type IN ?", imgTypes).
+			Where("book_url_kind IN ?", imgKinds).
 			Order("book_url_created_at DESC").
 			Find(&urlRows).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil URL buku")
@@ -488,9 +496,7 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		})
 	}
 
-	return helper.JsonList(c, items, fiber.Map{
-		"limit":  limit,
-		"offset": offset,
-		"total":  int(total),
-	})
+	// Response meta pakai helper
+	meta := helper.BuildMeta(total, p)
+	return helper.JsonList(c, items, meta)
 }

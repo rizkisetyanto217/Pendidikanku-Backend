@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -71,11 +72,14 @@ func (g *Generator) GenerateSessionsForScheduleWithOpts(ctx context.Context, sch
 	if opts.TZName == "" {
 		opts.TZName = "Asia/Jakarta"
 	}
-	if opts.DefaultAttendanceStatus == "" {
-		opts.DefaultAttendanceStatus = "open"
-	}
 	if opts.BatchSize <= 0 {
 		opts.BatchSize = 500
+	}
+
+	// AttendanceStatus default -> tipe enum pada model
+	attendanceDefault := sessModel.AttendanceStatusOpen
+	if s := stringsTrimLower(opts.DefaultAttendanceStatus); s != "" {
+		attendanceDefault = sessModel.AttendanceStatus(s)
 	}
 
 	loc, err := time.LoadLocation(opts.TZName)
@@ -92,9 +96,9 @@ func (g *Generator) GenerateSessionsForScheduleWithOpts(ctx context.Context, sch
 		return 0, err
 	}
 
-	// Normalisasi start/end DATE ke lokal
-	startLocal := startOfDayInLoc(sch.ClassSchedulesStartDate, loc)
-	endLocal := startOfDayInLoc(sch.ClassSchedulesEndDate, loc)
+	// Normalisasi start/end DATE ke lokal (pakai field baru yang singular)
+	startLocal := startOfDayInLoc(sch.ClassScheduleStartDate, loc)
+	endLocal := startOfDayInLoc(sch.ClassScheduleEndDate, loc)
 	if endLocal.Before(startLocal) {
 		// Jika range salah, ya sudah tidak ada yang digenerate
 		return 0, nil
@@ -130,18 +134,18 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time
 	if len(rr) == 0 {
 		// Tanpa rule → buat 1 sesi pada start date (date lokal), waktu kosong
 		rows = append(rows, sessModel.ClassAttendanceSessionModel{
-			ClassAttendanceSessionsMasjidID:         sch.ClassSchedulesMasjidID,
-			ClassAttendanceSessionsScheduleID:       sch.ClassScheduleID,
-			ClassAttendanceSessionsRuleID:           nil,
-			ClassAttendanceSessionsDate:             startLocal, // DATE lokal
-			ClassAttendanceSessionsStartsAt:         nil,
-			ClassAttendanceSessionsEndsAt:           nil,
-			ClassAttendanceSessionsStatus:           sessModel.SessionScheduled,
-			ClassAttendanceSessionsAttendanceStatus: opts.DefaultAttendanceStatus,
-			ClassAttendanceSessionsLocked:           false,
-			ClassAttendanceSessionsIsOverride:       false,
-			ClassAttendanceSessionsIsCanceled:       false,
-			ClassAttendanceSessionsGeneralInfo:      "",
+			ClassAttendanceSessionMasjidID:         sch.ClassScheduleMasjidID,
+			ClassAttendanceSessionScheduleID:       sch.ClassScheduleID,
+			ClassAttendanceSessionRuleID:           nil,
+			ClassAttendanceSessionDate:             startLocal, // DATE lokal
+			ClassAttendanceSessionStartsAt:         nil,
+			ClassAttendanceSessionEndsAt:           nil,
+			ClassAttendanceSessionStatus:           sessModel.SessionStatusScheduled,
+			ClassAttendanceSessionAttendanceStatus: attendanceDefault,
+			ClassAttendanceSessionLocked:           false,
+			ClassAttendanceSessionIsOverride:       false,
+			ClassAttendanceSessionIsCanceled:       false,
+			ClassAttendanceSessionGeneralInfo:      "",
 		})
 	} else {
 		// Loop per hari di rentang, gunakan tanggal LOKAL
@@ -170,32 +174,33 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time
 				startAtUTC := toUTC(startAtLocal)
 				endAtUTC := toUTC(endAtLocal)
 
+				// Simpan DATE sebagai midnight UTC
 				dateUTC := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
 
 				row := sessModel.ClassAttendanceSessionModel{
-					ClassAttendanceSessionsMasjidID:         sch.ClassSchedulesMasjidID,
-					ClassAttendanceSessionsScheduleID:       sch.ClassScheduleID,
-					ClassAttendanceSessionsRuleID:           &r.ID,
-					ClassAttendanceSessionsDate:             dateUTC,     // simpan DATE sebagai midnight UTC
-					ClassAttendanceSessionsStartsAt:         &startAtUTC, // UTC
-					ClassAttendanceSessionsEndsAt:           &endAtUTC,   // UTC
-					ClassAttendanceSessionsStatus:           sessModel.SessionScheduled,
-					ClassAttendanceSessionsAttendanceStatus: opts.DefaultAttendanceStatus,
-					ClassAttendanceSessionsLocked:           false,
-					ClassAttendanceSessionsIsOverride:       false,
-					ClassAttendanceSessionsIsCanceled:       false,
-					ClassAttendanceSessionsGeneralInfo:      "",
+					ClassAttendanceSessionMasjidID:         sch.ClassScheduleMasjidID,
+					ClassAttendanceSessionScheduleID:       sch.ClassScheduleID,
+					ClassAttendanceSessionRuleID:           &r.ID,
+					ClassAttendanceSessionDate:             dateUTC,     // midnight UTC
+					ClassAttendanceSessionStartsAt:         &startAtUTC, // UTC
+					ClassAttendanceSessionEndsAt:           &endAtUTC,   // UTC
+					ClassAttendanceSessionStatus:           sessModel.SessionStatusScheduled,
+					ClassAttendanceSessionAttendanceStatus: attendanceDefault,
+					ClassAttendanceSessionLocked:           false,
+					ClassAttendanceSessionIsOverride:       false,
+					ClassAttendanceSessionIsCanceled:       false,
+					ClassAttendanceSessionGeneralInfo:      "",
 				}
 
 				// Propagasi default assignment jika disediakan
 				if opts.DefaultCSSTID != nil {
-					row.ClassAttendanceSessionsCSSTID = opts.DefaultCSSTID
+					row.ClassAttendanceSessionCSSTID = opts.DefaultCSSTID
 				}
 				if opts.DefaultRoomID != nil {
-					row.ClassAttendanceSessionsClassRoomID = opts.DefaultRoomID
+					row.ClassAttendanceSessionClassRoomID = opts.DefaultRoomID
 				}
 				if opts.DefaultTeacherID != nil {
-					row.ClassAttendanceSessionsTeacherID = opts.DefaultTeacherID
+					row.ClassAttendanceSessionTeacherID = opts.DefaultTeacherID
 				}
 
 				rows = append(rows, row)
@@ -218,6 +223,10 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time
 // ============================
 // Helpers
 // ============================
+
+func stringsTrimLower(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
+}
 
 // parse "HH:mm[:ss]" ke time.Time (tanggal dummy) dalam UTC basis
 func parseTODString(s string) (time.Time, error) {
@@ -242,9 +251,7 @@ func combineLocalDateAndTOD(dLocal, tod time.Time, loc *time.Location) time.Time
 }
 
 // Konversi ke UTC
-func toUTC(t time.Time) time.Time {
-	return t.In(time.UTC)
-}
+func toUTC(t time.Time) time.Time { return t.In(time.UTC) }
 
 // ISO weekday: Senin=1..Minggu=7
 func isoWeekday(t time.Time) int {
@@ -257,7 +264,6 @@ func isoWeekday(t time.Time) int {
 
 // Week-of-month (ISO): pekan dihitung mulai Senin
 func weekOfMonthISO(t time.Time) int {
-	// cari Senin pertama yang <= tanggal 1 bulan itu
 	first := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location())
 	firstWeekStart := first
 	for isoWeekday(firstWeekStart) != 1 {
@@ -305,7 +311,6 @@ func dateMatchesRuleRow(dLocal, baseStartLocal time.Time, r ruleRow) bool {
 	// Parity
 	switch r.WeekParity {
 	case "odd":
-		// 1st occurrence (wkAdj=0) dianggap #1 (ganjil)
 		if ((wkAdj/interval)+1)%2 != 1 {
 			return false
 		}

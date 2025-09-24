@@ -223,7 +223,7 @@ CREATE INDEX IF NOT EXISTS idx_user_follow_masjid_source
 -- =========================================================
 -- MASJIDS_PROFILES (profil publik + sekolah) + extras
 -- =========================================================
-CREATE TABLE IF NOT EXISTS masjids_profiles (
+CREATE TABLE IF NOT EXISTS masjid_profiles (
   masjid_profile_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Relasi 1:1 ke masjid
@@ -346,60 +346,60 @@ CREATE TABLE IF NOT EXISTS masjids_profiles (
 
 -- ---------- Indexes: MASJIDS_PROFILES ----------
 CREATE INDEX IF NOT EXISTS idx_mpp_masjid_id
-  ON masjids_profiles (masjid_profile_masjid_id);
+  ON masjid_profiles (masjid_profile_masjid_id);
 CREATE INDEX IF NOT EXISTS idx_mpp_principal_user_id
-  ON masjids_profiles (masjid_profile_school_principal_user_id);
+  ON masjid_profiles (masjid_profile_school_principal_user_id);
 
 -- Emails (CI)
 CREATE INDEX IF NOT EXISTS idx_mpp_contact_email_lower
-  ON masjids_profiles (LOWER(masjid_profile_contact_email));
+  ON masjid_profiles (LOWER(masjid_profile_contact_email));
 CREATE INDEX IF NOT EXISTS idx_mpp_contact_email_alt_lower
-  ON masjids_profiles (LOWER(masjid_profile_contact_email_alt));
+  ON masjid_profiles (LOWER(masjid_profile_contact_email_alt));
 CREATE INDEX IF NOT EXISTS idx_mpp_school_email_lower
-  ON masjids_profiles (LOWER(masjid_profile_school_email));
+  ON masjid_profiles (LOWER(masjid_profile_school_email));
 
 -- Attribute indexes
 CREATE INDEX IF NOT EXISTS idx_mpp_accreditation
-  ON masjids_profiles (masjid_profile_school_accreditation);
+  ON masjid_profiles (masjid_profile_school_accreditation);
 CREATE INDEX IF NOT EXISTS idx_mpp_founded_year
-  ON masjids_profiles (masjid_profile_founded_year);
+  ON masjid_profiles (masjid_profile_founded_year);
 CREATE INDEX IF NOT EXISTS idx_mpp_is_boarding
-  ON masjids_profiles (masjid_profile_school_is_boarding);
+  ON masjid_profiles (masjid_profile_school_is_boarding);
 CREATE INDEX IF NOT EXISTS idx_mpp_geohash
-  ON masjids_profiles (masjid_profile_geohash);
+  ON masjid_profiles (masjid_profile_geohash);
 
 -- Geospasial nearest-neighbor
 CREATE INDEX IF NOT EXISTS idx_mpp_earth
-  ON masjids_profiles USING gist (
+  ON masjid_profiles USING gist (
     ll_to_earth(masjid_profile_latitude::float8, masjid_profile_longitude::float8)
   );
 
 -- JSONB GIN
 CREATE INDEX IF NOT EXISTS gin_mpp_opening_hours
-  ON masjids_profiles USING gin (masjid_profile_opening_hours);
+  ON masjid_profiles USING gin (masjid_profile_opening_hours);
 CREATE INDEX IF NOT EXISTS gin_mpp_facilities
-  ON masjids_profiles USING gin (masjid_profile_facilities);
+  ON masjid_profiles USING gin (masjid_profile_facilities);
 CREATE INDEX IF NOT EXISTS gin_mpp_services
-  ON masjids_profiles USING gin (masjid_profile_services);
+  ON masjid_profiles USING gin (masjid_profile_services);
 CREATE INDEX IF NOT EXISTS gin_mpp_geo_admin
-  ON masjids_profiles USING gin (masjid_profile_geo_admin);
+  ON masjid_profiles USING gin (masjid_profile_geo_admin);
 CREATE INDEX IF NOT EXISTS gin_mpp_translations
-  ON masjids_profiles USING gin (masjid_profile_translations);
+  ON masjid_profiles USING gin (masjid_profile_translations);
 CREATE INDEX IF NOT EXISTS gin_mpp_social_handles
-  ON masjids_profiles USING gin (masjid_profile_social_handles);
+  ON masjid_profiles USING gin (masjid_profile_social_handles);
 CREATE INDEX IF NOT EXISTS gin_mpp_legal_docs
-  ON masjids_profiles USING gin (masjid_profile_legal_docs);
+  ON masjid_profiles USING gin (masjid_profile_legal_docs);
 
 -- FTS & arsip waktu
 CREATE INDEX IF NOT EXISTS idx_mpp_search
-  ON masjids_profiles USING gin (masjid_profile_search);
+  ON masjid_profiles USING gin (masjid_profile_search);
 CREATE INDEX IF NOT EXISTS brin_mpp_created_at
-  ON masjids_profiles USING brin (masjid_profile_created_at);
+  ON masjid_profiles USING brin (masjid_profile_created_at);
 
 -- Unik NPSN/NSS bila diisi
 CREATE UNIQUE INDEX IF NOT EXISTS ux_mpp_npsn
-  ON masjids_profiles (masjid_profile_school_npsn);
+  ON masjid_profiles (masjid_profile_school_npsn);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_mpp_nss
-  ON masjids_profiles (masjid_profile_school_nss);
+  ON masjid_profiles (masjid_profile_school_nss);
 
 COMMIT;

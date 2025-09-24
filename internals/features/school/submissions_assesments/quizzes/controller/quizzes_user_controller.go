@@ -1,3 +1,4 @@
+// file: internals/features/school/submissions_assesments/quizzes/controller/quiz_controller_list.go
 package controller
 
 import (
@@ -10,32 +11,33 @@ import (
 	"github.com/google/uuid"
 )
 
-// GET / (READ — semua role anggota masjid)
+// GET /quizzes
 func (ctrl *QuizController) List(c *fiber.Ctx) error {
-	// Inject DB agar helper slug→id bisa jalan
+	// Inject DB buat helper slug→id
 	c.Locals("DB", ctrl.DB)
 
-	// 1) Resolve masjid context (path/header/cookie/query/host/token)
+	// 1) Resolve masjid context
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return err // sudah *fiber.Error* dari helper
+		return err
 	}
 
 	// 2) slug → id bila perlu
 	var mid uuid.UUID
-	if mc.ID != uuid.Nil {
+	switch {
+	case mc.ID != uuid.Nil:
 		mid = mc.ID
-	} else if mc.Slug != "" {
+	case mc.Slug != "":
 		id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
 		if er != nil || id == uuid.Nil {
 			return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
 		}
 		mid = id
-	} else {
+	default:
 		return helperAuth.ErrMasjidContextMissing
 	}
 
-	// 3) Authorize: minimal member masjid (any role)
+	// 3) Authorize: minimal member masjid
 	if !helperAuth.UserHasMasjid(c, mid) {
 		return fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada masjid ini (membership).")
 	}
@@ -49,13 +51,13 @@ func (ctrl *QuizController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Force scope ke tenant dari context (hindari spoof)
+	// Force scope tenant
 	q.MasjidID = &mid
 
 	// 5) Pagination (default created_at desc)
 	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
 
-	// 6) Base + filters
+	// 6) Base query + filters
 	dbq := ctrl.DB.WithContext(c.Context()).Model(&model.QuizModel{})
 	dbq = applyFiltersQuizzes(dbq, &q)
 
@@ -82,20 +84,21 @@ func (ctrl *QuizController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 11) Optional: count total soal per quiz (tanpa preload data)
+	// 11) Optional: count questions (tanpa preload data)
 	var countMap map[uuid.UUID]int
 	if q.WithQuestionsCount {
 		countMap = make(map[uuid.UUID]int, len(rows))
 		if len(rows) > 0 {
 			ids := make([]uuid.UUID, 0, len(rows))
 			for i := range rows {
-				ids = append(ids, rows[i].QuizzesID)
+				ids = append(ids, rows[i].QuizID) // <— perbaikan: pakai QuizID (bukan QuizzesID)
 			}
 			type pair struct {
 				QuizID uuid.UUID `gorm:"column:quiz_id"`
 				N      int       `gorm:"column:n"`
 			}
 			var tmp []pair
+			// Sesuaikan nama kolom jika berbeda di DB kamu
 			if err := ctrl.DB.WithContext(c.Context()).
 				Table("quiz_questions").
 				Select("quiz_questions_quiz_id AS quiz_id, COUNT(*) AS n").
@@ -111,7 +114,7 @@ func (ctrl *QuizController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 12) Map DTO
+	// 12) DTO mapping
 	out := make([]dto.QuizResponse, 0, len(rows))
 	for i := range rows {
 		var resp dto.QuizResponse
@@ -121,7 +124,7 @@ func (ctrl *QuizController) List(c *fiber.Ctx) error {
 			resp = dto.FromModel(&rows[i])
 		}
 		if q.WithQuestionsCount {
-			if n, ok := countMap[rows[i].QuizzesID]; ok {
+			if n, ok := countMap[rows[i].QuizID]; ok {
 				resp.QuestionsCount = &n
 			} else {
 				zero := 0

@@ -13,32 +13,30 @@ import (
 /* ===================== REQUEST DTO ===================== */
 
 type AcademicTermCreateDTO struct {
-	AcademicTermsAcademicYear string    `json:"academic_terms_academic_year" validate:"required,min=4"`
-	AcademicTermsName         string    `json:"academic_terms_name"          validate:"required,oneof=Ganjil Genap Pendek Khusus"`
-	AcademicTermsStartDate    time.Time `json:"academic_terms_start_date"    validate:"required"`
-	AcademicTermsEndDate      time.Time `json:"academic_terms_end_date"      validate:"required,gtefield=AcademicTermsStartDate"`
-	AcademicTermsIsActive     *bool     `json:"academic_terms_is_active,omitempty"`
-	AcademicTermsAngkatan     *int      `json:"academic_terms_angkatan,omitempty" validate:"omitempty,gt=0"`
+	AcademicTermAcademicYear string    `json:"academic_term_academic_year" validate:"required,min=4"`
+	AcademicTermName         string    `json:"academic_term_name"           validate:"required,oneof=Ganjil Genap Pendek Khusus"`
+	AcademicTermStartDate    time.Time `json:"academic_term_start_date"     validate:"required"`
+	AcademicTermEndDate      time.Time `json:"academic_term_end_date"       validate:"required,gtefield=AcademicTermStartDate"`
+	AcademicTermIsActive     *bool     `json:"academic_term_is_active,omitempty"`
+	AcademicTermAngkatan     *int      `json:"academic_term_angkatan,omitempty" validate:"omitempty,gt=0"`
 
-	// Kolom baru (opsional)
-	AcademicTermsCode        string  `json:"academic_terms_code,omitempty"        validate:"omitempty,min=1,max=24"`
-	AcademicTermsSlug        string  `json:"academic_terms_slug,omitempty"        validate:"omitempty,min=3,max=50"`
-	AcademicTermsDescription *string `json:"academic_terms_description,omitempty" validate:"omitempty"`
+	// Kolom opsional (pointer agar selaras dgn model)
+	AcademicTermCode        *string `json:"academic_term_code,omitempty"        validate:"omitempty,min=1,max=24"`
+	AcademicTermSlug        *string `json:"academic_term_slug,omitempty"        validate:"omitempty,min=3,max=50"`
+	AcademicTermDescription *string `json:"academic_term_description,omitempty" validate:"omitempty"`
 }
 
-// file: internals/features/academics/terms/dto/dto.go
-
 type AcademicTermUpdateDTO struct {
-	AcademicTermsAcademicYear *string    `json:"academic_terms_academic_year,omitempty" validate:"omitempty,min=4"`
-	AcademicTermsName         *string    `json:"academic_terms_name,omitempty"` //
-	AcademicTermsStartDate    *time.Time `json:"academic_terms_start_date,omitempty"`
-	AcademicTermsEndDate      *time.Time `json:"academic_terms_end_date,omitempty"`
-	AcademicTermsIsActive     *bool      `json:"academic_terms_is_active,omitempty"`
-	AcademicTermsAngkatan     *int       `json:"academic_terms_angkatan,omitempty" validate:"omitempty,gt=0"`
+	AcademicTermAcademicYear *string    `json:"academic_term_academic_year,omitempty" validate:"omitempty,min=4"`
+	AcademicTermName         *string    `json:"academic_term_name,omitempty"`
+	AcademicTermStartDate    *time.Time `json:"academic_term_start_date,omitempty"`
+	AcademicTermEndDate      *time.Time `json:"academic_term_end_date,omitempty"`
+	AcademicTermIsActive     *bool      `json:"academic_term_is_active,omitempty"`
+	AcademicTermAngkatan     *int       `json:"academic_term_angkatan,omitempty" validate:"omitempty,gt=0"`
 
-	AcademicTermsCode        *string `json:"academic_terms_code,omitempty"        validate:"omitempty,min=1,max=24"`
-	AcademicTermsSlug        *string `json:"academic_terms_slug,omitempty"        validate:"omitempty,min=3,max=50"`
-	AcademicTermsDescription *string `json:"academic_terms_description,omitempty" validate:"omitempty"`
+	AcademicTermCode        *string `json:"academic_term_code,omitempty"        validate:"omitempty,min=1,max=24"`
+	AcademicTermSlug        *string `json:"academic_term_slug,omitempty"        validate:"omitempty,min=3,max=50"`
+	AcademicTermDescription *string `json:"academic_term_description,omitempty" validate:"omitempty"`
 }
 
 /* ========== LIST/FILTER (query) ========== */
@@ -61,115 +59,128 @@ type AcademicTermFilterDTO struct {
 /* ===================== RESPONSE DTO ===================== */
 
 type AcademicTermResponseDTO struct {
-	AcademicTermsID           uuid.UUID `json:"academic_terms_id"`
-	AcademicTermsMasjidID     uuid.UUID `json:"academic_terms_masjid_id"`
-	AcademicTermsAcademicYear string    `json:"academic_terms_academic_year"`
-	AcademicTermsName         string    `json:"academic_terms_name"`
-	AcademicTermsStartDate    time.Time `json:"academic_terms_start_date"`
-	AcademicTermsEndDate      time.Time `json:"academic_terms_end_date"`
-	AcademicTermsIsActive     bool      `json:"academic_terms_is_active"`
+	AcademicTermID           uuid.UUID `json:"academic_term_id"`
+	AcademicTermMasjidID     uuid.UUID `json:"academic_term_masjid_id"`
+	AcademicTermAcademicYear string    `json:"academic_term_academic_year"`
+	AcademicTermName         string    `json:"academic_term_name"`
+	AcademicTermStartDate    time.Time `json:"academic_term_start_date"`
+	AcademicTermEndDate      time.Time `json:"academic_term_end_date"`
+	AcademicTermIsActive     bool      `json:"academic_term_is_active"`
 
-	AcademicTermsAngkatan *int `json:"academic_terms_angkatan,omitempty"`
+	AcademicTermAngkatan *int `json:"academic_term_angkatan,omitempty"`
 
-	// Kolom baru
-	AcademicTermsCode        string  `json:"academic_terms_code,omitempty"`
-	AcademicTermsSlug        string  `json:"academic_terms_slug,omitempty"`
-	AcademicTermsDescription *string `json:"academic_terms_description,omitempty"`
+	AcademicTermCode        *string `json:"academic_term_code,omitempty"`
+	AcademicTermSlug        *string `json:"academic_term_slug,omitempty"`
+	AcademicTermDescription *string `json:"academic_term_description,omitempty"`
 
 	// Read-only: diisi DB (generated)
-	AcademicTermsPeriod *string `json:"academic_terms_period,omitempty"`
+	AcademicTermPeriod *string `json:"academic_term_period,omitempty"`
 
-	AcademicTermsCreatedAt time.Time  `json:"academic_terms_created_at"`
-	AcademicTermsUpdatedAt time.Time  `json:"academic_terms_updated_at"`
-	AcademicTermsDeletedAt *time.Time `json:"academic_terms_deleted_at,omitempty"`
+	AcademicTermCreatedAt time.Time  `json:"academic_term_created_at"`
+	AcademicTermUpdatedAt time.Time  `json:"academic_term_updated_at"`
+	AcademicTermDeletedAt *time.Time `json:"academic_term_deleted_at,omitempty"`
 }
 
 /* ===================== HELPERS ===================== */
 
 func (p *AcademicTermCreateDTO) Normalize() {
-	p.AcademicTermsAcademicYear = strings.TrimSpace(p.AcademicTermsAcademicYear)
-	p.AcademicTermsName = strings.TrimSpace(p.AcademicTermsName)
-	p.AcademicTermsCode = strings.TrimSpace(p.AcademicTermsCode)
+	p.AcademicTermAcademicYear = strings.TrimSpace(p.AcademicTermAcademicYear)
+	p.AcademicTermName = strings.TrimSpace(p.AcademicTermName)
 
 	// slug: trim + lower
-	slug := strings.TrimSpace(p.AcademicTermsSlug)
-	if slug != "" {
-		slug = strings.ToLower(slug)
-		p.AcademicTermsSlug = slug
-	}
-
-	// description: trim (kalau kosong jadikan nil)
-	if p.AcademicTermsDescription != nil {
-		d := strings.TrimSpace(*p.AcademicTermsDescription)
-		if d == "" {
-			p.AcademicTermsDescription = nil
+	if p.AcademicTermSlug != nil {
+		slug := strings.ToLower(strings.TrimSpace(*p.AcademicTermSlug))
+		if slug == "" {
+			p.AcademicTermSlug = nil
 		} else {
-			p.AcademicTermsDescription = &d
+			p.AcademicTermSlug = &slug
+		}
+	}
+	// code: trim
+	if p.AcademicTermCode != nil {
+		code := strings.TrimSpace(*p.AcademicTermCode)
+		if code == "" {
+			p.AcademicTermCode = nil
+		} else {
+			p.AcademicTermCode = &code
+		}
+	}
+	// description: trim (kalau kosong jadikan nil)
+	if p.AcademicTermDescription != nil {
+		d := strings.TrimSpace(*p.AcademicTermDescription)
+		if d == "" {
+			p.AcademicTermDescription = nil
+		} else {
+			p.AcademicTermDescription = &d
 		}
 	}
 }
 
 func (p *AcademicTermCreateDTO) WantsActive() bool {
-	return p.AcademicTermsIsActive == nil || *p.AcademicTermsIsActive
+	return p.AcademicTermIsActive == nil || *p.AcademicTermIsActive
 }
 
 func (p *AcademicTermCreateDTO) ToModel(masjidID uuid.UUID) model.AcademicTermModel {
 	isActive := true
-	if p.AcademicTermsIsActive != nil {
-		isActive = *p.AcademicTermsIsActive
+	if p.AcademicTermIsActive != nil {
+		isActive = *p.AcademicTermIsActive
 	}
 	return model.AcademicTermModel{
-		AcademicTermsMasjidID:     masjidID,
-		AcademicTermsAcademicYear: p.AcademicTermsAcademicYear,
-		AcademicTermsName:         p.AcademicTermsName,
-		AcademicTermsStartDate:    p.AcademicTermsStartDate,
-		AcademicTermsEndDate:      p.AcademicTermsEndDate,
-		AcademicTermsIsActive:     isActive,
-		AcademicTermsAngkatan:     p.AcademicTermsAngkatan,
-
-		// Kolom baru
-		AcademicTermsCode:        p.AcademicTermsCode,
-		AcademicTermsSlug:        p.AcademicTermsSlug,
-		AcademicTermsDescription: derefOrEmpty(p.AcademicTermsDescription),
+		AcademicTermMasjidID:     masjidID,
+		AcademicTermAcademicYear: p.AcademicTermAcademicYear,
+		AcademicTermName:         p.AcademicTermName,
+		AcademicTermStartDate:    p.AcademicTermStartDate,
+		AcademicTermEndDate:      p.AcademicTermEndDate,
+		AcademicTermIsActive:     isActive,
+		AcademicTermAngkatan:     p.AcademicTermAngkatan,
+		AcademicTermCode:         p.AcademicTermCode,
+		AcademicTermSlug:         p.AcademicTermSlug,
+		AcademicTermDescription:  p.AcademicTermDescription,
 	}
 }
 
 func (u *AcademicTermUpdateDTO) ApplyUpdates(ent *model.AcademicTermModel) {
-	if u.AcademicTermsAcademicYear != nil {
-		ent.AcademicTermsAcademicYear = strings.TrimSpace(*u.AcademicTermsAcademicYear)
+	if u.AcademicTermAcademicYear != nil {
+		ent.AcademicTermAcademicYear = strings.TrimSpace(*u.AcademicTermAcademicYear)
 	}
-	if u.AcademicTermsName != nil {
-		ent.AcademicTermsName = strings.TrimSpace(*u.AcademicTermsName)
+	if u.AcademicTermName != nil {
+		ent.AcademicTermName = strings.TrimSpace(*u.AcademicTermName)
 	}
-	if u.AcademicTermsStartDate != nil {
-		ent.AcademicTermsStartDate = *u.AcademicTermsStartDate
+	if u.AcademicTermStartDate != nil {
+		ent.AcademicTermStartDate = *u.AcademicTermStartDate
 	}
-	if u.AcademicTermsEndDate != nil {
-		ent.AcademicTermsEndDate = *u.AcademicTermsEndDate
+	if u.AcademicTermEndDate != nil {
+		ent.AcademicTermEndDate = *u.AcademicTermEndDate
 	}
-	if u.AcademicTermsIsActive != nil {
-		ent.AcademicTermsIsActive = *u.AcademicTermsIsActive
+	if u.AcademicTermIsActive != nil {
+		ent.AcademicTermIsActive = *u.AcademicTermIsActive
 	}
-	if u.AcademicTermsAngkatan != nil {
-		ent.AcademicTermsAngkatan = u.AcademicTermsAngkatan
+	if u.AcademicTermAngkatan != nil {
+		ent.AcademicTermAngkatan = u.AcademicTermAngkatan
 	}
-	// Kolom baru
-	if u.AcademicTermsCode != nil {
-		ent.AcademicTermsCode = strings.TrimSpace(*u.AcademicTermsCode)
-	}
-	if u.AcademicTermsSlug != nil {
-		slug := strings.TrimSpace(*u.AcademicTermsSlug)
-		if slug != "" {
-			slug = strings.ToLower(slug)
-		}
-		ent.AcademicTermsSlug = slug
-	}
-	if u.AcademicTermsDescription != nil {
-		desc := strings.TrimSpace(*u.AcademicTermsDescription)
-		if desc == "" {
-			ent.AcademicTermsDescription = ""
+	// Kolom opsional (pointer): kosong => nil
+	if u.AcademicTermCode != nil {
+		code := strings.TrimSpace(*u.AcademicTermCode)
+		if code == "" {
+			ent.AcademicTermCode = nil
 		} else {
-			ent.AcademicTermsDescription = desc
+			ent.AcademicTermCode = &code
+		}
+	}
+	if u.AcademicTermSlug != nil {
+		slug := strings.ToLower(strings.TrimSpace(*u.AcademicTermSlug))
+		if slug == "" {
+			ent.AcademicTermSlug = nil
+		} else {
+			ent.AcademicTermSlug = &slug
+		}
+	}
+	if u.AcademicTermDescription != nil {
+		desc := strings.TrimSpace(*u.AcademicTermDescription)
+		if desc == "" {
+			ent.AcademicTermDescription = nil
+		} else {
+			ent.AcademicTermDescription = &desc
 		}
 	}
 }
@@ -205,35 +216,30 @@ func (q *AcademicTermFilterDTO) Normalize() {
 
 func FromModel(ent model.AcademicTermModel) AcademicTermResponseDTO {
 	var deletedAt *time.Time
-	if ent.AcademicTermsDeletedAt.Valid {
-		t := ent.AcademicTermsDeletedAt.Time
+	if ent.AcademicTermDeletedAt.Valid {
+		t := ent.AcademicTermDeletedAt.Time
 		deletedAt = &t
 	}
-	// handle description: kosongkan jadi nil di response
-	var desc *string
-	if strings.TrimSpace(ent.AcademicTermsDescription) != "" {
-		d := ent.AcademicTermsDescription
-		desc = &d
-	}
 
+	// Langsung pakai pointer dari model untuk code/slug/description/period
 	return AcademicTermResponseDTO{
-		AcademicTermsID:           ent.AcademicTermsID,
-		AcademicTermsMasjidID:     ent.AcademicTermsMasjidID,
-		AcademicTermsAcademicYear: ent.AcademicTermsAcademicYear,
-		AcademicTermsName:         ent.AcademicTermsName,
-		AcademicTermsStartDate:    ent.AcademicTermsStartDate,
-		AcademicTermsEndDate:      ent.AcademicTermsEndDate,
-		AcademicTermsIsActive:     ent.AcademicTermsIsActive,
-		AcademicTermsAngkatan:     ent.AcademicTermsAngkatan,
+		AcademicTermID:           ent.AcademicTermID,
+		AcademicTermMasjidID:     ent.AcademicTermMasjidID,
+		AcademicTermAcademicYear: ent.AcademicTermAcademicYear,
+		AcademicTermName:         ent.AcademicTermName,
+		AcademicTermStartDate:    ent.AcademicTermStartDate,
+		AcademicTermEndDate:      ent.AcademicTermEndDate,
+		AcademicTermIsActive:     ent.AcademicTermIsActive,
+		AcademicTermAngkatan:     ent.AcademicTermAngkatan,
 
-		AcademicTermsCode:        ent.AcademicTermsCode,
-		AcademicTermsSlug:        ent.AcademicTermsSlug,
-		AcademicTermsDescription: desc,
+		AcademicTermCode:        ent.AcademicTermCode,
+		AcademicTermSlug:        ent.AcademicTermSlug,
+		AcademicTermDescription: ent.AcademicTermDescription,
 
-		AcademicTermsPeriod:    ent.AcademicTermsPeriod,
-		AcademicTermsCreatedAt: ent.AcademicTermsCreatedAt,
-		AcademicTermsUpdatedAt: ent.AcademicTermsUpdatedAt,
-		AcademicTermsDeletedAt: deletedAt,
+		AcademicTermPeriod:    ent.AcademicTermPeriod,
+		AcademicTermCreatedAt: ent.AcademicTermCreatedAt,
+		AcademicTermUpdatedAt: ent.AcademicTermUpdatedAt,
+		AcademicTermDeletedAt: deletedAt,
 	}
 }
 
@@ -247,39 +253,32 @@ func FromModels(list []model.AcademicTermModel) []AcademicTermResponseDTO {
 
 /* ===================== UTIL ===================== */
 
-func derefOrEmpty(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
-}
-
 type OpeningWithClass struct {
 	// opening
-	ClassTermOpeningsID                    uuid.UUID  `json:"class_term_openings_id"                      gorm:"column:class_term_openings_id"`
-	ClassTermOpeningsMasjidID              uuid.UUID  `json:"class_term_openings_masjid_id"               gorm:"column:class_term_openings_masjid_id"`
-	ClassTermOpeningsClassID               uuid.UUID  `json:"class_term_openings_class_id"                gorm:"column:class_term_openings_class_id"`
-	ClassTermOpeningsTermID                uuid.UUID  `json:"class_term_openings_term_id"                 gorm:"column:class_term_openings_term_id"`
-	ClassTermOpeningsIsOpen                bool       `json:"class_term_openings_is_open"                 gorm:"column:class_term_openings_is_open"`
-	ClassTermOpeningsRegistrationOpensAt   *time.Time `json:"class_term_openings_registration_opens_at"   gorm:"column:class_term_openings_registration_opens_at"`
-	ClassTermOpeningsRegistrationClosesAt  *time.Time `json:"class_term_openings_registration_closes_at"  gorm:"column:class_term_openings_registration_closes_at"`
-	ClassTermOpeningsQuotaTotal            *int       `json:"class_term_openings_quota_total"             gorm:"column:class_term_openings_quota_total"`
-	ClassTermOpeningsQuotaTaken            int        `json:"class_term_openings_quota_taken"             gorm:"column:class_term_openings_quota_taken"`
+	ClassTermOpeningsID                    uuid.UUID  `json:"class_term_openings_id"                       gorm:"column:class_term_openings_id"`
+	ClassTermOpeningsMasjidID              uuid.UUID  `json:"class_term_openings_masjid_id"                gorm:"column:class_term_openings_masjid_id"`
+	ClassTermOpeningsClassID               uuid.UUID  `json:"class_term_openings_class_id"                 gorm:"column:class_term_openings_class_id"`
+	ClassTermOpeningsTermID                uuid.UUID  `json:"class_term_openings_term_id"                  gorm:"column:class_term_openings_term_id"`
+	ClassTermOpeningsIsOpen                bool       `json:"class_term_openings_is_open"                  gorm:"column:class_term_openings_is_open"`
+	ClassTermOpeningsRegistrationOpensAt   *time.Time `json:"class_term_openings_registration_opens_at"    gorm:"column:class_term_openings_registration_opens_at"`
+	ClassTermOpeningsRegistrationClosesAt  *time.Time `json:"class_term_openings_registration_closes_at"   gorm:"column:class_term_openings_registration_closes_at"`
+	ClassTermOpeningsQuotaTotal            *int       `json:"class_term_openings_quota_total"              gorm:"column:class_term_openings_quota_total"`
+	ClassTermOpeningsQuotaTaken            int        `json:"class_term_openings_quota_taken"              gorm:"column:class_term_openings_quota_taken"`
 	ClassTermOpeningsFeeOverrideMonthlyIDR *int       `json:"class_term_openings_fee_override_monthly_idr" gorm:"column:class_term_openings_fee_override_monthly_idr"`
-	ClassTermOpeningsNotes                 *string    `json:"class_term_openings_notes"                   gorm:"column:class_term_openings_notes"`
-	ClassTermOpeningsCreatedAt             time.Time  `json:"class_term_openings_created_at"              gorm:"column:class_term_openings_created_at"`
-	ClassTermOpeningsUpdatedAt             *time.Time `json:"class_term_openings_updated_at"              gorm:"column:class_term_openings_updated_at"`
-	ClassTermOpeningsDeletedAt             *time.Time `json:"class_term_openings_deleted_at"              gorm:"column:class_term_openings_deleted_at"`
+	ClassTermOpeningsNotes                 *string    `json:"class_term_openings_notes"                    gorm:"column:class_term_openings_notes"`
+	ClassTermOpeningsCreatedAt             time.Time  `json:"class_term_openings_created_at"               gorm:"column:class_term_openings_created_at"`
+	ClassTermOpeningsUpdatedAt             *time.Time `json:"class_term_openings_updated_at"               gorm:"column:class_term_openings_updated_at"`
+	ClassTermOpeningsDeletedAt             *time.Time `json:"class_term_openings_deleted_at"               gorm:"column:class_term_openings_deleted_at"`
 
 	// class (subset)
 	Class struct {
-		ClassID          uuid.UUID  `json:"class_id"              gorm:"column:class_id"`
-		ClassMasjidID    *uuid.UUID `json:"class_masjid_id"       gorm:"column:class_masjid_id"`
-		ClassName        string     `json:"class_name"            gorm:"column:class_name"`
-		ClassSlug        string     `json:"class_slug"            gorm:"column:class_slug"`
-		ClassDescription *string    `json:"class_description"     gorm:"column:class_description"`
-		ClassLevel       *string    `json:"class_level"           gorm:"column:class_level"`
-		ClassImageURL    *string    `json:"class_image_url"       gorm:"column:class_image_url"`
-		ClassIsActive    bool       `json:"class_is_active"       gorm:"column:class_is_active"`
+		ClassID          uuid.UUID  `json:"class_id"          gorm:"column:class_id"`
+		ClassMasjidID    *uuid.UUID `json:"class_masjid_id"   gorm:"column:class_masjid_id"`
+		ClassName        string     `json:"class_name"        gorm:"column:class_name"`
+		ClassSlug        string     `json:"class_slug"        gorm:"column:class_slug"`
+		ClassDescription *string    `json:"class_description" gorm:"column:class_description"`
+		ClassLevel       *string    `json:"class_level"       gorm:"column:class_level"`
+		ClassImageURL    *string    `json:"class_image_url"   gorm:"column:class_image_url"`
+		ClassIsActive    bool       `json:"class_is_active"   gorm:"column:class_is_active"`
 	} `json:"class"`
 }

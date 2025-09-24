@@ -27,8 +27,7 @@ var fallbackValidator = validator.New()
 /* ================= Handlers ================= */
 
 // GET /api/a/academic-terms
-// List (multi-tenant via token) + Filter + Pagination + Sorting
-// GET /api/u/:masjid_id/academic-terms  (atau kirim via header/query/subdomain)
+// GET /api/u/:masjid_id/academic-terms
 func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	// ===== Masjid context (PUBLIC) =====
 	mc, err := helperAuth.ResolveMasjidContext(c)
@@ -70,14 +69,17 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	httpReq := &http.Request{URL: &url.URL{RawQuery: rawQ}}
 	p := helper.ParseWith(httpReq, "created_at", "desc", helper.AdminOpts)
 
+	// map sort_by -> kolom sebenarnya (singular)
 	allowedSort := map[string]string{
-		"created_at": "academic_terms_created_at",
-		"updated_at": "academic_terms_updated_at",
-		"start_date": "academic_terms_start_date",
-		"end_date":   "academic_terms_end_date",
-		"name":       "academic_terms_name",
-		"year":       "academic_terms_academic_year",
-		"angkatan":   "academic_terms_angkatan",
+		"created_at": "academic_term_created_at",
+		"updated_at": "academic_term_updated_at",
+		"start_date": "academic_term_start_date",
+		"end_date":   "academic_term_end_date",
+		"name":       "academic_term_name",
+		"year":       "academic_term_academic_year",
+		"angkatan":   "academic_term_angkatan",
+		"code":       "academic_term_code",
+		"slug":       "academic_term_slug",
 	}
 	orderClause, err := p.SafeOrderClause(allowedSort, "created_at")
 	if err != nil {
@@ -86,7 +88,7 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
 
 	dbq := ctl.DB.Model(&model.AcademicTermModel{}).
-		Where("academic_terms_masjid_id = ? AND academic_terms_deleted_at IS NULL", masjidID)
+		Where("academic_term_masjid_id = ? AND academic_term_deleted_at IS NULL", masjidID)
 
 	// filter ID (robust)
 	if rawID, has := c.Queries()["id"]; has {
@@ -94,21 +96,27 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 		low := strings.ToLower(strings.TrimSpace(cleaned))
 		if cleaned != "" && low != "null" && low != "undefined" {
 			if termID, err := uuid.Parse(cleaned); err == nil {
-				dbq = dbq.Where("academic_terms_id = ?", termID)
+				dbq = dbq.Where("academic_term_id = ?", termID)
 			}
 		}
 	}
 	if q.Year != nil && strings.TrimSpace(*q.Year) != "" {
-		dbq = dbq.Where("academic_terms_academic_year = ?", strings.TrimSpace(*q.Year))
+		dbq = dbq.Where("academic_term_academic_year = ?", strings.TrimSpace(*q.Year))
 	}
 	if q.Name != nil && strings.TrimSpace(*q.Name) != "" {
-		dbq = dbq.Where("academic_terms_name = ?", strings.TrimSpace(*q.Name))
+		dbq = dbq.Where("academic_term_name = ?", strings.TrimSpace(*q.Name))
+	}
+	if q.Code != nil && strings.TrimSpace(*q.Code) != "" {
+		dbq = dbq.Where("academic_term_code = ?", strings.TrimSpace(*q.Code))
+	}
+	if q.Slug != nil && strings.TrimSpace(*q.Slug) != "" {
+		dbq = dbq.Where("academic_term_slug = ?", strings.TrimSpace(*q.Slug))
 	}
 	if q.Active != nil {
-		dbq = dbq.Where("academic_terms_is_active = ?", *q.Active)
+		dbq = dbq.Where("academic_term_is_active = ?", *q.Active)
 	}
 	if q.Angkatan != nil {
-		dbq = dbq.Where("academic_terms_angkatan = ?", *q.Angkatan)
+		dbq = dbq.Where("academic_term_angkatan = ?", *q.Angkatan)
 	}
 
 	var total int64
@@ -131,15 +139,12 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 
 /* ================= Extra: Search By Year (dengan openings & class) ================= */
 
-// Struktur join untuk response search
-
 type AcademicTermWithOpeningsResponse struct {
 	dto.AcademicTermResponseDTO
 	Openings []dto.OpeningWithClass `json:"openings"`
 }
 
 // GET /api/u/:masjid_id/academic-terms/search?year=2026&angkatan=10&per_page=20&page=1
-// (atau kirim konteks via header X-Active-Masjid-ID / ?masjid_id= / subdomain)
 func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 	yearQ := strings.TrimSpace(c.Query("year"))
 
@@ -170,13 +175,15 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 	p := helper.ParseWith(httpReq, "start_date", "desc", helper.AdminOpts)
 
 	allowedSort := map[string]string{
-		"start_date": "academic_terms_start_date",
-		"end_date":   "academic_terms_end_date",
-		"created_at": "academic_terms_created_at",
-		"updated_at": "academic_terms_updated_at",
-		"name":       "academic_terms_name",
-		"year":       "academic_terms_academic_year",
-		"angkatan":   "academic_terms_angkatan",
+		"start_date": "academic_term_start_date",
+		"end_date":   "academic_term_end_date",
+		"created_at": "academic_term_created_at",
+		"updated_at": "academic_term_updated_at",
+		"name":       "academic_term_name",
+		"year":       "academic_term_academic_year",
+		"angkatan":   "academic_term_angkatan",
+		"code":       "academic_term_code",
+		"slug":       "academic_term_slug",
 	}
 	orderClause, err := p.SafeOrderClause(allowedSort, "start_date")
 	if err != nil {
@@ -195,12 +202,12 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 	}
 
 	dbq := ctl.DB.Model(&model.AcademicTermModel{}).
-		Where("academic_terms_masjid_id = ? AND academic_terms_deleted_at IS NULL", masjidID)
+		Where("academic_term_masjid_id = ? AND academic_term_deleted_at IS NULL", masjidID)
 	if yearQ != "" {
-		dbq = dbq.Where("academic_terms_academic_year ILIKE ?", "%"+yearQ+"%")
+		dbq = dbq.Where("academic_term_academic_year ILIKE ?", "%"+yearQ+"%")
 	}
 	if angkatan != nil {
-		dbq = dbq.Where("academic_terms_angkatan = ?", *angkatan)
+		dbq = dbq.Where("academic_term_angkatan = ?", *angkatan)
 	}
 
 	var total int64
@@ -220,7 +227,7 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 	// kumpulkan term_ids
 	termIDs := make([]uuid.UUID, 0, len(list))
 	for _, t := range list {
-		termIDs = append(termIDs, t.AcademicTermsID)
+		termIDs = append(termIDs, t.AcademicTermID)
 	}
 
 	// map term_id -> openings[]
@@ -310,7 +317,7 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 	for i, t := range list {
 		out = append(out, AcademicTermWithOpeningsResponse{
 			AcademicTermResponseDTO: termsDTO[i],
-			Openings:                openingMap[t.AcademicTermsID],
+			Openings:                openingMap[t.AcademicTermID],
 		})
 	}
 

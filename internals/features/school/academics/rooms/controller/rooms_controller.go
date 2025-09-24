@@ -16,8 +16,8 @@ import (
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
-	"masjidku_backend/internals/features/school/academics/rooms/dto"
-	"masjidku_backend/internals/features/school/academics/rooms/model"
+	dto "masjidku_backend/internals/features/school/academics/rooms/dto"
+	model "masjidku_backend/internals/features/school/academics/rooms/model"
 )
 
 /* =======================================================
@@ -51,7 +51,6 @@ func reqCtx(c *fiber.Ctx) context.Context {
 	return context.Background()
 }
 
-
 /* ============================ CREATE ============================ */
 func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	ctl.ensureValidator()
@@ -76,22 +75,22 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Validasi gagal: "+err.Error())
 	}
 
-	// === AUTO SLUG (unik per masjid, CI, panjang <= 50) ===
+	// === AUTO SLUG (unik per masjid, case-insensitive, panjang <= 50) ===
 	base := ""
-	if req.ClassRoomsSlug != nil {
-		base = strings.TrimSpace(*req.ClassRoomsSlug)
+	if req.ClassRoomSlug != nil {
+		base = strings.TrimSpace(*req.ClassRoomSlug)
 	}
 	if base == "" {
-		base = helper.Slugify(req.ClassRoomsName, 50)
+		base = helper.Slugify(req.ClassRoomName, 50)
 	} else {
 		base = helper.Slugify(base, 50)
 	}
 	slug, err := helper.EnsureUniqueSlugCI(
 		reqCtx(c), ctl.DB,
-		"class_rooms", "class_rooms_slug",
+		"class_rooms", "class_room_slug",
 		base,
 		func(q *gorm.DB) *gorm.DB {
-			return q.Where("class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", masjidID)
+			return q.Where("class_room_masjid_id = ? AND class_room_deleted_at IS NULL", masjidID)
 		},
 		50,
 	)
@@ -100,21 +99,21 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	}
 
 	m := model.ClassRoomModel{
-		ClassRoomsMasjidID:    masjidID,
-		ClassRoomsName:        req.ClassRoomsName,
-		ClassRoomsCode:        req.ClassRoomsCode,
-		ClassRoomsSlug:        &slug, // ← pakai slug hasil generate/unique
-		ClassRoomsLocation:    req.ClassRoomsLocation,
-		ClassRoomsCapacity:    req.ClassRoomsCapacity,
-		ClassRoomsDescription: req.ClassRoomsDescription,
-		ClassRoomsIsVirtual:   req.ClassRoomsIsVirtual,
-		ClassRoomsIsActive:    req.ClassRoomsIsActive,
-		ClassRoomsFeatures:    req.ClassRoomsFeatures,
+		ClassRoomMasjidID:    masjidID,
+		ClassRoomName:        req.ClassRoomName,
+		ClassRoomCode:        req.ClassRoomCode,
+		ClassRoomSlug:        &slug, // pakai slug hasil generate/unique
+		ClassRoomLocation:    req.ClassRoomLocation,
+		ClassRoomCapacity:    req.ClassRoomCapacity,
+		ClassRoomDescription: req.ClassRoomDescription,
+		ClassRoomIsVirtual:   req.ClassRoomIsVirtual,
+		ClassRoomIsActive:    req.ClassRoomIsActive,
+		ClassRoomFeatures:    req.ClassRoomFeatures,
 	}
 
 	if err := ctl.DB.WithContext(reqCtx(c)).Create(&m).Error; err != nil {
 		if isUniqueViolation(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Nama/Kode ruang sudah digunakan")
+			return helper.JsonError(c, fiber.StatusConflict, "Nama/Kode/Slug ruang sudah digunakan")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan data")
 	}
@@ -154,7 +153,7 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 	// Ambil record yang masih alive & tenant match
 	var m model.ClassRoomModel
 	if err := ctl.DB.WithContext(reqCtx(c)).
-		Where("class_room_id = ? AND class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", id, masjidID).
+		Where("class_room_id = ? AND class_room_masjid_id = ? AND class_room_deleted_at IS NULL", id, masjidID).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -164,34 +163,34 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 
 	// Apply perubahan hanya yang dikirim (gunakan nilai, bukan pointer)
 	updates := map[string]interface{}{}
-	if req.ClassRoomsName != nil {
-		updates["class_rooms_name"] = *req.ClassRoomsName
+	if req.ClassRoomName != nil {
+		updates["class_room_name"] = *req.ClassRoomName
 	}
-	if req.ClassRoomsCode != nil {
-		updates["class_rooms_code"] = *req.ClassRoomsCode
+	if req.ClassRoomCode != nil {
+		updates["class_room_code"] = *req.ClassRoomCode
 	}
-	if req.ClassRoomsSlug != nil {
-		updates["class_rooms_slug"] = *req.ClassRoomsSlug
+	if req.ClassRoomSlug != nil {
+		updates["class_room_slug"] = *req.ClassRoomSlug
 	}
-	if req.ClassRoomsLocation != nil {
-		updates["class_rooms_location"] = *req.ClassRoomsLocation
+	if req.ClassRoomLocation != nil {
+		updates["class_room_location"] = *req.ClassRoomLocation
 	}
-	if req.ClassRoomsCapacity != nil {
-		updates["class_rooms_capacity"] = *req.ClassRoomsCapacity
+	if req.ClassRoomCapacity != nil {
+		updates["class_room_capacity"] = *req.ClassRoomCapacity
 	}
-	if req.ClassRoomsDescription != nil {
-		updates["class_rooms_description"] = *req.ClassRoomsDescription
+	if req.ClassRoomDescription != nil {
+		updates["class_room_description"] = *req.ClassRoomDescription
 	}
-	if req.ClassRoomsIsVirtual != nil {
-		updates["class_rooms_is_virtual"] = *req.ClassRoomsIsVirtual
+	if req.ClassRoomIsVirtual != nil {
+		updates["class_room_is_virtual"] = *req.ClassRoomIsVirtual
 	}
-	if req.ClassRoomsIsActive != nil {
-		updates["class_rooms_is_active"] = *req.ClassRoomsIsActive
+	if req.ClassRoomIsActive != nil {
+		updates["class_room_is_active"] = *req.ClassRoomIsActive
 	}
-	if req.ClassRoomsFeatures != nil {
-		updates["class_rooms_features"] = *req.ClassRoomsFeatures
+	if req.ClassRoomFeatures != nil {
+		updates["class_room_features"] = *req.ClassRoomFeatures
 	}
-	updates["class_rooms_updated_at"] = time.Now()
+	updates["class_room_updated_at"] = time.Now()
 
 	if len(updates) == 0 {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Tidak ada field untuk diupdate")
@@ -199,7 +198,7 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 
 	if err := ctl.DB.WithContext(reqCtx(c)).Model(&m).Clauses(clause.Returning{}).Updates(updates).Error; err != nil {
 		if isUniqueViolation(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Nama/Kode ruang sudah digunakan")
+			return helper.JsonError(c, fiber.StatusConflict, "Nama/Kode/Slug ruang sudah digunakan")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengubah data")
 	}
@@ -234,7 +233,7 @@ func (ctl *ClassRoomController) Patch(c *fiber.Ctx) error {
 	// Ambil record alive & tenant match
 	var m model.ClassRoomModel
 	if err := ctl.DB.WithContext(reqCtx(c)).
-		Where("class_room_id = ? AND class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", id, masjidID).
+		Where("class_room_id = ? AND class_room_masjid_id = ? AND class_room_deleted_at IS NULL", id, masjidID).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -246,11 +245,11 @@ func (ctl *ClassRoomController) Patch(c *fiber.Ctx) error {
 	if len(updates) == 0 {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Tidak ada field untuk diupdate")
 	}
-	updates["class_rooms_updated_at"] = time.Now()
+	updates["class_room_updated_at"] = time.Now()
 
 	if err := ctl.DB.WithContext(reqCtx(c)).Model(&m).Clauses(clause.Returning{}).Updates(updates).Error; err != nil {
 		if isUniqueViolation(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Nama/Kode ruang sudah digunakan")
+			return helper.JsonError(c, fiber.StatusConflict, "Nama/Kode/Slug ruang sudah digunakan")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengubah data")
 	}
@@ -278,8 +277,8 @@ func (ctl *ClassRoomController) Delete(c *fiber.Ctx) error {
 
 	// Pastikan tenant match & alive → soft delete
 	tx := ctl.DB.WithContext(reqCtx(c)).Model(&model.ClassRoomModel{}).
-		Where("class_room_id = ? AND class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", id, masjidID).
-		Update("class_rooms_deleted_at", time.Now())
+		Where("class_room_id = ? AND class_room_masjid_id = ? AND class_room_deleted_at IS NULL", id, masjidID).
+		Update("class_room_deleted_at", time.Now())
 	if tx.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus data")
 	}
@@ -309,15 +308,15 @@ func (ctl *ClassRoomController) Restore(c *fiber.Ctx) error {
 
 	// Hanya bisa restore jika baris soft-deleted & tenant match
 	tx := ctl.DB.WithContext(reqCtx(c)).Model(&model.ClassRoomModel{}).
-		Where("class_room_id = ? AND class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NOT NULL", id, masjidID).
+		Where("class_room_id = ? AND class_room_masjid_id = ? AND class_room_deleted_at IS NOT NULL", id, masjidID).
 		Updates(map[string]interface{}{
-			"class_rooms_deleted_at": nil,
-			"class_rooms_updated_at": time.Now(),
+			"class_room_deleted_at": nil,
+			"class_room_updated_at": time.Now(),
 		})
 	if tx.Error != nil {
 		if isUniqueViolation(tx.Error) {
-			// Restore bisa bentrok dengan partial unique (nama/kode sudah dipakai baris alive lain)
-			return helper.JsonError(c, fiber.StatusConflict, "Gagal restore: nama/kode sudah dipakai entri lain")
+			// Restore bisa bentrok dengan partial unique (nama/kode/slug sudah dipakai baris alive lain)
+			return helper.JsonError(c, fiber.StatusConflict, "Gagal restore: nama/kode/slug sudah dipakai entri lain")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal restore data")
 	}
@@ -328,7 +327,7 @@ func (ctl *ClassRoomController) Restore(c *fiber.Ctx) error {
 	// Return row terbaru
 	var m model.ClassRoomModel
 	if err := ctl.DB.WithContext(reqCtx(c)).
-		Where("class_room_id = ? AND class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", id, masjidID).
+		Where("class_room_id = ? AND class_room_masjid_id = ? AND class_room_deleted_at IS NULL", id, masjidID).
 		First(&m).Error; err != nil {
 		// kalau gagal ambil ulang, minimal beri flag restored
 		return helper.JsonOK(c, "Restored", fiber.Map{"restored": true})

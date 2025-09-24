@@ -1,3 +1,4 @@
+// file: internals/features/school/submissions_assesments/quizzes/controller/quiz_questions_controller.go
 package controller
 
 import (
@@ -37,16 +38,16 @@ func NewQuizQuestionsController(db *gorm.DB) *QuizQuestionsController {
 ========================================================= */
 
 func (ctl *QuizQuestionsController) applyFilters(db *gorm.DB, masjidID uuid.UUID, quizID *uuid.UUID, qType string, q string) *gorm.DB {
-	db = db.Where("quiz_questions_masjid_id = ? AND quiz_questions_deleted_at IS NULL", masjidID)
+	db = db.Where("quiz_question_masjid_id = ? AND quiz_question_deleted_at IS NULL", masjidID)
 	if quizID != nil && *quizID != uuid.Nil {
-		db = db.Where("quiz_questions_quiz_id = ?", *quizID)
+		db = db.Where("quiz_question_quiz_id = ?", *quizID)
 	}
 	if t := strings.ToLower(strings.TrimSpace(qType)); t == "single" || t == "essay" {
-		db = db.Where("quiz_questions_type = ?", t)
+		db = db.Where("quiz_question_type = ?", t)
 	}
 	if s := strings.TrimSpace(q); s != "" {
 		like := "%" + strings.ToLower(s) + "%"
-		db = db.Where("(LOWER(quiz_questions_text) LIKE ? OR LOWER(COALESCE(quiz_questions_explanation,'')) LIKE ?)", like, like)
+		db = db.Where("(LOWER(quiz_question_text) LIKE ? OR LOWER(COALESCE(quiz_question_explanation,'')) LIKE ?)", like, like)
 	}
 	return db
 }
@@ -54,19 +55,19 @@ func (ctl *QuizQuestionsController) applyFilters(db *gorm.DB, masjidID uuid.UUID
 func (ctl *QuizQuestionsController) applySort(db *gorm.DB, sort string) *gorm.DB {
 	switch strings.TrimSpace(sort) {
 	case "created_at":
-		return db.Order("quiz_questions_created_at ASC")
+		return db.Order("quiz_question_created_at ASC")
 	case "desc_created_at", "":
-		return db.Order("quiz_questions_created_at DESC")
+		return db.Order("quiz_question_created_at DESC")
 	case "points":
-		return db.Order("quiz_questions_points ASC")
+		return db.Order("quiz_question_points ASC")
 	case "desc_points":
-		return db.Order("quiz_questions_points DESC")
+		return db.Order("quiz_question_points DESC")
 	case "type":
-		return db.Order("quiz_questions_type ASC")
+		return db.Order("quiz_question_type ASC")
 	case "desc_type":
-		return db.Order("quiz_questions_type DESC")
+		return db.Order("quiz_question_type DESC")
 	default:
-		return db.Order("quiz_questions_created_at DESC")
+		return db.Order("quiz_question_created_at DESC")
 	}
 }
 
@@ -76,7 +77,6 @@ func (ctl *QuizQuestionsController) applySort(db *gorm.DB, sort string) *gorm.DB
 
 // POST /quiz-questions
 func (ctl *QuizQuestionsController) Create(c *fiber.Ctx) error {
-	// agar helper slug→id bisa akses DB dari context
 	c.Locals("DB", ctl.DB)
 
 	var req qdto.CreateQuizQuestionRequest
@@ -104,16 +104,16 @@ func (ctl *QuizQuestionsController) Create(c *fiber.Ctx) error {
 	}
 
 	// Force masjid_id dari tenant context
-	req.QuizQuestionsMasjidID = mid
+	req.QuizQuestionMasjidID = mid
 
 	// Safety: pastikan quiz_id milik masjid tenant
 	var ok bool
 	if err := ctl.DB.Raw(`
 		SELECT EXISTS(
 		  SELECT 1 FROM quizzes
-		  WHERE quizzes_id = ? AND quizzes_masjid_id = ?
+		  WHERE quiz_id = ? AND quiz_masjid_id = ?
 		)
-	`, req.QuizQuestionsQuizID, mid).Scan(&ok).Error; err != nil {
+	`, req.QuizQuestionQuizID, mid).Scan(&ok).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	if !ok {
@@ -139,7 +139,6 @@ func (ctl *QuizQuestionsController) Create(c *fiber.Ctx) error {
 
 // PATCH /quiz-questions/:id
 func (ctl *QuizQuestionsController) Patch(c *fiber.Ctx) error {
-	// agar helper slug→id bisa akses DB dari context
 	c.Locals("DB", ctl.DB)
 
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
@@ -165,7 +164,7 @@ func (ctl *QuizQuestionsController) Patch(c *fiber.Ctx) error {
 
 	var m qmodel.QuizQuestionModel
 	if err := ctl.DB.
-		First(&m, "quiz_questions_id = ? AND quiz_questions_masjid_id = ? AND quiz_questions_deleted_at IS NULL", id, mid).
+		First(&m, "quiz_question_id = ? AND quiz_question_masjid_id = ? AND quiz_question_deleted_at IS NULL", id, mid).
 		Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Soal tidak ditemukan")
@@ -183,11 +182,11 @@ func (ctl *QuizQuestionsController) Patch(c *fiber.Ctx) error {
 	}
 
 	// Jika quiz_id berubah, validasi quiz baru milik tenant
-	if req.QuizQuestionsQuizID.ShouldUpdate() && !req.QuizQuestionsQuizID.IsNull() {
-		newQID := req.QuizQuestionsQuizID.Val()
+	if req.QuizQuestionQuizID.ShouldUpdate() && !req.QuizQuestionQuizID.IsNull() {
+		newQID := req.QuizQuestionQuizID.Val()
 		var ok bool
 		if err := ctl.DB.Raw(`
-			SELECT EXISTS(SELECT 1 FROM quizzes WHERE quizzes_id = ? AND quizzes_masjid_id = ?)
+			SELECT EXISTS(SELECT 1 FROM quizzes WHERE quiz_id = ? AND quiz_masjid_id = ?)
 		`, newQID, mid).Scan(&ok).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
@@ -199,7 +198,7 @@ func (ctl *QuizQuestionsController) Patch(c *fiber.Ctx) error {
 	// Save all changed fields (optimistic)
 	if err := ctl.DB.
 		Model(&qmodel.QuizQuestionModel{}).
-		Where("quiz_questions_id = ?", m.QuizQuestionsID).
+		Where("quiz_question_id = ?", m.QuizQuestionID).
 		Select("*").
 		Updates(&m).Error; err != nil {
 		if isCheckViolation(err) {
@@ -209,7 +208,7 @@ func (ctl *QuizQuestionsController) Patch(c *fiber.Ctx) error {
 	}
 
 	// Reload
-	if err := ctl.DB.First(&m, "quiz_questions_id = ?", m.QuizQuestionsID).Error; err != nil {
+	if err := ctl.DB.First(&m, "quiz_question_id = ?", m.QuizQuestionID).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	return helper.JsonUpdated(c, "Soal diperbarui", qdto.FromModelQuizQuestion(&m))
@@ -217,7 +216,6 @@ func (ctl *QuizQuestionsController) Patch(c *fiber.Ctx) error {
 
 // DELETE /quiz-questions/:id (soft delete: set deleted_at)
 func (ctl *QuizQuestionsController) Delete(c *fiber.Ctx) error {
-	// agar helper slug→id bisa akses DB dari context
 	c.Locals("DB", ctl.DB)
 
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
@@ -243,8 +241,8 @@ func (ctl *QuizQuestionsController) Delete(c *fiber.Ctx) error {
 
 	// pastikan exist dan milik tenant
 	var m qmodel.QuizQuestionModel
-	if err := ctl.DB.Select("quiz_questions_id").
-		First(&m, "quiz_questions_id = ? AND quiz_questions_masjid_id = ? AND quiz_questions_deleted_at IS NULL", id, mid).
+	if err := ctl.DB.Select("quiz_question_id").
+		First(&m, "quiz_question_id = ? AND quiz_question_masjid_id = ? AND quiz_question_deleted_at IS NULL", id, mid).
 		Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Soal tidak ditemukan")
@@ -254,8 +252,8 @@ func (ctl *QuizQuestionsController) Delete(c *fiber.Ctx) error {
 
 	now := time.Now()
 	if err := ctl.DB.Model(&qmodel.QuizQuestionModel{}).
-		Where("quiz_questions_id = ?", id).
-		Update("quiz_questions_deleted_at", now).Error; err != nil {
+		Where("quiz_question_id = ?", id).
+		Update("quiz_question_deleted_at", now).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	return helper.JsonDeleted(c, "Soal dihapus", nil)
@@ -313,7 +311,7 @@ func pageOffset(page, perPage int) int {
 }
 
 /* =========================================================
-   DB error helpers (reuse pattern dari controller lain)
+   DB error helpers
 ========================================================= */
 
 func isCheckViolation(err error) bool {

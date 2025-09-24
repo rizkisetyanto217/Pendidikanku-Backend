@@ -1,4 +1,4 @@
-// internals/features/lembaga/class_books/controller/books_controller.go
+// file: internals/features/lembaga/class_books/controller/books_controller.go
 package controller
 
 import (
@@ -38,11 +38,9 @@ func strPtrIfNotEmpty(s string) *string {
 }
 
 // =========================================================
-// CREATE  - POST /admin/
-// Body: JSON (atau form sederhana, tanpa upload file)
+// CREATE  - POST /admin/:masjid/books
+// Body: JSON atau multipart tanpa upload file (upload file juga didukung)
 // =========================================================
-// file: internals/features/books/controller/books_create.go
-
 func (h *BooksController) Create(c *fiber.Ctx) error {
 	// Pastikan DB tersedia untuk helper slug→id
 	if c.Locals("DB") == nil {
@@ -60,19 +58,20 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 		return err
 	}
 
-	var req dto.BooksCreateRequest
+	var req dto.BookCreateRequest
 	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
 
 	// ================== Parse body ==================
 	if strings.HasPrefix(ct, "multipart/form-data") {
 		// Text fields minimal
-		req.BooksTitle = strings.TrimSpace(c.FormValue("books_title"))
-		req.BooksDesc = strPtrIfNotEmpty(c.FormValue("books_desc")) // <-- sesuai DTO
+		req.BookTitle = strings.TrimSpace(c.FormValue("book_title"))
+		req.BookDesc = strPtrIfNotEmpty(c.FormValue("book_desc"))
+		req.BookAuthor = strPtrIfNotEmpty(c.FormValue("book_author"))
 
-		// (opsional) slug dikirim FE
-		if v := strings.TrimSpace(c.FormValue("books_slug")); v != "" {
+		// (opsional) slug dari FE
+		if v := strings.TrimSpace(c.FormValue("book_slug")); v != "" {
 			s := helper.Slugify(v, 100)
-			req.BooksSlug = &s
+			req.BookSlug = &s
 		}
 
 		// (opsional) urls_json
@@ -87,7 +86,6 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 		if len(req.URLs) == 0 {
 			if form, ferr := c.MultipartForm(); ferr == nil && form != nil {
 				ups := helperOSS.ParseURLUpsertsFromMultipart(form, nil) // gunakan defaults dari helper
-
 				if len(ups) > 0 {
 					for _, u := range ups {
 						req.URLs = append(req.URLs, dto.BookURLUpsert{
@@ -110,33 +108,33 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 	}
 
 	// Isi masjid ID + normalisasi + slug
-	req.BooksMasjidID = masjidID
+	req.BookMasjidID = masjidID
 	req.Normalize()
 
-	if req.BooksSlug == nil || strings.TrimSpace(*req.BooksSlug) == "" {
-		gen := helper.SuggestSlugFromName(req.BooksTitle)
-		req.BooksSlug = &gen
+	if req.BookSlug == nil || strings.TrimSpace(*req.BookSlug) == "" {
+		gen := helper.SuggestSlugFromName(req.BookTitle)
+		req.BookSlug = &gen
 	} else {
-		s := helper.Slugify(*req.BooksSlug, 100)
-		req.BooksSlug = &s
+		s := helper.Slugify(*req.BookSlug, 100)
+		req.BookSlug = &s
 	}
 
 	// ================== Validasi ==================
 	if err := validate.Struct(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	if req.BooksSlug == nil || *req.BooksSlug == "" {
+	if req.BookSlug == nil || *req.BookSlug == "" {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Slug tidak valid (judul terlalu kosong untuk dibentuk slug)")
 	}
 
 	// Cek unik slug per masjid
 	var cnt int64
-	if err := h.DB.Model(&model.BooksModel{}).
+	if err := h.DB.Model(&model.BookModel{}).
 		Where(`
-			books_masjid_id = ?
-			AND lower(books_slug) = lower(?)
-			AND books_deleted_at IS NULL
-		`, masjidID, *req.BooksSlug).
+			book_masjid_id = ?
+			AND lower(book_slug) = lower(?)
+			AND book_deleted_at IS NULL
+		`, masjidID, *req.BookSlug).
 		Count(&cnt).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek duplikasi slug")
 	}
@@ -159,7 +157,7 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 	m := req.ToModel()
 	if err := tx.Create(m).Error; err != nil {
 		msg := strings.ToLower(err.Error())
-		if strings.Contains(msg, "uq_books_slug_per_masjid") ||
+		if strings.Contains(msg, "uq_book_slug_per_masjid") ||
 			strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
 			tx.Rollback()
 			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
@@ -173,7 +171,7 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 	for _, it := range req.URLs {
 		row := model.BookURLModel{
 			BookURLMasjidID:  masjidID,
-			BookURLBookID:    m.BooksID, // sesuaikan field PK model buku kamu
+			BookURLBookID:    m.BookID, // PK dari model.Book
 			BookURLKind:      strings.TrimSpace(it.BookURLKind),
 			BookURLHref:      it.BookURLHref,
 			BookURLObjectKey: it.BookURLObjectKey,
@@ -215,7 +213,7 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 
 					row := model.BookURLModel{
 						BookURLMasjidID: masjidID,
-						BookURLBookID:   m.BooksID,
+						BookURLBookID:   m.BookID,
 						BookURLKind:     "attachment",
 					}
 					// set href + object_key
@@ -249,7 +247,7 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 						book_url_book_id   = ? AND
 						book_url_kind      = ? AND
 						book_url_id       <> ?
-					`, masjidID, m.BooksID, it.BookURLKind, it.BookURLID).
+					`, masjidID, m.BookID, it.BookURLKind, it.BookURLID).
 					Update("book_url_is_primary", false).Error; err != nil {
 					tx.Rollback()
 					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal set primary lampiran")
@@ -264,44 +262,38 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal commit transaksi")
 	}
 
-	// (opsional) isi URLs ringkas utk response
-	// Jika DTO response sudah menampung URLs, load cepat:
-	// isi URLs ringkas utk response
+	// (opsional) isi URLs ringkas untuk response
 	var rows []model.BookURLModel
-	_ = h.DB.Where("book_url_book_id = ?", m.BooksID).
+	_ = h.DB.Where("book_url_book_id = ?", m.BookID).
 		Order("book_url_order ASC, book_url_created_at ASC").
 		Find(&rows)
 
-	resp := dto.ToBooksResponse(m)
+	resp := dto.ToBookResponse(m)
 	for _, r := range rows {
 		if r.BookURLHref == nil {
 			continue
 		}
-		resp.URLs = append(resp.URLs, dto.BookURLLiteBook{
-			ID:        r.BookURLID,
-			Label:     r.BookURLLabel,
-			Href:      *r.BookURLHref,
-			Kind:      r.BookURLKind,
-			IsPrimary: r.BookURLIsPrimary,
-			Order:     r.BookURLOrder,
+		resp.URLs = append(resp.URLs, dto.BookURLLite{
+			BookURLID:    r.BookURLID,
+			BookURLLabel: r.BookURLLabel,
+			BookURLHref:  *r.BookURLHref,
+			BookURLKind:  r.BookURLKind,
+			BookURLIsPrimary:    r.BookURLIsPrimary,
+			BookURLOrder:        r.BookURLOrder,
 		})
 	}
 
 	return helper.JsonCreated(c, "Buku berhasil dibuat", resp)
-
 }
 
 /*
-	=========================================================
-	  PATCH - /api/a/:masjid_id/book-urls/:id
-	  Body: JSON (partial update, tanpa upload)
-	  Field yang boleh diubah: label, order, is_primary, kind, href, object_key
-	  - Jika is_primary=true → unset primary lain untuk (book_id, kind) yang sama
-	  - Jika ganti object_key/href → simpan yang lama ke object_key_old (bila belum ada)
+=========================================================
+
+	PATCH URL - /api/a/:masjid_id/book-urls/:id
+	Body: JSON / multipart (partial update)
 
 =========================================================
 */
-// PATCH - /api/a/:masjid_id/book-urls/:id
 func (h *BooksController) Patch(c *fiber.Ctx) error {
 	// Inject DB utk helper (konsisten)
 	if c.Locals("DB") == nil {
@@ -379,7 +371,6 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 				req.BookURLIsPrimary = &b
 			}
 		}
-		// catatan: kalau kamu ingin dukung alias field (mis. "label"), bisa tambahkan fallback dari nama lain di sini.
 	} else {
 		// --- default: JSON / x-www-form-urlencoded ---
 		if err := c.BodyParser(&req); err != nil {
@@ -499,11 +490,9 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 }
 
 /*
-	=========================================================
-	  DELETE (soft) - /api/a/:masjid_id/book-urls/:id
-	  - Soft-delete: pakai DeletedAt
-	  - Optional: tandai delete pending window agar worker bisa
-	    cleanup object di OSS (jika kamu punya mekanisme itu)
+=========================================================
+
+	DELETE (soft) - /api/a/:masjid_id/book-urls/:id
 
 =========================================================
 */

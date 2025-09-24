@@ -55,7 +55,7 @@ CREATE INDEX IF NOT EXISTS idx_users_user_search ON users USING gin (user_search
 -- ============================ --
 -- TABLE USERS PROFILE --
 -- ============================ --
-CREATE TABLE IF NOT EXISTS users_profile (
+CREATE TABLE IF NOT EXISTS user_profiles (
   user_profile_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_profile_user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
@@ -121,27 +121,27 @@ CREATE TABLE IF NOT EXISTS users_profile (
 
 -- Indexes (pakai prefix baru)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_user_profile_slug_alive
-  ON users_profile (user_profile_slug)
+  ON user_profiles (user_profile_slug)
   WHERE user_profile_deleted_at IS NULL AND user_profile_slug IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_user_profile_user_id_alive
-  ON users_profile(user_profile_user_id) WHERE user_profile_deleted_at IS NULL;
+  ON user_profiles(user_profile_user_id) WHERE user_profile_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_user_profile_gender
-  ON users_profile(user_profile_gender) WHERE user_profile_deleted_at IS NULL;
+  ON user_profiles(user_profile_gender) WHERE user_profile_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_user_profile_phone
-  ON users_profile(user_profile_phone_number) WHERE user_profile_deleted_at IS NULL;
+  ON user_profiles(user_profile_phone_number) WHERE user_profile_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_user_profile_location
-  ON users_profile(user_profile_location) WHERE user_profile_deleted_at IS NULL;
+  ON user_profiles(user_profile_location) WHERE user_profile_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_user_profile_telegram
-  ON users_profile(user_profile_telegram_username)
+  ON user_profiles(user_profile_telegram_username)
   WHERE user_profile_deleted_at IS NULL AND user_profile_telegram_username IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_user_profile_avatar_purge_due
-  ON users_profile(user_profile_avatar_delete_pending_until)
+  ON user_profiles(user_profile_avatar_delete_pending_until)
   WHERE user_profile_avatar_object_key_old IS NOT NULL;
 
 COMMIT;

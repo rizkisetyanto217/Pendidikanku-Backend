@@ -1,4 +1,4 @@
-// file: internals/features/attendance/user_attendance_urls/dto/user_attendance_url_dto.go
+// file: internals/features/attendance/user_class_session_attendance_urls/dto/user_class_session_attendance_url_dto.go
 package dto
 
 import (
@@ -8,89 +8,91 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
+
+	model "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
 )
 
 /* =========================================================
-   Validator singleton (opsional dipakai di controller)
+   Validator singleton
 ========================================================= */
 
 var validate = validator.New()
 
 /* =========================================================
-   Kinds (sinkron dg model)
+   Kinds
 ========================================================= */
 
 const (
-	UAUKindImage      = "image"
-	UAUKindVideo      = "video"
-	UAUKindAttachment = "attachment"
-	UAUKindLink       = "link"
-	UAUKindAudio      = "audio"
+	UCSAURLKindImage      = "image"
+	UCSAURLKindVideo      = "video"
+	UCSAURLKindAttachment = "attachment"
+	UCSAURLKindLink       = "link"
+	UCSAURLKindAudio      = "audio"
 )
 
 /* =========================================================
    Create
    - Minimal: masjid_id, attendance_id, kind
-   - Salah satu dari: href atau object_key boleh diisi (boleh dua-duanya)
+   - Salah satu dari: href atau object_key (boleh dua-duanya)
 ========================================================= */
 
-type CreateUserAttendanceURLRequest struct {
-	// Tenant & owner (biasanya diisi dari helper resolver, bukan dari body)
-	UserAttendanceURLMasjidID   uuid.UUID `json:"masjid_id" validate:"required"`
-	UserAttendanceURLAttendance uuid.UUID `json:"attendance_id" validate:"required"`
+type CreateUserClassSessionAttendanceURLRequest struct {
+	// Tenant & owner (biasanya diisi dari resolver, bukan dari body)
+	UserClassSessionAttendanceURLMasjidID     uuid.UUID `json:"masjid_id"      validate:"required"`
+	UserClassSessionAttendanceURLAttendanceID uuid.UUID `json:"attendance_id"  validate:"required"`
 
 	// Optional lookup type
-	UserAttendanceTypeID *uuid.UUID `json:"type_id"`
+	UserClassSessionAttendanceTypeID *uuid.UUID `json:"type_id"`
 
 	// Jenis/peran aset
-	UserAttendanceURLKind string `json:"kind" validate:"required,max=24"`
+	UserClassSessionAttendanceURLKind string `json:"kind" validate:"required,max=24"`
 
 	// Lokasi file/link
-	UserAttendanceURLHref      *string `json:"href" validate:"omitempty,max=4000"`
-	UserAttendanceURLObjectKey *string `json:"object_key" validate:"omitempty,max=2000"`
+	UserClassSessionAttendanceURLHref      *string `json:"href"        validate:"omitempty,max=4000"`
+	UserClassSessionAttendanceURLObjectKey *string `json:"object_key"  validate:"omitempty,max=2000"`
 
 	// Metadata tampilan
-	UserAttendanceURLLabel     *string `json:"label" validate:"omitempty,max=160"`
-	UserAttendanceURLOrder     *int32  `json:"order" validate:"omitempty"`
-	UserAttendanceURLIsPrimary *bool   `json:"is_primary" validate:"omitempty"`
+	UserClassSessionAttendanceURLLabel     *string `json:"label"      validate:"omitempty,max=160"`
+	UserClassSessionAttendanceURLOrder     *int    `json:"order"      validate:"omitempty"`
+	UserClassSessionAttendanceURLIsPrimary *bool   `json:"is_primary" validate:"omitempty"`
 
 	// Housekeeping (opsional)
-	UserAttendanceURLTrashURL           *string    `json:"trash_url" validate:"omitempty,max=4000"`
-	UserAttendanceURLDeletePendingUntil *time.Time `json:"delete_pending_until"`
+	UserClassSessionAttendanceURLTrashURL           *string    `json:"trash_url"          validate:"omitempty,max=4000"`
+	UserClassSessionAttendanceURLDeletePendingUntil *time.Time `json:"delete_pending_until"`
 
 	// Uploader (opsional)
-	UserAttendanceURLUploaderTeacherID *uuid.UUID `json:"uploader_teacher_id"`
-	UserAttendanceURLUploaderStudentID *uuid.UUID `json:"uploader_student_id"`
+	UserClassSessionAttendanceURLUploaderTeacherID *uuid.UUID `json:"uploader_teacher_id"`
+	UserClassSessionAttendanceURLUploaderStudentID *uuid.UUID `json:"uploader_student_id"`
 }
 
-func (r *CreateUserAttendanceURLRequest) Normalize() {
-	r.UserAttendanceURLKind = strings.TrimSpace(strings.ToLower(r.UserAttendanceURLKind))
-	if r.UserAttendanceURLLabel != nil {
-		lbl := strings.TrimSpace(*r.UserAttendanceURLLabel)
-		r.UserAttendanceURLLabel = &lbl
+func (r *CreateUserClassSessionAttendanceURLRequest) Normalize() {
+	r.UserClassSessionAttendanceURLKind = strings.TrimSpace(strings.ToLower(r.UserClassSessionAttendanceURLKind))
+	if r.UserClassSessionAttendanceURLLabel != nil {
+		lbl := strings.TrimSpace(*r.UserClassSessionAttendanceURLLabel)
+		r.UserClassSessionAttendanceURLLabel = &lbl
 	}
-	if r.UserAttendanceURLHref != nil {
-		h := strings.TrimSpace(*r.UserAttendanceURLHref)
+	if r.UserClassSessionAttendanceURLHref != nil {
+		h := strings.TrimSpace(*r.UserClassSessionAttendanceURLHref)
 		if h == "" {
-			r.UserAttendanceURLHref = nil
+			r.UserClassSessionAttendanceURLHref = nil
 		} else {
-			r.UserAttendanceURLHref = &h
+			r.UserClassSessionAttendanceURLHref = &h
 		}
 	}
-	if r.UserAttendanceURLObjectKey != nil {
-		ok := strings.TrimSpace(*r.UserAttendanceURLObjectKey)
+	if r.UserClassSessionAttendanceURLObjectKey != nil {
+		ok := strings.TrimSpace(*r.UserClassSessionAttendanceURLObjectKey)
 		if ok == "" {
-			r.UserAttendanceURLObjectKey = nil
+			r.UserClassSessionAttendanceURLObjectKey = nil
 		} else {
-			r.UserAttendanceURLObjectKey = &ok
+			r.UserClassSessionAttendanceURLObjectKey = &ok
 		}
 	}
 }
 
-func (r *CreateUserAttendanceURLRequest) Validate() error {
-	// minimal rule: butuh salah satu dari href/object_key
-	if (r.UserAttendanceURLHref == nil || strings.TrimSpace(*r.UserAttendanceURLHref) == "") &&
-		(r.UserAttendanceURLObjectKey == nil || strings.TrimSpace(*r.UserAttendanceURLObjectKey) == "") {
+func (r *CreateUserClassSessionAttendanceURLRequest) Validate() error {
+	// minimal: butuh salah satu dari href/object_key
+	if (r.UserClassSessionAttendanceURLHref == nil || strings.TrimSpace(*r.UserClassSessionAttendanceURLHref) == "") &&
+		(r.UserClassSessionAttendanceURLObjectKey == nil || strings.TrimSpace(*r.UserClassSessionAttendanceURLObjectKey) == "") {
 		return errors.New("either href or object_key must be provided")
 	}
 	return validate.Struct(r)
@@ -102,73 +104,72 @@ func (r *CreateUserAttendanceURLRequest) Validate() error {
    - ObjectKeyOld tidak diekspos di request; diisi di service saat replace
 ========================================================= */
 
-type UpdateUserAttendanceURLRequest struct {
+type UpdateUserClassSessionAttendanceURLRequest struct {
 	// ID baris yang mau diupdate (biasanya dari path)
 	ID uuid.UUID `json:"-" validate:"required"`
 
 	// Optional lookup type
-	UserAttendanceTypeID *uuid.UUID `json:"type_id" validate:"omitempty"`
+	UserClassSessionAttendanceTypeID *uuid.UUID `json:"type_id" validate:"omitempty"`
 
 	// Jenis/peran aset
-	UserAttendanceURLKind *string `json:"kind" validate:"omitempty,max=24"`
+	UserClassSessionAttendanceURLKind *string `json:"kind" validate:"omitempty,max=24"`
 
 	// Lokasi file/link
-	UserAttendanceURLHref      *string `json:"href" validate:"omitempty,max=4000"`
-	UserAttendanceURLObjectKey *string `json:"object_key" validate:"omitempty,max=2000"`
+	UserClassSessionAttendanceURLHref      *string `json:"href"        validate:"omitempty,max=4000"`
+	UserClassSessionAttendanceURLObjectKey *string `json:"object_key"  validate:"omitempty,max=2000"`
 
 	// Metadata tampilan
-	UserAttendanceURLLabel     *string `json:"label" validate:"omitempty,max=160"`
-	UserAttendanceURLOrder     *int32  `json:"order" validate:"omitempty"`
-	UserAttendanceURLIsPrimary *bool   `json:"is_primary" validate:"omitempty"`
+	UserClassSessionAttendanceURLLabel     *string `json:"label"      validate:"omitempty,max=160"`
+	UserClassSessionAttendanceURLOrder     *int    `json:"order"      validate:"omitempty"`
+	UserClassSessionAttendanceURLIsPrimary *bool   `json:"is_primary" validate:"omitempty"`
 
 	// Housekeeping
-	UserAttendanceURLTrashURL           *string    `json:"trash_url" validate:"omitempty,max=4000"`
-	UserAttendanceURLDeletePendingUntil *time.Time `json:"delete_pending_until" validate:"omitempty"`
+	UserClassSessionAttendanceURLTrashURL           *string    `json:"trash_url"          validate:"omitempty,max=4000"`
+	UserClassSessionAttendanceURLDeletePendingUntil *time.Time `json:"delete_pending_until" validate:"omitempty"`
 
 	// Uploader
-	UserAttendanceURLUploaderTeacherID *uuid.UUID `json:"uploader_teacher_id" validate:"omitempty"`
-	UserAttendanceURLUploaderStudentID *uuid.UUID `json:"uploader_student_id" validate:"omitempty"`
+	UserClassSessionAttendanceURLUploaderTeacherID *uuid.UUID `json:"uploader_teacher_id" validate:"omitempty"`
+	UserClassSessionAttendanceURLUploaderStudentID *uuid.UUID `json:"uploader_student_id" validate:"omitempty"`
 }
 
-func (r *UpdateUserAttendanceURLRequest) Normalize() {
-	if r.UserAttendanceURLKind != nil {
-		k := strings.TrimSpace(strings.ToLower(*r.UserAttendanceURLKind))
-		r.UserAttendanceURLKind = &k
+func (r *UpdateUserClassSessionAttendanceURLRequest) Normalize() {
+	if r.UserClassSessionAttendanceURLKind != nil {
+		k := strings.TrimSpace(strings.ToLower(*r.UserClassSessionAttendanceURLKind))
+		r.UserClassSessionAttendanceURLKind = &k
 	}
-	if r.UserAttendanceURLLabel != nil {
-		lbl := strings.TrimSpace(*r.UserAttendanceURLLabel)
-		r.UserAttendanceURLLabel = &lbl
+	if r.UserClassSessionAttendanceURLLabel != nil {
+		lbl := strings.TrimSpace(*r.UserClassSessionAttendanceURLLabel)
+		r.UserClassSessionAttendanceURLLabel = &lbl
 	}
-	if r.UserAttendanceURLHref != nil {
-		h := strings.TrimSpace(*r.UserAttendanceURLHref)
+	if r.UserClassSessionAttendanceURLHref != nil {
+		h := strings.TrimSpace(*r.UserClassSessionAttendanceURLHref)
 		if h == "" {
-			r.UserAttendanceURLHref = nil
+			r.UserClassSessionAttendanceURLHref = nil
 		} else {
-			r.UserAttendanceURLHref = &h
+			r.UserClassSessionAttendanceURLHref = &h
 		}
 	}
-	if r.UserAttendanceURLObjectKey != nil {
-		ok := strings.TrimSpace(*r.UserAttendanceURLObjectKey)
+	if r.UserClassSessionAttendanceURLObjectKey != nil {
+		ok := strings.TrimSpace(*r.UserClassSessionAttendanceURLObjectKey)
 		if ok == "" {
-			r.UserAttendanceURLObjectKey = nil
+			r.UserClassSessionAttendanceURLObjectKey = nil
 		} else {
-			r.UserAttendanceURLObjectKey = &ok
+			r.UserClassSessionAttendanceURLObjectKey = &ok
 		}
 	}
 }
 
-func (r *UpdateUserAttendanceURLRequest) Validate() error {
-	// Tidak ada rule wajib selain ID, tapi tetap validasi panjang dll
+func (r *UpdateUserClassSessionAttendanceURLRequest) Validate() error {
 	return validate.Struct(r)
 }
 
 /* =========================================================
    List (Query Params)
-   - support filter masjid_id, attendance_id, kind, is_primary, q(label contains)
-   - support paging & ordering
+   - filter masjid_id, attendance_id, kind, is_primary, q(label contains)
+   - paging & ordering
 ========================================================= */
 
-type ListUserAttendanceURLRequest struct {
+type ListUserClassSessionAttendanceURLRequest struct {
 	// Filter
 	MasjidID     *uuid.UUID `query:"masjid_id"`
 	AttendanceID *uuid.UUID `query:"attendance_id"`
@@ -177,7 +178,7 @@ type ListUserAttendanceURLRequest struct {
 	Q            *string    `query:"q"` // cari di label (ILIKE %q%)
 
 	// Paging
-	Limit  int `query:"limit" validate:"omitempty,min=1,max=200"`
+	Limit  int `query:"limit"  validate:"omitempty,min=1,max=200"`
 	Offset int `query:"offset" validate:"omitempty,min=0"`
 
 	// Ordering: default "is_primary desc, order asc, created_at asc"
@@ -185,7 +186,7 @@ type ListUserAttendanceURLRequest struct {
 	OrderBy *string `query:"order_by"` // contoh: "is_primary desc, order asc"
 }
 
-func (r *ListUserAttendanceURLRequest) Normalize() {
+func (r *ListUserClassSessionAttendanceURLRequest) Normalize() {
 	if r.Kind != nil {
 		k := strings.TrimSpace(strings.ToLower(*r.Kind))
 		r.Kind = &k
@@ -209,13 +210,13 @@ func (r *ListUserAttendanceURLRequest) Normalize() {
 		if ob == "" {
 			r.OrderBy = nil
 		} else {
-			// biarin raw; controller yang akan whitelist kolom
+			// biarkan raw; whitelist kolom di controller
 			r.OrderBy = &ob
 		}
 	}
 }
 
-func (r *ListUserAttendanceURLRequest) Validate() error {
+func (r *ListUserClassSessionAttendanceURLRequest) Validate() error {
 	return validate.Struct(r)
 }
 
@@ -223,7 +224,7 @@ func (r *ListUserAttendanceURLRequest) Validate() error {
    Response Item & List
 ========================================================= */
 
-type UserAttendanceURLItem struct {
+type UserClassSessionAttendanceURLItem struct {
 	ID                 uuid.UUID  `json:"id"`
 	MasjidID           uuid.UUID  `json:"masjid_id"`
 	AttendanceID       uuid.UUID  `json:"attendance_id"`
@@ -233,7 +234,7 @@ type UserAttendanceURLItem struct {
 	ObjectKey          *string    `json:"object_key,omitempty"`
 	ObjectKeyOld       *string    `json:"object_key_old,omitempty"`
 	Label              *string    `json:"label,omitempty"`
-	Order              int32      `json:"order"`
+	Order              int        `json:"order"`
 	IsPrimary          bool       `json:"is_primary"`
 	TrashURL           *string    `json:"trash_url,omitempty"`
 	DeletePendingUntil *time.Time `json:"delete_pending_until,omitempty"`
@@ -244,95 +245,69 @@ type UserAttendanceURLItem struct {
 	DeletedAt          *time.Time `json:"deleted_at,omitempty"`
 }
 
-type ListUserAttendanceURLResponse struct {
-	Items []UserAttendanceURLItem `json:"items"`
-	Meta  ListMeta                `json:"meta"`
+type ListUserClassSessionAttendanceURLResponse struct {
+	Items []UserClassSessionAttendanceURLItem `json:"items"`
+	Meta  ListMeta                            `json:"meta"`
 }
 
-type ListMeta2 struct {
+type ListMetaUserClassSessionAttendanceURL struct {
 	Limit      int   `json:"limit"`
 	Offset     int   `json:"offset"`
 	TotalItems int64 `json:"total_items"`
 }
 
 /* =========================================================
-   Helpers mapping Model → DTO
-   (Panggil dari service/controller saat menyusun response)
+   Mapper Model → DTO
 ========================================================= */
 
-type ModelUserAttendanceURL interface {
-	// akses kolom yang diperlukan tanpa meng-import model asli di layer dto
-	GetID() uuid.UUID
-	GetMasjidID() uuid.UUID
-	GetAttendanceID() uuid.UUID
-	GetTypeID() *uuid.UUID
-	GetKind() string
-	GetHref() *string
-	GetObjectKey() *string
-	GetObjectKeyOld() *string
-	GetLabel() *string
-	GetOrder() int32
-	GetIsPrimary() bool
-	GetTrashURL() *string
-	GetDeletePendingUntil() *time.Time
-	GetUploaderTeacherID() *uuid.UUID
-	GetUploaderStudentID() *uuid.UUID
-	GetCreatedAt() time.Time
-	GetUpdatedAt() time.Time
-	GetDeletedAtPtr() *time.Time
-}
-
-// Jika kamu tidak mau bikin interface getter di model,
-// boleh langsung tulis fungsi mapper spesifik struct model.UserAttendanceURL.
-
-// Example mapper (pseudo, sesuaikan jika tidak pakai interface di model):
-/*
-func FromModel(m model.UserAttendanceURL) UserAttendanceURLItem {
+func FromModelUserClassSessionAttendanceURL(m model.UserClassSessionAttendanceURLModel) UserClassSessionAttendanceURLItem {
 	var deletedAt *time.Time
-	if m.UserAttendanceURLDeletedAt.Valid {
-		t := m.UserAttendanceURLDeletedAt.Time
+	if m.UserClassSessionAttendanceURLDeletedAt.Valid {
+		t := m.UserClassSessionAttendanceURLDeletedAt.Time
 		deletedAt = &t
 	}
-	return UserAttendanceURLItem{
-		ID:                 m.UserAttendanceURLID,
-		MasjidID:           m.UserAttendanceURLMasjidID,
-		AttendanceID:       m.UserAttendanceURLAttendance,
-		TypeID:             m.UserAttendanceTypeID,
-		Kind:               m.UserAttendanceURLKind,
-		Href:               m.UserAttendanceURLHref,
-		ObjectKey:          m.UserAttendanceURLObjectKey,
-		ObjectKeyOld:       m.UserAttendanceURLObjectKeyOld,
-		Label:              m.UserAttendanceURLLabel,
-		Order:              m.UserAttendanceURLOrder,
-		IsPrimary:          m.UserAttendanceURLIsPrimary,
-		TrashURL:           m.UserAttendanceURLTrashURL,
-		DeletePendingUntil: m.UserAttendanceURLDeletePendingUntil,
-		UploaderTeacherID:  m.UserAttendanceURLUploaderTeacherID,
-		UploaderStudentID:  m.UserAttendanceURLUploaderStudentID,
-		CreatedAt:          m.UserAttendanceURLCreatedAt,
-		UpdatedAt:          m.UserAttendanceURLUpdatedAt,
+	return UserClassSessionAttendanceURLItem{
+		ID:                 m.UserClassSessionAttendanceURLID,
+		MasjidID:           m.UserClassSessionAttendanceURLMasjidID,
+		AttendanceID:       m.UserClassSessionAttendanceURLAttendanceID,
+		TypeID:             m.UserClassSessionAttendanceTypeID,
+		Kind:               m.UserClassSessionAttendanceURLKind,
+		Href:               m.UserClassSessionAttendanceURLHref,
+		ObjectKey:          m.UserClassSessionAttendanceURLObjectKey,
+		ObjectKeyOld:       m.UserClassSessionAttendanceURLObjectKeyOld,
+		Label:              m.UserClassSessionAttendanceURLLabel,
+		Order:              m.UserClassSessionAttendanceURLOrder,
+		IsPrimary:          m.UserClassSessionAttendanceURLIsPrimary,
+		TrashURL:           m.UserClassSessionAttendanceURLTrashURL,
+		DeletePendingUntil: m.UserClassSessionAttendanceURLDeletePendingUntil,
+		UploaderTeacherID:  m.UserClassSessionAttendanceURLUploaderTeacherID,
+		UploaderStudentID:  m.UserClassSessionAttendanceURLUploaderStudentID,
+		CreatedAt:          m.UserClassSessionAttendanceURLCreatedAt,
+		UpdatedAt:          m.UserClassSessionAttendanceURLUpdatedAt,
 		DeletedAt:          deletedAt,
 	}
 }
-*/
 
-// Optional: bentuk sederhana untuk upsert URL dari JSON/multipart
-type UAUUpsert struct {
+/* =========================================================
+   Upsert helper sederhana (opsional)
+========================================================= */
+
+type UCSAURLUpsert struct {
 	Kind      string  `json:"kind"` // default "attachment"
 	Label     *string `json:"label"`
 	Href      *string `json:"href"`
 	ObjectKey *string `json:"object_key"`
-	Order     *int32  `json:"order"`
+	Order     *int    `json:"order"`
 	IsPrimary *bool   `json:"is_primary"`
-	// Uploader optional:
+	// Uploader (opsional)
 	UploaderTeacherID *uuid.UUID `json:"uploader_teacher_id"`
 	UploaderStudentID *uuid.UUID `json:"uploader_student_id"`
 }
 
-func (u *UAUUpsert) Normalize() {
+func (u *UCSAURLUpsert) Normalize() {
 	u.Kind = strings.TrimSpace(strings.ToLower(u.Kind))
 	if u.Kind == "" {
-		u.Kind = "attachment"
+		u.Kind = UCSAURLKindAttachment
 	}
 	if u.Label != nil {
 		lbl := strings.TrimSpace(*u.Label)

@@ -1,3 +1,4 @@
+// file: internals/features/lembaga/subjects/main/controller/subjects_controller_list.go
 package controller
 
 import (
@@ -62,42 +63,42 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 	}
 
 	// --- Base query (tenant + soft delete by default) ---
-	tx := h.DB.Model(&subjectModel.SubjectsModel{}).
-		Where("subjects_masjid_id = ?", masjidID)
+	tx := h.DB.Model(&subjectModel.SubjectModel{}).
+		Where("subject_masjid_id = ?", masjidID)
 
 	// exclude soft-deleted by default
 	if q.WithDeleted == nil || !*q.WithDeleted {
-		tx = tx.Where("subjects_deleted_at IS NULL")
+		tx = tx.Where("subject_deleted_at IS NULL")
 	}
 
 	// ========== filter by id / ids (comma-separated) ==========
 	if ids, ok, errResp := uuidListFromQuery(c, "id", "ids"); errResp != nil {
 		return errResp
 	} else if ok {
-		tx = tx.Where("subjects_id IN ?", ids)
+		tx = tx.Where("subject_id IN ?", ids)
 	}
 
 	// filters lain
 	if q.IsActive != nil {
-		tx = tx.Where("subjects_is_active = ?", *q.IsActive)
+		tx = tx.Where("subject_is_active = ?", *q.IsActive)
 	}
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
 		kw := "%" + strings.ToLower(strings.TrimSpace(*q.Q)) + "%"
-		tx = tx.Where("(LOWER(subjects_code) LIKE ? OR LOWER(subjects_name) LIKE ?)", kw, kw)
+		tx = tx.Where("(LOWER(subject_code) LIKE ? OR LOWER(subject_name) LIKE ?)", kw, kw)
 	}
 
 	// order by whitelist
-	orderBy := "subjects_created_at"
+	orderBy := "subject_created_at"
 	if q.OrderBy != nil {
 		switch strings.ToLower(*q.OrderBy) {
 		case "code":
-			orderBy = "subjects_code"
+			orderBy = "subject_code"
 		case "name":
-			orderBy = "subjects_name"
+			orderBy = "subject_name"
 		case "created_at":
-			orderBy = "subjects_created_at"
+			orderBy = "subject_created_at"
 		case "updated_at":
-			orderBy = "subjects_updated_at"
+			orderBy = "subject_updated_at"
 		}
 	}
 	sort := "ASC"
@@ -112,24 +113,24 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 	}
 
 	// --- data ---
-	var rows []subjectModel.SubjectsModel
+	var rows []subjectModel.SubjectModel
 	if err := tx.
 		Select(`
-			subjects_id,
-			subjects_masjid_id,
-			subjects_code,
-			subjects_name,
-			subjects_desc,
-			subjects_slug,
-			subjects_image_url,
-			subjects_image_object_key,
-			subjects_image_url_old,
-			subjects_image_object_key_old,
-			subjects_image_delete_pending_until,
-			subjects_is_active,
-			subjects_created_at,
-			subjects_updated_at,
-			subjects_deleted_at
+			subject_id,
+			subject_masjid_id,
+			subject_code,
+			subject_name,
+			subject_desc,
+			subject_slug,
+			subject_image_url,
+			subject_image_object_key,
+			subject_image_url_old,
+			subject_image_object_key_old,
+			subject_image_delete_pending_until,
+			subject_is_active,
+			subject_created_at,
+			subject_updated_at,
+			subject_deleted_at
 		`).
 		Order(orderBy + " " + sort).
 		Limit(*q.Limit).Offset(*q.Offset).

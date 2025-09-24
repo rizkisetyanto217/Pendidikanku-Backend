@@ -1,7 +1,8 @@
-// internals/features/lembaga/class_section_subject_teachers/dto/csst_dto.go
+// file: internals/features/lembaga/class_section_subject_teachers/dto/csst_dto.go
 package dto
 
 import (
+	"strings"
 	"time"
 
 	csstModel "masjidku_backend/internals/features/school/subject_books/subject/model"
@@ -10,82 +11,84 @@ import (
 )
 
 /* =========================================================
-   1) REQUEST DTO — key JSON = nama kolom
+   Helpers
+========================================================= */
+
+func trimLowerPtr(p *string) *string {
+	if p == nil {
+		return nil
+	}
+	s := strings.ToLower(strings.TrimSpace(*p))
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+/* =========================================================
+   1) REQUEST DTO — key JSON = nama kolom (singular)
 ========================================================= */
 
 // Create
-// Catatan: class_section_subject_teachers_masjid_id boleh kosong; isi dari token di controller.
+// Catatan: class_section_subject_teacher_masjid_id boleh kosong; biasanya diisi dari token di controller.
 type CreateClassSectionSubjectTeacherRequest struct {
-	ClassSectionSubjectTeachersMasjidID        *uuid.UUID `json:"class_section_subject_teachers_masjid_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeachersSectionID       uuid.UUID  `json:"class_section_subject_teachers_section_id" validate:"required,uuid"`
-	ClassSectionSubjectTeachersClassSubjectsID uuid.UUID  `json:"class_section_subject_teachers_class_subjects_id" validate:"required,uuid"`
-
+	ClassSectionSubjectTeacherMasjidID       *uuid.UUID `json:"class_section_subject_teacher_masjid_id"  validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherSectionID      uuid.UUID  `json:"class_section_subject_teacher_section_id" validate:"required,uuid"`
+	ClassSectionSubjectTeacherClassSubjectID uuid.UUID  `json:"class_section_subject_teacher_class_subject_id" validate:"required,uuid"`
 	// pakai masjid_teachers.masjid_teacher_id
-	ClassSectionSubjectTeachersTeacherID uuid.UUID `json:"class_section_subject_teachers_teacher_id" validate:"required,uuid"`
+	ClassSectionSubjectTeacherTeacherID uuid.UUID `json:"class_section_subject_teacher_teacher_id" validate:"required,uuid"`
 
-	// >>> SLUG <<<
-	ClassSectionSubjectTeachersSlug *string `json:"class_section_subject_teachers_slug" validate:"omitempty,max=160"`
+	// SLUG (opsional) — disarankan lowercase
+	ClassSectionSubjectTeacherSlug *string `json:"class_section_subject_teacher_slug" validate:"omitempty,max=160"`
 
 	// Deskripsi (opsional)
-	ClassSectionSubjectTeachersDescription *string `json:"class_section_subject_teachers_description" validate:"omitempty"`
+	ClassSectionSubjectTeacherDescription *string `json:"class_section_subject_teacher_description" validate:"omitempty"`
 
 	// Override ruangan (opsional)
-	ClassSectionSubjectTeachersRoomID *uuid.UUID `json:"class_section_subject_teachers_room_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherRoomID *uuid.UUID `json:"class_section_subject_teacher_room_id" validate:"omitempty,uuid"`
 
-	// Link grup pelajaran (opsional)
-	ClassSectionSubjectTeachersGroupURL *string `json:"class_section_subject_teachers_group_url" validate:"omitempty,max=2000"`
+	// Link grup (opsional)
+	ClassSectionSubjectTeacherGroupURL *string `json:"class_section_subject_teacher_group_url" validate:"omitempty,max=2000"`
 
-	// Status
-	ClassSectionSubjectTeachersIsActive *bool `json:"class_section_subject_teachers_is_active" validate:"omitempty"`
+	// Status aktif (opsional, default: true)
+	ClassSectionSubjectTeacherIsActive *bool `json:"class_section_subject_teacher_is_active" validate:"omitempty"`
 }
 
 // Update (partial)
 type UpdateClassSectionSubjectTeacherRequest struct {
-	ClassSectionSubjectTeachersMasjidID        *uuid.UUID `json:"class_section_subject_teachers_masjid_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeachersSectionID       *uuid.UUID `json:"class_section_subject_teachers_section_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeachersClassSubjectsID *uuid.UUID `json:"class_section_subject_teachers_class_subjects_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherMasjidID       *uuid.UUID `json:"class_section_subject_teacher_masjid_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherSectionID      *uuid.UUID `json:"class_section_subject_teacher_section_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherClassSubjectID *uuid.UUID `json:"class_section_subject_teacher_class_subject_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherTeacherID      *uuid.UUID `json:"class_section_subject_teacher_teacher_id" validate:"omitempty,uuid"`
 
-	ClassSectionSubjectTeachersTeacherID *uuid.UUID `json:"class_section_subject_teachers_teacher_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherSlug        *string    `json:"class_section_subject_teacher_slug" validate:"omitempty,max=160"`
+	ClassSectionSubjectTeacherDescription *string    `json:"class_section_subject_teacher_description" validate:"omitempty"`
+	ClassSectionSubjectTeacherRoomID      *uuid.UUID `json:"class_section_subject_teacher_room_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherGroupURL    *string    `json:"class_section_subject_teacher_group_url" validate:"omitempty,max=2000"`
 
-	// >>> SLUG <<<
-	ClassSectionSubjectTeachersSlug *string `json:"class_section_subject_teachers_slug" validate:"omitempty,max=160"`
-
-	// Deskripsi
-	ClassSectionSubjectTeachersDescription *string `json:"class_section_subject_teachers_description" validate:"omitempty"`
-
-	// Override ruangan
-	ClassSectionSubjectTeachersRoomID *uuid.UUID `json:"class_section_subject_teachers_room_id" validate:"omitempty,uuid"`
-
-	// Link grup
-	ClassSectionSubjectTeachersGroupURL *string `json:"class_section_subject_teachers_group_url" validate:"omitempty,max=2000"`
-
-	// Status
-	ClassSectionSubjectTeachersIsActive *bool `json:"class_section_subject_teachers_is_active" validate:"omitempty"`
+	ClassSectionSubjectTeacherIsActive *bool `json:"class_section_subject_teacher_is_active" validate:"omitempty"`
 }
 
 /* =========================================================
-   2) RESPONSE DTO — full kolom
+   2) RESPONSE DTO — full kolom (singular)
 ========================================================= */
 
 type ClassSectionSubjectTeacherResponse struct {
-	ClassSectionSubjectTeachersID              uuid.UUID `json:"class_section_subject_teachers_id"`
-	ClassSectionSubjectTeachersMasjidID        uuid.UUID `json:"class_section_subject_teachers_masjid_id"`
-	ClassSectionSubjectTeachersSectionID       uuid.UUID `json:"class_section_subject_teachers_section_id"`
-	ClassSectionSubjectTeachersClassSubjectsID uuid.UUID `json:"class_section_subject_teachers_class_subjects_id"`
+	ClassSectionSubjectTeacherID             uuid.UUID `json:"class_section_subject_teacher_id"`
+	ClassSectionSubjectTeacherMasjidID       uuid.UUID `json:"class_section_subject_teacher_masjid_id"`
+	ClassSectionSubjectTeacherSectionID      uuid.UUID `json:"class_section_subject_teacher_section_id"`
+	ClassSectionSubjectTeacherClassSubjectID uuid.UUID `json:"class_section_subject_teacher_class_subject_id"`
+	ClassSectionSubjectTeacherTeacherID      uuid.UUID `json:"class_section_subject_teacher_teacher_id"`
 
-	ClassSectionSubjectTeachersTeacherID uuid.UUID `json:"class_section_subject_teachers_teacher_id"`
+	ClassSectionSubjectTeacherSlug        *string    `json:"class_section_subject_teacher_slug,omitempty"`
+	ClassSectionSubjectTeacherDescription *string    `json:"class_section_subject_teacher_description,omitempty"`
+	ClassSectionSubjectTeacherRoomID      *uuid.UUID `json:"class_section_subject_teacher_room_id,omitempty"`
+	ClassSectionSubjectTeacherGroupURL    *string    `json:"class_section_subject_teacher_group_url,omitempty"`
 
-	// >>> SLUG & info opsional
-	ClassSectionSubjectTeachersSlug        *string    `json:"class_section_subject_teachers_slug,omitempty"`
-	ClassSectionSubjectTeachersDescription *string    `json:"class_section_subject_teachers_description,omitempty"`
-	ClassSectionSubjectTeachersRoomID      *uuid.UUID `json:"class_section_subject_teachers_room_id,omitempty"`
-	ClassSectionSubjectTeachersGroupURL    *string    `json:"class_section_subject_teachers_group_url,omitempty"`
-
-	// Status & audit
-	ClassSectionSubjectTeachersIsActive  bool       `json:"class_section_subject_teachers_is_active"`
-	ClassSectionSubjectTeachersCreatedAt time.Time  `json:"class_section_subject_teachers_created_at"`
-	ClassSectionSubjectTeachersUpdatedAt *time.Time `json:"class_section_subject_teachers_updated_at,omitempty"`
-	ClassSectionSubjectTeachersDeletedAt *time.Time `json:"class_section_subject_teachers_deleted_at,omitempty"`
+	ClassSectionSubjectTeacherIsActive  bool       `json:"class_section_subject_teacher_is_active"`
+	ClassSectionSubjectTeacherCreatedAt time.Time  `json:"class_section_subject_teacher_created_at"`
+	ClassSectionSubjectTeacherUpdatedAt time.Time  `json:"class_section_subject_teacher_updated_at"`
+	ClassSectionSubjectTeacherDeletedAt *time.Time `json:"class_section_subject_teacher_deleted_at,omitempty"`
 }
 
 /* =========================================================
@@ -94,85 +97,84 @@ type ClassSectionSubjectTeacherResponse struct {
 
 func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectionSubjectTeacherModel {
 	m := csstModel.ClassSectionSubjectTeacherModel{
-		ClassSectionSubjectTeachersSectionID:       r.ClassSectionSubjectTeachersSectionID,
-		ClassSectionSubjectTeachersClassSubjectsID: r.ClassSectionSubjectTeachersClassSubjectsID,
-		ClassSectionSubjectTeachersTeacherID:       r.ClassSectionSubjectTeachersTeacherID,
+		ClassSectionSubjectTeacherSectionID:      r.ClassSectionSubjectTeacherSectionID,
+		ClassSectionSubjectTeacherClassSubjectID: r.ClassSectionSubjectTeacherClassSubjectID,
+		ClassSectionSubjectTeacherTeacherID:      r.ClassSectionSubjectTeacherTeacherID,
 
 		// opsional
-		ClassSectionSubjectTeachersSlug:        trimPtr(r.ClassSectionSubjectTeachersSlug),
-		ClassSectionSubjectTeachersDescription: trimPtr(r.ClassSectionSubjectTeachersDescription),
-		ClassSectionSubjectTeachersRoomID:      r.ClassSectionSubjectTeachersRoomID,
-		ClassSectionSubjectTeachersGroupURL:    trimPtr(r.ClassSectionSubjectTeachersGroupURL),
+		ClassSectionSubjectTeacherSlug:        trimLowerPtr(r.ClassSectionSubjectTeacherSlug), // slug → lowercase
+		ClassSectionSubjectTeacherDescription: trimPtr(r.ClassSectionSubjectTeacherDescription),
+		ClassSectionSubjectTeacherRoomID:      r.ClassSectionSubjectTeacherRoomID,
+		ClassSectionSubjectTeacherGroupURL:    trimPtr(r.ClassSectionSubjectTeacherGroupURL),
 	}
 
-	if r.ClassSectionSubjectTeachersMasjidID != nil {
-		m.ClassSectionSubjectTeachersMasjidID = *r.ClassSectionSubjectTeachersMasjidID
+	if r.ClassSectionSubjectTeacherMasjidID != nil {
+		m.ClassSectionSubjectTeacherMasjidID = *r.ClassSectionSubjectTeacherMasjidID
 	}
-	if r.ClassSectionSubjectTeachersIsActive != nil {
-		m.ClassSectionSubjectTeachersIsActive = *r.ClassSectionSubjectTeachersIsActive
+	if r.ClassSectionSubjectTeacherIsActive != nil {
+		m.ClassSectionSubjectTeacherIsActive = *r.ClassSectionSubjectTeacherIsActive
 	} else {
-		m.ClassSectionSubjectTeachersIsActive = true
+		m.ClassSectionSubjectTeacherIsActive = true
 	}
 	return m
 }
 
 func (r UpdateClassSectionSubjectTeacherRequest) Apply(m *csstModel.ClassSectionSubjectTeacherModel) {
-	if r.ClassSectionSubjectTeachersMasjidID != nil {
-		m.ClassSectionSubjectTeachersMasjidID = *r.ClassSectionSubjectTeachersMasjidID
+	if r.ClassSectionSubjectTeacherMasjidID != nil {
+		m.ClassSectionSubjectTeacherMasjidID = *r.ClassSectionSubjectTeacherMasjidID
 	}
-	if r.ClassSectionSubjectTeachersSectionID != nil {
-		m.ClassSectionSubjectTeachersSectionID = *r.ClassSectionSubjectTeachersSectionID
+	if r.ClassSectionSubjectTeacherSectionID != nil {
+		m.ClassSectionSubjectTeacherSectionID = *r.ClassSectionSubjectTeacherSectionID
 	}
-	if r.ClassSectionSubjectTeachersClassSubjectsID != nil {
-		m.ClassSectionSubjectTeachersClassSubjectsID = *r.ClassSectionSubjectTeachersClassSubjectsID
+	if r.ClassSectionSubjectTeacherClassSubjectID != nil {
+		m.ClassSectionSubjectTeacherClassSubjectID = *r.ClassSectionSubjectTeacherClassSubjectID
 	}
-	if r.ClassSectionSubjectTeachersTeacherID != nil {
-		m.ClassSectionSubjectTeachersTeacherID = *r.ClassSectionSubjectTeachersTeacherID
-	}
-
-	// opsional yang bisa dikosongkan: gunakan trimPtr agar "" → nil
-	if r.ClassSectionSubjectTeachersSlug != nil {
-		m.ClassSectionSubjectTeachersSlug = trimPtr(r.ClassSectionSubjectTeachersSlug)
-	}
-	if r.ClassSectionSubjectTeachersDescription != nil {
-		m.ClassSectionSubjectTeachersDescription = trimPtr(r.ClassSectionSubjectTeachersDescription)
-	}
-	if r.ClassSectionSubjectTeachersRoomID != nil {
-		m.ClassSectionSubjectTeachersRoomID = r.ClassSectionSubjectTeachersRoomID
-	}
-	if r.ClassSectionSubjectTeachersGroupURL != nil {
-		m.ClassSectionSubjectTeachersGroupURL = trimPtr(r.ClassSectionSubjectTeachersGroupURL)
+	if r.ClassSectionSubjectTeacherTeacherID != nil {
+		m.ClassSectionSubjectTeacherTeacherID = *r.ClassSectionSubjectTeacherTeacherID
 	}
 
-	if r.ClassSectionSubjectTeachersIsActive != nil {
-		m.ClassSectionSubjectTeachersIsActive = *r.ClassSectionSubjectTeachersIsActive
+	// opsional yang bisa dikosongkan
+	if r.ClassSectionSubjectTeacherSlug != nil {
+		m.ClassSectionSubjectTeacherSlug = trimLowerPtr(r.ClassSectionSubjectTeacherSlug)
 	}
-	// updated_at dipegang GORM/DB
+	if r.ClassSectionSubjectTeacherDescription != nil {
+		m.ClassSectionSubjectTeacherDescription = trimPtr(r.ClassSectionSubjectTeacherDescription)
+	}
+	if r.ClassSectionSubjectTeacherRoomID != nil {
+		m.ClassSectionSubjectTeacherRoomID = r.ClassSectionSubjectTeacherRoomID
+	}
+	if r.ClassSectionSubjectTeacherGroupURL != nil {
+		m.ClassSectionSubjectTeacherGroupURL = trimPtr(r.ClassSectionSubjectTeacherGroupURL)
+	}
+
+	if r.ClassSectionSubjectTeacherIsActive != nil {
+		m.ClassSectionSubjectTeacherIsActive = *r.ClassSectionSubjectTeacherIsActive
+	}
+	// updated_at dikelola oleh DB / GORM
 }
 
 func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherModel) ClassSectionSubjectTeacherResponse {
 	var deletedAt *time.Time
-	if m.ClassSectionSubjectTeachersDeletedAt.Valid {
-		t := m.ClassSectionSubjectTeachersDeletedAt.Time
+	if m.ClassSectionSubjectTeacherDeletedAt.Valid {
+		t := m.ClassSectionSubjectTeacherDeletedAt.Time
 		deletedAt = &t
 	}
 	return ClassSectionSubjectTeacherResponse{
-		ClassSectionSubjectTeachersID:              m.ClassSectionSubjectTeachersID,
-		ClassSectionSubjectTeachersMasjidID:        m.ClassSectionSubjectTeachersMasjidID,
-		ClassSectionSubjectTeachersSectionID:       m.ClassSectionSubjectTeachersSectionID,
-		ClassSectionSubjectTeachersClassSubjectsID: m.ClassSectionSubjectTeachersClassSubjectsID,
+		ClassSectionSubjectTeacherID:             m.ClassSectionSubjectTeacherID,
+		ClassSectionSubjectTeacherMasjidID:       m.ClassSectionSubjectTeacherMasjidID,
+		ClassSectionSubjectTeacherSectionID:      m.ClassSectionSubjectTeacherSectionID,
+		ClassSectionSubjectTeacherClassSubjectID: m.ClassSectionSubjectTeacherClassSubjectID,
+		ClassSectionSubjectTeacherTeacherID:      m.ClassSectionSubjectTeacherTeacherID,
 
-		ClassSectionSubjectTeachersTeacherID: m.ClassSectionSubjectTeachersTeacherID,
+		ClassSectionSubjectTeacherSlug:        m.ClassSectionSubjectTeacherSlug,
+		ClassSectionSubjectTeacherDescription: m.ClassSectionSubjectTeacherDescription,
+		ClassSectionSubjectTeacherRoomID:      m.ClassSectionSubjectTeacherRoomID,
+		ClassSectionSubjectTeacherGroupURL:    m.ClassSectionSubjectTeacherGroupURL,
 
-		ClassSectionSubjectTeachersSlug:        m.ClassSectionSubjectTeachersSlug,
-		ClassSectionSubjectTeachersDescription: m.ClassSectionSubjectTeachersDescription,
-		ClassSectionSubjectTeachersRoomID:      m.ClassSectionSubjectTeachersRoomID,
-		ClassSectionSubjectTeachersGroupURL:    m.ClassSectionSubjectTeachersGroupURL,
-
-		ClassSectionSubjectTeachersIsActive:  m.ClassSectionSubjectTeachersIsActive,
-		ClassSectionSubjectTeachersCreatedAt: m.ClassSectionSubjectTeachersCreatedAt,
-		ClassSectionSubjectTeachersUpdatedAt: m.ClassSectionSubjectTeachersUpdatedAt,
-		ClassSectionSubjectTeachersDeletedAt: deletedAt,
+		ClassSectionSubjectTeacherIsActive:  m.ClassSectionSubjectTeacherIsActive,
+		ClassSectionSubjectTeacherCreatedAt: m.ClassSectionSubjectTeacherCreatedAt,
+		ClassSectionSubjectTeacherUpdatedAt: m.ClassSectionSubjectTeacherUpdatedAt,
+		ClassSectionSubjectTeacherDeletedAt: deletedAt,
 	}
 }
 

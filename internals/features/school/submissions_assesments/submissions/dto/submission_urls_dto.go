@@ -1,4 +1,4 @@
-// file: internals/features/submissions/submission_urls/dto/submission_url_dto.go
+// file: internals/features/assessments/submission_urls/dto/submission_url_dto.go
 package dto
 
 import (
@@ -8,145 +8,207 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
+
+	model "masjidku_backend/internals/features/school/submissions_assesments/submissions/model"
 )
 
 var validate = validator.New()
 
 /*
 	=========================================================
-	  Constants — kinds (sinkron dg model)
+	  Constants — kinds (sinkron dg model/policy)
 
 =========================================================
 */
 const (
-	SubURLKindImage      = "image"
-	SubURLKindVideo      = "video"
-	SubURLKindAttachment = "attachment"
-	SubURLKindLink       = "link"
-	SubURLKindAudio      = "audio"
+	SubmissionURLKindImage      = "image"
+	SubmissionURLKindVideo      = "video"
+	SubmissionURLKindAttachment = "attachment"
+	SubmissionURLKindLink       = "link"
+	SubmissionURLKindAudio      = "audio"
 )
 
-/*
-	=========================================================
-	  Create
-
-=========================================================
-*/
-type CreateSubmissionURLRequest struct {
-	SubmissionURLMasjidID     uuid.UUID `json:"masjid_id" validate:"required"`
-	SubmissionURLSubmissionID uuid.UUID `json:"submission_id" validate:"required"`
-
-	Kind      string  `json:"kind" validate:"required,max=24"`
-	Href      *string `json:"href" validate:"omitempty,max=4000"`
-	ObjectKey *string `json:"object_key" validate:"omitempty,max=2000"`
-
-	Label     *string `json:"label" validate:"omitempty,max=160"`
-	Order     *int32  `json:"order"`
-	IsPrimary *bool   `json:"is_primary"`
+var allowedKinds = map[string]struct{}{
+	SubmissionURLKindImage:      {},
+	SubmissionURLKindVideo:      {},
+	SubmissionURLKindAttachment: {},
+	SubmissionURLKindLink:       {},
+	SubmissionURLKindAudio:      {},
 }
 
-func (r *CreateSubmissionURLRequest) Normalize() {
-	r.Kind = strings.TrimSpace(strings.ToLower(r.Kind))
-	if r.Label != nil {
-		lbl := strings.TrimSpace(*r.Label)
-		r.Label = &lbl
+func normalizeKind(s string) (string, error) {
+	k := strings.ToLower(strings.TrimSpace(s))
+	if _, ok := allowedKinds[k]; !ok {
+		return "", errors.New("invalid kind")
 	}
-	if r.Href != nil {
-		h := strings.TrimSpace(*r.Href)
-		if h == "" {
-			r.Href = nil
-		} else {
-			r.Href = &h
-		}
+	return k, nil
+}
+
+func trimPtr(p *string) *string {
+	if p == nil {
+		return nil
 	}
-	if r.ObjectKey != nil {
-		ok := strings.TrimSpace(*r.ObjectKey)
-		if ok == "" {
-			r.ObjectKey = nil
-		} else {
-			r.ObjectKey = &ok
-		}
+	v := strings.TrimSpace(*p)
+	if v == "" {
+		return nil
 	}
+	return &v
+}
+
+/* =========================================================
+   Create
+========================================================= */
+
+type CreateSubmissionURLRequest struct {
+	SubmissionURLMasjidID     uuid.UUID `json:"submission_url_masjid_id" validate:"required"`
+	SubmissionURLSubmissionID uuid.UUID `json:"submission_url_submission_id" validate:"required"`
+
+	SubmissionURLKind      string  `json:"submission_url_kind" validate:"required,max=24"`
+	SubmissionURLHref      *string `json:"submission_url_href" validate:"omitempty,max=4000"`
+	SubmissionURLObjectKey *string `json:"submission_url_object_key" validate:"omitempty,max=2000"`
+
+	SubmissionURLLabel     *string `json:"submission_url_label" validate:"omitempty,max=160"`
+	SubmissionURLOrder     *int    `json:"submission_url_order"`
+	SubmissionURLIsPrimary *bool   `json:"submission_url_is_primary"`
+}
+
+func (r *CreateSubmissionURLRequest) Normalize() error {
+	// kind
+	k, err := normalizeKind(r.SubmissionURLKind)
+	if err != nil {
+		return err
+	}
+	r.SubmissionURLKind = k
+
+	// trim-able fields
+	r.SubmissionURLLabel = trimPtr(r.SubmissionURLLabel)
+	r.SubmissionURLHref = trimPtr(r.SubmissionURLHref)
+	r.SubmissionURLObjectKey = trimPtr(r.SubmissionURLObjectKey)
+
+	return nil
 }
 
 func (r *CreateSubmissionURLRequest) Validate() error {
-	if (r.Href == nil || strings.TrimSpace(*r.Href) == "") &&
-		(r.ObjectKey == nil || strings.TrimSpace(*r.ObjectKey) == "") {
-		return errors.New("either href or object_key must be provided")
+	// minimal: href atau object_key harus ada
+	if (r.SubmissionURLHref == nil || strings.TrimSpace(*r.SubmissionURLHref) == "") &&
+		(r.SubmissionURLObjectKey == nil || strings.TrimSpace(*r.SubmissionURLObjectKey) == "") {
+		return errors.New("either submission_url_href or submission_url_object_key must be provided")
 	}
 	return validate.Struct(r)
 }
 
-/*
-	=========================================================
-	  Update / Patch
+func (r *CreateSubmissionURLRequest) ToModel() model.SubmissionURLModel {
+	order := 0
+	if r.SubmissionURLOrder != nil {
+		order = *r.SubmissionURLOrder
+	}
+	isPrimary := false
+	if r.SubmissionURLIsPrimary != nil {
+		isPrimary = *r.SubmissionURLIsPrimary
+	}
+	return model.SubmissionURLModel{
+		SubmissionURLMasjidID:     r.SubmissionURLMasjidID,
+		SubmissionURLSubmissionID: r.SubmissionURLSubmissionID,
+		SubmissionURLKind:         r.SubmissionURLKind,
 
-=========================================================
-*/
-type UpdateSubmissionURLRequest struct {
-	ID        uuid.UUID `json:"-" validate:"required"`
-	Kind      *string   `json:"kind" validate:"omitempty,max=24"`
-	Href      *string   `json:"href" validate:"omitempty,max=4000"`
-	ObjectKey *string   `json:"object_key" validate:"omitempty,max=2000"`
+		SubmissionURLHref:      r.SubmissionURLHref,
+		SubmissionURLObjectKey: r.SubmissionURLObjectKey,
 
-	Label     *string `json:"label" validate:"omitempty,max=160"`
-	Order     *int32  `json:"order"`
-	IsPrimary *bool   `json:"is_primary"`
+		SubmissionURLLabel:     r.SubmissionURLLabel,
+		SubmissionURLOrder:     order,
+		SubmissionURLIsPrimary: isPrimary,
+	}
 }
 
-func (r *UpdateSubmissionURLRequest) Normalize() {
-	if r.Kind != nil {
-		k := strings.TrimSpace(strings.ToLower(*r.Kind))
-		r.Kind = &k
-	}
-	if r.Label != nil {
-		lbl := strings.TrimSpace(*r.Label)
-		r.Label = &lbl
-	}
-	if r.Href != nil {
-		h := strings.TrimSpace(*r.Href)
-		if h == "" {
-			r.Href = nil
-		} else {
-			r.Href = &h
+/* =========================================================
+   Update / Patch
+========================================================= */
+
+type UpdateSubmissionURLRequest struct {
+	SubmissionURLID uuid.UUID `json:"submission_url_id" validate:"required"`
+
+	SubmissionURLKind         *string `json:"submission_url_kind" validate:"omitempty,max=24"`
+	SubmissionURLHref         *string `json:"submission_url_href" validate:"omitempty,max=4000"`
+	SubmissionURLObjectKey    *string `json:"submission_url_object_key" validate:"omitempty,max=2000"`
+	SubmissionURLObjectKeyOld *string `json:"submission_url_object_key_old" validate:"omitempty,max=2000"`
+
+	SubmissionURLLabel     *string `json:"submission_url_label" validate:"omitempty,max=160"`
+	SubmissionURLOrder     *int    `json:"submission_url_order"`
+	SubmissionURLIsPrimary *bool   `json:"submission_url_is_primary"`
+}
+
+func (r *UpdateSubmissionURLRequest) Normalize() error {
+	if r.SubmissionURLKind != nil {
+		k, err := normalizeKind(*r.SubmissionURLKind)
+		if err != nil {
+			return err
 		}
+		r.SubmissionURLKind = &k
 	}
-	if r.ObjectKey != nil {
-		ok := strings.TrimSpace(*r.ObjectKey)
-		if ok == "" {
-			r.ObjectKey = nil
-		} else {
-			r.ObjectKey = &ok
-		}
-	}
+	r.SubmissionURLLabel = trimPtr(r.SubmissionURLLabel)
+	r.SubmissionURLHref = trimPtr(r.SubmissionURLHref)
+	r.SubmissionURLObjectKey = trimPtr(r.SubmissionURLObjectKey)
+	r.SubmissionURLObjectKeyOld = trimPtr(r.SubmissionURLObjectKeyOld)
+	return nil
 }
 
 func (r *UpdateSubmissionURLRequest) Validate() error {
 	return validate.Struct(r)
 }
 
-/*
-	=========================================================
-	  List (query params)
+// ToUpdates → map untuk gorm.Updates()
+func (r *UpdateSubmissionURLRequest) ToUpdates() (map[string]any, error) {
+	if err := r.Normalize(); err != nil {
+		return nil, err
+	}
+	if err := r.Validate(); err != nil {
+		return nil, err
+	}
+	upd := map[string]any{}
+	if r.SubmissionURLKind != nil {
+		upd["submission_url_kind"] = *r.SubmissionURLKind
+	}
+	if r.SubmissionURLHref != nil { // nil means set NULL
+		upd["submission_url_href"] = r.SubmissionURLHref
+	}
+	if r.SubmissionURLObjectKey != nil {
+		upd["submission_url_object_key"] = r.SubmissionURLObjectKey
+	}
+	if r.SubmissionURLObjectKeyOld != nil {
+		upd["submission_url_object_key_old"] = r.SubmissionURLObjectKeyOld
+	}
+	if r.SubmissionURLLabel != nil {
+		upd["submission_url_label"] = r.SubmissionURLLabel
+	}
+	if r.SubmissionURLOrder != nil {
+		upd["submission_url_order"] = *r.SubmissionURLOrder
+	}
+	if r.SubmissionURLIsPrimary != nil {
+		upd["submission_url_is_primary"] = *r.SubmissionURLIsPrimary
+	}
+	return upd, nil
+}
 
-=========================================================
-*/
+/* =========================================================
+   List (query params)
+========================================================= */
+
 type ListSubmissionURLRequest struct {
-	MasjidID     *uuid.UUID `query:"masjid_id"`
-	SubmissionID *uuid.UUID `query:"submission_id"`
-	Kind         *string    `query:"kind"`
-	IsPrimary    *bool      `query:"is_primary"`
-	Q            *string    `query:"q"`
+	SubmissionURLMasjidID     *uuid.UUID `query:"submission_url_masjid_id"`
+	SubmissionURLSubmissionID *uuid.UUID `query:"submission_url_submission_id"`
+	SubmissionURLKind         *string    `query:"submission_url_kind"`
+	SubmissionURLIsPrimary    *bool      `query:"submission_url_is_primary"`
+	Q                         *string    `query:"q"`
 
 	Limit   int     `query:"limit" validate:"omitempty,min=1,max=200"`
 	Offset  int     `query:"offset" validate:"omitempty,min=0"`
-	OrderBy *string `query:"order_by"`
+	OrderBy *string `query:"order_by"` // e.g. created_at|updated_at|order
 }
 
 func (r *ListSubmissionURLRequest) Normalize() {
-	if r.Kind != nil {
-		k := strings.TrimSpace(strings.ToLower(*r.Kind))
-		r.Kind = &k
+	if r.SubmissionURLKind != nil {
+		k := strings.TrimSpace(strings.ToLower(*r.SubmissionURLKind))
+		r.SubmissionURLKind = &k
 	}
 	if r.Q != nil {
 		q := strings.TrimSpace(*r.Q)
@@ -156,7 +218,7 @@ func (r *ListSubmissionURLRequest) Normalize() {
 			r.Q = &q
 		}
 	}
-	if r.Limit == 0 {
+	if r.Limit <= 0 {
 		r.Limit = 20
 	}
 	if r.Offset < 0 {
@@ -176,26 +238,25 @@ func (r *ListSubmissionURLRequest) Validate() error {
 	return validate.Struct(r)
 }
 
-/*
-	=========================================================
-	  Response
+/* =========================================================
+   Response
+========================================================= */
 
-=========================================================
-*/
 type SubmissionURLItem struct {
-	ID           uuid.UUID  `json:"id"`
-	MasjidID     uuid.UUID  `json:"masjid_id"`
-	SubmissionID uuid.UUID  `json:"submission_id"`
-	Kind         string     `json:"kind"`
-	Href         *string    `json:"href,omitempty"`
-	ObjectKey    *string    `json:"object_key,omitempty"`
-	ObjectKeyOld *string    `json:"object_key_old,omitempty"`
-	Label        *string    `json:"label,omitempty"`
-	Order        int32      `json:"order"`
-	IsPrimary    bool       `json:"is_primary"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
-	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
+	SubmissionURLID                 uuid.UUID  `json:"submission_url_id"`
+	SubmissionURLMasjidID           uuid.UUID  `json:"submission_url_masjid_id"`
+	SubmissionURLSubmissionID       uuid.UUID  `json:"submission_url_submission_id"`
+	SubmissionURLKind               string     `json:"submission_url_kind"`
+	SubmissionURLHref               *string    `json:"submission_url_href,omitempty"`
+	SubmissionURLObjectKey          *string    `json:"submission_url_object_key,omitempty"`
+	SubmissionURLObjectKeyOld       *string    `json:"submission_url_object_key_old,omitempty"`
+	SubmissionURLLabel              *string    `json:"submission_url_label,omitempty"`
+	SubmissionURLOrder              int        `json:"submission_url_order"`
+	SubmissionURLIsPrimary          bool       `json:"submission_url_is_primary"`
+	SubmissionURLCreatedAt          time.Time  `json:"submission_url_created_at"`
+	SubmissionURLUpdatedAt          time.Time  `json:"submission_url_updated_at"`
+	SubmissionURLDeletedAt          *time.Time `json:"submission_url_deleted_at,omitempty"`
+	SubmissionURLDeletePendingUntil *time.Time `json:"submission_url_delete_pending_until,omitempty"`
 }
 
 type ListSubmissionURLResponse struct {
@@ -209,42 +270,38 @@ type ListMeta struct {
 	TotalItems int64 `json:"total_items"`
 }
 
-/*
-	=========================================================
-	  Mapper dari Model → DTO
+/* =========================================================
+   Mapper dari Model → DTO
+========================================================= */
 
-=========================================================
-*/
-type ModelSubmissionURL interface {
-	GetID() uuid.UUID
-	GetMasjidID() uuid.UUID
-	GetSubmissionID() uuid.UUID
-	GetKind() string
-	GetHref() *string
-	GetObjectKey() *string
-	GetObjectKeyOld() *string
-	GetLabel() *string
-	GetOrder() int32
-	GetIsPrimary() bool
-	GetCreatedAt() time.Time
-	GetUpdatedAt() time.Time
-	GetDeletedAtPtr() *time.Time
+func FromModelsSubmissionURL(m model.SubmissionURLModel) SubmissionURLItem {
+	var deletedAt *time.Time
+	if m.SubmissionURLDeletedAt.Valid {
+		t := m.SubmissionURLDeletedAt.Time
+		deletedAt = &t
+	}
+	return SubmissionURLItem{
+		SubmissionURLID:                 m.SubmissionURLID,
+		SubmissionURLMasjidID:           m.SubmissionURLMasjidID,
+		SubmissionURLSubmissionID:       m.SubmissionURLSubmissionID,
+		SubmissionURLKind:               m.SubmissionURLKind,
+		SubmissionURLHref:               m.SubmissionURLHref,
+		SubmissionURLObjectKey:          m.SubmissionURLObjectKey,
+		SubmissionURLObjectKeyOld:       m.SubmissionURLObjectKeyOld,
+		SubmissionURLLabel:              m.SubmissionURLLabel,
+		SubmissionURLOrder:              m.SubmissionURLOrder,
+		SubmissionURLIsPrimary:          m.SubmissionURLIsPrimary,
+		SubmissionURLCreatedAt:          m.SubmissionURLCreatedAt,
+		SubmissionURLUpdatedAt:          m.SubmissionURLUpdatedAt,
+		SubmissionURLDeletedAt:          deletedAt,
+		SubmissionURLDeletePendingUntil: m.SubmissionURLDeletePendingUntil,
+	}
 }
 
-func FromBookURLModels(m ModelSubmissionURL) SubmissionURLItem {
-	return SubmissionURLItem{
-		ID:           m.GetID(),
-		MasjidID:     m.GetMasjidID(),
-		SubmissionID: m.GetSubmissionID(),
-		Kind:         m.GetKind(),
-		Href:         m.GetHref(),
-		ObjectKey:    m.GetObjectKey(),
-		ObjectKeyOld: m.GetObjectKeyOld(),
-		Label:        m.GetLabel(),
-		Order:        m.GetOrder(),
-		IsPrimary:    m.GetIsPrimary(),
-		CreatedAt:    m.GetCreatedAt(),
-		UpdatedAt:    m.GetUpdatedAt(),
-		DeletedAt:    m.GetDeletedAtPtr(),
+func FromModelsSubmissionsURL(list []model.SubmissionURLModel) []SubmissionURLItem {
+	out := make([]SubmissionURLItem, 0, len(list))
+	for i := range list {
+		out = append(out, FromModelsSubmissionURL(list[i]))
 	}
+	return out
 }

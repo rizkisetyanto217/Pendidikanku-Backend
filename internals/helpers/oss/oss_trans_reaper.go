@@ -24,14 +24,18 @@ type TrashReaperConfig struct {
 }
 
 func getEnvOrDefault(key, def string) string {
-	if v := os.Getenv(key); v != "" { return v }
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
 	return def
 }
 func getEnvBool(key string, def bool) bool {
 	v := os.Getenv(key)
-	if v == "" { return def }
+	if v == "" {
+		return def
+	}
 	switch v {
-	case "1","true","TRUE","True","yes","on":
+	case "1", "true", "TRUE", "True", "yes", "on":
 		return true
 	default:
 		return false
@@ -39,9 +43,13 @@ func getEnvBool(key string, def bool) bool {
 }
 func getEnvInt(key string, def int) int {
 	v := os.Getenv(key)
-	if v == "" { return def }
+	if v == "" {
+		return def
+	}
 	i, err := strconv.Atoi(v)
-	if err != nil { return def }
+	if err != nil {
+		return def
+	}
 	return i
 }
 
@@ -114,10 +122,14 @@ func runOSSReaper(ctx context.Context, bucket *oss.Bucket, prefix string, retent
 
 	for {
 		lor, err := bucket.ListObjects(oss.Prefix(prefix), marker, oss.MaxKeys(1000))
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		for _, obj := range lor.Objects {
 			total++
-			if obj.Key == "" { continue }
+			if obj.Key == "" {
+				continue
+			}
 			if obj.LastModified.Before(threshold) {
 				keysToDelete = append(keysToDelete, obj.Key)
 			}
@@ -141,7 +153,9 @@ func runOSSReaper(ctx context.Context, bucket *oss.Bucket, prefix string, retent
 	deleted := 0
 	for i := 0; i < len(keysToDelete); i += 1000 {
 		end := i + 1000
-		if end > len(keysToDelete) { end = len(keysToDelete) }
+		if end > len(keysToDelete) {
+			end = len(keysToDelete)
+		}
 		batch := keysToDelete[i:end]
 		if _, err := bucket.DeleteObjects(batch, oss.DeleteObjectsQuiet(true)); err != nil {
 			log.Printf("[OSS-REAPER] delete batch %d-%d gagal: %v", i, end, err)
@@ -155,13 +169,15 @@ func runOSSReaper(ctx context.Context, bucket *oss.Bucket, prefix string, retent
 
 // ── Bagian DB: hard-delete semua row yg soft-deleted lebih tua dari cutoff
 func runDBReaper(ctx context.Context, db *gorm.DB, retention time.Duration) error {
-	if db == nil { return nil }
+	if db == nil {
+		return nil
+	}
 	cutoff := time.Now().Add(-retention)
 
 	type target struct{ Table, Col string }
 	targets := []target{
-		{Table: "masjids",          Col: "masjid_deleted_at"},
-		{Table: "masjids_profiles", Col: "masjid_profile_deleted_at"},
+		{Table: "masjids", Col: "masjid_deleted_at"},
+		{Table: "masjid_profiles", Col: "masjid_profile_deleted_at"},
 		// tambah tabel soft-delete lain di sini…
 	}
 

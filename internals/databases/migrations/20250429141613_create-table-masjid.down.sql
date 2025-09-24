@@ -1,7 +1,7 @@
 BEGIN;
 
 -- Drop tabel yang bergantung dulu
-DROP TABLE IF EXISTS masjids_profiles;
+DROP TABLE IF EXISTS masjid_profiles;
 
 -- Lalu tabel induknya
 DROP TABLE IF EXISTS masjids;

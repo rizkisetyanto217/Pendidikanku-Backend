@@ -46,12 +46,10 @@ type TeacherRecord struct {
 	MasjidID uuid.UUID `json:"masjid_id"        gorm:"column:masjid_teacher_masjid_id"`
 }
 
-
 type StudentRecord struct {
 	ID       uuid.UUID `json:"masjid_student_id" gorm:"column:masjid_student_id"`
 	MasjidID uuid.UUID `json:"masjid_id"        gorm:"column:masjid_student_masjid_id"`
 }
-
 
 /* ==========================
    Meta schema cache (prewarm)
@@ -163,7 +161,6 @@ func getTenantProfilesMapStr(ctx context.Context, db *gorm.DB, ids []uuid.UUID) 
 	}
 	return res
 }
-  
 
 // letakkan di dekat helper lain (atas file)
 // Ambil masjid_tenant_profile sebagai string (enum::text) untuk masjid aktif
@@ -197,9 +194,9 @@ func getMasjidTenantProfileStr(ctx context.Context, db *gorm.DB, masjidID uuid.U
 
 // Satu item masjid: roles + tenant_profile
 type MasjidRoleWithTenant struct {
-	MasjidID       uuid.UUID `json:"masjid_id"`
-	Roles          []string  `json:"roles"`
-	TenantProfile  string    `json:"tenant_profile"`
+	MasjidID      uuid.UUID `json:"masjid_id"`
+	Roles         []string  `json:"roles"`
+	TenantProfile string    `json:"tenant_profile"`
 }
 
 // Gabungkan claim masjid_roles dengan map tenant_profiles
@@ -214,8 +211,6 @@ func combineRolesWithTenant(rc helpersAuth.RolesClaim, tp map[string]string) []M
 	}
 	return out
 }
-
-
 
 func nowUTC() time.Time { return time.Now().UTC() }
 
@@ -262,7 +257,6 @@ func hasGlobalRole(rc helpersAuth.RolesClaim, role string) bool {
 	return false
 }
 
-
 func rolesClaimHas(rc helpersAuth.RolesClaim, role string) bool {
 	role = strings.ToLower(role)
 	for _, r := range rc.RolesGlobal {
@@ -295,9 +289,12 @@ func deriveMasjidIDsFromRolesClaim(rc helpersAuth.RolesClaim) []string {
 	return out
 }
 
-/* ==========================
-   REGISTER (refactor: tx + upsert profile)
-========================== */
+/*
+	==========================
+	  REGISTER (refactor: tx + upsert profile)
+
+==========================
+*/
 func Register(db *gorm.DB, c *fiber.Ctx) error {
 	var input userModel.UserModel
 	if err := c.BodyParser(&input); err != nil {
@@ -308,15 +305,24 @@ func Register(db *gorm.DB, c *fiber.Ctx) error {
 	input.UserName = strings.TrimSpace(input.UserName)
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 	if input.FullName != nil {
-		f := strings.TrimSpace(*input.FullName); input.FullName = &f
+		f := strings.TrimSpace(*input.FullName)
+		input.FullName = &f
 	}
 	if input.GoogleID != nil {
 		g := strings.TrimSpace(*input.GoogleID)
-		if g == "" { input.GoogleID = nil } else { input.GoogleID = &g }
+		if g == "" {
+			input.GoogleID = nil
+		} else {
+			input.GoogleID = &g
+		}
 	}
 	if input.Password != nil {
 		p := strings.TrimSpace(*input.Password)
-		if p == "" { input.Password = nil } else { input.Password = &p }
+		if p == "" {
+			input.Password = nil
+		} else {
+			input.Password = &p
+		}
 	}
 
 	// ---------- Validasi bisnis: minimal password ATAU google_id ----------
@@ -338,7 +344,7 @@ func Register(db *gorm.DB, c *fiber.Ctx) error {
 		input.Password = &hashed
 	}
 
-	// ---------- TRANSACTION: create user → ensure users_profile → grant role ----------
+	// ---------- TRANSACTION: create user → ensure user_profiles → grant role ----------
 	if err := db.Transaction(func(tx *gorm.DB) error {
 		// Create user
 		if err := authRepo.CreateUser(tx, &input); err != nil {
@@ -355,15 +361,15 @@ func Register(db *gorm.DB, c *fiber.Ctx) error {
 			}
 		}
 
-		log.Printf("[register] ensuring users_profile for user_id=%s", input.ID)
+		log.Printf("[register] ensuring user_profiles for user_id=%s", input.ID)
 
-		// Ensure users_profile ada (idempotent & anti-race)
+		// Ensure user_profiles ada (idempotent & anti-race)
 		if err := userProfileService.EnsureProfileRow(c.Context(), tx, input.ID); err != nil {
-			log.Printf("[register] ensure users_profile ERROR: %v", err)
+			log.Printf("[register] ensure user_profiles ERROR: %v", err)
 			return fiber.NewError(fiber.StatusInternalServerError, "Failed to initialize user profile")
 		}
 
-		log.Printf("[register] ensure users_profile OK for user_id=%s", input.ID)
+		log.Printf("[register] ensure user_profiles OK for user_id=%s", input.ID)
 
 		// Grant default role
 		if err := grantDefaultUserRole(c.Context(), tx, input.ID); err != nil {
@@ -443,41 +449,41 @@ func grantDefaultUserRole(ctx context.Context, db *gorm.DB, userID uuid.UUID) er
 
 // Ambil roles via function claim (jika ada) atau fallback query manual
 func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (helpersAuth.RolesClaim, error) {
-    out := helpersAuth.RolesClaim{RolesGlobal: []string{}, MasjidRoles: []helpersAuth.MasjidRolesEntry{}}
+	out := helpersAuth.RolesClaim{RolesGlobal: []string{}, MasjidRoles: []helpersAuth.MasjidRolesEntry{}}
 
-    // Pakai fungsi hanya jika benar-benar ada (cek cached)
-    useFn := meta.Ready && meta.HasFnUserRolesClaim
-    if !useFn {
-        useFn = quickHasFunction(db, "fn_user_roles_claim")
-    }
+	// Pakai fungsi hanya jika benar-benar ada (cek cached)
+	useFn := meta.Ready && meta.HasFnUserRolesClaim
+	if !useFn {
+		useFn = quickHasFunction(db, "fn_user_roles_claim")
+	}
 
-    if useFn {
-        var jsonStr string
-        if err := db.WithContext(ctx).
-            Raw(`SELECT fn_user_roles_claim(?::uuid)::text`, userID.String()).
-            Scan(&jsonStr).Error; err == nil && strings.TrimSpace(jsonStr) != "" {
-            var tmp helpersAuth.RolesClaim
-            if err := json.Unmarshal([]byte(jsonStr), &tmp); err == nil {
-                // kalau fungsi ngembaliin kosong, JANGAN langsung pulang — lanjut fallback manual
-                if len(tmp.RolesGlobal) > 0 || len(tmp.MasjidRoles) > 0 {
-                    return tmp, nil
-                }
-            }
-        }
-    }
+	if useFn {
+		var jsonStr string
+		if err := db.WithContext(ctx).
+			Raw(`SELECT fn_user_roles_claim(?::uuid)::text`, userID.String()).
+			Scan(&jsonStr).Error; err == nil && strings.TrimSpace(jsonStr) != "" {
+			var tmp helpersAuth.RolesClaim
+			if err := json.Unmarshal([]byte(jsonStr), &tmp); err == nil {
+				// kalau fungsi ngembaliin kosong, JANGAN langsung pulang — lanjut fallback manual
+				if len(tmp.RolesGlobal) > 0 || len(tmp.MasjidRoles) > 0 {
+					return tmp, nil
+				}
+			}
+		}
+	}
 
-    // ===== Fallback manual yang pasti jalan =====
-    orderBy := "r.role_name ASC"
-    if quickHasFunction(db, "fn_role_priority") {
-        orderBy = "fn_role_priority(r.role_name) DESC, r.role_name ASC"
-    }
+	// ===== Fallback manual yang pasti jalan =====
+	orderBy := "r.role_name ASC"
+	if quickHasFunction(db, "fn_role_priority") {
+		orderBy = "fn_role_priority(r.role_name) DESC, r.role_name ASC"
+	}
 
-    // Global
-    {
-        ctxG, cancel := context.WithTimeout(ctx, qryTimeoutLong) // kasih napas lebih
-        defer cancel()
-        var globals []string
-        if err := db.WithContext(ctxG).Raw(`
+	// Global
+	{
+		ctxG, cancel := context.WithTimeout(ctx, qryTimeoutLong) // kasih napas lebih
+		defer cancel()
+		var globals []string
+		if err := db.WithContext(ctxG).Raw(`
             SELECT r.role_name
             FROM user_roles ur
             JOIN roles r ON r.role_id = ur.role_id
@@ -486,18 +492,18 @@ func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (help
               AND ur.masjid_id IS NULL
             GROUP BY r.role_name
             ORDER BY `+orderBy, userID.String(),
-        ).Scan(&globals).Error; err != nil {
-            return out, err
-        }
-        out.RolesGlobal = globals
-    }
+		).Scan(&globals).Error; err != nil {
+			return out, err
+		}
+		out.RolesGlobal = globals
+	}
 
-    // Scoped
-    var masjidIDs []uuid.UUID
-    {
-        ctxS, cancel := context.WithTimeout(ctx, qryTimeoutLong)
-        defer cancel()
-        if err := db.WithContext(ctxS).Raw(`
+	// Scoped
+	var masjidIDs []uuid.UUID
+	{
+		ctxS, cancel := context.WithTimeout(ctx, qryTimeoutLong)
+		defer cancel()
+		if err := db.WithContext(ctxS).Raw(`
             SELECT ur.masjid_id
             FROM user_roles ur
             WHERE ur.user_id = ?::uuid
@@ -505,13 +511,13 @@ func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (help
               AND ur.masjid_id IS NOT NULL
             GROUP BY ur.masjid_id
         `, userID.String()).Scan(&masjidIDs).Error; err != nil {
-            return out, err
-        }
-    }
-    for _, mid := range masjidIDs {
-        ctxR, cancel := context.WithTimeout(ctx, qryTimeoutLong)
-        var roles []string
-        err := db.WithContext(ctxR).Raw(`
+			return out, err
+		}
+	}
+	for _, mid := range masjidIDs {
+		ctxR, cancel := context.WithTimeout(ctx, qryTimeoutLong)
+		var roles []string
+		err := db.WithContext(ctxR).Raw(`
             SELECT r.role_name
             FROM user_roles ur
             JOIN roles r ON r.role_id = ur.role_id
@@ -520,17 +526,17 @@ func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (help
               AND ur.masjid_id = ?::uuid
             GROUP BY r.role_name
             ORDER BY `+orderBy, userID.String(), mid.String()).
-            Scan(&roles).Error
-        cancel()
-        if err != nil {
-            return out, err
-        }
-        out.MasjidRoles = append(out.MasjidRoles, helpersAuth.MasjidRolesEntry{
-            MasjidID: mid,
-            Roles:    roles,
-        })
-    }
-    return out, nil
+			Scan(&roles).Error
+		cancel()
+		if err != nil {
+			return out, err
+		}
+		out.MasjidRoles = append(out.MasjidRoles, helpersAuth.MasjidRolesEntry{
+			MasjidID: mid,
+			Roles:    roles,
+		})
+	}
+	return out, nil
 }
 
 /* ==========================
@@ -587,7 +593,6 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 	return issueTokensWithRoles(c, db, *userFull, rolesClaim)
 }
 
-
 /* ==========================
    ISSUE TOKENS + Response
 ========================== */
@@ -622,7 +627,6 @@ func fetchStudentRecords(db *gorm.DB, userID uuid.UUID) []StudentRecord {
 
 	return out
 }
-
 
 func fetchTeacherRecords(db *gorm.DB, userID uuid.UUID) []TeacherRecord {
 	// Pastikan meta sudah di-warm
@@ -715,8 +719,6 @@ func buildStudentRecords(db *gorm.DB, userID uuid.UUID, rc helpersAuth.RolesClai
 	return out
 }
 
-
-
 // ==========================
 // Helpers (JWT claims & resp)
 // ==========================
@@ -738,7 +740,7 @@ func buildAccessClaims(
 	masjidIDs []string,
 	isOwner bool,
 	activeMasjidID *string,
-	tenantProfile *string,             // single (active), opsional
+	tenantProfile *string, // single (active), opsional
 	masjidRoles []MasjidRoleWithTenant, // ⬅️ gabungan
 	teacherRecords []TeacherRecord,
 	studentRecords []StudentRecord,
@@ -779,8 +781,8 @@ func buildLoginResponseUser(
 	masjidIDs []string,
 	isOwner bool,
 	activeMasjidID *string,
-	tenantProfile *string,               // single (active), opsional
-	masjidRoles []MasjidRoleWithTenant,  // ⬅️ gabungan
+	tenantProfile *string, // single (active), opsional
+	masjidRoles []MasjidRoleWithTenant, // ⬅️ gabungan
 	teacherRecords []TeacherRecord,
 	studentRecords []StudentRecord,
 ) fiber.Map {
@@ -808,7 +810,6 @@ func buildLoginResponseUser(
 	}
 	return resp
 }
-
 
 // ==========================
 // ISSUE TOKENS (refactor)
@@ -908,7 +909,6 @@ func issueTokensWithRoles(
 	})
 }
 
-
 // Insert refresh_token dengan latency lebih rendah.
 // Aman untuk token (konsekuensi: kemungkinan kecil lose jika crash tepat sesudah commit).
 func createRefreshTokenFast(db *gorm.DB, rt *authModel.RefreshTokenModel) error {
@@ -1003,7 +1003,7 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 					}
 				}
 
-				// Pastikan users_profile ada (idempotent)
+				// Pastikan user_profiles ada (idempotent)
 				if err := userProfileService.EnsureProfileRow(c.Context(), tx, userByEmail.ID); err != nil {
 					return err
 				}
@@ -1056,7 +1056,7 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 					return err
 				}
 
-				// Pastikan users_profile ada (idempotent)
+				// Pastikan user_profiles ada (idempotent)
 				if err := userProfileService.EnsureProfileRow(c.Context(), tx, newUser.ID); err != nil {
 					return err
 				}

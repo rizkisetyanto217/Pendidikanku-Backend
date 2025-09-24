@@ -1,3 +1,4 @@
+// file: internals/features/school/schedules/dto/class_schedule_dto.go
 package dto
 
 import (
@@ -8,7 +9,6 @@ import (
 	"github.com/google/uuid"
 
 	model "masjidku_backend/internals/features/school/academics/schedules/model"
-
 	sessModel "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
 )
 
@@ -109,7 +109,7 @@ type CreateClassAttendanceSessionLite struct {
 	StartTime string `json:"start_time" validate:"required"`                     // "HH:mm" / "HH:mm:ss"
 	EndTime   string `json:"end_time"   validate:"required"`
 
-	// opsional metadata (pakai yang ada di model kamu)
+	// opsional metadata (pakai yang ada di model session)
 	ClassRoomID *uuid.UUID `json:"class_room_id,omitempty" validate:"omitempty"`
 	CSSTID      *uuid.UUID `json:"csst_id,omitempty"       validate:"omitempty"` // ClassSectionSubjectTeacher id
 	Status      *string    `json:"status,omitempty"        validate:"omitempty,oneof=scheduled ongoing completed canceled"`
@@ -150,23 +150,23 @@ func (r CreateClassScheduleRequest) SessionsToModels(
 		// overnight guard
 		if endLocal.Before(startLocal) {
 			endLocal = endLocal.Add(24 * time.Hour)
-			endUTC = endLocal.UTC()
 		}
 		if !endLocal.After(startLocal) {
 			return nil, fmt.Errorf("sessions[%d]: end_time harus > start_time", i)
 		}
 
-		st := sessModel.SessionScheduled
+		// Status session
+		st := sessModel.SessionStatusScheduled
 		if s.Status != nil {
 			switch strings.ToLower(strings.TrimSpace(*s.Status)) {
 			case "ongoing":
-				st = sessModel.SessionOngoing
+				st = sessModel.SessionStatusOngoing
 			case "completed":
-				st = sessModel.SessionCompleted
+				st = sessModel.SessionStatusCompleted
 			case "canceled":
-				st = sessModel.SessionCanceled
+				st = sessModel.SessionStatusCanceled
 			default:
-				st = sessModel.SessionScheduled
+				st = sessModel.SessionStatusScheduled
 			}
 		}
 
@@ -175,20 +175,20 @@ func (r CreateClassScheduleRequest) SessionsToModels(
 		dateUTC := toUTCDateFromLocal(dateLocal)
 
 		m := sessModel.ClassAttendanceSessionModel{
-			ClassAttendanceSessionsMasjidID:   masjidID,
-			ClassAttendanceSessionsScheduleID: scheduleID,
+			ClassAttendanceSessionMasjidID:   masjidID,
+			ClassAttendanceSessionScheduleID: scheduleID,
 
-			ClassAttendanceSessionsDate:     dateUTC,   // <— DATE disimpan midnight UTC
-			ClassAttendanceSessionsStartsAt: &startUTC, // UTC
-			ClassAttendanceSessionsEndsAt:   &endUTC,   // UTC
+			ClassAttendanceSessionDate:     dateUTC,   // <— DATE disimpan midnight UTC
+			ClassAttendanceSessionStartsAt: &startUTC, // UTC
+			ClassAttendanceSessionEndsAt:   &endUTC,   // UTC
 
-			ClassAttendanceSessionsStatus:           st,
-			ClassAttendanceSessionsAttendanceStatus: "open", // <— default agar worker happy
-			ClassAttendanceSessionsNote:             trimPtr(s.Notes),
+			ClassAttendanceSessionStatus:           st,
+			ClassAttendanceSessionAttendanceStatus: sessModel.AttendanceStatusOpen, // default
+			ClassAttendanceSessionNote:             trimPtr(s.Notes),
 
 			// opsional FK
-			ClassAttendanceSessionsClassRoomID: s.ClassRoomID,
-			ClassAttendanceSessionsCSSTID:      s.CSSTID,
+			ClassAttendanceSessionClassRoomID: s.ClassRoomID,
+			ClassAttendanceSessionCSSTID:      s.CSSTID,
 		}
 		out = append(out, m)
 	}
@@ -196,26 +196,27 @@ func (r CreateClassScheduleRequest) SessionsToModels(
 }
 
 /* =========================================================
-   1) REQUESTS
+   1) REQUESTS (singular)
    ========================================================= */
 
-// Create: masjid_id dipaksa dari controller (parameter ToModel)
-// Sekarang mendukung pengiriman RULES langsung.
+// Create: masjid_id dipaksa dari controller (parameter ToModel).
+// Mendukung pengiriman RULES & SESSIONS langsung.
 type CreateClassScheduleRequest struct {
 	// optional slug
-	ClassSchedulesSlug *string `json:"class_schedules_slug" validate:"omitempty,max=160"`
+	ClassScheduleSlug *string `json:"class_schedule_slug" validate:"omitempty,max=160"`
 
 	// rentang wajib (YYYY-MM-DD)
-	ClassSchedulesStartDate string `json:"class_schedules_start_date" validate:"required,datetime=2006-01-02"`
-	ClassSchedulesEndDate   string `json:"class_schedules_end_date"   validate:"required,datetime=2006-01-02"`
+	ClassScheduleStartDate string `json:"class_schedule_start_date" validate:"required,datetime=2006-01-02"`
+	ClassScheduleEndDate   string `json:"class_schedule_end_date"   validate:"required,datetime=2006-01-02"`
 
 	// status & aktif
-	ClassSchedulesStatus   *string `json:"class_schedules_status"   validate:"omitempty,oneof=scheduled ongoing completed canceled"`
-	ClassSchedulesIsActive *bool   `json:"class_schedules_is_active" validate:"omitempty"`
+	ClassScheduleStatus   *string `json:"class_schedule_status"   validate:"omitempty,oneof=scheduled ongoing completed canceled"`
+	ClassScheduleIsActive *bool   `json:"class_schedule_is_active" validate:"omitempty"`
 
 	// RULES opsional — lite (tanpa schedule_id; akan diisi server)
 	Rules []CreateClassScheduleRuleLite `json:"rules" validate:"omitempty,dive"`
 
+	// SESSIONS opsional — lite
 	Sessions []CreateClassAttendanceSessionLite `json:"sessions" validate:"omitempty,dive"`
 }
 
@@ -232,35 +233,35 @@ type CreateClassScheduleRuleLite struct {
 }
 
 func (r CreateClassScheduleRequest) ToModel(masjidID uuid.UUID) model.ClassScheduleModel {
-	start, _ := parseDateYYYYMMDD(r.ClassSchedulesStartDate)
-	end, _ := parseDateYYYYMMDD(r.ClassSchedulesEndDate)
+	start, _ := parseDateYYYYMMDD(r.ClassScheduleStartDate)
+	end, _ := parseDateYYYYMMDD(r.ClassScheduleEndDate)
 
-	status := model.SessionScheduled
-	if r.ClassSchedulesStatus != nil {
-		switch strings.ToLower(strings.TrimSpace(*r.ClassSchedulesStatus)) {
+	status := model.SessionStatusScheduled
+	if r.ClassScheduleStatus != nil {
+		switch strings.ToLower(strings.TrimSpace(*r.ClassScheduleStatus)) {
 		case "ongoing":
-			status = model.SessionOngoing
+			status = model.SessionStatusOngoing
 		case "completed":
-			status = model.SessionCompleted
+			status = model.SessionStatusCompleted
 		case "canceled":
-			status = model.SessionCanceled
+			status = model.SessionStatusCanceled
 		default:
-			status = model.SessionScheduled
+			status = model.SessionStatusScheduled
 		}
 	}
 
 	isActive := true
-	if r.ClassSchedulesIsActive != nil {
-		isActive = *r.ClassSchedulesIsActive
+	if r.ClassScheduleIsActive != nil {
+		isActive = *r.ClassScheduleIsActive
 	}
 
 	return model.ClassScheduleModel{
-		ClassSchedulesMasjidID:  masjidID,
-		ClassSchedulesSlug:      trimPtr(r.ClassSchedulesSlug),
-		ClassSchedulesStartDate: start,
-		ClassSchedulesEndDate:   end,
-		ClassSchedulesStatus:    model.SessionStatusEnum(status),
-		ClassSchedulesIsActive:  isActive,
+		ClassScheduleMasjidID:  masjidID,
+		ClassScheduleSlug:      trimPtr(r.ClassScheduleSlug),
+		ClassScheduleStartDate: start,
+		ClassScheduleEndDate:   end,
+		ClassScheduleStatus:    status,
+		ClassScheduleIsActive:  isActive,
 	}
 }
 
@@ -291,43 +292,43 @@ func (r CreateClassScheduleRequest) RulesToModels(masjidID, scheduleID uuid.UUID
 	return out, nil
 }
 
-// Update (partial)
+// Update (partial) — singular
 type UpdateClassScheduleRequest struct {
-	ClassSchedulesSlug      *string `json:"class_schedules_slug"       validate:"omitempty,max=160"`
-	ClassSchedulesStartDate *string `json:"class_schedules_start_date" validate:"omitempty,datetime=2006-01-02"`
-	ClassSchedulesEndDate   *string `json:"class_schedules_end_date"   validate:"omitempty,datetime=2006-01-02"`
-	ClassSchedulesStatus    *string `json:"class_schedules_status"     validate:"omitempty,oneof=scheduled ongoing completed canceled"`
-	ClassSchedulesIsActive  *bool   `json:"class_schedules_is_active"  validate:"omitempty"`
+	ClassScheduleSlug      *string `json:"class_schedule_slug"       validate:"omitempty,max=160"`
+	ClassScheduleStartDate *string `json:"class_schedule_start_date" validate:"omitempty,datetime=2006-01-02"`
+	ClassScheduleEndDate   *string `json:"class_schedule_end_date"   validate:"omitempty,datetime=2006-01-02"`
+	ClassScheduleStatus    *string `json:"class_schedule_status"     validate:"omitempty,oneof=scheduled ongoing completed canceled"`
+	ClassScheduleIsActive  *bool   `json:"class_schedule_is_active"  validate:"omitempty"`
 }
 
 func (r UpdateClassScheduleRequest) Apply(m *model.ClassScheduleModel) {
-	if r.ClassSchedulesSlug != nil {
-		m.ClassSchedulesSlug = trimPtr(r.ClassSchedulesSlug)
+	if r.ClassScheduleSlug != nil {
+		m.ClassScheduleSlug = trimPtr(r.ClassScheduleSlug)
 	}
-	if r.ClassSchedulesStartDate != nil {
-		if t, ok := parseDateYYYYMMDD(*r.ClassSchedulesStartDate); ok {
-			m.ClassSchedulesStartDate = t
+	if r.ClassScheduleStartDate != nil {
+		if t, ok := parseDateYYYYMMDD(*r.ClassScheduleStartDate); ok {
+			m.ClassScheduleStartDate = t
 		}
 	}
-	if r.ClassSchedulesEndDate != nil {
-		if t, ok := parseDateYYYYMMDD(*r.ClassSchedulesEndDate); ok {
-			m.ClassSchedulesEndDate = t
+	if r.ClassScheduleEndDate != nil {
+		if t, ok := parseDateYYYYMMDD(*r.ClassScheduleEndDate); ok {
+			m.ClassScheduleEndDate = t
 		}
 	}
-	if r.ClassSchedulesStatus != nil {
-		switch strings.ToLower(strings.TrimSpace(*r.ClassSchedulesStatus)) {
+	if r.ClassScheduleStatus != nil {
+		switch strings.ToLower(strings.TrimSpace(*r.ClassScheduleStatus)) {
 		case "scheduled":
-			m.ClassSchedulesStatus = model.SessionScheduled
+			m.ClassScheduleStatus = model.SessionStatusScheduled
 		case "ongoing":
-			m.ClassSchedulesStatus = model.SessionOngoing
+			m.ClassScheduleStatus = model.SessionStatusOngoing
 		case "completed":
-			m.ClassSchedulesStatus = model.SessionCompleted
+			m.ClassScheduleStatus = model.SessionStatusCompleted
 		case "canceled":
-			m.ClassSchedulesStatus = model.SessionCanceled
+			m.ClassScheduleStatus = model.SessionStatusCanceled
 		}
 	}
-	if r.ClassSchedulesIsActive != nil {
-		m.ClassSchedulesIsActive = *r.ClassSchedulesIsActive
+	if r.ClassScheduleIsActive != nil {
+		m.ClassScheduleIsActive = *r.ClassScheduleIsActive
 	}
 }
 
@@ -356,22 +357,22 @@ type ListClassScheduleQuery struct {
 }
 
 /* =========================================================
-   3) RESPONSES
+   3) RESPONSES (singular)
    ========================================================= */
 
 type ClassScheduleResponse struct {
-	ClassScheduleID        uuid.UUID `json:"class_schedule_id"`
-	ClassSchedulesMasjidID uuid.UUID `json:"class_schedules_masjid_id"`
+	ClassScheduleID       uuid.UUID `json:"class_schedule_id"`
+	ClassScheduleMasjidID uuid.UUID `json:"class_schedule_masjid_id"`
 
-	ClassSchedulesSlug      *string   `json:"class_schedules_slug,omitempty"`
-	ClassSchedulesStartDate time.Time `json:"class_schedules_start_date"`
-	ClassSchedulesEndDate   time.Time `json:"class_schedules_end_date"`
-	ClassSchedulesStatus    string    `json:"class_schedules_status"`
-	ClassSchedulesIsActive  bool      `json:"class_schedules_is_active"`
+	ClassScheduleSlug      *string   `json:"class_schedule_slug,omitempty"`
+	ClassScheduleStartDate time.Time `json:"class_schedule_start_date"`
+	ClassScheduleEndDate   time.Time `json:"class_schedule_end_date"`
+	ClassScheduleStatus    string    `json:"class_schedule_status"`
+	ClassScheduleIsActive  bool      `json:"class_schedule_is_active"`
 
-	ClassSchedulesCreatedAt time.Time  `json:"class_schedules_created_at"`
-	ClassSchedulesUpdatedAt *time.Time `json:"class_schedules_updated_at,omitempty"`
-	ClassSchedulesDeletedAt *time.Time `json:"class_schedules_deleted_at,omitempty"`
+	ClassScheduleCreatedAt time.Time  `json:"class_schedule_created_at"`
+	ClassScheduleUpdatedAt *time.Time `json:"class_schedule_updated_at,omitempty"`
+	ClassScheduleDeletedAt *time.Time `json:"class_schedule_deleted_at,omitempty"`
 }
 
 type Pagination struct {
@@ -391,24 +392,24 @@ type ClassScheduleListResponse struct {
 
 func FromModel(m model.ClassScheduleModel) ClassScheduleResponse {
 	var deletedAt *time.Time
-	if m.ClassSchedulesDeletedAt.Valid {
-		d := m.ClassSchedulesDeletedAt.Time
+	if m.ClassScheduleDeletedAt.Valid {
+		d := m.ClassScheduleDeletedAt.Time
 		deletedAt = &d
 	}
 
 	return ClassScheduleResponse{
-		ClassScheduleID:        m.ClassScheduleID,
-		ClassSchedulesMasjidID: m.ClassSchedulesMasjidID,
+		ClassScheduleID:       m.ClassScheduleID,
+		ClassScheduleMasjidID: m.ClassScheduleMasjidID,
 
-		ClassSchedulesSlug:      m.ClassSchedulesSlug,
-		ClassSchedulesStartDate: m.ClassSchedulesStartDate,
-		ClassSchedulesEndDate:   m.ClassSchedulesEndDate,
-		ClassSchedulesStatus:    string(m.ClassSchedulesStatus),
-		ClassSchedulesIsActive:  m.ClassSchedulesIsActive,
+		ClassScheduleSlug:      m.ClassScheduleSlug,
+		ClassScheduleStartDate: m.ClassScheduleStartDate,
+		ClassScheduleEndDate:   m.ClassScheduleEndDate,
+		ClassScheduleStatus:    string(m.ClassScheduleStatus),
+		ClassScheduleIsActive:  m.ClassScheduleIsActive,
 
-		ClassSchedulesCreatedAt: m.ClassSchedulesCreatedAt,
-		ClassSchedulesUpdatedAt: timePtrOrNil(m.ClassSchedulesUpdatedAt),
-		ClassSchedulesDeletedAt: deletedAt,
+		ClassScheduleCreatedAt: m.ClassScheduleCreatedAt,
+		ClassScheduleUpdatedAt: timePtrOrNil(m.ClassScheduleUpdatedAt),
+		ClassScheduleDeletedAt: deletedAt,
 	}
 }
 

@@ -1,5 +1,5 @@
 -- =========================================
--- UP Migration — Assessments (3 tabel, final, tanpa prefix "academic")
+-- UP Migration — Assessments (3 tabel, final)
 -- =========================================
 BEGIN;
 
@@ -7,115 +7,122 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- =========================================================
--- 1) MASTER TYPES (tanpa ordering)
+-- 1) ASSESSMENT_TYPES (master types)
+--    - tabel plural
+--    - kolom singular (prefix assessment_type_)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS assessment_types (
-  assessment_types_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  assessment_type_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  assessment_types_masjid_id UUID NOT NULL
+  assessment_type_masjid_id UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  assessment_types_key  VARCHAR(32)  NOT NULL,  -- unik per masjid (uas, uts, tugas, ...)
-  assessment_types_name VARCHAR(120) NOT NULL,
+  assessment_type_key  VARCHAR(32)  NOT NULL,  -- unik per masjid (uas, uts, tugas, ...)
+  assessment_type_name VARCHAR(120) NOT NULL,
 
-  assessment_types_weight_percent NUMERIC(5,2) NOT NULL DEFAULT 0
-    CHECK (assessment_types_weight_percent >= 0 AND assessment_types_weight_percent <= 100),
+  assessment_type_weight_percent NUMERIC(5,2) NOT NULL DEFAULT 0
+    CHECK (assessment_type_weight_percent >= 0 AND assessment_type_weight_percent <= 100),
 
-  assessment_types_is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  assessment_type_is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
-  assessment_types_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  assessment_types_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  assessment_types_deleted_at TIMESTAMPTZ
+  assessment_type_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  assessment_type_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  assessment_type_deleted_at TIMESTAMPTZ
 );
 
--- unik per masjid + key
-CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_types_masjid_key
-  ON assessment_types(assessment_types_masjid_id, assessment_types_key);
+-- Pair unik id+tenant (tenant-safe)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_types_id_tenant
+  ON assessment_types (assessment_type_id, assessment_type_masjid_id);
 
--- listing aktif
+-- Unik per masjid + key (alive only, case-insensitive)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_types_key_per_masjid_alive
+  ON assessment_types (assessment_type_masjid_id, LOWER(assessment_type_key))
+  WHERE assessment_type_deleted_at IS NULL;
+
+-- Listing aktif / filter umum
 CREATE INDEX IF NOT EXISTS idx_assessment_types_masjid_active
-  ON assessment_types(assessment_types_masjid_id, assessment_types_is_active);
+  ON assessment_types (assessment_type_masjid_id, assessment_type_is_active)
+  WHERE assessment_type_deleted_at IS NULL;
+
+-- BRIN waktu
+CREATE INDEX IF NOT EXISTS brin_assessment_types_created_at
+  ON assessment_types USING BRIN (assessment_type_created_at);
 
 
 
 -- =========================================================
--- ASSESSMENTS — CLEAN RELATION (ONLY TO CSST)
+-- 2) ASSESSMENTS — clean relation (ONLY TO CSST)
+--    - tabel plural
+--    - kolom singular (prefix assessment_)
 -- =========================================================
-BEGIN;
-
--- Pastikan unique index tenant-safe ada di CSST
+-- Pastikan unique index tenant-safe ada di CSST (aman kalau sudah ada)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_masjid
 ON class_section_subject_teachers (
   class_section_subject_teachers_id,
   class_section_subject_teachers_masjid_id
 );
 
--- Table assessments
 CREATE TABLE IF NOT EXISTS assessments (
-  assessments_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  assessment_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  assessments_masjid_id UUID NOT NULL
+  assessment_masjid_id UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   -- Hanya relasi ke CSST (tenant-safe)
-  assessments_class_section_subject_teacher_id UUID NULL,
+  assessment_class_section_subject_teacher_id UUID NULL,
 
-  assessments_type_id UUID
-    REFERENCES assessment_types(assessment_types_id)
+  assessment_type_id UUID
+    REFERENCES assessment_types(assessment_type_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
-  assessments_slug VARCHAR(160),                    -- untuk URL
+  assessment_slug VARCHAR(160),                    -- untuk URL
 
-  assessments_title       VARCHAR(180) NOT NULL,
-  assessments_description TEXT,
+  assessment_title       VARCHAR(180) NOT NULL,
+  assessment_description TEXT,
 
   -- Jadwal
-  assessments_start_at TIMESTAMPTZ,
-  assessments_due_at   TIMESTAMPTZ,
-  assessments_published_at TIMESTAMPTZ,             -- jadwal rilis
-  assessments_closed_at   TIMESTAMPTZ,              -- jadwal tutup
+  assessment_start_at      TIMESTAMPTZ,
+  assessment_due_at        TIMESTAMPTZ,
+  assessment_published_at  TIMESTAMPTZ,            -- jadwal rilis
+  assessment_closed_at     TIMESTAMPTZ,            -- jadwal tutup
 
-  assessments_duration_minutes INT,                 -- menit
-  assessments_total_attempts_allowed INT NOT NULL DEFAULT 1,
+  assessment_duration_minutes        INT,          -- menit
+  assessment_total_attempts_allowed  INT NOT NULL DEFAULT 1,
 
-  assessments_max_score NUMERIC(5,2) NOT NULL DEFAULT 100
-    CHECK (assessments_max_score >= 0 AND assessments_max_score <= 100),
+  assessment_max_score NUMERIC(5,2) NOT NULL DEFAULT 100
+    CHECK (assessment_max_score >= 0 AND assessment_max_score <= 100),
 
-  assessments_is_published     BOOLEAN NOT NULL DEFAULT TRUE,
-  assessments_allow_submission BOOLEAN NOT NULL DEFAULT TRUE,
+  assessment_is_published     BOOLEAN NOT NULL DEFAULT TRUE,
+  assessment_allow_submission BOOLEAN NOT NULL DEFAULT TRUE,
 
-  assessments_created_by_teacher_id UUID,  -- FK ke masjid_teachers
+  assessment_created_by_teacher_id UUID,          -- FK ke masjid_teachers (opsional)
 
-  assessments_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  assessments_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  assessments_deleted_at TIMESTAMPTZ
+  assessment_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  assessment_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  assessment_deleted_at TIMESTAMPTZ
 );
 
--- FK ke CSST
+-- FK ke CSST (single col)
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'fk_assessments_csst'
-  ) THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_assessment_csst') THEN
     ALTER TABLE assessments
-      ADD CONSTRAINT fk_assessments_csst
-      FOREIGN KEY (assessments_class_section_subject_teacher_id)
+      ADD CONSTRAINT fk_assessment_csst
+      FOREIGN KEY (assessment_class_section_subject_teacher_id)
       REFERENCES class_section_subject_teachers(class_section_subject_teachers_id)
       ON UPDATE CASCADE ON DELETE SET NULL;
   END IF;
 END$$;
 
--- Composite tenant-safe FK (masjid_id harus match)
+-- Composite tenant-safe FK (assessment_masjid_id harus match CSST.masjid_id)
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'fk_assessments_csst_masjid_tenant_safe'
-  ) THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_assessment_csst_masjid_tenant_safe') THEN
     ALTER TABLE assessments
-      ADD CONSTRAINT fk_assessments_csst_masjid_tenant_safe
+      ADD CONSTRAINT fk_assessment_csst_masjid_tenant_safe
       FOREIGN KEY (
-        assessments_class_section_subject_teacher_id,
-        assessments_masjid_id
+        assessment_class_section_subject_teacher_id,
+        assessment_masjid_id
       )
       REFERENCES class_section_subject_teachers(
         class_section_subject_teachers_id,
@@ -125,30 +132,49 @@ BEGIN
   END IF;
 END$$;
 
--- =========================================================
--- Indeks
--- =========================================================
+-- Pair unik id+tenant (tenant-safe)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_assessments_id_tenant
+  ON assessments (assessment_id, assessment_masjid_id);
+
+-- Unik slug per tenant (alive only)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_assessments_slug_per_tenant_alive
+  ON assessments (assessment_masjid_id, LOWER(assessment_slug))
+  WHERE assessment_deleted_at IS NULL
+    AND assessment_slug IS NOT NULL;
+
+-- Pencarian slug cepat (alive only)
+CREATE INDEX IF NOT EXISTS gin_assessments_slug_trgm_alive
+  ON assessments USING GIN (LOWER(assessment_slug) gin_trgm_ops)
+  WHERE assessment_deleted_at IS NULL
+    AND assessment_slug IS NOT NULL;
+
+-- Indeks akses umum
 CREATE INDEX IF NOT EXISTS idx_assessments_masjid_created_at
-  ON assessments(assessments_masjid_id, assessments_created_at DESC);
+  ON assessments (assessment_masjid_id, assessment_created_at DESC)
+  WHERE assessment_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_assessments_type_id
-  ON assessments(assessments_type_id);
+  ON assessments (assessment_type_id)
+  WHERE assessment_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_assessments_csst
-  ON assessments(assessments_class_section_subject_teacher_id);
+  ON assessments (assessment_class_section_subject_teacher_id)
+  WHERE assessment_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_assessments_created_by_teacher
-  ON assessments(assessments_created_by_teacher_id);
+  ON assessments (assessment_created_by_teacher_id)
+  WHERE assessment_deleted_at IS NULL;
 
+-- BRIN waktu
 CREATE INDEX IF NOT EXISTS brin_assessments_created_at
-  ON assessments USING BRIN (assessments_created_at);
-
-COMMIT;
+  ON assessments USING BRIN (assessment_created_at);
 
 
 
 -- =========================================================
--- 3) ASSESSMENT URLS (selaras dgn announcement_urls)
+-- 3) ASSESSMENT_URLS (selaras dgn announcement_urls)
+--    - tabel plural
+--    - kolom singular (prefix assessment_url_)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS assessment_urls (
   assessment_url_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -157,7 +183,7 @@ CREATE TABLE IF NOT EXISTS assessment_urls (
   assessment_url_masjid_id       UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
   assessment_url_assessment_id   UUID NOT NULL
-    REFERENCES assessments(assessments_id) ON UPDATE CASCADE ON DELETE CASCADE,
+    REFERENCES assessments(assessment_id) ON UPDATE CASCADE ON DELETE CASCADE,
 
   -- Jenis/peran aset (mis. 'image','video','attachment','link', dst.)
   assessment_url_kind            VARCHAR(24) NOT NULL,
@@ -179,12 +205,12 @@ CREATE TABLE IF NOT EXISTS assessment_urls (
   assessment_url_delete_pending_until TIMESTAMPTZ      -- tenggat purge (baris aktif dgn *_old atau baris soft-deleted)
 );
 
--- =========================================================
--- INDEXING / OPTIMIZATION (paritas dg announcement/submission urls)
--- =========================================================
+-- Pair unik id+tenant (tenant-safe)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_urls_id_tenant
+  ON assessment_urls (assessment_url_id, assessment_url_masjid_id);
 
 -- Lookup per assessment (live only) + urutan tampil
-CREATE INDEX IF NOT EXISTS ix_ass_urls_by_owner_live
+CREATE INDEX IF NOT EXISTS ix_assessment_urls_by_owner_live
   ON assessment_urls (
     assessment_url_assessment_id,
     assessment_url_kind,
@@ -195,26 +221,24 @@ CREATE INDEX IF NOT EXISTS ix_ass_urls_by_owner_live
   WHERE assessment_url_deleted_at IS NULL;
 
 -- Filter per tenant (live only)
-CREATE INDEX IF NOT EXISTS ix_ass_urls_by_masjid_live
+CREATE INDEX IF NOT EXISTS ix_assessment_urls_by_masjid_live
   ON assessment_urls (assessment_url_masjid_id)
   WHERE assessment_url_deleted_at IS NULL;
 
 -- Satu primary per (assessment, kind) (live only)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ass_urls_primary_per_kind_alive
+CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_urls_primary_per_kind_alive
   ON assessment_urls (assessment_url_assessment_id, assessment_url_kind)
   WHERE assessment_url_deleted_at IS NULL
     AND assessment_url_is_primary = TRUE;
 
--- Anti-duplikat href per assessment (live only)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ass_urls_assessment_href_alive
-  ON assessment_urls (assessment_url_assessment_id, assessment_url_href)
+-- Anti-duplikat href per assessment (live only; case-insensitive)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_urls_assessment_href_alive
+  ON assessment_urls (assessment_url_assessment_id, LOWER(assessment_url_href))
   WHERE assessment_url_deleted_at IS NULL
     AND assessment_url_href IS NOT NULL;
 
--- Kandidat purge:
---  - baris AKTIF dengan object_key_old (in-place replace)
---  - baris SOFT-DELETED dengan object_key (versi-per-baris)
-CREATE INDEX IF NOT EXISTS ix_ass_urls_purge_due
+-- Kandidat purge (in-place replace & soft-deleted)
+CREATE INDEX IF NOT EXISTS ix_assessment_urls_purge_due
   ON assessment_urls (assessment_url_delete_pending_until)
   WHERE assessment_url_delete_pending_until IS NOT NULL
     AND (
@@ -223,6 +247,8 @@ CREATE INDEX IF NOT EXISTS ix_ass_urls_purge_due
     );
 
 -- (opsional) pencarian label (live only)
-CREATE INDEX IF NOT EXISTS gin_ass_urls_label_trgm_live
+CREATE INDEX IF NOT EXISTS gin_assessment_urls_label_trgm_live
   ON assessment_urls USING GIN (assessment_url_label gin_trgm_ops)
   WHERE assessment_url_deleted_at IS NULL;
+
+COMMIT;

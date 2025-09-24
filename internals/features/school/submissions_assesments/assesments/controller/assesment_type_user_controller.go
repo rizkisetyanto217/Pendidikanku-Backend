@@ -13,14 +13,11 @@ import (
 )
 
 // GET /assessment-types?active=&q=&limit=&offset=&sort_by=&sort_dir=
-// GET /assessment-types?active=&q=&limit=&offset=&sort_by=&sort_dir=
 func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 	// Pastikan helper slug→id bisa akses DB dari context
 	c.Locals("DB", ctl.DB)
 
-	// =========================
 	// 1) Resolve masjid context
-	// =========================
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -43,18 +40,14 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, helperAuth.ErrMasjidContextMissing.Code, helperAuth.ErrMasjidContextMissing.Message)
 	}
 
-	// ==========================================
 	// 2) Authorize: minimal member masjid (any role)
-	// ==========================================
 	if !helperAuth.UserHasMasjid(c, mid) {
 		return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar pada masjid ini (membership).")
 	}
 
-	// =========================
 	// 3) Build filter & validate
-	// =========================
 	var filt dto.ListAssessmentTypeFilter
-	filt.AssessmentTypesMasjidID = mid
+	filt.AssessmentTypeMasjidID = mid
 
 	// Filters opsional
 	if v := strings.TrimSpace(c.Query("active")); v != "" {
@@ -79,19 +72,17 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// =========================
 	// 4) Query tenant-scoped
-	// =========================
 	qry := ctl.DB.Model(&model.AssessmentTypeModel{}).
-		Where("assessment_types_masjid_id = ?", filt.AssessmentTypesMasjidID)
+		Where("assessment_type_masjid_id = ?", filt.AssessmentTypeMasjidID)
 
 	if filt.Active != nil {
-		qry = qry.Where("assessment_types_is_active = ?", *filt.Active)
+		qry = qry.Where("assessment_type_is_active = ?", *filt.Active)
 	}
 	if filt.Q != nil {
 		like := "%" + strings.ToLower(strings.TrimSpace(*filt.Q)) + "%"
 		qry = qry.Where(
-			"(LOWER(assessment_types_name) LIKE ? OR LOWER(assessment_types_key) LIKE ?)",
+			"(LOWER(assessment_type_name) LIKE ? OR LOWER(assessment_type_key) LIKE ?)",
 			like, like,
 		)
 	}
@@ -105,7 +96,7 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 	if err := qry.
 		Order(func() string {
 			if filt.SortBy == nil {
-				return "assessment_types_created_at DESC"
+				return "assessment_type_created_at DESC"
 			}
 			sb := strings.ToLower(strings.TrimSpace(*filt.SortBy))
 			dir := "DESC"
@@ -114,11 +105,11 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 			}
 			switch sb {
 			case "name":
-				return "assessment_types_name " + dir
+				return "assessment_type_name " + dir
 			case "created_at":
-				return "assessment_types_created_at " + dir
+				return "assessment_type_created_at " + dir
 			default:
-				return "assessment_types_created_at DESC"
+				return "assessment_type_created_at DESC"
 			}
 		}()).
 		Limit(filt.Limit).

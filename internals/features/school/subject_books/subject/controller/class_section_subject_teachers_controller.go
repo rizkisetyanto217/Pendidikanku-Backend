@@ -14,9 +14,11 @@ import (
 
 	modelMasjidTeacher "masjidku_backend/internals/features/lembaga/teachers_students/model"
 	modelClassSection "masjidku_backend/internals/features/school/classes/class_sections/model"
+
+	// === pakai model & dto CSST terbaru (sectionsubjectteachers) ===
+	dto "masjidku_backend/internals/features/school/subject_books/subject/dto"
 	modelCSST "masjidku_backend/internals/features/school/subject_books/subject/model"
 
-	dto "masjidku_backend/internals/features/school/subject_books/subject/dto"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 )
@@ -29,16 +31,14 @@ func NewClassSectionSubjectTeacherController(db *gorm.DB) *ClassSectionSubjectTe
 	return &ClassSectionSubjectTeacherController{DB: db}
 }
 
-/* ===============================
-   CREATE (admin/DKM via masjid context)
-   POST /admin/:masjid_id/class-section-subject-teachers
-   /admin/:masjid_slug/class-section-subject-teachers
-   =============================== */
-/* ===============================
-   CREATE (admin/DKM via masjid context)
-   POST /admin/:masjid_id/class-section-subject-teachers
-   /admin/:masjid_slug/class-section-subject-teachers
-   =============================== */
+/*
+===============================
+
+	CREATE (admin/DKM via masjid context)
+	POST /admin/:masjid_id/class-section-subject-teachers
+	/admin/:masjid_slug/class-section-subject-teachers
+	===============================
+*/
 func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
@@ -62,7 +62,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		var sec modelClassSection.ClassSectionModel
 		if err := tx.
 			Where("class_sections_id = ? AND class_sections_masjid_id = ? AND class_sections_deleted_at IS NULL",
-				req.ClassSectionSubjectTeachersSectionID, masjidID).
+				req.ClassSectionSubjectTeacherSectionID, masjidID).
 			First(&sec).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Section tidak ditemukan / beda tenant")
@@ -79,7 +79,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		if err := tx.Table("class_subjects").
 			Select("class_subjects_id, class_subjects_masjid_id, class_subjects_class_id").
 			Where("class_subjects_id = ? AND class_subjects_deleted_at IS NULL",
-				req.ClassSectionSubjectTeachersClassSubjectsID).
+				req.ClassSectionSubjectTeacherClassSubjectID).
 			Take(&cs).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, fiber.StatusBadRequest, "class_subjects tidak ditemukan / sudah dihapus")
@@ -89,14 +89,14 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		if cs.ClassSubjectsMasjidID != masjidID {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Masjid mismatch: class_subjects milik masjid lain")
 		}
-		if cs.ClassSubjectsClassID != sec.ClassSectionsClassID {
+		if cs.ClassSubjectsClassID != sec.ClassSectionClassID {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Class mismatch: class_subjects.class_id != class_sections.class_id")
 		}
 
 		// 3) TEACHER exists & same tenant (cek saja; tak ambil nama)
 		if err := tx.
 			Where("masjid_teacher_id = ? AND masjid_teacher_masjid_id = ? AND masjid_teacher_deleted_at IS NULL",
-				req.ClassSectionSubjectTeachersTeacherID, masjidID).
+				req.ClassSectionSubjectTeacherTeacherID, masjidID).
 			First(&modelMasjidTeacher.MasjidTeacherModel{}).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak ditemukan / bukan guru masjid ini")
@@ -106,29 +106,29 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 
 		// 4) Build row
 		row := req.ToModel()
-		row.ClassSectionSubjectTeachersMasjidID = masjidID
-		if !row.ClassSectionSubjectTeachersIsActive {
-			row.ClassSectionSubjectTeachersIsActive = true
+		row.ClassSectionSubjectTeacherMasjidID = masjidID
+		if !row.ClassSectionSubjectTeacherIsActive {
+			row.ClassSectionSubjectTeacherIsActive = true
 		}
 
 		// ========== SLUG ==========
-		if row.ClassSectionSubjectTeachersSlug != nil {
-			s := helper.Slugify(*row.ClassSectionSubjectTeachersSlug, 160)
-			row.ClassSectionSubjectTeachersSlug = &s
+		if row.ClassSectionSubjectTeacherSlug != nil {
+			s := helper.Slugify(*row.ClassSectionSubjectTeacherSlug, 160)
+			row.ClassSectionSubjectTeacherSlug = &s
 		}
-		if row.ClassSectionSubjectTeachersSlug == nil || strings.TrimSpace(*row.ClassSectionSubjectTeachersSlug) == "" {
+		if row.ClassSectionSubjectTeacherSlug == nil || strings.TrimSpace(*row.ClassSectionSubjectTeacherSlug) == "" {
 			var sectionName, subjectName string
 
 			_ = tx.Table("class_sections").
 				Select("class_sections_name").
-				Where("class_sections_id = ? AND class_sections_masjid_id = ?", req.ClassSectionSubjectTeachersSectionID, masjidID).
+				Where("class_sections_id = ? AND class_sections_masjid_id = ?", req.ClassSectionSubjectTeacherSectionID, masjidID).
 				Scan(&sectionName).Error
 
 			_ = tx.Table("class_subjects AS cs").
 				Select("s.subjects_name").
 				Joins("JOIN subjects AS s ON s.subjects_id = cs.class_subjects_subject_id AND s.subjects_deleted_at IS NULL").
 				Where("cs.class_subjects_id = ? AND cs.class_subjects_masjid_id = ? AND cs.class_subjects_deleted_at IS NULL",
-					req.ClassSectionSubjectTeachersClassSubjectsID, masjidID).
+					req.ClassSectionSubjectTeacherClassSubjectID, masjidID).
 				Scan(&subjectName).Error
 
 			parts := make([]string, 0, 2)
@@ -144,21 +144,21 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 				base = strings.Join(parts, " ")
 			} else {
 				base = fmt.Sprintf("csst-%s-%s-%s",
-					strings.Split(req.ClassSectionSubjectTeachersSectionID.String(), "-")[0],
-					strings.Split(req.ClassSectionSubjectTeachersClassSubjectsID.String(), "-")[0],
-					strings.Split(req.ClassSectionSubjectTeachersTeacherID.String(), "-")[0],
+					strings.Split(req.ClassSectionSubjectTeacherSectionID.String(), "-")[0],
+					strings.Split(req.ClassSectionSubjectTeacherClassSubjectID.String(), "-")[0],
+					strings.Split(req.ClassSectionSubjectTeacherTeacherID.String(), "-")[0],
 				)
 			}
 			base = helper.Slugify(base, 160)
 
 			uniqueSlug, err := helper.EnsureUniqueSlugCI(
 				c.Context(), tx,
-				"class_section_subject_teachers", "class_section_subject_teachers_slug",
+				"class_section_subject_teachers", "class_section_subject_teacher_slug",
 				base,
 				func(q *gorm.DB) *gorm.DB {
 					return q.Where(`
-						class_section_subject_teachers_masjid_id = ?
-						AND class_section_subject_teachers_deleted_at IS NULL
+						class_section_subject_teacher_masjid_id = ?
+						AND class_section_subject_teacher_deleted_at IS NULL
 					`, masjidID)
 				},
 				160,
@@ -166,16 +166,16 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			if err != nil {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 			}
-			row.ClassSectionSubjectTeachersSlug = &uniqueSlug
+			row.ClassSectionSubjectTeacherSlug = &uniqueSlug
 		} else {
 			uniqueSlug, err := helper.EnsureUniqueSlugCI(
 				c.Context(), tx,
-				"class_section_subject_teachers", "class_section_subject_teachers_slug",
-				*row.ClassSectionSubjectTeachersSlug,
+				"class_section_subject_teachers", "class_section_subject_teacher_slug",
+				*row.ClassSectionSubjectTeacherSlug,
 				func(q *gorm.DB) *gorm.DB {
 					return q.Where(`
-						class_section_subject_teachers_masjid_id = ?
-						AND class_section_subject_teachers_deleted_at IS NULL
+						class_section_subject_teacher_masjid_id = ?
+						AND class_section_subject_teacher_deleted_at IS NULL
 					`, masjidID)
 				},
 				160,
@@ -183,7 +183,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			if err != nil {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 			}
-			row.ClassSectionSubjectTeachersSlug = &uniqueSlug
+			row.ClassSectionSubjectTeacherSlug = &uniqueSlug
 		}
 		// ========== END SLUG ==========
 
@@ -254,7 +254,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 		// Ambil row
 		var row modelCSST.ClassSectionSubjectTeacherModel
 		if err := tx.
-			Where("class_section_subject_teachers_id = ? AND class_section_subject_teachers_deleted_at IS NULL", id).
+			Where("class_section_subject_teacher_id = ? AND class_section_subject_teacher_deleted_at IS NULL", id).
 			First(&row).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan")
@@ -263,19 +263,19 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 		}
 
 		// tenant guard
-		if row.ClassSectionSubjectTeachersMasjidID != masjidID {
+		if row.ClassSectionSubjectTeacherMasjidID != masjidID {
 			return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 		}
 
-		// (opsional) precheck konsistensi jika section_id / class_subjects_id berubah
-		if req.ClassSectionSubjectTeachersSectionID != nil || req.ClassSectionSubjectTeachersClassSubjectsID != nil {
-			sectionID := row.ClassSectionSubjectTeachersSectionID
-			if req.ClassSectionSubjectTeachersSectionID != nil {
-				sectionID = *req.ClassSectionSubjectTeachersSectionID
+		// (opsional) precheck konsistensi jika section_id / class_subject_id berubah
+		if req.ClassSectionSubjectTeacherSectionID != nil || req.ClassSectionSubjectTeacherClassSubjectID != nil {
+			sectionID := row.ClassSectionSubjectTeacherSectionID
+			if req.ClassSectionSubjectTeacherSectionID != nil {
+				sectionID = *req.ClassSectionSubjectTeacherSectionID
 			}
-			classSubjectsID := row.ClassSectionSubjectTeachersClassSubjectsID
-			if req.ClassSectionSubjectTeachersClassSubjectsID != nil {
-				classSubjectsID = *req.ClassSectionSubjectTeachersClassSubjectsID
+			classSubjectID := row.ClassSectionSubjectTeacherClassSubjectID
+			if req.ClassSectionSubjectTeacherClassSubjectID != nil {
+				classSubjectID = *req.ClassSectionSubjectTeacherClassSubjectID
 			}
 
 			// cek section milik tenant + ambil class_id dari section
@@ -297,7 +297,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			if err := tx.
 				Table("class_subjects").
 				Select("class_subjects_masjid_id, class_subjects_class_id").
-				Where("class_subjects_id = ? AND class_subjects_deleted_at IS NULL", classSubjectsID).
+				Where("class_subjects_id = ? AND class_subjects_deleted_at IS NULL", classSubjectID).
 				Take(&cs).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return helper.JsonError(c, fiber.StatusBadRequest, "class_subjects tidak ditemukan / sudah dihapus")
@@ -307,47 +307,47 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			if cs.ClassSubjectsMasjidID != masjidID {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Masjid mismatch: class_subjects milik masjid lain")
 			}
-			if cs.ClassSubjectsClassID != sec.ClassSectionsClassID { // ✅ bandingkan ke class_id dari section
+			if cs.ClassSubjectsClassID != sec.ClassSectionClassID {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Class mismatch: class_subjects.class_id != class_sections.class_id")
 			}
 		}
 
 		// Catat apakah ada perubahan yang memengaruhi slug
-		sectionChanged := req.ClassSectionSubjectTeachersSectionID != nil &&
-			*req.ClassSectionSubjectTeachersSectionID != row.ClassSectionSubjectTeachersSectionID
-		csChanged := req.ClassSectionSubjectTeachersClassSubjectsID != nil &&
-			*req.ClassSectionSubjectTeachersClassSubjectsID != row.ClassSectionSubjectTeachersClassSubjectsID
-		teacherChanged := req.ClassSectionSubjectTeachersTeacherID != nil &&
-			*req.ClassSectionSubjectTeachersTeacherID != row.ClassSectionSubjectTeachersTeacherID
+		sectionChanged := req.ClassSectionSubjectTeacherSectionID != nil &&
+			*req.ClassSectionSubjectTeacherSectionID != row.ClassSectionSubjectTeacherSectionID
+		csChanged := req.ClassSectionSubjectTeacherClassSubjectID != nil &&
+			*req.ClassSectionSubjectTeacherClassSubjectID != row.ClassSectionSubjectTeacherClassSubjectID
+		teacherChanged := req.ClassSectionSubjectTeacherTeacherID != nil &&
+			*req.ClassSectionSubjectTeacherTeacherID != row.ClassSectionSubjectTeacherTeacherID
 
 		// Apply perubahan lain (belum sentuh slug)
 		req.Apply(&row)
 
 		// ===== SLUG handling =====
 		// Normalisasi slug jika user mengirimkan
-		if req.ClassSectionSubjectTeachersSlug != nil {
-			if s := strings.TrimSpace(*req.ClassSectionSubjectTeachersSlug); s != "" {
+		if req.ClassSectionSubjectTeacherSlug != nil {
+			if s := strings.TrimSpace(*req.ClassSectionSubjectTeacherSlug); s != "" {
 				norm := helper.Slugify(s, 160)
-				row.ClassSectionSubjectTeachersSlug = &norm
+				row.ClassSectionSubjectTeacherSlug = &norm
 			} else {
 				// "" → nil
-				row.ClassSectionSubjectTeachersSlug = nil
+				row.ClassSectionSubjectTeacherSlug = nil
 			}
 		}
 
 		// Perlu generate/cek unik jika:
 		// - user set slug baru (di-normalisasi di atas), atau
-		// - slug masih kosong dan ada perubahan section/class_subjects/teacher (atau awalnya kosong)
+		// - slug masih kosong dan ada perubahan section/class_subject/teacher (atau awalnya kosong)
 		needEnsureUnique := false
 		baseSlug := ""
 
-		if req.ClassSectionSubjectTeachersSlug != nil {
+		if req.ClassSectionSubjectTeacherSlug != nil {
 			needEnsureUnique = true
-			if row.ClassSectionSubjectTeachersSlug != nil {
-				baseSlug = *row.ClassSectionSubjectTeachersSlug
+			if row.ClassSectionSubjectTeacherSlug != nil {
+				baseSlug = *row.ClassSectionSubjectTeacherSlug
 			}
-		} else if row.ClassSectionSubjectTeachersSlug == nil || strings.TrimSpace(ptrStr(row.ClassSectionSubjectTeachersSlug)) == "" {
-			if sectionChanged || csChanged || teacherChanged || row.ClassSectionSubjectTeachersSlug == nil {
+		} else if row.ClassSectionSubjectTeacherSlug == nil || strings.TrimSpace(ptrStr(row.ClassSectionSubjectTeacherSlug)) == "" {
+			if sectionChanged || csChanged || teacherChanged || row.ClassSectionSubjectTeacherSlug == nil {
 				needEnsureUnique = true
 
 				// Rakitan base dari entity terkait (best-effort)
@@ -355,14 +355,14 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 
 				_ = tx.Table("class_sections").
 					Select("class_sections_name").
-					Where("class_sections_id = ? AND class_sections_masjid_id = ?", row.ClassSectionSubjectTeachersSectionID, masjidID).
+					Where("class_sections_id = ? AND class_sections_masjid_id = ?", row.ClassSectionSubjectTeacherSectionID, masjidID).
 					Scan(&sectionName).Error
 
 				_ = tx.Table("class_subjects cs").
 					Select("c.classes_name, s.subjects_name").
 					Joins("JOIN classes c ON c.classes_id = cs.class_subjects_class_id AND c.classes_deleted_at IS NULL").
 					Joins("JOIN subjects s ON s.subjects_id = cs.class_subjects_subject_id AND s.subjects_deleted_at IS NULL").
-					Where("cs.class_subjects_id = ? AND cs.class_subjects_masjid_id = ?", row.ClassSectionSubjectTeachersClassSubjectsID, masjidID).
+					Where("cs.class_subjects_id = ? AND cs.class_subjects_masjid_id = ?", row.ClassSectionSubjectTeacherClassSubjectID, masjidID).
 					Scan(&struct {
 						ClassesName  *string
 						SubjectsName *string
@@ -370,7 +370,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 
 				_ = tx.Table("masjid_teachers").
 					Select("masjid_teacher_name").
-					Where("masjid_teacher_id = ? AND masjid_teacher_masjid_id = ?", row.ClassSectionSubjectTeachersTeacherID, masjidID).
+					Where("masjid_teacher_id = ? AND masjid_teacher_masjid_id = ?", row.ClassSectionSubjectTeacherTeacherID, masjidID).
 					Scan(&teacherName).Error
 
 				parts := []string{}
@@ -389,9 +389,9 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 
 				if len(parts) == 0 {
 					baseSlug = fmt.Sprintf("csst-%s-%s-%s",
-						strings.Split(row.ClassSectionSubjectTeachersSectionID.String(), "-")[0],
-						strings.Split(row.ClassSectionSubjectTeachersClassSubjectsID.String(), "-")[0],
-						strings.Split(row.ClassSectionSubjectTeachersTeacherID.String(), "-")[0],
+						strings.Split(row.ClassSectionSubjectTeacherSectionID.String(), "-")[0],
+						strings.Split(row.ClassSectionSubjectTeacherClassSubjectID.String(), "-")[0],
+						strings.Split(row.ClassSectionSubjectTeacherTeacherID.String(), "-")[0],
 					)
 				} else {
 					baseSlug = strings.Join(parts, " ")
@@ -405,15 +405,15 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 				c.Context(),
 				tx,
 				"class_section_subject_teachers",
-				"class_section_subject_teachers_slug",
+				"class_section_subject_teacher_slug",
 				baseSlug,
 				func(q *gorm.DB) *gorm.DB {
 					// Unik per tenant, soft-delete aware, EXCLUDE diri sendiri
 					return q.Where(`
-						class_section_subject_teachers_masjid_id = ?
-						AND class_section_subject_teachers_deleted_at IS NULL
-						AND class_section_subject_teachers_id <> ?
-					`, masjidID, row.ClassSectionSubjectTeachersID)
+						class_section_subject_teacher_masjid_id = ?
+						AND class_section_subject_teacher_deleted_at IS NULL
+						AND class_section_subject_teacher_id <> ?
+					`, masjidID, row.ClassSectionSubjectTeacherID)
 				},
 				160,
 			)
@@ -422,9 +422,9 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			}
 			// Jika baseSlug kosong (mis. user set slug "" → nil), uniqueSlug akan dibuat dari fallback di helper.
 			if strings.TrimSpace(uniqueSlug) != "" {
-				row.ClassSectionSubjectTeachersSlug = &uniqueSlug
+				row.ClassSectionSubjectTeacherSlug = &uniqueSlug
 			} else {
-				row.ClassSectionSubjectTeachersSlug = nil
+				row.ClassSectionSubjectTeacherSlug = nil
 			}
 		}
 		// ===== END SLUG =====
@@ -468,7 +468,8 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 
 	DELETE (soft delete)
 	DELETE /admin/:masjid_id/class-section-subject-teachers/:id
-	===============================
+
+===============================
 */
 func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 	mc, err := helperAuth.ResolveMasjidContext(c)
@@ -487,24 +488,24 @@ func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 
 	var row modelCSST.ClassSectionSubjectTeacherModel
 	if err := ctl.DB.WithContext(c.Context()).
-		First(&row, "class_section_subject_teachers_id = ?", id).Error; err != nil {
+		First(&row, "class_section_subject_teacher_id = ?", id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan")
 		}
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
-	if row.ClassSectionSubjectTeachersMasjidID != masjidID {
+	if row.ClassSectionSubjectTeacherMasjidID != masjidID {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
-	if row.ClassSectionSubjectTeachersDeletedAt.Valid {
+	if row.ClassSectionSubjectTeacherDeletedAt.Valid {
 		// idempotent
 		return helper.JsonDeleted(c, "Sudah terhapus", fiber.Map{"id": id})
 	}
 
 	if err := ctl.DB.WithContext(c.Context()).
 		Model(&modelCSST.ClassSectionSubjectTeacherModel{}).
-		Where("class_section_subject_teachers_id = ?", id).
-		Update("class_section_subject_teachers_deleted_at", gorm.Expr("NOW()")).Error; err != nil {
+		Where("class_section_subject_teacher_id = ?", id).
+		Update("class_section_subject_teacher_deleted_at", gorm.Expr("NOW()")).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 

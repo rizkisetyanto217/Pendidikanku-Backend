@@ -1,3 +1,4 @@
+// file: internals/features/school/submissions_assesments/quizzes/dto/quiz_question_dto.go
 package dto
 
 import (
@@ -12,56 +13,51 @@ import (
 )
 
 /* =========================================================
-   Tri-state field (absent / null / value) untuk PATCH
-========================================================= */
-
-/* =========================================================
    CREATE
 ========================================================= */
 
-// Satu DTO general:
-// - SINGLE: isi answers (object/array). Untuk OBJECT, isi 'correct' (A..D).
-// - ESSAY : biarkan answers & correct kosong.
+// SINGLE: isi answers (object/array) + correct ('A'..'D').
+// ESSAY : biarkan answers & correct kosong.
 type CreateQuizQuestionRequest struct {
-	QuizQuestionsQuizID      uuid.UUID               `json:"quiz_questions_quiz_id" validate:"required"`
-	QuizQuestionsMasjidID    uuid.UUID               `json:"quiz_questions_masjid_id"` // controller boleh force override dari tenant
-	QuizQuestionsType        qmodel.QuizQuestionType `json:"quiz_questions_type" validate:"required,oneof=single essay"`
-	QuizQuestionsText        string                  `json:"quiz_questions_text" validate:"required"`
-	QuizQuestionsPoints      *float64                `json:"quiz_questions_points" validate:"omitempty,gte=0"`
-	QuizQuestionsAnswers     *json.RawMessage        `json:"quiz_questions_answers" validate:"omitempty"` // object/array (SINGLE) atau null
-	QuizQuestionsCorrect     *string                 `json:"quiz_questions_correct" validate:"omitempty,oneof=A B C D a b c d"`
-	QuizQuestionsExplanation *string                 `json:"quiz_questions_explanation" validate:"omitempty"`
+	QuizQuestionQuizID      uuid.UUID               `json:"quiz_question_quiz_id" validate:"required"`
+	QuizQuestionMasjidID    uuid.UUID               `json:"quiz_question_masjid_id"` // controller boleh force override dari tenant
+	QuizQuestionType        qmodel.QuizQuestionType `json:"quiz_question_type" validate:"required,oneof=single essay"`
+	QuizQuestionText        string                  `json:"quiz_question_text" validate:"required"`
+	QuizQuestionPoints      *float64                `json:"quiz_question_points" validate:"omitempty,gte=0"`
+	QuizQuestionAnswers     *json.RawMessage        `json:"quiz_question_answers" validate:"omitempty"` // object/array (SINGLE) atau null
+	QuizQuestionCorrect     *string                 `json:"quiz_question_correct" validate:"omitempty,oneof=A B C D a b c d"`
+	QuizQuestionExplanation *string                 `json:"quiz_question_explanation" validate:"omitempty"`
 }
 
 func (r *CreateQuizQuestionRequest) ToModel() (*qmodel.QuizQuestionModel, error) {
 	points := 1.0
-	if r.QuizQuestionsPoints != nil {
-		points = *r.QuizQuestionsPoints
+	if r.QuizQuestionPoints != nil {
+		points = *r.QuizQuestionPoints
 	}
 
 	var ans datatypes.JSON
-	if r.QuizQuestionsAnswers != nil && len(*r.QuizQuestionsAnswers) > 0 {
-		ans = datatypes.JSON(*r.QuizQuestionsAnswers)
+	if r.QuizQuestionAnswers != nil && len(*r.QuizQuestionAnswers) > 0 {
+		ans = datatypes.JSON(*r.QuizQuestionAnswers)
 	}
 
 	var correct *string
-	if r.QuizQuestionsCorrect != nil {
-		c := strings.ToUpper(strings.TrimSpace(*r.QuizQuestionsCorrect))
+	if r.QuizQuestionCorrect != nil {
+		c := strings.ToUpper(strings.TrimSpace(*r.QuizQuestionCorrect))
 		correct = &c
 	}
 
 	m := &qmodel.QuizQuestionModel{
-		QuizQuestionsQuizID:      r.QuizQuestionsQuizID,
-		QuizQuestionsMasjidID:    r.QuizQuestionsMasjidID,
-		QuizQuestionsType:        r.QuizQuestionsType,
-		QuizQuestionsText:        strings.TrimSpace(r.QuizQuestionsText),
-		QuizQuestionsPoints:      points,
-		QuizQuestionsAnswers:     ans,
-		QuizQuestionsCorrect:     correct,
-		QuizQuestionsExplanation: trimPtr(r.QuizQuestionsExplanation),
+		QuizQuestionQuizID:      r.QuizQuestionQuizID,
+		QuizQuestionMasjidID:    r.QuizQuestionMasjidID,
+		QuizQuestionType:        r.QuizQuestionType,
+		QuizQuestionText:        strings.TrimSpace(r.QuizQuestionText),
+		QuizQuestionPoints:      points,
+		QuizQuestionAnswers:     ans,
+		QuizQuestionCorrect:     correct,
+		QuizQuestionExplanation: trimPtr(r.QuizQuestionExplanation),
 	}
 
-	// Validasi bentuk data sebelum simpan (mirror CHECK DB)
+	// Jika model punya validator domain-level, panggil di sini.
 	if err := m.ValidateShape(); err != nil {
 		return nil, err
 	}
@@ -73,75 +69,75 @@ func (r *CreateQuizQuestionRequest) ToModel() (*qmodel.QuizQuestionModel, error)
 ========================================================= */
 
 type PatchQuizQuestionRequest struct {
-	QuizQuestionsQuizID      UpdateField[uuid.UUID]               `json:"quiz_questions_quiz_id"`
-	QuizQuestionsMasjidID    UpdateField[uuid.UUID]               `json:"quiz_questions_masjid_id"` // biasanya tidak diizinkan ubah; biarkan jika perlu
-	QuizQuestionsType        UpdateField[qmodel.QuizQuestionType] `json:"quiz_questions_type"`       // single/essay
-	QuizQuestionsText        UpdateField[string]                  `json:"quiz_questions_text"`
-	QuizQuestionsPoints      UpdateField[float64]                 `json:"quiz_questions_points"`
-	QuizQuestionsAnswers     UpdateField[json.RawMessage]         `json:"quiz_questions_answers"`    // object/array untuk SINGLE
-	QuizQuestionsCorrect     UpdateField[string]                  `json:"quiz_questions_correct"`    // 'A'..'D' (OBJECT mode)
-	QuizQuestionsExplanation UpdateField[string]                  `json:"quiz_questions_explanation"`
+	QuizQuestionQuizID      UpdateField[uuid.UUID]               `json:"quiz_question_quiz_id"`
+	QuizQuestionMasjidID    UpdateField[uuid.UUID]               `json:"quiz_question_masjid_id"` // biasanya tidak diizinkan ubah
+	QuizQuestionType        UpdateField[qmodel.QuizQuestionType] `json:"quiz_question_type"`      // single/essay
+	QuizQuestionText        UpdateField[string]                  `json:"quiz_question_text"`
+	QuizQuestionPoints      UpdateField[float64]                 `json:"quiz_question_points"`
+	QuizQuestionAnswers     UpdateField[json.RawMessage]         `json:"quiz_question_answers"` // object/array untuk SINGLE
+	QuizQuestionCorrect     UpdateField[string]                  `json:"quiz_question_correct"` // 'A'..'D' (OBJECT mode)
+	QuizQuestionExplanation UpdateField[string]                  `json:"quiz_question_explanation"`
 }
 
-// Terapkan patch langsung ke model yg sudah di-load, lalu validasi shape.
+// Terapkan patch langsung ke model yang sudah di-load, lalu validasi shape.
 func (p *PatchQuizQuestionRequest) ApplyToModel(m *qmodel.QuizQuestionModel) error {
 	// IDs
-	if p.QuizQuestionsQuizID.ShouldUpdate() && !p.QuizQuestionsQuizID.IsNull() {
-		m.QuizQuestionsQuizID = p.QuizQuestionsQuizID.Val()
+	if p.QuizQuestionQuizID.ShouldUpdate() && !p.QuizQuestionQuizID.IsNull() {
+		m.QuizQuestionQuizID = p.QuizQuestionQuizID.Val()
 	}
-	if p.QuizQuestionsMasjidID.ShouldUpdate() && !p.QuizQuestionsMasjidID.IsNull() {
-		m.QuizQuestionsMasjidID = p.QuizQuestionsMasjidID.Val()
+	if p.QuizQuestionMasjidID.ShouldUpdate() && !p.QuizQuestionMasjidID.IsNull() {
+		m.QuizQuestionMasjidID = p.QuizQuestionMasjidID.Val()
 	}
 
 	// Type
-	if p.QuizQuestionsType.ShouldUpdate() && !p.QuizQuestionsType.IsNull() {
-		m.QuizQuestionsType = p.QuizQuestionsType.Val()
+	if p.QuizQuestionType.ShouldUpdate() && !p.QuizQuestionType.IsNull() {
+		m.QuizQuestionType = p.QuizQuestionType.Val()
 	}
 
 	// Text
-	if p.QuizQuestionsText.ShouldUpdate() {
-		if p.QuizQuestionsText.IsNull() {
-			return errors.New("quiz_questions_text tidak boleh null")
+	if p.QuizQuestionText.ShouldUpdate() {
+		if p.QuizQuestionText.IsNull() {
+			return errors.New("quiz_question_text tidak boleh null")
 		}
-		m.QuizQuestionsText = strings.TrimSpace(p.QuizQuestionsText.Val())
+		m.QuizQuestionText = strings.TrimSpace(p.QuizQuestionText.Val())
 	}
 
 	// Points
-	if p.QuizQuestionsPoints.ShouldUpdate() {
-		if p.QuizQuestionsPoints.IsNull() {
-			// set default (1)
-			m.QuizQuestionsPoints = 1.0
+	if p.QuizQuestionPoints.ShouldUpdate() {
+		if p.QuizQuestionPoints.IsNull() {
+			m.QuizQuestionPoints = 1.0
 		} else {
-			m.QuizQuestionsPoints = p.QuizQuestionsPoints.Val()
+			m.QuizQuestionPoints = p.QuizQuestionPoints.Val()
 		}
 	}
 
 	// Answers
-	if p.QuizQuestionsAnswers.ShouldUpdate() {
-		if p.QuizQuestionsAnswers.IsNull() {
-			m.QuizQuestionsAnswers = nil
+	if p.QuizQuestionAnswers.ShouldUpdate() {
+		if p.QuizQuestionAnswers.IsNull() {
+			m.QuizQuestionAnswers = nil
 		} else {
-			raw := p.QuizQuestionsAnswers.Val()
-			m.QuizQuestionsAnswers = datatypes.JSON(raw)
+			raw := p.QuizQuestionAnswers.Val()
+			m.QuizQuestionAnswers = datatypes.JSON(raw)
 		}
 	}
 
 	// Correct
-	if p.QuizQuestionsCorrect.ShouldUpdate() {
-		if p.QuizQuestionsCorrect.IsNull() {
-			m.QuizQuestionsCorrect = nil
+	if p.QuizQuestionCorrect.ShouldUpdate() {
+		if p.QuizQuestionCorrect.IsNull() {
+			m.QuizQuestionCorrect = nil
 		} else {
-			c := strings.ToUpper(strings.TrimSpace(p.QuizQuestionsCorrect.Val()))
-			m.QuizQuestionsCorrect = &c
+			c := strings.ToUpper(strings.TrimSpace(p.QuizQuestionCorrect.Val()))
+			m.QuizQuestionCorrect = &c
 		}
 	}
 
 	// Explanation
-	if p.QuizQuestionsExplanation.ShouldUpdate() {
-		if p.QuizQuestionsExplanation.IsNull() {
-			m.QuizQuestionsExplanation = nil
+	if p.QuizQuestionExplanation.ShouldUpdate() {
+		if p.QuizQuestionExplanation.IsNull() {
+			m.QuizQuestionExplanation = nil
 		} else {
-			m.QuizQuestionsExplanation = trimPtr(&p.QuizQuestionsExplanation.value)
+			v := p.QuizQuestionExplanation.Val()
+			m.QuizQuestionExplanation = trimPtr(&v)
 		}
 	}
 
@@ -154,39 +150,38 @@ func (p *PatchQuizQuestionRequest) ApplyToModel(m *qmodel.QuizQuestionModel) err
 ========================================================= */
 
 type QuizQuestionResponse struct {
-	QuizQuestionsID          uuid.UUID               `json:"quiz_questions_id"`
-	QuizQuestionsQuizID      uuid.UUID               `json:"quiz_questions_quiz_id"`
-	QuizQuestionsMasjidID    uuid.UUID               `json:"quiz_questions_masjid_id"`
-	QuizQuestionsType        qmodel.QuizQuestionType `json:"quiz_questions_type"`
-	QuizQuestionsText        string                  `json:"quiz_questions_text"`
-	QuizQuestionsPoints      float64                 `json:"quiz_questions_points"`
-	QuizQuestionsAnswers     *json.RawMessage        `json:"quiz_questions_answers,omitempty"`
-	QuizQuestionsCorrect     *string                 `json:"quiz_questions_correct,omitempty"`
-	QuizQuestionsExplanation *string                 `json:"quiz_questions_explanation,omitempty"`
+	QuizQuestionID          uuid.UUID               `json:"quiz_question_id"`
+	QuizQuestionQuizID      uuid.UUID               `json:"quiz_question_quiz_id"`
+	QuizQuestionMasjidID    uuid.UUID               `json:"quiz_question_masjid_id"`
+	QuizQuestionType        qmodel.QuizQuestionType `json:"quiz_question_type"`
+	QuizQuestionText        string                  `json:"quiz_question_text"`
+	QuizQuestionPoints      float64                 `json:"quiz_question_points"`
+	QuizQuestionAnswers     *json.RawMessage        `json:"quiz_question_answers,omitempty"`
+	QuizQuestionCorrect     *string                 `json:"quiz_question_correct,omitempty"`
+	QuizQuestionExplanation *string                 `json:"quiz_question_explanation,omitempty"`
 
-	QuizQuestionsCreatedAt string `json:"quiz_questions_created_at"`
-	QuizQuestionsUpdatedAt string `json:"quiz_questions_updated_at"`
-	// deleted_at sengaja tidak diekspos, atau bisa ditambahkan jika perlu
+	QuizQuestionCreatedAt string `json:"quiz_question_created_at"`
+	QuizQuestionUpdatedAt string `json:"quiz_question_updated_at"`
 }
 
 func FromModelQuizQuestion(m *qmodel.QuizQuestionModel) *QuizQuestionResponse {
 	var ans *json.RawMessage
-	if len(m.QuizQuestionsAnswers) > 0 {
-		tmp := json.RawMessage(m.QuizQuestionsAnswers)
+	if len(m.QuizQuestionAnswers) > 0 {
+		tmp := json.RawMessage(m.QuizQuestionAnswers)
 		ans = &tmp
 	}
 	return &QuizQuestionResponse{
-		QuizQuestionsID:          m.QuizQuestionsID,
-		QuizQuestionsQuizID:      m.QuizQuestionsQuizID,
-		QuizQuestionsMasjidID:    m.QuizQuestionsMasjidID,
-		QuizQuestionsType:        m.QuizQuestionsType,
-		QuizQuestionsText:        m.QuizQuestionsText,
-		QuizQuestionsPoints:      m.QuizQuestionsPoints,
-		QuizQuestionsAnswers:     ans,
-		QuizQuestionsCorrect:     m.QuizQuestionsCorrect,
-		QuizQuestionsExplanation: m.QuizQuestionsExplanation,
-		QuizQuestionsCreatedAt:   m.QuizQuestionsCreatedAt.UTC().Format(timeRFC3339),
-		QuizQuestionsUpdatedAt:   m.QuizQuestionsUpdatedAt.UTC().Format(timeRFC3339),
+		QuizQuestionID:          m.QuizQuestionID,
+		QuizQuestionQuizID:      m.QuizQuestionQuizID,
+		QuizQuestionMasjidID:    m.QuizQuestionMasjidID,
+		QuizQuestionType:        m.QuizQuestionType,
+		QuizQuestionText:        m.QuizQuestionText,
+		QuizQuestionPoints:      m.QuizQuestionPoints,
+		QuizQuestionAnswers:     ans,
+		QuizQuestionCorrect:     m.QuizQuestionCorrect,
+		QuizQuestionExplanation: m.QuizQuestionExplanation,
+		QuizQuestionCreatedAt:   m.QuizQuestionCreatedAt.UTC().Format(timeRFC3339),
+		QuizQuestionUpdatedAt:   m.QuizQuestionUpdatedAt.UTC().Format(timeRFC3339),
 	}
 }
 
@@ -204,10 +199,4 @@ func FromModelsQuizQuestions(arr []qmodel.QuizQuestionModel) []*QuizQuestionResp
 
 const timeRFC3339 = "2006-01-02T15:04:05Z07:00"
 
-func trimPtr(s *string) *string {
-	if s == nil {
-		return nil
-	}
-	t := strings.TrimSpace(*s)
-	return &t
-}
+

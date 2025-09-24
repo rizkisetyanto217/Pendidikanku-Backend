@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	ucsDTO "masjidku_backend/internals/features/school/classes/class_sections/dto"
+	secDTO "masjidku_backend/internals/features/school/classes/class_sections/dto"
 	secModel "masjidku_backend/internals/features/school/classes/class_sections/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
@@ -52,8 +52,8 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 
 	// Kolom yang diizinkan untuk sort
 	allowed := map[string]string{
-		"name":       "class_sections_name",
-		"created_at": "class_sections_created_at",
+		"name":       "class_section_name",
+		"created_at": "class_section_created_at",
 	}
 	orderClause, _ := helper.Params{SortBy: p.SortBy, SortOrder: p.SortOrder}.SafeOrderClause(allowed, defaultSortBy)
 	orderClause = strings.TrimPrefix(orderClause, "ORDER BY ")
@@ -135,29 +135,29 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	// Base query
 	// =========================
 	tx := ctrl.DB.Model(&secModel.ClassSectionModel{}).
-		Where("class_sections_deleted_at IS NULL").
-		Where("class_sections_masjid_id IN ?", masjidIDs)
+		Where("class_section_deleted_at IS NULL").
+		Where("class_section_masjid_id IN ?", masjidIDs)
 
 	if len(sectionIDs) > 0 {
-		tx = tx.Where("class_sections_id IN ?", sectionIDs)
+		tx = tx.Where("class_section_id IN ?", sectionIDs)
 	}
 	if activeOnly != nil {
-		tx = tx.Where("class_sections_is_active = ?", *activeOnly)
+		tx = tx.Where("class_section_is_active = ?", *activeOnly)
 	}
 	if classID != nil {
-		tx = tx.Where("class_sections_class_id = ?", *classID)
+		tx = tx.Where("class_section_class_id = ?", *classID)
 	}
 	if teacherID != nil {
-		tx = tx.Where("class_sections_teacher_id = ?", *teacherID)
+		tx = tx.Where("class_section_teacher_id = ?", *teacherID)
 	}
 	if roomID != nil {
-		tx = tx.Where("class_sections_class_room_id = ?", *roomID)
+		tx = tx.Where("class_section_class_room_id = ?", *roomID)
 	}
 	if searchTerm != "" {
 		s := "%" + strings.ToLower(searchTerm) + "%"
-		tx = tx.Where(`LOWER(class_sections_name) LIKE ?
-		               OR LOWER(class_sections_code) LIKE ?
-		               OR LOWER(class_sections_slug) LIKE ?`, s, s, s)
+		tx = tx.Where(`LOWER(class_section_name) LIKE ?
+		               OR LOWER(class_section_code) LIKE ?
+		               OR LOWER(class_section_slug) LIKE ?`, s, s, s)
 	}
 
 	// =========================
@@ -195,7 +195,6 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	// =========================
 	// Prefetch TEACHER → users (batched)
 	// =========================
-	// Gunakan tipe lokal agar tidak tergantung DTO punya UserLite
 	type userLite struct {
 		ID       uuid.UUID `json:"id"`
 		UserName string    `json:"user_name"`
@@ -209,8 +208,8 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	if wantTeacher {
 		tSet := make(map[uuid.UUID]struct{})
 		for i := range rows {
-			if rows[i].ClassSectionsTeacherID != nil {
-				tSet[*rows[i].ClassSectionsTeacherID] = struct{}{}
+			if rows[i].ClassSectionTeacherID != nil {
+				tSet[*rows[i].ClassSectionTeacherID] = struct{}{}
 			}
 		}
 		if len(tSet) > 0 {
@@ -294,8 +293,8 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	if wantClass {
 		cSet := map[uuid.UUID]struct{}{}
 		for i := range rows {
-			if rows[i].ClassSectionsClassID != uuid.Nil {
-				cSet[rows[i].ClassSectionsClassID] = struct{}{}
+			if rows[i].ClassSectionClassID != uuid.Nil {
+				cSet[rows[i].ClassSectionClassID] = struct{}{}
 			}
 		}
 		if len(cSet) > 0 {
@@ -336,8 +335,8 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	if wantRoom {
 		rSet := map[uuid.UUID]struct{}{}
 		for i := range rows {
-			if rows[i].ClassSectionsClassRoomID != nil && *rows[i].ClassSectionsClassRoomID != uuid.Nil {
-				rSet[*rows[i].ClassSectionsClassRoomID] = struct{}{}
+			if rows[i].ClassSectionClassRoomID != nil && *rows[i].ClassSectionClassRoomID != uuid.Nil {
+				rSet[*rows[i].ClassSectionClassRoomID] = struct{}{}
 			}
 		}
 		if len(rSet) > 0 {
@@ -383,8 +382,8 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	if wantSubjects {
 		classIDSet := map[uuid.UUID]struct{}{}
 		for i := range rows {
-			if rows[i].ClassSectionsClassID != uuid.Nil {
-				classIDSet[rows[i].ClassSectionsClassID] = struct{}{}
+			if rows[i].ClassSectionClassID != uuid.Nil {
+				classIDSet[rows[i].ClassSectionClassID] = struct{}{}
 			}
 		}
 		if len(classIDSet) > 0 {
@@ -495,7 +494,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	if wantUCS {
 		secSet := make(map[uuid.UUID]struct{}, len(rows))
 		for i := range rows {
-			secSet[rows[i].ClassSectionsID] = struct{}{}
+			secSet[rows[i].ClassSectionID] = struct{}{}
 		}
 		if len(secSet) > 0 {
 			secIDs := make([]uuid.UUID, 0, len(secSet))
@@ -535,7 +534,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	// Build response
 	// =========================
 	type sectionWithExpand struct {
-		*ucsDTO.ClassSectionResponse `json:",inline"`
+		*secDTO.ClassSectionResponse `json:",inline"`
 		Class                        *classLite             `json:"class,omitempty"`
 		Room                         *roomLite              `json:"room,omitempty"`
 		Teacher                      *userLite              `json:"teacher,omitempty"`
@@ -546,41 +545,41 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	out := make([]*sectionWithExpand, 0, len(rows))
 	for i := range rows {
 		var teacherPtr *userLite
-		if wantTeacher && rows[i].ClassSectionsTeacherID != nil {
-			if uid, ok := teacherToUser[*rows[i].ClassSectionsTeacherID]; ok {
+		if wantTeacher && rows[i].ClassSectionTeacherID != nil {
+			if uid, ok := teacherToUser[*rows[i].ClassSectionTeacherID]; ok {
 				if ul, ok := userMap[uid]; ok {
 					uCopy := ul
 					teacherPtr = &uCopy
 				}
 			}
 		}
-		base := ucsDTO.FromModelClassSection(&rows[i])
+		base := secDTO.FromModelClassSection(&rows[i])
 
 		w := &sectionWithExpand{ClassSectionResponse: &base}
 		if wantTeacher {
 			w.Teacher = teacherPtr
 		}
 		if wantClass {
-			if cl, ok := classMap[rows[i].ClassSectionsClassID]; ok {
+			if cl, ok := classMap[rows[i].ClassSectionClassID]; ok {
 				cCopy := cl
 				w.Class = &cCopy
 			}
 		}
-		if wantRoom && rows[i].ClassSectionsClassRoomID != nil {
-			if rl, ok := roomMap[*rows[i].ClassSectionsClassRoomID]; ok {
+		if wantRoom && rows[i].ClassSectionClassRoomID != nil {
+			if rl, ok := roomMap[*rows[i].ClassSectionClassRoomID]; ok {
 				rCopy := rl
 				w.Room = &rCopy
 			}
 		}
-		if wantSubjects && rows[i].ClassSectionsClassID != uuid.Nil {
-			if subs, ok := subjectsByClass[rows[i].ClassSectionsClassID]; ok && len(subs) > 0 {
+		if wantSubjects && rows[i].ClassSectionClassID != uuid.Nil {
+			if subs, ok := subjectsByClass[rows[i].ClassSectionClassID]; ok && len(subs) > 0 {
 				cp := make([]subjectLite, len(subs))
 				copy(cp, subs)
 				w.Subjects = cp
 			}
 		}
 		if wantUCS {
-			if list, ok := ucsBySection[rows[i].ClassSectionsID]; ok && len(list) > 0 {
+			if list, ok := ucsBySection[rows[i].ClassSectionID]; ok && len(list) > 0 {
 				cp := make([]userClassSectionLite, len(list))
 				copy(cp, list)
 				w.UserClassSections = cp

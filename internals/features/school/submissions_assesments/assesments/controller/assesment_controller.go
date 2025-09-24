@@ -58,15 +58,16 @@ func (ctl *AssessmentController) assertTeacherBelongsToMasjid(
 	var n int64
 	if err := ctl.DB.WithContext(ctx).
 		Table("masjid_teachers").
-		Where(`masjid_teacher_id = ? 
-		       AND masjid_teacher_masjid_id = ? 
-		       AND masjid_teacher_deleted_at IS NULL`,
-			*teacherID, masjidID).
+		Where(`
+			masjid_teacher_id = ?
+			AND masjid_teacher_masjid_id = ?
+			AND masjid_teacher_deleted_at IS NULL
+		`, *teacherID, masjidID).
 		Count(&n).Error; err != nil {
 		return err
 	}
 	if n == 0 {
-		return errors.New("assessments_created_by_teacher_id bukan milik masjid ini")
+		return errors.New("assessment_created_by_teacher_id bukan milik masjid ini")
 	}
 	return nil
 }
@@ -92,7 +93,6 @@ func resolveMasjidForDKMOrTeacher(c *fiber.Ctx) (uuid.UUID, error) {
 	} else if s := strings.TrimSpace(mc.Slug); s != "" {
 		id, er := helperAuth.GetMasjidIDBySlug(c, s)
 		if er != nil || id == uuid.Nil {
-			// konsistenkan error
 			return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
 		}
 		masjidID = id
@@ -123,6 +123,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
+	req.Normalize()
 
 	// 🔒 resolve & authorize (DKM/Admin atau Teacher masjid)
 	mid, err := resolveMasjidForDKMOrTeacher(c)
@@ -134,7 +135,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	}
 
 	// Enforce tenant dari context (anti cross-tenant injection)
-	req.AssessmentsMasjidID = mid
+	req.AssessmentMasjidID = mid
 
 	// Validasi DTO
 	if err := ctl.Validator.Struct(&req); err != nil {
@@ -142,73 +143,25 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	}
 
 	// Validasi creator teacher (opsional)
-	if err := ctl.assertTeacherBelongsToMasjid(c.Context(), mid, req.AssessmentsCreatedByTeacherID); err != nil {
+	if err := ctl.assertTeacherBelongsToMasjid(c.Context(), mid, req.AssessmentCreatedByTeacherID); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// Validasi waktu
-	if req.AssessmentsStartAt != nil && req.AssessmentsDueAt != nil &&
-		req.AssessmentsDueAt.Before(*req.AssessmentsStartAt) {
-		return helper.JsonError(c, fiber.StatusBadRequest, "assessments_due_at harus setelah atau sama dengan assessments_start_at")
+	if req.AssessmentStartAt != nil && req.AssessmentDueAt != nil &&
+		req.AssessmentDueAt.Before(*req.AssessmentStartAt) {
+		return helper.JsonError(c, fiber.StatusBadRequest, "assessment_due_at harus setelah atau sama dengan assessment_start_at")
 	}
 
-	now := time.Now()
-	row := model.AssessmentModel{
-		AssessmentsID:                           uuid.New(),
-		AssessmentsMasjidID:                     req.AssessmentsMasjidID,
-		AssessmentsClassSectionSubjectTeacherID: req.AssessmentsClassSectionSubjectTeacherID,
-		AssessmentsTypeID:                       req.AssessmentsTypeID,
+	// Build model dari DTO
+	row := req.ToModel()
 
-		AssessmentsTitle:       strings.TrimSpace(req.AssessmentsTitle),
-		AssessmentsDescription: nil,
-
-		AssessmentsMaxScore:        100,
-		AssessmentsIsPublished:     true,
-		AssessmentsAllowSubmission: true,
-
-		AssessmentsCreatedByTeacherID: req.AssessmentsCreatedByTeacherID,
-
-		AssessmentsCreatedAt: now,
-		AssessmentsUpdatedAt: now,
-	}
-
-	// optional fields
-	if req.AssessmentsDescription != nil {
-		if d := strings.TrimSpace(*req.AssessmentsDescription); d != "" {
-			row.AssessmentsDescription = &d
-		}
-	}
-	if req.AssessmentsMaxScore != nil {
-		row.AssessmentsMaxScore = *req.AssessmentsMaxScore
-	}
-	if req.AssessmentsIsPublished != nil {
-		row.AssessmentsIsPublished = *req.AssessmentsIsPublished
-	}
-	if req.AssessmentsAllowSubmission != nil {
-		row.AssessmentsAllowSubmission = *req.AssessmentsAllowSubmission
-	}
-	if req.AssessmentsStartAt != nil {
-		row.AssessmentsStartAt = req.AssessmentsStartAt
-	}
-	if req.AssessmentsDueAt != nil {
-		row.AssessmentsDueAt = req.AssessmentsDueAt
-	}
-
+	// Simpan
 	if err := ctl.DB.WithContext(c.Context()).Create(&row).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat assessment")
 	}
 
-	// Fallback jaga-jaga
-	if row.AssessmentsID == uuid.Nil {
-		row.AssessmentsID = uuid.New()
-		_ = ctl.DB.WithContext(c.Context()).
-			Model(&model.AssessmentModel{}).
-			Where("assessments_created_at = ? AND assessments_title = ? AND assessments_masjid_id = ?",
-				row.AssessmentsCreatedAt, row.AssessmentsTitle, row.AssessmentsMasjidID).
-			Update("assessments_id", row.AssessmentsID).Error
-	}
-
-	return helper.JsonCreated(c, "Assessment berhasil dibuat", dto.ToResponse(&row))
+	return helper.JsonCreated(c, "Assessment berhasil dibuat", dto.FromModelAssesment(row))
 }
 
 // PATCH /assessments/:id
@@ -218,13 +171,14 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "assessments_id tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "assessment_id tidak valid")
 	}
 
 	var req dto.PatchAssessmentRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
+	req.Normalize()
 	if err := ctl.Validator.Struct(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
@@ -240,7 +194,11 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 
 	var existing model.AssessmentModel
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("assessments_id = ? AND assessments_masjid_id = ?", id, mid).
+		Where(`
+			assessment_id = ?
+			AND assessment_masjid_id = ?
+			AND assessment_deleted_at IS NULL
+		`, id, mid).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -249,80 +207,37 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	}
 
 	// validasi guru bila diubah
-	if req.AssessmentsCreatedByTeacherID != nil {
-		if err := ctl.assertTeacherBelongsToMasjid(c.Context(), mid, req.AssessmentsCreatedByTeacherID); err != nil {
+	if req.AssessmentCreatedByTeacherID != nil {
+		if err := ctl.assertTeacherBelongsToMasjid(c.Context(), mid, req.AssessmentCreatedByTeacherID); err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 		}
 	}
 
 	// validasi waktu (kombinasi)
 	switch {
-	case req.AssessmentsStartAt != nil && req.AssessmentsDueAt != nil:
-		if req.AssessmentsDueAt.Before(*req.AssessmentsStartAt) {
-			return helper.JsonError(c, fiber.StatusBadRequest, "assessments_due_at harus setelah atau sama dengan assessments_start_at")
+	case req.AssessmentStartAt != nil && req.AssessmentDueAt != nil:
+		if req.AssessmentDueAt.Before(*req.AssessmentStartAt) {
+			return helper.JsonError(c, fiber.StatusBadRequest, "assessment_due_at harus setelah atau sama dengan assessment_start_at")
 		}
-	case req.AssessmentsStartAt != nil && req.AssessmentsDueAt == nil:
-		if existing.AssessmentsDueAt != nil && existing.AssessmentsDueAt.Before(*req.AssessmentsStartAt) {
+	case req.AssessmentStartAt != nil && req.AssessmentDueAt == nil:
+		if existing.AssessmentDueAt != nil && existing.AssessmentDueAt.Before(*req.AssessmentStartAt) {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Tanggal due saat ini lebih awal dari start baru")
 		}
-	case req.AssessmentsStartAt == nil && req.AssessmentsDueAt != nil:
-		if existing.AssessmentsStartAt != nil && req.AssessmentsDueAt.Before(*existing.AssessmentsStartAt) {
-			return helper.JsonError(c, fiber.StatusBadRequest, "assessments_due_at tidak boleh sebelum assessments_start_at")
+	case req.AssessmentStartAt == nil && req.AssessmentDueAt != nil:
+		if existing.AssessmentStartAt != nil && req.AssessmentDueAt.Before(*existing.AssessmentStartAt) {
+			return helper.JsonError(c, fiber.StatusBadRequest, "assessment_due_at tidak boleh sebelum assessment_start_at")
 		}
 	}
 
-	updates := map[string]any{}
-	if req.AssessmentsTitle != nil {
-		updates["assessments_title"] = strings.TrimSpace(*req.AssessmentsTitle)
-	}
-	if req.AssessmentsDescription != nil {
-		updates["assessments_description"] = strings.TrimSpace(*req.AssessmentsDescription)
-	}
-	if req.AssessmentsStartAt != nil {
-		updates["assessments_start_at"] = *req.AssessmentsStartAt
-	}
-	if req.AssessmentsDueAt != nil {
-		updates["assessments_due_at"] = *req.AssessmentsDueAt
-	}
-	if req.AssessmentsMaxScore != nil {
-		updates["assessments_max_score"] = *req.AssessmentsMaxScore
-	}
-	if req.AssessmentsIsPublished != nil {
-		updates["assessments_is_published"] = *req.AssessmentsIsPublished
-	}
-	if req.AssessmentsAllowSubmission != nil {
-		updates["assessments_allow_submission"] = *req.AssessmentsAllowSubmission
-	}
-	if req.AssessmentsTypeID != nil {
-		updates["assessments_type_id"] = *req.AssessmentsTypeID
-	}
-	if req.AssessmentsClassSectionSubjectTeacherID != nil {
-		updates["assessments_class_section_subject_teacher_id"] = *req.AssessmentsClassSectionSubjectTeacherID
-	}
-	if req.AssessmentsCreatedByTeacherID != nil {
-		updates["assessments_created_by_teacher_id"] = *req.AssessmentsCreatedByTeacherID
-	}
+	// Terapkan PATCH via DTO.Apply
+	req.Apply(&existing)
+	existing.AssessmentUpdatedAt = time.Now()
 
-	if len(updates) == 0 {
-		return helper.JsonOK(c, "Tidak ada perubahan", dto.ToResponse(&existing))
-	}
-	updates["assessments_updated_at"] = time.Now()
-
-	if err := ctl.DB.WithContext(c.Context()).
-		Model(&model.AssessmentModel{}).
-		Where("assessments_id = ? AND assessments_masjid_id = ?", id, mid).
-		Updates(updates).Error; err != nil {
+	if err := ctl.DB.WithContext(c.Context()).Save(&existing).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui assessment")
 	}
 
-	var after model.AssessmentModel
-	if err := ctl.DB.WithContext(c.Context()).
-		Where("assessments_id = ? AND assessments_masjid_id = ?", id, mid).
-		First(&after).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memuat ulang assessment")
-	}
-
-	return helper.JsonUpdated(c, "Assessment berhasil diperbarui", dto.ToResponse(&after))
+	return helper.JsonUpdated(c, "Assessment berhasil diperbarui", dto.FromModelAssesment(existing))
 }
 
 // DELETE /assessments/:id (soft delete)
@@ -332,7 +247,7 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "assessments_id tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "assessment_id tidak valid")
 	}
 
 	// 🔒 resolve & authorize
@@ -346,7 +261,11 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 
 	var row model.AssessmentModel
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("assessments_id = ? AND assessments_masjid_id = ?", id, mid).
+		Where(`
+			assessment_id = ?
+			AND assessment_masjid_id = ?
+			AND assessment_deleted_at IS NULL
+		`, id, mid).
 		First(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -359,7 +278,7 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonDeleted(c, "Assessment dihapus", fiber.Map{
-		"assessments_id": id,
+		"assessment_id": id,
 	})
 }
 

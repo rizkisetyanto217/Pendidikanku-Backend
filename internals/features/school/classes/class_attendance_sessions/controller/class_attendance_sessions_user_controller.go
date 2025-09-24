@@ -24,7 +24,7 @@ import (
 
 func scopeMasjid(masjidID uuid.UUID) func(*gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
-		return db.Where("class_attendance_sessions_masjid_id = ?", masjidID)
+		return db.Where("class_attendance_session_masjid_id = ?", masjidID)
 	}
 }
 
@@ -32,13 +32,13 @@ func scopeDateBetween(df, dt *time.Time) func(*gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
 		// inclusive [df, dt]
 		if df != nil && dt != nil {
-			return db.Where("class_attendance_sessions_date BETWEEN ? AND ?", *df, *dt)
+			return db.Where("class_attendance_session_date BETWEEN ? AND ?", *df, *dt)
 		}
 		if df != nil {
-			return db.Where("class_attendance_sessions_date >= ?", *df)
+			return db.Where("class_attendance_session_date >= ?", *df)
 		}
 		if dt != nil {
-			return db.Where("class_attendance_sessions_date <= ?", *dt)
+			return db.Where("class_attendance_session_date <= ?", *dt)
 		}
 		return db
 	}
@@ -50,7 +50,7 @@ func scopeSchedule(id *uuid.UUID) func(*gorm.DB) *gorm.DB {
 		if id == nil {
 			return db
 		}
-		return db.Where("class_attendance_sessions_schedule_id = ?", *id)
+		return db.Where("class_attendance_session_schedule_id = ?", *id)
 	}
 }
 
@@ -150,8 +150,8 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	p := helper.ParseWith(httpReq, "date", "desc", helper.AdminOpts)
 
 	allowedSort := map[string]string{
-		"date":  "cas.class_attendance_sessions_date",
-		"title": "cas.class_attendance_sessions_title",
+		"date":  "cas.class_attendance_session_date",
+		"title": "cas.class_attendance_session_title",
 	}
 	orderClause, err := p.SafeOrderClause(allowedSort, "date")
 	if err != nil {
@@ -214,28 +214,26 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	db := ctrl.DB
 	qBase := db.Table("class_attendance_sessions AS cas").
 		Scopes(scopeMasjid(masjidID), scopeDateBetween(df, dt), scopeSchedule(scheduleIDPtr)).
-		Where("cas.class_attendance_sessions_deleted_at IS NULL").
+		Where("cas.class_attendance_session_deleted_at IS NULL").
 		// JOIN ke class_schedules hanya untuk validasi schedule dari CAS
 		Joins(`
 			LEFT JOIN class_schedules AS sch
-			  ON sch.class_schedule_id = cas.class_attendance_sessions_schedule_id
-			 AND sch.class_schedules_masjid_id = cas.class_attendance_sessions_masjid_id
+			  ON sch.class_schedule_id = cas.class_attendance_session_schedule_id
+			 AND sch.class_schedules_masjid_id = cas.class_attendance_session_masjid_id
 			 AND sch.class_schedules_deleted_at IS NULL
 		`)
 
 	// additional filters
 	if len(sessionIDs) > 0 {
-		qBase = qBase.Where("cas.class_attendance_sessions_id IN ?", sessionIDs)
+		qBase = qBase.Where("cas.class_attendance_session_id IN ?", sessionIDs)
 	}
 	if teacherIdPtr != nil {
-		// guru pada CAS saja (karena schedule tidak punya kolom guru)
-		qBase = qBase.Where("cas.class_attendance_sessions_teacher_id = ?", *teacherIdPtr)
+		qBase = qBase.Where("cas.class_attendance_session_teacher_id = ?", *teacherIdPtr)
 	}
 	if teacherUserIDPtr != nil {
-		// cocokkan user guru pada CAS
 		qBase = qBase.
 			Joins(`LEFT JOIN masjid_teachers mt_cas
-                     ON mt_cas.masjid_teacher_id = cas.class_attendance_sessions_teacher_id
+                     ON mt_cas.masjid_teacher_id = cas.class_attendance_session_teacher_id
                     AND mt_cas.masjid_teacher_deleted_at IS NULL`).
 			Where(`mt_cas.masjid_teacher_user_id = ? AND mt_cas.masjid_teacher_masjid_id = ?`,
 				*teacherUserIDPtr, masjidID,
@@ -243,48 +241,47 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	}
 	if like != nil {
 		qBase = qBase.Where(`
-			(cas.class_attendance_sessions_title ILIKE ?
-			 OR cas.class_attendance_sessions_general_info ILIKE ?)`, *like, *like)
+			(cas.class_attendance_session_title ILIKE ?
+			 OR cas.class_attendance_session_general_info ILIKE ?)`, *like, *like)
 	}
 
 	// ===== Total (distinct id) =====
 	var total int64
 	if err := qBase.Session(&gorm.Session{}).
-		Distinct("cas.class_attendance_sessions_id").
+		Distinct("cas.class_attendance_session_id").
 		Count(&total).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
 	// ===== Data page (sessions) =====
 	type row struct {
-		ID         uuid.UUID  `gorm:"column:class_attendance_sessions_id"`
-		MasjidID   uuid.UUID  `gorm:"column:class_attendance_sessions_masjid_id"`
-		ScheduleID uuid.UUID  `gorm:"column:class_attendance_sessions_schedule_id"`
-		RoomID     *uuid.UUID `gorm:"column:class_attendance_sessions_class_room_id"`
-		Date       time.Time  `gorm:"column:class_attendance_sessions_date"`
-		Title      *string    `gorm:"column:class_attendance_sessions_title"`
-		General    string     `gorm:"column:class_attendance_sessions_general_info"`
-		Note       *string    `gorm:"column:class_attendance_sessions_note"`
-		TeacherID  *uuid.UUID `gorm:"column:class_attendance_sessions_teacher_id"`
-		DeletedAt  *time.Time `gorm:"column:class_attendance_sessions_deleted_at"`
-		// SectionID & SubjectID sengaja tidak diseleksi karena tidak tersedia di DB saat ini
+		ID         uuid.UUID  `gorm:"column:class_attendance_session_id"`
+		MasjidID   uuid.UUID  `gorm:"column:class_attendance_session_masjid_id"`
+		ScheduleID uuid.UUID  `gorm:"column:class_attendance_session_schedule_id"`
+		RoomID     *uuid.UUID `gorm:"column:class_attendance_session_class_room_id"`
+		Date       time.Time  `gorm:"column:class_attendance_session_date"`
+		Title      *string    `gorm:"column:class_attendance_session_title"`
+		General    string     `gorm:"column:class_attendance_session_general_info"`
+		Note       *string    `gorm:"column:class_attendance_session_note"`
+		TeacherID  *uuid.UUID `gorm:"column:class_attendance_session_teacher_id"`
+		DeletedAt  *time.Time `gorm:"column:class_attendance_session_deleted_at"`
 	}
 	var rows []row
 	if err := qBase.
 		Select(`
-			cas.class_attendance_sessions_id,
-			cas.class_attendance_sessions_masjid_id,
-			cas.class_attendance_sessions_schedule_id,
-			cas.class_attendance_sessions_class_room_id,
-			cas.class_attendance_sessions_date,
-			cas.class_attendance_sessions_title,
-			cas.class_attendance_sessions_general_info,
-			cas.class_attendance_sessions_note,
-			cas.class_attendance_sessions_teacher_id,
-			cas.class_attendance_sessions_deleted_at
+			cas.class_attendance_session_id,
+			cas.class_attendance_session_masjid_id,
+			cas.class_attendance_session_schedule_id,
+			cas.class_attendance_session_class_room_id,
+			cas.class_attendance_session_date,
+			cas.class_attendance_session_title,
+			cas.class_attendance_session_general_info,
+			cas.class_attendance_session_note,
+			cas.class_attendance_session_teacher_id,
+			cas.class_attendance_session_deleted_at
 		`).
 		Order(orderExpr).
-		Order("cas.class_attendance_sessions_date DESC, cas.class_attendance_sessions_id DESC").
+		Order("cas.class_attendance_session_date DESC, cas.class_attendance_session_id DESC").
 		Limit(p.Limit()).
 		Offset(p.Offset()).
 		Find(&rows).Error; err != nil {
@@ -519,15 +516,14 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 		return fiber.NewError(fiber.StatusUnauthorized, "User tidak terautentik")
 	}
 
-	// ==== lanjutkan kode asli (pagination, query, mapping) ====
 	// Pagination & sorting
 	rawQ := string(c.Request().URI().QueryString())
 	httpReq := &http.Request{URL: &url.URL{RawQuery: rawQ}}
 	p := helper.ParseWith(httpReq, "date", "desc", helper.AdminOpts)
 
 	allowedSort := map[string]string{
-		"date":  "cas.class_attendance_sessions_date",
-		"title": "cas.class_attendance_sessions_title",
+		"date":  "cas.class_attendance_session_date",
+		"title": "cas.class_attendance_session_title",
 	}
 	orderClause, err := p.SafeOrderClause(allowedSort, "date")
 	if err != nil {
@@ -536,11 +532,11 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 	orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
 
 	// Rentang tanggal
-	df, err := parseYMDLocal(c.Query("date_from"))
+	df, err := parseYmd(c.Query("date_from"))
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "date_from tidak valid (YYYY-MM-DD)")
 	}
-	dt, err := parseYMDLocal(c.Query("date_to"))
+	dt, err := parseYmd(c.Query("date_to"))
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "date_to tidak valid (YYYY-MM-DD)")
 	}
@@ -560,12 +556,12 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 	qBase := db.Table("class_attendance_sessions AS cas").
 		Joins(`
 			LEFT JOIN masjid_teachers AS mt
-			  ON mt.masjid_teacher_id = cas.class_attendance_sessions_teacher_id
+			  ON mt.masjid_teacher_id = cas.class_attendance_session_teacher_id
 			 AND mt.masjid_teacher_deleted_at IS NULL
 		`).
 		Joins(`
 			LEFT JOIN class_schedules AS cs
-			  ON cs.class_schedule_id = cas.class_attendance_sessions_schedule_id
+			  ON cs.class_schedule_id = cas.class_attendance_session_schedule_id
 			 AND cs.class_schedules_deleted_at IS NULL
 			 AND cs.class_schedules_is_active
 		`).
@@ -585,8 +581,8 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 			 AND mt3.masjid_teacher_deleted_at IS NULL
 		`).
 		Where(`
-			cas.class_attendance_sessions_masjid_id = ?
-			AND cas.class_attendance_sessions_deleted_at IS NULL
+			cas.class_attendance_session_masjid_id = ?
+			AND cas.class_attendance_session_deleted_at IS NULL
 			AND (
 			     mt.masjid_teacher_user_id = ?
 			  OR mt2.masjid_teacher_user_id = ?
@@ -596,11 +592,11 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 
 	// Filter tanggal opsional
 	if lo != nil && hi != nil {
-		qBase = qBase.Where("cas.class_attendance_sessions_date >= ? AND cas.class_attendance_sessions_date < ?", *lo, *hi)
+		qBase = qBase.Where("cas.class_attendance_session_date >= ? AND cas.class_attendance_session_date < ?", *lo, *hi)
 	} else if lo != nil {
-		qBase = qBase.Where("cas.class_attendance_sessions_date >= ?", *lo)
+		qBase = qBase.Where("cas.class_attendance_session_date >= ?", *lo)
 	} else if hi != nil {
-		qBase = qBase.Where("cas.class_attendance_sessions_date < ?", *hi)
+		qBase = qBase.Where("cas.class_attendance_session_date < ?", *hi)
 	}
 
 	// Opsional: section_id
@@ -618,18 +614,18 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 		if e != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "schedule_id tidak valid")
 		}
-		qBase = qBase.Where("cas.class_attendance_sessions_schedule_id = ?", id)
+		qBase = qBase.Where("cas.class_attendance_session_schedule_id = ?", id)
 	}
 
 	// Keyword
 	if q := strings.TrimSpace(c.Query("q")); q != "" {
 		pat := "%" + q + "%"
-		qBase = qBase.Where(`(cas.class_attendance_sessions_title ILIKE ? OR cas.class_attendance_sessions_general_info ILIKE ?)`, pat, pat)
+		qBase = qBase.Where(`(cas.class_attendance_session_title ILIKE ? OR cas.class_attendance_session_general_info ILIKE ?)`, pat, pat)
 	}
 
 	// Total distinct
 	var total int64
-	if err := qBase.Session(&gorm.Session{}).Distinct("cas.class_attendance_sessions_id").Count(&total).Error; err != nil {
+	if err := qBase.Session(&gorm.Session{}).Distinct("cas.class_attendance_session_id").Count(&total).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
@@ -651,21 +647,21 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 	var rows []row
 	if err := qBase.
 		Select(`
-			cas.class_attendance_sessions_id         AS id,
-			cas.class_attendance_sessions_masjid_id  AS masjid_id,
-			cas.class_attendance_sessions_date       AS date,
-			cas.class_attendance_sessions_title      AS title,
-			cas.class_attendance_sessions_general_info AS general,
-			cas.class_attendance_sessions_note       AS note,
-			cas.class_attendance_sessions_teacher_id AS teacher_id,
-			cas.class_attendance_sessions_class_room_id AS room_id,
-			cas.class_attendance_sessions_schedule_id   AS schedule_id,
-			cas.class_attendance_sessions_deleted_at AS deleted_at,
+			cas.class_attendance_session_id         AS id,
+			cas.class_attendance_session_masjid_id  AS masjid_id,
+			cas.class_attendance_session_date       AS date,
+			cas.class_attendance_session_title      AS title,
+			cas.class_attendance_session_general_info AS general,
+			cas.class_attendance_session_note       AS note,
+			cas.class_attendance_session_teacher_id AS teacher_id,
+			cas.class_attendance_session_class_room_id AS room_id,
+			cas.class_attendance_session_schedule_id   AS schedule_id,
+			cas.class_attendance_session_deleted_at AS deleted_at,
 			COALESCE(cs.class_schedules_section_id, csst.class_section_subject_teachers_section_id) AS section_id,
 			COALESCE(cs.class_schedules_class_subject_id, csst.class_section_subject_teachers_class_subjects_id) AS subject_id
 		`).
 		Order(orderExpr).
-		Order("cas.class_attendance_sessions_date DESC, cas.class_attendance_sessions_id DESC").
+		Order("cas.class_attendance_session_date DESC, cas.class_attendance_session_id DESC").
 		Limit(p.Limit()).
 		Offset(p.Offset()).
 		Find(&rows).Error; err != nil {

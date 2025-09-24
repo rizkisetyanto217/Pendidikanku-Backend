@@ -1,4 +1,4 @@
-// file: internals/features/quiz/user_attempts/dto/user_quiz_attempt_answer_dto.go
+// file: internals/features/school/submissions_assesments/quizzes/dto/user_quiz_attempt_answer_dto.go
 package dto
 
 import (
@@ -11,132 +11,124 @@ import (
 
 /* ===================== REQUESTS ===================== */
 
-// Create — wajib: attempt_id, question_id, dan text (SINGLE: label/A-D; ESSAY: uraian)
+// Create — wajib: attempt_id, question_id, text.
+// Catatan: quiz_id DIISI BACKEND dari konteks (bukan dari client).
 type CreateUserQuizAttemptAnswerRequest struct {
-	UserQuizAttemptAnswersAttemptID  uuid.UUID `json:"user_quiz_attempt_answers_attempt_id" validate:"required"`
-	UserQuizAttemptAnswersQuestionID uuid.UUID `json:"user_quiz_attempt_answers_question_id" validate:"required"`
+	UserQuizAttemptAnswerAttemptID  uuid.UUID `json:"user_quiz_attempt_answer_attempt_id" validate:"required,uuid"`
+	UserQuizAttemptAnswerQuestionID uuid.UUID `json:"user_quiz_attempt_answer_question_id" validate:"required,uuid"`
 
-	// Jawaban user — wajib, akan ditrim/validasi lagi di controller bila perlu
-	UserQuizAttemptAnswersText string `json:"user_quiz_attempt_answers_text" validate:"required"`
+	// Jawaban user — wajib
+	UserQuizAttemptAnswerText string `json:"user_quiz_attempt_answer_text" validate:"required"`
 
-	// Opsi penilaian (biasanya backend yang isi)
-	UserQuizAttemptAnswersIsCorrect    *bool      `json:"user_quiz_attempt_answers_is_correct" validate:"omitempty"`
-	UserQuizAttemptAnswersEarnedPoints *float64   `json:"user_quiz_attempt_answers_earned_points" validate:"omitempty,gte=0,lte=9999.99"`
-	UserQuizAttemptAnswersGradedByTeacherID *uuid.UUID `json:"user_quiz_attempt_answers_graded_by_teacher_id" validate:"omitempty"`
-	UserQuizAttemptAnswersGradedAt          *time.Time `json:"user_quiz_attempt_answers_graded_at" validate:"omitempty"`
-	UserQuizAttemptAnswersFeedback          *string    `json:"user_quiz_attempt_answers_feedback" validate:"omitempty"`
+	// Opsi penilaian (biasanya diisi backend)
+	UserQuizAttemptAnswerIsCorrect         *bool      `json:"user_quiz_attempt_answer_is_correct" validate:"omitempty"`
+	UserQuizAttemptAnswerEarnedPoints      *float64   `json:"user_quiz_attempt_answer_earned_points" validate:"omitempty,gte=0,lte=9999.99"`
+	UserQuizAttemptAnswerGradedByTeacherID *uuid.UUID `json:"user_quiz_attempt_answer_graded_by_teacher_id" validate:"omitempty,uuid"`
+	UserQuizAttemptAnswerGradedAt          *time.Time `json:"user_quiz_attempt_answer_graded_at" validate:"omitempty"`
+	UserQuizAttemptAnswerFeedback          *string    `json:"user_quiz_attempt_answer_feedback" validate:"omitempty"`
 
 	// Optional import historis
-	UserQuizAttemptAnswersAnsweredAt *time.Time `json:"user_quiz_attempt_answers_answered_at" validate:"omitempty"`
+	UserQuizAttemptAnswerAnsweredAt *time.Time `json:"user_quiz_attempt_answer_answered_at" validate:"omitempty"`
 }
 
-// Patch/Update — semua opsional; attempt_id/question_id tidak boleh diganti.
+func (r *CreateUserQuizAttemptAnswerRequest) ToModel() *model.UserQuizAttemptAnswerModel {
+	m := &model.UserQuizAttemptAnswerModel{
+		// Quiz ID HARUS diisi di controller: m.UserQuizAttemptAnswerQuizID = <derived>
+		UserQuizAttemptAnswerAttemptID:  r.UserQuizAttemptAnswerAttemptID,
+		UserQuizAttemptAnswerQuestionID: r.UserQuizAttemptAnswerQuestionID,
+		UserQuizAttemptAnswerText:       r.UserQuizAttemptAnswerText,
+	}
+	if r.UserQuizAttemptAnswerIsCorrect != nil {
+		m.UserQuizAttemptAnswerIsCorrect = r.UserQuizAttemptAnswerIsCorrect
+	}
+	if r.UserQuizAttemptAnswerEarnedPoints != nil {
+		m.UserQuizAttemptAnswerEarnedPoints = *r.UserQuizAttemptAnswerEarnedPoints
+	}
+	if r.UserQuizAttemptAnswerGradedByTeacherID != nil {
+		m.UserQuizAttemptAnswerGradedByTeacherID = r.UserQuizAttemptAnswerGradedByTeacherID
+	}
+	if r.UserQuizAttemptAnswerGradedAt != nil {
+		m.UserQuizAttemptAnswerGradedAt = r.UserQuizAttemptAnswerGradedAt
+	}
+	if r.UserQuizAttemptAnswerFeedback != nil {
+		m.UserQuizAttemptAnswerFeedback = r.UserQuizAttemptAnswerFeedback
+	}
+	if r.UserQuizAttemptAnswerAnsweredAt != nil {
+		m.UserQuizAttemptAnswerAnsweredAt = *r.UserQuizAttemptAnswerAnsweredAt
+	}
+	return m
+}
+
+// Patch/Update — semua opsional; attempt_id/question_id tidak boleh diganti lewat DTO ini.
 type UpdateUserQuizAttemptAnswerRequest struct {
-	// Jawaban baru (opsional). Controller boleh trim & cek non-empty bila dikirim.
-	UserQuizAttemptAnswersText *string `json:"user_quiz_attempt_answers_text" validate:"omitempty"`
+	UserQuizAttemptAnswerText              *string    `json:"user_quiz_attempt_answer_text" validate:"omitempty"`
+	UserQuizAttemptAnswerIsCorrect         *bool      `json:"user_quiz_attempt_answer_is_correct" validate:"omitempty"`
+	UserQuizAttemptAnswerEarnedPoints      *float64   `json:"user_quiz_attempt_answer_earned_points" validate:"omitempty,gte=0,lte=9999.99"`
+	UserQuizAttemptAnswerGradedByTeacherID *uuid.UUID `json:"user_quiz_attempt_answer_graded_by_teacher_id" validate:"omitempty,uuid"`
+	UserQuizAttemptAnswerGradedAt          *time.Time `json:"user_quiz_attempt_answer_graded_at" validate:"omitempty"`
+	UserQuizAttemptAnswerFeedback          *string    `json:"user_quiz_attempt_answer_feedback" validate:"omitempty"`
+	UserQuizAttemptAnswerAnsweredAt        *time.Time `json:"user_quiz_attempt_answer_answered_at" validate:"omitempty"`
+}
 
-	UserQuizAttemptAnswersIsCorrect    *bool      `json:"user_quiz_attempt_answers_is_correct" validate:"omitempty"`
-	UserQuizAttemptAnswersEarnedPoints *float64   `json:"user_quiz_attempt_answers_earned_points" validate:"omitempty,gte=0,lte=9999.99"`
-	UserQuizAttemptAnswersGradedByTeacherID *uuid.UUID `json:"user_quiz_attempt_answers_graded_by_teacher_id" validate:"omitempty"`
-	UserQuizAttemptAnswersGradedAt          *time.Time `json:"user_quiz_attempt_answers_graded_at" validate:"omitempty"`
-	UserQuizAttemptAnswersFeedback          *string    `json:"user_quiz_attempt_answers_feedback" validate:"omitempty"`
-
-	UserQuizAttemptAnswersAnsweredAt *time.Time `json:"user_quiz_attempt_answers_answered_at" validate:"omitempty"`
+// Apply ke model untuk PATCH (partial)
+func (r *UpdateUserQuizAttemptAnswerRequest) Apply(m *model.UserQuizAttemptAnswerModel) {
+	if r.UserQuizAttemptAnswerText != nil {
+		m.UserQuizAttemptAnswerText = *r.UserQuizAttemptAnswerText
+	}
+	if r.UserQuizAttemptAnswerIsCorrect != nil {
+		m.UserQuizAttemptAnswerIsCorrect = r.UserQuizAttemptAnswerIsCorrect
+	}
+	if r.UserQuizAttemptAnswerEarnedPoints != nil {
+		m.UserQuizAttemptAnswerEarnedPoints = *r.UserQuizAttemptAnswerEarnedPoints
+	}
+	if r.UserQuizAttemptAnswerGradedByTeacherID != nil {
+		m.UserQuizAttemptAnswerGradedByTeacherID = r.UserQuizAttemptAnswerGradedByTeacherID
+	}
+	if r.UserQuizAttemptAnswerGradedAt != nil {
+		m.UserQuizAttemptAnswerGradedAt = r.UserQuizAttemptAnswerGradedAt
+	}
+	if r.UserQuizAttemptAnswerFeedback != nil {
+		m.UserQuizAttemptAnswerFeedback = r.UserQuizAttemptAnswerFeedback
+	}
+	if r.UserQuizAttemptAnswerAnsweredAt != nil {
+		m.UserQuizAttemptAnswerAnsweredAt = *r.UserQuizAttemptAnswerAnsweredAt
+	}
 }
 
 /* ===================== RESPONSES ===================== */
 
 type UserQuizAttemptAnswerResponse struct {
-	UserQuizAttemptAnswersID         uuid.UUID `json:"user_quiz_attempt_answers_id"`
-	UserQuizAttemptAnswersQuizID     uuid.UUID `json:"user_quiz_attempt_answers_quiz_id"`
-	UserQuizAttemptAnswersAttemptID  uuid.UUID `json:"user_quiz_attempt_answers_attempt_id"`
-	UserQuizAttemptAnswersQuestionID uuid.UUID `json:"user_quiz_attempt_answers_question_id"`
+	UserQuizAttemptAnswerID         uuid.UUID `json:"user_quiz_attempt_answer_id"`
+	UserQuizAttemptAnswerQuizID     uuid.UUID `json:"user_quiz_attempt_answer_quiz_id"`
+	UserQuizAttemptAnswerAttemptID  uuid.UUID `json:"user_quiz_attempt_answer_attempt_id"`
+	UserQuizAttemptAnswerQuestionID uuid.UUID `json:"user_quiz_attempt_answer_question_id"`
 
-	UserQuizAttemptAnswersText       string     `json:"user_quiz_attempt_answers_text"`
-	UserQuizAttemptAnswersIsCorrect  *bool      `json:"user_quiz_attempt_answers_is_correct,omitempty"`
-	UserQuizAttemptAnswersEarnedPoints float64  `json:"user_quiz_attempt_answers_earned_points"`
+	UserQuizAttemptAnswerText         string  `json:"user_quiz_attempt_answer_text"`
+	UserQuizAttemptAnswerIsCorrect    *bool   `json:"user_quiz_attempt_answer_is_correct,omitempty"`
+	UserQuizAttemptAnswerEarnedPoints float64 `json:"user_quiz_attempt_answer_earned_points"`
 
-	UserQuizAttemptAnswersGradedByTeacherID *uuid.UUID `json:"user_quiz_attempt_answers_graded_by_teacher_id,omitempty"`
-	UserQuizAttemptAnswersGradedAt          *time.Time `json:"user_quiz_attempt_answers_graded_at,omitempty"`
-	UserQuizAttemptAnswersFeedback          *string    `json:"user_quiz_attempt_answers_feedback,omitempty"`
+	UserQuizAttemptAnswerGradedByTeacherID *uuid.UUID `json:"user_quiz_attempt_answer_graded_by_teacher_id,omitempty"`
+	UserQuizAttemptAnswerGradedAt          *time.Time `json:"user_quiz_attempt_answer_graded_at,omitempty"`
+	UserQuizAttemptAnswerFeedback          *string    `json:"user_quiz_attempt_answer_feedback,omitempty"`
 
-	UserQuizAttemptAnswersAnsweredAt time.Time `json:"user_quiz_attempt_answers_answered_at"`
+	UserQuizAttemptAnswerAnsweredAt time.Time `json:"user_quiz_attempt_answer_answered_at"`
 }
 
-/* ===================== CONVERTERS ===================== */
-
-func ToUserQuizAttemptAnswerResponse(m *model.UserQuizAttemptAnswerModel) *UserQuizAttemptAnswerResponse {
+func FromModelUserQuizAttemptAnswer(m *model.UserQuizAttemptAnswerModel) *UserQuizAttemptAnswerResponse {
 	if m == nil {
 		return nil
 	}
-	var qid uuid.UUID
-	if m.UserQuizAttemptAnswersQuizID != nil {
-		qid = *m.UserQuizAttemptAnswersQuizID
-	}
 	return &UserQuizAttemptAnswerResponse{
-		UserQuizAttemptAnswersID:          m.UserQuizAttemptAnswersID,
-		UserQuizAttemptAnswersQuizID:      qid,
-		UserQuizAttemptAnswersAttemptID:   m.UserQuizAttemptAnswersAttemptID,
-		UserQuizAttemptAnswersQuestionID:  m.UserQuizAttemptAnswersQuestionID,
-		UserQuizAttemptAnswersText:        m.UserQuizAttemptAnswersText,
-		UserQuizAttemptAnswersIsCorrect:   m.UserQuizAttemptAnswersIsCorrect,
-		UserQuizAttemptAnswersEarnedPoints: m.UserQuizAttemptAnswersEarnedPoints,
-		UserQuizAttemptAnswersGradedByTeacherID: m.UserQuizAttemptAnswersGradedByTeacherID,
-		UserQuizAttemptAnswersGradedAt:    m.UserQuizAttemptAnswersGradedAt,
-		UserQuizAttemptAnswersFeedback:    m.UserQuizAttemptAnswersFeedback,
-		UserQuizAttemptAnswersAnsweredAt:  m.UserQuizAttemptAnswersAnsweredAt,
-	}
-}
-
-func (r *CreateUserQuizAttemptAnswerRequest) ToModel() *model.UserQuizAttemptAnswerModel {
-	m := &model.UserQuizAttemptAnswerModel{
-		UserQuizAttemptAnswersAttemptID: r.UserQuizAttemptAnswersAttemptID,
-		UserQuizAttemptAnswersQuestionID: r.UserQuizAttemptAnswersQuestionID,
-		// QuizID dibiarkan nil: akan diisi trigger dari attempt_id
-		UserQuizAttemptAnswersText: r.UserQuizAttemptAnswersText,
-	}
-	if r.UserQuizAttemptAnswersIsCorrect != nil {
-		m.UserQuizAttemptAnswersIsCorrect = r.UserQuizAttemptAnswersIsCorrect
-	}
-	if r.UserQuizAttemptAnswersEarnedPoints != nil {
-		m.UserQuizAttemptAnswersEarnedPoints = *r.UserQuizAttemptAnswersEarnedPoints
-	}
-	if r.UserQuizAttemptAnswersGradedByTeacherID != nil {
-		m.UserQuizAttemptAnswersGradedByTeacherID = r.UserQuizAttemptAnswersGradedByTeacherID
-	}
-	if r.UserQuizAttemptAnswersGradedAt != nil {
-		m.UserQuizAttemptAnswersGradedAt = r.UserQuizAttemptAnswersGradedAt
-	}
-	if r.UserQuizAttemptAnswersFeedback != nil {
-		m.UserQuizAttemptAnswersFeedback = r.UserQuizAttemptAnswersFeedback
-	}
-	if r.UserQuizAttemptAnswersAnsweredAt != nil {
-		m.UserQuizAttemptAnswersAnsweredAt = *r.UserQuizAttemptAnswersAnsweredAt
-	}
-	return m
-}
-
-// Apply ke model untuk PATCH (partial)
-func (r *UpdateUserQuizAttemptAnswerRequest) Apply(m *model.UserQuizAttemptAnswerModel) {
-	if r.UserQuizAttemptAnswersText != nil {
-		m.UserQuizAttemptAnswersText = *r.UserQuizAttemptAnswersText
-	}
-	if r.UserQuizAttemptAnswersIsCorrect != nil {
-		m.UserQuizAttemptAnswersIsCorrect = r.UserQuizAttemptAnswersIsCorrect
-	}
-	if r.UserQuizAttemptAnswersEarnedPoints != nil {
-		m.UserQuizAttemptAnswersEarnedPoints = *r.UserQuizAttemptAnswersEarnedPoints
-	}
-	if r.UserQuizAttemptAnswersGradedByTeacherID != nil {
-		m.UserQuizAttemptAnswersGradedByTeacherID = r.UserQuizAttemptAnswersGradedByTeacherID
-	}
-	if r.UserQuizAttemptAnswersGradedAt != nil {
-		m.UserQuizAttemptAnswersGradedAt = r.UserQuizAttemptAnswersGradedAt
-	}
-	if r.UserQuizAttemptAnswersFeedback != nil {
-		m.UserQuizAttemptAnswersFeedback = r.UserQuizAttemptAnswersFeedback
-	}
-	if r.UserQuizAttemptAnswersAnsweredAt != nil {
-		m.UserQuizAttemptAnswersAnsweredAt = *r.UserQuizAttemptAnswersAnsweredAt
+		UserQuizAttemptAnswerID:                m.UserQuizAttemptAnswerID,
+		UserQuizAttemptAnswerQuizID:            m.UserQuizAttemptAnswerQuizID,
+		UserQuizAttemptAnswerAttemptID:         m.UserQuizAttemptAnswerAttemptID,
+		UserQuizAttemptAnswerQuestionID:        m.UserQuizAttemptAnswerQuestionID,
+		UserQuizAttemptAnswerText:              m.UserQuizAttemptAnswerText,
+		UserQuizAttemptAnswerIsCorrect:         m.UserQuizAttemptAnswerIsCorrect,
+		UserQuizAttemptAnswerEarnedPoints:      m.UserQuizAttemptAnswerEarnedPoints,
+		UserQuizAttemptAnswerGradedByTeacherID: m.UserQuizAttemptAnswerGradedByTeacherID,
+		UserQuizAttemptAnswerGradedAt:          m.UserQuizAttemptAnswerGradedAt,
+		UserQuizAttemptAnswerFeedback:          m.UserQuizAttemptAnswerFeedback,
+		UserQuizAttemptAnswerAnsweredAt:        m.UserQuizAttemptAnswerAnsweredAt,
 	}
 }

@@ -23,6 +23,7 @@ func NewAuthController(db *gorm.DB) *AuthController {
 	return &AuthController{DB: db}
 }
 
+// file: internals/features/auth/controller/auth_controller.go
 func (ac *AuthController) Me(c *fiber.Ctx) error {
 	// --- Guard user ---
 	userIDStr, ok := c.Locals("user_id").(string)
@@ -34,8 +35,9 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusUnauthorized, "Invalid UUID format")
 	}
 
+	// ===== Users: table plural, column singular =====
 	var user models.UserModel
-	if err := ac.DB.First(&user, "id = ?", userUUID).Error; err != nil {
+	if err := ac.DB.First(&user, "user_id = ?", userUUID).Error; err != nil {
 		return fiber.NewError(fiber.StatusNotFound, "User not found")
 	}
 	user.Password = nil
@@ -62,9 +64,7 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 	teacherSet := map[string]struct{}{}
 	studentSet := map[string]struct{}{}
 
-	// Admin/DKM (pakai kolom singular)
-
-	// Teacher (pakai kolom singular + model baru)
+	// ----- Teacher (kolom singular) -----
 	{
 		var rows []masjidAdminModel.MasjidTeacherModel
 		if err := ac.DB.
@@ -77,25 +77,25 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 		}
 	}
 
+	// ----- Student enrolments aktif (kolom singular) -----
 	type enrollRow struct {
-    UserClassID uuid.UUID `gorm:"column:user_classes_id"`
-    ClassID     uuid.UUID `gorm:"column:user_classes_class_id"`
-    MasjidID    uuid.UUID `gorm:"column:user_classes_masjid_id"`
+		UserClassID uuid.UUID `gorm:"column:user_class_id"`
+		ClassID     uuid.UUID `gorm:"column:user_class_class_id"`
+		MasjidID    uuid.UUID `gorm:"column:user_class_masjid_id"`
 	}
-
 
 	var activeEnrolls []enrollRow
 	if err := ac.DB.
 		Table("user_classes AS uc").
-		Select("uc.user_classes_id, uc.user_classes_class_id, uc.user_classes_masjid_id").
+		Select("uc.user_class_id, uc.user_class_class_id, uc.user_class_masjid_id").
 		Joins(`JOIN masjid_students AS ms
-			ON ms.masjid_student_id = uc.user_classes_masjid_student_id
-			AND ms.masjid_student_deleted_at IS NULL`).
+			   ON ms.masjid_student_id = uc.user_class_masjid_student_id
+			  AND ms.masjid_student_deleted_at IS NULL`).
 		Where(`
 			ms.masjid_student_user_id = ?
-			AND uc.user_classes_status = ?
-			AND uc.user_classes_deleted_at IS NULL
-		`, user.ID, userClassModel.UserClassesStatusActive).
+			AND uc.user_class_status = ?
+			AND uc.user_class_deleted_at IS NULL
+		`, user.ID, userClassModel.UserClassStatusActive).
 		Find(&activeEnrolls).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil enrolment student")
 	}
@@ -104,10 +104,11 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 		studentSet[r.MasjidID.String()] = struct{}{}
 	}
 
-
 	toSlice := func(set map[string]struct{}) []string {
 		out := make([]string, 0, len(set))
-		for id := range set { out = append(out, id) }
+		for id := range set {
+			out = append(out, id)
+		}
 		return out
 	}
 	masjidAdminIDs := toSlice(adminSet)
@@ -115,10 +116,12 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 	masjidStudentIDs := toSlice(studentSet)
 
 	// =========================
-	// Student: section aktif (mapping class→section + list section)
+	// Section aktif (mapping class→section)
 	// =========================
 	classIDsSet := map[string]struct{}{}
-	for _, e := range activeEnrolls { classIDsSet[e.ClassID.String()] = struct{}{} }
+	for _, e := range activeEnrolls {
+		classIDsSet[e.ClassID.String()] = struct{}{}
+	}
 	internalClassIDs := toSlice(classIDsSet)
 
 	classToSection := map[string]string{}
@@ -126,19 +129,19 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 	if len(internalClassIDs) > 0 {
 		now := time.Now()
 		type row struct {
-			SectionID uuid.UUID `gorm:"column:class_sections_id"`
-			ClassID   uuid.UUID `gorm:"column:class_sections_class_id"`
+			SectionID uuid.UUID `gorm:"column:class_section_id"`
+			ClassID   uuid.UUID `gorm:"column:class_section_class_id"`
 		}
 		var rows []row
 		if err := ac.DB.Table("class_sections").
 			Where(
-				"class_sections_class_id IN ? AND ("+
-					"class_sections_is_active = TRUE OR "+
-					"(class_sections_start <= ? AND (class_sections_end IS NULL OR class_sections_end >= ?))"+
-				")",
+				"class_section_class_id IN ? AND ("+
+					"class_section_is_active = TRUE OR "+
+					"(class_section_start <= ? AND (class_section_end IS NULL OR class_section_end >= ?))"+
+					") AND class_section_deleted_at IS NULL",
 				internalClassIDs, now, now,
 			).
-			Select("class_sections_id, class_sections_class_id").
+			Select("class_section_id, class_section_class_id").
 			Find(&rows).Error; err == nil {
 			for _, r := range rows {
 				cid := r.ClassID.String()
@@ -152,23 +155,9 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 	}
 	classSectionIDs := toSlice(classSectionIDsSet)
 
-	// Bentuk enrolment minimal
-	activeEnrollments := make([]fiber.Map, 0, len(activeEnrolls))
-	for _, e := range activeEnrolls {
-		row := fiber.Map{
-			"user_class_id": e.UserClassID,
-			"class_id":      e.ClassID,
-			"masjid_id":     e.MasjidID, // pointer → null/string di JSON
-		}
-		if sid, ok := classToSection[e.ClassID.String()]; ok && sid != "" {
-			row["active_section_id"] = sid
-		}
-		activeEnrollments = append(activeEnrollments, row)
-	}
-
-	// ---------- Response dasar (tanpa redundansi) ----------
+	// ---------- Response ----------
 	respUser := fiber.Map{
-		"id":                 user.ID,
+		"id":                 user.ID, // kolom singular
 		"user_name":          user.UserName,
 		"email":              user.Email,
 		"masjid_admin_ids":   masjidAdminIDs,
@@ -176,16 +165,36 @@ func (ac *AuthController) Me(c *fiber.Ctx) error {
 		"masjid_student_ids": masjidStudentIDs,
 	}
 	respStudent := fiber.Map{
-		"active_enrollments": activeEnrollments,
-		"class_section_ids":  classSectionIDs,
+		"active_enrollments": func() []fiber.Map {
+			out := make([]fiber.Map, 0, len(activeEnrolls))
+			for _, e := range activeEnrolls {
+				row := fiber.Map{
+					"user_class_id": e.UserClassID,
+					"class_id":      e.ClassID,
+					"masjid_id":     e.MasjidID,
+				}
+				if sid, ok := classToSection[e.ClassID.String()]; ok && sid != "" {
+					row["active_section_id"] = sid
+				}
+				out = append(out, row)
+			}
+			return out
+		}(),
+		"class_section_ids": classSectionIDs,
 	}
 
 	// Tambahan opsional bila diminta
 	if wantUnion {
 		union := map[string]struct{}{}
-		for k := range adminSet   { union[k] = struct{}{} }
-		for k := range teacherSet { union[k] = struct{}{} }
-		for k := range studentSet { union[k] = struct{}{} }
+		for k := range adminSet {
+			union[k] = struct{}{}
+		}
+		for k := range teacherSet {
+			union[k] = struct{}{}
+		}
+		for k := range studentSet {
+			union[k] = struct{}{}
+		}
 		respUser["masjid_ids"] = toSlice(union)
 	}
 	if wantClassIDs {
@@ -212,7 +221,6 @@ func (ac *AuthController) UpdateUserName(c *fiber.Ctx) error {
 	var req struct {
 		UserName string `json:"user_name" validate:"required,min=3,max=50"`
 	}
-
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
@@ -222,8 +230,9 @@ func (ac *AuthController) UpdateUserName(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
+	// Users: table plural, column singular
 	if err := ac.DB.Model(&models.UserModel{}).
-		Where("id = ?", userUUID).
+		Where("user_id = ?", userUUID).
 		Update("user_name", req.UserName).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal update user name")
 	}
@@ -232,7 +241,6 @@ func (ac *AuthController) UpdateUserName(c *fiber.Ctx) error {
 		"message": "Username berhasil diperbarui",
 	})
 }
-
 
 func (ac *AuthController) Register(c *fiber.Ctx) error {
 	return service.Register(ac.DB, c)

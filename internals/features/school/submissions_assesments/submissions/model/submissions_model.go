@@ -1,4 +1,4 @@
-// file: internals/features/school/submissions/model/submission_model.go
+// file: internals/features/assessments/submissions/model/submission_model.go
 package model
 
 import (
@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// Enum status agar aman di kode
+// Sesuaikan dengan CHECK: 'draft','submitted','resubmitted','graded','returned'
 type SubmissionStatus string
 
 const (
@@ -20,34 +20,27 @@ const (
 )
 
 type Submission struct {
-	// Primary key
-	SubmissionID uuid.UUID `json:"submissions_id" gorm:"column:submissions_id;type:uuid;default:gen_random_uuid();primaryKey"`
+	SubmissionID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:submission_id" json:"submission_id"`
+	SubmissionMasjidID uuid.UUID `gorm:"type:uuid;not null;column:submission_masjid_id" json:"submission_masjid_id"`
 
-	// Keterkaitan tenant & entitas
-	SubmissionMasjidID     uuid.UUID `json:"submissions_masjid_id" gorm:"column:submissions_masjid_id;type:uuid;not null"`
-	SubmissionAssessmentID uuid.UUID `json:"submissions_assessment_id" gorm:"column:submissions_assessment_id;type:uuid;not null"`
-	SubmissionStudentID    uuid.UUID `json:"submissions_student_id" gorm:"column:submissions_student_id;type:uuid;not null"`
+	SubmissionAssessmentID uuid.UUID `gorm:"type:uuid;not null;column:submission_assessment_id" json:"submission_assessment_id"`
+	SubmissionStudentID    uuid.UUID `gorm:"type:uuid;not null;column:submission_student_id" json:"submission_student_id"`
 
-	// Isi & status pengumpulan
-	SubmissionText   *string          `json:"submissions_text,omitempty" gorm:"column:submissions_text;type:text"`
-	SubmissionStatus SubmissionStatus `json:"submissions_status" gorm:"column:submissions_status;type:varchar(24);not null;default:'submitted'"`
+	SubmissionText   *string          `gorm:"type:text;column:submission_text" json:"submission_text,omitempty"`
+	SubmissionStatus SubmissionStatus `gorm:"type:varchar(24);not null;default:'submitted';column:submission_status" json:"submission_status"`
 
-	SubmissionSubmittedAt *time.Time `json:"submissions_submitted_at,omitempty" gorm:"column:submissions_submitted_at;type:timestamptz"`
-	SubmissionIsLate      *bool      `json:"submissions_is_late,omitempty" gorm:"column:submissions_is_late"`
+	SubmissionSubmittedAt *time.Time `gorm:"type:timestamptz;column:submission_submitted_at" json:"submission_submitted_at,omitempty"`
+	SubmissionIsLate      *bool      `gorm:"column:submission_is_late" json:"submission_is_late,omitempty"`
 
-	// Penilaian
-	SubmissionScore             *float64   `json:"submissions_score,omitempty" gorm:"column:submissions_score;type:numeric(5,2)"`
-	SubmissionFeedback          *string    `json:"submissions_feedback,omitempty" gorm:"column:submissions_feedback;type:text"`
-	SubmissionGradedByTeacherID *uuid.UUID `json:"submissions_graded_by_teacher_id,omitempty" gorm:"column:submissions_graded_by_teacher_id;type:uuid"`
-	SubmissionGradedAt          *time.Time `json:"submissions_graded_at,omitempty" gorm:"column:submissions_graded_at;type:timestamptz"`
+	SubmissionScore    *float64 `gorm:"type:numeric(5,2);column:submission_score" json:"submission_score,omitempty"`
+	SubmissionFeedback *string  `gorm:"type:text;column:submission_feedback" json:"submission_feedback,omitempty"`
 
-	// Timestamps & soft delete
-	SubmissionCreatedAt time.Time      `json:"submissions_created_at" gorm:"column:submissions_created_at;type:timestamptz;autoCreateTime"`
-	SubmissionUpdatedAt time.Time      `json:"submissions_updated_at" gorm:"column:submissions_updated_at;type:timestamptz;autoUpdateTime"`
-	SubmissionDeletedAt gorm.DeletedAt `json:"submissions_deleted_at" gorm:"column:submissions_deleted_at;index"`
+	SubmissionGradedByTeacherID *uuid.UUID `gorm:"type:uuid;column:submission_graded_by_teacher_id" json:"submission_graded_by_teacher_id,omitempty"`
+	SubmissionGradedAt          *time.Time `gorm:"type:timestamptz;column:submission_graded_at" json:"submission_graded_at,omitempty"`
+
+	SubmissionCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:submission_created_at" json:"submission_created_at"`
+	SubmissionUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:submission_updated_at" json:"submission_updated_at"`
+	SubmissionDeletedAt gorm.DeletedAt `gorm:"column:submission_deleted_at;index" json:"submission_deleted_at,omitempty"`
 }
 
-// TableName override
-func (Submission) TableName() string {
-	return "submissions"
-}
+func (Submission) TableName() string { return "submissions" }

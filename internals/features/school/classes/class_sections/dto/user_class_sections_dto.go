@@ -4,7 +4,7 @@ package dto
 import (
 	"time"
 
-	ucsModel "masjidku_backend/internals/features/school/classes/class_sections/model"
+	enrolModel "masjidku_backend/internals/features/school/classes/class_sections/model"
 
 	"github.com/google/uuid"
 )
@@ -12,52 +12,55 @@ import (
 /* ===================== REQUESTS ===================== */
 
 type CreateUserClassSectionRequest struct {
-	UserClassSectionsUserClassID  uuid.UUID  `json:"user_class_sections_user_class_id" validate:"required"`
-	UserClassSectionsSectionID    uuid.UUID  `json:"user_class_sections_section_id" validate:"required"`
-	UserClassSectionsMasjidID     *uuid.UUID `json:"user_class_sections_masjid_id" validate:"omitempty"`
-	UserClassSectionsAssignedAt   *time.Time `json:"user_class_sections_assigned_at" validate:"omitempty"`   // nil => DEFAULT CURRENT_DATE (DB)
-	UserClassSectionsUnassignedAt *time.Time `json:"user_class_sections_unassigned_at" validate:"omitempty"`
+	UserClassSectionUserClassID  uuid.UUID  `json:"user_class_section_user_class_id" validate:"required"`
+	UserClassSectionSectionID    uuid.UUID  `json:"user_class_section_section_id"    validate:"required"`
+	UserClassSectionMasjidID     *uuid.UUID `json:"user_class_section_masjid_id"     validate:"omitempty"`
+	UserClassSectionAssignedAt   *time.Time `json:"user_class_section_assigned_at"   validate:"omitempty"` // nil ⇒ pakai DEFAULT CURRENT_DATE (DB)
+	UserClassSectionUnassignedAt *time.Time `json:"user_class_section_unassigned_at" validate:"omitempty"`
 }
 
-func (r *CreateUserClassSectionRequest) ToModel() *ucsModel.UserClassSectionsModel {
-	m := &ucsModel.UserClassSectionsModel{
-		UserClassSectionsUserClassID:  r.UserClassSectionsUserClassID,
-		UserClassSectionsSectionID:    r.UserClassSectionsSectionID,
-		UserClassSectionsMasjidID:     uuid.Nil,
-		UserClassSectionsAssignedAt:   r.UserClassSectionsAssignedAt,
-		UserClassSectionsUnassignedAt: r.UserClassSectionsUnassignedAt,
+func (r *CreateUserClassSectionRequest) ToModel() *enrolModel.UserClassSection {
+	m := &enrolModel.UserClassSection{
+		UserClassSectionUserClassID:  r.UserClassSectionUserClassID,
+		UserClassSectionSectionID:    r.UserClassSectionSectionID,
+		UserClassSectionMasjidID:     uuid.Nil,
+		UserClassSectionUnassignedAt: r.UserClassSectionUnassignedAt,
 	}
-	if r.UserClassSectionsMasjidID != nil {
-		m.UserClassSectionsMasjidID = *r.UserClassSectionsMasjidID
+	// AssignedAt di model adalah time.Time (non-pointer). Jika request berikan nilai, set; kalau tidak, biarkan zero value agar DB default jalan.
+	if r.UserClassSectionAssignedAt != nil {
+		m.UserClassSectionAssignedAt = *r.UserClassSectionAssignedAt
+	}
+	if r.UserClassSectionMasjidID != nil {
+		m.UserClassSectionMasjidID = *r.UserClassSectionMasjidID
 	}
 	return m
 }
 
 type UpdateUserClassSectionRequest struct {
-	UserClassSectionsUserClassID  *uuid.UUID `json:"user_class_sections_user_class_id" validate:"omitempty"`
-	UserClassSectionsSectionID    *uuid.UUID `json:"user_class_sections_section_id" validate:"omitempty"`
-	UserClassSectionsMasjidID     *uuid.UUID `json:"user_class_sections_masjid_id" validate:"omitempty"`
-	UserClassSectionsAssignedAt   *time.Time `json:"user_class_sections_assigned_at" validate:"omitempty"`
-	UserClassSectionsUnassignedAt *time.Time `json:"user_class_sections_unassigned_at" validate:"omitempty"`
+	UserClassSectionUserClassID  *uuid.UUID `json:"user_class_section_user_class_id"  validate:"omitempty"`
+	UserClassSectionSectionID    *uuid.UUID `json:"user_class_section_section_id"     validate:"omitempty"`
+	UserClassSectionMasjidID     *uuid.UUID `json:"user_class_section_masjid_id"      validate:"omitempty"`
+	UserClassSectionAssignedAt   *time.Time `json:"user_class_section_assigned_at"    validate:"omitempty"`
+	UserClassSectionUnassignedAt *time.Time `json:"user_class_section_unassigned_at"  validate:"omitempty"`
 }
 
-func (r *UpdateUserClassSectionRequest) ApplyToModel(m *ucsModel.UserClassSectionsModel) {
-	if r.UserClassSectionsUserClassID != nil {
-		m.UserClassSectionsUserClassID = *r.UserClassSectionsUserClassID
+func (r *UpdateUserClassSectionRequest) ApplyToModel(m *enrolModel.UserClassSection) {
+	if r.UserClassSectionUserClassID != nil {
+		m.UserClassSectionUserClassID = *r.UserClassSectionUserClassID
 	}
-	if r.UserClassSectionsSectionID != nil {
-		m.UserClassSectionsSectionID = *r.UserClassSectionsSectionID
+	if r.UserClassSectionSectionID != nil {
+		m.UserClassSectionSectionID = *r.UserClassSectionSectionID
 	}
-	if r.UserClassSectionsMasjidID != nil {
-		m.UserClassSectionsMasjidID = *r.UserClassSectionsMasjidID
+	if r.UserClassSectionMasjidID != nil {
+		m.UserClassSectionMasjidID = *r.UserClassSectionMasjidID
 	}
-	if r.UserClassSectionsAssignedAt != nil {
-		m.UserClassSectionsAssignedAt = r.UserClassSectionsAssignedAt
+	if r.UserClassSectionAssignedAt != nil {
+		m.UserClassSectionAssignedAt = *r.UserClassSectionAssignedAt
 	}
-	if r.UserClassSectionsUnassignedAt != nil {
-		m.UserClassSectionsUnassignedAt = r.UserClassSectionsUnassignedAt
+	if r.UserClassSectionUnassignedAt != nil {
+		m.UserClassSectionUnassignedAt = r.UserClassSectionUnassignedAt
 	}
-	m.UserClassSectionsUpdatedAt = time.Now()
+	m.UserClassSectionUpdatedAt = time.Now()
 }
 
 /* ===================== QUERIES ===================== */
@@ -66,9 +69,9 @@ type ListUserClassSectionQuery struct {
 	UserClassID *uuid.UUID `query:"user_class_id"`
 	SectionID   *uuid.UUID `query:"section_id"`
 	MasjidID    *uuid.UUID `query:"masjid_id"`
-	ActiveOnly  *bool      `query:"active_only"` // true => unassigned_at IS NULL
+	ActiveOnly  *bool      `query:"active_only"` // true ⇒ unassigned_at IS NULL
 
-	Limit  int     `query:"limit" validate:"omitempty,min=1,max=200"`
+	Limit  int     `query:"limit"  validate:"omitempty,min=1,max=200"`
 	Offset int     `query:"offset" validate:"omitempty,min=0"`
 	Sort   *string `query:"sort"` // assigned_at_desc|assigned_at_asc|created_at_desc|created_at_asc
 }
@@ -76,41 +79,41 @@ type ListUserClassSectionQuery struct {
 /* ===================== RESPONSES ===================== */
 
 type UserClassSectionResponse struct {
-	UserClassSectionsID           uuid.UUID  `json:"user_class_sections_id"`
-	UserClassSectionsUserClassID  uuid.UUID  `json:"user_class_sections_user_class_id"`
-	UserClassSectionsSectionID    uuid.UUID  `json:"user_class_sections_section_id"`
-	UserClassSectionsMasjidID     uuid.UUID  `json:"user_class_sections_masjid_id"`
-	UserClassSectionsAssignedAt   *time.Time `json:"user_class_sections_assigned_at,omitempty"`
-	UserClassSectionsUnassignedAt *time.Time `json:"user_class_sections_unassigned_at,omitempty"`
+	UserClassSectionID           uuid.UUID  `json:"user_class_section_id"`
+	UserClassSectionUserClassID  uuid.UUID  `json:"user_class_section_user_class_id"`
+	UserClassSectionSectionID    uuid.UUID  `json:"user_class_section_section_id"`
+	UserClassSectionMasjidID     uuid.UUID  `json:"user_class_section_masjid_id"`
+	UserClassSectionAssignedAt   *time.Time `json:"user_class_section_assigned_at,omitempty"` // pointer agar kompatibel dengan respon lama
+	UserClassSectionUnassignedAt *time.Time `json:"user_class_section_unassigned_at,omitempty"`
 
 	// Tambahan dari user_classes (opsional)
 	UserClassesStatus string `json:"user_classes_status,omitempty"`
 
-	UserClassSectionsCreatedAt time.Time  `json:"user_class_sections_created_at"`
-	UserClassSectionsUpdatedAt time.Time  `json:"user_class_sections_updated_at"`
-	UserClassSectionsDeletedAt *time.Time `json:"user_class_sections_deleted_at,omitempty"`
+	UserClassSectionCreatedAt time.Time  `json:"user_class_section_created_at"`
+	UserClassSectionUpdatedAt time.Time  `json:"user_class_section_updated_at"`
+	UserClassSectionDeletedAt *time.Time `json:"user_class_section_deleted_at,omitempty"`
 
 	User    *UcsUser        `json:"user,omitempty"`
 	Profile *UcsUserProfile `json:"profile,omitempty"`
 }
 
-func NewUserClassSectionResponse(m *ucsModel.UserClassSectionsModel) *UserClassSectionResponse {
+func NewUserClassSectionResponse(m *enrolModel.UserClassSection) *UserClassSectionResponse {
 	if m == nil {
 		return nil
 	}
 	resp := &UserClassSectionResponse{
-		UserClassSectionsID:           m.UserClassSectionsID,
-		UserClassSectionsUserClassID:  m.UserClassSectionsUserClassID,
-		UserClassSectionsSectionID:    m.UserClassSectionsSectionID,
-		UserClassSectionsMasjidID:     m.UserClassSectionsMasjidID,
-		UserClassSectionsAssignedAt:   m.UserClassSectionsAssignedAt,
-		UserClassSectionsUnassignedAt: m.UserClassSectionsUnassignedAt,
-		UserClassSectionsCreatedAt:    m.UserClassSectionsCreatedAt,
-		UserClassSectionsUpdatedAt:    m.UserClassSectionsUpdatedAt,
+		UserClassSectionID:           m.UserClassSectionID,
+		UserClassSectionUserClassID:  m.UserClassSectionUserClassID,
+		UserClassSectionSectionID:    m.UserClassSectionSectionID,
+		UserClassSectionMasjidID:     m.UserClassSectionMasjidID,
+		UserClassSectionAssignedAt:   func() *time.Time { t := m.UserClassSectionAssignedAt; return &t }(),
+		UserClassSectionUnassignedAt: m.UserClassSectionUnassignedAt,
+		UserClassSectionCreatedAt:    m.UserClassSectionCreatedAt,
+		UserClassSectionUpdatedAt:    m.UserClassSectionUpdatedAt,
 	}
-	if m.UserClassSectionsDeletedAt.Valid {
-		t := m.UserClassSectionsDeletedAt.Time
-		resp.UserClassSectionsDeletedAt = &t
+	if m.UserClassSectionDeletedAt.Valid {
+		t := m.UserClassSectionDeletedAt.Time
+		resp.UserClassSectionDeletedAt = &t
 	}
 	return resp
 }
@@ -123,11 +126,11 @@ func (r *UserClassSectionResponse) WithUser(u *UcsUser, p *UcsUserProfile) *User
 /* ========== Tipe ringkas untuk enrichment ========== */
 
 type UcsUser struct {
-	ID       uuid.UUID  `json:"id"`
-	UserName string     `json:"user_name"`
-	FullName *string    `json:"full_name,omitempty"` // dari tabel users
-	Email    string     `json:"email"`
-	IsActive bool       `json:"is_active"`
+	ID       uuid.UUID `json:"id"`
+	UserName string    `json:"user_name"`
+	FullName *string   `json:"full_name,omitempty"`
+	Email    string    `json:"email"`
+	IsActive bool      `json:"is_active"`
 }
 
 type UcsUserProfile struct {

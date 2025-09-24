@@ -1,3 +1,4 @@
+// file: internals/features/library/books/model/book_model.go
 package model
 
 import (
@@ -7,20 +8,22 @@ import (
 	"gorm.io/gorm"
 )
 
-type BooksModel struct {
-	BooksID       uuid.UUID      `gorm:"column:books_id;type:uuid;default:gen_random_uuid();primaryKey" json:"books_id"`
-	BooksMasjidID uuid.UUID      `gorm:"column:books_masjid_id;type:uuid;not null;index"               json:"books_masjid_id"`
+type BookModel struct {
+	BookID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:book_id" json:"book_id"`
+	BookMasjidID uuid.UUID `gorm:"type:uuid;not null;column:book_masjid_id" json:"book_masjid_id"`
 
-	BooksTitle  string   `gorm:"column:books_title;type:text;not null" json:"books_title"`
-	BooksAuthor *string  `gorm:"column:books_author;type:text"         json:"books_author,omitempty"`
-	BooksDesc   *string  `gorm:"column:books_desc;type:text"           json:"books_desc,omitempty"`
+	BookTitle  string  `gorm:"type:text;not null;column:book_title" json:"book_title"`
+	BookAuthor *string `gorm:"type:text;column:book_author" json:"book_author,omitempty"`
+	BookDesc   *string `gorm:"type:text;column:book_desc" json:"book_desc,omitempty"`
 
-	// slug nullable; unik per masjid via partial unique index di SQL (uq_books_slug_per_masjid_alive)
-	BooksSlug *string `gorm:"column:books_slug;type:varchar(160)" json:"books_slug,omitempty"`
+	BookSlug *string `gorm:"type:varchar(160);column:book_slug" json:"book_slug,omitempty"`
 
-	BooksCreatedAt time.Time      `gorm:"column:books_created_at;autoCreateTime" json:"books_created_at"`
-	BooksUpdatedAt time.Time      `gorm:"column:books_updated_at;autoUpdateTime" json:"books_updated_at"`
-	BooksDeletedAt gorm.DeletedAt `gorm:"column:books_deleted_at;index"          json:"books_deleted_at,omitempty"`
+	BookPublisher       *string `gorm:"type:text;column:book_publisher" json:"book_publisher,omitempty"`
+	BookPublicationYear *int16  `gorm:"type:smallint;column:book_publication_year" json:"book_publication_year,omitempty"`
+
+	BookCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:book_created_at" json:"book_created_at"`
+	BookUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:book_updated_at" json:"book_updated_at"`
+	BookDeletedAt gorm.DeletedAt `gorm:"column:book_deleted_at;index" json:"book_deleted_at,omitempty"`
 }
 
-func (BooksModel) TableName() string { return "books" }
+func (BookModel) TableName() string { return "books" }

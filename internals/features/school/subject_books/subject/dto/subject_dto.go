@@ -1,3 +1,4 @@
+// file: internals/features/school/subjects/dto/subject_dto.go
 package dto
 
 import (
@@ -45,23 +46,23 @@ func (p PatchField[T]) Get() (*T, bool) { return p.Value, p.Present }
    ========================================================= */
 
 type CreateSubjectRequest struct {
-	MasjidID uuid.UUID `json:"subjects_masjid_id" form:"subjects_masjid_id" validate:"required"`
+	MasjidID uuid.UUID `json:"subject_masjid_id" form:"subject_masjid_id" validate:"required"`
 
-	Code string `json:"subjects_code" form:"subjects_code" validate:"required,min=1,max=40"`
-	Name string `json:"subjects_name" form:"subjects_name" validate:"required,min=1,max=120"`
+	Code string `json:"subject_code" form:"subject_code" validate:"required,min=1,max=40"`
+	Name string `json:"subject_name" form:"subject_name" validate:"required,min=1,max=120"`
 
-	Desc *string `json:"subjects_desc" form:"subjects_desc"`
+	Desc *string `json:"subject_desc" form:"subject_desc"`
 
 	// Slug: NOT NULL di DB — controller biasanya auto-generate
-	Slug *string `json:"subjects_slug" form:"subjects_slug" validate:"omitempty,min=1,max=160"`
+	Slug *string `json:"subject_slug" form:"subject_slug" validate:"omitempty,min=1,max=160"`
 
-	IsActive *bool `json:"subjects_is_active" form:"subjects_is_active"`
+	IsActive *bool `json:"subject_is_active" form:"subject_is_active"`
 
-	ImageURL                *string    `json:"subjects_image_url"                 form:"subjects_image_url"`
-	ImageObjectKey          *string    `json:"subjects_image_object_key"          form:"subjects_image_object_key"`
-	ImageURLOld             *string    `json:"subjects_image_url_old"             form:"subjects_image_url_old"`
-	ImageObjectKeyOld       *string    `json:"subjects_image_object_key_old"      form:"subjects_image_object_key_old"`
-	ImageDeletePendingUntil *time.Time `json:"subjects_image_delete_pending_until" form:"subjects_image_delete_pending_until"`
+	ImageURL                *string    `json:"subject_image_url"                 form:"subject_image_url"`
+	ImageObjectKey          *string    `json:"subject_image_object_key"          form:"subject_image_object_key"`
+	ImageURLOld             *string    `json:"subject_image_url_old"             form:"subject_image_url_old"`
+	ImageObjectKeyOld       *string    `json:"subject_image_object_key_old"      form:"subject_image_object_key_old"`
+	ImageDeletePendingUntil *time.Time `json:"subject_image_delete_pending_until" form:"subject_image_delete_pending_until"`
 }
 
 func (r *CreateSubjectRequest) Normalize() {
@@ -100,7 +101,7 @@ func (r *CreateSubjectRequest) Normalize() {
 	trimPtr(&r.ImageObjectKeyOld, false)
 }
 
-func (r CreateSubjectRequest) ToModel() m.SubjectsModel {
+func (r CreateSubjectRequest) ToModel() m.SubjectModel {
 	now := time.Now()
 
 	// pastikan slug terisi (fallback dari name) — pakai Slugify
@@ -114,23 +115,23 @@ func (r CreateSubjectRequest) ToModel() m.SubjectsModel {
 		}
 	}
 
-	mm := m.SubjectsModel{
-		SubjectsMasjidID:                r.MasjidID,
-		SubjectsCode:                    r.Code,
-		SubjectsName:                    r.Name,
-		SubjectsDesc:                    r.Desc,
-		SubjectsSlug:                    slug,
-		SubjectsImageURL:                r.ImageURL,
-		SubjectsImageObjectKey:          r.ImageObjectKey,
-		SubjectsImageURLOld:             r.ImageURLOld,
-		SubjectsImageObjectKeyOld:       r.ImageObjectKeyOld,
-		SubjectsImageDeletePendingUntil: r.ImageDeletePendingUntil,
-		SubjectsIsActive:                true,
-		SubjectsCreatedAt:               now,
-		SubjectsUpdatedAt:               now,
+	mm := m.SubjectModel{
+		SubjectMasjidID:                r.MasjidID,
+		SubjectCode:                    r.Code,
+		SubjectName:                    r.Name,
+		SubjectDesc:                    r.Desc,
+		SubjectSlug:                    slug,
+		SubjectImageURL:                r.ImageURL,
+		SubjectImageObjectKey:          r.ImageObjectKey,
+		SubjectImageURLOld:             r.ImageURLOld,
+		SubjectImageObjectKeyOld:       r.ImageObjectKeyOld,
+		SubjectImageDeletePendingUntil: r.ImageDeletePendingUntil,
+		SubjectIsActive:                true,
+		SubjectCreatedAt:               now,
+		SubjectUpdatedAt:               now,
 	}
 	if r.IsActive != nil {
-		mm.SubjectsIsActive = *r.IsActive
+		mm.SubjectIsActive = *r.IsActive
 	}
 	return mm
 }
@@ -140,38 +141,43 @@ func BindMultipartCreate(c *fiber.Ctx) (CreateSubjectRequest, *multipart.FileHea
 	var req CreateSubjectRequest
 
 	// text fields
-	req.Code = strings.TrimSpace(c.FormValue("subjects_code"))
-	req.Name = strings.TrimSpace(c.FormValue("subjects_name"))
+	req.Code = strings.TrimSpace(c.FormValue("subject_code"))
+	req.Name = strings.TrimSpace(c.FormValue("subject_name"))
 
-	if v := strings.TrimSpace(c.FormValue("subjects_desc")); v != "" {
+	if v := strings.TrimSpace(c.FormValue("subject_desc")); v != "" {
 		req.Desc = &v
 	}
-	if v := strings.TrimSpace(c.FormValue("subjects_slug")); v != "" {
+	if v := strings.TrimSpace(c.FormValue("subject_slug")); v != "" {
 		s := helper.Slugify(v, 160)
 		if s != "" {
 			req.Slug = &s
 		}
 	}
-	if v := strings.TrimSpace(c.FormValue("subjects_is_active")); v != "" {
+	if v := strings.TrimSpace(c.FormValue("subject_is_active")); v != "" {
 		if b, err := parseBoolLoose(v); err == nil {
 			req.IsActive = &b
 		}
 	}
+	if v := strings.TrimSpace(c.FormValue("subject_masjid_id")); v != "" {
+		if id, err := uuid.Parse(v); err == nil {
+			req.MasjidID = id
+		}
+	}
 
 	// image columns (opsional)
-	if v := strings.TrimSpace(c.FormValue("subjects_image_url")); v != "" {
+	if v := strings.TrimSpace(c.FormValue("subject_image_url")); v != "" {
 		req.ImageURL = &v
 	}
-	if v := strings.TrimSpace(c.FormValue("subjects_image_object_key")); v != "" {
+	if v := strings.TrimSpace(c.FormValue("subject_image_object_key")); v != "" {
 		req.ImageObjectKey = &v
 	}
-	if v := strings.TrimSpace(c.FormValue("subjects_image_url_old")); v != "" {
+	if v := strings.TrimSpace(c.FormValue("subject_image_url_old")); v != "" {
 		req.ImageURLOld = &v
 	}
-	if v := strings.TrimSpace(c.FormValue("subjects_image_object_key_old")); v != "" {
+	if v := strings.TrimSpace(c.FormValue("subject_image_object_key_old")); v != "" {
 		req.ImageObjectKeyOld = &v
 	}
-	if v := strings.TrimSpace(c.FormValue("subjects_image_delete_pending_until")); v != "" {
+	if v := strings.TrimSpace(c.FormValue("subject_image_delete_pending_until")); v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
 			req.ImageDeletePendingUntil = &t
 		}
@@ -193,19 +199,19 @@ func BindMultipartCreate(c *fiber.Ctx) (CreateSubjectRequest, *multipart.FileHea
    ========================================================= */
 
 type UpdateSubjectRequest struct {
-	MasjidID *uuid.UUID `json:"subjects_masjid_id" form:"subjects_masjid_id"`
+	MasjidID *uuid.UUID `json:"subject_masjid_id" form:"subject_masjid_id"`
 
-	Code     PatchField[string]  `json:"subjects_code"`
-	Name     PatchField[string]  `json:"subjects_name"`
-	Desc     PatchField[*string] `json:"subjects_desc"`
-	Slug     PatchField[string]  `json:"subjects_slug"`
-	IsActive PatchField[bool]    `json:"subjects_is_active"`
+	Code     PatchField[string]  `json:"subject_code"`
+	Name     PatchField[string]  `json:"subject_name"`
+	Desc     PatchField[*string] `json:"subject_desc"`
+	Slug     PatchField[string]  `json:"subject_slug"`
+	IsActive PatchField[bool]    `json:"subject_is_active"`
 
-	ImageURL                PatchField[*string]    `json:"subjects_image_url"`
-	ImageObjectKey          PatchField[*string]    `json:"subjects_image_object_key"`
-	ImageURLOld             PatchField[*string]    `json:"subjects_image_url_old"`
-	ImageObjectKeyOld       PatchField[*string]    `json:"subjects_image_object_key_old"`
-	ImageDeletePendingUntil PatchField[*time.Time] `json:"subjects_image_delete_pending_until"`
+	ImageURL                PatchField[*string]    `json:"subject_image_url"`
+	ImageObjectKey          PatchField[*string]    `json:"subject_image_object_key"`
+	ImageURLOld             PatchField[*string]    `json:"subject_image_url_old"`
+	ImageObjectKeyOld       PatchField[*string]    `json:"subject_image_object_key_old"`
+	ImageDeletePendingUntil PatchField[*time.Time] `json:"subject_image_delete_pending_until"`
 }
 
 func (p *UpdateSubjectRequest) Normalize() {
@@ -255,72 +261,72 @@ func (p *UpdateSubjectRequest) Normalize() {
 	}
 }
 
-func (p UpdateSubjectRequest) Apply(mo *m.SubjectsModel) {
+func (p UpdateSubjectRequest) Apply(mo *m.SubjectModel) {
 	if p.MasjidID != nil {
-		mo.SubjectsMasjidID = *p.MasjidID
+		mo.SubjectMasjidID = *p.MasjidID
 	}
 
 	// scalar
 	if p.Code.Present && p.Code.Value != nil {
-		mo.SubjectsCode = *p.Code.Value
+		mo.SubjectCode = *p.Code.Value
 	}
 	if p.Name.Present && p.Name.Value != nil {
-		mo.SubjectsName = *p.Name.Value
+		mo.SubjectName = *p.Name.Value
 	}
 	if p.Slug.Present && p.Slug.Value != nil {
-		mo.SubjectsSlug = *p.Slug.Value
+		mo.SubjectSlug = *p.Slug.Value
 	}
 	if p.IsActive.Present && p.IsActive.Value != nil {
-		mo.SubjectsIsActive = *p.IsActive.Value
+		mo.SubjectIsActive = *p.IsActive.Value
 	}
 
 	// nullable string
 	if p.Desc.Present {
 		if p.Desc.Value == nil {
-			mo.SubjectsDesc = nil
+			mo.SubjectDesc = nil
 		} else {
-			mo.SubjectsDesc = *p.Desc.Value
+			mo.SubjectDesc = *p.Desc.Value
 		}
 	}
 	if p.ImageURL.Present {
 		if p.ImageURL.Value == nil {
-			mo.SubjectsImageURL = nil
+			mo.SubjectImageURL = nil
 		} else {
-			mo.SubjectsImageURL = *p.ImageURL.Value
+			mo.SubjectImageURL = *p.ImageURL.Value
 		}
 	}
 	if p.ImageObjectKey.Present {
 		if p.ImageObjectKey.Value == nil {
-			mo.SubjectsImageObjectKey = nil
+			mo.SubjectImageObjectKey = nil
 		} else {
-			mo.SubjectsImageObjectKey = *p.ImageObjectKey.Value
+			mo.SubjectImageObjectKey = *p.ImageObjectKey.Value
 		}
 	}
 	if p.ImageURLOld.Present {
 		if p.ImageURLOld.Value == nil {
-			mo.SubjectsImageURLOld = nil
+			mo.SubjectImageURLOld = nil
 		} else {
-			mo.SubjectsImageURLOld = *p.ImageURLOld.Value
+			mo.SubjectImageURLOld = *p.ImageURLOld.Value
 		}
 	}
 	if p.ImageObjectKeyOld.Present {
 		if p.ImageObjectKeyOld.Value == nil {
-			mo.SubjectsImageObjectKeyOld = nil
+			mo.SubjectImageObjectKeyOld = nil
 		} else {
-			mo.SubjectsImageObjectKeyOld = *p.ImageObjectKeyOld.Value
+			mo.SubjectImageObjectKeyOld = *p.ImageObjectKeyOld.Value
 		}
 	}
 
 	// nullable time
 	if p.ImageDeletePendingUntil.Present {
 		if p.ImageDeletePendingUntil.Value == nil {
-			mo.SubjectsImageDeletePendingUntil = nil
+			mo.SubjectImageDeletePendingUntil = nil
 		} else {
-			mo.SubjectsImageDeletePendingUntil = *p.ImageDeletePendingUntil.Value
+			mo.SubjectImageDeletePendingUntil = *p.ImageDeletePendingUntil.Value
 		}
 	}
 
-	mo.SubjectsUpdatedAt = time.Now()
+	mo.SubjectUpdatedAt = time.Now()
 }
 
 // BindMultipartPatch: baca multipart form → set tri-state
@@ -356,97 +362,97 @@ func BindMultipartPatch(c *fiber.Ctx) (UpdateSubjectRequest, *multipart.FileHead
 	}
 
 	// masjid_id (opsional; biasanya di-force di controller)
-	if has("subjects_masjid_id") {
-		if id, err := uuid.Parse(get("subjects_masjid_id")); err == nil {
+	if has("subject_masjid_id") {
+		if id, err := uuid.Parse(get("subject_masjid_id")); err == nil {
 			req.MasjidID = &id
 		}
 	}
 
 	// scalar strings
-	if has("subjects_code") {
+	if has("subject_code") {
 		req.Code.Present = true
-		v := get("subjects_code")
+		v := get("subject_code")
 		req.Code.Value = &v
 	}
-	if has("subjects_name") {
+	if has("subject_name") {
 		req.Name.Present = true
-		v := get("subjects_name")
+		v := get("subject_name")
 		req.Name.Value = &v
 	}
-	if has("subjects_slug") {
+	if has("subject_slug") {
 		req.Slug.Present = true
-		v := helper.Slugify(get("subjects_slug"), 160)
+		v := helper.Slugify(get("subject_slug"), 160)
 		req.Slug.Value = &v
 	}
 
 	// desc (nullable via __null)
-	if has("subjects_desc") || isNull("subjects_desc") {
+	if has("subject_desc") || isNull("subject_desc") {
 		req.Desc.Present = true
-		if isNull("subjects_desc") {
+		if isNull("subject_desc") {
 			req.Desc.Value = nil
 		} else {
 			req.Desc.Value = new(*string)
-			setPtrStr(req.Desc.Value, get("subjects_desc"))
+			setPtrStr(req.Desc.Value, get("subject_desc"))
 		}
 	}
 
 	// is_active
-	if has("subjects_is_active") {
+	if has("subject_is_active") {
 		req.IsActive.Present = true
-		if b, err := parseBoolLoose(get("subjects_is_active")); err == nil {
+		if b, err := parseBoolLoose(get("subject_is_active")); err == nil {
 			req.IsActive.Value = &b
 		}
 	}
 
 	// image columns (nullable)
-	if has("subjects_image_url") || isNull("subjects_image_url") {
+	if has("subject_image_url") || isNull("subject_image_url") {
 		req.ImageURL.Present = true
-		if isNull("subjects_image_url") {
+		if isNull("subject_image_url") {
 			req.ImageURL.Value = nil
 		} else {
 			req.ImageURL.Value = new(*string)
-			setPtrStr(req.ImageURL.Value, get("subjects_image_url"))
+			setPtrStr(req.ImageURL.Value, get("subject_image_url"))
 		}
 	}
-	if has("subjects_image_object_key") || isNull("subjects_image_object_key") {
+	if has("subject_image_object_key") || isNull("subject_image_object_key") {
 		req.ImageObjectKey.Present = true
-		if isNull("subjects_image_object_key") {
+		if isNull("subject_image_object_key") {
 			req.ImageObjectKey.Value = nil
 		} else {
 			req.ImageObjectKey.Value = new(*string)
-			setPtrStr(req.ImageObjectKey.Value, get("subjects_image_object_key"))
+			setPtrStr(req.ImageObjectKey.Value, get("subject_image_object_key"))
 		}
 	}
-	if has("subjects_image_url_old") || isNull("subjects_image_url_old") {
+	if has("subject_image_url_old") || isNull("subject_image_url_old") {
 		req.ImageURLOld.Present = true
-		if isNull("subjects_image_url_old") {
+		if isNull("subject_image_url_old") {
 			req.ImageURLOld.Value = nil
 		} else {
 			req.ImageURLOld.Value = new(*string)
-			setPtrStr(req.ImageURLOld.Value, get("subjects_image_url_old"))
+			setPtrStr(req.ImageURLOld.Value, get("subject_image_url_old"))
 		}
 	}
-	if has("subjects_image_object_key_old") || isNull("subjects_image_object_key_old") {
+	if has("subject_image_object_key_old") || isNull("subject_image_object_key_old") {
 		req.ImageObjectKeyOld.Present = true
-		if isNull("subjects_image_object_key_old") {
+		if isNull("subject_image_object_key_old") {
 			req.ImageObjectKeyOld.Value = nil
 		} else {
 			req.ImageObjectKeyOld.Value = new(*string)
-			setPtrStr(req.ImageObjectKeyOld.Value, get("subjects_image_object_key_old"))
+			setPtrStr(req.ImageObjectKeyOld.Value, get("subject_image_object_key_old"))
 		}
 	}
-	if has("subjects_image_delete_pending_until") || isNull("subjects_image_delete_pending_until") {
+	if has("subject_image_delete_pending_until") || isNull("subject_image_delete_pending_until") {
 		req.ImageDeletePendingUntil.Present = true
-		if isNull("subjects_image_delete_pending_until") {
+		if isNull("subject_image_delete_pending_until") {
 			req.ImageDeletePendingUntil.Value = nil
 		} else {
-			raw := get("subjects_image_delete_pending_until")
+			raw := get("subject_image_delete_pending_until")
 			if t, err := time.Parse(time.RFC3339, raw); err == nil {
 				req.ImageDeletePendingUntil.Value = new(*time.Time)
 				setPtrTime(req.ImageDeletePendingUntil.Value, t)
 			} else {
 				return req, nil, fiber.NewError(fiber.StatusBadRequest,
-					"Waktu (RFC3339) tidak valid pada subjects_image_delete_pending_until")
+					"Waktu (RFC3339) tidak valid pada subject_image_delete_pending_until")
 			}
 		}
 	}
@@ -485,7 +491,7 @@ func parseBoolLoose(s string) (bool, error) {
 
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
 
-/* ================= Queries & Responses (unchanged) ================= */
+/* ================= Queries & Responses ================= */
 
 type ListSubjectQuery struct {
 	Limit       *int    `query:"limit"`
@@ -498,49 +504,49 @@ type ListSubjectQuery struct {
 }
 
 type SubjectResponse struct {
-	SubjectsID                      uuid.UUID  `json:"subjects_id"`
-	SubjectsMasjidID                uuid.UUID  `json:"subjects_masjid_id"`
-	SubjectsCode                    string     `json:"subjects_code"`
-	SubjectsName                    string     `json:"subjects_name"`
-	SubjectsDesc                    *string    `json:"subjects_desc,omitempty"`
-	SubjectsSlug                    string     `json:"subjects_slug"`
-	SubjectsImageURL                *string    `json:"subjects_image_url,omitempty"`
-	SubjectsImageObjectKey          *string    `json:"subjects_image_object_key,omitempty"`
-	SubjectsImageURLOld             *string    `json:"subjects_image_url_old,omitempty"`
-	SubjectsImageObjectKeyOld       *string    `json:"subjects_image_object_key_old,omitempty"`
-	SubjectsImageDeletePendingUntil *time.Time `json:"subjects_image_delete_pending_until,omitempty"`
-	SubjectsIsActive                bool       `json:"subjects_is_active"`
-	SubjectsCreatedAt               time.Time  `json:"subjects_created_at"`
-	SubjectsUpdatedAt               time.Time  `json:"subjects_updated_at"`
-	SubjectsDeletedAt               *time.Time `json:"subjects_deleted_at,omitempty"`
+	SubjectID                      uuid.UUID  `json:"subject_id"`
+	SubjectMasjidID                uuid.UUID  `json:"subject_masjid_id"`
+	SubjectCode                    string     `json:"subject_code"`
+	SubjectName                    string     `json:"subject_name"`
+	SubjectDesc                    *string    `json:"subject_desc,omitempty"`
+	SubjectSlug                    string     `json:"subject_slug"`
+	SubjectImageURL                *string    `json:"subject_image_url,omitempty"`
+	SubjectImageObjectKey          *string    `json:"subject_image_object_key,omitempty"`
+	SubjectImageURLOld             *string    `json:"subject_image_url_old,omitempty"`
+	SubjectImageObjectKeyOld       *string    `json:"subject_image_object_key_old,omitempty"`
+	SubjectImageDeletePendingUntil *time.Time `json:"subject_image_delete_pending_until,omitempty"`
+	SubjectIsActive                bool       `json:"subject_is_active"`
+	SubjectCreatedAt               time.Time  `json:"subject_created_at"`
+	SubjectUpdatedAt               time.Time  `json:"subject_updated_at"`
+	SubjectDeletedAt               *time.Time `json:"subject_deleted_at,omitempty"`
 }
 
-func FromSubjectModel(mo m.SubjectsModel) SubjectResponse {
+func FromSubjectModel(mo m.SubjectModel) SubjectResponse {
 	var deletedAt *time.Time
-	if mo.SubjectsDeletedAt.Valid {
-		t := mo.SubjectsDeletedAt.Time
+	if mo.SubjectDeletedAt.Valid {
+		t := mo.SubjectDeletedAt.Time
 		deletedAt = &t
 	}
 	return SubjectResponse{
-		SubjectsID:                      mo.SubjectsID,
-		SubjectsMasjidID:                mo.SubjectsMasjidID,
-		SubjectsCode:                    mo.SubjectsCode,
-		SubjectsName:                    mo.SubjectsName,
-		SubjectsDesc:                    mo.SubjectsDesc,
-		SubjectsSlug:                    mo.SubjectsSlug,
-		SubjectsImageURL:                mo.SubjectsImageURL,
-		SubjectsImageObjectKey:          mo.SubjectsImageObjectKey,
-		SubjectsImageURLOld:             mo.SubjectsImageURLOld,
-		SubjectsImageObjectKeyOld:       mo.SubjectsImageObjectKeyOld,
-		SubjectsImageDeletePendingUntil: mo.SubjectsImageDeletePendingUntil,
-		SubjectsIsActive:                mo.SubjectsIsActive,
-		SubjectsCreatedAt:               mo.SubjectsCreatedAt,
-		SubjectsUpdatedAt:               mo.SubjectsUpdatedAt,
-		SubjectsDeletedAt:               deletedAt,
+		SubjectID:                      mo.SubjectID,
+		SubjectMasjidID:                mo.SubjectMasjidID,
+		SubjectCode:                    mo.SubjectCode,
+		SubjectName:                    mo.SubjectName,
+		SubjectDesc:                    mo.SubjectDesc,
+		SubjectSlug:                    mo.SubjectSlug,
+		SubjectImageURL:                mo.SubjectImageURL,
+		SubjectImageObjectKey:          mo.SubjectImageObjectKey,
+		SubjectImageURLOld:             mo.SubjectImageURLOld,
+		SubjectImageObjectKeyOld:       mo.SubjectImageObjectKeyOld,
+		SubjectImageDeletePendingUntil: mo.SubjectImageDeletePendingUntil,
+		SubjectIsActive:                mo.SubjectIsActive,
+		SubjectCreatedAt:               mo.SubjectCreatedAt,
+		SubjectUpdatedAt:               mo.SubjectUpdatedAt,
+		SubjectDeletedAt:               deletedAt,
 	}
 }
 
-func FromSubjectModels(rows []m.SubjectsModel) []SubjectResponse {
+func FromSubjectModels(rows []m.SubjectModel) []SubjectResponse {
 	out := make([]SubjectResponse, 0, len(rows))
 	for i := range rows {
 		out = append(out, FromSubjectModel(rows[i]))

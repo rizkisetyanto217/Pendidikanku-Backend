@@ -1,4 +1,4 @@
-// internals/features/lembaga/classes/subjects/main/controller/class_subject_list_controller.go
+// file: internals/features/lembaga/classes/subjects/main/controller/class_subject_list_controller.go
 package controller
 
 import (
@@ -75,58 +75,58 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 
 	// ===== Base query (single-tenant via context) =====
 	tx := h.DB.Model(&csModel.ClassSubjectModel{}).
-		Where("class_subjects_masjid_id = ?", masjidID)
+		Where("class_subject_masjid_id = ?", masjidID)
 
 	// ===== Soft delete (default exclude)
 	if q.WithDeleted == nil || !*q.WithDeleted {
-		tx = tx.Where("class_subjects_deleted_at IS NULL")
+		tx = tx.Where("class_subject_deleted_at IS NULL")
 	}
 
 	// ===== Filter by id / ids (strict UUID)
-	if ids, ok, errResp := uuidListFromQuery(c, "id", "ids"); errResp != nil {
+	if ids, ok, errResp := uuidListFromQueryClassSubject(c, "id", "ids"); errResp != nil {
 		return errResp
 	} else if ok {
-		tx = tx.Where("class_subjects_id IN ?", ids)
+		tx = tx.Where("class_subject_id IN ?", ids)
 	}
 
 	// ===== Filter aktif
 	if q.IsActive != nil {
-		tx = tx.Where("class_subjects_is_active = ?", *q.IsActive)
+		tx = tx.Where("class_subject_is_active = ?", *q.IsActive)
 	}
 
 	// ===== Filter term
 	if termID, ok, errResp := uuidFromQuery(c, "term_id", "term_id tidak valid"); errResp != nil {
 		return errResp
 	} else if ok {
-		tx = tx.Where("class_subjects_term_id = ?", *termID)
+		tx = tx.Where("class_subject_term_id = ?", *termID)
 	}
-	if tids, ok, errResp := uuidListFromQuery(c, "term_ids"); errResp != nil {
+	if tids, ok, errResp := uuidListFromQueryClassSubject(c, "term_ids"); errResp != nil {
 		return errResp
 	} else if ok {
-		tx = tx.Where("class_subjects_term_id IN ?", tids)
+		tx = tx.Where("class_subject_term_id IN ?", tids)
 	}
 	if v := strings.TrimSpace(c.Query("term_id_isnull")); v != "" {
 		if c.QueryBool("term_id_isnull") {
-			tx = tx.Where("class_subjects_term_id IS NULL")
+			tx = tx.Where("class_subject_term_id IS NULL")
 		}
 	}
 
 	// ===== Search di desc
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
 		kw := "%" + strings.ToLower(strings.TrimSpace(*q.Q)) + "%"
-		tx = tx.Where("LOWER(COALESCE(class_subjects_desc,'')) LIKE ?", kw)
+		tx = tx.Where("LOWER(COALESCE(class_subject_desc,'')) LIKE ?", kw)
 	}
 
-	// ===== Sorting whitelist
-	orderBy := "class_subjects_created_at"
+	// ===== Sorting whitelist (kolom singular)
+	orderBy := "class_subject_created_at"
 	if q.OrderBy != nil {
 		switch strings.ToLower(strings.TrimSpace(*q.OrderBy)) {
 		case "order_index":
-			orderBy = "class_subjects_order_index"
+			orderBy = "class_subject_order_index"
 		case "created_at":
-			orderBy = "class_subjects_created_at"
+			orderBy = "class_subject_created_at"
 		case "updated_at":
-			orderBy = "class_subjects_updated_at"
+			orderBy = "class_subject_updated_at"
 		}
 	}
 	sort := "ASC"
@@ -144,20 +144,20 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	var rows []csModel.ClassSubjectModel
 	if err := tx.
 		Select(`
-			class_subjects_id,
-			class_subjects_masjid_id,
-			class_subjects_class_id,
-			class_subjects_subject_id,
-			class_subjects_order_index,
-			class_subjects_hours_per_week,
-			class_subjects_min_passing_score,
-			class_subjects_weight_on_report,
-			class_subjects_is_core,
-			class_subjects_desc,
-			class_subjects_is_active,
-			class_subjects_created_at,
-			class_subjects_updated_at,
-			class_subjects_deleted_at
+			class_subject_id,
+			class_subject_masjid_id,
+			class_subject_class_id,
+			class_subject_subject_id,
+			class_subject_order_index,
+			class_subject_hours_per_week,
+			class_subject_min_passing_score,
+			class_subject_weight_on_report,
+			class_subject_is_core,
+			class_subject_desc,
+			class_subject_is_active,
+			class_subject_created_at,
+			class_subject_updated_at,
+			class_subject_deleted_at
 		`).
 		Order(orderBy + " " + sort).
 		Limit(limit).
@@ -178,7 +178,7 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	// ===== include=books (tenant-safe & single masjid)
 	csIDs := make([]uuid.UUID, 0, len(rows))
 	for _, m := range rows {
-		csIDs = append(csIDs, m.ClassSubjectsID)
+		csIDs = append(csIDs, m.ClassSubjectID)
 	}
 
 	linksByCS := map[uuid.UUID][]booksModel.ClassSubjectBookModel{}
@@ -187,40 +187,40 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	if len(csIDs) > 0 {
 		var links []booksModel.ClassSubjectBookModel
 		if err := h.DB.
-			Where("class_subject_books_deleted_at IS NULL").
-			Where("class_subject_books_masjid_id = ?", masjidID).
-			Where("class_subject_books_class_subject_id IN ?", csIDs).
+			Where("class_subject_book_deleted_at IS NULL").
+			Where("class_subject_book_masjid_id = ?", masjidID).
+			Where("class_subject_book_class_subject_id IN ?", csIDs).
 			Find(&links).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil relasi buku")
 		}
 		for _, l := range links {
-			linksByCS[l.ClassSubjectBooksClassSubjectID] = append(linksByCS[l.ClassSubjectBooksClassSubjectID], l)
-			bookIDsSet[l.ClassSubjectBooksBookID] = struct{}{}
+			linksByCS[l.ClassSubjectBookClassSubjectID] = append(linksByCS[l.ClassSubjectBookClassSubjectID], l)
+			bookIDsSet[l.ClassSubjectBookBookID] = struct{}{}
 		}
 	}
 
-	bookByID := map[uuid.UUID]booksModel.BooksModel{}
+	bookByID := map[uuid.UUID]booksModel.BookModel{}
 	if len(bookIDsSet) > 0 {
 		bookIDs := make([]uuid.UUID, 0, len(bookIDsSet))
 		for id := range bookIDsSet {
 			bookIDs = append(bookIDs, id)
 		}
-		var books []booksModel.BooksModel
+		var books []booksModel.BookModel
 		if err := h.DB.
-			Where("books_deleted_at IS NULL").
-			Where("books_masjid_id = ?", masjidID).
-			Where("books_id IN ?", bookIDs).
+			Where("book_deleted_at IS NULL").
+			Where("book_masjid_id = ?", masjidID).
+			Where("book_id IN ?", bookIDs).
 			Find(&books).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data buku")
 		}
 		for _, b := range books {
-			bookByID[b.BooksID] = b
+			bookByID[b.BookID] = b
 		}
 	}
 
 	items := make([]csDTO.ClassSubjectWithBooksResponse, 0, len(rows))
 	for _, m := range rows {
-		links := linksByCS[m.ClassSubjectsID]
+		links := linksByCS[m.ClassSubjectID]
 		items = append(items, csDTO.NewClassSubjectWithBooksResponse(m, links, bookByID))
 	}
 
@@ -257,4 +257,36 @@ func uuidFromQuery(c *fiber.Ctx, key string, badMsg string) (*uuid.UUID, bool, e
 		return nil, false, fiber.NewError(fiber.StatusBadRequest, badMsg)
 	}
 	return &id, true, nil
+}
+
+// // uuidListFromQuery: baca list UUID dari satu/lebih keys (mis. "id","ids")
+// // Return: (ids, foundAny, errResp)
+func uuidListFromQueryClassSubject(c *fiber.Ctx, keys ...string) ([]uuid.UUID, bool, error) {
+	seen := map[uuid.UUID]struct{}{}
+	for _, k := range keys {
+		raw := strings.TrimSpace(c.Query(k))
+		if raw == "" {
+			continue
+		}
+		parts := strings.Split(raw, ",")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			id, err := uuid.Parse(p)
+			if err != nil {
+				return nil, false, fiber.NewError(fiber.StatusBadRequest, k+" berisi UUID tidak valid")
+			}
+			seen[id] = struct{}{}
+		}
+	}
+	if len(seen) == 0 {
+		return nil, false, nil
+	}
+	out := make([]uuid.UUID, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	return out, true, nil
 }

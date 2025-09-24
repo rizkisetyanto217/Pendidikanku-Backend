@@ -34,10 +34,12 @@ import (
 	  - book_id          : UUID
 	  - is_active        : bool
 	  - with_deleted     : bool
-	  - sort             : created_at_asc|created_at_desc|updated_at_asc|updated_at_desc
-	  - limit (<=200), offset
+	  - sort             : created_at_asc|created_at_desc|updated_at_asc|updated_at_desc (kompat lama)
+	  - sort_by/order    : created_at|updated_at + asc|desc (baru, via helper)
+	  - limit/per_page (<=200), page/offset (via helper)
 	  - include          : CSV → book,section,book_urls,book_cover,book_url_primary
-	=========================================================
+
+=========================================================
 */
 func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	// 🔐 Masjid context + check DKM/Admin
@@ -55,7 +57,6 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	if rt := c.Route(); rt != nil {
 		routePath = rt.Path
 	}
-
 	log.Printf(
 		"[CSB.List] masjid_id=%s route=%s method=%s url=%s id=%q ids=%q include=%q",
 		masjidID.String(),
@@ -76,24 +77,42 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	// Parse includes
 	includes := ParseIncludeSet(strings.TrimSpace(c.Query("include")))
 
-	// Pagination guard
-	limit := 20
-	offset := 0
-	if v := IntFromPtr(q.Limit); v > 0 && v <= 200 {
-		limit = v
+	// Pagination & sorting (helper)
+	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
+
+	// Back-compat: dukung ?sort=created_at_desc|...
+	if legacy := strings.ToLower(strings.TrimSpace(c.Query("sort"))); legacy != "" {
+		switch legacy {
+		case "created_at_asc":
+			p.SortBy, p.SortOrder = "created_at", "asc"
+		case "created_at_desc":
+			p.SortBy, p.SortOrder = "created_at", "desc"
+		case "updated_at_asc":
+			p.SortBy, p.SortOrder = "updated_at", "asc"
+		case "updated_at_desc":
+			p.SortBy, p.SortOrder = "updated_at", "desc"
+		}
 	}
-	if v := IntFromPtr(q.Offset); v >= 0 {
-		offset = v
+
+	// Whitelist kolom sorting
+	allowedSort := map[string]string{
+		"created_at": "csb.class_subject_book_created_at",
+		"updated_at": "csb.class_subject_book_updated_at",
 	}
+	orderClause, err := p.SafeOrderClause(allowedSort, "created_at")
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "sort_by tidak valid")
+	}
+	orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
 
 	/* ========== BASE QUERY (TENANT-SAFE: 1 masjid) ========== */
 	qBase := h.DB.WithContext(c.Context()).
 		Table("class_subject_books AS csb").
-		Where("csb.class_subject_books_masjid_id = ?", masjidID)
+		Where("csb.class_subject_book_masjid_id = ?", masjidID)
 
 	// Soft-delete aware (default exclude)
 	if !(q.WithDeleted != nil && *q.WithDeleted) {
-		qBase = qBase.Where("csb.class_subject_books_deleted_at IS NULL")
+		qBase = qBase.Where("csb.class_subject_book_deleted_at IS NULL")
 	}
 
 	/* ========== STRICT VALIDATION: id/ids ========== */
@@ -129,7 +148,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		if len(ids) == 0 {
 			qBase = qBase.Where("1=0")
 		} else {
-			qBase = qBase.Where("csb.class_subject_books_id IN ?", ids)
+			qBase = qBase.Where("csb.class_subject_book_id IN ?", ids)
 		}
 	}
 
@@ -141,18 +160,18 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	needJoinBooks := false
 
 	if q.ClassSubjectID != nil {
-		qBase = qBase.Where("csb.class_subject_books_class_subject_id = ?", *q.ClassSubjectID)
+		qBase = qBase.Where("csb.class_subject_book_class_subject_id = ?", *q.ClassSubjectID)
 		needJoinCS = true
 	}
 	if q.BookID != nil {
-		qBase = qBase.Where("csb.class_subject_books_book_id = ?", *q.BookID)
+		qBase = qBase.Where("csb.class_subject_book_book_id = ?", *q.BookID)
 	}
 	if q.IsActive != nil {
-		qBase = qBase.Where("csb.class_subject_books_is_active = ?", *q.IsActive)
+		qBase = qBase.Where("csb.class_subject_book_is_active = ?", *q.IsActive)
 	}
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
 		qq := "%" + strings.TrimSpace(*q.Q) + "%"
-		qBase = qBase.Where("csb.class_subject_books_desc ILIKE ?", qq)
+		qBase = qBase.Where("csb.class_subject_book_desc ILIKE ?", qq)
 	}
 
 	// section_id
@@ -193,8 +212,8 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	if needJoinCS || includes["section"] || needJoinSec || needJoinCSST {
 		qBase = qBase.Joins(`
 			LEFT JOIN class_subjects AS cs
-			  ON cs.class_subjects_id = csb.class_subject_books_class_subject_id
-			 AND cs.class_subjects_masjid_id = csb.class_subject_books_masjid_id
+			  ON cs.class_subjects_id = csb.class_subject_book_class_subject_id
+			 AND cs.class_subjects_masjid_id = csb.class_subject_book_masjid_id
 		`)
 	}
 	// SEC join (pastikan masjid sama)
@@ -202,7 +221,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		qBase = qBase.Joins(`
 			LEFT JOIN class_sections AS sec
 			  ON sec.class_sections_class_id = cs.class_subjects_class_id
-			 AND sec.class_sections_masjid_id = csb.class_subject_books_masjid_id
+			 AND sec.class_sections_masjid_id = csb.class_subject_book_masjid_id
 			 AND sec.class_sections_deleted_at IS NULL
 		`)
 	}
@@ -212,7 +231,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 			LEFT JOIN class_section_subject_teachers AS csst
 			  ON csst.class_section_subject_teachers_section_id = sec.class_sections_id
 			 AND csst.class_section_subject_teachers_class_subjects_id = cs.class_subjects_id
-			 AND csst.class_section_subject_teachers_masjid_id = csb.class_subject_books_masjid_id
+			 AND csst.class_section_subject_teachers_masjid_id = csb.class_subject_book_masjid_id
 			 AND csst.class_section_subject_teachers_deleted_at IS NULL
 		`)
 	}
@@ -221,46 +240,31 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		needJoinBooks = true
 		qBase = qBase.Joins(`
 			LEFT JOIN books AS b
-			  ON b.books_id = csb.class_subject_books_book_id
-			 AND b.books_masjid_id = csb.class_subject_books_masjid_id
+			  ON b.books_id = csb.class_subject_book_book_id
+			 AND b.books_masjid_id = csb.class_subject_book_masjid_id
 		`)
 	}
 
 	/* ========== TOTAL DISTINCT ========== */
 	var total int64
 	if err := qBase.Session(&gorm.Session{}).
-		Distinct("csb.class_subject_books_id").
+		Distinct("csb.class_subject_book_id").
 		Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
-	/* ========== SORTING WHITELIST ========== */
-	sort := "created_at_desc"
-	if q.Sort != nil {
-		sort = strings.ToLower(strings.TrimSpace(*q.Sort))
-	}
-	switch sort {
-	case "created_at_asc":
-		qBase = qBase.Order("csb.class_subject_books_created_at ASC")
-	case "updated_at_asc":
-		qBase = qBase.Order("csb.class_subject_books_updated_at ASC NULLS FIRST")
-	case "updated_at_desc":
-		qBase = qBase.Order("csb.class_subject_books_updated_at DESC NULLS LAST")
-	default:
-		qBase = qBase.Order("csb.class_subject_books_created_at DESC")
-	}
-
 	/* ========== SELECT builder + LATERAL opsional ========== */
 	selectCols := []string{
-		"csb.class_subject_books_id",
-		"csb.class_subject_books_masjid_id",
-		"csb.class_subject_books_class_subject_id",
-		"csb.class_subject_books_book_id",
-		"csb.class_subject_books_is_active",
-		"csb.class_subject_books_desc",
-		"csb.class_subject_books_created_at",
-		"csb.class_subject_books_updated_at",
-		"csb.class_subject_books_deleted_at",
+		"csb.class_subject_book_id",
+		"csb.class_subject_book_masjid_id",
+		"csb.class_subject_book_class_subject_id",
+		"csb.class_subject_book_book_id",
+		"csb.class_subject_book_slug",
+		"csb.class_subject_book_is_active",
+		"csb.class_subject_book_desc",
+		"csb.class_subject_book_created_at",
+		"csb.class_subject_book_updated_at",
+		"csb.class_subject_book_deleted_at",
 	}
 
 	// Include book fields
@@ -347,15 +351,16 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	/* ========== SCAN ========== */
 	type row struct {
 		// csb
-		ID             uuid.UUID  `gorm:"column:class_subject_books_id"`
-		MasjidID       uuid.UUID  `gorm:"column:class_subject_books_masjid_id"`
-		ClassSubjectID uuid.UUID  `gorm:"column:class_subject_books_class_subject_id"`
-		BookID         uuid.UUID  `gorm:"column:class_subject_books_book_id"`
-		IsActive       bool       `gorm:"column:class_subject_books_is_active"`
-		Desc           *string    `gorm:"column:class_subject_books_desc"`
-		CreatedAt      time.Time  `gorm:"column:class_subject_books_created_at"`
-		UpdatedAt      *time.Time `gorm:"column:class_subject_books_updated_at"`
-		DeletedAt      *time.Time `gorm:"column:class_subject_books_deleted_at"`
+		ID             uuid.UUID  `gorm:"column:class_subject_book_id"`
+		MasjidID       uuid.UUID  `gorm:"column:class_subject_book_masjid_id"`
+		ClassSubjectID uuid.UUID  `gorm:"column:class_subject_book_class_subject_id"`
+		BookID         uuid.UUID  `gorm:"column:class_subject_book_book_id"`
+		Slug           *string    `gorm:"column:class_subject_book_slug"`
+		IsActive       bool       `gorm:"column:class_subject_book_is_active"`
+		Desc           *string    `gorm:"column:class_subject_book_desc"`
+		CreatedAt      time.Time  `gorm:"column:class_subject_book_created_at"`
+		UpdatedAt      time.Time `gorm:"column:class_subject_book_updated_at"`
+		DeletedAt      *time.Time `gorm:"column:class_subject_book_deleted_at"`
 		// book (opsional)
 		BID       *uuid.UUID `gorm:"column:books_id"`
 		BMasjidID *uuid.UUID `gorm:"column:books_masjid_id"`
@@ -378,12 +383,14 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	var rows []row
 	if err := qBase.
 		Select(strings.Join(selectCols, ",")).
-		Limit(limit).
-		Offset(offset).
+		Order(orderExpr).
+		Limit(p.Limit()).
+		Offset(p.Offset()).
 		Scan(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
+	
 	/* ========== MAP KE DTO ========== */
 	items := make([]csbDTO.ClassSubjectBookResponse, 0, len(rows))
 	for _, r := range rows {
@@ -392,6 +399,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 			ClassSubjectBooksMasjidID:       r.MasjidID,
 			ClassSubjectBooksClassSubjectID: r.ClassSubjectID,
 			ClassSubjectBooksBookID:         r.BookID,
+			ClassSubjectBooksSlug:           r.Slug,
 			ClassSubjectBooksIsActive:       r.IsActive,
 			ClassSubjectBooksDesc:           r.Desc,
 			ClassSubjectBooksCreatedAt:      r.CreatedAt,
@@ -437,12 +445,9 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		items = append(items, resp)
 	}
 
-	/* ========== RESPONSE LIST ========== */
-	return helper.JsonList(c, items, csbDTO.Pagination{
-		Limit:  limit,
-		Offset: offset,
-		Total:  int(total),
-	})
+	/* ========== RESPONSE LIST (pakai helper meta) ========== */
+	meta := helper.BuildMeta(total, p)
+	return helper.JsonList(c, items, meta)
 }
 
 /* ================= Helpers (exported) ================= */

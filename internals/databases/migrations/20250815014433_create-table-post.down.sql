@@ -22,6 +22,6 @@ DROP TRIGGER IF EXISTS tg_post_theme_tenant_guard ON post;
 -- =====================================================================
 -- DROP TABLES (urutan dari child ke parent)
 -- =====================================================================
-DROP TABLE IF EXISTS post_url CASCADE;
-DROP TABLE IF EXISTS post CASCADE;
-DROP TABLE IF EXISTS post_theme CASCADE;
+DROP TABLE IF EXISTS post_urls CASCADE;
+DROP TABLE IF EXISTS posts CASCADE;
+DROP TABLE IF EXISTS post_themes CASCADE;

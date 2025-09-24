@@ -58,12 +58,12 @@ func (r CreateClassSubjectBookRequest) ToModel() model.ClassSubjectBookModel {
 	}
 
 	return model.ClassSubjectBookModel{
-		ClassSubjectBooksMasjidID:       r.ClassSubjectBooksMasjidID,
-		ClassSubjectBooksClassSubjectID: r.ClassSubjectBooksClassSubjectID,
-		ClassSubjectBooksBookID:         r.ClassSubjectBooksBookID,
-		ClassSubjectBooksSlug:           slug,
-		ClassSubjectBooksIsActive:       isActive,
-		ClassSubjectBooksDesc:           desc,
+		ClassSubjectBookMasjidID:       r.ClassSubjectBooksMasjidID,
+		ClassSubjectBookClassSubjectID: r.ClassSubjectBooksClassSubjectID,
+		ClassSubjectBookBookID:         r.ClassSubjectBooksBookID,
+		ClassSubjectBookSlug:           slug,
+		ClassSubjectBookIsActive:       isActive,
+		ClassSubjectBookDesc:           desc,
 	}
 }
 
@@ -85,35 +85,35 @@ func (r *UpdateClassSubjectBookRequest) Apply(m *model.ClassSubjectBookModel) er
 		return errors.New("nil model")
 	}
 	if r.ClassSubjectBooksMasjidID != nil {
-		m.ClassSubjectBooksMasjidID = *r.ClassSubjectBooksMasjidID
+		m.ClassSubjectBookMasjidID = *r.ClassSubjectBooksMasjidID
 	}
 	if r.ClassSubjectBooksClassSubjectID != nil {
-		m.ClassSubjectBooksClassSubjectID = *r.ClassSubjectBooksClassSubjectID
+		m.ClassSubjectBookClassSubjectID = *r.ClassSubjectBooksClassSubjectID
 	}
 	if r.ClassSubjectBooksBookID != nil {
-		m.ClassSubjectBooksBookID = *r.ClassSubjectBooksBookID
+		m.ClassSubjectBookBookID = *r.ClassSubjectBooksBookID
 	}
 	if r.ClassSubjectBooksIsActive != nil {
-		m.ClassSubjectBooksIsActive = *r.ClassSubjectBooksIsActive
+		m.ClassSubjectBookIsActive = *r.ClassSubjectBooksIsActive
 	}
 	if r.ClassSubjectBooksDesc != nil {
 		d := strings.TrimSpace(*r.ClassSubjectBooksDesc)
 		if d == "" {
-			m.ClassSubjectBooksDesc = nil
+			m.ClassSubjectBookDesc = nil
 		} else {
-			m.ClassSubjectBooksDesc = &d
+			m.ClassSubjectBookDesc = &d
 		}
 	}
 	// slug: normalize di DTO; ensure-unique di controller
 	if r.ClassSubjectBooksSlug != nil {
 		s := strings.TrimSpace(*r.ClassSubjectBooksSlug)
 		if s == "" {
-			m.ClassSubjectBooksSlug = nil
+			m.ClassSubjectBookSlug = nil
 		} else {
-			m.ClassSubjectBooksSlug = &s
+			m.ClassSubjectBookSlug = &s
 		}
 	}
-	// Jangan set UpdatedAt manual—biarkan GORM/DB (kolom NOT NULL + autoUpdateTime)
+	// UpdatedAt biar diisi GORM/DB
 	return nil
 }
 
@@ -149,6 +149,9 @@ type BookURLLite struct {
 	BookURLCreatedAt          time.Time  `json:"book_url_created_at"`
 	BookURLUpdatedAt          time.Time  `json:"book_url_updated_at"`
 	BookURLDeletedAt          *time.Time `json:"book_url_deleted_at,omitempty"`
+	BookURLIsPrimary    bool      `json:"book_url_is_primary"`
+	BookURLOrder        int       `json:"book_url_order"`
+	BookURLKind         string    `json:"book_url_kind"`
 }
 
 // BookLite (opsional) — dilengkapi daftar URLs
@@ -169,14 +172,14 @@ type ClassSubjectBookResponse struct {
 	ClassSubjectBooksClassSubjectID uuid.UUID `json:"class_subject_books_class_subject_id"`
 	ClassSubjectBooksBookID         uuid.UUID `json:"class_subject_books_book_id"`
 
-	// ⬇️ baru: slug ikut dibalas
+	// slug ikut dibalas
 	ClassSubjectBooksSlug *string `json:"class_subject_books_slug,omitempty"`
 
 	ClassSubjectBooksIsActive bool    `json:"class_subject_books_is_active"`
 	ClassSubjectBooksDesc     *string `json:"class_subject_books_desc,omitempty"`
 
 	ClassSubjectBooksCreatedAt time.Time  `json:"class_subject_books_created_at"`
-	ClassSubjectBooksUpdatedAt *time.Time  `json:"class_subject_books_updated_at"`
+	ClassSubjectBooksUpdatedAt time.Time  `json:"class_subject_books_updated_at"` // NOT NULL di model
 	ClassSubjectBooksDeletedAt *time.Time `json:"class_subject_books_deleted_at,omitempty"`
 
 	// opsional join
@@ -201,27 +204,27 @@ type ClassSubjectBookListResponse struct {
 
 func FromModel(m model.ClassSubjectBookModel) ClassSubjectBookResponse {
 	var deletedAt *time.Time
-	if m.ClassSubjectBooksDeletedAt.Valid {
-		deletedAt = &m.ClassSubjectBooksDeletedAt.Time
+	if m.ClassSubjectBookDeletedAt.Valid {
+		deletedAt = &m.ClassSubjectBookDeletedAt.Time
 	}
 	return ClassSubjectBookResponse{
-		ClassSubjectBooksID:             m.ClassSubjectBooksID,
-		ClassSubjectBooksMasjidID:       m.ClassSubjectBooksMasjidID,
-		ClassSubjectBooksClassSubjectID: m.ClassSubjectBooksClassSubjectID,
-		ClassSubjectBooksBookID:         m.ClassSubjectBooksBookID,
-		ClassSubjectBooksSlug:           m.ClassSubjectBooksSlug,
-		ClassSubjectBooksIsActive:       m.ClassSubjectBooksIsActive,
-		ClassSubjectBooksDesc:           m.ClassSubjectBooksDesc,
-		ClassSubjectBooksCreatedAt:      m.ClassSubjectBooksCreatedAt,
-		ClassSubjectBooksUpdatedAt:      m.ClassSubjectBooksUpdatedAt, // now time.Time (NOT NULL)
+		ClassSubjectBooksID:             m.ClassSubjectBookID,
+		ClassSubjectBooksMasjidID:       m.ClassSubjectBookMasjidID,
+		ClassSubjectBooksClassSubjectID: m.ClassSubjectBookClassSubjectID,
+		ClassSubjectBooksBookID:         m.ClassSubjectBookBookID,
+		ClassSubjectBooksSlug:           m.ClassSubjectBookSlug,
+		ClassSubjectBooksIsActive:       m.ClassSubjectBookIsActive,
+		ClassSubjectBooksDesc:           m.ClassSubjectBookDesc,
+		ClassSubjectBooksCreatedAt:      m.ClassSubjectBookCreatedAt,
+		ClassSubjectBooksUpdatedAt:      m.ClassSubjectBookUpdatedAt,
 		ClassSubjectBooksDeletedAt:      deletedAt,
 	}
 }
 
 func FromModels(list []model.ClassSubjectBookModel) []ClassSubjectBookResponse {
 	out := make([]ClassSubjectBookResponse, 0, len(list))
-	for _, m := range list {
-		out = append(out, FromModel(m))
+	for _, it := range list {
+		out = append(out, FromModel(it))
 	}
 	return out
 }

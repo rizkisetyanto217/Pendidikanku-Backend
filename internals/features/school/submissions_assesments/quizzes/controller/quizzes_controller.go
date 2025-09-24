@@ -2,7 +2,6 @@
 package controller
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
@@ -35,19 +34,19 @@ func NewQuizController(db *gorm.DB) *QuizController {
 func applySort(db *gorm.DB, sort string) *gorm.DB {
 	switch strings.TrimSpace(strings.ToLower(sort)) {
 	case "created_at":
-		return db.Order("quizzes_created_at ASC")
+		return db.Order("quiz_created_at ASC")
 	case "desc_created_at", "":
-		return db.Order("quizzes_created_at DESC")
+		return db.Order("quiz_created_at DESC")
 	case "title":
-		return db.Order("quizzes_title ASC NULLS LAST")
+		return db.Order("quiz_title ASC NULLS LAST")
 	case "desc_title":
-		return db.Order("quizzes_title DESC NULLS LAST")
+		return db.Order("quiz_title DESC NULLS LAST")
 	case "published":
-		return db.Order("quizzes_is_published ASC")
+		return db.Order("quiz_is_published ASC")
 	case "desc_published":
-		return db.Order("quizzes_is_published DESC")
+		return db.Order("quiz_is_published DESC")
 	default:
-		return db.Order("quizzes_created_at DESC")
+		return db.Order("quiz_created_at DESC")
 	}
 }
 
@@ -55,23 +54,26 @@ func applyFiltersQuizzes(db *gorm.DB, q *dto.ListQuizzesQuery) *gorm.DB {
 	if q == nil {
 		return db
 	}
-	db = db.Where("quizzes_deleted_at IS NULL")
+	db = db.Where("quiz_deleted_at IS NULL")
 
 	if q.ID != nil && *q.ID != uuid.Nil {
-		db = db.Where("quizzes_id = ?", *q.ID)
+		db = db.Where("quiz_id = ?", *q.ID)
 	}
 	if q.MasjidID != nil && *q.MasjidID != uuid.Nil {
-		db = db.Where("quizzes_masjid_id = ?", *q.MasjidID)
+		db = db.Where("quiz_masjid_id = ?", *q.MasjidID)
 	}
 	if q.AssessmentID != nil && *q.AssessmentID != uuid.Nil {
-		db = db.Where("quizzes_assessment_id = ?", *q.AssessmentID)
+		db = db.Where("quiz_assessment_id = ?", *q.AssessmentID)
+	}
+	if q.Slug != nil && strings.TrimSpace(*q.Slug) != "" {
+		db = db.Where("LOWER(quiz_slug) = LOWER(?)", strings.TrimSpace(*q.Slug))
 	}
 	if q.IsPublished != nil {
-		db = db.Where("quizzes_is_published = ?", *q.IsPublished)
+		db = db.Where("quiz_is_published = ?", *q.IsPublished)
 	}
 	if s := strings.TrimSpace(q.Q); s != "" {
 		like := "%" + s + "%"
-		db = db.Where("(quizzes_title ILIKE ? OR COALESCE(quizzes_description,'') ILIKE ?)", like, like)
+		db = db.Where("(quiz_title ILIKE ? OR COALESCE(quiz_description,'') ILIKE ?)", like, like)
 	}
 	return db
 }
@@ -157,40 +159,36 @@ func (ctrl *QuizController) Create(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	body.QuizzesMasjidID = mid
+	body.QuizMasjidID = mid
 
 	// Build model dari DTO
 	m := body.ToModel()
 
-	// 🏷️ Generate slug (selalu kita isi)
-	// - pakai slug dari body kalau ada → normalisasi
-	// - else pakai judul
+	// 🏷️ Generate slug (pakai body jika ada; else dari title) → pastikan unik per tenant (alive only)
 	base := ""
-	if body.QuizzesSlug != nil && strings.TrimSpace(*body.QuizzesSlug) != "" {
-		base = helper.Slugify(*body.QuizzesSlug, 160)
+	if body.QuizSlug != nil && strings.TrimSpace(*body.QuizSlug) != "" {
+		base = helper.Slugify(*body.QuizSlug, 160)
 	} else {
-		base = helper.Slugify(body.QuizzesTitle, 160)
+		base = helper.Slugify(body.QuizTitle, 160)
 	}
-	// Pastikan unik per tenant, hanya yang belum soft-deleted
 	uniq, err := helper.EnsureUniqueSlugCI(
 		c.Context(),
 		ctrl.DB,
 		"quizzes",
-		"quizzes_slug",
+		"quiz_slug",
 		base,
 		func(q *gorm.DB) *gorm.DB {
-			return q.Where("quizzes_masjid_id = ? AND quizzes_deleted_at IS NULL", mid)
+			return q.Where("quiz_masjid_id = ? AND quiz_deleted_at IS NULL", mid)
 		},
 		160,
 	)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyiapkan slug")
 	}
-	m.QuizzesSlug = &uniq
+	m.QuizSlug = &uniq
 
 	// Simpan
 	if err := ctrl.DB.WithContext(c.Context()).Create(m).Error; err != nil {
-		// (opsional) bisa mapping 23505 → slug duplikat jika race condition
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
@@ -214,7 +212,7 @@ func (ctrl *QuizController) Patch(c *fiber.Ctx) error {
 
 	var m model.QuizModel
 	if err := ctrl.DB.WithContext(c.Context()).
-		First(&m, "quizzes_id = ? AND quizzes_masjid_id = ?", id, mid).Error; err != nil {
+		First(&m, "quiz_id = ? AND quiz_masjid_id = ?", id, mid).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return helper.JsonError(c, fiber.StatusNotFound, "Quiz tidak ditemukan")
 		}
@@ -231,35 +229,28 @@ func (ctrl *QuizController) Patch(c *fiber.Ctx) error {
 
 	updates := body.ToUpdates()
 
-	// --- Optional: handle quizzes_slug dari payload (tidak ada di DTO) ---
-	var slugBody struct {
-		QuizzesSlug *string `json:"quizzes_slug"`
-	}
-	_ = json.Unmarshal(c.Body(), &slugBody) // abaikan error; optional saja
-
-	if slugBody.QuizzesSlug != nil {
-		raw := strings.TrimSpace(*slugBody.QuizzesSlug)
+	// If slug provided (and not null), enforce uniqueness per tenant (alive-only, exclude self)
+	if body.QuizSlug.ShouldUpdate() && !body.QuizSlug.IsNull() {
+		raw := strings.TrimSpace(body.QuizSlug.Val())
 		if raw == "" {
-			// Kosongkan slug → set NULL
-			updates["quizzes_slug"] = gorm.Expr("NULL")
+			updates["quiz_slug"] = gorm.Expr("NULL")
 		} else {
 			base := helper.Slugify(raw, 160)
 			uniq, err := helper.EnsureUniqueSlugCI(
 				c.Context(),
 				ctrl.DB,
 				"quizzes",
-				"quizzes_slug",
+				"quiz_slug",
 				base,
 				func(q *gorm.DB) *gorm.DB {
-					// scope: per-tenant, alive-only, exclude diri sendiri
-					return q.Where("quizzes_masjid_id = ? AND quizzes_deleted_at IS NULL AND quizzes_id <> ?", mid, id)
+					return q.Where("quiz_masjid_id = ? AND quiz_deleted_at IS NULL AND quiz_id <> ?", mid, id)
 				},
 				160,
 			)
 			if err != nil {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyiapkan slug")
 			}
-			updates["quizzes_slug"] = uniq
+			updates["quiz_slug"] = uniq
 		}
 	}
 
@@ -269,14 +260,14 @@ func (ctrl *QuizController) Patch(c *fiber.Ctx) error {
 
 	if err := ctrl.DB.WithContext(c.Context()).
 		Model(&m).
-		Where("quizzes_id = ? AND quizzes_masjid_id = ?", id, mid).
+		Where("quiz_id = ? AND quiz_masjid_id = ?", id, mid).
 		Updates(updates).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	// reload
 	if err := ctrl.DB.WithContext(c.Context()).
-		First(&m, "quizzes_id = ? AND quizzes_masjid_id = ?", id, mid).Error; err != nil {
+		First(&m, "quiz_id = ? AND quiz_masjid_id = ?", id, mid).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
@@ -300,8 +291,8 @@ func (ctrl *QuizController) Delete(c *fiber.Ctx) error {
 
 	var m model.QuizModel
 	if err := ctrl.DB.WithContext(c.Context()).
-		Select("quizzes_id").
-		First(&m, "quizzes_id = ? AND quizzes_masjid_id = ?", id, mid).Error; err != nil {
+		Select("quiz_id").
+		First(&m, "quiz_id = ? AND quiz_masjid_id = ?", id, mid).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return helper.JsonError(c, fiber.StatusNotFound, "Quiz tidak ditemukan")
 		}
@@ -313,6 +304,6 @@ func (ctrl *QuizController) Delete(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonDeleted(c, "Quiz dihapus", fiber.Map{
-		"quizzes_id": id,
+		"quiz_id": id,
 	})
 }

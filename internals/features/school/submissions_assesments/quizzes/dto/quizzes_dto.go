@@ -11,6 +11,21 @@ import (
 	model "masjidku_backend/internals/features/school/submissions_assesments/quizzes/model"
 )
 
+/* ==============================
+   Helpers
+============================== */
+
+func trimPtr(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	v := strings.TrimSpace(*s)
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
 /*
 	==============================
 	  Helper: Tri-state updater
@@ -28,14 +43,12 @@ type UpdateField[T any] struct {
 
 func (f *UpdateField[T]) UnmarshalJSON(b []byte) error {
 	f.set = true
-	// "null" -> tandai null
 	if string(b) == "null" {
 		f.null = true
 		var zero T
 		f.value = zero
 		return nil
 	}
-	// value normal
 	return json.Unmarshal(b, &f.value)
 }
 
@@ -43,143 +56,137 @@ func (f UpdateField[T]) ShouldUpdate() bool { return f.set }
 func (f UpdateField[T]) IsNull() bool       { return f.set && f.null }
 func (f UpdateField[T]) Val() T             { return f.value }
 
-/*
-	==============================
-	  CREATE (POST /quizzes)
+/* ==============================
+   CREATE (POST /quizzes)
+============================== */
 
-==============================
-*/
 type CreateQuizRequest struct {
-	QuizzesMasjidID     uuid.UUID  `json:"quizzes_masjid_id"`
-	QuizzesAssessmentID *uuid.UUID `json:"quizzes_assessment_id" validate:"omitempty"`
+	// Tenant & relasi
+	QuizMasjidID     uuid.UUID  `json:"quiz_masjid_id" validate:"required"`
+	QuizAssessmentID *uuid.UUID `json:"quiz_assessment_id" validate:"omitempty"`
 
-	// NEW: slug (opsional; unik per tenant saat alive)
-	QuizzesSlug *string `json:"quizzes_slug" validate:"omitempty,max=160"`
+	// Identitas
+	QuizSlug        *string `json:"quiz_slug" validate:"omitempty,max=160"`
+	QuizTitle       string  `json:"quiz_title" validate:"required,max=180"`
+	QuizDescription *string `json:"quiz_description" validate:"omitempty"`
 
-	QuizzesTitle        string  `json:"quizzes_title" validate:"required,max=180"`
-	QuizzesDescription  *string `json:"quizzes_description" validate:"omitempty"`
-	QuizzesIsPublished  *bool   `json:"quizzes_is_published" validate:"omitempty"`
-	QuizzesTimeLimitSec *int    `json:"quizzes_time_limit_sec" validate:"omitempty,gte=0"`
+	// Pengaturan
+	QuizIsPublished  *bool `json:"quiz_is_published" validate:"omitempty"`
+	QuizTimeLimitSec *int  `json:"quiz_time_limit_sec" validate:"omitempty,gte=0"`
 }
 
-// ToModel: builder model dari payload Create (GORM isi timestamps)
+// ToModel: builder model dari payload Create (timestamps oleh GORM)
 func (r *CreateQuizRequest) ToModel() *model.QuizModel {
-	// Default sesuai DDL: false
 	isPub := false
-	if r.QuizzesIsPublished != nil {
-		isPub = *r.QuizzesIsPublished
+	if r.QuizIsPublished != nil {
+		isPub = *r.QuizIsPublished
 	}
 	return &model.QuizModel{
-		QuizzesMasjidID:     r.QuizzesMasjidID,
-		QuizzesAssessmentID: r.QuizzesAssessmentID,
+		QuizMasjidID:     r.QuizMasjidID,
+		QuizAssessmentID: r.QuizAssessmentID,
 
-		QuizzesSlug:        trimPtr(r.QuizzesSlug),
-		QuizzesTitle:       strings.TrimSpace(r.QuizzesTitle),
-		QuizzesDescription: trimPtr(r.QuizzesDescription),
+		QuizSlug:        trimPtr(r.QuizSlug),
+		QuizTitle:       strings.TrimSpace(r.QuizTitle),
+		QuizDescription: trimPtr(r.QuizDescription),
 
-		QuizzesIsPublished:  isPub,
-		QuizzesTimeLimitSec: r.QuizzesTimeLimitSec,
+		QuizIsPublished:  isPub,
+		QuizTimeLimitSec: r.QuizTimeLimitSec,
 	}
 }
 
-/*
-	==============================
-	  PATCH (PATCH /quizzes/:id)
-	  - gunakan UpdateField agar bisa null/skip/value
+/* ==============================
+   PATCH (PATCH /quizzes/:id)
+   - gunakan UpdateField agar bisa null/skip/value
+============================== */
 
-==============================
-*/
 type PatchQuizRequest struct {
-	QuizzesAssessmentID UpdateField[uuid.UUID] `json:"quizzes_assessment_id"` // nullable
+	QuizAssessmentID UpdateField[uuid.UUID] `json:"quiz_assessment_id"` // nullable
 
-	// NEW: slug (nullable)
-	QuizzesSlug UpdateField[string] `json:"quizzes_slug"`
+	QuizSlug        UpdateField[string] `json:"quiz_slug"`        // nullable
+	QuizTitle       UpdateField[string] `json:"quiz_title"`       // NOT NULL di DB (abaikan jika null/empty)
+	QuizDescription UpdateField[string] `json:"quiz_description"` // nullable
 
-	QuizzesTitle        UpdateField[string] `json:"quizzes_title"`       // NOT NULL di DB (abaikan jika null)
-	QuizzesDescription  UpdateField[string] `json:"quizzes_description"` // nullable
-	QuizzesIsPublished  UpdateField[bool]   `json:"quizzes_is_published"`
-	QuizzesTimeLimitSec UpdateField[int]    `json:"quizzes_time_limit_sec"` // nullable
+	QuizIsPublished  UpdateField[bool] `json:"quiz_is_published"`
+	QuizTimeLimitSec UpdateField[int]  `json:"quiz_time_limit_sec"` // nullable
 }
 
 // ToUpdates: map untuk gorm.Model(&m).Updates(...)
 func (p *PatchQuizRequest) ToUpdates() map[string]any {
 	u := make(map[string]any, 7)
 
-	// quizzes_assessment_id (nullable)
-	if p.QuizzesAssessmentID.ShouldUpdate() {
-		if p.QuizzesAssessmentID.IsNull() {
-			u["quizzes_assessment_id"] = gorm.Expr("NULL")
+	// quiz_assessment_id (nullable)
+	if p.QuizAssessmentID.ShouldUpdate() {
+		if p.QuizAssessmentID.IsNull() {
+			u["quiz_assessment_id"] = gorm.Expr("NULL")
 		} else {
-			u["quizzes_assessment_id"] = p.QuizzesAssessmentID.Val()
+			u["quiz_assessment_id"] = p.QuizAssessmentID.Val()
 		}
 	}
 
-	// quizzes_slug (nullable, max 160 — validasi panjang di controller/validator)
-	if p.QuizzesSlug.ShouldUpdate() {
-		if p.QuizzesSlug.IsNull() {
-			u["quizzes_slug"] = gorm.Expr("NULL")
+	// quiz_slug (nullable)
+	if p.QuizSlug.ShouldUpdate() {
+		if p.QuizSlug.IsNull() {
+			u["quiz_slug"] = gorm.Expr("NULL")
 		} else {
-			slug := strings.TrimSpace(p.QuizzesSlug.Val())
+			slug := strings.TrimSpace(p.QuizSlug.Val())
 			if slug == "" {
-				u["quizzes_slug"] = gorm.Expr("NULL")
+				u["quiz_slug"] = gorm.Expr("NULL")
 			} else {
-				u["quizzes_slug"] = slug
+				u["quiz_slug"] = slug
 			}
 		}
 	}
 
-	// quizzes_title (NOT NULL) -> abaikan jika null
-	if p.QuizzesTitle.ShouldUpdate() && !p.QuizzesTitle.IsNull() {
-		title := strings.TrimSpace(p.QuizzesTitle.Val())
+	// quiz_title (NOT NULL) -> abaikan jika null/empty
+	if p.QuizTitle.ShouldUpdate() && !p.QuizTitle.IsNull() {
+		title := strings.TrimSpace(p.QuizTitle.Val())
 		if title != "" {
-			u["quizzes_title"] = title
+			u["quiz_title"] = title
 		}
 	}
 
-	// quizzes_description (nullable)
-	if p.QuizzesDescription.ShouldUpdate() {
-		if p.QuizzesDescription.IsNull() {
-			u["quizzes_description"] = gorm.Expr("NULL")
+	// quiz_description (nullable)
+	if p.QuizDescription.ShouldUpdate() {
+		if p.QuizDescription.IsNull() {
+			u["quiz_description"] = gorm.Expr("NULL")
 		} else {
-			desc := strings.TrimSpace(p.QuizzesDescription.Val())
+			desc := strings.TrimSpace(p.QuizDescription.Val())
 			if desc == "" {
-				u["quizzes_description"] = gorm.Expr("NULL")
+				u["quiz_description"] = gorm.Expr("NULL")
 			} else {
-				u["quizzes_description"] = &desc // simpan sebagai *string
+				u["quiz_description"] = &desc
 			}
 		}
 	}
 
-	// quizzes_is_published (bool)
-	if p.QuizzesIsPublished.ShouldUpdate() && !p.QuizzesIsPublished.IsNull() {
-		u["quizzes_is_published"] = p.QuizzesIsPublished.Val()
+	// quiz_is_published (bool)
+	if p.QuizIsPublished.ShouldUpdate() && !p.QuizIsPublished.IsNull() {
+		u["quiz_is_published"] = p.QuizIsPublished.Val()
 	}
 
-	// quizzes_time_limit_sec (nullable int)
-	if p.QuizzesTimeLimitSec.ShouldUpdate() {
-		if p.QuizzesTimeLimitSec.IsNull() {
-			u["quizzes_time_limit_sec"] = gorm.Expr("NULL")
+	// quiz_time_limit_sec (nullable int)
+	if p.QuizTimeLimitSec.ShouldUpdate() {
+		if p.QuizTimeLimitSec.IsNull() {
+			u["quiz_time_limit_sec"] = gorm.Expr("NULL")
 		} else {
-			u["quizzes_time_limit_sec"] = p.QuizzesTimeLimitSec.Val()
+			u["quiz_time_limit_sec"] = p.QuizTimeLimitSec.Val()
 		}
 	}
 
 	return u
 }
 
-/*
-	==============================
-	  QUERY (GET /quizzes)
+/* ==============================
+   QUERY (GET /quizzes)
+============================== */
 
-==============================
-*/
 type ListQuizzesQuery struct {
 	// filter dasar
 	MasjidID     *uuid.UUID `query:"masjid_id" validate:"omitempty"`
-	ID           *uuid.UUID `query:"id"        validate:"omitempty,uuid"` // filter by ID
+	ID           *uuid.UUID `query:"id" validate:"omitempty,uuid"` // quiz_id
 	AssessmentID *uuid.UUID `query:"assessment_id" validate:"omitempty"`
 
-	// NEW: filter by slug (exact)
+	// filter by slug (exact)
 	Slug *string `query:"slug" validate:"omitempty,max=160"`
 
 	IsPublished *bool  `query:"is_published" validate:"omitempty"`
@@ -197,28 +204,25 @@ type ListQuizzesQuery struct {
 	WithQuestionsCount bool   `query:"with_questions_count"`
 }
 
-/*
-	==============================
-	  RESPONSE DTOs
+/* ==============================
+   RESPONSE DTOs
+============================== */
 
-==============================
-*/
 type QuizResponse struct {
-	QuizzesID           uuid.UUID  `json:"quizzes_id"`
-	QuizzesMasjidID     uuid.UUID  `json:"quizzes_masjid_id"`
-	QuizzesAssessmentID *uuid.UUID `json:"quizzes_assessment_id,omitempty"`
+	QuizID           uuid.UUID  `json:"quiz_id"`
+	QuizMasjidID     uuid.UUID  `json:"quiz_masjid_id"`
+	QuizAssessmentID *uuid.UUID `json:"quiz_assessment_id,omitempty"`
 
-	// NEW: slug
-	QuizzesSlug *string `json:"quizzes_slug,omitempty"`
+	QuizSlug *string `json:"quiz_slug,omitempty"`
 
-	QuizzesTitle        string  `json:"quizzes_title"`
-	QuizzesDescription  *string `json:"quizzes_description,omitempty"`
-	QuizzesIsPublished  bool    `json:"quizzes_is_published"`
-	QuizzesTimeLimitSec *int    `json:"quizzes_time_limit_sec,omitempty"`
+	QuizTitle        string  `json:"quiz_title"`
+	QuizDescription  *string `json:"quiz_description,omitempty"`
+	QuizIsPublished  bool    `json:"quiz_is_published"`
+	QuizTimeLimitSec *int    `json:"quiz_time_limit_sec,omitempty"`
 
-	QuizzesCreatedAt time.Time  `json:"quizzes_created_at"`
-	QuizzesUpdatedAt time.Time  `json:"quizzes_updated_at"`
-	QuizzesDeletedAt *time.Time `json:"quizzes_deleted_at,omitempty"`
+	QuizCreatedAt time.Time  `json:"quiz_created_at"`
+	QuizUpdatedAt time.Time  `json:"quiz_updated_at"`
+	QuizDeletedAt *time.Time `json:"quiz_deleted_at,omitempty"`
 
 	Questions      []*QuizQuestionResponse `json:"questions,omitempty"`
 	QuestionsCount *int                    `json:"questions_count,omitempty"`
@@ -229,32 +233,30 @@ type ListQuizResponse struct {
 	Pagination any            `json:"pagination"`
 }
 
-/*
-	==============================
-	  MAPPERS
+/* ==============================
+   MAPPERS
+============================== */
 
-==============================
-*/
 func FromModel(m *model.QuizModel) QuizResponse {
 	var deletedAt *time.Time
-	if m.QuizzesDeletedAt.Valid {
-		t := m.QuizzesDeletedAt.Time
+	if m.QuizDeletedAt.Valid {
+		t := m.QuizDeletedAt.Time
 		deletedAt = &t
 	}
 	return QuizResponse{
-		QuizzesID:           m.QuizzesID,
-		QuizzesMasjidID:     m.QuizzesMasjidID,
-		QuizzesAssessmentID: m.QuizzesAssessmentID,
+		QuizID:           m.QuizID,
+		QuizMasjidID:     m.QuizMasjidID,
+		QuizAssessmentID: m.QuizAssessmentID,
 
-		QuizzesSlug:         m.QuizzesSlug,
-		QuizzesTitle:        m.QuizzesTitle,
-		QuizzesDescription:  m.QuizzesDescription,
-		QuizzesIsPublished:  m.QuizzesIsPublished,
-		QuizzesTimeLimitSec: m.QuizzesTimeLimitSec,
+		QuizSlug:         m.QuizSlug,
+		QuizTitle:        m.QuizTitle,
+		QuizDescription:  m.QuizDescription,
+		QuizIsPublished:  m.QuizIsPublished,
+		QuizTimeLimitSec: m.QuizTimeLimitSec,
 
-		QuizzesCreatedAt: m.QuizzesCreatedAt,
-		QuizzesUpdatedAt: m.QuizzesUpdatedAt,
-		QuizzesDeletedAt: deletedAt,
+		QuizCreatedAt: m.QuizCreatedAt,
+		QuizUpdatedAt: m.QuizUpdatedAt,
+		QuizDeletedAt: deletedAt,
 	}
 }
 

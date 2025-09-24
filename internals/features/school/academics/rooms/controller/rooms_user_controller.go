@@ -1,9 +1,10 @@
+// file: internals/features/school/class_rooms/controller/class_room_controller.go
 package controller
 
 import (
 	"errors"
-	"masjidku_backend/internals/features/school/academics/rooms/dto"
-	"masjidku_backend/internals/features/school/academics/rooms/model"
+	dto "masjidku_backend/internals/features/school/academics/rooms/dto"
+	model "masjidku_backend/internals/features/school/academics/rooms/model"
 	"strings"
 	"time"
 
@@ -50,7 +51,7 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	// parse qparams legacy
 	var q dto.ListClassRoomsQuery
 	if err := c.QueryParser(&q); err != nil {
-	 return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 	q.Normalize()
 
@@ -70,10 +71,10 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	// sort & paging
 	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
 	allowedSort := map[string]string{
-		"name":       "class_rooms_name",
-		"slug":       "class_rooms_slug",
-		"created_at": "class_rooms_created_at",
-		"updated_at": "class_rooms_updated_at",
+		"name":       "class_room_name",
+		"slug":       "class_room_slug",
+		"created_at": "class_room_created_at",
+		"updated_at": "class_room_updated_at",
 	}
 	orderCol := allowedSort["created_at"]
 	if col, ok := allowedSort[strings.ToLower(p.SortBy)]; ok {
@@ -86,21 +87,21 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	// legacy override
 	switch strings.ToLower(strings.TrimSpace(q.Sort)) {
 	case "name_asc":
-		orderCol, orderDir = "class_rooms_name", "ASC"
+		orderCol, orderDir = "class_room_name", "ASC"
 	case "name_desc":
-		orderCol, orderDir = "class_rooms_name", "DESC"
+		orderCol, orderDir = "class_room_name", "DESC"
 	case "slug_asc":
-		orderCol, orderDir = "class_rooms_slug", "ASC"
+		orderCol, orderDir = "class_room_slug", "ASC"
 	case "slug_desc":
-		orderCol, orderDir = "class_rooms_slug", "DESC"
+		orderCol, orderDir = "class_room_slug", "DESC"
 	case "created_asc":
-		orderCol, orderDir = "class_rooms_created_at", "ASC"
+		orderCol, orderDir = "class_room_created_at", "ASC"
 	case "created_desc":
-		orderCol, orderDir = "class_rooms_created_at", "DESC"
+		orderCol, orderDir = "class_room_created_at", "DESC"
 	}
 
 	db := ctl.DB.WithContext(reqCtx(c)).Model(&model.ClassRoomModel{}).
-		Where("class_rooms_masjid_id = ? AND class_rooms_deleted_at IS NULL", masjidID)
+		Where("class_room_masjid_id = ? AND class_room_deleted_at IS NULL", masjidID)
 
 	// filter by id
 	if roomID := strings.TrimSpace(c.Query("class_room_id", c.Query("id"))); roomID != "" {
@@ -112,29 +113,29 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	}
 
 	// filter by slug (support kedua nama param)
-	if slug := strings.TrimSpace(c.Query("class_rooms_slug", c.Query("slug"))); slug != "" {
-		db = db.Where("LOWER(class_rooms_slug) = LOWER(?)", slug)
+	if slug := strings.TrimSpace(c.Query("class_room_slug", c.Query("class_rooms_slug", c.Query("slug")))); slug != "" {
+		db = db.Where("LOWER(class_room_slug) = LOWER(?)", slug)
 	}
 
 	// search & flags
 	if q.Search != "" {
 		s := "%" + strings.ToLower(q.Search) + "%"
 		db = db.Where(`
-			LOWER(class_rooms_name) LIKE ?
-			OR LOWER(COALESCE(class_rooms_code,'')) LIKE ?
-			OR LOWER(COALESCE(class_rooms_slug,'')) LIKE ?
-			OR LOWER(COALESCE(class_rooms_location,'')) LIKE ?
-			OR LOWER(COALESCE(class_rooms_description,'')) LIKE ?
+			LOWER(class_room_name) LIKE ?
+			OR LOWER(COALESCE(class_room_code,'')) LIKE ?
+			OR LOWER(COALESCE(class_room_slug,'')) LIKE ?
+			OR LOWER(COALESCE(class_room_location,'')) LIKE ?
+			OR LOWER(COALESCE(class_room_description,'')) LIKE ?
 		`, s, s, s, s, s)
 	}
 	if q.IsActive != nil {
-		db = db.Where("class_rooms_is_active = ?", *q.IsActive)
+		db = db.Where("class_room_is_active = ?", *q.IsActive)
 	}
 	if q.IsVirtual != nil {
-		db = db.Where("class_rooms_is_virtual = ?", *q.IsVirtual)
+		db = db.Where("class_room_is_virtual = ?", *q.IsVirtual)
 	}
 	if q.HasCodeOnly != nil && *q.HasCodeOnly {
-		db = db.Where("class_rooms_code IS NOT NULL AND length(trim(class_rooms_code)) > 0")
+		db = db.Where("class_room_code IS NOT NULL AND length(trim(class_room_code)) > 0")
 	}
 
 	// count

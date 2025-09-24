@@ -4,7 +4,7 @@
 BEGIN;
 
 -- -------------------------------
--- 1) Hapus index di users_profile
+-- 1) Hapus index di user_profiles
 -- -------------------------------
 DROP INDEX IF EXISTS idx_users_profile_display_name_trgm;
 DROP INDEX IF EXISTS idx_users_profile_location;
@@ -13,9 +13,9 @@ DROP INDEX IF EXISTS idx_users_profile_gender;
 DROP INDEX IF EXISTS idx_users_profile_user_id_alive;
 
 -- -------------------------------
--- 2) Hapus tabel users_profile
+-- 2) Hapus tabel user_profiles
 -- -------------------------------
-DROP TABLE IF EXISTS users_profile CASCADE;
+DROP TABLE IF EXISTS user_profiles CASCADE;
 
 -- -------------------------------
 -- 3) Hapus index di users

@@ -1,7 +1,7 @@
 BEGIN;
 
 -- =========================
--- Prasyarat khusus class_rooms
+-- Prasyarat class_rooms
 -- =========================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;  -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;   -- trigram untuk GIN trgm
@@ -13,59 +13,97 @@ CREATE TABLE IF NOT EXISTS class_rooms (
   class_room_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant / scope
-  class_rooms_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_room_masjid_id UUID NOT NULL
+    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   -- identitas ruang
-  class_rooms_name      TEXT NOT NULL,
-  class_rooms_code      TEXT,
-  class_rooms_slug      VARCHAR(50),
-  class_rooms_location  TEXT,
-  class_rooms_capacity  INT CHECK (class_rooms_capacity >= 0),
-  class_rooms_description TEXT,
+  class_room_name        TEXT        NOT NULL,
+  class_room_code        TEXT,              -- kode opsional
+  class_room_slug        VARCHAR(50),       -- slug opsional
+  class_room_location    TEXT,
+  class_room_capacity    INT CHECK (class_room_capacity >= 0),
+  class_room_description TEXT,
 
   -- karakteristik
-  class_rooms_is_virtual BOOLEAN NOT NULL DEFAULT FALSE,
-  class_rooms_is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+  class_room_is_virtual  BOOLEAN NOT NULL DEFAULT FALSE,
+  class_room_is_active   BOOLEAN NOT NULL DEFAULT TRUE,
 
   -- daftar fasilitas (opsional)
-  class_rooms_features  JSONB NOT NULL DEFAULT '[]'::jsonb,
+  class_room_features    JSONB   NOT NULL DEFAULT '[]'::jsonb,
 
   -- timestamps standar GORM (isi/update oleh aplikasi)
-  class_rooms_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_rooms_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_rooms_deleted_at TIMESTAMPTZ
+  class_room_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_room_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_room_deleted_at  TIMESTAMPTZ,
+
+  -- =========================
+  -- Validasi ringan
+  -- =========================
+  -- name tidak boleh hanya spasi
+  CONSTRAINT chk_cr_name_not_blank CHECK (length(btrim(coalesce(class_room_name, ''))) > 0),
+
+  -- slug lowercase aman (opsional); boleh NULL
+  CONSTRAINT chk_cr_slug_format CHECK (
+    class_room_slug IS NULL OR class_room_slug ~ '^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$'
+  ),
+
+  -- code alfanumerik plus _- .(opsional); boleh spasi? → tidak
+  CONSTRAINT chk_cr_code_format CHECK (
+    class_room_code IS NULL OR class_room_code ~ '^[A-Za-z0-9._-]+$'
+  ),
+
+  -- features harus array
+  CONSTRAINT chk_cr_features_is_array CHECK (jsonb_typeof(class_room_features) = 'array')
 );
 
+-- =========================================================
+-- INDEXES & UNIQUES (soft-delete aware)
+-- =========================================================
+
 -- Uniques per tenant (case-insensitive) → hanya baris alive
-CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_name_ci
-  ON class_rooms (class_rooms_masjid_id, lower(class_rooms_name))
-  WHERE class_rooms_deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_name_ci_alive
+  ON class_rooms (class_room_masjid_id, lower(class_room_name))
+  WHERE class_room_deleted_at IS NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_code_ci
-  ON class_rooms (class_rooms_masjid_id, lower(class_rooms_code))
-  WHERE class_rooms_deleted_at IS NULL
-    AND class_rooms_code IS NOT NULL
-    AND length(trim(class_rooms_code)) > 0;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_code_ci_alive
+  ON class_rooms (class_room_masjid_id, lower(class_room_code))
+  WHERE class_room_deleted_at IS NULL
+    AND class_room_code IS NOT NULL
+    AND length(btrim(class_room_code)) > 0;
 
--- Indeks bantu
-CREATE INDEX IF NOT EXISTS idx_class_rooms_tenant_active
-  ON class_rooms (class_rooms_masjid_id, class_rooms_is_active)
-  WHERE class_rooms_deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_slug_ci_alive
+  ON class_rooms (class_room_masjid_id, lower(class_room_slug))
+  WHERE class_room_deleted_at IS NULL
+    AND class_room_slug IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_class_rooms_features_gin
-  ON class_rooms USING GIN (class_rooms_features jsonb_path_ops)
-  WHERE class_rooms_deleted_at IS NULL;
+-- Lookups umum
+CREATE INDEX IF NOT EXISTS idx_class_rooms_masjid_alive
+  ON class_rooms (class_room_masjid_id)
+  WHERE class_room_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_class_rooms_name_trgm
-  ON class_rooms USING GIN (class_rooms_name gin_trgm_ops)
-  WHERE class_rooms_deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_class_rooms_tenant_active_alive
+  ON class_rooms (class_room_masjid_id, class_room_is_active)
+  WHERE class_room_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_class_rooms_location_trgm
-  ON class_rooms USING GIN (class_rooms_location gin_trgm_ops)
-  WHERE class_rooms_deleted_at IS NULL;
+-- Fitur JSONB (query @> / ?/ ?| / path)
+CREATE INDEX IF NOT EXISTS idx_class_rooms_features_gin_alive
+  ON class_rooms USING GIN (class_room_features jsonb_path_ops)
+  WHERE class_room_deleted_at IS NULL;
 
+-- Pencarian teks bebas (ILIKE) untuk name & location
+CREATE INDEX IF NOT EXISTS idx_class_rooms_name_trgm_alive
+  ON class_rooms USING GIN (class_room_name gin_trgm_ops)
+  WHERE class_room_deleted_at IS NULL;
 
+CREATE INDEX IF NOT EXISTS idx_class_rooms_location_trgm_alive
+  ON class_rooms USING GIN (class_room_location gin_trgm_ops)
+  WHERE class_room_deleted_at IS NULL;
 
+-- Arsip waktu (scan besar efisien)
+CREATE INDEX IF NOT EXISTS brin_class_rooms_created_at
+  ON class_rooms USING BRIN (class_room_created_at);
+
+  
 
 -- =========================================================
 -- ENUM: virtual_platform_enum (idempotent via DO block)

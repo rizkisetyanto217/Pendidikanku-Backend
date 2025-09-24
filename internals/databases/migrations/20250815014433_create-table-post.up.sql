@@ -4,9 +4,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- =====================================================================
 -- OPTIONAL HELPER INDEXES (aman jika tabel tujuan memang ada)
--- =====================================================================
--- =====================================================================
--- OPTIONAL HELPER INDEXES (aman jika tabel tujuan memang ada)
+-- (TIDAK DIUBAH)
 -- =====================================================================
 DO $do$
 BEGIN
@@ -51,20 +49,17 @@ BEGIN
 END
 $do$;
 
-
 -- =====================================================================
--- TABLE: post_theme  (tema tunggal untuk banyak fungsi)
+-- TABLE: post_themes  (pluralized)
 -- =====================================================================
-CREATE TABLE IF NOT EXISTS post_theme (
+CREATE TABLE IF NOT EXISTS post_themes (
   post_theme_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   post_theme_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  -- jenis tema (bisa diperluas)
   post_theme_kind      VARCHAR(24) NOT NULL
     CHECK (post_theme_kind IN ('announcement','material','post','other')),
 
-  -- hierarki opsional (parent → child)
-  post_theme_parent_id UUID NULL REFERENCES post_theme(post_theme_id) ON DELETE SET NULL,
+  post_theme_parent_id UUID NULL REFERENCES post_themes(post_theme_id) ON DELETE SET NULL,
 
   post_theme_name      VARCHAR(80)  NOT NULL,
   post_theme_slug      VARCHAR(120) NOT NULL,
@@ -74,7 +69,6 @@ CREATE TABLE IF NOT EXISTS post_theme (
   post_theme_description  TEXT,
   post_theme_is_active    BOOLEAN NOT NULL DEFAULT TRUE,
 
-  -- ikon opsional (2-slot + retensi)
   post_theme_icon_url                  TEXT,
   post_theme_icon_object_key           TEXT,
   post_theme_icon_url_old              TEXT,
@@ -86,62 +80,56 @@ CREATE TABLE IF NOT EXISTS post_theme (
   post_theme_deleted_at TIMESTAMPTZ
 );
 
--- Indexing post_theme
+-- Indexing post_themes (disesuaikan ON ke tabel baru)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_post_theme_name_per_tenant_kind_alive
-  ON post_theme (post_theme_masjid_id, post_theme_kind, lower(post_theme_name))
+  ON post_themes (post_theme_masjid_id, post_theme_kind, lower(post_theme_name))
   WHERE post_theme_deleted_at IS NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_post_theme_slug_per_tenant_kind_alive
-  ON post_theme (post_theme_masjid_id, post_theme_kind, lower(post_theme_slug))
+  ON post_themes (post_theme_masjid_id, post_theme_kind, lower(post_theme_slug))
   WHERE post_theme_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_post_theme_tenant_kind_active_alive
-  ON post_theme (post_theme_masjid_id, post_theme_kind, post_theme_is_active)
+  ON post_themes (post_theme_masjid_id, post_theme_kind, post_theme_is_active)
   WHERE post_theme_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_post_theme_parent_alive
-  ON post_theme (post_theme_parent_id)
+  ON post_themes (post_theme_parent_id)
   WHERE post_theme_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS gin_post_theme_name_trgm_alive
-  ON post_theme USING GIN (post_theme_name gin_trgm_ops)
+  ON post_themes USING GIN (post_theme_name gin_trgm_ops)
   WHERE post_theme_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_post_theme_icon_purge_due
-  ON post_theme (post_theme_icon_delete_pending_until)
+  ON post_themes (post_theme_icon_delete_pending_until)
   WHERE post_theme_icon_object_key_old IS NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_post_theme_id_tenant
-  ON post_theme (post_theme_id, post_theme_masjid_id);
+  ON post_themes (post_theme_id, post_theme_masjid_id);
 
 -- =====================================================================
--- TABLE: post  (announcement, material, post, other)
+-- TABLE: posts  (pluralized)
 -- =====================================================================
-CREATE TABLE IF NOT EXISTS post (
+CREATE TABLE IF NOT EXISTS posts (
   post_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   post_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  -- jenis konten
   post_kind VARCHAR(24) NOT NULL
     CHECK (post_kind IN ('announcement','material','post','other')),
 
-  -- metadata pengirim
   is_dkm_sender BOOLEAN NOT NULL DEFAULT FALSE,
-  post_created_by_teacher_id UUID NULL,    -- jika pengirim guru
+  post_created_by_teacher_id UUID NULL,
 
-  -- quick filter opsional (legacy)
   post_class_section_id UUID NULL,
 
-  -- tema (harus match kind via trigger)
   post_theme_id UUID NULL,
 
-  -- identitas & konten
   post_slug    VARCHAR(160),
   post_title   VARCHAR(200) NOT NULL,
   post_date    DATE NOT NULL,
   post_content TEXT NOT NULL,
 
-  -- konten tambahan
   post_excerpt TEXT,
   post_meta    JSONB,
 
@@ -151,22 +139,18 @@ CREATE TABLE IF NOT EXISTS post (
   post_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   post_deleted_at TIMESTAMPTZ,
 
-  -- FTS (judul + konten + excerpt)
   post_search tsvector GENERATED ALWAYS AS (
     setweight(to_tsvector('simple', coalesce(post_title,   '')), 'A') ||
     setweight(to_tsvector('simple', coalesce(post_content, '')), 'B') ||
     setweight(to_tsvector('simple', coalesce(post_excerpt, '')), 'C')
   ) STORED,
 
-  -- snapshot target sections (aktif saat post_kind='announcement')
   post_section_ids UUID[] NOT NULL DEFAULT '{}',
 
-  -- publish flags + snapshot audiens (ringkas)
   post_is_published  BOOLEAN NOT NULL DEFAULT FALSE,
   post_published_at  TIMESTAMPTZ,
   post_audience_snapshot JSONB,
 
-  -- Tenant-safe FKs (aktif kalau tabelnya ada)
   CONSTRAINT fk_post_created_by_teacher_same_tenant
     FOREIGN KEY (post_created_by_teacher_id, post_masjid_id)
     REFERENCES masjid_teachers (masjid_teacher_id, masjid_teacher_masjid_id)
@@ -179,58 +163,54 @@ CREATE TABLE IF NOT EXISTS post (
 
   CONSTRAINT fk_post_theme_same_tenant
     FOREIGN KEY (post_theme_id, post_masjid_id)
-    REFERENCES post_theme (post_theme_id, post_theme_masjid_id)
+    REFERENCES post_themes (post_theme_id, post_theme_masjid_id)
     ON UPDATE CASCADE ON DELETE SET NULL
 );
 
--- Indexing post
+-- Indexing posts
 CREATE UNIQUE INDEX IF NOT EXISTS uq_post_id_tenant
-  ON post (post_id, post_masjid_id);
+  ON posts (post_id, post_masjid_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_post_slug_per_tenant_alive
-  ON post (post_masjid_id, lower(post_slug))
+  ON posts (post_masjid_id, lower(post_slug))
   WHERE post_deleted_at IS NULL AND post_slug IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS ix_post_tenant_kind_date_live
-  ON post (post_masjid_id, post_kind, post_date DESC)
+  ON posts (post_masjid_id, post_kind, post_date DESC)
   WHERE post_deleted_at IS NULL AND post_is_active = TRUE;
 
 CREATE INDEX IF NOT EXISTS ix_post_theme_live
-  ON post (post_theme_id)
+  ON posts (post_theme_id)
   WHERE post_deleted_at IS NULL AND post_is_active = TRUE;
 
 CREATE INDEX IF NOT EXISTS ix_post_created_by_teacher_live
-  ON post (post_created_at DESC, post_created_by_teacher_id)
+  ON posts (post_created_at DESC, post_created_by_teacher_id)
   WHERE post_deleted_at IS NULL AND post_is_active = TRUE;
 
 CREATE INDEX IF NOT EXISTS ix_post_search_gin_live
-  ON post USING GIN (post_search)
+  ON posts USING GIN (post_search)
   WHERE post_deleted_at IS NULL AND post_is_active = TRUE;
 
 CREATE INDEX IF NOT EXISTS ix_post_title_trgm_live
-  ON post USING GIN (post_title gin_trgm_ops)
+  ON posts USING GIN (post_title gin_trgm_ops)
   WHERE post_deleted_at IS NULL AND post_is_active = TRUE;
 
 CREATE INDEX IF NOT EXISTS brin_post_created_at
-  ON post USING BRIN (post_created_at);
+  ON posts USING BRIN (post_created_at);
 
--- zero-join read untuk announcement per section
 CREATE INDEX IF NOT EXISTS ix_post_section_ids_gin_live
-  ON post USING GIN (post_section_ids)
+  ON posts USING GIN (post_section_ids)
   WHERE post_deleted_at IS NULL AND post_is_active = TRUE AND post_kind = 'announcement';
 
-
-
 -- =====================================================================
--- TABLE: post_url  (lampiran/link untuk semua jenis post)
+-- TABLE: post_urls  (pluralized)
 -- =====================================================================
-CREATE TABLE IF NOT EXISTS post_url (
+CREATE TABLE IF NOT EXISTS post_urls (
   post_url_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   post_url_masjid_id  UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
-  post_url_post_id    UUID NOT NULL REFERENCES post(post_id) ON DELETE CASCADE,
+  post_url_post_id    UUID NOT NULL REFERENCES posts(post_id) ON DELETE CASCADE,
 
-  -- jenis aset
-  post_url_kind       VARCHAR(24) NOT NULL,  -- 'banner'|'image'|'video'|'attachment'|'link'|'cover'
+  post_url_kind       VARCHAR(24) NOT NULL,
   post_url_href       TEXT,
   post_url_object_key TEXT,
   post_url_object_key_old TEXT,
@@ -245,22 +225,22 @@ CREATE TABLE IF NOT EXISTS post_url (
   post_url_delete_pending_until TIMESTAMPTZ
 );
 
--- Indexing post_url
+-- Indexing post_urls
 CREATE INDEX IF NOT EXISTS ix_post_url_by_owner_live
-  ON post_url (post_url_post_id, post_url_kind, post_url_is_primary DESC, post_url_order, post_url_created_at)
+  ON post_urls (post_url_post_id, post_url_kind, post_url_is_primary DESC, post_url_order, post_url_created_at)
   WHERE post_url_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_post_url_by_masjid_live
-  ON post_url (post_url_masjid_id)
+  ON post_urls (post_url_masjid_id)
   WHERE post_url_deleted_at IS NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_post_url_primary_per_kind_alive
-  ON post_url (post_url_post_id, post_url_kind)
+  ON post_urls (post_url_post_id, post_url_kind)
   WHERE post_url_deleted_at IS NULL
     AND post_url_is_primary = TRUE;
 
 CREATE INDEX IF NOT EXISTS ix_post_url_purge_due
-  ON post_url (post_url_delete_pending_until)
+  ON post_urls (post_url_delete_pending_until)
   WHERE post_url_delete_pending_until IS NOT NULL
     AND (
       (post_url_deleted_at IS NULL  AND post_url_object_key_old IS NOT NULL) OR
@@ -268,11 +248,11 @@ CREATE INDEX IF NOT EXISTS ix_post_url_purge_due
     );
 
 CREATE INDEX IF NOT EXISTS gin_post_url_label_trgm_live
-  ON post_url USING GIN (post_url_label gin_trgm_ops)
+  ON post_urls USING GIN (post_url_label gin_trgm_ops)
   WHERE post_url_deleted_at IS NULL;
 
 -- =====================================================================
--- TRIGGER: pastikan theme.kind == post.kind
+-- TRIGGER: pastikan theme.kind == post.kind (disesuaikan ON ke 'posts')
 -- =====================================================================
 CREATE OR REPLACE FUNCTION trg_post_theme_kind_match()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
@@ -284,7 +264,7 @@ BEGIN
 
   SELECT pt.post_theme_kind
   INTO v_theme_kind
-  FROM post_theme pt
+  FROM post_themes pt
   WHERE pt.post_theme_id = NEW.post_theme_id
     AND pt.post_theme_deleted_at IS NULL;
 
@@ -299,14 +279,14 @@ BEGIN
   RETURN NEW;
 END $$;
 
-DROP TRIGGER IF EXISTS tg_post_theme_kind_match ON post;
+DROP TRIGGER IF EXISTS tg_post_theme_kind_match ON posts;
 CREATE TRIGGER tg_post_theme_kind_match
 BEFORE INSERT OR UPDATE OF post_theme_id, post_kind
-ON post
+ON posts
 FOR EACH ROW
 EXECUTE FUNCTION trg_post_theme_kind_match();
 
--- (Opsional) Guard tenant agar theme milik tenant yang sama
+-- Guard tenant (ON posts, refer ke post_themes)
 CREATE OR REPLACE FUNCTION trg_post_theme_tenant_guard()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 DECLARE v_theme_masjid UUID;
@@ -314,7 +294,7 @@ BEGIN
   IF NEW.post_theme_id IS NULL THEN RETURN NEW; END IF;
 
   SELECT post_theme_masjid_id INTO v_theme_masjid
-  FROM post_theme
+  FROM post_themes
   WHERE post_theme_id = NEW.post_theme_id
     AND post_theme_deleted_at IS NULL;
 
@@ -325,19 +305,17 @@ BEGIN
   RETURN NEW;
 END $$;
 
-DROP TRIGGER IF EXISTS tg_post_theme_tenant_guard ON post;
+DROP TRIGGER IF EXISTS tg_post_theme_tenant_guard ON posts;
 CREATE TRIGGER tg_post_theme_tenant_guard
 BEFORE INSERT OR UPDATE OF post_theme_id, post_masjid_id
-ON post
+ON posts
 FOR EACH ROW
 EXECUTE FUNCTION trg_post_theme_tenant_guard();
 
 -- =====================================================================
--- FUNCTIONS: RESOLVER & PUBLISH (fan-out on write, no inbox)
+-- FUNCTIONS: RESOLVER & PUBLISH (update referensi ke posts/post_themes)
 -- =====================================================================
 
--- Resolver: ambil ARRAY section dari CSST (opsional filter subject)
---   NOTE: index CSST final sudah kamu pasang terpisah.
 CREATE OR REPLACE FUNCTION resolve_teacher_sections_by_csst(
   p_masjid_id UUID,
   p_teacher_id UUID,
@@ -357,7 +335,6 @@ AS $$
   ), '{}');
 $$;
 
--- Helper: simpan subject ke post_meta.class_subjects_ids (tanpa ALTER)
 CREATE OR REPLACE FUNCTION upsert_post_meta_subjects(
   p_post_id UUID,
   p_subject_ids UUID[]
@@ -369,7 +346,7 @@ BEGIN
     RETURN;
   END IF;
 
-  SELECT post_meta INTO v_meta FROM post WHERE post_id = p_post_id;
+  SELECT post_meta INTO v_meta FROM posts WHERE post_id = p_post_id;
   v_meta := COALESCE(v_meta, '{}'::jsonb);
 
   v_meta := v_meta || jsonb_build_object(
@@ -381,27 +358,26 @@ BEGIN
     )
   );
 
-  UPDATE post
+  UPDATE posts
   SET post_meta = v_meta,
       post_updated_at = NOW()
   WHERE post_id = p_post_id;
 END $$;
 
--- Publish: snapshot ke daftar sections (announcement saja)
 CREATE OR REPLACE FUNCTION publish_post_with_sections(
   p_post_id UUID,
   p_section_ids UUID[],
-  p_fill_inbox BOOLEAN DEFAULT TRUE  -- diabaikan, kompatibilitas param
+  p_fill_inbox BOOLEAN DEFAULT TRUE
 ) RETURNS VOID
 LANGUAGE plpgsql AS $$
 DECLARE v_kind TEXT;
 BEGIN
-  SELECT post_kind INTO v_kind FROM post WHERE post_id = p_post_id AND post_deleted_at IS NULL;
+  SELECT post_kind INTO v_kind FROM posts WHERE post_id = p_post_id AND post_deleted_at IS NULL;
   IF v_kind IS DISTINCT FROM 'announcement' THEN
     RAISE EXCEPTION 'publish_post_with_sections hanya untuk post_kind=announcement';
   END IF;
 
-  UPDATE post
+  UPDATE posts
   SET post_section_ids = COALESCE(p_section_ids, '{}'),
       post_is_published = TRUE,
       post_published_at = NOW(),
@@ -414,16 +390,15 @@ BEGIN
     AND post_is_active = TRUE;
 END $$;
 
--- Publish: DKM ke semua sections aktif (tanpa filter term)
 CREATE OR REPLACE FUNCTION publish_post_for_all_sections(
   p_post_id UUID,
   p_masjid_id UUID,
-  p_fill_inbox BOOLEAN DEFAULT TRUE  -- diabaikan
+  p_fill_inbox BOOLEAN DEFAULT TRUE
 ) RETURNS VOID
 LANGUAGE plpgsql AS $$
 DECLARE v_kind TEXT; v_section_ids UUID[]; v_sql TEXT;
 BEGIN
-  SELECT post_kind INTO v_kind FROM post WHERE post_id = p_post_id AND post_deleted_at IS NULL;
+  SELECT post_kind INTO v_kind FROM posts WHERE post_id = p_post_id AND post_deleted_at IS NULL;
   IF v_kind IS DISTINCT FROM 'announcement' THEN
     RAISE EXCEPTION 'publish_post_for_all_sections hanya untuk post_kind=announcement';
   END IF;
@@ -451,18 +426,17 @@ BEGIN
   PERFORM publish_post_with_sections(p_post_id, v_section_ids, TRUE);
 END $$;
 
--- Publish: via CSST (auto), subject opsional → fan-out + tag subject ke post_meta
 CREATE OR REPLACE FUNCTION publish_post_via_csst(
   p_post_id UUID,
   p_masjid_id UUID,
   p_teacher_id UUID,
   p_class_subjects_id UUID DEFAULT NULL,
-  p_fill_inbox BOOLEAN DEFAULT TRUE  -- diabaikan
+  p_fill_inbox BOOLEAN DEFAULT TRUE
 ) RETURNS VOID
 LANGUAGE plpgsql AS $$
 DECLARE v_kind TEXT; v_section_ids UUID[]; v_subject_ids UUID[];
 BEGIN
-  SELECT post_kind INTO v_kind FROM post WHERE post_id = p_post_id AND post_deleted_at IS NULL;
+  SELECT post_kind INTO v_kind FROM posts WHERE post_id = p_post_id AND post_deleted_at IS NULL;
   IF v_kind IS DISTINCT FROM 'announcement' THEN
     RAISE EXCEPTION 'publish_post_via_csst hanya untuk post_kind=announcement';
   END IF;
@@ -490,16 +464,15 @@ BEGIN
   PERFORM upsert_post_meta_subjects(p_post_id, v_subject_ids);
 END $$;
 
--- Publish: via daftar CSST IDs (pilih baris CSST tertentu)
 CREATE OR REPLACE FUNCTION publish_post_by_csst_ids(
   p_post_id UUID,
   p_csst_ids UUID[],
-  p_fill_inbox BOOLEAN DEFAULT TRUE  -- diabaikan
+  p_fill_inbox BOOLEAN DEFAULT TRUE
 ) RETURNS VOID
 LANGUAGE plpgsql AS $$
 DECLARE v_kind TEXT; v_section_ids UUID[];
 BEGIN
-  SELECT post_kind INTO v_kind FROM post WHERE post_id = p_post_id AND post_deleted_at IS NULL;
+  SELECT post_kind INTO v_kind FROM posts WHERE post_id = p_post_id AND post_deleted_at IS NULL;
   IF v_kind IS DISTINCT FROM 'announcement' THEN
     RAISE EXCEPTION 'publish_post_by_csst_ids hanya untuk post_kind=announcement';
   END IF;
@@ -525,14 +498,12 @@ BEGIN
 END $$;
 
 -- =====================================================================
--- (REFERENCE) FEED QUERY (zero-join, cepat)
+-- (REFERENCE) FEED QUERY (TIDAK DIUBAH selain nama tabel)
 -- =====================================================================
 -- SELECT p.*
--- FROM post p
+-- FROM posts p
 -- WHERE p.post_deleted_at IS NULL
 --   AND p.post_is_active = TRUE
 --   AND p.post_is_published = TRUE
 --   AND p.post_kind = 'announcement'
---   AND p.post_section_ids && ARRAY[$section_id_1, $section_id_2, ...]::uuid[]
--- ORDER BY p.post_date DESC, p.post_created_at DESC
--- LIMIT 50;
+--   AND p.post_section_ids && ARRAY[$section_id_1, $section_id_2

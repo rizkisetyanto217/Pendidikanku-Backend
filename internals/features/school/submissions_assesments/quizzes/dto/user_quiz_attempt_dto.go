@@ -11,102 +11,109 @@ import (
 )
 
 /* ==========================================================================================
-   REQUEST — CREATE
-   Use case: memulai attempt (status default 'in_progress')
+   REQUEST — CREATE (memulai attempt)
+   Server boleh meng-derive masjid_id / student_id dari context.
 ========================================================================================== */
 
-// file: .../dto/user_quiz_attempt_dto.go
-
 type CreateUserQuizAttemptRequest struct {
-	// Opsional: server akan derive dari quiz
-	UserQuizAttemptsMasjidID   *uuid.UUID `json:"user_quiz_attempts_masjid_id" validate:"omitempty,uuid"`
+	// Opsional: bisa diisi server dari context
+	UserQuizAttemptMasjidID *uuid.UUID `json:"user_quiz_attempt_masjid_id" validate:"omitempty,uuid"`
 
 	// Wajib
-	UserQuizAttemptsQuizID     uuid.UUID  `json:"user_quiz_attempts_quiz_id" validate:"required,uuid"`
+	UserQuizAttemptQuizID uuid.UUID `json:"user_quiz_attempt_quiz_id" validate:"required,uuid"`
 
-	// Opsional: siswa tidak perlu kirim; admin/dkm/teacher wajib kirim
-	UserQuizAttemptsStudentID  *uuid.UUID `json:"user_quiz_attempts_student_id" validate:"omitempty,uuid"`
+	// Opsional (untuk admin/dkm/teacher); untuk self-attempt bisa diisi server
+	UserQuizAttemptStudentID *uuid.UUID `json:"user_quiz_attempt_student_id" validate:"omitempty,uuid"`
 
 	// Opsional
-	UserQuizAttemptsStartedAt  *time.Time `json:"user_quiz_attempts_started_at" validate:"omitempty"`
+	UserQuizAttemptStartedAt *time.Time `json:"user_quiz_attempt_started_at" validate:"omitempty"`
 }
 
 func (r *CreateUserQuizAttemptRequest) ToModel() *qmodel.UserQuizAttemptModel {
 	m := &qmodel.UserQuizAttemptModel{
-		UserQuizAttemptsQuizID: r.UserQuizAttemptsQuizID,
+		UserQuizAttemptQuizID: r.UserQuizAttemptQuizID,
 	}
-	if r.UserQuizAttemptsMasjidID != nil {
-		m.UserQuizAttemptsMasjidID = *r.UserQuizAttemptsMasjidID
+	if r.UserQuizAttemptMasjidID != nil {
+		m.UserQuizAttemptMasjidID = *r.UserQuizAttemptMasjidID
 	}
-	if r.UserQuizAttemptsStudentID != nil {
-		m.UserQuizAttemptsStudentID = *r.UserQuizAttemptsStudentID
+	if r.UserQuizAttemptStudentID != nil {
+		m.UserQuizAttemptStudentID = *r.UserQuizAttemptStudentID
 	}
-	if r.UserQuizAttemptsStartedAt != nil {
-		m.UserQuizAttemptsStartedAt = *r.UserQuizAttemptsStartedAt
+	if r.UserQuizAttemptStartedAt != nil {
+		m.UserQuizAttemptStartedAt = *r.UserQuizAttemptStartedAt
 	}
 	return m
 }
 
 /* ==========================================================================================
    REQUEST — UPDATE/PATCH (PARTIAL)
-   - Gunakan pointer supaya field yang tidak dikirim tidak diubah.
-   - Ada helper konsistensi sederhana (status final → isi finished_at kalau belum).
+   Gunakan pointer supaya field yang tidak dikirim tidak diubah.
 ========================================================================================== */
 
 type UpdateUserQuizAttemptRequest struct {
-	UserQuizAttemptsMasjidID  *uuid.UUID                     `json:"user_quiz_attempts_masjid_id" validate:"omitempty"`
-	UserQuizAttemptsQuizID    *uuid.UUID                     `json:"user_quiz_attempts_quiz_id" validate:"omitempty"`
-	UserQuizAttemptsStudentID *uuid.UUID                     `json:"user_quiz_attempts_student_id" validate:"omitempty"`
+	UserQuizAttemptMasjidID  *uuid.UUID `json:"user_quiz_attempt_masjid_id" validate:"omitempty,uuid"`
+	UserQuizAttemptQuizID    *uuid.UUID `json:"user_quiz_attempt_quiz_id" validate:"omitempty,uuid"`
+	UserQuizAttemptStudentID *uuid.UUID `json:"user_quiz_attempt_student_id" validate:"omitempty,uuid"`
 
-	UserQuizAttemptsStartedAt  *time.Time                    `json:"user_quiz_attempts_started_at" validate:"omitempty"`
-	UserQuizAttemptsFinishedAt *time.Time                    `json:"user_quiz_attempts_finished_at" validate:"omitempty"`
+	UserQuizAttemptStartedAt  *time.Time `json:"user_quiz_attempt_started_at" validate:"omitempty"`
+	UserQuizAttemptFinishedAt *time.Time `json:"user_quiz_attempt_finished_at" validate:"omitempty"`
 
-	UserQuizAttemptsScoreRaw     *float64                    `json:"user_quiz_attempts_score_raw" validate:"omitempty"`
-	UserQuizAttemptsScorePercent *float64                    `json:"user_quiz_attempts_score_percent" validate:"omitempty"`
+	UserQuizAttemptScoreRaw     *float64 `json:"user_quiz_attempt_score_raw" validate:"omitempty"`
+	UserQuizAttemptScorePercent *float64 `json:"user_quiz_attempt_score_percent" validate:"omitempty"`
 
-	UserQuizAttemptsStatus *qmodel.UserQuizAttemptStatus     `json:"user_quiz_attempts_status" validate:"omitempty,oneof=in_progress submitted finished abandoned"`
+	UserQuizAttemptStatus *qmodel.UserQuizAttemptStatus `json:"user_quiz_attempt_status" validate:"omitempty,oneof=in_progress submitted finished abandoned"`
 }
 
-// ApplyToModel — patch ke model yang sudah di-load lalu cek konsistensi.
+func isValidStatus(s qmodel.UserQuizAttemptStatus) bool {
+	switch s {
+	case qmodel.UserQuizAttemptInProgress,
+		qmodel.UserQuizAttemptSubmitted,
+		qmodel.UserQuizAttemptFinished,
+		qmodel.UserQuizAttemptAbandoned:
+		return true
+	default:
+		return false
+	}
+}
+
+// ApplyToModel — patch ke model yang sudah di-load lalu cek konsistensi sederhana.
 func (r *UpdateUserQuizAttemptRequest) ApplyToModel(m *qmodel.UserQuizAttemptModel) error {
-	if r.UserQuizAttemptsMasjidID != nil {
-		m.UserQuizAttemptsMasjidID = *r.UserQuizAttemptsMasjidID
+	if r.UserQuizAttemptMasjidID != nil {
+		m.UserQuizAttemptMasjidID = *r.UserQuizAttemptMasjidID
 	}
-	if r.UserQuizAttemptsQuizID != nil {
-		m.UserQuizAttemptsQuizID = *r.UserQuizAttemptsQuizID
+	if r.UserQuizAttemptQuizID != nil {
+		m.UserQuizAttemptQuizID = *r.UserQuizAttemptQuizID
 	}
-	if r.UserQuizAttemptsStudentID != nil {
-		m.UserQuizAttemptsStudentID = *r.UserQuizAttemptsStudentID
+	if r.UserQuizAttemptStudentID != nil {
+		m.UserQuizAttemptStudentID = *r.UserQuizAttemptStudentID
 	}
-	if r.UserQuizAttemptsStartedAt != nil {
-		m.UserQuizAttemptsStartedAt = *r.UserQuizAttemptsStartedAt
+	if r.UserQuizAttemptStartedAt != nil {
+		m.UserQuizAttemptStartedAt = *r.UserQuizAttemptStartedAt
 	}
-	if r.UserQuizAttemptsFinishedAt != nil {
-		m.UserQuizAttemptsFinishedAt = r.UserQuizAttemptsFinishedAt
+	if r.UserQuizAttemptFinishedAt != nil {
+		m.UserQuizAttemptFinishedAt = r.UserQuizAttemptFinishedAt
 	}
-	if r.UserQuizAttemptsScoreRaw != nil {
-		m.UserQuizAttemptsScoreRaw = r.UserQuizAttemptsScoreRaw
+	if r.UserQuizAttemptScoreRaw != nil {
+		m.UserQuizAttemptScoreRaw = r.UserQuizAttemptScoreRaw
 	}
-	if r.UserQuizAttemptsScorePercent != nil {
-		m.UserQuizAttemptsScorePercent = r.UserQuizAttemptsScorePercent
+	if r.UserQuizAttemptScorePercent != nil {
+		m.UserQuizAttemptScorePercent = r.UserQuizAttemptScorePercent
 	}
-	if r.UserQuizAttemptsStatus != nil {
-		// validasi enum
-		if !r.UserQuizAttemptsStatus.Valid() {
-			return fmt.Errorf("invalid status: %s", r.UserQuizAttemptsStatus.String())
+	if r.UserQuizAttemptStatus != nil {
+		if !isValidStatus(*r.UserQuizAttemptStatus) {
+			return fmt.Errorf("invalid status: %s", string(*r.UserQuizAttemptStatus))
 		}
-		m.UserQuizAttemptsStatus = *r.UserQuizAttemptsStatus
+		m.UserQuizAttemptStatus = *r.UserQuizAttemptStatus
 	}
 
 	// Konsistensi sederhana:
-	// - Jika status submitted/finished/abandoned dan finished_at masih nil → set ke now.
-	// - Jika status in_progress namun finished_at terisi, biarkan (kasus edge: undo manual).
-	if m.UserQuizAttemptsStatus == qmodel.UserAttemptSubmitted ||
-		m.UserQuizAttemptsStatus == qmodel.UserAttemptFinished ||
-		m.UserQuizAttemptsStatus == qmodel.UserAttemptAbandoned {
-		if m.UserQuizAttemptsFinishedAt == nil {
+	// Jika status final dan finished_at masih nil → set sekarang.
+	if m.UserQuizAttemptStatus == qmodel.UserQuizAttemptSubmitted ||
+		m.UserQuizAttemptStatus == qmodel.UserQuizAttemptFinished ||
+		m.UserQuizAttemptStatus == qmodel.UserQuizAttemptAbandoned {
+		if m.UserQuizAttemptFinishedAt == nil {
 			now := time.Now()
-			m.UserQuizAttemptsFinishedAt = &now
+			m.UserQuizAttemptFinishedAt = &now
 		}
 	}
 
@@ -118,43 +125,44 @@ func (r *UpdateUserQuizAttemptRequest) ApplyToModel(m *qmodel.UserQuizAttemptMod
 ========================================================================================== */
 
 type UserQuizAttemptResponse struct {
-	UserQuizAttemptsID        uuid.UUID                    `json:"user_quiz_attempts_id"`
-	UserQuizAttemptsMasjidID  uuid.UUID                    `json:"user_quiz_attempts_masjid_id"`
-	UserQuizAttemptsQuizID    uuid.UUID                    `json:"user_quiz_attempts_quiz_id"`
-	UserQuizAttemptsStudentID uuid.UUID                    `json:"user_quiz_attempts_student_id"`
+	UserQuizAttemptID        uuid.UUID `json:"user_quiz_attempt_id"`
+	UserQuizAttemptMasjidID  uuid.UUID `json:"user_quiz_attempt_masjid_id"`
+	UserQuizAttemptQuizID    uuid.UUID `json:"user_quiz_attempt_quiz_id"`
+	UserQuizAttemptStudentID uuid.UUID `json:"user_quiz_attempt_student_id"`
 
-	UserQuizAttemptsStartedAt  time.Time                   `json:"user_quiz_attempts_started_at"`
-	UserQuizAttemptsFinishedAt *time.Time                  `json:"user_quiz_attempts_finished_at,omitempty"`
+	UserQuizAttemptStartedAt  time.Time  `json:"user_quiz_attempt_started_at"`
+	UserQuizAttemptFinishedAt *time.Time `json:"user_quiz_attempt_finished_at,omitempty"`
 
-	UserQuizAttemptsScoreRaw     *float64                  `json:"user_quiz_attempts_score_raw,omitempty"`
-	UserQuizAttemptsScorePercent *float64                  `json:"user_quiz_attempts_score_percent,omitempty"`
+	UserQuizAttemptScoreRaw     *float64 `json:"user_quiz_attempt_score_raw,omitempty"`
+	UserQuizAttemptScorePercent *float64 `json:"user_quiz_attempt_score_percent,omitempty"`
 
-	UserQuizAttemptsStatus qmodel.UserQuizAttemptStatus    `json:"user_quiz_attempts_status"`
+	UserQuizAttemptStatus qmodel.UserQuizAttemptStatus `json:"user_quiz_attempt_status"`
 
-	UserQuizAttemptsCreatedAt time.Time                    `json:"user_quiz_attempts_created_at"`
-	UserQuizAttemptsUpdatedAt time.Time                    `json:"user_quiz_attempts_updated_at"`
+	UserQuizAttemptCreatedAt time.Time `json:"user_quiz_attempt_created_at"`
+	UserQuizAttemptUpdatedAt time.Time `json:"user_quiz_attempt_updated_at"`
 }
 
 func FromModelUserQuizAttempt(m *qmodel.UserQuizAttemptModel) *UserQuizAttemptResponse {
 	return &UserQuizAttemptResponse{
-		UserQuizAttemptsID:         m.UserQuizAttemptsID,
-		UserQuizAttemptsMasjidID:   m.UserQuizAttemptsMasjidID,
-		UserQuizAttemptsQuizID:     m.UserQuizAttemptsQuizID,
-		UserQuizAttemptsStudentID:  m.UserQuizAttemptsStudentID,
-		UserQuizAttemptsStartedAt:  m.UserQuizAttemptsStartedAt,
-		UserQuizAttemptsFinishedAt: m.UserQuizAttemptsFinishedAt,
-		UserQuizAttemptsScoreRaw:   m.UserQuizAttemptsScoreRaw,
-		UserQuizAttemptsScorePercent: m.UserQuizAttemptsScorePercent,
-		UserQuizAttemptsStatus:     m.UserQuizAttemptsStatus,
-		UserQuizAttemptsCreatedAt:  m.UserQuizAttemptsCreatedAt,
-		UserQuizAttemptsUpdatedAt:  m.UserQuizAttemptsUpdatedAt,
+		UserQuizAttemptID:           m.UserQuizAttemptID,
+		UserQuizAttemptMasjidID:     m.UserQuizAttemptMasjidID,
+		UserQuizAttemptQuizID:       m.UserQuizAttemptQuizID,
+		UserQuizAttemptStudentID:    m.UserQuizAttemptStudentID,
+		UserQuizAttemptStartedAt:    m.UserQuizAttemptStartedAt,
+		UserQuizAttemptFinishedAt:   m.UserQuizAttemptFinishedAt,
+		UserQuizAttemptScoreRaw:     m.UserQuizAttemptScoreRaw,
+		UserQuizAttemptScorePercent: m.UserQuizAttemptScorePercent,
+		UserQuizAttemptStatus:       m.UserQuizAttemptStatus,
+		UserQuizAttemptCreatedAt:    m.UserQuizAttemptCreatedAt,
+		UserQuizAttemptUpdatedAt:    m.UserQuizAttemptUpdatedAt,
 	}
 }
 
-func FromModelsUserQuizAttempts(items []*qmodel.UserQuizAttemptModel) []*UserQuizAttemptResponse {
+func FromModelsUserQuizAttempts(items []qmodel.UserQuizAttemptModel) []*UserQuizAttemptResponse {
 	out := make([]*UserQuizAttemptResponse, 0, len(items))
-	for _, it := range items {
-		out = append(out, FromModelUserQuizAttempt(it))
+	for i := range items {
+		item := items[i]
+		out = append(out, FromModelUserQuizAttempt(&item))
 	}
 	return out
 }

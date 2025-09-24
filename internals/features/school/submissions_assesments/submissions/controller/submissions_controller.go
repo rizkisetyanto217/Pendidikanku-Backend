@@ -17,8 +17,10 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+
 	dto "masjidku_backend/internals/features/school/submissions_assesments/submissions/dto"
 	model "masjidku_backend/internals/features/school/submissions_assesments/submissions/model"
+
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 	helperOSS "masjidku_backend/internals/helpers/oss"
@@ -57,22 +59,22 @@ func applyFilters(q *gorm.DB, f *dto.ListSubmissionsQuery) *gorm.DB {
 		return q
 	}
 	if f.MasjidID != nil {
-		q = q.Where("submissions_masjid_id = ?", *f.MasjidID)
+		q = q.Where("submission_masjid_id = ?", *f.MasjidID)
 	}
 	if f.AssessmentID != nil {
-		q = q.Where("submissions_assessment_id = ?", *f.AssessmentID)
+		q = q.Where("submission_assessment_id = ?", *f.AssessmentID)
 	}
 	if f.StudentID != nil {
-		q = q.Where("submissions_student_id = ?", *f.StudentID)
+		q = q.Where("submission_student_id = ?", *f.StudentID)
 	}
 	if f.Status != nil {
-		q = q.Where("submissions_status = ?", *f.Status)
+		q = q.Where("submission_status = ?", *f.Status)
 	}
 	if f.SubmittedFrom != nil {
-		q = q.Where("submissions_submitted_at >= ?", *f.SubmittedFrom)
+		q = q.Where("submission_submitted_at >= ?", *f.SubmittedFrom)
 	}
 	if f.SubmittedTo != nil {
-		q = q.Where("submissions_submitted_at < ?", *f.SubmittedTo)
+		q = q.Where("submission_submitted_at < ?", *f.SubmittedTo)
 	}
 	return q
 }
@@ -80,19 +82,19 @@ func applyFilters(q *gorm.DB, f *dto.ListSubmissionsQuery) *gorm.DB {
 func applySort(q *gorm.DB, sort string) *gorm.DB {
 	switch strings.TrimSpace(sort) {
 	case "created_at":
-		return q.Order("submissions_created_at ASC")
+		return q.Order("submission_created_at ASC")
 	case "desc_created_at", "":
-		return q.Order("submissions_created_at DESC")
+		return q.Order("submission_created_at DESC")
 	case "submitted_at":
-		return q.Order("submissions_submitted_at ASC NULLS LAST")
+		return q.Order("submission_submitted_at ASC NULLS LAST")
 	case "desc_submitted_at":
-		return q.Order("submissions_submitted_at DESC NULLS LAST")
+		return q.Order("submission_submitted_at DESC NULLS LAST")
 	case "score":
-		return q.Order("submissions_score ASC NULLS LAST")
+		return q.Order("submission_score ASC NULLS LAST")
 	case "desc_score":
-		return q.Order("submissions_score DESC NULLS LAST")
+		return q.Order("submission_score DESC NULLS LAST")
 	default:
-		return q.Order("submissions_created_at DESC")
+		return q.Order("submission_created_at DESC")
 	}
 }
 
@@ -101,17 +103,10 @@ func applySort(q *gorm.DB, sort string) *gorm.DB {
 ========================= */
 
 // POST / (STUDENT ONLY)
-// - multipart/form-data:
-//   - submission_json: JSON CreateSubmissionRequest (wajib)
-//   - urls_json: JSON array upserts (opsional)
-//   - bracket/array style: urls[0][kind], urls[0][label], urls[0][href], urls[0][object_key], urls[0][order], urls[0][is_primary]
-//   - file uploads: diupload ke OSS → dibuat URL rows ========================================================= */
 func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 	c.Locals("DB", ctrl.DB)
 
 	// ---------- Role & Masjid context (STUDENT) ----------
-	// Student boleh tidak menyertakan context eksplisit; pakai active masjid di token.
-	// Jika ada context via path/header/query/host, hormati dan pastikan caller adalah student pada masjid tsb.
 	mc, _ := helperAuth.ResolveMasjidContext(c)
 
 	var masjidID uuid.UUID
@@ -151,14 +146,14 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 	// ---------- Parse payload ----------
 	var subReq dto.CreateSubmissionRequest
 
-	// Upsert URL lokal (optional)
+	// Upsert URL lokal (optional) — pakai key DTO submission_url_*
 	type URLUpsert struct {
-		Kind      string  `json:"kind"`
-		Label     *string `json:"label"`
-		Href      *string `json:"href"`
-		ObjectKey *string `json:"object_key"`
-		Order     *int32  `json:"order"`
-		IsPrimary *bool   `json:"is_primary"`
+		SubmissionURLKind      string  `json:"submission_url_kind"`
+		SubmissionURLLabel     *string `json:"submission_url_label"`
+		SubmissionURLHref      *string `json:"submission_url_href"`
+		SubmissionURLObjectKey *string `json:"submission_url_object_key"`
+		SubmissionURLOrder     *int    `json:"submission_url_order"`
+		SubmissionURLIsPrimary *bool   `json:"submission_url_is_primary"`
 	}
 	var urlUpserts []URLUpsert
 
@@ -185,43 +180,41 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 			})
 			for _, p := range parsed {
 				up := URLUpsert{
-					Kind:      p.Kind,
-					Label:     p.Label,
-					Href:      p.Href,
-					ObjectKey: p.ObjectKey,
+					SubmissionURLKind:      strings.TrimSpace(strings.ToLower(p.Kind)),
+					SubmissionURLLabel:     p.Label,
+					SubmissionURLHref:      p.Href,
+					SubmissionURLObjectKey: p.ObjectKey,
+				}
+				if up.SubmissionURLKind == "" {
+					up.SubmissionURLKind = "attachment"
 				}
 				if p.Order != 0 {
-					o := int32(p.Order)
-					up.Order = &o
+					o := int(p.Order)
+					up.SubmissionURLOrder = &o
 				}
 				if p.IsPrimary {
 					ip := true
-					up.IsPrimary = &ip
+					up.SubmissionURLIsPrimary = &ip
 				}
-				// normalisasi ringan
-				k := strings.TrimSpace(strings.ToLower(up.Kind))
-				if k == "" {
-					k = "attachment"
+				// trim label/href/object_key
+				if up.SubmissionURLLabel != nil {
+					l := strings.TrimSpace(*up.SubmissionURLLabel)
+					up.SubmissionURLLabel = &l
 				}
-				up.Kind = k
-				if up.Label != nil {
-					l := strings.TrimSpace(*up.Label)
-					up.Label = &l
-				}
-				if up.Href != nil {
-					h := strings.TrimSpace(*up.Href)
+				if up.SubmissionURLHref != nil {
+					h := strings.TrimSpace(*up.SubmissionURLHref)
 					if h == "" {
-						up.Href = nil
+						up.SubmissionURLHref = nil
 					} else {
-						up.Href = &h
+						up.SubmissionURLHref = &h
 					}
 				}
-				if up.ObjectKey != nil {
-					ok := strings.TrimSpace(*up.ObjectKey)
+				if up.SubmissionURLObjectKey != nil {
+					ok := strings.TrimSpace(*up.SubmissionURLObjectKey)
 					if ok == "" {
-						up.ObjectKey = nil
+						up.SubmissionURLObjectKey = nil
 					} else {
-						up.ObjectKey = &ok
+						up.SubmissionURLObjectKey = &ok
 					}
 				}
 				urlUpserts = append(urlUpserts, up)
@@ -254,7 +247,6 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 	}
 
 	// ---------- Normalisasi minor submission ----------
-	// (jika status submitted/resubmitted dan submitted_at kosong, isi now)
 	status := model.SubmissionStatusSubmitted
 	if subReq.SubmissionStatus != nil {
 		status = *subReq.SubmissionStatus
@@ -290,26 +282,26 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 		created = sub
 
 		// 2) Build URL models dari upserts JSON/bracket
-		var urlModels []model.SubmissionURL
+		var urlModels []model.SubmissionURLModel
 		for _, u := range urlUpserts {
-			row := model.SubmissionURL{
+			row := model.SubmissionURLModel{
 				SubmissionURLMasjidID:     masjidID,
-				SubmissionURLSubmissionID: sub.SubmissionID, // <-- jika fieldmu bernama SubmissionsID, sesuaikan di sini
-				SubmissionURLKind:         strings.TrimSpace(strings.ToLower(u.Kind)),
-				SubmissionURLLabel:        u.Label,
-				SubmissionURLHref:         u.Href,
-				SubmissionURLObjectKey:    u.ObjectKey,
+				SubmissionURLSubmissionID: sub.SubmissionID,
+				SubmissionURLKind:         strings.TrimSpace(strings.ToLower(u.SubmissionURLKind)),
+				SubmissionURLLabel:        u.SubmissionURLLabel,
+				SubmissionURLHref:         u.SubmissionURLHref,
+				SubmissionURLObjectKey:    u.SubmissionURLObjectKey,
 				SubmissionURLIsPrimary:    false,
 				SubmissionURLOrder:        0,
 			}
 			if row.SubmissionURLKind == "" {
 				row.SubmissionURLKind = "attachment"
 			}
-			if u.IsPrimary != nil {
-				row.SubmissionURLIsPrimary = *u.IsPrimary
+			if u.SubmissionURLIsPrimary != nil {
+				row.SubmissionURLIsPrimary = *u.SubmissionURLIsPrimary
 			}
-			if u.Order != nil {
-				row.SubmissionURLOrder = *u.Order
+			if u.SubmissionURLOrder != nil {
+				row.SubmissionURLOrder = *u.SubmissionURLOrder
 			}
 			urlModels = append(urlModels, row)
 		}
@@ -330,10 +322,10 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 					for _, fh := range fhs {
 						publicURL, uerr := helperOSS.UploadAnyToOSS(ctx, oss, masjidID, "submissions", fh)
 						if uerr != nil {
-							return uerr // helper biasanya sudah fiber.Error-friendly
+							return uerr
 						}
 						// Cari slot kosong (yang belum ada href/object_key), jika tak ada → buat baru
-						var row *model.SubmissionURL
+						var row *model.SubmissionURLModel
 						for i := range urlModels {
 							if urlModels[i].SubmissionURLHref == nil && urlModels[i].SubmissionURLObjectKey == nil {
 								row = &urlModels[i]
@@ -341,11 +333,11 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 							}
 						}
 						if row == nil {
-							urlModels = append(urlModels, model.SubmissionURL{
+							urlModels = append(urlModels, model.SubmissionURLModel{
 								SubmissionURLMasjidID:     masjidID,
 								SubmissionURLSubmissionID: sub.SubmissionID,
 								SubmissionURLKind:         "attachment",
-								SubmissionURLOrder:        int32(len(urlModels) + 1),
+								SubmissionURLOrder:        len(urlModels) + 1,
 							})
 							row = &urlModels[len(urlModels)-1]
 						}
@@ -361,7 +353,7 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 			}
 		}
 
-		// 4) Simpan URL models (jika ada)
+		// 4) Simpan URL models (jika ada) + enforce primary unik per (submission, kind)
 		if len(urlModels) > 0 {
 			if err := tx.Create(&urlModels).Error; err != nil {
 				low := strings.ToLower(err.Error())
@@ -370,10 +362,9 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 				}
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan lampiran")
 			}
-			// Enforce: satu primary per (submission, kind) untuk baris live
 			for _, it := range urlModels {
 				if it.SubmissionURLIsPrimary {
-					if err := tx.Model(&model.SubmissionURL{}).
+					if err := tx.Model(&model.SubmissionURLModel{}).
 						Where(`
 							submission_url_masjid_id = ?
 							AND submission_url_submission_id = ?
@@ -402,30 +393,29 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 	resp := dto.FromModel(created)
 
 	// Ambil URLs (live) supaya FE langsung dapat
-	var rows []model.SubmissionURL
+	var rows []model.SubmissionURLModel
 	_ = ctrl.DB.
 		Where("submission_url_submission_id = ? AND submission_url_deleted_at IS NULL", created.SubmissionID).
 		Order("submission_url_is_primary DESC, submission_url_order ASC, submission_url_created_at ASC").
 		Find(&rows)
 
-	// Kamu bisa menaruh ke field `urls` pada response, atau kirimkan sebagai properti terpisah
 	return helper.JsonCreated(c, "Submission & lampiran berhasil dibuat", fiber.Map{
 		"submission": resp,
 		"urls": func() []fiber.Map {
 			out := make([]fiber.Map, 0, len(rows))
 			for i := range rows {
 				out = append(out, fiber.Map{
-					"id":            rows[i].SubmissionURLID,
-					"masjid_id":     rows[i].SubmissionURLMasjidID,
-					"submission_id": rows[i].SubmissionURLSubmissionID,
-					"kind":          rows[i].SubmissionURLKind,
-					"href":          rows[i].SubmissionURLHref,
-					"object_key":    rows[i].SubmissionURLObjectKey,
-					"label":         rows[i].SubmissionURLLabel,
-					"order":         rows[i].SubmissionURLOrder,
-					"is_primary":    rows[i].SubmissionURLIsPrimary,
-					"created_at":    rows[i].SubmissionURLCreatedAt,
-					"updated_at":    rows[i].SubmissionURLUpdatedAt,
+					"submission_url_id":            rows[i].SubmissionURLID,
+					"submission_url_masjid_id":     rows[i].SubmissionURLMasjidID,
+					"submission_url_submission_id": rows[i].SubmissionURLSubmissionID,
+					"submission_url_kind":          rows[i].SubmissionURLKind,
+					"submission_url_href":          rows[i].SubmissionURLHref,
+					"submission_url_object_key":    rows[i].SubmissionURLObjectKey,
+					"submission_url_label":         rows[i].SubmissionURLLabel,
+					"submission_url_order":         rows[i].SubmissionURLOrder,
+					"submission_url_is_primary":    rows[i].SubmissionURLIsPrimary,
+					"submission_url_created_at":    rows[i].SubmissionURLCreatedAt,
+					"submission_url_updated_at":    rows[i].SubmissionURLUpdatedAt,
 				})
 			}
 			return out
@@ -435,19 +425,6 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 
 /*
 PATCH /submissions/:id/urls   (WRITE — DKM/Teacher/Admin/Owner)
-Mendukung:
-  - JSON:
-    {
-    "urls": [
-    { "id": "...(opsional utk update)", "kind":"attachment","label":"..","href":"..","object_key":"..","order":1,"is_primary":true },
-    ...
-    ]
-    }
-  - multipart/form-data:
-  - urls_json: JSON array seperti di atas (wajib utk multipart)
-  - file uploads: akan dipasangkan berurutan ke item yg punya flag replace_file=true
-    atau jika item insert baru tanpa href/object_key, akan diisi otomatis
-  - bracket style opsional: urls[0][...] akan ikut diparse bila disediakan
 */
 func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 	c.Locals("DB", ctrl.DB)
@@ -470,7 +447,7 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 		var count int64
 		if err := ctrl.DB.WithContext(c.Context()).
 			Model(&model.Submission{}).
-			Where("submissions_id = ? AND submissions_masjid_id = ? AND submissions_deleted_at IS NULL", subID, masjidID).
+			Where("submission_id = ? AND submission_masjid_id = ? AND submission_deleted_at IS NULL", subID, masjidID).
 			Count(&count).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
@@ -483,23 +460,22 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
 
 	type upsert struct {
-		ID        *uuid.UUID `json:"id"`
-		Kind      string     `json:"kind"`
-		Label     *string    `json:"label"`
-		Href      *string    `json:"href"`
-		ObjectKey *string    `json:"object_key"`
-		Order     *int32     `json:"order"`
-		IsPrimary *bool      `json:"is_primary"`
+		ID        *uuid.UUID `json:"submission_url_id"`
+		Kind      string     `json:"submission_url_kind"`
+		Label     *string    `json:"submission_url_label"`
+		Href      *string    `json:"submission_url_href"`
+		ObjectKey *string    `json:"submission_url_object_key"`
+		Order     *int       `json:"submission_url_order"`
+		IsPrimary *bool      `json:"submission_url_is_primary"`
 		// multipart helper
 		ReplaceFile bool `json:"replace_file"`
 	}
 	var ups []upsert
 
 	if strings.HasPrefix(ct, "multipart/form-data") {
-		// urls_json wajib
+		// urls_json wajib (atau bracket fallback)
 		payload := strings.TrimSpace(c.FormValue("urls_json"))
 		if payload == "" {
-			// izinkan bracket parse sebagai fallback
 			if form, ferr := c.MultipartForm(); ferr == nil && form != nil {
 				parsed := helperOSS.ParseURLUpsertsFromMultipart(form, &helperOSS.URLParseOptions{
 					BracketPrefix: "urls",
@@ -513,7 +489,7 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 						ObjectKey: p.ObjectKey,
 					}
 					if p.Order != 0 {
-						o := int32(p.Order)
+						o := int(p.Order)
 						u.Order = &o
 					}
 					if p.IsPrimary {
@@ -577,7 +553,7 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 	// ── Transaksi ──
 	err = ctrl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		// existing live rows
-		var existing []model.SubmissionURL
+		var existing []model.SubmissionURLModel
 		if err := tx.Where(`
 			submission_url_submission_id = ?
 			AND submission_url_masjid_id = ?
@@ -585,12 +561,11 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 		`, subID, masjidID).Find(&existing).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil lampiran")
 		}
-		byID := map[uuid.UUID]*model.SubmissionURL{}
+		byID := map[uuid.UUID]*model.SubmissionURLModel{}
 		for i := range existing {
 			byID[existing[i].SubmissionURLID] = &existing[i]
 		}
 
-		// OSS + file list (opsional)
 		// OSS + file list (opsional)
 		var bucket *helperOSS.OSSService
 		var haveOSS bool
@@ -601,7 +576,7 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 			}
 		}
 
-		// Kumpulkan file dari multipart (pakai helper default)
+		// Kumpulkan file dari multipart
 		var files []*multipart.FileHeader
 		if strings.HasPrefix(ct, "multipart/form-data") {
 			if form, e := c.MultipartForm(); e == nil && form != nil {
@@ -610,12 +585,12 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 		}
 		fileIdx := 0
 
-		var touched []model.SubmissionURL
+		var touched []model.SubmissionURLModel
 
 		for _, u := range ups {
 			if u.ID == nil {
 				// INSERT
-				row := model.SubmissionURL{
+				row := model.SubmissionURLModel{
 					SubmissionURLMasjidID:     masjidID,
 					SubmissionURLSubmissionID: subID,
 					SubmissionURLKind:         u.Kind,
@@ -701,7 +676,7 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 
 			if len(patch) > 0 {
 				patch["submission_url_updated_at"] = time.Now()
-				if err := tx.Model(&model.SubmissionURL{}).
+				if err := tx.Model(&model.SubmissionURLModel{}).
 					Where("submission_url_id = ? AND submission_url_masjid_id = ? AND submission_url_submission_id = ? AND submission_url_deleted_at IS NULL",
 						*u.ID, masjidID, subID).
 					Updates(patch).Error; err != nil {
@@ -709,7 +684,7 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 				}
 			}
 
-			var latest model.SubmissionURL
+			var latest model.SubmissionURLModel
 			_ = tx.Where("submission_url_id = ?", *u.ID).First(&latest).Error
 			touched = append(touched, latest)
 		}
@@ -717,7 +692,7 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 		// Enforce: satu primary per (submission, kind)
 		for _, it := range touched {
 			if it.SubmissionURLIsPrimary {
-				if err := tx.Model(&model.SubmissionURL{}).
+				if err := tx.Model(&model.SubmissionURLModel{}).
 					Where(`
 						submission_url_masjid_id = ?
 						AND submission_url_submission_id = ?
@@ -741,7 +716,7 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 	}
 
 	// Response: list terbaru
-	var rows []model.SubmissionURL
+	var rows []model.SubmissionURLModel
 	_ = ctrl.DB.
 		Where("submission_url_submission_id = ? AND submission_url_masjid_id = ? AND submission_url_deleted_at IS NULL", subID, masjidID).
 		Order("submission_url_is_primary DESC, submission_url_order ASC, submission_url_created_at ASC").
@@ -754,11 +729,7 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 }
 
 /*
-DELETE /submissions/:submissionId/urls/:urlId (WRITE — DKM/Teacher/Admin/Owner)
-Query opsional:
-  - ?move=1 (default) → pindahkan objek ke folder spam/.. di OSS dan update href/object_key ke lokasi spam,
-    serta set delete_pending_until (supaya reaper bisa hapus permanen setelah retensi)
-  - ?move=0 → TIDAK memindahkan objek. Hanya soft delete; object_key dibiarkan apa adanya.
+DELETE /submissions/:submissionId/urls/:urlId
 */
 func (ctrl *SubmissionController) Delete(c *fiber.Ctx) error {
 	c.Locals("DB", ctrl.DB)
@@ -781,7 +752,7 @@ func (ctrl *SubmissionController) Delete(c *fiber.Ctx) error {
 	}
 
 	// Ambil rownya (live)
-	var row model.SubmissionURL
+	var row model.SubmissionURLModel
 	if err := ctrl.DB.WithContext(c.Context()).
 		Where(`
 			submission_url_id = ?
@@ -811,10 +782,10 @@ func (ctrl *SubmissionController) Delete(c *fiber.Ctx) error {
 		dstURL, merr := helperOSS.MoveToSpamByPublicURLENV(*row.SubmissionURLHref, 0)
 		if merr == nil && strings.TrimSpace(dstURL) != "" {
 			updates["submission_url_href"] = dstURL
-			if key, kerr := helperOSS.KeyFromPublicURL(dstURL); kerr == nil {
+			if key, kerr := helperOSS.ExtractKeyFromPublicURL(dstURL); kerr == nil {
 				updates["submission_url_object_key"] = key
 			}
-			// Retention window utk purge: pakai ENV RETENTION_DAYS (default 30)
+			// Retention window utk purge
 			days := 30
 			if v := os.Getenv("RETENTION_DAYS"); v != "" {
 				if n, e := strconv.Atoi(v); e == nil && n > 0 {
@@ -823,11 +794,10 @@ func (ctrl *SubmissionController) Delete(c *fiber.Ctx) error {
 			}
 			updates["submission_url_delete_pending_until"] = time.Now().Add(time.Duration(days) * 24 * time.Hour)
 		}
-		// kalau move error → tetap soft-delete tanpa update href/object_key (best-effort)
 	}
 
 	if err := ctrl.DB.WithContext(c.Context()).
-		Model(&model.SubmissionURL{}).
+		Model(&model.SubmissionURLModel{}).
 		Where("submission_url_id = ? AND submission_url_masjid_id = ? AND submission_url_submission_id = ?", urlID, masjidID, subID).
 		Updates(updates).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())

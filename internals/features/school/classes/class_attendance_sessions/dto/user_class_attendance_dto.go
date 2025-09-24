@@ -84,7 +84,7 @@ func normalizeKind(s string) (string, error) {
 
 /* ===================== URL operation DTO ===================== */
 
-type UserAttendanceURLOpDTO struct {
+type UserClassSessionAttendanceURLOpDTO struct {
 	Op URLOp `json:"op" validate:"required,oneof=upsert delete"`
 
 	ID   *uuid.UUID `json:"id,omitempty" validate:"omitempty,uuid4"`
@@ -105,19 +105,19 @@ type UserAttendanceURLOpDTO struct {
 
 /* ===================== Create DTO ===================== */
 
-type UserAttendanceCreateRequest struct {
+type UserClassSessionAttendanceCreateRequest struct {
 	MasjidID        uuid.UUID `json:"masjid_id"         validate:"required,uuid4"`
 	SessionID       uuid.UUID `json:"session_id"        validate:"required,uuid4"`
 	MasjidStudentID uuid.UUID `json:"masjid_student_id" validate:"required,uuid4"`
 
-	Status      *model.UserAttendanceStatus `json:"status,omitempty" validate:"omitempty,oneof=unmarked present absent excused late"`
-	TypeID      *uuid.UUID                  `json:"type_id,omitempty" validate:"omitempty,uuid4"`
-	Desc        *string                     `json:"desc,omitempty"`
-	Score       *float64                    `json:"score,omitempty" validate:"omitempty,gte=0,lte=100"`
-	IsPassed    *bool                       `json:"is_passed,omitempty"`
-	MarkedAt    *time.Time                  `json:"marked_at,omitempty"`
-	MarkedByTID *uuid.UUID                  `json:"marked_by_teacher_id,omitempty" validate:"omitempty,uuid4"`
-	Method      *model.UserAttendanceMethod `json:"method,omitempty" validate:"omitempty,oneof=manual qr geo import api self"`
+	Status      *string    `json:"status,omitempty" validate:"omitempty,oneof=unmarked present absent excused late"`
+	TypeID      *uuid.UUID `json:"type_id,omitempty" validate:"omitempty,uuid4"`
+	Desc        *string    `json:"desc,omitempty"`
+	Score       *float64   `json:"score,omitempty" validate:"omitempty,gte=0,lte=100"`
+	IsPassed    *bool      `json:"is_passed,omitempty"`
+	MarkedAt    *time.Time `json:"marked_at,omitempty"`
+	MarkedByTID *uuid.UUID `json:"marked_by_teacher_id,omitempty" validate:"omitempty,uuid4"`
+	Method      *string    `json:"method,omitempty" validate:"omitempty,oneof=manual qr geo import api self"`
 
 	Lat        *float64 `json:"lat,omitempty"`
 	Lng        *float64 `json:"lng,omitempty"`
@@ -128,22 +128,56 @@ type UserAttendanceCreateRequest struct {
 	TeacherNote *string    `json:"teacher_note,omitempty"`
 	LockedAt    *time.Time `json:"locked_at,omitempty"`
 
-	URLs []UserAttendanceURLOpDTO `json:"urls,omitempty" validate:"omitempty,dive"`
+	URLs []UserClassSessionAttendanceURLOpDTO `json:"urls,omitempty" validate:"omitempty,dive"`
+}
+
+func (r UserClassSessionAttendanceCreateRequest) ToModel() model.UserClassSessionAttendanceModel {
+	m := model.UserClassSessionAttendanceModel{
+		UserClassSessionAttendanceMasjidID:        r.MasjidID,
+		UserClassSessionAttendanceSessionID:       r.SessionID,
+		UserClassSessionAttendanceMasjidStudentID: r.MasjidStudentID,
+
+		UserClassSessionAttendanceDesc:        r.Desc,
+		UserClassSessionAttendanceScore:       r.Score,
+		UserClassSessionAttendanceIsPassed:    r.IsPassed,
+		UserClassSessionAttendanceMarkedAt:    r.MarkedAt,
+		UserClassSessionAttendanceMethod:      r.Method,
+		UserClassSessionAttendanceLat:         r.Lat,
+		UserClassSessionAttendanceLng:         r.Lng,
+		UserClassSessionAttendanceDistanceM:   r.DistanceM,
+		UserClassSessionAttendanceLateSeconds: r.LateSecond,
+		UserClassSessionAttendanceUserNote:    r.UserNote,
+		UserClassSessionAttendanceTeacherNote: r.TeacherNote,
+		UserClassSessionAttendanceLockedAt:    r.LockedAt,
+	}
+	// status (default: "unmarked" jika nil)
+	if r.Status != nil && strings.TrimSpace(*r.Status) != "" {
+		m.UserClassSessionAttendanceStatus = strings.ToLower(strings.TrimSpace(*r.Status))
+	} else {
+		m.UserClassSessionAttendanceStatus = "unmarked"
+	}
+	if r.TypeID != nil {
+		m.UserClassSessionAttendanceTypeID = r.TypeID
+	}
+	if r.MarkedByTID != nil {
+		m.UserClassSessionAttendanceMarkedByTeacherID = r.MarkedByTID
+	}
+	return m
 }
 
 /* ===================== Patch DTO (tri-state) ===================== */
 
-type UserAttendancePatchRequest struct {
+type UserClassSessionAttendancePatchRequest struct {
 	AttendanceID uuid.UUID `json:"attendance_id" validate:"required,uuid4"`
 
-	Status      PatchFieldUserAttendance[model.UserAttendanceStatus] `json:"status,omitempty"`
-	TypeID      PatchFieldUserAttendance[uuid.UUID]                  `json:"type_id,omitempty"`
-	Desc        PatchFieldUserAttendance[string]                     `json:"desc,omitempty"`
-	Score       PatchFieldUserAttendance[float64]                    `json:"score,omitempty"`
-	IsPassed    PatchFieldUserAttendance[bool]                       `json:"is_passed,omitempty"`
-	MarkedAt    PatchFieldUserAttendance[time.Time]                  `json:"marked_at,omitempty"`
-	MarkedByTID PatchFieldUserAttendance[uuid.UUID]                  `json:"marked_by_teacher_id,omitempty"`
-	Method      PatchFieldUserAttendance[model.UserAttendanceMethod] `json:"method,omitempty"`
+	Status      PatchFieldUserAttendance[string]    `json:"status,omitempty"` // unmarked|present|absent|excused|late
+	TypeID      PatchFieldUserAttendance[uuid.UUID] `json:"type_id,omitempty"`
+	Desc        PatchFieldUserAttendance[string]    `json:"desc,omitempty"`
+	Score       PatchFieldUserAttendance[float64]   `json:"score,omitempty"`
+	IsPassed    PatchFieldUserAttendance[bool]      `json:"is_passed,omitempty"`
+	MarkedAt    PatchFieldUserAttendance[time.Time] `json:"marked_at,omitempty"`
+	MarkedByTID PatchFieldUserAttendance[uuid.UUID] `json:"marked_by_teacher_id,omitempty"`
+	Method      PatchFieldUserAttendance[string]    `json:"method,omitempty"` // manual|qr|geo|import|api|self
 
 	Lat         PatchFieldUserAttendance[float64] `json:"lat,omitempty"`
 	Lng         PatchFieldUserAttendance[float64] `json:"lng,omitempty"`
@@ -154,12 +188,70 @@ type UserAttendancePatchRequest struct {
 	TeacherNote PatchFieldUserAttendance[string]    `json:"teacher_note,omitempty"`
 	LockedAt    PatchFieldUserAttendance[time.Time] `json:"locked_at,omitempty"`
 
-	URLs []UserAttendanceURLOpDTO `json:"urls,omitempty" validate:"omitempty,dive"`
+	URLs []UserClassSessionAttendanceURLOpDTO `json:"urls,omitempty" validate:"omitempty,dive"`
+}
+
+func (p UserClassSessionAttendancePatchRequest) ApplyPatch(m *model.UserClassSessionAttendanceModel) error {
+	if v, ok := p.Status.Get(); ok {
+		if v == nil || strings.TrimSpace(*v) == "" {
+			m.UserClassSessionAttendanceStatus = "unmarked"
+		} else {
+			m.UserClassSessionAttendanceStatus = strings.ToLower(strings.TrimSpace(*v))
+		}
+	}
+	if v, ok := p.TypeID.Get(); ok {
+		m.UserClassSessionAttendanceTypeID = v
+	}
+	if v, ok := p.Desc.Get(); ok {
+		m.UserClassSessionAttendanceDesc = v
+	}
+	if v, ok := p.Score.Get(); ok {
+		m.UserClassSessionAttendanceScore = v
+	}
+	if v, ok := p.IsPassed.Get(); ok {
+		m.UserClassSessionAttendanceIsPassed = v
+	}
+	if v, ok := p.MarkedAt.Get(); ok {
+		m.UserClassSessionAttendanceMarkedAt = v
+	}
+	if v, ok := p.MarkedByTID.Get(); ok {
+		m.UserClassSessionAttendanceMarkedByTeacherID = v
+	}
+	if v, ok := p.Method.Get(); ok {
+		if v == nil || strings.TrimSpace(*v) == "" {
+			m.UserClassSessionAttendanceMethod = nil
+		} else {
+			mv := strings.ToLower(strings.TrimSpace(*v))
+			m.UserClassSessionAttendanceMethod = &mv
+		}
+	}
+	if v, ok := p.Lat.Get(); ok {
+		m.UserClassSessionAttendanceLat = v
+	}
+	if v, ok := p.Lng.Get(); ok {
+		m.UserClassSessionAttendanceLng = v
+	}
+	if v, ok := p.DistanceM.Get(); ok {
+		m.UserClassSessionAttendanceDistanceM = v
+	}
+	if v, ok := p.LateSeconds.Get(); ok {
+		m.UserClassSessionAttendanceLateSeconds = v
+	}
+	if v, ok := p.UserNote.Get(); ok {
+		m.UserClassSessionAttendanceUserNote = v
+	}
+	if v, ok := p.TeacherNote.Get(); ok {
+		m.UserClassSessionAttendanceTeacherNote = v
+	}
+	if v, ok := p.LockedAt.Get(); ok {
+		m.UserClassSessionAttendanceLockedAt = v
+	}
+	return nil
 }
 
 /* ===================== Query DTO (for List) ===================== */
 
-type ListUserAttendanceQuery struct {
+type ListUserClassSessionAttendanceQuery struct {
 	Search   string `query:"search"`
 	StatusIn CSV    `query:"status_in"` // unmarked|present|absent|excused|late
 	MethodIn CSV    `query:"method_in"` // manual|qr|geo|import|api|self
@@ -175,105 +267,15 @@ type ListUserAttendanceQuery struct {
 	MarkedLE  string `query:"marked_le"`
 }
 
-/* ===================== Mappers & URL mutation builder ===================== */
-
-func (r UserAttendanceCreateRequest) ToModel() model.UserAttendanceModel {
-	m := model.UserAttendanceModel{
-		UserAttendanceMasjidID:        r.MasjidID,
-		UserAttendanceSessionID:       r.SessionID,
-		UserAttendanceMasjidStudentID: r.MasjidStudentID,
-
-		UserAttendanceDesc:        r.Desc,
-		UserAttendanceScore:       r.Score,
-		UserAttendanceIsPassed:    r.IsPassed,
-		UserAttendanceMarkedAt:    r.MarkedAt,
-		UserAttendanceMethod:      r.Method,
-		UserAttendanceLat:         r.Lat,
-		UserAttendanceLng:         r.Lng,
-		UserAttendanceDistanceM:   r.DistanceM,
-		UserAttendanceLateSeconds: r.LateSecond,
-		UserAttendanceUserNote:    r.UserNote,
-		UserAttendanceTeacherNote: r.TeacherNote,
-		UserAttendanceLockedAt:    r.LockedAt,
-	}
-	if r.Status != nil {
-		m.UserAttendanceStatus = *r.Status
-	}
-	if r.TypeID != nil {
-		m.UserAttendanceTypeID = r.TypeID
-	}
-	if r.MarkedByTID != nil {
-		m.UserAttendanceMarkedByTeacherID = r.MarkedByTID
-	}
-	return m
-}
-
-func (p UserAttendancePatchRequest) ApplyPatch(m *model.UserAttendanceModel) error {
-	if v, ok := p.Status.Get(); ok {
-		if v == nil {
-			def := model.UserAttendanceUnmarked
-			m.UserAttendanceStatus = def
-		} else {
-			m.UserAttendanceStatus = *v
-		}
-	}
-	if v, ok := p.TypeID.Get(); ok {
-		m.UserAttendanceTypeID = v
-	}
-	if v, ok := p.Desc.Get(); ok {
-		m.UserAttendanceDesc = v
-	}
-	if v, ok := p.Score.Get(); ok {
-		m.UserAttendanceScore = v
-	}
-	if v, ok := p.IsPassed.Get(); ok {
-		m.UserAttendanceIsPassed = v
-	}
-	if v, ok := p.MarkedAt.Get(); ok {
-		m.UserAttendanceMarkedAt = v
-	}
-	if v, ok := p.MarkedByTID.Get(); ok {
-		m.UserAttendanceMarkedByTeacherID = v
-	}
-	if v, ok := p.Method.Get(); ok {
-		if v == nil {
-			m.UserAttendanceMethod = nil
-		} else {
-			mv := model.UserAttendanceMethod(*v)
-			m.UserAttendanceMethod = &mv
-		}
-	}
-	if v, ok := p.Lat.Get(); ok {
-		m.UserAttendanceLat = v
-	}
-	if v, ok := p.Lng.Get(); ok {
-		m.UserAttendanceLng = v
-	}
-	if v, ok := p.DistanceM.Get(); ok {
-		m.UserAttendanceDistanceM = v
-	}
-	if v, ok := p.LateSeconds.Get(); ok {
-		m.UserAttendanceLateSeconds = v
-	}
-	if v, ok := p.UserNote.Get(); ok {
-		m.UserAttendanceUserNote = v
-	}
-	if v, ok := p.TeacherNote.Get(); ok {
-		m.UserAttendanceTeacherNote = v
-	}
-	if v, ok := p.LockedAt.Get(); ok {
-		m.UserAttendanceLockedAt = v
-	}
-	return nil
-}
+/* ===================== URL Mutations ===================== */
 
 type URLMutations struct {
-	ToCreate []model.UserAttendanceURL
-	ToUpdate []model.UserAttendanceURL
+	ToCreate []model.UserClassSessionAttendanceURLModel
+	ToUpdate []model.UserClassSessionAttendanceURLModel
 	ToDelete []uuid.UUID
 }
 
-func BuildURLMutations(attendanceID uuid.UUID, masjidID uuid.UUID, ops []UserAttendanceURLOpDTO) (URLMutations, error) {
+func BuildURLMutations(attendanceID uuid.UUID, masjidID uuid.UUID, ops []UserClassSessionAttendanceURLOpDTO) (URLMutations, error) {
 	var out URLMutations
 	for _, op := range ops {
 		switch op.Op {
@@ -286,20 +288,20 @@ func BuildURLMutations(attendanceID uuid.UUID, masjidID uuid.UUID, ops []UserAtt
 				if err != nil {
 					return out, err
 				}
-				row := model.UserAttendanceURL{
-					UserAttendanceURLMasjidID:           masjidID,
-					UserAttendanceURLAttendance:         attendanceID,
-					UserAttendanceURLKind:               kind,
-					UserAttendanceURLLabel:              op.Label,
-					UserAttendanceURLOrder:              int32(pint(op.Order)),
-					UserAttendanceURLIsPrimary:          pbool(op.IsPrimary),
-					UserAttendanceURLHref:               op.Href,
-					UserAttendanceURLObjectKey:          op.ObjectKey,
-					UserAttendanceURLObjectKeyOld:       op.ObjectKeyOld,
-					UserAttendanceURLTrashURL:           op.TrashURL,
-					UserAttendanceURLDeletePendingUntil: op.DeletePendingUntil,
-					UserAttendanceURLUploaderTeacherID:  op.UploaderTeacherID,
-					UserAttendanceURLUploaderStudentID:  op.UploaderStudentID,
+				row := model.UserClassSessionAttendanceURLModel{
+					UserClassSessionAttendanceURLMasjidID:           masjidID,
+					UserClassSessionAttendanceURLAttendanceID:       attendanceID,
+					UserClassSessionAttendanceURLKind:               kind,
+					UserClassSessionAttendanceURLLabel:              op.Label,
+					UserClassSessionAttendanceURLOrder:              pint(op.Order),
+					UserClassSessionAttendanceURLIsPrimary:          pbool(op.IsPrimary),
+					UserClassSessionAttendanceURLHref:               op.Href,
+					UserClassSessionAttendanceURLObjectKey:          op.ObjectKey,
+					UserClassSessionAttendanceURLObjectKeyOld:       op.ObjectKeyOld,
+					UserClassSessionAttendanceURLTrashURL:           op.TrashURL,
+					UserClassSessionAttendanceURLDeletePendingUntil: op.DeletePendingUntil,
+					UserClassSessionAttendanceURLUploaderTeacherID:  op.UploaderTeacherID,
+					UserClassSessionAttendanceURLUploaderStudentID:  op.UploaderStudentID,
 				}
 				out.ToCreate = append(out.ToCreate, row)
 			} else {
@@ -311,21 +313,21 @@ func BuildURLMutations(attendanceID uuid.UUID, masjidID uuid.UUID, ops []UserAtt
 						return out, err
 					}
 				}
-				row := model.UserAttendanceURL{
-					UserAttendanceURLID:                 *op.ID,
-					UserAttendanceURLLabel:              op.Label,
-					UserAttendanceURLOrder:              int32(pint(op.Order)),
-					UserAttendanceURLIsPrimary:          pbool(op.IsPrimary),
-					UserAttendanceURLHref:               op.Href,
-					UserAttendanceURLObjectKey:          op.ObjectKey,
-					UserAttendanceURLObjectKeyOld:       op.ObjectKeyOld,
-					UserAttendanceURLTrashURL:           op.TrashURL,
-					UserAttendanceURLDeletePendingUntil: op.DeletePendingUntil,
-					UserAttendanceURLUploaderTeacherID:  op.UploaderTeacherID,
-					UserAttendanceURLUploaderStudentID:  op.UploaderStudentID,
+				row := model.UserClassSessionAttendanceURLModel{
+					UserClassSessionAttendanceURLID:                 *op.ID,
+					UserClassSessionAttendanceURLLabel:              op.Label,
+					UserClassSessionAttendanceURLOrder:              pint(op.Order),
+					UserClassSessionAttendanceURLIsPrimary:          pbool(op.IsPrimary),
+					UserClassSessionAttendanceURLHref:               op.Href,
+					UserClassSessionAttendanceURLObjectKey:          op.ObjectKey,
+					UserClassSessionAttendanceURLObjectKeyOld:       op.ObjectKeyOld,
+					UserClassSessionAttendanceURLTrashURL:           op.TrashURL,
+					UserClassSessionAttendanceURLDeletePendingUntil: op.DeletePendingUntil,
+					UserClassSessionAttendanceURLUploaderTeacherID:  op.UploaderTeacherID,
+					UserClassSessionAttendanceURLUploaderStudentID:  op.UploaderStudentID,
 				}
 				if op.Kind != nil {
-					row.UserAttendanceURLKind = kind
+					row.UserClassSessionAttendanceURLKind = kind
 				}
 				out.ToUpdate = append(out.ToUpdate, row)
 			}
@@ -340,6 +342,8 @@ func BuildURLMutations(attendanceID uuid.UUID, masjidID uuid.UUID, ops []UserAtt
 	}
 	return out, nil
 }
+
+/* ===================== small helpers ===================== */
 
 func pbool(b *bool) bool {
 	if b == nil {

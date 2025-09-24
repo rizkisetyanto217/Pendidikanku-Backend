@@ -1,4 +1,4 @@
-// internals/features/lembaga/class_subjects/controller/class_subject_controller.go
+// file: internals/features/lembaga/class_subjects/controller/class_subject_controller.go
 package controller
 
 import (
@@ -72,10 +72,10 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 		var cnt int64
 		if err := tx.Model(&csModel.ClassSubjectModel{}).
 			Where(`
-                class_subjects_masjid_id = ?
-                AND class_subjects_class_id = ?
-                AND class_subjects_subject_id = ?
-                AND class_subjects_deleted_at IS NULL
+                class_subject_masjid_id = ?
+                AND class_subject_class_id = ?
+                AND class_subject_subject_id = ?
+                AND class_subject_deleted_at IS NULL
             `, req.MasjidID, req.ClassID, req.SubjectID).
 			Count(&cnt).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek duplikasi class subject")
@@ -91,8 +91,8 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 		} else {
 			var subjName, classSlug string
 			_ = tx.Table("subjects").
-				Select("subjects_name").
-				Where("subjects_id = ? AND subjects_masjid_id = ?", req.SubjectID, req.MasjidID).
+				Select("subject_name").
+				Where("subject_id = ? AND subject_masjid_id = ?", req.SubjectID, req.MasjidID).
 				Scan(&subjName).Error
 
 			_ = tx.Table("classes").
@@ -120,10 +120,10 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 			c.Context(),
 			tx,
 			"class_subjects",
-			"class_subjects_slug",
+			"class_subject_slug",
 			baseSlug,
 			func(q *gorm.DB) *gorm.DB {
-				return q.Where("class_subjects_masjid_id = ? AND class_subjects_deleted_at IS NULL", req.MasjidID)
+				return q.Where("class_subject_masjid_id = ? AND class_subject_deleted_at IS NULL", req.MasjidID)
 			},
 			160,
 		)
@@ -133,7 +133,7 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 
 		// Create
 		m := req.ToModel()
-		m.ClassSubjectsSlug = &uniqueSlug
+		m.ClassSubjectSlug = &uniqueSlug
 
 		if err := tx.Create(&m).Error; err != nil {
 			msg := strings.ToLower(err.Error())
@@ -209,22 +209,22 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		// Ambil record lama
 		var m csModel.ClassSubjectModel
-		if err := tx.Where("class_subjects_id = ?", id).First(&m).Error; err != nil {
+		if err := tx.Where("class_subject_id = ?", id).First(&m).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fiber.NewError(fiber.StatusNotFound, "Data tidak ditemukan")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 		}
-		if m.ClassSubjectsMasjidID != masjidID {
+		if m.ClassSubjectMasjidID != masjidID {
 			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengubah data milik masjid lain")
 		}
-		if m.ClassSubjectsDeletedAt.Valid {
+		if m.ClassSubjectDeletedAt.Valid {
 			return fiber.NewError(fiber.StatusBadRequest, "Data sudah dihapus")
 		}
 
 		// Cek apakah class/subject berubah → cek duplikasi
-		newClassID := m.ClassSubjectsClassID
-		newSubjectID := m.ClassSubjectsSubjectID
+		newClassID := m.ClassSubjectClassID
+		newSubjectID := m.ClassSubjectSubjectID
 		if req.ClassID != nil {
 			newClassID = *req.ClassID
 		}
@@ -232,16 +232,16 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			newSubjectID = *req.SubjectID
 		}
 
-		if newClassID != m.ClassSubjectsClassID || newSubjectID != m.ClassSubjectsSubjectID {
+		if newClassID != m.ClassSubjectClassID || newSubjectID != m.ClassSubjectSubjectID {
 			var cnt int64
 			if err := tx.Model(&csModel.ClassSubjectModel{}).
 				Where(`
-					class_subjects_masjid_id = ?
-					AND class_subjects_class_id  = ?
-					AND class_subjects_subject_id= ?
-					AND class_subjects_id <> ?
-					AND class_subjects_deleted_at IS NULL
-				`, masjidID, newClassID, newSubjectID, m.ClassSubjectsID).
+					class_subject_masjid_id = ?
+					AND class_subject_class_id  = ?
+					AND class_subject_subject_id= ?
+					AND class_subject_id <> ?
+					AND class_subject_deleted_at IS NULL
+				`, masjidID, newClassID, newSubjectID, m.ClassSubjectID).
 				Count(&cnt).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek duplikasi class subject")
 			}
@@ -251,9 +251,9 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 		}
 
 		// Flag untuk slug
-		oldSlugNil := (m.ClassSubjectsSlug == nil || strings.TrimSpace(ptrStr(m.ClassSubjectsSlug)) == "")
-		classChanged := (req.ClassID != nil && *req.ClassID != m.ClassSubjectsClassID)
-		subjectChanged := (req.SubjectID != nil && *req.SubjectID != m.ClassSubjectsSubjectID)
+		oldSlugNil := (m.ClassSubjectSlug == nil || strings.TrimSpace(ptrStr(m.ClassSubjectSlug)) == "")
+		classChanged := (req.ClassID != nil && *req.ClassID != m.ClassSubjectClassID)
+		subjectChanged := (req.SubjectID != nil && *req.SubjectID != m.ClassSubjectSubjectID)
 
 		// Apply perubahan dari req
 		req.Apply(&m)
@@ -272,13 +272,13 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 
 			var subjName, classSlug string
 			_ = tx.Table("subjects").
-				Select("subjects_name").
-				Where("subjects_id = ? AND subjects_masjid_id = ?", m.ClassSubjectsSubjectID, masjidID).
+				Select("subject_name").
+				Where("subject_id = ? AND subject_masjid_id = ?", m.ClassSubjectSubjectID, masjidID).
 				Scan(&subjName).Error
 
 			_ = tx.Table("classes").
 				Select("class_slug").
-				Where("class_id = ? AND class_masjid_id = ?", m.ClassSubjectsClassID, masjidID).
+				Where("class_id = ? AND class_masjid_id = ?", m.ClassSubjectClassID, masjidID).
 				Scan(&classSlug).Error
 
 			switch {
@@ -291,8 +291,8 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			default:
 				baseSlug = helper.Slugify(
 					fmt.Sprintf("cs-%s-%s",
-						strings.Split(m.ClassSubjectsClassID.String(), "-")[0],
-						strings.Split(m.ClassSubjectsSubjectID.String(), "-")[0],
+						strings.Split(m.ClassSubjectClassID.String(), "-")[0],
+						strings.Split(m.ClassSubjectSubjectID.String(), "-")[0],
 					), 160)
 			}
 		}
@@ -302,43 +302,43 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 				c.Context(),
 				tx,
 				"class_subjects",
-				"class_subjects_slug",
+				"class_subject_slug",
 				baseSlug,
 				func(q *gorm.DB) *gorm.DB {
 					return q.Where(`
-						class_subjects_masjid_id = ?
-						AND class_subjects_deleted_at IS NULL
-						AND class_subjects_id <> ?
-					`, masjidID, m.ClassSubjectsID)
+						class_subject_masjid_id = ?
+						AND class_subject_deleted_at IS NULL
+						AND class_subject_id <> ?
+					`, masjidID, m.ClassSubjectID)
 				},
 				160,
 			)
 			if err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 			}
-			m.ClassSubjectsSlug = &uniqueSlug
+			m.ClassSubjectSlug = &uniqueSlug
 		}
 
 		// Persist ke DB
 		if err := tx.Model(&csModel.ClassSubjectModel{}).
-			Where("class_subjects_id = ?", m.ClassSubjectsID).
+			Where("class_subject_id = ?", m.ClassSubjectID).
 			Updates(map[string]any{
-				"class_subjects_masjid_id":              m.ClassSubjectsMasjidID,
-				"class_subjects_class_id":               m.ClassSubjectsClassID,
-				"class_subjects_subject_id":             m.ClassSubjectsSubjectID,
-				"class_subjects_slug":                   m.ClassSubjectsSlug,
-				"class_subjects_order_index":            m.ClassSubjectsOrderIndex,
-				"class_subjects_hours_per_week":         m.ClassSubjectsHoursPerWeek,
-				"class_subjects_min_passing_score":      m.ClassSubjectsMinPassingScore,
-				"class_subjects_weight_on_report":       m.ClassSubjectsWeightOnReport,
-				"class_subjects_is_core":                m.ClassSubjectsIsCore,
-				"class_subjects_desc":                   m.ClassSubjectsDesc,
-				"class_subjects_weight_assignment":      m.ClassSubjectsWeightAssignment,
-				"class_subjects_weight_quiz":            m.ClassSubjectsWeightQuiz,
-				"class_subjects_weight_mid":             m.ClassSubjectsWeightMid,
-				"class_subjects_weight_final":           m.ClassSubjectsWeightFinal,
-				"class_subjects_min_attendance_percent": m.ClassSubjectsMinAttendancePct,
-				"class_subjects_is_active":              m.ClassSubjectsIsActive,
+				"class_subject_masjid_id":              m.ClassSubjectMasjidID,
+				"class_subject_class_id":               m.ClassSubjectClassID,
+				"class_subject_subject_id":             m.ClassSubjectSubjectID,
+				"class_subject_slug":                   m.ClassSubjectSlug,
+				"class_subject_order_index":            m.ClassSubjectOrderIndex,
+				"class_subject_hours_per_week":         m.ClassSubjectHoursPerWeek,
+				"class_subject_min_passing_score":      m.ClassSubjectMinPassingScore,
+				"class_subject_weight_on_report":       m.ClassSubjectWeightOnReport,
+				"class_subject_is_core":                m.ClassSubjectIsCore,
+				"class_subject_desc":                   m.ClassSubjectDesc,
+				"class_subject_weight_assignment":      m.ClassSubjectWeightAssignment,
+				"class_subject_weight_quiz":            m.ClassSubjectWeightQuiz,
+				"class_subject_weight_mid":             m.ClassSubjectWeightMid,
+				"class_subject_weight_final":           m.ClassSubjectWeightFinal,
+				"class_subject_min_attendance_percent": m.ClassSubjectMinAttendancePercent,
+				"class_subject_is_active":              m.ClassSubjectIsActive,
 			}).Error; err != nil {
 			msg := strings.ToLower(err.Error())
 			if strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
@@ -399,19 +399,19 @@ func (h *ClassSubjectController) Delete(c *fiber.Ctx) error {
 
 	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		var m csModel.ClassSubjectModel
-		if err := tx.First(&m, "class_subjects_id = ?", id).Error; err != nil {
+		if err := tx.First(&m, "class_subject_id = ?", id).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fiber.NewError(fiber.StatusNotFound, "Data tidak ditemukan")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 		}
-		if m.ClassSubjectsMasjidID != masjidID {
+		if m.ClassSubjectMasjidID != masjidID {
 			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh menghapus data milik masjid lain")
 		}
 
 		if force {
 			// hard delete benar-benar hapus row
-			if err := tx.Unscoped().Delete(&csModel.ClassSubjectModel{}, "class_subjects_id = ?", id).Error; err != nil {
+			if err := tx.Unscoped().Delete(&csModel.ClassSubjectModel{}, "class_subject_id = ?", id).Error; err != nil {
 				msg := strings.ToLower(err.Error())
 				if strings.Contains(msg, "constraint") || strings.Contains(msg, "foreign") || strings.Contains(msg, "violat") {
 					return fiber.NewError(fiber.StatusBadRequest, "Tidak dapat menghapus karena masih ada data terkait")
@@ -419,11 +419,11 @@ func (h *ClassSubjectController) Delete(c *fiber.Ctx) error {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus data")
 			}
 		} else {
-			if m.ClassSubjectsDeletedAt.Valid {
+			if m.ClassSubjectDeletedAt.Valid {
 				return fiber.NewError(fiber.StatusBadRequest, "Data sudah dihapus")
 			}
 			// soft delete
-			if err := tx.Delete(&csModel.ClassSubjectModel{}, "class_subjects_id = ?", id).Error; err != nil {
+			if err := tx.Delete(&csModel.ClassSubjectModel{}, "class_subject_id = ?", id).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus data")
 			}
 		}

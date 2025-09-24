@@ -74,4 +74,4 @@ type UserProfileModel struct {
 	UserProfileDeletedAt gorm.DeletedAt `gorm:"column:user_profile_deleted_at;index" json:"user_profile_deleted_at,omitempty"`
 }
 
-func (UserProfileModel) TableName() string { return "users_profile" }
+func (UserProfileModel) TableName() string { return "user_profiles" }

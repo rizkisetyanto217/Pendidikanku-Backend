@@ -27,7 +27,8 @@ type ClassSubjectBookController struct {
 	CREATE (DKM/Admin only)
 	POST /admin/class-subject-books
 	Body: CreateClassSubjectBookRequest
-	=========================================================
+
+=========================================================
 */
 func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 	// === Masjid context (eksplisit & DKM/Admin only) ===
@@ -79,20 +80,20 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 		// ===== SLUG: normalize + ensure-unique per tenant (alive-only) =====
 		// Tentukan baseSlug: pakai request → judul buku → fallback short id
 		baseSlug := ""
-		if m.ClassSubjectBooksSlug != nil && strings.TrimSpace(*m.ClassSubjectBooksSlug) != "" {
-			baseSlug = helper.Slugify(*m.ClassSubjectBooksSlug, 160)
+		if m.ClassSubjectBookSlug != nil && strings.TrimSpace(*m.ClassSubjectBookSlug) != "" {
+			baseSlug = helper.Slugify(*m.ClassSubjectBookSlug, 160)
 		} else {
 			// coba ambil judul buku
 			var bookTitle string
 			if err := tx.Table("books").
 				Select("books_title").
-				Where("books_id = ?", m.ClassSubjectBooksBookID).
+				Where("books_id = ?", m.ClassSubjectBookBookID).
 				Take(&bookTitle).Error; err == nil && strings.TrimSpace(bookTitle) != "" {
 				baseSlug = helper.Slugify(bookTitle, 160)
 			}
 			if baseSlug == "" || baseSlug == "item" {
 				baseSlug = helper.Slugify(
-					fmt.Sprintf("book-%s", strings.Split(m.ClassSubjectBooksBookID.String(), "-")[0]),
+					fmt.Sprintf("book-%s", strings.Split(m.ClassSubjectBookBookID.String(), "-")[0]),
 					160,
 				)
 			}
@@ -102,13 +103,13 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 			c.Context(),
 			tx,
 			"class_subject_books",
-			"class_subject_books_slug",
+			"class_subject_book_slug",
 			baseSlug,
 			func(q *gorm.DB) *gorm.DB {
-				// selaras dengan index uq_csb_slug_per_tenant_alive
+				// selaras dengan index uq_csb_slug_per_tenant_alive (versi singular kolom)
 				return q.Where(`
-					class_subject_books_masjid_id = ?
-					AND class_subject_books_deleted_at IS NULL
+					class_subject_book_masjid_id = ?
+					AND class_subject_book_deleted_at IS NULL
 				`, masjidID)
 			},
 			160,
@@ -116,7 +117,7 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 		if uerr != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 		}
-		m.ClassSubjectBooksSlug = &uniqueSlug
+		m.ClassSubjectBookSlug = &uniqueSlug
 		// ===== END SLUG =====
 
 		// Create
@@ -125,12 +126,12 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 			switch {
 			case strings.Contains(msg, "uq_csb_unique") ||
 				strings.Contains(msg, "duplicate") ||
-				strings.Contains(msg, "unique") &&
-					(strings.Contains(msg, "masjid_id") && strings.Contains(msg, "class_subject_id") && strings.Contains(msg, "book_id")):
+				(strings.Contains(msg, "unique") &&
+					strings.Contains(msg, "masjid") && strings.Contains(msg, "class_subject") && strings.Contains(msg, "book")):
 				return fiber.NewError(fiber.StatusConflict, "Buku sudah terdaftar pada class_subject tersebut")
 
 			case strings.Contains(msg, "uq_csb_slug_per_tenant_alive") ||
-				(strings.Contains(msg, "class_subject_books_slug") && strings.Contains(msg, "unique")):
+				(strings.Contains(msg, "class_subject_book_slug") && strings.Contains(msg, "unique")):
 				return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan pada tenant ini")
 
 			case strings.Contains(msg, "foreign"):
@@ -210,17 +211,17 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		var m csbModel.ClassSubjectBookModel
 		if err := tx.
-			Where("class_subject_books_id = ?", id).
+			Where("class_subject_book_id = ?", id).
 			First(&m).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fiber.NewError(fiber.StatusNotFound, "Data tidak ditemukan")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 		}
-		if m.ClassSubjectBooksMasjidID != masjidID {
+		if m.ClassSubjectBookMasjidID != masjidID {
 			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengubah data milik masjid lain")
 		}
-		if m.ClassSubjectBooksDeletedAt.Valid {
+		if m.ClassSubjectBookDeletedAt.Valid {
 			return fiber.NewError(fiber.StatusBadRequest, "Data sudah dihapus")
 		}
 
@@ -231,47 +232,46 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 
 		// ===== SLUG handling =====
 		// Kasus:
-		// 1) User kirim slug (req.ClassSubjectBooksSlug != nil) → pakai & ensure-unique
+		// 1) User kirim slug → pakai & ensure-unique
 		// 2) User tidak kirim slug & slug di DB kosong → auto-generate dari judul buku
 		if req.ClassSubjectBooksSlug != nil {
-			// kalau user kirim string kosong di awal, di-normalisasi sbg clear di atas → set nil
 			if s := strings.TrimSpace(*req.ClassSubjectBooksSlug); s == "" {
-				m.ClassSubjectBooksSlug = nil
+				m.ClassSubjectBookSlug = nil
 			} else {
 				base := helper.Slugify(s, 160)
 				unique, err := helper.EnsureUniqueSlugCI(
 					c.Context(),
 					tx,
 					"class_subject_books",
-					"class_subject_books_slug",
+					"class_subject_book_slug",
 					base,
 					func(q *gorm.DB) *gorm.DB {
 						return q.Where(`
-							class_subject_books_masjid_id = ?
-							AND class_subject_books_deleted_at IS NULL
-							AND class_subject_books_id <> ?
-						`, masjidID, m.ClassSubjectBooksID)
+							class_subject_book_masjid_id = ?
+							AND class_subject_book_deleted_at IS NULL
+							AND class_subject_book_id <> ?
+						`, masjidID, m.ClassSubjectBookID)
 					},
 					160,
 				)
 				if err != nil {
 					return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 				}
-				m.ClassSubjectBooksSlug = &unique
+				m.ClassSubjectBookSlug = &unique
 			}
-		} else if m.ClassSubjectBooksSlug == nil {
+		} else if m.ClassSubjectBookSlug == nil {
 			// Auto-generate slug karena sebelumnya kosong
 			var bookTitle string
 			if err := tx.Table("books").
 				Select("books_title").
-				Where("books_id = ?", m.ClassSubjectBooksBookID).
+				Where("books_id = ?", m.ClassSubjectBookBookID).
 				Take(&bookTitle).Error; err == nil && strings.TrimSpace(bookTitle) != "" {
 				bookTitle = helper.Slugify(bookTitle, 160)
 			}
 			base := bookTitle
 			if base == "" || base == "item" {
 				base = helper.Slugify(
-					fmt.Sprintf("book-%s", strings.Split(m.ClassSubjectBooksBookID.String(), "-")[0]),
+					fmt.Sprintf("book-%s", strings.Split(m.ClassSubjectBookBookID.String(), "-")[0]),
 					160,
 				)
 			}
@@ -279,47 +279,47 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 				c.Context(),
 				tx,
 				"class_subject_books",
-				"class_subject_books_slug",
+				"class_subject_book_slug",
 				base,
 				func(q *gorm.DB) *gorm.DB {
 					return q.Where(`
-						class_subject_books_masjid_id = ?
-						AND class_subject_books_deleted_at IS NULL
-						AND class_subject_books_id <> ?
-					`, masjidID, m.ClassSubjectBooksID)
+						class_subject_book_masjid_id = ?
+						AND class_subject_book_deleted_at IS NULL
+						AND class_subject_book_id <> ?
+					`, masjidID, m.ClassSubjectBookID)
 				},
 				160,
 			)
 			if err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 			}
-			m.ClassSubjectBooksSlug = &unique
+			m.ClassSubjectBookSlug = &unique
 		}
 		// ===== END SLUG =====
 
 		patch := map[string]interface{}{
-			"class_subject_books_masjid_id":        m.ClassSubjectBooksMasjidID,
-			"class_subject_books_class_subject_id": m.ClassSubjectBooksClassSubjectID,
-			"class_subject_books_book_id":          m.ClassSubjectBooksBookID,
-			"class_subject_books_is_active":        m.ClassSubjectBooksIsActive,
-			"class_subject_books_desc":             m.ClassSubjectBooksDesc,
-			"class_subject_books_slug":             m.ClassSubjectBooksSlug,
-			// "class_subject_books_updated_at":    # biarkan DB/GORM autoUpdateTime yang set
+			"class_subject_book_masjid_id":        m.ClassSubjectBookMasjidID,
+			"class_subject_book_class_subject_id": m.ClassSubjectBookClassSubjectID,
+			"class_subject_book_book_id":          m.ClassSubjectBookBookID,
+			"class_subject_book_is_active":        m.ClassSubjectBookIsActive,
+			"class_subject_book_desc":             m.ClassSubjectBookDesc,
+			"class_subject_book_slug":             m.ClassSubjectBookSlug,
+			// updated_at auto by DB/GORM
 		}
 
 		if err := tx.Model(&csbModel.ClassSubjectBookModel{}).
-			Where("class_subject_books_id = ?", m.ClassSubjectBooksID).
+			Where("class_subject_book_id = ?", m.ClassSubjectBookID).
 			Updates(patch).Error; err != nil {
 			msg := strings.ToLower(err.Error())
 			switch {
 			case strings.Contains(msg, "uq_csb_unique") ||
 				strings.Contains(msg, "duplicate") ||
-				strings.Contains(msg, "unique") &&
-					(strings.Contains(msg, "masjid_id") && strings.Contains(msg, "class_subject_id") && strings.Contains(msg, "book_id")):
+				(strings.Contains(msg, "unique") &&
+					strings.Contains(msg, "masjid") && strings.Contains(msg, "class_subject") && strings.Contains(msg, "book")):
 				return fiber.NewError(fiber.StatusConflict, "Buku sudah terdaftar pada class_subject tersebut")
 
 			case strings.Contains(msg, "uq_csb_slug_per_tenant_alive") ||
-				(strings.Contains(msg, "class_subject_books_slug") && strings.Contains(msg, "unique")):
+				(strings.Contains(msg, "class_subject_book_slug") && strings.Contains(msg, "unique")):
 				return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan pada tenant ini")
 
 			case strings.Contains(msg, "foreign"):
@@ -340,11 +340,12 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 }
 
 /*
-	=========================================================
-	  DELETE (DKM/Admin; hard delete: admin only)
-	  DELETE /admin/class-subject-books/:id?force=true
-	  - force=true (admin saja): hard delete
-	  - default: soft delete (gorm.DeletedAt)
+=========================================================
+
+	DELETE (DKM/Admin; hard delete: admin only)
+	DELETE /admin/class-subject-books/:id?force=true
+	- force=true (admin saja): hard delete
+	- default: soft delete (gorm.DeletedAt)
 
 =========================================================
 */
@@ -375,19 +376,19 @@ func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 	var deleted csbModel.ClassSubjectBookModel
 	if err := h.DB.Transaction(func(tx *gorm.DB) error {
 		var m csbModel.ClassSubjectBookModel
-		if err := tx.First(&m, "class_subject_books_id = ?", id).Error; err != nil {
+		if err := tx.First(&m, "class_subject_book_id = ?", id).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fiber.NewError(fiber.StatusNotFound, "Data tidak ditemukan")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 		}
-		if m.ClassSubjectBooksMasjidID != masjidID {
+		if m.ClassSubjectBookMasjidID != masjidID {
 			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh menghapus data milik masjid lain")
 		}
 
 		if force {
 			// HARD DELETE
-			if err := tx.Delete(&csbModel.ClassSubjectBookModel{}, "class_subject_books_id = ?", id).Error; err != nil {
+			if err := tx.Delete(&csbModel.ClassSubjectBookModel{}, "class_subject_book_id = ?", id).Error; err != nil {
 				msg := strings.ToLower(err.Error())
 				if strings.Contains(msg, "constraint") || strings.Contains(msg, "foreign") || strings.Contains(msg, "violat") {
 					return fiber.NewError(fiber.StatusBadRequest, "Tidak dapat menghapus karena masih ada data terkait")
@@ -396,10 +397,10 @@ func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 			}
 		} else {
 			// SOFT DELETE via GORM (mengisi deleted_at)
-			if m.ClassSubjectBooksDeletedAt.Valid {
+			if m.ClassSubjectBookDeletedAt.Valid {
 				return fiber.NewError(fiber.StatusBadRequest, "Data sudah dihapus")
 			}
-			if err := tx.Where("class_subject_books_id = ?", id).
+			if err := tx.Where("class_subject_book_id = ?", id).
 				Delete(&csbModel.ClassSubjectBookModel{}).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus data")
 			}

@@ -1,4 +1,4 @@
-// file: internals/features/attendance/model/user_attendance_type_model.go
+// file: internals/features/attendance/model/user_class_session_attendance_type_model.go
 package model
 
 import (
@@ -8,29 +8,23 @@ import (
 	"gorm.io/gorm"
 )
 
-// UserAttendanceTypeModel merepresentasikan tabel user_attendance_type
-type UserAttendanceTypeModel struct {
-	// Primary Key
-	UserAttendanceTypeID uuid.UUID `gorm:"column:user_attendance_type_id;type:uuid;primaryKey;default:gen_random_uuid()" json:"user_attendance_type_id"`
+type UserClassSessionAttendanceTypeModel struct {
+	UserClassSessionAttendanceTypeID        uuid.UUID      `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:user_class_session_attendance_type_id" json:"user_class_session_attendance_type_id"`
+	UserClassSessionAttendanceTypeMasjidID  uuid.UUID      `gorm:"type:uuid;not null;column:user_class_session_attendance_type_masjid_id" json:"user_class_session_attendance_type_masjid_id"`
 
-	// Relasi ke masjid (tenant scope)
-	UserAttendanceTypeMasjidID uuid.UUID `gorm:"column:user_attendance_type_masjid_id;type:uuid;not null;index" json:"user_attendance_type_masjid_id"`
+	UserClassSessionAttendanceTypeCode      string         `gorm:"type:varchar(32);not null;column:user_class_session_attendance_type_code"  json:"user_class_session_attendance_type_code"`
+	UserClassSessionAttendanceTypeLabel     *string        `gorm:"type:varchar(80);column:user_class_session_attendance_type_label"          json:"user_class_session_attendance_type_label,omitempty"`
+	UserClassSessionAttendanceTypeSlug      *string        `gorm:"type:varchar(120);column:user_class_session_attendance_type_slug"          json:"user_class_session_attendance_type_slug,omitempty"`
+	UserClassSessionAttendanceTypeColor     *string        `gorm:"type:varchar(20);column:user_class_session_attendance_type_color"          json:"user_class_session_attendance_type_color,omitempty"`
+	UserClassSessionAttendanceTypeDesc      *string        `gorm:"type:text;column:user_class_session_attendance_type_desc"                  json:"user_class_session_attendance_type_desc,omitempty"`
 
-	// Informasi jenis attendance
-	UserAttendanceTypeCode  string  `gorm:"column:user_attendance_type_code;type:varchar(32);not null" json:"user_attendance_type_code"`
-	UserAttendanceTypeLabel *string `gorm:"column:user_attendance_type_label;type:varchar(80)" json:"user_attendance_type_label,omitempty"`
-	UserAttendanceTypeDesc  *string `gorm:"column:user_attendance_type_desc" json:"user_attendance_type_desc,omitempty"`
+	UserClassSessionAttendanceTypeIsActive  bool           `gorm:"not null;default:true;column:user_class_session_attendance_type_is_active" json:"user_class_session_attendance_type_is_active"`
 
-	// Status aktif
-	UserAttendanceTypeIsActive bool `gorm:"column:user_attendance_type_is_active;not null;default:true" json:"user_attendance_type_is_active"`
-
-	// Timestamps
-	UserAttendanceTypeCreatedAt time.Time      `gorm:"column:user_attendance_type_created_at;not null;default:now()" json:"user_attendance_type_created_at"`
-	UserAttendanceTypeUpdatedAt time.Time      `gorm:"column:user_attendance_type_updated_at;not null;default:now()" json:"user_attendance_type_updated_at"`
-	UserAttendanceTypeDeletedAt gorm.DeletedAt `gorm:"column:user_attendance_type_deleted_at;index" json:"user_attendance_type_deleted_at"`
+	UserClassSessionAttendanceTypeCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:user_class_session_attendance_type_created_at" json:"user_class_session_attendance_type_created_at"`
+	UserClassSessionAttendanceTypeUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:user_class_session_attendance_type_updated_at" json:"user_class_session_attendance_type_updated_at"`
+	UserClassSessionAttendanceTypeDeletedAt gorm.DeletedAt `gorm:"column:user_class_session_attendance_type_deleted_at;index"                                                     json:"user_class_session_attendance_type_deleted_at,omitempty"`
 }
 
-// TableName untuk override nama tabel
-func (UserAttendanceTypeModel) TableName() string {
-	return "user_attendance_type"
+func (UserClassSessionAttendanceTypeModel) TableName() string {
+	return "user_class_session_attendance_types"
 }

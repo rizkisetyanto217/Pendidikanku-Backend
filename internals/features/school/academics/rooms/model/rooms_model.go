@@ -1,4 +1,4 @@
-// file: internals/features/school/class_rooms/model/class_room_model.go
+// file: internals/features/school/classrooms/model/class_room_model.go
 package model
 
 import (
@@ -9,30 +9,32 @@ import (
 	"gorm.io/gorm"
 )
 
-// ClassRoomModel merepresentasikan tabel class_rooms
-// ClassRoomModel merepresentasikan tabel class_rooms
 type ClassRoomModel struct {
-    ClassRoomID        uuid.UUID        `json:"class_room_id" gorm:"type:uuid;primaryKey;column:class_room_id;default:gen_random_uuid()"`
-    ClassRoomsMasjidID uuid.UUID        `json:"class_rooms_masjid_id" gorm:"type:uuid;not null;column:class_rooms_masjid_id"`
+	// PK
+	ClassRoomID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:class_room_id" json:"class_room_id"`
 
-    ClassRoomsName        string   `json:"class_rooms_name" gorm:"type:text;not null;column:class_rooms_name"`
-    ClassRoomsCode        *string  `json:"class_rooms_code,omitempty" gorm:"type:text;column:class_rooms_code"`
-    ClassRoomsSlug        *string  `json:"class_rooms_slug,omitempty" gorm:"type:varchar(50);column:class_rooms_slug"` // ← DITAMBAH
-    ClassRoomsLocation    *string  `json:"class_rooms_location,omitempty" gorm:"type:text;column:class_rooms_location"`
-    // ClassRoomsFloor     *int     `json:"class_rooms_floor,omitempty" gorm:"column:class_rooms_floor"` // ← HAPUS jika tak dipakai
-    ClassRoomsCapacity    *int     `json:"class_rooms_capacity,omitempty" gorm:"column:class_rooms_capacity"`
-    ClassRoomsDescription *string  `json:"class_rooms_description,omitempty" gorm:"type:text;column:class_rooms_description"`
+	// Tenant / scope
+	ClassRoomMasjidID uuid.UUID `gorm:"type:uuid;not null;column:class_room_masjid_id" json:"class_room_masjid_id"`
 
-    ClassRoomsIsVirtual bool            `json:"class_rooms_is_virtual" gorm:"not null;default:false;column:class_rooms_is_virtual"`
-    ClassRoomsIsActive  bool            `json:"class_rooms_is_active"  gorm:"not null;default:true;column:class_rooms_is_active"`
+	// Identitas ruang
+	ClassRoomName        string  `gorm:"type:text;not null;column:class_room_name" json:"class_room_name"`
+	ClassRoomCode        *string `gorm:"type:text;column:class_room_code" json:"class_room_code,omitempty"`
+	ClassRoomSlug        *string `gorm:"type:varchar(50);column:class_room_slug" json:"class_room_slug,omitempty"`
+	ClassRoomLocation    *string `gorm:"type:text;column:class_room_location" json:"class_room_location,omitempty"`
+	ClassRoomCapacity    *int    `gorm:"column:class_room_capacity" json:"class_room_capacity,omitempty"`
+	ClassRoomDescription *string `gorm:"type:text;column:class_room_description" json:"class_room_description,omitempty"`
 
-    ClassRoomsFeatures datatypes.JSON   `json:"class_rooms_features" gorm:"type:jsonb;not null;default:'[]';column:class_rooms_features"`
+	// Karakteristik
+	ClassRoomIsVirtual bool `gorm:"not null;default:false;column:class_room_is_virtual" json:"class_room_is_virtual"`
+	ClassRoomIsActive  bool `gorm:"not null;default:true;column:class_room_is_active" json:"class_room_is_active"`
 
-    ClassRoomsCreatedAt time.Time      `json:"class_rooms_created_at" gorm:"column:class_rooms_created_at;autoCreateTime"`
-    ClassRoomsUpdatedAt time.Time      `json:"class_rooms_updated_at" gorm:"column:class_rooms_updated_at;autoUpdateTime"`
-    ClassRoomsDeletedAt gorm.DeletedAt `json:"class_rooms_deleted_at,omitempty" gorm:"column:class_rooms_deleted_at;index"`
+	// Fitur (JSONB array)
+	ClassRoomFeatures datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:class_room_features" json:"class_room_features"`
+
+	// Timestamps (dikelola aplikasi)
+	ClassRoomCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:class_room_created_at" json:"class_room_created_at"`
+	ClassRoomUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:class_room_updated_at" json:"class_room_updated_at"`
+	ClassRoomDeletedAt gorm.DeletedAt `gorm:"column:class_room_deleted_at;index" json:"class_room_deleted_at,omitempty"`
 }
 
-
-// TableName mengikat model ke tabel class_rooms
 func (ClassRoomModel) TableName() string { return "class_rooms" }

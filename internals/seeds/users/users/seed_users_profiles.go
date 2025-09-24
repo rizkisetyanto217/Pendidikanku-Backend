@@ -68,7 +68,7 @@ package user
 // 	// Bulk insert
 // 	if len(newProfiles) > 0 {
 // 		if err := db.Create(&newProfiles).Error; err != nil {
-// 			log.Fatalf("❌ Gagal bulk insert users_profile: %v", err)
+// 			log.Fatalf("❌ Gagal bulk insert user_profiles: %v", err)
 // 		}
 // 		log.Printf("✅ Berhasil insert %d profil user", len(newProfiles))
 // 	} else {

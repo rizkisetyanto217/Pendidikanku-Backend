@@ -1,145 +1,54 @@
-// file: internals/features/school/submissions_assesments/quizzes/model/user_quiz_attempt_model.go
 package model
 
 import (
-	"database/sql/driver"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-/* =============================================================================
-   ENUM-like: Attempts Status ('in_progress','submitted','finished','abandoned')
-============================================================================= */
+/* =========================================================
+   Enum Status Attempt
+   ========================================================= */
+
 type UserQuizAttemptStatus string
 
 const (
-	UserAttemptInProgress UserQuizAttemptStatus = "in_progress"
-	UserAttemptSubmitted  UserQuizAttemptStatus = "submitted"
-	UserAttemptFinished   UserQuizAttemptStatus = "finished"
-	UserAttemptAbandoned  UserQuizAttemptStatus = "abandoned"
+	UserQuizAttemptInProgress UserQuizAttemptStatus = "in_progress"
+	UserQuizAttemptSubmitted  UserQuizAttemptStatus = "submitted"
+	UserQuizAttemptFinished   UserQuizAttemptStatus = "finished"
+	UserQuizAttemptAbandoned  UserQuizAttemptStatus = "abandoned"
 )
 
-func (s UserQuizAttemptStatus) String() string { return string(s) }
-func (s UserQuizAttemptStatus) Valid() bool {
-	switch s {
-	case UserAttemptInProgress, UserAttemptSubmitted, UserAttemptFinished, UserAttemptAbandoned:
-		return true
-	default:
-		return false
-	}
-}
+/* =========================================================
+   UserQuizAttempt (user_quiz_attempts)
+   ========================================================= */
 
-// sql.Scanner + driver.Valuer (aman saat scan ke enum)
-func (s *UserQuizAttemptStatus) Scan(value any) error {
-	if value == nil {
-		*s = ""
-		return nil
-	}
-	switch v := value.(type) {
-	case string:
-		*s = UserQuizAttemptStatus(v)
-	case []byte:
-		*s = UserQuizAttemptStatus(string(v))
-	default:
-		return fmt.Errorf("unsupported type for UserQuizAttemptStatus: %T", value)
-	}
-	if !s.Valid() {
-		return fmt.Errorf("invalid UserQuizAttemptStatus: %q", *s)
-	}
-	return nil
-}
-func (s UserQuizAttemptStatus) Value() (driver.Value, error) {
-	if s == "" {
-		return nil, nil
-	}
-	if !s.Valid() {
-		return nil, fmt.Errorf("invalid UserQuizAttemptStatus: %q", s)
-	}
-	return string(s), nil
-}
-
-/* =============================================================================
-   MODEL: user_quiz_attempts
-   Catatan:
-   - numeric(7,3)/(6,3) → float64 (ganti ke decimal bila perlu presisi penuh).
-   - Index tags mengikuti DDL (untuk dokumentasi; DDL-mu sudah buat indeksnya).
-============================================================================= */
 type UserQuizAttemptModel struct {
 	// PK
-	UserQuizAttemptsID uuid.UUID `json:"user_quiz_attempts_id" gorm:"column:user_quiz_attempts_id;type:uuid;default:gen_random_uuid();primaryKey"`
+	UserQuizAttemptID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:user_quiz_attempt_id" json:"user_quiz_attempt_id"`
 
-	// Tenant
-	UserQuizAttemptsMasjidID uuid.UUID `json:"user_quiz_attempts_masjid_id" gorm:"column:user_quiz_attempts_masjid_id;type:uuid;not null;index:idx_uqa_masjid_quiz,priority:1"`
-
-	// FK
-	UserQuizAttemptsQuizID    uuid.UUID `json:"user_quiz_attempts_quiz_id" gorm:"column:user_quiz_attempts_quiz_id;type:uuid;not null;index:idx_uqa_quiz_student,priority:1;index:idx_uqa_quiz_student_started_desc,priority:1;index:idx_uqa_quiz_active,where:user_quiz_attempts_status IN ('in_progress','submitted');index:idx_uqa_masjid_quiz,priority:2"`
-	UserQuizAttemptsStudentID uuid.UUID `json:"user_quiz_attempts_student_id" gorm:"column:user_quiz_attempts_student_id;type:uuid;not null;index:idx_uqa_quiz_student,priority:2;index:idx_uqa_quiz_student_started_desc,priority:2;index:idx_uqa_student;index:idx_uqa_student_status,priority:1"`
+	// Tenant & relations
+	UserQuizAttemptMasjidID  uuid.UUID `gorm:"type:uuid;not null;column:user_quiz_attempt_masjid_id;index:idx_uqa_masjid_quiz,priority:1" json:"user_quiz_attempt_masjid_id"`
+	UserQuizAttemptQuizID    uuid.UUID `gorm:"type:uuid;not null;column:user_quiz_attempt_quiz_id;index:idx_uqa_quiz_student,priority:1;index:idx_uqa_quiz_student_started_desc,priority:1;index:idx_uqa_masjid_quiz,priority:2" json:"user_quiz_attempt_quiz_id"`
+	UserQuizAttemptStudentID uuid.UUID `gorm:"type:uuid;not null;column:user_quiz_attempt_student_id;index:idx_uqa_quiz_student,priority:2;index:idx_uqa_student;index:idx_uqa_student_status,priority:1" json:"user_quiz_attempt_student_id"`
 
 	// Waktu
-	UserQuizAttemptsStartedAt  time.Time  `json:"user_quiz_attempts_started_at" gorm:"column:user_quiz_attempts_started_at;type:timestamptz;not null;default:now();index:brin_uqa_started_at,priority:1,using:brin"`
-	UserQuizAttemptsFinishedAt *time.Time `json:"user_quiz_attempts_finished_at,omitempty" gorm:"column:user_quiz_attempts_finished_at;type:timestamptz"`
+	UserQuizAttemptStartedAt  time.Time  `gorm:"type:timestamptz;not null;default:now();column:user_quiz_attempt_started_at" json:"user_quiz_attempt_started_at"`
+	UserQuizAttemptFinishedAt *time.Time `gorm:"type:timestamptz;column:user_quiz_attempt_finished_at" json:"user_quiz_attempt_finished_at,omitempty"`
 
 	// Skor
-	UserQuizAttemptsScoreRaw     *float64 `json:"user_quiz_attempts_score_raw,omitempty" gorm:"column:user_quiz_attempts_score_raw;type:numeric(7,3);default:0"`
-	UserQuizAttemptsScorePercent *float64 `json:"user_quiz_attempts_score_percent,omitempty" gorm:"column:user_quiz_attempts_score_percent;type:numeric(6,3);default:0"`
+	UserQuizAttemptScoreRaw     *float64 `gorm:"type:numeric(7,3);default:0;column:user_quiz_attempt_score_raw" json:"user_quiz_attempt_score_raw,omitempty"`
+	UserQuizAttemptScorePercent *float64 `gorm:"type:numeric(6,3);default:0;column:user_quiz_attempt_score_percent" json:"user_quiz_attempt_score_percent,omitempty"`
 
 	// Status
-	UserQuizAttemptsStatus UserQuizAttemptStatus `json:"user_quiz_attempts_status" gorm:"column:user_quiz_attempts_status;type:varchar(16);not null;default:'in_progress';index:idx_uqa_status;index:idx_uqa_student_status,priority:2"`
+	UserQuizAttemptStatus UserQuizAttemptStatus `gorm:"type:varchar(16);not null;default:'in_progress';column:user_quiz_attempt_status;index:idx_uqa_status;index:idx_uqa_student_status,priority:2" json:"user_quiz_attempt_status"`
 
-	// Audit
-	UserQuizAttemptsCreatedAt time.Time `json:"user_quiz_attempts_created_at" gorm:"column:user_quiz_attempts_created_at;type:timestamptz;not null;default:now();index:brin_uqa_created_at,using:brin"`
-	UserQuizAttemptsUpdatedAt time.Time `json:"user_quiz_attempts_updated_at" gorm:"column:user_quiz_attempts_updated_at;type:timestamptz;not null;default:now()"`
+	// Timestamps (custom names)
+	UserQuizAttemptCreatedAt time.Time `gorm:"type:timestamptz;not null;default:now();autoCreateTime;column:user_quiz_attempt_created_at;index:brin_uqa_created_at,class:BRIN" json:"user_quiz_attempt_created_at"`
+	UserQuizAttemptUpdatedAt time.Time `gorm:"type:timestamptz;not null;default:now();autoUpdateTime;column:user_quiz_attempt_updated_at" json:"user_quiz_attempt_updated_at"`
+
+	// Children
+	Answers []UserQuizAttemptAnswerModel `gorm:"foreignKey:UserQuizAttemptAnswerAttemptID;references:UserQuizAttemptID;constraint:OnDelete:CASCADE,OnUpdate:CASCADE" json:"answers,omitempty"`
 }
 
-// Nama tabel eksplisit
 func (UserQuizAttemptModel) TableName() string { return "user_quiz_attempts" }
-
-/* =============================================================================
-   Hooks — jaga updated_at
-============================================================================= */
-func (m *UserQuizAttemptModel) BeforeSave(_ any) error {
-	m.UserQuizAttemptsUpdatedAt = time.Now()
-	return nil
-}
-
-/* ===================================================================
-   Helper methods
-=================================================================== */
-func (m *UserQuizAttemptModel) IsActive() bool {
-	return m.UserQuizAttemptsStatus == UserAttemptInProgress || m.UserQuizAttemptsStatus == UserAttemptSubmitted
-}
-
-func (m *UserQuizAttemptModel) MarkSubmitted(scoreRaw, scorePct *float64, finishedAt *time.Time) {
-	m.UserQuizAttemptsStatus = UserAttemptSubmitted
-	if finishedAt != nil {
-		m.UserQuizAttemptsFinishedAt = finishedAt
-	}
-	if scoreRaw != nil {
-		m.UserQuizAttemptsScoreRaw = scoreRaw
-	}
-	if scorePct != nil {
-		m.UserQuizAttemptsScorePercent = scorePct
-	}
-}
-
-func (m *UserQuizAttemptModel) MarkFinished(scoreRaw, scorePct *float64, finishedAt *time.Time) {
-	m.UserQuizAttemptsStatus = UserAttemptFinished
-	if finishedAt != nil {
-		m.UserQuizAttemptsFinishedAt = finishedAt
-	}
-	if scoreRaw != nil {
-		m.UserQuizAttemptsScoreRaw = scoreRaw
-	}
-	if scorePct != nil {
-		m.UserQuizAttemptsScorePercent = scorePct
-	}
-}
-
-func (m *UserQuizAttemptModel) MarkAbandoned(finishedAt *time.Time) {
-	m.UserQuizAttemptsStatus = UserAttemptAbandoned
-	if finishedAt != nil {
-		m.UserQuizAttemptsFinishedAt = finishedAt
-	}
-}

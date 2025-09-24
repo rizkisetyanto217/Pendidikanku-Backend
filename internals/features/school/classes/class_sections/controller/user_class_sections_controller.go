@@ -14,11 +14,11 @@ import (
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
-	ucsDTO "masjidku_backend/internals/features/school/classes/class_sections/dto"
+	enrolDTO "masjidku_backend/internals/features/school/classes/class_sections/dto"
 
-	// parent validators
-	secModel "masjidku_backend/internals/features/school/classes/class_sections/model"
+	// parents / models
 	ucModel "masjidku_backend/internals/features/school/classes/classes/model"
+	enrolModel "masjidku_backend/internals/features/school/classes/class_sections/model"
 )
 
 type UserClassSectionController struct {
@@ -39,7 +39,7 @@ func (h *UserClassSectionController) ensureParentsBelongToMasjid(
 ) error {
 	// Cek user_classes (tenant sama & belum terhapus)
 	{
-		var uc ucModel.UserClassesModel
+		var uc ucModel.UserClassModel
 		if err := h.DB.
 			Select("user_classes_id, user_classes_masjid_id, user_classes_deleted_at").
 			Where("user_classes_id = ? AND user_classes_deleted_at IS NULL", userClassID).
@@ -49,7 +49,7 @@ func (h *UserClassSectionController) ensureParentsBelongToMasjid(
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi enrolment")
 		}
-		if uc.UserClassesMasjidID != masjidID {
+		if uc.UserClassMasjidID != masjidID {
 			return fiber.NewError(fiber.StatusForbidden, "Enrolment bukan milik masjid Anda")
 		}
 	}
@@ -57,22 +57,22 @@ func (h *UserClassSectionController) ensureParentsBelongToMasjid(
 	// Cek class_sections (tenant sama & belum terhapus)
 	{
 		type clsSection struct {
-			ClassSectionsID       uuid.UUID  `gorm:"column:class_sections_id"`
-			ClassSectionsMasjidID uuid.UUID  `gorm:"column:class_sections_masjid_id"`
-			DeletedAt             *time.Time `gorm:"column:class_sections_deleted_at"`
+			ClassSectionID       uuid.UUID  `gorm:"column:class_section_id"`
+			ClassSectionMasjidID uuid.UUID  `gorm:"column:class_section_masjid_id"`
+			DeletedAt            *time.Time `gorm:"column:class_section_deleted_at"`
 		}
 		var sec clsSection
 		if err := h.DB.
 			Table("class_sections").
-			Select("class_sections_id, class_sections_masjid_id, class_sections_deleted_at").
-			Where("class_sections_id = ? AND class_sections_deleted_at IS NULL", sectionID).
+			Select("class_section_id, class_section_masjid_id, class_section_deleted_at").
+			Where("class_section_id = ? AND class_section_deleted_at IS NULL", sectionID).
 			First(&sec).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fiber.NewError(fiber.StatusBadRequest, "Section tidak ditemukan")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi section")
 		}
-		if sec.ClassSectionsMasjidID != masjidID {
+		if sec.ClassSectionMasjidID != masjidID {
 			return fiber.NewError(fiber.StatusForbidden, "Section bukan milik masjid Anda")
 		}
 	}
@@ -81,10 +81,10 @@ func (h *UserClassSectionController) ensureParentsBelongToMasjid(
 }
 
 // Ambil row user_class_sections + pastikan tenant sama
-func (h *UserClassSectionController) findUCSWithTenantGuard(ucsID, masjidID uuid.UUID) (*secModel.UserClassSectionsModel, error) {
-	var m secModel.UserClassSectionsModel
+func (h *UserClassSectionController) findUCSWithTenantGuard(ucsID, masjidID uuid.UUID) (*enrolModel.UserClassSection, error) {
+	var m enrolModel.UserClassSection
 	if err := h.DB.
-		First(&m, "user_class_sections_id = ? AND user_class_sections_masjid_id = ?", ucsID, masjidID).Error; err != nil {
+		First(&m, "user_class_section_id = ? AND user_class_section_masjid_id = ?", ucsID, masjidID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fiber.NewError(fiber.StatusNotFound, "Penempatan section tidak ditemukan")
 		}
@@ -96,10 +96,10 @@ func (h *UserClassSectionController) findUCSWithTenantGuard(ucsID, masjidID uuid
 // Validasi: hanya boleh ada 1 penempatan aktif per enrolment (user_class_id)
 func (h *UserClassSectionController) ensureSingleActivePerUserClass(userClassID, excludeID uuid.UUID) error {
 	var cnt int64
-	tx := h.DB.Model(&secModel.UserClassSectionsModel{}).
-		Where("user_class_sections_user_class_id = ? AND user_class_sections_unassigned_at IS NULL", userClassID)
+	tx := h.DB.Model(&enrolModel.UserClassSection{}).
+		Where("user_class_section_user_class_id = ? AND user_class_section_unassigned_at IS NULL", userClassID)
 	if excludeID != uuid.Nil {
-		tx = tx.Where("user_class_sections_id <> ?", excludeID)
+		tx = tx.Where("user_class_section_id <> ?", excludeID)
 	}
 	if err := tx.Count(&cnt).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi penempatan aktif")
@@ -119,11 +119,11 @@ func (h *UserClassSectionController) CreateUserClassSection(c *fiber.Ctx) error 
 		return err
 	}
 
-	var req ucsDTO.CreateUserClassSectionRequest
+	var req enrolDTO.CreateUserClassSectionRequest
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
-	req.UserClassSectionsMasjidID = &masjidID
+	req.UserClassSectionMasjidID = &masjidID
 
 	// Validasi DTO
 	if err := validateUCS.Struct(req); err != nil {
@@ -131,24 +131,24 @@ func (h *UserClassSectionController) CreateUserClassSection(c *fiber.Ctx) error 
 	}
 
 	// Validasi tanggal ringan (DB juga sudah ada CHECK)
-	if req.UserClassSectionsAssignedAt != nil && req.UserClassSectionsUnassignedAt != nil {
-		if req.UserClassSectionsUnassignedAt.Before(*req.UserClassSectionsAssignedAt) {
+	if req.UserClassSectionAssignedAt != nil && req.UserClassSectionUnassignedAt != nil {
+		if req.UserClassSectionUnassignedAt.Before(*req.UserClassSectionAssignedAt) {
 			return fiber.NewError(fiber.StatusBadRequest, "unassigned_at tidak boleh sebelum assigned_at")
 		}
 	}
 
 	// Guard tenant: pastikan parent entities memang milik masjid ini
 	if err := h.ensureParentsBelongToMasjid(
-		req.UserClassSectionsUserClassID,
-		req.UserClassSectionsSectionID,
+		req.UserClassSectionUserClassID,
+		req.UserClassSectionSectionID,
 		masjidID,
 	); err != nil {
 		return err
 	}
 
 	// Satu placement aktif per user_class (aktif = unassigned_at IS NULL & belum soft delete)
-	if req.UserClassSectionsUnassignedAt == nil {
-		if err := h.ensureSingleActivePerUserClass(req.UserClassSectionsUserClassID, uuid.Nil); err != nil {
+	if req.UserClassSectionUnassignedAt == nil {
+		if err := h.ensureSingleActivePerUserClass(req.UserClassSectionUserClassID, uuid.Nil); err != nil {
 			return err
 		}
 	}
@@ -159,7 +159,7 @@ func (h *UserClassSectionController) CreateUserClassSection(c *fiber.Ctx) error 
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat penempatan section")
 	}
 
-	return helper.JsonCreated(c, "Penempatan section berhasil dibuat", ucsDTO.NewUserClassSectionResponse(m))
+	return helper.JsonCreated(c, "Penempatan section berhasil dibuat", enrolDTO.NewUserClassSectionResponse(m))
 }
 
 // PUT /admin/user-class-sections/:id
@@ -179,57 +179,56 @@ func (h *UserClassSectionController) UpdateUserClassSection(c *fiber.Ctx) error 
 		return err
 	}
 
-	var req ucsDTO.UpdateUserClassSectionRequest
+	var req enrolDTO.UpdateUserClassSectionRequest
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	// cegah pindah tenant
-	req.UserClassSectionsMasjidID = &masjidID
+	req.UserClassSectionMasjidID = &masjidID
 
 	if err := validateUCS.Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
 	// --- Guard parent (user_class_id & section_id) tetap dalam tenant yang sama ---
-	targetUserClassID := existing.UserClassSectionsUserClassID
-	if req.UserClassSectionsUserClassID != nil {
-		targetUserClassID = *req.UserClassSectionsUserClassID
+	targetUserClassID := existing.UserClassSectionUserClassID
+	if req.UserClassSectionUserClassID != nil {
+		targetUserClassID = *req.UserClassSectionUserClassID
 	}
-	targetSectionID := existing.UserClassSectionsSectionID
-	if req.UserClassSectionsSectionID != nil {
-		targetSectionID = *req.UserClassSectionsSectionID
+	targetSectionID := existing.UserClassSectionSectionID
+	if req.UserClassSectionSectionID != nil {
+		targetSectionID = *req.UserClassSectionSectionID
 	}
-	if targetUserClassID != existing.UserClassSectionsUserClassID || targetSectionID != existing.UserClassSectionsSectionID {
+	if targetUserClassID != existing.UserClassSectionUserClassID || targetSectionID != existing.UserClassSectionSectionID {
 		if err := h.ensureParentsBelongToMasjid(targetUserClassID, targetSectionID, masjidID); err != nil {
 			return err
 		}
 	}
 
 	// --- Tentukan target unassigned_at (NULL = aktif) ---
-	targetUnassigned := existing.UserClassSectionsUnassignedAt
-	if req.UserClassSectionsUnassignedAt != nil {
-		targetUnassigned = req.UserClassSectionsUnassignedAt
+	targetUnassigned := existing.UserClassSectionUnassignedAt
+	if req.UserClassSectionUnassignedAt != nil {
+		targetUnassigned = req.UserClassSectionUnassignedAt
 	}
 
 	// --- Jika akan menjadi AKTIF (unassigned_at == NULL) pastikan tidak ada duplikat aktif ---
 	if targetUnassigned == nil {
-		if err := h.ensureSingleActivePerUserClass(targetUserClassID, existing.UserClassSectionsID); err != nil {
+		if err := h.ensureSingleActivePerUserClass(targetUserClassID, existing.UserClassSectionID); err != nil {
 			return err
 		}
 	}
 
 	// --- Apply & Save ---
 	req.ApplyToModel(existing)
-	if err := h.DB.Model(&secModel.UserClassSectionsModel{}).
-		Where("user_class_sections_id = ?", existing.UserClassSectionsID).
+	if err := h.DB.Model(&enrolModel.UserClassSection{}).
+		Where("user_class_section_id = ?", existing.UserClassSectionID).
 		Updates(existing).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui penempatan section")
 	}
 
-	return helper.JsonUpdated(c, "Penempatan section berhasil diperbarui", ucsDTO.NewUserClassSectionResponse(existing))
+	return helper.JsonUpdated(c, "Penempatan section berhasil diperbarui", enrolDTO.NewUserClassSectionResponse(existing))
 }
 
-// GET /admin/user-class-sections
 // GET /admin/user-class-sections
 func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
@@ -237,7 +236,7 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 		return err
 	}
 
-	var q ucsDTO.ListUserClassSectionQuery
+	var q enrolDTO.ListUserClassSectionQuery
 	q.Limit, q.Offset = 20, 0
 	if err := c.QueryParser(&q); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
@@ -249,18 +248,18 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 		q.Offset = 0
 	}
 
-	tx := h.DB.Model(&secModel.UserClassSectionsModel{}).
-		Where("user_class_sections_masjid_id = ?", masjidID)
+	tx := h.DB.Model(&enrolModel.UserClassSection{}).
+		Where("user_class_section_masjid_id = ?", masjidID)
 
 	// Filters
 	if q.UserClassID != nil {
-		tx = tx.Where("user_class_sections_user_class_id = ?", *q.UserClassID)
+		tx = tx.Where("user_class_section_user_class_id = ?", *q.UserClassID)
 	}
 	if q.SectionID != nil {
-		tx = tx.Where("user_class_sections_section_id = ?", *q.SectionID)
+		tx = tx.Where("user_class_section_section_id = ?", *q.SectionID)
 	}
 	if q.ActiveOnly != nil && *q.ActiveOnly {
-		tx = tx.Where("user_class_sections_unassigned_at IS NULL")
+		tx = tx.Where("user_class_section_unassigned_at IS NULL")
 	}
 
 	// Sort
@@ -270,25 +269,25 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 	}
 	switch sort {
 	case "assigned_at_asc":
-		tx = tx.Order("user_class_sections_assigned_at ASC")
+		tx = tx.Order("user_class_section_assigned_at ASC")
 	case "created_at_asc":
-		tx = tx.Order("user_class_sections_created_at ASC")
+		tx = tx.Order("user_class_section_created_at ASC")
 	case "created_at_desc":
-		tx = tx.Order("user_class_sections_created_at DESC")
+		tx = tx.Order("user_class_section_created_at DESC")
 	default:
-		tx = tx.Order("user_class_sections_assigned_at DESC")
+		tx = tx.Order("user_class_section_assigned_at DESC")
 	}
 
 	// Paging
 	tx = tx.Limit(q.Limit).Offset(q.Offset)
 
 	// Fetch
-	var rows []secModel.UserClassSectionsModel
+	var rows []enrolModel.UserClassSection
 	if err := tx.Find(&rows).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 	if len(rows) == 0 {
-		return helper.JsonOK(c, "OK", []*ucsDTO.UserClassSectionResponse{})
+		return helper.JsonOK(c, "OK", []*enrolDTO.UserClassSectionResponse{})
 	}
 
 	/* ===== Enrichment ===== */
@@ -297,7 +296,7 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 	ucSet := make(map[uuid.UUID]struct{}, len(rows))
 	userClassIDs := make([]uuid.UUID, 0, len(rows))
 	for i := range rows {
-		id := rows[i].UserClassSectionsUserClassID
+		id := rows[i].UserClassSectionUserClassID
 		if _, ok := ucSet[id]; !ok {
 			ucSet[id] = struct{}{}
 			userClassIDs = append(userClassIDs, id)
@@ -373,14 +372,14 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 	}
 
 	// 5) Ambil users -> map[user_id]UcsUser (tambahkan full_name)
-	userMap := make(map[uuid.UUID]ucsDTO.UcsUser, len(userIDs))
+	userMap := make(map[uuid.UUID]enrolDTO.UcsUser, len(userIDs))
 	if len(userIDs) > 0 {
 		var urs []struct {
-			ID       uuid.UUID  `gorm:"column:id"`
-			UserName string     `gorm:"column:user_name"`
-			FullName *string    `gorm:"column:full_name"`
-			Email    string     `gorm:"column:email"`
-			IsActive bool       `gorm:"column:is_active"`
+			ID       uuid.UUID `gorm:"column:id"`
+			UserName string    `gorm:"column:user_name"`
+			FullName *string   `gorm:"column:full_name"`
+			Email    string    `gorm:"column:email"`
+			IsActive bool      `gorm:"column:is_active"`
 		}
 		if err := h.DB.
 			Table("users").
@@ -390,34 +389,34 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data user")
 		}
 		for _, u := range urs {
-			userMap[u.ID] = ucsDTO.UcsUser{
+			userMap[u.ID] = enrolDTO.UcsUser{
 				ID:       u.ID,
 				UserName: u.UserName,
-				FullName: u.FullName, // boleh nil
+				FullName: u.FullName,
 				Email:    u.Email,
 				IsActive: u.IsActive,
 			}
 		}
 	}
 
-	// 6) Ambil users_profile -> map[user_id]UcsUserProfile (sesuai kolom baru)
-	profileMap := make(map[uuid.UUID]ucsDTO.UcsUserProfile, len(userIDs))
+	// 6) Ambil user_profiles -> map[user_id]UcsUserProfile
+	profileMap := make(map[uuid.UUID]enrolDTO.UcsUserProfile, len(userIDs))
 	if len(userIDs) > 0 {
 		var prs []struct {
-			UserID                   uuid.UUID  `gorm:"column:user_id"`
-			DonationName             *string    `gorm:"column:donation_name"`
-			PhotoURL                 *string    `gorm:"column:photo_url"`
-			PhotoTrashURL            *string    `gorm:"column:photo_trash_url"`
-			PhotoDeletePendingUntil  *time.Time `gorm:"column:photo_delete_pending_until"`
-			DateOfBirth              *time.Time `gorm:"column:date_of_birth"`
-			Gender                   *string    `gorm:"column:gender"`
-			PhoneNumber              *string    `gorm:"column:phone_number"`
-			Bio                      *string    `gorm:"column:bio"`
-			Location                 *string    `gorm:"column:location"`
-			Occupation               *string    `gorm:"column:occupation"`
+			UserID                  uuid.UUID  `gorm:"column:user_id"`
+			DonationName            *string    `gorm:"column:donation_name"`
+			PhotoURL                *string    `gorm:"column:photo_url"`
+			PhotoTrashURL           *string    `gorm:"column:photo_trash_url"`
+			PhotoDeletePendingUntil *time.Time `gorm:"column:photo_delete_pending_until"`
+			DateOfBirth             *time.Time `gorm:"column:date_of_birth"`
+			Gender                  *string    `gorm:"column:gender"`
+			PhoneNumber             *string    `gorm:"column:phone_number"`
+			Bio                     *string    `gorm:"column:bio"`
+			Location                *string    `gorm:"column:location"`
+			Occupation              *string    `gorm:"column:occupation"`
 		}
 		if err := h.DB.
-			Table("users_profile").
+			Table("user_profiles").
 			Select(`user_id, donation_name, photo_url, photo_trash_url, photo_delete_pending_until,
 			        date_of_birth, gender, phone_number, bio, location, occupation`).
 			Where("user_id IN ?", userIDs).
@@ -426,7 +425,7 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data profile")
 		}
 		for _, p := range prs {
-			profileMap[p.UserID] = ucsDTO.UcsUserProfile{
+			profileMap[p.UserID] = enrolDTO.UcsUserProfile{
 				UserID:                  p.UserID,
 				DonationName:            p.DonationName,
 				PhotoURL:                p.PhotoURL,
@@ -443,11 +442,11 @@ func (h *UserClassSectionController) ListUserClassSections(c *fiber.Ctx) error {
 	}
 
 	// 7) Build response + enrichment
-	resp := make([]*ucsDTO.UserClassSectionResponse, 0, len(rows))
+	resp := make([]*enrolDTO.UserClassSectionResponse, 0, len(rows))
 	for i := range rows {
-		r := ucsDTO.NewUserClassSectionResponse(&rows[i])
+		r := enrolDTO.NewUserClassSectionResponse(&rows[i])
 
-		ucID := rows[i].UserClassSectionsUserClassID
+		ucID := rows[i].UserClassSectionUserClassID
 		if meta, ok := ucMetaByID[ucID]; ok {
 			r.UserClassesStatus = meta.Status
 		}
@@ -488,7 +487,7 @@ func (h *UserClassSectionController) EndUserClassSection(c *fiber.Ctx) error {
 	}
 
 	// Idempotent
-	if m.UserClassSectionsUnassignedAt != nil {
+	if m.UserClassSectionUnassignedAt != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Penempatan sudah diakhiri sebelumnya")
 	}
 
@@ -496,20 +495,20 @@ func (h *UserClassSectionController) EndUserClassSection(c *fiber.Ctx) error {
 	today := time.Now().Truncate(24 * time.Hour)
 
 	updates := map[string]any{
-		"user_class_sections_unassigned_at": &today,
-		"user_class_sections_updated_at":    time.Now(),
+		"user_class_section_unassigned_at": &today,
+		"user_class_section_updated_at":    time.Now(),
 	}
 
-	if err := h.DB.Model(&secModel.UserClassSectionsModel{}).
-		Where("user_class_sections_id = ?", m.UserClassSectionsID).
+	if err := h.DB.Model(&enrolModel.UserClassSection{}).
+		Where("user_class_section_id = ?", m.UserClassSectionID).
 		Updates(updates).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengakhiri penempatan")
 	}
 
 	return helper.JsonUpdated(c, "Penempatan diakhiri", fiber.Map{
-		"user_class_sections_id":            m.UserClassSectionsID,
-		"user_class_sections_unassigned_at": today,
-		"is_active":                         false,
+		"user_class_section_id":            m.UserClassSectionID,
+		"user_class_section_unassigned_at": today,
+		"is_active":                        false,
 	})
 }
 
@@ -538,11 +537,11 @@ func (h *UserClassSectionController) DeleteUserClassSection(c *fiber.Ctx) error 
 		return err
 	}
 	if m == nil {
-	 return fiber.NewError(fiber.StatusNotFound, "Penempatan tidak ditemukan")
+		return fiber.NewError(fiber.StatusNotFound, "Penempatan tidak ditemukan")
 	}
 
 	// Larang hapus jika masih aktif (aktif = unassigned_at IS NULL)
-	if m.UserClassSectionsUnassignedAt == nil {
+	if m.UserClassSectionUnassignedAt == nil {
 		return fiber.NewError(fiber.StatusConflict, "Penempatan masih aktif, akhiri terlebih dahulu")
 	}
 
@@ -551,46 +550,42 @@ func (h *UserClassSectionController) DeleteUserClassSection(c *fiber.Ctx) error 
 	if hard {
 		// Hard delete permanen
 		if err := db.Unscoped().
-			Delete(&secModel.UserClassSectionsModel{}, "user_class_sections_id = ?", m.UserClassSectionsID).Error; err != nil {
+			Delete(&enrolModel.UserClassSection{}, "user_class_section_id = ?", m.UserClassSectionID).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus penempatan (hard)")
 		}
 		return helper.JsonDeleted(c, "Penempatan dihapus permanen", fiber.Map{
-			"user_class_sections_id": m.UserClassSectionsID,
-			"hard":                   true,
+			"user_class_section_id": m.UserClassSectionID,
+			"hard":                  true,
 		})
 	}
 
 	// Soft delete (gorm.DeletedAt akan diisi otomatis)
 	if err := db.
-		Delete(&secModel.UserClassSectionsModel{}, "user_class_sections_id = ?", m.UserClassSectionsID).Error; err != nil {
+		Delete(&enrolModel.UserClassSection{}, "user_class_section_id = ?", m.UserClassSectionID).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus penempatan (soft)")
 	}
 
 	return helper.JsonDeleted(c, "Penempatan dihapus", fiber.Map{
-		"user_class_sections_id": m.UserClassSectionsID,
-		"hard":                   false,
+		"user_class_section_id": m.UserClassSectionID,
+		"hard":                  false,
 	})
 }
 
 // includeDeleted=false → hanya baris hidup (deleted_at IS NULL)
 // includeDeleted=true  → cari Unscoped (termasuk yang sudah soft-deleted)
-// findUCSWithTenantGuard contoh (pastikan ada di file ini)
-// helper: cari UCS dengan guard tenant
-// includeDeleted = true  -> Unscoped (ikut baris yang sudah soft-deleted)
-// includeDeleted = false -> hanya baris hidup (deleted_at IS NULL)
 func (h *UserClassSectionController) findUCSWithTenantGuard2(
 	ucsID, masjidID uuid.UUID,
 	includeDeleted bool,
-) (*secModel.UserClassSectionsModel, error) {
-	var m secModel.UserClassSectionsModel
+) (*enrolModel.UserClassSection, error) {
+	var m enrolModel.UserClassSection
 
-	q := h.DB.Model(&secModel.UserClassSectionsModel{})
+	q := h.DB.Model(&enrolModel.UserClassSection{})
 	if includeDeleted {
 		q = q.Unscoped()
 	}
-	q = q.Where("user_class_sections_id = ? AND user_class_sections_masjid_id = ?", ucsID, masjidID)
+	q = q.Where("user_class_section_id = ? AND user_class_section_masjid_id = ?", ucsID, masjidID)
 	if !includeDeleted {
-		q = q.Where("user_class_sections_deleted_at IS NULL")
+		q = q.Where("user_class_section_deleted_at IS NULL")
 	}
 
 	if err := q.First(&m).Error; err != nil {
@@ -601,7 +596,6 @@ func (h *UserClassSectionController) findUCSWithTenantGuard2(
 	}
 	return &m, nil
 }
-
 
 // POST /admin/user-class-sections/:id/restore
 func (h *UserClassSectionController) RestoreUserClassSection(c *fiber.Ctx) error {
@@ -619,23 +613,23 @@ func (h *UserClassSectionController) RestoreUserClassSection(c *fiber.Ctx) error
 	if err != nil {
 		return err
 	}
-	if m == nil || !m.UserClassSectionsDeletedAt.Valid {
+	if m == nil || !m.UserClassSectionDeletedAt.Valid {
 		return fiber.NewError(fiber.StatusBadRequest, "Penempatan tidak dalam status terhapus")
 	}
 
 	// Pastikan tidak melanggar aturan "single active" saat restore (jika dia aktif)
-	if m.UserClassSectionsUnassignedAt == nil {
-		if err := h.ensureSingleActivePerUserClass(m.UserClassSectionsUserClassID, m.UserClassSectionsID); err != nil {
+	if m.UserClassSectionUnassignedAt == nil {
+		if err := h.ensureSingleActivePerUserClass(m.UserClassSectionUserClassID, m.UserClassSectionID); err != nil {
 			return err
 		}
 	}
 
 	// Null-kan deleted_at (restore)
-	if err := h.DB.Unscoped().Model(&secModel.UserClassSectionsModel{}).
-		Where("user_class_sections_id = ? AND user_class_sections_masjid_id = ?", m.UserClassSectionsID, masjidID).
-		Update("user_class_sections_deleted_at", nil).Error; err != nil {
+	if err := h.DB.Unscoped().Model(&enrolModel.UserClassSection{}).
+		Where("user_class_section_id = ? AND user_class_section_masjid_id = ?", m.UserClassSectionID, masjidID).
+		Update("user_class_section_deleted_at", nil).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal memulihkan penempatan")
 	}
 
-	return helper.JsonOK(c, "Penempatan dipulihkan", ucsDTO.NewUserClassSectionResponse(m))
+	return helper.JsonOK(c, "Penempatan dipulihkan", enrolDTO.NewUserClassSectionResponse(m))
 }

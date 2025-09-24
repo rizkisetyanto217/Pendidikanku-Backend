@@ -38,5 +38,5 @@ type ClassAttendanceSessionURLModel struct {
 
 // TableName override
 func (ClassAttendanceSessionURLModel) TableName() string {
-	return "class_attendance_session_url"
+	return "class_attendance_session_urls"
 }

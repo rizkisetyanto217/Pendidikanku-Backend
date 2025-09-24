@@ -20,8 +20,7 @@ func SubmissionAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// Controller untuk Submissions
 	subCtrl := urlscontroller.NewSubmissionController(db)
 
-	sub := r.Group("/submissions")
-	sub.Get("/list", subCtrl.List)             // GET   /submissions
+	sub := r.Group("/submissions") 
 	sub.Post("/", subCtrl.Create)          // POST  /submissions
 	sub.Patch("/:id", subCtrl.Patch)       // PATCH /submissions/:id
 	sub.Delete("/:id", subCtrl.Delete)     // DELETE /submissions/:id

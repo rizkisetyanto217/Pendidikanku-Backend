@@ -19,8 +19,8 @@ import (
 
 	d "masjidku_backend/internals/features/school/academics/schedules/dto"
 	m "masjidku_backend/internals/features/school/academics/schedules/model"
-	svc "masjidku_backend/internals/features/school/academics/schedules/services"
 	sessModel "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
+	svc "masjidku_backend/internals/features/school/academics/schedules/services" // ⬅️ generator sessions
 )
 
 /* =========================
@@ -97,7 +97,6 @@ func writePGError(c *fiber.Ctx, err error) error {
 /*
 ========================= Create =========================
 */
-// file: internals/features/lembaacademics/schedules/controller/class_schedule_controller.go
 
 func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
@@ -173,8 +172,8 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 			ms, er := req.SessionsToModels(
 				actMasjidID,
 				model.ClassScheduleID,
-				model.ClassSchedulesStartDate,
-				model.ClassSchedulesEndDate,
+				model.ClassScheduleStartDate,
+				model.ClassScheduleEndDate,
 			)
 			if er != nil {
 				log.Printf("[ClassSchedule.Create] SessionsToModels error: %v", er)
@@ -263,7 +262,7 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 
 	var existing m.ClassScheduleModel
 	if err := ctl.DB.
-		Where("class_schedule_id = ? AND class_schedules_deleted_at IS NULL", id).
+		Where("class_schedule_id = ? AND class_schedule_deleted_at IS NULL", id).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "schedule not found")
@@ -284,9 +283,9 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 	req.Apply(&existing)
 
 	// 🔁 masjid-context: izinkan DKM sesuai context meski token scope mismatch
-	if err := enforceMasjidScopeAuth(c, &existing.ClassSchedulesMasjidID); err != nil {
+	if err := enforceMasjidScopeAuth(c, &existing.ClassScheduleMasjidID); err != nil {
 		if mc, er := helperAuth.ResolveMasjidContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassSchedulesMasjidID {
+			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassScheduleMasjidID {
 				// ✅ allow via DKM context
 			} else {
 				return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
@@ -323,7 +322,7 @@ func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 
 	var existing m.ClassScheduleModel
 	if err := ctl.DB.
-		Where("class_schedule_id = ? AND class_schedules_deleted_at IS NULL", id).
+		Where("class_schedule_id = ? AND class_schedule_deleted_at IS NULL", id).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "schedule not found")
@@ -332,9 +331,9 @@ func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 	}
 
 	// 🔁 masjid-context: izinkan DKM sesuai context meski token scope mismatch
-	if err := enforceMasjidScopeAuth(c, &existing.ClassSchedulesMasjidID); err != nil {
+	if err := enforceMasjidScopeAuth(c, &existing.ClassScheduleMasjidID); err != nil {
 		if mc, er := helperAuth.ResolveMasjidContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassSchedulesMasjidID {
+			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassScheduleMasjidID {
 				// ✅ allow via DKM context
 			} else {
 				return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
@@ -344,7 +343,7 @@ func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 		}
 	}
 
-	// GORM soft delete → set class_schedules_deleted_at
+	// GORM soft delete → set class_schedule_deleted_at
 	if err := ctl.DB.Delete(&existing).Error; err != nil {
 		return writePGError(c, err)
 	}

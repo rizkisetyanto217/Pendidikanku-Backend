@@ -1,11 +1,11 @@
-// file: internals/features/school/submissions/dto/submission_dto.go
+// file: internals/features/assessments/submissions/dto/submission_dto.go
 package dto
 
 import (
 	"encoding/json"
 	"time"
 
-	submissionsModel "masjidku_backend/internals/features/school/submissions_assesments/submissions/model"
+	subModel "masjidku_backend/internals/features/school/submissions_assesments/submissions/model"
 
 	"github.com/google/uuid"
 )
@@ -21,15 +21,12 @@ type PatchField[T any] struct {
 	Value   *T   `json:"-"`
 }
 
-// UnmarshalJSON menangkap 3-state di atas
 func (p *PatchField[T]) UnmarshalJSON(b []byte) error {
 	p.Present = true
-	// null?
 	if string(b) == "null" {
 		p.Value = nil
 		return nil
 	}
-	// value
 	var v T
 	if err := json.Unmarshal(b, &v); err != nil {
 		return err
@@ -37,49 +34,58 @@ func (p *PatchField[T]) UnmarshalJSON(b []byte) error {
 	p.Value = &v
 	return nil
 }
-
-// Helper: apakah ingin set kolom ke NULL?
-func (p PatchField[T]) IsNull() bool {
-	return p.Present && p.Value == nil
-}
-
-// Helper: apakah ingin update kolom (nilai atau null)
-func (p PatchField[T]) ShouldUpdate() bool {
-	return p.Present
-}
+func (p PatchField[T]) IsNull() bool     { return p.Present && p.Value == nil }
+func (p PatchField[T]) ShouldUpdate() bool { return p.Present }
 
 /* =========================
    Create DTO
    ========================= */
 
 type CreateSubmissionRequest struct {
-	SubmissionMasjidID     uuid.UUID                           `json:"submissions_masjid_id" validate:"required"`
-	SubmissionAssessmentID uuid.UUID                           `json:"submissions_assessment_id" validate:"required"`
-	SubmissionStudentID    uuid.UUID                           `json:"submissions_student_id" validate:"required"`
+	SubmissionMasjidID     uuid.UUID                  `json:"submission_masjid_id" validate:"required"`
+	SubmissionAssessmentID uuid.UUID                  `json:"submission_assessment_id" validate:"required"`
+	SubmissionStudentID    uuid.UUID                  `json:"submission_student_id" validate:"required"`
 
-	SubmissionText        *string                              `json:"submissions_text,omitempty"`
-	SubmissionStatus      *submissionsModel.SubmissionStatus   `json:"submissions_status,omitempty" validate:"omitempty,oneof=draft submitted resubmitted graded returned"`
-	SubmissionSubmittedAt *time.Time                           `json:"submissions_submitted_at,omitempty"`
-	SubmissionIsLate      *bool                                `json:"submissions_is_late,omitempty"`
+	SubmissionText        *string                     `json:"submission_text,omitempty"`
+	SubmissionStatus      *subModel.SubmissionStatus  `json:"submission_status,omitempty" validate:"omitempty,oneof=draft submitted resubmitted graded returned"`
+	SubmissionSubmittedAt *time.Time                  `json:"submission_submitted_at,omitempty"`
+	SubmissionIsLate      *bool                       `json:"submission_is_late,omitempty"`
+}
+
+func (r CreateSubmissionRequest) ToModel() subModel.Submission {
+	status := subModel.SubmissionStatusSubmitted
+	if r.SubmissionStatus != nil {
+		status = *r.SubmissionStatus
+	}
+	return subModel.Submission{
+		SubmissionMasjidID:     r.SubmissionMasjidID,
+		SubmissionAssessmentID: r.SubmissionAssessmentID,
+		SubmissionStudentID:    r.SubmissionStudentID,
+
+		SubmissionText:        r.SubmissionText,
+		SubmissionStatus:      status,
+		SubmissionSubmittedAt: r.SubmissionSubmittedAt,
+		SubmissionIsLate:      r.SubmissionIsLate,
+		// created_at/updated_at dikelola DB (default now())
+	}
 }
 
 /* =========================
    PATCH (Partial Update) DTO
-   Semua kolom opsional & 3-state via PatchField
    ========================= */
 
 type PatchSubmissionRequest struct {
 	// isi & status
-	SubmissionText        *PatchField[string]                     `json:"submissions_text,omitempty"`
-	SubmissionStatus      *PatchField[submissionsModel.SubmissionStatus] `json:"submissions_status,omitempty"` // validate di controller
-	SubmissionSubmittedAt *PatchField[time.Time]                  `json:"submissions_submitted_at,omitempty"`
-	SubmissionIsLate      *PatchField[bool]                       `json:"submissions_is_late,omitempty"`
+	SubmissionText        *PatchField[string]                `json:"submission_text,omitempty"`
+	SubmissionStatus      *PatchField[subModel.SubmissionStatus] `json:"submission_status,omitempty"`
+	SubmissionSubmittedAt *PatchField[time.Time]             `json:"submission_submitted_at,omitempty"`
+	SubmissionIsLate      *PatchField[bool]                  `json:"submission_is_late,omitempty"`
 
 	// penilaian
-	SubmissionScore    *PatchField[float64]   `json:"submissions_score,omitempty"` // 0..100 (cek di controller)
-	SubmissionFeedback *PatchField[string]    `json:"submissions_feedback,omitempty"`
-	SubmissionGradedBy *PatchField[uuid.UUID] `json:"submissions_graded_by_teacher_id,omitempty"`
-	SubmissionGradedAt *PatchField[time.Time] `json:"submissions_graded_at,omitempty"`
+	SubmissionScore    *PatchField[float64]   `json:"submission_score,omitempty"` // 0..100 (cek di controller)
+	SubmissionFeedback *PatchField[string]    `json:"submission_feedback,omitempty"`
+	SubmissionGradedBy *PatchField[uuid.UUID] `json:"submission_graded_by_teacher_id,omitempty"`
+	SubmissionGradedAt *PatchField[time.Time] `json:"submission_graded_at,omitempty"`
 }
 
 /*
@@ -113,7 +119,7 @@ func (p *PatchSubmissionRequest) ToUpdates() map[string]any {
 			if f != nil && f.ShouldUpdate() {
 				if f.IsNull() { upd[key] = nil } else { upd[key] = *f.Value }
 			}
-		case *PatchField[submissionsModel.SubmissionStatus]:
+		case *PatchField[subModel.SubmissionStatus]:
 			if f != nil && f.ShouldUpdate() {
 				if f.IsNull() { upd[key] = nil } else { upd[key] = *f.Value }
 			}
@@ -121,29 +127,29 @@ func (p *PatchSubmissionRequest) ToUpdates() map[string]any {
 	}
 
 	// isi & status
-	put("submissions_text", p.SubmissionText)
-	put("submissions_status", p.SubmissionStatus)
-	put("submissions_submitted_at", p.SubmissionSubmittedAt)
-	put("submissions_is_late", p.SubmissionIsLate)
+	put("submission_text", p.SubmissionText)
+	put("submission_status", p.SubmissionStatus)
+	put("submission_submitted_at", p.SubmissionSubmittedAt)
+	put("submission_is_late", p.SubmissionIsLate)
 
 	// penilaian
-	put("submissions_score", p.SubmissionScore)
-	put("submissions_feedback", p.SubmissionFeedback)
-	put("submissions_graded_by_teacher_id", p.SubmissionGradedBy)
-	put("submissions_graded_at", p.SubmissionGradedAt)
+	put("submission_score", p.SubmissionScore)
+	put("submission_feedback", p.SubmissionFeedback)
+	put("submission_graded_by_teacher_id", p.SubmissionGradedBy)
+	put("submission_graded_at", p.SubmissionGradedAt)
 
 	return upd
 }
 
 /* =========================
    (Opsional) DTO khusus grading
-   Bisa dipakai endpoint terpisah /grade
    ========================= */
+
 type GradeSubmissionRequest struct {
-	SubmissionScore    *PatchField[float64]   `json:"submissions_score,omitempty"` // 0..100
-	SubmissionFeedback *PatchField[string]    `json:"submissions_feedback,omitempty"`
-	SubmissionGradedBy *PatchField[uuid.UUID] `json:"submissions_graded_by_teacher_id,omitempty"`
-	SubmissionGradedAt *PatchField[time.Time] `json:"submissions_graded_at,omitempty"`
+	SubmissionScore    *PatchField[float64]   `json:"submission_score,omitempty"` // 0..100
+	SubmissionFeedback *PatchField[string]    `json:"submission_feedback,omitempty"`
+	SubmissionGradedBy *PatchField[uuid.UUID] `json:"submission_graded_by_teacher_id,omitempty"`
+	SubmissionGradedAt *PatchField[time.Time] `json:"submission_graded_at,omitempty"`
 }
 
 func (g *GradeSubmissionRequest) ToUpdates() map[string]any {
@@ -161,10 +167,10 @@ func (g *GradeSubmissionRequest) ToUpdates() map[string]any {
 
 type ListSubmissionsQuery struct {
 	// filter
-	MasjidID     *uuid.UUID                             `query:"masjid_id"`
-	AssessmentID *uuid.UUID                             `query:"assessment_id"`
-	StudentID    *uuid.UUID                             `query:"student_id"`
-	Status       *submissionsModel.SubmissionStatus     `query:"status" validate:"omitempty,oneof=draft submitted resubmitted graded returned"`
+	MasjidID     *uuid.UUID                 `query:"masjid_id"`
+	AssessmentID *uuid.UUID                 `query:"assessment_id"`
+	StudentID    *uuid.UUID                 `query:"student_id"`
+	Status       *subModel.SubmissionStatus `query:"status" validate:"omitempty,oneof=draft submitted resubmitted graded returned"`
 
 	// periode waktu (opsional)
 	SubmittedFrom *time.Time `query:"submitted_from"`
@@ -184,26 +190,32 @@ type ListSubmissionsQuery struct {
    ========================= */
 
 type SubmissionResponse struct {
-	SubmissionID           uuid.UUID                         `json:"submissions_id"`
-	SubmissionMasjidID     uuid.UUID                         `json:"submissions_masjid_id"`
-	SubmissionAssessmentID uuid.UUID                         `json:"submissions_assessment_id"`
-	SubmissionStudentID    uuid.UUID                         `json:"submissions_student_id"`
+	SubmissionID           uuid.UUID                `json:"submission_id"`
+	SubmissionMasjidID     uuid.UUID                `json:"submission_masjid_id"`
+	SubmissionAssessmentID uuid.UUID                `json:"submission_assessment_id"`
+	SubmissionStudentID    uuid.UUID                `json:"submission_student_id"`
 
-	SubmissionText        *string                            `json:"submissions_text,omitempty"`
-	SubmissionStatus      submissionsModel.SubmissionStatus  `json:"submissions_status"`
-	SubmissionSubmittedAt *time.Time                         `json:"submissions_submitted_at,omitempty"`
-	SubmissionIsLate      *bool                              `json:"submissions_is_late,omitempty"`
+	SubmissionText        *string                   `json:"submission_text,omitempty"`
+	SubmissionStatus      subModel.SubmissionStatus `json:"submission_status"`
+	SubmissionSubmittedAt *time.Time                `json:"submission_submitted_at,omitempty"`
+	SubmissionIsLate      *bool                     `json:"submission_is_late,omitempty"`
 
-	SubmissionScore             *float64   `json:"submissions_score,omitempty"`
-	SubmissionFeedback          *string    `json:"submissions_feedback,omitempty"`
-	SubmissionGradedByTeacherID *uuid.UUID `json:"submissions_graded_by_teacher_id,omitempty"`
-	SubmissionGradedAt          *time.Time `json:"submissions_graded_at,omitempty"`
+	SubmissionScore             *float64   `json:"submission_score,omitempty"`
+	SubmissionFeedback          *string    `json:"submission_feedback,omitempty"`
+	SubmissionGradedByTeacherID *uuid.UUID `json:"submission_graded_by_teacher_id,omitempty"`
+	SubmissionGradedAt          *time.Time `json:"submission_graded_at,omitempty"`
 
-	SubmissionCreatedAt time.Time `json:"submissions_created_at"`
-	SubmissionUpdatedAt time.Time `json:"submissions_updated_at"`
+	SubmissionCreatedAt time.Time  `json:"submission_created_at"`
+	SubmissionUpdatedAt time.Time  `json:"submission_updated_at"`
+	SubmissionDeletedAt *time.Time `json:"submission_deleted_at,omitempty"`
 }
 
-func FromModel(m *submissionsModel.Submission) SubmissionResponse {
+func FromModel(m *subModel.Submission) SubmissionResponse {
+	var del *time.Time
+	if m.SubmissionDeletedAt.Valid {
+		t := m.SubmissionDeletedAt.Time
+		del = &t
+	}
 	return SubmissionResponse{
 		SubmissionID:           m.SubmissionID,
 		SubmissionMasjidID:     m.SubmissionMasjidID,
@@ -222,5 +234,14 @@ func FromModel(m *submissionsModel.Submission) SubmissionResponse {
 
 		SubmissionCreatedAt: m.SubmissionCreatedAt,
 		SubmissionUpdatedAt: m.SubmissionUpdatedAt,
+		SubmissionDeletedAt: del,
 	}
+}
+
+func FromModels(list []subModel.Submission) []SubmissionResponse {
+	out := make([]SubmissionResponse, 0, len(list))
+	for i := range list {
+		out = append(out, FromModel(&list[i]))
+	}
+	return out
 }

@@ -157,15 +157,23 @@ CREATE INDEX IF NOT EXISTS brin_masjids_background_delete_pending_until
 
 COMMIT;
 
+BEGIN;
+
+-- Extensions
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS cube;
+CREATE EXTENSION IF NOT EXISTS earthdistance;
 
 -- ============================ --
--- CREATE MASJIDS PROFILES --
+-- TABLE: MASJID PROFILES (1:1 ke masjids)
 -- ============================ --
-CREATE TABLE IF NOT EXISTS masjids_profiles (
+CREATE TABLE IF NOT EXISTS masjid_profiles (
   masjid_profile_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Relasi 1:1 ke masjid
-  masjid_profile_masjid_id UUID NOT NULL UNIQUE REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  masjid_profile_masjid_id UUID NOT NULL UNIQUE
+    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   -- Deskripsi & sejarah
   masjid_profile_description  TEXT,
@@ -176,7 +184,7 @@ CREATE TABLE IF NOT EXISTS masjids_profiles (
   masjid_profile_contact_phone VARCHAR(30),
   masjid_profile_contact_email VARCHAR(120),
 
-  -- Sosial/link publik (termasuk Google Maps)
+  -- Sosial/link publik
   masjid_profile_google_maps_url           TEXT,
   masjid_profile_instagram_url             TEXT,
   masjid_profile_whatsapp_url              TEXT,
@@ -187,19 +195,20 @@ CREATE TABLE IF NOT EXISTS masjids_profiles (
   masjid_profile_whatsapp_group_akhwat_url TEXT,
   masjid_profile_website_url               TEXT,
 
-  -- Profil sekolah (opsional) — TANPA school_type
+  -- Profil sekolah (opsional)—tanpa school_type
   masjid_profile_school_npsn              VARCHAR(20),
   masjid_profile_school_nss               VARCHAR(20),
   masjid_profile_school_accreditation     VARCHAR(10),
-  masjid_profile_school_principal_user_id UUID REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL,
+  masjid_profile_school_principal_user_id UUID
+    REFERENCES users(id) ON UPDATE CASCADE ON DELETE SET NULL,
   masjid_profile_school_student_capacity  INT,
   masjid_profile_school_is_boarding       BOOLEAN NOT NULL DEFAULT FALSE,
 
-  -- Lokasi koordinat (untuk earthdistance)
+  -- Lokasi koordinat
   masjid_profile_latitude  DOUBLE PRECISION,
   masjid_profile_longitude DOUBLE PRECISION,
 
-  -- Atribut tambahan yang direferensikan di cek/index
+  -- Atribut tambahan
   masjid_profile_school_email   VARCHAR(120),
   masjid_profile_school_address TEXT,
 
@@ -208,74 +217,104 @@ CREATE TABLE IF NOT EXISTS masjids_profiles (
   masjid_profile_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   masjid_profile_deleted_at TIMESTAMPTZ,
 
-  -- Validasi ringan
-  CONSTRAINT chk_mpp_founded_year
-    CHECK (masjid_profile_founded_year IS NULL OR masjid_profile_founded_year BETWEEN 1800 AND EXTRACT(YEAR FROM now())::int),
-  CONSTRAINT chk_mpp_latlon_pair
-    CHECK (
-      (masjid_profile_latitude IS NULL AND masjid_profile_longitude IS NULL)
-      OR (masjid_profile_latitude BETWEEN -90 AND 90 AND masjid_profile_longitude BETWEEN -180 AND 180)
-    ),
-  CONSTRAINT chk_mpp_contact_email
-  CHECK (
+  -- ===== Checks =====
+  CONSTRAINT chk_mpp_founded_year CHECK (
+    masjid_profile_founded_year IS NULL
+    OR masjid_profile_founded_year BETWEEN 1800 AND EXTRACT(YEAR FROM now())::int
+  ),
+  CONSTRAINT chk_mpp_latlon_pair CHECK (
+    (masjid_profile_latitude IS NULL AND masjid_profile_longitude IS NULL)
+    OR (masjid_profile_latitude BETWEEN -90 AND 90 AND masjid_profile_longitude BETWEEN -180 AND 180)
+  ),
+  CONSTRAINT chk_mpp_contact_email CHECK (
     masjid_profile_contact_email IS NULL
     OR masjid_profile_contact_email ~* $$^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$$
   ),
-  CONSTRAINT chk_mpp_school_email
-  CHECK (
+  CONSTRAINT chk_mpp_school_email CHECK (
     masjid_profile_school_email IS NULL
     OR masjid_profile_school_email ~* $$^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$$
   ),
-  CONSTRAINT chk_mpp_student_capacity
-    CHECK (masjid_profile_school_student_capacity IS NULL OR masjid_profile_school_student_capacity >= 0),
-  CONSTRAINT chk_mpp_school_accreditation
-    CHECK (masjid_profile_school_accreditation IS NULL OR masjid_profile_school_accreditation IN ('A','B','C','Ungraded','-'))
+  CONSTRAINT chk_mpp_student_capacity CHECK (
+    masjid_profile_school_student_capacity IS NULL
+    OR masjid_profile_school_student_capacity >= 0
+  ),
+  CONSTRAINT chk_mpp_school_accreditation CHECK (
+    masjid_profile_school_accreditation IS NULL
+    OR masjid_profile_school_accreditation IN ('A','B','C','Ungraded','-')
+  ),
+  CONSTRAINT chk_mpp_phone CHECK (
+    masjid_profile_contact_phone IS NULL
+    OR masjid_profile_contact_phone ~ '^\+?[0-9]{7,20}$'
+  )
 );
 
--- Tambah kolom jika tabel lama belum punya (idempotent)
-ALTER TABLE masjids_profiles
-  ADD COLUMN IF NOT EXISTS masjid_profile_latitude  DOUBLE PRECISION,
-  ADD COLUMN IF NOT EXISTS masjid_profile_longitude DOUBLE PRECISION,
-  ADD COLUMN IF NOT EXISTS masjid_profile_school_email   VARCHAR(120),
-  ADD COLUMN IF NOT EXISTS masjid_profile_school_address TEXT;
-
--- Bersih-bersih jika versi lama pernah membuat kolom/index FTS
-DROP INDEX IF EXISTS idx_mpp_search;
-ALTER TABLE masjids_profiles DROP COLUMN IF EXISTS masjid_profile_search;
-
+-- ============================ --
 -- INDEXES
--- Lookups dasar
-CREATE INDEX IF NOT EXISTS idx_mpp_masjid_id
-  ON masjids_profiles (masjid_profile_masjid_id);
-CREATE INDEX IF NOT EXISTS idx_mpp_principal_user_id
-  ON masjids_profiles (masjid_profile_school_principal_user_id);
+-- ============================ --
 
--- Email & atribut ringan
-CREATE INDEX IF NOT EXISTS idx_mpp_contact_email_lower
-  ON masjids_profiles (LOWER(masjid_profile_contact_email));
-CREATE INDEX IF NOT EXISTS idx_mpp_school_email_lower
-  ON masjids_profiles (LOWER(masjid_profile_school_email));
-CREATE INDEX IF NOT EXISTS idx_mpp_accreditation
-  ON masjids_profiles (masjid_profile_school_accreditation);
-CREATE INDEX IF NOT EXISTS idx_mpp_founded_year
-  ON masjids_profiles (masjid_profile_founded_year);
-CREATE INDEX IF NOT EXISTS idx_mpp_is_boarding
-  ON masjids_profiles (masjid_profile_school_is_boarding);
+-- Lookups & FK
+-- (UNIQUE pada masjid_profile_masjid_id sudah implicit index)
+CREATE INDEX IF NOT EXISTS idx_mpp_principal_user_id_alive
+  ON masjid_profiles (masjid_profile_school_principal_user_id)
+  WHERE masjid_profile_deleted_at IS NULL;
+
+-- Email (case-insensitive)
+CREATE INDEX IF NOT EXISTS idx_mpp_contact_email_lower_alive
+  ON masjid_profiles (LOWER(masjid_profile_contact_email))
+  WHERE masjid_profile_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_mpp_school_email_lower_alive
+  ON masjid_profiles (LOWER(masjid_profile_school_email))
+  WHERE masjid_profile_deleted_at IS NULL;
+
+-- Atribut sekolah
+CREATE INDEX IF NOT EXISTS idx_mpp_accreditation_alive
+  ON masjid_profiles (masjid_profile_school_accreditation)
+  WHERE masjid_profile_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_mpp_founded_year_alive
+  ON masjid_profiles (masjid_profile_founded_year)
+  WHERE masjid_profile_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_mpp_is_boarding_alive
+  ON masjid_profiles (masjid_profile_school_is_boarding)
+  WHERE masjid_profile_deleted_at IS NULL;
 
 -- Geospasial (nearest-neighbor) via earthdistance
-CREATE INDEX IF NOT EXISTS idx_mpp_earth
-  ON masjids_profiles USING gist (
-    ll_to_earth(masjid_profile_latitude::float8, masjid_profile_longitude::float8)
-  );
+CREATE INDEX IF NOT EXISTS gist_mpp_earth_alive
+  ON masjid_profiles
+  USING gist (ll_to_earth(masjid_profile_latitude::float8, masjid_profile_longitude::float8))
+  WHERE masjid_profile_deleted_at IS NULL
+    AND masjid_profile_latitude IS NOT NULL
+    AND masjid_profile_longitude IS NOT NULL;
+
+-- Trigram search (opsional tapi berguna untuk pencarian bebas)
+CREATE INDEX IF NOT EXISTS trgm_mpp_address_alive
+  ON masjid_profiles
+  USING gin (masjid_profile_address gin_trgm_ops)
+  WHERE masjid_profile_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS trgm_mpp_description_alive
+  ON masjid_profiles
+  USING gin (masjid_profile_description gin_trgm_ops)
+  WHERE masjid_profile_deleted_at IS NULL;
 
 -- Arsip waktu
 CREATE INDEX IF NOT EXISTS brin_mpp_created_at
-  ON masjids_profiles USING brin (masjid_profile_created_at);
+  ON masjid_profiles USING brin (masjid_profile_created_at);
 
--- Unik NPSN/NSS bila diisi (Postgres mengizinkan multiple NULL)
-CREATE UNIQUE INDEX IF NOT EXISTS ux_mpp_npsn
-  ON masjids_profiles (masjid_profile_school_npsn);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_mpp_nss
-  ON masjids_profiles (masjid_profile_school_nss);
+CREATE INDEX IF NOT EXISTS brin_mpp_updated_at
+  ON masjid_profiles USING brin (masjid_profile_updated_at);
+
+-- Unik NPSN/NSS bila diisi (soft-delete aware)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mpp_npsn_alive
+  ON masjid_profiles (masjid_profile_school_npsn)
+  WHERE masjid_profile_deleted_at IS NULL
+    AND masjid_profile_school_npsn IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_mpp_nss_alive
+  ON masjid_profiles (masjid_profile_school_nss)
+  WHERE masjid_profile_deleted_at IS NULL
+    AND masjid_profile_school_nss IS NOT NULL;
 
 COMMIT;

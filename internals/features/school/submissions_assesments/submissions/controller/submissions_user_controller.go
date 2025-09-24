@@ -1,34 +1,34 @@
 package controller
 
 import (
-	dto "masjidku_backend/internals/features/school/submissions_assesments/submissions/dto"
-	model "masjidku_backend/internals/features/school/submissions_assesments/submissions/model"
-	helper "masjidku_backend/internals/helpers"
-	"math"
+	"errors"
 	"strings"
-
-	helperAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
+
+	dto "masjidku_backend/internals/features/school/submissions_assesments/submissions/dto"
+	model "masjidku_backend/internals/features/school/submissions_assesments/submissions/model"
+
+	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
-// GET / (READ — all members; student hanya lihat miliknya)
+// GET /:id (READ — member; student hanya boleh lihat miliknya)
 func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
-	// =========================
-	// 1) Resolve masjid context
-	// =========================
+	c.Locals("DB", ctrl.DB)
+
+	// 1) Resolve masjid context (slug/id)
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return err
 	}
-
-	// slug → id (jika perlu)
 	var mid uuid.UUID
 	if mc.ID != uuid.Nil {
 		mid = mc.ID
-	} else if strings.TrimSpace(mc.Slug) != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+	} else if s := strings.TrimSpace(mc.Slug); s != "" {
+		id, er := helperAuth.GetMasjidIDBySlug(c, s)
 		if er != nil || id == uuid.Nil {
 			return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
 		}
@@ -37,77 +37,62 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		return helperAuth.ErrMasjidContextMissing
 	}
 
-	// ==========================================
-	// 2) Authorize: minimal member masjid (any role)
-	// ==========================================
+	// 2) Authorize minimal member masjid
 	if err := helperAuth.EnsureMemberMasjid(c, mid); err != nil {
 		return err
 	}
 
-	// =========================
-	// 3) Parse & validate query
-	// =========================
-	var q dto.ListSubmissionsQuery
-	if err := c.QueryParser(&q); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
-	}
-	if err := ctrl.Validator.Struct(&q); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	// 3) Parse param :id
+	subID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+	if err != nil || subID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "submission id tidak valid")
 	}
 
-	// Force scope ke tenant dari context
-	q.MasjidID = &mid
+	// 4) Load submission milik tenant ini
+	var row model.Submission
+	if err := ctrl.DB.WithContext(c.Context()).
+		Where(`
+			submission_id = ?
+			AND submission_masjid_id = ?
+			AND submission_deleted_at IS NULL
+		`, subID, mid).
+		First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "Submission tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
 
-	// Jika caller student (bukan DKM/Teacher) → hanya lihat miliknya
-	isStudentOnly := helperAuth.IsStudent(c) && !helperAuth.IsDKM(c) && !helperAuth.IsTeacher(c)
-	if isStudentOnly {
-		if sid, e := helperAuth.GetMasjidStudentIDForMasjid(c, mid); e == nil && sid != uuid.Nil {
-			q.StudentID = &sid
-		} else {
-			// Tidak punya student record di masjid → 0 hasil
-			return helper.JsonList(c, []dto.SubmissionResponse{}, fiber.Map{
-				"page":        1,
-				"per_page":    20,
-				"total":       0,
-				"total_pages": 0,
-			})
+	// 5) Student hanya boleh akses submission miliknya
+	if helperAuth.IsStudent(c) && !helperAuth.IsDKM(c) && !helperAuth.IsTeacher(c) {
+		if sid, _ := helperAuth.GetMasjidStudentIDForMasjid(c, mid); sid == uuid.Nil || sid != row.SubmissionStudentID {
+			return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak diizinkan melihat submission ini")
 		}
 	}
 
-	page := clampPage(q.Page)
-	perPage := clampPerPage(q.PerPage)
+	// 6) Response (+optional URLs jika ?with_urls=1/true/yes)
+	if truthy(c.Query("with_urls")) {
+		var urls []model.SubmissionURLModel
+		_ = ctrl.DB.WithContext(c.Context()).
+			Where(`
+				submission_url_submission_id = ?
+				AND submission_url_masjid_id = ?
+				AND submission_url_deleted_at IS NULL
+			`, row.SubmissionID, mid).
+			Order("submission_url_is_primary DESC, submission_url_order ASC, submission_url_created_at ASC").
+			Find(&urls)
 
-	// =========================
-	// 4) Query + count
-	// =========================
-	dbq := ctrl.DB.WithContext(c.Context()).Model(&model.Submission{})
-	dbq = applyFilters(dbq, &q)
-
-	var total int64
-	if err := dbq.Count(&total).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+		return helper.JsonOK(c, "OK", fiber.Map{
+			"submission": dto.FromModel(&row),
+			"urls":       urls, // kalau mau pakai DTO URL, bisa map ke dto.SubmissionURLItem di sini
+		})
 	}
 
-	// =========================
-	// 5) Page data
-	// =========================
-	var rows []model.Submission
-	dbq = applySort(dbq, q.Sort)
-	if err := dbq.Offset((page - 1) * perPage).Limit(perPage).Find(&rows).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
+	return helper.JsonOK(c, "OK", dto.FromModel(&row))
+}
 
-	out := make([]dto.SubmissionResponse, 0, len(rows))
-	for i := range rows {
-		out = append(out, dto.FromModel(&rows[i]))
-	}
-
-	pagination := fiber.Map{
-		"page":        page,
-		"per_page":    perPage,
-		"total":       total,
-		"total_pages": int(math.Ceil(float64(total) / float64(perPage))),
-	}
-
-	return helper.JsonList(c, out, pagination)
+// helper kecil buat query bool
+func truthy(s string) bool {
+	v := strings.ToLower(strings.TrimSpace(s))
+	return v == "1" || v == "true" || v == "yes"
 }

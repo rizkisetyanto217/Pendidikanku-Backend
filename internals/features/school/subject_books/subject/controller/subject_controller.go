@@ -38,14 +38,8 @@ func NewSubjectsController(db *gorm.DB, v interface{ Struct(any) error }) *Subje
 =========================================================
 
 	CREATE (staff only) — slug unik + optional upload
-	=========================================================
-*/
 
-/*
 =========================================================
-
-	CREATE (staff only) — slug unik + optional upload
-	=========================================================
 */
 func (h *SubjectsController) Create(c *fiber.Ctx) error {
 	log.Printf("[SUBJECTS][CREATE] ▶️ incoming request")
@@ -97,14 +91,14 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 	// Paksa body sesuai context
 	p.MasjidID = masjidID
 
-	// 3) Uniqueness: code (opsional tapi jika ada wajib unik per masjid & alive)
+	// 3) Uniqueness: code unik per masjid (alive)
 	if strings.TrimSpace(p.Code) != "" {
 		var cnt int64
-		if err := h.DB.Model(&subjectModel.SubjectsModel{}).
+		if err := h.DB.Model(&subjectModel.SubjectModel{}).
 			Where(`
-				subjects_masjid_id = ?
-				AND lower(subjects_code) = lower(?)
-				AND subjects_deleted_at IS NULL
+				subject_masjid_id = ?
+				AND lower(subject_code) = lower(?)
+				AND subject_deleted_at IS NULL
 			`, masjidID, p.Code).
 			Count(&cnt).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek duplikasi kode")
@@ -114,7 +108,7 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// 4) Slug unik (CI) per masjid — pakai helpers baru
+	// 4) Slug unik (CI) per masjid
 	var baseSlug string
 	if p.Slug != nil && strings.TrimSpace(*p.Slug) != "" {
 		baseSlug = helper.Slugify(*p.Slug, 160)
@@ -125,13 +119,13 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 		}
 	}
 	scope := func(q *gorm.DB) *gorm.DB {
-		return q.Where("subjects_masjid_id = ? AND subjects_deleted_at IS NULL", masjidID)
+		return q.Where("subject_masjid_id = ? AND subject_deleted_at IS NULL", masjidID)
 	}
 	uniqueSlug, err := helper.EnsureUniqueSlugCI(
 		c.Context(),
 		h.DB,
 		"subjects",
-		"subjects_slug",
+		"subject_slug",
 		baseSlug,
 		scope,
 		160,
@@ -142,15 +136,15 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 
 	// 5) Build entity & simpan
 	ent := p.ToModel()
-	ent.SubjectsMasjidID = masjidID
-	ent.SubjectsSlug = uniqueSlug
+	ent.SubjectMasjidID = masjidID
+	ent.SubjectSlug = uniqueSlug
 
 	if err := h.DB.Create(&ent).Error; err != nil {
 		msg := strings.ToLower(err.Error())
 		switch {
-		case strings.Contains(msg, "uq_subjects_code_per_masjid"):
+		case strings.Contains(msg, "uq_subjects_code_per_masjid_alive"):
 			return helper.JsonError(c, fiber.StatusConflict, "Kode mapel sudah digunakan")
-		case strings.Contains(msg, "uq_subjects_slug_per_masjid"):
+		case strings.Contains(msg, "uq_subjects_slug_per_masjid_alive"):
 			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan subject")
@@ -176,16 +170,19 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 				}
 
 				_ = h.DB.WithContext(c.Context()).
-					Model(&subjectModel.SubjectsModel{}).
-					Where("subjects_id = ?", ent.SubjectsID).
+					Model(&subjectModel.SubjectModel{}).
+					Where("subject_id = ?", ent.SubjectID).
 					Updates(map[string]any{
-						"subjects_image_url":        uploadedURL,
-						"subjects_image_object_key": objKey,
+						"subject_image_url":        uploadedURL,
+						"subject_image_object_key": objKey,
 					}).Error
+
 				// sinkron untuk response
-				ent.SubjectsImageURL = &uploadedURL
+				ent.SubjectImageURL = &uploadedURL
 				if objKey != "" {
-					ent.SubjectsImageObjectKey = &objKey
+					ent.SubjectImageObjectKey = &objKey
+				} else {
+					ent.SubjectImageObjectKey = nil
 				}
 			}
 		}
@@ -193,7 +190,7 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 
 	// 7) Reload (best effort)
 	_ = h.DB.WithContext(c.Context()).
-		First(&ent, "subjects_id = ?", ent.SubjectsID).Error
+		First(&ent, "subject_id = ?", ent.SubjectID).Error
 
 	return helper.JsonCreated(c, "Berhasil membuat subject", fiber.Map{
 		"subject":            subjectDTO.FromSubjectModel(ent),
@@ -205,7 +202,8 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 =========================================================
 
 	PATCH (staff only) — tri-state + slug unique + optional upload
-	=========================================================
+
+=========================================================
 */
 func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 	log.Printf("[SUBJECTS][PATCH] ▶️ incoming request")
@@ -217,9 +215,9 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 	}
 
 	// Ambil record lama (alive)
-	var ent subjectModel.SubjectsModel
+	var ent subjectModel.SubjectModel
 	if err := h.DB.WithContext(c.Context()).
-		Where("subjects_id = ? AND subjects_deleted_at IS NULL", id).
+		Where("subject_id = ? AND subject_deleted_at IS NULL", id).
 		First(&ent).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Subject tidak ditemukan")
@@ -228,19 +226,19 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 	}
 
 	// Guard staff pada masjid terkait
-	if err := helperAuth.EnsureStaffMasjid(c, ent.SubjectsMasjidID); err != nil {
+	if err := helperAuth.EnsureStaffMasjid(c, ent.SubjectMasjidID); err != nil {
 		return err
 	}
 
-	// Parse payload (gunakan DTO UpdateSubjectRequest sebagai patch-friendly)
+	// Parse payload (patch-friendly)
 	var req subjectDTO.UpdateSubjectRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	// Paksa context
-	req.MasjidID = &ent.SubjectsMasjidID
+	req.MasjidID = &ent.SubjectMasjidID
 
-	// ====== Normalisasi tri-state (aman tipe) ======
+	// ====== Normalisasi tri-state ======
 	// code
 	if req.Code.Present && req.Code.Value != nil {
 		s := strings.TrimSpace(*req.Code.Value)
@@ -251,19 +249,18 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		s := strings.TrimSpace(*req.Name.Value)
 		req.Name.Value = &s
 	}
-	// desc (nullable; PatchField[*string] ⇒ **string)
+	// desc
 	if req.Desc.Present && req.Desc.Value != nil {
 		v := strings.TrimSpace(**req.Desc.Value)
 		if v == "" {
-			// empty → NULL
 			req.Desc.Value = nil
 		} else {
 			ns := v
 			ps := &ns
-			req.Desc.Value = &ps // **string: pointer ke *string
+			req.Desc.Value = &ps
 		}
 	}
-	// slug (pakai slug helpers terbaru)
+	// slug
 	if req.Slug.Present {
 		if req.Slug.Value != nil {
 			s := helper.Slugify(strings.TrimSpace(*req.Slug.Value), 160)
@@ -274,28 +271,26 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 				req.Slug.Value = &s
 			}
 		} else {
-			// present tapi nil → abaikan perubahan slug
 			req.Slug.Present = false
 		}
 	} else if req.Name.Present && req.Name.Value != nil {
-		// auto-regenerate slug ketika name berubah dan slug tidak diset eksplisit
 		if s := helper.Slugify(*req.Name.Value, 160); s != "" {
 			req.Slug.Present = true
 			req.Slug.Value = &s
 		}
 	}
 
-	// ====== Uniqueness checks bila berubah ======
+	// ====== Uniqueness checks (bila berubah) ======
 	// code
-	if req.Code.Present && req.Code.Value != nil && !strings.EqualFold(ent.SubjectsCode, *req.Code.Value) {
+	if req.Code.Present && req.Code.Value != nil && !strings.EqualFold(ent.SubjectCode, *req.Code.Value) {
 		var cnt int64
-		if err := h.DB.Model(&subjectModel.SubjectsModel{}).
+		if err := h.DB.Model(&subjectModel.SubjectModel{}).
 			Where(`
-				subjects_masjid_id = ?
-				AND subjects_id <> ?
-				AND subjects_deleted_at IS NULL
-				AND lower(subjects_code) = lower(?)
-			`, ent.SubjectsMasjidID, ent.SubjectsID, *req.Code.Value).
+				subject_masjid_id = ?
+				AND subject_id <> ?
+				AND subject_deleted_at IS NULL
+				AND lower(subject_code) = lower(?)
+			`, ent.SubjectMasjidID, ent.SubjectID, *req.Code.Value).
 			Count(&cnt).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek duplikasi kode")
 		}
@@ -304,15 +299,15 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		}
 	}
 	// slug
-	if req.Slug.Present && req.Slug.Value != nil && !strings.EqualFold(ent.SubjectsSlug, *req.Slug.Value) {
+	if req.Slug.Present && req.Slug.Value != nil && !strings.EqualFold(ent.SubjectSlug, *req.Slug.Value) {
 		var cnt int64
-		if err := h.DB.Model(&subjectModel.SubjectsModel{}).
+		if err := h.DB.Model(&subjectModel.SubjectModel{}).
 			Where(`
-				subjects_masjid_id = ?
-				AND subjects_id <> ?
-				AND subjects_deleted_at IS NULL
-				AND lower(subjects_slug) = lower(?)
-			`, ent.SubjectsMasjidID, ent.SubjectsID, *req.Slug.Value).
+				subject_masjid_id = ?
+				AND subject_id <> ?
+				AND subject_deleted_at IS NULL
+				AND lower(subject_slug) = lower(?)
+			`, ent.SubjectMasjidID, ent.SubjectID, *req.Slug.Value).
 			Count(&cnt).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek duplikasi slug")
 		}
@@ -321,13 +316,12 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		}
 	}
 
-	// Terapkan patch ke entity (agar dapat nilai final) + timestamp
+	// Terapkan patch ke entity (+ timestamp di Apply)
 	req.Apply(&ent)
-	ent.SubjectsUpdatedAt = time.Now()
 
-	// Jika slug tidak dikirim tetapi name berubah, regen slug yang unik (pakai helpers baru)
-	if !req.Slug.Present && req.Name.Present && ent.SubjectsName != "" {
-		base := helper.Slugify(ent.SubjectsName, 160)
+	// Jika slug tidak dikirim tetapi name berubah, regen slug unik
+	if !req.Slug.Present && req.Name.Present && ent.SubjectName != "" {
+		base := helper.Slugify(ent.SubjectName, 160)
 		if base == "" {
 			base = "subject"
 		}
@@ -335,12 +329,12 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 			c.Context(),
 			h.DB,
 			"subjects",
-			"subjects_slug",
+			"subject_slug",
 			base,
 			func(q *gorm.DB) *gorm.DB {
 				return q.Where(
-					"subjects_masjid_id = ? AND subjects_id <> ? AND subjects_deleted_at IS NULL",
-					ent.SubjectsMasjidID, ent.SubjectsID,
+					"subject_masjid_id = ? AND subject_id <> ? AND subject_deleted_at IS NULL",
+					ent.SubjectMasjidID, ent.SubjectID,
 				)
 			},
 			160,
@@ -348,45 +342,45 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		if er != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 		}
-		ent.SubjectsSlug = uniq
+		ent.SubjectSlug = uniq
 	}
 
-	// Bangun patch map (ikutkan kolom image hanya jika Present)
+	// Build patch map (ikutkan kolom image hanya jika Present)
 	patch := map[string]any{
-		"subjects_masjid_id":  ent.SubjectsMasjidID,
-		"subjects_code":       ent.SubjectsCode,
-		"subjects_name":       ent.SubjectsName,
-		"subjects_desc":       ent.SubjectsDesc,
-		"subjects_is_active":  ent.SubjectsIsActive,
-		"subjects_slug":       ent.SubjectsSlug,
-		"subjects_updated_at": ent.SubjectsUpdatedAt,
+		"subject_masjid_id":  ent.SubjectMasjidID,
+		"subject_code":       ent.SubjectCode,
+		"subject_name":       ent.SubjectName,
+		"subject_desc":       ent.SubjectDesc,
+		"subject_is_active":  ent.SubjectIsActive,
+		"subject_slug":       ent.SubjectSlug,
+		"subject_updated_at": ent.SubjectUpdatedAt,
 	}
 	if req.ImageURL.Present {
-		patch["subjects_image_url"] = ent.SubjectsImageURL
+		patch["subject_image_url"] = ent.SubjectImageURL
 	}
 	if req.ImageObjectKey.Present {
-		patch["subjects_image_object_key"] = ent.SubjectsImageObjectKey
+		patch["subject_image_object_key"] = ent.SubjectImageObjectKey
 	}
 	if req.ImageURLOld.Present {
-		patch["subjects_image_url_old"] = ent.SubjectsImageURLOld
+		patch["subject_image_url_old"] = ent.SubjectImageURLOld
 	}
 	if req.ImageObjectKeyOld.Present {
-		patch["subjects_image_object_key_old"] = ent.SubjectsImageObjectKeyOld
+		patch["subject_image_object_key_old"] = ent.SubjectImageObjectKeyOld
 	}
 	if req.ImageDeletePendingUntil.Present {
-		patch["subjects_image_delete_pending_until"] = ent.SubjectsImageDeletePendingUntil
+		patch["subject_image_delete_pending_until"] = ent.SubjectImageDeletePendingUntil
 	}
 
 	// Simpan patch dasar
 	if err := h.DB.WithContext(c.Context()).
-		Model(&subjectModel.SubjectsModel{}).
-		Where("subjects_id = ?", ent.SubjectsID).
+		Model(&subjectModel.SubjectModel{}).
+		Where("subject_id = ?", ent.SubjectID).
 		Updates(patch).Error; err != nil {
 		msg := strings.ToLower(err.Error())
 		switch {
-		case strings.Contains(msg, "uq_subjects_code_per_masjid"):
+		case strings.Contains(msg, "uq_subjects_code_per_masjid_alive"):
 			return helper.JsonError(c, fiber.StatusConflict, "Kode mapel sudah digunakan")
-		case strings.Contains(msg, "uq_subjects_slug_per_masjid"):
+		case strings.Contains(msg, "uq_subjects_slug_per_masjid_alive"):
 			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
 		case strings.Contains(msg, "duplicate"), strings.Contains(msg, "unique"):
 			return helper.JsonError(c, fiber.StatusConflict, "Duplikasi data (kode/slug)")
@@ -404,7 +398,7 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 			ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
 			defer cancel()
 
-			keyPrefix := fmt.Sprintf("masjids/%s/classes/subjects", ent.SubjectsMasjidID.String())
+			keyPrefix := fmt.Sprintf("masjids/%s/classes/subjects", ent.SubjectMasjidID.String())
 			if url, upErr := svc.UploadAsWebP(ctx, fh, keyPrefix); upErr == nil {
 				uploadedURL = url
 
@@ -420,14 +414,14 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 				var oldURL, oldObjKey string
 				{
 					type row struct {
-						URL string `gorm:"column:subjects_image_url"`
-						Key string `gorm:"column:subjects_image_object_key"`
+						URL string `gorm:"column:subject_image_url"`
+						Key string `gorm:"column:subject_image_object_key"`
 					}
 					var r row
 					_ = h.DB.WithContext(c.Context()).
 						Table("subjects").
-						Select("subjects_image_url, subjects_image_object_key").
-						Where("subjects_id = ?", ent.SubjectsID).
+						Select("subject_image_url, subject_image_object_key").
+						Where("subject_id = ?", ent.SubjectID).
 						Take(&r).Error
 					oldURL = strings.TrimSpace(r.URL)
 					oldObjKey = strings.TrimSpace(r.Key)
@@ -452,51 +446,51 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 
 				// --- update kolom image di DB ---
 				_ = h.DB.WithContext(c.Context()).
-					Model(&subjectModel.SubjectsModel{}).
-					Where("subjects_id = ?", ent.SubjectsID).
+					Model(&subjectModel.SubjectModel{}).
+					Where("subject_id = ?", ent.SubjectID).
 					Updates(map[string]any{
-						"subjects_image_url":        uploadedURL,
-						"subjects_image_object_key": newObjKey,
-						"subjects_image_url_old": func() any {
+						"subject_image_url":        uploadedURL,
+						"subject_image_object_key": newObjKey,
+						"subject_image_url_old": func() any {
 							if movedURL == "" {
 								return gorm.Expr("NULL")
 							}
 							return movedURL
 						}(),
-						"subjects_image_object_key_old": func() any {
+						"subject_image_object_key_old": func() any {
 							if oldObjKey == "" {
 								return gorm.Expr("NULL")
 							}
 							return oldObjKey
 						}(),
-						"subjects_image_delete_pending_until": deletePendingUntil,
+						"subject_image_delete_pending_until": deletePendingUntil,
 					}).Error
 
-				// --- sinkron struct untuk response (pakai &var / nil) ---
-				ent.SubjectsImageURL = &uploadedURL
+				// --- sinkron struct untuk response ---
+				ent.SubjectImageURL = &uploadedURL
 				if newObjKey != "" {
-					ent.SubjectsImageObjectKey = &newObjKey
+					ent.SubjectImageObjectKey = &newObjKey
 				} else {
-					ent.SubjectsImageObjectKey = nil
+					ent.SubjectImageObjectKey = nil
 				}
 				if movedURL != "" {
-					ent.SubjectsImageURLOld = &movedURL
+					ent.SubjectImageURLOld = &movedURL
 				} else {
-					ent.SubjectsImageURLOld = nil
+					ent.SubjectImageURLOld = nil
 				}
 				if oldObjKey != "" {
-					ent.SubjectsImageObjectKeyOld = &oldObjKey
+					ent.SubjectImageObjectKeyOld = &oldObjKey
 				} else {
-					ent.SubjectsImageObjectKeyOld = nil
+					ent.SubjectImageObjectKeyOld = nil
 				}
-				ent.SubjectsImageDeletePendingUntil = &deletePendingUntil
+				ent.SubjectImageDeletePendingUntil = &deletePendingUntil
 			}
 		}
 	}
 
 	// Reload (best effort)
 	_ = h.DB.WithContext(c.Context()).
-		First(&ent, "subjects_id = ?", ent.SubjectsID).Error
+		First(&ent, "subject_id = ?", ent.SubjectID).Error
 
 	return helper.JsonOK(c, "Berhasil memperbarui subject", fiber.Map{
 		"subject":             subjectDTO.FromSubjectModel(ent),
@@ -510,8 +504,9 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 
 	DELETE (soft delete, staff only) + optional file cleanup
 	- Idempotent: kalau sudah deleted, tetap boleh lanjut cleanup
-	- image_url: diambil dari query/form, fallback ke ent.SubjectsImageURL
-	=========================================================
+	- image_url: diambil dari query/form, fallback ke ent.SubjectImageURL
+
+=========================================================
 */
 func (h *SubjectsController) Delete(c *fiber.Ctx) error {
 	log.Printf("[SUBJECTS][DELETE] ▶️ incoming request")
@@ -523,9 +518,9 @@ func (h *SubjectsController) Delete(c *fiber.Ctx) error {
 	}
 
 	// Ambil record (alive atau sudah soft-deleted)
-	var ent subjectModel.SubjectsModel
+	var ent subjectModel.SubjectModel
 	if err := h.DB.WithContext(c.Context()).
-		First(&ent, "subjects_id = ?", id).Error; err != nil {
+		First(&ent, "subject_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Subject tidak ditemukan")
 		}
@@ -533,20 +528,20 @@ func (h *SubjectsController) Delete(c *fiber.Ctx) error {
 	}
 
 	// Guard akses staff pada masjid terkait
-	if err := helperAuth.EnsureStaffMasjid(c, ent.SubjectsMasjidID); err != nil {
+	if err := helperAuth.EnsureStaffMasjid(c, ent.SubjectMasjidID); err != nil {
 		return err
 	}
 
 	// Soft delete bila belum
 	now := time.Now()
 	justDeleted := false
-	if !ent.SubjectsDeletedAt.Valid {
+	if !ent.SubjectDeletedAt.Valid {
 		if err := h.DB.WithContext(c.Context()).
-			Model(&subjectModel.SubjectsModel{}).
-			Where("subjects_id = ?", ent.SubjectsID).
+			Model(&subjectModel.SubjectModel{}).
+			Where("subject_id = ?", ent.SubjectID).
 			Updates(map[string]any{
-				"subjects_deleted_at": &now,
-				"subjects_updated_at": now,
+				"subject_deleted_at": &now,
+				"subject_updated_at": now,
 			}).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus subject")
 		}
@@ -554,15 +549,14 @@ func (h *SubjectsController) Delete(c *fiber.Ctx) error {
 	}
 
 	// === OPSIONAL: cleanup file terkait ===
-	// Ambil dari query/form dulu, kalau kosong fallback ke ent.SubjectsImageURL
 	imageURL := strings.TrimSpace(c.Query("image_url"))
 	if imageURL == "" {
 		if v := strings.TrimSpace(c.FormValue("image_url")); v != "" {
 			imageURL = v
 		}
 	}
-	if imageURL == "" && ent.SubjectsImageURL != nil && strings.TrimSpace(*ent.SubjectsImageURL) != "" {
-		imageURL = strings.TrimSpace(*ent.SubjectsImageURL)
+	if imageURL == "" && ent.SubjectImageURL != nil && strings.TrimSpace(*ent.SubjectImageURL) != "" {
+		imageURL = strings.TrimSpace(*ent.SubjectImageURL)
 	}
 
 	if imageURL != "" {
@@ -575,8 +569,8 @@ func (h *SubjectsController) Delete(c *fiber.Ctx) error {
 		msg = "Berhasil menghapus subject"
 	}
 	return helper.JsonOK(c, msg, fiber.Map{
-		"subjects_id": ent.SubjectsID,
-		"image_url":   imageURL, // kirim balik biar kelihatan yang diproses
+		"subject_id": ent.SubjectID,
+		"image_url":  imageURL,
 	})
 }
 

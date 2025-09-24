@@ -40,115 +40,110 @@ func (p PatchFieldUC[T]) Get() (*T, bool) { return p.Value, p.Present }
    CREATE REQUEST / RESPONSE
    ========================================================= */
 
-type UserClassesCreateRequest struct {
+type UserClassCreateRequest struct {
 	// Wajib
-	UserClassesMasjidStudentID uuid.UUID `json:"user_classes_masjid_student_id" validate:"required"`
-	UserClassesClassID         uuid.UUID `json:"user_classes_class_id" validate:"required"`
-	UserClassesMasjidID        uuid.UUID `json:"user_classes_masjid_id" validate:"required"`
+	UserClassMasjidStudentID uuid.UUID `json:"user_class_masjid_student_id" validate:"required"`
+	UserClassClassID         uuid.UUID `json:"user_class_class_id"          validate:"required"`
+	UserClassMasjidID        uuid.UUID `json:"user_class_masjid_id"         validate:"required"`
 
 	// Opsional
-	UserClassesStatus string  `json:"user_classes_status" validate:"omitempty,oneof=active inactive completed"`
-	UserClassesResult *string `json:"user_classes_result" validate:"omitempty,oneof=passed failed"`
+	UserClassStatus string  `json:"user_class_status" validate:"omitempty,oneof=active inactive completed"`
+	UserClassResult *string `json:"user_class_result" validate:"omitempty,oneof=passed failed"`
 
 	// Billing ringan
-	UserClassesRegisterPaidAt *time.Time `json:"user_classes_register_paid_at"`
-	UserClassesPaidUntil      *time.Time `json:"user_classes_paid_until"`
-	UserClassesPaidGraceDays  *int16     `json:"user_classes_paid_grace_days" validate:"omitempty,min=0"`
+	UserClassRegisterPaidAt *time.Time `json:"user_class_register_paid_at"`
+	UserClassPaidUntil      *time.Time `json:"user_class_paid_until"`
+	UserClassPaidGraceDays  *int16     `json:"user_class_paid_grace_days" validate:"omitempty,min=0"`
 
 	// Lifecycle enrolment
-	UserClassesJoinedAt    *time.Time `json:"user_classes_joined_at"`
-	UserClassesLeftAt      *time.Time `json:"user_classes_left_at"`
-	UserClassesCompletedAt *time.Time `json:"user_classes_completed_at"`
+	UserClassJoinedAt    *time.Time `json:"user_class_joined_at"`
+	UserClassLeftAt      *time.Time `json:"user_class_left_at"`
+	UserClassCompletedAt *time.Time `json:"user_class_completed_at"`
 }
 
-func (r *UserClassesCreateRequest) Normalize() {
-	r.UserClassesStatus = strings.ToLower(strings.TrimSpace(r.UserClassesStatus))
-	trimPtr := func(pp **string) {
-		if pp == nil || *pp == nil {
-			return
-		}
-		v := strings.TrimSpace(**pp)
+func (r *UserClassCreateRequest) Normalize() {
+	r.UserClassStatus = strings.ToLower(strings.TrimSpace(r.UserClassStatus))
+	if r.UserClassResult != nil {
+		v := strings.ToLower(strings.TrimSpace(*r.UserClassResult))
 		if v == "" {
-			*pp = nil
+			r.UserClassResult = nil
 		} else {
-			v = strings.ToLower(v)
-			*pp = &v
+			r.UserClassResult = &v
 		}
 	}
-	trimPtr(&r.UserClassesResult)
 }
 
-func (r UserClassesCreateRequest) ToModel() *m.UserClassesModel {
-	now := time.Now()
-	status := r.UserClassesStatus
+func (r UserClassCreateRequest) ToModel() *m.UserClassModel {
+	status := r.UserClassStatus
 	if status == "" {
-		status = "active"
+		status = m.UserClassStatusActive
 	}
 	grace := int16(0)
-	if r.UserClassesPaidGraceDays != nil {
-		grace = *r.UserClassesPaidGraceDays
+	if r.UserClassPaidGraceDays != nil {
+		grace = *r.UserClassPaidGraceDays
 	}
-	return &m.UserClassesModel{
-		// ID dibiarkan kosong, diisi hook BeforeCreate
-		UserClassesMasjidStudentID: r.UserClassesMasjidStudentID,
-		UserClassesClassID:         r.UserClassesClassID,
-		UserClassesMasjidID:        r.UserClassesMasjidID,
+	now := time.Now()
 
-		UserClassesStatus:         status,
-		UserClassesResult:         r.UserClassesResult,
-		UserClassesRegisterPaidAt: r.UserClassesRegisterPaidAt,
-		UserClassesPaidUntil:      r.UserClassesPaidUntil,
-		UserClassesPaidGraceDays:  grace,
+	return &m.UserClassModel{
+		UserClassMasjidStudentID: r.UserClassMasjidStudentID,
+		UserClassClassID:         r.UserClassClassID,
+		UserClassMasjidID:        r.UserClassMasjidID,
 
-		UserClassesJoinedAt:    r.UserClassesJoinedAt,
-		UserClassesLeftAt:      r.UserClassesLeftAt,
-		UserClassesCompletedAt: r.UserClassesCompletedAt,
+		UserClassStatus:         status,
+		UserClassResult:         r.UserClassResult,
+		UserClassRegisterPaidAt: r.UserClassRegisterPaidAt,
+		UserClassPaidUntil:      r.UserClassPaidUntil,
+		UserClassPaidGraceDays:  grace,
 
-		UserClassesCreatedAt: now,
-		UserClassesUpdatedAt: now,
+		UserClassJoinedAt:    r.UserClassJoinedAt,
+		UserClassLeftAt:      r.UserClassLeftAt,
+		UserClassCompletedAt: r.UserClassCompletedAt,
+
+		UserClassCreatedAt: now,
+		UserClassUpdatedAt: now,
 	}
 }
 
-type UserClassesResponse struct {
-	UserClassesID               uuid.UUID  `json:"user_classes_id"`
-	UserClassesMasjidStudentID  uuid.UUID  `json:"user_classes_masjid_student_id"`
-	UserClassesClassID          uuid.UUID  `json:"user_classes_class_id"`
-	UserClassesMasjidID         uuid.UUID  `json:"user_classes_masjid_id"`
-	UserClassesStatus           string     `json:"user_classes_status"`
-	UserClassesResult           *string    `json:"user_classes_result,omitempty"`
-	UserClassesRegisterPaidAt   *time.Time `json:"user_classes_register_paid_at,omitempty"`
-	UserClassesPaidUntil        *time.Time `json:"user_classes_paid_until,omitempty"`
-	UserClassesPaidGraceDays    int16      `json:"user_classes_paid_grace_days"`
-	UserClassesJoinedAt         *time.Time `json:"user_classes_joined_at,omitempty"`
-	UserClassesLeftAt           *time.Time `json:"user_classes_left_at,omitempty"`
-	UserClassesCompletedAt      *time.Time `json:"user_classes_completed_at,omitempty"`
-	UserClassesCreatedAt        time.Time  `json:"user_classes_created_at"`
-	UserClassesUpdatedAt        time.Time  `json:"user_classes_updated_at"`
-	UserClassesDeletedAt        *time.Time `json:"user_classes_deleted_at,omitempty"`
+type UserClassResponse struct {
+	UserClassID              uuid.UUID  `json:"user_class_id"`
+	UserClassMasjidStudentID uuid.UUID  `json:"user_class_masjid_student_id"`
+	UserClassClassID         uuid.UUID  `json:"user_class_class_id"`
+	UserClassMasjidID        uuid.UUID  `json:"user_class_masjid_id"`
+	UserClassStatus          string     `json:"user_class_status"`
+	UserClassResult          *string    `json:"user_class_result,omitempty"`
+	UserClassRegisterPaidAt  *time.Time `json:"user_class_register_paid_at,omitempty"`
+	UserClassPaidUntil       *time.Time `json:"user_class_paid_until,omitempty"`
+	UserClassPaidGraceDays   int16      `json:"user_class_paid_grace_days"`
+	UserClassJoinedAt        *time.Time `json:"user_class_joined_at,omitempty"`
+	UserClassLeftAt          *time.Time `json:"user_class_left_at,omitempty"`
+	UserClassCompletedAt     *time.Time `json:"user_class_completed_at,omitempty"`
+	UserClassCreatedAt       time.Time  `json:"user_class_created_at"`
+	UserClassUpdatedAt       time.Time  `json:"user_class_updated_at"`
+	UserClassDeletedAt       *time.Time `json:"user_class_deleted_at,omitempty"`
 }
 
-func FromModelUserClasses(mdl *m.UserClassesModel) UserClassesResponse {
+func FromModelUserClass(mdl *m.UserClassModel) UserClassResponse {
 	var deletedAt *time.Time
-	if mdl.UserClassesDeletedAt.Valid {
-		t := mdl.UserClassesDeletedAt.Time
+	if mdl.UserClassDeletedAt.Valid {
+		t := mdl.UserClassDeletedAt.Time
 		deletedAt = &t
 	}
-	return UserClassesResponse{
-		UserClassesID:              mdl.UserClassesID,
-		UserClassesMasjidStudentID: mdl.UserClassesMasjidStudentID,
-		UserClassesClassID:         mdl.UserClassesClassID,
-		UserClassesMasjidID:        mdl.UserClassesMasjidID,
-		UserClassesStatus:          mdl.UserClassesStatus,
-		UserClassesResult:          mdl.UserClassesResult,
-		UserClassesRegisterPaidAt:  mdl.UserClassesRegisterPaidAt,
-		UserClassesPaidUntil:       mdl.UserClassesPaidUntil,
-		UserClassesPaidGraceDays:   mdl.UserClassesPaidGraceDays,
-		UserClassesJoinedAt:        mdl.UserClassesJoinedAt,
-		UserClassesLeftAt:          mdl.UserClassesLeftAt,
-		UserClassesCompletedAt:     mdl.UserClassesCompletedAt,
-		UserClassesCreatedAt:       mdl.UserClassesCreatedAt,
-		UserClassesUpdatedAt:       mdl.UserClassesUpdatedAt,
-		UserClassesDeletedAt:       deletedAt,
+	return UserClassResponse{
+		UserClassID:              mdl.UserClassID,
+		UserClassMasjidStudentID: mdl.UserClassMasjidStudentID,
+		UserClassClassID:         mdl.UserClassClassID,
+		UserClassMasjidID:        mdl.UserClassMasjidID,
+		UserClassStatus:          mdl.UserClassStatus,
+		UserClassResult:          mdl.UserClassResult,
+		UserClassRegisterPaidAt:  mdl.UserClassRegisterPaidAt,
+		UserClassPaidUntil:       mdl.UserClassPaidUntil,
+		UserClassPaidGraceDays:   mdl.UserClassPaidGraceDays,
+		UserClassJoinedAt:        mdl.UserClassJoinedAt,
+		UserClassLeftAt:          mdl.UserClassLeftAt,
+		UserClassCompletedAt:     mdl.UserClassCompletedAt,
+		UserClassCreatedAt:       mdl.UserClassCreatedAt,
+		UserClassUpdatedAt:       mdl.UserClassUpdatedAt,
+		UserClassDeletedAt:       deletedAt,
 	}
 }
 
@@ -156,125 +151,113 @@ func FromModelUserClasses(mdl *m.UserClassesModel) UserClassesResponse {
    PATCH REQUEST — tri-state
    ========================================================= */
 
-type UserClassesPatchRequest struct {
-	UserClassesStatus PatchFieldUC[string]  `json:"user_classes_status"` // active|inactive|completed
-	UserClassesResult PatchFieldUC[*string] `json:"user_classes_result"` // null → clear
+type UserClassPatchRequest struct {
+	UserClassStatus PatchFieldUC[string]  `json:"user_class_status"` // active|inactive|completed
+	UserClassResult PatchFieldUC[*string] `json:"user_class_result"` // null → clear
 
-	UserClassesRegisterPaidAt PatchFieldUC[*time.Time] `json:"user_classes_register_paid_at"`
-	UserClassesPaidUntil      PatchFieldUC[*time.Time] `json:"user_classes_paid_until"`
-	UserClassesPaidGraceDays  PatchFieldUC[int16]      `json:"user_classes_paid_grace_days"` // null → reset 0
+	UserClassRegisterPaidAt PatchFieldUC[*time.Time] `json:"user_class_register_paid_at"`
+	UserClassPaidUntil      PatchFieldUC[*time.Time] `json:"user_class_paid_until"`
+	UserClassPaidGraceDays  PatchFieldUC[int16]      `json:"user_class_paid_grace_days"` // null → reset 0
 
-	UserClassesJoinedAt    PatchFieldUC[*time.Time] `json:"user_classes_joined_at"`
-	UserClassesLeftAt      PatchFieldUC[*time.Time] `json:"user_classes_left_at"`
-	UserClassesCompletedAt PatchFieldUC[*time.Time] `json:"user_classes_completed_at"`
+	UserClassJoinedAt    PatchFieldUC[*time.Time] `json:"user_class_joined_at"`
+	UserClassLeftAt      PatchFieldUC[*time.Time] `json:"user_class_left_at"`
+	UserClassCompletedAt PatchFieldUC[*time.Time] `json:"user_class_completed_at"`
 }
 
-func (p *UserClassesPatchRequest) Normalize() {
-	// status → lowercase
-	if p.UserClassesStatus.Present && p.UserClassesStatus.Value != nil {
-		v := strings.ToLower(strings.TrimSpace(*p.UserClassesStatus.Value))
-		p.UserClassesStatus.Value = &v
+func (p *UserClassPatchRequest) Normalize() {
+	if p.UserClassStatus.Present && p.UserClassStatus.Value != nil {
+		v := strings.ToLower(strings.TrimSpace(*p.UserClassStatus.Value))
+		p.UserClassStatus.Value = &v
 	}
-	// result → trim+lower (ingat: Value bertipe **string)
-	if p.UserClassesResult.Present && p.UserClassesResult.Value != nil && *p.UserClassesResult.Value != nil {
-		v := strings.ToLower(strings.TrimSpace(**p.UserClassesResult.Value))
-		*p.UserClassesResult.Value = &v
+	if p.UserClassResult.Present && p.UserClassResult.Value != nil && *p.UserClassResult.Value != nil {
+		v := strings.ToLower(strings.TrimSpace(**p.UserClassResult.Value))
+		*p.UserClassResult.Value = &v
 	}
-	// timestamps & angka: no-op
 }
 
-func (p UserClassesPatchRequest) Apply(uc *m.UserClassesModel) {
+func (p UserClassPatchRequest) Apply(uc *m.UserClassModel) {
 	// status
-	if p.UserClassesStatus.Present && p.UserClassesStatus.Value != nil {
-		uc.UserClassesStatus = *p.UserClassesStatus.Value
+	if p.UserClassStatus.Present && p.UserClassStatus.Value != nil {
+		uc.UserClassStatus = *p.UserClassStatus.Value
 	}
 
 	// result (*string dalam Patch → **string di Value)
-	if p.UserClassesResult.Present {
-		if p.UserClassesResult.Value == nil {
-			uc.UserClassesResult = nil
+	if p.UserClassResult.Present {
+		if p.UserClassResult.Value == nil {
+			uc.UserClassResult = nil
 		} else {
-			uc.UserClassesResult = *p.UserClassesResult.Value
+			uc.UserClassResult = *p.UserClassResult.Value
 		}
 	}
 
-	// ===== billing (PatchFieldUC[*time.Time] → **time.Time) =====
-	if p.UserClassesRegisterPaidAt.Present {
-		if p.UserClassesRegisterPaidAt.Value == nil {
-			uc.UserClassesRegisterPaidAt = nil
+	// billing
+	if p.UserClassRegisterPaidAt.Present {
+		if p.UserClassRegisterPaidAt.Value == nil {
+			uc.UserClassRegisterPaidAt = nil
 		} else {
-			uc.UserClassesRegisterPaidAt = *p.UserClassesRegisterPaidAt.Value
+			uc.UserClassRegisterPaidAt = *p.UserClassRegisterPaidAt.Value
 		}
 	}
-	if p.UserClassesPaidUntil.Present {
-		if p.UserClassesPaidUntil.Value == nil {
-			uc.UserClassesPaidUntil = nil
+	if p.UserClassPaidUntil.Present {
+		if p.UserClassPaidUntil.Value == nil {
+			uc.UserClassPaidUntil = nil
 		} else {
-			uc.UserClassesPaidUntil = *p.UserClassesPaidUntil.Value
+			uc.UserClassPaidUntil = *p.UserClassPaidUntil.Value
 		}
 	}
-	if p.UserClassesPaidGraceDays.Present {
-		if p.UserClassesPaidGraceDays.Value == nil {
-			uc.UserClassesPaidGraceDays = 0
+	if p.UserClassPaidGraceDays.Present {
+		if p.UserClassPaidGraceDays.Value == nil {
+			uc.UserClassPaidGraceDays = 0
 		} else {
-			uc.UserClassesPaidGraceDays = *p.UserClassesPaidGraceDays.Value
-		}
-	}
-
-	// ===== lifecycle times (PatchFieldUC[*time.Time]) =====
-	if p.UserClassesJoinedAt.Present {
-		if p.UserClassesJoinedAt.Value == nil {
-			uc.UserClassesJoinedAt = nil
-		} else {
-			uc.UserClassesJoinedAt = *p.UserClassesJoinedAt.Value
-		}
-	}
-	if p.UserClassesLeftAt.Present {
-		if p.UserClassesLeftAt.Value == nil {
-			uc.UserClassesLeftAt = nil
-		} else {
-			uc.UserClassesLeftAt = *p.UserClassesLeftAt.Value
-		}
-	}
-	if p.UserClassesCompletedAt.Present {
-		if p.UserClassesCompletedAt.Value == nil {
-			uc.UserClassesCompletedAt = nil
-		} else {
-			uc.UserClassesCompletedAt = *p.UserClassesCompletedAt.Value
+			uc.UserClassPaidGraceDays = *p.UserClassPaidGraceDays.Value
 		}
 	}
 
-	uc.UserClassesUpdatedAt = time.Now()
+	// lifecycle times
+	if p.UserClassJoinedAt.Present {
+		if p.UserClassJoinedAt.Value == nil {
+			uc.UserClassJoinedAt = nil
+		} else {
+			uc.UserClassJoinedAt = *p.UserClassJoinedAt.Value
+		}
+	}
+	if p.UserClassLeftAt.Present {
+		if p.UserClassLeftAt.Value == nil {
+			uc.UserClassLeftAt = nil
+		} else {
+			uc.UserClassLeftAt = *p.UserClassLeftAt.Value
+		}
+	}
+	if p.UserClassCompletedAt.Present {
+		if p.UserClassCompletedAt.Value == nil {
+			uc.UserClassCompletedAt = nil
+		} else {
+			uc.UserClassCompletedAt = *p.UserClassCompletedAt.Value
+		}
+	}
+
+	uc.UserClassUpdatedAt = time.Now()
 }
-
 
 /* =========================================================
    LIST QUERY + HELPERS
    ========================================================= */
 
-type ListUserClassesQuery struct {
-	Limit     int         `query:"limit"`
-	Offset    int         `query:"offset"`
-	Status    *string     `query:"status"`      // active|inactive|completed
-	Result    *string     `query:"result"`      // passed|failed
-	ClassID   *uuid.UUID  `query:"class_id"`
-	StudentID *uuid.UUID  `query:"masjid_student_id"`
-	JoinedGt  *time.Time  `query:"joined_gt"`
-	JoinedLt  *time.Time  `query:"joined_lt"`
-	Search    string      `query:"q"`           // opsional
-	PaidDueLt *time.Time  `query:"paid_due_lt"` // paid_until < t
-	PaidDueGt *time.Time  `query:"paid_due_gt"` // paid_until > t
+type ListUserClassQuery struct {
+	Limit     int        `query:"limit"`
+	Offset    int        `query:"offset"`
+	Status    *string    `query:"status"` // active|inactive|completed
+	Result    *string    `query:"result"` // passed|failed
+	ClassID   *uuid.UUID `query:"class_id"`
+	StudentID *uuid.UUID `query:"masjid_student_id"`
+	JoinedGt  *time.Time `query:"joined_gt"`
+	JoinedLt  *time.Time `query:"joined_lt"`
+	Search    string     `query:"q"`           // opsional
+	PaidDueLt *time.Time `query:"paid_due_lt"` // paid_until < t
+	PaidDueGt *time.Time `query:"paid_due_gt"` // paid_until > t
 }
 
-func ToUserClassesResponses(rows []m.UserClassesModel) []UserClassesResponse {
-	out := make([]UserClassesResponse, 0, len(rows))
-	for i := range rows {
-		out = append(out, FromModelUserClasses(&rows[i]))
-	}
-	return out
-}
-
-type PaginationMetaUserClasses struct {
+type PaginationMetaUserClass struct {
 	Total      int64 `json:"total"`
 	Limit      int   `json:"limit"`
 	Offset     int   `json:"offset"`
@@ -284,11 +267,11 @@ type PaginationMetaUserClasses struct {
 	HasMore    bool  `json:"has_more"`
 }
 
-func NewPaginationMetaUserClasses(total int64, limit, offset, count int) PaginationMeta {
+func NewPaginationMetaUserClass(total int64, limit, offset, count int) PaginationMetaUserClass {
 	if limit <= 0 {
 		limit = 20
 	}
-	meta := PaginationMeta{
+	meta := PaginationMetaUserClass{
 		Total:   total,
 		Limit:   limit,
 		Offset:  offset,
@@ -307,4 +290,16 @@ func NewPaginationMetaUserClasses(total int64, limit, offset, count int) Paginat
 		meta.NextOffset = &next
 	}
 	return meta
+}
+
+/* =========================================================
+   BULK MAPPERS
+   ========================================================= */
+
+func ToUserClassResponses(rows []m.UserClassModel) []UserClassResponse {
+	out := make([]UserClassResponse, 0, len(rows))
+	for i := range rows {
+		out = append(out, FromModelUserClass(&rows[i]))
+	}
+	return out
 }

@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	ucmodel "masjidku_backend/internals/features/school/classes/classes/model"
-	membership "masjidku_backend/internals/features/school/classes/classes/service" // <-- sesuaikan jika path servicenya berbeda
+	membership "masjidku_backend/internals/features/school/classes/classes/service" // sesuaikan jika path servicenya berbeda
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 )
@@ -61,10 +61,10 @@ type ensureMsReq struct {
 }
 
 type enrollReq struct {
-	UserID        uuid.UUID  `json:"user_id" validate:"required,uuid"`
-	MasjidID      *uuid.UUID `json:"masjid_id" validate:"omitempty,uuid"`
-	UserClassesID *uuid.UUID `json:"user_classes_id" validate:"omitempty,uuid"` // jika diisi: approve enrolment sekalian
-	JoinedAt      *time.Time `json:"joined_at" validate:"omitempty"`
+	UserID      uuid.UUID  `json:"user_id" validate:"required,uuid"`
+	MasjidID    *uuid.UUID `json:"masjid_id" validate:"omitempty,uuid"`
+	UserClassID *uuid.UUID `json:"user_class_id" validate:"omitempty,uuid"` // jika diisi: approve enrolment sekalian
+	JoinedAt    *time.Time `json:"joined_at" validate:"omitempty"`
 }
 
 /* ================== Handlers ================== */
@@ -94,8 +94,8 @@ func (h *MembershipController) ActivateEnrollment(c *fiber.Ctx) error {
 		return err
 	}
 
-	log.Printf("[membership] ActivateEnrollment IN user=%s masjid=%s assignedBy=%s user_classes_id=%v",
-		req.UserID, masjidID, assignedBy, req.UserClassesID)
+	log.Printf("[membership] ActivateEnrollment IN user=%s masjid=%s assignedBy=%s user_class_id=%v",
+		req.UserID, masjidID, assignedBy, req.UserClassID)
 
 	return h.DB.Transaction(func(tx *gorm.DB) error {
 		// 1) hooks membership (role + ms status)
@@ -105,24 +105,24 @@ func (h *MembershipController) ActivateEnrollment(c *fiber.Ctx) error {
 		}
 
 		// 2) (opsional) approve enrolment
-		if req.UserClassesID != nil && *req.UserClassesID != uuid.Nil {
+		if req.UserClassID != nil && *req.UserClassID != uuid.Nil {
 			var row struct {
-				MasjidID uuid.UUID `gorm:"column:user_classes_masjid_id"`
-				MSID     uuid.UUID `gorm:"column:user_classes_masjid_student_id"`
-				ClassID  uuid.UUID `gorm:"column:user_classes_class_id"`
+				MasjidID uuid.UUID `gorm:"column:user_class_masjid_id"`
+				MSID     uuid.UUID `gorm:"column:user_class_masjid_student_id"`
+				ClassID  uuid.UUID `gorm:"column:user_class_class_id"`
 				Owner    uuid.UUID `gorm:"column:masjid_student_user_id"`
 			}
-			q := tx.Table("user_classes AS uc").
+			q := tx.Table("user_class AS uc").
 				Select(`
-					uc.user_classes_masjid_id,
-					uc.user_classes_masjid_student_id,
-					uc.user_classes_class_id,
+					uc.user_class_masjid_id,
+					uc.user_class_masjid_student_id,
+					uc.user_class_class_id,
 					ms.masjid_student_user_id
 				`).
 				Joins(`JOIN masjid_students AS ms
-					ON ms.masjid_student_id = uc.user_classes_masjid_student_id
+					ON ms.masjid_student_id = uc.user_class_masjid_student_id
 					AND ms.masjid_student_deleted_at IS NULL`).
-				Where("uc.user_classes_id = ? AND uc.user_classes_deleted_at IS NULL", *req.UserClassesID)
+				Where("uc.user_class_id = ? AND uc.user_class_deleted_at IS NULL", *req.UserClassID)
 
 			if err := q.First(&row).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -138,15 +138,15 @@ func (h *MembershipController) ActivateEnrollment(c *fiber.Ctx) error {
 			}
 
 			updates := map[string]any{
-				"user_classes_status":     "active",
-				"user_classes_updated_at": time.Now(),
+				"user_class_status":     "active",
+				"user_class_updated_at": time.Now(),
 			}
 			if req.JoinedAt != nil {
-				updates["user_classes_joined_at"] = *req.JoinedAt
+				updates["user_class_joined_at"] = *req.JoinedAt
 			}
 
-			if err := tx.Model(&ucmodel.UserClassesModel{}).
-				Where("user_classes_id = ? AND user_classes_deleted_at IS NULL", *req.UserClassesID).
+			if err := tx.Model(&ucmodel.UserClassModel{}).
+				Where("user_class_id = ? AND user_class_deleted_at IS NULL", *req.UserClassID).
 				Updates(updates).Error; err != nil {
 
 				if strings.Contains(strings.ToLower(err.Error()), "duplicate") || errors.Is(err, gorm.ErrDuplicatedKey) {
@@ -155,14 +155,14 @@ func (h *MembershipController) ActivateEnrollment(c *fiber.Ctx) error {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengaktifkan enrolment")
 			}
 
-			log.Printf("[membership] Enrolment APPROVED user_classes_id=%s class=%s msid=%s",
-				*req.UserClassesID, row.ClassID, row.MSID)
+			log.Printf("[membership] Enrolment APPROVED user_class_id=%s class=%s msid=%s",
+				*req.UserClassID, row.ClassID, row.MSID)
 		}
 
 		return helper.JsonOK(c, "enrollment activated", fiber.Map{
-			"user_id":         req.UserID,
-			"masjid_id":       masjidID,
-			"user_classes_id": req.UserClassesID,
+			"user_id":       req.UserID,
+			"masjid_id":     masjidID,
+			"user_class_id": req.UserClassID,
 		})
 	})
 }
@@ -187,8 +187,8 @@ func (h *MembershipController) DeactivateEnrollment(c *fiber.Ctx) error {
 	}
 	masjidID := mid
 
-	log.Printf("[membership] DeactivateEnrollment IN user=%s masjid=%s user_classes_id=%v",
-		req.UserID, masjidID, req.UserClassesID)
+	log.Printf("[membership] DeactivateEnrollment IN user=%s masjid=%s user_class_id=%v",
+		req.UserID, masjidID, req.UserClassID)
 
 	return h.DB.Transaction(func(tx *gorm.DB) error {
 		// 1) Hooks membership: ensure masjid_students → inactive
@@ -197,20 +197,20 @@ func (h *MembershipController) DeactivateEnrollment(c *fiber.Ctx) error {
 		}
 
 		// 2) (opsional) set enrolment -> inactive
-		if req.UserClassesID != nil && *req.UserClassesID != uuid.Nil {
+		if req.UserClassID != nil && *req.UserClassID != uuid.Nil {
 			var row struct {
-				MasjidID uuid.UUID `gorm:"column:user_classes_masjid_id"`
+				MasjidID uuid.UUID `gorm:"column:user_class_masjid_id"`
 				Owner    uuid.UUID `gorm:"column:masjid_student_user_id"`
 			}
-			q := tx.Table("user_classes AS uc").
+			q := tx.Table("user_class AS uc").
 				Select(`
-					uc.user_classes_masjid_id,
+					uc.user_class_masjid_id,
 					ms.masjid_student_user_id
 				`).
 				Joins(`JOIN masjid_students AS ms
-					ON ms.masjid_student_id = uc.user_classes_masjid_student_id
+					ON ms.masjid_student_id = uc.user_class_masjid_student_id
 					AND ms.masjid_student_deleted_at IS NULL`).
-				Where("uc.user_classes_id = ? AND uc.user_classes_deleted_at IS NULL", *req.UserClassesID)
+				Where("uc.user_class_id = ? AND uc.user_class_deleted_at IS NULL", *req.UserClassID)
 
 			if err := q.First(&row).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -225,20 +225,20 @@ func (h *MembershipController) DeactivateEnrollment(c *fiber.Ctx) error {
 				return fiber.NewError(fiber.StatusBadRequest, "Enrolment bukan milik user tersebut")
 			}
 
-			if err := tx.Model(&ucmodel.UserClassesModel{}).
-				Where("user_classes_id = ? AND user_classes_deleted_at IS NULL", *req.UserClassesID).
+			if err := tx.Model(&ucmodel.UserClassModel{}).
+				Where("user_class_id = ? AND user_class_deleted_at IS NULL", *req.UserClassID).
 				Updates(map[string]any{
-					"user_classes_status":     "inactive",
-					"user_classes_updated_at": time.Now(),
+					"user_class_status":     "inactive",
+					"user_class_updated_at": time.Now(),
 				}).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menonaktifkan enrolment")
 			}
 		}
 
 		return helper.JsonOK(c, "enrollment deactivated", fiber.Map{
-			"user_id":         req.UserID,
-			"masjid_id":       masjidID,
-			"user_classes_id": req.UserClassesID,
+			"user_id":       req.UserID,
+			"masjid_id":     masjidID,
+			"user_class_id": req.UserClassID,
 		})
 	})
 }

@@ -36,7 +36,7 @@ func (ctl *UserQuizAttemptsController) ensureValidator() {
    Helpers — scope & relasi
 ========================================================= */
 
-// Ambil masjid_id dari quizzes, aman di-scan sebagai string
+// Ambil masjid_id dari quizzes (kolom: quiz_masjid_id / quiz_id)
 func (ctl *UserQuizAttemptsController) getQuizMasjidID(quizID uuid.UUID) (uuid.UUID, error) {
 	if quizID == uuid.Nil {
 		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "quiz_id wajib")
@@ -44,9 +44,9 @@ func (ctl *UserQuizAttemptsController) getQuizMasjidID(quizID uuid.UUID) (uuid.U
 
 	var masjidIDStr string
 	if err := ctl.DB.
-		Raw(`SELECT quizzes_masjid_id::text
-			 FROM quizzes
-			 WHERE quizzes_id = ? AND quizzes_deleted_at IS NULL`,
+		Raw(`SELECT quiz_masjid_id::text
+			   FROM quizzes
+			  WHERE quiz_id = ? AND quiz_deleted_at IS NULL`,
 			quizID).
 		Scan(&masjidIDStr).Error; err != nil {
 		return uuid.Nil, err
@@ -62,13 +62,25 @@ func (ctl *UserQuizAttemptsController) getQuizMasjidID(quizID uuid.UUID) (uuid.U
 	return mid, nil
 }
 
+func validAttemptStatus(s qmodel.UserQuizAttemptStatus) bool {
+	switch s {
+	case qmodel.UserQuizAttemptInProgress,
+		qmodel.UserQuizAttemptSubmitted,
+		qmodel.UserQuizAttemptFinished,
+		qmodel.UserQuizAttemptAbandoned:
+		return true
+	default:
+		return false
+	}
+}
+
 // balikin (masjidID, studentID, isStudent)
 func (ctl *UserQuizAttemptsController) resolveScopeForCreate(
 	c *fiber.Ctx,
 	req *qdto.CreateUserQuizAttemptRequest,
 ) (uuid.UUID, uuid.UUID, bool, error) {
 	// 1) derive masjid dari quiz
-	qMid, err := ctl.getQuizMasjidID(req.UserQuizAttemptsQuizID)
+	qMid, err := ctl.getQuizMasjidID(req.UserQuizAttemptQuizID)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, false, err
 	}
@@ -92,8 +104,8 @@ func (ctl *UserQuizAttemptsController) resolveScopeForCreate(
 	}
 
 	// 4) admin/dkm/teacher/owner → student_id wajib dikirim
-	if req.UserQuizAttemptsStudentID == nil || *req.UserQuizAttemptsStudentID == uuid.Nil {
-		return uuid.Nil, uuid.Nil, false, fiber.NewError(fiber.StatusBadRequest, "user_quiz_attempts_student_id wajib untuk admin/dkm/teacher")
+	if req.UserQuizAttemptStudentID == nil || *req.UserQuizAttemptStudentID == uuid.Nil {
+		return uuid.Nil, uuid.Nil, false, fiber.NewError(fiber.StatusBadRequest, "user_quiz_attempt_student_id wajib untuk admin/dkm/teacher")
 	}
 
 	// validasi student milik masjid tsb
@@ -101,16 +113,16 @@ func (ctl *UserQuizAttemptsController) resolveScopeForCreate(
 	if err := ctl.DB.Raw(`
 		SELECT EXISTS(
 			SELECT 1 FROM masjid_students
-			WHERE masjid_student_id = ? AND masjid_id = ?
+			 WHERE masjid_student_id = ? AND masjid_id = ?
 		)
-	`, *req.UserQuizAttemptsStudentID, qMid).Scan(&ok).Error; err != nil {
+	`, *req.UserQuizAttemptStudentID, qMid).Scan(&ok).Error; err != nil {
 		return uuid.Nil, uuid.Nil, false, err
 	}
 	if !ok {
 		return uuid.Nil, uuid.Nil, false, fiber.NewError(fiber.StatusBadRequest, "student tidak terdaftar di masjid quiz")
 	}
 
-	return qMid, *req.UserQuizAttemptsStudentID, false, nil
+	return qMid, *req.UserQuizAttemptStudentID, false, nil
 }
 
 /* =========================================================
@@ -139,8 +151,8 @@ func (ctl *UserQuizAttemptsController) Create(c *fiber.Ctx) error {
 	}
 
 	// Override anti-spoof
-	req.UserQuizAttemptsMasjidID = &mid
-	req.UserQuizAttemptsStudentID = &sid
+	req.UserQuizAttemptMasjidID = &mid
+	req.UserQuizAttemptStudentID = &sid
 
 	m := req.ToModel()
 	if err := ctl.DB.Create(m).Error; err != nil {
@@ -170,7 +182,7 @@ func (ctl *UserQuizAttemptsController) Patch(c *fiber.Ctx) error {
 	}
 
 	var m qmodel.UserQuizAttemptModel
-	if err := ctl.DB.First(&m, "user_quiz_attempts_id = ?", id).Error; err != nil {
+	if err := ctl.DB.First(&m, "user_quiz_attempt_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Attempt tidak ditemukan")
 		}
@@ -178,7 +190,7 @@ func (ctl *UserQuizAttemptsController) Patch(c *fiber.Ctx) error {
 	}
 
 	// scope: DKM/Teacher (Owner juga diizinkan)
-	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, m.UserQuizAttemptsMasjidID); err != nil && !helperAuth.IsOwner(c) {
+	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, m.UserQuizAttemptMasjidID); err != nil && !helperAuth.IsOwner(c) {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
@@ -224,8 +236,8 @@ func (ctl *UserQuizAttemptsController) Delete(c *fiber.Ctx) error {
 
 	var m qmodel.UserQuizAttemptModel
 	if err := ctl.DB.
-		Select("user_quiz_attempts_id, user_quiz_attempts_masjid_id").
-		First(&m, "user_quiz_attempts_id = ?", id).Error; err != nil {
+		Select("user_quiz_attempt_id, user_quiz_attempt_masjid_id").
+		First(&m, "user_quiz_attempt_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Attempt tidak ditemukan")
 		}
@@ -233,14 +245,14 @@ func (ctl *UserQuizAttemptsController) Delete(c *fiber.Ctx) error {
 	}
 
 	// scope: DKM/Teacher (Owner juga diizinkan)
-	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, m.UserQuizAttemptsMasjidID); err != nil && !helperAuth.IsOwner(c) {
+	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, m.UserQuizAttemptMasjidID); err != nil && !helperAuth.IsOwner(c) {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
 		return err
 	}
 
-	if err := ctl.DB.Delete(&qmodel.UserQuizAttemptModel{}, "user_quiz_attempts_id = ?", id).Error; err != nil {
+	if err := ctl.DB.Delete(&qmodel.UserQuizAttemptModel{}, "user_quiz_attempt_id = ?", id).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus")
 	}
 	return helper.JsonDeleted(c, "Berhasil menghapus", fiber.Map{"deleted_id": id})
@@ -258,7 +270,7 @@ func (ctl *UserQuizAttemptsController) List(c *fiber.Ctx) error {
 
 	// Role-based scoping
 	if helperAuth.IsStudent(c) {
-		// Student: lock ke masjid aktif + student_id sendiri (pakai helper baru)
+		// Student: lock ke masjid aktif + student_id sendiri
 		mid, err := helperAuth.GetActiveMasjidID(c)
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
@@ -270,7 +282,7 @@ func (ctl *UserQuizAttemptsController) List(c *fiber.Ctx) error {
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 		}
-		q = q.Where("user_quiz_attempts_masjid_id = ? AND user_quiz_attempts_student_id = ?", mid, sid)
+		q = q.Where("user_quiz_attempt_masjid_id = ? AND user_quiz_attempt_student_id = ?", mid, sid)
 	} else {
 		// Admin/DKM/Teacher (Owner juga diizinkan)
 		var mid uuid.UUID
@@ -298,7 +310,7 @@ func (ctl *UserQuizAttemptsController) List(c *fiber.Ctx) error {
 				return err
 			}
 		}
-		q = q.Where("user_quiz_attempts_masjid_id = ?", mid)
+		q = q.Where("user_quiz_attempt_masjid_id = ?", mid)
 
 		// teacher/dkm boleh filter student_id tertentu
 		if studentIDStr != "" {
@@ -306,7 +318,7 @@ func (ctl *UserQuizAttemptsController) List(c *fiber.Ctx) error {
 			if err != nil {
 				return helper.JsonError(c, fiber.StatusBadRequest, "student_id tidak valid")
 			}
-			q = q.Where("user_quiz_attempts_student_id = ?", studentID)
+			q = q.Where("user_quiz_attempt_student_id = ?", studentID)
 		}
 	}
 
@@ -316,20 +328,20 @@ func (ctl *UserQuizAttemptsController) List(c *fiber.Ctx) error {
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "quiz_id tidak valid")
 		}
-		q = q.Where("user_quiz_attempts_quiz_id = ?", quizID)
+		q = q.Where("user_quiz_attempt_quiz_id = ?", quizID)
 	}
 	// filter status
 	if statusStr != "" {
 		st := qmodel.UserQuizAttemptStatus(statusStr)
-		if !st.Valid() {
+		if !validAttemptStatus(st) {
 			return helper.JsonError(c, fiber.StatusBadRequest, "status tidak valid (in_progress|submitted|finished|abandoned)")
 		}
-		q = q.Where("user_quiz_attempts_status = ?", st)
+		q = q.Where("user_quiz_attempt_status = ?", st)
 	}
 	// filter active_only
 	if activeOnly {
-		q = q.Where("user_quiz_attempts_status IN (?)",
-			[]string{string(qmodel.UserAttemptInProgress), string(qmodel.UserAttemptSubmitted)})
+		q = q.Where("user_quiz_attempt_status IN (?)",
+			[]string{string(qmodel.UserQuizAttemptInProgress), string(qmodel.UserQuizAttemptSubmitted)})
 	}
 
 	// total
@@ -339,10 +351,10 @@ func (ctl *UserQuizAttemptsController) List(c *fiber.Ctx) error {
 	}
 
 	// pagination
-	p := helper.ParseFiber(c, "user_quiz_attempts_started_at", "desc", helper.DefaultOpts)
+	p := helper.ParseFiber(c, "user_quiz_attempt_started_at", "desc", helper.DefaultOpts)
 
-	var rows []*qmodel.UserQuizAttemptModel
-	if err := q.Order("user_quiz_attempts_started_at DESC").
+	var rows []qmodel.UserQuizAttemptModel
+	if err := q.Order("user_quiz_attempt_started_at DESC").
 		Limit(p.Limit()).
 		Offset(p.Offset()).
 		Find(&rows).Error; err != nil {

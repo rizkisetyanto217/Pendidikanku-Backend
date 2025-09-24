@@ -22,15 +22,15 @@ import (
 ============================================ */
 
 type AcademicTermController struct {
-    DB        *gorm.DB
-    Validator *validator.Validate
+	DB        *gorm.DB
+	Validator *validator.Validate
 }
 
 func NewAcademicTermController(db *gorm.DB, v *validator.Validate) *AcademicTermController {
-    if v == nil {
-        v = validator.New()
-    }
-    return &AcademicTermController{DB: db, Validator: v}
+	if v == nil {
+		v = validator.New()
+	}
+	return &AcademicTermController{DB: db, Validator: v}
 }
 
 /* ============================================
@@ -53,10 +53,9 @@ func bindAndValidate[T any](c *fiber.Ctx, v *validator.Validate, dst *T) error {
 	return nil
 }
 
-
 /* =========================================================
    CREATE (DKM only)
-   POST /admin/academic-terms  (disarankan juga rute: /admin/masjids/:masjid_id/academic-terms)
+   POST /admin/academic-terms
 ========================================================= */
 
 func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
@@ -66,7 +65,7 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 	}
 	p.Normalize()
 
-	if p.AcademicTermsEndDate.Before(p.AcademicTermsStartDate) {
+	if p.AcademicTermEndDate.Before(p.AcademicTermStartDate) {
 		return httpErr(c, fiber.StatusBadRequest, "Tanggal akhir harus >= tanggal mulai")
 	}
 
@@ -81,10 +80,10 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 	}
 
 	// Uniqueness per masjid untuk code (opsional)
-	if strings.TrimSpace(p.AcademicTermsCode) != "" {
+	if p.AcademicTermCode != nil && strings.TrimSpace(*p.AcademicTermCode) != "" {
 		var cnt int64
 		if err := ctl.DB.Model(&model.AcademicTermModel{}).
-			Where("academic_terms_masjid_id = ? AND academic_terms_code = ?", masjidID, p.AcademicTermsCode).
+			Where("academic_term_masjid_id = ? AND academic_term_code = ?", masjidID, *p.AcademicTermCode).
 			Count(&cnt).Error; err != nil {
 			return httpErr(c, fiber.StatusInternalServerError, "Gagal memeriksa kode")
 		}
@@ -94,29 +93,29 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 	}
 
 	// === Slug dari academic_year (abaikan slug dari payload) ===
-	ay := strings.TrimSpace(p.AcademicTermsAcademicYear)
+	ay := strings.TrimSpace(p.AcademicTermAcademicYear)
 	if ay == "" {
 		return httpErr(c, fiber.StatusBadRequest, "Academic year wajib diisi")
 	}
-	baseSlug := helper.Slugify(ay, 100)
+	baseSlug := helper.Slugify(ay, 50) // kolom varchar(50)
 
 	uniqueSlug, err := helper.EnsureUniqueSlugCI(
 		c.Context(),
 		ctl.DB,
 		"academic_terms",
-		"academic_terms_slug",
+		"academic_term_slug",
 		baseSlug,
 		func(q *gorm.DB) *gorm.DB {
-			return q.Where("academic_terms_masjid_id = ?", masjidID)
+			return q.Where("academic_term_masjid_id = ?", masjidID)
 		},
-		100,
+		50,
 	)
 	if err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 	}
 
 	ent := p.ToModel(masjidID)
-	ent.AcademicTermsSlug = uniqueSlug
+	ent.AcademicTermSlug = &uniqueSlug
 
 	if err := ctl.DB.Create(&ent).Error; err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal membuat data")
@@ -152,7 +151,7 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 
 	var ent model.AcademicTermModel
 	if err := ctl.DB.
-		Where("academic_terms_masjid_id = ? AND academic_terms_id = ?", masjidID, id).
+		Where("academic_term_masjid_id = ? AND academic_term_id = ?", masjidID, id).
 		First(&ent).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return httpErr(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -166,28 +165,28 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 	}
 
 	// Normalisasi minimal (tanpa menerima slug dari user)
-	if p.AcademicTermsCode != nil {
-		s := strings.TrimSpace(*p.AcademicTermsCode)
-		p.AcademicTermsCode = &s
+	if p.AcademicTermCode != nil {
+		s := strings.TrimSpace(*p.AcademicTermCode)
+		p.AcademicTermCode = &s
 	}
-	if p.AcademicTermsDescription != nil {
-		s := strings.TrimSpace(*p.AcademicTermsDescription)
-		p.AcademicTermsDescription = &s
+	if p.AcademicTermDescription != nil {
+		s := strings.TrimSpace(*p.AcademicTermDescription)
+		p.AcademicTermDescription = &s
 	}
-	if p.AcademicTermsAcademicYear != nil {
-		s := strings.TrimSpace(*p.AcademicTermsAcademicYear)
-		p.AcademicTermsAcademicYear = &s
+	if p.AcademicTermAcademicYear != nil {
+		s := strings.TrimSpace(*p.AcademicTermAcademicYear)
+		p.AcademicTermAcademicYear = &s
 	}
 
 	// Validasi tanggal jika diubah
-	if p.AcademicTermsStartDate != nil || p.AcademicTermsEndDate != nil {
-		start := ent.AcademicTermsStartDate
-		end := ent.AcademicTermsEndDate
-		if p.AcademicTermsStartDate != nil {
-			start = *p.AcademicTermsStartDate
+	if p.AcademicTermStartDate != nil || p.AcademicTermEndDate != nil {
+		start := ent.AcademicTermStartDate
+		end := ent.AcademicTermEndDate
+		if p.AcademicTermStartDate != nil {
+			start = *p.AcademicTermStartDate
 		}
-		if p.AcademicTermsEndDate != nil {
-			end = *p.AcademicTermsEndDate
+		if p.AcademicTermEndDate != nil {
+			end = *p.AcademicTermEndDate
 		}
 		if end.Before(start) {
 			return httpErr(c, fiber.StatusBadRequest, "Tanggal akhir harus >= tanggal mulai")
@@ -195,11 +194,11 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 	}
 
 	// Uniqueness code jika berubah
-	if p.AcademicTermsCode != nil {
+	if p.AcademicTermCode != nil && strings.TrimSpace(*p.AcademicTermCode) != "" {
 		var cnt int64
 		if err := ctl.DB.Model(&model.AcademicTermModel{}).
-			Where("academic_terms_masjid_id = ? AND academic_terms_code = ? AND academic_terms_id <> ?",
-				masjidID, *p.AcademicTermsCode, ent.AcademicTermsID).
+			Where("academic_term_masjid_id = ? AND academic_term_code = ? AND academic_term_id <> ?",
+				masjidID, *p.AcademicTermCode, ent.AcademicTermID).
 			Count(&cnt).Error; err != nil {
 			return httpErr(c, fiber.StatusInternalServerError, "Gagal memeriksa kode")
 		}
@@ -212,34 +211,32 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 	p.ApplyUpdates(&ent)
 
 	// Jika academic year berubah, regenerate slug dari academic_year & pastikan unik (exclude current row)
-	if p.AcademicTermsAcademicYear != nil {
-		baseSlug := helper.Slugify(*p.AcademicTermsAcademicYear, 100)
+	if p.AcademicTermAcademicYear != nil {
+		baseSlug := helper.Slugify(*p.AcademicTermAcademicYear, 50)
 		uniqueSlug, err := helper.EnsureUniqueSlugCI(
 			c.Context(),
 			ctl.DB,
 			"academic_terms",
-			"academic_terms_slug",
+			"academic_term_slug",
 			baseSlug,
 			func(q *gorm.DB) *gorm.DB {
-				return q.Where("academic_terms_masjid_id = ? AND academic_terms_id <> ?", masjidID, ent.AcademicTermsID)
+				return q.Where("academic_term_masjid_id = ? AND academic_term_id <> ?", masjidID, ent.AcademicTermID)
 			},
-			100,
+			50,
 		)
 		if err != nil {
 			return httpErr(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 		}
-		ent.AcademicTermsSlug = uniqueSlug
+		ent.AcademicTermSlug = &uniqueSlug
 	}
 
-	ent.AcademicTermsUpdatedAt = time.Now()
+	ent.AcademicTermUpdatedAt = time.Now()
 
 	if err := ctl.DB.Save(&ent).Error; err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal memperbarui data")
 	}
 	return helper.JsonUpdated(c, "Berhasil memperbarui tahun akademik", dto.FromModel(ent))
 }
-
-
 
 /* =========================================================
    DELETE (soft) — DKM only
@@ -265,9 +262,9 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 
 	var ent model.AcademicTermModel
 	if err := ctl.DB.
-		Where("academic_terms_masjid_id = ? AND academic_terms_id = ?", masjidID, id).
+		Where("academic_term_masjid_id = ? AND academic_term_id = ?", masjidID, id).
 		First(&ent).Error; err != nil {
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return httpErr(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengambil data")
@@ -277,11 +274,9 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal menghapus data")
 	}
 	return helper.JsonDeleted(c, "Berhasil menghapus tahun akademik", fiber.Map{
-		"academic_terms_id": id,
+		"academic_term_id": id,
 	})
 }
-
-
 
 /* ============================================
    RESTORE (soft-deleted) — DKM only
@@ -311,7 +306,7 @@ func (ctl *AcademicTermController) Restore(c *fiber.Ctx) error {
 
 	var ent model.AcademicTermModel
 	if err := ctl.DB.Unscoped().
-		Where("academic_terms_masjid_id = ? AND academic_terms_id = ?", masjidID, id).
+		Where("academic_term_masjid_id = ? AND academic_term_id = ?", masjidID, id).
 		First(&ent).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return httpErr(c, fiber.StatusNotFound, "Data tidak ditemukan / belum pernah ada")
@@ -319,18 +314,14 @@ func (ctl *AcademicTermController) Restore(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// if ent.AcademicTermsDeletedAt.Valid == false {
-	// 	return helper.JsonOK(c, "OK", dto.FromModel(ent))
-	// }
-
 	if err := ctl.DB.Unscoped().
 		Model(&ent).
-		Update("academic_terms_deleted_at", nil).Error; err != nil {
+		Update("academic_term_deleted_at", nil).Error; err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal merestore data")
 	}
 
 	if err := ctl.DB.
-		Where("academic_terms_masjid_id = ? AND academic_terms_id = ?", masjidID, id).
+		Where("academic_term_masjid_id = ? AND academic_term_id = ?", masjidID, id).
 		First(&ent).Error; err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengambil data setelah restore")
 	}
@@ -365,7 +356,7 @@ func (ctl *AcademicTermController) SetActive(c *fiber.Ctx) error {
 
 	var ent model.AcademicTermModel
 	if err := ctl.DB.
-		Where("academic_terms_masjid_id = ? AND academic_terms_id = ?", masjidID, id).
+		Where("academic_term_masjid_id = ? AND academic_term_id = ?", masjidID, id).
 		First(&ent).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return httpErr(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -374,16 +365,16 @@ func (ctl *AcademicTermController) SetActive(c *fiber.Ctx) error {
 	}
 
 	// Jika ingin eksklusif hanya 1 aktif per masjid, uncomment blok ini:
-	// if err := ctl.DB.Model(&model.AcademicTermModel{}).
-	// 	Where("academic_terms_masjid_id = ? AND academic_terms_id <> ?", masjidID, id).
-	// 	Update("academic_terms_is_active", false).Error; err != nil {
+	// if err := ctl.DB.Model(&model.AcademicTerm{}).
+	// 	Where("academic_term_masjid_id = ? AND academic_term_id <> ?", masjidID, id).
+	// 	Update("academic_term_is_active", false).Error; err != nil {
 	// 	return httpErr(c, fiber.StatusInternalServerError, "Gagal menonaktifkan term lain")
 	// }
 
-	if err := ctl.DB.Model(&ent).Update("academic_terms_is_active", true).Error; err != nil {
+	if err := ctl.DB.Model(&ent).Update("academic_term_is_active", true).Error; err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengaktifkan term")
 	}
-	if err := ctl.DB.First(&ent, "academic_terms_id = ?", id).Error; err != nil {
+	if err := ctl.DB.First(&ent, "academic_term_id = ?", id).Error; err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal refresh data")
 	}
 	return helper.JsonUpdated(c, "Berhasil mengaktifkan tahun akademik", dto.FromModel(ent))

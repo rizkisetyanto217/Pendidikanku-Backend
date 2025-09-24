@@ -1,4 +1,4 @@
-// file: internals/features/school/assessments/model/assessment_model.go
+// file: internals/features/assessments/model/assessment_model.go
 package model
 
 import (
@@ -8,48 +8,40 @@ import (
 	"gorm.io/gorm"
 )
 
-// AssessmentModel merepresentasikan tabel `assessments`
 type AssessmentModel struct {
-	// =========================
-	// Primary Key
-	// =========================
-	AssessmentsID uuid.UUID `json:"assessments_id" gorm:"column:assessments_id;type:uuid;primaryKey"`
+	AssessmentID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:assessment_id" json:"assessment_id"`
+	AssessmentMasjidID uuid.UUID `gorm:"type:uuid;not null;column:assessment_masjid_id" json:"assessment_masjid_id"`
 
-	// =========================
-	// Tenant / Masjid
-	// =========================
-	AssessmentsMasjidID uuid.UUID `json:"assessments_masjid_id" gorm:"column:assessments_masjid_id;type:uuid;not null;index:idx_assessments_masjid_created_at,priority:1"`
+	// Relasi ke CSST (tenant-safe dijaga di DB)
+	AssessmentClassSectionSubjectTeacherID *uuid.UUID `gorm:"type:uuid;column:assessment_class_section_subject_teacher_id" json:"assessment_class_section_subject_teacher_id,omitempty"`
 
-	// =========================
-	// Relasi (FK)
-	// =========================
-	AssessmentsClassSectionSubjectTeacherID *uuid.UUID `json:"assessments_class_section_subject_teacher_id" gorm:"column:assessments_class_section_subject_teacher_id;type:uuid;index:idx_assessments_csst"`
-	AssessmentsTypeID                       *uuid.UUID `json:"assessments_type_id" gorm:"column:assessments_type_id;type:uuid;index:idx_assessments_type_id"`
-	AssessmentsCreatedByTeacherID           *uuid.UUID `json:"assessments_created_by_teacher_id" gorm:"column:assessments_created_by_teacher_id;type:uuid;index:idx_assessments_created_by_teacher"`
+	// Tipe penilaian (opsional)
+	AssessmentTypeID *uuid.UUID `gorm:"type:uuid;column:assessment_type_id" json:"assessment_type_id,omitempty"`
 
-	// =========================
-	// Data Utama
-	// =========================
-	AssessmentsTitle       string  `json:"assessments_title" gorm:"column:assessments_title;type:varchar(180);not null"`
-	AssessmentsDescription *string `json:"assessments_description" gorm:"column:assessments_description;type:text"`
+	// Identitas
+	AssessmentSlug        *string `gorm:"type:varchar(160);column:assessment_slug" json:"assessment_slug,omitempty"`
+	AssessmentTitle       string  `gorm:"type:varchar(180);not null;column:assessment_title" json:"assessment_title"`
+	AssessmentDescription *string `gorm:"type:text;column:assessment_description" json:"assessment_description,omitempty"`
 
-	AssessmentsStartAt *time.Time `json:"assessments_start_at" gorm:"column:assessments_start_at;type:timestamptz"`
-	AssessmentsDueAt   *time.Time `json:"assessments_due_at"   gorm:"column:assessments_due_at;type:timestamptz"`
+	// Jadwal
+	AssessmentStartAt     *time.Time `gorm:"type:timestamptz;column:assessment_start_at" json:"assessment_start_at,omitempty"`
+	AssessmentDueAt       *time.Time `gorm:"type:timestamptz;column:assessment_due_at" json:"assessment_due_at,omitempty"`
+	AssessmentPublishedAt *time.Time `gorm:"type:timestamptz;column:assessment_published_at" json:"assessment_published_at,omitempty"`
+	AssessmentClosedAt    *time.Time `gorm:"type:timestamptz;column:assessment_closed_at" json:"assessment_closed_at,omitempty"`
 
-	AssessmentsMaxScore float64 `json:"assessments_max_score" gorm:"column:assessments_max_score;type:numeric(5,2);not null;default:100"`
+	// Pengaturan
+	AssessmentDurationMinutes      *int    `gorm:"column:assessment_duration_minutes" json:"assessment_duration_minutes,omitempty"`
+	AssessmentTotalAttemptsAllowed int     `gorm:"not null;default:1;column:assessment_total_attempts_allowed" json:"assessment_total_attempts_allowed"`
+	AssessmentMaxScore             float64 `gorm:"type:numeric(5,2);not null;default:100;column:assessment_max_score" json:"assessment_max_score"`
+	AssessmentIsPublished          bool    `gorm:"not null;default:true;column:assessment_is_published" json:"assessment_is_published"`
+	AssessmentAllowSubmission      bool    `gorm:"not null;default:true;column:assessment_allow_submission" json:"assessment_allow_submission"`
 
-	AssessmentsIsPublished     bool `json:"assessments_is_published" gorm:"column:assessments_is_published;not null;default:true"`
-	AssessmentsAllowSubmission bool `json:"assessments_allow_submission" gorm:"column:assessments_allow_submission;not null;default:true"`
+	// Audit pembuat (opsional)
+	AssessmentCreatedByTeacherID *uuid.UUID `gorm:"type:uuid;column:assessment_created_by_teacher_id" json:"assessment_created_by_teacher_id,omitempty"`
 
-	// =========================
-	// Timestamps
-	// =========================
-	AssessmentsCreatedAt time.Time      `json:"assessments_created_at" gorm:"column:assessments_created_at;not null;autoCreateTime;index:idx_assessments_masjid_created_at,priority:2,sort:desc"`
-	AssessmentsUpdatedAt time.Time      `json:"assessments_updated_at" gorm:"column:assessments_updated_at;not null;autoUpdateTime"`
-	AssessmentsDeletedAt gorm.DeletedAt `json:"assessments_deleted_at" gorm:"column:assessments_deleted_at;index"`
+	AssessmentCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:assessment_created_at" json:"assessment_created_at"`
+	AssessmentUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:assessment_updated_at" json:"assessment_updated_at"`
+	AssessmentDeletedAt gorm.DeletedAt `gorm:"column:assessment_deleted_at;index" json:"assessment_deleted_at,omitempty"`
 }
 
-// TableName memastikan mapping ke tabel `assessments`
-func (AssessmentModel) TableName() string {
-	return "assessments"
-}
+func (AssessmentModel) TableName() string { return "assessments" }

@@ -60,12 +60,12 @@ func (ctl *UserAttendanceTypeController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	var in dto.UserAttendanceTypeCreateDTO
+	var in dto.UserClassSessionAttendanceTypeCreateDTO
 	if err := c.BodyParser(&in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	// Enforce tenant dari context
-	in.UserAttendanceTypeMasjidID = masjidID
+	in.UserClassSessionAttendanceTypeMasjidID = masjidID
 
 	if err := dto.ValidateStruct(ctl.Validator, &in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -108,8 +108,8 @@ func (ctl *UserAttendanceTypeController) List(c *fiber.Ctx) error {
 	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
 
 	// Query filter
-	q := dto.UserAttendanceTypeListQuery{
-		UserAttendanceTypeMasjidID: masjidID,
+	q := dto.UserClassSessionAttendanceTypeListQuery{
+		UserClassSessionAttendanceTypeMasjidID: masjidID,
 	}
 
 	if v := strings.TrimSpace(c.Query("code_eq")); v != "" {
@@ -117,6 +117,9 @@ func (ctl *UserAttendanceTypeController) List(c *fiber.Ctx) error {
 	}
 	if v := strings.TrimSpace(c.Query("label_query")); v != "" {
 		q.LabelQueryILK = &v
+	}
+	if v := strings.TrimSpace(c.Query("slug_eq")); v != "" {
+		q.SlugEq = &v
 	}
 	if v := strings.TrimSpace(c.Query("only_active")); v != "" {
 		val := strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
@@ -167,12 +170,12 @@ func (ctl *UserAttendanceTypeController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	var rows []model.UserAttendanceTypeModel
+	var rows []model.UserClassSessionAttendanceTypeModel
 	if err := g.Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	items := make([]dto.UserAttendanceTypeItem, len(rows))
+	items := make([]dto.UserClassSessionAttendanceTypeItem, len(rows))
 	for i := range rows {
 		items[i] = dto.FromModel(&rows[i])
 	}
@@ -209,10 +212,13 @@ func (ctl *UserAttendanceTypeController) Patch(c *fiber.Ctx) error {
 	}
 
 	// ambil data existing
-	var m model.UserAttendanceTypeModel
+	var m model.UserClassSessionAttendanceTypeModel
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("user_attendance_type_id = ? AND user_attendance_type_masjid_id = ? AND user_attendance_type_deleted_at IS NULL",
-			id, masjidID).
+		Where(`
+			user_class_session_attendance_type_id = ?
+			AND user_class_session_attendance_type_masjid_id = ?
+			AND user_class_session_attendance_type_deleted_at IS NULL
+		`, id, masjidID).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -220,13 +226,13 @@ func (ctl *UserAttendanceTypeController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	var in dto.UserAttendanceTypePatchDTO
+	var in dto.UserClassSessionAttendanceTypePatchDTO
 	if err := c.BodyParser(&in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	// enforce key dari path + context
-	in.UserAttendanceTypeID = id
-	in.UserAttendanceTypeMasjidID = masjidID
+	in.UserClassSessionAttendanceTypeID = id
+	in.UserClassSessionAttendanceTypeMasjidID = masjidID
 
 	if err := dto.ValidateStruct(ctl.Validator, &in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -234,15 +240,17 @@ func (ctl *UserAttendanceTypeController) Patch(c *fiber.Ctx) error {
 
 	in.ApplyPatch(&m)
 
-	// Simpan perubahan
+	// Simpan perubahan (select kolom yang diperbolehkan)
 	if err := ctl.DB.WithContext(c.Context()).
 		Model(&m).
 		Select(
-			"user_attendance_type_code",
-			"user_attendance_type_label",
-			"user_attendance_type_desc",
-			"user_attendance_type_is_active",
-			"user_attendance_type_updated_at",
+			"user_class_session_attendance_type_code",
+			"user_class_session_attendance_type_label",
+			"user_class_session_attendance_type_slug",
+			"user_class_session_attendance_type_color",
+			"user_class_session_attendance_type_desc",
+			"user_class_session_attendance_type_is_active",
+			"user_class_session_attendance_type_updated_at",
 		).
 		Updates(&m).Error; err != nil {
 		if isDuplicateKey(err) {
@@ -282,12 +290,15 @@ func (ctl *UserAttendanceTypeController) Delete(c *fiber.Ctx) error {
 	}
 
 	res := ctl.DB.WithContext(c.Context()).
-		Model(&model.UserAttendanceTypeModel{}).
-		Where("user_attendance_type_id = ? AND user_attendance_type_masjid_id = ? AND user_attendance_type_deleted_at IS NULL",
-			id, masjidID).
+		Model(&model.UserClassSessionAttendanceTypeModel{}).
+		Where(`
+			user_class_session_attendance_type_id = ?
+			AND user_class_session_attendance_type_masjid_id = ?
+			AND user_class_session_attendance_type_deleted_at IS NULL
+		`, id, masjidID).
 		Updates(map[string]any{
-			"user_attendance_type_deleted_at": time.Now(),
-			"user_attendance_type_updated_at": time.Now(),
+			"user_class_session_attendance_type_deleted_at": time.Now(),
+			"user_class_session_attendance_type_updated_at": time.Now(),
 		})
 	if res.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, res.Error.Error())
@@ -327,12 +338,15 @@ func (ctl *UserAttendanceTypeController) Restore(c *fiber.Ctx) error {
 	}
 
 	res := ctl.DB.WithContext(c.Context()).
-		Model(&model.UserAttendanceTypeModel{}).
-		Where("user_attendance_type_id = ? AND user_attendance_type_masjid_id = ? AND user_attendance_type_deleted_at IS NOT NULL",
-			id, masjidID).
+		Model(&model.UserClassSessionAttendanceTypeModel{}).
+		Where(`
+			user_class_session_attendance_type_id = ?
+			AND user_class_session_attendance_type_masjid_id = ?
+			AND user_class_session_attendance_type_deleted_at IS NOT NULL
+		`, id, masjidID).
 		Updates(map[string]any{
-			"user_attendance_type_deleted_at": nil,
-			"user_attendance_type_updated_at": time.Now(),
+			"user_class_session_attendance_type_deleted_at": nil,
+			"user_class_session_attendance_type_updated_at": time.Now(),
 		})
 	if res.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, res.Error.Error())

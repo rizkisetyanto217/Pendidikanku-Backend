@@ -1,4 +1,4 @@
-// internals/features/lembaga/class_subjects/model/class_subject_model.go
+// file: internals/features/school/class_subjects/model/class_subject_model.go
 package model
 
 import (
@@ -9,38 +9,35 @@ import (
 )
 
 type ClassSubjectModel struct {
-	// PK
-	ClassSubjectsID uuid.UUID `json:"class_subjects_id" gorm:"column:class_subjects_id;type:uuid;default:gen_random_uuid();primaryKey"`
+	// PK & tenant
+	ClassSubjectID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:class_subject_id"      json:"class_subject_id"`
+	ClassSubjectMasjidID uuid.UUID `gorm:"type:uuid;not null;column:class_subject_masjid_id"                           json:"class_subject_masjid_id"`
 
-	// FKs (NOT NULL sesuai tabel)
-	ClassSubjectsMasjidID  uuid.UUID `json:"class_subjects_masjid_id"  gorm:"column:class_subjects_masjid_id;type:uuid;not null"`
-	ClassSubjectsClassID   uuid.UUID `json:"class_subjects_class_id"   gorm:"column:class_subjects_class_id;type:uuid;not null"`
-	ClassSubjectsSubjectID uuid.UUID `json:"class_subjects_subject_id" gorm:"column:class_subjects_subject_id;type:uuid;not null"`
+	// FK eksplisit (tenant-safe via constraint komposit)
+	ClassSubjectClassID   uuid.UUID `gorm:"type:uuid;not null;column:class_subject_class_id"   json:"class_subject_class_id"`
+	ClassSubjectSubjectID uuid.UUID `gorm:"type:uuid;not null;column:class_subject_subject_id" json:"class_subject_subject_id"`
 
-	// SLUG (opsional; unik per tenant saat alive — diatur di DB)
-	ClassSubjectsSlug *string `json:"class_subjects_slug,omitempty" gorm:"column:class_subjects_slug;size:160"`
+	// Identitas & atribut
+	ClassSubjectSlug             *string `gorm:"type:varchar(160);column:class_subject_slug"              json:"class_subject_slug,omitempty"`
+	ClassSubjectOrderIndex       *int    `gorm:"column:class_subject_order_index"                         json:"class_subject_order_index,omitempty"`
+	ClassSubjectHoursPerWeek     *int    `gorm:"column:class_subject_hours_per_week"                      json:"class_subject_hours_per_week,omitempty"`
+	ClassSubjectMinPassingScore  *int    `gorm:"column:class_subject_min_passing_score"                   json:"class_subject_min_passing_score,omitempty"`
+	ClassSubjectWeightOnReport   *int    `gorm:"column:class_subject_weight_on_report"                    json:"class_subject_weight_on_report,omitempty"`
+	ClassSubjectIsCore           bool    `gorm:"not null;default:false;column:class_subject_is_core"      json:"class_subject_is_core"`
+	ClassSubjectDesc             *string `gorm:"type:text;column:class_subject_desc"                      json:"class_subject_desc,omitempty"`
 
-	// Metadata kurikulum (opsional)
-	ClassSubjectsOrderIndex      *int    `json:"class_subjects_order_index,omitempty"       gorm:"column:class_subjects_order_index"`
-	ClassSubjectsHoursPerWeek    *int    `json:"class_subjects_hours_per_week,omitempty"    gorm:"column:class_subjects_hours_per_week"`
-	ClassSubjectsMinPassingScore *int    `json:"class_subjects_min_passing_score,omitempty" gorm:"column:class_subjects_min_passing_score"`
-	ClassSubjectsWeightOnReport  *int    `json:"class_subjects_weight_on_report,omitempty"  gorm:"column:class_subjects_weight_on_report"`
-	ClassSubjectsIsCore          bool    `json:"class_subjects_is_core"                     gorm:"column:class_subjects_is_core;not null;default:false"`
-	ClassSubjectsDesc            *string `json:"class_subjects_desc,omitempty"              gorm:"column:class_subjects_desc"`
+	// Bobot penilaian (0..100)
+	ClassSubjectWeightAssignment      *int `gorm:"column:class_subject_weight_assignment"       json:"class_subject_weight_assignment,omitempty"`
+	ClassSubjectWeightQuiz            *int `gorm:"column:class_subject_weight_quiz"             json:"class_subject_weight_quiz,omitempty"`
+	ClassSubjectWeightMid             *int `gorm:"column:class_subject_weight_mid"              json:"class_subject_weight_mid,omitempty"`
+	ClassSubjectWeightFinal           *int `gorm:"column:class_subject_weight_final"            json:"class_subject_weight_final,omitempty"`
+	ClassSubjectMinAttendancePercent  *int `gorm:"column:class_subject_min_attendance_percent"  json:"class_subject_min_attendance_percent,omitempty"`
 
-	// Bobot penilaian (opsional) – SMALLINT di DB; di Go boleh *int16 atau *int
-	ClassSubjectsWeightAssignment   *int16 `json:"class_subjects_weight_assignment,omitempty"   gorm:"column:class_subjects_weight_assignment"`
-	ClassSubjectsWeightQuiz         *int16 `json:"class_subjects_weight_quiz,omitempty"         gorm:"column:class_subjects_weight_quiz"`
-	ClassSubjectsWeightMid          *int16 `json:"class_subjects_weight_mid,omitempty"          gorm:"column:class_subjects_weight_mid"`
-	ClassSubjectsWeightFinal        *int16 `json:"class_subjects_weight_final,omitempty"        gorm:"column:class_subjects_weight_final"`
-	ClassSubjectsMinAttendancePct   *int16 `json:"class_subjects_min_attendance_percent,omitempty" gorm:"column:class_subjects_min_attendance_percent"`
-
-	// Status & timestamps
-	ClassSubjectsIsActive  bool           `json:"class_subjects_is_active"            gorm:"column:class_subjects_is_active;not null;default:true"`
-	ClassSubjectsCreatedAt time.Time      `json:"class_subjects_created_at"           gorm:"column:class_subjects_created_at;not null;autoCreateTime"`
-	// Kalau mau strict sesuai DB yang NOT NULL, pakai time.Time (bukan *time.Time)
-	ClassSubjectsUpdatedAt time.Time      `json:"class_subjects_updated_at"           gorm:"column:class_subjects_updated_at;not null;autoUpdateTime"`
-	ClassSubjectsDeletedAt gorm.DeletedAt `json:"class_subjects_deleted_at,omitempty" gorm:"column:class_subjects_deleted_at;index"`
+	// Status & audit
+	ClassSubjectIsActive  bool           `gorm:"not null;default:true;column:class_subject_is_active"  json:"class_subject_is_active"`
+	ClassSubjectCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:class_subject_created_at" json:"class_subject_created_at"`
+	ClassSubjectUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:class_subject_updated_at" json:"class_subject_updated_at"`
+	ClassSubjectDeletedAt gorm.DeletedAt `gorm:"column:class_subject_deleted_at;index"                 json:"class_subject_deleted_at,omitempty"`
 }
 
 func (ClassSubjectModel) TableName() string { return "class_subjects" }
