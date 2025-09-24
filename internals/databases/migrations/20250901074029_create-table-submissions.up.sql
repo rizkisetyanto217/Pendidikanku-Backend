@@ -118,6 +118,16 @@ CREATE TABLE IF NOT EXISTS submission_urls (
   submission_url_order           INT NOT NULL DEFAULT 0,
   submission_url_is_primary      BOOLEAN NOT NULL DEFAULT FALSE,
 
+  -- Pengumpul: relasi ke masjid_students (BUKAN users langsung)
+  submission_url_student_id UUID NOT NULL
+    REFERENCES masjid_students(masjid_student_id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+
+  -- Pengumpul: relasi ke masjid_teachers (BUKAN users langsung)
+  submission_url_teacher_id UUID
+    REFERENCES masjid_teachers(masjid_teacher_id)
+    ON UPDATE CASCADE ON DELETE SET NULL,
+
   -- Audit & retensi
   submission_url_created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   submission_url_updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),

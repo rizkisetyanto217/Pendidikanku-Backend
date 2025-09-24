@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	m "masjidku_backend/internals/features/school/others/events/model"
+	m "masjidku_backend/internals/features/school/classes/class_events/model"
 )
 
 /* =========================================================
@@ -40,7 +40,7 @@ func (p *Patch[T]) UnmarshalJSON(b []byte) error {
 	p.Set = true
 	return json.Unmarshal(b, &p.Value)
 }
-func (p Patch[T]) IsSet() bool { return p.Set }
+func (p Patch[T]) IsSetClassUrls() bool { return p.Set }
 
 func (p *PatchNullable[T]) UnmarshalJSON(b []byte) error {
 	p.Set = true
@@ -51,7 +51,7 @@ func (p *PatchNullable[T]) UnmarshalJSON(b []byte) error {
 	p.Valid = true
 	return json.Unmarshal(b, &p.Value)
 }
-func (p PatchNullable[T]) IsSet() bool { return p.Set }
+func (p PatchNullable[T]) IsSetClassUrls() bool { return p.Set }
 
 /* =========================================================
    1) REQUESTS
@@ -126,7 +126,7 @@ type PatchClassEventURLRequest struct {
 
 func (p *PatchClassEventURLRequest) Apply(u *m.ClassEventURLModel) error {
 	// kind (non-null)
-	if p.ClassEventURLKind.IsSet() {
+	if p.ClassEventURLKind.IsSetClassUrls() {
 		k := strings.TrimSpace(p.ClassEventURLKind.Value)
 		if k == "" {
 			return ErrKindEmpty
@@ -135,7 +135,7 @@ func (p *PatchClassEventURLRequest) Apply(u *m.ClassEventURLModel) error {
 	}
 
 	// label
-	if p.ClassEventURLLabel.IsSet() {
+	if p.ClassEventURLLabel.IsSetClassUrls() {
 		if p.ClassEventURLLabel.Valid {
 			u.ClassEventURLLabel = trimPtr(&p.ClassEventURLLabel.Value)
 		} else {
@@ -144,28 +144,28 @@ func (p *PatchClassEventURLRequest) Apply(u *m.ClassEventURLModel) error {
 	}
 
 	// storage fields
-	if p.ClassEventURLURL.IsSet() {
+	if p.ClassEventURLURL.IsSetClassUrls() {
 		if p.ClassEventURLURL.Valid {
 			u.ClassEventURLURL = trimPtr(&p.ClassEventURLURL.Value)
 		} else {
 			u.ClassEventURLURL = nil
 		}
 	}
-	if p.ClassEventURLObjectKey.IsSet() {
+	if p.ClassEventURLObjectKey.IsSetClassUrls() {
 		if p.ClassEventURLObjectKey.Valid {
 			u.ClassEventURLObjectKey = trimPtr(&p.ClassEventURLObjectKey.Value)
 		} else {
 			u.ClassEventURLObjectKey = nil
 		}
 	}
-	if p.ClassEventURLURLOld.IsSet() {
+	if p.ClassEventURLURLOld.IsSetClassUrls() {
 		if p.ClassEventURLURLOld.Valid {
 			u.ClassEventURLURLOld = trimPtr(&p.ClassEventURLURLOld.Value)
 		} else {
 			u.ClassEventURLURLOld = nil
 		}
 	}
-	if p.ClassEventURLObjectKeyOld.IsSet() {
+	if p.ClassEventURLObjectKeyOld.IsSetClassUrls() {
 		if p.ClassEventURLObjectKeyOld.Valid {
 			u.ClassEventURLObjectKeyOld = trimPtr(&p.ClassEventURLObjectKeyOld.Value)
 		} else {
@@ -174,7 +174,7 @@ func (p *PatchClassEventURLRequest) Apply(u *m.ClassEventURLModel) error {
 	}
 
 	// delete_pending_until
-	if p.ClassEventURLDeletePendingUntil.IsSet() {
+	if p.ClassEventURLDeletePendingUntil.IsSetClassUrls() {
 		if p.ClassEventURLDeletePendingUntil.Valid {
 			t, err := time.Parse(time.RFC3339, strings.TrimSpace(p.ClassEventURLDeletePendingUntil.Value))
 			if err != nil {
@@ -187,7 +187,7 @@ func (p *PatchClassEventURLRequest) Apply(u *m.ClassEventURLModel) error {
 	}
 
 	// primary flag
-	if p.ClassEventURLIsPrimary.IsSet() {
+	if p.ClassEventURLIsPrimary.IsSetClassUrls() {
 		u.ClassEventURLIsPrimary = p.ClassEventURLIsPrimary.Value
 	}
 

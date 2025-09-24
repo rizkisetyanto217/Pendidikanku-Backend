@@ -218,7 +218,7 @@ CREATE TABLE IF NOT EXISTS user_class_session_attendance_urls (
   user_class_session_attendance_url_delete_pending_until TIMESTAMPTZ,
 
   -- Uploader (opsional)
-  user_class_session_attendance_url_uploader_teacher_id  UUID, -- FK bisa ditambah terpisah bila perlu
+  user_class_session_attendance_url_uploader_teacher_id  UUID REFERENCES masjid_teachers(masjid_teacher_id), -- FK bisa ditambah terpisah bila perlu
   user_class_session_attendance_url_uploader_student_id  UUID
     REFERENCES masjid_students(masjid_student_id) ON DELETE SET NULL,
 

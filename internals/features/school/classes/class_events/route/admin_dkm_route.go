@@ -2,7 +2,7 @@
 package routes
 
 import (
-	evCtl "masjidku_backend/internals/features/school/others/events/controller"
+	evCtl "masjidku_backend/internals/features/school/classes/class_events/controller"
 
 
 	"github.com/gofiber/fiber/v2"

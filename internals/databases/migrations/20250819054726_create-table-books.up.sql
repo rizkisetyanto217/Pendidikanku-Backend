@@ -63,6 +63,7 @@ CREATE INDEX IF NOT EXISTS gin_books_author_trgm_alive
   WHERE book_deleted_at IS NULL;
 
 
+
 /* =========================================================
    TABLE: class_subject_books  (relasi Subject ↔️ Book per tenant)
    ========================================================= */
@@ -144,6 +145,8 @@ CREATE INDEX IF NOT EXISTS ix_csb_tenant_subject_active_created_alive
 -- BRIN: time-scan besar
 CREATE INDEX IF NOT EXISTS brin_csb_created_at
   ON class_subject_books USING BRIN (class_subject_book_created_at);
+
+
 
 
 /* =========================================================

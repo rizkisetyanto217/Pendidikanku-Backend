@@ -108,6 +108,8 @@ CREATE INDEX IF NOT EXISTS ix_post_theme_icon_purge_due
 CREATE UNIQUE INDEX IF NOT EXISTS uq_post_theme_id_tenant
   ON post_themes (post_theme_id, post_theme_masjid_id);
 
+
+
 -- =====================================================================
 -- TABLE: posts  (pluralized)
 -- =====================================================================
@@ -201,6 +203,8 @@ CREATE INDEX IF NOT EXISTS brin_post_created_at
 CREATE INDEX IF NOT EXISTS ix_post_section_ids_gin_live
   ON posts USING GIN (post_section_ids)
   WHERE post_deleted_at IS NULL AND post_is_active = TRUE AND post_kind = 'announcement';
+
+
 
 -- =====================================================================
 -- TABLE: post_urls  (pluralized)

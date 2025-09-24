@@ -17,8 +17,8 @@ import (
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
-	dto "masjidku_backend/internals/features/school/others/events/dto"
-	model "masjidku_backend/internals/features/school/others/events/model"
+	dto "masjidku_backend/internals/features/school/classes/class_events/dto"
+	model "masjidku_backend/internals/features/school/classes/class_events/model"
 )
 
 /* =========================
@@ -74,7 +74,7 @@ func isDuplicateKey(err error) bool {
 	return strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique constraint") || strings.Contains(msg, "23505")
 }
 
-// resolveMasjidAndEnsureDKM: gunakan helper resolver & guard baru, balas JSON konsisten
+// resolveMasjidAndEnsureDKM: gunakan helper resolver & guard
 func (ctl *ClassEventThemeController) resolveMasjidAndEnsureDKM(c *fiber.Ctx) (uuid.UUID, error) {
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
@@ -97,65 +97,6 @@ func (ctl *ClassEventThemeController) resolveMasjidAndEnsureDKM(c *fiber.Ctx) (u
 	return masjidID, nil
 }
 
-/*
-=========================================================
-
-	LIST
-	GET /api/a/:masjid_id/events/themes
-	Query: q, is_active, limit, offset, order_by
-	=========================================================
-*/
-func (ctl *ClassEventThemeController) List(c *fiber.Ctx) error {
-	masjidID, err := ctl.resolveMasjidAndEnsureDKM(c)
-	if err != nil {
-		return nil // response sudah dikirim di helper
-	}
-
-	// Parse query ke DTO
-	var q dto.ListClassEventThemeQuery
-	if v := strings.TrimSpace(c.Query("q")); v != "" {
-		q.SearchName = &[]string{v}[0]
-	}
-	if v := strings.ToLower(strings.TrimSpace(c.Query("is_active"))); v == "true" || v == "false" {
-		b := v == "true"
-		q.IsActive = &b
-	}
-	q.OrderBy = c.Query("order_by")
-	q.Limit = queryIntDefault(c, "limit", 20)
-	q.Offset = queryIntDefault(c, "offset", 0)
-	q.Normalize()
-
-	tx := ctl.DB.
-		Model(&model.ClassEventTheme{}).
-		Where("class_event_themes_masjid_id = ? AND class_event_themes_deleted_at IS NULL", masjidID)
-
-	if q.IsActive != nil {
-		tx = tx.Where("class_event_themes_is_active = ?", *q.IsActive)
-	}
-	if q.SearchName != nil {
-		tx = tx.Where("class_event_themes_name ILIKE ?", "%"+*q.SearchName+"%")
-	}
-
-	var total int64
-	if err := tx.Count(&total).Error; err != nil {
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
-	}
-
-	var rows []model.ClassEventTheme
-	if err := tx.
-		Order(q.OrderExpr()).
-		Limit(q.Limit).
-		Offset(q.Offset).
-		Find(&rows).Error; err != nil {
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
-	}
-
-	return helper.JsonList(c, dto.FromModels(rows), fiber.Map{
-		"limit":  q.Limit,
-		"offset": q.Offset,
-		"total":  total,
-	})
-}
 
 /*
 =========================================================
@@ -163,7 +104,8 @@ func (ctl *ClassEventThemeController) List(c *fiber.Ctx) error {
 	CREATE
 	POST /api/a/:masjid_id/events/themes
 	Body: JSON CreateClassEventThemeRequest
-	=========================================================
+
+=========================================================
 */
 func (ctl *ClassEventThemeController) Create(c *fiber.Ctx) error {
 	masjidID, err := ctl.resolveMasjidAndEnsureDKM(c)
@@ -198,7 +140,8 @@ func (ctl *ClassEventThemeController) Create(c *fiber.Ctx) error {
 	PATCH
 	PATCH /api/a/:masjid_id/events/themes/:id
 	Body: JSON PatchClassEventThemeRequest (tri-state)
-	=========================================================
+
+=========================================================
 */
 func (ctl *ClassEventThemeController) Patch(c *fiber.Ctx) error {
 	masjidID, err := ctl.resolveMasjidAndEnsureDKM(c)
@@ -220,10 +163,10 @@ func (ctl *ClassEventThemeController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	var m model.ClassEventTheme
+	var m model.ClassEventThemeModel
 	if err := ctl.DB.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("class_event_themes_id = ? AND class_event_themes_masjid_id = ? AND class_event_themes_deleted_at IS NULL", id, masjidID).
+		Where("class_event_theme_id = ? AND class_event_theme_masjid_id = ? AND class_event_theme_deleted_at IS NULL", id, masjidID).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "resource not found")
@@ -248,7 +191,8 @@ func (ctl *ClassEventThemeController) Patch(c *fiber.Ctx) error {
 
 	DELETE (soft)
 	DELETE /api/a/:masjid_id/events/themes/:id
-	=========================================================
+
+=========================================================
 */
 func (ctl *ClassEventThemeController) Delete(c *fiber.Ctx) error {
 	masjidID, err := ctl.resolveMasjidAndEnsureDKM(c)
@@ -261,9 +205,9 @@ func (ctl *ClassEventThemeController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	var m model.ClassEventTheme
+	var m model.ClassEventThemeModel
 	if err := ctl.DB.
-		Where("class_event_themes_id = ? AND class_event_themes_masjid_id = ? AND class_event_themes_deleted_at IS NULL", id, masjidID).
+		Where("class_event_theme_id = ? AND class_event_theme_masjid_id = ? AND class_event_theme_deleted_at IS NULL", id, masjidID).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "resource not found")
@@ -276,17 +220,18 @@ func (ctl *ClassEventThemeController) Delete(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonDeleted(c, "Deleted", fiber.Map{
-		"class_event_themes_id": id,
+		"class_event_theme_id": id,
 	})
 }
 
 /*
 =========================================================
 
-	OPTIONAL: Upsert (by masjid_id, code)
+	UPSERT (by masjid_id, code)
 	POST /api/a/:masjid_id/events/themes:upsert
 	Body: CreateClassEventThemeRequest
-	=========================================================
+
+=========================================================
 */
 func (ctl *ClassEventThemeController) Upsert(c *fiber.Ctx) error {
 	masjidID, err := ctl.resolveMasjidAndEnsureDKM(c)
@@ -306,28 +251,28 @@ func (ctl *ClassEventThemeController) Upsert(c *fiber.Ctx) error {
 	now := time.Now()
 
 	m := req.ToModel(masjidID)
-	m.ClassEventThemesUpdatedAt = now
+	m.ClassEventThemeUpdatedAt = now
 
 	if err := ctl.DB.Clauses(clause.OnConflict{
 		Columns: []clause.Column{
-			{Name: "class_event_themes_masjid_id"},
-			{Name: "class_event_themes_code"},
+			{Name: "class_event_theme_masjid_id"},
+			{Name: "class_event_theme_code"},
 		},
 		DoUpdates: clause.Assignments(map[string]interface{}{
-			"class_event_themes_name":         m.ClassEventThemesName,
-			"class_event_themes_color":        m.ClassEventThemesColor,
-			"class_event_themes_custom_color": m.ClassEventThemesCustomColor,
-			"class_event_themes_is_active":    m.ClassEventThemesIsActive,
-			"class_event_themes_updated_at":   now,
+			"class_event_theme_name":         m.ClassEventThemeName,
+			"class_event_theme_color":        m.ClassEventThemeColor,
+			"class_event_theme_custom_color": m.ClassEventThemeCustomColor,
+			"class_event_theme_is_active":    m.ClassEventThemeIsActive,
+			"class_event_theme_updated_at":   now,
 		}),
 	}).Create(m).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	var out model.ClassEventTheme
+	var out model.ClassEventThemeModel
 	if err := ctl.DB.
-		Where("class_event_themes_masjid_id = ? AND class_event_themes_code = ? AND class_event_themes_deleted_at IS NULL",
-			masjidID, m.ClassEventThemesCode).
+		Where("class_event_theme_masjid_id = ? AND class_event_theme_code = ? AND class_event_theme_deleted_at IS NULL",
+			masjidID, m.ClassEventThemeCode).
 		First(&out).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
