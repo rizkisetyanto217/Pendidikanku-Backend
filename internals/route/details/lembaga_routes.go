@@ -11,9 +11,10 @@ import (
 	RoomsRoutes "masjidku_backend/internals/features/school/academics/rooms/route"
 	ScheduleRoutes "masjidku_backend/internals/features/school/academics/schedules/route"
 	ClassSectionsRoutes "masjidku_backend/internals/features/school/classes/class_sections/route"
-	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/school/classes/class_sessions/route"
+	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/school/classes/class_attendance_sessions/route"
 	ClassesRoutes "masjidku_backend/internals/features/school/classes/classes/route"
 	AttendanceSettingsRoute "masjidku_backend/internals/features/school/others/assesments_settings/route"
+	EventRoutes "masjidku_backend/internals/features/school/others/events/route"
 	PostRoutes "masjidku_backend/internals/features/school/others/post/route"
 	ClassBooksRoutes "masjidku_backend/internals/features/school/subject_books/books/route"
 	SubjectRoutes "masjidku_backend/internals/features/school/subject_books/subject/route"
@@ -39,6 +40,7 @@ func LembagaPublicRoutes(r fiber.Router, db *gorm.DB) {
 	// ClassSectionsRoutes.ClassSectionAllRoutes(r, db)
 	LembagaStatsRoutes.LembagaStatsAllRoutes(r, db)
 	YayasanRoutes.AllYayasanRoutes(r, db)
+	EventRoutes.AllEventRoutes(r, db)
 	// Classes (public read)
 	// ClassRoutes.ClassPublicRoutes(r, db)
 	// Tambahkan modul lain (public) di sini:
@@ -96,6 +98,7 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	AssessmentsRoutes.AssessmentAdminRoutes(r, db)
 	SubmissionsRoutes.SubmissionAdminRoutes(r, db)
 	QuizzesRoutes.QuizzesAdminRoutes(r, db)
+	EventRoutes.EventAdminRoutes(r, db)
 
 	// Tambahkan modul lain (admin) di sini:
 	// SectionRoutes.SectionAdminRoutes(r, db)

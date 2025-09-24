@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
-	model "masjidku_backend/internals/features/school/classes/class_sessions/model"
+	model "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
 )
 
 /* ===================== PatchField (tri-state) ===================== */

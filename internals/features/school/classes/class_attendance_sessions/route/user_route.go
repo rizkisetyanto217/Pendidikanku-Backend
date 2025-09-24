@@ -2,7 +2,7 @@
 package route
 
 import (
-	uaCtrl "masjidku_backend/internals/features/school/classes/class_sessions/controller"
+	uaCtrl "masjidku_backend/internals/features/school/classes/class_attendance_sessions/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -32,5 +32,4 @@ func AttendanceSessionsUserRoutes(r fiber.Router, db *gorm.DB) {
 	uattCtl := uaCtrl.NewUserAttendanceTypeController(db)
 	uatt := masjidGroup.Group("/user-attendance-types")
 	uatt.Get("/", uattCtl.List)
-	uatt.Get("/:id", uattCtl.GetByID)
 }

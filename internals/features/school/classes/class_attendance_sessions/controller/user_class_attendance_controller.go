@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	attDTO "masjidku_backend/internals/features/school/classes/class_sessions/dto"
-	attModel "masjidku_backend/internals/features/school/classes/class_sessions/model"
+	attDTO "masjidku_backend/internals/features/school/classes/class_attendance_sessions/dto"
+	attModel "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
 
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"

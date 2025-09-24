@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	model "masjidku_backend/internals/features/school/classes/class_sessions/model"
+	model "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"

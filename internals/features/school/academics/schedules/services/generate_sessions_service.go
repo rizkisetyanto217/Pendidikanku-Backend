@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	schedModel "masjidku_backend/internals/features/school/academics/schedules/model"
-	sessModel "masjidku_backend/internals/features/school/classes/class_sessions/model"
+	sessModel "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
 )
 
 type Generator struct{ DB *gorm.DB }

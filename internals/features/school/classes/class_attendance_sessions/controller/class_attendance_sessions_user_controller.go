@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	sessiondto "masjidku_backend/internals/features/school/classes/class_sessions/dto"
+	sessiondto "masjidku_backend/internals/features/school/classes/class_attendance_sessions/dto"
 
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"

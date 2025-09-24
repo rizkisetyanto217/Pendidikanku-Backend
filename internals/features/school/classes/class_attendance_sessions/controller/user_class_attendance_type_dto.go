@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	dto "masjidku_backend/internals/features/school/classes/class_sessions/dto"
-	model "masjidku_backend/internals/features/school/classes/class_sessions/model"
+	dto "masjidku_backend/internals/features/school/classes/class_attendance_sessions/dto"
+	model "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
@@ -179,47 +179,6 @@ func (ctl *UserAttendanceTypeController) List(c *fiber.Ctx) error {
 
 	meta := helper.BuildMeta(total, p)
 	return helper.JsonList(c, items, meta)
-}
-
-// GET /:id
-func (ctl *UserAttendanceTypeController) GetByID(c *fiber.Ctx) error {
-	// Masjid context
-	c.Locals("DB", ctl.DB)
-	var masjidID uuid.UUID
-	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureMasjidAccessDKM(c, mc); er == nil {
-			masjidID = id
-		} else {
-			if fe, ok := er.(*fiber.Error); ok {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
-		}
-	} else {
-		if id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			masjidID = id
-		} else {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "Scope masjid tidak ditemukan")
-		}
-	}
-
-	id, err := parseUUIDParam(c, "id")
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-
-	var m model.UserAttendanceTypeModel
-	if err := ctl.DB.WithContext(c.Context()).
-		Where("user_attendance_type_id = ? AND user_attendance_type_masjid_id = ? AND user_attendance_type_deleted_at IS NULL",
-			id, masjidID).
-		First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-
-	return helper.JsonOK(c, "OK", dto.FromModel(&m))
 }
 
 // PATCH /:id

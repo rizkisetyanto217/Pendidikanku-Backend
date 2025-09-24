@@ -20,7 +20,7 @@ import (
 	d "masjidku_backend/internals/features/school/academics/schedules/dto"
 	m "masjidku_backend/internals/features/school/academics/schedules/model"
 	svc "masjidku_backend/internals/features/school/academics/schedules/services"
-	sessModel "masjidku_backend/internals/features/school/classes/class_sessions/model"
+	sessModel "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
 )
 
 /* =========================

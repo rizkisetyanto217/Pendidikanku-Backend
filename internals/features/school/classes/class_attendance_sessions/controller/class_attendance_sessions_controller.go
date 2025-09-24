@@ -13,8 +13,8 @@ import (
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
-	attendanceDTO "masjidku_backend/internals/features/school/classes/class_sessions/dto"
-	attendanceModel "masjidku_backend/internals/features/school/classes/class_sessions/model"
+	attendanceDTO "masjidku_backend/internals/features/school/classes/class_attendance_sessions/dto"
+	attendanceModel "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
 	helperOSS "masjidku_backend/internals/helpers/oss"
 
 	"github.com/go-playground/validator/v10"
