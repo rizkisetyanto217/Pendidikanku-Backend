@@ -43,7 +43,7 @@ BEGIN
     ALTER TABLE spp_billings
       ADD CONSTRAINT fk_spp_billing_term
       FOREIGN KEY (spp_billing_term_id)
-      REFERENCES academic_terms(academic_terms_id)
+      REFERENCES academic_terms(academic_term_id)
       ON UPDATE CASCADE ON DELETE SET NULL;
   END IF;
 END$$;
@@ -60,7 +60,7 @@ BEGIN
   SELECT academic_terms_masjid_id
     INTO v_term_masjid
   FROM academic_terms
-  WHERE academic_terms_id = NEW.spp_billing_term_id
+  WHERE academic_term_id = NEW.spp_billing_term_id
     AND academic_terms_deleted_at IS NULL;
 
   IF v_term_masjid IS NULL THEN

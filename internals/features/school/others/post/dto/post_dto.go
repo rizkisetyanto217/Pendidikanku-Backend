@@ -1,331 +1,362 @@
-// internals/features/lembaga/announcements/dto/announcement_dto.go
+// file: internals/features/social/posts/dto/post_dto.go
 package dto
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 
-	model "masjidku_backend/internals/features/school/others/post/model"
+	smodel "masjidku_backend/internals/features/school/others/post/model"
 )
 
-/* ===================== Utils ===================== */
+/* ==============================
+   CREATE (POST /posts)
+============================== */
 
-func trimPtr(s *string) *string {
-	if s == nil {
-		return nil
-	}
-	t := strings.TrimSpace(*s)
-	if t == "" {
-		return nil
-	}
-	return &t
+type CreatePostRequest struct {
+	// Tenant
+	PostMasjidID uuid.UUID `json:"post_masjid_id" validate:"required"`
+
+	// Jenis
+	PostKind smodel.PostKind `json:"post_kind" validate:"required,oneof=announcement material post other"`
+
+	// Pengirim & relasi
+	IsDKMSender            *bool      `json:"is_dkm_sender" validate:"omitempty"`
+	PostCreatedByTeacherID *uuid.UUID `json:"post_created_by_teacher_id" validate:"omitempty"`
+	PostClassSectionID     *uuid.UUID `json:"post_class_section_id" validate:"omitempty"`
+	PostThemeID            *uuid.UUID `json:"post_theme_id" validate:"omitempty"`
+
+	// Identitas & isi
+	PostSlug    *string   `json:"post_slug" validate:"omitempty,max=160"`
+	PostTitle   string    `json:"post_title" validate:"required,max=200"`
+	PostDate    time.Time `json:"post_date" validate:"required"`
+	PostContent string    `json:"post_content" validate:"required"`
+
+	PostExcerpt *string          `json:"post_excerpt" validate:"omitempty"`
+	PostMeta    *json.RawMessage `json:"post_meta" validate:"omitempty"`
+
+	// Status & publish
+	PostIsActive    *bool      `json:"post_is_active" validate:"omitempty"`
+	PostIsPublished *bool      `json:"post_is_published" validate:"omitempty"`
+	PostPublishedAt *time.Time `json:"post_published_at" validate:"omitempty"`
+
+	// Snapshot audiens saat publish
+	PostAudienceSnapshot *json.RawMessage `json:"post_audience_snapshot" validate:"omitempty"`
+
+	// Target section (khusus announcement)
+	PostSectionIDs []uuid.UUID `json:"post_section_ids" validate:"omitempty,dive,uuid"`
 }
 
-/* ===================== URL SUB-PAYLOAD (untuk Create/Update) ===================== */
-
-type AnnouncementURLUpsert struct {
-	AnnouncementURLKind      string  `json:"announcement_url_kind" validate:"required,max=24"`
-	AnnouncementURLHref      *string `json:"announcement_url_href"`
-	AnnouncementURLObjectKey *string `json:"announcement_url_object_key"`
-	AnnouncementURLLabel     *string `json:"announcement_url_label" validate:"omitempty,max=160"`
-	AnnouncementURLOrder     int     `json:"announcement_url_order"`
-	AnnouncementURLIsPrimary bool    `json:"announcement_url_is_primary"`
-}
-
-func (u *AnnouncementURLUpsert) Normalize() {
-	u.AnnouncementURLKind = strings.TrimSpace(u.AnnouncementURLKind)
-	if u.AnnouncementURLKind == "" {
-		u.AnnouncementURLKind = "attachment"
+func (r *CreatePostRequest) ToModel() *smodel.Post {
+	isActive := true
+	if r.PostIsActive != nil {
+		isActive = *r.PostIsActive
 	}
-	if u.AnnouncementURLLabel != nil {
-		lbl := strings.TrimSpace(*u.AnnouncementURLLabel)
-		if lbl == "" {
-			u.AnnouncementURLLabel = nil
-		} else {
-			u.AnnouncementURLLabel = &lbl
-		}
-	}
-	if u.AnnouncementURLHref != nil {
-		h := strings.TrimSpace(*u.AnnouncementURLHref)
-		if h == "" {
-			u.AnnouncementURLHref = nil
-		} else {
-			u.AnnouncementURLHref = &h
-		}
-	}
-	if u.AnnouncementURLObjectKey != nil {
-		ok := strings.TrimSpace(*u.AnnouncementURLObjectKey)
-		if ok == "" {
-			u.AnnouncementURLObjectKey = nil
-		} else {
-			u.AnnouncementURLObjectKey = &ok
-		}
-	}
-}
-
-/* ===================== REQUESTS ===================== */
-
-type CreateAnnouncementRequest struct {
-	AnnouncementThemeID        *uuid.UUID `json:"announcement_theme_id" validate:"omitempty,uuid"`
-	AnnouncementClassSectionID *uuid.UUID `json:"announcement_class_section_id" validate:"omitempty,uuid"` // NULL = GLOBAL
-	AnnouncementTitle          string     `json:"announcement_title" validate:"required,min=3,max=200"`
-	AnnouncementDate           string     `json:"announcement_date" validate:"required,datetime=2006-01-02"` // YYYY-MM-DD
-	AnnouncementContent        string     `json:"announcement_content" validate:"required,min=3"`
-	AnnouncementIsActive       *bool      `json:"announcement_is_active" validate:"omitempty"`
-	AnnouncementSlug           *string    `json:"announcement_slug" validate:"omitempty,max=160"` // opsional; biasanya digenerate controller
-
-	// (opsional) creator; biasanya diisi dari token controller (teacher)
-	AnnouncementCreatedByTeacherID *uuid.UUID `json:"announcement_created_by_teacher_id" validate:"omitempty,uuid"`
-
-	// Lampiran metadata opsional
-	URLs []AnnouncementURLUpsert `json:"urls" validate:"omitempty,dive"`
-}
-
-func (r CreateAnnouncementRequest) ToModel(masjidID uuid.UUID) *model.AnnouncementModel {
-	title := strings.TrimSpace(r.AnnouncementTitle)
-	content := strings.TrimSpace(r.AnnouncementContent)
-
-	var d time.Time
-	if ds := strings.TrimSpace(r.AnnouncementDate); ds != "" {
-		d, _ = time.Parse("2006-01-02", ds)
+	isPublished := false
+	if r.PostIsPublished != nil {
+		isPublished = *r.PostIsPublished
 	}
 
-	m := &model.AnnouncementModel{
-		AnnouncementMasjidID:           masjidID,
-		AnnouncementThemeID:            r.AnnouncementThemeID,
-		AnnouncementClassSectionID:     r.AnnouncementClassSectionID,
-		AnnouncementTitle:              title,
-		AnnouncementDate:               d,
-		AnnouncementContent:            content,
-		AnnouncementIsActive:           true,                             // default aktif
-		AnnouncementCreatedByTeacherID: r.AnnouncementCreatedByTeacherID, // controller boleh override dari token
-		AnnouncementSlug:               trimPtr(r.AnnouncementSlug),      // controller nanti ensure-unique
+	var meta datatypes.JSON
+	if r.PostMeta != nil && len(*r.PostMeta) > 0 {
+		meta = datatypes.JSON(*r.PostMeta)
 	}
-	if r.AnnouncementIsActive != nil {
-		m.AnnouncementIsActive = *r.AnnouncementIsActive
+	var aud datatypes.JSON
+	if r.PostAudienceSnapshot != nil && len(*r.PostAudienceSnapshot) > 0 {
+		aud = datatypes.JSON(*r.PostAudienceSnapshot)
+	}
+
+	m := &smodel.Post{
+		PostMasjidID: r.PostMasjidID,
+		PostKind:     r.PostKind,
+
+		IsDKMSender:            r.IsDKMSender != nil && *r.IsDKMSender,
+		PostCreatedByTeacherID: r.PostCreatedByTeacherID,
+		PostClassSectionID:     r.PostClassSectionID,
+		PostThemeID:            r.PostThemeID,
+
+		PostSlug:    trimPtr(r.PostSlug),
+		PostTitle:   strings.TrimSpace(r.PostTitle),
+		PostDate:    r.PostDate,
+		PostContent: strings.TrimSpace(r.PostContent),
+
+		PostExcerpt: trimPtr(r.PostExcerpt),
+		PostMeta:    meta,
+
+		PostIsActive:    isActive,
+		PostIsPublished: isPublished,
+		PostPublishedAt: r.PostPublishedAt,
+
+		PostAudienceSnapshot: aud,
+
+		PostSectionIDs: r.PostSectionIDs,
 	}
 	return m
 }
 
-/* ===================== UPDATE (partial) ===================== */
+/* ==============================
+   PATCH (PATCH /posts/:id)
+============================== */
 
-type UpdateAnnouncementRequest struct {
-	AnnouncementThemeID            *uuid.UUID `json:"announcement_theme_id" validate:"omitempty,uuid"`
-	AnnouncementClassSectionID     *uuid.UUID `json:"announcement_class_section_id" validate:"omitempty,uuid"`
-	AnnouncementTitle              *string    `json:"announcement_title" validate:"omitempty,min=3,max=200"`
-	AnnouncementDate               *string    `json:"announcement_date" validate:"omitempty,datetime=2006-01-02"`
-	AnnouncementContent            *string    `json:"announcement_content" validate:"omitempty,min=3"`
-	AnnouncementIsActive           *bool      `json:"announcement_is_active" validate:"omitempty"`
-	AnnouncementSlug               *string    `json:"announcement_slug" validate:"omitempty,max=160"` // opsional; controller akan normalize+ensure-unique
-	AnnouncementCreatedByTeacherID *uuid.UUID `json:"announcement_created_by_teacher_id" validate:"omitempty,uuid"`
+type PatchPostRequest struct {
+	PostKind UpdateField[smodel.PostKind] `json:"post_kind"`
 
-	// URL opsional
-	URLs           []AnnouncementURLUpsert `json:"urls" validate:"omitempty,dive"`
-	DeleteURLIDs   []uuid.UUID             `json:"delete_url_ids" validate:"omitempty,dive,uuid"`
-	PrimaryPerKind map[string]uuid.UUID    `json:"primary_per_kind" validate:"omitempty"`
+	IsDKMSender            UpdateField[bool]      `json:"is_dkm_sender"`
+	PostCreatedByTeacherID UpdateField[uuid.UUID] `json:"post_created_by_teacher_id"`
+	PostClassSectionID     UpdateField[uuid.UUID] `json:"post_class_section_id"`
+	PostThemeID            UpdateField[uuid.UUID] `json:"post_theme_id"`
+
+	PostSlug    UpdateField[string]    `json:"post_slug"`
+	PostTitle   UpdateField[string]    `json:"post_title"`
+	PostDate    UpdateField[time.Time] `json:"post_date"`
+	PostContent UpdateField[string]    `json:"post_content"`
+
+	PostExcerpt UpdateField[string]          `json:"post_excerpt"`
+	PostMeta    UpdateField[json.RawMessage] `json:"post_meta"`
+
+	PostIsActive    UpdateField[bool]      `json:"post_is_active"`
+	PostIsPublished UpdateField[bool]      `json:"post_is_published"`
+	PostPublishedAt UpdateField[time.Time] `json:"post_published_at"`
+
+	PostAudienceSnapshot UpdateField[json.RawMessage] `json:"post_audience_snapshot"`
+
+	PostSectionIDs UpdateField[[]uuid.UUID] `json:"post_section_ids"`
 }
 
-func (r *UpdateAnnouncementRequest) ApplyToModel(m *model.AnnouncementModel) {
-	if r.AnnouncementThemeID != nil {
-		m.AnnouncementThemeID = r.AnnouncementThemeID
+// ToUpdates mengubah payload PATCH menjadi map untuk GORM .Updates(...)
+func (p *PatchPostRequest) ToUpdates() map[string]any {
+	u := make(map[string]any, 16)
+
+	// Jenis
+	if p.PostKind.ShouldUpdate() && !p.PostKind.IsNull() {
+		u["post_kind"] = p.PostKind.Val()
 	}
-	// Section: nil berarti GLOBAL
-	if r.AnnouncementClassSectionID != nil || r.AnnouncementClassSectionID == nil {
-		m.AnnouncementClassSectionID = r.AnnouncementClassSectionID
+
+	// Pengirim & relasi
+	if p.IsDKMSender.ShouldUpdate() && !p.IsDKMSender.IsNull() {
+		u["is_dkm_sender"] = p.IsDKMSender.Val()
 	}
-	if r.AnnouncementTitle != nil {
-		m.AnnouncementTitle = strings.TrimSpace(*r.AnnouncementTitle)
+	if p.PostCreatedByTeacherID.ShouldUpdate() {
+		if p.PostCreatedByTeacherID.IsNull() {
+			u["post_created_by_teacher_id"] = nil
+		} else {
+			u["post_created_by_teacher_id"] = p.PostCreatedByTeacherID.Val()
+		}
 	}
-	if r.AnnouncementDate != nil {
-		if dt := strings.TrimSpace(*r.AnnouncementDate); dt != "" {
-			if parsed, err := time.Parse("2006-01-02", dt); err == nil {
-				m.AnnouncementDate = parsed
+	if p.PostClassSectionID.ShouldUpdate() {
+		if p.PostClassSectionID.IsNull() {
+			u["post_class_section_id"] = nil
+		} else {
+			u["post_class_section_id"] = p.PostClassSectionID.Val()
+		}
+	}
+	if p.PostThemeID.ShouldUpdate() {
+		if p.PostThemeID.IsNull() {
+			u["post_theme_id"] = nil
+		} else {
+			u["post_theme_id"] = p.PostThemeID.Val()
+		}
+	}
+
+	// Identitas & isi
+	if p.PostSlug.ShouldUpdate() {
+		if p.PostSlug.IsNull() {
+			u["post_slug"] = nil
+		} else {
+			s := strings.TrimSpace(p.PostSlug.Val())
+			if s == "" {
+				u["post_slug"] = nil
+			} else {
+				u["post_slug"] = s
 			}
 		}
 	}
-	if r.AnnouncementContent != nil {
-		m.AnnouncementContent = strings.TrimSpace(*r.AnnouncementContent)
+	if p.PostTitle.ShouldUpdate() && !p.PostTitle.IsNull() {
+		if t := strings.TrimSpace(p.PostTitle.Val()); t != "" {
+			u["post_title"] = t
+		}
 	}
-	if r.AnnouncementIsActive != nil {
-		m.AnnouncementIsActive = *r.AnnouncementIsActive
+	if p.PostDate.ShouldUpdate() && !p.PostDate.IsNull() {
+		u["post_date"] = p.PostDate.Val()
 	}
-	// Slug: normalize di DTO; ensure-unique di controller
-	if r.AnnouncementSlug != nil {
-		m.AnnouncementSlug = trimPtr(r.AnnouncementSlug)
+	if p.PostContent.ShouldUpdate() && !p.PostContent.IsNull() {
+		if c := strings.TrimSpace(p.PostContent.Val()); c != "" {
+			u["post_content"] = c
+		}
 	}
-	// (opsional) Creator override — biasanya dari token
-	if r.AnnouncementCreatedByTeacherID != nil {
-		m.AnnouncementCreatedByTeacherID = r.AnnouncementCreatedByTeacherID
-	}
-}
 
-/* ===================== QUERIES (list) ===================== */
-
-type ListAnnouncementQuery struct {
-	Limit         int        `query:"limit"`
-	Offset        int        `query:"offset"`
-	ThemeID       *uuid.UUID `query:"theme_id"`
-	SectionID     *uuid.UUID `query:"section_id"`
-	IncludeGlobal *bool      `query:"include_global"`
-	OnlyGlobal    *bool      `query:"only_global"`
-	HasAttachment *bool      `query:"has_attachment"`
-	IsActive      *bool      `query:"is_active"`
-	DateFrom      *string    `query:"date_from"`
-	DateTo        *string    `query:"date_to"`
-	Sort          *string    `query:"sort"`
-	IncludePusat  *bool      `query:"include_pusat"`
-
-	// raw include param, e.g. "theme,urls"
-	Include string `query:"include"`
-}
-
-// Helper parse include di level DTO
-func (q ListAnnouncementQuery) WantTheme() bool {
-	return hasInclude(q.Include, "theme", "themes", "announcement_theme")
-}
-func (q ListAnnouncementQuery) WantURLs() bool {
-	return hasInclude(q.Include, "urls", "attachments", "announcement_urls")
-}
-
-func hasInclude(raw string, keys ...string) bool {
-	if raw == "" {
-		return false
-	}
-	raw = strings.ToLower(strings.TrimSpace(raw))
-	parts := strings.Split(raw, ",")
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		for _, k := range keys {
-			if p == k {
-				return true
+	if p.PostExcerpt.ShouldUpdate() {
+		if p.PostExcerpt.IsNull() {
+			u["post_excerpt"] = nil
+		} else {
+			if e := strings.TrimSpace(p.PostExcerpt.Val()); e == "" {
+				u["post_excerpt"] = nil
+			} else {
+				u["post_excerpt"] = e
 			}
 		}
 	}
-	return false
-}
-
-/* ===================== RESPONSES ===================== */
-
-type AnnouncementThemeLite struct {
-	ID    uuid.UUID `json:"id"`
-	Name  string    `json:"name,omitempty"`
-	Color *string   `json:"color,omitempty"`
-}
-
-// Diperluas agar lebih berguna saat include=urls
-type AnnouncementURLLite struct {
-	ID             uuid.UUID `json:"id"`
-	Label          *string   `json:"label,omitempty"`
-	AnnouncementID uuid.UUID `json:"announcement_id"`
-	Href           string    `json:"href"`
-
-	// NEW (opsional)
-	Kind      *string `json:"kind,omitempty"`
-	Order     *int    `json:"order,omitempty"`
-	IsPrimary *bool   `json:"is_primary,omitempty"`
-}
-
-type AnnouncementResponse struct {
-	AnnouncementID                 uuid.UUID  `json:"announcement_id"`
-	AnnouncementMasjidID           uuid.UUID  `json:"announcement_masjid_id"`
-	AnnouncementThemeID            *uuid.UUID `json:"announcement_theme_id,omitempty"`
-	AnnouncementClassSectionID     *uuid.UUID `json:"announcement_class_section_id,omitempty"`
-	AnnouncementCreatedByTeacherID *uuid.UUID `json:"announcement_created_by_teacher_id,omitempty"`
-
-	AnnouncementSlug     *string   `json:"announcement_slug,omitempty"`
-	AnnouncementTitle    string    `json:"announcement_title"`
-	AnnouncementDate     time.Time `json:"announcement_date"`
-	AnnouncementContent  string    `json:"announcement_content"`
-	AnnouncementIsActive bool      `json:"announcement_is_active"`
-
-	AnnouncementCreatedAt time.Time `json:"announcement_created_at"`
-	AnnouncementUpdatedAt time.Time `json:"announcement_updated_at"`
-
-	Theme *AnnouncementThemeLite `json:"theme,omitempty"`
-	Urls  []*AnnouncementURLLite `json:"urls,omitempty"`
-}
-
-/* ===================== Builders & Attach helpers ===================== */
-
-func NewAnnouncementResponse(m *model.AnnouncementModel) *AnnouncementResponse {
-	if m == nil {
-		return nil
-	}
-	resp := &AnnouncementResponse{
-		AnnouncementID:                 m.AnnouncementID,
-		AnnouncementMasjidID:           m.AnnouncementMasjidID,
-		AnnouncementThemeID:            m.AnnouncementThemeID,
-		AnnouncementClassSectionID:     m.AnnouncementClassSectionID,
-		AnnouncementCreatedByTeacherID: m.AnnouncementCreatedByTeacherID,
-
-		AnnouncementSlug:     m.AnnouncementSlug,
-		AnnouncementTitle:    m.AnnouncementTitle,
-		AnnouncementDate:     m.AnnouncementDate,
-		AnnouncementContent:  m.AnnouncementContent,
-		AnnouncementIsActive: m.AnnouncementIsActive,
-
-		AnnouncementCreatedAt: m.AnnouncementCreatedAt,
-		AnnouncementUpdatedAt: m.AnnouncementUpdatedAt,
-	}
-	// Theme akan terisi jika controller preload / batch-load & assign ke m.Theme
-	if m.Theme.AnnouncementThemesID != uuid.Nil {
-		resp.Theme = &AnnouncementThemeLite{
-			ID:    m.Theme.AnnouncementThemesID,
-			Name:  m.Theme.AnnouncementThemesName,
-			Color: m.Theme.AnnouncementThemesColor,
+	if p.PostMeta.ShouldUpdate() {
+		if p.PostMeta.IsNull() {
+			u["post_meta"] = nil
+		} else {
+			raw := p.PostMeta.Val()
+			if len(raw) == 0 {
+				u["post_meta"] = nil
+			} else {
+				u["post_meta"] = datatypes.JSON(raw)
+			}
 		}
 	}
-	return resp
+
+	// Status & publish
+	if p.PostIsActive.ShouldUpdate() && !p.PostIsActive.IsNull() {
+		u["post_is_active"] = p.PostIsActive.Val()
+	}
+	if p.PostIsPublished.ShouldUpdate() && !p.PostIsPublished.IsNull() {
+		u["post_is_published"] = p.PostIsPublished.Val()
+	}
+	if p.PostPublishedAt.ShouldUpdate() {
+		if p.PostPublishedAt.IsNull() {
+			u["post_published_at"] = nil
+		} else {
+			u["post_published_at"] = p.PostPublishedAt.Val()
+		}
+	}
+
+	// Snapshot audiens
+	if p.PostAudienceSnapshot.ShouldUpdate() {
+		if p.PostAudienceSnapshot.IsNull() {
+			u["post_audience_snapshot"] = nil
+		} else {
+			raw := p.PostAudienceSnapshot.Val()
+			if len(raw) == 0 {
+				u["post_audience_snapshot"] = nil
+			} else {
+				u["post_audience_snapshot"] = datatypes.JSON(raw)
+			}
+		}
+	}
+
+	// Target section
+	if p.PostSectionIDs.ShouldUpdate() {
+		if p.PostSectionIDs.IsNull() {
+			u["post_section_ids"] = nil
+		} else {
+			u["post_section_ids"] = p.PostSectionIDs.Val()
+		}
+	}
+
+	return u
 }
 
-// AttachTheme: helper optional (kalau theme di-load terpisah)
-func (r *AnnouncementResponse) AttachTheme(th *model.AnnouncementThemeModel) *AnnouncementResponse {
-	if r == nil || th == nil || th.AnnouncementThemesID == uuid.Nil {
-		return r
-	}
-	r.Theme = &AnnouncementThemeLite{
-		ID:    th.AnnouncementThemesID,
-		Name:  th.AnnouncementThemesName,
-		Color: th.AnnouncementThemesColor,
-	}
-	return r
+/* ==============================
+   RESPONSES
+============================== */
+
+type PostResponse struct {
+	PostID       uuid.UUID `json:"post_id"`
+	PostMasjidID uuid.UUID `json:"post_masjid_id"`
+
+	PostKind smodel.PostKind `json:"post_kind"`
+
+	IsDKMSender            bool       `json:"is_dkm_sender"`
+	PostCreatedByTeacherID *uuid.UUID `json:"post_created_by_teacher_id,omitempty"`
+	PostClassSectionID     *uuid.UUID `json:"post_class_section_id,omitempty"`
+	PostThemeID            *uuid.UUID `json:"post_theme_id,omitempty"`
+
+	PostSlug    *string   `json:"post_slug,omitempty"`
+	PostTitle   string    `json:"post_title"`
+	PostDate    time.Time `json:"post_date"`
+	PostContent string    `json:"post_content"`
+
+	PostExcerpt *string          `json:"post_excerpt,omitempty"`
+	PostMeta    *json.RawMessage `json:"post_meta,omitempty"`
+
+	PostIsActive    bool       `json:"post_is_active"`
+	PostCreatedAt   time.Time  `json:"post_created_at"`
+	PostUpdatedAt   time.Time  `json:"post_updated_at"`
+	PostDeletedAt   *time.Time `json:"post_deleted_at,omitempty"`
+	PostIsPublished bool       `json:"post_is_published"`
+	PostPublishedAt *time.Time `json:"post_published_at,omitempty"`
+
+	PostAudienceSnapshot *json.RawMessage `json:"post_audience_snapshot,omitempty"`
+
+	PostSearch *string `json:"post_search,omitempty"`
+
+	PostSectionIDs []uuid.UUID `json:"post_section_ids"`
 }
 
-// AttachURLs: convert rows -> URL lites, isi ke response
-func (r *AnnouncementResponse) AttachURLs(rows []model.AnnouncementURLModel) *AnnouncementResponse {
-	if r == nil || len(rows) == 0 {
-		return r
+type ListPostResponse struct {
+	Data   []PostResponse `json:"data"`
+	Total  int64          `json:"total"`
+	Limit  int            `json:"limit"`
+	Offset int            `json:"offset"`
+}
+
+/* ==============================
+   MAPPERS
+============================== */
+
+func FromModelPost(m *smodel.Post) PostResponse {
+	var deletedAt *time.Time
+	if m.PostDeletedAt.Valid {
+		t := m.PostDeletedAt.Time
+		deletedAt = &t
 	}
-	out := make([]*AnnouncementURLLite, 0, len(rows))
-	for i := range rows {
-		// hanya kirim yang punya Href (kompat FE lama)
-		if rows[i].AnnouncementURLHref == nil || strings.TrimSpace(*rows[i].AnnouncementURLHref) == "" {
-			continue
-		}
-		l := &AnnouncementURLLite{
-			ID:             rows[i].AnnouncementURLId,
-			Label:          rows[i].AnnouncementURLLabel,
-			AnnouncementID: rows[i].AnnouncementURLAnnouncementId,
-			Href:           *rows[i].AnnouncementURLHref,
-		}
-		// field baru opsional
-		if k := strings.TrimSpace(rows[i].AnnouncementURLKind); k != "" {
-			l.Kind = &rows[i].AnnouncementURLKind
-		}
-		if rows[i].AnnouncementURLOrder != 0 {
-			o := rows[i].AnnouncementURLOrder
-			l.Order = &o
-		}
-		if rows[i].AnnouncementURLIsPrimary {
-			b := true
-			l.IsPrimary = &b
-		}
-		out = append(out, l)
+	var meta *json.RawMessage
+	if len(m.PostMeta) > 0 {
+		tmp := json.RawMessage(m.PostMeta)
+		meta = &tmp
 	}
-	if len(out) > 0 {
-		r.Urls = out
+	var aud *json.RawMessage
+	if len(m.PostAudienceSnapshot) > 0 {
+		tmp := json.RawMessage(m.PostAudienceSnapshot)
+		aud = &tmp
 	}
-	return r
+	var search *string
+	if s := strings.TrimSpace(m.PostSearch); s != "" {
+		search = &s
+	}
+
+	return PostResponse{
+		PostID:       m.PostID,
+		PostMasjidID: m.PostMasjidID,
+
+		PostKind: m.PostKind,
+
+		IsDKMSender:            m.IsDKMSender,
+		PostCreatedByTeacherID: m.PostCreatedByTeacherID,
+		PostClassSectionID:     m.PostClassSectionID,
+		PostThemeID:            m.PostThemeID,
+
+		PostSlug:    m.PostSlug,
+		PostTitle:   m.PostTitle,
+		PostDate:    m.PostDate,
+		PostContent: m.PostContent,
+
+		PostExcerpt:          m.PostExcerpt,
+		PostMeta:             meta,
+		PostIsActive:         m.PostIsActive,
+		PostCreatedAt:        m.PostCreatedAt,
+		PostUpdatedAt:        m.PostUpdatedAt,
+		PostDeletedAt:        deletedAt,
+		PostIsPublished:      m.PostIsPublished,
+		PostPublishedAt:      m.PostPublishedAt,
+		PostAudienceSnapshot: aud,
+		PostSearch:           search,
+
+		PostSectionIDs: m.PostSectionIDs,
+	}
+}
+
+func FromModelsPost(items []smodel.Post) []PostResponse {
+	out := make([]PostResponse, 0, len(items))
+	for i := range items {
+		out = append(out, FromModelPost(&items[i]))
+	}
+	return out
 }

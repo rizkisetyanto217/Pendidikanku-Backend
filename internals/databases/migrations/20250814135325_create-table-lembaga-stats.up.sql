@@ -34,24 +34,17 @@ CREATE INDEX IF NOT EXISTS idx_lembaga_stats_updated_at
 
 
 
--- =========================================================
--- user_class_attendance_semester_stats (per semester, pakai term)
--- =========================================================
 CREATE TABLE IF NOT EXISTS user_class_attendance_semester_stats (
   user_class_attendance_semester_stats_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   user_class_attendance_semester_stats_masjid_id   UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  user_class_attendance_semester_stats_user_class_id UUID NOT NULL
-    REFERENCES user_classes(user_classes_id) ON DELETE CASCADE,
-
-  user_class_attendance_semester_stats_section_id  UUID NOT NULL
-    REFERENCES class_sections(class_sections_id) ON DELETE CASCADE,
+  user_class_attendance_semester_stats_user_class_id UUID NOT NULL,
+  user_class_attendance_semester_stats_section_id    UUID NOT NULL,
 
   -- NEW: referensi resmi ke academic_terms (opsional untuk data lama)
-  user_class_attendance_semester_stats_term_id UUID
-    REFERENCES academic_terms(academic_terms_id) ON DELETE RESTRICT,
+  user_class_attendance_semester_stats_term_id UUID,
 
   -- Snapshot periode (tetap disimpan untuk audit/jejak)
   user_class_attendance_semester_stats_period_start DATE NOT NULL,
@@ -65,6 +58,8 @@ CREATE TABLE IF NOT EXISTS user_class_attendance_semester_stats (
   user_class_attendance_semester_stats_leave_count   INT NOT NULL DEFAULT 0 CHECK (user_class_attendance_semester_stats_leave_count   >= 0),
   user_class_attendance_semester_stats_absent_count  INT NOT NULL DEFAULT 0 CHECK (user_class_attendance_semester_stats_absent_count  >= 0),
 
+  user_class_attendance_semester_stats_sum_score INT,
+
   user_class_attendance_semester_stats_total_sessions INT
     GENERATED ALWAYS AS (
       (user_class_attendance_semester_stats_present_count
@@ -72,8 +67,6 @@ CREATE TABLE IF NOT EXISTS user_class_attendance_semester_stats (
      + user_class_attendance_semester_stats_leave_count
      + user_class_attendance_semester_stats_absent_count)
     ) STORED,
-
-  user_class_attendance_semester_stats_sum_score INT,
 
   user_class_attendance_semester_stats_avg_score NUMERIC(6,3)
     GENERATED ALWAYS AS (
@@ -97,58 +90,27 @@ CREATE TABLE IF NOT EXISTS user_class_attendance_semester_stats (
 
   user_class_attendance_semester_stats_last_aggregated_at TIMESTAMPTZ,
   user_class_attendance_semester_stats_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  user_class_attendance_semester_stats_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  user_class_attendance_semester_stats_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  /* ================== FK KOMPOSIT (tenant-safe) ================== */
+  CONSTRAINT fk_ucass_user_class
+    FOREIGN KEY (user_class_attendance_semester_stats_user_class_id,
+                 user_class_attendance_semester_stats_masjid_id)
+    REFERENCES user_classes (user_class_id, user_class_masjid_id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+
+  CONSTRAINT fk_ucass_section
+    FOREIGN KEY (user_class_attendance_semester_stats_section_id,
+                 user_class_attendance_semester_stats_masjid_id)
+    REFERENCES class_sections (class_section_id, class_section_masjid_id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+
+  CONSTRAINT fk_ucass_term
+    FOREIGN KEY (user_class_attendance_semester_stats_term_id,
+                 user_class_attendance_semester_stats_masjid_id)
+    REFERENCES academic_terms (academic_term_id, academic_term_masjid_id)
+    ON UPDATE CASCADE ON DELETE RESTRICT
 );
-
--- ============================
--- Uniques (dual-mode, idempotent)
--- ============================
--- 1) Baris TANPA term_id (kompatibilitas data lama) → unik per periode
-DROP INDEX IF EXISTS uq_ucass_tenant_userclass_section_period;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ucass_tenant_userclass_section_period
-  ON user_class_attendance_semester_stats (
-    user_class_attendance_semester_stats_masjid_id,
-    user_class_attendance_semester_stats_user_class_id,
-    user_class_attendance_semester_stats_section_id,
-    user_class_attendance_semester_stats_period_start,
-    user_class_attendance_semester_stats_period_end
-  )
-  WHERE user_class_attendance_semester_stats_term_id IS NULL;
-
--- 2) Baris DENGAN term_id → unik per term
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ucass_tenant_userclass_section_term
-  ON user_class_attendance_semester_stats (
-    user_class_attendance_semester_stats_masjid_id,
-    user_class_attendance_semester_stats_user_class_id,
-    user_class_attendance_semester_stats_section_id,
-    user_class_attendance_semester_stats_term_id
-  )
-  WHERE user_class_attendance_semester_stats_term_id IS NOT NULL;
-
--- ============================
--- Index pendukung query
--- ============================
-CREATE INDEX IF NOT EXISTS ix_ucass_userclass
-  ON user_class_attendance_semester_stats (user_class_attendance_semester_stats_user_class_id);
-
-CREATE INDEX IF NOT EXISTS ix_ucass_masjid_section_period
-  ON user_class_attendance_semester_stats (
-    user_class_attendance_semester_stats_masjid_id,
-    user_class_attendance_semester_stats_section_id,
-    user_class_attendance_semester_stats_period_start,
-    user_class_attendance_semester_stats_period_end
-  );
-
-CREATE INDEX IF NOT EXISTS ix_ucass_masjid_term
-  ON user_class_attendance_semester_stats (
-    user_class_attendance_semester_stats_masjid_id,
-    user_class_attendance_semester_stats_term_id
-  )
-  WHERE user_class_attendance_semester_stats_term_id IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS ix_ucass_term
-  ON user_class_attendance_semester_stats (user_class_attendance_semester_stats_term_id)
-  WHERE user_class_attendance_semester_stats_term_id IS NOT NULL;
 
 -- ============================
 -- Constraint trigger: validasi tenant & periode vs term

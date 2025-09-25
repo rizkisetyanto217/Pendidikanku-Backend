@@ -1,8 +1,9 @@
-// internals/features/lembaga/announcements/controller/announcement_theme_controller.go
+// file: internals/features/school/posts/themes/controller/post_theme_controller.go
 package controller
 
 import (
 	"errors"
+	"net/http"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
@@ -10,179 +11,199 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	annDTO "masjidku_backend/internals/features/school/others/post/dto"
-	annModel "masjidku_backend/internals/features/school/others/post/model"
+	pmodel "masjidku_backend/internals/features/school/others/post/model" // samakan dengan import di DTO
+	dto "masjidku_backend/internals/features/school/others/post/dto"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
-type AnnouncementThemeController struct {
-	DB *gorm.DB
+/* =========================================================
+   Controller & Ctor
+========================================================= */
+
+type PostThemeController struct {
+	DB        *gorm.DB
+	Validator *validator.Validate
 }
 
-func NewAnnouncementThemeController(db *gorm.DB) *AnnouncementThemeController {
-	return &AnnouncementThemeController{DB: db}
-}
-
-var validateAnnouncementTheme = validator.New()
-
-/* ================= Helpers ================= */
-
-// Hanya mengembalikan error Go biasa; mapping status → JSON dilakukan di handler.
-func (h *AnnouncementThemeController) findThemeWithTenantGuard(id, masjidID uuid.UUID) (*annModel.AnnouncementThemeModel, error) {
-	var m annModel.AnnouncementThemeModel
-	err := h.DB.
-		Where("announcement_themes_id = ? AND announcement_themes_masjid_id = ?", id, masjidID).
-		First(&m).Error
-	if err != nil {
-		return nil, err
+func NewPostThemeController(db *gorm.DB, v *validator.Validate) *PostThemeController {
+	if v == nil {
+		v = validator.New()
 	}
-	return &m, nil
+	return &PostThemeController{DB: db, Validator: v}
 }
 
-func isUniqueErr(err error) bool {
+/* =========================================================
+   PG error mapper sederhana
+========================================================= */
+
+type pgSQLErr interface {
+	SQLState() string
+	Error() string
+}
+
+func writeDBErr(c *fiber.Ctx, err error) error {
 	if err == nil {
-		return false
+		return nil
 	}
-	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "duplicate key") || strings.Contains(s, "unique constraint")
+	var pgErr pgSQLErr
+	if errors.As(err, &pgErr) {
+		switch pgErr.SQLState() {
+		case "23505":
+			return helper.JsonError(c, http.StatusConflict, "Duplikat data (unique violation).")
+		case "23503":
+			return helper.JsonError(c, http.StatusBadRequest, "Referensi tidak valid (foreign key).")
+		}
+	}
+	// fallback
+	return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 }
 
-// resolveMasjidIDDKM: ambil masjid dari path/header/cookie/query/host/token,
-// lalu pastikan user adalah DKM/Admin masjid tsb.
-// Mengembalikan masjidID atau JSON error yang sudah terformat.
-func (h *AnnouncementThemeController) resolveMasjidIDDKM(c *fiber.Ctx) (uuid.UUID, error) {
+
+
+
+/* =========================================================
+   CREATE (DKM/Admin atau Owner)
+   POST /post-themes
+========================================================= */
+
+func (ctl *PostThemeController) Create(c *fiber.Ctx) error {
+	c.Locals("DB", ctl.DB)
+
+	// Resolve + authorize
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return uuid.Nil, helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return uuid.Nil, helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak valid")
+		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	mid, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return uuid.Nil, helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return uuid.Nil, helper.JsonError(c, fiber.StatusForbidden, "Akses masjid ditolak")
-	}
-	return masjidID, nil
-}
-
-/* ================= Handlers ================= */
-
-// POST /admin/announcement-themes
-func (h *AnnouncementThemeController) Create(c *fiber.Ctx) error {
-	masjidID, jerr := h.resolveMasjidIDDKM(c)
-	if jerr != nil {
-		return jerr // sudah JSON
+		return err
 	}
 
-	var req annDTO.CreateAnnouncementThemeRequest
+	var req dto.CreatePostThemeRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.JsonError(c, http.StatusBadRequest, "Payload tidak valid")
 	}
+	// Force tenant dari context
+	req.PostThemeMasjidID = mid
 
-	// Normalize + rapikan slug pakai helpers baru
-	nameTrim := strings.TrimSpace(req.AnnouncementThemesName)
-	slugTrim := strings.TrimSpace(req.AnnouncementThemesSlug)
-	if slugTrim != "" {
-		req.AnnouncementThemesSlug = helper.Slugify(slugTrim, 120)
-	} else if nameTrim != "" {
-		req.AnnouncementThemesSlug = helper.SuggestSlugFromName(nameTrim) // default maxLen=100
-	}
-
-	if err := validateAnnouncementTheme.Struct(req); err != nil {
-		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
-	}
-
-	m := req.ToModel(masjidID)
-
-	if err := h.DB.Create(m).Error; err != nil {
-		if isUniqueErr(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Nama atau slug tema sudah dipakai")
+	if ctl.Validator != nil {
+		if err := ctl.Validator.Struct(req); err != nil {
+			return helper.JsonError(c, http.StatusBadRequest, err.Error())
 		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat tema")
 	}
 
-	return helper.JsonCreated(c, "Tema berhasil dibuat", annDTO.NewAnnouncementThemeResponse(m))
+	m, err := req.ToModel()
+	if err != nil {
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
+	}
+
+	if err := ctl.DB.WithContext(c.Context()).Create(m).Error; err != nil {
+		return writeDBErr(c, err)
+	}
+
+	return helper.JsonCreated(c, "Post theme created", dto.FromModel(m))
 }
 
-// GET /admin/announcement-themes
-// (handler list-mu tetap, tidak diubah di sini)
+/* =========================================================
+   PATCH (DKM/Admin atau Owner)
+   PATCH /post-themes/:id
+========================================================= */
 
-// PUT /admin/announcement-themes/:id
-func (h *AnnouncementThemeController) Update(c *fiber.Ctx) error {
-	masjidID, jerr := h.resolveMasjidIDDKM(c)
-	if jerr != nil {
-		return jerr
-	}
-	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+func (ctl *PostThemeController) Patch(c *fiber.Ctx) error {
+	c.Locals("DB", ctl.DB)
+
+	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+		return err
+	}
+	mid, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
+		return err
 	}
 
-	existing, err := h.findThemeWithTenantGuard(id, masjidID)
+	idStr := strings.TrimSpace(c.Params("id"))
+	id, err := uuid.Parse(idStr)
 	if err != nil {
+		return helper.JsonError(c, http.StatusBadRequest, "ID tidak valid")
+	}
+
+	var m pmodel.PostThemeModel
+	if err := ctl.DB.WithContext(c.Context()).
+		Where("post_theme_id = ? AND post_theme_masjid_id = ? AND post_theme_deleted_at IS NULL", id, mid).
+		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Tema tidak ditemukan")
+			return helper.JsonError(c, http.StatusNotFound, "Post theme tidak ditemukan")
 		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil tema")
+		return writeDBErr(c, err)
 	}
 
-	var req annDTO.UpdateAnnouncementThemeRequest
+	var req dto.PatchPostThemeRequest
 	if err := c.BodyParser(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.JsonError(c, http.StatusBadRequest, "Payload tidak valid")
 	}
 
-	// Normalize slug jika dikirim (pakai helpers baru)
-	if req.AnnouncementThemesSlug != nil {
-		s := helper.Slugify(strings.TrimSpace(*req.AnnouncementThemesSlug), 120)
-		if s == "" {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Slug tidak valid")
-		}
-		req.AnnouncementThemesSlug = &s
+	if err := req.ApplyToModel(&m); err != nil {
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	if err := validateAnnouncementTheme.Struct(req); err != nil {
-		return helper.JsonError(c, fiber.StatusUnprocessableEntity, err.Error())
+	if err := ctl.DB.WithContext(c.Context()).
+		Model(&pmodel.PostThemeModel{}).
+		Where("post_theme_id = ?", m.PostThemeID).
+		Select("*").
+		Updates(&m).Error; err != nil {
+		return writeDBErr(c, err)
 	}
 
-	req.ApplyToModel(existing)
-
-	if err := h.DB.Save(existing).Error; err != nil {
-		if isUniqueErr(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Nama atau slug tema sudah dipakai")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui tema")
+	// reload
+	if err := ctl.DB.WithContext(c.Context()).
+		First(&m, "post_theme_id = ?", m.PostThemeID).Error; err != nil {
+		return writeDBErr(c, err)
 	}
 
-	return helper.JsonUpdated(c, "Tema diperbarui", annDTO.NewAnnouncementThemeResponse(existing))
+	return helper.JsonUpdated(c, "Post theme updated", dto.FromModel(&m))
 }
 
-// DELETE /admin/announcement-themes/:id  (soft delete)
-func (h *AnnouncementThemeController) Delete(c *fiber.Ctx) error {
-	masjidID, jerr := h.resolveMasjidIDDKM(c)
-	if jerr != nil {
-		return jerr
-	}
-	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+/* =========================================================
+   DELETE (soft) (DKM/Admin atau Owner)
+   DELETE /post-themes/:id
+========================================================= */
+
+func (ctl *PostThemeController) Delete(c *fiber.Ctx) error {
+	c.Locals("DB", ctl.DB)
+
+	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+		return err
+	}
+	mid, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	if err != nil {
+		return err
 	}
 
-	res := h.DB.
-		Where("announcement_themes_id = ? AND announcement_themes_masjid_id = ?", id, masjidID).
-		Delete(&annModel.AnnouncementThemeModel{})
-
-	if res.Error != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus tema")
-	}
-	if res.RowsAffected == 0 {
-		return helper.JsonError(c, fiber.StatusNotFound, "Tema tidak ditemukan")
+	idStr := strings.TrimSpace(c.Params("id"))
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		return helper.JsonError(c, http.StatusBadRequest, "ID tidak valid")
 	}
 
-	return helper.JsonDeleted(c, "Tema dihapus", fiber.Map{
-		"announcement_themes_id": id,
+	// pastikan milik tenant & belum terhapus
+	var existing pmodel.PostThemeModel
+	if err := ctl.DB.WithContext(c.Context()).
+		Where("post_theme_id = ? AND post_theme_masjid_id = ? AND post_theme_deleted_at IS NULL", id, mid).
+		First(&existing).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, http.StatusNotFound, "Post theme tidak ditemukan")
+		}
+		return writeDBErr(c, err)
+	}
+
+	// soft delete via GORM
+	if err := ctl.DB.WithContext(c.Context()).Delete(&existing).Error; err != nil {
+		return writeDBErr(c, err)
+	}
+
+	return helper.JsonDeleted(c, "Post theme deleted", fiber.Map{
+		"post_theme_id": existing.PostThemeID,
 	})
 }

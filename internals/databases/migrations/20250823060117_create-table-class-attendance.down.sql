@@ -9,7 +9,7 @@ DROP INDEX IF EXISTS uq_casu_primary_per_kind_alive;
 DROP INDEX IF EXISTS ix_casu_by_masjid_live;
 DROP INDEX IF EXISTS ix_casu_by_owner_live;
 
-DROP TABLE IF EXISTS class_attendance_session_url;
+DROP TABLE IF EXISTS class_attendance_session_urls;
 
 -- =========================================================
 -- class_attendance_sessions

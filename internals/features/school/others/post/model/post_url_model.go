@@ -1,33 +1,42 @@
-// file: internals/features/announcements/urls/model/announcement_url_model.go
+// file: internals/features/social/posts/model/post_url_model.go
 package model
 
 import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
-type AnnouncementURLModel struct {
-	AnnouncementURLId             uuid.UUID `gorm:"column:announcement_url_id;type:uuid;default:gen_random_uuid();primaryKey"`
-	AnnouncementURLMasjidId       uuid.UUID `gorm:"column:announcement_url_masjid_id;type:uuid;not null"`
-	AnnouncementURLAnnouncementId uuid.UUID `gorm:"column:announcement_url_announcement_id;type:uuid;not null"`
+/*
+post_urls
+- Soft delete: post_url_deleted_at
+- Retensi 2-slot object key + delete_pending_until
+- Primary flag unik per (post, kind) sudah dijaga index partial di DB
+*/
 
-	AnnouncementURLKind string `gorm:"column:announcement_url_kind;type:varchar(24);not null"`
+type PostURL struct {
+	// PK & tenant
+	PostURLID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:post_url_id" json:"post_url_id"`
+	PostURLMasjidID uuid.UUID `gorm:"type:uuid;not null;column:post_url_masjid_id" json:"post_url_masjid_id"`
+	PostURLPostID   uuid.UUID `gorm:"type:uuid;not null;column:post_url_post_id" json:"post_url_post_id"`
 
-	AnnouncementURLHref         *string `gorm:"column:announcement_url_href;type:text"`
-	AnnouncementURLObjectKey    *string `gorm:"column:announcement_url_object_key;type:text"`
-	AnnouncementURLObjectKeyOld *string `gorm:"column:announcement_url_object_key_old;type:text"`
+	// Jenis & lokasi file/link
+	PostURLKind         string  `gorm:"type:varchar(24);not null;column:post_url_kind" json:"post_url_kind"`
+	PostURLHref         *string `gorm:"type:text;column:post_url_href" json:"post_url_href,omitempty"`
+	PostURLObjectKey    *string `gorm:"type:text;column:post_url_object_key" json:"post_url_object_key,omitempty"`
+	PostURLObjectKeyOld *string `gorm:"type:text;column:post_url_object_key_old" json:"post_url_object_key_old,omitempty"`
 
-	AnnouncementURLLabel     *string `gorm:"column:announcement_url_label;type:varchar(160)"`
-	AnnouncementURLOrder     int     `gorm:"column:announcement_url_order;type:int;not null;default:0"`
-	AnnouncementURLIsPrimary bool    `gorm:"column:announcement_url_is_primary;type:boolean;not null;default:false"`
+	// Label & urutan
+	PostURLLabel     *string `gorm:"type:varchar(160);column:post_url_label" json:"post_url_label,omitempty"`
+	PostURLOrder     int     `gorm:"type:int;not null;default:0;column:post_url_order" json:"post_url_order"`
+	PostURLIsPrimary bool    `gorm:"type:boolean;not null;default:false;column:post_url_is_primary" json:"post_url_is_primary"`
 
-	AnnouncementURLCreatedAt          time.Time  `gorm:"column:announcement_url_created_at;type:timestamptz;not null;default:now()"`
-	AnnouncementURLUpdatedAt          time.Time  `gorm:"column:announcement_url_updated_at;type:timestamptz;not null;default:now()"`
-	AnnouncementURLDeletedAt          *time.Time `gorm:"column:announcement_url_deleted_at;type:timestamptz"`
-	AnnouncementURLDeletePendingUntil *time.Time `gorm:"column:announcement_url_delete_pending_until;type:timestamptz"`
+	// Audit & soft delete
+	PostURLCreatedAt          time.Time      `gorm:"type:timestamptz;not null;default:now();column:post_url_created_at" json:"post_url_created_at"`
+	PostURLUpdatedAt          time.Time      `gorm:"type:timestamptz;not null;default:now();column:post_url_updated_at" json:"post_url_updated_at"`
+	PostURLDeletedAt          gorm.DeletedAt `gorm:"column:post_url_deleted_at" json:"post_url_deleted_at" swaggertype:"string"`
+	PostURLDeletePendingUntil *time.Time     `gorm:"type:timestamptz;column:post_url_delete_pending_until" json:"post_url_delete_pending_until,omitempty"`
 }
 
-func (AnnouncementURLModel) TableName() string {
-	return "announcement_urls"
-}
+func (PostURL) TableName() string { return "post_urls" }

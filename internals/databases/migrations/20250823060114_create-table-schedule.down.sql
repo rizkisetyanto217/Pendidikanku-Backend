@@ -1,32 +1,87 @@
 -- +migrate Down
+-- =========================================================
+-- DOWN — Schedules, Rules, Holidays (safe, no EXTENSION drops)
+-- =========================================================
 
--- 1) Child paling ujung
-DROP TABLE IF EXISTS class_event_urls;
-
--- 2) Lalu parentnya
-DROP TABLE IF EXISTS class_events;
-
--- 3) Sisanya bebas (independen / parent dari rules)
-DROP TABLE IF EXISTS holidays;
+/* ---------------------------------------------------------
+   1) CHILD: class_schedule_rules
+   (Indexes akan terhapus otomatis bersama tabel)
+--------------------------------------------------------- */
 DROP TABLE IF EXISTS class_schedule_rules;
+
+/* ---------------------------------------------------------
+   2) PARENT: class_schedules
+--------------------------------------------------------- */
+-- (opsional) explicit drop indexes, tidak wajib:
+-- DROP INDEX IF EXISTS brin_class_schedules_created_at;
+-- DROP INDEX IF EXISTS idx_class_schedules_date_bounds_alive;
+-- DROP INDEX IF EXISTS idx_class_schedules_active_alive;
+-- DROP INDEX IF EXISTS idx_class_schedules_tenant_alive;
+-- DROP INDEX IF EXISTS gin_class_schedules_slug_trgm_alive;
+-- DROP INDEX IF EXISTS uq_class_schedules_slug_per_tenant_alive;
+
 DROP TABLE IF EXISTS class_schedules;
 
--- (opsional) drop enum jika sudah tak dipakai siapapun
-DO $$
-DECLARE t oid;
-BEGIN
-  SELECT oid INTO t FROM pg_type WHERE typname='class_delivery_mode_enum';
-  IF t IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_depend WHERE refobjid=t) THEN
-    EXECUTE 'DROP TYPE class_delivery_mode_enum';
-  END IF;
+/* ---------------------------------------------------------
+   3) masjid_holidays (independent of others here)
+--------------------------------------------------------- */
+-- (opsional) explicit drop indexes:
+-- DROP INDEX IF EXISTS brin_masjid_holidays_created_at;
+-- DROP INDEX IF EXISTS gin_masjid_holidays_slug_trgm_alive;
+-- DROP INDEX IF EXISTS idx_masjid_holidays_date_range_alive;
+-- DROP INDEX IF EXISTS idx_masjid_holidays_tenant_alive;
+-- DROP INDEX IF EXISTS uq_masjid_holidays_slug_per_tenant_alive;
 
-  SELECT oid INTO t FROM pg_type WHERE typname='week_parity_enum';
-  IF t IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_depend WHERE refobjid=t) THEN
+DROP TABLE IF EXISTS masjid_holidays;
+
+/* ---------------------------------------------------------
+   4) national_holidays (independent of others here)
+--------------------------------------------------------- */
+-- (opsional) explicit drop indexes:
+-- DROP INDEX IF EXISTS brin_national_holidays_created_at;
+-- DROP INDEX IF EXISTS gin_national_holidays_slug_trgm_alive;
+-- DROP INDEX IF EXISTS idx_national_holidays_date_range_alive;
+-- DROP INDEX IF EXISTS uq_national_holidays_slug_alive;
+
+DROP TABLE IF EXISTS national_holidays;
+
+/* ---------------------------------------------------------
+   5) ENUMS — drop only if no remaining dependencies
+      (Safe guard: cek pg_depend, jangan pakai CASCADE)
+--------------------------------------------------------- */
+DO $$
+BEGIN
+  -- week_parity_enum
+  IF EXISTS (
+    SELECT 1
+    FROM pg_type t
+    WHERE t.typname = 'week_parity_enum'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM pg_depend d
+        WHERE d.refobjid = t.oid
+          AND d.deptype IN ('n','a','i','e','p') -- any dependency
+      )
+  ) THEN
     EXECUTE 'DROP TYPE week_parity_enum';
   END IF;
 
-  SELECT oid INTO t FROM pg_type WHERE typname='session_status_enum';
-  IF t IS NOT NULL AND NOT EXISTS (SELECT 1 FROM pg_depend WHERE refobjid=t) THEN
+  -- session_status_enum
+  IF EXISTS (
+    SELECT 1
+    FROM pg_type t
+    WHERE t.typname = 'session_status_enum'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM pg_depend d
+        WHERE d.refobjid = t.oid
+          AND d.deptype IN ('n','a','i','e','p')
+      )
+  ) THEN
     EXECUTE 'DROP TYPE session_status_enum';
   END IF;
 END$$;
+
+-- Catatan:
+-- - Tidak men-DROP EXTENSIONS (pgcrypto/pg_trgm/btree_gin) agar terhindar dari error dependensi.
+-- - Jika ada objek lain di project yang masih memakai enum di atas, blok DO akan membiarkan enum tetap ada.

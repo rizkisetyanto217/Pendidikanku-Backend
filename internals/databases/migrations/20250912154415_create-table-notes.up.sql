@@ -70,9 +70,9 @@ CREATE TABLE IF NOT EXISTS user_notes (
   user_note_student_id UUID
     REFERENCES masjid_students(masjid_student_id) ON DELETE CASCADE,
 
-  -- NOTE: kolom PK table ini biasanya "class_sections_id"
+  -- NOTE: kolom PK table ini biasanya "class_section_id"
   user_note_class_section_id UUID
-    REFERENCES class_sections(class_sections_id) ON DELETE CASCADE,
+    REFERENCES class_sections(class_section_id) ON DELETE CASCADE,
 
   -- konten
   user_note_title   VARCHAR(150),

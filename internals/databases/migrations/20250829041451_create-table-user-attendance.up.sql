@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS user_class_session_attendances (
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   user_class_session_attendance_session_id UUID NOT NULL
-    REFERENCES class_attendance_sessions(class_attendance_sessions_id)
+    REFERENCES class_attendance_sessions(class_attendance_session_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   user_class_session_attendance_masjid_student_id UUID NOT NULL

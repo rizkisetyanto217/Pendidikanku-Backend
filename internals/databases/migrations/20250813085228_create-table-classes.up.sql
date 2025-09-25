@@ -163,7 +163,7 @@ CREATE TABLE IF NOT EXISTS classes (
 
   CONSTRAINT fk_classes_term_masjid_pair
     FOREIGN KEY (class_term_id, class_masjid_id)
-    REFERENCES academic_terms (academic_terms_id, academic_terms_masjid_id)
+    REFERENCES academic_terms (academic_term_id, academic_term_masjid_id)
     ON UPDATE CASCADE ON DELETE RESTRICT
 );
 

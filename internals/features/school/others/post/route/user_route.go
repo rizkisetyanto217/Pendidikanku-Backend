@@ -9,8 +9,8 @@ import (
 
 // Rute USER (bisa juga dipakai Admin/Teacher tergantung middleware di atas 'r')
 func PostUserRoutes(r fiber.Router, db *gorm.DB) {
-	ann := annCtl.NewAnnouncementController(db)
-	thr := annCtl.NewAnnouncementThemeController(db)
+	ann := annCtl.NewPostController(db)
+	thr := annCtl.NewPostThemeController(db, nil)
 
 	// =============== SCOPED BY MASJID UUID ====================
 	// Contoh: /:masjid_id/announcements

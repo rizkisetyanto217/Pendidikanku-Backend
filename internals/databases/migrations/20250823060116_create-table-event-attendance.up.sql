@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_events (
   class_attendance_event_masjid_id  UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
   class_attendance_event_event_id   UUID NOT NULL
-    REFERENCES class_events(class_events_id) ON DELETE CASCADE,
+    REFERENCES class_events(class_event_id) ON DELETE CASCADE,
 
   -- window absensi (jika NULL: fallback ke jam event)
   class_attendance_event_open_at    TIMESTAMPTZ,
@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS user_class_attendance_events (
   user_class_attendance_event_masjid_id         UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
   user_class_attendance_event_event_id          UUID NOT NULL
-    REFERENCES class_events(class_events_id) ON DELETE CASCADE,
+    REFERENCES class_events(class_event_id) ON DELETE CASCADE,
 
   -- identitas peserta (TEPAT SATU)
   user_class_attendance_event_user_id           UUID,

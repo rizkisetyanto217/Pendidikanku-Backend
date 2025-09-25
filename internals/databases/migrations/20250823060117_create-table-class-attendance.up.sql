@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   -- override resource (opsional)
   class_attendance_session_teacher_id    UUID REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE SET NULL,
   class_attendance_session_class_room_id UUID REFERENCES class_rooms(class_room_id)         ON DELETE SET NULL,
-  class_attendance_session_csst_id       UUID REFERENCES class_section_subject_teachers(class_section_subject_teachers_id) ON DELETE SET NULL,
+  class_attendance_session_csst_id       UUID REFERENCES class_section_subject_teachers(class_section_subject_teacher_id) ON DELETE SET NULL,
 
   -- info & rekap
   class_attendance_session_title         TEXT,

@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS quiz_settings (
   quiz_settings_masjid_id  UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
   quiz_settings_quiz_id    UUID NOT NULL
-    REFERENCES quizzes(quizzes_id) ON UPDATE CASCADE ON DELETE CASCADE,
+    REFERENCES quizzes(quiz_id) ON UPDATE CASCADE ON DELETE CASCADE,
 
   -- Waktu ketersediaan (opsional, untuk “after_close” & window review)
   quiz_settings_open_at    TIMESTAMPTZ,

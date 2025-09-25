@@ -1,9 +1,6 @@
 -- +migrate Down
 BEGIN;
 
--- 1) DROP child table dulu (refer ke plans)
-DROP TABLE IF EXISTS masjid_service_subscriptions CASCADE;
-
 -- 2) DROP parent table (catalog plans)
 DROP TABLE IF EXISTS masjid_service_plans CASCADE;
 

@@ -58,8 +58,8 @@ CREATE INDEX IF NOT EXISTS brin_assessment_types_created_at
 -- Pastikan unique index tenant-safe ada di CSST (aman kalau sudah ada)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_masjid
 ON class_section_subject_teachers (
-  class_section_subject_teachers_id,
-  class_section_subject_teachers_masjid_id
+  class_section_subject_teacher_id,
+  class_section_subject_teacher_masjid_id
 );
 
 CREATE TABLE IF NOT EXISTS assessments (
@@ -109,7 +109,7 @@ BEGIN
     ALTER TABLE assessments
       ADD CONSTRAINT fk_assessment_csst
       FOREIGN KEY (assessment_class_section_subject_teacher_id)
-      REFERENCES class_section_subject_teachers(class_section_subject_teachers_id)
+      REFERENCES class_section_subject_teachers(class_section_subject_teacher_id)
       ON UPDATE CASCADE ON DELETE SET NULL;
   END IF;
 END$$;
@@ -125,8 +125,8 @@ BEGIN
         assessment_masjid_id
       )
       REFERENCES class_section_subject_teachers(
-        class_section_subject_teachers_id,
-        class_section_subject_teachers_masjid_id
+        class_section_subject_teacher_id,
+        class_section_subject_teacher_masjid_id
       )
       ON UPDATE CASCADE ON DELETE SET NULL;
   END IF;

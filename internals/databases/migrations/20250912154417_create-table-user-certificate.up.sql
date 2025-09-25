@@ -54,8 +54,8 @@ CREATE TABLE IF NOT EXISTS certificates (
     REFERENCES masjid_students(masjid_student_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
-  certificates_class_subjects_id UUID
-    REFERENCES class_subjects(class_subjects_id)
+  certificates_class_subject_id UUID
+    REFERENCES class_subjects(class_subject_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
   -- metadata umum
@@ -77,10 +77,6 @@ CREATE TABLE IF NOT EXISTS certificates (
   certificates_deleted_at TIMESTAMPTZ
 );
 
--- Satu sertifikat aktif per summary (opsional; hapus kalau mau multi-issue)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_certificates_summary_alive
-  ON certificates (certificates_user_subject_summary_id)
-  WHERE certificates_deleted_at IS NULL;
 
 -- Serial unik per masjid (jika diisi)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_certificates_masjid_serial_alive

@@ -10,25 +10,25 @@ DO $do$
 BEGIN
   -- class_sections
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'class_sections') THEN
-    EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS uq_class_sections_id_tenant
-             ON class_sections (class_sections_id, class_sections_masjid_id)';
+    EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS uq_class_section_id_tenant
+             ON class_sections (class_section_id, class_section_masjid_id)';
 
     IF EXISTS (
       SELECT 1 FROM information_schema.columns
       WHERE table_name = 'class_sections' AND column_name = 'class_sections_deleted_at'
     ) THEN
       EXECUTE 'CREATE INDEX IF NOT EXISTS ix_class_sections_tenant_alive
-               ON class_sections (class_sections_masjid_id, class_sections_id)
+               ON class_sections (class_section_masjid_id, class_section_id)
                WHERE class_sections_deleted_at IS NULL';
     END IF;
 
     IF EXISTS (
       SELECT 1 FROM information_schema.columns
-      WHERE table_name = 'class_sections' AND column_name = 'class_sections_is_active'
+      WHERE table_name = 'class_sections' AND column_name = 'class_section_is_active'
     ) THEN
       EXECUTE 'CREATE INDEX IF NOT EXISTS ix_class_sections_tenant_active
-               ON class_sections (class_sections_masjid_id, class_sections_id)
-               WHERE class_sections_is_active = TRUE';
+               ON class_sections (class_section_masjid_id, class_section_id)
+               WHERE class_section_is_active = TRUE';
     END IF;
   END IF;
 
@@ -160,7 +160,7 @@ CREATE TABLE IF NOT EXISTS posts (
 
   CONSTRAINT fk_post_section_same_tenant
     FOREIGN KEY (post_class_section_id, post_masjid_id)
-    REFERENCES class_sections (class_sections_id, class_sections_masjid_id)
+    REFERENCES class_sections (class_section_id, class_section_masjid_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
   CONSTRAINT fk_post_theme_same_tenant
@@ -328,14 +328,14 @@ CREATE OR REPLACE FUNCTION resolve_teacher_sections_by_csst(
 LANGUAGE sql
 AS $$
   SELECT COALESCE(ARRAY(
-    SELECT DISTINCT csst.class_section_subject_teachers_section_id
+    SELECT DISTINCT csst.class_section_subject_teacher_section_id
     FROM class_section_subject_teachers csst
-    WHERE csst.class_section_subject_teachers_masjid_id = p_masjid_id
-      AND csst.class_section_subject_teachers_teacher_id = p_teacher_id
-      AND csst.class_section_subject_teachers_is_active = TRUE
-      AND csst.class_section_subject_teachers_deleted_at IS NULL
+    WHERE csst.class_section_subject_teacher_masjid_id = p_masjid_id
+      AND csst.class_section_subject_teacher_teacher_id = p_teacher_id
+      AND csst.class_section_subject_teacher_is_active = TRUE
+      AND csst.class_section_subject_teacher_deleted_at IS NULL
       AND (p_class_subjects_id IS NULL
-           OR csst.class_section_subject_teachers_class_subjects_id = p_class_subjects_id)
+           OR csst.class_section_subject_teacher_class_subject_id = p_class_subjects_id)
   ), '{}');
 $$;
 
@@ -409,17 +409,17 @@ BEGIN
 
   v_sql := '
     SELECT ARRAY(
-      SELECT cs.class_sections_id
+      SELECT cs.class_section_id
       FROM class_sections cs
-      WHERE cs.class_sections_masjid_id = $1
+      WHERE cs.class_section_masjid_id = $1
   ';
   IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name='class_sections' AND column_name='class_sections_deleted_at') THEN
+             WHERE table_name='class_sections' AND column_name='class_section_deleted_at') THEN
     v_sql := v_sql || ' AND cs.class_sections_deleted_at IS NULL ';
   END IF;
   IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name='class_sections' AND column_name='class_sections_is_active') THEN
-    v_sql := v_sql || ' AND cs.class_sections_is_active = TRUE ';
+             WHERE table_name='class_sections' AND column_name='class_section_is_active') THEN
+    v_sql := v_sql || ' AND cs.class_section_is_active = TRUE ';
   END IF;
 
   v_sql := v_sql || ' ) ';
@@ -456,12 +456,12 @@ BEGIN
     v_subject_ids := ARRAY[p_class_subjects_id]::uuid[];
   ELSE
     SELECT COALESCE(ARRAY(
-      SELECT DISTINCT csst.class_section_subject_teachers_class_subjects_id
+      SELECT DISTINCT csst.class_section_subject_teacher_class_subject_id
       FROM class_section_subject_teachers csst
-      WHERE csst.class_section_subject_teachers_masjid_id = p_masjid_id
-        AND csst.class_section_subject_teachers_teacher_id = p_teacher_id
-        AND csst.class_section_subject_teachers_is_active = TRUE
-        AND csst.class_section_subject_teachers_deleted_at IS NULL
+      WHERE csst.class_section_subject_teacher_masjid_id = p_masjid_id
+        AND csst.class_section_subject_teacher_teacher_id = p_teacher_id
+        AND csst.class_section_subject_teacher_is_active = TRUE
+        AND csst.class_section_subject_teacher_deleted_at IS NULL
     ), '{}') INTO v_subject_ids;
   END IF;
 
@@ -491,11 +491,11 @@ BEGIN
   END IF;
 
   SELECT ARRAY(
-    SELECT DISTINCT csst.class_section_subject_teachers_section_id
+    SELECT DISTINCT csst.class_section_subject_teacher_section_id
     FROM class_section_subject_teachers csst
-    WHERE csst.class_section_subject_teachers_id = ANY(p_csst_ids)
-      AND csst.class_section_subject_teachers_deleted_at IS NULL
-      AND csst.class_section_subject_teachers_is_active = TRUE
+    WHERE csst.class_section_subject_teacher_id = ANY(p_csst_ids)
+      AND csst.class_section_subject_teacher_deleted_at IS NULL
+      AND csst.class_section_subject_teacher_is_active = TRUE
   ) INTO v_section_ids;
 
   PERFORM publish_post_with_sections(p_post_id, COALESCE(v_section_ids, '{}'), TRUE);
