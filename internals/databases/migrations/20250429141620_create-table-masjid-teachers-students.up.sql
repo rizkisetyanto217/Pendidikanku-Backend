@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS masjid_teachers (
 
   -- Scope/relasi
   masjid_teacher_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
-  masjid_teacher_user_id   UUID NOT NULL REFERENCES users(id)          ON DELETE CASCADE,
+  masjid_teacher_user_teacher_id   UUID NOT NULL REFERENCES user_teachers(id) ON DELETE CASCADE,
 
   -- Identitas/kepegawaian (level masjid)
   masjid_teacher_code        VARCHAR(50),              -- kode internal 
@@ -51,6 +51,13 @@ CREATE TABLE IF NOT EXISTS masjid_teachers (
   -- Visibilitas & catatan
   masjid_teacher_is_public   BOOLEAN   NOT NULL DEFAULT TRUE,
   masjid_teacher_notes       TEXT,
+
+  -- Snapshot
+  masjid_teacher_name_user_snapshot          VARCHAR(80),
+  masjid_teacher_avatar_url_user_snapshot    VARCHAR(255),
+  masjid_teacher_whatsapp_url_user_snapshot  VARCHAR(20),
+  masjid_teacher_title_prefix_user_snapshot  VARCHAR(20),
+  masjid_teacher_title_suffix_user_snapshot  VARCHAR(30),
 
   -- Audit
   masjid_teacher_created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -149,6 +156,11 @@ CREATE TABLE IF NOT EXISTS masjid_students (
 
   -- catatan umum santri
   masjid_student_note TEXT,
+
+  -- snapshot
+  masjid_student_name_profile_snapshot          VARCHAR(80),
+  masjid_student_avatar_url_profile_snapshot    VARCHAR(255),
+  masjid_student_whatsapp_url_profile_snapshot  VARCHAR(20),
 
   masjid_student_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   masjid_student_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

@@ -147,6 +147,18 @@ CREATE TABLE IF NOT EXISTS classes (
   class_image_object_key_old        TEXT,
   class_image_delete_pending_until  TIMESTAMPTZ,
 
+  -- Snapshot Class Parent
+  class_code_parent_snapshot   VARCHAR(40),
+  class_name_parent_snapshot   VARCHAR(80),
+  class_slug_parent_snapshot   VARCHAR(160),
+  class_level_parent_snapshot  SMALLINT,
+
+  -- Snapshot Class Term
+  class_academic_year_term_snapshot   VARCHAR(40),
+  class_name_term_snapshot VARCHAR(100),
+  class_slug_term_snapshot VARCHAR(160),
+  class_angkatan_term_snapshot VARCHAR(40),
+
   -- Audit
   class_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   class_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),

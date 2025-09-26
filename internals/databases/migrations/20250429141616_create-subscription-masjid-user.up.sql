@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS masjid_service_subscriptions (
   masjid_service_subscription_max_storage_mb_override    INT,
   masjid_service_subscription_max_custom_themes_override INT,
 
+  -- Snapshot Name
+  masjid_service_subscription_name_plan_snapshot VARCHAR(100) NOT NULL,
+
   masjid_service_subscription_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   masjid_service_subscription_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   masjid_service_subscription_deleted_at TIMESTAMPTZ,
@@ -145,6 +148,9 @@ CREATE TABLE IF NOT EXISTS user_service_subscriptions (
   user_service_subscription_max_masjids_owned_override   INT,
   user_service_subscription_max_storage_mb_override      INT,
   user_service_subscription_max_custom_themes_override   INT,
+
+    -- Snapshot name
+  user_service_subscription_name_plan_snapshot VARCHAR(100) NOT NULL,
 
   user_service_subscription_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   user_service_subscription_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),

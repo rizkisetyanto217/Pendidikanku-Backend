@@ -60,15 +60,15 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   user_profile_user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
   -- Identitas dasar
-  user_profile_slug            VARCHAR(80),
-  user_profile_donation_name   VARCHAR(50),
-  user_profile_date_of_birth   DATE,
-  user_profile_place_of_birth  VARCHAR(100),
-  user_profile_gender          VARCHAR(10),
-  user_profile_location        VARCHAR(100),
-  user_profile_city            VARCHAR(100),
-  user_profile_phone_number    VARCHAR(20),
-  user_profile_bio             VARCHAR(300),
+  user_profile_full_name_snapshot   VARCHAR(100),
+  user_profile_slug                 VARCHAR(80),
+  user_profile_donation_name        VARCHAR(50),
+  user_profile_date_of_birth        DATE,
+  user_profile_place_of_birth       VARCHAR(100),
+  user_profile_gender               VARCHAR(10),
+  user_profile_location             VARCHAR(100),
+  user_profile_city                 VARCHAR(100),
+  user_profile_bio                  VARCHAR(300),
 
   -- Konten panjang & riwayat
   user_profile_biography_long  TEXT,
