@@ -12,7 +12,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
-	m "masjidku_backend/internals/features/school/subject_books/subject/model"
+	m "masjidku_backend/internals/features/school/academics/subject/model"
 	helper "masjidku_backend/internals/helpers"
 )
 

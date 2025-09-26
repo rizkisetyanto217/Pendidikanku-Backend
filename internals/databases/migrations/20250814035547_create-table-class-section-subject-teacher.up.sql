@@ -29,9 +29,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_masjid_teachers_id_tenant
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_id_tenant
   ON class_rooms (class_room_id, class_room_masjid_id);
 
--- masjids(id) — biasanya sudah PK, tapi aman kalau diulang
--- (tidak perlu unique komposit)
-
 -- =========================================================
 -- TABLE: class_section_subject_teachers
 -- (penugasan guru untuk Section × Subject)

@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	model "masjidku_backend/internals/features/school/subject_books/books/model"
+	model "masjidku_backend/internals/features/school/academics/books/model"
 )
 
 /* =========================================

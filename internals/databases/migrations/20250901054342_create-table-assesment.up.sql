@@ -189,9 +189,12 @@ CREATE TABLE IF NOT EXISTS assessment_urls (
   assessment_url_kind            VARCHAR(24) NOT NULL,
 
   -- Lokasi file/link
-  assessment_url_href            TEXT,        -- URL publik (boleh NULL jika murni object storage)
-  assessment_url_object_key      TEXT,        -- object key aktif di storage
-  assessment_url_object_key_old  TEXT,        -- object key lama (retensi in-place replace)
+  -- storage (2-slot + retensi)
+  assessment_url                  TEXT,        -- aktif
+  assessment_url_object_key           TEXT,
+  assessment_url_old              TEXT,        -- kandidat delete
+  assessment_url_object_key_old       TEXT,
+  assessment_url_delete_pending_until TIMESTAMPTZ, -- jadwal hard delete old
 
   -- Tampilan
   assessment_url_label           VARCHAR(160),
@@ -202,7 +205,6 @@ CREATE TABLE IF NOT EXISTS assessment_urls (
   assessment_url_created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   assessment_url_updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   assessment_url_deleted_at      TIMESTAMPTZ,          -- soft delete (versi-per-baris)
-  assessment_url_delete_pending_until TIMESTAMPTZ      -- tenggat purge (baris aktif dgn *_old atau baris soft-deleted)
 );
 
 -- Pair unik id+tenant (tenant-safe)

@@ -16,8 +16,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	dto "masjidku_backend/internals/features/school/subject_books/books/dto"
-	model "masjidku_backend/internals/features/school/subject_books/books/model"
+	dto "masjidku_backend/internals/features/school/academics/books/dto"
+	model "masjidku_backend/internals/features/school/academics/books/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 	helperOSS "masjidku_backend/internals/helpers/oss"

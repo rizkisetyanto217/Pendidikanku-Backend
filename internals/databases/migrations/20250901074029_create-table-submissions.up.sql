@@ -109,9 +109,13 @@ CREATE TABLE IF NOT EXISTS submission_urls (
   submission_url_kind            VARCHAR(24) NOT NULL,
 
   -- Lokasi file/link
-  submission_url_href            TEXT,        -- URL publik (bisa NULL jika pakai object storage)
-  submission_url_object_key      TEXT,        -- object key aktif di storage
-  submission_url_object_key_old  TEXT,        -- object key lama (retensi in-place replace)
+  -- storage (2-slot + retensi)
+  submission_url                  TEXT,        -- aktif
+  submission_url_object_key           TEXT,
+  submission_url_old              TEXT,        -- kandidat delete
+  submission_url_object_key_old       TEXT,
+  submission_url_delete_pending_until TIMESTAMPTZ, -- jadwal hard delete old
+
 
   -- Tampilan
   submission_url_label           VARCHAR(160),
@@ -132,7 +136,6 @@ CREATE TABLE IF NOT EXISTS submission_urls (
   submission_url_created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   submission_url_updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   submission_url_deleted_at      TIMESTAMPTZ,          -- soft delete (versi-per-baris)
-  submission_url_delete_pending_until TIMESTAMPTZ      -- tenggat purge (baris aktif dgn *_old atau baris soft-deleted)
 );
 
 -- ============== INDEXES (submission_urls) ==============

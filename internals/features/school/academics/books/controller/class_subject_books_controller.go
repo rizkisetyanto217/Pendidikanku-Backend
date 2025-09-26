@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	csbDTO "masjidku_backend/internals/features/school/subject_books/books/dto"
-	csbModel "masjidku_backend/internals/features/school/subject_books/books/model"
+	csbDTO "masjidku_backend/internals/features/school/academics/books/dto"
+	csbModel "masjidku_backend/internals/features/school/academics/books/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 

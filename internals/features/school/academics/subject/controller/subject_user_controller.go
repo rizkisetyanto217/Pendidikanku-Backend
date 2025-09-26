@@ -3,8 +3,8 @@ package controller
 
 import (
 	"errors"
-	subjectDTO "masjidku_backend/internals/features/school/subject_books/subject/dto"
-	subjectModel "masjidku_backend/internals/features/school/subject_books/subject/model"
+	subjectDTO "masjidku_backend/internals/features/school/academics/subject/dto"
+	subjectModel "masjidku_backend/internals/features/school/academics/subject/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 	"strings"

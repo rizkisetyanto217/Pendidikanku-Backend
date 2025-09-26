@@ -2,7 +2,7 @@
 package router
 
 import (
-	subjectsController "masjidku_backend/internals/features/school/subject_books/subject/controller"
+	subjectsController "masjidku_backend/internals/features/school/academics/subject/controller"
 	masjidkuMiddleware "masjidku_backend/internals/middlewares/features" // ⬅️ tambah ini
 
 	"github.com/gofiber/fiber/v2"

@@ -1,7 +1,7 @@
 package route
 
 import (
-	cbController "masjidku_backend/internals/features/school/subject_books/books/controller"
+	cbController "masjidku_backend/internals/features/school/academics/books/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -9,8 +9,9 @@ import (
 
 // Panggil dengan: route.ClassBooksUserRoutes(app.Group("/api/u"), db)
 // Hasil endpoint:
-//   GET /api/u/:masjid_id/books/list
-//   GET /api/u/:masjid_id/class-subject-books/list
+//
+//	GET /api/u/:masjid_id/books/list
+//	GET /api/u/:masjid_id/class-subject-books/list
 func ClassBooksUserRoutes(r fiber.Router, db *gorm.DB) {
 	booksCtl := &cbController.BooksController{DB: db}
 	csbCtl := &cbController.ClassSubjectBookController{DB: db}

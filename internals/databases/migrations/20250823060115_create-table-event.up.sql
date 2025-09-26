@@ -86,6 +86,13 @@ CREATE TABLE IF NOT EXISTS class_events (
   class_event_teacher_name     TEXT,
   class_event_teacher_desc     TEXT,
 
+  -- lokasi file/link
+  class_event_image_url               TEXT,
+  class_event_image_object_key          TEXT,
+  class_event_image_url_old               TEXT,
+  class_event_image_object_key_old      TEXT,
+  class_event_image_delete_pending_until TIMESTAMPTZ,
+
   -- kapasitas & RSVP
   class_event_capacity         INT,
   class_event_enrollment_policy VARCHAR(16),     -- 'open'|'invite'|'closed'
@@ -148,9 +155,9 @@ CREATE TABLE IF NOT EXISTS class_event_urls (
   class_event_url_label                VARCHAR(160),
 
   -- storage (2-slot + retensi)
-  class_event_url_url                  TEXT,        -- aktif
+  class_event_url                  TEXT,        -- aktif
   class_event_url_object_key           TEXT,
-  class_event_url_url_old              TEXT,        -- kandidat delete
+  class_event_url_old              TEXT,        -- kandidat delete
   class_event_url_object_key_old       TEXT,
   class_event_url_delete_pending_until TIMESTAMPTZ, -- jadwal hard delete old
 

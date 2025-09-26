@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 
 
-	linkModel "masjidku_backend/internals/features/school/subject_books/books/model"
-	csModel "masjidku_backend/internals/features/school/subject_books/subject/model"
+	linkModel "masjidku_backend/internals/features/school/academics/books/model"
+	csModel "masjidku_backend/internals/features/school/academics/subject/model"
 )
 
 /* =========================================================

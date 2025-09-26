@@ -187,9 +187,7 @@ CREATE TABLE IF NOT EXISTS user_note_urls (
 
   -- pointer file/link (utama)
   user_note_url           TEXT,                       -- bisa http(s) link atau signed url
-  user_note_url_object_key TEXT,                      -- key di storage (Supabase/S3)
-
-  -- 2-slot retensi (opsional)
+  user_note_url_object_key TEXT,                      -- key di storage 
   user_note_url_old            TEXT,
   user_note_url_object_key_old TEXT,
   user_note_url_delete_pending_until TIMESTAMPTZ,

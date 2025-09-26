@@ -5,9 +5,9 @@ import (
 	"errors"
 	"strings"
 
-	booksModel "masjidku_backend/internals/features/school/subject_books/books/model"
-	csDTO "masjidku_backend/internals/features/school/subject_books/subject/dto"
-	csModel "masjidku_backend/internals/features/school/subject_books/subject/model"
+	booksModel "masjidku_backend/internals/features/school/academics/books/model"
+	csDTO "masjidku_backend/internals/features/school/academics/subject/dto"
+	csModel "masjidku_backend/internals/features/school/academics/subject/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 

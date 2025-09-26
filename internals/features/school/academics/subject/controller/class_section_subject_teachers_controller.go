@@ -16,8 +16,8 @@ import (
 	modelClassSection "masjidku_backend/internals/features/school/classes/class_sections/model"
 
 	// === pakai model & dto CSST terbaru (sectionsubjectteachers) ===
-	dto "masjidku_backend/internals/features/school/subject_books/subject/dto"
-	modelCSST "masjidku_backend/internals/features/school/subject_books/subject/model"
+	dto "masjidku_backend/internals/features/school/academics/subject/dto"
+	modelCSST "masjidku_backend/internals/features/school/academics/subject/model"
 
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"

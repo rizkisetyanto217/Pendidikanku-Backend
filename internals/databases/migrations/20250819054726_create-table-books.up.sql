@@ -20,6 +20,13 @@ CREATE TABLE IF NOT EXISTS books (
 
   book_slug             VARCHAR(160),     -- unique per tenant (alive only)
 
+  -- lokasi file/link
+  book_image_url              TEXT,
+  book_image_object_key          TEXT,
+  book_image_url_old               TEXT,
+  book_image_object_key_old      TEXT,
+  book_image_delete_pending_until TIMESTAMPTZ,
+  
   -- bibliographic (optional)
   book_publisher        TEXT,
   book_publication_year SMALLINT,
@@ -165,9 +172,11 @@ CREATE TABLE IF NOT EXISTS book_urls (
   book_url_kind                VARCHAR(24) NOT NULL,
 
   -- lokasi file/link
-  book_url_href                TEXT,
+  book_url               TEXT,
   book_url_object_key          TEXT,
+  book_url_old               TEXT,
   book_url_object_key_old      TEXT,
+  book_url_delete_pending_until TIMESTAMPTZ,
 
   -- tampilan
   book_url_label               VARCHAR(160),

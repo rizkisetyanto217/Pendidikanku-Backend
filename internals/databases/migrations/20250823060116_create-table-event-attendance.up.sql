@@ -18,6 +18,13 @@ CREATE TABLE IF NOT EXISTS class_attendance_events (
   class_attendance_event_method     VARCHAR(16), -- 'qr'|'manual'|'geo'|'hybrid'
   class_attendance_event_note       TEXT,
 
+  -- lokasi file/link
+  class_attendance_event_image_url               TEXT,
+  class_attendance_event_image_object_key          TEXT,
+  class_attendance_event_image_url_old               TEXT,
+  class_attendance_event_image_object_key_old      TEXT,
+  class_attendance_event_image_delete_pending_until TIMESTAMPTZ,
+
   -- audit
   class_attendance_event_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_attendance_event_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -58,10 +65,12 @@ CREATE TABLE IF NOT EXISTS class_attendance_event_urls (
   -- jenis/peran aset (mis. 'banner','image','video','attachment','link')
   class_attendance_event_url_kind                VARCHAR(24) NOT NULL,
 
-  -- lokasi file/link
-  class_attendance_event_url_href                TEXT,        -- URL publik (boleh NULL jika murni object storage)
-  class_attendance_event_url_object_key          TEXT,        -- object key aktif di storage
-  class_attendance_event_url_object_key_old      TEXT,        -- object key lama (retensi in-place replace)
+    -- storage (2-slot + retensi)
+  class_attendance_event_url                  TEXT,        -- aktif
+  class_attendance_event_url_object_key           TEXT,
+  class_attendance_event_url_old              TEXT,        -- kandidat delete
+  class_attendance_event_url_object_key_old       TEXT,
+  class_attendance_event_url_delete_pending_until TIMESTAMPTZ, -- jadwal hard delete old
 
   -- tampilan
   class_attendance_event_url_label               VARCHAR(160),
@@ -72,7 +81,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_event_urls (
   class_attendance_event_url_created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_attendance_event_url_updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_attendance_event_url_deleted_at          TIMESTAMPTZ,          -- soft delete (versi-per-baris)
-  class_attendance_event_url_delete_pending_until TIMESTAMPTZ,         -- tenggat purge
+
 
   -- guards
   CONSTRAINT chk_caeu_kind_nonempty

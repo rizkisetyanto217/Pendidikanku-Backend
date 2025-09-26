@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	csbDTO "masjidku_backend/internals/features/school/subject_books/books/dto"
+	csbDTO "masjidku_backend/internals/features/school/academics/books/dto"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 

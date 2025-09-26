@@ -204,18 +204,18 @@ CREATE TABLE IF NOT EXISTS user_class_session_attendance_urls (
   user_class_session_attendance_url_kind VARCHAR(24) NOT NULL,
 
   -- Lokasi file/link
-  user_class_session_attendance_url_href           TEXT,        -- URL publik
-  user_class_session_attendance_url_object_key     TEXT,        -- object key aktif di storage
-  user_class_session_attendance_url_object_key_old TEXT,        -- object key lama (retensi in-place replace)
+      -- storage (2-slot + retensi)
+  user_class_session_attendance_url                  TEXT,        -- aktif
+  user_class_session_attendance_url_object_key           TEXT,
+  user_class_session_attendance_url_old              TEXT,        -- kandidat delete
+  user_class_session_attendance_url_object_key_old       TEXT,
+  user_class_session_attendance_url_delete_pending_until TIMESTAMPTZ, -- jadwal hard delete old
 
   -- Metadata tampilan
   user_class_session_attendance_url_label      VARCHAR(160),
   user_class_session_attendance_url_order      INT NOT NULL DEFAULT 0,
   user_class_session_attendance_url_is_primary BOOLEAN NOT NULL DEFAULT FALSE,
 
-  -- Housekeeping (retensi/purge)
-  user_class_session_attendance_url_trash_url            TEXT,
-  user_class_session_attendance_url_delete_pending_until TIMESTAMPTZ,
 
   -- Uploader (opsional)
   user_class_session_attendance_url_uploader_teacher_id  UUID REFERENCES masjid_teachers(masjid_teacher_id), -- FK bisa ditambah terpisah bila perlu

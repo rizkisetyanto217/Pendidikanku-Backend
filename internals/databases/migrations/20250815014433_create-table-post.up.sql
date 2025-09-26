@@ -215,9 +215,12 @@ CREATE TABLE IF NOT EXISTS post_urls (
   post_url_post_id    UUID NOT NULL REFERENCES posts(post_id) ON DELETE CASCADE,
 
   post_url_kind       VARCHAR(24) NOT NULL,
-  post_url_href       TEXT,
-  post_url_object_key TEXT,
-  post_url_object_key_old TEXT,
+  -- lokasi file/link
+  post_url               TEXT,
+  post_url_object_key          TEXT,
+  post_url_old               TEXT,
+  post_url_object_key_old      TEXT,
+  post_url_delete_pending_until TIMESTAMPTZ,
 
   post_url_label      VARCHAR(160),
   post_url_order      INT NOT NULL DEFAULT 0,

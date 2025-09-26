@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	csstModel "masjidku_backend/internals/features/school/subject_books/subject/model"
+	csstModel "masjidku_backend/internals/features/school/academics/subject/model"
 
 	"github.com/google/uuid"
 )

@@ -2,7 +2,7 @@ package route
 
 import (
 	"masjidku_backend/internals/constants"
-	cbController "masjidku_backend/internals/features/school/subject_books/books/controller"
+	cbController "masjidku_backend/internals/features/school/academics/books/controller"
 	"masjidku_backend/internals/middlewares/auth"
 
 	"github.com/go-playground/validator/v10"
