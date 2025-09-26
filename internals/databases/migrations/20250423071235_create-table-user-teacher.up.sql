@@ -4,36 +4,36 @@ BEGIN;
 -- EXTENSIONS
 -- =========================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
-CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- trigram (untuk index opsional di bawah)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- trigram (opsional)
 
 -- =========================================
--- TABLE user_teachers (fresh)
+-- TABLE: user_teachers (fresh)
 -- =========================================
 CREATE TABLE IF NOT EXISTS user_teachers (
-  user_teacher_id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_teacher_user_id            UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_teacher_id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_teacher_user_id          UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
   -- Profil ringkas
-  user_teacher_field              VARCHAR(80),
-  user_teacher_short_bio          VARCHAR(300),
-  user_teacher_long_bio           TEXT,
-  user_teacher_greeting           TEXT,
-  user_teacher_education          TEXT,
-  user_teacher_activity           TEXT,
-  user_teacher_experience_years   SMALLINT,
+  user_teacher_field            VARCHAR(80),
+  user_teacher_short_bio        VARCHAR(300),
+  user_teacher_long_bio         TEXT,
+  user_teacher_greeting         TEXT,
+  user_teacher_education        TEXT,
+  user_teacher_activity         TEXT,
+  user_teacher_experience_years SMALLINT,
 
   -- Metadata fleksibel
-  user_teacher_specialties        JSONB,
-  user_teacher_certificates       JSONB,
+  user_teacher_specialties      JSONB,
+  user_teacher_certificates     JSONB,
 
   -- Status
-  user_teacher_is_verified        BOOLEAN     NOT NULL DEFAULT FALSE,
-  user_teacher_is_active          BOOLEAN     NOT NULL DEFAULT TRUE,
+  user_teacher_is_verified      BOOLEAN     NOT NULL DEFAULT FALSE,
+  user_teacher_is_active        BOOLEAN     NOT NULL DEFAULT TRUE,
 
   -- Audit
-  user_teacher_created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  user_teacher_updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  user_teacher_deleted_at         TIMESTAMPTZ,
+  user_teacher_created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_teacher_updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  user_teacher_deleted_at       TIMESTAMPTZ,
 
   -- Satu profil per user
   CONSTRAINT uq_user_teachers_user UNIQUE (user_teacher_user_id),
@@ -51,16 +51,28 @@ CREATE TABLE IF NOT EXISTS user_teachers (
 );
 
 -- =========================================
--- SEARCH COLUMN (GENERATED, tanpa trigger)
+-- Kolom tambahan: gelar + snapshot nama (idempotent)
+-- =========================================
+ALTER TABLE user_teachers
+  ADD COLUMN IF NOT EXISTS user_teacher_title_prefix       VARCHAR(60),
+  ADD COLUMN IF NOT EXISTS user_teacher_title_suffix       VARCHAR(60),
+  ADD COLUMN IF NOT EXISTS user_teacher_full_name_snapshot VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS user_teacher_user_name_snapshot VARCHAR(50);
+
+-- =========================================
+-- SEARCH COLUMN (GENERATED; tanpa trigger)
 -- =========================================
 ALTER TABLE user_teachers
   ADD COLUMN IF NOT EXISTS user_teacher_search tsvector
   GENERATED ALWAYS AS (
-    setweight(to_tsvector('simple', coalesce(user_teacher_field,'')),       'A') ||
-    setweight(to_tsvector('simple', coalesce(user_teacher_short_bio,'')),   'B') ||
-    setweight(to_tsvector('simple', coalesce(user_teacher_education,'')),   'C') ||
-    setweight(to_tsvector('simple', coalesce(user_teacher_activity,'')),    'C') ||
-    setweight(to_tsvector('simple', coalesce(user_teacher_greeting,'')),    'D')
+    setweight(to_tsvector('simple', coalesce(user_teacher_field,'')),            'A') ||
+    setweight(to_tsvector('simple', coalesce(user_teacher_short_bio,'')),        'B') ||
+    setweight(to_tsvector('simple', coalesce(user_teacher_education,'')),        'C') ||
+    setweight(to_tsvector('simple', coalesce(user_teacher_activity,'')),         'C') ||
+    setweight(to_tsvector('simple', coalesce(user_teacher_greeting,'')),         'D') ||
+    -- ikutkan snapshot nama agar bisa dicari bebas
+    setweight(to_tsvector('simple', coalesce(user_teacher_full_name_snapshot,'')),'A') ||
+    setweight(to_tsvector('simple', coalesce(user_teacher_user_name_snapshot,'')),'A')
   ) STORED;
 
 -- =========================================
@@ -78,6 +90,23 @@ CREATE INDEX IF NOT EXISTS idx_user_teachers_field_lower
 
 CREATE INDEX IF NOT EXISTS idx_user_teachers_search
   ON user_teachers USING gin (user_teacher_search);
+
+-- Snapshot name lookup (disarankan)
+CREATE INDEX IF NOT EXISTS idx_ut_full_name_snap_lower
+  ON user_teachers (lower(user_teacher_full_name_snapshot))
+  WHERE user_teacher_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ut_user_name_snap_lower
+  ON user_teachers (lower(user_teacher_user_name_snapshot))
+  WHERE user_teacher_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ut_full_name_snap_trgm
+  ON user_teachers USING gin (user_teacher_full_name_snapshot gin_trgm_ops)
+  WHERE user_teacher_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ut_user_name_snap_trgm
+  ON user_teachers USING gin (user_teacher_user_name_snapshot gin_trgm_ops)
+  WHERE user_teacher_deleted_at IS NULL;
 
 -- Listing cepat (baris hidup)
 CREATE INDEX IF NOT EXISTS idx_user_teachers_active

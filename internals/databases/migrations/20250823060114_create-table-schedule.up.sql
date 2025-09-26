@@ -179,9 +179,6 @@ CREATE INDEX IF NOT EXISTS brin_national_holidays_created_at
 
 
 
-
-
-
 -- =========================================
 -- TABLE: masjid_holidays (libur custom per masjid/sekolah)
 -- =========================================

@@ -74,6 +74,13 @@ CREATE TABLE IF NOT EXISTS masjids (
   -- Levels (tag-style; contoh: ["Kursus","Ilmu Qur'an","Sekolah Nonformal"])
   masjid_levels JSONB,
 
+  -- Media: icon (2-slot + retensi hapus)
+  masjid_icon_url                  TEXT,
+  masjid_icon_object_key           TEXT,
+  masjid_icon_url_old              TEXT,
+  masjid_icon_object_key_old       TEXT,
+  masjid_icon_delete_pending_until TIMESTAMPTZ,
+
   -- Media: logo (2-slot + retensi hapus)
   masjid_logo_url                  TEXT,
   masjid_logo_object_key           TEXT,
@@ -157,13 +164,10 @@ CREATE INDEX IF NOT EXISTS brin_masjids_background_delete_pending_until
 
 COMMIT;
 
-BEGIN;
 
--- Extensions
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-CREATE EXTENSION IF NOT EXISTS cube;
-CREATE EXTENSION IF NOT EXISTS earthdistance;
+
+
+BEGIN;
 
 -- ============================ --
 -- TABLE: MASJID PROFILES (1:1 ke masjids)
