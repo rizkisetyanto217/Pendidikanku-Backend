@@ -5,6 +5,7 @@ import (
 	"errors"
 	dto "masjidku_backend/internals/features/school/academics/rooms/dto"
 	model "masjidku_backend/internals/features/school/academics/rooms/model"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,12 +49,12 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// parse qparams legacy
-	var q dto.ListClassRoomsQuery
-	if err := c.QueryParser(&q); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
-	}
-	q.Normalize()
+	// ===== Parse query params =====
+	search := strings.TrimSpace(c.Query("search"))
+	sortParam := strings.ToLower(strings.TrimSpace(c.Query("sort")))
+	isActivePtr := parseBoolPtr(c.Query("is_active"))
+	isVirtualPtr := parseBoolPtr(c.Query("is_virtual"))
+	hasCodeOnly := parseBoolTrue(c.Query("has_code_only"))
 
 	// include flags (toleran)
 	includeStr := strings.ToLower(strings.TrimSpace(c.Query("include")))
@@ -84,8 +85,9 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	if strings.ToLower(p.SortOrder) == "asc" {
 		orderDir = "ASC"
 	}
-	// legacy override
-	switch strings.ToLower(strings.TrimSpace(q.Sort)) {
+
+	// legacy override via ?sort=
+	switch sortParam {
 	case "name_asc":
 		orderCol, orderDir = "class_room_name", "ASC"
 	case "name_desc":
@@ -118,8 +120,8 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	}
 
 	// search & flags
-	if q.Search != "" {
-		s := "%" + strings.ToLower(q.Search) + "%"
+	if search != "" {
+		s := "%" + strings.ToLower(search) + "%"
 		db = db.Where(`
 			LOWER(class_room_name) LIKE ?
 			OR LOWER(COALESCE(class_room_code,'')) LIKE ?
@@ -128,13 +130,13 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 			OR LOWER(COALESCE(class_room_description,'')) LIKE ?
 		`, s, s, s, s, s)
 	}
-	if q.IsActive != nil {
-		db = db.Where("class_room_is_active = ?", *q.IsActive)
+	if isActivePtr != nil {
+		db = db.Where("class_room_is_active = ?", *isActivePtr)
 	}
-	if q.IsVirtual != nil {
-		db = db.Where("class_room_is_virtual = ?", *q.IsVirtual)
+	if isVirtualPtr != nil {
+		db = db.Where("class_room_is_virtual = ?", *isVirtualPtr)
 	}
-	if q.HasCodeOnly != nil && *q.HasCodeOnly {
+	if hasCodeOnly {
 		db = db.Where("class_room_code IS NOT NULL AND length(trim(class_room_code)) > 0")
 	}
 
@@ -239,4 +241,35 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 
 	meta := helper.BuildMeta(total, p)
 	return helper.JsonList(c, out, meta)
+}
+
+/* ============================ helpers (local) ============================ */
+
+func parseBoolPtr(v string) *bool {
+	s := strings.TrimSpace(strings.ToLower(v))
+	if s == "" {
+		return nil
+	}
+	// true-ish
+	if s == "1" || s == "true" || s == "yes" || s == "y" || s == "on" {
+		b := true
+		return &b
+	}
+	// false-ish
+	if s == "0" || s == "false" || s == "no" || s == "n" || s == "off" {
+		b := false
+		return &b
+	}
+	// fallback: try parse
+	if b, err := strconv.ParseBool(s); err == nil {
+		return &b
+	}
+	return nil
+}
+
+func parseBoolTrue(v string) bool {
+	if b := parseBoolPtr(v); b != nil {
+		return *b
+	}
+	return false
 }

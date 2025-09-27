@@ -29,6 +29,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_masjid_teachers_id_tenant
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_id_tenant
   ON class_rooms (class_room_id, class_room_masjid_id);
 
+
+
 -- =========================================================
 -- TABLE: class_section_subject_teachers
 -- (penugasan guru untuk Section × Subject)
@@ -46,6 +48,7 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_description TEXT,
   class_section_subject_teacher_room_id UUID,
   class_section_subject_teacher_group_url TEXT,
+  class_section_subject_teacher_total_attendance INT DEFAULT 0,
 
   class_section_subject_teacher_is_active BOOLEAN NOT NULL DEFAULT TRUE,
   class_section_subject_teacher_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

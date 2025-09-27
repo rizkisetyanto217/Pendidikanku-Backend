@@ -11,7 +11,6 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
@@ -69,8 +68,6 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
-	req.Normalize()
-
 	if err := ctl.Validate.Struct(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Validasi gagal: "+err.Error())
 	}
@@ -98,19 +95,16 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat slug unik")
 	}
 
-	m := model.ClassRoomModel{
-		ClassRoomMasjidID:    masjidID,
-		ClassRoomName:        req.ClassRoomName,
-		ClassRoomCode:        req.ClassRoomCode,
-		ClassRoomSlug:        &slug, // pakai slug hasil generate/unique
-		ClassRoomLocation:    req.ClassRoomLocation,
-		ClassRoomCapacity:    req.ClassRoomCapacity,
-		ClassRoomDescription: req.ClassRoomDescription,
-		ClassRoomIsVirtual:   req.ClassRoomIsVirtual,
-		ClassRoomIsActive:    req.ClassRoomIsActive,
-		ClassRoomFeatures:    req.ClassRoomFeatures,
+	// Map DTO → Model (features & virtual_links sudah di-handle di ToModel)
+	m, err := req.ToModel()
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid (features/virtual_links)")
 	}
+	// Override field yang harus berasal dari server-context
+	m.ClassRoomMasjidID = masjidID
+	m.ClassRoomSlug = &slug
 
+	// Simpan
 	if err := ctl.DB.WithContext(reqCtx(c)).Create(&m).Error; err != nil {
 		if isUniqueViolation(err) {
 			return helper.JsonError(c, fiber.StatusConflict, "Nama/Kode/Slug ruang sudah digunakan")
@@ -121,7 +115,7 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Created", dto.ToClassRoomResponse(m))
 }
 
-/* ============================ UPDATE ============================ */
+/* ============================ UPDATE (PUT/PATCH semantics) ============================ */
 
 func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 	ctl.ensureValidator()
@@ -145,7 +139,6 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
-	req.Normalize()
 	if err := ctl.Validate.Struct(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Validasi gagal: "+err.Error())
 	}
@@ -161,42 +154,13 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Apply perubahan hanya yang dikirim (gunakan nilai, bukan pointer)
-	updates := map[string]interface{}{}
-	if req.ClassRoomName != nil {
-		updates["class_room_name"] = *req.ClassRoomName
-	}
-	if req.ClassRoomCode != nil {
-		updates["class_room_code"] = *req.ClassRoomCode
-	}
-	if req.ClassRoomSlug != nil {
-		updates["class_room_slug"] = *req.ClassRoomSlug
-	}
-	if req.ClassRoomLocation != nil {
-		updates["class_room_location"] = *req.ClassRoomLocation
-	}
-	if req.ClassRoomCapacity != nil {
-		updates["class_room_capacity"] = *req.ClassRoomCapacity
-	}
-	if req.ClassRoomDescription != nil {
-		updates["class_room_description"] = *req.ClassRoomDescription
-	}
-	if req.ClassRoomIsVirtual != nil {
-		updates["class_room_is_virtual"] = *req.ClassRoomIsVirtual
-	}
-	if req.ClassRoomIsActive != nil {
-		updates["class_room_is_active"] = *req.ClassRoomIsActive
-	}
-	if req.ClassRoomFeatures != nil {
-		updates["class_room_features"] = *req.ClassRoomFeatures
-	}
-	updates["class_room_updated_at"] = time.Now()
-
-	if len(updates) == 0 {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Tidak ada field untuk diupdate")
+	// Terapkan patch ke struct, biar JSONB & clear-logic rapi
+	if err := req.ApplyPatch(&m); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Gagal menerapkan perubahan: "+err.Error())
 	}
 
-	if err := ctl.DB.WithContext(reqCtx(c)).Model(&m).Clauses(clause.Returning{}).Updates(updates).Error; err != nil {
+	// Save agar autoUpdateTime jalan; tidak perlu manual set updated_at
+	if err := ctl.DB.WithContext(reqCtx(c)).Save(&m).Error; err != nil {
 		if isUniqueViolation(err) {
 			return helper.JsonError(c, fiber.StatusConflict, "Nama/Kode/Slug ruang sudah digunakan")
 		}
@@ -206,55 +170,11 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Updated", dto.ToClassRoomResponse(m))
 }
 
-/* ============================ PATCH ============================ */
+/* ============================ PATCH (alias Update) ============================ */
 
 func (ctl *ClassRoomController) Patch(c *fiber.Ctx) error {
-	// Require DKM/Admin + resolve masjidID
-	mc, err := helperAuth.ResolveMasjidContext(c)
-	if err != nil {
-		return err
-	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
-	if err != nil {
-		return err
-	}
-
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-	}
-
-	var req dto.PatchClassRoomRequest
-	if err := c.BodyParser(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
-	}
-	req.Normalize()
-
-	// Ambil record alive & tenant match
-	var m model.ClassRoomModel
-	if err := ctl.DB.WithContext(reqCtx(c)).
-		Where("class_room_id = ? AND class_room_masjid_id = ? AND class_room_deleted_at IS NULL", id, masjidID).
-		First(&m).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-
-	updates := req.BuildUpdateMap()
-	if len(updates) == 0 {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Tidak ada field untuk diupdate")
-	}
-	updates["class_room_updated_at"] = time.Now()
-
-	if err := ctl.DB.WithContext(reqCtx(c)).Model(&m).Clauses(clause.Returning{}).Updates(updates).Error; err != nil {
-		if isUniqueViolation(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Nama/Kode/Slug ruang sudah digunakan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengubah data")
-	}
-
-	return helper.JsonUpdated(c, "Updated", dto.ToClassRoomResponse(m))
+	// Gunakan payload yang sama dengan Update
+	return ctl.Update(c)
 }
 
 /* ============================ DELETE ============================ */

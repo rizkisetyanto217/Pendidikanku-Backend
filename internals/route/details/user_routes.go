@@ -7,6 +7,7 @@ import (
 	teacherProfile "masjidku_backend/internals/features/lembaga/teachers_students/route"
 	surveyRoute "masjidku_backend/internals/features/users/survey/route"
 	userRoute "masjidku_backend/internals/features/users/user/route"
+	userTeacher "masjidku_backend/internals/features/users/user_teachers/route"
 	rateLimiter "masjidku_backend/internals/middlewares"
 )
 
@@ -25,5 +26,6 @@ func UserRoutes(app *fiber.App, db *gorm.DB) {
 	surveyRoute.SurveyUserRoutes(userGroup, db)
 	// teacherProfile.UsersTeacherTeacherRoute(userGroup, db)
 	teacherProfile.UsersTeacherUserRoute(userGroup, db)
-	
+	userTeacher.UserTeachersRoute(userGroup, db)
+
 }

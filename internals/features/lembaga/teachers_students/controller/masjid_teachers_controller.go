@@ -125,7 +125,7 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 		return err
 	}
 
-	// body (tanpa masjid_id, hanya user_id + optional fields)
+	// body (tanpa masjid_id; gunakan user_teacher_id + optional fields)
 	var body yDTO.CreateMasjidTeacherRequest
 	if err := c.BodyParser(&body); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request")
@@ -135,29 +135,36 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 	}
 
 	// DTO -> model (paksa masjid dari context/params)
-	rec, err := body.ToModel(masjidID.String(), body.MasjidTeacherUserID)
+	rec, err := body.ToModel(masjidID.String())
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	var created yModel.MasjidTeacherModel
 	if err := ctrl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// pastikan user ada
-		var exists bool
+		// pastikan user_teacher exists (+ambil user_id untuk role)
+		var userID uuid.UUID
 		if err := tx.Raw(`
-			SELECT EXISTS(SELECT 1 FROM users WHERE id = ? AND deleted_at IS NULL)
-		`, rec.MasjidTeacherUserID).Scan(&exists).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membaca data user")
+			SELECT user_teacher_user_id
+			  FROM user_teachers
+			 WHERE user_teacher_id = ?
+			   AND user_teacher_deleted_at IS NULL
+			LIMIT 1
+		`, rec.MasjidTeacherUserTeacherID).Scan(&userID).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membaca data user_teacher")
 		}
-		if !exists {
-			return fiber.NewError(fiber.StatusNotFound, "User tidak ditemukan")
+		if userID == uuid.Nil {
+			return fiber.NewError(fiber.StatusNotFound, "Profil pengajar (user_teacher) tidak ditemukan")
 		}
 
-		// cek duplikat alive
+		// cek duplikat alive (per masjid + user_teacher)
 		var dup int64
 		if err := tx.Model(&yModel.MasjidTeacherModel{}).
-			Where("masjid_teacher_masjid_id = ? AND masjid_teacher_user_id = ? AND masjid_teacher_deleted_at IS NULL",
-				rec.MasjidTeacherMasjidID, rec.MasjidTeacherUserID).
+			Where(`
+				masjid_teacher_masjid_id = ?
+				AND masjid_teacher_user_teacher_id = ?
+				AND masjid_teacher_deleted_at IS NULL
+			`, rec.MasjidTeacherMasjidID, rec.MasjidTeacherUserTeacherID).
 			Count(&dup).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi pengajar")
 		}
@@ -178,8 +185,8 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 			}
 		}
 
-		// sinkron role teacher (best-effort)
-		if err := grantTeacherRole(tx, rec.MasjidTeacherUserID, rec.MasjidTeacherMasjidID); err != nil {
+		// sinkron role teacher (best-effort) → pakai userID hasil lookup
+		if err := grantTeacherRole(tx, userID, rec.MasjidTeacherMasjidID); err != nil {
 			log.Printf("[WARN] grant teacher role failed: %v", err)
 			// tidak fatal
 		}
@@ -257,14 +264,28 @@ func (ctrl *MasjidTeacherController) Update(c *fiber.Ctx) error {
 			_ = ctrl.Stats.IncActiveTeachers(ctrl.DB, masjidID, delta)
 		}
 
+		// ambil user_id dari user_teachers berdasar user_teacher_id sekarang
+		var userID uuid.UUID
+		if err := ctrl.DB.WithContext(c.Context()).Raw(`
+			SELECT user_teacher_user_id
+			  FROM user_teachers
+			 WHERE user_teacher_id = ?
+			   AND user_teacher_deleted_at IS NULL
+			LIMIT 1
+		`, before.MasjidTeacherUserTeacherID).Scan(&userID).Error; err != nil {
+			log.Printf("[WARN] lookup user_id for role sync failed: %v", err)
+		}
+
 		// role teacher
-		if before.MasjidTeacherIsActive {
-			if err := grantTeacherRole(ctrl.DB, before.MasjidTeacherUserID, before.MasjidTeacherMasjidID); err != nil {
-				log.Printf("[WARN] grant teacher role (update) failed: %v", err)
-			}
-		} else {
-			if err := revokeTeacherRole(ctrl.DB, before.MasjidTeacherUserID, before.MasjidTeacherMasjidID); err != nil {
-				log.Printf("[WARN] revoke teacher role (update) failed: %v", err)
+		if userID != uuid.Nil {
+			if before.MasjidTeacherIsActive {
+				if err := grantTeacherRole(ctrl.DB, userID, before.MasjidTeacherMasjidID); err != nil {
+					log.Printf("[WARN] grant teacher role (update) failed: %v", err)
+				}
+			} else {
+				if err := revokeTeacherRole(ctrl.DB, userID, before.MasjidTeacherMasjidID); err != nil {
+					log.Printf("[WARN] revoke teacher role (update) failed: %v", err)
+				}
 			}
 		}
 	}
@@ -310,6 +331,18 @@ func (ctrl *MasjidTeacherController) Delete(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data pengajar")
 		}
 
+		// lookup user_id dari user_teachers
+		var userID uuid.UUID
+		if err := tx.Raw(`
+			SELECT user_teacher_user_id
+			  FROM user_teachers
+			 WHERE user_teacher_id = ?
+			   AND user_teacher_deleted_at IS NULL
+			LIMIT 1
+		`, teacher.MasjidTeacherUserTeacherID).Scan(&userID).Error; err != nil {
+			log.Printf("[WARN] lookup user_id before delete failed: %v", err)
+		}
+
 		// Soft-delete guru
 		res := tx.Where("masjid_teacher_id = ?", teacher.MasjidTeacherID).
 			Delete(&yModel.MasjidTeacherModel{})
@@ -326,19 +359,22 @@ func (ctrl *MasjidTeacherController) Delete(c *fiber.Ctx) error {
 			}
 		}
 
-		// Cek apakah masih ada record guru lain (alive) utk user & masjid ini
+		// Cek apakah masih ada record guru lain (alive) utk user_teacher ini pada masjid yang sama
 		var remain int64
 		if err := tx.Model(&yModel.MasjidTeacherModel{}).
-			Where("masjid_teacher_user_id = ? AND masjid_teacher_masjid_id = ? AND masjid_teacher_deleted_at IS NULL",
-				teacher.MasjidTeacherUserID, teacher.MasjidTeacherMasjidID).
+			Where(`
+				masjid_teacher_user_teacher_id = ?
+				AND masjid_teacher_masjid_id = ?
+				AND masjid_teacher_deleted_at IS NULL
+			`, teacher.MasjidTeacherUserTeacherID, teacher.MasjidTeacherMasjidID).
 			Count(&remain).Error; err != nil {
 			log.Printf("[WARN] count remaining teachers failed: %v", err)
 			return nil
 		}
 
 		// Jika sudah tidak ada lagi → cabut role "teacher" pada masjid ini
-		if remain == 0 {
-			if err := revokeTeacherRole(tx, teacher.MasjidTeacherUserID, teacher.MasjidTeacherMasjidID); err != nil {
+		if remain == 0 && userID != uuid.Nil {
+			if err := revokeTeacherRole(tx, userID, teacher.MasjidTeacherMasjidID); err != nil {
 				log.Printf("[WARN] revoke teacher role (delete) failed: %v", err)
 			}
 		}

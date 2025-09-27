@@ -1,3 +1,4 @@
+// internals/features/lembaga/teachers_students/controller/masjid_student_controller.go
 package controller
 
 import (
@@ -47,21 +48,16 @@ func isNotFound(err error) bool {
 	return errors.Is(err, gorm.ErrRecordNotFound)
 }
 
-
-// di file controller yg sama (atau taruh di helper internal kalian)
-// helper lokal: ambil multi-value query utk Fiber v2 (+ fallback comma-separated)
+// ambil multi-value query (?key=a&key=b atau ?key=a,b)
 func getMultiQuery(c *fiber.Ctx, key string) []string {
 	out := make([]string, 0, 2)
 
-	// Fiber v2: multi via QueryArgs().PeekMulti
 	if qa := c.Context().QueryArgs(); qa != nil {
-		raw := qa.PeekMulti(key) // [][]byte
+		raw := qa.PeekMulti(key)
 		for _, b := range raw {
 			out = append(out, string(b))
 		}
 	}
-
-	// Fallback: single value atau comma-separated (?key=a,b)
 	if len(out) == 0 {
 		if s := strings.TrimSpace(c.Query(key)); s != "" {
 			if strings.Contains(s, ",") {
@@ -77,7 +73,6 @@ func getMultiQuery(c *fiber.Ctx, key string) []string {
 	}
 	return out
 }
-
 
 /* =========================
    Routes Handlers
@@ -115,7 +110,6 @@ func (h *MasjidStudentController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "created", dto.FromModel(m))
 }
 
-
 // PUT /api/a/masjid-students/:id
 func (h *MasjidStudentController) Update(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
@@ -123,7 +117,7 @@ func (h *MasjidStudentController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	var m model.MasjidStudentModel
+	var m model.MasjidStudent
 	if err := h.DB.First(&m, "masjid_student_id = ?", id).Error; err != nil {
 		if isNotFound(err) {
 			return helper.JsonError(c, fiber.StatusNotFound, "not found")
@@ -156,7 +150,7 @@ func (h *MasjidStudentController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	var m model.MasjidStudentModel
+	var m model.MasjidStudent
 	if err := h.DB.First(&m, "masjid_student_id = ?", id).Error; err != nil {
 		if isNotFound(err) {
 			return helper.JsonError(c, fiber.StatusNotFound, "not found")
@@ -189,21 +183,21 @@ func (h *MasjidStudentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	if err := h.DB.Delete(&model.MasjidStudentModel{}, "masjid_student_id = ?", id).Error; err != nil {
+	if err := h.DB.Delete(&model.MasjidStudent{}, "masjid_student_id = ?", id).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	return helper.JsonDeleted(c, "deleted", fiber.Map{"masjid_student_id": id})
 }
 
-// POST /api/a/masjid-students/:id/restore (optional)
+// POST /api/a/masjid-students/:id/restore
 func (h *MasjidStudentController) Restore(c *fiber.Ctx) error {
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	var m model.MasjidStudentModel
+	var m model.MasjidStudent
 	if err := h.DB.Unscoped().First(&m, "masjid_student_id = ?", id).Error; err != nil {
 		if isNotFound(err) {
 			return helper.JsonError(c, fiber.StatusNotFound, "not found")

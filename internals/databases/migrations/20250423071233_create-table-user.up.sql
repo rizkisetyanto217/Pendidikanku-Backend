@@ -130,9 +130,6 @@ CREATE INDEX IF NOT EXISTS idx_user_profile_user_id_alive
 CREATE INDEX IF NOT EXISTS idx_user_profile_gender
   ON user_profiles(user_profile_gender) WHERE user_profile_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_user_profile_phone
-  ON user_profiles(user_profile_phone_number) WHERE user_profile_deleted_at IS NULL;
-
 CREATE INDEX IF NOT EXISTS idx_user_profile_location
   ON user_profiles(user_profile_location) WHERE user_profile_deleted_at IS NULL;
 

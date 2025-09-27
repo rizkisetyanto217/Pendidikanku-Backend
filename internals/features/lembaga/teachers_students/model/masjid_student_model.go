@@ -7,37 +7,43 @@ import (
 	"gorm.io/gorm"
 )
 
-type MasjidStudentModel struct {
-	// PK
-	MasjidStudentID uuid.UUID `gorm:"column:masjid_student_id;type:uuid;primaryKey;default:gen_random_uuid()" json:"masjid_student_id"`
+type MasjidStudentStatus string
 
-	// FK
-	MasjidStudentMasjidID uuid.UUID `gorm:"column:masjid_student_masjid_id;type:uuid;not null;index" json:"masjid_student_masjid_id"`
-	MasjidStudentUserID   uuid.UUID `gorm:"column:masjid_student_user_id;type:uuid;not null;index" json:"masjid_student_user_id"`
+const (
+	MasjidStudentActive   MasjidStudentStatus = "active"
+	MasjidStudentInactive MasjidStudentStatus = "inactive"
+	MasjidStudentAlumni   MasjidStudentStatus = "alumni"
+)
 
-	// Unik global (sesuai SQL: NOT NULL UNIQUE)
-	MasjidStudentSlug string `gorm:"column:masjid_student_slug;type:varchar(50);not null;uniqueIndex" json:"masjid_student_slug"`
+type MasjidStudent struct {
+	MasjidStudentID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:masjid_student_id" json:"masjid_student_id"`
 
-	// Optional fields
-	MasjidStudentCode   *string `gorm:"column:masjid_student_code;type:varchar(50)" json:"masjid_student_code,omitempty"`
-	MasjidStudentStatus string  `gorm:"column:masjid_student_status;type:text;not null;default:active" json:"masjid_student_status"` // SQL: TEXT + CHECK ('active','inactive','alumni')
-	MasjidStudentNote   *string `gorm:"column:masjid_student_note;type:text" json:"masjid_student_note,omitempty"`
+	MasjidStudentMasjidID uuid.UUID `gorm:"type:uuid;not null;column:masjid_student_masjid_id" json:"masjid_student_masjid_id"`
+	MasjidStudentUserID   uuid.UUID `gorm:"type:uuid;not null;column:masjid_student_user_id" json:"masjid_student_user_id"`
 
-	// Operasional (waktu)
-	MasjidStudentJoinedAt *time.Time `gorm:"column:masjid_student_joined_at" json:"masjid_student_joined_at,omitempty"`
-	MasjidStudentLeftAt   *time.Time `gorm:"column:masjid_student_left_at" json:"masjid_student_left_at,omitempty"`
+	MasjidStudentSlug string  `gorm:"type:varchar(50);uniqueIndex;not null;column:masjid_student_slug" json:"masjid_student_slug"`
+	MasjidStudentCode *string `gorm:"type:varchar(50);column:masjid_student_code" json:"masjid_student_code,omitempty"`
 
-	// timestamps
-	MasjidStudentCreatedAt time.Time      `gorm:"column:masjid_student_created_at;autoCreateTime" json:"masjid_student_created_at"`
-	MasjidStudentUpdatedAt time.Time      `gorm:"column:masjid_student_updated_at;autoUpdateTime" json:"masjid_student_updated_at"`
-	MasjidStudentDeletedAt gorm.DeletedAt `gorm:"column:masjid_student_deleted_at;index" json:"masjid_student_deleted_at,omitempty"`
+	MasjidStudentStatus MasjidStudentStatus `gorm:"type:text;not null;default:'active';column:masjid_student_status" json:"masjid_student_status"`
+
+	// Operasional
+	MasjidStudentJoinedAt *time.Time `gorm:"type:timestamptz;column:masjid_student_joined_at" json:"masjid_student_joined_at,omitempty"`
+	MasjidStudentLeftAt   *time.Time `gorm:"type:timestamptz;column:masjid_student_left_at" json:"masjid_student_left_at,omitempty"`
+
+	// Catatan umum
+	MasjidStudentNote *string `gorm:"type:text;column:masjid_student_note" json:"masjid_student_note,omitempty"`
+
+	// Snapshot profil
+	MasjidStudentNameProfileSnapshot        *string `gorm:"type:varchar(80);column:masjid_student_name_profile_snapshot" json:"masjid_student_name_profile_snapshot,omitempty"`
+	MasjidStudentAvatarURLProfileSnapshot   *string `gorm:"type:varchar(255);column:masjid_student_avatar_url_profile_snapshot" json:"masjid_student_avatar_url_profile_snapshot,omitempty"`
+	MasjidStudentWhatsappURLProfileSnapshot *string `gorm:"type:varchar(20);column:masjid_student_whatsapp_url_profile_snapshot" json:"masjid_student_whatsapp_url_profile_snapshot,omitempty"`
+
+	// Audit & soft delete
+	MasjidStudentCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();autoCreateTime;column:masjid_student_created_at" json:"masjid_student_created_at"`
+	MasjidStudentUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();autoUpdateTime;column:masjid_student_updated_at" json:"masjid_student_updated_at"`
+	MasjidStudentDeletedAt gorm.DeletedAt `gorm:"index;column:masjid_student_deleted_at" json:"masjid_student_deleted_at,omitempty"`
 }
 
-func (MasjidStudentModel) TableName() string { return "masjid_students" }
-
-// Enum-like helpers (sesuaikan dengan CHECK constraint di SQL)
-const (
-	MasjidStudentStatusActive   = "active"
-	MasjidStudentStatusInactive = "inactive"
-	MasjidStudentStatusAlumni   = "alumni"
-)
+func (MasjidStudent) TableName() string {
+	return "masjid_students"
+}

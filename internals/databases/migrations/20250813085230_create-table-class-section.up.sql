@@ -132,11 +132,6 @@ CREATE TABLE IF NOT EXISTS class_sections (
     REFERENCES masjid_teachers (masjid_teacher_id, masjid_teacher_masjid_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
-  CONSTRAINT fk_section_room_same_masjid
-    FOREIGN KEY (class_section_class_room_id, class_section_masjid_id)
-    REFERENCES class_rooms (class_room_id, class_room_masjid_id)
-    ON UPDATE CASCADE ON DELETE SET NULL,
-
   CONSTRAINT fk_section_leader_student_same_masjid
     FOREIGN KEY (class_section_leader_student_id, class_section_masjid_id)
     REFERENCES masjid_students (masjid_student_id, masjid_student_masjid_id)

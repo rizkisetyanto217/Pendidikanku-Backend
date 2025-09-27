@@ -364,7 +364,8 @@ func Register(db *gorm.DB, c *fiber.Ctx) error {
 		log.Printf("[register] ensuring user_profiles for user_id=%s", input.ID)
 
 		// Ensure user_profiles ada (idempotent & anti-race)
-		if err := userProfileService.EnsureProfileRow(c.Context(), tx, input.ID); err != nil {
+		// baru: kirim pointer full name
+		if err := userProfileService.EnsureProfileRow(c.Context(), tx, input.ID, input.FullName); err != nil {
 			log.Printf("[register] ensure user_profiles ERROR: %v", err)
 			return fiber.NewError(fiber.StatusInternalServerError, "Failed to initialize user profile")
 		}
@@ -945,6 +946,9 @@ func setAuthCookies(c *fiber.Ctx, accessToken, refreshToken string, now time.Tim
 /* ==========================
    LOGIN GOOGLE (refactor: tx + upsert profile)
 ========================== */
+/* ==========================
+   LOGIN GOOGLE (refactor: tx + upsert profile + snapshot)
+========================== */
 
 func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 	var input struct {
@@ -957,7 +961,7 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.JsonError(c, fiber.StatusBadRequest, "id_token is required")
 	}
 
-	// Verifikasi token Google (audience = client_id aplikasi kita)
+	// Verifikasi token (audience = client_id kita)
 	v := googleAuthIDTokenVerifier.Verifier{}
 	if err := v.VerifyIDToken(input.IDToken, []string{configs.GoogleClientID}); err != nil {
 		return helpers.JsonError(c, fiber.StatusUnauthorized, "Invalid Google ID Token")
@@ -971,22 +975,49 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 	email := strings.ToLower(strings.TrimSpace(claimSet.Email))
 	name := strings.TrimSpace(claimSet.Name)
 	googleID := strings.TrimSpace(claimSet.Sub)
-
 	if email == "" || googleID == "" {
 		return helpers.JsonError(c, fiber.StatusUnauthorized, "Google token missing required fields")
 	}
 
-	// 1) Coba cari user by google_id
+	// helper kecil
+	ptrIfNotEmpty := func(s string) *string {
+		t := strings.TrimSpace(s)
+		if t == "" {
+			return nil
+		}
+		return &t
+	}
+
+	// 1) Cari user by google_id
 	user, err := authRepo.FindUserByGoogleID(db, googleID)
-	if err != nil {
-		// 2) Tidak ada: coba cari by email
+	if err == nil && user != nil {
+		// Sudah terhubung → pastikan profile ada + snapshot bila perlu
+		if txErr := db.Transaction(func(tx *gorm.DB) error {
+			// prioritaskan full name dari DB; fallback nama dari token
+			snap := user.FullName
+			if snap == nil || strings.TrimSpace(*snap) == "" {
+				snap = ptrIfNotEmpty(name)
+			}
+			if err := userProfileService.EnsureProfileRow(c.Context(), tx, user.ID, snap); err != nil {
+				return err
+			}
+			// best-effort role
+			if err := grantDefaultUserRole(c.Context(), tx, user.ID); err != nil {
+				log.Printf("[login-google] grant default role failed: %v", err)
+			}
+			return nil
+		}); txErr != nil {
+			return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to prepare user profile")
+		}
+	} else {
+		// 2) Tidak ada by google_id → coba by email
 		userByEmail, err2 := authRepo.FindUserByEmail(db, email)
 		if err2 == nil && userByEmail != nil {
-			// ============== LINK GOOGLE_ID KE AKUN EMAIL (TRANSAKSI) ==============
+			// LINK GOOGLE_ID KE AKUN EMAIL (TX)
 			if err := db.Transaction(func(tx *gorm.DB) error {
 				now := time.Now().UTC()
 
-				// Link google_id kalau belum terisi
+				// Link google_id bila kosong + verifikasi email bila perlu
 				if userByEmail.GoogleID == nil || *userByEmail.GoogleID == "" {
 					userByEmail.GoogleID = &googleID
 					if userByEmail.EmailVerifiedAt == nil {
@@ -1003,12 +1034,16 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 					}
 				}
 
-				// Pastikan user_profiles ada (idempotent)
-				if err := userProfileService.EnsureProfileRow(c.Context(), tx, userByEmail.ID); err != nil {
+				// Ensure profile + isi full_name_snapshot bila NULL
+				snap := userByEmail.FullName
+				if snap == nil || strings.TrimSpace(*snap) == "" {
+					snap = ptrIfNotEmpty(name)
+				}
+				if err := userProfileService.EnsureProfileRow(c.Context(), tx, userByEmail.ID, snap); err != nil {
 					return err
 				}
 
-				// (Opsional) grant default role "user" — best effort
+				// best-effort role
 				if err := grantDefaultUserRole(c.Context(), tx, userByEmail.ID); err != nil {
 					log.Printf("[login-google] grant default role failed: %v", err)
 				}
@@ -1024,7 +1059,7 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 			}
 			user = userByEmail
 		} else {
-			// ============== BUAT AKUN BARU DARI GOOGLE (TRANSAKSI) ==============
+			// 3) BUAT AKUN BARU DARI GOOGLE (TX)
 			if err := db.Transaction(func(tx *gorm.DB) error {
 				now := time.Now().UTC()
 				fullName := ptrIfNotEmpty(name)
@@ -1056,12 +1091,12 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 					return err
 				}
 
-				// Pastikan user_profiles ada (idempotent)
-				if err := userProfileService.EnsureProfileRow(c.Context(), tx, newUser.ID); err != nil {
+				// Ensure profile + isi snapshot dari fullName
+				if err := userProfileService.EnsureProfileRow(c.Context(), tx, newUser.ID, fullName); err != nil {
 					return err
 				}
 
-				// (Opsional) grant default role "user" — best effort
+				// best-effort role
 				if err := grantDefaultUserRole(c.Context(), tx, newUser.ID); err != nil {
 					log.Printf("[login-google] grant default role failed: %v", err)
 				}
@@ -1084,7 +1119,7 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 		}
 	}
 
-	// 3) Ambil full user + guard aktif
+	// 4) Ambil full user + guard aktif
 	userFull, err := authRepo.FindUserByID(db, user.ID)
 	if err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data user")
@@ -1093,27 +1128,16 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.JsonError(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan. Hubungi admin.")
 	}
 
-	// 4) Roles (roles_global & masjid_roles)
+	// 5) Roles (roles_global & masjid_roles)
 	rolesClaim, err := getUserRolesClaim(c.Context(), db, userFull.ID)
 	if err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil roles user")
 	}
 
-	// 5) Issue tokens — cukup berdasarkan rolesClaim
+	// 6) Issue tokens
 	return issueTokensWithRoles(c, db, *userFull, rolesClaim)
 }
 
-/* ==========================
-   Helpers khusus login Google
-========================== */
-
-func ptrIfNotEmpty(s string) *string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return nil
-	}
-	return &s
-}
 
 // suggestUsername: dari nama → slug-ish; fallback ambil bagian local dari email
 func suggestUsername(name, email string) string {

@@ -19,14 +19,10 @@ type PatchField[T any] struct {
 	Value T    `json:"value,omitempty"`
 }
 
-func (p *PatchField[T]) IsZero() bool {
-	return p == nil || !p.Set
-}
+func (p *PatchField[T]) IsZero() bool { return p == nil || !p.Set }
 
 /* =========================================================
    REQUEST: CREATE
-   - slug wajib (NOT NULL UNIQUE)
-   - status default "active"
 ========================================================= */
 
 type MasjidStudentCreateReq struct {
@@ -35,22 +31,22 @@ type MasjidStudentCreateReq struct {
 
 	MasjidStudentSlug string `json:"masjid_student_slug"` // required
 
-	MasjidStudentCode *string `json:"masjid_student_code,omitempty"`
-	MasjidStudentStatus string `json:"masjid_student_status"` // optional; defaults to active
-	MasjidStudentNote *string `json:"masjid_student_note,omitempty"`
+	MasjidStudentCode   *string `json:"masjid_student_code,omitempty"`
+	MasjidStudentStatus string  `json:"masjid_student_status"` // optional; defaults to "active"
+	MasjidStudentNote   *string `json:"masjid_student_note,omitempty"`
 
 	MasjidStudentJoinedAt *time.Time `json:"masjid_student_joined_at,omitempty"`
 	MasjidStudentLeftAt   *time.Time `json:"masjid_student_left_at,omitempty"`
 }
 
 func (r *MasjidStudentCreateReq) Normalize() {
-	// slug: trim & lower (opsional: sesuai kebijakan)
+	// slug
 	r.MasjidStudentSlug = strings.ToLower(strings.TrimSpace(r.MasjidStudentSlug))
 
-	// status
+	// status (default active)
 	r.MasjidStudentStatus = strings.ToLower(strings.TrimSpace(r.MasjidStudentStatus))
 	if r.MasjidStudentStatus == "" {
-		r.MasjidStudentStatus = model.MasjidStudentStatusActive
+		r.MasjidStudentStatus = string(model.MasjidStudentActive)
 	}
 
 	// code
@@ -79,11 +75,11 @@ func (r *MasjidStudentCreateReq) Validate() error {
 		return errors.New("masjid_student_slug wajib diisi")
 	}
 	switch r.MasjidStudentStatus {
-	case model.MasjidStudentStatusActive, model.MasjidStudentStatusInactive, model.MasjidStudentStatusAlumni:
+	case string(model.MasjidStudentActive), string(model.MasjidStudentInactive), string(model.MasjidStudentAlumni):
 	default:
 		return errors.New("invalid masjid_student_status")
 	}
-	// joined <= left (jika keduanya ada)
+	// joined <= left
 	if r.MasjidStudentJoinedAt != nil && r.MasjidStudentLeftAt != nil {
 		if r.MasjidStudentLeftAt.Before(*r.MasjidStudentJoinedAt) {
 			return errors.New("masjid_student_left_at tidak boleh lebih awal dari masjid_student_joined_at")
@@ -92,15 +88,15 @@ func (r *MasjidStudentCreateReq) Validate() error {
 	return nil
 }
 
-func (r *MasjidStudentCreateReq) ToModel() *model.MasjidStudentModel {
-	return &model.MasjidStudentModel{
+func (r *MasjidStudentCreateReq) ToModel() *model.MasjidStudent {
+	return &model.MasjidStudent{
 		MasjidStudentMasjidID: r.MasjidStudentMasjidID,
 		MasjidStudentUserID:   r.MasjidStudentUserID,
 
 		MasjidStudentSlug: r.MasjidStudentSlug,
 
 		MasjidStudentCode:   r.MasjidStudentCode,
-		MasjidStudentStatus: r.MasjidStudentStatus,
+		MasjidStudentStatus: model.MasjidStudentStatus(r.MasjidStudentStatus),
 		MasjidStudentNote:   r.MasjidStudentNote,
 
 		MasjidStudentJoinedAt: r.MasjidStudentJoinedAt,
@@ -110,15 +106,13 @@ func (r *MasjidStudentCreateReq) ToModel() *model.MasjidStudentModel {
 
 /* =========================================================
    REQUEST: UPDATE (PUT, full)
-   - Anggap slug ikut dikirim (kalau slug immutable di bisnis,
-     boleh di-skip dari PUT atau diabaikan saat Apply)
 ========================================================= */
 
 type MasjidStudentUpdateReq struct {
-	MasjidStudentSlug  string  `json:"masjid_student_slug"` // required (kalau immutable: abaikan di Apply)
-	MasjidStudentCode  *string `json:"masjid_student_code,omitempty"`
+	MasjidStudentSlug   string  `json:"masjid_student_slug"` // required (kalau immutable: abaikan di Apply)
+	MasjidStudentCode   *string `json:"masjid_student_code,omitempty"`
 	MasjidStudentStatus string  `json:"masjid_student_status"`
-	MasjidStudentNote  *string `json:"masjid_student_note,omitempty"`
+	MasjidStudentNote   *string `json:"masjid_student_note,omitempty"`
 
 	MasjidStudentJoinedAt *time.Time `json:"masjid_student_joined_at,omitempty"`
 	MasjidStudentLeftAt   *time.Time `json:"masjid_student_left_at,omitempty"`
@@ -151,7 +145,7 @@ func (r *MasjidStudentUpdateReq) Validate() error {
 		return errors.New("masjid_student_slug wajib diisi")
 	}
 	switch r.MasjidStudentStatus {
-	case model.MasjidStudentStatusActive, model.MasjidStudentStatusInactive, model.MasjidStudentStatusAlumni:
+	case string(model.MasjidStudentActive), string(model.MasjidStudentInactive), string(model.MasjidStudentAlumni):
 	default:
 		return errors.New("invalid masjid_student_status")
 	}
@@ -163,12 +157,12 @@ func (r *MasjidStudentUpdateReq) Validate() error {
 	return nil
 }
 
-func (r *MasjidStudentUpdateReq) Apply(m *model.MasjidStudentModel) {
-	// jika slug immutable, comment baris berikut
+func (r *MasjidStudentUpdateReq) Apply(m *model.MasjidStudent) {
+	// kalau slug immutable, hapus baris ini
 	m.MasjidStudentSlug = r.MasjidStudentSlug
 
 	m.MasjidStudentCode = r.MasjidStudentCode
-	m.MasjidStudentStatus = r.MasjidStudentStatus
+	m.MasjidStudentStatus = model.MasjidStudentStatus(r.MasjidStudentStatus)
 	m.MasjidStudentNote = r.MasjidStudentNote
 
 	m.MasjidStudentJoinedAt = r.MasjidStudentJoinedAt
@@ -177,16 +171,13 @@ func (r *MasjidStudentUpdateReq) Apply(m *model.MasjidStudentModel) {
 
 /* =========================================================
    REQUEST: PATCH (partial)
-   - Code & Note pakai pointer (bisa set null)
-   - Slug (string) tidak boleh kosong saat set
-   - Tanggal bisa set null (hapus), atau set nilai baru
 ========================================================= */
 
 type MasjidStudentPatchReq struct {
-	MasjidStudentSlug  *PatchField[string]   `json:"masjid_student_slug,omitempty"`
-	MasjidStudentCode  *PatchField[*string]  `json:"masjid_student_code,omitempty"`
-	MasjidStudentStatus *PatchField[string]   `json:"masjid_student_status,omitempty"`
-	MasjidStudentNote  *PatchField[*string]  `json:"masjid_student_note,omitempty"`
+	MasjidStudentSlug   *PatchField[string]  `json:"masjid_student_slug,omitempty"`
+	MasjidStudentCode   *PatchField[*string] `json:"masjid_student_code,omitempty"`
+	MasjidStudentStatus *PatchField[string]  `json:"masjid_student_status,omitempty"`
+	MasjidStudentNote   *PatchField[*string] `json:"masjid_student_note,omitempty"`
 
 	MasjidStudentJoinedAt *PatchField[*time.Time] `json:"masjid_student_joined_at,omitempty"`
 	MasjidStudentLeftAt   *PatchField[*time.Time] `json:"masjid_student_left_at,omitempty"`
@@ -215,7 +206,6 @@ func (r *MasjidStudentPatchReq) Normalize() {
 			r.MasjidStudentNote.Value = &n
 		}
 	}
-	// tanggal tidak perlu normalisasi khusus
 }
 
 func (r *MasjidStudentPatchReq) Validate() error {
@@ -226,12 +216,12 @@ func (r *MasjidStudentPatchReq) Validate() error {
 	}
 	if r.MasjidStudentStatus != nil && r.MasjidStudentStatus.Set {
 		switch r.MasjidStudentStatus.Value {
-		case model.MasjidStudentStatusActive, model.MasjidStudentStatusInactive, model.MasjidStudentStatusAlumni:
+		case string(model.MasjidStudentActive), string(model.MasjidStudentInactive), string(model.MasjidStudentAlumni):
 		default:
 			return errors.New("invalid masjid_student_status")
 		}
 	}
-	// Kalau joined & left sama-sama di-set dan non-nil → validasi ordering
+	// validasi ordering tanggal kalau keduanya di-set dan non-nil
 	if r.MasjidStudentJoinedAt != nil && r.MasjidStudentJoinedAt.Set &&
 		r.MasjidStudentLeftAt != nil && r.MasjidStudentLeftAt.Set &&
 		r.MasjidStudentJoinedAt.Value != nil && r.MasjidStudentLeftAt.Value != nil {
@@ -243,7 +233,7 @@ func (r *MasjidStudentPatchReq) Validate() error {
 	return nil
 }
 
-func (r *MasjidStudentPatchReq) Apply(m *model.MasjidStudentModel) {
+func (r *MasjidStudentPatchReq) Apply(m *model.MasjidStudent) {
 	if r.MasjidStudentSlug != nil && r.MasjidStudentSlug.Set {
 		m.MasjidStudentSlug = r.MasjidStudentSlug.Value
 	}
@@ -251,7 +241,7 @@ func (r *MasjidStudentPatchReq) Apply(m *model.MasjidStudentModel) {
 		m.MasjidStudentCode = r.MasjidStudentCode.Value
 	}
 	if r.MasjidStudentStatus != nil && r.MasjidStudentStatus.Set {
-		m.MasjidStudentStatus = r.MasjidStudentStatus.Value
+		m.MasjidStudentStatus = model.MasjidStudentStatus(r.MasjidStudentStatus.Value)
 	}
 	if r.MasjidStudentNote != nil && r.MasjidStudentNote.Set {
 		m.MasjidStudentNote = r.MasjidStudentNote.Value
@@ -269,41 +259,41 @@ func (r *MasjidStudentPatchReq) Apply(m *model.MasjidStudentModel) {
 ========================================================= */
 
 type MasjidStudentResp struct {
-	MasjidStudentID        uuid.UUID  `json:"masjid_student_id"`
-	MasjidStudentMasjidID  uuid.UUID  `json:"masjid_student_masjid_id"`
-	MasjidStudentUserID    uuid.UUID  `json:"masjid_student_user_id"`
+	MasjidStudentID       uuid.UUID `json:"masjid_student_id"`
+	MasjidStudentMasjidID uuid.UUID `json:"masjid_student_masjid_id"`
+	MasjidStudentUserID   uuid.UUID `json:"masjid_student_user_id"`
 
-	MasjidStudentSlug      string     `json:"masjid_student_slug"`
-	MasjidStudentCode      *string    `json:"masjid_student_code,omitempty"`
-	MasjidStudentStatus    string     `json:"masjid_student_status"`
-	MasjidStudentNote      *string    `json:"masjid_student_note,omitempty"`
+	MasjidStudentSlug   string  `json:"masjid_student_slug"`
+	MasjidStudentCode   *string `json:"masjid_student_code,omitempty"`
+	MasjidStudentStatus string  `json:"masjid_student_status"`
+	MasjidStudentNote   *string `json:"masjid_student_note,omitempty"`
 
-	MasjidStudentJoinedAt  *time.Time `json:"masjid_student_joined_at,omitempty"`
-	MasjidStudentLeftAt    *time.Time `json:"masjid_student_left_at,omitempty"`
+	MasjidStudentJoinedAt *time.Time `json:"masjid_student_joined_at,omitempty"`
+	MasjidStudentLeftAt   *time.Time `json:"masjid_student_left_at,omitempty"`
 
 	MasjidStudentCreatedAt time.Time  `json:"masjid_student_created_at"`
 	MasjidStudentUpdatedAt time.Time  `json:"masjid_student_updated_at"`
 	MasjidStudentDeletedAt *time.Time `json:"masjid_student_deleted_at,omitempty"`
 }
 
-func FromModel(m *model.MasjidStudentModel) MasjidStudentResp {
+func FromModel(m *model.MasjidStudent) MasjidStudentResp {
 	var delAt *time.Time
 	if m.MasjidStudentDeletedAt.Valid {
 		t := m.MasjidStudentDeletedAt.Time
 		delAt = &t
 	}
 	return MasjidStudentResp{
-		MasjidStudentID:        m.MasjidStudentID,
-		MasjidStudentMasjidID:  m.MasjidStudentMasjidID,
-		MasjidStudentUserID:    m.MasjidStudentUserID,
+		MasjidStudentID:       m.MasjidStudentID,
+		MasjidStudentMasjidID: m.MasjidStudentMasjidID,
+		MasjidStudentUserID:   m.MasjidStudentUserID,
 
-		MasjidStudentSlug:      m.MasjidStudentSlug,
-		MasjidStudentCode:      m.MasjidStudentCode,
-		MasjidStudentStatus:    m.MasjidStudentStatus,
-		MasjidStudentNote:      m.MasjidStudentNote,
+		MasjidStudentSlug:   m.MasjidStudentSlug,
+		MasjidStudentCode:   m.MasjidStudentCode,
+		MasjidStudentStatus: string(m.MasjidStudentStatus),
+		MasjidStudentNote:   m.MasjidStudentNote,
 
-		MasjidStudentJoinedAt:  m.MasjidStudentJoinedAt,
-		MasjidStudentLeftAt:    m.MasjidStudentLeftAt,
+		MasjidStudentJoinedAt: m.MasjidStudentJoinedAt,
+		MasjidStudentLeftAt:   m.MasjidStudentLeftAt,
 
 		MasjidStudentCreatedAt: m.MasjidStudentCreatedAt,
 		MasjidStudentUpdatedAt: m.MasjidStudentUpdatedAt,

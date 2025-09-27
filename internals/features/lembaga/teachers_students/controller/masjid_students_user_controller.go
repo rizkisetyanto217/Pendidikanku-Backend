@@ -17,29 +17,29 @@ import (
 // Query: page|per_page|limit, search, status_in (multi), user_id, id,
 //
 //	created_ge, created_le, sort_by, sort(order), include=user
+//
+// GET /api/a/masjid-students
+// Query: page|per_page|limit, search, status_in (multi), user_id, id,
+//
+//	created_ge, created_le, sort_by, sort(order), include=user
 func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 	// Pastikan DB ada di Locals untuk helper resolver slug→id
 	if c.Locals("DB") == nil {
 		c.Locals("DB", h.DB)
 	}
 
-	// =========================================
 	// 1) Resolve & Enforce Masjid Context (DKM)
-	// =========================================
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return err // sudah berupa fiber.Error yang rapi
+		return err
 	}
 	enforcedMasjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
-		return err // 403 jika bukan DKM/member check sesuai helper
+		return err
 	}
 
-	// =========================================
 	// 2) Pagination & Sorting (whitelist)
-	// =========================================
 	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
-
 	allowedSort := map[string]string{
 		"created_at": "masjid_student_created_at",
 		"updated_at": "masjid_student_updated_at",
@@ -52,9 +52,7 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 	}
 	orderClause = strings.TrimPrefix(orderClause, "ORDER BY ")
 
-	// =========================================
-	// 3) Filters (tanpa masjid_id dari query — di-enforce dari context)
-	// =========================================
+	// 3) Filters
 	search := strings.TrimSpace(c.Query("search"))
 	var (
 		userIDStr = strings.TrimSpace(c.Query("user_id"))
@@ -68,18 +66,18 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 		rowID  uuid.UUID
 	)
 	if userIDStr != "" {
-		if v, err := uuid.Parse(userIDStr); err == nil {
-			userID = v
-		} else {
+		v, err := uuid.Parse(userIDStr)
+		if err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "user_id invalid")
 		}
+		userID = v
 	}
 	if idStr != "" {
-		if v, err := uuid.Parse(idStr); err == nil {
-			rowID = v
-		} else {
+		v, err := uuid.Parse(idStr)
+		if err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "id invalid")
 		}
+		rowID = v
 	}
 
 	// status_in (multi)
@@ -88,16 +86,16 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 	for _, s := range statusIn {
 		s = strings.ToLower(strings.TrimSpace(s))
 		switch s {
-		case model.MasjidStudentStatusActive,
-			model.MasjidStudentStatusInactive,
-			model.MasjidStudentStatusAlumni:
+		case string(model.MasjidStudentActive),
+			string(model.MasjidStudentInactive),
+			string(model.MasjidStudentAlumni):
 			normStatus = append(normStatus, s)
 		}
 	}
 
-	q := h.DB.Model(&model.MasjidStudentModel{})
+	q := h.DB.Model(&model.MasjidStudent{})
 
-	// Enforce tenant dari context (anti cross-tenant injection)
+	// tenant-scope
 	q = q.Where("masjid_student_masjid_id = ?", enforcedMasjidID)
 
 	if rowID != uuid.Nil {
@@ -113,18 +111,18 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 	// created_at range (RFC3339)
 	const layout = time.RFC3339
 	if createdGe != "" {
-		if t, err := time.Parse(layout, createdGe); err == nil {
-			q = q.Where("masjid_student_created_at >= ?", t)
-		} else {
+		t, err := time.Parse(layout, createdGe)
+		if err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "created_ge invalid (use RFC3339)")
 		}
+		q = q.Where("masjid_student_created_at >= ?", t)
 	}
 	if createdLe != "" {
-		if t, err := time.Parse(layout, createdLe); err == nil {
-			q = q.Where("masjid_student_created_at <= ?", t)
-		} else {
+		t, err := time.Parse(layout, createdLe)
+		if err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "created_le invalid (use RFC3339)")
 		}
+		q = q.Where("masjid_student_created_at <= ?", t)
 	}
 
 	// Search di code/note (case-insensitive)
@@ -136,22 +134,18 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 		`, like, like)
 	}
 
-	// =========================================
 	// 4) Count + Fetch
-	// =========================================
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	var rows []model.MasjidStudentModel
+	var rows []model.MasjidStudent
 	if err := q.Order(orderClause).Offset(p.Offset()).Limit(p.Limit()).Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// =========================================
-	// 5) include=user (bulk fetch; no N+1)
-	// =========================================
+	// 5) include=user
 	include := strings.ToLower(strings.TrimSpace(c.Query("include")))
 	wantUser := false
 	if include != "" {

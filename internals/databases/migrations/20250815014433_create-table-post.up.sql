@@ -229,7 +229,6 @@ CREATE TABLE IF NOT EXISTS post_urls (
   post_url_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   post_url_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   post_url_deleted_at TIMESTAMPTZ,
-  post_url_delete_pending_until TIMESTAMPTZ
 );
 
 -- Indexing post_urls

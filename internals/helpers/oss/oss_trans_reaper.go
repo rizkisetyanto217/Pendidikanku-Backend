@@ -202,3 +202,7 @@ func runDBReaper(ctx context.Context, db *gorm.DB, retention time.Duration) erro
 	}
 	return nil
 }
+
+func GetRetentionDuration() time.Duration {
+	return time.Duration(getEnvInt("RETENTION_DAYS", 30)) * 24 * time.Hour
+}

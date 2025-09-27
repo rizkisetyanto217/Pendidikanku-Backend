@@ -4,10 +4,10 @@ BEGIN;
 -- EXTENSIONS
 -- =========================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
-CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- trigram (opsional)
+CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- trigram ops
 
 -- =========================================
--- TABLE: user_teachers (fresh)
+-- TABLE: user_teachers
 -- =========================================
 CREATE TABLE IF NOT EXISTS user_teachers (
   user_teacher_id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -23,20 +23,33 @@ CREATE TABLE IF NOT EXISTS user_teachers (
   user_teacher_activity         TEXT,
   user_teacher_experience_years SMALLINT,
 
+  -- Demografis (opsional)
+  user_teacher_gender           VARCHAR(10),
+  user_teacher_location         VARCHAR(100),
+  user_teacher_city             VARCHAR(100),
+
   -- Metadata fleksibel
   user_teacher_specialties      JSONB,
   user_teacher_certificates     JSONB,
-  user_teacher_whatsapp_url    VARCHAR(20),
 
-    -- Avatar (single file, 2-slot + retensi 30 hari)
+  -- Sosial media (opsional)
+  user_teacher_instagram_url     TEXT,
+  user_teacher_whatsapp_url      TEXT,
+  user_teacher_youtube_url       TEXT,
+  user_teacher_linkedin_url      TEXT,
+  user_teacher_github_url        TEXT,
+  user_teacher_telegram_username VARCHAR(50),
+
+  -- Avatar (single file, 2-slot + retensi 30 hari)
   user_teacher_avatar_url                   TEXT,
   user_teacher_avatar_object_key            TEXT,
   user_teacher_avatar_url_old               TEXT,
   user_teacher_avatar_object_key_old        TEXT,
   user_teacher_avatar_delete_pending_until  TIMESTAMPTZ,
 
-  user_teacher_title_prefix       VARCHAR(60),
-  user_teacher_title_suffix       VARCHAR(60),
+  -- Title
+  user_teacher_title_prefix     VARCHAR(60),
+  user_teacher_title_suffix     VARCHAR(60),
 
   -- Status
   user_teacher_is_verified      BOOLEAN     NOT NULL DEFAULT FALSE,
@@ -47,10 +60,10 @@ CREATE TABLE IF NOT EXISTS user_teachers (
   user_teacher_updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_teacher_deleted_at       TIMESTAMPTZ,
 
-  -- Satu profil per user
+  -- Unik per user
   CONSTRAINT uq_user_teachers_user UNIQUE (user_teacher_user_id),
 
-  -- Guards sederhana
+  -- Guards
   CONSTRAINT ck_ut_exp_years_range
     CHECK (user_teacher_experience_years IS NULL
            OR user_teacher_experience_years BETWEEN 0 AND 80),
@@ -63,55 +76,18 @@ CREATE TABLE IF NOT EXISTS user_teachers (
 );
 
 -- =========================================
--- SEARCH COLUMN (GENERATED; tanpa trigger)
+-- INDEXES (SEARCH HANYA DI NAME)
 -- =========================================
-ALTER TABLE user_teachers
-  ADD COLUMN IF NOT EXISTS user_teacher_search tsvector
-  GENERATED ALWAYS AS (
-    setweight(to_tsvector('simple', coalesce(user_teacher_field,'')),            'A') ||
-    setweight(to_tsvector('simple', coalesce(user_teacher_short_bio,'')),        'B') ||
-    setweight(to_tsvector('simple', coalesce(user_teacher_education,'')),        'C') ||
-    setweight(to_tsvector('simple', coalesce(user_teacher_activity,'')),         'C') ||
-    setweight(to_tsvector('simple', coalesce(user_teacher_greeting,'')),         'D') ||
-    -- ikutkan snapshot nama agar bisa dicari bebas
-    setweight(to_tsvector('simple', coalesce(user_teacher_full_name_snapshot,'')),'A') ||
-    setweight(to_tsvector('simple', coalesce(user_teacher_user_name_snapshot,'')),'A')
-  ) STORED;
-
--- =========================================
--- INDEXES
--- =========================================
-
--- Pencarian & lookup
-CREATE INDEX IF NOT EXISTS idx_user_teachers_field_trgm
-  ON user_teachers USING gin (user_teacher_field gin_trgm_ops)
+-- ILIKE cepat untuk name
+CREATE INDEX IF NOT EXISTS idx_ut_name_trgm
+  ON user_teachers USING gin (user_teacher_name gin_trgm_ops)
   WHERE user_teacher_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_user_teachers_field_lower
-  ON user_teachers (lower(user_teacher_field))
+CREATE INDEX IF NOT EXISTS idx_ut_name_lower
+  ON user_teachers (lower(user_teacher_name))
   WHERE user_teacher_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_user_teachers_search
-  ON user_teachers USING gin (user_teacher_search);
-
--- Snapshot name lookup (disarankan)
-CREATE INDEX IF NOT EXISTS idx_ut_full_name_snap_lower
-  ON user_teachers (lower(user_teacher_full_name_snapshot))
-  WHERE user_teacher_deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS idx_ut_user_name_snap_lower
-  ON user_teachers (lower(user_teacher_user_name_snapshot))
-  WHERE user_teacher_deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS idx_ut_full_name_snap_trgm
-  ON user_teachers USING gin (user_teacher_full_name_snapshot gin_trgm_ops)
-  WHERE user_teacher_deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS idx_ut_user_name_snap_trgm
-  ON user_teachers USING gin (user_teacher_user_name_snapshot gin_trgm_ops)
-  WHERE user_teacher_deleted_at IS NULL;
-
--- Listing cepat (baris hidup)
+-- Status & waktu
 CREATE INDEX IF NOT EXISTS idx_user_teachers_active
   ON user_teachers (user_teacher_is_active)
   WHERE user_teacher_deleted_at IS NULL;
@@ -120,7 +96,7 @@ CREATE INDEX IF NOT EXISTS ix_user_teachers_active_verified_created
   ON user_teachers (user_teacher_is_active, user_teacher_is_verified, user_teacher_created_at DESC)
   WHERE user_teacher_deleted_at IS NULL;
 
--- JSONB (aktif bila difilter berdasarkan tag/isi)
+-- JSONB (opsional; untuk filter tag/isi)
 CREATE INDEX IF NOT EXISTS gin_user_teachers_specialties
   ON user_teachers USING gin (user_teacher_specialties jsonb_path_ops)
   WHERE user_teacher_deleted_at IS NULL;
@@ -129,7 +105,7 @@ CREATE INDEX IF NOT EXISTS gin_user_teachers_certificates
   ON user_teachers USING gin (user_teacher_certificates jsonb_path_ops)
   WHERE user_teacher_deleted_at IS NULL;
 
--- Arsip waktu (ringan)
+-- Arsip waktu
 CREATE INDEX IF NOT EXISTS brin_user_teachers_created_at
   ON user_teachers USING brin (user_teacher_created_at);
 

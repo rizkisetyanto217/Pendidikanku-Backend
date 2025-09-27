@@ -1,3 +1,4 @@
+// internals/features/users/user/dto/user_profile_dto.go
 package dto
 
 import (
@@ -12,23 +13,25 @@ import (
 )
 
 /* ===========================
-   Response DTO (explict)
+   Response DTO (explicit)
    =========================== */
 
 type UsersProfileDTO struct {
-	UsersProfileID      uuid.UUID  `json:"users_profile_id"`
-	UsersProfileUserID  uuid.UUID  `json:"users_profile_user_id"`
+	UsersProfileID     uuid.UUID `json:"users_profile_id"`
+	UsersProfileUserID uuid.UUID `json:"users_profile_user_id"`
+
+	// Snapshot dari users
+	UserProfileFullNameSnapshot *string `json:"user_profile_full_name_snapshot,omitempty"`
 
 	// Identitas dasar
-	UserProfileSlug           *string    `json:"user_profile_slug,omitempty"`
-	UsersProfileDonationName  string     `json:"users_profile_donation_name"`
-	UsersProfileDateOfBirth   *time.Time `json:"users_profile_date_of_birth,omitempty"`
-	UserProfilePlaceOfBirth   *string    `json:"user_profile_place_of_birth,omitempty"`
-	UsersProfileGender        *string    `json:"users_profile_gender,omitempty"` // "male"/"female"
-	UsersProfileLocation      *string    `json:"users_profile_location,omitempty"`
-	UsersProfileCity          *string    `json:"users_profile_city,omitempty"`
-	UsersProfilePhoneNumber   *string    `json:"users_profile_phone_number,omitempty"`
-	UsersProfileBio           *string    `json:"users_profile_bio,omitempty"`
+	UserProfileSlug          *string    `json:"user_profile_slug,omitempty"`
+	UsersProfileDonationName string     `json:"users_profile_donation_name"`
+	UsersProfileDateOfBirth  *time.Time `json:"users_profile_date_of_birth,omitempty"`
+	UserProfilePlaceOfBirth  *string    `json:"user_profile_place_of_birth,omitempty"`
+	UsersProfileGender       *string    `json:"users_profile_gender,omitempty"` // "male"/"female"
+	UsersProfileLocation     *string    `json:"users_profile_location,omitempty"`
+	UsersProfileCity         *string    `json:"users_profile_city,omitempty"`
+	UsersProfileBio          *string    `json:"users_profile_bio,omitempty"`
 
 	// Konten panjang & riwayat
 	UsersProfileBiographyLong  *string `json:"users_profile_biography_long,omitempty"`
@@ -36,12 +39,19 @@ type UsersProfileDTO struct {
 	UsersProfileCertifications *string `json:"users_profile_certifications,omitempty"`
 
 	// Sosial media
-	UsersProfileInstagramURL     *string `json:"users_profile_instagram_url,omitempty"`
-	UsersProfileWhatsappURL      *string `json:"users_profile_whatsapp_url,omitempty"`
-	UsersProfileLinkedinURL      *string `json:"users_profile_linkedin_url,omitempty"`
-	UsersProfileGithubURL        *string `json:"users_profile_github_url,omitempty"`
-	UsersProfileYoutubeURL       *string `json:"users_profile_youtube_url,omitempty"`
-	UserProfileTelegramUsername  *string `json:"user_profile_telegram_username,omitempty"`
+	UsersProfileInstagramURL    *string `json:"users_profile_instagram_url,omitempty"`
+	UsersProfileWhatsappURL     *string `json:"users_profile_whatsapp_url,omitempty"`
+	UsersProfileLinkedinURL     *string `json:"users_profile_linkedin_url,omitempty"`
+	UsersProfileGithubURL       *string `json:"users_profile_github_url,omitempty"`
+	UsersProfileYoutubeURL      *string `json:"users_profile_youtube_url,omitempty"`
+	UserProfileTelegramUsername *string `json:"user_profile_telegram_username,omitempty"`
+
+	// Avatar (single file, 2-slot + retensi 30 hari)
+	UserProfileAvatarURL                *string    `json:"user_profile_avatar_url,omitempty"`
+	UserProfileAvatarObjectKey          *string    `json:"user_profile_avatar_object_key,omitempty"`
+	UserProfileAvatarURLOld             *string    `json:"user_profile_avatar_url_old,omitempty"`
+	UserProfileAvatarObjectKeyOld       *string    `json:"user_profile_avatar_object_key_old,omitempty"`
+	UserProfileAvatarDeletePendingUntil *time.Time `json:"user_profile_avatar_delete_pending_until,omitempty"`
 
 	// Privasi & verifikasi profil
 	UsersProfileIsPublicProfile bool       `json:"users_profile_is_public_profile"`
@@ -86,6 +96,8 @@ func ToUsersProfileDTO(m profilemodel.UserProfileModel) UsersProfileDTO {
 		UsersProfileID:     m.UserProfileID,
 		UsersProfileUserID: m.UserProfileUserID,
 
+		UserProfileFullNameSnapshot: m.UserProfileFullNameSnapshot,
+
 		UserProfileSlug:          m.UserProfileSlug,
 		UsersProfileDonationName: donationName,
 		UsersProfileDateOfBirth:  m.UserProfileDateOfBirth,
@@ -93,7 +105,6 @@ func ToUsersProfileDTO(m profilemodel.UserProfileModel) UsersProfileDTO {
 		UsersProfileGender:       genderStr,
 		UsersProfileLocation:     m.UserProfileLocation,
 		UsersProfileCity:         m.UserProfileCity,
-		UsersProfilePhoneNumber:  m.UserProfilePhoneNumber,
 		UsersProfileBio:          m.UserProfileBio,
 
 		UsersProfileBiographyLong:  m.UserProfileBiographyLong,
@@ -106,6 +117,12 @@ func ToUsersProfileDTO(m profilemodel.UserProfileModel) UsersProfileDTO {
 		UsersProfileGithubURL:       m.UserProfileGithubURL,
 		UsersProfileYoutubeURL:      m.UserProfileYoutubeURL,
 		UserProfileTelegramUsername: m.UserProfileTelegramUsername,
+
+		UserProfileAvatarURL:                m.UserProfileAvatarURL,
+		UserProfileAvatarObjectKey:          m.UserProfileAvatarObjectKey,
+		UserProfileAvatarURLOld:             m.UserProfileAvatarURLOld,
+		UserProfileAvatarObjectKeyOld:       m.UserProfileAvatarObjectKeyOld,
+		UserProfileAvatarDeletePendingUntil: m.UserProfileAvatarDeletePendingUntil,
 
 		UsersProfileIsPublicProfile: m.UserProfileIsPublicProfile,
 		UsersProfileIsVerified:      m.UserProfileIsVerified,
@@ -141,14 +158,13 @@ type CreateUsersProfileRequest struct {
 	// (opsional) slug profil publik
 	UserProfileSlug *string `json:"user_profile_slug,omitempty" validate:"omitempty,max=80"`
 
-	UsersProfileDonationName string   `json:"users_profile_donation_name" validate:"omitempty,max=50"`
-	UsersProfileDateOfBirth  *string  `json:"users_profile_date_of_birth,omitempty" validate:"omitempty"` // "2006-01-02"
-	UserProfilePlaceOfBirth  *string  `json:"user_profile_place_of_birth,omitempty" validate:"omitempty,max=100"`
-	UsersProfileGender       *string  `json:"users_profile_gender,omitempty" validate:"omitempty,oneof=male female"`
-	UsersProfileLocation     *string  `json:"users_profile_location,omitempty" validate:"omitempty,max=100"`
-	UsersProfileCity         *string  `json:"users_profile_city,omitempty" validate:"omitempty,max=100"`
-	UsersProfilePhoneNumber  *string  `json:"users_profile_phone_number,omitempty" validate:"omitempty,max=20"`
-	UsersProfileBio          *string  `json:"users_profile_bio,omitempty" validate:"omitempty,max=300"`
+	UsersProfileDonationName string  `json:"users_profile_donation_name" validate:"omitempty,max=50"`
+	UsersProfileDateOfBirth  *string `json:"users_profile_date_of_birth,omitempty" validate:"omitempty"` // "2006-01-02"
+	UserProfilePlaceOfBirth  *string `json:"user_profile_place_of_birth,omitempty" validate:"omitempty,max=100"`
+	UsersProfileGender       *string `json:"users_profile_gender,omitempty" validate:"omitempty,oneof=male female"`
+	UsersProfileLocation     *string `json:"users_profile_location,omitempty" validate:"omitempty,max=100"`
+	UsersProfileCity         *string `json:"users_profile_city,omitempty" validate:"omitempty,max=100"`
+	UsersProfileBio          *string `json:"users_profile_bio,omitempty" validate:"omitempty,max=300"`
 
 	UsersProfileBiographyLong  *string `json:"users_profile_biography_long,omitempty" validate:"omitempty"`
 	UsersProfileExperience     *string `json:"users_profile_experience,omitempty" validate:"omitempty"`
@@ -166,9 +182,9 @@ type CreateUsersProfileRequest struct {
 	UsersProfileVerifiedAt      *string    `json:"users_profile_verified_at,omitempty" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
 	UsersProfileVerifiedBy      *uuid.UUID `json:"users_profile_verified_by,omitempty" validate:"omitempty"`
 
-	UsersProfileEducation *string  `json:"users_profile_education,omitempty" validate:"omitempty"`
-	UsersProfileCompany   *string  `json:"users_profile_company,omitempty" validate:"omitempty"`
-	UsersProfilePosition  *string  `json:"users_profile_position,omitempty" validate:"omitempty"`
+	UsersProfileEducation *string `json:"users_profile_education,omitempty" validate:"omitempty"`
+	UsersProfileCompany   *string `json:"users_profile_company,omitempty" validate:"omitempty"`
+	UsersProfilePosition  *string `json:"users_profile_position,omitempty" validate:"omitempty"`
 
 	UsersProfileInterests []string `json:"users_profile_interests,omitempty" validate:"omitempty,dive,max=100"`
 	UsersProfileSkills    []string `json:"users_profile_skills,omitempty" validate:"omitempty,dive,max=100"`
@@ -183,7 +199,6 @@ type UpdateUsersProfileRequest struct {
 	UsersProfileGender       *string `json:"users_profile_gender" validate:"omitempty,oneof=male female"`
 	UsersProfileLocation     *string `json:"users_profile_location" validate:"omitempty,max=100"`
 	UsersProfileCity         *string `json:"users_profile_city" validate:"omitempty,max=100"`
-	UsersProfilePhoneNumber  *string `json:"users_profile_phone_number" validate:"omitempty,max=20"`
 	UsersProfileBio          *string `json:"users_profile_bio" validate:"omitempty,max=300"`
 
 	UsersProfileBiographyLong  *string `json:"users_profile_biography_long" validate:"omitempty"`
@@ -202,9 +217,9 @@ type UpdateUsersProfileRequest struct {
 	UsersProfileVerifiedAt      *string    `json:"users_profile_verified_at" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
 	UsersProfileVerifiedBy      *uuid.UUID `json:"users_profile_verified_by" validate:"omitempty"`
 
-	UsersProfileEducation *string  `json:"users_profile_education" validate:"omitempty"`
-	UsersProfileCompany   *string  `json:"users_profile_company" validate:"omitempty"`
-	UsersProfilePosition  *string  `json:"users_profile_position" validate:"omitempty"`
+	UsersProfileEducation *string `json:"users_profile_education" validate:"omitempty"`
+	UsersProfileCompany   *string `json:"users_profile_company" validate:"omitempty"`
+	UsersProfilePosition  *string `json:"users_profile_position" validate:"omitempty"`
 
 	UsersProfileInterests []string `json:"users_profile_interests" validate:"omitempty,dive,max=100"`
 	UsersProfileSkills    []string `json:"users_profile_skills" validate:"omitempty,dive,max=100"`
@@ -220,11 +235,10 @@ func (r CreateUsersProfileRequest) ToModel(userID uuid.UUID) profilemodel.UserPr
 		UserProfileDonationName: stringsPtrOrNil(strings.TrimSpace(r.UsersProfileDonationName)),
 
 		// dasar
-		UserProfileSlug:         trimPtr(r.UserProfileSlug),
-		UserProfileLocation:     trimPtr(r.UsersProfileLocation),
-		UserProfileCity:         trimPtr(r.UsersProfileCity),
-		UserProfilePhoneNumber:  trimPtr(r.UsersProfilePhoneNumber),
-		UserProfileBio:          trimPtr(r.UsersProfileBio),
+		UserProfileSlug:     trimPtr(r.UserProfileSlug),
+		UserProfileLocation: trimPtr(r.UsersProfileLocation),
+		UserProfileCity:     trimPtr(r.UsersProfileCity),
+		UserProfileBio:      trimPtr(r.UsersProfileBio),
 
 		// panjang
 		UserProfileBiographyLong:  trimPtr(r.UsersProfileBiographyLong),
@@ -232,11 +246,11 @@ func (r CreateUsersProfileRequest) ToModel(userID uuid.UUID) profilemodel.UserPr
 		UserProfileCertifications: trimPtr(r.UsersProfileCertifications),
 
 		// sosmed
-		UserProfileInstagramURL:    trimPtr(r.UsersProfileInstagramURL),
-		UserProfileWhatsappURL:     trimPtr(r.UsersProfileWhatsappURL),
-		UserProfileLinkedinURL:     trimPtr(r.UsersProfileLinkedinURL),
-		UserProfileGithubURL:       trimPtr(r.UsersProfileGithubURL),
-		UserProfileYoutubeURL:      trimPtr(r.UsersProfileYoutubeURL),
+		UserProfileInstagramURL:     trimPtr(r.UsersProfileInstagramURL),
+		UserProfileWhatsappURL:      trimPtr(r.UsersProfileWhatsappURL),
+		UserProfileLinkedinURL:      trimPtr(r.UsersProfileLinkedinURL),
+		UserProfileGithubURL:        trimPtr(r.UsersProfileGithubURL),
+		UserProfileYoutubeURL:       trimPtr(r.UsersProfileYoutubeURL),
 		UserProfileTelegramUsername: trimPtr(r.UserProfileTelegramUsername),
 
 		// edu/job
@@ -305,7 +319,6 @@ func (in *UpdateUsersProfileRequest) ToUpdateMap() (map[string]interface{}, erro
 	setStr("user_profile_place_of_birth", in.UserProfilePlaceOfBirth)
 	setStr("user_profile_location", in.UsersProfileLocation)
 	setStr("user_profile_city", in.UsersProfileCity)
-	setStr("user_profile_phone_number", in.UsersProfilePhoneNumber)
 	setStr("user_profile_bio", in.UsersProfileBio)
 
 	// Longs
@@ -414,7 +427,6 @@ func stringsPtrOrNil(s string) *string {
 	}
 	return &t
 }
-
 
 func compactStrings(in []string) []string {
 	out := make([]string, 0, len(in))

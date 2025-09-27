@@ -1,303 +1,317 @@
-// file: internals/features/school/class_rooms/dto/class_room_dto.go
+// file: internals/features/school/classrooms/dto/class_room_dto.go
 package dto
 
 import (
 	"encoding/json"
-	"strings"
 	"time"
 
-	classroomModel "masjidku_backend/internals/features/school/academics/rooms/model" // ← sesuaikan path model
+	"masjidku_backend/internals/features/school/academics/rooms/model"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 )
 
-/* =======================================================
-   OPTIONAL + NULLABLE HELPERS (untuk PATCH tri-state)
-   ======================================================= */
+//
+// ====== ALIASES: pakai shape dari model biar konsisten ======
+//
 
-type Optional[T any] struct {
-	Present bool
-	Value   T
+type ClassRoomPlatform = model.ClassRoomPlatform
+
+const (
+	PlatformZoom           ClassRoomPlatform = model.PlatformZoom
+	PlatformGoogleMeet     ClassRoomPlatform = model.PlatformGoogleMeet
+	PlatformMicrosoftTeams ClassRoomPlatform = model.PlatformMicrosoftTeams
+	PlatformOther          ClassRoomPlatform = model.PlatformOther
+)
+
+type ClassRoomTimeWindow = model.ClassRoomTimeWindow
+type ClassRoomScheduleItem = model.ClassRoomScheduleItem
+type ClassRoomVirtualLink = model.ClassRoomVirtualLink
+
+//
+// ========== CREATE ==========
+//
+
+type CreateClassRoomRequest struct {
+	// Tenant
+	ClassRoomMasjidID uuid.UUID `json:"class_room_masjid_id" validate:"required"`
+
+	// Identitas
+	ClassRoomName        string  `json:"class_room_name" validate:"required"`
+	ClassRoomCode        *string `json:"class_room_code" validate:"omitempty,max=120"`
+	ClassRoomSlug        *string `json:"class_room_slug" validate:"omitempty,max=50"`
+	ClassRoomLocation    *string `json:"class_room_location" validate:"omitempty,max=500"`
+	ClassRoomCapacity    *int    `json:"class_room_capacity" validate:"omitempty,min=0"`
+	ClassRoomDescription *string `json:"class_room_description" validate:"omitempty"`
+
+	// Karakteristik
+	ClassRoomIsVirtual *bool `json:"class_room_is_virtual" validate:"omitempty"`
+	ClassRoomIsActive  *bool `json:"class_room_is_active" validate:"omitempty"`
+
+	// Image (opsional)
+	ClassRoomImageURL                *string    `json:"class_room_image_url" validate:"omitempty,url"`
+	ClassRoomImageObjectKey          *string    `json:"class_room_image_object_key" validate:"omitempty"`
+	ClassRoomImageURLOld             *string    `json:"class_room_image_url_old" validate:"omitempty,url"`
+	ClassRoomImageObjectKeyOld       *string    `json:"class_room_image_object_key_old" validate:"omitempty"`
+	ClassRoomImageDeletePendingUntil *time.Time `json:"class_room_image_delete_pending_until" validate:"omitempty"`
+
+	// JSONB ergonomis di DTO → slice native
+	ClassRoomFeatures     []string               `json:"class_room_features" validate:"omitempty,dive,printascii"`
+	ClassRoomVirtualLinks []ClassRoomVirtualLink `json:"class_room_virtual_links" validate:"omitempty,dive"`
 }
 
-func (o *Optional[T]) UnmarshalJSON(b []byte) error {
-	o.Present = true
-	var v T
-	if err := json.Unmarshal(b, &v); err != nil {
-		return err
+func (r CreateClassRoomRequest) ToModel() (model.ClassRoomModel, error) {
+	m := model.ClassRoomModel{
+		ClassRoomMasjidID:  r.ClassRoomMasjidID,
+		ClassRoomName:      r.ClassRoomName,
+		ClassRoomIsVirtual: false,
+		ClassRoomIsActive:  true,
 	}
-	o.Value = v
+
+	// Identitas
+	m.ClassRoomCode = r.ClassRoomCode
+	m.ClassRoomSlug = r.ClassRoomSlug
+	m.ClassRoomLocation = r.ClassRoomLocation
+	m.ClassRoomCapacity = r.ClassRoomCapacity
+	m.ClassRoomDescription = r.ClassRoomDescription
+
+	// Flags
+	if r.ClassRoomIsVirtual != nil {
+		m.ClassRoomIsVirtual = *r.ClassRoomIsVirtual
+	}
+	if r.ClassRoomIsActive != nil {
+		m.ClassRoomIsActive = *r.ClassRoomIsActive
+	}
+
+	// Image
+	m.ClassRoomImageURL = r.ClassRoomImageURL
+	m.ClassRoomImageObjectKey = r.ClassRoomImageObjectKey
+	m.ClassRoomImageURLOld = r.ClassRoomImageURLOld
+	m.ClassRoomImageObjectKeyOld = r.ClassRoomImageObjectKeyOld
+	m.ClassRoomImageDeletePendingUntil = r.ClassRoomImageDeletePendingUntil
+
+	// Features → JSONB
+	if err := setJSONFromStrings(&m.ClassRoomFeatures, r.ClassRoomFeatures); err != nil {
+		return m, err
+	}
+
+	// Virtual links (typed wrapper)
+	m.ClassRoomVirtualLinks = model.JSONBVirtualLinks(r.ClassRoomVirtualLinks)
+
+	return m, nil
+}
+
+//
+// ========== UPDATE / PATCH ==========
+//
+
+type UpdateClassRoomRequest struct {
+	// Identitas
+	ClassRoomName        *string `json:"class_room_name" validate:"omitempty"`
+	ClassRoomCode        *string `json:"class_room_code" validate:"omitempty,max=120"`
+	ClassRoomSlug        *string `json:"class_room_slug" validate:"omitempty,max=50"`
+	ClassRoomLocation    *string `json:"class_room_location" validate:"omitempty,max=500"`
+	ClassRoomCapacity    *int    `json:"class_room_capacity" validate:"omitempty,min=0"`
+	ClassRoomDescription *string `json:"class_room_description" validate:"omitempty"`
+
+	// Karakteristik
+	ClassRoomIsVirtual *bool `json:"class_room_is_virtual" validate:"omitempty"`
+	ClassRoomIsActive  *bool `json:"class_room_is_active" validate:"omitempty"`
+
+	// Image (opsional)
+	ClassRoomImageURL                *string    `json:"class_room_image_url" validate:"omitempty,url"`
+	ClassRoomImageObjectKey          *string    `json:"class_room_image_object_key" validate:"omitempty"`
+	ClassRoomImageURLOld             *string    `json:"class_room_image_url_old" validate:"omitempty,url"`
+	ClassRoomImageObjectKeyOld       *string    `json:"class_room_image_object_key_old" validate:"omitempty"`
+	ClassRoomImageDeletePendingUntil *time.Time `json:"class_room_image_delete_pending_until" validate:"omitempty"`
+
+	// JSONB ergonomis → pointer slice (nil=skip)
+	ClassRoomFeatures     *[]string               `json:"class_room_features" validate:"omitempty,dive,printascii"`
+	ClassRoomVirtualLinks *[]ClassRoomVirtualLink `json:"class_room_virtual_links" validate:"omitempty,dive"`
+
+	// Clear (set ke kosong/NULL sesuai kolom)
+	Clear []string `json:"__clear,omitempty" validate:"omitempty,dive,oneof=class_room_code class_room_slug class_room_location class_room_capacity class_room_description class_room_image_url class_room_image_object_key class_room_image_url_old class_room_image_object_key_old class_room_image_delete_pending_until class_room_features class_room_virtual_links"`
+}
+
+// Mutasi in-place ke model
+func (r UpdateClassRoomRequest) ApplyPatch(m *model.ClassRoomModel) error {
+	// Identitas
+	if r.ClassRoomName != nil {
+		m.ClassRoomName = *r.ClassRoomName
+	}
+	if r.ClassRoomCode != nil {
+		m.ClassRoomCode = r.ClassRoomCode
+	}
+	if r.ClassRoomSlug != nil {
+		m.ClassRoomSlug = r.ClassRoomSlug
+	}
+	if r.ClassRoomLocation != nil {
+		m.ClassRoomLocation = r.ClassRoomLocation
+	}
+	if r.ClassRoomCapacity != nil {
+		m.ClassRoomCapacity = r.ClassRoomCapacity
+	}
+	if r.ClassRoomDescription != nil {
+		m.ClassRoomDescription = r.ClassRoomDescription
+	}
+
+	// Flags
+	if r.ClassRoomIsVirtual != nil {
+		m.ClassRoomIsVirtual = *r.ClassRoomIsVirtual
+	}
+	if r.ClassRoomIsActive != nil {
+		m.ClassRoomIsActive = *r.ClassRoomIsActive
+	}
+
+	// Image
+	if r.ClassRoomImageURL != nil {
+		m.ClassRoomImageURL = r.ClassRoomImageURL
+	}
+	if r.ClassRoomImageObjectKey != nil {
+		m.ClassRoomImageObjectKey = r.ClassRoomImageObjectKey
+	}
+	if r.ClassRoomImageURLOld != nil {
+		m.ClassRoomImageURLOld = r.ClassRoomImageURLOld
+	}
+	if r.ClassRoomImageObjectKeyOld != nil {
+		m.ClassRoomImageObjectKeyOld = r.ClassRoomImageObjectKeyOld
+	}
+	if r.ClassRoomImageDeletePendingUntil != nil {
+		m.ClassRoomImageDeletePendingUntil = r.ClassRoomImageDeletePendingUntil
+	}
+
+	// JSONB
+	if r.ClassRoomFeatures != nil {
+		if err := setJSONFromStrings(&m.ClassRoomFeatures, *r.ClassRoomFeatures); err != nil {
+			return err
+		}
+	}
+	if r.ClassRoomVirtualLinks != nil {
+		m.ClassRoomVirtualLinks = model.JSONBVirtualLinks(*r.ClassRoomVirtualLinks)
+	}
+
+	// Clear
+	for _, col := range r.Clear {
+		switch col {
+		case "class_room_code":
+			m.ClassRoomCode = nil
+		case "class_room_slug":
+			m.ClassRoomSlug = nil
+		case "class_room_location":
+			m.ClassRoomLocation = nil
+		case "class_room_capacity":
+			m.ClassRoomCapacity = nil
+		case "class_room_description":
+			m.ClassRoomDescription = nil
+		case "class_room_image_url":
+			m.ClassRoomImageURL = nil
+		case "class_room_image_object_key":
+			m.ClassRoomImageObjectKey = nil
+		case "class_room_image_url_old":
+			m.ClassRoomImageURLOld = nil
+		case "class_room_image_object_key_old":
+			m.ClassRoomImageObjectKeyOld = nil
+		case "class_room_image_delete_pending_until":
+			m.ClassRoomImageDeletePendingUntil = nil
+		case "class_room_features":
+			// kolom NOT NULL → set ke [] (bukan NULL)
+			m.ClassRoomFeatures = datatypes.JSON([]byte("[]"))
+		case "class_room_virtual_links":
+			// kolom NOT NULL → set ke [] (bukan NULL)
+			m.ClassRoomVirtualLinks = model.JSONBVirtualLinks{}
+		}
+	}
+
 	return nil
 }
 
-type NullableString struct {
-	Valid bool
-	Value string
-}
-
-func (ns *NullableString) UnmarshalJSON(b []byte) error {
-	if string(b) == "null" {
-		ns.Valid = false
-		ns.Value = ""
-		return nil
-	}
-	ns.Valid = true
-	return json.Unmarshal(b, &ns.Value)
-}
-
-type NullableInt struct {
-	Valid bool
-	Value int
-}
-
-func (ni *NullableInt) UnmarshalJSON(b []byte) error {
-	if string(b) == "null" {
-		ni.Valid = false
-		ni.Value = 0
-		return nil
-	}
-	ni.Valid = true
-	return json.Unmarshal(b, &ni.Value)
-}
-
-/* =======================================================
-   REQUEST DTOs (CREATE / UPDATE)
-   ======================================================= */
-
-type CreateClassRoomRequest struct {
-	ClassRoomName        string         `json:"class_room_name" validate:"required,min=3,max=100"`
-	ClassRoomCode        *string        `json:"class_room_code,omitempty" validate:"omitempty,max=50"`
-	ClassRoomSlug        *string        `json:"class_room_slug,omitempty" validate:"omitempty,min=3,max=50"`
-	ClassRoomLocation    *string        `json:"class_room_location,omitempty" validate:"omitempty,max=100"`
-	ClassRoomCapacity    *int           `json:"class_room_capacity,omitempty" validate:"omitempty,min=0"`
-	ClassRoomDescription *string        `json:"class_room_description,omitempty" validate:"omitempty"`
-	ClassRoomIsVirtual   bool           `json:"class_room_is_virtual"`
-	ClassRoomIsActive    bool           `json:"class_room_is_active"`
-	ClassRoomFeatures    datatypes.JSON `json:"class_room_features" validate:"omitempty"`
-}
-
-type UpdateClassRoomRequest struct {
-	ClassRoomName        *string         `json:"class_room_name,omitempty" validate:"omitempty,min=3,max=100"`
-	ClassRoomCode        *string         `json:"class_room_code,omitempty" validate:"omitempty,max=50"`
-	ClassRoomSlug        *string         `json:"class_room_slug,omitempty" validate:"omitempty,min=3,max=50"`
-	ClassRoomLocation    *string         `json:"class_room_location,omitempty" validate:"omitempty,max=100"`
-	ClassRoomCapacity    *int            `json:"class_room_capacity,omitempty" validate:"omitempty,min=0"`
-	ClassRoomDescription *string         `json:"class_room_description,omitempty" validate:"omitempty"`
-	ClassRoomIsVirtual   *bool           `json:"class_room_is_virtual,omitempty"`
-	ClassRoomIsActive    *bool           `json:"class_room_is_active,omitempty"`
-	ClassRoomFeatures    *datatypes.JSON `json:"class_room_features,omitempty"`
-}
-
-/* =======================================================
-   PATCH DTO (tri-state)
-   ======================================================= */
-
-type PatchClassRoomRequest struct {
-	ClassRoomName        Optional[string]         `json:"class_room_name,omitempty"`
-	ClassRoomCode        Optional[NullableString] `json:"class_room_code,omitempty"`
-	ClassRoomSlug        Optional[NullableString] `json:"class_room_slug,omitempty"`
-	ClassRoomLocation    Optional[NullableString] `json:"class_room_location,omitempty"`
-	ClassRoomCapacity    Optional[NullableInt]    `json:"class_room_capacity,omitempty"`
-	ClassRoomDescription Optional[NullableString] `json:"class_room_description,omitempty"`
-	ClassRoomIsVirtual   Optional[bool]           `json:"class_room_is_virtual,omitempty"`
-	ClassRoomIsActive    Optional[bool]           `json:"class_room_is_active,omitempty"`
-	ClassRoomFeatures    Optional[datatypes.JSON] `json:"class_room_features,omitempty"`
-}
-
-func (p *PatchClassRoomRequest) Normalize() {
-	if p.ClassRoomName.Present {
-		p.ClassRoomName.Value = strings.TrimSpace(p.ClassRoomName.Value)
-	}
-	if p.ClassRoomCode.Present && p.ClassRoomCode.Value.Valid {
-		p.ClassRoomCode.Value.Value = strings.TrimSpace(p.ClassRoomCode.Value.Value)
-	}
-	if p.ClassRoomSlug.Present && p.ClassRoomSlug.Value.Valid {
-		s := strings.ToLower(strings.TrimSpace(p.ClassRoomSlug.Value.Value))
-		p.ClassRoomSlug.Value.Value = s
-	}
-	if p.ClassRoomLocation.Present && p.ClassRoomLocation.Value.Valid {
-		p.ClassRoomLocation.Value.Value = strings.TrimSpace(p.ClassRoomLocation.Value.Value)
-	}
-	if p.ClassRoomDescription.Present && p.ClassRoomDescription.Value.Valid {
-		p.ClassRoomDescription.Value.Value = strings.TrimSpace(p.ClassRoomDescription.Value.Value)
-	}
-}
-
-func (p *PatchClassRoomRequest) BuildUpdateMap() map[string]interface{} {
-	up := make(map[string]interface{})
-
-	if p.ClassRoomName.Present {
-		up["class_room_name"] = p.ClassRoomName.Value
-	}
-	if p.ClassRoomCode.Present {
-		if p.ClassRoomCode.Value.Valid {
-			v := p.ClassRoomCode.Value.Value
-			up["class_room_code"] = &v
-		} else {
-			up["class_room_code"] = nil
-		}
-	}
-	if p.ClassRoomSlug.Present {
-		if p.ClassRoomSlug.Value.Valid {
-			v := p.ClassRoomSlug.Value.Value
-			up["class_room_slug"] = &v
-		} else {
-			up["class_room_slug"] = nil
-		}
-	}
-	if p.ClassRoomLocation.Present {
-		if p.ClassRoomLocation.Value.Valid {
-			v := p.ClassRoomLocation.Value.Value
-			up["class_room_location"] = &v
-		} else {
-			up["class_room_location"] = nil
-		}
-	}
-	if p.ClassRoomCapacity.Present {
-		if p.ClassRoomCapacity.Value.Valid {
-			v := p.ClassRoomCapacity.Value.Value
-			up["class_room_capacity"] = &v
-		} else {
-			up["class_room_capacity"] = nil
-		}
-	}
-	if p.ClassRoomDescription.Present {
-		if p.ClassRoomDescription.Value.Valid {
-			v := p.ClassRoomDescription.Value.Value
-			up["class_room_description"] = &v
-		} else {
-			up["class_room_description"] = nil
-		}
-	}
-	if p.ClassRoomIsVirtual.Present {
-		up["class_room_is_virtual"] = p.ClassRoomIsVirtual.Value
-	}
-	if p.ClassRoomIsActive.Present {
-		up["class_room_is_active"] = p.ClassRoomIsActive.Value
-	}
-	if p.ClassRoomFeatures.Present {
-		up["class_room_features"] = p.ClassRoomFeatures.Value
-	}
-
-	return up
-}
-
-/* =======================================================
-   RESPONSE DTO
-   ======================================================= */
+//
+// ========== RESPONSE ==========
+//
 
 type ClassRoomResponse struct {
-	ClassRoomID          uuid.UUID      `json:"class_room_id"`
-	ClassRoomMasjidID    uuid.UUID      `json:"class_room_masjid_id"`
-	ClassRoomName        string         `json:"class_room_name"`
-	ClassRoomCode        *string        `json:"class_room_code,omitempty"`
-	ClassRoomSlug        *string        `json:"class_room_slug,omitempty"`
-	ClassRoomLocation    *string        `json:"class_room_location,omitempty"`
-	ClassRoomCapacity    *int           `json:"class_room_capacity,omitempty"`
-	ClassRoomDescription *string        `json:"class_room_description,omitempty"`
-	ClassRoomIsVirtual   bool           `json:"class_room_is_virtual"`
-	ClassRoomIsActive    bool           `json:"class_room_is_active"`
-	ClassRoomFeatures    datatypes.JSON `json:"class_room_features"`
-	ClassRoomCreatedAt   time.Time      `json:"class_room_created_at"`
-	ClassRoomUpdatedAt   time.Time      `json:"class_room_updated_at"`
-	ClassRoomDeletedAt   *time.Time     `json:"class_room_deleted_at,omitempty"`
+	// Inti
+	ClassRoomID       uuid.UUID `json:"class_room_id"`
+	ClassRoomMasjidID uuid.UUID `json:"class_room_masjid_id"`
+
+	// Identitas
+	ClassRoomName        string  `json:"class_room_name"`
+	ClassRoomCode        *string `json:"class_room_code,omitempty"`
+	ClassRoomSlug        *string `json:"class_room_slug,omitempty"`
+	ClassRoomLocation    *string `json:"class_room_location,omitempty"`
+	ClassRoomCapacity    *int    `json:"class_room_capacity,omitempty"`
+	ClassRoomDescription *string `json:"class_room_description,omitempty"`
+
+	// Karakteristik
+	ClassRoomIsVirtual bool `json:"class_room_is_virtual"`
+	ClassRoomIsActive  bool `json:"class_room_is_active"`
+
+	// Image
+	ClassRoomImageURL                *string    `json:"class_room_image_url,omitempty"`
+	ClassRoomImageObjectKey          *string    `json:"class_room_image_object_key,omitempty"`
+	ClassRoomImageURLOld             *string    `json:"class_room_image_url_old,omitempty"`
+	ClassRoomImageObjectKeyOld       *string    `json:"class_room_image_object_key_old,omitempty"`
+	ClassRoomImageDeletePendingUntil *time.Time `json:"class_room_image_delete_pending_until,omitempty"`
+
+	// JSONB, ergonomis
+	ClassRoomFeatures     []string               `json:"class_room_features"`
+	ClassRoomVirtualLinks []ClassRoomVirtualLink `json:"class_room_virtual_links"`
+
+	// Audit
+	ClassRoomCreatedAt string `json:"class_room_created_at"`
+	ClassRoomUpdatedAt string `json:"class_room_updated_at"`
 }
 
-func ToClassRoomResponse(m classroomModel.ClassRoomModel) ClassRoomResponse {
-	var deletedAt *time.Time
-	if m.ClassRoomDeletedAt.Valid {
-		deletedAt = &m.ClassRoomDeletedAt.Time
-	}
-
+func ToClassRoomResponse(m model.ClassRoomModel) ClassRoomResponse {
 	return ClassRoomResponse{
-		ClassRoomID:          m.ClassRoomID,
-		ClassRoomMasjidID:    m.ClassRoomMasjidID,
-		ClassRoomName:        m.ClassRoomName,
-		ClassRoomCode:        m.ClassRoomCode,
-		ClassRoomSlug:        m.ClassRoomSlug,
-		ClassRoomLocation:    m.ClassRoomLocation,
-		ClassRoomCapacity:    m.ClassRoomCapacity,
-		ClassRoomDescription: m.ClassRoomDescription,
-		ClassRoomIsVirtual:   m.ClassRoomIsVirtual,
-		ClassRoomIsActive:    m.ClassRoomIsActive,
-		ClassRoomFeatures:    m.ClassRoomFeatures,
-		ClassRoomCreatedAt:   m.ClassRoomCreatedAt,
-		ClassRoomUpdatedAt:   m.ClassRoomUpdatedAt,
-		ClassRoomDeletedAt:   deletedAt,
+		ClassRoomID:                      m.ClassRoomID,
+		ClassRoomMasjidID:                m.ClassRoomMasjidID,
+		ClassRoomName:                    m.ClassRoomName,
+		ClassRoomCode:                    m.ClassRoomCode,
+		ClassRoomSlug:                    m.ClassRoomSlug,
+		ClassRoomLocation:                m.ClassRoomLocation,
+		ClassRoomCapacity:                m.ClassRoomCapacity,
+		ClassRoomDescription:             m.ClassRoomDescription,
+		ClassRoomIsVirtual:               m.ClassRoomIsVirtual,
+		ClassRoomIsActive:                m.ClassRoomIsActive,
+		ClassRoomImageURL:                m.ClassRoomImageURL,
+		ClassRoomImageObjectKey:          m.ClassRoomImageObjectKey,
+		ClassRoomImageURLOld:             m.ClassRoomImageURLOld,
+		ClassRoomImageObjectKeyOld:       m.ClassRoomImageObjectKeyOld,
+		ClassRoomImageDeletePendingUntil: m.ClassRoomImageDeletePendingUntil,
+		ClassRoomFeatures:                mustStringsFromJSON(m.ClassRoomFeatures),
+		ClassRoomVirtualLinks:            []ClassRoomVirtualLink(m.ClassRoomVirtualLinks),
+		ClassRoomCreatedAt:               m.ClassRoomCreatedAt.Format(time.RFC3339),
+		ClassRoomUpdatedAt:               m.ClassRoomUpdatedAt.Format(time.RFC3339),
 	}
 }
 
-/* =======================================================
-   QUERY FILTER DTO
-   ======================================================= */
+//
+// ========== helpers ==========
+//
 
-type ListClassRoomsQuery struct {
-	Search      string `query:"search"`
-	IsActive    *bool  `query:"is_active"`
-	IsVirtual   *bool  `query:"is_virtual"`
-	HasCodeOnly *bool  `query:"has_code_only"`
-	Sort        string `query:"sort"`
-	Limit       int    `query:"limit"`
-	Offset      int    `query:"offset"`
+// setJSONFromStrings: []string → datatypes.JSON (default "[]")
+func setJSONFromStrings(dst *datatypes.JSON, arr []string) error {
+	if len(arr) == 0 {
+		*dst = datatypes.JSON([]byte("[]"))
+		return nil
+	}
+	b, err := json.Marshal(arr)
+	if err != nil {
+		return err
+	}
+	*dst = datatypes.JSON(b)
+	return nil
 }
 
-func (q *ListClassRoomsQuery) Normalize() {
-	q.Search = strings.TrimSpace(q.Search)
-	q.Sort = strings.TrimSpace(strings.ToLower(q.Sort))
-	if q.Limit <= 0 || q.Limit > 200 {
-		q.Limit = 20
+// mustStringsFromJSON: datatypes.JSON → []string (safe)
+func mustStringsFromJSON(j datatypes.JSON) []string {
+	if len(j) == 0 {
+		return []string{}
 	}
-	if q.Offset < 0 {
-		q.Offset = 0
+	var out []string
+	if err := json.Unmarshal(j, &out); err != nil {
+		return []string{}
 	}
-}
-
-func PtrBool(b bool) *bool { return &b }
-
-/* =======================================================
-   NORMALIZER (CREATE/UPDATE)
-   ======================================================= */
-
-func (r *CreateClassRoomRequest) Normalize() {
-	r.ClassRoomName = strings.TrimSpace(r.ClassRoomName)
-	if r.ClassRoomCode != nil {
-		c := strings.TrimSpace(*r.ClassRoomCode)
-		r.ClassRoomCode = &c
-	}
-	if r.ClassRoomSlug != nil {
-		s := strings.ToLower(strings.TrimSpace(*r.ClassRoomSlug))
-		r.ClassRoomSlug = &s
-	}
-	if r.ClassRoomLocation != nil {
-		l := strings.TrimSpace(*r.ClassRoomLocation)
-		r.ClassRoomLocation = &l
-	}
-	if r.ClassRoomDescription != nil {
-		d := strings.TrimSpace(*r.ClassRoomDescription)
-		r.ClassRoomDescription = &d
-	}
-}
-
-func (r *UpdateClassRoomRequest) Normalize() {
-	if r.ClassRoomName != nil {
-		v := strings.TrimSpace(*r.ClassRoomName)
-		r.ClassRoomName = &v
-	}
-	if r.ClassRoomCode != nil {
-		v := strings.TrimSpace(*r.ClassRoomCode)
-		r.ClassRoomCode = &v
-	}
-	if r.ClassRoomSlug != nil {
-		v := strings.ToLower(strings.TrimSpace(*r.ClassRoomSlug))
-		r.ClassRoomSlug = &v
-	}
-	if r.ClassRoomLocation != nil {
-		v := strings.TrimSpace(*r.ClassRoomLocation)
-		r.ClassRoomLocation = &v
-	}
-	if r.ClassRoomDescription != nil {
-		v := strings.TrimSpace(*r.ClassRoomDescription)
-		r.ClassRoomDescription = &v
-	}
+	return out
 }

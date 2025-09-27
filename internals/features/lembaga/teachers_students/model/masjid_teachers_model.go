@@ -1,84 +1,70 @@
-// internals/features/lembaga/teachers/model/masjid_teacher_model.go
 package model
 
 import (
-	"database/sql/driver"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
-/* =========================================================
-   ENUM: teacher_employment_enum  (harus sama dengan di DB)
-   ========================================================= */
+/*
+	=============================
+	  Enum: teacher_employment_enum
 
-type TeacherEmploymentStatus string
+=============================
+*/
+type TeacherEmployment string
 
 const (
-	TeacherEmploymentTetap      TeacherEmploymentStatus = "tetap"
-	TeacherEmploymentKontrak    TeacherEmploymentStatus = "kontrak"
-	TeacherEmploymentParuhWaktu TeacherEmploymentStatus = "paruh_waktu"
-	TeacherEmploymentMagang     TeacherEmploymentStatus = "magang"
-	TeacherEmploymentHonorer    TeacherEmploymentStatus = "honorer"
-	TeacherEmploymentRelawan    TeacherEmploymentStatus = "relawan"
-	TeacherEmploymentTamu       TeacherEmploymentStatus = "tamu"
+	TeacherEmploymentTetap      TeacherEmployment = "tetap"
+	TeacherEmploymentKontrak    TeacherEmployment = "kontrak"
+	TeacherEmploymentParuhWaktu TeacherEmployment = "paruh_waktu"
+	TeacherEmploymentMagang     TeacherEmployment = "magang"
+	TeacherEmploymentHonorer    TeacherEmployment = "honorer"
+	TeacherEmploymentRelawan    TeacherEmployment = "relawan"
+	TeacherEmploymentTamu       TeacherEmployment = "tamu"
 )
 
-// Scan & Value → jaga konsistensi lowercase + trim
-func (s *TeacherEmploymentStatus) Scan(value any) error {
-	switch v := value.(type) {
-	case string:
-		*s = TeacherEmploymentStatus(strings.ToLower(strings.TrimSpace(v)))
-	case []byte:
-		*s = TeacherEmploymentStatus(strings.ToLower(strings.TrimSpace(string(v))))
-	case nil:
-		*s = ""
-	default:
-		*s = TeacherEmploymentStatus(strings.ToLower(strings.TrimSpace(v.(string))))
-	}
-	return nil
-}
-func (s TeacherEmploymentStatus) Value() (driver.Value, error) {
-	return string(TeacherEmploymentStatus(strings.ToLower(strings.TrimSpace(string(s))))), nil
-}
-
-/* =========================================================
-   MODEL: masjid_teachers
-   ========================================================= */
-
 type MasjidTeacherModel struct {
-	// PK
-	MasjidTeacherID uuid.UUID `gorm:"column:masjid_teacher_id;type:uuid;primaryKey;default:gen_random_uuid()" json:"masjid_teacher_id"`
+	MasjidTeacherID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:masjid_teacher_id" json:"masjid_teacher_id"`
 
-	// Scope/Relasi
-	MasjidTeacherMasjidID uuid.UUID `gorm:"column:masjid_teacher_masjid_id;type:uuid;not null;index" json:"masjid_teacher_masjid_id"`
-	MasjidTeacherUserID   uuid.UUID `gorm:"column:masjid_teacher_user_id;type:uuid;not null;index"   json:"masjid_teacher_user_id"`
+	// Scope/relasi
+	MasjidTeacherMasjidID uuid.UUID `gorm:"type:uuid;not null;column:masjid_teacher_masjid_id" json:"masjid_teacher_masjid_id"`
+	// DDL saat ini: kolom ini mereferensikan user_teachers(id) (bukan user_teacher_id).
+	// Model mengikuti DDL apa adanya.
+	MasjidTeacherUserTeacherID uuid.UUID `gorm:"type:uuid;not null;column:masjid_teacher_user_teacher_id" json:"masjid_teacher_user_teacher_id"`
 
-	// Identitas/Kepegawaian
-	MasjidTeacherCode       *string                  `gorm:"column:masjid_teacher_code;type:varchar(50)"      json:"masjid_teacher_code,omitempty"`
-	MasjidTeacherSlug       *string                  `gorm:"column:masjid_teacher_slug;type:varchar(50)"      json:"masjid_teacher_slug,omitempty"`
-
-	MasjidTeacherEmployment *TeacherEmploymentStatus `gorm:"column:masjid_teacher_employment;type:teacher_employment_enum" json:"masjid_teacher_employment,omitempty"`
-	MasjidTeacherIsActive   bool                     `gorm:"column:masjid_teacher_is_active;not null;default:true"        json:"masjid_teacher_is_active"`
+	// Identitas/kepegawaian
+	MasjidTeacherCode       *string            `gorm:"type:varchar(50);column:masjid_teacher_code" json:"masjid_teacher_code,omitempty"`
+	MasjidTeacherSlug       *string            `gorm:"type:varchar(50);column:masjid_teacher_slug" json:"masjid_teacher_slug,omitempty"`
+	MasjidTeacherEmployment *TeacherEmployment `gorm:"type:teacher_employment_enum;column:masjid_teacher_employment" json:"masjid_teacher_employment,omitempty"`
+	MasjidTeacherIsActive   bool               `gorm:"type:boolean;not null;default:true;column:masjid_teacher_is_active" json:"masjid_teacher_is_active"`
 
 	// Periode kerja
-	MasjidTeacherJoinedAt *time.Time `gorm:"column:masjid_teacher_joined_at;type:date" json:"masjid_teacher_joined_at,omitempty"`
-	MasjidTeacherLeftAt   *time.Time `gorm:"column:masjid_teacher_left_at;type:date"   json:"masjid_teacher_left_at,omitempty"`
+	MasjidTeacherJoinedAt *time.Time `gorm:"type:date;column:masjid_teacher_joined_at" json:"masjid_teacher_joined_at,omitempty"`
+	MasjidTeacherLeftAt   *time.Time `gorm:"type:date;column:masjid_teacher_left_at" json:"masjid_teacher_left_at,omitempty"`
 
 	// Verifikasi internal
-	MasjidTeacherIsVerified bool       `gorm:"column:masjid_teacher_is_verified;not null;default:false" json:"masjid_teacher_is_verified"`
-	MasjidTeacherVerifiedAt *time.Time `gorm:"column:masjid_teacher_verified_at"                        json:"masjid_teacher_verified_at,omitempty"`
+	MasjidTeacherIsVerified bool       `gorm:"type:boolean;not null;default:false;column:masjid_teacher_is_verified" json:"masjid_teacher_is_verified"`
+	MasjidTeacherVerifiedAt *time.Time `gorm:"type:timestamptz;column:masjid_teacher_verified_at" json:"masjid_teacher_verified_at,omitempty"`
 
 	// Visibilitas & catatan
-	MasjidTeacherIsPublic bool    `gorm:"column:masjid_teacher_is_public;not null;default:true" json:"masjid_teacher_is_public"`
-	MasjidTeacherNotes    *string `gorm:"column:masjid_teacher_notes"                           json:"masjid_teacher_notes,omitempty"`
+	MasjidTeacherIsPublic bool    `gorm:"type:boolean;not null;default:true;column:masjid_teacher_is_public" json:"masjid_teacher_is_public"`
+	MasjidTeacherNotes    *string `gorm:"type:text;column:masjid_teacher_notes" json:"masjid_teacher_notes,omitempty"`
 
-	// Audit
-	MasjidTeacherCreatedAt time.Time      `gorm:"column:masjid_teacher_created_at;autoCreateTime" json:"masjid_teacher_created_at"`
-	MasjidTeacherUpdatedAt time.Time      `gorm:"column:masjid_teacher_updated_at;autoUpdateTime"  json:"masjid_teacher_updated_at"`
-	MasjidTeacherDeletedAt gorm.DeletedAt `gorm:"column:masjid_teacher_deleted_at;index"           json:"masjid_teacher_deleted_at,omitempty"`
+	// Snapshot dari user_teachers
+	MasjidTeacherNameUserSnapshot        *string `gorm:"type:varchar(80);column:masjid_teacher_name_user_snapshot" json:"masjid_teacher_name_user_snapshot,omitempty"`
+	MasjidTeacherAvatarURLUserSnapshot   *string `gorm:"type:varchar(255);column:masjid_teacher_avatar_url_user_snapshot" json:"masjid_teacher_avatar_url_user_snapshot,omitempty"`
+	MasjidTeacherWhatsappURLUserSnapshot *string `gorm:"type:varchar(20);column:masjid_teacher_whatsapp_url_user_snapshot" json:"masjid_teacher_whatsapp_url_user_snapshot,omitempty"`
+	MasjidTeacherTitlePrefixUserSnapshot *string `gorm:"type:varchar(20);column:masjid_teacher_title_prefix_user_snapshot" json:"masjid_teacher_title_prefix_user_snapshot,omitempty"`
+	MasjidTeacherTitleSuffixUserSnapshot *string `gorm:"type:varchar(30);column:masjid_teacher_title_suffix_user_snapshot" json:"masjid_teacher_title_suffix_user_snapshot,omitempty"`
+
+	// Audit & soft delete
+	MasjidTeacherCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();autoCreateTime;column:masjid_teacher_created_at" json:"masjid_teacher_created_at"`
+	MasjidTeacherUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();autoUpdateTime;column:masjid_teacher_updated_at" json:"masjid_teacher_updated_at"`
+	MasjidTeacherDeletedAt gorm.DeletedAt `gorm:"index;column:masjid_teacher_deleted_at" json:"masjid_teacher_deleted_at,omitempty"`
 }
 
-func (MasjidTeacherModel) TableName() string { return "masjid_teachers" }
+func (MasjidTeacherModel) TableName() string {
+	return "masjid_teachers"
+}

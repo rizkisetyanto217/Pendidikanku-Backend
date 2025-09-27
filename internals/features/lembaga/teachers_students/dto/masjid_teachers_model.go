@@ -15,101 +15,140 @@ import (
 // 📦 DTO Full Mirror (Entity Snapshot)
 // ========================
 type MasjidTeacher struct {
-	MasjidTeacherID         string     `json:"masjid_teacher_id"`
-	MasjidTeacherMasjidID   string     `json:"masjid_teacher_masjid_id"`
-	MasjidTeacherUserID     string     `json:"masjid_teacher_user_id"`
-	MasjidTeacherCode       *string    `json:"masjid_teacher_code,omitempty"`
-	MasjidTeacherSlug       *string    `json:"masjid_teacher_slug,omitempty"`
-	MasjidTeacherEmployment *string    `json:"masjid_teacher_employment,omitempty"` // enum value as string
-	MasjidTeacherIsActive   bool       `json:"masjid_teacher_is_active"`
-	MasjidTeacherJoinedAt   *time.Time `json:"masjid_teacher_joined_at,omitempty"`
-	MasjidTeacherLeftAt     *time.Time `json:"masjid_teacher_left_at,omitempty"`
+	MasjidTeacherID            string `json:"masjid_teacher_id"`
+	MasjidTeacherMasjidID      string `json:"masjid_teacher_masjid_id"`
+	MasjidTeacherUserTeacherID string `json:"masjid_teacher_user_teacher_id"` // ← updated
+
+	// Identitas/kepegawaian
+	MasjidTeacherCode       *string `json:"masjid_teacher_code,omitempty"`
+	MasjidTeacherSlug       *string `json:"masjid_teacher_slug,omitempty"`
+	MasjidTeacherEmployment *string `json:"masjid_teacher_employment,omitempty"` // enum as string
+	MasjidTeacherIsActive   bool    `json:"masjid_teacher_is_active"`
+
+	// Periode kerja
+	MasjidTeacherJoinedAt *time.Time `json:"masjid_teacher_joined_at,omitempty"` // date
+	MasjidTeacherLeftAt   *time.Time `json:"masjid_teacher_left_at,omitempty"`   // date
+
+	// Verifikasi internal
 	MasjidTeacherIsVerified bool       `json:"masjid_teacher_is_verified"`
 	MasjidTeacherVerifiedAt *time.Time `json:"masjid_teacher_verified_at,omitempty"`
-	MasjidTeacherIsPublic   bool       `json:"masjid_teacher_is_public"`
-	MasjidTeacherNotes      *string    `json:"masjid_teacher_notes,omitempty"`
-	MasjidTeacherCreatedAt  time.Time  `json:"masjid_teacher_created_at"`
-	MasjidTeacherUpdatedAt  time.Time  `json:"masjid_teacher_updated_at"`
-	MasjidTeacherDeletedAt  *time.Time `json:"masjid_teacher_deleted_at,omitempty"`
+
+	// Visibilitas & catatan
+	MasjidTeacherIsPublic bool    `json:"masjid_teacher_is_public"`
+	MasjidTeacherNotes    *string `json:"masjid_teacher_notes,omitempty"`
+
+	// Snapshot dari user_teachers
+	MasjidTeacherNameUserSnapshot        *string `json:"masjid_teacher_name_user_snapshot,omitempty"`
+	MasjidTeacherAvatarURLUserSnapshot   *string `json:"masjid_teacher_avatar_url_user_snapshot,omitempty"`
+	MasjidTeacherWhatsappURLUserSnapshot *string `json:"masjid_teacher_whatsapp_url_user_snapshot,omitempty"`
+	MasjidTeacherTitlePrefixUserSnapshot *string `json:"masjid_teacher_title_prefix_user_snapshot,omitempty"`
+	MasjidTeacherTitleSuffixUserSnapshot *string `json:"masjid_teacher_title_suffix_user_snapshot,omitempty"`
+
+	// Audit
+	MasjidTeacherCreatedAt time.Time  `json:"masjid_teacher_created_at"`
+	MasjidTeacherUpdatedAt time.Time  `json:"masjid_teacher_updated_at"`
+	MasjidTeacherDeletedAt *time.Time `json:"masjid_teacher_deleted_at,omitempty"`
 }
 
 // ========================
 // 📥 Create Request DTO
 // ========================
 type CreateMasjidTeacherRequest struct {
-	MasjidTeacherUserID     string  `json:"masjid_teacher_user_id"   validate:"required,uuid"`
+	// Scope/relasi
+	MasjidTeacherUserTeacherID *string `json:"masjid_teacher_user_teacher_id,omitempty" validate:"omitempty,uuid"`
+
+	// Identitas/kepegawaian
 	MasjidTeacherCode       *string `json:"masjid_teacher_code,omitempty"`
 	MasjidTeacherSlug       *string `json:"masjid_teacher_slug,omitempty"`
 	MasjidTeacherEmployment *string `json:"masjid_teacher_employment,omitempty"` // enum
 
-	MasjidTeacherIsActive *bool   `json:"masjid_teacher_is_active,omitempty"`
-	MasjidTeacherJoinedAt *string `json:"masjid_teacher_joined_at,omitempty"` // YYYY-MM-DD
-	MasjidTeacherLeftAt   *string `json:"masjid_teacher_left_at,omitempty"`   // YYYY-MM-DD
+	// Flags
+	MasjidTeacherIsActive *bool `json:"masjid_teacher_is_active,omitempty"`
+	MasjidTeacherIsPublic *bool `json:"masjid_teacher_is_public,omitempty"`
 
+	// Waktu
+	MasjidTeacherJoinedAt   *string `json:"masjid_teacher_joined_at,omitempty"` // YYYY-MM-DD
+	MasjidTeacherLeftAt     *string `json:"masjid_teacher_left_at,omitempty"`   // YYYY-MM-DD
 	MasjidTeacherIsVerified *bool   `json:"masjid_teacher_is_verified,omitempty"`
 	MasjidTeacherVerifiedAt *string `json:"masjid_teacher_verified_at,omitempty"` // RFC3339
-	MasjidTeacherIsPublic   *bool   `json:"masjid_teacher_is_public,omitempty"`
-	MasjidTeacherNotes      *string `json:"masjid_teacher_notes,omitempty"`
+
+	// Notes
+	MasjidTeacherNotes *string `json:"masjid_teacher_notes,omitempty"`
 }
 
 // ========================
 // ✏️ Update Request DTO (tri-state)
 // ========================
 type UpdateMasjidTeacherRequest struct {
-	MasjidTeacherUserID     *string `json:"masjid_teacher_user_id,omitempty"   validate:"omitempty,uuid"`
+	MasjidTeacherUserTeacherID *string `json:"masjid_teacher_user_teacher_id,omitempty" validate:"omitempty,uuid"`
+
 	MasjidTeacherCode       *string `json:"masjid_teacher_code,omitempty"`
 	MasjidTeacherSlug       *string `json:"masjid_teacher_slug,omitempty"`
 	MasjidTeacherEmployment *string `json:"masjid_teacher_employment,omitempty"`
 
-	MasjidTeacherIsActive *bool   `json:"masjid_teacher_is_active,omitempty"`
-	MasjidTeacherJoinedAt *string `json:"masjid_teacher_joined_at,omitempty"` // YYYY-MM-DD
-	MasjidTeacherLeftAt   *string `json:"masjid_teacher_left_at,omitempty"`   // YYYY-MM-DD
+	MasjidTeacherIsActive *bool `json:"masjid_teacher_is_active,omitempty"`
+	MasjidTeacherIsPublic *bool `json:"masjid_teacher_is_public,omitempty"`
 
+	MasjidTeacherJoinedAt   *string `json:"masjid_teacher_joined_at,omitempty"` // YYYY-MM-DD
+	MasjidTeacherLeftAt     *string `json:"masjid_teacher_left_at,omitempty"`   // YYYY-MM-DD
 	MasjidTeacherIsVerified *bool   `json:"masjid_teacher_is_verified,omitempty"`
 	MasjidTeacherVerifiedAt *string `json:"masjid_teacher_verified_at,omitempty"` // RFC3339
-	MasjidTeacherIsPublic   *bool   `json:"masjid_teacher_is_public,omitempty"`
-	MasjidTeacherNotes      *string `json:"masjid_teacher_notes,omitempty"`
+
+	MasjidTeacherNotes *string `json:"masjid_teacher_notes,omitempty"`
 }
 
 // ========================
-// 📤 Response DTO (alias supaya hilang S1016)
+// 📤 Response DTO (alias)
 // ========================
 type MasjidTeacherResponse = MasjidTeacher
 
 // ========================
 // 🔁 Converters
 // ========================
-
 func NewMasjidTeacherResponse(m *yModel.MasjidTeacherModel) *MasjidTeacherResponse {
 	if m == nil {
 		return nil
 	}
+
 	var emp *string
 	if m.MasjidTeacherEmployment != nil {
 		s := string(*m.MasjidTeacherEmployment)
 		emp = &s
 	}
+
 	var delAt *time.Time
 	if m.MasjidTeacherDeletedAt.Valid {
 		delAt = &m.MasjidTeacherDeletedAt.Time
 	}
+
 	return &MasjidTeacherResponse{
-		MasjidTeacherID:         m.MasjidTeacherID.String(),
-		MasjidTeacherMasjidID:   m.MasjidTeacherMasjidID.String(),
-		MasjidTeacherUserID:     m.MasjidTeacherUserID.String(),
+		MasjidTeacherID:            m.MasjidTeacherID.String(),
+		MasjidTeacherMasjidID:      m.MasjidTeacherMasjidID.String(),
+		MasjidTeacherUserTeacherID: m.MasjidTeacherUserTeacherID.String(),
+
 		MasjidTeacherCode:       m.MasjidTeacherCode,
 		MasjidTeacherSlug:       m.MasjidTeacherSlug,
 		MasjidTeacherEmployment: emp,
 		MasjidTeacherIsActive:   m.MasjidTeacherIsActive,
-		MasjidTeacherJoinedAt:   m.MasjidTeacherJoinedAt,
-		MasjidTeacherLeftAt:     m.MasjidTeacherLeftAt,
+
+		MasjidTeacherJoinedAt: m.MasjidTeacherJoinedAt,
+		MasjidTeacherLeftAt:   m.MasjidTeacherLeftAt,
+
 		MasjidTeacherIsVerified: m.MasjidTeacherIsVerified,
 		MasjidTeacherVerifiedAt: m.MasjidTeacherVerifiedAt,
-		MasjidTeacherIsPublic:   m.MasjidTeacherIsPublic,
-		MasjidTeacherNotes:      m.MasjidTeacherNotes,
-		MasjidTeacherCreatedAt:  m.MasjidTeacherCreatedAt,
-		MasjidTeacherUpdatedAt:  m.MasjidTeacherUpdatedAt,
-		MasjidTeacherDeletedAt:  delAt,
+
+		MasjidTeacherIsPublic: m.MasjidTeacherIsPublic,
+		MasjidTeacherNotes:    m.MasjidTeacherNotes,
+
+		MasjidTeacherNameUserSnapshot:        m.MasjidTeacherNameUserSnapshot,
+		MasjidTeacherAvatarURLUserSnapshot:   m.MasjidTeacherAvatarURLUserSnapshot,
+		MasjidTeacherWhatsappURLUserSnapshot: m.MasjidTeacherWhatsappURLUserSnapshot,
+		MasjidTeacherTitlePrefixUserSnapshot: m.MasjidTeacherTitlePrefixUserSnapshot,
+		MasjidTeacherTitleSuffixUserSnapshot: m.MasjidTeacherTitleSuffixUserSnapshot,
+
+		MasjidTeacherCreatedAt: m.MasjidTeacherCreatedAt,
+		MasjidTeacherUpdatedAt: m.MasjidTeacherUpdatedAt,
+		MasjidTeacherDeletedAt: delAt,
 	}
 }
 
@@ -124,7 +163,6 @@ func NewMasjidTeacherResponses(items []yModel.MasjidTeacherModel) []*MasjidTeach
 // ========================
 // 🛠️ Helpers (parse & normalize)
 // ========================
-
 func parseDateYYYYMMDD(s *string) (*time.Time, error) {
 	if s == nil {
 		return nil, nil
@@ -166,7 +204,7 @@ func normStrPtr(p *string) *string {
 	return &s
 }
 
-func parseEmploymentPtr(s *string) (*yModel.TeacherEmploymentStatus, error) {
+func parseEmploymentPtr(s *string) (*yModel.TeacherEmployment, error) {
 	if s == nil {
 		return nil, nil
 	}
@@ -176,28 +214,39 @@ func parseEmploymentPtr(s *string) (*yModel.TeacherEmploymentStatus, error) {
 	}
 	switch v {
 	case "tetap", "kontrak", "paruh_waktu", "magang", "honorer", "relawan", "tamu":
-		st := yModel.TeacherEmploymentStatus(v)
+		st := yModel.TeacherEmployment(v)
 		return &st, nil
 	default:
 		return nil, fmt.Errorf("employment harus salah satu dari: tetap, kontrak, paruh_waktu, magang, honorer, relawan, tamu")
 	}
 }
 
+func uuidFrom(s string) (uuid.UUID, error) {
+	return uuid.Parse(strings.TrimSpace(s))
+}
+
 // ========================
 // 🧱 Mapping ke Model
 // ========================
-func (r CreateMasjidTeacherRequest) ToModel(masjidID, userID string) (*yModel.MasjidTeacherModel, error) {
-	if strings.TrimSpace(masjidID) == "" || strings.TrimSpace(userID) == "" {
-		return nil, fmt.Errorf("masjid_id dan user_id wajib")
+
+// Catatan: masjid_id biasanya dari path/context; user_teacher_id bisa dari body.
+// Untuk konsistensi, fungsi ini menerima masjidID (wajib), sedangkan
+// UserTeacherID diambil dari body (wajib juga).
+func (r CreateMasjidTeacherRequest) ToModel(masjidID string) (*yModel.MasjidTeacherModel, error) {
+	if strings.TrimSpace(masjidID) == "" {
+		return nil, fmt.Errorf("masjid_id wajib")
+	}
+	if r.MasjidTeacherUserTeacherID == nil || strings.TrimSpace(*r.MasjidTeacherUserTeacherID) == "" {
+		return nil, fmt.Errorf("user_teacher_id wajib")
 	}
 
 	mzID, err := uuidFrom(masjidID)
 	if err != nil {
 		return nil, fmt.Errorf("masjid_id tidak valid")
 	}
-	uuID, err := uuidFrom(userID)
+	utID, err := uuidFrom(*r.MasjidTeacherUserTeacherID)
 	if err != nil {
-		return nil, fmt.Errorf("user_id tidak valid")
+		return nil, fmt.Errorf("user_teacher_id tidak valid")
 	}
 
 	emp, err := parseEmploymentPtr(r.MasjidTeacherEmployment)
@@ -234,8 +283,9 @@ func (r CreateMasjidTeacherRequest) ToModel(masjidID, userID string) (*yModel.Ma
 	}
 
 	return &yModel.MasjidTeacherModel{
-		MasjidTeacherMasjidID:   mzID,
-		MasjidTeacherUserID:     uuID,
+		MasjidTeacherMasjidID:      mzID,
+		MasjidTeacherUserTeacherID: utID,
+
 		MasjidTeacherCode:       normStrPtr(r.MasjidTeacherCode),
 		MasjidTeacherSlug:       normStrPtr(r.MasjidTeacherSlug),
 		MasjidTeacherEmployment: emp,
@@ -253,13 +303,13 @@ func (r CreateMasjidTeacherRequest) ToModel(masjidID, userID string) (*yModel.Ma
 }
 
 func (r UpdateMasjidTeacherRequest) ApplyToModel(m *yModel.MasjidTeacherModel) error {
-	// scope/user
-	if r.MasjidTeacherUserID != nil {
-		id, err := uuidFrom(*r.MasjidTeacherUserID)
+	// scope/user_teacher
+	if r.MasjidTeacherUserTeacherID != nil {
+		id, err := uuidFrom(*r.MasjidTeacherUserTeacherID)
 		if err != nil {
-			return fmt.Errorf("user_id tidak valid")
+			return fmt.Errorf("user_teacher_id tidak valid")
 		}
-		m.MasjidTeacherUserID = id
+		m.MasjidTeacherUserTeacherID = id
 	}
 
 	// identitas
@@ -321,14 +371,5 @@ func (r UpdateMasjidTeacherRequest) ApplyToModel(m *yModel.MasjidTeacherModel) e
 		m.MasjidTeacherNotes = normStrPtr(r.MasjidTeacherNotes)
 	}
 
-	// updated_at biar auto dari controller/DB
 	return nil
-}
-
-// ========================
-// 🔧 util kecil
-// ========================
-
-func uuidFrom(s string) (uuid.UUID, error) {
-	return uuid.Parse(strings.TrimSpace(s))
 }
