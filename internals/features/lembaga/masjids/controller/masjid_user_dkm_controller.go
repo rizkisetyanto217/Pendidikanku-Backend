@@ -15,9 +15,11 @@ import (
 	helperOSS "masjidku_backend/internals/helpers/oss"
 
 	masjidDto "masjidku_backend/internals/features/lembaga/masjids/dto"
+	masjidModel "masjidku_backend/internals/features/lembaga/masjids/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -127,49 +129,9 @@ func splitCSV(s string) []string {
 }
 
 /* =======================================================
-   Row struct lokal untuk tabel masjid_profiles
-   (menghindari import model lama)
-======================================================= */
-
-type MasjidProfileRow struct {
-	MasjidProfileMasjidID               uuid.UUID `gorm:"column:masjid_profile_masjid_id"`
-	MasjidProfileDescription            *string   `gorm:"column:masjid_profile_description"`
-	MasjidProfileFoundedYear            *int      `gorm:"column:masjid_profile_founded_year"`
-	MasjidProfileAddress                *string   `gorm:"column:masjid_profile_address"`
-	MasjidProfileContactPhone           *string   `gorm:"column:masjid_profile_contact_phone"`
-	MasjidProfileContactEmail           *string   `gorm:"column:masjid_profile_contact_email"`
-	MasjidProfileGoogleMapsURL          *string   `gorm:"column:masjid_profile_google_maps_url"`
-	MasjidProfileInstagramURL           *string   `gorm:"column:masjid_profile_instagram_url"`
-	MasjidProfileWhatsappURL            *string   `gorm:"column:masjid_profile_whatsapp_url"`
-	MasjidProfileYoutubeURL             *string   `gorm:"column:masjid_profile_youtube_url"`
-	MasjidProfileFacebookURL            *string   `gorm:"column:masjid_profile_facebook_url"`
-	MasjidProfileTiktokURL              *string   `gorm:"column:masjid_profile_tiktok_url"`
-	MasjidProfileWhatsappGroupIkhwanURL *string   `gorm:"column:masjid_profile_whatsapp_group_ikhwan_url"`
-	MasjidProfileWhatsappGroupAkhwatURL *string   `gorm:"column:masjid_profile_whatsapp_group_akhwat_url"`
-	MasjidProfileWebsiteURL             *string   `gorm:"column:masjid_profile_website_url"`
-
-	// sekolah
-	MasjidProfileSchoolNPSN            *string    `gorm:"column:masjid_profile_school_npsn"`
-	MasjidProfileSchoolNSS             *string    `gorm:"column:masjid_profile_school_nss"`
-	MasjidProfileSchoolAccreditation   *string    `gorm:"column:masjid_profile_school_accreditation"`
-	MasjidProfileSchoolPrincipalUserID *uuid.UUID `gorm:"column:masjid_profile_school_principal_user_id"`
-	MasjidProfileSchoolPhone           *string    `gorm:"column:masjid_profile_school_phone"`
-	MasjidProfileSchoolEmail           *string    `gorm:"column:masjid_profile_school_email"`
-	MasjidProfileSchoolAddress         *string    `gorm:"column:masjid_profile_school_address"`
-	MasjidProfileSchoolStudentCapacity *int       `gorm:"column:masjid_profile_school_student_capacity"`
-	MasjidProfileSchoolIsBoarding      bool       `gorm:"column:masjid_profile_school_is_boarding"`
-}
-
-func (MasjidProfileRow) TableName() string { return "masjid_profiles" }
-
-/* =======================================================
    CreateMasjidDKM — multipart only, with logs & lazy OSS
 ======================================================= */
 
-// ... imports tetap ...
-// HAPUS: MasjidProfileRow struct & TableName() — diganti DTO
-
-// CreateMasjidDKM — multipart only
 func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 	t0 := time.Now()
 	rid := uuid.New().String()
@@ -234,7 +196,6 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 	verifNotes := ptrStrTrim(c.FormValue("masjid_verification_notes"))
 
 	levels := parseLevelsFromMultipart(c)
-	profile := parseProfileFromForm(c)
 
 	// Files (opsional)
 	iconFH, _ := c.FormFile("icon")
@@ -258,7 +219,6 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 		"city", safeStrPtr(city),
 		"isSchool", isSchool,
 		"levels_len", len(levels),
-		"hasProfile", profile != nil,
 		"hasIcon", iconFH != nil,
 		"hasLogo", logoFH != nil,
 		"hasBackground", bgFH != nil,
@@ -267,7 +227,7 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 	)
 
 	// TX
-	var resp masjidDto.MasjidResponse
+	var resp masjidDto.MasjidResp
 	txErr := mc.DB.Transaction(func(tx *gorm.DB) error {
 		base := helper.SuggestSlugFromName(name)
 		lg("slug suggest", "base", base)
@@ -280,7 +240,7 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 		lg("slug ok", "slug", slug)
 
 		now := time.Now()
-		m := masjidDto.Masjid{
+		m := masjidModel.MasjidModel{
 			MasjidID:            uuid.New(),
 			MasjidYayasanID:     yayasanID,
 			MasjidCurrentPlanID: planID,
@@ -294,14 +254,19 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 			MasjidSlug:   slug,
 
 			MasjidIsActive:           true,
-			MasjidVerificationStatus: masjidDto.VerificationStatus(strings.ToLower(verifStatus)),
+			MasjidVerificationStatus: masjidModel.VerificationStatus(strings.ToLower(verifStatus)),
 			MasjidVerificationNotes:  verifNotes,
 			MasjidIsIslamicSchool:    isSchool,
 
 			MasjidCreatedAt: now,
 			MasjidUpdatedAt: now,
 		}
-		m.SetLevels(levels)
+		// set levels (jsonb)
+		if len(levels) > 0 {
+			if jb, err := json.Marshal(levels); err == nil {
+				m.MasjidLevels = datatypes.JSON(jb)
+			}
+		}
 		syncVerificationFlags(&m)
 
 		if err := tx.Create(&m).Error; err != nil {
@@ -309,16 +274,6 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan masjid")
 		}
 		lg("db create masjid ok", "masjid_id", m.MasjidID.String())
-
-		// Profile opsional (pakai DTO model)
-		if profile != nil {
-			pm := masjidDto.ToModelMasjidProfile(profile, m.MasjidID)
-			if err := tx.Create(pm).Error; err != nil {
-				lg("db create profile failed", "err", err.Error())
-				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan profil masjid")
-			}
-			lg("db create profile ok")
-		}
 
 		// Upload file opsional
 		if iconFH != nil || logoFH != nil || bgFH != nil || compatFH != nil {
@@ -427,7 +382,7 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 		}
 		lg("grant role ok", "user_id", userID.String(), "masjid_id", m.MasjidID.String())
 
-		resp = masjidDto.FromModelMasjid(&m)
+		resp = masjidDto.FromModel(&m)
 		lg("build response ok", "masjid_id", resp.MasjidID, "slug", resp.MasjidSlug)
 		return nil
 	})
@@ -445,136 +400,12 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Masjid berhasil dibuat", resp)
 }
 
-// ========== Parser profile (multipart) ==========
-func parseProfileFromForm(c *fiber.Ctx) *masjidDto.MasjidProfilePayload {
-	log.Println("[parseProfileFromForm] begin")
-	hasAny := false
-	p := &masjidDto.MasjidProfilePayload{}
-
-	// text fields
-	if v := strings.TrimSpace(c.FormValue("profile_description")); v != "" {
-		p.Description = v
-		hasAny = true
-	}
-	if v := strings.TrimSpace(c.FormValue("profile_founded_year")); v != "" {
-		if i, err := strconv.Atoi(v); err == nil {
-			p.FoundedYear = &i
-			hasAny = true
-		} else {
-			log.Println("[parseProfileFromForm] invalid founded_year:", v, "err:", err)
-		}
-	}
-
-	if v := strings.TrimSpace(c.FormValue("profile_address")); v != "" {
-		p.Address = v
-		hasAny = true
-	}
-	if v := strings.TrimSpace(c.FormValue("profile_contact_phone")); v != "" {
-		p.ContactPhone = v
-		hasAny = true
-	}
-	if v := strings.TrimSpace(c.FormValue("profile_contact_email")); v != "" {
-		p.ContactEmail = v
-		hasAny = true
-	}
-
-	if v := strings.TrimSpace(c.FormValue("profile_google_maps_url")); v != "" {
-		p.GoogleMapsURL = v
-		hasAny = true
-	}
-	if v := strings.TrimSpace(c.FormValue("profile_instagram_url")); v != "" {
-		p.InstagramURL = v
-		hasAny = true
-	}
-	if v := strings.TrimSpace(c.FormValue("profile_whatsapp_url")); v != "" {
-		p.WhatsappURL = v
-		hasAny = true
-	}
-	if v := strings.TrimSpace(c.FormValue("profile_youtube_url")); v != "" {
-		p.YoutubeURL = v
-		hasAny = true
-	}
-	if v := strings.TrimSpace(c.FormValue("profile_facebook_url")); v != "" {
-		p.FacebookURL = v
-		hasAny = true
-	}
-	if v := strings.TrimSpace(c.FormValue("profile_tiktok_url")); v != "" {
-		p.TiktokURL = v
-		hasAny = true
-	}
-	if v := strings.TrimSpace(c.FormValue("profile_whatsapp_group_ikhwan_url")); v != "" {
-		p.WhatsappGroupIkhwanURL = v
-		hasAny = true
-	}
-	if v := strings.TrimSpace(c.FormValue("profile_whatsapp_group_akhwat_url")); v != "" {
-		p.WhatsappGroupAkhwatURL = v
-		hasAny = true
-	}
-	if v := strings.TrimSpace(c.FormValue("profile_website_url")); v != "" {
-		p.WebsiteURL = v
-		hasAny = true
-	}
-
-	// sekolah
-	if v := strings.TrimSpace(c.FormValue("profile_school_npsn")); v != "" {
-		p.SchoolNPSN = v
-		hasAny = true
-	}
-	if v := strings.TrimSpace(c.FormValue("profile_school_nss")); v != "" {
-		p.SchoolNSS = v
-		hasAny = true
-	}
-	if v := strings.TrimSpace(c.FormValue("profile_school_accreditation")); v != "" {
-		p.SchoolAccreditation = v
-		hasAny = true
-	}
-
-	if v := strings.TrimSpace(c.FormValue("profile_school_principal_user_id")); v != "" {
-		if id, err := uuid.Parse(v); err == nil {
-			p.SchoolPrincipalUserID = &id
-			hasAny = true
-		} else {
-			log.Println("[parseProfileFromForm] invalid principal_user_id:", v, "err:", err)
-		}
-	}
-
-	if v := strings.TrimSpace(c.FormValue("profile_school_email")); v != "" {
-		p.SchoolEmail = v
-		hasAny = true
-	}
-	if v := strings.TrimSpace(c.FormValue("profile_school_address")); v != "" {
-		p.SchoolAddress = v
-		hasAny = true
-	}
-
-	if v := strings.TrimSpace(c.FormValue("profile_school_student_capacity")); v != "" {
-		if i, err := strconv.Atoi(v); err == nil {
-			p.SchoolStudentCapacity = &i
-			hasAny = true
-		} else {
-			log.Println("[parseProfileFromForm] invalid student_capacity:", v, "err:", err)
-		}
-	}
-	if v := strings.TrimSpace(c.FormValue("profile_school_is_boarding")); v != "" {
-		b := parseBool(v)
-		p.SchoolIsBoarding = &b
-		hasAny = true
-	}
-
-	if !hasAny {
-		log.Println("[parseProfileFromForm] no profile fields provided")
-		return nil
-	}
-	log.Println("[parseProfileFromForm] parsed OK")
-	return p
-}
-
 // =======================================================
 // GET /api/masjids  (list + filter)
 // =======================================================
 
 func (mc *MasjidController) GetMasjids(c *fiber.Ctx) error {
-	tx := mc.DB.Model(&masjidDto.Masjid{})
+	tx := mc.DB.Model(&masjidModel.MasjidModel{})
 
 	// q: ILIKE (match trigram index)
 	if q := strings.TrimSpace(c.Query("q")); q != "" {
@@ -631,14 +462,14 @@ func (mc *MasjidController) GetMasjids(c *fiber.Ctx) error {
 	offset := clampInt(c.Query("offset"), 0, 0, 100000)
 	tx = tx.Limit(limit).Offset(offset).Order("masjid_created_at DESC")
 
-	var rows []masjidDto.Masjid
+	var rows []masjidModel.MasjidModel
 	if err := tx.Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data masjid")
 	}
 
-	out := make([]masjidDto.MasjidResponse, 0, len(rows))
+	out := make([]masjidDto.MasjidResp, 0, len(rows))
 	for i := range rows {
-		out = append(out, masjidDto.FromModelMasjid(&rows[i]))
+		out = append(out, masjidDto.FromModel(&rows[i]))
 	}
 	return helper.JsonOK(c, "OK", fiber.Map{
 		"items":  out,
@@ -648,34 +479,31 @@ func (mc *MasjidController) GetMasjids(c *fiber.Ctx) error {
 	})
 }
 
-// normalize ke enum yang dipakai di package masjid
-func toVerificationStatus(s string) masjidDto.VerificationStatus {
+// normalize ke enum yang dipakai di package model
+func toVerificationStatus(s string) masjidModel.VerificationStatus {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "approved":
-		return masjidDto.VerificationApproved
+		return masjidModel.VerificationApproved
 	case "rejected":
-		return masjidDto.VerificationRejected
+		return masjidModel.VerificationRejected
 	default:
-		return masjidDto.VerificationPending
+		return masjidModel.VerificationPending
 	}
 }
 
 // Sinkronkan flag is_verified dan verified_at terhadap status
-func syncVerificationFlags(m *masjidDto.Masjid) {
+func syncVerificationFlags(m *masjidModel.MasjidModel) {
 	// Pastikan status valid
 	m.MasjidVerificationStatus = toVerificationStatus(string(m.MasjidVerificationStatus))
 
 	now := time.Now()
-
 	switch m.MasjidVerificationStatus {
-	case masjidDto.VerificationApproved:
-		// set true dan set verified_at jika belum ada
+	case masjidModel.VerificationApproved:
 		m.MasjidIsVerified = true
 		if m.MasjidVerifiedAt == nil {
 			m.MasjidVerifiedAt = &now
 		}
-	case masjidDto.VerificationRejected:
-		// tandai tidak terverifikasi
+	case masjidModel.VerificationRejected:
 		m.MasjidIsVerified = false
 	default: // pending
 		m.MasjidIsVerified = false

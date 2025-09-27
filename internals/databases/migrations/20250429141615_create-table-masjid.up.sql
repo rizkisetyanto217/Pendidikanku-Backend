@@ -81,6 +81,10 @@ CREATE TABLE IF NOT EXISTS masjids (
   masjid_icon_object_key_old       TEXT,
   masjid_icon_delete_pending_until TIMESTAMPTZ,
 
+  -- code 
+  masjid_teacher_code_hash BYTEA,
+  masjid_teacher_code_set_at TIMESTAMPTZ,
+
   -- Media: logo (2-slot + retensi hapus)
   masjid_logo_url                  TEXT,
   masjid_logo_object_key           TEXT,

@@ -1,21 +1,27 @@
 package controller
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 	helperOSS "masjidku_backend/internals/helpers/oss"
 
 	masjidDto "masjidku_backend/internals/features/lembaga/masjids/dto"
+	masjidModel "masjidku_backend/internals/features/lembaga/masjids/model"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
@@ -29,8 +35,6 @@ type MasjidController struct {
 func NewMasjidController(db *gorm.DB, v *validator.Validate, oss *helperOSS.OSSService) *MasjidController {
 	return &MasjidController{DB: db, Validate: v, OSS: oss}
 }
-
-const defaultRetention = 30 * 24 * time.Hour // 30 hari
 
 // ========== helpers lokal ==========
 
@@ -60,17 +64,133 @@ func val(s *string) string {
 	}
 	return *s
 }
-func jsonEqual(a, b *datatypes.JSON) bool {
-	if a == nil && b == nil {
+func jsonEqual(a, b datatypes.JSON) bool {
+	if len(a) == 0 && len(b) == 0 {
 		return true
 	}
-	if a == nil || b == nil {
-		return false
-	}
-	return string(*a) == string(*b)
+	return string(a) == string(b)
 }
 
-// PATCH /api/masjids/:id
+/* ====== KODE GURU: helper & endpoint ====== */
+
+// "Sekolah Islam Sunnah Bintaro" -> "Sekolah-Islam-Sunnah-Bintaro"
+func humanKebabTitle(src string, maxWords int, maxLen int) string {
+	re := regexp.MustCompile(`[^0-9A-Za-z]+`)
+	tokens := re.Split(src, -1)
+
+	words := make([]string, 0, len(tokens))
+	for _, t := range tokens {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		rs := []rune(strings.ToLower(t))
+		if len(rs) > 0 {
+			rs[0] = unicode.ToUpper(rs[0])
+		}
+		words = append(words, string(rs))
+		if maxWords > 0 && len(words) >= maxWords {
+			break
+		}
+	}
+
+	base := strings.Join(words, "-")
+	if maxLen > 0 && len(base) > maxLen {
+		base = base[:maxLen]
+	}
+	base = strings.Trim(base, "-")
+	base = regexp.MustCompile(`-+`).ReplaceAllString(base, "-")
+	if base == "" {
+		base = "Masjid"
+	}
+	return base
+}
+
+func randBase36(n int) (string, error) {
+	const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+	var b strings.Builder
+	b.Grow(n)
+	for i := 0; i < n; i++ {
+		x, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
+		if err != nil {
+			return "", err
+		}
+		b.WriteByte(alphabet[x.Int64()])
+	}
+	return b.String(), nil
+}
+
+func makeTeacherCodeFromName(name string) (plain string, hashed []byte, setAt time.Time, err error) {
+	prefix := humanKebabTitle(name, 6, 48)
+	sfx, err := randBase36(4) // contoh: "13ed"
+	if err != nil {
+		return "", nil, time.Time{}, err
+	}
+	plain = prefix + "-" + sfx
+	hash, err := bcrypt.GenerateFromPassword([]byte(plain), bcrypt.DefaultCost)
+	if err != nil {
+		return "", nil, time.Time{}, err
+	}
+	return plain, hash, time.Now(), nil
+}
+
+// Struct minimal agar tidak bergantung ke DTO untuk kolom kode guru
+type masjidForCode struct {
+	MasjidID               uuid.UUID  `gorm:"column:masjid_id;primaryKey"`
+	MasjidName             string     `gorm:"column:masjid_name"`
+	MasjidTeacherCodeHash  []byte     `gorm:"column:masjid_teacher_code_hash"`
+	MasjidTeacherCodeSetAt *time.Time `gorm:"column:masjid_teacher_code_set_at"`
+}
+
+func (masjidForCode) TableName() string { return "masjids" }
+
+// POST /api/masjids/:id/teacher-code/generate
+// Membuat kode readable dari nama masjid, menyimpan hash + set_at, dan mengembalikan plaintext sekali.
+func (mc *MasjidController) GenerateTeacherCode(c *fiber.Ctx) error {
+	id, err := parseMasjidID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	// Auth DKM dan pin ke path id
+	masjidID, aerr := helperAuth.EnsureMasjidAccessDKM(c, helperAuth.MasjidContext{ID: id})
+	if aerr != nil {
+		return helper.JsonError(c, aerr.(*fiber.Error).Code, aerr.Error())
+	}
+	if masjidID != id {
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak: masjid tidak sesuai")
+	}
+
+	var m masjidForCode
+	if err := mc.DB.First(&m, "masjid_id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "Masjid tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil masjid")
+	}
+
+	plain, hash, setAt, genErr := makeTeacherCodeFromName(m.MasjidName)
+	if genErr != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat kode")
+	}
+
+	// simpan hash + timestamp
+	if err := mc.DB.Model(&m).Updates(map[string]any{
+		"masjid_teacher_code_hash":   hash,
+		"masjid_teacher_code_set_at": setAt,
+	}).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan kode")
+	}
+
+	return helper.JsonOK(c, "Kode dibuat", fiber.Map{
+		"teacher_code_plain": plain,               // tampilkan sekali untuk di-share
+		"set_at":             setAt,               // metadata
+		"valid_for":          "tanpa kedaluwarsa", // ganti sesuai kebijakan
+	})
+}
+
+/* ====== PATCH (existing) ====== */
+
 // PATCH /api/masjids/:id
 func (mc *MasjidController) Patch(c *fiber.Ctx) error {
 	id, err := parseMasjidID(c)
@@ -88,7 +208,7 @@ func (mc *MasjidController) Patch(c *fiber.Ctx) error {
 	}
 
 	// Ambil row existing
-	var m masjidDto.Masjid
+	var m masjidModel.MasjidModel
 	if err := mc.DB.First(&m, "masjid_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Masjid tidak ditemukan")
@@ -98,7 +218,7 @@ func (mc *MasjidController) Patch(c *fiber.Ctx) error {
 	before := m // snapshot untuk deteksi delta
 
 	// --- state ---
-	var u masjidDto.MasjidUpdateRequest
+	var u masjidDto.MasjidUpdateReq
 	now := time.Now()
 	changedMedia := false
 	retainUntil := now.Add(helperOSS.GetRetentionDuration())
@@ -193,7 +313,7 @@ func (mc *MasjidController) Patch(c *fiber.Ctx) error {
 	}
 
 	// Terapkan patch field non-file (current-only)
-	masjidDto.ApplyMasjidUpdate(&m, &u)
+	masjidDto.ApplyUpdate(&m, &u)
 	m.MasjidUpdatedAt = now
 
 	// Bangun updates map hanya kolom yang berubah
@@ -286,7 +406,7 @@ func (mc *MasjidController) Patch(c *fiber.Ctx) error {
 
 	if len(updates) == 1 { // cuma updated_at
 		return helper.JsonOK(c, "Tidak ada perubahan", fiber.Map{
-			"item": masjidDto.FromModelMasjid(&m),
+			"item": masjidDto.FromModel(&m),
 		})
 	}
 
@@ -295,7 +415,7 @@ func (mc *MasjidController) Patch(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonOK(c, "Berhasil", fiber.Map{
-		"item": masjidDto.FromModelMasjid(&m),
+		"item": masjidDto.FromModel(&m),
 	})
 }
 
@@ -334,7 +454,7 @@ func (mc *MasjidController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadGateway, fmt.Sprintf("Gagal memindahkan ke spam: %v", mvErr))
 	}
 
-	var m masjidDto.Masjid
+	var m masjidModel.MasjidModel
 	if err := mc.DB.First(&m, "masjid_id = ?", id).Error; err == nil {
 		changed := false
 		now := time.Now()

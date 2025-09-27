@@ -75,6 +75,10 @@ type MasjidModel struct {
 	// Alternatif yang lebih ketat (butuh GORM dengan JSONType):
 	// MasjidLevels datatypes.JSONType[[]string] `gorm:"type:jsonb;column:masjid_levels" json:"masjid_levels,omitempty"`
 
+	// === Teacher invite/join code (hash + waktu set) ===
+	MasjidTeacherCodeHash  []byte     `gorm:"type:bytea;column:masjid_teacher_code_hash" json:"masjid_teacher_code_hash,omitempty"`
+	MasjidTeacherCodeSetAt *time.Time `gorm:"type:timestamptz;column:masjid_teacher_code_set_at" json:"masjid_teacher_code_set_at,omitempty"`
+
 	// Media: icon (2-slot + retensi)
 	MasjidIconURL                *string    `gorm:"type:text;column:masjid_icon_url" json:"masjid_icon_url,omitempty"`
 	MasjidIconObjectKey          *string    `gorm:"type:text;column:masjid_icon_object_key" json:"masjid_icon_object_key,omitempty"`
