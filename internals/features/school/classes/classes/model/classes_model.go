@@ -20,11 +20,11 @@ type ClassModel struct {
 	// Identitas (slug)
 	ClassSlug string `json:"class_slug" gorm:"column:class_slug;type:varchar(160);not null"`
 
-	// Periode kelas (DATE)
+	// Periode kelas
 	ClassStartDate *time.Time `json:"class_start_date,omitempty" gorm:"column:class_start_date;type:date"`
 	ClassEndDate   *time.Time `json:"class_end_date,omitempty"   gorm:"column:class_end_date;type:date"`
 
-	// Registrasi / Term (tanpa ClassIsOpen — mengikuti DDL)
+	// Registrasi / Term
 	ClassTermID               *uuid.UUID `json:"class_term_id,omitempty"               gorm:"column:class_term_id;type:uuid"`
 	ClassRegistrationOpensAt  *time.Time `json:"class_registration_opens_at,omitempty"  gorm:"column:class_registration_opens_at;type:timestamptz"`
 	ClassRegistrationClosesAt *time.Time `json:"class_registration_closes_at,omitempty" gorm:"column:class_registration_closes_at;type:timestamptz"`
@@ -36,7 +36,7 @@ type ClassModel struct {
 	// Pricing / Billing
 	ClassRegistrationFeeIDR *int64  `json:"class_registration_fee_idr,omitempty" gorm:"column:class_registration_fee_idr"`
 	ClassTuitionFeeIDR      *int64  `json:"class_tuition_fee_idr,omitempty"      gorm:"column:class_tuition_fee_idr"`
-	ClassBillingCycle       string  `json:"class_billing_cycle"                   gorm:"column:class_billing_cycle;type:billing_cycle_enum;not null;default:'monthly'"`
+	ClassBillingCycle       string  `json:"class_billing_cycle"                  gorm:"column:class_billing_cycle;type:billing_cycle_enum;not null;default:'monthly'"`
 	ClassProviderProductID  *string `json:"class_provider_product_id,omitempty"  gorm:"column:class_provider_product_id;type:text"`
 	ClassProviderPriceID    *string `json:"class_provider_price_id,omitempty"    gorm:"column:class_provider_price_id;type:text"`
 
@@ -44,7 +44,7 @@ type ClassModel struct {
 	ClassNotes *string `json:"class_notes,omitempty" gorm:"column:class_notes;type:text"`
 
 	// Mode & Status
-	ClassDeliveryMode *string    `json:"class_delivery_mode,omitempty" gorm:"column:class_delivery_mode;type:class_delivery_mode_enum"` // nullable di DDL
+	ClassDeliveryMode *string    `json:"class_delivery_mode,omitempty" gorm:"column:class_delivery_mode;type:class_delivery_mode_enum"`
 	ClassStatus       string     `json:"class_status"                  gorm:"column:class_status;type:class_status_enum;not null;default:'active'"`
 	ClassCompletedAt  *time.Time `json:"class_completed_at,omitempty"  gorm:"column:class_completed_at;type:timestamptz"`
 
@@ -55,7 +55,19 @@ type ClassModel struct {
 	ClassImageObjectKeyOld       *string    `json:"class_image_object_key_old,omitempty"      gorm:"column:class_image_object_key_old;type:text"`
 	ClassImageDeletePendingUntil *time.Time `json:"class_image_delete_pending_until,omitempty" gorm:"column:class_image_delete_pending_until;type:timestamptz"`
 
-	// Audit (soft delete gaya GORM, kolom tetap `class_deleted_at`)
+	// Snapshot Class Parent
+	ClassCodeParentSnapshot  *string `json:"class_code_parent_snapshot,omitempty"  gorm:"column:class_code_parent_snapshot;type:varchar(40)"`
+	ClassNameParentSnapshot  *string `json:"class_name_parent_snapshot,omitempty"  gorm:"column:class_name_parent_snapshot;type:varchar(80)"`
+	ClassSlugParentSnapshot  *string `json:"class_slug_parent_snapshot,omitempty"  gorm:"column:class_slug_parent_snapshot;type:varchar(160)"`
+	ClassLevelParentSnapshot *int16  `json:"class_level_parent_snapshot,omitempty" gorm:"column:class_level_parent_snapshot;type:smallint"`
+
+	// Snapshot Class Term
+	ClassAcademicYearTermSnapshot *string `json:"class_academic_year_term_snapshot,omitempty" gorm:"column:class_academic_year_term_snapshot;type:varchar(40)"`
+	ClassNameTermSnapshot         *string `json:"class_name_term_snapshot,omitempty"         gorm:"column:class_name_term_snapshot;type:varchar(100)"`
+	ClassSlugTermSnapshot         *string `json:"class_slug_term_snapshot,omitempty"         gorm:"column:class_slug_term_snapshot;type:varchar(160)"`
+	ClassAngkatanTermSnapshot     *string `json:"class_angkatan_term_snapshot,omitempty"     gorm:"column:class_angkatan_term_snapshot;type:varchar(40)"`
+
+	// Audit & soft delete
 	ClassCreatedAt time.Time      `json:"class_created_at"           gorm:"column:class_created_at;type:timestamptz;not null;default:now()"`
 	ClassUpdatedAt time.Time      `json:"class_updated_at"           gorm:"column:class_updated_at;type:timestamptz;not null;default:now()"`
 	ClassDeletedAt gorm.DeletedAt `json:"class_deleted_at,omitempty" gorm:"column:class_deleted_at;type:timestamptz;index"`
@@ -63,7 +75,7 @@ type ClassModel struct {
 
 func (ClassModel) TableName() string { return "classes" }
 
-// (opsional) enum helpers — pastikan konsisten dg enum di DB
+// Enum constants agar konsisten dengan DB
 const (
 	// delivery mode
 	ClassDeliveryModeOffline = "offline"

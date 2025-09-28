@@ -4,7 +4,7 @@ package controller
 import (
 	"fmt"
 	"log"
-	modelMasjid "masjidku_backend/internals/features/lembaga/masjids/model"
+	modelMasjid "masjidku_backend/internals/features/lembaga/masjid_yayasans/masjids/model"
 	"masjidku_backend/internals/features/payment/donations/dto"
 	"masjidku_backend/internals/features/payment/donations/model"
 	donationService "masjidku_backend/internals/features/payment/donations/service"

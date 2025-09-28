@@ -4,7 +4,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	teacherProfile "masjidku_backend/internals/features/lembaga/teachers_students/route"
+	teacherProfile "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/route"
 	surveyRoute "masjidku_backend/internals/features/users/survey/route"
 	userRoute "masjidku_backend/internals/features/users/user/route"
 	userTeacher "masjidku_backend/internals/features/users/user_teachers/route"

@@ -5,11 +5,11 @@ import (
 
 	helper "masjidku_backend/internals/helpers"
 
+	masjidModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/masjids/model"
 	"masjidku_backend/internals/features/masjids/certificate/dto"
 	certificateModel "masjidku_backend/internals/features/masjids/certificate/model"
 	lectureExamModel "masjidku_backend/internals/features/masjids/lectures/exams/model"
 	lectureModel "masjidku_backend/internals/features/masjids/lectures/main/model"
-	masjidModel "masjidku_backend/internals/features/lembaga/masjids/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -153,8 +153,8 @@ func (ctrl *CertificateController) GetByUserExamID(c *fiber.Ctx) error {
 		MasjidID:                      masjid.MasjidID,
 		MasjidName:                    masjid.MasjidName,
 		// MasjidImageURL:                &masjid.MasjidImageURL, // pastikan tipe field ini *string di DTO
-		UserLectureExamUserName:       userName,               // <- sudah string
-		UserLectureExamGradeResult:    gradeResult,            // <- *int (boleh nil)
+		UserLectureExamUserName:    userName,    // <- sudah string
+		UserLectureExamGradeResult: gradeResult, // <- *int (boleh nil)
 	}
 
 	return helper.JsonOK(c, "OK", response)

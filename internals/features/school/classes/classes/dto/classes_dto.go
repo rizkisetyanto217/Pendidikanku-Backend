@@ -450,21 +450,20 @@ func (r *PatchClassRequest) Apply(m *model.ClassModel) {
 	assignStrPtr(&m.ClassImageObjectKeyOld, r.ClassImageObjectKeyOld)
 }
 
-/*
-=========================================================
-RESPONSE DTO
-=========================================================
-*/
-// file: internals/features/school/academics/classes/dto/class_dto.go
 
+// ===============================
+// RESPONSE DTO (sinkron dengan model terbaru)
+// ===============================
 type ClassResponse struct {
-	// === persis urutan yang diminta ===
+	// PK & relasi inti
 	ClassID       uuid.UUID `json:"class_id"`
 	ClassMasjidID uuid.UUID `json:"class_masjid_id"`
 	ClassParentID uuid.UUID `json:"class_parent_id"`
 
+	// Identitas
 	ClassSlug string `json:"class_slug"`
 
+	// Periode & registrasi
 	ClassStartDate *time.Time `json:"class_start_date,omitempty"`
 	ClassEndDate   *time.Time `json:"class_end_date,omitempty"`
 
@@ -472,22 +471,38 @@ type ClassResponse struct {
 	ClassRegistrationOpensAt  *time.Time `json:"class_registration_opens_at,omitempty"`
 	ClassRegistrationClosesAt *time.Time `json:"class_registration_closes_at,omitempty"`
 
-	// (tidak ikutkan quota_total agar output sama persis contoh)
+	// Kuota (mengikuti contoh sebelumnya: hanya taken)
 	ClassQuotaTaken int `json:"class_quota_taken"`
 
-	ClassRegistrationFeeIDR *int64 `json:"class_registration_fee_idr,omitempty"`
-	ClassTuitionFeeIDR      *int64 `json:"class_tuition_fee_idr,omitempty"`
+	// Pricing / Billing
+	ClassRegistrationFeeIDR *int64     `json:"class_registration_fee_idr,omitempty"`
+	ClassTuitionFeeIDR      *int64     `json:"class_tuition_fee_idr,omitempty"`
+	ClassBillingCycle       string     `json:"class_billing_cycle"`
+	ClassDeliveryMode       *string    `json:"class_delivery_mode,omitempty"`
+	ClassStatus             string     `json:"class_status"`
+	ClassCompletedAt        *time.Time `json:"class_completed_at,omitempty"`
 
-	ClassBillingCycle string  `json:"class_billing_cycle"`
-	ClassDeliveryMode *string `json:"class_delivery_mode,omitempty"`
-	ClassStatus       string  `json:"class_status"`
-
+	// Gambar (2-slot + retensi)
 	ClassImageURL                *string    `json:"class_image_url,omitempty"`
 	ClassImageObjectKey          *string    `json:"class_image_object_key,omitempty"`
 	ClassImageURLOld             *string    `json:"class_image_url_old,omitempty"`
 	ClassImageObjectKeyOld       *string    `json:"class_image_object_key_old,omitempty"`
 	ClassImageDeletePendingUntil *time.Time `json:"class_image_delete_pending_until,omitempty"`
 
+	// Snapshots — baru ditambahkan agar match model
+	// Snapshot Class Parent
+	ClassCodeParentSnapshot  *string `json:"class_code_parent_snapshot,omitempty"`
+	ClassNameParentSnapshot  *string `json:"class_name_parent_snapshot,omitempty"`
+	ClassSlugParentSnapshot  *string `json:"class_slug_parent_snapshot,omitempty"`
+	ClassLevelParentSnapshot *int16  `json:"class_level_parent_snapshot,omitempty"`
+
+	// Snapshot Class Term
+	ClassAcademicYearTermSnapshot *string `json:"class_academic_year_term_snapshot,omitempty"`
+	ClassNameTermSnapshot         *string `json:"class_name_term_snapshot,omitempty"`
+	ClassSlugTermSnapshot         *string `json:"class_slug_term_snapshot,omitempty"`
+	ClassAngkatanTermSnapshot     *string `json:"class_angkatan_term_snapshot,omitempty"`
+
+	// Audit
 	ClassCreatedAt time.Time `json:"class_created_at"`
 	ClassUpdatedAt time.Time `json:"class_updated_at"`
 }
@@ -509,13 +524,25 @@ func FromModel(m *model.ClassModel) ClassResponse {
 		ClassBillingCycle:            m.ClassBillingCycle,
 		ClassDeliveryMode:            m.ClassDeliveryMode,
 		ClassStatus:                  m.ClassStatus,
+		ClassCompletedAt:             m.ClassCompletedAt,
 		ClassImageURL:                m.ClassImageURL,
 		ClassImageObjectKey:          m.ClassImageObjectKey,
 		ClassImageURLOld:             m.ClassImageURLOld,
 		ClassImageObjectKeyOld:       m.ClassImageObjectKeyOld,
 		ClassImageDeletePendingUntil: m.ClassImageDeletePendingUntil,
-		ClassCreatedAt:               m.ClassCreatedAt,
-		ClassUpdatedAt:               m.ClassUpdatedAt,
+
+		// snapshots (baru)
+		ClassCodeParentSnapshot:       m.ClassCodeParentSnapshot,
+		ClassNameParentSnapshot:       m.ClassNameParentSnapshot,
+		ClassSlugParentSnapshot:       m.ClassSlugParentSnapshot,
+		ClassLevelParentSnapshot:      m.ClassLevelParentSnapshot,
+		ClassAcademicYearTermSnapshot: m.ClassAcademicYearTermSnapshot,
+		ClassNameTermSnapshot:         m.ClassNameTermSnapshot,
+		ClassSlugTermSnapshot:         m.ClassSlugTermSnapshot,
+		ClassAngkatanTermSnapshot:     m.ClassAngkatanTermSnapshot,
+
+		ClassCreatedAt: m.ClassCreatedAt,
+		ClassUpdatedAt: m.ClassUpdatedAt,
 	}
 }
 

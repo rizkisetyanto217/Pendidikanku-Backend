@@ -5,7 +5,7 @@ import (
 	// ====== Lembaga features ======
 	LembagaStatsRoutes "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/route"
 	SemesterStatsRoutes "masjidku_backend/internals/features/lembaga/stats/semester_stats/route"
-	YayasanRoutes "masjidku_backend/internals/features/lembaga/yayasans/route"
+	YayasanRoutes "masjidku_backend/internals/features/lembaga/masjid_yayasans/yayasans/route"
 	AcademicYearRoutes "masjidku_backend/internals/features/school/academics/academic_terms/route"
 	ClassBooksRoutes "masjidku_backend/internals/features/school/academics/books/route"
 	CertificateRoutes "masjidku_backend/internals/features/school/academics/certificates/route"

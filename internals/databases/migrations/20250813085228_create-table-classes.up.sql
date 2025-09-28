@@ -215,4 +215,8 @@ CREATE INDEX IF NOT EXISTS idx_classes_iage_purge_due
   ON classes (class_image_delete_pending_until)
   WHERE class_image_object_key_old IS NOT NULL;
 
+CREATE INDEX IF NOT EXISTS idx_classes_tenant_term
+  ON classes (class_masjid_id, class_term_id);
+
+
 COMMIT;

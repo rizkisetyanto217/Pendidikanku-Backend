@@ -14,7 +14,7 @@ import (
 	helperAuth "masjidku_backend/internals/helpers/auth"
 	helperOSS "masjidku_backend/internals/helpers/oss"
 
-	mtModel "masjidku_backend/internals/features/lembaga/teachers_students/model"
+	mtModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/model"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

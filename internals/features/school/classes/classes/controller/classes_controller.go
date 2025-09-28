@@ -1,3 +1,4 @@
+// file: internals/features/school/academics/classes/controller/class_controller.go
 package controller
 
 import (
@@ -6,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"mime/multipart"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,9 +17,11 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	// Services & helpers
 	"masjidku_backend/internals/features/lembaga/stats/lembaga_stats/service"
-	"masjidku_backend/internals/features/school/classes/classes/dto"
-	"masjidku_backend/internals/features/school/classes/classes/model"
+	termmodel "masjidku_backend/internals/features/school/academics/academic_terms/model"
+	dto "masjidku_backend/internals/features/school/classes/classes/dto"
+	classmodel "masjidku_backend/internals/features/school/classes/classes/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 	helperOSS "masjidku_backend/internals/helpers/oss"
@@ -35,20 +39,15 @@ func NewClassController(db *gorm.DB) *ClassController {
 
 var validate = validator.New()
 
-// --- helpers kecil ---
-// helpers kecil
-// kecil-kecil
+/* ================= Helpers kecil ================= */
+
 func ptrToStr(p *string) string {
 	if p == nil {
 		return ""
 	}
 	return *p
 }
-func slugifySafe(s string, maxLen int) string {
-	return helper.Slugify(strings.TrimSpace(s), maxLen)
-}
 
-// helpers kecil biar gampang
 func coalesceStr(a, b string) string {
 	a = strings.TrimSpace(a)
 	if a != "" {
@@ -57,10 +56,14 @@ func coalesceStr(a, b string) string {
 	return strings.TrimSpace(b)
 }
 
-// ⬇️ REPLACE seluruh fungsi dengan versi ini
-// import "log" di atas file ya
+// Tambahkan di atas (helpers kecil)
+func slugifySafe(s string, maxLen int) string {
+	return helper.Slugify(strings.TrimSpace(s), maxLen)
+}
 
-// ubah param academicTermID ke *uuid.UUID
+
+/* ================= Slug builder (parent + optional term) ================= */
+
 func buildClassBaseSlug(
 	ctx context.Context,
 	db *gorm.DB,
@@ -70,7 +73,7 @@ func buildClassBaseSlug(
 	explicitBase string,
 	maxLen int,
 ) (string, error) {
-	// 0) Jika explicitBase ada → pakai langsung (tetap dukung)
+	// 0) Jika explicitBase ada → pakai langsung
 	if s := strings.TrimSpace(explicitBase); s != "" {
 		b := helper.Slugify(s, maxLen)
 		if b == "" {
@@ -80,7 +83,7 @@ func buildClassBaseSlug(
 		return b, nil
 	}
 
-	// 1) Ambil data parent (PASTIKAN MAPPING KOLOM BENAR)
+	// 1) Ambil data class_parent (kolom sesuai model)
 	type parentRow struct {
 		Slug *string `gorm:"column:class_parent_slug"`
 		Name string  `gorm:"column:class_parent_name"`
@@ -88,35 +91,32 @@ func buildClassBaseSlug(
 	var pr parentRow
 	if err := db.WithContext(ctx).
 		Table("class_parents").
-		// alias boleh juga: .Select("class_parent_slug AS class_parent_slug, class_parent_name AS class_parent_name")
 		Select("class_parent_slug, class_parent_name").
 		Where("class_parent_id = ? AND class_parent_masjid_id = ? AND class_parent_deleted_at IS NULL",
 			classParentID, masjidID).
 		Take(&pr).Error; err != nil {
-		return "", fmt.Errorf("parent not found / db error: %w", err)
+		return "", fmt.Errorf("class_parent tidak ditemukan / db error: %w", err)
 	}
 	rawParent := coalesceStr(ptrToStr(pr.Slug), pr.Name)
 	parentPart := strings.TrimSpace(helper.Slugify(rawParent, maxLen))
 	log.Printf("[CLASSES][SLUG] parent: slug_db=%v name_db='%s' → parentPart='%s'",
 		pr.Slug, pr.Name, parentPart)
 
-	// 2) Ambil data term (jika ada) — PASTIKAN MAPPING KOLOM BENAR
+	// 2) Ambil data academic_term (jika ada) — kolom sesuai model
 	termPart := ""
 	if academicTermID != nil && *academicTermID != uuid.Nil {
 		type termRow struct {
-			Slug  *string `gorm:"column:academic_terms_slug"`
-			Year  string  `gorm:"column:academic_terms_academic_year"`
-			TName string  `gorm:"column:academic_terms_name"`
+			Slug  *string `gorm:"column:academic_term_slug"`
+			Year  string  `gorm:"column:academic_term_academic_year"`
+			TName string  `gorm:"column:academic_term_name"`
 		}
 		var tr termRow
 		if err := db.WithContext(ctx).
 			Table("academic_terms").
-			Select("academic_terms_slug, academic_terms_academic_year, academic_terms_name").
-			Where("academic_terms_id = ? AND academic_terms_masjid_id = ? AND academic_terms_deleted_at IS NULL",
+			Select("academic_term_slug, academic_term_academic_year, academic_term_name").
+			Where("academic_term_id = ? AND academic_term_masjid_id = ? AND academic_term_deleted_at IS NULL",
 				*academicTermID, masjidID).
 			Take(&tr).Error; err == nil {
-
-			// Pakai slug term kalau ada; kalau kosong, fallback "year name"
 			if s := strings.TrimSpace(ptrToStr(tr.Slug)); s != "" {
 				termPart = helper.Slugify(s, maxLen)
 			} else {
@@ -149,31 +149,95 @@ func buildClassBaseSlug(
 	return base, nil
 }
 
+/* ================= Snapshot hydrator (parent & term) ================= */
+
+func hydrateClassSnapshots(ctx context.Context, tx *gorm.DB, masjidID uuid.UUID, m *classmodel.ClassModel) error {
+	// Parent (wajib)
+	var cp classmodel.ClassParentModel
+	if err := tx.WithContext(ctx).
+		Select("class_parent_name", "class_parent_code", "class_parent_slug", "class_parent_level").
+		Where("class_parent_id = ? AND class_parent_masjid_id = ? AND class_parent_deleted_at IS NULL",
+			m.ClassParentID, masjidID).
+		Take(&cp).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fiber.NewError(fiber.StatusBadRequest, "Class parent tidak ditemukan di masjid ini")
+		}
+		return err
+	}
+	// Set snapshots dari parent
+	m.ClassNameParentSnapshot = &cp.ClassParentName
+	m.ClassCodeParentSnapshot = cp.ClassParentCode // *string
+	m.ClassSlugParentSnapshot = cp.ClassParentSlug // *string
+	if cp.ClassParentLevel != nil {
+		lv := int16(*cp.ClassParentLevel)
+		m.ClassLevelParentSnapshot = &lv
+	} else {
+		m.ClassLevelParentSnapshot = nil
+	}
+
+	// Term (opsional)
+	if m.ClassTermID != nil {
+		var t termmodel.AcademicTermModel
+		if err := tx.WithContext(ctx).
+			Select(
+				"academic_term_academic_year",
+				"academic_term_name",
+				"academic_term_slug",
+				"academic_term_angkatan",
+			).
+			Where("academic_term_id = ? AND academic_term_masjid_id = ? AND academic_term_deleted_at IS NULL",
+				*m.ClassTermID, masjidID).
+			Take(&t).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fiber.NewError(fiber.StatusBadRequest, "Academic term tidak ditemukan di masjid ini")
+			}
+			return err
+		}
+		m.ClassAcademicYearTermSnapshot = &t.AcademicTermAcademicYear
+		m.ClassNameTermSnapshot = &t.AcademicTermName
+		m.ClassSlugTermSnapshot = t.AcademicTermSlug // *string
+		if t.AcademicTermAngkatan != nil {
+			s := strconv.Itoa(*t.AcademicTermAngkatan)
+			m.ClassAngkatanTermSnapshot = &s
+		} else {
+			m.ClassAngkatanTermSnapshot = nil
+		}
+	} else {
+		m.ClassAcademicYearTermSnapshot = nil
+		m.ClassNameTermSnapshot = nil
+		m.ClassSlugTermSnapshot = nil
+		m.ClassAngkatanTermSnapshot = nil
+	}
+	return nil
+}
+
 /* =========================== CREATE =========================== */
+
 // POST /admin/classes
 func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	start := time.Now()
 	log.Printf("[CLASSES][CREATE] ▶️ incoming request")
 
-	// ---- Masjid context + staff guard ----
+	/* ---- Resolve Masjid Context + Staff Guard ---- */
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		log.Printf("[CLASSES][CREATE] ❌ resolve masjid ctx error: %v", err)
 		return err
 	}
 	var masjidID uuid.UUID
-	if mc.ID != uuid.Nil {
+	switch {
+	case mc.ID != uuid.Nil:
 		masjidID = mc.ID
 		log.Printf("[CLASSES][CREATE] 🕌 masjid_id from ctx.ID=%s", masjidID)
-	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetMasjidIDBySlug(c, strings.TrimSpace(mc.Slug))
 		if er != nil {
-			log.Printf("[CLASSES][CREATE] ❌ masjid by slug(%s) not found: %v", s, er)
+			log.Printf("[CLASSES][CREATE] ❌ masjid by slug(%s) not found: %v", mc.Slug, er)
 			return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
 		}
 		masjidID = id
-		log.Printf("[CLASSES][CREATE] 🕌 masjid_id from slug=%s → %s", s, masjidID)
-	} else {
+		log.Printf("[CLASSES][CREATE] 🕌 masjid_id from slug=%s → %s", mc.Slug, masjidID)
+	default:
 		id, er := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 		if er != nil || id == uuid.Nil {
 			log.Printf("[CLASSES][CREATE] ❌ masjid context not found via token: %v", er)
@@ -182,12 +246,13 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		masjidID = id
 		log.Printf("[CLASSES][CREATE] 🕌 masjid_id from token=%s", masjidID)
 	}
+
 	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
 		log.Printf("[CLASSES][CREATE] ❌ ensure staff masjid failed: %v", err)
 		return err
 	}
 
-	// ---- Parse & paksa tenant ----
+	/* ---- Parse request & paksa tenant ---- */
 	var req dto.CreateClassRequest
 	if err := c.BodyParser(&req); err != nil {
 		log.Printf("[CLASSES][CREATE] ❌ body parse error: %v", err)
@@ -198,7 +263,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	log.Printf("[CLASSES][CREATE] 📩 req: parent_id=%s term_id=%v delivery=%v status=%v slug_in='%s'",
 		req.ClassParentID, req.ClassTermID, req.ClassDeliveryMode, req.ClassStatus, req.ClassSlug)
 
-	// ---- Validasi ----
+	/* ---- Validasi ---- */
 	if err := req.Validate(); err != nil {
 		log.Printf("[CLASSES][CREATE] ❌ req validate error: %v", err)
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -208,11 +273,12 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	m := req.ToModel() // *model.ClassModel
+	/* ---- Bentuk model awal ---- */
+	m := req.ToModel() // *classmodel.ClassModel
 	log.Printf("[CLASSES][CREATE] 🔧 model init: parent_id=%s term_id=%v billing=%s status=%s",
 		m.ClassParentID, m.ClassTermID, m.ClassBillingCycle, m.ClassStatus)
 
-	// ---- TX ----
+	/* ---- TX ---- */
 	tx := ctrl.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
 		log.Printf("[CLASSES][CREATE] ❌ begin tx error: %v", tx.Error)
@@ -226,7 +292,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		}
 	}()
 
-	// ---- Slug komposit (parent + term) → CI-unique per masjid ----
+	/* ---- Slug komposit (parent + term) → CI-unique per masjid ---- */
 	effectiveTermID := m.ClassTermID // *uuid.UUID (boleh nil)
 	baseSlug, err := buildClassBaseSlug(
 		c.Context(), tx, masjidID,
@@ -259,7 +325,14 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	m.ClassSlug = uniqueSlug
 	log.Printf("[CLASSES][CREATE] ✅ unique_slug='%s'", m.ClassSlug)
 
-	// ---- Simpan ----
+	/* ---- SNAPSHOT (parent+term) sebelum insert ---- */
+	if err := hydrateClassSnapshots(c.Context(), tx, masjidID, m); err != nil {
+		_ = tx.Rollback().Error
+		log.Printf("[CLASSES][CREATE] ❌ hydrate snapshots error: %v", err)
+		return err // sudah fiber.Error(400) jika not found
+	}
+
+	/* ---- Insert ---- */
 	if err := tx.Create(m).Error; err != nil {
 		_ = tx.Rollback().Error
 		low := strings.ToLower(err.Error())
@@ -272,7 +345,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	}
 	log.Printf("[CLASSES][CREATE] 💾 created class_id=%s", m.ClassID)
 
-	// ---- Optional upload image ----
+	/* ---- Optional upload image ---- */
 	uploadedURL := ""
 	if fh := pickImageFile(c, "image", "file"); fh != nil {
 		log.Printf("[CLASSES][CREATE] 📤 uploading image filename=%s size=%d", fh.Filename, fh.Size)
@@ -294,9 +367,9 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 
 				m.ClassImageURL = &uploadedURL
 				m.ClassImageObjectKey = &objKey
-				if err := tx.Model(&model.ClassModel{}).
+				if err := tx.Model(&classmodel.ClassModel{}).
 					Where("class_id = ?", m.ClassID).
-					Updates(&model.ClassModel{
+					Updates(&classmodel.ClassModel{
 						ClassImageURL:       m.ClassImageURL,
 						ClassImageObjectKey: m.ClassImageObjectKey,
 					}).Error; err != nil {
@@ -312,8 +385,8 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		}
 	}
 
-	// ---- Update lembaga_stats bila active ----
-	if m.ClassStatus == model.ClassStatusActive {
+	/* ---- Update lembaga_stats bila active ---- */
+	if m.ClassStatus == classmodel.ClassStatusActive {
 		log.Printf("[CLASSES][CREATE] 📊 updating lembaga_stats (active +1)")
 		statsSvc := service.NewLembagaStatsService()
 		if err := statsSvc.EnsureForMasjid(tx, masjidID); err != nil {
@@ -328,6 +401,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		}
 	}
 
+	/* ---- Commit ---- */
 	if err := tx.Commit().Error; err != nil {
 		log.Printf("[CLASSES][CREATE] ❌ commit error: %v", err)
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
@@ -368,7 +442,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	}()
 
 	// ---- Ambil existing + lock ----
-	var existing model.ClassModel
+	var existing classmodel.ClassModel
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		First(&existing, "class_id = ? AND class_deleted_at IS NULL", classID).Error; err != nil {
 
@@ -388,13 +462,13 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	// ---- Snapshot sebelum apply (untuk deteksi perubahan & stats) ----
 	prevParentID := existing.ClassParentID
 	prevTermID := existing.ClassTermID
-	wasActive := (existing.ClassStatus == model.ClassStatusActive)
+	wasActive := (existing.ClassStatus == classmodel.ClassStatusActive)
 
 	// ---- Apply patch ke entity (selain slug, tapi aman karena slug kita proses setelah ini) ----
 	req.Apply(&existing)
 
 	// ---- Track perubahan status active (setelah apply) ----
-	newActive := (existing.ClassStatus == model.ClassStatusActive)
+	newActive := (existing.ClassStatus == classmodel.ClassStatusActive)
 
 	// ==== SLUG HANDLING ====
 	// Helper bandingkan pointer UUID (termasuk perubahan ke/dari NULL)
@@ -475,7 +549,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	}
 
 	// ---- Simpan ----
-	if err := tx.Model(&model.ClassModel{}).
+	if err := tx.Model(&classmodel.ClassModel{}).
 		Where("class_id = ?", existing.ClassID).
 		Updates(&existing).Error; err != nil {
 
@@ -544,7 +618,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 
 				deletePendingUntil := time.Now().Add(30 * 24 * time.Hour)
 
-				_ = tx.Model(&model.ClassModel{}).
+				_ = tx.Model(&classmodel.ClassModel{}).
 					Where("class_id = ?", existing.ClassID).
 					Updates(map[string]any{
 						"class_image_url":        uploadedURL,
@@ -616,7 +690,7 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 		}
 	}()
 
-	var m model.ClassModel
+	var m classmodel.ClassModel
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("class_id = ? AND class_deleted_at IS NULL", classID).
 		First(&m).Error; err != nil {
@@ -634,7 +708,7 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 		return err
 	}
 
-	wasActive := (m.ClassStatus == model.ClassStatusActive)
+	wasActive := (m.ClassStatus == classmodel.ClassStatusActive)
 
 	now := time.Now()
 	updates := map[string]any{
@@ -642,7 +716,7 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 		"class_updated_at": now,
 		"class_status":     "inactive", // opsional
 	}
-	if err := tx.Model(&model.ClassModel{}).
+	if err := tx.Model(&classmodel.ClassModel{}).
 		Where("class_id = ?", m.ClassID).
 		Updates(updates).Error; err != nil {
 

@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	modelMasjidTeacher "masjidku_backend/internals/features/lembaga/teachers_students/model"
+	modelMasjidTeacher "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/model"
 	modelClassSection "masjidku_backend/internals/features/school/classes/class_sections/model"
 
 	// === pakai model & dto CSST terbaru (sectionsubjectteachers) ===

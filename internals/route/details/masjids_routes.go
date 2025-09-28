@@ -1,6 +1,9 @@
 package details
 
 import (
+	masjidRoutes "masjidku_backend/internals/features/lembaga/masjid_yayasans/masjids/route"
+	MasjidMore "masjidku_backend/internals/features/lembaga/masjid_yayasans/masjids_more/route"
+	MasjidAdmin "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/route"
 	CertificateRoutes "masjidku_backend/internals/features/masjids/certificate/route"
 	EventRoutes "masjidku_backend/internals/features/masjids/events/route"
 	LectureSessionRoutes "masjidku_backend/internals/features/masjids/lecture_sessions/main/route"
@@ -9,11 +12,8 @@ import (
 	LectureSessionsQuizRoutes "masjidku_backend/internals/features/masjids/lecture_sessions/quizzes/route"
 	LectureExamsRoutes "masjidku_backend/internals/features/masjids/lectures/exams/route"
 	LectureRoutes "masjidku_backend/internals/features/masjids/lectures/main/route"
-	MasjidAdmin "masjidku_backend/internals/features/lembaga/teachers_students/route"
-	masjidRoutes "masjidku_backend/internals/features/lembaga/masjids/route"
-	MasjidMore "masjidku_backend/internals/features/lembaga/masjids_more/route"
 
-	userFollowMasjid "masjidku_backend/internals/features/lembaga/user_follow_masjids/route"
+	userFollowMasjid "masjidku_backend/internals/features/lembaga/masjid_yayasans/user_follow_masjids/route"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -35,7 +35,6 @@ func MasjidPublicRoutes(r fiber.Router, db *gorm.DB) {
 
 }
 
-
 func MasjidUserRoutes(r fiber.Router, db *gorm.DB) {
 	// Ini endpoint yang butuh login user biasa (dengan token)
 	masjidRoutes.MasjidUserRoutes(r, db)
@@ -47,7 +46,6 @@ func MasjidUserRoutes(r fiber.Router, db *gorm.DB) {
 	LectureSessionsQuestionRoutes.LectureSessionsQuestionUserRoutes(r, db)
 	CertificateRoutes.CertificateUserRoutes(r, db)
 
-	
 	// LectureRoutes.UserLectureRoutes(r, db)
 }
 
@@ -65,7 +63,6 @@ func MasjidAdminRoutes(r fiber.Router, db *gorm.DB) {
 	LectureSessionsQuizRoutes.LectureSessionsQuizAdminRoutes(r, db)
 	CertificateRoutes.CertificateAdminRoutes(r, db)
 }
-
 
 func MasjidOwnerRoutes(r fiber.Router, db *gorm.DB) {
 	// Ini endpoint khusus super admin
