@@ -33,10 +33,12 @@ type MasjidStudent struct {
 	// Catatan umum
 	MasjidStudentNote *string `gorm:"type:text;column:masjid_student_note" json:"masjid_student_note,omitempty"`
 
-	// Snapshot profil
-	MasjidStudentNameProfileSnapshot        *string `gorm:"type:varchar(80);column:masjid_student_name_profile_snapshot" json:"masjid_student_name_profile_snapshot,omitempty"`
-	MasjidStudentAvatarURLProfileSnapshot   *string `gorm:"type:varchar(255);column:masjid_student_avatar_url_profile_snapshot" json:"masjid_student_avatar_url_profile_snapshot,omitempty"`
-	MasjidStudentWhatsappURLProfileSnapshot *string `gorm:"type:varchar(20);column:masjid_student_whatsapp_url_profile_snapshot" json:"masjid_student_whatsapp_url_profile_snapshot,omitempty"`
+	// Snapshots (ringkasan untuk lookup cepat)
+	MasjidStudentNameUserSnapshot              *string `gorm:"type:varchar(80);column:masjid_student_name_user_snapshot" json:"masjid_student_name_user_snapshot,omitempty"`
+	MasjidStudentAvatarURLUserSnapshot         *string `gorm:"type:varchar(255);column:masjid_student_avatar_url_user_snapshot" json:"masjid_student_avatar_url_user_snapshot,omitempty"`
+	MasjidStudentWhatsappURLUserSnapshot       *string `gorm:"type:varchar(50);column:masjid_student_whatsapp_url_user_snapshot" json:"masjid_student_whatsapp_url_user_snapshot,omitempty"`
+	MasjidStudentParentNameUserSnapshot        *string `gorm:"type:varchar(80);column:masjid_student_parent_name_user_snapshot" json:"masjid_student_parent_name_user_snapshot,omitempty"`
+	MasjidStudentParentWhatsappURLUserSnapshot *string `gorm:"type:varchar(50);column:masjid_student_parent_whatsapp_url_user_snapshot" json:"masjid_student_parent_whatsapp_url_user_snapshot,omitempty"`
 
 	// Audit & soft delete
 	MasjidStudentCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();autoCreateTime;column:masjid_student_created_at" json:"masjid_student_created_at"`

@@ -104,6 +104,10 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   user_profile_interests   TEXT[],
   user_profile_skills      TEXT[],
 
+  -- Orang tua / wali
+  user_profile_parent_name         VARCHAR(100),
+  user_profile_parent_whatsapp_url TEXT,
+
   -- Audit
   user_profile_created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   user_profile_updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),

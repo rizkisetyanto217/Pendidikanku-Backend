@@ -110,6 +110,8 @@ func revokeTeacherRole(tx *gorm.DB, userID, masjidID uuid.UUID) error {
 
 /* ===================== CREATE ===================== */
 // POST /api/a/masjids/:masjid_id/masjid-teachers
+/* ===================== CREATE ===================== */
+// POST /api/a/masjids/:masjid_id/masjid-teachers
 func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 	if c.Locals("DB") == nil {
 		c.Locals("DB", ctrl.DB)
@@ -143,18 +145,22 @@ func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 	var created yModel.MasjidTeacherModel
 	if err := ctrl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		// pastikan user_teacher exists (+ambil user_id untuk role)
-		var userID uuid.UUID
+		var userIDStr string
 		if err := tx.Raw(`
-			SELECT user_teacher_user_id
+			SELECT user_teacher_user_id::text
 			  FROM user_teachers
 			 WHERE user_teacher_id = ?
 			   AND user_teacher_deleted_at IS NULL
 			LIMIT 1
-		`, rec.MasjidTeacherUserTeacherID).Scan(&userID).Error; err != nil {
+		`, rec.MasjidTeacherUserTeacherID).Scan(&userIDStr).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membaca data user_teacher")
 		}
-		if userID == uuid.Nil {
+		if strings.TrimSpace(userIDStr) == "" {
 			return fiber.NewError(fiber.StatusNotFound, "Profil pengajar (user_teacher) tidak ditemukan")
+		}
+		userID, perr := uuid.Parse(userIDStr)
+		if perr != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "user_id pada user_teacher tidak valid")
 		}
 
 		// cek duplikat alive (per masjid + user_teacher)

@@ -14,6 +14,8 @@ import (
 	helperAuth "masjidku_backend/internals/helpers/auth"
 	helperOSS "masjidku_backend/internals/helpers/oss"
 
+	mtModel "masjidku_backend/internals/features/lembaga/teachers_students/model"
+
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -188,8 +190,7 @@ func (uc *UserTeacherController) GetMe(c *fiber.Ctx) error {
 }
 
 // ========================= PATCH (CORE) =========================
-
-func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherModel, allowAdmin bool) error {
+func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherModel, _ bool) error {
 	before := *m
 	var req userdto.UpdateUserTeacherRequest
 	ct := strings.ToLower(strings.TrimSpace(c.Get(fiber.HeaderContentType)))
@@ -205,12 +206,9 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 
 	// --- parse payload ---
 	if strings.HasPrefix(ct, "multipart/form-data") {
-		if s := strings.TrimSpace(c.FormValue("payload")); s != "" {
-			if err := json.Unmarshal([]byte(s), &req); err != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest, "payload JSON tidak valid")
-			}
-		} else {
-			_ = c.BodyParser(&req)
+		// bodyparser akan mapping langsung semua field dengan tag form/json
+		if err := c.BodyParser(&req); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "payload tidak valid")
 		}
 
 		// OSS svc
@@ -250,12 +248,12 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 		}
 	}
 
-	// --- validasi ---
+	// --- validasi DTO ---
 	if err := uc.Validate.Struct(req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// --- terapkan patch ke model ---
+	// --- apply patch ke model ---
 	req.ApplyPatch(m)
 	m.UserTeacherUpdatedAt = now
 
@@ -264,42 +262,32 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 		"user_teacher_updated_at": m.UserTeacherUpdatedAt,
 	}
 
-	// ringkas
-	if before.UserTeacherName != m.UserTeacherName {
-		updates["user_teacher_name"] = m.UserTeacherName
+	// helper inline
+	applyIfChanged := func(col string, beforeVal, afterVal any) {
+		if beforeVal != afterVal {
+			updates[col] = afterVal
+		}
 	}
-	if derefStr(before.UserTeacherField) != derefStr(m.UserTeacherField) {
-		updates["user_teacher_field"] = m.UserTeacherField
-	}
-	if derefStr(before.UserTeacherShortBio) != derefStr(m.UserTeacherShortBio) {
-		updates["user_teacher_short_bio"] = m.UserTeacherShortBio
-	}
-	if derefStr(before.UserTeacherLongBio) != derefStr(m.UserTeacherLongBio) {
-		updates["user_teacher_long_bio"] = m.UserTeacherLongBio
-	}
-	if derefStr(before.UserTeacherGreeting) != derefStr(m.UserTeacherGreeting) {
-		updates["user_teacher_greeting"] = m.UserTeacherGreeting
-	}
-	if derefStr(before.UserTeacherEducation) != derefStr(m.UserTeacherEducation) {
-		updates["user_teacher_education"] = m.UserTeacherEducation
-	}
-	if derefStr(before.UserTeacherActivity) != derefStr(m.UserTeacherActivity) {
-		updates["user_teacher_activity"] = m.UserTeacherActivity
-	}
-	if before.UserTeacherExperienceYears != m.UserTeacherExperienceYears {
-		updates["user_teacher_experience_years"] = m.UserTeacherExperienceYears
+	applyIfChangedStr := func(col string, beforeVal, afterVal *string) {
+		if derefStr(beforeVal) != derefStr(afterVal) {
+			updates[col] = afterVal
+		}
 	}
 
+	// ringkas
+	applyIfChanged("user_teacher_name", before.UserTeacherName, m.UserTeacherName)
+	applyIfChangedStr("user_teacher_field", before.UserTeacherField, m.UserTeacherField)
+	applyIfChangedStr("user_teacher_short_bio", before.UserTeacherShortBio, m.UserTeacherShortBio)
+	applyIfChangedStr("user_teacher_long_bio", before.UserTeacherLongBio, m.UserTeacherLongBio)
+	applyIfChangedStr("user_teacher_greeting", before.UserTeacherGreeting, m.UserTeacherGreeting)
+	applyIfChangedStr("user_teacher_education", before.UserTeacherEducation, m.UserTeacherEducation)
+	applyIfChangedStr("user_teacher_activity", before.UserTeacherActivity, m.UserTeacherActivity)
+	applyIfChanged("user_teacher_experience_years", before.UserTeacherExperienceYears, m.UserTeacherExperienceYears)
+
 	// demografis
-	if derefStr(before.UserTeacherGender) != derefStr(m.UserTeacherGender) {
-		updates["user_teacher_gender"] = m.UserTeacherGender
-	}
-	if derefStr(before.UserTeacherLocation) != derefStr(m.UserTeacherLocation) {
-		updates["user_teacher_location"] = m.UserTeacherLocation
-	}
-	if derefStr(before.UserTeacherCity) != derefStr(m.UserTeacherCity) {
-		updates["user_teacher_city"] = m.UserTeacherCity
-	}
+	applyIfChangedStr("user_teacher_gender", before.UserTeacherGender, m.UserTeacherGender)
+	applyIfChangedStr("user_teacher_location", before.UserTeacherLocation, m.UserTeacherLocation)
+	applyIfChangedStr("user_teacher_city", before.UserTeacherCity, m.UserTeacherCity)
 
 	// jsonb
 	if !jsonEqual(before.UserTeacherSpecialties, m.UserTeacherSpecialties) {
@@ -310,40 +298,20 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 	}
 
 	// sosial
-	if derefStr(before.UserTeacherInstagramURL) != derefStr(m.UserTeacherInstagramURL) {
-		updates["user_teacher_instagram_url"] = m.UserTeacherInstagramURL
-	}
-	if derefStr(before.UserTeacherWhatsappURL) != derefStr(m.UserTeacherWhatsappURL) {
-		updates["user_teacher_whatsapp_url"] = m.UserTeacherWhatsappURL
-	}
-	if derefStr(before.UserTeacherYoutubeURL) != derefStr(m.UserTeacherYoutubeURL) {
-		updates["user_teacher_youtube_url"] = m.UserTeacherYoutubeURL
-	}
-	if derefStr(before.UserTeacherLinkedinURL) != derefStr(m.UserTeacherLinkedinURL) {
-		updates["user_teacher_linkedin_url"] = m.UserTeacherLinkedinURL
-	}
-	if derefStr(before.UserTeacherGithubURL) != derefStr(m.UserTeacherGithubURL) {
-		updates["user_teacher_github_url"] = m.UserTeacherGithubURL
-	}
-	if derefStr(before.UserTeacherTelegramUsername) != derefStr(m.UserTeacherTelegramUsername) {
-		updates["user_teacher_telegram_username"] = m.UserTeacherTelegramUsername
-	}
+	applyIfChangedStr("user_teacher_instagram_url", before.UserTeacherInstagramURL, m.UserTeacherInstagramURL)
+	applyIfChangedStr("user_teacher_whatsapp_url", before.UserTeacherWhatsappURL, m.UserTeacherWhatsappURL)
+	applyIfChangedStr("user_teacher_youtube_url", before.UserTeacherYoutubeURL, m.UserTeacherYoutubeURL)
+	applyIfChangedStr("user_teacher_linkedin_url", before.UserTeacherLinkedinURL, m.UserTeacherLinkedinURL)
+	applyIfChangedStr("user_teacher_github_url", before.UserTeacherGithubURL, m.UserTeacherGithubURL)
+	applyIfChangedStr("user_teacher_telegram_username", before.UserTeacherTelegramUsername, m.UserTeacherTelegramUsername)
 
 	// title
-	if derefStr(before.UserTeacherTitlePrefix) != derefStr(m.UserTeacherTitlePrefix) {
-		updates["user_teacher_title_prefix"] = m.UserTeacherTitlePrefix
-	}
-	if derefStr(before.UserTeacherTitleSuffix) != derefStr(m.UserTeacherTitleSuffix) {
-		updates["user_teacher_title_suffix"] = m.UserTeacherTitleSuffix
-	}
+	applyIfChangedStr("user_teacher_title_prefix", before.UserTeacherTitlePrefix, m.UserTeacherTitlePrefix)
+	applyIfChangedStr("user_teacher_title_suffix", before.UserTeacherTitleSuffix, m.UserTeacherTitleSuffix)
 
 	// avatar current
-	if derefStr(before.UserTeacherAvatarURL) != derefStr(m.UserTeacherAvatarURL) {
-		updates["user_teacher_avatar_url"] = m.UserTeacherAvatarURL
-	}
-	if derefStr(before.UserTeacherAvatarObjectKey) != derefStr(m.UserTeacherAvatarObjectKey) {
-		updates["user_teacher_avatar_object_key"] = m.UserTeacherAvatarObjectKey
-	}
+	applyIfChangedStr("user_teacher_avatar_url", before.UserTeacherAvatarURL, m.UserTeacherAvatarURL)
+	applyIfChangedStr("user_teacher_avatar_object_key", before.UserTeacherAvatarObjectKey, m.UserTeacherAvatarObjectKey)
 
 	// avatar shadow
 	if changedAvatar {
@@ -353,12 +321,8 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 	}
 
 	// flags
-	if before.UserTeacherIsVerified != m.UserTeacherIsVerified {
-		updates["user_teacher_is_verified"] = m.UserTeacherIsVerified
-	}
-	if before.UserTeacherIsActive != m.UserTeacherIsActive {
-		updates["user_teacher_is_active"] = m.UserTeacherIsActive
-	}
+	applyIfChanged("user_teacher_is_verified", before.UserTeacherIsVerified, m.UserTeacherIsVerified)
+	applyIfChanged("user_teacher_is_active", before.UserTeacherIsActive, m.UserTeacherIsActive)
 
 	// tidak ada perubahan nyata
 	if len(updates) == 1 {
@@ -367,9 +331,34 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 		})
 	}
 
-	// simpan
+	// simpan perubahan ke user_teachers
 	if err := uc.DB.Model(m).Updates(updates).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan")
+	}
+
+	// === SNAPSHOT SYNC ke masjid_teachers ===
+	changedSnapshot :=
+		before.UserTeacherName != m.UserTeacherName ||
+			derefStr(before.UserTeacherAvatarURL) != derefStr(m.UserTeacherAvatarURL) ||
+			derefStr(before.UserTeacherWhatsappURL) != derefStr(m.UserTeacherWhatsappURL) ||
+			derefStr(before.UserTeacherTitlePrefix) != derefStr(m.UserTeacherTitlePrefix) ||
+			derefStr(before.UserTeacherTitleSuffix) != derefStr(m.UserTeacherTitleSuffix)
+
+	if changedSnapshot {
+		set := map[string]any{
+			"masjid_teacher_name_user_snapshot":         m.UserTeacherName,
+			"masjid_teacher_avatar_url_user_snapshot":   m.UserTeacherAvatarURL,
+			"masjid_teacher_whatsapp_url_user_snapshot": m.UserTeacherWhatsappURL,
+			"masjid_teacher_title_prefix_user_snapshot": m.UserTeacherTitlePrefix,
+			"masjid_teacher_title_suffix_user_snapshot": m.UserTeacherTitleSuffix,
+			"masjid_teacher_updated_at":                 time.Now(),
+		}
+		if err := uc.DB.Model(&mtModel.MasjidTeacherModel{}).
+			Where("masjid_teacher_user_teacher_id = ? AND masjid_teacher_deleted_at IS NULL", m.UserTeacherID).
+			Updates(set).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError,
+				"Profil tersimpan, tapi gagal sync snapshot pengajar di masjid")
+		}
 	}
 
 	return helper.JsonOK(c, "Berhasil", fiber.Map{
@@ -378,6 +367,21 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 }
 
 // ========================= PATCH WRAPPERS =========================
+
+func (uc *UserTeacherController) PatchMe(c *fiber.Ctx) error {
+	userID, err := helperAuth.GetUserIDFromToken(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
+	}
+	var m model.UserTeacherModel
+	if err := uc.DB.First(&m, "user_teacher_user_id = ?", userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "Profil pengajar tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
+	}
+	return uc.applyPatch(c, &m, false)
+}
 
 func (uc *UserTeacherController) Patch(c *fiber.Ctx) error {
 	utID, err := parseUUIDParam(c, "id")
@@ -395,21 +399,6 @@ func (uc *UserTeacherController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, err.(*fiber.Error).Code, err.Error())
 	}
 	return uc.applyPatch(c, &m, true)
-}
-
-func (uc *UserTeacherController) PatchMe(c *fiber.Ctx) error {
-	userID, err := helperAuth.GetUserIDFromToken(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
-	}
-	var m model.UserTeacherModel
-	if err := uc.DB.First(&m, "user_teacher_user_id = ?", userID).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Profil pengajar tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-	return uc.applyPatch(c, &m, false)
 }
 
 // ========================= DELETE FILE =========================

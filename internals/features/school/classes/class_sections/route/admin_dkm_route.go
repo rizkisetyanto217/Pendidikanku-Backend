@@ -30,28 +30,25 @@ func ClassSectionAdminRoutes(api fiber.Router, db *gorm.DB) {
 	base.Patch("/class-sections/:id", sectionH.UpdateClassSection)
 	base.Delete("/class-sections/:id", sectionH.SoftDeleteClassSection)
 
-	base.Post("/user-class-sections", ucsH.CreateUserClassSection)
-	base.Patch("/user-class-sections/:id", ucsH.UpdateUserClassSection)
-	base.Post("/user-class-sections/:id/end", ucsH.EndUserClassSection)
-	base.Delete("/user-class-sections/:id", ucsH.DeleteUserClassSection)
+	base.Post("/user-class-sections", ucsH.Create)
+	base.Patch("/user-class-sections/:id", ucsH.Patch)
+	base.Delete("/user-class-sections/:id", ucsH.Delete)
 
 	// ========== 2) PATH-SCOPED by masjid_id ==========
 	base.Post("/:masjid_id/class-sections", sectionH.CreateClassSection)
 	base.Patch("/:masjid_id/class-sections/:id", sectionH.UpdateClassSection)
 	base.Delete("/:masjid_id/class-sections/:id", sectionH.SoftDeleteClassSection)
 
-	base.Post("/:masjid_id/user-class-sections", ucsH.CreateUserClassSection)
-	base.Patch("/:masjid_id/user-class-sections/:id", ucsH.UpdateUserClassSection)
-	base.Post("/:masjid_id/user-class-sections/:id/end", ucsH.EndUserClassSection)
-	base.Delete("/:masjid_id/user-class-sections/:id", ucsH.DeleteUserClassSection)
+	base.Post("/:masjid_id/user-class-sections", ucsH.Create)
+	base.Patch("/:masjid_id/user-class-sections/:id", ucsH.Delete)
+	base.Delete("/:masjid_id/user-class-sections/:id", ucsH.Delete)
 
 	// ========== 3) PATH-SCOPED by masjid_slug ==========
 	base.Post("/m/:masjid_slug/class-sections", sectionH.CreateClassSection)
 	base.Patch("/m/:masjid_slug/class-sections/:id", sectionH.UpdateClassSection)
 	base.Delete("/m/:masjid_slug/class-sections/:id", sectionH.SoftDeleteClassSection)
 
-	base.Post("/m/:masjid_slug/user-class-sections", ucsH.CreateUserClassSection)
-	base.Patch("/m/:masjid_slug/user-class-sections/:id", ucsH.UpdateUserClassSection)
-	base.Post("/m/:masjid_slug/user-class-sections/:id/end", ucsH.EndUserClassSection)
-	base.Delete("/m/:masjid_slug/user-class-sections/:id", ucsH.DeleteUserClassSection)
+	base.Post("/m/:masjid_slug/user-class-sections", ucsH.Create)
+	base.Patch("/m/:masjid_slug/user-class-sections/:id", ucsH.Patch)
+	base.Delete("/m/:masjid_slug/user-class-sections/:id", ucsH.Delete)
 }

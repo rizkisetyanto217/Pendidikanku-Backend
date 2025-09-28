@@ -1,10 +1,12 @@
 package controller
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"math/big"
 	"mime/multipart"
 	"strconv"
 	"strings"
@@ -19,6 +21,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
@@ -128,10 +131,41 @@ func splitCSV(s string) []string {
 	return out
 }
 
-/* =======================================================
-   CreateMasjidDKM — multipart only, with logs & lazy OSS
-======================================================= */
+// ===== Helper: 2-char base36 & generator dari slug =====
+func randBase36(n int) (string, error) {
+	const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+	var b strings.Builder
+	b.Grow(n)
+	for i := 0; i < n; i++ {
+		x, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
+		if err != nil {
+			return "", err
+		}
+		b.WriteByte(alphabet[x.Int64()])
+	}
+	return b.String(), nil
+}
 
+func makeTeacherCodeFromSlug(slug string) (plain string, hash []byte, setAt time.Time, err error) {
+	s := strings.TrimSpace(slug)
+	if s == "" {
+		s = "masjid"
+	}
+	sfx, err := randBase36(2) // hanya 2 huruf/angka
+	if err != nil {
+		return "", nil, time.Time{}, err
+	}
+	plain = fmt.Sprintf("%s-%s", s, sfx)
+	hash, err = bcrypt.GenerateFromPassword([]byte(plain), bcrypt.DefaultCost)
+	if err != nil {
+		return "", nil, time.Time{}, err
+	}
+	return plain, hash, time.Now(), nil
+}
+
+// =======================================================
+// CreateMasjidDKM — multipart only, dengan teacher code "slug-xy"
+// =======================================================
 func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 	t0 := time.Now()
 	rid := uuid.New().String()
@@ -261,13 +295,38 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 			MasjidCreatedAt: now,
 			MasjidUpdatedAt: now,
 		}
-		// set levels (jsonb)
+
+		// Levels → JSONB
 		if len(levels) > 0 {
 			if jb, err := json.Marshal(levels); err == nil {
 				m.MasjidLevels = datatypes.JSON(jb)
 			}
 		}
 		syncVerificationFlags(&m)
+
+		// ===== Teacher Code (hash) =====
+		if manual := strings.TrimSpace(c.FormValue("masjid_teacher_code_plain")); manual != "" {
+			hash, err := bcrypt.GenerateFromPassword([]byte(manual), bcrypt.DefaultCost)
+			if err != nil {
+				lg("teacher code hash failed (manual)", "err", err.Error())
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat hash teacher code")
+			}
+			m.MasjidTeacherCodeHash = hash
+			m.MasjidTeacherCodeSetAt = &now
+			c.Locals("teacher_code_plain", manual) // kembalikan sekali via response
+			lg("teacher code set (manual)")
+		} else {
+			plain, hash, setAt, err := makeTeacherCodeFromSlug(slug) // slug-xy
+			if err != nil {
+				lg("teacher code generate failed", "err", err.Error())
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat teacher code")
+			}
+			m.MasjidTeacherCodeHash = hash
+			m.MasjidTeacherCodeSetAt = &setAt
+			c.Locals("teacher_code_plain", plain) // kembalikan sekali via response
+			lg("teacher code set (auto)")
+		}
+		// ===============================
 
 		if err := tx.Create(&m).Error; err != nil {
 			lg("db create masjid failed", "err", err.Error())
@@ -277,7 +336,6 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 
 		// Upload file opsional
 		if iconFH != nil || logoFH != nil || bgFH != nil || compatFH != nil {
-			// init OSS jika diperlukan
 			if err := mc.ensureOSS(); err != nil {
 				lg("oss not configured", "err", err.Error())
 				return fiber.NewError(fiber.StatusFailedDependency, err.Error())
@@ -334,7 +392,7 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 					if key, err := helperOSS.KeyFromPublicURL(publicURL); err == nil {
 						m.MasjidBackgroundObjectKey = &key
 					}
-				default: // misc → tidak menyentuh metadata
+				default:
 				}
 				return nil
 			}
@@ -396,7 +454,13 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Transaksi gagal")
 	}
 
-	lg("request success")
+	// Sertakan plaintext teacher code SEKALI di response
+	if tc, _ := c.Locals("teacher_code_plain").(string); tc != "" {
+		return helper.JsonCreated(c, "Masjid berhasil dibuat", fiber.Map{
+			"item":               resp,
+			"teacher_code_plain": tc,
+		})
+	}
 	return helper.JsonCreated(c, "Masjid berhasil dibuat", resp)
 }
 

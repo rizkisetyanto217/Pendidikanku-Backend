@@ -62,6 +62,11 @@ CREATE TABLE IF NOT EXISTS class_sections (
   class_section_image_object_key_old       TEXT,
   class_section_image_delete_pending_until TIMESTAMPTZ,
 
+  class_section_teacher_code_hash BYTEA,
+  class_section_teacher_code_set_at TIMESTAMPTZ,
+  class_section_student_code_hash BYTEA,
+  class_section_student_code_set_at TIMESTAMPTZ,
+
   -- Status & audit
   class_section_is_active  BOOLEAN     NOT NULL DEFAULT TRUE,
   class_section_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -72,10 +77,7 @@ CREATE TABLE IF NOT EXISTS class_sections (
 
   -- snapshots dari class & parent/teacher/leader
   class_section_class_slug_snapshot             VARCHAR(160),
-  class_section_class_code_snapshot             VARCHAR(50),
   class_section_parent_name_snapshot            VARCHAR(120),
-  class_section_parent_code_snapshot            VARCHAR(50),
-  -- class_section_parent_slug_snapshot         VARCHAR(160), -- opsional (pakai kalau URL berbasis parent)
   class_section_teacher_name_snapshot           VARCHAR(120),
   class_section_assistant_teacher_name_snapshot VARCHAR(120),
   class_section_leader_student_name_snapshot    VARCHAR(120),
@@ -87,7 +89,6 @@ CREATE TABLE IF NOT EXISTS class_sections (
 
   -- ROOM snapshots
   class_section_room_name_snapshot      VARCHAR(120),
-  class_section_room_code_snapshot      VARCHAR(50),
   class_section_room_slug_snapshot      VARCHAR(160),
   class_section_room_location_snapshot  VARCHAR(160),
 

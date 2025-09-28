@@ -25,5 +25,5 @@ func ClassSectionUserRoutes(r fiber.Router, db *gorm.DB) {
 
 	// ================== USER (READ-ONLY) ==================
 	user := r.Group("/user-class-sections")
-	user.Get("/list", ucsH.ListUserClassSections)
+	user.Get("/list", ucsH.GetDetail)
 }

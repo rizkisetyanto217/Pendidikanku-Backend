@@ -18,9 +18,9 @@ import (
 	helperOSS "masjidku_backend/internals/helpers/oss"
 
 	semstats "masjidku_backend/internals/features/lembaga/stats/semester_stats/service"
-	classModel "masjidku_backend/internals/features/school/classes/classes/model"
 	secDTO "masjidku_backend/internals/features/school/classes/class_sections/dto"
 	secModel "masjidku_backend/internals/features/school/classes/class_sections/model"
+	classModel "masjidku_backend/internals/features/school/classes/classes/model"
 )
 
 type ClassSectionController struct {
@@ -70,6 +70,8 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	req.ClassSectionMasjidID = masjidID // paksa tenant
+	req.Normalize()
+
 	log.Printf("[SECTIONS][CREATE] 📩 req: class_id=%s teacher_id=%v room_id=%v name='%s' slug_in='%s'",
 		req.ClassSectionClassID, req.ClassSectionTeacherID, req.ClassSectionClassRoomID,
 		req.ClassSectionName, req.ClassSectionSlug)
@@ -137,10 +139,11 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	// ---- Validasi room se-masjid (jika ada) ----
 	if req.ClassSectionClassRoomID != nil {
 		var rMasjid uuid.UUID
+		// FIX: gunakan kolom singular (class_room_masjid_id, class_room_deleted_at)
 		if err := tx.Raw(`
-			SELECT class_rooms_masjid_id
+			SELECT class_room_masjid_id
 			FROM class_rooms
-			WHERE class_room_id = ? AND class_rooms_deleted_at IS NULL
+			WHERE class_room_id = ? AND class_room_deleted_at IS NULL
 		`, *req.ClassSectionClassRoomID).Scan(&rMasjid).Error; err != nil {
 			_ = tx.Rollback()
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi ruang kelas")
@@ -193,12 +196,11 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	}
 	log.Printf("[SECTIONS][CREATE] 💾 created section_id=%s", m.ClassSectionID)
 
-	// ---- Optional upload image (pakai helperOSS seperti Class Parent) ----
+	// ---- Optional upload image ----
 	uploadedURL := ""
 	if fh := pickImageFile(c, "image", "file"); fh != nil {
 		log.Printf("[SECTIONS][CREATE] 📤 uploading image filename=%s size=%d", fh.Filename, fh.Size)
-		url, upErr := helperOSS.UploadImageToOSSScoped(masjidID, "classes/sections", fh)
-		if upErr == nil && strings.TrimSpace(url) != "" {
+		if url, upErr := helperOSS.UploadImageToOSSScoped(masjidID, "classes/sections", fh); upErr == nil && strings.TrimSpace(url) != "" {
 			uploadedURL = url
 
 			// derive object key
@@ -209,7 +211,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 				objKey = k2
 			}
 
-			// ✅ persist di DB
+			// persist di DB
 			_ = tx.WithContext(c.Context()).
 				Table("class_sections").
 				Where("class_section_id = ?", m.ClassSectionID).
@@ -218,7 +220,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 					"class_section_image_object_key": objKey,
 				}).Error
 
-			// ✅ sinkronkan struct utk response
+			// sinkronkan struct utk response
 			m.ClassSectionImageURL = &uploadedURL
 			m.ClassSectionImageObjectKey = &objKey
 
@@ -332,10 +334,11 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	// ---- Validasi room kalau diubah ----
 	if req.ClassSectionClassRoomID.Present && req.ClassSectionClassRoomID.Value != nil {
 		var rMasjid uuid.UUID
+		// FIX: gunakan kolom singular (class_room_masjid_id, class_room_deleted_at)
 		if err := tx.Raw(`
-			SELECT class_rooms_masjid_id
+			SELECT class_room_masjid_id
 			FROM class_rooms
-			WHERE class_room_id = ? AND class_rooms_deleted_at IS NULL
+			WHERE class_room_id = ? AND class_room_deleted_at IS NULL
 		`, *req.ClassSectionClassRoomID.Value).Scan(&rMasjid).Error; err != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi ruang kelas")
@@ -518,7 +521,6 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonUpdated(c, "Section berhasil diperbarui", secDTO.FromModelClassSection(&updated))
-
 }
 
 // DELETE /admin/class-sections/:id (soft delete)

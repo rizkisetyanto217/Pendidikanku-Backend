@@ -325,7 +325,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	}
 
 	// =========================
-	// Prefetch ROOMS
+	// Prefetch ROOMS (fix kolom)
 	// =========================
 	type roomLite struct {
 		ID   uuid.UUID `json:"id"   gorm:"column:id"`
@@ -351,8 +351,8 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 			var rowsRR []rrRow
 			if err := ctrl.DB.
 				Table("class_rooms").
-				Select("class_room_id AS id, class_rooms_name AS name").
-				Where("class_room_id IN ? AND class_rooms_deleted_at IS NULL", roomIDs).
+				Select("class_room_id AS id, class_room_name AS name").
+				Where("class_room_id IN ? AND class_room_deleted_at IS NULL", roomIDs).
 				Find(&rowsRR).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data rooms")
 			}

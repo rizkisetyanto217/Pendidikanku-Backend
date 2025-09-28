@@ -1,15 +1,11 @@
 package controller
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
-	"regexp"
 	"strings"
 	"time"
-	"unicode"
 
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
@@ -72,120 +68,139 @@ func jsonEqual(a, b datatypes.JSON) bool {
 }
 
 /* ====== KODE GURU: helper & endpoint ====== */
-
-// "Sekolah Islam Sunnah Bintaro" -> "Sekolah-Islam-Sunnah-Bintaro"
-func humanKebabTitle(src string, maxWords int, maxLen int) string {
-	re := regexp.MustCompile(`[^0-9A-Za-z]+`)
-	tokens := re.Split(src, -1)
-
-	words := make([]string, 0, len(tokens))
-	for _, t := range tokens {
-		t = strings.TrimSpace(t)
-		if t == "" {
-			continue
-		}
-		rs := []rune(strings.ToLower(t))
-		if len(rs) > 0 {
-			rs[0] = unicode.ToUpper(rs[0])
-		}
-		words = append(words, string(rs))
-		if maxWords > 0 && len(words) >= maxWords {
-			break
-		}
-	}
-
-	base := strings.Join(words, "-")
-	if maxLen > 0 && len(base) > maxLen {
-		base = base[:maxLen]
-	}
-	base = strings.Trim(base, "-")
-	base = regexp.MustCompile(`-+`).ReplaceAllString(base, "-")
-	if base == "" {
-		base = "Masjid"
-	}
-	return base
-}
-
-func randBase36(n int) (string, error) {
-	const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
-	var b strings.Builder
-	b.Grow(n)
-	for i := 0; i < n; i++ {
-		x, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
-		if err != nil {
-			return "", err
-		}
-		b.WriteByte(alphabet[x.Int64()])
-	}
-	return b.String(), nil
-}
-
-func makeTeacherCodeFromName(name string) (plain string, hashed []byte, setAt time.Time, err error) {
-	prefix := humanKebabTitle(name, 6, 48)
-	sfx, err := randBase36(4) // contoh: "13ed"
+// POST /api/u/masjids/:id/teacher-code/rotate
+func (mc *MasjidController) RotateTeacherCode(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	masjidID, err := uuid.Parse(strings.TrimSpace(idStr))
 	if err != nil {
-		return "", nil, time.Time{}, err
-	}
-	plain = prefix + "-" + sfx
-	hash, err := bcrypt.GenerateFromPassword([]byte(plain), bcrypt.DefaultCost)
-	if err != nil {
-		return "", nil, time.Time{}, err
-	}
-	return plain, hash, time.Now(), nil
-}
-
-// Struct minimal agar tidak bergantung ke DTO untuk kolom kode guru
-type masjidForCode struct {
-	MasjidID               uuid.UUID  `gorm:"column:masjid_id;primaryKey"`
-	MasjidName             string     `gorm:"column:masjid_name"`
-	MasjidTeacherCodeHash  []byte     `gorm:"column:masjid_teacher_code_hash"`
-	MasjidTeacherCodeSetAt *time.Time `gorm:"column:masjid_teacher_code_set_at"`
-}
-
-func (masjidForCode) TableName() string { return "masjids" }
-
-// POST /api/masjids/:id/teacher-code/generate
-// Membuat kode readable dari nama masjid, menyimpan hash + set_at, dan mengembalikan plaintext sekali.
-func (mc *MasjidController) GenerateTeacherCode(c *fiber.Ctx) error {
-	id, err := parseMasjidID(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// Auth DKM dan pin ke path id
-	masjidID, aerr := helperAuth.EnsureMasjidAccessDKM(c, helperAuth.MasjidContext{ID: id})
+	// Auth DKM
+	gotID, aerr := helperAuth.EnsureMasjidAccessDKM(c, helperAuth.MasjidContext{ID: masjidID})
 	if aerr != nil {
 		return helper.JsonError(c, aerr.(*fiber.Error).Code, aerr.Error())
 	}
-	if masjidID != id {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak: masjid tidak sesuai")
+	if gotID != masjidID {
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 
-	var m masjidForCode
-	if err := mc.DB.First(&m, "masjid_id = ?", id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Masjid tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil masjid")
+	// Ambil masjid
+	var m masjidModel.MasjidModel
+	if err := mc.DB.First(&m, "masjid_id = ?", masjidID).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "Masjid tidak ditemukan")
 	}
 
-	plain, hash, setAt, genErr := makeTeacherCodeFromName(m.MasjidName)
-	if genErr != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat kode")
+	// Generate dari slug: slug-xy (2 char base36)
+	plain, hash, setAt, err := makeTeacherCodeFromSlug(m.MasjidSlug)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat teacher code")
 	}
 
-	// simpan hash + timestamp
+	m.MasjidTeacherCodeHash = hash // []byte → BYTEA
+	m.MasjidTeacherCodeSetAt = &setAt
+	m.MasjidUpdatedAt = time.Now()
+
 	if err := mc.DB.Model(&m).Updates(map[string]any{
-		"masjid_teacher_code_hash":   hash,
-		"masjid_teacher_code_set_at": setAt,
+		"masjid_teacher_code_hash":   m.MasjidTeacherCodeHash,
+		"masjid_teacher_code_set_at": m.MasjidTeacherCodeSetAt,
+		"masjid_updated_at":          m.MasjidUpdatedAt,
 	}).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan kode")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan kode guru")
 	}
 
-	return helper.JsonOK(c, "Kode dibuat", fiber.Map{
-		"teacher_code_plain": plain,               // tampilkan sekali untuk di-share
-		"set_at":             setAt,               // metadata
-		"valid_for":          "tanpa kedaluwarsa", // ganti sesuai kebijakan
+	// KEMBALIKAN PLAINTEXT-NYA DI SINI
+	return helper.JsonOK(c, "Kode guru diperbarui", fiber.Map{
+		"teacher_code_plain": plain,
+		"set_at":             setAt,
+	})
+}
+
+// PATCH /api/u/masjids/:id/teacher-code
+// Body: { "code": "<plain or 2-char suffix>" }
+
+const teacherCodeMaxLen = 128 // batasi panjang biar aman (boleh ubah)
+
+type patchTeacherCodeJSON struct {
+	Code string `json:"code"`
+}
+
+// PATCH /api/u/masjids/:id/teacher-code
+// Body:
+//   - JSON:      { "code": "apa saja (bebas simbol)" }
+//   - Form:      code=apa%20saja
+//   - Multipart: code=apa%20saja
+func (mc *MasjidController) PatchTeacherCode(c *fiber.Ctx) error {
+	// --- Auth & path param ---
+	rawID := strings.TrimSpace(c.Params("id"))
+	masjidID, err := uuid.Parse(rawID)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+	}
+	gotID, aerr := helperAuth.EnsureMasjidAccessDKM(c, helperAuth.MasjidContext{ID: masjidID})
+	if aerr != nil {
+		return helper.JsonError(c, aerr.(*fiber.Error).Code, aerr.Error())
+	}
+	if gotID != masjidID {
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
+	}
+
+	// --- Ambil input code dari body ---
+	var code string
+	ct := strings.ToLower(strings.TrimSpace(c.Get(fiber.HeaderContentType)))
+	switch {
+	case strings.HasPrefix(ct, "application/json"):
+		var p patchTeacherCodeJSON
+		if err := json.Unmarshal(c.Body(), &p); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "JSON tidak valid")
+		}
+		code = p.Code
+	case strings.HasPrefix(ct, "application/x-www-form-urlencoded"),
+		strings.HasPrefix(ct, "multipart/form-data"):
+		code = c.FormValue("code")
+	default:
+		// fallback: coba treat body sebagai raw string
+		code = string(c.Body())
+	}
+
+	// Hanya trim ruang depan/belakang (biarkan spasi di tengah apa adanya)
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "code wajib diisi")
+	}
+	if len(code) > teacherCodeMaxLen {
+		return helper.JsonError(c, fiber.StatusBadRequest, "code terlalu panjang")
+	}
+
+	// --- Ambil masjid ---
+	var m masjidModel.MasjidModel
+	if err := mc.DB.First(&m, "masjid_id = ?", masjidID).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "Masjid tidak ditemukan")
+	}
+
+	// --- Hash & simpan ---
+	now := time.Now()
+	hash, err := bcrypt.GenerateFromPassword([]byte(code), bcrypt.DefaultCost)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat hash code")
+	}
+
+	m.MasjidTeacherCodeHash = hash
+	m.MasjidTeacherCodeSetAt = &now
+	m.MasjidUpdatedAt = now
+
+	if err := mc.DB.Model(&m).Updates(map[string]any{
+		"masjid_teacher_code_hash":   m.MasjidTeacherCodeHash,
+		"masjid_teacher_code_set_at": m.MasjidTeacherCodeSetAt,
+		"masjid_updated_at":          m.MasjidUpdatedAt,
+	}).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan kode guru")
+	}
+
+	// --- Kembalikan plaintext SEKALI di response ---
+	return helper.JsonOK(c, "Kode guru diperbarui", fiber.Map{
+		"teacher_code_plain": code,
+		"set_at":             now,
 	})
 }
 

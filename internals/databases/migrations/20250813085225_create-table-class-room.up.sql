@@ -1,12 +1,6 @@
--- =========================================================
--- EXTENSIONS (idempotent)
--- =========================================================
-CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
-CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram ops (ILIKE search)
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
--- =========================================================
--- TABLE: class_rooms — FINAL (tanpa JSONPath)
--- =========================================================
 CREATE TABLE IF NOT EXISTS class_rooms (
   class_room_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -16,8 +10,8 @@ CREATE TABLE IF NOT EXISTS class_rooms (
 
   -- identitas ruang
   class_room_name        TEXT        NOT NULL,
-  class_room_code        TEXT,              -- opsional
-  class_room_slug        VARCHAR(50),       -- opsional
+  class_room_code        TEXT,
+  class_room_slug        VARCHAR(50),
   class_room_location    TEXT,
   class_room_capacity    INT CHECK (class_room_capacity >= 0),
   class_room_description TEXT,
@@ -33,48 +27,69 @@ CREATE TABLE IF NOT EXISTS class_rooms (
   class_room_image_object_key_old        TEXT,
   class_room_image_delete_pending_until  TIMESTAMPTZ,
 
-  -- daftar fasilitas (opsional)
-  class_room_features    JSONB   NOT NULL DEFAULT '[]'::jsonb,
+  -- fitur
+  class_room_features JSONB NOT NULL DEFAULT '[]'::jsonb,
 
-  -- virtual meeting links (JSONB array; validasi shape di aplikasi)
-  class_room_virtual_links JSONB NOT NULL DEFAULT '[]'::jsonb,
+  -- ONLINE FIELDS (di main)
+  class_room_platform    VARCHAR(30),  -- e.g. zoom, google_meet, microsoft_teams
+  class_room_join_url    TEXT,
+  class_room_meeting_id  TEXT,
+  class_room_passcode    TEXT,
+
+  -- JADWAL & CATATAN (JSONB)
+  class_room_schedule    JSONB NOT NULL DEFAULT '[]'::jsonb, -- array of time-slots
+  class_room_notes       JSONB NOT NULL DEFAULT '[]'::jsonb, -- array of notes (opsional)
 
   -- timestamps standar
   class_room_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_room_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_room_deleted_at  TIMESTAMPTZ,
 
-  -- =========================
-  -- VALIDATIONS (sederhana, aman)
-  -- =========================
-
-  -- name tidak boleh hanya spasi
+  -- ===== VALIDASI RINGAN =====
   CONSTRAINT chk_cr_name_not_blank
     CHECK (length(btrim(coalesce(class_room_name, ''))) > 0),
 
-  -- slug lowercase aman (opsional)
   CONSTRAINT chk_cr_slug_format
     CHECK (class_room_slug IS NULL OR class_room_slug ~ '^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$'),
 
-  -- code alfanumerik plus _-. (opsional)
   CONSTRAINT chk_cr_code_format
     CHECK (class_room_code IS NULL OR class_room_code ~ '^[A-Za-z0-9._-]+$'),
 
-  -- features & virtual_links harus array
   CONSTRAINT chk_cr_features_is_array
     CHECK (jsonb_typeof(class_room_features) = 'array'),
-  CONSTRAINT chk_cr_vlinks_is_array
-    CHECK (jsonb_typeof(class_room_virtual_links) = 'array')
+
+  -- konsistensi online/offline
+  CONSTRAINT chk_cr_online_fields_consistency
+    CHECK (
+      (
+        class_room_platform   IS NULL AND
+        class_room_join_url   IS NULL AND
+        class_room_meeting_id IS NULL AND
+        class_room_passcode   IS NULL AND
+        class_room_is_virtual = FALSE
+      )
+      OR
+      (
+        class_room_platform   IS NOT NULL AND
+        class_room_join_url   IS NOT NULL AND
+        class_room_is_virtual = TRUE
+      )
+    ),
+
+  CONSTRAINT chk_cr_platform_format
+    CHECK (class_room_platform IS NULL OR class_room_platform ~ '^[a-z0-9_]+$'),
+
+  CONSTRAINT chk_cr_join_url_format
+    CHECK (class_room_join_url IS NULL OR class_room_join_url ~* '^(https?)://'),
+
+  CONSTRAINT chk_cr_schedule_is_array
+    CHECK (jsonb_typeof(class_room_schedule) = 'array'),
+
+  CONSTRAINT chk_cr_notes_is_array
+    CHECK (jsonb_typeof(class_room_notes) = 'array')
 );
 
--- Pastikan kalau sebelumnya ada constraint shape lama, dibuang aja
-ALTER TABLE class_rooms DROP CONSTRAINT IF EXISTS chk_cr_vlinks_shape;
-
--- =========================================================
 -- INDEXES & UNIQUES (soft-delete aware)
--- =========================================================
-
--- Uniques per tenant (case-insensitive) → hanya baris alive
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_name_ci_alive
   ON class_rooms (class_room_masjid_id, lower(class_room_name))
   WHERE class_room_deleted_at IS NULL;
@@ -90,7 +105,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_slug_ci_alive
   WHERE class_room_deleted_at IS NULL
     AND class_room_slug IS NOT NULL;
 
--- Lookups umum
 CREATE INDEX IF NOT EXISTS idx_class_rooms_masjid_alive
   ON class_rooms (class_room_masjid_id)
   WHERE class_room_deleted_at IS NULL;
@@ -99,17 +113,18 @@ CREATE INDEX IF NOT EXISTS idx_class_rooms_tenant_active_alive
   ON class_rooms (class_room_masjid_id, class_room_is_active)
   WHERE class_room_deleted_at IS NULL;
 
--- Fitur JSONB (tanpa JSONPath ops)
 CREATE INDEX IF NOT EXISTS idx_class_rooms_features_gin_alive
   ON class_rooms USING GIN (class_room_features)
   WHERE class_room_deleted_at IS NULL;
 
--- Virtual links JSONB (tanpa JSONPath ops)
-CREATE INDEX IF NOT EXISTS idx_class_rooms_vlinks_gin_alive
-  ON class_rooms USING GIN (class_room_virtual_links)
+CREATE INDEX IF NOT EXISTS idx_class_rooms_schedule_gin_alive
+  ON class_rooms USING GIN (class_room_schedule)
   WHERE class_room_deleted_at IS NULL;
 
--- Pencarian teks bebas (ILIKE) untuk name & location (trigram)
+CREATE INDEX IF NOT EXISTS idx_class_rooms_notes_gin_alive
+  ON class_rooms USING GIN (class_room_notes)
+  WHERE class_room_deleted_at IS NULL;
+
 CREATE INDEX IF NOT EXISTS idx_class_rooms_name_trgm_alive
   ON class_rooms USING GIN (class_room_name gin_trgm_ops)
   WHERE class_room_deleted_at IS NULL;
@@ -118,23 +133,12 @@ CREATE INDEX IF NOT EXISTS idx_class_rooms_location_trgm_alive
   ON class_rooms USING GIN (class_room_location gin_trgm_ops)
   WHERE class_room_deleted_at IS NULL;
 
--- Arsip waktu (scan besar efisien)
 CREATE INDEX IF NOT EXISTS brin_class_rooms_created_at
   ON class_rooms USING BRIN (class_room_created_at);
 
 CREATE INDEX IF NOT EXISTS brin_class_rooms_updated_at
   ON class_rooms USING BRIN (class_room_updated_at);
 
--- Buang index expression berbasis JSONPath kalau sudah pernah dibuat
-DROP INDEX IF EXISTS idx_class_rooms_first_active_platform;
-DROP INDEX IF EXISTS idx_class_rooms_has_active_vlink;
-
--- =========================================================
--- COMMENTS (dokumentasi skema)
--- =========================================================
-COMMENT ON TABLE class_rooms IS 'Ruang kelas (fisik/virtual). Link meeting virtual disimpan sebagai JSONB array di class_room_virtual_links.';
-COMMENT ON COLUMN class_rooms.class_room_features IS 'Array JSONB berisi fitur ruang (mis. ["ac","projector","whiteboard"]).';
-COMMENT ON COLUMN class_rooms.class_room_virtual_links IS 'Array JSONB link virtual; validasi struktur dilakukan di layer aplikasi.';
 
 -- =========================================================
 -- TABLE: class_room_urls  (lampiran/link untuk class_rooms)

@@ -47,6 +47,10 @@ type UserProfileModel struct {
 	UserProfileGithubURL        *string `gorm:"type:text;column:user_profile_github_url" json:"user_profile_github_url,omitempty"`
 	UserProfileTelegramUsername *string `gorm:"size:50;column:user_profile_telegram_username" json:"user_profile_telegram_username,omitempty"`
 
+	// Orang tua / wali
+	UserProfileParentName        *string `gorm:"size:100;column:user_profile_parent_name" json:"user_profile_parent_name,omitempty"`
+	UserProfileParentWhatsappURL *string `gorm:"type:text;column:user_profile_parent_whatsapp_url" json:"user_profile_parent_whatsapp_url,omitempty"`
+
 	// Avatar (single file, 2-slot + retensi 30 hari)
 	UserProfileAvatarURL                *string    `gorm:"type:text;column:user_profile_avatar_url" json:"user_profile_avatar_url,omitempty"`
 	UserProfileAvatarObjectKey          *string    `gorm:"type:text;column:user_profile_avatar_object_key" json:"user_profile_avatar_object_key,omitempty"`

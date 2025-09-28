@@ -25,6 +25,5 @@ func AuthRoutes(app *fiber.App, db *gorm.DB) {
 	protectedAuth.Post("/logout", authController.Logout)
 	protectedAuth.Post("/change-password", authController.ChangePassword)
 	// ⬇️ Tambahkan ini:
-	protectedAuth.Get("/me", authController.Me)
 	protectedAuth.Put("/update-user-name", authController.UpdateUserName)
 }

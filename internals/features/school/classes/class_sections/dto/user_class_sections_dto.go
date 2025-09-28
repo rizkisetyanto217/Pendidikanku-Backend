@@ -1,58 +1,82 @@
-// file: internals/features/lembaga/classes/user_class_sections/main/dto/user_class_section_dto.go
 package dto
 
 import (
+	"errors"
+	"strings"
 	"time"
 
-	enrolModel "masjidku_backend/internals/features/school/classes/class_sections/model"
-
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
+
+	model "masjidku_backend/internals/features/school/classes/class_sections/model"
 )
 
-/* ===================== REQUESTS ===================== */
+/* =========================================================
+   REQUEST: CREATE
+========================================================= */
 
-type CreateUserClassSectionRequest struct {
-	UserClassSectionUserClassID  uuid.UUID  `json:"user_class_section_user_class_id" validate:"required"`
-	UserClassSectionSectionID    uuid.UUID  `json:"user_class_section_section_id"    validate:"required"`
-	UserClassSectionMasjidID     *uuid.UUID `json:"user_class_section_masjid_id"     validate:"omitempty"`
-	UserClassSectionAssignedAt   *time.Time `json:"user_class_section_assigned_at"   validate:"omitempty"` // nil ⇒ pakai DEFAULT CURRENT_DATE (DB)
-	UserClassSectionUnassignedAt *time.Time `json:"user_class_section_unassigned_at" validate:"omitempty"`
+type UserClassSectionCreateReq struct {
+	UserClassSectionMasjidStudentID uuid.UUID `json:"user_class_section_masjid_student_id"`
+	UserClassSectionSectionID       uuid.UUID `json:"user_class_section_section_id"`
+	UserClassSectionMasjidID        uuid.UUID `json:"user_class_section_masjid_id"`
+
+	UserClassSectionStatus string          `json:"user_class_section_status,omitempty"` // default: active
+	UserClassSectionResult *string         `json:"user_class_section_result,omitempty"`
+	UserClassSectionFee    *datatypes.JSON `json:"user_class_section_fee_snapshot,omitempty"`
+
+	UserClassSectionAssignedAt   *time.Time `json:"user_class_section_assigned_at,omitempty"`
+	UserClassSectionUnassignedAt *time.Time `json:"user_class_section_unassigned_at,omitempty"`
+	UserClassSectionCompletedAt  *time.Time `json:"user_class_section_completed_at,omitempty"`
 }
 
-func (r *CreateUserClassSectionRequest) ToModel() *enrolModel.UserClassSection {
-	m := &enrolModel.UserClassSection{
-		UserClassSectionUserClassID:  r.UserClassSectionUserClassID,
-		UserClassSectionSectionID:    r.UserClassSectionSectionID,
-		UserClassSectionMasjidID:     uuid.Nil,
-		UserClassSectionUnassignedAt: r.UserClassSectionUnassignedAt,
+func (r *UserClassSectionCreateReq) Normalize() {
+	if r.UserClassSectionStatus == "" {
+		r.UserClassSectionStatus = string(model.UserClassSectionActive)
 	}
-	// AssignedAt di model adalah time.Time (non-pointer). Jika request berikan nilai, set; kalau tidak, biarkan zero value agar DB default jalan.
-	if r.UserClassSectionAssignedAt != nil {
-		m.UserClassSectionAssignedAt = *r.UserClassSectionAssignedAt
+	r.UserClassSectionStatus = strings.ToLower(r.UserClassSectionStatus)
+	if r.UserClassSectionResult != nil {
+		res := strings.ToLower(strings.TrimSpace(*r.UserClassSectionResult))
+		if res == "" {
+			r.UserClassSectionResult = nil
+		} else {
+			r.UserClassSectionResult = &res
+		}
 	}
-	if r.UserClassSectionMasjidID != nil {
-		m.UserClassSectionMasjidID = *r.UserClassSectionMasjidID
-	}
-	return m
 }
 
-type UpdateUserClassSectionRequest struct {
-	UserClassSectionUserClassID  *uuid.UUID `json:"user_class_section_user_class_id"  validate:"omitempty"`
-	UserClassSectionSectionID    *uuid.UUID `json:"user_class_section_section_id"     validate:"omitempty"`
-	UserClassSectionMasjidID     *uuid.UUID `json:"user_class_section_masjid_id"      validate:"omitempty"`
-	UserClassSectionAssignedAt   *time.Time `json:"user_class_section_assigned_at"    validate:"omitempty"`
-	UserClassSectionUnassignedAt *time.Time `json:"user_class_section_unassigned_at"  validate:"omitempty"`
+func (r *UserClassSectionCreateReq) Validate() error {
+	switch r.UserClassSectionStatus {
+	case string(model.UserClassSectionActive),
+		string(model.UserClassSectionInactive),
+		string(model.UserClassSectionCompleted):
+	default:
+		return errors.New("invalid user_class_section_status")
+	}
+	if r.UserClassSectionStatus == string(model.UserClassSectionCompleted) {
+		if r.UserClassSectionResult == nil {
+			return errors.New("user_class_section_result wajib diisi jika status completed")
+		}
+		if r.UserClassSectionCompletedAt == nil {
+			return errors.New("user_class_section_completed_at wajib diisi jika status completed")
+		}
+	}
+	return nil
 }
 
-func (r *UpdateUserClassSectionRequest) ApplyToModel(m *enrolModel.UserClassSection) {
-	if r.UserClassSectionUserClassID != nil {
-		m.UserClassSectionUserClassID = *r.UserClassSectionUserClassID
+func (r *UserClassSectionCreateReq) ToModel() *model.UserClassSection {
+	m := &model.UserClassSection{
+		UserClassSectionMasjidStudentID: r.UserClassSectionMasjidStudentID,
+		UserClassSectionSectionID:       r.UserClassSectionSectionID,
+		UserClassSectionMasjidID:        r.UserClassSectionMasjidID,
+		UserClassSectionStatus:          model.UserClassSectionStatus(r.UserClassSectionStatus),
+		UserClassSectionFeeSnapshot:     datatypes.JSON([]byte(`{}`)),
 	}
-	if r.UserClassSectionSectionID != nil {
-		m.UserClassSectionSectionID = *r.UserClassSectionSectionID
+	if r.UserClassSectionResult != nil {
+		res := model.UserClassSectionResult(*r.UserClassSectionResult)
+		m.UserClassSectionResult = &res
 	}
-	if r.UserClassSectionMasjidID != nil {
-		m.UserClassSectionMasjidID = *r.UserClassSectionMasjidID
+	if r.UserClassSectionFee != nil {
+		m.UserClassSectionFeeSnapshot = *r.UserClassSectionFee
 	}
 	if r.UserClassSectionAssignedAt != nil {
 		m.UserClassSectionAssignedAt = *r.UserClassSectionAssignedAt
@@ -60,89 +84,169 @@ func (r *UpdateUserClassSectionRequest) ApplyToModel(m *enrolModel.UserClassSect
 	if r.UserClassSectionUnassignedAt != nil {
 		m.UserClassSectionUnassignedAt = r.UserClassSectionUnassignedAt
 	}
-	m.UserClassSectionUpdatedAt = time.Now()
+	if r.UserClassSectionCompletedAt != nil {
+		m.UserClassSectionCompletedAt = r.UserClassSectionCompletedAt
+	}
+	return m
 }
 
-/* ===================== QUERIES ===================== */
+/* =========================================================
+   REQUEST: PATCH (partial update)
+========================================================= */
 
-type ListUserClassSectionQuery struct {
-	UserClassID *uuid.UUID `query:"user_class_id"`
-	SectionID   *uuid.UUID `query:"section_id"`
-	MasjidID    *uuid.UUID `query:"masjid_id"`
-	ActiveOnly  *bool      `query:"active_only"` // true ⇒ unassigned_at IS NULL
-
-	Limit  int     `query:"limit"  validate:"omitempty,min=1,max=200"`
-	Offset int     `query:"offset" validate:"omitempty,min=0"`
-	Sort   *string `query:"sort"` // assigned_at_desc|assigned_at_asc|created_at_desc|created_at_asc
+type PatchField[T any] struct {
+	Set   bool `json:"set"`
+	Value T    `json:"value,omitempty"`
 }
 
-/* ===================== RESPONSES ===================== */
+func (p *PatchField[T]) IsZero() bool { return p == nil || !p.Set }
 
-type UserClassSectionResponse struct {
-	UserClassSectionID           uuid.UUID  `json:"user_class_section_id"`
-	UserClassSectionUserClassID  uuid.UUID  `json:"user_class_section_user_class_id"`
-	UserClassSectionSectionID    uuid.UUID  `json:"user_class_section_section_id"`
-	UserClassSectionMasjidID     uuid.UUID  `json:"user_class_section_masjid_id"`
-	UserClassSectionAssignedAt   *time.Time `json:"user_class_section_assigned_at,omitempty"` // pointer agar kompatibel dengan respon lama
+type UserClassSectionPatchReq struct {
+	UserClassSectionStatus *PatchField[string]          `json:"user_class_section_status,omitempty"`
+	UserClassSectionResult *PatchField[*string]         `json:"user_class_section_result,omitempty"`
+	UserClassSectionFee    *PatchField[*datatypes.JSON] `json:"user_class_section_fee_snapshot,omitempty"`
+
+	UserClassSectionAssignedAt   *PatchField[*time.Time] `json:"user_class_section_assigned_at,omitempty"`
+	UserClassSectionUnassignedAt *PatchField[*time.Time] `json:"user_class_section_unassigned_at,omitempty"`
+	UserClassSectionCompletedAt  *PatchField[*time.Time] `json:"user_class_section_completed_at,omitempty"`
+}
+
+func (r *UserClassSectionPatchReq) Apply(m *model.UserClassSection) {
+	if r.UserClassSectionStatus != nil && r.UserClassSectionStatus.Set {
+		m.UserClassSectionStatus = model.UserClassSectionStatus(r.UserClassSectionStatus.Value)
+	}
+	if r.UserClassSectionResult != nil && r.UserClassSectionResult.Set {
+		if r.UserClassSectionResult.Value != nil {
+			res := model.UserClassSectionResult(*r.UserClassSectionResult.Value)
+			m.UserClassSectionResult = &res
+		} else {
+			m.UserClassSectionResult = nil
+		}
+	}
+	if r.UserClassSectionFee != nil && r.UserClassSectionFee.Set {
+		if r.UserClassSectionFee.Value != nil {
+			m.UserClassSectionFeeSnapshot = *r.UserClassSectionFee.Value
+		} else {
+			m.UserClassSectionFeeSnapshot = datatypes.JSON([]byte(`{}`))
+		}
+	}
+
+	if r.UserClassSectionAssignedAt != nil && r.UserClassSectionAssignedAt.Set {
+		if r.UserClassSectionAssignedAt.Value != nil {
+			m.UserClassSectionAssignedAt = *r.UserClassSectionAssignedAt.Value
+		}
+	}
+	if r.UserClassSectionUnassignedAt != nil && r.UserClassSectionUnassignedAt.Set {
+		m.UserClassSectionUnassignedAt = r.UserClassSectionUnassignedAt.Value
+	}
+	if r.UserClassSectionCompletedAt != nil && r.UserClassSectionCompletedAt.Set {
+		m.UserClassSectionCompletedAt = r.UserClassSectionCompletedAt.Value
+	}
+}
+
+/* =========================================================
+   RESPONSE DTO
+========================================================= */
+
+type UserClassSectionResp struct {
+	UserClassSectionID uuid.UUID `json:"user_class_section_id"`
+
+	UserClassSectionMasjidStudentID uuid.UUID `json:"user_class_section_masjid_student_id"`
+	UserClassSectionSectionID       uuid.UUID `json:"user_class_section_section_id"`
+	UserClassSectionMasjidID        uuid.UUID `json:"user_class_section_masjid_id"`
+
+	UserClassSectionStatus string          `json:"user_class_section_status"`
+	UserClassSectionResult *string         `json:"user_class_section_result,omitempty"`
+	UserClassSectionFee    *datatypes.JSON `json:"user_class_section_fee_snapshot,omitempty"`
+
+	UserClassSectionAssignedAt   time.Time  `json:"user_class_section_assigned_at"`
 	UserClassSectionUnassignedAt *time.Time `json:"user_class_section_unassigned_at,omitempty"`
-
-	// Tambahan dari user_classes (opsional)
-	UserClassesStatus string `json:"user_classes_status,omitempty"`
+	UserClassSectionCompletedAt  *time.Time `json:"user_class_section_completed_at,omitempty"`
 
 	UserClassSectionCreatedAt time.Time  `json:"user_class_section_created_at"`
 	UserClassSectionUpdatedAt time.Time  `json:"user_class_section_updated_at"`
 	UserClassSectionDeletedAt *time.Time `json:"user_class_section_deleted_at,omitempty"`
-
-	User    *UcsUser        `json:"user,omitempty"`
-	Profile *UcsUserProfile `json:"profile,omitempty"`
 }
 
-func NewUserClassSectionResponse(m *enrolModel.UserClassSection) *UserClassSectionResponse {
-	if m == nil {
-		return nil
+func FromModel(m *model.UserClassSection) UserClassSectionResp {
+	var res *string
+	if m.UserClassSectionResult != nil {
+		v := string(*m.UserClassSectionResult)
+		res = &v
 	}
-	resp := &UserClassSectionResponse{
-		UserClassSectionID:           m.UserClassSectionID,
-		UserClassSectionUserClassID:  m.UserClassSectionUserClassID,
-		UserClassSectionSectionID:    m.UserClassSectionSectionID,
-		UserClassSectionMasjidID:     m.UserClassSectionMasjidID,
-		UserClassSectionAssignedAt:   func() *time.Time { t := m.UserClassSectionAssignedAt; return &t }(),
-		UserClassSectionUnassignedAt: m.UserClassSectionUnassignedAt,
-		UserClassSectionCreatedAt:    m.UserClassSectionCreatedAt,
-		UserClassSectionUpdatedAt:    m.UserClassSectionUpdatedAt,
-	}
+	var delAt *time.Time
 	if m.UserClassSectionDeletedAt.Valid {
 		t := m.UserClassSectionDeletedAt.Time
-		resp.UserClassSectionDeletedAt = &t
+		delAt = &t
 	}
-	return resp
+	return UserClassSectionResp{
+		UserClassSectionID: m.UserClassSectionID,
+
+		UserClassSectionMasjidStudentID: m.UserClassSectionMasjidStudentID,
+		UserClassSectionSectionID:       m.UserClassSectionSectionID,
+		UserClassSectionMasjidID:        m.UserClassSectionMasjidID,
+
+		UserClassSectionStatus: string(m.UserClassSectionStatus),
+		UserClassSectionResult: res,
+		UserClassSectionFee:    &m.UserClassSectionFeeSnapshot,
+
+		UserClassSectionAssignedAt:   m.UserClassSectionAssignedAt,
+		UserClassSectionUnassignedAt: m.UserClassSectionUnassignedAt,
+		UserClassSectionCompletedAt:  m.UserClassSectionCompletedAt,
+
+		UserClassSectionCreatedAt: m.UserClassSectionCreatedAt,
+		UserClassSectionUpdatedAt: m.UserClassSectionUpdatedAt,
+		UserClassSectionDeletedAt: delAt,
+	}
 }
 
-func (r *UserClassSectionResponse) WithUser(u *UcsUser, p *UcsUserProfile) *UserClassSectionResponse {
-	r.User, r.Profile = u, p
-	return r
+
+
+func (r *UserClassSectionPatchReq) Normalize() {
+	if r.UserClassSectionStatus != nil && r.UserClassSectionStatus.Set {
+		r.UserClassSectionStatus.Value = strings.ToLower(strings.TrimSpace(r.UserClassSectionStatus.Value))
+	}
+	if r.UserClassSectionResult != nil && r.UserClassSectionResult.Set && r.UserClassSectionResult.Value != nil {
+		res := strings.ToLower(strings.TrimSpace(*r.UserClassSectionResult.Value))
+		if res == "" {
+			r.UserClassSectionResult.Value = nil
+		} else {
+			r.UserClassSectionResult.Value = &res
+		}
+	}
 }
 
-/* ========== Tipe ringkas untuk enrichment ========== */
+func (r *UserClassSectionPatchReq) Validate() error {
+	if r.UserClassSectionStatus != nil && r.UserClassSectionStatus.Set {
+		switch r.UserClassSectionStatus.Value {
+		case "active", "inactive", "completed":
+		default:
+			return errors.New("invalid status")
+		}
+	}
 
-type UcsUser struct {
-	ID       uuid.UUID `json:"id"`
-	UserName string    `json:"user_name"`
-	FullName *string   `json:"full_name,omitempty"`
-	Email    string    `json:"email"`
-	IsActive bool      `json:"is_active"`
+	// kalau completed → wajib ada completed_at dan result
+	if r.UserClassSectionStatus != nil && r.UserClassSectionStatus.Set &&
+		r.UserClassSectionStatus.Value == "completed" {
+
+		if r.UserClassSectionCompletedAt == nil || !r.UserClassSectionCompletedAt.Set || r.UserClassSectionCompletedAt.Value == nil {
+			return errors.New("completed_at wajib diisi jika status completed")
+		}
+		if r.UserClassSectionResult == nil || !r.UserClassSectionResult.Set || r.UserClassSectionResult.Value == nil {
+			return errors.New("result wajib diisi jika status completed")
+		}
+	}
+
+	// validasi tanggal unassigned >= assigned
+	if r.UserClassSectionAssignedAt != nil && r.UserClassSectionAssignedAt.Set &&
+		r.UserClassSectionUnassignedAt != nil && r.UserClassSectionUnassignedAt.Set &&
+		r.UserClassSectionAssignedAt.Value != nil && r.UserClassSectionUnassignedAt.Value != nil {
+
+		if r.UserClassSectionUnassignedAt.Value.Before(*r.UserClassSectionAssignedAt.Value) {
+			return errors.New("unassigned_at tidak boleh lebih awal dari assigned_at")
+		}
+	}
+
+	return nil
 }
 
-type UcsUserProfile struct {
-	UserID                  uuid.UUID  `json:"user_id"`
-	DonationName            *string    `json:"donation_name,omitempty"`
-	PhotoURL                *string    `json:"photo_url,omitempty"`
-	PhotoTrashURL           *string    `json:"photo_trash_url,omitempty"`
-	PhotoDeletePendingUntil *time.Time `json:"photo_delete_pending_until,omitempty"`
-	DateOfBirth             *time.Time `json:"date_of_birth,omitempty"`
-	Gender                  *string    `json:"gender,omitempty"` // "male" | "female"
-	PhoneNumber             *string    `json:"phone_number,omitempty"`
-	Bio                     *string    `json:"bio,omitempty"`
-	Location                *string    `json:"location,omitempty"`
-	Occupation              *string    `json:"occupation,omitempty"`
-}

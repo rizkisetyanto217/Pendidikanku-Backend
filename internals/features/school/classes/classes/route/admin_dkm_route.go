@@ -33,30 +33,4 @@ import (
 		classParents.Patch("/:id", parentHandler.Patch)
 		classParents.Delete("/:id", parentHandler.Delete)
 	}
-
-	// Controller user classes
-	userClassHandler := classctrl.NewUserClassController(db)
-	userClasses := admin.Group("/user-classes", masjidkuMiddleware.IsMasjidAdmin())
-	{
-		userClasses.Get("/list", userClassHandler.ListUserClasses)
-		userClasses.Get("/:id", userClassHandler.GetUserClassByID)
-		userClasses.Put("/:id", userClassHandler.UpdateUserClass)
-		userClasses.Delete("/remove/:id", userClassHandler.DeleteUserClass)
-	}
-
-	// ===== Membership routes (BARU) =====
-	membershipHandler := classctrl.NewMembershipController(db, nil)
-	m := admin.Group("/membership", masjidkuMiddleware.IsMasjidAdmin())
-	{
-		// enrollment hooks
-		m.Post("/enrollment/activate", membershipHandler.ActivateEnrollment)
-		m.Post("/enrollment/deactivate", membershipHandler.DeactivateEnrollment)
-
-		// roles management
-		m.Post("/roles/grant", membershipHandler.GrantRole)
-		m.Post("/roles/revoke", membershipHandler.RevokeRole)
-
-		// masjid_students ensure
-		m.Post("/masjid-students/ensure", membershipHandler.EnsureMasjidStudent)
-	}
 }

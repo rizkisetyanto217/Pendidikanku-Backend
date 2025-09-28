@@ -37,19 +37,23 @@ type MasjidStudentCreateReq struct {
 
 	MasjidStudentJoinedAt *time.Time `json:"masjid_student_joined_at,omitempty"`
 	MasjidStudentLeftAt   *time.Time `json:"masjid_student_left_at,omitempty"`
+
+	// Snapshots opsional di saat create
+	MasjidStudentNameUserSnapshot              *string `json:"masjid_student_name_user_snapshot,omitempty"`
+	MasjidStudentAvatarURLUserSnapshot         *string `json:"masjid_student_avatar_url_user_snapshot,omitempty"`
+	MasjidStudentWhatsappURLUserSnapshot       *string `json:"masjid_student_whatsapp_url_user_snapshot,omitempty"`
+	MasjidStudentParentNameUserSnapshot        *string `json:"masjid_student_parent_name_user_snapshot,omitempty"`
+	MasjidStudentParentWhatsappURLUserSnapshot *string `json:"masjid_student_parent_whatsapp_url_user_snapshot,omitempty"`
 }
 
 func (r *MasjidStudentCreateReq) Normalize() {
-	// slug
 	r.MasjidStudentSlug = strings.ToLower(strings.TrimSpace(r.MasjidStudentSlug))
 
-	// status (default active)
 	r.MasjidStudentStatus = strings.ToLower(strings.TrimSpace(r.MasjidStudentStatus))
 	if r.MasjidStudentStatus == "" {
 		r.MasjidStudentStatus = string(model.MasjidStudentActive)
 	}
 
-	// code
 	if r.MasjidStudentCode != nil {
 		c := strings.TrimSpace(*r.MasjidStudentCode)
 		if c == "" {
@@ -59,7 +63,6 @@ func (r *MasjidStudentCreateReq) Normalize() {
 		}
 	}
 
-	// note
 	if r.MasjidStudentNote != nil {
 		n := strings.TrimSpace(*r.MasjidStudentNote)
 		if n == "" {
@@ -79,11 +82,9 @@ func (r *MasjidStudentCreateReq) Validate() error {
 	default:
 		return errors.New("invalid masjid_student_status")
 	}
-	// joined <= left
-	if r.MasjidStudentJoinedAt != nil && r.MasjidStudentLeftAt != nil {
-		if r.MasjidStudentLeftAt.Before(*r.MasjidStudentJoinedAt) {
-			return errors.New("masjid_student_left_at tidak boleh lebih awal dari masjid_student_joined_at")
-		}
+	if r.MasjidStudentJoinedAt != nil && r.MasjidStudentLeftAt != nil &&
+		r.MasjidStudentLeftAt.Before(*r.MasjidStudentJoinedAt) {
+		return errors.New("masjid_student_left_at tidak boleh lebih awal dari masjid_student_joined_at")
 	}
 	return nil
 }
@@ -92,15 +93,19 @@ func (r *MasjidStudentCreateReq) ToModel() *model.MasjidStudent {
 	return &model.MasjidStudent{
 		MasjidStudentMasjidID: r.MasjidStudentMasjidID,
 		MasjidStudentUserID:   r.MasjidStudentUserID,
-
-		MasjidStudentSlug: r.MasjidStudentSlug,
-
-		MasjidStudentCode:   r.MasjidStudentCode,
-		MasjidStudentStatus: model.MasjidStudentStatus(r.MasjidStudentStatus),
-		MasjidStudentNote:   r.MasjidStudentNote,
-
+		MasjidStudentSlug:     r.MasjidStudentSlug,
+		MasjidStudentCode:     r.MasjidStudentCode,
+		MasjidStudentStatus:   model.MasjidStudentStatus(r.MasjidStudentStatus),
+		MasjidStudentNote:     r.MasjidStudentNote,
 		MasjidStudentJoinedAt: r.MasjidStudentJoinedAt,
 		MasjidStudentLeftAt:   r.MasjidStudentLeftAt,
+
+		// snapshot langsung copy
+		MasjidStudentNameUserSnapshot:              r.MasjidStudentNameUserSnapshot,
+		MasjidStudentAvatarURLUserSnapshot:         r.MasjidStudentAvatarURLUserSnapshot,
+		MasjidStudentWhatsappURLUserSnapshot:       r.MasjidStudentWhatsappURLUserSnapshot,
+		MasjidStudentParentNameUserSnapshot:        r.MasjidStudentParentNameUserSnapshot,
+		MasjidStudentParentWhatsappURLUserSnapshot: r.MasjidStudentParentWhatsappURLUserSnapshot,
 	}
 }
 
@@ -109,19 +114,25 @@ func (r *MasjidStudentCreateReq) ToModel() *model.MasjidStudent {
 ========================================================= */
 
 type MasjidStudentUpdateReq struct {
-	MasjidStudentSlug   string  `json:"masjid_student_slug"` // required (kalau immutable: abaikan di Apply)
+	MasjidStudentSlug   string  `json:"masjid_student_slug"`
 	MasjidStudentCode   *string `json:"masjid_student_code,omitempty"`
 	MasjidStudentStatus string  `json:"masjid_student_status"`
 	MasjidStudentNote   *string `json:"masjid_student_note,omitempty"`
 
 	MasjidStudentJoinedAt *time.Time `json:"masjid_student_joined_at,omitempty"`
 	MasjidStudentLeftAt   *time.Time `json:"masjid_student_left_at,omitempty"`
+
+	// snapshots
+	MasjidStudentNameUserSnapshot              *string `json:"masjid_student_name_user_snapshot,omitempty"`
+	MasjidStudentAvatarURLUserSnapshot         *string `json:"masjid_student_avatar_url_user_snapshot,omitempty"`
+	MasjidStudentWhatsappURLUserSnapshot       *string `json:"masjid_student_whatsapp_url_user_snapshot,omitempty"`
+	MasjidStudentParentNameUserSnapshot        *string `json:"masjid_student_parent_name_user_snapshot,omitempty"`
+	MasjidStudentParentWhatsappURLUserSnapshot *string `json:"masjid_student_parent_whatsapp_url_user_snapshot,omitempty"`
 }
 
 func (r *MasjidStudentUpdateReq) Normalize() {
 	r.MasjidStudentSlug = strings.ToLower(strings.TrimSpace(r.MasjidStudentSlug))
 	r.MasjidStudentStatus = strings.ToLower(strings.TrimSpace(r.MasjidStudentStatus))
-
 	if r.MasjidStudentCode != nil {
 		c := strings.TrimSpace(*r.MasjidStudentCode)
 		if c == "" {
@@ -149,24 +160,26 @@ func (r *MasjidStudentUpdateReq) Validate() error {
 	default:
 		return errors.New("invalid masjid_student_status")
 	}
-	if r.MasjidStudentJoinedAt != nil && r.MasjidStudentLeftAt != nil {
-		if r.MasjidStudentLeftAt.Before(*r.MasjidStudentJoinedAt) {
-			return errors.New("masjid_student_left_at tidak boleh lebih awal dari masjid_student_joined_at")
-		}
+	if r.MasjidStudentJoinedAt != nil && r.MasjidStudentLeftAt != nil &&
+		r.MasjidStudentLeftAt.Before(*r.MasjidStudentJoinedAt) {
+		return errors.New("masjid_student_left_at tidak boleh lebih awal dari masjid_student_joined_at")
 	}
 	return nil
 }
 
 func (r *MasjidStudentUpdateReq) Apply(m *model.MasjidStudent) {
-	// kalau slug immutable, hapus baris ini
 	m.MasjidStudentSlug = r.MasjidStudentSlug
-
 	m.MasjidStudentCode = r.MasjidStudentCode
 	m.MasjidStudentStatus = model.MasjidStudentStatus(r.MasjidStudentStatus)
 	m.MasjidStudentNote = r.MasjidStudentNote
-
 	m.MasjidStudentJoinedAt = r.MasjidStudentJoinedAt
 	m.MasjidStudentLeftAt = r.MasjidStudentLeftAt
+
+	m.MasjidStudentNameUserSnapshot = r.MasjidStudentNameUserSnapshot
+	m.MasjidStudentAvatarURLUserSnapshot = r.MasjidStudentAvatarURLUserSnapshot
+	m.MasjidStudentWhatsappURLUserSnapshot = r.MasjidStudentWhatsappURLUserSnapshot
+	m.MasjidStudentParentNameUserSnapshot = r.MasjidStudentParentNameUserSnapshot
+	m.MasjidStudentParentWhatsappURLUserSnapshot = r.MasjidStudentParentWhatsappURLUserSnapshot
 }
 
 /* =========================================================
@@ -181,6 +194,13 @@ type MasjidStudentPatchReq struct {
 
 	MasjidStudentJoinedAt *PatchField[*time.Time] `json:"masjid_student_joined_at,omitempty"`
 	MasjidStudentLeftAt   *PatchField[*time.Time] `json:"masjid_student_left_at,omitempty"`
+
+	// snapshot
+	MasjidStudentNameUserSnapshot              *PatchField[*string] `json:"masjid_student_name_user_snapshot,omitempty"`
+	MasjidStudentAvatarURLUserSnapshot         *PatchField[*string] `json:"masjid_student_avatar_url_user_snapshot,omitempty"`
+	MasjidStudentWhatsappURLUserSnapshot       *PatchField[*string] `json:"masjid_student_whatsapp_url_user_snapshot,omitempty"`
+	MasjidStudentParentNameUserSnapshot        *PatchField[*string] `json:"masjid_student_parent_name_user_snapshot,omitempty"`
+	MasjidStudentParentWhatsappURLUserSnapshot *PatchField[*string] `json:"masjid_student_parent_whatsapp_url_user_snapshot,omitempty"`
 }
 
 func (r *MasjidStudentPatchReq) Normalize() {
@@ -221,14 +241,11 @@ func (r *MasjidStudentPatchReq) Validate() error {
 			return errors.New("invalid masjid_student_status")
 		}
 	}
-	// validasi ordering tanggal kalau keduanya di-set dan non-nil
 	if r.MasjidStudentJoinedAt != nil && r.MasjidStudentJoinedAt.Set &&
 		r.MasjidStudentLeftAt != nil && r.MasjidStudentLeftAt.Set &&
-		r.MasjidStudentJoinedAt.Value != nil && r.MasjidStudentLeftAt.Value != nil {
-
-		if r.MasjidStudentLeftAt.Value.Before(*r.MasjidStudentJoinedAt.Value) {
-			return errors.New("masjid_student_left_at tidak boleh lebih awal dari masjid_student_joined_at")
-		}
+		r.MasjidStudentJoinedAt.Value != nil && r.MasjidStudentLeftAt.Value != nil &&
+		r.MasjidStudentLeftAt.Value.Before(*r.MasjidStudentJoinedAt.Value) {
+		return errors.New("masjid_student_left_at tidak boleh lebih awal dari masjid_student_joined_at")
 	}
 	return nil
 }
@@ -252,6 +269,22 @@ func (r *MasjidStudentPatchReq) Apply(m *model.MasjidStudent) {
 	if r.MasjidStudentLeftAt != nil && r.MasjidStudentLeftAt.Set {
 		m.MasjidStudentLeftAt = r.MasjidStudentLeftAt.Value
 	}
+
+	if r.MasjidStudentNameUserSnapshot != nil && r.MasjidStudentNameUserSnapshot.Set {
+		m.MasjidStudentNameUserSnapshot = r.MasjidStudentNameUserSnapshot.Value
+	}
+	if r.MasjidStudentAvatarURLUserSnapshot != nil && r.MasjidStudentAvatarURLUserSnapshot.Set {
+		m.MasjidStudentAvatarURLUserSnapshot = r.MasjidStudentAvatarURLUserSnapshot.Value
+	}
+	if r.MasjidStudentWhatsappURLUserSnapshot != nil && r.MasjidStudentWhatsappURLUserSnapshot.Set {
+		m.MasjidStudentWhatsappURLUserSnapshot = r.MasjidStudentWhatsappURLUserSnapshot.Value
+	}
+	if r.MasjidStudentParentNameUserSnapshot != nil && r.MasjidStudentParentNameUserSnapshot.Set {
+		m.MasjidStudentParentNameUserSnapshot = r.MasjidStudentParentNameUserSnapshot.Value
+	}
+	if r.MasjidStudentParentWhatsappURLUserSnapshot != nil && r.MasjidStudentParentWhatsappURLUserSnapshot.Set {
+		m.MasjidStudentParentWhatsappURLUserSnapshot = r.MasjidStudentParentWhatsappURLUserSnapshot.Value
+	}
 }
 
 /* =========================================================
@@ -270,6 +303,13 @@ type MasjidStudentResp struct {
 
 	MasjidStudentJoinedAt *time.Time `json:"masjid_student_joined_at,omitempty"`
 	MasjidStudentLeftAt   *time.Time `json:"masjid_student_left_at,omitempty"`
+
+	// snapshots
+	MasjidStudentNameUserSnapshot              *string `json:"masjid_student_name_user_snapshot,omitempty"`
+	MasjidStudentAvatarURLUserSnapshot         *string `json:"masjid_student_avatar_url_user_snapshot,omitempty"`
+	MasjidStudentWhatsappURLUserSnapshot       *string `json:"masjid_student_whatsapp_url_user_snapshot,omitempty"`
+	MasjidStudentParentNameUserSnapshot        *string `json:"masjid_student_parent_name_user_snapshot,omitempty"`
+	MasjidStudentParentWhatsappURLUserSnapshot *string `json:"masjid_student_parent_whatsapp_url_user_snapshot,omitempty"`
 
 	MasjidStudentCreatedAt time.Time  `json:"masjid_student_created_at"`
 	MasjidStudentUpdatedAt time.Time  `json:"masjid_student_updated_at"`
@@ -294,6 +334,12 @@ func FromModel(m *model.MasjidStudent) MasjidStudentResp {
 
 		MasjidStudentJoinedAt: m.MasjidStudentJoinedAt,
 		MasjidStudentLeftAt:   m.MasjidStudentLeftAt,
+
+		MasjidStudentNameUserSnapshot:              m.MasjidStudentNameUserSnapshot,
+		MasjidStudentAvatarURLUserSnapshot:         m.MasjidStudentAvatarURLUserSnapshot,
+		MasjidStudentWhatsappURLUserSnapshot:       m.MasjidStudentWhatsappURLUserSnapshot,
+		MasjidStudentParentNameUserSnapshot:        m.MasjidStudentParentNameUserSnapshot,
+		MasjidStudentParentWhatsappURLUserSnapshot: m.MasjidStudentParentWhatsappURLUserSnapshot,
 
 		MasjidStudentCreatedAt: m.MasjidStudentCreatedAt,
 		MasjidStudentUpdatedAt: m.MasjidStudentUpdatedAt,

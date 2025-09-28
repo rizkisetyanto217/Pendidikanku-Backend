@@ -46,6 +46,10 @@ type UsersProfileDTO struct {
 	UsersProfileYoutubeURL      *string `json:"users_profile_youtube_url,omitempty"`
 	UserProfileTelegramUsername *string `json:"user_profile_telegram_username,omitempty"`
 
+	// Orang tua / wali
+	UserProfileParentName        *string `json:"user_profile_parent_name,omitempty"`
+	UserProfileParentWhatsappURL *string `json:"user_profile_parent_whatsapp_url,omitempty"`
+
 	// Avatar (single file, 2-slot + retensi 30 hari)
 	UserProfileAvatarURL                *string    `json:"user_profile_avatar_url,omitempty"`
 	UserProfileAvatarObjectKey          *string    `json:"user_profile_avatar_object_key,omitempty"`
@@ -118,6 +122,9 @@ func ToUsersProfileDTO(m profilemodel.UserProfileModel) UsersProfileDTO {
 		UsersProfileYoutubeURL:      m.UserProfileYoutubeURL,
 		UserProfileTelegramUsername: m.UserProfileTelegramUsername,
 
+		UserProfileParentName:        m.UserProfileParentName,
+		UserProfileParentWhatsappURL: m.UserProfileParentWhatsappURL,
+
 		UserProfileAvatarURL:                m.UserProfileAvatarURL,
 		UserProfileAvatarObjectKey:          m.UserProfileAvatarObjectKey,
 		UserProfileAvatarURLOld:             m.UserProfileAvatarURLOld,
@@ -155,7 +162,6 @@ func ToUsersProfileDTOs(list []profilemodel.UserProfileModel) []UsersProfileDTO 
    =========================== */
 
 type CreateUsersProfileRequest struct {
-	// (opsional) slug profil publik
 	UserProfileSlug *string `json:"user_profile_slug,omitempty" validate:"omitempty,max=80"`
 
 	UsersProfileDonationName string  `json:"users_profile_donation_name" validate:"omitempty,max=50"`
@@ -177,6 +183,10 @@ type CreateUsersProfileRequest struct {
 	UsersProfileYoutubeURL      *string `json:"users_profile_youtube_url,omitempty" validate:"omitempty,url"`
 	UserProfileTelegramUsername *string `json:"user_profile_telegram_username,omitempty" validate:"omitempty,max=50"`
 
+	// Orang tua / wali
+	UserProfileParentName        *string `json:"user_profile_parent_name,omitempty" validate:"omitempty,max=100"`
+	UserProfileParentWhatsappURL *string `json:"user_profile_parent_whatsapp_url,omitempty" validate:"omitempty,url"`
+
 	UsersProfileIsPublicProfile *bool      `json:"users_profile_is_public_profile,omitempty" validate:"omitempty"`
 	UsersProfileIsVerified      *bool      `json:"users_profile_is_verified,omitempty" validate:"omitempty"`
 	UsersProfileVerifiedAt      *string    `json:"users_profile_verified_at,omitempty" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
@@ -194,7 +204,7 @@ type UpdateUsersProfileRequest struct {
 	UserProfileSlug *string `json:"user_profile_slug" validate:"omitempty,max=80"`
 
 	UsersProfileDonationName *string `json:"users_profile_donation_name" validate:"omitempty,max=50"`
-	UsersProfileDateOfBirth  *string `json:"users_profile_date_of_birth" validate:"omitempty"` // "2006-01-02"
+	UsersProfileDateOfBirth  *string `json:"users_profile_date_of_birth" validate:"omitempty"`
 	UserProfilePlaceOfBirth  *string `json:"user_profile_place_of_birth" validate:"omitempty,max=100"`
 	UsersProfileGender       *string `json:"users_profile_gender" validate:"omitempty,oneof=male female"`
 	UsersProfileLocation     *string `json:"users_profile_location" validate:"omitempty,max=100"`
@@ -211,6 +221,10 @@ type UpdateUsersProfileRequest struct {
 	UsersProfileGithubURL       *string `json:"users_profile_github_url" validate:"omitempty,url"`
 	UsersProfileYoutubeURL      *string `json:"users_profile_youtube_url" validate:"omitempty,url"`
 	UserProfileTelegramUsername *string `json:"user_profile_telegram_username" validate:"omitempty,max=50"`
+
+	// Orang tua / wali
+	UserProfileParentName        *string `json:"user_profile_parent_name" validate:"omitempty,max=100"`
+	UserProfileParentWhatsappURL *string `json:"user_profile_parent_whatsapp_url" validate:"omitempty,url"`
 
 	UsersProfileIsPublicProfile *bool      `json:"users_profile_is_public_profile" validate:"omitempty"`
 	UsersProfileIsVerified      *bool      `json:"users_profile_is_verified" validate:"omitempty"`
@@ -252,6 +266,10 @@ func (r CreateUsersProfileRequest) ToModel(userID uuid.UUID) profilemodel.UserPr
 		UserProfileGithubURL:        trimPtr(r.UsersProfileGithubURL),
 		UserProfileYoutubeURL:       trimPtr(r.UsersProfileYoutubeURL),
 		UserProfileTelegramUsername: trimPtr(r.UserProfileTelegramUsername),
+
+		// Orang tua / wali
+		UserProfileParentName:        trimPtr(r.UserProfileParentName),
+		UserProfileParentWhatsappURL: trimPtr(r.UserProfileParentWhatsappURL),
 
 		// edu/job
 		UserProfileEducation: trimPtr(r.UsersProfileEducation),
@@ -298,7 +316,6 @@ func (r CreateUsersProfileRequest) ToModel(userID uuid.UUID) profilemodel.UserPr
 	return m
 }
 
-// ToUpdateMap: selalu pakai NAMA KOLOM DB (singular: user_profile_*)
 func (in *UpdateUsersProfileRequest) ToUpdateMap() (map[string]interface{}, error) {
 	m := map[string]interface{}{}
 
@@ -333,6 +350,10 @@ func (in *UpdateUsersProfileRequest) ToUpdateMap() (map[string]interface{}, erro
 	setStr("user_profile_github_url", in.UsersProfileGithubURL)
 	setStr("user_profile_youtube_url", in.UsersProfileYoutubeURL)
 	setStr("user_profile_telegram_username", in.UserProfileTelegramUsername)
+
+	// Orang tua / wali
+	setStr("user_profile_parent_name", in.UserProfileParentName)
+	setStr("user_profile_parent_whatsapp_url", in.UserProfileParentWhatsappURL)
 
 	// Privacy & verification
 	setBool("user_profile_is_public_profile", in.UsersProfileIsPublicProfile)

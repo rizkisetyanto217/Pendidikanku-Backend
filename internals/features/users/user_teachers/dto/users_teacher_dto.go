@@ -16,49 +16,49 @@ import (
 
 type CreateUserTeacherRequest struct {
 	// FK wajib
-	UserTeacherUserID uuid.UUID `json:"user_teacher_user_id"`
+	UserTeacherUserID uuid.UUID `json:"user_teacher_user_id" form:"user_teacher_user_id"`
 
 	// Profil ringkas
-	UserTeacherName            string `json:"user_teacher_name" validate:"required,max=80"`
-	UserTeacherField           string `json:"user_teacher_field" validate:"omitempty,max=80"`
-	UserTeacherShortBio        string `json:"user_teacher_short_bio" validate:"omitempty,max=300"`
-	UserTeacherLongBio         string `json:"user_teacher_long_bio" validate:"omitempty"`
-	UserTeacherGreeting        string `json:"user_teacher_greeting" validate:"omitempty"`
-	UserTeacherEducation       string `json:"user_teacher_education" validate:"omitempty"`
-	UserTeacherActivity        string `json:"user_teacher_activity" validate:"omitempty"`
-	UserTeacherExperienceYears *int16 `json:"user_teacher_experience_years" validate:"omitempty,min=0,max=80"`
+	UserTeacherName            string `json:"user_teacher_name" form:"user_teacher_name" validate:"required,max=80"`
+	UserTeacherField           string `json:"user_teacher_field" form:"user_teacher_field" validate:"omitempty,max=80"`
+	UserTeacherShortBio        string `json:"user_teacher_short_bio" form:"user_teacher_short_bio" validate:"omitempty,max=300"`
+	UserTeacherLongBio         string `json:"user_teacher_long_bio" form:"user_teacher_long_bio" validate:"omitempty"`
+	UserTeacherGreeting        string `json:"user_teacher_greeting" form:"user_teacher_greeting" validate:"omitempty"`
+	UserTeacherEducation       string `json:"user_teacher_education" form:"user_teacher_education" validate:"omitempty"`
+	UserTeacherActivity        string `json:"user_teacher_activity" form:"user_teacher_activity" validate:"omitempty"`
+	UserTeacherExperienceYears *int16 `json:"user_teacher_experience_years" form:"user_teacher_experience_years" validate:"omitempty,min=0,max=80"`
 
 	// Demografis
-	UserTeacherGender   string `json:"user_teacher_gender" validate:"omitempty,max=10"`
-	UserTeacherLocation string `json:"user_teacher_location" validate:"omitempty,max=100"`
-	UserTeacherCity     string `json:"user_teacher_city" validate:"omitempty,max=100"`
+	UserTeacherGender   string `json:"user_teacher_gender" form:"user_teacher_gender" validate:"omitempty,max=10"`
+	UserTeacherLocation string `json:"user_teacher_location" form:"user_teacher_location" validate:"omitempty,max=100"`
+	UserTeacherCity     string `json:"user_teacher_city" form:"user_teacher_city" validate:"omitempty,max=100"`
 
-	// Metadata fleksibel
+	// Metadata fleksibel (pakai payload JSON saat multipart)
 	UserTeacherSpecialties  *datatypes.JSON `json:"user_teacher_specialties" validate:"omitempty"`
 	UserTeacherCertificates *datatypes.JSON `json:"user_teacher_certificates" validate:"omitempty"`
 
 	// Sosial (opsional)
-	UserTeacherInstagramURL     string `json:"user_teacher_instagram_url" validate:"omitempty,url"`
-	UserTeacherWhatsappURL      string `json:"user_teacher_whatsapp_url" validate:"omitempty"`
-	UserTeacherYoutubeURL       string `json:"user_teacher_youtube_url" validate:"omitempty,url"`
-	UserTeacherLinkedinURL      string `json:"user_teacher_linkedin_url" validate:"omitempty,url"`
-	UserTeacherGithubURL        string `json:"user_teacher_github_url" validate:"omitempty,url"`
-	UserTeacherTelegramUsername string `json:"user_teacher_telegram_username" validate:"omitempty,max=50"`
+	UserTeacherInstagramURL     string `json:"user_teacher_instagram_url" form:"user_teacher_instagram_url" validate:"omitempty,url"`
+	UserTeacherWhatsappURL      string `json:"user_teacher_whatsapp_url" form:"user_teacher_whatsapp_url" validate:"omitempty"`
+	UserTeacherYoutubeURL       string `json:"user_teacher_youtube_url" form:"user_teacher_youtube_url" validate:"omitempty,url"`
+	UserTeacherLinkedinURL      string `json:"user_teacher_linkedin_url" form:"user_teacher_linkedin_url" validate:"omitempty,url"`
+	UserTeacherGithubURL        string `json:"user_teacher_github_url" form:"user_teacher_github_url" validate:"omitempty,url"`
+	UserTeacherTelegramUsername string `json:"user_teacher_telegram_username" form:"user_teacher_telegram_username" validate:"omitempty,max=50"`
 
 	// Title
-	UserTeacherTitlePrefix string `json:"user_teacher_title_prefix" validate:"omitempty,max=60"`
-	UserTeacherTitleSuffix string `json:"user_teacher_title_suffix" validate:"omitempty,max=60"`
+	UserTeacherTitlePrefix string `json:"user_teacher_title_prefix" form:"user_teacher_title_prefix" validate:"omitempty,max=60"`
+	UserTeacherTitleSuffix string `json:"user_teacher_title_suffix" form:"user_teacher_title_suffix" validate:"omitempty,max=60"`
 
-	// Avatar (opsional di create)
-	UserTeacherAvatarURL                string     `json:"user_teacher_avatar_url" validate:"omitempty,max=2048"`
-	UserTeacherAvatarObjectKey          string     `json:"user_teacher_avatar_object_key" validate:"omitempty,max=2048"`
-	UserTeacherAvatarURLOld             string     `json:"user_teacher_avatar_url_old" validate:"omitempty,max=2048"`
-	UserTeacherAvatarObjectKeyOld       string     `json:"user_teacher_avatar_object_key_old" validate:"omitempty,max=2048"`
-	UserTeacherAvatarDeletePendingUntil *time.Time `json:"user_teacher_avatar_delete_pending_until" validate:"omitempty"`
+	// Avatar (opsional di create) – biasanya diisi otomatis dari upload, tapi tetap kasih form tag
+	UserTeacherAvatarURL                string     `json:"user_teacher_avatar_url" form:"user_teacher_avatar_url" validate:"omitempty,max=2048"`
+	UserTeacherAvatarObjectKey          string     `json:"user_teacher_avatar_object_key" form:"user_teacher_avatar_object_key" validate:"omitempty,max=2048"`
+	UserTeacherAvatarURLOld             string     `json:"user_teacher_avatar_url_old" form:"user_teacher_avatar_url_old" validate:"omitempty,max=2048"`
+	UserTeacherAvatarObjectKeyOld       string     `json:"user_teacher_avatar_object_key_old" form:"user_teacher_avatar_object_key_old" validate:"omitempty,max=2048"`
+	UserTeacherAvatarDeletePendingUntil *time.Time `json:"user_teacher_avatar_delete_pending_until" form:"user_teacher_avatar_delete_pending_until" validate:"omitempty"`
 
 	// Flags (opsional)
-	UserTeacherIsVerified *bool `json:"user_teacher_is_verified" validate:"omitempty"`
-	UserTeacherIsActive   *bool `json:"user_teacher_is_active" validate:"omitempty"`
+	UserTeacherIsVerified *bool `json:"user_teacher_is_verified" form:"user_teacher_is_verified" validate:"omitempty"`
+	UserTeacherIsActive   *bool `json:"user_teacher_is_active" form:"user_teacher_is_active" validate:"omitempty"`
 }
 
 // ToModel: mapping Create → model.UserTeacher
@@ -164,56 +164,53 @@ func (r CreateUserTeacherRequest) ToModel() model.UserTeacherModel {
 	return m
 }
 
-//
 // ========== UPDATE / PATCH ==========
-//
 type UpdateUserTeacherRequest struct {
 	// Profil ringkas
-	UserTeacherName            *string `json:"user_teacher_name" validate:"omitempty,max=80"`
-	UserTeacherField           *string `json:"user_teacher_field" validate:"omitempty,max=80"`
-	UserTeacherShortBio        *string `json:"user_teacher_short_bio" validate:"omitempty,max=300"`
-	UserTeacherLongBio         *string `json:"user_teacher_long_bio" validate:"omitempty"`
-	UserTeacherGreeting        *string `json:"user_teacher_greeting" validate:"omitempty"`
-	UserTeacherEducation       *string `json:"user_teacher_education" validate:"omitempty"`
-	UserTeacherActivity        *string `json:"user_teacher_activity" validate:"omitempty"`
-	UserTeacherExperienceYears *int16  `json:"user_teacher_experience_years" validate:"omitempty,min=0,max=80"`
+	UserTeacherName            *string `json:"user_teacher_name" form:"user_teacher_name" validate:"omitempty,max=80"`
+	UserTeacherField           *string `json:"user_teacher_field" form:"user_teacher_field" validate:"omitempty,max=80"`
+	UserTeacherShortBio        *string `json:"user_teacher_short_bio" form:"user_teacher_short_bio" validate:"omitempty,max=300"`
+	UserTeacherLongBio         *string `json:"user_teacher_long_bio" form:"user_teacher_long_bio" validate:"omitempty"`
+	UserTeacherGreeting        *string `json:"user_teacher_greeting" form:"user_teacher_greeting" validate:"omitempty"`
+	UserTeacherEducation       *string `json:"user_teacher_education" form:"user_teacher_education" validate:"omitempty"`
+	UserTeacherActivity        *string `json:"user_teacher_activity" form:"user_teacher_activity" validate:"omitempty"`
+	UserTeacherExperienceYears *int16  `json:"user_teacher_experience_years" form:"user_teacher_experience_years" validate:"omitempty,min=0,max=80"`
 
 	// Demografis
-	UserTeacherGender   *string `json:"user_teacher_gender" validate:"omitempty,max=10"`
-	UserTeacherLocation *string `json:"user_teacher_location" validate:"omitempty,max=100"`
-	UserTeacherCity     *string `json:"user_teacher_city" validate:"omitempty,max=100"`
+	UserTeacherGender   *string `json:"user_teacher_gender" form:"user_teacher_gender" validate:"omitempty,max=10"`
+	UserTeacherLocation *string `json:"user_teacher_location" form:"user_teacher_location" validate:"omitempty,max=100"`
+	UserTeacherCity     *string `json:"user_teacher_city" form:"user_teacher_city" validate:"omitempty,max=100"`
 
-	// Metadata fleksibel
+	// Metadata fleksibel (pakai payload JSON saat multipart)
 	UserTeacherSpecialties  **datatypes.JSON `json:"user_teacher_specialties" validate:"omitempty"`
 	UserTeacherCertificates **datatypes.JSON `json:"user_teacher_certificates" validate:"omitempty"`
 
 	// Sosial
-	UserTeacherInstagramURL     *string `json:"user_teacher_instagram_url" validate:"omitempty,url,max=2048"`
-	UserTeacherWhatsappURL      *string `json:"user_teacher_whatsapp_url" validate:"omitempty,max=2048"`
-	UserTeacherYoutubeURL       *string `json:"user_teacher_youtube_url" validate:"omitempty,url,max=2048"`
-	UserTeacherLinkedinURL      *string `json:"user_teacher_linkedin_url" validate:"omitempty,url,max=2048"`
-	UserTeacherGithubURL        *string `json:"user_teacher_github_url" validate:"omitempty,url,max=2048"`
-	UserTeacherTelegramUsername *string `json:"user_teacher_telegram_username" validate:"omitempty,max=50"`
+	UserTeacherInstagramURL     *string `json:"user_teacher_instagram_url" form:"user_teacher_instagram_url" validate:"omitempty,url,max=2048"`
+	UserTeacherWhatsappURL      *string `json:"user_teacher_whatsapp_url" form:"user_teacher_whatsapp_url" validate:"omitempty,max=2048"`
+	UserTeacherYoutubeURL       *string `json:"user_teacher_youtube_url" form:"user_teacher_youtube_url" validate:"omitempty,url,max=2048"`
+	UserTeacherLinkedinURL      *string `json:"user_teacher_linkedin_url" form:"user_teacher_linkedin_url" validate:"omitempty,url,max=2048"`
+	UserTeacherGithubURL        *string `json:"user_teacher_github_url" form:"user_teacher_github_url" validate:"omitempty,url,max=2048"`
+	UserTeacherTelegramUsername *string `json:"user_teacher_telegram_username" form:"user_teacher_telegram_username" validate:"omitempty,max=50"`
 
 	// Title
-	UserTeacherTitlePrefix *string `json:"user_teacher_title_prefix" validate:"omitempty,max=60"`
-	UserTeacherTitleSuffix *string `json:"user_teacher_title_suffix" validate:"omitempty,max=60"`
+	UserTeacherTitlePrefix *string `json:"user_teacher_title_prefix" form:"user_teacher_title_prefix" validate:"omitempty,max=60"`
+	UserTeacherTitleSuffix *string `json:"user_teacher_title_suffix" form:"user_teacher_title_suffix" validate:"omitempty,max=60"`
 
 	// Avatar (2-slot + retensi)
-	UserTeacherAvatarURL                *string    `json:"user_teacher_avatar_url" validate:"omitempty,max=2048"`
-	UserTeacherAvatarObjectKey          *string    `json:"user_teacher_avatar_object_key" validate:"omitempty,max=2048"`
-	UserTeacherAvatarURLOld             *string    `json:"user_teacher_avatar_url_old" validate:"omitempty,max=2048"`
-	UserTeacherAvatarObjectKeyOld       *string    `json:"user_teacher_avatar_object_key_old" validate:"omitempty,max=2048"`
-	UserTeacherAvatarDeletePendingUntil *time.Time `json:"user_teacher_avatar_delete_pending_until" validate:"omitempty"`
+	UserTeacherAvatarURL                *string    `json:"user_teacher_avatar_url" form:"user_teacher_avatar_url" validate:"omitempty,max=2048"`
+	UserTeacherAvatarObjectKey          *string    `json:"user_teacher_avatar_object_key" form:"user_teacher_avatar_object_key" validate:"omitempty,max=2048"`
+	UserTeacherAvatarURLOld             *string    `json:"user_teacher_avatar_url_old" form:"user_teacher_avatar_url_old" validate:"omitempty,max=2048"`
+	UserTeacherAvatarObjectKeyOld       *string    `json:"user_teacher_avatar_object_key_old" form:"user_teacher_avatar_object_key_old" validate:"omitempty,max=2048"`
+	UserTeacherAvatarDeletePendingUntil *time.Time `json:"user_teacher_avatar_delete_pending_until" form:"user_teacher_avatar_delete_pending_until" validate:"omitempty"`
 
 	// Flags
-	UserTeacherIsVerified *bool `json:"user_teacher_is_verified" validate:"omitempty"`
-	UserTeacherIsActive   *bool `json:"user_teacher_is_active" validate:"omitempty"`
+	UserTeacherIsVerified *bool `json:"user_teacher_is_verified" form:"user_teacher_is_verified" validate:"omitempty"`
+	UserTeacherIsActive   *bool `json:"user_teacher_is_active" form:"user_teacher_is_active" validate:"omitempty"`
 
 	// Kolom yang ingin DIKOSONGKAN (set NULL) eksplisit
-	Clear []string `json:"__clear,omitempty" validate:"omitempty,dive,oneof=user_teacher_field user_teacher_short_bio user_teacher_long_bio user_teacher_greeting user_teacher_education user_teacher_activity user_teacher_experience_years user_teacher_gender user_teacher_location user_teacher_city user_teacher_specialties user_teacher_certificates user_teacher_instagram_url user_teacher_whatsapp_url user_teacher_youtube_url user_teacher_linkedin_url user_teacher_github_url user_teacher_telegram_username user_teacher_title_prefix user_teacher_title_suffix user_teacher_avatar_url user_teacher_avatar_object_key user_teacher_avatar_url_old user_teacher_avatar_object_key_old user_teacher_avatar_delete_pending_until"`
+	Clear []string `json:"__clear,omitempty" form:"__clear" validate:"omitempty,dive,oneof=user_teacher_field user_teacher_short_bio user_teacher_long_bio user_teacher_greeting user_teacher_education user_teacher_activity user_teacher_experience_years user_teacher_gender user_teacher_location user_teacher_city user_teacher_specialties user_teacher_certificates user_teacher_instagram_url user_teacher_whatsapp_url user_teacher_youtube_url user_teacher_linkedin_url user_teacher_github_url user_teacher_telegram_username user_teacher_title_prefix user_teacher_title_suffix user_teacher_avatar_url user_teacher_avatar_object_key user_teacher_avatar_url_old user_teacher_avatar_object_key_old user_teacher_avatar_delete_pending_until"`
 }
-
 
 // ApplyPatch: terapkan update parsial ke model.
 func (r UpdateUserTeacherRequest) ApplyPatch(m *model.UserTeacherModel) {

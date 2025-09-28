@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS masjid_teachers (
   -- Snapshot
   masjid_teacher_name_user_snapshot          VARCHAR(80),
   masjid_teacher_avatar_url_user_snapshot    VARCHAR(255),
-  masjid_teacher_whatsapp_url_user_snapshot  VARCHAR(20),
+  masjid_teacher_whatsapp_url_user_snapshot  VARCHAR(50),
   masjid_teacher_title_prefix_user_snapshot  VARCHAR(20),
   masjid_teacher_title_suffix_user_snapshot  VARCHAR(30),
 
@@ -131,6 +131,9 @@ CREATE INDEX IF NOT EXISTS brin_mtj_created_at
 
 
 
+
+BEGIN;
+
 -- =========================================================
 -- TABEL: MASJID_STUDENTS
 -- =========================================================
@@ -142,8 +145,8 @@ CREATE TABLE IF NOT EXISTS masjid_students (
 
   masjid_student_user_id UUID NOT NULL
     REFERENCES users(id) ON DELETE CASCADE,
-  masjid_student_slug VARCHAR(50) NOT NULL UNIQUE,
 
+  masjid_student_slug VARCHAR(50) NOT NULL UNIQUE,
   masjid_student_code VARCHAR(50),
 
   masjid_student_status TEXT NOT NULL DEFAULT 'active'
@@ -156,15 +159,22 @@ CREATE TABLE IF NOT EXISTS masjid_students (
   -- Catatan umum santri
   masjid_student_note TEXT,
 
-  -- snapshot
-  masjid_student_name_profile_snapshot          VARCHAR(80),
-  masjid_student_avatar_url_profile_snapshot    VARCHAR(255),
-  masjid_student_whatsapp_url_profile_snapshot  VARCHAR(20),
+  -- Snapshots (ringkasan untuk lookup cepat)
+  masjid_student_name_user_snapshot                VARCHAR(80),
+  masjid_student_avatar_url_user_snapshot          VARCHAR(255),
+  masjid_student_whatsapp_url_user_snapshot        VARCHAR(50),
+  masjid_student_parent_name_user_snapshot         VARCHAR(80),
+  masjid_student_parent_whatsapp_url_user_snapshot VARCHAR(50),
 
+  -- Audit
   masjid_student_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   masjid_student_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   masjid_student_deleted_at TIMESTAMPTZ
 );
+
+-- =========================================================
+-- CONSTRAINTS & INDEXES
+-- =========================================================
 
 -- Pair unik (tenant-safe join ops)
 DO $$
