@@ -24,7 +24,6 @@ func NewUserClassSectionController(db *gorm.DB) *UserClassSectionController {
 }
 
 // ========== CREATE ==========
-// ========== CREATE ==========
 func (ctl *UserClassSectionController) Create(c *fiber.Ctx) error {
 	var req dto.UserClassSectionCreateReq
 	if err := c.BodyParser(&req); err != nil {

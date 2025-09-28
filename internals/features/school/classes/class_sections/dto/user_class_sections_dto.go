@@ -200,8 +200,6 @@ func FromModel(m *model.UserClassSection) UserClassSectionResp {
 	}
 }
 
-
-
 func (r *UserClassSectionPatchReq) Normalize() {
 	if r.UserClassSectionStatus != nil && r.UserClassSectionStatus.Set {
 		r.UserClassSectionStatus.Value = strings.ToLower(strings.TrimSpace(r.UserClassSectionStatus.Value))
@@ -250,3 +248,42 @@ func (r *UserClassSectionPatchReq) Validate() error {
 	return nil
 }
 
+type JoinRole string
+
+const (
+	JoinRoleStudent JoinRole = "student"
+	JoinRoleTeacher JoinRole = "teacher"
+)
+
+type ClassSectionJoinRequest struct {
+	Code string   `json:"code"` // kode yang dimasukkan user
+	Role JoinRole `json:"role"` // "student" | "teacher"
+}
+
+func (r *ClassSectionJoinRequest) Normalize() {
+	r.Code = strings.TrimSpace(r.Code)
+	r.Role = JoinRole(strings.ToLower(strings.TrimSpace(string(r.Role))))
+}
+
+func (r *ClassSectionJoinRequest) Validate() error {
+	if r.Code == "" {
+		return errors.New("code wajib diisi")
+	}
+	switch r.Role {
+	case JoinRoleStudent, JoinRoleTeacher:
+	default:
+		return errors.New("role harus 'student' atau 'teacher'")
+	}
+	return nil
+}
+
+type ClassSectionJoinResponse struct {
+	// Jika role = student → kirim UserClassSectionResp
+	UserClassSection *UserClassSectionResp `json:"user_class_section,omitempty"`
+
+	// Jika role = teacher → kirim section yang sudah diupdate (ringkas)
+	ClassSectionID                 string `json:"class_section_id"`
+	AssignedAs                     string `json:"assigned_as,omitempty"` // "teacher" | "assistant"
+	ClassSectionTeacherID          string `json:"class_section_teacher_id,omitempty"`
+	ClassSectionAssistantTeacherID string `json:"class_section_assistant_teacher_id,omitempty"`
+}
