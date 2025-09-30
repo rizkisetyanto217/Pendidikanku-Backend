@@ -64,9 +64,8 @@ CREATE INDEX IF NOT EXISTS idx_subject_image_purge_due
   WHERE subject_image_object_key_old IS NOT NULL;
 
 
-
 -- =========================================================
--- TABLE: class_subjects
+-- TABLE: class_subjects (with snapshots)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_subjects (
   class_subject_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -92,6 +91,36 @@ CREATE TABLE IF NOT EXISTS class_subjects (
   class_subject_weight_final      SMALLINT,
   class_subject_min_attendance_percent SMALLINT,
 
+  -- ============================
+  -- Snapshots dari subjects
+  -- ============================
+  class_subject_subject_name_snapshot VARCHAR(160),
+  class_subject_subject_code_snapshot VARCHAR(80),
+  class_subject_subject_slug_snapshot VARCHAR(160),
+  class_subject_subject_url_snapshot  TEXT,
+
+  -- ============================
+  -- Snapshots dari class_parent
+  -- (prefix: class_subject_parent_*)
+  -- ============================
+  class_subject_parent_code_snapshot  VARCHAR(80),
+  class_subject_parent_slug_snapshot  VARCHAR(160),
+  class_subject_parent_level_snapshot SMALLINT,
+  class_subject_parent_url_snapshot   TEXT,
+  class_subject_parent_name_snapshot  VARCHAR(160),
+
+  -- ============================
+  -- Snapshots dari classes
+  -- (prefix: class_subject_class_*)
+  -- ============================
+  class_subject_class_slug_snapshot          VARCHAR(160),
+  class_subject_class_image_url_snapshot     TEXT,
+  class_subject_class_status_snapshot        class_status_enum,
+  class_subject_class_delivery_mode_snapshot class_delivery_mode_enum,
+
+  -- ============================
+  -- Audit & lifecycle
+  -- ============================
   class_subject_is_active   BOOLEAN     NOT NULL DEFAULT TRUE,
   class_subject_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_subject_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),

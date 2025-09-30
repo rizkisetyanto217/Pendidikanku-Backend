@@ -13,8 +13,8 @@ import (
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
-	yDTO "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/dto"     // DTO response masjid_teachers
-	yModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/model" // model masjid_teachers
+	yDTO "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/dto"
+	yModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/model"
 )
 
 /*
@@ -117,26 +117,25 @@ func (ctrl *MasjidTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membaca snapshot profil guru")
 		}
 		if strings.TrimSpace(ut.Name) == "" {
-			// safeguard: seharusnya NOT NULL di schema
 			return fiber.NewError(fiber.StatusInternalServerError, "Profil guru tidak valid (nama kosong)")
 		}
 
-		// --- insert record + isi snapshot ---
+		// --- insert record + isi snapshot (PAKAI NAMA FIELD BARU) ---
 		rec := &yModel.MasjidTeacherModel{
 			MasjidTeacherMasjidID:      masjidID,
 			MasjidTeacherUserTeacherID: userTeacherID,
 
 			MasjidTeacherIsActive:  true,
-			MasjidTeacherIsPublic:  true, // default visible; adjust if kebijakan lain
+			MasjidTeacherIsPublic:  true,
 			MasjidTeacherCreatedAt: time.Now(),
 			MasjidTeacherUpdatedAt: time.Now(),
 
-			// SNAPSHOT (→ dari user_teachers)
-			MasjidTeacherNameUserSnapshot:        sptr(ut.Name),
-			MasjidTeacherAvatarURLUserSnapshot:   ut.AvatarURL,
-			MasjidTeacherWhatsappURLUserSnapshot: ut.WhatsappURL,
-			MasjidTeacherTitlePrefixUserSnapshot: ut.TitlePrefix,
-			MasjidTeacherTitleSuffixUserSnapshot: ut.TitleSuffix,
+			// SNAPSHOT sinkron dengan model + DTO
+			MasjidTeacherUserTeacherNameSnapshot:        sptr(ut.Name),
+			MasjidTeacherUserTeacherAvatarURLSnapshot:   ut.AvatarURL,
+			MasjidTeacherUserTeacherWhatsappURLSnapshot: ut.WhatsappURL,
+			MasjidTeacherUserTeacherTitlePrefixSnapshot: ut.TitlePrefix,
+			MasjidTeacherUserTeacherTitleSuffixSnapshot: ut.TitleSuffix,
 		}
 		if err := tx.Create(rec).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mendaftarkan sebagai pengajar")

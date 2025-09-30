@@ -1,10 +1,12 @@
+// file: internals/features/lembaga/masjid_yayasans/teachers_students/controller/masjid_student_list_controller.go
 package controller
 
 import (
-	dto "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/dto"
-	model "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/model"
 	"strings"
 	"time"
+
+	dto "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/dto"
+	model "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/model"
 
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
@@ -14,14 +16,16 @@ import (
 )
 
 // GET /api/a/masjid-students
-// Query: page|per_page|limit, search, status_in (multi), user_id, id,
+// Query:
 //
-//	created_ge, created_le, sort_by, sort(order), include=user
-//
-// GET /api/a/masjid-students
-// Query: page|per_page|limit, search, status_in (multi), user_id, id,
-//
-//	created_ge, created_le, sort_by, sort(order), include=user
+//	page|per_page|limit,
+//	search,
+//	status_in (multi: active,inactive,alumni),
+//	user_profile_id,
+//	id,
+//	created_ge, created_le (RFC3339),
+//	sort_by(created_at|updated_at|code|status), sort(asc|desc),
+//	include=user_profile (alias: include=user)
 func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 	// Pastikan DB ada di Locals untuk helper resolver slug→id
 	if c.Locals("DB") == nil {
@@ -45,6 +49,7 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 		"updated_at": "masjid_student_updated_at",
 		"code":       "masjid_student_code",
 		"status":     "masjid_student_status",
+		// bisa ditambah: "slug": "masjid_student_slug",
 	}
 	orderClause, err := p.SafeOrderClause(allowedSort, "created_at")
 	if err != nil {
@@ -55,22 +60,22 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 	// 3) Filters
 	search := strings.TrimSpace(c.Query("search"))
 	var (
-		userIDStr = strings.TrimSpace(c.Query("user_id"))
-		idStr     = strings.TrimSpace(c.Query("id"))
-		createdGe = strings.TrimSpace(c.Query("created_ge"))
-		createdLe = strings.TrimSpace(c.Query("created_le"))
+		userProfIDStr = strings.TrimSpace(c.Query("user_profile_id"))
+		idStr         = strings.TrimSpace(c.Query("id"))
+		createdGe     = strings.TrimSpace(c.Query("created_ge"))
+		createdLe     = strings.TrimSpace(c.Query("created_le"))
 	)
 
 	var (
-		userID uuid.UUID
-		rowID  uuid.UUID
+		userProfileID uuid.UUID
+		rowID         uuid.UUID
 	)
-	if userIDStr != "" {
-		v, err := uuid.Parse(userIDStr)
+	if userProfIDStr != "" {
+		v, err := uuid.Parse(userProfIDStr)
 		if err != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "user_id invalid")
+			return helper.JsonError(c, fiber.StatusBadRequest, "user_profile_id invalid")
 		}
-		userID = v
+		userProfileID = v
 	}
 	if idStr != "" {
 		v, err := uuid.Parse(idStr)
@@ -80,20 +85,18 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 		rowID = v
 	}
 
-	// status_in (multi)
+	// status_in (multi) → normalisasi ke set yang valid
 	statusIn := getMultiQuery(c, "status_in")
 	normStatus := make([]string, 0, len(statusIn))
 	for _, s := range statusIn {
 		s = strings.ToLower(strings.TrimSpace(s))
-		switch s {
-		case string(model.MasjidStudentActive),
-			string(model.MasjidStudentInactive),
-			string(model.MasjidStudentAlumni):
+		switch model.MasjidStudentStatus(s) {
+		case model.MasjidStudentActive, model.MasjidStudentInactive, model.MasjidStudentAlumni:
 			normStatus = append(normStatus, s)
 		}
 	}
 
-	q := h.DB.Model(&model.MasjidStudent{})
+	q := h.DB.Model(&model.MasjidStudentModel{})
 
 	// tenant-scope
 	q = q.Where("masjid_student_masjid_id = ?", enforcedMasjidID)
@@ -101,8 +104,8 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 	if rowID != uuid.Nil {
 		q = q.Where("masjid_student_id = ?", rowID)
 	}
-	if userID != uuid.Nil {
-		q = q.Where("masjid_student_user_id = ?", userID)
+	if userProfileID != uuid.Nil {
+		q = q.Where("masjid_student_user_profile_id = ?", userProfileID)
 	}
 	if len(normStatus) > 0 {
 		q = q.Where("masjid_student_status IN ?", normStatus)
@@ -132,6 +135,9 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 			LOWER(COALESCE(masjid_student_code, '')) LIKE ? OR
 			LOWER(COALESCE(masjid_student_note, '')) LIKE ?
 		`, like, like)
+		// (opsional) tambah slug/name snapshot bila perlu:
+		// OR LOWER(masjid_student_slug) LIKE ?
+		// OR LOWER(COALESCE(masjid_student_user_profile_name_snapshot,'')) LIKE ?
 	}
 
 	// 4) Count + Fetch
@@ -140,18 +146,19 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	var rows []model.MasjidStudent
+	var rows []model.MasjidStudentModel
 	if err := q.Order(orderClause).Offset(p.Offset()).Limit(p.Limit()).Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 5) include=user
+	// 5) include=user_profile (alias: include=user)
 	include := strings.ToLower(strings.TrimSpace(c.Query("include")))
-	wantUser := false
+	wantProfile := false
 	if include != "" {
 		for _, part := range strings.Split(include, ",") {
-			if strings.TrimSpace(part) == "user" {
-				wantUser = true
+			part = strings.TrimSpace(part)
+			if part == "user_profile" || part == "user" {
+				wantProfile = true
 				break
 			}
 		}
@@ -162,64 +169,74 @@ func (h *MasjidStudentController) List(c *fiber.Ctx) error {
 		baseResp = append(baseResp, dto.FromModel(&rows[i]))
 	}
 
-	if !wantUser {
+	if !wantProfile {
 		meta := helper.BuildMeta(total, p)
 		return helper.JsonList(c, baseResp, meta)
 	}
 
-	type UserLite struct {
-		ID       uuid.UUID `json:"id"`
-		UserName string    `json:"user_name"`
-		FullName *string   `json:"full_name,omitempty"`
-		Email    string    `json:"email"`
-		IsActive bool      `json:"is_active"`
-	}
-	type MasjidStudentWithUserResp struct {
-		dto.MasjidStudentResp `json:",inline"`
-		User                  *UserLite `json:"user,omitempty"`
+	// ---- Join ringan ke users_profile (sinkron DDL teranyar)
+	type ProfileLite struct {
+		ID                uuid.UUID `json:"id"`
+		Name              *string   `json:"name,omitempty"`
+		AvatarURL         *string   `json:"avatar_url,omitempty"`
+		WhatsappURL       *string   `json:"whatsapp_url,omitempty"`
+		ParentName        *string   `json:"parent_name,omitempty"`
+		ParentWhatsappURL *string   `json:"parent_whatsapp_url,omitempty"`
 	}
 
-	// Kumpulkan user_ids unik
-	userIDsSet := make(map[uuid.UUID]struct{}, len(rows))
+	type MasjidStudentWithProfileResp struct {
+		dto.MasjidStudentResp `json:",inline"`
+		UserProfile           *ProfileLite `json:"user_profile,omitempty"`
+	}
+
+	// Kumpulkan profile_ids unik
+	profileIDsSet := make(map[uuid.UUID]struct{}, len(rows))
 	for i := range rows {
-		if rows[i].MasjidStudentUserID != uuid.Nil {
-			userIDsSet[rows[i].MasjidStudentUserID] = struct{}{}
+		if rows[i].MasjidStudentUserProfileID != uuid.Nil {
+			profileIDsSet[rows[i].MasjidStudentUserProfileID] = struct{}{}
 		}
 	}
-	userIDs := make([]uuid.UUID, 0, len(userIDsSet))
-	for id := range userIDsSet {
-		userIDs = append(userIDs, id)
+	profileIDs := make([]uuid.UUID, 0, len(profileIDsSet))
+	for id := range profileIDsSet {
+		profileIDs = append(profileIDs, id)
 	}
 
-	// Ambil users dalam 1 query
-	userMap := make(map[uuid.UUID]UserLite, len(userIDs))
-	if len(userIDs) > 0 {
-		var urows []UserLite
+	// Ambil users_profile dalam 1 query (PERHATIKAN nama tabel & kolom!)
+	profileMap := make(map[uuid.UUID]ProfileLite, len(profileIDs))
+	if len(profileIDs) > 0 {
+		var profRows []ProfileLite
 		if err := h.DB.
-			Table("users").
-			Select("id, user_name, full_name, email, is_active").
-			Where("id IN ?", userIDs).
-			Where("deleted_at IS NULL").
-			Find(&urows).Error; err != nil {
+			Table("users_profile").
+			Select(`
+				users_profile_id                                  AS id,
+				user_profile_name                                 AS name,
+				user_profile_avatar_url                           AS avatar_url,
+				user_profile_whatsapp_url                         AS whatsapp_url,
+				user_profile_parent_name                          AS parent_name,
+				user_profile_parent_whatsapp_url                  AS parent_whatsapp_url
+			`).
+			Where("users_profile_id IN ?", profileIDs).
+			Where("users_profile_deleted_at IS NULL").
+			Find(&profRows).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
-		for _, u := range urows {
-			userMap[u.ID] = u
+		for _, pr := range profRows {
+			profileMap[pr.ID] = pr
 		}
 	}
 
-	// Merge user
-	out := make([]MasjidStudentWithUserResp, 0, len(rows))
+	// Merge profile
+	out := make([]MasjidStudentWithProfileResp, 0, len(rows))
 	for i := range rows {
 		base := baseResp[i]
-		var u *UserLite
-		if val, ok := userMap[rows[i].MasjidStudentUserID]; ok {
+		var up *ProfileLite
+		if val, ok := profileMap[rows[i].MasjidStudentUserProfileID]; ok {
 			tmp := val
-			u = &tmp
+			up = &tmp
 		}
-		out = append(out, MasjidStudentWithUserResp{
+		out = append(out, MasjidStudentWithProfileResp{
 			MasjidStudentResp: base,
-			User:              u,
+			UserProfile:       up,
 		})
 	}
 

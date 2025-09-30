@@ -32,7 +32,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_id_tenant
 
 
 -- =========================================================
--- TABLE: class_section_subject_teachers
+-- ENUM: class_delivery_mode_enum (idempotent)
+-- =========================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'class_delivery_mode_enum') THEN
+    CREATE TYPE class_delivery_mode_enum AS ENUM (
+      'offline',   -- tatap muka di ruangan fisik
+      'online',    -- daring (Zoom/Meet/dsb)
+      'hybrid'     -- kombinasi online + offline
+    );
+  END IF;
+END$$;
+-- =========================================================
+-- TABLE: class_section_subject_teachers (CSST)
 -- (penugasan guru untuk Section × Subject)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
@@ -40,22 +53,37 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_masjid_id UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
+  -- target penugasan
   class_section_subject_teacher_section_id UUID NOT NULL,
   class_section_subject_teacher_class_subject_id UUID NOT NULL,
   class_section_subject_teacher_teacher_id UUID NOT NULL,
 
+  -- identitas & fasilitas
   class_section_subject_teacher_slug VARCHAR(160),
   class_section_subject_teacher_description TEXT,
   class_section_subject_teacher_room_id UUID,
   class_section_subject_teacher_group_url TEXT,
-  class_section_subject_teacher_total_attendance INT DEFAULT 0,
 
+  -- agregat & kapasitas (dikelola backend)
+  class_section_subject_teacher_total_attendance INT NOT NULL DEFAULT 0,
+  class_section_subject_teacher_capacity INT,                 -- NULL/<=0 = unlimited
+  class_section_subject_teacher_enrolled_count INT NOT NULL DEFAULT 0,
+  class_sections_subject_teacher_delivery_mode class_delivery_mode_enum NOT NULL DEFAULT 'offline',
+
+  -- Room
+  class_section_subject_teacher_room_snapshot JSONB,
+  class_section_subject_teacher_room_name_snap     TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_room_snapshot->>'name')) STORED,
+  class_section_subject_teacher_room_slug_snap     TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_room_snapshot->>'slug')) STORED,
+  class_section_subject_teacher_room_location_snap TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_room_snapshot->>'location')) STORED,
+  -- join_url / meeting_id / passcode / platform tetap di JSON
+
+  -- status & audit
   class_section_subject_teacher_is_active BOOLEAN NOT NULL DEFAULT TRUE,
   class_section_subject_teacher_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_section_subject_teacher_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_section_subject_teacher_deleted_at TIMESTAMPTZ,
 
-  -- Tenant-safe FKs (urutan kolom FK ↔ UNIQUE di tabel referensi)
+  -- Tenant-safe FKs (urutan kolom FK ↔️ UNIQUE di tabel referensi)
   CONSTRAINT fk_csst_section_tenant FOREIGN KEY (
     class_section_subject_teacher_section_id,
     class_section_subject_teacher_masjid_id
@@ -78,12 +106,22 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
     class_section_subject_teacher_room_id,
     class_section_subject_teacher_masjid_id
   ) REFERENCES class_rooms (class_room_id, class_room_masjid_id)
-    ON UPDATE CASCADE ON DELETE SET NULL
+    ON UPDATE CASCADE ON DELETE SET NULL,
+
+  -- safeguards
+  CONSTRAINT ck_csst_capacity_nonneg
+    CHECK (class_section_subject_teacher_capacity IS NULL
+        OR class_section_subject_teacher_capacity >= 0),
+  CONSTRAINT ck_csst_enrolled_nonneg
+    CHECK (class_section_subject_teacher_enrolled_count >= 0)
 );
 
 -- Pair unik id+tenant (opsional, bantu JOIN cepat)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_tenant
-  ON class_section_subject_teachers (class_section_subject_teacher_id, class_section_subject_teacher_masjid_id);
+  ON class_section_subject_teachers (
+    class_section_subject_teacher_id,
+    class_section_subject_teacher_masjid_id
+  );
 
 -- Satu guru per (tenant × section × subject) — soft-delete aware
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_unique_alive
@@ -141,9 +179,17 @@ CREATE INDEX IF NOT EXISTS gin_csst_slug_trgm_alive
   WHERE class_section_subject_teacher_deleted_at IS NULL
     AND class_section_subject_teacher_slug IS NOT NULL;
 
--- BRIN untuk created_at (scan time-series)
+-- BRIN & kapasitas counter (soft-delete aware)
 CREATE INDEX IF NOT EXISTS brin_csst_created_at
   ON class_section_subject_teachers USING BRIN (class_section_subject_teacher_created_at);
+
+CREATE INDEX IF NOT EXISTS idx_csst_capacity_alive
+  ON class_section_subject_teachers (class_section_subject_teacher_capacity)
+  WHERE class_section_subject_teacher_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_csst_enrolled_count_alive
+  ON class_section_subject_teachers (class_section_subject_teacher_enrolled_count)
+  WHERE class_section_subject_teacher_deleted_at IS NULL;
 
 
 -- =========================================================

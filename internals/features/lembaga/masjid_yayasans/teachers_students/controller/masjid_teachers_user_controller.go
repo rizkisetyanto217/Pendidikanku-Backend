@@ -17,15 +17,15 @@ import (
 // GET /api/u/masjids/:masjid_id/masjid-teachers/list
 // GET /api/u/m/:masjid_slug/masjid-teachers/list
 // Query: page, per_page|limit, sort_by(created_at|updated_at), order
-//        id, user_teacher_id|user_id (legacy), employment, active, verified, public,
+//        id, user_teacher_id|user_id, employment, active, verified, public,
 //        joined_from, joined_to (YYYY-MM-DD), q, include=teacher|user|all
 func (ctrl *MasjidTeacherController) List(c *fiber.Ctx) error {
-	// Pastikan DB tersedia di Locals untuk resolver slug → id
+	// DB resolver (untuk slug → id)
 	if c.Locals("DB") == nil {
 		c.Locals("DB", ctrl.DB)
 	}
 
-	// 1) Resolve konteks + enforce akses (DKM ⇒ allowed)
+	// 1) Context & akses
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return err
@@ -49,10 +49,7 @@ func (ctrl *MasjidTeacherController) List(c *fiber.Ctx) error {
 
 	// 3) Filters
 	idStr := strings.TrimSpace(c.Query("id"))
-
-	// NOTE: dukung keduanya untuk backward-compat
 	userTeacherIDStr := strings.TrimSpace(c.Query("user_teacher_id", c.Query("user_id")))
-
 	employment := strings.ToLower(strings.TrimSpace(c.Query("employment")))
 	activeStr := strings.TrimSpace(c.Query("active"))
 	verifiedStr := strings.TrimSpace(c.Query("verified"))
@@ -121,7 +118,10 @@ func (ctrl *MasjidTeacherController) List(c *fiber.Ctx) error {
 	}
 	if q != "" {
 		pat := "%" + q + "%"
-		tx = tx.Where(`(masjid_teacher_notes ILIKE ? OR masjid_teacher_code ILIKE ? OR masjid_teacher_slug ILIKE ?)`, pat, pat, pat)
+		tx = tx.Where(`(masjid_teacher_notes ILIKE ? 
+			OR masjid_teacher_code ILIKE ? 
+			OR masjid_teacher_slug ILIKE ?
+			OR masjid_teacher_user_teacher_name_snapshot ILIKE ?)`, pat, pat, pat, pat)
 	}
 
 	// 4) Count + data
@@ -152,17 +152,17 @@ func (ctrl *MasjidTeacherController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// base responses + kumpulkan IDs
-	base := make([]*yDTO.MasjidTeacherResponse, 0, len(rows))
+	// 6) base responses + kumpulkan IDs
+	base := make([]*yDTO.MasjidTeacher, 0, len(rows))
 	teacherIDsSet := make(map[uuid.UUID]struct{}, len(rows))
 	for i := range rows {
-		base = append(base, yDTO.NewMasjidTeacherResponse(&rows[i]))
+		base = append(base, yDTO.NewMasjidTeacherResponse(&rows[i])) // returns *dto.MasjidTeacher
 		if rows[i].MasjidTeacherUserTeacherID != uuid.Nil {
 			teacherIDsSet[rows[i].MasjidTeacherUserTeacherID] = struct{}{}
 		}
 	}
 
-	// Kalau tidak minta include apapun, langsung return
+	// Jika tidak minta include apa pun, return cepat
 	if !wantTeacher && !wantUser {
 		return helper.JsonList(c, base, helper.BuildMeta(total, p))
 	}
@@ -255,11 +255,11 @@ func (ctrl *MasjidTeacherController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// Susun keluaran
+	// 7) Susun output
 	type Item struct {
-		*yDTO.MasjidTeacherResponse `json:",inline"`
-		Teacher                     *TeacherLite `json:"teacher,omitempty"`
-		User                        *UserLite    `json:"user,omitempty"`
+		*yDTO.MasjidTeacher `json:",inline"`
+		Teacher             *TeacherLite `json:"teacher,omitempty"`
+		User                *UserLite    `json:"user,omitempty"`
 	}
 	out := make([]Item, 0, len(base))
 	for i := range rows {
@@ -279,7 +279,11 @@ func (ctrl *MasjidTeacherController) List(c *fiber.Ctx) error {
 			}
 		}
 
-		out = append(out, Item{MasjidTeacherResponse: base[i], Teacher: t, User: u})
+		out = append(out, Item{
+			MasjidTeacher: base[i], // sudah berisi snapshots + sections/csst dari DTO
+			Teacher:       t,
+			User:          u,
+		})
 	}
 
 	return helper.JsonList(c, out, helper.BuildMeta(total, p))

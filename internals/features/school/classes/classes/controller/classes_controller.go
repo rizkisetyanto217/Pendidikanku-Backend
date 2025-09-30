@@ -56,11 +56,9 @@ func coalesceStr(a, b string) string {
 	return strings.TrimSpace(b)
 }
 
-// Tambahkan di atas (helpers kecil)
 func slugifySafe(s string, maxLen int) string {
 	return helper.Slugify(strings.TrimSpace(s), maxLen)
 }
-
 
 /* ================= Slug builder (parent + optional term) ================= */
 
@@ -83,7 +81,7 @@ func buildClassBaseSlug(
 		return b, nil
 	}
 
-	// 1) Ambil data class_parent (kolom sesuai model)
+	// 1) Ambil data class_parent (pakai row kecil agar loose-coupling)
 	type parentRow struct {
 		Slug *string `gorm:"column:class_parent_slug"`
 		Name string  `gorm:"column:class_parent_name"`
@@ -102,7 +100,7 @@ func buildClassBaseSlug(
 	log.Printf("[CLASSES][SLUG] parent: slug_db=%v name_db='%s' → parentPart='%s'",
 		pr.Slug, pr.Name, parentPart)
 
-	// 2) Ambil data academic_term (jika ada) — kolom sesuai model
+	// 2) Ambil data academic_term (jika ada)
 	termPart := ""
 	if academicTermID != nil && *academicTermID != uuid.Nil {
 		type termRow struct {
@@ -153,27 +151,37 @@ func buildClassBaseSlug(
 
 func hydrateClassSnapshots(ctx context.Context, tx *gorm.DB, masjidID uuid.UUID, m *classmodel.ClassModel) error {
 	// Parent (wajib)
-	var cp classmodel.ClassParentModel
+	type parentRow struct {
+		Name  string  `gorm:"column:class_parent_name"`
+		Code  *string `gorm:"column:class_parent_code"`
+		Slug  *string `gorm:"column:class_parent_slug"`
+		Level *int    `gorm:"column:class_parent_level"`
+		// URL opsional: tambahkan jika kolom ada di DB kamu
+		// URL *string `gorm:"column:class_parent_url"`
+	}
+	var pr parentRow
 	if err := tx.WithContext(ctx).
-		Select("class_parent_name", "class_parent_code", "class_parent_slug", "class_parent_level").
+		Table("class_parents").
+		Select("class_parent_name, class_parent_code, class_parent_slug, class_parent_level").
 		Where("class_parent_id = ? AND class_parent_masjid_id = ? AND class_parent_deleted_at IS NULL",
 			m.ClassParentID, masjidID).
-		Take(&cp).Error; err != nil {
+		Take(&pr).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fiber.NewError(fiber.StatusBadRequest, "Class parent tidak ditemukan di masjid ini")
 		}
 		return err
 	}
 	// Set snapshots dari parent
-	m.ClassNameParentSnapshot = &cp.ClassParentName
-	m.ClassCodeParentSnapshot = cp.ClassParentCode // *string
-	m.ClassSlugParentSnapshot = cp.ClassParentSlug // *string
-	if cp.ClassParentLevel != nil {
-		lv := int16(*cp.ClassParentLevel)
-		m.ClassLevelParentSnapshot = &lv
+	m.ClassParentNameSnapshot = &pr.Name
+	m.ClassParentCodeSnapshot = pr.Code
+	m.ClassParentSlugSnapshot = pr.Slug
+	if pr.Level != nil {
+		lv := int16(*pr.Level)
+		m.ClassParentLevelSnapshot = &lv
 	} else {
-		m.ClassLevelParentSnapshot = nil
+		m.ClassParentLevelSnapshot = nil
 	}
+	// m.ClassParentURLSnapshot = pr.URL // kalau kamu punya kolom URL
 
 	// Term (opsional)
 	if m.ClassTermID != nil {
@@ -193,20 +201,20 @@ func hydrateClassSnapshots(ctx context.Context, tx *gorm.DB, masjidID uuid.UUID,
 			}
 			return err
 		}
-		m.ClassAcademicYearTermSnapshot = &t.AcademicTermAcademicYear
-		m.ClassNameTermSnapshot = &t.AcademicTermName
-		m.ClassSlugTermSnapshot = t.AcademicTermSlug // *string
+		m.ClassTermAcademicYearSnapshot = &t.AcademicTermAcademicYear
+		m.ClassTermNameSnapshot = &t.AcademicTermName
+		m.ClassTermSlugSnapshot = t.AcademicTermSlug // *string
 		if t.AcademicTermAngkatan != nil {
 			s := strconv.Itoa(*t.AcademicTermAngkatan)
-			m.ClassAngkatanTermSnapshot = &s
+			m.ClassTermAngkatanSnapshot = &s
 		} else {
-			m.ClassAngkatanTermSnapshot = nil
+			m.ClassTermAngkatanSnapshot = nil
 		}
 	} else {
-		m.ClassAcademicYearTermSnapshot = nil
-		m.ClassNameTermSnapshot = nil
-		m.ClassSlugTermSnapshot = nil
-		m.ClassAngkatanTermSnapshot = nil
+		m.ClassTermAcademicYearSnapshot = nil
+		m.ClassTermNameSnapshot = nil
+		m.ClassTermSlugSnapshot = nil
+		m.ClassTermAngkatanSnapshot = nil
 	}
 	return nil
 }
@@ -275,8 +283,8 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 
 	/* ---- Bentuk model awal ---- */
 	m := req.ToModel() // *classmodel.ClassModel
-	log.Printf("[CLASSES][CREATE] 🔧 model init: parent_id=%s term_id=%v billing=%s status=%s",
-		m.ClassParentID, m.ClassTermID, m.ClassBillingCycle, m.ClassStatus)
+	log.Printf("[CLASSES][CREATE] 🔧 model init: parent_id=%s term_id=%v status=%s",
+		m.ClassParentID, m.ClassTermID, m.ClassStatus)
 
 	/* ---- TX ---- */
 	tx := ctrl.DB.WithContext(c.Context()).Begin()
@@ -337,7 +345,8 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		_ = tx.Rollback().Error
 		low := strings.ToLower(err.Error())
 		log.Printf("[CLASSES][CREATE] ❌ insert error: %v", err)
-		if strings.Contains(low, "uq_classes_slug_per_masjid_active") ||
+		// nama index: uq_classes_slug_per_masjid_alive
+		if strings.Contains(low, "uq_classes_slug_per_masjid_alive") ||
 			(strings.Contains(low, "duplicate") && strings.Contains(low, "class_slug")) {
 			return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
 		}
@@ -464,7 +473,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	prevTermID := existing.ClassTermID
 	wasActive := (existing.ClassStatus == classmodel.ClassStatusActive)
 
-	// ---- Apply patch ke entity (selain slug, tapi aman karena slug kita proses setelah ini) ----
+	// ---- Apply patch ke entity ----
 	req.Apply(&existing)
 
 	// ---- Track perubahan status active (setelah apply) ----
@@ -556,7 +565,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		_ = tx.Rollback().Error
 		low := strings.ToLower(err.Error())
 		switch {
-		case strings.Contains(low, "uq_classes_slug_per_masjid_active") ||
+		case strings.Contains(low, "uq_classes_slug_per_masjid_alive") ||
 			(strings.Contains(low, "duplicate") && strings.Contains(low, "class_slug")):
 			return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
 		default:

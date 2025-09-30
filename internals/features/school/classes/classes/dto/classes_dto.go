@@ -12,6 +12,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 )
 
 /*
@@ -42,7 +43,7 @@ func (p PatchFieldClass[T]) Get() (*T, bool) { return p.Value, p.Present }
 
 /*
 =========================================================
-REQUEST: CREATE — multipart-ready
+REQUEST: CREATE — multipart-ready (tanpa pricing)
 =========================================================
 */
 type CreateClassRequest struct {
@@ -63,15 +64,9 @@ type CreateClassRequest struct {
 	// Kuota
 	ClassQuotaTotal *int `json:"class_quota_total,omitempty" form:"class_quota_total"`
 
-	// Pricing
-	ClassRegistrationFeeIDR *int64  `json:"class_registration_fee_idr,omitempty" form:"class_registration_fee_idr"`
-	ClassTuitionFeeIDR      *int64  `json:"class_tuition_fee_idr,omitempty"      form:"class_tuition_fee_idr"`
-	ClassBillingCycle       *string `json:"class_billing_cycle,omitempty"         form:"class_billing_cycle"`
-	ClassProviderProductID  *string `json:"class_provider_product_id,omitempty"   form:"class_provider_product_id"`
-	ClassProviderPriceID    *string `json:"class_provider_price_id,omitempty"     form:"class_provider_price_id"`
-
-	// Catatan
-	ClassNotes *string `json:"class_notes,omitempty" form:"class_notes"`
+	// Catatan & Meta
+	ClassNotes   *string        `json:"class_notes,omitempty"    form:"class_notes"`
+	ClassFeeMeta map[string]any `json:"class_fee_meta,omitempty" form:"class_fee_meta"` // JSON
 
 	// Mode & Status
 	ClassDeliveryMode *string    `json:"class_delivery_mode,omitempty" form:"class_delivery_mode"` // enum
@@ -91,10 +86,6 @@ func (r *CreateClassRequest) Normalize() {
 	r.ClassSlug = strings.TrimSpace(strings.ToLower(r.ClassSlug))
 
 	// enum strings lower
-	if r.ClassBillingCycle != nil {
-		x := strings.ToLower(strings.TrimSpace(*r.ClassBillingCycle))
-		r.ClassBillingCycle = &x
-	}
 	if r.ClassDeliveryMode != nil {
 		x := strings.ToLower(strings.TrimSpace(*r.ClassDeliveryMode))
 		r.ClassDeliveryMode = &x
@@ -113,22 +104,6 @@ func (r *CreateClassRequest) Normalize() {
 			r.ClassNotes = &s
 		}
 	}
-	if r.ClassProviderProductID != nil {
-		s := strings.TrimSpace(*r.ClassProviderProductID)
-		if s == "" {
-			r.ClassProviderProductID = nil
-		} else {
-			r.ClassProviderProductID = &s
-		}
-	}
-	if r.ClassProviderPriceID != nil {
-		s := strings.TrimSpace(*r.ClassProviderPriceID)
-		if s == "" {
-			r.ClassProviderPriceID = nil
-		} else {
-			r.ClassProviderPriceID = &s
-		}
-	}
 }
 
 func (r *CreateClassRequest) Validate() error {
@@ -145,20 +120,7 @@ func (r *CreateClassRequest) Validate() error {
 	if r.ClassQuotaTotal != nil && *r.ClassQuotaTotal < 0 {
 		return errors.New("class_quota_total must be >= 0")
 	}
-	if r.ClassRegistrationFeeIDR != nil && *r.ClassRegistrationFeeIDR < 0 {
-		return errors.New("class_registration_fee_idr must be >= 0")
-	}
-	if r.ClassTuitionFeeIDR != nil && *r.ClassTuitionFeeIDR < 0 {
-		return errors.New("class_tuition_fee_idr must be >= 0")
-	}
 	// enums
-	if r.ClassBillingCycle != nil {
-		switch *r.ClassBillingCycle {
-		case model.BillingCycleOneTime, model.BillingCycleMonthly, model.BillingCycleQuarter, model.BillingCycleSemester, model.BillingCycleYearly:
-		default:
-			return errors.New("invalid class_billing_cycle")
-		}
-	}
 	if r.ClassDeliveryMode != nil {
 		switch *r.ClassDeliveryMode {
 		case model.ClassDeliveryModeOffline, model.ClassDeliveryModeOnline, model.ClassDeliveryModeHybrid:
@@ -177,11 +139,6 @@ func (r *CreateClassRequest) Validate() error {
 }
 
 func (r *CreateClassRequest) ToModel() *model.ClassModel {
-	// defaults konsisten dengan DB
-	billing := model.BillingCycleMonthly
-	if r.ClassBillingCycle != nil && *r.ClassBillingCycle != "" {
-		billing = *r.ClassBillingCycle
-	}
 	var delivery *string
 	if r.ClassDeliveryMode != nil && *r.ClassDeliveryMode != "" {
 		d := *r.ClassDeliveryMode
@@ -202,15 +159,13 @@ func (r *CreateClassRequest) ToModel() *model.ClassModel {
 		ClassRegistrationOpensAt:  r.ClassRegistrationOpensAt,
 		ClassRegistrationClosesAt: r.ClassRegistrationClosesAt,
 		ClassQuotaTotal:           r.ClassQuotaTotal,
-		ClassRegistrationFeeIDR:   r.ClassRegistrationFeeIDR,
-		ClassTuitionFeeIDR:        r.ClassTuitionFeeIDR,
-		ClassBillingCycle:         billing,
-		ClassProviderProductID:    r.ClassProviderProductID,
-		ClassProviderPriceID:      r.ClassProviderPriceID,
-		ClassNotes:                r.ClassNotes,
-		ClassDeliveryMode:         delivery,
-		ClassStatus:               status,
-		ClassCompletedAt:          r.ClassCompletedAt,
+
+		ClassNotes:   r.ClassNotes,
+		ClassFeeMeta: datatypes.JSONMap(r.ClassFeeMeta),
+
+		ClassDeliveryMode: delivery,
+		ClassStatus:       status,
+		ClassCompletedAt:  r.ClassCompletedAt,
 
 		ClassImageURL:                r.ClassImageURL,
 		ClassImageObjectKey:          r.ClassImageObjectKey,
@@ -223,7 +178,7 @@ func (r *CreateClassRequest) ToModel() *model.ClassModel {
 
 /*
 =========================================================
-REQUEST: PATCH — tri-state
+REQUEST: PATCH — tri-state (tanpa pricing)
 =========================================================
 */
 type PatchClassRequest struct {
@@ -241,13 +196,8 @@ type PatchClassRequest struct {
 	ClassQuotaTotal PatchFieldClass[*int] `json:"class_quota_total"`
 	ClassQuotaTaken PatchFieldClass[int]  `json:"class_quota_taken"`
 
-	ClassRegistrationFeeIDR PatchFieldClass[*int64]  `json:"class_registration_fee_idr"`
-	ClassTuitionFeeIDR      PatchFieldClass[*int64]  `json:"class_tuition_fee_idr"`
-	ClassBillingCycle       PatchFieldClass[string]  `json:"class_billing_cycle"`
-	ClassProviderProductID  PatchFieldClass[*string] `json:"class_provider_product_id"`
-	ClassProviderPriceID    PatchFieldClass[*string] `json:"class_provider_price_id"`
-
-	ClassNotes PatchFieldClass[*string] `json:"class_notes"`
+	ClassNotes   PatchFieldClass[*string]        `json:"class_notes"`
+	ClassFeeMeta PatchFieldClass[map[string]any] `json:"class_fee_meta"`
 
 	ClassDeliveryMode PatchFieldClass[*string]    `json:"class_delivery_mode"`
 	ClassStatus       PatchFieldClass[string]     `json:"class_status"`
@@ -267,10 +217,6 @@ func (r *PatchClassRequest) Normalize() {
 		s := strings.TrimSpace(strings.ToLower(*r.ClassSlug.Value))
 		r.ClassSlug.Value = &s
 	}
-	if r.ClassBillingCycle.Present && r.ClassBillingCycle.Value != nil {
-		s := strings.ToLower(strings.TrimSpace(*r.ClassBillingCycle.Value))
-		r.ClassBillingCycle.Value = &s
-	}
 	if r.ClassStatus.Present && r.ClassStatus.Value != nil {
 		s := strings.ToLower(strings.TrimSpace(*r.ClassStatus.Value))
 		r.ClassStatus.Value = &s
@@ -278,7 +224,7 @@ func (r *PatchClassRequest) Normalize() {
 
 	// *string (double deref)
 	normalizePtrStr := func(f *PatchFieldClass[*string], lower bool) {
-		if f.Present && f.Value != nil {
+		if f.Present && f.Value != nil && *f.Value != nil {
 			s := strings.TrimSpace(**f.Value)
 			if lower {
 				s = strings.ToLower(s)
@@ -292,8 +238,6 @@ func (r *PatchClassRequest) Normalize() {
 	}
 	normalizePtrStr(&r.ClassDeliveryMode, true)
 	normalizePtrStr(&r.ClassNotes, false)
-	normalizePtrStr(&r.ClassProviderProductID, false)
-	normalizePtrStr(&r.ClassProviderPriceID, false)
 }
 
 func (r *PatchClassRequest) Validate() error {
@@ -314,21 +258,8 @@ func (r *PatchClassRequest) Validate() error {
 	if r.ClassQuotaTaken.Present && r.ClassQuotaTaken.Value != nil && *r.ClassQuotaTaken.Value < 0 {
 		return errors.New("class_quota_taken must be >= 0")
 	}
-	if r.ClassRegistrationFeeIDR.Present && r.ClassRegistrationFeeIDR.Value != nil && **r.ClassRegistrationFeeIDR.Value < 0 {
-		return errors.New("class_registration_fee_idr must be >= 0")
-	}
-	if r.ClassTuitionFeeIDR.Present && r.ClassTuitionFeeIDR.Value != nil && **r.ClassTuitionFeeIDR.Value < 0 {
-		return errors.New("class_tuition_fee_idr must be >= 0")
-	}
 
 	// enums
-	if r.ClassBillingCycle.Present && r.ClassBillingCycle.Value != nil {
-		switch *r.ClassBillingCycle.Value {
-		case model.BillingCycleOneTime, model.BillingCycleMonthly, model.BillingCycleQuarter, model.BillingCycleSemester, model.BillingCycleYearly:
-		default:
-			return errors.New("invalid class_billing_cycle")
-		}
-	}
 	if r.ClassDeliveryMode.Present && r.ClassDeliveryMode.Value != nil {
 		switch **r.ClassDeliveryMode.Value {
 		case model.ClassDeliveryModeOffline, model.ClassDeliveryModeOnline, model.ClassDeliveryModeHybrid:
@@ -360,11 +291,6 @@ func (r *PatchClassRequest) Apply(m *model.ClassModel) {
 	// string
 	if r.ClassSlug.Present && r.ClassSlug.Value != nil {
 		m.ClassSlug = *r.ClassSlug.Value
-	}
-	if r.ClassBillingCycle.Present && r.ClassBillingCycle.Value != nil {
-		if s := strings.TrimSpace(*r.ClassBillingCycle.Value); s != "" {
-			m.ClassBillingCycle = s
-		}
 	}
 	if r.ClassStatus.Present && r.ClassStatus.Value != nil {
 		if s := strings.TrimSpace(*r.ClassStatus.Value); s != "" {
@@ -414,19 +340,12 @@ func (r *PatchClassRequest) Apply(m *model.ClassModel) {
 		m.ClassQuotaTaken = *r.ClassQuotaTaken.Value
 	}
 
-	// pricing
-	if r.ClassRegistrationFeeIDR.Present {
-		if r.ClassRegistrationFeeIDR.Value == nil {
-			m.ClassRegistrationFeeIDR = nil
+	// fee meta (map -> jsonb)
+	if r.ClassFeeMeta.Present {
+		if r.ClassFeeMeta.Value == nil {
+			m.ClassFeeMeta = nil
 		} else {
-			m.ClassRegistrationFeeIDR = *r.ClassRegistrationFeeIDR.Value
-		}
-	}
-	if r.ClassTuitionFeeIDR.Present {
-		if r.ClassTuitionFeeIDR.Value == nil {
-			m.ClassTuitionFeeIDR = nil
-		} else {
-			m.ClassTuitionFeeIDR = *r.ClassTuitionFeeIDR.Value
+			m.ClassFeeMeta = datatypes.JSONMap(*r.ClassFeeMeta.Value)
 		}
 	}
 
@@ -440,8 +359,6 @@ func (r *PatchClassRequest) Apply(m *model.ClassModel) {
 			}
 		}
 	}
-	assignStrPtr(&m.ClassProviderProductID, r.ClassProviderProductID)
-	assignStrPtr(&m.ClassProviderPriceID, r.ClassProviderPriceID)
 	assignStrPtr(&m.ClassNotes, r.ClassNotes)
 	assignStrPtr(&m.ClassDeliveryMode, r.ClassDeliveryMode)
 	assignStrPtr(&m.ClassImageURL, r.ClassImageURL)
@@ -450,10 +367,11 @@ func (r *PatchClassRequest) Apply(m *model.ClassModel) {
 	assignStrPtr(&m.ClassImageObjectKeyOld, r.ClassImageObjectKeyOld)
 }
 
-
-// ===============================
-// RESPONSE DTO (sinkron dengan model terbaru)
-// ===============================
+/*
+=========================================================
+RESPONSE DTO (sinkron dengan model terbaru)
+=========================================================
+*/
 type ClassResponse struct {
 	// PK & relasi inti
 	ClassID       uuid.UUID `json:"class_id"`
@@ -471,16 +389,18 @@ type ClassResponse struct {
 	ClassRegistrationOpensAt  *time.Time `json:"class_registration_opens_at,omitempty"`
 	ClassRegistrationClosesAt *time.Time `json:"class_registration_closes_at,omitempty"`
 
-	// Kuota (mengikuti contoh sebelumnya: hanya taken)
-	ClassQuotaTaken int `json:"class_quota_taken"`
+	// Kuota
+	ClassQuotaTotal *int `json:"class_quota_total,omitempty"`
+	ClassQuotaTaken int  `json:"class_quota_taken"`
 
-	// Pricing / Billing
-	ClassRegistrationFeeIDR *int64     `json:"class_registration_fee_idr,omitempty"`
-	ClassTuitionFeeIDR      *int64     `json:"class_tuition_fee_idr,omitempty"`
-	ClassBillingCycle       string     `json:"class_billing_cycle"`
-	ClassDeliveryMode       *string    `json:"class_delivery_mode,omitempty"`
-	ClassStatus             string     `json:"class_status"`
-	ClassCompletedAt        *time.Time `json:"class_completed_at,omitempty"`
+	// Catatan & meta
+	ClassNotes   *string        `json:"class_notes,omitempty"`
+	ClassFeeMeta map[string]any `json:"class_fee_meta,omitempty"`
+
+	// Mode & status
+	ClassDeliveryMode *string    `json:"class_delivery_mode,omitempty"`
+	ClassStatus       string     `json:"class_status"`
+	ClassCompletedAt  *time.Time `json:"class_completed_at,omitempty"`
 
 	// Gambar (2-slot + retensi)
 	ClassImageURL                *string    `json:"class_image_url,omitempty"`
@@ -489,18 +409,19 @@ type ClassResponse struct {
 	ClassImageObjectKeyOld       *string    `json:"class_image_object_key_old,omitempty"`
 	ClassImageDeletePendingUntil *time.Time `json:"class_image_delete_pending_until,omitempty"`
 
-	// Snapshots — baru ditambahkan agar match model
-	// Snapshot Class Parent
-	ClassCodeParentSnapshot  *string `json:"class_code_parent_snapshot,omitempty"`
-	ClassNameParentSnapshot  *string `json:"class_name_parent_snapshot,omitempty"`
-	ClassSlugParentSnapshot  *string `json:"class_slug_parent_snapshot,omitempty"`
-	ClassLevelParentSnapshot *int16  `json:"class_level_parent_snapshot,omitempty"`
+	// Snapshots
+	// Parent
+	ClassParentCodeSnapshot  *string `json:"class_parent_code_snapshot,omitempty"`
+	ClassParentNameSnapshot  *string `json:"class_parent_name_snapshot,omitempty"`
+	ClassParentSlugSnapshot  *string `json:"class_parent_slug_snapshot,omitempty"`
+	ClassParentLevelSnapshot *int16  `json:"class_parent_level_snapshot,omitempty"`
+	ClassParentURLSnapshot   *string `json:"class_parent_url_snapshot,omitempty"`
 
-	// Snapshot Class Term
-	ClassAcademicYearTermSnapshot *string `json:"class_academic_year_term_snapshot,omitempty"`
-	ClassNameTermSnapshot         *string `json:"class_name_term_snapshot,omitempty"`
-	ClassSlugTermSnapshot         *string `json:"class_slug_term_snapshot,omitempty"`
-	ClassAngkatanTermSnapshot     *string `json:"class_angkatan_term_snapshot,omitempty"`
+	// Term
+	ClassTermAcademicYearSnapshot *string `json:"class_term_academic_year_snapshot,omitempty"`
+	ClassTermNameSnapshot         *string `json:"class_term_name_snapshot,omitempty"`
+	ClassTermSlugSnapshot         *string `json:"class_term_slug_snapshot,omitempty"`
+	ClassTermAngkatanSnapshot     *string `json:"class_term_angkatan_snapshot,omitempty"`
 
 	// Audit
 	ClassCreatedAt time.Time `json:"class_created_at"`
@@ -508,38 +429,48 @@ type ClassResponse struct {
 }
 
 func FromModel(m *model.ClassModel) ClassResponse {
+	var feeMeta map[string]any
+	if m.ClassFeeMeta != nil {
+		feeMeta = map[string]any(m.ClassFeeMeta)
+	}
 	return ClassResponse{
-		ClassID:                      m.ClassID,
-		ClassMasjidID:                m.ClassMasjidID,
-		ClassParentID:                m.ClassParentID,
-		ClassSlug:                    m.ClassSlug,
-		ClassStartDate:               m.ClassStartDate,
-		ClassEndDate:                 m.ClassEndDate,
-		ClassTermID:                  m.ClassTermID,
-		ClassRegistrationOpensAt:     m.ClassRegistrationOpensAt,
-		ClassRegistrationClosesAt:    m.ClassRegistrationClosesAt,
-		ClassQuotaTaken:              m.ClassQuotaTaken,
-		ClassRegistrationFeeIDR:      m.ClassRegistrationFeeIDR,
-		ClassTuitionFeeIDR:           m.ClassTuitionFeeIDR,
-		ClassBillingCycle:            m.ClassBillingCycle,
-		ClassDeliveryMode:            m.ClassDeliveryMode,
-		ClassStatus:                  m.ClassStatus,
-		ClassCompletedAt:             m.ClassCompletedAt,
+		ClassID:                   m.ClassID,
+		ClassMasjidID:             m.ClassMasjidID,
+		ClassParentID:             m.ClassParentID,
+		ClassSlug:                 m.ClassSlug,
+		ClassStartDate:            m.ClassStartDate,
+		ClassEndDate:              m.ClassEndDate,
+		ClassTermID:               m.ClassTermID,
+		ClassRegistrationOpensAt:  m.ClassRegistrationOpensAt,
+		ClassRegistrationClosesAt: m.ClassRegistrationClosesAt,
+
+		ClassQuotaTotal: m.ClassQuotaTotal,
+		ClassQuotaTaken: m.ClassQuotaTaken,
+
+		ClassNotes:   m.ClassNotes,
+		ClassFeeMeta: feeMeta,
+
+		ClassDeliveryMode: m.ClassDeliveryMode,
+		ClassStatus:       m.ClassStatus,
+		ClassCompletedAt:  m.ClassCompletedAt,
+
 		ClassImageURL:                m.ClassImageURL,
 		ClassImageObjectKey:          m.ClassImageObjectKey,
 		ClassImageURLOld:             m.ClassImageURLOld,
 		ClassImageObjectKeyOld:       m.ClassImageObjectKeyOld,
 		ClassImageDeletePendingUntil: m.ClassImageDeletePendingUntil,
 
-		// snapshots (baru)
-		ClassCodeParentSnapshot:       m.ClassCodeParentSnapshot,
-		ClassNameParentSnapshot:       m.ClassNameParentSnapshot,
-		ClassSlugParentSnapshot:       m.ClassSlugParentSnapshot,
-		ClassLevelParentSnapshot:      m.ClassLevelParentSnapshot,
-		ClassAcademicYearTermSnapshot: m.ClassAcademicYearTermSnapshot,
-		ClassNameTermSnapshot:         m.ClassNameTermSnapshot,
-		ClassSlugTermSnapshot:         m.ClassSlugTermSnapshot,
-		ClassAngkatanTermSnapshot:     m.ClassAngkatanTermSnapshot,
+		// snapshots
+		ClassParentCodeSnapshot:  m.ClassParentCodeSnapshot,
+		ClassParentNameSnapshot:  m.ClassParentNameSnapshot,
+		ClassParentSlugSnapshot:  m.ClassParentSlugSnapshot,
+		ClassParentLevelSnapshot: m.ClassParentLevelSnapshot,
+		ClassParentURLSnapshot:   m.ClassParentURLSnapshot,
+
+		ClassTermAcademicYearSnapshot: m.ClassTermAcademicYearSnapshot,
+		ClassTermNameSnapshot:         m.ClassTermNameSnapshot,
+		ClassTermSlugSnapshot:         m.ClassTermSlugSnapshot,
+		ClassTermAngkatanSnapshot:     m.ClassTermAngkatanSnapshot,
 
 		ClassCreatedAt: m.ClassCreatedAt,
 		ClassUpdatedAt: m.ClassUpdatedAt,
@@ -674,17 +605,6 @@ func DecodePatchClassMultipart(c *fiber.Ctx, r *PatchClassRequest) error {
 		}
 		return &x, nil
 	}
-	parseInt64 := func(label, s string) (*int64, error) {
-		s = strings.TrimSpace(s)
-		if s == "" {
-			return nil, nil
-		}
-		x, e := strconv.ParseInt(s, 10, 64)
-		if e != nil {
-			return nil, fiber.NewError(fiber.StatusBadRequest, label+" harus int64")
-		}
-		return &x, nil
-	}
 	setStr := func(field *PatchFieldClass[string], key string) {
 		if v, ok := get(key); ok {
 			field.Present = true
@@ -776,23 +696,6 @@ func DecodePatchClassMultipart(c *fiber.Ctx, r *PatchClassRequest) error {
 		}
 		return nil
 	}
-	setInt64Ptr := func(field *PatchFieldClass[*int64], key, label string) error {
-		if v, ok := get(key); ok {
-			field.Present = true
-			if v == "" {
-				field.Value = nil
-				return nil
-			}
-			x, e := parseInt64(label, v)
-			if e != nil {
-				return e
-			}
-			ptr := new(*int64)
-			*ptr = x
-			field.Value = ptr
-		}
-		return nil
-	}
 	setStrPtr := func(field *PatchFieldClass[*string], key string) {
 		if v, ok := get(key); ok {
 			field.Present = true
@@ -806,10 +709,25 @@ func DecodePatchClassMultipart(c *fiber.Ctx, r *PatchClassRequest) error {
 			}
 		}
 	}
+	setJSONMap := func(field *PatchFieldClass[map[string]any], key, label string) error {
+		if v, ok := get(key); ok {
+			field.Present = true
+			v = strings.TrimSpace(v)
+			if v == "" {
+				field.Value = nil
+				return nil
+			}
+			var m map[string]any
+			if err := json.Unmarshal([]byte(v), &m); err != nil {
+				return fiber.NewError(fiber.StatusBadRequest, label+" harus JSON object")
+			}
+			field.Value = &m
+		}
+		return nil
+	}
 
 	// string (non-nullable)
 	setStr(&r.ClassSlug, "class_slug")
-	setStr(&r.ClassBillingCycle, "class_billing_cycle")
 	setStr(&r.ClassStatus, "class_status")
 
 	// uuid (non-null saat dipatch)
@@ -850,23 +768,18 @@ func DecodePatchClassMultipart(c *fiber.Ctx, r *PatchClassRequest) error {
 		return err
 	}
 
-	// *int64 (nullable)
-	if err := setInt64Ptr(&r.ClassRegistrationFeeIDR, "class_registration_fee_idr", "class_registration_fee_idr"); err != nil {
-		return err
-	}
-	if err := setInt64Ptr(&r.ClassTuitionFeeIDR, "class_tuition_fee_idr", "class_tuition_fee_idr"); err != nil {
-		return err
-	}
-
 	// *string (nullable)
 	setStrPtr(&r.ClassDeliveryMode, "class_delivery_mode")
 	setStrPtr(&r.ClassNotes, "class_notes")
-	setStrPtr(&r.ClassProviderProductID, "class_provider_product_id")
-	setStrPtr(&r.ClassProviderPriceID, "class_provider_price_id")
 	setStrPtr(&r.ClassImageURL, "class_image_url")
 	setStrPtr(&r.ClassImageObjectKey, "class_image_object_key")
 	setStrPtr(&r.ClassImageURLOld, "class_image_url_old")
 	setStrPtr(&r.ClassImageObjectKeyOld, "class_image_object_key_old")
+
+	// JSON (nullable)
+	if err := setJSONMap(&r.ClassFeeMeta, "class_fee_meta", "class_fee_meta"); err != nil {
+		return err
+	}
 
 	return nil
 }

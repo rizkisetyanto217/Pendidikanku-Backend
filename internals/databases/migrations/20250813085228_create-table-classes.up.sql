@@ -5,6 +5,8 @@ BEGIN;
 -- =========================================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- trigram (untuk GIN ILIKE opsional)
+CREATE EXTENSION IF NOT EXISTS btree_gist; -- optional
+
 
 -- =========================================================
 -- ENUMS (guarded)
@@ -96,8 +98,22 @@ CREATE INDEX IF NOT EXISTS idx_class_parents_image_purge_due
 
 
 
+
+
+-- Pastikan academic_terms punya UNIQUE (id, masjid_id) untuk FK komposit
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_academic_terms_id_tenant'
+  ) THEN
+    ALTER TABLE academic_terms
+      ADD CONSTRAINT uq_academic_terms_id_tenant
+      UNIQUE (academic_term_id, academic_term_masjid_id);
+  END IF;
+END$$;
+
 -- =========================================================
--- TABLE: classes
+-- TABLE: classes (versi refactor — tanpa pricing)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS classes (
   class_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -108,6 +124,11 @@ CREATE TABLE IF NOT EXISTS classes (
 
   class_start_date DATE,
   class_end_date   DATE,
+  CONSTRAINT ck_class_date_window CHECK (
+    class_start_date IS NULL
+    OR class_end_date IS NULL
+    OR class_end_date >= class_start_date
+  ),
 
   -- Registrasi / Term
   class_term_id UUID,
@@ -125,15 +146,9 @@ CREATE TABLE IF NOT EXISTS classes (
   CONSTRAINT ck_class_quota_le_total
     CHECK (class_quota_total IS NULL OR class_quota_taken <= class_quota_total),
 
-  -- Pricing
-  class_registration_fee_idr BIGINT,
-  class_tuition_fee_idr      BIGINT,
-  class_billing_cycle        billing_cycle_enum NOT NULL DEFAULT 'monthly',
-  class_provider_product_id  TEXT,
-  class_provider_price_id    TEXT,
-
-  -- Catatan
-  class_notes TEXT,
+  -- Catatan & meta biaya (informasional; nominal dikelola di fee tables)
+  class_notes    TEXT,
+  class_fee_meta JSONB,
 
   -- Mode & Status
   class_delivery_mode class_delivery_mode_enum,
@@ -147,17 +162,18 @@ CREATE TABLE IF NOT EXISTS classes (
   class_image_object_key_old        TEXT,
   class_image_delete_pending_until  TIMESTAMPTZ,
 
-  -- Snapshot Class Parent
-  class_code_parent_snapshot   VARCHAR(40),
-  class_name_parent_snapshot   VARCHAR(80),
-  class_slug_parent_snapshot   VARCHAR(160),
-  class_level_parent_snapshot  SMALLINT,
+  -- Snapshot Class Parent (FIXED)
+  class_parent_code_snapshot   VARCHAR(40),
+  class_parent_name_snapshot   VARCHAR(80),
+  class_parent_slug_snapshot   VARCHAR(160),
+  class_parent_level_snapshot  SMALLINT,
+  class_parent_url_snapshot    VARCHAR(160),
 
   -- Snapshot Class Term
-  class_academic_year_term_snapshot   VARCHAR(40),
-  class_name_term_snapshot VARCHAR(100),
-  class_slug_term_snapshot VARCHAR(160),
-  class_angkatan_term_snapshot VARCHAR(40),
+  class_term_academic_year_snapshot VARCHAR(40),
+  class_term_name_snapshot          VARCHAR(100),
+  class_term_slug_snapshot          VARCHAR(160),
+  class_term_angkatan_snapshot      VARCHAR(40),
 
   -- Audit
   class_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -179,7 +195,9 @@ CREATE TABLE IF NOT EXISTS classes (
     ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
+-- =======================
 -- Indexes (classes)
+-- =======================
 CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_slug_per_masjid_alive
   ON classes (class_masjid_id, LOWER(class_slug))
   WHERE class_deleted_at IS NULL;
@@ -210,13 +228,12 @@ CREATE INDEX IF NOT EXISTS gin_classes_notes_trgm_alive
   ON classes USING GIN (LOWER(class_notes) gin_trgm_ops)
   WHERE class_deleted_at IS NULL;
 
--- Purge kandidat image lama
-CREATE INDEX IF NOT EXISTS idx_classes_iage_purge_due
+-- Purge kandidat image lama (nama index sudah diperbaiki)
+CREATE INDEX IF NOT EXISTS idx_classes_image_purge_due
   ON classes (class_image_delete_pending_until)
   WHERE class_image_object_key_old IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_classes_tenant_term
   ON classes (class_masjid_id, class_term_id);
-
 
 COMMIT;

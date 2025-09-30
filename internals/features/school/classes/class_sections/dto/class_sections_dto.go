@@ -39,6 +39,37 @@ func (p *PatchFieldCS[T]) UnmarshalJSON(b []byte) error {
 func (p PatchFieldCS[T]) Get() (*T, bool) { return p.Value, p.Present }
 
 /* =========================================================
+   CSST LITE PAYLOAD (untuk cache & listing)
+   ========================================================= */
+
+type CSSTItemLite struct {
+	ID       string `json:"id"`
+	IsActive bool   `json:"is_active"`
+
+	Teacher struct {
+		ID string `json:"id"`
+	} `json:"teacher"`
+
+	ClassSubject struct {
+		ID      string `json:"id"`
+		Subject struct {
+			ID   string  `json:"id"`
+			Name *string `json:"name,omitempty"`
+		} `json:"subject"`
+	} `json:"class_subject"`
+
+	Room *struct {
+		ID string `json:"id"`
+	} `json:"room,omitempty"`
+
+	GroupURL *string `json:"group_url,omitempty"`
+
+	Stats *struct {
+		TotalAttendance *int32 `json:"total_attendance,omitempty"`
+	} `json:"stats,omitempty"`
+}
+
+/* =========================================================
    CREATE REQUEST (tanpa snapshot)
    ========================================================= */
 
@@ -131,7 +162,7 @@ func (r ClassSectionCreateRequest) ToModel() *m.ClassSectionModel {
 }
 
 /* =========================================================
-   RESPONSE (read-only snapshots disertakan)
+   RESPONSE (read-only snapshots + CSST LITE)
    ========================================================= */
 
 type ClassSectionResponse struct {
@@ -173,8 +204,15 @@ type ClassSectionResponse struct {
 	// ================== SNAPSHOTS (READ-ONLY) ==================
 
 	// class & parent/teacher/leader
-	ClassSectionClassSlugSnapshot            *string `json:"class_section_class_slug_snapshot,omitempty"`
-	ClassSectionParentNameSnapshot           *string `json:"class_section_parent_name_snapshot,omitempty"`
+	ClassSectionClassSlugSnapshot *string `json:"class_section_class_slug_snapshot,omitempty"`
+
+	// Parent snapshots (lengkap)
+	ClassSectionParentNameSnapshot  *string `json:"class_section_parent_name_snapshot,omitempty"`
+	ClassSectionParentCodeSnapshot  *string `json:"class_section_parent_code_snapshot,omitempty"`
+	ClassSectionParentSlugSnapshot  *string `json:"class_section_parent_slug_snapshot,omitempty"`
+	ClassSectionParentLevelSnapshot *string `json:"class_section_parent_level_snapshot,omitempty"`
+	ClassSectionParentURLSnapshot   *string `json:"class_section_parent_url_snapshot,omitempty"`
+
 	ClassSectionTeacherNameSnapshot          *string `json:"class_section_teacher_name_snapshot,omitempty"`
 	ClassSectionAssistantTeacherNameSnapshot *string `json:"class_section_assistant_teacher_name_snapshot,omitempty"`
 	ClassSectionLeaderStudentNameSnapshot    *string `json:"class_section_leader_student_name_snapshot,omitempty"`
@@ -183,6 +221,10 @@ type ClassSectionResponse struct {
 	ClassSectionTeacherContactPhoneSnapshot          *string `json:"class_section_teacher_contact_phone_snapshot,omitempty"`
 	ClassSectionAssistantTeacherContactPhoneSnapshot *string `json:"class_section_assistant_teacher_contact_phone_snapshot,omitempty"`
 	ClassSectionLeaderStudentContactPhoneSnapshot    *string `json:"class_section_leader_student_contact_phone_snapshot,omitempty"`
+
+	// avatar (snapshot baru)
+	ClassSectionTeacherAvatarURLSnapshot          *string `json:"class_section_teacher_avatar_url_snapshot,omitempty"`
+	ClassSectionAssistantTeacherAvatarURLSnapshot *string `json:"class_section_assistant_teacher_avatar_url_snapshot,omitempty"`
 
 	// ROOM snapshots
 	ClassSectionRoomNameSnapshot     *string `json:"class_section_room_name_snapshot,omitempty"`
@@ -197,13 +239,23 @@ type ClassSectionResponse struct {
 	ClassSectionTermNameSnapshot      *string    `json:"class_section_term_name_snapshot,omitempty"`
 	ClassSectionTermSlugSnapshot      *string    `json:"class_section_term_slug_snapshot,omitempty"`
 	ClassSectionTermYearLabelSnapshot *string    `json:"class_section_term_year_label_snapshot,omitempty"`
+
+	// ============== CSST LITE (cache untuk listing) ============
+	ClassSectionsCSST []CSSTItemLite `json:"class_sections_csst"`
 }
 
 func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 	var deletedAt *time.Time
+	// Catatan: model kamu menggunakan sql.NullTime; sesuaikan aksesnya:
 	if cs.ClassSectionDeletedAt.Valid {
 		t := cs.ClassSectionDeletedAt.Time
 		deletedAt = &t
+	}
+
+	// Unmarshal CSST lite dari JSONB; jika gagal, fallback ke [] (bukan error)
+	var csstLite []CSSTItemLite
+	if len(cs.ClassSectionsCSST) > 0 {
+		_ = json.Unmarshal(cs.ClassSectionsCSST, &csstLite)
 	}
 
 	return ClassSectionResponse{
@@ -241,26 +293,45 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 		ClassSectionDeletedAt: deletedAt,
 
 		// snapshots (read-only)
-		ClassSectionClassSlugSnapshot:            cs.ClassSectionClassSlugSnapshot,
-		ClassSectionParentNameSnapshot:           cs.ClassSectionParentNameSnapshot,
+		ClassSectionClassSlugSnapshot: cs.ClassSectionClassSlugSnapshot,
+
+		// parent (lengkap)
+		ClassSectionParentNameSnapshot:  cs.ClassSectionParentNameSnapshot,
+		ClassSectionParentCodeSnapshot:  cs.ClassSectionParentCodeSnapshot,
+		ClassSectionParentSlugSnapshot:  cs.ClassSectionParentSlugSnapshot,
+		ClassSectionParentLevelSnapshot: cs.ClassSectionParentLevelSnapshot,
+		ClassSectionParentURLSnapshot:   cs.ClassSectionParentURLSnapshot,
+
+		// nama orang
 		ClassSectionTeacherNameSnapshot:          cs.ClassSectionTeacherNameSnapshot,
 		ClassSectionAssistantTeacherNameSnapshot: cs.ClassSectionAssistantTeacherNameSnapshot,
 		ClassSectionLeaderStudentNameSnapshot:    cs.ClassSectionLeaderStudentNameSnapshot,
 
+		// avatar
+		ClassSectionTeacherAvatarURLSnapshot:          cs.ClassSectionTeacherAvatarURLSnapshot,
+		ClassSectionAssistantTeacherAvatarURLSnapshot: cs.ClassSectionAssistantTeacherAvatarURLSnapshot,
+
+		// kontak
 		ClassSectionTeacherContactPhoneSnapshot:          cs.ClassSectionTeacherContactPhoneSnapshot,
 		ClassSectionAssistantTeacherContactPhoneSnapshot: cs.ClassSectionAssistantTeacherContactPhoneSnapshot,
 		ClassSectionLeaderStudentContactPhoneSnapshot:    cs.ClassSectionLeaderStudentContactPhoneSnapshot,
 
+		// room
 		ClassSectionRoomNameSnapshot:     cs.ClassSectionRoomNameSnapshot,
 		ClassSectionRoomSlugSnapshot:     cs.ClassSectionRoomSlugSnapshot,
 		ClassSectionRoomLocationSnapshot: cs.ClassSectionRoomLocationSnapshot,
 
+		// housekeeping
 		ClassSectionSnapshotUpdatedAt: cs.ClassSectionSnapshotUpdatedAt,
 
+		// term
 		ClassSectionTermID:                cs.ClassSectionTermID,
 		ClassSectionTermNameSnapshot:      cs.ClassSectionTermNameSnapshot,
 		ClassSectionTermSlugSnapshot:      cs.ClassSectionTermSlugSnapshot,
 		ClassSectionTermYearLabelSnapshot: cs.ClassSectionTermYearLabelSnapshot,
+
+		// csst lite
+		ClassSectionsCSST: csstLite,
 	}
 }
 

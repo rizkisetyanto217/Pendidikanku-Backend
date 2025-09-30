@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 
-
 	linkModel "masjidku_backend/internals/features/school/academics/books/model"
 	csModel "masjidku_backend/internals/features/school/academics/subject/model"
 )
@@ -101,7 +100,7 @@ type ListClassSubjectQuery struct {
 }
 
 /* =========================================================
-   2) RESPONSE DTO (basic)
+   2) RESPONSE DTO (basic + snapshots)
    ========================================================= */
 
 type ClassSubjectResponse struct {
@@ -127,6 +126,25 @@ type ClassSubjectResponse struct {
 	WeightMid            *int `json:"class_subject_weight_mid,omitempty"`
 	WeightFinal          *int `json:"class_subject_weight_final,omitempty"`
 	MinAttendancePercent *int `json:"class_subject_min_attendance_percent,omitempty"`
+
+	// ============ Snapshots: subjects ============
+	SubjectNameSnapshot *string `json:"class_subject_subject_name_snapshot,omitempty"`
+	SubjectCodeSnapshot *string `json:"class_subject_subject_code_snapshot,omitempty"`
+	SubjectSlugSnapshot *string `json:"class_subject_subject_slug_snapshot,omitempty"`
+	SubjectURLSnapshot  *string `json:"class_subject_subject_url_snapshot,omitempty"`
+
+	// ============ Snapshots: class_parent ============
+	ParentCodeSnapshot  *string `json:"class_subject_parent_code_snapshot,omitempty"`
+	ParentSlugSnapshot  *string `json:"class_subject_parent_slug_snapshot,omitempty"`
+	ParentLevelSnapshot *int16  `json:"class_subject_parent_level_snapshot,omitempty"`
+	ParentURLSnapshot   *string `json:"class_subject_parent_url_snapshot,omitempty"`
+	ParentNameSnapshot  *string `json:"class_subject_parent_name_snapshot,omitempty"`
+
+	// ============ Snapshots: classes ============
+	ClassSlugSnapshot         *string `json:"class_subject_class_slug_snapshot,omitempty"`
+	ClassImageURLSnapshot     *string `json:"class_subject_class_image_url_snapshot,omitempty"`
+	ClassStatusSnapshot       *string `json:"class_subject_class_status_snapshot,omitempty"`
+	ClassDeliveryModeSnapshot *string `json:"class_subject_class_delivery_mode_snapshot,omitempty"`
 
 	// status & timestamps
 	IsActive  bool       `json:"class_subject_is_active"`
@@ -176,7 +194,7 @@ func (r CreateClassSubjectRequest) ToModel() csModel.ClassSubjectModel {
 		ClassSubjectIsCore:          isCore,
 		ClassSubjectDesc:            trimPtr(r.Desc),
 
-		// bobot (jenis int biasa, tidak perlu konversi)
+		// bobot
 		ClassSubjectWeightAssignment:     r.WeightAssignment,
 		ClassSubjectWeightQuiz:           r.WeightQuiz,
 		ClassSubjectWeightMid:            r.WeightMid,
@@ -215,6 +233,25 @@ func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
 		WeightMid:            m.ClassSubjectWeightMid,
 		WeightFinal:          m.ClassSubjectWeightFinal,
 		MinAttendancePercent: m.ClassSubjectMinAttendancePercent,
+
+		// snapshots: subjects
+		SubjectNameSnapshot: m.ClassSubjectSubjectNameSnapshot,
+		SubjectCodeSnapshot: m.ClassSubjectSubjectCodeSnapshot,
+		SubjectSlugSnapshot: m.ClassSubjectSubjectSlugSnapshot,
+		SubjectURLSnapshot:  m.ClassSubjectSubjectURLSnapshot,
+
+		// snapshots: class_parent
+		ParentCodeSnapshot:  m.ClassSubjectParentCodeSnapshot,
+		ParentSlugSnapshot:  m.ClassSubjectParentSlugSnapshot,
+		ParentLevelSnapshot: m.ClassSubjectParentLevelSnapshot,
+		ParentURLSnapshot:   m.ClassSubjectParentURLSnapshot,
+		ParentNameSnapshot:  m.ClassSubjectParentNameSnapshot,
+
+		// snapshots: classes
+		ClassSlugSnapshot:         m.ClassSubjectClassSlugSnapshot,
+		ClassImageURLSnapshot:     m.ClassSubjectClassImageURLSnapshot,
+		ClassStatusSnapshot:       m.ClassSubjectClassStatusSnapshot,
+		ClassDeliveryModeSnapshot: m.ClassSubjectClassDeliveryModeSnapshot,
 
 		IsActive:  m.ClassSubjectIsActive,
 		CreatedAt: m.ClassSubjectCreatedAt,

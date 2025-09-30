@@ -117,7 +117,7 @@ func (h *MasjidStudentController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	var m model.MasjidStudent
+	var m model.MasjidStudentModel
 	if err := h.DB.First(&m, "masjid_student_id = ?", id).Error; err != nil {
 		if isNotFound(err) {
 			return helper.JsonError(c, fiber.StatusNotFound, "not found")
@@ -150,7 +150,7 @@ func (h *MasjidStudentController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	var m model.MasjidStudent
+	var m model.MasjidStudentModel
 	if err := h.DB.First(&m, "masjid_student_id = ?", id).Error; err != nil {
 		if isNotFound(err) {
 			return helper.JsonError(c, fiber.StatusNotFound, "not found")
@@ -183,7 +183,7 @@ func (h *MasjidStudentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	if err := h.DB.Delete(&model.MasjidStudent{}, "masjid_student_id = ?", id).Error; err != nil {
+	if err := h.DB.Delete(&model.MasjidStudentModel{}, "masjid_student_id = ?", id).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
@@ -197,7 +197,7 @@ func (h *MasjidStudentController) Restore(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	var m model.MasjidStudent
+	var m model.MasjidStudentModel
 	if err := h.DB.Unscoped().First(&m, "masjid_student_id = ?", id).Error; err != nil {
 		if isNotFound(err) {
 			return helper.JsonError(c, fiber.StatusNotFound, "not found")
