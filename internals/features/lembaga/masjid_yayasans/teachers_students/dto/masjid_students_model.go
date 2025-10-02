@@ -1,4 +1,3 @@
-// file: internals/features/lembaga/masjid_yayasans/teachers_students/dto/masjid_student_dto.go
 package dto
 
 import (
@@ -89,10 +88,12 @@ type MasjidStudentCreateReq struct {
 	MasjidStudentUserProfileParentNameSnapshot        *string `json:"masjid_student_user_profile_parent_name_snapshot,omitempty"`
 	MasjidStudentUserProfileParentWhatsappURLSnapshot *string `json:"masjid_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
 
-	// MASJID SNAPSHOT (baru, sinkron model; opsional)
-	MasjidStudentMasjidNameSnapshot    *string `json:"masjid_student_masjid_name_snapshot,omitempty"`
-	MasjidStudentMasjidSlugSnapshot    *string `json:"masjid_student_masjid_slug_snapshot,omitempty"`
-	MasjidStudentMasjidLogoURLSnapshot *string `json:"masjid_student_masjid_logo_url_snapshot,omitempty"`
+	// MASJID SNAPSHOT (sinkron model; opsional)
+	MasjidStudentMasjidNameSnapshot          *string `json:"masjid_student_masjid_name_snapshot,omitempty"`
+	MasjidStudentMasjidSlugSnapshot          *string `json:"masjid_student_masjid_slug_snapshot,omitempty"`
+	MasjidStudentMasjidLogoURLSnapshot       *string `json:"masjid_student_masjid_logo_url_snapshot,omitempty"`
+	MasjidStudentMasjidIconURLSnapshot       *string `json:"masjid_student_masjid_icon_url_snapshot,omitempty"`
+	MasjidStudentMasjidBackgroundURLSnapshot *string `json:"masjid_student_masjid_background_url_snapshot,omitempty"`
 }
 
 func (r *MasjidStudentCreateReq) Normalize() {
@@ -126,7 +127,7 @@ func (r *MasjidStudentCreateReq) Validate() error {
 	if r.MasjidStudentSlug == "" {
 		return errors.New("masjid_student_slug wajib diisi")
 	}
-	// validate status (set to default earlier if nil)
+	// validate status (set ke default sebelumnya jika nil)
 	if r.MasjidStudentStatus != nil {
 		if _, err := normalizeStatus(*r.MasjidStudentStatus); err != nil {
 			return err
@@ -164,9 +165,11 @@ func (r *MasjidStudentCreateReq) ToModel() *studentmodel.MasjidStudentModel {
 		MasjidStudentUserProfileParentWhatsappURLSnapshot: r.MasjidStudentUserProfileParentWhatsappURLSnapshot,
 
 		// MASJID SNAPSHOT (baru)
-		MasjidStudentMasjidNameSnapshot:    r.MasjidStudentMasjidNameSnapshot,
-		MasjidStudentMasjidSlugSnapshot:    r.MasjidStudentMasjidSlugSnapshot,
-		MasjidStudentMasjidLogoURLSnapshot: r.MasjidStudentMasjidLogoURLSnapshot,
+		MasjidStudentMasjidNameSnapshot:          r.MasjidStudentMasjidNameSnapshot,
+		MasjidStudentMasjidSlugSnapshot:          r.MasjidStudentMasjidSlugSnapshot,
+		MasjidStudentMasjidLogoURLSnapshot:       r.MasjidStudentMasjidLogoURLSnapshot,
+		MasjidStudentMasjidIconURLSnapshot:       r.MasjidStudentMasjidIconURLSnapshot,
+		MasjidStudentMasjidBackgroundURLSnapshot: r.MasjidStudentMasjidBackgroundURLSnapshot,
 	}
 }
 
@@ -191,9 +194,11 @@ type MasjidStudentUpdateReq struct {
 	MasjidStudentUserProfileParentWhatsappURLSnapshot *string `json:"masjid_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
 
 	// MASJID SNAPSHOT (baru)
-	MasjidStudentMasjidNameSnapshot    *string `json:"masjid_student_masjid_name_snapshot,omitempty"`
-	MasjidStudentMasjidSlugSnapshot    *string `json:"masjid_student_masjid_slug_snapshot,omitempty"`
-	MasjidStudentMasjidLogoURLSnapshot *string `json:"masjid_student_masjid_logo_url_snapshot,omitempty"`
+	MasjidStudentMasjidNameSnapshot          *string `json:"masjid_student_masjid_name_snapshot,omitempty"`
+	MasjidStudentMasjidSlugSnapshot          *string `json:"masjid_student_masjid_slug_snapshot,omitempty"`
+	MasjidStudentMasjidLogoURLSnapshot       *string `json:"masjid_student_masjid_logo_url_snapshot,omitempty"`
+	MasjidStudentMasjidIconURLSnapshot       *string `json:"masjid_student_masjid_icon_url_snapshot,omitempty"`
+	MasjidStudentMasjidBackgroundURLSnapshot *string `json:"masjid_student_masjid_background_url_snapshot,omitempty"`
 }
 
 func (r *MasjidStudentUpdateReq) Normalize() {
@@ -250,6 +255,8 @@ func (r *MasjidStudentUpdateReq) Apply(m *studentmodel.MasjidStudentModel) {
 	m.MasjidStudentMasjidNameSnapshot = r.MasjidStudentMasjidNameSnapshot
 	m.MasjidStudentMasjidSlugSnapshot = r.MasjidStudentMasjidSlugSnapshot
 	m.MasjidStudentMasjidLogoURLSnapshot = r.MasjidStudentMasjidLogoURLSnapshot
+	m.MasjidStudentMasjidIconURLSnapshot = r.MasjidStudentMasjidIconURLSnapshot
+	m.MasjidStudentMasjidBackgroundURLSnapshot = r.MasjidStudentMasjidBackgroundURLSnapshot
 }
 
 /* =========================================================
@@ -273,9 +280,11 @@ type MasjidStudentPatchReq struct {
 	MasjidStudentUserProfileParentWhatsappURLSnapshot *PatchField[*string] `json:"masjid_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
 
 	// MASJID SNAPSHOT (baru)
-	MasjidStudentMasjidNameSnapshot    *PatchField[*string] `json:"masjid_student_masjid_name_snapshot,omitempty"`
-	MasjidStudentMasjidSlugSnapshot    *PatchField[*string] `json:"masjid_student_masjid_slug_snapshot,omitempty"`
-	MasjidStudentMasjidLogoURLSnapshot *PatchField[*string] `json:"masjid_student_masjid_logo_url_snapshot,omitempty"`
+	MasjidStudentMasjidNameSnapshot          *PatchField[*string] `json:"masjid_student_masjid_name_snapshot,omitempty"`
+	MasjidStudentMasjidSlugSnapshot          *PatchField[*string] `json:"masjid_student_masjid_slug_snapshot,omitempty"`
+	MasjidStudentMasjidLogoURLSnapshot       *PatchField[*string] `json:"masjid_student_masjid_logo_url_snapshot,omitempty"`
+	MasjidStudentMasjidIconURLSnapshot       *PatchField[*string] `json:"masjid_student_masjid_icon_url_snapshot,omitempty"`
+	MasjidStudentMasjidBackgroundURLSnapshot *PatchField[*string] `json:"masjid_student_masjid_background_url_snapshot,omitempty"`
 }
 
 func (r *MasjidStudentPatchReq) Normalize() {
@@ -370,6 +379,12 @@ func (r *MasjidStudentPatchReq) Apply(m *studentmodel.MasjidStudentModel) {
 	if r.MasjidStudentMasjidLogoURLSnapshot != nil && r.MasjidStudentMasjidLogoURLSnapshot.Set {
 		m.MasjidStudentMasjidLogoURLSnapshot = r.MasjidStudentMasjidLogoURLSnapshot.Value
 	}
+	if r.MasjidStudentMasjidIconURLSnapshot != nil && r.MasjidStudentMasjidIconURLSnapshot.Set {
+		m.MasjidStudentMasjidIconURLSnapshot = r.MasjidStudentMasjidIconURLSnapshot.Value
+	}
+	if r.MasjidStudentMasjidBackgroundURLSnapshot != nil && r.MasjidStudentMasjidBackgroundURLSnapshot.Set {
+		m.MasjidStudentMasjidBackgroundURLSnapshot = r.MasjidStudentMasjidBackgroundURLSnapshot.Value
+	}
 }
 
 /* =========================================================
@@ -396,10 +411,12 @@ type MasjidStudentResp struct {
 	MasjidStudentUserProfileParentNameSnapshot        *string `json:"masjid_student_user_profile_parent_name_snapshot,omitempty"`
 	MasjidStudentUserProfileParentWhatsappURLSnapshot *string `json:"masjid_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
 
-	// MASJID SNAPSHOT (baru)
-	MasjidStudentMasjidNameSnapshot    *string `json:"masjid_student_masjid_name_snapshot,omitempty"`
-	MasjidStudentMasjidSlugSnapshot    *string `json:"masjid_student_masjid_slug_snapshot,omitempty"`
-	MasjidStudentMasjidLogoURLSnapshot *string `json:"masjid_student_masjid_logo_url_snapshot,omitempty"`
+	// MASJID SNAPSHOT
+	MasjidStudentMasjidNameSnapshot          *string `json:"masjid_student_masjid_name_snapshot,omitempty"`
+	MasjidStudentMasjidSlugSnapshot          *string `json:"masjid_student_masjid_slug_snapshot,omitempty"`
+	MasjidStudentMasjidLogoURLSnapshot       *string `json:"masjid_student_masjid_logo_url_snapshot,omitempty"`
+	MasjidStudentMasjidIconURLSnapshot       *string `json:"masjid_student_masjid_icon_url_snapshot,omitempty"`
+	MasjidStudentMasjidBackgroundURLSnapshot *string `json:"masjid_student_masjid_background_url_snapshot,omitempty"`
 
 	// Sections (read-only dari backend)
 	MasjidStudentSections []MasjidStudentSectionItem `json:"masjid_student_sections"`
@@ -443,9 +460,11 @@ func FromModel(m *studentmodel.MasjidStudentModel) MasjidStudentResp {
 		MasjidStudentUserProfileParentWhatsappURLSnapshot: m.MasjidStudentUserProfileParentWhatsappURLSnapshot,
 
 		// MASJID SNAPSHOT
-		MasjidStudentMasjidNameSnapshot:    m.MasjidStudentMasjidNameSnapshot,
-		MasjidStudentMasjidSlugSnapshot:    m.MasjidStudentMasjidSlugSnapshot,
-		MasjidStudentMasjidLogoURLSnapshot: m.MasjidStudentMasjidLogoURLSnapshot,
+		MasjidStudentMasjidNameSnapshot:          m.MasjidStudentMasjidNameSnapshot,
+		MasjidStudentMasjidSlugSnapshot:          m.MasjidStudentMasjidSlugSnapshot,
+		MasjidStudentMasjidLogoURLSnapshot:       m.MasjidStudentMasjidLogoURLSnapshot,
+		MasjidStudentMasjidIconURLSnapshot:       m.MasjidStudentMasjidIconURLSnapshot,
+		MasjidStudentMasjidBackgroundURLSnapshot: m.MasjidStudentMasjidBackgroundURLSnapshot,
 
 		MasjidStudentSections: sections,
 

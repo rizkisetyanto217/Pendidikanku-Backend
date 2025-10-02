@@ -2,8 +2,8 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"mime/multipart"
 	"strconv"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -34,6 +35,19 @@ func NewClassSectionController(db *gorm.DB) *ClassSectionController {
 }
 
 /* ================= Handlers (ADMIN) ================= */
+
+// enum valid utk enrollment mode (sinkron dg SQL enum class_section_csst_enrollment_mode)
+var validEnrollmentModes = map[string]struct{}{
+	"self_select": {},
+	"assigned":    {},
+	"hybrid":      {},
+}
+
+func isValidEnrollmentMode(s string) bool {
+	_, ok := validEnrollmentModes[strings.ToLower(strings.TrimSpace(s))]
+	return ok
+}
+
 // helper untuk validasi & snapshot teacher/assistant
 type TeacherSnapshot struct {
 	Name      string
@@ -47,7 +61,6 @@ func validateAndSnapshotTeacher(
 	teacherID uuid.UUID,
 	role string, // "teacher" / "assistant_teacher"
 ) (*TeacherSnapshot, error) {
-
 	log.Printf("[SECTIONS][CREATE] 🔎 validating %s=%s", role, teacherID)
 
 	var row struct {
@@ -180,42 +193,64 @@ func snapshotClassParentAndTerm(
 }
 
 func applyClassParentAndTermSnapshotToSection(mcs *secModel.ClassSectionModel, s *ClassParentAndTermSnapshot) {
-	// class
-	if strings.TrimSpace(s.ClassSlug) != "" {
-		v := s.ClassSlug
-		mcs.ClassSectionClassSlugSnapshot = &v
+	// ---------- CLASS SNAPSHOT ----------
+	if slug := strings.TrimSpace(s.ClassSlug); slug != "" {
+		classSnap := map[string]any{
+			"slug": slug,
+		}
+		if b, err := json.Marshal(classSnap); err == nil {
+			mcs.ClassSectionClassSnapshot = datatypes.JSON(b)
+		}
+	} else {
+		// kosongkan jika memang tidak ada
+		mcs.ClassSectionClassSnapshot = datatypes.JSON([]byte("null"))
 	}
 
-	// parent
-	if strings.TrimSpace(s.ParentName) != "" {
-		v := s.ParentName
-		mcs.ClassSectionParentNameSnapshot = &v
+	// ---------- PARENT SNAPSHOT ----------
+	parentSnap := map[string]any{}
+	if name := strings.TrimSpace(s.ParentName); name != "" {
+		parentSnap["name"] = name
 	}
-	mcs.ClassSectionParentCodeSnapshot = s.ParentCode
-	mcs.ClassSectionParentSlugSnapshot = s.ParentSlug
-
-	// 🔧 level: *int16 -> *string
+	if s.ParentCode != nil && strings.TrimSpace(*s.ParentCode) != "" {
+		parentSnap["code"] = strings.TrimSpace(*s.ParentCode)
+	}
+	if s.ParentSlug != nil && strings.TrimSpace(*s.ParentSlug) != "" {
+		parentSnap["slug"] = strings.TrimSpace(*s.ParentSlug)
+	}
+	// level di schema SQL disimpan di snapshot -> 'level' (string),
+	// kolom generated `class_section_parent_level_snap` membaca dari ->>'level'
 	if s.ParentLevel != nil {
-		lvl := strconv.FormatInt(int64(*s.ParentLevel), 10)
-		mcs.ClassSectionParentLevelSnapshot = &lvl
+		parentSnap["level"] = strconv.FormatInt(int64(*s.ParentLevel), 10)
+	}
+	if len(parentSnap) > 0 {
+		if b, err := json.Marshal(parentSnap); err == nil {
+			mcs.ClassSectionParentSnapshot = datatypes.JSON(b)
+		}
 	} else {
-		mcs.ClassSectionParentLevelSnapshot = nil
+		mcs.ClassSectionParentSnapshot = datatypes.JSON([]byte("null"))
 	}
 
-	// parent URL
-	if s.ParentSlug != nil && *s.ParentSlug != "" {
-		url := fmt.Sprintf("/a/%s/class-parents/%s", mcs.ClassSectionMasjidID.String(), *s.ParentSlug)
-		mcs.ClassSectionParentURLSnapshot = &url
-	} else {
-		mcs.ClassSectionParentURLSnapshot = nil
-	}
-
-	// term
+	// ---------- TERM SNAPSHOT ----------
 	mcs.ClassSectionTermID = s.TermID
-	mcs.ClassSectionTermNameSnapshot = s.TermName
-	mcs.ClassSectionTermSlugSnapshot = s.TermSlug
-	mcs.ClassSectionTermYearLabelSnapshot = s.TermYear
+	termSnap := map[string]any{}
+	if s.TermName != nil && strings.TrimSpace(*s.TermName) != "" {
+		termSnap["name"] = strings.TrimSpace(*s.TermName)
+	}
+	if s.TermSlug != nil && strings.TrimSpace(*s.TermSlug) != "" {
+		termSnap["slug"] = strings.TrimSpace(*s.TermSlug)
+	}
+	if s.TermYear != nil && strings.TrimSpace(*s.TermYear) != "" {
+		termSnap["year_label"] = strings.TrimSpace(*s.TermYear)
+	}
+	if len(termSnap) > 0 {
+		if b, err := json.Marshal(termSnap); err == nil {
+			mcs.ClassSectionTermSnapshot = datatypes.JSON(b)
+		}
+	} else {
+		mcs.ClassSectionTermSnapshot = datatypes.JSON([]byte("null"))
+	}
 
+	// housekeeping
 	ts := time.Now()
 	mcs.ClassSectionSnapshotUpdatedAt = &ts
 }
@@ -278,7 +313,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		req.ClassSectionClassID, req.ClassSectionTeacherID, req.ClassSectionAssistantTeacherID,
 		req.ClassSectionClassRoomID, req.ClassSectionName, req.ClassSectionSlug)
 
-	// ---- Sanity ----
+	// ---- Sanity dasar ----
 	if strings.TrimSpace(req.ClassSectionName) == "" {
 		log.Printf("[SECTIONS][CREATE] ❌ name kosong")
 		return fiber.NewError(fiber.StatusBadRequest, "Nama section wajib diisi")
@@ -286,6 +321,18 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	if req.ClassSectionCapacity != nil && *req.ClassSectionCapacity < 0 {
 		log.Printf("[SECTIONS][CREATE] ❌ capacity negatif=%d", *req.ClassSectionCapacity)
 		return fiber.NewError(fiber.StatusBadRequest, "Capacity tidak boleh negatif")
+	}
+
+	// ---- Sanity tambahan (CSST settings & features) ----
+	if req.ClassSectionCSSTMaxSubjectsPerStudent != nil && *req.ClassSectionCSSTMaxSubjectsPerStudent < 0 {
+		log.Printf("[SECTIONS][CREATE] ❌ csst_max_subjects_per_student negatif=%d", *req.ClassSectionCSSTMaxSubjectsPerStudent)
+		return fiber.NewError(fiber.StatusBadRequest, "Batas maksimal mapel per siswa tidak boleh negatif")
+	}
+	if req.ClassSectionCSSTEnrollmentMode != nil && strings.TrimSpace(*req.ClassSectionCSSTEnrollmentMode) != "" {
+		if !isValidEnrollmentMode(*req.ClassSectionCSSTEnrollmentMode) {
+			log.Printf("[SECTIONS][CREATE] ❌ enrollment_mode invalid=%s", *req.ClassSectionCSSTEnrollmentMode)
+			return fiber.NewError(fiber.StatusBadRequest, "Mode enrolment CSST tidak valid (self_select | assigned | hybrid)")
+		}
 	}
 
 	// ---- TX ----
@@ -335,7 +382,6 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	} else {
 		applyClassParentAndTermSnapshotToSection(m, snap)
 	}
-
 	// Teacher
 	if req.ClassSectionTeacherID != nil {
 		snap, err := validateAndSnapshotTeacher(tx, masjidID, *req.ClassSectionTeacherID, "teacher")
@@ -343,9 +389,18 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 			_ = tx.Rollback()
 			return err
 		}
-		m.ClassSectionTeacherNameSnapshot = &snap.Name
-		m.ClassSectionTeacherContactPhoneSnapshot = snap.Phone
-		m.ClassSectionTeacherAvatarURLSnapshot = snap.AvatarURL
+		teacherSnap := map[string]any{
+			"name": snap.Name,
+		}
+		if snap.Phone != nil && strings.TrimSpace(*snap.Phone) != "" {
+			teacherSnap["phone"] = strings.TrimSpace(*snap.Phone)
+		}
+		if snap.AvatarURL != nil && strings.TrimSpace(*snap.AvatarURL) != "" {
+			teacherSnap["avatar_url"] = strings.TrimSpace(*snap.AvatarURL)
+		}
+		if b, e := json.Marshal(teacherSnap); e == nil {
+			m.ClassSectionTeacherSnapshot = datatypes.JSON(b)
+		}
 	}
 
 	// Assistant Teacher
@@ -355,9 +410,18 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 			_ = tx.Rollback()
 			return err
 		}
-		m.ClassSectionAssistantTeacherNameSnapshot = &snap.Name
-		m.ClassSectionAssistantTeacherContactPhoneSnapshot = snap.Phone
-		m.ClassSectionAssistantTeacherAvatarURLSnapshot = snap.AvatarURL
+		asstSnap := map[string]any{
+			"name": snap.Name,
+		}
+		if snap.Phone != nil && strings.TrimSpace(*snap.Phone) != "" {
+			asstSnap["phone"] = strings.TrimSpace(*snap.Phone)
+		}
+		if snap.AvatarURL != nil && strings.TrimSpace(*snap.AvatarURL) != "" {
+			asstSnap["avatar_url"] = strings.TrimSpace(*snap.AvatarURL)
+		}
+		if b, e := json.Marshal(asstSnap); e == nil {
+			m.ClassSectionAssistantTeacherSnapshot = datatypes.JSON(b)
+		}
 	}
 
 	// ---- Validasi room ----
@@ -534,6 +598,20 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Capacity tidak boleh negatif")
 	}
 
+	// ---- Sanity tambahan (CSST settings) ----
+	if req.ClassSectionCSSTMaxSubjectsPerStudent.Present && req.ClassSectionCSSTMaxSubjectsPerStudent.Value != nil {
+		if *req.ClassSectionCSSTMaxSubjectsPerStudent.Value < 0 {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusBadRequest, "Batas maksimal mapel per siswa tidak boleh negatif")
+		}
+	}
+	if req.ClassSectionCSSTEnrollmentMode.Present && req.ClassSectionCSSTEnrollmentMode.Value != nil {
+		if !isValidEnrollmentMode(*req.ClassSectionCSSTEnrollmentMode.Value) {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusBadRequest, "Mode enrolment CSST tidak valid (self_select | assigned | hybrid)")
+		}
+	}
+
 	// ---- Validasi teacher kalau diubah ----
 	if req.ClassSectionTeacherID.Present && req.ClassSectionTeacherID.Value != nil {
 		var tMasjid uuid.UUID
@@ -558,7 +636,6 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	// ---- Validasi room kalau diubah ----
 	if req.ClassSectionClassRoomID.Present && req.ClassSectionClassRoomID.Value != nil {
 		var rMasjid uuid.UUID
-		// FIX: gunakan kolom singular (class_room_masjid_id, class_room_deleted_at)
 		if err := tx.Raw(`
 			SELECT class_room_masjid_id
 			FROM class_rooms
@@ -609,7 +686,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 		req.ClassSectionSlug.Value = &uniq
 	} else if req.ClassSectionName.Present && req.ClassSectionName.Value != nil {
-		// slug tidak dipatch, tapi name berubah
+		// slug tidak dipatch, tapi name berubah → generate slug baru yg unik
 		base := helper.Slugify(strings.TrimSpace(*req.ClassSectionName.Value), 160)
 		if base == "" {
 			base = "section"
@@ -776,7 +853,7 @@ func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Guard akses staff pada masjid terkait (pola ClassParent)
+	// Guard akses staff pada masjid terkait
 	if err := helperAuth.EnsureStaffMasjid(c, m.ClassSectionMasjidID); err != nil {
 		_ = tx.Rollback()
 		return err

@@ -75,10 +75,12 @@ type MasjidTeacher struct {
 	MasjidTeacherUserTeacherTitlePrefixSnapshot *string `json:"masjid_teacher_user_teacher_title_prefix_snapshot,omitempty"`
 	MasjidTeacherUserTeacherTitleSuffixSnapshot *string `json:"masjid_teacher_user_teacher_title_suffix_snapshot,omitempty"`
 
-	// MASJID SNAPSHOT (tambahan dari model terbaru)
-	MasjidTeacherMasjidNameSnapshot    *string `json:"masjid_teacher_masjid_name_snapshot,omitempty"`
-	MasjidTeacherMasjidSlugSnapshot    *string `json:"masjid_teacher_masjid_slug_snapshot,omitempty"`
-	MasjidTeacherMasjidLogoURLSnapshot *string `json:"masjid_teacher_masjid_logo_url_snapshot,omitempty"`
+	// MASJID SNAPSHOT (sinkron dgn model terbaru)
+	MasjidTeacherMasjidNameSnapshot          *string `json:"masjid_teacher_masjid_name_snapshot,omitempty"`
+	MasjidTeacherMasjidSlugSnapshot          *string `json:"masjid_teacher_masjid_slug_snapshot,omitempty"`
+	MasjidTeacherMasjidLogoURLSnapshot       *string `json:"masjid_teacher_masjid_logo_url_snapshot,omitempty"`
+	MasjidTeacherMasjidIconURLSnapshot       *string `json:"masjid_teacher_masjid_icon_url_snapshot,omitempty"`       // ⟵ BARU
+	MasjidTeacherMasjidBackgroundURLSnapshot *string `json:"masjid_teacher_masjid_background_url_snapshot,omitempty"` // ⟵ BARU
 
 	// JSONB: sections & csst
 	MasjidTeacherSections []DTOTeacherSectionItem `json:"masjid_teacher_sections"`
@@ -255,10 +257,12 @@ func NewMasjidTeacherResponse(m *yModel.MasjidTeacherModel) *MasjidTeacher {
 		MasjidTeacherUserTeacherTitlePrefixSnapshot: m.MasjidTeacherUserTeacherTitlePrefixSnapshot,
 		MasjidTeacherUserTeacherTitleSuffixSnapshot: m.MasjidTeacherUserTeacherTitleSuffixSnapshot,
 
-		// Masjid snapshots (baru)
-		MasjidTeacherMasjidNameSnapshot:    m.MasjidTeacherMasjidNameSnapshot,
-		MasjidTeacherMasjidSlugSnapshot:    m.MasjidTeacherMasjidSlugSnapshot,
-		MasjidTeacherMasjidLogoURLSnapshot: m.MasjidTeacherMasjidLogoURLSnapshot,
+		// Masjid snapshots (termasuk 2 field BARU)
+		MasjidTeacherMasjidNameSnapshot:          m.MasjidTeacherMasjidNameSnapshot,
+		MasjidTeacherMasjidSlugSnapshot:          m.MasjidTeacherMasjidSlugSnapshot,
+		MasjidTeacherMasjidLogoURLSnapshot:       m.MasjidTeacherMasjidLogoURLSnapshot,
+		MasjidTeacherMasjidIconURLSnapshot:       m.MasjidTeacherMasjidIconURLSnapshot,       // ⟵ BARU
+		MasjidTeacherMasjidBackgroundURLSnapshot: m.MasjidTeacherMasjidBackgroundURLSnapshot, // ⟵ BARU
 
 		// JSONB
 		MasjidTeacherSections: sections,
@@ -492,3 +496,4 @@ func (r UpdateMasjidTeacherRequest) ApplyToModel(m *yModel.MasjidTeacherModel) e
 
 	return nil
 }
+

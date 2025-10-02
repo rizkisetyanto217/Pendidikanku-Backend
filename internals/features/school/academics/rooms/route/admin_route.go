@@ -25,16 +25,4 @@ func RoomsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	g.Delete("/:id", ctl.Delete)
 	g.Post("/:id/restore", ctl.Restore)
 
-	// Virtual Links
-	ctl2 := clsCtl.NewClassRoomVirtualLinkController(db)
-	h := admin.Group("/:masjid_id/class-room-virtual-links")
-
-	// Create / Read
-	h.Post("/", ctl2.Create)
-
-	// Update
-	h.Patch("/:id", ctl2.Update)
-
-	// Soft delete + restore (+ hard delete via ?hard=true)
-	h.Delete("/:id", ctl2.Delete)
 }

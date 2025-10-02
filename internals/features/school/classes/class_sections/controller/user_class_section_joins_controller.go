@@ -20,17 +20,16 @@ import (
 )
 
 // Ptr mengembalikan pointer ke nilai T
-func Ptr[T any](v T) *T {
-	return &v
-}
+func Ptr[T any](v T) *T { return &v }
 
-func ForUpdate() clause.Expression { return clause.Locking{Strength: "UPDATE"} }
+func forUpdate() clause.Expression { return clause.Locking{Strength: "UPDATE"} }
 
-// cek kode ke hash (bcrypt/argon2id)
+// cek kode ke hash (bcrypt)
 func verifyJoinCode(stored []byte, code string) bool {
 	if len(stored) == 0 || strings.TrimSpace(code) == "" {
 		return false
 	}
+	// bcrypt prefix
 	if strings.HasPrefix(string(stored), "$2a$") || strings.HasPrefix(string(stored), "$2b$") || strings.HasPrefix(string(stored), "$2y$") {
 		return bcrypt.CompareHashAndPassword(stored, []byte(code)) == nil
 	}
@@ -53,8 +52,7 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 	}
 
 	// Path param
-	rawID := strings.TrimSpace(c.Params("id"))
-	sectionID, err := uuid.Parse(rawID)
+	sectionID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID section tidak valid")
 	}
@@ -79,7 +77,7 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 
 	var sec model.ClassSectionModel
 	if err := tx.
-		Clauses(ForUpdate()).
+		Clauses(forUpdate()).
 		Where("class_section_id = ? AND class_section_deleted_at IS NULL", sectionID).
 		First(&sec).Error; err != nil {
 		tx.Rollback()
@@ -140,7 +138,7 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusConflict, "Kelas penuh")
 		}
 
-		// 4) belum terdaftar
+		// 4) belum terdaftar di section ini
 		var exists int64
 		if err := tx.Table("user_class_sections").
 			Where("user_class_section_masjid_student_id = ? AND user_class_section_section_id = ? AND user_class_section_deleted_at IS NULL",
@@ -161,10 +159,10 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 			UserClassSectionSectionID:       sec.ClassSectionID,
 			UserClassSectionMasjidID:        masjidID,
 			UserClassSectionStatus:          model.UserClassSectionActive,
-			UserClassSectionFeeSnapshot:     []byte(`{}`),
-			UserClassSectionAssignedAt:      now,
-			UserClassSectionCreatedAt:       now,
-			UserClassSectionUpdatedAt:       now,
+			// fee_snapshot nullable → biarkan NULL saat create
+			UserClassSectionAssignedAt: now, // kolom DATE; waktu akan terpotong di DB
+			UserClassSectionCreatedAt:  now,
+			UserClassSectionUpdatedAt:  now,
 		}
 		if err := tx.Create(ucs).Error; err != nil {
 			tx.Rollback()

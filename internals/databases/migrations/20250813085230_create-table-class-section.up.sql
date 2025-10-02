@@ -25,6 +25,13 @@ BEGIN
 END$$;
 
 -- =========================================================
+-- ENUM: cara siswa terdaftar ke CSST (section×subject×teacher)
+-- =========================================================
+DO $$ BEGIN
+  CREATE TYPE class_section_csst_enrollment_mode AS ENUM ('self_select','assigned','hybrid');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- =========================================================
 -- TABLE: class_sections — snapshots JSONB, hints & caches
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_sections (
@@ -79,7 +86,6 @@ CREATE TABLE IF NOT EXISTS class_sections (
   class_section_parent_code_snap  TEXT GENERATED ALWAYS AS ((class_section_parent_snapshot->>'code')) STORED,
   class_section_parent_slug_snap  TEXT GENERATED ALWAYS AS ((class_section_parent_snapshot->>'slug')) STORED,
   class_section_parent_level_snap TEXT GENERATED ALWAYS AS ((class_section_parent_snapshot->>'level')) STORED,
-  -- URL tetap di JSON saja (tidak dijadikan kolom turunan)
 
   -- People
   class_section_teacher_snapshot           JSONB,
@@ -94,7 +100,6 @@ CREATE TABLE IF NOT EXISTS class_sections (
   class_section_room_name_snap     TEXT GENERATED ALWAYS AS ((class_section_room_snapshot->>'name')) STORED,
   class_section_room_slug_snap     TEXT GENERATED ALWAYS AS ((class_section_room_snapshot->>'slug')) STORED,
   class_section_room_location_snap TEXT GENERATED ALWAYS AS ((class_section_room_snapshot->>'location')) STORED,
-  -- join_url / meeting_id / passcode / platform tetap di JSON
 
   -- TERM
   class_section_term_id UUID,
@@ -103,14 +108,31 @@ CREATE TABLE IF NOT EXISTS class_sections (
   class_section_term_slug_snap       TEXT GENERATED ALWAYS AS ((class_section_term_snapshot->>'slug')) STORED,
   class_section_term_year_label_snap TEXT GENERATED ALWAYS AS ((class_section_term_snapshot->>'year_label')) STORED,
 
-  -- CSST cache (array of assignments: section×subject×teacher)
+  -- ===================== CSST: cache dan PENGATURAN =====================
+  -- cache daftar assignment (section×subject×teacher)
   class_sections_csst JSONB NOT NULL DEFAULT '[]'::jsonb,
   class_sections_csst_count INT GENERATED ALWAYS AS (jsonb_array_length(class_sections_csst)) STORED,
   class_sections_csst_active_count INT GENERATED ALWAYS AS (
     jsonb_array_length(jsonb_path_query_array(class_sections_csst, '$ ? (@.is_active == true)'))
   ) STORED,
 
-  -- (Opsional) fitur kelas sebagai object konfigurasi
+  -- >>> Pengaturan cara siswa masuk ke CSST <<<
+  -- 'self_select' : siswa bebas memilih sendiri mapel/CSST
+  -- 'assigned'    : wali/teacher yang menentukan
+  -- 'hybrid'      : kombinasi (boleh pilih, tapi bisa di-lock/override)
+  class_section_csst_enrollment_mode class_section_csst_enrollment_mode
+    NOT NULL DEFAULT 'self_select',
+
+  -- jika self-select/hybrid: apakah butuh approval guru/wali sebelum aktif?
+  class_section_csst_self_select_requires_approval BOOLEAN NOT NULL DEFAULT FALSE,
+
+  -- batas maksimal CSST yang boleh dipilih per siswa untuk section ini (NULL = tidak dibatasi)
+  class_section_csst_max_subjects_per_student INT,
+
+  -- tenggat waktu siswa boleh ganti pilihan (NULL = tidak dibatasi)
+  class_section_csst_switch_deadline TIMESTAMPTZ,
+
+  -- (Opsional) fitur kelas sebagai object konfigurasi umum
   class_section_features JSONB NOT NULL DEFAULT '{}'::jsonb,
 
   -- housekeeping snapshot
@@ -148,6 +170,10 @@ CREATE TABLE IF NOT EXISTS class_sections (
   CONSTRAINT ck_jsonb_term_obj     CHECK (class_section_term_snapshot              IS NULL OR jsonb_typeof(class_section_term_snapshot)            = 'object'),
   CONSTRAINT ck_csec_csst_is_array CHECK (jsonb_typeof(class_sections_csst) = 'array'),
   CONSTRAINT ck_csec_features_obj  CHECK (jsonb_typeof(class_section_features) = 'object'),
+
+  -- numeric constraints (baru)
+  CONSTRAINT ck_csst_max_subjects_nonneg
+    CHECK (class_section_csst_max_subjects_per_student IS NULL OR class_section_csst_max_subjects_per_student >= 0),
 
   -- ==================== FK KOMPOSIT (tenant-safe) ===============
   CONSTRAINT fk_section_class_same_masjid
@@ -251,7 +277,6 @@ CREATE INDEX IF NOT EXISTS gin_section_slug_trgm_alive
   WHERE class_section_deleted_at IS NULL;
 
 -- 6) JSONB indexes (generic + targeted lookups)
---    a) GIN jsonb_path_ops untuk filter key/value cepat
 CREATE INDEX IF NOT EXISTS gin_csec_class_snapshot   ON class_sections USING GIN (class_section_class_snapshot jsonb_path_ops);
 CREATE INDEX IF NOT EXISTS gin_csec_parent_snapshot  ON class_sections USING GIN (class_section_parent_snapshot jsonb_path_ops);
 CREATE INDEX IF NOT EXISTS gin_csec_teacher_snapshot ON class_sections USING GIN (class_section_teacher_snapshot jsonb_path_ops);
@@ -292,5 +317,10 @@ CREATE INDEX IF NOT EXISTS idx_section_image_purge_due
 -- 10) Lookup dasar per tenant (fallback umum)
 CREATE INDEX IF NOT EXISTS idx_section_masjid
   ON class_sections (class_section_masjid_id);
+
+-- 11) Query cepat berdasarkan mode enrolment CSST
+CREATE INDEX IF NOT EXISTS ix_section_csst_enrollment_mode_alive
+  ON class_sections (class_section_csst_enrollment_mode, class_section_is_active, class_section_created_at DESC)
+  WHERE class_section_deleted_at IS NULL;
 
 COMMIT;

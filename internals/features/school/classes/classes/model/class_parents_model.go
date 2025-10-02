@@ -1,4 +1,4 @@
-// file: internals/features/school/classes/model/class_parent_model.go
+// file: internals/features/school/academics/classes/model/class_parent_model.go
 package model
 
 import (
@@ -9,40 +9,37 @@ import (
 	"gorm.io/gorm"
 )
 
-// ClassParent merepresentasikan tabel class_parents
+// ClassParentModel merepresentasikan tabel class_parents (sesuai DDL)
 type ClassParentModel struct {
 	// PK & Tenant
-	ClassParentID       uuid.UUID `gorm:"column:class_parent_id;type:uuid;primaryKey;default:gen_random_uuid()" json:"class_parent_id"`
-    ClassParentMasjidID uuid.UUID `gorm:"column:class_parent_masjid_id;type:uuid;not null;index:idx_class_parents_masjid" json:"class_parent_masjid_id"`
+	ClassParentID       uuid.UUID `json:"class_parent_id"        gorm:"column:class_parent_id;type:uuid;primaryKey;default:gen_random_uuid()"`
+	ClassParentMasjidID uuid.UUID `json:"class_parent_masjid_id" gorm:"column:class_parent_masjid_id;type:uuid;not null"`
 
 	// Identitas
-	ClassParentName        string  `gorm:"column:class_parent_name;type:varchar(120);not null" json:"class_parent_name"`
-	ClassParentCode        *string `gorm:"column:class_parent_code;type:varchar(40)" json:"class_parent_code"`
-	ClassParentSlug        *string `gorm:"column:class_parent_slug;type:varchar(160)" json:"class_parent_slug"`
-	ClassParentDescription *string `gorm:"column:class_parent_description;type:text" json:"class_parent_description"`
+	ClassParentName        string  `json:"class_parent_name"        gorm:"column:class_parent_name;type:varchar(120);not null"`
+	ClassParentCode        *string `json:"class_parent_code,omitempty"        gorm:"column:class_parent_code;type:varchar(40)"`
+	ClassParentSlug        *string `json:"class_parent_slug,omitempty"        gorm:"column:class_parent_slug;type:varchar(160)"`
+	ClassParentDescription *string `json:"class_parent_description,omitempty" gorm:"column:class_parent_description;type:text"`
 
 	// Atribut & status
-	ClassParentLevel        *int16 `gorm:"column:class_parent_level" json:"class_parent_level"` // 0..100
-	ClassParentIsActive     bool   `gorm:"column:class_parent_is_active;not null;default:true;index:idx_class_parents_active_alive,where:class_parent_deleted_at IS NULL" json:"class_parent_is_active"`
-	ClassParentTotalClasses int32  `gorm:"column:class_parent_total_classes;not null;default:0" json:"class_parent_total_classes"`
+	ClassParentLevel        *int16 `json:"class_parent_level,omitempty"        gorm:"column:class_parent_level"` // 0..100 (cek di DB)
+	ClassParentIsActive     bool   `json:"class_parent_is_active"              gorm:"column:class_parent_is_active;not null;default:true"`
+	ClassParentTotalClasses int32  `json:"class_parent_total_classes"          gorm:"column:class_parent_total_classes;not null;default:0"`
 
-	// Prasyarat/usia (fleksibel, JSONB)
-	ClassParentRequirements datatypes.JSONMap `gorm:"column:class_parent_requirements;type:jsonb;not null;default:'{}'" json:"class_parent_requirements"`
+	// Prasyarat/usia (fleksibel JSONB)
+	ClassParentRequirements datatypes.JSONMap `json:"class_parent_requirements" gorm:"column:class_parent_requirements;type:jsonb;not null;default:'{}'"`
 
-	// Slot gambar
-	ClassParentImageURL                 *string    `gorm:"column:class_parent_image_url" json:"class_parent_image_url"`
-	ClassParentImageObjectKey           *string    `gorm:"column:class_parent_image_object_key" json:"class_parent_image_object_key"`
-	ClassParentImageURLOld              *string    `gorm:"column:class_parent_image_url_old" json:"class_parent_image_url_old"`
-	ClassParentImageObjectKeyOld        *string    `gorm:"column:class_parent_image_object_key_old" json:"class_parent_image_object_key_old"`
-	ClassParentImageDeletePendingUntil  *time.Time `gorm:"column:class_parent_image_delete_pending_until;index:idx_class_parents_image_purge_due,where:class_parent_image_object_key_old IS NOT NULL" json:"class_parent_image_delete_pending_until"`
+	// Single image (2-slot + retensi)
+	ClassParentImageURL                *string    `json:"class_parent_image_url,omitempty"                gorm:"column:class_parent_image_url;type:text"`
+	ClassParentImageObjectKey          *string    `json:"class_parent_image_object_key,omitempty"          gorm:"column:class_parent_image_object_key;type:text"`
+	ClassParentImageURLOld             *string    `json:"class_parent_image_url_old,omitempty"             gorm:"column:class_parent_image_url_old;type:text"`
+	ClassParentImageObjectKeyOld       *string    `json:"class_parent_image_object_key_old,omitempty"      gorm:"column:class_parent_image_object_key_old;type:text"`
+	ClassParentImageDeletePendingUntil *time.Time `json:"class_parent_image_delete_pending_until,omitempty" gorm:"column:class_parent_image_delete_pending_until;type:timestamptz"`
 
 	// Audit
-	ClassParentCreatedAt time.Time      `gorm:"column:class_parent_created_at;not null;autoCreateTime" json:"class_parent_created_at"`
-	ClassParentUpdatedAt time.Time      `gorm:"column:class_parent_updated_at;not null;autoUpdateTime" json:"class_parent_updated_at"`
-	ClassParentDeletedAt gorm.DeletedAt `gorm:"column:class_parent_deleted_at;index" json:"class_parent_deleted_at"`
+	ClassParentCreatedAt time.Time      `json:"class_parent_created_at"           gorm:"column:class_parent_created_at;type:timestamptz;not null;default:now();autoCreateTime"`
+	ClassParentUpdatedAt time.Time      `json:"class_parent_updated_at"           gorm:"column:class_parent_updated_at;type:timestamptz;not null;default:now();autoUpdateTime"`
+	ClassParentDeletedAt gorm.DeletedAt `json:"class_parent_deleted_at,omitempty" gorm:"column:class_parent_deleted_at;type:timestamptz;index"`
 }
 
-// TableName menetapkan nama tabel
-func (ClassParentModel) TableName() string {
-	return "class_parents"
-}
+func (ClassParentModel) TableName() string { return "class_parents" }

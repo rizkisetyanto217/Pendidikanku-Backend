@@ -1,3 +1,4 @@
+// file: internals/features/school/classes/class_sections/dto/user_class_section_dto.go
 package dto
 
 import (
@@ -10,6 +11,31 @@ import (
 
 	model "masjidku_backend/internals/features/school/classes/class_sections/model"
 )
+
+/* =========================================================
+   HELPERS
+========================================================= */
+
+func isZeroUUID(id uuid.UUID) bool { return id == uuid.Nil }
+
+func isValidStatus(s string) bool {
+	switch s {
+	case string(model.UserClassSectionActive),
+		string(model.UserClassSectionInactive),
+		string(model.UserClassSectionCompleted):
+		return true
+	}
+	return false
+}
+
+func isValidResult(r string) bool {
+	switch r {
+	case string(model.UserClassSectionPassed),
+		string(model.UserClassSectionFailed):
+		return true
+	}
+	return false
+}
 
 /* =========================================================
    REQUEST: CREATE
@@ -33,7 +59,8 @@ func (r *UserClassSectionCreateReq) Normalize() {
 	if r.UserClassSectionStatus == "" {
 		r.UserClassSectionStatus = string(model.UserClassSectionActive)
 	}
-	r.UserClassSectionStatus = strings.ToLower(r.UserClassSectionStatus)
+	r.UserClassSectionStatus = strings.ToLower(strings.TrimSpace(r.UserClassSectionStatus))
+
 	if r.UserClassSectionResult != nil {
 		res := strings.ToLower(strings.TrimSpace(*r.UserClassSectionResult))
 		if res == "" {
@@ -45,13 +72,28 @@ func (r *UserClassSectionCreateReq) Normalize() {
 }
 
 func (r *UserClassSectionCreateReq) Validate() error {
-	switch r.UserClassSectionStatus {
-	case string(model.UserClassSectionActive),
-		string(model.UserClassSectionInactive),
-		string(model.UserClassSectionCompleted):
-	default:
+	// UUID wajib
+	if isZeroUUID(r.UserClassSectionMasjidStudentID) {
+		return errors.New("user_class_section_masjid_student_id wajib diisi")
+	}
+	if isZeroUUID(r.UserClassSectionSectionID) {
+		return errors.New("user_class_section_section_id wajib diisi")
+	}
+	if isZeroUUID(r.UserClassSectionMasjidID) {
+		return errors.New("user_class_section_masjid_id wajib diisi")
+	}
+
+	// status
+	if !isValidStatus(r.UserClassSectionStatus) {
 		return errors.New("invalid user_class_section_status")
 	}
+
+	// result (jika ada) harus valid
+	if r.UserClassSectionResult != nil && !isValidResult(*r.UserClassSectionResult) {
+		return errors.New("invalid user_class_section_result (gunakan 'passed' atau 'failed')")
+	}
+
+	// aturan completed
 	if r.UserClassSectionStatus == string(model.UserClassSectionCompleted) {
 		if r.UserClassSectionResult == nil {
 			return errors.New("user_class_section_result wajib diisi jika status completed")
@@ -59,7 +101,23 @@ func (r *UserClassSectionCreateReq) Validate() error {
 		if r.UserClassSectionCompletedAt == nil {
 			return errors.New("user_class_section_completed_at wajib diisi jika status completed")
 		}
+	} else {
+		// jika bukan completed, larang pengisian result/completed_at
+		if r.UserClassSectionResult != nil {
+			return errors.New("user_class_section_result harus kosong jika status bukan 'completed'")
+		}
+		if r.UserClassSectionCompletedAt != nil {
+			return errors.New("user_class_section_completed_at harus kosong jika status bukan 'completed'")
+		}
 	}
+
+	// validasi tanggal unassigned >= assigned (jika keduanya ada)
+	if r.UserClassSectionAssignedAt != nil && r.UserClassSectionUnassignedAt != nil {
+		if r.UserClassSectionUnassignedAt.Before(*r.UserClassSectionAssignedAt) {
+			return errors.New("user_class_section_unassigned_at tidak boleh lebih awal dari user_class_section_assigned_at")
+		}
+	}
+
 	return nil
 }
 
@@ -69,7 +127,8 @@ func (r *UserClassSectionCreateReq) ToModel() *model.UserClassSection {
 		UserClassSectionSectionID:       r.UserClassSectionSectionID,
 		UserClassSectionMasjidID:        r.UserClassSectionMasjidID,
 		UserClassSectionStatus:          model.UserClassSectionStatus(r.UserClassSectionStatus),
-		UserClassSectionFeeSnapshot:     datatypes.JSON([]byte(`{}`)),
+
+		// kolom JSONB di SQL nullable; kalau tidak dikirim, biarkan NULL
 	}
 	if r.UserClassSectionResult != nil {
 		res := model.UserClassSectionResult(*r.UserClassSectionResult)
@@ -111,6 +170,79 @@ type UserClassSectionPatchReq struct {
 	UserClassSectionCompletedAt  *PatchField[*time.Time] `json:"user_class_section_completed_at,omitempty"`
 }
 
+func (r *UserClassSectionPatchReq) Normalize() {
+	if r.UserClassSectionStatus != nil && r.UserClassSectionStatus.Set {
+		r.UserClassSectionStatus.Value = strings.ToLower(strings.TrimSpace(r.UserClassSectionStatus.Value))
+	}
+	if r.UserClassSectionResult != nil && r.UserClassSectionResult.Set && r.UserClassSectionResult.Value != nil {
+		res := strings.ToLower(strings.TrimSpace(*r.UserClassSectionResult.Value))
+		if res == "" {
+			r.UserClassSectionResult.Value = nil
+		} else {
+			r.UserClassSectionResult.Value = &res
+		}
+	}
+}
+
+func (r *UserClassSectionPatchReq) Validate() error {
+	// status (jika di-set) harus valid
+	if r.UserClassSectionStatus != nil && r.UserClassSectionStatus.Set {
+		if !isValidStatus(r.UserClassSectionStatus.Value) {
+			return errors.New("invalid status")
+		}
+	}
+
+	// result (jika di-set & tidak nil) harus valid
+	if r.UserClassSectionResult != nil && r.UserClassSectionResult.Set && r.UserClassSectionResult.Value != nil {
+		if !isValidResult(*r.UserClassSectionResult.Value) {
+			return errors.New("invalid result (gunakan 'passed' atau 'failed')")
+		}
+	}
+
+	// aturan completed (jika status di-set menjadi completed)
+	if r.UserClassSectionStatus != nil && r.UserClassSectionStatus.Set &&
+		r.UserClassSectionStatus.Value == string(model.UserClassSectionCompleted) {
+
+		if r.UserClassSectionCompletedAt == nil || !r.UserClassSectionCompletedAt.Set || r.UserClassSectionCompletedAt.Value == nil {
+			return errors.New("completed_at wajib diisi jika status completed")
+		}
+		if r.UserClassSectionResult == nil || !r.UserClassSectionResult.Set || r.UserClassSectionResult.Value == nil {
+			return errors.New("result wajib diisi jika status completed")
+		}
+	}
+
+	// jika status di-set menjadi non-completed, larang set result/completed_at bersamaan
+	if r.UserClassSectionStatus != nil && r.UserClassSectionStatus.Set &&
+		r.UserClassSectionStatus.Value != string(model.UserClassSectionCompleted) {
+
+		if r.UserClassSectionResult != nil && r.UserClassSectionResult.Set && r.UserClassSectionResult.Value != nil {
+			return errors.New("result harus dikosongkan jika status bukan 'completed'")
+		}
+		if r.UserClassSectionCompletedAt != nil && r.UserClassSectionCompletedAt.Set && r.UserClassSectionCompletedAt.Value != nil {
+			return errors.New("completed_at harus dikosongkan jika status bukan 'completed'")
+		}
+	}
+
+	// validasi tanggal unassigned >= assigned jika keduanya di-set
+	if r.UserClassSectionAssignedAt != nil && r.UserClassSectionAssignedAt.Set &&
+		r.UserClassSectionAssignedAt.Value != nil &&
+		r.UserClassSectionUnassignedAt != nil && r.UserClassSectionUnassignedAt.Set &&
+		r.UserClassSectionUnassignedAt.Value != nil {
+
+		if r.UserClassSectionUnassignedAt.Value.Before(*r.UserClassSectionAssignedAt.Value) {
+			return errors.New("unassigned_at tidak boleh lebih awal dari assigned_at")
+		}
+	}
+
+	// Kolom assigned_at di DB NOT NULL → jangan izinkan clear (nil) eksplisit
+	if r.UserClassSectionAssignedAt != nil && r.UserClassSectionAssignedAt.Set && r.UserClassSectionAssignedAt.Value == nil {
+		return errors.New("assigned_at tidak boleh dikosongkan (NOT NULL)")
+	}
+
+	return nil
+}
+
+// Terapkan perubahan ke model (hanya yang Set=true)
 func (r *UserClassSectionPatchReq) Apply(m *model.UserClassSection) {
 	if r.UserClassSectionStatus != nil && r.UserClassSectionStatus.Set {
 		m.UserClassSectionStatus = model.UserClassSectionStatus(r.UserClassSectionStatus.Value)
@@ -127,14 +259,13 @@ func (r *UserClassSectionPatchReq) Apply(m *model.UserClassSection) {
 		if r.UserClassSectionFee.Value != nil {
 			m.UserClassSectionFeeSnapshot = *r.UserClassSectionFee.Value
 		} else {
-			m.UserClassSectionFeeSnapshot = datatypes.JSON([]byte(`{}`))
+			// nullable → jika ingin clear, set ke NULL (bukan "{}")
+			m.UserClassSectionFeeSnapshot = nil
 		}
 	}
 
-	if r.UserClassSectionAssignedAt != nil && r.UserClassSectionAssignedAt.Set {
-		if r.UserClassSectionAssignedAt.Value != nil {
-			m.UserClassSectionAssignedAt = *r.UserClassSectionAssignedAt.Value
-		}
+	if r.UserClassSectionAssignedAt != nil && r.UserClassSectionAssignedAt.Set && r.UserClassSectionAssignedAt.Value != nil {
+		m.UserClassSectionAssignedAt = *r.UserClassSectionAssignedAt.Value
 	}
 	if r.UserClassSectionUnassignedAt != nil && r.UserClassSectionUnassignedAt.Set {
 		m.UserClassSectionUnassignedAt = r.UserClassSectionUnassignedAt.Value
@@ -179,6 +310,12 @@ func FromModel(m *model.UserClassSection) UserClassSectionResp {
 		t := m.UserClassSectionDeletedAt.Time
 		delAt = &t
 	}
+	var feePtr *datatypes.JSON
+	if m.UserClassSectionFeeSnapshot != nil {
+		tmp := m.UserClassSectionFeeSnapshot
+		feePtr = &tmp
+	}
+
 	return UserClassSectionResp{
 		UserClassSectionID: m.UserClassSectionID,
 
@@ -188,7 +325,7 @@ func FromModel(m *model.UserClassSection) UserClassSectionResp {
 
 		UserClassSectionStatus: string(m.UserClassSectionStatus),
 		UserClassSectionResult: res,
-		UserClassSectionFee:    &m.UserClassSectionFeeSnapshot,
+		UserClassSectionFee:    feePtr,
 
 		UserClassSectionAssignedAt:   m.UserClassSectionAssignedAt,
 		UserClassSectionUnassignedAt: m.UserClassSectionUnassignedAt,
@@ -200,90 +337,4 @@ func FromModel(m *model.UserClassSection) UserClassSectionResp {
 	}
 }
 
-func (r *UserClassSectionPatchReq) Normalize() {
-	if r.UserClassSectionStatus != nil && r.UserClassSectionStatus.Set {
-		r.UserClassSectionStatus.Value = strings.ToLower(strings.TrimSpace(r.UserClassSectionStatus.Value))
-	}
-	if r.UserClassSectionResult != nil && r.UserClassSectionResult.Set && r.UserClassSectionResult.Value != nil {
-		res := strings.ToLower(strings.TrimSpace(*r.UserClassSectionResult.Value))
-		if res == "" {
-			r.UserClassSectionResult.Value = nil
-		} else {
-			r.UserClassSectionResult.Value = &res
-		}
-	}
-}
 
-func (r *UserClassSectionPatchReq) Validate() error {
-	if r.UserClassSectionStatus != nil && r.UserClassSectionStatus.Set {
-		switch r.UserClassSectionStatus.Value {
-		case "active", "inactive", "completed":
-		default:
-			return errors.New("invalid status")
-		}
-	}
-
-	// kalau completed → wajib ada completed_at dan result
-	if r.UserClassSectionStatus != nil && r.UserClassSectionStatus.Set &&
-		r.UserClassSectionStatus.Value == "completed" {
-
-		if r.UserClassSectionCompletedAt == nil || !r.UserClassSectionCompletedAt.Set || r.UserClassSectionCompletedAt.Value == nil {
-			return errors.New("completed_at wajib diisi jika status completed")
-		}
-		if r.UserClassSectionResult == nil || !r.UserClassSectionResult.Set || r.UserClassSectionResult.Value == nil {
-			return errors.New("result wajib diisi jika status completed")
-		}
-	}
-
-	// validasi tanggal unassigned >= assigned
-	if r.UserClassSectionAssignedAt != nil && r.UserClassSectionAssignedAt.Set &&
-		r.UserClassSectionUnassignedAt != nil && r.UserClassSectionUnassignedAt.Set &&
-		r.UserClassSectionAssignedAt.Value != nil && r.UserClassSectionUnassignedAt.Value != nil {
-
-		if r.UserClassSectionUnassignedAt.Value.Before(*r.UserClassSectionAssignedAt.Value) {
-			return errors.New("unassigned_at tidak boleh lebih awal dari assigned_at")
-		}
-	}
-
-	return nil
-}
-
-type JoinRole string
-
-const (
-	JoinRoleStudent JoinRole = "student"
-	JoinRoleTeacher JoinRole = "teacher"
-)
-
-type ClassSectionJoinRequest struct {
-	Code string   `json:"code"` // kode yang dimasukkan user
-	Role JoinRole `json:"role"` // "student" | "teacher"
-}
-
-func (r *ClassSectionJoinRequest) Normalize() {
-	r.Code = strings.TrimSpace(r.Code)
-	r.Role = JoinRole(strings.ToLower(strings.TrimSpace(string(r.Role))))
-}
-
-func (r *ClassSectionJoinRequest) Validate() error {
-	if r.Code == "" {
-		return errors.New("code wajib diisi")
-	}
-	switch r.Role {
-	case JoinRoleStudent, JoinRoleTeacher:
-	default:
-		return errors.New("role harus 'student' atau 'teacher'")
-	}
-	return nil
-}
-
-type ClassSectionJoinResponse struct {
-	// Jika role = student → kirim UserClassSectionResp
-	UserClassSection *UserClassSectionResp `json:"user_class_section,omitempty"`
-
-	// Jika role = teacher → kirim section yang sudah diupdate (ringkas)
-	ClassSectionID                 string `json:"class_section_id"`
-	AssignedAs                     string `json:"assigned_as,omitempty"` // "teacher" | "assistant"
-	ClassSectionTeacherID          string `json:"class_section_teacher_id,omitempty"`
-	ClassSectionAssistantTeacherID string `json:"class_section_assistant_teacher_id,omitempty"`
-}

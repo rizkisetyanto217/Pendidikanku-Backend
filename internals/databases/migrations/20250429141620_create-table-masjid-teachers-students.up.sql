@@ -72,10 +72,12 @@ CREATE TABLE IF NOT EXISTS masjid_teachers (
   masjid_teacher_user_teacher_title_prefix_snapshot  VARCHAR(20),
   masjid_teacher_user_teacher_title_suffix_snapshot  VARCHAR(30),
 
-  -- MASJID SNAPSHOT (untuk render cepat /me)
-  masjid_teacher_masjid_name_snapshot      VARCHAR(100),
-  masjid_teacher_masjid_slug_snapshot      VARCHAR(100),
-  masjid_teacher_masjid_logo_url_snapshot  TEXT,
+  -- MASJID SNAPSHOT (untuk render cepat /me) — denormalized
+  masjid_teacher_masjid_name_snapshot       VARCHAR(100),
+  masjid_teacher_masjid_slug_snapshot       VARCHAR(100),
+  masjid_teacher_masjid_logo_url_snapshot   TEXT,
+  masjid_teacher_masjid_icon_url_snapshot   TEXT,
+  masjid_teacher_masjid_background_url_snapshot TEXT,
 
   -- JSONB: daftar section yang diampu (homeroom/assistant/teacher) — data diisi backend
   -- contoh item:
@@ -93,7 +95,7 @@ CREATE TABLE IF NOT EXISTS masjid_teachers (
   CONSTRAINT ck_mtj_sections_is_array CHECK (jsonb_typeof(masjid_teacher_sections) = 'array'),
 
   -- JSONB: daftar CSST (Section×Subject×Teacher) — grup guru mapel
-  -- contoh item minimal:
+  -- contoh minimal:
   -- {
   --   "csst_id": "uuid",
   --   "is_active": true,
@@ -260,10 +262,12 @@ CREATE TABLE IF NOT EXISTS masjid_students (
   masjid_student_user_profile_parent_name_snapshot         VARCHAR(80),
   masjid_student_user_profile_parent_whatsapp_url_snapshot VARCHAR(50),
 
-  -- MASJID SNAPSHOT (untuk render cepat /me)
-  masjid_student_masjid_name_snapshot      VARCHAR(100),
-  masjid_student_masjid_slug_snapshot      VARCHAR(100),
-  masjid_student_masjid_logo_url_snapshot  TEXT,
+  -- MASJID SNAPSHOT (untuk render cepat /me) — denormalized
+  masjid_student_masjid_name_snapshot        VARCHAR(100),
+  masjid_student_masjid_slug_snapshot        VARCHAR(100),
+  masjid_student_masjid_logo_url_snapshot    TEXT,
+  masjid_student_masjid_icon_url_snapshot    TEXT,
+  masjid_student_masjid_background_url_snapshot TEXT,
 
   -- JSONB SECTIONS (dipelihara backend)
   -- contoh item:
@@ -365,4 +369,4 @@ CREATE INDEX IF NOT EXISTS ix_ms_masjid_slug_snap_ci_alive
 CREATE INDEX IF NOT EXISTS brin_ms_created_at
   ON masjid_students USING BRIN (masjid_student_created_at);
 
-
+COMMIT;

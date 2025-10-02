@@ -12,7 +12,7 @@ import (
 )
 
 //
-// ====== ALIASES: pakai shape dari model biar konsisten ======
+// ====== ALIASES & TIPE BANTU ======
 //
 
 type ClassRoomPlatform = model.ClassRoomPlatform
@@ -24,9 +24,9 @@ const (
 	PlatformOther          ClassRoomPlatform = model.PlatformOther
 )
 
-type ClassRoomTimeWindow = model.ClassRoomTimeWindow
-type ClassRoomScheduleItem = model.ClassRoomScheduleItem
-type ClassRoomVirtualLink = model.ClassRoomVirtualLink
+// Bentuk longgar utk schedule/notes (boleh apa saja berbentuk object)
+// Contoh schedule item: {"weekday":"MON","start":"07:30","end":"09:00","timezone":"Asia/Jakarta"}
+type AnyObject = map[string]any
 
 //
 // ========== CREATE ==========
@@ -55,9 +55,16 @@ type CreateClassRoomRequest struct {
 	ClassRoomImageObjectKeyOld       *string    `json:"class_room_image_object_key_old" validate:"omitempty"`
 	ClassRoomImageDeletePendingUntil *time.Time `json:"class_room_image_delete_pending_until" validate:"omitempty"`
 
+	// ONLINE FIELDS
+	ClassRoomPlatform  *string `json:"class_room_platform" validate:"omitempty,oneof=zoom google_meet microsoft_teams other"`
+	ClassRoomJoinURL   *string `json:"class_room_join_url" validate:"omitempty,url"`
+	ClassRoomMeetingID *string `json:"class_room_meeting_id" validate:"omitempty"`
+	ClassRoomPasscode  *string `json:"class_room_passcode" validate:"omitempty"`
+
 	// JSONB ergonomis di DTO → slice native
-	ClassRoomFeatures     []string               `json:"class_room_features" validate:"omitempty,dive,printascii"`
-	ClassRoomVirtualLinks []ClassRoomVirtualLink `json:"class_room_virtual_links" validate:"omitempty,dive"`
+	ClassRoomFeatures []string    `json:"class_room_features" validate:"omitempty,dive,printascii"`
+	ClassRoomSchedule []AnyObject `json:"class_room_schedule" validate:"omitempty,dive"`
+	ClassRoomNotes    []AnyObject `json:"class_room_notes" validate:"omitempty,dive"`
 }
 
 func (r CreateClassRoomRequest) ToModel() (model.ClassRoomModel, error) {
@@ -90,13 +97,22 @@ func (r CreateClassRoomRequest) ToModel() (model.ClassRoomModel, error) {
 	m.ClassRoomImageObjectKeyOld = r.ClassRoomImageObjectKeyOld
 	m.ClassRoomImageDeletePendingUntil = r.ClassRoomImageDeletePendingUntil
 
-	// Features → JSONB
+	// Online fields
+	m.ClassRoomPlatform = r.ClassRoomPlatform
+	m.ClassRoomJoinURL = r.ClassRoomJoinURL
+	m.ClassRoomMeetingID = r.ClassRoomMeetingID
+	m.ClassRoomPasscode = r.ClassRoomPasscode
+
+	// JSONB
 	if err := setJSONFromStrings(&m.ClassRoomFeatures, r.ClassRoomFeatures); err != nil {
 		return m, err
 	}
-
-	// Virtual links (typed wrapper)
-	m.ClassRoomVirtualLinks = model.JSONBVirtualLinks(r.ClassRoomVirtualLinks)
+	if err := setJSONFromAnySlice(&m.ClassRoomSchedule, r.ClassRoomSchedule); err != nil {
+		return m, err
+	}
+	if err := setJSONFromAnySlice(&m.ClassRoomNotes, r.ClassRoomNotes); err != nil {
+		return m, err
+	}
 
 	return m, nil
 }
@@ -125,12 +141,19 @@ type UpdateClassRoomRequest struct {
 	ClassRoomImageObjectKeyOld       *string    `json:"class_room_image_object_key_old" validate:"omitempty"`
 	ClassRoomImageDeletePendingUntil *time.Time `json:"class_room_image_delete_pending_until" validate:"omitempty"`
 
+	// ONLINE FIELDS
+	ClassRoomPlatform  *string `json:"class_room_platform" validate:"omitempty,oneof=zoom google_meet microsoft_teams other"`
+	ClassRoomJoinURL   *string `json:"class_room_join_url" validate:"omitempty,url"`
+	ClassRoomMeetingID *string `json:"class_room_meeting_id" validate:"omitempty"`
+	ClassRoomPasscode  *string `json:"class_room_passcode" validate:"omitempty"`
+
 	// JSONB ergonomis → pointer slice (nil=skip)
-	ClassRoomFeatures     *[]string               `json:"class_room_features" validate:"omitempty,dive,printascii"`
-	ClassRoomVirtualLinks *[]ClassRoomVirtualLink `json:"class_room_virtual_links" validate:"omitempty,dive"`
+	ClassRoomFeatures *[]string    `json:"class_room_features" validate:"omitempty,dive,printascii"`
+	ClassRoomSchedule *[]AnyObject `json:"class_room_schedule" validate:"omitempty,dive"`
+	ClassRoomNotes    *[]AnyObject `json:"class_room_notes" validate:"omitempty,dive"`
 
 	// Clear (set ke kosong/NULL sesuai kolom)
-	Clear []string `json:"__clear,omitempty" validate:"omitempty,dive,oneof=class_room_code class_room_slug class_room_location class_room_capacity class_room_description class_room_image_url class_room_image_object_key class_room_image_url_old class_room_image_object_key_old class_room_image_delete_pending_until class_room_features class_room_virtual_links"`
+	Clear []string `json:"__clear,omitempty" validate:"omitempty,dive,oneof=class_room_code class_room_slug class_room_location class_room_capacity class_room_description class_room_image_url class_room_image_object_key class_room_image_url_old class_room_image_object_key_old class_room_image_delete_pending_until class_room_platform class_room_join_url class_room_meeting_id class_room_passcode class_room_features class_room_schedule class_room_notes"`
 }
 
 // Mutasi in-place ke model
@@ -180,14 +203,35 @@ func (r UpdateClassRoomRequest) ApplyPatch(m *model.ClassRoomModel) error {
 		m.ClassRoomImageDeletePendingUntil = r.ClassRoomImageDeletePendingUntil
 	}
 
+	// Online fields
+	if r.ClassRoomPlatform != nil {
+		m.ClassRoomPlatform = r.ClassRoomPlatform
+	}
+	if r.ClassRoomJoinURL != nil {
+		m.ClassRoomJoinURL = r.ClassRoomJoinURL
+	}
+	if r.ClassRoomMeetingID != nil {
+		m.ClassRoomMeetingID = r.ClassRoomMeetingID
+	}
+	if r.ClassRoomPasscode != nil {
+		m.ClassRoomPasscode = r.ClassRoomPasscode
+	}
+
 	// JSONB
 	if r.ClassRoomFeatures != nil {
 		if err := setJSONFromStrings(&m.ClassRoomFeatures, *r.ClassRoomFeatures); err != nil {
 			return err
 		}
 	}
-	if r.ClassRoomVirtualLinks != nil {
-		m.ClassRoomVirtualLinks = model.JSONBVirtualLinks(*r.ClassRoomVirtualLinks)
+	if r.ClassRoomSchedule != nil {
+		if err := setJSONFromAnySlice(&m.ClassRoomSchedule, *r.ClassRoomSchedule); err != nil {
+			return err
+		}
+	}
+	if r.ClassRoomNotes != nil {
+		if err := setJSONFromAnySlice(&m.ClassRoomNotes, *r.ClassRoomNotes); err != nil {
+			return err
+		}
 	}
 
 	// Clear
@@ -208,17 +252,25 @@ func (r UpdateClassRoomRequest) ApplyPatch(m *model.ClassRoomModel) error {
 		case "class_room_image_object_key":
 			m.ClassRoomImageObjectKey = nil
 		case "class_room_image_url_old":
-			m.ClassRoomImageURLOld = nil
+			m.ClassRoomImageURLOld = nil // jika field berbeda nama, sesuaikan; di model: ClassRoomImageURLOld
 		case "class_room_image_object_key_old":
 			m.ClassRoomImageObjectKeyOld = nil
 		case "class_room_image_delete_pending_until":
 			m.ClassRoomImageDeletePendingUntil = nil
+		case "class_room_platform":
+			m.ClassRoomPlatform = nil
+		case "class_room_join_url":
+			m.ClassRoomJoinURL = nil
+		case "class_room_meeting_id":
+			m.ClassRoomMeetingID = nil
+		case "class_room_passcode":
+			m.ClassRoomPasscode = nil
 		case "class_room_features":
-			// kolom NOT NULL → set ke [] (bukan NULL)
 			m.ClassRoomFeatures = datatypes.JSON([]byte("[]"))
-		case "class_room_virtual_links":
-			// kolom NOT NULL → set ke [] (bukan NULL)
-			m.ClassRoomVirtualLinks = model.JSONBVirtualLinks{}
+		case "class_room_schedule":
+			m.ClassRoomSchedule = datatypes.JSON([]byte("[]"))
+		case "class_room_notes":
+			m.ClassRoomNotes = datatypes.JSON([]byte("[]"))
 		}
 	}
 
@@ -253,9 +305,16 @@ type ClassRoomResponse struct {
 	ClassRoomImageObjectKeyOld       *string    `json:"class_room_image_object_key_old,omitempty"`
 	ClassRoomImageDeletePendingUntil *time.Time `json:"class_room_image_delete_pending_until,omitempty"`
 
+	// Online
+	ClassRoomPlatform  *string `json:"class_room_platform,omitempty"`
+	ClassRoomJoinURL   *string `json:"class_room_join_url,omitempty"`
+	ClassRoomMeetingID *string `json:"class_room_meeting_id,omitempty"`
+	ClassRoomPasscode  *string `json:"class_room_passcode,omitempty"`
+
 	// JSONB, ergonomis
-	ClassRoomFeatures     []string               `json:"class_room_features"`
-	ClassRoomVirtualLinks []ClassRoomVirtualLink `json:"class_room_virtual_links"`
+	ClassRoomFeatures []string    `json:"class_room_features"`
+	ClassRoomSchedule []AnyObject `json:"class_room_schedule"`
+	ClassRoomNotes    []AnyObject `json:"class_room_notes"`
 
 	// Audit
 	ClassRoomCreatedAt string `json:"class_room_created_at"`
@@ -279,8 +338,13 @@ func ToClassRoomResponse(m model.ClassRoomModel) ClassRoomResponse {
 		ClassRoomImageURLOld:             m.ClassRoomImageURLOld,
 		ClassRoomImageObjectKeyOld:       m.ClassRoomImageObjectKeyOld,
 		ClassRoomImageDeletePendingUntil: m.ClassRoomImageDeletePendingUntil,
+		ClassRoomPlatform:                m.ClassRoomPlatform,
+		ClassRoomJoinURL:                 m.ClassRoomJoinURL,
+		ClassRoomMeetingID:               m.ClassRoomMeetingID,
+		ClassRoomPasscode:                m.ClassRoomPasscode,
 		ClassRoomFeatures:                mustStringsFromJSON(m.ClassRoomFeatures),
-		ClassRoomVirtualLinks:            []ClassRoomVirtualLink(m.ClassRoomVirtualLinks),
+		ClassRoomSchedule:                mustObjectsFromJSON(m.ClassRoomSchedule),
+		ClassRoomNotes:                   mustObjectsFromJSON(m.ClassRoomNotes),
 		ClassRoomCreatedAt:               m.ClassRoomCreatedAt.Format(time.RFC3339),
 		ClassRoomUpdatedAt:               m.ClassRoomUpdatedAt.Format(time.RFC3339),
 	}
@@ -290,7 +354,6 @@ func ToClassRoomResponse(m model.ClassRoomModel) ClassRoomResponse {
 // ========== helpers ==========
 //
 
-// setJSONFromStrings: []string → datatypes.JSON (default "[]")
 func setJSONFromStrings(dst *datatypes.JSON, arr []string) error {
 	if len(arr) == 0 {
 		*dst = datatypes.JSON([]byte("[]"))
@@ -304,7 +367,19 @@ func setJSONFromStrings(dst *datatypes.JSON, arr []string) error {
 	return nil
 }
 
-// mustStringsFromJSON: datatypes.JSON → []string (safe)
+func setJSONFromAnySlice(dst *datatypes.JSON, arr []AnyObject) error {
+	if len(arr) == 0 {
+		*dst = datatypes.JSON([]byte("[]"))
+		return nil
+	}
+	b, err := json.Marshal(arr)
+	if err != nil {
+		return err
+	}
+	*dst = datatypes.JSON(b)
+	return nil
+}
+
 func mustStringsFromJSON(j datatypes.JSON) []string {
 	if len(j) == 0 {
 		return []string{}
@@ -312,6 +387,17 @@ func mustStringsFromJSON(j datatypes.JSON) []string {
 	var out []string
 	if err := json.Unmarshal(j, &out); err != nil {
 		return []string{}
+	}
+	return out
+}
+
+func mustObjectsFromJSON(j datatypes.JSON) []AnyObject {
+	if len(j) == 0 {
+		return []AnyObject{}
+	}
+	var out []AnyObject
+	if err := json.Unmarshal(j, &out); err != nil {
+		return []AnyObject{}
 	}
 	return out
 }

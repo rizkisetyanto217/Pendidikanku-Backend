@@ -1,3 +1,4 @@
+// file: internals/features/school/classes/class_sections/dto/class_section_dto.go
 package dto
 
 import (
@@ -6,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gorm.io/datatypes"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -35,7 +38,6 @@ func (p *PatchFieldCS[T]) UnmarshalJSON(b []byte) error {
 	p.Value = &v
 	return nil
 }
-
 func (p PatchFieldCS[T]) Get() (*T, bool) { return p.Value, p.Present }
 
 /* =========================================================
@@ -70,7 +72,7 @@ type CSSTItemLite struct {
 }
 
 /* =========================================================
-   CREATE REQUEST (tanpa snapshot)
+   CREATE REQUEST (tanpa snapshot; + konfigurasi CSST)
    ========================================================= */
 
 type ClassSectionCreateRequest struct {
@@ -99,6 +101,16 @@ type ClassSectionCreateRequest struct {
 
 	// Status
 	ClassSectionIsActive *bool `json:"class_section_is_active" form:"class_section_is_active"`
+
+	// ========== Konfigurasi CSST (baru) ==========
+	// enum string: "self_select" | "assigned" | "hybrid"
+	ClassSectionCSSTEnrollmentMode        *string    `json:"class_section_csst_enrollment_mode" form:"class_section_csst_enrollment_mode"`
+	ClassSectionCSSTRequiresApproval      *bool      `json:"class_section_csst_self_select_requires_approval" form:"class_section_csst_self_select_requires_approval"`
+	ClassSectionCSSTMaxSubjectsPerStudent *int       `json:"class_section_csst_max_subjects_per_student" form:"class_section_csst_max_subjects_per_student"`
+	ClassSectionCSSTSwitchDeadline        *time.Time `json:"class_section_csst_switch_deadline" form:"class_section_csst_switch_deadline"`
+
+	// JSON object, contoh: {"allow_chat":true}
+	ClassSectionFeatures *json.RawMessage `json:"class_section_features" form:"class_section_features"`
 }
 
 func (r *ClassSectionCreateRequest) Normalize() {
@@ -124,6 +136,11 @@ func (r *ClassSectionCreateRequest) Normalize() {
 	trimPtr(&r.ClassSectionGroupURL, false)
 	trimPtr(&r.ClassSectionImageURL, false)
 	trimPtr(&r.ClassSectionImageObjectKey, false)
+
+	if r.ClassSectionCSSTEnrollmentMode != nil {
+		v := strings.ToLower(strings.TrimSpace(*r.ClassSectionCSSTEnrollmentMode))
+		r.ClassSectionCSSTEnrollmentMode = &v
+	}
 }
 
 func (r ClassSectionCreateRequest) ToModel() *m.ClassSectionModel {
@@ -158,11 +175,38 @@ func (r ClassSectionCreateRequest) ToModel() *m.ClassSectionModel {
 	if r.ClassSectionTotalStudents != nil {
 		cs.ClassSectionTotalStudents = *r.ClassSectionTotalStudents
 	}
+
+	// Konfigurasi CSST
+	if r.ClassSectionCSSTEnrollmentMode != nil {
+		switch strings.ToLower(*r.ClassSectionCSSTEnrollmentMode) {
+		case "self_select":
+			cs.ClassSectionCSSTEnrollmentMode = m.CSSTEnrollSelfSelect
+		case "assigned":
+			cs.ClassSectionCSSTEnrollmentMode = m.CSSTEnrollAssigned
+		case "hybrid":
+			cs.ClassSectionCSSTEnrollmentMode = m.CSSTEnrollHybrid
+		}
+	}
+	if r.ClassSectionCSSTRequiresApproval != nil {
+		cs.ClassSectionCSSTSelfSelectRequiresApproval = *r.ClassSectionCSSTRequiresApproval
+	}
+	if r.ClassSectionCSSTMaxSubjectsPerStudent != nil {
+		cs.ClassSectionCSSTMaxSubjectsPerStudent = r.ClassSectionCSSTMaxSubjectsPerStudent
+	}
+	if r.ClassSectionCSSTSwitchDeadline != nil {
+		cs.ClassSectionCSSTSwitchDeadline = r.ClassSectionCSSTSwitchDeadline
+	}
+	if r.ClassSectionFeatures != nil && len(*r.ClassSectionFeatures) > 0 {
+		var tmp any
+		if err := json.Unmarshal(*r.ClassSectionFeatures, &tmp); err == nil {
+			cs.ClassSectionFeatures = datatypes.JSON(*r.ClassSectionFeatures) // <-- konversi
+		}
+	}
 	return cs
 }
 
 /* =========================================================
-   RESPONSE (read-only snapshots + CSST LITE)
+   RESPONSE (read-only snapshots + CSST LITE + counts/settings)
    ========================================================= */
 
 type ClassSectionResponse struct {
@@ -188,7 +232,7 @@ type ClassSectionResponse struct {
 
 	ClassSectionGroupURL *string `json:"class_section_group_url"`
 
-	// Image (editable)
+	// Image
 	ClassSectionImageURL                *string    `json:"class_section_image_url"`
 	ClassSectionImageObjectKey          *string    `json:"class_section_image_object_key"`
 	ClassSectionImageURLOld             *string    `json:"class_section_image_url_old"`
@@ -201,61 +245,68 @@ type ClassSectionResponse struct {
 	ClassSectionUpdatedAt time.Time  `json:"class_section_updated_at"`
 	ClassSectionDeletedAt *time.Time `json:"class_section_deleted_at,omitempty"`
 
-	// ================== SNAPSHOTS (READ-ONLY) ==================
+	// ================== SNAPSHOTS (READ-ONLY via *_snap) ==================
+	ClassSectionClassSlugSnap *string `json:"class_section_class_slug_snap,omitempty"`
 
-	// class & parent/teacher/leader
-	ClassSectionClassSlugSnapshot *string `json:"class_section_class_slug_snapshot,omitempty"`
+	// Parent
+	ClassSectionParentNameSnap  *string `json:"class_section_parent_name_snap,omitempty"`
+	ClassSectionParentCodeSnap  *string `json:"class_section_parent_code_snap,omitempty"`
+	ClassSectionParentSlugSnap  *string `json:"class_section_parent_slug_snap,omitempty"`
+	ClassSectionParentLevelSnap *string `json:"class_section_parent_level_snap,omitempty"`
 
-	// Parent snapshots (lengkap)
-	ClassSectionParentNameSnapshot  *string `json:"class_section_parent_name_snapshot,omitempty"`
-	ClassSectionParentCodeSnapshot  *string `json:"class_section_parent_code_snapshot,omitempty"`
-	ClassSectionParentSlugSnapshot  *string `json:"class_section_parent_slug_snapshot,omitempty"`
-	ClassSectionParentLevelSnapshot *string `json:"class_section_parent_level_snapshot,omitempty"`
-	ClassSectionParentURLSnapshot   *string `json:"class_section_parent_url_snapshot,omitempty"`
+	// People
+	ClassSectionTeacherNameSnap          *string `json:"class_section_teacher_name_snap,omitempty"`
+	ClassSectionAssistantTeacherNameSnap *string `json:"class_section_assistant_teacher_name_snap,omitempty"`
+	ClassSectionLeaderStudentNameSnap    *string `json:"class_section_leader_student_name_snap,omitempty"`
 
-	ClassSectionTeacherNameSnapshot          *string `json:"class_section_teacher_name_snapshot,omitempty"`
-	ClassSectionAssistantTeacherNameSnapshot *string `json:"class_section_assistant_teacher_name_snapshot,omitempty"`
-	ClassSectionLeaderStudentNameSnapshot    *string `json:"class_section_leader_student_name_snapshot,omitempty"`
+	// Room
+	ClassSectionRoomNameSnap     *string `json:"class_section_room_name_snap,omitempty"`
+	ClassSectionRoomSlugSnap     *string `json:"class_section_room_slug_snap,omitempty"`
+	ClassSectionRoomLocationSnap *string `json:"class_section_room_location_snap,omitempty"`
 
-	// kontak (snapshot)
-	ClassSectionTeacherContactPhoneSnapshot          *string `json:"class_section_teacher_contact_phone_snapshot,omitempty"`
-	ClassSectionAssistantTeacherContactPhoneSnapshot *string `json:"class_section_assistant_teacher_contact_phone_snapshot,omitempty"`
-	ClassSectionLeaderStudentContactPhoneSnapshot    *string `json:"class_section_leader_student_contact_phone_snapshot,omitempty"`
-
-	// avatar (snapshot baru)
-	ClassSectionTeacherAvatarURLSnapshot          *string `json:"class_section_teacher_avatar_url_snapshot,omitempty"`
-	ClassSectionAssistantTeacherAvatarURLSnapshot *string `json:"class_section_assistant_teacher_avatar_url_snapshot,omitempty"`
-
-	// ROOM snapshots
-	ClassSectionRoomNameSnapshot     *string `json:"class_section_room_name_snapshot,omitempty"`
-	ClassSectionRoomSlugSnapshot     *string `json:"class_section_room_slug_snapshot,omitempty"`
-	ClassSectionRoomLocationSnapshot *string `json:"class_section_room_location_snapshot,omitempty"`
+	// TERM
+	ClassSectionTermID        *uuid.UUID `json:"class_section_term_id,omitempty"`
+	ClassSectionTermNameSnap  *string    `json:"class_section_term_name_snap,omitempty"`
+	ClassSectionTermSlugSnap  *string    `json:"class_section_term_slug_snap,omitempty"`
+	ClassSectionTermYearLabel *string    `json:"class_section_term_year_label_snap,omitempty"`
 
 	// housekeeping snapshot
 	ClassSectionSnapshotUpdatedAt *time.Time `json:"class_section_snapshot_updated_at,omitempty"`
 
-	// TERM (lean snapshots)
-	ClassSectionTermID                *uuid.UUID `json:"class_section_term_id,omitempty"`
-	ClassSectionTermNameSnapshot      *string    `json:"class_section_term_name_snapshot,omitempty"`
-	ClassSectionTermSlugSnapshot      *string    `json:"class_section_term_slug_snapshot,omitempty"`
-	ClassSectionTermYearLabelSnapshot *string    `json:"class_section_term_year_label_snapshot,omitempty"`
+	// ============== CSST LITE & COUNTS ============
+	ClassSectionsCSST            []CSSTItemLite `json:"class_sections_csst"`
+	ClassSectionsCSSTCount       int            `json:"class_sections_csst_count"`
+	ClassSectionsCSSTActiveCount int            `json:"class_sections_csst_active_count"`
 
-	// ============== CSST LITE (cache untuk listing) ============
-	ClassSectionsCSST []CSSTItemLite `json:"class_sections_csst"`
+	// ============== CSST SETTINGS (echo) ==========
+	ClassSectionCSSTEnrollmentMode             string     `json:"class_section_csst_enrollment_mode"`
+	ClassSectionCSSTSelfSelectRequiresApproval bool       `json:"class_section_csst_self_select_requires_approval"`
+	ClassSectionCSSTMaxSubjectsPerStudent      *int       `json:"class_section_csst_max_subjects_per_student,omitempty"`
+	ClassSectionCSSTSwitchDeadline             *time.Time `json:"class_section_csst_switch_deadline,omitempty"`
+
+	// features (JSON object)
+	ClassSectionFeatures json.RawMessage `json:"class_section_features"`
 }
 
 func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 	var deletedAt *time.Time
-	// Catatan: model kamu menggunakan sql.NullTime; sesuaikan aksesnya:
 	if cs.ClassSectionDeletedAt.Valid {
 		t := cs.ClassSectionDeletedAt.Time
 		deletedAt = &t
 	}
 
-	// Unmarshal CSST lite dari JSONB; jika gagal, fallback ke [] (bukan error)
+	// Unmarshal CSST lite dari JSONB (ignore error, fallback [])
 	var csstLite []CSSTItemLite
 	if len(cs.ClassSectionsCSST) > 0 {
 		_ = json.Unmarshal(cs.ClassSectionsCSST, &csstLite)
+	}
+
+	// features JSON
+	var features json.RawMessage
+	if len(cs.ClassSectionFeatures) > 0 {
+		features = json.RawMessage(cs.ClassSectionFeatures) // <-- konversi balik
+	} else {
+		features = json.RawMessage(`{}`)
 	}
 
 	return ClassSectionResponse{
@@ -293,53 +344,46 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 		ClassSectionDeletedAt: deletedAt,
 
 		// snapshots (read-only)
-		ClassSectionClassSlugSnapshot: cs.ClassSectionClassSlugSnapshot,
+		ClassSectionClassSlugSnap: cs.ClassSectionClassSlugSnap,
 
-		// parent (lengkap)
-		ClassSectionParentNameSnapshot:  cs.ClassSectionParentNameSnapshot,
-		ClassSectionParentCodeSnapshot:  cs.ClassSectionParentCodeSnapshot,
-		ClassSectionParentSlugSnapshot:  cs.ClassSectionParentSlugSnapshot,
-		ClassSectionParentLevelSnapshot: cs.ClassSectionParentLevelSnapshot,
-		ClassSectionParentURLSnapshot:   cs.ClassSectionParentURLSnapshot,
+		ClassSectionParentNameSnap:  cs.ClassSectionParentNameSnap,
+		ClassSectionParentCodeSnap:  cs.ClassSectionParentCodeSnap,
+		ClassSectionParentSlugSnap:  cs.ClassSectionParentSlugSnap,
+		ClassSectionParentLevelSnap: cs.ClassSectionParentLevelSnap,
 
-		// nama orang
-		ClassSectionTeacherNameSnapshot:          cs.ClassSectionTeacherNameSnapshot,
-		ClassSectionAssistantTeacherNameSnapshot: cs.ClassSectionAssistantTeacherNameSnapshot,
-		ClassSectionLeaderStudentNameSnapshot:    cs.ClassSectionLeaderStudentNameSnapshot,
+		ClassSectionTeacherNameSnap:          cs.ClassSectionTeacherNameSnap,
+		ClassSectionAssistantTeacherNameSnap: cs.ClassSectionAssistantTeacherNameSnap,
+		ClassSectionLeaderStudentNameSnap:    cs.ClassSectionLeaderStudentNameSnap,
 
-		// avatar
-		ClassSectionTeacherAvatarURLSnapshot:          cs.ClassSectionTeacherAvatarURLSnapshot,
-		ClassSectionAssistantTeacherAvatarURLSnapshot: cs.ClassSectionAssistantTeacherAvatarURLSnapshot,
+		ClassSectionRoomNameSnap:     cs.ClassSectionRoomNameSnap,
+		ClassSectionRoomSlugSnap:     cs.ClassSectionRoomSlugSnap,
+		ClassSectionRoomLocationSnap: cs.ClassSectionRoomLocationSnap,
 
-		// kontak
-		ClassSectionTeacherContactPhoneSnapshot:          cs.ClassSectionTeacherContactPhoneSnapshot,
-		ClassSectionAssistantTeacherContactPhoneSnapshot: cs.ClassSectionAssistantTeacherContactPhoneSnapshot,
-		ClassSectionLeaderStudentContactPhoneSnapshot:    cs.ClassSectionLeaderStudentContactPhoneSnapshot,
+		ClassSectionTermID:        cs.ClassSectionTermID,
+		ClassSectionTermNameSnap:  cs.ClassSectionTermNameSnap,
+		ClassSectionTermSlugSnap:  cs.ClassSectionTermSlugSnap,
+		ClassSectionTermYearLabel: cs.ClassSectionTermYearLabel,
 
-		// room
-		ClassSectionRoomNameSnapshot:     cs.ClassSectionRoomNameSnapshot,
-		ClassSectionRoomSlugSnapshot:     cs.ClassSectionRoomSlugSnapshot,
-		ClassSectionRoomLocationSnapshot: cs.ClassSectionRoomLocationSnapshot,
-
-		// housekeeping
 		ClassSectionSnapshotUpdatedAt: cs.ClassSectionSnapshotUpdatedAt,
 
-		// term
-		ClassSectionTermID:                cs.ClassSectionTermID,
-		ClassSectionTermNameSnapshot:      cs.ClassSectionTermNameSnapshot,
-		ClassSectionTermSlugSnapshot:      cs.ClassSectionTermSlugSnapshot,
-		ClassSectionTermYearLabelSnapshot: cs.ClassSectionTermYearLabelSnapshot,
+		// CSST lite & counts
+		ClassSectionsCSST:            csstLite,
+		ClassSectionsCSSTCount:       cs.ClassSectionsCSSTCount,
+		ClassSectionsCSSTActiveCount: cs.ClassSectionsCSSTActiveCount,
 
-		// csst lite
-		ClassSectionsCSST: csstLite,
+		// CSST settings
+		ClassSectionCSSTEnrollmentMode:             cs.ClassSectionCSSTEnrollmentMode.String(),
+		ClassSectionCSSTSelfSelectRequiresApproval: cs.ClassSectionCSSTSelfSelectRequiresApproval,
+		ClassSectionCSSTMaxSubjectsPerStudent:      cs.ClassSectionCSSTMaxSubjectsPerStudent,
+		ClassSectionCSSTSwitchDeadline:             cs.ClassSectionCSSTSwitchDeadline,
+
+		// features
+		ClassSectionFeatures: features,
 	}
 }
 
 /* =========================================================
-   PATCH REQUEST (tri-state via PatchFieldCS[T])
-   - Present=true, Value=nil  -> set NULL (untuk kolom pointer)
-   - Present=true, Value=val  -> set val
-   - Present=false            -> skip
+   PATCH REQUEST (tri-state) — tambah CSST settings & deadline
 ========================================================= */
 
 type ClassSectionPatchRequest struct {
@@ -360,12 +404,19 @@ type ClassSectionPatchRequest struct {
 
 	ClassSectionGroupURL PatchFieldCS[string] `json:"class_section_group_url"`
 
-	// Image meta (biasanya di-set via upload; tetap disediakan untuk konsistensi)
+	// Image meta
 	ClassSectionImageURL       PatchFieldCS[string] `json:"class_section_image_url"`
 	ClassSectionImageObjectKey PatchFieldCS[string] `json:"class_section_image_object_key"`
 
 	// Status
 	ClassSectionIsActive PatchFieldCS[bool] `json:"class_section_is_active"`
+
+	// ====== CSST settings ======
+	ClassSectionCSSTEnrollmentMode             PatchFieldCS[string]          `json:"class_section_csst_enrollment_mode"`               // "self_select"|"assigned"|"hybrid"
+	ClassSectionCSSTSelfSelectRequiresApproval PatchFieldCS[bool]            `json:"class_section_csst_self_select_requires_approval"` // true/false
+	ClassSectionCSSTMaxSubjectsPerStudent      PatchFieldCS[int]             `json:"class_section_csst_max_subjects_per_student"`
+	ClassSectionCSSTSwitchDeadline             PatchFieldCS[time.Time]       `json:"class_section_csst_switch_deadline"`
+	ClassSectionFeatures                       PatchFieldCS[json.RawMessage] `json:"class_section_features"` // JSON object
 }
 
 /* =========================================================
@@ -373,7 +424,7 @@ type ClassSectionPatchRequest struct {
 ========================================================= */
 
 func (r *ClassSectionPatchRequest) Apply(cs *m.ClassSectionModel) {
-	// Helper setter untuk pointer kolom
+	// Helpers
 	setUUIDPtr := func(f PatchFieldCS[uuid.UUID], dst **uuid.UUID) {
 		if !f.Present {
 			return
@@ -434,13 +485,13 @@ func (r *ClassSectionPatchRequest) Apply(cs *m.ClassSectionModel) {
 	setStrPtr(r.ClassSectionSchedule, &cs.ClassSectionSchedule, false)
 	setStrPtr(r.ClassSectionGroupURL, &cs.ClassSectionGroupURL, false)
 
-	// Kapasitas & total students (pointer & non-pointer)
+	// Kapasitas & total students
 	setIntPtr(r.ClassSectionCapacity, &cs.ClassSectionCapacity)
 	if r.ClassSectionTotalStudents.Present && r.ClassSectionTotalStudents.Value != nil {
 		cs.ClassSectionTotalStudents = *r.ClassSectionTotalStudents.Value
 	}
 
-	// Image meta optional
+	// Image meta
 	setStrPtr(r.ClassSectionImageURL, &cs.ClassSectionImageURL, false)
 	setStrPtr(r.ClassSectionImageObjectKey, &cs.ClassSectionImageObjectKey, false)
 
@@ -448,12 +499,51 @@ func (r *ClassSectionPatchRequest) Apply(cs *m.ClassSectionModel) {
 	if r.ClassSectionIsActive.Present && r.ClassSectionIsActive.Value != nil {
 		cs.ClassSectionIsActive = *r.ClassSectionIsActive.Value
 	}
+
+	// ====== CSST settings ======
+	if r.ClassSectionCSSTEnrollmentMode.Present {
+		if r.ClassSectionCSSTEnrollmentMode.Value == nil {
+			// kosongkan → pakai default DB (biarkan apa adanya di DB)
+		} else {
+			switch strings.ToLower(strings.TrimSpace(*r.ClassSectionCSSTEnrollmentMode.Value)) {
+			case "self_select":
+				cs.ClassSectionCSSTEnrollmentMode = m.CSSTEnrollSelfSelect
+			case "assigned":
+				cs.ClassSectionCSSTEnrollmentMode = m.CSSTEnrollAssigned
+			case "hybrid":
+				cs.ClassSectionCSSTEnrollmentMode = m.CSSTEnrollHybrid
+			}
+		}
+	}
+	if r.ClassSectionCSSTSelfSelectRequiresApproval.Present && r.ClassSectionCSSTSelfSelectRequiresApproval.Value != nil {
+		cs.ClassSectionCSSTSelfSelectRequiresApproval = *r.ClassSectionCSSTSelfSelectRequiresApproval.Value
+	}
+	if r.ClassSectionCSSTMaxSubjectsPerStudent.Present {
+		setIntPtr(r.ClassSectionCSSTMaxSubjectsPerStudent, &cs.ClassSectionCSSTMaxSubjectsPerStudent)
+	}
+	if r.ClassSectionCSSTSwitchDeadline.Present {
+		if r.ClassSectionCSSTSwitchDeadline.Value == nil {
+			cs.ClassSectionCSSTSwitchDeadline = nil
+		} else {
+			t := *r.ClassSectionCSSTSwitchDeadline.Value
+			cs.ClassSectionCSSTSwitchDeadline = &t
+		}
+	}
+	if r.ClassSectionFeatures.Present {
+		if r.ClassSectionFeatures.Value == nil || len(*r.ClassSectionFeatures.Value) == 0 {
+			cs.ClassSectionFeatures = datatypes.JSON([]byte(`{}`)) // <-- kosong: object {}
+		} else {
+			var tmp any
+			if err := json.Unmarshal(*r.ClassSectionFeatures.Value, &tmp); err == nil {
+				cs.ClassSectionFeatures = datatypes.JSON(*r.ClassSectionFeatures.Value) // <-- set nilai baru
+			}
+		}
+	}
+
 }
 
 /* =========================================================
-   Decoder: JSON or multipart/form-data
-   - multipart hanya mengisi field yang ada di form
-   - JSON pakai BodyParser standar (PatchFieldCS via UnmarshalJSON)
+   Decoder PATCH: JSON or multipart/form-data
 ========================================================= */
 
 func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequest) error {
@@ -466,11 +556,10 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 		return nil
 
 	case strings.HasPrefix(ct, "multipart/form-data"):
-		// Helper untuk tandai present + isi value
 		markUUID := func(key string, pf *PatchFieldCS[uuid.UUID]) {
-			if v := strings.TrimSpace(c.FormValue(key)); v != "" {
+			if v := strings.TrimSpace(c.FormValue(key)); v != "" || formHasKey(c, key) {
 				pf.Present = true
-				if strings.EqualFold(v, "null") {
+				if strings.EqualFold(v, "null") || v == "" {
 					pf.Value = nil
 					return
 				}
@@ -478,7 +567,7 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 					val := id
 					pf.Value = &val
 				} else {
-					pf.Value = nil // biar ketangkap validasi di controller bila perlu
+					pf.Value = nil
 				}
 			}
 		}
@@ -496,13 +585,12 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 		markInt := func(key string, pf *PatchFieldCS[int]) {
 			if v := c.FormValue(key); v != "" || formHasKey(c, key) {
 				pf.Present = true
-				if strings.EqualFold(strings.TrimSpace(v), "null") {
+				if strings.EqualFold(strings.TrimSpace(v), "null") || strings.TrimSpace(v) == "" {
 					pf.Value = nil
 					return
 				}
 				iv, err := strconv.Atoi(strings.TrimSpace(v))
 				if err != nil {
-					// tetap tandai present, biar controller bisa balas 400 jika mau
 					pf.Value = nil
 					return
 				}
@@ -512,17 +600,56 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 		markBool := func(key string, pf *PatchFieldCS[bool]) {
 			if v := c.FormValue(key); v != "" || formHasKey(c, key) {
 				pf.Present = true
-				if strings.EqualFold(strings.TrimSpace(v), "null") {
+				if strings.EqualFold(strings.TrimSpace(v), "null") || strings.TrimSpace(v) == "" {
 					pf.Value = nil
 					return
 				}
 				lv := strings.ToLower(strings.TrimSpace(v))
-				b := lv == "1" || lv == "true" || lv == "ya" || lv == "yes"
+				b := lv == "1" || lv == "true" || lv == "on" || lv == "yes" || lv == "y"
 				pf.Value = &b
 			}
 		}
+		markTime := func(key string, pf *PatchFieldCS[time.Time]) error {
+			if v := c.FormValue(key); v != "" || formHasKey(c, key) {
+				pf.Present = true
+				s := strings.TrimSpace(v)
+				if s == "" || strings.EqualFold(s, "null") {
+					pf.Value = nil
+					return nil
+				}
+				// RFC3339 atau YYYY-MM-DD
+				if t, e := time.Parse(time.RFC3339, s); e == nil {
+					pf.Value = &t
+					return nil
+				}
+				if t, e := time.Parse("2006-01-02", s); e == nil {
+					pf.Value = &t
+					return nil
+				}
+				return fiber.NewError(fiber.StatusBadRequest, key+" format invalid (pakai RFC3339 atau YYYY-MM-DD)")
+			}
+			return nil
+		}
+		markJSON := func(key string, pf *PatchFieldCS[json.RawMessage]) error {
+			if v := c.FormValue(key); v != "" || formHasKey(c, key) {
+				pf.Present = true
+				s := strings.TrimSpace(v)
+				if s == "" || strings.EqualFold(s, "null") {
+					pf.Value = nil
+					return nil
+				}
+				// validasi json object/array apapun
+				var tmp any
+				if err := json.Unmarshal([]byte(s), &tmp); err != nil {
+					return fiber.NewError(fiber.StatusBadRequest, key+" harus JSON valid")
+				}
+				raw := json.RawMessage(s)
+				pf.Value = &raw
+			}
+			return nil
+		}
 
-		// Map form fields -> patch fields (pakai nama JSON yang sama)
+		// Map form fields -> patch fields
 		markUUID("class_section_teacher_id", &dst.ClassSectionTeacherID)
 		markUUID("class_section_assistant_teacher_id", &dst.ClassSectionAssistantTeacherID)
 		markUUID("class_section_class_room_id", &dst.ClassSectionClassRoomID)
@@ -541,6 +668,17 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 		markStr("class_section_image_object_key", &dst.ClassSectionImageObjectKey)
 
 		markBool("class_section_is_active", &dst.ClassSectionIsActive)
+
+		// CSST settings
+		markStr("class_section_csst_enrollment_mode", &dst.ClassSectionCSSTEnrollmentMode)
+		markBool("class_section_csst_self_select_requires_approval", &dst.ClassSectionCSSTSelfSelectRequiresApproval)
+		markInt("class_section_csst_max_subjects_per_student", &dst.ClassSectionCSSTMaxSubjectsPerStudent)
+		if err := markTime("class_section_csst_switch_deadline", &dst.ClassSectionCSSTSwitchDeadline); err != nil {
+			return err
+		}
+		if err := markJSON("class_section_features", &dst.ClassSectionFeatures); err != nil {
+			return err
+		}
 
 		return nil
 
@@ -561,4 +699,60 @@ func formHasKey(c *fiber.Ctx, key string) bool {
 	}
 	_, ok := form.Value[key]
 	return ok
+}
+
+/*
+Dipakai oleh controller:
+- ClassSectionJoinRequest (Normalize, Validate)
+- JoinRole + konstanta JoinRoleStudent / JoinRoleTeacher
+- ClassSectionJoinResponse (memuat UserClassSectionResp dari DTO lain)
+*/
+
+// Peran saat join
+type JoinRole string
+
+const (
+	JoinRoleStudent JoinRole = "student"
+	JoinRoleTeacher JoinRole = "teacher"
+)
+
+// Request body untuk join section dengan kode
+type ClassSectionJoinRequest struct {
+	Code string   `json:"code"` // kode yang dimasukkan user
+	Role JoinRole `json:"role"` // "student" | "teacher"
+}
+
+// Normalisasi input: trim & lowercase
+func (r *ClassSectionJoinRequest) Normalize() {
+	r.Code = strings.TrimSpace(r.Code)
+	r.Role = JoinRole(strings.ToLower(strings.TrimSpace(string(r.Role))))
+}
+
+// Validasi nilai request
+func (r *ClassSectionJoinRequest) Validate() error {
+	if r.Code == "" {
+		return errors.New("code wajib diisi")
+	}
+	switch r.Role {
+	case JoinRoleStudent, JoinRoleTeacher:
+	default:
+		return errors.New("role harus 'student' atau 'teacher'")
+	}
+	return nil
+}
+
+// Response untuk endpoint join
+// - Jika role = student → kirim UserClassSection (hasil enrolment)
+// - Jika role = teacher → kirim info penempatan teacher/assistant
+type ClassSectionJoinResponse struct {
+	// Student join
+	UserClassSection *UserClassSectionResp `json:"user_class_section,omitempty"`
+
+	// Info section
+	ClassSectionID string `json:"class_section_id"`
+
+	// Teacher join
+	AssignedAs                     string `json:"assigned_as,omitempty"` // "teacher" | "assistant"
+	ClassSectionTeacherID          string `json:"class_section_teacher_id,omitempty"`
+	ClassSectionAssistantTeacherID string `json:"class_section_assistant_teacher_id,omitempty"`
 }
