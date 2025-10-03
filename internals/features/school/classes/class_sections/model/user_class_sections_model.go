@@ -43,6 +43,13 @@ type UserClassSection struct {
 	// Snapshot biaya (JSONB)
 	UserClassSectionFeeSnapshot datatypes.JSON `gorm:"type:jsonb;column:user_class_section_fee_snapshot" json:"user_class_section_fee_snapshot,omitempty"`
 
+	// Snapshot users_profile (per siswa saat enrol ke section)
+	UserClassSectionUserProfileNameSnapshot                *string `gorm:"type:varchar(80);column:user_class_section_user_profile_name_snapshot" json:"user_class_section_user_profile_name_snapshot,omitempty"`
+	UserClassSectionUserProfileAvatarURLSnapshot          *string `gorm:"type:varchar(255);column:user_class_section_user_profile_avatar_url_snapshot" json:"user_class_section_user_profile_avatar_url_snapshot,omitempty"`
+	UserClassSectionUserProfileWhatsappURLSnapshot        *string `gorm:"type:varchar(50);column:user_class_section_user_profile_whatsapp_url_snapshot" json:"user_class_section_user_profile_whatsapp_url_snapshot,omitempty"`
+	UserClassSectionUserProfileParentNameSnapshot         *string `gorm:"type:varchar(80);column:user_class_section_user_profile_parent_name_snapshot" json:"user_class_section_user_profile_parent_name_snapshot,omitempty"`
+	UserClassSectionUserProfileParentWhatsappURLSnapshot  *string `gorm:"type:varchar(50);column:user_class_section_user_profile_parent_whatsapp_url_snapshot" json:"user_class_section_user_profile_parent_whatsapp_url_snapshot,omitempty"`
+
 	// Jejak waktu
 	UserClassSectionAssignedAt   time.Time  `gorm:"type:date;not null;default:current_date;column:user_class_section_assigned_at" json:"user_class_section_assigned_at"`
 	UserClassSectionUnassignedAt *time.Time `gorm:"type:date;column:user_class_section_unassigned_at" json:"user_class_section_unassigned_at,omitempty"`

@@ -110,7 +110,6 @@ func (ctl *UserClassSectionController) Patch(c *fiber.Ctx) error {
 }
 
 // ========== DELETE (soft) ==========
-// ========== DELETE (soft) ==========
 func (ctl *UserClassSectionController) Delete(c *fiber.Ctx) error {
 	rawID := strings.TrimSpace(c.Params("id"))
 	id, err := uuid.Parse(rawID)

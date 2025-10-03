@@ -1,8 +1,11 @@
+-- +migrate Up
 BEGIN;
 
--- safe to repeat
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- =========================================================
+-- EXTENSIONS (idempotent)
+-- =========================================================
+CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram (ILIKE & fuzzy)
 
 -- =========================================================
 -- TABEL: user_class_sections (gabungan enrolment + section)
@@ -29,6 +32,13 @@ CREATE TABLE IF NOT EXISTS user_class_sections (
 
   -- snapshot biaya saat masuk section (agar tetap konsisten walau aturan berubah)
   user_class_section_fee_snapshot JSONB,
+
+  -- Snapshot users_profile (per siswa saat enrol ke section)
+  user_class_section_user_profile_name_snapshot                VARCHAR(80),
+  user_class_section_user_profile_avatar_url_snapshot          VARCHAR(255),
+  user_class_section_user_profile_whatsapp_url_snapshot        VARCHAR(50),
+  user_class_section_user_profile_parent_name_snapshot         VARCHAR(80),
+  user_class_section_user_profile_parent_whatsapp_url_snapshot VARCHAR(50),
 
   -- jejak waktu enrolment
   user_class_section_assigned_at   DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -61,6 +71,7 @@ CREATE TABLE IF NOT EXISTS user_class_sections (
     ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
+
 -- =========================================================
 -- INDEXES
 -- =========================================================
@@ -80,6 +91,12 @@ CREATE INDEX IF NOT EXISTS ix_ucsec_tenant_status_created
   ON user_class_sections (user_class_section_masjid_id, user_class_section_status, user_class_section_created_at DESC)
   WHERE user_class_section_deleted_at IS NULL;
 
+-- JOIN cepat ke class_sections (komposit)
+CREATE INDEX IF NOT EXISTS idx_ucsec_section_masjid_alive
+  ON user_class_sections (user_class_section_section_id, user_class_section_masjid_id)
+  WHERE user_class_section_deleted_at IS NULL;
+
+-- lookup spesifik
 CREATE INDEX IF NOT EXISTS idx_ucsec_section_alive
   ON user_class_sections (user_class_section_section_id)
   WHERE user_class_section_deleted_at IS NULL;

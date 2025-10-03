@@ -37,6 +37,17 @@ func isValidResult(r string) bool {
 	return false
 }
 
+func trimPtr(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	v := strings.TrimSpace(*s)
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
 /* =========================================================
    REQUEST: CREATE
 ========================================================= */
@@ -50,12 +61,20 @@ type UserClassSectionCreateReq struct {
 	UserClassSectionResult *string         `json:"user_class_section_result,omitempty"`
 	UserClassSectionFee    *datatypes.JSON `json:"user_class_section_fee_snapshot,omitempty"`
 
+	// Snapshot users_profile (opsional; dibekukan saat enrol)
+	UserClassSectionUserProfileNameSnapshot               *string `json:"user_class_section_user_profile_name_snapshot,omitempty"`
+	UserClassSectionUserProfileAvatarURLSnapshot         *string `json:"user_class_section_user_profile_avatar_url_snapshot,omitempty"`
+	UserClassSectionUserProfileWhatsappURLSnapshot       *string `json:"user_class_section_user_profile_whatsapp_url_snapshot,omitempty"`
+	UserClassSectionUserProfileParentNameSnapshot        *string `json:"user_class_section_user_profile_parent_name_snapshot,omitempty"`
+	UserClassSectionUserProfileParentWhatsappURLSnapshot *string `json:"user_class_section_user_profile_parent_whatsapp_url_snapshot,omitempty"`
+
 	UserClassSectionAssignedAt   *time.Time `json:"user_class_section_assigned_at,omitempty"`
 	UserClassSectionUnassignedAt *time.Time `json:"user_class_section_unassigned_at,omitempty"`
 	UserClassSectionCompletedAt  *time.Time `json:"user_class_section_completed_at,omitempty"`
 }
 
 func (r *UserClassSectionCreateReq) Normalize() {
+	// status & result
 	if r.UserClassSectionStatus == "" {
 		r.UserClassSectionStatus = string(model.UserClassSectionActive)
 	}
@@ -69,6 +88,13 @@ func (r *UserClassSectionCreateReq) Normalize() {
 			r.UserClassSectionResult = &res
 		}
 	}
+
+	// snapshots → trim whitespace; kosong → nil
+	r.UserClassSectionUserProfileNameSnapshot = trimPtr(r.UserClassSectionUserProfileNameSnapshot)
+	r.UserClassSectionUserProfileAvatarURLSnapshot = trimPtr(r.UserClassSectionUserProfileAvatarURLSnapshot)
+	r.UserClassSectionUserProfileWhatsappURLSnapshot = trimPtr(r.UserClassSectionUserProfileWhatsappURLSnapshot)
+	r.UserClassSectionUserProfileParentNameSnapshot = trimPtr(r.UserClassSectionUserProfileParentNameSnapshot)
+	r.UserClassSectionUserProfileParentWhatsappURLSnapshot = trimPtr(r.UserClassSectionUserProfileParentWhatsappURLSnapshot)
 }
 
 func (r *UserClassSectionCreateReq) Validate() error {
@@ -127,9 +153,9 @@ func (r *UserClassSectionCreateReq) ToModel() *model.UserClassSection {
 		UserClassSectionSectionID:       r.UserClassSectionSectionID,
 		UserClassSectionMasjidID:        r.UserClassSectionMasjidID,
 		UserClassSectionStatus:          model.UserClassSectionStatus(r.UserClassSectionStatus),
-
-		// kolom JSONB di SQL nullable; kalau tidak dikirim, biarkan NULL
+		// kolom JSONB nullable; kalau tidak dikirim, biarkan NULL
 	}
+
 	if r.UserClassSectionResult != nil {
 		res := model.UserClassSectionResult(*r.UserClassSectionResult)
 		m.UserClassSectionResult = &res
@@ -137,6 +163,15 @@ func (r *UserClassSectionCreateReq) ToModel() *model.UserClassSection {
 	if r.UserClassSectionFee != nil {
 		m.UserClassSectionFeeSnapshot = *r.UserClassSectionFee
 	}
+
+	// snapshots
+	m.UserClassSectionUserProfileNameSnapshot = r.UserClassSectionUserProfileNameSnapshot
+	m.UserClassSectionUserProfileAvatarURLSnapshot = r.UserClassSectionUserProfileAvatarURLSnapshot
+	m.UserClassSectionUserProfileWhatsappURLSnapshot = r.UserClassSectionUserProfileWhatsappURLSnapshot
+	m.UserClassSectionUserProfileParentNameSnapshot = r.UserClassSectionUserProfileParentNameSnapshot
+	m.UserClassSectionUserProfileParentWhatsappURLSnapshot = r.UserClassSectionUserProfileParentWhatsappURLSnapshot
+
+	// waktu
 	if r.UserClassSectionAssignedAt != nil {
 		m.UserClassSectionAssignedAt = *r.UserClassSectionAssignedAt
 	}
@@ -165,6 +200,13 @@ type UserClassSectionPatchReq struct {
 	UserClassSectionResult *PatchField[*string]         `json:"user_class_section_result,omitempty"`
 	UserClassSectionFee    *PatchField[*datatypes.JSON] `json:"user_class_section_fee_snapshot,omitempty"`
 
+	// Snapshot users_profile
+	UserClassSectionUserProfileNameSnapshot               *PatchField[*string] `json:"user_class_section_user_profile_name_snapshot,omitempty"`
+	UserClassSectionUserProfileAvatarURLSnapshot         *PatchField[*string] `json:"user_class_section_user_profile_avatar_url_snapshot,omitempty"`
+	UserClassSectionUserProfileWhatsappURLSnapshot       *PatchField[*string] `json:"user_class_section_user_profile_whatsapp_url_snapshot,omitempty"`
+	UserClassSectionUserProfileParentNameSnapshot        *PatchField[*string] `json:"user_class_section_user_profile_parent_name_snapshot,omitempty"`
+	UserClassSectionUserProfileParentWhatsappURLSnapshot *PatchField[*string] `json:"user_class_section_user_profile_parent_whatsapp_url_snapshot,omitempty"`
+
 	UserClassSectionAssignedAt   *PatchField[*time.Time] `json:"user_class_section_assigned_at,omitempty"`
 	UserClassSectionUnassignedAt *PatchField[*time.Time] `json:"user_class_section_unassigned_at,omitempty"`
 	UserClassSectionCompletedAt  *PatchField[*time.Time] `json:"user_class_section_completed_at,omitempty"`
@@ -181,6 +223,23 @@ func (r *UserClassSectionPatchReq) Normalize() {
 		} else {
 			r.UserClassSectionResult.Value = &res
 		}
+	}
+
+	// snapshots: trim; kosong → nil
+	if r.UserClassSectionUserProfileNameSnapshot != nil && r.UserClassSectionUserProfileNameSnapshot.Set {
+		r.UserClassSectionUserProfileNameSnapshot.Value = trimPtr(r.UserClassSectionUserProfileNameSnapshot.Value)
+	}
+	if r.UserClassSectionUserProfileAvatarURLSnapshot != nil && r.UserClassSectionUserProfileAvatarURLSnapshot.Set {
+		r.UserClassSectionUserProfileAvatarURLSnapshot.Value = trimPtr(r.UserClassSectionUserProfileAvatarURLSnapshot.Value)
+	}
+	if r.UserClassSectionUserProfileWhatsappURLSnapshot != nil && r.UserClassSectionUserProfileWhatsappURLSnapshot.Set {
+		r.UserClassSectionUserProfileWhatsappURLSnapshot.Value = trimPtr(r.UserClassSectionUserProfileWhatsappURLSnapshot.Value)
+	}
+	if r.UserClassSectionUserProfileParentNameSnapshot != nil && r.UserClassSectionUserProfileParentNameSnapshot.Set {
+		r.UserClassSectionUserProfileParentNameSnapshot.Value = trimPtr(r.UserClassSectionUserProfileParentNameSnapshot.Value)
+	}
+	if r.UserClassSectionUserProfileParentWhatsappURLSnapshot != nil && r.UserClassSectionUserProfileParentWhatsappURLSnapshot.Set {
+		r.UserClassSectionUserProfileParentWhatsappURLSnapshot.Value = trimPtr(r.UserClassSectionUserProfileParentWhatsappURLSnapshot.Value)
 	}
 }
 
@@ -264,6 +323,24 @@ func (r *UserClassSectionPatchReq) Apply(m *model.UserClassSection) {
 		}
 	}
 
+	// snapshots
+	if r.UserClassSectionUserProfileNameSnapshot != nil && r.UserClassSectionUserProfileNameSnapshot.Set {
+		m.UserClassSectionUserProfileNameSnapshot = r.UserClassSectionUserProfileNameSnapshot.Value
+	}
+	if r.UserClassSectionUserProfileAvatarURLSnapshot != nil && r.UserClassSectionUserProfileAvatarURLSnapshot.Set {
+		m.UserClassSectionUserProfileAvatarURLSnapshot = r.UserClassSectionUserProfileAvatarURLSnapshot.Value
+	}
+	if r.UserClassSectionUserProfileWhatsappURLSnapshot != nil && r.UserClassSectionUserProfileWhatsappURLSnapshot.Set {
+		m.UserClassSectionUserProfileWhatsappURLSnapshot = r.UserClassSectionUserProfileWhatsappURLSnapshot.Value
+	}
+	if r.UserClassSectionUserProfileParentNameSnapshot != nil && r.UserClassSectionUserProfileParentNameSnapshot.Set {
+		m.UserClassSectionUserProfileParentNameSnapshot = r.UserClassSectionUserProfileParentNameSnapshot.Value
+	}
+	if r.UserClassSectionUserProfileParentWhatsappURLSnapshot != nil && r.UserClassSectionUserProfileParentWhatsappURLSnapshot.Set {
+		m.UserClassSectionUserProfileParentWhatsappURLSnapshot = r.UserClassSectionUserProfileParentWhatsappURLSnapshot.Value
+	}
+
+	// waktu
 	if r.UserClassSectionAssignedAt != nil && r.UserClassSectionAssignedAt.Set && r.UserClassSectionAssignedAt.Value != nil {
 		m.UserClassSectionAssignedAt = *r.UserClassSectionAssignedAt.Value
 	}
@@ -289,6 +366,13 @@ type UserClassSectionResp struct {
 	UserClassSectionStatus string          `json:"user_class_section_status"`
 	UserClassSectionResult *string         `json:"user_class_section_result,omitempty"`
 	UserClassSectionFee    *datatypes.JSON `json:"user_class_section_fee_snapshot,omitempty"`
+
+	// Snapshot users_profile
+	UserClassSectionUserProfileNameSnapshot               *string `json:"user_class_section_user_profile_name_snapshot,omitempty"`
+	UserClassSectionUserProfileAvatarURLSnapshot         *string `json:"user_class_section_user_profile_avatar_url_snapshot,omitempty"`
+	UserClassSectionUserProfileWhatsappURLSnapshot       *string `json:"user_class_section_user_profile_whatsapp_url_snapshot,omitempty"`
+	UserClassSectionUserProfileParentNameSnapshot        *string `json:"user_class_section_user_profile_parent_name_snapshot,omitempty"`
+	UserClassSectionUserProfileParentWhatsappURLSnapshot *string `json:"user_class_section_user_profile_parent_whatsapp_url_snapshot,omitempty"`
 
 	UserClassSectionAssignedAt   time.Time  `json:"user_class_section_assigned_at"`
 	UserClassSectionUnassignedAt *time.Time `json:"user_class_section_unassigned_at,omitempty"`
@@ -327,6 +411,13 @@ func FromModel(m *model.UserClassSection) UserClassSectionResp {
 		UserClassSectionResult: res,
 		UserClassSectionFee:    feePtr,
 
+		// snapshots
+		UserClassSectionUserProfileNameSnapshot:               m.UserClassSectionUserProfileNameSnapshot,
+		UserClassSectionUserProfileAvatarURLSnapshot:         m.UserClassSectionUserProfileAvatarURLSnapshot,
+		UserClassSectionUserProfileWhatsappURLSnapshot:       m.UserClassSectionUserProfileWhatsappURLSnapshot,
+		UserClassSectionUserProfileParentNameSnapshot:        m.UserClassSectionUserProfileParentNameSnapshot,
+		UserClassSectionUserProfileParentWhatsappURLSnapshot: m.UserClassSectionUserProfileParentWhatsappURLSnapshot,
+
 		UserClassSectionAssignedAt:   m.UserClassSectionAssignedAt,
 		UserClassSectionUnassignedAt: m.UserClassSectionUnassignedAt,
 		UserClassSectionCompletedAt:  m.UserClassSectionCompletedAt,
@@ -336,5 +427,3 @@ func FromModel(m *model.UserClassSection) UserClassSectionResp {
 		UserClassSectionDeletedAt: delAt,
 	}
 }
-
-

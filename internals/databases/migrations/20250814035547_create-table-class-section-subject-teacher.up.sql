@@ -192,6 +192,14 @@ CREATE INDEX IF NOT EXISTS idx_csst_enrolled_count_alive
   WHERE class_section_subject_teacher_deleted_at IS NULL;
 
 
+-- +migrate Up
+BEGIN;
+
+-- =========================================================
+-- EXTENSIONS (idempotent)
+-- =========================================================
+CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram (ILIKE & fuzzy)
 
 -- =========================================================
 -- TABLE: user_class_section_subject_teachers (UC SST)
@@ -221,13 +229,22 @@ CREATE TABLE IF NOT EXISTS user_class_section_subject_teachers (
           OR user_class_section_subject_teacher_score_max_total IS NULL
           OR user_class_section_subject_teacher_score_max_total = 0
         THEN NULL
-        ELSE ROUND((user_class_section_subject_teacher_score_total
-                    / user_class_section_subject_teacher_score_max_total) * 100.0, 2)
+        ELSE ROUND(
+          (user_class_section_subject_teacher_score_total
+           / user_class_section_subject_teacher_score_max_total) * 100.0, 2
+        )
       END
     ) STORED,
   user_class_section_subject_teacher_grade_letter VARCHAR(8),
   user_class_section_subject_teacher_grade_point  NUMERIC(3,2),
   user_class_section_subject_teacher_is_passed    BOOLEAN,
+
+  -- Snapshot users_profile (per siswa saat enrol ke CSST)
+  user_class_section_subject_teacher_user_profile_name_snapshot                VARCHAR(80),
+  user_class_section_subject_teacher_user_profile_avatar_url_snapshot          VARCHAR(255),
+  user_class_section_subject_teacher_user_profile_whatsapp_url_snapshot        VARCHAR(50),
+  user_class_section_subject_teacher_user_profile_parent_name_snapshot         VARCHAR(80),
+  user_class_section_subject_teacher_user_profile_parent_whatsapp_url_snapshot VARCHAR(50),
 
   -- Riwayat intervensi/remedial (JSONB append-only)
   user_class_section_subject_teacher_edits_history JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -257,10 +274,13 @@ CREATE TABLE IF NOT EXISTS user_class_section_subject_teachers (
   CONSTRAINT fk_ucsst_csst_tenant FOREIGN KEY (
     user_class_section_subject_teacher_csst_id,
     user_class_section_subject_teacher_masjid_id
-  ) REFERENCES class_section_subject_teachers (class_section_subject_teacher_id,
-                                               class_section_subject_teacher_masjid_id)
+  ) REFERENCES class_section_subject_teachers (
+        class_section_subject_teacher_id,
+        class_section_subject_teacher_masjid_id
+      )
     ON UPDATE CASCADE ON DELETE RESTRICT
 );
+
 
 -- =========================================================
 -- INDEXES
@@ -312,7 +332,9 @@ CREATE INDEX IF NOT EXISTS idx_ucsst_active_alive
 CREATE INDEX IF NOT EXISTS brin_ucsst_created_at
   ON user_class_section_subject_teachers USING BRIN (user_class_section_subject_teacher_created_at);
 
--- GIN index optional untuk query di history JSONB
+-- GIN optional untuk query di history JSONB
 CREATE INDEX IF NOT EXISTS gin_ucsst_edits_history
   ON user_class_section_subject_teachers
   USING GIN (user_class_section_subject_teacher_edits_history jsonb_path_ops);
+
+COMMIT;
