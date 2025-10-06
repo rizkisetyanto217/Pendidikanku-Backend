@@ -70,3 +70,7 @@ Wedangjahe217312!
 
 # Seeding
 muhammadrizkisetyanto@MacBook-Air-Muhammad quizku % go run internals/seeds/cmd/main.go all      
+
+
+# Bila postman macet
+killall -9 Postman

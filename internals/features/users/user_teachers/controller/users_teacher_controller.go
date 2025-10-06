@@ -5,16 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"mime/multipart"
+	"strconv"
 	"strings"
 	"time"
 
+	masjidTeacherModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/model"
 	userdto "masjidku_backend/internals/features/users/user_teachers/dto"
 	"masjidku_backend/internals/features/users/user_teachers/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 	helperOSS "masjidku_backend/internals/helpers/oss"
-
-	mtModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/model"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -80,90 +82,261 @@ func EnsureOwnerOrAdminUserTeacher(c *fiber.Ctx, ut *model.UserTeacherModel) err
 	return nil // untuk sementara, tanpa auth check
 }
 
+func reqID(c *fiber.Ctx) string {
+	if v := c.Locals("reqid"); v != nil {
+		if s, ok := v.(string); ok && s != "" {
+			return s
+		}
+	}
+	return "-"
+}
+
+func ctIsMultipart(ct string) bool {
+	ct = strings.ToLower(strings.TrimSpace(ct))
+	return strings.HasPrefix(ct, "multipart/form-data") || strings.Contains(ct, "multipart/form-data")
+}
+
+// cari file avatar di beberapa nama field umum
+func pickAvatarFile(c *fiber.Ctx) (fh *multipart.FileHeader, which string) {
+	keys := []string{"avatar", "user_teacher_avatar", "user_teacher_avatar_url", "file"}
+	for _, k := range keys {
+		f, err := c.FormFile(k)
+		if err == nil && f != nil && f.Size > 0 {
+			return f, k
+		}
+	}
+	return nil, ""
+}
+
+// multipart TANPA payload: baca per-field manual (tanpa BodyParser)
+// - angka harus murni (tanpa komentar)
+// - JSON harus valid
+// - field time & slot-avatar lama diabaikan saat create
+// multipart TANPA payload: baca per-field manual (tanpa BodyParser)
+// - angka harus murni (tanpa komentar)
+// - JSON harus valid
+// - field time & slot-avatar lama diabaikan saat create
+func parseMultipartNoPayload(c *fiber.Ctx, rid string, req *userdto.CreateUserTeacherRequest) error {
+	get := func(k string) string { return strings.TrimSpace(c.FormValue(k)) }
+
+	// wajib
+	req.UserTeacherName = get("user_teacher_name")
+
+	// profil ringkas
+	req.UserTeacherField = get("user_teacher_field")
+	req.UserTeacherShortBio = get("user_teacher_short_bio")
+	req.UserTeacherLongBio = get("user_teacher_long_bio")
+	req.UserTeacherGreeting = get("user_teacher_greeting")
+	req.UserTeacherEducation = get("user_teacher_education")
+	req.UserTeacherActivity = get("user_teacher_activity")
+
+	// angka murni (tanpa koma/komen)
+	if s := get("user_teacher_experience_years"); s != "" {
+		n64, err := strconv.ParseInt(s, 10, 16)
+		if err != nil {
+			log.Printf("[user-teacher#create] reqid=%s invalid experience_years=%q: %v", rid, s, err)
+			return fmt.Errorf("user_teacher_experience_years harus angka 0..80 (tanpa komentar)")
+		}
+		n := int16(n64)
+		if n < 0 || n > 80 {
+			return fmt.Errorf("user_teacher_experience_years harus 0..80")
+		}
+		req.UserTeacherExperienceYears = &n
+	}
+
+	// demografis
+	req.UserTeacherGender = get("user_teacher_gender")
+	req.UserTeacherLocation = get("user_teacher_location")
+	req.UserTeacherCity = get("user_teacher_city")
+
+	// JSONB
+	if s := get("user_teacher_specialties"); s != "" {
+		if !json.Valid([]byte(s)) {
+			log.Printf("[user-teacher#create] reqid=%s specialties invalid json=%q", rid, s)
+			return fmt.Errorf("user_teacher_specialties harus JSON valid")
+		}
+		j := datatypes.JSON([]byte(s))
+		req.UserTeacherSpecialties = &j
+	}
+	if s := get("user_teacher_certificates"); s != "" {
+		if !json.Valid([]byte(s)) {
+			log.Printf("[user-teacher#create] reqid=%s certificates invalid json=%q", rid, s)
+			return fmt.Errorf("user_teacher_certificates harus JSON valid")
+		}
+		j := datatypes.JSON([]byte(s))
+		req.UserTeacherCertificates = &j
+	}
+
+	// sosial
+	req.UserTeacherInstagramURL = get("user_teacher_instagram_url")
+	req.UserTeacherWhatsappURL = get("user_teacher_whatsapp_url")
+	req.UserTeacherYoutubeURL = get("user_teacher_youtube_url")
+	req.UserTeacherLinkedinURL = get("user_teacher_linkedin_url")
+	req.UserTeacherGithubURL = get("user_teacher_github_url")
+	req.UserTeacherTelegramUsername = get("user_teacher_telegram_username")
+
+	// title
+	req.UserTeacherTitlePrefix = get("user_teacher_title_prefix")
+	req.UserTeacherTitleSuffix = get("user_teacher_title_suffix")
+
+	// flags
+	if s := get("user_teacher_is_verified"); s != "" {
+		b, err := strconv.ParseBool(s)
+		if err != nil {
+			log.Printf("[user-teacher#create] reqid=%s is_verified invalid=%q: %v", rid, s, err)
+			return fmt.Errorf("user_teacher_is_verified harus boolean (true/false)")
+		}
+		req.UserTeacherIsVerified = &b
+	}
+	if s := get("user_teacher_is_active"); s != "" {
+		b, err := strconv.ParseBool(s)
+		if err != nil {
+			log.Printf("[user-teacher#create] reqid=%s is_active invalid=%q: %v", rid, s, err)
+			return fmt.Errorf("user_teacher_is_active harus boolean (true/false)")
+		}
+		req.UserTeacherIsActive = &b
+	}
+
+	// ⚠️ avatar_*_old & delete_pending_until sengaja diabaikan saat CREATE
+	return nil
+}
+
 // ========================= CREATE =========================
 // POST /api/user-teachers
 // - multipart: file "avatar" + field "payload" (JSON CreateUserTeacherRequest)
 // - json: body langsung CreateUserTeacherRequest
+// ========================= CREATE =========================
+// POST /api/user-teachers
+// - multipart: file "avatar" + field "payload" (JSON CreateUserTeacherRequest)  ➜ rekomendasi
+// - multipart: per-field text (tanpa "payload"), angka murni & JSON valid        ➜ juga didukung
+// - json: body langsung CreateUserTeacherRequest
 func (uc *UserTeacherController) Create(c *fiber.Ctx) error {
-	var req userdto.CreateUserTeacherRequest
+	rid := reqID(c)
 	ct := strings.ToLower(strings.TrimSpace(c.Get(fiber.HeaderContentType)))
+	log.Printf("[user-teacher#create] reqid=%s start ct=%q", rid, ct)
 
-	// --- parse payload ---
-	if strings.HasPrefix(ct, "multipart/form-data") {
+	var req userdto.CreateUserTeacherRequest
+
+	// --- parsing payload ---
+	if ctIsMultipart(ct) {
 		if s := strings.TrimSpace(c.FormValue("payload")); s != "" {
+			log.Printf("[user-teacher#create] reqid=%s multipart with payload (len=%d)", rid, len(s))
 			if err := json.Unmarshal([]byte(s), &req); err != nil {
+				log.Printf("[user-teacher#create] reqid=%s payload json unmarshal error: %v", rid, err)
 				return helper.JsonError(c, fiber.StatusBadRequest, "payload JSON tidak valid")
 			}
 		} else {
-			if err := c.BodyParser(&req); err != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest, "payload tidak valid")
+			log.Printf("[user-teacher#create] reqid=%s multipart without payload → parse per-field", rid)
+			if err := parseMultipartNoPayload(c, rid, &req); err != nil {
+				log.Printf("[user-teacher#create] reqid=%s multipart per-field parse error: %v", rid, err)
+				return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 			}
 		}
 	} else {
 		if err := c.BodyParser(&req); err != nil {
+			log.Printf("[user-teacher#create] reqid=%s json body parse error: %v", rid, err)
 			return helper.JsonError(c, fiber.StatusBadRequest, "payload tidak valid")
 		}
 	}
 
-	// --- ambil user_id dari token ---
+	// --- user_id dari token (anti-spoof) ---
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
+		log.Printf("[user-teacher#create] reqid=%s auth error: %v", rid, err)
 		return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 	}
-	req.UserTeacherUserID = userID // override, biar ga bisa spoof
+	req.UserTeacherUserID = userID
+	log.Printf("[user-teacher#create] reqid=%s user_id=%s", rid, userID)
 
 	// --- validasi payload ---
 	if err := uc.Validate.Struct(req); err != nil {
+		log.Printf("[user-teacher#create] reqid=%s validation error: %v", rid, err)
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
+	log.Printf("[user-teacher#create] reqid=%s validation OK name=%q field=%q expYears=%v",
+		rid, req.UserTeacherName, req.UserTeacherField, req.UserTeacherExperienceYears)
 
-	// pastikan unique per user
+	// --- pastikan 1 user = 1 profile ---
 	var exist int64
 	if err := uc.DB.Model(&model.UserTeacherModel{}).
 		Where("user_teacher_user_id = ?", userID).
 		Count(&exist).Error; err != nil {
+		log.Printf("[user-teacher#create] reqid=%s unique-check error: %v", rid, err)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek duplikasi")
 	}
 	if exist > 0 {
+		log.Printf("[user-teacher#create] reqid=%s conflict: profile already exists for user %s", rid, userID)
 		return helper.JsonError(c, fiber.StatusConflict, "User sudah memiliki profil pengajar")
 	}
 
 	// --- map ke model ---
 	m := req.ToModel()
 	now := time.Now()
-	m.UserTeacherID = uuid.New() // generate selalu baru di sini
+	m.UserTeacherID = uuid.New()
 	m.UserTeacherCreatedAt = now
 	m.UserTeacherUpdatedAt = now
 
-	// --- upload avatar kalau multipart ---
-	if strings.HasPrefix(ct, "multipart/form-data") {
-		if fh, err := c.FormFile("avatar"); err == nil && fh != nil {
+	// --- upload avatar (opsional, hanya multipart) ---
+	// --- upload avatar (opsional, hanya multipart) ---
+	if ctIsMultipart(ct) {
+		// 1) coba cari file dengan beberapa alias key
+		if fh, which := pickAvatarFile(c); fh != nil {
+			log.Printf("[user-teacher#create] reqid=%s avatar file found key=%q filename=%q size=%d",
+				rid, which, fh.Filename, fh.Size)
+
 			svc := uc.OSS
 			if svc == nil {
 				tmp, e := helperOSS.NewOSSServiceFromEnv("")
 				if e != nil {
+					log.Printf("[user-teacher#create] reqid=%s init OSS error: %v", rid, e)
 					return helper.JsonError(c, fiber.StatusInternalServerError, "OSS belum terkonfigurasi")
 				}
 				svc = tmp
 			}
+
 			url, upErr := helperOSS.UploadImageToOSS(c.Context(), svc, m.UserTeacherID, "avatar", fh)
 			if upErr != nil {
+				log.Printf("[user-teacher#create] reqid=%s upload avatar error: %v", rid, upErr)
 				return helper.JsonError(c, fiber.StatusBadGateway, upErr.Error())
 			}
 			key, kerr := helperOSS.KeyFromPublicURL(url)
 			if kerr != nil {
+				log.Printf("[user-teacher#create] reqid=%s extract key error: %v", rid, kerr)
 				return helper.JsonError(c, fiber.StatusBadRequest, "Gagal ekstrak object key (avatar)")
 			}
 			m.UserTeacherAvatarURL = &url
 			m.UserTeacherAvatarObjectKey = &key
+			log.Printf("[user-teacher#create] reqid=%s avatar uploaded url=%s key=%s", rid, url, key)
+
+		} else {
+			// 2) fallback: kalau tidak ada file, cek apakah ada URL tekstual yang valid
+			if raw := strings.TrimSpace(c.FormValue("user_teacher_avatar_url")); raw != "" &&
+				(strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://")) {
+
+				if key, err := helperOSS.KeyFromPublicURL(raw); err == nil {
+					// gunakan URL yang sudah publik dan berasal dari bucket yang sama
+					m.UserTeacherAvatarURL = &raw
+					m.UserTeacherAvatarObjectKey = &key
+					log.Printf("[user-teacher#create] reqid=%s no file, reuse avatar url=%s key=%s", rid, raw, key)
+				} else {
+					log.Printf("[user-teacher#create] reqid=%s provided avatar_url not recognized: %v", rid, err)
+					// tidak fatal — lanjut tanpa avatar
+				}
+			} else {
+				log.Printf("[user-teacher#create] reqid=%s no avatar file or reusable url provided", rid)
+			}
 		}
 	}
 
-	// --- simpan ---
+	// --- simpan DB ---
 	if err := uc.DB.Create(&m).Error; err != nil {
+		log.Printf("[user-teacher#create] reqid=%s insert error: %v", rid, err)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat user_teacher")
 	}
+	log.Printf("[user-teacher#create] reqid=%s created id=%s", rid, m.UserTeacherID)
 
+	// --- respon ---
+	log.Printf("[user-teacher#create] reqid=%s success", rid)
 	return helper.JsonOK(c, "Berhasil", fiber.Map{
 		"item": userdto.ToUserTeacherResponse(m),
 	})
@@ -345,19 +518,33 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 			derefStr(before.UserTeacherTitleSuffix) != derefStr(m.UserTeacherTitleSuffix)
 
 	if changedSnapshot {
+		// Kolom yang benar sesuai tag di model:
+		//   masjid_teacher_user_teacher_name_snapshot
+		//   masjid_teacher_user_teacher_avatar_url_snapshot
+		//   masjid_teacher_user_teacher_whatsapp_url_snapshot
+		//   masjid_teacher_user_teacher_title_prefix_snapshot
+		//   masjid_teacher_user_teacher_title_suffix_snapshot
+
 		set := map[string]any{
-			"masjid_teacher_name_user_snapshot":         m.UserTeacherName,
-			"masjid_teacher_avatar_url_user_snapshot":   m.UserTeacherAvatarURL,
-			"masjid_teacher_whatsapp_url_user_snapshot": m.UserTeacherWhatsappURL,
-			"masjid_teacher_title_prefix_user_snapshot": m.UserTeacherTitlePrefix,
-			"masjid_teacher_title_suffix_user_snapshot": m.UserTeacherTitleSuffix,
-			"masjid_teacher_updated_at":                 time.Now(),
+			"masjid_teacher_user_teacher_name_snapshot":         m.UserTeacherName,
+			"masjid_teacher_user_teacher_avatar_url_snapshot":   m.UserTeacherAvatarURL,
+			"masjid_teacher_user_teacher_whatsapp_url_snapshot": m.UserTeacherWhatsappURL,
+			"masjid_teacher_user_teacher_title_prefix_snapshot": m.UserTeacherTitlePrefix,
+			"masjid_teacher_user_teacher_title_suffix_snapshot": m.UserTeacherTitleSuffix,
+			"masjid_teacher_updated_at":                         time.Now(),
 		}
-		if err := uc.DB.Model(&mtModel.MasjidTeacherModel{}).
-			Where("masjid_teacher_user_teacher_id = ? AND masjid_teacher_deleted_at IS NULL", m.UserTeacherID).
-			Updates(set).Error; err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError,
-				"Profil tersimpan, tapi gagal sync snapshot pengajar di masjid")
+
+		// Guard opsional: kalau migrasinya belum naik, jangan bikin 500.
+		// (Boleh dihapus setelah skema terjamin sinkron.)
+		if !uc.DB.Migrator().HasColumn(&masjidTeacherModel.MasjidTeacherModel{}, "masjid_teacher_user_teacher_name_snapshot") {
+			log.Printf("[user-teacher#patch] snapshot columns not found — skip sync to masjid_teachers")
+		} else {
+			if err := uc.DB.Model(&masjidTeacherModel.MasjidTeacherModel{}).
+				Where("masjid_teacher_user_teacher_id = ? AND masjid_teacher_deleted_at IS NULL", m.UserTeacherID).
+				Updates(set).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError,
+					"Profil tersimpan, tapi gagal sync snapshot pengajar di masjid")
+			}
 		}
 	}
 

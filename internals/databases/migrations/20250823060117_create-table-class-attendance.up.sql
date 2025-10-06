@@ -1,14 +1,22 @@
--- +migrate Up
 -- =========================================
--- EXTENSIONS
+-- EXTENSIONS (idempotent)
 -- =========================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
-CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram index (ILIKE search)
-CREATE EXTENSION IF NOT EXISTS btree_gin;  -- opsional, untuk kombinasi index
-
+CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram (ILIKE search)
+CREATE EXTENSION IF NOT EXISTS btree_gin;  -- opsional; kombinasikan dengan partial/expr index
 
 -- =========================================
--- TABLE: class_attendance_sessions (plural table, singular columns)
+-- ENUMS (idempotent, kalau belum ada)
+-- =========================================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'session_status_enum') THEN
+    CREATE TYPE session_status_enum AS ENUM ('scheduled','ongoing','completed','canceled');
+  END IF;
+END$$;
+
+-- =========================================
+-- TABLE: class_attendance_sessions
 -- =========================================
 CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -49,8 +57,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_original_end_at   TIMESTAMPTZ,
   class_attendance_session_kind TEXT,
   class_attendance_session_override_reason TEXT,
-  -- kolom yang dirujuk indeks/cek (sebelumnya belum dideklarasikan)
-  class_attendance_session_override_event_id UUID,
+  class_attendance_session_override_event_id UUID, -- utk relasi/cek/index override event
 
   -- override resource (opsional)
   class_attendance_session_teacher_id    UUID REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE SET NULL,
@@ -73,7 +80,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_attendance_session_deleted_at TIMESTAMPTZ,
 
-  -- CHECKS (tanpa trigger/func)
+  -- CHECKS
   CONSTRAINT chk_cas_time_order
     CHECK (
       class_attendance_session_starts_at IS NULL
@@ -96,25 +103,25 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
 );
 
 -- =========================================
--- INDEXES
+-- INDEXES: class_attendance_sessions
 -- =========================================
 
 -- Pair unik id+tenant (tenant-safe)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_id_tenant
   ON class_attendance_sessions (class_attendance_session_id, class_attendance_session_masjid_id);
 
--- SLUG unik per tenant (alive only, case-insensitive)
+-- SLUG unik per tenant (alive only, CI)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_slug_per_tenant_alive
   ON class_attendance_sessions (
     class_attendance_session_masjid_id,
-    LOWER(class_attendance_session_slug)
+    lower(class_attendance_session_slug)
   )
   WHERE class_attendance_session_deleted_at IS NULL
     AND class_attendance_session_slug IS NOT NULL;
 
--- pencarian slug cepat
+-- pencarian slug cepat (trgm pada lower(expr))
 CREATE INDEX IF NOT EXISTS gin_cas_slug_trgm_alive
-  ON class_attendance_sessions USING GIN (LOWER(class_attendance_session_slug) gin_trgm_ops)
+  ON class_attendance_sessions USING GIN ((lower(class_attendance_session_slug)) gin_trgm_ops)
   WHERE class_attendance_session_deleted_at IS NULL
     AND class_attendance_session_slug IS NOT NULL;
 
@@ -182,7 +189,7 @@ CREATE INDEX IF NOT EXISTS idx_cas_rule_alive
   ON class_attendance_sessions (class_attendance_session_rule_id)
   WHERE class_attendance_session_deleted_at IS NULL;
 
--- Unik per schedule+start (bisa dipakai untuk dedup occurrence)
+-- Unik per schedule+start (dedup occurrence)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_sched_start
   ON class_attendance_sessions (
     class_attendance_session_schedule_id,
@@ -193,43 +200,42 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_sched_start
 CREATE INDEX IF NOT EXISTS brin_cas_created_at
   ON class_attendance_sessions USING BRIN (class_attendance_session_created_at);
 
-
-
-/* =========================================================
-   CLASS_ATTENDANCE_SESSION_URLS — selaras dengan announcement_urls
-   ========================================================= */
+-- =========================================
+-- TABLE: class_attendance_session_urls
+-- =========================================
 CREATE TABLE IF NOT EXISTS class_attendance_session_urls (
-  class_attendance_session_url_id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  class_attendance_session_url_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Tenant & owner
-  class_attendance_session_url_masjid_id          UUID NOT NULL
+  class_attendance_session_url_masjid_id  UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
-  class_attendance_session_url_session_id         UUID NOT NULL
+  class_attendance_session_url_session_id UUID NOT NULL
     REFERENCES class_attendance_sessions(class_attendance_session_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   -- Jenis/peran aset (mis. 'banner','image','video','attachment','link')
-  class_attendance_session_url_kind               VARCHAR(24) NOT NULL,
+  class_attendance_session_url_kind VARCHAR(24) NOT NULL,
 
   -- storage (2-slot + retensi)
-  class_session_attendance_url                  TEXT,        -- aktif
-  class_session_attendance_url_object_key           TEXT,
-  class_session_attendance_url_old              TEXT,        -- kandidat delete
-  class_session_attendance_url_object_key_old       TEXT,
-  class_session_attendance_url_delete_pending_until TIMESTAMPTZ, -- jadwal hard delete old
+  class_attendance_session_url               TEXT,
+  class_attendance_session_url_object_key    TEXT,
+  class_attendance_session_url_old           TEXT,
+  class_attendance_session_url_object_key_old TEXT,
+  class_attendance_session_url_delete_pending_until TIMESTAMPTZ,
 
   -- Tampilan
-  class_attendance_session_url_label              VARCHAR(160),
-  class_attendance_session_url_order              INT NOT NULL DEFAULT 0,
-  class_attendance_session_url_is_primary         BOOLEAN NOT NULL DEFAULT FALSE,
+  class_attendance_session_url_label      VARCHAR(160),
+  class_attendance_session_url_order      INT NOT NULL DEFAULT 0,
+  class_attendance_session_url_is_primary BOOLEAN NOT NULL DEFAULT FALSE,
 
   -- Audit & retensi
-  class_attendance_session_url_created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_attendance_session_url_updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_attendance_session_url_deleted_at         TIMESTAMPTZ,          -- soft delete (versi-per-baris)
+  class_attendance_session_url_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_attendance_session_url_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_attendance_session_url_deleted_at TIMESTAMPTZ  -- ← TANPA koma di akhir!
 );
 
--- INDEXING / OPTIMIZATION
+-- INDEXING / OPTIMIZATION (class_attendance_session_urls)
+
 -- Lookup per session (live only) + urutan tampil
 CREATE INDEX IF NOT EXISTS ix_casu_by_owner_live
   ON class_attendance_session_urls (
@@ -252,9 +258,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_casu_primary_per_kind_alive
   WHERE class_attendance_session_url_deleted_at IS NULL
     AND class_attendance_session_url_is_primary = TRUE;
 
--- Kandidat purge:
---  - baris AKTIF dengan object_key_old (in-place replace)
---  - baris SOFT-DELETED dengan object_key (versi-per-baris)
+-- Kandidat purge (retensi object storage)
 CREATE INDEX IF NOT EXISTS ix_casu_purge_due
   ON class_attendance_session_urls (class_attendance_session_url_delete_pending_until)
   WHERE class_attendance_session_url_delete_pending_until IS NOT NULL
@@ -265,5 +269,5 @@ CREATE INDEX IF NOT EXISTS ix_casu_purge_due
 
 -- (opsional) pencarian label (live only)
 CREATE INDEX IF NOT EXISTS gin_casu_label_trgm_live
-  ON class_attendance_session_urls USING GIN (class_attendance_session_url_label gin_trgm_ops)
+  ON class_attendance_session_urls USING GIN ((class_attendance_session_url_label) gin_trgm_ops)
   WHERE class_attendance_session_url_deleted_at IS NULL;

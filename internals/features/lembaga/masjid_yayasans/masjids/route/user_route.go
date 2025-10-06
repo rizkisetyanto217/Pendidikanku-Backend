@@ -24,3 +24,4 @@ func MasjidUserRoutes(admin fiber.Router, db *gorm.DB) {
 	masjidsOwner.Post("/", masjidCtrl.CreateMasjidDKM)
 
 }
+          

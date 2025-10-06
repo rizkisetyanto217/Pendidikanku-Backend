@@ -1,6 +1,3 @@
--- +migrate Up
-BEGIN;
-
 -- =========================================================
 -- EXTENSIONS (idempotent)
 -- =========================================================
@@ -12,7 +9,6 @@ CREATE EXTENSION IF NOT EXISTS earthdistance; -- ll_to_earth()
 -- =========================================================
 -- ENUMS (idempotent)
 -- =========================================================
--- verifikasi
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'verification_status_enum') THEN
@@ -20,15 +16,15 @@ BEGIN
   END IF;
 END$$;
 
--- peruntukan tenant
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tenant_profile_enum') THEN
     CREATE TYPE tenant_profile_enum AS ENUM (
+      'student',
       'teacher_solo',
-      'teacher_plus_school',
+      'teacher_plus',
       'school_basic',
-      'school_complex'
+      'school_plus'
     );
   END IF;
 END$$;
@@ -68,7 +64,7 @@ CREATE TABLE IF NOT EXISTS masjids (
   masjid_is_islamic_school BOOLEAN NOT NULL DEFAULT FALSE,
 
   -- Peruntukan tenant
-  masjid_tenant_profile tenant_profile_enum NOT NULL DEFAULT 'teacher_solo',
+  masjid_tenant_profile tenant_profile_enum NOT NULL DEFAULT 'school_basic',
 
   -- Levels (tag array)
   masjid_levels JSONB,
@@ -131,23 +127,19 @@ ALTER TABLE masjids DROP COLUMN IF EXISTS masjid_search;
 -- =========================================================
 -- INDEXES: MASJIDS
 -- =========================================================
--- Trigram search
 CREATE INDEX IF NOT EXISTS idx_masjids_name_trgm
   ON masjids USING gin (masjid_name gin_trgm_ops);
 
 CREATE INDEX IF NOT EXISTS idx_masjids_location_trgm
   ON masjids USING gin (masjid_location gin_trgm_ops);
 
--- Name (CI lookup)
 CREATE INDEX IF NOT EXISTS idx_masjids_name_lower
   ON masjids (LOWER(masjid_name));
 
--- Domain unik CI
 CREATE UNIQUE INDEX IF NOT EXISTS ux_masjids_domain_ci
   ON masjids (LOWER(masjid_domain));
 
--- Slug CI-unique (gantikan unique lama di kolom)
--- (Drop kemungkinan unique lama bernama default)
+-- Drop unique lama di kolom slug (jika ada)
 DO $$
 BEGIN
   IF EXISTS (
@@ -163,35 +155,28 @@ END$$;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_masjids_slug_ci
   ON masjids (LOWER(masjid_slug));
 
--- Slug lookup CI (opsional; redundant tapi aman)
 CREATE INDEX IF NOT EXISTS idx_masjids_slug_lower
   ON masjids (LOWER(masjid_slug));
 
--- FK helpers
 CREATE INDEX IF NOT EXISTS idx_masjids_yayasan
   ON masjids (masjid_yayasan_id);
 
 CREATE INDEX IF NOT EXISTS idx_masjids_current_plan
   ON masjids (masjid_current_plan_id);
 
--- Levels (JSONB)
 CREATE INDEX IF NOT EXISTS gin_masjids_levels
   ON masjids USING gin (masjid_levels);
 
--- Arsip waktu
 CREATE INDEX IF NOT EXISTS brin_masjids_created_at
   ON masjids USING brin (masjid_created_at);
 
--- Status (aktif & tidak terhapus)
 CREATE INDEX IF NOT EXISTS idx_masjids_active_alive
   ON masjids(masjid_is_active)
   WHERE masjid_deleted_at IS NULL;
 
--- Peruntukan tenant
 CREATE INDEX IF NOT EXISTS idx_masjids_tenant_profile
   ON masjids (masjid_tenant_profile);
 
--- Media cleanup retensi
 CREATE INDEX IF NOT EXISTS brin_masjids_icon_delete_pending_until
   ON masjids USING brin (masjid_icon_delete_pending_until);
 
@@ -201,7 +186,6 @@ CREATE INDEX IF NOT EXISTS brin_masjids_logo_delete_pending_until
 CREATE INDEX IF NOT EXISTS brin_masjids_background_delete_pending_until
   ON masjids USING brin (masjid_background_delete_pending_until);
 
--- City lookup (opsional, soft-delete aware)
 CREATE INDEX IF NOT EXISTS idx_masjids_city_alive
   ON masjids (masjid_city)
   WHERE masjid_deleted_at IS NULL;
@@ -209,16 +193,11 @@ CREATE INDEX IF NOT EXISTS idx_masjids_city_alive
 -- =========================================================
 -- TRIGGERS: updated_at sinkron dengan DB
 -- =========================================================
-DO $$
+CREATE OR REPLACE FUNCTION set_masjid_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'set_masjid_updated_at') THEN
-    CREATE OR REPLACE FUNCTION set_masjid_updated_at()
-    RETURNS TRIGGER LANGUAGE plpgsql AS $$
-    BEGIN
-      NEW.masjid_updated_at := now();
-      RETURN NEW;
-    END$$;
-  END IF;
+  NEW.masjid_updated_at := now();
+  RETURN NEW;
 END$$;
 
 DO $$
@@ -233,17 +212,11 @@ BEGIN
   END IF;
 END$$;
 
--- (Opsional) Sinkron boolean is_verified dari enum status
-DO $$
+CREATE OR REPLACE FUNCTION sync_masjid_is_verified()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'sync_masjid_is_verified') THEN
-    CREATE OR REPLACE FUNCTION sync_masjid_is_verified()
-    RETURNS TRIGGER LANGUAGE plpgsql AS $$
-    BEGIN
-      NEW.masjid_is_verified := (NEW.masjid_verification_status = 'approved');
-      RETURN NEW;
-    END$$;
-  END IF;
+  NEW.masjid_is_verified := (NEW.masjid_verification_status = 'approved');
+  RETURN NEW;
 END$$;
 
 DO $$
@@ -258,14 +231,9 @@ BEGIN
   END IF;
 END$$;
 
-COMMIT;
-
-
 -- =====================================================================
--- +migrate Up (lanjutan) — MASJID PROFILES (1:1 ke masjids)
+-- MASJID PROFILES (1:1 ke masjids)
 -- =====================================================================
-BEGIN;
-
 CREATE TABLE IF NOT EXISTS masjid_profiles (
   masjid_profile_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -349,13 +317,10 @@ CREATE TABLE IF NOT EXISTS masjid_profiles (
 -- =========================
 -- INDEXES: MASJID PROFILES
 -- =========================
-
--- Lookups & FK
 CREATE INDEX IF NOT EXISTS idx_mpp_principal_user_id_alive
   ON masjid_profiles (masjid_profile_school_principal_user_id)
   WHERE masjid_profile_deleted_at IS NULL;
 
--- Email (CI)
 CREATE INDEX IF NOT EXISTS idx_mpp_contact_email_lower_alive
   ON masjid_profiles (LOWER(masjid_profile_contact_email))
   WHERE masjid_profile_deleted_at IS NULL;
@@ -364,7 +329,6 @@ CREATE INDEX IF NOT EXISTS idx_mpp_school_email_lower_alive
   ON masjid_profiles (LOWER(masjid_profile_school_email))
   WHERE masjid_profile_deleted_at IS NULL;
 
--- Atribut sekolah
 CREATE INDEX IF NOT EXISTS idx_mpp_accreditation_alive
   ON masjid_profiles (masjid_profile_school_accreditation)
   WHERE masjid_profile_deleted_at IS NULL;
@@ -377,7 +341,6 @@ CREATE INDEX IF NOT EXISTS idx_mpp_is_boarding_alive
   ON masjid_profiles (masjid_profile_school_is_boarding)
   WHERE masjid_profile_deleted_at IS NULL;
 
--- Geospasial (nearest-neighbor)
 CREATE INDEX IF NOT EXISTS gist_mpp_earth_alive
   ON masjid_profiles
   USING gist (ll_to_earth(masjid_profile_latitude::float8, masjid_profile_longitude::float8))
@@ -385,7 +348,6 @@ CREATE INDEX IF NOT EXISTS gist_mpp_earth_alive
     AND masjid_profile_latitude IS NOT NULL
     AND masjid_profile_longitude IS NOT NULL;
 
--- Trigram search
 CREATE INDEX IF NOT EXISTS trgm_mpp_address_alive
   ON masjid_profiles
   USING gin (masjid_profile_address gin_trgm_ops)
@@ -396,14 +358,12 @@ CREATE INDEX IF NOT EXISTS trgm_mpp_description_alive
   USING gin (masjid_profile_description gin_trgm_ops)
   WHERE masjid_profile_deleted_at IS NULL;
 
--- Arsip waktu
 CREATE INDEX IF NOT EXISTS brin_mpp_created_at
   ON masjid_profiles USING brin (masjid_profile_created_at);
 
 CREATE INDEX IF NOT EXISTS brin_mpp_updated_at
   ON masjid_profiles USING brin (masjid_profile_updated_at);
 
--- Unik NPSN/NSS bila diisi (soft-delete aware)
 CREATE UNIQUE INDEX IF NOT EXISTS ux_mpp_npsn_alive
   ON masjid_profiles (masjid_profile_school_npsn)
   WHERE masjid_profile_deleted_at IS NULL
@@ -413,5 +373,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_mpp_nss_alive
   ON masjid_profiles (masjid_profile_school_nss)
   WHERE masjid_profile_deleted_at IS NULL
     AND masjid_profile_school_nss IS NOT NULL;
-
-COMMIT;

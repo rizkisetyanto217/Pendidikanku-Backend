@@ -26,6 +26,7 @@ import (
 	userProfileService "masjidku_backend/internals/features/users/user/service"
 	helpers "masjidku_backend/internals/helpers"
 	helpersAuth "masjidku_backend/internals/helpers/auth"
+
 )
 
 /* ==========================
@@ -244,6 +245,22 @@ func computeRefreshHash(token, secret string) []byte {
 	m := hmac.New(sha256.New, []byte(secret))
 	_, _ = m.Write([]byte(token))
 	return m.Sum(nil)
+}
+
+// Hapus refresh token dari DB berdasarkan HASH (bukan raw)
+// Aman dipanggil meskipun tabel/kolom kamu BYTEA.
+func deleteRefreshTokenByHash(ctx context.Context, db *gorm.DB, rawRefresh string) error {
+	if strings.TrimSpace(rawRefresh) == "" || db == nil {
+		return nil
+	}
+	secret, err := getRefreshSecret()
+	if err != nil {
+		// kalau secret tidak ada, tidak fatal agar logout tetap jalan
+		return nil
+	}
+	h := computeRefreshHash(rawRefresh, secret) // []byte HMAC-SHA256
+	// Nama tabel sesuai repo kamu (umumnya: refresh_tokens, kolom: token BYTEA)
+	return db.WithContext(ctx).Exec(`DELETE FROM refresh_tokens WHERE token = ?`, h).Error
 }
 
 // Cek role hanya di roles_global (bukan scoped)
@@ -1138,7 +1155,6 @@ func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
 	return issueTokensWithRoles(c, db, *userFull, rolesClaim)
 }
 
-
 // suggestUsername: dari nama → slug-ish; fallback ambil bagian local dari email
 func suggestUsername(name, email string) string {
 	cand := strings.ToLower(strings.TrimSpace(name))
@@ -1180,10 +1196,12 @@ func shortRand() string {
 	return strconv.FormatInt(time.Now().UnixNano()%0xffff, 16)
 }
 
-/* ==========================
-   LOGOUT
-========================== */
+/*
+	==========================
+	  LOGOUT
 
+==========================
+*/
 func Logout(db *gorm.DB, c *fiber.Ctx) error {
 	// CSRF wajib jika auth via cookie (tanpa Bearer)
 	cookieAT := strings.TrimSpace(c.Cookies("access_token"))
@@ -1199,24 +1217,30 @@ func Logout(db *gorm.DB, c *fiber.Ctx) error {
 	// Ambil raw access token (cookie/Authorization)
 	accessToken := helpers.GetRawAccessToken(c)
 
-	// Hitung TTL blacklist
+	// Hitung TTL blacklist dari sisa masa berlaku token
 	ttl := resolveBlacklistTTL(accessToken)
 
-	// Blacklist access token (idempotent)
-	if accessToken != "" {
-		if err := authRepo.BlacklistToken(db, accessToken, ttl); err != nil {
-			log.Printf("[WARN] Failed to blacklist token: %v", err)
+	// ⛔ Blacklist access token (HMAC) ➜ ditolak oleh middleware ke depannya
+	if strings.TrimSpace(accessToken) != "" {
+		jwtSecret, _ := getJWTSecret() // kalau kosong, skip
+		if strings.TrimSpace(jwtSecret) != "" {
+			expiresAt := nowUTC().Add(ttl)
+			if err := helpersAuth.Add(c.Context(), db, accessToken, jwtSecret, expiresAt); err != nil {
+				log.Printf("[WARN] blacklist add failed: %v", err)
+			}
 		}
 	} else {
 		log.Println("[INFO] Logout tanpa access token; lanjut clear cookies (idempotent)")
 	}
 
-	// Hapus refresh token dari DB jika ada di cookie
-	if rt := helpers.GetRefreshTokenFromCookie(c); rt != "" {
-		_ = authRepo.DeleteRefreshToken(db, rt)
+	// 🧹 Hapus refresh token di DB berdasarkan HASH (bukan raw)
+	if rt := helpers.GetRefreshTokenFromCookie(c); strings.TrimSpace(rt) != "" {
+		if err := deleteRefreshTokenByHash(c.Context(), db, rt); err != nil {
+			log.Printf("[WARN] delete refresh token by hash failed: %v", err)
+		}
 	}
 
-	// Hapus cookies
+	// Hapus cookies (access/refresh/CSRF)
 	expired := nowUTC().Add(-time.Hour)
 	for _, name := range []string{"access_token", "refresh_token", "csrf_token"} {
 		c.Cookie(&fiber.Cookie{

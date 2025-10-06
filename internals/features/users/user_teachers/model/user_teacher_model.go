@@ -64,3 +64,5 @@ type UserTeacherModel struct {
 
 // TableName overrides the default pluralization.
 func (UserTeacherModel) TableName() string { return "user_teachers" }
+
+

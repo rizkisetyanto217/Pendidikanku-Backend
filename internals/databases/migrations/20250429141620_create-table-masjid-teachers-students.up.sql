@@ -240,7 +240,7 @@ CREATE TABLE IF NOT EXISTS masjid_students (
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   masjid_student_user_profile_id UUID NOT NULL
-    REFERENCES users_profile(users_profile_id) ON DELETE CASCADE,
+    REFERENCES user_profiles(user_profile_id) ON DELETE CASCADE,
 
   masjid_student_slug VARCHAR(50) NOT NULL,
   masjid_student_code VARCHAR(50),
@@ -255,7 +255,7 @@ CREATE TABLE IF NOT EXISTS masjid_students (
   -- Catatan
   masjid_student_note TEXT,
 
-  -- Snapshot users_profile
+  -- Snapshot user_profiles
   masjid_student_user_profile_name_snapshot                VARCHAR(80),
   masjid_student_user_profile_avatar_url_snapshot          VARCHAR(255),
   masjid_student_user_profile_whatsapp_url_snapshot        VARCHAR(50),

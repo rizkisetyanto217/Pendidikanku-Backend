@@ -25,6 +25,8 @@ import (
 
 	osshelper "masjidku_backend/internals/helpers/oss"
 	routes "masjidku_backend/internals/route"
+
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
 /* ===============================
@@ -43,7 +45,16 @@ func main() {
 	startWorkers(workersCtx, db)
 
 	// 4) Build Fiber app + routes
+	// 4) Build Fiber app + routes
 	app := buildApp()
+
+	// ⬇️ tambahkan dua baris ini
+	if err := helperAuth.EnsureSchema(db); err != nil {
+		log.Fatalf("ensure blacklist schema: %v", err)
+	}
+	app.Use(helperAuth.MiddlewareBlacklistOnly(db, os.Getenv("JWT_SECRET")))
+
+	// baru set routes
 	routes.SetupRoutes(app, db)
 
 	// 5) HTTP timeouts

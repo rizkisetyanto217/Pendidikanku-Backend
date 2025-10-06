@@ -69,7 +69,7 @@ func jsonEqual(a, b datatypes.JSON) bool {
 
 /* ====== KODE GURU: helper & endpoint ====== */
 // POST /api/u/masjids/:id/teacher-code/rotate
-func (mc *MasjidController) RotateTeacherCode(c *fiber.Ctx) error {
+func (mc *MasjidController) GetTeacherCode(c *fiber.Ctx) error {
 	idStr := c.Params("id")
 	masjidID, err := uuid.Parse(strings.TrimSpace(idStr))
 	if err != nil {
@@ -110,8 +110,8 @@ func (mc *MasjidController) RotateTeacherCode(c *fiber.Ctx) error {
 	}
 
 	// KEMBALIKAN PLAINTEXT-NYA DI SINI
-	return helper.JsonOK(c, "Kode guru diperbarui", fiber.Map{
-		"teacher_code_plain": plain,
+	return helper.JsonOK(c, "Kode guru didapatkan", fiber.Map{
+		"teacher_code": plain,
 		"set_at":             setAt,
 	})
 }
@@ -199,7 +199,7 @@ func (mc *MasjidController) PatchTeacherCode(c *fiber.Ctx) error {
 
 	// --- Kembalikan plaintext SEKALI di response ---
 	return helper.JsonOK(c, "Kode guru diperbarui", fiber.Map{
-		"teacher_code_plain": code,
+		"teacher_code": code,
 		"set_at":             now,
 	})
 }

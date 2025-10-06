@@ -186,8 +186,7 @@ CREATE TABLE IF NOT EXISTS book_urls (
   -- timestamps & retensi (explicit)
   book_url_created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   book_url_updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  book_url_deleted_at          TIMESTAMPTZ,
-  book_url_delete_pending_until TIMESTAMPTZ
+  book_url_deleted_at          TIMESTAMPTZ
 );
 
 -- Listing per-book (alive only) + urutan tampil
@@ -211,12 +210,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_book_urls_primary_per_kind_alive
   ON book_urls (book_url_book_id, book_url_kind)
   WHERE book_url_deleted_at IS NULL
     AND book_url_is_primary = TRUE;
-
--- Anti-duplikat href per book (alive only)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_book_urls_book_href_alive
-  ON book_urls (book_url_book_id, LOWER(book_url_href))
-  WHERE book_url_deleted_at IS NULL
-    AND book_url_href IS NOT NULL;
 
 -- Kandidat purge (in-place replace & soft-deleted)
 CREATE INDEX IF NOT EXISTS ix_book_urls_purge_due

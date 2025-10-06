@@ -313,7 +313,7 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 			}
 			m.MasjidTeacherCodeHash = hash
 			m.MasjidTeacherCodeSetAt = &now
-			c.Locals("teacher_code_plain", manual) // kembalikan sekali via response
+			c.Locals("teacher_code", manual) // kembalikan sekali via response
 			lg("teacher code set (manual)")
 		} else {
 			plain, hash, setAt, err := makeTeacherCodeFromSlug(slug) // slug-xy
@@ -323,7 +323,7 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 			}
 			m.MasjidTeacherCodeHash = hash
 			m.MasjidTeacherCodeSetAt = &setAt
-			c.Locals("teacher_code_plain", plain) // kembalikan sekali via response
+			c.Locals("teacher_code", plain) // kembalikan sekali via response
 			lg("teacher code set (auto)")
 		}
 		// ===============================
@@ -455,10 +455,10 @@ func (mc *MasjidController) CreateMasjidDKM(c *fiber.Ctx) error {
 	}
 
 	// Sertakan plaintext teacher code SEKALI di response
-	if tc, _ := c.Locals("teacher_code_plain").(string); tc != "" {
+	if tc, _ := c.Locals("teacher_code").(string); tc != "" {
 		return helper.JsonCreated(c, "Masjid berhasil dibuat", fiber.Map{
 			"item":               resp,
-			"teacher_code_plain": tc,
+			"teacher_code": tc,
 		})
 	}
 	return helper.JsonCreated(c, "Masjid berhasil dibuat", resp)
