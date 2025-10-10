@@ -110,12 +110,12 @@ func buildApp() *fiber.App {
 	}
 
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     origins, // pisahkan dengan koma
+		AllowOrigins:     origins, // spesifik, bukan "*"
 		AllowMethods:     "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-		AllowHeaders:     allowHeaders, // harus memuat "Authorization"
+		AllowHeaders:     allowHeaders, // termasuk "Authorization"
 		ExposeHeaders:    "Content-Type, Authorization",
-		AllowCredentials: false, // true kalau kamu pakai cookie; untuk Bearer bisa false
-		MaxAge:           86400, // cache preflight 24 jam
+		AllowCredentials: true, // <-- UBAH ke true
+		MaxAge:           86400,
 	}))
 
 	// Pastikan semua preflight OPTIONS dibalas 204 agar browser happy
