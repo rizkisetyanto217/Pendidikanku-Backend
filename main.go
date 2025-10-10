@@ -11,6 +11,7 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/compress"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/etag"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/utils"
@@ -75,26 +76,50 @@ func main() {
 	waitForShutdown(app, cancelWorkers, db)
 }
 
-/* ===============================
-   HTTP (Fiber) setup
-   =============================== */
+/*
+===============================
 
+	HTTP (Fiber) setup
+	===============================
+*/
 func buildApp() *fiber.App {
 	app := fiber.New(fiber.Config{
 		JSONEncoder:           sonic.Marshal,
 		JSONDecoder:           sonic.Unmarshal,
 		DisableStartupMessage: true,
 
-		// Reverse proxy safe defaults
 		ProxyHeader:             fiber.HeaderXForwardedFor,
 		EnableTrustedProxyCheck: true,
 		TrustedProxies:          []string{"0.0.0.0/0"},
 	})
 
-	// Middlewares
-	app.Use(recover.New()) // proteksi panic → 500 + log
+	// --- urutan middleware yang baik ---
+	app.Use(recover.New())
 	app.Use(compress.New(compress.Config{Level: compress.LevelDefault}))
 	app.Use(etag.New())
+
+	// ====== CORS (fix preflight) ======
+	origins := os.Getenv("CORS_ALLOW_ORIGINS")
+	if origins == "" {
+		// default dev + contoh domain produksi (ganti sesuai domainmu)
+		origins = "http://localhost:5173,http://127.0.0.1:5173,https://app.sekolahislamku.com"
+	}
+	allowHeaders := os.Getenv("CORS_ALLOW_HEADERS")
+	if allowHeaders == "" {
+		allowHeaders = "Origin, Content-Type, Accept, Authorization, X-Requested-With"
+	}
+
+	app.Use(cors.New(cors.Config{
+		AllowOrigins:     origins, // pisahkan dengan koma
+		AllowMethods:     "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+		AllowHeaders:     allowHeaders, // harus memuat "Authorization"
+		ExposeHeaders:    "Content-Type, Authorization",
+		AllowCredentials: false, // true kalau kamu pakai cookie; untuk Bearer bisa false
+		MaxAge:           86400, // cache preflight 24 jam
+	}))
+
+	// Pastikan semua preflight OPTIONS dibalas 204 agar browser happy
+	app.Options("/*", func(c *fiber.Ctx) error { return c.SendStatus(fiber.StatusNoContent) })
 
 	// Observability ringan: request-id + timing + guard timeout per request
 	app.Use(func(c *fiber.Ctx) error {
@@ -106,7 +131,6 @@ func buildApp() *fiber.App {
 		c.Locals("reqid", id)
 
 		start := time.Now()
-		// Guard timeout per request → cancel context ke downstream (DB, dsb)
 		ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
 		defer cancel()
 		c.SetUserContext(ctx)
