@@ -12,6 +12,7 @@ import (
 	"time"
 
 	masjidTeacherModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/model"
+	classsectionModel "masjidku_backend/internals/features/school/classes/class_sections/model"
 	userdto "masjidku_backend/internals/features/users/user_teachers/dto"
 	"masjidku_backend/internals/features/users/user_teachers/model"
 	helper "masjidku_backend/internals/helpers"
@@ -544,6 +545,87 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 				Updates(set).Error; err != nil {
 				return helper.JsonError(c, fiber.StatusInternalServerError,
 					"Profil tersimpan, tapi gagal sync snapshot pengajar di masjid")
+			}
+		}
+	}
+
+	// === SNAPSHOT SYNC ke class_sections (teacher & assistant) ===
+	if changedSnapshot {
+		// Guard kolom di class_sections
+		hasTeacherSnap := uc.DB.Migrator().HasColumn(&classsectionModel.ClassSectionModel{}, "class_section_teacher_snapshot")
+		hasAssistantSnap := uc.DB.Migrator().HasColumn(&classsectionModel.ClassSectionModel{}, "class_section_assistant_teacher_snapshot")
+		hasSnapUpdatedAt := uc.DB.Migrator().HasColumn(&classsectionModel.ClassSectionModel{}, "class_section_snapshot_updated_at")
+
+		if !(hasTeacherSnap || hasAssistantSnap) {
+			log.Printf("[user-teacher#patch] class_sections snapshot columns not found — skip sync to class_sections")
+		} else {
+			// Ambil semua masjid_teacher_id milik user_teacher ini (yang belum terhapus)
+			var mtIDs []uuid.UUID
+			if err := uc.DB.
+				Model(&masjidTeacherModel.MasjidTeacherModel{}).
+				Where("masjid_teacher_user_teacher_id = ? AND masjid_teacher_deleted_at IS NULL", m.UserTeacherID).
+				Pluck("masjid_teacher_id", &mtIDs).Error; err != nil {
+				log.Printf("[user-teacher#patch] failed pluck masjid_teacher ids: %v", err)
+			}
+
+			if len(mtIDs) > 0 {
+				// Build snapshot JSONB kecil untuk disimpan di class_sections
+				// NOTE: Jangan terlalu besar agar hemat I/O. Kolom turunan (*_name_snap) akan ikut ter-refresh jika
+				// dibuat sebagai generated column / trigger view.
+				type smallTeacherSnap struct {
+					UserTeacherID uuid.UUID `json:"user_teacher_id"`
+					Name          string    `json:"name"`
+					AvatarURL     *string   `json:"avatar_url,omitempty"`
+					WhatsappURL   *string   `json:"whatsapp_url,omitempty"`
+					TitlePrefix   *string   `json:"title_prefix,omitempty"`
+					TitleSuffix   *string   `json:"title_suffix,omitempty"`
+					UpdatedAt     time.Time `json:"updated_at"`
+				}
+				payload := smallTeacherSnap{
+					UserTeacherID: m.UserTeacherID,
+					Name:          m.UserTeacherName,
+					AvatarURL:     m.UserTeacherAvatarURL,
+					WhatsappURL:   m.UserTeacherWhatsappURL,
+					TitlePrefix:   m.UserTeacherTitlePrefix,
+					TitleSuffix:   m.UserTeacherTitleSuffix,
+					UpdatedAt:     now,
+				}
+				b, _ := json.Marshal(payload) // safe: field sederhana
+				jsonb := datatypes.JSON(b)
+
+				// Set common columns
+				setTeacher := map[string]any{}
+				setAssistant := map[string]any{}
+				if hasTeacherSnap {
+					setTeacher["class_section_teacher_snapshot"] = jsonb
+				}
+				if hasAssistantSnap {
+					setAssistant["class_section_assistant_teacher_snapshot"] = jsonb
+				}
+				if hasSnapUpdatedAt {
+					setTeacher["class_section_snapshot_updated_at"] = now
+					setAssistant["class_section_snapshot_updated_at"] = now
+				}
+
+				// Update untuk homeroom/teacher
+				if hasTeacherSnap {
+					if err := uc.DB.
+						Model(&classsectionModel.ClassSectionModel{}).
+						Where("class_section_teacher_id IN ? AND class_section_deleted_at IS NULL", mtIDs).
+						Updates(setTeacher).Error; err != nil {
+						log.Printf("[user-teacher#patch] failed sync class_section_teacher_snapshot: %v", err)
+					}
+				}
+
+				// Update untuk assistant teacher
+				if hasAssistantSnap {
+					if err := uc.DB.
+						Model(&classsectionModel.ClassSectionModel{}).
+						Where("class_section_assistant_teacher_id IN ? AND class_section_deleted_at IS NULL", mtIDs).
+						Updates(setAssistant).Error; err != nil {
+						log.Printf("[user-teacher#patch] failed sync class_section_assistant_teacher_snapshot: %v", err)
+					}
+				}
 			}
 		}
 	}

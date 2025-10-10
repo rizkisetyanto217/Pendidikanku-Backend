@@ -51,4 +51,29 @@ func ClassSectionAdminRoutes(api fiber.Router, db *gorm.DB) {
 	base.Post("/m/:masjid_slug/user-class-sections", ucsH.Create)
 	base.Patch("/m/:masjid_slug/user-class-sections/:id", ucsH.Patch)
 	base.Delete("/m/:masjid_slug/user-class-sections/:id", ucsH.Delete)
+
+	// ========== 4) JOIN-CODE (GENERIC) ==========
+	base.Get("/class-sections/:id/join-code/student", sectionH.GetStudentJoinCode)
+	base.Get("/class-sections/:id/join-code/teacher", sectionH.GetTeacherJoinCode)
+	base.Get("/class-sections/:id/join-codes", sectionH.GetJoinCodes)
+
+	base.Post("/class-sections/:id/join-code/student/rotate", sectionH.RotateStudentJoinCode)
+	base.Post("/class-sections/:id/join-code/teacher/rotate", sectionH.RotateTeacherJoinCode)
+
+	// ========== 5) JOIN-CODE (PATH-SCOPED by masjid_id) ==========
+	base.Get("/:masjid_id/class-sections/:id/join-code/student", sectionH.GetStudentJoinCode)
+	base.Get("/:masjid_id/class-sections/:id/join-code/teacher", sectionH.GetTeacherJoinCode)
+	base.Get("/:masjid_id/class-sections/:id/join-codes", sectionH.GetJoinCodes)
+
+	base.Post("/:masjid_id/class-sections/:id/join-code/student/rotate", sectionH.RotateStudentJoinCode)
+	base.Post("/:masjid_id/class-sections/:id/join-code/teacher/rotate", sectionH.RotateTeacherJoinCode)
+
+	// ========== 6) JOIN-CODE (PATH-SCOPED by masjid_slug) ==========
+	base.Get("/m/:masjid_slug/class-sections/:id/join-code/student", sectionH.GetStudentJoinCode)
+	base.Get("/m/:masjid_slug/class-sections/:id/join-code/teacher", sectionH.GetTeacherJoinCode)
+	base.Get("/m/:masjid_slug/class-sections/:id/join-codes", sectionH.GetJoinCodes)
+
+	base.Post("/m/:masjid_slug/class-sections/:id/join-code/student/rotate", sectionH.RotateStudentJoinCode)
+	base.Post("/m/:masjid_slug/class-sections/:id/join-code/teacher/rotate", sectionH.RotateTeacherJoinCode)
+
 }

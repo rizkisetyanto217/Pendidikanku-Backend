@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"log"
 	"strings"
 	"time"
 
@@ -22,8 +23,13 @@ POST /api/u/:masjid_id/join-teacher
 Body: { "code": "...." }
 Syarat: user login & sudah punya user_teacher (profil guru)
 */
+/*
+POST /api/u/:masjid_id/join-teacher
+Body: { "code": "...." }
+Syarat: user login & sudah punya user_teacher (profil guru)
+*/
 func (ctrl *MasjidTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
-	// === resolve masjid ===
+	// resolve masjid
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return err
@@ -38,13 +44,13 @@ func (ctrl *MasjidTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak ditemukan")
 	}
 
-	// === ambil user_id dari token ===
+	// user dari token
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil || userID == uuid.Nil {
 		return fiber.NewError(fiber.StatusUnauthorized, "Unauthorized")
 	}
 
-	// === body ===
+	// body
 	var body struct {
 		Code string `json:"code"`
 	}
@@ -52,15 +58,14 @@ func (ctrl *MasjidTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Code wajib diisi")
 	}
 
-	// === validasi code hash ===
+	// validasi code hash
 	if !checkTeacherCodeValid(ctrl.DB, masjidID, body.Code) {
 		return fiber.NewError(fiber.StatusUnauthorized, "Kode guru salah atau sudah kadaluarsa")
 	}
 
-	// === transaction ===
 	var created yModel.MasjidTeacherModel
 	if err := ctrl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// --- ambil user_teacher_id user ini ---
+		// ambil user_teacher_id milik user
 		var userTeacherIDStr string
 		if err := tx.Raw(`
 			SELECT user_teacher_id::text
@@ -79,7 +84,7 @@ func (ctrl *MasjidTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "user_teacher_id tidak valid")
 		}
 
-		// --- cek duplikat ---
+		// cek duplikat alive
 		var dup int64
 		if err := tx.Model(&yModel.MasjidTeacherModel{}).
 			Where(`
@@ -94,7 +99,7 @@ func (ctrl *MasjidTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusConflict, "Anda sudah terdaftar sebagai pengajar di masjid ini")
 		}
 
-		// --- ambil SNAPSHOT dari user_teachers ---
+		// snapshot dari user_teachers
 		var ut struct {
 			Name        string
 			AvatarURL   *string
@@ -120,7 +125,7 @@ func (ctrl *MasjidTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Profil guru tidak valid (nama kosong)")
 		}
 
-		// --- insert record + isi snapshot (PAKAI NAMA FIELD BARU) ---
+		// insert record + isi snapshot
 		rec := &yModel.MasjidTeacherModel{
 			MasjidTeacherMasjidID:      masjidID,
 			MasjidTeacherUserTeacherID: userTeacherID,
@@ -130,7 +135,6 @@ func (ctrl *MasjidTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 			MasjidTeacherCreatedAt: time.Now(),
 			MasjidTeacherUpdatedAt: time.Now(),
 
-			// SNAPSHOT sinkron dengan model + DTO
 			MasjidTeacherUserTeacherNameSnapshot:        sptr(ut.Name),
 			MasjidTeacherUserTeacherAvatarURLSnapshot:   ut.AvatarURL,
 			MasjidTeacherUserTeacherWhatsappURLSnapshot: ut.WhatsappURL,
@@ -142,10 +146,17 @@ func (ctrl *MasjidTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 		}
 		created = *rec
 
-		// --- update stats (best-effort) ---
+		// statistik (best-effort)
 		if err := ctrl.Stats.EnsureForMasjid(tx, masjidID); err == nil {
 			_ = ctrl.Stats.IncActiveTeachers(tx, masjidID, +1)
 		}
+
+		// grant role 'teacher' (idempotent, same package helper)
+		if err := grantTeacherRole(tx, userID, masjidID); err != nil {
+			log.Printf("[WARN] grant teacher role failed: %v", err) // ✅ benar
+			// tidak fatal
+		}
+
 		return nil
 	}); err != nil {
 		return toJSONErr(c, err)

@@ -97,55 +97,45 @@ func ToUsersProfileDTO(m profilemodel.UserProfileModel) UsersProfileDTO {
 	}
 
 	return UsersProfileDTO{
-		UsersProfileID:     m.UserProfileID,
-		UsersProfileUserID: m.UserProfileUserID,
-
-		UserProfileFullNameSnapshot: m.UserProfileFullNameSnapshot,
-
-		UserProfileSlug:          m.UserProfileSlug,
-		UsersProfileDonationName: donationName,
-		UsersProfileDateOfBirth:  m.UserProfileDateOfBirth,
-		UserProfilePlaceOfBirth:  m.UserProfilePlaceOfBirth,
-		UsersProfileGender:       genderStr,
-		UsersProfileLocation:     m.UserProfileLocation,
-		UsersProfileCity:         m.UserProfileCity,
-		UsersProfileBio:          m.UserProfileBio,
-
-		UsersProfileBiographyLong:  m.UserProfileBiographyLong,
-		UsersProfileExperience:     m.UserProfileExperience,
-		UsersProfileCertifications: m.UserProfileCertifications,
-
-		UsersProfileInstagramURL:    m.UserProfileInstagramURL,
-		UsersProfileWhatsappURL:     m.UserProfileWhatsappURL,
-		UsersProfileLinkedinURL:     m.UserProfileLinkedinURL,
-		UsersProfileGithubURL:       m.UserProfileGithubURL,
-		UsersProfileYoutubeURL:      m.UserProfileYoutubeURL,
-		UserProfileTelegramUsername: m.UserProfileTelegramUsername,
-
-		UserProfileParentName:        m.UserProfileParentName,
-		UserProfileParentWhatsappURL: m.UserProfileParentWhatsappURL,
-
+		UsersProfileID:                      m.UserProfileID,
+		UsersProfileUserID:                  m.UserProfileUserID,
+		UserProfileFullNameSnapshot:         m.UserProfileFullNameSnapshot,
+		UserProfileSlug:                     m.UserProfileSlug,
+		UsersProfileDonationName:            donationName,
+		UsersProfileDateOfBirth:             m.UserProfileDateOfBirth,
+		UserProfilePlaceOfBirth:             m.UserProfilePlaceOfBirth,
+		UsersProfileGender:                  genderStr,
+		UsersProfileLocation:                m.UserProfileLocation,
+		UsersProfileCity:                    m.UserProfileCity,
+		UsersProfileBio:                     m.UserProfileBio,
+		UsersProfileBiographyLong:           m.UserProfileBiographyLong,
+		UsersProfileExperience:              m.UserProfileExperience,
+		UsersProfileCertifications:          m.UserProfileCertifications,
+		UsersProfileInstagramURL:            m.UserProfileInstagramURL,
+		UsersProfileWhatsappURL:             m.UserProfileWhatsappURL,
+		UsersProfileLinkedinURL:             m.UserProfileLinkedinURL,
+		UsersProfileGithubURL:               m.UserProfileGithubURL,
+		UsersProfileYoutubeURL:              m.UserProfileYoutubeURL,
+		UserProfileTelegramUsername:         m.UserProfileTelegramUsername,
+		UserProfileParentName:               m.UserProfileParentName,
+		UserProfileParentWhatsappURL:        m.UserProfileParentWhatsappURL,
 		UserProfileAvatarURL:                m.UserProfileAvatarURL,
 		UserProfileAvatarObjectKey:          m.UserProfileAvatarObjectKey,
 		UserProfileAvatarURLOld:             m.UserProfileAvatarURLOld,
 		UserProfileAvatarObjectKeyOld:       m.UserProfileAvatarObjectKeyOld,
 		UserProfileAvatarDeletePendingUntil: m.UserProfileAvatarDeletePendingUntil,
-
-		UsersProfileIsPublicProfile: m.UserProfileIsPublicProfile,
-		UsersProfileIsVerified:      m.UserProfileIsVerified,
-		UsersProfileVerifiedAt:      m.UserProfileVerifiedAt,
-		UsersProfileVerifiedBy:      m.UserProfileVerifiedBy,
-
-		UsersProfileEducation: m.UserProfileEducation,
-		UsersProfileCompany:   m.UserProfileCompany,
-		UsersProfilePosition:  m.UserProfilePosition,
-
-		UsersProfileInterests: []string(m.UserProfileInterests),
-		UsersProfileSkills:    []string(m.UserProfileSkills),
-
-		UsersProfileCreatedAt: m.UserProfileCreatedAt,
-		UsersProfileUpdatedAt: m.UserProfileUpdatedAt,
-		UsersProfileDeletedAt: deletedAtPtr,
+		UsersProfileIsPublicProfile:         m.UserProfileIsPublicProfile,
+		UsersProfileIsVerified:              m.UserProfileIsVerified,
+		UsersProfileVerifiedAt:              m.UserProfileVerifiedAt,
+		UsersProfileVerifiedBy:              m.UserProfileVerifiedBy,
+		UsersProfileEducation:               m.UserProfileEducation,
+		UsersProfileCompany:                 m.UserProfileCompany,
+		UsersProfilePosition:                m.UserProfilePosition,
+		UsersProfileInterests:               []string(m.UserProfileInterests),
+		UsersProfileSkills:                  []string(m.UserProfileSkills),
+		UsersProfileCreatedAt:               m.UserProfileCreatedAt,
+		UsersProfileUpdatedAt:               m.UserProfileUpdatedAt,
+		UsersProfileDeletedAt:               deletedAtPtr,
 	}
 }
 
@@ -162,81 +152,83 @@ func ToUsersProfileDTOs(list []profilemodel.UserProfileModel) []UsersProfileDTO 
    =========================== */
 
 type CreateUsersProfileRequest struct {
-	UserProfileSlug *string `json:"user_profile_slug,omitempty" validate:"omitempty,max=80"`
+	UserProfileSlug *string `json:"user_profile_slug,omitempty" form:"user_profile_slug" validate:"omitempty,max=80"`
 
-	UsersProfileDonationName string  `json:"users_profile_donation_name" validate:"omitempty,max=50"`
-	UsersProfileDateOfBirth  *string `json:"users_profile_date_of_birth,omitempty" validate:"omitempty"` // "2006-01-02"
-	UserProfilePlaceOfBirth  *string `json:"user_profile_place_of_birth,omitempty" validate:"omitempty,max=100"`
-	UsersProfileGender       *string `json:"users_profile_gender,omitempty" validate:"omitempty,oneof=male female"`
-	UsersProfileLocation     *string `json:"users_profile_location,omitempty" validate:"omitempty,max=100"`
-	UsersProfileCity         *string `json:"users_profile_city,omitempty" validate:"omitempty,max=100"`
-	UsersProfileBio          *string `json:"users_profile_bio,omitempty" validate:"omitempty,max=300"`
+	UsersProfileDonationName string  `json:"users_profile_donation_name" form:"users_profile_donation_name" validate:"omitempty,max=50"`
+	UsersProfileDateOfBirth  *string `json:"users_profile_date_of_birth,omitempty" form:"users_profile_date_of_birth" validate:"omitempty"` // "2006-01-02"
+	UserProfilePlaceOfBirth  *string `json:"user_profile_place_of_birth,omitempty" form:"user_profile_place_of_birth" validate:"omitempty,max=100"`
+	UsersProfileGender       *string `json:"users_profile_gender,omitempty" form:"users_profile_gender" validate:"omitempty,oneof=male female"`
+	UsersProfileLocation     *string `json:"users_profile_location,omitempty" form:"users_profile_location" validate:"omitempty,max=100"`
+	UsersProfileCity         *string `json:"users_profile_city,omitempty" form:"users_profile_city" validate:"omitempty,max=100"`
+	UsersProfileBio          *string `json:"users_profile_bio,omitempty" form:"users_profile_bio" validate:"omitempty,max=300"`
 
-	UsersProfileBiographyLong  *string `json:"users_profile_biography_long,omitempty" validate:"omitempty"`
-	UsersProfileExperience     *string `json:"users_profile_experience,omitempty" validate:"omitempty"`
-	UsersProfileCertifications *string `json:"users_profile_certifications,omitempty" validate:"omitempty"`
+	UsersProfileBiographyLong  *string `json:"users_profile_biography_long,omitempty" form:"users_profile_biography_long" validate:"omitempty"`
+	UsersProfileExperience     *string `json:"users_profile_experience,omitempty" form:"users_profile_experience" validate:"omitempty"`
+	UsersProfileCertifications *string `json:"users_profile_certifications,omitempty" form:"users_profile_certifications" validate:"omitempty"`
 
-	UsersProfileInstagramURL    *string `json:"users_profile_instagram_url,omitempty" validate:"omitempty,url"`
-	UsersProfileWhatsappURL     *string `json:"users_profile_whatsapp_url,omitempty" validate:"omitempty,url"`
-	UsersProfileLinkedinURL     *string `json:"users_profile_linkedin_url,omitempty" validate:"omitempty,url"`
-	UsersProfileGithubURL       *string `json:"users_profile_github_url,omitempty" validate:"omitempty,url"`
-	UsersProfileYoutubeURL      *string `json:"users_profile_youtube_url,omitempty" validate:"omitempty,url"`
-	UserProfileTelegramUsername *string `json:"user_profile_telegram_username,omitempty" validate:"omitempty,max=50"`
+	UsersProfileInstagramURL    *string `json:"users_profile_instagram_url,omitempty" form:"users_profile_instagram_url" validate:"omitempty,url"`
+	UsersProfileWhatsappURL     *string `json:"users_profile_whatsapp_url,omitempty" form:"users_profile_whatsapp_url" validate:"omitempty,url"`
+	UsersProfileLinkedinURL     *string `json:"users_profile_linkedin_url,omitempty" form:"users_profile_linkedin_url" validate:"omitempty,url"`
+	UsersProfileGithubURL       *string `json:"users_profile_github_url,omitempty" form:"users_profile_github_url" validate:"omitempty,url"`
+	UsersProfileYoutubeURL      *string `json:"users_profile_youtube_url,omitempty" form:"users_profile_youtube_url" validate:"omitempty,url"`
+	UserProfileTelegramUsername *string `json:"user_profile_telegram_username,omitempty" form:"user_profile_telegram_username" validate:"omitempty,max=50"`
 
 	// Orang tua / wali
-	UserProfileParentName        *string `json:"user_profile_parent_name,omitempty" validate:"omitempty,max=100"`
-	UserProfileParentWhatsappURL *string `json:"user_profile_parent_whatsapp_url,omitempty" validate:"omitempty,url"`
+	UserProfileParentName        *string `json:"user_profile_parent_name,omitempty" form:"user_profile_parent_name" validate:"omitempty,max=100"`
+	UserProfileParentWhatsappURL *string `json:"user_profile_parent_whatsapp_url,omitempty" form:"user_profile_parent_whatsapp_url" validate:"omitempty,url"`
 
-	UsersProfileIsPublicProfile *bool      `json:"users_profile_is_public_profile,omitempty" validate:"omitempty"`
-	UsersProfileIsVerified      *bool      `json:"users_profile_is_verified,omitempty" validate:"omitempty"`
-	UsersProfileVerifiedAt      *string    `json:"users_profile_verified_at,omitempty" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
-	UsersProfileVerifiedBy      *uuid.UUID `json:"users_profile_verified_by,omitempty" validate:"omitempty"`
+	UsersProfileIsPublicProfile *bool      `json:"users_profile_is_public_profile,omitempty" form:"users_profile_is_public_profile" validate:"omitempty"`
+	UsersProfileIsVerified      *bool      `json:"users_profile_is_verified,omitempty" form:"users_profile_is_verified" validate:"omitempty"`
+	UsersProfileVerifiedAt      *string    `json:"users_profile_verified_at,omitempty" form:"users_profile_verified_at" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
+	UsersProfileVerifiedBy      *uuid.UUID `json:"users_profile_verified_by,omitempty" form:"users_profile_verified_by" validate:"omitempty"`
 
-	UsersProfileEducation *string `json:"users_profile_education,omitempty" validate:"omitempty"`
-	UsersProfileCompany   *string `json:"users_profile_company,omitempty" validate:"omitempty"`
-	UsersProfilePosition  *string `json:"users_profile_position,omitempty" validate:"omitempty"`
+	UsersProfileEducation *string `json:"users_profile_education,omitempty" form:"users_profile_education" validate:"omitempty"`
+	UsersProfileCompany   *string `json:"users_profile_company,omitempty" form:"users_profile_company" validate:"omitempty"`
+	UsersProfilePosition  *string `json:"users_profile_position,omitempty" form:"users_profile_position" validate:"omitempty"`
 
-	UsersProfileInterests []string `json:"users_profile_interests,omitempty" validate:"omitempty,dive,max=100"`
-	UsersProfileSkills    []string `json:"users_profile_skills,omitempty" validate:"omitempty,dive,max=100"`
+	// NOTE: untuk multipart tanpa payload, kirim sebagai JSON string atau berulang (key[])
+	UsersProfileInterests []string `json:"users_profile_interests,omitempty" form:"users_profile_interests" validate:"omitempty,dive,max=100"`
+	UsersProfileSkills    []string `json:"users_profile_skills,omitempty" form:"users_profile_skills" validate:"omitempty,dive,max=100"`
 }
 
 type UpdateUsersProfileRequest struct {
-	UserProfileSlug *string `json:"user_profile_slug" validate:"omitempty,max=80"`
+	UserProfileSlug *string `json:"user_profile_slug" form:"user_profile_slug" validate:"omitempty,max=80"`
 
-	UsersProfileDonationName *string `json:"users_profile_donation_name" validate:"omitempty,max=50"`
-	UsersProfileDateOfBirth  *string `json:"users_profile_date_of_birth" validate:"omitempty"`
-	UserProfilePlaceOfBirth  *string `json:"user_profile_place_of_birth" validate:"omitempty,max=100"`
-	UsersProfileGender       *string `json:"users_profile_gender" validate:"omitempty,oneof=male female"`
-	UsersProfileLocation     *string `json:"users_profile_location" validate:"omitempty,max=100"`
-	UsersProfileCity         *string `json:"users_profile_city" validate:"omitempty,max=100"`
-	UsersProfileBio          *string `json:"users_profile_bio" validate:"omitempty,max=300"`
+	UsersProfileDonationName *string `json:"users_profile_donation_name" form:"users_profile_donation_name" validate:"omitempty,max=50"`
+	UsersProfileDateOfBirth  *string `json:"users_profile_date_of_birth" form:"users_profile_date_of_birth" validate:"omitempty"`
+	UserProfilePlaceOfBirth  *string `json:"user_profile_place_of_birth" form:"user_profile_place_of_birth" validate:"omitempty,max=100"`
+	UsersProfileGender       *string `json:"users_profile_gender" form:"users_profile_gender" validate:"omitempty,oneof=male female"`
+	UsersProfileLocation     *string `json:"users_profile_location" form:"users_profile_location" validate:"omitempty,max=100"`
+	UsersProfileCity         *string `json:"users_profile_city" form:"users_profile_city" validate:"omitempty,max=100"`
+	UsersProfileBio          *string `json:"users_profile_bio" form:"users_profile_bio" validate:"omitempty,max=300"`
 
-	UsersProfileBiographyLong  *string `json:"users_profile_biography_long" validate:"omitempty"`
-	UsersProfileExperience     *string `json:"users_profile_experience" validate:"omitempty"`
-	UsersProfileCertifications *string `json:"users_profile_certifications" validate:"omitempty"`
+	UsersProfileBiographyLong  *string `json:"users_profile_biography_long" form:"users_profile_biography_long" validate:"omitempty"`
+	UsersProfileExperience     *string `json:"users_profile_experience" form:"users_profile_experience" validate:"omitempty"`
+	UsersProfileCertifications *string `json:"users_profile_certifications" form:"users_profile_certifications" validate:"omitempty"`
 
-	UsersProfileInstagramURL    *string `json:"users_profile_instagram_url" validate:"omitempty,url"`
-	UsersProfileWhatsappURL     *string `json:"users_profile_whatsapp_url" validate:"omitempty,url"`
-	UsersProfileLinkedinURL     *string `json:"users_profile_linkedin_url" validate:"omitempty,url"`
-	UsersProfileGithubURL       *string `json:"users_profile_github_url" validate:"omitempty,url"`
-	UsersProfileYoutubeURL      *string `json:"users_profile_youtube_url" validate:"omitempty,url"`
-	UserProfileTelegramUsername *string `json:"user_profile_telegram_username" validate:"omitempty,max=50"`
+	UsersProfileInstagramURL    *string `json:"users_profile_instagram_url" form:"users_profile_instagram_url" validate:"omitempty,url"`
+	UsersProfileWhatsappURL     *string `json:"users_profile_whatsapp_url" form:"users_profile_whatsapp_url" validate:"omitempty,url"`
+	UsersProfileLinkedinURL     *string `json:"users_profile_linkedin_url" form:"users_profile_linkedin_url" validate:"omitempty,url"`
+	UsersProfileGithubURL       *string `json:"users_profile_github_url" form:"users_profile_github_url" validate:"omitempty,url"`
+	UsersProfileYoutubeURL      *string `json:"users_profile_youtube_url" form:"users_profile_youtube_url" validate:"omitempty,url"`
+	UserProfileTelegramUsername *string `json:"user_profile_telegram_username" form:"user_profile_telegram_username" validate:"omitempty,max=50"`
 
 	// Orang tua / wali
-	UserProfileParentName        *string `json:"user_profile_parent_name" validate:"omitempty,max=100"`
-	UserProfileParentWhatsappURL *string `json:"user_profile_parent_whatsapp_url" validate:"omitempty,url"`
+	UserProfileParentName        *string `json:"user_profile_parent_name" form:"user_profile_parent_name" validate:"omitempty,max=100"`
+	UserProfileParentWhatsappURL *string `json:"user_profile_parent_whatsapp_url" form:"user_profile_parent_whatsapp_url" validate:"omitempty,url"`
 
-	UsersProfileIsPublicProfile *bool      `json:"users_profile_is_public_profile" validate:"omitempty"`
-	UsersProfileIsVerified      *bool      `json:"users_profile_is_verified" validate:"omitempty"`
-	UsersProfileVerifiedAt      *string    `json:"users_profile_verified_at" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
-	UsersProfileVerifiedBy      *uuid.UUID `json:"users_profile_verified_by" validate:"omitempty"`
+	UsersProfileIsPublicProfile *bool      `json:"users_profile_is_public_profile" form:"users_profile_is_public_profile" validate:"omitempty"`
+	UsersProfileIsVerified      *bool      `json:"users_profile_is_verified" form:"users_profile_is_verified" validate:"omitempty"`
+	UsersProfileVerifiedAt      *string    `json:"users_profile_verified_at" form:"users_profile_verified_at" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
+	UsersProfileVerifiedBy      *uuid.UUID `json:"users_profile_verified_by" form:"users_profile_verified_by" validate:"omitempty"`
 
-	UsersProfileEducation *string `json:"users_profile_education" validate:"omitempty"`
-	UsersProfileCompany   *string `json:"users_profile_company" validate:"omitempty"`
-	UsersProfilePosition  *string `json:"users_profile_position" validate:"omitempty"`
+	UsersProfileEducation *string `json:"users_profile_education" form:"users_profile_education" validate:"omitempty"`
+	UsersProfileCompany   *string `json:"users_profile_company" form:"users_profile_company" validate:"omitempty"`
+	UsersProfilePosition  *string `json:"users_profile_position" form:"users_profile_position" validate:"omitempty"`
 
-	UsersProfileInterests []string `json:"users_profile_interests" validate:"omitempty,dive,max=100"`
-	UsersProfileSkills    []string `json:"users_profile_skills" validate:"omitempty,dive,max=100"`
+	// NOTE: untuk multipart tanpa payload, kirim sebagai JSON string atau berulang (key[])
+	UsersProfileInterests []string `json:"users_profile_interests" form:"users_profile_interests" validate:"omitempty,dive,max=100"`
+	UsersProfileSkills    []string `json:"users_profile_skills" form:"users_profile_skills" validate:"omitempty,dive,max=100"`
 }
 
 /* ===========================
@@ -276,8 +268,8 @@ func (r CreateUsersProfileRequest) ToModel(userID uuid.UUID) profilemodel.UserPr
 		UserProfileCompany:   trimPtr(r.UsersProfileCompany),
 		UserProfilePosition:  trimPtr(r.UsersProfilePosition),
 
-		UserProfileInterests: pq.StringArray(compactStrings(r.UsersProfileInterests)),
-		UserProfileSkills:    pq.StringArray(compactStrings(r.UsersProfileSkills)),
+		UserProfileInterests: pq.StringArray(CompactStrings(r.UsersProfileInterests)),
+		UserProfileSkills:    pq.StringArray(CompactStrings(r.UsersProfileSkills)),
 	}
 
 	// place_of_birth
@@ -381,10 +373,10 @@ func (in *UpdateUsersProfileRequest) ToUpdateMap() (map[string]interface{}, erro
 
 	// Arrays
 	if in.UsersProfileInterests != nil {
-		m["user_profile_interests"] = pq.StringArray(compactStrings(in.UsersProfileInterests))
+		m["user_profile_interests"] = pq.StringArray(CompactStrings(in.UsersProfileInterests))
 	}
 	if in.UsersProfileSkills != nil {
-		m["user_profile_skills"] = pq.StringArray(compactStrings(in.UsersProfileSkills))
+		m["user_profile_skills"] = pq.StringArray(CompactStrings(in.UsersProfileSkills))
 	}
 
 	// Date of birth
@@ -449,7 +441,7 @@ func stringsPtrOrNil(s string) *string {
 	return &t
 }
 
-func compactStrings(in []string) []string {
+func CompactStrings(in []string) []string {
 	out := make([]string, 0, len(in))
 	for _, s := range in {
 		if t := strings.TrimSpace(s); t != "" {

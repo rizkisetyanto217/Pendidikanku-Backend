@@ -20,9 +20,10 @@ func UserUserRoutes(app fiber.Router, db *gorm.DB) {
 	app.Patch("/users/me", selfCtrl.UpdateMe)
 
 	// ===== /users/profile (JWT; profile milik sendiri) =====
-	profile := app.Group("/users/profile")
-	profile.Get("",    userProfileCtrl.GetProfile)     // GET   /users/profile
-	profile.Post("",   userProfileCtrl.CreateProfile)  // POST  /users/profile
-	profile.Patch("",  userProfileCtrl.UpdateProfile)  // PATCH /users/profile
-	profile.Delete("", userProfileCtrl.DeleteProfile)  // DELETE /users/profile
+	profile := app.Group("/user-profile")
+	profile.Get("/",    userProfileCtrl.GetProfile)     // GET   /users/profile
+	profile.Get("/:user_id", userProfileCtrl.GetProfile) // GET   /users/profile/:id
+	profile.Post("/",   userProfileCtrl.CreateProfile)  // POST  /users/profile
+	profile.Patch("/",  userProfileCtrl.UpdateProfile)  // PATCH /users/profile
+	profile.Delete("/", userProfileCtrl.DeleteProfile)  // DELETE /users/profile
 }

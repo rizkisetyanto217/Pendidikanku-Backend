@@ -8,23 +8,21 @@ import (
 	"gorm.io/gorm"
 )
 
-func ClassSectionUserRoutes(r fiber.Router, db *gorm.DB) {
-	// Controllers
+func ClassSectionUserRoutes(admin fiber.Router, db *gorm.DB) {
 	sectionH := sectionctrl.NewClassSectionController(db)
 	ucsH := sectionctrl.NewUserClassSectionController(db)
 
 	// ================== PUBLIC (READ-ONLY) ==================
-	pub := r.Group("/class-sections")
-	// daftar section publik (support filter via query: term_id, grade, subject_id, teacher_id, q, page, size)
+	pub := admin.Group("/:masjid_id/class-sections")
 	pub.Get("/list", sectionH.ListClassSections)
-	// pencarian cepat (q=keyword) – jika Anda ingin pisah dari list
-	// detail by slug/id (untuk landing/SEO)
-	// pub.Get("/slug/:slug", sectionH.GetClassSectionBySlug)
-	// resource terkait (tidak mengekspos data sensitif user)
-	// pub.Get("/books/:id", sectionH.ListBooksBySection)
+	// pub.Get("/slug/:slug", sectionH.GetClassSectionBySlug) // kalau perlu
 
-	// ================== USER (READ-ONLY) ==================
-	user := r.Group("/user-class-sections")
-	user.Get("/list", ucsH.GetDetail)
-	user.Post("/join", ucsH.JoinByCode)
+	// ================== USER (scoped by masjid_id in path) ==================
+	user := admin.Group("/:masjid_id/user-class-sections")
+	user.Get("/list", ucsH.ListMine)        // optional list milik user
+	user.Get("/detail/:id", ucsH.GetDetail) // detail by id
+	user.Post("/", ucsH.Create)             // create
+	user.Patch("/:id", ucsH.Patch)          // patch
+	user.Delete("/:id", ucsH.Delete)        // soft delete
+	user.Post("/join", ucsH.JoinByCode)     // join by code (kalau sudah ada)
 }

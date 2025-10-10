@@ -12,7 +12,7 @@ import (
 // Contoh mount dari caller:
 //   user := api.Group("/api/u") // atau "/api/p" jika publik
 //   routes.RoomsUserRoutes(user, db)
-func RoomsUserRoutes(user fiber.Router, db *gorm.DB) {
+func RoomsAllRoutes(user fiber.Router, db *gorm.DB) {
 	ctl := clsCtl.NewClassRoomController(db, nil)
 	// Tambah masjid_id agar ResolveMasjidContext bisa resolve dari path
 	g := user.Group("/:masjid_id/class-rooms")

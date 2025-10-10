@@ -62,7 +62,7 @@ type UserClassSectionCreateReq struct {
 	UserClassSectionFee    *datatypes.JSON `json:"user_class_section_fee_snapshot,omitempty"`
 
 	// Snapshot users_profile (opsional; dibekukan saat enrol)
-	UserClassSectionUserProfileNameSnapshot               *string `json:"user_class_section_user_profile_name_snapshot,omitempty"`
+	UserClassSectionUserProfileNameSnapshot              *string `json:"user_class_section_user_profile_name_snapshot,omitempty"`
 	UserClassSectionUserProfileAvatarURLSnapshot         *string `json:"user_class_section_user_profile_avatar_url_snapshot,omitempty"`
 	UserClassSectionUserProfileWhatsappURLSnapshot       *string `json:"user_class_section_user_profile_whatsapp_url_snapshot,omitempty"`
 	UserClassSectionUserProfileParentNameSnapshot        *string `json:"user_class_section_user_profile_parent_name_snapshot,omitempty"`
@@ -201,7 +201,7 @@ type UserClassSectionPatchReq struct {
 	UserClassSectionFee    *PatchField[*datatypes.JSON] `json:"user_class_section_fee_snapshot,omitempty"`
 
 	// Snapshot users_profile
-	UserClassSectionUserProfileNameSnapshot               *PatchField[*string] `json:"user_class_section_user_profile_name_snapshot,omitempty"`
+	UserClassSectionUserProfileNameSnapshot              *PatchField[*string] `json:"user_class_section_user_profile_name_snapshot,omitempty"`
 	UserClassSectionUserProfileAvatarURLSnapshot         *PatchField[*string] `json:"user_class_section_user_profile_avatar_url_snapshot,omitempty"`
 	UserClassSectionUserProfileWhatsappURLSnapshot       *PatchField[*string] `json:"user_class_section_user_profile_whatsapp_url_snapshot,omitempty"`
 	UserClassSectionUserProfileParentNameSnapshot        *PatchField[*string] `json:"user_class_section_user_profile_parent_name_snapshot,omitempty"`
@@ -368,7 +368,7 @@ type UserClassSectionResp struct {
 	UserClassSectionFee    *datatypes.JSON `json:"user_class_section_fee_snapshot,omitempty"`
 
 	// Snapshot users_profile
-	UserClassSectionUserProfileNameSnapshot               *string `json:"user_class_section_user_profile_name_snapshot,omitempty"`
+	UserClassSectionUserProfileNameSnapshot              *string `json:"user_class_section_user_profile_name_snapshot,omitempty"`
 	UserClassSectionUserProfileAvatarURLSnapshot         *string `json:"user_class_section_user_profile_avatar_url_snapshot,omitempty"`
 	UserClassSectionUserProfileWhatsappURLSnapshot       *string `json:"user_class_section_user_profile_whatsapp_url_snapshot,omitempty"`
 	UserClassSectionUserProfileParentNameSnapshot        *string `json:"user_class_section_user_profile_parent_name_snapshot,omitempty"`
@@ -412,7 +412,7 @@ func FromModel(m *model.UserClassSection) UserClassSectionResp {
 		UserClassSectionFee:    feePtr,
 
 		// snapshots
-		UserClassSectionUserProfileNameSnapshot:               m.UserClassSectionUserProfileNameSnapshot,
+		UserClassSectionUserProfileNameSnapshot:              m.UserClassSectionUserProfileNameSnapshot,
 		UserClassSectionUserProfileAvatarURLSnapshot:         m.UserClassSectionUserProfileAvatarURLSnapshot,
 		UserClassSectionUserProfileWhatsappURLSnapshot:       m.UserClassSectionUserProfileWhatsappURLSnapshot,
 		UserClassSectionUserProfileParentNameSnapshot:        m.UserClassSectionUserProfileParentNameSnapshot,
@@ -427,3 +427,5 @@ func FromModel(m *model.UserClassSection) UserClassSectionResp {
 		UserClassSectionDeletedAt: delAt,
 	}
 }
+
+

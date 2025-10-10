@@ -254,7 +254,7 @@ type ClassSectionResponse struct {
 	ClassSectionParentSlugSnap  *string `json:"class_section_parent_slug_snap,omitempty"`
 	ClassSectionParentLevelSnap *string `json:"class_section_parent_level_snap,omitempty"`
 
-	// People
+	// People (derived names)
 	ClassSectionTeacherNameSnap          *string `json:"class_section_teacher_name_snap,omitempty"`
 	ClassSectionAssistantTeacherNameSnap *string `json:"class_section_assistant_teacher_name_snap,omitempty"`
 	ClassSectionLeaderStudentNameSnap    *string `json:"class_section_leader_student_name_snap,omitempty"`
@@ -272,6 +272,15 @@ type ClassSectionResponse struct {
 
 	// housekeeping snapshot
 	ClassSectionSnapshotUpdatedAt *time.Time `json:"class_section_snapshot_updated_at,omitempty"`
+
+	// ================== RAW SNAPSHOTS (JSONB asli) — NEW ==================
+	ClassSectionClassSnapshot            json.RawMessage `json:"class_section_class_snapshot,omitempty"`
+	ClassSectionParentSnapshot           json.RawMessage `json:"class_section_parent_snapshot,omitempty"`
+	ClassSectionTermSnapshot             json.RawMessage `json:"class_section_term_snapshot,omitempty"`
+	ClassSectionTeacherSnapshot          json.RawMessage `json:"class_section_teacher_snapshot,omitempty"`           // <— penting
+	ClassSectionAssistantTeacherSnapshot json.RawMessage `json:"class_section_assistant_teacher_snapshot,omitempty"` // <— penting
+	ClassSectionLeaderStudentSnapshot    json.RawMessage `json:"class_section_leader_student_snapshot,omitempty"`
+	ClassSectionRoomSnapshot             json.RawMessage `json:"class_section_room_snapshot,omitempty"`
 
 	// ============== CSST LITE & COUNTS ============
 	ClassSectionsCSST            []CSSTItemLite `json:"class_sections_csst"`
@@ -304,9 +313,17 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 	// features JSON
 	var features json.RawMessage
 	if len(cs.ClassSectionFeatures) > 0 {
-		features = json.RawMessage(cs.ClassSectionFeatures) // <-- konversi balik
+		features = json.RawMessage(cs.ClassSectionFeatures)
 	} else {
 		features = json.RawMessage(`{}`)
+	}
+
+	// helper: konversi datatypes.JSON → json.RawMessage (kosong → nil)
+	toRaw := func(j datatypes.JSON) json.RawMessage {
+		if len(j) == 0 {
+			return nil
+		}
+		return json.RawMessage(j)
 	}
 
 	return ClassSectionResponse{
@@ -343,7 +360,7 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 		ClassSectionUpdatedAt: cs.ClassSectionUpdatedAt,
 		ClassSectionDeletedAt: deletedAt,
 
-		// snapshots (read-only)
+		// snapshots (derived, read-only)
 		ClassSectionClassSlugSnap: cs.ClassSectionClassSlugSnap,
 
 		ClassSectionParentNameSnap:  cs.ClassSectionParentNameSnap,
@@ -365,6 +382,15 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 		ClassSectionTermYearLabel: cs.ClassSectionTermYearLabel,
 
 		ClassSectionSnapshotUpdatedAt: cs.ClassSectionSnapshotUpdatedAt,
+
+		// RAW snapshots (JSONB asli)
+		ClassSectionClassSnapshot:            toRaw(cs.ClassSectionClassSnapshot),
+		ClassSectionParentSnapshot:           toRaw(cs.ClassSectionParentSnapshot),
+		ClassSectionTermSnapshot:             toRaw(cs.ClassSectionTermSnapshot),
+		ClassSectionTeacherSnapshot:          toRaw(cs.ClassSectionTeacherSnapshot),
+		ClassSectionAssistantTeacherSnapshot: toRaw(cs.ClassSectionAssistantTeacherSnapshot),
+		ClassSectionLeaderStudentSnapshot:    toRaw(cs.ClassSectionLeaderStudentSnapshot),
+		ClassSectionRoomSnapshot:             toRaw(cs.ClassSectionRoomSnapshot),
 
 		// CSST lite & counts
 		ClassSectionsCSST:            csstLite,
@@ -503,7 +529,7 @@ func (r *ClassSectionPatchRequest) Apply(cs *m.ClassSectionModel) {
 	// ====== CSST settings ======
 	if r.ClassSectionCSSTEnrollmentMode.Present {
 		if r.ClassSectionCSSTEnrollmentMode.Value == nil {
-			// kosongkan → pakai default DB (biarkan apa adanya di DB)
+			// kosongkan → biarkan nilai DB apa adanya
 		} else {
 			switch strings.ToLower(strings.TrimSpace(*r.ClassSectionCSSTEnrollmentMode.Value)) {
 			case "self_select":
@@ -531,15 +557,14 @@ func (r *ClassSectionPatchRequest) Apply(cs *m.ClassSectionModel) {
 	}
 	if r.ClassSectionFeatures.Present {
 		if r.ClassSectionFeatures.Value == nil || len(*r.ClassSectionFeatures.Value) == 0 {
-			cs.ClassSectionFeatures = datatypes.JSON([]byte(`{}`)) // <-- kosong: object {}
+			cs.ClassSectionFeatures = datatypes.JSON([]byte(`{}`)) // kosong: object {}
 		} else {
 			var tmp any
 			if err := json.Unmarshal(*r.ClassSectionFeatures.Value, &tmp); err == nil {
-				cs.ClassSectionFeatures = datatypes.JSON(*r.ClassSectionFeatures.Value) // <-- set nilai baru
+				cs.ClassSectionFeatures = datatypes.JSON(*r.ClassSectionFeatures.Value)
 			}
 		}
 	}
-
 }
 
 /* =========================================================
@@ -716,43 +741,38 @@ const (
 	JoinRoleTeacher JoinRole = "teacher"
 )
 
-// Request body untuk join section dengan kode
+/* =========================================================
+   REQUEST: JOIN (student only)
+========================================================= */
+
+/* =========================================================
+   REQUEST: JOIN (student only)
+========================================================= */
+
 type ClassSectionJoinRequest struct {
-	Code string   `json:"code"` // kode yang dimasukkan user
-	Role JoinRole `json:"role"` // "student" | "teacher"
+	Code           string    `json:"code"`             // kode join input siswa (case-sensitive)
+	ClassSectionID uuid.UUID `json:"class_section_id"` // section target
 }
 
-// Normalisasi input: trim & lowercase
 func (r *ClassSectionJoinRequest) Normalize() {
-	r.Code = strings.TrimSpace(r.Code)
-	r.Role = JoinRole(strings.ToLower(strings.TrimSpace(string(r.Role))))
+	r.Code = strings.TrimSpace(r.Code) // JANGAN lower(); bcrypt case-sensitive
 }
 
-// Validasi nilai request
 func (r *ClassSectionJoinRequest) Validate() error {
 	if r.Code == "" {
 		return errors.New("code wajib diisi")
 	}
-	switch r.Role {
-	case JoinRoleStudent, JoinRoleTeacher:
-	default:
-		return errors.New("role harus 'student' atau 'teacher'")
+	if r.ClassSectionID == uuid.Nil {
+		return errors.New("class_section_id wajib diisi")
 	}
 	return nil
 }
 
-// Response untuk endpoint join
-// - Jika role = student → kirim UserClassSection (hasil enrolment)
-// - Jika role = teacher → kirim info penempatan teacher/assistant
+/* =========================================================
+   RESPONSE: JOIN
+========================================================= */
+
 type ClassSectionJoinResponse struct {
-	// Student join
 	UserClassSection *UserClassSectionResp `json:"user_class_section,omitempty"`
-
-	// Info section
-	ClassSectionID string `json:"class_section_id"`
-
-	// Teacher join
-	AssignedAs                     string `json:"assigned_as,omitempty"` // "teacher" | "assistant"
-	ClassSectionTeacherID          string `json:"class_section_teacher_id,omitempty"`
-	ClassSectionAssistantTeacherID string `json:"class_section_assistant_teacher_id,omitempty"`
+	ClassSectionID   string                `json:"class_section_id"`
 }

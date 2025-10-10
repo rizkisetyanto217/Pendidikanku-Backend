@@ -11,7 +11,7 @@ import (
 	masjidkuMiddleware "masjidku_backend/internals/middlewares/features"
 )
 
-func AcademicYearAdminRoutes(api fiber.Router, db *gorm.DB) {
+func AcademicTermsAdminRoutes(api fiber.Router, db *gorm.DB) {
 	termCtl := academicTermCtl.NewAcademicTermController(db, nil)
 
 	// Guard global (Admin/DKM + masjid admin check)

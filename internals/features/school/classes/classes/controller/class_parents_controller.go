@@ -2,8 +2,10 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"mime/multipart"
 	"strings"
 	"time"
 
@@ -27,6 +29,17 @@ type ClassParentController struct {
 
 func NewClassParentController(db *gorm.DB, v interface{ Struct(any) error }) *ClassParentController {
 	return &ClassParentController{DB: db, Validator: v}
+}
+
+// Ambil file dari multipart (nama yang didukung)
+func getImageFormFile(c *fiber.Ctx) (*multipart.FileHeader, error) {
+	names := []string{"image", "avatar", "photo", "file", "picture"}
+	for _, n := range names {
+		if fh, err := c.FormFile(n); err == nil && fh != nil {
+			return fh, nil
+		}
+	}
+	return nil, errors.New("gambar tidak ditemukan")
 }
 
 /*
@@ -177,7 +190,7 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		"class_parent":       cpdto.FromModelClassParent(ent),
 		"uploaded_image_url": uploadedURL,
 	})
-}
+} 
 
 // PATCH /api/a/:masjid_id/class-parents/:id
 func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
@@ -209,20 +222,20 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// Guard staff
+	// Guard staff/tenant
 	if err := helperAuth.EnsureStaffMasjid(c, ent.ClassParentMasjidID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
 
-	// ===== Parse payload (JSON / multipart) → tri-state
+	// === Parse payload (JSON / multipart) → tri-state
 	var p cpdto.ClassParentPatchRequest
 	if err := cpdto.DecodePatchClassParentFromRequest(c, &p); err != nil {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// ===== Uniqueness: code (jika diubah & non-empty)
+	// === Uniqueness: code (jika diubah & non-empty)
 	if p.ClassParentCode.Present && p.ClassParentCode.Value != nil {
 		if v := strings.TrimSpace(**p.ClassParentCode.Value); v != "" {
 			var cnt int64
@@ -241,7 +254,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		}
 	}
 
-	// ===== SIMPAN NILAI LAMA untuk deteksi perubahan snapshot
+	// === SIMPAN NILAI LAMA untuk deteksi refresh snapshot
 	oldCode := ""
 	if ent.ClassParentCode != nil {
 		oldCode = *ent.ClassParentCode
@@ -260,10 +273,10 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		oldLevel = &lv
 	}
 
-	// ===== Terapkan patch ke entity
+	// === Apply patch ke entity in-memory
 	p.Apply(&ent)
 
-	// ===== Slug handling (sama seperti sebelumnya)
+	// === Slug handling (unique per masjid)
 	if p.ClassParentSlug.Present {
 		if p.ClassParentSlug.Value != nil {
 			base := helper.Slugify(strings.TrimSpace(**p.ClassParentSlug.Value), 100)
@@ -312,7 +325,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		ent.ClassParentSlug = &uniq
 	}
 
-	// ===== Simpan perubahan utama
+	// === Simpan perubahan utama (tanpa image dulu)
 	if err := tx.Model(&classModel.ClassParentModel{}).
 		Where("class_parent_id = ?", ent.ClassParentID).
 		Updates(&ent).Error; err != nil {
@@ -320,12 +333,60 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan")
 	}
 
-	// ===== Optional: upload image (tetap seperti punyamu)
+	// === Upload image (multipart optional) → 2-slot + retensi
 	uploadedURL := ""
 	movedOld := ""
-	// ... (blok upload yang sudah ada, tidak diubah) ...
 
-	// ===== Tentukan perlu REFRESH SNAPSHOT classes
+	if fh, ferr := getImageFormFile(c); ferr == nil && fh != nil {
+		svc, e := helperOSS.NewOSSServiceFromEnv("")
+		if e != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusServiceUnavailable, "OSS belum terkonfigurasi")
+		}
+
+		ctx, cancel := context.WithTimeout(c.Context(), 30*time.Second)
+		defer cancel()
+
+		// folder: classes/class-parents  (rapi & konsisten)
+		url, upErr := helperOSS.UploadImageToOSS(ctx, svc, ent.ClassParentMasjidID, "classes/class-parents", fh)
+		if upErr != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, upErr.Error())
+		}
+		key, kerr := helperOSS.KeyFromPublicURL(url)
+		if kerr != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusBadRequest, "Gagal ekstrak object key (image)")
+		}
+
+		imap := map[string]any{
+			"class_parent_image_url":        url,
+			"class_parent_image_object_key": key,
+			"class_parent_updated_at":       time.Now(),
+		}
+
+		if ent.ClassParentImageURL != nil && *ent.ClassParentImageURL != "" {
+			due := time.Now().Add(helperOSS.GetRetentionDuration())
+			imap["class_parent_image_url_old"] = ent.ClassParentImageURL
+			imap["class_parent_image_object_key_old"] = ent.ClassParentImageObjectKey
+			imap["class_parent_image_delete_pending_until"] = &due
+			movedOld = strings.TrimSpace(*ent.ClassParentImageURL)
+		}
+
+		if err := tx.Model(&classModel.ClassParentModel{}).
+			Where("class_parent_id = ?", ent.ClassParentID).
+			Updates(imap).Error; err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan image")
+		}
+
+		// sinkron ent untuk response
+		ent.ClassParentImageURL = &url
+		ent.ClassParentImageObjectKey = &key
+		uploadedURL = url
+	}
+
+	// === Tentukan perlu REFRESH SNAPSHOT classes (denormalized fields)
 	newCode := ""
 	if ent.ClassParentCode != nil {
 		newCode = *ent.ClassParentCode
@@ -363,21 +424,20 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		}
 	}
 
-	// ===== Bulk update SNAPSHOT di classes (tenant & parent scoped)
 	if needRefresh {
-		type classmodel = classModel.ClassModel // alias lokal biar jelas; ganti import sesuai project
+		type classmodel = classModel.ClassModel
 		if err := tx.Model(&classmodel{}).
 			Where("class_masjid_id = ? AND class_parent_id = ?", ent.ClassParentMasjidID, ent.ClassParentID).
 			Updates(map[string]any{
-				"class_code_parent_snapshot": func() any {
+				"class_parent_code_snapshot": func() any {
 					if ent.ClassParentCode == nil {
 						return gorm.Expr("NULL")
 					}
 					return *ent.ClassParentCode
 				}(),
-				"class_name_parent_snapshot":  ent.ClassParentName,
-				"class_slug_parent_snapshot":  ent.ClassParentSlug,
-				"class_level_parent_snapshot": ent.ClassParentLevel,
+				"class_parent_name_snapshot":  newName,
+				"class_parent_slug_snapshot":  newSlug,
+				"class_parent_level_snapshot": newLevel,
 				"class_updated_at":            time.Now(),
 			}).Error; err != nil {
 

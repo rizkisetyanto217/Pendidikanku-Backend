@@ -54,7 +54,7 @@ func reqCtx(c *fiber.Ctx) context.Context {
 func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	ctl.ensureValidator()
 
-	// Require DKM/Admin + resolve masjidID (slug/id)
+	// 🔒 Ambil context masjid
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return err
@@ -64,23 +64,27 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 		return err
 	}
 
+	// 📦 Parse body
 	var req dto.CreateClassRoomRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
+
+	// 🚩 Isi dari context server
+	req.ClassRoomMasjidID = masjidID
+
+	// ✅ Validasi payload
 	if err := ctl.Validate.Struct(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Validasi gagal: "+err.Error())
 	}
 
-	// === AUTO SLUG (unik per masjid, case-insensitive, panjang <= 50) ===
+	// 🔁 Auto-generate slug unik dari nama (jika kosong)
 	base := ""
 	if req.ClassRoomSlug != nil {
 		base = strings.TrimSpace(*req.ClassRoomSlug)
 	}
 	if base == "" {
 		base = helper.Slugify(req.ClassRoomName, 50)
-	} else {
-		base = helper.Slugify(base, 50)
 	}
 	slug, err := helper.EnsureUniqueSlugCI(
 		reqCtx(c), ctl.DB,
@@ -95,16 +99,17 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat slug unik")
 	}
 
-	// Map DTO → Model (features & virtual_links sudah di-handle di ToModel)
+	// 🧭 Map DTO → model
 	m, err := req.ToModel()
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid (features/virtual_links)")
 	}
-	// Override field yang harus berasal dari server-context
+
+	// 🔒 Pastikan masjid_id dan slug fix dari server
 	m.ClassRoomMasjidID = masjidID
 	m.ClassRoomSlug = &slug
 
-	// Simpan
+	// 💾 Simpan ke DB
 	if err := ctl.DB.WithContext(reqCtx(c)).Create(&m).Error; err != nil {
 		if isUniqueViolation(err) {
 			return helper.JsonError(c, fiber.StatusConflict, "Nama/Kode/Slug ruang sudah digunakan")
@@ -116,11 +121,9 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 }
 
 /* ============================ UPDATE (PUT/PATCH semantics) ============================ */
-
 func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 	ctl.ensureValidator()
 
-	// Require DKM/Admin + resolve masjidID
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return err
@@ -143,7 +146,6 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Validasi gagal: "+err.Error())
 	}
 
-	// Ambil record yang masih alive & tenant match
 	var m model.ClassRoomModel
 	if err := ctl.DB.WithContext(reqCtx(c)).
 		Where("class_room_id = ? AND class_room_masjid_id = ? AND class_room_deleted_at IS NULL", id, masjidID).
@@ -154,12 +156,50 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Terapkan patch ke struct, biar JSONB & clear-logic rapi
+	// Terapkan patch (mutasi in-place)
 	if err := req.ApplyPatch(&m); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Gagal menerapkan perubahan: "+err.Error())
 	}
 
-	// Save agar autoUpdateTime jalan; tidak perlu manual set updated_at
+	// === NEW: Auto-update slug ketika nama berubah, kecuali slug diisi eksplisit ===
+	if req.ClassRoomName != nil {
+		// Hanya generate otomatis jika user TIDAK kirim slug baru
+		if req.ClassRoomSlug == nil || strings.TrimSpace(*req.ClassRoomSlug) == "" {
+			base := helper.Slugify(*req.ClassRoomName, 50)
+			slug, err := helper.EnsureUniqueSlugCI(
+				reqCtx(c), ctl.DB,
+				"class_rooms", "class_room_slug",
+				base,
+				func(q *gorm.DB) *gorm.DB {
+					// unik per masjid, exclude diri sendiri, hanya alive
+					return q.Where("class_room_masjid_id = ? AND class_room_id <> ? AND class_room_deleted_at IS NULL", masjidID, id)
+				},
+				50,
+			)
+			if err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat slug unik")
+			}
+			m.ClassRoomSlug = &slug
+		} else {
+			// Jika user kirim slug, pastikan unik juga (normalisasi + unik)
+			base := helper.Slugify(strings.TrimSpace(*req.ClassRoomSlug), 50)
+			slug, err := helper.EnsureUniqueSlugCI(
+				reqCtx(c), ctl.DB,
+				"class_rooms", "class_room_slug",
+				base,
+				func(q *gorm.DB) *gorm.DB {
+					return q.Where("class_room_masjid_id = ? AND class_room_id <> ? AND class_room_deleted_at IS NULL", masjidID, id)
+				},
+				50,
+			)
+			if err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat slug unik")
+			}
+			m.ClassRoomSlug = &slug
+		}
+	}
+	// === END NEW ===
+
 	if err := ctl.DB.WithContext(reqCtx(c)).Save(&m).Error; err != nil {
 		if isUniqueViolation(err) {
 			return helper.JsonError(c, fiber.StatusConflict, "Nama/Kode/Slug ruang sudah digunakan")

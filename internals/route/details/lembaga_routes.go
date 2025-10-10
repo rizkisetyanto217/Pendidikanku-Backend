@@ -3,9 +3,9 @@ package details
 
 import (
 	// ====== Lembaga features ======
+	YayasanRoutes "masjidku_backend/internals/features/lembaga/masjid_yayasans/yayasans/route"
 	LembagaStatsRoutes "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/route"
 	SemesterStatsRoutes "masjidku_backend/internals/features/lembaga/stats/semester_stats/route"
-	YayasanRoutes "masjidku_backend/internals/features/lembaga/masjid_yayasans/yayasans/route"
 	AcademicYearRoutes "masjidku_backend/internals/features/school/academics/academic_terms/route"
 	ClassBooksRoutes "masjidku_backend/internals/features/school/academics/books/route"
 	CertificateRoutes "masjidku_backend/internals/features/school/academics/certificates/route"
@@ -41,6 +41,8 @@ func LembagaPublicRoutes(r fiber.Router, db *gorm.DB) {
 	LembagaStatsRoutes.LembagaStatsAllRoutes(r, db)
 	YayasanRoutes.AllYayasanRoutes(r, db)
 	EventRoutes.AllEventRoutes(r, db)
+	RoomsRoutes.RoomsAllRoutes(r, db)
+	AcademicYearRoutes.AcademicTermsPublicRoutes(r, db)
 	// Classes (public read)
 	// ClassRoutes.ClassPublicRoutes(r, db)
 	// Tambahkan modul lain (public) di sini:
@@ -55,11 +57,9 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	ClassAttendanceSessionsRoutes.AttendanceSessionsUserRoutes(r, db)
 	PostRoutes.PostUserRoutes(r, db)
 	SemesterStatsRoutes.UserClassAttendanceSemesterUserRoutes(r, db)
-	AcademicYearRoutes.AcademicYearUserRoutes(r, db)
 	ClassBooksRoutes.ClassBooksUserRoutes(r, db)
 	ClassSectionsRoutes.ClassSectionUserRoutes(r, db)
 	ClassAttendanceSessionsRoutes.AttendanceSessionsTeacherRoutes(r, db)
-	RoomsRoutes.RoomsUserRoutes(r, db)
 	ScheduleRoutes.ScheduleUserRoutes(r, db)
 	SubjectRoutes.SubjectUserRoutes(r, db)
 	CertificateRoutes.CertificateUserRoutes(r, db)
@@ -89,7 +89,7 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	SubjectRoutes.SubjectAdminRoutes(r, db)
 	ClassBooksRoutes.ClassBooksAdminRoutes(r, db)
 	AttendanceSettingsRoute.ClassAttendanceSettingsAdminRoutes(r, db)
-	AcademicYearRoutes.AcademicYearAdminRoutes(r, db)
+	AcademicYearRoutes.AcademicTermsAdminRoutes(r, db)
 	YayasanRoutes.YayasanAdminRoutes(r, db)
 	RoomsRoutes.RoomsAdminRoutes(r, db)
 	ScheduleRoutes.ScheduleAdminRoutes(r, db)

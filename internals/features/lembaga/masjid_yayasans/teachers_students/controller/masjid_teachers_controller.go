@@ -110,8 +110,6 @@ func revokeTeacherRole(tx *gorm.DB, userID, masjidID uuid.UUID) error {
 
 /* ===================== CREATE ===================== */
 // POST /api/a/masjids/:masjid_id/masjid-teachers
-/* ===================== CREATE ===================== */
-// POST /api/a/masjids/:masjid_id/masjid-teachers
 func (ctrl *MasjidTeacherController) Create(c *fiber.Ctx) error {
 	if c.Locals("DB") == nil {
 		c.Locals("DB", ctrl.DB)
