@@ -68,20 +68,20 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 	}
 
 	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// === Cek duplikasi kombinasi ===
+		// === Cek duplikasi kombinasi (tenant-aware, alive only) ===
 		var cnt int64
 		if err := tx.Model(&csModel.ClassSubjectModel{}).
 			Where(`
                 class_subject_masjid_id = ?
-                AND class_subject_class_id = ?
+                AND class_subject_parent_id = ?
                 AND class_subject_subject_id = ?
                 AND class_subject_deleted_at IS NULL
-            `, req.MasjidID, req.ClassID, req.SubjectID).
+            `, req.MasjidID, req.ParentID, req.SubjectID).
 			Count(&cnt).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek duplikasi class subject")
 		}
 		if cnt > 0 {
-			return fiber.NewError(fiber.StatusConflict, "Kombinasi kelas+subject sudah terdaftar")
+			return fiber.NewError(fiber.StatusConflict, "Kombinasi parent+subject sudah terdaftar")
 		}
 
 		// === Generate slug unik ===
@@ -89,28 +89,28 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 		if req.Slug != nil {
 			baseSlug = *req.Slug
 		} else {
-			var subjName, classSlug string
+			var subjName, parentSlug string
 			_ = tx.Table("subjects").
 				Select("subject_name").
 				Where("subject_id = ? AND subject_masjid_id = ?", req.SubjectID, req.MasjidID).
 				Scan(&subjName).Error
 
-			_ = tx.Table("classes").
-				Select("class_slug").
-				Where("class_id = ? AND class_masjid_id = ?", req.ClassID, req.MasjidID).
-				Scan(&classSlug).Error
+			_ = tx.Table("class_parents").
+				Select("class_parent_slug").
+				Where("class_parent_id = ? AND class_parent_masjid_id = ?", req.ParentID, req.MasjidID).
+				Scan(&parentSlug).Error
 
 			switch {
-			case strings.TrimSpace(subjName) != "" && strings.TrimSpace(classSlug) != "":
-				baseSlug = helper.Slugify(classSlug+" "+subjName, 160)
+			case strings.TrimSpace(parentSlug) != "" && strings.TrimSpace(subjName) != "":
+				baseSlug = helper.Slugify(parentSlug+" "+subjName, 160)
 			case strings.TrimSpace(subjName) != "":
 				baseSlug = helper.Slugify(subjName, 160)
-			case strings.TrimSpace(classSlug) != "":
-				baseSlug = helper.Slugify(classSlug, 160)
+			case strings.TrimSpace(parentSlug) != "":
+				baseSlug = helper.Slugify(parentSlug, 160)
 			default:
 				baseSlug = helper.Slugify(
 					fmt.Sprintf("cs-%s-%s",
-						strings.Split(req.ClassID.String(), "-")[0],
+						strings.Split(req.ParentID.String(), "-")[0],
 						strings.Split(req.SubjectID.String(), "-")[0],
 					), 160)
 			}
@@ -138,7 +138,7 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 		if err := tx.Create(&m).Error; err != nil {
 			msg := strings.ToLower(err.Error())
 			if strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
-				return fiber.NewError(fiber.StatusConflict, "Kombinasi kelas+subject sudah terdaftar")
+				return fiber.NewError(fiber.StatusConflict, "Kombinasi parent+subject sudah terdaftar")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat class subject")
 		}
@@ -222,37 +222,37 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusBadRequest, "Data sudah dihapus")
 		}
 
-		// Cek apakah class/subject berubah → cek duplikasi
-		newClassID := m.ClassSubjectClassID
+		// Cek apakah parent/subject berubah → cek duplikasi
+		newParentID := m.ClassSubjectParentID
 		newSubjectID := m.ClassSubjectSubjectID
-		if req.ClassID != nil {
-			newClassID = *req.ClassID
+		if req.ParentID != nil {
+			newParentID = *req.ParentID
 		}
 		if req.SubjectID != nil {
 			newSubjectID = *req.SubjectID
 		}
 
-		if newClassID != m.ClassSubjectClassID || newSubjectID != m.ClassSubjectSubjectID {
+		if newParentID != m.ClassSubjectParentID || newSubjectID != m.ClassSubjectSubjectID {
 			var cnt int64
 			if err := tx.Model(&csModel.ClassSubjectModel{}).
 				Where(`
 					class_subject_masjid_id = ?
-					AND class_subject_class_id  = ?
-					AND class_subject_subject_id= ?
+					AND class_subject_parent_id  = ?
+					AND class_subject_subject_id = ?
 					AND class_subject_id <> ?
 					AND class_subject_deleted_at IS NULL
-				`, masjidID, newClassID, newSubjectID, m.ClassSubjectID).
+				`, masjidID, newParentID, newSubjectID, m.ClassSubjectID).
 				Count(&cnt).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek duplikasi class subject")
 			}
 			if cnt > 0 {
-				return fiber.NewError(fiber.StatusConflict, "Kombinasi kelas+subject sudah terdaftar")
+				return fiber.NewError(fiber.StatusConflict, "Kombinasi parent+subject sudah terdaftar")
 			}
 		}
 
 		// Flag untuk slug
 		oldSlugNil := (m.ClassSubjectSlug == nil || strings.TrimSpace(ptrStr(m.ClassSubjectSlug)) == "")
-		classChanged := (req.ClassID != nil && *req.ClassID != m.ClassSubjectClassID)
+		parentChanged := (req.ParentID != nil && *req.ParentID != m.ClassSubjectParentID)
 		subjectChanged := (req.SubjectID != nil && *req.SubjectID != m.ClassSubjectSubjectID)
 
 		// Apply perubahan dari req
@@ -266,32 +266,32 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			// User kasih slug manual
 			baseSlug = *req.Slug
 			needSetSlug = true
-		} else if oldSlugNil || classChanged || subjectChanged {
-			// Slug kosong ATAU class/subject berubah → regen
+		} else if oldSlugNil || parentChanged || subjectChanged {
+			// Slug kosong ATAU parent/subject berubah → regen
 			needSetSlug = true
 
-			var subjName, classSlug string
+			var subjName, parentSlug string
 			_ = tx.Table("subjects").
 				Select("subject_name").
 				Where("subject_id = ? AND subject_masjid_id = ?", m.ClassSubjectSubjectID, masjidID).
 				Scan(&subjName).Error
 
-			_ = tx.Table("classes").
-				Select("class_slug").
-				Where("class_id = ? AND class_masjid_id = ?", m.ClassSubjectClassID, masjidID).
-				Scan(&classSlug).Error
+			_ = tx.Table("class_parents").
+				Select("class_parent_slug").
+				Where("class_parent_id = ? AND class_parent_masjid_id = ?", m.ClassSubjectParentID, masjidID).
+				Scan(&parentSlug).Error
 
 			switch {
-			case strings.TrimSpace(classSlug) != "" && strings.TrimSpace(subjName) != "":
-				baseSlug = helper.Slugify(classSlug+" "+subjName, 160)
+			case strings.TrimSpace(parentSlug) != "" && strings.TrimSpace(subjName) != "":
+				baseSlug = helper.Slugify(parentSlug+" "+subjName, 160)
 			case strings.TrimSpace(subjName) != "":
 				baseSlug = helper.Slugify(subjName, 160)
-			case strings.TrimSpace(classSlug) != "":
-				baseSlug = helper.Slugify(classSlug, 160)
+			case strings.TrimSpace(parentSlug) != "":
+				baseSlug = helper.Slugify(parentSlug, 160)
 			default:
 				baseSlug = helper.Slugify(
 					fmt.Sprintf("cs-%s-%s",
-						strings.Split(m.ClassSubjectClassID.String(), "-")[0],
+						strings.Split(m.ClassSubjectParentID.String(), "-")[0],
 						strings.Split(m.ClassSubjectSubjectID.String(), "-")[0],
 					), 160)
 			}
@@ -324,7 +324,7 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			Where("class_subject_id = ?", m.ClassSubjectID).
 			Updates(map[string]any{
 				"class_subject_masjid_id":              m.ClassSubjectMasjidID,
-				"class_subject_class_id":               m.ClassSubjectClassID,
+				"class_subject_parent_id":              m.ClassSubjectParentID,
 				"class_subject_subject_id":             m.ClassSubjectSubjectID,
 				"class_subject_slug":                   m.ClassSubjectSlug,
 				"class_subject_order_index":            m.ClassSubjectOrderIndex,
@@ -342,7 +342,7 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			}).Error; err != nil {
 			msg := strings.ToLower(err.Error())
 			if strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
-				return fiber.NewError(fiber.StatusConflict, "Slug atau kombinasi kelas+subject sudah terdaftar")
+				return fiber.NewError(fiber.StatusConflict, "Slug atau kombinasi parent+subject sudah terdaftar")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui data")
 		}
@@ -371,7 +371,8 @@ func ptrStr(p *string) string {
 
 	DELETE
 	DELETE /admin/:masjid_id/class-subjects/:id?force=true
-	=========================================================
+
+=========================================================
 */
 func (h *ClassSubjectController) Delete(c *fiber.Ctx) error {
 	// 🔐 Context + role check (DKM/Admin)

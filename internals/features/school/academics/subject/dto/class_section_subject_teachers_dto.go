@@ -8,6 +8,7 @@ import (
 	csstModel "masjidku_backend/internals/features/school/academics/subject/model"
 
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 )
 
 /* =========================================================
@@ -25,12 +26,13 @@ func trimLowerPtr(p *string) *string {
 	return &s
 }
 
+
 /* =========================================================
-   1) REQUEST DTO — key JSON = nama kolom (singular)
+   1) REQUEST DTO
 ========================================================= */
 
 // Create
-// Catatan: class_section_subject_teacher_masjid_id boleh kosong; biasanya diisi dari token di controller.
+// Catatan: class_section_subject_teacher_masjid_id biasanya diisi dari token pada controller.
 type CreateClassSectionSubjectTeacherRequest struct {
 	ClassSectionSubjectTeacherMasjidID       *uuid.UUID `json:"class_section_subject_teacher_masjid_id"  validate:"omitempty,uuid"`
 	ClassSectionSubjectTeacherSectionID      uuid.UUID  `json:"class_section_subject_teacher_section_id" validate:"required,uuid"`
@@ -38,19 +40,19 @@ type CreateClassSectionSubjectTeacherRequest struct {
 	// pakai masjid_teachers.masjid_teacher_id
 	ClassSectionSubjectTeacherTeacherID uuid.UUID `json:"class_section_subject_teacher_teacher_id" validate:"required,uuid"`
 
-	// SLUG (opsional) — disarankan lowercase
-	ClassSectionSubjectTeacherSlug *string `json:"class_section_subject_teacher_slug" validate:"omitempty,max=160"`
+	// ➕ Asisten (opsional) — dipakai di controller untuk buat snapshot JSON (bukan FK kolom)
+	ClassSectionSubjectTeacherAssistantTeacherID *uuid.UUID `json:"class_section_subject_teacher_assistant_teacher_id" validate:"omitempty,uuid"`
 
-	// Deskripsi (opsional)
-	ClassSectionSubjectTeacherDescription *string `json:"class_section_subject_teacher_description" validate:"omitempty"`
+	// Opsional
+	ClassSectionSubjectTeacherSlug        *string    `json:"class_section_subject_teacher_slug" validate:"omitempty,max=160"`
+	ClassSectionSubjectTeacherDescription *string    `json:"class_section_subject_teacher_description" validate:"omitempty"`
+	ClassSectionSubjectTeacherRoomID      *uuid.UUID `json:"class_section_subject_teacher_room_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherGroupURL    *string    `json:"class_section_subject_teacher_group_url" validate:"omitempty,max=2000"`
+	ClassSectionSubjectTeacherCapacity    *int       `json:"class_section_subject_teacher_capacity" validate:"omitempty"` // >=0 divalidasi di DB (CHECK)
+	// enum: offline|online|hybrid
+	ClassSectionsSubjectTeacherDeliveryMode *csstModel.ClassDeliveryMode `json:"class_sections_subject_teacher_delivery_mode" validate:"omitempty,oneof=offline online hybrid"`
 
-	// Override ruangan (opsional)
-	ClassSectionSubjectTeacherRoomID *uuid.UUID `json:"class_section_subject_teacher_room_id" validate:"omitempty,uuid"`
-
-	// Link grup (opsional)
-	ClassSectionSubjectTeacherGroupURL *string `json:"class_section_subject_teacher_group_url" validate:"omitempty,max=2000"`
-
-	// Status aktif (opsional, default: true)
+	// Status
 	ClassSectionSubjectTeacherIsActive *bool `json:"class_section_subject_teacher_is_active" validate:"omitempty"`
 }
 
@@ -61,30 +63,56 @@ type UpdateClassSectionSubjectTeacherRequest struct {
 	ClassSectionSubjectTeacherClassSubjectID *uuid.UUID `json:"class_section_subject_teacher_class_subject_id" validate:"omitempty,uuid"`
 	ClassSectionSubjectTeacherTeacherID      *uuid.UUID `json:"class_section_subject_teacher_teacher_id" validate:"omitempty,uuid"`
 
-	ClassSectionSubjectTeacherSlug        *string    `json:"class_section_subject_teacher_slug" validate:"omitempty,max=160"`
-	ClassSectionSubjectTeacherDescription *string    `json:"class_section_subject_teacher_description" validate:"omitempty"`
-	ClassSectionSubjectTeacherRoomID      *uuid.UUID `json:"class_section_subject_teacher_room_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherGroupURL    *string    `json:"class_section_subject_teacher_group_url" validate:"omitempty,max=2000"`
+	// ➕ Asisten (opsional) — untuk rebuild snapshot asisten saat update (jika perlu)
+	ClassSectionSubjectTeacherAssistantTeacherID *uuid.UUID `json:"class_section_subject_teacher_assistant_teacher_id" validate:"omitempty,uuid"`
+
+	ClassSectionSubjectTeacherSlug          *string                      `json:"class_section_subject_teacher_slug" validate:"omitempty,max=160"`
+	ClassSectionSubjectTeacherDescription   *string                      `json:"class_section_subject_teacher_description" validate:"omitempty"`
+	ClassSectionSubjectTeacherRoomID        *uuid.UUID                   `json:"class_section_subject_teacher_room_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherGroupURL      *string                      `json:"class_section_subject_teacher_group_url" validate:"omitempty,max=2000"`
+	ClassSectionSubjectTeacherCapacity      *int                         `json:"class_section_subject_teacher_capacity" validate:"omitempty"`
+	ClassSectionsSubjectTeacherDeliveryMode *csstModel.ClassDeliveryMode `json:"class_sections_subject_teacher_delivery_mode" validate:"omitempty,oneof=offline online hybrid"`
 
 	ClassSectionSubjectTeacherIsActive *bool `json:"class_section_subject_teacher_is_active" validate:"omitempty"`
 }
 
 /* =========================================================
-   2) RESPONSE DTO — full kolom (singular)
+   2) RESPONSE DTO — sesuai kolom di DB/model terbaru
 ========================================================= */
 
 type ClassSectionSubjectTeacherResponse struct {
+	// IDs
 	ClassSectionSubjectTeacherID             uuid.UUID `json:"class_section_subject_teacher_id"`
 	ClassSectionSubjectTeacherMasjidID       uuid.UUID `json:"class_section_subject_teacher_masjid_id"`
 	ClassSectionSubjectTeacherSectionID      uuid.UUID `json:"class_section_subject_teacher_section_id"`
 	ClassSectionSubjectTeacherClassSubjectID uuid.UUID `json:"class_section_subject_teacher_class_subject_id"`
 	ClassSectionSubjectTeacherTeacherID      uuid.UUID `json:"class_section_subject_teacher_teacher_id"`
 
+	// Identitas / fasilitas
 	ClassSectionSubjectTeacherSlug        *string    `json:"class_section_subject_teacher_slug,omitempty"`
 	ClassSectionSubjectTeacherDescription *string    `json:"class_section_subject_teacher_description,omitempty"`
 	ClassSectionSubjectTeacherRoomID      *uuid.UUID `json:"class_section_subject_teacher_room_id,omitempty"`
 	ClassSectionSubjectTeacherGroupURL    *string    `json:"class_section_subject_teacher_group_url,omitempty"`
 
+	// Agregat & kapasitas
+	ClassSectionSubjectTeacherTotalAttendance int    `json:"class_section_subject_teacher_total_attendance"`
+	ClassSectionSubjectTeacherCapacity        *int   `json:"class_section_subject_teacher_capacity,omitempty"`
+	ClassSectionSubjectTeacherEnrolledCount   int    `json:"class_section_subject_teacher_enrolled_count"`
+	ClassSectionsSubjectTeacherDeliveryMode   string `json:"class_sections_subject_teacher_delivery_mode"`
+
+	// Room snapshot + derived
+	ClassSectionSubjectTeacherRoomSnapshot     *datatypes.JSON `json:"class_section_subject_teacher_room_snapshot,omitempty"`
+	ClassSectionSubjectTeacherRoomNameSnap     *string         `json:"class_section_subject_teacher_room_name_snap,omitempty"`
+	ClassSectionSubjectTeacherRoomSlugSnap     *string         `json:"class_section_subject_teacher_room_slug_snap,omitempty"`
+	ClassSectionSubjectTeacherRoomLocationSnap *string         `json:"class_section_subject_teacher_room_location_snap,omitempty"`
+
+	// People snapshots + derived
+	ClassSectionSubjectTeacherTeacherSnapshot          *datatypes.JSON `json:"class_section_subject_teacher_teacher_snapshot,omitempty"`
+	ClassSectionSubjectTeacherAssistantTeacherSnapshot *datatypes.JSON `json:"class_section_subject_teacher_assistant_teacher_snapshot,omitempty"`
+	ClassSectionSubjectTeacherTeacherNameSnap          *string         `json:"class_section_subject_teacher_teacher_name_snap,omitempty"`
+	ClassSectionSubjectTeacherAssistantTeacherNameSnap *string         `json:"class_section_subject_teacher_assistant_teacher_name_snap,omitempty"`
+
+	// Status & audit
 	ClassSectionSubjectTeacherIsActive  bool       `json:"class_section_subject_teacher_is_active"`
 	ClassSectionSubjectTeacherCreatedAt time.Time  `json:"class_section_subject_teacher_created_at"`
 	ClassSectionSubjectTeacherUpdatedAt time.Time  `json:"class_section_subject_teacher_updated_at"`
@@ -116,6 +144,13 @@ func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectio
 	} else {
 		m.ClassSectionSubjectTeacherIsActive = true
 	}
+	if r.ClassSectionSubjectTeacherCapacity != nil {
+		m.ClassSectionSubjectTeacherCapacity = r.ClassSectionSubjectTeacherCapacity
+	}
+	if r.ClassSectionsSubjectTeacherDeliveryMode != nil {
+		m.ClassSectionsSubjectTeacherDeliveryMode = *r.ClassSectionsSubjectTeacherDeliveryMode
+	}
+
 	return m
 }
 
@@ -133,7 +168,6 @@ func (r UpdateClassSectionSubjectTeacherRequest) Apply(m *csstModel.ClassSection
 		m.ClassSectionSubjectTeacherTeacherID = *r.ClassSectionSubjectTeacherTeacherID
 	}
 
-	// opsional yang bisa dikosongkan
 	if r.ClassSectionSubjectTeacherSlug != nil {
 		m.ClassSectionSubjectTeacherSlug = trimLowerPtr(r.ClassSectionSubjectTeacherSlug)
 	}
@@ -145,6 +179,12 @@ func (r UpdateClassSectionSubjectTeacherRequest) Apply(m *csstModel.ClassSection
 	}
 	if r.ClassSectionSubjectTeacherGroupURL != nil {
 		m.ClassSectionSubjectTeacherGroupURL = trimPtr(r.ClassSectionSubjectTeacherGroupURL)
+	}
+	if r.ClassSectionSubjectTeacherCapacity != nil {
+		m.ClassSectionSubjectTeacherCapacity = r.ClassSectionSubjectTeacherCapacity
+	}
+	if r.ClassSectionsSubjectTeacherDeliveryMode != nil {
+		m.ClassSectionsSubjectTeacherDeliveryMode = *r.ClassSectionsSubjectTeacherDeliveryMode
 	}
 
 	if r.ClassSectionSubjectTeacherIsActive != nil {
@@ -160,17 +200,37 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		deletedAt = &t
 	}
 	return ClassSectionSubjectTeacherResponse{
+		// IDs
 		ClassSectionSubjectTeacherID:             m.ClassSectionSubjectTeacherID,
 		ClassSectionSubjectTeacherMasjidID:       m.ClassSectionSubjectTeacherMasjidID,
 		ClassSectionSubjectTeacherSectionID:      m.ClassSectionSubjectTeacherSectionID,
 		ClassSectionSubjectTeacherClassSubjectID: m.ClassSectionSubjectTeacherClassSubjectID,
 		ClassSectionSubjectTeacherTeacherID:      m.ClassSectionSubjectTeacherTeacherID,
 
+		// Identitas / fasilitas
 		ClassSectionSubjectTeacherSlug:        m.ClassSectionSubjectTeacherSlug,
 		ClassSectionSubjectTeacherDescription: m.ClassSectionSubjectTeacherDescription,
 		ClassSectionSubjectTeacherRoomID:      m.ClassSectionSubjectTeacherRoomID,
 		ClassSectionSubjectTeacherGroupURL:    m.ClassSectionSubjectTeacherGroupURL,
 
+		// Agregat
+		ClassSectionSubjectTeacherTotalAttendance: m.ClassSectionSubjectTeacherTotalAttendance,
+		ClassSectionSubjectTeacherCapacity:        m.ClassSectionSubjectTeacherCapacity,
+		ClassSectionSubjectTeacherEnrolledCount:   m.ClassSectionSubjectTeacherEnrolledCount,
+		ClassSectionsSubjectTeacherDeliveryMode:   string(m.ClassSectionsSubjectTeacherDeliveryMode),
+
+		// Snapshots
+		ClassSectionSubjectTeacherRoomSnapshot:     m.ClassSectionSubjectTeacherRoomSnapshot,
+		ClassSectionSubjectTeacherRoomNameSnap:     m.ClassSectionSubjectTeacherRoomNameSnap,
+		ClassSectionSubjectTeacherRoomSlugSnap:     m.ClassSectionSubjectTeacherRoomSlugSnap,
+		ClassSectionSubjectTeacherRoomLocationSnap: m.ClassSectionSubjectTeacherRoomLocationSnap,
+
+		ClassSectionSubjectTeacherTeacherSnapshot:          m.ClassSectionSubjectTeacherTeacherSnapshot,
+		ClassSectionSubjectTeacherAssistantTeacherSnapshot: m.ClassSectionSubjectTeacherAssistantTeacherSnapshot,
+		ClassSectionSubjectTeacherTeacherNameSnap:          m.ClassSectionSubjectTeacherTeacherNameSnap,
+		ClassSectionSubjectTeacherAssistantTeacherNameSnap: m.ClassSectionSubjectTeacherAssistantTeacherNameSnap,
+
+		// Status & audit
 		ClassSectionSubjectTeacherIsActive:  m.ClassSectionSubjectTeacherIsActive,
 		ClassSectionSubjectTeacherCreatedAt: m.ClassSectionSubjectTeacherCreatedAt,
 		ClassSectionSubjectTeacherUpdatedAt: m.ClassSectionSubjectTeacherUpdatedAt,

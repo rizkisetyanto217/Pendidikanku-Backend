@@ -14,7 +14,6 @@ func AuthRoutes(app *fiber.App, db *gorm.DB) {
 	app.Use(rateLimiter.GlobalRateLimiter()) // ✅ masih aman di sini
 
 	publicAuth := app.Group("/auth")
-
 	publicAuth.Post("/login", rateLimiter.LoginRateLimiter(), authController.Login)
 	publicAuth.Post("/register", rateLimiter.RegisterRateLimiter(), authController.Register)
 	publicAuth.Post("/forgot-password/reset", authController.ResetPassword)
@@ -24,6 +23,9 @@ func AuthRoutes(app *fiber.App, db *gorm.DB) {
 	protectedAuth := app.Group("/api/auth")
 	protectedAuth.Post("/logout", authController.Logout)
 	protectedAuth.Post("/change-password", authController.ChangePassword)
-	// ⬇️ Tambahkan ini:
 	protectedAuth.Put("/update-user-name", authController.UpdateUserName)
+
+	// ⬇️ New: user + masjids + class_sections (butuh Locals("user_id") dari middleware auth)
+	protectedAuth.Get("/me/context", authController.GetMyContext)
+	protectedAuth.Get("/me/simple-context", authController.GetMySimpleContext)
 }

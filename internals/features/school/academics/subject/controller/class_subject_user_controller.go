@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	booksModel "masjidku_backend/internals/features/school/academics/books/model"
 	csDTO "masjidku_backend/internals/features/school/academics/subject/dto"
+	booksModel "masjidku_backend/internals/features/school/academics/books/model"
 	csModel "masjidku_backend/internals/features/school/academics/subject/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
@@ -24,10 +24,9 @@ import (
 	Query:
 	  - q                       : cari pada desc (ILIKE)
 	  - is_active               : bool
-	  - term_id                 : UUID (single)
-	  - term_ids                : comma-separated UUIDs (multi)
-	  - term_id_isnull          : bool (filter yang tanpa term / NULL)
 	  - id / ids                : filter by ID (single / multi)
+	  - parent_id / parent_ids  : filter by parent (single / multi)
+	  - subject_id / subject_ids: filter by subject (single / multi)
 	  - with_deleted            : bool (default false)
 	  - order_by                : order_index|created_at|updated_at (default: created_at)
 	  - sort                    : asc|desc (default: asc)
@@ -39,7 +38,7 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	// ===== Masjid context (PUBLIC): no role check =====
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return err // fiber.Error dari resolver
+		return err
 	}
 	var masjidID uuid.UUID
 	if mc.ID != uuid.Nil {
@@ -94,21 +93,28 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 		tx = tx.Where("class_subject_is_active = ?", *q.IsActive)
 	}
 
-	// ===== Filter term
-	if termID, ok, errResp := uuidFromQuery(c, "term_id", "term_id tidak valid"); errResp != nil {
+	// ===== Filter by parent_id / parent_ids
+	if pid, ok, errResp := uuidFromQuery(c, "parent_id", "parent_id tidak valid"); errResp != nil {
 		return errResp
 	} else if ok {
-		tx = tx.Where("class_subject_term_id = ?", *termID)
+		tx = tx.Where("class_subject_parent_id = ?", *pid)
 	}
-	if tids, ok, errResp := uuidListFromQueryClassSubject(c, "term_ids"); errResp != nil {
+	if pids, ok, errResp := uuidListFromQueryClassSubject(c, "parent_ids"); errResp != nil {
 		return errResp
 	} else if ok {
-		tx = tx.Where("class_subject_term_id IN ?", tids)
+		tx = tx.Where("class_subject_parent_id IN ?", pids)
 	}
-	if v := strings.TrimSpace(c.Query("term_id_isnull")); v != "" {
-		if c.QueryBool("term_id_isnull") {
-			tx = tx.Where("class_subject_term_id IS NULL")
-		}
+
+	// ===== Filter by subject_id / subject_ids
+	if sid, ok, errResp := uuidFromQuery(c, "subject_id", "subject_id tidak valid"); errResp != nil {
+		return errResp
+	} else if ok {
+		tx = tx.Where("class_subject_subject_id = ?", *sid)
+	}
+	if sids, ok, errResp := uuidListFromQueryClassSubject(c, "subject_ids"); errResp != nil {
+		return errResp
+	} else if ok {
+		tx = tx.Where("class_subject_subject_id IN ?", sids)
 	}
 
 	// ===== Search di desc
@@ -146,7 +152,7 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 		Select(`
 			class_subject_id,
 			class_subject_masjid_id,
-			class_subject_class_id,
+			class_subject_parent_id,
 			class_subject_subject_id,
 			class_subject_order_index,
 			class_subject_hours_per_week,
@@ -259,8 +265,8 @@ func uuidFromQuery(c *fiber.Ctx, key string, badMsg string) (*uuid.UUID, bool, e
 	return &id, true, nil
 }
 
-// // uuidListFromQuery: baca list UUID dari satu/lebih keys (mis. "id","ids")
-// // Return: (ids, foundAny, errResp)
+// uuidListFromQueryClassSubject: baca list UUID dari satu/lebih keys (mis. "id","ids")
+// Return: (ids, foundAny, errResp)
 func uuidListFromQueryClassSubject(c *fiber.Ctx, keys ...string) ([]uuid.UUID, bool, error) {
 	seen := map[uuid.UUID]struct{}{}
 	for _, k := range keys {

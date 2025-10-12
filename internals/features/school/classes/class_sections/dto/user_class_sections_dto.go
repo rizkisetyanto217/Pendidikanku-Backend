@@ -37,17 +37,6 @@ func isValidResult(r string) bool {
 	return false
 }
 
-func trimPtr(s *string) *string {
-	if s == nil {
-		return nil
-	}
-	v := strings.TrimSpace(*s)
-	if v == "" {
-		return nil
-	}
-	return &v
-}
-
 /* =========================================================
    REQUEST: CREATE
 ========================================================= */

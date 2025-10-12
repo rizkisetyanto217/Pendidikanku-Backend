@@ -13,12 +13,39 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
+	// models
 	m "masjidku_backend/internals/features/school/classes/class_sections/model"
+	csstModel "masjidku_backend/internals/features/school/academics/subject/model"
 )
 
 /* =========================================================
+   Helpers (trim)
+========================================================= */
+
+func trimLowerPtr(p *string) *string {
+	if p == nil {
+		return nil
+	}
+	s := strings.ToLower(strings.TrimSpace(*p))
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+func trimPtr(p *string) *string {
+	if p == nil {
+		return nil
+	}
+	s := strings.TrimSpace(*p)
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+/* =========================================================
    PATCH FIELD — tri-state (absent | null | value)
-   ========================================================= */
+========================================================= */
 
 type PatchFieldCS[T any] struct {
 	Present bool
@@ -42,7 +69,7 @@ func (p PatchFieldCS[T]) Get() (*T, bool) { return p.Value, p.Present }
 
 /* =========================================================
    CSST LITE PAYLOAD (untuk cache & listing)
-   ========================================================= */
+========================================================= */
 
 type CSSTItemLite struct {
 	ID       string `json:"id"`
@@ -72,8 +99,9 @@ type CSSTItemLite struct {
 }
 
 /* =========================================================
-   CREATE REQUEST (tanpa snapshot; + konfigurasi CSST)
-   ========================================================= */
+   ==================  C L A S S   S E C T I O N  ==================
+========================================================= */
+/* ----------------- CREATE REQUEST ----------------- */
 
 type ClassSectionCreateRequest struct {
 	// Wajib
@@ -114,7 +142,7 @@ type ClassSectionCreateRequest struct {
 }
 
 func (r *ClassSectionCreateRequest) Normalize() {
-	trimPtr := func(pp **string, lower bool) {
+	trimPP := func(pp **string, lower bool) {
 		if pp == nil || *pp == nil {
 			return
 		}
@@ -131,11 +159,11 @@ func (r *ClassSectionCreateRequest) Normalize() {
 
 	r.ClassSectionSlug = strings.ToLower(strings.TrimSpace(r.ClassSectionSlug))
 	r.ClassSectionName = strings.TrimSpace(r.ClassSectionName)
-	trimPtr(&r.ClassSectionCode, false)
-	trimPtr(&r.ClassSectionSchedule, false)
-	trimPtr(&r.ClassSectionGroupURL, false)
-	trimPtr(&r.ClassSectionImageURL, false)
-	trimPtr(&r.ClassSectionImageObjectKey, false)
+	trimPP(&r.ClassSectionCode, false)
+	trimPP(&r.ClassSectionSchedule, false)
+	trimPP(&r.ClassSectionGroupURL, false)
+	trimPP(&r.ClassSectionImageURL, false)
+	trimPP(&r.ClassSectionImageObjectKey, false)
 
 	if r.ClassSectionCSSTEnrollmentMode != nil {
 		v := strings.ToLower(strings.TrimSpace(*r.ClassSectionCSSTEnrollmentMode))
@@ -205,9 +233,7 @@ func (r ClassSectionCreateRequest) ToModel() *m.ClassSectionModel {
 	return cs
 }
 
-/* =========================================================
-   RESPONSE (read-only snapshots + CSST LITE + counts/settings)
-   ========================================================= */
+/* ----------------- RESPONSE ----------------- */
 
 type ClassSectionResponse struct {
 	// Identitas & relasi dasar
@@ -379,7 +405,7 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 		ClassSectionTermID:        cs.ClassSectionTermID,
 		ClassSectionTermNameSnap:  cs.ClassSectionTermNameSnap,
 		ClassSectionTermSlugSnap:  cs.ClassSectionTermSlugSnap,
-		ClassSectionTermYearLabel: cs.ClassSectionTermYearLabel,
+		ClassSectionTermYearLabel: cs.ClassSectionTermYearLabel, // <— konsisten *_snap
 
 		ClassSectionSnapshotUpdatedAt: cs.ClassSectionSnapshotUpdatedAt,
 
@@ -408,9 +434,7 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 	}
 }
 
-/* =========================================================
-   PATCH REQUEST (tri-state) — tambah CSST settings & deadline
-========================================================= */
+/* ----------------- PATCH REQUEST ----------------- */
 
 type ClassSectionPatchRequest struct {
 	// Relasi opsional
@@ -445,9 +469,7 @@ type ClassSectionPatchRequest struct {
 	ClassSectionFeatures                       PatchFieldCS[json.RawMessage] `json:"class_section_features"` // JSON object
 }
 
-/* =========================================================
-   Apply ke model (mutasi in-place)
-========================================================= */
+/* ----------------- Apply PATCH ----------------- */
 
 func (r *ClassSectionPatchRequest) Apply(cs *m.ClassSectionModel) {
 	// Helpers
@@ -567,9 +589,7 @@ func (r *ClassSectionPatchRequest) Apply(cs *m.ClassSectionModel) {
 	}
 }
 
-/* =========================================================
-   Decoder PATCH: JSON or multipart/form-data
-========================================================= */
+/* ----------------- Decoder PATCH ----------------- */
 
 func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequest) error {
 	ct := strings.ToLower(strings.TrimSpace(c.Get(fiber.HeaderContentType)))
@@ -741,13 +761,7 @@ const (
 	JoinRoleTeacher JoinRole = "teacher"
 )
 
-/* =========================================================
-   REQUEST: JOIN (student only)
-========================================================= */
-
-/* =========================================================
-   REQUEST: JOIN (student only)
-========================================================= */
+/* ----------------- REQUEST: JOIN (student only) ----------------- */
 
 type ClassSectionJoinRequest struct {
 	Code           string    `json:"code"`             // kode join input siswa (case-sensitive)
@@ -768,11 +782,141 @@ func (r *ClassSectionJoinRequest) Validate() error {
 	return nil
 }
 
-/* =========================================================
-   RESPONSE: JOIN
-========================================================= */
-
 type ClassSectionJoinResponse struct {
 	UserClassSection *UserClassSectionResp `json:"user_class_section,omitempty"`
 	ClassSectionID   string                `json:"class_section_id"`
+}
+
+/* =========================================================
+   ==================  C S S T  (Section × Subject × Teacher)  ==================
+========================================================= */
+
+// Create
+type CreateClassSectionSubjectTeacherRequest struct {
+	ClassSectionSubjectTeacherMasjidID       *uuid.UUID `json:"class_section_subject_teacher_masjid_id"  validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherSectionID      uuid.UUID  `json:"class_section_subject_teacher_section_id" validate:"required,uuid"`
+	ClassSectionSubjectTeacherClassSubjectID uuid.UUID  `json:"class_section_subject_teacher_class_subject_id" validate:"required,uuid"`
+	// pakai masjid_teachers.masjid_teacher_id
+	ClassSectionSubjectTeacherTeacherID uuid.UUID `json:"class_section_subject_teacher_teacher_id" validate:"required,uuid"`
+
+	// opsional: snapshot asisten (bukan FK kolom)
+	ClassSectionSubjectTeacherAssistantTeacherID *uuid.UUID `json:"class_section_subject_teacher_assistant_teacher_id" validate:"omitempty,uuid"`
+
+	// SLUG (opsional)
+	ClassSectionSubjectTeacherSlug *string `json:"class_section_subject_teacher_slug" validate:"omitempty,max=160"`
+
+	// Deskripsi (opsional)
+	ClassSectionSubjectTeacherDescription *string `json:"class_section_subject_teacher_description" validate:"omitempty"`
+
+	// Override ruangan (opsional)
+	ClassSectionSubjectTeacherRoomID *uuid.UUID `json:"class_section_subject_teacher_room_id" validate:"omitempty,uuid"`
+
+	// Link grup (opsional)
+	ClassSectionSubjectTeacherGroupURL *string `json:"class_section_subject_teacher_group_url" validate:"omitempty,max=2000"`
+
+	// Status aktif (opsional, default: true)
+	ClassSectionSubjectTeacherIsActive *bool `json:"class_section_subject_teacher_is_active" validate:"omitempty"`
+}
+
+// Update (partial)
+type UpdateClassSectionSubjectTeacherRequest struct {
+	ClassSectionSubjectTeacherMasjidID       *uuid.UUID `json:"class_section_subject_teacher_masjid_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherSectionID      *uuid.UUID `json:"class_section_subject_teacher_section_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherClassSubjectID *uuid.UUID `json:"class_section_subject_teacher_class_subject_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherTeacherID      *uuid.UUID `json:"class_section_subject_teacher_teacher_id" validate:"omitempty,uuid"`
+
+	ClassSectionSubjectTeacherAssistantTeacherID *uuid.UUID `json:"class_section_subject_teacher_assistant_teacher_id" validate:"omitempty,uuid"`
+
+	ClassSectionSubjectTeacherSlug        *string    `json:"class_section_subject_teacher_slug" validate:"omitempty,max=160"`
+	ClassSectionSubjectTeacherDescription *string    `json:"class_section_subject_teacher_description" validate:"omitempty"`
+	ClassSectionSubjectTeacherRoomID      *uuid.UUID `json:"class_section_subject_teacher_room_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherGroupURL    *string    `json:"class_section_subject_teacher_group_url" validate:"omitempty,max=2000"`
+
+	ClassSectionSubjectTeacherIsActive *bool `json:"class_section_subject_teacher_is_active" validate:"omitempty"`
+}
+
+/* ----------------- RESPONSE (CSST) ----------------- */
+
+type ClassSectionSubjectTeacherResponse struct {
+	ClassSectionSubjectTeacherID             uuid.UUID  `json:"class_section_subject_teacher_id"`
+	ClassSectionSubjectTeacherMasjidID       uuid.UUID  `json:"class_section_subject_teacher_masjid_id"`
+	ClassSectionSubjectTeacherSectionID      uuid.UUID  `json:"class_section_subject_teacher_section_id"`
+	ClassSectionSubjectTeacherClassSubjectID uuid.UUID  `json:"class_section_subject_teacher_class_subject_id"`
+	ClassSectionSubjectTeacherTeacherID      uuid.UUID  `json:"class_section_subject_teacher_teacher_id"`
+
+	// read-only (generated by DB)
+	ClassSectionSubjectTeacherTeacherNameSnap          *string `json:"class_section_subject_teacher_teacher_name_snap,omitempty"`
+	ClassSectionSubjectTeacherAssistantTeacherNameSnap *string `json:"class_section_subject_teacher_assistant_teacher_name_snap,omitempty"`
+
+	ClassSectionSubjectTeacherSlug        *string    `json:"class_section_subject_teacher_slug,omitempty"`
+	ClassSectionSubjectTeacherDescription *string    `json:"class_section_subject_teacher_description,omitempty"`
+	ClassSectionSubjectTeacherRoomID      *uuid.UUID `json:"class_section_subject_teacher_room_id,omitempty"`
+	ClassSectionSubjectTeacherGroupURL    *string    `json:"class_section_subject_teacher_group_url,omitempty"`
+
+	ClassSectionSubjectTeacherIsActive  bool       `json:"class_section_subject_teacher_is_active"`
+	ClassSectionSubjectTeacherCreatedAt time.Time  `json:"class_section_subject_teacher_created_at"`
+	ClassSectionSubjectTeacherUpdatedAt time.Time  `json:"class_section_subject_teacher_updated_at"`
+	ClassSectionSubjectTeacherDeletedAt *time.Time `json:"class_section_subject_teacher_deleted_at,omitempty"`
+}
+
+/* ----------------- MAPPERS (CSST) ----------------- */
+
+func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectionSubjectTeacherModel {
+	m := csstModel.ClassSectionSubjectTeacherModel{
+		ClassSectionSubjectTeacherSectionID:      r.ClassSectionSubjectTeacherSectionID,
+		ClassSectionSubjectTeacherClassSubjectID: r.ClassSectionSubjectTeacherClassSubjectID,
+		ClassSectionSubjectTeacherTeacherID:      r.ClassSectionSubjectTeacherTeacherID,
+
+		// opsional
+		ClassSectionSubjectTeacherSlug:        trimLowerPtr(r.ClassSectionSubjectTeacherSlug), // slug → lowercase
+		ClassSectionSubjectTeacherDescription: trimPtr(r.ClassSectionSubjectTeacherDescription),
+		ClassSectionSubjectTeacherRoomID:      r.ClassSectionSubjectTeacherRoomID,
+		ClassSectionSubjectTeacherGroupURL:    trimPtr(r.ClassSectionSubjectTeacherGroupURL),
+	}
+
+	if r.ClassSectionSubjectTeacherMasjidID != nil {
+		m.ClassSectionSubjectTeacherMasjidID = *r.ClassSectionSubjectTeacherMasjidID
+	}
+	if r.ClassSectionSubjectTeacherIsActive != nil {
+		m.ClassSectionSubjectTeacherIsActive = *r.ClassSectionSubjectTeacherIsActive
+	} else {
+		m.ClassSectionSubjectTeacherIsActive = true
+	}
+	return m
+}
+
+func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherModel) ClassSectionSubjectTeacherResponse {
+	var deletedAt *time.Time
+	if m.ClassSectionSubjectTeacherDeletedAt.Valid {
+		t := m.ClassSectionSubjectTeacherDeletedAt.Time
+		deletedAt = &t
+	}
+	return ClassSectionSubjectTeacherResponse{
+		ClassSectionSubjectTeacherID:             m.ClassSectionSubjectTeacherID,
+		ClassSectionSubjectTeacherMasjidID:       m.ClassSectionSubjectTeacherMasjidID,
+		ClassSectionSubjectTeacherSectionID:      m.ClassSectionSubjectTeacherSectionID,
+		ClassSectionSubjectTeacherClassSubjectID: m.ClassSectionSubjectTeacherClassSubjectID,
+		ClassSectionSubjectTeacherTeacherID:      m.ClassSectionSubjectTeacherTeacherID,
+
+		ClassSectionSubjectTeacherTeacherNameSnap:          m.ClassSectionSubjectTeacherTeacherNameSnap,
+		ClassSectionSubjectTeacherAssistantTeacherNameSnap: m.ClassSectionSubjectTeacherAssistantTeacherNameSnap,
+
+		ClassSectionSubjectTeacherSlug:        m.ClassSectionSubjectTeacherSlug,
+		ClassSectionSubjectTeacherDescription: m.ClassSectionSubjectTeacherDescription,
+		ClassSectionSubjectTeacherRoomID:      m.ClassSectionSubjectTeacherRoomID,
+		ClassSectionSubjectTeacherGroupURL:    m.ClassSectionSubjectTeacherGroupURL,
+
+		ClassSectionSubjectTeacherIsActive:  m.ClassSectionSubjectTeacherIsActive,
+		ClassSectionSubjectTeacherCreatedAt: m.ClassSectionSubjectTeacherCreatedAt,
+		ClassSectionSubjectTeacherUpdatedAt: m.ClassSectionSubjectTeacherUpdatedAt,
+		ClassSectionSubjectTeacherDeletedAt: deletedAt,
+	}
+}
+
+func FromClassSectionSubjectTeacherModels(rows []csstModel.ClassSectionSubjectTeacherModel) []ClassSectionSubjectTeacherResponse {
+	out := make([]ClassSectionSubjectTeacherResponse, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, FromClassSectionSubjectTeacherModel(r))
+	}
+	return out
 }

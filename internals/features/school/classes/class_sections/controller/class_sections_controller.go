@@ -27,6 +27,8 @@ import (
 	secDTO "masjidku_backend/internals/features/school/classes/class_sections/dto"
 	secModel "masjidku_backend/internals/features/school/classes/class_sections/model"
 	classModel "masjidku_backend/internals/features/school/classes/classes/model"
+
+	teacherSnapshot "masjidku_backend/internals/features/users/user_teachers/snapshot"
 )
 
 type ClassSectionController struct {
@@ -49,88 +51,6 @@ var validEnrollmentModes = map[string]struct{}{
 func isValidEnrollmentMode(s string) bool {
 	_, ok := validEnrollmentModes[strings.ToLower(strings.TrimSpace(s))]
 	return ok
-}
-
-// helper untuk validasi & snapshot teacher/assistant
-// file: internals/features/school/classes/class_sections/service/section_snapshots.go
-type TeacherSnapshot struct {
-	ID          uuid.UUID `json:"id"`
-	Name        string    `json:"name"`
-	WhatsappURL *string   `json:"whatsapp_url,omitempty"`
-	TitlePrefix *string   `json:"title_prefix,omitempty"`
-	TitleSuffix *string   `json:"title_suffix,omitempty"`
-	AvatarURL   *string   `json:"avatar_url,omitempty"`
-}
-
-func validateAndSnapshotTeacher(
-	tx *gorm.DB,
-	masjidID uuid.UUID,
-	teacherID uuid.UUID,
-	role string, // "teacher" / "assistant_teacher"
-) (*TeacherSnapshot, error) {
-	log.Printf("[SECTIONS][CREATE] 🔎 validating %s=%s", role, teacherID)
-
-	var row struct {
-		MasjidID      uuid.UUID
-		UserTeacherID uuid.UUID
-		FullName      string
-		WhatsappURL   *string
-		TitlePrefix   *string
-		TitleSuffix   *string
-		AvatarURL     *string
-	}
-
-	if err := tx.Raw(`
-		SELECT
-			mt.masjid_teacher_masjid_id         AS masjid_id,
-			ut.user_teacher_id                   AS user_teacher_id,
-			ut.user_teacher_name                 AS full_name,
-			ut.user_teacher_whatsapp_url         AS whatsapp_url,
-			ut.user_teacher_title_prefix         AS title_prefix,
-			ut.user_teacher_title_suffix         AS title_suffix,
-			ut.user_teacher_avatar_url           AS avatar_url
-		FROM masjid_teachers mt
-		JOIN user_teachers ut
-		  ON ut.user_teacher_id = mt.masjid_teacher_user_teacher_id
-		WHERE mt.masjid_teacher_id = ?
-		  AND mt.masjid_teacher_deleted_at IS NULL
-	`, teacherID).Scan(&row).Error; err != nil {
-		log.Printf("[SECTIONS][CREATE] ❌ %s validate db error: %v", role, err)
-		return nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi "+role)
-	}
-
-	if row.MasjidID == uuid.Nil {
-		log.Printf("[SECTIONS][CREATE] ❌ %s not found id=%s", role, teacherID)
-		return nil, fiber.NewError(fiber.StatusBadRequest, role+" tidak ditemukan")
-	}
-	if row.MasjidID != masjidID {
-		log.Printf("[SECTIONS][CREATE] ❌ %s masjid mismatch row=%s expect=%s", role, row.MasjidID, masjidID)
-		return nil, fiber.NewError(fiber.StatusForbidden, role+" bukan milik masjid Anda")
-	}
-
-	// Normalisasi ringan (trim + kosong → nil)
-	nz := func(p *string) *string {
-		if p == nil {
-			return nil
-		}
-		v := strings.TrimSpace(*p)
-		if v == "" {
-			return nil
-		}
-		return &v
-	}
-
-	name := strings.TrimSpace(row.FullName)
-	log.Printf("[SECTIONS][CREATE] ✅ %s snapshot='%s'", role, name)
-
-	return &TeacherSnapshot{
-		ID:          row.UserTeacherID,
-		Name:        name,
-		WhatsappURL: nz(row.WhatsappURL),
-		TitlePrefix: nz(row.TitlePrefix),
-		TitleSuffix: nz(row.TitleSuffix),
-		AvatarURL:   nz(row.AvatarURL),
-	}, nil
 }
 
 type ClassParentAndTermSnapshot struct {
@@ -441,6 +361,7 @@ func bcryptHash(s string) ([]byte, error) {
 //* Main Controller
 
 // POST /admin/class-sections
+// POST /admin/class-sections
 func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	log.Printf("[SECTIONS][CREATE] ▶️ incoming request")
 
@@ -528,33 +449,55 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	m := req.ToModel()
 	m.ClassSectionMasjidID = masjidID
 
-	// ---- Snapshot relasi (class→parent/term, teacher/assistant/leader) ----
+	// ---- Snapshot relasi (class→parent/term) ----
 	if snap, err := snapshotClassParentAndTerm(tx, masjidID, req.ClassSectionClassID); err != nil {
 		_ = tx.Rollback()
 		return err
 	} else {
 		applyClassParentAndTermSnapshotToSection(m, snap)
 	}
+
+	// ---- Snapshot TEACHER / ASSISTANT (pakai DTO helper) ----
 	if req.ClassSectionTeacherID != nil {
-		snap, err := validateAndSnapshotTeacher(tx, masjidID, *req.ClassSectionTeacherID, "teacher")
+		ts, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, masjidID, *req.ClassSectionTeacherID)
 		if err != nil {
 			_ = tx.Rollback()
-			return err
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak ditemukan / sudah dihapus")
+			}
+			// BuildTeacherSnapshot akan kembalikan *fiber.Error untuk 403 mismatch
+			if fe, ok := err.(*fiber.Error); ok && fe.Code == fiber.StatusForbidden {
+				return helper.JsonError(c, fiber.StatusForbidden, "Guru bukan milik masjid Anda")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi guru")
 		}
-		if b, e := json.Marshal(snap); e == nil {
-			m.ClassSectionTeacherSnapshot = datatypes.JSON(b)
+		if ts != nil {
+			if jb, e := teacherSnapshot.ToJSONB(ts); e == nil {
+				m.ClassSectionTeacherSnapshot = jb
+			}
 		}
 	}
+
 	if req.ClassSectionAssistantTeacherID != nil {
-		snap, err := validateAndSnapshotTeacher(tx, masjidID, *req.ClassSectionAssistantTeacherID, "assistant_teacher")
+		as, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, masjidID, *req.ClassSectionAssistantTeacherID)
 		if err != nil {
 			_ = tx.Rollback()
-			return err
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusBadRequest, "Asisten guru tidak valid / sudah dihapus")
+			}
+			if fe, ok := err.(*fiber.Error); ok && fe.Code == fiber.StatusForbidden {
+				return helper.JsonError(c, fiber.StatusForbidden, "Asisten guru bukan milik masjid Anda")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi asisten guru")
 		}
-		if b, e := json.Marshal(snap); e == nil {
-			m.ClassSectionAssistantTeacherSnapshot = datatypes.JSON(b)
+		if as != nil {
+			if jb, e := teacherSnapshot.ToJSONB(as); e == nil {
+				m.ClassSectionAssistantTeacherSnapshot = jb
+			}
 		}
 	}
+
+	// ---- Snapshot LEADER STUDENT (tetap helper kamu) ----
 	if req.ClassSectionLeaderStudentID != nil {
 		snap, err := validateAndSnapshotLeaderStudent(tx, masjidID, *req.ClassSectionLeaderStudentID)
 		if err != nil {
@@ -591,27 +534,25 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	}
 	m.ClassSectionSlug = uniqueSlug
 
-	// ========= NEW: generate ID + join code + bcrypt hash =========
+	// ---- Generate join code (student/teacher) ----
 	if m.ClassSectionID == uuid.Nil {
-		m.ClassSectionID = uuid.New() // generate di app agar bisa dipakai buat code
+		m.ClassSectionID = uuid.New()
 	}
 	plainCode, err := buildSectionJoinCode(m.ClassSectionSlug, m.ClassSectionID)
 	if err != nil {
 		_ = tx.Rollback()
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membangun join code")
 	}
-
 	hashed, err := bcryptHash(plainCode)
 	if err != nil {
 		_ = tx.Rollback()
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal meng-hash join code")
 	}
-
 	now := time.Now()
 	m.ClassSectionCode = &plainCode
 	m.ClassSectionStudentCodeHash = hashed
 	m.ClassSectionStudentCodeSetAt = &now
-	// (opsional) jika ingin teacher code juga:
+
 	tPlain, _ := buildSectionJoinCode(m.ClassSectionSlug+"-t", m.ClassSectionID)
 	tHash, _ := bcryptHash(tPlain)
 	m.ClassSectionTeacherCodeHash = tHash
@@ -623,8 +564,8 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat section")
 	}
 
-	// ---- (opsional) upload image, update stats ----- (TETAP seperti punya kamu)
-	// ... (kode upload & stats kamu tidak diubah) ...
+	// ---- (opsional) upload image, update stats ----- (biarkan sesuai implementasi kamu)
+	// ...
 
 	if err := tx.Commit().Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
@@ -632,7 +573,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Section berhasil dibuat", fiber.Map{
 		"section":            secDTO.FromModelClassSection(m),
 		"uploaded_image_url": "",        // isi sesuai bagian upload kamu
-		"join_code_preview":  plainCode, // optional: biar admin lihat
+		"join_code_preview":  plainCode, // optional: hanya untuk ditampilkan ke admin
 	})
 }
 

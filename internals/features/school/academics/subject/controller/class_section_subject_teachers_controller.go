@@ -19,6 +19,7 @@ import (
 	dto "masjidku_backend/internals/features/school/academics/subject/dto"
 	modelCSST "masjidku_backend/internals/features/school/academics/subject/model"
 
+	teacherSnapshot "masjidku_backend/internals/features/users/user_teachers/snapshot"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 )
@@ -39,6 +40,13 @@ func NewClassSectionSubjectTeacherController(db *gorm.DB) *ClassSectionSubjectTe
 	/admin/:masjid_slug/class-section-subject-teachers
 	===============================
 */
+// import di atas file controller (pastikan ada):
+// snapsvc "masjidku_backend/internals/services/snapsvc"
+
+// * CREATE (admin/DKM via masjid context)
+// POST /admin/:masjid_id/class-section-subject-teachers
+//
+//	/admin/:masjid_slug/class-section-subject-teachers
 func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
@@ -61,7 +69,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		// 1) SECTION exists & same tenant
 		var sec modelClassSection.ClassSectionModel
 		if err := tx.
-			Where("class_sections_id = ? AND class_sections_masjid_id = ? AND class_sections_deleted_at IS NULL",
+			Where("class_section_id = ? AND class_section_masjid_id = ? AND class_section_deleted_at IS NULL",
 				req.ClassSectionSubjectTeacherSectionID, masjidID).
 			First(&sec).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -70,30 +78,41 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek section")
 		}
 
-		// 2) CLASS_SUBJECTS exists, same tenant, matches section.class_id
+		// 2) CLASS_SUBJECT exists + parent harus sama dgn kelas section
+		var cls struct{ ClassParentID uuid.UUID }
+		if err := tx.Table("classes").
+			Select("class_parent_id").
+			Where("class_id = ? AND class_masjid_id = ? AND class_deleted_at IS NULL",
+				sec.ClassSectionClassID, masjidID).
+			Take(&cls).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusBadRequest, "Kelas untuk section ini tidak ditemukan / beda tenant")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek kelas dari section")
+		}
+
 		var cs struct {
-			ClassSubjectsID       uuid.UUID
-			ClassSubjectsMasjidID uuid.UUID
-			ClassSubjectsClassID  uuid.UUID
+			MasjidID uuid.UUID
+			ParentID uuid.UUID
 		}
 		if err := tx.Table("class_subjects").
-			Select("class_subjects_id, class_subjects_masjid_id, class_subjects_class_id").
-			Where("class_subjects_id = ? AND class_subjects_deleted_at IS NULL",
+			Select("class_subject_masjid_id AS masjid_id, class_subject_parent_id AS parent_id").
+			Where("class_subject_id = ? AND class_subject_deleted_at IS NULL",
 				req.ClassSectionSubjectTeacherClassSubjectID).
 			Take(&cs).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusBadRequest, "class_subjects tidak ditemukan / sudah dihapus")
+				return helper.JsonError(c, fiber.StatusBadRequest, "class_subject tidak ditemukan / sudah dihapus")
 			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek class_subjects")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek class_subject")
 		}
-		if cs.ClassSubjectsMasjidID != masjidID {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Masjid mismatch: class_subjects milik masjid lain")
+		if cs.MasjidID != masjidID {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Masjid mismatch: class_subject milik masjid lain")
 		}
-		if cs.ClassSubjectsClassID != sec.ClassSectionClassID {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Class mismatch: class_subjects.class_id != class_sections.class_id")
+		if cs.ParentID != cls.ClassParentID {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Mismatch: parent kelas section ≠ parent pada class_subject")
 		}
 
-		// 3) TEACHER exists & same tenant (cek saja; tak ambil nama)
+		// 3) TEACHER exists & same tenant (FK check)
 		if err := tx.
 			Where("masjid_teacher_id = ? AND masjid_teacher_masjid_id = ? AND masjid_teacher_deleted_at IS NULL",
 				req.ClassSectionSubjectTeacherTeacherID, masjidID).
@@ -104,14 +123,58 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek guru")
 		}
 
-		// 4) Build row
+		// 4) Build row dari DTO
 		row := req.ToModel()
 		row.ClassSectionSubjectTeacherMasjidID = masjidID
 		if !row.ClassSectionSubjectTeacherIsActive {
 			row.ClassSectionSubjectTeacherIsActive = true
 		}
 
-		// ========== SLUG ==========
+		// 4a) SNAPSHOT GURU (user_teachers) — inject ke JSONB kolom teacher_snapshot
+		ts, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, masjidID, req.ClassSectionSubjectTeacherTeacherID)
+		if err != nil {
+			switch {
+			case errors.Is(err, gorm.ErrRecordNotFound):
+				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak valid / sudah dihapus")
+			case errors.Is(err, teacherSnapshot.ErrMasjidMismatch):
+				return helper.JsonError(c, fiber.StatusForbidden, "Guru bukan milik masjid Anda")
+			default:
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot guru")
+			}
+		}
+		if ts != nil {
+			if jb, e := teacherSnapshot.ToJSONB(ts); e == nil {
+				// ❗ model field bertipe *datatypes.JSON → pakai &jb
+				row.ClassSectionSubjectTeacherTeacherSnapshot = &jb
+			}
+		}
+
+		// (opsional) snapshot asisten
+		if req.ClassSectionSubjectTeacherAssistantTeacherID != nil {
+			ats, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, masjidID, *req.ClassSectionSubjectTeacherAssistantTeacherID)
+			if err != nil {
+				switch {
+				case errors.Is(err, gorm.ErrRecordNotFound):
+					return helper.JsonError(c, fiber.StatusBadRequest, "Asisten guru tidak valid / sudah dihapus")
+				case errors.Is(err, teacherSnapshot.ErrMasjidMismatch):
+					return helper.JsonError(c, fiber.StatusForbidden, "Asisten guru bukan milik masjid Anda")
+				default:
+					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot asisten guru")
+				}
+			}
+			if ats != nil {
+				if jb, e := teacherSnapshot.ToJSONB(ats); e == nil {
+					// ❗ juga pointer
+					row.ClassSectionSubjectTeacherAssistantTeacherSnapshot = &jb
+				}
+			}
+		}
+
+		// NOTE (opsional): kalau nanti kamu tambahkan field assistant di request,
+		// tinggal panggil BuildTeacherSnapshot lagi dan set:
+		//   row.ClassSectionSubjectTeacherAssistantTeacherSnapshot = jb
+
+		// 5) SLUG (generate / ensure unique)
 		if row.ClassSectionSubjectTeacherSlug != nil {
 			s := helper.Slugify(*row.ClassSectionSubjectTeacherSlug, 160)
 			row.ClassSectionSubjectTeacherSlug = &s
@@ -120,14 +183,18 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			var sectionName, subjectName string
 
 			_ = tx.Table("class_sections").
-				Select("class_sections_name").
-				Where("class_sections_id = ? AND class_sections_masjid_id = ?", req.ClassSectionSubjectTeacherSectionID, masjidID).
+				Select("class_section_name").
+				Where("class_section_id = ? AND class_section_masjid_id = ?", req.ClassSectionSubjectTeacherSectionID, masjidID).
 				Scan(&sectionName).Error
 
 			_ = tx.Table("class_subjects AS cs").
-				Select("s.subjects_name").
-				Joins("JOIN subjects AS s ON s.subjects_id = cs.class_subjects_subject_id AND s.subjects_deleted_at IS NULL").
-				Where("cs.class_subjects_id = ? AND cs.class_subjects_masjid_id = ? AND cs.class_subjects_deleted_at IS NULL",
+				Select("s.subject_name").
+				Joins(`JOIN subjects AS s
+				           ON s.subject_id = cs.class_subject_subject_id
+				          AND s.subject_deleted_at IS NULL`).
+				Where(`cs.class_subject_id = ?
+				           AND cs.class_subject_masjid_id = ?
+				           AND cs.class_subject_deleted_at IS NULL`,
 					req.ClassSectionSubjectTeacherClassSubjectID, masjidID).
 				Scan(&subjectName).Error
 
@@ -185,9 +252,8 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			}
 			row.ClassSectionSubjectTeacherSlug = &uniqueSlug
 		}
-		// ========== END SLUG ==========
 
-		// 5) INSERT
+		// 6) INSERT
 		if err := tx.Create(&row).Error; err != nil {
 			msg := strings.ToLower(err.Error())
 			switch {

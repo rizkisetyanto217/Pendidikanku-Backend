@@ -1,4 +1,3 @@
-// internals/features/users/user/controller/users_profile_controller.go
 package controller
 
 import (
@@ -80,9 +79,8 @@ func formJSONOrCSVToSlice(s string) []string {
 
 /*
 =========================
-
-	GET: All profiles (DTO)
-	=========================
+GET: All profiles (DTO)
+=========================
 */
 func (upc *UsersProfileController) GetProfiles(c *fiber.Ctx) error {
 	log.Println("[INFO] Fetching all user_profile")
@@ -96,15 +94,8 @@ func (upc *UsersProfileController) GetProfiles(c *fiber.Ctx) error {
 
 /*
 =========================
-
-	GET: My profile (DTO)
-	=========================
-*/
-/*
+GET: My profile atau by :user_id (DTO)
 =========================
-
-	GET: My profile atau by :user_id (DTO)
-	=========================
 */
 func (upc *UsersProfileController) GetProfile(c *fiber.Ctx) error {
 	// 1️⃣ Cek apakah ada param user_id
@@ -146,9 +137,8 @@ func (upc *UsersProfileController) GetProfile(c *fiber.Ctx) error {
 
 /*
 =========================
-
-	POST /profiles (Create) — support JSON atau multipart (payload+avatar)
-	=========================
+POST /profiles (Create) — support JSON atau multipart (payload+avatar)
+=========================
 */
 func (upc *UsersProfileController) CreateProfile(c *fiber.Ctx) error {
 	userID, err := helperAuth.GetUserIDFromToken(c)
@@ -215,9 +205,8 @@ func (upc *UsersProfileController) CreateProfile(c *fiber.Ctx) error {
 
 /*
 =========================
-
-	PATCH /profiles — multipart ala Masjid (payload JSON + avatar)
-	=========================
+PATCH /profiles — multipart ala Masjid (payload JSON + avatar)
+=========================
 */
 func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 	userID, err := helperAuth.GetUserIDFromToken(c)
@@ -242,7 +231,6 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 	isMultipart := strings.HasPrefix(ct, "multipart/form-data")
 
 	// UPDATE: multipart payload parsing
-	// UPDATE: multipart payload parsing
 	var in profileDTO.UpdateUsersProfileRequest
 	if isMultipart {
 		if s := strings.TrimSpace(c.FormValue("payload")); s != "" {
@@ -253,52 +241,51 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 			// Coba bind form-data → struct
 			if err := c.BodyParser(&in); err != nil {
 				log.Println("[WARN] multipart BodyParser error (will fallback):", err)
-				// jangan langsung return 400; lanjut fallback manual di bawah
+				// lanjut fallback manual
 			}
 
 			// ===== Fallback hydrator untuk field yang sering gagal di multipart =====
-
-			// Arrays: izinkan JSON string, CSV, atau key berulang (users_profile_interests=.. (multi))
-			if in.UsersProfileInterests == nil {
-				if v := strings.TrimSpace(c.FormValue("users_profile_interests")); v != "" {
-					in.UsersProfileInterests = formJSONOrCSVToSlice(v)
-				} else if vals := c.FormValue("users_profile_interests[]"); vals != "" {
-					in.UsersProfileInterests = formJSONOrCSVToSlice(vals)
+			// Arrays: izinkan JSON string, CSV, atau key berulang (user_profile_interests=.. (multi))
+			if in.UserProfileInterests == nil {
+				if v := strings.TrimSpace(c.FormValue("user_profile_interests")); v != "" {
+					in.UserProfileInterests = formJSONOrCSVToSlice(v)
+				} else if vals := c.FormValue("user_profile_interests[]"); vals != "" {
+					in.UserProfileInterests = formJSONOrCSVToSlice(vals)
 				}
 			}
-			if in.UsersProfileSkills == nil {
-				if v := strings.TrimSpace(c.FormValue("users_profile_skills")); v != "" {
-					in.UsersProfileSkills = formJSONOrCSVToSlice(v)
-				} else if vals := c.FormValue("users_profile_skills[]"); vals != "" {
-					in.UsersProfileSkills = formJSONOrCSVToSlice(vals)
+			if in.UserProfileSkills == nil {
+				if v := strings.TrimSpace(c.FormValue("user_profile_skills")); v != "" {
+					in.UserProfileSkills = formJSONOrCSVToSlice(v)
+				} else if vals := c.FormValue("user_profile_skills[]"); vals != "" {
+					in.UserProfileSkills = formJSONOrCSVToSlice(vals)
 				}
 			}
 
 			// Booleans
-			if in.UsersProfileIsPublicProfile == nil {
-				if v := strings.TrimSpace(c.FormValue("users_profile_is_public_profile")); v != "" {
+			if in.UserProfileIsPublicProfile == nil {
+				if v := strings.TrimSpace(c.FormValue("user_profile_is_public_profile")); v != "" {
 					if b, err := strconv.ParseBool(v); err == nil {
-						in.UsersProfileIsPublicProfile = &b
+						in.UserProfileIsPublicProfile = &b
 					}
 				}
 			}
-			if in.UsersProfileIsVerified == nil {
-				if v := strings.TrimSpace(c.FormValue("users_profile_is_verified")); v != "" {
+			if in.UserProfileIsVerified == nil {
+				if v := strings.TrimSpace(c.FormValue("user_profile_is_verified")); v != "" {
 					if b, err := strconv.ParseBool(v); err == nil {
-						in.UsersProfileIsVerified = &b
+						in.UserProfileIsVerified = &b
 					}
 				}
 			}
 
 			// Timestamps / Date (biarkan ToUpdateMap yang validasi format)
-			if in.UsersProfileVerifiedAt == nil {
-				if v := strings.TrimSpace(c.FormValue("users_profile_verified_at")); v != "" {
-					in.UsersProfileVerifiedAt = &v
+			if in.UserProfileVerifiedAt == nil {
+				if v := strings.TrimSpace(c.FormValue("user_profile_verified_at")); v != "" {
+					in.UserProfileVerifiedAt = &v
 				}
 			}
-			if in.UsersProfileDateOfBirth == nil {
-				if v := strings.TrimSpace(c.FormValue("users_profile_date_of_birth")); v != "" {
-					in.UsersProfileDateOfBirth = &v
+			if in.UserProfileDateOfBirth == nil {
+				if v := strings.TrimSpace(c.FormValue("user_profile_date_of_birth")); v != "" {
+					in.UserProfileDateOfBirth = &v
 				}
 			}
 
@@ -311,26 +298,26 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 				}
 			}
 			setIfEmpty(&in.UserProfileSlug, "user_profile_slug")
-			setIfEmpty(&in.UsersProfileDonationName, "users_profile_donation_name")
+			setIfEmpty(&in.UserProfileDonationName, "user_profile_donation_name")
 			setIfEmpty(&in.UserProfilePlaceOfBirth, "user_profile_place_of_birth")
-			setIfEmpty(&in.UsersProfileGender, "users_profile_gender")
-			setIfEmpty(&in.UsersProfileLocation, "users_profile_location")
-			setIfEmpty(&in.UsersProfileCity, "users_profile_city")
-			setIfEmpty(&in.UsersProfileBio, "users_profile_bio")
-			setIfEmpty(&in.UsersProfileBiographyLong, "users_profile_biography_long")
-			setIfEmpty(&in.UsersProfileExperience, "users_profile_experience")
-			setIfEmpty(&in.UsersProfileCertifications, "users_profile_certifications")
-			setIfEmpty(&in.UsersProfileInstagramURL, "users_profile_instagram_url")
-			setIfEmpty(&in.UsersProfileWhatsappURL, "users_profile_whatsapp_url")
-			setIfEmpty(&in.UsersProfileLinkedinURL, "users_profile_linkedin_url")
-			setIfEmpty(&in.UsersProfileGithubURL, "users_profile_github_url")
-			setIfEmpty(&in.UsersProfileYoutubeURL, "users_profile_youtube_url")
+			setIfEmpty(&in.UserProfileGender, "user_profile_gender")
+			setIfEmpty(&in.UserProfileLocation, "user_profile_location")
+			setIfEmpty(&in.UserProfileCity, "user_profile_city")
+			setIfEmpty(&in.UserProfileBio, "user_profile_bio")
+			setIfEmpty(&in.UserProfileBiographyLong, "user_profile_biography_long")
+			setIfEmpty(&in.UserProfileExperience, "user_profile_experience")
+			setIfEmpty(&in.UserProfileCertifications, "user_profile_certifications")
+			setIfEmpty(&in.UserProfileInstagramURL, "user_profile_instagram_url")
+			setIfEmpty(&in.UserProfileWhatsappURL, "user_profile_whatsapp_url")
+			setIfEmpty(&in.UserProfileLinkedinURL, "user_profile_linkedin_url")
+			setIfEmpty(&in.UserProfileGithubURL, "user_profile_github_url")
+			setIfEmpty(&in.UserProfileYoutubeURL, "user_profile_youtube_url")
 			setIfEmpty(&in.UserProfileTelegramUsername, "user_profile_telegram_username")
 			setIfEmpty(&in.UserProfileParentName, "user_profile_parent_name")
 			setIfEmpty(&in.UserProfileParentWhatsappURL, "user_profile_parent_whatsapp_url")
-			setIfEmpty(&in.UsersProfileEducation, "users_profile_education")
-			setIfEmpty(&in.UsersProfileCompany, "users_profile_company")
-			setIfEmpty(&in.UsersProfilePosition, "users_profile_position")
+			setIfEmpty(&in.UserProfileEducation, "user_profile_education")
+			setIfEmpty(&in.UserProfileCompany, "user_profile_company")
+			setIfEmpty(&in.UserProfilePosition, "user_profile_position")
 		}
 	} else {
 		if err := c.BodyParser(&in); err != nil {
@@ -389,6 +376,7 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 		Model(&profileModel.UserProfileModel{}).
 		Where("user_profile_user_id = ?", userID).
 		Updates(updateMap).Error; err != nil {
+
 		log.Println("[ERROR] Failed to patch user_profile:", err)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to update user profile")
 	}
@@ -406,9 +394,8 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 
 /*
 =========================
-
-	DELETE: Soft delete
-	=========================
+DELETE: Soft delete
+=========================
 */
 func (upc *UsersProfileController) DeleteProfile(c *fiber.Ctx) error {
 	userID, err := helperAuth.GetUserIDFromToken(c)

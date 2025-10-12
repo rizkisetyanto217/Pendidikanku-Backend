@@ -33,13 +33,29 @@ func timePtrOrNil(t time.Time) *time.Time {
 	return &t
 }
 
+func intToInt16Ptr(p *int) *int16 {
+	if p == nil {
+		return nil
+	}
+	v := int16(*p)
+	return &v
+}
+
+func int16ToIntPtr(p *int16) *int {
+	if p == nil {
+		return nil
+	}
+	v := int(*p)
+	return &v
+}
+
 /* =========================================================
    1) REQUEST DTO
    ========================================================= */
 
 type CreateClassSubjectRequest struct {
 	MasjidID  uuid.UUID `json:"class_subject_masjid_id"  validate:"required"`
-	ClassID   uuid.UUID `json:"class_subject_class_id"   validate:"required"`
+	ParentID  uuid.UUID `json:"class_subject_parent_id"  validate:"required"`
 	SubjectID uuid.UUID `json:"class_subject_subject_id" validate:"required"`
 
 	// slug
@@ -65,7 +81,7 @@ type CreateClassSubjectRequest struct {
 
 type UpdateClassSubjectRequest struct {
 	MasjidID  *uuid.UUID `json:"class_subject_masjid_id"  validate:"omitempty"`
-	ClassID   *uuid.UUID `json:"class_subject_class_id"   validate:"omitempty"`
+	ParentID  *uuid.UUID `json:"class_subject_parent_id"  validate:"omitempty"`
 	SubjectID *uuid.UUID `json:"class_subject_subject_id" validate:"omitempty"`
 
 	// slug
@@ -97,6 +113,10 @@ type ListClassSubjectQuery struct {
 	OrderBy     *string `query:"order_by"      validate:"omitempty,oneof=order_index created_at updated_at"`
 	Sort        *string `query:"sort"          validate:"omitempty,oneof=asc desc"`
 	WithDeleted *bool   `query:"with_deleted"  validate:"omitempty"`
+	// (opsional) filter tambahan
+	MasjidID  *uuid.UUID `query:"masjid_id"     validate:"omitempty"`
+	ParentID  *uuid.UUID `query:"parent_id"     validate:"omitempty"`
+	SubjectID *uuid.UUID `query:"subject_id"   validate:"omitempty"`
 }
 
 /* =========================================================
@@ -106,7 +126,7 @@ type ListClassSubjectQuery struct {
 type ClassSubjectResponse struct {
 	ID        uuid.UUID `json:"class_subject_id"`
 	MasjidID  uuid.UUID `json:"class_subject_masjid_id"`
-	ClassID   uuid.UUID `json:"class_subject_class_id"`
+	ParentID  uuid.UUID `json:"class_subject_parent_id"`
 	SubjectID uuid.UUID `json:"class_subject_subject_id"`
 
 	// slug
@@ -120,7 +140,7 @@ type ClassSubjectResponse struct {
 	IsCore       bool    `json:"class_subject_is_core"`
 	Desc         *string `json:"class_subject_desc,omitempty"`
 
-	// bobot
+	// bobot (int untuk JSON, disimpan sebagai SMALLINT di DB)
 	WeightAssignment     *int `json:"class_subject_weight_assignment,omitempty"`
 	WeightQuiz           *int `json:"class_subject_weight_quiz,omitempty"`
 	WeightMid            *int `json:"class_subject_weight_mid,omitempty"`
@@ -139,12 +159,6 @@ type ClassSubjectResponse struct {
 	ParentLevelSnapshot *int16  `json:"class_subject_parent_level_snapshot,omitempty"`
 	ParentURLSnapshot   *string `json:"class_subject_parent_url_snapshot,omitempty"`
 	ParentNameSnapshot  *string `json:"class_subject_parent_name_snapshot,omitempty"`
-
-	// ============ Snapshots: classes ============
-	ClassSlugSnapshot         *string `json:"class_subject_class_slug_snapshot,omitempty"`
-	ClassImageURLSnapshot     *string `json:"class_subject_class_image_url_snapshot,omitempty"`
-	ClassStatusSnapshot       *string `json:"class_subject_class_status_snapshot,omitempty"`
-	ClassDeliveryModeSnapshot *string `json:"class_subject_class_delivery_mode_snapshot,omitempty"`
 
 	// status & timestamps
 	IsActive  bool       `json:"class_subject_is_active"`
@@ -180,7 +194,7 @@ func (r CreateClassSubjectRequest) ToModel() csModel.ClassSubjectModel {
 
 	return csModel.ClassSubjectModel{
 		ClassSubjectMasjidID:  r.MasjidID,
-		ClassSubjectClassID:   r.ClassID,
+		ClassSubjectParentID:  r.ParentID,
 		ClassSubjectSubjectID: r.SubjectID,
 
 		// slug (trim)
@@ -194,12 +208,12 @@ func (r CreateClassSubjectRequest) ToModel() csModel.ClassSubjectModel {
 		ClassSubjectIsCore:          isCore,
 		ClassSubjectDesc:            trimPtr(r.Desc),
 
-		// bobot
-		ClassSubjectWeightAssignment:     r.WeightAssignment,
-		ClassSubjectWeightQuiz:           r.WeightQuiz,
-		ClassSubjectWeightMid:            r.WeightMid,
-		ClassSubjectWeightFinal:          r.WeightFinal,
-		ClassSubjectMinAttendancePercent: r.MinAttendancePercent,
+		// bobot (konversi ke *int16)
+		ClassSubjectWeightAssignment:     intToInt16Ptr(r.WeightAssignment),
+		ClassSubjectWeightQuiz:           intToInt16Ptr(r.WeightQuiz),
+		ClassSubjectWeightMid:            intToInt16Ptr(r.WeightMid),
+		ClassSubjectWeightFinal:          intToInt16Ptr(r.WeightFinal),
+		ClassSubjectMinAttendancePercent: intToInt16Ptr(r.MinAttendancePercent),
 
 		// status
 		ClassSubjectIsActive: isActive,
@@ -216,7 +230,7 @@ func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
 	return ClassSubjectResponse{
 		ID:        m.ClassSubjectID,
 		MasjidID:  m.ClassSubjectMasjidID,
-		ClassID:   m.ClassSubjectClassID,
+		ParentID:  m.ClassSubjectParentID,
 		SubjectID: m.ClassSubjectSubjectID,
 
 		Slug: m.ClassSubjectSlug,
@@ -228,11 +242,12 @@ func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
 		IsCore:       m.ClassSubjectIsCore,
 		Desc:         m.ClassSubjectDesc,
 
-		WeightAssignment:     m.ClassSubjectWeightAssignment,
-		WeightQuiz:           m.ClassSubjectWeightQuiz,
-		WeightMid:            m.ClassSubjectWeightMid,
-		WeightFinal:          m.ClassSubjectWeightFinal,
-		MinAttendancePercent: m.ClassSubjectMinAttendancePercent,
+		// bobot (konversi *int16 → *int untuk JSON)
+		WeightAssignment:     int16ToIntPtr(m.ClassSubjectWeightAssignment),
+		WeightQuiz:           int16ToIntPtr(m.ClassSubjectWeightQuiz),
+		WeightMid:            int16ToIntPtr(m.ClassSubjectWeightMid),
+		WeightFinal:          int16ToIntPtr(m.ClassSubjectWeightFinal),
+		MinAttendancePercent: int16ToIntPtr(m.ClassSubjectMinAttendancePercent),
 
 		// snapshots: subjects
 		SubjectNameSnapshot: m.ClassSubjectSubjectNameSnapshot,
@@ -246,12 +261,6 @@ func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
 		ParentLevelSnapshot: m.ClassSubjectParentLevelSnapshot,
 		ParentURLSnapshot:   m.ClassSubjectParentURLSnapshot,
 		ParentNameSnapshot:  m.ClassSubjectParentNameSnapshot,
-
-		// snapshots: classes
-		ClassSlugSnapshot:         m.ClassSubjectClassSlugSnapshot,
-		ClassImageURLSnapshot:     m.ClassSubjectClassImageURLSnapshot,
-		ClassStatusSnapshot:       m.ClassSubjectClassStatusSnapshot,
-		ClassDeliveryModeSnapshot: m.ClassSubjectClassDeliveryModeSnapshot,
 
 		IsActive:  m.ClassSubjectIsActive,
 		CreatedAt: m.ClassSubjectCreatedAt,
@@ -272,8 +281,8 @@ func (r UpdateClassSubjectRequest) Apply(m *csModel.ClassSubjectModel) {
 	if r.MasjidID != nil {
 		m.ClassSubjectMasjidID = *r.MasjidID
 	}
-	if r.ClassID != nil {
-		m.ClassSubjectClassID = *r.ClassID
+	if r.ParentID != nil {
+		m.ClassSubjectParentID = *r.ParentID
 	}
 	if r.SubjectID != nil {
 		m.ClassSubjectSubjectID = *r.SubjectID
@@ -301,21 +310,21 @@ func (r UpdateClassSubjectRequest) Apply(m *csModel.ClassSubjectModel) {
 		m.ClassSubjectDesc = trimPtr(r.Desc)
 	}
 
-	// bobot
+	// bobot (*int → *int16)
 	if r.WeightAssignment != nil {
-		m.ClassSubjectWeightAssignment = r.WeightAssignment
+		m.ClassSubjectWeightAssignment = intToInt16Ptr(r.WeightAssignment)
 	}
 	if r.WeightQuiz != nil {
-		m.ClassSubjectWeightQuiz = r.WeightQuiz
+		m.ClassSubjectWeightQuiz = intToInt16Ptr(r.WeightQuiz)
 	}
 	if r.WeightMid != nil {
-		m.ClassSubjectWeightMid = r.WeightMid
+		m.ClassSubjectWeightMid = intToInt16Ptr(r.WeightMid)
 	}
 	if r.WeightFinal != nil {
-		m.ClassSubjectWeightFinal = r.WeightFinal
+		m.ClassSubjectWeightFinal = intToInt16Ptr(r.WeightFinal)
 	}
 	if r.MinAttendancePercent != nil {
-		m.ClassSubjectMinAttendancePercent = r.MinAttendancePercent
+		m.ClassSubjectMinAttendancePercent = intToInt16Ptr(r.MinAttendancePercent)
 	}
 
 	if r.IsActive != nil {

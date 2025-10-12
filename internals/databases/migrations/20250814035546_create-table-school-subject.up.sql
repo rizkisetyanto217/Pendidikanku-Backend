@@ -64,15 +64,18 @@ CREATE INDEX IF NOT EXISTS idx_subject_image_purge_due
   WHERE subject_image_object_key_old IS NOT NULL;
 
 
+
+
+
 -- =========================================================
--- TABLE: class_subjects (with snapshots)
+-- TABLE: class_subjects (RELASI KE class_parents, BUKAN classes)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_subjects (
   class_subject_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  class_subject_masjid_id  UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
-  class_subject_class_id   UUID NOT NULL REFERENCES classes(class_id) ON DELETE CASCADE,
-  class_subject_subject_id UUID NOT NULL REFERENCES subjects(subject_id) ON DELETE RESTRICT,
+  class_subject_masjid_id   UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_subject_parent_id   UUID NOT NULL REFERENCES class_parents(class_parent_id) ON DELETE CASCADE,
+  class_subject_subject_id  UUID NOT NULL REFERENCES subjects(subject_id) ON DELETE RESTRICT,
 
   -- >>> SLUG <<<
   class_subject_slug        VARCHAR(160),
@@ -101,7 +104,6 @@ CREATE TABLE IF NOT EXISTS class_subjects (
 
   -- ============================
   -- Snapshots dari class_parent
-  -- (prefix: class_subject_parent_*)
   -- ============================
   class_subject_parent_code_snapshot  VARCHAR(80),
   class_subject_parent_slug_snapshot  VARCHAR(160),
@@ -110,26 +112,40 @@ CREATE TABLE IF NOT EXISTS class_subjects (
   class_subject_parent_name_snapshot  VARCHAR(160),
 
   -- ============================
-  -- Snapshots dari classes
-  -- (prefix: class_subject_class_*)
-  -- ============================
-  class_subject_class_slug_snapshot          VARCHAR(160),
-  class_subject_class_image_url_snapshot     TEXT,
-  class_subject_class_status_snapshot        class_status_enum,
-  class_subject_class_delivery_mode_snapshot class_delivery_mode_enum,
-
-  -- ============================
   -- Audit & lifecycle
   -- ============================
   class_subject_is_active   BOOLEAN     NOT NULL DEFAULT TRUE,
   class_subject_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_subject_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_subject_deleted_at  TIMESTAMPTZ
+  class_subject_deleted_at  TIMESTAMPTZ,
+
+  -- (opsional) tenant-safe pair agar join-by-tenant aman
+  UNIQUE (class_subject_id, class_subject_masjid_id),
+
+  -- (opsional) guard bobot tidak negatif
+  CONSTRAINT ck_class_subject_weights_nonneg CHECK (
+    (class_subject_weight_assignment IS NULL OR class_subject_weight_assignment >= 0) AND
+    (class_subject_weight_quiz       IS NULL OR class_subject_weight_quiz       >= 0) AND
+    (class_subject_weight_mid        IS NULL OR class_subject_weight_mid        >= 0) AND
+    (class_subject_weight_final      IS NULL OR class_subject_weight_final      >= 0)
+  )
 );
 
 -- Lookup umum
 CREATE INDEX IF NOT EXISTS idx_class_subject_active_alive
   ON class_subjects (class_subject_is_active)
+  WHERE class_subject_deleted_at IS NULL;
+
+-- Filter cepat per tenant/parent/subject
+CREATE INDEX IF NOT EXISTS idx_class_subjects_masjid
+  ON class_subjects (class_subject_masjid_id);
+
+CREATE INDEX IF NOT EXISTS idx_class_subjects_parent
+  ON class_subjects (class_subject_parent_id);
+
+-- Unik kombinasi (hindari duplikat subject di parent yang sama, tenant-aware, hanya untuk baris hidup)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_class_subject_per_parent_subject_alive
+  ON class_subjects (class_subject_masjid_id, class_subject_parent_id, class_subject_subject_id)
   WHERE class_subject_deleted_at IS NULL;
 
 -- Unik SLUG per tenant (alive only)

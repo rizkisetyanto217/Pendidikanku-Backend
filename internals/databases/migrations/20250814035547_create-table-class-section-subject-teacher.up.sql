@@ -31,27 +31,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_id_tenant
 
 
 
--- =========================================================
+-- =========================
 -- ENUM: class_delivery_mode_enum (idempotent)
--- =========================================================
+-- =========================
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'class_delivery_mode_enum') THEN
-    CREATE TYPE class_delivery_mode_enum AS ENUM (
-      'offline',   -- tatap muka di ruangan fisik
-      'online',    -- daring (Zoom/Meet/dsb)
-      'hybrid'     -- kombinasi online + offline
-    );
+    CREATE TYPE class_delivery_mode_enum AS ENUM ('offline','online','hybrid');
   END IF;
 END$$;
--- =========================================================
+
+-- =========================
 -- TABLE: class_section_subject_teachers (CSST)
--- (penugasan guru untuk Section × Subject)
--- =========================================================
+-- =========================
 CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_section_subject_teacher_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_section_subject_teacher_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   -- target penugasan
   class_section_subject_teacher_section_id UUID NOT NULL,
@@ -64,66 +59,166 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_room_id UUID,
   class_section_subject_teacher_group_url TEXT,
 
-  -- agregat & kapasitas (dikelola backend)
+  -- agregat & kapasitas
   class_section_subject_teacher_total_attendance INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_capacity INT,                 -- NULL/<=0 = unlimited
+  class_section_subject_teacher_capacity INT,
   class_section_subject_teacher_enrolled_count INT NOT NULL DEFAULT 0,
-  class_sections_subject_teacher_delivery_mode class_delivery_mode_enum NOT NULL DEFAULT 'offline',
 
-  -- Room
+  -- snapshots (nullable)
   class_section_subject_teacher_room_snapshot JSONB,
-  class_section_subject_teacher_room_name_snap     TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_room_snapshot->>'name')) STORED,
-  class_section_subject_teacher_room_slug_snap     TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_room_snapshot->>'slug')) STORED,
-  class_section_subject_teacher_room_location_snap TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_room_snapshot->>'location')) STORED,
-  -- join_url / meeting_id / passcode / platform tetap di JSON
+  class_section_subject_teacher_teacher_snapshot JSONB,
+  class_section_subject_teacher_assistant_teacher_snapshot JSONB,
 
   -- status & audit
   class_section_subject_teacher_is_active BOOLEAN NOT NULL DEFAULT TRUE,
   class_section_subject_teacher_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_section_subject_teacher_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_section_subject_teacher_deleted_at TIMESTAMPTZ,
-
-  -- Tenant-safe FKs (urutan kolom FK ↔️ UNIQUE di tabel referensi)
-  CONSTRAINT fk_csst_section_tenant FOREIGN KEY (
-    class_section_subject_teacher_section_id,
-    class_section_subject_teacher_masjid_id
-  ) REFERENCES class_sections (class_section_id, class_section_masjid_id)
-    ON UPDATE CASCADE ON DELETE CASCADE,
-
-  CONSTRAINT fk_csst_class_subject_tenant FOREIGN KEY (
-    class_section_subject_teacher_class_subject_id,
-    class_section_subject_teacher_masjid_id
-  ) REFERENCES class_subjects (class_subject_id, class_subject_masjid_id)
-    ON UPDATE CASCADE ON DELETE CASCADE,
-
-  CONSTRAINT fk_csst_teacher_tenant FOREIGN KEY (
-    class_section_subject_teacher_teacher_id,
-    class_section_subject_teacher_masjid_id
-  ) REFERENCES masjid_teachers (masjid_teacher_id, masjid_teacher_masjid_id)
-    ON UPDATE CASCADE ON DELETE RESTRICT,
-
-  CONSTRAINT fk_csst_room_tenant FOREIGN KEY (
-    class_section_subject_teacher_room_id,
-    class_section_subject_teacher_masjid_id
-  ) REFERENCES class_rooms (class_room_id, class_room_masjid_id)
-    ON UPDATE CASCADE ON DELETE SET NULL,
-
-  -- safeguards
-  CONSTRAINT ck_csst_capacity_nonneg
-    CHECK (class_section_subject_teacher_capacity IS NULL
-        OR class_section_subject_teacher_capacity >= 0),
-  CONSTRAINT ck_csst_enrolled_nonneg
-    CHECK (class_section_subject_teacher_enrolled_count >= 0)
+  class_section_subject_teacher_deleted_at TIMESTAMPTZ
 );
 
--- Pair unik id+tenant (opsional, bantu JOIN cepat)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_tenant
-  ON class_section_subject_teachers (
-    class_section_subject_teacher_id,
-    class_section_subject_teacher_masjid_id
-  );
+-- =========================
+-- COLUMNS: add/migrate missing columns (idempotent)
+-- =========================
+DO $$
+BEGIN
+  -- Delivery mode: kolom yang dipakai aplikasi = class_sections_subject_teacher_delivery_mode
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'class_section_subject_teachers'
+      AND column_name = 'class_sections_subject_teacher_delivery_mode'
+  ) THEN
+    -- Jika ada kolom lama tanpa "s" → migrasikan
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'class_section_subject_teachers'
+        AND column_name = 'class_section_subject_teacher_delivery_mode'
+    ) THEN
+      ALTER TABLE class_section_subject_teachers
+        ADD COLUMN class_sections_subject_teacher_delivery_mode class_delivery_mode_enum;
 
--- Satu guru per (tenant × section × subject) — soft-delete aware
+      -- Salin & normalisasi nilai dari kolom lama (apapun tipenya)
+      EXECUTE $migrate$
+        UPDATE class_section_subject_teachers
+        SET class_sections_subject_teacher_delivery_mode = CASE
+          WHEN lower(class_section_subject_teacher_delivery_mode::text) = 'offline' THEN 'offline'::class_delivery_mode_enum
+          WHEN lower(class_section_subject_teacher_delivery_mode::text) = 'online'  THEN 'online'::class_delivery_mode_enum
+          WHEN lower(class_section_subject_teacher_delivery_mode::text) = 'hybrid'  THEN 'hybrid'::class_delivery_mode_enum
+          ELSE 'offline'::class_delivery_mode_enum
+        END
+        WHERE class_sections_subject_teacher_delivery_mode IS NULL
+      $migrate$;
+
+      ALTER TABLE class_section_subject_teachers
+        ALTER COLUMN class_sections_subject_teacher_delivery_mode SET DEFAULT 'offline',
+        ALTER COLUMN class_sections_subject_teacher_delivery_mode SET NOT NULL;
+
+      -- Hapus kolom lama
+      ALTER TABLE class_section_subject_teachers
+        DROP COLUMN IF EXISTS class_section_subject_teacher_delivery_mode;
+
+    ELSE
+      -- Tambah kolom baru langsung
+      ALTER TABLE class_section_subject_teachers
+        ADD COLUMN class_sections_subject_teacher_delivery_mode class_delivery_mode_enum NOT NULL DEFAULT 'offline';
+    END IF;
+  END IF;
+
+  -- Generated columns (Room)
+  BEGIN
+    ALTER TABLE class_section_subject_teachers
+      ADD COLUMN class_section_subject_teacher_room_name_snap     TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_room_snapshot->>'name')) STORED;
+  EXCEPTION WHEN duplicate_column THEN END;
+
+  BEGIN
+    ALTER TABLE class_section_subject_teachers
+      ADD COLUMN class_section_subject_teacher_room_slug_snap     TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_room_snapshot->>'slug')) STORED;
+  EXCEPTION WHEN duplicate_column THEN END;
+
+  BEGIN
+    ALTER TABLE class_section_subject_teachers
+      ADD COLUMN class_section_subject_teacher_room_location_snap TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_room_snapshot->>'location')) STORED;
+  EXCEPTION WHEN duplicate_column THEN END;
+
+  -- Generated columns (People)
+  BEGIN
+    ALTER TABLE class_section_subject_teachers
+      ADD COLUMN class_section_subject_teacher_teacher_name_snap TEXT
+        GENERATED ALWAYS AS ((class_section_subject_teacher_teacher_snapshot->>'name')) STORED;
+  EXCEPTION WHEN duplicate_column THEN END;
+
+  BEGIN
+    ALTER TABLE class_section_subject_teachers
+      ADD COLUMN class_section_subject_teacher_assistant_teacher_name_snap TEXT
+        GENERATED ALWAYS AS ((class_section_subject_teacher_assistant_teacher_snapshot->>'name')) STORED;
+  EXCEPTION WHEN duplicate_column THEN END;
+END$$;
+
+-- =========================
+-- CHECK CONSTRAINTS (idempotent)
+-- =========================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_csst_capacity_nonneg') THEN
+    ALTER TABLE class_section_subject_teachers
+      ADD CONSTRAINT ck_csst_capacity_nonneg
+      CHECK (class_section_subject_teacher_capacity IS NULL OR class_section_subject_teacher_capacity >= 0);
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_csst_enrolled_nonneg') THEN
+    ALTER TABLE class_section_subject_teachers
+      ADD CONSTRAINT ck_csst_enrolled_nonneg
+      CHECK (class_section_subject_teacher_enrolled_count >= 0);
+  END IF;
+END$$;
+
+-- =========================
+-- TENANT-SAFE FOREIGN KEYS (idempotent)
+-- =========================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_csst_section_tenant') THEN
+    ALTER TABLE class_section_subject_teachers
+      ADD CONSTRAINT fk_csst_section_tenant FOREIGN KEY (
+        class_section_subject_teacher_section_id,
+        class_section_subject_teacher_masjid_id
+      ) REFERENCES class_sections (class_section_id, class_section_masjid_id)
+        ON UPDATE CASCADE ON DELETE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_csst_class_subject_tenant') THEN
+    ALTER TABLE class_section_subject_teachers
+      ADD CONSTRAINT fk_csst_class_subject_tenant FOREIGN KEY (
+        class_section_subject_teacher_class_subject_id,
+        class_section_subject_teacher_masjid_id
+      ) REFERENCES class_subjects (class_subject_id, class_subject_masjid_id)
+        ON UPDATE CASCADE ON DELETE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_csst_teacher_tenant') THEN
+    ALTER TABLE class_section_subject_teachers
+      ADD CONSTRAINT fk_csst_teacher_tenant FOREIGN KEY (
+        class_section_subject_teacher_teacher_id,
+        class_section_subject_teacher_masjid_id
+      ) REFERENCES masjid_teachers (masjid_teacher_id, masjid_teacher_masjid_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_csst_room_tenant') THEN
+    ALTER TABLE class_section_subject_teachers
+      ADD CONSTRAINT fk_csst_room_tenant FOREIGN KEY (
+        class_section_subject_teacher_room_id,
+        class_section_subject_teacher_masjid_id
+      ) REFERENCES class_rooms (class_room_id, class_room_masjid_id)
+        ON UPDATE CASCADE ON DELETE SET NULL;
+  END IF;
+END$$;
+
+-- =========================
+-- UNIQUE & INDEXES (idempotent)
+-- =========================
+CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_tenant
+  ON class_section_subject_teachers (class_section_subject_teacher_id, class_section_subject_teacher_masjid_id);
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_unique_alive
   ON class_section_subject_teachers (
     class_section_subject_teacher_masjid_id,
@@ -133,7 +228,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_unique_alive
   )
   WHERE class_section_subject_teacher_deleted_at IS NULL;
 
--- Opsional: hanya 1 guru AKTIF per (section × subject) — soft-delete aware
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_one_active_per_section_subject_alive
   ON class_section_subject_teachers (
     class_section_subject_teacher_masjid_id,
@@ -143,7 +237,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_one_active_per_section_subject_alive
   WHERE class_section_subject_teacher_deleted_at IS NULL
     AND class_section_subject_teacher_is_active = TRUE;
 
--- Index umum (soft-delete aware)
 CREATE INDEX IF NOT EXISTS idx_csst_masjid_alive
   ON class_section_subject_teachers (class_section_subject_teacher_masjid_id)
   WHERE class_section_subject_teacher_deleted_at IS NULL;
@@ -164,7 +257,6 @@ CREATE INDEX IF NOT EXISTS idx_csst_room_alive
   ON class_section_subject_teachers (class_section_subject_teacher_room_id)
   WHERE class_section_subject_teacher_deleted_at IS NULL;
 
--- Slug per tenant (soft-delete aware)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_slug_per_tenant_alive
   ON class_section_subject_teachers (
     class_section_subject_teacher_masjid_id,
@@ -179,7 +271,6 @@ CREATE INDEX IF NOT EXISTS gin_csst_slug_trgm_alive
   WHERE class_section_subject_teacher_deleted_at IS NULL
     AND class_section_subject_teacher_slug IS NOT NULL;
 
--- BRIN & kapasitas counter (soft-delete aware)
 CREATE INDEX IF NOT EXISTS brin_csst_created_at
   ON class_section_subject_teachers USING BRIN (class_section_subject_teacher_created_at);
 
@@ -191,15 +282,14 @@ CREATE INDEX IF NOT EXISTS idx_csst_enrolled_count_alive
   ON class_section_subject_teachers (class_section_subject_teacher_enrolled_count)
   WHERE class_section_subject_teacher_deleted_at IS NULL;
 
+COMMIT;
+
+
+
+
 
 -- +migrate Up
 BEGIN;
-
--- =========================================================
--- EXTENSIONS (idempotent)
--- =========================================================
-CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
-CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram (ILIKE & fuzzy)
 
 -- =========================================================
 -- TABLE: user_class_section_subject_teachers (UC SST)

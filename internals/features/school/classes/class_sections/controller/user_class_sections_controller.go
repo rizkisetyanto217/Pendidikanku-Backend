@@ -122,58 +122,120 @@ func (ctl *UserClassSectionController) GetDetail(c *fiber.Ctx) error {
 }
 
 // ========== LIST MINE (opsional) ==========
-// ========== LIST MINE (opsional) ==========
+// ========== LIST MINE (auto-resolve masjid_student) ==========
 func (ctl *UserClassSectionController) ListMine(c *fiber.Ctx) error {
 	masjidID, err := parseMasjidIDFromPath(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	// guard: anggota masjid
+
+	// wajib login
+	userID, err := helperAuth.GetUserIDFromToken(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
+	}
+
+	// opsional: tetap boleh cek member (DKM/teacher/student). Biarkan kalau kamu mau harden.
 	if e := helperAuth.EnsureMemberMasjid(c, masjidID); e != nil {
-		return e
+		// Jika kamu tidak ingin memaksa membership strict, comment return-nya dan lanjutkan.
+		// return e
 	}
 
-	// === Penting ===
-	// Skema kamu memakai MasjidStudent sebagai identitas "milikku".
-	// Ambil dari query param: ?masjid_student_id=<uuid>
-	msStr := strings.TrimSpace(c.Query("masjid_student_id", ""))
-	if msStr == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "masjid_student_id wajib diisi pada query param")
-	}
-	masjidStudentID, err := uuid.Parse(msStr)
-	if err != nil || masjidStudentID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "masjid_student_id tidak valid")
+	// --- mulai TX (perlu kalau nanti create masjid_student) ---
+	tx := ctl.DB.WithContext(c.Context()).Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			_ = tx.Rollback()
+			panic(r)
+		}
+	}()
+
+	// Resolve users_profile_id dari user
+	usersProfileID, err := getUsersProfileID(tx, userID)
+	if err != nil {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusBadRequest, "Profil user belum ada. Lengkapi profil terlebih dahulu.")
 	}
 
+	// Ambil masjid_student_id:
+	// - jika query param ada, validasi milik user & tenant
+	// - kalau kosong, buat/ambil otomatis berdasarkan profile
+	var masjidStudentID uuid.UUID
+
+	if raw := strings.TrimSpace(c.Query("masjid_student_id", "")); raw != "" {
+		msID, e := uuid.Parse(raw)
+		if e != nil || msID == uuid.Nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusBadRequest, "masjid_student_id tidak valid")
+		}
+		// validasi kepemilikan (tenant + user profile)
+		var cnt int64
+		if err := tx.Table("masjid_students").
+			Where(`
+				masjid_student_id = ?
+				AND masjid_student_masjid_id = ?
+				AND masjid_student_user_profile_id = ?
+				AND masjid_student_deleted_at IS NULL
+			`, msID, masjidID, usersProfileID).
+			Count(&cnt).Error; err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi masjid_student")
+		}
+		if cnt == 0 {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusForbidden, "masjid_student_id bukan milik Anda / beda tenant")
+		}
+		masjidStudentID = msID
+	} else {
+		// auto resolve (dan buat jika belum ada)
+		msID, e := getOrCreateMasjidStudentByProfile(tx, masjidID, usersProfileID)
+		if e != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mendapatkan status student")
+		}
+		masjidStudentID = msID
+	}
+
+	// pagination
 	page, size := getPageSize(c)
-	var items []model.UserClassSection
-	var total int64
 
-	q := ctl.DB.Model(&model.UserClassSection{}).
-		Where(
-			"user_class_section_masjid_id = ? AND user_class_section_masjid_student_id = ? AND user_class_section_deleted_at IS NULL",
-			masjidID, masjidStudentID,
-		)
+	// query data
+	var total int64
+	q := tx.Model(&model.UserClassSection{}).
+		Where(`
+			user_class_section_masjid_id = ?
+			AND user_class_section_masjid_student_id = ?
+			AND user_class_section_deleted_at IS NULL
+		`, masjidID, masjidStudentID)
 
 	if err := q.Count(&total).Error; err != nil {
+		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
 	}
+
+	var items []model.UserClassSection
 	if err := q.
 		Order("user_class_section_created_at DESC").
 		Limit(size).
 		Offset((page - 1) * size).
 		Find(&items).Error; err != nil {
+		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// pakai RESP, bukan DTO
+	if err := tx.Commit().Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Transaksi gagal")
+	}
+
+	// mapping ke resp
 	out := make([]dto.UserClassSectionResp, 0, len(items))
 	for i := range items {
 		out = append(out, dto.FromModel(&items[i]))
 	}
 
 	return helper.JsonOK(c, "OK", fiber.Map{
-		"items": out,
+		"masjid_student_id": masjidStudentID, // biar klien tahu ID yang dipakai
+		"items":             out,
 		"meta": fiber.Map{
 			"page":  page,
 			"size":  size,

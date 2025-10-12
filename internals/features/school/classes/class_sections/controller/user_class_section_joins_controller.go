@@ -4,6 +4,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -18,6 +19,8 @@ import (
 
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
+
+	userProfileSnapshot "masjidku_backend/internals/features/users/user/snapshot"
 )
 
 /* =========================
@@ -97,13 +100,8 @@ func getOrCreateMasjidStudentByProfile(tx *gorm.DB, masjidID, usersProfileID uui
 	return newID, nil
 }
 
-/* =========================
-   POST /:masjid_id/user-class-sections/join
-   Body: { "code": "...", "class_section_id": "..." }
-========================= */
-// ======================== REFACTORED: JOIN BY STUDENT CODE ========================
-// POST /:masjid_id/user-class-sections/join
-// Body JSON|form: { "student_code": "..." }   // (opsional) "class_section_id": "...." diabaikan
+// forUpdate() kamu sendiri (RowLock). Pakai punyamu.
+// forUpdate() kamu sendiri (RowLock). Pakai punyamu.
 func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 	// -------- tenant --------
 	rawMasjidID := strings.TrimSpace(c.Params("masjid_id"))
@@ -145,14 +143,11 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 	var sec model.ClassSectionModel
 	found := false
 
-	// (a) coba match plaintext class_section_code (case-sensitive)
+	// (a) plaintext
 	if err := tx.
 		Clauses(forUpdate()).
-		Where(`
-			class_section_masjid_id = ?
-			AND class_section_code = ?
-			AND class_section_deleted_at IS NULL
-		`, masjidID, code).
+		Where(`class_section_masjid_id = ? AND class_section_code = ? AND class_section_deleted_at IS NULL`,
+			masjidID, code).
 		First(&sec).Error; err == nil {
 		found = true
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -160,15 +155,14 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mencari section (by plaintext)")
 	}
 
-	// (b) fallback: scan hash bcrypt di tenant ini
+	// (b) bcrypt scan
 	if !found {
 		var rows []struct {
-			ID     uuid.UUID `gorm:"column:class_section_id"`
-			Hash   []byte    `gorm:"column:class_section_student_code_hash"`
-			Active bool      `gorm:"column:class_section_is_active"`
+			ID   uuid.UUID `gorm:"column:class_section_id"`
+			Hash []byte    `gorm:"column:class_section_student_code_hash"`
 		}
 		if err := tx.Table("class_sections").
-			Select("class_section_id, class_section_student_code_hash, class_section_is_active").
+			Select("class_section_id, class_section_student_code_hash").
 			Where(`
 				class_section_masjid_id = ?
 				AND class_section_deleted_at IS NULL
@@ -179,7 +173,6 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mencari section (by hash)")
 		}
-
 		var matchedID uuid.UUID
 		for _, r := range rows {
 			if verifyJoinCode(r.Hash, code) {
@@ -191,8 +184,6 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusUnauthorized, "Kode siswa salah atau sudah tidak berlaku")
 		}
-
-		// ambil row penuh + lock
 		if err := tx.
 			Clauses(forUpdate()).
 			Where("class_section_id = ? AND class_section_deleted_at IS NULL", matchedID).
@@ -215,7 +206,7 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusForbidden, "Section bukan milik masjid ini")
 	}
 
-	// -------- 3) Pastikan ada masjid_student untuk user ini --------
+	// -------- 3) Pastikan ada masjid_student --------
 	usersProfileID, err := getUsersProfileID(tx, userID)
 	if err != nil {
 		_ = tx.Rollback()
@@ -226,6 +217,15 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek/buat status student")
 	}
+
+	// -------- 3a) Snapshot profil user (hanya field yg ada di DTO) --------
+	profileSnap, perr := userProfileSnapshot.BuildUserProfileSnapshotByUserID(c.Context(), tx, userID)
+	if perr != nil && !errors.Is(perr, gorm.ErrRecordNotFound) {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil snapshot profil")
+	}
+	log.Printf("[UCS][JOIN] masjid=%s user=%s profileSnap_ok=%t",
+		masjidID.String(), userID.String(), profileSnap != nil)
 
 	// -------- 4) Kapasitas --------
 	if sec.ClassSectionCapacity != nil && *sec.ClassSectionCapacity > 0 &&
@@ -251,7 +251,7 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusConflict, "Sudah tergabung di section ini")
 	}
 
-	// -------- 6) Insert enrollment --------
+	// -------- 6) Insert enrollment (+ inject snapshot yg sesuai DTO) --------
 	now := time.Now()
 	ucs := &model.UserClassSection{
 		UserClassSectionID:              uuid.New(),
@@ -263,10 +263,34 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 		UserClassSectionCreatedAt:       now,
 		UserClassSectionUpdatedAt:       now,
 	}
+
+	if profileSnap != nil {
+		nz := func(s *string) *string {
+			if s == nil {
+				return nil
+			}
+			v := strings.TrimSpace(*s)
+			if v == "" {
+				return nil
+			}
+			return &v
+		}
+		if name := strings.TrimSpace(profileSnap.Name); name != "" {
+			ucs.UserClassSectionUserProfileNameSnapshot = &name
+		}
+		ucs.UserClassSectionUserProfileAvatarURLSnapshot = nz(profileSnap.AvatarURL)
+		ucs.UserClassSectionUserProfileWhatsappURLSnapshot = nz(profileSnap.WhatsappURL)
+		ucs.UserClassSectionUserProfileParentNameSnapshot = nz(profileSnap.ParentName)
+		ucs.UserClassSectionUserProfileParentWhatsappURLSnapshot = nz(profileSnap.ParentWhatsappURL)
+	}
+
 	if err := tx.Create(ucs).Error; err != nil {
 		_ = tx.Rollback()
+		log.Printf("[UCS][JOIN][ERR] insert: %v", err)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menambahkan ke section")
 	}
+	log.Printf("[UCS][JOIN] ucs_id=%s snapshot_set=%t",
+		ucs.UserClassSectionID.String(), profileSnap != nil)
 
 	// -------- 7) Bump counter --------
 	if err := tx.Model(&sec).
@@ -281,10 +305,15 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Transaksi gagal")
 	}
 
-	return helper.JsonOK(c, "Berhasil bergabung", fiber.Map{
+	resp := fiber.Map{
 		"item": dto.ClassSectionJoinResponse{
 			UserClassSection: Ptr(dto.FromModel(ucs)),
 			ClassSectionID:   sec.ClassSectionID.String(),
 		},
-	})
+	}
+	if profileSnap != nil {
+		resp["user_profile_snapshot"] = profileSnap // tambahan info di response OK
+	}
+
+	return helper.JsonOK(c, "Berhasil bergabung", resp)
 }
