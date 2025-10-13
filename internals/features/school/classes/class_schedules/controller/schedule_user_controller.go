@@ -63,13 +63,13 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	if q.Sort != nil {
 		switch strings.ToLower(strings.TrimSpace(*q.Sort)) {
 		case "start_date_asc":
-			orderExpr = "class_schedules_start_date ASC, class_schedules_end_date ASC, class_schedule_created_at DESC"
+			orderExpr = "class_schedule_start_date ASC, class_schedule_end_date ASC, class_schedule_created_at DESC"
 		case "start_date_desc":
-			orderExpr = "class_schedules_start_date DESC, class_schedules_end_date DESC, class_schedule_created_at DESC"
+			orderExpr = "class_schedule_start_date DESC, class_schedule_end_date DESC, class_schedule_created_at DESC"
 		case "end_date_asc":
-			orderExpr = "class_schedules_end_date ASC, class_schedules_start_date ASC, class_schedule_created_at DESC"
+			orderExpr = "class_schedule_end_date ASC, class_schedule_start_date ASC, class_schedule_created_at DESC"
 		case "end_date_desc":
-			orderExpr = "class_schedules_end_date DESC, class_schedules_start_date DESC, class_schedule_created_at DESC"
+			orderExpr = "class_schedule_end_date DESC, class_schedule_start_date DESC, class_schedule_created_at DESC"
 		case "created_at_asc":
 			orderExpr = "class_schedule_created_at ASC"
 		case "created_at_desc":
@@ -97,7 +97,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		s := strings.ToLower(strings.TrimSpace(*q.Status))
 		switch s {
 		case "scheduled", "ongoing", "completed", "canceled":
-			tx = tx.Where("class_schedules_status = ?", s)
+			tx = tx.Where("class_schedule_status = ?", s)
 		default:
 			return helper.JsonError(c, http.StatusBadRequest, "status invalid")
 		}

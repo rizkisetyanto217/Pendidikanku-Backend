@@ -258,38 +258,9 @@ type listQuery struct {
 	Sort        *string `query:"sort"`     // asc|desc
 }
 
-func parseInclude(raw string) map[string]bool {
-	m := map[string]bool{}
-	if raw == "" {
-		return m
-	}
-	parts := strings.Split(strings.ToLower(strings.TrimSpace(raw)), ",")
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		m[p] = true
-	}
-	if m["subjects"] || m["s"] {
-		m["subject"] = true
-	}
-	if m["sections"] || m["sec"] {
-		m["section"] = true
-	}
-	if m["cs"] {
-		m["class_subject"] = true
-	}
-	if m["t"] {
-		m["teacher"] = true
-	}
-	if m["all"] {
-		m["subject"], m["section"], m["class_subject"], m["teacher"] = true, true, true, true
-	}
-	return m
-}
 
 /* ================================ Handler ================================ */
+/* ================================ Handler (NO-INCLUDE, NO-JOIN) ================================ */
 
 func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	detectCSSTFKs(ctl.DB)
@@ -338,15 +309,14 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		q.Offset = intPtr(0)
 	}
 
-	// qparams tambahan
+	// qparams tambahan (tanpa include)
 	sectionID := strings.TrimSpace(c.Query("section_id"))
 	classSubID := strings.TrimSpace(c.Query("class_subject_id"))
-	subjectID := strings.TrimSpace(c.Query("subject_id"))
+	subjectID := strings.TrimSpace(c.Query("subject_id")) // via subquery (tanpa join)
 	teacherID := strings.TrimSpace(c.Query("teacher_id"))
 	qtext := strings.TrimSpace(strings.ToLower(c.Query("q")))
-	includes := parseInclude(c.Query("include"))
 
-	// sorting (guard bila butuh relasi)
+	// sorting berdasarkan kolom CSST (snapshot/generated)
 	orderBy := fmt.Sprintf("csst.%s", csstCreatedAtCol)
 	if q.OrderBy != nil {
 		switch strings.ToLower(*q.OrderBy) {
@@ -354,28 +324,16 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			orderBy = fmt.Sprintf("csst.%s", csstCreatedAtCol)
 		case "updated_at":
 			orderBy = fmt.Sprintf("csst.%s", csstUpdatedAtCol)
+		case "display_name":
+			orderBy = "COALESCE(csst.class_section_subject_teacher_display_name,'')"
 		case "subject_name":
-			if !includes["subject"] {
-				return helper.JsonError(c, fiber.StatusBadRequest, "order_by=subject_name memerlukan include=subject")
-			}
-			orderBy = "COALESCE(s.subject_name,'')"
-		case "subject_code":
-			if !includes["subject"] {
-				return helper.JsonError(c, fiber.StatusBadRequest, "order_by=subject_code memerlukan include=subject")
-			}
-			orderBy = "COALESCE(s.subject_code,'')"
+			orderBy = "COALESCE(csst.class_section_subject_teacher_class_subject_name_snap,'')"
 		case "section_name":
-			if !includes["section"] {
-				return helper.JsonError(c, fiber.StatusBadRequest, "order_by=section_name memerlukan include=section")
-			}
-			orderBy = "COALESCE(sec.class_section_name,'')"
-		case "section_code":
-			if !includes["section"] {
-				return helper.JsonError(c, fiber.StatusBadRequest, "order_by=section_code memerlukan include=section")
-			}
-			orderBy = "COALESCE(sec.class_section_code,'')"
+			orderBy = "COALESCE(csst.class_section_subject_teacher_section_name_snap,'')"
+		case "teacher_name":
+			orderBy = "COALESCE(csst.class_section_subject_teacher_teacher_name_snap,'')"
 		default:
-			return helper.JsonError(c, fiber.StatusBadRequest, "order_by tidak dikenal")
+			return helper.JsonError(c, fiber.StatusBadRequest, "order_by tidak dikenal (gunakan: created_at, updated_at, display_name, subject_name, section_name, teacher_name)")
 		}
 	}
 	sort := "ASC"
@@ -396,117 +354,44 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		tx = tx.Where(fmt.Sprintf("csst.%s = ?", csstIsActiveCol), *q.IsActive)
 	}
 
-	// SELECT kolom dasar
+	// SELECT kolom dasar (semua dari CSST saja)
 	selectCols := []string{"csst.*"}
 
-	// ===== JOIN kondisional sesuai include =====
-	needJoinCS := (includes["class_subject"] || (includes["subject"] && csstClassSubjectFK != "")) && csstClassSubjectFK != ""
-	if needJoinCS {
-		tx = tx.Joins(fmt.Sprintf(`
-			LEFT JOIN class_subjects AS cs
-			  ON cs.class_subject_id = csst.%s
-		`, csstClassSubjectFK))
-		if includes["class_subject"] {
-			selectCols = append(selectCols,
-				"cs.class_subject_id AS class_subject_id",
-				"cs.class_subject_subject_id AS class_subject_subject_id",
-			)
-		}
-	}
-	if includes["subject"] {
-		if csstClassSubjectFK != "" {
-			tx = tx.Joins(`LEFT JOIN subjects AS s ON s.subject_id = cs.class_subject_subject_id`)
-		} else if csstSubjectFK != "" {
-			tx = tx.Joins(fmt.Sprintf(`LEFT JOIN subjects AS s ON s.subject_id = csst.%s`, csstSubjectFK))
-		} else {
-			return helper.JsonError(c, fiber.StatusBadRequest, "include=subject tidak tersedia (FK subjects tidak terdeteksi)")
-		}
-		selectCols = append(selectCols,
-			"s.subject_id AS subject_id",
-			"s.subject_code AS subject_code",
-			"s.subject_name AS subject_name",
-			"s.subject_slug AS subject_slug",
-		)
-	}
-	if includes["section"] {
-		if csstSectionFK == "" {
-			return helper.JsonError(c, fiber.StatusBadRequest, "include=section tidak tersedia (FK class_sections tidak terdeteksi)")
-		}
-		tx = tx.Joins(fmt.Sprintf(`LEFT JOIN class_sections AS sec ON sec.class_section_id = csst.%s`, csstSectionFK))
-		selectCols = append(selectCols,
-			"sec.class_section_id   AS class_section_id",
-			"sec.class_section_name AS class_section_name",
-			"sec.class_section_code AS class_section_code",
-		)
-	}
-	if includes["teacher"] {
-		if csstTeacherFK == "" {
-			return helper.JsonError(c, fiber.StatusBadRequest, "include=teacher tidak tersedia (FK teacher tidak terdeteksi)")
-		}
-		tx = tx.
-			Joins(fmt.Sprintf(`LEFT JOIN masjid_teachers AS mt ON mt.masjid_teacher_id = csst.%s`, csstTeacherFK)).
-			Joins(`LEFT JOIN users AS u ON u.id = mt.masjid_teacher_user_id`)
-		selectCols = append(selectCols,
-			"mt.masjid_teacher_id          AS teacher_id_join",
-			"mt.masjid_teacher_user_id     AS teacher_user_id",
-			"mt.masjid_teacher_title       AS teacher_title",
-			"mt.masjid_teacher_code        AS teacher_code",
-			"mt.masjid_teacher_employment  AS teacher_employment",
-			"mt.masjid_teacher_is_active   AS teacher_is_active",
-			"COALESCE(u.full_name, u.user_name) AS teacher_name",
-		)
-	}
-
-	// ============= FILTERS =============
+	// ============= FILTERS (tanpa join) =============
 	if teacherID != "" && csstTeacherFK != "" {
 		if _, e := uuid.Parse(teacherID); e == nil {
 			tx = tx.Where(fmt.Sprintf("csst.%s = ?", csstTeacherFK), teacherID)
 		}
 	}
-	if sectionID != "" {
-		if csstSectionFK == "" {
-			return helper.JsonError(c, fiber.StatusBadRequest, "filter section_id memerlukan FK section; aktifkan include=section")
-		}
-		if !includes["section"] {
-			return helper.JsonError(c, fiber.StatusBadRequest, "filter section_id memerlukan include=section")
-		}
+	if sectionID != "" && csstSectionFK != "" {
 		if _, e := uuid.Parse(sectionID); e == nil {
 			tx = tx.Where(fmt.Sprintf("csst.%s = ?", csstSectionFK), sectionID)
 		}
 	}
-	if classSubID != "" {
-		if csstClassSubjectFK == "" {
-			return helper.JsonError(c, fiber.StatusBadRequest, "filter class_subject_id memerlukan FK class_subject; aktifkan include=class_subject")
-		}
-		if !includes["class_subject"] {
-			return helper.JsonError(c, fiber.StatusBadRequest, "filter class_subject_id memerlukan include=class_subject")
-		}
+	if classSubID != "" && csstClassSubjectFK != "" {
 		if _, e := uuid.Parse(classSubID); e == nil {
 			tx = tx.Where(fmt.Sprintf("csst.%s = ?", csstClassSubjectFK), classSubID)
 		}
 	}
-	if subjectID != "" {
-		if !includes["subject"] {
-			return helper.JsonError(c, fiber.StatusBadRequest, "filter subject_id memerlukan include=subject")
-		}
+	// subject_id — via subquery ke class_subjects (tanpa JOIN)
+	if subjectID != "" && csstClassSubjectFK != "" {
 		if _, e := uuid.Parse(subjectID); e == nil {
-			tx = tx.Where("s.subject_id = ?", subjectID)
+			tx = tx.Where(fmt.Sprintf(`
+				EXISTS (
+					SELECT 1 FROM class_subjects cs
+					WHERE cs.class_subject_id = csst.%s
+					  AND cs.class_subject_masjid_id = csst.%s
+					  AND cs.class_subject_subject_id = ?
+				)
+			`, csstClassSubjectFK, csstMasjidCol), subjectID)
 		}
 	}
 
-	// ====== FILTER qtext di DATA tx ======
+	// ====== FILTER qtext (pakai display_name dari snapshot) ======
 	if qtext != "" {
-		switch {
-		case includes["subject"] && includes["section"]:
-			tx = tx.Where("(LOWER(s.subject_name) LIKE ? OR LOWER(s.subject_code) LIKE ? OR LOWER(sec.class_section_name) LIKE ? OR LOWER(sec.class_section_code) LIKE ?)",
-				"%"+qtext+"%", "%"+qtext+"%", "%"+qtext+"%", "%"+qtext+"%")
-		case includes["subject"]:
-			tx = tx.Where("(LOWER(s.subject_name) LIKE ? OR LOWER(s.subject_code) LIKE ?)",
-				"%"+qtext+"%", "%"+qtext+"%")
-		case includes["section"]:
-			tx = tx.Where("(LOWER(sec.class_section_name) LIKE ? OR LOWER(sec.class_section_code) LIKE ?)",
-				"%"+qtext+"%", "%"+qtext+"%")
-		}
+		tx = tx.Where("LOWER(csst.class_section_subject_teacher_display_name) LIKE ?", "%"+qtext+"%")
+		// (opsional jika kolom tsv tersedia)
+		// tx = tx.Where("csst.class_section_subject_teacher_search_tsv @@ plainto_tsquery('simple', ?)", qtext)
 	}
 
 	// ===== DETAIL BY ID =====
@@ -550,30 +435,24 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			countTx = countTx.Where(fmt.Sprintf("csst.%s = ?", csstSectionFK), sectionID)
 		}
 	}
-
-	// join hanya jika perlu untuk q/subject filter
-	needSubjectJoin := (subjectID != "" || (qtext != "" && (includes["subject"] || includes["section"])))
-	needSectionJoin := (qtext != "" && (includes["section"] || includes["subject"]))
-	if needSubjectJoin {
-		if csstClassSubjectFK != "" {
-			countTx = countTx.
-				Joins(fmt.Sprintf(`LEFT JOIN class_subjects AS cs ON cs.class_subject_id = csst.%s`, csstClassSubjectFK)).
-				Joins(`LEFT JOIN subjects AS s ON s.subject_id = cs.class_subject_subject_id`)
-		} else if csstSubjectFK != "" {
-			countTx = countTx.Joins(fmt.Sprintf(`LEFT JOIN subjects AS s ON s.subject_id = csst.%s`, csstSubjectFK))
+	if subjectID != "" && csstClassSubjectFK != "" {
+		if _, e := uuid.Parse(subjectID); e == nil {
+			countTx = countTx.Where(fmt.Sprintf(`
+				EXISTS (
+					SELECT 1 FROM class_subjects cs
+					WHERE cs.class_subject_id = csst.%s
+					  AND cs.class_subject_masjid_id = csst.%s
+					  AND cs.class_subject_subject_id = ?
+				)
+			`, csstClassSubjectFK, csstMasjidCol), subjectID)
 		}
 	}
-	if needSectionJoin && csstSectionFK != "" {
-		countTx = countTx.Joins(fmt.Sprintf(`LEFT JOIN class_sections AS sec ON sec.class_section_id = csst.%s`, csstSectionFK))
+	if qtext != "" {
+		countTx = countTx.Where("LOWER(csst.class_section_subject_teacher_display_name) LIKE ?", "%"+qtext+"%")
 	}
 
 	var total int64
-	pkExpr := fmt.Sprintf("csst.%s", csstPK)
-	countQuery := countTx.Select(pkExpr)
-	if needSubjectJoin || needSectionJoin {
-		countQuery = countQuery.Distinct(pkExpr)
-	}
-	if err := countQuery.Count(&total).Error; err != nil {
+	if err := countTx.Select(fmt.Sprintf("csst.%s", csstPK)).Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
@@ -594,9 +473,8 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonList(c, out, fiber.Map{
-		"limit":   *q.Limit,
-		"offset":  *q.Offset,
-		"total":   int(total),
-		"include": includes,
+		"limit":  *q.Limit,
+		"offset": *q.Offset,
+		"total":  int(total),
 	})
 }

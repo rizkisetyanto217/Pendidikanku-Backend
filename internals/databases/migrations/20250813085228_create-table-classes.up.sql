@@ -96,6 +96,23 @@ CREATE INDEX IF NOT EXISTS idx_class_parents_image_purge_due
   ON class_parents (class_parent_image_delete_pending_until)
   WHERE class_parent_image_object_key_old IS NOT NULL;
 
+-- Trigram per kolom (direkomendasikan)
+CREATE INDEX IF NOT EXISTS idx_cp_name_trgm_alive
+  ON class_parents USING GIN (class_parent_name gin_trgm_ops)
+  WHERE class_parent_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_cp_code_trgm_alive
+  ON class_parents USING GIN (class_parent_code gin_trgm_ops)
+  WHERE class_parent_deleted_at IS NULL AND class_parent_code IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_cp_desc_trgm_alive
+  ON class_parents USING GIN (class_parent_description gin_trgm_ops)
+  WHERE class_parent_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_cp_name_trgm_alive
+  ON class_parents USING GIN (class_parent_name gin_trgm_ops)
+  WHERE class_parent_deleted_at IS NULL;
+
 
 
 

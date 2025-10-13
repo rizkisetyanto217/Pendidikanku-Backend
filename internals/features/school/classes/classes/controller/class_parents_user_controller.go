@@ -19,13 +19,11 @@ import (
 	=========================================================
 */
 func (ctl *ClassParentController) List(c *fiber.Ctx) error {
-	// -------- PUBLIC: resolve konteks masjid dari path/header/query/host --------
+	// -------- Resolve masjid context --------
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return err // sudah mengembalikan 400 kalau context tidak ada
+		return err
 	}
-
-	// slug → id bila perlu
 	var masjidID uuid.UUID
 	if mc.ID != uuid.Nil {
 		masjidID = mc.ID
@@ -53,7 +51,7 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		q.Offset = 0
 	}
 
-	// only_my: default false (karena public); aktif hanya jika diminta & user_id valid dari token
+	// only_my flag
 	onlyMy := false
 	if v := strings.TrimSpace(c.Query("only_my")); v != "" {
 		onlyMy = strings.EqualFold(v, "1") || strings.EqualFold(v, "true")
@@ -63,7 +61,7 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		Model(&cpmodel.ClassParentModel{}).
 		Where("class_parent_masjid_id = ? AND class_parent_deleted_at IS NULL", masjidID)
 
-	// ------------------ filter by id(s) ------------------
+	// ----- filter by id(s) -----
 	if s := strings.TrimSpace(c.Query("class_parent_id")); s != "" {
 		id, perr := uuid.Parse(s)
 		if perr != nil {
@@ -90,7 +88,7 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ------------------ filter kolom-kolom ------------------
+	// ----- filter kolom-kolom -----
 	if q.Active != nil {
 		tx = tx.Where("class_parent_is_active = ?", *q.Active)
 	}
@@ -106,6 +104,8 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 	if q.CreatedLt != nil {
 		tx = tx.Where("class_parent_created_at < ?", *q.CreatedLt)
 	}
+
+	// ----- full-text sederhana: q ke name/code/description -----
 	if s := strings.TrimSpace(q.Q); s != "" {
 		pat := "%" + s + "%"
 		tx = tx.Where(`
@@ -115,7 +115,12 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		`, pat, pat, pat)
 	}
 
-	// ------------------ ONLY_MY (opsional; diabaikan jika tidak ada token) ------------------
+	// ----- NEW: filter khusus berdasarkan name -----
+	if s := strings.TrimSpace(q.Name); s != "" {
+		tx = tx.Where("class_parent_name ILIKE ?", "%"+s+"%")
+	}
+
+	// ----- ONLY_MY (opsional) -----
 	if onlyMy {
 		if userID, _ := helperAuth.GetUserIDFromToken(c); userID != uuid.Nil {
 			tx = tx.Where(`
@@ -146,7 +151,7 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ------------------ eksekusi ------------------
+	// ----- eksekusi -----
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")

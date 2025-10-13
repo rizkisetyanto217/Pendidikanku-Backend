@@ -11,6 +11,9 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/lib/pq"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -20,7 +23,7 @@ import (
 	sessModel "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
 	d "masjidku_backend/internals/features/school/classes/class_schedules/dto"
 	m "masjidku_backend/internals/features/school/classes/class_schedules/model"
-	svc "masjidku_backend/internals/features/school/classes/class_schedules/services" // ⬅️ generator sessions
+	svc "masjidku_backend/internals/features/school/classes/class_schedules/services"
 )
 
 /* =========================
@@ -64,26 +67,35 @@ func enforceMasjidScopeAuth(c *fiber.Ctx, bodyMasjidID *uuid.UUID) error {
 	return nil
 }
 
-// --- PG error mapping ---
-
-type pgSQLErr interface {
-	SQLState() string
-	Error() string
-}
-
+// --- PG error mapping (pgx/libpq) ---
 func mapPGError(err error) (int, string) {
-	// 23P01 = exclusion_violation
-	// 23503 = foreign_key_violation
-	// 23505 = unique_violation
-	var pgErr pgSQLErr
-	if errors.As(err, &pgErr) {
-		switch pgErr.SQLState() {
+	// pgx
+	var pgxErr *pgconn.PgError
+	if errors.As(err, &pgxErr) {
+		switch pgxErr.Code {
 		case "23P01":
 			return http.StatusConflict, "Bentrok jadwal: time range overlap (context: CSST/Hari/Jam)."
 		case "23503":
 			return http.StatusBadRequest, "Referensi tidak ditemukan (FK violation)."
 		case "23505":
 			return http.StatusConflict, "Data duplikat (unique violation)."
+		default:
+			return http.StatusInternalServerError, pgxErr.Message
+		}
+	}
+	// lib/pq
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		code := string(pqErr.Code)
+		switch code {
+		case "23P01":
+			return http.StatusConflict, "Bentrok jadwal: time range overlap (context: CSST/Hari/Jam)."
+		case "23503":
+			return http.StatusBadRequest, "Referensi tidak ditemukan (FK violation)."
+		case "23505":
+			return http.StatusConflict, "Data duplikat (unique violation)."
+		default:
+			return http.StatusInternalServerError, pqErr.Error()
 		}
 	}
 	return http.StatusInternalServerError, err.Error()
@@ -94,26 +106,26 @@ func writePGError(c *fiber.Ctx, err error) error {
 	return helper.JsonError(c, code, msg)
 }
 
-/*
-========================= Create =========================
-*/
+/* =========================
+   Create (schedule + optional rules & sessions)
+   ========================= */
 
 func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	// --- guard
+	// Guard role
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
 
-	// --- body
+	// Body
 	var req d.CreateClassScheduleRequest
 	if err := c.BodyParser(&req); err != nil {
 		log.Printf("[ClassSchedule.Create] BodyParser error: %v", err)
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	// --- masjid scope
+	// Masjid scope
 	var actMasjidID uuid.UUID
 	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
 		id, er := helperAuth.EnsureMasjidAccessDKM(c, mc)
@@ -131,7 +143,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 		actMasjidID = id
 	}
 
-	// --- validate
+	// Validate
 	if ctl.Validate != nil {
 		if err := ctl.Validate.Struct(req); err != nil {
 			log.Printf("[ClassSchedule.Create] Validation error: %v", err)
@@ -139,22 +151,25 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// --- build schedule
-	model := req.ToModel(actMasjidID)
+	// Build header
+	header := req.ToModel(actMasjidID)
+	if header.ClassScheduleStartDate.After(header.ClassScheduleEndDate) {
+		return helper.JsonError(c, http.StatusBadRequest, "start_date harus <= end_date")
+	}
 
 	var sessionsProvided []sessModel.ClassAttendanceSessionModel
 
-	// --- TX: create schedule + rules + sessions (manual)
+	// TX: create schedule + rules + sessions
 	if err := ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		// 1) schedule
-		if er := tx.Create(&model).Error; er != nil {
+		if er := tx.Create(&header).Error; er != nil {
 			log.Printf("[ClassSchedule.Create] DB.Create(schedule) error: %v", er)
 			return er
 		}
 
 		// 2) rules (opsional)
 		if len(req.Rules) > 0 {
-			ruleModels, er := req.RulesToModels(actMasjidID, model.ClassScheduleID)
+			ruleModels, er := req.RulesToModels(actMasjidID, header.ClassScheduleID)
 			if er != nil {
 				log.Printf("[ClassSchedule.Create] RulesToModels error: %v", er)
 				return er
@@ -167,21 +182,21 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 			}
 		}
 
-		// 3) sessions (opsional, manual dari payload)
+		// 3) sessions (opsional, langsung dari payload)
 		if len(req.Sessions) > 0 {
 			ms, er := req.SessionsToModels(
 				actMasjidID,
-				model.ClassScheduleID,
-				model.ClassScheduleStartDate,
-				model.ClassScheduleEndDate,
+				header.ClassScheduleID,
+				header.ClassScheduleStartDate,
+				header.ClassScheduleEndDate,
 			)
 			if er != nil {
 				log.Printf("[ClassSchedule.Create] SessionsToModels error: %v", er)
+				// kembalikan 400 yang rapi
 				return helper.JsonError(c, http.StatusBadRequest, er.Error())
 			}
-
 			if len(ms) > 0 {
-				// idempotent insert (butuh unique idx (schedule_id, starts_at) partial alive)
+				// idempotent insert dengan unique (schedule_id, starts_at) alive-only
 				if er := tx.
 					Clauses(clause.OnConflict{DoNothing: true}).
 					Create(&ms).Error; er != nil {
@@ -191,14 +206,16 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 				sessionsProvided = ms
 			}
 		}
-
 		return nil
 	}); err != nil {
+		// jika error custom dari helper.JsonError di atas → langsung return
+		if fiberErr, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fiberErr.Code, fiberErr.Message)
+		}
 		return writePGError(c, err)
 	}
 
-	// --- 4) SELALU generate dari rules (tanpa query param)
-	// Ambil default assignment dari payload (pakai entri pertama yang ada nilainya)
+	// 4) Selalu generate sessions dari rules
 	var defCSST, defRoom, defTeacher *uuid.UUID
 	for _, s := range req.Sessions {
 		if s.CSSTID != nil && defCSST == nil {
@@ -209,15 +226,15 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 			v := *s.ClassRoomID
 			defRoom = &v
 		}
-		// NOTE: kalau nanti DTO punya TeacherID, isi juga di sini.
+		// kalau DTO menambahkan TeacherID, isi juga defTeacher = s.TeacherID
 	}
 
 	gen := svc.Generator{DB: ctl.DB}
 	sessionsGenerated, genErr := gen.GenerateSessionsForScheduleWithOpts(
 		c.Context(),
-		model.ClassScheduleID.String(),
+		header.ClassScheduleID.String(),
 		&svc.GenerateOptions{
-			TZName:                  "Asia/Jakarta", // TODO: ambil dari profil masjid kalau ada
+			TZName:                  "Asia/Jakarta", // TODO: tarik dari profil masjid
 			DefaultCSSTID:           defCSST,
 			DefaultRoomID:           defRoom,
 			DefaultTeacherID:        defTeacher,
@@ -229,9 +246,8 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 		log.Printf("[ClassSchedule.Create] GenerateSessionsForSchedule error: %v", genErr)
 	}
 
-	// --- response
 	resp := fiber.Map{
-		"schedule":           d.FromModel(model),
+		"schedule":           d.FromModel(header),
 		"sessions_provided":  len(sessionsProvided),
 		"sessions_generated": sessionsGenerated,
 		"generated":          true,
@@ -243,14 +259,13 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 }
 
 /* =========================
-   Patch (Partial) — gunakan DTO Update yang pointer-based
+   Patch (Partial) — pointer-based DTO
    ========================= */
 
 func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
-	// 🔁 masjid-context: siapkan DB untuk resolver
 	c.Locals("DB", ctl.DB)
 
-	// 🔐 Admin/DKM/Teacher
+	// Guard role
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
@@ -270,7 +285,7 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 		return writePGError(c, err)
 	}
 
-	// Gunakan UpdateClassScheduleRequest untuk PATCH (semua field pointer)
+	// DTO
 	var req d.UpdateClassScheduleRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
@@ -282,11 +297,11 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 	}
 	req.Apply(&existing)
 
-	// 🔁 masjid-context: izinkan DKM sesuai context meski token scope mismatch
+	// Masjid scope check (allow via DKM context)
 	if err := enforceMasjidScopeAuth(c, &existing.ClassScheduleMasjidID); err != nil {
 		if mc, er := helperAuth.ResolveMasjidContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
 			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassScheduleMasjidID {
-				// ✅ allow via DKM context
+				// allowed
 			} else {
 				return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
 			}
@@ -307,10 +322,9 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
    ========================= */
 
 func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
-	// 🔁 masjid-context: siapkan DB untuk resolver
 	c.Locals("DB", ctl.DB)
 
-	// 🔐 Admin/DKM/Teacher
+	// Guard role
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
@@ -330,11 +344,11 @@ func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 		return writePGError(c, err)
 	}
 
-	// 🔁 masjid-context: izinkan DKM sesuai context meski token scope mismatch
+	// Masjid scope check (allow via DKM context)
 	if err := enforceMasjidScopeAuth(c, &existing.ClassScheduleMasjidID); err != nil {
 		if mc, er := helperAuth.ResolveMasjidContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
 			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassScheduleMasjidID {
-				// ✅ allow via DKM context
+				// allowed
 			} else {
 				return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
 			}

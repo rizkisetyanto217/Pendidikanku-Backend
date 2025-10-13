@@ -200,6 +200,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_sched_start
 CREATE INDEX IF NOT EXISTS brin_cas_created_at
   ON class_attendance_sessions USING BRIN (class_attendance_session_created_at);
 
+
+
 -- =========================================
 -- TABLE: class_attendance_session_urls
 -- =========================================

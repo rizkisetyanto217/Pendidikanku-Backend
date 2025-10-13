@@ -397,16 +397,20 @@ func (p ClassParentPatchRequest) Apply(cp *m.ClassParentModel) {
 	LIST QUERY + HELPERS (responses & pagination)
 	=========================================================
 */
+// file: internals/features/school/classes/dto/class_parent_dto.go
+
 type ListClassParentQuery struct {
-	Limit     int        `query:"limit"`
-	Offset    int        `query:"offset"`
-	Q         string     `query:"q"`
-	Active    *bool      `query:"active"`
-	LevelMin  *int16     `query:"level_min"`
-	LevelMax  *int16     `query:"level_max"`
-	CreatedGt *time.Time `query:"created_gt"`
-	CreatedLt *time.Time `query:"created_lt"`
+    Limit     int        `query:"limit"`
+    Offset    int        `query:"offset"`
+    Q         string     `query:"q"`
+    Name      string     `query:"name"`       // ← NEW: cari berdasarkan nama saja (ILIKE %name%)
+    Active    *bool      `query:"active"`
+    LevelMin  *int16     `query:"level_min"`
+    LevelMax  *int16     `query:"level_max"`
+    CreatedGt *time.Time `query:"created_gt"`
+    CreatedLt *time.Time `query:"created_lt"`
 }
+
 
 func ToClassParentResponses(rows []m.ClassParentModel) []ClassParentResponse {
 	out := make([]ClassParentResponse, 0, len(rows))
@@ -641,3 +645,5 @@ func decodePatchClassParentMultipart(c *fiber.Ctx, r *ClassParentPatchRequest) e
 
 	return nil
 }
+
+

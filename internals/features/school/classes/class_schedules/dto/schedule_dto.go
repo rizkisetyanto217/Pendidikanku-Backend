@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	model "masjidku_backend/internals/features/school/classes/class_schedules/model"
 	sessModel "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
+	model "masjidku_backend/internals/features/school/classes/class_schedules/model"
 )
 
 /* =========================================================
@@ -111,9 +111,18 @@ type CreateClassAttendanceSessionLite struct {
 
 	// opsional metadata (pakai yang ada di model session)
 	ClassRoomID *uuid.UUID `json:"class_room_id,omitempty" validate:"omitempty"`
-	CSSTID      *uuid.UUID `json:"csst_id,omitempty"       validate:"omitempty"` // ClassSectionSubjectTeacher id
-	Status      *string    `json:"status,omitempty"        validate:"omitempty,oneof=scheduled ongoing completed canceled"`
-	Notes       *string    `json:"notes,omitempty"         validate:"omitempty,max=500"`
+
+	// CSST efektif untuk sesi (WAJIB di DB); kalau masjid_id tidak diisi, fallback ke masjidID schedule
+	CSSTID       *uuid.UUID `json:"csst_id,omitempty"         validate:"omitempty,uuid"`
+	CSSTMasjidID *uuid.UUID `json:"csst_masjid_id,omitempty"  validate:"omitempty,uuid"`
+
+	// opsional metadata
+	TeacherID *uuid.UUID `json:"teacher_id,omitempty" validate:"omitempty,uuid"`
+	SubjectID *uuid.UUID `json:"subject_id,omitempty" validate:"omitempty,uuid"`
+	SectionID *uuid.UUID `json:"section_id,omitempty" validate:"omitempty,uuid"`
+
+	Status *string `json:"status,omitempty" validate:"omitempty,oneof=scheduled ongoing completed canceled"`
+	Notes  *string `json:"notes,omitempty"  validate:"omitempty,max=500"`
 }
 
 // Mapper: sessions → models (butuh masjid & schedule id)
@@ -147,9 +156,10 @@ func (r CreateClassScheduleRequest) SessionsToModels(
 		if err != nil {
 			return nil, fmt.Errorf("sessions[%d]: end_time invalid: %v", i, err)
 		}
-		// overnight guard
+		// Overnight guard: jika end < start di waktu lokal → tambah 24 jam
 		if endLocal.Before(startLocal) {
 			endLocal = endLocal.Add(24 * time.Hour)
+			endUTC = endLocal.In(time.UTC) // pastikan UTC ikut bergeser
 		}
 		if !endLocal.After(startLocal) {
 			return nil, fmt.Errorf("sessions[%d]: end_time harus > start_time", i)
@@ -165,31 +175,43 @@ func (r CreateClassScheduleRequest) SessionsToModels(
 				st = sessModel.SessionStatusCompleted
 			case "canceled":
 				st = sessModel.SessionStatusCanceled
-			default:
-				st = sessModel.SessionStatusScheduled
 			}
 		}
 
+		// ===== CSST efektif (WAJIB) =====
+		if s.CSSTID == nil {
+			return nil, fmt.Errorf("sessions[%d]: csst_id wajib", i)
+		}
+		// Komposit FK kita pakai (csst_id, session_masjid_id)
+		// Jika request menyertakan CSSTMasjidID dan berbeda → tolak
+		if s.CSSTMasjidID != nil && *s.CSSTMasjidID != masjidID {
+			return nil, fmt.Errorf("sessions[%d]: csst_masjid_id != session_masjid_id", i)
+		}
+
 		// --- PENTING: set DATE lokal dari startLocal ---
-		dateLocal := startOfDayInTZ(startLocal, tzName)
-		dateUTC := toUTCDateFromLocal(dateLocal)
+		dateLocal := startOfDayInTZ(startLocal, tzName) // midnight di tzName
+		dateUTC := toUTCDateFromLocal(dateLocal)        // simpan DATE sebagai midnight UTC
 
 		m := sessModel.ClassAttendanceSessionModel{
 			ClassAttendanceSessionMasjidID:   masjidID,
 			ClassAttendanceSessionScheduleID: scheduleID,
 
-			ClassAttendanceSessionDate:     dateUTC,   // <— DATE disimpan midnight UTC
+			ClassAttendanceSessionDate:     dateUTC,   // DATE (midnight UTC)
 			ClassAttendanceSessionStartsAt: &startUTC, // UTC
 			ClassAttendanceSessionEndsAt:   &endUTC,   // UTC
 
 			ClassAttendanceSessionStatus:           st,
-			ClassAttendanceSessionAttendanceStatus: sessModel.AttendanceStatusOpen, // default
+			ClassAttendanceSessionAttendanceStatus: sessModel.AttendanceStatusOpen,
 			ClassAttendanceSessionNote:             trimPtr(s.Notes),
 
-			// opsional FK
+			// optional overrides
 			ClassAttendanceSessionClassRoomID: s.ClassRoomID,
-			ClassAttendanceSessionCSSTID:      s.CSSTID,
+			ClassAttendanceSessionTeacherID:   s.TeacherID,
+
+			// CSST: kirim POINTER, jangan di-*dereference*
+			ClassAttendanceSessionCSSTID: s.CSSTID,
 		}
+
 		out = append(out, m)
 	}
 	return out, nil
@@ -230,6 +252,10 @@ type CreateClassScheduleRuleLite struct {
 	WeekParity       *string `json:"week_parity"         validate:"omitempty,oneof=all odd even"`
 	WeeksOfMonth     []int   `json:"weeks_of_month"      validate:"omitempty,dive,min=1,max=5"`
 	LastWeekOfMonth  *bool   `json:"last_week_of_month"  validate:"omitempty"`
+
+	// CSST wajib untuk rule
+	CSSTID       uuid.UUID `json:"csst_id"        validate:"required,uuid"`
+	CSSTMasjidID uuid.UUID `json:"csst_masjid_id" validate:"required,uuid"`
 }
 
 func (r CreateClassScheduleRequest) ToModel(masjidID uuid.UUID) model.ClassScheduleModel {
@@ -271,7 +297,11 @@ func (r CreateClassScheduleRequest) RulesToModels(masjidID, scheduleID uuid.UUID
 		return nil, nil
 	}
 	out := make([]model.ClassScheduleRuleModel, 0, len(r.Rules))
-	for _, it := range r.Rules {
+	for idx, it := range r.Rules {
+		// validasi ringan
+		if strings.TrimSpace(it.StartTime) == "" || strings.TrimSpace(it.EndTime) == "" {
+			return nil, fmt.Errorf("rules[%d]: start_time/end_time wajib", idx)
+		}
 		cr := CreateClassScheduleRuleRequest{
 			ClassScheduleRuleScheduleID:       scheduleID,
 			ClassScheduleRuleDayOfWeek:        it.DayOfWeek,
@@ -282,6 +312,10 @@ func (r CreateClassScheduleRequest) RulesToModels(masjidID, scheduleID uuid.UUID
 			ClassScheduleRuleWeekParity:       it.WeekParity,
 			ClassScheduleRuleWeeksOfMonth:     it.WeeksOfMonth,
 			ClassScheduleRuleLastWeekOfMonth:  it.LastWeekOfMonth,
+
+			// CSST wajib
+			ClassScheduleRuleCSSTID:       it.CSSTID,
+			ClassScheduleRuleCSSTMasjidID: it.CSSTMasjidID,
 		}
 		m, err := cr.ToModel(masjidID)
 		if err != nil {

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -44,24 +45,38 @@ type ClassAttendanceSessionModel struct {
 	ClassAttendanceSessionEndsAt   *time.Time `gorm:"type:timestamptz;column:class_attendance_session_ends_at" json:"class_attendance_session_ends_at,omitempty"`
 
 	// Lifecycle
-	ClassAttendanceSessionStatus          SessionStatus    `gorm:"type:session_status_enum;not null;default:'scheduled';column:class_attendance_session_status" json:"class_attendance_session_status"`
+	ClassAttendanceSessionStatus           SessionStatus    `gorm:"type:session_status_enum;not null;default:'scheduled';column:class_attendance_session_status" json:"class_attendance_session_status"`
 	ClassAttendanceSessionAttendanceStatus AttendanceStatus `gorm:"type:text;not null;default:'open';column:class_attendance_session_attendance_status" json:"class_attendance_session_attendance_status"`
-	ClassAttendanceSessionLocked          bool             `gorm:"not null;default:false;column:class_attendance_session_locked" json:"class_attendance_session_locked"`
+	ClassAttendanceSessionLocked           bool             `gorm:"not null;default:false;column:class_attendance_session_locked" json:"class_attendance_session_locked"`
 
 	// Overrides
-	ClassAttendanceSessionIsOverride        bool       `gorm:"not null;default:false;column:class_attendance_session_is_override" json:"class_attendance_session_is_override"`
-	ClassAttendanceSessionIsCanceled        bool       `gorm:"not null;default:false;column:class_attendance_session_is_canceled" json:"class_attendance_session_is_canceled"`
-	ClassAttendanceSessionOriginalStartAt   *time.Time `gorm:"type:timestamptz;column:class_attendance_session_original_start_at" json:"class_attendance_session_original_start_at,omitempty"`
-	ClassAttendanceSessionOriginalEndAt     *time.Time `gorm:"type:timestamptz;column:class_attendance_session_original_end_at" json:"class_attendance_session_original_end_at,omitempty"`
-	ClassAttendanceSessionKind              *string    `gorm:"type:text;column:class_attendance_session_kind" json:"class_attendance_session_kind,omitempty"`
-	ClassAttendanceSessionOverrideReason    *string    `gorm:"type:text;column:class_attendance_session_override_reason" json:"class_attendance_session_override_reason,omitempty"`
-	ClassAttendanceSessionOverrideEventID   *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_override_event_id" json:"class_attendance_session_override_event_id,omitempty"`
+	ClassAttendanceSessionIsOverride      bool       `gorm:"not null;default:false;column:class_attendance_session_is_override" json:"class_attendance_session_is_override"`
+	ClassAttendanceSessionIsCanceled      bool       `gorm:"not null;default:false;column:class_attendance_session_is_canceled" json:"class_attendance_session_is_canceled"`
+	ClassAttendanceSessionOriginalStartAt *time.Time `gorm:"type:timestamptz;column:class_attendance_session_original_start_at" json:"class_attendance_session_original_start_at,omitempty"`
+	ClassAttendanceSessionOriginalEndAt   *time.Time `gorm:"type:timestamptz;column:class_attendance_session_original_end_at" json:"class_attendance_session_original_end_at,omitempty"`
+	ClassAttendanceSessionKind            *string    `gorm:"type:text;column:class_attendance_session_kind" json:"class_attendance_session_kind,omitempty"`
+	ClassAttendanceSessionOverrideReason  *string    `gorm:"type:text;column:class_attendance_session_override_reason" json:"class_attendance_session_override_reason,omitempty"`
+	ClassAttendanceSessionOverrideEventID *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_override_event_id" json:"class_attendance_session_override_event_id,omitempty"`
 
-	// Override resource (opsional)
+	// Override resource (opsional) → jika NULL pakai snapshot CSST
 	ClassAttendanceSessionTeacherID   *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_teacher_id" json:"class_attendance_session_teacher_id,omitempty"`
 	ClassAttendanceSessionClassRoomID *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_class_room_id" json:"class_attendance_session_class_room_id,omitempty"`
-	// Catatan: nama kolom di migration referensi ke table 'class_section_subject_teachers' – pastikan kolom rujukan konsisten.
-	ClassAttendanceSessionCSSTID *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_csst_id" json:"class_attendance_session_csst_id,omitempty"`
+	ClassAttendanceSessionCSSTID      *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_csst_id" json:"class_attendance_session_csst_id,omitempty"`
+
+	// ===== CSST snapshot (denormalized; diisi trigger, read-only di app)
+	// Struktur contoh:
+	// {
+	//   "csst_id": "...", "masjid_id": "...",
+	//   "teacher_id": "...", "section_id": "...", "class_subject_id": "...",
+	//   "room_id": "...", "group_url": "...", "slug": "...", "description": "..."
+	// }
+	ClassAttendanceSessionCSSTSnapshot datatypes.JSON `gorm:"type:jsonb;->;column:class_attendance_session_csst_snapshot" json:"class_attendance_session_csst_snapshot"`
+
+	// ===== Effective columns (generated STORED; read-only)
+	ClassAttendanceSessionEffectiveTeacherID     *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_effective_teacher_id" json:"class_attendance_session_effective_teacher_id,omitempty"`
+	ClassAttendanceSessionEffectiveSectionID     *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_effective_section_id" json:"class_attendance_session_effective_section_id,omitempty"`
+	ClassAttendanceSessionEffectiveClassSubjectID *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_effective_class_subject_id" json:"class_attendance_session_effective_class_subject_id,omitempty"`
+	ClassAttendanceSessionEffectiveRoomID        *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_effective_room_id" json:"class_attendance_session_effective_room_id,omitempty"`
 
 	// Info & rekap
 	ClassAttendanceSessionTitle        *string `gorm:"type:text;column:class_attendance_session_title" json:"class_attendance_session_title,omitempty"`
