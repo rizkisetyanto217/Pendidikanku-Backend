@@ -128,10 +128,20 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 
 	// ===== Role (dipakai hanya untuk UA scope) =====
 	userID, _ := helperAuth.GetUserIDFromToken(c)
+
+	// legacy admin/dkm (ambil 1 masjid dari token legacy)
 	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
-	teacherMasjidID, _ := helperAuth.GetTeacherMasjidIDFromToken(c)
-	isAdmin := adminMasjidID != uuid.Nil && adminMasjidID == masjidID
-	isTeacher := teacherMasjidID != uuid.Nil && teacherMasjidID == masjidID
+	// konteks guru (prioritas active_masjid_id -> pertama di teacher_records)
+	teacherMasjidID, _ := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+
+	isAdmin  := (adminMasjidID  != uuid.Nil && adminMasjidID  == masjidID) ||
+				helperAuth.HasRoleInMasjid(c, masjidID, "admin") ||
+				helperAuth.HasRoleInMasjid(c, masjidID, "dkm")   ||
+				helperAuth.IsDKMInMasjid(c, masjidID)
+
+	isTeacher := (teacherMasjidID != uuid.Nil && teacherMasjidID == masjidID) ||
+				helperAuth.HasRoleInMasjid(c, masjidID, "teacher") ||
+				helperAuth.IsTeacherInMasjid(c, masjidID)
 
 	// ===== Includes =====
 	includeStr := strings.ToLower(strings.TrimSpace(c.Query("include")))
@@ -219,8 +229,8 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		Joins(`
 			LEFT JOIN class_schedules AS sch
 			  ON sch.class_schedule_id = cas.class_attendance_session_schedule_id
-			 AND sch.class_schedules_masjid_id = cas.class_attendance_session_masjid_id
-			 AND sch.class_schedules_deleted_at IS NULL
+			 AND sch.class_schedule_masjid_id = cas.class_attendance_session_masjid_id
+			 AND sch.class_schedule_deleted_at IS NULL
 		`)
 
 	// additional filters
@@ -562,8 +572,8 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 		Joins(`
 			LEFT JOIN class_schedules AS cs
 			  ON cs.class_schedule_id = cas.class_attendance_session_schedule_id
-			 AND cs.class_schedules_deleted_at IS NULL
-			 AND cs.class_schedules_is_active
+			 AND cs.class_schedule_deleted_at IS NULL
+			 AND cs.class_schedule_is_active
 		`).
 		Joins(`
 			LEFT JOIN masjid_teachers AS mt2

@@ -2,7 +2,7 @@ package model
 
 import (
 	MasjidModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/masjids/model"
-	UserModel "masjidku_backend/internals/features/users/user/model"
+	UserModel "masjidku_backend/internals/features/users/users/model"
 
 	"time"
 )

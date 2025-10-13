@@ -9,11 +9,11 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 
 	"masjidku_backend/internals/constants"
 	helper "masjidku_backend/internals/helpers/auth"
 )
-
 
 // baca slice string dari Locals apapun tipenya
 func getLocalsAsStrings(c *fiber.Ctx, key string) []string {
@@ -236,13 +236,13 @@ func getMasjidIDsPref(c *fiber.Ctx) []string {
 
 var rolePriority = map[string]int{
 	constants.RoleOwner:     100,
-	"admin":                  90,   // jika ada
-	constants.RoleDKM:        80,
-	constants.RoleTeacher:    70,
-	constants.RoleTreasurer:  60,
-	constants.RoleAuthor:     50,
-	constants.RoleStudent:    40,
-	constants.RoleUser:       10,
+	"admin":                 90, // jika ada
+	constants.RoleDKM:       80,
+	constants.RoleTeacher:   70,
+	constants.RoleTreasurer: 60,
+	constants.RoleAuthor:    50,
+	constants.RoleStudent:   40,
+	constants.RoleUser:      10,
 }
 
 func bestRoleFor(roles []string) string {
@@ -279,7 +279,7 @@ func respondNeedScope(c *fiber.Ctx, choices []ScopeChoice) error {
 		"status":  "need_scope",
 		"message": "Beberapa masjid/role tersedia. Tentukan masjid_id & role yang akan dipakai.",
 		"data": fiber.Map{
-			"choices":       choices,                    // untuk dropdown frontend
+			"choices":       choices, // untuk dropdown frontend
 			"how_to_select": "Kirim ?masjid_id=...&role=... atau header X-Masjid-ID & X-Role, atau di body JSON.",
 		},
 	}
@@ -291,163 +291,188 @@ func respondNeedScope(c *fiber.Ctx, choices []ScopeChoice) error {
    (menetapkan active_masjid_id & active_role)
 ========================== */
 
+/* util kecil tetap sama: getLocalsAsStrings, asString, trimLower, extractMasjidID, extractRole,
+   getMasjidRoles, getMasjidIDsPref, rolePriority, bestRoleFor, respondNeedScope
+   (biarkan seperti punyamu—dipakai sebagian) */
+
+// --- helper: cek role ada di masjid tertentu (dari locals masjid_roles) ---
+func roleInMasjid(c *fiber.Ctx, masjidID, role string) bool {
+	mid := strings.TrimSpace(masjidID)
+	r := trimLower(role)
+	if mid == "" || r == "" {
+		return false
+	}
+	for _, mr := range getMasjidRoles(c) {
+		if strings.EqualFold(mr.MasjidID, mid) {
+			for _, rr := range mr.Roles {
+				if strings.EqualFold(rr, r) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// Tambah util ini
+func extractMasjidIDStrict(c *fiber.Ctx) string {
+	// 1) coba beberapa nama param umum
+	for _, key := range []string{"masjid_id", "id", "mid"} {
+		if v := strings.TrimSpace(c.Params(key)); v != "" {
+			return v
+		}
+	}
+	// 2) fallback eksplisit (query/header/body/form) kalau memang route-nya tanpa param
+	if v := extractMasjidID(c); v != "" {
+		return v
+	}
+	// 3) ambil dari segmen path: /api/a/<ID>/...
+	path := strings.Trim(c.Path(), "/")
+	parts := strings.Split(path, "/")
+	if len(parts) >= 3 && strings.EqualFold(parts[0], "api") && strings.EqualFold(parts[1], "a") {
+		return parts[2]
+	}
+	return ""
+}
+
+/* ==========================
+   STRICT SCOPE — by PATH ONLY
+========================== */
+
+// UseMasjidScope (strict):
+// - Ambil masjid_id dari PATH (atau eksplisit query/header/body).
+// - Non-owner: wajib merupakan masjid yang ada di token.
+// - Role: jika dikirim user, harus ada di masjid tersebut; jika tidak, pilih best role DI masjid itu.
+// - Set locals: active_masjid_id, active_role (+ kompat: masjid_id, role)
 func UseMasjidScope() fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		log.Println("🎯 [MIDDLEWARE] UseMasjidScope")
+		log.Println("🎯 [MIDDLEWARE] UseMasjidScope (STRICT by path)")
 
 		isOwner := helper.IsOwner(c)
-		userMasjidRoles := getMasjidRoles(c)
+		// userMasjidRoles := getMasjidRoles(c)
 
-		// Owner boleh tanpa scope (kecuali endpoint tertentu), tapi tetap izinkan set jika ada.
-		if !isOwner && len(userMasjidRoles) == 0 {
-			return fiber.NewError(fiber.StatusUnauthorized, "Token tidak memiliki akses masjid")
+		// ⬇️ pakai extractor baru
+		reqMasjid := strings.TrimSpace(extractMasjidIDStrict(c))
+		// (opsional) debug: lihat param yang terbaca
+		// log.Printf("[SCOPE] path=%s params=%v extracted=%q", c.Path(), c.AllParams(), reqMasjid)
+
+		if reqMasjid == "" {
+			return fiber.NewError(fiber.StatusBadRequest, "masjid_id wajib di path atau parameter")
+		}
+		if _, err := uuid.Parse(reqMasjid); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "masjid_id pada path tidak valid")
 		}
 
-		// 0) Jika hanya ada satu masjid & satu role → auto-select
-		if !isOwner && len(userMasjidRoles) == 1 && len(userMasjidRoles[0].Roles) == 1 {
-			mid := strings.TrimSpace(userMasjidRoles[0].MasjidID)
-			role := trimLower(userMasjidRoles[0].Roles[0])
-			c.Locals("active_masjid_id", mid)
-			c.Locals("active_role", role)
-			log.Println("    🔧 auto-select scope | masjid_id:", mid, "| role:", role)
+		reqRole := trimLower(extractRole(c))
+
+		if isOwner {
+			if reqRole == "" {
+				reqRole = constants.RoleOwner
+			}
+			c.Locals("active_masjid_id", reqMasjid)
+			c.Locals("active_role", reqRole)
+			c.Locals("masjid_id", reqMasjid)
+			c.Locals(helper.LocRole, reqRole)
+			log.Println("    🔧 owner scope | masjid_id:", reqMasjid, "| role:", reqRole)
 			return c.Next()
 		}
 
-		// 1) Ambil scope eksplisit dari request
-		reqMasjid := strings.TrimSpace(extractMasjidID(c))
-		reqRole := trimLower(extractRole(c))
-
-		if reqMasjid != "" {
-			if isOwner {
-				// Owner bebas menentukan role; default owner jika kosong
-				if reqRole == "" {
-					reqRole = constants.RoleOwner
-				}
-				c.Locals("active_masjid_id", reqMasjid)
-				c.Locals("active_role", reqRole)
-				return c.Next()
+		var rolesAtMasjid []string
+		for _, mr := range getMasjidRoles(c) {
+			if strings.EqualFold(mr.MasjidID, reqMasjid) {
+				rolesAtMasjid = mr.Roles
+				break
 			}
-			// Non-owner → validasi masjid & role ada di daftar
-			for _, mr := range userMasjidRoles {
-				if mr.MasjidID == reqMasjid {
-					if reqRole != "" {
-						ok := false
-						for _, r := range mr.Roles {
-							if strings.EqualFold(r, reqRole) {
-								ok = true
-								break
-							}
-						}
-						if !ok {
-							return fiber.NewError(fiber.StatusForbidden, "Role tidak tersedia pada masjid tersebut")
-						}
-						c.Locals("active_masjid_id", reqMasjid)
-						c.Locals("active_role", reqRole)
-						return c.Next()
-					}
-					// role tidak diminta → pilih yang terbaik di masjid itu
-					c.Locals("active_masjid_id", reqMasjid)
-					c.Locals("active_role", bestRoleFor(mr.Roles))
-					return c.Next()
-				}
-			}
+		}
+		if len(rolesAtMasjid) == 0 {
 			return fiber.NewError(fiber.StatusForbidden, "Bukan anggota pada masjid yang diminta")
 		}
 
-		// 2) Jika sudah ada active_masjid_id sebelumnya & valid → pakai itu
-		if v := strings.TrimSpace(asString(c.Locals("active_masjid_id"))); v != "" {
-			if isOwner {
-				if r := trimLower(asString(c.Locals("active_role"))); r == "" {
-					c.Locals("active_role", constants.RoleOwner)
-				}
-				return c.Next()
+		activeRole := reqRole
+		if activeRole != "" {
+			if !roleInMasjid(c, reqMasjid, activeRole) {
+				return fiber.NewError(fiber.StatusForbidden, "Role tidak tersedia pada masjid tersebut")
 			}
-			for _, mr := range userMasjidRoles {
-				if mr.MasjidID == v {
-					r := trimLower(asString(c.Locals("active_role")))
-					if r == "" {
-						r = bestRoleFor(mr.Roles)
-					}
-					c.Locals("active_masjid_id", v)
-					c.Locals("active_role", r)
-					return c.Next()
-				}
+		} else {
+			activeRole = bestRoleFor(rolesAtMasjid)
+			if activeRole == "" {
+				return fiber.NewError(fiber.StatusForbidden, "Tidak memiliki peran pada masjid tersebut")
 			}
 		}
 
-		// 3) Pakai preferensi masjid_ids[0] dari token (legacy) jika ada & valid
-		if !isOwner {
-			if prefs := getMasjidIDsPref(c); len(prefs) > 0 {
-				for _, mid := range prefs {
-					mid = strings.TrimSpace(mid)
-					if mid == "" {
-						continue
-					}
-					for _, mr := range userMasjidRoles {
-						if mr.MasjidID == mid {
-							c.Locals("active_masjid_id", mid)
-							c.Locals("active_role", bestRoleFor(mr.Roles))
-							return c.Next()
-						}
-					}
-				}
-			}
-		}
+		c.Locals("active_masjid_id", reqMasjid)
+		c.Locals("active_role", activeRole)
+		c.Locals("masjid_id", reqMasjid)
+		c.Locals(helper.LocRole, activeRole)
 
-		// 4) Jika masih tak jelas:
-		//    - Owner → boleh lanjut tanpa scope (tapi banyak endpoint akan butuh masjid_id)
-		//    - Non-owner & ada banyak opsi → minta frontend memilih (balikkan daftar choices)
-		if isOwner {
-			c.Locals("active_role", constants.RoleOwner)
+		log.Println("    🔧 scope set | masjid_id:", reqMasjid, "| role:", activeRole)
+		return c.Next()
+	}
+}
+
+/*
+	==========================
+	  Guard: path ↔ scope harus cocok (defense in depth)
+
+==========================
+*/
+func RequirePathScopeMatch() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if !strings.HasPrefix(c.Path(), "/api/a/") {
 			return c.Next()
 		}
-
-		if len(userMasjidRoles) == 1 {
-			// satu masjid tapi multi role → minta user tentukan role (kalau perlu)
-			mr := userMasjidRoles[0]
-			if len(mr.Roles) == 1 {
-				// (sebenarnya sudah di-handle auto-select di atas, tapi jaga-jaga)
-				c.Locals("active_masjid_id", mr.MasjidID)
-				c.Locals("active_role", trimLower(mr.Roles[0]))
-				return c.Next()
-			}
-			return respondNeedScope(c, []ScopeChoice{{MasjidID: mr.MasjidID, Roles: mr.Roles}})
+		pathID := strings.TrimSpace(extractMasjidIDStrict(c))
+		if pathID == "" {
+			return fiber.NewError(fiber.StatusBadRequest, "masjid_id path tidak valid")
 		}
-
-		choices := make([]ScopeChoice, len(userMasjidRoles))
-		for i, mr := range userMasjidRoles {
-			choices[i] = ScopeChoice(mr)
+		active := strings.TrimSpace(asString(c.Locals("active_masjid_id")))
+		if active == "" {
+			return fiber.NewError(fiber.StatusUnauthorized, "Scope masjid belum ditentukan")
 		}
-
-		return respondNeedScope(c, choices)
+		if !strings.EqualFold(pathID, active) {
+			return fiber.NewError(fiber.StatusForbidden, "Scope masjid tidak cocok dengan path")
+		}
+		return c.Next()
 	}
 }
 
 /* ==========================
-   Middleware 2 — IsMasjidAdmin
-   (izin akses berdasar scope aktif)
+   STRICT ROLE CHECK
 ========================== */
 
+// IsMasjidAdmin (strict):
+// - Hanya izinkan owner/admin/dkm (teacher TIDAK otomatis lolos).
+// - Pastikan role itu benar-benar ada di masjid PATH (sudah di-set di UseMasjidScope strict).
 func IsMasjidAdmin() fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		log.Println("🔐 [MIDDLEWARE] IsMasjidAdmin | Path:", c.Path(), "| Method:", c.Method())
+		log.Println("🔐 [MIDDLEWARE] IsMasjidAdmin (STRICT) | Path:", c.Path(), "| Method:", c.Method())
 
 		mid := strings.TrimSpace(asString(c.Locals("active_masjid_id")))
 		role := trimLower(asString(c.Locals("active_role")))
 
-		// Pastikan UseMasjidScope sudah menentukan scope
 		if mid == "" || role == "" {
 			return fiber.NewError(fiber.StatusUnauthorized, "Scope masjid/role belum ditentukan")
 		}
 
+		// owner bypass
+		if helper.IsOwner(c) {
+			return c.Next()
+		}
+
+		// only admin/dkm
 		switch role {
-		case constants.RoleOwner, "admin", constants.RoleDKM, constants.RoleTeacher:
-			// allowed
+		case "admin", constants.RoleDKM:
+			// ok
 		default:
 			return fiber.NewError(fiber.StatusForbidden, "Role tidak berhak mengakses endpoint ini")
 		}
 
-		// Kompat: set locals lama yang mungkin masih dipakai downstream
+		// hard verify role benar-benar ada pada masjid mid
+		if !roleInMasjid(c, mid, role) {
+			return fiber.NewError(fiber.StatusForbidden, "Role tidak terdaftar pada masjid ini")
+		}
+
+		// Kompat locals lama
 		c.Locals("masjid_id", mid)
 		c.Locals(helper.LocRole, role)
 
@@ -456,10 +481,42 @@ func IsMasjidAdmin() fiber.Handler {
 	}
 }
 
-// IsOwnerGlobal memastikan roles_global mengandung "owner"
+// Opsional: jika kamu butuh endpoint yang mengizinkan teacher juga
+func IsMasjidStaff() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		log.Println("🔐 [MIDDLEWARE] IsMasjidStaff (STRICT) | Path:", c.Path(), "| Method:", c.Method())
+
+		mid := strings.TrimSpace(asString(c.Locals("active_masjid_id")))
+		role := trimLower(asString(c.Locals("active_role")))
+		if mid == "" || role == "" {
+			return fiber.NewError(fiber.StatusUnauthorized, "Scope masjid/role belum ditentukan")
+		}
+		if helper.IsOwner(c) {
+			return c.Next()
+		}
+		switch role {
+		case "admin", constants.RoleDKM, constants.RoleTeacher:
+			// ok
+		default:
+			return fiber.NewError(fiber.StatusForbidden, "Role tidak berhak mengakses endpoint ini")
+		}
+		if !roleInMasjid(c, mid, role) {
+			return fiber.NewError(fiber.StatusForbidden, "Role tidak terdaftar pada masjid ini")
+		}
+		c.Locals("masjid_id", mid)
+		c.Locals(helper.LocRole, role)
+		log.Println("    ✅ akses diijinkan (staff) | role:", role, "| masjid_id:", mid)
+		return c.Next()
+	}
+}
+
+/* ==========================
+   Owner-only tetap sama
+========================== */
+
 func IsOwnerGlobal() fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		rc, ok := c.Locals("roles_claim").(helper.RolesClaim) // <- pakai helper.RolesClaim
+		rc, ok := c.Locals("roles_claim").(helper.RolesClaim)
 		if !ok {
 			return fiber.NewError(http.StatusUnauthorized, "Roles claim tidak ditemukan")
 		}

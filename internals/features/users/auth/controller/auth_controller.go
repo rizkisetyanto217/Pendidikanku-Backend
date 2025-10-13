@@ -2,7 +2,7 @@ package controller
 
 import (
 	"masjidku_backend/internals/features/users/auth/service"
-	models "masjidku_backend/internals/features/users/user/model"
+	models "masjidku_backend/internals/features/users/users/model"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

@@ -6,7 +6,7 @@ import (
 
 	teacherProfile "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/route"
 	surveyRoute "masjidku_backend/internals/features/users/survey/route"
-	userRoute "masjidku_backend/internals/features/users/user/route"
+	userRoute "masjidku_backend/internals/features/users/users/route"
 	userTeacher "masjidku_backend/internals/features/users/user_teachers/route"
 	rateLimiter "masjidku_backend/internals/middlewares"
 )

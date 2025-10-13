@@ -12,7 +12,7 @@ import (
 	// ✅ path masjid sesuai struktur terbaru kamu
 	masjidModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/masjids/model"
 	classModel "masjidku_backend/internals/features/school/classes/class_sections/model"
-	userModel "masjidku_backend/internals/features/users/user/model"
+	userModel "masjidku_backend/internals/features/users/users/model"
 
 	// ✅ helpers
 	helperAuth "masjidku_backend/internals/helpers/auth"

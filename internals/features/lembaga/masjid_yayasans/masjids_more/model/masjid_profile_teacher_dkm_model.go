@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	Masjid "masjidku_backend/internals/features/lembaga/masjid_yayasans/masjids/model"
-	User "masjidku_backend/internals/features/users/user/model"
+	User "masjidku_backend/internals/features/users/users/model"
 )
 
 type MasjidProfileTeacherDkmModel struct {

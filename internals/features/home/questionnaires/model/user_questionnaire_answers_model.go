@@ -1,7 +1,7 @@
 package model
 
 import (
-	UserModel "masjidku_backend/internals/features/users/user/model"
+	UserModel "masjidku_backend/internals/features/users/users/model"
 	"time"
 )
 

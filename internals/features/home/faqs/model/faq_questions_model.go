@@ -5,7 +5,7 @@ import (
 
 	LectureSessionModel "masjidku_backend/internals/features/masjids/lecture_sessions/main/model"
 	LectureModel "masjidku_backend/internals/features/masjids/lectures/main/model"
-	UserModel "masjidku_backend/internals/features/users/user/model"
+	UserModel "masjidku_backend/internals/features/users/users/model"
 
 	"gorm.io/gorm"
 )

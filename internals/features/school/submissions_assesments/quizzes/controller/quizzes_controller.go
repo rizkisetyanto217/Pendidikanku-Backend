@@ -128,11 +128,10 @@ func resolveMasjidForDKMOrTeacher(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) 
 		return mid, nil
 	}
 	// 2) Teacher pada masjid ini?
-	if helperAuth.IsTeacher(c) {
-		if tMid, _ := helperAuth.GetTeacherMasjidIDFromToken(c); tMid != uuid.Nil && tMid == mid {
-			return mid, nil
-		}
+	if _, err := helperAuth.GetMasjidTeacherIDForMasjid(c, mid); err == nil {
+		return mid, nil
 	}
+
 	// 3) gagal
 	return uuid.Nil, helperAuth.ErrMasjidContextForbidden
 }

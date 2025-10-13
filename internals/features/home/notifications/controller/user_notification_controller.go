@@ -7,7 +7,7 @@ import (
 
 	"masjidku_backend/internals/features/home/notifications/dto"
 	"masjidku_backend/internals/features/home/notifications/model"
-	userModel "masjidku_backend/internals/features/users/user/model"
+	userModel "masjidku_backend/internals/features/users/users/model"
 	helper "masjidku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"

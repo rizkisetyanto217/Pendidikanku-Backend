@@ -3,7 +3,7 @@ package model
 import (
 	"time"
 
-	UserModel "masjidku_backend/internals/features/users/user/model"
+	UserModel "masjidku_backend/internals/features/users/users/model"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"

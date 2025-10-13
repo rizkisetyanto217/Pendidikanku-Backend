@@ -22,8 +22,8 @@ import (
 	authHelper "masjidku_backend/internals/features/users/auth/helper"
 	authModel "masjidku_backend/internals/features/users/auth/model"
 	authRepo "masjidku_backend/internals/features/users/auth/repository"
-	userModel "masjidku_backend/internals/features/users/user/model"
-	userProfileService "masjidku_backend/internals/features/users/user/service"
+	userModel "masjidku_backend/internals/features/users/users/model"
+	userProfileService "masjidku_backend/internals/features/users/users/service"
 	helpers "masjidku_backend/internals/helpers"
 	helpersAuth "masjidku_backend/internals/helpers/auth"
 

@@ -101,10 +101,8 @@ func resolveMasjidForDKMOrTeacher(c *fiber.Ctx) (uuid.UUID, error) {
 	}
 
 	// Guru valid jika token guru terikat ke masjid ini
-	if helperAuth.IsTeacher(c) {
-		if tMid, _ := helperAuth.GetTeacherMasjidIDFromToken(c); tMid != uuid.Nil && tMid == masjidID {
-			return masjidID, nil
-		}
+	if helperAuth.IsTeacherInMasjid(c, masjidID) {
+		return masjidID, nil
 	}
 
 	return uuid.Nil, helperAuth.ErrMasjidContextForbidden

@@ -19,6 +19,8 @@ import (
 	helperAuth "masjidku_backend/internals/helpers/auth"
 	helperOSS "masjidku_backend/internals/helpers/oss"
 
+	csstModel "masjidku_backend/internals/features/school/classes/class_section_subject_teachers/model"
+
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -519,12 +521,6 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 			derefStr(before.UserTeacherTitleSuffix) != derefStr(m.UserTeacherTitleSuffix)
 
 	if changedSnapshot {
-		// Kolom yang benar sesuai tag di model:
-		//   masjid_teacher_user_teacher_name_snapshot
-		//   masjid_teacher_user_teacher_avatar_url_snapshot
-		//   masjid_teacher_user_teacher_whatsapp_url_snapshot
-		//   masjid_teacher_user_teacher_title_prefix_snapshot
-		//   masjid_teacher_user_teacher_title_suffix_snapshot
 
 		set := map[string]any{
 			"masjid_teacher_user_teacher_name_snapshot":         m.UserTeacherName,
@@ -624,6 +620,88 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 						Where("class_section_assistant_teacher_id IN ? AND class_section_deleted_at IS NULL", mtIDs).
 						Updates(setAssistant).Error; err != nil {
 						log.Printf("[user-teacher#patch] failed sync class_section_assistant_teacher_snapshot: %v", err)
+					}
+				}
+			}
+		}
+	}
+
+	// === SNAPSHOT SYNC ke class_section_subject_teachers (teacher & assistant) ===
+	{
+		// Cek ketersediaan kolom agar tidak 500 jika migrasi belum naik
+		hasTeacherSnap := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "class_section_subject_teacher_teacher_snapshot")
+		hasAssistantSnap := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "class_section_subject_teacher_assistant_teacher_snapshot")
+		hasTeacherID := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "class_section_subject_teacher_teacher_id")
+		hasAssistantID := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "class_section_subject_teacher_assistant_teacher_id")
+		hasUpdatedAt := uc.DB.Migrator().HasColumn(&csstModel.ClassSectionSubjectTeacherModel{}, "class_section_subject_teacher_updated_at")
+
+		if !(hasTeacherSnap || hasAssistantSnap) {
+			log.Printf("[user-teacher#patch] CSST snapshot columns not found — skip sync to class_section_subject_teachers")
+		} else {
+			// Ambil semua masjid_teacher_id milik user_teacher ini (yang belum terhapus)
+			var mtIDs []uuid.UUID
+			if err := uc.DB.
+				Model(&masjidTeacherModel.MasjidTeacherModel{}).
+				Where("masjid_teacher_user_teacher_id = ? AND masjid_teacher_deleted_at IS NULL", m.UserTeacherID).
+				Pluck("masjid_teacher_id", &mtIDs).Error; err != nil {
+				log.Printf("[user-teacher#patch] failed pluck masjid_teacher ids for CSST: %v", err)
+			}
+
+			if len(mtIDs) > 0 {
+				// Build snapshot JSONB kecil (hemat I/O)
+				type teacherMiniSnap struct {
+					UserTeacherID uuid.UUID `json:"user_teacher_id"`
+					Name          string    `json:"name"`
+					AvatarURL     *string   `json:"avatar_url,omitempty"`
+					WhatsappURL   *string   `json:"whatsapp_url,omitempty"`
+					TitlePrefix   *string   `json:"title_prefix,omitempty"`
+					TitleSuffix   *string   `json:"title_suffix,omitempty"`
+					UpdatedAt     time.Time `json:"updated_at"`
+				}
+				minSnap := teacherMiniSnap{
+					UserTeacherID: m.UserTeacherID,
+					Name:          m.UserTeacherName,
+					AvatarURL:     m.UserTeacherAvatarURL,
+					WhatsappURL:   m.UserTeacherWhatsappURL,
+					TitlePrefix:   m.UserTeacherTitlePrefix,
+					TitleSuffix:   m.UserTeacherTitleSuffix,
+					UpdatedAt:     now,
+				}
+				b, _ := json.Marshal(minSnap)
+				jsonb := datatypes.JSON(b)
+
+				// Set kolom update
+				setTeacher := map[string]any{}
+				setAssistant := map[string]any{}
+				if hasTeacherSnap {
+					setTeacher["class_section_subject_teacher_teacher_snapshot"] = jsonb
+				}
+				if hasAssistantSnap {
+					setAssistant["class_section_subject_teacher_assistant_teacher_snapshot"] = jsonb
+				}
+				// pastikan updated_at ikut bergerak
+				if hasUpdatedAt {
+					setTeacher["class_section_subject_teacher_updated_at"] = now
+					setAssistant["class_section_subject_teacher_updated_at"] = now
+				}
+
+				// Update untuk kolom TEACHER
+				if hasTeacherSnap && hasTeacherID {
+					if err := uc.DB.
+						Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+						Where("class_section_subject_teacher_teacher_id IN ? AND class_section_subject_teacher_deleted_at IS NULL", mtIDs).
+						Updates(setTeacher).Error; err != nil {
+						log.Printf("[user-teacher#patch] failed sync CSST teacher_snapshot: %v", err)
+					}
+				}
+
+				// Update untuk kolom ASSISTANT (jika memang ada ID-nya)
+				if hasAssistantSnap && hasAssistantID {
+					if err := uc.DB.
+						Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+						Where("class_section_subject_teacher_assistant_teacher_id IN ? AND class_section_subject_teacher_deleted_at IS NULL", mtIDs).
+						Updates(setAssistant).Error; err != nil {
+						log.Printf("[user-teacher#patch] failed sync CSST assistant_teacher_snapshot: %v", err)
 					}
 				}
 			}

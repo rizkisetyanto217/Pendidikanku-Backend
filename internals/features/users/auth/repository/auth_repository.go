@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	authModel "masjidku_backend/internals/features/users/auth/model"
-	userModel "masjidku_backend/internals/features/users/user/model"
+	userModel "masjidku_backend/internals/features/users/users/model"
 )
 
 /* ====================== USER ====================== */

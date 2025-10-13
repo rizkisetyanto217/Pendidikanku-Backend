@@ -15,7 +15,7 @@ import (
 
 	// models
 	m "masjidku_backend/internals/features/school/classes/class_sections/model"
-	csstModel "masjidku_backend/internals/features/school/academics/subject/model"
+	csstModel "masjidku_backend/internals/features/school/classes/class_section_subject_teachers/model"
 )
 
 /* =========================================================

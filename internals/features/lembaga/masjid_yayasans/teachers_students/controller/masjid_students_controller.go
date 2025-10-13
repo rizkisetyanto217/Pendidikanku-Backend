@@ -86,18 +86,6 @@ func (h *MasjidStudentController) Create(c *fiber.Ctx) error {
 	}
 	req.Normalize()
 
-	// (opsional) enforce MasjidContext dari Locals
-	// if v := c.Locals("masjid_id"); v != nil {
-	// 	if id, ok := v.(uuid.UUID); ok && id != uuid.Nil {
-	// 		req.MasjidStudentMasjidID = id
-	// 	}
-	// }
-	// if v := c.Locals("user_id"); v != nil && req.MasjidStudentUserID == uuid.Nil {
-	// 	if id, ok := v.(uuid.UUID); ok && id != uuid.Nil {
-	// 		req.MasjidStudentUserID = id
-	// 	}
-	// }
-
 	if err := req.Validate(); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}

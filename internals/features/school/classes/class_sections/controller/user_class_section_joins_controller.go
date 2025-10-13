@@ -20,7 +20,7 @@ import (
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
-	userProfileSnapshot "masjidku_backend/internals/features/users/user/snapshot"
+	userProfileSnapshot "masjidku_backend/internals/features/users/users/snapshot"
 )
 
 /* =========================
@@ -100,7 +100,6 @@ func getOrCreateMasjidStudentByProfile(tx *gorm.DB, masjidID, usersProfileID uui
 	return newID, nil
 }
 
-// forUpdate() kamu sendiri (RowLock). Pakai punyamu.
 // forUpdate() kamu sendiri (RowLock). Pakai punyamu.
 func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 	// -------- tenant --------

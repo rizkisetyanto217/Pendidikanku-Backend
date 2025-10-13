@@ -44,9 +44,8 @@ func getImageFormFile(c *fiber.Ctx) (*multipart.FileHeader, error) {
 
 /*
 =========================================================
-
-	CREATE (staff only) — slug unik + optional upload (save to DB)
-	=========================================================
+CREATE (staff only) — slug unik + optional upload (save to DB)
+=========================================================
 */
 func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 	// 1) Parse payload
@@ -65,44 +64,44 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 				return helper.JsonError(c, fiber.StatusBadRequest,
 					"class_parent_requirements harus JSON object yang valid: "+err.Error())
 			}
-			// set kembali ke DTO
 			p.ClassParentRequirements = cpdto.JSONMapFlexible(tmp)
 		}
 	}
 
-	// 2) Resolve masjid context + staff guard
-	mc, err := helperAuth.ResolveMasjidContext(c)
-	if err != nil {
-		return err
-	}
+	// 2) Resolve masjid **dari URL/slug saja** (TANPA fallback token)
 	var masjidID uuid.UUID
-	if mc.ID != uuid.Nil {
-		masjidID = mc.ID
-	} else if s := strings.TrimSpace(mc.Slug); s != "" {
+	// a) coba param :masjid_id
+	if s := strings.TrimSpace(c.Params("masjid_id")); s != "" {
+		id, err := uuid.Parse(s)
+		if err != nil || id == uuid.Nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id pada URL tidak valid")
+		}
+		masjidID = id
+	} else if s := strings.TrimSpace(c.Params("masjid_slug")); s != "" {
+		// b) atau param :masjid_slug (kalau route pakai slug)
 		id, er := helperAuth.GetMasjidIDBySlug(c, s)
-		if er != nil {
+		if er != nil || id == uuid.Nil {
 			return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
 		}
 		masjidID = id
 	} else {
-		id, er := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak ditemukan")
-		}
-		masjidID = id
+		// ❗ TIDAK ADA fallback ke GetMasjidIDFromTokenPreferTeacher di endpoint admin/staff
+		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context wajib via URL (masjid_id/masjid_slug)")
 	}
-	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
+
+	// 3) Staff guard di MASJID TARGET
+	if err := helperAuth.EnsureStaffMasjidStrict(c, masjidID); err != nil {
 		return err
 	}
 
-	// Paksa body sesuai context
+	// 4) Paksa body sesuai context (abaikan yang datang dari client)
 	if p.ClassParentMasjidID == uuid.Nil {
 		p.ClassParentMasjidID = masjidID
 	} else if p.ClassParentMasjidID != masjidID {
 		return helper.JsonError(c, fiber.StatusConflict, "class_parent_masjid_id pada body tidak cocok dengan konteks masjid")
 	}
 
-	// 3) Uniqueness: code (opsional)
+	// 5) Uniqueness: code (opsional)
 	if p.ClassParentCode != nil {
 		code := strings.TrimSpace(*p.ClassParentCode)
 		if code != "" {
@@ -119,7 +118,7 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// 4) Slug unik (CI) per masjid
+	// 6) Slug unik (CI) per masjid
 	var baseSlug string
 	if p.ClassParentSlug != nil && strings.TrimSpace(*p.ClassParentSlug) != "" {
 		baseSlug = helper.Slugify(*p.ClassParentSlug, 160)
@@ -142,7 +141,7 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug")
 	}
 
-	// 5) Build entity & simpan
+	// 7) Build entity & simpan (pakai masjidID yang kita lock)
 	ent := p.ToModel()
 	ent.ClassParentMasjidID = masjidID
 	entSlug := uniqueSlug
@@ -152,15 +151,13 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan data")
 	}
 
-	// 6) Optional upload file → simpan ke DB (image_url + object_key)
+	// 8) Optional upload file → simpan ke DB (image_url + object_key)
 	uploadedURL := ""
 	if fh := pickImageFile(c, "image", "file"); fh != nil {
-		// Pastikan kategori benar: "classes/class-parents" (pakai slash)
 		url, upErr := helperOSS.UploadImageToOSSScoped(masjidID, "classes/class-parents", fh)
 		if upErr == nil {
 			uploadedURL = url
 
-			// Ambil object key dari public URL (pakai helper yang sudah ada)
 			objKey := ""
 			if k, er := helperOSS.ExtractKeyFromPublicURL(uploadedURL); er == nil {
 				objKey = k
@@ -168,29 +165,27 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 				objKey = k2
 			}
 
-			// Tulis ke DB (kolom existing pada model kamu)
 			_ = ctl.DB.WithContext(c.Context()).
 				Model(&classModel.ClassParentModel{}).
 				Where("class_parent_id = ?", ent.ClassParentID).
 				Updates(map[string]any{
 					"class_parent_image_url":        uploadedURL,
 					"class_parent_image_object_key": objKey,
-					// kolom *_old dan *_delete_pending_until biarkan NULL saat create
 				}).Error
 		}
-		// Jika upload error → abaikan (CREATE tetap sukses)
+		// upload gagal → biarkan create tetap sukses
 	}
 
-	// 7) Reload entity (agar response memuat field ter-update)
+	// 9) Reload entity (ambil field terbaru)
 	_ = ctl.DB.WithContext(c.Context()).
 		First(&ent, "class_parent_id = ?", ent.ClassParentID).Error
 
-	// 8) Response
+	// 10) Response
 	return helper.JsonCreated(c, "Berhasil membuat parent kelas", fiber.Map{
 		"class_parent":       cpdto.FromModelClassParent(ent),
 		"uploaded_image_url": uploadedURL,
 	})
-} 
+}
 
 // PATCH /api/a/:masjid_id/class-parents/:id
 func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {

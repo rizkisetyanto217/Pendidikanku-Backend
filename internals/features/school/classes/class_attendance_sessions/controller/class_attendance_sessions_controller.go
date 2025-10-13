@@ -102,9 +102,12 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 		isTeacher = true
 	}
 
-	// Info user (dipakai untuk self-check guru)
-	teacherMasjidID, _ := helperAuth.GetTeacherMasjidIDFromToken(c)
+	var teacherMasjidID uuid.UUID
+	if helperAuth.IsTeacher(c) {
+		teacherMasjidID, _ = helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	}
 	userID, _ := helperAuth.GetUserIDFromToken(c)
+
 
 	// ---------- Parse payload ----------
 	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
@@ -249,10 +252,10 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 		}
 		if err := tx.Table("class_schedules").
 			Select(`
-				class_schedules_masjid_id  AS masjid_id,
-				class_schedules_teacher_id AS teacher_id,
-				class_schedules_is_active  AS is_active,
-				class_schedules_deleted_at AS deleted_at
+				class_schedule_masjid_id  AS masjid_id,
+				class_schedule_teacher_id AS teacher_id,
+				class_schedule_is_active  AS is_active,
+				class_schedule_deleted_at AS deleted_at
 			`).
 			Where("class_schedule_id = ?", req.ClassAttendanceSessionScheduleId).
 			Take(&sch).Error; err != nil {

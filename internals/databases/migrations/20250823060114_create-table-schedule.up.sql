@@ -1,10 +1,15 @@
--- =========================================
+-- +migrate Up
+-- =========================================================
 -- EXTENSIONS (idempotent)
--- =========================================
+-- =========================================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS btree_gin;
+CREATE EXTENSION IF NOT EXISTS btree_gist;
 
+-- =========================================================
+-- ENUMS (idempotent)
+-- =========================================================
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'session_status_enum') THEN
@@ -25,10 +30,10 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedule_masjid_id UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  -- >>> SLUG (opsional; unik per tenant saat alive)
+  -- SLUG (opsional; unik per tenant saat alive)
   class_schedule_slug VARCHAR(160),
 
-  -- masa berlaku (header)
+  -- masa berlaku
   class_schedule_start_date DATE NOT NULL,
   class_schedule_end_date   DATE NOT NULL
     CHECK (class_schedule_end_date >= class_schedule_start_date),
@@ -75,15 +80,13 @@ CREATE INDEX IF NOT EXISTS brin_class_schedules_created_at
 
 
 
-
-
--- ======================================
--- TABLE: class_schedule_rules (slot mingguan)
--- ======================================
+-- =========================================================
+-- TABLE: class_schedule_rules (slot mingguan) + link ke CSST
+-- =========================================================
 CREATE TABLE IF NOT EXISTS class_schedule_rules (
   class_schedule_rule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  -- tenant + pointer ke header (FK KOMPOSIT → tenant-safe)
+  -- tenant + pointer ke header (FK komposit → tenant-safe)
   class_schedule_rule_masjid_id   UUID NOT NULL,
   class_schedule_rule_schedule_id UUID NOT NULL,
   CONSTRAINT fk_csr_schedule_tenant
@@ -103,11 +106,32 @@ CREATE TABLE IF NOT EXISTS class_schedule_rules (
   class_schedule_rule_weeks_of_month      INT[],
   class_schedule_rule_last_week_of_month  BOOLEAN NOT NULL DEFAULT FALSE,
 
+  -- DEFAULT PENUGASAN: CSST (tenant-safe, WAJIB)
+  class_schedule_rule_csst_id         UUID NOT NULL,
+  class_schedule_rule_csst_masjid_id  UUID NOT NULL,
+
   -- audit
   class_schedule_rule_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_schedule_rule_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_schedule_rule_deleted_at TIMESTAMPTZ
+  class_schedule_rule_deleted_at TIMESTAMPTZ,
+
+  -- ===== Generated untuk anti-overlap (pakai exclusion constraint) =====
+  class_schedule_rule_start_min SMALLINT GENERATED ALWAYS AS (
+    (EXTRACT(HOUR FROM class_schedule_rule_start_time)::INT * 60)
+    + EXTRACT(MINUTE FROM class_schedule_rule_start_time)::INT
+  ) STORED,
+  class_schedule_rule_end_min SMALLINT GENERATED ALWAYS AS (
+    (EXTRACT(HOUR FROM class_schedule_rule_end_time)::INT * 60)
+    + EXTRACT(MINUTE FROM class_schedule_rule_end_time)::INT
+  ) STORED
 );
+
+-- FK ke CSST (komposit)
+ALTER TABLE class_schedule_rules
+  ADD CONSTRAINT fk_csr_csst_tenant
+  FOREIGN KEY (class_schedule_rule_csst_id, class_schedule_rule_csst_masjid_id)
+  REFERENCES class_section_subject_teachers (class_section_subject_teacher_id, class_section_subject_teacher_masjid_id)
+  ON UPDATE CASCADE ON DELETE RESTRICT;
 
 -- Indexes (class_schedule_rules)
 CREATE INDEX IF NOT EXISTS idx_class_schedule_rules_by_schedule_dow
@@ -116,9 +140,11 @@ CREATE INDEX IF NOT EXISTS idx_class_schedule_rules_by_schedule_dow
 CREATE INDEX IF NOT EXISTS idx_class_schedule_rules_by_masjid
   ON class_schedule_rules (class_schedule_rule_masjid_id);
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_class_schedule_rules_unique_slot_per_schedule
+-- Unik: cegah duplikasi slot persis untuk CSST yang sama dalam satu schedule
+CREATE UNIQUE INDEX IF NOT EXISTS uq_csr_unique_slot_per_schedule_csst
   ON class_schedule_rules (
     class_schedule_rule_schedule_id,
+    class_schedule_rule_csst_id,
     class_schedule_rule_day_of_week,
     class_schedule_rule_start_time,
     class_schedule_rule_end_time
@@ -128,7 +154,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_class_schedule_rules_unique_slot_per_schedu
 CREATE INDEX IF NOT EXISTS idx_class_schedule_rules_deleted_at
   ON class_schedule_rules (class_schedule_rule_deleted_at);
 
-
+-- Exclusion constraint: cegah tumpang tindih waktu per (schedule, CSST, hari)
+ALTER TABLE class_schedule_rules
+  ADD CONSTRAINT ex_csr_no_overlap_per_csst
+  EXCLUDE USING gist (
+    class_schedule_rule_schedule_id WITH =,
+    class_schedule_rule_csst_id     WITH =,
+    class_schedule_rule_day_of_week WITH =,
+    int4range(class_schedule_rule_start_min, class_schedule_rule_end_min, '[]') WITH &&
+  )
+  WHERE (class_schedule_rule_deleted_at IS NULL);
 
 
 

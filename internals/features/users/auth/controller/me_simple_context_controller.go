@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	masjidModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/masjids/model"
-	userModel "masjidku_backend/internals/features/users/user/model"
+	userModel "masjidku_backend/internals/features/users/users/model"
 
 	helper "masjidku_backend/internals/helpers"        // JsonOK/JsonError
 	helperAuth "masjidku_backend/internals/helpers/auth"

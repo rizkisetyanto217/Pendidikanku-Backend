@@ -57,11 +57,12 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 			Secret:              os.Getenv("JWT_SECRET"),
 			AllowCookieFallback: true,
 		}),
-		masjidkuMiddleware.MasjidContext(masjidkuMiddleware.MasjidContextOpts{
-			DB:      db,
-			AppMode: masjidkuMiddleware.ModeDKM,
-		}),
+		// masjidkuMiddleware.MasjidContext(masjidkuMiddleware.MasjidContextOpts{
+		// 	DB:      db,
+		// 	AppMode: masjidkuMiddleware.ModeDKM,
+		// }),
 		featuresMiddleware.UseMasjidScope(),
+		featuresMiddleware.RequirePathScopeMatch(),
 		featuresMiddleware.IsMasjidAdmin(),
 	)
 
@@ -81,7 +82,6 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	routeDetails.MasjidUserRoutes(private, db)
 	routeDetails.MasjidAdminRoutes(admin, db) // per-masjid
 	routeDetails.MasjidOwnerRoutes(owner, db)
-
 
 	log.Println("[INFO] Mounting Lembaga routes...")
 	routeDetails.LembagaPublicRoutes(public, db)
