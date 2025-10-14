@@ -30,7 +30,7 @@ func CorsMiddleware() fiber.Handler {
 		AllowMethods:     "GET,POST,PUT,PATCH,DELETE,OPTIONS",
 		AllowHeaders:     "Origin, Content-Type, Accept, Authorization, X-User-Id, X-Requested-With",
 		ExposeHeaders:    "Content-Type, Authorization",
-		AllowCredentials: false, // pakai Bearer token, bukan cookie
+		AllowCredentials: true, // pakai Bearer token, bukan cookie
 		MaxAge:           86400, // cache preflight 24 jam
 	})
 }
