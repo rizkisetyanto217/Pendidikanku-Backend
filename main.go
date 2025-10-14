@@ -28,7 +28,7 @@ import (
 	routes "masjidku_backend/internals/route"
 
 	helperAuth "masjidku_backend/internals/helpers/auth"
-	middlewares "masjidku_backend/internals/middlewares" // ✅ sesuaikan import path ini
+	middlewares "masjidku_backend/internals/middlewares" 
 )
 
 func main() {
