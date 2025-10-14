@@ -11,8 +11,10 @@ import (
 func AuthRoutes(app *fiber.App, db *gorm.DB) {
 	authController := controller.NewAuthController(db)
 
-	app.Use(rateLimiter.GlobalRateLimiter()) // ✅ masih aman di sini
+	// rate limiter global
+	app.Use(rateLimiter.GlobalRateLimiter())
 
+	// --- PUBLIC (/auth) ---
 	publicAuth := app.Group("/auth")
 	publicAuth.Post("/login", rateLimiter.LoginRateLimiter(), authController.Login)
 	publicAuth.Post("/register", rateLimiter.RegisterRateLimiter(), authController.Register)
@@ -20,12 +22,19 @@ func AuthRoutes(app *fiber.App, db *gorm.DB) {
 	publicAuth.Post("/login-google", authController.LoginGoogle)
 	publicAuth.Post("/refresh-token", authController.RefreshToken)
 
+	// --- PUBLIC alias (/api/auth) agar FE baseURL=/api tetap jalan ---
+	publicAuthAPI := app.Group("/api/auth")
+	publicAuthAPI.Post("/login", rateLimiter.LoginRateLimiter(), authController.Login)
+	publicAuthAPI.Post("/register", rateLimiter.RegisterRateLimiter(), authController.Register)
+	publicAuthAPI.Post("/forgot-password/reset", authController.ResetPassword)
+	publicAuthAPI.Post("/login-google", authController.LoginGoogle)
+	publicAuthAPI.Post("/refresh-token", authController.RefreshToken)
+
+	// --- PROTECTED (/api/auth ...) ---
 	protectedAuth := app.Group("/api/auth")
 	protectedAuth.Post("/logout", authController.Logout)
 	protectedAuth.Post("/change-password", authController.ChangePassword)
 	protectedAuth.Put("/update-user-name", authController.UpdateUserName)
-
-	// ⬇️ New: user + masjids + class_sections (butuh Locals("user_id") dari middleware auth)
 	protectedAuth.Get("/me/context", authController.GetMyContext)
 	protectedAuth.Get("/me/simple-context", authController.GetMySimpleContext)
 }

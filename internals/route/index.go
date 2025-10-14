@@ -21,7 +21,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	startTime = time.Now()
 
 	// ===================== BASE =====================
-	BaseRoutes(app, db)
+	// BaseRoutes(app, db)
 
 	// ===================== AUTH / USER =====================
 	log.Println("[INFO] Setting up AuthRoutes...")
