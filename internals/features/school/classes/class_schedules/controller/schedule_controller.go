@@ -106,6 +106,7 @@ func writePGError(c *fiber.Ctx, err error) error {
 	return helper.JsonError(c, code, msg)
 }
 
+
 /* =========================
    Create (schedule + optional rules & sessions)
    ========================= */
@@ -217,6 +218,22 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 
 	// 4) Selalu generate sessions dari rules
 	var defCSST, defRoom, defTeacher *uuid.UUID
+
+	// (A) Ambil dari payload default_* (opsional)
+	if req.DefaultCSSTID != nil {
+		v := *req.DefaultCSSTID
+		defCSST = &v
+	}
+	if req.DefaultRoomID != nil {
+		v := *req.DefaultRoomID
+		defRoom = &v
+	}
+	if req.DefaultTeacherID != nil {
+		v := *req.DefaultTeacherID
+		defTeacher = &v
+	}
+
+	// (B) Fallback dari sessions yang ikut dikirim (kalau ada)
 	for _, s := range req.Sessions {
 		if s.CSSTID != nil && defCSST == nil {
 			v := *s.CSSTID
@@ -226,7 +243,11 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 			v := *s.ClassRoomID
 			defRoom = &v
 		}
-		// kalau DTO menambahkan TeacherID, isi juga defTeacher = s.TeacherID
+		// Jika DTO sessions kamu sudah punya TeacherID, kamu boleh aktifkan blok ini:
+		// if s.TeacherID != nil && defTeacher == nil {
+		// 	v := *s.TeacherID
+		// 	defTeacher = &v
+		// }
 	}
 
 	gen := svc.Generator{DB: ctl.DB}

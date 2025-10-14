@@ -27,17 +27,13 @@ func CSSTUserRoutes(r fiber.Router, db *gorm.DB) {
 	csstCtl := &csstController.ClassSectionSubjectTeacherController{DB: db}
 
 	// ===== Base by masjid_id =====
-	baseByID := r.Group("/:masjid_id") // set ctx masjid dari param
-	// tambahkan middleware auth ringan bila perlu (mis. RequireLogin / IsMasjidMember)
-
+	baseByID := r.Group("/:masjid_id")
 	csstByID := baseByID.Group("/class-section-subject-teachers")
 	csstByID.Get("/list", csstCtl.List)
 
-	// ===== Base by masjid_slug (opsional dukung slug/subdomain) =====
-	baseBySlug := r.Group("/:masjid_slug",
-		masjidkuMiddleware.UseMasjidScope(),
-	)
-
+	// ===== Base by masjid_slug (beri prefix 'slug' agar tidak bentrok) =====
+	baseBySlug := r.Group("/slug/:masjid_slug", masjidkuMiddleware.UseMasjidScope())
 	csstBySlug := baseBySlug.Group("/class-section-subject-teachers")
 	csstBySlug.Get("/list", csstCtl.List)
+
 }

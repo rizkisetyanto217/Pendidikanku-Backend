@@ -272,19 +272,7 @@ type ScopeChoice struct {
 	Roles    []string `json:"roles"`
 }
 
-func respondNeedScope(c *fiber.Ctx, choices []ScopeChoice) error {
-	// 428: Precondition Required — minta client kirim X-Masjid-ID & X-Role (atau query/body)
-	payload := fiber.Map{
-		"code":    428,
-		"status":  "need_scope",
-		"message": "Beberapa masjid/role tersedia. Tentukan masjid_id & role yang akan dipakai.",
-		"data": fiber.Map{
-			"choices":       choices, // untuk dropdown frontend
-			"how_to_select": "Kirim ?masjid_id=...&role=... atau header X-Masjid-ID & X-Role, atau di body JSON.",
-		},
-	}
-	return c.Status(428).JSON(payload)
-}
+
 
 /* ==========================
    Middleware 1 — UseMasjidScope
@@ -316,21 +304,30 @@ func roleInMasjid(c *fiber.Ctx, masjidID, role string) bool {
 
 // Tambah util ini
 func extractMasjidIDStrict(c *fiber.Ctx) string {
-	// 1) coba beberapa nama param umum
+	// 1) param langsung (kalau middleware dipasang di group yg punya param)
 	for _, key := range []string{"masjid_id", "id", "mid"} {
 		if v := strings.TrimSpace(c.Params(key)); v != "" {
 			return v
 		}
 	}
-	// 2) fallback eksplisit (query/header/body/form) kalau memang route-nya tanpa param
+	// 2) fallback standar (query/header/body/form)
 	if v := extractMasjidID(c); v != "" {
 		return v
 	}
-	// 3) ambil dari segmen path: /api/a/<ID>/...
+	// 3) fallback dari path (kalau middleware dipasang di parent: /api/a atau /api/u)
 	path := strings.Trim(c.Path(), "/")
 	parts := strings.Split(path, "/")
-	if len(parts) >= 3 && strings.EqualFold(parts[0], "api") && strings.EqualFold(parts[1], "a") {
-		return parts[2]
+	if len(parts) >= 3 && strings.EqualFold(parts[0], "api") &&
+		(strings.EqualFold(parts[1], "a") || strings.EqualFold(parts[1], "u")) {
+
+		// /api/(a|u)/<masjid_id>/...
+		if !strings.EqualFold(parts[2], "slug") {
+			return parts[2]
+		}
+		// /api/(a|u)/slug/<masjid_slug>/...
+		if len(parts) >= 4 {
+			return parts[3]
+		}
 	}
 	return ""
 }

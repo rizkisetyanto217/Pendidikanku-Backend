@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -52,18 +53,52 @@ type ruleRow struct {
 	WeekParity      string        `gorm:"column:class_schedule_rule_week_parity"` // all|odd|even
 	WeeksOfMonth    pq.Int64Array `gorm:"column:class_schedule_rule_weeks_of_month"`
 	LastWeekOfMonth bool          `gorm:"column:class_schedule_rule_last_week_of_month"`
+	CSSTID          *uuid.UUID    `gorm:"column:class_schedule_rule_csst_id"` // CSST per-rule (opsional)
+}
+
+// ============================
+// Row ringan untuk snapshot
+// ============================
+type csstLite struct {
+	ID        uuid.UUID  `gorm:"column:class_section_subject_teacher_id"`
+	MasjidID  uuid.UUID  `gorm:"column:class_section_subject_teacher_masjid_id"`
+	SubjectID *uuid.UUID `gorm:"column:class_subject_id"`
+	SectionID *uuid.UUID `gorm:"column:class_section_id"`
+	TeacherID *uuid.UUID `gorm:"column:masjid_teacher_id"`
+
+	SubjCode *string `gorm:"column:class_subject_code"`
+	SubjName *string `gorm:"column:class_subject_name"`
+	Section  *string `gorm:"column:class_section_name"`
+	Teacher  *string `gorm:"column:teacher_name"` // COALESCE(snapshot, ut.name)
+}
+
+type teacherLite struct {
+	ID       uuid.UUID `gorm:"column:masjid_teacher_id"`
+	MasjidID uuid.UUID `gorm:"column:masjid_teacher_masjid_id"`
+	Name     *string   `gorm:"column:teacher_name"` // COALESCE(snapshot, ut.name)
+	Whatsapp *string   `gorm:"column:whatsapp_url"` // ut.user_teacher_whatsapp_url
+	TitlePre *string   `gorm:"column:title_prefix"` // ut.user_teacher_title_prefix
+	TitleSuf *string   `gorm:"column:title_suffix"` // ut.user_teacher_title_suffix
+}
+
+type roomLite struct {
+	ID       uuid.UUID `gorm:"column:class_room_id"`
+	MasjidID uuid.UUID `gorm:"column:class_room_masjid_id"`
+	Name     *string   `gorm:"column:class_room_name"`
+	Code     *string   `gorm:"column:class_room_code"`
+	Capacity *int      `gorm:"column:class_room_capacity"`
 }
 
 // ============================
 // Public API
 // ============================
 
-// Backward-compat wrapper (tetap ada biar call lama tidak putus).
+// Backward-compat wrapper
 func (g *Generator) GenerateSessionsForSchedule(ctx context.Context, scheduleID string) (int, error) {
 	return g.GenerateSessionsForScheduleWithOpts(ctx, scheduleID, nil)
 }
 
-// Versi lengkap dengan options.
+// Versi lengkap dengan options
 func (g *Generator) GenerateSessionsForScheduleWithOpts(ctx context.Context, scheduleID string, opts *GenerateOptions) (created int, err error) {
 	// ---------- Options defaults ----------
 	if opts == nil {
@@ -96,17 +131,23 @@ func (g *Generator) GenerateSessionsForScheduleWithOpts(ctx context.Context, sch
 		return 0, err
 	}
 
-	// Normalisasi start/end DATE ke lokal (pakai field baru yang singular)
+	// Normalisasi start/end DATE ke lokal (pakai field singular)
 	startLocal := startOfDayInLoc(sch.ClassScheduleStartDate, loc)
 	endLocal := startOfDayInLoc(sch.ClassScheduleEndDate, loc)
 	if endLocal.Before(startLocal) {
-		// Jika range salah, ya sudah tidak ada yang digenerate
+		// Range salah → tidak ada yang digenerate
 		return 0, nil
 	}
 
-	// ---------- 2) Ambil rules ----------
+	// ---------- 2) Ambil rules (termasuk CSST per-rule bila ada) ----------
+	cRules, _ := g.tableColumns(ctx, "class_schedule_rules")
+	csstSelect := "NULL::uuid"
+	if _, ok := cRules["class_schedule_rule_csst_id"]; ok {
+		csstSelect = "class_schedule_rule_csst_id"
+	}
+
 	var rr []ruleRow
-	const qRules = `
+	qRules := fmt.Sprintf(`
 SELECT
   class_schedule_rule_id,
   class_schedule_rule_masjid_id,
@@ -118,26 +159,145 @@ SELECT
   class_schedule_rule_start_offset_weeks,
   class_schedule_rule_week_parity,
   class_schedule_rule_weeks_of_month,
-  class_schedule_rule_last_week_of_month
+  class_schedule_rule_last_week_of_month,
+  %s AS class_schedule_rule_csst_id
 FROM class_schedule_rules
 WHERE class_schedule_rule_schedule_id = ?
   AND class_schedule_rule_deleted_at IS NULL
-ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time
-`
+ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`, csstSelect)
+
 	if err = g.DB.WithContext(ctx).Raw(qRules, sch.ClassScheduleID).Scan(&rr).Error; err != nil {
 		return 0, err
 	}
 
+	// ---------- 2.5) PRELOAD SNAPSHOTS default (sekali) ----------
+	var (
+		defCSSTSnap    datatypes.JSONMap
+		defTeacherSnap datatypes.JSONMap
+		defRoomSnap    datatypes.JSONMap
+
+		teacherIDFromCSST *uuid.UUID
+	)
+
+	// CSST snapshot (jika default disediakan)
+	if opts.DefaultCSSTID != nil {
+		if s, tid, er := g.loadCSSTSnapshot(ctx, *opts.DefaultCSSTID); er == nil {
+			defCSSTSnap = s
+			teacherIDFromCSST = tid
+		}
+	}
+
+	// Teacher snapshot: prioritas DefaultTeacherID; kalau kosong pakai teacher dari CSST
+	if opts.DefaultTeacherID != nil {
+		if s, er := g.loadTeacherSnapshot(ctx, *opts.DefaultTeacherID); er == nil {
+			defTeacherSnap = s
+		}
+	} else if teacherIDFromCSST != nil {
+		if s, er := g.loadTeacherSnapshot(ctx, *teacherIDFromCSST); er == nil {
+			defTeacherSnap = s
+		}
+	}
+
+	// Room snapshot
+	if opts.DefaultRoomID != nil {
+		if s, er := g.loadRoomSnapshot(ctx, *opts.DefaultRoomID); er == nil {
+			defRoomSnap = s
+		}
+	}
+
+	// ---------- Cache untuk snapshot per entitas ----------
+	csstSnapCache := map[uuid.UUID]datatypes.JSONMap{}
+	csstTeacherIDCache := map[uuid.UUID]*uuid.UUID{}
+	teacherSnapCache := map[uuid.UUID]datatypes.JSONMap{}
+	roomSnapCache := map[uuid.UUID]datatypes.JSONMap{}
+
 	// ---------- 3) Expand occurrences ----------
 	rows := make([]sessModel.ClassAttendanceSessionModel, 0, 1024)
 
+	// Helper: pasang CSST/Teacher/Room + snapshot ke row
+	attachSnapshots := func(row *sessModel.ClassAttendanceSessionModel, ruleCSST *uuid.UUID) {
+		// Tentukan CSST efektif: per-rule > default
+		var effCSST *uuid.UUID
+		var effCSSTSnap datatypes.JSONMap
+		var effTeacherFromCSST *uuid.UUID
+
+		if ruleCSST != nil {
+			effCSST = ruleCSST
+			// snapshot dari cache atau load
+			if s, ok := csstSnapCache[*ruleCSST]; ok {
+				effCSSTSnap = s
+				effTeacherFromCSST = csstTeacherIDCache[*ruleCSST]
+			} else if s, tid, er := g.loadCSSTSnapshot(ctx, *ruleCSST); er == nil {
+				csstSnapCache[*ruleCSST] = s
+				csstTeacherIDCache[*ruleCSST] = tid
+				effCSSTSnap = s
+				effTeacherFromCSST = tid
+			}
+		} else if opts.DefaultCSSTID != nil {
+			effCSST = opts.DefaultCSSTID
+			effCSSTSnap = defCSSTSnap
+			effTeacherFromCSST = teacherIDFromCSST
+		}
+
+		// Set CSST + snapshot
+		if effCSST != nil {
+			row.ClassAttendanceSessionCSSTID = effCSST
+			if effCSSTSnap != nil {
+				row.ClassAttendanceSessionCSSTSnapshot = effCSSTSnap
+			}
+		}
+
+		// Tentukan TEACHER: default > dari CSST > none
+		var effTeacher *uuid.UUID
+		var effTeacherSnap datatypes.JSONMap
+
+		if opts.DefaultTeacherID != nil {
+			effTeacher = opts.DefaultTeacherID
+			effTeacherSnap = defTeacherSnap
+		} else if effTeacherFromCSST != nil {
+			effTeacher = effTeacherFromCSST
+			// ambil snapshot dari cache atau load
+			if s, ok := teacherSnapCache[*effTeacherFromCSST]; ok {
+				effTeacherSnap = s
+			} else if s, er := g.loadTeacherSnapshot(ctx, *effTeacherFromCSST); er == nil {
+				teacherSnapCache[*effTeacherFromCSST] = s
+				effTeacherSnap = s
+			}
+		}
+		if effTeacher != nil {
+			row.ClassAttendanceSessionTeacherID = effTeacher
+		}
+		if effTeacherSnap != nil {
+			row.ClassAttendanceSessionTeacherSnapshot = effTeacherSnap
+		}
+
+		// ROOM: hanya default (belum ada per-rule)
+		if opts.DefaultRoomID != nil {
+			row.ClassAttendanceSessionClassRoomID = opts.DefaultRoomID
+			if defRoomSnap != nil {
+				row.ClassAttendanceSessionRoomSnapshot = defRoomSnap
+			} else {
+				// jaga-jaga kalau belum diload
+				if s, ok := roomSnapCache[*opts.DefaultRoomID]; ok {
+					row.ClassAttendanceSessionRoomSnapshot = s
+				} else if s, er := g.loadRoomSnapshot(ctx, *opts.DefaultRoomID); er == nil {
+					roomSnapCache[*opts.DefaultRoomID] = s
+					row.ClassAttendanceSessionRoomSnapshot = s
+				}
+			}
+		}
+	}
+
 	if len(rr) == 0 {
-		// Tanpa rule → buat 1 sesi pada start date (date lokal), waktu kosong
-		rows = append(rows, sessModel.ClassAttendanceSessionModel{
+		// Tanpa rule → buat 1 sesi pada start date, tanpa jam
+		// DATE disimpan sebagai midnight UTC (konsisten)
+		dateUTC := time.Date(startLocal.Year(), startLocal.Month(), startLocal.Day(), 0, 0, 0, 0, time.UTC)
+
+		row := sessModel.ClassAttendanceSessionModel{
 			ClassAttendanceSessionMasjidID:         sch.ClassScheduleMasjidID,
 			ClassAttendanceSessionScheduleID:       sch.ClassScheduleID,
 			ClassAttendanceSessionRuleID:           nil,
-			ClassAttendanceSessionDate:             startLocal, // DATE lokal
+			ClassAttendanceSessionDate:             dateUTC,
 			ClassAttendanceSessionStartsAt:         nil,
 			ClassAttendanceSessionEndsAt:           nil,
 			ClassAttendanceSessionStatus:           sessModel.SessionStatusScheduled,
@@ -146,9 +306,13 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time
 			ClassAttendanceSessionIsOverride:       false,
 			ClassAttendanceSessionIsCanceled:       false,
 			ClassAttendanceSessionGeneralInfo:      "",
-		})
+		}
+
+		// Default assignment + SNAPSHOTS
+		attachSnapshots(&row, nil)
+		rows = append(rows, row)
 	} else {
-		// Loop per hari di rentang, gunakan tanggal LOKAL
+		// Dengan rules → loop setiap hari di rentang lokal
 		for d := startLocal; !d.After(endLocal); d = d.AddDate(0, 0, 1) {
 			for _, r := range rr {
 				if !dateMatchesRuleRow(d, startLocal, r) {
@@ -158,15 +322,14 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time
 				stTOD, err1 := parseTODString(r.StartStr)
 				etTOD, err2 := parseTODString(r.EndStr)
 				if err1 != nil || err2 != nil {
-					// Jika ada rule time invalid, skip saja tanggal ini untuk rule tsb
 					continue
 				}
 
-				// Gabungkan d (LOCAL) + TOD (jam-menit-detik), lalu simpan ke DB sebagai UTC (TIMESTAMPTZ)
+				// Gabungkan d (LOCAL) + TOD (jam-menit-detik), lalu konversi ke UTC
 				startAtLocal := combineLocalDateAndTOD(d, stTOD, loc)
 				endAtLocal := combineLocalDateAndTOD(d, etTOD, loc)
 
-				// Overnight guard: kalau end < start, anggap lebihi tengah malam → tambah 1 hari
+				// Overnight guard: kalau end < start → anggap lewat tengah malam
 				if endAtLocal.Before(startAtLocal) {
 					endAtLocal = endAtLocal.Add(24 * time.Hour)
 				}
@@ -174,16 +337,16 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time
 				startAtUTC := toUTC(startAtLocal)
 				endAtUTC := toUTC(endAtLocal)
 
-				// Simpan DATE sebagai midnight UTC
+				// DATE disimpan sebagai midnight UTC
 				dateUTC := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
 
 				row := sessModel.ClassAttendanceSessionModel{
 					ClassAttendanceSessionMasjidID:         sch.ClassScheduleMasjidID,
 					ClassAttendanceSessionScheduleID:       sch.ClassScheduleID,
 					ClassAttendanceSessionRuleID:           &r.ID,
-					ClassAttendanceSessionDate:             dateUTC,     // midnight UTC
-					ClassAttendanceSessionStartsAt:         &startAtUTC, // UTC
-					ClassAttendanceSessionEndsAt:           &endAtUTC,   // UTC
+					ClassAttendanceSessionDate:             dateUTC,
+					ClassAttendanceSessionStartsAt:         &startAtUTC,
+					ClassAttendanceSessionEndsAt:           &endAtUTC,
 					ClassAttendanceSessionStatus:           sessModel.SessionStatusScheduled,
 					ClassAttendanceSessionAttendanceStatus: attendanceDefault,
 					ClassAttendanceSessionLocked:           false,
@@ -192,16 +355,8 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time
 					ClassAttendanceSessionGeneralInfo:      "",
 				}
 
-				// Propagasi default assignment jika disediakan
-				if opts.DefaultCSSTID != nil {
-					row.ClassAttendanceSessionCSSTID = opts.DefaultCSSTID
-				}
-				if opts.DefaultRoomID != nil {
-					row.ClassAttendanceSessionClassRoomID = opts.DefaultRoomID
-				}
-				if opts.DefaultTeacherID != nil {
-					row.ClassAttendanceSessionTeacherID = opts.DefaultTeacherID
-				}
+				// Per-rule CSST > Default CSST
+				attachSnapshots(&row, r.CSSTID)
 
 				rows = append(rows, row)
 			}
@@ -213,22 +368,249 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time
 	}
 
 	// ---------- 4) Idempotent insert (batch) ----------
-	tx := g.DB.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true})
-	if err := tx.CreateInBatches(&rows, opts.BatchSize).Error; err != nil {
-		return 0, err
+	db := g.DB.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true})
+	tx := db.CreateInBatches(rows, opts.BatchSize) // TANPA &rows
+	if tx.Error != nil {
+		return 0, tx.Error
 	}
-	return len(rows), nil
+	return int(tx.RowsAffected), nil
 }
 
 // ============================
-// Helpers
+// Loaders Snapshot (adaptif & aman)
+// ============================
+
+func (g *Generator) loadCSSTSnapshot(ctx context.Context, id uuid.UUID) (snap datatypes.JSONMap, teacherID *uuid.UUID, err error) {
+	// Deteksi kolom yang tersedia
+	cols, err := g.tableColumns(ctx, "class_section_subject_teachers")
+	if err != nil {
+		return nil, nil, err
+	}
+
+	idCol := firstExisting(cols, "class_section_subject_teacher_id", "id")
+	masjidCol := firstExisting(cols, "class_section_subject_teacher_masjid_id", "masjid_id")
+	subjCol := firstExisting(cols, "class_section_subject_teacher_subject_id", "class_subject_id", "subject_id")
+	sectCol := firstExisting(cols, "class_section_subject_teacher_section_id", "class_section_id", "section_id")
+	teachCol := firstExisting(cols, "class_section_subject_teacher_teacher_id", "masjid_teacher_id", "teacher_id")
+	deletedCol := firstExisting(cols, "class_section_subject_teacher_deleted_at", "deleted_at")
+
+	if idCol == "" || masjidCol == "" {
+		return nil, nil, fmt.Errorf("loadCSSTSnapshot: kolom ID/masjid_id tidak ditemukan di class_section_subject_teachers")
+	}
+
+	// Ekspresi nilai (tanpa alias ganda)
+	subjExpr := "NULL"
+	if subjCol != "" {
+		subjExpr = fmt.Sprintf("csst.%s", subjCol)
+	}
+	sectExpr := "NULL"
+	if sectCol != "" {
+		sectExpr = fmt.Sprintf("csst.%s", sectCol)
+	}
+	teachExpr := "NULL"
+	if teachCol != "" {
+		teachExpr = fmt.Sprintf("csst.%s", teachCol)
+	}
+
+	// Join opsional + ekspresi nama/atribut
+	joinSubj := ""
+	subjCodeExpr := "NULL"
+	subjNameExpr := "NULL"
+	if subjCol != "" {
+		joinSubj = fmt.Sprintf(`
+LEFT JOIN class_subjects cs
+  ON cs.class_subject_id = csst.%s
+ AND cs.class_subject_masjid_id = csst.%s`, subjCol, masjidCol)
+		subjCodeExpr = "cs.class_subject_code"
+		subjNameExpr = "cs.class_subject_name"
+	}
+
+	joinSect := ""
+	sectNameExpr := "NULL"
+	if sectCol != "" {
+		joinSect = fmt.Sprintf(`
+LEFT JOIN class_sections sec
+  ON sec.class_section_id = csst.%s
+ AND sec.class_section_masjid_id = csst.%s`, sectCol, masjidCol)
+		sectNameExpr = "sec.class_section_name"
+	}
+
+	joinTeach := ""
+	teachNameExpr := "NULL"
+	if teachCol != "" {
+		joinTeach = fmt.Sprintf(`
+LEFT JOIN masjid_teachers mt
+  ON mt.masjid_teacher_id = csst.%s
+ AND mt.masjid_teacher_masjid_id = csst.%s
+LEFT JOIN user_teachers ut
+  ON ut.user_teacher_id = mt.masjid_teacher_user_teacher_id
+ AND ut.user_teacher_deleted_at IS NULL`, teachCol, masjidCol)
+		teachNameExpr = "COALESCE(mt.masjid_teacher_user_teacher_name_snapshot, ut.user_teacher_name)"
+	}
+
+	// Soft delete jika ada
+	whereDeleted := ""
+	if deletedCol != "" {
+		whereDeleted = fmt.Sprintf(" AND csst.%s IS NULL", deletedCol)
+	}
+
+	q := fmt.Sprintf(`
+SELECT
+  csst.%s AS class_section_subject_teacher_id,
+  csst.%s AS class_section_subject_teacher_masjid_id,
+  %s AS class_subject_id,
+  %s AS class_section_id,
+  %s AS masjid_teacher_id,
+  %s AS class_subject_code,
+  %s AS class_subject_name,
+  %s AS class_section_name,
+  %s AS teacher_name
+FROM class_section_subject_teachers csst
+%s
+%s
+%s
+WHERE csst.%s = ?
+%s
+LIMIT 1`,
+		idCol, masjidCol,
+		subjExpr, sectExpr, teachExpr,
+		subjCodeExpr, subjNameExpr, sectNameExpr, teachNameExpr,
+		joinSubj, joinSect, joinTeach,
+		idCol, whereDeleted,
+	)
+
+	var row csstLite
+	if err = g.DB.WithContext(ctx).Raw(q, id).Scan(&row).Error; err != nil {
+		return nil, nil, err
+	}
+	if row.ID == uuid.Nil {
+		return nil, nil, nil
+	}
+	if row.TeacherID != nil {
+		teacherID = row.TeacherID
+	}
+
+	snap = datatypes.JSONMap{
+		"id":           row.ID,
+		"masjid_id":    row.MasjidID,
+		"subject_id":   row.SubjectID,
+		"section_id":   row.SectionID,
+		"teacher_id":   row.TeacherID,
+		"subject_code": row.SubjCode,
+		"subject_name": row.SubjName,
+		"section_name": row.Section,
+		"teacher_name": row.Teacher,
+		"captured_at":  time.Now().UTC(),
+		"source":       "generator_v1",
+	}
+	return snap, teacherID, nil
+}
+
+func (g *Generator) loadTeacherSnapshot(ctx context.Context, id uuid.UUID) (datatypes.JSONMap, error) {
+	const q = `
+SELECT
+  mt.masjid_teacher_id                                AS masjid_teacher_id,
+  mt.masjid_teacher_masjid_id                         AS masjid_teacher_masjid_id,
+  COALESCE(mt.masjid_teacher_user_teacher_name_snapshot, ut.user_teacher_name) AS teacher_name,
+  ut.user_teacher_whatsapp_url                        AS whatsapp_url,
+  ut.user_teacher_title_prefix                        AS title_prefix,
+  ut.user_teacher_title_suffix                        AS title_suffix
+FROM masjid_teachers mt
+LEFT JOIN user_teachers ut
+  ON ut.user_teacher_id = mt.masjid_teacher_user_teacher_id
+ AND ut.user_teacher_deleted_at IS NULL
+WHERE mt.masjid_teacher_id = ?
+  AND mt.masjid_teacher_deleted_at IS NULL
+LIMIT 1`
+
+	var row teacherLite
+	if err := g.DB.WithContext(ctx).Raw(q, id).Scan(&row).Error; err != nil {
+		return nil, err
+	}
+	if row.ID == uuid.Nil {
+		return nil, nil
+	}
+
+	return datatypes.JSONMap{
+		"id":           row.ID,
+		"masjid_id":    row.MasjidID,
+		"name":         row.Name,
+		"whatsapp_url": row.Whatsapp,
+		"title_prefix": row.TitlePre,
+		"title_suffix": row.TitleSuf,
+		"captured_at":  time.Now().UTC(),
+		"source":       "generator_v1",
+	}, nil
+}
+
+func (g *Generator) loadRoomSnapshot(ctx context.Context, id uuid.UUID) (datatypes.JSONMap, error) {
+	const q = `
+SELECT class_room_id, class_room_masjid_id, class_room_name, class_room_code, class_room_capacity
+FROM class_rooms
+WHERE class_room_id = ?
+  AND class_room_deleted_at IS NULL
+LIMIT 1`
+	var row roomLite
+	if err := g.DB.WithContext(ctx).Raw(q, id).Scan(&row).Error; err != nil {
+		return nil, err
+	}
+	if row.ID == uuid.Nil {
+		return nil, nil
+	}
+	return datatypes.JSONMap{
+		"id":          row.ID,
+		"masjid_id":   row.MasjidID,
+		"name":        row.Name,
+		"code":        row.Code,
+		"capacity":    row.Capacity,
+		"captured_at": time.Now().UTC(),
+		"source":      "generator_v1",
+	}, nil
+}
+
+// ============================
+// Helpers (schema detection)
+// ============================
+
+func (g *Generator) tableColumns(ctx context.Context, table string) (map[string]struct{}, error) {
+	type colRow struct {
+		ColumnName string `gorm:"column:column_name"`
+	}
+	var rows []colRow
+
+	q := `
+SELECT column_name
+FROM information_schema.columns
+WHERE table_name = ?
+  AND table_schema = ANY (current_schemas(true))`
+	if err := g.DB.WithContext(ctx).Raw(q, table).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string]struct{}, len(rows))
+	for _, r := range rows {
+		out[strings.ToLower(strings.TrimSpace(r.ColumnName))] = struct{}{}
+	}
+	return out, nil
+}
+
+func firstExisting(cols map[string]struct{}, candidates ...string) string {
+	for _, c := range candidates {
+		if _, ok := cols[strings.ToLower(c)]; ok {
+			return c
+		}
+	}
+	return ""
+}
+
+// ============================
+// Helpers (waktu & rule)
 // ============================
 
 func stringsTrimLower(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
 
-// parse "HH:mm[:ss]" ke time.Time (tanggal dummy) dalam UTC basis
+// parse "HH:mm[:ss]" ke time.Time (tanggal dummy) basis UTC
 func parseTODString(s string) (time.Time, error) {
 	if t, err := time.Parse("15:04:05", s); err == nil {
 		return time.Date(2000, 1, 1, t.Hour(), t.Minute(), t.Second(), 0, time.UTC), nil

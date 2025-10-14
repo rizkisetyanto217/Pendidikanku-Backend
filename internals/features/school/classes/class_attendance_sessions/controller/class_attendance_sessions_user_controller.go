@@ -1,7 +1,7 @@
-// internals/features/lembaga/class_sections/attendance_sessions/controller/class_attendance_sessions_user_controller.go
 package controller
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -100,6 +101,15 @@ func parseUUIDList(raw string) ([]uuid.UUID, error) {
 	return out, nil
 }
 
+func jsonToMap(j datatypes.JSON) map[string]any {
+	if len(j) == 0 {
+		return nil
+	}
+	var m map[string]any
+	_ = json.Unmarshal(j, &m)
+	return m
+}
+
 // GET /admin/class-attendance-sessions
 //
 //	?id=&session_id=&cas_id=&teacher_id=&teacher_user_id=&schedule_id=
@@ -134,14 +144,14 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	// konteks guru (prioritas active_masjid_id -> pertama di teacher_records)
 	teacherMasjidID, _ := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
 
-	isAdmin  := (adminMasjidID  != uuid.Nil && adminMasjidID  == masjidID) ||
-				helperAuth.HasRoleInMasjid(c, masjidID, "admin") ||
-				helperAuth.HasRoleInMasjid(c, masjidID, "dkm")   ||
-				helperAuth.IsDKMInMasjid(c, masjidID)
+	isAdmin := (adminMasjidID != uuid.Nil && adminMasjidID == masjidID) ||
+		helperAuth.HasRoleInMasjid(c, masjidID, "admin") ||
+		helperAuth.HasRoleInMasjid(c, masjidID, "dkm") ||
+		helperAuth.IsDKMInMasjid(c, masjidID)
 
 	isTeacher := (teacherMasjidID != uuid.Nil && teacherMasjidID == masjidID) ||
-				helperAuth.HasRoleInMasjid(c, masjidID, "teacher") ||
-				helperAuth.IsTeacherInMasjid(c, masjidID)
+		helperAuth.HasRoleInMasjid(c, masjidID, "teacher") ||
+		helperAuth.IsTeacherInMasjid(c, masjidID)
 
 	// ===== Includes =====
 	includeStr := strings.ToLower(strings.TrimSpace(c.Query("include")))
@@ -224,14 +234,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	db := ctrl.DB
 	qBase := db.Table("class_attendance_sessions AS cas").
 		Scopes(scopeMasjid(masjidID), scopeDateBetween(df, dt), scopeSchedule(scheduleIDPtr)).
-		Where("cas.class_attendance_session_deleted_at IS NULL").
-		// JOIN ke class_schedules hanya untuk validasi schedule dari CAS
-		Joins(`
-			LEFT JOIN class_schedules AS sch
-			  ON sch.class_schedule_id = cas.class_attendance_session_schedule_id
-			 AND sch.class_schedule_masjid_id = cas.class_attendance_session_masjid_id
-			 AND sch.class_schedule_deleted_at IS NULL
-		`)
+		Where("cas.class_attendance_session_deleted_at IS NULL")
 
 	// additional filters
 	if len(sessionIDs) > 0 {
@@ -244,15 +247,15 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		qBase = qBase.
 			Joins(`LEFT JOIN masjid_teachers mt_cas
                      ON mt_cas.masjid_teacher_id = cas.class_attendance_session_teacher_id
-                    AND mt_cas.masjid_teacher_deleted_at IS NULL`).
-			Where(`mt_cas.masjid_teacher_user_id = ? AND mt_cas.masjid_teacher_masjid_id = ?`,
-				*teacherUserIDPtr, masjidID,
-			)
+                    AND mt_cas.masjid_teacher_deleted_at IS NULL
+                    AND mt_cas.masjid_teacher_masjid_id = cas.class_attendance_session_masjid_id`).
+			Where(`mt_cas.masjid_teacher_user_id = ?`, *teacherUserIDPtr)
 	}
 	if like != nil {
 		qBase = qBase.Where(`
 			(cas.class_attendance_session_title ILIKE ?
-			 OR cas.class_attendance_session_general_info ILIKE ?)`, *like, *like)
+			 OR cas.class_attendance_session_general_info ILIKE ?
+             OR cas.class_attendance_session_display_title ILIKE ?)`, *like, *like, *like)
 	}
 
 	// ===== Total (distinct id) =====
@@ -269,12 +272,32 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		MasjidID   uuid.UUID  `gorm:"column:class_attendance_session_masjid_id"`
 		ScheduleID uuid.UUID  `gorm:"column:class_attendance_session_schedule_id"`
 		RoomID     *uuid.UUID `gorm:"column:class_attendance_session_class_room_id"`
-		Date       time.Time  `gorm:"column:class_attendance_session_date"`
-		Title      *string    `gorm:"column:class_attendance_session_title"`
-		General    string     `gorm:"column:class_attendance_session_general_info"`
-		Note       *string    `gorm:"column:class_attendance_session_note"`
-		TeacherID  *uuid.UUID `gorm:"column:class_attendance_session_teacher_id"`
-		DeletedAt  *time.Time `gorm:"column:class_attendance_session_deleted_at"`
+
+		Date  time.Time `gorm:"column:class_attendance_session_date"`
+		Title *string   `gorm:"column:class_attendance_session_title"`
+		Disp  *string   `gorm:"column:class_attendance_session_display_title"`
+		Gen   string    `gorm:"column:class_attendance_session_general_info"`
+		Note  *string   `gorm:"column:class_attendance_session_note"`
+
+		TeacherID *uuid.UUID `gorm:"column:class_attendance_session_teacher_id"`
+		DeletedAt *time.Time `gorm:"column:class_attendance_session_deleted_at"`
+
+		// Snapshots raw
+		CSSTSnap    datatypes.JSON `gorm:"column:class_attendance_session_csst_snapshot"`
+		TeacherSnap datatypes.JSON `gorm:"column:class_attendance_session_teacher_snapshot"`
+		RoomSnap    datatypes.JSON `gorm:"column:class_attendance_session_room_snapshot"`
+
+		// Generated from CSST snapshot
+		CSSTIDSnap      *uuid.UUID `gorm:"column:class_attendance_session_csst_id_snap"`
+		SubjectIDSnap   *uuid.UUID `gorm:"column:class_attendance_session_subject_id_snap"`
+		SectionIDSnap   *uuid.UUID `gorm:"column:class_attendance_session_section_id_snap"`
+		TeacherIDSnap   *uuid.UUID `gorm:"column:class_attendance_session_teacher_id_snap"`
+		RoomIDSnap      *uuid.UUID `gorm:"column:class_attendance_session_room_id_snap"`
+		SubjectCodeSnap *string    `gorm:"column:class_attendance_session_subject_code_snap"`
+		SubjectNameSnap *string    `gorm:"column:class_attendance_session_subject_name_snap"`
+		SectionNameSnap *string    `gorm:"column:class_attendance_session_section_name_snap"`
+		TeacherNameSnap *string    `gorm:"column:class_attendance_session_teacher_name_snap"`
+		RoomNameSnap    *string    `gorm:"column:class_attendance_session_room_name_snap"`
 	}
 	var rows []row
 	if err := qBase.
@@ -283,12 +306,29 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			cas.class_attendance_session_masjid_id,
 			cas.class_attendance_session_schedule_id,
 			cas.class_attendance_session_class_room_id,
+
 			cas.class_attendance_session_date,
 			cas.class_attendance_session_title,
+			cas.class_attendance_session_display_title,
 			cas.class_attendance_session_general_info,
 			cas.class_attendance_session_note,
 			cas.class_attendance_session_teacher_id,
-			cas.class_attendance_session_deleted_at
+			cas.class_attendance_session_deleted_at,
+
+			cas.class_attendance_session_csst_snapshot,
+			cas.class_attendance_session_teacher_snapshot,
+			cas.class_attendance_session_room_snapshot,
+
+			cas.class_attendance_session_csst_id_snap,
+			cas.class_attendance_session_subject_id_snap,
+			cas.class_attendance_session_section_id_snap,
+			cas.class_attendance_session_teacher_id_snap,
+			cas.class_attendance_session_room_id_snap,
+			cas.class_attendance_session_subject_code_snap,
+			cas.class_attendance_session_subject_name_snap,
+			cas.class_attendance_session_section_name_snap,
+			cas.class_attendance_session_teacher_name_snap,
+			cas.class_attendance_session_room_name_snap
 		`).
 		Order(orderExpr).
 		Order("cas.class_attendance_session_date DESC, cas.class_attendance_session_id DESC").
@@ -444,16 +484,39 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	// ===== Compose output =====
 	buildBase := func(r row) sessiondto.ClassAttendanceSessionResponse {
 		return sessiondto.ClassAttendanceSessionResponse{
-			ClassAttendanceSessionId:          r.ID,
-			ClassAttendanceSessionMasjidId:    r.MasjidID,
-			ClassAttendanceSessionScheduleId:  r.ScheduleID,
-			ClassAttendanceSessionDate:        r.Date,
-			ClassAttendanceSessionTitle:       r.Title,
-			ClassAttendanceSessionGeneralInfo: r.General,
-			ClassAttendanceSessionNote:        r.Note,
+			ClassAttendanceSessionId:           r.ID,
+			ClassAttendanceSessionMasjidId:     r.MasjidID,
+			ClassAttendanceSessionScheduleId:   r.ScheduleID,
+			ClassAttendanceSessionDate:         r.Date,
+			ClassAttendanceSessionTitle:        r.Title,
+			ClassAttendanceSessionDisplayTitle: r.Disp,
+			ClassAttendanceSessionGeneralInfo:  r.Gen,
+			ClassAttendanceSessionNote:         r.Note,
+
+			// Override FKs
 			ClassAttendanceSessionTeacherId:   r.TeacherID,
-			ClassAttendanceSessionDeletedAt:   r.DeletedAt,
-			// Section/Subject dibiarkan nil
+			ClassAttendanceSessionClassRoomId: r.RoomID,
+
+			// Snapshots (raw → map)
+			ClassAttendanceSessionCSSTSnapshot:    jsonToMap(r.CSSTSnap),
+			ClassAttendanceSessionTeacherSnapshot: jsonToMap(r.TeacherSnap),
+			ClassAttendanceSessionRoomSnapshot:    jsonToMap(r.RoomSnap),
+
+			// Generated from CSST snapshot
+			ClassAttendanceSessionCSSTIdSnap:      r.CSSTIDSnap,
+			ClassAttendanceSessionSubjectIdSnap:   r.SubjectIDSnap,
+			ClassAttendanceSessionSectionIdSnap:   r.SectionIDSnap,
+			ClassAttendanceSessionTeacherIdSnap:   r.TeacherIDSnap,
+			ClassAttendanceSessionRoomIdSnap:      r.RoomIDSnap,
+			ClassAttendanceSessionSubjectCodeSnap: r.SubjectCodeSnap,
+			ClassAttendanceSessionSubjectNameSnap: r.SubjectNameSnap,
+			ClassAttendanceSessionSectionNameSnap: r.SectionNameSnap,
+			ClassAttendanceSessionTeacherNameSnap: r.TeacherNameSnap,
+			ClassAttendanceSessionRoomNameSnap:    r.RoomNameSnap,
+
+			ClassAttendanceSessionDeletedAt: r.DeletedAt,
+			// status/attendance_status/locked and timestamps tidak dipilih di query ringan ini
+			// (kalau perlu, tambahkan kolom SELECT di atas)
 		}
 	}
 
@@ -563,42 +626,28 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 	}
 
 	db := ctrl.DB
+	// Cakup dua kemungkinan: override teacher (FK langsung) & teacher dari snapshot (generated *_snap)
 	qBase := db.Table("class_attendance_sessions AS cas").
 		Joins(`
-			LEFT JOIN masjid_teachers AS mt
-			  ON mt.masjid_teacher_id = cas.class_attendance_session_teacher_id
-			 AND mt.masjid_teacher_deleted_at IS NULL
+			LEFT JOIN masjid_teachers AS mt_override
+			  ON mt_override.masjid_teacher_id = cas.class_attendance_session_teacher_id
+			 AND mt_override.masjid_teacher_deleted_at IS NULL
+			 AND mt_override.masjid_teacher_masjid_id = cas.class_attendance_session_masjid_id
 		`).
 		Joins(`
-			LEFT JOIN class_schedules AS cs
-			  ON cs.class_schedule_id = cas.class_attendance_session_schedule_id
-			 AND cs.class_schedule_deleted_at IS NULL
-			 AND cs.class_schedule_is_active
-		`).
-		Joins(`
-			LEFT JOIN masjid_teachers AS mt2
-			  ON mt2.masjid_teacher_id = cs.class_schedules_teacher_id
-			 AND mt2.masjid_teacher_deleted_at IS NULL
-		`).
-		Joins(`
-			LEFT JOIN class_section_subject_teachers AS csst
-			  ON csst.class_section_subject_teachers_id = cs.class_schedules_csst_id
-			 AND csst.class_section_subject_teachers_deleted_at IS NULL
-		`).
-		Joins(`
-			LEFT JOIN masjid_teachers AS mt3
-			  ON mt3.masjid_teacher_id = csst.class_section_subject_teachers_teacher_id
-			 AND mt3.masjid_teacher_deleted_at IS NULL
+			LEFT JOIN masjid_teachers AS mt_snap
+			  ON mt_snap.masjid_teacher_id = cas.class_attendance_session_teacher_id_snap
+			 AND mt_snap.masjid_teacher_deleted_at IS NULL
+			 AND mt_snap.masjid_teacher_masjid_id = cas.class_attendance_session_masjid_id
 		`).
 		Where(`
 			cas.class_attendance_session_masjid_id = ?
 			AND cas.class_attendance_session_deleted_at IS NULL
 			AND (
-			     mt.masjid_teacher_user_id = ?
-			  OR mt2.masjid_teacher_user_id = ?
-			  OR mt3.masjid_teacher_user_id = ?
+			     mt_override.masjid_teacher_user_id = ?
+			  OR mt_snap.masjid_teacher_user_id = ?
 			)
-		`, masjidID, userID, userID, userID)
+		`, masjidID, userID, userID)
 
 	// Filter tanggal opsional
 	if lo != nil && hi != nil {
@@ -609,13 +658,13 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 		qBase = qBase.Where("cas.class_attendance_session_date < ?", *hi)
 	}
 
-	// Opsional: section_id
+	// Opsional: section_id (pakai generated snap)
 	if s := strings.TrimSpace(c.Query("section_id")); s != "" {
 		id, e := uuid.Parse(s)
 		if e != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "section_id tidak valid")
 		}
-		qBase = qBase.Where("COALESCE(cs.class_schedules_section_id, csst.class_section_subject_teachers_section_id) = ?", id)
+		qBase = qBase.Where("cas.class_attendance_session_section_id_snap = ?", id)
 	}
 
 	// Opsional: schedule_id
@@ -630,7 +679,7 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 	// Keyword
 	if q := strings.TrimSpace(c.Query("q")); q != "" {
 		pat := "%" + q + "%"
-		qBase = qBase.Where(`(cas.class_attendance_session_title ILIKE ? OR cas.class_attendance_session_general_info ILIKE ?)`, pat, pat)
+		qBase = qBase.Where(`(cas.class_attendance_session_title ILIKE ? OR cas.class_attendance_session_general_info ILIKE ? OR cas.class_attendance_session_display_title ILIKE ?)`, pat, pat, pat)
 	}
 
 	// Total distinct
@@ -641,18 +690,19 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 
 	// Data
 	type row struct {
-		ID         uuid.UUID  `gorm:"column:id"`
-		MasjidID   uuid.UUID  `gorm:"column:masjid_id"`
-		Date       time.Time  `gorm:"column:date"`
-		Title      *string    `gorm:"column:title"`
-		General    string     `gorm:"column:general"`
-		Note       *string    `gorm:"column:note"`
-		TeacherID  *uuid.UUID `gorm:"column:teacher_id"`
-		RoomID     *uuid.UUID `gorm:"column:room_id"`
-		ScheduleID uuid.UUID  `gorm:"column:schedule_id"`
-		SectionID  *uuid.UUID `gorm:"column:section_id"`
-		SubjectID  *uuid.UUID `gorm:"column:subject_id"`
-		DeletedAt  *time.Time `gorm:"column:deleted_at"`
+		ID            uuid.UUID  `gorm:"column:id"`
+		MasjidID      uuid.UUID  `gorm:"column:masjid_id"`
+		Date          time.Time  `gorm:"column:date"`
+		Title         *string    `gorm:"column:title"`
+		Display       *string    `gorm:"column:display"`
+		General       string     `gorm:"column:general"`
+		Note          *string    `gorm:"column:note"`
+		TeacherID     *uuid.UUID `gorm:"column:teacher_id"`
+		RoomID        *uuid.UUID `gorm:"column:room_id"`
+		ScheduleID    uuid.UUID  `gorm:"column:schedule_id"`
+		SectionIDSnap *uuid.UUID `gorm:"column:section_id_snap"`
+		SubjectIDSnap *uuid.UUID `gorm:"column:subject_id_snap"`
+		DeletedAt     *time.Time `gorm:"column:deleted_at"`
 	}
 	var rows []row
 	if err := qBase.
@@ -661,14 +711,15 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 			cas.class_attendance_session_masjid_id  AS masjid_id,
 			cas.class_attendance_session_date       AS date,
 			cas.class_attendance_session_title      AS title,
+			cas.class_attendance_session_display_title AS display,
 			cas.class_attendance_session_general_info AS general,
 			cas.class_attendance_session_note       AS note,
 			cas.class_attendance_session_teacher_id AS teacher_id,
 			cas.class_attendance_session_class_room_id AS room_id,
 			cas.class_attendance_session_schedule_id   AS schedule_id,
 			cas.class_attendance_session_deleted_at AS deleted_at,
-			COALESCE(cs.class_schedules_section_id, csst.class_section_subject_teachers_section_id) AS section_id,
-			COALESCE(cs.class_schedules_class_subject_id, csst.class_section_subject_teachers_class_subjects_id) AS subject_id
+			cas.class_attendance_session_section_id_snap AS section_id_snap,
+			cas.class_attendance_session_subject_id_snap AS subject_id_snap
 		`).
 		Order(orderExpr).
 		Order("cas.class_attendance_session_date DESC, cas.class_attendance_session_id DESC").
@@ -681,17 +732,21 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 	resp := make([]sessiondto.ClassAttendanceSessionResponse, 0, len(rows))
 	for _, r := range rows {
 		resp = append(resp, sessiondto.ClassAttendanceSessionResponse{
-			ClassAttendanceSessionId:          r.ID,
-			ClassAttendanceSessionMasjidId:    r.MasjidID,
-			ClassAttendanceSessionScheduleId:  r.ScheduleID,
-			ClassAttendanceSessionDate:        r.Date,
-			ClassAttendanceSessionTitle:       r.Title,
-			ClassAttendanceSessionGeneralInfo: r.General,
-			ClassAttendanceSessionNote:        r.Note,
-			ClassAttendanceSessionTeacherId:   r.TeacherID,
-			ClassAttendanceSessionDeletedAt:   r.DeletedAt,
-			ClassSectionId:                    r.SectionID,
-			ClassSubjectId:                    r.SubjectID,
+			ClassAttendanceSessionId:           r.ID,
+			ClassAttendanceSessionMasjidId:     r.MasjidID,
+			ClassAttendanceSessionScheduleId:   r.ScheduleID,
+			ClassAttendanceSessionDate:         r.Date,
+			ClassAttendanceSessionTitle:        r.Title,
+			ClassAttendanceSessionDisplayTitle: r.Display,
+			ClassAttendanceSessionGeneralInfo:  r.General,
+			ClassAttendanceSessionNote:         r.Note,
+			ClassAttendanceSessionTeacherId:    r.TeacherID,
+			ClassAttendanceSessionClassRoomId:  r.RoomID,
+			ClassAttendanceSessionDeletedAt:    r.DeletedAt,
+
+			// pakai snap (tanpa JOIN berat)
+			ClassAttendanceSessionSectionIdSnap: r.SectionIDSnap,
+			ClassAttendanceSessionSubjectIdSnap: r.SubjectIDSnap,
 		})
 	}
 

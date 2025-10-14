@@ -1,12 +1,13 @@
+-- +migrate Up
 -- =========================================
 -- EXTENSIONS (idempotent)
 -- =========================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram (ILIKE search)
-CREATE EXTENSION IF NOT EXISTS btree_gin;  -- opsional; kombinasikan dengan partial/expr index
+CREATE EXTENSION IF NOT EXISTS btree_gin;  -- opsional; untuk kombinasi tertentu
 
 -- =========================================
--- ENUMS (idempotent, kalau belum ada)
+-- ENUMS (idempotent)
 -- =========================================
 DO $$
 BEGIN
@@ -16,31 +17,25 @@ BEGIN
 END$$;
 
 -- =========================================
--- TABLE: class_attendance_sessions
+-- TABLE: class_attendance_sessions (fresh create)
 -- =========================================
 CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  -- tenant guard
+  -- tenant
   class_attendance_session_masjid_id   UUID NOT NULL,
 
-  -- relasi utama: header jadwal (template)
+  -- relasi utama: schedule (header)
   class_attendance_session_schedule_id UUID NOT NULL,
 
-  -- FK komposit tenant-safe → schedules
-  CONSTRAINT fk_cas_schedule_tenant
-    FOREIGN KEY (class_attendance_session_masjid_id, class_attendance_session_schedule_id)
-    REFERENCES class_schedules (class_schedule_masjid_id, class_schedule_id)
-    ON UPDATE CASCADE ON DELETE RESTRICT,
-
-  -- (opsional) jejak rule (slot mingguan) asal occurrence
+  -- jejak rule asal occurrence (opsional)
   class_attendance_session_rule_id UUID
     REFERENCES class_schedule_rules(class_schedule_rule_id) ON DELETE SET NULL,
 
   -- SLUG (opsional; unik per tenant saat alive)
   class_attendance_session_slug VARCHAR(160),
 
-  -- occurrence
+  -- occurrence (tanggal + waktu)
   class_attendance_session_date      DATE NOT NULL,
   class_attendance_session_starts_at TIMESTAMPTZ,
   class_attendance_session_ends_at   TIMESTAMPTZ,
@@ -50,7 +45,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_attendance_status TEXT NOT NULL DEFAULT 'open',                     -- open|closed
   class_attendance_session_locked            BOOLEAN NOT NULL DEFAULT FALSE,
 
-  -- OVERRIDES (ubah harian tanpa mengubah rules)
+  -- overrides (ubah harian tanpa mengubah rules)
   class_attendance_session_is_override BOOLEAN NOT NULL DEFAULT FALSE,
   class_attendance_session_is_canceled BOOLEAN NOT NULL DEFAULT FALSE,
   class_attendance_session_original_start_at TIMESTAMPTZ,
@@ -59,7 +54,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_override_reason TEXT,
   class_attendance_session_override_event_id UUID, -- utk relasi/cek/index override event
 
-  -- override resource (opsional)
+  -- override resource (referensi langsung; opsional)
   class_attendance_session_teacher_id    UUID REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE SET NULL,
   class_attendance_session_class_room_id UUID REFERENCES class_rooms(class_room_id)         ON DELETE SET NULL,
   class_attendance_session_csst_id       UUID REFERENCES class_section_subject_teachers(class_section_subject_teacher_id) ON DELETE SET NULL,
@@ -75,10 +70,59 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_sick_count    INT,
   class_attendance_session_leave_count   INT,
 
+  -- SNAPSHOTS (untuk render/filter tanpa JOIN)
+  class_attendance_session_csst_snapshot    JSONB,
+  class_attendance_session_teacher_snapshot JSONB,
+  class_attendance_session_room_snapshot    JSONB,
+
+  -- ===== Generated from CSST snapshot =====
+  class_attendance_session_csst_id_snap        UUID GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'csst_id')::uuid) STORED,
+  class_attendance_session_subject_id_snap     UUID GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'subject_id')::uuid) STORED,
+  class_attendance_session_section_id_snap     UUID GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'section_id')::uuid) STORED,
+  class_attendance_session_teacher_id_snap     UUID GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'teacher_id')::uuid) STORED,
+  class_attendance_session_room_id_snap        UUID GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'room_id')::uuid) STORED,
+
+  class_attendance_session_subject_code_snap   TEXT GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'subject_code')) STORED,
+  class_attendance_session_subject_name_snap   TEXT GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'subject_name')) STORED,
+  class_attendance_session_section_name_snap   TEXT GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'section_name')) STORED,
+  class_attendance_session_teacher_name_snap   TEXT GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'teacher_name')) STORED,
+  class_attendance_session_room_name_snap      TEXT GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'room_name')) STORED,
+
+  class_attendance_session_display_title TEXT
+    GENERATED ALWAYS AS (
+      NULLIF(
+        COALESCE(
+          (class_attendance_session_csst_snapshot->>'subject_name'),
+          (class_attendance_session_csst_snapshot->>'subject_code'),
+          ''
+        )
+        || CASE WHEN (class_attendance_session_csst_snapshot->>'section_name') IS NOT NULL
+           THEN ' — ' || (class_attendance_session_csst_snapshot->>'section_name') ELSE '' END
+        || CASE WHEN (class_attendance_session_csst_snapshot->>'teacher_name') IS NOT NULL
+           THEN ' (' || (class_attendance_session_csst_snapshot->>'teacher_name') || ')' ELSE '' END
+      , '')
+    ) STORED,
+
+  -- ===== Generated from TEACHER override snapshot =====
+  class_attendance_session_override_teacher_id_snap   UUID GENERATED ALWAYS AS ((class_attendance_session_teacher_snapshot->>'teacher_id')::uuid) STORED,
+  class_attendance_session_override_teacher_name_snap TEXT GENERATED ALWAYS AS ((class_attendance_session_teacher_snapshot->>'teacher_name')) STORED,
+  class_attendance_session_override_teacher_code_snap TEXT GENERATED ALWAYS AS ((class_attendance_session_teacher_snapshot->>'teacher_code')) STORED,
+
+  -- ===== Generated from ROOM override snapshot =====
+  class_attendance_session_override_room_id_snap   UUID GENERATED ALWAYS AS ((class_attendance_session_room_snapshot->>'room_id')::uuid) STORED,
+  class_attendance_session_override_room_name_snap TEXT GENERATED ALWAYS AS ((class_attendance_session_room_snapshot->>'room_name')) STORED,
+  class_attendance_session_override_room_loc_snap  TEXT GENERATED ALWAYS AS ((class_attendance_session_room_snapshot->>'location')) STORED,
+
   -- audit
   class_attendance_session_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_attendance_session_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_attendance_session_deleted_at TIMESTAMPTZ,
+
+  -- FK komposit tenant-safe → schedules
+  CONSTRAINT fk_cas_schedule_tenant
+    FOREIGN KEY (class_attendance_session_masjid_id, class_attendance_session_schedule_id)
+    REFERENCES class_schedules (class_schedule_masjid_id, class_schedule_id)
+    ON UPDATE CASCADE ON DELETE RESTRICT,
 
   -- CHECKS
   CONSTRAINT chk_cas_time_order
@@ -103,10 +147,10 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
 );
 
 -- =========================================
--- INDEXES: class_attendance_sessions
+-- INDEXES (idempotent)
 -- =========================================
 
--- Pair unik id+tenant (tenant-safe)
+-- Pair unik id+tenant
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_id_tenant
   ON class_attendance_sessions (class_attendance_session_id, class_attendance_session_masjid_id);
 
@@ -119,13 +163,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_slug_per_tenant_alive
   WHERE class_attendance_session_deleted_at IS NULL
     AND class_attendance_session_slug IS NOT NULL;
 
--- pencarian slug cepat (trgm pada lower(expr))
+-- pencarian slug cepat
 CREATE INDEX IF NOT EXISTS gin_cas_slug_trgm_alive
   ON class_attendance_sessions USING GIN ((lower(class_attendance_session_slug)) gin_trgm_ops)
   WHERE class_attendance_session_deleted_at IS NULL
     AND class_attendance_session_slug IS NOT NULL;
 
--- Satu baris per (tenant, schedule, date) yang masih hidup
+-- Unik per (tenant, schedule, date) yg alive
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_masjid_schedule_date_alive
   ON class_attendance_sessions (
     class_attendance_session_masjid_id,
@@ -142,7 +186,7 @@ CREATE INDEX IF NOT EXISTS idx_cas_masjid_date_alive
   )
   WHERE class_attendance_session_deleted_at IS NULL;
 
--- Per schedule (ambil range tanggal cepat)
+-- Per schedule
 CREATE INDEX IF NOT EXISTS idx_cas_schedule_date_alive
   ON class_attendance_sessions (
     class_attendance_session_schedule_id,
@@ -150,7 +194,7 @@ CREATE INDEX IF NOT EXISTS idx_cas_schedule_date_alive
   )
   WHERE class_attendance_session_deleted_at IS NULL;
 
--- Lookup per guru
+-- Lookup per guru (override direct)
 CREATE INDEX IF NOT EXISTS idx_cas_teacher_date_alive
   ON class_attendance_sessions (
     class_attendance_session_masjid_id,
@@ -159,7 +203,7 @@ CREATE INDEX IF NOT EXISTS idx_cas_teacher_date_alive
   )
   WHERE class_attendance_session_deleted_at IS NULL;
 
--- Quality-of-life untuk operasi mass override/cancel
+-- Canceled / Override flags
 CREATE INDEX IF NOT EXISTS idx_cas_canceled_date_alive
   ON class_attendance_sessions (
     class_attendance_session_masjid_id,
@@ -189,17 +233,42 @@ CREATE INDEX IF NOT EXISTS idx_cas_rule_alive
   ON class_attendance_sessions (class_attendance_session_rule_id)
   WHERE class_attendance_session_deleted_at IS NULL;
 
--- Unik per schedule+start (dedup occurrence)
+-- Unik per schedule+start (dedup occurrence by schedule)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_sched_start
   ON class_attendance_sessions (
     class_attendance_session_schedule_id,
     class_attendance_session_starts_at
   );
 
--- BRIN untuk time-scan besar
+-- Unik per (tenant, csst_id_snap, date, starts_at) — idempotent materialize
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_tenant_csst_date_start_alive
+  ON class_attendance_sessions (
+    class_attendance_session_masjid_id,
+    class_attendance_session_csst_id_snap,
+    class_attendance_session_date,
+    class_attendance_session_starts_at
+  )
+  WHERE class_attendance_session_deleted_at IS NULL;
+
+-- BRIN untuk scan besar by created_at
 CREATE INDEX IF NOT EXISTS brin_cas_created_at
   ON class_attendance_sessions USING BRIN (class_attendance_session_created_at);
 
+-- Pencarian cepat judul untuk kalender
+CREATE INDEX IF NOT EXISTS idx_cas_masjid_date_title_alive
+  ON class_attendance_sessions (
+    class_attendance_session_masjid_id,
+    class_attendance_session_date DESC,
+    class_attendance_session_display_title
+  )
+  WHERE class_attendance_session_deleted_at IS NULL;
+
+-- Trigram pada display_title (case-insensitive)
+CREATE INDEX IF NOT EXISTS gin_cas_display_title_trgm_alive
+  ON class_attendance_sessions
+  USING GIN ((lower(class_attendance_session_display_title)) gin_trgm_ops)
+  WHERE class_attendance_session_deleted_at IS NULL
+    AND class_attendance_session_display_title IS NOT NULL;
 
 
 -- =========================================

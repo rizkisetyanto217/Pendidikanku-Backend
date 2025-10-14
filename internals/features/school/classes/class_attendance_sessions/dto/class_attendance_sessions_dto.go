@@ -1,4 +1,3 @@
-// file: internals/features/school/attendance/sessions/dto/class_attendance_session_dto.go
 package dto
 
 import (
@@ -9,7 +8,6 @@ import (
 	model "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
 
 	"github.com/google/uuid"
-	"gorm.io/datatypes"
 )
 
 /* ========================================================
@@ -289,15 +287,18 @@ type ListClassAttendanceSessionQuery struct {
    ======================================================== */
 
 type ClassAttendanceSessionResponse struct {
-	ClassAttendanceSessionId       uuid.UUID `json:"class_attendance_session_id"`
-	ClassAttendanceSessionMasjidId uuid.UUID `json:"class_attendance_session_masjid_id"`
-
-	// Tabel utama
+	ClassAttendanceSessionId         uuid.UUID `json:"class_attendance_session_id"`
+	ClassAttendanceSessionMasjidId   uuid.UUID `json:"class_attendance_session_masjid_id"`
 	ClassAttendanceSessionScheduleId uuid.UUID `json:"class_attendance_session_schedule_id"`
 
 	// Identity
-	ClassAttendanceSessionSlug  *string `json:"class_attendance_session_slug,omitempty"`
-	ClassAttendanceSessionTitle *string `json:"class_attendance_session_title,omitempty"`
+	ClassAttendanceSessionSlug         *string `json:"class_attendance_session_slug,omitempty"`
+	ClassAttendanceSessionTitle        *string `json:"class_attendance_session_title,omitempty"`
+	ClassAttendanceSessionDisplayTitle *string `json:"class_attendance_session_display_title,omitempty"`
+
+	// Info & rekap (DITAMBAHKAN KEMBALI)
+	ClassAttendanceSessionGeneralInfo string  `json:"class_attendance_session_general_info"`
+	ClassAttendanceSessionNote        *string `json:"class_attendance_session_note,omitempty"`
 
 	// Occurrence
 	ClassAttendanceSessionDate     time.Time  `json:"class_attendance_session_date"`
@@ -316,40 +317,31 @@ type ClassAttendanceSessionResponse struct {
 	ClassAttendanceSessionOriginalEndAt   *time.Time `json:"class_attendance_session_original_end_at,omitempty"`
 	ClassAttendanceSessionKind            *string    `json:"class_attendance_session_kind,omitempty"`
 	ClassAttendanceSessionOverrideReason  *string    `json:"class_attendance_session_override_reason,omitempty"`
-
-	// Single override event
 	ClassAttendanceSessionOverrideEventId *uuid.UUID `json:"class_attendance_session_override_event_id,omitempty"`
 
-	// Override resources
+	// Override resources (direct FK override)
 	ClassAttendanceSessionTeacherId   *uuid.UUID `json:"class_attendance_session_teacher_id,omitempty"`
 	ClassAttendanceSessionClassRoomId *uuid.UUID `json:"class_attendance_session_class_room_id,omitempty"`
 	ClassAttendanceSessionCSSTId      *uuid.UUID `json:"class_attendance_session_csst_id,omitempty"`
 
-	// Enrichment guru (opsional)
-	ClassAttendanceSessionTeacherName  *string `json:"class_attendance_session_teacher_name,omitempty"`
-	ClassAttendanceSessionTeacherEmail *string `json:"class_attendance_session_teacher_email,omitempty"`
+	// Snapshots (raw) — langsung kirim ke UI
+	ClassAttendanceSessionCSSTSnapshot    map[string]any `json:"class_attendance_session_csst_snapshot,omitempty"`
+	ClassAttendanceSessionTeacherSnapshot map[string]any `json:"class_attendance_session_teacher_snapshot,omitempty"`
+	ClassAttendanceSessionRoomSnapshot    map[string]any `json:"class_attendance_session_room_snapshot,omitempty"`
 
-	// Info & rekap
-	ClassAttendanceSessionGeneralInfo string  `json:"class_attendance_session_general_info"`
-	ClassAttendanceSessionNote        *string `json:"class_attendance_session_note,omitempty"`
+	// Generated from CSST snapshot (read-only)
+	ClassAttendanceSessionCSSTIdSnap      *uuid.UUID `json:"class_attendance_session_csst_id_snap,omitempty"`
+	ClassAttendanceSessionSubjectIdSnap   *uuid.UUID `json:"class_attendance_session_subject_id_snap,omitempty"`
+	ClassAttendanceSessionSectionIdSnap   *uuid.UUID `json:"class_attendance_session_section_id_snap,omitempty"`
+	ClassAttendanceSessionTeacherIdSnap   *uuid.UUID `json:"class_attendance_session_teacher_id_snap,omitempty"`
+	ClassAttendanceSessionRoomIdSnap      *uuid.UUID `json:"class_attendance_session_room_id_snap,omitempty"`
+	ClassAttendanceSessionSubjectCodeSnap *string    `json:"class_attendance_session_subject_code_snap,omitempty"`
+	ClassAttendanceSessionSubjectNameSnap *string    `json:"class_attendance_session_subject_name_snap,omitempty"`
+	ClassAttendanceSessionSectionNameSnap *string    `json:"class_attendance_session_section_name_snap,omitempty"`
+	ClassAttendanceSessionTeacherNameSnap *string    `json:"class_attendance_session_teacher_name_snap,omitempty"`
+	ClassAttendanceSessionRoomNameSnap    *string    `json:"class_attendance_session_room_name_snap,omitempty"`
 
-	ClassAttendanceSessionPresentCount *int `json:"class_attendance_session_present_count,omitempty"`
-	ClassAttendanceSessionAbsentCount  *int `json:"class_attendance_session_absent_count,omitempty"`
-	ClassAttendanceSessionLateCount    *int `json:"class_attendance_session_late_count,omitempty"`
-	ClassAttendanceSessionExcusedCount *int `json:"class_attendance_session_excused_count,omitempty"`
-	ClassAttendanceSessionSickCount    *int `json:"class_attendance_session_sick_count,omitempty"`
-	ClassAttendanceSessionLeaveCount   *int `json:"class_attendance_session_leave_count,omitempty"`
-
-	// Enrichment opsional (hasil JOIN)
-	ClassSectionId       *uuid.UUID     `json:"class_sections_id,omitempty"`
-	ClassSubjectId       *uuid.UUID     `json:"class_subjects_id,omitempty"`
-	ClassSectionSlug     *string        `json:"class_sections_slug,omitempty"`
-	ClassSectionName     *string        `json:"class_sections_name,omitempty"`
-	ClassSectionCode     *string        `json:"class_sections_code,omitempty"`
-	ClassSectionCapacity *int           `json:"class_sections_capacity,omitempty"`
-	ClassSectionSchedule datatypes.JSON `json:"class_sections_schedule,omitempty"`
-
-	// Audit & soft delete (opsional)
+	// Audit & soft delete
 	ClassAttendanceSessionCreatedAt time.Time  `json:"class_attendance_session_created_at"`
 	ClassAttendanceSessionUpdatedAt time.Time  `json:"class_attendance_session_updated_at"`
 	ClassAttendanceSessionDeletedAt *time.Time `json:"class_attendance_session_deleted_at,omitempty"`
@@ -435,13 +427,26 @@ func FromClassAttendanceSessionModel(m model.ClassAttendanceSessionModel) ClassA
 		deletedAt = &m.ClassAttendanceSessionDeletedAt.Time
 	}
 
+	// snapshots → map[string]any
+	var csstSnap, teacherSnap, roomSnap map[string]any
+	if m.ClassAttendanceSessionCSSTSnapshot != nil {
+		csstSnap = map[string]any(m.ClassAttendanceSessionCSSTSnapshot)
+	}
+	if m.ClassAttendanceSessionTeacherSnapshot != nil {
+		teacherSnap = map[string]any(m.ClassAttendanceSessionTeacherSnapshot)
+	}
+	if m.ClassAttendanceSessionRoomSnapshot != nil {
+		roomSnap = map[string]any(m.ClassAttendanceSessionRoomSnapshot)
+	}
+
 	return ClassAttendanceSessionResponse{
 		ClassAttendanceSessionId:         m.ClassAttendanceSessionID,
 		ClassAttendanceSessionMasjidId:   m.ClassAttendanceSessionMasjidID,
 		ClassAttendanceSessionScheduleId: m.ClassAttendanceSessionScheduleID,
 
-		ClassAttendanceSessionSlug:  m.ClassAttendanceSessionSlug,
-		ClassAttendanceSessionTitle: m.ClassAttendanceSessionTitle,
+		ClassAttendanceSessionSlug:         m.ClassAttendanceSessionSlug,
+		ClassAttendanceSessionTitle:        m.ClassAttendanceSessionTitle,
+		ClassAttendanceSessionDisplayTitle: m.ClassAttendanceSessionDisplayTitle,
 
 		ClassAttendanceSessionDate:     m.ClassAttendanceSessionDate,
 		ClassAttendanceSessionStartsAt: m.ClassAttendanceSessionStartsAt,
@@ -457,22 +462,26 @@ func FromClassAttendanceSessionModel(m model.ClassAttendanceSessionModel) ClassA
 		ClassAttendanceSessionOriginalEndAt:   m.ClassAttendanceSessionOriginalEndAt,
 		ClassAttendanceSessionKind:            m.ClassAttendanceSessionKind,
 		ClassAttendanceSessionOverrideReason:  m.ClassAttendanceSessionOverrideReason,
-
 		ClassAttendanceSessionOverrideEventId: m.ClassAttendanceSessionOverrideEventID,
 
 		ClassAttendanceSessionTeacherId:   m.ClassAttendanceSessionTeacherID,
 		ClassAttendanceSessionClassRoomId: m.ClassAttendanceSessionClassRoomID,
 		ClassAttendanceSessionCSSTId:      m.ClassAttendanceSessionCSSTID,
 
-		ClassAttendanceSessionGeneralInfo: m.ClassAttendanceSessionGeneralInfo,
-		ClassAttendanceSessionNote:        m.ClassAttendanceSessionNote,
+		ClassAttendanceSessionCSSTSnapshot:    csstSnap,
+		ClassAttendanceSessionTeacherSnapshot: teacherSnap,
+		ClassAttendanceSessionRoomSnapshot:    roomSnap,
 
-		ClassAttendanceSessionPresentCount: m.ClassAttendanceSessionPresentCount,
-		ClassAttendanceSessionAbsentCount:  m.ClassAttendanceSessionAbsentCount,
-		ClassAttendanceSessionLateCount:    m.ClassAttendanceSessionLateCount,
-		ClassAttendanceSessionExcusedCount: m.ClassAttendanceSessionExcusedCount,
-		ClassAttendanceSessionSickCount:    m.ClassAttendanceSessionSickCount,
-		ClassAttendanceSessionLeaveCount:   m.ClassAttendanceSessionLeaveCount,
+		ClassAttendanceSessionCSSTIdSnap:      m.ClassAttendanceSessionCSSTIDSnap,
+		ClassAttendanceSessionSubjectIdSnap:   m.ClassAttendanceSessionSubjectIDSnap,
+		ClassAttendanceSessionSectionIdSnap:   m.ClassAttendanceSessionSectionIDSnap,
+		ClassAttendanceSessionTeacherIdSnap:   m.ClassAttendanceSessionTeacherIDSnap,
+		ClassAttendanceSessionRoomIdSnap:      m.ClassAttendanceSessionRoomIDSnap,
+		ClassAttendanceSessionSubjectCodeSnap: m.ClassAttendanceSessionSubjectCodeSnap,
+		ClassAttendanceSessionSubjectNameSnap: m.ClassAttendanceSessionSubjectNameSnap,
+		ClassAttendanceSessionSectionNameSnap: m.ClassAttendanceSessionSectionNameSnap,
+		ClassAttendanceSessionTeacherNameSnap: m.ClassAttendanceSessionTeacherNameSnap,
+		ClassAttendanceSessionRoomNameSnap:    m.ClassAttendanceSessionRoomNameSnap,
 
 		ClassAttendanceSessionCreatedAt: m.ClassAttendanceSessionCreatedAt,
 		ClassAttendanceSessionUpdatedAt: m.ClassAttendanceSessionUpdatedAt,
