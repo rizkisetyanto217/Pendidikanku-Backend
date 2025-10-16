@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -19,9 +20,12 @@ import (
 	dto "masjidku_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 	modelCSST "masjidku_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
+	roomSnapshot "masjidku_backend/internals/features/school/academics/rooms/snapshot"
 	teacherSnapshot "masjidku_backend/internals/features/users/user_teachers/snapshot"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
+
+	snapshotClassSubject "masjidku_backend/internals/features/school/academics/subjects/snapshot"
 )
 
 type ClassSectionSubjectTeacherController struct {
@@ -42,40 +46,102 @@ func ptrStr(p *string) string {
 	return *p
 }
 
-/*
-===============================
+// =====================
+// Helpers (private)
+// =====================
 
-	CREATE (admin/DKM via masjid context)
-	POST /admin/:masjid_id/class-section-subject-teachers
-	/admin/:masjid_slug/class-section-subject-teachers
-	===============================
-*/
-// import di atas file controller (pastikan ada):
-// snapsvc "masjidku_backend/internals/services/snapsvc"
+func getBaseForSlug(ctx context.Context, tx *gorm.DB, masjidID, sectionID, classSubjectID, teacherID uuid.UUID) string {
+	var sectionName, subjectName string
+
+	_ = tx.Table("class_sections").
+		Select("class_section_name").
+		Where("class_section_id = ? AND class_section_masjid_id = ?", sectionID, masjidID).
+		Scan(&sectionName).Error
+
+	_ = tx.Table("class_subjects AS cs").
+		Select("s.subject_name").
+		Joins(`JOIN subjects AS s
+		           ON s.subject_id = cs.class_subject_subject_id
+		          AND s.subject_deleted_at IS NULL`).
+		Where(`cs.class_subject_id = ?
+		           AND cs.class_subject_masjid_id = ?
+		           AND cs.class_subject_deleted_at IS NULL`,
+			classSubjectID, masjidID).
+		Scan(&subjectName).Error
+
+	var parts []string
+	if strings.TrimSpace(sectionName) != "" {
+		parts = append(parts, sectionName)
+	}
+	if strings.TrimSpace(subjectName) != "" {
+		parts = append(parts, subjectName)
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, " ")
+	}
+	return fmt.Sprintf("csst-%s-%s-%s",
+		strings.Split(sectionID.String(), "-")[0],
+		strings.Split(classSubjectID.String(), "-")[0],
+		strings.Split(teacherID.String(), "-")[0],
+	)
+}
+
+func ensureUniqueSlug(ctx context.Context, tx *gorm.DB, masjidID uuid.UUID, base string) (string, error) {
+	return helper.EnsureUniqueSlugCI(
+		ctx, tx,
+		"class_section_subject_teachers", "class_section_subject_teacher_slug",
+		base,
+		func(q *gorm.DB) *gorm.DB {
+			return q.Where(`
+				class_section_subject_teacher_masjid_id = ?
+				AND class_section_subject_teacher_deleted_at IS NULL
+			`, masjidID)
+		},
+		160,
+	)
+}
+
+func deriveNameFromSlug(slug string) string {
+	// "-" -> " ", hilangkan spasi beruntun, crop ke 160 chars
+	name := strings.ReplaceAll(slug, "-", " ")
+	name = strings.TrimSpace(strings.Join(strings.Fields(name), " "))
+	if len(name) > 160 {
+		name = name[:160]
+	}
+	return name
+}
 
 // * CREATE (admin/DKM via masjid context)
 // POST /admin/:masjid_id/class-section-subject-teachers
-//
-//	/admin/:masjid_slug/class-section-subject-teachers
+// /admin/:masjid_slug/class-section-subject-teachers
 func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
+		fmt.Println("[CSST.Create] resolve masjid context ERROR:", err)
 		return err
 	}
 	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
+		fmt.Println("[CSST.Create] ensure access DKM ERROR:", err)
 		return err
 	}
 
 	var req dto.CreateClassSectionSubjectTeacherRequest
 	if err := c.BodyParser(&req); err != nil {
+		fmt.Println("[CSST.Create] BodyParser ERROR:", err)
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid: "+err.Error())
 	}
 	if err := validator.New().Struct(req); err != nil {
+		fmt.Println("[CSST.Create] validator ERROR:", err)
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
+	fmt.Printf("[CSST.Create] REQUEST masjid=%s section=%s class_subject=%s teacher=%s\n",
+		masjidID, req.ClassSectionSubjectTeacherSectionID, req.ClassSectionSubjectTeacherClassSubjectID, req.ClassSectionSubjectTeacherTeacherID)
+
 	return ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
+		tx = tx.Debug()
+
 		// 1) SECTION exists & same tenant
 		var sec modelClassSection.ClassSectionModel
 		if err := tx.
@@ -83,10 +149,13 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 				req.ClassSectionSubjectTeacherSectionID, masjidID).
 			First(&sec).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				fmt.Println("[CSST.Create] SECTION not found / tenant mismatch")
 				return helper.JsonError(c, fiber.StatusBadRequest, "Section tidak ditemukan / beda tenant")
 			}
+			fmt.Println("[CSST.Create] SECTION check ERROR:", err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek section")
 		}
+		fmt.Println("[CSST.Create] SECTION ok:", sec.ClassSectionID)
 
 		// 2) CLASS_SUBJECT exists + parent harus sama dgn kelas section
 		var cls struct{ ClassParentID uuid.UUID }
@@ -96,8 +165,10 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 				sec.ClassSectionClassID, masjidID).
 			Take(&cls).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				fmt.Println("[CSST.Create] CLASS for section not found / tenant mismatch")
 				return helper.JsonError(c, fiber.StatusBadRequest, "Kelas untuk section ini tidak ditemukan / beda tenant")
 			}
+			fmt.Println("[CSST.Create] CLASS check ERROR:", err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek kelas dari section")
 		}
 
@@ -111,38 +182,105 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 				req.ClassSectionSubjectTeacherClassSubjectID).
 			Take(&cs).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				fmt.Println("[CSST.Create] CLASS_SUBJECT not found / deleted")
 				return helper.JsonError(c, fiber.StatusBadRequest, "class_subject tidak ditemukan / sudah dihapus")
 			}
+			fmt.Println("[CSST.Create] CLASS_SUBJECT check ERROR:", err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek class_subject")
 		}
 		if cs.MasjidID != masjidID {
+			fmt.Printf("[CSST.Create] CLASS_SUBJECT tenant mismatch: have=%s want=%s\n", cs.MasjidID, masjidID)
 			return helper.JsonError(c, fiber.StatusBadRequest, "Masjid mismatch: class_subject milik masjid lain")
 		}
 		if cs.ParentID != cls.ClassParentID {
+			fmt.Printf("[CSST.Create] PARENT mismatch: section.parent=%s subject.parent=%s\n", cls.ClassParentID, cs.ParentID)
 			return helper.JsonError(c, fiber.StatusBadRequest, "Mismatch: parent kelas section ≠ parent pada class_subject")
 		}
+		fmt.Println("[CSST.Create] CLASS_SUBJECT ok")
 
-		// 3) TEACHER exists & same tenant (FK check)
+		// 3) TEACHER exists & same tenant
 		if err := tx.
 			Where("masjid_teacher_id = ? AND masjid_teacher_masjid_id = ? AND masjid_teacher_deleted_at IS NULL",
 				req.ClassSectionSubjectTeacherTeacherID, masjidID).
 			First(&modelMasjidTeacher.MasjidTeacherModel{}).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				fmt.Println("[CSST.Create] TEACHER not found / tenant mismatch")
 				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak ditemukan / bukan guru masjid ini")
 			}
+			fmt.Println("[CSST.Create] TEACHER check ERROR:", err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek guru")
+		}
+		fmt.Println("[CSST.Create] TEACHER ok")
+
+		// 3a) RESOLVE ROOM strictly dari DB
+		var finalRoomID *uuid.UUID
+		var finalRoomSnap *roomSnapshot.RoomSnapshot
+		if req.ClassSectionSubjectTeacherRoomID != nil {
+			rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, masjidID, *req.ClassSectionSubjectTeacherRoomID)
+			if err != nil {
+				var fe *fiber.Error
+				if errors.As(err, &fe) {
+					return helper.JsonError(c, fe.Code, fe.Message)
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi ruangan")
+			}
+			tmp := *rs
+			finalRoomSnap = &tmp
+			finalRoomID = req.ClassSectionSubjectTeacherRoomID
+			fmt.Println("[CSST.Create] ROOM snapshot from explicit CSST room_id")
+		} else if sec.ClassSectionClassRoomID != nil {
+			rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, masjidID, *sec.ClassSectionClassRoomID)
+			if err != nil {
+				var fe *fiber.Error
+				if errors.As(err, &fe) {
+					return helper.JsonError(c, fe.Code, fe.Message)
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil snapshot ruangan (section)")
+			}
+			tmp := *rs
+			finalRoomSnap = &tmp
+			finalRoomID = sec.ClassSectionClassRoomID
+			fmt.Println("[CSST.Create] ROOM snapshot from SECTION default room (fresh DB)")
+		} else {
+			fmt.Println("[CSST.Create] no room provided & section has no default room")
 		}
 
 		// 4) Build row dari DTO
 		row := req.ToModel()
 		row.ClassSectionSubjectTeacherMasjidID = masjidID
-		if !row.ClassSectionSubjectTeacherIsActive {
+
+		// set room & snapshot (jika ada)
+		if finalRoomID != nil {
+			row.ClassSectionSubjectTeacherRoomID = finalRoomID
+		}
+		if finalRoomSnap != nil {
+			jb := roomSnapshot.ToJSON(finalRoomSnap)
+			row.ClassSectionSubjectTeacherRoomSnapshot = &jb
+		}
+
+		// Status active default
+		if req.ClassSectionSubjectTeacherIsActive != nil {
+			row.ClassSectionSubjectTeacherIsActive = *req.ClassSectionSubjectTeacherIsActive
+		} else {
 			row.ClassSectionSubjectTeacherIsActive = true
 		}
 
-		// 4a) SNAPSHOT GURU (user_teachers) — inject ke JSONB kolom teacher_snapshot
-		ts, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, masjidID, req.ClassSectionSubjectTeacherTeacherID)
-		if err != nil {
+		// Delivery mode default (auto)
+		if strings.TrimSpace(string(row.ClassSectionsSubjectTeacherDeliveryMode)) == "" {
+			if finalRoomSnap != nil && (finalRoomSnap.IsVirtual || (finalRoomSnap.JoinURL != nil && strings.TrimSpace(*finalRoomSnap.JoinURL) != "")) {
+				row.ClassSectionsSubjectTeacherDeliveryMode = modelCSST.ClassDeliveryMode("online")
+				fmt.Println("[CSST.Create] delivery_mode auto=online (virtual/join_url)")
+			} else {
+				row.ClassSectionsSubjectTeacherDeliveryMode = modelCSST.ClassDeliveryMode("offline")
+				fmt.Println("[CSST.Create] delivery_mode auto=offline")
+			}
+		} else {
+			fmt.Println("[CSST.Create] delivery_mode input:", row.ClassSectionsSubjectTeacherDeliveryMode)
+		}
+
+		// 4a) SNAPSHOT GURU
+		if ts, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, masjidID, req.ClassSectionSubjectTeacherTeacherID); err != nil {
+			fmt.Println("[CSST.Create] teacher snapshot ERROR:", err)
 			switch {
 			case errors.Is(err, gorm.ErrRecordNotFound):
 				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak valid / sudah dihapus")
@@ -151,18 +289,17 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			default:
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot guru")
 			}
-		}
-		if ts != nil {
+		} else if ts != nil {
 			if jb, e := teacherSnapshot.ToJSONB(ts); e == nil {
-				// ❗ model field bertipe *datatypes.JSON → pakai &jb
 				row.ClassSectionSubjectTeacherTeacherSnapshot = &jb
+				fmt.Println("[CSST.Create] teacher snapshot OK")
 			}
 		}
 
-		// (opsional) snapshot asisten
+		// 4b) SNAPSHOT ASISTEN (opsional)
 		if req.ClassSectionSubjectTeacherAssistantTeacherID != nil {
-			ats, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, masjidID, *req.ClassSectionSubjectTeacherAssistantTeacherID)
-			if err != nil {
+			if ats, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, masjidID, *req.ClassSectionSubjectTeacherAssistantTeacherID); err != nil {
+				fmt.Println("[CSST.Create] assistant snapshot ERROR:", err)
 				switch {
 				case errors.Is(err, gorm.ErrRecordNotFound):
 					return helper.JsonError(c, fiber.StatusBadRequest, "Asisten guru tidak valid / sudah dihapus")
@@ -171,100 +308,85 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 				default:
 					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot asisten guru")
 				}
-			}
-			if ats != nil {
+			} else if ats != nil {
 				if jb, e := teacherSnapshot.ToJSONB(ats); e == nil {
-					// ❗ juga pointer
 					row.ClassSectionSubjectTeacherAssistantTeacherSnapshot = &jb
+					fmt.Println("[CSST.Create] assistant snapshot OK")
 				}
 			}
 		}
 
-		// NOTE (opsional): kalau nanti kamu tambahkan field assistant di request,
-		// tinggal panggil BuildTeacherSnapshot lagi dan set:
-		//   row.ClassSectionSubjectTeacherAssistantTeacherSnapshot = jb
+		// 4c) SNAPSHOT CLASS_SUBJECT (BARU)
+		if j, err := snapshotClassSubject.BuildClassSubjectSnapshotJSON(c.Context(), tx, masjidID, req.ClassSectionSubjectTeacherClassSubjectID); err != nil {
+			fmt.Println("[CSST.Create] class_subject snapshot ERROR:", err)
+			switch {
+			case errors.Is(err, gorm.ErrRecordNotFound):
+				return helper.JsonError(c, fiber.StatusBadRequest, "Class subject tidak ditemukan / sudah dihapus")
+			case errors.Is(err, snapshotClassSubject.ErrMasjidMismatch):
+				return helper.JsonError(c, fiber.StatusForbidden, "Class subject milik masjid lain")
+			default:
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot class subject")
+			}
+		} else {
+			row.ClassSectionSubjectTeacherClassSubjectSnapshot = &j
+			fmt.Println("[CSST.Create] class_subject snapshot OK")
+		}
 
-		// 5) SLUG (generate / ensure unique)
+		// 5) SLUG → unique + NAME auto
 		if row.ClassSectionSubjectTeacherSlug != nil {
 			s := helper.Slugify(*row.ClassSectionSubjectTeacherSlug, 160)
 			row.ClassSectionSubjectTeacherSlug = &s
+			fmt.Println("[CSST.Create] input slug sanitized:", s)
 		}
-		if row.ClassSectionSubjectTeacherSlug == nil || strings.TrimSpace(*row.ClassSectionSubjectTeacherSlug) == "" {
-			var sectionName, subjectName string
 
-			_ = tx.Table("class_sections").
-				Select("class_section_name").
-				Where("class_section_id = ? AND class_section_masjid_id = ?", req.ClassSectionSubjectTeacherSectionID, masjidID).
-				Scan(&sectionName).Error
+		base := strings.TrimSpace(getBaseForSlug(c.Context(), tx, masjidID,
+			req.ClassSectionSubjectTeacherSectionID,
+			req.ClassSectionSubjectTeacherClassSubjectID,
+			req.ClassSectionSubjectTeacherTeacherID,
+		))
+		fmt.Println("[CSST.Create] slug base:", base)
 
-			_ = tx.Table("class_subjects AS cs").
-				Select("s.subject_name").
-				Joins(`JOIN subjects AS s
-				           ON s.subject_id = cs.class_subject_subject_id
-				          AND s.subject_deleted_at IS NULL`).
-				Where(`cs.class_subject_id = ?
-				           AND cs.class_subject_masjid_id = ?
-				           AND cs.class_subject_deleted_at IS NULL`,
-					req.ClassSectionSubjectTeacherClassSubjectID, masjidID).
-				Scan(&subjectName).Error
-
-			parts := make([]string, 0, 2)
-			if strings.TrimSpace(sectionName) != "" {
-				parts = append(parts, sectionName)
-			}
-			if strings.TrimSpace(subjectName) != "" {
-				parts = append(parts, subjectName)
-			}
-
-			base := "csst"
-			if len(parts) > 0 {
-				base = strings.Join(parts, " ")
-			} else {
-				base = fmt.Sprintf("csst-%s-%s-%s",
-					strings.Split(req.ClassSectionSubjectTeacherSectionID.String(), "-")[0],
-					strings.Split(req.ClassSectionSubjectTeacherClassSubjectID.String(), "-")[0],
-					strings.Split(req.ClassSectionSubjectTeacherTeacherID.String(), "-")[0],
-				)
-			}
-			base = helper.Slugify(base, 160)
-
-			uniqueSlug, err := helper.EnsureUniqueSlugCI(
-				c.Context(), tx,
-				"class_section_subject_teachers", "class_section_subject_teacher_slug",
-				base,
-				func(q *gorm.DB) *gorm.DB {
-					return q.Where(`
-						class_section_subject_teacher_masjid_id = ?
-						AND class_section_subject_teacher_deleted_at IS NULL
-					`, masjidID)
-				},
-				160,
-			)
-			if err != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
-			}
-			row.ClassSectionSubjectTeacherSlug = &uniqueSlug
-		} else {
-			uniqueSlug, err := helper.EnsureUniqueSlugCI(
-				c.Context(), tx,
-				"class_section_subject_teachers", "class_section_subject_teacher_slug",
-				*row.ClassSectionSubjectTeacherSlug,
-				func(q *gorm.DB) *gorm.DB {
-					return q.Where(`
-						class_section_subject_teacher_masjid_id = ?
-						AND class_section_subject_teacher_deleted_at IS NULL
-					`, masjidID)
-				},
-				160,
-			)
-			if err != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
-			}
-			row.ClassSectionSubjectTeacherSlug = &uniqueSlug
+		candidate := base
+		if row.ClassSectionSubjectTeacherSlug != nil && strings.TrimSpace(*row.ClassSectionSubjectTeacherSlug) != "" {
+			candidate = *row.ClassSectionSubjectTeacherSlug
 		}
+		candidate = helper.Slugify(candidate, 160)
+		fmt.Println("[CSST.Create] slug candidate:", candidate)
+
+		uniqueSlug, err := ensureUniqueSlug(c.Context(), tx, masjidID, candidate)
+		if err != nil {
+			fmt.Println("[CSST.Create] ensureUniqueSlug ERROR:", err)
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
+		}
+		row.ClassSectionSubjectTeacherSlug = &uniqueSlug
+		row.ClassSectionSubjectTeacherName = deriveNameFromSlug(uniqueSlug)
+		fmt.Printf("[CSST.Create] slug unique=%s | name=%s\n", uniqueSlug, row.ClassSectionSubjectTeacherName)
 
 		// 6) INSERT
+		fmt.Printf("[CSST.Create] INSERT row: masjid=%s section=%s subject=%s teacher=%s room=%v slug=%s name=%s mode=%s active=%v\n",
+			row.ClassSectionSubjectTeacherMasjidID,
+			row.ClassSectionSubjectTeacherSectionID,
+			row.ClassSectionSubjectTeacherClassSubjectID,
+			row.ClassSectionSubjectTeacherTeacherID,
+			func() any {
+				if row.ClassSectionSubjectTeacherRoomID == nil {
+					return "<nil>"
+				}
+				return *row.ClassSectionSubjectTeacherRoomID
+			}(),
+			func() string {
+				if row.ClassSectionSubjectTeacherSlug == nil {
+					return "<nil>"
+				}
+				return *row.ClassSectionSubjectTeacherSlug
+			}(),
+			row.ClassSectionSubjectTeacherName,
+			string(row.ClassSectionsSubjectTeacherDeliveryMode),
+			row.ClassSectionSubjectTeacherIsActive,
+		)
+
 		if err := tx.Create(&row).Error; err != nil {
+			fmt.Println("[CSST.Create] INSERT ERROR:", err)
 			msg := strings.ToLower(err.Error())
 			switch {
 			case strings.Contains(msg, "uq_csst_one_active_per_section_subject_alive"),
@@ -291,9 +413,12 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Insert gagal: "+err.Error())
 		}
 
+		fmt.Println("[CSST.Create] INSERT OK")
 		return helper.JsonCreated(c, "Penugasan guru berhasil dibuat", dto.FromClassSectionSubjectTeacherModel(row))
 	})
 }
+
+/* ======================== Helpers (inline room) ======================== */
 
 /*
 ===============================

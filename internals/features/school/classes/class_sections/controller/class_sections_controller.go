@@ -29,6 +29,8 @@ import (
 	classModel "masjidku_backend/internals/features/school/classes/classes/model"
 
 	teacherSnapshot "masjidku_backend/internals/features/users/user_teachers/snapshot"
+
+	roomSnapshot "masjidku_backend/internals/features/school/academics/rooms/snapshot"
 )
 
 type ClassSectionController struct {
@@ -457,7 +459,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		applyClassParentAndTermSnapshotToSection(m, snap)
 	}
 
-	// ---- Snapshot TEACHER / ASSISTANT (pakai DTO helper) ----
+	// ---- Snapshot TEACHER / ASSISTANT ----
 	if req.ClassSectionTeacherID != nil {
 		ts, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, masjidID, *req.ClassSectionTeacherID)
 		if err != nil {
@@ -465,7 +467,6 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak ditemukan / sudah dihapus")
 			}
-			// BuildTeacherSnapshot akan kembalikan *fiber.Error untuk 403 mismatch
 			if fe, ok := err.(*fiber.Error); ok && fe.Code == fiber.StatusForbidden {
 				return helper.JsonError(c, fiber.StatusForbidden, "Guru bukan milik masjid Anda")
 			}
@@ -477,7 +478,6 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 			}
 		}
 	}
-
 	if req.ClassSectionAssistantTeacherID != nil {
 		as, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, masjidID, *req.ClassSectionAssistantTeacherID)
 		if err != nil {
@@ -497,7 +497,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		}
 	}
 
-	// ---- Snapshot LEADER STUDENT (tetap helper kamu) ----
+	// ---- Snapshot LEADER STUDENT ----
 	if req.ClassSectionLeaderStudentID != nil {
 		snap, err := validateAndSnapshotLeaderStudent(tx, masjidID, *req.ClassSectionLeaderStudentID)
 		if err != nil {
@@ -508,6 +508,20 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 			m.ClassSectionLeaderStudentSnapshot = datatypes.JSON(b)
 		}
 	}
+
+	// ==== ⬇️ Snapshot ROOM (ikuti pola Update) ⬇️ ====
+	if m.ClassSectionClassRoomID != nil {
+		rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, masjidID, *m.ClassSectionClassRoomID)
+		if err != nil {
+			_ = tx.Rollback()
+			if fe, ok := err.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi ruang kelas")
+		}
+		roomSnapshot.ApplyRoomSnapshotToSection(m, rs)
+	}
+	// ==== ⬆️ Snapshot ROOM (ikuti pola Update) ⬆️ ====
 
 	// ---- Slug unik ----
 	var baseSlug string
@@ -564,16 +578,15 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat section")
 	}
 
-	// ---- (opsional) upload image, update stats ----- (biarkan sesuai implementasi kamu)
-	// ...
+	// (opsional) upload image, update stats, dll...
 
 	if err := tx.Commit().Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	return helper.JsonCreated(c, "Section berhasil dibuat", fiber.Map{
 		"section":            secDTO.FromModelClassSection(m),
-		"uploaded_image_url": "",        // isi sesuai bagian upload kamu
-		"join_code_preview":  plainCode, // optional: hanya untuk ditampilkan ke admin
+		"uploaded_image_url": "",
+		"join_code_preview":  plainCode,
 	})
 }
 
@@ -647,15 +660,14 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Mode enrolment CSST tidak valid (self_select | assigned | hybrid)")
 		}
 	}
-
 	// ---- Validasi teacher kalau diubah ----
 	if req.ClassSectionTeacherID.Present && req.ClassSectionTeacherID.Value != nil {
 		var tMasjid uuid.UUID
 		if err := tx.Raw(`
-			SELECT masjid_teacher_masjid_id
-			FROM masjid_teachers
-			WHERE masjid_teacher_id = ? AND masjid_teacher_deleted_at IS NULL
-		`, *req.ClassSectionTeacherID.Value).Scan(&tMasjid).Error; err != nil {
+             SELECT masjid_teacher_masjid_id
+             FROM masjid_teachers
+             WHERE masjid_teacher_id = ? AND masjid_teacher_deleted_at IS NULL
+         `, *req.ClassSectionTeacherID.Value).Scan(&tMasjid).Error; err != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi pengajar")
 		}
@@ -669,24 +681,33 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 	}
 
-	// ---- Validasi room kalau diubah ----
-	if req.ClassSectionClassRoomID.Present && req.ClassSectionClassRoomID.Value != nil {
-		var rMasjid uuid.UUID
-		if err := tx.Raw(`
-			SELECT class_room_masjid_id
-			FROM class_rooms
-			WHERE class_room_id = ? AND class_room_deleted_at IS NULL
-		`, *req.ClassSectionClassRoomID.Value).Scan(&rMasjid).Error; err != nil {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi ruang kelas")
-		}
-		if rMasjid == uuid.Nil {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusBadRequest, "Ruang kelas tidak ditemukan")
-		}
-		if rMasjid != existing.ClassSectionMasjidID {
-			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusForbidden, "Ruang kelas bukan milik masjid Anda")
+	// =========================================================
+	// 🔹 SNAPSHOT ROOM: siapkan hasil validasi/snapshot bila field room dipatch
+	// =========================================================
+	var (
+		roomSnapRequested bool
+		roomSnap          *roomSnapshot.RoomSnapshot
+	)
+	if req.ClassSectionClassRoomID.Present {
+		roomSnapRequested = true
+		if req.ClassSectionClassRoomID.Value != nil {
+			rs, err := roomSnapshot.ValidateAndSnapshotRoom(
+				tx,
+				existing.ClassSectionMasjidID,
+				*req.ClassSectionClassRoomID.Value,
+			)
+			if err != nil {
+				_ = tx.Rollback()
+				var fe *fiber.Error
+				if errors.As(err, &fe) {
+					return helper.JsonError(c, fe.Code, fe.Message)
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi ruang kelas")
+			}
+			roomSnap = rs
+		} else {
+			// dipatch NULL → clear snapshot
+			roomSnap = nil
 		}
 	}
 
@@ -754,8 +775,19 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		newActive = *req.ClassSectionIsActive.Value
 	}
 
-	// ---- Apply perubahan ----
+	// =========================================================
+	// 🔹 Apply perubahan model dasar dulu (room_id baru ikut terpasang)
+	// =========================================================
 	req.Apply(&existing)
+
+	// =========================================================
+	// 🔹 Apply room snapshot jika field-nya memang dipatch
+	// =========================================================
+	if roomSnapRequested {
+		roomSnapshot.ApplyRoomSnapshotToSection(&existing, roomSnap)
+	}
+
+	// ---- Save ----
 	if err := tx.Save(&existing).Error; err != nil {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui section")

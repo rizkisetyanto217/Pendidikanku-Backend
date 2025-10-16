@@ -10,9 +10,11 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	csDTO "masjidku_backend/internals/features/school/academics/subjects/dto"
 	csModel "masjidku_backend/internals/features/school/academics/subjects/model"
+	snapshotSubject "masjidku_backend/internals/features/school/academics/subjects/snapshot"
 
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
@@ -20,6 +22,14 @@ import (
 
 type ClassSubjectController struct {
 	DB *gorm.DB
+}
+
+// util kecil
+func ptrStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 /*
@@ -68,22 +78,6 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 	}
 
 	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// === Cek duplikasi kombinasi (tenant-aware, alive only) ===
-		var cnt int64
-		if err := tx.Model(&csModel.ClassSubjectModel{}).
-			Where(`
-                class_subject_masjid_id = ?
-                AND class_subject_parent_id = ?
-                AND class_subject_subject_id = ?
-                AND class_subject_deleted_at IS NULL
-            `, req.MasjidID, req.ParentID, req.SubjectID).
-			Count(&cnt).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek duplikasi class subject")
-		}
-		if cnt > 0 {
-			return fiber.NewError(fiber.StatusConflict, "Kombinasi parent+subject sudah terdaftar")
-		}
-
 		// === Generate slug unik ===
 		baseSlug := ""
 		if req.Slug != nil {
@@ -131,26 +125,87 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 		}
 
-		// Create
+		// === Ambil SubjectSnapshot (tenant-aware) ===
+		subjSnap, err := snapshotSubject.BuildSubjectSnapshot(c.Context(), tx, req.MasjidID, req.SubjectID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fiber.NewError(fiber.StatusNotFound, "Subject tidak ditemukan")
+			}
+			if errors.Is(err, snapshotSubject.ErrMasjidMismatch) {
+				return fiber.NewError(fiber.StatusForbidden, "Subject bukan milik masjid ini")
+			}
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot subject")
+		}
+
+		// === Build model (isi snapshots) ===
 		m := req.ToModel()
 		m.ClassSubjectSlug = &uniqueSlug
+		m.ClassSubjectSubjectNameSnapshot = &subjSnap.Name
+		m.ClassSubjectSubjectCodeSnapshot = &subjSnap.Code
+		m.ClassSubjectSubjectSlugSnapshot = &subjSnap.Slug
+		m.ClassSubjectSubjectURLSnapshot = subjSnap.URL
 
-		if err := tx.Create(&m).Error; err != nil {
-			msg := strings.ToLower(err.Error())
-			if strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
-				return fiber.NewError(fiber.StatusConflict, "Kombinasi parent+subject sudah terdaftar")
-			}
+		// === UPSERT race-safe: DO NOTHING (tanpa target) ===
+		// Kompatibel dengan partial unique index (alive) juga.
+		res := tx.
+			Clauses(clause.OnConflict{
+				DoNothing: true, // ⬅️ cukup ini
+			}).
+			Create(&m)
+
+		if res.Error != nil {
+			// error lain (bukan conflict swallowed) — kirim 500
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat class subject")
 		}
 
+		if res.RowsAffected == 0 {
+			// Sudah ada — ambil existing & kembalikan 200 OK
+			var existing csModel.ClassSubjectModel
+			if err := tx.
+				Where(`
+					class_subject_masjid_id = ?
+					AND class_subject_parent_id = ?
+					AND class_subject_subject_id = ?
+					AND class_subject_deleted_at IS NULL
+				`, req.MasjidID, req.ParentID, req.SubjectID).
+				Take(&existing).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					// race ekstrem — retry sekali
+					if er2 := tx.Create(&m).Error; er2 != nil {
+						return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat class subject (retry)")
+					}
+					c.Locals("created_class_subject", m)
+					c.Locals("http_status", fiber.StatusCreated)
+					return nil
+				}
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil class subject yang sudah ada")
+			}
+			c.Locals("created_class_subject", existing)
+			c.Locals("http_status", fiber.StatusOK)
+			return nil
+		}
+
+		// Insert baru
 		c.Locals("created_class_subject", m)
+		c.Locals("http_status", fiber.StatusCreated)
 		return nil
 	}); err != nil {
 		return err
 	}
 
+	// === Response ===
 	m := c.Locals("created_class_subject").(csModel.ClassSubjectModel)
-	return helper.JsonCreated(c, "Class subject berhasil dibuat", csDTO.FromClassSubjectModel(m))
+	status := fiber.StatusCreated
+	if v := c.Locals("http_status"); v != nil {
+		if s, ok := v.(int); ok {
+			status = s
+		}
+	}
+
+	return c.Status(status).JSON(fiber.Map{
+		"message": "Class subject berhasil diproses",
+		"data":    csDTO.FromClassSubjectModel(m),
+	})
 }
 
 /*
@@ -205,11 +260,22 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
+	// Helper kecil
+	ptrStr := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+
 	// Transaksi
 	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// Ambil record lama
+		// 🔒 Ambil record lama + kunci baris (race-safe)
 		var m csModel.ClassSubjectModel
-		if err := tx.Where("class_subject_id = ?", id).First(&m).Error; err != nil {
+		if err := tx.
+			Set("gorm:query_option", "FOR UPDATE").
+			Where("class_subject_id = ?", id).
+			First(&m).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fiber.NewError(fiber.StatusNotFound, "Data tidak ditemukan")
 			}
@@ -222,52 +288,41 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusBadRequest, "Data sudah dihapus")
 		}
 
-		// Cek apakah parent/subject berubah → cek duplikasi
-		newParentID := m.ClassSubjectParentID
-		newSubjectID := m.ClassSubjectSubjectID
-		if req.ParentID != nil {
-			newParentID = *req.ParentID
-		}
-		if req.SubjectID != nil {
-			newSubjectID = *req.SubjectID
-		}
+		// Simpan nilai lama untuk deteksi perubahan
+		oldParentID := m.ClassSubjectParentID
+		oldSubjectID := m.ClassSubjectSubjectID
+		oldSlugEmpty := (m.ClassSubjectSlug == nil || strings.TrimSpace(ptrStr(m.ClassSubjectSlug)) == "")
 
-		if newParentID != m.ClassSubjectParentID || newSubjectID != m.ClassSubjectSubjectID {
-			var cnt int64
-			if err := tx.Model(&csModel.ClassSubjectModel{}).
-				Where(`
-					class_subject_masjid_id = ?
-					AND class_subject_parent_id  = ?
-					AND class_subject_subject_id = ?
-					AND class_subject_id <> ?
-					AND class_subject_deleted_at IS NULL
-				`, masjidID, newParentID, newSubjectID, m.ClassSubjectID).
-				Count(&cnt).Error; err != nil {
-				return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek duplikasi class subject")
-			}
-			if cnt > 0 {
-				return fiber.NewError(fiber.StatusConflict, "Kombinasi parent+subject sudah terdaftar")
-			}
-		}
-
-		// Flag untuk slug
-		oldSlugNil := (m.ClassSubjectSlug == nil || strings.TrimSpace(ptrStr(m.ClassSubjectSlug)) == "")
-		parentChanged := (req.ParentID != nil && *req.ParentID != m.ClassSubjectParentID)
-		subjectChanged := (req.SubjectID != nil && *req.SubjectID != m.ClassSubjectSubjectID)
-
-		// Apply perubahan dari req
+		// Terapkan perubahan dari req ke model
 		req.Apply(&m)
 
-		// Slug handling
+		// === Jika SubjectID berubah → refresh SubjectSnapshot ===
+		if m.ClassSubjectSubjectID != oldSubjectID {
+			subjSnap, err := snapshotSubject.BuildSubjectSnapshot(c.Context(), tx, masjidID, m.ClassSubjectSubjectID)
+			if err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return fiber.NewError(fiber.StatusNotFound, "Subject tidak ditemukan")
+				}
+				if errors.Is(err, snapshotSubject.ErrMasjidMismatch) {
+					return fiber.NewError(fiber.StatusForbidden, "Subject bukan milik masjid ini")
+				}
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot subject")
+			}
+			m.ClassSubjectSubjectNameSnapshot = &subjSnap.Name
+			m.ClassSubjectSubjectCodeSnapshot = &subjSnap.Code
+			m.ClassSubjectSubjectSlugSnapshot = &subjSnap.Slug
+			m.ClassSubjectSubjectURLSnapshot = subjSnap.URL
+		}
+
+		// === Slug handling (regen jika kosong / parent berubah / subject berubah / user set slug manual) ===
 		needSetSlug := false
 		var baseSlug string
 
 		if req.Slug != nil {
-			// User kasih slug manual
+			// User provide slug manual
 			baseSlug = *req.Slug
 			needSetSlug = true
-		} else if oldSlugNil || parentChanged || subjectChanged {
-			// Slug kosong ATAU parent/subject berubah → regen
+		} else if oldSlugEmpty || m.ClassSubjectParentID != oldParentID || m.ClassSubjectSubjectID != oldSubjectID {
 			needSetSlug = true
 
 			var subjName, parentSlug string
@@ -319,7 +374,7 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			m.ClassSubjectSlug = &uniqueSlug
 		}
 
-		// Persist ke DB
+		// === Persist (tanpa COUNT duplikasi; biarkan DB enforce unique) ===
 		if err := tx.Model(&csModel.ClassSubjectModel{}).
 			Where("class_subject_id = ?", m.ClassSubjectID).
 			Updates(map[string]any{
@@ -338,10 +393,17 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 				"class_subject_weight_mid":             m.ClassSubjectWeightMid,
 				"class_subject_weight_final":           m.ClassSubjectWeightFinal,
 				"class_subject_min_attendance_percent": m.ClassSubjectMinAttendancePercent,
-				"class_subject_is_active":              m.ClassSubjectIsActive,
+				// snapshots subject (mungkin unchanged)
+				"class_subject_subject_name_snapshot": m.ClassSubjectSubjectNameSnapshot,
+				"class_subject_subject_code_snapshot": m.ClassSubjectSubjectCodeSnapshot,
+				"class_subject_subject_slug_snapshot": m.ClassSubjectSubjectSlugSnapshot,
+				"class_subject_subject_url_snapshot":  m.ClassSubjectSubjectURLSnapshot,
+				"class_subject_is_active":             m.ClassSubjectIsActive,
 			}).Error; err != nil {
+
 			msg := strings.ToLower(err.Error())
-			if strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
+			// Tangkap unik constraint (slug atau kombinasi parent+subject alive)
+			if strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") || strings.Contains(msg, "uq_class_subject") {
 				return fiber.NewError(fiber.StatusConflict, "Slug atau kombinasi parent+subject sudah terdaftar")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui data")
@@ -356,14 +418,6 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 	// Response
 	m := c.Locals("updated_class_subject").(csModel.ClassSubjectModel)
 	return helper.JsonUpdated(c, "Class subject berhasil diperbarui", csDTO.FromClassSubjectModel(m))
-}
-
-// util kecil
-func ptrStr(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
 }
 
 /*

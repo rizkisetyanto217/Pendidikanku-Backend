@@ -12,48 +12,31 @@ import (
 	"gorm.io/gorm"
 )
 
-// Registrasi semua route Admin/DKM untuk fitur Masjid
 func MasjidAdminRoutes(admin fiber.Router, db *gorm.DB) {
-	// controllers
 	masjidCtrl := masjidctl.NewMasjidController(db, validator.New(), nil)
 	profileCtrl := masjidctl.NewMasjidProfileController(db, validator.New())
-	planCtrl := masjidctl.NewMasjidServicePlanController(db, validator.New()) // ✅ dari paket yg benar
+	planCtrl := masjidctl.NewMasjidServicePlanController(db, validator.New())
 
-	// guard admin/dkm/owner
 	guard := auth.OnlyRolesSlice(
 		constants.RoleErrorAdmin("aksi ini untuk admin/owner"),
 		constants.AdminAndAbove,
 	)
 
-	// =========================
-	// 🕌 MASJID (Admin/DKM)
-	// =========================
+	// 🕌 MASJID (Admin/DKM) — pakai :masjid_id
 	masjids := admin.Group("/masjids")
 	masjids.Post("/", guard, masjidCtrl.CreateMasjidDKM)
-	masjids.Get("/:id/get-teacher-code", guard, masjidCtrl.GetTeacherCode)
-	masjids.Patch("/:id/teacher-code", guard, masjidCtrl.PatchTeacherCode)
-	masjids.Put("/:id", guard, masjidCtrl.Patch)
-	masjids.Delete("/:id", guard, masjidCtrl.Delete)
+	masjids.Get("/:masjid_id/get-teacher-code", guard, masjidCtrl.GetTeacherCode)
+	masjids.Patch("/:masjid_id/teacher-code", guard, masjidCtrl.PatchTeacherCode)
+	masjids.Put("/:masjid_id", guard, masjidCtrl.Patch)
+	masjids.Delete("/:masjid_id", guard, masjidCtrl.Delete)
 
-	// ================================
 	// 🏷️ MASJID PROFILE (Admin/DKM)
-	// ================================
-	// /admin/:masjid_id/masjid-profiles/...
 	profilesByID := admin.Group("/:masjid_id/masjid-profiles", guard)
 	profilesByID.Post("/", profileCtrl.Create)
 	profilesByID.Patch("/:id", profileCtrl.Update)
 	profilesByID.Delete("/:id", profileCtrl.Delete)
 
-	// Opsional: dukung slug juga, biar rapi pakai prefix /s/
-	profilesBySlug := admin.Group("/s/:masjid_slug/masjid-profiles", guard)
-	profilesBySlug.Post("/", profileCtrl.Create)
-	profilesBySlug.Patch("/:id", profileCtrl.Update)
-	profilesBySlug.Delete("/:id", profileCtrl.Delete)
-
-	// ===================================
-	// 🧩 SERVICE PLANS (Admin/Owner) — GLOBAL (tanpa MASJID_CTX)
-	// ===================================
-	// Alias kompat lama:
+	// 🧩 SERVICE PLANS (Admin/Owner)
 	alias := admin.Group("/masjid-service-plans", guard)
 	alias.Get("/", planCtrl.List)
 	alias.Post("/", planCtrl.Create)

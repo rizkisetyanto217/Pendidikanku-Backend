@@ -5,6 +5,7 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS btree_gin;
+CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 
 
@@ -30,10 +31,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_id_tenant
   ON class_rooms (class_room_id, class_room_masjid_id);
 
 
+BEGIN;
 
--- =========================
--- ENUM: class_delivery_mode_enum (idempotent)
--- =========================
+
+-- =========================================================
+-- ENUMS (idempotent)
+-- =========================================================
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'class_delivery_mode_enum') THEN
@@ -41,9 +44,9 @@ BEGIN
   END IF;
 END$$;
 
--- =========================
+-- =========================================================
 -- TABLE: class_section_subject_teachers (CSST)
--- =========================
+-- =========================================================
 CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   class_section_subject_teacher_masjid_id UUID NOT NULL
@@ -53,6 +56,8 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_section_id UUID NOT NULL,
   class_section_subject_teacher_class_subject_id UUID NOT NULL,
   class_section_subject_teacher_teacher_id UUID NOT NULL,
+
+  class_section_subject_teacher_name VARCHAR(160) NOT NULL,
 
   -- identitas & fasilitas
   class_section_subject_teacher_slug VARCHAR(160),
@@ -65,22 +70,44 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_capacity INT,
   class_section_subject_teacher_enrolled_count INT NOT NULL DEFAULT 0,
 
-  -- delivery mode (dipakai aplikasi; perhatikan naming pakai "sections")
+  -- delivery mode (mengikuti penamaan kamu sebelumnya)
   class_sections_subject_teacher_delivery_mode class_delivery_mode_enum NOT NULL DEFAULT 'offline',
 
-  -- snapshots (nullable)
+  -- =======================
+  -- SNAPSHOTS (JSONB)
+  -- =======================
+
+  -- Room & People (existing)
   class_section_subject_teacher_room_snapshot JSONB,
   class_section_subject_teacher_teacher_snapshot JSONB,
   class_section_subject_teacher_assistant_teacher_snapshot JSONB,
 
-  -- generated columns (Room)
+  -- Class Subject (baru, langsung di tabel)
+  -- Kunci JSON yang diharapkan: name, code, slug, url
+  class_section_subject_teacher_class_subject_snapshot JSONB,
+
+  -- =======================
+  -- GENERATED COLUMNS
+  -- =======================
+
+  -- Room
   class_section_subject_teacher_room_name_snap     TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_room_snapshot->>'name')) STORED,
   class_section_subject_teacher_room_slug_snap     TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_room_snapshot->>'slug')) STORED,
   class_section_subject_teacher_room_location_snap TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_room_snapshot->>'location')) STORED,
 
-  -- generated columns (People)
+  -- People
   class_section_subject_teacher_teacher_name_snap TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_teacher_snapshot->>'name')) STORED,
   class_section_subject_teacher_assistant_teacher_name_snap TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_assistant_teacher_snapshot->>'name')) STORED,
+
+  -- Class Subject (generated dari snapshot)
+  class_section_subject_teacher_class_subject_name_snap TEXT
+    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_snapshot->>'name')) STORED,
+  class_section_subject_teacher_class_subject_code_snap TEXT
+    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_snapshot->>'code')) STORED,
+  class_section_subject_teacher_class_subject_slug_snap TEXT
+    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_snapshot->>'slug')) STORED,
+  class_section_subject_teacher_class_subject_url_snap  TEXT
+    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_snapshot->>'url')) STORED,
 
   -- status & audit
   class_section_subject_teacher_is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -120,12 +147,15 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
     ON UPDATE CASCADE ON DELETE SET NULL
 );
 
--- =========================
+-- =========================================================
 -- UNIQUE & INDEXES (idempotent)
--- =========================
+-- =========================================================
+
+-- PK + tenant (proteksi akses lintas tenant by habit)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_tenant
   ON class_section_subject_teachers (class_section_subject_teacher_id, class_section_subject_teacher_masjid_id);
 
+-- Unik kombinasi penugasan "alive"
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_unique_alive
   ON class_section_subject_teachers (
     class_section_subject_teacher_masjid_id,
@@ -135,6 +165,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_unique_alive
   )
   WHERE class_section_subject_teacher_deleted_at IS NULL;
 
+-- Satu aktif per section+class_subject (alive)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_one_active_per_section_subject_alive
   ON class_section_subject_teachers (
     class_section_subject_teacher_masjid_id,
@@ -144,6 +175,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_one_active_per_section_subject_alive
   WHERE class_section_subject_teacher_deleted_at IS NULL
     AND class_section_subject_teacher_is_active = TRUE;
 
+-- Slug unik per tenant (alive, case-insensitive)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_slug_per_tenant_alive
+  ON class_section_subject_teachers (
+    class_section_subject_teacher_masjid_id,
+    lower(class_section_subject_teacher_slug)
+  )
+  WHERE class_section_subject_teacher_deleted_at IS NULL
+    AND class_section_subject_teacher_slug IS NOT NULL;
+
+-- Search & perf indexes
 CREATE INDEX IF NOT EXISTS idx_csst_masjid_alive
   ON class_section_subject_teachers (class_section_subject_teacher_masjid_id)
   WHERE class_section_subject_teacher_deleted_at IS NULL;
@@ -164,24 +205,18 @@ CREATE INDEX IF NOT EXISTS idx_csst_room_alive
   ON class_section_subject_teachers (class_section_subject_teacher_room_id)
   WHERE class_section_subject_teacher_deleted_at IS NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_slug_per_tenant_alive
-  ON class_section_subject_teachers (
-    class_section_subject_teacher_masjid_id,
-    lower(class_section_subject_teacher_slug)
-  )
-  WHERE class_section_subject_teacher_deleted_at IS NULL
-    AND class_section_subject_teacher_slug IS NOT NULL;
-
--- butuh pg_trgm
+-- Trigram search untuk slug (butuh pg_trgm)
 CREATE INDEX IF NOT EXISTS gin_csst_slug_trgm_alive
   ON class_section_subject_teachers
   USING GIN (lower(class_section_subject_teacher_slug) gin_trgm_ops)
   WHERE class_section_subject_teacher_deleted_at IS NULL
     AND class_section_subject_teacher_slug IS NOT NULL;
 
+-- BRIN untuk waktu create
 CREATE INDEX IF NOT EXISTS brin_csst_created_at
   ON class_section_subject_teachers USING BRIN (class_section_subject_teacher_created_at);
 
+-- Agregat
 CREATE INDEX IF NOT EXISTS idx_csst_capacity_alive
   ON class_section_subject_teachers (class_section_subject_teacher_capacity)
   WHERE class_section_subject_teacher_deleted_at IS NULL;
@@ -190,9 +225,24 @@ CREATE INDEX IF NOT EXISTS idx_csst_enrolled_count_alive
   ON class_section_subject_teachers (class_section_subject_teacher_enrolled_count)
   WHERE class_section_subject_teacher_deleted_at IS NULL;
 
+-- ==============================
+-- Index pendukung snapshot class_subject
+-- ==============================
+CREATE INDEX IF NOT EXISTS idx_csst_class_subject_name_snap_alive
+  ON class_section_subject_teachers (LOWER(class_section_subject_teacher_class_subject_name_snap))
+  WHERE class_section_subject_teacher_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_csst_class_subject_code_snap_alive
+  ON class_section_subject_teachers (LOWER(class_section_subject_teacher_class_subject_code_snap))
+  WHERE class_section_subject_teacher_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS gin_csst_class_subject_slug_snap_trgm_alive
+  ON class_section_subject_teachers
+  USING GIN (LOWER(class_section_subject_teacher_class_subject_slug_snap) gin_trgm_ops)
+  WHERE class_section_subject_teacher_deleted_at IS NULL
+    AND class_section_subject_teacher_class_subject_slug_snap IS NOT NULL;
+
 COMMIT;
-
-
 
 
 

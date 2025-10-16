@@ -13,6 +13,7 @@ import (
 	dto "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/dto"
 	model "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/model"
 	helper "masjidku_backend/internals/helpers"
+	snapshotUserProfile "masjidku_backend/internals/features/users/users/snapshot"
 )
 
 /* =========================
@@ -79,6 +80,7 @@ func getMultiQuery(c *fiber.Ctx, key string) []string {
    ========================= */
 
 // POST /api/a/masjid-students
+// POST /api/a/masjid-students
 func (h *MasjidStudentController) Create(c *fiber.Ctx) error {
 	var req dto.MasjidStudentCreateReq
 	if err := c.BodyParser(&req); err != nil {
@@ -91,6 +93,35 @@ func (h *MasjidStudentController) Create(c *fiber.Ctx) error {
 	}
 
 	m := req.ToModel()
+
+	// ===== Snapshot user_profile (by profile_id) =====
+	if m.MasjidStudentUserProfileID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "user_profile_id is required")
+	}
+	snap, err := snapshotUserProfile.BuildUserProfileSnapshotByProfileID(c.Context(), h.DB, m.MasjidStudentUserProfileID)
+	if err != nil {
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			return helper.JsonError(c, fiber.StatusBadRequest, "user profile tidak ditemukan / sudah dihapus")
+		default:
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal mengambil snapshot user profile")
+		}
+	}
+	// Isi kolom snapshot di model (hanya yang tersedia di model kamu)
+	if snap != nil {
+		// Name (string wajib di struct snapshot → pastikan non-empty)
+		if strings.TrimSpace(snap.Name) != "" {
+			m.MasjidStudentUserProfileNameSnapshot = &snap.Name
+		}
+		m.MasjidStudentUserProfileAvatarURLSnapshot = snap.AvatarURL
+		m.MasjidStudentUserProfileWhatsappURLSnapshot = snap.WhatsappURL
+		m.MasjidStudentUserProfileParentNameSnapshot = snap.ParentName
+		m.MasjidStudentUserProfileParentWhatsappURLSnapshot = snap.ParentWhatsappURL
+		// snap.Slug / snap.DonationName / snap.Location tersedia, tapi model kamu
+		// tidak punya kolom-kolom itu—abaikan saja.
+	}
+
+	// ===== Insert =====
 	if err := h.DB.Create(m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}

@@ -33,12 +33,11 @@ func NewMasjidController(db *gorm.DB, v *validator.Validate, oss *helperOSS.OSSS
 }
 
 // ========== helpers lokal ==========
-
 func parseMasjidID(c *fiber.Ctx) (uuid.UUID, error) {
-	s := strings.TrimSpace(c.Params("id"))
+	s := strings.TrimSpace(c.Params("masjid_id")) // ⬅️ was: "id"
 	id, err := uuid.Parse(s)
 	if err != nil {
-		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "masjid_id pada path tidak valid")
 	}
 	return id, nil
 }
@@ -70,13 +69,12 @@ func jsonEqual(a, b datatypes.JSON) bool {
 /* ====== KODE GURU: helper & endpoint ====== */
 // POST /api/u/masjids/:id/teacher-code/rotate
 func (mc *MasjidController) GetTeacherCode(c *fiber.Ctx) error {
-	idStr := c.Params("id")
-	masjidID, err := uuid.Parse(strings.TrimSpace(idStr))
+	raw := strings.TrimSpace(c.Params("masjid_id")) // ⬅️ was: "id"
+	masjidID, err := uuid.Parse(raw)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id pada path tidak valid")
 	}
 
-	// Auth DKM
 	gotID, aerr := helperAuth.EnsureMasjidAccessDKM(c, helperAuth.MasjidContext{ID: masjidID})
 	if aerr != nil {
 		return helper.JsonError(c, aerr.(*fiber.Error).Code, aerr.Error())
@@ -85,19 +83,17 @@ func (mc *MasjidController) GetTeacherCode(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 
-	// Ambil masjid
 	var m masjidModel.MasjidModel
 	if err := mc.DB.First(&m, "masjid_id = ?", masjidID).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusNotFound, "Masjid tidak ditemukan")
 	}
 
-	// Generate dari slug: slug-xy (2 char base36)
 	plain, hash, setAt, err := makeTeacherCodeFromSlug(m.MasjidSlug)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat teacher code")
 	}
 
-	m.MasjidTeacherCodeHash = hash // []byte → BYTEA
+	m.MasjidTeacherCodeHash = hash
 	m.MasjidTeacherCodeSetAt = &setAt
 	m.MasjidUpdatedAt = time.Now()
 
@@ -109,10 +105,9 @@ func (mc *MasjidController) GetTeacherCode(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan kode guru")
 	}
 
-	// KEMBALIKAN PLAINTEXT-NYA DI SINI
 	return helper.JsonOK(c, "Kode guru didapatkan", fiber.Map{
 		"teacher_code": plain,
-		"set_at":             setAt,
+		"set_at":       setAt,
 	})
 }
 
@@ -131,12 +126,12 @@ type patchTeacherCodeJSON struct {
 //   - Form:      code=apa%20saja
 //   - Multipart: code=apa%20saja
 func (mc *MasjidController) PatchTeacherCode(c *fiber.Ctx) error {
-	// --- Auth & path param ---
-	rawID := strings.TrimSpace(c.Params("id"))
-	masjidID, err := uuid.Parse(rawID)
+	raw := strings.TrimSpace(c.Params("masjid_id")) // ⬅️ was: "id"
+	masjidID, err := uuid.Parse(raw)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id pada path tidak valid")
 	}
+
 	gotID, aerr := helperAuth.EnsureMasjidAccessDKM(c, helperAuth.MasjidContext{ID: masjidID})
 	if aerr != nil {
 		return helper.JsonError(c, aerr.(*fiber.Error).Code, aerr.Error())
@@ -145,7 +140,7 @@ func (mc *MasjidController) PatchTeacherCode(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 
-	// --- Ambil input code dari body ---
+	// baca body (json/form/raw) sama seperti sebelumnya…
 	var code string
 	ct := strings.ToLower(strings.TrimSpace(c.Get(fiber.HeaderContentType)))
 	switch {
@@ -159,11 +154,8 @@ func (mc *MasjidController) PatchTeacherCode(c *fiber.Ctx) error {
 		strings.HasPrefix(ct, "multipart/form-data"):
 		code = c.FormValue("code")
 	default:
-		// fallback: coba treat body sebagai raw string
 		code = string(c.Body())
 	}
-
-	// Hanya trim ruang depan/belakang (biarkan spasi di tengah apa adanya)
 	code = strings.TrimSpace(code)
 	if code == "" {
 		return helper.JsonError(c, fiber.StatusBadRequest, "code wajib diisi")
@@ -172,19 +164,16 @@ func (mc *MasjidController) PatchTeacherCode(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "code terlalu panjang")
 	}
 
-	// --- Ambil masjid ---
 	var m masjidModel.MasjidModel
 	if err := mc.DB.First(&m, "masjid_id = ?", masjidID).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusNotFound, "Masjid tidak ditemukan")
 	}
 
-	// --- Hash & simpan ---
 	now := time.Now()
 	hash, err := bcrypt.GenerateFromPassword([]byte(code), bcrypt.DefaultCost)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat hash code")
 	}
-
 	m.MasjidTeacherCodeHash = hash
 	m.MasjidTeacherCodeSetAt = &now
 	m.MasjidUpdatedAt = now
@@ -197,10 +186,9 @@ func (mc *MasjidController) PatchTeacherCode(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan kode guru")
 	}
 
-	// --- Kembalikan plaintext SEKALI di response ---
 	return helper.JsonOK(c, "Kode guru diperbarui", fiber.Map{
 		"teacher_code": code,
-		"set_at":             now,
+		"set_at":       now,
 	})
 }
 

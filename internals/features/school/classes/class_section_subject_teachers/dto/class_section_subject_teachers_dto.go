@@ -87,7 +87,7 @@ type UpdateClassSectionSubjectTeacherRequest struct {
 }
 
 /* =========================================================
-   2) RESPONSE DTO — sesuai kolom di DB/model terbaru
+   2) RESPONSE DTO — sinkron dgn SQL/model terbaru
 ========================================================= */
 
 type ClassSectionSubjectTeacherResponse struct {
@@ -99,6 +99,7 @@ type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherTeacherID      uuid.UUID `json:"class_section_subject_teacher_teacher_id"`
 
 	// Identitas / fasilitas
+	ClassSectionSubjectTeacherName        string     `json:"class_section_subject_teacher_name"`
 	ClassSectionSubjectTeacherSlug        *string    `json:"class_section_subject_teacher_slug,omitempty"`
 	ClassSectionSubjectTeacherDescription *string    `json:"class_section_subject_teacher_description,omitempty"`
 	ClassSectionSubjectTeacherRoomID      *uuid.UUID `json:"class_section_subject_teacher_room_id,omitempty"`
@@ -110,17 +111,24 @@ type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherEnrolledCount   int    `json:"class_section_subject_teacher_enrolled_count"`
 	ClassSectionsSubjectTeacherDeliveryMode   string `json:"class_sections_subject_teacher_delivery_mode"`
 
-	// Room snapshot + derived
+	// Room snapshot + turunan (generated)
 	ClassSectionSubjectTeacherRoomSnapshot     *datatypes.JSON `json:"class_section_subject_teacher_room_snapshot,omitempty"`
 	ClassSectionSubjectTeacherRoomNameSnap     *string         `json:"class_section_subject_teacher_room_name_snap,omitempty"`
 	ClassSectionSubjectTeacherRoomSlugSnap     *string         `json:"class_section_subject_teacher_room_slug_snap,omitempty"`
 	ClassSectionSubjectTeacherRoomLocationSnap *string         `json:"class_section_subject_teacher_room_location_snap,omitempty"`
 
-	// People snapshots + derived
+	// People snapshots + turunan (generated)
 	ClassSectionSubjectTeacherTeacherSnapshot          *datatypes.JSON `json:"class_section_subject_teacher_teacher_snapshot,omitempty"`
 	ClassSectionSubjectTeacherAssistantTeacherSnapshot *datatypes.JSON `json:"class_section_subject_teacher_assistant_teacher_snapshot,omitempty"`
 	ClassSectionSubjectTeacherTeacherNameSnap          *string         `json:"class_section_subject_teacher_teacher_name_snap,omitempty"`
 	ClassSectionSubjectTeacherAssistantTeacherNameSnap *string         `json:"class_section_subject_teacher_assistant_teacher_name_snap,omitempty"`
+
+	// Class Subject snapshot + turunan (generated) ⬅️ BARU
+	ClassSectionSubjectTeacherClassSubjectSnapshot *datatypes.JSON `json:"class_section_subject_teacher_class_subject_snapshot,omitempty"`
+	ClassSectionSubjectTeacherClassSubjectNameSnap *string         `json:"class_section_subject_teacher_class_subject_name_snap,omitempty"`
+	ClassSectionSubjectTeacherClassSubjectCodeSnap *string         `json:"class_section_subject_teacher_class_subject_code_snap,omitempty"`
+	ClassSectionSubjectTeacherClassSubjectSlugSnap *string         `json:"class_section_subject_teacher_class_subject_slug_snap,omitempty"`
+	ClassSectionSubjectTeacherClassSubjectURLSnap  *string         `json:"class_section_subject_teacher_class_subject_url_snap,omitempty"`
 
 	// Status & audit
 	ClassSectionSubjectTeacherIsActive  bool       `json:"class_section_subject_teacher_is_active"`
@@ -144,6 +152,14 @@ func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectio
 		ClassSectionSubjectTeacherDescription: trimPtr(r.ClassSectionSubjectTeacherDescription),
 		ClassSectionSubjectTeacherRoomID:      r.ClassSectionSubjectTeacherRoomID,
 		ClassSectionSubjectTeacherGroupURL:    trimPtr(r.ClassSectionSubjectTeacherGroupURL),
+	}
+
+	// Auto-derive NAME dari SLUG (lowercase)
+	if r.ClassSectionSubjectTeacherSlug != nil {
+		s := strings.ToLower(strings.TrimSpace(*r.ClassSectionSubjectTeacherSlug))
+		if s != "" {
+			m.ClassSectionSubjectTeacherName = s
+		}
 	}
 
 	if r.ClassSectionSubjectTeacherMasjidID != nil {
@@ -179,7 +195,12 @@ func (r UpdateClassSectionSubjectTeacherRequest) Apply(m *csstModel.ClassSection
 	}
 
 	if r.ClassSectionSubjectTeacherSlug != nil {
-		m.ClassSectionSubjectTeacherSlug = trimLowerPtr(r.ClassSectionSubjectTeacherSlug)
+		cleaned := trimLowerPtr(r.ClassSectionSubjectTeacherSlug)
+		m.ClassSectionSubjectTeacherSlug = cleaned
+		// Jika slug diupdate menjadi non-empty, ikutkan pembaruan name agar tetap sama persis
+		if cleaned != nil {
+			m.ClassSectionSubjectTeacherName = *cleaned
+		}
 	}
 	if r.ClassSectionSubjectTeacherDescription != nil {
 		m.ClassSectionSubjectTeacherDescription = trimPtr(r.ClassSectionSubjectTeacherDescription)
@@ -218,6 +239,7 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		ClassSectionSubjectTeacherTeacherID:      m.ClassSectionSubjectTeacherTeacherID,
 
 		// Identitas / fasilitas
+		ClassSectionSubjectTeacherName:        m.ClassSectionSubjectTeacherName,
 		ClassSectionSubjectTeacherSlug:        m.ClassSectionSubjectTeacherSlug,
 		ClassSectionSubjectTeacherDescription: m.ClassSectionSubjectTeacherDescription,
 		ClassSectionSubjectTeacherRoomID:      m.ClassSectionSubjectTeacherRoomID,
@@ -229,16 +251,24 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		ClassSectionSubjectTeacherEnrolledCount:   m.ClassSectionSubjectTeacherEnrolledCount,
 		ClassSectionsSubjectTeacherDeliveryMode:   string(m.ClassSectionsSubjectTeacherDeliveryMode),
 
-		// Snapshots
+		// Snapshots: Room
 		ClassSectionSubjectTeacherRoomSnapshot:     m.ClassSectionSubjectTeacherRoomSnapshot,
 		ClassSectionSubjectTeacherRoomNameSnap:     m.ClassSectionSubjectTeacherRoomNameSnap,
 		ClassSectionSubjectTeacherRoomSlugSnap:     m.ClassSectionSubjectTeacherRoomSlugSnap,
 		ClassSectionSubjectTeacherRoomLocationSnap: m.ClassSectionSubjectTeacherRoomLocationSnap,
 
+		// Snapshots: People
 		ClassSectionSubjectTeacherTeacherSnapshot:          m.ClassSectionSubjectTeacherTeacherSnapshot,
 		ClassSectionSubjectTeacherAssistantTeacherSnapshot: m.ClassSectionSubjectTeacherAssistantTeacherSnapshot,
 		ClassSectionSubjectTeacherTeacherNameSnap:          m.ClassSectionSubjectTeacherTeacherNameSnap,
 		ClassSectionSubjectTeacherAssistantTeacherNameSnap: m.ClassSectionSubjectTeacherAssistantTeacherNameSnap,
+
+		// Snapshots: Class Subject (BARU)
+		ClassSectionSubjectTeacherClassSubjectSnapshot: m.ClassSectionSubjectTeacherClassSubjectSnapshot,
+		ClassSectionSubjectTeacherClassSubjectNameSnap: m.ClassSectionSubjectTeacherClassSubjectNameSnap,
+		ClassSectionSubjectTeacherClassSubjectCodeSnap: m.ClassSectionSubjectTeacherClassSubjectCodeSnap,
+		ClassSectionSubjectTeacherClassSubjectSlugSnap: m.ClassSectionSubjectTeacherClassSubjectSlugSnap,
+		ClassSectionSubjectTeacherClassSubjectURLSnap:  m.ClassSectionSubjectTeacherClassSubjectURLSnap,
 
 		// Status & audit
 		ClassSectionSubjectTeacherIsActive:  m.ClassSectionSubjectTeacherIsActive,

@@ -223,13 +223,6 @@ func getMasjidRoles(c *fiber.Ctx) []MasjidRole {
 	return out
 }
 
-func getMasjidIDsPref(c *fiber.Ctx) []string {
-	if xs := getLocalsAsStrings(c, helper.LocMasjidIDs); len(xs) > 0 {
-		return xs
-	}
-	return nil
-}
-
 /* ==========================
    Role priority (untuk auto-pick role terbaik)
 ========================== */
@@ -272,8 +265,6 @@ type ScopeChoice struct {
 	Roles    []string `json:"roles"`
 }
 
-
-
 /* ==========================
    Middleware 1 — UseMasjidScope
    (menetapkan active_masjid_id & active_role)
@@ -314,19 +305,12 @@ func extractMasjidIDStrict(c *fiber.Ctx) string {
 	if v := extractMasjidID(c); v != "" {
 		return v
 	}
-	// 3) fallback dari path (kalau middleware dipasang di parent: /api/a atau /api/u)
+	// 3) fallback dari path: ambil segmen setelah "masjids"
 	path := strings.Trim(c.Path(), "/")
 	parts := strings.Split(path, "/")
-	if len(parts) >= 3 && strings.EqualFold(parts[0], "api") &&
-		(strings.EqualFold(parts[1], "a") || strings.EqualFold(parts[1], "u")) {
-
-		// /api/(a|u)/<masjid_id>/...
-		if !strings.EqualFold(parts[2], "slug") {
-			return parts[2]
-		}
-		// /api/(a|u)/slug/<masjid_slug>/...
-		if len(parts) >= 4 {
-			return parts[3]
+	for i := 0; i < len(parts); i++ {
+		if strings.EqualFold(parts[i], "masjids") && i+1 < len(parts) {
+			return parts[i+1]
 		}
 	}
 	return ""
@@ -357,7 +341,7 @@ func UseMasjidScope() fiber.Handler {
 			return fiber.NewError(fiber.StatusBadRequest, "masjid_id wajib di path atau parameter")
 		}
 		if _, err := uuid.Parse(reqMasjid); err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "masjid_id pada path tidak valid")
+			return fiber.NewError(fiber.StatusBadRequest, "masjid_id pada path tidak valid, error")
 		}
 
 		reqRole := trimLower(extractRole(c))

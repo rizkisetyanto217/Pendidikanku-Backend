@@ -57,19 +57,13 @@ type ruleRow struct {
 }
 
 // ============================
-// Row ringan untuk snapshot
+// Row ringan untuk snapshot (v2)
 // ============================
 type csstLite struct {
 	ID        uuid.UUID  `gorm:"column:class_section_subject_teacher_id"`
 	MasjidID  uuid.UUID  `gorm:"column:class_section_subject_teacher_masjid_id"`
-	SubjectID *uuid.UUID `gorm:"column:class_subject_id"`
-	SectionID *uuid.UUID `gorm:"column:class_section_id"`
+	Name      *string    `gorm:"column:class_section_subject_teacher_name"`
 	TeacherID *uuid.UUID `gorm:"column:masjid_teacher_id"`
-
-	SubjCode *string `gorm:"column:class_subject_code"`
-	SubjName *string `gorm:"column:class_subject_name"`
-	Section  *string `gorm:"column:class_section_name"`
-	Teacher  *string `gorm:"column:teacher_name"` // COALESCE(snapshot, ut.name)
 }
 
 type teacherLite struct {
@@ -79,14 +73,6 @@ type teacherLite struct {
 	Whatsapp *string   `gorm:"column:whatsapp_url"` // ut.user_teacher_whatsapp_url
 	TitlePre *string   `gorm:"column:title_prefix"` // ut.user_teacher_title_prefix
 	TitleSuf *string   `gorm:"column:title_suffix"` // ut.user_teacher_title_suffix
-}
-
-type roomLite struct {
-	ID       uuid.UUID `gorm:"column:class_room_id"`
-	MasjidID uuid.UUID `gorm:"column:class_room_masjid_id"`
-	Name     *string   `gorm:"column:class_room_name"`
-	Code     *string   `gorm:"column:class_room_code"`
-	Capacity *int      `gorm:"column:class_room_capacity"`
 }
 
 // ============================
@@ -340,10 +326,13 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`, csstS
 				// DATE disimpan sebagai midnight UTC
 				dateUTC := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
 
+				// ⚠️ penting: simpan pointer ke salinan lokal, bukan &r.ID
+				rid := r.ID
+
 				row := sessModel.ClassAttendanceSessionModel{
 					ClassAttendanceSessionMasjidID:         sch.ClassScheduleMasjidID,
 					ClassAttendanceSessionScheduleID:       sch.ClassScheduleID,
-					ClassAttendanceSessionRuleID:           &r.ID,
+					ClassAttendanceSessionRuleID:           &rid, // pointer unik per-row
 					ClassAttendanceSessionDate:             dateUTC,
 					ClassAttendanceSessionStartsAt:         &startAtUTC,
 					ClassAttendanceSessionEndsAt:           &endAtUTC,
@@ -380,8 +369,8 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`, csstS
 // Loaders Snapshot (adaptif & aman)
 // ============================
 
+// v2: minimal CSST snapshot (id, masjid_id, name, teacher_id)
 func (g *Generator) loadCSSTSnapshot(ctx context.Context, id uuid.UUID) (snap datatypes.JSONMap, teacherID *uuid.UUID, err error) {
-	// Deteksi kolom yang tersedia
 	cols, err := g.tableColumns(ctx, "class_section_subject_teachers")
 	if err != nil {
 		return nil, nil, err
@@ -389,66 +378,19 @@ func (g *Generator) loadCSSTSnapshot(ctx context.Context, id uuid.UUID) (snap da
 
 	idCol := firstExisting(cols, "class_section_subject_teacher_id", "id")
 	masjidCol := firstExisting(cols, "class_section_subject_teacher_masjid_id", "masjid_id")
-	subjCol := firstExisting(cols, "class_section_subject_teacher_subject_id", "class_subject_id", "subject_id")
-	sectCol := firstExisting(cols, "class_section_subject_teacher_section_id", "class_section_id", "section_id")
+	nameCol := firstExisting(cols, "class_section_subject_teacher_name", "name")
 	teachCol := firstExisting(cols, "class_section_subject_teacher_teacher_id", "masjid_teacher_id", "teacher_id")
 	deletedCol := firstExisting(cols, "class_section_subject_teacher_deleted_at", "deleted_at")
 
-	if idCol == "" || masjidCol == "" {
-		return nil, nil, fmt.Errorf("loadCSSTSnapshot: kolom ID/masjid_id tidak ditemukan di class_section_subject_teachers")
+	if idCol == "" || masjidCol == "" || nameCol == "" {
+		return nil, nil, fmt.Errorf("loadCSSTSnapshot: kolom minimal (id/masjid_id/name) tidak ditemukan di class_section_subject_teachers")
 	}
 
-	// Ekspresi nilai (tanpa alias ganda)
-	subjExpr := "NULL"
-	if subjCol != "" {
-		subjExpr = fmt.Sprintf("csst.%s", subjCol)
-	}
-	sectExpr := "NULL"
-	if sectCol != "" {
-		sectExpr = fmt.Sprintf("csst.%s", sectCol)
-	}
-	teachExpr := "NULL"
+	teachExpr := "NULL::uuid"
 	if teachCol != "" {
 		teachExpr = fmt.Sprintf("csst.%s", teachCol)
 	}
 
-	// Join opsional + ekspresi nama/atribut
-	joinSubj := ""
-	subjCodeExpr := "NULL"
-	subjNameExpr := "NULL"
-	if subjCol != "" {
-		joinSubj = fmt.Sprintf(`
-LEFT JOIN class_subjects cs
-  ON cs.class_subject_id = csst.%s
- AND cs.class_subject_masjid_id = csst.%s`, subjCol, masjidCol)
-		subjCodeExpr = "cs.class_subject_code"
-		subjNameExpr = "cs.class_subject_name"
-	}
-
-	joinSect := ""
-	sectNameExpr := "NULL"
-	if sectCol != "" {
-		joinSect = fmt.Sprintf(`
-LEFT JOIN class_sections sec
-  ON sec.class_section_id = csst.%s
- AND sec.class_section_masjid_id = csst.%s`, sectCol, masjidCol)
-		sectNameExpr = "sec.class_section_name"
-	}
-
-	joinTeach := ""
-	teachNameExpr := "NULL"
-	if teachCol != "" {
-		joinTeach = fmt.Sprintf(`
-LEFT JOIN masjid_teachers mt
-  ON mt.masjid_teacher_id = csst.%s
- AND mt.masjid_teacher_masjid_id = csst.%s
-LEFT JOIN user_teachers ut
-  ON ut.user_teacher_id = mt.masjid_teacher_user_teacher_id
- AND ut.user_teacher_deleted_at IS NULL`, teachCol, masjidCol)
-		teachNameExpr = "COALESCE(mt.masjid_teacher_user_teacher_name_snapshot, ut.user_teacher_name)"
-	}
-
-	// Soft delete jika ada
 	whereDeleted := ""
 	if deletedCol != "" {
 		whereDeleted = fmt.Sprintf(" AND csst.%s IS NULL", deletedCol)
@@ -458,25 +400,13 @@ LEFT JOIN user_teachers ut
 SELECT
   csst.%s AS class_section_subject_teacher_id,
   csst.%s AS class_section_subject_teacher_masjid_id,
-  %s AS class_subject_id,
-  %s AS class_section_id,
-  %s AS masjid_teacher_id,
-  %s AS class_subject_code,
-  %s AS class_subject_name,
-  %s AS class_section_name,
-  %s AS teacher_name
+  csst.%s AS class_section_subject_teacher_name,
+  %s      AS masjid_teacher_id
 FROM class_section_subject_teachers csst
-%s
-%s
-%s
 WHERE csst.%s = ?
 %s
 LIMIT 1`,
-		idCol, masjidCol,
-		subjExpr, sectExpr, teachExpr,
-		subjCodeExpr, subjNameExpr, sectNameExpr, teachNameExpr,
-		joinSubj, joinSect, joinTeach,
-		idCol, whereDeleted,
+		idCol, masjidCol, nameCol, teachExpr, idCol, whereDeleted,
 	)
 
 	var row csstLite
@@ -491,17 +421,12 @@ LIMIT 1`,
 	}
 
 	snap = datatypes.JSONMap{
-		"id":           row.ID,
-		"masjid_id":    row.MasjidID,
-		"subject_id":   row.SubjectID,
-		"section_id":   row.SectionID,
-		"teacher_id":   row.TeacherID,
-		"subject_code": row.SubjCode,
-		"subject_name": row.SubjName,
-		"section_name": row.Section,
-		"teacher_name": row.Teacher,
-		"captured_at":  time.Now().UTC(),
-		"source":       "generator_v1",
+		"id":          row.ID,
+		"masjid_id":   row.MasjidID,
+		"name":        row.Name,
+		"teacher_id":  row.TeacherID,
+		"captured_at": time.Now().UTC(),
+		"source":      "generator_v2",
 	}
 	return snap, teacherID, nil
 }
@@ -539,18 +464,78 @@ LIMIT 1`
 		"title_prefix": row.TitlePre,
 		"title_suffix": row.TitleSuf,
 		"captured_at":  time.Now().UTC(),
-		"source":       "generator_v1",
+		"source":       "generator_v2",
 	}, nil
 }
 
+// v2: Room snapshot adaptif (slug/location bila ada)
 func (g *Generator) loadRoomSnapshot(ctx context.Context, id uuid.UUID) (datatypes.JSONMap, error) {
-	const q = `
-SELECT class_room_id, class_room_masjid_id, class_room_name, class_room_code, class_room_capacity
-FROM class_rooms
-WHERE class_room_id = ?
-  AND class_room_deleted_at IS NULL
-LIMIT 1`
-	var row roomLite
+	cols, err := g.tableColumns(ctx, "class_rooms")
+	if err != nil {
+		return nil, err
+	}
+	idCol := firstExisting(cols, "class_room_id", "id")
+	masjidCol := firstExisting(cols, "class_room_masjid_id", "masjid_id")
+	nameCol := firstExisting(cols, "class_room_name", "name")
+	codeCol := firstExisting(cols, "class_room_code", "code")
+	capCol := firstExisting(cols, "class_room_capacity", "capacity")
+	slugCol := firstExisting(cols, "class_room_slug", "slug")
+	locCol := firstExisting(cols, "class_room_location", "location")
+	deletedCol := firstExisting(cols, "class_room_deleted_at", "deleted_at")
+
+	if idCol == "" || masjidCol == "" || nameCol == "" {
+		return nil, fmt.Errorf("loadRoomSnapshot: kolom minimal (id/masjid_id/name) tidak ditemukan")
+	}
+
+	codeExpr := "NULL"
+	if codeCol != "" {
+		codeExpr = fmt.Sprintf("r.%s", codeCol)
+	}
+	capExpr := "NULL"
+	if capCol != "" {
+		capExpr = fmt.Sprintf("r.%s", capCol)
+	}
+	slugExpr := "NULL"
+	if slugCol != "" {
+		slugExpr = fmt.Sprintf("r.%s", slugCol)
+	}
+	locExpr := "NULL"
+	if locCol != "" {
+		locExpr = fmt.Sprintf("r.%s", locCol)
+	}
+
+	whereDeleted := ""
+	if deletedCol != "" {
+		whereDeleted = fmt.Sprintf(" AND r.%s IS NULL", deletedCol)
+	}
+
+	q := fmt.Sprintf(`
+SELECT
+  r.%s AS class_room_id,
+  r.%s AS class_room_masjid_id,
+  r.%s AS class_room_name,
+  %s   AS class_room_code,
+  %s   AS class_room_capacity,
+  %s   AS class_room_slug,
+  %s   AS class_room_location
+FROM class_rooms r
+WHERE r.%s = ?
+%s
+LIMIT 1`,
+		idCol, masjidCol, nameCol,
+		codeExpr, capExpr, slugExpr, locExpr,
+		idCol, whereDeleted,
+	)
+
+	var row struct {
+		ID       uuid.UUID `gorm:"column:class_room_id"`
+		MasjidID uuid.UUID `gorm:"column:class_room_masjid_id"`
+		Name     *string   `gorm:"column:class_room_name"`
+		Code     *string   `gorm:"column:class_room_code"`
+		Capacity *int      `gorm:"column:class_room_capacity"`
+		Slug     *string   `gorm:"column:class_room_slug"`
+		Location *string   `gorm:"column:class_room_location"`
+	}
 	if err := g.DB.WithContext(ctx).Raw(q, id).Scan(&row).Error; err != nil {
 		return nil, err
 	}
@@ -563,8 +548,10 @@ LIMIT 1`
 		"name":        row.Name,
 		"code":        row.Code,
 		"capacity":    row.Capacity,
+		"slug":        row.Slug,     // baru, jika kolom ada
+		"location":    row.Location, // baru, jika kolom ada
 		"captured_at": time.Now().UTC(),
-		"source":      "generator_v1",
+		"source":      "generator_v2",
 	}, nil
 }
 

@@ -14,8 +14,8 @@ import (
 	"github.com/google/uuid"
 
 	// models
-	m "masjidku_backend/internals/features/school/classes/class_sections/model"
 	csstModel "masjidku_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	m "masjidku_backend/internals/features/school/classes/class_sections/model"
 )
 
 /* =========================================================
@@ -116,7 +116,7 @@ type ClassSectionCreateRequest struct {
 	ClassSectionClassRoomID        *uuid.UUID `json:"class_section_class_room_id"        form:"class_section_class_room_id"`
 	ClassSectionLeaderStudentID    *uuid.UUID `json:"class_section_leader_student_id"    form:"class_section_leader_student_id"`
 
-	ClassSectionCode     *string `json:"class_section_code"     form:"class_section_code"     validate:"omitempty,max=50"`
+	ClassSectionCode     *string `json:"class_section_code"     form:"class_section_code"`
 	ClassSectionSchedule *string `json:"class_section_schedule" form:"class_section_schedule"`
 	ClassSectionCapacity *int    `json:"class_section_capacity" form:"class_section_capacity"`
 
@@ -591,16 +591,133 @@ func (r *ClassSectionPatchRequest) Apply(cs *m.ClassSectionModel) {
 
 /* ----------------- Decoder PATCH ----------------- */
 
+// === Aliases yang diterima dari FE (snake_case, camelCase, short) ===
+var (
+	aliasRoomID = []string{
+		"class_section_class_room_id", "class_room_id", "room_id",
+		"classSectionClassRoomId", "classRoomId", "roomId",
+	}
+	aliasTeacherID = []string{
+		"class_section_teacher_id", "teacher_id", "classSectionTeacherId", "teacherId",
+	}
+	aliasAssistantTeacherID = []string{
+		"class_section_assistant_teacher_id", "assistant_teacher_id", "classSectionAssistantTeacherId", "assistantTeacherId",
+	}
+	aliasLeaderStudentID = []string{
+		"class_section_leader_student_id", "leader_student_id", "classSectionLeaderStudentId", "leaderStudentId",
+	}
+	aliasSlug = []string{
+		"class_section_slug", "slug", "classSectionSlug",
+	}
+	aliasName = []string{
+		"class_section_name", "name", "classSectionName",
+	}
+	aliasCode = []string{
+		"class_section_code", "code", "classSectionCode",
+	}
+	aliasSchedule = []string{
+		"class_section_schedule", "schedule", "classSectionSchedule",
+	}
+	aliasCapacity = []string{
+		"class_section_capacity", "capacity", "classSectionCapacity",
+	}
+	aliasTotalStudents = []string{
+		"class_section_total_students", "total_students", "classSectionTotalStudents",
+	}
+	aliasGroupURL = []string{
+		"class_section_group_url", "group_url", "classSectionGroupUrl",
+	}
+	aliasImageURL = []string{
+		"class_section_image_url", "image_url", "classSectionImageUrl",
+	}
+	aliasImageKey = []string{
+		"class_section_image_object_key", "image_object_key", "classSectionImageObjectKey",
+	}
+	aliasIsActive = []string{
+		"class_section_is_active", "is_active", "classSectionIsActive",
+	}
+	aliasCSSTMode = []string{
+		"class_section_csst_enrollment_mode", "csst_enrollment_mode", "classSectionCsstEnrollmentMode",
+	}
+	aliasCSSTReqApproval = []string{
+		"class_section_csst_self_select_requires_approval", "csst_self_select_requires_approval", "classSectionCsstSelfSelectRequiresApproval",
+	}
+	aliasCSSTMaxSubj = []string{
+		"class_section_csst_max_subjects_per_student", "csst_max_subjects_per_student", "classSectionCsstMaxSubjectsPerStudent",
+	}
+	aliasCSSTDeadline = []string{
+		"class_section_csst_switch_deadline", "csst_switch_deadline", "classSectionCsstSwitchDeadline",
+	}
+	aliasFeatures = []string{
+		"class_section_features", "features", "classSectionFeatures",
+	}
+)
+
+// helper: jika canonical belum ada, isi dari alias pertama yang ditemukan
+func setCanon(raw map[string]any, canon string, aliases []string) {
+	if _, ok := raw[canon]; ok {
+		return
+	}
+	for _, k := range aliases {
+		if v, ok := raw[k]; ok {
+			raw[canon] = v
+			return
+		}
+		// juga coba versi lower-case penuh untuk JSON keys "aneh"
+		lk := strings.ToLower(k)
+		if v, ok := raw[lk]; ok {
+			raw[canon] = v
+			return
+		}
+	}
+}
+
 func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequest) error {
 	ct := strings.ToLower(strings.TrimSpace(c.Get(fiber.HeaderContentType)))
 	switch {
 	case strings.HasPrefix(ct, "application/json"):
-		if err := c.BodyParser(dst); err != nil {
+		// Normalisasi alias → canonical keys sebelum unmarshal ke struct tri-state
+		var raw map[string]any
+		if err := json.Unmarshal(c.Body(), &raw); err != nil {
 			return errors.New("payload JSON tidak valid")
+		}
+		if raw == nil {
+			raw = map[string]any{}
+		}
+
+		// Set canonical untuk semua field penting (khususnya ROOM)
+		setCanon(raw, "class_section_class_room_id", aliasRoomID)
+		setCanon(raw, "class_section_teacher_id", aliasTeacherID)
+		setCanon(raw, "class_section_assistant_teacher_id", aliasAssistantTeacherID)
+		setCanon(raw, "class_section_leader_student_id", aliasLeaderStudentID)
+
+		setCanon(raw, "class_section_slug", aliasSlug)
+		setCanon(raw, "class_section_name", aliasName)
+		setCanon(raw, "class_section_code", aliasCode)
+		setCanon(raw, "class_section_schedule", aliasSchedule)
+		setCanon(raw, "class_section_group_url", aliasGroupURL)
+		setCanon(raw, "class_section_image_url", aliasImageURL)
+		setCanon(raw, "class_section_image_object_key", aliasImageKey)
+
+		setCanon(raw, "class_section_capacity", aliasCapacity)
+		setCanon(raw, "class_section_total_students", aliasTotalStudents)
+		setCanon(raw, "class_section_is_active", aliasIsActive)
+
+		setCanon(raw, "class_section_csst_enrollment_mode", aliasCSSTMode)
+		setCanon(raw, "class_section_csst_self_select_requires_approval", aliasCSSTReqApproval)
+		setCanon(raw, "class_section_csst_max_subjects_per_student", aliasCSSTMaxSubj)
+		setCanon(raw, "class_section_csst_switch_deadline", aliasCSSTDeadline)
+		setCanon(raw, "class_section_features", aliasFeatures)
+
+		// Re-encode → unmarshal ke struct dengan UnmarshalJSON tri-state
+		buf, _ := json.Marshal(raw)
+		if err := json.Unmarshal(buf, dst); err != nil {
+			return errors.New("payload JSON tidak valid (canon)")
 		}
 		return nil
 
 	case strings.HasPrefix(ct, "multipart/form-data"):
+		// helpers
 		markUUID := func(key string, pf *PatchFieldCS[uuid.UUID]) {
 			if v := strings.TrimSpace(c.FormValue(key)); v != "" || formHasKey(c, key) {
 				pf.Present = true
@@ -616,6 +733,14 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 				}
 			}
 		}
+		markUUIDAliases := func(keys []string, pf *PatchFieldCS[uuid.UUID]) {
+			for _, key := range keys {
+				if v := strings.TrimSpace(c.FormValue(key)); v != "" || formHasKey(c, key) {
+					markUUID(key, pf)
+					return
+				}
+			}
+		}
 		markStr := func(key string, pf *PatchFieldCS[string]) {
 			if v := c.FormValue(key); v != "" || formHasKey(c, key) {
 				pf.Present = true
@@ -625,6 +750,14 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 				}
 				val := v
 				pf.Value = &val
+			}
+		}
+		markStrAliases := func(keys []string, pf *PatchFieldCS[string]) {
+			for _, key := range keys {
+				if v := c.FormValue(key); v != "" || formHasKey(c, key) {
+					markStr(key, pf)
+					return
+				}
 			}
 		}
 		markInt := func(key string, pf *PatchFieldCS[int]) {
@@ -642,6 +775,14 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 				pf.Value = &iv
 			}
 		}
+		markIntAliases := func(keys []string, pf *PatchFieldCS[int]) {
+			for _, key := range keys {
+				if v := c.FormValue(key); v != "" || formHasKey(c, key) {
+					markInt(key, pf)
+					return
+				}
+			}
+		}
 		markBool := func(key string, pf *PatchFieldCS[bool]) {
 			if v := c.FormValue(key); v != "" || formHasKey(c, key) {
 				pf.Present = true
@@ -652,6 +793,14 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 				lv := strings.ToLower(strings.TrimSpace(v))
 				b := lv == "1" || lv == "true" || lv == "on" || lv == "yes" || lv == "y"
 				pf.Value = &b
+			}
+		}
+		markBoolAliases := func(keys []string, pf *PatchFieldCS[bool]) {
+			for _, key := range keys {
+				if v := c.FormValue(key); v != "" || formHasKey(c, key) {
+					markBool(key, pf)
+					return
+				}
 			}
 		}
 		markTime := func(key string, pf *PatchFieldCS[time.Time]) error {
@@ -675,6 +824,14 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 			}
 			return nil
 		}
+		markTimeAliases := func(keys []string, pf *PatchFieldCS[time.Time]) error {
+			for _, key := range keys {
+				if v := c.FormValue(key); v != "" || formHasKey(c, key) {
+					return markTime(key, pf)
+				}
+			}
+			return nil
+		}
 		markJSON := func(key string, pf *PatchFieldCS[json.RawMessage]) error {
 			if v := c.FormValue(key); v != "" || formHasKey(c, key) {
 				pf.Present = true
@@ -693,42 +850,50 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 			}
 			return nil
 		}
+		markJSONAliases := func(keys []string, pf *PatchFieldCS[json.RawMessage]) error {
+			for _, key := range keys {
+				if v := c.FormValue(key); v != "" || formHasKey(c, key) {
+					return markJSON(key, pf)
+				}
+			}
+			return nil
+		}
 
-		// Map form fields -> patch fields
-		markUUID("class_section_teacher_id", &dst.ClassSectionTeacherID)
-		markUUID("class_section_assistant_teacher_id", &dst.ClassSectionAssistantTeacherID)
-		markUUID("class_section_class_room_id", &dst.ClassSectionClassRoomID)
-		markUUID("class_section_leader_student_id", &dst.ClassSectionLeaderStudentID)
+		// Map form fields (pakai alias)
+		markUUIDAliases(aliasTeacherID, &dst.ClassSectionTeacherID)
+		markUUIDAliases(aliasAssistantTeacherID, &dst.ClassSectionAssistantTeacherID)
+		markUUIDAliases(aliasRoomID, &dst.ClassSectionClassRoomID)
+		markUUIDAliases(aliasLeaderStudentID, &dst.ClassSectionLeaderStudentID)
 
-		markStr("class_section_slug", &dst.ClassSectionSlug)
-		markStr("class_section_name", &dst.ClassSectionName)
-		markStr("class_section_code", &dst.ClassSectionCode)
-		markStr("class_section_schedule", &dst.ClassSectionSchedule)
-		markStr("class_section_group_url", &dst.ClassSectionGroupURL)
+		markStrAliases(aliasSlug, &dst.ClassSectionSlug)
+		markStrAliases(aliasName, &dst.ClassSectionName)
+		markStrAliases(aliasCode, &dst.ClassSectionCode)
+		markStrAliases(aliasSchedule, &dst.ClassSectionSchedule)
+		markStrAliases(aliasGroupURL, &dst.ClassSectionGroupURL)
 
-		markInt("class_section_capacity", &dst.ClassSectionCapacity)
-		markInt("class_section_total_students", &dst.ClassSectionTotalStudents)
+		markIntAliases(aliasCapacity, &dst.ClassSectionCapacity)
+		markIntAliases(aliasTotalStudents, &dst.ClassSectionTotalStudents)
 
-		markStr("class_section_image_url", &dst.ClassSectionImageURL)
-		markStr("class_section_image_object_key", &dst.ClassSectionImageObjectKey)
+		markStrAliases(aliasImageURL, &dst.ClassSectionImageURL)
+		markStrAliases(aliasImageKey, &dst.ClassSectionImageObjectKey)
 
-		markBool("class_section_is_active", &dst.ClassSectionIsActive)
+		markBoolAliases(aliasIsActive, &dst.ClassSectionIsActive)
 
 		// CSST settings
-		markStr("class_section_csst_enrollment_mode", &dst.ClassSectionCSSTEnrollmentMode)
-		markBool("class_section_csst_self_select_requires_approval", &dst.ClassSectionCSSTSelfSelectRequiresApproval)
-		markInt("class_section_csst_max_subjects_per_student", &dst.ClassSectionCSSTMaxSubjectsPerStudent)
-		if err := markTime("class_section_csst_switch_deadline", &dst.ClassSectionCSSTSwitchDeadline); err != nil {
+		markStrAliases(aliasCSSTMode, &dst.ClassSectionCSSTEnrollmentMode)
+		markBoolAliases(aliasCSSTReqApproval, &dst.ClassSectionCSSTSelfSelectRequiresApproval)
+		markIntAliases(aliasCSSTMaxSubj, &dst.ClassSectionCSSTMaxSubjectsPerStudent)
+		if err := markTimeAliases(aliasCSSTDeadline, &dst.ClassSectionCSSTSwitchDeadline); err != nil {
 			return err
 		}
-		if err := markJSON("class_section_features", &dst.ClassSectionFeatures); err != nil {
+		if err := markJSONAliases(aliasFeatures, &dst.ClassSectionFeatures); err != nil {
 			return err
 		}
 
 		return nil
 
 	default:
-		// fallback: coba JSON
+		// fallback: coba JSON biasa
 		if err := c.BodyParser(dst); err != nil {
 			return errors.New("Content-Type tidak didukung; gunakan application/json atau multipart/form-data")
 		}
@@ -838,11 +1003,11 @@ type UpdateClassSectionSubjectTeacherRequest struct {
 /* ----------------- RESPONSE (CSST) ----------------- */
 
 type ClassSectionSubjectTeacherResponse struct {
-	ClassSectionSubjectTeacherID             uuid.UUID  `json:"class_section_subject_teacher_id"`
-	ClassSectionSubjectTeacherMasjidID       uuid.UUID  `json:"class_section_subject_teacher_masjid_id"`
-	ClassSectionSubjectTeacherSectionID      uuid.UUID  `json:"class_section_subject_teacher_section_id"`
-	ClassSectionSubjectTeacherClassSubjectID uuid.UUID  `json:"class_section_subject_teacher_class_subject_id"`
-	ClassSectionSubjectTeacherTeacherID      uuid.UUID  `json:"class_section_subject_teacher_teacher_id"`
+	ClassSectionSubjectTeacherID             uuid.UUID `json:"class_section_subject_teacher_id"`
+	ClassSectionSubjectTeacherMasjidID       uuid.UUID `json:"class_section_subject_teacher_masjid_id"`
+	ClassSectionSubjectTeacherSectionID      uuid.UUID `json:"class_section_subject_teacher_section_id"`
+	ClassSectionSubjectTeacherClassSubjectID uuid.UUID `json:"class_section_subject_teacher_class_subject_id"`
+	ClassSectionSubjectTeacherTeacherID      uuid.UUID `json:"class_section_subject_teacher_teacher_id"`
 
 	// read-only (generated by DB)
 	ClassSectionSubjectTeacherTeacherNameSnap          *string `json:"class_section_subject_teacher_teacher_name_snap,omitempty"`
