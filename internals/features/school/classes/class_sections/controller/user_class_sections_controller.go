@@ -188,7 +188,7 @@ func (ctl *UserClassSectionController) ListMine(c *fiber.Ctx) error {
 		masjidStudentID = msID
 	} else {
 		// auto resolve (dan buat jika belum ada)
-		msID, e := getOrCreateMasjidStudentByProfile(tx, masjidID, usersProfileID)
+		msID, e := getOrCreateMasjidStudentWithSnapshots(c.Context(), tx, masjidID, usersProfileID, nil)
 		if e != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mendapatkan status student")

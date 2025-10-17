@@ -11,12 +11,13 @@ import (
 	"strings"
 	"time"
 
-	ucsecModel "masjidku_backend/internals/features/school/classes/class_sections/model"
 	profileDTO "masjidku_backend/internals/features/users/users/dto"
 	profileModel "masjidku_backend/internals/features/users/users/model"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 	helperOSS "masjidku_backend/internals/helpers/oss"
+
+	snapshotUserSections "masjidku_backend/internals/features/school/classes/class_sections/snapshot"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -33,15 +34,6 @@ func (upc *UsersProfileController) ensureOSS() (*helperOSS.OSSService, error) {
 	}
 	upc.OSS = svc
 	return svc, nil
-}
-
-func hasAnyKey(m map[string]any, keys ...string) bool {
-	for _, k := range keys {
-		if _, ok := m[k]; ok {
-			return true
-		}
-	}
-	return false
 }
 
 // =============================================================
@@ -85,6 +77,16 @@ func formJSONOrCSVToSlice(s string) []string {
 	}
 	parts := strings.Split(s, ",")
 	return profileDTO.CompactStrings(parts)
+}
+
+// hasAnyKey mengembalikan true jika salah satu key ada di map
+func hasAnyKey(m map[string]any, keys ...string) bool {
+	for _, k := range keys {
+		if _, ok := m[k]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 /*
@@ -255,7 +257,7 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 			}
 
 			// ===== Fallback hydrator untuk field yang sering gagal di multipart =====
-			// Arrays: izinkan JSON string, CSV, atau key berulang (user_profile_interests=.. (multi))
+			// Arrays
 			if in.UserProfileInterests == nil {
 				if v := strings.TrimSpace(c.FormValue("user_profile_interests")); v != "" {
 					in.UserProfileInterests = formJSONOrCSVToSlice(v)
@@ -400,67 +402,31 @@ func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
 		return helper.JsonUpdated(c, "User profile updated (no refresh)", profileDTO.ToUsersProfileDTO(before))
 	}
 
-	// === SNAPSHOT SYNC → user_class_sections (nama, avatar, WA, orangtua) ===
-	// Jalan hanya jika ada perubahan di field terkait
+	// === SNAPSHOT SYNC → user_class_sections (nama, avatar, WA, orangtua) via service ===
+	// Trigger hanya jika ada field relevan yang berubah
 	if hasAnyKey(updateMap,
-		"user_profile_name",
+		// pakai yang sesuai dengan ToUpdateMap kamu:
+		"user_profile_full_name_snapshot", // jika ToUpdateMap mengisi snapshot nama
+		"user_profile_name",               // kalau kamu masih menulis kolom nama biasa
 		"user_profile_avatar_url",
 		"user_profile_whatsapp_url",
 		"user_profile_parent_name",
 		"user_profile_parent_whatsapp_url",
 	) {
-		// Guard kolom agar tidak 500 jika migrasi belum naik
-		hasName := upc.DB.Migrator().HasColumn(&ucsecModel.UserClassSection{}, "user_class_section_user_profile_name_snapshot")
-		hasAvatar := upc.DB.Migrator().HasColumn(&ucsecModel.UserClassSection{}, "user_class_section_user_profile_avatar_url_snapshot")
-		hasWa := upc.DB.Migrator().HasColumn(&ucsecModel.UserClassSection{}, "user_class_section_user_profile_whatsapp_url_snapshot")
-		hasParent := upc.DB.Migrator().HasColumn(&ucsecModel.UserClassSection{}, "user_class_section_user_profile_parent_name_snapshot")
-		hasParentWa := upc.DB.Migrator().HasColumn(&ucsecModel.UserClassSection{}, "user_class_section_user_profile_parent_whatsapp_url_snapshot")
-		hasUpdatedAt := upc.DB.Migrator().HasColumn(&ucsecModel.UserClassSection{}, "user_class_section_updated_at")
-
-		if !(hasName || hasAvatar || hasWa || hasParent || hasParentWa) {
-			log.Printf("[profiles#patch] UCS snapshot columns not found — skip sync to user_class_sections")
-		} else {
-			// Ambil semua masjid_student_id milik user ini
-			var msIDs []uuid.UUID
-			if err := upc.DB.WithContext(c.Context()).
-				Table("masjid_students").
-				Where("masjid_student_user_id = ? AND masjid_student_deleted_at IS NULL", userID).
-				Pluck("masjid_student_id", &msIDs).Error; err != nil {
-				log.Printf("[profiles#patch] failed pluck masjid_student_id: %v", err)
-			}
-
-			if len(msIDs) > 0 {
-				set := map[string]any{}
-				// Catatan: tipe field di model after bisa string atau *string. Keduanya aman di map[string]any.
-				if hasName {
-					set["user_class_section_user_profile_name_snapshot"] = after.UserProfileFullNameSnapshot
-				}
-				if hasAvatar {
-					set["user_class_section_user_profile_avatar_url_snapshot"] = after.UserProfileAvatarURL
-				}
-				if hasWa {
-					set["user_class_section_user_profile_whatsapp_url_snapshot"] = after.UserProfileWhatsappURL
-				}
-				if hasParent {
-					set["user_class_section_user_profile_parent_name_snapshot"] = after.UserProfileParentName
-				}
-				if hasParentWa {
-					set["user_class_section_user_profile_parent_whatsapp_url_snapshot"] = after.UserProfileParentWhatsappURL
-				}
-				if hasUpdatedAt {
-					set["user_class_section_updated_at"] = now
-				}
-
-				if len(set) > 0 {
-					if err := upc.DB.WithContext(c.Context()).
-						Model(&ucsecModel.UserClassSection{}).
-						Where("user_class_section_masjid_student_id IN ? AND user_class_section_deleted_at IS NULL", msIDs).
-						Updates(set).Error; err != nil {
-						log.Printf("[profiles#patch] failed sync user_class_sections snapshots: %v", err)
-					}
-				}
-			}
-		}
+		snapshotUserSections.SyncUCSnapshotsFromUserProfile(
+			c.Context(),
+			upc.DB,
+			snapshotUserSections.UserProfileSnapshotInput{
+				UserID:            after.UserProfileUserID,
+				UserProfileID:     &after.UserProfileID, // <<— KIRIMKAN ID PROFILNYA
+				FullNameSnapshot:  after.UserProfileFullNameSnapshot,
+				AvatarURL:         after.UserProfileAvatarURL,
+				WhatsappURL:       after.UserProfileWhatsappURL,
+				ParentName:        after.UserProfileParentName,
+				ParentWhatsappURL: after.UserProfileParentWhatsappURL,
+			},
+			now,
+		)
 	}
 
 	return helper.JsonUpdated(c, "User profile updated", profileDTO.ToUsersProfileDTO(after))

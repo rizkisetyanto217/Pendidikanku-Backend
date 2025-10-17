@@ -235,6 +235,8 @@ type CreateClassScheduleRequest struct {
 	ClassScheduleStatus   *string `json:"class_schedule_status"   validate:"omitempty,oneof=scheduled ongoing completed canceled"`
 	ClassScheduleIsActive *bool   `json:"class_schedule_is_active" validate:"omitempty"`
 
+	GenerateSessions *bool `json:"generate_sessions,omitempty"` // default: true
+
 	// Defaults untuk semua sesi hasil generate (opsional)
 	DefaultCSSTID    *uuid.UUID `json:"default_csst_id" validate:"omitempty,uuid"`
 	DefaultRoomID    *uuid.UUID `json:"default_room_id" validate:"omitempty,uuid"`

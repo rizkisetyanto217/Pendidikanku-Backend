@@ -106,6 +106,20 @@ func writePGError(c *fiber.Ctx, err error) error {
 	return helper.JsonError(c, code, msg)
 }
 
+// helper/parse.go
+func ParseBoolLoose(s string) (bool, bool) {
+	if s == "" {
+		return false, false // not present
+	}
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "t", "yes", "y", "on":
+		return true, true
+	case "0", "false", "f", "no", "n", "off":
+		return false, true
+	default:
+		return false, false
+	}
+}
 
 /* =========================
    Create (schedule + optional rules & sessions)
@@ -158,9 +172,22 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, "start_date harus <= end_date")
 	}
 
+	// ===== Tentukan apakah ingin auto-generate sessions dari rules =====
+	// Priority: query param > body > default(true)
+	doGen := true
+	if q := c.Query("generate_sessions", ""); q != "" {
+		if v, ok := ParseBoolLoose(q); ok {
+			doGen = v
+		} else {
+			return helper.JsonError(c, http.StatusBadRequest, "Query generate_sessions harus boolean")
+		}
+	} else if req.GenerateSessions != nil {
+		doGen = *req.GenerateSessions
+	}
+
 	var sessionsProvided []sessModel.ClassAttendanceSessionModel
 
-	// TX: create schedule + rules + sessions
+	// TX: create schedule + rules + sessions(payload)
 	if err := ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		// 1) schedule
 		if er := tx.Create(&header).Error; er != nil {
@@ -193,11 +220,10 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 			)
 			if er != nil {
 				log.Printf("[ClassSchedule.Create] SessionsToModels error: %v", er)
-				// kembalikan 400 yang rapi
+				// balikan 400 rapi
 				return helper.JsonError(c, http.StatusBadRequest, er.Error())
 			}
 			if len(ms) > 0 {
-				// idempotent insert dengan unique (schedule_id, starts_at) alive-only
 				if er := tx.
 					Clauses(clause.OnConflict{DoNothing: true}).
 					Create(&ms).Error; er != nil {
@@ -209,69 +235,73 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 		}
 		return nil
 	}); err != nil {
-		// jika error custom dari helper.JsonError di atas → langsung return
 		if fiberErr, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fiberErr.Code, fiberErr.Message)
 		}
 		return writePGError(c, err)
 	}
 
-	// 4) Selalu generate sessions dari rules
-	var defCSST, defRoom, defTeacher *uuid.UUID
+	// 4) Generate sessions dari rules → HANYA jika doGen == true
+	sessionsGenerated := 0
+	var genErr error
+	if doGen {
+		var defCSST, defRoom, defTeacher *uuid.UUID
 
-	// (A) Ambil dari payload default_* (opsional)
-	if req.DefaultCSSTID != nil {
-		v := *req.DefaultCSSTID
-		defCSST = &v
-	}
-	if req.DefaultRoomID != nil {
-		v := *req.DefaultRoomID
-		defRoom = &v
-	}
-	if req.DefaultTeacherID != nil {
-		v := *req.DefaultTeacherID
-		defTeacher = &v
-	}
-
-	// (B) Fallback dari sessions yang ikut dikirim (kalau ada)
-	for _, s := range req.Sessions {
-		if s.CSSTID != nil && defCSST == nil {
-			v := *s.CSSTID
+		// (A) Ambil dari payload default_* (opsional)
+		if req.DefaultCSSTID != nil {
+			v := *req.DefaultCSSTID
 			defCSST = &v
 		}
-		if s.ClassRoomID != nil && defRoom == nil {
-			v := *s.ClassRoomID
+		if req.DefaultRoomID != nil {
+			v := *req.DefaultRoomID
 			defRoom = &v
 		}
-		// Jika DTO sessions kamu sudah punya TeacherID, kamu boleh aktifkan blok ini:
-		// if s.TeacherID != nil && defTeacher == nil {
-		// 	v := *s.TeacherID
-		// 	defTeacher = &v
-		// }
+		if req.DefaultTeacherID != nil {
+			v := *req.DefaultTeacherID
+			defTeacher = &v
+		}
+
+		// (B) Fallback dari sessions yang ikut dikirim (kalau ada)
+		for _, s := range req.Sessions {
+			if s.CSSTID != nil && defCSST == nil {
+				v := *s.CSSTID
+				defCSST = &v
+			}
+			if s.ClassRoomID != nil && defRoom == nil {
+				v := *s.ClassRoomID
+				defRoom = &v
+			}
+			// kalau SessionCreateDTO punya TeacherID, bisa aktifkan:
+			// if s.TeacherID != nil && defTeacher == nil {
+			//    v := *s.TeacherID
+			//    defTeacher = &v
+			// }
+		}
+
+		gen := svc.Generator{DB: ctl.DB}
+		sessionsGenerated, genErr = gen.GenerateSessionsForScheduleWithOpts(
+			c.Context(),
+			header.ClassScheduleID.String(),
+			&svc.GenerateOptions{
+				TZName:                  "Asia/Jakarta", // TODO: tarik dari profil masjid
+				DefaultCSSTID:           defCSST,
+				DefaultRoomID:           defRoom,
+				DefaultTeacherID:        defTeacher,
+				DefaultAttendanceStatus: "open",
+				BatchSize:               500,
+			},
+		)
+		if genErr != nil {
+			log.Printf("[ClassSchedule.Create] GenerateSessionsForSchedule error: %v", genErr)
+		}
 	}
 
-	gen := svc.Generator{DB: ctl.DB}
-	sessionsGenerated, genErr := gen.GenerateSessionsForScheduleWithOpts(
-		c.Context(),
-		header.ClassScheduleID.String(),
-		&svc.GenerateOptions{
-			TZName:                  "Asia/Jakarta", // TODO: tarik dari profil masjid
-			DefaultCSSTID:           defCSST,
-			DefaultRoomID:           defRoom,
-			DefaultTeacherID:        defTeacher,
-			DefaultAttendanceStatus: "open",
-			BatchSize:               500,
-		},
-	)
-	if genErr != nil {
-		log.Printf("[ClassSchedule.Create] GenerateSessionsForSchedule error: %v", genErr)
-	}
-
+	// Response
 	resp := fiber.Map{
 		"schedule":           d.FromModel(header),
 		"sessions_provided":  len(sessionsProvided),
 		"sessions_generated": sessionsGenerated,
-		"generated":          true,
+		"generated":          doGen,
 	}
 	if genErr != nil {
 		resp["generation_warning"] = genErr.Error()

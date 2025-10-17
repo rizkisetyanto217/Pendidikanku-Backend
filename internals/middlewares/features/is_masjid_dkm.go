@@ -295,24 +295,50 @@ func roleInMasjid(c *fiber.Ctx, masjidID, role string) bool {
 
 // Tambah util ini
 func extractMasjidIDStrict(c *fiber.Ctx) string {
-	// 1) param langsung (kalau middleware dipasang di group yg punya param)
+	// 1) Kalau middleware dipasang di group yang memang punya param
 	for _, key := range []string{"masjid_id", "id", "mid"} {
 		if v := strings.TrimSpace(c.Params(key)); v != "" {
 			return v
 		}
 	}
-	// 2) fallback standar (query/header/body/form)
+
+	// 2) Fallback standar (query/header/body/form)
 	if v := extractMasjidID(c); v != "" {
 		return v
 	}
-	// 3) fallback dari path: ambil segmen setelah "masjids"
+
+	// 3) Parse path manual untuk beberapa pola umum
 	path := strings.Trim(c.Path(), "/")
 	parts := strings.Split(path, "/")
-	for i := 0; i < len(parts); i++ {
-		if strings.EqualFold(parts[i], "masjids") && i+1 < len(parts) {
+	n := len(parts)
+	if n == 0 {
+		return ""
+	}
+
+	// 3a) /api/(a|u)/:masjid_id/...
+	if n >= 3 && strings.EqualFold(parts[0], "api") &&
+		(strings.EqualFold(parts[1], "a") || strings.EqualFold(parts[1], "u")) {
+		// kalau segmen ke-2 bukan "slug" atau "masjids", treat sebagai masjid_id langsung
+		if !strings.EqualFold(parts[2], "slug") && !strings.EqualFold(parts[2], "masjids") {
+			return parts[2]
+		}
+		// 3b) /api/(a|u)/masjids/:masjid_id/...
+		if strings.EqualFold(parts[2], "masjids") && n >= 4 {
+			return parts[3]
+		}
+		// 3c) /api/(a|u)/slug/:masjid_slug/...  (kalau kamu pakai slug di beberapa tempat)
+		if strings.EqualFold(parts[2], "slug") && n >= 4 {
+			return parts[3]
+		}
+	}
+
+	// 3d) Pola lain: cari kata "masjids" lalu ambil segmen setelahnya
+	for i := 0; i < n-1; i++ {
+		if strings.EqualFold(parts[i], "masjids") {
 			return parts[i+1]
 		}
 	}
+
 	return ""
 }
 
