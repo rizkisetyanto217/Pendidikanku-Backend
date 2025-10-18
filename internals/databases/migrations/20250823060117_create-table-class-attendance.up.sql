@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_masjid_id   UUID NOT NULL,
 
   -- relasi utama: schedule (header)
-  class_attendance_session_schedule_id UUID NOT NULL,
+  class_attendance_session_schedule_id UUID,
 
   -- jejak rule asal occurrence (opsional)
   class_attendance_session_rule_id UUID

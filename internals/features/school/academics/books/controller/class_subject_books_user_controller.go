@@ -2,7 +2,6 @@
 package controller
 
 import (
-	"encoding/json"
 	"log"
 	"strings"
 	"time"
@@ -18,31 +17,24 @@ import (
 
 /*
 =========================================================
-
-	LIST
-	GET /admin/:masjid_id/class-subject-books
-	(slug juga didukung: /admin/:masjid_slug/class-subject-books)
-
-	Query:
-	  - id / ids         : UUID atau comma-separated UUIDs (filter by-id)
-	  - q                : cari di desc
-	  - class_subject_id : UUID
-	  - class_id         : UUID (via class_sections -> class_id)
-	  - section_id       : UUID
-	  - subject_id       : UUID (via class_subjects)
-	  - teacher_id       : UUID (filter via CSST)
-	  - book_id          : UUID
-	  - is_active        : bool
-	  - with_deleted     : bool
-	  - sort             : created_at_asc|created_at_desc|updated_at_asc|updated_at_desc (kompat lama)
-	  - sort_by/order    : created_at|updated_at + asc|desc (baru, via helper)
-	  - limit/per_page (<=200), page/offset (via helper)
-	  - include          : CSV → book,section,book_urls,book_cover,book_url_primary
+LIST (simple)
+GET /admin/:masjid_id/class-subject-books
+Query:
+  - id / ids         : UUID atau comma-separated UUIDs
+  - class_subject_id : UUID
+  - book_id          : UUID
+  - is_active        : bool
+  - with_deleted     : bool
+  - q                : cari di slug relasi & judul snapshot buku
+  - sort             : created_at_asc|created_at_desc|updated_at_asc|updated_at_desc
+  - sort_by/order    : created_at|updated_at + asc|desc
+  - limit/per_page, page/offset
+  - include          : "book" (opsional; info dasar buku)
 
 =========================================================
 */
 func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
-	// 🔐 Masjid context + check DKM/Admin
+	// 🔐 Masjid context + DKM/Admin
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return err
@@ -52,35 +44,11 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		return err
 	}
 
-	// 📝 Log request & param kunci
-	routePath := "?"
-	if rt := c.Route(); rt != nil {
-		routePath = rt.Path
-	}
-	log.Printf(
-		"[CSB.List] masjid_id=%s route=%s method=%s url=%s id=%q ids=%q include=%q",
-		masjidID.String(),
-		routePath,
-		c.Method(),
-		c.OriginalURL(),
-		strings.TrimSpace(c.Query("id")),
-		strings.TrimSpace(c.Query("ids")),
-		strings.TrimSpace(c.Query("include")),
-	)
+	// Parse include
+	includes := parseIncludeSet(strings.TrimSpace(c.Query("include")))
 
-	/* ========== PARSE QUERY SEDERHANA ========== */
-	var q csbDTO.ListClassSubjectBookQuery
-	if err := c.QueryParser(&q); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
-	}
-
-	// Parse includes
-	includes := ParseIncludeSet(strings.TrimSpace(c.Query("include")))
-
-	// Pagination & sorting (helper)
+	// Pagination & sorting
 	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
-
-	// Back-compat: dukung ?sort=created_at_desc|...
 	if legacy := strings.ToLower(strings.TrimSpace(c.Query("sort"))); legacy != "" {
 		switch legacy {
 		case "created_at_asc":
@@ -93,8 +61,6 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 			p.SortBy, p.SortOrder = "updated_at", "desc"
 		}
 	}
-
-	// Whitelist kolom sorting
 	allowedSort := map[string]string{
 		"created_at": "csb.class_subject_book_created_at",
 		"updated_at": "csb.class_subject_book_updated_at",
@@ -105,155 +71,79 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	}
 	orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
 
-	/* ========== BASE QUERY (TENANT-SAFE: 1 masjid) ========== */
+	/* ========== BASE QUERY (tenant-safe) ========== */
 	qBase := h.DB.WithContext(c.Context()).
 		Table("class_subject_books AS csb").
 		Where("csb.class_subject_book_masjid_id = ?", masjidID)
 
-	// Soft-delete aware (default exclude)
-	if !(q.WithDeleted != nil && *q.WithDeleted) {
+	// Soft-delete filter default
+	withDeleted := strings.EqualFold(strings.TrimSpace(c.Query("with_deleted")), "true")
+	if !withDeleted {
 		qBase = qBase.Where("csb.class_subject_book_deleted_at IS NULL")
 	}
 
-	/* ========== STRICT VALIDATION: id/ids ========== */
-	rawID := strings.TrimSpace(c.Query("id"))
-	rawIDs := strings.TrimSpace(c.Query("ids"))
-	if rawID != "" || rawIDs != "" {
-		parts := make([]string, 0, 1)
-		if rawID != "" {
-			parts = append(parts, rawID)
-		}
-		if rawIDs != "" {
-			for _, s := range strings.Split(rawIDs, ",") {
-				if ss := strings.TrimSpace(s); ss != "" {
-					parts = append(parts, ss)
-				}
-			}
-		}
-		seen := make(map[uuid.UUID]struct{}, len(parts))
-		ids := make([]uuid.UUID, 0, len(parts))
-		for _, p := range parts {
-			u, err := uuid.Parse(p)
-			if err != nil {
-				log.Printf("[CSB.List] id/ids INVALID → 400 (bad=%q all=%v)", p, parts)
-				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-					"error": "id/ids tidak valid (harus UUID, comma-separated)",
-				})
-			}
-			if _, ok := seen[u]; !ok {
-				seen[u] = struct{}{}
-				ids = append(ids, u)
-			}
-		}
-		if len(ids) == 0 {
-			qBase = qBase.Where("1=0")
-		} else {
-			qBase = qBase.Where("csb.class_subject_book_id IN ?", ids)
-		}
+	/* ========== id / ids filter (strict) ========== */
+	if err := applyIDsFilter(c, qBase); err != nil {
+		return err
 	}
 
 	/* ========== FILTERS ========== */
-	// Flag JOIN hanya jika butuh (untuk filter/include)
-	needJoinCS := false
-	needJoinSec := false
-	needJoinCSST := false
-	needJoinBooks := false
-
-	if q.ClassSubjectID != nil {
-		qBase = qBase.Where("csb.class_subject_book_class_subject_id = ?", *q.ClassSubjectID)
-		needJoinCS = true
+	// class_subject_id
+	if v := strings.TrimSpace(c.Query("class_subject_id")); v != "" {
+		if id, er := uuid.Parse(v); er != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "class_subject_id tidak valid")
+		} else {
+			qBase = qBase.Where("csb.class_subject_book_class_subject_id = ?", id)
+		}
 	}
-	if q.BookID != nil {
-		qBase = qBase.Where("csb.class_subject_book_book_id = ?", *q.BookID)
+	// book_id
+	if v := strings.TrimSpace(c.Query("book_id")); v != "" {
+		if id, er := uuid.Parse(v); er != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "book_id tidak valid")
+		} else {
+			qBase = qBase.Where("csb.class_subject_book_book_id = ?", id)
+		}
 	}
-	if q.IsActive != nil {
-		qBase = qBase.Where("csb.class_subject_book_is_active = ?", *q.IsActive)
+	// is_active
+	if v := strings.TrimSpace(c.Query("is_active")); v != "" {
+		switch strings.ToLower(v) {
+		case "true", "1":
+			qBase = qBase.Where("csb.class_subject_book_is_active = TRUE")
+		case "false", "0":
+			qBase = qBase.Where("csb.class_subject_book_is_active = FALSE")
+		default:
+			return helper.JsonError(c, fiber.StatusBadRequest, "is_active tidak valid")
+		}
 	}
-	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
-		qq := "%" + strings.TrimSpace(*q.Q) + "%"
-		qBase = qBase.Where("csb.class_subject_book_desc ILIKE ?", qq)
-	}
-
-	// section_id
-	if secID, ok, errResp := UUIDFromQuery(c, "section_id", "section_id tidak valid"); errResp != nil {
-		return errResp
-	} else if ok {
-		needJoinCS = true
-		needJoinSec = true
-		qBase = qBase.Where("sec.class_sections_id = ?", *secID)
-	}
-	// class_id
-	if classID, ok, errResp := UUIDFromQuery(c, "class_id", "class_id tidak valid"); errResp != nil {
-		return errResp
-	} else if ok {
-		needJoinCS = true
-		needJoinSec = true
-		qBase = qBase.Where("sec.class_sections_class_id = ?", *classID)
-	}
-	// subject_id
-	if subID, ok, errResp := UUIDFromQuery(c, "subject_id", "subject_id tidak valid"); errResp != nil {
-		return errResp
-	} else if ok {
-		needJoinCS = true
-		qBase = qBase.Where("cs.class_subjects_subject_id = ?", *subID)
-	}
-	// teacher_id (via CSST)
-	if teacherID, ok, errResp := UUIDFromQuery(c, "teacher_id", "teacher_id tidak valid"); errResp != nil {
-		return errResp
-	} else if ok {
-		needJoinCS = true
-		needJoinSec = true
-		needJoinCSST = true
-		qBase = qBase.Where("csst.class_section_subject_teachers_teacher_id = ?", *teacherID)
+	// q: cari di slug & judul snapshot
+	if v := strings.TrimSpace(c.Query("q")); v != "" {
+		like := "%" + v + "%"
+		qBase = qBase.Where(`
+			(csb.class_subject_book_slug ILIKE ? OR
+			 csb.class_subject_book_book_title_snapshot ILIKE ?)`,
+			like, like,
+		)
 	}
 
-	/* ========== OPTIONAL JOINS (tenant-safe) ========== */
-	// CS join (pastikan masjid sama)
-	if needJoinCS || includes["section"] || needJoinSec || needJoinCSST {
-		qBase = qBase.Joins(`
-			LEFT JOIN class_subjects AS cs
-			  ON cs.class_subjects_id = csb.class_subject_book_class_subject_id
-			 AND cs.class_subjects_masjid_id = csb.class_subject_book_masjid_id
-		`)
-	}
-	// SEC join (pastikan masjid sama)
-	if needJoinSec || includes["section"] || needJoinCSST {
-		qBase = qBase.Joins(`
-			LEFT JOIN class_sections AS sec
-			  ON sec.class_sections_class_id = cs.class_subjects_class_id
-			 AND sec.class_sections_masjid_id = csb.class_subject_book_masjid_id
-			 AND sec.class_sections_deleted_at IS NULL
-		`)
-	}
-	// CSST join (pastikan masjid sama)
-	if needJoinCSST {
-		qBase = qBase.Joins(`
-			LEFT JOIN class_section_subject_teachers AS csst
-			  ON csst.class_section_subject_teachers_section_id = sec.class_sections_id
-			 AND csst.class_section_subject_teachers_class_subjects_id = cs.class_subjects_id
-			 AND csst.class_section_subject_teachers_masjid_id = csb.class_subject_book_masjid_id
-			 AND csst.class_section_subject_teachers_deleted_at IS NULL
-		`)
-	}
-	// Books join (pastikan masjid sama)
-	if includes["book"] || includes["book_urls"] || includes["book_cover"] || includes["book_url_primary"] {
-		needJoinBooks = true
+	/* ========== OPTIONAL JOIN: book (include=book) ========== */
+	if includes["book"] {
 		qBase = qBase.Joins(`
 			LEFT JOIN books AS b
-			  ON b.books_id = csb.class_subject_book_book_id
-			 AND b.books_masjid_id = csb.class_subject_book_masjid_id
+			  ON b.book_id = csb.class_subject_book_book_id
+			 AND b.book_masjid_id = csb.class_subject_book_masjid_id
 		`)
 	}
 
 	/* ========== TOTAL DISTINCT ========== */
 	var total int64
-	if err := qBase.Session(&gorm.Session{}).
+	if err := qBase.
+		Session(&gorm.Session{}).
 		Distinct("csb.class_subject_book_id").
 		Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
-	/* ========== SELECT builder + LATERAL opsional ========== */
+	/* ========== SELECT ========== */
 	selectCols := []string{
 		"csb.class_subject_book_id",
 		"csb.class_subject_book_masjid_id",
@@ -265,87 +155,27 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		"csb.class_subject_book_created_at",
 		"csb.class_subject_book_updated_at",
 		"csb.class_subject_book_deleted_at",
+
+		// snapshots dari books (selalu ada di csb)
+		"csb.class_subject_book_book_title_snapshot",
+		"csb.class_subject_book_book_author_snapshot",
+		"csb.class_subject_book_book_slug_snapshot",
+		"csb.class_subject_book_book_publisher_snapshot",
+		"csb.class_subject_book_book_publication_year_snapshot",
+		"csb.class_subject_book_book_image_url_snapshot",
 	}
 
-	// Include book fields
 	if includes["book"] {
 		selectCols = append(selectCols,
-			"b.books_id",
-			"b.books_masjid_id",
-			"b.books_title",
-			"b.books_author",
-			"b.books_slug",
+			"b.book_id AS book_id",
+			"b.book_masjid_id AS book_masjid_id",
+			"b.book_title AS book_title",
+			"b.book_author AS book_author",
+			"b.book_slug AS book_slug",
+			"b.book_image_url AS book_image_url",
+			"b.book_publisher AS book_publisher",
+			"b.book_publication_year AS book_publication_year",
 		)
-	}
-
-	// LATERAL: URL primary
-	if needJoinBooks && includes["book_url_primary"] {
-		qBase = qBase.Joins(`
-			LEFT JOIN LATERAL (
-				SELECT bu.book_url_href
-				FROM book_urls AS bu
-				WHERE bu.book_url_book_id = b.books_id
-				  AND bu.book_url_deleted_at IS NULL
-				  AND bu.book_url_type IN ('download','purchase','desc')
-				ORDER BY
-				  CASE bu.book_url_type
-					WHEN 'download' THEN 1
-					WHEN 'purchase' THEN 2
-					WHEN 'desc' THEN 3
-					ELSE 9
-				  END,
-				  bu.book_url_created_at DESC
-				LIMIT 1
-			) bu ON TRUE
-		`)
-		selectCols = append(selectCols, "bu.book_url_href AS books_url")
-	}
-
-	// LATERAL: cover
-	if needJoinBooks && includes["book_cover"] {
-		qBase = qBase.Joins(`
-			LEFT JOIN LATERAL (
-				SELECT bu2.book_url_href
-				FROM book_urls AS bu2
-				WHERE bu2.book_url_book_id = b.books_id
-				  AND bu2.book_url_deleted_at IS NULL
-				  AND bu2.book_url_type = 'cover'
-				ORDER BY bu2.book_url_created_at DESC
-				LIMIT 1
-			) bu_cover ON TRUE
-		`)
-		selectCols = append(selectCols, "bu_cover.book_url_href AS books_image_url")
-	}
-
-	// LATERAL: SEMUA URL (JSON array)
-	if needJoinBooks && includes["book_urls"] {
-		qBase = qBase.Joins(`
-			LEFT JOIN LATERAL (
-				SELECT COALESCE(
-					json_agg(
-						json_build_object(
-							'book_url_id', bu_all.book_url_id,
-							'book_url_masjid_id', bu_all.book_url_masjid_id,
-							'book_url_book_id', bu_all.book_url_book_id,
-							'book_url_label', bu_all.book_url_label,
-							'book_url_type', bu_all.book_url_type,
-							'book_url_href', bu_all.book_url_href,
-							'book_url_trash_url', bu_all.book_url_trash_url,
-							'book_url_delete_pending_until', bu_all.book_url_delete_pending_until,
-							'book_url_created_at', bu_all.book_url_created_at,
-							'book_url_updated_at', bu_all.book_url_updated_at,
-							'book_url_deleted_at', bu_all.book_url_deleted_at
-						)
-						ORDER BY bu_all.book_url_created_at DESC
-					),
-					'[]'::json
-				) AS book_urls_json
-				FROM book_urls bu_all
-				WHERE bu_all.book_url_book_id = b.books_id
-				  AND bu_all.book_url_deleted_at IS NULL
-			) bu_all ON TRUE
-		`)
-		selectCols = append(selectCols, "bu_all.book_urls_json AS book_urls_json")
 	}
 
 	/* ========== SCAN ========== */
@@ -359,25 +189,26 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		IsActive       bool       `gorm:"column:class_subject_book_is_active"`
 		Desc           *string    `gorm:"column:class_subject_book_desc"`
 		CreatedAt      time.Time  `gorm:"column:class_subject_book_created_at"`
-		UpdatedAt      time.Time `gorm:"column:class_subject_book_updated_at"`
+		UpdatedAt      time.Time  `gorm:"column:class_subject_book_updated_at"`
 		DeletedAt      *time.Time `gorm:"column:class_subject_book_deleted_at"`
-		// book (opsional)
-		BID       *uuid.UUID `gorm:"column:books_id"`
-		BMasjidID *uuid.UUID `gorm:"column:books_masjid_id"`
-		BTitle    *string    `gorm:"column:books_title"`
-		BAuthor   *string    `gorm:"column:books_author"`
-		BURL      *string    `gorm:"column:books_url"`       // primary
-		BImageURL *string    `gorm:"column:books_image_url"` // cover
-		BSlug     *string    `gorm:"column:books_slug"`
-		// urls (opsional, JSON)
-		BookURLsJSON *string `gorm:"column:book_urls_json"`
-		// section (opsional)
-		SecID       *uuid.UUID `gorm:"column:class_sections_id"`
-		SecName     *string    `gorm:"column:class_sections_name"`
-		SecSlug     *string    `gorm:"column:class_sections_slug"`
-		SecCode     *string    `gorm:"column:class_sections_code"`
-		SecCapacity *int       `gorm:"column:class_sections_capacity"`
-		SecActive   *bool      `gorm:"column:class_sections_is_active"`
+
+		// snapshots
+		BookTitleSnap     *string `gorm:"column:class_subject_book_book_title_snapshot"`
+		BookAuthorSnap    *string `gorm:"column:class_subject_book_book_author_snapshot"`
+		BookSlugSnap      *string `gorm:"column:class_subject_book_book_slug_snapshot"`
+		BookPublisherSnap *string `gorm:"column:class_subject_book_book_publisher_snapshot"`
+		BookYearSnap      *int16  `gorm:"column:class_subject_book_book_publication_year_snapshot"`
+		BookImageURLSnap  *string `gorm:"column:class_subject_book_book_image_url_snapshot"`
+
+		// include book (opsional)
+		BID        *uuid.UUID `gorm:"column:book_id"`
+		BMasjidID  *uuid.UUID `gorm:"column:book_masjid_id"`
+		BTitle     *string    `gorm:"column:book_title"`
+		BAuthor    *string    `gorm:"column:book_author"`
+		BSlug      *string    `gorm:"column:book_slug"`
+		BImg       *string    `gorm:"column:book_image_url"`
+		BPublisher *string    `gorm:"column:book_publisher"`
+		BYear      *int16     `gorm:"column:book_publication_year"`
 	}
 
 	var rows []row
@@ -390,118 +221,114 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	
-	/* ========== MAP KE DTO ========== */
+	/* ========== MAP → DTO ========== */
 	items := make([]csbDTO.ClassSubjectBookResponse, 0, len(rows))
 	for _, r := range rows {
 		resp := csbDTO.ClassSubjectBookResponse{
-			ClassSubjectBooksID:             r.ID,
-			ClassSubjectBooksMasjidID:       r.MasjidID,
-			ClassSubjectBooksClassSubjectID: r.ClassSubjectID,
-			ClassSubjectBooksBookID:         r.BookID,
-			ClassSubjectBooksSlug:           r.Slug,
-			ClassSubjectBooksIsActive:       r.IsActive,
-			ClassSubjectBooksDesc:           r.Desc,
-			ClassSubjectBooksCreatedAt:      r.CreatedAt,
-			ClassSubjectBooksUpdatedAt:      r.UpdatedAt,
-			ClassSubjectBooksDeletedAt:      r.DeletedAt,
+			ClassSubjectBookID:             r.ID,
+			ClassSubjectBookMasjidID:       r.MasjidID,
+			ClassSubjectBookClassSubjectID: r.ClassSubjectID,
+			ClassSubjectBookBookID:         r.BookID,
+			ClassSubjectBookSlug:           r.Slug,
+			ClassSubjectBookIsActive:       r.IsActive,
+			ClassSubjectBookDesc:           r.Desc,
+			ClassSubjectBookCreatedAt:      r.CreatedAt,
+			ClassSubjectBookUpdatedAt:      r.UpdatedAt,
+			ClassSubjectBookDeletedAt:      r.DeletedAt,
+
+			// snapshots
+			ClassSubjectBookBookTitleSnapshot:           r.BookTitleSnap,
+			ClassSubjectBookBookAuthorSnapshot:          r.BookAuthorSnap,
+			ClassSubjectBookBookSlugSnapshot:            r.BookSlugSnap,
+			ClassSubjectBookBookPublisherSnapshot:       r.BookPublisherSnap,
+			ClassSubjectBookBookPublicationYearSnapshot: r.BookYearSnap,
+			ClassSubjectBookBookImageURLSnapshot:        r.BookImageURLSnap,
 		}
 
-		// book only if included and available
 		if includes["book"] && r.BID != nil {
 			resp.Book = &csbDTO.BookLite{
-				BooksID:       *r.BID,
-				BooksMasjidID: DerefUUID(r.BMasjidID),
-				BooksTitle:    DerefString(r.BTitle),
-				BooksAuthor:   r.BAuthor,
-				BooksURL:      r.BURL,      // jika include book_url_primary
-				BooksImageURL: r.BImageURL, // jika include book_cover
-				BooksSlug:     r.BSlug,
-			}
-
-			// Inject semua URL jika diminta
-			if includes["book_urls"] && r.BookURLsJSON != nil {
-				var urls []csbDTO.BookURLLite
-				if err := json.Unmarshal([]byte(*r.BookURLsJSON), &urls); err != nil {
-					log.Printf("[CSB.List] WARN: gagal unmarshal book_urls_json: %v", err)
-				} else {
-					resp.Book.BookURLs = urls
-				}
-			}
-		}
-
-		// section only if included and available
-		if includes["section"] && r.SecID != nil {
-			resp.Section = &csbDTO.SectionLite{
-				ClassSectionsID:       *r.SecID,
-				ClassSectionsName:     DerefString(r.SecName),
-				ClassSectionsSlug:     DerefString(r.SecSlug),
-				ClassSectionsCode:     r.SecCode,
-				ClassSectionsCapacity: r.SecCapacity,
-				ClassSectionsIsActive: DerefBool(r.SecActive),
+				BookID:        *r.BID,
+				BookMasjidID:  derefUUID(r.BMasjidID),
+				BookTitle:     derefString(r.BTitle),
+				BookAuthor:    r.BAuthor,
+				BookSlug:      r.BSlug,
+				BookImageURL:  r.BImg,
+				BookPublisher: r.BPublisher,
+				BookYear:      r.BYear,
 			}
 		}
 
 		items = append(items, resp)
 	}
 
-	/* ========== RESPONSE LIST (pakai helper meta) ========== */
+	/* ========== RESPON ========== */
 	meta := helper.BuildMeta(total, p)
 	return helper.JsonList(c, items, meta)
 }
 
-/* ================= Helpers (exported) ================= */
+/* ================= Helpers (local) ================= */
 
-// ParseIncludeSet: "a,b,c" -> map["a"]=true, ...
-func ParseIncludeSet(s string) map[string]bool {
+func parseIncludeSet(s string) map[string]bool {
 	out := map[string]bool{}
 	if s == "" {
 		return out
 	}
 	for _, p := range strings.Split(s, ",") {
 		p = strings.ToLower(strings.TrimSpace(p))
-		if p == "" {
-			continue
+		if p != "" {
+			out[p] = true
 		}
-		out[p] = true
 	}
 	return out
 }
 
-func IntFromPtr(p *int) int {
-	if p == nil {
-		return 0
+func applyIDsFilter(c *fiber.Ctx, q *gorm.DB) error {
+	rawID := strings.TrimSpace(c.Query("id"))
+	rawIDs := strings.TrimSpace(c.Query("ids"))
+	if rawID == "" && rawIDs == "" {
+		return nil
 	}
-	return *p
+	parts := make([]string, 0, 1)
+	if rawID != "" {
+		parts = append(parts, rawID)
+	}
+	if rawIDs != "" {
+		for _, s := range strings.Split(rawIDs, ",") {
+			if ss := strings.TrimSpace(s); ss != "" {
+				parts = append(parts, ss)
+			}
+		}
+	}
+	seen := make(map[uuid.UUID]struct{}, len(parts))
+	ids := make([]uuid.UUID, 0, len(parts))
+	for _, p := range parts {
+		u, err := uuid.Parse(p)
+		if err != nil {
+			log.Printf("[CSB.List] id/ids INVALID → %q", p)
+			return helper.JsonError(c, fiber.StatusBadRequest, "id/ids tidak valid (harus UUID, dipisah koma)")
+		}
+		if _, ok := seen[u]; !ok {
+			seen[u] = struct{}{}
+			ids = append(ids, u)
+		}
+	}
+	if len(ids) == 0 {
+		q.Where("1=0") // no results
+	} else {
+		q.Where("csb.class_subject_book_id IN ?", ids)
+	}
+	return nil
 }
 
-func UUIDFromQuery(c *fiber.Ctx, key string, badMsg string) (*uuid.UUID, bool, error) {
-	raw := strings.TrimSpace(c.Query(key))
-	if raw == "" {
-		return nil, false, nil
-	}
-	id, err := uuid.Parse(raw)
-	if err != nil {
-		return nil, false, helper.JsonError(c, fiber.StatusBadRequest, badMsg)
-	}
-	return &id, true, nil
-}
-
-func DerefString(p *string) string {
+func derefString(p *string) string {
 	if p == nil {
 		return ""
 	}
 	return *p
 }
-func DerefUUID(p *uuid.UUID) uuid.UUID {
+func derefUUID(p *uuid.UUID) uuid.UUID {
 	if p == nil {
 		return uuid.Nil
-	}
-	return *p
-}
-func DerefBool(p *bool) bool {
-	if p == nil {
-		return false
 	}
 	return *p
 }

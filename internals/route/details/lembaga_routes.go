@@ -21,8 +21,8 @@ import (
 	AssessmentsRoutes "masjidku_backend/internals/features/school/submissions_assesments/assesments/route"
 	QuizzesRoutes "masjidku_backend/internals/features/school/submissions_assesments/quizzes/route"
 	SubmissionsRoutes "masjidku_backend/internals/features/school/submissions_assesments/submissions/route"
-	CSSTAdminRoutes "masjidku_backend/internals/features/school/classes/class_section_subject_teachers/route"
-	CSSTUserRoutes "masjidku_backend/internals/features/school/classes/class_section_subject_teachers/route"
+
+	CSSTRoutes "masjidku_backend/internals/features/school/classes/class_section_subject_teachers/route"
 
 	// Tambahkan import route lain di sini saat modul siap:
 	// SectionRoutes "masjidku_backend/internals/features/lembaga/sections/main/route"
@@ -70,7 +70,7 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	SubmissionsRoutes.SubmissionUserRoutes(r, db)
 	QuizzesRoutes.QuizzesTeacherRoutes(r, db)
 	QuizzesRoutes.QuizzesUserRoutes(r, db)
-	CSSTUserRoutes.CSSTUserRoutes(r, db)
+	CSSTRoutes.CSSTUserRoutes(r, db)
 
 	// Classes (user actions: enroll, progress, dsb)
 	// ClassRoutes.ClassUserRoutes(r, db)
@@ -102,7 +102,7 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	SubmissionsRoutes.SubmissionAdminRoutes(r, db)
 	QuizzesRoutes.QuizzesAdminRoutes(r, db)
 	EventRoutes.EventAdminRoutes(r, db)
-	CSSTAdminRoutes.CSSTAdminRoutes(r, db)
+	CSSTRoutes.CSSTAdminRoutes(r, db)
 	// Tambahkan modul lain (admin) di sini:
 	// SectionRoutes.SectionAdminRoutes(r, db)
 	// TeacherRoutes.TeacherAdminRoutes(r, db)

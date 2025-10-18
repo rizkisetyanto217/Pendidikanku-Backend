@@ -202,9 +202,12 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 =========================================================
 
 	PATCH (staff only) — tri-state + slug unique + optional upload
+	+ sync snapshot ke class_subjects (name/code/slug[/url])
 
 =========================================================
 */
+// PATCH (staff only) — tri-state + slug unique + optional upload
+// + sync snapshot ke class_subjects (name/code/slug[/url])
 func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 	log.Printf("[SUBJECTS][PATCH] ▶️ incoming request")
 	c.Locals("DB", h.DB)
@@ -230,55 +233,30 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		return err
 	}
 
-	// Parse payload (patch-friendly)
+	// ===== Parse payload (JSON vs multipart) =====
 	var req subjectDTO.UpdateSubjectRequest
-	if err := c.BodyParser(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
-	}
-	// Paksa context
-	req.MasjidID = &ent.SubjectMasjidID
+	var fh *multipart.FileHeader
 
-	// ====== Normalisasi tri-state ======
-	// code
-	if req.Code.Present && req.Code.Value != nil {
-		s := strings.TrimSpace(*req.Code.Value)
-		req.Code.Value = &s
-	}
-	// name
-	if req.Name.Present && req.Name.Value != nil {
-		s := strings.TrimSpace(*req.Name.Value)
-		req.Name.Value = &s
-	}
-	// desc
-	if req.Desc.Present && req.Desc.Value != nil {
-		v := strings.TrimSpace(**req.Desc.Value)
-		if v == "" {
-			req.Desc.Value = nil
-		} else {
-			ns := v
-			ps := &ns
-			req.Desc.Value = &ps
+	ct := strings.ToLower(c.Get("Content-Type"))
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		r, f, perr := subjectDTO.BindMultipartPatch(c)
+		if perr != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, perr.Error())
+		}
+		req = r
+		fh = f
+	} else {
+		if err := c.BodyParser(&req); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 		}
 	}
-	// slug
-	if req.Slug.Present {
-		if req.Slug.Value != nil {
-			s := helper.Slugify(strings.TrimSpace(*req.Slug.Value), 160)
-			if s == "" {
-				req.Slug.Present = false
-				req.Slug.Value = nil
-			} else {
-				req.Slug.Value = &s
-			}
-		} else {
-			req.Slug.Present = false
-		}
-	} else if req.Name.Present && req.Name.Value != nil {
-		if s := helper.Slugify(*req.Name.Value, 160); s != "" {
-			req.Slug.Present = true
-			req.Slug.Value = &s
-		}
-	}
+
+	// Paksa context & normalisasi
+	req.MasjidID = &ent.SubjectMasjidID
+	req.Normalize()
+
+	// ====== Normalisasi tri-state ringan tambahan ======
+	// (opsional — aman dibiarkan; tetap seperti versi kamu sebelumnya)
 
 	// ====== Uniqueness checks (bila berubah) ======
 	// code
@@ -286,11 +264,11 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		var cnt int64
 		if err := h.DB.Model(&subjectModel.SubjectModel{}).
 			Where(`
-				subject_masjid_id = ?
-				AND subject_id <> ?
-				AND subject_deleted_at IS NULL
-				AND lower(subject_code) = lower(?)
-			`, ent.SubjectMasjidID, ent.SubjectID, *req.Code.Value).
+                subject_masjid_id = ?
+                AND subject_id <> ?
+                AND subject_deleted_at IS NULL
+                AND lower(subject_code) = lower(?)
+            `, ent.SubjectMasjidID, ent.SubjectID, *req.Code.Value).
 			Count(&cnt).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek duplikasi kode")
 		}
@@ -303,11 +281,11 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		var cnt int64
 		if err := h.DB.Model(&subjectModel.SubjectModel{}).
 			Where(`
-				subject_masjid_id = ?
-				AND subject_id <> ?
-				AND subject_deleted_at IS NULL
-				AND lower(subject_slug) = lower(?)
-			`, ent.SubjectMasjidID, ent.SubjectID, *req.Slug.Value).
+                subject_masjid_id = ?
+                AND subject_id <> ?
+                AND subject_deleted_at IS NULL
+                AND lower(subject_slug) = lower(?)
+            `, ent.SubjectMasjidID, ent.SubjectID, *req.Slug.Value).
 			Count(&cnt).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek duplikasi slug")
 		}
@@ -388,11 +366,61 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan")
 	}
 
+	// ==== Sinkronisasi snapshot di class_subjects (name/code/slug[/url opsional]) ====
+	trimOrNil := func(s string) *string {
+		t := strings.TrimSpace(s)
+		if t == "" {
+			return nil
+		}
+		return &t
+	}
+	snapName := trimOrNil(ent.SubjectName)
+	snapCode := trimOrNil(ent.SubjectCode)
+	snapSlug := trimOrNil(ent.SubjectSlug)
+
+	snapPatch := map[string]any{
+		"class_subject_subject_name_snapshot": func() any {
+			if snapName == nil {
+				return gorm.Expr("NULL")
+			}
+			return *snapName
+		}(),
+		"class_subject_subject_code_snapshot": func() any {
+			if snapCode == nil {
+				return gorm.Expr("NULL")
+			}
+			return *snapCode
+		}(),
+		"class_subject_subject_slug_snapshot": func() any {
+			if snapSlug == nil {
+				return gorm.Expr("NULL")
+			}
+			return *snapSlug
+		}(),
+	}
+	txSync := h.DB.WithContext(c.Context()).
+		Table("class_subjects").
+		Where(`
+			class_subject_subject_id = ?
+			AND class_subject_masjid_id = ?
+			AND class_subject_deleted_at IS NULL
+		`, ent.SubjectID, ent.SubjectMasjidID).
+		Updates(snapPatch)
+	if txSync.Error != nil {
+		log.Printf("[SUBJECTS][PATCH] sync class_subjects snapshot error: %v", txSync.Error)
+	} else {
+		log.Printf("[SUBJECTS][PATCH] sync class_subjects snapshot ok, rows=%d", txSync.RowsAffected)
+	}
+
 	// ===== Optional: upload image jika ada file =====
 	uploadedURL := ""
 	movedOld := ""
 
-	if fh := pickImageFile(c, "image", "file"); fh != nil {
+	// pakai file dari BindMultipartPatch kalau ada; kalau tidak, fallback pickImageFile
+	if fh == nil {
+		fh = pickImageFile(c, "image", "file")
+	}
+	if fh != nil {
 		svc, er := helperOSS.NewOSSServiceFromEnv("")
 		if er == nil {
 			ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)

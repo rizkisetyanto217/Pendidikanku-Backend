@@ -79,9 +79,6 @@ type BookCreateRequest struct {
 	BookAuthor   *string   `json:"book_author,omitempty" form:"book_author" validate:"omitempty,min=1"`
 	BookDesc     *string   `json:"book_desc,omitempty"   form:"book_desc"   validate:"omitempty"`
 	BookSlug     *string   `json:"book_slug,omitempty"   form:"book_slug"   validate:"omitempty,max=160"`
-
-	// opsional: metadata URL (jika modul URL dipakai)
-	URLs []BookURLUpsert `json:"urls,omitempty" validate:"omitempty,dive"`
 }
 
 type BookUpdateRequest struct {
@@ -116,9 +113,6 @@ func (r *BookCreateRequest) Normalize() {
 	r.BookAuthor = trimPtr(r.BookAuthor)
 	r.BookDesc = trimPtr(r.BookDesc)
 	r.BookSlug = trimPtr(r.BookSlug)
-	for i := range r.URLs {
-		r.URLs[i].Normalize()
-	}
 }
 
 func (r *BookUpdateRequest) Normalize() {
@@ -131,10 +125,12 @@ func (r *BookUpdateRequest) Normalize() {
 	}
 }
 
-/* =========================================================
-   RESPONSE
-   ========================================================= */
+/*
+=========================================================
 
+	RESPONSE
+	=========================================================
+*/
 type BookResponse struct {
 	BookID       uuid.UUID `json:"book_id"`
 	BookMasjidID uuid.UUID `json:"book_masjid_id"`
@@ -144,12 +140,16 @@ type BookResponse struct {
 	BookDesc   *string `json:"book_desc,omitempty"`
 	BookSlug   *string `json:"book_slug,omitempty"`
 
+	// ⬇⬇⬇ TAMBAHKAN INI
+	BookImageURL       *string `json:"book_image_url,omitempty"`
+	BookImageObjectKey *string `json:"book_image_object_key,omitempty"`
+
 	BookCreatedAt time.Time `json:"book_created_at"`
 	BookUpdatedAt time.Time `json:"book_updated_at"`
 	BookIsDeleted bool      `json:"book_is_deleted"`
 
-	// jika perlu kembalikan URL
-	URLs []BookURLLite `json:"urls,omitempty"`
+	// // (kalau sudah tidak pakai book_urls, bagian ini boleh dihapus)
+	// URLs []BookURLLite `json:"urls,omitempty"`
 }
 
 type PageInfo struct {
@@ -163,21 +163,25 @@ type BooksListResponse struct {
 	Page PageInfo       `json:"page"`
 }
 
-/* =========================================================
-   MAPPER
-   ========================================================= */
+/*
+=========================================================
 
+	MAPPER
+	=========================================================
+*/
 func ToBookResponse(m *model.BookModel) BookResponse {
 	return BookResponse{
-		BookID:        m.BookID,
-		BookMasjidID:  m.BookMasjidID,
-		BookTitle:     m.BookTitle,
-		BookAuthor:    m.BookAuthor,
-		BookDesc:      m.BookDesc,
-		BookSlug:      m.BookSlug,
-		BookCreatedAt: m.BookCreatedAt,
-		BookUpdatedAt: m.BookUpdatedAt,
-		BookIsDeleted: !m.BookDeletedAt.Time.IsZero(),
+		BookID:             m.BookID,
+		BookMasjidID:       m.BookMasjidID,
+		BookTitle:          m.BookTitle,
+		BookAuthor:         m.BookAuthor,
+		BookDesc:           m.BookDesc,
+		BookSlug:           m.BookSlug,
+		BookImageURL:       m.BookImageURL,       // ⬅️ map
+		BookImageObjectKey: m.BookImageObjectKey, // ⬅️ map
+		BookCreatedAt:      m.BookCreatedAt,
+		BookUpdatedAt:      m.BookUpdatedAt,
+		BookIsDeleted:      !m.BookDeletedAt.Time.IsZero(),
 	}
 }
 

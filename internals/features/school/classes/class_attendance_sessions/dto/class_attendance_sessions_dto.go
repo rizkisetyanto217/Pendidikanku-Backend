@@ -34,6 +34,9 @@ func (p *PatchFieldSessions[T]) UnmarshalJSON(b []byte) error {
 }
 func (p PatchFieldSessions[T]) Get() (*T, bool) { return p.Value, p.Present }
 
+// Helper kecil
+func isZeroUUID(id uuid.UUID) bool { return id == uuid.Nil }
+
 /* ========================================================
    1) URL DTOs (tabel: class_attendance_session_urls)
    ======================================================== */
@@ -171,8 +174,8 @@ func (r *ClassAttendanceSessionURLCreateRequest) ToModels() []model.ClassAttenda
 // CREATE
 type CreateClassAttendanceSessionRequest struct {
 	// Required
-	ClassAttendanceSessionMasjidId   uuid.UUID `json:"class_attendance_session_masjid_id"  validate:"required"`
-	ClassAttendanceSessionScheduleId uuid.UUID `json:"class_attendance_session_schedule_id" validate:"required"`
+	ClassAttendanceSessionMasjidId   uuid.UUID  `json:"class_attendance_session_masjid_id"  validate:"required"`
+	ClassAttendanceSessionScheduleId *uuid.UUID `json:"class_attendance_session_schedule_id" validate:"omitempty,uuid"`
 
 	// Optional — occurrence
 	ClassAttendanceSessionDate     *time.Time `json:"class_attendance_session_date"       validate:"omitempty"`
@@ -210,28 +213,31 @@ type CreateClassAttendanceSessionRequest struct {
 	URLs []ClassAttendanceSessionURLUpsert `json:"urls" validate:"omitempty,dive"`
 }
 
+// Normalize: coerce zero-UUID → nil
+func (r *CreateClassAttendanceSessionRequest) Normalize() {
+	if r.ClassAttendanceSessionScheduleId != nil && isZeroUUID(*r.ClassAttendanceSessionScheduleId) {
+		r.ClassAttendanceSessionScheduleId = nil
+	}
+}
+
 // UPDATE (PATCH)
 type UpdateClassAttendanceSessionRequest struct {
 	// Simple
-	ClassAttendanceSessionMasjidId   *uuid.UUID `json:"class_attendance_session_masjid_id"  validate:"omitempty,uuid"`
-	ClassAttendanceSessionScheduleId *uuid.UUID `json:"class_attendance_session_schedule_id" validate:"omitempty,uuid"`
-
+	ClassAttendanceSessionMasjidId   *uuid.UUID                        `json:"class_attendance_session_masjid_id"  validate:"omitempty,uuid"`
+	ClassAttendanceSessionScheduleId PatchFieldSessions[uuid.UUID]     `json:"class_attendance_session_schedule_id"`
 	// Tri-state time
-	ClassAttendanceSessionDate     PatchFieldSessions[time.Time] `json:"class_attendance_session_date"`
-	ClassAttendanceSessionStartsAt PatchFieldSessions[time.Time] `json:"class_attendance_session_starts_at"`
-	ClassAttendanceSessionEndsAt   PatchFieldSessions[time.Time] `json:"class_attendance_session_ends_at"`
-
+	ClassAttendanceSessionDate     PatchFieldSessions[time.Time]      `json:"class_attendance_session_date"`
+	ClassAttendanceSessionStartsAt PatchFieldSessions[time.Time]      `json:"class_attendance_session_starts_at"`
+	ClassAttendanceSessionEndsAt   PatchFieldSessions[time.Time]      `json:"class_attendance_session_ends_at"`
 	// Identity & meta
-	ClassAttendanceSessionSlug        PatchFieldSessions[string] `json:"class_attendance_session_slug"`
-	ClassAttendanceSessionTitle       PatchFieldSessions[string] `json:"class_attendance_session_title"`
-	ClassAttendanceSessionGeneralInfo PatchFieldSessions[string] `json:"class_attendance_session_general_info"`
-	ClassAttendanceSessionNote        PatchFieldSessions[string] `json:"class_attendance_session_note"`
-
+	ClassAttendanceSessionSlug        PatchFieldSessions[string]      `json:"class_attendance_session_slug"`
+	ClassAttendanceSessionTitle       PatchFieldSessions[string]      `json:"class_attendance_session_title"`
+	ClassAttendanceSessionGeneralInfo PatchFieldSessions[string]      `json:"class_attendance_session_general_info"`
+	ClassAttendanceSessionNote        PatchFieldSessions[string]      `json:"class_attendance_session_note"`
 	// Lifecycle
 	ClassAttendanceSessionStatus           PatchFieldSessions[string] `json:"class_attendance_session_status"`
 	ClassAttendanceSessionAttendanceStatus PatchFieldSessions[string] `json:"class_attendance_session_attendance_status"`
 	ClassAttendanceSessionLocked           PatchFieldSessions[bool]   `json:"class_attendance_session_locked"`
-
 	// Overrides
 	ClassAttendanceSessionIsOverride      PatchFieldSessions[bool]      `json:"class_attendance_session_is_override"`
 	ClassAttendanceSessionIsCanceled      PatchFieldSessions[bool]      `json:"class_attendance_session_is_canceled"`
@@ -239,19 +245,16 @@ type UpdateClassAttendanceSessionRequest struct {
 	ClassAttendanceSessionOriginalEndAt   PatchFieldSessions[time.Time] `json:"class_attendance_session_original_end_at"`
 	ClassAttendanceSessionKind            PatchFieldSessions[string]    `json:"class_attendance_session_kind"`
 	ClassAttendanceSessionOverrideReason  PatchFieldSessions[string]    `json:"class_attendance_session_override_reason"`
-
 	// Single override event
 	ClassAttendanceSessionOverrideEventId PatchFieldSessions[uuid.UUID] `json:"class_attendance_session_override_event_id"`
-
 	// Override resources
-	ClassAttendanceSessionTeacherId   PatchFieldSessions[uuid.UUID] `json:"class_attendance_session_teacher_id"`
-	ClassAttendanceSessionClassRoomId PatchFieldSessions[uuid.UUID] `json:"class_attendance_session_class_room_id"`
-	ClassAttendanceSessionCSSTId      PatchFieldSessions[uuid.UUID] `json:"class_attendance_session_csst_id"`
-
+	ClassAttendanceSessionTeacherId   PatchFieldSessions[uuid.UUID]     `json:"class_attendance_session_teacher_id"`
+	ClassAttendanceSessionClassRoomId PatchFieldSessions[uuid.UUID]     `json:"class_attendance_session_class_room_id"`
+	ClassAttendanceSessionCSSTId      PatchFieldSessions[uuid.UUID]     `json:"class_attendance_session_csst_id"`
 	// URL ops
-	URLsAdd    []ClassAttendanceSessionURLUpsert `json:"urls_add" validate:"omitempty,dive"`
-	URLsPatch  []ClassAttendanceSessionURLPatch  `json:"urls_patch" validate:"omitempty,dive"`
-	URLsDelete []uuid.UUID                       `json:"urls_delete" validate:"omitempty,dive,unique"`
+	URLsAdd    []ClassAttendanceSessionURLUpsert                        `json:"urls_add" validate:"omitempty,dive"`
+	URLsPatch  []ClassAttendanceSessionURLPatch                         `json:"urls_patch" validate:"omitempty,dive"`
+	URLsDelete []uuid.UUID                                              `json:"urls_delete" validate:"omitempty,dive,unique"`
 }
 
 // List query
@@ -287,16 +290,16 @@ type ListClassAttendanceSessionQuery struct {
    ======================================================== */
 
 type ClassAttendanceSessionResponse struct {
-	ClassAttendanceSessionId         uuid.UUID `json:"class_attendance_session_id"`
-	ClassAttendanceSessionMasjidId   uuid.UUID `json:"class_attendance_session_masjid_id"`
-	ClassAttendanceSessionScheduleId uuid.UUID `json:"class_attendance_session_schedule_id"`
+	ClassAttendanceSessionId         uuid.UUID  `json:"class_attendance_session_id"`
+	ClassAttendanceSessionMasjidId   uuid.UUID  `json:"class_attendance_session_masjid_id"`
+	ClassAttendanceSessionScheduleId *uuid.UUID `json:"class_attendance_session_schedule_id,omitempty"`
 
 	// Identity
 	ClassAttendanceSessionSlug         *string `json:"class_attendance_session_slug,omitempty"`
 	ClassAttendanceSessionTitle        *string `json:"class_attendance_session_title,omitempty"`
 	ClassAttendanceSessionDisplayTitle *string `json:"class_attendance_session_display_title,omitempty"`
 
-	// Info & rekap (DITAMBAHKAN KEMBALI)
+	// Info & rekap
 	ClassAttendanceSessionGeneralInfo string  `json:"class_attendance_session_general_info"`
 	ClassAttendanceSessionNote        *string `json:"class_attendance_session_note,omitempty"`
 
@@ -324,7 +327,7 @@ type ClassAttendanceSessionResponse struct {
 	ClassAttendanceSessionClassRoomId *uuid.UUID `json:"class_attendance_session_class_room_id,omitempty"`
 	ClassAttendanceSessionCSSTId      *uuid.UUID `json:"class_attendance_session_csst_id,omitempty"`
 
-	// Snapshots (raw) — langsung kirim ke UI
+	// Snapshots (raw)
 	ClassAttendanceSessionCSSTSnapshot    map[string]any `json:"class_attendance_session_csst_snapshot,omitempty"`
 	ClassAttendanceSessionTeacherSnapshot map[string]any `json:"class_attendance_session_teacher_snapshot,omitempty"`
 	ClassAttendanceSessionRoomSnapshot    map[string]any `json:"class_attendance_session_room_snapshot,omitempty"`
@@ -377,28 +380,29 @@ func (r CreateClassAttendanceSessionRequest) ToModel() model.ClassAttendanceSess
 
 	m := model.ClassAttendanceSessionModel{
 		ClassAttendanceSessionMasjidID:   r.ClassAttendanceSessionMasjidId,
-		ClassAttendanceSessionScheduleID: r.ClassAttendanceSessionScheduleId,
-
-		ClassAttendanceSessionDate:     date,
-		ClassAttendanceSessionStartsAt: r.ClassAttendanceSessionStartsAt,
-		ClassAttendanceSessionEndsAt:   r.ClassAttendanceSessionEndsAt,
-
+		ClassAttendanceSessionDate:       date,
+		ClassAttendanceSessionStartsAt:   r.ClassAttendanceSessionStartsAt,
+		ClassAttendanceSessionEndsAt:     r.ClassAttendanceSessionEndsAt,
 		ClassAttendanceSessionSlug:        r.ClassAttendanceSessionSlug,
 		ClassAttendanceSessionTitle:       r.ClassAttendanceSessionTitle,
 		ClassAttendanceSessionGeneralInfo: r.ClassAttendanceSessionGeneralInfo,
 		ClassAttendanceSessionNote:        r.ClassAttendanceSessionNote,
-
 		// Overrides & resources
 		ClassAttendanceSessionOriginalStartAt: r.ClassAttendanceSessionOriginalStartAt,
 		ClassAttendanceSessionOriginalEndAt:   r.ClassAttendanceSessionOriginalEndAt,
 		ClassAttendanceSessionKind:            r.ClassAttendanceSessionKind,
 		ClassAttendanceSessionOverrideReason:  r.ClassAttendanceSessionOverrideReason,
-
 		ClassAttendanceSessionOverrideEventID: r.ClassAttendanceSessionOverrideEventId,
+		ClassAttendanceSessionTeacherID:       r.ClassAttendanceSessionTeacherId,
+		ClassAttendanceSessionClassRoomID:     r.ClassAttendanceSessionClassRoomId,
+		ClassAttendanceSessionCSSTID:          r.ClassAttendanceSessionCSSTId,
+	}
 
-		ClassAttendanceSessionTeacherID:   r.ClassAttendanceSessionTeacherId,
-		ClassAttendanceSessionClassRoomID: r.ClassAttendanceSessionClassRoomId,
-		ClassAttendanceSessionCSSTID:      r.ClassAttendanceSessionCSSTId,
+	// Schedule pointer-aware (tak pernah simpan zero-UUID)
+	if r.ClassAttendanceSessionScheduleId != nil && !isZeroUUID(*r.ClassAttendanceSessionScheduleId) {
+		m.ClassAttendanceSessionScheduleID = r.ClassAttendanceSessionScheduleId
+	} else {
+		m.ClassAttendanceSessionScheduleID = nil
 	}
 
 	// Lifecycle (opsional)
@@ -506,8 +510,18 @@ func (r UpdateClassAttendanceSessionRequest) Apply(m *model.ClassAttendanceSessi
 	if r.ClassAttendanceSessionMasjidId != nil {
 		m.ClassAttendanceSessionMasjidID = *r.ClassAttendanceSessionMasjidId
 	}
-	if r.ClassAttendanceSessionScheduleId != nil {
-		m.ClassAttendanceSessionScheduleID = *r.ClassAttendanceSessionScheduleId
+	if v, ok := r.ClassAttendanceSessionScheduleId.Get(); ok {
+		// field hadir di payload
+		if v == nil {
+			// clear ke NULL
+			m.ClassAttendanceSessionScheduleID = nil
+		} else if !isZeroUUID(*v) {
+			vv := *v
+			m.ClassAttendanceSessionScheduleID = &vv
+		} else {
+			// zero-UUID dianggap clear; kalau mau ketat, bisa diganti return error di controller
+			m.ClassAttendanceSessionScheduleID = nil
+		}
 	}
 
 	// Time
@@ -618,7 +632,7 @@ func (r UpdateClassAttendanceSessionRequest) URLsAddToModels(masjidID, sessionID
 	out := make([]model.ClassAttendanceSessionURLModel, 0, len(r.URLsAdd))
 	for _, u := range r.URLsAdd {
 		u.Normalize()
-		row := model.ClassAttendanceSessionURLModel{
+        row := model.ClassAttendanceSessionURLModel{
 			ClassAttendanceSessionURLMasjidID:  masjidID,
 			ClassAttendanceSessionURLSessionID: sessionID,
 			ClassAttendanceSessionURLKind:      u.Kind,

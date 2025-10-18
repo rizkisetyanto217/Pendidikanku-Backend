@@ -353,6 +353,14 @@ func extractMasjidIDStrict(c *fiber.Ctx) string {
 // - Set locals: active_masjid_id, active_role (+ kompat: masjid_id, role)
 func UseMasjidScope() fiber.Handler {
 	return func(c *fiber.Ctx) error {
+
+		// ==== BYPASS untuk endpoint global tanpa masjid_id ====
+		p := strings.TrimRight(strings.ToLower(strings.TrimSpace(c.Path())), "/")
+		if c.Method() == fiber.MethodPost && p == "/api/u/user-class-sections/join" {
+			// endpoint join global: jangan pakai scope strict
+			return c.Next()
+		}
+		
 		log.Println("🎯 [MIDDLEWARE] UseMasjidScope (STRICT by path)")
 
 		isOwner := helper.IsOwner(c)

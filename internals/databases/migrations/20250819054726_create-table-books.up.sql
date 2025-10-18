@@ -70,27 +70,39 @@ CREATE INDEX IF NOT EXISTS gin_books_author_trgm_alive
   WHERE book_deleted_at IS NULL;
 
 
-
 /* =========================================================
    TABLE: class_subject_books  (relasi Subject ↔️ Book per tenant)
    ========================================================= */
 CREATE TABLE IF NOT EXISTS class_subject_books (
   class_subject_book_id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
+  -- tenant
   class_subject_book_masjid_id        UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
+  -- relasi
   class_subject_book_class_subject_id UUID NOT NULL
     REFERENCES class_subjects(class_subject_id) ON DELETE CASCADE,
 
   class_subject_book_book_id          UUID NOT NULL
     REFERENCES books(book_id) ON DELETE RESTRICT,
 
-  -- human-friendly identifier (optional)
+  -- human-friendly identifier (opsional)
   class_subject_book_slug             VARCHAR(160),
 
   class_subject_book_is_active        BOOLEAN NOT NULL DEFAULT TRUE,
   class_subject_book_desc             TEXT,
+
+  /* ============================
+     SNAPSHOTS dari books
+     (dibekukan saat insert/ubah book_id via trigger)
+     ============================ */
+  class_subject_book_book_title_snapshot             TEXT,
+  class_subject_book_book_author_snapshot            TEXT,
+  class_subject_book_book_slug_snapshot              VARCHAR(160),
+  class_subject_book_book_publisher_snapshot         TEXT,
+  class_subject_book_book_publication_year_snapshot  SMALLINT,
+  class_subject_book_book_image_url_snapshot         TEXT,
 
   -- timestamps (explicit)
   class_subject_book_created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -153,6 +165,16 @@ CREATE INDEX IF NOT EXISTS ix_csb_tenant_subject_active_created_alive
 CREATE INDEX IF NOT EXISTS brin_csb_created_at
   ON class_subject_books USING BRIN (class_subject_book_created_at);
 
+-- Index pencarian pada snapshot judul/slug buku (alive only)
+CREATE INDEX IF NOT EXISTS gin_csb_book_title_snap_trgm_alive
+  ON class_subject_books USING GIN (LOWER(class_subject_book_book_title_snapshot) gin_trgm_ops)
+  WHERE class_subject_book_deleted_at IS NULL
+    AND class_subject_book_book_title_snapshot IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_csb_book_slug_snap_alive
+  ON class_subject_books (LOWER(class_subject_book_book_slug_snapshot))
+  WHERE class_subject_book_deleted_at IS NULL
+    AND class_subject_book_book_slug_snapshot IS NOT NULL;
 
 
 

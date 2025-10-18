@@ -1,4 +1,4 @@
-// internals/features/lembaga/class_subject_books/dto/class_subject_book_dto.go
+// file: internals/features/lembaga/class_subject_books/dto/class_subject_book_dto.go
 package dto
 
 import (
@@ -17,103 +17,98 @@ import (
 
 // Create
 type CreateClassSubjectBookRequest struct {
-	ClassSubjectBooksMasjidID       uuid.UUID `json:"class_subject_books_masjid_id"        validate:"required"`
-	ClassSubjectBooksClassSubjectID uuid.UUID `json:"class_subject_books_class_subject_id" validate:"required"`
-	ClassSubjectBooksBookID         uuid.UUID `json:"class_subject_books_book_id"          validate:"required"`
+	ClassSubjectBookMasjidID       uuid.UUID `json:"class_subject_book_masjid_id"        validate:"required"`
+	ClassSubjectBookClassSubjectID uuid.UUID `json:"class_subject_book_class_subject_id" validate:"required"`
+	ClassSubjectBookBookID         uuid.UUID `json:"class_subject_book_book_id"          validate:"required"`
 
-	// slug opsional; controller yang normalize + ensure-unique
-	ClassSubjectBooksSlug *string `json:"class_subject_books_slug" validate:"omitempty,max=160"`
+	// opsional; controller yang normalize + ensure-unique (alive-only)
+	ClassSubjectBookSlug *string `json:"class_subject_book_slug" validate:"omitempty,max=160"`
 
-	ClassSubjectBooksIsActive *bool   `json:"class_subject_books_is_active" validate:"omitempty"`
-	ClassSubjectBooksDesc     *string `json:"class_subject_books_desc"      validate:"omitempty,max=2000"`
+	// default true kalau tidak dikirim
+	ClassSubjectBookIsActive *bool   `json:"class_subject_book_is_active" validate:"omitempty"`
+	ClassSubjectBookDesc     *string `json:"class_subject_book_desc"      validate:"omitempty,max=2000"`
 }
 
-type SectionLite struct {
-	ClassSectionsID       uuid.UUID `json:"class_sections_id"`
-	ClassSectionsName     string    `json:"class_sections_name"`
-	ClassSectionsSlug     string    `json:"class_sections_slug"`
-	ClassSectionsCode     *string   `json:"class_sections_code,omitempty"`
-	ClassSectionsCapacity *int      `json:"class_sections_capacity,omitempty"`
-	ClassSectionsIsActive bool      `json:"class_sections_is_active"`
+func (r *CreateClassSubjectBookRequest) Normalize() {
+	if r.ClassSubjectBookSlug != nil {
+		s := strings.TrimSpace(*r.ClassSubjectBookSlug)
+		if s == "" {
+			r.ClassSubjectBookSlug = nil
+		} else {
+			r.ClassSubjectBookSlug = &s
+		}
+	}
+	if r.ClassSubjectBookDesc != nil {
+		d := strings.TrimSpace(*r.ClassSubjectBookDesc)
+		if d == "" {
+			r.ClassSubjectBookDesc = nil
+		} else {
+			r.ClassSubjectBookDesc = &d
+		}
+	}
 }
 
 func (r CreateClassSubjectBookRequest) ToModel() model.ClassSubjectBookModel {
 	isActive := true
-	if r.ClassSubjectBooksIsActive != nil {
-		isActive = *r.ClassSubjectBooksIsActive
+	if r.ClassSubjectBookIsActive != nil {
+		isActive = *r.ClassSubjectBookIsActive
 	}
-	var desc *string
-	if r.ClassSubjectBooksDesc != nil {
-		d := strings.TrimSpace(*r.ClassSubjectBooksDesc)
-		if d != "" {
-			desc = &d
-		}
-	}
-	var slug *string
-	if r.ClassSubjectBooksSlug != nil {
-		s := strings.TrimSpace(*r.ClassSubjectBooksSlug)
-		if s != "" {
-			slug = &s
-		}
-	}
-
 	return model.ClassSubjectBookModel{
-		ClassSubjectBookMasjidID:       r.ClassSubjectBooksMasjidID,
-		ClassSubjectBookClassSubjectID: r.ClassSubjectBooksClassSubjectID,
-		ClassSubjectBookBookID:         r.ClassSubjectBooksBookID,
-		ClassSubjectBookSlug:           slug,
+		ClassSubjectBookMasjidID:       r.ClassSubjectBookMasjidID,
+		ClassSubjectBookClassSubjectID: r.ClassSubjectBookClassSubjectID,
+		ClassSubjectBookBookID:         r.ClassSubjectBookBookID,
+		ClassSubjectBookSlug:           r.ClassSubjectBookSlug,
 		ClassSubjectBookIsActive:       isActive,
-		ClassSubjectBookDesc:           desc,
+		ClassSubjectBookDesc:           r.ClassSubjectBookDesc,
 	}
 }
 
 // Update (partial)
 type UpdateClassSubjectBookRequest struct {
-	ClassSubjectBooksMasjidID       *uuid.UUID `json:"class_subject_books_masjid_id"        validate:"omitempty"`
-	ClassSubjectBooksClassSubjectID *uuid.UUID `json:"class_subject_books_class_subject_id" validate:"omitempty"`
-	ClassSubjectBooksBookID         *uuid.UUID `json:"class_subject_books_book_id"          validate:"omitempty"`
+	ClassSubjectBookMasjidID       *uuid.UUID `json:"class_subject_book_masjid_id"        validate:"omitempty"`
+	ClassSubjectBookClassSubjectID *uuid.UUID `json:"class_subject_book_class_subject_id" validate:"omitempty"`
+	ClassSubjectBookBookID         *uuid.UUID `json:"class_subject_book_book_id"          validate:"omitempty"`
 
-	// slug opsional; controller yang normalize + ensure-unique (+ exclude diri sendiri)
-	ClassSubjectBooksSlug *string `json:"class_subject_books_slug" validate:"omitempty,max=160"`
+	// controller yang ensure-unique (alive-only)
+	ClassSubjectBookSlug *string `json:"class_subject_book_slug" validate:"omitempty,max=160"`
 
-	ClassSubjectBooksIsActive *bool   `json:"class_subject_books_is_active" validate:"omitempty"`
-	ClassSubjectBooksDesc     *string `json:"class_subject_books_desc"      validate:"omitempty,max=2000"`
+	ClassSubjectBookIsActive *bool   `json:"class_subject_book_is_active" validate:"omitempty"`
+	ClassSubjectBookDesc     *string `json:"class_subject_book_desc"      validate:"omitempty,max=2000"`
 }
 
 func (r *UpdateClassSubjectBookRequest) Apply(m *model.ClassSubjectBookModel) error {
 	if m == nil {
 		return errors.New("nil model")
 	}
-	if r.ClassSubjectBooksMasjidID != nil {
-		m.ClassSubjectBookMasjidID = *r.ClassSubjectBooksMasjidID
+	if r.ClassSubjectBookMasjidID != nil {
+		m.ClassSubjectBookMasjidID = *r.ClassSubjectBookMasjidID
 	}
-	if r.ClassSubjectBooksClassSubjectID != nil {
-		m.ClassSubjectBookClassSubjectID = *r.ClassSubjectBooksClassSubjectID
+	if r.ClassSubjectBookClassSubjectID != nil {
+		m.ClassSubjectBookClassSubjectID = *r.ClassSubjectBookClassSubjectID
 	}
-	if r.ClassSubjectBooksBookID != nil {
-		m.ClassSubjectBookBookID = *r.ClassSubjectBooksBookID
+	if r.ClassSubjectBookBookID != nil {
+		// Mengubah book_id akan memicu trigger DB untuk mengisi ulang snapshot buku.
+		m.ClassSubjectBookBookID = *r.ClassSubjectBookBookID
 	}
-	if r.ClassSubjectBooksIsActive != nil {
-		m.ClassSubjectBookIsActive = *r.ClassSubjectBooksIsActive
+	if r.ClassSubjectBookIsActive != nil {
+		m.ClassSubjectBookIsActive = *r.ClassSubjectBookIsActive
 	}
-	if r.ClassSubjectBooksDesc != nil {
-		d := strings.TrimSpace(*r.ClassSubjectBooksDesc)
+	if r.ClassSubjectBookDesc != nil {
+		d := strings.TrimSpace(*r.ClassSubjectBookDesc)
 		if d == "" {
 			m.ClassSubjectBookDesc = nil
 		} else {
 			m.ClassSubjectBookDesc = &d
 		}
 	}
-	// slug: normalize di DTO; ensure-unique di controller
-	if r.ClassSubjectBooksSlug != nil {
-		s := strings.TrimSpace(*r.ClassSubjectBooksSlug)
+	if r.ClassSubjectBookSlug != nil {
+		s := strings.TrimSpace(*r.ClassSubjectBookSlug)
 		if s == "" {
 			m.ClassSubjectBookSlug = nil
 		} else {
 			m.ClassSubjectBookSlug = &s
 		}
 	}
-	// UpdatedAt biar diisi GORM/DB
 	return nil
 }
 
@@ -128,63 +123,74 @@ type ListClassSubjectBookQuery struct {
 	BookID         *uuid.UUID `query:"book_id" validate:"omitempty"`
 	IsActive       *bool      `query:"is_active" validate:"omitempty"`
 	WithDeleted    *bool      `query:"with_deleted" validate:"omitempty"`
-	Sort           *string    `query:"sort" validate:"omitempty,oneof=created_at_asc created_at_desc updated_at_asc updated_at_desc"`
-	Q              *string    `query:"q" validate:"omitempty,max=100"`
+
+	// q: cari di slug relasi & judul snapshot buku (LOWER LIKE/TRGM)
+	Q *string `query:"q" validate:"omitempty,max=100"`
+
+	// created_at_asc|created_at_desc|updated_at_asc|updated_at_desc
+	Sort *string `query:"sort" validate:"omitempty,oneof=created_at_asc created_at_desc updated_at_asc updated_at_desc"`
 }
 
 /* =========================================================
    3) RESPONSE
    ========================================================= */
 
-// BookURLLite: contoh embed URL buku
+// (Opsional) embed URL buku kalau controller melakukan join ke book_urls
 type BookURLLite struct {
 	BookURLID                 uuid.UUID  `json:"book_url_id"`
 	BookURLMasjidID           uuid.UUID  `json:"book_url_masjid_id"`
 	BookURLBookID             uuid.UUID  `json:"book_url_book_id"`
 	BookURLLabel              *string    `json:"book_url_label,omitempty"`
-	BookURLType               string     `json:"book_url_type"`
 	BookURLHref               string     `json:"book_url_href"`
-	BookURLTrashURL           *string    `json:"book_url_trash_url,omitempty"`
+	BookURLObjectKey          *string    `json:"book_url_object_key,omitempty"`
+	BookURLIsPrimary          bool       `json:"book_url_is_primary"`
+	BookURLKind               string     `json:"book_url_kind"`
+	BookURLOrder              int        `json:"book_url_order"`
 	BookURLDeletePendingUntil *time.Time `json:"book_url_delete_pending_until,omitempty"`
 	BookURLCreatedAt          time.Time  `json:"book_url_created_at"`
 	BookURLUpdatedAt          time.Time  `json:"book_url_updated_at"`
 	BookURLDeletedAt          *time.Time `json:"book_url_deleted_at,omitempty"`
-	BookURLIsPrimary    bool      `json:"book_url_is_primary"`
-	BookURLOrder        int       `json:"book_url_order"`
-	BookURLKind         string    `json:"book_url_kind"`
 }
 
-// BookLite (opsional) — dilengkapi daftar URLs
+// (Opsional) ringkasan buku asli bila controller melakukan join langsung ke books
 type BookLite struct {
-	BooksID       uuid.UUID     `json:"books_id"`
-	BooksMasjidID uuid.UUID     `json:"books_masjid_id"`
-	BooksTitle    string        `json:"books_title"`
-	BooksAuthor   *string       `json:"books_author,omitempty"`
-	BooksURL      *string       `json:"books_url,omitempty"`
-	BooksImageURL *string       `json:"books_image_url,omitempty"`
-	BooksSlug     *string       `json:"books_slug,omitempty"`
-	BookURLs      []BookURLLite `json:"book_urls,omitempty"`
+	BookID        uuid.UUID     `json:"book_id"`
+	BookMasjidID  uuid.UUID     `json:"book_masjid_id"`
+	BookTitle     string        `json:"book_title"`
+	BookAuthor    *string       `json:"book_author,omitempty"`
+	BookSlug      *string       `json:"book_slug,omitempty"`
+	BookImageURL  *string       `json:"book_image_url,omitempty"`
+	BookPublisher *string       `json:"book_publisher,omitempty"`
+	BookYear      *int16        `json:"book_publication_year,omitempty"`
+	URLs          []BookURLLite `json:"urls,omitempty"`
 }
 
+// Response utama relasi + snapshot buku (dibekukan via trigger)
 type ClassSubjectBookResponse struct {
-	ClassSubjectBooksID             uuid.UUID `json:"class_subject_books_id"`
-	ClassSubjectBooksMasjidID       uuid.UUID `json:"class_subject_books_masjid_id"`
-	ClassSubjectBooksClassSubjectID uuid.UUID `json:"class_subject_books_class_subject_id"`
-	ClassSubjectBooksBookID         uuid.UUID `json:"class_subject_books_book_id"`
+	ClassSubjectBookID             uuid.UUID `json:"class_subject_book_id"`
+	ClassSubjectBookMasjidID       uuid.UUID `json:"class_subject_book_masjid_id"`
+	ClassSubjectBookClassSubjectID uuid.UUID `json:"class_subject_book_class_subject_id"`
+	ClassSubjectBookBookID         uuid.UUID `json:"class_subject_book_book_id"`
 
-	// slug ikut dibalas
-	ClassSubjectBooksSlug *string `json:"class_subject_books_slug,omitempty"`
+	ClassSubjectBookSlug *string `json:"class_subject_book_slug,omitempty"`
 
-	ClassSubjectBooksIsActive bool    `json:"class_subject_books_is_active"`
-	ClassSubjectBooksDesc     *string `json:"class_subject_books_desc,omitempty"`
+	ClassSubjectBookIsActive bool    `json:"class_subject_book_is_active"`
+	ClassSubjectBookDesc     *string `json:"class_subject_book_desc,omitempty"`
 
-	ClassSubjectBooksCreatedAt time.Time  `json:"class_subject_books_created_at"`
-	ClassSubjectBooksUpdatedAt time.Time  `json:"class_subject_books_updated_at"` // NOT NULL di model
-	ClassSubjectBooksDeletedAt *time.Time `json:"class_subject_books_deleted_at,omitempty"`
+	// snapshots dari books
+	ClassSubjectBookBookTitleSnapshot           *string `json:"class_subject_book_book_title_snapshot,omitempty"`
+	ClassSubjectBookBookAuthorSnapshot          *string `json:"class_subject_book_book_author_snapshot,omitempty"`
+	ClassSubjectBookBookSlugSnapshot            *string `json:"class_subject_book_book_slug_snapshot,omitempty"`
+	ClassSubjectBookBookPublisherSnapshot       *string `json:"class_subject_book_book_publisher_snapshot,omitempty"`
+	ClassSubjectBookBookPublicationYearSnapshot *int16  `json:"class_subject_book_book_publication_year_snapshot,omitempty"`
+	ClassSubjectBookBookImageURLSnapshot        *string `json:"class_subject_book_book_image_url_snapshot,omitempty"`
+
+	ClassSubjectBookCreatedAt time.Time  `json:"class_subject_book_created_at"`
+	ClassSubjectBookUpdatedAt time.Time  `json:"class_subject_book_updated_at"`
+	ClassSubjectBookDeletedAt *time.Time `json:"class_subject_book_deleted_at,omitempty"`
 
 	// opsional join
-	Book    *BookLite    `json:"book,omitempty"`
-	Section *SectionLite `json:"section,omitempty"`
+	Book *BookLite `json:"book,omitempty"`
 }
 
 type Pagination struct {
@@ -208,16 +214,25 @@ func FromModel(m model.ClassSubjectBookModel) ClassSubjectBookResponse {
 		deletedAt = &m.ClassSubjectBookDeletedAt.Time
 	}
 	return ClassSubjectBookResponse{
-		ClassSubjectBooksID:             m.ClassSubjectBookID,
-		ClassSubjectBooksMasjidID:       m.ClassSubjectBookMasjidID,
-		ClassSubjectBooksClassSubjectID: m.ClassSubjectBookClassSubjectID,
-		ClassSubjectBooksBookID:         m.ClassSubjectBookBookID,
-		ClassSubjectBooksSlug:           m.ClassSubjectBookSlug,
-		ClassSubjectBooksIsActive:       m.ClassSubjectBookIsActive,
-		ClassSubjectBooksDesc:           m.ClassSubjectBookDesc,
-		ClassSubjectBooksCreatedAt:      m.ClassSubjectBookCreatedAt,
-		ClassSubjectBooksUpdatedAt:      m.ClassSubjectBookUpdatedAt,
-		ClassSubjectBooksDeletedAt:      deletedAt,
+		ClassSubjectBookID:             m.ClassSubjectBookID,
+		ClassSubjectBookMasjidID:       m.ClassSubjectBookMasjidID,
+		ClassSubjectBookClassSubjectID: m.ClassSubjectBookClassSubjectID,
+		ClassSubjectBookBookID:         m.ClassSubjectBookBookID,
+
+		ClassSubjectBookSlug:      m.ClassSubjectBookSlug,
+		ClassSubjectBookIsActive:  m.ClassSubjectBookIsActive,
+		ClassSubjectBookDesc:      m.ClassSubjectBookDesc,
+		ClassSubjectBookCreatedAt: m.ClassSubjectBookCreatedAt,
+		ClassSubjectBookUpdatedAt: m.ClassSubjectBookUpdatedAt,
+		ClassSubjectBookDeletedAt: deletedAt,
+
+		// snapshots
+		ClassSubjectBookBookTitleSnapshot:           m.ClassSubjectBookBookTitleSnapshot,
+		ClassSubjectBookBookAuthorSnapshot:          m.ClassSubjectBookBookAuthorSnapshot,
+		ClassSubjectBookBookSlugSnapshot:            m.ClassSubjectBookBookSlugSnapshot,
+		ClassSubjectBookBookPublisherSnapshot:       m.ClassSubjectBookBookPublisherSnapshot,
+		ClassSubjectBookBookPublicationYearSnapshot: m.ClassSubjectBookBookPublicationYearSnapshot,
+		ClassSubjectBookBookImageURLSnapshot:        m.ClassSubjectBookBookImageURLSnapshot,
 	}
 }
 
@@ -227,10 +242,4 @@ func FromModels(list []model.ClassSubjectBookModel) []ClassSubjectBookResponse {
 		out = append(out, FromModel(it))
 	}
 	return out
-}
-
-// (Opsional) helper kalau controller sudah punya kolom join "books_*"
-func WithBook(resp ClassSubjectBookResponse, b *BookLite) ClassSubjectBookResponse {
-	resp.Book = b
-	return resp
 }

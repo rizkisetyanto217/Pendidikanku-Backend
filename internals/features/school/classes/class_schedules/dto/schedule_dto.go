@@ -194,7 +194,7 @@ func (r CreateClassScheduleRequest) SessionsToModels(
 
 		m := sessModel.ClassAttendanceSessionModel{
 			ClassAttendanceSessionMasjidID:   masjidID,
-			ClassAttendanceSessionScheduleID: scheduleID,
+			ClassAttendanceSessionScheduleID: &scheduleID,
 
 			ClassAttendanceSessionDate:     dateUTC,   // DATE (midnight UTC)
 			ClassAttendanceSessionStartsAt: &startUTC, // UTC

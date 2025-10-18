@@ -26,7 +26,7 @@ import (
 )
 
 /* =========================
-   Utils & small helpers
+   Utils
 ========================= */
 
 func Ptr[T any](v T) *T            { return &v }
@@ -60,7 +60,7 @@ func nzTrim(p *string) *string {
    Lookups
 ========================= */
 
-// Ambil users_profile_id dari user_id
+// users_profile_id dari user_id
 func getUsersProfileID(tx *gorm.DB, userID uuid.UUID) (uuid.UUID, error) {
 	type row struct {
 		ID uuid.UUID `gorm:"column:user_profile_id"`
@@ -79,7 +79,7 @@ func getUsersProfileID(tx *gorm.DB, userID uuid.UUID) (uuid.UUID, error) {
 	return r.ID, nil
 }
 
-// Snapshot ringan masjid (untuk disimpan di masjid_students)
+// Snapshot masjid (ringkas)
 func getMasjidSnapshot(tx *gorm.DB, masjidID uuid.UUID) (name, slug, logo, icon, bg *string, err error) {
 	var row struct {
 		Name *string `gorm:"column:masjid_name"`
@@ -102,7 +102,7 @@ func getMasjidSnapshot(tx *gorm.DB, masjidID uuid.UUID) (name, slug, logo, icon,
    Student upsert + snapshots
 ========================= */
 
-// Membuat/menemukan masjid_student & memastikan snapshots terisi.
+// Get/create masjid_students + isi snapshots (profil & masjid)
 func getOrCreateMasjidStudentWithSnapshots(
 	ctx context.Context,
 	tx *gorm.DB,
@@ -110,16 +110,16 @@ func getOrCreateMasjidStudentWithSnapshots(
 	userProfileID uuid.UUID,
 	profileSnap *userProfileSnapshot.UserProfileSnapshot, // boleh nil
 ) (uuid.UUID, error) {
-	// ambil snapshot profil jika belum ada
+	// snapshot profil kalau belum ada
 	if profileSnap == nil {
 		if ps, e := userProfileSnapshot.BuildUserProfileSnapshotByProfileID(ctx, tx, userProfileID); e == nil {
 			profileSnap = ps
 		}
 	}
-	// ambil snapshot masjid
+	// snapshot masjid
 	mName, mSlug, mLogo, mIcon, mBg, _ := getMasjidSnapshot(tx, masjidID)
 
-	// cek existing
+	// ada existing?
 	var cur struct {
 		ID uuid.UUID `gorm:"column:masjid_student_id"`
 	}
@@ -132,7 +132,7 @@ func getOrCreateMasjidStudentWithSnapshots(
 	now := time.Now()
 
 	if err == nil {
-		// top-up snapshot yang kosong (best-effort: set saja nilai terbaru)
+		// top-up snapshots (best-effort)
 		updates := map[string]any{
 			"masjid_student_updated_at": now,
 		}
@@ -168,25 +168,22 @@ func getOrCreateMasjidStudentWithSnapshots(
 		if v := nzTrim(mBg); v != nil {
 			updates["masjid_student_masjid_background_url_snapshot"] = *v
 		}
-		if e := tx.Table("masjid_students").
-			Where("masjid_student_id = ?", cur.ID).
-			Updates(updates).Error; e != nil {
+		if e := tx.Table("masjid_students").Where("masjid_student_id = ?", cur.ID).Updates(updates).Error; e != nil {
 			return uuid.Nil, e
 		}
 		return cur.ID, nil
 	}
-
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return uuid.Nil, err
 	}
 
-	// create baru (lengkap dgn snapshots)
+	// create baru (lengkap snapshots)
 	newID := uuid.New()
 	values := map[string]any{
 		"masjid_student_id":              newID,
 		"masjid_student_masjid_id":       masjidID,
 		"masjid_student_user_profile_id": userProfileID,
-		"masjid_student_slug":            newID.String(), // ganti kalau punya generator sendiri
+		"masjid_student_slug":            newID.String(),
 		"masjid_student_status":          "active",
 		"masjid_student_sections":        datatypes.JSON([]byte("[]")),
 		"masjid_student_created_at":      now,
@@ -235,27 +232,20 @@ func getOrCreateMasjidStudentWithSnapshots(
    Handler
 ========================= */
 
-// POST /api/a/:masjid_id/user-class-sections/join
-func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
-	// -------- tenant --------
-	rawMasjidID := strings.TrimSpace(c.Params("masjid_id"))
-	masjidID, err := uuid.Parse(rawMasjidID)
-	if err != nil || masjidID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id path tidak valid")
-	}
-
-	// -------- auth --------
+// POST /api/a/:masjid_id/user-class-sections/join        (versi lama: masjid_id di path)
+// POST /api/user-class-sections/join                      (versi baru: auto masjid dari code)
+// Body: { "student_code": "...." }
+func (ctl *UserClassSectionController) JoinByCodeAutoMasjid(c *fiber.Ctx) error {
+	// --- auth wajib login ---
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
 
-	// -------- body --------
-	type studentJoinReq struct {
-		StudentCode    string     `json:"student_code" form:"student_code"`
-		ClassSectionID *uuid.UUID `json:"class_section_id,omitempty" form:"class_section_id"` // diabaikan
+	// --- body ---
+	var req struct {
+		StudentCode string `json:"student_code" form:"student_code"`
 	}
-	var req studentJoinReq
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
@@ -264,7 +254,7 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "student_code wajib diisi")
 	}
 
-	// -------- TX --------
+	// --- TX ---
 	tx := ctl.DB.WithContext(c.Context()).Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -273,15 +263,14 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 		}
 	}()
 
-	// -------- 1) Temukan section berdasarkan student_code --------
+	// --- 1) Temukan section dari code (tanpa filter masjid dulu) ---
 	var sec model.ClassSectionModel
 	found := false
 
 	// (a) plaintext
 	if err := tx.
 		Clauses(forUpdate()).
-		Where(`class_section_masjid_id = ? AND class_section_code = ? AND class_section_deleted_at IS NULL`,
-			masjidID, code).
+		Where(`class_section_deleted_at IS NULL AND class_section_code = ?`, code).
 		First(&sec).Error; err == nil {
 		found = true
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -289,7 +278,7 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mencari section (by plaintext)")
 	}
 
-	// (b) bcrypt scan
+	// (b) bcrypt hash
 	if !found {
 		var rows []struct {
 			ID   uuid.UUID `gorm:"column:class_section_id"`
@@ -298,11 +287,10 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 		if err := tx.Table("class_sections").
 			Select("class_section_id, class_section_student_code_hash").
 			Where(`
-				class_section_masjid_id = ?
-				AND class_section_deleted_at IS NULL
+				class_section_deleted_at IS NULL
 				AND class_section_student_code_hash IS NOT NULL
 				AND octet_length(class_section_student_code_hash) > 0
-			`, masjidID).
+			`).
 			Find(&rows).Error; err != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mencari section (by hash)")
@@ -330,29 +318,30 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 		}
 	}
 
-	// -------- 2) Validasi section --------
+	// ✅ masjid_id diturunkan dari section
+	masjidID := sec.ClassSectionMasjidID
+	if masjidID == uuid.Nil {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Section tidak memiliki konteks masjid yang valid")
+	}
+
+	// --- 2) Validasi section ---
 	if !sec.ClassSectionIsActive {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusConflict, "Section tidak aktif")
 	}
-	if sec.ClassSectionMasjidID != masjidID {
-		_ = tx.Rollback()
-		return helper.JsonError(c, fiber.StatusForbidden, "Section bukan milik masjid ini")
-	}
-	// Kapasitas (jika ada)
 	if sec.ClassSectionCapacity != nil && *sec.ClassSectionCapacity > 0 &&
 		sec.ClassSectionTotalStudents >= *sec.ClassSectionCapacity {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusConflict, "Kelas penuh")
 	}
 
-	// -------- 3) Pastikan ada masjid_student + isi snapshots --------
+	// --- 3) Pastikan ada masjid_student + isi snapshots ---
 	usersProfileID, err := getUsersProfileID(tx, userID)
 	if err != nil {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusBadRequest, "Profil user belum ada. Lengkapi profil terlebih dahulu.")
 	}
-	// Ambil snapshot profil SEKALI, dipakai untuk masjid_students & user_class_sections
 	profileSnap, perr := userProfileSnapshot.BuildUserProfileSnapshotByProfileID(c.Context(), tx, usersProfileID)
 	if perr != nil && !errors.Is(perr, gorm.ErrRecordNotFound) {
 		_ = tx.Rollback()
@@ -363,17 +352,16 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek/buat status student")
 	}
-	log.Printf("[UCS][JOIN] masjid=%s profile_id=%s student_id=%s profileSnap_ok=%t",
-		masjidID.String(), usersProfileID.String(), masjidStudentID.String(), profileSnap != nil)
 
-	// -------- 4) Cegah double-join --------
+	// --- 4) Cegah double-join ---
 	var exists int64
 	if err := tx.Table("user_class_sections").
-		Where(`user_class_section_masjid_id = ?
-		       AND user_class_section_masjid_student_id = ?
-		       AND user_class_section_section_id = ?
-		       AND user_class_section_deleted_at IS NULL`,
-			masjidID, masjidStudentID, sec.ClassSectionID).
+		Where(`
+			user_class_section_masjid_id = ?
+			AND user_class_section_masjid_student_id = ?
+			AND user_class_section_section_id = ?
+			AND user_class_section_deleted_at IS NULL
+		`, masjidID, masjidStudentID, sec.ClassSectionID).
 		Count(&exists).Error; err != nil {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek keanggotaan")
@@ -383,7 +371,7 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusConflict, "Sudah tergabung di section ini")
 	}
 
-	// -------- 5) Insert enrollment (+ inject snapshot profil) --------
+	// --- 5) Insert enrollment (+ snapshot profil) ---
 	now := time.Now()
 	ucs := &model.UserClassSection{
 		UserClassSectionID:              uuid.New(),
@@ -395,7 +383,6 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 		UserClassSectionCreatedAt:       now,
 		UserClassSectionUpdatedAt:       now,
 	}
-
 	if profileSnap != nil {
 		if name := strings.TrimSpace(profileSnap.Name); name != "" {
 			ucs.UserClassSectionUserProfileNameSnapshot = &name
@@ -408,12 +395,10 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 
 	if err := tx.Create(ucs).Error; err != nil {
 		_ = tx.Rollback()
-		log.Printf("[UCS][JOIN][ERR] insert: %v", err)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menambahkan ke section")
 	}
-	log.Printf("[UCS][JOIN] ucs_id=%s snapshot_set=%t", ucs.UserClassSectionID.String(), profileSnap != nil)
 
-	// -------- 6) Bump counter --------
+	// --- 6) Bump counter ---
 	if err := tx.Model(&sec).
 		Where("class_section_id = ?", sec.ClassSectionID).
 		UpdateColumn("class_section_total_students", gorm.Expr("class_section_total_students + 1")).Error; err != nil {
@@ -421,16 +406,19 @@ func (ctl *UserClassSectionController) JoinByCode(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update counter")
 	}
 
-	// -------- 7) Commit & respond --------
+	// --- 7) Commit & respond ---
 	if err := tx.Commit().Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Transaksi gagal")
 	}
+
+	log.Printf("[UCS][JOIN] user=%s masjid=%s section=%s", userID, masjidID, sec.ClassSectionID)
 
 	resp := fiber.Map{
 		"item": dto.ClassSectionJoinResponse{
 			UserClassSection: Ptr(dto.FromModel(ucs)),
 			ClassSectionID:   sec.ClassSectionID.String(),
 		},
+		"masjid_id": masjidID.String(), // supaya FE tahu tenant tempat join
 	}
 	if profileSnap != nil {
 		resp["user_profile_snapshot"] = profileSnap

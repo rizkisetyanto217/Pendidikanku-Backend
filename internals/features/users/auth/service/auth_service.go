@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"strconv"
@@ -465,15 +466,18 @@ func grantDefaultUserRole(ctx context.Context, db *gorm.DB, userID uuid.UUID) er
 }
 
 // Ambil roles via function claim (jika ada) atau fallback query manual
+// Ambil roles via function claim (jika ada) lalu fallback manual + ENRICH student/teacher.
 func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (helpersAuth.RolesClaim, error) {
-	out := helpersAuth.RolesClaim{RolesGlobal: []string{}, MasjidRoles: []helpersAuth.MasjidRolesEntry{}}
+	out := helpersAuth.RolesClaim{
+		RolesGlobal: []string{},
+		MasjidRoles: []helpersAuth.MasjidRolesEntry{},
+	}
 
-	// Pakai fungsi hanya jika benar-benar ada (cek cached)
+	// ---------- 0) Coba pakai DB function jika tersedia ----------
 	useFn := meta.Ready && meta.HasFnUserRolesClaim
 	if !useFn {
 		useFn = quickHasFunction(db, "fn_user_roles_claim")
 	}
-
 	if useFn {
 		var jsonStr string
 		if err := db.WithContext(ctx).
@@ -481,7 +485,7 @@ func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (help
 			Scan(&jsonStr).Error; err == nil && strings.TrimSpace(jsonStr) != "" {
 			var tmp helpersAuth.RolesClaim
 			if err := json.Unmarshal([]byte(jsonStr), &tmp); err == nil {
-				// kalau fungsi ngembaliin kosong, JANGAN langsung pulang — lanjut fallback manual
+				// kalau function sudah mengembalikan data, pakai langsung
 				if len(tmp.RolesGlobal) > 0 || len(tmp.MasjidRoles) > 0 {
 					return tmp, nil
 				}
@@ -489,7 +493,20 @@ func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (help
 		}
 	}
 
-	// ===== Fallback manual yang pasti jalan =====
+	// Helper merge roles per masjid (pakai map internal biar dedup)
+	type set = map[string]struct{}
+	mRoles := map[uuid.UUID]set{}
+	addRole := func(mid uuid.UUID, role string) {
+		if strings.TrimSpace(role) == "" || mid == uuid.Nil {
+			return
+		}
+		if _, ok := mRoles[mid]; !ok {
+			mRoles[mid] = set{}
+		}
+		mRoles[mid][strings.ToLower(role)] = struct{}{}
+	}
+
+	// ---------- 1) Global & scoped dari user_roles ----------
 	orderBy := "r.role_name ASC"
 	if quickHasFunction(db, "fn_role_priority") {
 		orderBy = "fn_role_priority(r.role_name) DESC, r.role_name ASC"
@@ -497,62 +514,126 @@ func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (help
 
 	// Global
 	{
-		ctxG, cancel := context.WithTimeout(ctx, qryTimeoutLong) // kasih napas lebih
+		ctxG, cancel := context.WithTimeout(ctx, qryTimeoutLong)
 		defer cancel()
 		var globals []string
 		if err := db.WithContext(ctxG).Raw(`
-            SELECT r.role_name
-            FROM user_roles ur
-            JOIN roles r ON r.role_id = ur.role_id
-            WHERE ur.user_id = ?::uuid
-              AND ur.deleted_at IS NULL
-              AND ur.masjid_id IS NULL
-            GROUP BY r.role_name
-            ORDER BY `+orderBy, userID.String(),
-		).Scan(&globals).Error; err != nil {
+			SELECT r.role_name
+			FROM user_roles ur
+			JOIN roles r ON r.role_id = ur.role_id
+			WHERE ur.user_id = ?::uuid
+			  AND ur.deleted_at IS NULL
+			  AND ur.masjid_id IS NULL
+			GROUP BY r.role_name
+			ORDER BY `+orderBy, userID.String()).
+			Scan(&globals).Error; err != nil {
 			return out, err
 		}
 		out.RolesGlobal = globals
-	}
-
-	// Scoped
-	var masjidIDs []uuid.UUID
-	{
-		ctxS, cancel := context.WithTimeout(ctx, qryTimeoutLong)
-		defer cancel()
-		if err := db.WithContext(ctxS).Raw(`
-            SELECT ur.masjid_id
-            FROM user_roles ur
-            WHERE ur.user_id = ?::uuid
-              AND ur.deleted_at IS NULL
-              AND ur.masjid_id IS NOT NULL
-            GROUP BY ur.masjid_id
-        `, userID.String()).Scan(&masjidIDs).Error; err != nil {
-			return out, err
+		if len(out.RolesGlobal) == 0 {
+			// minimal agar token punya "user"
+			out.RolesGlobal = []string{"user"}
 		}
 	}
-	for _, mid := range masjidIDs {
-		ctxR, cancel := context.WithTimeout(ctx, qryTimeoutLong)
-		var roles []string
-		err := db.WithContext(ctxR).Raw(`
-            SELECT r.role_name
-            FROM user_roles ur
-            JOIN roles r ON r.role_id = ur.role_id
-            WHERE ur.user_id = ?::uuid
-              AND ur.deleted_at IS NULL
-              AND ur.masjid_id = ?::uuid
-            GROUP BY r.role_name
-            ORDER BY `+orderBy, userID.String(), mid.String()).
-			Scan(&roles).Error
-		cancel()
-		if err != nil {
+
+	// Scoped (user_roles)
+	var scoped []struct {
+		MasjidID uuid.UUID `gorm:"column:masjid_id"`
+		RoleName string    `gorm:"column:role_name"`
+	}
+	{
+		ctxS, cancel := context.WithTimeout(ctx, qryTimeoutLong)
+		if err := db.WithContext(ctxS).Raw(`
+			SELECT ur.masjid_id, r.role_name
+			FROM user_roles ur
+			JOIN roles r ON r.role_id = ur.role_id
+			WHERE ur.user_id = ?::uuid
+			  AND ur.deleted_at IS NULL
+			  AND ur.masjid_id IS NOT NULL
+			GROUP BY ur.masjid_id, r.role_name
+		`, userID.String()).
+			Scan(&scoped).Error; err != nil {
+			cancel()
 			return out, err
+		}
+		cancel()
+		for _, r := range scoped {
+			addRole(r.MasjidID, r.RoleName)
+		}
+	}
+
+	// ---------- 2) ENRICH: student (user_profiles -> masjid_students) ----------
+	var profileIDs []uuid.UUID
+	{
+		ctxP, cancel := context.WithTimeout(ctx, qryTimeoutLong)
+		if err := db.WithContext(ctxP).
+			Table("user_profiles").
+			Where("user_profile_user_id = ? AND user_profile_deleted_at IS NULL", userID).
+			Pluck("user_profile_id", &profileIDs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			cancel()
+			return out, err
+		}
+		cancel()
+	}
+	if len(profileIDs) > 0 {
+		var msMasjidIDs []uuid.UUID
+		ctxMS, cancel := context.WithTimeout(ctx, qryTimeoutLong)
+		err := db.WithContext(ctxMS).
+			Table("masjid_students").
+			Where("masjid_student_user_profile_id IN ?", profileIDs).
+			Where("masjid_student_deleted_at IS NULL").
+			Pluck("masjid_student_masjid_id", &msMasjidIDs).Error
+		cancel()
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return out, err
+		}
+		for _, mid := range msMasjidIDs {
+			addRole(mid, "student")
+		}
+	}
+
+	// ---------- 3) ENRICH: teacher (user_teachers -> masjid_teachers) ----------
+	var utIDs []uuid.UUID
+	{
+		ctxUT, cancel := context.WithTimeout(ctx, qryTimeoutLong)
+		if err := db.WithContext(ctxUT).
+			Table("user_teachers").
+			Where("user_teacher_user_id = ? AND user_teacher_deleted_at IS NULL", userID).
+			Pluck("user_teacher_id", &utIDs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			cancel()
+			return out, err
+		}
+		cancel()
+	}
+	if len(utIDs) > 0 {
+		var mtMasjidIDs []uuid.UUID
+		ctxMT, cancel := context.WithTimeout(ctx, qryTimeoutLong)
+		err := db.WithContext(ctxMT).
+			Table("masjid_teachers").
+			Where("masjid_teacher_user_teacher_id IN ?", utIDs).
+			Where("masjid_teacher_deleted_at IS NULL").
+			Pluck("masjid_teacher_masjid_id", &mtMasjidIDs).Error
+		cancel()
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return out, err
+		}
+		for _, mid := range mtMasjidIDs {
+			addRole(mid, "teacher")
+		}
+	}
+
+	// ---------- 4) Convert map -> []MasjidRolesEntry ----------
+	for mid, set := range mRoles {
+		roles := make([]string, 0, len(set))
+		for r := range set {
+			roles = append(roles, r)
 		}
 		out.MasjidRoles = append(out.MasjidRoles, helpersAuth.MasjidRolesEntry{
 			MasjidID: mid,
 			Roles:    roles,
 		})
 	}
+
 	return out, nil
 }
 

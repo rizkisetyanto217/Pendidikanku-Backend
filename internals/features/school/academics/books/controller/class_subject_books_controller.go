@@ -1,4 +1,4 @@
-// internals/features/lembaga/class_subject_books/controller/class_subject_book_controller.go
+// file: internals/features/lembaga/class_subject_books/controller/class_subject_book_controller.go
 package controller
 
 import (
@@ -8,6 +8,8 @@ import (
 
 	csbDTO "masjidku_backend/internals/features/school/academics/books/dto"
 	csbModel "masjidku_backend/internals/features/school/academics/books/model"
+	bookSnap "masjidku_backend/internals/features/school/academics/books/snapshot"
+
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 
@@ -23,15 +25,12 @@ type ClassSubjectBookController struct {
 
 /*
 =========================================================
-
-	CREATE (DKM/Admin only)
-	POST /admin/class-subject-books
-	Body: CreateClassSubjectBookRequest
-
+CREATE (DKM/Admin only)
+POST /admin/class-subject-books
+Body: CreateClassSubjectBookRequest
 =========================================================
 */
 func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
-	// === Masjid context (eksplisit & DKM/Admin only) ===
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return err
@@ -45,29 +44,9 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
-
-	// Paksa tenant dari context
-	req.ClassSubjectBooksMasjidID = masjidID
-
-	// Normalisasi ringan pada desc
-	if req.ClassSubjectBooksDesc != nil {
-		d := strings.TrimSpace(*req.ClassSubjectBooksDesc)
-		if d == "" {
-			req.ClassSubjectBooksDesc = nil
-		} else {
-			req.ClassSubjectBooksDesc = &d
-		}
-	}
-	// Normalisasi ringan pada slug (opsional)
-	if req.ClassSubjectBooksSlug != nil {
-		s := strings.TrimSpace(*req.ClassSubjectBooksSlug)
-		if s == "" {
-			req.ClassSubjectBooksSlug = nil
-		} else {
-			ns := helper.Slugify(s, 160)
-			req.ClassSubjectBooksSlug = &ns
-		}
-	}
+	// paksa tenant
+	req.ClassSubjectBookMasjidID = masjidID
+	req.Normalize()
 
 	if err := validator.New().Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -75,21 +54,30 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 
 	var created csbModel.ClassSubjectBookModel
 	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
+		// ===== Validasi kepemilikan tenant (class_subject & book) =====
+		if err := ensureClassSubjectTenant(tx, req.ClassSubjectBookClassSubjectID, masjidID); err != nil {
+			return err
+		}
+		if err := ensureBookTenant(tx, req.ClassSubjectBookBookID, masjidID); err != nil {
+			return err
+		}
+
+		// ===== Ambil snapshot buku (untuk auto-slug & isi snapshot app-side) =====
+		snap, err := bookSnap.FetchBookSnapshot(tx, req.ClassSubjectBookBookID)
+		if err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "Buku tidak ditemukan")
+		}
+
 		m := req.ToModel()
 
 		// ===== SLUG: normalize + ensure-unique per tenant (alive-only) =====
-		// Tentukan baseSlug: pakai request → judul buku → fallback short id
 		baseSlug := ""
 		if m.ClassSubjectBookSlug != nil && strings.TrimSpace(*m.ClassSubjectBookSlug) != "" {
 			baseSlug = helper.Slugify(*m.ClassSubjectBookSlug, 160)
 		} else {
-			// coba ambil judul buku
-			var bookTitle string
-			if err := tx.Table("books").
-				Select("books_title").
-				Where("books_id = ?", m.ClassSubjectBookBookID).
-				Take(&bookTitle).Error; err == nil && strings.TrimSpace(bookTitle) != "" {
-				baseSlug = helper.Slugify(bookTitle, 160)
+			// gunakan judul buku jika ada
+			if t := strings.TrimSpace(snap.Title); t != "" {
+				baseSlug = helper.Slugify(t, 160)
 			}
 			if baseSlug == "" || baseSlug == "item" {
 				baseSlug = helper.Slugify(
@@ -98,7 +86,6 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 				)
 			}
 		}
-
 		uniqueSlug, uerr := helper.EnsureUniqueSlugCI(
 			c.Context(),
 			tx,
@@ -106,7 +93,6 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 			"class_subject_book_slug",
 			baseSlug,
 			func(q *gorm.DB) *gorm.DB {
-				// selaras dengan index uq_csb_slug_per_tenant_alive (versi singular kolom)
 				return q.Where(`
 					class_subject_book_masjid_id = ?
 					AND class_subject_book_deleted_at IS NULL
@@ -118,9 +104,16 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 		}
 		m.ClassSubjectBookSlug = &uniqueSlug
-		// ===== END SLUG =====
 
-		// Create
+		// ===== Isi snapshot (app-side; trigger DB juga tetap akan mengisi) =====
+		m.ClassSubjectBookBookTitleSnapshot = &snap.Title
+		m.ClassSubjectBookBookAuthorSnapshot = snap.Author
+		m.ClassSubjectBookBookSlugSnapshot = snap.Slug
+		m.ClassSubjectBookBookPublisherSnapshot = snap.Publisher
+		m.ClassSubjectBookBookPublicationYearSnapshot = snap.PublicationYear
+		m.ClassSubjectBookBookImageURLSnapshot = snap.ImageURL
+
+		// ===== Create =====
 		if err := tx.Create(&m).Error; err != nil {
 			msg := strings.ToLower(err.Error())
 			switch {
@@ -129,18 +122,16 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 				(strings.Contains(msg, "unique") &&
 					strings.Contains(msg, "masjid") && strings.Contains(msg, "class_subject") && strings.Contains(msg, "book")):
 				return fiber.NewError(fiber.StatusConflict, "Buku sudah terdaftar pada class_subject tersebut")
-
 			case strings.Contains(msg, "uq_csb_slug_per_tenant_alive") ||
 				(strings.Contains(msg, "class_subject_book_slug") && strings.Contains(msg, "unique")):
 				return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan pada tenant ini")
-
 			case strings.Contains(msg, "foreign"):
 				return fiber.NewError(fiber.StatusBadRequest, "FK gagal: pastikan class_subject & book valid dan satu tenant")
-
 			default:
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat relasi buku")
 			}
 		}
+
 		created = m
 		return nil
 	}); err != nil {
@@ -152,14 +143,11 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 
 /*
 =========================================================
-
-	UPDATE (partial) (DKM/Admin only)
-	PUT /admin/class-subject-books/:id
-
+UPDATE (partial) (DKM/Admin only)
+PUT /admin/class-subject-books/:id
 =========================================================
 */
 func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
-	// === Masjid context (eksplisit & DKM/Admin only) ===
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return err
@@ -178,30 +166,8 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
-
-	// Force tenant dari context
-	req.ClassSubjectBooksMasjidID = &masjidID
-
-	// Normalisasi ringan untuk desc
-	if req.ClassSubjectBooksDesc != nil {
-		d := strings.TrimSpace(*req.ClassSubjectBooksDesc)
-		if d == "" {
-			req.ClassSubjectBooksDesc = nil
-		} else {
-			req.ClassSubjectBooksDesc = &d
-		}
-	}
-	// Normalisasi ringan untuk slug (biar rapi; ensure-unique nanti)
-	if req.ClassSubjectBooksSlug != nil {
-		s := strings.TrimSpace(*req.ClassSubjectBooksSlug)
-		if s == "" {
-			// explicit clear
-			req.ClassSubjectBooksSlug = nil
-		} else {
-			ns := helper.Slugify(s, 160)
-			req.ClassSubjectBooksSlug = &ns
-		}
-	}
+	// paksa tenant
+	req.ClassSubjectBookMasjidID = &masjidID
 
 	if err := validator.New().Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -225,17 +191,38 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusBadRequest, "Data sudah dihapus")
 		}
 
-		// Terapkan perubahan dari DTO (tanpa menyentuh UpdatedAt; biar autoUpdateTime yang isi)
+		// Terapkan perubahan field dasar
 		if err := req.Apply(&m); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
-		// ===== SLUG handling =====
-		// Kasus:
-		// 1) User kirim slug → pakai & ensure-unique
-		// 2) User tidak kirim slug & slug di DB kosong → auto-generate dari judul buku
-		if req.ClassSubjectBooksSlug != nil {
-			if s := strings.TrimSpace(*req.ClassSubjectBooksSlug); s == "" {
+		// Jika class_subject_id diubah → validasi tenant
+		if req.ClassSubjectBookClassSubjectID != nil {
+			if err := ensureClassSubjectTenant(tx, *req.ClassSubjectBookClassSubjectID, masjidID); err != nil {
+				return err
+			}
+		}
+
+		// Jika book_id diubah → validasi tenant + fetch snapshot + isi ulang snapshot app-side
+		if req.ClassSubjectBookBookID != nil {
+			if err := ensureBookTenant(tx, *req.ClassSubjectBookBookID, masjidID); err != nil {
+				return err
+			}
+			snap, err := bookSnap.FetchBookSnapshot(tx, *req.ClassSubjectBookBookID)
+			if err != nil {
+				return fiber.NewError(fiber.StatusBadRequest, "Buku tidak ditemukan")
+			}
+			m.ClassSubjectBookBookTitleSnapshot = &snap.Title
+			m.ClassSubjectBookBookAuthorSnapshot = snap.Author
+			m.ClassSubjectBookBookSlugSnapshot = snap.Slug
+			m.ClassSubjectBookBookPublisherSnapshot = snap.Publisher
+			m.ClassSubjectBookBookPublicationYearSnapshot = snap.PublicationYear
+			m.ClassSubjectBookBookImageURLSnapshot = snap.ImageURL
+		}
+
+		// SLUG handling (ensure unique jika diubah / jika kosong sebelumnya)
+		if req.ClassSubjectBookSlug != nil {
+			if s := strings.TrimSpace(*req.ClassSubjectBookSlug); s == "" {
 				m.ClassSubjectBookSlug = nil
 			} else {
 				base := helper.Slugify(s, 160)
@@ -260,15 +247,12 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 				m.ClassSubjectBookSlug = &unique
 			}
 		} else if m.ClassSubjectBookSlug == nil {
-			// Auto-generate slug karena sebelumnya kosong
-			var bookTitle string
-			if err := tx.Table("books").
-				Select("books_title").
-				Where("books_id = ?", m.ClassSubjectBookBookID).
-				Take(&bookTitle).Error; err == nil && strings.TrimSpace(bookTitle) != "" {
-				bookTitle = helper.Slugify(bookTitle, 160)
+			// auto-generate saat masih kosong
+			var base string
+			// pakai title snapshot terbaru bila ada
+			if m.ClassSubjectBookBookTitleSnapshot != nil && strings.TrimSpace(*m.ClassSubjectBookBookTitleSnapshot) != "" {
+				base = helper.Slugify(*m.ClassSubjectBookBookTitleSnapshot, 160)
 			}
-			base := bookTitle
 			if base == "" || base == "item" {
 				base = helper.Slugify(
 					fmt.Sprintf("book-%s", strings.Split(m.ClassSubjectBookBookID.String(), "-")[0]),
@@ -295,21 +279,10 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 			}
 			m.ClassSubjectBookSlug = &unique
 		}
-		// ===== END SLUG =====
-
-		patch := map[string]interface{}{
-			"class_subject_book_masjid_id":        m.ClassSubjectBookMasjidID,
-			"class_subject_book_class_subject_id": m.ClassSubjectBookClassSubjectID,
-			"class_subject_book_book_id":          m.ClassSubjectBookBookID,
-			"class_subject_book_is_active":        m.ClassSubjectBookIsActive,
-			"class_subject_book_desc":             m.ClassSubjectBookDesc,
-			"class_subject_book_slug":             m.ClassSubjectBookSlug,
-			// updated_at auto by DB/GORM
-		}
 
 		if err := tx.Model(&csbModel.ClassSubjectBookModel{}).
 			Where("class_subject_book_id = ?", m.ClassSubjectBookID).
-			Updates(patch).Error; err != nil {
+			Updates(&m).Error; err != nil {
 			msg := strings.ToLower(err.Error())
 			switch {
 			case strings.Contains(msg, "uq_csb_unique") ||
@@ -317,14 +290,11 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 				(strings.Contains(msg, "unique") &&
 					strings.Contains(msg, "masjid") && strings.Contains(msg, "class_subject") && strings.Contains(msg, "book")):
 				return fiber.NewError(fiber.StatusConflict, "Buku sudah terdaftar pada class_subject tersebut")
-
 			case strings.Contains(msg, "uq_csb_slug_per_tenant_alive") ||
 				(strings.Contains(msg, "class_subject_book_slug") && strings.Contains(msg, "unique")):
 				return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan pada tenant ini")
-
 			case strings.Contains(msg, "foreign"):
 				return fiber.NewError(fiber.StatusBadRequest, "FK gagal: pastikan class_subject & book valid dan satu tenant")
-
 			default:
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui data")
 			}
@@ -341,16 +311,11 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 
 /*
 =========================================================
-
-	DELETE (DKM/Admin; hard delete: admin only)
-	DELETE /admin/class-subject-books/:id?force=true
-	- force=true (admin saja): hard delete
-	- default: soft delete (gorm.DeletedAt)
-
+DELETE (DKM/Admin; hard delete: admin only)
+DELETE /admin/class-subject-books/:id?force=true
 =========================================================
 */
 func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
-	// === Masjid context (eksplisit & DKM/Admin only) ===
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return err
@@ -360,7 +325,6 @@ func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 		return err
 	}
 
-	// hanya admin yang boleh hard-delete (logika eksisting)
 	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
 	isAdmin := adminMasjidID != uuid.Nil && adminMasjidID == masjidID
 	force := strings.EqualFold(c.Query("force"), "true")
@@ -387,7 +351,6 @@ func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 		}
 
 		if force {
-			// HARD DELETE
 			if err := tx.Delete(&csbModel.ClassSubjectBookModel{}, "class_subject_book_id = ?", id).Error; err != nil {
 				msg := strings.ToLower(err.Error())
 				if strings.Contains(msg, "constraint") || strings.Contains(msg, "foreign") || strings.Contains(msg, "violat") {
@@ -396,7 +359,6 @@ func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus data")
 			}
 		} else {
-			// SOFT DELETE via GORM (mengisi deleted_at)
 			if m.ClassSubjectBookDeletedAt.Valid {
 				return fiber.NewError(fiber.StatusBadRequest, "Data sudah dihapus")
 			}
@@ -413,4 +375,44 @@ func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonDeleted(c, "Relasi buku berhasil dihapus", csbDTO.FromModel(deleted))
+}
+
+/*
+=========================
+
+	Helpers: tenant guards
+	=========================
+*/
+func ensureClassSubjectTenant(tx *gorm.DB, classSubjectID, wantMasjid uuid.UUID) error {
+	var gotMasjid uuid.UUID
+	if err := tx.Table("class_subjects").
+		Select("class_subject_masjid_id").
+		Where("class_subject_id = ? AND class_subject_deleted_at IS NULL", classSubjectID).
+		Take(&gotMasjid).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fiber.NewError(fiber.StatusBadRequest, "class_subject tidak ditemukan")
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi class_subject")
+	}
+	if gotMasjid != wantMasjid {
+		return fiber.NewError(fiber.StatusForbidden, "class_subject bukan milik masjid Anda")
+	}
+	return nil
+}
+
+func ensureBookTenant(tx *gorm.DB, bookID, wantMasjid uuid.UUID) error {
+	var gotMasjid uuid.UUID
+	if err := tx.Table("books").
+		Select("book_masjid_id").
+		Where("book_id = ? AND book_deleted_at IS NULL", bookID).
+		Take(&gotMasjid).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fiber.NewError(fiber.StatusBadRequest, "Buku tidak ditemukan")
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi buku")
+	}
+	if gotMasjid != wantMasjid {
+		return fiber.NewError(fiber.StatusForbidden, "Buku bukan milik masjid Anda")
+	}
+	return nil
 }

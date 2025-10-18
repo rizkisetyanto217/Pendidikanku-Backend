@@ -17,9 +17,15 @@ import (
 	attendanceModel "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
 	helperOSS "masjidku_backend/internals/helpers/oss"
 
+	snapshotTeacher "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/snapshot"
+	snapshotClassRoom "masjidku_backend/internals/features/school/academics/rooms/snapshot"
+	serviceSchedule "masjidku_backend/internals/features/school/classes/class_schedules/services"
+	snapshotCSST "masjidku_backend/internals/features/school/classes/class_section_subject_teachers/snapshot"
+
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -44,20 +50,27 @@ func parseYMDLocal(s string) (*time.Time, error) {
 	return &t0, nil
 }
 
-/*
-=========================================================
-POST /admin/class-attendance-sessions
-Body: CreateClassAttendanceSessionRequest (pakai SCHEDULE)
-Mendukung:
-- JSON biasa
-- multipart:
-  - form fields session
-  - urls_json (array upserts)
-  - bracket/array style (urls[0][...]/url_kind[] dst.)
-  - file uploads (otomatis diupload ke OSS → dibuat baris URL)
+// --- helper kecil di atas file (boleh taruh di luar fungsi) ---
+func getCSSTName(tx *gorm.DB, csstID uuid.UUID) (string, error) {
+	var row struct {
+		Name *string `gorm:"column:name"`
+	}
+	const q = `
+SELECT
+  COALESCE(class_section_subject_teacher_name, name) AS name
+FROM class_section_subject_teachers
+WHERE class_section_subject_teacher_id = ?
+  AND (class_section_subject_teacher_deleted_at IS NULL OR class_section_subject_teacher_deleted_at IS NULL)
+LIMIT 1`
+	if err := tx.Raw(q, csstID).Scan(&row).Error; err != nil {
+		return "", err
+	}
+	if row.Name == nil {
+		return "", nil
+	}
+	return strings.TrimSpace(*row.Name), nil
+}
 
-=========================================================
-*/
 func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fiber.Ctx) error {
 	// ✅ Role guard
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
@@ -108,32 +121,29 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 	}
 	userID, _ := helperAuth.GetUserIDFromToken(c)
 
-
 	// ---------- Parse payload ----------
 	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
 	var req attendanceDTO.CreateClassAttendanceSessionRequest
 
 	if strings.HasPrefix(ct, "multipart/form-data") {
-		// Wajib
+		// Schedule (opsional) → pointer
 		if v := strings.TrimSpace(c.FormValue("class_attendance_session_schedule_id")); v != "" {
 			if id, err := uuid.Parse(v); err == nil {
-				req.ClassAttendanceSessionScheduleId = id
+				req.ClassAttendanceSessionScheduleId = &id
 			}
 		}
-		// Opsional
+		// Opsional lain
 		if v := strings.TrimSpace(c.FormValue("class_attendance_session_teacher_id")); v != "" {
 			if id, err := uuid.Parse(v); err == nil {
 				req.ClassAttendanceSessionTeacherId = &id
 			}
 		}
-		// Date (YYYY-MM-DD)
 		if v := strings.TrimSpace(c.FormValue("class_attendance_session_date")); v != "" {
 			if d, err := time.ParseInLocation("2006-01-02", v, time.Local); err == nil {
 				dd := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.Local)
 				req.ClassAttendanceSessionDate = &dd
 			}
 		}
-		// Metadata
 		if v := strings.TrimSpace(c.FormValue("class_attendance_session_slug")); v != "" {
 			req.ClassAttendanceSessionSlug = &v
 		}
@@ -175,7 +185,7 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 			req.ClassAttendanceSessionOverrideReason = &v
 		}
 
-		// override event (UUID opsional) — (attendance override event ID dihapus)
+		// override event / resources
 		if v := strings.TrimSpace(c.FormValue("class_attendance_session_override_event_id")); v != "" {
 			if id, err := uuid.Parse(v); err == nil {
 				req.ClassAttendanceSessionOverrideEventId = &id
@@ -233,49 +243,54 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 		req.ClassAttendanceSessionNote = &n
 	}
 
-	// Validasi payload
+	// ✅ Coerce zero-UUID schedule → nil (DTO Normalize)
+	req.Normalize()
+
+	// Validasi payload (sesuai tag DTO)
 	if err := validator.New().Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
+	// 🔒 Guard opsional: bila schedule kosong, wajib ada csst/teacher (min salah satu)
+	if (req.ClassAttendanceSessionScheduleId == nil) &&
+		(req.ClassAttendanceSessionCSSTId == nil || *req.ClassAttendanceSessionCSSTId == uuid.Nil) &&
+		(req.ClassAttendanceSessionTeacherId == nil || *req.ClassAttendanceSessionTeacherId == uuid.Nil) {
+		return fiber.NewError(fiber.StatusBadRequest, "Minimal isi salah satu: schedule_id / csst_id / teacher_id")
+	}
+
 	// ---------- Transaksi ----------
 	if err := ctrl.DB.Transaction(func(tx *gorm.DB) error {
-		// 1) Validasi SCHEDULE (wajib) & default guru jika kosong
-		if req.ClassAttendanceSessionScheduleId == uuid.Nil {
-			return fiber.NewError(fiber.StatusBadRequest, "class_attendance_session_schedule_id wajib diisi")
-		}
-		var sch struct {
-			MasjidID  uuid.UUID  `gorm:"column:masjid_id"`
-			TeacherID *uuid.UUID `gorm:"column:teacher_id"`
-			IsActive  bool       `gorm:"column:is_active"`
-			DeletedAt *time.Time `gorm:"column:deleted_at"`
-		}
-		if err := tx.Table("class_schedules").
-			Select(`
-				class_schedule_masjid_id  AS masjid_id,
-				class_schedule_teacher_id AS teacher_id,
-				class_schedule_is_active  AS is_active,
-				class_schedule_deleted_at AS deleted_at
-			`).
-			Where("class_schedule_id = ?", req.ClassAttendanceSessionScheduleId).
-			Take(&sch).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return fiber.NewError(fiber.StatusBadRequest, "Schedule tidak ditemukan")
+
+		// 1) Validasi SCHEDULE (opsional)
+		if req.ClassAttendanceSessionScheduleId != nil {
+			var sch struct {
+				MasjidID  uuid.UUID  `gorm:"column:masjid_id"`
+				IsActive  bool       `gorm:"column:is_active"`
+				DeletedAt *time.Time `gorm:"column:deleted_at"`
 			}
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil schedule")
+			if err := tx.Table("class_schedules").
+				Select(`
+					class_schedule_masjid_id  AS masjid_id,
+					class_schedule_is_active  AS is_active,
+					class_schedule_deleted_at AS deleted_at
+				`).
+				Where("class_schedule_id = ?", *req.ClassAttendanceSessionScheduleId).
+				Take(&sch).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return fiber.NewError(fiber.StatusBadRequest, "Schedule tidak ditemukan")
+				}
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil schedule")
+			}
+			if sch.MasjidID != masjidID {
+				return fiber.NewError(fiber.StatusForbidden, "Schedule bukan milik masjid Anda")
+			}
+			if sch.DeletedAt != nil || !sch.IsActive {
+				return fiber.NewError(fiber.StatusBadRequest, "Schedule tidak aktif / sudah dihapus")
+			}
 		}
-		if sch.MasjidID != masjidID {
-			return fiber.NewError(fiber.StatusForbidden, "Schedule bukan milik masjid Anda")
-		}
-		if sch.DeletedAt != nil || !sch.IsActive {
-			return fiber.NewError(fiber.StatusBadRequest, "Schedule tidak aktif / sudah dihapus")
-		}
-		// Default guru
-		if req.ClassAttendanceSessionTeacherId == nil {
-			req.ClassAttendanceSessionTeacherId = sch.TeacherID
-		}
+
 		// 2) Validasi TEACHER (opsional)
-		if req.ClassAttendanceSessionTeacherId != nil {
+		if req.ClassAttendanceSessionTeacherId != nil && *req.ClassAttendanceSessionTeacherId != uuid.Nil {
 			var row struct {
 				MasjidID uuid.UUID `gorm:"column:masjid_id"`
 				UserID   uuid.UUID `gorm:"column:user_id"`
@@ -298,7 +313,7 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 			}
 		}
 
-		// 3) Cek duplikasi aktif (masjid, schedule, date)
+		// 3) Cek duplikasi aktif (masjid, date, [schedule nullable])
 		effDate := func() time.Time {
 			if req.ClassAttendanceSessionDate != nil {
 				return *req.ClassAttendanceSessionDate
@@ -306,27 +321,165 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 			now := time.Now().In(time.Local)
 			return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 		}()
+
 		var dupeCount int64
-		if err := tx.Table("class_attendance_sessions").
+		dupe := tx.Table("class_attendance_sessions").
 			Where(`
 				class_attendance_session_masjid_id = ?
-				AND class_attendance_session_schedule_id = ?
-				AND class_attendance_session_date = ?
 				AND class_attendance_session_deleted_at IS NULL
-			`,
-				req.ClassAttendanceSessionMasjidId,
-				req.ClassAttendanceSessionScheduleId,
-				effDate,
-			).
-			Count(&dupeCount).Error; err != nil {
+				AND class_attendance_session_date = ?
+			`, req.ClassAttendanceSessionMasjidId, effDate)
+
+		if req.ClassAttendanceSessionScheduleId != nil {
+			dupe = dupe.Where("class_attendance_session_schedule_id = ?", *req.ClassAttendanceSessionScheduleId)
+		} else {
+			dupe = dupe.Where("class_attendance_session_schedule_id IS NULL")
+		}
+
+		if err := dupe.Count(&dupeCount).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek duplikasi")
 		}
 		if dupeCount > 0 {
 			return fiber.NewError(fiber.StatusConflict, "Sesi kehadiran untuk tanggal tersebut sudah ada")
 		}
 
-		// 4) Simpan sesi
+		// --- Auto-Title (opsional) ---
+		if (req.ClassAttendanceSessionTitle == nil || strings.TrimSpace(*req.ClassAttendanceSessionTitle) == "") &&
+			req.ClassAttendanceSessionCSSTId != nil && *req.ClassAttendanceSessionCSSTId != uuid.Nil {
+
+			// 1) Ambil nama CSST
+			baseName, _ := getCSSTName(tx, *req.ClassAttendanceSessionCSSTId)
+			if strings.TrimSpace(baseName) != "" {
+
+				// 2) Tentukan timestamp pembanding
+				var cmp time.Time
+				if req.ClassAttendanceSessionOriginalStartAt != nil {
+					cmp = req.ClassAttendanceSessionOriginalStartAt.UTC()
+				} else if req.ClassAttendanceSessionDate != nil {
+					d := req.ClassAttendanceSessionDate.UTC()
+					cmp = time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC)
+				} else {
+					cmp = time.Now().UTC()
+				}
+
+				// 3) Hitung urutan pertemuan
+				var n int64
+				q := tx.Table("class_attendance_sessions").
+					Where(`
+						class_attendance_session_csst_id = ?
+						AND class_attendance_session_deleted_at IS NULL
+						AND COALESCE(class_attendance_session_starts_at, class_attendance_session_date) <= ?
+					`, *req.ClassAttendanceSessionCSSTId, cmp)
+
+				if req.ClassAttendanceSessionScheduleId != nil {
+					q = q.Where("class_attendance_session_schedule_id = ?", *req.ClassAttendanceSessionScheduleId)
+				}
+
+				_ = q.Count(&n).Error
+				n++ // sesi yang akan dibuat ini
+
+				title := fmt.Sprintf("%s pertemuan ke-%d", baseName, n)
+				req.ClassAttendanceSessionTitle = &title
+			}
+		}
+
+		// ====== SNAPSHOTS & EFEKTIF ASSIGNMENTS ======
+		var (
+			effCSSTID    *uuid.UUID
+			effTeacherID *uuid.UUID
+			effRoomID    *uuid.UUID
+
+			csstSnapJSON    datatypes.JSONMap
+			teacherSnapJSON datatypes.JSONMap
+			roomSnapJSON    datatypes.JSONMap
+		)
+
+		// 1) CSST efektif
+		if req.ClassAttendanceSessionCSSTId != nil && *req.ClassAttendanceSessionCSSTId != uuid.Nil {
+			effCSSTID = req.ClassAttendanceSessionCSSTId
+
+			if cs, err := snapshotCSST.ValidateAndSnapshotCSST(tx, masjidID, *effCSSTID); err == nil {
+				jb := snapshotCSST.ToJSON(cs)
+				var mm map[string]any
+				_ = json.Unmarshal(jb, &mm)
+				csstSnapJSON = datatypes.JSONMap(mm)
+
+				// override teacher dari CSST jika ada
+				if cs.TeacherID != nil {
+					req.ClassAttendanceSessionTeacherId = cs.TeacherID
+				}
+			} else {
+				return fiber.NewError(fiber.StatusBadRequest, "CSST tidak valid / bukan milik masjid Anda")
+			}
+		}
+
+		// 2) Teacher efektif
+		if req.ClassAttendanceSessionTeacherId != nil && *req.ClassAttendanceSessionTeacherId != uuid.Nil {
+			effTeacherID = req.ClassAttendanceSessionTeacherId
+
+			if ts, err := snapshotTeacher.ValidateAndSnapshotTeacher(tx, masjidID, *effTeacherID); err == nil {
+				jb := snapshotTeacher.ToJSON(ts)
+				var mm map[string]any
+				_ = json.Unmarshal(jb, &mm)
+				teacherSnapJSON = datatypes.JSONMap(mm)
+			} else {
+				return fiber.NewError(fiber.StatusBadRequest, "Guru tidak valid / bukan milik masjid Anda")
+			}
+		}
+
+		// 3) Room efektif
+		if effCSSTID != nil {
+			gen := &serviceSchedule.Generator{DB: tx}
+			roomID, roomSnap, rerr := gen.ResolveRoomFromCSSTOrSection(
+				c.Context(),
+				masjidID,
+				effCSSTID,
+			)
+			if rerr == nil && roomID != nil {
+				effRoomID = roomID
+				if roomSnap != nil {
+					roomSnapJSON = roomSnap
+				}
+			}
+		}
+		if effRoomID == nil && req.ClassAttendanceSessionClassRoomId != nil && *req.ClassAttendanceSessionClassRoomId != uuid.Nil {
+			rid := *req.ClassAttendanceSessionClassRoomId
+			if rs, err := snapshotClassRoom.ValidateAndSnapshotRoom(tx, masjidID, rid); err == nil {
+				jb := snapshotClassRoom.ToJSON(rs)
+				var mm map[string]any
+				_ = json.Unmarshal(jb, &mm)
+				effRoomID = &rid
+				roomSnapJSON = datatypes.JSONMap(mm)
+			} else {
+				return fiber.NewError(fiber.StatusBadRequest, "Ruang kelas tidak valid / bukan milik masjid Anda")
+			}
+		}
+
+		// 4) Build model dari DTO
 		m := req.ToModel()
+		m.ClassAttendanceSessionMasjidID = masjidID
+		// (Schedule sudah pointer-aware di ToModel, tak perlu nulis apa-apa lagi)
+
+		if effCSSTID != nil {
+			m.ClassAttendanceSessionCSSTID = effCSSTID
+			if csstSnapJSON != nil {
+				m.ClassAttendanceSessionCSSTSnapshot = csstSnapJSON
+			}
+		}
+		if effTeacherID != nil {
+			m.ClassAttendanceSessionTeacherID = effTeacherID
+			if teacherSnapJSON != nil {
+				m.ClassAttendanceSessionTeacherSnapshot = teacherSnapJSON
+			}
+		}
+		if effRoomID != nil {
+			m.ClassAttendanceSessionClassRoomID = effRoomID
+			if roomSnapJSON != nil {
+				m.ClassAttendanceSessionRoomSnapshot = roomSnapJSON
+			}
+		}
+
+		// 5) Simpan sesi
 		if err := tx.Create(&m).Error; err != nil {
 			low := strings.ToLower(err.Error())
 			if strings.Contains(low, "duplicate") || strings.Contains(low, "unique") {
@@ -359,7 +512,7 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 			}
 		}
 
-		// (b) dari bracket/array style (helper.URLUpsert)
+		// (b) dari bracket/array style
 		if ups, ok := c.Locals("urls_form_upserts").([]helperOSS.URLUpsert); ok && len(ups) > 0 {
 			for _, u := range ups {
 				u.Normalize()
@@ -393,7 +546,7 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 					for _, fh := range fhs {
 						publicURL, uerr := helperOSS.UploadAnyToOSS(ctx, oss, masjidID, "class_attendance_sessions", fh)
 						if uerr != nil {
-							return uerr // sudah fiber.Error friendly dari helper
+							return uerr
 						}
 						// Cari slot kosong, jika tak ada buat baru
 						var row *attendanceModel.ClassAttendanceSessionURLModel
@@ -450,8 +603,7 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 							AND class_attendance_session_url_id <> ?
 							AND class_attendance_session_url_deleted_at IS NULL
 						`,
-							masjidID, m.ClassAttendanceSessionID, it.ClassAttendanceSessionURLKind, it.ClassAttendanceSessionURLID,
-						).
+							masjidID, m.ClassAttendanceSessionID, it.ClassAttendanceSessionURLKind, it.ClassAttendanceSessionURLID).
 						Update("class_attendance_session_url_is_primary", false).Error; err != nil {
 						return fiber.NewError(fiber.StatusInternalServerError, "Gagal set primary lampiran")
 					}
@@ -478,7 +630,6 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 
 	for i := range rows {
 		lite := attendanceDTO.ToClassAttendanceSessionURLLite(&rows[i])
-		// Pastikan Href tidak kosong supaya FE enak render
 		if strings.TrimSpace(lite.Href) != "" {
 			resp.ClassAttendanceSessionUrls = append(resp.ClassAttendanceSessionUrls, lite)
 		}
@@ -490,14 +641,18 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 
 // PATCH /admin/class-attendance-sessions/:id/urls/:url_id
 func (ctrl *ClassAttendanceSessionController) PatchClassAttendanceSessionUrl(c *fiber.Ctx) error {
+	// ✅ Role guard
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return fiber.NewError(fiber.StatusUnauthorized, "Hanya admin atau guru yang diizinkan")
 	}
+
+	// ✅ Resolve masjid context
 	mc, er := helperAuth.ResolveMasjidContext(c)
 	if er != nil {
 		return helper.JsonError(c, er.(*fiber.Error).Code, er.Error())
 	}
 
+	// ✅ Tentukan masjidID dari context dengan aturan role
 	var masjidID uuid.UUID
 	switch {
 	case helperAuth.IsOwner(c) || helperAuth.IsDKM(c):
@@ -525,6 +680,7 @@ func (ctrl *ClassAttendanceSessionController) PatchClassAttendanceSessionUrl(c *
 		return fiber.NewError(fiber.StatusUnauthorized, "Tidak diizinkan")
 	}
 
+	// ✅ Path params
 	sessionID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Session ID tidak valid")
@@ -534,20 +690,41 @@ func (ctrl *ClassAttendanceSessionController) PatchClassAttendanceSessionUrl(c *
 		return fiber.NewError(fiber.StatusBadRequest, "URL ID tidak valid")
 	}
 
+	// ✅ Parse + validate payload
 	var p attendanceDTO.ClassAttendanceSessionURLPatch
 	if err := c.BodyParser(&p); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
-	// pastikan ID patch sesuai path
 	p.ID = urlID
 	p.Normalize()
 	if err := validator.New().Struct(p); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// TX
+	// 🔒 TX
 	if err := ctrl.DB.Transaction(func(tx *gorm.DB) error {
-		// load target URL (ensure tenant+owner)
+		// 0) Pastikan sesi target milik tenant & belum deleted
+		var sess struct {
+			ID       uuid.UUID  `gorm:"column:id"`
+			MasjidID uuid.UUID  `gorm:"column:masjid_id"`
+			Deleted  *time.Time `gorm:"column:deleted_at"`
+		}
+		if err := tx.Table("class_attendance_sessions").
+			Select(`
+				class_attendance_session_id AS id,
+				class_attendance_session_masjid_id AS masjid_id,
+				class_attendance_session_deleted_at AS deleted_at
+			`).
+			Where("class_attendance_session_id = ? AND class_attendance_session_masjid_id = ? AND class_attendance_session_deleted_at IS NULL",
+				sessionID, masjidID).
+			Take(&sess).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fiber.NewError(fiber.StatusNotFound, "Session tidak ditemukan")
+			}
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil session")
+		}
+
+		// 1) Load target URL (tenant + owner + live)
 		var row attendanceModel.ClassAttendanceSessionURLModel
 		if err := tx.Where(`
 				class_attendance_session_url_id = ?
@@ -562,8 +739,10 @@ func (ctrl *ClassAttendanceSessionController) PatchClassAttendanceSessionUrl(c *
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil URL")
 		}
 
-		patch := map[string]interface{}{}
+		patch := map[string]any{}
+		kindChanged := false
 
+		// 2) Apply field-by-field
 		if p.Label != nil {
 			patch["class_attendance_session_url_label"] = strings.TrimSpace(*p.Label)
 			row.ClassAttendanceSessionURLLabel = p.Label
@@ -578,26 +757,31 @@ func (ctrl *ClassAttendanceSessionController) PatchClassAttendanceSessionUrl(c *
 				kind = "attachment"
 			}
 			patch["class_attendance_session_url_kind"] = kind
+			kindChanged = kindChanged || (row.ClassAttendanceSessionURLKind != kind)
 			row.ClassAttendanceSessionURLKind = kind
 		}
-		// pergantian href/object_key → simpan lama ke spam (opsional), set *_old + delete_pending_until
+
+		// 2a) Href/ObjectKey handling
 		if p.Href != nil {
 			newHref := strings.TrimSpace(*p.Href)
-			if newHref == "" { // clear
+			if newHref == "" {
 				patch["class_attendance_session_url_href"] = nil
+				patch["class_attendance_session_url_object_key"] = nil
 				row.ClassAttendanceSessionURLHref = nil
+				row.ClassAttendanceSessionURLObjectKey = nil
 			} else {
+				// Pindahkan file lama ke spam (kalau ada lama & object_key ada)
 				if row.ClassAttendanceSessionURLHref != nil && row.ClassAttendanceSessionURLObjectKey != nil {
 					if spamURL, err := helperOSS.MoveToSpamByPublicURLENV(*row.ClassAttendanceSessionURLHref, 10*time.Second); err == nil {
+						_ = spamURL
 						patch["class_attendance_session_url_object_key_old"] = *row.ClassAttendanceSessionURLObjectKey
 						patch["class_attendance_session_url_delete_pending_until"] = time.Now().Add(7 * 24 * time.Hour)
-						_ = spamURL
 					}
 				}
 				patch["class_attendance_session_url_href"] = newHref
 				row.ClassAttendanceSessionURLHref = &newHref
 
-				if key, kerr := helperOSS.ExtractKeyFromPublicURL(newHref); kerr == nil {
+				if key, kerr := helperOSS.ExtractKeyFromPublicURL(newHref); kerr == nil && strings.TrimSpace(key) != "" {
 					patch["class_attendance_session_url_object_key"] = key
 					row.ClassAttendanceSessionURLObjectKey = &key
 				} else {
@@ -606,6 +790,8 @@ func (ctrl *ClassAttendanceSessionController) PatchClassAttendanceSessionUrl(c *
 				}
 			}
 		}
+
+		// If user explicitly sends object_key (manual override)
 		if p.ObjectKey != nil {
 			okey := strings.TrimSpace(*p.ObjectKey)
 			if okey == "" {
@@ -616,11 +802,13 @@ func (ctrl *ClassAttendanceSessionController) PatchClassAttendanceSessionUrl(c *
 				row.ClassAttendanceSessionURLObjectKey = &okey
 			}
 		}
+
 		if p.IsPrimary != nil {
 			patch["class_attendance_session_url_is_primary"] = *p.IsPrimary
 			row.ClassAttendanceSessionURLIsPrimary = *p.IsPrimary
 		}
 
+		// 3) Persist patch
 		if len(patch) > 0 {
 			if err := tx.Model(&attendanceModel.ClassAttendanceSessionURLModel{}).
 				Where("class_attendance_session_url_id = ?", row.ClassAttendanceSessionURLID).
@@ -629,8 +817,10 @@ func (ctrl *ClassAttendanceSessionController) PatchClassAttendanceSessionUrl(c *
 			}
 		}
 
-		// enforce primary unik (kalau flag jadi true)
-		if p.IsPrimary != nil && *p.IsPrimary {
+		// 4) Enforce unique primary per (session, kind) jika:
+		// - is_primary diset ke true, ATAU
+		// - kind berubah & tetap primary di record ini
+		if (p.IsPrimary != nil && *p.IsPrimary) || (kindChanged && row.ClassAttendanceSessionURLIsPrimary) {
 			if err := tx.Model(&attendanceModel.ClassAttendanceSessionURLModel{}).
 				Where(`
 					class_attendance_session_url_masjid_id = ?
@@ -638,17 +828,20 @@ func (ctrl *ClassAttendanceSessionController) PatchClassAttendanceSessionUrl(c *
 					AND class_attendance_session_url_kind = ?
 					AND class_attendance_session_url_id <> ?
 					AND class_attendance_session_url_deleted_at IS NULL
-				`, masjidID, sessionID, row.ClassAttendanceSessionURLKind, row.ClassAttendanceSessionURLID).
+				`,
+					masjidID, sessionID, row.ClassAttendanceSessionURLKind, row.ClassAttendanceSessionURLID).
 				Update("class_attendance_session_url_is_primary", false).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal set primary lampiran")
 			}
 		}
+
 		c.Locals("updated_url", row)
 		return nil
 	}); err != nil {
 		return err
 	}
 
+	// ✅ Response
 	u := c.Locals("updated_url").(attendanceModel.ClassAttendanceSessionURLModel)
 	return helper.JsonUpdated(c, "URL berhasil diperbarui", attendanceDTO.ToClassAttendanceSessionURLLite(&u))
 }

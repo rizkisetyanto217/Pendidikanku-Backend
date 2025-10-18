@@ -3,14 +3,14 @@ package controller
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
+	"mime/multipart"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -27,263 +27,209 @@ type BooksController struct {
 	DB *gorm.DB
 }
 
-var validate = validator.New()
-
 func strPtrIfNotEmpty(s string) *string {
-	s = strings.TrimSpace(s)
-	if s == "" {
+	v := strings.TrimSpace(s)
+	if v == "" {
 		return nil
 	}
-	return &s
+	return &v
 }
 
-// =========================================================
-// CREATE  - POST /admin/:masjid/books
-// Body: JSON atau multipart tanpa upload file (upload file juga didukung)
-// =========================================================
-func (h *BooksController) Create(c *fiber.Ctx) error {
-	// Pastikan DB tersedia untuk helper slug→id
-	if c.Locals("DB") == nil {
-		c.Locals("DB", h.DB)
+// cari file dengan prioritas beberapa key
+func pickImageFile(c *fiber.Ctx, keys ...string) *multipart.FileHeader {
+	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
+	log.Printf("[BOOKS][CREATE] pickImageFile(): Content-Type=%q", ct)
+
+	for _, k := range keys {
+		fh, err := c.FormFile(k)
+		if err == nil && fh != nil {
+			log.Printf("[BOOKS][CREATE] FormFile(%q) OK: name=%q size=%d", k, fh.Filename, fh.Size)
+			return fh
+		}
+		log.Printf("[BOOKS][CREATE] FormFile(%q) miss: err=%T %v", k, err, err)
 	}
 
-	// Ambil masjid context dari path/header/query/host/token
+	form, err := c.MultipartForm()
+	if err != nil || form == nil {
+		log.Printf("[BOOKS][CREATE] MultipartForm() miss: err=%T %v", err, err)
+		return nil
+	}
+	for _, k := range keys {
+		if arr := form.File[k]; len(arr) > 0 {
+			log.Printf("[BOOKS][CREATE] MultipartForm[\"%s\"][0] OK: name=%q size=%d", k, arr[0].Filename, arr[0].Size)
+			return arr[0]
+		}
+		log.Printf("[BOOKS][CREATE] MultipartForm[\"%s\"] empty", k)
+	}
+	for k, arr := range form.File {
+		if len(arr) > 0 {
+			log.Printf("[BOOKS][CREATE] Fallback first file: key=%q name=%q size=%d", k, arr[0].Filename, arr[0].Size)
+			return arr[0]
+		}
+	}
+	log.Printf("[BOOKS][CREATE] No file found in multipart")
+	return nil
+}
+
+// debug: list semua file keys + jumlahnya
+func dumpMultipartKeys(c *fiber.Ctx) {
+	if form, err := c.MultipartForm(); err == nil && form != nil {
+		keys := make([]string, 0, len(form.File))
+		for k, arr := range form.File {
+			keys = append(keys, fmt.Sprintf("%s(len=%d)", k, len(arr)))
+		}
+		log.Printf("[BOOKS][CREATE] multipart keys: %v", keys)
+	} else {
+		log.Printf("[BOOKS][CREATE] no MultipartForm: err=%v", err)
+	}
+}
+
+// POST /api/books
+func (h *BooksController) Create(c *fiber.Ctx) error {
+	log.Printf("[BOOKS][CREATE] ▶ incoming request %s %s", c.Method(), c.OriginalURL())
+	c.Locals("DB", h.DB)
+
+	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
+	isMultipart := strings.HasPrefix(ct, "multipart/form-data")
+	log.Printf("[BOOKS][CREATE] Content-Type=%q isMultipart=%v", ct, isMultipart)
+
+	// 1) Parse payload
+	var p dto.BookCreateRequest
+	if isMultipart {
+		// ✅ JANGAN BodyParser di sini
+		p.BookTitle = strings.TrimSpace(c.FormValue("book_title"))
+		p.BookAuthor = strPtrIfNotEmpty(c.FormValue("book_author"))
+		p.BookDesc = strPtrIfNotEmpty(c.FormValue("book_desc"))
+		if v := strings.TrimSpace(c.FormValue("book_slug")); v != "" {
+			s := helper.Slugify(v, 160)
+			p.BookSlug = &s
+		}
+	} else {
+		// JSON saja yang pakai BodyParser
+		if err := c.BodyParser(&p); err != nil {
+			log.Printf("[BOOKS][CREATE] BodyParser error: %T %v", err, err)
+			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
+		}
+	}
+	p.Normalize()
+	log.Printf("[BOOKS][CREATE] Parsed: title=%q author=%q slug=%v", p.BookTitle, derefStr(p.BookAuthor), p.BookSlug)
+
+	// 2) Masjid context + guard
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return err
 	}
-	// Hanya DKM/Admin masjid ini yang boleh create
 	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
+	p.BookMasjidID = masjidID
+	log.Printf("[BOOKS][CREATE] masjid_id=%s", masjidID)
 
-	var req dto.BookCreateRequest
-	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
-
-	// ================== Parse body ==================
-	if strings.HasPrefix(ct, "multipart/form-data") {
-		// Text fields minimal
-		req.BookTitle = strings.TrimSpace(c.FormValue("book_title"))
-		req.BookDesc = strPtrIfNotEmpty(c.FormValue("book_desc"))
-		req.BookAuthor = strPtrIfNotEmpty(c.FormValue("book_author"))
-
-		// (opsional) slug dari FE
-		if v := strings.TrimSpace(c.FormValue("book_slug")); v != "" {
-			s := helper.Slugify(v, 100)
-			req.BookSlug = &s
-		}
-
-		// (opsional) urls_json
-		if uj := strings.TrimSpace(c.FormValue("urls_json")); uj != "" {
-			if err := json.Unmarshal([]byte(uj), &req.URLs); err != nil {
-				log.Printf("[books.create] urls_json unmarshal err: %v raw=%s", err, uj)
-				return helper.JsonError(c, fiber.StatusBadRequest, "urls_json tidak valid: "+err.Error())
-			}
-		}
-
-		// (opsional) bracket/array style → parse jika URLs belum ada
-		if len(req.URLs) == 0 {
-			if form, ferr := c.MultipartForm(); ferr == nil && form != nil {
-				ups := helperOSS.ParseURLUpsertsFromMultipart(form, nil) // gunakan defaults dari helper
-				if len(ups) > 0 {
-					for _, u := range ups {
-						req.URLs = append(req.URLs, dto.BookURLUpsert{
-							BookURLKind:      u.Kind,
-							BookURLLabel:     u.Label,
-							BookURLHref:      u.Href,
-							BookURLObjectKey: u.ObjectKey,
-							BookURLOrder:     u.Order,
-							BookURLIsPrimary: u.IsPrimary,
-						})
-					}
-				}
-			}
-		}
+	// 3) Slug unik
+	baseSlug := ""
+	if p.BookSlug != nil && strings.TrimSpace(*p.BookSlug) != "" {
+		baseSlug = helper.Slugify(*p.BookSlug, 160)
 	} else {
-		// JSON body
-		if err := c.BodyParser(&req); err != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
+		baseSlug = helper.SuggestSlugFromName(p.BookTitle)
+		if baseSlug == "" {
+			baseSlug = "book"
 		}
 	}
-
-	// Isi masjid ID + normalisasi + slug
-	req.BookMasjidID = masjidID
-	req.Normalize()
-
-	if req.BookSlug == nil || strings.TrimSpace(*req.BookSlug) == "" {
-		gen := helper.SuggestSlugFromName(req.BookTitle)
-		req.BookSlug = &gen
-	} else {
-		s := helper.Slugify(*req.BookSlug, 100)
-		req.BookSlug = &s
+	scope := func(q *gorm.DB) *gorm.DB {
+		return q.Where("book_masjid_id = ? AND book_deleted_at IS NULL", masjidID)
 	}
+	uniqueSlug, err := helper.EnsureUniqueSlugCI(c.Context(), h.DB, "books", "book_slug", baseSlug, scope, 160)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
+	}
+	log.Printf("[BOOKS][CREATE] uniqueSlug=%q", uniqueSlug)
 
-	// ================== Validasi ==================
-	if err := validate.Struct(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
-	if req.BookSlug == nil || *req.BookSlug == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Slug tidak valid (judul terlalu kosong untuk dibentuk slug)")
-	}
-
-	// Cek unik slug per masjid
-	var cnt int64
-	if err := h.DB.Model(&model.BookModel{}).
-		Where(`
-			book_masjid_id = ?
-			AND lower(book_slug) = lower(?)
-			AND book_deleted_at IS NULL
-		`, masjidID, *req.BookSlug).
-		Count(&cnt).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek duplikasi slug")
-	}
-	if cnt > 0 {
-		return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
-	}
-
-	// ================== TX ==================
-	tx := h.DB.Begin()
-	if tx.Error != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memulai transaksi")
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			_ = tx.Rollback().Error
-		}
-	}()
-
-	// Simpan buku
-	m := req.ToModel()
-	if err := tx.Create(m).Error; err != nil {
+	// 4) Create entity
+	ent := p.ToModel() // *model.BookModel
+	ent.BookMasjidID = masjidID
+	ent.BookSlug = &uniqueSlug
+	if err := h.DB.Create(ent).Error; err != nil {
 		msg := strings.ToLower(err.Error())
-		if strings.Contains(msg, "uq_book_slug_per_masjid") ||
-			strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
-			tx.Rollback()
+		if strings.Contains(msg, "uq_books_slug_per_masjid_alive") {
 			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
 		}
-		tx.Rollback()
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan buku")
 	}
+	log.Printf("[BOOKS][CREATE] Created book_id=%s", ent.BookID)
 
-	// ================== Siapkan book_urls (metadata dari body) ==================
-	var urlItems []model.BookURLModel
-	for _, it := range req.URLs {
-		row := model.BookURLModel{
-			BookURLMasjidID:  masjidID,
-			BookURLBookID:    m.BookID, // PK dari model.Book
-			BookURLKind:      strings.TrimSpace(it.BookURLKind),
-			BookURLHref:      it.BookURLHref,
-			BookURLObjectKey: it.BookURLObjectKey,
-			BookURLLabel:     it.BookURLLabel,
-			BookURLOrder:     it.BookURLOrder,
-			BookURLIsPrimary: it.BookURLIsPrimary,
-		}
-		if row.BookURLKind == "" {
-			row.BookURLKind = "attachment"
-		}
-		urlItems = append(urlItems, row)
-	}
+	// 5) (Opsional) Dump keys dan upload image
+	uploadedURL := ""
+	if isMultipart {
+		dumpMultipartKeys(c) // log semua key file yang kebaca
 
-	// ================== Upload files (kalau multipart) ==================
-	if strings.HasPrefix(ct, "multipart/form-data") {
-		if form, ferr := c.MultipartForm(); ferr == nil && form != nil {
-			// Kumpulkan file dari berbagai key
-			fhs, usedKeys := helperOSS.CollectUploadFiles(form, nil)
-			log.Printf("[books.create] collected files=%d via keys=%v", len(fhs), usedKeys)
+		if fh := pickImageFile(c, "image", "file", "cover"); fh != nil {
+			log.Printf("[BOOKS][CREATE] will upload file: name=%q size=%d", fh.Filename, fh.Size)
+			keyPrefix := fmt.Sprintf("masjids/%s/library/books", masjidID.String())
+			if svc, er := helperOSS.NewOSSServiceFromEnv(""); er != nil {
+				log.Printf("[BOOKS][CREATE] OSS init error: %T %v", er, er)
+			} else {
+				ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
+				defer cancel()
 
-			if len(fhs) > 0 {
-				oss, oerr := helperOSS.NewOSSServiceFromEnv("")
-				if oerr != nil {
-					tx.Rollback()
-					log.Printf("[books.create] OSS init error: %v", oerr)
-					return helper.JsonError(c, fiber.StatusBadGateway, "OSS tidak siap")
-				}
-				ctx := context.Background()
-
-				for idx, fh := range fhs {
-					log.Printf("[books.create] uploading file #%d name=%q size=%d", idx+1, fh.Filename, fh.Size)
-
-					publicURL, uerr := helperOSS.UploadAnyToOSS(ctx, oss, masjidID, "books", fh)
-					if uerr != nil {
-						tx.Rollback()
-						log.Printf("[books.create] upload error for %q: %v", fh.Filename, uerr)
-						return helper.JsonError(c, fiber.StatusBadRequest, uerr.Error())
+				url, upErr := svc.UploadAsWebP(ctx, fh, keyPrefix) // atau UploadAnyToOSS
+				if upErr != nil {
+					log.Printf("[BOOKS][CREATE] upload error: %T %v", upErr, upErr)
+				} else {
+					uploadedURL = url
+					objKey := ""
+					if k, e := helperOSS.ExtractKeyFromPublicURL(uploadedURL); e == nil {
+						objKey = k
+					} else if k2, e2 := helperOSS.KeyFromPublicURL(uploadedURL); e2 == nil {
+						objKey = k2
 					}
+					log.Printf("[BOOKS][CREATE] upload OK url=%s key=%q", uploadedURL, objKey)
 
-					row := model.BookURLModel{
-						BookURLMasjidID: masjidID,
-						BookURLBookID:   m.BookID,
-						BookURLKind:     "attachment",
+					if err := h.DB.WithContext(c.Context()).
+						Model(&model.BookModel{}).
+						Where("book_id = ?", ent.BookID).
+						Updates(map[string]any{
+							"book_image_url":        uploadedURL,
+							"book_image_object_key": objKey,
+						}).Error; err != nil {
+						log.Printf("[BOOKS][CREATE] DB.Updates image err: %T %v", err, err)
+					} else {
+						ent.BookImageURL = &uploadedURL
+						if objKey != "" {
+							ent.BookImageObjectKey = &objKey
+						} else {
+							ent.BookImageObjectKey = nil
+						}
+						log.Printf("[BOOKS][CREATE] image fields updated")
 					}
-					// set href + object_key
-					row.BookURLHref = &publicURL
-					if key, kerr := helperOSS.ExtractKeyFromPublicURL(publicURL); kerr == nil {
-						row.BookURLObjectKey = &key
-					}
-					// order default: append di belakang
-					row.BookURLOrder = len(urlItems) + 1
-
-					urlItems = append(urlItems, row)
 				}
 			}
+		} else {
+			log.Printf("[BOOKS][CREATE] no image file found after parsing multipart")
 		}
+	} else {
+		log.Printf("[BOOKS][CREATE] not a multipart request; skipping upload")
 	}
 
-	// ================== Simpan book_urls (jika ada) ==================
-	if len(urlItems) > 0 {
-		if err := tx.Create(&urlItems).Error; err != nil {
-			tx.Rollback()
-			log.Printf("[books.create] insert book_urls error: %v", err)
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan lampiran buku")
-		}
+	// 6) Reload (best-effort)
+	_ = h.DB.WithContext(c.Context()).First(ent, "book_id = ?", ent.BookID).Error
 
-		// Jaga hanya 1 primary per kind (opsional)
-		for _, it := range urlItems {
-			if it.BookURLIsPrimary {
-				if err := tx.Model(&model.BookURLModel{}).
-					Where(`
-						book_url_masjid_id = ? AND
-						book_url_book_id   = ? AND
-						book_url_kind      = ? AND
-						book_url_id       <> ?
-					`, masjidID, m.BookID, it.BookURLKind, it.BookURLID).
-					Update("book_url_is_primary", false).Error; err != nil {
-					tx.Rollback()
-					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal set primary lampiran")
-				}
-			}
-		}
+	// 7) Response
+	resp := dto.ToBookResponse(ent)
+	log.Printf("[BOOKS][CREATE] respond book_id=%s image_url=%v", ent.BookID, resp.BookImageURL)
+
+	return helper.JsonCreated(c, "Buku berhasil dibuat", fiber.Map{
+		"book":               resp,
+		"uploaded_image_url": uploadedURL,
+	})
+}
+
+// helper kecil buat log
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
 	}
-
-	// ================== Commit & Response ==================
-	if err := tx.Commit().Error; err != nil {
-		log.Printf("[books.create] tx commit error: %v", err)
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal commit transaksi")
-	}
-
-	// (opsional) isi URLs ringkas untuk response
-	var rows []model.BookURLModel
-	_ = h.DB.Where("book_url_book_id = ?", m.BookID).
-		Order("book_url_order ASC, book_url_created_at ASC").
-		Find(&rows)
-
-	resp := dto.ToBookResponse(m)
-	for _, r := range rows {
-		if r.BookURLHref == nil {
-			continue
-		}
-		resp.URLs = append(resp.URLs, dto.BookURLLite{
-			BookURLID:    r.BookURLID,
-			BookURLLabel: r.BookURLLabel,
-			BookURLHref:  *r.BookURLHref,
-			BookURLKind:  r.BookURLKind,
-			BookURLIsPrimary:    r.BookURLIsPrimary,
-			BookURLOrder:        r.BookURLOrder,
-		})
-	}
-
-	return helper.JsonCreated(c, "Buku berhasil dibuat", resp)
+	return *p
 }
 
 /*

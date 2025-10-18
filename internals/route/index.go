@@ -1,4 +1,4 @@
-// file: internals/routes/setup.go (atau file yang berisi SetupRoutes)
+// file: internals/routes/setup.go
 package routes
 
 import (
@@ -20,10 +20,7 @@ var startTime time.Time
 func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	startTime = time.Now()
 
-	// ===================== BASE =====================
-	// BaseRoutes(app, db)
-
-	// ===================== AUTH / USER =====================
+	// ===================== AUTH / USER BASE =====================
 	log.Println("[INFO] Setting up AuthRoutes...")
 	routeDetails.AuthRoutes(app, db)
 
@@ -32,7 +29,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 
 	// ===================== GROUPS =====================
 
-	// PUBLIC → AuthJWT opsional
+	// PUBLIC → JWT opsional
 	log.Println("[INFO] Setting up PUBLIC group...")
 	public := app.Group("/public",
 		masjidkuMiddleware.AuthJWT(masjidkuMiddleware.AuthJWTOpts{
@@ -41,56 +38,71 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 		}),
 	)
 
-	// PRIVATE → user login biasa
-	log.Println("[INFO] Setting up PRIVATE group...")
-	private := app.Group("/api/u",
+	// ===================== PRIVATE (USER) =====================
+	// 🔓 privateLoose: TANPA scope/role strict. Dipakai untuk endpoint yang
+	//     tidak membutuhkan masjid_id pada path (contoh: join by code).
+	log.Println("[INFO] Setting up PRIVATE (loose) group...")
+	privateLoose := app.Group("/api/u",
 		masjidkuMiddleware.AuthJWT(masjidkuMiddleware.AuthJWTOpts{
 			Secret:              os.Getenv("JWT_SECRET"),
 			AllowCookieFallback: true,
 		}),
 	)
 
-	// ADMIN (per-masjid) → butuh konteks masjid
-	log.Println("[INFO] Setting up ADMIN group (Auth + MasjidContext + Scope + RoleCheck)...")
+	// 🔒 privateScoped: (jika diperlukan) pasang middleware features di
+	//     sub-paket yang memang butuh masjid scope. Di sini kita tidak
+	//     memaksa UseMasjidScope global agar tidak menular ke endpoint loose.
+	log.Println("[INFO] Setting up PRIVATE (scoped) group...")
+	privateScoped := app.Group("/api/u",
+		masjidkuMiddleware.AuthJWT(masjidkuMiddleware.AuthJWTOpts{
+			Secret:              os.Getenv("JWT_SECRET"),
+			AllowCookieFallback: true,
+		}),
+		// NOTE: JANGAN taruh UseMasjidScope di sini secara global
+		// Jika sebuah paket user memang butuh scope strict,
+		// pasang di file route paket tersebut (di level subgroup).
+	)
+
+	// ===================== ADMIN (per masjid) =====================
+	log.Println("[INFO] Setting up ADMIN group (Auth + Scope + RoleCheck)...")
 	admin := app.Group("/api/a",
 		masjidkuMiddleware.AuthJWT(masjidkuMiddleware.AuthJWTOpts{
 			Secret:              os.Getenv("JWT_SECRET"),
 			AllowCookieFallback: true,
 		}),
-		// masjidkuMiddleware.MasjidContext(masjidkuMiddleware.MasjidContextOpts{
-		// 	DB:      db,
-		// 	AppMode: masjidkuMiddleware.ModeDKM,
-		// }),
 		featuresMiddleware.UseMasjidScope(),
 		featuresMiddleware.RequirePathScopeMatch(),
 		featuresMiddleware.IsMasjidAdmin(),
 	)
 
-	// ✅ OWNER (GLOBAL) → TANPA MasjidContext
+	// ===================== OWNER (GLOBAL) =====================
 	log.Println("[INFO] Setting up OWNER group (Auth + owner global)...")
 	owner := app.Group("/api/o",
 		masjidkuMiddleware.AuthJWT(masjidkuMiddleware.AuthJWTOpts{
 			Secret:              os.Getenv("JWT_SECRET"),
 			AllowCookieFallback: true,
 		}),
-		featuresMiddleware.IsOwnerGlobal(), // middleware baru di bawah
+		featuresMiddleware.IsOwnerGlobal(),
 	)
 
 	// ===================== MOUNT ROUTES =====================
 	log.Println("[INFO] Mounting Masjid routes...")
 	routeDetails.MasjidPublicRoutes(public, db)
-	routeDetails.MasjidUserRoutes(private, db)
-	routeDetails.MasjidAdminRoutes(admin, db) // per-masjid
+	routeDetails.MasjidUserRoutes(privateScoped, db) // user routes lain → scoped (kalau perlu scope pasang di sub-group paketnya)
+	routeDetails.MasjidAdminRoutes(admin, db)
 	routeDetails.MasjidOwnerRoutes(owner, db)
 
 	log.Println("[INFO] Mounting Lembaga routes...")
 	routeDetails.LembagaPublicRoutes(public, db)
-	routeDetails.LembagaUserRoutes(private, db)
+	routeDetails.LembagaUserRoutes(privateScoped, db) // biarkan paket ini pasang middleware scope di level subgroup-nya bila butuh
 	routeDetails.LembagaAdminRoutes(admin, db)
 	routeDetails.LembagaOwnerRoutes(owner, db)
 
+	// 🔓 Mount route JOIN GLOBAL (tanpa masjid_id) KE privateLoose
+	routeDetails.ClassSectionUserGlobalRoutes(privateLoose, db)
+
 	log.Println("[INFO] Mounting Home routes...")
 	routeDetails.HomePublicRoutes(public, db)
-	routeDetails.HomePrivateRoutes(private, db)
+	routeDetails.HomePrivateRoutes(privateScoped, db)
 	routeDetails.HomeAdminRoutes(admin, db)
 }
