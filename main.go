@@ -20,7 +20,6 @@ import (
 	"masjidku_backend/internals/configs"
 	database "masjidku_backend/internals/databases"
 
-	payment "masjidku_backend/internals/features/payment/donations/service"
 	attend "masjidku_backend/internals/features/school/classes/class_attendance_sessions/service"
 	authsched "masjidku_backend/internals/features/users/auth/scheduler"
 
@@ -30,7 +29,7 @@ import (
 	helperAuth "masjidku_backend/internals/helpers/auth"
 	middlewares "masjidku_backend/internals/middlewares"
 
-	donationController "masjidku_backend/internals/features/payment/donations/controller"
+
 )
 
 func main() {
@@ -43,17 +42,17 @@ func main() {
 	app := buildApp()
 
 	// === Webhook Midtrans (PUBLIC, tanpa auth) ===
-	donationCtrl := donationController.NewDonationController(db)
+	// donationCtrl := donationController.NewDonationController(db)
 
 	// GET untuk tombol "Test notification URL" di dashboard Midtrans
-	app.Get("/public/donations/midtrans/webhook", donationCtrl.MidtransWebhookPing)
+	// app.Get("/public/donations/midtrans/webhook", donationCtrl.MidtransWebhookPing)
 
-	// POST untuk notifikasi transaksi (akan update status paid/expired/dll)
-	app.Post("/public/donations/midtrans/webhook", donationCtrl.HandleMidtransNotification)
+	// // POST untuk notifikasi transaksi (akan update status paid/expired/dll)
+	// app.Post("/public/donations/midtrans/webhook", donationCtrl.HandleMidtransNotification)
 
-	if err := helperAuth.EnsureSchema(db); err != nil {
-		log.Fatalf("ensure blacklist schema: %v", err)
-	}
+	// if err := helperAuth.EnsureSchema(db); err != nil {
+	// 	log.Fatalf("ensure blacklist schema: %v", err)
+	// }
 
 	// ✅ Auth middleware dengan guard: jangan halangi OPTIONS & /api/auth/*
 	app.Use(func(c *fiber.Ctx) error {
@@ -165,7 +164,7 @@ func startWorkers(ctx context.Context, db *gorm.DB) {
 	authsched.StartBlacklistCleanupScheduler(db)
 
 	// 3) Payments: init Midtrans
-	payment.InitMidtrans(configs.GetEnv("MIDTRANS_SERVER_KEY"))
+	// payment.InitMidtrans(configs.GetEnv("MIDTRANS_SERVER_KEY"))
 
 	// 4) OSS trash reaper (gabungan cron pembersih)
 	osshelper.StartTrashReaperCron(db)

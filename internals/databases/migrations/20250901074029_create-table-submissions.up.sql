@@ -1,5 +1,14 @@
+BEGIN;
+
 -- =========================================================
--- 4) SUBMISSIONS (pengumpulan tugas oleh siswa) — FINAL
+-- EXTENSIONS (aman di-run berulang)
+-- =========================================================
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- CREATE EXTENSION IF NOT EXISTS btree_gist; -- hanya perlu jika pakai EXCLUDE
+
+-- =========================================================
+-- 4) SUBMISSIONS (pengumpulan tugas oleh siswa)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS submissions (
   submission_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -52,11 +61,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_submissions_assessment_student_alive
   ON submissions (submission_assessment_id, submission_student_id)
   WHERE submission_deleted_at IS NULL;
 
--- (opsional, lebih ketat & tenant-safe; aktifkan bila perlu)
--- CREATE UNIQUE INDEX IF NOT EXISTS uq_submissions_tenant_assessment_student_alive
---   ON submissions (submission_masjid_id, submission_assessment_id, submission_student_id)
---   WHERE submission_deleted_at IS NULL;
-
 -- Jalur query umum
 CREATE INDEX IF NOT EXISTS idx_submissions_assessment_alive
   ON submissions (submission_assessment_id)
@@ -88,10 +92,8 @@ CREATE INDEX IF NOT EXISTS brin_submissions_created_at
 
 -- (opsional) cari feedback cepat
 -- CREATE INDEX IF NOT EXISTS gin_submissions_feedback_trgm_alive
---   ON submissions USING GIN (submission_feedback gin_trgm_ops)
+--   ON submissions USING GIN ((LOWER(submission_feedback)) gin_trgm_ops)
 --   WHERE submission_deleted_at IS NULL;
-
-
 
 -- =========================================================
 -- 5) SUBMISSION_URLS (lampiran kiriman user)
@@ -105,17 +107,15 @@ CREATE TABLE IF NOT EXISTS submission_urls (
   submission_url_submission_id   UUID NOT NULL
     REFERENCES submissions(submission_id) ON UPDATE CASCADE ON DELETE CASCADE,
 
-  -- Jenis/peran aset (selaras: 'image','video','attachment','link', dst.)
+  -- Jenis/peran aset: 'image','video','attachment','link', dst.
   submission_url_kind            VARCHAR(24) NOT NULL,
 
-  -- Lokasi file/link
-  -- storage (2-slot + retensi)
-  submission_url                  TEXT,        -- aktif
-  submission_url_object_key           TEXT,
-  submission_url_old              TEXT,        -- kandidat delete
-  submission_url_object_key_old       TEXT,
+  -- Lokasi file/link (model 2-slot + retensi)
+  submission_url                 TEXT,        -- URL aktif (atau href)
+  submission_url_object_key      TEXT,        -- object key aktif (jika pakai storage sendiri)
+  submission_url_old             TEXT,        -- kandidat delete (URL lama)
+  submission_url_object_key_old  TEXT,        -- kandidat delete (key lama)
   submission_url_delete_pending_until TIMESTAMPTZ, -- jadwal hard delete old
-
 
   -- Tampilan
   submission_url_label           VARCHAR(160),
@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS submission_urls (
   -- Audit & retensi
   submission_url_created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   submission_url_updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  submission_url_deleted_at      TIMESTAMPTZ,          -- soft delete (versi-per-baris)
+  submission_url_deleted_at      TIMESTAMPTZ          -- soft delete (versi-per-baris)
 );
 
 -- ============== INDEXES (submission_urls) ==============
@@ -166,26 +166,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_submission_urls_primary_per_kind_alive
   WHERE submission_url_deleted_at IS NULL
     AND submission_url_is_primary = TRUE;
 
--- Anti-duplikat href per submission (live only; case-insensitive)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_submission_urls_submission_href_alive
-  ON submission_urls (submission_url_submission_id, LOWER(submission_url_href))
+-- Anti-duplikat URL per submission (live only; case-insensitive)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_submission_urls_submission_url_alive
+  ON submission_urls (submission_url_submission_id, LOWER(submission_url))
   WHERE submission_url_deleted_at IS NULL
-    AND submission_url_href IS NOT NULL;
+    AND submission_url IS NOT NULL;
 
 -- Kandidat purge (in-place replace & soft-deleted)
 CREATE INDEX IF NOT EXISTS ix_submission_urls_purge_due
   ON submission_urls (submission_url_delete_pending_until)
   WHERE submission_url_delete_pending_until IS NOT NULL
     AND (
-      (submission_url_deleted_at IS NULL  AND submission_url_object_key_old IS NOT NULL) OR
-      (submission_url_deleted_at IS NOT NULL AND submission_url_object_key     IS NOT NULL)
+      (submission_url_deleted_at IS NULL  AND submission_url_object_key_old IS NOT NULL)
+      OR
+      (submission_url_deleted_at IS NOT NULL AND submission_url_object_key IS NOT NULL)
     );
 
 -- (opsional) pencarian label (live only)
 CREATE INDEX IF NOT EXISTS gin_submission_urls_label_trgm_live
-  ON submission_urls USING GIN (submission_url_label gin_trgm_ops)
+  ON submission_urls USING GIN ((LOWER(submission_url_label)) gin_trgm_ops)
   WHERE submission_url_deleted_at IS NULL;
 
 -- Time-scan
 CREATE INDEX IF NOT EXISTS brin_submission_urls_created_at
   ON submission_urls USING BRIN (submission_url_created_at);
+
+COMMIT;

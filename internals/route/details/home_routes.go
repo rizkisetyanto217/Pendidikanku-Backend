@@ -8,9 +8,7 @@ import (
 	PostRoutes "masjidku_backend/internals/features/home/posts/route"
 	QouteRoutes "masjidku_backend/internals/features/home/qoutes/route"
 	QuestionnaireRoutes "masjidku_backend/internals/features/home/questionnaires/route"
-	DonationRoutes "masjidku_backend/internals/features/payment/donations/routes"
 
-	SPPRoutes "masjidku_backend/internals/features/payment/spp/routes"
 	DBMiddleware "masjidku_backend/internals/middlewares"
 
 	"github.com/gofiber/fiber/v2"
@@ -31,7 +29,7 @@ func HomePublicRoutes(api fiber.Router, db *gorm.DB) {
     // Hanya menambahkan DBMiddleware untuk DonationRoutes
     donationRoutes := api.Group("/donations")
     donationRoutes.Use(DBMiddleware.DBMiddleware(db)) // Apply DBMiddleware only for donation routes
-    DonationRoutes.AllDonationRoutes(donationRoutes, db)
+
 }
 
 
@@ -39,7 +37,7 @@ func HomePublicRoutes(api fiber.Router, db *gorm.DB) {
 // Contoh akses: /api/u/notifications
 func HomePrivateRoutes(api fiber.Router, db *gorm.DB) {
 	AdviceRoutes.AllAdviceRoutes(api, db)
-	SPPRoutes.SppBillingUserRoutes(api, db)
+
 	FaqRoutes.FaqUserRoutes(api, db)
 	PostRoutes.PostUserRoutes(api, db)
 }
@@ -54,6 +52,5 @@ func HomeAdminRoutes(api fiber.Router, db *gorm.DB) {
 	PostRoutes.PostAdminRoutes(api, db)
 	QuestionnaireRoutes.QuestionAdminRoutes(api, db)
 	QouteRoutes.QuoteAdminRoutes(api, db)
-	DonationRoutes.DonationAdminRoutes(api, db)
-	SPPRoutes.SppBillingAdminRoutes(api, db)
+
 }
