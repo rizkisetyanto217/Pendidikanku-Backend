@@ -12,17 +12,17 @@ func AllDonationRoutes(api fiber.Router, db *gorm.DB) {
 	// Initialize donation controller
 	donationCtrl := donationController.NewDonationController(db)
 
-	// Define the donation routes
-	api.Post("/:slug", donationCtrl.CreateDonation)                   // Create donation + Snap token
-	api.Get("/", donationCtrl.GetAllDonations)                   // Get all donations
-
 	api.Post("/midtrans/webhook", donationCtrl.HandleMidtransNotification) // Midtrans Webhook
 
-	api.Get("/by-user/:slug", donationCtrl.GetDonationsByUserIDWithSlug) // Get donations by user
-	
+	// routes
+	api.Post("/simple", donationCtrl.CreateDonationSimple) // /public/donations/simple
+
+	// Define the donation routes
+	api.Post("/:slug", donationCtrl.CreateDonation) // Create donation + Snap token
+	api.Get("/", donationCtrl.GetAllDonations)      // Get all donations
+
 	api.Get("/by-masjid/:slug", donationCtrl.GetDonationsByMasjidSlug)
-	
+
 	api.Get("/by-id/:id", donationCtrl.GetDonationByID)
 
-	
 }

@@ -9,13 +9,13 @@ import (
 
 var SnapClient snap.Client
 
-// Midtrans menginisialisasi Midtrans Snap Client dengan server key.
+// Panggil saat bootstrap app (sandbox)
 func InitMidtrans(serverKey string) {
 	SnapClient.New(serverKey, midtrans.Sandbox)
 }
 
-// GenerateSnapToken membuat token Snap Midtrans berdasarkan data donasi dan user.
-func GenerateSnapToken(d model.Donation, name string, email string) (string, error) {
+// Buat Snap token + redirect_url
+func GenerateSnapToken(d model.Donation, name, email string) (string, string, error) {
 	req := &snap.Request{
 		TransactionDetails: midtrans.TransactionDetails{
 			OrderID:  d.DonationOrderID,
@@ -29,8 +29,8 @@ func GenerateSnapToken(d model.Donation, name string, email string) (string, err
 
 	resp, err := SnapClient.CreateTransaction(req)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	return resp.Token, nil
+	return resp.Token, resp.RedirectURL, nil
 }
