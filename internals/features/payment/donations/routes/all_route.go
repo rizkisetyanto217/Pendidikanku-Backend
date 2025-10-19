@@ -11,8 +11,7 @@ import (
 func AllDonationRoutes(api fiber.Router, db *gorm.DB) {
 	// Initialize donation controller
 	donationCtrl := donationController.NewDonationController(db)
-
-	api.Post("/midtrans/webhook", donationCtrl.HandleMidtransNotification) // Midtrans Webhook
+	api.Get("/midtrans/webhook", donationCtrl.MidtransWebhookPing) // ping
 
 	// routes
 	api.Post("/simple", donationCtrl.CreateDonationSimple) // /public/donations/simple

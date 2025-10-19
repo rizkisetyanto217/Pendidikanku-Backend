@@ -38,6 +38,12 @@ func NewDonationController(db *gorm.DB) *DonationController {
 
 ========================================================
 */
+
+func (ctrl *DonationController) MidtransWebhookPing(c *fiber.Ctx) error {
+	log.Println("✅ Midtrans ping (GET) received")
+	return c.Status(fiber.StatusOK).SendString("OK")
+}
+
 type SimpleDonationRequest struct {
 	DonationName   string  `json:"donation_name" validate:"required"`
 	DonationEmail  *string `json:"donation_email" validate:"omitempty,email"`
@@ -399,24 +405,59 @@ func (ctrl *DonationController) HandleDonationStatusWebhook(db *gorm.DB, body ma
 }
 
 func (ctrl *DonationController) HandleMidtransNotification(c *fiber.Ctx) error {
+	// --- 1) Robust parsing: JSON -> fallback form-urlencoded ---
 	var body map[string]interface{}
-	if err := c.BodyParser(&body); err != nil {
-		log.Println("[ERROR] Gagal memparsing body webhook:", err)
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid webhook body")
+
+	ct := strings.ToLower(string(c.Request().Header.ContentType()))
+	raw := string(c.Body())
+
+	// coba parse JSON
+	if strings.Contains(ct, "application/json") && len(raw) > 0 {
+		if err := c.BodyParser(&body); err != nil {
+			log.Println("[WARN] JSON parse failed:", err)
+		}
 	}
 
-	log.Println("📥 Received Midtrans webhook payload:", body)
+	// fallback: form-urlencoded (Midtrans sering kirim ini, termasuk tombol Test)
+	if len(body) == 0 && (strings.Contains(ct, "application/x-www-form-urlencoded") || ct == "" || len(raw) == 0) {
+		form := map[string]interface{}{}
+		c.Request().PostArgs().VisitAll(func(k, v []byte) {
+			form[string(k)] = string(v)
+		})
+		if len(form) > 0 {
+			body = form
+		}
+	}
 
+	// terakhir: kalau masih kosong, log raw & keluar 400 (sementara kirim 200 agar Midtrans tak retry berlebihan)
+	if len(body) == 0 {
+		log.Printf("[ERROR] Webhook body empty. CT=%q raw=%q\n", ct, raw)
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"message": "empty body",
+		})
+	}
+
+	log.Println("📥 Midtrans webhook payload:", body)
+
+	// --- 2) Ambil field penting ---
 	orderID := getString(body, "order_id")
 	txStatus := strings.ToLower(getString(body, "transaction_status"))
-	appStatus := mapMidtransStatus(txStatus, strings.ToLower(getString(body, "fraud_status")))
+	fraud := strings.ToLower(getString(body, "fraud_status"))
+	payType := getString(body, "payment_type")
 
-	// Pakai ctrl.DB langsung
+	log.Printf("Webhook → order_id=%s, tx_status=%s, fraud=%s, pay_type=%s", orderID, txStatus, fraud, payType)
+
+	// --- 3) Proses update menggunakan ctrl.DB ---
 	if err := ctrl.HandleDonationStatusWebhook(ctrl.DB, body); err != nil {
 		log.Println("[ERROR] Webhook processing failed:", err)
-		return fiber.NewError(fiber.StatusInternalServerError, fmt.Sprintf("Gagal memproses webhook: %v", err))
+		// Balas 200 supaya Midtrans tidak spam retry, tapi log error-nya.
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"message": "processed with warning",
+			"error":   err.Error(),
+		})
 	}
 
+	// --- 4) OK ---
 	return helper.JsonOK(c, "Midtrans webhook processed successfully",
 		struct {
 			OrderID        string `json:"order_id"`
@@ -425,7 +466,7 @@ func (ctrl *DonationController) HandleMidtransNotification(c *fiber.Ctx) error {
 		}{
 			OrderID:        orderID,
 			MidtransStatus: txStatus,
-			AppStatus:      appStatus,
+			AppStatus:      mapMidtransStatus(txStatus, fraud),
 		},
 	)
 }

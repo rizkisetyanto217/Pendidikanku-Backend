@@ -28,7 +28,9 @@ import (
 	routes "masjidku_backend/internals/route"
 
 	helperAuth "masjidku_backend/internals/helpers/auth"
-	middlewares "masjidku_backend/internals/middlewares" 
+	middlewares "masjidku_backend/internals/middlewares"
+
+	donationController "masjidku_backend/internals/features/payment/donations/controller"
 )
 
 func main() {
@@ -40,6 +42,15 @@ func main() {
 
 	app := buildApp()
 
+	// === Webhook Midtrans (PUBLIC, tanpa auth) ===
+	donationCtrl := donationController.NewDonationController(db)
+
+	// GET untuk tombol "Test notification URL" di dashboard Midtrans
+	app.Get("/public/donations/midtrans/webhook", donationCtrl.MidtransWebhookPing)
+
+	// POST untuk notifikasi transaksi (akan update status paid/expired/dll)
+	app.Post("/public/donations/midtrans/webhook", donationCtrl.HandleMidtransNotification)
+
 	if err := helperAuth.EnsureSchema(db); err != nil {
 		log.Fatalf("ensure blacklist schema: %v", err)
 	}
@@ -50,7 +61,9 @@ func main() {
 			return c.Next()
 		}
 		p := c.Path()
-		if strings.HasPrefix(p, "/health") || strings.HasPrefix(p, "/api/auth/") {
+		if strings.HasPrefix(p, "/health") ||
+			strings.HasPrefix(p, "/api/auth/") ||
+			strings.HasPrefix(p, "/public/donations/midtrans/webhook") { // 👈 whitelist webhook
 			return c.Next()
 		}
 		return helperAuth.MiddlewareBlacklistOnly(db, os.Getenv("JWT_SECRET"))(c)
