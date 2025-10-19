@@ -2,6 +2,7 @@
 package dto
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -35,6 +36,23 @@ func trimPtr(s *string) *string {
 		return nil
 	}
 	return &t
+}
+
+/* =========================================================
+   0) TYPES untuk Snapshot Buku (parsed)
+   - Disinkronkan dgn builder snapshot di DB:
+   - key: csb_id, book_id, title, author, slug, image_url, is_primary, created_at
+========================================================= */
+
+type BookSnap struct {
+	CSBID     uuid.UUID  `json:"csb_id"`
+	BookID    uuid.UUID  `json:"book_id"`
+	Title     string     `json:"title"`
+	Author    *string    `json:"author,omitempty"`
+	Slug      *string    `json:"slug,omitempty"`
+	ImageURL  *string    `json:"image_url,omitempty"`
+	IsPrimary bool       `json:"is_primary"` // jika di snapshot diset; default false kalau tidak ada
+	CreatedAt *time.Time `json:"created_at,omitempty"`
 }
 
 /* =========================================================
@@ -123,12 +141,23 @@ type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherTeacherNameSnap          *string         `json:"class_section_subject_teacher_teacher_name_snap,omitempty"`
 	ClassSectionSubjectTeacherAssistantTeacherNameSnap *string         `json:"class_section_subject_teacher_assistant_teacher_name_snap,omitempty"`
 
-	// Class Subject snapshot + turunan (generated) ⬅️ BARU
+	// Class Subject snapshot + turunan (generated)
 	ClassSectionSubjectTeacherClassSubjectSnapshot *datatypes.JSON `json:"class_section_subject_teacher_class_subject_snapshot,omitempty"`
 	ClassSectionSubjectTeacherClassSubjectNameSnap *string         `json:"class_section_subject_teacher_class_subject_name_snap,omitempty"`
 	ClassSectionSubjectTeacherClassSubjectCodeSnap *string         `json:"class_section_subject_teacher_class_subject_code_snap,omitempty"`
 	ClassSectionSubjectTeacherClassSubjectSlugSnap *string         `json:"class_section_subject_teacher_class_subject_slug_snap,omitempty"`
 	ClassSectionSubjectTeacherClassSubjectURLSnap  *string         `json:"class_section_subject_teacher_class_subject_url_snap,omitempty"`
+
+	// ===== NEW: BOOKS snapshot (raw + turunan/generated) =====
+	// Raw JSONB exactly from table (biar kompatibel dgn existing API)
+	ClassSectionSubjectTeacherBooksSnapshot datatypes.JSON `json:"class_section_subject_teacher_books_snapshot"`
+
+	// Turunan (generated column di DB, kalau ada)
+	ClassSectionSubjectTeacherBooksCount       *int    `json:"class_section_subject_teacher_books_count,omitempty"`
+	ClassSectionSubjectTeacherPrimaryBookTitle *string `json:"class_section_subject_teacher_primary_book_title,omitempty"`
+
+	// Versi parsed yang enak dipakai di FE (dibangun di mapper)
+	BooksInUse []BookSnap `json:"books_in_use,omitempty"`
 
 	// Status & audit
 	ClassSectionSubjectTeacherIsActive  bool       `json:"class_section_subject_teacher_is_active"`
@@ -230,6 +259,13 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		t := m.ClassSectionSubjectTeacherDeletedAt.Time
 		deletedAt = &t
 	}
+
+	// --- parse snapshot books JSONB → []BookSnap (optional, aman kalau gagal) ---
+	var parsedBooks []BookSnap
+	if len(m.ClassSectionSubjectTeacherBooksSnapshot) > 0 {
+		_ = json.Unmarshal(m.ClassSectionSubjectTeacherBooksSnapshot, &parsedBooks)
+	}
+
 	return ClassSectionSubjectTeacherResponse{
 		// IDs
 		ClassSectionSubjectTeacherID:             m.ClassSectionSubjectTeacherID,
@@ -263,12 +299,18 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		ClassSectionSubjectTeacherTeacherNameSnap:          m.ClassSectionSubjectTeacherTeacherNameSnap,
 		ClassSectionSubjectTeacherAssistantTeacherNameSnap: m.ClassSectionSubjectTeacherAssistantTeacherNameSnap,
 
-		// Snapshots: Class Subject (BARU)
+		// Snapshots: Class Subject
 		ClassSectionSubjectTeacherClassSubjectSnapshot: m.ClassSectionSubjectTeacherClassSubjectSnapshot,
 		ClassSectionSubjectTeacherClassSubjectNameSnap: m.ClassSectionSubjectTeacherClassSubjectNameSnap,
 		ClassSectionSubjectTeacherClassSubjectCodeSnap: m.ClassSectionSubjectTeacherClassSubjectCodeSnap,
 		ClassSectionSubjectTeacherClassSubjectSlugSnap: m.ClassSectionSubjectTeacherClassSubjectSlugSnap,
 		ClassSectionSubjectTeacherClassSubjectURLSnap:  m.ClassSectionSubjectTeacherClassSubjectURLSnap,
+
+		// NEW: Books snapshot (raw + parsed + generated)
+		ClassSectionSubjectTeacherBooksSnapshot:    m.ClassSectionSubjectTeacherBooksSnapshot,
+		ClassSectionSubjectTeacherBooksCount:       m.ClassSectionSubjectTeacherBooksCount,
+		ClassSectionSubjectTeacherPrimaryBookTitle: m.ClassSectionSubjectTeacherPrimaryBookTitle,
+		BooksInUse: parsedBooks,
 
 		// Status & audit
 		ClassSectionSubjectTeacherIsActive:  m.ClassSectionSubjectTeacherIsActive,

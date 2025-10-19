@@ -2,11 +2,11 @@ package helper
 
 import (
 	"masjidku_backend/internals/constants"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
-
 
 func GetUserUUID(c *fiber.Ctx) uuid.UUID {
 	// 🟢 Default: Guest user
@@ -29,4 +29,8 @@ func GetUserUUID(c *fiber.Ctx) uuid.UUID {
 	}
 
 	return userUUID
+}
+
+func ParseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
+	return uuid.Parse(strings.TrimSpace(c.Params(name)))
 }

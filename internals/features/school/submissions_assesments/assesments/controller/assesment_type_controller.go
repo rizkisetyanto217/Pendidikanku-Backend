@@ -57,27 +57,7 @@ func isUniqueViolation(err error) bool {
 		strings.Contains(s, "unique constraint")
 }
 
-// (dipakai di controller assessments lain; dibiarkan di sini)
-func getSortClause(sortBy, sortDir *string) string {
-	col := "assessments_created_at" // default
-	if sortBy != nil {
-		switch strings.ToLower(strings.TrimSpace(*sortBy)) {
-		case "title":
-			col = "assessments_title"
-		case "start_at":
-			col = "assessments_start_at"
-		case "due_at":
-			col = "assessments_due_at"
-		case "created_at":
-			col = "assessments_created_at"
-		}
-	}
-	dir := "DESC"
-	if sortDir != nil && strings.EqualFold(strings.TrimSpace(*sortDir), "asc") {
-		dir = "ASC"
-	}
-	return col + " " + dir
-}
+/* ========================= Handlers ========================= */
 
 /* ========================= Handlers ========================= */
 
@@ -90,6 +70,7 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
+	req = req.Normalize()
 
 	// 🔒 Masjid context + ensure DKM/Admin untuk masjid tsb
 	mc, err := helperAuth.ResolveMasjidContext(c)
@@ -116,7 +97,7 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 	now := time.Now()
 	row := model.AssessmentTypeModel{
 		AssessmentTypeID:            uuid.New(),
-		AssessmentTypeMasjidID:      masjidID, // ⛔ override dari context (anti cross-tenant)
+		AssessmentTypeMasjidID:      masjidID, // ⛔ enforce dari context (anti cross-tenant)
 		AssessmentTypeKey:           strings.TrimSpace(req.AssessmentTypeKey),
 		AssessmentTypeName:          strings.TrimSpace(req.AssessmentTypeName),
 		AssessmentTypeWeightPercent: req.AssessmentTypeWeightPercent,
@@ -130,12 +111,12 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 
 	// Validasi agregat aktif ≤ 100
 	if row.AssessmentTypeIsActive {
-		currentSum, err := assessSvc.SumActiveWeights(ctl.DB.WithContext(c.Context()), masjidID, nil)
+		sum, err := assessSvc.New().SumActiveWeights(ctl.DB.WithContext(c.Context()), masjidID, nil)
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total bobot")
 		}
-		if currentSum+row.AssessmentTypeWeightPercent > 100.0 {
-			remaining := 100.0 - currentSum
+		if sum+row.AssessmentTypeWeightPercent > 100.0 {
+			remaining := 100.0 - sum
 			if remaining < 0 {
 				remaining = 0
 			}
@@ -190,7 +171,7 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 
 	var existing model.AssessmentTypeModel
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("assessment_type_id = ? AND assessment_type_masjid_id = ?", id, masjidID).
+		Where("assessment_type_id = ? AND assessment_type_masjid_id = ? AND assessment_type_deleted_at IS NULL", id, masjidID).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -212,14 +193,14 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 		finalWeight = *req.AssessmentTypeWeightPercent
 	}
 
-	// Validasi agregat (aktif) ≤ 100
+	// Validasi agregat (aktif) ≤ 100 — exclude row ini
 	if finalActive {
-		currentSum, err := assessSvc.SumActiveWeights(ctl.DB.WithContext(c.Context()), masjidID, &existing.AssessmentTypeID)
+		sum, err := assessSvc.New().SumActiveWeights(ctl.DB.WithContext(c.Context()), masjidID, &existing.AssessmentTypeID)
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total bobot")
 		}
-		if currentSum+finalWeight > 100.0 {
-			remaining := 100.0 - currentSum
+		if sum+finalWeight > 100.0 {
+			remaining := 100.0 - sum
 			if remaining < 0 {
 				remaining = 0
 			}

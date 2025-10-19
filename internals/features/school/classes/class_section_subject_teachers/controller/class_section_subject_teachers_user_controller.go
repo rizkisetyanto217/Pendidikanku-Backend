@@ -258,12 +258,12 @@ type listQuery struct {
 	Sort        *string `query:"sort"`     // asc|desc
 }
 
-
 /* ================================ Handler ================================ */
 /* ================================ Handler (NO-INCLUDE, NO-JOIN) ================================ */
 
 func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	detectCSSTFKs(ctl.DB)
+	_ = csstSubjectFK
 
 	// === Masjid context (PUBLIC): no role check ===
 	mc, err := helperAuth.ResolveMasjidContext(c)

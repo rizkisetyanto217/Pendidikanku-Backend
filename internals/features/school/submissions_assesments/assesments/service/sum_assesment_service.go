@@ -1,27 +1,33 @@
-// file: internals/features/school/submissions_assesments/assesments/service/assessment_type_service.go
+// file: internals/features/school/submissions_assesments/assesments/service/sum_assesment_service.go
 package service
 
 import (
-	"masjidku_backend/internals/features/school/submissions_assesments/assesments/model"
-
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
-// SumActiveWeights menjumlahkan bobot semua assessment type AKTIF untuk satu masjid.
-// - db: boleh *gorm.DB biasa atau transaction (tx)
-// - masjidID: scope tenant
-// - excludeID: kalau diisi, baris itu tidak ikut dihitung (berguna saat PATCH)
-func SumActiveWeights(db *gorm.DB, masjidID uuid.UUID, excludeID *uuid.UUID) (float64, error) {
-	var sum float64
-	q := db.
-		Model(&model.AssessmentTypeModel{}).
-		Where("assessment_types_masjid_id = ? AND assessment_types_is_active = TRUE", masjidID).
-		Select("COALESCE(SUM(assessment_types_weight_percent), 0)")
+type Service struct{}
 
-	if excludeID != nil && *excludeID != uuid.Nil {
-		q = q.Where("assessment_types_id <> ?", *excludeID)
+func New() *Service { return &Service{} }
+
+// SumActiveWeights menghitung total bobot tipe assessment AKTIF untuk 1 masjid.
+// excludeID opsional: tidak ikut menghitung row dengan id tsb (berguna saat PATCH).
+func (s *Service) SumActiveWeights(db *gorm.DB, masjidID uuid.UUID, excludeID *uuid.UUID) (float64, error) {
+	var sum float64
+
+	q := db.
+		Table("assessment_types").
+		Select("COALESCE(SUM(assessment_type_weight_percent), 0)").
+		Where(`
+			assessment_type_masjid_id = ?
+			AND assessment_type_is_active = TRUE
+			AND assessment_type_deleted_at IS NULL
+		`, masjidID)
+
+	if excludeID != nil {
+		q = q.Where("assessment_type_id <> ?", *excludeID)
 	}
+
 	if err := q.Scan(&sum).Error; err != nil {
 		return 0, err
 	}

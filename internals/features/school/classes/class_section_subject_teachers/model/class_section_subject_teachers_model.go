@@ -71,6 +71,30 @@ type ClassSectionSubjectTeacherModel struct {
 	ClassSectionSubjectTeacherClassSubjectSlugSnap *string         `gorm:"->;column:class_section_subject_teacher_class_subject_slug_snap" json:"class_section_subject_teacher_class_subject_slug_snap,omitempty"`
 	ClassSectionSubjectTeacherClassSubjectURLSnap  *string         `gorm:"->;column:class_section_subject_teacher_class_subject_url_snap" json:"class_section_subject_teacher_class_subject_url_snap,omitempty"`
 
+	// =======================
+	// BOOKS snapshot (NEW)
+	// =======================
+
+	// JSONB array: daftar buku yang sedang dipakai (hasil function/trigger refresh)
+	// Skema item (contoh):
+	// {
+	//   "csb_id": "UUID",
+	//   "book_id": "UUID",
+	//   "title": "string",
+	//   "author": "string|null",
+	//   "slug": "string|null",
+	//   "image_url": "string|null",
+	//   "is_primary": bool,      // jika kamu pakai kolom ini
+	//   "created_at": "RFC3339"
+	// }
+	ClassSectionSubjectTeacherBooksSnapshot datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:class_section_subject_teacher_books_snapshot" json:"class_section_subject_teacher_books_snapshot"`
+
+	// (Opsional) kolom turunan/terbaca saja, kalau kamu menambahkan generated columns di DB:
+	//   - class_section_subject_teacher_books_count INT GENERATED ALWAYS AS (...)
+	//   - class_section_subject_teacher_primary_book_title TEXT GENERATED ALWAYS AS (...)
+	ClassSectionSubjectTeacherBooksCount       *int    `gorm:"->;column:class_section_subject_teacher_books_count" json:"class_section_subject_teacher_books_count,omitempty"`
+	ClassSectionSubjectTeacherPrimaryBookTitle *string `gorm:"->;column:class_section_subject_teacher_primary_book_title" json:"class_section_subject_teacher_primary_book_title,omitempty"`
+
 	// Status & audit
 	ClassSectionSubjectTeacherIsActive  bool           `gorm:"not null;default:true;column:class_section_subject_teacher_is_active" json:"class_section_subject_teacher_is_active"`
 	ClassSectionSubjectTeacherCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:class_section_subject_teacher_created_at" json:"class_section_subject_teacher_created_at"`

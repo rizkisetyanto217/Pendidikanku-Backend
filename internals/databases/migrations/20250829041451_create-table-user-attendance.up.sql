@@ -203,22 +203,20 @@ CREATE TABLE IF NOT EXISTS user_class_session_attendance_urls (
   -- Jenis/peran aset (mis. 'image','video','attachment','link','audio', dll.)
   user_class_session_attendance_url_kind VARCHAR(24) NOT NULL,
 
-  -- Lokasi file/link
-      -- storage (2-slot + retensi)
-  user_class_session_attendance_url                  TEXT,        -- aktif
-  user_class_session_attendance_url_object_key           TEXT,
-  user_class_session_attendance_url_old              TEXT,        -- kandidat delete
-  user_class_session_attendance_url_object_key_old       TEXT,
-  user_class_session_attendance_url_delete_pending_until TIMESTAMPTZ, -- jadwal hard delete old
+  -- Lokasi file/link (skema dua-slot + retensi)
+  user_class_session_attendance_url                  TEXT,
+  user_class_session_attendance_url_object_key       TEXT,
+  user_class_session_attendance_url_old              TEXT,
+  user_class_session_attendance_url_object_key_old   TEXT,
+  user_class_session_attendance_url_delete_pending_until TIMESTAMPTZ,
 
   -- Metadata tampilan
   user_class_session_attendance_url_label      VARCHAR(160),
   user_class_session_attendance_url_order      INT NOT NULL DEFAULT 0,
   user_class_session_attendance_url_is_primary BOOLEAN NOT NULL DEFAULT FALSE,
 
-
   -- Uploader (opsional)
-  user_class_session_attendance_url_uploader_teacher_id  UUID REFERENCES masjid_teachers(masjid_teacher_id), -- FK bisa ditambah terpisah bila perlu
+  user_class_session_attendance_url_uploader_teacher_id  UUID REFERENCES masjid_teachers(masjid_teacher_id),
   user_class_session_attendance_url_uploader_student_id  UUID
     REFERENCES masjid_students(masjid_student_id) ON DELETE SET NULL,
 
@@ -246,15 +244,21 @@ CREATE INDEX IF NOT EXISTS ix_ucsaurl_by_masjid_live
 
 -- Satu primary per (attendance, kind) (live only)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_ucsaurl_primary_per_kind_alive
-  ON user_class_session_attendance_urls (user_class_session_attendance_url_attendance_id, user_class_session_attendance_url_kind)
+  ON user_class_session_attendance_urls (
+    user_class_session_attendance_url_attendance_id,
+    user_class_session_attendance_url_kind
+  )
   WHERE user_class_session_attendance_url_deleted_at IS NULL
     AND user_class_session_attendance_url_is_primary = TRUE;
 
--- Anti-duplikat href per attendance (live only)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ucsaurl_attendance_href_alive
-  ON user_class_session_attendance_urls (user_class_session_attendance_url_attendance_id, LOWER(user_class_session_attendance_url_href))
+-- 🔧 Anti-duplikat **URL** per attendance (live only) — FIXED (tanpa *_href)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ucsaurl_attendance_url_alive
+  ON user_class_session_attendance_urls (
+    user_class_session_attendance_url_attendance_id,
+    LOWER(user_class_session_attendance_url)
+  )
   WHERE user_class_session_attendance_url_deleted_at IS NULL
-    AND user_class_session_attendance_url_href IS NOT NULL;
+    AND user_class_session_attendance_url IS NOT NULL;
 
 -- Kandidat purge:
 CREATE INDEX IF NOT EXISTS ix_ucsaurl_purge_due

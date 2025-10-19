@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_room_snapshot JSONB,
   class_section_subject_teacher_teacher_snapshot JSONB,
   class_section_subject_teacher_assistant_teacher_snapshot JSONB,
+  class_section_subject_teacher_books_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,
 
   -- Class Subject (baru, langsung di tabel)
   -- Kunci JSON yang diharapkan: name, code, slug, url

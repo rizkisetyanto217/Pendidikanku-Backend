@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"mime/multipart"
-	"strconv"
 	"strings"
 	"time"
 
@@ -33,6 +32,17 @@ func strPtrIfNotEmpty(s string) *string {
 		return nil
 	}
 	return &v
+}
+
+// letakkan di bawah import, di file books_controller.go
+
+// nilIfEmptyPtr: kalau pointer kosong → kembalikan gorm.Expr("NULL"),
+// kalau ada isinya → kembalikan string-nya (biar bisa dipakai di map Updates).
+func nilIfEmptyPtr(p *string) interface{} { // pakai interface{} biar aman di semua versi Go
+	if p == nil || strings.TrimSpace(*p) == "" {
+		return gorm.Expr("NULL")
+	}
+	return *p
 }
 
 // cari file dengan prioritas beberapa key
@@ -232,21 +242,14 @@ func derefStr(p *string) string {
 	return *p
 }
 
-/*
-=========================================================
-
-	PATCH URL - /api/a/:masjid_id/book-urls/:id
-	Body: JSON / multipart (partial update)
-
-=========================================================
-*/
+// PATCH /api/a/:masjid_id/books/:id
 func (h *BooksController) Patch(c *fiber.Ctx) error {
-	// Inject DB utk helper (konsisten)
+	// inject DB utk helper
 	if c.Locals("DB") == nil {
 		c.Locals("DB", h.DB)
 	}
 
-	// Masjid context + guard
+	// --- Tenant guard ---
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return err
@@ -256,92 +259,14 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 		return err
 	}
 
-	// Param ID
-	urlID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil || urlID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "book_url_id tidak valid")
+	// --- Param ---
+	bookID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+	if err != nil || bookID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "book_id tidak valid")
 	}
 
-	// Ambil row + cek tenant
-	var u model.BookURLModel
-	if err := h.DB.First(&u, "book_url_id = ?", urlID).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Data URL tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data URL")
-	}
-	if u.BookURLMasjidID != masjidID {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
-	}
-
-	// ================= Parse request: JSON ATAU multipart =================
-	type patchReq struct {
-		BookURLLabel     *string `json:"book_url_label"     form:"book_url_label"`
-		BookURLOrder     *int    `json:"book_url_order"     form:"book_url_order"`
-		BookURLIsPrimary *bool   `json:"book_url_is_primary" form:"book_url_is_primary"`
-		BookURLKind      *string `json:"book_url_kind"      form:"book_url_kind"`
-		BookURLHref      *string `json:"book_url_href"      form:"book_url_href"`
-		BookURLObjectKey *string `json:"book_url_object_key" form:"book_url_object_key"`
-	}
-	var req patchReq
-
-	ct := strings.ToLower(c.Get("content-type"))
-	if strings.HasPrefix(ct, "multipart/form-data") {
-		// --- multipart/form-data ---
-		trim := func(v string) *string {
-			v = strings.TrimSpace(v)
-			if v == "" {
-				return nil
-			}
-			return &v
-		}
-		if v := c.FormValue("book_url_label"); v != "" || c.FormValue("book_url_label") != "" {
-			req.BookURLLabel = trim(c.FormValue("book_url_label"))
-		}
-		if v := c.FormValue("book_url_kind"); v != "" || c.FormValue("book_url_kind") != "" {
-			req.BookURLKind = trim(c.FormValue("book_url_kind"))
-		}
-		if v := c.FormValue("book_url_href"); v != "" || c.FormValue("book_url_href") != "" {
-			req.BookURLHref = trim(c.FormValue("book_url_href"))
-		}
-		if v := c.FormValue("book_url_object_key"); v != "" || c.FormValue("book_url_object_key") != "" {
-			req.BookURLObjectKey = trim(c.FormValue("book_url_object_key"))
-		}
-		if s := strings.TrimSpace(c.FormValue("book_url_order")); s != "" {
-			if n, err := strconv.Atoi(s); err == nil {
-				req.BookURLOrder = &n
-			}
-		}
-		if s := strings.TrimSpace(c.FormValue("book_url_is_primary")); s != "" {
-			if b, err := strconv.ParseBool(s); err == nil {
-				req.BookURLIsPrimary = &b
-			}
-		}
-	} else {
-		// --- default: JSON / x-www-form-urlencoded ---
-		if err := c.BodyParser(&req); err != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
-		}
-		// normalisasi string ke trim(nil jika kosong)
-		trimPtr := func(p **string) {
-			if *p == nil {
-				return
-			}
-			v := strings.TrimSpace(**p)
-			if v == "" {
-				*p = nil
-			} else {
-				*p = &v
-			}
-		}
-		trimPtr(&req.BookURLLabel)
-		trimPtr(&req.BookURLKind)
-		trimPtr(&req.BookURLHref)
-		trimPtr(&req.BookURLObjectKey)
-	}
-
-	// ================= TX =================
-	tx := h.DB.Begin()
+	// --- TX mulai ---
+	tx := h.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memulai transaksi")
 	}
@@ -351,87 +276,154 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 		}
 	}()
 
-	// Re-lock row
+	// --- Lock entity ---
+	var m model.BookModel
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		First(&u, "book_url_id = ?", urlID).Error; err != nil {
-		tx.Rollback()
+		First(&m, "book_id = ?", bookID).Error; err != nil {
+		_ = tx.Rollback().Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Data URL tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Buku tidak ditemukan")
 		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data URL")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil buku")
+	}
+	if m.BookMasjidID != masjidID {
+		_ = tx.Rollback().Error
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 
-	// Apply perubahan
-	if req.BookURLLabel != nil {
-		u.BookURLLabel = req.BookURLLabel
-	}
-	if req.BookURLOrder != nil {
-		u.BookURLOrder = *req.BookURLOrder
-	}
-	if req.BookURLKind != nil {
-		k := strings.TrimSpace(*req.BookURLKind)
-		if k != "" {
-			u.BookURLKind = k
+	// --- Parse payload: JSON atau multipart ---
+	var p dto.BookUpdateRequest
+	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
+	isMultipart := strings.HasPrefix(ct, "multipart/form-data")
+	if isMultipart {
+		// form-data
+		p.BookTitle = strPtrIfNotEmpty(c.FormValue("book_title"))
+		p.BookAuthor = strPtrIfNotEmpty(c.FormValue("book_author"))
+		p.BookDesc = strPtrIfNotEmpty(c.FormValue("book_desc"))
+		if v := strings.TrimSpace(c.FormValue("book_slug")); v != "" {
+			s := helper.Slugify(v, 160)
+			p.BookSlug = &s
+		}
+	} else {
+		// JSON / x-www-form-urlencoded
+		if err := c.BodyParser(&p); err != nil {
+			_ = tx.Rollback().Error
+			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 		}
 	}
-	// Rotasi object key/href → simpan lama ke *_old kalau belum ada
-	if req.BookURLObjectKey != nil && (u.BookURLObjectKey == nil || *req.BookURLObjectKey != *u.BookURLObjectKey) {
-		if u.BookURLObjectKey != nil && u.BookURLObjectKeyOld == nil {
-			old := *u.BookURLObjectKey
-			u.BookURLObjectKeyOld = &old
+	p.Normalize()
+
+	// --- Auto-slug follow title (jika title berubah & client tidak kirim slug) ---
+	titleChanged := p.BookTitle != nil &&
+		strings.TrimSpace(*p.BookTitle) != "" &&
+		strings.TrimSpace(*p.BookTitle) != strings.TrimSpace(m.BookTitle)
+
+	if titleChanged && (p.BookSlug == nil || strings.TrimSpace(*p.BookSlug) == "") {
+		base := helper.Slugify(*p.BookTitle, 160)
+		if base == "" {
+			base = helper.SuggestSlugFromName(*p.BookTitle)
+			if base == "" {
+				base = "book"
+			}
 		}
-		u.BookURLObjectKey = req.BookURLObjectKey
-	}
-	if req.BookURLHref != nil && (u.BookURLHref == nil || *req.BookURLHref != *u.BookURLHref) {
-		u.BookURLHref = req.BookURLHref
+		scope := func(q *gorm.DB) *gorm.DB {
+			// EXCLUDE diri sendiri saat cek unik
+			return q.Where("book_masjid_id = ? AND book_deleted_at IS NULL AND book_id <> ?", masjidID, bookID)
+		}
+		uniq, err := helper.EnsureUniqueSlugCI(c.Context(), tx, "books", "book_slug", base, scope, 160)
+		if err != nil {
+			_ = tx.Rollback().Error
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik dari title")
+		}
+		p.BookSlug = &uniq
 	}
 
-	// Simpan dasar
-	if err := tx.Save(&u).Error; err != nil {
-		tx.Rollback()
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan URL")
+	// --- Slug unik jika client kirim slug eksplisit berbeda ---
+	if p.BookSlug != nil && (m.BookSlug == nil || *p.BookSlug != *m.BookSlug) {
+		base := helper.Slugify(*p.BookSlug, 160)
+		scope := func(q *gorm.DB) *gorm.DB {
+			return q.Where("book_masjid_id = ? AND book_deleted_at IS NULL AND book_id <> ?", masjidID, bookID)
+		}
+		uniq, err := helper.EnsureUniqueSlugCI(c.Context(), tx, "books", "book_slug", base, scope, 160)
+		if err != nil {
+			_ = tx.Rollback().Error
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
+		}
+		p.BookSlug = &uniq
 	}
 
-	// Primary unik per (book_id, kind)
-	if req.BookURLIsPrimary != nil && *req.BookURLIsPrimary {
-		if err := tx.Model(&model.BookURLModel{}).
-			Where(`book_url_masjid_id = ? AND book_url_book_id = ? AND book_url_kind = ? AND book_url_id <> ?`,
-				u.BookURLMasjidID, u.BookURLBookID, u.BookURLKind, u.BookURLID).
-			Update("book_url_is_primary", false).Error; err != nil {
-			tx.Rollback()
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal reset primary URL lain")
-		}
-		u.BookURLIsPrimary = true
-		if err := tx.Save(&u).Error; err != nil {
-			tx.Rollback()
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal set primary URL")
-		}
-	} else if req.BookURLIsPrimary != nil && !*req.BookURLIsPrimary {
-		u.BookURLIsPrimary = false
-		if err := tx.Save(&u).Error; err != nil {
-			tx.Rollback()
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal unset primary URL")
+	// --- Apply perubahan ke model buku ---
+	p.ApplyToModel(&m)
+
+	// --- Upload cover (opsional, multipart) ---
+	if isMultipart {
+		if fh := pickImageFile(c, "image", "file", "cover"); fh != nil {
+			keyPrefix := fmt.Sprintf("masjids/%s/library/books", masjidID.String())
+			if svc, er := helperOSS.NewOSSServiceFromEnv(""); er == nil {
+				ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
+				defer cancel()
+				if url, upErr := svc.UploadAsWebP(ctx, fh, keyPrefix); upErr == nil {
+					m.BookImageURL = &url
+					if k, e := helperOSS.ExtractKeyFromPublicURL(url); e == nil {
+						m.BookImageObjectKey = &k
+					} else if k2, e2 := helperOSS.KeyFromPublicURL(url); e2 == nil {
+						m.BookImageObjectKey = &k2
+					} else {
+						m.BookImageObjectKey = nil
+					}
+				}
+			}
 		}
 	}
 
-	// Commit
+	// --- Simpan buku ---
+	if err := tx.Save(&m).Error; err != nil {
+		_ = tx.Rollback().Error
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "uq_books_slug_per_masjid_alive") {
+			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan buku")
+	}
+
+	// --- Sinkron snapshot ke class_subject_books ---
+	upd := map[string]any{
+		"class_subject_book_book_title_snapshot":     m.BookTitle,
+		"class_subject_book_book_author_snapshot":    nilIfEmptyPtr(m.BookAuthor),
+		"class_subject_book_book_slug_snapshot":      nilIfEmptyPtr(m.BookSlug),
+		"class_subject_book_book_image_url_snapshot": nilIfEmptyPtr(m.BookImageURL),
+	}
+	// Jika ada kolom publisher & year di model BookModel, ikutkan:
+	if m.BookPublisher != nil {
+		upd["class_subject_book_book_publisher_snapshot"] = *m.BookPublisher
+	} else {
+		upd["class_subject_book_book_publisher_snapshot"] = gorm.Expr("NULL")
+	}
+	if m.BookPublicationYear != nil {
+		upd["class_subject_book_book_publication_year_snapshot"] = *m.BookPublicationYear
+	} else {
+		upd["class_subject_book_book_publication_year_snapshot"] = gorm.Expr("NULL")
+	}
+
+	if err := tx.Model(&model.ClassSubjectBookModel{}).
+		Where(`
+			class_subject_book_masjid_id = ?
+			AND class_subject_book_book_id = ?
+			AND class_subject_book_deleted_at IS NULL
+		`, masjidID, m.BookID).
+		Updates(upd).Error; err != nil {
+		_ = tx.Rollback().Error
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal sinkron snapshot pemakaian buku")
+	}
+
+	// --- Commit ---
 	if err := tx.Commit().Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal commit transaksi")
 	}
 
-	// Response (row terbaru)
-	return helper.JsonOK(c, "URL buku berhasil diperbarui", fiber.Map{
-		"book_url_id":             u.BookURLID,
-		"book_url_masjid_id":      u.BookURLMasjidID,
-		"book_url_book_id":        u.BookURLBookID,
-		"book_url_kind":           u.BookURLKind,
-		"book_url_label":          u.BookURLLabel,
-		"book_url_href":           u.BookURLHref,
-		"book_url_object_key":     u.BookURLObjectKey,
-		"book_url_object_key_old": u.BookURLObjectKeyOld,
-		"book_url_is_primary":     u.BookURLIsPrimary,
-		"book_url_order":          u.BookURLOrder,
-		"book_url_updated_at":     u.BookURLUpdatedAt,
+	// --- Response ---
+	return helper.JsonOK(c, "Buku berhasil diperbarui", fiber.Map{
+		"book": dto.ToBookResponse(&m),
 	})
 }
 

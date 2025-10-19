@@ -15,19 +15,19 @@ import (
 ============================== */
 
 type CreateAssessmentRequest struct {
-	// Tenant
+	// Tenant (diisi dari context di controller)
 	AssessmentMasjidID uuid.UUID `json:"assessment_masjid_id" validate:"required"`
 
 	// Relasi
-	AssessmentClassSectionSubjectTeacherID *uuid.UUID `json:"assessment_class_section_subject_teacher_id" validate:"omitempty"`
-	AssessmentTypeID                       *uuid.UUID `json:"assessment_type_id" validate:"omitempty"`
+	AssessmentClassSectionSubjectTeacherID *uuid.UUID `json:"assessment_class_section_subject_teacher_id" validate:"omitempty,uuid"`
+	AssessmentTypeID                       *uuid.UUID `json:"assessment_type_id" validate:"omitempty,uuid"`
 
 	// Identitas
 	AssessmentSlug        *string `json:"assessment_slug" validate:"omitempty,max=160"`
 	AssessmentTitle       string  `json:"assessment_title" validate:"required,max=180"`
 	AssessmentDescription *string `json:"assessment_description" validate:"omitempty"`
 
-	// Jadwal
+	// Jadwal (mode 'date')
 	AssessmentStartAt     *time.Time `json:"assessment_start_at" validate:"omitempty"`
 	AssessmentDueAt       *time.Time `json:"assessment_due_at" validate:"omitempty"`
 	AssessmentPublishedAt *time.Time `json:"assessment_published_at" validate:"omitempty"`
@@ -41,7 +41,12 @@ type CreateAssessmentRequest struct {
 	AssessmentAllowSubmission      *bool    `json:"assessment_allow_submission" validate:"omitempty"`
 
 	// Audit pembuat
-	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id" validate:"omitempty"`
+	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id" validate:"omitempty,uuid"`
+
+	// Mode berbasis sesi (opsional)
+	AssessmentSubmissionMode    *model.AssessmentSubmissionMode `json:"assessment_submission_mode" validate:"omitempty,oneof=date session"`
+	AssessmentAnnounceSessionID *uuid.UUID                      `json:"assessment_announce_session_id" validate:"omitempty,uuid"`
+	AssessmentCollectSessionID  *uuid.UUID                      `json:"assessment_collect_session_id" validate:"omitempty,uuid"`
 }
 
 func (r *CreateAssessmentRequest) Normalize() {
@@ -65,7 +70,7 @@ func (r *CreateAssessmentRequest) Normalize() {
 }
 
 func (r CreateAssessmentRequest) ToModel() model.AssessmentModel {
-	// Defaults
+	// Defaults boolean
 	isPublished := true
 	if r.AssessmentIsPublished != nil {
 		isPublished = *r.AssessmentIsPublished
@@ -74,6 +79,8 @@ func (r CreateAssessmentRequest) ToModel() model.AssessmentModel {
 	if r.AssessmentAllowSubmission != nil {
 		allowSubmission = *r.AssessmentAllowSubmission
 	}
+
+	// Defaults numeric
 	maxScore := 100.0
 	if r.AssessmentMaxScore != nil {
 		maxScore = *r.AssessmentMaxScore
@@ -81,6 +88,12 @@ func (r CreateAssessmentRequest) ToModel() model.AssessmentModel {
 	totalAttempts := 1
 	if r.AssessmentTotalAttemptsAllowed != nil {
 		totalAttempts = *r.AssessmentTotalAttemptsAllowed
+	}
+
+	// Default submission mode = "date"
+	mode := model.SubmissionModeDate
+	if r.AssessmentSubmissionMode != nil && strings.TrimSpace(string(*r.AssessmentSubmissionMode)) != "" {
+		mode = *r.AssessmentSubmissionMode
 	}
 
 	return model.AssessmentModel{
@@ -104,6 +117,11 @@ func (r CreateAssessmentRequest) ToModel() model.AssessmentModel {
 		AssessmentAllowSubmission:      allowSubmission,
 
 		AssessmentCreatedByTeacherID: r.AssessmentCreatedByTeacherID,
+
+		// Mode session (kalau diisi di controller akan juga di-set)
+		AssessmentSubmissionMode:    mode,
+		AssessmentAnnounceSessionID: r.AssessmentAnnounceSessionID,
+		AssessmentCollectSessionID:  r.AssessmentCollectSessionID,
 	}
 }
 
@@ -131,11 +149,16 @@ type PatchAssessmentRequest struct {
 	AssessmentAllowSubmission      *bool    `json:"assessment_allow_submission" validate:"omitempty"`
 
 	// Relasi
-	AssessmentClassSectionSubjectTeacherID *uuid.UUID `json:"assessment_class_section_subject_teacher_id" validate:"omitempty"`
-	AssessmentTypeID                       *uuid.UUID `json:"assessment_type_id" validate:"omitempty"`
+	AssessmentClassSectionSubjectTeacherID *uuid.UUID `json:"assessment_class_section_subject_teacher_id" validate:"omitempty,uuid"`
+	AssessmentTypeID                       *uuid.UUID `json:"assessment_type_id" validate:"omitempty,uuid"`
 
 	// Audit pembuat
-	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id" validate:"omitempty"`
+	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id" validate:"omitempty,uuid"`
+
+	// Mode session
+	AssessmentSubmissionMode    *model.AssessmentSubmissionMode `json:"assessment_submission_mode" validate:"omitempty,oneof=date session"`
+	AssessmentAnnounceSessionID *uuid.UUID                      `json:"assessment_announce_session_id" validate:"omitempty,uuid"`
+	AssessmentCollectSessionID  *uuid.UUID                      `json:"assessment_collect_session_id" validate:"omitempty,uuid"`
 }
 
 func (p *PatchAssessmentRequest) Normalize() {
@@ -215,6 +238,17 @@ func (p PatchAssessmentRequest) Apply(m *model.AssessmentModel) {
 	if p.AssessmentCreatedByTeacherID != nil {
 		m.AssessmentCreatedByTeacherID = p.AssessmentCreatedByTeacherID
 	}
+
+	// Mode session & sesi terkait
+	if p.AssessmentSubmissionMode != nil {
+		m.AssessmentSubmissionMode = *p.AssessmentSubmissionMode
+	}
+	if p.AssessmentAnnounceSessionID != nil {
+		m.AssessmentAnnounceSessionID = p.AssessmentAnnounceSessionID
+	}
+	if p.AssessmentCollectSessionID != nil {
+		m.AssessmentCollectSessionID = p.AssessmentCollectSessionID
+	}
 }
 
 /* ==============================
@@ -244,6 +278,16 @@ type AssessmentResponse struct {
 
 	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id,omitempty"`
 
+	// Mode session
+	AssessmentSubmissionMode    string     `json:"assessment_submission_mode"`
+	AssessmentAnnounceSessionID *uuid.UUID `json:"assessment_announce_session_id,omitempty"`
+	AssessmentCollectSessionID  *uuid.UUID `json:"assessment_collect_session_id,omitempty"`
+
+	// 🔹 Snapshots (read-only)
+	AssessmentCSSTSnapshot            map[string]any `json:"assessment_csst_snapshot"`
+	AssessmentAnnounceSessionSnapshot map[string]any `json:"assessment_announce_session_snapshot"`
+	AssessmentCollectSessionSnapshot  map[string]any `json:"assessment_collect_session_snapshot"`
+
 	AssessmentCreatedAt time.Time  `json:"assessment_created_at"`
 	AssessmentUpdatedAt time.Time  `json:"assessment_updated_at"`
 	AssessmentDeletedAt *time.Time `json:"assessment_deleted_at,omitempty"`
@@ -257,11 +301,44 @@ type ListAssessmentResponse struct {
 }
 
 func FromModelAssesment(m model.AssessmentModel) AssessmentResponse {
+	// DeletedAt → *time.Time
 	var deletedAt *time.Time
 	if m.AssessmentDeletedAt.Valid {
 		t := m.AssessmentDeletedAt.Time
 		deletedAt = &t
 	}
+
+	// JSONB snapshots (datatypes.JSONMap adalah map[string]any)
+	var csstSnap map[string]any
+	if m.AssessmentCSSTSnapshot != nil {
+		csstSnap = make(map[string]any, len(m.AssessmentCSSTSnapshot))
+		for k, v := range m.AssessmentCSSTSnapshot {
+			csstSnap[k] = v
+		}
+	} else {
+		csstSnap = map[string]any{}
+	}
+
+	var annSnap map[string]any
+	if m.AssessmentAnnounceSessionSnapshot != nil {
+		annSnap = make(map[string]any, len(m.AssessmentAnnounceSessionSnapshot))
+		for k, v := range m.AssessmentAnnounceSessionSnapshot {
+			annSnap[k] = v
+		}
+	} else {
+		annSnap = map[string]any{}
+	}
+
+	var colSnap map[string]any
+	if m.AssessmentCollectSessionSnapshot != nil {
+		colSnap = make(map[string]any, len(m.AssessmentCollectSessionSnapshot))
+		for k, v := range m.AssessmentCollectSessionSnapshot {
+			colSnap[k] = v
+		}
+	} else {
+		colSnap = map[string]any{}
+	}
+
 	return AssessmentResponse{
 		AssessmentID:                           m.AssessmentID,
 		AssessmentMasjidID:                     m.AssessmentMasjidID,
@@ -284,6 +361,14 @@ func FromModelAssesment(m model.AssessmentModel) AssessmentResponse {
 		AssessmentAllowSubmission:      m.AssessmentAllowSubmission,
 
 		AssessmentCreatedByTeacherID: m.AssessmentCreatedByTeacherID,
+
+		AssessmentSubmissionMode:    string(m.AssessmentSubmissionMode),
+		AssessmentAnnounceSessionID: m.AssessmentAnnounceSessionID,
+		AssessmentCollectSessionID:  m.AssessmentCollectSessionID,
+
+		AssessmentCSSTSnapshot:            csstSnap,
+		AssessmentAnnounceSessionSnapshot: annSnap,
+		AssessmentCollectSessionSnapshot:  colSnap,
 
 		AssessmentCreatedAt: m.AssessmentCreatedAt,
 		AssessmentUpdatedAt: m.AssessmentUpdatedAt,
