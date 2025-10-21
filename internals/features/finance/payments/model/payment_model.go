@@ -64,10 +64,6 @@ type Payment struct {
 	PaymentUserGeneralBillingID *uuid.UUID `json:"payment_user_general_billing_id" gorm:"column:payment_user_general_billing_id;type:uuid"`
 	PaymentGeneralBillingID     *uuid.UUID `json:"payment_general_billing_id"      gorm:"column:payment_general_billing_id;type:uuid"`
 
-	// ===== Subject polimorfik =====
-	PaymentSubjectType  *string    `json:"payment_subject_type"  gorm:"column:payment_subject_type;type:VARCHAR(40)"`
-	PaymentSubjectRefID *uuid.UUID `json:"payment_subject_ref_id" gorm:"column:payment_subject_ref_id;type:uuid"`
-
 	// Nominal
 	PaymentAmountIDR int    `json:"payment_amount_idr" gorm:"column:payment_amount_idr;type:int;not null;check:payment_amount_idr>=0"`
 	PaymentCurrency  string `json:"payment_currency"   gorm:"column:payment_currency;type:VARCHAR(8);not null;default:IDR"`

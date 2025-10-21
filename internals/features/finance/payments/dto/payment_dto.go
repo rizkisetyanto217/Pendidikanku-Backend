@@ -73,10 +73,6 @@ type CreatePaymentRequest struct {
 	PaymentUserGeneralBillingID *uuid.UUID `json:"payment_user_general_billing_id"`
 	PaymentGeneralBillingID     *uuid.UUID `json:"payment_general_billing_id"`
 
-	// Subject polimorfik
-	PaymentSubjectType  *string    `json:"payment_subject_type" validate:"omitempty,oneof=general_billing_kind general_billing user_subscription"`
-	PaymentSubjectRefID *uuid.UUID `json:"payment_subject_ref_id"`
-
 	// Nominal
 	PaymentAmountIDR int    `json:"payment_amount_idr" validate:"required,min=0"`
 	PaymentCurrency  string `json:"payment_currency" validate:"omitempty,oneof=IDR"`
@@ -117,17 +113,6 @@ type CreatePaymentRequest struct {
 }
 
 func (r *CreatePaymentRequest) Validate() error {
-	// XOR target: (ada salah satu FK eksplisit) XOR (subject polimorfik lengkap)
-	hasFK := r.PaymentUserSppBillingID != nil ||
-		r.PaymentSppBillingID != nil ||
-		r.PaymentUserGeneralBillingID != nil ||
-		r.PaymentGeneralBillingID != nil
-
-	hasPoly := r.PaymentSubjectType != nil && r.PaymentSubjectRefID != nil
-
-	if hasFK == hasPoly {
-		return errors.New("target pembayaran harus salah satu: FK eksplisit ATAU subject polimorfik")
-	}
 
 	// Konsistensi method/provider
 	method := model.PaymentMethodGateway
@@ -152,20 +137,6 @@ func (r *CreatePaymentRequest) Validate() error {
 func (r *CreatePaymentRequest) ToModel() *model.Payment {
 	now := time.Now()
 
-	// Auto-resolve XOR agar tidak nabrak constraint di DB
-	if r.PaymentUserSppBillingID != nil || r.PaymentSppBillingID != nil ||
-		r.PaymentUserGeneralBillingID != nil || r.PaymentGeneralBillingID != nil {
-		// jika pilih FK eksplisit, kosongkan subject polimorfik
-		r.PaymentSubjectType = nil
-		r.PaymentSubjectRefID = nil
-	} else if r.PaymentSubjectType != nil && r.PaymentSubjectRefID != nil {
-		// jika pilih polimorfik, kosongkan FK eksplisit
-		r.PaymentUserSppBillingID = nil
-		r.PaymentSppBillingID = nil
-		r.PaymentUserGeneralBillingID = nil
-		r.PaymentGeneralBillingID = nil
-	}
-
 	out := &model.Payment{
 		PaymentMasjidID: r.PaymentMasjidID,
 		PaymentUserID:   r.PaymentUserID,
@@ -174,9 +145,6 @@ func (r *CreatePaymentRequest) ToModel() *model.Payment {
 		PaymentSppBillingID:         r.PaymentSppBillingID,
 		PaymentUserGeneralBillingID: r.PaymentUserGeneralBillingID,
 		PaymentGeneralBillingID:     r.PaymentGeneralBillingID,
-
-		PaymentSubjectType:  r.PaymentSubjectType,
-		PaymentSubjectRefID: r.PaymentSubjectRefID,
 
 		PaymentAmountIDR: r.PaymentAmountIDR,
 		PaymentCurrency:  "IDR",
@@ -288,9 +256,6 @@ func (p *UpdatePaymentRequest) Apply(m *model.Payment) error {
 	applyPtr(&m.PaymentUserGeneralBillingID, p.PaymentUserGeneralBillingID)
 	applyPtr(&m.PaymentGeneralBillingID, p.PaymentGeneralBillingID)
 
-	applyPtr(&m.PaymentSubjectType, p.PaymentSubjectType)
-	applyPtr(&m.PaymentSubjectRefID, p.PaymentSubjectRefID)
-
 	// Scalar
 	if p.PaymentAmountIDR.Set && !p.PaymentAmountIDR.Null && p.PaymentAmountIDR.Value != nil {
 		if *p.PaymentAmountIDR.Value < 0 {
@@ -352,36 +317,6 @@ func (p *UpdatePaymentRequest) Apply(m *model.Payment) error {
 	applyVal(&m.PaymentMeta, p.PaymentMeta)
 	applyVal(&m.PaymentAttachments, p.PaymentAttachments)
 
-	// ===== Validasi/auto-resolve XOR target bila ada perubahan di salah satu sisi =====
-	if p.PaymentUserSppBillingID.Set || p.PaymentSppBillingID.Set ||
-		p.PaymentUserGeneralBillingID.Set || p.PaymentGeneralBillingID.Set {
-
-		// Jika setelah perubahan ada FK eksplisit aktif, kosongkan subject polimorfik
-		hasFK := m.PaymentUserSppBillingID != nil || m.PaymentSppBillingID != nil ||
-			m.PaymentUserGeneralBillingID != nil || m.PaymentGeneralBillingID != nil
-		if hasFK {
-			m.PaymentSubjectType = nil
-			m.PaymentSubjectRefID = nil
-		}
-	}
-	if p.PaymentSubjectType.Set || p.PaymentSubjectRefID.Set {
-		// Jika setelah perubahan polimorfik lengkap, kosongkan semua FK eksplisit
-		if m.PaymentSubjectType != nil && m.PaymentSubjectRefID != nil {
-			m.PaymentUserSppBillingID = nil
-			m.PaymentSppBillingID = nil
-			m.PaymentUserGeneralBillingID = nil
-			m.PaymentGeneralBillingID = nil
-		}
-	}
-
-	// Sanity check XOR final
-	hasFK := m.PaymentUserSppBillingID != nil || m.PaymentSppBillingID != nil ||
-		m.PaymentUserGeneralBillingID != nil || m.PaymentGeneralBillingID != nil
-	hasPoly := m.PaymentSubjectType != nil && m.PaymentSubjectRefID != nil
-	if hasFK == hasPoly {
-		return errors.New("setelah PATCH: target pembayaran harus salah satu: FK eksplisit ATAU subject polimorfik")
-	}
-
 	// Validasi method/provider (jika salah satu berubah atau berdampak)
 	if p.PaymentMethod.Set || p.PaymentGatewayProvider.Set {
 		if m.PaymentMethod == model.PaymentMethodGateway && m.PaymentGatewayProvider == nil {
@@ -409,9 +344,6 @@ type PaymentResponse struct {
 	PaymentSppBillingID         *uuid.UUID `json:"payment_spp_billing_id"`
 	PaymentUserGeneralBillingID *uuid.UUID `json:"payment_user_general_billing_id"`
 	PaymentGeneralBillingID     *uuid.UUID `json:"payment_general_billing_id"`
-
-	PaymentSubjectType  *string    `json:"payment_subject_type"`
-	PaymentSubjectRefID *uuid.UUID `json:"payment_subject_ref_id"`
 
 	PaymentAmountIDR int    `json:"payment_amount_idr"`
 	PaymentCurrency  string `json:"payment_currency"`
@@ -464,9 +396,6 @@ func FromModel(m *model.Payment) *PaymentResponse {
 		PaymentSppBillingID:         m.PaymentSppBillingID,
 		PaymentUserGeneralBillingID: m.PaymentUserGeneralBillingID,
 		PaymentGeneralBillingID:     m.PaymentGeneralBillingID,
-
-		PaymentSubjectType:  m.PaymentSubjectType,
-		PaymentSubjectRefID: m.PaymentSubjectRefID,
 
 		PaymentAmountIDR: m.PaymentAmountIDR,
 		PaymentCurrency:  m.PaymentCurrency,

@@ -48,11 +48,6 @@ CREATE TABLE IF NOT EXISTS payments (
   payment_user_general_billing_id UUID REFERENCES user_general_billings(user_general_billing_id) ON DELETE SET NULL,
   payment_general_billing_id      UUID REFERENCES general_billings(general_billing_id)           ON DELETE SET NULL,
 
-  -- ===== SUBJECT POLIMORFIK (tanpa instance) =====
-  -- contoh: general_billing_kind (campaign global/per-masjid), user_subscription
-  payment_subject_type        VARCHAR(40),
-  payment_subject_ref_id      UUID,
-
   -- nominal
   payment_amount_idr          INT NOT NULL CHECK (payment_amount_idr >= 0),
   payment_currency            VARCHAR(8) NOT NULL DEFAULT 'IDR' CHECK (payment_currency IN ('IDR')),

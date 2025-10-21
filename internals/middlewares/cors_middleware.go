@@ -19,6 +19,7 @@ func CorsMiddleware() fiber.Handler {
 			"http://127.0.0.1:5173",
 			"https://masjidku.org",
 			"https://www.masjidku.org",
+			"https://pendidikanku-frontend-2-production.up.railway.app/",
 			// tambahkan staging lain di sini bila perlu:
 			// "https://masjidku-web-production.up.railway.app",
 			// "https://web-six-theta-13.vercel.app",
