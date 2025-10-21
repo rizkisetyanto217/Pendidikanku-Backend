@@ -27,7 +27,7 @@ func HomePublicRoutes(api fiber.Router, db *gorm.DB) {
 
 	
     // Hanya menambahkan DBMiddleware untuk DonationRoutes
-    donationRoutes := api.Group("/donations")
+    donationRoutes := api.Group("/payments")
     donationRoutes.Use(DBMiddleware.DBMiddleware(db)) // Apply DBMiddleware only for donation routes
 
 }

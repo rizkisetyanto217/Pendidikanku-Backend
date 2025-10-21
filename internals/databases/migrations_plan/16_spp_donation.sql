@@ -1,5 +1,5 @@
 -- =========================================================
--- UP MIGRATION — spp_billings, user_spp_billings, donations
+-- UP MIGRATION — spp_billings, user_spp_billings, payments
 -- FINAL VERSION
 -- =========================================================
 
@@ -214,10 +214,10 @@ CREATE TABLE IF NOT EXISTS user_spp_billings (
 );
 
 -- =========================================================
--- TABLE: donations
+-- TABLE: payments
 -- =========================================================
-DROP TABLE IF EXISTS donations CASCADE;
-CREATE TABLE IF NOT EXISTS donations (
+DROP TABLE IF EXISTS  CASCADE;
+CREATE TABLE IF NOT EXISTS  (
   donation_id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- donor & konteks
