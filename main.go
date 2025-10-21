@@ -46,12 +46,12 @@ func main() {
 	paymentWebhookCtrl := payctl.NewPaymentController(db, midtransServerKey, useProd)
 
 	// (opsional) GET ping buat test dari dashboard Midtrans
-	app.Get("/public/payments/midtrans/webhook", func(c *fiber.Ctx) error {
+	app.Get("/public/donations/midtrans/webhook", func(c *fiber.Ctx) error {
 		return c.SendString("ok")
 	})
 
 	// POST notifikasi transaksi (akan update status)
-	app.Post("/public/payments/midtrans/webhook", paymentWebhookCtrl.MidtransWebhook)
+	app.Post("/public/donations/midtrans/webhook", paymentWebhookCtrl.MidtransWebhook)
 
 	// ✅ Auth middleware dengan guard: jangan halangi OPTIONS & /api/auth/*
 	app.Use(func(c *fiber.Ctx) error {
@@ -61,7 +61,7 @@ func main() {
 		p := c.Path()
 		if strings.HasPrefix(p, "/health") ||
 			strings.HasPrefix(p, "/api/auth/") ||
-			strings.HasPrefix(p, "/public/payments/midtrans/webhook") { // ✅ whitelist baru
+			strings.HasPrefix(p, "/public/donations/midtrans/webhook") { // ✅ whitelist baru
 			return c.Next()
 		}
 
