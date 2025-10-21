@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"context"
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
@@ -20,6 +21,7 @@ import (
 	dto "masjidku_backend/internals/features/finance/payments/dto"
 	model "masjidku_backend/internals/features/finance/payments/model"
 	svc "masjidku_backend/internals/features/finance/payments/service"
+	helper "masjidku_backend/internals/helpers"
 )
 
 /* =======================================================================
@@ -44,6 +46,140 @@ func NewPaymentController(db *gorm.DB, midtransServerKey string, useProd bool) *
 	}
 }
 
+// import yang dibutuhin:
+// "context"
+// "strings"
+// "time"
+// "gorm.io/gorm"
+
+type TargetInfo struct {
+	Kind             string // "usb" | "spp" | "ugb" | "gb" | "kind"
+	MasjidID         *uuid.UUID
+	AmountSuggestion *int
+	PayerUserID      *uuid.UUID
+}
+
+func (h *PaymentController) resolveTarget(ctx context.Context, db *gorm.DB, r *dto.CreatePaymentRequest) (TargetInfo, error) {
+	var (
+		ti TargetInfo
+	)
+
+	switch {
+	case r.PaymentUserSppBillingID != nil:
+		// user_spp_billings: ambil masjid & nominal dari row
+		type usbRow struct {
+			ID       uuid.UUID `gorm:"column:user_spp_billing_id"`
+			MasjidID uuid.UUID `gorm:"column:user_spp_billing_masjid_id"`
+			Amount   int       `gorm:"column:user_spp_billing_amount_idr"`
+			Status   string    `gorm:"column:user_spp_billing_status"`
+		}
+		var row usbRow
+		if err := db.WithContext(ctx).
+			Table("user_spp_billings").
+			Select("user_spp_billing_id, user_spp_billing_masjid_id, user_spp_billing_amount_idr, user_spp_billing_status").
+			Where("user_spp_billing_id = ?", *r.PaymentUserSppBillingID).
+			Take(&row).Error; err != nil {
+			return ti, fiber.NewError(fiber.StatusNotFound, "user_spp_billing tidak ditemukan")
+		}
+		ti = TargetInfo{
+			Kind:             "usb",
+			MasjidID:         &row.MasjidID,
+			AmountSuggestion: &row.Amount,
+		}
+
+	case r.PaymentSppBillingID != nil:
+		// spp_billings: ambil masjid; nominal HARUS dikirim atau kamu tentukan aturan lain
+		type sbRow struct {
+			ID       uuid.UUID  `gorm:"column:spp_billing_id"`
+			MasjidID *uuid.UUID `gorm:"column:spp_billing_masjid_id"`
+		}
+		var row sbRow
+		if err := db.WithContext(ctx).
+			Table("spp_billings").
+			Select("spp_billing_id, spp_billing_masjid_id").
+			Where("spp_billing_id = ?", *r.PaymentSppBillingID).
+			Take(&row).Error; err != nil {
+			return ti, fiber.NewError(fiber.StatusNotFound, "spp_billing tidak ditemukan")
+		}
+		ti = TargetInfo{
+			Kind:     "spp",
+			MasjidID: row.MasjidID,
+			// AmountSuggestion: nil (biar dari request)
+		}
+
+	case r.PaymentUserGeneralBillingID != nil:
+		// user_general_billings: ambil masjid, nominal & payer_user_id (optional)
+		type ugbRow struct {
+			ID        uuid.UUID  `gorm:"column:user_general_billing_id"`
+			MasjidID  uuid.UUID  `gorm:"column:user_general_billing_masjid_id"`
+			Amount    int        `gorm:"column:user_general_billing_amount_idr"`
+			Status    string     `gorm:"column:user_general_billing_status"`
+			PayerUser *uuid.UUID `gorm:"column:user_general_billing_payer_user_id"`
+		}
+		var row ugbRow
+		if err := db.WithContext(ctx).
+			Table("user_general_billings").
+			Select("user_general_billing_id, user_general_billing_masjid_id, user_general_billing_amount_idr, user_general_billing_status, user_general_billing_payer_user_id").
+			Where("user_general_billing_id = ?", *r.PaymentUserGeneralBillingID).
+			Take(&row).Error; err != nil {
+			return ti, fiber.NewError(fiber.StatusNotFound, "user_general_billing tidak ditemukan")
+		}
+		ti = TargetInfo{
+			Kind:             "ugb",
+			MasjidID:         &row.MasjidID,
+			AmountSuggestion: &row.Amount,
+			PayerUserID:      row.PayerUser,
+		}
+
+	case r.PaymentGeneralBillingID != nil:
+		// general_billings (header): ambil masjid & default_amount jika ada
+		type gbRow struct {
+			ID       uuid.UUID `gorm:"column:general_billing_id"`
+			MasjidID uuid.UUID `gorm:"column:general_billing_masjid_id"`
+			Default  *int      `gorm:"column:general_billing_default_amount_idr"`
+		}
+		var row gbRow
+		if err := db.WithContext(ctx).
+			Table("general_billings").
+			Select("general_billing_id, general_billing_masjid_id, general_billing_default_amount_idr").
+			Where("general_billing_id = ?", *r.PaymentGeneralBillingID).
+			Take(&row).Error; err != nil {
+			return ti, fiber.NewError(fiber.StatusNotFound, "general_billing tidak ditemukan")
+		}
+		ti = TargetInfo{
+			Kind:             "gb",
+			MasjidID:         &row.MasjidID,
+			AmountSuggestion: row.Default,
+		}
+
+	case r.PaymentGeneralBillingKindID != nil:
+		// donasi langsung ke kind (campaign/kas umum)
+		type kindRow struct {
+			ID       uuid.UUID  `gorm:"column:general_billing_kind_id"`
+			MasjidID *uuid.UUID `gorm:"column:general_billing_kind_masjid_id"`
+			Default  *int       `gorm:"column:general_billing_kind_default_amount_idr"`
+			Active   bool       `gorm:"column:general_billing_kind_is_active"`
+		}
+		var row kindRow
+		if err := db.WithContext(ctx).
+			Table("general_billing_kinds").
+			Select("general_billing_kind_id, general_billing_kind_masjid_id, general_billing_kind_default_amount_idr, general_billing_kind_is_active").
+			Where("general_billing_kind_id = ?", *r.PaymentGeneralBillingKindID).
+			Take(&row).Error; err != nil {
+			return ti, fiber.NewError(fiber.StatusNotFound, "general_billing_kind tidak ditemukan")
+		}
+		if !row.Active {
+			return ti, fiber.NewError(fiber.StatusBadRequest, "general_billing_kind tidak aktif")
+		}
+		ti = TargetInfo{
+			Kind:             "kind",
+			MasjidID:         row.MasjidID, // bisa NULL untuk GLOBAL kind
+			AmountSuggestion: row.Default,  // boleh nil
+		}
+	}
+	return ti, nil
+}
+
 /* =======================================================================
    Handlers
 ======================================================================= */
@@ -52,36 +188,58 @@ func NewPaymentController(db *gorm.DB, midtransServerKey string, useProd bool) *
 func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 	var req dto.CreatePaymentRequest
 	if err := c.BodyParser(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "invalid json: "+err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json: "+err.Error())
 	}
-	// validasi bisnis (XOR target, method/provider, currency)
 	if err := req.Validate(); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	// 1) Resolve target → isi masjid/amount jika kosong
+	ti, err := h.resolveTarget(c.Context(), h.DB, &req)
+	if err != nil {
+		// resolveTarget kamu sudah mengembalikan fiber.Error;
+		// bungkus ulang agar tetap konsisten dengan helper
+		code := fiber.StatusBadRequest
+		if fe, ok := err.(*fiber.Error); ok {
+			code = fe.Code
+		}
+		return helper.JsonError(c, code, err.Error())
 	}
 
 	m := req.ToModel()
 
-	// default provider → midtrans bila method=gateway & provider kosong
+	// Prefill masjid dari target kalau kosong
+	if m.PaymentMasjidID == nil && ti.MasjidID != nil {
+		m.PaymentMasjidID = ti.MasjidID
+	}
+	// Prefill user (optional) dari UGB payer_user_id
+	if m.PaymentUserID == nil && ti.PayerUserID != nil {
+		m.PaymentUserID = ti.PayerUserID
+	}
+	// Prefill nominal dari target jika request 0
+	if m.PaymentAmountIDR == 0 && ti.AmountSuggestion != nil && *ti.AmountSuggestion > 0 {
+		m.PaymentAmountIDR = *ti.AmountSuggestion
+	}
+
+	// 2) Default provider → midtrans bila method=gateway & provider kosong
 	if m.PaymentMethod == model.PaymentMethodGateway && (m.PaymentGatewayProvider == nil || *m.PaymentGatewayProvider == "") {
 		prov := model.GatewayProviderMidtrans
 		m.PaymentGatewayProvider = &prov
 	}
 
-	// simpan dulu (agar punya payment_id)
+	// 3) Simpan dulu untuk dapat payment_id
 	if err := h.DB.WithContext(c.Context()).Create(m).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "create payment failed: "+err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "create payment failed: "+err.Error())
 	}
 
-	// Jika gateway Midtrans dan ada external_id (order_id), buat Snap token
+	// 4) Jika gateway Midtrans → wajib external_id (order_id) + generate Snap
 	if m.PaymentMethod == model.PaymentMethodGateway &&
 		m.PaymentGatewayProvider != nil && *m.PaymentGatewayProvider == model.GatewayProviderMidtrans {
 
-		// external_id W A J I B ada untuk Midtrans (order_id)
 		if m.PaymentExternalID == nil || strings.TrimSpace(*m.PaymentExternalID) == "" {
-			return fiber.NewError(fiber.StatusBadRequest, "payment_external_id (order_id) is required for midtrans")
+			return helper.JsonError(c, fiber.StatusBadRequest, "payment_external_id (order_id) is required for midtrans")
 		}
 
-		// Build customer info dari meta (best-effort)
 		cust := svc.CustomerInput{}
 		if m.PaymentMeta != nil {
 			_ = json.Unmarshal(m.PaymentMeta, &cust)
@@ -89,10 +247,9 @@ func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 
 		token, redirectURL, err := svc.GenerateSnapToken(*m, cust)
 		if err != nil {
-			return fiber.NewError(fiber.StatusBadGateway, "midtrans error: "+err.Error())
+			return helper.JsonError(c, fiber.StatusBadGateway, "midtrans error: "+err.Error())
 		}
 
-		// simpan hasil snap
 		now := time.Now()
 		m.PaymentCheckoutURL = &redirectURL
 		m.PaymentGatewayReference = &token
@@ -100,11 +257,11 @@ func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 		m.PaymentRequestedAt = &now
 
 		if err := h.DB.WithContext(c.Context()).Save(m).Error; err != nil {
-			return fiber.NewError(fiber.StatusInternalServerError, "update payment after snap failed: "+err.Error())
+			return helper.JsonError(c, fiber.StatusInternalServerError, "update payment after snap failed: "+err.Error())
 		}
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(dto.FromModel(m))
+	return helper.JsonCreated(c, "payment created", dto.FromModel(m))
 }
 
 // GET /payments/:id
@@ -112,17 +269,17 @@ func (h *PaymentController) GetPaymentByID(c *fiber.Ctx) error {
 	idStr := c.Params("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "invalid id")
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
 	}
 	var m model.Payment
 	if err := h.DB.WithContext(c.Context()).
 		First(&m, "payment_id = ? AND payment_deleted_at IS NULL", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(fiber.StatusNotFound, "payment not found")
+			return helper.JsonError(c, fiber.StatusNotFound, "payment not found")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return c.JSON(dto.FromModel(&m))
+	return helper.JsonOK(c, "ok", dto.FromModel(&m))
 }
 
 // PATCH /payments/:id
@@ -130,30 +287,30 @@ func (h *PaymentController) PatchPayment(c *fiber.Ctx) error {
 	idStr := c.Params("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "invalid id")
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
 	}
 	var m model.Payment
 	if err := h.DB.WithContext(c.Context()).
 		First(&m, "payment_id = ? AND payment_deleted_at IS NULL", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(fiber.StatusNotFound, "payment not found")
+			return helper.JsonError(c, fiber.StatusNotFound, "payment not found")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	var patch dto.UpdatePaymentRequest
 	if err := c.BodyParser(&patch); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "invalid json: "+err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json: "+err.Error())
 	}
 	if err := patch.Apply(&m); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 	m.PaymentUpdatedAt = time.Now()
 
 	if err := h.DB.WithContext(c.Context()).Save(&m).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "save failed: "+err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "save failed: "+err.Error())
 	}
-	return c.JSON(dto.FromModel(&m))
+	return helper.JsonUpdated(c, "payment updated", dto.FromModel(&m))
 }
 
 /* =======================================================================
@@ -166,19 +323,18 @@ type midtransNotif struct {
 	StatusCode        string `json:"status_code"`
 	SignatureKey      string `json:"signature_key"`
 	OrderID           string `json:"order_id"`
-	GrossAmount       string `json:"gross_amount"` // string dari Midtrans
+	GrossAmount       string `json:"gross_amount"`
 	PaymentType       string `json:"payment_type"`
 	FraudStatus       string `json:"fraud_status"` // accept / challenge / deny
 	TransactionID     string `json:"transaction_id"`
 	SettlementTime    string `json:"settlement_time"`
-	// tambahan field lain aman diabaikan
 }
 
 func (h *PaymentController) MidtransWebhook(c *fiber.Ctx) error {
 	// 1) Parse payload
 	var notif midtransNotif
 	if err := c.BodyParser(&notif); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "invalid payload: "+err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid payload: "+err.Error())
 	}
 
 	// 2) Verify signature — SHA512(order_id + status_code + gross_amount + ServerKey)
@@ -186,22 +342,27 @@ func (h *PaymentController) MidtransWebhook(c *fiber.Ctx) error {
 	raw := notif.OrderID + notif.StatusCode + notif.GrossAmount + h.MidtransServerKey
 	got := sha512sum(raw)
 	if want == "" || got != want {
-		return fiber.NewError(fiber.StatusUnauthorized, "invalid signature")
+		return helper.JsonError(c, fiber.StatusUnauthorized, "invalid signature")
 	}
 
 	// 3) Find payment by external_id (order_id)
 	var p model.Payment
 	if err := h.DB.WithContext(c.Context()).
 		First(&p, "payment_external_id = ? AND payment_deleted_at IS NULL", notif.OrderID).Error; err != nil {
-		// Log event tetap meski payment belum ada (mis-order). Balas 200 agar Midtrans tidak retry terus
+
+		// Log event tetap meski payment belum ada (mis-order).
 		_ = h.logGatewayEvent(c, nil, notif, "received", fmt.Sprintf("payment not found for order_id=%s", notif.OrderID))
-		return c.JSON(fiber.Map{"status": "ignored", "reason": "payment not found"})
+
+		// Balas 200 agar Midtrans tidak retry terus
+		return helper.JsonOK(c, "ignored: payment not found", fiber.Map{
+			"order_id": notif.OrderID,
+			"status":   "ignored",
+			"reason":   "payment not found",
+		})
 	}
 
-	// 4) Simpan gateway event (idempotent by unique index provider+external_id jika diinginkan)
-	if err := h.logGatewayEvent(c, &p, notif, "received", ""); err != nil {
-		// duplicated? lanjutkan saja update status
-	}
+	// 4) Simpan gateway event (idempotent)
+	_ = h.logGatewayEvent(c, &p, notif, "received", "")
 
 	// 5) Map status midtrans → status internal
 	now := time.Now()
@@ -221,7 +382,7 @@ func (h *PaymentController) MidtransWebhook(c *fiber.Ctx) error {
 	if setFields.RefundedAt != nil {
 		p.PaymentRefundedAt = setFields.RefundedAt
 	}
-	// selalu update referensi gateway (transaction_id)
+	// update referensi gateway (transaction_id)
 	if notif.TransactionID != "" {
 		ref := notif.TransactionID
 		p.PaymentGatewayReference = &ref
@@ -230,18 +391,16 @@ func (h *PaymentController) MidtransWebhook(c *fiber.Ctx) error {
 	if amt, err := strconv.ParseFloat(notif.GrossAmount, 64); err == nil {
 		p.PaymentAmountIDR = int(amt + 0.5)
 	}
-
 	p.PaymentUpdatedAt = now
 
 	if err := h.DB.WithContext(c.Context()).Save(&p).Error; err != nil {
 		_ = h.updateEventStatus(notif, "failed", err.Error())
-		return fiber.NewError(fiber.StatusInternalServerError, "update payment failed: "+err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, "update payment failed: "+err.Error())
 	}
 
 	_ = h.updateEventStatus(notif, "processed", "")
 
-	return c.JSON(fiber.Map{
-		"status":              "ok",
+	return helper.JsonOK(c, "webhook processed", fiber.Map{
 		"payment_id":          p.PaymentID,
 		"payment_status":      p.PaymentStatus,
 		"transaction_status":  notif.TransactionStatus,

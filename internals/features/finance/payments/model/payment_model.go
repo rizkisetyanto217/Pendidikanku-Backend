@@ -8,10 +8,6 @@ import (
 	"gorm.io/datatypes"
 )
 
-/* =========================================
-   Enum type aliases (selaras dengan PostgreSQL ENUM)
-========================================= */
-
 type PaymentStatus string
 type PaymentMethod string
 type PaymentGatewayProvider string
@@ -47,10 +43,6 @@ const (
 	GatewayProviderOther    PaymentGatewayProvider = "other"
 )
 
-/* =========================================
-   payments
-========================================= */
-
 type Payment struct {
 	PaymentID uuid.UUID `json:"payment_id" gorm:"column:payment_id;type:uuid;default:gen_random_uuid();primaryKey"`
 
@@ -64,11 +56,14 @@ type Payment struct {
 	PaymentUserGeneralBillingID *uuid.UUID `json:"payment_user_general_billing_id" gorm:"column:payment_user_general_billing_id;type:uuid"`
 	PaymentGeneralBillingID     *uuid.UUID `json:"payment_general_billing_id"      gorm:"column:payment_general_billing_id;type:uuid"`
 
+	// ===== FK langsung ke master kind (untuk donasi/campaign tanpa bikin billing instance) =====
+	PaymentGeneralBillingKindID *uuid.UUID `json:"payment_general_billing_kind_id" gorm:"column:payment_general_billing_kind_id;type:uuid"`
+
 	// Nominal
 	PaymentAmountIDR int    `json:"payment_amount_idr" gorm:"column:payment_amount_idr;type:int;not null;check:payment_amount_idr>=0"`
 	PaymentCurrency  string `json:"payment_currency"   gorm:"column:payment_currency;type:VARCHAR(8);not null;default:IDR"`
 
-	// Status & metode (Postgres ENUM)
+	// Status & metode
 	PaymentStatus PaymentStatus `json:"payment_status" gorm:"column:payment_status;type:payment_status;not null;default:'initiated'"`
 	PaymentMethod PaymentMethod `json:"payment_method" gorm:"column:payment_method;type:payment_method;not null;default:'gateway'"`
 
@@ -89,12 +84,12 @@ type Payment struct {
 	PaymentFailedAt    *time.Time `json:"payment_failed_at"    gorm:"column:payment_failed_at;type:timestamptz"`
 	PaymentRefundedAt  *time.Time `json:"payment_refunded_at"  gorm:"column:payment_refunded_at;type:timestamptz"`
 
-	// Manual ops (kasir/admin)
-	PaymentManualChannel          *string    `json:"payment_manual_channel"           gorm:"column:payment_manual_channel;type:VARCHAR(32)"`
-	PaymentManualReference        *string    `json:"payment_manual_reference"         gorm:"column:payment_manual_reference;type:VARCHAR(120)"`
+	// Manual ops
+	PaymentManualChannel          *string    `json:"payment_manual_channel" gorm:"column:payment_manual_channel;type:VARCHAR(32)"`
+	PaymentManualReference        *string    `json:"payment_manual_reference" gorm:"column:payment_manual_reference;type:VARCHAR(120)"`
 	PaymentManualReceivedByUserID *uuid.UUID `json:"payment_manual_received_by_user_id" gorm:"column:payment_manual_received_by_user_id;type:uuid"`
 	PaymentManualVerifiedByUserID *uuid.UUID `json:"payment_manual_verified_by_user_id" gorm:"column:payment_manual_verified_by_user_id;type:uuid"`
-	PaymentManualVerifiedAt       *time.Time `json:"payment_manual_verified_at"       gorm:"column:payment_manual_verified_at;type:timestamptz"`
+	PaymentManualVerifiedAt       *time.Time `json:"payment_manual_verified_at" gorm:"column:payment_manual_verified_at;type:timestamptz"`
 
 	// Meta
 	PaymentDescription *string        `json:"payment_description" gorm:"column:payment_description;type:text"`
@@ -106,11 +101,6 @@ type Payment struct {
 	PaymentCreatedAt time.Time  `json:"payment_created_at" gorm:"column:payment_created_at;type:timestamptz;not null;default:now()"`
 	PaymentUpdatedAt time.Time  `json:"payment_updated_at" gorm:"column:payment_updated_at;type:timestamptz;not null;default:now()"`
 	PaymentDeletedAt *time.Time `json:"payment_deleted_at" gorm:"column:payment_deleted_at;type:timestamptz"`
-
-	// Catatan:
-	// - Partial index & constraint (ck_payments_method_provider, chk_payment_subject_type, ck_payment_target_xor,
-	//   unique idempotency/provider+external_id, GIN trigram, dsb) dibuat lewat migration SQL.
 }
 
-// TableName — paksa nama tabel plural sesuai migrasi
 func (Payment) TableName() string { return "payments" }

@@ -4,8 +4,8 @@ BEGIN;
 -- =========================================
 -- Extensions (idempotent)
 -- =========================================
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;  -- gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pg_trgm;   -- trigram ops
 
 -- =========================================
 -- Enums (idempotent)
@@ -33,7 +33,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- =========================================
--- TABLE: payments  (sudah support FK eksplisit + subject polimorfik)
+-- TABLE: payments  (HANYA FK eksplisit; TANPA subject polimorfik)
 -- =========================================
 CREATE TABLE IF NOT EXISTS payments (
   payment_id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -42,11 +42,12 @@ CREATE TABLE IF NOT EXISTS payments (
   payment_user_id             UUID REFERENCES users(id)          ON DELETE SET NULL,
 
   -- ===== FK EKSPILISIT (by-instance) =====
-  -- target billing (SPP atau General)
-  payment_user_spp_billing_id     UUID REFERENCES user_spp_billings(user_spp_billing_id) ON DELETE SET NULL,
-  payment_spp_billing_id          UUID REFERENCES spp_billings(spp_billing_id)           ON DELETE SET NULL,
-  payment_user_general_billing_id UUID REFERENCES user_general_billings(user_general_billing_id) ON DELETE SET NULL,
-  payment_general_billing_id      UUID REFERENCES general_billings(general_billing_id)           ON DELETE SET NULL,
+  -- target billing (SPP / General / langsung ke Kinds)
+  payment_user_spp_billing_id      UUID REFERENCES user_spp_billings(user_spp_billing_id)          ON DELETE SET NULL,
+  payment_spp_billing_id           UUID REFERENCES spp_billings(spp_billing_id)                     ON DELETE SET NULL,
+  payment_user_general_billing_id  UUID REFERENCES user_general_billings(user_general_billing_id)   ON DELETE SET NULL,
+  payment_general_billing_id       UUID REFERENCES general_billings(general_billing_id)             ON DELETE SET NULL,
+  payment_general_billing_kind_id  UUID REFERENCES general_billing_kinds(general_billing_kind_id)   ON DELETE SET NULL,
 
   -- nominal
   payment_amount_idr          INT NOT NULL CHECK (payment_amount_idr >= 0),
@@ -98,29 +99,19 @@ CREATE TABLE IF NOT EXISTS payments (
     (payment_method IN ('cash','bank_transfer','qris','other') AND payment_gateway_provider IS NULL)
   ),
 
-  -- Whitelist subject type polimorfik
-  CONSTRAINT chk_payment_subject_type CHECK (
-    payment_subject_type IS NULL
-    OR payment_subject_type IN ('general_billing_kind','general_billing','user_subscription')
-  ),
-
-  -- Pilih salah satu: (FK eksplisit) XOR (subject polimorfik)
-  CONSTRAINT ck_payment_target_xor CHECK (
-    (
-      (payment_user_spp_billing_id IS NOT NULL OR payment_spp_billing_id IS NOT NULL
-       OR payment_user_general_billing_id IS NOT NULL OR payment_general_billing_id IS NOT NULL)
-      AND payment_subject_type IS NULL AND payment_subject_ref_id IS NULL
-    )
-    OR
-    (
-      (payment_user_spp_billing_id IS NULL AND payment_spp_billing_id IS NULL
-       AND payment_user_general_billing_id IS NULL AND payment_general_billing_id IS NULL)
-      AND payment_subject_type IS NOT NULL AND payment_subject_ref_id IS NOT NULL
-    )
+  -- Minimal salah satu target FK eksplisit harus terisi
+  CONSTRAINT ck_payment_target_any CHECK (
+    payment_user_spp_billing_id IS NOT NULL
+    OR payment_spp_billing_id IS NOT NULL
+    OR payment_user_general_billing_id IS NOT NULL
+    OR payment_general_billing_id IS NOT NULL
+    OR payment_general_billing_kind_id IS NOT NULL
   )
 );
 
+-- =========================================
 -- Indexes: payments
+-- =========================================
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_idem_live
   ON payments (payment_masjid_id, COALESCE(payment_idempotency_key, ''))
   WHERE payment_deleted_at IS NULL AND payment_idempotency_key IS NOT NULL;
@@ -169,9 +160,9 @@ CREATE INDEX IF NOT EXISTS ix_payments_gb_header_live
   ON payments (payment_general_billing_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
--- Lookup subject polimorfik
-CREATE INDEX IF NOT EXISTS ix_payments_subject
-  ON payments (payment_subject_type, payment_subject_ref_id);
+CREATE INDEX IF NOT EXISTS ix_payments_gbk_live
+  ON payments (payment_general_billing_kind_id, payment_created_at DESC)
+  WHERE payment_deleted_at IS NULL;
 
 -- GIN trigram (live only)
 CREATE INDEX IF NOT EXISTS gin_payments_extid_trgm_live
@@ -189,7 +180,6 @@ CREATE INDEX IF NOT EXISTS gin_payments_manualref_trgm_live
 CREATE INDEX IF NOT EXISTS gin_payments_desc_trgm_live
   ON payments USING GIN ( (COALESCE(payment_description,'')) gin_trgm_ops )
   WHERE payment_deleted_at IS NULL;
-
 
 
 -- =========================================

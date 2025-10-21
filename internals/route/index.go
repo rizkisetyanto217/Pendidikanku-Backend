@@ -112,6 +112,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	routeDetails.FinancePublicRoutes(public, db)
 	// routeDetails.FinanceUserRoutes(privateScoped, db)
 	routeDetails.FinanceAdminRoutes(admin, db)
+	routeDetails.FinanceOwnerRoutes(owner,db)
 
 
 

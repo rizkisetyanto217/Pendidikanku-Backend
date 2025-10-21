@@ -32,4 +32,12 @@ func AllGeneralBillingRoutes(r fiber.Router, db *gorm.DB) {
 	{
 		ugb.Get("/", ugbCtl.List) // GET    /:masjid_id/user-general-billings
 	}
+
+	// ===== PUBLIC read-only (opsional) =====
+	public := r.Group("/public")
+	{
+		publicKinds := public.Group("/general-billing-kinds")
+		publicKinds.Get("/", kindCtl.ListPublic)
+		publicKinds.Get("/:id", kindCtl.GetPublicByID)
+	}
 }

@@ -17,3 +17,8 @@ func FinancePublicRoutes(r fiber.Router, db *gorm.DB) {
 func FinanceAdminRoutes(r fiber.Router, db *gorm.DB) {
 	GeneralBillingRoute.AdminGeneralBillingRoutes(r, db)
 }
+
+
+func FinanceOwnerRoutes(r fiber.Router, db *gorm.DB) {
+	GeneralBillingRoute.OwnerGeneralBillingRoutes(r, db)
+}

@@ -59,6 +59,7 @@ func applyVal[T any](dst *T, f PatchField[T]) {
 	}
 }
 
+
 /* =========================================================
    REQUEST: CreatePayment
    ========================================================= */
@@ -67,17 +68,20 @@ type CreatePaymentRequest struct {
 	PaymentMasjidID *uuid.UUID `json:"payment_masjid_id" validate:"required"`
 	PaymentUserID   *uuid.UUID `json:"payment_user_id"`
 
-	// FK eksplisit (by-instance) — pilih salah satu kelompok: FK eksplisit ATAU subject polimorfik
+	// FK eksplisit (by-instance)
 	PaymentUserSppBillingID     *uuid.UUID `json:"payment_user_spp_billing_id"`
 	PaymentSppBillingID         *uuid.UUID `json:"payment_spp_billing_id"`
 	PaymentUserGeneralBillingID *uuid.UUID `json:"payment_user_general_billing_id"`
 	PaymentGeneralBillingID     *uuid.UUID `json:"payment_general_billing_id"`
 
+	// FK ke master kind (untuk donasi langsung)
+	PaymentGeneralBillingKindID *uuid.UUID `json:"payment_general_billing_kind_id"`
+
 	// Nominal
 	PaymentAmountIDR int    `json:"payment_amount_idr" validate:"required,min=0"`
 	PaymentCurrency  string `json:"payment_currency" validate:"omitempty,oneof=IDR"`
 
-	// Status & metode (opsional, default di-set di ToModel)
+	// Status & metode (opsional)
 	PaymentStatus *model.PaymentStatus `json:"payment_status" validate:"omitempty,oneof=initiated pending awaiting_callback paid partially_refunded refunded failed canceled expired"`
 	PaymentMethod *model.PaymentMethod `json:"payment_method" validate:"omitempty,oneof=gateway bank_transfer cash qris other"`
 
@@ -90,7 +94,7 @@ type CreatePaymentRequest struct {
 	PaymentSignature        *string                       `json:"payment_signature"`
 	PaymentIdempotencyKey   *string                       `json:"payment_idempotency_key"`
 
-	// Timestamps status (biarkan nil bila ingin pakai default NOW() di DB)
+	// Timestamps
 	PaymentRequestedAt *time.Time `json:"payment_requested_at"`
 	PaymentExpiresAt   *time.Time `json:"payment_expires_at"`
 	PaymentPaidAt      *time.Time `json:"payment_paid_at"`
@@ -113,6 +117,16 @@ type CreatePaymentRequest struct {
 }
 
 func (r *CreatePaymentRequest) Validate() error {
+	// Minimal target harus ada salah satu: USB / SPP / UGB / GB / KIND
+	hasTarget :=
+		r.PaymentUserSppBillingID != nil ||
+			r.PaymentSppBillingID != nil ||
+			r.PaymentUserGeneralBillingID != nil ||
+			r.PaymentGeneralBillingID != nil ||
+			r.PaymentGeneralBillingKindID != nil
+	if !hasTarget {
+		return errors.New("wajib menyertakan salah satu target pembayaran: user_spp_billing_id / spp_billing_id / user_general_billing_id / general_billing_id / general_billing_kind_id")
+	}
 
 	// Konsistensi method/provider
 	method := model.PaymentMethodGateway
@@ -126,17 +140,15 @@ func (r *CreatePaymentRequest) Validate() error {
 		return errors.New("payment_method manual ('cash','bank_transfer','qris','other') tidak boleh menyertakan payment_gateway_provider")
 	}
 
-	// Mata uang tunggal
+	// Mata uang (hanya IDR)
 	if r.PaymentCurrency != "" && r.PaymentCurrency != "IDR" {
 		return fmt.Errorf("payment_currency hanya mendukung 'IDR'")
 	}
-
 	return nil
 }
 
 func (r *CreatePaymentRequest) ToModel() *model.Payment {
 	now := time.Now()
-
 	out := &model.Payment{
 		PaymentMasjidID: r.PaymentMasjidID,
 		PaymentUserID:   r.PaymentUserID,
@@ -146,10 +158,12 @@ func (r *CreatePaymentRequest) ToModel() *model.Payment {
 		PaymentUserGeneralBillingID: r.PaymentUserGeneralBillingID,
 		PaymentGeneralBillingID:     r.PaymentGeneralBillingID,
 
+		// map KIND
+		PaymentGeneralBillingKindID: r.PaymentGeneralBillingKindID,
+
 		PaymentAmountIDR: r.PaymentAmountIDR,
 		PaymentCurrency:  "IDR",
 
-		// default sesuai schema
 		PaymentStatus: model.PaymentStatusInitiated,
 		PaymentMethod: model.PaymentMethodGateway,
 
@@ -192,12 +206,11 @@ func (r *CreatePaymentRequest) ToModel() *model.Payment {
 	if r.PaymentMethod != nil {
 		out.PaymentMethod = *r.PaymentMethod
 	}
-
 	return out
 }
 
 /* =========================================================
-   REQUEST: Update (PATCH) — PatchField tri-state
+   REQUEST: Update (PATCH)
    ========================================================= */
 
 type UpdatePaymentRequest struct {
@@ -209,8 +222,8 @@ type UpdatePaymentRequest struct {
 	PaymentUserGeneralBillingID PatchField[uuid.UUID] `json:"payment_user_general_billing_id"`
 	PaymentGeneralBillingID     PatchField[uuid.UUID] `json:"payment_general_billing_id"`
 
-	PaymentSubjectType  PatchField[string]    `json:"payment_subject_type"`
-	PaymentSubjectRefID PatchField[uuid.UUID] `json:"payment_subject_ref_id"`
+	// >>> tambahkan KIND
+	PaymentGeneralBillingKindID PatchField[uuid.UUID] `json:"payment_general_billing_kind_id"`
 
 	PaymentAmountIDR PatchField[int]    `json:"payment_amount_idr"`
 	PaymentCurrency  PatchField[string] `json:"payment_currency"`
@@ -245,7 +258,6 @@ type UpdatePaymentRequest struct {
 	PaymentAttachments PatchField[datatypes.JSON] `json:"payment_attachments"`
 }
 
-// Apply perubahan ke model (in-place). Validasi dasar disertakan.
 func (p *UpdatePaymentRequest) Apply(m *model.Payment) error {
 	// Simple pointer fields
 	applyPtr(&m.PaymentMasjidID, p.PaymentMasjidID)
@@ -255,6 +267,9 @@ func (p *UpdatePaymentRequest) Apply(m *model.Payment) error {
 	applyPtr(&m.PaymentSppBillingID, p.PaymentSppBillingID)
 	applyPtr(&m.PaymentUserGeneralBillingID, p.PaymentUserGeneralBillingID)
 	applyPtr(&m.PaymentGeneralBillingID, p.PaymentGeneralBillingID)
+
+	// KIND
+	applyPtr(&m.PaymentGeneralBillingKindID, p.PaymentGeneralBillingKindID)
 
 	// Scalar
 	if p.PaymentAmountIDR.Set && !p.PaymentAmountIDR.Null && p.PaymentAmountIDR.Value != nil {
@@ -273,7 +288,7 @@ func (p *UpdatePaymentRequest) Apply(m *model.Payment) error {
 		m.PaymentCurrency = *p.PaymentCurrency.Value
 	}
 
-	// Enums (NOT NULL kolom)
+	// Enums
 	if p.PaymentMethod.Set {
 		if p.PaymentMethod.Null || p.PaymentMethod.Value == nil {
 			return errors.New("payment_method tidak boleh null")
@@ -311,13 +326,13 @@ func (p *UpdatePaymentRequest) Apply(m *model.Payment) error {
 	applyPtr(&m.PaymentManualVerifiedByUserID, p.PaymentManualVerifiedByUserID)
 	applyPtr(&m.PaymentManualVerifiedAt, p.PaymentManualVerifiedAt)
 
-	// Meta (JSONB & string)
+	// Meta
 	applyPtr(&m.PaymentDescription, p.PaymentDescription)
 	applyPtr(&m.PaymentNote, p.PaymentNote)
 	applyVal(&m.PaymentMeta, p.PaymentMeta)
 	applyVal(&m.PaymentAttachments, p.PaymentAttachments)
 
-	// Validasi method/provider (jika salah satu berubah atau berdampak)
+	// Validasi method/provider
 	if p.PaymentMethod.Set || p.PaymentGatewayProvider.Set {
 		if m.PaymentMethod == model.PaymentMethodGateway && m.PaymentGatewayProvider == nil {
 			return errors.New("payment_method=gateway harus menyertakan payment_gateway_provider")
@@ -344,6 +359,9 @@ type PaymentResponse struct {
 	PaymentSppBillingID         *uuid.UUID `json:"payment_spp_billing_id"`
 	PaymentUserGeneralBillingID *uuid.UUID `json:"payment_user_general_billing_id"`
 	PaymentGeneralBillingID     *uuid.UUID `json:"payment_general_billing_id"`
+
+	// KIND
+	PaymentGeneralBillingKindID *uuid.UUID `json:"payment_general_billing_kind_id"`
 
 	PaymentAmountIDR int    `json:"payment_amount_idr"`
 	PaymentCurrency  string `json:"payment_currency"`
@@ -396,6 +414,8 @@ func FromModel(m *model.Payment) *PaymentResponse {
 		PaymentSppBillingID:         m.PaymentSppBillingID,
 		PaymentUserGeneralBillingID: m.PaymentUserGeneralBillingID,
 		PaymentGeneralBillingID:     m.PaymentGeneralBillingID,
+
+		PaymentGeneralBillingKindID: m.PaymentGeneralBillingKindID,
 
 		PaymentAmountIDR: m.PaymentAmountIDR,
 		PaymentCurrency:  m.PaymentCurrency,
