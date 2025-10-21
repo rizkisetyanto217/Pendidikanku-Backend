@@ -10,6 +10,7 @@ import (
 	featuresMiddleware "masjidku_backend/internals/middlewares/features"
 
 	routeDetails "masjidku_backend/internals/route/details"
+	
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -105,4 +106,13 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	routeDetails.HomePublicRoutes(public, db)
 	routeDetails.HomePrivateRoutes(privateScoped, db)
 	routeDetails.HomeAdminRoutes(admin, db)
+
+
+	log.Println("[INFO] Mounting Finance routes...")
+	routeDetails.FinancePublicRoutes(public, db)
+	// routeDetails.FinanceUserRoutes(privateScoped, db)
+	routeDetails.FinanceAdminRoutes(admin, db)
+
+
+
 }

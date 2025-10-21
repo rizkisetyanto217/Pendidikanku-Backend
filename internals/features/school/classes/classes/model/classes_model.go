@@ -20,6 +20,7 @@ type ClassModel struct {
 
 	// Identitas
 	ClassSlug string `json:"class_slug" gorm:"column:class_slug;type:varchar(160);not null"`
+	ClassName string `json:"class_name" gorm:"column:class_name;type:varchar(160);not null"`
 
 	// Periode kelas (DATE di DB → time.Time dipakai bagian tanggalnya)
 	ClassStartDate *time.Time `json:"class_start_date,omitempty" gorm:"column:class_start_date;type:date"`

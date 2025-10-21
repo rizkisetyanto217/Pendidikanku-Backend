@@ -356,20 +356,35 @@ func UseMasjidScope() fiber.Handler {
 
 		// ==== BYPASS untuk endpoint global tanpa masjid_id ====
 		p := strings.TrimRight(strings.ToLower(strings.TrimSpace(c.Path())), "/")
+
+		// 1) join user-class-sections (sudah ada)
 		if c.Method() == fiber.MethodPost && p == "/api/u/user-class-sections/join" {
-			// endpoint join global: jangan pakai scope strict
 			return c.Next()
 		}
-		
+
+		// 2) 🔑 BYPASS join-teacher (dua pola):
+		//    - POST /api/u/:masjid_id/join-teacher
+		//    - POST /api/u/m/:masjid_slug/join-teacher
+		if c.Method() == fiber.MethodPost && strings.HasPrefix(p, "/api/u/") && strings.HasSuffix(p, "/join-teacher") {
+			// validasi pola dasar untuk kehati-hatian
+			segs := strings.Split(p, "/") // e.g. ["", "api", "u", "<uuid>", "join-teacher"] atau ["", "api", "u", "m", "<slug>", "join-teacher"]
+			if len(segs) == 5 && segs[0] == "" && segs[1] == "api" && segs[2] == "u" && segs[4] == "join-teacher" {
+				// pola : /api/u/:masjid_id/join-teacher
+				return c.Next()
+			}
+			if len(segs) == 6 && segs[0] == "" && segs[1] == "api" && segs[2] == "u" && segs[3] == "m" && segs[5] == "join-teacher" {
+				// pola : /api/u/m/:masjid_slug/join-teacher
+				return c.Next()
+			}
+			// jika tidak cocok, lanjut ke scope strict seperti biasa
+		}
+
 		log.Println("🎯 [MIDDLEWARE] UseMasjidScope (STRICT by path)")
 
 		isOwner := helper.IsOwner(c)
-		// userMasjidRoles := getMasjidRoles(c)
 
 		// ⬇️ pakai extractor baru
 		reqMasjid := strings.TrimSpace(extractMasjidIDStrict(c))
-		// (opsional) debug: lihat param yang terbaca
-		// log.Printf("[SCOPE] path=%s params=%v extracted=%q", c.Path(), c.AllParams(), reqMasjid)
 
 		if reqMasjid == "" {
 			return fiber.NewError(fiber.StatusBadRequest, "masjid_id wajib di path atau parameter")

@@ -1,79 +1,87 @@
+-- +migrate Up
 BEGIN;
 
 -- =========================================================
 -- EXTENSIONS (idempotent)
 -- =========================================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
-CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram index ops
+CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram ops (dipakai umum)
 CREATE EXTENSION IF NOT EXISTS btree_gist; -- untuk EXCLUDE constraint
 
 -- =========================================================
--- ENUMS yang DIPAKAI (jangan buat general_billing_kind lagi)
+-- ENUMS (idempotent)
 -- =========================================================
-
--- Scope aturan tarif SPP
 DO $$ BEGIN
   CREATE TYPE spp_fee_scope AS ENUM ('tenant','class_parent','class','section','student');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- Status pembayaran end-to-end
-DO $$ BEGIN
-  CREATE TYPE payment_status AS ENUM (
-    'initiated','pending','awaiting_callback',
-    'paid','partially_refunded','refunded',
-    'failed','canceled','expired'
-  );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
--- Metode pembayaran (abstrak)
-DO $$ BEGIN
-  CREATE TYPE payment_method AS ENUM ('gateway','bank_transfer','cash','qris','other');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
--- Provider gateway (PSP)
-DO $$ BEGIN
-  CREATE TYPE payment_gateway_provider AS ENUM (
-    'midtrans','xendit','tripay','duitku','nicepay','stripe','paypal','other'
-  );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
--- Status pemrosesan event webhook
 DO $$ BEGIN
   CREATE TYPE gateway_event_status AS ENUM ('received','processed','ignored','duplicated','failed');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- =========================================================
--- MASTER: general_billing_kinds (ganti ENUM → tabel)
+-- MASTER: general_billing_kinds
+--  - masjid_id NULL = GLOBAL kind (operasional aplikasi)
+--  - category: 'billing' | 'campaign'
+--  - visibility: 'public' | 'internal'
 -- =========================================================
 CREATE TABLE IF NOT EXISTS general_billing_kinds (
   general_billing_kind_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  general_billing_kind_masjid_id UUID NOT NULL
+  general_billing_kind_masjid_id UUID
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  general_billing_kind_code VARCHAR(60) NOT NULL,   -- e.g. 'registration','book','uniform','donation','event','misc'
-  general_billing_kind_name TEXT NOT NULL,          -- display name (bebas)
+  general_billing_kind_code VARCHAR(60) NOT NULL,
+  general_billing_kind_name TEXT NOT NULL,
   general_billing_kind_desc TEXT,
   general_billing_kind_is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
-  -- (opsional) default amount per kind (fallback)
   general_billing_kind_default_amount_idr INT CHECK (general_billing_kind_default_amount_idr >= 0),
+
+  general_billing_kind_category   VARCHAR(20)
+    CHECK (general_billing_kind_category IN ('billing','campaign')) DEFAULT 'billing',
+  general_billing_kind_is_global  BOOLEAN NOT NULL DEFAULT FALSE,
+  general_billing_kind_visibility VARCHAR(20)
+    CHECK (general_billing_kind_visibility IN ('public','internal')),
 
   general_billing_kind_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   general_billing_kind_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   general_billing_kind_deleted_at TIMESTAMPTZ
 );
 
--- Unik per tenant (alive), case-insensitive
+-- Pastikan kolom masjid_id boleh NULL (GLOBAL)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_name='general_billing_kinds'
+      AND column_name='general_billing_kind_masjid_id'
+      AND is_nullable='NO'
+  ) THEN
+    ALTER TABLE general_billing_kinds
+      ALTER COLUMN general_billing_kind_masjid_id DROP NOT NULL;
+  END IF;
+END$$;
+
+-- Unik per tenant (alive)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_gbk_code_per_tenant_alive
   ON general_billing_kinds (general_billing_kind_masjid_id, LOWER(general_billing_kind_code))
   WHERE general_billing_kind_deleted_at IS NULL;
+
+-- Unik untuk GLOBAL kinds (tanpa masjid)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_gbk_code_global_alive
+  ON general_billing_kinds (LOWER(general_billing_kind_code))
+  WHERE general_billing_kind_deleted_at IS NULL
+    AND general_billing_kind_masjid_id IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_gbk_tenant_active
   ON general_billing_kinds (general_billing_kind_masjid_id, general_billing_kind_is_active)
   WHERE general_billing_kind_deleted_at IS NULL;
 
+  
+
 -- =========================================================
--- SPP fee rules (dengan TIER) — tidak berubah dari versi kamu
+-- SPP fee rules (tiered, dengan overlap guard)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS spp_fee_rules (
   spp_fee_rule_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -155,7 +163,6 @@ CREATE TABLE IF NOT EXISTS spp_fee_rules (
           AND spp_fee_rule_year IS NOT NULL AND spp_fee_rule_month IS NOT NULL)
 );
 
--- (indexes sama seperti versi kamu; disingkat demi ringkas)
 CREATE INDEX IF NOT EXISTS idx_fee_rules_tenant_scope  ON spp_fee_rules (spp_fee_rule_masjid_id, spp_fee_rule_scope);
 CREATE INDEX IF NOT EXISTS idx_fee_rules_term          ON spp_fee_rules (spp_fee_rule_term_id);
 CREATE INDEX IF NOT EXISTS idx_fee_rules_month_year    ON spp_fee_rules (spp_fee_rule_year, spp_fee_rule_month);
@@ -164,7 +171,7 @@ CREATE INDEX IF NOT EXISTS idx_fee_rules_option_code   ON spp_fee_rules (LOWER(s
 CREATE INDEX IF NOT EXISTS idx_fee_rules_is_default    ON spp_fee_rules (spp_fee_rule_is_default);
 
 -- =========================================================
--- SPP billings & user_spp_billings (tetap)
+-- SPP billings & user_spp_billings
 -- =========================================================
 CREATE TABLE IF NOT EXISTS spp_billings (
   spp_billing_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -212,21 +219,23 @@ CREATE TABLE IF NOT EXISTS user_spp_billings (
 );
 
 -- =========================================================
--- GENERAL billings (pakai KINDS table)
+-- GENERAL billings (pakai KINDS table) + snapshots (minimal)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS general_billings (
   general_billing_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  general_billing_masjid_id  UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  general_billing_masjid_id  UUID NOT NULL
+    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
-  -- FK ke master kinds
   general_billing_kind_id    UUID NOT NULL
-    REFERENCES general_billing_kinds(general_billing_kind_id) ON UPDATE CASCADE ON DELETE RESTRICT,
+    REFERENCES general_billing_kinds(general_billing_kind_id)
+    ON UPDATE CASCADE ON DELETE RESTRICT,
 
   general_billing_code       VARCHAR(60),
   general_billing_title      TEXT NOT NULL,
   general_billing_desc       TEXT,
 
+  -- cakupan akademik (opsional)
   general_billing_class_id   UUID REFERENCES classes(class_id) ON DELETE SET NULL,
   general_billing_section_id UUID REFERENCES class_sections(class_section_id) ON DELETE SET NULL,
   general_billing_term_id    UUID REFERENCES academic_terms(academic_term_id) ON DELETE SET NULL,
@@ -235,6 +244,12 @@ CREATE TABLE IF NOT EXISTS general_billings (
   general_billing_is_active  BOOLEAN NOT NULL DEFAULT TRUE,
 
   general_billing_default_amount_idr INT CHECK (general_billing_default_amount_idr >= 0),
+
+  -- snapshots (MINIMAL)
+  general_billing_kind_snapshot    JSONB,  -- {id, code, name}
+  general_billing_class_snapshot   JSONB,  -- {id, name, slug}
+  general_billing_section_snapshot JSONB,  -- {id, name, code}
+  general_billing_term_snapshot    JSONB,  -- {id, academic_year, name, slug}
 
   general_billing_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   general_billing_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -251,6 +266,14 @@ CREATE INDEX IF NOT EXISTS ix_gb_tenant_kind_active_created
 
 CREATE INDEX IF NOT EXISTS ix_gb_due_alive
   ON general_billings (general_billing_due_date)
+  WHERE general_billing_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_gb_kind_alive
+  ON general_billings (general_billing_kind_id)
+  WHERE general_billing_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_gb_term_alive
+  ON general_billings (general_billing_term_id)
   WHERE general_billing_deleted_at IS NULL;
 
 -- =========================================================
@@ -277,10 +300,9 @@ CREATE TABLE IF NOT EXISTS user_general_billings (
   user_general_billing_paid_at       TIMESTAMPTZ,
   user_general_billing_note          TEXT,
 
-  -- snapshots (TEXT, bukan ENUM)
-  user_general_billing_title_snapshot TEXT,
-  user_general_billing_kind_code_snapshot TEXT,
-  user_general_billing_kind_name_snapshot TEXT,
+  user_general_billing_title_snapshot      TEXT,
+  user_general_billing_kind_code_snapshot  TEXT,
+  user_general_billing_kind_name_snapshot  TEXT,
 
   user_general_billing_meta           JSONB,
 
@@ -292,9 +314,4 @@ CREATE TABLE IF NOT EXISTS user_general_billings (
   CONSTRAINT uq_ugb_per_payer   UNIQUE (user_general_billing_billing_id, user_general_billing_payer_user_id)
 );
 
--- =========================================================
--- PAYMENTS & GATEWAY EVENTS (seperti versi kamu; sudah support SPP & General)
--- =========================================================
--- (blok payments + events + triggers tetap — gunakan yang terakhir kamu pakai;
---  tidak diulang di sini agar jawaban tidak kepanjangan)
 COMMIT;

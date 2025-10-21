@@ -20,6 +20,27 @@ import (
 PATCH FIELD — tri-state (absent | null | value)
 =========================================================
 */
+
+/*
+=========================================================
+HELPER: compose class_name (auto, server-side)
+=========================================================
+*/
+
+// ComposeClassNameSpace: "<Parent> <Term>" (tanpa dash). Jika term kosong → "<Parent>".
+func ComposeClassNameSpace(parentName string, termName *string) string {
+	parent := strings.TrimSpace(parentName)
+	if parent == "" {
+		return ""
+	}
+	if termName == nil || strings.TrimSpace(*termName) == "" {
+		return parent
+	}
+	return parent + " " + strings.TrimSpace(*termName)
+}
+
+
+
 type PatchFieldClass[T any] struct {
 	Present bool
 	Value   *T
@@ -43,7 +64,25 @@ func (p PatchFieldClass[T]) Get() (*T, bool) { return p.Value, p.Present }
 
 /*
 =========================================================
+HELPER: compose class_name (auto, server-side)
+=========================================================
+*/
+func ComposeClassName(parentName string, termName *string) string {
+	base := strings.TrimSpace(parentName)
+	if base == "" {
+		return ""
+	}
+	if termName == nil || strings.TrimSpace(*termName) == "" {
+		return base
+	}
+	// Format konsisten: "<Parent Name> — <Term Name>"
+	return base + " — " + strings.TrimSpace(*termName)
+}
+
+/*
+=========================================================
 REQUEST: CREATE — multipart-ready (tanpa pricing)
+NOTE: class_name TIDAK diterima; diisi otomatis server.
 =========================================================
 */
 type CreateClassRequest struct {
@@ -150,9 +189,10 @@ func (r *CreateClassRequest) ToModel() *model.ClassModel {
 	}
 
 	m := &model.ClassModel{
-		ClassMasjidID:             r.ClassMasjidID,
-		ClassParentID:             r.ClassParentID,
-		ClassSlug:                 r.ClassSlug,
+		ClassMasjidID: r.ClassMasjidID,
+		ClassParentID: r.ClassParentID,
+		ClassSlug:     r.ClassSlug,
+		// ClassName akan diisi di service layer via ComposeClassName(...)
 		ClassStartDate:            r.ClassStartDate,
 		ClassEndDate:              r.ClassEndDate,
 		ClassTermID:               r.ClassTermID,
@@ -179,6 +219,7 @@ func (r *CreateClassRequest) ToModel() *model.ClassModel {
 /*
 =========================================================
 REQUEST: PATCH — tri-state (tanpa pricing)
+NOTE: class_name tidak dipatch langsung; auto-recompute.
 =========================================================
 */
 type PatchClassRequest struct {
@@ -365,6 +406,9 @@ func (r *PatchClassRequest) Apply(m *model.ClassModel) {
 	assignStrPtr(&m.ClassImageObjectKey, r.ClassImageObjectKey)
 	assignStrPtr(&m.ClassImageURLOld, r.ClassImageURLOld)
 	assignStrPtr(&m.ClassImageObjectKeyOld, r.ClassImageObjectKeyOld)
+
+	// CATATAN: m.ClassName akan diisi/diupdate di service layer
+	// setelah data parent/term di-resolve.
 }
 
 /*
@@ -380,6 +424,7 @@ type ClassResponse struct {
 
 	// Identitas
 	ClassSlug string `json:"class_slug"`
+	ClassName string `json:"class_name"`
 
 	// Periode & registrasi
 	ClassStartDate *time.Time `json:"class_start_date,omitempty"`
@@ -434,10 +479,12 @@ func FromModel(m *model.ClassModel) ClassResponse {
 		feeMeta = map[string]any(m.ClassFeeMeta)
 	}
 	return ClassResponse{
-		ClassID:                   m.ClassID,
-		ClassMasjidID:             m.ClassMasjidID,
-		ClassParentID:             m.ClassParentID,
-		ClassSlug:                 m.ClassSlug,
+		ClassID:       m.ClassID,
+		ClassMasjidID: m.ClassMasjidID,
+		ClassParentID: m.ClassParentID,
+		ClassSlug:     m.ClassSlug,
+		ClassName:     m.ClassName, // <-- expose ke client
+
 		ClassStartDate:            m.ClassStartDate,
 		ClassEndDate:              m.ClassEndDate,
 		ClassTermID:               m.ClassTermID,

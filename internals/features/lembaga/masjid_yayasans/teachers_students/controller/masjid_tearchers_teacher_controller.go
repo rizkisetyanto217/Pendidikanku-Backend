@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"context"
 	"log"
 	"strings"
 	"time"
@@ -18,32 +19,64 @@ import (
 	yModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/model"
 )
 
-/*
-POST /api/u/:masjid_id/join-teacher
-Body: { "code": "...." }
-Syarat: user login & sudah punya user_teacher (profil guru)
-*/
-/*
-POST /api/u/:masjid_id/join-teacher
-Body: { "code": "...." }
-Syarat: user login & sudah punya user_teacher (profil guru)
-*/
-func (ctrl *MasjidTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
-	// resolve masjid
-	mc, err := helperAuth.ResolveMasjidContext(c)
-	if err != nil {
-		return err
-	}
-	masjidID := mc.ID
-	if masjidID == uuid.Nil && mc.Slug != "" {
-		if id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug); er == nil {
-			masjidID = id
-		}
-	}
-	if masjidID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak ditemukan")
+// ===== ganti struct row-nya biar cocok dgn tabel masjids =====
+type teacherJoinCodeRow struct {
+	MasjidID  uuid.UUID
+	CodeHash  string
+	SetAt     *time.Time
+	IsActive  bool
+	DeletedAt *time.Time
+}
+
+// ===== ganti fungsi lookup kode: dari masjids, bukan masjid_teacher_join_codes =====
+func getMasjidIDFromTeacherCode(ctx context.Context, db *gorm.DB, code string) (uuid.UUID, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "Code wajib diisi")
 	}
 
+	var rows []teacherJoinCodeRow
+	// Ambil kandidat yang:
+	// - punya hash
+	// - aktif & tidak terhapus
+	// (opsional: tambahkan policy kadaluarsa kalau ada)
+	if err := db.WithContext(ctx).Raw(`
+		SELECT
+			masjid_id                       AS masjid_id,
+			masjid_teacher_code_hash        AS code_hash,
+			masjid_teacher_code_set_at      AS set_at,
+			masjid_is_active                AS is_active,
+			masjid_deleted_at               AS deleted_at
+		FROM masjids
+		WHERE masjid_deleted_at IS NULL
+		  AND masjid_is_active = TRUE
+		  AND masjid_teacher_code_hash IS NOT NULL
+		ORDER BY masjid_teacher_code_set_at DESC NULLS LAST, masjid_created_at DESC
+		LIMIT 2000
+	`).Scan(&rows).Error; err != nil {
+		return uuid.Nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi kode")
+	}
+
+	// Bandingkan bcrypt
+	for _, r := range rows {
+		if r.DeletedAt != nil || !r.IsActive || strings.TrimSpace(r.CodeHash) == "" {
+			continue
+		}
+		if bcrypt.CompareHashAndPassword([]byte(strings.TrimSpace(r.CodeHash)), []byte(code)) == nil {
+			return r.MasjidID, nil
+		}
+	}
+
+	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "Kode guru salah atau sudah kadaluarsa")
+}
+
+/*
+POST /api/u/:masjid_id/join-teacher
+Body: { "code": "...." }
+Syarat: user login & sudah punya user_teacher (profil guru)
+*/
+// Handler: masjid_id diambil dari code
+func (ctrl *MasjidTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 	// user dari token
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil || userID == uuid.Nil {
@@ -58,9 +91,11 @@ func (ctrl *MasjidTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Code wajib diisi")
 	}
 
-	// validasi code hash
-	if !checkTeacherCodeValid(ctrl.DB, masjidID, body.Code) {
-		return fiber.NewError(fiber.StatusUnauthorized, "Kode guru salah atau sudah kadaluarsa")
+	// ✅ masjid_id dari code (validasi + cek expiry/revoked)
+	masjidID, err := getMasjidIDFromTeacherCode(c.Context(), ctrl.DB, strings.TrimSpace(body.Code))
+	if err != nil {
+		// err sudah user-friendly
+		return err
 	}
 
 	var created yModel.MasjidTeacherModel
@@ -151,10 +186,9 @@ func (ctrl *MasjidTeacherController) JoinAsTeacherWithCode(c *fiber.Ctx) error {
 			_ = ctrl.Stats.IncActiveTeachers(tx, masjidID, +1)
 		}
 
-		// grant role 'teacher' (idempotent, same package helper)
+		// grant role 'teacher'
 		if err := grantTeacherRole(tx, userID, masjidID); err != nil {
-			log.Printf("[WARN] grant teacher role failed: %v", err) // ✅ benar
-			// tidak fatal
+			log.Printf("[WARN] grant teacher role failed: %v", err)
 		}
 
 		return nil
@@ -174,22 +208,6 @@ func sptr(s string) *string {
 		return nil
 	}
 	return &s
-}
-
-// checkTeacherCodeValid → bandingkan hash dari code dengan masjid.masjid_teacher_code_hash
-func checkTeacherCodeValid(db *gorm.DB, masjidID uuid.UUID, plain string) bool {
-	var hashStr string
-	if err := db.Raw(`
-		SELECT masjid_teacher_code_hash
-		  FROM masjids
-		 WHERE masjid_id = ?
-	`, masjidID).Scan(&hashStr).Error; err != nil {
-		return false
-	}
-	if strings.TrimSpace(hashStr) == "" {
-		return false
-	}
-	return VerifyCodeHash(plain, []byte(hashStr))
 }
 
 // HashCode menghasilkan hash dari kode plain

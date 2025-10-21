@@ -271,13 +271,23 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 		}
 
 		if needRefresh {
+			// Opsional: sekalian recompute class_name dari snapshot parent + term
+			recomputeName := gorm.Expr(
+				"CASE WHEN ? IS NULL OR TRIM(?) = '' "+
+					"THEN COALESCE(class_parent_name_snapshot,'') "+
+					"ELSE COALESCE(class_parent_name_snapshot,'') || ' — ' || ? END",
+				ent.AcademicTermName, ent.AcademicTermName, ent.AcademicTermName,
+			)
+
 			if err := tx.Model(&classmodel.ClassModel{}).
-				Where("class_masjid_id = ? AND class_term_id = ?", masjidID, ent.AcademicTermID).
+				Where("class_masjid_id = ? AND class_term_id = ? AND class_deleted_at IS NULL",
+					masjidID, ent.AcademicTermID).
 				Updates(map[string]any{
-					"class_academic_year_term_snapshot": ent.AcademicTermAcademicYear,
-					"class_name_term_snapshot":          ent.AcademicTermName,
-					"class_slug_term_snapshot":          ent.AcademicTermSlug,
-					"class_angkatan_term_snapshot":      ent.AcademicTermAngkatan,
+					"class_term_academic_year_snapshot": ent.AcademicTermAcademicYear,
+					"class_term_name_snapshot":          ent.AcademicTermName,
+					"class_term_slug_snapshot":          ent.AcademicTermSlug,
+					"class_term_angkatan_snapshot":      ent.AcademicTermAngkatan,
+					"class_name":                        recomputeName, // opsional tapi disarankan
 					"class_updated_at":                  time.Now(),
 				}).Error; err != nil {
 				return httpErr(c, fiber.StatusInternalServerError, "Gagal menyegarkan snapshot kelas")

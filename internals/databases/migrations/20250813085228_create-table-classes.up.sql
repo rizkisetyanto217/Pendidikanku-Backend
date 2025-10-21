@@ -136,6 +136,7 @@ CREATE TABLE IF NOT EXISTS classes (
   class_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   class_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
   class_parent_id UUID NOT NULL,
+  class_name VARCHAR(160),
 
   class_slug      VARCHAR(160) NOT NULL,
 
@@ -252,5 +253,16 @@ CREATE INDEX IF NOT EXISTS idx_classes_image_purge_due
 
 CREATE INDEX IF NOT EXISTS idx_classes_tenant_term
   ON classes (class_masjid_id, class_term_id);
+
+  -- 4) Tambah indeks2
+--    Unik “nama per masjid” untuk yang belum dihapus (opsional; kalau kamu memang mau larang nama duplikat):
+CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_name_per_masjid_alive
+  ON classes (class_masjid_id, LOWER(class_name))
+  WHERE class_deleted_at IS NULL;
+
+--    Trigram buat search nama (opsional, but useful)
+CREATE INDEX IF NOT EXISTS gin_classes_name_trgm_alive
+  ON classes USING GIN (LOWER(class_name) gin_trgm_ops)
+  WHERE class_deleted_at IS NULL;
 
 COMMIT;

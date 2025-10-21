@@ -33,7 +33,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- =========================================
--- TABLE: payments  (tanpa trigger/function)
+-- TABLE: payments  (sudah support FK eksplisit + subject polimorfik)
 -- =========================================
 CREATE TABLE IF NOT EXISTS payments (
   payment_id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -41,11 +41,17 @@ CREATE TABLE IF NOT EXISTS payments (
   payment_masjid_id           UUID REFERENCES masjids(masjid_id) ON DELETE SET NULL,
   payment_user_id             UUID REFERENCES users(id)          ON DELETE SET NULL,
 
+  -- ===== FK EKSPILISIT (by-instance) =====
   -- target billing (SPP atau General)
   payment_user_spp_billing_id     UUID REFERENCES user_spp_billings(user_spp_billing_id) ON DELETE SET NULL,
   payment_spp_billing_id          UUID REFERENCES spp_billings(spp_billing_id)           ON DELETE SET NULL,
   payment_user_general_billing_id UUID REFERENCES user_general_billings(user_general_billing_id) ON DELETE SET NULL,
   payment_general_billing_id      UUID REFERENCES general_billings(general_billing_id)           ON DELETE SET NULL,
+
+  -- ===== SUBJECT POLIMORFIK (tanpa instance) =====
+  -- contoh: general_billing_kind (campaign global/per-masjid), user_subscription
+  payment_subject_type        VARCHAR(40),
+  payment_subject_ref_id      UUID,
 
   -- nominal
   payment_amount_idr          INT NOT NULL CHECK (payment_amount_idr >= 0),
@@ -97,16 +103,24 @@ CREATE TABLE IF NOT EXISTS payments (
     (payment_method IN ('cash','bank_transfer','qris','other') AND payment_gateway_provider IS NULL)
   ),
 
-  -- Wajib pilih salah satu target: SPP XOR General
+  -- Whitelist subject type polimorfik
+  CONSTRAINT chk_payment_subject_type CHECK (
+    payment_subject_type IS NULL
+    OR payment_subject_type IN ('general_billing_kind','general_billing','user_subscription')
+  ),
+
+  -- Pilih salah satu: (FK eksplisit) XOR (subject polimorfik)
   CONSTRAINT ck_payment_target_xor CHECK (
     (
-      (payment_user_spp_billing_id IS NOT NULL OR payment_spp_billing_id IS NOT NULL)
-      AND (payment_user_general_billing_id IS NULL AND payment_general_billing_id IS NULL)
+      (payment_user_spp_billing_id IS NOT NULL OR payment_spp_billing_id IS NOT NULL
+       OR payment_user_general_billing_id IS NOT NULL OR payment_general_billing_id IS NOT NULL)
+      AND payment_subject_type IS NULL AND payment_subject_ref_id IS NULL
     )
     OR
     (
-      (payment_user_general_billing_id IS NOT NULL OR payment_general_billing_id IS NOT NULL)
-      AND (payment_user_spp_billing_id IS NULL AND payment_spp_billing_id IS NULL)
+      (payment_user_spp_billing_id IS NULL AND payment_spp_billing_id IS NULL
+       AND payment_user_general_billing_id IS NULL AND payment_general_billing_id IS NULL)
+      AND payment_subject_type IS NOT NULL AND payment_subject_ref_id IS NOT NULL
     )
   )
 );
@@ -120,8 +134,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_provider_extid_live
   ON payments (payment_gateway_provider, COALESCE(payment_external_id,''))
   WHERE payment_deleted_at IS NULL AND payment_gateway_provider IS NOT NULL AND payment_external_id IS NOT NULL;
 
--- NOTE: kalau ingin mendukung cicilan/lebih dari satu pembayaran 'paid',
--- JANGAN buat unique index di bawah ini. Kalau tetap mau satu 'paid' saja per user billing, aktifkan.
+-- NOTE: kalau ingin 1x paid saja per user billing, aktifkan dua index unik di bawah ini
 -- CREATE UNIQUE INDEX IF NOT EXISTS uq_paid_once_per_usb_live
 --   ON payments (payment_user_spp_billing_id)
 --   WHERE payment_deleted_at IS NULL AND payment_status = 'paid';
@@ -161,7 +174,11 @@ CREATE INDEX IF NOT EXISTS ix_payments_gb_header_live
   ON payments (payment_general_billing_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
--- GIN trigram per-kolom (live only) — gunakan ekspresi + opclass dengan tanda kurung ganda
+-- Lookup subject polimorfik
+CREATE INDEX IF NOT EXISTS ix_payments_subject
+  ON payments (payment_subject_type, payment_subject_ref_id);
+
+-- GIN trigram (live only)
 CREATE INDEX IF NOT EXISTS gin_payments_extid_trgm_live
   ON payments USING GIN ( (COALESCE(payment_external_id,'')) gin_trgm_ops )
   WHERE payment_deleted_at IS NULL;
@@ -178,8 +195,10 @@ CREATE INDEX IF NOT EXISTS gin_payments_desc_trgm_live
   ON payments USING GIN ( (COALESCE(payment_description,'')) gin_trgm_ops )
   WHERE payment_deleted_at IS NULL;
 
+
+
 -- =========================================
--- TABLE: payment_gateway_events (tanpa trigger/function)
+-- TABLE: payment_gateway_events
 -- =========================================
 CREATE TABLE IF NOT EXISTS payment_gateway_events (
   gateway_event_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -234,7 +253,6 @@ CREATE INDEX IF NOT EXISTS gin_gw_events_headers_live
   ON payment_gateway_events USING GIN (gateway_event_headers)
   WHERE gateway_event_deleted_at IS NULL;
 
--- GIN trigram per-kolom (live only)
 CREATE INDEX IF NOT EXISTS gin_gw_events_extref_trgm_live
   ON payment_gateway_events USING GIN ( (COALESCE(gateway_event_external_ref,'')) gin_trgm_ops )
   WHERE gateway_event_deleted_at IS NULL;

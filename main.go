@@ -28,8 +28,7 @@ import (
 
 	helperAuth "masjidku_backend/internals/helpers/auth"
 	middlewares "masjidku_backend/internals/middlewares"
-
-
+	payctl "masjidku_backend/internals/features/finance/payments/controller"
 )
 
 func main() {
@@ -41,18 +40,18 @@ func main() {
 
 	app := buildApp()
 
-	// === Webhook Midtrans (PUBLIC, tanpa auth) ===
-	// donationCtrl := donationController.NewDonationController(db)
+	// === PUBLIC: Midtrans webhook (payments) — tanpa middleware apapun ===
+	midtransServerKey := os.Getenv("MIDTRANS_SERVER_KEY")
+	useProd := strings.EqualFold(os.Getenv("MIDTRANS_USE_PROD"), "true")
+	paymentWebhookCtrl := payctl.NewPaymentController(db, midtransServerKey, useProd)
 
-	// GET untuk tombol "Test notification URL" di dashboard Midtrans
-	// app.Get("/public/donations/midtrans/webhook", donationCtrl.MidtransWebhookPing)
+	// (opsional) GET ping buat test dari dashboard Midtrans
+	app.Get("/public/payments/midtrans/webhook", func(c *fiber.Ctx) error {
+		return c.SendString("ok")
+	})
 
-	// // POST untuk notifikasi transaksi (akan update status paid/expired/dll)
-	// app.Post("/public/donations/midtrans/webhook", donationCtrl.HandleMidtransNotification)
-
-	// if err := helperAuth.EnsureSchema(db); err != nil {
-	// 	log.Fatalf("ensure blacklist schema: %v", err)
-	// }
+	// POST notifikasi transaksi (akan update status)
+	app.Post("/public/payments/midtrans/webhook", paymentWebhookCtrl.MidtransWebhook)
 
 	// ✅ Auth middleware dengan guard: jangan halangi OPTIONS & /api/auth/*
 	app.Use(func(c *fiber.Ctx) error {
@@ -62,9 +61,10 @@ func main() {
 		p := c.Path()
 		if strings.HasPrefix(p, "/health") ||
 			strings.HasPrefix(p, "/api/auth/") ||
-			strings.HasPrefix(p, "/public/donations/midtrans/webhook") { // 👈 whitelist webhook
+			strings.HasPrefix(p, "/public/payments/midtrans/webhook") { // ✅ whitelist baru
 			return c.Next()
 		}
+
 		return helperAuth.MiddlewareBlacklistOnly(db, os.Getenv("JWT_SECRET"))(c)
 	})
 
