@@ -358,7 +358,7 @@ func UseMasjidScope() fiber.Handler {
 		p := strings.TrimRight(strings.ToLower(strings.TrimSpace(c.Path())), "/")
 
 		// 1) join user-class-sections (sudah ada)
-		if c.Method() == fiber.MethodPost && p == "/api/u/user-class-sections/join" {
+		if c.Method() == fiber.MethodPost && p == "/api/u/student-class-sections/join" {
 			return c.Next()
 		}
 

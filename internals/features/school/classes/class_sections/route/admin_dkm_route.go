@@ -44,13 +44,13 @@ func ClassSectionAdminRoutes(api fiber.Router, db *gorm.DB) {
 	base.Delete("/:masjid_id/student-class-sections/:id", ucsH.Delete)
 
 	// ========== 3) PATH-SCOPED by masjid_slug ==========
-	base.Post("/m/:masjid_slug/class-sections", sectionH.CreateClassSection)
-	base.Patch("/m/:masjid_slug/class-sections/:id", sectionH.UpdateClassSection)
-	base.Delete("/m/:masjid_slug/class-sections/:id", sectionH.SoftDeleteClassSection)
+	// base.Post("/m/:masjid_slug/class-sections", sectionH.CreateClassSection)
+	// base.Patch("/m/:masjid_slug/class-sections/:id", sectionH.UpdateClassSection)
+	// base.Delete("/m/:masjid_slug/class-sections/:id", sectionH.SoftDeleteClassSection)
 
-	base.Post("/m/:masjid_slug/student-class-sections", ucsH.Create)
-	base.Patch("/m/:masjid_slug/student-class-sections/:id", ucsH.Patch)
-	base.Delete("/m/:masjid_slug/student-class-sections/:id", ucsH.Delete)
+	// base.Post("/m/:masjid_slug/student-class-sections", ucsH.Create)
+	// base.Patch("/m/:masjid_slug/student-class-sections/:id", ucsH.Patch)
+	// base.Delete("/m/:masjid_slug/student-class-sections/:id", ucsH.Delete)
 
 	// ========== 4) JOIN-CODE (GENERIC) ==========
 	base.Get("/class-sections/:id/join-code/student", sectionH.GetStudentJoinCode)
@@ -69,11 +69,11 @@ func ClassSectionAdminRoutes(api fiber.Router, db *gorm.DB) {
 	base.Post("/:masjid_id/class-sections/:id/join-code/teacher/rotate", sectionH.RotateTeacherJoinCode)
 
 	// ========== 6) JOIN-CODE (PATH-SCOPED by masjid_slug) ==========
-	base.Get("/m/:masjid_slug/class-sections/:id/join-code/student", sectionH.GetStudentJoinCode)
-	base.Get("/m/:masjid_slug/class-sections/:id/join-code/teacher", sectionH.GetTeacherJoinCode)
-	base.Get("/m/:masjid_slug/class-sections/:id/join-codes", sectionH.GetJoinCodes)
+	// base.Get("/m/:masjid_slug/class-sections/:id/join-code/student", sectionH.GetStudentJoinCode)
+	// base.Get("/m/:masjid_slug/class-sections/:id/join-code/teacher", sectionH.GetTeacherJoinCode)
+	// base.Get("/m/:masjid_slug/class-sections/:id/join-codes", sectionH.GetJoinCodes)
 
-	base.Post("/m/:masjid_slug/class-sections/:id/join-code/student/rotate", sectionH.RotateStudentJoinCode)
-	base.Post("/m/:masjid_slug/class-sections/:id/join-code/teacher/rotate", sectionH.RotateTeacherJoinCode)
+	// base.Post("/m/:masjid_slug/class-sections/:id/join-code/student/rotate", sectionH.RotateStudentJoinCode)
+	// base.Post("/m/:masjid_slug/class-sections/:id/join-code/teacher/rotate", sectionH.RotateTeacherJoinCode)
 
 }

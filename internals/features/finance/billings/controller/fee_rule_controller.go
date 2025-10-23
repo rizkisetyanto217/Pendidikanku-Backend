@@ -272,62 +272,6 @@ func (h *Handler) UpdateBillBatch(c *fiber.Ctx) error {
    STUDENT BILLS (AUTHORIZED + TENANT-SCOPED)
 ======================================================= */
 
-// GET /:masjid_id/spp/student-bills
-func (h *Handler) ListStudentBills(c *fiber.Ctx) error {
-	masjidID, err := mustMasjidID(c)
-	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "invalid masjid_id")
-	}
-	if err := helperAuth.EnsureMemberMasjid(c, masjidID); err != nil {
-		return err
-	}
-
-	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
-	offset := (p.Page - 1) * p.PerPage
-
-	q := h.DB.Model(&billing.StudentBill{}).
-		Where("student_bill_deleted_at IS NULL").
-		Where("student_bill_masjid_id = ?", masjidID)
-
-	if b := c.Query("batch_id"); b != "" {
-		if id, err := uuid.Parse(b); err == nil {
-			q = q.Where("student_bill_batch_id = ?", id)
-		}
-	}
-	if oc := c.Query("option_code"); oc != "" {
-		q = q.Where("LOWER(student_bill_option_code) = ?", strings.ToLower(oc))
-	}
-	if st := c.Query("status"); st != "" {
-		q = q.Where("student_bill_status = ?", st) // unpaid|paid|canceled
-	}
-
-	allowed := map[string]string{
-		"created_at": "student_bill_created_at",
-		"updated_at": "student_bill_updated_at",
-		"amount":     "student_bill_amount_idr",
-		"status":     "student_bill_status",
-	}
-	orderClause, _ := p.SafeOrderClause(allowed, "created_at")
-
-	var total int64
-	if err := q.Count(&total).Error; err != nil {
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
-	}
-
-	var list []billing.StudentBill
-	listQ := q.Order(orderClause)
-	if !p.All {
-		listQ = listQ.Limit(p.Limit()).Offset(offset)
-	}
-	if err := listQ.Find(&list).Error; err != nil {
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
-	}
-
-	out := dto.ToStudentBillResponses(list)
-	meta := helper.BuildMeta(total, p)
-	return helper.JsonList(c, out, meta)
-}
-
 // GET /:masjid_id/spp/student-bills/:id
 func (h *Handler) GetStudentBill(c *fiber.Ctx) error {
 	masjidID, err := mustMasjidID(c)

@@ -15,14 +15,16 @@ import (
 	"masjidku_backend/internals/features/finance/billings/dto"
 	billing "masjidku_backend/internals/features/finance/billings/model"
 	helper "masjidku_backend/internals/helpers"
+	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
 type StudentBillHandler struct {
 	DB *gorm.DB
 }
 
+// --- helpers lokal ---
+
 func buildOrderClause(p helper.Params) string {
-	// whitelist sortable keys → kolom fisik
 	allowed := map[string]string{
 		"created_at": "student_bill_created_at",
 		"updated_at": "student_bill_updated_at",
@@ -35,34 +37,31 @@ func buildOrderClause(p helper.Params) string {
 		col = allowed["created_at"]
 	}
 	dir := "DESC"
-	if strings.ToLower(p.SortOrder) == "asc" {
+	if strings.EqualFold(p.SortOrder, "asc") {
 		dir = "ASC"
 	}
 	return fmt.Sprintf("%s %s", col, dir)
 }
 
 // -----------------------------------------
-// List (GET /student-bills)
-// Query filters (opsional):
-// - masjid_id, batch_id, student_id, payer_user_id
-// - option_code, status
-// - paid: true|false
-// - amount_min, amount_max (int)
-// - date_from, date_to (filter created_at)
-// - sort_by (created_at|updated_at|amount|status|paid_at), order (asc|desc)
-// - page, per_page
+// List (GET /:masjid_id/spp/student-bills)
 // -----------------------------------------
 func (h *StudentBillHandler) List(c *fiber.Ctx) error {
+	masjidID, err := mustMasjidID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+	}
+	// read-only access untuk semua anggota masjid
+	if err := helperAuth.EnsureMemberMasjid(c, masjidID); err != nil {
+		return err
+	}
+
 	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
 
 	q := h.DB.Model(&billing.StudentBill{}).
-		Where("student_bill_deleted_at IS NULL")
+		Where("student_bill_deleted_at IS NULL").
+		Where("student_bill_masjid_id = ?", masjidID) // ← tenant scope
 
-	if v := c.Query("masjid_id"); v != "" {
-		if id, err := uuid.Parse(v); err == nil {
-			q = q.Where("student_bill_masjid_id = ?", id)
-		}
-	}
 	if v := c.Query("batch_id"); v != "" {
 		if id, err := uuid.Parse(v); err == nil {
 			q = q.Where("student_bill_batch_id = ?", id)
@@ -81,28 +80,22 @@ func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 	if v := c.Query("option_code"); v != "" {
 		q = q.Where("LOWER(student_bill_option_code) = ?", strings.ToLower(v))
 	}
-	if v := c.Query("status"); v != "" {
-		// unpaid|paid|canceled
+	if v := c.Query("status"); v != "" { // unpaid|paid|canceled
 		q = q.Where("student_bill_status = ?", v)
 	}
-	// paid=true/false → terjemahkan ke paid_at NULL / NOT NULL
-	if v := c.Query("paid"); v != "" {
+	if v := c.Query("paid"); v != "" { // paid=true|false
 		if strings.EqualFold(v, "true") {
 			q = q.Where("student_bill_paid_at IS NOT NULL")
 		} else if strings.EqualFold(v, "false") {
 			q = q.Where("student_bill_paid_at IS NULL")
 		}
 	}
-
-	// amount range
 	if v := c.QueryInt("amount_min"); v > 0 {
 		q = q.Where("student_bill_amount_idr >= ?", v)
 	}
 	if v := c.QueryInt("amount_max"); v > 0 {
 		q = q.Where("student_bill_amount_idr <= ?", v)
 	}
-
-	// date range (created_at)
 	if v := c.Query("date_from"); v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
 			q = q.Where("student_bill_created_at >= ?", t)
@@ -114,13 +107,11 @@ func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// count
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// data
 	var list []billing.StudentBill
 	if err := q.
 		Order(buildOrderClause(p)).
@@ -136,13 +127,55 @@ func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 }
 
 // -----------------------------------------
-// Create (POST /student-bills)
+// Get (GET /:masjid_id/spp/student-bills/:id)
+// -----------------------------------------
+func (h *StudentBillHandler) Get(c *fiber.Ctx) error {
+	masjidID, err := mustMasjidID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+	}
+	if err := helperAuth.EnsureMemberMasjid(c, masjidID); err != nil {
+		return err
+	}
+
+	id, err := parseUUIDParam(c, "id")
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
+	}
+
+	var m billing.StudentBill
+	if err := h.DB.First(&m,
+		"student_bill_id = ? AND student_bill_masjid_id = ? AND student_bill_deleted_at IS NULL",
+		id, masjidID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "student_bill not found")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return helper.JsonOK(c, "ok", dto.ToStudentBillResponse(m))
+}
+
+// -----------------------------------------
+// Create (POST /:masjid_id/spp/student-bills)
 // -----------------------------------------
 func (h *StudentBillHandler) Create(c *fiber.Ctx) error {
+	masjidID, err := mustMasjidID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+	}
+	// write: staff only
+	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
+		return err
+	}
+
 	var in dto.StudentBillCreateDTO
 	if err := c.BodyParser(&in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json")
 	}
+
+	// Paksa tenant dari path (abaikan body)
+	in.StudentBillMasjidID = masjidID
+
 	m := dto.StudentBillCreateDTOToModel(in)
 	if err := h.DB.Create(&m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
@@ -151,24 +184,37 @@ func (h *StudentBillHandler) Create(c *fiber.Ctx) error {
 }
 
 // -----------------------------------------
-// Update (PATCH /student-bills/:id)
+// Update (PATCH /:masjid_id/spp/student-bills/:id)
 // -----------------------------------------
 func (h *StudentBillHandler) Update(c *fiber.Ctx) error {
+	masjidID, err := mustMasjidID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+	}
+	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
+		return err
+	}
+
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
 	}
+
 	var in dto.StudentBillUpdateDTO
 	if err := c.BodyParser(&in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json")
 	}
+
 	var m billing.StudentBill
-	if err := h.DB.First(&m, "student_bill_id = ?", id).Error; err != nil {
+	if err := h.DB.First(&m,
+		"student_bill_id = ? AND student_bill_masjid_id = ? AND student_bill_deleted_at IS NULL",
+		id, masjidID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "student_bill not found")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
+
 	dto.ApplyStudentBillUpdate(&m, in)
 	if err := h.DB.Save(&m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
@@ -177,20 +223,32 @@ func (h *StudentBillHandler) Update(c *fiber.Ctx) error {
 }
 
 // -----------------------------------------
-// Delete (DELETE /student-bills/:id) — soft delete
+// Delete (DELETE /:masjid_id/spp/student-bills/:id) — soft delete
 // -----------------------------------------
 func (h *StudentBillHandler) Delete(c *fiber.Ctx) error {
+	masjidID, err := mustMasjidID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+	}
+	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
+		return err
+	}
+
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
 	}
+
 	var m billing.StudentBill
-	if err := h.DB.First(&m, "student_bill_id = ?", id).Error; err != nil {
+	if err := h.DB.First(&m,
+		"student_bill_id = ? AND student_bill_masjid_id = ? AND student_bill_deleted_at IS NULL",
+		id, masjidID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "student_bill not found")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
+
 	if err := h.DB.Delete(&m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
@@ -198,20 +256,31 @@ func (h *StudentBillHandler) Delete(c *fiber.Ctx) error {
 }
 
 // -----------------------------------------
-// Status: Mark Paid (POST /student-bills/:id/mark-paid)
+// Status: Mark Paid (POST /:masjid_id/spp/student-bills/:id/mark-paid)
 // -----------------------------------------
 func (h *StudentBillHandler) MarkPaid(c *fiber.Ctx) error {
+	masjidID, err := mustMasjidID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+	}
+	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
+		return err
+	}
+
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
 	}
+
 	var in dto.StudentBillMarkPaidDTO
 	if err := c.BodyParser(&in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json")
 	}
 
 	var m billing.StudentBill
-	if err := h.DB.First(&m, "student_bill_id = ?", id).Error; err != nil {
+	if err := h.DB.First(&m,
+		"student_bill_id = ? AND student_bill_masjid_id = ? AND student_bill_deleted_at IS NULL",
+		id, masjidID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "student_bill not found")
 		}
@@ -233,20 +302,31 @@ func (h *StudentBillHandler) MarkPaid(c *fiber.Ctx) error {
 }
 
 // -----------------------------------------
-// Status: Mark Unpaid (POST /student-bills/:id/mark-unpaid)
+// Status: Mark Unpaid (POST /:masjid_id/spp/student-bills/:id/mark-unpaid)
 // -----------------------------------------
 func (h *StudentBillHandler) MarkUnpaid(c *fiber.Ctx) error {
+	masjidID, err := mustMasjidID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+	}
+	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
+		return err
+	}
+
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
 	}
+
 	var in dto.StudentBillMarkUnpaidDTO
 	if err := c.BodyParser(&in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json")
 	}
 
 	var m billing.StudentBill
-	if err := h.DB.First(&m, "student_bill_id = ?", id).Error; err != nil {
+	if err := h.DB.First(&m,
+		"student_bill_id = ? AND student_bill_masjid_id = ? AND student_bill_deleted_at IS NULL",
+		id, masjidID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "student_bill not found")
 		}
@@ -264,20 +344,31 @@ func (h *StudentBillHandler) MarkUnpaid(c *fiber.Ctx) error {
 }
 
 // -----------------------------------------
-// Status: Cancel (POST /student-bills/:id/cancel)
+// Status: Cancel (POST /:masjid_id/spp/student-bills/:id/cancel)
 // -----------------------------------------
 func (h *StudentBillHandler) Cancel(c *fiber.Ctx) error {
+	masjidID, err := mustMasjidID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+	}
+	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
+		return err
+	}
+
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
 	}
+
 	var in dto.StudentBillCancelDTO
 	if err := c.BodyParser(&in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json")
 	}
 
 	var m billing.StudentBill
-	if err := h.DB.First(&m, "student_bill_id = ?", id).Error; err != nil {
+	if err := h.DB.First(&m,
+		"student_bill_id = ? AND student_bill_masjid_id = ? AND student_bill_deleted_at IS NULL",
+		id, masjidID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "student_bill not found")
 		}

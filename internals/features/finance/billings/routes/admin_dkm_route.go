@@ -40,8 +40,6 @@ func BillingsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 		// =========================
 		// Student Bills (list/detail + status actions)
 		// =========================
-		grp.Get("/student-bills", h.ListStudentBills)
-		grp.Get("/student-bills/:id", h.GetStudentBill)
 
 		grp.Post("/student-bills/:id/mark-paid", h.MarkStudentBillPaid)
 		grp.Post("/student-bills/:id/mark-unpaid", h.MarkStudentBillUnpaid)
