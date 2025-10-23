@@ -24,12 +24,4 @@ func SurveyAdminRoutes(api fiber.Router, db *gorm.DB) {
 	adminOrOwner.Put("/:id", surveyQuestionCtrl.Update)
 	adminOrOwner.Delete("/:id", surveyQuestionCtrl.Delete)
 
-	// (Opsional) Sub-group khusus owner untuk aksi sangat sensitif
-	// ownerOnly := api.Group("/survey-questions",
-	// 	authMiddleware.OnlyRolesSlice(
-	// 		constants.RoleErrorOwner("aksi ini khusus owner"),
-	// 		constants.OwnerOnly,
-	// 	),
-	// )
-	// ownerOnly.Post("/import", surveyQuestionCtrl.BulkImport)
 }

@@ -17,8 +17,6 @@ func AdminGeneralBillingRoutes(r fiber.Router, db *gorm.DB) {
 		gb.Post("/", gbCtl.Create)
 		gb.Patch("/:id", gbCtl.Patch)
 		gb.Delete("/:id", gbCtl.Delete)
-		gb.Get("/:id", gbCtl.GetByID)
-		gb.Get("/", gbCtl.List) // bisa tambahkan ?include_global=false (default)
 	}
 
 	kindCtl := gbController.NewGeneralBillingKindController(db)

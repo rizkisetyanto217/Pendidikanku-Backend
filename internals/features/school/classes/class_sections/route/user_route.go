@@ -12,14 +12,14 @@ import (
 
 func ClassSectionUserRoutes(admin fiber.Router, db *gorm.DB) {
 	sectionH := sectionctrl.NewClassSectionController(db)
-	ucsH := sectionctrl.NewUserClassSectionController(db)
+	ucsH := sectionctrl.NewStudentClassSectionController(db)
 
 	// ================== PUBLIC (READ-ONLY) ==================
 	pub := admin.Group("/:masjid_id/class-sections")
 	pub.Get("/list", sectionH.ListClassSections)
 
 	// ================== USER (scoped by masjid_id in path) ==================
-	user := admin.Group("/:masjid_id/user-class-sections")
+	user := admin.Group("/:masjid_id/student-class-sections")
 	user.Get("/list", ucsH.ListMine)
 	user.Get("/detail/:id", ucsH.GetDetail)
 	user.Post("/", ucsH.Create)

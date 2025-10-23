@@ -21,15 +21,15 @@ func AttendanceSessionsUserRoutes(r fiber.Router, db *gorm.DB) {
 	attendanceSessionGroup.Get("/list", attendanceSessionController.ListClassAttendanceSessions) // GET /:masjid_id/sessions/list
 
 	// User Attendance (read-only + CRUD untuk user)
-	ua := uaCtrl.NewUserAttendanceController(db)
-	uaGroup := masjidGroup.Group("/user-sessions")
+	ua := uaCtrl.NewStudentAttendanceController(db)
+	uaGroup := masjidGroup.Group("/student-sessions")
 	uaGroup.Get("/list", ua.List)
 	uaGroup.Post("/", ua.CreateWithURLs) // POST /:masjid_id/user-sessions
 	uaGroup.Patch("/:id", ua.Patch)      // PATCH /:masjid_id/user-sessions/:id
 	uaGroup.Delete("/:id", ua.Delete)
 
 	// User Attendance Types (read-only)
-	uattCtl := uaCtrl.NewUserAttendanceTypeController(db)
-	uatt := masjidGroup.Group("/user-attendance-types")
+	uattCtl := uaCtrl.NewStudentAttendanceTypeController(db)
+	uatt := masjidGroup.Group("/student-attendance-types")
 	uatt.Get("/", uattCtl.List)
 }

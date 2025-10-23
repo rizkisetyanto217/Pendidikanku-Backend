@@ -247,82 +247,83 @@ COMMIT;
 
 
 
+
 -- +migrate Up
 BEGIN;
 
 -- =========================================================
--- TABLE: user_class_section_subject_teachers (UC SST)
--- Fokus: mapping siswa ↔ guru (CSST) + nilai + history intervensi
+-- TABLE: student_class_section_subject_teachers (SC SST)
+-- Fokus: mapping student ↔ guru (CSST) + nilai + history intervensi
 -- =========================================================
-CREATE TABLE IF NOT EXISTS user_class_section_subject_teachers (
-  user_class_section_subject_teacher_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_class_section_subject_teacher_masjid_id UUID NOT NULL
+CREATE TABLE IF NOT EXISTS student_class_section_subject_teachers (
+  student_class_section_subject_teacher_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  student_class_section_subject_teacher_masjid_id UUID NOT NULL
     REFERENCES masjids(masjid_id) ON DELETE CASCADE,
 
   -- Anchor hubungan
-  user_class_section_subject_teacher_student_id UUID NOT NULL,
-  user_class_section_subject_teacher_csst_id    UUID NOT NULL,
+  student_class_section_subject_teacher_student_id UUID NOT NULL,
+  student_class_section_subject_teacher_csst_id    UUID NOT NULL,
 
   -- Status mapping
-  user_class_section_subject_teacher_is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  user_class_section_subject_teacher_from DATE,
-  user_class_section_subject_teacher_to   DATE,
+  student_class_section_subject_teacher_is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  student_class_section_subject_teacher_from DATE,
+  student_class_section_subject_teacher_to   DATE,
 
-  -- Nilai terbaru (untuk akses cepat)
-  user_class_section_subject_teacher_score_total     NUMERIC(6,2),
-  user_class_section_subject_teacher_score_max_total NUMERIC(6,2) DEFAULT 100,
-  user_class_section_subject_teacher_score_percent   NUMERIC(5,2)
+  -- Nilai terbaru (opsional untuk akses cepat)
+  student_class_section_subject_teacher_score_total     NUMERIC(6,2),
+  student_class_section_subject_teacher_score_max_total NUMERIC(6,2) DEFAULT 100,
+  student_class_section_subject_teacher_score_percent   NUMERIC(5,2)
     GENERATED ALWAYS AS (
       CASE
-        WHEN user_class_section_subject_teacher_score_total IS NULL
-          OR user_class_section_subject_teacher_score_max_total IS NULL
-          OR user_class_section_subject_teacher_score_max_total = 0
+        WHEN student_class_section_subject_teacher_score_total IS NULL
+          OR student_class_section_subject_teacher_score_max_total IS NULL
+          OR student_class_section_subject_teacher_score_max_total = 0
         THEN NULL
         ELSE ROUND(
-          (user_class_section_subject_teacher_score_total
-           / user_class_section_subject_teacher_score_max_total) * 100.0, 2
+          (student_class_section_subject_teacher_score_total
+           / student_class_section_subject_teacher_score_max_total) * 100.0, 2
         )
       END
     ) STORED,
-  user_class_section_subject_teacher_grade_letter VARCHAR(8),
-  user_class_section_subject_teacher_grade_point  NUMERIC(3,2),
-  user_class_section_subject_teacher_is_passed    BOOLEAN,
+  student_class_section_subject_teacher_grade_letter VARCHAR(8),
+  student_class_section_subject_teacher_grade_point  NUMERIC(3,2),
+  student_class_section_subject_teacher_is_passed    BOOLEAN,
 
   -- Snapshot users_profile (per siswa saat enrol ke CSST)
-  user_class_section_subject_teacher_user_profile_name_snapshot                VARCHAR(80),
-  user_class_section_subject_teacher_user_profile_avatar_url_snapshot          VARCHAR(255),
-  user_class_section_subject_teacher_user_profile_whatsapp_url_snapshot        VARCHAR(50),
-  user_class_section_subject_teacher_user_profile_parent_name_snapshot         VARCHAR(80),
-  user_class_section_subject_teacher_user_profile_parent_whatsapp_url_snapshot VARCHAR(50),
+  student_class_section_subject_teacher_user_profile_name_snapshot                VARCHAR(80),
+  student_class_section_subject_teacher_user_profile_avatar_url_snapshot          VARCHAR(255),
+  student_class_section_subject_teacher_user_profile_whatsapp_url_snapshot        VARCHAR(50),
+  student_class_section_subject_teacher_user_profile_parent_name_snapshot         VARCHAR(80),
+  student_class_section_subject_teacher_user_profile_parent_whatsapp_url_snapshot VARCHAR(50),
 
   -- Riwayat intervensi/remedial (JSONB append-only)
-  user_class_section_subject_teacher_edits_history JSONB NOT NULL DEFAULT '[]'::jsonb,
-  CONSTRAINT ck_ucsst_edits_history_is_array CHECK (
-    jsonb_typeof(user_class_section_subject_teacher_edits_history) = 'array'
+  student_class_section_subject_teacher_edits_history JSONB NOT NULL DEFAULT '[]'::jsonb,
+  CONSTRAINT ck_scsst_edits_history_is_array CHECK (
+    jsonb_typeof(student_class_section_subject_teacher_edits_history) = 'array'
   ),
 
   -- Admin & meta
-  user_class_section_subject_teacher_slug VARCHAR(160),
-  user_class_section_subject_teacher_meta JSONB NOT NULL DEFAULT '{}'::jsonb,
-  CONSTRAINT ck_ucsst_meta_is_object CHECK (
-    jsonb_typeof(user_class_section_subject_teacher_meta) = 'object'
+  student_class_section_subject_teacher_slug VARCHAR(160),
+  student_class_section_subject_teacher_meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+  CONSTRAINT ck_scsst_meta_is_object CHECK (
+    jsonb_typeof(student_class_section_subject_teacher_meta) = 'object'
   ),
 
   -- Audit & soft delete
-  user_class_section_subject_teacher_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  user_class_section_subject_teacher_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  user_class_section_subject_teacher_deleted_at TIMESTAMPTZ,
+  student_class_section_subject_teacher_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  student_class_section_subject_teacher_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  student_class_section_subject_teacher_deleted_at TIMESTAMPTZ,
 
   -- ===== Tenant-safe FKs =====
-  CONSTRAINT fk_ucsst_student_tenant FOREIGN KEY (
-    user_class_section_subject_teacher_student_id,
-    user_class_section_subject_teacher_masjid_id
+  CONSTRAINT fk_scsst_student_tenant FOREIGN KEY (
+    student_class_section_subject_teacher_student_id,
+    student_class_section_subject_teacher_masjid_id
   ) REFERENCES masjid_students (masjid_student_id, masjid_student_masjid_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
-  CONSTRAINT fk_ucsst_csst_tenant FOREIGN KEY (
-    user_class_section_subject_teacher_csst_id,
-    user_class_section_subject_teacher_masjid_id
+  CONSTRAINT fk_scsst_csst_tenant FOREIGN KEY (
+    student_class_section_subject_teacher_csst_id,
+    student_class_section_subject_teacher_masjid_id
   ) REFERENCES class_section_subject_teachers (
         class_section_subject_teacher_id,
         class_section_subject_teacher_masjid_id
@@ -330,60 +331,59 @@ CREATE TABLE IF NOT EXISTS user_class_section_subject_teachers (
     ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
-
 -- =========================================================
 -- INDEXES
 -- =========================================================
 
 -- Pair unik id+tenant
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ucsst_id_tenant
-  ON user_class_section_subject_teachers (
-    user_class_section_subject_teacher_id,
-    user_class_section_subject_teacher_masjid_id
+CREATE UNIQUE INDEX IF NOT EXISTS uq_scsst_id_tenant
+  ON student_class_section_subject_teachers (
+    student_class_section_subject_teacher_id,
+    student_class_section_subject_teacher_masjid_id
   );
 
 -- Satu mapping aktif per (student × CSST)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ucsst_one_active_per_student_csst_alive
-  ON user_class_section_subject_teachers (
-    user_class_section_subject_teacher_masjid_id,
-    user_class_section_subject_teacher_student_id,
-    user_class_section_subject_teacher_csst_id
+CREATE UNIQUE INDEX IF NOT EXISTS uq_scsst_one_active_per_student_csst_alive
+  ON student_class_section_subject_teachers (
+    student_class_section_subject_teacher_masjid_id,
+    student_class_section_subject_teacher_student_id,
+    student_class_section_subject_teacher_csst_id
   )
-  WHERE user_class_section_subject_teacher_deleted_at IS NULL
-    AND user_class_section_subject_teacher_is_active = TRUE;
+  WHERE student_class_section_subject_teacher_deleted_at IS NULL
+    AND student_class_section_subject_teacher_is_active = TRUE;
 
 -- Optional slug per tenant
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ucsst_slug_per_tenant_alive
-  ON user_class_section_subject_teachers (
-    user_class_section_subject_teacher_masjid_id,
-    lower(user_class_section_subject_teacher_slug)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_scsst_slug_per_tenant_alive
+  ON student_class_section_subject_teachers (
+    student_class_section_subject_teacher_masjid_id,
+    lower(student_class_section_subject_teacher_slug)
   )
-  WHERE user_class_section_subject_teacher_deleted_at IS NULL
-    AND user_class_section_subject_teacher_slug IS NOT NULL;
+  WHERE student_class_section_subject_teacher_deleted_at IS NULL
+    AND student_class_section_subject_teacher_slug IS NOT NULL;
 
 -- Index umum
-CREATE INDEX IF NOT EXISTS idx_ucsst_masjid_alive
-  ON user_class_section_subject_teachers (user_class_section_subject_teacher_masjid_id)
-  WHERE user_class_section_subject_teacher_deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_scsst_masjid_alive
+  ON student_class_section_subject_teachers (student_class_section_subject_teacher_masjid_id)
+  WHERE student_class_section_subject_teacher_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_ucsst_student_alive
-  ON user_class_section_subject_teachers (user_class_section_subject_teacher_student_id)
-  WHERE user_class_section_subject_teacher_deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_scsst_student_alive
+  ON student_class_section_subject_teachers (student_class_section_subject_teacher_student_id)
+  WHERE student_class_section_subject_teacher_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_ucsst_csst_alive
-  ON user_class_section_subject_teachers (user_class_section_subject_teacher_csst_id)
-  WHERE user_class_section_subject_teacher_deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_scsst_csst_alive
+  ON student_class_section_subject_teachers (student_class_section_subject_teacher_csst_id)
+  WHERE student_class_section_subject_teacher_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_ucsst_active_alive
-  ON user_class_section_subject_teachers (user_class_section_subject_teacher_is_active)
-  WHERE user_class_section_subject_teacher_deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_scsst_active_alive
+  ON student_class_section_subject_teachers (student_class_section_subject_teacher_is_active)
+  WHERE student_class_section_subject_teacher_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS brin_ucsst_created_at
-  ON user_class_section_subject_teachers USING BRIN (user_class_section_subject_teacher_created_at);
+CREATE INDEX IF NOT EXISTS brin_scsst_created_at
+  ON student_class_section_subject_teachers USING BRIN (student_class_section_subject_teacher_created_at);
 
 -- GIN optional untuk query di history JSONB
-CREATE INDEX IF NOT EXISTS gin_ucsst_edits_history
-  ON user_class_section_subject_teachers
-  USING GIN (user_class_section_subject_teacher_edits_history jsonb_path_ops);
+CREATE INDEX IF NOT EXISTS gin_scsst_edits_history
+  ON student_class_section_subject_teachers
+  USING GIN (student_class_section_subject_teacher_edits_history jsonb_path_ops);
 
 COMMIT;

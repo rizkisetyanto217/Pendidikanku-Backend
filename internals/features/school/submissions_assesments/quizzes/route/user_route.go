@@ -57,7 +57,7 @@ func mountQuizUserRoutes(base fiber.Router, db *gorm.DB) {
 	// USER QUIZ ATTEMPTS (user)
 	// nested di /quizzes + alias kompatibel
 	// ============================
-	uqAttemptCtrl := quizcontroller.NewUserQuizAttemptsController(db)
+	uqAttemptCtrl := quizcontroller.NewStudentQuizAttemptsController(db)
 
 	// Nested utama
 	attempts := quizzes.Group("/attempts") // -> /api/u/:masjid_x/quizzes/attempts
@@ -71,7 +71,7 @@ func mountQuizUserRoutes(base fiber.Router, db *gorm.DB) {
 	// USER QUIZ ATTEMPT ANSWERS (submit jawaban)
 	// nested di /quizzes + alias kompatibel
 	// ============================
-	uqaCtrl := quizcontroller.NewUserQuizAttemptAnswersController(db)
+	uqaCtrl := quizcontroller.NewStudentQuizAttemptAnswersController(db)
 
 	// Nested utama
 	ans := quizzes.Group("/attempt-answers") // -> /api/u/:masjid_x/quizzes/attempt-answers
@@ -83,7 +83,7 @@ func mountQuizUserRoutes(base fiber.Router, db *gorm.DB) {
 }
 
 // Hindari duplikasi handler untuk attempts (nested & alias)
-func mountUserAttemptsGroup(g fiber.Router, ctrl *quizcontroller.UserQuizAttemptsController) {
+func mountUserAttemptsGroup(g fiber.Router, ctrl *quizcontroller.StudentQuizAttemptsController) {
 	g.Get("/",      ctrl.List)   // GET list (boleh juga dipanggil sebagai /list lewat mapping reverse proxy kalau mau)
 	g.Get("/list",  ctrl.List)   // alias
 	g.Post("/",     ctrl.Create) // POST create attempt
@@ -92,7 +92,7 @@ func mountUserAttemptsGroup(g fiber.Router, ctrl *quizcontroller.UserQuizAttempt
 }
 
 // Hindari duplikasi handler untuk attempt-answers (nested & alias)
-func mountUserAttemptAnswersGroup(g fiber.Router, ctrl *quizcontroller.UserQuizAttemptAnswersController, userMode bool) {
+func mountUserAttemptAnswersGroup(g fiber.Router, ctrl *quizcontroller.StudentQuizAttemptAnswersController, userMode bool) {
 	g.Get("/",     ctrl.List)   // GET list
 	g.Get("/list", ctrl.List)   // alias
 	g.Post("/",    ctrl.Create) // POST submit jawaban

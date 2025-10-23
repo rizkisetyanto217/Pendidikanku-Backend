@@ -9,7 +9,7 @@ import (
 )
 
 func ClassSectionUserGlobalRoutes(private fiber.Router, db *gorm.DB) {
-	ucsH := ucsctrl.NewUserClassSectionController(db) // constructor ada di controller
-	grp := private.Group("/user-class-sections")
+	ucsH := ucsctrl.NewStudentClassSectionController(db) // constructor ada di controller
+	grp := private.Group("/student-class-sections")
 	grp.Post("/join", ucsH.JoinByCodeAutoMasjid) // handler global (tanpa :masjid_id)
 }

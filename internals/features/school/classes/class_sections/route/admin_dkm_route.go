@@ -14,7 +14,7 @@ import (
 func ClassSectionAdminRoutes(api fiber.Router, db *gorm.DB) {
 	// Controllers
 	sectionH := sectionctrl.NewClassSectionController(db)
-	ucsH := sectionctrl.NewUserClassSectionController(db)
+	ucsH := sectionctrl.NewStudentClassSectionController(db)
 
 	// Guard global: Admin/DKM + masjid admin check
 	base := api.Group("",
@@ -30,27 +30,27 @@ func ClassSectionAdminRoutes(api fiber.Router, db *gorm.DB) {
 	base.Patch("/class-sections/:id", sectionH.UpdateClassSection)
 	base.Delete("/class-sections/:id", sectionH.SoftDeleteClassSection)
 
-	base.Post("/user-class-sections", ucsH.Create)
-	base.Patch("/user-class-sections/:id", ucsH.Patch)
-	base.Delete("/user-class-sections/:id", ucsH.Delete)
+	base.Post("/student-class-sections", ucsH.Create)
+	base.Patch("/student-class-sections/:id", ucsH.Patch)
+	base.Delete("/student-class-sections/:id", ucsH.Delete)
 
 	// ========== 2) PATH-SCOPED by masjid_id ==========
 	base.Post("/:masjid_id/class-sections", sectionH.CreateClassSection)
 	base.Patch("/:masjid_id/class-sections/:id", sectionH.UpdateClassSection)
 	base.Delete("/:masjid_id/class-sections/:id", sectionH.SoftDeleteClassSection)
 
-	base.Post("/:masjid_id/user-class-sections", ucsH.Create)
-	base.Patch("/:masjid_id/user-class-sections/:id", ucsH.Delete)
-	base.Delete("/:masjid_id/user-class-sections/:id", ucsH.Delete)
+	base.Post("/:masjid_id/student-class-sections", ucsH.Create)
+	base.Patch("/:masjid_id/student-class-sections/:id", ucsH.Delete)
+	base.Delete("/:masjid_id/student-class-sections/:id", ucsH.Delete)
 
 	// ========== 3) PATH-SCOPED by masjid_slug ==========
 	base.Post("/m/:masjid_slug/class-sections", sectionH.CreateClassSection)
 	base.Patch("/m/:masjid_slug/class-sections/:id", sectionH.UpdateClassSection)
 	base.Delete("/m/:masjid_slug/class-sections/:id", sectionH.SoftDeleteClassSection)
 
-	base.Post("/m/:masjid_slug/user-class-sections", ucsH.Create)
-	base.Patch("/m/:masjid_slug/user-class-sections/:id", ucsH.Patch)
-	base.Delete("/m/:masjid_slug/user-class-sections/:id", ucsH.Delete)
+	base.Post("/m/:masjid_slug/student-class-sections", ucsH.Create)
+	base.Patch("/m/:masjid_slug/student-class-sections/:id", ucsH.Patch)
+	base.Delete("/m/:masjid_slug/student-class-sections/:id", ucsH.Delete)
 
 	// ========== 4) JOIN-CODE (GENERIC) ==========
 	base.Get("/class-sections/:id/join-code/student", sectionH.GetStudentJoinCode)

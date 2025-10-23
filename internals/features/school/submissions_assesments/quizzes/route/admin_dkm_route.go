@@ -52,7 +52,7 @@ func mountQuizRoutes(g fiber.Router, db *gorm.DB) {
 	qs.Delete("/:id", qqCtrl.Delete) // DELETE /.../quizzes/questions/:id
 
 	// USER QUIZ ATTEMPT ANSWERS
-	uqaCtrl := quizcontroller.NewUserQuizAttemptAnswersController(db)
+	uqaCtrl := quizcontroller.NewStudentQuizAttemptAnswersController(db)
 	ans := g.Group("/attempt-answers") // -> /.../quizzes/attempt-answers
 
 	ans.Get("/",      uqaCtrl.List)    // GET    /.../quizzes/attempt-answers?attempt_id=...&question_id=...
@@ -61,7 +61,7 @@ func mountQuizRoutes(g fiber.Router, db *gorm.DB) {
 	ans.Delete("/:id", uqaCtrl.Delete) // DELETE /.../quizzes/attempt-answers/:id
 
 	// USER QUIZ ATTEMPTS
-	uqAttemptCtrl := quizcontroller.NewUserQuizAttemptsController(db)
+	uqAttemptCtrl := quizcontroller.NewStudentQuizAttemptsController(db)
 	attempts := g.Group("/attempts") // -> /.../quizzes/attempts
 
 	attempts.Get("/",      uqAttemptCtrl.List)   // GET    /.../quizzes/attempts?quiz_id=&student_id=&status=&active_only=true

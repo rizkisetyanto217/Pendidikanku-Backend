@@ -16,7 +16,7 @@ DROP INDEX IF EXISTS uq_ucsst_one_active_per_student_csst_alive;
 DROP INDEX IF EXISTS uq_ucsst_id_tenant;
 
 -- Drop table
-DROP TABLE IF EXISTS user_class_section_subject_teachers;
+DROP TABLE IF EXISTS student_class_section_subject_teachers;
 
 -- ==========================================
 -- 2) CLASS SECTION SUBJECT TEACHERS (CSST)

@@ -948,7 +948,7 @@ func (r *ClassSectionJoinRequest) Validate() error {
 }
 
 type ClassSectionJoinResponse struct {
-	UserClassSection *UserClassSectionResp `json:"user_class_section,omitempty"`
+	UserClassSection *StudentClassSectionResp `json:"student_class_section,omitempty"`
 	ClassSectionID   string                `json:"class_section_id"`
 }
 

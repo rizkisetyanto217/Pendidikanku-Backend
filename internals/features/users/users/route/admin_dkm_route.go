@@ -34,6 +34,4 @@ func UserAdminRoutes(app fiber.Router, db *gorm.DB) {
 		authMiddleware.OnlyRolesSlice(constants.RoleErrorTeacher("Lihat Semua User Profile"), constants.TeacherAndAbove),
 		userProfileCtrl.GetProfiles,
 	)
-
-
 }

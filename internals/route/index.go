@@ -10,7 +10,6 @@ import (
 	featuresMiddleware "masjidku_backend/internals/middlewares/features"
 
 	routeDetails "masjidku_backend/internals/route/details"
-	
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -32,12 +31,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 
 	// PUBLIC → JWT opsional
 	log.Println("[INFO] Setting up PUBLIC group...")
-	public := app.Group("/public",
-		masjidkuMiddleware.AuthJWT(masjidkuMiddleware.AuthJWTOpts{
-			Secret:              os.Getenv("JWT_SECRET"),
-			AllowCookieFallback: true,
-		}),
-	)
+	public := app.Group("/public")
 
 	// ===================== PRIVATE (USER) =====================
 	// 🔓 privateLoose: TANPA scope/role strict. Dipakai untuk endpoint yang
@@ -107,13 +101,10 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	routeDetails.HomePrivateRoutes(privateScoped, db)
 	routeDetails.HomeAdminRoutes(admin, db)
 
-
 	log.Println("[INFO] Mounting Finance routes...")
 	routeDetails.FinancePublicRoutes(public, db)
 	// routeDetails.FinanceUserRoutes(privateScoped, db)
 	routeDetails.FinanceAdminRoutes(admin, db)
-	routeDetails.FinanceOwnerRoutes(owner,db)
-
-
+	routeDetails.FinanceOwnerRoutes(owner, db)
 
 }

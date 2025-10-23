@@ -59,7 +59,7 @@ func mountQuizTeacherRoutes(base fiber.Router, db *gorm.DB) {
 	// USER QUIZ ATTEMPT ANSWERS (guru review/ubah)
 	// child dari /quizzes-teacher -> /attempt-answers-teacher
 	// ============================
-	uqaCtrl := quizcontroller.NewUserQuizAttemptAnswersController(db)
+	uqaCtrl := quizcontroller.NewStudentQuizAttemptAnswersController(db)
 	ans := quizzes.Group("/attempt-answers-teacher")
 
 	ans.Get("/",       uqaCtrl.List)     // GET    /api/t/:masjid_x/quizzes-teacher/attempt-answers-teacher?attempt_id=...&question_id=...
@@ -71,7 +71,7 @@ func mountQuizTeacherRoutes(base fiber.Router, db *gorm.DB) {
 	// USER QUIZ ATTEMPTS
 	// child dari /quizzes-teacher -> /attempts-teacher
 	// ============================
-	uqAttemptCtrl := quizcontroller.NewUserQuizAttemptsController(db)
+	uqAttemptCtrl := quizcontroller.NewStudentQuizAttemptsController(db)
 	attempts := quizzes.Group("/attempts-teacher")
 
 	attempts.Get("/",      uqAttemptCtrl.List)    // GET    /api/t/:masjid_x/quizzes-teacher/attempts-teacher?quiz_id=&student_id=&status=&active_only=true

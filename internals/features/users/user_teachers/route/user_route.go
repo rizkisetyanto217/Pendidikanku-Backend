@@ -13,7 +13,6 @@ import (
 func UserTeachersRoute(userRoute fiber.Router, db *gorm.DB) {
 	v := validator.New()
 
-	// Controller (OSS = nil → controller akan init dari ENV kalau dibutuhkan)
 	utc := userTeachersCtl.NewUserTeacherController(db, v, nil)
 
 	// ==== USER_TEACHERS CRUD ====
