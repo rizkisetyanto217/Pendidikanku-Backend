@@ -1,10 +1,8 @@
-// File: internals/features/finance/spp/api/bill_batch_controller.go
-package api
+package controller
 
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -41,171 +39,249 @@ func xorValid(classID, sectionID *uuid.UUID) bool {
 }
 
 func isUniqueViolation(err error) bool {
-	// deteksi sederhana utk unique index (Postgres)
 	return err != nil &&
 		(strings.Contains(err.Error(), "duplicate key value") ||
 			strings.Contains(err.Error(), "unique constraint"))
 }
 
 // =======================================================
-// CREATE
+// INTERNAL: Recalc totals (tanpa trigger DB)
+// =======================================================
+
+func recalcBillBatchTotals(tx *gorm.DB, batchID uuid.UUID) error {
+	type agg struct {
+		TotalAmount  int64
+		TotalPaid    int64
+		TotalStu     int64
+		TotalStuPaid int64
+	}
+	var a agg
+
+	if err := tx.Table("student_bills").
+		Select(`
+			COALESCE(SUM(student_bill_amount_idr), 0) AS total_amount,
+			COALESCE(SUM(CASE WHEN student_bill_status = 'paid' THEN student_bill_amount_idr ELSE 0 END), 0) AS total_paid,
+			COALESCE(COUNT(1), 0) AS total_stu,
+			COALESCE(SUM(CASE WHEN student_bill_status = 'paid' THEN 1 ELSE 0 END), 0) AS total_stu_paid
+		`).
+		Where("student_bill_batch_id = ? AND student_bill_deleted_at IS NULL", batchID).
+		Scan(&a).Error; err != nil {
+		return err
+	}
+
+	return tx.Model(&billing.BillBatch{}).
+		Where("bill_batch_id = ?", batchID).
+		Updates(map[string]any{
+			"bill_batch_total_amount_idr":    int(a.TotalAmount),
+			"bill_batch_total_paid_idr":      int(a.TotalPaid),
+			"bill_batch_total_students":      int(a.TotalStu),
+			"bill_batch_total_students_paid": int(a.TotalStuPaid),
+			"bill_batch_updated_at":          time.Now(),
+		}).Error
+}
+
+// =======================================================
+// INTERNAL: resolve target students (subset / scope)
+// =======================================================
+
+func (h *BillBatchHandler) listTargetStudentIDs(tx *gorm.DB, masjidID uuid.UUID, classID, sectionID *uuid.UUID, selected []uuid.UUID, onlyActive bool) ([]uuid.UUID, error) {
+	// Jika admin sudah memilih subset siswa → validasi & gunakan itu saja
+	if len(selected) > 0 {
+		type row struct{ ID uuid.UUID }
+		var rows []row
+		q := tx.Table("masjid_students").
+			Select("masjid_student_id AS id").
+			Where("masjid_student_masjid_id = ?", masjidID).
+			Where("masjid_student_id IN ?", selected)
+		if onlyActive {
+			q = q.Where("is_active = TRUE")
+		}
+		if err := q.Find(&rows).Error; err != nil {
+			return nil, err
+		}
+		out := make([]uuid.UUID, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, r.ID)
+		}
+		return out, nil
+	}
+
+	// Jika tidak, ambil semua siswa pada scope (class/section)
+	type row struct{ ID uuid.UUID }
+	var rows []row
+	q := tx.Table("masjid_students").
+		Select("masjid_student_id AS id").
+		Where("masjid_student_masjid_id = ?", masjidID)
+
+	if classID != nil {
+		q = q.Where("class_id = ?", *classID)
+	}
+	if sectionID != nil {
+		q = q.Where("section_id = ?", *sectionID)
+	}
+	if onlyActive {
+		q = q.Where("is_active = TRUE")
+	}
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]uuid.UUID, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.ID)
+	}
+	return out, nil
+}
+
+// =======================================================
+// INTERNAL: resolve nominal dari fee_rules (spesifisitas & periode)
+// =======================================================
+
+func (h *BillBatchHandler) resolveAmountFromRules(tx *gorm.DB, masjidID uuid.UUID, optionCode string, batch billing.BillBatch, studentID uuid.UUID) (int, error) {
+	eff := time.Now()
+	if batch.BillBatchDueDate != nil {
+		eff = *batch.BillBatchDueDate
+	}
+
+	q := tx.Model(&billing.FeeRule{}).
+		Where("fee_rule_masjid_id = ?", masjidID).
+		Where("LOWER(fee_rule_option_code) = ?", strings.ToLower(optionCode)).
+		Where("fee_rule_deleted_at IS NULL").
+		Where("?::date >= COALESCE(fee_rule_effective_from, '-infinity'::date) AND ?::date <= COALESCE(fee_rule_effective_to, 'infinity'::date)", eff, eff)
+
+	// match periode
+	if batch.BillBatchTermID != nil {
+		q = q.Where("fee_rule_term_id = ?", *batch.BillBatchTermID)
+	} else {
+		q = q.Where("fee_rule_term_id IS NULL AND fee_rule_year = ? AND fee_rule_month = ?", batch.BillBatchYear, batch.BillBatchMonth)
+	}
+
+	// pilih rule paling spesifik
+	var rule billing.FeeRule
+	err := q.Where(`
+		(fee_rule_scope = 'student' AND fee_rule_masjid_student_id = ?)
+		OR (fee_rule_scope = 'section' AND fee_rule_section_id = (SELECT section_id FROM masjid_students WHERE masjid_student_id = ? LIMIT 1))
+		OR (fee_rule_scope = 'class'   AND fee_rule_class_id   = (SELECT class_id   FROM masjid_students WHERE masjid_student_id = ? LIMIT 1))
+		OR (fee_rule_scope = 'class_parent' AND fee_rule_class_parent_id IS NOT NULL)
+		OR (fee_rule_scope = 'tenant')
+	`, studentID, studentID, studentID).
+		Order(`
+			CASE fee_rule_scope
+				WHEN 'student' THEN 1
+				WHEN 'section' THEN 2
+				WHEN 'class' THEN 3
+				WHEN 'class_parent' THEN 4
+				WHEN 'tenant' THEN 5
+				ELSE 99
+			END, fee_rule_is_default DESC, fee_rule_created_at DESC
+		`).
+		Limit(1).
+		First(&rule).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, fmt.Errorf("no matching fee_rule for option_code=%s", optionCode)
+		}
+		return 0, err
+	}
+	return rule.FeeRuleAmountIDR, nil
+}
+
+// =======================================================
+// CREATE (hanya buat batch; masjid_id dari path)
 // =======================================================
 
 func (h *BillBatchHandler) CreateBillBatch(c *fiber.Ctx) error {
-	var in dto.BillBatchCreateDTO
-	if err := c.BodyParser(&in); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "invalid json")
+	masjidID, err := mustMasjidID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
 	}
 
-	// XOR guard: class vs section
+	var in dto.BillBatchCreateDTO
+	if err := c.BodyParser(&in); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json")
+	}
+
+	// override dari path
+	in.BillBatchMasjidID = masjidID
+
+	// XOR guard
 	if !xorValid(in.BillBatchClassID, in.BillBatchSectionID) {
-		return helper.JsonError(c, http.StatusBadRequest, "exactly one of bill_batch_class_id or bill_batch_section_id must be set")
+		return helper.JsonError(c, fiber.StatusBadRequest, "exactly one of bill_batch_class_id or bill_batch_section_id must be set")
 	}
 
 	m := dto.BillBatchCreateDTOToModel(in)
 
 	if err := h.DB.Create(&m).Error; err != nil {
 		if isUniqueViolation(err) {
-			return helper.JsonError(c, http.StatusConflict, "duplicate bill batch for the given scope and period")
+			return helper.JsonError(c, fiber.StatusConflict, "duplicate bill batch for the given scope and period")
 		}
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	return helper.JsonCreated(c, "bill batch created", dto.ToBillBatchResponse(m))
 }
 
 // =======================================================
-// UPDATE (partial)
+// UPDATE (partial; tenant-guard)
 // =======================================================
 
 func (h *BillBatchHandler) UpdateBillBatch(c *fiber.Ctx) error {
+	masjidID, err := mustMasjidID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+	}
+
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "invalid id")
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
 	}
 
 	var in dto.BillBatchUpdateDTO
 	if err := c.BodyParser(&in); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "invalid json")
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json")
 	}
 
 	var m billing.BillBatch
-	if err := h.DB.First(&m, "bill_batch_id = ? AND bill_batch_deleted_at IS NULL", id).Error; err != nil {
+	if err := h.DB.First(&m, "bill_batch_id = ? AND bill_batch_masjid_id = ? AND bill_batch_deleted_at IS NULL", id, masjidID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, http.StatusNotFound, "bill batch not found")
+			return helper.JsonError(c, fiber.StatusNotFound, "bill batch not found")
 		}
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	if err := dto.ApplyBillBatchUpdate(&m, in); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	if err := h.DB.Save(&m).Error; err != nil {
 		if isUniqueViolation(err) {
-			return helper.JsonError(c, http.StatusConflict, "duplicate bill batch for the given scope and period")
+			return helper.JsonError(c, fiber.StatusConflict, "duplicate bill batch for the given scope and period")
 		}
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	return helper.JsonOK(c, "bill batch updated", dto.ToBillBatchResponse(m))
 }
 
 // =======================================================
-// LIST (filters + pagination)
-// =======================================================
-
-func (h *BillBatchHandler) ListBillBatches(c *fiber.Ctx) error {
-	// parse pagination & sorting via helper
-	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
-	offset := (p.Page - 1) * p.PerPage
-
-	q := h.DB.Model(&billing.BillBatch{}).Where("bill_batch_deleted_at IS NULL")
-
-	// Filters
-	if s := c.Query("masjid_id"); s != "" {
-		if id, err := uuid.Parse(s); err == nil {
-			q = q.Where("bill_batch_masjid_id = ?", id)
-		}
-	}
-	if s := c.Query("class_id"); s != "" {
-		if id, err := uuid.Parse(s); err == nil {
-			q = q.Where("bill_batch_class_id = ?", id)
-		}
-	}
-	if s := c.Query("section_id"); s != "" {
-		if id, err := uuid.Parse(s); err == nil {
-			q = q.Where("bill_batch_section_id = ?", id)
-		}
-	}
-	if s := c.Query("term_id"); s != "" {
-		if id, err := uuid.Parse(s); err == nil {
-			q = q.Where("bill_batch_term_id = ?", id)
-		}
-	}
-	// ym=YYYY-MM
-	if ym := c.Query("ym"); ym != "" {
-		var y, m int
-		if _, err := fmt.Sscanf(ym, "%d-%d", &y, &m); err == nil && y >= 2000 && y <= 2100 && m >= 1 && m <= 12 {
-			q = q.Where("bill_batch_year = ? AND bill_batch_month = ?", y, m)
-		}
-	}
-	// q: title contains
-	if s := c.Query("q"); s != "" {
-		q = q.Where("LOWER(bill_batch_title) LIKE ?", "%"+strings.ToLower(s)+"%")
-	}
-
-	// Sorting whitelist
-	allowedSort := map[string]string{
-		"created_at": "bill_batch_created_at",
-		"updated_at": "bill_batch_updated_at",
-		"due_date":   "bill_batch_due_date",
-		"title":      "bill_batch_title",
-		"ym":         "bill_batch_year, bill_batch_month",
-	}
-	sortCol, ok := allowedSort[p.SortBy]
-	if !ok {
-		sortCol = allowedSort["created_at"]
-	}
-	dir := "DESC"
-	if strings.EqualFold(p.SortOrder, "asc") {
-		dir = "ASC"
-	}
-	orderClause := sortCol + " " + dir
-
-	var total int64
-	if err := q.Count(&total).Error; err != nil {
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
-	}
-
-	var rows []billing.BillBatch
-	listQ := q.Order(orderClause)
-	if !p.All {
-		listQ = listQ.Limit(p.PerPage).Offset(offset)
-	}
-	if err := listQ.Find(&rows).Error; err != nil {
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
-	}
-
-	data := dto.ToBillBatchResponses(rows)
-	meta := helper.BuildMeta(total, p)
-	return helper.JsonList(c, data, meta)
-}
-
-// =======================================================
-// DELETE (soft delete)
+// DELETE (soft delete; tenant-scoped)
 // =======================================================
 
 func (h *BillBatchHandler) DeleteBillBatch(c *fiber.Ctx) error {
+	masjidID, err := mustMasjidID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+	}
+
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "invalid id")
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
 	}
 
 	err = h.DB.Transaction(func(tx *gorm.DB) error {
 		var m billing.BillBatch
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			First(&m, "bill_batch_id = ? AND bill_batch_deleted_at IS NULL", id).Error; err != nil {
+			First(&m, "bill_batch_id = ? AND bill_batch_masjid_id = ? AND bill_batch_deleted_at IS NULL", id, masjidID).Error; err != nil {
 			return err
 		}
 		now := time.Now()
@@ -214,10 +290,113 @@ func (h *BillBatchHandler) DeleteBillBatch(c *fiber.Ctx) error {
 	})
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, http.StatusNotFound, "bill batch not found")
+			return helper.JsonError(c, fiber.StatusNotFound, "bill batch not found")
 		}
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	return helper.JsonDeleted(c, "bill batch deleted", fiber.Map{"bill_batch_id": id})
+}
+
+// =======================================================
+// CREATE + GENERATE student_bills dari fee_rules (sekali jalan)
+// POST /api/a/:masjid_id/spp/bill-batches/generate
+// =======================================================
+
+func (h *BillBatchHandler) CreateBillBatchAndGenerate(c *fiber.Ctx) error {
+	masjidID, err := mustMasjidID(c)
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+	}
+
+	var in dto.BillBatchGenerateDTO
+	if err := c.BodyParser(&in); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json")
+	}
+	// XOR guard
+	if !xorValid(in.BillBatchClassID, in.BillBatchSectionID) {
+		return helper.JsonError(c, fiber.StatusBadRequest, "exactly one of bill_batch_class_id or bill_batch_section_id must be set")
+	}
+
+	var out dto.BillBatchGenerateResponse
+
+	err = h.DB.Transaction(func(tx *gorm.DB) error {
+		// 1) Buat batch
+		batch := billing.BillBatch{
+			BillBatchMasjidID:  masjidID,
+			BillBatchClassID:   in.BillBatchClassID,
+			BillBatchSectionID: in.BillBatchSectionID,
+			BillBatchMonth:     in.BillBatchMonth,
+			BillBatchYear:      in.BillBatchYear,
+			BillBatchTermID:    in.BillBatchTermID,
+			BillBatchTitle:     in.BillBatchTitle,
+			BillBatchDueDate:   in.BillBatchDueDate,
+			BillBatchNote:      in.BillBatchNote,
+		}
+		if err := tx.Create(&batch).Error; err != nil {
+			if isUniqueViolation(err) {
+				return helper.JsonError(c, fiber.StatusConflict, "duplicate bill batch for the given scope and period")
+			}
+			return err
+		}
+
+		// 2) Ambil target siswa
+		targetIDs, err := h.listTargetStudentIDs(tx, masjidID, in.BillBatchClassID, in.BillBatchSectionID, in.SelectedStudentIDs, in.OnlyActiveStudents)
+		if err != nil {
+			return err
+		}
+
+		// 3) Generate student_bills sesuai fee_rules
+		ins, skip := 0, 0
+		for _, sid := range targetIDs {
+			amount, err := h.resolveAmountFromRules(tx, masjidID, in.Labeling.OptionCode, batch, sid)
+			if err != nil {
+				// Kalau ingin strict, ganti ke: return err
+				skip++
+				continue
+			}
+			sb := billing.StudentBill{
+				StudentBillBatchID:         batch.BillBatchID,
+				StudentBillMasjidID:        masjidID,
+				StudentBillMasjidStudentID: &sid,
+				StudentBillOptionCode:      &in.Labeling.OptionCode,
+				StudentBillOptionLabel:     in.Labeling.OptionLabel,
+				StudentBillAmountIDR:       amount,
+				StudentBillStatus:          "unpaid",
+			}
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "student_bill_batch_id"}, {Name: "student_bill_masjid_student_id"}},
+				DoNothing: true,
+			}).Create(&sb).Error; err != nil {
+				return err
+			}
+			if sb.StudentBillID != uuid.Nil {
+				ins++
+			} else {
+				skip++
+			}
+		}
+
+		// 4) Recalc totals batch
+		if err := recalcBillBatchTotals(tx, batch.BillBatchID); err != nil {
+			return err
+		}
+
+		out = dto.BillBatchGenerateResponse{
+			BillBatch: dto.ToBillBatchResponse(batch),
+			Inserted:  ins,
+			Skipped:   skip,
+		}
+		return nil
+	})
+	if err != nil {
+		// helper.JsonError biasanya sudah mengatur HTTP status; jika bukan,
+		// fallback 500.
+		if he, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, he.Code, he.Message)
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	return helper.JsonCreated(c, "bill batch created & student bills generated", out)
 }

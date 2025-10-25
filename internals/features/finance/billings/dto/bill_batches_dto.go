@@ -16,6 +16,7 @@ import (
 ////////////////////////////////////////////////////////////////////////////////
 
 // Create: wajib isi salah satu -> ClassID ATAU SectionID
+// NOTE: Controller akan override BillBatchMasjidID dari :masjid_id path.
 type BillBatchCreateDTO struct {
 	BillBatchMasjidID uuid.UUID `json:"bill_batch_masjid_id" validate:"required"`
 
@@ -42,7 +43,7 @@ type BillBatchUpdateDTO struct {
 	BillBatchNote      *string    `json:"bill_batch_note,omitempty"`
 }
 
-// Response
+// Response — disesuaikan dengan kolom denormalized totals di DB
 type BillBatchResponse struct {
 	BillBatchID        uuid.UUID  `json:"bill_batch_id"`
 	BillBatchMasjidID  uuid.UUID  `json:"bill_batch_masjid_id"`
@@ -55,6 +56,12 @@ type BillBatchResponse struct {
 	BillBatchTitle   string     `json:"bill_batch_title"`
 	BillBatchDueDate *time.Time `json:"bill_batch_due_date,omitempty"`
 	BillBatchNote    *string    `json:"bill_batch_note,omitempty"`
+
+	// denormalized totals (read-only di response)
+	BillBatchTotalAmountIDR    int `json:"bill_batch_total_amount_idr"`
+	BillBatchTotalPaidIDR      int `json:"bill_batch_total_paid_idr"`
+	BillBatchTotalStudents     int `json:"bill_batch_total_students"`
+	BillBatchTotalStudentsPaid int `json:"bill_batch_total_students_paid"`
 
 	BillBatchCreatedAt time.Time  `json:"bill_batch_created_at"`
 	BillBatchUpdatedAt time.Time  `json:"bill_batch_updated_at"`
@@ -78,6 +85,12 @@ func ToBillBatchResponse(m billing.BillBatch) BillBatchResponse {
 		BillBatchTitle:     m.BillBatchTitle,
 		BillBatchDueDate:   m.BillBatchDueDate,
 		BillBatchNote:      m.BillBatchNote,
+
+		BillBatchTotalAmountIDR:    m.BillBatchTotalAmountIDR,
+		BillBatchTotalPaidIDR:      m.BillBatchTotalPaidIDR,
+		BillBatchTotalStudents:     m.BillBatchTotalStudents,
+		BillBatchTotalStudentsPaid: m.BillBatchTotalStudentsPaid,
+
 		BillBatchCreatedAt: m.BillBatchCreatedAt,
 		BillBatchUpdatedAt: m.BillBatchUpdatedAt,
 		BillBatchDeletedAt: toPtrTimeFromDeletedAt(m.BillBatchDeletedAt),
@@ -135,4 +148,46 @@ func ToBillBatchResponses(list []billing.BillBatch) []BillBatchResponse {
 		out = append(out, ToBillBatchResponse(v))
 	}
 	return out
+}
+
+// ===============================================
+// REQUEST: Create BillBatch + Generate StudentBills
+// ===============================================
+//
+// Catatan:
+// - XOR: salah satu dari BillBatchClassID / BillBatchSectionID wajib terisi (dicek di controller).
+// - Labeling.OptionCode dipakai sebagai option_code untuk student_bills.
+// - SelectedStudentIDs opsional: jika diisi → hanya generate untuk siswa tersebut.
+// - OnlyActiveStudents: jika true, filter hanya siswa aktif.
+// - BillBatchMasjidID diambil dari path (controller), bukan dari body.
+type BillBatchGenerateDTO struct {
+	BillBatchClassID   *uuid.UUID `json:"bill_batch_class_id,omitempty"`
+	BillBatchSectionID *uuid.UUID `json:"bill_batch_section_id,omitempty"`
+
+	BillBatchMonth  int16      `json:"bill_batch_month" validate:"required,min=1,max=12"`
+	BillBatchYear   int16      `json:"bill_batch_year"  validate:"required,min=2000,max=2100"`
+	BillBatchTermID *uuid.UUID `json:"bill_batch_term_id,omitempty"`
+
+	BillBatchTitle   string     `json:"bill_batch_title" validate:"required"`
+	BillBatchDueDate *time.Time `json:"bill_batch_due_date,omitempty"`
+	BillBatchNote    *string    `json:"bill_batch_note,omitempty"`
+
+	// Pilihan generate:
+	SelectedStudentIDs []uuid.UUID `json:"selected_student_ids,omitempty"`
+	OnlyActiveStudents bool        `json:"only_active_students"`
+
+	// Labeling untuk student_bills yang di-generate
+	Labeling struct {
+		OptionCode  string  `json:"option_code" validate:"required"`
+		OptionLabel *string `json:"option_label,omitempty"`
+	} `json:"labeling" validate:"required"`
+}
+
+// ===============================================
+// RESPONSE: Create+Generate
+// ===============================================
+type BillBatchGenerateResponse struct {
+	BillBatch BillBatchResponse `json:"bill_batch"`
+	Inserted  int               `json:"inserted"`
+	Skipped   int               `json:"skipped"`
 }

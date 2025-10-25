@@ -1,5 +1,5 @@
 // file: internals/features/finance/spp/api/student_bill_controller.go
-package api
+package controller
 
 import (
 	"errors"

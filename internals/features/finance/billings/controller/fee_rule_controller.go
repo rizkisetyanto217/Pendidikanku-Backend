@@ -1,5 +1,5 @@
 // file: internals/features/finance/spp/api/controllers.go
-package api
+package controller
 
 import (
 	"errors"
@@ -186,87 +186,6 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 	meta := helper.BuildMeta(total, p)
 	return helper.JsonList(c, out, meta)
 }
-
-/* =======================================================
-   BILL BATCHES (AUTHORIZED + TENANT-SCOPED)
-======================================================= */
-
-// POST /:masjid_id/spp/bill-batches
-func (h *Handler) CreateBillBatch(c *fiber.Ctx) error {
-	masjidID, err := mustMasjidID(c)
-	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "invalid masjid_id")
-	}
-	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
-		return err
-	}
-
-	var in dto.BillBatchCreateDTO
-	if err := c.BodyParser(&in); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "invalid json")
-	}
-	if !xorValid(in.BillBatchClassID, in.BillBatchSectionID) {
-		return helper.JsonError(c, http.StatusBadRequest, "exactly one of bill_batch_class_id or bill_batch_section_id must be set")
-	}
-
-	// >>> selalu set dari path (abaikan body)
-	in.BillBatchMasjidID = masjidID
-
-	m := dto.BillBatchCreateDTOToModel(in)
-	if err := h.DB.Create(&m).Error; err != nil {
-		if isUniqueViolation(err) {
-			return helper.JsonError(c, http.StatusConflict, "duplicate bill batch for the given scope and period")
-		}
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
-	}
-	return helper.JsonCreated(c, "bill batch created", dto.ToBillBatchResponse(m))
-}
-
-// PATCH /:masjid_id/spp/bill-batches/:id
-func (h *Handler) UpdateBillBatch(c *fiber.Ctx) error {
-	masjidID, err := mustMasjidID(c)
-	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "invalid masjid_id")
-	}
-	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
-		return err
-	}
-
-	id, err := parseUUID(c, "id")
-	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "invalid id")
-	}
-
-	var in dto.BillBatchUpdateDTO
-	if err := c.BodyParser(&in); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "invalid json")
-	}
-
-	var m billing.BillBatch
-	if err := h.DB.First(&m,
-		"bill_batch_id = ? AND bill_batch_masjid_id = ? AND bill_batch_deleted_at IS NULL",
-		id, masjidID).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, http.StatusNotFound, "bill_batch not found")
-		}
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
-	}
-
-	if err := dto.ApplyBillBatchUpdate(&m, in); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, err.Error())
-	}
-
-	if err := h.DB.Save(&m).Error; err != nil {
-		if isUniqueViolation(err) {
-			return helper.JsonError(c, http.StatusConflict, "duplicate bill batch for the given scope and period")
-		}
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
-	}
-	return helper.JsonOK(c, "bill batch updated", dto.ToBillBatchResponse(m))
-}
-
-// GETs untuk BillBatch: (sudah tenant scoped via WHERE bill_batch_masjid_id = ?)
-// — tidak perlu perubahan dari versi kamu —
 
 /* =======================================================
    STUDENT BILLS (AUTHORIZED + TENANT-SCOPED)

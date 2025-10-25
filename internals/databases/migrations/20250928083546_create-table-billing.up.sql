@@ -180,11 +180,16 @@ CREATE INDEX IF NOT EXISTS idx_fee_rules_is_default
 -- =========================================================
 -- BILL BATCHES (generik, support CLASS atau SECTION)
 -- =========================================================
+
+-- =========================================================
+-- TABLE: bill_batches (dengan kolom denormalized totals)
+-- =========================================================
 CREATE TABLE IF NOT EXISTS bill_batches (
   bill_batch_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  bill_batch_masjid_id  UUID REFERENCES masjids(masjid_id) ON DELETE SET NULL,
 
-  -- salah satu dari ini yang terisi (lihat constraint di bawah)
+  bill_batch_masjid_id  UUID NOT NULL
+    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+
   bill_batch_class_id   UUID REFERENCES classes(class_id) ON DELETE SET NULL,
   bill_batch_section_id UUID REFERENCES class_sections(class_section_id) ON DELETE SET NULL,
 
@@ -196,34 +201,88 @@ CREATE TABLE IF NOT EXISTS bill_batches (
   bill_batch_due_date   DATE,
   bill_batch_note       TEXT,
 
+  -- DENORMALIZED TOTALS (diupdate oleh backend)
+  bill_batch_total_amount_idr    INT NOT NULL DEFAULT 0,
+  bill_batch_total_paid_idr      INT NOT NULL DEFAULT 0,
+  bill_batch_total_students      INT NOT NULL DEFAULT 0,
+  bill_batch_total_students_paid INT NOT NULL DEFAULT 0,
+
   bill_batch_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   bill_batch_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  bill_batch_deleted_at TIMESTAMPTZ
+  bill_batch_deleted_at TIMESTAMPTZ,
+
+  CONSTRAINT ck_bill_batches_xor_class_section
+    CHECK (
+      (bill_batch_class_id IS NOT NULL AND bill_batch_section_id IS NULL)
+      OR
+      (bill_batch_class_id IS NULL AND bill_batch_section_id IS NOT NULL)
+    )
 );
 
 -- Unique per CLASS + periode (alive)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_bill_batches_per_class_period
-  ON bill_batches (bill_batch_masjid_id, bill_batch_class_id, bill_batch_month, bill_batch_year)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bill_batches_per_class_period_alive
+  ON bill_batches (bill_batch_masjid_id, bill_batch_class_id, bill_batch_year, bill_batch_month)
   WHERE bill_batch_deleted_at IS NULL
     AND bill_batch_class_id IS NOT NULL
     AND bill_batch_section_id IS NULL;
 
 -- Unique per SECTION + periode (alive)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_bill_batches_per_section_period
-  ON bill_batches (bill_batch_masjid_id, bill_batch_section_id, bill_batch_month, bill_batch_year)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bill_batches_per_section_period_alive
+  ON bill_batches (bill_batch_masjid_id, bill_batch_section_id, bill_batch_year, bill_batch_month)
   WHERE bill_batch_deleted_at IS NULL
     AND bill_batch_section_id IS NOT NULL
     AND bill_batch_class_id IS NULL;
 
 -- Index bantu query
-CREATE INDEX IF NOT EXISTS ix_bill_batches_tenant_month_year_alive
+CREATE INDEX IF NOT EXISTS ix_bill_batches_tenant_ym_alive
   ON bill_batches (bill_batch_masjid_id, bill_batch_year, bill_batch_month)
+  WHERE bill_batch_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_bill_batches_due_date_alive
+  ON bill_batches (bill_batch_due_date)
+  WHERE bill_batch_deleted_at IS NULL;
+
+-- 1) Sort by created_at/updated_at (sering dipakai bareng tenant)
+CREATE INDEX IF NOT EXISTS ix_bill_batches_masjid_created_at_alive
+  ON bill_batches (bill_batch_masjid_id, bill_batch_created_at DESC)
+  WHERE bill_batch_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_bill_batches_masjid_updated_at_alive
+  ON bill_batches (bill_batch_masjid_id, bill_batch_updated_at DESC)
+  WHERE bill_batch_deleted_at IS NULL;
+
+-- 2) Filter by term_id (sering tenant-scoped juga)
+CREATE INDEX IF NOT EXISTS ix_bill_batches_term_alive
+  ON bill_batches (bill_batch_term_id)
+  WHERE bill_batch_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_bill_batches_masjid_term_alive
+  ON bill_batches (bill_batch_masjid_id, bill_batch_term_id)
+  WHERE bill_batch_deleted_at IS NULL;
+
+-- 3) Filter by class_id / section_id (tanpa perlu year-month)
+CREATE INDEX IF NOT EXISTS ix_bill_batches_class_alive
+  ON bill_batches (bill_batch_class_id)
   WHERE bill_batch_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_bill_batches_section_alive
   ON bill_batches (bill_batch_section_id)
   WHERE bill_batch_deleted_at IS NULL;
 
+-- 4) Sort/filter due_date + tenant
+CREATE INDEX IF NOT EXISTS ix_bill_batches_masjid_due_date_alive
+  ON bill_batches (bill_batch_masjid_id, bill_batch_due_date)
+  WHERE bill_batch_deleted_at IS NULL;
+
+-- 5) Search judul (ILIKE/LIKE %...%) → butuh pg_trgm
+-- Pastikan ekstensi:
+--   CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX IF NOT EXISTS ix_bill_batches_title_trgm_alive
+  ON bill_batches USING GIN (LOWER(bill_batch_title) gin_trgm_ops)
+  WHERE bill_batch_deleted_at IS NULL;
+
+-- 6) YM sudah ada (masjid_id, year, month). Itu sudah pas buat filter dan sort YM.
+--   ix_bill_batches_tenant_ym_alive (yang kamu punya) tetap dipertahankan.
 
 
 -- =========================================================

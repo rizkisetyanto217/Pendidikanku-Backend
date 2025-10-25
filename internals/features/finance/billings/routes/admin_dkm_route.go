@@ -14,6 +14,7 @@ Diproteksi IsMasjidAdmin() — sesuaikan jika ada varian ByParam.
 */
 func BillingsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	h := &sppapi.Handler{DB: db}
+	billBatch := &sppapi.BillBatchHandler{DB: db}
 
 	// Jika kamu punya resolver konteks masjid berbasis param, aktifkan di sini
 	// contoh: ResolveMasjidContextByParam("masjid_id")
@@ -34,8 +35,8 @@ func BillingsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 		// =========================
 		// Bill Batches
 		// =========================
-		grp.Post("/bill-batches", h.CreateBillBatch)
-		grp.Patch("/bill-batches/:id", h.UpdateBillBatch)
+		grp.Post("/bill-batches", billBatch.CreateBillBatch)
+		grp.Patch("/bill-batches/:id", billBatch.UpdateBillBatch)
 
 		// =========================
 		// Student Bills (list/detail + status actions)
