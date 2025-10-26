@@ -8,9 +8,14 @@ import (
 	"gorm.io/datatypes"
 )
 
+/* ================================
+   ENUM mirror (harus cocok dgn DB)
+================================ */
+
 type PaymentStatus string
 type PaymentMethod string
 type PaymentGatewayProvider string
+type PaymentEntryType string
 
 const (
 	PaymentStatusInitiated         PaymentStatus = "initiated"
@@ -43,6 +48,17 @@ const (
 	GatewayProviderOther    PaymentGatewayProvider = "other"
 )
 
+const (
+	PaymentEntryCharge     PaymentEntryType = "charge"
+	PaymentEntryPayment    PaymentEntryType = "payment"
+	PaymentEntryRefund     PaymentEntryType = "refund"
+	PaymentEntryAdjustment PaymentEntryType = "adjustment"
+)
+
+/* ================================
+   MODEL: payments
+================================ */
+
 type Payment struct {
 	PaymentID uuid.UUID `json:"payment_id" gorm:"column:payment_id;type:uuid;default:gen_random_uuid();primaryKey"`
 
@@ -50,20 +66,19 @@ type Payment struct {
 	PaymentMasjidID *uuid.UUID `json:"payment_masjid_id" gorm:"column:payment_masjid_id;type:uuid"`
 	PaymentUserID   *uuid.UUID `json:"payment_user_id"   gorm:"column:payment_user_id;type:uuid"`
 
-	// ===== FK eksplisit (by-instance) =====
-	PaymentUserSppBillingID     *uuid.UUID `json:"payment_user_spp_billing_id"     gorm:"column:payment_user_spp_billing_id;type:uuid"`
-	PaymentSppBillingID         *uuid.UUID `json:"payment_spp_billing_id"          gorm:"column:payment_spp_billing_id;type:uuid"`
-	PaymentUserGeneralBillingID *uuid.UUID `json:"payment_user_general_billing_id" gorm:"column:payment_user_general_billing_id;type:uuid"`
-	PaymentGeneralBillingID     *uuid.UUID `json:"payment_general_billing_id"      gorm:"column:payment_general_billing_id;type:uuid"`
+	// ===== Target FK (salah satu WAJIB terisi) =====
+	PaymentStudentBillID        *uuid.UUID `json:"payment_student_bill_id"          gorm:"column:payment_student_bill_id;type:uuid"`
+	PaymentGeneralBillingID     *uuid.UUID `json:"payment_general_billing_id"       gorm:"column:payment_general_billing_id;type:uuid"`
+	PaymentGeneralBillingKindID *uuid.UUID `json:"payment_general_billing_kind_id"  gorm:"column:payment_general_billing_kind_id;type:uuid"`
 
-	// ===== FK langsung ke master kind (untuk donasi/campaign tanpa bikin billing instance) =====
-	PaymentGeneralBillingKindID *uuid.UUID `json:"payment_general_billing_kind_id" gorm:"column:payment_general_billing_kind_id;type:uuid"`
+	// ===== Konteks/report (opsional) =====
+	PaymentBillBatchID *uuid.UUID `json:"payment_bill_batch_id" gorm:"column:payment_bill_batch_id;type:uuid"`
 
 	// Nominal
 	PaymentAmountIDR int    `json:"payment_amount_idr" gorm:"column:payment_amount_idr;type:int;not null;check:payment_amount_idr>=0"`
-	PaymentCurrency  string `json:"payment_currency"   gorm:"column:payment_currency;type:VARCHAR(8);not null;default:IDR"`
+	PaymentCurrency  string `json:"payment_currency"   gorm:"column:payment_currency;type:varchar(8);not null;default:IDR"`
 
-	// Status & metode
+	// Status & metode (enum DB)
 	PaymentStatus PaymentStatus `json:"payment_status" gorm:"column:payment_status;type:payment_status;not null;default:'initiated'"`
 	PaymentMethod PaymentMethod `json:"payment_method" gorm:"column:payment_method;type:payment_method;not null;default:'gateway'"`
 
@@ -85,11 +100,21 @@ type Payment struct {
 	PaymentRefundedAt  *time.Time `json:"payment_refunded_at"  gorm:"column:payment_refunded_at;type:timestamptz"`
 
 	// Manual ops
-	PaymentManualChannel          *string    `json:"payment_manual_channel" gorm:"column:payment_manual_channel;type:VARCHAR(32)"`
-	PaymentManualReference        *string    `json:"payment_manual_reference" gorm:"column:payment_manual_reference;type:VARCHAR(120)"`
+	PaymentManualChannel          *string    `json:"payment_manual_channel"           gorm:"column:payment_manual_channel;type:varchar(32)"`
+	PaymentManualReference        *string    `json:"payment_manual_reference"         gorm:"column:payment_manual_reference;type:varchar(120)"`
 	PaymentManualReceivedByUserID *uuid.UUID `json:"payment_manual_received_by_user_id" gorm:"column:payment_manual_received_by_user_id;type:uuid"`
 	PaymentManualVerifiedByUserID *uuid.UUID `json:"payment_manual_verified_by_user_id" gorm:"column:payment_manual_verified_by_user_id;type:uuid"`
-	PaymentManualVerifiedAt       *time.Time `json:"payment_manual_verified_at" gorm:"column:payment_manual_verified_at;type:timestamptz"`
+	PaymentManualVerifiedAt       *time.Time `json:"payment_manual_verified_at"       gorm:"column:payment_manual_verified_at;type:timestamptz"`
+
+	// Ledger & invoice fields
+	PaymentEntryType PaymentEntryType `json:"payment_entry_type" gorm:"column:payment_entry_type;type:payment_entry_type;not null;default:'payment'"`
+	InvoiceNumber    *string          `json:"invoice_number"     gorm:"column:invoice_number;type:text"`
+	InvoiceDueDate   *time.Time       `json:"invoice_due_date"   gorm:"column:invoice_due_date;type:date"`
+	InvoiceTitle     *string          `json:"invoice_title"      gorm:"column:invoice_title;type:text"`
+
+	// Subject (opsional)
+	PaymentSubjectUserID    *uuid.UUID `json:"payment_subject_user_id"    gorm:"column:payment_subject_user_id;type:uuid"`
+	PaymentSubjectStudentID *uuid.UUID `json:"payment_subject_student_id" gorm:"column:payment_subject_student_id;type:uuid"`
 
 	// Meta
 	PaymentDescription *string        `json:"payment_description" gorm:"column:payment_description;type:text"`

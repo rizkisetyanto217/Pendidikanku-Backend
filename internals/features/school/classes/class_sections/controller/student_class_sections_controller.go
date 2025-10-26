@@ -121,6 +121,102 @@ func (ctl *StudentClassSectionController) GetDetail(c *fiber.Ctx) error {
 	})
 }
 
+// ========== LIST ALL (by masjid, untuk staff/admin) ==========
+// GET /api/a/:masjid_id/student-class-sections/list
+func (ctl *StudentClassSectionController) ListAll(c *fiber.Ctx) error {
+	masjidID, err := helperAuth.ParseMasjidIDFromPath(c) // <-- use Exported name
+	if err != nil {
+		return err
+	}
+
+	// Guard: staff (teacher|dkm|admin|bendahara)
+	if e := helperAuth.EnsureStaffMasjid(c, masjidID); e != nil {
+		return e
+	}
+
+	tx := ctl.DB.WithContext(c.Context())
+
+	// --------- filters opsional ----------
+	var (
+		msIDs      []uuid.UUID
+		secIDs     []uuid.UUID
+		status     string
+		searchTerm = strings.TrimSpace(c.Query("q"))
+	)
+
+	if raw := strings.TrimSpace(c.Query("masjid_student_id")); raw != "" {
+		ids, e := parseUUIDList(raw)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "masjid_student_id tidak valid: "+e.Error())
+		}
+		msIDs = ids
+	}
+	if raw := strings.TrimSpace(c.Query("section_id")); raw != "" {
+		ids, e := parseUUIDList(raw)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "section_id tidak valid: "+e.Error())
+		}
+		secIDs = ids
+	}
+	if s := strings.TrimSpace(c.Query("status")); s != "" {
+		status = s
+	}
+
+	q := tx.Model(&model.StudentClassSection{}).
+		Where(`
+			student_class_section_masjid_id = ?
+			AND student_class_section_deleted_at IS NULL
+		`, masjidID)
+
+	if len(msIDs) > 0 {
+		q = q.Where("student_class_section_masjid_student_id IN ?", msIDs)
+	}
+	if len(secIDs) > 0 {
+		q = q.Where("student_class_section_section_id IN ?", secIDs)
+	}
+	if status != "" {
+		q = q.Where("student_class_section_status = ?", status)
+	}
+	if searchTerm != "" {
+		s := "%" + strings.ToLower(searchTerm) + "%"
+		q = q.Where(`
+			LOWER(COALESCE(student_class_section_user_profile_name_snapshot,'')) LIKE ?
+			OR LOWER(COALESCE(student_class_section_fee_snapshot->>'section_code','')) LIKE ?
+			OR LOWER(COALESCE(student_class_section_fee_snapshot->>'section_slug','')) LIKE ?
+		`, s, s, s)
+	}
+
+	page, size := getPageSize(c)
+
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
+	}
+
+	var rows []model.StudentClassSection
+	if err := q.
+		Order("student_class_section_created_at DESC").
+		Limit(size).
+		Offset((page - 1) * size).
+		Find(&rows).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
+	}
+
+	out := make([]dto.StudentClassSectionResp, 0, len(rows))
+	for i := range rows {
+		out = append(out, dto.FromModel(&rows[i]))
+	}
+
+	return helper.JsonOK(c, "OK", fiber.Map{
+		"items": out,
+		"meta": fiber.Map{
+			"page":  page,
+			"size":  size,
+			"total": total,
+		},
+	})
+}
+
 // ========== LIST MINE (auto-resolve masjid_student) ==========
 func (ctl *StudentClassSectionController) ListMine(c *fiber.Ctx) error {
 	masjidID, err := parseMasjidIDFromPath(c)

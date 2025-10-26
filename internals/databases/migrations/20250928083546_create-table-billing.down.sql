@@ -1,34 +1,36 @@
 -- +migrate Down
 BEGIN;
 
--- ============================
--- 1) USER general billings (child)
--- ============================
-DROP TABLE IF EXISTS user_general_billings;
+-- =========================================================
+-- DROP OBJECTS IN REVERSE DEPENDENCY ORDER
+-- (Indexes on dropped tables fall automatically)
+-- =========================================================
 
--- ============================
--- 2) GENERAL billings (parent)
--- ============================
-DROP TABLE IF EXISTS general_billings;
+-- student_bills → depends on bill_batches & masjid_students
+DROP TABLE IF EXISTS student_bills CASCADE;
 
--- ============================
--- 3) SPP user billings (child)
--- ============================
-DROP TABLE IF EXISTS user_spp_billings;
+-- bill_batches (drops all ix_* & uq_* on this table)
+DROP TABLE IF EXISTS bill_batches CASCADE;
 
--- ============================
--- 4) SPP billings (parent)
--- ============================
-DROP TABLE IF EXISTS spp_billings;
+-- general_billings (drops its indexes)
+DROP TABLE IF EXISTS general_billings CASCADE;
 
--- ============================
--- 5) SPP fee rules (independen)
--- ============================
-DROP TABLE IF EXISTS spp_fee_rules;
+-- fee_rules (drops its indexes & EXCLUDE constraints)
+DROP TABLE IF EXISTS fee_rules CASCADE;
 
--- ============================
--- 6) MASTER: general_billing_kinds
--- ============================
-DROP TABLE IF EXISTS general_billing_kinds;
+-- general_billing_kinds (MASTER): keep the table.
+-- Revert ONLY the indexes introduced by this migration.
+
+DROP INDEX IF EXISTS uq_gbk_code_per_tenant_alive;
+DROP INDEX IF EXISTS uq_gbk_code_global_alive;
+DROP INDEX IF EXISTS ix_gbk_tenant_active;
+
+-- =========================================================
+-- ENUMS
+-- =========================================================
+DROP TYPE IF EXISTS fee_scope;
+
+-- (Extensions left intact intentionally:
+-- pgcrypto, pg_trgm, btree_gist)
 
 COMMIT;

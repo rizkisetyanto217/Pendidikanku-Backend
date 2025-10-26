@@ -320,16 +320,10 @@ func (h *Handler) CancelStudentBill(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "student bill canceled", dto.ToStudentBillResponse(m))
 }
 
-/* =======================================================
-   GENERATE STUDENT BILLS FROM BATCH (AUTHORIZED)
-======================================================= */
+// =======================================================
+// GENERATE STUDENT BILLS FROM BATCH (AUTHORIZED)
+// =======================================================
 
-// POST /:masjid_id/spp/generate
-/* =======================================================
-   GENERATE STUDENT BILLS FROM BATCH (AUTHORIZED)
-======================================================= */
-
-// POST /:masjid_id/spp/generate
 func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 	masjidID, err := mustMasjidID(c)
 	if err != nil {
@@ -344,10 +338,34 @@ func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, "invalid json")
 	}
 
-	// >>> selalu set dari path (abaikan body)
+	// Normalize & guard
 	in.StudentBillMasjidID = masjidID
+	if in.BillBatchID == uuid.Nil {
+		return helper.JsonError(c, http.StatusBadRequest, "bill_batch_id is required")
+	}
+	if strings.TrimSpace(in.Labeling.OptionCode) == "" {
+		return helper.JsonError(c, http.StatusBadRequest, "labeling.option_code is required")
+	}
+	if in.Source.Type == "" {
+		return helper.JsonError(c, http.StatusBadRequest, "source.type is required (section|class|students)")
+	}
+	switch in.AmountStrategy.Mode {
+	case "fixed":
+		if in.AmountStrategy.FixedAmountIDR == nil {
+			return helper.JsonError(c, http.StatusBadRequest, "amount_strategy.fixed_amount_idr is required for mode=fixed")
+		}
+	case "rule_fallback_fixed":
+		if in.AmountStrategy.PreferRule == nil || strings.TrimSpace(in.AmountStrategy.PreferRule.OptionCode) == "" {
+			return helper.JsonError(c, http.StatusBadRequest, "amount_strategy.prefer_rule.option_code is required for mode=rule_fallback_fixed")
+		}
+		if in.AmountStrategy.PreferRule.By != "ym" && in.AmountStrategy.PreferRule.By != "term" {
+			return helper.JsonError(c, http.StatusBadRequest, "amount_strategy.prefer_rule.by must be 'ym' or 'term'")
+		}
+	default:
+		return helper.JsonError(c, http.StatusBadRequest, "amount_strategy.mode must be 'fixed' or 'rule_fallback_fixed'")
+	}
 
-	// 1) Validasi batch (tenant scoped)
+	// 1) Load batch (tenant-scoped)
 	var batch billing.BillBatch
 	if err := h.DB.First(&batch,
 		"bill_batch_id = ? AND bill_batch_masjid_id = ? AND bill_batch_deleted_at IS NULL",
@@ -358,10 +376,11 @@ func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	// 2) Target siswa (query sudah pakai in.StudentBillMasjidID yang barusan di-set)
+	// 2) Resolve target students
 	targetIDs, err := h.resolveTargetStudents(in)
 	if err != nil {
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
+		// kembali 400 untuk kesalahan input/query yang bisa diprediksi
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 	if len(targetIDs) == 0 {
 		return helper.JsonOK(c, "no target students", dto.GenerateStudentBillsResponse{
@@ -371,13 +390,12 @@ func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 		})
 	}
 
-	// 3) Idempotency ringan
+	// 3) Idempotency ringan (opsional)
 	if in.IdempotencyKey != nil {
 		var count int64
 		if err := h.DB.Model(&billing.StudentBill{}).
-			Where("student_bill_batch_id = ?", in.BillBatchID).
-			Where("student_bill_masjid_id = ?", masjidID).
-			Where("student_bill_deleted_at IS NULL").
+			Where("student_bill_batch_id = ? AND student_bill_masjid_id = ? AND student_bill_deleted_at IS NULL",
+				in.BillBatchID, masjidID).
 			Count(&count).Error; err == nil && int(count) >= len(targetIDs) {
 			return helper.JsonOK(c, "already generated", dto.GenerateStudentBillsResponse{
 				BillBatchID: in.BillBatchID,
@@ -391,13 +409,13 @@ func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 	res := dto.GenerateStudentBillsResponse{BillBatchID: in.BillBatchID}
 	err = h.DB.Transaction(func(tx *gorm.DB) error {
 		for _, sid := range targetIDs {
-			amount, err := h.resolveAmount(tx, in, batch, sid)
+			amount, err := h.resolveAmountWithContext(tx, in, batch, sid)
 			if err != nil {
-				return err
+				return fmt.Errorf("student %s: %w", sid.String(), err)
 			}
 			usb := billing.StudentBill{
 				StudentBillBatchID:         in.BillBatchID,
-				StudentBillMasjidID:        in.StudentBillMasjidID, // sudah = masjidID
+				StudentBillMasjidID:        in.StudentBillMasjidID,
 				StudentBillMasjidStudentID: &sid,
 				StudentBillOptionCode:      &in.Labeling.OptionCode,
 				StudentBillOptionLabel:     in.Labeling.OptionLabel,
@@ -416,6 +434,7 @@ func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 				res.Skipped++
 			}
 		}
+		// (opsional) update totals batch di sini
 		return nil
 	})
 	if err != nil {
@@ -425,89 +444,170 @@ func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "student bills generated", res)
 }
 
-// resolveTargetStudents: ambil daftar masjid_student_id (tenant already in request)
+/*
+	=======================================================
+	  Target resolver berbasis JSONB masjid_student_sections
+
+=======================================================
+*/
+type idRow struct{ ID uuid.UUID }
+
 func (h *Handler) resolveTargetStudents(in dto.GenerateStudentBillsRequest) ([]uuid.UUID, error) {
 	switch in.Source.Type {
-	case "class":
-		if in.Source.ClassID == nil {
-			return nil, fmt.Errorf("class_id required")
+	case "students":
+		return in.Source.MasjidStudentIDs, nil
+
+	case "section":
+		if in.Source.SectionID == nil {
+			return nil, fmt.Errorf("source.section_id is required")
 		}
-		type row struct{ ID uuid.UUID }
-		var rows []row
-		q := h.DB.Table("masjid_students").
-			Select("masjid_student_id AS id").
-			Where("masjid_student_masjid_id = ?", in.StudentBillMasjidID).
-			Where("class_id = ?", *in.Source.ClassID)
-		if in.Filters != nil && in.Filters.OnlyActiveStudents {
-			q = q.Where("is_active = TRUE")
+		var rows []idRow
+		q := h.DB.Raw(`
+			SELECT ms.masjid_student_id AS id
+			FROM student_class_sections scs
+			JOIN masjid_students ms
+			  ON ms.masjid_student_id = scs.student_class_section_masjid_student_id
+			WHERE scs.student_class_section_masjid_id = ?
+			  AND scs.student_class_section_section_id = ?
+			  AND (COALESCE(?, false) IS FALSE
+			       OR scs.student_class_section_status = 'active')
+			  AND ms.masjid_student_deleted_at IS NULL
+		`,
+			in.StudentBillMasjidID,
+			*in.Source.SectionID,
+			in.Filters != nil && in.Filters.OnlyActiveStudents,
+		).Scan(&rows)
+		if q.Error != nil {
+			return nil, q.Error
 		}
-		if err := q.Find(&rows).Error; err != nil {
-			return nil, err
-		}
+
 		out := make([]uuid.UUID, 0, len(rows))
 		for _, r := range rows {
 			out = append(out, r.ID)
 		}
 		return out, nil
 
-	case "students":
-		return in.Source.MasjidStudentIDs, nil
+	case "class":
+		if in.Source.ClassID == nil {
+			return nil, fmt.Errorf("source.class_id is required")
+		}
+		var rows []idRow
+		q := h.DB.Raw(`
+			SELECT ms.masjid_student_id AS id
+			FROM student_class_sections scs
+			JOIN class_sections cs
+			  ON cs.class_section_id = scs.student_class_section_section_id
+			JOIN masjid_students ms
+			  ON ms.masjid_student_id = scs.student_class_section_masjid_student_id
+			WHERE scs.student_class_section_masjid_id = ?
+			  AND cs.class_section_class_id = ?
+			  AND (COALESCE(?, false) IS FALSE
+			       OR scs.student_class_section_status = 'active')
+			  AND ms.masjid_student_deleted_at IS NULL
+		`,
+			in.StudentBillMasjidID,
+			*in.Source.ClassID,
+			in.Filters != nil && in.Filters.OnlyActiveStudents,
+		).Scan(&rows)
+		if q.Error != nil {
+			return nil, q.Error
+		}
+
+		out := make([]uuid.UUID, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, r.ID)
+		}
+		return out, nil
+
 	default:
-		return nil, fmt.Errorf("unsupported source type")
+		return nil, fmt.Errorf("unsupported source.type: %s", in.Source.Type)
 	}
 }
 
-// resolveAmount: pilih nominal dari rules (jika diminta) atau fixed (tenant-safe)
-func (h *Handler) resolveAmount(tx *gorm.DB, in dto.GenerateStudentBillsRequest, batch billing.BillBatch, studentID uuid.UUID) (int, error) {
-	// Fixed only
+/*
+	=======================================================
+	  Ambil konteks aktif siswa (section_id, class_id)
+
+=======================================================
+*/
+type studentContext struct {
+	SectionID *uuid.UUID
+	ClassID   *uuid.UUID
+}
+
+func (h *Handler) getStudentActiveContext(tx *gorm.DB, masjidID, studentID uuid.UUID) (studentContext, error) {
+	var r struct {
+		SectionID *uuid.UUID
+		ClassID   *uuid.UUID
+	}
+	q := tx.Raw(`
+		SELECT
+		  scs.student_class_section_section_id AS section_id,
+		  cs.class_section_class_id            AS class_id
+		FROM student_class_sections scs
+		LEFT JOIN class_sections cs
+		  ON cs.class_section_id = scs.student_class_section_section_id
+		WHERE scs.student_class_section_masjid_id = ?
+		  AND scs.student_class_section_masjid_student_id = ?
+		  AND scs.student_class_section_status = 'active'
+		LIMIT 1
+	`, masjidID, studentID).Scan(&r)
+	if q.Error != nil {
+		return studentContext{}, q.Error
+	}
+	return studentContext{SectionID: r.SectionID, ClassID: r.ClassID}, nil
+}
+
+/* =======================================================
+   Resolve nominal (rule → fallback fixed)
+======================================================= */
+
+func (h *Handler) resolveAmountWithContext(tx *gorm.DB, in dto.GenerateStudentBillsRequest, batch billing.BillBatch, studentID uuid.UUID) (int, error) {
+	// Mode fixed langsung
 	if in.AmountStrategy.Mode == "fixed" {
-		if in.AmountStrategy.FixedAmountIDR == nil {
-			return 0, fmt.Errorf("fixed_amount_idr required for mode=fixed")
-		}
 		return *in.AmountStrategy.FixedAmountIDR, nil
 	}
 
-	// rule_fallback_fixed
-	if in.AmountStrategy.PreferRule == nil {
-		return 0, fmt.Errorf("prefer_rule required for mode=rule_fallback_fixed")
+	// Mode rule_fallback_fixed
+	ctx, err := h.getStudentActiveContext(tx, in.StudentBillMasjidID, studentID)
+	if err != nil {
+		return 0, err
 	}
-	optionCode := in.AmountStrategy.PreferRule.OptionCode
 
-	// tanggal efektif referensi
-	dueDate := batch.BillBatchDueDate
+	optionCode := strings.ToLower(in.AmountStrategy.PreferRule.OptionCode)
+
+	// Tanggal efektif referensi (pakai due_date batch jika ada)
 	eff := time.Now()
-	if dueDate != nil {
-		eff = *dueDate
+	if batch.BillBatchDueDate != nil {
+		eff = *batch.BillBatchDueDate
 	}
 
 	q := tx.Model(&billing.FeeRule{}).
 		Where("fee_rule_masjid_id = ?", in.StudentBillMasjidID).
-		Where("LOWER(fee_rule_option_code) = ?", strings.ToLower(optionCode)).
+		Where("LOWER(fee_rule_option_code) = ?", optionCode).
 		Where("fee_rule_deleted_at IS NULL").
 		Where("?::date >= COALESCE(fee_rule_effective_from, '-infinity'::date) AND ?::date <= COALESCE(fee_rule_effective_to, 'infinity'::date)", eff, eff)
 
 	switch in.AmountStrategy.PreferRule.By {
 	case "term":
-		if batch.BillBatchTermID == nil {
-			q = q.Where("fee_rule_term_id IS NULL AND fee_rule_year = ? AND fee_rule_month = ?", batch.BillBatchYear, batch.BillBatchMonth)
-		} else {
+		if batch.BillBatchTermID != nil {
 			q = q.Where("fee_rule_term_id = ?", *batch.BillBatchTermID)
+		} else {
+			q = q.Where("fee_rule_term_id IS NULL AND fee_rule_year = ? AND fee_rule_month = ?", batch.BillBatchYear, batch.BillBatchMonth)
 		}
 	case "ym":
 		q = q.Where("fee_rule_term_id IS NULL AND fee_rule_year = ? AND fee_rule_month = ?", batch.BillBatchYear, batch.BillBatchMonth)
-	default:
-		return 0, fmt.Errorf("prefer_rule.by invalid")
 	}
 
-	// scope specificity ordering
+	// Urutan spesifisitas (gunakan konteks yang ada saja)
 	var rule billing.FeeRule
-	err := q.Where(`
+	q = q.Where(`
 		(fee_rule_scope = 'student' AND fee_rule_masjid_student_id = ?)
-		OR (fee_rule_scope = 'section' AND fee_rule_section_id = (SELECT section_id FROM masjid_students WHERE masjid_student_id = ? LIMIT 1))
-		OR (fee_rule_scope = 'class'   AND fee_rule_class_id   = (SELECT class_id   FROM masjid_students WHERE masjid_student_id = ? LIMIT 1))
+		OR (fee_rule_scope = 'section' AND fee_rule_section_id = ?)
+		OR (fee_rule_scope = 'class'   AND fee_rule_class_id   = ?)
 		OR (fee_rule_scope = 'class_parent' AND fee_rule_class_parent_id IS NOT NULL)
 		OR (fee_rule_scope = 'tenant')
-	`, studentID, studentID, studentID).
+	`, studentID, ctx.SectionID, ctx.ClassID).
 		Order(`
 			CASE fee_rule_scope
 				WHEN 'student' THEN 1
@@ -519,16 +619,16 @@ func (h *Handler) resolveAmount(tx *gorm.DB, in dto.GenerateStudentBillsRequest,
 			END, fee_rule_is_default DESC, fee_rule_created_at DESC
 		`).
 		Limit(1).
-		First(&rule).Error
+		First(&rule)
 
-	if err == nil {
+	if q.Error == nil {
 		return rule.FeeRuleAmountIDR, nil
 	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return 0, err
+	if !errors.Is(q.Error, gorm.ErrRecordNotFound) {
+		return 0, q.Error
 	}
 
-	// fallback to fixed if provided
+	// Fallback ke fixed jika disediakan
 	if in.AmountStrategy.FixedAmountIDR != nil {
 		return *in.AmountStrategy.FixedAmountIDR, nil
 	}

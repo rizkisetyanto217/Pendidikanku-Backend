@@ -2,13 +2,13 @@
 BEGIN;
 
 -- =========================================
--- Extensions
+-- Extensions (idempotent)
 -- =========================================
 CREATE EXTENSION IF NOT EXISTS pgcrypto;  -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;   -- trigram ops
 
 -- =========================================
--- Enums (idempotent)
+-- Enums (idempotent, safe CREATE-if-missing)
 -- =========================================
 DO $$
 BEGIN
@@ -52,69 +52,79 @@ BEGIN
 END$$;
 
 -- =========================================
--- TABLE: payments  (ledger tunggal; TANPA UGB)
+-- TABLE: payments (ledger tunggal)
 -- =========================================
 CREATE TABLE IF NOT EXISTS payments (
-  payment_id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  payment_id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  payment_masjid_id            UUID REFERENCES masjids(masjid_id) ON DELETE SET NULL,
-  payment_user_id              UUID REFERENCES users(id)          ON DELETE SET NULL,
+  -- Tenant & actor
+  payment_masjid_id                UUID REFERENCES masjids(masjid_id) ON DELETE SET NULL,
+  payment_user_id                  UUID REFERENCES users(id)          ON DELETE SET NULL,
 
-  -- FK eksplisit (by-instance)
-  payment_bill_batch_id           UUID REFERENCES bill_batches(bill_batch_id)                   ON DELETE SET NULL,
-  payment_general_billing_id      UUID REFERENCES general_billings(general_billing_id)         ON DELETE SET NULL,
-  payment_general_billing_kind_id UUID REFERENCES general_billing_kinds(general_billing_kind_id) ON DELETE SET NULL,
+  -- Target FK (salah satu WAJIB terisi)
+  payment_student_bill_id          UUID REFERENCES student_bills(student_bill_id)               ON DELETE SET NULL,
+  payment_general_billing_id       UUID REFERENCES general_billings(general_billing_id)        ON DELETE SET NULL,
+  payment_general_billing_kind_id  UUID REFERENCES general_billing_kinds(general_billing_kind_id) ON DELETE SET NULL,
 
-  -- nominal
-  payment_amount_idr           INT NOT NULL CHECK (payment_amount_idr >= 0),
-  payment_currency             VARCHAR(8) NOT NULL DEFAULT 'IDR' CHECK (payment_currency IN ('IDR')),
+  -- Konteks/report (opsional)
+  payment_bill_batch_id            UUID REFERENCES bill_batches(bill_batch_id) ON DELETE SET NULL,
 
-  -- status/metode
-  payment_status               payment_status NOT NULL DEFAULT 'initiated',
-  payment_method               payment_method NOT NULL DEFAULT 'gateway',
+  -- Nominal
+  payment_amount_idr               INT NOT NULL CHECK (payment_amount_idr >= 0),
+  payment_currency                 VARCHAR(8) NOT NULL DEFAULT 'IDR' CHECK (payment_currency IN ('IDR')),
 
-  -- info gateway (opsional jika manual)
-  payment_gateway_provider     payment_gateway_provider,  -- NULL jika manual
-  payment_external_id          TEXT,
-  payment_gateway_reference    TEXT,
-  payment_checkout_url         TEXT,
-  payment_qr_string            TEXT,
-  payment_signature            TEXT,
-  payment_idempotency_key      TEXT,
+  -- Status & metode
+  payment_status                   payment_status NOT NULL DEFAULT 'initiated',
+  payment_method                   payment_method NOT NULL DEFAULT 'gateway',
 
-  -- timestamps status
-  payment_requested_at         TIMESTAMPTZ DEFAULT NOW(),
-  payment_expires_at           TIMESTAMPTZ,
-  payment_paid_at              TIMESTAMPTZ,
-  payment_canceled_at          TIMESTAMPTZ,
-  payment_failed_at            TIMESTAMPTZ,
-  payment_refunded_at          TIMESTAMPTZ,
+  -- Info gateway (NULL jika manual)
+  payment_gateway_provider         payment_gateway_provider,
+  payment_external_id              TEXT,
+  payment_gateway_reference        TEXT,
+  payment_checkout_url             TEXT,
+  payment_qr_string                TEXT,
+  payment_signature                TEXT,
+  payment_idempotency_key          TEXT,
 
-  -- manual ops (kasir/admin)
-  payment_manual_channel       VARCHAR(32),   -- 'cash','bank_transfer','qris'
-  payment_manual_reference     VARCHAR(120),
+  -- Timestamps status
+  payment_requested_at             TIMESTAMPTZ DEFAULT NOW(),
+  payment_expires_at               TIMESTAMPTZ,
+  payment_paid_at                  TIMESTAMPTZ,
+  payment_canceled_at              TIMESTAMPTZ,
+  payment_failed_at                TIMESTAMPTZ,
+  payment_refunded_at              TIMESTAMPTZ,
+
+  -- Manual ops (kasir/admin)
+  payment_manual_channel           VARCHAR(32),            -- cash/bank_transfer/qris/other
+  payment_manual_reference         VARCHAR(120),
   payment_manual_received_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   payment_manual_verified_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  payment_manual_verified_at   TIMESTAMPTZ,
+  payment_manual_verified_at       TIMESTAMPTZ,
 
-  -- ledger & invoice fields
-  payment_entry_type           payment_entry_type NOT NULL DEFAULT 'payment',
-  invoice_number               TEXT,
-  invoice_due_date             DATE,
-  invoice_title                TEXT,
-  payment_subject_user_id      UUID REFERENCES users(id) ON DELETE SET NULL, -- subjek tagihan (user)
-  payment_subject_student_id   UUID,                                         -- subjek tagihan (masjid_student)
+  -- Ledger & invoice fields
+  payment_entry_type               payment_entry_type NOT NULL DEFAULT 'payment',
+  invoice_number                   TEXT,
+  invoice_due_date                 DATE,
+  invoice_title                    TEXT,
 
-  -- meta
-  payment_description          TEXT,
-  payment_note                 TEXT,
-  payment_meta                 JSONB,
-  payment_attachments          JSONB,
+  -- Subjek (opsional)
+  payment_subject_user_id          UUID REFERENCES users(id) ON DELETE SET NULL,
+  payment_subject_student_id       UUID REFERENCES masjid_students(masjid_student_id) ON DELETE SET NULL,
 
-  -- audit
-  payment_created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  payment_updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  payment_deleted_at           TIMESTAMPTZ,
+  -- Meta
+  payment_description              TEXT,
+  payment_note                     TEXT,
+  payment_meta                     JSONB,
+  payment_attachments              JSONB,
+
+  -- Audit
+  payment_created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  payment_updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  payment_deleted_at               TIMESTAMPTZ,
+
+  -- =========================
+  -- CHECK Constraints
+  -- =========================
 
   -- Konsistensi method vs provider
   CONSTRAINT ck_payments_method_provider CHECK (
@@ -125,45 +135,57 @@ CREATE TABLE IF NOT EXISTS payments (
 
   -- Minimal salah satu target FK eksplisit harus terisi
   CONSTRAINT ck_payment_target_any CHECK (
-    payment_bill_batch_id IS NOT NULL
+    payment_student_bill_id IS NOT NULL
     OR payment_general_billing_id IS NOT NULL
     OR payment_general_billing_kind_id IS NOT NULL
   )
 );
 
 -- =========================================
--- Indexes: payments
+-- Indexes (partial untuk “live” = non-deleted)
 -- =========================================
 
--- Idempotent DROP untuk index yang salah/typo (kalau pernah terbuat)
+-- Bersihkan typo index lama bila ada
 DROP INDEX IF EXISTS ix_payments_usb_live;
 DROP INDEX IF EXISTS ix_payments_spp_header_live;
 
+-- Idempotency (unik per tenant + key)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_idem_live
   ON payments (payment_masjid_id, COALESCE(payment_idempotency_key, ''))
   WHERE payment_deleted_at IS NULL AND payment_idempotency_key IS NOT NULL;
 
+-- Unik provider + external_id (gateway)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_provider_extid_live
   ON payments (payment_gateway_provider, COALESCE(payment_external_id,''))
-  WHERE payment_deleted_at IS NULL AND payment_gateway_provider IS NOT NULL AND payment_external_id IS NOT NULL;
+  WHERE payment_deleted_at IS NULL
+    AND payment_gateway_provider IS NOT NULL
+    AND payment_external_id IS NOT NULL;
 
+-- Tenant + created_at (listing default)
 CREATE INDEX IF NOT EXISTS ix_payments_tenant_created_live
   ON payments (payment_masjid_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
+-- Status (inbox kasir/gateway monitor)
 CREATE INDEX IF NOT EXISTS ix_payments_status_live
   ON payments (payment_status, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
+-- Provider (ops gateway)
 CREATE INDEX IF NOT EXISTS ix_payments_provider_live
   ON payments (payment_gateway_provider, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
+-- User (riwayat bayar user)
 CREATE INDEX IF NOT EXISTS ix_payments_user_live
   ON payments (payment_user_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
--- header indexes yang benar
+-- Header/konteks
+CREATE INDEX IF NOT EXISTS ix_payments_student_bill_live
+  ON payments (payment_student_bill_id, payment_created_at DESC)
+  WHERE payment_deleted_at IS NULL;
+
 CREATE INDEX IF NOT EXISTS ix_payments_bill_batch_live
   ON payments (payment_bill_batch_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
@@ -176,31 +198,31 @@ CREATE INDEX IF NOT EXISTS ix_payments_gbk_live
   ON payments (payment_general_billing_kind_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
--- ledger/invoice & subject
+-- Ledger & subject
 CREATE INDEX IF NOT EXISTS ix_payments_entrytype_live
   ON payments (payment_entry_type, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS ix_payments_subject_billing_live
-  ON payments (payment_subject_student_id, payment_general_billing_id, payment_created_at DESC)
+CREATE INDEX IF NOT EXISTS ix_payments_subject_student_live
+  ON payments (payment_subject_student_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
--- nomor invoice unik per tenant (untuk charge)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_invoice_per_tenant
+-- Invoice unik per tenant (hanya untuk entry_type=charge)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_invoice_per_tenant_live
   ON payments (payment_masjid_id, LOWER(invoice_number))
   WHERE payment_deleted_at IS NULL
     AND payment_entry_type = 'charge'
     AND invoice_number IS NOT NULL;
 
--- anti double-charge per siswa × billing (opsional)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_charge_once_per_student_billing
+-- Anti double-charge per siswa × general_billing (opsional)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_charge_once_per_student_billing_live
   ON payments (payment_subject_student_id, payment_general_billing_id)
   WHERE payment_deleted_at IS NULL
     AND payment_entry_type = 'charge'
     AND payment_subject_student_id IS NOT NULL
     AND payment_general_billing_id IS NOT NULL;
 
--- trigram (live only)
+-- Trigram searches (external id / references / manual ref / description)
 CREATE INDEX IF NOT EXISTS gin_payments_extid_trgm_live
   ON payments USING GIN ( (COALESCE(payment_external_id,'')) gin_trgm_ops )
   WHERE payment_deleted_at IS NULL;
@@ -216,6 +238,10 @@ CREATE INDEX IF NOT EXISTS gin_payments_manualref_trgm_live
 CREATE INDEX IF NOT EXISTS gin_payments_desc_trgm_live
   ON payments USING GIN ( (COALESCE(payment_description,'')) gin_trgm_ops )
   WHERE payment_deleted_at IS NULL;
+
+COMMIT;
+
+
 
 -- =========================================
 -- TABLE: payment_gateway_events

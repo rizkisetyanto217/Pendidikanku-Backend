@@ -20,7 +20,7 @@ func ClassSectionUserRoutes(admin fiber.Router, db *gorm.DB) {
 
 	// ================== USER (scoped by masjid_id in path) ==================
 	user := admin.Group("/:masjid_id/student-class-sections")
-	user.Get("/list", ucsH.ListMine)
+	user.Get("/me", ucsH.ListMine)
 	user.Get("/detail/:id", ucsH.GetDetail)
 	user.Post("/", ucsH.Create)
 	user.Patch("/:id", ucsH.Patch)

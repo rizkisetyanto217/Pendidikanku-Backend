@@ -40,6 +40,7 @@ func ClassSectionAdminRoutes(api fiber.Router, db *gorm.DB) {
 	base.Delete("/:masjid_id/class-sections/:id", sectionH.SoftDeleteClassSection)
 
 	base.Post("/:masjid_id/student-class-sections", ucsH.Create)
+	base.Get("/:masjid_id/student-class-sections/list", ucsH.ListAll)
 	base.Patch("/:masjid_id/student-class-sections/:id", ucsH.Delete)
 	base.Delete("/:masjid_id/student-class-sections/:id", ucsH.Delete)
 

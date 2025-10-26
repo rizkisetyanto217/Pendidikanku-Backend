@@ -141,8 +141,9 @@ type AmountStrategyDTO struct {
 }
 
 type SourceDTO struct {
-	Type             string      `json:"type" validate:"required,oneof=class students"`
+	Type             string      `json:"type" validate:"required,oneof=class section students"`
 	ClassID          *uuid.UUID  `json:"class_id,omitempty"`
+	SectionID        *uuid.UUID  `json:"section_id,omitempty"` // <-- tambahkan ini
 	MasjidStudentIDs []uuid.UUID `json:"masjid_student_ids,omitempty"`
 }
 
