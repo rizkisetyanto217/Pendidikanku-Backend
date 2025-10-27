@@ -26,6 +26,11 @@ type GeneralBillingKindDTO struct {
 	IsGlobal   bool    `json:"is_global"`            // true jika global kind
 	Visibility *string `json:"visibility,omitempty"` // "public" | "internal" | null
 
+	// Flags pipeline per-siswa (baru)
+	IsRecurring        bool `json:"is_recurring"`
+	RequiresMonthYear  bool `json:"requires_month_year"`
+	RequiresOptionCode bool `json:"requires_option_code"`
+
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
@@ -33,18 +38,21 @@ type GeneralBillingKindDTO struct {
 
 func FromModel(g m.GeneralBillingKind) GeneralBillingKindDTO {
 	dto := GeneralBillingKindDTO{
-		ID:               g.GeneralBillingKindID,
-		MasjidID:         g.GeneralBillingKindMasjidID,
-		Code:             g.GeneralBillingKindCode,
-		Name:             g.GeneralBillingKindName,
-		Desc:             g.GeneralBillingKindDesc,
-		IsActive:         g.GeneralBillingKindIsActive,
-		DefaultAmountIDR: g.GeneralBillingKindDefaultAmountIDR,
-		Category:         string(g.GeneralBillingKindCategory),
-		IsGlobal:         g.GeneralBillingKindIsGlobal,
-		CreatedAt:        g.GeneralBillingKindCreatedAt,
-		UpdatedAt:        g.GeneralBillingKindUpdatedAt,
-		DeletedAt:        g.GeneralBillingKindDeletedAt,
+		ID:                 g.GeneralBillingKindID,
+		MasjidID:           g.GeneralBillingKindMasjidID,
+		Code:               g.GeneralBillingKindCode,
+		Name:               g.GeneralBillingKindName,
+		Desc:               g.GeneralBillingKindDesc,
+		IsActive:           g.GeneralBillingKindIsActive,
+		DefaultAmountIDR:   g.GeneralBillingKindDefaultAmountIDR,
+		Category:           string(g.GeneralBillingKindCategory),
+		IsGlobal:           g.GeneralBillingKindIsGlobal,
+		IsRecurring:        g.GeneralBillingKindIsRecurring,
+		RequiresMonthYear:  g.GeneralBillingKindRequiresMonthYear,
+		RequiresOptionCode: g.GeneralBillingKindRequiresOptionCode,
+		CreatedAt:          g.GeneralBillingKindCreatedAt,
+		UpdatedAt:          g.GeneralBillingKindUpdatedAt,
+		DeletedAt:          g.GeneralBillingKindDeletedAt,
 	}
 	if g.GeneralBillingKindVisibility != nil {
 		v := string(*g.GeneralBillingKindVisibility)
@@ -79,6 +87,11 @@ type CreateGeneralBillingKindRequest struct {
 	Category   *string `json:"category,omitempty"`   // "billing" | "campaign" (default "billing")
 	IsGlobal   *bool   `json:"is_global,omitempty"`  // default false
 	Visibility *string `json:"visibility,omitempty"` // "public" | "internal"
+
+	// Flags pipeline per-siswa (baru; default false)
+	IsRecurring        *bool `json:"is_recurring,omitempty"`
+	RequiresMonthYear  *bool `json:"requires_month_year,omitempty"`
+	RequiresOptionCode *bool `json:"requires_option_code,omitempty"`
 }
 
 func (r CreateGeneralBillingKindRequest) ToModel() m.GeneralBillingKind {
@@ -104,6 +117,19 @@ func (r CreateGeneralBillingKindRequest) ToModel() m.GeneralBillingKind {
 		isGlobal = *r.IsGlobal
 	}
 
+	isRecurring := false
+	if r.IsRecurring != nil {
+		isRecurring = *r.IsRecurring
+	}
+	requiresMonthYear := false
+	if r.RequiresMonthYear != nil {
+		requiresMonthYear = *r.RequiresMonthYear
+	}
+	requiresOptionCode := false
+	if r.RequiresOptionCode != nil {
+		requiresOptionCode = *r.RequiresOptionCode
+	}
+
 	return m.GeneralBillingKind{
 		GeneralBillingKindMasjidID:         r.MasjidID,
 		GeneralBillingKindCode:             r.Code,
@@ -114,6 +140,10 @@ func (r CreateGeneralBillingKindRequest) ToModel() m.GeneralBillingKind {
 		GeneralBillingKindCategory:         cat,
 		GeneralBillingKindIsGlobal:         isGlobal,
 		GeneralBillingKindVisibility:       vis,
+
+		GeneralBillingKindIsRecurring:        isRecurring,
+		GeneralBillingKindRequiresMonthYear:  requiresMonthYear,
+		GeneralBillingKindRequiresOptionCode: requiresOptionCode,
 	}
 }
 
@@ -133,7 +163,12 @@ type PatchGeneralBillingKindRequest struct {
 	// Baru (opsional; sebaiknya dibatasi untuk admin)
 	Category   *string `json:"category,omitempty"` // "billing" | "campaign"
 	IsGlobal   *bool   `json:"is_global,omitempty"`
-	Visibility *string `json:"visibility,omitempty"` // "public" | "internal" | null (kirim "" untuk clear)
+	Visibility *string `json:"visibility,omitempty"` // "public" | "internal" | "" => clear
+
+	// Flags (tri-state; nil = no-op)
+	IsRecurring        *bool `json:"is_recurring,omitempty"`
+	RequiresMonthYear  *bool `json:"requires_month_year,omitempty"`
+	RequiresOptionCode *bool `json:"requires_option_code,omitempty"`
 }
 
 func (p PatchGeneralBillingKindRequest) ApplyTo(g *m.GeneralBillingKind) {
@@ -170,6 +205,17 @@ func (p PatchGeneralBillingKindRequest) ApplyTo(g *m.GeneralBillingKind) {
 			g.GeneralBillingKindVisibility = &v
 		}
 	}
+
+	// Flags
+	if p.IsRecurring != nil {
+		g.GeneralBillingKindIsRecurring = *p.IsRecurring
+	}
+	if p.RequiresMonthYear != nil {
+		g.GeneralBillingKindRequiresMonthYear = *p.RequiresMonthYear
+	}
+	if p.RequiresOptionCode != nil {
+		g.GeneralBillingKindRequiresOptionCode = *p.RequiresOptionCode
+	}
 }
 
 /* =========================================================
@@ -185,6 +231,11 @@ type ListGeneralBillingKindsQuery struct {
 	Category *string `query:"category"`   // "billing" | "campaign"
 	IsGlobal *bool   `query:"is_global"`  // true/false
 	Visible  *string `query:"visibility"` // "public" | "internal"
+
+	// Filter flags (baru)
+	IsRecurring        *bool `query:"is_recurring"`
+	RequiresMonthYear  *bool `query:"requires_month_year"`
+	RequiresOptionCode *bool `query:"requires_option_code"`
 
 	Page     int    `query:"page"`      // default 1
 	PageSize int    `query:"page_size"` // default 20
@@ -208,6 +259,11 @@ type UpsertGeneralBillingKindItem struct {
 	Category   *string `json:"category,omitempty"`   // "billing" | "campaign"
 	Visibility *string `json:"visibility,omitempty"` // "public" | "internal"
 	IsGlobal   *bool   `json:"is_global,omitempty"`
+
+	// Flags (opsional)
+	IsRecurring        *bool `json:"is_recurring,omitempty"`
+	RequiresMonthYear  *bool `json:"requires_month_year,omitempty"`
+	RequiresOptionCode *bool `json:"requires_option_code,omitempty"`
 }
 
 type UpsertGeneralBillingKindsRequest struct {

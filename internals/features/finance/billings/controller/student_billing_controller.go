@@ -62,6 +62,7 @@ func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 		Where("student_bill_deleted_at IS NULL").
 		Where("student_bill_masjid_id = ?", masjidID) // ← tenant scope
 
+	// ---------- filters umum ----------
 	if v := c.Query("batch_id"); v != "" {
 		if id, err := uuid.Parse(v); err == nil {
 			q = q.Where("student_bill_batch_id = ?", id)
@@ -77,9 +78,40 @@ func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 			q = q.Where("student_bill_payer_user_id = ?", id)
 		}
 	}
+
+	// ---------- denorm filters baru ----------
+	if v := c.Query("general_billing_kind_id"); v != "" {
+		if id, err := uuid.Parse(v); err == nil {
+			q = q.Where("student_bill_general_billing_kind_id = ?", id)
+		}
+	}
+	if v := c.Query("bill_code"); v != "" {
+		q = q.Where("LOWER(student_bill_bill_code) = ?", strings.ToLower(v))
+	}
+	if v := c.Query("term_id"); v != "" {
+		if id, err := uuid.Parse(v); err == nil {
+			q = q.Where("student_bill_term_id = ?", id)
+		}
+	}
+	if v := c.Query("year"); v != "" {
+		q = q.Where("student_bill_year = ?", v)
+	}
+	if v := c.Query("month"); v != "" {
+		q = q.Where("student_bill_month = ?", v)
+	}
 	if v := c.Query("option_code"); v != "" {
 		q = q.Where("LOWER(student_bill_option_code) = ?", strings.ToLower(v))
 	}
+	// has_option: periodic=false/true (periodic = option_code NULL)
+	if v := c.Query("has_option"); v != "" { // true|false
+		if strings.EqualFold(v, "true") {
+			q = q.Where("student_bill_option_code IS NOT NULL")
+		} else if strings.EqualFold(v, "false") {
+			q = q.Where("student_bill_option_code IS NULL")
+		}
+	}
+
+	// ---------- status / amount / date ----------
 	if v := c.Query("status"); v != "" { // unpaid|paid|canceled
 		q = q.Where("student_bill_status = ?", v)
 	}
@@ -127,35 +159,6 @@ func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 }
 
 // -----------------------------------------
-// Get (GET /:masjid_id/spp/student-bills/:id)
-// -----------------------------------------
-func (h *StudentBillHandler) Get(c *fiber.Ctx) error {
-	masjidID, err := mustMasjidID(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
-	}
-	if err := helperAuth.EnsureMemberMasjid(c, masjidID); err != nil {
-		return err
-	}
-
-	id, err := parseUUIDParam(c, "id")
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
-	}
-
-	var m billing.StudentBill
-	if err := h.DB.First(&m,
-		"student_bill_id = ? AND student_bill_masjid_id = ? AND student_bill_deleted_at IS NULL",
-		id, masjidID).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "student_bill not found")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-	return helper.JsonOK(c, "ok", dto.ToStudentBillResponse(m))
-}
-
-// -----------------------------------------
 // Create (POST /:masjid_id/spp/student-bills)
 // -----------------------------------------
 func (h *StudentBillHandler) Create(c *fiber.Ctx) error {
@@ -176,8 +179,28 @@ func (h *StudentBillHandler) Create(c *fiber.Ctx) error {
 	// Paksa tenant dari path (abaikan body)
 	in.StudentBillMasjidID = masjidID
 
+	// Normalisasi bill_code & option
+	in.StudentBillBillCode = normalizeBillCode(in.StudentBillBillCode)
+	in.StudentBillOptionCode = strPtrOrNil(in.StudentBillOptionCode)
+
+	// Periodic vs One-off validation:
+	if isOneOff(in.StudentBillOptionCode) {
+		// one-off: YM opsional
+	} else {
+		// periodic: YM wajib
+		if in.StudentBillYear == nil || in.StudentBillMonth == nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "periodic student bill requires year and month")
+		}
+	}
+
 	m := dto.StudentBillCreateDTOToModel(in)
 	if err := h.DB.Create(&m).Error; err != nil {
+		if isUniqueViolation(err) {
+			// bisa terjadi karena:
+			// - unique per batch (uq_student_bill_per_student)
+			// - partial unique periodic/oneoff di SQL
+			return helper.JsonError(c, fiber.StatusConflict, "duplicate student bill for the given scope/period")
+		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	return helper.JsonCreated(c, "created", dto.ToStudentBillResponse(m))
@@ -205,6 +228,15 @@ func (h *StudentBillHandler) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json")
 	}
 
+	// Normalisasi untuk field yang relevan
+	if in.StudentBillBillCode != nil {
+		code := normalizeBillCode(*in.StudentBillBillCode)
+		in.StudentBillBillCode = &code
+	}
+	if in.StudentBillOptionCode != nil {
+		in.StudentBillOptionCode = strPtrOrNil(in.StudentBillOptionCode)
+	}
+
 	var m billing.StudentBill
 	if err := h.DB.First(&m,
 		"student_bill_id = ? AND student_bill_masjid_id = ? AND student_bill_deleted_at IS NULL",
@@ -215,8 +247,23 @@ func (h *StudentBillHandler) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
+	// Terapkan perubahan
 	dto.ApplyStudentBillUpdate(&m, in)
+
+	// Re-validate periodic vs one-off setelah apply:
+	if isOneOff(m.StudentBillOptionCode) {
+		// one-off: YM opsional
+	} else {
+		// periodic: YM wajib
+		if m.StudentBillYear == nil || m.StudentBillMonth == nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "periodic student bill requires year and month")
+		}
+	}
+
 	if err := h.DB.Save(&m).Error; err != nil {
+		if isUniqueViolation(err) {
+			return helper.JsonError(c, fiber.StatusConflict, "duplicate student bill for the given scope/period")
+		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	return helper.JsonUpdated(c, "updated", dto.ToStudentBillResponse(m))
@@ -256,94 +303,6 @@ func (h *StudentBillHandler) Delete(c *fiber.Ctx) error {
 }
 
 // -----------------------------------------
-// Status: Mark Paid (POST /:masjid_id/spp/student-bills/:id/mark-paid)
-// -----------------------------------------
-func (h *StudentBillHandler) MarkPaid(c *fiber.Ctx) error {
-	masjidID, err := mustMasjidID(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
-	}
-	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
-		return err
-	}
-
-	id, err := parseUUIDParam(c, "id")
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
-	}
-
-	var in dto.StudentBillMarkPaidDTO
-	if err := c.BodyParser(&in); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json")
-	}
-
-	var m billing.StudentBill
-	if err := h.DB.First(&m,
-		"student_bill_id = ? AND student_bill_masjid_id = ? AND student_bill_deleted_at IS NULL",
-		id, masjidID).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "student_bill not found")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-
-	now := time.Now()
-	if in.PaidAt == nil {
-		in.PaidAt = &now
-	}
-	m.StudentBillStatus = billing.StudentBillStatusPaid
-	m.StudentBillPaidAt = in.PaidAt
-	m.StudentBillNote = in.Note
-
-	if err := h.DB.Save(&m).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-	return helper.JsonUpdated(c, "marked as paid", dto.ToStudentBillResponse(m))
-}
-
-// -----------------------------------------
-// Status: Mark Unpaid (POST /:masjid_id/spp/student-bills/:id/mark-unpaid)
-// -----------------------------------------
-func (h *StudentBillHandler) MarkUnpaid(c *fiber.Ctx) error {
-	masjidID, err := mustMasjidID(c)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
-	}
-	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
-		return err
-	}
-
-	id, err := parseUUIDParam(c, "id")
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
-	}
-
-	var in dto.StudentBillMarkUnpaidDTO
-	if err := c.BodyParser(&in); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json")
-	}
-
-	var m billing.StudentBill
-	if err := h.DB.First(&m,
-		"student_bill_id = ? AND student_bill_masjid_id = ? AND student_bill_deleted_at IS NULL",
-		id, masjidID).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "student_bill not found")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-
-	m.StudentBillStatus = billing.StudentBillStatusUnpaid
-	m.StudentBillPaidAt = nil
-	m.StudentBillNote = in.Note
-
-	if err := h.DB.Save(&m).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-	return helper.JsonUpdated(c, "marked as unpaid", dto.ToStudentBillResponse(m))
-}
-
-// -----------------------------------------
 // Status: Cancel (POST /:masjid_id/spp/student-bills/:id/cancel)
 // -----------------------------------------
 func (h *StudentBillHandler) Cancel(c *fiber.Ctx) error {
@@ -377,6 +336,8 @@ func (h *StudentBillHandler) Cancel(c *fiber.Ctx) error {
 
 	m.StudentBillStatus = billing.StudentBillStatusCanceled
 	m.StudentBillNote = in.Note
+	// optional: kosongkan paid_at saat cancel
+	// m.StudentBillPaidAt = nil
 
 	if err := h.DB.Save(&m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())

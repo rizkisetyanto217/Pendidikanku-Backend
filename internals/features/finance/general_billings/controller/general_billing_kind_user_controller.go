@@ -11,10 +11,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// List
 // GET /api/a/:masjid_id/general-billing-kinds
 func (ctl *GeneralBillingKindController) List(c *fiber.Ctx) error {
-	// 1) Path + guard
+	// 1) Path guard
 	masjidID, err := helperAuth.ParseMasjidIDFromPath(c)
 	if err != nil {
 		return err
@@ -24,41 +23,65 @@ func (ctl *GeneralBillingKindController) List(c *fiber.Ctx) error {
 	}
 	c.Locals("__masjid_guard_ok", masjidID.String())
 
-	// 2) Query params
+	// 2) Query params (filter2 non-paging)
 	var q dto.ListGeneralBillingKindsQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid query params")
 	}
-	if q.Page <= 0 {
-		q.Page = 1
-	}
-	if q.PageSize <= 0 {
-		q.PageSize = 20
-	}
-	if q.PageSize > 100 {
-		q.PageSize = 100
-	}
 	q.Search = strings.TrimSpace(q.Search)
 
-	// 3) Build base query (alive only)
+	// 3) Pagination & sorting (pakai helper)
+	// - default sort_by = "created_at", default order = "desc"
+	// - ganti ExportOpts jika ingin dukung per_page=all
+	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
+
+	// whitelist mapping: key -> kolom DB
+	allowed := map[string]string{
+		"created_at": "general_billing_kind_created_at",
+		"name":       "general_billing_kind_name",
+		"code":       "general_billing_kind_code",
+	}
+	orderClause, err := p.SafeOrderClause(allowed, "created_at")
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	// 4) Base query (alive + tenant)
 	tx := ctl.DB.WithContext(c.Context()).
 		Model(&m.GeneralBillingKind{}).
 		Where("general_billing_kind_masjid_id = ? AND general_billing_kind_deleted_at IS NULL", masjidID)
 
-	// Filter: is_active
+	// 5) Filters tambahan
 	if q.IsActive != nil {
 		tx = tx.Where("general_billing_kind_is_active = ?", *q.IsActive)
 	}
-
-	// Filter: created_from / created_to
 	if q.CreatedFrom != nil {
 		tx = tx.Where("general_billing_kind_created_at >= ?", *q.CreatedFrom)
 	}
 	if q.CreatedTo != nil {
 		tx = tx.Where("general_billing_kind_created_at < ?", *q.CreatedTo)
 	}
+	if q.Category != nil && *q.Category != "" {
+		tx = tx.Where("general_billing_kind_category = ?", *q.Category)
+	}
+	if q.IsGlobal != nil {
+		tx = tx.Where("general_billing_kind_is_global = ?", *q.IsGlobal)
+	}
+	if q.Visible != nil && *q.Visible != "" {
+		tx = tx.Where("general_billing_kind_visibility = ?", *q.Visible)
+	}
+	// Flags (baru)
+	if q.IsRecurring != nil {
+		tx = tx.Where("general_billing_kind_is_recurring = ?", *q.IsRecurring)
+	}
+	if q.RequiresMonthYear != nil {
+		tx = tx.Where("general_billing_kind_requires_month_year = ?", *q.RequiresMonthYear)
+	}
+	if q.RequiresOptionCode != nil {
+		tx = tx.Where("general_billing_kind_requires_option_code = ?", *q.RequiresOptionCode)
+	}
 
-	// Filter: search (code / name)
+	// Search (code/name)
 	if q.Search != "" {
 		needle := "%" + strings.ToLower(q.Search) + "%"
 		tx = tx.Where(
@@ -67,47 +90,25 @@ func (ctl *GeneralBillingKindController) List(c *fiber.Ctx) error {
 		)
 	}
 
-	// 4) Count total
+	// 6) Hitung total
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 5) Sorting whitelist
-	order := "general_billing_kind_created_at DESC" // default
-	switch strings.ToLower(strings.TrimSpace(q.Sort)) {
-	case "created_at_asc":
-		order = "general_billing_kind_created_at ASC"
-	case "created_at_desc":
-		order = "general_billing_kind_created_at DESC"
-	case "name_asc":
-		order = "general_billing_kind_name ASC"
-	case "name_desc":
-		order = "general_billing_kind_name DESC"
-	}
-
-	// 6) Paging
-	offset := (q.Page - 1) * q.PageSize
-
-	// 7) Fetch data
+	// 7) Ambil data dengan order & paging dari helper
 	var rows []m.GeneralBillingKind
 	if err := tx.
-		Order(order).
-		Offset(offset).
-		Limit(q.PageSize).
+		Order(orderClause).
+		Offset(p.Offset()).
+		Limit(p.Limit()).
 		Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 8) Build pagination meta
-	totalPages := (total + int64(q.PageSize) - 1) / int64(q.PageSize)
-	pagination := fiber.Map{
-		"page":        q.Page,
-		"page_size":   q.PageSize,
-		"total":       total,
-		"total_pages": totalPages,
-	}
+	// 8) Meta pagination
+	meta := helper.BuildMeta(total, p)
 
 	// 9) Response
-	return helper.JsonList(c, dto.FromModelSlice(rows), pagination)
+	return helper.JsonList(c, dto.FromModelSlice(rows), meta)
 }

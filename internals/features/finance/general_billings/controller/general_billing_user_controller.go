@@ -12,10 +12,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// ========== List (paging + filter) ==========
-// ListPublic: endpoint publik (opsional JWT). Tidak pakai EnsureMasjidAccessDKM.
+// GET /api/a/:masjid_id/general-billings
+// Query:
+//
+//	q, kind_id, active(=true|false|1|0), due_from(YYYY-MM-DD), due_to(YYYY-MM-DD),
+//	include_global(=true|false)  -> default true
+//	page, per_page, sort_by(created_at|due_date|title), order(asc|desc)
 func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
-	// Ambil masjid_id dari path
+	// === Path param ===
 	midStr := strings.TrimSpace(c.Params("masjid_id"))
 	if midStr == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "masjid_id wajib di path"})
@@ -25,10 +29,8 @@ func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "masjid_id tidak valid"})
 	}
 
-	// === Pagination & sorting (helper) ===
+	// === Pagination & sorting ===
 	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
-
-	// whitelist kolom sorting → kolom DB sebenernya
 	allowed := map[string]string{
 		"created_at": "general_billing_created_at",
 		"due_date":   "general_billing_due_date",
@@ -46,43 +48,47 @@ func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 	// === Filters ===
 	q := strings.TrimSpace(c.Query("q"))
 	kindID := strings.TrimSpace(c.Query("kind_id"))
-	classID := strings.TrimSpace(c.Query("class_id"))
-	sectionID := strings.TrimSpace(c.Query("section_id"))
-	termID := strings.TrimSpace(c.Query("term_id"))
 	active := strings.TrimSpace(c.Query("active"))
 	dueFrom := strings.TrimSpace(c.Query("due_from")) // YYYY-MM-DD
 	dueTo := strings.TrimSpace(c.Query("due_to"))     // YYYY-MM-DD
 
-	db := model.ScopeAlive(ctl.DB).Scopes(model.ScopeByTenant(mid))
+	includeGlobal := true
+	if v := strings.TrimSpace(c.Query("include_global")); v != "" {
+		switch strings.ToLower(v) {
+		case "false", "0", "no":
+			includeGlobal = false
+		}
+	}
 
+	// === Base query: alive + tenant/global scope ===
+	db := ctl.DB.Model(&model.GeneralBilling{}).Where("general_billing_deleted_at IS NULL")
+
+	if includeGlobal {
+		// tampilkan PUNYA TENANT + GLOBAL
+		db = db.Where("(general_billing_masjid_id = ? OR general_billing_masjid_id IS NULL)", mid)
+	} else {
+		// khusus PUNYA TENANT saja
+		db = db.Where("general_billing_masjid_id = ?", mid)
+	}
+
+	// kind filter
 	if kindID != "" {
 		if uid, e := uuid.Parse(kindID); e == nil {
-			db = db.Scopes(model.ScopeByKind(uid))
+			db = db.Where("general_billing_kind_id = ?", uid)
 		}
 	}
-	if classID != "" {
-		if uid, e := uuid.Parse(classID); e == nil {
-			db = db.Where("general_billing_class_id = ?", uid)
-		}
-	}
-	if sectionID != "" {
-		if uid, e := uuid.Parse(sectionID); e == nil {
-			db = db.Where("general_billing_section_id = ?", uid)
-		}
-	}
-	if termID != "" {
-		if uid, e := uuid.Parse(termID); e == nil {
-			db = db.Where("general_billing_term_id = ?", uid)
-		}
-	}
+
+	// active filter
 	if active != "" {
-		switch active {
-		case "true", "1":
+		switch strings.ToLower(active) {
+		case "true", "1", "yes":
 			db = db.Where("general_billing_is_active = TRUE")
-		case "false", "0":
+		case "false", "0", "no":
 			db = db.Where("general_billing_is_active = FALSE")
 		}
 	}
+
+	// due date range
 	if dueFrom != "" {
 		if t, e := time.Parse("2006-01-02", dueFrom); e == nil {
 			db = db.Where("general_billing_due_date >= ?", t)
@@ -93,6 +99,8 @@ func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 			db = db.Where("general_billing_due_date <= ?", t)
 		}
 	}
+
+	// free text search: code/title/desc
 	if q != "" {
 		pat := "%" + strings.ToLower(q) + "%"
 		db = db.Where(`
@@ -102,19 +110,21 @@ func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 		`, pat, pat, pat)
 	}
 
-	// === Count + query ===
+	// === Count ===
 	var total int64
-	if err := db.Model(&model.GeneralBilling{}).Count(&total).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	if err := db.Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	// === Fetch (respect per_page=all) ===
+	listQ := db.Order(fmt.Sprintf("%s %s", col, dir))
+	if !p.All {
+		listQ = listQ.Limit(p.Limit()).Offset(p.Offset())
 	}
 
 	var items []model.GeneralBilling
-	if err := db.
-		Order(fmt.Sprintf("%s %s", col, dir)).
-		Limit(p.Limit()).
-		Offset(p.Offset()).
-		Find(&items).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	if err := listQ.Find(&items).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	out := make([]*dto.GeneralBillingResponse, 0, len(items))
@@ -122,8 +132,5 @@ func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 		out = append(out, dto.FromModelGeneralBilling(&items[i]))
 	}
 
-	return c.JSON(fiber.Map{
-		"data": out,
-		"meta": helper.BuildMeta(total, p),
-	})
+	return helper.JsonList(c, out, helper.BuildMeta(total, p))
 }

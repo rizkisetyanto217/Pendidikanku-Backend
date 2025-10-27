@@ -1,3 +1,4 @@
+// file: internals/features/finance/spp/api/bill_batch_controller.go
 package controller
 
 import (
@@ -42,6 +43,29 @@ func isUniqueViolation(err error) bool {
 	return err != nil &&
 		(strings.Contains(err.Error(), "duplicate key value") ||
 			strings.Contains(err.Error(), "unique constraint"))
+}
+
+func isOneOff(optionCode *string) bool {
+	return optionCode != nil && strings.TrimSpace(*optionCode) != ""
+}
+
+func normalizeBillCode(code string) string {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return "SPP"
+	}
+	return code
+}
+
+func strPtrOrNil(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	t := strings.TrimSpace(*s)
+	if t == "" {
+		return nil
+	}
+	return &t
 }
 
 // =======================================================
@@ -148,11 +172,16 @@ func (h *BillBatchHandler) resolveAmountFromRules(tx *gorm.DB, masjidID uuid.UUI
 		Where("fee_rule_deleted_at IS NULL").
 		Where("?::date >= COALESCE(fee_rule_effective_from, '-infinity'::date) AND ?::date <= COALESCE(fee_rule_effective_to, 'infinity'::date)", eff, eff)
 
-	// match periode
+	// match periode:
+	// - Jika term ada ⇒ match by term
+	// - Jika YM ada ⇒ match by YM
+	// - Jika one-off tanpa YM ⇒ cari rule general (term NULL, year NULL, month NULL) jika skemamu mendukung
 	if batch.BillBatchTermID != nil {
 		q = q.Where("fee_rule_term_id = ?", *batch.BillBatchTermID)
+	} else if batch.BillBatchYear != nil && batch.BillBatchMonth != nil {
+		q = q.Where("fee_rule_term_id IS NULL AND fee_rule_year = ? AND fee_rule_month = ?", *batch.BillBatchYear, *batch.BillBatchMonth)
 	} else {
-		q = q.Where("fee_rule_term_id IS NULL AND fee_rule_year = ? AND fee_rule_month = ?", batch.BillBatchYear, batch.BillBatchMonth)
+		q = q.Where("fee_rule_term_id IS NULL AND fee_rule_year IS NULL AND fee_rule_month IS NULL")
 	}
 
 	// pilih rule paling spesifik
@@ -203,10 +232,22 @@ func (h *BillBatchHandler) CreateBillBatch(c *fiber.Ctx) error {
 
 	// override dari path
 	in.BillBatchMasjidID = masjidID
+	in.BillBatchBillCode = normalizeBillCode(in.BillBatchBillCode)
+	in.BillBatchOptionCode = strPtrOrNil(in.BillBatchOptionCode)
 
 	// XOR guard
 	if !xorValid(in.BillBatchClassID, in.BillBatchSectionID) {
 		return helper.JsonError(c, fiber.StatusBadRequest, "exactly one of bill_batch_class_id or bill_batch_section_id must be set")
+	}
+
+	// Periodic vs One-off validation:
+	if isOneOff(in.BillBatchOptionCode) {
+		// one-off: YM opsional (boleh nil)
+	} else {
+		// periodic: YM wajib
+		if in.BillBatchMonth == nil || in.BillBatchYear == nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "periodic batch requires bill_batch_month and bill_batch_year")
+		}
 	}
 
 	m := dto.BillBatchCreateDTOToModel(in)
@@ -251,6 +292,16 @@ func (h *BillBatchHandler) UpdateBillBatch(c *fiber.Ctx) error {
 
 	if err := dto.ApplyBillBatchUpdate(&m, in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	// Re-validate periodic vs one-off setelah apply:
+	if isOneOff(m.BillBatchOptionCode) {
+		// one-off: YM opsional (no-op)
+	} else {
+		// periodic: YM wajib & valid
+		if m.BillBatchMonth == nil || m.BillBatchYear == nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "periodic batch requires bill_batch_month and bill_batch_year")
+		}
 	}
 
 	if err := h.DB.Save(&m).Error; err != nil {
@@ -313,9 +364,23 @@ func (h *BillBatchHandler) CreateBillBatchAndGenerate(c *fiber.Ctx) error {
 	if err := c.BodyParser(&in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json")
 	}
+	// Normalisasi code & option
+	in.BillBatchBillCode = normalizeBillCode(in.BillBatchBillCode)
+	in.BillBatchOptionCode = strPtrOrNil(in.BillBatchOptionCode)
+
 	// XOR guard
 	if !xorValid(in.BillBatchClassID, in.BillBatchSectionID) {
 		return helper.JsonError(c, fiber.StatusBadRequest, "exactly one of bill_batch_class_id or bill_batch_section_id must be set")
+	}
+
+	// Periodic vs One-off validation utk batch yg dibuat:
+	if isOneOff(in.BillBatchOptionCode) {
+		// one-off: YM opsional
+	} else {
+		// periodic: YM wajib
+		if in.BillBatchMonth == nil || in.BillBatchYear == nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "periodic batch requires bill_batch_month and bill_batch_year")
+		}
 	}
 
 	var out dto.BillBatchGenerateResponse
@@ -323,15 +388,18 @@ func (h *BillBatchHandler) CreateBillBatchAndGenerate(c *fiber.Ctx) error {
 	err = h.DB.Transaction(func(tx *gorm.DB) error {
 		// 1) Buat batch
 		batch := billing.BillBatch{
-			BillBatchMasjidID:  masjidID,
-			BillBatchClassID:   in.BillBatchClassID,
-			BillBatchSectionID: in.BillBatchSectionID,
-			BillBatchMonth:     in.BillBatchMonth,
-			BillBatchYear:      in.BillBatchYear,
-			BillBatchTermID:    in.BillBatchTermID,
-			BillBatchTitle:     in.BillBatchTitle,
-			BillBatchDueDate:   in.BillBatchDueDate,
-			BillBatchNote:      in.BillBatchNote,
+			BillBatchMasjidID:             masjidID,
+			BillBatchClassID:              in.BillBatchClassID,
+			BillBatchSectionID:            in.BillBatchSectionID,
+			BillBatchMonth:                in.BillBatchMonth,
+			BillBatchYear:                 in.BillBatchYear,
+			BillBatchTermID:               in.BillBatchTermID,
+			BillBatchGeneralBillingKindID: in.BillBatchGeneralBillingKindID,
+			BillBatchBillCode:             in.BillBatchBillCode,
+			BillBatchOptionCode:           in.BillBatchOptionCode,
+			BillBatchTitle:                in.BillBatchTitle,
+			BillBatchDueDate:              in.BillBatchDueDate,
+			BillBatchNote:                 in.BillBatchNote,
 		}
 		if err := tx.Create(&batch).Error; err != nil {
 			if isUniqueViolation(err) {
@@ -359,7 +427,7 @@ func (h *BillBatchHandler) CreateBillBatchAndGenerate(c *fiber.Ctx) error {
 				StudentBillBatchID:         batch.BillBatchID,
 				StudentBillMasjidID:        masjidID,
 				StudentBillMasjidStudentID: &sid,
-				StudentBillOptionCode:      &in.Labeling.OptionCode,
+				StudentBillOptionCode:      &in.Labeling.OptionCode, // labeling utk student_bills
 				StudentBillOptionLabel:     in.Labeling.OptionLabel,
 				StudentBillAmountIDR:       amount,
 				StudentBillStatus:          "unpaid",

@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	// Ganti dengan path model kamu
+	// Sesuaikan dengan lokasi model FeeRule di project kamu
 	billing "masjidku_backend/internals/features/finance/billings/model"
 )
 
@@ -55,16 +55,24 @@ type FeeRuleCreateDTO struct {
 	FeeRuleSectionID       *uuid.UUID `json:"fee_rule_section_id,omitempty"`
 	FeeRuleMasjidStudentID *uuid.UUID `json:"fee_rule_masjid_student_id,omitempty"`
 
+	// Periode (pilih salah satu: term_id atau year+month)
 	FeeRuleTermID *uuid.UUID `json:"fee_rule_term_id,omitempty"`
 	FeeRuleMonth  *int16     `json:"fee_rule_month,omitempty" validate:"omitempty,min=1,max=12"`
 	FeeRuleYear   *int16     `json:"fee_rule_year,omitempty"  validate:"omitempty,min=2000,max=2100"`
 
-	FeeRuleOptionCode  string  `json:"fee_rule_option_code" validate:"required,max=20"` // SPP/REG/BOOK/UNIFORM/...
+	// NEW: Link ke katalog + denorm code
+	FeeRuleGeneralBillingKindID *uuid.UUID `json:"fee_rule_general_billing_kind_id,omitempty"`
+	FeeRuleBillCode             *string    `json:"fee_rule_bill_code,omitempty" validate:"omitempty,max=60"` // default DB: 'SPP'
+
+	// Opsi/label
+	FeeRuleOptionCode  string  `json:"fee_rule_option_code" validate:"required,max=20"` // default DB: 'T1' (tetap required di DTO)
 	FeeRuleOptionLabel *string `json:"fee_rule_option_label,omitempty" validate:"omitempty,max=60"`
 
+	// Default & nominal
 	FeeRuleIsDefault bool `json:"fee_rule_is_default"`
 	FeeRuleAmountIDR int  `json:"fee_rule_amount_idr" validate:"required,min=0"`
 
+	// Effective window
 	FeeRuleEffectiveFrom *time.Time `json:"fee_rule_effective_from,omitempty"`
 	FeeRuleEffectiveTo   *time.Time `json:"fee_rule_effective_to,omitempty"`
 
@@ -82,6 +90,10 @@ type FeeRuleUpdateDTO struct {
 	FeeRuleTermID *uuid.UUID `json:"fee_rule_term_id,omitempty"`
 	FeeRuleMonth  *int16     `json:"fee_rule_month,omitempty"`
 	FeeRuleYear   *int16     `json:"fee_rule_year,omitempty"`
+
+	// NEW
+	FeeRuleGeneralBillingKindID *uuid.UUID `json:"fee_rule_general_billing_kind_id,omitempty"`
+	FeeRuleBillCode             *string    `json:"fee_rule_bill_code,omitempty"`
 
 	FeeRuleOptionCode  *string `json:"fee_rule_option_code,omitempty"`
 	FeeRuleOptionLabel *string `json:"fee_rule_option_label,omitempty"`
@@ -109,6 +121,10 @@ type FeeRuleResponse struct {
 	FeeRuleMonth  *int16     `json:"fee_rule_month,omitempty"`
 	FeeRuleYear   *int16     `json:"fee_rule_year,omitempty"`
 
+	// NEW
+	FeeRuleGeneralBillingKindID *uuid.UUID `json:"fee_rule_general_billing_kind_id,omitempty"`
+	FeeRuleBillCode             string     `json:"fee_rule_bill_code"`
+
 	FeeRuleOptionCode  string  `json:"fee_rule_option_code"`
 	FeeRuleOptionLabel *string `json:"fee_rule_option_label,omitempty"`
 
@@ -126,7 +142,7 @@ type FeeRuleResponse struct {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// GENERATE STUDENT BILLS — DTO
+// GENERATE STUDENT BILLS — DTO (tidak berubah)
 ////////////////////////////////////////////////////////////////////////////////
 
 type AmountStrategyDTO struct {
@@ -143,12 +159,12 @@ type AmountStrategyDTO struct {
 type SourceDTO struct {
 	Type             string      `json:"type" validate:"required,oneof=class section students"`
 	ClassID          *uuid.UUID  `json:"class_id,omitempty"`
-	SectionID        *uuid.UUID  `json:"section_id,omitempty"` // <-- tambahkan ini
+	SectionID        *uuid.UUID  `json:"section_id,omitempty"`
 	MasjidStudentIDs []uuid.UUID `json:"masjid_student_ids,omitempty"`
 }
 
 type LabelingDTO struct {
-	OptionCode  string  `json:"option_code" validate:"required"` // SPP/REG/BOOK/UNIFORM/...
+	OptionCode  string  `json:"option_code" validate:"required"`
 	OptionLabel *string `json:"option_label,omitempty"`
 }
 
@@ -182,48 +198,58 @@ type GenerateStudentBillsResponse struct {
 // Model -> Response
 func ToFeeRuleResponse(m billing.FeeRule) FeeRuleResponse {
 	return FeeRuleResponse{
-		FeeRuleID:              m.FeeRuleID,
-		FeeRuleMasjidID:        m.FeeRuleMasjidID,
-		FeeRuleScope:           FeeScope(m.FeeRuleScope),
-		FeeRuleClassParentID:   m.FeeRuleClassParentID,
-		FeeRuleClassID:         m.FeeRuleClassID,
-		FeeRuleSectionID:       m.FeeRuleSectionID,
-		FeeRuleMasjidStudentID: m.FeeRuleMasjidStudentID,
-		FeeRuleTermID:          m.FeeRuleTermID,
-		FeeRuleMonth:           m.FeeRuleMonth,
-		FeeRuleYear:            m.FeeRuleYear,
-		FeeRuleOptionCode:      m.FeeRuleOptionCode,
-		FeeRuleOptionLabel:     m.FeeRuleOptionLabel,
-		FeeRuleIsDefault:       m.FeeRuleIsDefault,
-		FeeRuleAmountIDR:       m.FeeRuleAmountIDR,
-		FeeRuleEffectiveFrom:   m.FeeRuleEffectiveFrom,
-		FeeRuleEffectiveTo:     m.FeeRuleEffectiveTo,
-		FeeRuleNote:            m.FeeRuleNote,
-		FeeRuleCreatedAt:       m.FeeRuleCreatedAt,
-		FeeRuleUpdatedAt:       m.FeeRuleUpdatedAt,
-		FeeRuleDeletedAt:       toPtrTimeFromDeletedAt(m.FeeRuleDeletedAt),
+		FeeRuleID:                   m.FeeRuleID,
+		FeeRuleMasjidID:             m.FeeRuleMasjidID,
+		FeeRuleScope:                FeeScope(m.FeeRuleScope),
+		FeeRuleClassParentID:        m.FeeRuleClassParentID,
+		FeeRuleClassID:              m.FeeRuleClassID,
+		FeeRuleSectionID:            m.FeeRuleSectionID,
+		FeeRuleMasjidStudentID:      m.FeeRuleMasjidStudentID,
+		FeeRuleTermID:               m.FeeRuleTermID,
+		FeeRuleMonth:                m.FeeRuleMonth,
+		FeeRuleYear:                 m.FeeRuleYear,
+		FeeRuleGeneralBillingKindID: m.FeeRuleGeneralBillingKindID, // NEW
+		FeeRuleBillCode:             m.FeeRuleBillCode,             // NEW
+		FeeRuleOptionCode:           m.FeeRuleOptionCode,
+		FeeRuleOptionLabel:          m.FeeRuleOptionLabel,
+		FeeRuleIsDefault:            m.FeeRuleIsDefault,
+		FeeRuleAmountIDR:            m.FeeRuleAmountIDR,
+		FeeRuleEffectiveFrom:        m.FeeRuleEffectiveFrom,
+		FeeRuleEffectiveTo:          m.FeeRuleEffectiveTo,
+		FeeRuleNote:                 m.FeeRuleNote,
+		FeeRuleCreatedAt:            m.FeeRuleCreatedAt,
+		FeeRuleUpdatedAt:            m.FeeRuleUpdatedAt,
+		FeeRuleDeletedAt:            toPtrTimeFromDeletedAt(m.FeeRuleDeletedAt),
 	}
 }
 
 // CreateDTO -> Model
 func FeeRuleCreateDTOToModel(d FeeRuleCreateDTO) billing.FeeRule {
+	// default bill code biarkan DB yang isi ('SPP') bila d.FeeRuleBillCode == nil
+	var billCode string
+	if d.FeeRuleBillCode != nil && *d.FeeRuleBillCode != "" {
+		billCode = *d.FeeRuleBillCode
+	}
+
 	return billing.FeeRule{
-		FeeRuleMasjidID:        d.FeeRuleMasjidID,
-		FeeRuleScope:           billing.FeeScope(d.FeeRuleScope),
-		FeeRuleClassParentID:   d.FeeRuleClassParentID,
-		FeeRuleClassID:         d.FeeRuleClassID,
-		FeeRuleSectionID:       d.FeeRuleSectionID,
-		FeeRuleMasjidStudentID: d.FeeRuleMasjidStudentID,
-		FeeRuleTermID:          d.FeeRuleTermID,
-		FeeRuleMonth:           d.FeeRuleMonth,
-		FeeRuleYear:            d.FeeRuleYear,
-		FeeRuleOptionCode:      d.FeeRuleOptionCode,
-		FeeRuleOptionLabel:     d.FeeRuleOptionLabel,
-		FeeRuleIsDefault:       d.FeeRuleIsDefault,
-		FeeRuleAmountIDR:       d.FeeRuleAmountIDR,
-		FeeRuleEffectiveFrom:   d.FeeRuleEffectiveFrom,
-		FeeRuleEffectiveTo:     d.FeeRuleEffectiveTo,
-		FeeRuleNote:            d.FeeRuleNote,
+		FeeRuleMasjidID:             d.FeeRuleMasjidID,
+		FeeRuleScope:                billing.FeeScope(d.FeeRuleScope),
+		FeeRuleClassParentID:        d.FeeRuleClassParentID,
+		FeeRuleClassID:              d.FeeRuleClassID,
+		FeeRuleSectionID:            d.FeeRuleSectionID,
+		FeeRuleMasjidStudentID:      d.FeeRuleMasjidStudentID,
+		FeeRuleTermID:               d.FeeRuleTermID,
+		FeeRuleMonth:                d.FeeRuleMonth,
+		FeeRuleYear:                 d.FeeRuleYear,
+		FeeRuleGeneralBillingKindID: d.FeeRuleGeneralBillingKindID, // NEW
+		FeeRuleBillCode:             billCode,                      // NEW (optional; default by DB)
+		FeeRuleOptionCode:           d.FeeRuleOptionCode,
+		FeeRuleOptionLabel:          d.FeeRuleOptionLabel,
+		FeeRuleIsDefault:            d.FeeRuleIsDefault,
+		FeeRuleAmountIDR:            d.FeeRuleAmountIDR,
+		FeeRuleEffectiveFrom:        d.FeeRuleEffectiveFrom,
+		FeeRuleEffectiveTo:          d.FeeRuleEffectiveTo,
+		FeeRuleNote:                 d.FeeRuleNote,
 	}
 }
 
@@ -253,6 +279,15 @@ func ApplyFeeRuleUpdate(m *billing.FeeRule, d FeeRuleUpdateDTO) {
 	if d.FeeRuleYear != nil {
 		m.FeeRuleYear = d.FeeRuleYear
 	}
+
+	// NEW
+	if d.FeeRuleGeneralBillingKindID != nil {
+		m.FeeRuleGeneralBillingKindID = d.FeeRuleGeneralBillingKindID
+	}
+	if d.FeeRuleBillCode != nil {
+		m.FeeRuleBillCode = *d.FeeRuleBillCode
+	}
+
 	if d.FeeRuleOptionCode != nil {
 		m.FeeRuleOptionCode = *d.FeeRuleOptionCode
 	}
@@ -276,9 +311,8 @@ func ApplyFeeRuleUpdate(m *billing.FeeRule, d FeeRuleUpdateDTO) {
 	}
 }
 
-// ---------------------- BillBatch ----------------------
+// ---------------------- FeeRule list helper ----------------------
 
-// Helpers list mapping
 func ToFeeRuleResponses(list []billing.FeeRule) []FeeRuleResponse {
 	out := make([]FeeRuleResponse, 0, len(list))
 	for _, v := range list {

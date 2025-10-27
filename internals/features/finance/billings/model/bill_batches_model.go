@@ -3,6 +3,7 @@ package model
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,10 +22,15 @@ type BillBatch struct {
 	BillBatchClassID   *uuid.UUID `gorm:"type:uuid;column:bill_batch_class_id" json:"bill_batch_class_id,omitempty"`
 	BillBatchSectionID *uuid.UUID `gorm:"type:uuid;column:bill_batch_section_id" json:"bill_batch_section_id,omitempty"`
 
-	// Periode
-	BillBatchMonth  int16      `gorm:"type:smallint;not null;column:bill_batch_month" json:"bill_batch_month"`
-	BillBatchYear   int16      `gorm:"type:smallint;not null;column:bill_batch_year" json:"bill_batch_year"`
+	// Periode (nullable untuk one-off)
+	BillBatchMonth  *int16     `gorm:"type:smallint;column:bill_batch_month" json:"bill_batch_month,omitempty"`
+	BillBatchYear   *int16     `gorm:"type:smallint;column:bill_batch_year" json:"bill_batch_year,omitempty"`
 	BillBatchTermID *uuid.UUID `gorm:"type:uuid;column:bill_batch_term_id" json:"bill_batch_term_id,omitempty"`
+
+	// Katalog jenis + kode
+	BillBatchGeneralBillingKindID *uuid.UUID `gorm:"type:uuid;column:bill_batch_general_billing_kind_id" json:"bill_batch_general_billing_kind_id,omitempty"`
+	BillBatchBillCode             string     `gorm:"type:varchar(60);not null;default:SPP;column:bill_batch_bill_code" json:"bill_batch_bill_code"`
+	BillBatchOptionCode           *string    `gorm:"type:varchar(60);column:bill_batch_option_code" json:"bill_batch_option_code,omitempty"` // wajib untuk one-off
 
 	// Info tagihan
 	BillBatchTitle   string     `gorm:"type:text;not null;column:bill_batch_title" json:"bill_batch_title"`
@@ -45,7 +51,12 @@ type BillBatch struct {
 
 func (BillBatch) TableName() string { return "bill_batches" }
 
-// BeforeCreate: set ID & guard minimal
+// helper
+func (b *BillBatch) isOneOff() bool {
+	return b.BillBatchOptionCode != nil && strings.TrimSpace(*b.BillBatchOptionCode) != ""
+}
+
+// BeforeCreate: set ID, enforce XOR, periodic vs one-off, dan default code
 func (b *BillBatch) BeforeCreate(tx *gorm.DB) error {
 	if b.BillBatchID == uuid.Nil {
 		b.BillBatchID = uuid.New()
@@ -58,23 +69,61 @@ func (b *BillBatch) BeforeCreate(tx *gorm.DB) error {
 		(b.BillBatchClassID != nil && b.BillBatchSectionID != nil) {
 		return fmt.Errorf("exactly one of bill_batch_class_id or bill_batch_section_id must be set")
 	}
-	// created_at akan diisi DB (default now()), tapi aman jika perlu set manual
-	if b.BillBatchCreatedAt.IsZero() {
-		b.BillBatchCreatedAt = time.Now()
+	// default bill code
+	if strings.TrimSpace(b.BillBatchBillCode) == "" {
+		b.BillBatchBillCode = "SPP"
 	}
-	// sync updated_at
+
+	// Periodic vs One-off
+	if b.isOneOff() {
+		// one-off: YM opsional (DDL tidak mewajibkan)
+		// tidak ada validasi tambahan di sini, biarkan service layer yang atur nilai YM jika memang ingin diisi
+	} else {
+		// periodic: YM wajib
+		if b.BillBatchMonth == nil || b.BillBatchYear == nil {
+			return fmt.Errorf("periodic batch requires bill_batch_month and bill_batch_year")
+		}
+		if *b.BillBatchMonth < 1 || *b.BillBatchMonth > 12 {
+			return fmt.Errorf("bill_batch_month must be between 1 and 12")
+		}
+		if *b.BillBatchYear < 2000 || *b.BillBatchYear > 2100 {
+			return fmt.Errorf("bill_batch_year must be between 2000 and 2100")
+		}
+	}
+
+	// timestamps
+	now := time.Now()
+	if b.BillBatchCreatedAt.IsZero() {
+		b.BillBatchCreatedAt = now
+	}
 	b.BillBatchUpdatedAt = b.BillBatchCreatedAt
 	return nil
 }
 
-// BeforeUpdate: enforce XOR & update updated_at
+// BeforeUpdate: enforce XOR, set updated_at, dan validasi ringan YM
 func (b *BillBatch) BeforeUpdate(tx *gorm.DB) error {
 	if (b.BillBatchClassID == nil && b.BillBatchSectionID == nil) ||
 		(b.BillBatchClassID != nil && b.BillBatchSectionID != nil) {
 		return fmt.Errorf("exactly one of bill_batch_class_id or bill_batch_section_id must be set")
 	}
+
+	// default bill code jika kosong
+	if strings.TrimSpace(b.BillBatchBillCode) == "" {
+		b.BillBatchBillCode = "SPP"
+	}
+
+	// Validasi ringan YM saat ada isian
+	if b.BillBatchMonth != nil {
+		if *b.BillBatchMonth < 1 || *b.BillBatchMonth > 12 {
+			return fmt.Errorf("bill_batch_month must be between 1 and 12")
+		}
+	}
+	if b.BillBatchYear != nil {
+		if *b.BillBatchYear < 2000 || *b.BillBatchYear > 2100 {
+			return fmt.Errorf("bill_batch_year must be between 2000 and 2100")
+		}
+	}
+
 	b.BillBatchUpdatedAt = time.Now()
 	return nil
 }
-
-

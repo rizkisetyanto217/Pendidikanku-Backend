@@ -13,6 +13,7 @@ import (
 	dto "masjidku_backend/internals/features/finance/general_billings/dto"
 	model "masjidku_backend/internals/features/finance/general_billings/model"
 
+	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
@@ -30,128 +31,171 @@ func NewGeneralBillingController(db *gorm.DB) *GeneralBillingController {
 
 // ========== Create ==========
 func (ctl *GeneralBillingController) Create(c *fiber.Ctx) error {
-	// Guard: owner/dkm/teacher (sesuaikan kebijakanmu)
+	// role dasar: owner/dkm/teacher
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Akses ditolak"})
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 
 	var req dto.CreateGeneralBillingRequest
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 	if err := ctl.Validator.Struct(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Tenant scope: pastikan masjid_id konsisten dengan context & akses
+	// Context tenant
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Masjid context tidak valid"})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak valid")
 	}
 	mid, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
-	if req.GeneralBillingMasjidID != mid {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Masjid tidak cocok dengan context"})
+
+	// Guard: GLOBAL vs TENANT
+	if req.GeneralBillingMasjidID == nil {
+		// GLOBAL item: batasi ke Owner saja
+		if !helperAuth.IsOwner(c) {
+			return helper.JsonError(c, fiber.StatusForbidden, "Hanya owner yang boleh membuat billing GLOBAL")
+		}
+	} else {
+		// TENANT item: harus cocok dengan mid context
+		if *req.GeneralBillingMasjidID != mid {
+			return helper.JsonError(c, fiber.StatusForbidden, "Masjid tidak cocok dengan context")
+		}
 	}
 
 	gb, err := req.ToModel()
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	if err := ctl.DB.Create(gb).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return c.Status(fiber.StatusCreated).JSON(dto.FromModelGeneralBilling(gb))
+	return helper.JsonCreated(c, "general_billing created", dto.FromModelGeneralBilling(gb))
 }
 
 // ========== Patch ==========
 func (ctl *GeneralBillingController) Patch(c *fiber.Ctx) error {
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Akses ditolak"})
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 
 	idStr := strings.TrimSpace(c.Params("id"))
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "general_billing_id invalid"})
+		return helper.JsonError(c, fiber.StatusBadRequest, "general_billing_id invalid")
 	}
 
 	var gb model.GeneralBilling
-	if err := model.ScopeAlive(ctl.DB).
-		First(&gb, "general_billing_id = ?", id).Error; err != nil {
+	if err := ctl.DB.
+		Where("general_billing_id = ? AND general_billing_deleted_at IS NULL", id).
+		First(&gb).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Data tidak ditemukan"})
+			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 		}
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Tenant guard: hanya boleh edit pada masjid yg diakses
+	// Tenant context
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Masjid context tidak valid"})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak valid")
 	}
 	mid, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
-	if gb.GeneralBillingMasjidID != mid {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Tidak boleh mengubah data tenant lain"})
+
+	// Guard: GLOBAL vs TENANT pada record yg diedit
+	if gb.GeneralBillingMasjidID == nil {
+		// GLOBAL: hanya owner boleh edit
+		if !helperAuth.IsOwner(c) {
+			return helper.JsonError(c, fiber.StatusForbidden, "Hanya owner yang boleh mengubah billing GLOBAL")
+		}
+	} else {
+		if *gb.GeneralBillingMasjidID != mid {
+			return helper.JsonError(c, fiber.StatusForbidden, "Tidak boleh mengubah data tenant lain")
+		}
 	}
 
 	var req dto.PatchGeneralBillingRequest
 	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
+	// (opsional) kamu bisa tambahkan guard agar PATCH tidak memindah-mindahkan tenant tanpa hak
+	// misalnya, jika req.GeneralBillingMasjidID.Set == true → tolak kecuali owner, dsb.
+
 	if err := req.ApplyTo(&gb); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	if err := ctl.DB.Save(&gb).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return c.JSON(dto.FromModelGeneralBilling(&gb))
+	return helper.JsonOK(c, "general_billing updated", dto.FromModelGeneralBilling(&gb))
 }
 
 // ========== Delete (soft delete) ==========
 func (ctl *GeneralBillingController) Delete(c *fiber.Ctx) error {
 	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
-		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Akses ditolak"})
+		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 
 	idStr := strings.TrimSpace(c.Params("id"))
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "general_billing_id invalid"})
+		return helper.JsonError(c, fiber.StatusBadRequest, "general_billing_id invalid")
 	}
 
-	// Tenant guard via context
+	// Ambil dulu record untuk cek tenant/global
+	var gb model.GeneralBilling
+	if err := ctl.DB.
+		Where("general_billing_id = ? AND general_billing_deleted_at IS NULL", id).
+		First(&gb).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	// Tenant context
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Masjid context tidak valid"})
+		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak valid")
 	}
 	mid, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
 
-	// Hanya boleh menghapus record milik tenant yg sama dan yang masih alive
-	tx := ctl.DB.Model(&model.GeneralBilling{}).
-		Where("general_billing_id = ? AND general_billing_masjid_id = ? AND general_billing_deleted_at IS NULL", id, mid).
-		Update("general_billing_deleted_at", gorm.Expr("NOW()"))
+	// Guard: GLOBAL vs TENANT
+	if gb.GeneralBillingMasjidID == nil {
+		if !helperAuth.IsOwner(c) {
+			return helper.JsonError(c, fiber.StatusForbidden, "Hanya owner yang boleh menghapus billing GLOBAL")
+		}
+	} else {
+		if *gb.GeneralBillingMasjidID != mid {
+			return helper.JsonError(c, fiber.StatusForbidden, "Tidak boleh menghapus data tenant lain")
+		}
+	}
 
+	// Soft delete
+	tx := ctl.DB.Model(&model.GeneralBilling{}).
+		Where("general_billing_id = ? AND general_billing_deleted_at IS NULL", id).
+		Update("general_billing_deleted_at", gorm.Expr("NOW()"))
 	if tx.Error != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": tx.Error.Error()})
+		return helper.JsonError(c, fiber.StatusInternalServerError, tx.Error.Error())
 	}
 	if tx.RowsAffected == 0 {
-		// either not found or already deleted or tenant mismatch
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Data tidak ditemukan"})
+		return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
 	}
 
-	return c.SendStatus(fiber.StatusNoContent) // 204
+	return helper.JsonDeleted(c, "general_billing deleted", fiber.Map{"general_billing_id": id})
 }
