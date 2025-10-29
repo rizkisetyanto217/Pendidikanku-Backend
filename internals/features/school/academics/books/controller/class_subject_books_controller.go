@@ -54,7 +54,7 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 
 	var created csbModel.ClassSubjectBookModel
 	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// ✅ Validasi kepemilikan tenant pakai EXISTS (no Scan UUID)
+		// ✅ Validasi kepemilikan tenant (EXISTS)
 		if err := ensureClassSubjectTenantExists(tx, req.ClassSubjectBookClassSubjectID, masjidID); err != nil {
 			return err
 		}
@@ -62,10 +62,16 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 			return err
 		}
 
-		// 📸 Ambil snapshot buku (pakai library snapshot)
-		snap, err := bookSnap.FetchBookSnapshot(tx, req.ClassSubjectBookBookID)
+		// 📸 Ambil snapshot BOOK
+		snapB, err := bookSnap.FetchBookSnapshot(tx, req.ClassSubjectBookBookID)
 		if err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, "Buku tidak ditemukan")
+		}
+
+		// 📸 Ambil snapshot SUBJECT (via class_subjects → subjects)
+		snapS, err := fetchSubjectSnapshotByClassSubjectID(tx, req.ClassSubjectBookClassSubjectID)
+		if err != nil {
+			return err // sudah mengembalikan fiber.Error yang pas
 		}
 
 		// 🏗️ Build model
@@ -76,7 +82,8 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 		if m.ClassSubjectBookSlug != nil && strings.TrimSpace(*m.ClassSubjectBookSlug) != "" {
 			baseSlug = helper.Slugify(*m.ClassSubjectBookSlug, 160)
 		} else {
-			if t := strings.TrimSpace(snap.Title); t != "" {
+			// prioritas pakai title buku snapshot
+			if t := strings.TrimSpace(snapB.Title); t != "" {
 				baseSlug = helper.Slugify(t, 160)
 			}
 			if baseSlug == "" || baseSlug == "item" {
@@ -105,15 +112,27 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 		}
 		m.ClassSubjectBookSlug = &uniqueSlug
 
-		// 🧊 Isi snapshot (nil-safe)
-		if snap.Title != "" {
-			m.ClassSubjectBookBookTitleSnapshot = &snap.Title
+		// 🧊 Isi snapshot BOOK (nil-safe)
+		if snapB.Title != "" {
+			m.ClassSubjectBookBookTitleSnapshot = &snapB.Title
 		}
-		m.ClassSubjectBookBookAuthorSnapshot = snap.Author
-		m.ClassSubjectBookBookSlugSnapshot = snap.Slug
-		m.ClassSubjectBookBookPublisherSnapshot = snap.Publisher
-		m.ClassSubjectBookBookPublicationYearSnapshot = snap.PublicationYear
-		m.ClassSubjectBookBookImageURLSnapshot = snap.ImageURL
+		m.ClassSubjectBookBookAuthorSnapshot = snapB.Author
+		m.ClassSubjectBookBookSlugSnapshot = snapB.Slug
+		m.ClassSubjectBookBookPublisherSnapshot = snapB.Publisher
+		m.ClassSubjectBookBookPublicationYearSnapshot = snapB.PublicationYear
+		m.ClassSubjectBookBookImageURLSnapshot = snapB.ImageURL
+
+		// 🧊 Isi snapshot SUBJECT
+		m.ClassSubjectBookSubjectIDSnapshot = &snapS.SubjectID
+		if snapS.Code != nil {
+			m.ClassSubjectBookSubjectCodeSnapshot = snapS.Code
+		}
+		if snapS.Name != nil {
+			m.ClassSubjectBookSubjectNameSnapshot = snapS.Name
+		}
+		if snapS.Slug != nil {
+			m.ClassSubjectBookSubjectSlugSnapshot = snapS.Slug
+		}
 
 		// 💾 Create
 		if err := tx.Create(&m).Error; err != nil {
@@ -181,6 +200,39 @@ func ensureBookTenantExists(db *gorm.DB, bookID, masjidID uuid.UUID) error {
 	return nil
 }
 
+/* ================= Snapshot fetcher (SUBJECT via class_subject_id) ================= */
+
+type subjectSnapshot struct {
+	SubjectID uuid.UUID
+	Code      *string
+	Name      *string
+	Slug      *string
+}
+
+func fetchSubjectSnapshotByClassSubjectID(tx *gorm.DB, classSubjectID uuid.UUID) (*subjectSnapshot, error) {
+	var ss subjectSnapshot
+	// Asumsi: class_subjects.class_subject_subject_id → subjects.subject_id
+	// dan subjects soft-delete aware.
+	if err := tx.Raw(`
+		SELECT 
+			s.subject_id       AS subject_id,
+			s.subject_code     AS code,
+			s.subject_name     AS name,
+			s.subject_slug     AS slug
+		FROM class_subjects cs
+		JOIN subjects s ON s.subject_id = cs.class_subject_subject_id
+		WHERE cs.class_subject_id = ?
+		  AND cs.class_subject_deleted_at IS NULL
+		  AND s.subject_deleted_at IS NULL
+	`, classSubjectID).Scan(&ss).Error; err != nil {
+		return nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot subject")
+	}
+	if ss.SubjectID == uuid.Nil {
+		return nil, fiber.NewError(fiber.StatusBadRequest, "Subject untuk class_subject tidak ditemukan")
+	}
+	return &ss, nil
+}
+
 /*
 =========================================================
 UPDATE (partial) (DKM/Admin only)
@@ -236,28 +288,36 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
 
-		// Jika class_subject_id diubah → validasi tenant
+		// Jika class_subject_id diubah → validasi tenant + refresh SUBJECT snapshot
 		if req.ClassSubjectBookClassSubjectID != nil {
-			if err := ensureClassSubjectTenant(tx, *req.ClassSubjectBookClassSubjectID, masjidID); err != nil {
+			if err := ensureClassSubjectTenantExists(tx, *req.ClassSubjectBookClassSubjectID, masjidID); err != nil {
 				return err
 			}
+			snapS, err := fetchSubjectSnapshotByClassSubjectID(tx, *req.ClassSubjectBookClassSubjectID)
+			if err != nil {
+				return err
+			}
+			m.ClassSubjectBookSubjectIDSnapshot = &snapS.SubjectID
+			m.ClassSubjectBookSubjectCodeSnapshot = snapS.Code
+			m.ClassSubjectBookSubjectNameSnapshot = snapS.Name
+			m.ClassSubjectBookSubjectSlugSnapshot = snapS.Slug
 		}
 
-		// Jika book_id diubah → validasi tenant + fetch snapshot + isi ulang snapshot app-side
+		// Jika book_id diubah → validasi tenant + refresh BOOK snapshot
 		if req.ClassSubjectBookBookID != nil {
-			if err := ensureBookTenant(tx, *req.ClassSubjectBookBookID, masjidID); err != nil {
+			if err := ensureBookTenantExists(tx, *req.ClassSubjectBookBookID, masjidID); err != nil {
 				return err
 			}
-			snap, err := bookSnap.FetchBookSnapshot(tx, *req.ClassSubjectBookBookID)
+			snapB, err := bookSnap.FetchBookSnapshot(tx, *req.ClassSubjectBookBookID)
 			if err != nil {
 				return fiber.NewError(fiber.StatusBadRequest, "Buku tidak ditemukan")
 			}
-			m.ClassSubjectBookBookTitleSnapshot = &snap.Title
-			m.ClassSubjectBookBookAuthorSnapshot = snap.Author
-			m.ClassSubjectBookBookSlugSnapshot = snap.Slug
-			m.ClassSubjectBookBookPublisherSnapshot = snap.Publisher
-			m.ClassSubjectBookBookPublicationYearSnapshot = snap.PublicationYear
-			m.ClassSubjectBookBookImageURLSnapshot = snap.ImageURL
+			m.ClassSubjectBookBookTitleSnapshot = &snapB.Title
+			m.ClassSubjectBookBookAuthorSnapshot = snapB.Author
+			m.ClassSubjectBookBookSlugSnapshot = snapB.Slug
+			m.ClassSubjectBookBookPublisherSnapshot = snapB.Publisher
+			m.ClassSubjectBookBookPublicationYearSnapshot = snapB.PublicationYear
+			m.ClassSubjectBookBookImageURLSnapshot = snapB.ImageURL
 		}
 
 		// SLUG handling (ensure unique jika diubah / jika kosong sebelumnya)
@@ -415,44 +475,4 @@ func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonDeleted(c, "Relasi buku berhasil dihapus", csbDTO.FromModel(deleted))
-}
-
-/*
-=========================
-
-	Helpers: tenant guards
-	=========================
-*/
-func ensureClassSubjectTenant(tx *gorm.DB, classSubjectID, wantMasjid uuid.UUID) error {
-	var gotMasjid uuid.UUID
-	if err := tx.Table("class_subjects").
-		Select("class_subject_masjid_id").
-		Where("class_subject_id = ? AND class_subject_deleted_at IS NULL", classSubjectID).
-		Take(&gotMasjid).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(fiber.StatusBadRequest, "class_subject tidak ditemukan")
-		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi class_subject")
-	}
-	if gotMasjid != wantMasjid {
-		return fiber.NewError(fiber.StatusForbidden, "class_subject bukan milik masjid Anda")
-	}
-	return nil
-}
-
-func ensureBookTenant(tx *gorm.DB, bookID, wantMasjid uuid.UUID) error {
-	var gotMasjid uuid.UUID
-	if err := tx.Table("books").
-		Select("book_masjid_id").
-		Where("book_id = ? AND book_deleted_at IS NULL", bookID).
-		Take(&gotMasjid).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fiber.NewError(fiber.StatusBadRequest, "Buku tidak ditemukan")
-		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi buku")
-	}
-	if gotMasjid != wantMasjid {
-		return fiber.NewError(fiber.StatusForbidden, "Buku bukan milik masjid Anda")
-	}
-	return nil
 }

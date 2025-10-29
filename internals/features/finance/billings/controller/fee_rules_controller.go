@@ -13,9 +13,10 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	// ==== Ganti path sesuai projectmu ====
-	"masjidku_backend/internals/features/finance/billings/dto"
-	billing "masjidku_backend/internals/features/finance/billings/model"
+	// ==== Import yang benar ====
+	dto "masjidku_backend/internals/features/finance/billings/dto"
+	model "masjidku_backend/internals/features/finance/billings/model"
+	"masjidku_backend/internals/features/finance/general_billings/snapshot"
 	helper "masjidku_backend/internals/helpers"
 	helperAuth "masjidku_backend/internals/helpers/auth"
 )
@@ -58,6 +59,7 @@ func mustMasjidID(c *fiber.Ctx) (uuid.UUID, error) {
 ======================================================= */
 
 // POST /:masjid_id/spp/fee-rules
+// POST /:masjid_id/spp/fee-rules
 func (h *Handler) CreateFeeRule(c *fiber.Ctx) error {
 	masjidID, err := mustMasjidID(c)
 	if err != nil {
@@ -72,14 +74,47 @@ func (h *Handler) CreateFeeRule(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, "invalid json")
 	}
 
-	// >>> selalu set dari path (abaikan body)
+	// selalu set dari path (abaikan body)
 	in.FeeRuleMasjidID = masjidID
 
-	model := dto.FeeRuleCreateDTOToModel(in)
-	if err := h.DB.Create(&model).Error; err != nil {
+	// rakit model dari DTO
+	m := dto.FeeRuleCreateDTOToModel(in) // -> fee.FeeRule
+
+	// transaksi: hydrate snapshot GBK (kalau ada) lalu create
+	if err := h.DB.Transaction(func(tx *gorm.DB) error {
+		// Jika ada referensi General Billing Kind, ambil snapshot dan isi ke kolom *_snapshot
+		if m.FeeRuleGeneralBillingKindID != nil {
+			snap, err := snapshot.ValidateAndSnapshotGBK(tx, masjidID, *m.FeeRuleGeneralBillingKindID)
+			if err != nil {
+				// salah tenant / tidak ditemukan / dll.
+				return err
+			}
+			if snap != nil {
+				m.FeeRuleGBKCodeSnapshot = snap.Code
+				m.FeeRuleGBKNameSnapshot = snap.Name
+				m.FeeRuleGBKCategorySnapshot = snap.Category
+				m.FeeRuleGBKIsGlobalSnapshot = snap.IsGlobal
+				m.FeeRuleGBKVisibilitySnapshot = snap.Visibility
+				m.FeeRuleGBKIsRecurringSnapshot = snap.IsRecurring
+				m.FeeRuleGBKRequiresMonthYearSnapshot = snap.RequiresMonthYear
+				m.FeeRuleGBKRequiresOptionCodeSnapshot = snap.RequiresOptionCode
+				m.FeeRuleGBKDefaultAmountIDRSnapshot = snap.DefaultAmountIDR
+				m.FeeRuleGBKIsActiveSnapshot = snap.IsActive
+
+				// opsional: jika bill_code kosong, pakai code GBK
+				if strings.TrimSpace(m.FeeRuleBillCode) == "" && snap.Code != nil {
+					m.FeeRuleBillCode = *snap.Code
+				}
+			}
+		}
+
+		// insert
+		return tx.Create(&m).Error
+	}); err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
-	return helper.JsonCreated(c, "fee rule created", dto.ToFeeRuleResponse(model))
+
+	return helper.JsonCreated(c, "fee rule created", dto.ToFeeRuleResponse(m))
 }
 
 // PATCH /:masjid_id/spp/fee-rules/:id
@@ -102,7 +137,7 @@ func (h *Handler) UpdateFeeRule(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, "invalid json")
 	}
 
-	var m billing.FeeRule
+	var m model.FeeRule
 	if err := h.DB.First(&m,
 		"fee_rule_id = ? AND fee_rule_masjid_id = ? AND fee_rule_deleted_at IS NULL",
 		id, masjidID).Error; err != nil {
@@ -112,7 +147,7 @@ func (h *Handler) UpdateFeeRule(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	// >>> masjid_id tidak boleh diubah lewat update; cukup apply field lain
+	// masjid_id tidak boleh diubah lewat update; cukup apply field lain
 	dto.ApplyFeeRuleUpdate(&m, in)
 
 	if err := h.DB.Save(&m).Error; err != nil {
@@ -134,7 +169,7 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
 	offset := (p.Page - 1) * p.PerPage
 
-	q := h.DB.Model(&billing.FeeRule{}).
+	q := h.DB.Model(&model.FeeRule{}).
 		Where("fee_rule_deleted_at IS NULL").
 		Where("fee_rule_masjid_id = ?", masjidID)
 
@@ -177,7 +212,7 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 		listQ = listQ.Limit(p.Limit()).Offset(offset)
 	}
 
-	var list []billing.FeeRule
+	var list []model.FeeRule
 	if err := listQ.Find(&list).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
@@ -233,7 +268,7 @@ func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 	}
 
 	// 1) Load batch (tenant-scoped)
-	var batch billing.BillBatch
+	var batch model.BillBatch
 	if err := h.DB.First(&batch,
 		"bill_batch_id = ? AND bill_batch_masjid_id = ? AND bill_batch_deleted_at IS NULL",
 		in.BillBatchID, masjidID).Error; err != nil {
@@ -246,7 +281,6 @@ func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 	// 2) Resolve target students
 	targetIDs, err := h.resolveTargetStudents(in)
 	if err != nil {
-		// kembali 400 untuk kesalahan input/query yang bisa diprediksi
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 	if len(targetIDs) == 0 {
@@ -260,7 +294,7 @@ func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 	// 3) Idempotency ringan (opsional)
 	if in.IdempotencyKey != nil {
 		var count int64
-		if err := h.DB.Model(&billing.StudentBill{}).
+		if err := h.DB.Model(&model.StudentBill{}).
 			Where("student_bill_batch_id = ? AND student_bill_masjid_id = ? AND student_bill_deleted_at IS NULL",
 				in.BillBatchID, masjidID).
 			Count(&count).Error; err == nil && int(count) >= len(targetIDs) {
@@ -280,7 +314,7 @@ func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 			if err != nil {
 				return fmt.Errorf("student %s: %w", sid.String(), err)
 			}
-			usb := billing.StudentBill{
+			usb := model.StudentBill{
 				StudentBillBatchID:         in.BillBatchID,
 				StudentBillMasjidID:        in.StudentBillMasjidID,
 				StudentBillMasjidStudentID: &sid,
@@ -301,7 +335,6 @@ func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 				res.Skipped++
 			}
 		}
-		// (opsional) update totals batch di sini
 		return nil
 	})
 	if err != nil {
@@ -312,8 +345,9 @@ func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 }
 
 /*
-	=======================================================
-	  Target resolver berbasis JSONB masjid_student_sections
+=======================================================
+
+	Target resolver berbasis relasi kelas/section
 
 =======================================================
 */
@@ -392,8 +426,9 @@ func (h *Handler) resolveTargetStudents(in dto.GenerateStudentBillsRequest) ([]u
 }
 
 /*
-	=======================================================
-	  Ambil konteks aktif siswa (section_id, class_id)
+=======================================================
+
+	Ambil konteks aktif siswa (section_id, class_id)
 
 =======================================================
 */
@@ -429,7 +464,7 @@ func (h *Handler) getStudentActiveContext(tx *gorm.DB, masjidID, studentID uuid.
    Resolve nominal (rule → fallback fixed)
 ======================================================= */
 
-func (h *Handler) resolveAmountWithContext(tx *gorm.DB, in dto.GenerateStudentBillsRequest, batch billing.BillBatch, studentID uuid.UUID) (int, error) {
+func (h *Handler) resolveAmountWithContext(tx *gorm.DB, in dto.GenerateStudentBillsRequest, batch model.BillBatch, studentID uuid.UUID) (int, error) {
 	// Mode fixed langsung
 	if in.AmountStrategy.Mode == "fixed" {
 		return *in.AmountStrategy.FixedAmountIDR, nil
@@ -449,7 +484,7 @@ func (h *Handler) resolveAmountWithContext(tx *gorm.DB, in dto.GenerateStudentBi
 		eff = *batch.BillBatchDueDate
 	}
 
-	q := tx.Model(&billing.FeeRule{}).
+	q := tx.Model(&model.FeeRule{}).
 		Where("fee_rule_masjid_id = ?", in.StudentBillMasjidID).
 		Where("LOWER(fee_rule_option_code) = ?", optionCode).
 		Where("fee_rule_deleted_at IS NULL").
@@ -467,7 +502,7 @@ func (h *Handler) resolveAmountWithContext(tx *gorm.DB, in dto.GenerateStudentBi
 	}
 
 	// Urutan spesifisitas (gunakan konteks yang ada saja)
-	var rule billing.FeeRule
+	var rule model.FeeRule
 	q = q.Where(`
 		(fee_rule_scope = 'student' AND fee_rule_masjid_student_id = ?)
 		OR (fee_rule_scope = 'section' AND fee_rule_section_id = ?)

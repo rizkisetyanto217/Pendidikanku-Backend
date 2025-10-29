@@ -110,15 +110,40 @@ func (ctl *GeneralBillingKindController) DeleteGlobal(c *fiber.Ctx) error {
 
 // GET /admin/general-billing-kinds
 func (ctl *GeneralBillingKindController) ListGlobal(c *fiber.Ctx) error {
+	q := strings.TrimSpace(c.Query("search")) // ?search=...
+	needle := "%" + q + "%"
 
 	var items []m.GeneralBillingKind
 	tx := ctl.DB.WithContext(c.Context()).
-		Where("general_billing_kind_masjid_id IS NULL AND general_billing_kind_deleted_at IS NULL").
-		Order("general_billing_kind_created_at DESC").
-		Find(&items)
-	if tx.Error != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, tx.Error.Error())
+		Where(`
+            general_billing_kind_masjid_id IS NULL
+            AND general_billing_kind_deleted_at IS NULL
+            AND general_billing_kind_category = ?
+            AND general_billing_kind_is_global = TRUE
+        `, "campaign")
+
+	// Search by code/name (pilih salah satu blok: A atau B)
+	if q != "" {
+		// A) Simple ILIKE (tanpa unaccent)
+		// tx = tx.Where(
+		//     "(general_billing_kind_code ILIKE ? OR general_billing_kind_name ILIKE ?)",
+		//     needle, needle,
+		// )
+
+		// B) ILIKE + unaccent (aktifkan extension unaccent; sudah ada di migrasi)
+		tx = tx.Where(
+			"(unaccent(general_billing_kind_code) ILIKE unaccent(?) OR unaccent(general_billing_kind_name) ILIKE unaccent(?))",
+			needle, needle,
+		)
 	}
+
+	tx = tx.Order("general_billing_kind_created_at DESC")
+
+	if err := tx.Find(&items).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	// DTO pakai `omitempty` → masjid_id tidak muncul bila NULL
 	return helper.JsonOK(c, "ok", dto.FromModelSlice(items))
 }
 

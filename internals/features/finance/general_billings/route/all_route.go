@@ -15,7 +15,7 @@ func AllGeneralBillingRoutes(r fiber.Router, db *gorm.DB) {
 	gbCtl := gbController.NewGeneralBillingController(db)
 	gb := r.Group("/:masjid_id/general-billings")
 	{
-		gb.Get("/list", gbCtl.List)       // GET    /:masjid_id/general-billings
+		gb.Get("/list", gbCtl.List) // GET    /:masjid_id/general-billings
 	}
 
 	// ===== General Billing Kinds (READ-ONLY per snippet) =====
@@ -23,6 +23,13 @@ func AllGeneralBillingRoutes(r fiber.Router, db *gorm.DB) {
 	kinds := r.Group("/:masjid_id/general-billing-kinds")
 	{
 		kinds.Get("/list", kindCtl.List) // GET /:masjid_id/general-billing-kinds/list
+	}
+
+	// ===== General Billing Kinds (READ-ONLY per snippet) =====
+	kindsApp := r.Group("/general-billing-kinds")
+	{
+		kindsApp.Get("/list", kindCtl.List) // GET /:masjid_id/general-billing-kinds/list
+		kindsApp.Get("/list-app", kindCtl.ListGlobal)
 	}
 
 	// ===== User General Billings (READ-ONLY) =====

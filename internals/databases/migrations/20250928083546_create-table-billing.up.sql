@@ -4,93 +4,96 @@ BEGIN;
 -- =========================================================
 -- EXTENSIONS (idempotent)
 -- =========================================================
-CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
-CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram ops
-CREATE EXTENSION IF NOT EXISTS btree_gist; -- EXCLUDE constraint (range)
+CREATE EXTENSION IF NOT EXISTS pgcrypto;    -- gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pg_trgm;     -- trigram ops untuk ILIKE
+CREATE EXTENSION IF NOT EXISTS btree_gist;  -- EXCLUDE constraint (range)
+CREATE EXTENSION IF NOT EXISTS unaccent;    -- normalisasi aksen buat pencarian
+
 
 -- =========================================================
--- ENUMS (idempotent)
+-- ENUMS
 -- =========================================================
 DO $$ BEGIN
   CREATE TYPE fee_scope AS ENUM ('tenant','class_parent','class','section','student');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- =========================================================
--- MASTER: general_billing_kinds (katalog tunggal, bisa GLOBAL/tenant)
+-- TABLE: general_billing_kinds (katalog; bisa GLOBAL/tenant)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS general_billing_kinds (
-  general_billing_kind_id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  general_billing_kind_masjid_id    UUID
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  general_billing_kind_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  general_billing_kind_masjid_id       UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE, -- NULL = GLOBAL
 
-  general_billing_kind_code         VARCHAR(60) NOT NULL,
-  general_billing_kind_name         TEXT NOT NULL,
-  general_billing_kind_desc         TEXT,
-  general_billing_kind_is_active    BOOLEAN NOT NULL DEFAULT TRUE,
+  general_billing_kind_code            VARCHAR(60) NOT NULL,
+  general_billing_kind_name            TEXT NOT NULL,
+  general_billing_kind_desc            TEXT,
+  general_billing_kind_is_active       BOOLEAN NOT NULL DEFAULT TRUE,
 
-  general_billing_kind_default_amount_idr INT CHECK (general_billing_kind_default_amount_idr >= 0),
+  general_billing_kind_default_amount_idr INT,
 
-  general_billing_kind_category     VARCHAR(20)
-    CHECK (general_billing_kind_category IN ('billing','campaign')) DEFAULT 'billing',
-  general_billing_kind_is_global    BOOLEAN NOT NULL DEFAULT FALSE,
-  general_billing_kind_visibility   VARCHAR(20)
-    CHECK (general_billing_kind_visibility IN ('public','internal')),
+  general_billing_kind_category        VARCHAR(20) DEFAULT 'billing',   -- 'billing'|'campaign'
+  general_billing_kind_is_global       BOOLEAN NOT NULL DEFAULT FALSE,
+  general_billing_kind_visibility      VARCHAR(20),                      -- 'public'|'internal'
 
-  -- flags untuk pipeline per-siswa
-  general_billing_kind_is_recurring          BOOLEAN NOT NULL DEFAULT FALSE, -- SPP=TRUE
-  general_billing_kind_requires_month_year   BOOLEAN NOT NULL DEFAULT FALSE, -- SPP=TRUE
-  general_billing_kind_requires_option_code  BOOLEAN NOT NULL DEFAULT FALSE, -- UNIFORM/BOOK/TRIP=TRUE
+  -- flags (logika di-backend)
+  general_billing_kind_is_recurring          BOOLEAN NOT NULL DEFAULT FALSE,
+  general_billing_kind_requires_month_year   BOOLEAN NOT NULL DEFAULT FALSE,
+  general_billing_kind_requires_option_code  BOOLEAN NOT NULL DEFAULT FALSE,
 
   general_billing_kind_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   general_billing_kind_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   general_billing_kind_deleted_at TIMESTAMPTZ
 );
 
--- Pastikan kolom masjid_id boleh NULL (GLOBAL)
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_name='general_billing_kinds'
-      AND column_name='general_billing_kind_masjid_id'
-      AND is_nullable='NO'
-  ) THEN
-    ALTER TABLE general_billing_kinds
-      ALTER COLUMN general_billing_kind_masjid_id DROP NOT NULL;
-  END IF;
-END$$;
+-- =========================
+-- INDEXES: general_billing_kinds
+-- =========================
 
--- Unik per tenant (alive)
+-- Unique code per-tenant (alive only)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_gbk_code_per_tenant_alive
   ON general_billing_kinds (general_billing_kind_masjid_id, LOWER(general_billing_kind_code))
   WHERE general_billing_kind_deleted_at IS NULL;
 
--- Unik GLOBAL (tanpa masjid)
+-- Unique code untuk GLOBAL (tanpa masjid) (alive only)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_gbk_code_global_alive
   ON general_billing_kinds (LOWER(general_billing_kind_code))
   WHERE general_billing_kind_deleted_at IS NULL
     AND general_billing_kind_masjid_id IS NULL;
 
+-- Filter umum
 CREATE INDEX IF NOT EXISTS ix_gbk_tenant_active
   ON general_billing_kinds (general_billing_kind_masjid_id, general_billing_kind_is_active)
   WHERE general_billing_kind_deleted_at IS NULL;
 
--- SEED defaults (aman diulang)
-INSERT INTO general_billing_kinds
-  (general_billing_kind_masjid_id, general_billing_kind_code, general_billing_kind_name,
-   general_billing_kind_is_recurring, general_billing_kind_requires_month_year, general_billing_kind_requires_option_code,
-   general_billing_kind_is_global, general_billing_kind_category)
-VALUES
-  (NULL,'SPP','SPP Bulanan',         TRUE,  TRUE,  FALSE, TRUE, 'billing'),
-  (NULL,'BOOK','Buku',               FALSE, FALSE, TRUE,  TRUE, 'billing'),
-  (NULL,'UNIFORM','Seragam',         FALSE, FALSE, TRUE,  TRUE, 'billing'),
-  (NULL,'REG','Pendaftaran',         FALSE, FALSE, FALSE, TRUE, 'billing'),
-  (NULL,'TRIP','Karya Wisata/Trip',  FALSE, FALSE, TRUE,  TRUE, 'billing')
-ON CONFLICT DO NOTHING;
+CREATE INDEX IF NOT EXISTS ix_gbk_created_at_alive
+  ON general_billing_kinds (general_billing_kind_created_at DESC)
+  WHERE general_billing_kind_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_gbk_category_global_alive
+  ON general_billing_kinds (general_billing_kind_category, general_billing_kind_is_global)
+  WHERE general_billing_kind_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_gbk_visibility_alive
+  ON general_billing_kinds (general_billing_kind_visibility)
+  WHERE general_billing_kind_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS ix_gbk_flags_alive
+  ON general_billing_kinds (
+    general_billing_kind_is_recurring,
+    general_billing_kind_requires_month_year,
+    general_billing_kind_requires_option_code
+  )
+  WHERE general_billing_kind_deleted_at IS NULL;
+
+-- Search: trigram (ILIKE %...%)
+CREATE INDEX IF NOT EXISTS idx_gbk_code_trgm
+  ON general_billing_kinds USING gin (general_billing_kind_code gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_gbk_name_trgm
+  ON general_billing_kinds USING gin (general_billing_kind_name gin_trgm_ops);
 
 -- =========================================================
--- FEE RULES (generik)
+-- TABLE: fee_rules (generic fee rules; snapshot kolom disediakan)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS fee_rules (
   fee_rule_id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -102,10 +105,10 @@ CREATE TABLE IF NOT EXISTS fee_rules (
   fee_rule_section_id        UUID,
   fee_rule_masjid_student_id UUID,
 
-  -- Periode (salah satu: term_id ATAU year+month)
+  -- Periode (salah satu: term_id ATAU year+month) — validasi di-backend
   fee_rule_term_id           UUID REFERENCES academic_terms(academic_term_id) ON DELETE SET NULL,
-  fee_rule_month             SMALLINT CHECK (fee_rule_month BETWEEN 1 AND 12),
-  fee_rule_year              SMALLINT CHECK (fee_rule_year BETWEEN 2000 AND 2100),
+  fee_rule_month             SMALLINT,
+  fee_rule_year              SMALLINT,
 
   -- Jenis rule (link ke katalog + denorm code)
   fee_rule_general_billing_kind_id UUID
@@ -119,106 +122,59 @@ CREATE TABLE IF NOT EXISTS fee_rules (
   fee_rule_is_default        BOOLEAN NOT NULL DEFAULT FALSE,
 
   -- Nominal
-  fee_rule_amount_idr        INT NOT NULL CHECK (fee_rule_amount_idr >= 0),
+  fee_rule_amount_idr        INT NOT NULL,
 
-  -- Effective window
+  -- Effective window (validasi overlap di-backend)
   fee_rule_effective_from    DATE,
   fee_rule_effective_to      DATE,
 
   fee_rule_note              TEXT,
 
+  -- SNAPSHOT kolom GBK (diisi oleh backend)
+  fee_rule_gbk_code_snapshot                 VARCHAR(60),
+  fee_rule_gbk_name_snapshot                 TEXT,
+  fee_rule_gbk_category_snapshot             VARCHAR(20),
+  fee_rule_gbk_is_global_snapshot            BOOLEAN,
+  fee_rule_gbk_visibility_snapshot           VARCHAR(20),
+  fee_rule_gbk_is_recurring_snapshot         BOOLEAN,
+  fee_rule_gbk_requires_month_year_snapshot  BOOLEAN,
+  fee_rule_gbk_requires_option_code_snapshot BOOLEAN,
+  fee_rule_gbk_default_amount_idr_snapshot   INT,
+  fee_rule_gbk_is_active_snapshot            BOOLEAN,
+
   fee_rule_created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   fee_rule_updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  fee_rule_deleted_at        TIMESTAMPTZ,
-
-  CONSTRAINT ck_fee_rules_scope_target CHECK (
-    (fee_rule_scope = 'tenant'       AND fee_rule_class_parent_id IS NULL AND fee_rule_class_id IS NULL AND fee_rule_section_id IS NULL AND fee_rule_masjid_student_id IS NULL)
- OR (fee_rule_scope = 'class_parent' AND fee_rule_class_parent_id IS NOT NULL AND fee_rule_class_id IS NULL AND fee_rule_section_id IS NULL AND fee_rule_masjid_student_id IS NULL)
- OR (fee_rule_scope = 'class'        AND fee_rule_class_id        IS NOT NULL AND fee_rule_class_parent_id IS NULL AND fee_rule_section_id IS NULL AND fee_rule_masjid_student_id IS NULL)
- OR (fee_rule_scope = 'section'      AND fee_rule_section_id      IS NOT NULL AND fee_rule_class_parent_id IS NULL AND fee_rule_class_id IS NULL AND fee_rule_masjid_student_id IS NULL)
- OR (fee_rule_scope = 'student'      AND fee_rule_masjid_student_id IS NOT NULL AND fee_rule_class_parent_id IS NULL AND fee_rule_class_id IS NULL AND fee_rule_section_id IS NULL)
-  ),
-  CONSTRAINT ck_fee_rules_period CHECK (
-    fee_rule_term_id IS NOT NULL
-    OR (fee_rule_month IS NOT NULL AND fee_rule_year IS NOT NULL)
-  ),
-  CONSTRAINT ck_fee_rules_effective_window CHECK (
-    fee_rule_effective_from IS NULL
-    OR fee_rule_effective_to IS NULL
-    OR fee_rule_effective_to >= fee_rule_effective_from
-  ),
-
-  -- Generated daterange utk EXCLUDE
-  fee_rule_effective_daterange daterange
-    GENERATED ALWAYS AS (
-      daterange(
-        COALESCE(fee_rule_effective_from, '-infinity'::date),
-        COALESCE(fee_rule_effective_to,   'infinity'::date),
-        '[]'
-      )
-    ) STORED
+  fee_rule_deleted_at        TIMESTAMPTZ
 );
 
--- No-overlap guard (pakai btree_gist)
-DO $$
-BEGIN
-  -- Overlap untuk mode TERM
-  EXECUTE $X$
-    ALTER TABLE fee_rules
-    ADD CONSTRAINT ex_fee_rules_term_no_overlap
-    EXCLUDE USING gist (
-      fee_rule_masjid_id WITH =,
-      fee_rule_bill_code WITH =,
-      fee_rule_scope     WITH =,
-      fee_rule_class_parent_id WITH =,
-      fee_rule_class_id  WITH =,
-      fee_rule_section_id WITH =,
-      fee_rule_masjid_student_id WITH =,
-      fee_rule_term_id   WITH =,
-      fee_rule_effective_daterange WITH &&
-    ) WHERE (fee_rule_deleted_at IS NULL AND fee_rule_term_id IS NOT NULL)
-  $X$;
-EXCEPTION WHEN duplicate_table THEN NULL; END $$;
-
-DO $$
-BEGIN
-  -- Overlap untuk mode YM (tanpa TERM)
-  EXECUTE $Y$
-    ALTER TABLE fee_rules
-    ADD CONSTRAINT ex_fee_rules_ym_no_overlap
-    EXCLUDE USING gist (
-      fee_rule_masjid_id WITH =,
-      fee_rule_bill_code WITH =,
-      fee_rule_scope     WITH =,
-      fee_rule_class_parent_id WITH =,
-      fee_rule_class_id  WITH =,
-      fee_rule_section_id WITH =,
-      fee_rule_masjid_student_id WITH =,
-      fee_rule_year      WITH =,
-      fee_rule_month     WITH =,
-      fee_rule_effective_daterange WITH &&
-    ) WHERE (fee_rule_deleted_at IS NULL AND fee_rule_term_id IS NULL
-             AND fee_rule_year IS NOT NULL AND fee_rule_month IS NOT NULL)
-  $Y$;
-EXCEPTION WHEN duplicate_table THEN NULL; END $$;
-
--- Index bantu fee_rules
+-- =========================
+-- INDEXES: fee_rules
+-- =========================
 CREATE INDEX IF NOT EXISTS idx_fee_rules_tenant_scope
   ON fee_rules (fee_rule_masjid_id, fee_rule_scope);
+
 CREATE INDEX IF NOT EXISTS idx_fee_rules_term
   ON fee_rules (fee_rule_term_id);
+
 CREATE INDEX IF NOT EXISTS idx_fee_rules_month_year
   ON fee_rules (fee_rule_year, fee_rule_month);
+
 CREATE INDEX IF NOT EXISTS idx_fee_rules_amount
   ON fee_rules (fee_rule_amount_idr);
+
 CREATE INDEX IF NOT EXISTS idx_fee_rules_option_code
   ON fee_rules (LOWER(fee_rule_option_code));
+
 CREATE INDEX IF NOT EXISTS idx_fee_rules_is_default
   ON fee_rules (fee_rule_is_default);
+
 CREATE INDEX IF NOT EXISTS ix_fee_rules_gbk
   ON fee_rules (fee_rule_general_billing_kind_id);
+
 CREATE INDEX IF NOT EXISTS ix_fee_rules_billcode
   ON fee_rules (fee_rule_bill_code, fee_rule_scope);
+
+
 
 -- =========================================================
 -- BILL BATCHES (generik; class/section XOR)

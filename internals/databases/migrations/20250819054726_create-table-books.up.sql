@@ -104,6 +104,12 @@ CREATE TABLE IF NOT EXISTS class_subject_books (
   class_subject_book_book_publication_year_snapshot  SMALLINT,
   class_subject_book_book_image_url_snapshot         TEXT,
 
+  class_subject_book_subject_id_snapshot   UUID,
+  class_subject_book_subject_code_snapshot VARCHAR(40),
+  class_subject_book_subject_name_snapshot VARCHAR(120),
+  class_subject_book_subject_slug_snapshot VARCHAR(160);
+
+
   -- timestamps (explicit)
   class_subject_book_created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_subject_book_updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -175,6 +181,28 @@ CREATE INDEX IF NOT EXISTS idx_csb_book_slug_snap_alive
   ON class_subject_books (LOWER(class_subject_book_book_slug_snapshot))
   WHERE class_subject_book_deleted_at IS NULL
     AND class_subject_book_book_slug_snapshot IS NOT NULL;
+
+
+/* =========================================================
+   5) INDEX — bantu pencarian cepat di snapshot SUBJECT
+========================================================= */
+-- Cari cepat berdasarkan nama subject (trgm, alive only)
+CREATE INDEX IF NOT EXISTS gin_csb_subject_name_snap_trgm_alive
+  ON class_subject_books USING GIN (LOWER(class_subject_book_subject_name_snapshot) gin_trgm_ops)
+  WHERE class_subject_book_deleted_at IS NULL
+    AND class_subject_book_subject_name_snapshot IS NOT NULL;
+
+-- Lookup cepat slug subject snapshot (case-insensitive, alive only)
+CREATE INDEX IF NOT EXISTS idx_csb_subject_slug_snap_alive
+  ON class_subject_books (LOWER(class_subject_book_subject_slug_snapshot))
+  WHERE class_subject_book_deleted_at IS NULL
+    AND class_subject_book_subject_slug_snapshot IS NOT NULL;
+
+-- (Opsional) kode subject snapshot (case-insensitive, alive only)
+CREATE INDEX IF NOT EXISTS idx_csb_subject_code_snap_alive
+  ON class_subject_books (LOWER(class_subject_book_subject_code_snapshot))
+  WHERE class_subject_book_deleted_at IS NULL
+    AND class_subject_book_subject_code_snapshot IS NOT NULL;
 
 
 

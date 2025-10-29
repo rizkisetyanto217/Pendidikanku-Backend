@@ -13,7 +13,7 @@ import (
 
 /* =========================================================
    1) REQUESTS
-   ========================================================= */
+========================================================= */
 
 // Create
 type CreateClassSubjectBookRequest struct {
@@ -87,7 +87,7 @@ func (r *UpdateClassSubjectBookRequest) Apply(m *model.ClassSubjectBookModel) er
 		m.ClassSubjectBookClassSubjectID = *r.ClassSubjectBookClassSubjectID
 	}
 	if r.ClassSubjectBookBookID != nil {
-		// Mengubah book_id akan memicu trigger DB untuk mengisi ulang snapshot buku.
+		// Mengubah book_id akan diproses trigger DB untuk refresh snapshot buku.
 		m.ClassSubjectBookBookID = *r.ClassSubjectBookBookID
 	}
 	if r.ClassSubjectBookIsActive != nil {
@@ -114,7 +114,7 @@ func (r *UpdateClassSubjectBookRequest) Apply(m *model.ClassSubjectBookModel) er
 
 /* =========================================================
    2) LIST QUERY
-   ========================================================= */
+========================================================= */
 
 type ListClassSubjectBookQuery struct {
 	Limit          *int       `query:"limit" validate:"omitempty,min=1,max=200"`
@@ -124,7 +124,7 @@ type ListClassSubjectBookQuery struct {
 	IsActive       *bool      `query:"is_active" validate:"omitempty"`
 	WithDeleted    *bool      `query:"with_deleted" validate:"omitempty"`
 
-	// q: cari di slug relasi & judul snapshot buku (LOWER LIKE/TRGM)
+	// q: cari di slug relasi & judul buku snapshot & nama/slug subject snapshot (LOWER LIKE/TRGM)
 	Q *string `query:"q" validate:"omitempty,max=100"`
 
 	// created_at_asc|created_at_desc|updated_at_asc|updated_at_desc
@@ -133,7 +133,7 @@ type ListClassSubjectBookQuery struct {
 
 /* =========================================================
    3) RESPONSE
-   ========================================================= */
+========================================================= */
 
 // (Opsional) embed URL buku kalau controller melakukan join ke book_urls
 type BookURLLite struct {
@@ -165,7 +165,16 @@ type BookLite struct {
 	URLs          []BookURLLite `json:"urls,omitempty"`
 }
 
-// Response utama relasi + snapshot buku (dibekukan via trigger)
+// (Opsional) ringkasan subject asli bila controller join ke subjects
+type SubjectLite struct {
+	SubjectID       uuid.UUID `json:"subject_id"`
+	SubjectMasjidID uuid.UUID `json:"subject_masjid_id"`
+	SubjectCode     string    `json:"subject_code"`
+	SubjectName     string    `json:"subject_name"`
+	SubjectSlug     string    `json:"subject_slug"`
+}
+
+// Response utama relasi + snapshot buku/subject (dibekukan via trigger)
 type ClassSubjectBookResponse struct {
 	ClassSubjectBookID             uuid.UUID `json:"class_subject_book_id"`
 	ClassSubjectBookMasjidID       uuid.UUID `json:"class_subject_book_masjid_id"`
@@ -185,12 +194,19 @@ type ClassSubjectBookResponse struct {
 	ClassSubjectBookBookPublicationYearSnapshot *int16  `json:"class_subject_book_book_publication_year_snapshot,omitempty"`
 	ClassSubjectBookBookImageURLSnapshot        *string `json:"class_subject_book_book_image_url_snapshot,omitempty"`
 
+	// snapshots dari subjects
+	ClassSubjectBookSubjectIDSnapshot   *uuid.UUID `json:"class_subject_book_subject_id_snapshot,omitempty"`
+	ClassSubjectBookSubjectCodeSnapshot *string    `json:"class_subject_book_subject_code_snapshot,omitempty"`
+	ClassSubjectBookSubjectNameSnapshot *string    `json:"class_subject_book_subject_name_snapshot,omitempty"`
+	ClassSubjectBookSubjectSlugSnapshot *string    `json:"class_subject_book_subject_slug_snapshot,omitempty"`
+
 	ClassSubjectBookCreatedAt time.Time  `json:"class_subject_book_created_at"`
 	ClassSubjectBookUpdatedAt time.Time  `json:"class_subject_book_updated_at"`
 	ClassSubjectBookDeletedAt *time.Time `json:"class_subject_book_deleted_at,omitempty"`
 
 	// opsional join
-	Book *BookLite `json:"book,omitempty"`
+	Book    *BookLite    `json:"book,omitempty"`
+	Subject *SubjectLite `json:"subject,omitempty"`
 }
 
 type Pagination struct {
@@ -206,7 +222,7 @@ type ClassSubjectBookListResponse struct {
 
 /* =========================================================
    4) MAPPERS
-   ========================================================= */
+========================================================= */
 
 func FromModel(m model.ClassSubjectBookModel) ClassSubjectBookResponse {
 	var deletedAt *time.Time
@@ -226,13 +242,19 @@ func FromModel(m model.ClassSubjectBookModel) ClassSubjectBookResponse {
 		ClassSubjectBookUpdatedAt: m.ClassSubjectBookUpdatedAt,
 		ClassSubjectBookDeletedAt: deletedAt,
 
-		// snapshots
+		// snapshots buku
 		ClassSubjectBookBookTitleSnapshot:           m.ClassSubjectBookBookTitleSnapshot,
 		ClassSubjectBookBookAuthorSnapshot:          m.ClassSubjectBookBookAuthorSnapshot,
 		ClassSubjectBookBookSlugSnapshot:            m.ClassSubjectBookBookSlugSnapshot,
 		ClassSubjectBookBookPublisherSnapshot:       m.ClassSubjectBookBookPublisherSnapshot,
 		ClassSubjectBookBookPublicationYearSnapshot: m.ClassSubjectBookBookPublicationYearSnapshot,
 		ClassSubjectBookBookImageURLSnapshot:        m.ClassSubjectBookBookImageURLSnapshot,
+
+		// snapshots subject
+		ClassSubjectBookSubjectIDSnapshot:   m.ClassSubjectBookSubjectIDSnapshot,
+		ClassSubjectBookSubjectCodeSnapshot: m.ClassSubjectBookSubjectCodeSnapshot,
+		ClassSubjectBookSubjectNameSnapshot: m.ClassSubjectBookSubjectNameSnapshot,
+		ClassSubjectBookSubjectSlugSnapshot: m.ClassSubjectBookSubjectSlugSnapshot,
 	}
 }
 

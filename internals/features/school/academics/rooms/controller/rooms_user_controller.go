@@ -50,7 +50,7 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	}
 
 	// ===== Parse query params =====
-	search := strings.TrimSpace(c.Query("search"))
+	search := strings.TrimSpace(c.Query("q"))
 	sortParam := strings.ToLower(strings.TrimSpace(c.Query("sort")))
 	isActivePtr := parseBoolPtr(c.Query("is_active"))
 	isVirtualPtr := parseBoolPtr(c.Query("is_virtual"))

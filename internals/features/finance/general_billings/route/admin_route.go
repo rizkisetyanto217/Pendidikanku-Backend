@@ -25,7 +25,6 @@ func AdminGeneralBillingRoutes(r fiber.Router, db *gorm.DB) {
 		kinds.Post("/", kindCtl.Create) // per-masjid
 		kinds.Patch("/:id", kindCtl.Patch)
 		kinds.Delete("/:id", kindCtl.Delete)
-		// kinds.Get("/", kindCtl.ListTenant) // opsional; list per-masjid (+ include_global=true)
 	}
 
 	ugbCtl := gbController.NewUserGeneralBillingController(db)

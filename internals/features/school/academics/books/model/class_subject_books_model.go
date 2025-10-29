@@ -30,6 +30,12 @@ type ClassSubjectBookModel struct {
 	ClassSubjectBookBookPublicationYearSnapshot *int16  `gorm:"column:class_subject_book_book_publication_year_snapshot" json:"class_subject_book_book_publication_year_snapshot,omitempty"`
 	ClassSubjectBookBookImageURLSnapshot        *string `gorm:"column:class_subject_book_book_image_url_snapshot" json:"class_subject_book_book_image_url_snapshot,omitempty"`
 
+	/* ============ SNAPSHOTS dari subjects ============ */
+	ClassSubjectBookSubjectIDSnapshot   *uuid.UUID `gorm:"column:class_subject_book_subject_id_snapshot;type:uuid" json:"class_subject_book_subject_id_snapshot,omitempty"`
+	ClassSubjectBookSubjectCodeSnapshot *string    `gorm:"column:class_subject_book_subject_code_snapshot;type:varchar(40)" json:"class_subject_book_subject_code_snapshot,omitempty"`
+	ClassSubjectBookSubjectNameSnapshot *string    `gorm:"column:class_subject_book_subject_name_snapshot;type:varchar(120)" json:"class_subject_book_subject_name_snapshot,omitempty"`
+	ClassSubjectBookSubjectSlugSnapshot *string    `gorm:"column:class_subject_book_subject_slug_snapshot;type:varchar(160)" json:"class_subject_book_subject_slug_snapshot,omitempty"`
+
 	/* ============ Audit ============ */
 	ClassSubjectBookCreatedAt time.Time      `gorm:"column:class_subject_book_created_at;type:timestamptz;not null;default:now();autoCreateTime" json:"class_subject_book_created_at"`
 	ClassSubjectBookUpdatedAt time.Time      `gorm:"column:class_subject_book_updated_at;type:timestamptz;not null;default:now();autoUpdateTime" json:"class_subject_book_updated_at"`

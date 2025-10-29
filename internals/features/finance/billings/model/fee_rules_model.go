@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// --- ENUM fee_scope ----------------------------------------------------------
+// --- ENUM fee_scope (ikuti enum di DB) ---------------------------------------
 type FeeScope string
 
 const (
@@ -28,7 +28,7 @@ type FeeRule struct {
 	FeeRuleMasjidID uuid.UUID `json:"fee_rule_masjid_id" gorm:"column:fee_rule_masjid_id;type:uuid;not null;index:idx_fee_rules_tenant_scope,priority:1"`
 
 	// Scope + Target
-	FeeRuleScope           FeeScope   `json:"fee_rule_scope" gorm:"column:fee_rule_scope;type:fee_scope;not null;index:idx_fee_rules_tenant_scope,priority:2"`
+	FeeRuleScope           FeeScope   `json:"fee_rule_scope" gorm:"column:fee_rule_scope;type:fee_scope;not null;index:idx_fee_rules_tenant_scope,priority:2;index:ix_fee_rules_billcode,priority:2"`
 	FeeRuleClassParentID   *uuid.UUID `json:"fee_rule_class_parent_id,omitempty" gorm:"column:fee_rule_class_parent_id;type:uuid"`
 	FeeRuleClassID         *uuid.UUID `json:"fee_rule_class_id,omitempty" gorm:"column:fee_rule_class_id;type:uuid"`
 	FeeRuleSectionID       *uuid.UUID `json:"fee_rule_section_id,omitempty" gorm:"column:fee_rule_section_id;type:uuid"`
@@ -44,7 +44,7 @@ type FeeRule struct {
 	FeeRuleBillCode             string     `json:"fee_rule_bill_code" gorm:"column:fee_rule_bill_code;type:varchar(60);not null;default:'SPP';index:ix_fee_rules_billcode,priority:1"`
 
 	// Opsi/label
-	FeeRuleOptionCode  string  `json:"fee_rule_option_code" gorm:"column:fee_rule_option_code;type:varchar(20);not null;default:'T1';index:idx_fee_rules_option_code"`
+	FeeRuleOptionCode  string  `json:"fee_rule_option_code" gorm:"column:fee_rule_option_code;type:varchar(20);not null;default:'T1';index:idx_fee_rules_option_code"` // NOTE: functional index LOWER() dibuat di SQL migrasi
 	FeeRuleOptionLabel *string `json:"fee_rule_option_label,omitempty" gorm:"column:fee_rule_option_label;type:varchar(60)"`
 
 	// Default & nominal
@@ -58,18 +58,22 @@ type FeeRule struct {
 	// Catatan
 	FeeRuleNote *string `json:"fee_rule_note,omitempty" gorm:"column:fee_rule_note;type:text"`
 
+	// --- SNAPSHOT kolom GBK (diisi oleh backend) -----------------------------
+	FeeRuleGBKCodeSnapshot               *string `json:"fee_rule_gbk_code_snapshot,omitempty" gorm:"column:fee_rule_gbk_code_snapshot;type:varchar(60)"`
+	FeeRuleGBKNameSnapshot               *string `json:"fee_rule_gbk_name_snapshot,omitempty" gorm:"column:fee_rule_gbk_name_snapshot;type:text"`
+	FeeRuleGBKCategorySnapshot           *string `json:"fee_rule_gbk_category_snapshot,omitempty" gorm:"column:fee_rule_gbk_category_snapshot;type:varchar(20)"`
+	FeeRuleGBKIsGlobalSnapshot           *bool   `json:"fee_rule_gbk_is_global_snapshot,omitempty" gorm:"column:fee_rule_gbk_is_global_snapshot;type:boolean"`
+	FeeRuleGBKVisibilitySnapshot         *string `json:"fee_rule_gbk_visibility_snapshot,omitempty" gorm:"column:fee_rule_gbk_visibility_snapshot;type:varchar(20)"`
+	FeeRuleGBKIsRecurringSnapshot        *bool   `json:"fee_rule_gbk_is_recurring_snapshot,omitempty" gorm:"column:fee_rule_gbk_is_recurring_snapshot;type:boolean"`
+	FeeRuleGBKRequiresMonthYearSnapshot  *bool   `json:"fee_rule_gbk_requires_month_year_snapshot,omitempty" gorm:"column:fee_rule_gbk_requires_month_year_snapshot;type:boolean"`
+	FeeRuleGBKRequiresOptionCodeSnapshot *bool   `json:"fee_rule_gbk_requires_option_code_snapshot,omitempty" gorm:"column:fee_rule_gbk_requires_option_code_snapshot;type:boolean"`
+	FeeRuleGBKDefaultAmountIDRSnapshot   *int    `json:"fee_rule_gbk_default_amount_idr_snapshot,omitempty" gorm:"column:fee_rule_gbk_default_amount_idr_snapshot;type:int"`
+	FeeRuleGBKIsActiveSnapshot           *bool   `json:"fee_rule_gbk_is_active_snapshot,omitempty" gorm:"column:fee_rule_gbk_is_active_snapshot;type:boolean"`
+
 	// Timestamps
 	FeeRuleCreatedAt time.Time      `json:"fee_rule_created_at" gorm:"column:fee_rule_created_at;type:timestamptz;not null;autoCreateTime"`
 	FeeRuleUpdatedAt time.Time      `json:"fee_rule_updated_at" gorm:"column:fee_rule_updated_at;type:timestamptz;not null;autoUpdateTime"`
 	FeeRuleDeletedAt gorm.DeletedAt `json:"fee_rule_deleted_at,omitempty" gorm:"column:fee_rule_deleted_at;type:timestamptz;index"`
-
-	// Catatan:
-	// - Kolom generated "fee_rule_effective_daterange" tidak dimodelkan di struct (read-only; dibuat oleh DB).
-	// - Constraint CHECK/EXCLUDE & partial index dibuat di SQL migrasi; GORM tag index hanya membantu dokumentasi.
 }
 
-// Pastikan index gabungan bill_code + scope pakai nama yang sama di kedua kolom
-// (sudah diatur di tags: index:ix_fee_rules_billcode pada FeeRuleBillCode,
-//
-//	dan kita tambahkan di bawah agar satu index mencakup scope juga).
 func (FeeRule) TableName() string { return "fee_rules" }

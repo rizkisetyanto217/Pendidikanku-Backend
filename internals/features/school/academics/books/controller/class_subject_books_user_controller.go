@@ -25,7 +25,7 @@ Query:
   - book_id          : UUID
   - is_active        : bool
   - with_deleted     : bool
-  - q                : cari di slug & judul snapshot buku
+  - q                : cari di slug relasi, judul buku snapshot, nama/slug subject snapshot
   - sort (legacy)    : created_at_asc|created_at_desc|updated_at_asc|updated_at_desc
   - sort_by/order    : created_at|updated_at + asc|desc
   - limit/per_page, page/offset
@@ -45,11 +45,11 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 
 	// ===== Parse query ke DTO =====
 	var q csbDTO.ListClassSubjectBookQuery
-	_ = c.QueryParser(&q) // toleran: kalau gagal, tetap lanjut pakai nilai default
+	_ = c.QueryParser(&q) // toleran: bila gagal tetap lanjut
 
 	// Pagination & sorting (default created_at desc)
 	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
-	// Legacy sort = created_at_asc|... (jaga kompatibilitas)
+	// Legacy sort (kompatibilitas)
 	if s := strings.ToLower(strings.TrimSpace(c.Query("sort"))); s != "" {
 		switch s {
 		case "created_at_asc":
@@ -85,7 +85,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	}
 
 	// ===== Filters =====
-	// id / ids (di luar DTO tapi tetap didukung)
+	// id / ids
 	var e error
 	if qBase, e = applyIDsFilter(c, qBase); e != nil {
 		return e
@@ -127,12 +127,16 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, "is_active tidak valid")
 		}
 	}
-	// q: cari di slug & judul snapshot
+
+	// q: cari di slug relasi, judul buku snapshot, nama & slug subject snapshot
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
 		like := "%" + strings.TrimSpace(*q.Q) + "%"
 		qBase = qBase.Where(`
 			(csb.class_subject_book_slug ILIKE ? OR
-			 csb.class_subject_book_book_title_snapshot ILIKE ?)`, like, like)
+			 csb.class_subject_book_book_title_snapshot ILIKE ? OR
+			 csb.class_subject_book_subject_name_snapshot ILIKE ? OR
+			 csb.class_subject_book_subject_slug_snapshot ILIKE ?)`,
+			like, like, like, like)
 	}
 
 	// ===== Hitung total distinct =====
@@ -156,13 +160,19 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		"csb.class_subject_book_updated_at",
 		"csb.class_subject_book_deleted_at",
 
-		// snapshots (inline di csb)
+		// snapshots BOOK (inline di csb)
 		"csb.class_subject_book_book_title_snapshot",
 		"csb.class_subject_book_book_author_snapshot",
 		"csb.class_subject_book_book_slug_snapshot",
 		"csb.class_subject_book_book_publisher_snapshot",
 		"csb.class_subject_book_book_publication_year_snapshot",
 		"csb.class_subject_book_book_image_url_snapshot",
+
+		// snapshots SUBJECT (inline di csb)
+		"csb.class_subject_book_subject_id_snapshot",
+		"csb.class_subject_book_subject_code_snapshot",
+		"csb.class_subject_book_subject_name_snapshot",
+		"csb.class_subject_book_subject_slug_snapshot",
 	}
 
 	type row struct {
@@ -177,12 +187,19 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		ClassSubjectBookUpdatedAt      time.Time  `gorm:"column:class_subject_book_updated_at"`
 		ClassSubjectBookDeletedAt      *time.Time `gorm:"column:class_subject_book_deleted_at"`
 
+		// BOOK snapshots
 		ClassSubjectBookBookTitleSnapshot           *string `gorm:"column:class_subject_book_book_title_snapshot"`
 		ClassSubjectBookBookAuthorSnapshot          *string `gorm:"column:class_subject_book_book_author_snapshot"`
 		ClassSubjectBookBookSlugSnapshot            *string `gorm:"column:class_subject_book_book_slug_snapshot"`
 		ClassSubjectBookBookPublisherSnapshot       *string `gorm:"column:class_subject_book_book_publisher_snapshot"`
 		ClassSubjectBookBookPublicationYearSnapshot *int16  `gorm:"column:class_subject_book_book_publication_year_snapshot"`
 		ClassSubjectBookBookImageURLSnapshot        *string `gorm:"column:class_subject_book_book_image_url_snapshot"`
+
+		// SUBJECT snapshots
+		ClassSubjectBookSubjectIDSnapshot   *uuid.UUID `gorm:"column:class_subject_book_subject_id_snapshot"`
+		ClassSubjectBookSubjectCodeSnapshot *string    `gorm:"column:class_subject_book_subject_code_snapshot"`
+		ClassSubjectBookSubjectNameSnapshot *string    `gorm:"column:class_subject_book_subject_name_snapshot"`
+		ClassSubjectBookSubjectSlugSnapshot *string    `gorm:"column:class_subject_book_subject_slug_snapshot"`
 	}
 
 	var rows []row
@@ -209,13 +226,20 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 			ClassSubjectBookCreatedAt:      r.ClassSubjectBookCreatedAt,
 			ClassSubjectBookUpdatedAt:      r.ClassSubjectBookUpdatedAt,
 			ClassSubjectBookDeletedAt:      r.ClassSubjectBookDeletedAt,
-			// snapshots
+
+			// BOOK snapshots
 			ClassSubjectBookBookTitleSnapshot:           r.ClassSubjectBookBookTitleSnapshot,
 			ClassSubjectBookBookAuthorSnapshot:          r.ClassSubjectBookBookAuthorSnapshot,
 			ClassSubjectBookBookSlugSnapshot:            r.ClassSubjectBookBookSlugSnapshot,
 			ClassSubjectBookBookPublisherSnapshot:       r.ClassSubjectBookBookPublisherSnapshot,
 			ClassSubjectBookBookPublicationYearSnapshot: r.ClassSubjectBookBookPublicationYearSnapshot,
 			ClassSubjectBookBookImageURLSnapshot:        r.ClassSubjectBookBookImageURLSnapshot,
+
+			// SUBJECT snapshots
+			ClassSubjectBookSubjectIDSnapshot:   r.ClassSubjectBookSubjectIDSnapshot,
+			ClassSubjectBookSubjectCodeSnapshot: r.ClassSubjectBookSubjectCodeSnapshot,
+			ClassSubjectBookSubjectNameSnapshot: r.ClassSubjectBookSubjectNameSnapshot,
+			ClassSubjectBookSubjectSlugSnapshot: r.ClassSubjectBookSubjectSlugSnapshot,
 		})
 	}
 
