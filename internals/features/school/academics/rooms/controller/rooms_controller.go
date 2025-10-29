@@ -3,7 +3,12 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
+	"mime/multipart"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +22,7 @@ import (
 
 	dto "masjidku_backend/internals/features/school/academics/rooms/dto"
 	model "masjidku_backend/internals/features/school/academics/rooms/model"
+	helperOSS "masjidku_backend/internals/helpers/oss"
 )
 
 /* =======================================================
@@ -50,11 +56,21 @@ func reqCtx(c *fiber.Ctx) context.Context {
 	return context.Background()
 }
 
+// util kecil untuk ambil file dari beberapa nama umum
+func pickImageFile(c *fiber.Ctx, names ...string) *multipart.FileHeader {
+	for _, n := range names {
+		if fh, err := c.FormFile(n); err == nil && fh != nil && fh.Size > 0 {
+			return fh
+		}
+	}
+	return nil
+}
+
 /* ============================ CREATE ============================ */
 func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	ctl.ensureValidator()
 
-	// 🔒 Ambil context masjid
+	// 🔒 Ambil context masjid & guard
 	mc, err := helperAuth.ResolveMasjidContext(c)
 	if err != nil {
 		return err
@@ -64,13 +80,111 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 		return err
 	}
 
-	// 📦 Parse body
+	// 👀 Deteksi multipart
+	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
+	isMultipart := strings.HasPrefix(ct, "multipart/form-data")
+	log.Printf("[CLASSROOM][CREATE] Content-Type=%q isMultipart=%v", ct, isMultipart)
+
+	// 📦 Parse payload
 	var req dto.CreateClassRoomRequest
-	if err := c.BodyParser(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
+	if isMultipart {
+		// ===== Multipart: isi SEMUA kolom sesuai DTO =====
+		req.ClassRoomName = strings.TrimSpace(c.FormValue("class_room_name"))
+
+		if v := strings.TrimSpace(c.FormValue("class_room_slug")); v != "" {
+			s := helper.Slugify(v, 50)
+			req.ClassRoomSlug = &s
+		}
+		if v := strings.TrimSpace(c.FormValue("class_room_code")); v != "" {
+			req.ClassRoomCode = &v
+		}
+		if v := strings.TrimSpace(c.FormValue("class_room_location")); v != "" {
+			req.ClassRoomLocation = &v
+		}
+		if v := strings.TrimSpace(c.FormValue("class_room_description")); v != "" {
+			req.ClassRoomDescription = &v
+		}
+
+		// int (pointer)
+		if v := strings.TrimSpace(c.FormValue("class_room_capacity")); v != "" {
+			if n, er := strconv.Atoi(v); er == nil {
+				req.ClassRoomCapacity = &n
+			}
+		}
+
+		// bool → pointer bool
+		parseBool := func(s string, def bool) bool {
+			s = strings.ToLower(strings.TrimSpace(s))
+			switch s {
+			case "1", "true", "yes", "y":
+				return true
+			case "0", "false", "no", "n":
+				return false
+			default:
+				return def
+			}
+		}
+		if v := c.FormValue("class_room_is_virtual"); v != "" {
+			b := parseBool(v, false)
+			req.ClassRoomIsVirtual = &b
+		}
+		if v := c.FormValue("class_room_is_active"); v != "" {
+			b := parseBool(v, true)
+			req.ClassRoomIsActive = &b
+		}
+
+		// features: JSON array atau CSV → []string
+		if v := strings.TrimSpace(c.FormValue("class_room_features")); v != "" {
+			var arr []string
+			if strings.HasPrefix(v, "[") {
+				_ = json.Unmarshal([]byte(v), &arr)
+			} else {
+				for _, p := range strings.Split(v, ",") {
+					p = strings.TrimSpace(p)
+					if p != "" {
+						arr = append(arr, p)
+					}
+				}
+			}
+			req.ClassRoomFeatures = arr
+		}
+
+		// ONLINE fields (opsional)
+		if v := strings.TrimSpace(c.FormValue("class_room_platform")); v != "" {
+			req.ClassRoomPlatform = &v
+		}
+		if v := strings.TrimSpace(c.FormValue("class_room_join_url")); v != "" {
+			req.ClassRoomJoinURL = &v
+		}
+		if v := strings.TrimSpace(c.FormValue("class_room_meeting_id")); v != "" {
+			req.ClassRoomMeetingID = &v
+		}
+		if v := strings.TrimSpace(c.FormValue("class_room_passcode")); v != "" {
+			req.ClassRoomPasscode = &v
+		}
+
+		// schedule & notes: harap kirim JSON array of objects → []dto.AnyObject
+		if v := strings.TrimSpace(c.FormValue("class_room_schedule")); v != "" {
+			var arr []dto.AnyObject
+			if err := json.Unmarshal([]byte(v), &arr); err == nil {
+				req.ClassRoomSchedule = arr
+			}
+		}
+		if v := strings.TrimSpace(c.FormValue("class_room_notes")); v != "" {
+			var arr []dto.AnyObject
+			if err := json.Unmarshal([]byte(v), &arr); err == nil {
+				req.ClassRoomNotes = arr
+			}
+		}
+
+	} else {
+		// JSON / x-www-form-urlencoded
+		if err := c.BodyParser(&req); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
+		}
 	}
 
-	// 🚩 Isi dari context server
+	// 🚩 Inject tenant dari server
 	req.ClassRoomMasjidID = masjidID
 
 	// ✅ Validasi payload
@@ -78,13 +192,16 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Validasi gagal: "+err.Error())
 	}
 
-	// 🔁 Auto-generate slug unik dari nama (jika kosong)
+	// 🔁 Slug unik
 	base := ""
 	if req.ClassRoomSlug != nil {
 		base = strings.TrimSpace(*req.ClassRoomSlug)
 	}
 	if base == "" {
-		base = helper.Slugify(req.ClassRoomName, 50)
+		base = helper.SuggestSlugFromName(req.ClassRoomName)
+		if base == "" {
+			base = helper.Slugify(req.ClassRoomName, 50)
+		}
 	}
 	slug, err := helper.EnsureUniqueSlugCI(
 		reqCtx(c), ctl.DB,
@@ -102,14 +219,14 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	// 🧭 Map DTO → model
 	m, err := req.ToModel()
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid (features/virtual_links)")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid (features/schedule/notes/virtual_links)")
 	}
 
-	// 🔒 Pastikan masjid_id dan slug fix dari server
+	// 🔒 Pastikan dari server
 	m.ClassRoomMasjidID = masjidID
 	m.ClassRoomSlug = &slug
 
-	// 💾 Simpan ke DB
+	// 💾 Simpan awal (tanpa image)
 	if err := ctl.DB.WithContext(reqCtx(c)).Create(&m).Error; err != nil {
 		if isUniqueViolation(err) {
 			return helper.JsonError(c, fiber.StatusConflict, "Nama/Kode/Slug ruang sudah digunakan")
@@ -117,7 +234,65 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan data")
 	}
 
-	return helper.JsonCreated(c, "Created", dto.ToClassRoomResponse(m))
+	// 🖼️ Upload image (opsional, jika multipart dan ada file)
+	uploadedURL := ""
+	if isMultipart {
+		if fh := pickImageFile(c, "image", "file", "cover"); fh != nil {
+			log.Printf("[CLASSROOM][CREATE] will upload file: name=%q size=%d", fh.Filename, fh.Size)
+
+			keyPrefix := fmt.Sprintf("masjids/%s/school/class-rooms", masjidID.String())
+
+			svc, er := helperOSS.NewOSSServiceFromEnv("") // gunakan env default
+			if er != nil {
+				log.Printf("[CLASSROOM][CREATE] OSS init error: %T %v", er, er)
+			} else {
+				ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
+				defer cancel()
+
+				url, upErr := svc.UploadAsWebP(ctx, fh, keyPrefix)
+				if upErr != nil {
+					log.Printf("[CLASSROOM][CREATE] upload error: %T %v", upErr, upErr)
+				} else {
+					uploadedURL = url
+
+					// object key (opsional)
+					objKey := ""
+					if k, e := helperOSS.ExtractKeyFromPublicURL(uploadedURL); e == nil {
+						objKey = k
+					} else if k2, e2 := helperOSS.KeyFromPublicURL(uploadedURL); e2 == nil {
+						objKey = k2
+					}
+
+					// Update kolom image
+					if err := ctl.DB.WithContext(reqCtx(c)).
+						Model(&model.ClassRoomModel{}).
+						Where("class_room_id = ?", m.ClassRoomID).
+						Updates(map[string]any{
+							"class_room_image_url":        uploadedURL,
+							"class_room_image_object_key": objKey,
+						}).Error; err != nil {
+						log.Printf("[CLASSROOM][CREATE] DB.Updates image err: %T %v", err, err)
+					} else {
+						m.ClassRoomImageURL = &uploadedURL
+						if objKey != "" {
+							m.ClassRoomImageObjectKey = &objKey
+						} else {
+							m.ClassRoomImageObjectKey = nil
+						}
+					}
+				}
+			}
+		} else {
+			log.Printf("[CLASSROOM][CREATE] no image file found in multipart (tried: image,file,cover)")
+		}
+	}
+
+	// (Best-effort) refresh entity
+	_ = ctl.DB.WithContext(reqCtx(c)).First(&m, "class_room_id = ?", m.ClassRoomID).Error
+
+	// 🎯 Response
+	resp := dto.ToClassRoomResponse(m)
+	return helper.JsonCreated(c, "Created", resp)
 }
 
 /* ============================ UPDATE (PUT/PATCH semantics) ============================ */

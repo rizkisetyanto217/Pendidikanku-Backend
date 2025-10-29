@@ -325,16 +325,17 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoMasjid(c *fiber.Ctx) err
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Section tidak memiliki konteks masjid yang valid")
 	}
 
-	// --- 2) Validasi section ---
+	// --- 2) Validasi section (awal; guard final di UPDATE atomic) ---
 	if !sec.ClassSectionIsActive {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusConflict, "Section tidak aktif")
 	}
-	if sec.ClassSectionCapacity != nil && *sec.ClassSectionCapacity > 0 &&
-		sec.ClassSectionTotalStudents >= *sec.ClassSectionCapacity {
-		_ = tx.Rollback()
-		return helper.JsonError(c, fiber.StatusConflict, "Kelas penuh")
-	}
+	// Pre-check kapasitas bisa dilewati; final guard ada di UPDATE atomic di bawah.
+	// if sec.ClassSectionCapacity != nil && *sec.ClassSectionCapacity > 0 &&
+	// 	sec.ClassSectionTotalStudents >= *sec.ClassSectionCapacity {
+	// 	_ = tx.Rollback()
+	// 	return helper.JsonError(c, fiber.StatusConflict, "Kelas penuh")
+	// }
 
 	// --- 3) Pastikan ada masjid_student + isi snapshots ---
 	usersProfileID, err := getUsersProfileID(tx, userID)
@@ -366,7 +367,6 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoMasjid(c *fiber.Ctx) err
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek keanggotaan")
 	}
-
 	if exists > 0 {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusConflict, "Sudah tergabung di section ini")
@@ -399,12 +399,54 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoMasjid(c *fiber.Ctx) err
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menambahkan ke section")
 	}
 
-	// --- 6) Bump counter ---
-	if err := tx.Model(&sec).
-		Where("class_section_id = ?", sec.ClassSectionID).
-		UpdateColumn("class_section_total_students", gorm.Expr("class_section_total_students + 1")).Error; err != nil {
+	// --- 6) INCREMENT ATOMIC dengan guard kapasitas ---
+	res := tx.Exec(`
+		UPDATE class_sections
+		SET class_section_total_students = class_section_total_students + 1,
+		    class_section_updated_at = NOW()
+		WHERE class_section_id = ?
+		  AND class_section_deleted_at IS NULL
+		  AND class_section_is_active = TRUE
+		  AND (class_section_capacity IS NULL OR class_section_total_students < class_section_capacity)
+	`, sec.ClassSectionID)
+	if res.Error != nil {
+		// kompensasi: hapus enrollment yang baru dibuat
+		_ = tx.Where("student_class_section_id = ?", scs.StudentClassSectionID).
+			Delete(&model.StudentClassSection{}).Error
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update counter")
+	}
+	if res.RowsAffected == 0 {
+		// kapasitas penuh tepat saat ini → hapus enrollment agar konsisten
+		_ = tx.Where("student_class_section_id = ?", scs.StudentClassSectionID).
+			Delete(&model.StudentClassSection{}).Error
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusConflict, "Kelas penuh")
+	}
+
+	// --- 6.5) INCREMENT class_quota_taken (+1) secara atomic di parent class ---
+	resClass := tx.Exec(`
+	UPDATE classes
+	SET class_quota_taken = class_quota_taken + 1,
+	    class_updated_at = NOW()
+	WHERE class_id = ?
+	  AND class_deleted_at IS NULL
+	  AND class_status = 'active'
+	  AND (class_quota_total IS NULL OR class_quota_taken < class_quota_total)
+`, sec.ClassSectionClassID)
+	if resClass.Error != nil {
+		// kompensasi: hapus enrollment & rollback (increment section ikut dibatalkan oleh TX)
+		_ = tx.Where("student_class_section_id = ?", scs.StudentClassSectionID).
+			Delete(&model.StudentClassSection{}).Error
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update quota kelas")
+	}
+	if resClass.RowsAffected == 0 {
+		// kuota kelas penuh → batalkan join + counter section
+		_ = tx.Where("student_class_section_id = ?", scs.StudentClassSectionID).
+			Delete(&model.StudentClassSection{}).Error
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusConflict, "Kuota kelas penuh")
 	}
 
 	// --- 7) Commit & respond ---
@@ -414,13 +456,12 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoMasjid(c *fiber.Ctx) err
 
 	log.Printf("[SCS][JOIN] user=%s masjid=%s section=%s", userID, masjidID, sec.ClassSectionID)
 
-	// Gunakan payload yang lebih fleksibel (tanpa struct khusus) agar tidak tergantung DTO join sebelumnya.
 	resp := fiber.Map{
 		"item": fiber.Map{
 			"student_class_section": dto.FromModel(scs),
 			"class_section_id":      sec.ClassSectionID.String(),
 		},
-		"masjid_id": masjidID.String(), // supaya FE tahu tenant tempat join
+		"masjid_id": masjidID.String(),
 	}
 	if profileSnap != nil {
 		resp["user_profile_snapshot"] = profileSnap

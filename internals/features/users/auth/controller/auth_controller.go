@@ -62,9 +62,9 @@ func (ac *AuthController) Login(c *fiber.Ctx) error {
 	return service.Login(ac.DB, c)
 }
 
-func (ac *AuthController) LoginGoogle(c *fiber.Ctx) error {
-	return service.LoginGoogle(ac.DB, c)
-}
+// func (ac *AuthController) LoginGoogle(c *fiber.Ctx) error {
+// 	return service.LoginGoogle(ac.DB, c)
+// }
 
 func (ac *AuthController) Logout(c *fiber.Ctx) error {
 	return service.Logout(ac.DB, c)

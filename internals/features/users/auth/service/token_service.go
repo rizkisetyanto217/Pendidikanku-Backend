@@ -2,13 +2,14 @@
 package service
 
 import (
-	"os"
+	"log"
+	"strings"
 	"time"
 
-	"masjidku_backend/internals/configs"
 	authModel "masjidku_backend/internals/features/users/auth/model"
 	authRepo "masjidku_backend/internals/features/users/auth/repository"
-	helper "masjidku_backend/internals/helpers"
+	helpers "masjidku_backend/internals/helpers"
+	helpersAuth "masjidku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v4"
@@ -17,83 +18,112 @@ import (
 )
 
 // ========================== REFRESH TOKEN ==========================
+// POST /api/auth/refresh-token
 func RefreshToken(db *gorm.DB, c *fiber.Ctx) error {
-	// 1) Ambil refresh token dari cookie atau body
-	refreshToken := c.Cookies("refresh_token")
-	if refreshToken == "" {
-		var payload struct{ RefreshToken string `json:"refresh_token"` }
-		if err := c.BodyParser(&payload); err != nil || payload.RefreshToken == "" {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "No refresh token provided")
-		}
-		refreshToken = payload.RefreshToken
+	// CSRF wajib untuk endpoint cookie-based
+	if err := enforceCSRF(c); err != nil {
+		return helpers.JsonError(c, fiber.StatusForbidden, err.Error())
+	}
+	refreshCookie := strings.TrimSpace(c.Cookies("refresh_token"))
+	if refreshCookie == "" {
+		return helpers.JsonError(c, fiber.StatusUnauthorized, "Refresh token tidak ada")
 	}
 
-	// 2) Ambil secret untuk verifikasi JWT & hashing DB
-	refreshSecret := configs.JWTRefreshSecret
-	if refreshSecret == "" {
-		refreshSecret = os.Getenv("JWT_REFRESH_SECRET")
-	}
-	if refreshSecret == "" {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "JWT_REFRESH_SECRET belum diset")
-	}
-
-	// 3) Cari token by HASH (harus aktif & belum expired)
-	tokenHash := computeRefreshHash(refreshToken, refreshSecret)
-	rt, err := FindRefreshTokenByHashActive(db.WithContext(c.Context()), tokenHash)
+	refreshSecret, err := getRefreshSecret()
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Invalid or expired refresh token")
-	}
-	if rt.RevokedAt != nil || time.Now().After(rt.ExpiresAt) {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Refresh token expired")
+		return helpers.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 4) Verifikasi signature & claim (skip claims time; cek manual)
-	claims := jwt.MapClaims{}
-	parser := jwt.Parser{SkipClaimsValidation: true}
-	if _, err := parser.ParseWithClaims(refreshToken, claims, func(t *jwt.Token) (interface{}, error) {
+	// Parse & validate refresh JWT
+	tok, err := jwt.Parse(refreshCookie, func(t *jwt.Token) (any, error) {
 		return []byte(refreshSecret), nil
+	})
+	if err != nil || !tok.Valid {
+		return helpers.JsonError(c, fiber.StatusUnauthorized, "Refresh token invalid")
+	}
+	claims, _ := tok.Claims.(jwt.MapClaims)
+	sub, _ := claims["sub"].(string)
+	if _, err := uuid.Parse(sub); err != nil {
+		return helpers.JsonError(c, fiber.StatusUnauthorized, "Refresh token invalid")
+	}
+	userID, _ := uuid.Parse(sub)
+
+	// Pastikan hash refresh ada di DB
+	h := computeRefreshHash(refreshCookie, refreshSecret)
+	var exists bool
+	if err := db.Raw(`SELECT EXISTS(SELECT 1 FROM refresh_tokens WHERE token = ?)`, h).Scan(&exists).Error; err != nil {
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "DB error")
+	}
+	if !exists {
+		return helpers.JsonError(c, fiber.StatusUnauthorized, "Refresh token tidak dikenal")
+	}
+
+	// Ambil user + roles
+	userFull, err := authRepo.FindUserByID(db, userID)
+	if err != nil {
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "User not found")
+	}
+	if !userFull.IsActive {
+		return helpers.JsonError(c, fiber.StatusForbidden, "Akun dinonaktifkan")
+	}
+	rolesClaim, err := getUserRolesClaim(c.Context(), db, userFull.ID)
+	if err != nil {
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil roles")
+	}
+
+	// ROTATE: hapus token lama
+	if err := deleteRefreshTokenByHash(c.Context(), db, refreshCookie); err != nil {
+		log.Printf("[refresh] delete old hash failed: %v", err)
+	}
+
+	// issue access & refresh baru (re-use logic tanpa set cookie access)
+	jwtSecret, _ := getJWTSecret()
+	now := nowUTC()
+
+	// Build claims lagi (ringkas pakai helper lama)
+	isOwner := hasGlobalRole(rolesClaim, "owner")
+	masjidIDs := deriveMasjidIDsFromRolesClaim(rolesClaim)
+	activeMasjidID := helpersAuth.GetActiveMasjidIDIfSingle(rolesClaim)
+	teacherRecords := buildTeacherRecords(db, userFull.ID, rolesClaim)
+	studentRecords := buildStudentRecords(db, userFull.ID, rolesClaim)
+	tpMap := getTenantProfilesMapStr(c.Context(), db, masjidUUIDsFromClaim(rolesClaim))
+	combined := combineRolesWithTenant(rolesClaim, tpMap)
+
+	var tenantProfile *string
+	if activeMasjidID != nil {
+		if mid, err := uuid.Parse(*activeMasjidID); err == nil {
+			tenantProfile = getMasjidTenantProfileStr(c.Context(), db, mid)
+		}
+	}
+	accessClaims := buildAccessClaims(*userFull, rolesClaim, masjidIDs, isOwner, activeMasjidID, tenantProfile, combined, teacherRecords, studentRecords, now)
+	refreshClaims := buildRefreshClaims(userFull.ID, now)
+
+	newAccess, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString([]byte(jwtSecret))
+	if err != nil {
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal buat access baru")
+	}
+	newRefresh, err := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).SignedString([]byte(refreshSecret))
+	if err != nil {
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal buat refresh baru")
+	}
+
+	// simpan hash refresh baru
+	if err := createRefreshTokenFast(db, &authModel.RefreshTokenModel{
+		UserID:    userFull.ID,
+		Token:     computeRefreshHash(newRefresh, refreshSecret),
+		ExpiresAt: now.Add(refreshTTLDefault),
+		UserAgent: strptr(c.Get("User-Agent")),
+		IP:        strptr(c.IP()),
 	}); err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Malformed refresh token")
-	}
-	if typ, _ := claims["typ"].(string); typ != "refresh" {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Invalid token type")
-	}
-	if exp, ok := claims["exp"].(float64); ok && time.Now().Unix() >= int64(exp) {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Refresh token expired")
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal simpan refresh baru")
 	}
 
-	// 5) Pastikan user masih aktif
-	user, err := authRepo.FindUserByID(db.WithContext(c.Context()), rt.UserID)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "User not found")
-	}
-	if !user.IsActive {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan")
-	}
+	// set cookie refresh baru + XSRF baru
+	setAuthCookiesOnlyRefreshAndXsrf(c, newRefresh, now)
 
-	// 6) Ambil roles_global & masjid_roles
-	rolesClaim, err := getUserRolesClaim(c.Context(), db, user.ID)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil roles user")
-	}
-
-	// 7) ROTATE: revoke token lama (idempotent)
-	if err := RevokeRefreshTokenByID(db.WithContext(c.Context()), rt.ID); err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mencabut refresh token lama")
-	}
-
-	// 8) Issue pasangan token baru + set cookies + response (berbasis rolesClaim)
-	if err := issueTokensWithRoles(c, db, *user, rolesClaim); err != nil {
-		// Mapping error ke JSON konsisten
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-	// Catatan:
-	// - Jika issueTokensWithRoles SUDAH menulis response JSON (dan set cookies), kita cukup return nil.
-	// - Jika tidak, ubah issueTokensWithRoles agar mengembalikan payload {access_token, refresh_token, expires_in, roles_claim}
-	//   lalu kirim dengan:
-	//   return helper.JsonOK(c, "Token refreshed", payload)
-
-	return nil
+	return helpers.JsonOK(c, "Token diperbarui", fiber.Map{
+		"access_token": newAccess,
+	})
 }
 
 // ========================== Mini-repo (tanpa dependensi baru) ==========================

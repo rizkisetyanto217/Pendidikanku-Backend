@@ -19,16 +19,8 @@ func AuthRoutes(app *fiber.App, db *gorm.DB) {
 	publicAuth.Post("/login", rateLimiter.LoginRateLimiter(), authController.Login)
 	publicAuth.Post("/register", rateLimiter.RegisterRateLimiter(), authController.Register)
 	publicAuth.Post("/forgot-password/reset", authController.ResetPassword)
-	publicAuth.Post("/login-google", authController.LoginGoogle)
+	// publicAuth.Post("/login-google", authController.LoginGoogle)
 	publicAuth.Post("/refresh-token", authController.RefreshToken)
-
-	// --- PUBLIC alias (/api/auth) agar FE baseURL=/api tetap jalan ---
-	publicAuthAPI := app.Group("/api/auth")
-	publicAuthAPI.Post("/login", rateLimiter.LoginRateLimiter(), authController.Login)
-	publicAuthAPI.Post("/register", rateLimiter.RegisterRateLimiter(), authController.Register)
-	publicAuthAPI.Post("/forgot-password/reset", authController.ResetPassword)
-	publicAuthAPI.Post("/login-google", authController.LoginGoogle)
-	publicAuthAPI.Post("/refresh-token", authController.RefreshToken)
 
 	// --- PROTECTED (/api/auth ...) ---
 	protectedAuth := app.Group("/api/auth")

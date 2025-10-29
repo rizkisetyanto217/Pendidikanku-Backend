@@ -90,10 +90,6 @@ CREATE TABLE IF NOT EXISTS class_rooms (
 );
 
 -- INDEXES & UNIQUES (soft-delete aware)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_name_ci_alive
-  ON class_rooms (class_room_masjid_id, lower(class_room_name))
-  WHERE class_room_deleted_at IS NULL;
-
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_code_ci_alive
   ON class_rooms (class_room_masjid_id, lower(class_room_code))
   WHERE class_room_deleted_at IS NULL

@@ -3,17 +3,20 @@ package service
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	googleAuthIDTokenVerifier "github.com/futurenda/google-auth-id-token-verifier"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
@@ -34,13 +37,62 @@ import (
 ========================== */
 
 const (
-	accessTTLDefault  = 24 * time.Hour
+	// 🔒 Pendekkan TTL access agar window compromise kecil
+	accessTTLDefault  = 15 * time.Minute
 	refreshTTLDefault = 7 * 24 * time.Hour
 
-	// timeouts untuk query hot path (aman disesuaikan)
 	qryTimeoutShort = 800 * time.Millisecond
 	qryTimeoutLong  = 1200 * time.Millisecond
 )
+
+// ✅ Konfigurasi origin FE yang diizinkan (bisa override dari env)
+var allowedFrontendOrigins = func() []string {
+	fromEnv := strings.TrimSpace(os.Getenv("FRONTEND_ORIGINS")) // pisah koma
+	if fromEnv == "" {
+		return []string{
+			"https://app.pendidikanku.id",
+			"https://sekolahisl.am", // contoh
+			"http://localhost:5173",
+		}
+	}
+	parts := strings.Split(fromEnv, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}()
+
+// randomString mengembalikan string acak URL-safe sepanjang n karakter.
+// Menggunakan crypto/rand; kalau gagal, fallback ke waktu (lebih lemah).
+func randomString(n int) string {
+	if n <= 0 {
+		n = 32
+	}
+	// Untuk base64 URL: panjang output ≈ ceil(bytes*4/3).
+	// Supaya minimal n char, generate n bytes (umumnya sudah > n).
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err == nil {
+		s := base64.RawURLEncoding.EncodeToString(b)
+		if len(s) >= n {
+			return s[:n]
+		}
+		// Sangat jarang terjadi; kalau kurang, tambal dengan tambahan random.
+		extra := make([]byte, n)
+		if _, err2 := rand.Read(extra); err2 == nil {
+			s2 := s + base64.RawURLEncoding.EncodeToString(extra)
+			if len(s2) >= n {
+				return s2[:n]
+			}
+		}
+	}
+
+	// Fallback non-crypto (darurat saja)
+	return strconv.FormatInt(time.Now().UnixNano(), 36)
+}
 
 type TeacherRecord struct {
 	ID       uuid.UUID `json:"masjid_teacher_id" gorm:"column:masjid_teacher_id"`
@@ -73,6 +125,86 @@ type authMeta struct {
 }
 
 var meta authMeta
+
+/* ==========================
+   CSRF + Origin helpers
+========================== */
+
+func sameSiteForDeployment() string {
+	// Jika FE & BE beda origin (cross-site), HARUS "None"
+	// Kalau satu site, pakai "Strict" (atau "Lax") untuk proteksi lebih
+	if os.Getenv("CROSS_SITE") == "1" {
+		return "None"
+	}
+	return "Strict"
+}
+
+// Ambil origin yang valid dari header Origin/Referer
+func getRequestOrigin(c *fiber.Ctx) string {
+	origin := strings.TrimSpace(c.Get("Origin"))
+	if origin != "" {
+		return origin
+	}
+	ref := strings.TrimSpace(c.Get("Referer"))
+	if ref == "" {
+		return ""
+	}
+	u, err := url.Parse(ref)
+	if err != nil {
+		return ""
+	}
+	u.Path, u.RawQuery, u.Fragment = "", "", ""
+	return u.String()
+}
+
+func isAllowedOrigin(origin string) bool {
+	if origin == "" {
+		return false
+	}
+	for _, ok := range allowedFrontendOrigins {
+		if subtle.ConstantTimeCompare([]byte(origin), []byte(ok)) == 1 {
+			return true
+		}
+	}
+	return false
+}
+
+// Double-submit CSRF: cookie "XSRF-TOKEN" vs header "X-CSRF-Token"
+func enforceCSRF(c *fiber.Ctx) error {
+	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
+	if !strings.HasPrefix(ct, "application/json") {
+		return fiber.NewError(fiber.StatusForbidden, "Invalid content-type")
+	}
+	origin := getRequestOrigin(c)
+	if !isAllowedOrigin(origin) {
+		return fiber.NewError(fiber.StatusForbidden, "Origin not allowed")
+	}
+
+	h := strings.TrimSpace(c.Get("X-CSRF-Token"))
+	cv := strings.TrimSpace(c.Cookies("XSRF-TOKEN"))
+
+	if os.Getenv("DEBUG_CSRF") == "1" {
+		log.Printf("[CSRF] origin=%q ct=%q header=%q cookie=%q", origin, ct, h, cv)
+	}
+
+	if h == "" || cv == "" || subtle.ConstantTimeCompare([]byte(h), []byte(cv)) != 1 {
+		return fiber.NewError(fiber.StatusForbidden, "CSRF check failed")
+	}
+	return nil
+}
+
+// Set XSRF token (bukan HttpOnly agar FE bisa baca nilai cookie untuk dikirim header)
+func setXSRFCookie(c *fiber.Ctx, token string, exp time.Time) {
+	c.Cookie(&fiber.Cookie{
+		Name:     "XSRF-TOKEN",
+		Value:    token,
+		HTTPOnly: false,
+		Secure:   true,
+		SameSite: sameSiteForDeployment(), // <- ganti
+		Path:     "/",
+		Expires:  exp,
+	})
+}
 
 // Panggil sekali saat app start setelah DB siap: service.PrewarmAuthMeta(db)
 func PrewarmAuthMeta(db *gorm.DB) {
@@ -247,19 +379,15 @@ func computeRefreshHash(token, secret string) []byte {
 	return m.Sum(nil)
 }
 
-// Hapus refresh token dari DB berdasarkan HASH (bukan raw)
-// Aman dipanggil meskipun tabel/kolom kamu BYTEA.
 func deleteRefreshTokenByHash(ctx context.Context, db *gorm.DB, rawRefresh string) error {
 	if strings.TrimSpace(rawRefresh) == "" || db == nil {
 		return nil
 	}
 	secret, err := getRefreshSecret()
 	if err != nil {
-		// kalau secret tidak ada, tidak fatal agar logout tetap jalan
 		return nil
 	}
-	h := computeRefreshHash(rawRefresh, secret) // []byte HMAC-SHA256
-	// Nama tabel sesuai repo kamu (umumnya: refresh_tokens, kolom: token BYTEA)
+	h := computeRefreshHash(rawRefresh, secret)
 	return db.WithContext(ctx).Exec(`DELETE FROM refresh_tokens WHERE token = ?`, h).Error
 }
 
@@ -727,7 +855,6 @@ func fetchStudentRecords(db *gorm.DB, userID uuid.UUID) []StudentRecord {
 }
 
 func fetchTeacherRecords(db *gorm.DB, userID uuid.UUID) []TeacherRecord {
-	// Pastikan meta sudah di-warm
 	if !meta.Ready {
 		PrewarmAuthMeta(db)
 	}
@@ -737,14 +864,14 @@ func fetchTeacherRecords(db *gorm.DB, userID uuid.UUID) []TeacherRecord {
 
 	var out []TeacherRecord
 	err := db.WithContext(ctx).
-		Table("masjid_teachers").
-		Select("masjid_teacher_id, masjid_teacher_masjid_id").
-		Where("masjid_teacher_user_id = ? AND (masjid_teacher_deleted_at IS NULL)", userID).
+		Table("masjid_teachers AS mt").
+		Select("mt.masjid_teacher_id AS masjid_teacher_id, mt.masjid_teacher_masjid_id AS masjid_teacher_masjid_id").
+		Joins("JOIN user_teachers ut ON ut.user_teacher_id = mt.masjid_teacher_user_teacher_id").
+		Where("ut.user_teacher_user_id = ? AND mt.masjid_teacher_deleted_at IS NULL AND ut.user_teacher_deleted_at IS NULL", userID).
 		Scan(&out).Error
 
 	if err != nil {
 		low := strings.ToLower(err.Error())
-		// Kalau tabel belum ada, jangan panik — anggap tidak ada record
 		if strings.Contains(low, "does not exist") ||
 			strings.Contains(low, "undefined table") ||
 			strings.Contains(low, "no such table") {
@@ -753,7 +880,6 @@ func fetchTeacherRecords(db *gorm.DB, userID uuid.UUID) []TeacherRecord {
 		log.Printf("[WARN] fetchTeacherRecords: %v", err)
 		return nil
 	}
-
 	return out
 }
 
@@ -829,6 +955,19 @@ func buildRefreshClaims(userID uuid.UUID, now time.Time) jwt.MapClaims {
 		"iat": now.Unix(),
 		"exp": now.Add(refreshTTLDefault).Unix(),
 	}
+}
+
+// Refresh cookie
+func setRefreshCookie(c *fiber.Ctx, refreshToken string, exp time.Time) {
+	c.Cookie(&fiber.Cookie{
+		Name:     "refresh_token",
+		Value:    refreshToken,
+		HTTPOnly: true,
+		Secure:   true,
+		SameSite: sameSiteForDeployment(), // <- ganti
+		Path:     "/api/auth/refresh-token",
+		Expires:  exp,
+	})
 }
 
 // 🔄 build access claims — masjid_roles sudah berisi tenant_profile
@@ -912,13 +1051,21 @@ func buildLoginResponseUser(
 // ==========================
 // ISSUE TOKENS (refactor)
 // ==========================
+
+// Gantikan dengan:
+func setAuthCookiesOnlyRefreshAndXsrf(c *fiber.Ctx, refreshToken string, now time.Time) {
+	setRefreshCookie(c, refreshToken, now.Add(refreshTTLDefault))
+	// seed XSRF (random 32+). Sederhana: pakai JWT ID, atau random string dari helper kalian.
+	xsrf := randomString(48)
+	setXSRFCookie(c, xsrf, now.Add(refreshTTLDefault))
+}
+
 func issueTokensWithRoles(
 	c *fiber.Ctx,
 	db *gorm.DB,
 	user userModel.UserModel,
 	rolesClaim helpersAuth.RolesClaim,
 ) error {
-	// secrets
 	jwtSecret, err := getJWTSecret()
 	if err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, err.Error())
@@ -939,11 +1086,9 @@ func issueTokensWithRoles(
 	teacherRecords := buildTeacherRecords(db, user.ID, rolesClaim)
 	studentRecords := buildStudentRecords(db, user.ID, rolesClaim)
 
-	// Ambil semua tenant_profile per masjid → gabungkan ke masjid_roles
 	tpMap := getTenantProfilesMapStr(c.Context(), db, masjidUUIDsFromClaim(rolesClaim))
 	combined := combineRolesWithTenant(rolesClaim, tpMap)
 
-	// Tentukan single tenantProfile (kalau ada activeMasjidID); fallback deterministik
 	var tenantProfile *string
 	if activeMasjidID != nil {
 		if mid, err := uuid.Parse(*activeMasjidID); err == nil {
@@ -951,7 +1096,6 @@ func issueTokensWithRoles(
 		}
 	}
 	if tenantProfile == nil && len(combined) > 0 {
-		// fallback: pilih yang id terkecil (string compare) biar deterministik
 		minID, prof := "", ""
 		for _, it := range combined {
 			id := it.MasjidID.String()
@@ -965,23 +1109,20 @@ func issueTokensWithRoles(
 		}
 	}
 
-	// Build claims & response (pakai gabungan)
-	accessClaims := buildAccessClaims(
-		user, rolesClaim, masjidIDs, isOwner, activeMasjidID, tenantProfile, combined, teacherRecords, studentRecords, now,
-	)
+	accessClaims := buildAccessClaims(user, rolesClaim, masjidIDs, isOwner, activeMasjidID, tenantProfile, combined, teacherRecords, studentRecords, now)
 	refreshClaims := buildRefreshClaims(user.ID, now)
 
-	// Sign
 	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString([]byte(jwtSecret))
 	if err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat access token")
 	}
+
 	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).SignedString([]byte(refreshSecret))
 	if err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat refresh token")
 	}
 
-	// Store refresh
+	// simpan hash refresh
 	tokenHash := computeRefreshHash(refreshToken, refreshSecret)
 	if err := createRefreshTokenFast(db, &authModel.RefreshTokenModel{
 		UserID:    user.ID,
@@ -993,17 +1134,15 @@ func issueTokensWithRoles(
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan refresh token")
 	}
 
-	// Cookies
-	setAuthCookies(c, accessToken, refreshToken, now)
+	// ✅ set hanya refresh cookie + XSRF cookie
+	setAuthCookiesOnlyRefreshAndXsrf(c, refreshToken, now)
 
-	// Response
-	respUser := buildLoginResponseUser(
-		user, rolesClaim, masjidIDs, isOwner, activeMasjidID, tenantProfile, combined, teacherRecords, studentRecords,
-	)
+	// Response user payload seperti sebelumnya
+	respUser := buildLoginResponseUser(user, rolesClaim, masjidIDs, isOwner, activeMasjidID, tenantProfile, combined, teacherRecords, studentRecords)
 
 	return helpers.JsonOK(c, "Login berhasil", fiber.Map{
 		"user":         respUser,
-		"access_token": accessToken,
+		"access_token": accessToken, // FE simpan in-memory dan kirim di Authorization
 	})
 }
 
@@ -1019,249 +1158,228 @@ func createRefreshTokenFast(db *gorm.DB, rt *authModel.RefreshTokenModel) error 
 	})
 }
 
-func setAuthCookies(c *fiber.Ctx, accessToken, refreshToken string, now time.Time) {
-	c.Cookie(&fiber.Cookie{
-		Name:     "access_token",
-		Value:    accessToken,
-		HTTPOnly: true,
-		Secure:   true,
-		SameSite: "None",
-		Path:     "/",
-		Expires:  now.Add(accessTTLDefault),
-	})
-	c.Cookie(&fiber.Cookie{
-		Name:     "refresh_token",
-		Value:    refreshToken,
-		HTTPOnly: true,
-		Secure:   true,
-		SameSite: "None",
-		Path:     "/",
-		Expires:  now.Add(refreshTTLDefault),
-	})
-}
-
 /* ==========================
    LOGIN GOOGLE (refactor: tx + upsert profile + snapshot)
 ========================== */
 
-func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
-	var in struct {
-		IDToken    string `json:"id_token"`
-		Credential string `json:"credential"` // fallback kalau FE kirim credential
-	}
-	if err := c.BodyParser(&in); err != nil {
-		return helpers.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
-	}
+// func LoginGoogle(db *gorm.DB, c *fiber.Ctx) error {
+// 	var in struct {
+// 		IDToken    string `json:"id_token"`
+// 		Credential string `json:"credential"` // fallback kalau FE kirim credential
+// 	}
+// 	if err := c.BodyParser(&in); err != nil {
+// 		return helpers.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
+// 	}
 
-	idToken := strings.TrimSpace(in.IDToken)
-	if idToken == "" {
-		idToken = strings.TrimSpace(in.Credential)
-	}
-	if idToken == "" {
-		return helpers.JsonError(c, fiber.StatusBadRequest, "id_token is required")
-	}
+// 	idToken := strings.TrimSpace(in.IDToken)
+// 	if idToken == "" {
+// 		idToken = strings.TrimSpace(in.Credential)
+// 	}
+// 	if idToken == "" {
+// 		return helpers.JsonError(c, fiber.StatusBadRequest, "id_token is required")
+// 	}
 
-	clientID := strings.TrimSpace(configs.GoogleClientID)
-	if clientID == "" {
-		log.Printf("[login-google] GOOGLE_CLIENT_ID empty")
-		return helpers.JsonError(c, fiber.StatusInternalServerError, "Server misconfigured")
-	}
+// 	clientID := strings.TrimSpace(configs.GoogleClientID)
+// 	if clientID == "" {
+// 		log.Printf("[login-google] GOOGLE_CLIENT_ID empty")
+// 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Server misconfigured")
+// 	}
 
-	// === Decode terlebih dulu untuk diagnosa (aud/iss/exp) ===
-	claimSet, decErr := googleAuthIDTokenVerifier.Decode(idToken)
-	if decErr != nil {
-		log.Printf("[login-google] decode error: %v", decErr)
-		return helpers.JsonError(c, fiber.StatusUnauthorized, "Invalid Google ID Token")
-	}
+// 	// === Decode terlebih dulu untuk diagnosa (aud/iss/exp) ===
+// 	claimSet, decErr := googleAuthIDTokenVerifier.Decode(idToken)
+// 	if decErr != nil {
+// 		log.Printf("[login-google] decode error: %v", decErr)
+// 		return helpers.JsonError(c, fiber.StatusUnauthorized, "Invalid Google ID Token")
+// 	}
 
-	// Cek expiry (toleransi kecil jika perlu)
-	now := time.Now().Unix()
-	if claimSet.Exp <= now {
-		log.Printf("[login-google] token expired: exp=%d now=%d", claimSet.Exp, now)
-		return helpers.JsonError(c, fiber.StatusUnauthorized, "Expired Google ID Token")
-	}
+// 	// Cek expiry (toleransi kecil jika perlu)
+// 	now := time.Now().Unix()
+// 	if claimSet.Exp <= now {
+// 		log.Printf("[login-google] token expired: exp=%d now=%d", claimSet.Exp, now)
+// 		return helpers.JsonError(c, fiber.StatusUnauthorized, "Expired Google ID Token")
+// 	}
 
-	// Cek issuer (dua value yang valid)
-	iss := strings.TrimSpace(claimSet.Iss)
-	if iss != "accounts.google.com" && iss != "https://accounts.google.com" {
-		log.Printf("[login-google] invalid issuer: %s", iss)
-		return helpers.JsonError(c, fiber.StatusUnauthorized, "Invalid Google ID Token (issuer)")
-	}
+// 	// Cek issuer (dua value yang valid)
+// 	iss := strings.TrimSpace(claimSet.Iss)
+// 	if iss != "accounts.google.com" && iss != "https://accounts.google.com" {
+// 		log.Printf("[login-google] invalid issuer: %s", iss)
+// 		return helpers.JsonError(c, fiber.StatusUnauthorized, "Invalid Google ID Token (issuer)")
+// 	}
 
-	// Cek audience HARUS = clientID FE
-	if strings.TrimSpace(claimSet.Aud) != clientID {
-		log.Printf("[login-google] audience mismatch: token.aud=%q server.clientID=%q", claimSet.Aud, clientID)
-		return helpers.JsonError(c, fiber.StatusUnauthorized, "Invalid Google ID Token (audience)")
-	}
+// 	// Cek audience HARUS = clientID FE
+// 	if strings.TrimSpace(claimSet.Aud) != clientID {
+// 		log.Printf("[login-google] audience mismatch: token.aud=%q server.clientID=%q", claimSet.Aud, clientID)
+// 		return helpers.JsonError(c, fiber.StatusUnauthorized, "Invalid Google ID Token (audience)")
+// 	}
 
-	// === Verifikasi signature menggunakan lib bawaan kamu ===
-	v := googleAuthIDTokenVerifier.Verifier{}
-	if err := v.VerifyIDToken(idToken, []string{clientID}); err != nil {
-		log.Printf("[login-google] signature verify failed: %v", err)
-		return helpers.JsonError(c, fiber.StatusUnauthorized, "Invalid Google ID Token")
-	}
+// 	// === Verifikasi signature menggunakan lib bawaan kamu ===
+// 	v := googleAuthIDTokenVerifier.Verifier{}
+// 	if err := v.VerifyIDToken(idToken, []string{clientID}); err != nil {
+// 		log.Printf("[login-google] signature verify failed: %v", err)
+// 		return helpers.JsonError(c, fiber.StatusUnauthorized, "Invalid Google ID Token")
+// 	}
 
-	// Ambil data penting
-	email := strings.ToLower(strings.TrimSpace(claimSet.Email))
-	name := strings.TrimSpace(claimSet.Name)
-	googleID := strings.TrimSpace(claimSet.Sub)
-	if email == "" || googleID == "" {
-		log.Printf("[login-google] missing email/sub: email=%q sub=%q", email, googleID)
-		return helpers.JsonError(c, fiber.StatusUnauthorized, "Google token missing required fields")
-	}
+// 	// Ambil data penting
+// 	email := strings.ToLower(strings.TrimSpace(claimSet.Email))
+// 	name := strings.TrimSpace(claimSet.Name)
+// 	googleID := strings.TrimSpace(claimSet.Sub)
+// 	if email == "" || googleID == "" {
+// 		log.Printf("[login-google] missing email/sub: email=%q sub=%q", email, googleID)
+// 		return helpers.JsonError(c, fiber.StatusUnauthorized, "Google token missing required fields")
+// 	}
 
-	// helper
-	ptrIfNotEmpty := func(s string) *string {
-		t := strings.TrimSpace(s)
-		if t == "" {
-			return nil
-		}
-		return &t
-	}
+// 	// helper
+// 	ptrIfNotEmpty := func(s string) *string {
+// 		t := strings.TrimSpace(s)
+// 		if t == "" {
+// 			return nil
+// 		}
+// 		return &t
+// 	}
 
-	// === Upsert/link user (kode kamu seperti semula, dipersingkat di sini) ===
-	var user *userModel.UserModel
-	if u, err := authRepo.FindUserByGoogleID(db, googleID); err == nil && u != nil {
-		// sudah terhubung
-		if txErr := db.Transaction(func(tx *gorm.DB) error {
-			snap := u.FullName
-			if snap == nil || strings.TrimSpace(*snap) == "" {
-				snap = ptrIfNotEmpty(name)
-			}
-			if err := userProfileService.EnsureProfileRow(c.Context(), tx, u.ID, snap); err != nil {
-				return err
-			}
-			if err := grantDefaultUserRole(c.Context(), tx, u.ID); err != nil {
-				log.Printf("[login-google] grant role fail: %v", err)
-			}
-			return nil
-		}); txErr != nil {
-			return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to prepare user profile")
-		}
-		user = u
-	} else if ue, err2 := authRepo.FindUserByEmail(db, email); err2 == nil && ue != nil {
-		// link ke akun email
-		if err := db.Transaction(func(tx *gorm.DB) error {
-			now := time.Now().UTC()
-			if ue.GoogleID == nil || *ue.GoogleID == "" {
-				ue.GoogleID = &googleID
-				if ue.EmailVerifiedAt == nil {
-					ue.EmailVerifiedAt = &now
-				}
-				if err := tx.Model(ue).Updates(map[string]any{
-					"google_id":         ue.GoogleID,
-					"email_verified_at": ue.EmailVerifiedAt,
-					"updated_at":        now,
-				}).Error; err != nil {
-					return err
-				}
-			}
-			snap := ue.FullName
-			if snap == nil || strings.TrimSpace(*snap) == "" {
-				snap = ptrIfNotEmpty(name)
-			}
-			if err := userProfileService.EnsureProfileRow(c.Context(), tx, ue.ID, snap); err != nil {
-				return err
-			}
-			if err := grantDefaultUserRole(c.Context(), tx, ue.ID); err != nil {
-				log.Printf("[login-google] grant role fail: %v", err)
-			}
-			return nil
-		}); err != nil {
-			return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to link Google account")
-		}
-		user = ue
-	} else {
-		// buat user baru
-		if err := db.Transaction(func(tx *gorm.DB) error {
-			now := time.Now().UTC()
-			base := suggestUsername(name, email)
-			username := base
-			for i := 0; i < 5; i++ {
-				exists, _ := authRepo.IsUsernameTaken(tx, username)
-				if !exists {
-					break
-				}
-				username = base + "-" + shortRand()
-			}
-			newUser := userModel.UserModel{
-				UserName:        username,
-				FullName:        ptrIfNotEmpty(name),
-				Email:           email,
-				Password:        nil,
-				GoogleID:        &googleID,
-				IsActive:        true,
-				EmailVerifiedAt: &now,
-				CreatedAt:       now,
-				UpdatedAt:       now,
-			}
-			if err := authRepo.CreateUser(tx, &newUser); err != nil {
-				return err
-			}
-			if err := userProfileService.EnsureProfileRow(c.Context(), tx, newUser.ID, newUser.FullName); err != nil {
-				return err
-			}
-			if err := grantDefaultUserRole(c.Context(), tx, newUser.ID); err != nil {
-				log.Printf("[login-google] grant role fail: %v", err)
-			}
-			user = &newUser
-			return nil
-		}); err != nil {
-			return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to create Google user")
-		}
-	}
+// 	// === Upsert/link user (kode kamu seperti semula, dipersingkat di sini) ===
+// 	var user *userModel.UserModel
+// 	if u, err := authRepo.FindUserByGoogleID(db, googleID); err == nil && u != nil {
+// 		// sudah terhubung
+// 		if txErr := db.Transaction(func(tx *gorm.DB) error {
+// 			snap := u.FullName
+// 			if snap == nil || strings.TrimSpace(*snap) == "" {
+// 				snap = ptrIfNotEmpty(name)
+// 			}
+// 			if err := userProfileService.EnsureProfileRow(c.Context(), tx, u.ID, snap); err != nil {
+// 				return err
+// 			}
+// 			if err := grantDefaultUserRole(c.Context(), tx, u.ID); err != nil {
+// 				log.Printf("[login-google] grant role fail: %v", err)
+// 			}
+// 			return nil
+// 		}); txErr != nil {
+// 			return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to prepare user profile")
+// 		}
+// 		user = u
+// 	} else if ue, err2 := authRepo.FindUserByEmail(db, email); err2 == nil && ue != nil {
+// 		// link ke akun email
+// 		if err := db.Transaction(func(tx *gorm.DB) error {
+// 			now := time.Now().UTC()
+// 			if ue.GoogleID == nil || *ue.GoogleID == "" {
+// 				ue.GoogleID = &googleID
+// 				if ue.EmailVerifiedAt == nil {
+// 					ue.EmailVerifiedAt = &now
+// 				}
+// 				if err := tx.Model(ue).Updates(map[string]any{
+// 					"google_id":         ue.GoogleID,
+// 					"email_verified_at": ue.EmailVerifiedAt,
+// 					"updated_at":        now,
+// 				}).Error; err != nil {
+// 					return err
+// 				}
+// 			}
+// 			snap := ue.FullName
+// 			if snap == nil || strings.TrimSpace(*snap) == "" {
+// 				snap = ptrIfNotEmpty(name)
+// 			}
+// 			if err := userProfileService.EnsureProfileRow(c.Context(), tx, ue.ID, snap); err != nil {
+// 				return err
+// 			}
+// 			if err := grantDefaultUserRole(c.Context(), tx, ue.ID); err != nil {
+// 				log.Printf("[login-google] grant role fail: %v", err)
+// 			}
+// 			return nil
+// 		}); err != nil {
+// 			return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to link Google account")
+// 		}
+// 		user = ue
+// 	} else {
+// 		// buat user baru
+// 		if err := db.Transaction(func(tx *gorm.DB) error {
+// 			now := time.Now().UTC()
+// 			base := suggestUsername(name, email)
+// 			username := base
+// 			for i := 0; i < 5; i++ {
+// 				exists, _ := authRepo.IsUsernameTaken(tx, username)
+// 				if !exists {
+// 					break
+// 				}
+// 				username = base + "-" + shortRand()
+// 			}
+// 			newUser := userModel.UserModel{
+// 				UserName:        username,
+// 				FullName:        ptrIfNotEmpty(name),
+// 				Email:           email,
+// 				Password:        nil,
+// 				GoogleID:        &googleID,
+// 				IsActive:        true,
+// 				EmailVerifiedAt: &now,
+// 				CreatedAt:       now,
+// 				UpdatedAt:       now,
+// 			}
+// 			if err := authRepo.CreateUser(tx, &newUser); err != nil {
+// 				return err
+// 			}
+// 			if err := userProfileService.EnsureProfileRow(c.Context(), tx, newUser.ID, newUser.FullName); err != nil {
+// 				return err
+// 			}
+// 			if err := grantDefaultUserRole(c.Context(), tx, newUser.ID); err != nil {
+// 				log.Printf("[login-google] grant role fail: %v", err)
+// 			}
+// 			user = &newUser
+// 			return nil
+// 		}); err != nil {
+// 			return helpers.JsonError(c, fiber.StatusInternalServerError, "Failed to create Google user")
+// 		}
+// 	}
 
-	// Guard aktif + roles + issue token/cookie (kode kamu)
-	userFull, err := authRepo.FindUserByID(db, user.ID)
-	if err != nil {
-		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data user")
-	}
-	if !userFull.IsActive {
-		return helpers.JsonError(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan. Hubungi admin.")
-	}
-	rolesClaim, err := getUserRolesClaim(c.Context(), db, userFull.ID)
-	if err != nil {
-		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil roles user")
-	}
+// 	// Guard aktif + roles + issue token/cookie (kode kamu)
+// 	userFull, err := authRepo.FindUserByID(db, user.ID)
+// 	if err != nil {
+// 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data user")
+// 	}
+// 	if !userFull.IsActive {
+// 		return helpers.JsonError(c, fiber.StatusForbidden, "Akun Anda telah dinonaktifkan. Hubungi admin.")
+// 	}
+// 	rolesClaim, err := getUserRolesClaim(c.Context(), db, userFull.ID)
+// 	if err != nil {
+// 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil roles user")
+// 	}
 
-	return issueTokensWithRoles(c, db, *userFull, rolesClaim)
-}
+// 	return issueTokensWithRoles(c, db, *userFull, rolesClaim)
+// }
 
 // suggestUsername: dari nama → slug-ish; fallback ambil bagian local dari email
-func suggestUsername(name, email string) string {
-	cand := strings.ToLower(strings.TrimSpace(name))
-	cand = strings.ReplaceAll(cand, "  ", " ")
-	cand = strings.ReplaceAll(cand, " ", "-")
-	cand = sanitizeUsername(cand)
-	if cand == "" {
-		if i := strings.Index(email, "@"); i > 0 {
-			cand = sanitizeUsername(email[:i])
-		}
-	}
-	if cand == "" {
-		cand = "user"
-	}
-	if len(cand) > 50 {
-		cand = cand[:50]
-	}
-	return cand
-}
+// func suggestUsername(name, email string) string {
+// 	cand := strings.ToLower(strings.TrimSpace(name))
+// 	cand = strings.ReplaceAll(cand, "  ", " ")
+// 	cand = strings.ReplaceAll(cand, " ", "-")
+// 	cand = sanitizeUsername(cand)
+// 	if cand == "" {
+// 		if i := strings.Index(email, "@"); i > 0 {
+// 			cand = sanitizeUsername(email[:i])
+// 		}
+// 	}
+// 	if cand == "" {
+// 		cand = "user"
+// 	}
+// 	if len(cand) > 50 {
+// 		cand = cand[:50]
+// 	}
+// 	return cand
+// }
 
 // sanitizeUsername: simpan huruf/angka/dash/underscore saja
-func sanitizeUsername(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z':
-			b.WriteRune(r)
-		case r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == '-' || r == '_':
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
+// func sanitizeUsername(s string) string {
+// 	var b strings.Builder
+// 	for _, r := range s {
+// 		switch {
+// 		case r >= 'a' && r <= 'z':
+// 			b.WriteRune(r)
+// 		case r >= '0' && r <= '9':
+// 			b.WriteRune(r)
+// 		case r == '-' || r == '_':
+// 			b.WriteRune(r)
+// 		}
+// 	}
+// 	return b.String()
+// }
 
 func shortRand() string {
 	// ringkas: 4 chars hex dari unixnano
@@ -1275,57 +1393,55 @@ func shortRand() string {
 ==========================
 */
 func Logout(db *gorm.DB, c *fiber.Ctx) error {
-	// CSRF wajib jika auth via cookie (tanpa Bearer)
-	cookieAT := strings.TrimSpace(c.Cookies("access_token"))
+	// Jika request hanya mengandalkan cookie (tanpa Bearer), wajib CSRF
 	authHeader := strings.TrimSpace(c.Get("Authorization"))
-	usesCookieAuth := cookieAT != "" && !strings.HasPrefix(authHeader, "Bearer ")
-
-	if usesCookieAuth {
-		if err := helpers.CheckCSRFCookieHeader(c); err != nil {
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		if err := enforceCSRF(c); err != nil {
 			return helpers.JsonError(c, fiber.StatusForbidden, err.Error())
 		}
 	}
 
-	// Ambil raw access token (cookie/Authorization)
-	accessToken := helpers.GetRawAccessToken(c)
-
-	// Hitung TTL blacklist dari sisa masa berlaku token
+	// Blacklist access (opsional)
+	accessToken := helpers.GetRawAccessToken(c) // idealnya ambil dari Authorization
 	ttl := resolveBlacklistTTL(accessToken)
-
-	// ⛔ Blacklist access token (HMAC) ➜ ditolak oleh middleware ke depannya
 	if strings.TrimSpace(accessToken) != "" {
-		jwtSecret, _ := getJWTSecret() // kalau kosong, skip
-		if strings.TrimSpace(jwtSecret) != "" {
+		if jwtSecret, _ := getJWTSecret(); strings.TrimSpace(jwtSecret) != "" {
 			expiresAt := nowUTC().Add(ttl)
 			if err := helpersAuth.Add(c.Context(), db, accessToken, jwtSecret, expiresAt); err != nil {
 				log.Printf("[WARN] blacklist add failed: %v", err)
 			}
 		}
-	} else {
-		log.Println("[INFO] Logout tanpa access token; lanjut clear cookies (idempotent)")
 	}
 
-	// 🧹 Hapus refresh token di DB berdasarkan HASH (bukan raw)
-	if rt := helpers.GetRefreshTokenFromCookie(c); strings.TrimSpace(rt) != "" {
+	// Hapus refresh di DB by hash
+	if rt := strings.TrimSpace(c.Cookies("refresh_token")); rt != "" {
 		if err := deleteRefreshTokenByHash(c.Context(), db, rt); err != nil {
-			log.Printf("[WARN] delete refresh token by hash failed: %v", err)
+			log.Printf("[WARN] delete refresh failed: %v", err)
 		}
 	}
 
-	// Hapus cookies (access/refresh/CSRF)
+	// Bersihkan cookies
 	expired := nowUTC().Add(-time.Hour)
-	for _, name := range []string{"access_token", "refresh_token", "csrf_token"} {
-		c.Cookie(&fiber.Cookie{
-			Name:     name,
-			Value:    "",
-			HTTPOnly: name != "csrf_token",
-			Secure:   true,
-			SameSite: "None",
-			Path:     "/",
-			Expires:  expired,
-			MaxAge:   -1,
-		})
-	}
+	// refresh cookie: path harus sama dengan saat set
+	c.Cookie(&fiber.Cookie{
+		Name:     "refresh_token",
+		Value:    "",
+		HTTPOnly: true,
+		Secure:   true,
+		SameSite: "Strict",
+		Path:     "/api/auth/refresh-token",
+		Expires:  expired, MaxAge: -1,
+	})
+	// XSRF
+	c.Cookie(&fiber.Cookie{
+		Name:     "XSRF-TOKEN",
+		Value:    "",
+		HTTPOnly: false,
+		Secure:   true,
+		SameSite: "Strict",
+		Path:     "/",
+		Expires:  expired, MaxAge: -1,
+	})
 
 	return helpers.JsonOK(c, "Logout successful", nil)
 }

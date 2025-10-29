@@ -31,7 +31,7 @@ func BillingsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 		// =========================
 		grp.Post("/fee-rules", h.CreateFeeRule)
 		grp.Patch("/fee-rules/:id", h.UpdateFeeRule)
-		grp.Get("/fee-rules", h.ListFeeRules)
+		grp.Get("/fee-rules/list", h.ListFeeRules)
 
 		// =========================
 		// Bill Batches
