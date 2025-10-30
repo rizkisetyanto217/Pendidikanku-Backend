@@ -10,7 +10,7 @@ import (
 )
 
 // Mounted di group /api/u
-func UsersTeacherUserRoute(userRoute fiber.Router, db *gorm.DB) {
+func AllTeacherUserRoute(userRoute fiber.Router, db *gorm.DB) {
 	v := validator.New()
 
 	// Controllers

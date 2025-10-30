@@ -9,9 +9,10 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 )
 
-// sanitizeOrigins: trim spasi, buang trailing slash, filter empty
+// sanitizeOrigins: trim spasi, buang trailing slash, filter empty, dedup
 func sanitizeOrigins(csv string) string {
-	if strings.TrimSpace(csv) == "" {
+	csv = strings.TrimSpace(csv)
+	if csv == "" {
 		return ""
 	}
 	parts := strings.Split(csv, ",")
@@ -19,12 +20,10 @@ func sanitizeOrigins(csv string) string {
 	seen := map[string]struct{}{}
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
-		// buang trailing slash biar match persis dengan Origin
-		p = strings.TrimSuffix(p, "/")
+		p = strings.TrimSuffix(p, "/") // match persis dgn Origin header
 		if p == "" {
 			continue
 		}
-		// dedup
 		if _, ok := seen[p]; ok {
 			continue
 		}
@@ -35,16 +34,17 @@ func sanitizeOrigins(csv string) string {
 }
 
 func CorsMiddleware() fiber.Handler {
-	// Default origins (tanpa trailing slash)
+	// Default PROD origins — HTTPS & domain spesifik
+	// (tambahkan/kurangi sesuai domain kamu)
 	def := strings.Join([]string{
 		"http://localhost:5173",
 		"http://127.0.0.1:5173",
 		"https://masjidku.org",
 		"https://www.masjidku.org",
 		"https://pendidikanku-frontend-2-production.up.railway.app",
-		// tambahkan staging lain di sini bila perlu
 	}, ",")
 
+	// Override via ENV saat perlu (CI/CD, staging, blue/green)
 	env := strings.TrimSpace(os.Getenv("CORS_ALLOW_ORIGINS"))
 	if env == "" {
 		env = def
@@ -52,18 +52,20 @@ func CorsMiddleware() fiber.Handler {
 	origins := sanitizeOrigins(env)
 
 	return cors.New(cors.Config{
-		// Harus daftar origin spesifik saat AllowCredentials=true
+		// NOTE: Saat AllowCredentials=true, HARUS daftar origin spesifik (bukan *)
 		AllowOrigins: origins,
 
+		// Metode umum
 		AllowMethods: "GET,POST,PUT,PATCH,DELETE,OPTIONS",
 
-		// Tambahkan X-CSRF-Token untuk double-submit
-		AllowHeaders: "Origin, Content-Type, Accept, Authorization, X-Requested-With, X-User-Id, X-CSRF-Token",
+		// Header yang diizinkan dari FE (whitelist)
+		// Sertakan semua yang kamu pakai di FE (Authorization untuk Bearer, X-CSRF-Token untuk double-submit, dsb.)
+		AllowHeaders: "Origin, Content-Type, Accept, Authorization, X-Requested-With, X-User-Id, X-CSRF-Token, X-XSRF-Token, X-XSRF-TOKEN",
 
-		// (Opsional) kalau kamu mau baca header tertentu dari FE
+		// Header yang boleh dibaca FE dari response (opsional)
 		ExposeHeaders: "Content-Type, Authorization, X-Request-Id",
 
-		// WAJIB true untuk kirim cookie refresh_token cross-site
+		// WAJIB: karena kita kirim cookie refresh_token (HttpOnly) lintas origin
 		AllowCredentials: true,
 
 		// Cache preflight 24 jam

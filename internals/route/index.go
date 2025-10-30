@@ -31,7 +31,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 
 	// PUBLIC → JWT opsional
 	log.Println("[INFO] Setting up PUBLIC group...")
-	public := app.Group("/public")
+	public := app.Group("/api/public")
 
 	// ===================== PRIVATE (USER) =====================
 	// 🔓 privateLoose: TANPA scope/role strict. Dipakai untuk endpoint yang
