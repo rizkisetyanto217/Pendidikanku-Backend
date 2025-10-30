@@ -8,7 +8,7 @@ import (
 	"masjidku_backend/internals/features/lembaga/stats/lembaga_stats/controller"
 )
 
-func LembagaStatsAllRoutes(router fiber.Router, db *gorm.DB) {
+func AllLembagaStatsRoutes(router fiber.Router, db *gorm.DB) {
 		h := controller.NewLembagaStatsController(db)
 
 	// Group untuk tenant (ambil masjid_id dari token)

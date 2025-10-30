@@ -18,7 +18,7 @@ func getenv(key, def string) string {
 	return def
 }
 
-func PaymentAllRoutes(r fiber.Router, db *gorm.DB) {
+func AllPaymentRoutes(r fiber.Router, db *gorm.DB) {
 	midtransServerKey := getenv("MIDTRANS_SERVER_KEY", "")
 	useProd := strings.EqualFold(getenv("MIDTRANS_USE_PROD", "false"), "true")
 

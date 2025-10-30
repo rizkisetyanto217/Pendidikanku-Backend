@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func ClassAllRoutes(admin fiber.Router, db *gorm.DB) {
+func AllClassRoutes(admin fiber.Router, db *gorm.DB) {
 	h := classctrl.NewClassController(db)
 
 	// /admin/:masjid_id/classes (READ endpoints umum)

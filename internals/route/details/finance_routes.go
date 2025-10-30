@@ -12,8 +12,8 @@ import (
 
 func FinancePublicRoutes(r fiber.Router, db *gorm.DB) {
 	GeneralBillingRoute.AllGeneralBillingRoutes(r, db)
-	PaymentRoute.PaymentAllRoutes(r, db) // ← FIX: pakai r, bukan app
-	BillingRoute.BillingsUserRoutes(r, db)
+	PaymentRoute.AllPaymentRoutes(r, db) // ← FIX: pakai r, bukan app
+	BillingRoute.BillingsAllRoutes(r, db)
 
 }
 

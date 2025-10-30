@@ -10,10 +10,10 @@ import (
 	ClassBooksRoutes "masjidku_backend/internals/features/school/academics/books/route"
 	CertificateRoutes "masjidku_backend/internals/features/school/academics/certificates/route"
 	RoomsRoutes "masjidku_backend/internals/features/school/academics/rooms/route"
-	ScheduleRoutes "masjidku_backend/internals/features/school/classes/class_schedules/route"
 	SubjectRoutes "masjidku_backend/internals/features/school/academics/subjects/route"
 	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/school/classes/class_attendance_sessions/route"
 	EventRoutes "masjidku_backend/internals/features/school/classes/class_events/route"
+	ScheduleRoutes "masjidku_backend/internals/features/school/classes/class_schedules/route"
 	ClassSectionsRoutes "masjidku_backend/internals/features/school/classes/class_sections/route"
 	ClassesRoutes "masjidku_backend/internals/features/school/classes/classes/route"
 	AttendanceSettingsRoute "masjidku_backend/internals/features/school/others/assesments_settings/route"
@@ -38,13 +38,15 @@ import (
 /* ===================== PUBLIC ===================== */
 // Endpoint publik (boleh diakses tanpa login, atau pakai SecondAuth untuk optional user)
 func LembagaPublicRoutes(r fiber.Router, db *gorm.DB) {
-	ClassesRoutes.ClassAllRoutes(r, db)
+	ClassesRoutes.AllClassRoutes(r, db)
 	// ClassSectionsRoutes.ClassSectionAllRoutes(r, db)
-	LembagaStatsRoutes.LembagaStatsAllRoutes(r, db)
+	LembagaStatsRoutes.AllLembagaStatsRoutes(r, db)
 	YayasanRoutes.AllYayasanRoutes(r, db)
 	EventRoutes.AllEventRoutes(r, db)
-	RoomsRoutes.RoomsAllRoutes(r, db)
-	AcademicYearRoutes.AcademicTermsPublicRoutes(r, db)
+	RoomsRoutes.AllRoomsRoutes(r, db)
+	AcademicYearRoutes.AllAcademicTermsRoutes(r, db)
+	ClassBooksRoutes.AllClassBooksRoutes(r, db)
+	SubjectRoutes.AllSubjectRoutes(r, db)
 	// Classes (public read)
 	// ClassRoutes.ClassPublicRoutes(r, db)
 	// Tambahkan modul lain (public) di sini:
@@ -59,11 +61,10 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	ClassAttendanceSessionsRoutes.AttendanceSessionsUserRoutes(r, db)
 	PostRoutes.PostUserRoutes(r, db)
 	SemesterStatsRoutes.UserClassAttendanceSemesterUserRoutes(r, db)
-	ClassBooksRoutes.ClassBooksUserRoutes(r, db)
 	ClassSectionsRoutes.ClassSectionUserRoutes(r, db)
 	ClassAttendanceSessionsRoutes.AttendanceSessionsTeacherRoutes(r, db)
 	ScheduleRoutes.ScheduleUserRoutes(r, db)
-	SubjectRoutes.SubjectUserRoutes(r, db)
+
 	CertificateRoutes.CertificateUserRoutes(r, db)
 	AssessmentsRoutes.AssessmentUserRoutes(r, db)
 	AssessmentsRoutes.AssessmentTeacherRoutes(r, db)

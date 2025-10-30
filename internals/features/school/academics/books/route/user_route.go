@@ -12,7 +12,7 @@ import (
 //
 //	GET /api/u/:masjid_id/books/list
 //	GET /api/u/:masjid_id/class-subject-books/list
-func ClassBooksUserRoutes(r fiber.Router, db *gorm.DB) {
+func AllClassBooksRoutes(r fiber.Router, db *gorm.DB) {
 	booksCtl := &cbController.BooksController{DB: db}
 	csbCtl := &cbController.ClassSubjectBookController{DB: db}
 

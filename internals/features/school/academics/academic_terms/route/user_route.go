@@ -12,7 +12,7 @@ import (
 // User routes (read-only) — PUBLIC
 // Base: /api/u/:masjid_id/academic-terms
 // ================================
-func AcademicTermsPublicRoutes(user fiber.Router, db *gorm.DB) {
+func AllAcademicTermsRoutes(user fiber.Router, db *gorm.DB) {
 	termCtl := academicTermCtl.NewAcademicTermController(db, nil)
 
 	// Masjid context via PATH param :masjid_id

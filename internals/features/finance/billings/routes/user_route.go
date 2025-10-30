@@ -8,7 +8,7 @@ import (
 	sppapi "masjidku_backend/internals/features/finance/billings/controller"
 )
 
-func BillingsUserRoutes(pub fiber.Router, db *gorm.DB) {
+func BillingsAllRoutes(pub fiber.Router, db *gorm.DB) {
 	feeAndBatch := &sppapi.Handler{DB: db}             // punya ListFeeRules, ListBillBatches, dst.
 	studentBills := &sppapi.StudentBillHandler{DB: db} // punya List (atau ListStudentBills), Get, dll.
 	// billBatches := &sppapi.BillBatchHandler{DB: db}

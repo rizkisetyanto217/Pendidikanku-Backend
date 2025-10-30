@@ -21,7 +21,7 @@ Sehingga endpoint jadi:
 	GET /api/u/:masjid_slug/subjects/list
 	dst.
 */
-func SubjectUserRoutes(r fiber.Router, db *gorm.DB) {
+func AllSubjectRoutes(r fiber.Router, db *gorm.DB) {
 	// Controllers
 	subjectCtl := &subjectsController.SubjectsController{DB: db}
 	classSubjectCtl := &subjectsController.ClassSubjectController{DB: db}
