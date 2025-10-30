@@ -15,7 +15,7 @@ func AuthRoutes(app *fiber.App, db *gorm.DB) {
 	app.Use(rateLimiter.GlobalRateLimiter())
 
 	// --- PUBLIC (/auth) ---
-	publicAuth := app.Group("/auth")
+	publicAuth := app.Group("/api/auth")
 	publicAuth.Post("/login", rateLimiter.LoginRateLimiter(), authController.Login)
 	publicAuth.Post("/register", rateLimiter.RegisterRateLimiter(), authController.Register)
 	publicAuth.Post("/forgot-password/reset", authController.ResetPassword)
