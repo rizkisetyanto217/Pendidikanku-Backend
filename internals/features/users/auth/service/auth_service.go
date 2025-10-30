@@ -45,25 +45,38 @@ const (
 	qryTimeoutLong  = 1200 * time.Millisecond
 )
 
-// ✅ Konfigurasi origin FE yang diizinkan (bisa override dari env)
-var allowedFrontendOrigins = func() []string {
-	fromEnv := strings.TrimSpace(os.Getenv("FRONTEND_ORIGINS")) // pisah koma
-	if fromEnv == "" {
-		return []string{
-			"https://app.pendidikanku.id",
-			"https://sekolahisl.am", // contoh
-			"http://localhost:5173",
-		}
+// ===== in: internals/features/users/auth/service/*.go =====
+
+// kecilkan duplicasi util
+func sanitizeListCSV(csv string) []string {
+	csv = strings.TrimSpace(csv)
+	if csv == "" {
+		return nil
 	}
-	parts := strings.Split(fromEnv, ",")
+	parts := strings.Split(csv, ",")
 	out := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
 	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
+		p = strings.TrimSpace(strings.TrimSuffix(p, "/"))
+		if p == "" {
+			continue
 		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
 	}
 	return out
+}
+
+// ✅ Pakai FRONTEND_ORIGINS (sama dg CORS) + default yang kamu minta
+var allowedFrontendOrigins = func() []string {
+	env := strings.TrimSpace(os.Getenv("FRONTEND_ORIGINS"))
+	if env == "" {
+		env = "http://localhost:5173,http://127.0.0.1:5173,https://masjidku.org,https://www.masjidku.org,https://pendidikanku-frontend-2-production.up.railway.app"
+	}
+	return sanitizeListCSV(env)
 }()
 
 // randomString mengembalikan string acak URL-safe sepanjang n karakter.
@@ -194,14 +207,15 @@ func enforceCSRF(c *fiber.Ctx) error {
 	cv := strings.TrimSpace(c.Cookies("XSRF-TOKEN"))
 
 	if os.Getenv("DEBUG_CSRF") == "1" {
-		log.Printf("[CSRF] method=%s path=%s origin=%q ct=%q header=%q cookie=%q",
-			c.Method(), c.Path(), origin, ct, h, cv)
+		log.Printf("[CSRF] %s %s origin=%q ct=%q hlen=%d clen=%d",
+			c.Method(), c.Path(), origin, ct, len(h), len(cv))
 	}
 
+	// izinkan "application/json; charset=utf-8"
 	if !strings.HasPrefix(ct, "application/json") {
 		return fiber.NewError(fiber.StatusForbidden, "Invalid content-type")
 	}
-	if !isAllowedOrigin(origin) {
+	if origin != "" && !isAllowedOrigin(origin) {
 		return fiber.NewError(fiber.StatusForbidden, "Origin not allowed")
 	}
 	if h == "" || cv == "" || subtle.ConstantTimeCompare([]byte(h), []byte(cv)) != 1 {
@@ -977,15 +991,24 @@ func buildRefreshClaims(userID uuid.UUID, now time.Time) jwt.MapClaims {
 
 // Refresh cookie
 func setRefreshCookie(c *fiber.Ctx, refreshToken string, exp time.Time) {
+	sameSite := sameSiteForRequest(c) // cross-site → "None"
 	c.Cookie(&fiber.Cookie{
 		Name:     "refresh_token",
 		Value:    refreshToken,
 		HTTPOnly: true,
 		Secure:   true,
-		SameSite: sameSiteForRequest(c),
-		Path:     "/api/auth/refresh-token", // ⬅️ match rute refresh kamu
+		SameSite: sameSite,
+		Path:     "/api/auth/refresh-token",
 		Expires:  exp,
 	})
+
+	if os.Getenv("PARTITIONED_COOKIES") == "1" {
+		// Set-Cookie tambahan dg atribut Partitioned (CHIPS)
+		c.Append("Set-Cookie",
+			"refresh_token="+url.QueryEscape(refreshToken)+
+				"; Path=/api/auth/refresh-token; HttpOnly; Secure; SameSite=None; Partitioned; Expires="+
+				exp.UTC().Format(time.RFC1123))
+	}
 }
 
 // 🔄 build access claims — masjid_roles sudah berisi tenant_profile
