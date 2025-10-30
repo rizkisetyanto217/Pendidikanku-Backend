@@ -211,13 +211,15 @@ func enforceCSRF(c *fiber.Ctx) error {
 }
 
 // Set XSRF token (bukan HttpOnly agar FE bisa baca nilai cookie untuk dikirim header)
+// utils
+// Set XSRF token (bukan HttpOnly agar FE bisa baca nilai cookie untuk dikirim header)
 func setXSRFCookie(c *fiber.Ctx, token string, exp time.Time) {
 	c.Cookie(&fiber.Cookie{
 		Name:     "XSRF-TOKEN",
 		Value:    token,
-		HTTPOnly: false, // FE harus bisa baca untuk header X-CSRF-Token
-		Secure:   true,
-		SameSite: sameSiteForRequest(c),
+		HTTPOnly: false,                 // FE harus bisa baca untuk header X-CSRF-Token
+		Secure:   true,                  // wajib kalau SameSite=None
+		SameSite: sameSiteForRequest(c), // "None" jika cross-site dev; "Strict" jika same-site
 		Path:     "/",
 		Expires:  exp,
 	})

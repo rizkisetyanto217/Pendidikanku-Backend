@@ -11,3 +11,4 @@ func sanitizeInput(s string) string {
 func sanitizeLower(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
+

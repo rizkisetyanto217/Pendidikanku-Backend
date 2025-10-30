@@ -18,7 +18,6 @@ func NewAuthController(db *gorm.DB) *AuthController {
 	return &AuthController{DB: db}
 }
 
-
 func (ac *AuthController) UpdateUserName(c *fiber.Ctx) error {
 	userIDStr, ok := c.Locals("user_id").(string)
 	if !ok {
@@ -80,4 +79,9 @@ func (rc *AuthController) RefreshToken(c *fiber.Ctx) error {
 
 func (ac *AuthController) ResetPassword(c *fiber.Ctx) error {
 	return service.ResetPassword(ac.DB, c)
+}
+
+// ⬇️⬇️ Tambahkan ini:
+func (ac *AuthController) CSRF(c *fiber.Ctx) error {
+	return service.CSRF(ac.DB, c)
 }

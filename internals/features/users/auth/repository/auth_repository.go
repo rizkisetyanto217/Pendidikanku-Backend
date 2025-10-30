@@ -119,3 +119,4 @@ func IsUsernameTaken(db *gorm.DB, username string) (bool, error) {
 	}
 	return exists, nil
 }
+

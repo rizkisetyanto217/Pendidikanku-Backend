@@ -20,6 +20,10 @@ func AuthRoutes(app *fiber.App, db *gorm.DB) {
 	publicAuth.Post("/register", rateLimiter.RegisterRateLimiter(), authController.Register)
 	publicAuth.Post("/forgot-password/reset", authController.ResetPassword)
 	// publicAuth.Post("/login-google", authController.LoginGoogle)
+
+	// ⬇️⬇️ Tambahkan ini:
+	publicAuth.Get("/csrf", authController.CSRF)
+
 	publicAuth.Post("/refresh-token", authController.RefreshToken)
 
 	// --- PROTECTED (/api/auth ...) ---
