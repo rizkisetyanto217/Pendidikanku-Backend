@@ -189,21 +189,21 @@ func sameSiteForRequest(c *fiber.Ctx) string {
 // Double-submit CSRF: cookie "XSRF-TOKEN" vs header "X-CSRF-Token"
 func enforceCSRF(c *fiber.Ctx) error {
 	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
-	if !strings.HasPrefix(ct, "application/json") {
-		return fiber.NewError(fiber.StatusForbidden, "Invalid content-type")
-	}
 	origin := getRequestOrigin(c)
-	if !isAllowedOrigin(origin) {
-		return fiber.NewError(fiber.StatusForbidden, "Origin not allowed")
-	}
-
 	h := strings.TrimSpace(c.Get("X-CSRF-Token"))
 	cv := strings.TrimSpace(c.Cookies("XSRF-TOKEN"))
 
 	if os.Getenv("DEBUG_CSRF") == "1" {
-		log.Printf("[CSRF] origin=%q ct=%q header=%q cookie=%q", origin, ct, h, cv)
+		log.Printf("[CSRF] method=%s path=%s origin=%q ct=%q header=%q cookie=%q",
+			c.Method(), c.Path(), origin, ct, h, cv)
 	}
 
+	if !strings.HasPrefix(ct, "application/json") {
+		return fiber.NewError(fiber.StatusForbidden, "Invalid content-type")
+	}
+	if !isAllowedOrigin(origin) {
+		return fiber.NewError(fiber.StatusForbidden, "Origin not allowed")
+	}
 	if h == "" || cv == "" || subtle.ConstantTimeCompare([]byte(h), []byte(cv)) != 1 {
 		return fiber.NewError(fiber.StatusForbidden, "CSRF check failed")
 	}
