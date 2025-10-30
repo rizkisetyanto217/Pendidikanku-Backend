@@ -169,6 +169,23 @@ func isAllowedOrigin(origin string) bool {
 	return false
 }
 
+// Tambah helper ini
+func isCrossSite(c *fiber.Ctx) bool {
+	origin := strings.TrimSpace(getRequestOrigin(c))
+	if origin == "" {
+		return false
+	}
+	reqOrigin := c.Protocol() + "://" + c.Hostname()
+	return !strings.EqualFold(origin, reqOrigin)
+}
+
+func sameSiteForRequest(c *fiber.Ctx) string {
+	if isCrossSite(c) {
+		return "None" // cookie akan dikirim cross-site (butuh Secure=true)
+	}
+	return "Strict" // same-site -> keamanan lebih ketat
+}
+
 // Double-submit CSRF: cookie "XSRF-TOKEN" vs header "X-CSRF-Token"
 func enforceCSRF(c *fiber.Ctx) error {
 	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
@@ -198,9 +215,9 @@ func setXSRFCookie(c *fiber.Ctx, token string, exp time.Time) {
 	c.Cookie(&fiber.Cookie{
 		Name:     "XSRF-TOKEN",
 		Value:    token,
-		HTTPOnly: false,
+		HTTPOnly: false, // FE harus bisa baca untuk header X-CSRF-Token
 		Secure:   true,
-		SameSite: sameSiteForDeployment(), // <- ganti
+		SameSite: sameSiteForRequest(c),
 		Path:     "/",
 		Expires:  exp,
 	})
@@ -964,8 +981,8 @@ func setRefreshCookie(c *fiber.Ctx, refreshToken string, exp time.Time) {
 		Value:    refreshToken,
 		HTTPOnly: true,
 		Secure:   true,
-		SameSite: sameSiteForDeployment(), // <- ganti
-		Path:     "/api/auth/refresh-token",
+		SameSite: sameSiteForRequest(c),
+		Path:     "/api/auth/refresh-token", // ⬅️ match rute refresh kamu
 		Expires:  exp,
 	})
 }
@@ -1053,11 +1070,10 @@ func buildLoginResponseUser(
 // ==========================
 
 // Gantikan dengan:
+// dipanggil saat login & refresh:
 func setAuthCookiesOnlyRefreshAndXsrf(c *fiber.Ctx, refreshToken string, now time.Time) {
 	setRefreshCookie(c, refreshToken, now.Add(refreshTTLDefault))
-	// seed XSRF (random 32+). Sederhana: pakai JWT ID, atau random string dari helper kalian.
-	xsrf := randomString(48)
-	setXSRFCookie(c, xsrf, now.Add(refreshTTLDefault))
+	setXSRFCookie(c, randomString(48), now.Add(refreshTTLDefault))
 }
 
 func issueTokensWithRoles(
