@@ -159,17 +159,19 @@ func RevokeRefreshTokenByID(db *gorm.DB, id uuid.UUID) error {
 }
 
 // CSRF: seed cookie XSRF-TOKEN untuk double-submit strategy
+// CSRF: seed cookie XSRF-TOKEN untuk double-submit strategy
 func CSRF(db *gorm.DB, c *fiber.Ctx) error {
-	// Validasi Origin agar tidak jadi CSRF seeder untuk domain liar
 	origin := getRequestOrigin(c)
 	if !isAllowedOrigin(origin) {
 		return helpers.JsonError(c, fiber.StatusForbidden, "Origin not allowed")
 	}
 
-	// Generate token dan set cookie
 	token := randomString(48)
+	// set cookie (tetap seperti sebelumnya)
 	setXSRFCookie(c, token, nowUTC().Add(24*time.Hour))
 
-	// Tidak perlu body — FE hanya butuh Set-Cookie
-	return c.SendStatus(fiber.StatusNoContent)
+	// ⬅️ KIRIM balik token yang sama di body
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"data": fiber.Map{"csrf_token": token},
+	})
 }
