@@ -838,38 +838,37 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 	return issueTokensWithRoles(c, db, *userFull, rolesClaim)
 }
 
-/* ==========================
-   ISSUE TOKENS + Response
-========================== */
+/*
+	==========================
+	  ISSUE TOKENS + Response
 
+==========================
+*/
 func fetchStudentRecords(db *gorm.DB, userID uuid.UUID) []StudentRecord {
-	// Pastikan meta sudah di-warm
 	if !meta.Ready {
 		PrewarmAuthMeta(db)
 	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), qryTimeoutShort)
 	defer cancel()
 
-	var out []StudentRecord
-	err := db.WithContext(ctx).
-		Table("masjid_students").
-		Select("masjid_student_id, masjid_student_masjid_id").
-		Where("masjid_student_user_id = ? AND (masjid_student_deleted_at IS NULL)", userID).
-		Scan(&out).Error
-
-	if err != nil {
-		low := strings.ToLower(err.Error())
-		// Kalau tabel belum ada, anggap tidak ada record
-		if strings.Contains(low, "does not exist") ||
-			strings.Contains(low, "undefined table") ||
-			strings.Contains(low, "no such table") {
-			return nil
-		}
-		log.Printf("[WARN] fetchStudentRecords: %v", err)
+	var profileIDs []uuid.UUID
+	if err := db.WithContext(ctx).
+		Table("user_profiles").
+		Where("user_profile_user_id = ? AND user_profile_deleted_at IS NULL", userID).
+		Pluck("user_profile_id", &profileIDs).Error; err != nil || len(profileIDs) == 0 {
 		return nil
 	}
 
+	var out []StudentRecord
+	if err := db.WithContext(ctx).
+		Table("masjid_students").
+		Select("masjid_student_id, masjid_student_masjid_id").
+		Where("masjid_student_user_profile_id IN ?", profileIDs).
+		Where("masjid_student_deleted_at IS NULL").
+		Scan(&out).Error; err != nil {
+		log.Printf("[WARN] fetchStudentRecords: %v", err)
+		return nil
+	}
 	return out
 }
 
