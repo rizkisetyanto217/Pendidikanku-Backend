@@ -362,6 +362,11 @@ func UseMasjidScope() fiber.Handler {
 			return c.Next()
 		}
 
+		// ⛑️ BYPASS semua route PUBLIC
+		if strings.HasPrefix(p, "/api/public/") {
+			return c.Next()
+		}
+
 		// 2) 🔑 BYPASS join-teacher (dua pola):
 		//    - POST /api/u/:masjid_id/join-teacher
 		//    - POST /api/u/m/:masjid_slug/join-teacher
