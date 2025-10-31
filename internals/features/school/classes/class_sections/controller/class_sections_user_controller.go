@@ -154,14 +154,18 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	}
 
 	/* ---------- Build response dari snapshot DTO ---------- */
+	/* ---------- Build response dari snapshot DTO (tanpa "data") ---------- */
 	items := make([]secDTO.ClassSectionResponse, 0, len(rows))
 	for i := range rows {
 		items = append(items, secDTO.FromModelClassSection(&rows[i]))
 	}
 
 	meta := helper.BuildMeta(total, p)
-	return helper.JsonOK(c, "OK", fiber.Map{
+
+	// langsung kirim tanpa wrapper "data"
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"data": items,
 		"meta": meta,
 	})
+
 }
