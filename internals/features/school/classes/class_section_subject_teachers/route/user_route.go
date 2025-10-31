@@ -21,7 +21,7 @@ Sehingga endpoint jadi:
 	GET /api/u/:masjid_slug/subjects/list
 	dst.
 */
-func CSSTUserRoutes(r fiber.Router, db *gorm.DB) {
+func AllCSSTRoutes(r fiber.Router, db *gorm.DB) {
 	// Controllers
 
 	csstCtl := &csstController.ClassSectionSubjectTeacherController{DB: db}

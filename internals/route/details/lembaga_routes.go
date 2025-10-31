@@ -47,6 +47,8 @@ func LembagaPublicRoutes(r fiber.Router, db *gorm.DB) {
 	AcademicYearRoutes.AllAcademicTermsRoutes(r, db)
 	ClassBooksRoutes.AllClassBooksRoutes(r, db)
 	SubjectRoutes.AllSubjectRoutes(r, db)
+	ClassSectionsRoutes.AllClassSectionRoutes(r, db)
+	CSSTRoutes.AllCSSTRoutes(r, db)
 	// Classes (public read)
 	// ClassRoutes.ClassPublicRoutes(r, db)
 	// Tambahkan modul lain (public) di sini:
@@ -71,7 +73,7 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	SubmissionsRoutes.SubmissionUserRoutes(r, db)
 	QuizzesRoutes.QuizzesTeacherRoutes(r, db)
 	QuizzesRoutes.QuizzesUserRoutes(r, db)
-	CSSTRoutes.CSSTUserRoutes(r, db)
+	CSSTRoutes.AllCSSTRoutes(r, db)
 
 	// Classes (user actions: enroll, progress, dsb)
 	// ClassRoutes.ClassUserRoutes(r, db)
