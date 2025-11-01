@@ -15,7 +15,7 @@ import (
 	masjidModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/masjids/model"
 	userModel "masjidku_backend/internals/features/users/users/model"
 
-	helper "masjidku_backend/internals/helpers"        // JsonOK/JsonError
+	helper "masjidku_backend/internals/helpers" // JsonOK/JsonError
 	helperAuth "masjidku_backend/internals/helpers/auth"
 )
 
@@ -40,11 +40,13 @@ type ScopeSelection struct {
 	Role     *string    `json:"role,omitempty"`
 }
 
+// ====== Tambah/ubah tipe respons (pastikan didefinisikan di file yg sama) ======
 type MyScopeResponse struct {
-	UserID      uuid.UUID          `json:"user_id"`
-	UserName    string             `json:"user_name"`
-	Memberships []MasjidRoleOption `json:"memberships"`
-	Selection   *ScopeSelection    `json:"selection,omitempty"`
+	UserID        uuid.UUID          `json:"user_id"`
+	UserName      string             `json:"user_name"`
+	UserAvatarURL *string            `json:"user_avatar_url,omitempty"` // ⬅️ baru
+	Memberships   []MasjidRoleOption `json:"memberships"`
+	Selection     *ScopeSelection    `json:"selection,omitempty"`
 }
 
 /* =============== Helper lokal: decode klaim JWT (tanpa verifikasi) =============== */
@@ -170,8 +172,24 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil user: "+err.Error())
 	}
 
+	// 2a) ⬅️ Ambil avatar URL terkini dari user_profiles (yang tidak terhapus)
+	var avatarRecord struct {
+		URL *string `gorm:"column:url"`
+	}
+	if err := ac.DB.WithContext(c.Context()).
+		Model(&UserProfile{}).
+		Select("user_profile_avatar_url AS url").
+		Where("user_profile_user_id = ?", userUUID).
+		Where("user_profile_deleted_at IS NULL").
+		// urutkan by updated_at (fallback ke created_at), ambil yang paling baru
+		Order("COALESCE(user_profile_updated_at, user_profile_created_at) DESC").
+		Limit(1).
+		Scan(&avatarRecord).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil avatar: "+err.Error())
+	}
+
 	// 3) Kumpulkan masjid_id via TEACHER & STUDENT
-	masjidRoles := map[uuid.UUID]map[string]struct{}{} // masjid_id -> set(role)
+	masjidRoles := map[uuid.UUID]map[string]struct{}{}
 
 	// 3a) TEACHER
 	{
@@ -228,10 +246,10 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 		}
 	}
 
-	// 3c) CLAIMS-ONLY: seed kandidat masjid & role dari JWT (tanpa butuh helperAuth tambahan)
+	// 3c) CLAIMS-ONLY dari JWT
 	idsFromJWT, roleMapFromJWT := parseMasjidInfoFromJWT(c)
 
-	// 4) Union kandidat masjid (relasi + klaim)
+	// 4) Union kandidat masjid
 	candidate := map[uuid.UUID]struct{}{}
 	for id := range masjidRoles {
 		candidate[id] = struct{}{}
@@ -240,7 +258,6 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 		candidate[id] = struct{}{}
 	}
 
-	// Helper tambah role
 	addIf := func(masjidID uuid.UUID, role string) {
 		if _, ok := masjidRoles[masjidID]; !ok {
 			masjidRoles[masjidID] = map[string]struct{}{}
@@ -248,14 +265,11 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 		masjidRoles[masjidID][role] = struct{}{}
 	}
 
-	// 4a) Tambah role yang sudah ada di klaim JWT (jika ada)
 	for mid, set := range roleMapFromJWT {
 		for r := range set {
 			addIf(mid, r)
 		}
 	}
-
-	// 4b) Tambahkan role via ACL helper (sinkron dengan middleware)
 	for mid := range candidate {
 		for _, r := range []string{"dkm", "admin", "bendahara"} {
 			if helperAuth.HasRoleInMasjid(c, mid, r) {
@@ -264,20 +278,20 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 		}
 	}
 
-	// 5) Ambil info ringkas masjid untuk semua kandidat
+	// 5) Ambil info ringkas masjid
 	masjidIDs := make([]uuid.UUID, 0, len(candidate))
 	for id := range candidate {
 		masjidIDs = append(masjidIDs, id)
 	}
 
 	resp := MyScopeResponse{
-		UserID:      me.ID,
-		UserName:    me.UserName,
-		Memberships: []MasjidRoleOption{},
+		UserID:        me.ID,
+		UserName:      me.UserName,
+		UserAvatarURL: avatarRecord.URL, // ⬅️ isi dari query avatar
+		Memberships:   []MasjidRoleOption{},
 	}
 
 	if len(masjidIDs) == 0 {
-		// user belum punya relasi/claim apa pun
 		return helper.JsonOK(c, "Context berhasil diambil", resp)
 	}
 
@@ -309,11 +323,10 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 		})
 	}
 
-	// 6) (Opsional) terima seleksi dari query & set cookie
+	// 6) (Opsional) handle seleksi dan set cookie
 	if selMasjidStr := strings.TrimSpace(c.Query("select_masjid_id")); selMasjidStr != "" {
 		if selMasjidID, e := uuid.Parse(selMasjidStr); e == nil {
 			if selRole := strings.ToLower(strings.TrimSpace(c.Query("select_role"))); selRole != "" {
-				// Validasi role ada di membership untuk masjid itu
 				valid := false
 				for _, m := range resp.Memberships {
 					if m.MasjidID == selMasjidID {

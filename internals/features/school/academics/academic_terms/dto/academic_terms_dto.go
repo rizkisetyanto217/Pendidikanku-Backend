@@ -14,7 +14,7 @@ import (
 
 type AcademicTermCreateDTO struct {
 	AcademicTermAcademicYear string    `json:"academic_term_academic_year" validate:"required,min=4"`
-	AcademicTermName         string    `json:"academic_term_name"           validate:"required,oneof=Ganjil Genap Pendek Khusus"`
+	AcademicTermName         string    `json:"academic_term_name"           validate:"required,min=1"`
 	AcademicTermStartDate    time.Time `json:"academic_term_start_date"     validate:"required"`
 	AcademicTermEndDate      time.Time `json:"academic_term_end_date"       validate:"required,gtefield=AcademicTermStartDate"`
 	AcademicTermIsActive     *bool     `json:"academic_term_is_active,omitempty"`
@@ -42,9 +42,9 @@ type AcademicTermUpdateDTO struct {
 /* ========== LIST/FILTER (query) ========== */
 
 type AcademicTermFilterDTO struct {
-	ID       *string `query:"id"        validate:"omitempty,uuid4"`
-	Year     *string `query:"year"      validate:"omitempty,min=4"`
-	Name     *string `query:"name"      validate:"omitempty,oneof=Ganjil Genap Pendek Khusus"`
+	ID   *string `query:"id"        validate:"omitempty,uuid4"`
+	Year *string `query:"year"      validate:"omitempty,min=4"`
+	Name *string `query:"name"      validate:"omitempty,min=1"`
 	Code     *string `query:"code"      validate:"omitempty,min=1,max=24"`
 	Slug     *string `query:"slug"      validate:"omitempty,min=3,max=50"`
 	Active   *bool   `query:"active"    validate:"omitempty"`
