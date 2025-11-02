@@ -193,7 +193,6 @@ func (mc *SchoolController) PatchTeacherCode(c *fiber.Ctx) error {
 }
 
 /* ====== PATCH (existing) ====== */
-
 // PATCH /api/schools/:id
 func (mc *SchoolController) Patch(c *fiber.Ctx) error {
 	id, err := parseSchoolID(c)
@@ -318,6 +317,28 @@ func (mc *SchoolController) Patch(c *fiber.Ctx) error {
 	// Terapkan patch field non-file (current-only)
 	schoolDto.ApplyUpdate(&m, &u)
 	m.SchoolUpdatedAt = now
+
+	// === regenerate slug kalau nama berubah ===
+	if before.SchoolName != m.SchoolName {
+		base := helper.SuggestSlugFromName(m.SchoolName)
+		// Hindari count kena row sendiri
+		scopeFn := func(q *gorm.DB) *gorm.DB {
+			return q.Where("school_id <> ?", id)
+		}
+		uniq, err := helper.EnsureUniqueSlugCI(
+			c.Context(),
+			mc.DB,
+			"schools",     // table
+			"school_slug", // kolom slug
+			base,
+			scopeFn, // per-tenant? sesuaikan di sini bila perlu
+			100,
+		)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat slug unik")
+		}
+		m.SchoolSlug = uniq
+	}
 
 	// Bangun updates map hanya kolom yang berubah
 	updates := map[string]any{"school_updated_at": m.SchoolUpdatedAt}

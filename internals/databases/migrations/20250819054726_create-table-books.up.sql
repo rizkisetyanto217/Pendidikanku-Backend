@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS class_subject_books (
   class_subject_book_subject_id_snapshot   UUID,
   class_subject_book_subject_code_snapshot VARCHAR(40),
   class_subject_book_subject_name_snapshot VARCHAR(120),
-  class_subject_book_subject_slug_snapshot VARCHAR(160);
+  class_subject_book_subject_slug_snapshot VARCHAR(160),
 
 
   -- timestamps (explicit)

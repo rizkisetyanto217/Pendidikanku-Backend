@@ -40,8 +40,8 @@ func CorsMiddleware() fiber.Handler {
 		origins = strings.Join([]string{
 			"http://localhost:5173",
 			"http://127.0.0.1:5173",
-			"https://schoolku.org",
-			"https://www.schoolku.org",
+			"https://masjidkuku.org",
+			"https://www.masjidkuku.org",
 			"https://pendidikanku-frontend-2-production.up.railway.app",
 		}, ",")
 	}

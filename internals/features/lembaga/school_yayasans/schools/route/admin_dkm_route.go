@@ -27,7 +27,7 @@ func SchoolAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	schools.Post("/", guard, schoolCtrl.CreateSchoolDKM)
 	schools.Get("/:school_id/get-teacher-code", guard, schoolCtrl.GetTeacherCode)
 	schools.Patch("/:school_id/teacher-code", guard, schoolCtrl.PatchTeacherCode)
-	schools.Put("/:school_id", guard, schoolCtrl.Patch)
+	schools.Patch("/:school_id", guard, schoolCtrl.Patch)
 	schools.Delete("/:school_id", guard, schoolCtrl.Delete)
 
 	// 🏷️ MASJID PROFILE (Admin/DKM)
