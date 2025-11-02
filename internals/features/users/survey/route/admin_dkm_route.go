@@ -1,9 +1,9 @@
 package route
 
 import (
-	"masjidku_backend/internals/constants"
-	surveyController "masjidku_backend/internals/features/users/survey/controller"
-	authMiddleware "masjidku_backend/internals/middlewares/auth"
+	"schoolku_backend/internals/constants"
+	surveyController "schoolku_backend/internals/features/users/survey/controller"
+	authMiddleware "schoolku_backend/internals/middlewares/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -20,7 +20,7 @@ func SurveyAdminRoutes(api fiber.Router, db *gorm.DB) {
 		),
 	)
 
-	adminOrOwner.Post("/",   surveyQuestionCtrl.Create)
+	adminOrOwner.Post("/", surveyQuestionCtrl.Create)
 	adminOrOwner.Put("/:id", surveyQuestionCtrl.Update)
 	adminOrOwner.Delete("/:id", surveyQuestionCtrl.Delete)
 

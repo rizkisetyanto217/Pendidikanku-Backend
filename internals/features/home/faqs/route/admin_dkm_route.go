@@ -1,12 +1,12 @@
 package route
 
 import (
-	"masjidku_backend/internals/constants"
-	"masjidku_backend/internals/features/home/faqs/controller"
-	authMiddleware "masjidku_backend/internals/middlewares/auth"
+	"schoolku_backend/internals/constants"
+	"schoolku_backend/internals/features/home/faqs/controller"
+	authMiddleware "schoolku_backend/internals/middlewares/auth"
 
-	// kalau FAQ per-masjid, aktifkan ini:
-	// masjidkuMiddleware "masjidku_backend/internals/middlewares/features"
+	// kalau FAQ per-school, aktifkan ini:
+	// schoolkuMiddleware "schoolku_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -19,26 +19,26 @@ func FaqAdminRoutes(api fiber.Router, db *gorm.DB) {
 			constants.RoleErrorAdmin("mengelola FAQ"),
 			constants.AdminAndAbove,
 		),
-		// kalau FAQ scoped ke masjid, aktifkan guard ini juga:
-		// masjidkuMiddleware.IsMasjidAdmin(),
+		// kalau FAQ scoped ke school, aktifkan guard ini juga:
+		// schoolkuMiddleware.IsSchoolAdmin(),
 	)
 
 	faqQuestionCtrl := controller.NewFaqQuestionController(db)
-	faqAnswerCtrl  := controller.NewFaqAnswerController(db)
+	faqAnswerCtrl := controller.NewFaqAnswerController(db)
 
 	// /faq-questions (admin)
 	fq := admin.Group("/faq-questions")
-	fq.Get("/",  faqQuestionCtrl.GetAllFaqQuestions)     // list internal/dashboard
+	fq.Get("/", faqQuestionCtrl.GetAllFaqQuestions)      // list internal/dashboard
 	fq.Get("/:id", faqQuestionCtrl.GetFaqQuestionByID)   // detail
-	fq.Put("/:id",  faqQuestionCtrl.UpdateFaqQuestion)   // edit
+	fq.Put("/:id", faqQuestionCtrl.UpdateFaqQuestion)    // edit
 	fq.Delete("/:id", faqQuestionCtrl.DeleteFaqQuestion) // hapus
 	// (opsional) kalau admin juga boleh create pertanyaan:
 	// fq.Post("/", faqQuestionCtrl.CreateFaqQuestion)
 
 	// /faq-answers (admin)
 	fa := admin.Group("/faq-answers")
-	fa.Post("/",   faqAnswerCtrl.CreateFaqAnswer)     // create jawaban
-	fa.Get("/:id", faqAnswerCtrl.GetFaqAnswerByID)    // detail jawaban
-	fa.Put("/:id", faqAnswerCtrl.UpdateFaqAnswer)     // edit jawaban
-	fa.Delete("/:id", faqAnswerCtrl.DeleteFaqAnswer)  // hapus jawaban
+	fa.Post("/", faqAnswerCtrl.CreateFaqAnswer)      // create jawaban
+	fa.Get("/:id", faqAnswerCtrl.GetFaqAnswerByID)   // detail jawaban
+	fa.Put("/:id", faqAnswerCtrl.UpdateFaqAnswer)    // edit jawaban
+	fa.Delete("/:id", faqAnswerCtrl.DeleteFaqAnswer) // hapus jawaban
 }

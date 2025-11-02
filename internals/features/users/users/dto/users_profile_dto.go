@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	profilemodel "masjidku_backend/internals/features/users/users/model"
+	profilemodel "schoolku_backend/internals/features/users/users/model"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -23,14 +23,14 @@ type UsersProfileDTO struct {
 	UserProfileFullNameSnapshot *string `json:"user_profile_full_name_snapshot,omitempty"`
 
 	// Identitas dasar
-	UserProfileSlug          *string    `json:"user_profile_slug,omitempty"`
-	UserProfileDonationName  *string    `json:"user_profile_donation_name,omitempty"`
-	UserProfileDateOfBirth   *time.Time `json:"user_profile_date_of_birth,omitempty"`
-	UserProfilePlaceOfBirth  *string    `json:"user_profile_place_of_birth,omitempty"`
-	UserProfileGender        *string    `json:"user_profile_gender,omitempty"` // "male"/"female"
-	UserProfileLocation      *string    `json:"user_profile_location,omitempty"`
-	UserProfileCity          *string    `json:"user_profile_city,omitempty"`
-	UserProfileBio           *string    `json:"user_profile_bio,omitempty"`
+	UserProfileSlug         *string    `json:"user_profile_slug,omitempty"`
+	UserProfileDonationName *string    `json:"user_profile_donation_name,omitempty"`
+	UserProfileDateOfBirth  *time.Time `json:"user_profile_date_of_birth,omitempty"`
+	UserProfilePlaceOfBirth *string    `json:"user_profile_place_of_birth,omitempty"`
+	UserProfileGender       *string    `json:"user_profile_gender,omitempty"` // "male"/"female"
+	UserProfileLocation     *string    `json:"user_profile_location,omitempty"`
+	UserProfileCity         *string    `json:"user_profile_city,omitempty"`
+	UserProfileBio          *string    `json:"user_profile_bio,omitempty"`
 
 	// Konten panjang & riwayat
 	UserProfileBiographyLong  *string `json:"user_profile_biography_long,omitempty"`
@@ -91,45 +91,45 @@ func ToUsersProfileDTO(m profilemodel.UserProfileModel) UsersProfileDTO {
 	}
 
 	return UsersProfileDTO{
-		UserProfileID:                      m.UserProfileID,
-		UserProfileUserID:                  m.UserProfileUserID,
-		UserProfileFullNameSnapshot:        m.UserProfileFullNameSnapshot,
-		UserProfileSlug:                    m.UserProfileSlug,
-		UserProfileDonationName:            m.UserProfileDonationName,
-		UserProfileDateOfBirth:             m.UserProfileDateOfBirth,
-		UserProfilePlaceOfBirth:            m.UserProfilePlaceOfBirth,
-		UserProfileGender:                  genderStr,
-		UserProfileLocation:                m.UserProfileLocation,
-		UserProfileCity:                    m.UserProfileCity,
-		UserProfileBio:                     m.UserProfileBio,
-		UserProfileBiographyLong:           m.UserProfileBiographyLong,
-		UserProfileExperience:              m.UserProfileExperience,
-		UserProfileCertifications:          m.UserProfileCertifications,
-		UserProfileInstagramURL:            m.UserProfileInstagramURL,
-		UserProfileWhatsappURL:             m.UserProfileWhatsappURL,
-		UserProfileLinkedinURL:             m.UserProfileLinkedinURL,
-		UserProfileGithubURL:               m.UserProfileGithubURL,
-		UserProfileYoutubeURL:              m.UserProfileYoutubeURL,
-		UserProfileTelegramUsername:        m.UserProfileTelegramUsername,
-		UserProfileParentName:              m.UserProfileParentName,
-		UserProfileParentWhatsappURL:       m.UserProfileParentWhatsappURL,
-		UserProfileAvatarURL:               m.UserProfileAvatarURL,
-		UserProfileAvatarObjectKey:         m.UserProfileAvatarObjectKey,
-		UserProfileAvatarURLOld:            m.UserProfileAvatarURLOld,
-		UserProfileAvatarObjectKeyOld:      m.UserProfileAvatarObjectKeyOld,
+		UserProfileID:                       m.UserProfileID,
+		UserProfileUserID:                   m.UserProfileUserID,
+		UserProfileFullNameSnapshot:         m.UserProfileFullNameSnapshot,
+		UserProfileSlug:                     m.UserProfileSlug,
+		UserProfileDonationName:             m.UserProfileDonationName,
+		UserProfileDateOfBirth:              m.UserProfileDateOfBirth,
+		UserProfilePlaceOfBirth:             m.UserProfilePlaceOfBirth,
+		UserProfileGender:                   genderStr,
+		UserProfileLocation:                 m.UserProfileLocation,
+		UserProfileCity:                     m.UserProfileCity,
+		UserProfileBio:                      m.UserProfileBio,
+		UserProfileBiographyLong:            m.UserProfileBiographyLong,
+		UserProfileExperience:               m.UserProfileExperience,
+		UserProfileCertifications:           m.UserProfileCertifications,
+		UserProfileInstagramURL:             m.UserProfileInstagramURL,
+		UserProfileWhatsappURL:              m.UserProfileWhatsappURL,
+		UserProfileLinkedinURL:              m.UserProfileLinkedinURL,
+		UserProfileGithubURL:                m.UserProfileGithubURL,
+		UserProfileYoutubeURL:               m.UserProfileYoutubeURL,
+		UserProfileTelegramUsername:         m.UserProfileTelegramUsername,
+		UserProfileParentName:               m.UserProfileParentName,
+		UserProfileParentWhatsappURL:        m.UserProfileParentWhatsappURL,
+		UserProfileAvatarURL:                m.UserProfileAvatarURL,
+		UserProfileAvatarObjectKey:          m.UserProfileAvatarObjectKey,
+		UserProfileAvatarURLOld:             m.UserProfileAvatarURLOld,
+		UserProfileAvatarObjectKeyOld:       m.UserProfileAvatarObjectKeyOld,
 		UserProfileAvatarDeletePendingUntil: m.UserProfileAvatarDeletePendingUntil,
-		UserProfileIsPublicProfile:         m.UserProfileIsPublicProfile,
-		UserProfileIsVerified:              m.UserProfileIsVerified,
-		UserProfileVerifiedAt:              m.UserProfileVerifiedAt,
-		UserProfileVerifiedBy:              m.UserProfileVerifiedBy,
-		UserProfileEducation:               m.UserProfileEducation,
-		UserProfileCompany:                 m.UserProfileCompany,
-		UserProfilePosition:                m.UserProfilePosition,
-		UserProfileInterests:               []string(m.UserProfileInterests),
-		UserProfileSkills:                  []string(m.UserProfileSkills),
-		UserProfileCreatedAt:               m.UserProfileCreatedAt,
-		UserProfileUpdatedAt:               m.UserProfileUpdatedAt,
-		UserProfileDeletedAt:               deletedAtPtr,
+		UserProfileIsPublicProfile:          m.UserProfileIsPublicProfile,
+		UserProfileIsVerified:               m.UserProfileIsVerified,
+		UserProfileVerifiedAt:               m.UserProfileVerifiedAt,
+		UserProfileVerifiedBy:               m.UserProfileVerifiedBy,
+		UserProfileEducation:                m.UserProfileEducation,
+		UserProfileCompany:                  m.UserProfileCompany,
+		UserProfilePosition:                 m.UserProfilePosition,
+		UserProfileInterests:                []string(m.UserProfileInterests),
+		UserProfileSkills:                   []string(m.UserProfileSkills),
+		UserProfileCreatedAt:                m.UserProfileCreatedAt,
+		UserProfileUpdatedAt:                m.UserProfileUpdatedAt,
+		UserProfileDeletedAt:                deletedAtPtr,
 	}
 }
 

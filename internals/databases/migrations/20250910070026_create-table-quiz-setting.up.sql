@@ -23,8 +23,8 @@ CREATE TABLE IF NOT EXISTS quiz_settings (
   quiz_settings_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Tenant & owner
-  quiz_settings_masjid_id  UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  quiz_settings_school_id  UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
   quiz_settings_quiz_id    UUID NOT NULL
     REFERENCES quizzes(quiz_id) ON UPDATE CASCADE ON DELETE CASCADE,
 
@@ -101,8 +101,8 @@ ALTER TABLE quiz_settings
   );
 
 -- ===== Indexes =====
-CREATE INDEX IF NOT EXISTS idx_qs_masjid_alive
-  ON quiz_settings(quiz_settings_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_qs_school_alive
+  ON quiz_settings(quiz_settings_school_id)
   WHERE quiz_settings_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_qs_quiz_alive

@@ -37,7 +37,7 @@ func (k PostThemeKind) Valid() bool {
 type PostThemeModel struct {
 	// PK & tenant
 	PostThemeID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:post_theme_id" json:"post_theme_id"`
-	PostThemeMasjidID uuid.UUID `gorm:"type:uuid;not null;column:post_theme_masjid_id" json:"post_theme_masjid_id"`
+	PostThemeSchoolID uuid.UUID `gorm:"type:uuid;not null;column:post_theme_school_id" json:"post_theme_school_id"`
 
 	// Identitas tema
 	PostThemeKind PostThemeKind `gorm:"type:varchar(24);not null;column:post_theme_kind" json:"post_theme_kind"`

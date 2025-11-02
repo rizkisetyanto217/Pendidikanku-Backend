@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "masjidku_backend/internals/features/finance/payments/dto"
-	model "masjidku_backend/internals/features/finance/payments/model"
+	dto "schoolku_backend/internals/features/finance/payments/dto"
+	model "schoolku_backend/internals/features/finance/payments/model"
 )
 
 /* =======================================================================
@@ -28,7 +28,7 @@ func NewPaymentGatewayEventController(db *gorm.DB) *PaymentGatewayEventControlle
 
 func (h *PaymentGatewayEventController) RegisterRoutes(r fiber.Router) {
 	gr := r.Group("/payment-gateway-events")
-	gr.Get("/", h.ListEvents)      // GET /payment-gateway-events?provider=&status=&payment_id=&masjid_id=&q=&start=&end=&page=&limit=
+	gr.Get("/", h.ListEvents)      // GET /payment-gateway-events?provider=&status=&payment_id=&school_id=&q=&start=&end=&page=&limit=
 	gr.Get("/:id", h.GetByID)      // GET /payment-gateway-events/:id
 	gr.Post("/", h.CreateEvent)    // POST /payment-gateway-events
 	gr.Patch("/:id", h.PatchEvent) // PATCH /payment-gateway-events/:id
@@ -40,7 +40,7 @@ func (h *PaymentGatewayEventController) RegisterRoutes(r fiber.Router) {
      - provider: midtrans|xendit|...
      - status: received|processed|ignored|duplicated|failed
      - payment_id: uuid
-     - masjid_id: uuid
+     - school_id: uuid
      - q: cari di external_id / external_ref (ilike)
      - start, end: ISO8601 (filter received_at)
      - page (default 1), limit (default 20, max 200)
@@ -63,11 +63,11 @@ func (h *PaymentGatewayEventController) ListEvents(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusBadRequest, "invalid payment_id")
 		}
 	}
-	if mid := strings.TrimSpace(c.Query("masjid_id")); mid != "" {
+	if mid := strings.TrimSpace(c.Query("school_id")); mid != "" {
 		if id, err := uuid.Parse(mid); err == nil {
-			db = db.Where("payment_gateway_event_masjid_id = ?", id)
+			db = db.Where("payment_gateway_event_school_id = ?", id)
 		} else {
-			return fiber.NewError(fiber.StatusBadRequest, "invalid masjid_id")
+			return fiber.NewError(fiber.StatusBadRequest, "invalid school_id")
 		}
 	}
 	// search

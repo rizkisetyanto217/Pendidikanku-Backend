@@ -14,8 +14,8 @@ import (
 	"github.com/google/uuid"
 
 	// models
-	csstModel "masjidku_backend/internals/features/school/classes/class_section_subject_teachers/model"
-	m "masjidku_backend/internals/features/school/classes/class_sections/model"
+	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	m "schoolku_backend/internals/features/school/classes/class_sections/model"
 )
 
 /* =========================================================
@@ -105,7 +105,7 @@ type CSSTItemLite struct {
 
 type ClassSectionCreateRequest struct {
 	// Wajib
-	ClassSectionMasjidID uuid.UUID `json:"class_section_masjid_id" form:"class_section_masjid_id" validate:"required"`
+	ClassSectionSchoolID uuid.UUID `json:"class_section_school_id" form:"class_section_school_id" validate:"required"`
 	ClassSectionClassID  uuid.UUID `json:"class_section_class_id"  form:"class_section_class_id"  validate:"required"`
 	ClassSectionSlug     string    `json:"class_section_slug"      form:"class_section_slug"      validate:"min=1,max=160"`
 	ClassSectionName     string    `json:"class_section_name"      form:"class_section_name"      validate:"required,min=1,max=100"`
@@ -174,7 +174,7 @@ func (r *ClassSectionCreateRequest) Normalize() {
 func (r ClassSectionCreateRequest) ToModel() *m.ClassSectionModel {
 	now := time.Now()
 	cs := &m.ClassSectionModel{
-		ClassSectionMasjidID: r.ClassSectionMasjidID,
+		ClassSectionSchoolID: r.ClassSectionSchoolID,
 		ClassSectionClassID:  r.ClassSectionClassID,
 		ClassSectionSlug:     r.ClassSectionSlug,
 		ClassSectionName:     r.ClassSectionName,
@@ -238,7 +238,7 @@ func (r ClassSectionCreateRequest) ToModel() *m.ClassSectionModel {
 type ClassSectionResponse struct {
 	// Identitas & relasi dasar
 	ClassSectionID       uuid.UUID `json:"class_section_id"`
-	ClassSectionMasjidID uuid.UUID `json:"class_section_masjid_id"`
+	ClassSectionSchoolID uuid.UUID `json:"class_section_school_id"`
 
 	ClassSectionClassID            uuid.UUID  `json:"class_section_class_id"`
 	ClassSectionTeacherID          *uuid.UUID `json:"class_section_teacher_id"`
@@ -355,7 +355,7 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 	return ClassSectionResponse{
 		// identitas
 		ClassSectionID:       cs.ClassSectionID,
-		ClassSectionMasjidID: cs.ClassSectionMasjidID,
+		ClassSectionSchoolID: cs.ClassSectionSchoolID,
 
 		ClassSectionClassID:            cs.ClassSectionClassID,
 		ClassSectionTeacherID:          cs.ClassSectionTeacherID,
@@ -949,7 +949,7 @@ func (r *ClassSectionJoinRequest) Validate() error {
 
 type ClassSectionJoinResponse struct {
 	UserClassSection *StudentClassSectionResp `json:"student_class_section,omitempty"`
-	ClassSectionID   string                `json:"class_section_id"`
+	ClassSectionID   string                   `json:"class_section_id"`
 }
 
 /* =========================================================
@@ -958,10 +958,10 @@ type ClassSectionJoinResponse struct {
 
 // Create
 type CreateClassSectionSubjectTeacherRequest struct {
-	ClassSectionSubjectTeacherMasjidID       *uuid.UUID `json:"class_section_subject_teacher_masjid_id"  validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherSchoolID       *uuid.UUID `json:"class_section_subject_teacher_school_id"  validate:"omitempty,uuid"`
 	ClassSectionSubjectTeacherSectionID      uuid.UUID  `json:"class_section_subject_teacher_section_id" validate:"required,uuid"`
 	ClassSectionSubjectTeacherClassSubjectID uuid.UUID  `json:"class_section_subject_teacher_class_subject_id" validate:"required,uuid"`
-	// pakai masjid_teachers.masjid_teacher_id
+	// pakai school_teachers.school_teacher_id
 	ClassSectionSubjectTeacherTeacherID uuid.UUID `json:"class_section_subject_teacher_teacher_id" validate:"required,uuid"`
 
 	// opsional: snapshot asisten (bukan FK kolom)
@@ -985,7 +985,7 @@ type CreateClassSectionSubjectTeacherRequest struct {
 
 // Update (partial)
 type UpdateClassSectionSubjectTeacherRequest struct {
-	ClassSectionSubjectTeacherMasjidID       *uuid.UUID `json:"class_section_subject_teacher_masjid_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherSchoolID       *uuid.UUID `json:"class_section_subject_teacher_school_id" validate:"omitempty,uuid"`
 	ClassSectionSubjectTeacherSectionID      *uuid.UUID `json:"class_section_subject_teacher_section_id" validate:"omitempty,uuid"`
 	ClassSectionSubjectTeacherClassSubjectID *uuid.UUID `json:"class_section_subject_teacher_class_subject_id" validate:"omitempty,uuid"`
 	ClassSectionSubjectTeacherTeacherID      *uuid.UUID `json:"class_section_subject_teacher_teacher_id" validate:"omitempty,uuid"`
@@ -1004,7 +1004,7 @@ type UpdateClassSectionSubjectTeacherRequest struct {
 
 type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherID             uuid.UUID `json:"class_section_subject_teacher_id"`
-	ClassSectionSubjectTeacherMasjidID       uuid.UUID `json:"class_section_subject_teacher_masjid_id"`
+	ClassSectionSubjectTeacherSchoolID       uuid.UUID `json:"class_section_subject_teacher_school_id"`
 	ClassSectionSubjectTeacherSectionID      uuid.UUID `json:"class_section_subject_teacher_section_id"`
 	ClassSectionSubjectTeacherClassSubjectID uuid.UUID `json:"class_section_subject_teacher_class_subject_id"`
 	ClassSectionSubjectTeacherTeacherID      uuid.UUID `json:"class_section_subject_teacher_teacher_id"`
@@ -1039,8 +1039,8 @@ func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectio
 		ClassSectionSubjectTeacherGroupURL:    trimPtr(r.ClassSectionSubjectTeacherGroupURL),
 	}
 
-	if r.ClassSectionSubjectTeacherMasjidID != nil {
-		m.ClassSectionSubjectTeacherMasjidID = *r.ClassSectionSubjectTeacherMasjidID
+	if r.ClassSectionSubjectTeacherSchoolID != nil {
+		m.ClassSectionSubjectTeacherSchoolID = *r.ClassSectionSubjectTeacherSchoolID
 	}
 	if r.ClassSectionSubjectTeacherIsActive != nil {
 		m.ClassSectionSubjectTeacherIsActive = *r.ClassSectionSubjectTeacherIsActive
@@ -1058,7 +1058,7 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 	}
 	return ClassSectionSubjectTeacherResponse{
 		ClassSectionSubjectTeacherID:             m.ClassSectionSubjectTeacherID,
-		ClassSectionSubjectTeacherMasjidID:       m.ClassSectionSubjectTeacherMasjidID,
+		ClassSectionSubjectTeacherSchoolID:       m.ClassSectionSubjectTeacherSchoolID,
 		ClassSectionSubjectTeacherSectionID:      m.ClassSectionSubjectTeacherSectionID,
 		ClassSectionSubjectTeacherClassSubjectID: m.ClassSectionSubjectTeacherClassSubjectID,
 		ClassSectionSubjectTeacherTeacherID:      m.ClassSectionSubjectTeacherTeacherID,

@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS payments (
   payment_id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Tenant & actor
-  payment_masjid_id                UUID REFERENCES masjids(masjid_id) ON DELETE SET NULL,
+  payment_school_id                UUID REFERENCES schools(school_id) ON DELETE SET NULL,
   payment_user_id                  UUID REFERENCES users(id)          ON DELETE SET NULL,
 
   -- Target FK (salah satu WAJIB terisi)
@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS payments (
 
   -- Subjek (opsional)
   payment_subject_user_id          UUID REFERENCES users(id) ON DELETE SET NULL,
-  payment_subject_student_id       UUID REFERENCES masjid_students(masjid_student_id) ON DELETE SET NULL,
+  payment_subject_student_id       UUID REFERENCES school_students(school_student_id) ON DELETE SET NULL,
 
   -- Meta
   payment_description              TEXT,
@@ -151,7 +151,7 @@ DROP INDEX IF EXISTS ix_payments_spp_header_live;
 
 -- Idempotency (unik per tenant + key)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_idem_live
-  ON payments (payment_masjid_id, COALESCE(payment_idempotency_key, ''))
+  ON payments (payment_school_id, COALESCE(payment_idempotency_key, ''))
   WHERE payment_deleted_at IS NULL AND payment_idempotency_key IS NOT NULL;
 
 -- Unik provider + external_id (gateway)
@@ -163,7 +163,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_provider_extid_live
 
 -- Tenant + created_at (listing default)
 CREATE INDEX IF NOT EXISTS ix_payments_tenant_created_live
-  ON payments (payment_masjid_id, payment_created_at DESC)
+  ON payments (payment_school_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
 -- Status (inbox kasir/gateway monitor)
@@ -209,7 +209,7 @@ CREATE INDEX IF NOT EXISTS ix_payments_subject_student_live
 
 -- Invoice unik per tenant (hanya untuk entry_type=charge)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_invoice_per_tenant_live
-  ON payments (payment_masjid_id, LOWER(invoice_number))
+  ON payments (payment_school_id, LOWER(invoice_number))
   WHERE payment_deleted_at IS NULL
     AND payment_entry_type = 'charge'
     AND invoice_number IS NOT NULL;
@@ -249,7 +249,7 @@ COMMIT;
 CREATE TABLE IF NOT EXISTS payment_gateway_events (
   gateway_event_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  gateway_event_masjid_id   UUID REFERENCES masjids(masjid_id) ON DELETE SET NULL,
+  gateway_event_school_id   UUID REFERENCES schools(school_id) ON DELETE SET NULL,
   gateway_event_payment_id  UUID REFERENCES payments(payment_id) ON DELETE SET NULL,
 
   gateway_event_provider    payment_gateway_provider NOT NULL,
@@ -287,8 +287,8 @@ CREATE INDEX IF NOT EXISTS ix_gw_events_payment_live
   ON payment_gateway_events (gateway_event_payment_id, gateway_event_received_at DESC)
   WHERE gateway_event_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS ix_gw_events_masjid_live
-  ON payment_gateway_events (gateway_event_masjid_id, gateway_event_received_at DESC)
+CREATE INDEX IF NOT EXISTS ix_gw_events_school_live
+  ON payment_gateway_events (gateway_event_school_id, gateway_event_received_at DESC)
   WHERE gateway_event_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS gin_gw_events_payload_live
@@ -320,7 +320,7 @@ COMMIT;
 CREATE OR REPLACE VIEW v_invoices AS
 SELECT
   c.payment_id                    AS invoice_id,
-  c.payment_masjid_id,
+  c.payment_school_id,
   c.payment_general_billing_id,
   c.payment_general_billing_kind_id,
   c.payment_subject_user_id,

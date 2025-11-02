@@ -17,18 +17,18 @@ import (
 	"github.com/gofiber/utils"
 	"gorm.io/gorm"
 
-	"masjidku_backend/internals/configs"
-	database "masjidku_backend/internals/databases"
+	"schoolku_backend/internals/configs"
+	database "schoolku_backend/internals/databases"
 
-	attend "masjidku_backend/internals/features/school/classes/class_attendance_sessions/service"
-	authsched "masjidku_backend/internals/features/users/auth/scheduler"
+	attend "schoolku_backend/internals/features/school/classes/class_attendance_sessions/service"
+	authsched "schoolku_backend/internals/features/users/auth/scheduler"
 
-	osshelper "masjidku_backend/internals/helpers/oss"
-	routes "masjidku_backend/internals/route"
+	osshelper "schoolku_backend/internals/helpers/oss"
+	routes "schoolku_backend/internals/route"
 
-	helperAuth "masjidku_backend/internals/helpers/auth"
-	middlewares "masjidku_backend/internals/middlewares"
-	payctl "masjidku_backend/internals/features/finance/payments/controller"
+	payctl "schoolku_backend/internals/features/finance/payments/controller"
+	helperAuth "schoolku_backend/internals/helpers/auth"
+	middlewares "schoolku_backend/internals/middlewares"
 )
 
 func main() {

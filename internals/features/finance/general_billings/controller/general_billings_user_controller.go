@@ -2,9 +2,9 @@ package controller
 
 import (
 	"fmt"
-	dto "masjidku_backend/internals/features/finance/general_billings/dto"
-	model "masjidku_backend/internals/features/finance/general_billings/model"
-	helper "masjidku_backend/internals/helpers"
+	dto "schoolku_backend/internals/features/finance/general_billings/dto"
+	model "schoolku_backend/internals/features/finance/general_billings/model"
+	helper "schoolku_backend/internals/helpers"
 	"strings"
 	"time"
 
@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// GET /api/a/:masjid_id/general-billings
+// GET /api/a/:school_id/general-billings
 // Query:
 //
 //	q, kind_id, active(=true|false|1|0), due_from(YYYY-MM-DD), due_to(YYYY-MM-DD),
@@ -20,13 +20,13 @@ import (
 //	page, per_page, sort_by(created_at|due_date|title), order(asc|desc)
 func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 	// === Path param ===
-	midStr := strings.TrimSpace(c.Params("masjid_id"))
+	midStr := strings.TrimSpace(c.Params("school_id"))
 	if midStr == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "masjid_id wajib di path"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "school_id wajib di path"})
 	}
 	mid, err := uuid.Parse(midStr)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "masjid_id tidak valid"})
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "school_id tidak valid"})
 	}
 
 	// === Pagination & sorting ===
@@ -65,10 +65,10 @@ func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 
 	if includeGlobal {
 		// tampilkan PUNYA TENANT + GLOBAL
-		db = db.Where("(general_billing_masjid_id = ? OR general_billing_masjid_id IS NULL)", mid)
+		db = db.Where("(general_billing_school_id = ? OR general_billing_school_id IS NULL)", mid)
 	} else {
 		// khusus PUNYA TENANT saja
-		db = db.Where("general_billing_masjid_id = ?", mid)
+		db = db.Where("general_billing_school_id = ?", mid)
 	}
 
 	// kind filter

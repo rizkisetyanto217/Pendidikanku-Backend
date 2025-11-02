@@ -2,8 +2,8 @@
 package route
 
 import (
-	uictl "masjidku_backend/internals/features/lembaga/ui/theme/controller"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	uictl "schoolku_backend/internals/features/lembaga/ui/theme/controller"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -16,8 +16,8 @@ func UIThemeOwnerRoutes(owner fiber.Router, db *gorm.DB) {
 	// /owner/ui-theme-presets  (proteksi: Owner)
 	r := owner.Group("/ui-theme-presets", helperAuth.OwnerOnly())
 	{
-		r.Post("/", h.Create)        // create preset
-		r.Patch("/:id", h.Patch)     // patch (partial + JSON merge)
-		r.Delete("/:id", h.Delete)   // soft delete
+		r.Post("/", h.Create)      // create preset
+		r.Patch("/:id", h.Patch)   // patch (partial + JSON merge)
+		r.Delete("/:id", h.Delete) // soft delete
 	}
 }

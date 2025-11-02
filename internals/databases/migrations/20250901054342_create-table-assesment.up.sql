@@ -15,10 +15,10 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE TABLE IF NOT EXISTS assessment_types (
   assessment_type_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  assessment_type_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  assessment_type_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
-  assessment_type_key  VARCHAR(32)  NOT NULL,  -- unik per masjid (uas, uts, tugas, ...)
+  assessment_type_key  VARCHAR(32)  NOT NULL,  -- unik per school (uas, uts, tugas, ...)
   assessment_type_name VARCHAR(120) NOT NULL,
 
   assessment_type_weight_percent NUMERIC(5,2) NOT NULL DEFAULT 0
@@ -33,16 +33,16 @@ CREATE TABLE IF NOT EXISTS assessment_types (
 
 -- Pair unik id+tenant (tenant-safe)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_types_id_tenant
-  ON assessment_types (assessment_type_id, assessment_type_masjid_id);
+  ON assessment_types (assessment_type_id, assessment_type_school_id);
 
--- Unik per masjid + key (alive only, case-insensitive)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_types_key_per_masjid_alive
-  ON assessment_types (assessment_type_masjid_id, LOWER(assessment_type_key))
+-- Unik per school + key (alive only, case-insensitive)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_types_key_per_school_alive
+  ON assessment_types (assessment_type_school_id, LOWER(assessment_type_key))
   WHERE assessment_type_deleted_at IS NULL;
 
 -- Listing aktif / filter umum
-CREATE INDEX IF NOT EXISTS idx_assessment_types_masjid_active
-  ON assessment_types (assessment_type_masjid_id, assessment_type_is_active)
+CREATE INDEX IF NOT EXISTS idx_assessment_types_school_active
+  ON assessment_types (assessment_type_school_id, assessment_type_is_active)
   WHERE assessment_type_deleted_at IS NULL;
 
 -- BRIN waktu
@@ -54,10 +54,10 @@ CREATE INDEX IF NOT EXISTS brin_assessment_types_created_at
 -- =========================================================
 -- 0) TENANT-SAFE GUARD PADA CSST (unik pair id+tenant)
 -- =========================================================
-CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_masjid
+CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_school
 ON class_section_subject_teachers (
   class_section_subject_teacher_id,
-  class_section_subject_teacher_masjid_id
+  class_section_subject_teacher_school_id
 );
 
 -- =========================================================
@@ -66,8 +66,8 @@ ON class_section_subject_teachers (
 CREATE TABLE IF NOT EXISTS assessments (
   assessment_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  assessment_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  assessment_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- Hanya relasi ke CSST (tenant-safe dijaga via FK komposit di bawah)
   assessment_class_section_subject_teacher_id UUID NULL,
@@ -128,16 +128,16 @@ BEGIN
       ON UPDATE CASCADE ON DELETE SET NULL;
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_assessment_csst_masjid_tenant_safe') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_assessment_csst_school_tenant_safe') THEN
     ALTER TABLE assessments
-      ADD CONSTRAINT fk_assessment_csst_masjid_tenant_safe
+      ADD CONSTRAINT fk_assessment_csst_school_tenant_safe
       FOREIGN KEY (
         assessment_class_section_subject_teacher_id,
-        assessment_masjid_id
+        assessment_school_id
       )
       REFERENCES class_section_subject_teachers(
         class_section_subject_teacher_id,
-        class_section_subject_teacher_masjid_id
+        class_section_subject_teacher_school_id
       )
       ON UPDATE CASCADE ON DELETE SET NULL;
   END IF;
@@ -151,15 +151,15 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_assessment_type_tenant_safe') THEN
     ALTER TABLE assessments
       ADD CONSTRAINT fk_assessment_type_tenant_safe
-      FOREIGN KEY (assessment_type_id, assessment_masjid_id)
-      REFERENCES assessment_types(assessment_type_id, assessment_type_masjid_id)
+      FOREIGN KEY (assessment_type_id, assessment_school_id)
+      REFERENCES assessment_types(assessment_type_id, assessment_type_school_id)
       ON UPDATE CASCADE ON DELETE SET NULL;
   END IF;
 END$$;
 
 -- (opsional) index bantu untuk join cepat dari sisi assessments
 CREATE INDEX IF NOT EXISTS idx_assessments_type_tenant
-  ON assessments (assessment_type_id, assessment_masjid_id)
+  ON assessments (assessment_type_id, assessment_school_id)
   WHERE assessment_deleted_at IS NULL;
 
 -- =========================================================
@@ -192,10 +192,10 @@ END$$;
 -- 6) INDEXES assessments
 -- =========================================================
 CREATE UNIQUE INDEX IF NOT EXISTS uq_assessments_id_tenant
-  ON assessments (assessment_id, assessment_masjid_id);
+  ON assessments (assessment_id, assessment_school_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_assessments_slug_per_tenant_alive
-  ON assessments (assessment_masjid_id, LOWER(assessment_slug))
+  ON assessments (assessment_school_id, LOWER(assessment_slug))
   WHERE assessment_deleted_at IS NULL
     AND assessment_slug IS NOT NULL;
 
@@ -204,8 +204,8 @@ CREATE INDEX IF NOT EXISTS gin_assessments_slug_trgm_alive
   WHERE assessment_deleted_at IS NULL
     AND assessment_slug IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_assessments_masjid_created_at
-  ON assessments (assessment_masjid_id, assessment_created_at DESC)
+CREATE INDEX IF NOT EXISTS idx_assessments_school_created_at
+  ON assessments (assessment_school_id, assessment_created_at DESC)
   WHERE assessment_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_assessments_csst
@@ -217,7 +217,7 @@ CREATE INDEX IF NOT EXISTS idx_assessments_created_by_teacher
   WHERE assessment_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_assessments_submission_mode_alive
-  ON assessments (assessment_masjid_id, assessment_submission_mode)
+  ON assessments (assessment_school_id, assessment_submission_mode)
   WHERE assessment_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_assessments_announce_session_alive
@@ -242,8 +242,8 @@ CREATE TABLE IF NOT EXISTS assessment_urls (
   assessment_url_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Tenant & owner
-  assessment_url_masjid_id       UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  assessment_url_school_id       UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
   assessment_url_assessment_id   UUID NOT NULL
     REFERENCES assessments(assessment_id) ON UPDATE CASCADE ON DELETE CASCADE,
 
@@ -270,7 +270,7 @@ CREATE TABLE IF NOT EXISTS assessment_urls (
 
 -- Pair unik id+tenant (tenant-safe)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_urls_id_tenant
-  ON assessment_urls (assessment_url_id, assessment_url_masjid_id);
+  ON assessment_urls (assessment_url_id, assessment_url_school_id);
 
 -- Lookup per assessment (live only) + urutan tampil
 CREATE INDEX IF NOT EXISTS ix_assessment_urls_by_owner_live
@@ -284,8 +284,8 @@ CREATE INDEX IF NOT EXISTS ix_assessment_urls_by_owner_live
   WHERE assessment_url_deleted_at IS NULL;
 
 -- Filter per tenant (live only)
-CREATE INDEX IF NOT EXISTS ix_assessment_urls_by_masjid_live
-  ON assessment_urls (assessment_url_masjid_id)
+CREATE INDEX IF NOT EXISTS ix_assessment_urls_by_school_live
+  ON assessment_urls (assessment_url_school_id)
   WHERE assessment_url_deleted_at IS NULL;
 
 -- Satu primary per (assessment, kind) (live only)

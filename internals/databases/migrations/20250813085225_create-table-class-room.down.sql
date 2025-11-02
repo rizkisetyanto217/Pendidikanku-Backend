@@ -50,7 +50,7 @@ DROP INDEX IF EXISTS idx_class_rooms_location_trgm_alive;
 DROP INDEX IF EXISTS idx_class_rooms_name_trgm_alive;
 DROP INDEX IF EXISTS idx_class_rooms_features_gin_alive;
 DROP INDEX IF EXISTS idx_class_rooms_tenant_active_alive;
-DROP INDEX IF EXISTS idx_class_rooms_masjid_alive;
+DROP INDEX IF EXISTS idx_class_rooms_school_alive;
 DROP INDEX IF EXISTS uq_class_rooms_tenant_slug_ci_alive;
 DROP INDEX IF EXISTS uq_class_rooms_tenant_code_ci_alive;
 DROP INDEX IF EXISTS uq_class_rooms_tenant_name_ci_alive;

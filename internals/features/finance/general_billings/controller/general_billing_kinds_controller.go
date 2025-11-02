@@ -10,11 +10,11 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "masjidku_backend/internals/features/finance/general_billings/dto"
-	m "masjidku_backend/internals/features/finance/general_billings/model"
+	dto "schoolku_backend/internals/features/finance/general_billings/dto"
+	m "schoolku_backend/internals/features/finance/general_billings/model"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 /* =========================
@@ -62,19 +62,19 @@ func nowPtr() *time.Time {
 
 /* =========================
    Create
-   POST /api/a/:masjid_id/general-billing-kinds
+   POST /api/a/:school_id/general-billing-kinds
 ========================= */
 
 func (ctl *GeneralBillingKindController) Create(c *fiber.Ctx) error {
-	// 1) Ambil masjid dari path + guard
-	masjidID, err := helperAuth.ParseMasjidIDFromPath(c)
+	// 1) Ambil school dari path + guard
+	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
 	if err != nil {
 		return err // helper sudah balikin JSON error
 	}
-	if er := helperAuth.EnsureDKMOrTeacherMasjid(c, masjidID); er != nil {
+	if er := helperAuth.EnsureDKMOrTeacherSchool(c, schoolID); er != nil {
 		return er
 	}
-	c.Locals("__masjid_guard_ok", masjidID.String())
+	c.Locals("__school_guard_ok", schoolID.String())
 
 	// 2) Body
 	var req dto.CreateGeneralBillingKindRequest
@@ -82,8 +82,8 @@ func (ctl *GeneralBillingKindController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Paksa tenant dari path (endpoint ini khusus per-masjid)
-	req.MasjidID = &masjidID
+	// Paksa tenant dari path (endpoint ini khusus per-school)
+	req.SchoolID = &schoolID
 
 	// Validasi minimal
 	req.Code = strings.TrimSpace(req.Code)
@@ -106,19 +106,19 @@ func (ctl *GeneralBillingKindController) Create(c *fiber.Ctx) error {
 
 /* =========================
    Patch (Update)
-   PATCH /api/a/:masjid_id/general-billing-kinds/:id
+   PATCH /api/a/:school_id/general-billing-kinds/:id
 ========================= */
 
 func (ctl *GeneralBillingKindController) Patch(c *fiber.Ctx) error {
 	// 1) Path + guard
-	masjidID, err := helperAuth.ParseMasjidIDFromPath(c)
+	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
 	if err != nil {
 		return err
 	}
-	if er := helperAuth.EnsureDKMOrTeacherMasjid(c, masjidID); er != nil {
+	if er := helperAuth.EnsureDKMOrTeacherSchool(c, schoolID); er != nil {
 		return er
 	}
-	c.Locals("__masjid_guard_ok", masjidID.String())
+	c.Locals("__school_guard_ok", schoolID.String())
 
 	idStr := c.Params("id")
 	id, err := parseUUID(idStr)
@@ -132,14 +132,14 @@ func (ctl *GeneralBillingKindController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// 3) Load tenant-safe (hanya milik masjid ini & belum terhapus)
+	// 3) Load tenant-safe (hanya milik school ini & belum terhapus)
 	var rec m.GeneralBillingKind
 	tx := ctl.DB.WithContext(c.Context()).
 		Where(`
 			general_billing_kind_id = ?
-			AND general_billing_kind_masjid_id = ?
+			AND general_billing_kind_school_id = ?
 			AND general_billing_kind_deleted_at IS NULL
-		`, id, masjidID).
+		`, id, schoolID).
 		First(&rec)
 	if errors.Is(tx.Error, gorm.ErrRecordNotFound) {
 		return helper.JsonError(c, fiber.StatusNotFound, "record not found or already deleted")
@@ -164,19 +164,19 @@ func (ctl *GeneralBillingKindController) Patch(c *fiber.Ctx) error {
 
 /* =========================
    Delete (Soft)
-   DELETE /api/a/:masjid_id/general-billing-kinds/:id
+   DELETE /api/a/:school_id/general-billing-kinds/:id
 ========================= */
 
 func (ctl *GeneralBillingKindController) Delete(c *fiber.Ctx) error {
 	// 1) Path + guard
-	masjidID, err := helperAuth.ParseMasjidIDFromPath(c)
+	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
 	if err != nil {
 		return err
 	}
-	if er := helperAuth.EnsureDKMOrTeacherMasjid(c, masjidID); er != nil {
+	if er := helperAuth.EnsureDKMOrTeacherSchool(c, schoolID); er != nil {
 		return er
 	}
-	c.Locals("__masjid_guard_ok", masjidID.String())
+	c.Locals("__school_guard_ok", schoolID.String())
 
 	idStr := c.Params("id")
 	id, err := parseUUID(idStr)
@@ -184,14 +184,14 @@ func (ctl *GeneralBillingKindController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid UUID in path")
 	}
 
-	// 2) Soft delete (hanya record milik masjid ini)
+	// 2) Soft delete (hanya record milik school ini)
 	res := ctl.DB.WithContext(c.Context()).
 		Model(&m.GeneralBillingKind{}).
 		Where(`
 			general_billing_kind_id = ?
-			AND general_billing_kind_masjid_id = ?
+			AND general_billing_kind_school_id = ?
 			AND general_billing_kind_deleted_at IS NULL
-		`, id, masjidID).
+		`, id, schoolID).
 		Updates(map[string]any{
 			"general_billing_kind_deleted_at": nowPtr(),
 			"general_billing_kind_updated_at": time.Now(),

@@ -7,12 +7,12 @@ import (
 )
 
 type NotificationUserModel struct {
-	NotificationUserID             uuid.UUID  `gorm:"column:notification_users_id;primaryKey;type:uuid;default:gen_random_uuid()" json:"notification_users_id"`
-	NotificationUserNotificationID uuid.UUID  `gorm:"column:notification_users_notification_id;type:uuid;not null" json:"notification_users_notification_id"`
-	NotificationUserUserID         uuid.UUID  `gorm:"column:notification_users_user_id;type:uuid;not null" json:"notification_users_user_id"`
+	NotificationUserID             uuid.UUID `gorm:"column:notification_users_id;primaryKey;type:uuid;default:gen_random_uuid()" json:"notification_users_id"`
+	NotificationUserNotificationID uuid.UUID `gorm:"column:notification_users_notification_id;type:uuid;not null" json:"notification_users_notification_id"`
+	NotificationUserUserID         uuid.UUID `gorm:"column:notification_users_user_id;type:uuid;not null" json:"notification_users_user_id"`
 
-	// 🕌 Masjid ID untuk indexing cepat
-	NotificationUserMasjidID uuid.UUID  `gorm:"column:notification_users_masjid_id;type:uuid;not null" json:"notification_users_masjid_id"`
+	// 🕌 School ID untuk indexing cepat
+	NotificationUserSchoolID uuid.UUID `gorm:"column:notification_users_school_id;type:uuid;not null" json:"notification_users_school_id"`
 
 	// Status Notifikasi
 	NotificationUserRead   bool       `gorm:"column:notification_users_read;default:false" json:"notification_users_read"`

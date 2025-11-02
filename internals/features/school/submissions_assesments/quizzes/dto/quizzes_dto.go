@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	model "masjidku_backend/internals/features/school/submissions_assesments/quizzes/model"
+	model "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
 )
 
 /* ==============================
@@ -62,7 +62,7 @@ func (f UpdateField[T]) Val() T             { return f.value }
 
 type CreateQuizRequest struct {
 	// Tenant & relasi
-	QuizMasjidID     uuid.UUID  `json:"quiz_masjid_id" validate:"required"`
+	QuizSchoolID     uuid.UUID  `json:"quiz_school_id" validate:"required"`
 	QuizAssessmentID *uuid.UUID `json:"quiz_assessment_id" validate:"omitempty"`
 
 	// Identitas
@@ -82,7 +82,7 @@ func (r *CreateQuizRequest) ToModel() *model.QuizModel {
 		isPub = *r.QuizIsPublished
 	}
 	return &model.QuizModel{
-		QuizMasjidID:     r.QuizMasjidID,
+		QuizSchoolID:     r.QuizSchoolID,
 		QuizAssessmentID: r.QuizAssessmentID,
 
 		QuizSlug:        trimPtr(r.QuizSlug),
@@ -182,7 +182,7 @@ func (p *PatchQuizRequest) ToUpdates() map[string]any {
 
 type ListQuizzesQuery struct {
 	// filter dasar
-	MasjidID     *uuid.UUID `query:"masjid_id" validate:"omitempty"`
+	SchoolID     *uuid.UUID `query:"school_id" validate:"omitempty"`
 	ID           *uuid.UUID `query:"id" validate:"omitempty,uuid"` // quiz_id
 	AssessmentID *uuid.UUID `query:"assessment_id" validate:"omitempty"`
 
@@ -210,7 +210,7 @@ type ListQuizzesQuery struct {
 
 type QuizResponse struct {
 	QuizID           uuid.UUID  `json:"quiz_id"`
-	QuizMasjidID     uuid.UUID  `json:"quiz_masjid_id"`
+	QuizSchoolID     uuid.UUID  `json:"quiz_school_id"`
 	QuizAssessmentID *uuid.UUID `json:"quiz_assessment_id,omitempty"`
 
 	QuizSlug *string `json:"quiz_slug,omitempty"`
@@ -245,7 +245,7 @@ func FromModel(m *model.QuizModel) QuizResponse {
 	}
 	return QuizResponse{
 		QuizID:           m.QuizID,
-		QuizMasjidID:     m.QuizMasjidID,
+		QuizSchoolID:     m.QuizSchoolID,
 		QuizAssessmentID: m.QuizAssessmentID,
 
 		QuizSlug:         m.QuizSlug,

@@ -30,8 +30,8 @@ CREATE TABLE class_sections (
   class_sections_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Tenant & relasi inti
-  class_sections_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_sections_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   class_sections_class_id      UUID NOT NULL,
   class_sections_teacher_id    UUID,
@@ -78,7 +78,7 @@ CREATE TABLE class_sections (
   class_sections_deleted_at  TIMESTAMPTZ,
 
   -- Tenant-safe pair
-  CONSTRAINT uq_class_sections_id_masjid UNIQUE (class_sections_id, class_sections_masjid_id),
+  CONSTRAINT uq_class_sections_id_school UNIQUE (class_sections_id, class_sections_school_id),
 
   -- ======================
   -- CHECK guards
@@ -142,19 +142,19 @@ CREATE TABLE class_sections (
   -- ======================
   -- FK KOMPOSIT tenant-safe
   -- ======================
-  CONSTRAINT fk_sections_class_same_masjid
-    FOREIGN KEY (class_sections_class_id, class_sections_masjid_id)
-    REFERENCES classes (class_id, class_masjid_id)
+  CONSTRAINT fk_sections_class_same_school
+    FOREIGN KEY (class_sections_class_id, class_sections_school_id)
+    REFERENCES classes (class_id, class_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
-  CONSTRAINT fk_sections_teacher_same_masjid
-    FOREIGN KEY (class_sections_teacher_id, class_sections_masjid_id)
-    REFERENCES masjid_teachers (masjid_teacher_id, masjid_teacher_masjid_id)
+  CONSTRAINT fk_sections_teacher_same_school
+    FOREIGN KEY (class_sections_teacher_id, class_sections_school_id)
+    REFERENCES school_teachers (school_teacher_id, school_teacher_school_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
-  CONSTRAINT fk_sections_room_same_masjid
-    FOREIGN KEY (class_sections_class_room_id, class_sections_masjid_id)
-    REFERENCES class_rooms (class_room_id, class_rooms_masjid_id)
+  CONSTRAINT fk_sections_room_same_school
+    FOREIGN KEY (class_sections_class_room_id, class_sections_school_id)
+    REFERENCES class_rooms (class_room_id, class_rooms_school_id)
     ON UPDATE CASCADE ON DELETE SET NULL
 );
 
@@ -162,9 +162,9 @@ CREATE TABLE class_sections (
 -- INDEXES & UNIQUES
 -- =========================================================
 
--- Unik: slug per masjid (alive only, case-insensitive)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_slug_per_masjid_alive
-  ON class_sections (class_sections_masjid_id, LOWER(class_sections_slug))
+-- Unik: slug per school (alive only, case-insensitive)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_slug_per_school_alive
+  ON class_sections (class_sections_school_id, LOWER(class_sections_slug))
   WHERE class_sections_deleted_at IS NULL;
 
 -- Unik: nama section per class (alive only)
@@ -178,22 +178,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_code_per_class_alive
   WHERE class_sections_deleted_at IS NULL
     AND class_sections_code IS NOT NULL;
 
--- Unik: external_ref per masjid (untuk sinkronisasi)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_external_ref_per_masjid
-  ON class_sections (class_sections_masjid_id, LOWER(class_sections_external_ref))
+-- Unik: external_ref per school (untuk sinkronisasi)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sections_external_ref_per_school
+  ON class_sections (class_sections_school_id, LOWER(class_sections_external_ref))
   WHERE class_sections_deleted_at IS NULL
     AND class_sections_external_ref IS NOT NULL;
 
 -- Lookup dasar FKs
-CREATE INDEX IF NOT EXISTS idx_sections_masjid     ON class_sections (class_sections_masjid_id);
+CREATE INDEX IF NOT EXISTS idx_sections_school     ON class_sections (class_sections_school_id);
 CREATE INDEX IF NOT EXISTS idx_sections_class      ON class_sections (class_sections_class_id);
 CREATE INDEX IF NOT EXISTS idx_sections_teacher    ON class_sections (class_sections_teacher_id);
 CREATE INDEX IF NOT EXISTS idx_sections_assistant_teacher ON class_sections (class_sections_assistant_teacher_id);
 CREATE INDEX IF NOT EXISTS idx_sections_class_room ON class_sections (class_sections_class_room_id);
 
 -- Listing umum
-CREATE INDEX IF NOT EXISTS ix_sections_masjid_active_created
-  ON class_sections (class_sections_masjid_id, class_sections_is_active, class_sections_created_at DESC)
+CREATE INDEX IF NOT EXISTS ix_sections_school_active_created
+  ON class_sections (class_sections_school_id, class_sections_is_active, class_sections_created_at DESC)
   WHERE class_sections_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_sections_class_active_created

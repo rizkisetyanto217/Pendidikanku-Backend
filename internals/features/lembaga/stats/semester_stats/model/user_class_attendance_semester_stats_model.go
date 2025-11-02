@@ -10,7 +10,7 @@ import (
 type UserClassAttendanceSemesterStatsModel struct {
 	ID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:user_class_attendance_semester_stats_id"`
 
-	MasjidID    uuid.UUID `gorm:"type:uuid;not null;column:user_class_attendance_semester_stats_masjid_id"`
+	SchoolID    uuid.UUID `gorm:"type:uuid;not null;column:user_class_attendance_semester_stats_school_id"`
 	UserClassID uuid.UUID `gorm:"type:uuid;not null;column:user_class_attendance_semester_stats_user_class_id"`
 	SectionID   uuid.UUID `gorm:"type:uuid;not null;column:user_class_attendance_semester_stats_section_id"`
 

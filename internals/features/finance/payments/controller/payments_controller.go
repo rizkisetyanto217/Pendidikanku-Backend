@@ -18,10 +18,10 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
-	dto "masjidku_backend/internals/features/finance/payments/dto"
-	model "masjidku_backend/internals/features/finance/payments/model"
-	svc "masjidku_backend/internals/features/finance/payments/service"
-	helper "masjidku_backend/internals/helpers"
+	dto "schoolku_backend/internals/features/finance/payments/dto"
+	model "schoolku_backend/internals/features/finance/payments/model"
+	svc "schoolku_backend/internals/features/finance/payments/service"
+	helper "schoolku_backend/internals/helpers"
 )
 
 /* =======================================================================
@@ -55,7 +55,7 @@ func NewPaymentController(db *gorm.DB, midtransServerKey string, useProd bool) *
 
 type TargetInfo struct {
 	Kind             string     // "student_bill" | "general_billing" | "kind"
-	MasjidID         *uuid.UUID // bisa NULL untuk GLOBAL kind
+	SchoolID         *uuid.UUID // bisa NULL untuk GLOBAL kind
 	AmountSuggestion *int       // boleh nil
 	PayerUserID      *uuid.UUID // tidak dipakai saat ini (reserved)
 }
@@ -68,7 +68,7 @@ func (h *PaymentController) resolveTarget(ctx context.Context, db *gorm.DB, r *d
 		// student_bills
 		type sbRow struct {
 			ID       uuid.UUID  `gorm:"column:student_bill_id"`
-			MasjidID uuid.UUID  `gorm:"column:student_bill_masjid_id"`
+			SchoolID uuid.UUID  `gorm:"column:student_bill_school_id"`
 			Amount   int        `gorm:"column:student_bill_amount_idr"`
 			Status   string     `gorm:"column:student_bill_status"`
 			PayerUID *uuid.UUID `gorm:"column:student_bill_payer_user_id"`
@@ -76,14 +76,14 @@ func (h *PaymentController) resolveTarget(ctx context.Context, db *gorm.DB, r *d
 		var row sbRow
 		if err := db.WithContext(ctx).
 			Table("student_bills").
-			Select("student_bill_id, student_bill_masjid_id, student_bill_amount_idr, student_bill_status, student_bill_payer_user_id").
+			Select("student_bill_id, student_bill_school_id, student_bill_amount_idr, student_bill_status, student_bill_payer_user_id").
 			Where("student_bill_id = ? AND student_bill_deleted_at IS NULL", *r.PaymentStudentBillID).
 			Take(&row).Error; err != nil {
 			return ti, fiber.NewError(fiber.StatusNotFound, "student_bill tidak ditemukan")
 		}
 		ti = TargetInfo{
 			Kind:             "student_bill",
-			MasjidID:         &row.MasjidID,
+			SchoolID:         &row.SchoolID,
 			AmountSuggestion: &row.Amount,
 			PayerUserID:      row.PayerUID,
 		}
@@ -92,35 +92,35 @@ func (h *PaymentController) resolveTarget(ctx context.Context, db *gorm.DB, r *d
 		// general_billings (header)
 		type gbRow struct {
 			ID       uuid.UUID `gorm:"column:general_billing_id"`
-			MasjidID uuid.UUID `gorm:"column:general_billing_masjid_id"`
+			SchoolID uuid.UUID `gorm:"column:general_billing_school_id"`
 			Default  *int      `gorm:"column:general_billing_default_amount_idr"`
 		}
 		var row gbRow
 		if err := db.WithContext(ctx).
 			Table("general_billings").
-			Select("general_billing_id, general_billing_masjid_id, general_billing_default_amount_idr").
+			Select("general_billing_id, general_billing_school_id, general_billing_default_amount_idr").
 			Where("general_billing_id = ? AND general_billing_deleted_at IS NULL", *r.PaymentGeneralBillingID).
 			Take(&row).Error; err != nil {
 			return ti, fiber.NewError(fiber.StatusNotFound, "general_billing tidak ditemukan")
 		}
 		ti = TargetInfo{
 			Kind:             "general_billing",
-			MasjidID:         &row.MasjidID,
+			SchoolID:         &row.SchoolID,
 			AmountSuggestion: row.Default,
 		}
 
 	case r.PaymentGeneralBillingKindID != nil:
-		// general_billing_kinds (kind/campaign); masjid_id bisa NULL (GLOBAL)
+		// general_billing_kinds (kind/campaign); school_id bisa NULL (GLOBAL)
 		type kindRow struct {
 			ID       uuid.UUID  `gorm:"column:general_billing_kind_id"`
-			MasjidID *uuid.UUID `gorm:"column:general_billing_kind_masjid_id"`
+			SchoolID *uuid.UUID `gorm:"column:general_billing_kind_school_id"`
 			Default  *int       `gorm:"column:general_billing_kind_default_amount_idr"`
 			Active   bool       `gorm:"column:general_billing_kind_is_active"`
 		}
 		var row kindRow
 		if err := db.WithContext(ctx).
 			Table("general_billing_kinds").
-			Select("general_billing_kind_id, general_billing_kind_masjid_id, general_billing_kind_default_amount_idr, general_billing_kind_is_active").
+			Select("general_billing_kind_id, general_billing_kind_school_id, general_billing_kind_default_amount_idr, general_billing_kind_is_active").
 			Where("general_billing_kind_id = ? AND general_billing_kind_deleted_at IS NULL", *r.PaymentGeneralBillingKindID).
 			Take(&row).Error; err != nil {
 			return ti, fiber.NewError(fiber.StatusNotFound, "general_billing_kind tidak ditemukan")
@@ -130,7 +130,7 @@ func (h *PaymentController) resolveTarget(ctx context.Context, db *gorm.DB, r *d
 		}
 		ti = TargetInfo{
 			Kind:             "kind",
-			MasjidID:         row.MasjidID, // NULL = GLOBAL kind
+			SchoolID:         row.SchoolID, // NULL = GLOBAL kind
 			AmountSuggestion: row.Default,
 		}
 	default:
@@ -154,7 +154,7 @@ func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// 1) Resolve target → isi masjid/amount jika kosong
+	// 1) Resolve target → isi school/amount jika kosong
 	ti, err := h.resolveTarget(c.Context(), h.DB, &req)
 	if err != nil {
 		code := fiber.StatusBadRequest
@@ -166,9 +166,9 @@ func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 
 	m := req.ToModel()
 
-	// Prefill masjid dari target kalau kosong
-	if m.PaymentMasjidID == nil && ti.MasjidID != nil {
-		m.PaymentMasjidID = ti.MasjidID
+	// Prefill school dari target kalau kosong
+	if m.PaymentSchoolID == nil && ti.SchoolID != nil {
+		m.PaymentSchoolID = ti.SchoolID
 	}
 	// Prefill user (optional) dari target (kalau ada)
 	if m.PaymentUserID == nil && ti.PayerUserID != nil {
@@ -399,7 +399,7 @@ func (h *PaymentController) logGatewayEvent(c *fiber.Ctx, p *model.Payment, noti
 	rawQuery := string(c.Request().URI().QueryString())
 
 	ev := model.PaymentGatewayEvent{
-		PaymentGatewayEventMasjidID:   nil,
+		PaymentGatewayEventSchoolID:   nil,
 		PaymentGatewayEventPaymentID:  nil,
 		PaymentGatewayEventProvider:   string(model.GatewayProviderMidtrans),
 		PaymentGatewayEventType:       strPtr(notif.TransactionStatus),
@@ -421,7 +421,7 @@ func (h *PaymentController) logGatewayEvent(c *fiber.Ctx, p *model.Payment, noti
 	// Jika payment ada, isi relasi & tenantnya
 	if p != nil {
 		ev.PaymentGatewayEventPaymentID = &p.PaymentID
-		ev.PaymentGatewayEventMasjidID = p.PaymentMasjidID
+		ev.PaymentGatewayEventSchoolID = p.PaymentSchoolID
 	}
 
 	// insert

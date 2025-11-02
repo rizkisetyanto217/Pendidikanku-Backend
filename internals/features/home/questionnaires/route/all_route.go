@@ -1,7 +1,7 @@
 package route
 
 import (
-	"masjidku_backend/internals/features/home/questionnaires/controller"
+	"schoolku_backend/internals/features/home/questionnaires/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -17,5 +17,5 @@ func AllQuestionnaireQuestionRoutes(api fiber.Router, db *gorm.DB) {
 	ctrl2 := controller.NewUserQuestionnaireAnswerController(db)
 
 	user := api.Group("/user-questionnaires")
-	user.Post("/", ctrl2.SubmitBulkAnswers)                   // ✅ Submit jawaban batch/
+	user.Post("/", ctrl2.SubmitBulkAnswers) // ✅ Submit jawaban batch/
 }

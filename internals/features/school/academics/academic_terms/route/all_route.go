@@ -2,7 +2,7 @@
 package route
 
 import (
-	academicTermCtl "masjidku_backend/internals/features/school/academics/academic_terms/controller"
+	academicTermCtl "schoolku_backend/internals/features/school/academics/academic_terms/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -10,13 +10,13 @@ import (
 
 // ================================
 // User routes (read-only) — PUBLIC
-// Base: /api/u/:masjid_id/academic-terms
+// Base: /api/u/:school_id/academic-terms
 // ================================
 func AllAcademicTermsRoutes(user fiber.Router, db *gorm.DB) {
 	termCtl := academicTermCtl.NewAcademicTermController(db, nil)
 
-	// Masjid context via PATH param :masjid_id
-	r := user.Group("/:masjid_id/academic-terms")
+	// School context via PATH param :school_id
+	r := user.Group("/:school_id/academic-terms")
 
 	// Read-only Academic Terms
 	r.Get("/list", termCtl.List)

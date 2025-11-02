@@ -3,8 +3,8 @@ package survey
 import (
 	"encoding/json"
 	"log"
-	"masjidku_backend/internals/features/users/survey/model"
 	"os"
+	"schoolku_backend/internals/features/users/survey/model"
 
 	"gorm.io/gorm"
 )

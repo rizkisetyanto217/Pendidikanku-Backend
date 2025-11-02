@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-var ErrMasjidMismatch = errors.New("masjid mismatch")
+var ErrSchoolMismatch = errors.New("school mismatch")
 
 // Struktur snapshot untuk Subject (sinkron dengan field snapshot di ClassSubject)
 type SubjectSnapshot struct {
@@ -24,11 +24,11 @@ type SubjectSnapshot struct {
 func BuildSubjectSnapshot(
 	ctx context.Context,
 	tx *gorm.DB,
-	masjidID uuid.UUID,
+	schoolID uuid.UUID,
 	subjectID uuid.UUID,
 ) (*SubjectSnapshot, error) {
 	var row struct {
-		MasjidID uuid.UUID
+		SchoolID uuid.UUID
 		ID       uuid.UUID
 		Name     string
 		Code     string
@@ -38,7 +38,7 @@ func BuildSubjectSnapshot(
 
 	if err := tx.WithContext(ctx).Raw(`
 		SELECT
-			s.subject_masjid_id AS masjid_id,
+			s.subject_school_id AS school_id,
 			s.subject_id        AS id,
 			s.subject_name      AS name,
 			s.subject_code      AS code,
@@ -52,13 +52,13 @@ func BuildSubjectSnapshot(
 	}
 
 	// not found
-	if row.MasjidID == uuid.Nil {
+	if row.SchoolID == uuid.Nil {
 		return nil, gorm.ErrRecordNotFound
 	}
 
-	// ✅ tenant check (kembalikan ErrMasjidMismatch)
-	if row.MasjidID != masjidID {
-		return nil, ErrMasjidMismatch
+	// ✅ tenant check (kembalikan ErrSchoolMismatch)
+	if row.SchoolID != schoolID {
+		return nil, ErrSchoolMismatch
 	}
 
 	nz := func(p *string) *string {

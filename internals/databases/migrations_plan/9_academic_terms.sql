@@ -11,8 +11,8 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 -- =========================================================
 CREATE TABLE IF NOT EXISTS academic_terms (
   academic_terms_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  academic_terms_masjid_id     UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  academic_terms_school_id     UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- Identitas dasar
   academic_terms_academic_year TEXT NOT NULL,   -- contoh: '2026/2027'

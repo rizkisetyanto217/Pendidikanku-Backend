@@ -28,8 +28,8 @@ type StudentQuizAttemptModel struct {
 	StudentQuizAttemptID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:student_quiz_attempt_id" json:"student_quiz_attempt_id"`
 
 	// Tenant & relations
-	StudentQuizAttemptMasjidID  uuid.UUID `gorm:"type:uuid;not null;column:student_quiz_attempt_masjid_id;index:idx_sqa_masjid_quiz,priority:1" json:"student_quiz_attempt_masjid_id"`
-	StudentQuizAttemptQuizID    uuid.UUID `gorm:"type:uuid;not null;column:student_quiz_attempt_quiz_id;index:idx_sqa_quiz_student,priority:1;index:idx_sqa_quiz_student_started_desc,priority:1;index:idx_sqa_masjid_quiz,priority:2" json:"student_quiz_attempt_quiz_id"`
+	StudentQuizAttemptSchoolID  uuid.UUID `gorm:"type:uuid;not null;column:student_quiz_attempt_school_id;index:idx_sqa_school_quiz,priority:1" json:"student_quiz_attempt_school_id"`
+	StudentQuizAttemptQuizID    uuid.UUID `gorm:"type:uuid;not null;column:student_quiz_attempt_quiz_id;index:idx_sqa_quiz_student,priority:1;index:idx_sqa_quiz_student_started_desc,priority:1;index:idx_sqa_school_quiz,priority:2" json:"student_quiz_attempt_quiz_id"`
 	StudentQuizAttemptStudentID uuid.UUID `gorm:"type:uuid;not null;column:student_quiz_attempt_student_id;index:idx_sqa_quiz_student,priority:2;index:idx_sqa_student;index:idx_sqa_student_status,priority:1" json:"student_quiz_attempt_student_id"`
 
 	// Waktu

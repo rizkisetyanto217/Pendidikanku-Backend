@@ -5,13 +5,13 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	"masjidku_backend/internals/features/lembaga/stats/lembaga_stats/controller"
+	"schoolku_backend/internals/features/lembaga/stats/lembaga_stats/controller"
 )
 
 func LembagaStatsAdminRoutes(router fiber.Router, db *gorm.DB) {
-		h := controller.NewLembagaStatsController(db)
+	h := controller.NewLembagaStatsController(db)
 
-	// Group untuk tenant (ambil masjid_id dari token)
+	// Group untuk tenant (ambil school_id dari token)
 	tenant := router.Group("/lembaga-stats")
 	{
 		tenant.Get("/", h.GetMyLembagaStats)

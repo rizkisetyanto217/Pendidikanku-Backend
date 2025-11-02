@@ -13,7 +13,7 @@ DROP INDEX IF EXISTS uq_csst_active_by_cs;
 DROP INDEX IF EXISTS idx_csst_by_cs_alive;
 DROP INDEX IF EXISTS idx_csst_by_section_alive;
 DROP INDEX IF EXISTS idx_csst_by_teacher_alive;
-DROP INDEX IF EXISTS idx_csst_by_masjid_alive;
+DROP INDEX IF EXISTS idx_csst_by_school_alive;
 
 DROP TABLE IF EXISTS class_section_subject_teachers CASCADE;
 
@@ -26,11 +26,11 @@ DROP INDEX IF EXISTS uq_class_subjects_by_term;
 
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='uq_class_subjects_id_masjid') THEN
-    ALTER TABLE class_subjects DROP CONSTRAINT uq_class_subjects_id_masjid;
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='uq_class_subjects_id_school') THEN
+    ALTER TABLE class_subjects DROP CONSTRAINT uq_class_subjects_id_school;
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_cs_class_masjid_pair') THEN
-    ALTER TABLE class_subjects DROP CONSTRAINT fk_cs_class_masjid_pair;
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_cs_class_school_pair') THEN
+    ALTER TABLE class_subjects DROP CONSTRAINT fk_cs_class_school_pair;
   END IF;
   IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_cs_term') THEN
     ALTER TABLE class_subjects DROP CONSTRAINT fk_cs_term;
@@ -46,11 +46,11 @@ DROP TABLE IF EXISTS class_subjects CASCADE;
 DROP FUNCTION IF EXISTS fn_subjects_touch_updated_at() CASCADE;
 DROP FUNCTION IF EXISTS fn_subjects_normalize() CASCADE;
 
-DROP INDEX IF EXISTS uq_subjects_code_per_masjid;
-DROP INDEX IF EXISTS uq_subjects_slug_per_masjid;
+DROP INDEX IF EXISTS uq_subjects_code_per_school;
+DROP INDEX IF EXISTS uq_subjects_slug_per_school;
 DROP INDEX IF EXISTS idx_subjects_active;
 DROP INDEX IF EXISTS gin_subjects_name_trgm;
-DROP INDEX IF EXISTS idx_subjects_masjid_alive;
+DROP INDEX IF EXISTS idx_subjects_school_alive;
 
 DROP TABLE IF EXISTS subjects CASCADE;
 

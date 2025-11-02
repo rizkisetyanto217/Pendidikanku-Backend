@@ -11,8 +11,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
-	"masjidku_backend/internals/constants"
-	helper "masjidku_backend/internals/helpers/auth"
+	"schoolku_backend/internals/constants"
+	helper "schoolku_backend/internals/helpers/auth"
 )
 
 // baca slice string dari Locals apapun tipenya
@@ -54,20 +54,20 @@ func asString(v any) string {
 func trimLower(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
 /* ==========================
-   Ekstraksi masjid_id & role dari request
+   Ekstraksi school_id & role dari request
 ========================== */
 
-func extractMasjidID(c *fiber.Ctx) string {
-	// 1) param (/:masjid_id)
-	if v := strings.TrimSpace(c.Params("masjid_id")); v != "" {
+func extractSchoolID(c *fiber.Ctx) string {
+	// 1) param (/:school_id)
+	if v := strings.TrimSpace(c.Params("school_id")); v != "" {
 		return v
 	}
-	// 2) query (?masjid_id=)
-	if v := strings.TrimSpace(c.Query("masjid_id")); v != "" {
+	// 2) query (?school_id=)
+	if v := strings.TrimSpace(c.Query("school_id")); v != "" {
 		return v
 	}
-	// 3) header (X-Masjid-ID)
-	if v := strings.TrimSpace(c.Get("X-Masjid-ID")); v != "" {
+	// 3) header (X-School-ID)
+	if v := strings.TrimSpace(c.Get("X-School-ID")); v != "" {
 		return v
 	}
 	// 4) body json (best-effort; hanya kalau content-type json)
@@ -76,7 +76,7 @@ func extractMasjidID(c *fiber.Ctx) string {
 		var body map[string]any
 		if b := c.Body(); len(b) > 0 {
 			_ = json.Unmarshal(b, &body)
-			if raw, ok := body["masjid_id"]; ok {
+			if raw, ok := body["school_id"]; ok {
 				if s, ok := raw.(string); ok {
 					if v := strings.TrimSpace(s); v != "" {
 						return v
@@ -86,12 +86,12 @@ func extractMasjidID(c *fiber.Ctx) string {
 		}
 	}
 	// 5) form-urlencoded
-	if v := strings.TrimSpace(c.FormValue("masjid_id")); v != "" {
+	if v := strings.TrimSpace(c.FormValue("school_id")); v != "" {
 		return v
 	}
 	// 6) multipart
 	if f, err := c.MultipartForm(); err == nil && f != nil {
-		if vals, ok := f.Value["masjid_id"]; ok && len(vals) > 0 {
+		if vals, ok := f.Value["school_id"]; ok && len(vals) > 0 {
 			if v := strings.TrimSpace(vals[0]); v != "" {
 				return v
 			}
@@ -139,29 +139,29 @@ func extractRole(c *fiber.Ctx) string {
 }
 
 /* ==========================
-   Representasi masjid_roles & pengambilan dari locals
+   Representasi school_roles & pengambilan dari locals
 ========================== */
 
-type MasjidRole struct {
-	MasjidID string   `json:"masjid_id"`
+type SchoolRole struct {
+	SchoolID string   `json:"school_id"`
 	Roles    []string `json:"roles"`
 }
 
-// Ambil masjid_roles dari locals yang sudah diisi Auth middleware.
-// - Idealnya, auth middleware men-set helper.LocMasjidRoles dengan []MasjidRole.
-// - Fallback: bangun dari LocMasjidAdminIDs & LocMasjidTeacherIDs jika masih dipakai.
-func getMasjidRoles(c *fiber.Ctx) []MasjidRole {
-	// 1) format sudah []MasjidRole
-	if v := c.Locals(helper.LocMasjidRoles); v != nil {
-		if xs, ok := v.([]MasjidRole); ok {
+// Ambil school_roles dari locals yang sudah diisi Auth middleware.
+// - Idealnya, auth middleware men-set helper.LocSchoolRoles dengan []SchoolRole.
+// - Fallback: bangun dari LocSchoolAdminIDs & LocSchoolTeacherIDs jika masih dipakai.
+func getSchoolRoles(c *fiber.Ctx) []SchoolRole {
+	// 1) format sudah []SchoolRole
+	if v := c.Locals(helper.LocSchoolRoles); v != nil {
+		if xs, ok := v.([]SchoolRole); ok {
 			return xs
 		}
 		// 2) format generic []interface{}
 		if arr, ok := v.([]interface{}); ok {
-			out := make([]MasjidRole, 0, len(arr))
+			out := make([]SchoolRole, 0, len(arr))
 			for _, it := range arr {
 				if m, ok := it.(map[string]interface{}); ok {
-					mid, _ := m["masjid_id"].(string)
+					mid, _ := m["school_id"].(string)
 					var roles []string
 					switch rr := m["roles"].(type) {
 					case []interface{}:
@@ -178,7 +178,7 @@ func getMasjidRoles(c *fiber.Ctx) []MasjidRole {
 						}
 					}
 					if strings.TrimSpace(mid) != "" {
-						out = append(out, MasjidRole{MasjidID: mid, Roles: roles})
+						out = append(out, SchoolRole{SchoolID: mid, Roles: roles})
 					}
 				}
 			}
@@ -189,10 +189,10 @@ func getMasjidRoles(c *fiber.Ctx) []MasjidRole {
 	}
 
 	// 3) fallback lama
-	adminMasjids := getLocalsAsStrings(c, helper.LocMasjidAdminIDs)
-	teacherMasjids := getLocalsAsStrings(c, helper.LocMasjidTeacherIDs)
+	adminSchools := getLocalsAsStrings(c, helper.LocSchoolAdminIDs)
+	teacherSchools := getLocalsAsStrings(c, helper.LocSchoolTeacherIDs)
 	m := map[string]map[string]bool{}
-	for _, id := range adminMasjids {
+	for _, id := range adminSchools {
 		id = strings.TrimSpace(id)
 		if id == "" {
 			continue
@@ -202,7 +202,7 @@ func getMasjidRoles(c *fiber.Ctx) []MasjidRole {
 		}
 		m[id][constants.RoleDKM] = true // atau "admin" jika kamu punya role admin eksplisit
 	}
-	for _, id := range teacherMasjids {
+	for _, id := range teacherSchools {
 		id = strings.TrimSpace(id)
 		if id == "" {
 			continue
@@ -212,13 +212,13 @@ func getMasjidRoles(c *fiber.Ctx) []MasjidRole {
 		}
 		m[id][constants.RoleTeacher] = true
 	}
-	out := make([]MasjidRole, 0, len(m))
+	out := make([]SchoolRole, 0, len(m))
 	for k, bag := range m {
 		var rs []string
 		for r := range bag {
 			rs = append(rs, r)
 		}
-		out = append(out, MasjidRole{MasjidID: k, Roles: rs})
+		out = append(out, SchoolRole{SchoolID: k, Roles: rs})
 	}
 	return out
 }
@@ -261,28 +261,28 @@ func bestRoleFor(roles []string) string {
 ========================== */
 
 type ScopeChoice struct {
-	MasjidID string   `json:"masjid_id"`
+	SchoolID string   `json:"school_id"`
 	Roles    []string `json:"roles"`
 }
 
 /* ==========================
-   Middleware 1 — UseMasjidScope
-   (menetapkan active_masjid_id & active_role)
+   Middleware 1 — UseSchoolScope
+   (menetapkan active_school_id & active_role)
 ========================== */
 
-/* util kecil tetap sama: getLocalsAsStrings, asString, trimLower, extractMasjidID, extractRole,
-   getMasjidRoles, getMasjidIDsPref, rolePriority, bestRoleFor, respondNeedScope
+/* util kecil tetap sama: getLocalsAsStrings, asString, trimLower, extractSchoolID, extractRole,
+   getSchoolRoles, getSchoolIDsPref, rolePriority, bestRoleFor, respondNeedScope
    (biarkan seperti punyamu—dipakai sebagian) */
 
-// --- helper: cek role ada di masjid tertentu (dari locals masjid_roles) ---
-func roleInMasjid(c *fiber.Ctx, masjidID, role string) bool {
-	mid := strings.TrimSpace(masjidID)
+// --- helper: cek role ada di school tertentu (dari locals school_roles) ---
+func roleInSchool(c *fiber.Ctx, schoolID, role string) bool {
+	mid := strings.TrimSpace(schoolID)
 	r := trimLower(role)
 	if mid == "" || r == "" {
 		return false
 	}
-	for _, mr := range getMasjidRoles(c) {
-		if strings.EqualFold(mr.MasjidID, mid) {
+	for _, mr := range getSchoolRoles(c) {
+		if strings.EqualFold(mr.SchoolID, mid) {
 			for _, rr := range mr.Roles {
 				if strings.EqualFold(rr, r) {
 					return true
@@ -294,16 +294,16 @@ func roleInMasjid(c *fiber.Ctx, masjidID, role string) bool {
 }
 
 // Tambah util ini
-func extractMasjidIDStrict(c *fiber.Ctx) string {
+func extractSchoolIDStrict(c *fiber.Ctx) string {
 	// 1) Kalau middleware dipasang di group yang memang punya param
-	for _, key := range []string{"masjid_id", "id", "mid"} {
+	for _, key := range []string{"school_id", "id", "mid"} {
 		if v := strings.TrimSpace(c.Params(key)); v != "" {
 			return v
 		}
 	}
 
 	// 2) Fallback standar (query/header/body/form)
-	if v := extractMasjidID(c); v != "" {
+	if v := extractSchoolID(c); v != "" {
 		return v
 	}
 
@@ -315,26 +315,26 @@ func extractMasjidIDStrict(c *fiber.Ctx) string {
 		return ""
 	}
 
-	// 3a) /api/(a|u)/:masjid_id/...
+	// 3a) /api/(a|u)/:school_id/...
 	if n >= 3 && strings.EqualFold(parts[0], "api") &&
 		(strings.EqualFold(parts[1], "a") || strings.EqualFold(parts[1], "u")) {
-		// kalau segmen ke-2 bukan "slug" atau "masjids", treat sebagai masjid_id langsung
-		if !strings.EqualFold(parts[2], "slug") && !strings.EqualFold(parts[2], "masjids") {
+		// kalau segmen ke-2 bukan "slug" atau "schools", treat sebagai school_id langsung
+		if !strings.EqualFold(parts[2], "slug") && !strings.EqualFold(parts[2], "schools") {
 			return parts[2]
 		}
-		// 3b) /api/(a|u)/masjids/:masjid_id/...
-		if strings.EqualFold(parts[2], "masjids") && n >= 4 {
+		// 3b) /api/(a|u)/schools/:school_id/...
+		if strings.EqualFold(parts[2], "schools") && n >= 4 {
 			return parts[3]
 		}
-		// 3c) /api/(a|u)/slug/:masjid_slug/...  (kalau kamu pakai slug di beberapa tempat)
+		// 3c) /api/(a|u)/slug/:school_slug/...  (kalau kamu pakai slug di beberapa tempat)
 		if strings.EqualFold(parts[2], "slug") && n >= 4 {
 			return parts[3]
 		}
 	}
 
-	// 3d) Pola lain: cari kata "masjids" lalu ambil segmen setelahnya
+	// 3d) Pola lain: cari kata "schools" lalu ambil segmen setelahnya
 	for i := 0; i < n-1; i++ {
-		if strings.EqualFold(parts[i], "masjids") {
+		if strings.EqualFold(parts[i], "schools") {
 			return parts[i+1]
 		}
 	}
@@ -346,15 +346,15 @@ func extractMasjidIDStrict(c *fiber.Ctx) string {
    STRICT SCOPE — by PATH ONLY
 ========================== */
 
-// UseMasjidScope (strict):
-// - Ambil masjid_id dari PATH (atau eksplisit query/header/body).
-// - Non-owner: wajib merupakan masjid yang ada di token.
-// - Role: jika dikirim user, harus ada di masjid tersebut; jika tidak, pilih best role DI masjid itu.
-// - Set locals: active_masjid_id, active_role (+ kompat: masjid_id, role)
-func UseMasjidScope() fiber.Handler {
+// UseSchoolScope (strict):
+// - Ambil school_id dari PATH (atau eksplisit query/header/body).
+// - Non-owner: wajib merupakan school yang ada di token.
+// - Role: jika dikirim user, harus ada di school tersebut; jika tidak, pilih best role DI school itu.
+// - Set locals: active_school_id, active_role (+ kompat: school_id, role)
+func UseSchoolScope() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 
-		// ==== BYPASS untuk endpoint global tanpa masjid_id ====
+		// ==== BYPASS untuk endpoint global tanpa school_id ====
 		p := strings.TrimRight(strings.ToLower(strings.TrimSpace(c.Path())), "/")
 
 		// 1) join user-class-sections (sudah ada)
@@ -368,34 +368,34 @@ func UseMasjidScope() fiber.Handler {
 		}
 
 		// 2) 🔑 BYPASS join-teacher (dua pola):
-		//    - POST /api/u/:masjid_id/join-teacher
-		//    - POST /api/u/m/:masjid_slug/join-teacher
+		//    - POST /api/u/:school_id/join-teacher
+		//    - POST /api/u/m/:school_slug/join-teacher
 		if c.Method() == fiber.MethodPost && strings.HasPrefix(p, "/api/u/") && strings.HasSuffix(p, "/join-teacher") {
 			// validasi pola dasar untuk kehati-hatian
 			segs := strings.Split(p, "/") // e.g. ["", "api", "u", "<uuid>", "join-teacher"] atau ["", "api", "u", "m", "<slug>", "join-teacher"]
 			if len(segs) == 5 && segs[0] == "" && segs[1] == "api" && segs[2] == "u" && segs[4] == "join-teacher" {
-				// pola : /api/u/:masjid_id/join-teacher
+				// pola : /api/u/:school_id/join-teacher
 				return c.Next()
 			}
 			if len(segs) == 6 && segs[0] == "" && segs[1] == "api" && segs[2] == "u" && segs[3] == "m" && segs[5] == "join-teacher" {
-				// pola : /api/u/m/:masjid_slug/join-teacher
+				// pola : /api/u/m/:school_slug/join-teacher
 				return c.Next()
 			}
 			// jika tidak cocok, lanjut ke scope strict seperti biasa
 		}
 
-		log.Println("🎯 [MIDDLEWARE] UseMasjidScope (STRICT by path)")
+		log.Println("🎯 [MIDDLEWARE] UseSchoolScope (STRICT by path)")
 
 		isOwner := helper.IsOwner(c)
 
 		// ⬇️ pakai extractor baru
-		reqMasjid := strings.TrimSpace(extractMasjidIDStrict(c))
+		reqSchool := strings.TrimSpace(extractSchoolIDStrict(c))
 
-		if reqMasjid == "" {
-			return fiber.NewError(fiber.StatusBadRequest, "masjid_id wajib di path atau parameter")
+		if reqSchool == "" {
+			return fiber.NewError(fiber.StatusBadRequest, "school_id wajib di path atau parameter")
 		}
-		if _, err := uuid.Parse(reqMasjid); err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "masjid_id pada path tidak valid, error")
+		if _, err := uuid.Parse(reqSchool); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "school_id pada path tidak valid, error")
 		}
 
 		reqRole := trimLower(extractRole(c))
@@ -404,43 +404,43 @@ func UseMasjidScope() fiber.Handler {
 			if reqRole == "" {
 				reqRole = constants.RoleOwner
 			}
-			c.Locals("active_masjid_id", reqMasjid)
+			c.Locals("active_school_id", reqSchool)
 			c.Locals("active_role", reqRole)
-			c.Locals("masjid_id", reqMasjid)
+			c.Locals("school_id", reqSchool)
 			c.Locals(helper.LocRole, reqRole)
-			log.Println("    🔧 owner scope | masjid_id:", reqMasjid, "| role:", reqRole)
+			log.Println("    🔧 owner scope | school_id:", reqSchool, "| role:", reqRole)
 			return c.Next()
 		}
 
-		var rolesAtMasjid []string
-		for _, mr := range getMasjidRoles(c) {
-			if strings.EqualFold(mr.MasjidID, reqMasjid) {
-				rolesAtMasjid = mr.Roles
+		var rolesAtSchool []string
+		for _, mr := range getSchoolRoles(c) {
+			if strings.EqualFold(mr.SchoolID, reqSchool) {
+				rolesAtSchool = mr.Roles
 				break
 			}
 		}
-		if len(rolesAtMasjid) == 0 {
-			return fiber.NewError(fiber.StatusForbidden, "Bukan anggota pada masjid yang diminta")
+		if len(rolesAtSchool) == 0 {
+			return fiber.NewError(fiber.StatusForbidden, "Bukan anggota pada school yang diminta")
 		}
 
 		activeRole := reqRole
 		if activeRole != "" {
-			if !roleInMasjid(c, reqMasjid, activeRole) {
-				return fiber.NewError(fiber.StatusForbidden, "Role tidak tersedia pada masjid tersebut")
+			if !roleInSchool(c, reqSchool, activeRole) {
+				return fiber.NewError(fiber.StatusForbidden, "Role tidak tersedia pada school tersebut")
 			}
 		} else {
-			activeRole = bestRoleFor(rolesAtMasjid)
+			activeRole = bestRoleFor(rolesAtSchool)
 			if activeRole == "" {
-				return fiber.NewError(fiber.StatusForbidden, "Tidak memiliki peran pada masjid tersebut")
+				return fiber.NewError(fiber.StatusForbidden, "Tidak memiliki peran pada school tersebut")
 			}
 		}
 
-		c.Locals("active_masjid_id", reqMasjid)
+		c.Locals("active_school_id", reqSchool)
 		c.Locals("active_role", activeRole)
-		c.Locals("masjid_id", reqMasjid)
+		c.Locals("school_id", reqSchool)
 		c.Locals(helper.LocRole, activeRole)
 
-		log.Println("    🔧 scope set | masjid_id:", reqMasjid, "| role:", activeRole)
+		log.Println("    🔧 scope set | school_id:", reqSchool, "| role:", activeRole)
 		return c.Next()
 	}
 }
@@ -456,16 +456,16 @@ func RequirePathScopeMatch() fiber.Handler {
 		if !strings.HasPrefix(c.Path(), "/api/a/") {
 			return c.Next()
 		}
-		pathID := strings.TrimSpace(extractMasjidIDStrict(c))
+		pathID := strings.TrimSpace(extractSchoolIDStrict(c))
 		if pathID == "" {
-			return fiber.NewError(fiber.StatusBadRequest, "masjid_id path tidak valid")
+			return fiber.NewError(fiber.StatusBadRequest, "school_id path tidak valid")
 		}
-		active := strings.TrimSpace(asString(c.Locals("active_masjid_id")))
+		active := strings.TrimSpace(asString(c.Locals("active_school_id")))
 		if active == "" {
-			return fiber.NewError(fiber.StatusUnauthorized, "Scope masjid belum ditentukan")
+			return fiber.NewError(fiber.StatusUnauthorized, "Scope school belum ditentukan")
 		}
 		if !strings.EqualFold(pathID, active) {
-			return fiber.NewError(fiber.StatusForbidden, "Scope masjid tidak cocok dengan path")
+			return fiber.NewError(fiber.StatusForbidden, "Scope school tidak cocok dengan path")
 		}
 		return c.Next()
 	}
@@ -475,18 +475,18 @@ func RequirePathScopeMatch() fiber.Handler {
    STRICT ROLE CHECK
 ========================== */
 
-// IsMasjidAdmin (strict):
+// IsSchoolAdmin (strict):
 // - Hanya izinkan owner/admin/dkm (teacher TIDAK otomatis lolos).
-// - Pastikan role itu benar-benar ada di masjid PATH (sudah di-set di UseMasjidScope strict).
-func IsMasjidAdmin() fiber.Handler {
+// - Pastikan role itu benar-benar ada di school PATH (sudah di-set di UseSchoolScope strict).
+func IsSchoolAdmin() fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		log.Println("🔐 [MIDDLEWARE] IsMasjidAdmin (STRICT) | Path:", c.Path(), "| Method:", c.Method())
+		log.Println("🔐 [MIDDLEWARE] IsSchoolAdmin (STRICT) | Path:", c.Path(), "| Method:", c.Method())
 
-		mid := strings.TrimSpace(asString(c.Locals("active_masjid_id")))
+		mid := strings.TrimSpace(asString(c.Locals("active_school_id")))
 		role := trimLower(asString(c.Locals("active_role")))
 
 		if mid == "" || role == "" {
-			return fiber.NewError(fiber.StatusUnauthorized, "Scope masjid/role belum ditentukan")
+			return fiber.NewError(fiber.StatusUnauthorized, "Scope school/role belum ditentukan")
 		}
 
 		// owner bypass
@@ -502,29 +502,29 @@ func IsMasjidAdmin() fiber.Handler {
 			return fiber.NewError(fiber.StatusForbidden, "Role tidak berhak mengakses endpoint ini")
 		}
 
-		// hard verify role benar-benar ada pada masjid mid
-		if !roleInMasjid(c, mid, role) {
-			return fiber.NewError(fiber.StatusForbidden, "Role tidak terdaftar pada masjid ini")
+		// hard verify role benar-benar ada pada school mid
+		if !roleInSchool(c, mid, role) {
+			return fiber.NewError(fiber.StatusForbidden, "Role tidak terdaftar pada school ini")
 		}
 
 		// Kompat locals lama
-		c.Locals("masjid_id", mid)
+		c.Locals("school_id", mid)
 		c.Locals(helper.LocRole, role)
 
-		log.Println("    ✅ akses diijinkan | role:", role, "| masjid_id:", mid)
+		log.Println("    ✅ akses diijinkan | role:", role, "| school_id:", mid)
 		return c.Next()
 	}
 }
 
 // Opsional: jika kamu butuh endpoint yang mengizinkan teacher juga
-func IsMasjidStaff() fiber.Handler {
+func IsSchoolStaff() fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		log.Println("🔐 [MIDDLEWARE] IsMasjidStaff (STRICT) | Path:", c.Path(), "| Method:", c.Method())
+		log.Println("🔐 [MIDDLEWARE] IsSchoolStaff (STRICT) | Path:", c.Path(), "| Method:", c.Method())
 
-		mid := strings.TrimSpace(asString(c.Locals("active_masjid_id")))
+		mid := strings.TrimSpace(asString(c.Locals("active_school_id")))
 		role := trimLower(asString(c.Locals("active_role")))
 		if mid == "" || role == "" {
-			return fiber.NewError(fiber.StatusUnauthorized, "Scope masjid/role belum ditentukan")
+			return fiber.NewError(fiber.StatusUnauthorized, "Scope school/role belum ditentukan")
 		}
 		if helper.IsOwner(c) {
 			return c.Next()
@@ -535,12 +535,12 @@ func IsMasjidStaff() fiber.Handler {
 		default:
 			return fiber.NewError(fiber.StatusForbidden, "Role tidak berhak mengakses endpoint ini")
 		}
-		if !roleInMasjid(c, mid, role) {
-			return fiber.NewError(fiber.StatusForbidden, "Role tidak terdaftar pada masjid ini")
+		if !roleInSchool(c, mid, role) {
+			return fiber.NewError(fiber.StatusForbidden, "Role tidak terdaftar pada school ini")
 		}
-		c.Locals("masjid_id", mid)
+		c.Locals("school_id", mid)
 		c.Locals(helper.LocRole, role)
-		log.Println("    ✅ akses diijinkan (staff) | role:", role, "| masjid_id:", mid)
+		log.Println("    ✅ akses diijinkan (staff) | role:", role, "| school_id:", mid)
 		return c.Next()
 	}
 }

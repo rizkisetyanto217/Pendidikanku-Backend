@@ -8,7 +8,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
-	model "masjidku_backend/internals/features/users/user_profiles/model"
+	model "schoolku_backend/internals/features/users/user_profiles/model"
 )
 
 /* =========================
@@ -42,7 +42,7 @@ func NormalizePhone(s string) string {
 
 // POST (Create) — jika kamu izinkan create terpisah dari otomatisasi
 type CreateUsersProfileFormalDTO struct {
-	UserID        uuid.UUID `json:"user_id" validate:"required"`
+	UserID uuid.UUID `json:"user_id" validate:"required"`
 
 	FatherName    *string `json:"father_name" validate:"omitempty,max=50"`
 	FatherPhone   *string `json:"father_phone" validate:"omitempty,max=20"`
@@ -185,8 +185,6 @@ func NewUsersProfileFormalResponse(m *model.UsersProfileFormalModel) UsersProfil
  * ========================= */
 
 const timeRFC3339 = "2006-01-02T15:04:05Z07:00"
-
-
 
 // BindCreate: helper ambil JSON, sanitize, validate
 func BindCreate(c *fiber.Ctx) (*CreateUsersProfileFormalDTO, error) {

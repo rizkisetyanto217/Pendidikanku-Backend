@@ -8,7 +8,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	paymentctl "masjidku_backend/internals/features/finance/payments/controller"
+	paymentctl "schoolku_backend/internals/features/finance/payments/controller"
 )
 
 func getenv(key, def string) string {
@@ -28,7 +28,7 @@ func AllPaymentRoutes(r fiber.Router, db *gorm.DB) {
 	payments := r.Group("/payments")
 
 	// >>> INI dia endpoint eksplisit:
-	payments.Post("/", h.CreatePayment)                   // POST   /api/v1/finance/payments
-	payments.Get("/:id", h.GetPaymentByID)                // GET    /api/v1/finance/payments/:id
-	payments.Patch("/:id", h.PatchPayment)                // PATCH  /api/v1/finance/payments/:id
+	payments.Post("/", h.CreatePayment)    // POST   /api/v1/finance/payments
+	payments.Get("/:id", h.GetPaymentByID) // GET    /api/v1/finance/payments/:id
+	payments.Patch("/:id", h.PatchPayment) // PATCH  /api/v1/finance/payments/:id
 }

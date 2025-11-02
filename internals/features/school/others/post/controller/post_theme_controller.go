@@ -11,10 +11,10 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	pmodel "masjidku_backend/internals/features/school/others/post/model" // samakan dengan import di DTO
-	dto "masjidku_backend/internals/features/school/others/post/dto"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	dto "schoolku_backend/internals/features/school/others/post/dto"
+	pmodel "schoolku_backend/internals/features/school/others/post/model" // samakan dengan import di DTO
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 /* =========================================================
@@ -59,9 +59,6 @@ func writeDBErr(c *fiber.Ctx, err error) error {
 	return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 }
 
-
-
-
 /* =========================================================
    CREATE (DKM/Admin atau Owner)
    POST /post-themes
@@ -71,11 +68,11 @@ func (ctl *PostThemeController) Create(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
 	// Resolve + authorize
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	mid, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	mid, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -85,7 +82,7 @@ func (ctl *PostThemeController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, "Payload tidak valid")
 	}
 	// Force tenant dari context
-	req.PostThemeMasjidID = mid
+	req.PostThemeSchoolID = mid
 
 	if ctl.Validator != nil {
 		if err := ctl.Validator.Struct(req); err != nil {
@@ -113,11 +110,11 @@ func (ctl *PostThemeController) Create(c *fiber.Ctx) error {
 func (ctl *PostThemeController) Patch(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	mid, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	mid, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -130,7 +127,7 @@ func (ctl *PostThemeController) Patch(c *fiber.Ctx) error {
 
 	var m pmodel.PostThemeModel
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("post_theme_id = ? AND post_theme_masjid_id = ? AND post_theme_deleted_at IS NULL", id, mid).
+		Where("post_theme_id = ? AND post_theme_school_id = ? AND post_theme_deleted_at IS NULL", id, mid).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "Post theme tidak ditemukan")
@@ -172,11 +169,11 @@ func (ctl *PostThemeController) Patch(c *fiber.Ctx) error {
 func (ctl *PostThemeController) Delete(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	mid, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	mid, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -190,7 +187,7 @@ func (ctl *PostThemeController) Delete(c *fiber.Ctx) error {
 	// pastikan milik tenant & belum terhapus
 	var existing pmodel.PostThemeModel
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("post_theme_id = ? AND post_theme_masjid_id = ? AND post_theme_deleted_at IS NULL", id, mid).
+		Where("post_theme_id = ? AND post_theme_school_id = ? AND post_theme_deleted_at IS NULL", id, mid).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "Post theme tidak ditemukan")

@@ -1,4 +1,4 @@
-module masjidku_backend
+module schoolku_backend
 
 go 1.24.2
 

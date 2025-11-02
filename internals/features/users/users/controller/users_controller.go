@@ -10,9 +10,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	userdto "masjidku_backend/internals/features/users/users/dto"
-	"masjidku_backend/internals/features/users/users/model"
-	helper "masjidku_backend/internals/helpers"
+	userdto "schoolku_backend/internals/features/users/users/dto"
+	"schoolku_backend/internals/features/users/users/model"
+	helper "schoolku_backend/internals/helpers"
 )
 
 type AdminUserController struct {
@@ -164,8 +164,6 @@ func (ac *AdminUserController) RestoreUser(c *fiber.Ctx) error {
 	}
 	return helper.JsonUpdated(c, "User restored successfully", fiber.Map{"id": id})
 }
-
-
 
 // ==============================
 // DELETE (soft), RESTORE, FORCE DELETE (ADMIN)

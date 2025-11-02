@@ -5,16 +5,16 @@ CREATE TABLE IF NOT EXISTS submissions (
   submissions_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Tenant & relasi inti
-  submissions_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  submissions_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   submissions_assessment_id UUID NOT NULL
     REFERENCES assessments(assessments_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
-  -- pengumpul: relasi ke masjid_students (BUKAN users langsung)
+  -- pengumpul: relasi ke school_students (BUKAN users langsung)
   submissions_student_id UUID NOT NULL
-    REFERENCES masjid_students(masjid_student_id)
+    REFERENCES school_students(school_student_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   -- Attempting model (multi attempt support)
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS submissions (
 
   -- Pengoreksi
   submissions_graded_by_teacher_id UUID
-    REFERENCES masjid_teachers(masjid_teacher_id)
+    REFERENCES school_teachers(school_teacher_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
   submissions_graded_at TIMESTAMPTZ,
   submissions_is_auto_graded BOOLEAN DEFAULT FALSE,        -- nilai otomatis/manual
@@ -81,7 +81,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_submissions_final_choice_alive
   ON submissions(submissions_assessment_id, submissions_student_id)
   WHERE submissions_is_final = TRUE AND submissions_deleted_at IS NULL;
 
--- Index akses cepat per assessment / student / masjid
+-- Index akses cepat per assessment / student / school
 CREATE INDEX IF NOT EXISTS idx_submissions_assessment
   ON submissions(submissions_assessment_id)
   WHERE submissions_deleted_at IS NULL;
@@ -90,8 +90,8 @@ CREATE INDEX IF NOT EXISTS idx_submissions_student
   ON submissions(submissions_student_id)
   WHERE submissions_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_submissions_masjid
-  ON submissions(submissions_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_submissions_school
+  ON submissions(submissions_school_id)
   WHERE submissions_deleted_at IS NULL;
 
 -- Status & grading
@@ -123,7 +123,7 @@ CREATE INDEX IF NOT EXISTS idx_submissions_to_grade
     AND submissions_status IN ('submitted','resubmitted')
     AND submissions_is_final = TRUE;
 
--- Tambahan composite untuk dashboard by masjid + status
-CREATE INDEX IF NOT EXISTS idx_submissions_masjid_status
-  ON submissions(submissions_masjid_id, submissions_status)
+-- Tambahan composite untuk dashboard by school + status
+CREATE INDEX IF NOT EXISTS idx_submissions_school_status
+  ON submissions(submissions_school_id, submissions_status)
   WHERE submissions_deleted_at IS NULL;

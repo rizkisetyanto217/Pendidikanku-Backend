@@ -10,7 +10,7 @@ DROP INDEX IF EXISTS gin_ucsst_edits_history;
 DROP INDEX IF EXISTS idx_ucsst_active_alive;
 DROP INDEX IF EXISTS idx_ucsst_csst_alive;
 DROP INDEX IF EXISTS idx_ucsst_student_alive;
-DROP INDEX IF EXISTS idx_ucsst_masjid_alive;
+DROP INDEX IF EXISTS idx_ucsst_school_alive;
 DROP INDEX IF EXISTS uq_ucsst_slug_per_tenant_alive;
 DROP INDEX IF EXISTS uq_ucsst_one_active_per_student_csst_alive;
 DROP INDEX IF EXISTS uq_ucsst_id_tenant;
@@ -30,7 +30,7 @@ DROP INDEX IF EXISTS idx_csst_room_alive;
 DROP INDEX IF EXISTS idx_csst_teacher_alive;
 DROP INDEX IF EXISTS idx_csst_class_subject_alive;
 DROP INDEX IF EXISTS idx_csst_section_alive;
-DROP INDEX IF EXISTS idx_csst_masjid_alive;
+DROP INDEX IF EXISTS idx_csst_school_alive;
 
 DROP INDEX IF EXISTS uq_csst_one_active_per_section_subject_alive;
 DROP INDEX IF EXISTS uq_csst_unique_alive;
@@ -61,7 +61,7 @@ END$$;
 -- ==========================================
 -- 4) JANGAN drop prerequisite indexes & extensions
 --    (uq_class_sections_id_tenant, uq_class_subjects_id_tenant,
---     uq_masjid_teachers_id_tenant, uq_class_rooms_id_tenant, pgcrypto, pg_trgm, btree_gin)
+--     uq_school_teachers_id_tenant, uq_class_rooms_id_tenant, pgcrypto, pg_trgm, btree_gin)
 -- ==========================================
 
 COMMIT;

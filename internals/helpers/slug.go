@@ -59,7 +59,7 @@ func Slugify(s string, maxLen int) string {
 // EnsureUniqueSlugCI memastikan slug unik (case-insensitive) di satu tabel/kolom.
 // scopeFn boleh nil; kalau tidak nil, dipakai untuk menambah WHERE (mis. tenant).
 // maxLen untuk menjaga total panjang saat menambah suffix "-2", "-3", dst.
-// Contoh scopeFn: func(q *gorm.DB)*gorm.DB { return q.Where("masjid_id = ?", mid) }
+// Contoh scopeFn: func(q *gorm.DB)*gorm.DB { return q.Where("school_id = ?", mid) }
 func EnsureUniqueSlugCI(
 	ctx context.Context,
 	db *gorm.DB,

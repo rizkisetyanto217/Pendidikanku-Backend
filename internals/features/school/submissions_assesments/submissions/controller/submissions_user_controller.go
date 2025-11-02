@@ -8,19 +8,19 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "masjidku_backend/internals/features/school/submissions_assesments/submissions/dto"
-	model "masjidku_backend/internals/features/school/submissions_assesments/submissions/model"
+	dto "schoolku_backend/internals/features/school/submissions_assesments/submissions/dto"
+	model "schoolku_backend/internals/features/school/submissions_assesments/submissions/model"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 // GET /:id (READ — member; student hanya boleh lihat miliknya)
 func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 	c.Locals("DB", ctrl.DB)
 
-	// 1) Resolve masjid context (slug/id)
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// 1) Resolve school context (slug/id)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
@@ -28,17 +28,17 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 	if mc.ID != uuid.Nil {
 		mid = mc.ID
 	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil || id == uuid.Nil {
-			return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			return fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
 		mid = id
 	} else {
-		return helperAuth.ErrMasjidContextMissing
+		return helperAuth.ErrSchoolContextMissing
 	}
 
-	// 2) Authorize minimal member masjid
-	if err := helperAuth.EnsureMemberMasjid(c, mid); err != nil {
+	// 2) Authorize minimal member school
+	if err := helperAuth.EnsureMemberSchool(c, mid); err != nil {
 		return err
 	}
 
@@ -53,7 +53,7 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 	if err := ctrl.DB.WithContext(c.Context()).
 		Where(`
 			submission_id = ?
-			AND submission_masjid_id = ?
+			AND submission_school_id = ?
 			AND submission_deleted_at IS NULL
 		`, subID, mid).
 		First(&row).Error; err != nil {
@@ -65,7 +65,7 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 
 	// 5) Student hanya boleh akses submission miliknya
 	if helperAuth.IsStudent(c) && !helperAuth.IsDKM(c) && !helperAuth.IsTeacher(c) {
-		if sid, _ := helperAuth.GetMasjidStudentIDForMasjid(c, mid); sid == uuid.Nil || sid != row.SubmissionStudentID {
+		if sid, _ := helperAuth.GetSchoolStudentIDForSchool(c, mid); sid == uuid.Nil || sid != row.SubmissionStudentID {
 			return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak diizinkan melihat submission ini")
 		}
 	}
@@ -76,7 +76,7 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		_ = ctrl.DB.WithContext(c.Context()).
 			Where(`
 				submission_url_submission_id = ?
-				AND submission_url_masjid_id = ?
+				AND submission_url_school_id = ?
 				AND submission_url_deleted_at IS NULL
 			`, row.SubmissionID, mid).
 			Order("submission_url_is_primary DESC, submission_url_order ASC, submission_url_created_at ASC").

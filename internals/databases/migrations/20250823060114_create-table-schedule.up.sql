@@ -27,8 +27,8 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant scope
-  class_schedule_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_schedule_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- SLUG (opsional; unik per tenant saat alive)
   class_schedule_slug VARCHAR(160),
@@ -48,12 +48,12 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedule_deleted_at TIMESTAMPTZ,
 
   -- tenant-safe key (buat FK komposit)
-  UNIQUE (class_schedule_masjid_id, class_schedule_id)
+  UNIQUE (class_schedule_school_id, class_schedule_id)
 );
 
 -- Indexes (class_schedules)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_schedules_slug_per_tenant_alive
-  ON class_schedules (class_schedule_masjid_id, LOWER(class_schedule_slug))
+  ON class_schedules (class_schedule_school_id, LOWER(class_schedule_slug))
   WHERE class_schedule_deleted_at IS NULL
     AND class_schedule_slug IS NOT NULL;
 
@@ -63,7 +63,7 @@ CREATE INDEX IF NOT EXISTS gin_class_schedules_slug_trgm_alive
     AND class_schedule_slug IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_class_schedules_tenant_alive
-  ON class_schedules (class_schedule_masjid_id)
+  ON class_schedules (class_schedule_school_id)
   WHERE class_schedule_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_class_schedules_active_alive
@@ -96,23 +96,23 @@ BEGIN
 END$$;
 
 -- ===== Tenant-safe uniqueness di tabel referensi =====
--- class_schedules → untuk FK komposit (id, masjid)
+-- class_schedules → untuk FK komposit (id, school)
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_class_schedules_id_masjid') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_class_schedules_id_school') THEN
     ALTER TABLE class_schedules
-      ADD CONSTRAINT uq_class_schedules_id_masjid
-      UNIQUE (class_schedule_id, class_schedule_masjid_id);
+      ADD CONSTRAINT uq_class_schedules_id_school
+      UNIQUE (class_schedule_id, class_schedule_school_id);
   END IF;
 END$$;
 
--- class_section_subject_teachers (CSST) → FK komposit (id, masjid)
+-- class_section_subject_teachers (CSST) → FK komposit (id, school)
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_csst_id_masjid') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_csst_id_school') THEN
     ALTER TABLE class_section_subject_teachers
-      ADD CONSTRAINT uq_csst_id_masjid
-      UNIQUE (class_section_subject_teacher_id, class_section_subject_teacher_masjid_id);
+      ADD CONSTRAINT uq_csst_id_school
+      UNIQUE (class_section_subject_teacher_id, class_section_subject_teacher_school_id);
   END IF;
 END$$;
 
@@ -123,11 +123,11 @@ CREATE TABLE IF NOT EXISTS class_schedule_rules (
   class_schedule_rule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant + pointer ke header (FK komposit → tenant-safe)
-  class_schedule_rule_masjid_id   UUID NOT NULL,
+  class_schedule_rule_school_id   UUID NOT NULL,
   class_schedule_rule_schedule_id UUID NOT NULL,
   CONSTRAINT fk_csr_schedule_tenant
-    FOREIGN KEY (class_schedule_rule_schedule_id, class_schedule_rule_masjid_id)
-    REFERENCES class_schedules (class_schedule_id, class_schedule_masjid_id)
+    FOREIGN KEY (class_schedule_rule_schedule_id, class_schedule_rule_school_id)
+    REFERENCES class_schedules (class_schedule_id, class_schedule_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   -- pola per pekan
@@ -144,7 +144,7 @@ CREATE TABLE IF NOT EXISTS class_schedule_rules (
 
   -- DEFAULT PENUGASAN: CSST (tenant-safe, WAJIB)
   class_schedule_rule_csst_id        UUID NOT NULL,
-  class_schedule_rule_csst_masjid_id UUID NOT NULL,
+  class_schedule_rule_csst_school_id UUID NOT NULL,
 
   -- ===== Snapshot CSST (denormalized) =====
   class_schedule_rule_csst_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -177,8 +177,8 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_csr_csst_tenant') THEN
     ALTER TABLE class_schedule_rules
       ADD CONSTRAINT fk_csr_csst_tenant
-      FOREIGN KEY (class_schedule_rule_csst_id, class_schedule_rule_csst_masjid_id)
-      REFERENCES class_section_subject_teachers (class_section_subject_teacher_id, class_section_subject_teacher_masjid_id)
+      FOREIGN KEY (class_schedule_rule_csst_id, class_schedule_rule_csst_school_id)
+      REFERENCES class_section_subject_teachers (class_section_subject_teacher_id, class_section_subject_teacher_school_id)
       ON UPDATE CASCADE ON DELETE RESTRICT;
   END IF;
 END$$;
@@ -188,8 +188,8 @@ CREATE INDEX IF NOT EXISTS idx_csr_by_schedule_dow
   ON class_schedule_rules (class_schedule_rule_schedule_id, class_schedule_rule_day_of_week)
   WHERE class_schedule_rule_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_csr_by_masjid
-  ON class_schedule_rules (class_schedule_rule_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_csr_by_school
+  ON class_schedule_rules (class_schedule_rule_school_id)
   WHERE class_schedule_rule_deleted_at IS NULL;
 
 -- Unik: cegah duplikasi slot persis untuk CSST yang sama dalam satu schedule
@@ -225,7 +225,7 @@ END$$;
 -- =========================================================
 -- Snapshot builder dari CSST → JSONB (dipakai di triggers)
 -- =========================================================
-CREATE OR REPLACE FUNCTION build_csst_snapshot(p_csst_id UUID, p_masjid_id UUID)
+CREATE OR REPLACE FUNCTION build_csst_snapshot(p_csst_id UUID, p_school_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -233,7 +233,7 @@ DECLARE
 BEGIN
   SELECT
     t.class_section_subject_teacher_id               AS csst_id,
-    t.class_section_subject_teacher_masjid_id        AS masjid_id,
+    t.class_section_subject_teacher_school_id        AS school_id,
     t.class_section_subject_teacher_teacher_id       AS teacher_id,
     t.class_section_subject_teacher_section_id       AS section_id,
     t.class_section_subject_teacher_class_subject_id AS class_subject_id,
@@ -244,15 +244,15 @@ BEGIN
   INTO r
   FROM class_section_subject_teachers t
   WHERE t.class_section_subject_teacher_id = p_csst_id
-    AND t.class_section_subject_teacher_masjid_id = p_masjid_id;
+    AND t.class_section_subject_teacher_school_id = p_school_id;
 
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'CSST % (masjid %) not found', p_csst_id, p_masjid_id;
+    RAISE EXCEPTION 'CSST % (school %) not found', p_csst_id, p_school_id;
   END IF;
 
   RETURN jsonb_build_object(
     'csst_id',          r.csst_id,
-    'masjid_id',        r.masjid_id,
+    'school_id',        r.school_id,
     'teacher_id',       r.teacher_id,
     'section_id',       r.section_id,
     'class_subject_id', r.class_subject_id,
@@ -271,16 +271,16 @@ CREATE OR REPLACE FUNCTION trg_csr_fill_csst_snapshot()
 RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-  -- tenant guard: masjid rule harus sama dengan masjid CSST
-  IF NEW.class_schedule_rule_masjid_id <> NEW.class_schedule_rule_csst_masjid_id THEN
-    RAISE EXCEPTION 'Masjid mismatch: rule(%) vs csst(%)',
-      NEW.class_schedule_rule_masjid_id, NEW.class_schedule_rule_csst_masjid_id;
+  -- tenant guard: school rule harus sama dengan school CSST
+  IF NEW.class_schedule_rule_school_id <> NEW.class_schedule_rule_csst_school_id THEN
+    RAISE EXCEPTION 'School mismatch: rule(%) vs csst(%)',
+      NEW.class_schedule_rule_school_id, NEW.class_schedule_rule_csst_school_id;
   END IF;
 
   NEW.class_schedule_rule_csst_snapshot :=
     build_csst_snapshot(
       NEW.class_schedule_rule_csst_id,
-      NEW.class_schedule_rule_csst_masjid_id
+      NEW.class_schedule_rule_csst_school_id
     );
 
   RETURN NEW; -- tidak mutasi timestamp
@@ -290,7 +290,7 @@ DROP TRIGGER IF EXISTS trg_csr_fill_csst_snapshot_biu ON class_schedule_rules;
 CREATE TRIGGER trg_csr_fill_csst_snapshot_biu
 BEFORE INSERT OR UPDATE OF
   class_schedule_rule_csst_id,
-  class_schedule_rule_csst_masjid_id
+  class_schedule_rule_csst_school_id
 ON class_schedule_rules
 FOR EACH ROW
 EXECUTE FUNCTION trg_csr_fill_csst_snapshot();
@@ -300,7 +300,7 @@ UPDATE class_schedule_rules csr
 SET class_schedule_rule_csst_snapshot =
       build_csst_snapshot(
         csr.class_schedule_rule_csst_id,
-        csr.class_schedule_rule_csst_masjid_id
+        csr.class_schedule_rule_csst_school_id
       )
 WHERE csr.class_schedule_rule_deleted_at IS NULL
   AND (csr.class_schedule_rule_csst_snapshot IS NULL
@@ -359,54 +359,54 @@ CREATE INDEX IF NOT EXISTS brin_national_holidays_created_at
 
 
 -- =========================================
--- TABLE: masjid_holidays (libur custom per masjid/sekolah)
+-- TABLE: school_holidays (libur custom per school/sekolah)
 -- =========================================
-CREATE TABLE IF NOT EXISTS masjid_holidays (
-  masjid_holiday_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  masjid_holiday_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS school_holidays (
+  school_holiday_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_holiday_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- opsional identitas
-  masjid_holiday_slug VARCHAR(160),
+  school_holiday_slug VARCHAR(160),
 
   -- tanggal: satu hari (start=end) atau rentang
-  masjid_holiday_start_date DATE NOT NULL,
-  masjid_holiday_end_date   DATE NOT NULL CHECK (masjid_holiday_end_date >= masjid_holiday_start_date),
+  school_holiday_start_date DATE NOT NULL,
+  school_holiday_end_date   DATE NOT NULL CHECK (school_holiday_end_date >= school_holiday_start_date),
 
-  masjid_holiday_title  VARCHAR(200) NOT NULL,
-  masjid_holiday_reason TEXT,
+  school_holiday_title  VARCHAR(200) NOT NULL,
+  school_holiday_reason TEXT,
 
-  masjid_holiday_is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  school_holiday_is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
   -- biasanya libur sekolah tidak berulang tahunan; tetap disediakan jika perlu
-  masjid_holiday_is_recurring_yearly BOOLEAN NOT NULL DEFAULT FALSE,
+  school_holiday_is_recurring_yearly BOOLEAN NOT NULL DEFAULT FALSE,
 
   -- audit
-  masjid_holiday_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  masjid_holiday_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  masjid_holiday_deleted_at TIMESTAMPTZ
+  school_holiday_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  school_holiday_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  school_holiday_deleted_at TIMESTAMPTZ
 );
 
--- Indexes (masjid_holidays)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_masjid_holidays_slug_per_tenant_alive
-  ON masjid_holidays (masjid_holiday_masjid_id, LOWER(masjid_holiday_slug))
-  WHERE masjid_holiday_deleted_at IS NULL
-    AND masjid_holiday_slug IS NOT NULL;
+-- Indexes (school_holidays)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_school_holidays_slug_per_tenant_alive
+  ON school_holidays (school_holiday_school_id, LOWER(school_holiday_slug))
+  WHERE school_holiday_deleted_at IS NULL
+    AND school_holiday_slug IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_masjid_holidays_tenant_alive
-  ON masjid_holidays (masjid_holiday_masjid_id)
-  WHERE masjid_holiday_deleted_at IS NULL
-    AND masjid_holiday_is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_school_holidays_tenant_alive
+  ON school_holidays (school_holiday_school_id)
+  WHERE school_holiday_deleted_at IS NULL
+    AND school_holiday_is_active = TRUE;
 
-CREATE INDEX IF NOT EXISTS idx_masjid_holidays_date_range_alive
-  ON masjid_holidays (masjid_holiday_start_date, masjid_holiday_end_date)
-  WHERE masjid_holiday_deleted_at IS NULL
-    AND masjid_holiday_is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_school_holidays_date_range_alive
+  ON school_holidays (school_holiday_start_date, school_holiday_end_date)
+  WHERE school_holiday_deleted_at IS NULL
+    AND school_holiday_is_active = TRUE;
 
-CREATE INDEX IF NOT EXISTS gin_masjid_holidays_slug_trgm_alive
-  ON masjid_holidays USING GIN (LOWER(masjid_holiday_slug) gin_trgm_ops)
-  WHERE masjid_holiday_deleted_at IS NULL
-    AND masjid_holiday_slug IS NOT NULL;
+CREATE INDEX IF NOT EXISTS gin_school_holidays_slug_trgm_alive
+  ON school_holidays USING GIN (LOWER(school_holiday_slug) gin_trgm_ops)
+  WHERE school_holiday_deleted_at IS NULL
+    AND school_holiday_slug IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS brin_masjid_holidays_created_at
-  ON masjid_holidays USING BRIN (masjid_holiday_created_at);
+CREATE INDEX IF NOT EXISTS brin_school_holidays_created_at
+  ON school_holidays USING BRIN (school_holiday_created_at);

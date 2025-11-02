@@ -1,10 +1,10 @@
 package controller
 
 import (
-	"masjidku_backend/internals/features/home/posts/dto"
-	"masjidku_backend/internals/features/home/posts/model"
-	helper "masjidku_backend/internals/helpers"
 	"net/url"
+	"schoolku_backend/internals/features/home/posts/dto"
+	"schoolku_backend/internals/features/home/posts/model"
+	helper "schoolku_backend/internals/helpers"
 	"strconv"
 	"strings"
 
@@ -28,11 +28,11 @@ func (ctrl *PostController) CreatePost(c *fiber.Ctx) error {
 	}
 	userID := userIDRaw.(string)
 
-	masjidIDRaw := c.Locals("masjid_id")
-	if masjidIDRaw == nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	schoolIDRaw := c.Locals("school_id")
+	if schoolIDRaw == nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "School ID tidak ditemukan di token")
 	}
-	masjidID := masjidIDRaw.(string)
+	schoolID := schoolIDRaw.(string)
 
 	title := c.FormValue("post_title")
 	content := c.FormValue("post_content")
@@ -67,7 +67,7 @@ func (ctrl *PostController) CreatePost(c *fiber.Ctx) error {
 		PostIsPublished: isPublished,
 		PostType:        postType,
 		PostThemeID:     themeIDPtr,
-		PostMasjidID:    &masjidID,
+		PostSchoolID:    &schoolID,
 		PostUserID:      &userID,
 	}
 
@@ -184,7 +184,7 @@ func (ctrl *PostController) GetAllPosts(c *fiber.Ctx) error {
 	var posts []model.PostModel
 	if err := ctrl.DB.
 		Where("post_deleted_at IS NULL").
-		Preload("Masjid").Preload("User").
+		Preload("School").Preload("User").
 		Order("post_created_at DESC").
 		Limit(pageSize).Offset(offset).
 		Find(&posts).Error; err != nil {
@@ -240,8 +240,8 @@ func (ctrl *PostController) GetAllPosts(c *fiber.Ctx) error {
 			// ceil
 			return (total + int64(pageSize) - 1) / int64(pageSize)
 		}(),
-		"has_next":  int64(offset+pageSize) < total,
-		"has_prev":  page > 1,
+		"has_next": int64(offset+pageSize) < total,
+		"has_prev": page > 1,
 		"next_page": func() int {
 			if int64(offset+pageSize) < total {
 				return page + 1
@@ -259,13 +259,13 @@ func (ctrl *PostController) GetAllPosts(c *fiber.Ctx) error {
 	return helper.JsonList(c, result, pagination)
 }
 
-// 📄 Get Posts by Masjid ID (From Token, pagination opsional)
-func (ctrl *PostController) GetPostsByMasjid(c *fiber.Ctx) error {
-	masjidIDRaw := c.Locals("masjid_id")
-	if masjidIDRaw == nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+// 📄 Get Posts by School ID (From Token, pagination opsional)
+func (ctrl *PostController) GetPostsBySchool(c *fiber.Ctx) error {
+	schoolIDRaw := c.Locals("school_id")
+	if schoolIDRaw == nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "School ID tidak ditemukan di token")
 	}
-	masjidID := masjidIDRaw.(string)
+	schoolID := schoolIDRaw.(string)
 
 	// pagination
 	page, _ := strconv.Atoi(c.Query("page", "1"))
@@ -280,14 +280,14 @@ func (ctrl *PostController) GetPostsByMasjid(c *fiber.Ctx) error {
 
 	var total int64
 	if err := ctrl.DB.Model(&model.PostModel{}).
-		Where("post_masjid_id = ? AND post_deleted_at IS NULL", masjidID).
+		Where("post_school_id = ? AND post_deleted_at IS NULL", schoolID).
 		Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung daftar postingan")
 	}
 
 	var posts []model.PostModel
 	if err := ctrl.DB.
-		Where("post_masjid_id = ? AND post_deleted_at IS NULL", masjidID).
+		Where("post_school_id = ? AND post_deleted_at IS NULL", schoolID).
 		Order("post_created_at DESC").
 		Limit(pageSize).Offset(offset).
 		Find(&posts).Error; err != nil {
@@ -345,8 +345,8 @@ func (ctrl *PostController) GetPostsByMasjid(c *fiber.Ctx) error {
 			}
 			return (total + int64(pageSize) - 1) / int64(pageSize)
 		}(),
-		"has_next":  int64(offset+pageSize) < total,
-		"has_prev":  page > 1,
+		"has_next": int64(offset+pageSize) < total,
+		"has_prev": page > 1,
 		"next_page": func() int {
 			if int64(offset+pageSize) < total {
 				return page + 1

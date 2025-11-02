@@ -10,7 +10,7 @@ import (
 
 type BookModel struct {
 	BookID       uuid.UUID `gorm:"column:book_id;type:uuid;default:gen_random_uuid();primaryKey" json:"book_id"`
-	BookMasjidID uuid.UUID `gorm:"column:book_masjid_id;type:uuid;not null"                      json:"book_masjid_id"`
+	BookSchoolID uuid.UUID `gorm:"column:book_school_id;type:uuid;not null"                      json:"book_school_id"`
 
 	BookTitle  string  `gorm:"column:book_title;type:text;not null" json:"book_title"`
 	BookAuthor *string `gorm:"column:book_author;type:text"         json:"book_author,omitempty"`

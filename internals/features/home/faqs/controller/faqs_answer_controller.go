@@ -1,9 +1,9 @@
 package controller
 
 import (
-	"masjidku_backend/internals/features/home/faqs/dto"
-	"masjidku_backend/internals/features/home/faqs/model"
-	helper "masjidku_backend/internals/helpers"
+	"schoolku_backend/internals/features/home/faqs/dto"
+	"schoolku_backend/internals/features/home/faqs/model"
+	helper "schoolku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

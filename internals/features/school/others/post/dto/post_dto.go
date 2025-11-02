@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
-	smodel "masjidku_backend/internals/features/school/others/post/model"
+	smodel "schoolku_backend/internals/features/school/others/post/model"
 )
 
 /* ==============================
@@ -18,7 +18,7 @@ import (
 
 type CreatePostRequest struct {
 	// Tenant
-	PostMasjidID uuid.UUID `json:"post_masjid_id" validate:"required"`
+	PostSchoolID uuid.UUID `json:"post_school_id" validate:"required"`
 
 	// Jenis
 	PostKind smodel.PostKind `json:"post_kind" validate:"required,oneof=announcement material post other"`
@@ -70,7 +70,7 @@ func (r *CreatePostRequest) ToModel() *smodel.Post {
 	}
 
 	m := &smodel.Post{
-		PostMasjidID: r.PostMasjidID,
+		PostSchoolID: r.PostSchoolID,
 		PostKind:     r.PostKind,
 
 		IsDKMSender:            r.IsDKMSender != nil && *r.IsDKMSender,
@@ -259,7 +259,7 @@ func (p *PatchPostRequest) ToUpdates() map[string]any {
 
 type PostResponse struct {
 	PostID       uuid.UUID `json:"post_id"`
-	PostMasjidID uuid.UUID `json:"post_masjid_id"`
+	PostSchoolID uuid.UUID `json:"post_school_id"`
 
 	PostKind smodel.PostKind `json:"post_kind"`
 
@@ -324,7 +324,7 @@ func FromModelPost(m *smodel.Post) PostResponse {
 
 	return PostResponse{
 		PostID:       m.PostID,
-		PostMasjidID: m.PostMasjidID,
+		PostSchoolID: m.PostSchoolID,
 
 		PostKind: m.PostKind,
 

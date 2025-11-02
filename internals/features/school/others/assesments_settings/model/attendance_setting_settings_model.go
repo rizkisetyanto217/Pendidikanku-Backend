@@ -8,7 +8,7 @@ import (
 
 type ClassAttendanceSetting struct {
 	ClassAttendanceSettingID       uuid.UUID `gorm:"column:class_attendance_setting_id;type:uuid;primaryKey;default:gen_random_uuid()" json:"class_attendance_setting_id"`
-	ClassAttendanceSettingMasjidID uuid.UUID `gorm:"column:class_attendance_setting_masjid_id;not null" json:"class_attendance_setting_masjid_id"`
+	ClassAttendanceSettingSchoolID uuid.UUID `gorm:"column:class_attendance_setting_school_id;not null" json:"class_attendance_setting_school_id"`
 
 	// switches
 	ClassAttendanceSettingEnableScore             bool `gorm:"column:class_attendance_setting_enable_score;not null;default:false" json:"class_attendance_setting_enable_score"`

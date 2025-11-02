@@ -13,9 +13,9 @@ import (
 	pq "github.com/lib/pq"
 	"gorm.io/gorm"
 
-	"masjidku_backend/internals/features/users/users/dto"
-	"masjidku_backend/internals/features/users/users/model"
-	helper "masjidku_backend/internals/helpers"
+	"schoolku_backend/internals/features/users/users/dto"
+	"schoolku_backend/internals/features/users/users/model"
+	helper "schoolku_backend/internals/helpers"
 )
 
 type UserRoleController struct {
@@ -79,8 +79,8 @@ func (ctl *UserRoleController) Create(c *fiber.Ctx) error {
 }
 
 // =====================================================
-// LIST: GET /authz/user-roles?user_id=&role_id=&masjid_id=&only_alive=&limit=&offset=&order_by=&sort=
-// Note: masjid_id= null  (string literal "null") untuk filter global
+// LIST: GET /authz/user-roles?user_id=&role_id=&school_id=&only_alive=&limit=&offset=&order_by=&sort=
+// Note: school_id= null  (string literal "null") untuk filter global
 // =====================================================
 
 func (ctl *UserRoleController) List(c *fiber.Ctx) error {
@@ -123,18 +123,18 @@ func (ctl *UserRoleController) List(c *fiber.Ctx) error {
 		tx = tx.Where("role_id = ?", *q.RoleID)
 	}
 
-	// MasjidID filter:
-	// - jika query masjid_id literal "null" → IS NULL
+	// SchoolID filter:
+	// - jika query school_id literal "null" → IS NULL
 	// - jika UUID valid → = ?
 	// - jika kosong → abaikan (semua)
-	rawMid := strings.TrimSpace(c.Query("masjid_id"))
+	rawMid := strings.TrimSpace(c.Query("school_id"))
 	if strings.EqualFold(rawMid, "null") {
-		tx = tx.Where("masjid_id IS NULL")
+		tx = tx.Where("school_id IS NULL")
 	} else if rawMid != "" {
 		if mid, err := uuid.Parse(rawMid); err == nil {
-			tx = tx.Where("masjid_id = ?", mid)
+			tx = tx.Where("school_id = ?", mid)
 		} else {
-			return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id tidak valid")
+			return helper.JsonError(c, fiber.StatusBadRequest, "school_id tidak valid")
 		}
 	}
 
@@ -162,7 +162,12 @@ func (ctl *UserRoleController) List(c *fiber.Ctx) error {
 		Offset:     q.Offset,
 		Returned:   len(resp),
 		NextOffset: q.Offset + q.Limit,
-		PrevOffset: func() int { if q.Offset-q.Limit < 0 { return 0 }; return q.Offset - q.Limit }(),
+		PrevOffset: func() int {
+			if q.Offset-q.Limit < 0 {
+				return 0
+			}
+			return q.Offset - q.Limit
+		}(),
 	}
 	return helper.JsonList(c, resp, meta)
 }
@@ -182,8 +187,8 @@ func (ctl *UserRoleController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	// validasi ringan (opsional)
-	if req.MasjidID != nil && *req.MasjidID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id tidak boleh UUID nil (pakai clear_masjid_id)")
+	if req.SchoolID != nil && *req.SchoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "school_id tidak boleh UUID nil (pakai clear_school_id)")
 	}
 
 	var m model.UserRole
@@ -201,7 +206,7 @@ func (ctl *UserRoleController) Update(c *fiber.Ctx) error {
 
 	if err := ctl.DB.WithContext(c.Context()).Save(&m).Error; err != nil {
 		if isUnique(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Kombinasi user/role/masjid sudah ada (alive)")
+			return helper.JsonError(c, fiber.StatusConflict, "Kombinasi user/role/school sudah ada (alive)")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui data")
 	}
@@ -272,7 +277,7 @@ func (ctl *UserRoleController) Restore(c *fiber.Ctx) error {
 	m.DeletedAt = nil
 	if err := ctl.DB.WithContext(c.Context()).Save(&m).Error; err != nil {
 		if isUnique(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Kombinasi user/role/masjid sudah aktif")
+			return helper.JsonError(c, fiber.StatusConflict, "Kombinasi user/role/school sudah aktif")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal me-restore data")
 	}

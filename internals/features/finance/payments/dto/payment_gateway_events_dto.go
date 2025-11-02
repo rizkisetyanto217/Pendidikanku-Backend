@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
-	model "masjidku_backend/internals/features/finance/payments/model"
+	model "schoolku_backend/internals/features/finance/payments/model"
 )
 
 /* =========================================================
@@ -16,7 +16,7 @@ import (
 ========================================================= */
 
 type CreatePaymentGatewayEventRequest struct {
-	PaymentGatewayEventMasjidID  *uuid.UUID `json:"payment_gateway_event_masjid_id"`
+	PaymentGatewayEventSchoolID  *uuid.UUID `json:"payment_gateway_event_school_id"`
 	PaymentGatewayEventPaymentID *uuid.UUID `json:"payment_gateway_event_payment_id"`
 
 	PaymentGatewayEventProvider string  `json:"payment_gateway_event_provider" validate:"required"` // enum: midtrans|xendit|...
@@ -60,7 +60,7 @@ func (r *CreatePaymentGatewayEventRequest) Validate() error {
 func (r *CreatePaymentGatewayEventRequest) ToModel() *model.PaymentGatewayEvent {
 	now := time.Now().UTC()
 	out := &model.PaymentGatewayEvent{
-		PaymentGatewayEventMasjidID:  r.PaymentGatewayEventMasjidID,
+		PaymentGatewayEventSchoolID:  r.PaymentGatewayEventSchoolID,
 		PaymentGatewayEventPaymentID: r.PaymentGatewayEventPaymentID,
 
 		PaymentGatewayEventProvider: r.PaymentGatewayEventProvider,
@@ -102,7 +102,7 @@ func (r *CreatePaymentGatewayEventRequest) ToModel() *model.PaymentGatewayEvent 
 ========================================================= */
 
 type UpdatePaymentGatewayEventRequest struct {
-	PaymentGatewayEventMasjidID  PatchField[uuid.UUID] `json:"payment_gateway_event_masjid_id"`
+	PaymentGatewayEventSchoolID  PatchField[uuid.UUID] `json:"payment_gateway_event_school_id"`
 	PaymentGatewayEventPaymentID PatchField[uuid.UUID] `json:"payment_gateway_event_payment_id"`
 
 	PaymentGatewayEventProvider PatchField[string] `json:"payment_gateway_event_provider"`
@@ -125,7 +125,7 @@ type UpdatePaymentGatewayEventRequest struct {
 }
 
 func (p *UpdatePaymentGatewayEventRequest) Apply(m *model.PaymentGatewayEvent) error {
-	applyPtr(&m.PaymentGatewayEventMasjidID, p.PaymentGatewayEventMasjidID)
+	applyPtr(&m.PaymentGatewayEventSchoolID, p.PaymentGatewayEventSchoolID)
 	applyPtr(&m.PaymentGatewayEventPaymentID, p.PaymentGatewayEventPaymentID)
 
 	// provider (enum)
@@ -196,7 +196,7 @@ func (p *UpdatePaymentGatewayEventRequest) Apply(m *model.PaymentGatewayEvent) e
 type PaymentGatewayEventResponse struct {
 	PaymentGatewayEventID uuid.UUID `json:"payment_gateway_event_id"`
 
-	PaymentGatewayEventMasjidID  *uuid.UUID `json:"payment_gateway_event_masjid_id,omitempty"`
+	PaymentGatewayEventSchoolID  *uuid.UUID `json:"payment_gateway_event_school_id,omitempty"`
 	PaymentGatewayEventPaymentID *uuid.UUID `json:"payment_gateway_event_payment_id,omitempty"`
 
 	PaymentGatewayEventProvider string  `json:"payment_gateway_event_provider"`
@@ -229,7 +229,7 @@ func FromModelPGW(m *model.PaymentGatewayEvent) *PaymentGatewayEventResponse {
 	return &PaymentGatewayEventResponse{
 		PaymentGatewayEventID: m.PaymentGatewayEventID,
 
-		PaymentGatewayEventMasjidID:  m.PaymentGatewayEventMasjidID,
+		PaymentGatewayEventSchoolID:  m.PaymentGatewayEventSchoolID,
 		PaymentGatewayEventPaymentID: m.PaymentGatewayEventPaymentID,
 
 		PaymentGatewayEventProvider: m.PaymentGatewayEventProvider,

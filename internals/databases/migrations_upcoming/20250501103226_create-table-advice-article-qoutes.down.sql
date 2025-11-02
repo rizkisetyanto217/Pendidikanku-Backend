@@ -19,11 +19,11 @@ DROP INDEX IF EXISTS idx_carousels_article_id;
 DROP INDEX IF EXISTS idx_carousels_active_order;
 
 -- articles
-DROP INDEX IF EXISTS uq_articles_masjid_order_active;
+DROP INDEX IF EXISTS uq_articles_school_order_active;
 DROP INDEX IF EXISTS idx_articles_title_trgm;
 DROP INDEX IF EXISTS idx_articles_updated_at;
 DROP INDEX IF EXISTS idx_articles_created_at;
-DROP INDEX IF EXISTS idx_articles_masjid_active;
+DROP INDEX IF EXISTS idx_articles_school_active;
 
 -- advices
 DROP INDEX IF EXISTS idx_advices_lecture_id;

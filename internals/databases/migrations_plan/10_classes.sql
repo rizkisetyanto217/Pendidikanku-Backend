@@ -38,8 +38,8 @@ END$$;
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_parents (
   class_parent_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_parent_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_parent_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- Identitas & konten
   class_parent_slug           VARCHAR(160),
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS class_parents (
   class_parent_deleted_at TIMESTAMPTZ,
 
   -- Tenant-safe pair
-  UNIQUE (class_parent_id, class_parent_masjid_id),
+  UNIQUE (class_parent_id, class_parent_school_id),
 
   -- Guards
   CONSTRAINT ck_class_parents_level_range
@@ -84,20 +84,20 @@ CREATE TABLE IF NOT EXISTS class_parents (
 -- -------------------------
 -- INDEXES: class_parents
 -- -------------------------
-CREATE UNIQUE INDEX IF NOT EXISTS uq_class_parents_slug_per_masjid_active
-  ON class_parents (class_parent_masjid_id, LOWER(class_parent_slug))
+CREATE UNIQUE INDEX IF NOT EXISTS uq_class_parents_slug_per_school_active
+  ON class_parents (class_parent_school_id, LOWER(class_parent_slug))
   WHERE class_parent_deleted_at IS NULL
     AND class_parent_delete_pending_until IS NULL
     AND class_parent_slug IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_class_parents_code_per_masjid_active
-  ON class_parents (class_parent_masjid_id, LOWER(class_parent_code))
+CREATE UNIQUE INDEX IF NOT EXISTS uq_class_parents_code_per_school_active
+  ON class_parents (class_parent_school_id, LOWER(class_parent_code))
   WHERE class_parent_deleted_at IS NULL
     AND class_parent_delete_pending_until IS NULL
     AND class_parent_code IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_class_parents_masjid
-  ON class_parents (class_parent_masjid_id);
+CREATE INDEX IF NOT EXISTS idx_class_parents_school
+  ON class_parents (class_parent_school_id);
 
 CREATE INDEX IF NOT EXISTS idx_class_parents_active_alive
   ON class_parents (class_parent_is_active)
@@ -132,7 +132,7 @@ CREATE INDEX IF NOT EXISTS gin_class_parents_desc_trgm_alive
 -- =========================================================
 CREATE TABLE IF NOT EXISTS classes (
   class_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_school_id UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- Relasi
   class_parent_id UUID NOT NULL,
@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS classes (
   class_deleted_at TIMESTAMPTZ,
 
   -- tenant-safe pair
-  UNIQUE (class_id, class_masjid_id),
+  UNIQUE (class_id, class_school_id),
 
   -- Guards
   CONSTRAINT ck_class_slug_fmt
@@ -242,39 +242,39 @@ CREATE TABLE IF NOT EXISTS classes (
     ),
 
   -- FKs (komposit)
-  CONSTRAINT fk_classes_parent_same_masjid
-    FOREIGN KEY (class_parent_id, class_masjid_id)
-    REFERENCES class_parents (class_parent_id, class_parent_masjid_id)
+  CONSTRAINT fk_classes_parent_same_school
+    FOREIGN KEY (class_parent_id, class_school_id)
+    REFERENCES class_parents (class_parent_id, class_parent_school_id)
     ON DELETE CASCADE,
 
-  CONSTRAINT fk_classes_term_masjid_pair
-    FOREIGN KEY (class_term_id, class_masjid_id)
-    REFERENCES academic_terms (academic_terms_id, academic_terms_masjid_id)
+  CONSTRAINT fk_classes_term_school_pair
+    FOREIGN KEY (class_term_id, class_school_id)
+    REFERENCES academic_terms (academic_terms_id, academic_terms_school_id)
     ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
 -- -------------------------
 -- INDEXES: classes
 -- -------------------------
--- Unik per masjid
-CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_slug_per_masjid_active
-  ON classes (class_masjid_id, LOWER(class_slug))
+-- Unik per school
+CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_slug_per_school_active
+  ON classes (class_school_id, LOWER(class_slug))
   WHERE class_deleted_at IS NULL
     AND class_delete_pending_until IS NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_code_per_masjid_active
-  ON classes (class_masjid_id, LOWER(class_code))
+CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_code_per_school_active
+  ON classes (class_school_id, LOWER(class_code))
   WHERE class_deleted_at IS NULL
     AND class_delete_pending_until IS NULL
     AND class_code IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_external_ref_per_masjid
-  ON classes (class_masjid_id, LOWER(class_external_ref))
+CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_external_ref_per_school
+  ON classes (class_school_id, LOWER(class_external_ref))
   WHERE class_deleted_at IS NULL
     AND class_external_ref IS NOT NULL;
 
 -- Lookup umum
-CREATE INDEX IF NOT EXISTS idx_classes_masjid      ON classes (class_masjid_id);
+CREATE INDEX IF NOT EXISTS idx_classes_school      ON classes (class_school_id);
 CREATE INDEX IF NOT EXISTS idx_classes_parent      ON classes (class_parent_id);
 CREATE INDEX IF NOT EXISTS idx_classes_term        ON classes (class_term_id);
 
@@ -308,11 +308,11 @@ CREATE INDEX IF NOT EXISTS idx_classes_display_order_alive
 
 -- Window pendaftaran & kombinasi tenant/term
 CREATE INDEX IF NOT EXISTS ix_classes_tenant_term_open_live
-  ON classes (class_masjid_id, class_term_id, class_is_open)
+  ON classes (class_school_id, class_term_id, class_is_open)
   WHERE class_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_classes_reg_window_live
-  ON classes (class_masjid_id, class_registration_opens_at, class_registration_closes_at)
+  ON classes (class_school_id, class_registration_opens_at, class_registration_closes_at)
   WHERE class_deleted_at IS NULL;
 
 -- Publish window, kategori, tags, currency, row_version
@@ -354,12 +354,12 @@ CREATE INDEX IF NOT EXISTS idx_classes_meeting_provider_alive
 
 -- Covering indexes (feed/catalog & admin)
 CREATE INDEX IF NOT EXISTS ix_classes_feed
-  ON classes (class_masjid_id, class_publish_at DESC)
+  ON classes (class_school_id, class_publish_at DESC)
   INCLUDE (class_slug, class_title, class_thumbnail_url)
   WHERE class_deleted_at IS NULL AND class_is_public = TRUE;
 
 CREATE INDEX IF NOT EXISTS ix_classes_term_status
-  ON classes (class_masjid_id, class_term_id, class_status, class_created_at DESC)
+  ON classes (class_school_id, class_term_id, class_status, class_created_at DESC)
   WHERE class_deleted_at IS NULL;
 
 -- Trigram search helpers
@@ -411,23 +411,23 @@ BEGIN
     UPDATE class_parents
       SET class_parent_total_classes = class_parent_total_classes + 1
     WHERE class_parent_id = NEW.class_parent_id
-      AND class_parent_masjid_id = NEW.class_masjid_id;
+      AND class_parent_school_id = NEW.class_school_id;
     RETURN NEW;
   ELSIF TG_OP = 'DELETE' THEN
     UPDATE class_parents
       SET class_parent_total_classes = GREATEST(0, class_parent_total_classes - 1)
     WHERE class_parent_id = OLD.class_parent_id
-      AND class_parent_masjid_id = OLD.class_masjid_id;
+      AND class_parent_school_id = OLD.class_school_id;
     RETURN OLD;
-  ELSIF TG_OP = 'UPDATE' AND (NEW.class_parent_id,NEW.class_masjid_id) IS DISTINCT FROM (OLD.class_parent_id,OLD.class_masjid_id) THEN
+  ELSIF TG_OP = 'UPDATE' AND (NEW.class_parent_id,NEW.class_school_id) IS DISTINCT FROM (OLD.class_parent_id,OLD.class_school_id) THEN
     UPDATE class_parents
       SET class_parent_total_classes = GREATEST(0, class_parent_total_classes - 1)
     WHERE class_parent_id = OLD.class_parent_id
-      AND class_parent_masjid_id = OLD.class_masjid_id;
+      AND class_parent_school_id = OLD.class_school_id;
     UPDATE class_parents
       SET class_parent_total_classes = class_parent_total_classes + 1
     WHERE class_parent_id = NEW.class_parent_id
-      AND class_parent_masjid_id = NEW.class_masjid_id;
+      AND class_parent_school_id = NEW.class_school_id;
     RETURN NEW;
   END IF;
   RETURN NEW;
@@ -435,7 +435,7 @@ END$$;
 
 DROP TRIGGER IF EXISTS trg_classes_bump_parent ON classes;
 CREATE TRIGGER trg_classes_bump_parent
-AFTER INSERT OR DELETE OR UPDATE OF class_parent_id, class_masjid_id ON classes
+AFTER INSERT OR DELETE OR UPDATE OF class_parent_id, class_school_id ON classes
 FOR EACH ROW WHEN (
   (TG_OP = 'INSERT' AND NEW.class_deleted_at IS NULL) OR
   (TG_OP = 'DELETE' AND OLD.class_deleted_at IS NULL) OR
@@ -489,11 +489,11 @@ WHERE c.class_deleted_at IS NULL
 -- ALTER TABLE class_parents ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE classes ENABLE ROW LEVEL SECURITY;
 -- CREATE POLICY cls_parents_tenant ON class_parents
---   USING (class_parent_masjid_id::text = current_setting('app.mjid', true));
+--   USING (class_parent_school_id::text = current_setting('app.mjid', true));
 -- CREATE POLICY classes_tenant ON classes
---   USING (class_masjid_id::text = current_setting('app.mjid', true));
+--   USING (class_school_id::text = current_setting('app.mjid', true));
 -- -- Di app, setelah resolve tenant:
--- --   SET app.mjid = '<masjid_uuid>';
+-- --   SET app.mjid = '<school_uuid>';
 
 COMMIT;
 

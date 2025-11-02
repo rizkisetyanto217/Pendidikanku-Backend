@@ -5,7 +5,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	statsCtl "masjidku_backend/internals/features/lembaga/stats/semester_stats/controller"
+	statsCtl "schoolku_backend/internals/features/lembaga/stats/semester_stats/controller"
 )
 
 // Admin endpoints: GET all (with filters)

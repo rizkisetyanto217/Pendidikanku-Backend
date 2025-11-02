@@ -17,13 +17,12 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	dto "schoolku_backend/internals/features/school/submissions_assesments/submissions/dto"
+	model "schoolku_backend/internals/features/school/submissions_assesments/submissions/model"
 
-	dto "masjidku_backend/internals/features/school/submissions_assesments/submissions/dto"
-	model "masjidku_backend/internals/features/school/submissions_assesments/submissions/model"
-
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
-	helperOSS "masjidku_backend/internals/helpers/oss"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
+	helperOSS "schoolku_backend/internals/helpers/oss"
 )
 
 type SubmissionController struct {
@@ -58,8 +57,8 @@ func applyFilters(q *gorm.DB, f *dto.ListSubmissionsQuery) *gorm.DB {
 	if f == nil {
 		return q
 	}
-	if f.MasjidID != nil {
-		q = q.Where("submission_masjid_id = ?", *f.MasjidID)
+	if f.SchoolID != nil {
+		q = q.Where("submission_school_id = ?", *f.SchoolID)
 	}
 	if f.AssessmentID != nil {
 		q = q.Where("submission_assessment_id = ?", *f.AssessmentID)
@@ -106,37 +105,37 @@ func applySort(q *gorm.DB, sort string) *gorm.DB {
 func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 	c.Locals("DB", ctrl.DB)
 
-	// ---------- Role & Masjid context (STUDENT) ----------
-	mc, _ := helperAuth.ResolveMasjidContext(c)
+	// ---------- Role & School context (STUDENT) ----------
+	mc, _ := helperAuth.ResolveSchoolContext(c)
 
-	var masjidID uuid.UUID
+	var schoolID uuid.UUID
 	if mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "" {
 		id, er := func() (uuid.UUID, error) {
 			if mc.ID != uuid.Nil {
 				return mc.ID, nil
 			}
-			return helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+			return helperAuth.GetSchoolIDBySlug(c, mc.Slug)
 		}()
 		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusNotFound, "Masjid (context) tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "School (context) tidak ditemukan")
 		}
-		masjidID = id
-		if err := helperAuth.EnsureStudentMasjid(c, masjidID); err != nil {
+		schoolID = id
+		if err := helperAuth.EnsureStudentSchool(c, schoolID); err != nil {
 			return err
 		}
 	} else {
-		id, err := helperAuth.GetActiveMasjidID(c)
+		id, err := helperAuth.GetActiveSchoolID(c)
 		if err != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid aktif tidak ditemukan di token")
+			return helper.JsonError(c, fiber.StatusUnauthorized, "School aktif tidak ditemukan di token")
 		}
-		masjidID = id
-		if err := helperAuth.EnsureStudentMasjid(c, masjidID); err != nil {
+		schoolID = id
+		if err := helperAuth.EnsureStudentSchool(c, schoolID); err != nil {
 			return err
 		}
 	}
 
-	// Ambil student_id milik caller pada masjid ini
-	sid, err := helperAuth.GetMasjidStudentIDForMasjid(c, masjidID)
+	// Ambil student_id milik caller pada school ini
+	sid, err := helperAuth.GetSchoolStudentIDForSchool(c, schoolID)
 	if err != nil || sid == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusForbidden, "Hanya siswa terdaftar yang diizinkan membuat submission")
 	}
@@ -238,7 +237,7 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 	}
 
 	// ---------- Force tenant & caller identity ----------
-	subReq.SubmissionMasjidID = masjidID
+	subReq.SubmissionSchoolID = schoolID
 	subReq.SubmissionStudentID = sid
 
 	// ---------- Validasi submission ----------
@@ -258,7 +257,7 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 	if err := ctrl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		// 1) Simpan submission
 		sub := &model.Submission{
-			SubmissionMasjidID:     subReq.SubmissionMasjidID,
+			SubmissionSchoolID:     subReq.SubmissionSchoolID,
 			SubmissionAssessmentID: subReq.SubmissionAssessmentID,
 			SubmissionStudentID:    subReq.SubmissionStudentID,
 			SubmissionText:         subReq.SubmissionText,
@@ -285,7 +284,7 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 		var urlModels []model.SubmissionURLModel
 		for _, u := range urlUpserts {
 			row := model.SubmissionURLModel{
-				SubmissionURLMasjidID:     masjidID,
+				SubmissionURLSchoolID:     schoolID,
 				SubmissionURLSubmissionID: sub.SubmissionID,
 				SubmissionURLKind:         strings.TrimSpace(strings.ToLower(u.SubmissionURLKind)),
 				SubmissionURLLabel:        u.SubmissionURLLabel,
@@ -320,7 +319,7 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 					}
 					ctx := context.Background()
 					for _, fh := range fhs {
-						publicURL, uerr := helperOSS.UploadAnyToOSS(ctx, oss, masjidID, "submissions", fh)
+						publicURL, uerr := helperOSS.UploadAnyToOSS(ctx, oss, schoolID, "submissions", fh)
 						if uerr != nil {
 							return uerr
 						}
@@ -334,7 +333,7 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 						}
 						if row == nil {
 							urlModels = append(urlModels, model.SubmissionURLModel{
-								SubmissionURLMasjidID:     masjidID,
+								SubmissionURLSchoolID:     schoolID,
 								SubmissionURLSubmissionID: sub.SubmissionID,
 								SubmissionURLKind:         "attachment",
 								SubmissionURLOrder:        len(urlModels) + 1,
@@ -366,13 +365,13 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 				if it.SubmissionURLIsPrimary {
 					if err := tx.Model(&model.SubmissionURLModel{}).
 						Where(`
-							submission_url_masjid_id = ?
+							submission_url_school_id = ?
 							AND submission_url_submission_id = ?
 							AND submission_url_kind = ?
 							AND submission_url_id <> ?
 							AND submission_url_deleted_at IS NULL
 						`,
-							masjidID, sub.SubmissionID, it.SubmissionURLKind, it.SubmissionURLID,
+							schoolID, sub.SubmissionID, it.SubmissionURLKind, it.SubmissionURLID,
 						).
 						Update("submission_url_is_primary", false).Error; err != nil {
 						return fiber.NewError(fiber.StatusInternalServerError, "Gagal set primary lampiran")
@@ -406,7 +405,7 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 			for i := range rows {
 				out = append(out, fiber.Map{
 					"submission_url_id":            rows[i].SubmissionURLID,
-					"submission_url_masjid_id":     rows[i].SubmissionURLMasjidID,
+					"submission_url_school_id":     rows[i].SubmissionURLSchoolID,
 					"submission_url_submission_id": rows[i].SubmissionURLSubmissionID,
 					"submission_url_kind":          rows[i].SubmissionURLKind,
 					"submission_url_href":          rows[i].SubmissionURLHref,
@@ -429,25 +428,25 @@ PATCH /submissions/:id/urls   (WRITE — DKM/Teacher/Admin/Owner)
 func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 	c.Locals("DB", ctrl.DB)
 
-	// ── Resolve masjid + role guard (DKM/Teacher/Owner) ──
+	// ── Resolve school + role guard (DKM/Teacher/Owner) ──
 	subID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "submission id tidak valid")
 	}
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil || masjidID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	schoolID, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
+	if err != nil || schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "School ID tidak ditemukan di token")
 	}
-	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, masjidID); err != nil && !helperAuth.IsOwner(c) {
+	if err := helperAuth.EnsureDKMOrTeacherSchool(c, schoolID); err != nil && !helperAuth.IsOwner(c) {
 		return err
 	}
 
-	// Pastikan submission milik masjid ini
+	// Pastikan submission milik school ini
 	{
 		var count int64
 		if err := ctrl.DB.WithContext(c.Context()).
 			Model(&model.Submission{}).
-			Where("submission_id = ? AND submission_masjid_id = ? AND submission_deleted_at IS NULL", subID, masjidID).
+			Where("submission_id = ? AND submission_school_id = ? AND submission_deleted_at IS NULL", subID, schoolID).
 			Count(&count).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
@@ -556,9 +555,9 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 		var existing []model.SubmissionURLModel
 		if err := tx.Where(`
 			submission_url_submission_id = ?
-			AND submission_url_masjid_id = ?
+			AND submission_url_school_id = ?
 			AND submission_url_deleted_at IS NULL
-		`, subID, masjidID).Find(&existing).Error; err != nil {
+		`, subID, schoolID).Find(&existing).Error; err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil lampiran")
 		}
 		byID := map[uuid.UUID]*model.SubmissionURLModel{}
@@ -591,7 +590,7 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 			if u.ID == nil {
 				// INSERT
 				row := model.SubmissionURLModel{
-					SubmissionURLMasjidID:     masjidID,
+					SubmissionURLSchoolID:     schoolID,
 					SubmissionURLSubmissionID: subID,
 					SubmissionURLKind:         u.Kind,
 					SubmissionURLLabel:        u.Label,
@@ -609,7 +608,7 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 
 				// upload file baru jika diminta (replace_file saat insert = upload)
 				if u.ReplaceFile && haveOSS && fileIdx < len(files) {
-					publicURL, uerr := helperOSS.UploadAnyToOSS(c.Context(), bucket, masjidID, "submissions", files[fileIdx])
+					publicURL, uerr := helperOSS.UploadAnyToOSS(c.Context(), bucket, schoolID, "submissions", files[fileIdx])
 					if uerr != nil {
 						return uerr
 					}
@@ -652,7 +651,7 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 
 			// replace file → simpan key lama di *_old
 			if u.ReplaceFile && haveOSS && fileIdx < len(files) {
-				publicURL, uerr := helperOSS.UploadAnyToOSS(c.Context(), bucket, masjidID, "submissions", files[fileIdx])
+				publicURL, uerr := helperOSS.UploadAnyToOSS(c.Context(), bucket, schoolID, "submissions", files[fileIdx])
 				if uerr != nil {
 					return uerr
 				}
@@ -677,8 +676,8 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 			if len(patch) > 0 {
 				patch["submission_url_updated_at"] = time.Now()
 				if err := tx.Model(&model.SubmissionURLModel{}).
-					Where("submission_url_id = ? AND submission_url_masjid_id = ? AND submission_url_submission_id = ? AND submission_url_deleted_at IS NULL",
-						*u.ID, masjidID, subID).
+					Where("submission_url_id = ? AND submission_url_school_id = ? AND submission_url_submission_id = ? AND submission_url_deleted_at IS NULL",
+						*u.ID, schoolID, subID).
 					Updates(patch).Error; err != nil {
 					return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengubah URL")
 				}
@@ -694,12 +693,12 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 			if it.SubmissionURLIsPrimary {
 				if err := tx.Model(&model.SubmissionURLModel{}).
 					Where(`
-						submission_url_masjid_id = ?
+						submission_url_school_id = ?
 						AND submission_url_submission_id = ?
 						AND submission_url_kind = ?
 						AND submission_url_id <> ?
 						AND submission_url_deleted_at IS NULL
-					`, masjidID, subID, it.SubmissionURLKind, it.SubmissionURLID).
+					`, schoolID, subID, it.SubmissionURLKind, it.SubmissionURLID).
 					Update("submission_url_is_primary", false).Error; err != nil {
 					return fiber.NewError(fiber.StatusInternalServerError, "Gagal set primary unik")
 				}
@@ -718,7 +717,7 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 	// Response: list terbaru
 	var rows []model.SubmissionURLModel
 	_ = ctrl.DB.
-		Where("submission_url_submission_id = ? AND submission_url_masjid_id = ? AND submission_url_deleted_at IS NULL", subID, masjidID).
+		Where("submission_url_submission_id = ? AND submission_url_school_id = ? AND submission_url_deleted_at IS NULL", subID, schoolID).
 		Order("submission_url_is_primary DESC, submission_url_order ASC, submission_url_created_at ASC").
 		Find(&rows)
 
@@ -743,11 +742,11 @@ func (ctrl *SubmissionController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "url id tidak valid")
 	}
 
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-	if err != nil || masjidID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+	schoolID, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
+	if err != nil || schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "School ID tidak ditemukan di token")
 	}
-	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, masjidID); err != nil && !helperAuth.IsOwner(c) {
+	if err := helperAuth.EnsureDKMOrTeacherSchool(c, schoolID); err != nil && !helperAuth.IsOwner(c) {
 		return err
 	}
 
@@ -757,9 +756,9 @@ func (ctrl *SubmissionController) Delete(c *fiber.Ctx) error {
 		Where(`
 			submission_url_id = ?
 			AND submission_url_submission_id = ?
-			AND submission_url_masjid_id = ?
+			AND submission_url_school_id = ?
 			AND submission_url_deleted_at IS NULL
-		`, urlID, subID, masjidID).
+		`, urlID, subID, schoolID).
 		First(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "URL tidak ditemukan")
@@ -798,7 +797,7 @@ func (ctrl *SubmissionController) Delete(c *fiber.Ctx) error {
 
 	if err := ctrl.DB.WithContext(c.Context()).
 		Model(&model.SubmissionURLModel{}).
-		Where("submission_url_id = ? AND submission_url_masjid_id = ? AND submission_url_submission_id = ?", urlID, masjidID, subID).
+		Where("submission_url_id = ? AND submission_url_school_id = ? AND submission_url_submission_id = ?", urlID, schoolID, subID).
 		Updates(updates).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}

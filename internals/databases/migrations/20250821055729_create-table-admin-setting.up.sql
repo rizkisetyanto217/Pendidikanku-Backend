@@ -1,9 +1,9 @@
 CREATE TABLE IF NOT EXISTS class_attendance_settings (
   class_attendance_setting_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  -- pakai masjids(masjid_id), bukan masjids(id)
-  class_attendance_setting_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  -- pakai schools(school_id), bukan schools(id)
+  class_attendance_setting_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- switches
   class_attendance_setting_enable_score               BOOLEAN NOT NULL DEFAULT false,
@@ -29,11 +29,11 @@ CREATE TABLE IF NOT EXISTS class_attendance_settings (
 );
 
 -- index & constraints
-CREATE INDEX IF NOT EXISTS idx_cas_masjid_id
-  ON class_attendance_settings(class_attendance_setting_masjid_id);
+CREATE INDEX IF NOT EXISTS idx_cas_school_id
+  ON class_attendance_settings(class_attendance_setting_school_id);
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_masjid_unique
-ON class_attendance_settings(class_attendance_setting_masjid_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_school_unique
+ON class_attendance_settings(class_attendance_setting_school_id);
 
 ALTER TABLE class_attendance_settings
 ADD CONSTRAINT ck_cas_require_implies_enable CHECK (

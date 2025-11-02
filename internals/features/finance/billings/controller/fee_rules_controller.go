@@ -14,11 +14,11 @@ import (
 	"gorm.io/gorm/clause"
 
 	// ==== Import yang benar ====
-	dto "masjidku_backend/internals/features/finance/billings/dto"
-	model "masjidku_backend/internals/features/finance/billings/model"
-	"masjidku_backend/internals/features/finance/general_billings/snapshot"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	dto "schoolku_backend/internals/features/finance/billings/dto"
+	model "schoolku_backend/internals/features/finance/billings/model"
+	"schoolku_backend/internals/features/finance/general_billings/snapshot"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 /* =======================================================
@@ -46,10 +46,10 @@ func parseUUID(c *fiber.Ctx, param string) (uuid.UUID, error) {
 	return uuid.Parse(idStr)
 }
 
-func mustMasjidID(c *fiber.Ctx) (uuid.UUID, error) {
-	midStr := strings.TrimSpace(c.Params("masjid_id"))
+func mustSchoolID(c *fiber.Ctx) (uuid.UUID, error) {
+	midStr := strings.TrimSpace(c.Params("school_id"))
 	if midStr == "" {
-		return uuid.Nil, fmt.Errorf("masjid_id missing in path")
+		return uuid.Nil, fmt.Errorf("school_id missing in path")
 	}
 	return uuid.Parse(midStr)
 }
@@ -58,14 +58,14 @@ func mustMasjidID(c *fiber.Ctx) (uuid.UUID, error) {
    FEE RULES (AUTHORIZED + TENANT-SCOPED)
 ======================================================= */
 
-// POST /:masjid_id/spp/fee-rules
-// POST /:masjid_id/spp/fee-rules
+// POST /:school_id/spp/fee-rules
+// POST /:school_id/spp/fee-rules
 func (h *Handler) CreateFeeRule(c *fiber.Ctx) error {
-	masjidID, err := mustMasjidID(c)
+	schoolID, err := mustSchoolID(c)
 	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "invalid masjid_id")
+		return helper.JsonError(c, http.StatusBadRequest, "invalid school_id")
 	}
-	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
+	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
 		return err
 	}
 
@@ -75,7 +75,7 @@ func (h *Handler) CreateFeeRule(c *fiber.Ctx) error {
 	}
 
 	// selalu set dari path (abaikan body)
-	in.FeeRuleMasjidID = masjidID
+	in.FeeRuleSchoolID = schoolID
 
 	// rakit model dari DTO
 	m := dto.FeeRuleCreateDTOToModel(in) // -> fee.FeeRule
@@ -84,7 +84,7 @@ func (h *Handler) CreateFeeRule(c *fiber.Ctx) error {
 	if err := h.DB.Transaction(func(tx *gorm.DB) error {
 		// Jika ada referensi General Billing Kind, ambil snapshot dan isi ke kolom *_snapshot
 		if m.FeeRuleGeneralBillingKindID != nil {
-			snap, err := snapshot.ValidateAndSnapshotGBK(tx, masjidID, *m.FeeRuleGeneralBillingKindID)
+			snap, err := snapshot.ValidateAndSnapshotGBK(tx, schoolID, *m.FeeRuleGeneralBillingKindID)
 			if err != nil {
 				// salah tenant / tidak ditemukan / dll.
 				return err
@@ -117,13 +117,13 @@ func (h *Handler) CreateFeeRule(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "fee rule created", dto.ToFeeRuleResponse(m))
 }
 
-// PATCH /:masjid_id/spp/fee-rules/:id
+// PATCH /:school_id/spp/fee-rules/:id
 func (h *Handler) UpdateFeeRule(c *fiber.Ctx) error {
-	masjidID, err := mustMasjidID(c)
+	schoolID, err := mustSchoolID(c)
 	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "invalid masjid_id")
+		return helper.JsonError(c, http.StatusBadRequest, "invalid school_id")
 	}
-	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
+	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
 		return err
 	}
 
@@ -139,15 +139,15 @@ func (h *Handler) UpdateFeeRule(c *fiber.Ctx) error {
 
 	var m model.FeeRule
 	if err := h.DB.First(&m,
-		"fee_rule_id = ? AND fee_rule_masjid_id = ? AND fee_rule_deleted_at IS NULL",
-		id, masjidID).Error; err != nil {
+		"fee_rule_id = ? AND fee_rule_school_id = ? AND fee_rule_deleted_at IS NULL",
+		id, schoolID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "fee_rule not found")
 		}
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	// masjid_id tidak boleh diubah lewat update; cukup apply field lain
+	// school_id tidak boleh diubah lewat update; cukup apply field lain
 	dto.ApplyFeeRuleUpdate(&m, in)
 
 	if err := h.DB.Save(&m).Error; err != nil {
@@ -156,13 +156,13 @@ func (h *Handler) UpdateFeeRule(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "fee rule updated", dto.ToFeeRuleResponse(m))
 }
 
-// GET /:masjid_id/spp/fee-rules
+// GET /:school_id/spp/fee-rules
 func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
-	masjidID, err := mustMasjidID(c)
+	schoolID, err := mustSchoolID(c)
 	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "invalid masjid_id")
+		return helper.JsonError(c, http.StatusBadRequest, "invalid school_id")
 	}
-	if err := helperAuth.EnsureMemberMasjid(c, masjidID); err != nil {
+	if err := helperAuth.EnsureMemberSchool(c, schoolID); err != nil {
 		return err
 	}
 
@@ -171,7 +171,7 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 
 	q := h.DB.Model(&model.FeeRule{}).
 		Where("fee_rule_deleted_at IS NULL").
-		Where("fee_rule_masjid_id = ?", masjidID)
+		Where("fee_rule_school_id = ?", schoolID)
 
 	if oc := c.Query("option_code"); oc != "" {
 		q = q.Where("LOWER(fee_rule_option_code) = ?", strings.ToLower(oc))
@@ -227,11 +227,11 @@ func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
 // =======================================================
 
 func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
-	masjidID, err := mustMasjidID(c)
+	schoolID, err := mustSchoolID(c)
 	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "invalid masjid_id")
+		return helper.JsonError(c, http.StatusBadRequest, "invalid school_id")
 	}
-	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
+	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
 		return err
 	}
 
@@ -241,7 +241,7 @@ func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 	}
 
 	// Normalize & guard
-	in.StudentBillMasjidID = masjidID
+	in.StudentBillSchoolID = schoolID
 	if in.BillBatchID == uuid.Nil {
 		return helper.JsonError(c, http.StatusBadRequest, "bill_batch_id is required")
 	}
@@ -270,8 +270,8 @@ func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 	// 1) Load batch (tenant-scoped)
 	var batch model.BillBatch
 	if err := h.DB.First(&batch,
-		"bill_batch_id = ? AND bill_batch_masjid_id = ? AND bill_batch_deleted_at IS NULL",
-		in.BillBatchID, masjidID).Error; err != nil {
+		"bill_batch_id = ? AND bill_batch_school_id = ? AND bill_batch_deleted_at IS NULL",
+		in.BillBatchID, schoolID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "bill_batch not found")
 		}
@@ -295,8 +295,8 @@ func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 	if in.IdempotencyKey != nil {
 		var count int64
 		if err := h.DB.Model(&model.StudentBill{}).
-			Where("student_bill_batch_id = ? AND student_bill_masjid_id = ? AND student_bill_deleted_at IS NULL",
-				in.BillBatchID, masjidID).
+			Where("student_bill_batch_id = ? AND student_bill_school_id = ? AND student_bill_deleted_at IS NULL",
+				in.BillBatchID, schoolID).
 			Count(&count).Error; err == nil && int(count) >= len(targetIDs) {
 			return helper.JsonOK(c, "already generated", dto.GenerateStudentBillsResponse{
 				BillBatchID: in.BillBatchID,
@@ -316,15 +316,15 @@ func (h *Handler) GenerateStudentBills(c *fiber.Ctx) error {
 			}
 			usb := model.StudentBill{
 				StudentBillBatchID:         in.BillBatchID,
-				StudentBillMasjidID:        in.StudentBillMasjidID,
-				StudentBillMasjidStudentID: &sid,
+				StudentBillSchoolID:        in.StudentBillSchoolID,
+				StudentBillSchoolStudentID: &sid,
 				StudentBillOptionCode:      &in.Labeling.OptionCode,
 				StudentBillOptionLabel:     in.Labeling.OptionLabel,
 				StudentBillAmountIDR:       amount,
 				StudentBillStatus:          "unpaid",
 			}
 			if err := tx.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "student_bill_batch_id"}, {Name: "student_bill_masjid_student_id"}},
+				Columns:   []clause.Column{{Name: "student_bill_batch_id"}, {Name: "student_bill_school_student_id"}},
 				DoNothing: true,
 			}).Create(&usb).Error; err != nil {
 				return err
@@ -356,7 +356,7 @@ type idRow struct{ ID uuid.UUID }
 func (h *Handler) resolveTargetStudents(in dto.GenerateStudentBillsRequest) ([]uuid.UUID, error) {
 	switch in.Source.Type {
 	case "students":
-		return in.Source.MasjidStudentIDs, nil
+		return in.Source.SchoolStudentIDs, nil
 
 	case "section":
 		if in.Source.SectionID == nil {
@@ -364,17 +364,17 @@ func (h *Handler) resolveTargetStudents(in dto.GenerateStudentBillsRequest) ([]u
 		}
 		var rows []idRow
 		q := h.DB.Raw(`
-			SELECT ms.masjid_student_id AS id
+			SELECT ms.school_student_id AS id
 			FROM student_class_sections scs
-			JOIN masjid_students ms
-			  ON ms.masjid_student_id = scs.student_class_section_masjid_student_id
-			WHERE scs.student_class_section_masjid_id = ?
+			JOIN school_students ms
+			  ON ms.school_student_id = scs.student_class_section_school_student_id
+			WHERE scs.student_class_section_school_id = ?
 			  AND scs.student_class_section_section_id = ?
 			  AND (COALESCE(?, false) IS FALSE
 			       OR scs.student_class_section_status = 'active')
-			  AND ms.masjid_student_deleted_at IS NULL
+			  AND ms.school_student_deleted_at IS NULL
 		`,
-			in.StudentBillMasjidID,
+			in.StudentBillSchoolID,
 			*in.Source.SectionID,
 			in.Filters != nil && in.Filters.OnlyActiveStudents,
 		).Scan(&rows)
@@ -394,19 +394,19 @@ func (h *Handler) resolveTargetStudents(in dto.GenerateStudentBillsRequest) ([]u
 		}
 		var rows []idRow
 		q := h.DB.Raw(`
-			SELECT ms.masjid_student_id AS id
+			SELECT ms.school_student_id AS id
 			FROM student_class_sections scs
 			JOIN class_sections cs
 			  ON cs.class_section_id = scs.student_class_section_section_id
-			JOIN masjid_students ms
-			  ON ms.masjid_student_id = scs.student_class_section_masjid_student_id
-			WHERE scs.student_class_section_masjid_id = ?
+			JOIN school_students ms
+			  ON ms.school_student_id = scs.student_class_section_school_student_id
+			WHERE scs.student_class_section_school_id = ?
 			  AND cs.class_section_class_id = ?
 			  AND (COALESCE(?, false) IS FALSE
 			       OR scs.student_class_section_status = 'active')
-			  AND ms.masjid_student_deleted_at IS NULL
+			  AND ms.school_student_deleted_at IS NULL
 		`,
-			in.StudentBillMasjidID,
+			in.StudentBillSchoolID,
 			*in.Source.ClassID,
 			in.Filters != nil && in.Filters.OnlyActiveStudents,
 		).Scan(&rows)
@@ -437,7 +437,7 @@ type studentContext struct {
 	ClassID   *uuid.UUID
 }
 
-func (h *Handler) getStudentActiveContext(tx *gorm.DB, masjidID, studentID uuid.UUID) (studentContext, error) {
+func (h *Handler) getStudentActiveContext(tx *gorm.DB, schoolID, studentID uuid.UUID) (studentContext, error) {
 	var r struct {
 		SectionID *uuid.UUID
 		ClassID   *uuid.UUID
@@ -449,11 +449,11 @@ func (h *Handler) getStudentActiveContext(tx *gorm.DB, masjidID, studentID uuid.
 		FROM student_class_sections scs
 		LEFT JOIN class_sections cs
 		  ON cs.class_section_id = scs.student_class_section_section_id
-		WHERE scs.student_class_section_masjid_id = ?
-		  AND scs.student_class_section_masjid_student_id = ?
+		WHERE scs.student_class_section_school_id = ?
+		  AND scs.student_class_section_school_student_id = ?
 		  AND scs.student_class_section_status = 'active'
 		LIMIT 1
-	`, masjidID, studentID).Scan(&r)
+	`, schoolID, studentID).Scan(&r)
 	if q.Error != nil {
 		return studentContext{}, q.Error
 	}
@@ -471,7 +471,7 @@ func (h *Handler) resolveAmountWithContext(tx *gorm.DB, in dto.GenerateStudentBi
 	}
 
 	// Mode rule_fallback_fixed
-	ctx, err := h.getStudentActiveContext(tx, in.StudentBillMasjidID, studentID)
+	ctx, err := h.getStudentActiveContext(tx, in.StudentBillSchoolID, studentID)
 	if err != nil {
 		return 0, err
 	}
@@ -485,7 +485,7 @@ func (h *Handler) resolveAmountWithContext(tx *gorm.DB, in dto.GenerateStudentBi
 	}
 
 	q := tx.Model(&model.FeeRule{}).
-		Where("fee_rule_masjid_id = ?", in.StudentBillMasjidID).
+		Where("fee_rule_school_id = ?", in.StudentBillSchoolID).
 		Where("LOWER(fee_rule_option_code) = ?", optionCode).
 		Where("fee_rule_deleted_at IS NULL").
 		Where("?::date >= COALESCE(fee_rule_effective_from, '-infinity'::date) AND ?::date <= COALESCE(fee_rule_effective_to, 'infinity'::date)", eff, eff)
@@ -504,7 +504,7 @@ func (h *Handler) resolveAmountWithContext(tx *gorm.DB, in dto.GenerateStudentBi
 	// Urutan spesifisitas (gunakan konteks yang ada saja)
 	var rule model.FeeRule
 	q = q.Where(`
-		(fee_rule_scope = 'student' AND fee_rule_masjid_student_id = ?)
+		(fee_rule_scope = 'student' AND fee_rule_school_student_id = ?)
 		OR (fee_rule_scope = 'section' AND fee_rule_section_id = ?)
 		OR (fee_rule_scope = 'class'   AND fee_rule_class_id   = ?)
 		OR (fee_rule_scope = 'class_parent' AND fee_rule_class_parent_id IS NOT NULL)

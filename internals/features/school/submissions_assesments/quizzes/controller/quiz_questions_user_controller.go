@@ -1,10 +1,10 @@
 package controller
 
 import (
-	qdto "masjidku_backend/internals/features/school/submissions_assesments/quizzes/dto"
-	qmodel "masjidku_backend/internals/features/school/submissions_assesments/quizzes/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	qdto "schoolku_backend/internals/features/school/submissions_assesments/quizzes/dto"
+	qmodel "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -14,11 +14,11 @@ import (
 // GET /quiz-questions
 // Query: quiz_id, type, q, page, per_page, sort
 func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
-	// biar helper GetMasjidIDBySlug bisa akses DB dari context
+	// biar helper GetSchoolIDBySlug bisa akses DB dari context
 	c.Locals("DB", ctl.DB)
 
-	// 1) Resolve masjid context (path/header/cookie/query/host/token)
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// 1) Resolve school context (path/header/cookie/query/host/token)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -31,17 +31,17 @@ func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 	if mc.ID != uuid.Nil {
 		mid = mc.ID
 	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
 		mid = id
 	} else {
-		return helper.JsonError(c, helperAuth.ErrMasjidContextMissing.Code, helperAuth.ErrMasjidContextMissing.Message)
+		return helper.JsonError(c, helperAuth.ErrSchoolContextMissing.Code, helperAuth.ErrSchoolContextMissing.Message)
 	}
 
-	// 2) Authorize: minimal member masjid (semua role)
-	if err := helperAuth.EnsureMemberMasjid(c, mid); err != nil {
+	// 2) Authorize: minimal member school (semua role)
+	if err := helperAuth.EnsureMemberSchool(c, mid); err != nil {
 		return err
 	}
 

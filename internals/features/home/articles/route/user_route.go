@@ -1,7 +1,7 @@
 package route
 
 import (
-	homeController "masjidku_backend/internals/features/home/articles/controller"
+	homeController "schoolku_backend/internals/features/home/articles/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"masjidku_backend/internals/features/lembaga/ui/theme/model"
+	"schoolku_backend/internals/features/lembaga/ui/theme/model"
 
 	"github.com/google/uuid"
 )
@@ -14,37 +14,38 @@ import (
 UIThemeChoiceRequest
 - Dipakai untuk CREATE & PATCH.
 - CREATE:
-  * wajib kirim: masjid_id
-  * pilih tepat salah satu: preset_id ATAU custom_preset_id (exactly-one)
+  - wajib kirim: school_id
+  - pilih tepat salah satu: preset_id ATAU custom_preset_id (exactly-one)
+
 - PATCH:
-  * boleh ubah masjid_id (jarang), preset_id, custom_preset_id, is_default, is_enabled
-  * Aturan switch:
-      - Jika Anda mengirim preset_id pada PATCH → custom_preset_id otomatis di-clear (jadi nil)
-      - Jika Anda mengirim custom_preset_id → preset_id otomatis di-clear (jadi nil)
+  - boleh ubah school_id (jarang), preset_id, custom_preset_id, is_default, is_enabled
+  - Aturan switch:
+  - Jika Anda mengirim preset_id pada PATCH → custom_preset_id otomatis di-clear (jadi nil)
+  - Jika Anda mengirim custom_preset_id → preset_id otomatis di-clear (jadi nil)
 */
 type UIThemeChoiceRequest struct {
-	UIThemeChoiceMasjidID       *uuid.UUID `json:"ui_theme_choice_masjid_id,omitempty"`
+	UIThemeChoiceSchoolID *uuid.UUID `json:"ui_theme_choice_school_id,omitempty"`
 
 	// Exactly-one-of (lihat aturan di atas)
 	UIThemeChoicePresetID       *uuid.UUID `json:"ui_theme_choice_preset_id,omitempty"`
 	UIThemeChoiceCustomPresetID *uuid.UUID `json:"ui_theme_choice_custom_preset_id,omitempty"`
 
-	UIThemeChoiceIsDefault      *bool      `json:"ui_theme_choice_is_default,omitempty"`
-	UIThemeChoiceIsEnabled      *bool      `json:"ui_theme_choice_is_enabled,omitempty"`
+	UIThemeChoiceIsDefault *bool `json:"ui_theme_choice_is_default,omitempty"`
+	UIThemeChoiceIsEnabled *bool `json:"ui_theme_choice_is_enabled,omitempty"`
 }
 
 /*
 UIThemeChoiceResponse
 */
 type UIThemeChoiceResponse struct {
-	UIThemeChoiceID              uuid.UUID  `json:"ui_theme_choice_id"`
-	UIThemeChoiceMasjidID        uuid.UUID  `json:"ui_theme_choice_masjid_id"`
-	UIThemeChoicePresetID        *uuid.UUID `json:"ui_theme_choice_preset_id,omitempty"`
-	UIThemeChoiceCustomPresetID  *uuid.UUID `json:"ui_theme_choice_custom_preset_id,omitempty"`
-	UIThemeChoiceIsDefault       bool       `json:"ui_theme_choice_is_default"`
-	UIThemeChoiceIsEnabled       bool       `json:"ui_theme_choice_is_enabled"`
-	UIThemeChoiceCreatedAt       time.Time  `json:"ui_theme_choice_created_at"`
-	UIThemeChoiceUpdatedAt       time.Time  `json:"ui_theme_choice_updated_at"`
+	UIThemeChoiceID             uuid.UUID  `json:"ui_theme_choice_id"`
+	UIThemeChoiceSchoolID       uuid.UUID  `json:"ui_theme_choice_school_id"`
+	UIThemeChoicePresetID       *uuid.UUID `json:"ui_theme_choice_preset_id,omitempty"`
+	UIThemeChoiceCustomPresetID *uuid.UUID `json:"ui_theme_choice_custom_preset_id,omitempty"`
+	UIThemeChoiceIsDefault      bool       `json:"ui_theme_choice_is_default"`
+	UIThemeChoiceIsEnabled      bool       `json:"ui_theme_choice_is_enabled"`
+	UIThemeChoiceCreatedAt      time.Time  `json:"ui_theme_choice_created_at"`
+	UIThemeChoiceUpdatedAt      time.Time  `json:"ui_theme_choice_updated_at"`
 }
 
 /* =========================
@@ -52,8 +53,8 @@ type UIThemeChoiceResponse struct {
 ========================= */
 
 func (r *UIThemeChoiceRequest) ValidateCreate() error {
-	if r.UIThemeChoiceMasjidID == nil {
-		return errors.New("ui_theme_choice_masjid_id is required")
+	if r.UIThemeChoiceSchoolID == nil {
+		return errors.New("ui_theme_choice_school_id is required")
 	}
 	// exactly-one: preset xor custom
 	hasPreset := r.UIThemeChoicePresetID != nil
@@ -67,7 +68,7 @@ func (r *UIThemeChoiceRequest) ValidateCreate() error {
 }
 
 func (r *UIThemeChoiceRequest) IsNoop() bool {
-	return r.UIThemeChoiceMasjidID == nil &&
+	return r.UIThemeChoiceSchoolID == nil &&
 		r.UIThemeChoicePresetID == nil &&
 		r.UIThemeChoiceCustomPresetID == nil &&
 		r.UIThemeChoiceIsDefault == nil &&
@@ -81,7 +82,7 @@ func (r *UIThemeChoiceRequest) IsNoop() bool {
 func ToUIThemeChoiceResponse(m *model.UIThemeChoice) UIThemeChoiceResponse {
 	return UIThemeChoiceResponse{
 		UIThemeChoiceID:             m.UIThemeChoiceID,
-		UIThemeChoiceMasjidID:       m.UIThemeChoiceMasjidID,
+		UIThemeChoiceSchoolID:       m.UIThemeChoiceSchoolID,
 		UIThemeChoicePresetID:       m.UIThemeChoicePresetID,
 		UIThemeChoiceCustomPresetID: m.UIThemeChoiceCustomPresetID,
 		UIThemeChoiceIsDefault:      m.UIThemeChoiceIsDefault,
@@ -100,9 +101,9 @@ func ToUIThemeChoiceResponse(m *model.UIThemeChoice) UIThemeChoiceResponse {
 ========================= */
 
 func ApplyPatchToChoiceModel(entity *model.UIThemeChoice, req *UIThemeChoiceRequest) error {
-	// Masjid ID (jarang diubah, tapi diizinkan jika diperlukan)
-	if req.UIThemeChoiceMasjidID != nil {
-		entity.UIThemeChoiceMasjidID = *req.UIThemeChoiceMasjidID
+	// School ID (jarang diubah, tapi diizinkan jika diperlukan)
+	if req.UIThemeChoiceSchoolID != nil {
+		entity.UIThemeChoiceSchoolID = *req.UIThemeChoiceSchoolID
 	}
 
 	// Siapkan target copy
@@ -147,4 +148,3 @@ func ApplyPatchToChoiceModel(entity *model.UIThemeChoice, req *UIThemeChoiceRequ
 	entity.UIThemeChoiceUpdatedAt = time.Now()
 	return nil
 }
-

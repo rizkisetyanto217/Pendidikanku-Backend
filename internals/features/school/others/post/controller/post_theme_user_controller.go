@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"strings"
 
-	dto "masjidku_backend/internals/features/school/others/post/dto"
-	pmodel "masjidku_backend/internals/features/school/others/post/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	dto "schoolku_backend/internals/features/school/others/post/dto"
+	pmodel "schoolku_backend/internals/features/school/others/post/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -17,29 +17,29 @@ import (
 /* =========================================================
    LIST (PUBLIC)
    GET /post-themes
-   Query: masjid context via resolver (slug/id), kind, parent_id, is_active, q, sort_by, order, page/per_page
+   Query: school context via resolver (slug/id), kind, parent_id, is_active, q, sort_by, order, page/per_page
 ========================================================= */
 
 func (ctl *PostThemeController) List(c *fiber.Ctx) error {
 	// biar resolver slug→id bisa akses DB
 	c.Locals("DB", ctl.DB)
 
-	// Resolve masjid (tanpa auth ketat — publik)
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// Resolve school (tanpa auth ketat — publik)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	var masjidID uuid.UUID
+	var schoolID uuid.UUID
 	if mc.ID != uuid.Nil {
-		masjidID = mc.ID
+		schoolID = mc.ID
 	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, http.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			return helper.JsonError(c, http.StatusNotFound, "School (slug) tidak ditemukan")
 		}
-		masjidID = id
+		schoolID = id
 	} else {
-		return helperAuth.ErrMasjidContextMissing
+		return helperAuth.ErrSchoolContextMissing
 	}
 
 	// Filters
@@ -63,7 +63,7 @@ func (ctl *PostThemeController) List(c *fiber.Ctx) error {
 
 	tx := ctl.DB.WithContext(c.Context()).
 		Model(&pmodel.PostThemeModel{}).
-		Where("post_theme_masjid_id = ? AND post_theme_deleted_at IS NULL", masjidID)
+		Where("post_theme_school_id = ? AND post_theme_deleted_at IS NULL", schoolID)
 
 	// apply filters
 	if q.Kind != nil && strings.TrimSpace(*q.Kind) != "" {

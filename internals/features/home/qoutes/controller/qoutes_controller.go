@@ -5,9 +5,9 @@ import (
 	"math"
 	"strconv"
 
-	"masjidku_backend/internals/features/home/qoutes/dto"
-	"masjidku_backend/internals/features/home/qoutes/model"
-	helpers "masjidku_backend/internals/helpers"
+	"schoolku_backend/internals/features/home/qoutes/dto"
+	"schoolku_backend/internals/features/home/qoutes/model"
+	helpers "schoolku_backend/internals/helpers"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -246,14 +246,24 @@ func (ctrl *QuoteController) GetQuotesByBatch(c *fiber.Ctx) error {
 	}
 
 	pagination := fiber.Map{
-		"page":                  batchNum,
-		"page_size":             batchSize,
-		"total_data":            totalCount,
-		"total_pages":           totalBatches,
-		"has_next":              batchNum < totalBatches,
-		"has_prev":              batchNum > 1,
-		"next_page":             func() int { if batchNum < totalBatches { return batchNum + 1 }; return batchNum }(),
-		"prev_page":             func() int { if batchNum > 1 { return batchNum - 1 }; return batchNum }(),
+		"page":        batchNum,
+		"page_size":   batchSize,
+		"total_data":  totalCount,
+		"total_pages": totalBatches,
+		"has_next":    batchNum < totalBatches,
+		"has_prev":    batchNum > 1,
+		"next_page": func() int {
+			if batchNum < totalBatches {
+				return batchNum + 1
+			}
+			return batchNum
+		}(),
+		"prev_page": func() int {
+			if batchNum > 1 {
+				return batchNum - 1
+			}
+			return batchNum
+		}(),
 		"total_available_batch": totalBatches,
 	}
 	return helpers.JsonList(c, result, pagination)

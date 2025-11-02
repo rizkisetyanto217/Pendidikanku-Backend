@@ -21,7 +21,7 @@ DROP INDEX IF EXISTS idx_lecture_schedules_lecture_id;
 -- user_lectures
 DROP INDEX IF EXISTS idx_user_lectures_paid_partial;
 DROP INDEX IF EXISTS idx_user_lectures_user_lecture_unique;
-DROP INDEX IF EXISTS idx_user_lectures_masjid_id;
+DROP INDEX IF EXISTS idx_user_lectures_school_id;
 DROP INDEX IF EXISTS idx_user_lectures_user_id;
 DROP INDEX IF EXISTS idx_user_lectures_lecture_id;
 
@@ -30,10 +30,10 @@ DROP INDEX IF EXISTS idx_lectures_slug_trgm;
 DROP INDEX IF EXISTS idx_lectures_title_trgm;
 DROP INDEX IF EXISTS idx_lectures_tsv_gin;
 DROP INDEX IF EXISTS idx_lectures_teachers_gin;
-DROP INDEX IF EXISTS idx_lectures_masjid_recent_live;
-DROP INDEX IF EXISTS idx_lectures_masjid_active_recent_live;
+DROP INDEX IF EXISTS idx_lectures_school_recent_live;
+DROP INDEX IF EXISTS idx_lectures_school_active_recent_live;
 DROP INDEX IF EXISTS idx_lectures_created_at_desc;
-DROP INDEX IF EXISTS idx_lectures_masjid_id;
+DROP INDEX IF EXISTS idx_lectures_school_id;
 DROP INDEX IF EXISTS ux_lectures_slug_ci;
 
 -- Drop generated columns (jaga urutan sebelum DROP TABLE)

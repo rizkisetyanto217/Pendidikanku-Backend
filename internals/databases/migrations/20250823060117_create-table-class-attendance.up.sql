@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant
-  class_attendance_session_masjid_id   UUID NOT NULL,
+  class_attendance_session_school_id   UUID NOT NULL,
 
   -- relasi utama: schedule (header)
   class_attendance_session_schedule_id UUID,
@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_override_event_id UUID, -- utk relasi/cek/index override event
 
   -- override resource (referensi langsung; opsional)
-  class_attendance_session_teacher_id    UUID REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE SET NULL,
+  class_attendance_session_teacher_id    UUID REFERENCES school_teachers(school_teacher_id) ON DELETE SET NULL,
   class_attendance_session_class_room_id UUID REFERENCES class_rooms(class_room_id)         ON DELETE SET NULL,
   class_attendance_session_csst_id       UUID REFERENCES class_section_subject_teachers(class_section_subject_teacher_id) ON DELETE SET NULL,
 
@@ -120,8 +120,8 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
 
   -- FK komposit tenant-safe → schedules
   CONSTRAINT fk_cas_schedule_tenant
-    FOREIGN KEY (class_attendance_session_masjid_id, class_attendance_session_schedule_id)
-    REFERENCES class_schedules (class_schedule_masjid_id, class_schedule_id)
+    FOREIGN KEY (class_attendance_session_school_id, class_attendance_session_schedule_id)
+    REFERENCES class_schedules (class_schedule_school_id, class_schedule_id)
     ON UPDATE CASCADE ON DELETE RESTRICT,
 
   -- CHECKS
@@ -152,12 +152,12 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
 
 -- Pair unik id+tenant
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_id_tenant
-  ON class_attendance_sessions (class_attendance_session_id, class_attendance_session_masjid_id);
+  ON class_attendance_sessions (class_attendance_session_id, class_attendance_session_school_id);
 
 -- SLUG unik per tenant (alive only, CI)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_slug_per_tenant_alive
   ON class_attendance_sessions (
-    class_attendance_session_masjid_id,
+    class_attendance_session_school_id,
     lower(class_attendance_session_slug)
   )
   WHERE class_attendance_session_deleted_at IS NULL
@@ -170,18 +170,18 @@ CREATE INDEX IF NOT EXISTS gin_cas_slug_trgm_alive
     AND class_attendance_session_slug IS NOT NULL;
 
 -- Unik per (tenant, schedule, date) yg alive
-CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_masjid_schedule_date_alive
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_school_schedule_date_alive
   ON class_attendance_sessions (
-    class_attendance_session_masjid_id,
+    class_attendance_session_school_id,
     class_attendance_session_schedule_id,
     class_attendance_session_date
   )
   WHERE class_attendance_session_deleted_at IS NULL;
 
 -- Kalender per tenant
-CREATE INDEX IF NOT EXISTS idx_cas_masjid_date_alive
+CREATE INDEX IF NOT EXISTS idx_cas_school_date_alive
   ON class_attendance_sessions (
-    class_attendance_session_masjid_id,
+    class_attendance_session_school_id,
     class_attendance_session_date DESC
   )
   WHERE class_attendance_session_deleted_at IS NULL;
@@ -197,7 +197,7 @@ CREATE INDEX IF NOT EXISTS idx_cas_schedule_date_alive
 -- Lookup per guru (override direct)
 CREATE INDEX IF NOT EXISTS idx_cas_teacher_date_alive
   ON class_attendance_sessions (
-    class_attendance_session_masjid_id,
+    class_attendance_session_school_id,
     class_attendance_session_teacher_id,
     class_attendance_session_date DESC
   )
@@ -206,7 +206,7 @@ CREATE INDEX IF NOT EXISTS idx_cas_teacher_date_alive
 -- Canceled / Override flags
 CREATE INDEX IF NOT EXISTS idx_cas_canceled_date_alive
   ON class_attendance_sessions (
-    class_attendance_session_masjid_id,
+    class_attendance_session_school_id,
     class_attendance_session_is_canceled,
     class_attendance_session_date DESC
   )
@@ -214,7 +214,7 @@ CREATE INDEX IF NOT EXISTS idx_cas_canceled_date_alive
 
 CREATE INDEX IF NOT EXISTS idx_cas_override_date_alive
   ON class_attendance_sessions (
-    class_attendance_session_masjid_id,
+    class_attendance_session_school_id,
     class_attendance_session_is_override,
     class_attendance_session_date DESC
   )
@@ -223,7 +223,7 @@ CREATE INDEX IF NOT EXISTS idx_cas_override_date_alive
 -- Override event lookup
 CREATE INDEX IF NOT EXISTS idx_cas_override_event_alive
   ON class_attendance_sessions (
-    class_attendance_session_masjid_id,
+    class_attendance_session_school_id,
     class_attendance_session_override_event_id
   )
   WHERE class_attendance_session_deleted_at IS NULL;
@@ -243,7 +243,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_sched_start
 -- Unik per (tenant, csst_id_snap, date, starts_at) — idempotent materialize
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_tenant_csst_date_start_alive
   ON class_attendance_sessions (
-    class_attendance_session_masjid_id,
+    class_attendance_session_school_id,
     class_attendance_session_csst_id_snap,
     class_attendance_session_date,
     class_attendance_session_starts_at
@@ -255,9 +255,9 @@ CREATE INDEX IF NOT EXISTS brin_cas_created_at
   ON class_attendance_sessions USING BRIN (class_attendance_session_created_at);
 
 -- Pencarian cepat judul untuk kalender
-CREATE INDEX IF NOT EXISTS idx_cas_masjid_date_title_alive
+CREATE INDEX IF NOT EXISTS idx_cas_school_date_title_alive
   ON class_attendance_sessions (
-    class_attendance_session_masjid_id,
+    class_attendance_session_school_id,
     class_attendance_session_date DESC,
     class_attendance_session_display_title
   )
@@ -278,8 +278,8 @@ CREATE TABLE IF NOT EXISTS class_attendance_session_urls (
   class_attendance_session_url_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Tenant & owner
-  class_attendance_session_url_masjid_id  UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_attendance_session_url_school_id  UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
   class_attendance_session_url_session_id UUID NOT NULL
     REFERENCES class_attendance_sessions(class_attendance_session_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
@@ -319,8 +319,8 @@ CREATE INDEX IF NOT EXISTS ix_casu_by_owner_live
   WHERE class_attendance_session_url_deleted_at IS NULL;
 
 -- Filter per tenant (live only)
-CREATE INDEX IF NOT EXISTS ix_casu_by_masjid_live
-  ON class_attendance_session_urls (class_attendance_session_url_masjid_id)
+CREATE INDEX IF NOT EXISTS ix_casu_by_school_live
+  ON class_attendance_session_urls (class_attendance_session_url_school_id)
   WHERE class_attendance_session_url_deleted_at IS NULL;
 
 -- Satu primary per (session, kind) (live only)

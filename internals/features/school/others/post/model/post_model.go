@@ -29,7 +29,7 @@ const (
 type Post struct {
 	// PK & tenant
 	PostID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:post_id" json:"post_id"`
-	PostMasjidID uuid.UUID `gorm:"type:uuid;not null;column:post_masjid_id" json:"post_masjid_id"`
+	PostSchoolID uuid.UUID `gorm:"type:uuid;not null;column:post_school_id" json:"post_school_id"`
 
 	// Jenis
 	PostKind PostKind `gorm:"type:varchar(24);not null;column:post_kind" json:"post_kind"`

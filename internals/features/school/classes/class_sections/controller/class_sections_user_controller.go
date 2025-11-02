@@ -4,10 +4,10 @@ import (
 	"errors"
 	"strings"
 
-	secDTO "masjidku_backend/internals/features/school/classes/class_sections/dto"
-	secModel "masjidku_backend/internals/features/school/classes/class_sections/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	secDTO "schoolku_backend/internals/features/school/classes/class_sections/dto"
+	secModel "schoolku_backend/internals/features/school/classes/class_sections/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -43,7 +43,7 @@ func parseUUIDList(s string) ([]uuid.UUID, error) {
 
 /* ================= List (simple, snapshot-first) ================= */
 
-// GET /api/{a|u}/:masjid_id/class-sections/list
+// GET /api/{a|u}/:school_id/class-sections/list
 // Params ringan:
 //   - q atau search         : keyword (min 2 char bila pakai q)
 //   - is_active             : bool
@@ -51,22 +51,22 @@ func parseUUIDList(s string) ([]uuid.UUID, error) {
 //
 // Sort & paging via helper.ParseFiber (sortBy: name|created_at)
 func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
-	/* ---------- Masjid context dari path/slug (PUBLIC) ---------- */
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	/* ---------- School context dari path/slug (PUBLIC) ---------- */
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	var masjidID uuid.UUID
+	var schoolID uuid.UUID
 	if mc.ID != uuid.Nil {
-		masjidID = mc.ID
+		schoolID = mc.ID
 	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil {
-			return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			return fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
-		masjidID = id
+		schoolID = id
 	} else {
-		return helperAuth.ErrMasjidContextMissing
+		return helperAuth.ErrSchoolContextMissing
 	}
 
 	/* ---------- Search term ---------- */
@@ -114,10 +114,10 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 		activeOnly = &v
 	}
 
-	/* ---------- Base query (single-tenant via masjid context) ---------- */
+	/* ---------- Base query (single-tenant via school context) ---------- */
 	tx := ctrl.DB.Model(&secModel.ClassSectionModel{}).
 		Where("class_section_deleted_at IS NULL").
-		Where("class_section_masjid_id = ?", masjidID)
+		Where("class_section_school_id = ?", schoolID)
 
 	if len(sectionIDs) > 0 {
 		tx = tx.Where("class_section_id IN ?", sectionIDs)

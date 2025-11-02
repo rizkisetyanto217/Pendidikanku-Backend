@@ -1,4 +1,4 @@
-// file: internals/helpers/auth/masjid_context_resolver.go
+// file: internals/helpers/auth/school_context_resolver.go
 package helper
 
 import (
@@ -10,21 +10,24 @@ import (
 	"gorm.io/gorm"
 )
 
-type MasjidContext struct {
+type SchoolContext struct {
 	ID   uuid.UUID
 	Slug string
 }
 
 var (
-	ErrMasjidContextMissing   = fiber.NewError(fiber.StatusBadRequest, "Masjid context tidak ditemukan. Sertakan :masjid_id di path atau header X-Active-Masjid-ID / query ?masjid_id.")
-	ErrMasjidContextAmbiguous = fiber.NewError(fiber.StatusConflict, "Masjid context ambigu untuk user multi-tenant. Sertakan identitas masjid eksplisit.")
-	ErrMasjidContextForbidden = fiber.NewError(fiber.StatusForbidden, "Anda tidak memiliki akses ke masjid ini atau bukan DKM.")
+	ErrSchoolContextMissing   = fiber.NewError(fiber.StatusBadRequest, "School context tidak ditemukan. Sertakan :school_id di path atau header X-Active-School-ID / query ?school_id.")
+	ErrSchoolContextAmbiguous = fiber.NewError(fiber.StatusConflict, "School context ambigu untuk user multi-tenant. Sertakan identitas school eksplisit.")
+	ErrSchoolContextForbidden = fiber.NewError(fiber.StatusForbidden, "Anda tidak memiliki akses ke school ini atau bukan DKM.")
 )
 
-/* ============================
-   Resolver slug → ID (via DB)
-============================ */
-func GetMasjidIDBySlug(c *fiber.Ctx, slug string) (uuid.UUID, error) {
+/*
+	============================
+	  Resolver slug → ID (via DB)
+
+============================
+*/
+func GetSchoolIDBySlug(c *fiber.Ctx, slug string) (uuid.UUID, error) {
 	dbAny := c.Locals("DB")
 	if dbAny == nil {
 		return uuid.Nil, fiber.NewError(fiber.StatusInternalServerError, "DB context tidak tersedia")
@@ -37,9 +40,9 @@ func GetMasjidIDBySlug(c *fiber.Ctx, slug string) (uuid.UUID, error) {
 	var id uuid.UUID
 	// case-insensitive & only alive
 	if err := db.Raw(`
-		SELECT masjid_id
-		FROM masjids
-		WHERE LOWER(masjid_slug) = LOWER(?) AND masjid_deleted_at IS NULL
+		SELECT school_id
+		FROM schools
+		WHERE LOWER(school_slug) = LOWER(?) AND school_deleted_at IS NULL
 		LIMIT 1
 	`, strings.TrimSpace(slug)).Scan(&id).Error; err != nil {
 		return uuid.Nil, err
@@ -50,50 +53,53 @@ func GetMasjidIDBySlug(c *fiber.Ctx, slug string) (uuid.UUID, error) {
 	return id, nil
 }
 
-/* ==========================================
-   Resolve context: path → header → cookie → query → host → token
-========================================== */
-func ResolveMasjidContext(c *fiber.Ctx) (MasjidContext, error) {
+/*
+	==========================================
+	  Resolve context: path → header → cookie → query → host → token
+
+==========================================
+*/
+func ResolveSchoolContext(c *fiber.Ctx) (SchoolContext, error) {
 	// 1) path
-	if id := strings.TrimSpace(c.Params("masjid_id")); id != "" {
+	if id := strings.TrimSpace(c.Params("school_id")); id != "" {
 		if uid, err := uuid.Parse(id); err == nil {
-			return MasjidContext{ID: uid}, nil
+			return SchoolContext{ID: uid}, nil
 		}
 	}
-	if slug := strings.TrimSpace(c.Params("masjid_slug")); slug != "" {
-		return MasjidContext{Slug: slug}, nil
+	if slug := strings.TrimSpace(c.Params("school_slug")); slug != "" {
+		return SchoolContext{Slug: slug}, nil
 	}
 
 	// 2) header
-	if h := strings.TrimSpace(c.Get("X-Active-Masjid-ID")); h != "" {
+	if h := strings.TrimSpace(c.Get("X-Active-School-ID")); h != "" {
 		if uid, err := uuid.Parse(h); err == nil {
-			return MasjidContext{ID: uid}, nil
+			return SchoolContext{ID: uid}, nil
 		}
 	}
-	if h := strings.TrimSpace(c.Get("X-Active-Masjid-Slug")); h != "" {
-		return MasjidContext{Slug: h}, nil
+	if h := strings.TrimSpace(c.Get("X-Active-School-Slug")); h != "" {
+		return SchoolContext{Slug: h}, nil
 	}
 
 	// 3) cookie (opsional, membantu saat test di Postman)
-	if v := strings.TrimSpace(c.Cookies("X-Active-Masjid-ID")); v != "" {
+	if v := strings.TrimSpace(c.Cookies("X-Active-School-ID")); v != "" {
 		if uid, err := uuid.Parse(v); err == nil {
-			return MasjidContext{ID: uid}, nil
+			return SchoolContext{ID: uid}, nil
 		}
 	}
-	if v := strings.TrimSpace(c.Cookies("X-Active-Masjid-Slug")); v != "" {
-		return MasjidContext{Slug: v}, nil
+	if v := strings.TrimSpace(c.Cookies("X-Active-School-Slug")); v != "" {
+		return SchoolContext{Slug: v}, nil
 	}
 
 	// 4) query
 	q := c.Context().QueryArgs()
-	if b := q.Peek("masjid_id"); len(b) > 0 {
+	if b := q.Peek("school_id"); len(b) > 0 {
 		if uid, err := uuid.Parse(string(b)); err == nil {
-			return MasjidContext{ID: uid}, nil
+			return SchoolContext{ID: uid}, nil
 		}
 	}
-	if b := q.Peek("masjid_slug"); len(b) > 0 {
+	if b := q.Peek("school_slug"); len(b) > 0 {
 		if s, _ := url.QueryUnescape(string(b)); s != "" {
-			return MasjidContext{Slug: s}, nil
+			return SchoolContext{Slug: s}, nil
 		}
 	}
 
@@ -103,66 +109,65 @@ func ResolveMasjidContext(c *fiber.Ctx) (MasjidContext, error) {
 	if len(parts) >= 3 {
 		sub := parts[0]
 		if sub != "www" && sub != "app" && sub != "" {
-			return MasjidContext{Slug: sub}, nil
+			return SchoolContext{Slug: sub}, nil
 		}
 	}
 
 	// 6) fallback token (biasanya hanya single-tenant)
-	if id, err := GetActiveMasjidID(c); err == nil && id != uuid.Nil {
-		return MasjidContext{ID: id}, nil
+	if id, err := GetActiveSchoolID(c); err == nil && id != uuid.Nil {
+		return SchoolContext{ID: id}, nil
 	}
 
-	return MasjidContext{}, ErrMasjidContextMissing
+	return SchoolContext{}, ErrSchoolContextMissing
 }
 
+func EnsureSchoolAccessDKM(c *fiber.Ctx, mc SchoolContext) (uuid.UUID, error) {
+	var schoolID uuid.UUID
 
-func EnsureMasjidAccessDKM(c *fiber.Ctx, mc MasjidContext) (uuid.UUID, error) {
-    var masjidID uuid.UUID
+	// slug → id
+	if mc.ID == uuid.Nil && mc.Slug != "" {
+		id, er := GetSchoolIDBySlug(c, mc.Slug)
+		if er != nil {
+			return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
+		}
+		schoolID = id
+	} else {
+		schoolID = mc.ID
+	}
 
-    // slug → id
-    if mc.ID == uuid.Nil && mc.Slug != "" {
-        id, er := GetMasjidIDBySlug(c, mc.Slug)
-        if er != nil {
-            return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
-        }
-        masjidID = id
-    } else {
-        masjidID = mc.ID
-    }
+	// ✅ 1) Role check DULU (role DKM/Admin di school ini ⇒ otomatis member)
+	if err := EnsureDKMSchool(c, schoolID); err == nil {
+		return schoolID, nil
+	}
 
-    // ✅ 1) Role check DULU (role DKM/Admin di masjid ini ⇒ otomatis member)
-    if err := EnsureDKMMasjid(c, masjidID); err == nil {
-        return masjidID, nil
-    }
+	// ❓ 2) Kalau bukan DKM/Admin, cek apakah memang bukan member
+	if !UserHasSchool(c, schoolID) {
+		return uuid.Nil, fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada school ini (membership).")
+	}
 
-    // ❓ 2) Kalau bukan DKM/Admin, cek apakah memang bukan member
-    if !UserHasMasjid(c, masjidID) {
-        return uuid.Nil, fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada masjid ini (membership).")
-    }
-
-    // ❌ 3) Member, tapi bukan DKM/Admin
-    return uuid.Nil, fiber.NewError(fiber.StatusForbidden, "Anda bukan DKM untuk masjid ini (role).")
+	// ❌ 3) Member, tapi bukan DKM/Admin
+	return uuid.Nil, fiber.NewError(fiber.StatusForbidden, "Anda bukan DKM untuk school ini (role).")
 }
 
-func UserHasMasjid(c *fiber.Ctx, id uuid.UUID) bool {
-    if id == uuid.Nil {
-        return false
-    }
-    // ✅ Anggap member jika ada entry masjid_roles untuk masjid ini
-    if entries, err := parseMasjidRoles(c); err == nil {
-        for _, e := range entries {
-            if e.MasjidID == id {
-                return true
-            }
-        }
-    }
-    // Fallback ke daftar masjid_ids (jika ada)
-    if ids, _ := GetMasjidIDsFromToken(c); len(ids) > 0 {
-        for _, v := range ids {
-            if v == id {
-                return true
-            }
-        }
-    }
-    return false
+func UserHasSchool(c *fiber.Ctx, id uuid.UUID) bool {
+	if id == uuid.Nil {
+		return false
+	}
+	// ✅ Anggap member jika ada entry school_roles untuk school ini
+	if entries, err := parseSchoolRoles(c); err == nil {
+		for _, e := range entries {
+			if e.SchoolID == id {
+				return true
+			}
+		}
+	}
+	// Fallback ke daftar school_ids (jika ada)
+	if ids, _ := GetSchoolIDsFromToken(c); len(ids) > 0 {
+		for _, v := range ids {
+			if v == id {
+				return true
+			}
+		}
+	}
+	return false
 }

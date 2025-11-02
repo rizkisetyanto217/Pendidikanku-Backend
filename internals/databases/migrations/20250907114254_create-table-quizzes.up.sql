@@ -12,8 +12,8 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- =========================================
 CREATE TABLE IF NOT EXISTS quizzes (
   quiz_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  quiz_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  quiz_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   quiz_assessment_id UUID
     REFERENCES assessments(assessment_id)
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
 
 -- SLUG unik per tenant (alive only, case-insensitive)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_quizzes_slug_per_tenant_alive
-  ON quizzes (quiz_masjid_id, LOWER(quiz_slug))
+  ON quizzes (quiz_school_id, LOWER(quiz_slug))
   WHERE quiz_deleted_at IS NULL
     AND quiz_slug IS NOT NULL;
 
@@ -48,11 +48,11 @@ CREATE INDEX IF NOT EXISTS gin_quizzes_slug_trgm_alive
 
 -- pair unik id+tenant (tenant-safe FK di masa depan)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_quizzes_id_tenant
-  ON quizzes (quiz_id, quiz_masjid_id);
+  ON quizzes (quiz_id, quiz_school_id);
 
 -- Publikasi per tenant (alive only)
-CREATE INDEX IF NOT EXISTS idx_quizzes_masjid_published
-  ON quizzes (quiz_masjid_id, quiz_is_published)
+CREATE INDEX IF NOT EXISTS idx_quizzes_school_published
+  ON quizzes (quiz_school_id, quiz_is_published)
   WHERE quiz_deleted_at IS NULL;
 
 -- Relasi assessment (alive only)
@@ -74,13 +74,13 @@ CREATE INDEX IF NOT EXISTS gin_quizzes_desc_trgm
   WHERE quiz_deleted_at IS NULL;
 
 -- Kombinasi tenant + assessment (alive only)
-CREATE INDEX IF NOT EXISTS idx_quizzes_masjid_assessment
-  ON quizzes (quiz_masjid_id, quiz_assessment_id)
+CREATE INDEX IF NOT EXISTS idx_quizzes_school_assessment
+  ON quizzes (quiz_school_id, quiz_assessment_id)
   WHERE quiz_deleted_at IS NULL;
 
 -- Listing terbaru per tenant (alive only)
-CREATE INDEX IF NOT EXISTS idx_quizzes_masjid_created_desc
-  ON quizzes (quiz_masjid_id, quiz_created_at DESC)
+CREATE INDEX IF NOT EXISTS idx_quizzes_school_created_desc
+  ON quizzes (quiz_school_id, quiz_created_at DESC)
   WHERE quiz_deleted_at IS NULL;
 
 
@@ -94,8 +94,8 @@ CREATE TABLE IF NOT EXISTS quiz_questions (
   quiz_question_quiz_id   UUID NOT NULL
     REFERENCES quizzes(quiz_id) ON DELETE CASCADE,
 
-  quiz_question_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  quiz_question_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   quiz_question_type VARCHAR(8) NOT NULL
     CHECK (quiz_question_type IN ('single','essay')),
@@ -143,12 +143,12 @@ CREATE INDEX IF NOT EXISTS idx_qq_quiz_alive
   ON quiz_questions (quiz_question_quiz_id)
   WHERE quiz_question_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_qq_masjid_alive
-  ON quiz_questions (quiz_question_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_qq_school_alive
+  ON quiz_questions (quiz_question_school_id)
   WHERE quiz_question_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_qq_masjid_created_desc_alive
-  ON quiz_questions (quiz_question_masjid_id, quiz_question_created_at DESC)
+CREATE INDEX IF NOT EXISTS idx_qq_school_created_desc_alive
+  ON quiz_questions (quiz_question_school_id, quiz_question_created_at DESC)
   WHERE quiz_question_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS brin_qq_created_at

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	model "masjidku_backend/internals/features/school/academics/academic_terms/model"
+	model "schoolku_backend/internals/features/school/academics/academic_terms/model"
 
 	"github.com/google/uuid"
 )
@@ -42,9 +42,9 @@ type AcademicTermUpdateDTO struct {
 /* ========== LIST/FILTER (query) ========== */
 
 type AcademicTermFilterDTO struct {
-	ID   *string `query:"id"        validate:"omitempty,uuid4"`
-	Year *string `query:"year"      validate:"omitempty,min=4"`
-	Name *string `query:"name"      validate:"omitempty,min=1"`
+	ID       *string `query:"id"        validate:"omitempty,uuid4"`
+	Year     *string `query:"year"      validate:"omitempty,min=4"`
+	Name     *string `query:"name"      validate:"omitempty,min=1"`
 	Code     *string `query:"code"      validate:"omitempty,min=1,max=24"`
 	Slug     *string `query:"slug"      validate:"omitempty,min=3,max=50"`
 	Active   *bool   `query:"active"    validate:"omitempty"`
@@ -60,7 +60,7 @@ type AcademicTermFilterDTO struct {
 
 type AcademicTermResponseDTO struct {
 	AcademicTermID           uuid.UUID `json:"academic_term_id"`
-	AcademicTermMasjidID     uuid.UUID `json:"academic_term_masjid_id"`
+	AcademicTermSchoolID     uuid.UUID `json:"academic_term_school_id"`
 	AcademicTermAcademicYear string    `json:"academic_term_academic_year"`
 	AcademicTermName         string    `json:"academic_term_name"`
 	AcademicTermStartDate    time.Time `json:"academic_term_start_date"`
@@ -120,13 +120,13 @@ func (p *AcademicTermCreateDTO) WantsActive() bool {
 	return p.AcademicTermIsActive == nil || *p.AcademicTermIsActive
 }
 
-func (p *AcademicTermCreateDTO) ToModel(masjidID uuid.UUID) model.AcademicTermModel {
+func (p *AcademicTermCreateDTO) ToModel(schoolID uuid.UUID) model.AcademicTermModel {
 	isActive := true
 	if p.AcademicTermIsActive != nil {
 		isActive = *p.AcademicTermIsActive
 	}
 	return model.AcademicTermModel{
-		AcademicTermMasjidID:     masjidID,
+		AcademicTermSchoolID:     schoolID,
 		AcademicTermAcademicYear: p.AcademicTermAcademicYear,
 		AcademicTermName:         p.AcademicTermName,
 		AcademicTermStartDate:    p.AcademicTermStartDate,
@@ -224,7 +224,7 @@ func FromModel(ent model.AcademicTermModel) AcademicTermResponseDTO {
 	// Langsung pakai pointer dari model untuk code/slug/description/period
 	return AcademicTermResponseDTO{
 		AcademicTermID:           ent.AcademicTermID,
-		AcademicTermMasjidID:     ent.AcademicTermMasjidID,
+		AcademicTermSchoolID:     ent.AcademicTermSchoolID,
 		AcademicTermAcademicYear: ent.AcademicTermAcademicYear,
 		AcademicTermName:         ent.AcademicTermName,
 		AcademicTermStartDate:    ent.AcademicTermStartDate,
@@ -256,7 +256,7 @@ func FromModels(list []model.AcademicTermModel) []AcademicTermResponseDTO {
 type OpeningWithClass struct {
 	// opening
 	ClassTermOpeningsID                    uuid.UUID  `json:"class_term_openings_id"                       gorm:"column:class_term_openings_id"`
-	ClassTermOpeningsMasjidID              uuid.UUID  `json:"class_term_openings_masjid_id"                gorm:"column:class_term_openings_masjid_id"`
+	ClassTermOpeningsSchoolID              uuid.UUID  `json:"class_term_openings_school_id"                gorm:"column:class_term_openings_school_id"`
 	ClassTermOpeningsClassID               uuid.UUID  `json:"class_term_openings_class_id"                 gorm:"column:class_term_openings_class_id"`
 	ClassTermOpeningsTermID                uuid.UUID  `json:"class_term_openings_term_id"                  gorm:"column:class_term_openings_term_id"`
 	ClassTermOpeningsIsOpen                bool       `json:"class_term_openings_is_open"                  gorm:"column:class_term_openings_is_open"`
@@ -273,7 +273,7 @@ type OpeningWithClass struct {
 	// class (subset)
 	Class struct {
 		ClassID          uuid.UUID  `json:"class_id"          gorm:"column:class_id"`
-		ClassMasjidID    *uuid.UUID `json:"class_masjid_id"   gorm:"column:class_masjid_id"`
+		ClassSchoolID    *uuid.UUID `json:"class_school_id"   gorm:"column:class_school_id"`
 		ClassName        string     `json:"class_name"        gorm:"column:class_name"`
 		ClassSlug        string     `json:"class_slug"        gorm:"column:class_slug"`
 		ClassDescription *string    `json:"class_description" gorm:"column:class_description"`

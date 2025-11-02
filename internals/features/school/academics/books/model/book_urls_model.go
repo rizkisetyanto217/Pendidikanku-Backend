@@ -16,7 +16,7 @@ Model: book_urls
 type BookURLModel struct {
 	BookURLID uuid.UUID `json:"book_url_id"                 gorm:"column:book_url_id;type:uuid;primaryKey;not null;default:gen_random_uuid()"`
 
-	BookURLMasjidID uuid.UUID `json:"book_url_masjid_id"          gorm:"column:book_url_masjid_id;type:uuid;not null"`
+	BookURLSchoolID uuid.UUID `json:"book_url_school_id"          gorm:"column:book_url_school_id;type:uuid;not null"`
 	BookURLBookID   uuid.UUID `json:"book_url_book_id"            gorm:"column:book_url_book_id;type:uuid;not null"`
 
 	BookURLKind string `json:"book_url_kind"               gorm:"column:book_url_kind;type:varchar(24);not null"`

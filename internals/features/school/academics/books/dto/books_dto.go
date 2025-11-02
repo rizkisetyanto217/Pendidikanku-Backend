@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	model "masjidku_backend/internals/features/school/academics/books/model"
+	model "schoolku_backend/internals/features/school/academics/books/model"
 
 	"github.com/google/uuid"
 )
@@ -74,7 +74,7 @@ func (u *BookURLUpsert) Normalize() {
    ========================================================= */
 
 type BookCreateRequest struct {
-	BookMasjidID uuid.UUID `json:"book_masjid_id" form:"book_masjid_id" validate:"required"`
+	BookSchoolID uuid.UUID `json:"book_school_id" form:"book_school_id" validate:"required"`
 	BookTitle    string    `json:"book_title"     form:"book_title"     validate:"required,min=1"`
 	BookAuthor   *string   `json:"book_author,omitempty" form:"book_author" validate:"omitempty,min=1"`
 	BookDesc     *string   `json:"book_desc,omitempty"   form:"book_desc"   validate:"omitempty"`
@@ -133,7 +133,7 @@ func (r *BookUpdateRequest) Normalize() {
 */
 type BookResponse struct {
 	BookID       uuid.UUID `json:"book_id"`
-	BookMasjidID uuid.UUID `json:"book_masjid_id"`
+	BookSchoolID uuid.UUID `json:"book_school_id"`
 
 	BookTitle  string  `json:"book_title"`
 	BookAuthor *string `json:"book_author,omitempty"`
@@ -172,7 +172,7 @@ type BooksListResponse struct {
 func ToBookResponse(m *model.BookModel) BookResponse {
 	return BookResponse{
 		BookID:             m.BookID,
-		BookMasjidID:       m.BookMasjidID,
+		BookSchoolID:       m.BookSchoolID,
 		BookTitle:          m.BookTitle,
 		BookAuthor:         m.BookAuthor,
 		BookDesc:           m.BookDesc,
@@ -187,7 +187,7 @@ func ToBookResponse(m *model.BookModel) BookResponse {
 
 func (r *BookCreateRequest) ToModel() *model.BookModel {
 	return &model.BookModel{
-		BookMasjidID: r.BookMasjidID,
+		BookSchoolID: r.BookSchoolID,
 		BookTitle:    r.BookTitle,
 		BookAuthor:   r.BookAuthor,
 		BookDesc:     r.BookDesc,
@@ -233,7 +233,7 @@ type BookUsage struct {
 
 type BookWithUsagesResponse struct {
 	BookID       uuid.UUID `json:"book_id"`
-	BookMasjidID uuid.UUID `json:"book_masjid_id"`
+	BookSchoolID uuid.UUID `json:"book_school_id"`
 
 	BookTitle    string  `json:"book_title"`
 	BookAuthor   *string `json:"book_author,omitempty"`

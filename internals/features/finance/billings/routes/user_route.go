@@ -5,7 +5,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	sppapi "masjidku_backend/internals/features/finance/billings/controller"
+	sppapi "schoolku_backend/internals/features/finance/billings/controller"
 )
 
 func BillingsAllRoutes(pub fiber.Router, db *gorm.DB) {
@@ -13,7 +13,7 @@ func BillingsAllRoutes(pub fiber.Router, db *gorm.DB) {
 	studentBills := &sppapi.StudentBillHandler{DB: db} // punya List (atau ListStudentBills), Get, dll.
 	// billBatches := &sppapi.BillBatchHandler{DB: db}
 
-	grp := pub.Group("/:masjid_id")
+	grp := pub.Group("/:school_id")
 	{
 		// ---- Fee Rules (readonly)
 		grp.Get("/fee-rules/list", feeAndBatch.ListFeeRules)

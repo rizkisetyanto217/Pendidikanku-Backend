@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	model "masjidku_backend/internals/features/school/classes/classes/model"
+	model "schoolku_backend/internals/features/school/classes/classes/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -38,8 +38,6 @@ func ComposeClassNameSpace(parentName string, termName *string) string {
 	}
 	return parent + " " + strings.TrimSpace(*termName)
 }
-
-
 
 type PatchFieldClass[T any] struct {
 	Present bool
@@ -87,7 +85,7 @@ NOTE: class_name TIDAK diterima; diisi otomatis server.
 */
 type CreateClassRequest struct {
 	// Wajib
-	ClassMasjidID uuid.UUID `json:"class_masjid_id"              form:"class_masjid_id"              validate:"required"`
+	ClassSchoolID uuid.UUID `json:"class_school_id"              form:"class_school_id"              validate:"required"`
 	ClassParentID uuid.UUID `json:"class_parent_id"              form:"class_parent_id"              validate:"required"`
 	ClassSlug     string    `json:"class_slug"                   form:"class_slug"                   validate:"omitempty,min=1,max=160"`
 
@@ -146,8 +144,8 @@ func (r *CreateClassRequest) Normalize() {
 }
 
 func (r *CreateClassRequest) Validate() error {
-	if r.ClassMasjidID == uuid.Nil {
-		return errors.New("class_masjid_id required")
+	if r.ClassSchoolID == uuid.Nil {
+		return errors.New("class_school_id required")
 	}
 	if r.ClassParentID == uuid.Nil {
 		return errors.New("class_parent_id required")
@@ -189,7 +187,7 @@ func (r *CreateClassRequest) ToModel() *model.ClassModel {
 	}
 
 	m := &model.ClassModel{
-		ClassMasjidID: r.ClassMasjidID,
+		ClassSchoolID: r.ClassSchoolID,
 		ClassParentID: r.ClassParentID,
 		ClassSlug:     r.ClassSlug,
 		// ClassName akan diisi di service layer via ComposeClassName(...)
@@ -419,7 +417,7 @@ RESPONSE DTO (sinkron dengan model terbaru)
 type ClassResponse struct {
 	// PK & relasi inti
 	ClassID       uuid.UUID `json:"class_id"`
-	ClassMasjidID uuid.UUID `json:"class_masjid_id"`
+	ClassSchoolID uuid.UUID `json:"class_school_id"`
 	ClassParentID uuid.UUID `json:"class_parent_id"`
 
 	// Identitas
@@ -480,7 +478,7 @@ func FromModel(m *model.ClassModel) ClassResponse {
 	}
 	return ClassResponse{
 		ClassID:       m.ClassID,
-		ClassMasjidID: m.ClassMasjidID,
+		ClassSchoolID: m.ClassSchoolID,
 		ClassParentID: m.ClassParentID,
 		ClassSlug:     m.ClassSlug,
 		ClassName:     m.ClassName, // <-- expose ke client
@@ -530,7 +528,7 @@ QUERY / FILTER DTO (untuk list)
 =========================================================
 */
 type ListClassQuery struct {
-	MasjidID     *uuid.UUID `query:"masjid_id"`
+	SchoolID     *uuid.UUID `query:"school_id"`
 	ParentID     *uuid.UUID `query:"parent_id"`
 	TermID       *uuid.UUID `query:"term_id"`
 	Status       *string    `query:"status"`

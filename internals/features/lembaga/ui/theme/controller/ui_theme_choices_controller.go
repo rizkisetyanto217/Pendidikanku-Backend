@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"masjidku_backend/internals/features/lembaga/ui/theme/dto"
-	"masjidku_backend/internals/features/lembaga/ui/theme/model"
-	helper "masjidku_backend/internals/helpers"
+	"schoolku_backend/internals/features/lembaga/ui/theme/dto"
+	"schoolku_backend/internals/features/lembaga/ui/theme/model"
+	helper "schoolku_backend/internals/helpers"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -41,7 +41,7 @@ func boolQuery(c *fiber.Ctx, key string) *bool {
 /* =========================
    POST /ui-theme-choices
    - Create new choice (exactly-one)
-   - Jika is_default=true ⇒ nonaktifkan default lain di masjid tersebut (dalam TX)
+   - Jika is_default=true ⇒ nonaktifkan default lain di school tersebut (dalam TX)
 ========================= */
 
 func (ctl *UIThemeChoiceController) Create(c *fiber.Ctx) error {
@@ -59,8 +59,8 @@ func (ctl *UIThemeChoiceController) Create(c *fiber.Ctx) error {
 	}
 
 	entity := model.UIThemeChoice{
-		UIThemeChoiceMasjidID: *req.UIThemeChoiceMasjidID,
-		UIThemeChoicePresetID: req.UIThemeChoicePresetID,
+		UIThemeChoiceSchoolID:       *req.UIThemeChoiceSchoolID,
+		UIThemeChoicePresetID:       req.UIThemeChoicePresetID,
 		UIThemeChoiceCustomPresetID: req.UIThemeChoiceCustomPresetID,
 	}
 	if req.UIThemeChoiceIsEnabled != nil {
@@ -72,11 +72,11 @@ func (ctl *UIThemeChoiceController) Create(c *fiber.Ctx) error {
 		entity.UIThemeChoiceIsDefault = *req.UIThemeChoiceIsDefault
 	}
 
-	// TX: atur default unik per masjid bila diminta
+	// TX: atur default unik per school bila diminta
 	if err := ctl.DB.Transaction(func(tx *gorm.DB) error {
 		if entity.UIThemeChoiceIsDefault {
 			if err := tx.Model(&model.UIThemeChoice{}).
-				Where("ui_theme_choice_masjid_id = ? AND ui_theme_choice_is_default = TRUE", entity.UIThemeChoiceMasjidID).
+				Where("ui_theme_choice_school_id = ? AND ui_theme_choice_is_default = TRUE", entity.UIThemeChoiceSchoolID).
 				Updates(map[string]interface{}{
 					"ui_theme_choice_is_default": false,
 					"ui_theme_choice_updated_at": time.Now(),
@@ -87,8 +87,8 @@ func (ctl *UIThemeChoiceController) Create(c *fiber.Ctx) error {
 		return tx.Create(&entity).Error
 	}); err != nil {
 		if dto.IsUniqueViolation(err) {
-			// Bisa bentrok karena unique partial index (default) / duplikat pasangan masjid-preset/custom
-			return helper.JsonError(c, fiber.StatusConflict, "duplicate theme choice or default already set for this masjid")
+			// Bisa bentrok karena unique partial index (default) / duplikat pasangan school-preset/custom
+			return helper.JsonError(c, fiber.StatusConflict, "duplicate theme choice or default already set for this school")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
@@ -99,7 +99,7 @@ func (ctl *UIThemeChoiceController) Create(c *fiber.Ctx) error {
 /* =========================
    GET /ui-theme-choices
    - ?id=UUID (single)
-   - list + filter: ?masjid_id=UUID&preset_id=UUID&custom_preset_id=UUID&is_default=true|false&is_enabled=true|false
+   - list + filter: ?school_id=UUID&preset_id=UUID&custom_preset_id=UUID&is_default=true|false&is_enabled=true|false
    - pagination: ?limit=&offset=
 ========================= */
 
@@ -126,13 +126,13 @@ func (ctl *UIThemeChoiceController) Get(c *fiber.Ctx) error {
 
 	// Filters
 	var (
-		masjidID, presetID, customID *uuid.UUID
+		schoolID, presetID, customID *uuid.UUID
 	)
-	if s := strings.TrimSpace(c.Query("masjid_id")); s != "" {
+	if s := strings.TrimSpace(c.Query("school_id")); s != "" {
 		if id, err := uuid.Parse(s); err == nil {
-			masjidID = &id
+			schoolID = &id
 		} else {
-			return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+			return helper.JsonError(c, fiber.StatusBadRequest, "invalid school_id")
 		}
 	}
 	if s := strings.TrimSpace(c.Query("preset_id")); s != "" {
@@ -153,8 +153,8 @@ func (ctl *UIThemeChoiceController) Get(c *fiber.Ctx) error {
 	isEnabled := boolQuery(c, "is_enabled")
 
 	dbq := ctl.DB.Model(&model.UIThemeChoice{})
-	if masjidID != nil {
-		dbq = dbq.Where("ui_theme_choice_masjid_id = ?", *masjidID)
+	if schoolID != nil {
+		dbq = dbq.Where("ui_theme_choice_school_id = ?", *schoolID)
 	}
 	if presetID != nil {
 		dbq = dbq.Where("ui_theme_choice_preset_id = ?", *presetID)
@@ -197,7 +197,7 @@ func (ctl *UIThemeChoiceController) Get(c *fiber.Ctx) error {
 /* =========================
    PATCH /ui-theme-choices/:id
    - Partial update + aturan switch preset/custom
-   - Jika is_default=true ⇒ nonaktifkan default lain di masjid tsb (TX)
+   - Jika is_default=true ⇒ nonaktifkan default lain di school tsb (TX)
 ========================= */
 
 func (ctl *UIThemeChoiceController) Patch(c *fiber.Ctx) error {
@@ -227,19 +227,19 @@ func (ctl *UIThemeChoiceController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Terapkan patch ke copy supaya bisa tahu masjid_id final
-	beforeMasjid := entity.UIThemeChoiceMasjidID
+	// Terapkan patch ke copy supaya bisa tahu school_id final
+	beforeSchool := entity.UIThemeChoiceSchoolID
 
 	if err := dto.ApplyPatchToChoiceModel(&entity, &req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// TX: jika is_default true ⇒ reset default lainnya di masjid final
+	// TX: jika is_default true ⇒ reset default lainnya di school final
 	if err := ctl.DB.Transaction(func(tx *gorm.DB) error {
 		if entity.UIThemeChoiceIsDefault {
 			if err := tx.Model(&model.UIThemeChoice{}).
-				Where("ui_theme_choice_masjid_id = ? AND ui_theme_choice_id <> ? AND ui_theme_choice_is_default = TRUE",
-					entity.UIThemeChoiceMasjidID, entity.UIThemeChoiceID).
+				Where("ui_theme_choice_school_id = ? AND ui_theme_choice_id <> ? AND ui_theme_choice_is_default = TRUE",
+					entity.UIThemeChoiceSchoolID, entity.UIThemeChoiceID).
 				Updates(map[string]interface{}{
 					"ui_theme_choice_is_default": false,
 					"ui_theme_choice_updated_at": time.Now(),
@@ -247,12 +247,12 @@ func (ctl *UIThemeChoiceController) Patch(c *fiber.Ctx) error {
 				return err
 			}
 		}
-		// Jika pindah masjid, amankan konsistensi (opsional)
-		_ = beforeMasjid
+		// Jika pindah school, amankan konsistensi (opsional)
+		_ = beforeSchool
 		return tx.Save(&entity).Error
 	}); err != nil {
 		if dto.IsUniqueViolation(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "duplicate theme choice or default already set for this masjid")
+			return helper.JsonError(c, fiber.StatusConflict, "duplicate theme choice or default already set for this school")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}

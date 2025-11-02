@@ -1,9 +1,9 @@
 package route
 
 import (
-	"masjidku_backend/internals/constants"
-	"masjidku_backend/internals/features/home/notifications/controller"
-	authMiddleware "masjidku_backend/internals/middlewares/auth"
+	"schoolku_backend/internals/constants"
+	"schoolku_backend/internals/features/home/notifications/controller"
+	authMiddleware "schoolku_backend/internals/middlewares/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -26,6 +26,6 @@ func NotificationUserRoutes(user fiber.Router, db *gorm.DB) {
 	// Jika kamu pisahkan controller view untuk user:
 	nCtrl := controller.NewNotificationController(db)
 	notifications := r.Group("/notifications")
-	notifications.Get("/", nCtrl.GetAllNotificationsForUser) // semua notifikasi milik user
-	notifications.Post("/by-masjid", nCtrl.GetNotificationsByMasjid) // filter berdasar masjid (opsional)
+	notifications.Get("/", nCtrl.GetAllNotificationsForUser)         // semua notifikasi milik user
+	notifications.Post("/by-school", nCtrl.GetNotificationsBySchool) // filter berdasar school (opsional)
 }

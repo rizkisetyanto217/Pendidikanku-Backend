@@ -12,14 +12,14 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram (ILIKE, search)
 CREATE EXTENSION IF NOT EXISTS btree_gin;  -- kombinasi index opsional
 
 -- =========================================
--- A) STUDENT_CLASS_SESSION_ATTENDANCE_TYPES (master jenis attendance per masjid)
+-- A) STUDENT_CLASS_SESSION_ATTENDANCE_TYPES (master jenis attendance per school)
 -- =========================================
 CREATE TABLE IF NOT EXISTS student_class_session_attendance_types (
   student_class_session_attendance_type_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant guard
-  student_class_session_attendance_type_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  student_class_session_attendance_type_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- data utama
   student_class_session_attendance_type_code  VARCHAR(32)  NOT NULL,  -- ex: SETORAN, MURAJAAH, TILAWAH
@@ -37,9 +37,9 @@ CREATE TABLE IF NOT EXISTS student_class_session_attendance_types (
   student_class_session_attendance_type_deleted_at TIMESTAMPTZ
 );
 
--- Unik per masjid + code (case-insensitive, soft-delete aware)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_scsat_code_per_masjid_alive
-  ON student_class_session_attendance_types (student_class_session_attendance_type_masjid_id, UPPER(student_class_session_attendance_type_code))
+-- Unik per school + code (case-insensitive, soft-delete aware)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_scsat_code_per_school_alive
+  ON student_class_session_attendance_types (student_class_session_attendance_type_school_id, UPPER(student_class_session_attendance_type_code))
   WHERE student_class_session_attendance_type_deleted_at IS NULL;
 
 -- Pencarian label cepat (trigram) untuk data aktif
@@ -47,14 +47,14 @@ CREATE INDEX IF NOT EXISTS gin_scsat_label_trgm
   ON student_class_session_attendance_types USING GIN (student_class_session_attendance_type_label gin_trgm_ops)
   WHERE student_class_session_attendance_type_deleted_at IS NULL;
 
--- Filter umum per masjid (aktif saja)
-CREATE INDEX IF NOT EXISTS idx_scsat_masjid_active
-  ON student_class_session_attendance_types (student_class_session_attendance_type_masjid_id, student_class_session_attendance_type_is_active)
+-- Filter umum per school (aktif saja)
+CREATE INDEX IF NOT EXISTS idx_scsat_school_active
+  ON student_class_session_attendance_types (student_class_session_attendance_type_school_id, student_class_session_attendance_type_is_active)
   WHERE student_class_session_attendance_type_deleted_at IS NULL;
 
--- Listing terbaru per masjid
-CREATE INDEX IF NOT EXISTS idx_scsat_masjid_created_desc
-  ON student_class_session_attendance_types (student_class_session_attendance_type_masjid_id, student_class_session_attendance_type_created_at DESC)
+-- Listing terbaru per school
+CREATE INDEX IF NOT EXISTS idx_scsat_school_created_desc
+  ON student_class_session_attendance_types (student_class_session_attendance_type_school_id, student_class_session_attendance_type_created_at DESC)
   WHERE student_class_session_attendance_type_deleted_at IS NULL;
 
 -- BRIN untuk time-series
@@ -71,15 +71,15 @@ CREATE TABLE IF NOT EXISTS student_class_session_attendances (
   student_class_session_attendance_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant & relasi utama
-  student_class_session_attendance_masjid_id  UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  student_class_session_attendance_school_id  UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   student_class_session_attendance_session_id UUID NOT NULL
     REFERENCES class_attendance_sessions(class_attendance_session_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
-  student_class_session_attendance_masjid_student_id UUID NOT NULL
-    REFERENCES masjid_students(masjid_student_id) ON DELETE CASCADE,
+  student_class_session_attendance_school_student_id UUID NOT NULL
+    REFERENCES school_students(school_student_id) ON DELETE CASCADE,
 
   -- status kehadiran
   student_class_session_attendance_status VARCHAR(16) NOT NULL DEFAULT 'unmarked'
@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS student_class_session_attendances (
   -- meta penandaan
   student_class_session_attendance_marked_at TIMESTAMPTZ,
   student_class_session_attendance_marked_by_teacher_id UUID
-    REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE SET NULL,
+    REFERENCES school_teachers(school_teacher_id) ON DELETE SET NULL,
 
   -- metode absen
   student_class_session_attendance_method VARCHAR(16),
@@ -135,12 +135,12 @@ CREATE TABLE IF NOT EXISTS student_class_session_attendances (
 -- INDEXES STUDENT_CLASS_SESSION_ATTENDANCES
 -- =========================================
 
--- unik aktif per (masjid, session, student)
+-- unik aktif per (school, session, student)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_scsa_alive
   ON student_class_session_attendances (
-    student_class_session_attendance_masjid_id,
+    student_class_session_attendance_school_id,
     student_class_session_attendance_session_id,
-    student_class_session_attendance_masjid_student_id
+    student_class_session_attendance_school_student_id
   )
   WHERE student_class_session_attendance_deleted_at IS NULL;
 
@@ -150,7 +150,7 @@ CREATE INDEX IF NOT EXISTS idx_scsa_session
   WHERE student_class_session_attendance_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_scsa_student
-  ON student_class_session_attendances (student_class_session_attendance_masjid_student_id)
+  ON student_class_session_attendances (student_class_session_attendance_school_student_id)
   WHERE student_class_session_attendance_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_scsa_status
@@ -188,8 +188,8 @@ CREATE TABLE IF NOT EXISTS student_class_session_attendance_urls (
   student_class_session_attendance_url_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Tenant & owner
-  student_class_session_attendance_url_masjid_id   UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  student_class_session_attendance_url_school_id   UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   student_class_session_attendance_url_attendance_id UUID NOT NULL
     REFERENCES student_class_session_attendances(student_class_session_attendance_id)
@@ -216,9 +216,9 @@ CREATE TABLE IF NOT EXISTS student_class_session_attendance_urls (
   student_class_session_attendance_url_is_primary BOOLEAN NOT NULL DEFAULT FALSE,
 
   -- Uploader (opsional)
-  student_class_session_attendance_url_uploader_teacher_id  UUID REFERENCES masjid_teachers(masjid_teacher_id),
+  student_class_session_attendance_url_uploader_teacher_id  UUID REFERENCES school_teachers(school_teacher_id),
   student_class_session_attendance_url_uploader_student_id  UUID
-    REFERENCES masjid_students(masjid_student_id) ON DELETE SET NULL,
+    REFERENCES school_students(school_student_id) ON DELETE SET NULL,
 
   -- Audit
   student_class_session_attendance_url_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -238,8 +238,8 @@ CREATE INDEX IF NOT EXISTS ix_scsaurl_by_owner_live
   WHERE student_class_session_attendance_url_deleted_at IS NULL;
 
 -- Filter per tenant (live only)
-CREATE INDEX IF NOT EXISTS ix_scsaurl_by_masjid_live
-  ON student_class_session_attendance_urls (student_class_session_attendance_url_masjid_id)
+CREATE INDEX IF NOT EXISTS ix_scsaurl_by_school_live
+  ON student_class_session_attendance_urls (student_class_session_attendance_url_school_id)
   WHERE student_class_session_attendance_url_deleted_at IS NULL;
 
 -- Satu primary per (attendance, kind) (live only)

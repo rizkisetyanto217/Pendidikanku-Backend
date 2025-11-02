@@ -15,10 +15,10 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- trigram (GIN) untuk search
 CREATE TABLE IF NOT EXISTS assessment_types (
   assessment_types_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  assessment_types_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  assessment_types_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
-  assessment_types_key  VARCHAR(32)  NOT NULL,  -- unik per masjid (uas, uts, tugas, ...)
+  assessment_types_key  VARCHAR(32)  NOT NULL,  -- unik per school (uas, uts, tugas, ...)
   assessment_types_name VARCHAR(120) NOT NULL,
 
   assessment_types_weight_percent NUMERIC(5,2) NOT NULL DEFAULT 0
@@ -31,13 +31,13 @@ CREATE TABLE IF NOT EXISTS assessment_types (
   assessment_types_deleted_at TIMESTAMPTZ
 );
 
--- unik per masjid + key
-CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_types_masjid_key
-  ON assessment_types(assessment_types_masjid_id, assessment_types_key);
+-- unik per school + key
+CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_types_school_key
+  ON assessment_types(assessment_types_school_id, assessment_types_key);
 
 -- listing aktif (abaikan yang soft-deleted)
-CREATE INDEX IF NOT EXISTS idx_assessment_types_masjid_active
-  ON assessment_types(assessment_types_masjid_id, assessment_types_is_active)
+CREATE INDEX IF NOT EXISTS idx_assessment_types_school_active
+  ON assessment_types(assessment_types_school_id, assessment_types_is_active)
   WHERE assessment_types_deleted_at IS NULL;
 
 -- opsional: search nama type (trigram)
@@ -46,12 +46,12 @@ CREATE INDEX IF NOT EXISTS idx_gin_trgm_assessment_types_name
 
 -- =========================================================
 -- 2) GUARD: unique di CSST (tenant-safe)
---    Kombinasi id + masjid untuk validasi aplikasi/service layer
+--    Kombinasi id + school untuk validasi aplikasi/service layer
 -- =========================================================
-CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_masjid
+CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_school
   ON class_section_subject_teachers (
     class_section_subject_teachers_id,
-    class_section_subject_teachers_masjid_id
+    class_section_subject_teachers_school_id
   );
 
 -- =========================================================
@@ -61,8 +61,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_masjid
 CREATE TABLE IF NOT EXISTS assessments (
   assessments_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  assessments_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  assessments_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- Relasi ke CSST (tenant-safe, validasi via unique di atas)
   assessments_class_section_subject_teacher_id UUID NULL,
@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS assessments (
     CHECK (assessments_status IN ('draft','scheduled','open','closed','archived')),
 
   -- Audit
-  assessments_created_by_teacher_id UUID,  -- ke masjid_teachers (opsional)
+  assessments_created_by_teacher_id UUID,  -- ke school_teachers (opsional)
 
   assessments_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   assessments_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -126,24 +126,24 @@ CREATE TABLE IF NOT EXISTS assessments (
 
 -- ===================== INDEX REKOMENDASI =====================
 
--- Unik slug per masjid (case-insensitive)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_assessments_masjid_slug
-  ON assessments(assessments_masjid_id, lower(assessments_slug))
+-- Unik slug per school (case-insensitive)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_assessments_school_slug
+  ON assessments(assessments_school_id, lower(assessments_slug))
   WHERE assessments_slug IS NOT NULL;
 
--- List by masjid & published (abaikan soft delete)
-CREATE INDEX IF NOT EXISTS idx_assessments_masjid_published
-  ON assessments(assessments_masjid_id, assessments_is_published)
+-- List by school & published (abaikan soft delete)
+CREATE INDEX IF NOT EXISTS idx_assessments_school_published
+  ON assessments(assessments_school_id, assessments_is_published)
   WHERE assessments_deleted_at IS NULL;
 
 -- Sorting by due_at (list tugas/ujian)
-CREATE INDEX IF NOT EXISTS idx_assessments_masjid_due_at
-  ON assessments(assessments_masjid_id, assessments_due_at)
+CREATE INDEX IF NOT EXISTS idx_assessments_school_due_at
+  ON assessments(assessments_school_id, assessments_due_at)
   WHERE assessments_deleted_at IS NULL;
 
 -- Range by start_at (kalender/agenda)
-CREATE INDEX IF NOT EXISTS idx_assessments_masjid_start_at
-  ON assessments(assessments_masjid_id, assessments_start_at)
+CREATE INDEX IF NOT EXISTS idx_assessments_school_start_at
+  ON assessments(assessments_school_id, assessments_start_at)
   WHERE assessments_deleted_at IS NULL;
 
 -- Search judul (trigram)
@@ -152,26 +152,26 @@ CREATE INDEX IF NOT EXISTS idx_gin_trgm_assessments_title
 
 -- Visibility + published (listing cepat)
 CREATE INDEX IF NOT EXISTS idx_assessments_visibility_published
-  ON assessments(assessments_masjid_id, assessments_visibility, assessments_is_published)
+  ON assessments(assessments_school_id, assessments_visibility, assessments_is_published)
   WHERE assessments_deleted_at IS NULL;
 
 -- Grouping by type (aggregate nilai)
 CREATE INDEX IF NOT EXISTS idx_assessments_type
-  ON assessments(assessments_masjid_id, assessments_type_id)
+  ON assessments(assessments_school_id, assessments_type_id)
   WHERE assessments_deleted_at IS NULL;
 
 -- Filter by CSST (mapel/kelas/guru)
 CREATE INDEX IF NOT EXISTS idx_assessments_csst
-  ON assessments(assessments_masjid_id, assessments_class_section_subject_teacher_id)
+  ON assessments(assessments_school_id, assessments_class_section_subject_teacher_id)
   WHERE assessments_deleted_at IS NULL;
 
 -- Status (dashboard) + published/closed (jadwal)
 CREATE INDEX IF NOT EXISTS idx_assessments_status
-  ON assessments(assessments_masjid_id, assessments_status)
+  ON assessments(assessments_school_id, assessments_status)
   WHERE assessments_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_assessments_published_closed
-  ON assessments(assessments_masjid_id, assessments_published_at, assessments_closed_at)
+  ON assessments(assessments_school_id, assessments_published_at, assessments_closed_at)
   WHERE assessments_deleted_at IS NULL;
 
 COMMIT;

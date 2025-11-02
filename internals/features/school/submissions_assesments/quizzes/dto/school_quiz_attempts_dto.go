@@ -5,19 +5,19 @@ import (
 	"fmt"
 	"time"
 
-	qmodel "masjidku_backend/internals/features/school/submissions_assesments/quizzes/model"
+	qmodel "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
 
 	"github.com/google/uuid"
 )
 
 /* ==========================================================================================
    REQUEST — CREATE (memulai attempt)
-   Server boleh meng-derive masjid_id / student_id dari context.
+   Server boleh meng-derive school_id / student_id dari context.
 ========================================================================================== */
 
 type CreateStudentQuizAttemptRequest struct {
 	// Opsional: bisa diisi server dari context
-	StudentQuizAttemptMasjidID *uuid.UUID `json:"student_quiz_attempt_masjid_id" validate:"omitempty,uuid"`
+	StudentQuizAttemptSchoolID *uuid.UUID `json:"student_quiz_attempt_school_id" validate:"omitempty,uuid"`
 
 	// Wajib
 	StudentQuizAttemptQuizID uuid.UUID `json:"student_quiz_attempt_quiz_id" validate:"required,uuid"`
@@ -33,8 +33,8 @@ func (r *CreateStudentQuizAttemptRequest) ToModel() *qmodel.StudentQuizAttemptMo
 	m := &qmodel.StudentQuizAttemptModel{
 		StudentQuizAttemptQuizID: r.StudentQuizAttemptQuizID,
 	}
-	if r.StudentQuizAttemptMasjidID != nil {
-		m.StudentQuizAttemptMasjidID = *r.StudentQuizAttemptMasjidID
+	if r.StudentQuizAttemptSchoolID != nil {
+		m.StudentQuizAttemptSchoolID = *r.StudentQuizAttemptSchoolID
 	}
 	if r.StudentQuizAttemptStudentID != nil {
 		m.StudentQuizAttemptStudentID = *r.StudentQuizAttemptStudentID
@@ -51,7 +51,7 @@ func (r *CreateStudentQuizAttemptRequest) ToModel() *qmodel.StudentQuizAttemptMo
 ========================================================================================== */
 
 type UpdateStudentQuizAttemptRequest struct {
-	StudentQuizAttemptMasjidID  *uuid.UUID `json:"student_quiz_attempt_masjid_id" validate:"omitempty,uuid"`
+	StudentQuizAttemptSchoolID  *uuid.UUID `json:"student_quiz_attempt_school_id" validate:"omitempty,uuid"`
 	StudentQuizAttemptQuizID    *uuid.UUID `json:"student_quiz_attempt_quiz_id" validate:"omitempty,uuid"`
 	StudentQuizAttemptStudentID *uuid.UUID `json:"student_quiz_attempt_student_id" validate:"omitempty,uuid"`
 
@@ -78,8 +78,8 @@ func isValidStatus(s qmodel.StudentQuizAttemptStatus) bool {
 
 // ApplyToModel — patch ke model yang sudah di-load lalu cek konsistensi sederhana.
 func (r *UpdateStudentQuizAttemptRequest) ApplyToModel(m *qmodel.StudentQuizAttemptModel) error {
-	if r.StudentQuizAttemptMasjidID != nil {
-		m.StudentQuizAttemptMasjidID = *r.StudentQuizAttemptMasjidID
+	if r.StudentQuizAttemptSchoolID != nil {
+		m.StudentQuizAttemptSchoolID = *r.StudentQuizAttemptSchoolID
 	}
 	if r.StudentQuizAttemptQuizID != nil {
 		m.StudentQuizAttemptQuizID = *r.StudentQuizAttemptQuizID
@@ -126,7 +126,7 @@ func (r *UpdateStudentQuizAttemptRequest) ApplyToModel(m *qmodel.StudentQuizAtte
 
 type StudentQuizAttemptResponse struct {
 	StudentQuizAttemptID        uuid.UUID `json:"student_quiz_attempt_id"`
-	StudentQuizAttemptMasjidID  uuid.UUID `json:"student_quiz_attempt_masjid_id"`
+	StudentQuizAttemptSchoolID  uuid.UUID `json:"student_quiz_attempt_school_id"`
 	StudentQuizAttemptQuizID    uuid.UUID `json:"student_quiz_attempt_quiz_id"`
 	StudentQuizAttemptStudentID uuid.UUID `json:"student_quiz_attempt_student_id"`
 
@@ -145,7 +145,7 @@ type StudentQuizAttemptResponse struct {
 func FromModelStudentQuizAttempt(m *qmodel.StudentQuizAttemptModel) *StudentQuizAttemptResponse {
 	return &StudentQuizAttemptResponse{
 		StudentQuizAttemptID:           m.StudentQuizAttemptID,
-		StudentQuizAttemptMasjidID:     m.StudentQuizAttemptMasjidID,
+		StudentQuizAttemptSchoolID:     m.StudentQuizAttemptSchoolID,
 		StudentQuizAttemptQuizID:       m.StudentQuizAttemptQuizID,
 		StudentQuizAttemptStudentID:    m.StudentQuizAttemptStudentID,
 		StudentQuizAttemptStartedAt:    m.StudentQuizAttemptStartedAt,

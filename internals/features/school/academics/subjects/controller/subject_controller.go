@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	subjectDTO "masjidku_backend/internals/features/school/academics/subjects/dto"
-	subjectModel "masjidku_backend/internals/features/school/academics/subjects/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
-	helperOSS "masjidku_backend/internals/helpers/oss"
+	subjectDTO "schoolku_backend/internals/features/school/academics/subjects/dto"
+	subjectModel "schoolku_backend/internals/features/school/academics/subjects/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
+	helperOSS "schoolku_backend/internals/helpers/oss"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -62,44 +62,44 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// 2) Resolve masjid context + staff guard
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// 2) Resolve school context + staff guard
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	var masjidID uuid.UUID
+	var schoolID uuid.UUID
 	switch {
 	case mc.ID != uuid.Nil:
-		masjidID = mc.ID
+		schoolID = mc.ID
 	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetMasjidIDBySlug(c, strings.TrimSpace(mc.Slug))
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
 		if er != nil {
-			return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
-		masjidID = id
+		schoolID = id
 	default:
-		id, er := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+		id, er := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
 		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak ditemukan")
 		}
-		masjidID = id
+		schoolID = id
 	}
-	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
+	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
 		return err
 	}
 
 	// Paksa body sesuai context
-	p.MasjidID = masjidID
+	p.SchoolID = schoolID
 
-	// 3) Uniqueness: code unik per masjid (alive)
+	// 3) Uniqueness: code unik per school (alive)
 	if strings.TrimSpace(p.Code) != "" {
 		var cnt int64
 		if err := h.DB.Model(&subjectModel.SubjectModel{}).
 			Where(`
-				subject_masjid_id = ?
+				subject_school_id = ?
 				AND lower(subject_code) = lower(?)
 				AND subject_deleted_at IS NULL
-			`, masjidID, p.Code).
+			`, schoolID, p.Code).
 			Count(&cnt).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek duplikasi kode")
 		}
@@ -108,7 +108,7 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// 4) Slug unik (CI) per masjid
+	// 4) Slug unik (CI) per school
 	var baseSlug string
 	if p.Slug != nil && strings.TrimSpace(*p.Slug) != "" {
 		baseSlug = helper.Slugify(*p.Slug, 160)
@@ -119,7 +119,7 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 		}
 	}
 	scope := func(q *gorm.DB) *gorm.DB {
-		return q.Where("subject_masjid_id = ? AND subject_deleted_at IS NULL", masjidID)
+		return q.Where("subject_school_id = ? AND subject_deleted_at IS NULL", schoolID)
 	}
 	uniqueSlug, err := helper.EnsureUniqueSlugCI(
 		c.Context(),
@@ -136,16 +136,16 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 
 	// 5) Build entity & simpan
 	ent := p.ToModel()
-	ent.SubjectMasjidID = masjidID
+	ent.SubjectSchoolID = schoolID
 	ent.SubjectSlug = uniqueSlug
 
 	if err := h.DB.Create(&ent).Error; err != nil {
 		msg := strings.ToLower(err.Error())
 		switch {
-		case strings.Contains(msg, "uq_subjects_code_per_masjid_alive"):
+		case strings.Contains(msg, "uq_subjects_code_per_school_alive"):
 			return helper.JsonError(c, fiber.StatusConflict, "Kode mapel sudah digunakan")
-		case strings.Contains(msg, "uq_subjects_slug_per_masjid_alive"):
-			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
+		case strings.Contains(msg, "uq_subjects_slug_per_school_alive"):
+			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di school ini")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan subject")
 	}
@@ -154,7 +154,7 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 	uploadedURL := ""
 	if fh := pickImageFile(c, "image", "file"); fh != nil {
 		// gunakan folder yang konsisten
-		keyPrefix := fmt.Sprintf("masjids/%s/classes/subjects", masjidID.String())
+		keyPrefix := fmt.Sprintf("schools/%s/classes/subjects", schoolID.String())
 		if svc, er := helperOSS.NewOSSServiceFromEnv(""); er == nil {
 			ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
 			defer cancel()
@@ -228,8 +228,8 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// Guard staff pada masjid terkait
-	if err := helperAuth.EnsureStaffMasjid(c, ent.SubjectMasjidID); err != nil {
+	// Guard staff pada school terkait
+	if err := helperAuth.EnsureStaffSchool(c, ent.SubjectSchoolID); err != nil {
 		return err
 	}
 
@@ -252,7 +252,7 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 	}
 
 	// Paksa context & normalisasi
-	req.MasjidID = &ent.SubjectMasjidID
+	req.SchoolID = &ent.SubjectSchoolID
 	req.Normalize()
 
 	// ====== Normalisasi tri-state ringan tambahan ======
@@ -264,11 +264,11 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		var cnt int64
 		if err := h.DB.Model(&subjectModel.SubjectModel{}).
 			Where(`
-                subject_masjid_id = ?
+                subject_school_id = ?
                 AND subject_id <> ?
                 AND subject_deleted_at IS NULL
                 AND lower(subject_code) = lower(?)
-            `, ent.SubjectMasjidID, ent.SubjectID, *req.Code.Value).
+            `, ent.SubjectSchoolID, ent.SubjectID, *req.Code.Value).
 			Count(&cnt).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek duplikasi kode")
 		}
@@ -281,16 +281,16 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		var cnt int64
 		if err := h.DB.Model(&subjectModel.SubjectModel{}).
 			Where(`
-                subject_masjid_id = ?
+                subject_school_id = ?
                 AND subject_id <> ?
                 AND subject_deleted_at IS NULL
                 AND lower(subject_slug) = lower(?)
-            `, ent.SubjectMasjidID, ent.SubjectID, *req.Slug.Value).
+            `, ent.SubjectSchoolID, ent.SubjectID, *req.Slug.Value).
 			Count(&cnt).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek duplikasi slug")
 		}
 		if cnt > 0 {
-			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
+			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di school ini")
 		}
 	}
 
@@ -311,8 +311,8 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 			base,
 			func(q *gorm.DB) *gorm.DB {
 				return q.Where(
-					"subject_masjid_id = ? AND subject_id <> ? AND subject_deleted_at IS NULL",
-					ent.SubjectMasjidID, ent.SubjectID,
+					"subject_school_id = ? AND subject_id <> ? AND subject_deleted_at IS NULL",
+					ent.SubjectSchoolID, ent.SubjectID,
 				)
 			},
 			160,
@@ -325,7 +325,7 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 
 	// Build patch map (ikutkan kolom image hanya jika Present)
 	patch := map[string]any{
-		"subject_masjid_id":  ent.SubjectMasjidID,
+		"subject_school_id":  ent.SubjectSchoolID,
 		"subject_code":       ent.SubjectCode,
 		"subject_name":       ent.SubjectName,
 		"subject_desc":       ent.SubjectDesc,
@@ -356,10 +356,10 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		Updates(patch).Error; err != nil {
 		msg := strings.ToLower(err.Error())
 		switch {
-		case strings.Contains(msg, "uq_subjects_code_per_masjid_alive"):
+		case strings.Contains(msg, "uq_subjects_code_per_school_alive"):
 			return helper.JsonError(c, fiber.StatusConflict, "Kode mapel sudah digunakan")
-		case strings.Contains(msg, "uq_subjects_slug_per_masjid_alive"):
-			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
+		case strings.Contains(msg, "uq_subjects_slug_per_school_alive"):
+			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di school ini")
 		case strings.Contains(msg, "duplicate"), strings.Contains(msg, "unique"):
 			return helper.JsonError(c, fiber.StatusConflict, "Duplikasi data (kode/slug)")
 		}
@@ -402,9 +402,9 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		Table("class_subjects").
 		Where(`
 			class_subject_subject_id = ?
-			AND class_subject_masjid_id = ?
+			AND class_subject_school_id = ?
 			AND class_subject_deleted_at IS NULL
-		`, ent.SubjectID, ent.SubjectMasjidID).
+		`, ent.SubjectID, ent.SubjectSchoolID).
 		Updates(snapPatch)
 	if txSync.Error != nil {
 		log.Printf("[SUBJECTS][PATCH] sync class_subjects snapshot error: %v", txSync.Error)
@@ -426,7 +426,7 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 			ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
 			defer cancel()
 
-			keyPrefix := fmt.Sprintf("masjids/%s/classes/subjects", ent.SubjectMasjidID.String())
+			keyPrefix := fmt.Sprintf("schools/%s/classes/subjects", ent.SubjectSchoolID.String())
 			if url, upErr := svc.UploadAsWebP(ctx, fh, keyPrefix); upErr == nil {
 				uploadedURL = url
 
@@ -555,8 +555,8 @@ func (h *SubjectsController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// Guard akses staff pada masjid terkait
-	if err := helperAuth.EnsureStaffMasjid(c, ent.SubjectMasjidID); err != nil {
+	// Guard akses staff pada school terkait
+	if err := helperAuth.EnsureStaffSchool(c, ent.SubjectSchoolID); err != nil {
 		return err
 	}
 

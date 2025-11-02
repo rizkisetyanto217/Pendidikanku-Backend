@@ -40,8 +40,8 @@ func CorsMiddleware() fiber.Handler {
 		origins = strings.Join([]string{
 			"http://localhost:5173",
 			"http://127.0.0.1:5173",
-			"https://masjidku.org",
-			"https://www.masjidku.org",
+			"https://schoolku.org",
+			"https://www.schoolku.org",
 			"https://pendidikanku-frontend-2-production.up.railway.app",
 		}, ",")
 	}
@@ -49,7 +49,7 @@ func CorsMiddleware() fiber.Handler {
 	return cors.New(cors.Config{
 		AllowOrigins:     origins,
 		AllowMethods:     "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-		AllowHeaders:     "Origin, Accept, Content-Type, Authorization, X-Requested-With, X-CSRF-Token, X-Masjid-ID",
+		AllowHeaders:     "Origin, Accept, Content-Type, Authorization, X-Requested-With, X-CSRF-Token, X-School-ID",
 		ExposeHeaders:    "Content-Type, Authorization, X-Request-Id",
 		AllowCredentials: true,
 		MaxAge:           86400,

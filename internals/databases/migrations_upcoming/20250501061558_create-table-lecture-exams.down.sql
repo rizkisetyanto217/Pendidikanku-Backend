@@ -8,7 +8,7 @@ DROP TRIGGER IF EXISTS trg_lexams_touch ON lecture_exams;
 
 -- Hapus index user_lecture_exams
 DROP INDEX IF EXISTS idx_ulexams_username_trgm;
-DROP INDEX IF EXISTS idx_ulexams_masjid_created_desc;
+DROP INDEX IF EXISTS idx_ulexams_school_created_desc;
 DROP INDEX IF EXISTS idx_ulexams_user_created_desc;
 DROP INDEX IF EXISTS idx_ulexams_exam_user_created_desc;
 
@@ -19,7 +19,7 @@ DROP TABLE IF EXISTS user_lecture_exams;
 DROP INDEX IF EXISTS idx_lexams_desc_trgm;
 DROP INDEX IF EXISTS idx_lexams_title_trgm;
 DROP INDEX IF EXISTS idx_lexams_tsv_gin;
-DROP INDEX IF EXISTS idx_lexams_masjid_created_desc;
+DROP INDEX IF EXISTS idx_lexams_school_created_desc;
 DROP INDEX IF EXISTS idx_lexams_lecture_created_desc;
 DROP INDEX IF EXISTS ux_lecture_exams_title_per_lecture_ci;
 

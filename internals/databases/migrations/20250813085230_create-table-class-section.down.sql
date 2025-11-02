@@ -17,14 +17,14 @@ BEGIN
 END$$;
 
 -- (Opsional) Drop index-index; sebenarnya DROP TABLE akan otomatis menghapus index milik tabel itu.
-DROP INDEX IF EXISTS uq_sections_slug_per_masjid_alive;
+DROP INDEX IF EXISTS uq_sections_slug_per_school_alive;
 DROP INDEX IF EXISTS uq_sections_code_per_class_alive;
-DROP INDEX IF EXISTS idx_sections_class_masjid_alive;
-DROP INDEX IF EXISTS idx_sections_teacher_masjid_alive;
-DROP INDEX IF EXISTS idx_sections_room_masjid_alive;
-DROP INDEX IF EXISTS idx_sections_leader_student_masjid_alive;
-DROP INDEX IF EXISTS idx_sections_masjid;
-DROP INDEX IF EXISTS ix_sections_masjid_active_created;
+DROP INDEX IF EXISTS idx_sections_class_school_alive;
+DROP INDEX IF EXISTS idx_sections_teacher_school_alive;
+DROP INDEX IF EXISTS idx_sections_room_school_alive;
+DROP INDEX IF EXISTS idx_sections_leader_student_school_alive;
+DROP INDEX IF EXISTS idx_sections_school;
+DROP INDEX IF EXISTS ix_sections_school_active_created;
 DROP INDEX IF EXISTS ix_sections_class_active_created;
 DROP INDEX IF EXISTS ix_sections_teacher_active_created;
 DROP INDEX IF EXISTS ix_sections_room_active_created;

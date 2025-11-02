@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
-	m "masjidku_backend/internals/features/school/classes/classes/model"
+	m "schoolku_backend/internals/features/school/classes/classes/model"
 )
 
 /*
@@ -105,7 +105,7 @@ func (p PatchFieldClassParent[T]) Get() (*T, bool) { return p.Value, p.Present }
 */
 type ClassParentCreateRequest struct {
 	// Wajib
-	ClassParentMasjidID uuid.UUID `json:"class_parent_masjid_id" form:"class_parent_masjid_id" validate:"required"`
+	ClassParentSchoolID uuid.UUID `json:"class_parent_school_id" form:"class_parent_school_id" validate:"required"`
 	ClassParentName     string    `json:"class_parent_name" form:"class_parent_name" validate:"required,min=1,max=120"`
 
 	// Opsional
@@ -159,7 +159,7 @@ func (r ClassParentCreateRequest) ToModel() *m.ClassParentModel {
 	}
 
 	cp := &m.ClassParentModel{
-		ClassParentMasjidID:     r.ClassParentMasjidID,
+		ClassParentSchoolID:     r.ClassParentSchoolID,
 		ClassParentName:         r.ClassParentName,
 		ClassParentCode:         r.ClassParentCode,
 		ClassParentSlug:         r.ClassParentSlug,
@@ -185,7 +185,7 @@ func (r ClassParentCreateRequest) ToModel() *m.ClassParentModel {
 
 type ClassParentResponse struct {
 	ClassParentID                      uuid.UUID         `json:"class_parent_id"`
-	ClassParentMasjidID                uuid.UUID         `json:"class_parent_masjid_id"`
+	ClassParentSchoolID                uuid.UUID         `json:"class_parent_school_id"`
 	ClassParentName                    string            `json:"class_parent_name"`
 	ClassParentCode                    *string           `json:"class_parent_code"`
 	ClassParentSlug                    *string           `json:"class_parent_slug"`
@@ -212,7 +212,7 @@ func FromModelClassParent(cp *m.ClassParentModel) ClassParentResponse {
 	}
 	return ClassParentResponse{
 		ClassParentID:                      cp.ClassParentID,
-		ClassParentMasjidID:                cp.ClassParentMasjidID,
+		ClassParentSchoolID:                cp.ClassParentSchoolID,
 		ClassParentName:                    cp.ClassParentName,
 		ClassParentCode:                    cp.ClassParentCode,
 		ClassParentSlug:                    cp.ClassParentSlug,
@@ -400,17 +400,16 @@ func (p ClassParentPatchRequest) Apply(cp *m.ClassParentModel) {
 // file: internals/features/school/classes/dto/class_parent_dto.go
 
 type ListClassParentQuery struct {
-    Limit     int        `query:"limit"`
-    Offset    int        `query:"offset"`
-    Q         string     `query:"q"`
-    Name      string     `query:"name"`       // ← NEW: cari berdasarkan nama saja (ILIKE %name%)
-    Active    *bool      `query:"active"`
-    LevelMin  *int16     `query:"level_min"`
-    LevelMax  *int16     `query:"level_max"`
-    CreatedGt *time.Time `query:"created_gt"`
-    CreatedLt *time.Time `query:"created_lt"`
+	Limit     int        `query:"limit"`
+	Offset    int        `query:"offset"`
+	Q         string     `query:"q"`
+	Name      string     `query:"name"` // ← NEW: cari berdasarkan nama saja (ILIKE %name%)
+	Active    *bool      `query:"active"`
+	LevelMin  *int16     `query:"level_min"`
+	LevelMax  *int16     `query:"level_max"`
+	CreatedGt *time.Time `query:"created_gt"`
+	CreatedLt *time.Time `query:"created_lt"`
 }
-
 
 func ToClassParentResponses(rows []m.ClassParentModel) []ClassParentResponse {
 	out := make([]ClassParentResponse, 0, len(rows))
@@ -645,5 +644,3 @@ func decodePatchClassParentMultipart(c *fiber.Ctx, r *ClassParentPatchRequest) e
 
 	return nil
 }
-
-

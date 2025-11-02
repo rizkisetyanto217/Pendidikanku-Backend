@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	// ganti path sesuai modelmu
-	billing "masjidku_backend/internals/features/finance/billings/model"
+	billing "schoolku_backend/internals/features/finance/billings/model"
 )
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -18,8 +18,8 @@ import (
 // Create (manual create 1 row student_bills)
 type StudentBillCreateDTO struct {
 	StudentBillBatchID         uuid.UUID  `json:"student_bill_batch_id" validate:"required"`
-	StudentBillMasjidID        uuid.UUID  `json:"student_bill_masjid_id" validate:"required"`
-	StudentBillMasjidStudentID *uuid.UUID `json:"student_bill_masjid_student_id,omitempty"`
+	StudentBillSchoolID        uuid.UUID  `json:"student_bill_school_id" validate:"required"`
+	StudentBillSchoolStudentID *uuid.UUID `json:"student_bill_school_student_id,omitempty"`
 	StudentBillPayerUserID     *uuid.UUID `json:"student_bill_payer_user_id,omitempty"`
 
 	// Denorm jenis + periode (ikut batch; optional saat create manual)
@@ -58,8 +58,8 @@ type StudentBillUpdateDTO struct {
 type StudentBillResponse struct {
 	StudentBillID              uuid.UUID  `json:"student_bill_id"`
 	StudentBillBatchID         uuid.UUID  `json:"student_bill_batch_id"`
-	StudentBillMasjidID        uuid.UUID  `json:"student_bill_masjid_id"`
-	StudentBillMasjidStudentID *uuid.UUID `json:"student_bill_masjid_student_id,omitempty"`
+	StudentBillSchoolID        uuid.UUID  `json:"student_bill_school_id"`
+	StudentBillSchoolStudentID *uuid.UUID `json:"student_bill_school_student_id,omitempty"`
 	StudentBillPayerUserID     *uuid.UUID `json:"student_bill_payer_user_id,omitempty"`
 
 	StudentBillGeneralBillingKindID *uuid.UUID `json:"student_bill_general_billing_kind_id,omitempty"`
@@ -107,8 +107,8 @@ func ToStudentBillResponse(m billing.StudentBill) StudentBillResponse {
 	return StudentBillResponse{
 		StudentBillID:                   m.StudentBillID,
 		StudentBillBatchID:              m.StudentBillBatchID,
-		StudentBillMasjidID:             m.StudentBillMasjidID,
-		StudentBillMasjidStudentID:      m.StudentBillMasjidStudentID,
+		StudentBillSchoolID:             m.StudentBillSchoolID,
+		StudentBillSchoolStudentID:      m.StudentBillSchoolStudentID,
 		StudentBillPayerUserID:          m.StudentBillPayerUserID,
 		StudentBillGeneralBillingKindID: m.StudentBillGeneralBillingKindID,
 		StudentBillBillCode:             m.StudentBillBillCode,
@@ -130,8 +130,8 @@ func ToStudentBillResponse(m billing.StudentBill) StudentBillResponse {
 func StudentBillCreateDTOToModel(d StudentBillCreateDTO) billing.StudentBill {
 	return billing.StudentBill{
 		StudentBillBatchID:              d.StudentBillBatchID,
-		StudentBillMasjidID:             d.StudentBillMasjidID,
-		StudentBillMasjidStudentID:      d.StudentBillMasjidStudentID,
+		StudentBillSchoolID:             d.StudentBillSchoolID,
+		StudentBillSchoolStudentID:      d.StudentBillSchoolStudentID,
 		StudentBillPayerUserID:          d.StudentBillPayerUserID,
 		StudentBillGeneralBillingKindID: d.StudentBillGeneralBillingKindID,
 		StudentBillBillCode:             d.StudentBillBillCode, // model hook default "SPP" jika kosong

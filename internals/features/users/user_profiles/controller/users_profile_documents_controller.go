@@ -16,13 +16,13 @@ import (
 	"gorm.io/gorm"
 
 	// DTO & Model (users/profile)
-	"masjidku_backend/internals/features/users/user_profiles/dto"
-	"masjidku_backend/internals/features/users/user_profiles/model"
+	"schoolku_backend/internals/features/users/user_profiles/dto"
+	"schoolku_backend/internals/features/users/user_profiles/model"
 
 	// Helpers
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
-	helperOSS "masjidku_backend/internals/helpers/oss"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
+	helperOSS "schoolku_backend/internals/helpers/oss"
 
 	"github.com/go-playground/validator/v10"
 )
@@ -161,9 +161,12 @@ func (uc *UsersProfileDocumentController) CreateMultipartMany(c *fiber.Ctx) erro
 	return helper.JsonCreated(c, "Dokumen berhasil diunggah", out)
 }
 
-/* =========================
-   LIST + FILTER + PAGINATION
-========================= */
+/*
+	=========================
+	  LIST + FILTER + PAGINATION
+
+=========================
+*/
 func (uc *UsersProfileDocumentController) List(c *fiber.Ctx) error {
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
@@ -225,9 +228,12 @@ func (uc *UsersProfileDocumentController) List(c *fiber.Ctx) error {
 	})
 }
 
-/* =========================
-   GET BY DOC TYPE
-========================= */
+/*
+	=========================
+	  GET BY DOC TYPE
+
+=========================
+*/
 func (uc *UsersProfileDocumentController) GetByDocType(c *fiber.Ctx) error {
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
@@ -251,9 +257,12 @@ func (uc *UsersProfileDocumentController) GetByDocType(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "Sukses mengambil dokumen", dto.ToResponse(m))
 }
 
-/* =========================
-   UPDATE - MULTIPART (partial)
-========================= */
+/*
+	=========================
+	  UPDATE - MULTIPART (partial)
+
+=========================
+*/
 func (uc *UsersProfileDocumentController) UpdateMultipart(c *fiber.Ctx) error {
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
@@ -343,9 +352,12 @@ func (uc *UsersProfileDocumentController) UpdateMultipart(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Dokumen berhasil diperbarui", dto.ToResponse(m))
 }
 
-/* =========================
-   DELETE - SOFT / HARD
-========================= */
+/*
+	=========================
+	  DELETE - SOFT / HARD
+
+=========================
+*/
 func (uc *UsersProfileDocumentController) DeleteSoft(c *fiber.Ctx) error {
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {

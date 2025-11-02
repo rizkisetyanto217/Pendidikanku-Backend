@@ -261,8 +261,8 @@ CREATE TABLE IF NOT EXISTS user_audit (
   user_audit_request_id       UUID,
   user_audit_correlation_id   UUID,
 
-  user_audit_masjid_id        UUID REFERENCES masjids(masjid_id) ON DELETE SET NULL,
-  user_audit_actor_masjid_id  UUID REFERENCES masjids(masjid_id) ON DELETE SET NULL,
+  user_audit_school_id        UUID REFERENCES schools(school_id) ON DELETE SET NULL,
+  user_audit_actor_school_id  UUID REFERENCES schools(school_id) ON DELETE SET NULL,
 
   user_audit_service          VARCHAR(40),
   user_audit_note             TEXT,
@@ -296,8 +296,8 @@ CREATE INDEX IF NOT EXISTS idx_u_audit_actor_user_id    ON user_audit (user_audi
 CREATE INDEX IF NOT EXISTS idx_u_audit_event_type       ON user_audit (user_audit_event_type);
 CREATE INDEX IF NOT EXISTS idx_u_audit_request_id       ON user_audit (user_audit_request_id);
 CREATE INDEX IF NOT EXISTS idx_u_audit_correlation_id   ON user_audit (user_audit_correlation_id);
-CREATE INDEX IF NOT EXISTS idx_u_audit_masjid_id        ON user_audit (user_audit_masjid_id);
-CREATE INDEX IF NOT EXISTS idx_u_audit_actor_masjid_id  ON user_audit (user_audit_actor_masjid_id);
+CREATE INDEX IF NOT EXISTS idx_u_audit_school_id        ON user_audit (user_audit_school_id);
+CREATE INDEX IF NOT EXISTS idx_u_audit_actor_school_id  ON user_audit (user_audit_actor_school_id);
 CREATE INDEX IF NOT EXISTS idx_u_audit_trace_id         ON user_audit (user_audit_trace_id);
 CREATE INDEX IF NOT EXISTS idx_u_audit_request_origin   ON user_audit (user_audit_request_origin);
 CREATE INDEX IF NOT EXISTS idx_u_audit_client_endpoint  ON user_audit (user_audit_client_id, user_audit_endpoint_key);
@@ -313,9 +313,9 @@ CREATE TABLE IF NOT EXISTS user_settings (
     REFERENCES users(id) ON DELETE CASCADE,
 
   user_setting_scope_type                    VARCHAR(20) NOT NULL DEFAULT 'global'
-    CHECK (user_setting_scope_type IN ('global','masjid')),
+    CHECK (user_setting_scope_type IN ('global','school')),
   user_setting_scope_id                      UUID
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   user_setting_language                      VARCHAR(10),
   user_setting_locale                        VARCHAR(10), -- ex: id-ID
@@ -341,9 +341,9 @@ CREATE TABLE IF NOT EXISTS user_settings (
   user_setting_notification_email_digest     VARCHAR(10)
     CHECK (user_setting_notification_email_digest IN ('instant','daily','weekly')),
 
-  user_setting_privacy_profile_visibility    VARCHAR(20),    -- public/private/masjid
-  user_setting_privacy_last_seen_visibility  VARCHAR(20),    -- public/masjid/private
-  user_setting_privacy_search_visibility     VARCHAR(20),    -- public/masjid/private
+  user_setting_privacy_profile_visibility    VARCHAR(20),    -- public/private/school
+  user_setting_privacy_last_seen_visibility  VARCHAR(20),    -- public/school/private
+  user_setting_privacy_search_visibility     VARCHAR(20),    -- public/school/private
   user_setting_content_filter_level          VARCHAR(20),    -- strict/moderate/off
   user_setting_experimental_features_enabled BOOLEAN NOT NULL DEFAULT FALSE,
 
@@ -374,7 +374,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_u_settings_user_global
   ON user_settings (user_setting_user_id)
   WHERE user_setting_scope_type = 'global' AND user_setting_scope_id IS NULL;
 
--- Unik: satu baris per (user, masjid) jika scope 'masjid'
-CREATE UNIQUE INDEX IF NOT EXISTS uq_u_settings_user_masjid
+-- Unik: satu baris per (user, school) jika scope 'school'
+CREATE UNIQUE INDEX IF NOT EXISTS uq_u_settings_user_school
   ON user_settings (user_setting_user_id, user_setting_scope_id)
-  WHERE user_setting_scope_type = 'masjid' AND user_setting_scope_id IS NOT NULL;
+  WHERE user_setting_scope_type = 'school' AND user_setting_scope_id IS NOT NULL;

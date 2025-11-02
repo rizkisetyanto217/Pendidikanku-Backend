@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
-	model "masjidku_backend/internals/features/school/classes/class_sections/model"
+	model "schoolku_backend/internals/features/school/classes/class_sections/model"
 )
 
 /* =========================================================
@@ -42,9 +42,9 @@ func isValidResult(r string) bool {
 ========================================================= */
 
 type StudentClassSectionCreateReq struct {
-	StudentClassSectionMasjidStudentID uuid.UUID `json:"student_class_section_masjid_student_id"`
+	StudentClassSectionSchoolStudentID uuid.UUID `json:"student_class_section_school_student_id"`
 	StudentClassSectionSectionID       uuid.UUID `json:"student_class_section_section_id"`
-	StudentClassSectionMasjidID        uuid.UUID `json:"student_class_section_masjid_id"`
+	StudentClassSectionSchoolID        uuid.UUID `json:"student_class_section_school_id"`
 
 	StudentClassSectionStatus string          `json:"student_class_section_status,omitempty"` // default: active
 	StudentClassSectionResult *string         `json:"student_class_section_result,omitempty"`
@@ -88,14 +88,14 @@ func (r *StudentClassSectionCreateReq) Normalize() {
 
 func (r *StudentClassSectionCreateReq) Validate() error {
 	// UUID wajib
-	if isZeroUUID(r.StudentClassSectionMasjidStudentID) {
-		return errors.New("student_class_section_masjid_student_id wajib diisi")
+	if isZeroUUID(r.StudentClassSectionSchoolStudentID) {
+		return errors.New("student_class_section_school_student_id wajib diisi")
 	}
 	if isZeroUUID(r.StudentClassSectionSectionID) {
 		return errors.New("student_class_section_section_id wajib diisi")
 	}
-	if isZeroUUID(r.StudentClassSectionMasjidID) {
-		return errors.New("student_class_section_masjid_id wajib diisi")
+	if isZeroUUID(r.StudentClassSectionSchoolID) {
+		return errors.New("student_class_section_school_id wajib diisi")
 	}
 
 	// status
@@ -138,9 +138,9 @@ func (r *StudentClassSectionCreateReq) Validate() error {
 
 func (r *StudentClassSectionCreateReq) ToModel() *model.StudentClassSection {
 	m := &model.StudentClassSection{
-		StudentClassSectionMasjidStudentID: r.StudentClassSectionMasjidStudentID,
+		StudentClassSectionSchoolStudentID: r.StudentClassSectionSchoolStudentID,
 		StudentClassSectionSectionID:       r.StudentClassSectionSectionID,
-		StudentClassSectionMasjidID:        r.StudentClassSectionMasjidID,
+		StudentClassSectionSchoolID:        r.StudentClassSectionSchoolID,
 		StudentClassSectionStatus:          model.StudentClassSectionStatus(r.StudentClassSectionStatus),
 		// kolom JSONB nullable; kalau tidak dikirim, biarkan NULL
 	}
@@ -348,9 +348,9 @@ func (r *StudentClassSectionPatchReq) Apply(m *model.StudentClassSection) {
 type StudentClassSectionResp struct {
 	StudentClassSectionID uuid.UUID `json:"student_class_section_id"`
 
-	StudentClassSectionMasjidStudentID uuid.UUID `json:"student_class_section_masjid_student_id"`
+	StudentClassSectionSchoolStudentID uuid.UUID `json:"student_class_section_school_student_id"`
 	StudentClassSectionSectionID       uuid.UUID `json:"student_class_section_section_id"`
-	StudentClassSectionMasjidID        uuid.UUID `json:"student_class_section_masjid_id"`
+	StudentClassSectionSchoolID        uuid.UUID `json:"student_class_section_school_id"`
 
 	StudentClassSectionStatus string          `json:"student_class_section_status"`
 	StudentClassSectionResult *string         `json:"student_class_section_result,omitempty"`
@@ -392,9 +392,9 @@ func FromModel(m *model.StudentClassSection) StudentClassSectionResp {
 	return StudentClassSectionResp{
 		StudentClassSectionID: m.StudentClassSectionID,
 
-		StudentClassSectionMasjidStudentID: m.StudentClassSectionMasjidStudentID,
+		StudentClassSectionSchoolStudentID: m.StudentClassSectionSchoolStudentID,
 		StudentClassSectionSectionID:       m.StudentClassSectionSectionID,
-		StudentClassSectionMasjidID:        m.StudentClassSectionMasjidID,
+		StudentClassSectionSchoolID:        m.StudentClassSectionSchoolID,
 
 		StudentClassSectionStatus: string(m.StudentClassSectionStatus),
 		StudentClassSectionResult: res,

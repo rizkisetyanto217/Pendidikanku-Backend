@@ -11,7 +11,7 @@ BEGIN;
 DROP INDEX IF EXISTS uq_sub_urls_primary_per_kind_alive;
 DROP INDEX IF EXISTS uq_sub_urls_submission_href_alive;
 DROP INDEX IF EXISTS ix_sub_urls_by_owner_live;
-DROP INDEX IF EXISTS ix_sub_urls_by_masjid_live;
+DROP INDEX IF EXISTS ix_sub_urls_by_school_live;
 DROP INDEX IF EXISTS ix_sub_urls_purge_due;
 DROP INDEX IF EXISTS gin_sub_urls_label_trgm_live;
 
@@ -26,7 +26,7 @@ DROP TABLE IF EXISTS submission_urls;
 DROP INDEX IF EXISTS uq_submissions_assessment_student_alive;
 DROP INDEX IF EXISTS idx_submissions_assessment;
 DROP INDEX IF EXISTS idx_submissions_student;
-DROP INDEX IF EXISTS idx_submissions_masjid;
+DROP INDEX IF EXISTS idx_submissions_school;
 DROP INDEX IF EXISTS idx_submissions_status_alive;
 DROP INDEX IF EXISTS idx_submissions_graded_by_teacher;
 DROP INDEX IF EXISTS idx_submissions_submitted_at;

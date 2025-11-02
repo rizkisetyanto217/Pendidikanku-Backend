@@ -5,12 +5,12 @@ import (
 	"os"
 	"strings"
 
-	"masjidku_backend/internals/configs"
-	"masjidku_backend/internals/seeds"
+	"schoolku_backend/internals/configs"
+	"schoolku_backend/internals/seeds"
 
-	// users "masjidku_backend/internals/seeds/users/auth"
-	survey "masjidku_backend/internals/seeds/users/surveys/survey_questions"
-	user_survey "masjidku_backend/internals/seeds/users/surveys/user_surveys"
+	// users "schoolku_backend/internals/seeds/users/auth"
+	survey "schoolku_backend/internals/seeds/users/surveys/survey_questions"
+	user_survey "schoolku_backend/internals/seeds/users/surveys/user_surveys"
 )
 
 func main() {
@@ -33,8 +33,8 @@ func main() {
 		survey.SeedSurveyQuestionsFromJSON(db, "internals/seeds/users/surveys/survey_questions/data_survey_questions.json")
 		user_survey.SeedUserSurveysFromJSON(db, "internals/seeds/users/surveys/user_surveys/data_user_surveys.json")
 
-	case "masjids":
-		// masjids.SeedMasjidsFromJSON(db, "internals/seeds/masjids/masjid/data_masjids.json")
+	case "schools":
+		// schools.SeedSchoolsFromJSON(db, "internals/seeds/schools/school/data_schools.json")
 	default:
 		log.Fatalf("❌ Argumen '%s' tidak dikenali", os.Args[1])
 	}

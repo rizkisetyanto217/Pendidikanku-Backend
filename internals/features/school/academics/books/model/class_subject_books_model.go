@@ -11,7 +11,7 @@ import (
 type ClassSubjectBookModel struct {
 	/* ============ PK & Tenant ============ */
 	ClassSubjectBookID       uuid.UUID `gorm:"column:class_subject_book_id;type:uuid;default:gen_random_uuid();primaryKey" json:"class_subject_book_id"`
-	ClassSubjectBookMasjidID uuid.UUID `gorm:"column:class_subject_book_masjid_id;type:uuid;not null;index:idx_csb_masjid_alive" json:"class_subject_book_masjid_id"`
+	ClassSubjectBookSchoolID uuid.UUID `gorm:"column:class_subject_book_school_id;type:uuid;not null;index:idx_csb_school_alive" json:"class_subject_book_school_id"`
 
 	/* ============ FK Relasi ============ */
 	ClassSubjectBookClassSubjectID uuid.UUID `gorm:"column:class_subject_book_class_subject_id;type:uuid;not null;index:idx_csb_class_subject_alive" json:"class_subject_book_class_subject_id"`

@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	profileDTO "masjidku_backend/internals/features/users/users/dto"
-	profileModel "masjidku_backend/internals/features/users/users/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
-	helperOSS "masjidku_backend/internals/helpers/oss"
+	profileDTO "schoolku_backend/internals/features/users/users/dto"
+	profileModel "schoolku_backend/internals/features/users/users/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
+	helperOSS "schoolku_backend/internals/helpers/oss"
 
-	snapshotUserSections "masjidku_backend/internals/features/school/classes/class_sections/snapshot"
+	snapshotUserSections "schoolku_backend/internals/features/school/classes/class_sections/snapshot"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -189,7 +189,7 @@ func (upc *UsersProfileController) CreateProfile(c *fiber.Ctx) error {
 			ctx, cancel := context.WithTimeout(c.Context(), 30*time.Second)
 			defer cancel()
 
-			// Pakai userID sebagai scope (tidak butuh masjid)
+			// Pakai userID sebagai scope (tidak butuh school)
 			url, upErr := helperOSS.UploadImageToOSS(ctx, svc, userID, "user-avatar", fh)
 			if upErr != nil {
 				return httpErr(c, upErr)
@@ -217,7 +217,7 @@ func (upc *UsersProfileController) CreateProfile(c *fiber.Ctx) error {
 
 /*
 =========================
-PATCH /profiles — multipart ala Masjid (payload JSON + avatar)
+PATCH /profiles — multipart ala School (payload JSON + avatar)
 =========================
 */
 func (upc *UsersProfileController) UpdateProfile(c *fiber.Ctx) error {
@@ -477,7 +477,7 @@ func (upc *UsersProfileController) UploadAvatar(c *fiber.Ctx) error {
 		return httpErr(c, err)
 	}
 
-	masjidID, err := getMasjidIDFromCtx(c)
+	schoolID, err := getSchoolIDFromCtx(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
@@ -490,7 +490,7 @@ func (upc *UsersProfileController) UploadAvatar(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(c.Context(), 30*time.Second)
 	defer cancel()
 
-	url, err := helperOSS.UploadImageToOSS(ctx, upc.OSS, masjidID, "user-avatar", fh)
+	url, err := helperOSS.UploadImageToOSS(ctx, upc.OSS, schoolID, "user-avatar", fh)
 	if err != nil {
 		return httpErr(c, err)
 	}
@@ -509,24 +509,24 @@ func (upc *UsersProfileController) UploadAvatar(c *fiber.Ctx) error {
 // Helpers (scope & file)
 // =============================================================
 
-func getMasjidIDFromCtx(c *fiber.Ctx) (uuid.UUID, error) {
+func getSchoolIDFromCtx(c *fiber.Ctx) (uuid.UUID, error) {
 	// 1) Header umum
-	if v := strings.TrimSpace(c.Get("X-Masjid-Id")); v != "" {
+	if v := strings.TrimSpace(c.Get("X-School-Id")); v != "" {
 		if id, err := uuid.Parse(v); err == nil {
 			return id, nil
 		}
 	}
 	// 2) Form value fallback
-	if v := strings.TrimSpace(c.FormValue("masjid_id")); v != "" {
+	if v := strings.TrimSpace(c.FormValue("school_id")); v != "" {
 		if id, err := uuid.Parse(v); err == nil {
 			return id, nil
 		}
 	}
 	// 3) Dari token
-	if id, err := helperAuth.GetMasjidIDFromToken(c); err == nil && id != uuid.Nil {
+	if id, err := helperAuth.GetSchoolIDFromToken(c); err == nil && id != uuid.Nil {
 		return id, nil
 	}
-	return uuid.Nil, errors.New("masjid_id tidak ditemukan pada header/form/token")
+	return uuid.Nil, errors.New("school_id tidak ditemukan pada header/form/token")
 }
 
 func getImageFormFile(c *fiber.Ctx) (*multipart.FileHeader, error) {

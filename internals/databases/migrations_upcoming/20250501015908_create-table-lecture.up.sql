@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS lectures (
   total_lecture_sessions           INTEGER,
   lecture_image_url                TEXT,
   lecture_teachers                 JSONB,                               -- [{"id":"...","name":"..."}]
-  lecture_masjid_id                UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  lecture_school_id                UUID REFERENCES schools(school_id) ON DELETE CASCADE,
 
   lecture_is_registration_required BOOLEAN NOT NULL DEFAULT FALSE,
   lecture_is_paid                  BOOLEAN NOT NULL DEFAULT FALSE,
@@ -73,17 +73,17 @@ CREATE TABLE IF NOT EXISTS lectures (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_lectures_slug_ci ON lectures (LOWER(lecture_slug));
 
 -- Index dasar & query umum
-CREATE INDEX IF NOT EXISTS idx_lectures_masjid_id          ON lectures(lecture_masjid_id);
+CREATE INDEX IF NOT EXISTS idx_lectures_school_id          ON lectures(lecture_school_id);
 CREATE INDEX IF NOT EXISTS idx_lectures_created_at_desc     ON lectures(lecture_created_at DESC);
 
--- Per masjid + aktif + terbaru + belum terhapus
-CREATE INDEX IF NOT EXISTS idx_lectures_masjid_active_recent_live
-  ON lectures (lecture_masjid_id, lecture_is_active, lecture_created_at DESC)
+-- Per school + aktif + terbaru + belum terhapus
+CREATE INDEX IF NOT EXISTS idx_lectures_school_active_recent_live
+  ON lectures (lecture_school_id, lecture_is_active, lecture_created_at DESC)
   WHERE lecture_deleted_at IS NULL;
 
--- Terbaru per masjid (tanpa lihat aktif) + belum terhapus
-CREATE INDEX IF NOT EXISTS idx_lectures_masjid_recent_live
-  ON lectures (lecture_masjid_id, lecture_created_at DESC)
+-- Terbaru per school (tanpa lihat aktif) + belum terhapus
+CREATE INDEX IF NOT EXISTS idx_lectures_school_recent_live
+  ON lectures (lecture_school_id, lecture_created_at DESC)
   WHERE lecture_deleted_at IS NULL;
 
 -- JSONB teachers (opsional untuk filter by id/name)
@@ -125,8 +125,8 @@ CREATE TABLE IF NOT EXISTS user_lectures (
   user_lecture_user_id                   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   user_lecture_total_completed_sessions  INT  NOT NULL DEFAULT 0,
 
-  -- untuk multi-masjid reporting/filter
-  user_lecture_masjid_id                 UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  -- untuk multi-school reporting/filter
+  user_lecture_school_id                 UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- pendaftaran & pembayaran
   user_lecture_is_registered             BOOLEAN NOT NULL DEFAULT FALSE,
@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS user_lectures (
 -- Index akses cepat
 CREATE INDEX IF NOT EXISTS idx_user_lectures_lecture_id     ON user_lectures(user_lecture_lecture_id);
 CREATE INDEX IF NOT EXISTS idx_user_lectures_user_id        ON user_lectures(user_lecture_user_id);
-CREATE INDEX IF NOT EXISTS idx_user_lectures_masjid_id      ON user_lectures(user_lecture_masjid_id);
+CREATE INDEX IF NOT EXISTS idx_user_lectures_school_id      ON user_lectures(user_lecture_school_id);
 
 -- Query progress user per lecture
 -- Unique partial (hanya row hidup)
@@ -159,7 +159,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_user_lectures_user_lecture_alive
 
 -- Query finansial: only paid
 CREATE INDEX IF NOT EXISTS idx_user_lectures_paid_partial
-  ON user_lectures(user_lecture_masjid_id, user_lecture_has_paid, user_lecture_payment_time)
+  ON user_lectures(user_lecture_school_id, user_lecture_has_paid, user_lecture_payment_time)
   WHERE user_lecture_has_paid = TRUE AND user_lecture_deleted_at IS NULL;
 
 

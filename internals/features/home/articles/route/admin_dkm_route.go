@@ -1,9 +1,9 @@
 package route
 
 import (
-	"masjidku_backend/internals/constants"
-	homeController "masjidku_backend/internals/features/home/articles/controller"
-	authMiddleware "masjidku_backend/internals/middlewares/auth"
+	"schoolku_backend/internals/constants"
+	homeController "schoolku_backend/internals/features/home/articles/controller"
+	authMiddleware "schoolku_backend/internals/middlewares/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -20,7 +20,7 @@ func ArticleAdminRoutes(router fiber.Router, db *gorm.DB) {
 			constants.RoleErrorAdmin("mengelola artikel & carousel"),
 			constants.AdminAndAbove, // admin, dkm, owner
 		),
-		// NOTE: Tidak pakai IsMasjidAdmin() karena konteksnya 'home/global'.
+		// NOTE: Tidak pakai IsSchoolAdmin() karena konteksnya 'home/global'.
 	)
 
 	// === Article (CRUD)

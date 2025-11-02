@@ -7,8 +7,8 @@ BEGIN;
 
 -- Drop indexes (if exist)
 DROP INDEX IF EXISTS idx_qq_quiz;
-DROP INDEX IF EXISTS idx_qq_masjid;
-DROP INDEX IF EXISTS idx_qq_masjid_created_desc;
+DROP INDEX IF EXISTS idx_qq_school;
+DROP INDEX IF EXISTS idx_qq_school_created_desc;
 DROP INDEX IF EXISTS brin_qq_created_at;
 DROP INDEX IF EXISTS gin_qq_answers;
 DROP INDEX IF EXISTS trgm_qq_text;
@@ -32,13 +32,13 @@ DROP TABLE IF EXISTS quiz_questions;
 DROP INDEX IF EXISTS uq_quizzes_slug_per_tenant_alive;
 DROP INDEX IF EXISTS gin_quizzes_slug_trgm_alive;
 DROP INDEX IF EXISTS uq_quizzes_id_tenant;
-DROP INDEX IF EXISTS idx_quizzes_masjid_published;
+DROP INDEX IF EXISTS idx_quizzes_school_published;
 DROP INDEX IF EXISTS idx_quizzes_assessment;
 DROP INDEX IF EXISTS brin_quizzes_created_at;
 DROP INDEX IF EXISTS gin_quizzes_title_trgm;
 DROP INDEX IF EXISTS gin_quizzes_desc_trgm;
-DROP INDEX IF EXISTS idx_quizzes_masjid_assessment;
-DROP INDEX IF EXISTS idx_quizzes_masjid_created_desc;
+DROP INDEX IF EXISTS idx_quizzes_school_assessment;
+DROP INDEX IF EXISTS idx_quizzes_school_created_desc;
 
 -- Drop table
 DROP TABLE IF EXISTS quizzes;

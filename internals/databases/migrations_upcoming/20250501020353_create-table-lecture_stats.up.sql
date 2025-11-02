@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS lecture_stats (
   lecture_stats_id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   lecture_stats_lecture_id          UUID NOT NULL REFERENCES lectures(lecture_id) ON DELETE CASCADE,
-  lecture_stats_masjid_id           UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  lecture_stats_school_id           UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   lecture_stats_total_participants  INT   NOT NULL DEFAULT 0,
   lecture_stats_average_grade       FLOAT NOT NULL DEFAULT 0,
@@ -25,9 +25,9 @@ CREATE TABLE IF NOT EXISTS lecture_stats (
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_lecture_stats_lecture_id ON lecture_stats(lecture_stats_lecture_id);
-CREATE INDEX IF NOT EXISTS idx_lecture_stats_masjid_id  ON lecture_stats(lecture_stats_masjid_id);
-CREATE INDEX IF NOT EXISTS idx_lecture_stats_masjid_recent
-  ON lecture_stats(lecture_stats_masjid_id, lecture_stats_updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_lecture_stats_school_id  ON lecture_stats(lecture_stats_school_id);
+CREATE INDEX IF NOT EXISTS idx_lecture_stats_school_recent
+  ON lecture_stats(lecture_stats_school_id, lecture_stats_updated_at DESC);
 
 
 -- =========================================
@@ -36,16 +36,16 @@ CREATE INDEX IF NOT EXISTS idx_lecture_stats_masjid_recent
 CREATE OR REPLACE FUNCTION recalc_lecture_stats(p_lecture_id UUID)
 RETURNS VOID AS $$
 DECLARE
-  v_masjid_id UUID;
+  v_school_id UUID;
   v_total     INT;
   v_avg       FLOAT;
 BEGIN
-  -- Ambil masjid_id dari lectures
-  SELECT lecture_masjid_id INTO v_masjid_id
+  -- Ambil school_id dari lectures
+  SELECT lecture_school_id INTO v_school_id
   FROM lectures
   WHERE lecture_id = p_lecture_id;
 
-  IF v_masjid_id IS NULL THEN
+  IF v_school_id IS NULL THEN
     -- Lecture tidak ada; baris akan terhapus via CASCADE
     RETURN;
   END IF;
@@ -64,18 +64,18 @@ BEGIN
   -- Upsert
   INSERT INTO lecture_stats (
     lecture_stats_lecture_id,
-    lecture_stats_masjid_id,
+    lecture_stats_school_id,
     lecture_stats_total_participants,
     lecture_stats_average_grade
   ) VALUES (
     p_lecture_id,
-    v_masjid_id,
+    v_school_id,
     v_total,
     v_avg
   )
   ON CONFLICT (lecture_stats_lecture_id)
   DO UPDATE SET
-    lecture_stats_masjid_id          = EXCLUDED.lecture_stats_masjid_id,
+    lecture_stats_school_id          = EXCLUDED.lecture_stats_school_id,
     lecture_stats_total_participants = EXCLUDED.lecture_stats_total_participants,
     lecture_stats_average_grade      = EXCLUDED.lecture_stats_average_grade,
     lecture_stats_updated_at         = CURRENT_TIMESTAMPTZ;

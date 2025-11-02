@@ -42,7 +42,7 @@ const (
 =========================================================
 */
 type CreateAssessmentURLRequest struct {
-	AssessmentURLMasjidID   uuid.UUID `json:"masjid_id" validate:"required"`
+	AssessmentURLSchoolID   uuid.UUID `json:"school_id" validate:"required"`
 	AssessmentURLAssessment uuid.UUID `json:"assessment_id" validate:"required"`
 
 	Kind      string  `json:"kind" validate:"required,max=24"`
@@ -189,7 +189,7 @@ func (u *AssessmentURLUpsert) Normalize() {
 =========================================================
 */
 type ListAssessmentURLRequest struct {
-	MasjidID     *uuid.UUID `query:"masjid_id"`
+	SchoolID     *uuid.UUID `query:"school_id"`
 	AssessmentID *uuid.UUID `query:"assessment_id"`
 	Kind         *string    `query:"kind"`
 	IsPrimary    *bool      `query:"is_primary"`
@@ -242,7 +242,7 @@ func (r *ListAssessmentURLRequest) Validate() error {
 */
 type AssessmentURLItem struct {
 	ID           uuid.UUID  `json:"id"`
-	MasjidID     uuid.UUID  `json:"masjid_id"`
+	SchoolID     uuid.UUID  `json:"school_id"`
 	AssessmentID uuid.UUID  `json:"assessment_id"`
 	Kind         string     `json:"kind"`
 	Href         *string    `json:"href,omitempty"`
@@ -276,7 +276,7 @@ type ListMeta struct {
 */
 type ModelAssessmentURL interface {
 	GetID() uuid.UUID
-	GetMasjidID() uuid.UUID
+	GetSchoolID() uuid.UUID
 	GetAssessmentID() uuid.UUID
 	GetKind() string
 	GetHref() *string
@@ -293,7 +293,7 @@ type ModelAssessmentURL interface {
 func FromAssessmentURLModel(m ModelAssessmentURL) AssessmentURLItem {
 	return AssessmentURLItem{
 		ID:           m.GetID(),
-		MasjidID:     m.GetMasjidID(),
+		SchoolID:     m.GetSchoolID(),
 		AssessmentID: m.GetAssessmentID(),
 		Kind:         m.GetKind(),
 		Href:         m.GetHref(),

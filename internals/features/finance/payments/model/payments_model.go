@@ -63,7 +63,7 @@ type Payment struct {
 	PaymentID uuid.UUID `json:"payment_id" gorm:"column:payment_id;type:uuid;default:gen_random_uuid();primaryKey"`
 
 	// Tenant & actor
-	PaymentMasjidID *uuid.UUID `json:"payment_masjid_id" gorm:"column:payment_masjid_id;type:uuid"`
+	PaymentSchoolID *uuid.UUID `json:"payment_school_id" gorm:"column:payment_school_id;type:uuid"`
 	PaymentUserID   *uuid.UUID `json:"payment_user_id"   gorm:"column:payment_user_id;type:uuid"`
 
 	// ===== Target FK (salah satu WAJIB terisi) =====

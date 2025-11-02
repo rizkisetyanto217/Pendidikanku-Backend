@@ -3,14 +3,14 @@ package controller
 
 import (
 	"errors"
-	dto "masjidku_backend/internals/features/school/academics/rooms/dto"
-	model "masjidku_backend/internals/features/school/academics/rooms/model"
+	dto "schoolku_backend/internals/features/school/academics/rooms/dto"
+	model "schoolku_backend/internals/features/school/academics/rooms/model"
 	"strconv"
 	"strings"
 	"time"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -20,32 +20,32 @@ import (
 /* ============================ LIST ============================ */
 
 func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
-	// Resolve konteks masjid (path/header/cookie/query/host/token)
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// Resolve konteks school (path/header/cookie/query/host/token)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err // fiber.Error dari resolver
 	}
 
-	// Dapatkan masjidID (slug→id jika perlu)
-	var masjidID uuid.UUID
+	// Dapatkan schoolID (slug→id jika perlu)
+	var schoolID uuid.UUID
 	if mc.ID != uuid.Nil {
-		masjidID = mc.ID
+		schoolID = mc.ID
 	} else {
-		id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+		id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
 		if er != nil {
 			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+				return fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
 			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve masjid")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school")
 		}
-		masjidID = id
+		schoolID = id
 	}
 
 	// Authorization: read = member OR DKM/Admin
-	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		// bukan DKM/Admin → cek membership
-		if !helperAuth.UserHasMasjid(c, masjidID) {
-			return fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada masjid ini (membership).")
+		if !helperAuth.UserHasSchool(c, schoolID) {
+			return fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada school ini (membership).")
 		}
 	}
 
@@ -103,7 +103,7 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	}
 
 	db := ctl.DB.WithContext(reqCtx(c)).Model(&model.ClassRoomModel{}).
-		Where("class_room_masjid_id = ? AND class_room_deleted_at IS NULL", masjidID)
+		Where("class_room_school_id = ? AND class_room_deleted_at IS NULL", schoolID)
 
 	// filter by id
 	if roomID := strings.TrimSpace(c.Query("class_room_id", c.Query("id"))); roomID != "" {
@@ -214,7 +214,7 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 				class_sections_created_at       AS created_at,
 				class_sections_updated_at       AS updated_at
 			`).
-			Where("class_sections_masjid_id = ? AND class_sections_deleted_at IS NULL", masjidID).
+			Where("class_sections_school_id = ? AND class_sections_deleted_at IS NULL", schoolID).
 			Where("class_sections_class_room_id IN ?", roomIDs).
 			Order("class_sections_created_at DESC").
 			Scan(&secs).Error; err != nil {

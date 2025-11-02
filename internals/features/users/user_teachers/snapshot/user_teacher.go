@@ -23,7 +23,7 @@ type TeacherSnapshot struct {
 }
 
 // Error spesifik untuk beda tenant
-var ErrMasjidMismatch = errors.New("masjid mismatch")
+var ErrSchoolMismatch = errors.New("school mismatch")
 
 // Helper umum untuk konversi ke JSONB (gorm datatypes.JSON)
 func ToJSONB(v any) (datatypes.JSON, error) {
@@ -37,17 +37,17 @@ func ToJSONB(v any) (datatypes.JSON, error) {
 	return datatypes.JSON(b), nil
 }
 
-// Validasi masjid_teacher & buat snapshot user_teacher-nya
+// Validasi school_teacher & buat snapshot user_teacher-nya
 // - kembalikan gorm.ErrRecordNotFound jika tidak ditemukan
-// - kembalikan ErrMasjidMismatch jika tenant beda
+// - kembalikan ErrSchoolMismatch jika tenant beda
 func BuildTeacherSnapshot(
 	ctx context.Context,
 	tx *gorm.DB,
-	masjidID uuid.UUID,
-	masjidTeacherID uuid.UUID,
+	schoolID uuid.UUID,
+	schoolTeacherID uuid.UUID,
 ) (*TeacherSnapshot, error) {
 	var row struct {
-		MasjidID      uuid.UUID
+		SchoolID      uuid.UUID
 		UserTeacherID uuid.UUID
 		FullName      string
 		WhatsappURL   *string
@@ -58,29 +58,29 @@ func BuildTeacherSnapshot(
 
 	if err := tx.WithContext(ctx).Raw(`
 		SELECT
-			mt.masjid_teacher_masjid_id AS masjid_id,
+			mt.school_teacher_school_id AS school_id,
 			ut.user_teacher_id          AS user_teacher_id,
 			ut.user_teacher_name        AS full_name,
 			ut.user_teacher_whatsapp_url AS whatsapp_url,
 			ut.user_teacher_title_prefix AS title_prefix,
 			ut.user_teacher_title_suffix AS title_suffix,
 			ut.user_teacher_avatar_url   AS avatar_url
-		FROM masjid_teachers mt
+		FROM school_teachers mt
 		JOIN user_teachers ut
-		  ON ut.user_teacher_id = mt.masjid_teacher_user_teacher_id
-		WHERE mt.masjid_teacher_id = ?
-		  AND mt.masjid_teacher_deleted_at IS NULL
-	`, masjidTeacherID).Scan(&row).Error; err != nil {
+		  ON ut.user_teacher_id = mt.school_teacher_user_teacher_id
+		WHERE mt.school_teacher_id = ?
+		  AND mt.school_teacher_deleted_at IS NULL
+	`, schoolTeacherID).Scan(&row).Error; err != nil {
 		return nil, err
 	}
 
 	// not found (Raw+Scan tidak kasih ErrRecordNotFound, jadi cek sendiri)
-	if row.MasjidID == uuid.Nil {
+	if row.SchoolID == uuid.Nil {
 		return nil, gorm.ErrRecordNotFound
 	}
 	// tenant check
-	if row.MasjidID != masjidID {
-		return nil, ErrMasjidMismatch
+	if row.SchoolID != schoolID {
+		return nil, ErrSchoolMismatch
 	}
 
 	nz := func(p *string) *string {

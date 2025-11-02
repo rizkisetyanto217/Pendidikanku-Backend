@@ -4,14 +4,14 @@
 CREATE TABLE IF NOT EXISTS student_quiz_attempts (
   student_quiz_attempt_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  student_quiz_attempt_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  student_quiz_attempt_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   student_quiz_attempt_quiz_id UUID NOT NULL
     REFERENCES quizzes(quiz_id) ON DELETE CASCADE,
 
   student_quiz_attempt_student_id UUID NOT NULL
-    REFERENCES masjid_students(masjid_student_id) ON DELETE CASCADE,
+    REFERENCES school_students(school_student_id) ON DELETE CASCADE,
 
   student_quiz_attempt_started_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   student_quiz_attempt_finished_at TIMESTAMPTZ,
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS student_quiz_attempts (
 -- ========== INDEXES (student_quiz_attempts) ==========
 -- Pair unik id+tenant (berguna utk join tenant-safe)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_sqa_id_tenant
-  ON student_quiz_attempts (student_quiz_attempt_id, student_quiz_attempt_masjid_id);
+  ON student_quiz_attempts (student_quiz_attempt_id, student_quiz_attempt_school_id);
 
 -- Jalur query umum
 CREATE INDEX IF NOT EXISTS idx_sqa_quiz_student
@@ -51,8 +51,8 @@ CREATE INDEX IF NOT EXISTS idx_sqa_status
 CREATE INDEX IF NOT EXISTS idx_sqa_quiz_student_started_desc
   ON student_quiz_attempts (student_quiz_attempt_quiz_id, student_quiz_attempt_student_id, student_quiz_attempt_started_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_sqa_masjid_quiz
-  ON student_quiz_attempts (student_quiz_attempt_masjid_id, student_quiz_attempt_quiz_id);
+CREATE INDEX IF NOT EXISTS idx_sqa_school_quiz
+  ON student_quiz_attempts (student_quiz_attempt_school_id, student_quiz_attempt_quiz_id);
 
 CREATE INDEX IF NOT EXISTS idx_sqa_student
   ON student_quiz_attempts (student_quiz_attempt_student_id);
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS student_quiz_attempt_answers (
 
   -- Penilaian manual (ESSAY)
   student_quiz_attempt_answer_graded_by_teacher_id UUID
-    REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE SET NULL,
+    REFERENCES school_teachers(school_teacher_id) ON DELETE SET NULL,
   student_quiz_attempt_answer_graded_at TIMESTAMPTZ,
   student_quiz_attempt_answer_feedback TEXT,
 

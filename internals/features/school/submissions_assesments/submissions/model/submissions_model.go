@@ -21,7 +21,7 @@ const (
 
 type Submission struct {
 	SubmissionID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:submission_id" json:"submission_id"`
-	SubmissionMasjidID uuid.UUID `gorm:"type:uuid;not null;column:submission_masjid_id" json:"submission_masjid_id"`
+	SubmissionSchoolID uuid.UUID `gorm:"type:uuid;not null;column:submission_school_id" json:"submission_school_id"`
 
 	SubmissionAssessmentID uuid.UUID `gorm:"type:uuid;not null;column:submission_assessment_id" json:"submission_assessment_id"`
 	SubmissionStudentID    uuid.UUID `gorm:"type:uuid;not null;column:submission_student_id" json:"submission_student_id"`

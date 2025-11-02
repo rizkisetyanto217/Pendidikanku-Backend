@@ -2,7 +2,7 @@
 package routes
 
 import (
-	evCtl "masjidku_backend/internals/features/school/classes/class_events/controller"
+	evCtl "schoolku_backend/internals/features/school/classes/class_events/controller"
 	// ← import tambahan
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -10,18 +10,18 @@ import (
 
 // =========================
 // USER / PUBLIC routes (read-only)
-// /:masjid_id/events
+// /:school_id/events
 // =========================
 func AllEventRoutes(r fiber.Router, db *gorm.DB) {
 	// Events
 	ev := evCtl.NewClassEvents(db, nil)
-	grp := r.Group("/:masjid_id/events")
+	grp := r.Group("/:school_id/events")
 	grp.Get("/", ev.List)
 	grp.Get("/list", ev.List)
 
 	// Event Themes
 	th := evCtl.NewClassEventThemeController(db)
-	tgrp := r.Group("/:masjid_id/event-themes")
+	tgrp := r.Group("/:school_id/event-themes")
 	tgrp.Get("/", th.List)
 	tgrp.Get("/list", th.List)
 }

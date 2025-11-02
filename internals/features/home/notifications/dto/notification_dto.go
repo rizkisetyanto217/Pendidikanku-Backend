@@ -1,7 +1,7 @@
 package dto
 
 import (
-	"masjidku_backend/internals/features/home/notifications/model"
+	"schoolku_backend/internals/features/home/notifications/model"
 
 	"github.com/google/uuid"
 )
@@ -11,7 +11,7 @@ type NotificationRequest struct {
 	NotificationTitle       string     `json:"notification_title"`
 	NotificationDescription string     `json:"notification_description"`
 	NotificationType        int        `json:"notification_type"`
-	NotificationMasjidID    *uuid.UUID `json:"notification_masjid_id"` // nullable
+	NotificationSchoolID    *uuid.UUID `json:"notification_school_id"` // nullable
 	NotificationTags        []string   `json:"notification_tags"`      // optional
 }
 
@@ -21,7 +21,7 @@ type NotificationResponse struct {
 	NotificationTitle       string     `json:"notification_title"`
 	NotificationDescription string     `json:"notification_description"`
 	NotificationType        int        `json:"notification_type"`
-	NotificationMasjidID    *uuid.UUID `json:"notification_masjid_id"` // nullable
+	NotificationSchoolID    *uuid.UUID `json:"notification_school_id"` // nullable
 	NotificationTags        []string   `json:"notification_tags"`
 	NotificationCreatedAt   string     `json:"notification_created_at"`
 	NotificationUpdatedAt   string     `json:"notification_updated_at"`
@@ -33,7 +33,7 @@ func (r *NotificationRequest) ToModel() *model.NotificationModel {
 		NotificationTitle:       r.NotificationTitle,
 		NotificationDescription: r.NotificationDescription,
 		NotificationType:        r.NotificationType,
-		NotificationMasjidID:    r.NotificationMasjidID,
+		NotificationSchoolID:    r.NotificationSchoolID,
 		NotificationTags:        r.NotificationTags,
 	}
 }
@@ -44,7 +44,7 @@ func ToNotificationResponse(m *model.NotificationModel) *NotificationResponse {
 		NotificationTitle:       m.NotificationTitle,
 		NotificationDescription: m.NotificationDescription,
 		NotificationType:        m.NotificationType,
-		NotificationMasjidID:    m.NotificationMasjidID,
+		NotificationSchoolID:    m.NotificationSchoolID,
 		NotificationTags:        m.NotificationTags,
 		NotificationCreatedAt:   m.NotificationCreatedAt.Format("2006-01-02 15:04:05"),
 		NotificationUpdatedAt:   m.NotificationUpdatedAt.Format("2006-01-02 15:04:05"),

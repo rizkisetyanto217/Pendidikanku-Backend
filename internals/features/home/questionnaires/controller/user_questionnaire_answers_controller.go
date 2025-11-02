@@ -1,9 +1,9 @@
 package controller
 
 import (
-	"masjidku_backend/internals/features/home/questionnaires/dto"
-	"masjidku_backend/internals/features/home/questionnaires/model"
-	helper "masjidku_backend/internals/helpers"
+	"schoolku_backend/internals/features/home/questionnaires/dto"
+	"schoolku_backend/internals/features/home/questionnaires/model"
+	helper "schoolku_backend/internals/helpers"
 	"strconv"
 
 	"github.com/go-playground/validator/v10"

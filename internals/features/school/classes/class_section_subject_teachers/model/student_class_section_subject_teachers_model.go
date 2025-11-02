@@ -15,7 +15,7 @@ type StudentClassSectionSubjectTeacher struct {
 	StudentClassSectionSubjectTeacherID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:student_class_section_subject_teacher_id" json:"student_class_section_subject_teacher_id"`
 
 	// Tenant
-	StudentClassSectionSubjectTeacherMasjidID uuid.UUID `gorm:"type:uuid;not null;column:student_class_section_subject_teacher_masjid_id" json:"student_class_section_subject_teacher_masjid_id"`
+	StudentClassSectionSubjectTeacherSchoolID uuid.UUID `gorm:"type:uuid;not null;column:student_class_section_subject_teacher_school_id" json:"student_class_section_subject_teacher_school_id"`
 
 	// Anchor relations
 	StudentClassSectionSubjectTeacherStudentID uuid.UUID `gorm:"type:uuid;not null;column:student_class_section_subject_teacher_student_id" json:"student_class_section_subject_teacher_student_id"`

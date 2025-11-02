@@ -22,14 +22,14 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"masjidku_backend/internals/configs"
-	authHelper "masjidku_backend/internals/features/users/auth/helper"
-	authModel "masjidku_backend/internals/features/users/auth/model"
-	authRepo "masjidku_backend/internals/features/users/auth/repository"
-	userModel "masjidku_backend/internals/features/users/users/model"
-	userProfileService "masjidku_backend/internals/features/users/users/service"
-	helpers "masjidku_backend/internals/helpers"
-	helpersAuth "masjidku_backend/internals/helpers/auth"
+	"schoolku_backend/internals/configs"
+	authHelper "schoolku_backend/internals/features/users/auth/helper"
+	authModel "schoolku_backend/internals/features/users/auth/model"
+	authRepo "schoolku_backend/internals/features/users/auth/repository"
+	userModel "schoolku_backend/internals/features/users/users/model"
+	userProfileService "schoolku_backend/internals/features/users/users/service"
+	helpers "schoolku_backend/internals/helpers"
+	helpersAuth "schoolku_backend/internals/helpers/auth"
 )
 
 /* ==========================
@@ -74,7 +74,7 @@ func sanitizeListCSV(csv string) []string {
 var allowedFrontendOrigins = func() []string {
 	env := strings.TrimSpace(os.Getenv("FRONTEND_ORIGINS"))
 	if env == "" {
-		env = "http://localhost:5173,http://127.0.0.1:5173,https://masjidku.org,https://www.masjidku.org,https://pendidikanku-frontend-2-production.up.railway.app"
+		env = "http://localhost:5173,http://127.0.0.1:5173,https://schoolku.org,https://www.schoolku.org,https://pendidikanku-frontend-2-production.up.railway.app"
 	}
 	return sanitizeListCSV(env)
 }()
@@ -108,13 +108,13 @@ func randomString(n int) string {
 }
 
 type TeacherRecord struct {
-	ID       uuid.UUID `json:"masjid_teacher_id" gorm:"column:masjid_teacher_id"`
-	MasjidID uuid.UUID `json:"masjid_id"        gorm:"column:masjid_teacher_masjid_id"`
+	ID       uuid.UUID `json:"school_teacher_id" gorm:"column:school_teacher_id"`
+	SchoolID uuid.UUID `json:"school_id"        gorm:"column:school_teacher_school_id"`
 }
 
 type StudentRecord struct {
-	ID       uuid.UUID `json:"masjid_student_id" gorm:"column:masjid_student_id"`
-	MasjidID uuid.UUID `json:"masjid_id"        gorm:"column:masjid_student_masjid_id"`
+	ID       uuid.UUID `json:"school_student_id" gorm:"column:school_student_id"`
+	SchoolID uuid.UUID `json:"school_id"        gorm:"column:school_student_school_id"`
 }
 
 /* ==========================
@@ -124,8 +124,8 @@ type StudentRecord struct {
 type authMeta struct {
 	once sync.Once
 	// tables
-	HasMasjidAdmins   bool
-	HasMasjidTeachers bool
+	HasSchoolAdmins   bool
+	HasSchoolTeachers bool
 	HasUserClasses    bool
 	HasRoles          bool
 	HasUserRoles      bool
@@ -242,8 +242,8 @@ func setXSRFCookie(c *fiber.Ctx, token string, exp time.Time) {
 // Panggil sekali saat app start setelah DB siap: service.PrewarmAuthMeta(db)
 func PrewarmAuthMeta(db *gorm.DB) {
 	meta.once.Do(func() {
-		meta.HasMasjidAdmins = quickHasTable(db, "masjid_admins")
-		meta.HasMasjidTeachers = quickHasTable(db, "masjid_teachers")
+		meta.HasSchoolAdmins = quickHasTable(db, "school_admins")
+		meta.HasSchoolTeachers = quickHasTable(db, "school_teachers")
 		meta.HasUserClasses = quickHasTable(db, "user_classes")
 		meta.HasRoles = quickHasTable(db, "roles")
 		meta.HasUserRoles = quickHasTable(db, "user_roles")
@@ -276,18 +276,18 @@ func quickHasFunction(db *gorm.DB, name string) bool {
    Small Helpers
 ========================== */
 
-// Kumpulkan masjid_id (UUID) dari claim
-func masjidUUIDsFromClaim(rc helpersAuth.RolesClaim) []uuid.UUID {
-	out := make([]uuid.UUID, 0, len(rc.MasjidRoles))
-	for _, mr := range rc.MasjidRoles {
-		if mr.MasjidID != uuid.Nil {
-			out = append(out, mr.MasjidID)
+// Kumpulkan school_id (UUID) dari claim
+func schoolUUIDsFromClaim(rc helpersAuth.RolesClaim) []uuid.UUID {
+	out := make([]uuid.UUID, 0, len(rc.SchoolRoles))
+	for _, mr := range rc.SchoolRoles {
+		if mr.SchoolID != uuid.Nil {
+			out = append(out, mr.SchoolID)
 		}
 	}
 	return out
 }
 
-// Ambil map {masjid_id: tenant_profile} untuk banyak masjid sekaligus
+// Ambil map {school_id: tenant_profile} untuk banyak school sekaligus
 func getTenantProfilesMapStr(ctx context.Context, db *gorm.DB, ids []uuid.UUID) map[string]string {
 	res := make(map[string]string)
 	if db == nil || len(ids) == 0 {
@@ -303,8 +303,8 @@ func getTenantProfilesMapStr(ctx context.Context, db *gorm.DB, ids []uuid.UUID) 
 	}
 
 	type row struct {
-		ID      uuid.UUID `gorm:"column:masjid_id"`
-		Profile string    `gorm:"column:masjid_tenant_profile"`
+		ID      uuid.UUID `gorm:"column:school_id"`
+		Profile string    `gorm:"column:school_tenant_profile"`
 	}
 
 	ctxQ, cancel := context.WithTimeout(ctx, qryTimeoutShort)
@@ -312,9 +312,9 @@ func getTenantProfilesMapStr(ctx context.Context, db *gorm.DB, ids []uuid.UUID) 
 
 	var rows []row
 	q := `
-		SELECT masjid_id, masjid_tenant_profile::text
-		FROM masjids
-		WHERE masjid_id IN (` + strings.Join(ph, ",") + `)
+		SELECT school_id, school_tenant_profile::text
+		FROM schools
+		WHERE school_id IN (` + strings.Join(ph, ",") + `)
 	`
 	if err := db.WithContext(ctxQ).Raw(q, args...).Scan(&rows).Error; err != nil {
 		log.Printf("[WARN] getTenantProfilesMapStr: %v", err)
@@ -329,9 +329,9 @@ func getTenantProfilesMapStr(ctx context.Context, db *gorm.DB, ids []uuid.UUID) 
 }
 
 // letakkan di dekat helper lain (atas file)
-// Ambil masjid_tenant_profile sebagai string (enum::text) untuk masjid aktif
-func getMasjidTenantProfileStr(ctx context.Context, db *gorm.DB, masjidID uuid.UUID) *string {
-	if db == nil || masjidID == uuid.Nil {
+// Ambil school_tenant_profile sebagai string (enum::text) untuk school aktif
+func getSchoolTenantProfileStr(ctx context.Context, db *gorm.DB, schoolID uuid.UUID) *string {
+	if db == nil || schoolID == uuid.Nil {
 		return nil
 	}
 	ctxQ, cancel := context.WithTimeout(ctx, qryTimeoutShort)
@@ -339,7 +339,7 @@ func getMasjidTenantProfileStr(ctx context.Context, db *gorm.DB, masjidID uuid.U
 
 	var s string
 	err := db.WithContext(ctxQ).
-		Raw(`SELECT masjid_tenant_profile::text FROM masjids WHERE masjid_id = ? LIMIT 1`, masjidID).
+		Raw(`SELECT school_tenant_profile::text FROM schools WHERE school_id = ? LIMIT 1`, schoolID).
 		Scan(&s).Error
 	if err != nil {
 		low := strings.ToLower(err.Error())
@@ -348,7 +348,7 @@ func getMasjidTenantProfileStr(ctx context.Context, db *gorm.DB, masjidID uuid.U
 			strings.Contains(low, "no such table") {
 			return nil
 		}
-		log.Printf("[WARN] getMasjidTenantProfileStr: %v", err)
+		log.Printf("[WARN] getSchoolTenantProfileStr: %v", err)
 		return nil
 	}
 	s = strings.TrimSpace(s)
@@ -358,21 +358,21 @@ func getMasjidTenantProfileStr(ctx context.Context, db *gorm.DB, masjidID uuid.U
 	return &s
 }
 
-// Satu item masjid: roles + tenant_profile
-type MasjidRoleWithTenant struct {
-	MasjidID      uuid.UUID `json:"masjid_id"`
+// Satu item school: roles + tenant_profile
+type SchoolRoleWithTenant struct {
+	SchoolID      uuid.UUID `json:"school_id"`
 	Roles         []string  `json:"roles"`
 	TenantProfile string    `json:"tenant_profile"`
 }
 
-// Gabungkan claim masjid_roles dengan map tenant_profiles
-func combineRolesWithTenant(rc helpersAuth.RolesClaim, tp map[string]string) []MasjidRoleWithTenant {
-	out := make([]MasjidRoleWithTenant, 0, len(rc.MasjidRoles))
-	for _, mr := range rc.MasjidRoles {
-		out = append(out, MasjidRoleWithTenant{
-			MasjidID:      mr.MasjidID,
+// Gabungkan claim school_roles dengan map tenant_profiles
+func combineRolesWithTenant(rc helpersAuth.RolesClaim, tp map[string]string) []SchoolRoleWithTenant {
+	out := make([]SchoolRoleWithTenant, 0, len(rc.SchoolRoles))
+	for _, mr := range rc.SchoolRoles {
+		out = append(out, SchoolRoleWithTenant{
+			SchoolID:      mr.SchoolID,
 			Roles:         mr.Roles,
-			TenantProfile: strings.TrimSpace(tp[mr.MasjidID.String()]),
+			TenantProfile: strings.TrimSpace(tp[mr.SchoolID.String()]),
 		})
 	}
 	return out
@@ -442,7 +442,7 @@ func rolesClaimHas(rc helpersAuth.RolesClaim, role string) bool {
 			return true
 		}
 	}
-	for _, mr := range rc.MasjidRoles {
+	for _, mr := range rc.SchoolRoles {
 		for _, r := range mr.Roles {
 			if strings.EqualFold(r, role) {
 				return true
@@ -452,12 +452,12 @@ func rolesClaimHas(rc helpersAuth.RolesClaim, role string) bool {
 	return false
 }
 
-// Derive masjid_ids (opsional, untuk kompat) dari masjid_roles.
-func deriveMasjidIDsFromRolesClaim(rc helpersAuth.RolesClaim) []string {
+// Derive school_ids (opsional, untuk kompat) dari school_roles.
+func deriveSchoolIDsFromRolesClaim(rc helpersAuth.RolesClaim) []string {
 	set := map[string]struct{}{}
-	for _, mr := range rc.MasjidRoles {
-		if mr.MasjidID != uuid.Nil {
-			set[mr.MasjidID.String()] = struct{}{}
+	for _, mr := range rc.SchoolRoles {
+		if mr.SchoolID != uuid.Nil {
+			set[mr.SchoolID.String()] = struct{}{}
 		}
 	}
 	out := make([]string, 0, len(set))
@@ -611,7 +611,7 @@ func grantDefaultUserRole(ctx context.Context, db *gorm.DB, userID uuid.UUID) er
 	if err := db.WithContext(ctx).
 		Raw(`SELECT EXISTS(
 		       SELECT 1 FROM user_roles
-		       WHERE user_id = ?::uuid AND role_id = ?::uuid AND masjid_id IS NULL AND deleted_at IS NULL
+		       WHERE user_id = ?::uuid AND role_id = ?::uuid AND school_id IS NULL AND deleted_at IS NULL
 		     )`, userID.String(), roleIDStr).
 		Scan(&exists).Error; err != nil {
 		return err
@@ -621,7 +621,7 @@ func grantDefaultUserRole(ctx context.Context, db *gorm.DB, userID uuid.UUID) er
 	}
 
 	return db.WithContext(ctx).
-		Exec(`INSERT INTO user_roles(user_id, role_id, masjid_id, assigned_at)
+		Exec(`INSERT INTO user_roles(user_id, role_id, school_id, assigned_at)
 		      VALUES (?::uuid, ?::uuid, NULL, now())`,
 			userID.String(), roleIDStr).Error
 }
@@ -631,7 +631,7 @@ func grantDefaultUserRole(ctx context.Context, db *gorm.DB, userID uuid.UUID) er
 func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (helpersAuth.RolesClaim, error) {
 	out := helpersAuth.RolesClaim{
 		RolesGlobal: []string{},
-		MasjidRoles: []helpersAuth.MasjidRolesEntry{},
+		SchoolRoles: []helpersAuth.SchoolRolesEntry{},
 	}
 
 	// ---------- 0) Coba pakai DB function jika tersedia ----------
@@ -647,14 +647,14 @@ func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (help
 			var tmp helpersAuth.RolesClaim
 			if err := json.Unmarshal([]byte(jsonStr), &tmp); err == nil {
 				// kalau function sudah mengembalikan data, pakai langsung
-				if len(tmp.RolesGlobal) > 0 || len(tmp.MasjidRoles) > 0 {
+				if len(tmp.RolesGlobal) > 0 || len(tmp.SchoolRoles) > 0 {
 					return tmp, nil
 				}
 			}
 		}
 	}
 
-	// Helper merge roles per masjid (pakai map internal biar dedup)
+	// Helper merge roles per school (pakai map internal biar dedup)
 	type set = map[string]struct{}
 	mRoles := map[uuid.UUID]set{}
 	addRole := func(mid uuid.UUID, role string) {
@@ -684,7 +684,7 @@ func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (help
 			JOIN roles r ON r.role_id = ur.role_id
 			WHERE ur.user_id = ?::uuid
 			  AND ur.deleted_at IS NULL
-			  AND ur.masjid_id IS NULL
+			  AND ur.school_id IS NULL
 			GROUP BY r.role_name
 			ORDER BY `+orderBy, userID.String()).
 			Scan(&globals).Error; err != nil {
@@ -699,19 +699,19 @@ func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (help
 
 	// Scoped (user_roles)
 	var scoped []struct {
-		MasjidID uuid.UUID `gorm:"column:masjid_id"`
+		SchoolID uuid.UUID `gorm:"column:school_id"`
 		RoleName string    `gorm:"column:role_name"`
 	}
 	{
 		ctxS, cancel := context.WithTimeout(ctx, qryTimeoutLong)
 		if err := db.WithContext(ctxS).Raw(`
-			SELECT ur.masjid_id, r.role_name
+			SELECT ur.school_id, r.role_name
 			FROM user_roles ur
 			JOIN roles r ON r.role_id = ur.role_id
 			WHERE ur.user_id = ?::uuid
 			  AND ur.deleted_at IS NULL
-			  AND ur.masjid_id IS NOT NULL
-			GROUP BY ur.masjid_id, r.role_name
+			  AND ur.school_id IS NOT NULL
+			GROUP BY ur.school_id, r.role_name
 		`, userID.String()).
 			Scan(&scoped).Error; err != nil {
 			cancel()
@@ -719,11 +719,11 @@ func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (help
 		}
 		cancel()
 		for _, r := range scoped {
-			addRole(r.MasjidID, r.RoleName)
+			addRole(r.SchoolID, r.RoleName)
 		}
 	}
 
-	// ---------- 2) ENRICH: student (user_profiles -> masjid_students) ----------
+	// ---------- 2) ENRICH: student (user_profiles -> school_students) ----------
 	var profileIDs []uuid.UUID
 	{
 		ctxP, cancel := context.WithTimeout(ctx, qryTimeoutLong)
@@ -737,23 +737,23 @@ func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (help
 		cancel()
 	}
 	if len(profileIDs) > 0 {
-		var msMasjidIDs []uuid.UUID
+		var msSchoolIDs []uuid.UUID
 		ctxMS, cancel := context.WithTimeout(ctx, qryTimeoutLong)
 		err := db.WithContext(ctxMS).
-			Table("masjid_students").
-			Where("masjid_student_user_profile_id IN ?", profileIDs).
-			Where("masjid_student_deleted_at IS NULL").
-			Pluck("masjid_student_masjid_id", &msMasjidIDs).Error
+			Table("school_students").
+			Where("school_student_user_profile_id IN ?", profileIDs).
+			Where("school_student_deleted_at IS NULL").
+			Pluck("school_student_school_id", &msSchoolIDs).Error
 		cancel()
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return out, err
 		}
-		for _, mid := range msMasjidIDs {
+		for _, mid := range msSchoolIDs {
 			addRole(mid, "student")
 		}
 	}
 
-	// ---------- 3) ENRICH: teacher (user_teachers -> masjid_teachers) ----------
+	// ---------- 3) ENRICH: teacher (user_teachers -> school_teachers) ----------
 	var utIDs []uuid.UUID
 	{
 		ctxUT, cancel := context.WithTimeout(ctx, qryTimeoutLong)
@@ -767,30 +767,30 @@ func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (help
 		cancel()
 	}
 	if len(utIDs) > 0 {
-		var mtMasjidIDs []uuid.UUID
+		var mtSchoolIDs []uuid.UUID
 		ctxMT, cancel := context.WithTimeout(ctx, qryTimeoutLong)
 		err := db.WithContext(ctxMT).
-			Table("masjid_teachers").
-			Where("masjid_teacher_user_teacher_id IN ?", utIDs).
-			Where("masjid_teacher_deleted_at IS NULL").
-			Pluck("masjid_teacher_masjid_id", &mtMasjidIDs).Error
+			Table("school_teachers").
+			Where("school_teacher_user_teacher_id IN ?", utIDs).
+			Where("school_teacher_deleted_at IS NULL").
+			Pluck("school_teacher_school_id", &mtSchoolIDs).Error
 		cancel()
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return out, err
 		}
-		for _, mid := range mtMasjidIDs {
+		for _, mid := range mtSchoolIDs {
 			addRole(mid, "teacher")
 		}
 	}
 
-	// ---------- 4) Convert map -> []MasjidRolesEntry ----------
+	// ---------- 4) Convert map -> []SchoolRolesEntry ----------
 	for mid, set := range mRoles {
 		roles := make([]string, 0, len(set))
 		for r := range set {
 			roles = append(roles, r)
 		}
-		out.MasjidRoles = append(out.MasjidRoles, helpersAuth.MasjidRolesEntry{
-			MasjidID: mid,
+		out.SchoolRoles = append(out.SchoolRoles, helpersAuth.SchoolRolesEntry{
+			SchoolID: mid,
 			Roles:    roles,
 		})
 	}
@@ -842,7 +842,7 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data user")
 	}
 
-	// Roles (roles_global & masjid_roles)
+	// Roles (roles_global & school_roles)
 	rolesClaim, err := getUserRolesClaim(c.Context(), db, userFull.ID)
 	if err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil roles user")
@@ -875,10 +875,10 @@ func fetchStudentRecords(db *gorm.DB, userID uuid.UUID) []StudentRecord {
 
 	var out []StudentRecord
 	if err := db.WithContext(ctx).
-		Table("masjid_students").
-		Select("masjid_student_id, masjid_student_masjid_id").
-		Where("masjid_student_user_profile_id IN ?", profileIDs).
-		Where("masjid_student_deleted_at IS NULL").
+		Table("school_students").
+		Select("school_student_id, school_student_school_id").
+		Where("school_student_user_profile_id IN ?", profileIDs).
+		Where("school_student_deleted_at IS NULL").
 		Scan(&out).Error; err != nil {
 		log.Printf("[WARN] fetchStudentRecords: %v", err)
 		return nil
@@ -896,10 +896,10 @@ func fetchTeacherRecords(db *gorm.DB, userID uuid.UUID) []TeacherRecord {
 
 	var out []TeacherRecord
 	err := db.WithContext(ctx).
-		Table("masjid_teachers AS mt").
-		Select("mt.masjid_teacher_id AS masjid_teacher_id, mt.masjid_teacher_masjid_id AS masjid_teacher_masjid_id").
-		Joins("JOIN user_teachers ut ON ut.user_teacher_id = mt.masjid_teacher_user_teacher_id").
-		Where("ut.user_teacher_user_id = ? AND mt.masjid_teacher_deleted_at IS NULL AND ut.user_teacher_deleted_at IS NULL", userID).
+		Table("school_teachers AS mt").
+		Select("mt.school_teacher_id AS school_teacher_id, mt.school_teacher_school_id AS school_teacher_school_id").
+		Joins("JOIN user_teachers ut ON ut.user_teacher_id = mt.school_teacher_user_teacher_id").
+		Where("ut.user_teacher_user_id = ? AND mt.school_teacher_deleted_at IS NULL AND ut.user_teacher_deleted_at IS NULL", userID).
 		Scan(&out).Error
 
 	if err != nil {
@@ -919,18 +919,18 @@ func fetchTeacherRecords(db *gorm.DB, userID uuid.UUID) []TeacherRecord {
 // Helpers (roles / teacher)
 // ==========================
 
-func masjidIDSetFromClaim(rc helpersAuth.RolesClaim) map[uuid.UUID]struct{} {
-	set := make(map[uuid.UUID]struct{}, len(rc.MasjidRoles))
-	for _, mr := range rc.MasjidRoles {
-		if mr.MasjidID != uuid.Nil {
-			set[mr.MasjidID] = struct{}{}
+func schoolIDSetFromClaim(rc helpersAuth.RolesClaim) map[uuid.UUID]struct{} {
+	set := make(map[uuid.UUID]struct{}, len(rc.SchoolRoles))
+	for _, mr := range rc.SchoolRoles {
+		if mr.SchoolID != uuid.Nil {
+			set[mr.SchoolID] = struct{}{}
 		}
 	}
 	return set
 }
 
 // Ambil teacher_records hanya jika user punya role "teacher".
-// (Opsional) filter agar hanya masjid yang ada di masjid_roles claim.
+// (Opsional) filter agar hanya school yang ada di school_roles claim.
 func buildTeacherRecords(db *gorm.DB, userID uuid.UUID, rc helpersAuth.RolesClaim) []TeacherRecord {
 	if !rolesClaimHas(rc, "teacher") {
 		return nil
@@ -939,13 +939,13 @@ func buildTeacherRecords(db *gorm.DB, userID uuid.UUID, rc helpersAuth.RolesClai
 	if len(list) == 0 {
 		return nil
 	}
-	allow := masjidIDSetFromClaim(rc)
+	allow := schoolIDSetFromClaim(rc)
 	if len(allow) == 0 {
 		return list
 	}
 	out := make([]TeacherRecord, 0, len(list))
 	for _, t := range list {
-		if _, ok := allow[t.MasjidID]; ok {
+		if _, ok := allow[t.SchoolID]; ok {
 			out = append(out, t)
 		}
 	}
@@ -953,7 +953,7 @@ func buildTeacherRecords(db *gorm.DB, userID uuid.UUID, rc helpersAuth.RolesClai
 }
 
 // Ambil student_records hanya jika user punya role "student".
-// (Opsional) filter agar hanya masjid yang ada di masjid_roles claim.
+// (Opsional) filter agar hanya school yang ada di school_roles claim.
 func buildStudentRecords(db *gorm.DB, userID uuid.UUID, rc helpersAuth.RolesClaim) []StudentRecord {
 	if !rolesClaimHas(rc, "student") {
 		return nil
@@ -962,13 +962,13 @@ func buildStudentRecords(db *gorm.DB, userID uuid.UUID, rc helpersAuth.RolesClai
 	if len(list) == 0 {
 		return nil
 	}
-	allow := masjidIDSetFromClaim(rc)
+	allow := schoolIDSetFromClaim(rc)
 	if len(allow) == 0 {
 		return list
 	}
 	out := make([]StudentRecord, 0, len(list))
 	for _, s := range list {
-		if _, ok := allow[s.MasjidID]; ok {
+		if _, ok := allow[s.SchoolID]; ok {
 			out = append(out, s)
 		}
 	}
@@ -1011,15 +1011,15 @@ func setRefreshCookie(c *fiber.Ctx, refreshToken string, exp time.Time) {
 	}
 }
 
-// 🔄 build access claims — masjid_roles sudah berisi tenant_profile
+// 🔄 build access claims — school_roles sudah berisi tenant_profile
 func buildAccessClaims(
 	user userModel.UserModel,
 	rc helpersAuth.RolesClaim,
-	masjidIDs []string,
+	schoolIDs []string,
 	isOwner bool,
-	activeMasjidID *string,
+	activeSchoolID *string,
 	tenantProfile *string, // single (active), opsional
-	masjidRoles []MasjidRoleWithTenant, // ⬅️ gabungan
+	schoolRoles []SchoolRoleWithTenant, // ⬅️ gabungan
 	teacherRecords []TeacherRecord,
 	studentRecords []StudentRecord,
 	now time.Time,
@@ -1031,17 +1031,17 @@ func buildAccessClaims(
 		"user_name":    user.UserName,
 		"full_name":    user.FullName,
 		"roles_global": rc.RolesGlobal,
-		"masjid_roles": masjidRoles, // ⬅️ sudah gabungan
-		"masjid_ids":   masjidIDs,
+		"school_roles": schoolRoles, // ⬅️ sudah gabungan
+		"school_ids":   schoolIDs,
 		"is_owner":     isOwner,
 		"iat":          now.Unix(),
 		"exp":          now.Add(accessTTLDefault).Unix(),
 	}
-	if activeMasjidID != nil {
-		claims["active_masjid_id"] = *activeMasjidID
+	if activeSchoolID != nil {
+		claims["active_school_id"] = *activeSchoolID
 	}
 	if tenantProfile != nil && *tenantProfile != "" {
-		claims["masjid_tenant_profile"] = *tenantProfile // tetap ada untuk convenience
+		claims["school_tenant_profile"] = *tenantProfile // tetap ada untuk convenience
 	}
 	if len(teacherRecords) > 0 {
 		claims["teacher_records"] = teacherRecords
@@ -1052,15 +1052,15 @@ func buildAccessClaims(
 	return claims
 }
 
-// 🔄 build response user — “masjid_roles” juga sudah include tenant_profile
+// 🔄 build response user — “school_roles” juga sudah include tenant_profile
 func buildLoginResponseUser(
 	user userModel.UserModel,
 	rc helpersAuth.RolesClaim,
-	masjidIDs []string,
+	schoolIDs []string,
 	isOwner bool,
-	activeMasjidID *string,
+	activeSchoolID *string,
 	tenantProfile *string, // single (active), opsional
-	masjidRoles []MasjidRoleWithTenant, // ⬅️ gabungan
+	schoolRoles []SchoolRoleWithTenant, // ⬅️ gabungan
 	teacherRecords []TeacherRecord,
 	studentRecords []StudentRecord,
 ) fiber.Map {
@@ -1070,15 +1070,15 @@ func buildLoginResponseUser(
 		"email":        user.Email,
 		"full_name":    user.FullName,
 		"roles_global": rc.RolesGlobal,
-		"masjid_roles": masjidRoles, // ⬅️ sudah gabungan
-		"masjid_ids":   masjidIDs,
+		"school_roles": schoolRoles, // ⬅️ sudah gabungan
+		"school_ids":   schoolIDs,
 		"is_owner":     isOwner,
 	}
-	if activeMasjidID != nil {
-		resp["active_masjid_id"] = *activeMasjidID
+	if activeSchoolID != nil {
+		resp["active_school_id"] = *activeSchoolID
 	}
 	if tenantProfile != nil && *tenantProfile != "" {
-		resp["masjid_tenant_profile"] = *tenantProfile // masih disediakan
+		resp["school_tenant_profile"] = *tenantProfile // masih disediakan
 	}
 	if len(teacherRecords) > 0 {
 		resp["teacher_records"] = teacherRecords
@@ -1121,24 +1121,24 @@ func issueTokensWithRoles(
 	}
 
 	isOwner := hasGlobalRole(rolesClaim, "owner")
-	masjidIDs := deriveMasjidIDsFromRolesClaim(rolesClaim)
-	activeMasjidID := helpersAuth.GetActiveMasjidIDIfSingle(rolesClaim)
+	schoolIDs := deriveSchoolIDsFromRolesClaim(rolesClaim)
+	activeSchoolID := helpersAuth.GetActiveSchoolIDIfSingle(rolesClaim)
 	teacherRecords := buildTeacherRecords(db, user.ID, rolesClaim)
 	studentRecords := buildStudentRecords(db, user.ID, rolesClaim)
 
-	tpMap := getTenantProfilesMapStr(c.Context(), db, masjidUUIDsFromClaim(rolesClaim))
+	tpMap := getTenantProfilesMapStr(c.Context(), db, schoolUUIDsFromClaim(rolesClaim))
 	combined := combineRolesWithTenant(rolesClaim, tpMap)
 
 	var tenantProfile *string
-	if activeMasjidID != nil {
-		if mid, err := uuid.Parse(*activeMasjidID); err == nil {
-			tenantProfile = getMasjidTenantProfileStr(c.Context(), db, mid)
+	if activeSchoolID != nil {
+		if mid, err := uuid.Parse(*activeSchoolID); err == nil {
+			tenantProfile = getSchoolTenantProfileStr(c.Context(), db, mid)
 		}
 	}
 	if tenantProfile == nil && len(combined) > 0 {
 		minID, prof := "", ""
 		for _, it := range combined {
-			id := it.MasjidID.String()
+			id := it.SchoolID.String()
 			if minID == "" || id < minID {
 				minID, prof = id, it.TenantProfile
 			}
@@ -1149,7 +1149,7 @@ func issueTokensWithRoles(
 		}
 	}
 
-	accessClaims := buildAccessClaims(user, rolesClaim, masjidIDs, isOwner, activeMasjidID, tenantProfile, combined, teacherRecords, studentRecords, now)
+	accessClaims := buildAccessClaims(user, rolesClaim, schoolIDs, isOwner, activeSchoolID, tenantProfile, combined, teacherRecords, studentRecords, now)
 	refreshClaims := buildRefreshClaims(user.ID, now)
 
 	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString([]byte(jwtSecret))
@@ -1178,7 +1178,7 @@ func issueTokensWithRoles(
 	setAuthCookiesOnlyRefreshAndXsrf(c, refreshToken, now)
 
 	// Response user payload seperti sebelumnya
-	respUser := buildLoginResponseUser(user, rolesClaim, masjidIDs, isOwner, activeMasjidID, tenantProfile, combined, teacherRecords, studentRecords)
+	respUser := buildLoginResponseUser(user, rolesClaim, schoolIDs, isOwner, activeSchoolID, tenantProfile, combined, teacherRecords, studentRecords)
 
 	return helpers.JsonOK(c, "Login berhasil", fiber.Map{
 		"user":         respUser,

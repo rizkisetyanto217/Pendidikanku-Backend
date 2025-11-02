@@ -6,9 +6,9 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-	authHelper "masjidku_backend/internals/features/users/auth/helper"
-	authRepo "masjidku_backend/internals/features/users/auth/repository"
-	helper "masjidku_backend/internals/helpers"
+	authHelper "schoolku_backend/internals/features/users/auth/helper"
+	authRepo "schoolku_backend/internals/features/users/auth/repository"
+	helper "schoolku_backend/internals/helpers"
 )
 
 // ========================== RESET PASSWORD ==========================

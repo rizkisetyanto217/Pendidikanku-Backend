@@ -176,8 +176,8 @@ func runDBReaper(ctx context.Context, db *gorm.DB, retention time.Duration) erro
 
 	type target struct{ Table, Col string }
 	targets := []target{
-		{Table: "masjids", Col: "masjid_deleted_at"},
-		{Table: "masjid_profiles", Col: "masjid_profile_deleted_at"},
+		{Table: "schools", Col: "school_deleted_at"},
+		{Table: "school_profiles", Col: "school_profile_deleted_at"},
 		// tambah tabel soft-delete lain di sini…
 	}
 

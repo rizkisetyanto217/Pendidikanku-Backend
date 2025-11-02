@@ -14,13 +14,13 @@ CREATE TABLE IF NOT EXISTS student_class_sections (
   student_class_section_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- identitas siswa (tenant-aware)
-  student_class_section_masjid_student_id UUID NOT NULL
-    REFERENCES masjid_students(masjid_student_id) ON DELETE RESTRICT,
+  student_class_section_school_student_id UUID NOT NULL
+    REFERENCES school_students(school_student_id) ON DELETE RESTRICT,
 
   -- section (kelas paralel) & tenant
   student_class_section_section_id UUID NOT NULL,
-  student_class_section_masjid_id  UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE RESTRICT,
+  student_class_section_school_id  UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE RESTRICT,
 
   -- lifecycle enrolment
   student_class_section_status TEXT NOT NULL DEFAULT 'active'
@@ -65,9 +65,9 @@ CREATE TABLE IF NOT EXISTS student_class_sections (
   ),
 
   -- FK komposit tenant-safe ke class_sections
-  CONSTRAINT fk_scsec__section_masjid_pair
-    FOREIGN KEY (student_class_section_section_id, student_class_section_masjid_id)
-    REFERENCES class_sections (class_section_id, class_section_masjid_id)
+  CONSTRAINT fk_scsec__section_school_pair
+    FOREIGN KEY (student_class_section_section_id, student_class_section_school_id)
+    REFERENCES class_sections (class_section_id, class_section_school_id)
     ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
@@ -75,24 +75,24 @@ CREATE TABLE IF NOT EXISTS student_class_sections (
 -- INDEXES
 -- =========================================================
 
--- unik: satu siswa hanya boleh aktif di satu section per masjid
+-- unik: satu siswa hanya boleh aktif di satu section per school
 CREATE UNIQUE INDEX IF NOT EXISTS uq_scsec_active_per_student
-  ON student_class_sections (student_class_section_masjid_student_id, student_class_section_masjid_id)
+  ON student_class_sections (student_class_section_school_student_id, student_class_section_school_id)
   WHERE student_class_section_deleted_at IS NULL
     AND student_class_section_status = 'active';
 
 -- lookups umum
 CREATE INDEX IF NOT EXISTS ix_scsec_tenant_student_created
-  ON student_class_sections (student_class_section_masjid_id, student_class_section_masjid_student_id, student_class_section_created_at DESC)
+  ON student_class_sections (student_class_section_school_id, student_class_section_school_student_id, student_class_section_created_at DESC)
   WHERE student_class_section_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_scsec_tenant_status_created
-  ON student_class_sections (student_class_section_masjid_id, student_class_section_status, student_class_section_created_at DESC)
+  ON student_class_sections (student_class_section_school_id, student_class_section_status, student_class_section_created_at DESC)
   WHERE student_class_section_deleted_at IS NULL;
 
 -- JOIN cepat ke class_sections (komposit)
-CREATE INDEX IF NOT EXISTS idx_scsec_section_masjid_alive
-  ON student_class_sections (student_class_section_section_id, student_class_section_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_scsec_section_school_alive
+  ON student_class_sections (student_class_section_section_id, student_class_section_school_id)
   WHERE student_class_section_deleted_at IS NULL;
 
 -- lookup spesifik
@@ -101,7 +101,7 @@ CREATE INDEX IF NOT EXISTS idx_scsec_section_alive
   WHERE student_class_section_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_scsec_student_alive
-  ON student_class_sections (student_class_section_masjid_student_id)
+  ON student_class_sections (student_class_section_school_student_id)
   WHERE student_class_section_deleted_at IS NULL;
 
 -- BRIN untuk range waktu

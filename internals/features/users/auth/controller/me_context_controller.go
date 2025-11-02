@@ -9,18 +9,18 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	// ✅ path masjid sesuai struktur terbaru kamu
-	masjidModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/masjids/model"
-	classModel "masjidku_backend/internals/features/school/classes/class_sections/model"
-	userModel "masjidku_backend/internals/features/users/users/model"
+	// ✅ path school sesuai struktur terbaru kamu
+	schoolModel "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
+	classModel "schoolku_backend/internals/features/school/classes/class_sections/model"
+	userModel "schoolku_backend/internals/features/users/users/model"
 
 	// ✅ helpers
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 /* =============== Lightweight link models (disesuaikan kolom) =============== */
 
-// user_teachers: user ↔ user_teacher (ID user_teacher dipakai oleh masjid_teachers)
+// user_teachers: user ↔ user_teacher (ID user_teacher dipakai oleh school_teachers)
 type UserTeacher struct {
 	UserTeacherID     uuid.UUID `gorm:"column:user_teacher_id"`
 	UserTeacherUserID uuid.UUID `gorm:"column:user_teacher_user_id"`
@@ -28,15 +28,15 @@ type UserTeacher struct {
 
 func (UserTeacher) TableName() string { return "user_teachers" }
 
-// masjid_teachers: masjid ↔ user_teacher (kolom benar: masjid_teacher_user_teacher_id)
-type MasjidTeacher struct {
-	MasjidTeacherMasjidID      uuid.UUID `gorm:"column:masjid_teacher_masjid_id"`
-	MasjidTeacherUserTeacherID uuid.UUID `gorm:"column:masjid_teacher_user_teacher_id"`
+// school_teachers: school ↔ user_teacher (kolom benar: school_teacher_user_teacher_id)
+type SchoolTeacher struct {
+	SchoolTeacherSchoolID      uuid.UUID `gorm:"column:school_teacher_school_id"`
+	SchoolTeacherUserTeacherID uuid.UUID `gorm:"column:school_teacher_user_teacher_id"`
 }
 
-func (MasjidTeacher) TableName() string { return "masjid_teachers" }
+func (SchoolTeacher) TableName() string { return "school_teachers" }
 
-// user_profiles: user ↔ user_profile (ID user_profile dipakai oleh masjid_students)
+// user_profiles: user ↔ user_profile (ID user_profile dipakai oleh school_students)
 type UserProfile struct {
 	UserProfileID     uuid.UUID `gorm:"column:user_profile_id"`
 	UserProfileUserID uuid.UUID `gorm:"column:user_profile_user_id"`
@@ -44,22 +44,22 @@ type UserProfile struct {
 
 func (UserProfile) TableName() string { return "user_profiles" }
 
-// masjid_students: masjid ↔ user_profile (kolom benar: masjid_student_user_profile_id)
-type MasjidStudent struct {
-	MasjidStudentMasjidID      uuid.UUID `gorm:"column:masjid_student_masjid_id"`
-	MasjidStudentUserProfileID uuid.UUID `gorm:"column:masjid_student_user_profile_id"`
+// school_students: school ↔ user_profile (kolom benar: school_student_user_profile_id)
+type SchoolStudent struct {
+	SchoolStudentSchoolID      uuid.UUID `gorm:"column:school_student_school_id"`
+	SchoolStudentUserProfileID uuid.UUID `gorm:"column:school_student_user_profile_id"`
 }
 
-func (MasjidStudent) TableName() string { return "masjid_students" }
+func (SchoolStudent) TableName() string { return "school_students" }
 
 /* =============== DTO Response =============== */
-type MasjidWithSections struct {
-	Masjid        masjidModel.MasjidModel        `json:"masjid"`
+type SchoolWithSections struct {
+	School        schoolModel.SchoolModel        `json:"school"`
 	ClassSections []classModel.ClassSectionModel `json:"class_sections"`
 }
 type MyContextResponse struct {
 	User    userModel.UserModel  `json:"user"`
-	Masjids []MasjidWithSections `json:"masjids"`
+	Schools []SchoolWithSections `json:"schools"`
 }
 
 /* =============== Controller: GetMyContext (pakai helperAuth) =============== */
@@ -89,10 +89,10 @@ func (ac *AuthController) GetMyContext(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal ambil user: "+err.Error())
 	}
 
-	// 3) Kumpulkan masjid_id (teacher + student) — dedup pakai set
-	masjidIDSet := map[uuid.UUID]struct{}{}
+	// 3) Kumpulkan school_id (teacher + student) — dedup pakai set
+	schoolIDSet := map[uuid.UUID]struct{}{}
 
-	// === 3a) Jalur TEACHER: user_teachers → masjid_teachers
+	// === 3a) Jalur TEACHER: user_teachers → school_teachers
 	{
 		var myTeacherIDs []uuid.UUID
 		// Ambil semua user_teacher_id milik user
@@ -103,23 +103,23 @@ func (ac *AuthController) GetMyContext(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal ambil user_teachers: "+err.Error())
 		}
 		if len(myTeacherIDs) > 0 {
-			// Ambil masjid dari masjid_teachers berdasarkan user_teacher_id
-			var mtMasjidIDs []uuid.UUID
+			// Ambil school dari school_teachers berdasarkan user_teacher_id
+			var mtSchoolIDs []uuid.UUID
 			q := ac.DB.WithContext(c.Context()).
-				Model(&MasjidTeacher{}).
-				Where("masjid_teacher_user_teacher_id IN ?", myTeacherIDs)
-			// Soft delete kolom ini ADA di model masjid_teachers
-			q = q.Where("masjid_teacher_deleted_at IS NULL")
-			if err := q.Pluck("masjid_teacher_masjid_id", &mtMasjidIDs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				return fiber.NewError(fiber.StatusInternalServerError, "Gagal ambil masjid_teachers: "+err.Error())
+				Model(&SchoolTeacher{}).
+				Where("school_teacher_user_teacher_id IN ?", myTeacherIDs)
+			// Soft delete kolom ini ADA di model school_teachers
+			q = q.Where("school_teacher_deleted_at IS NULL")
+			if err := q.Pluck("school_teacher_school_id", &mtSchoolIDs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal ambil school_teachers: "+err.Error())
 			}
-			for _, id := range mtMasjidIDs {
-				masjidIDSet[id] = struct{}{}
+			for _, id := range mtSchoolIDs {
+				schoolIDSet[id] = struct{}{}
 			}
 		}
 	}
 
-	// === 3b) Jalur STUDENT: user_profiles → masjid_students
+	// === 3b) Jalur STUDENT: user_profiles → school_students
 	{
 		var myProfileIDs []uuid.UUID
 		// Ambil semua user_profile_id milik user
@@ -131,62 +131,62 @@ func (ac *AuthController) GetMyContext(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal ambil user_profiles: "+err.Error())
 		}
 		if len(myProfileIDs) > 0 {
-			// Ambil masjid dari masjid_students berdasarkan user_profile_id
-			var msMasjidIDs []uuid.UUID
+			// Ambil school dari school_students berdasarkan user_profile_id
+			var msSchoolIDs []uuid.UUID
 			q := ac.DB.WithContext(c.Context()).
-				Model(&MasjidStudent{}).
-				Where("masjid_student_user_profile_id IN ?", myProfileIDs).
-				Where("masjid_student_deleted_at IS NULL")
-			if err := q.Pluck("masjid_student_masjid_id", &msMasjidIDs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				return fiber.NewError(fiber.StatusInternalServerError, "Gagal ambil masjid_students: "+err.Error())
+				Model(&SchoolStudent{}).
+				Where("school_student_user_profile_id IN ?", myProfileIDs).
+				Where("school_student_deleted_at IS NULL")
+			if err := q.Pluck("school_student_school_id", &msSchoolIDs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal ambil school_students: "+err.Error())
 			}
-			for _, id := range msMasjidIDs {
-				masjidIDSet[id] = struct{}{}
+			for _, id := range msSchoolIDs {
+				schoolIDSet[id] = struct{}{}
 			}
 		}
 	}
 
-	// 4) Ambil data Masjid & Class Sections
-	masjidIDs := make([]uuid.UUID, 0, len(masjidIDSet))
-	for id := range masjidIDSet {
-		masjidIDs = append(masjidIDs, id)
+	// 4) Ambil data School & Class Sections
+	schoolIDs := make([]uuid.UUID, 0, len(schoolIDSet))
+	for id := range schoolIDSet {
+		schoolIDs = append(schoolIDs, id)
 	}
 
-	resp := MyContextResponse{User: me, Masjids: []MasjidWithSections{}}
-	if len(masjidIDs) == 0 {
-		// Tidak tergabung ke masjid mana pun — return user saja
+	resp := MyContextResponse{User: me, Schools: []SchoolWithSections{}}
+	if len(schoolIDs) == 0 {
+		// Tidak tergabung ke school mana pun — return user saja
 		return c.Status(fiber.StatusOK).JSON(resp)
 	}
 
-	// 4a) Masjid (filter aktif + soft delete sesuai model)
-	var masjids []masjidModel.MasjidModel
+	// 4a) School (filter aktif + soft delete sesuai model)
+	var schools []schoolModel.SchoolModel
 	if err := ac.DB.WithContext(c.Context()).
-		Where("masjid_id IN ?", masjidIDs).
-		Where("masjid_deleted_at IS NULL").
-		Where("masjid_is_active = ?", true).
-		Find(&masjids).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal ambil masjid: "+err.Error())
+		Where("school_id IN ?", schoolIDs).
+		Where("school_deleted_at IS NULL").
+		Where("school_is_active = ?", true).
+		Find(&schools).Error; err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal ambil school: "+err.Error())
 	}
 
 	// 4b) Class sections (filter aktif + soft delete sesuai model)
 	var sections []classModel.ClassSectionModel
 	if err := ac.DB.WithContext(c.Context()).
-		Where("class_section_masjid_id IN ?", masjidIDs).
+		Where("class_section_school_id IN ?", schoolIDs).
 		Where("class_section_deleted_at IS NULL").
 		Where("class_section_is_active = ?", true).
 		Find(&sections).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal ambil class_sections: "+err.Error())
 	}
 
-	byMasjid := make(map[uuid.UUID][]classModel.ClassSectionModel, len(masjidIDs))
+	bySchool := make(map[uuid.UUID][]classModel.ClassSectionModel, len(schoolIDs))
 	for _, cs := range sections {
-		byMasjid[cs.ClassSectionMasjidID] = append(byMasjid[cs.ClassSectionMasjidID], cs)
+		bySchool[cs.ClassSectionSchoolID] = append(bySchool[cs.ClassSectionSchoolID], cs)
 	}
 
-	for _, m := range masjids {
-		resp.Masjids = append(resp.Masjids, MasjidWithSections{
-			Masjid:        m,
-			ClassSections: byMasjid[m.MasjidID],
+	for _, m := range schools {
+		resp.Schools = append(resp.Schools, SchoolWithSections{
+			School:        m,
+			ClassSections: bySchool[m.SchoolID],
 		})
 	}
 

@@ -11,15 +11,15 @@ import (
 	"strings"
 	"time"
 
-	masjidTeacherModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/model"
-	classsectionModel "masjidku_backend/internals/features/school/classes/class_sections/model"
-	userdto "masjidku_backend/internals/features/users/user_teachers/dto"
-	"masjidku_backend/internals/features/users/user_teachers/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
-	helperOSS "masjidku_backend/internals/helpers/oss"
+	schoolTeacherModel "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	classsectionModel "schoolku_backend/internals/features/school/classes/class_sections/model"
+	userdto "schoolku_backend/internals/features/users/user_teachers/dto"
+	"schoolku_backend/internals/features/users/user_teachers/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
+	helperOSS "schoolku_backend/internals/helpers/oss"
 
-	csstModel "masjidku_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -512,7 +512,7 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan")
 	}
 
-	// === SNAPSHOT SYNC ke masjid_teachers ===
+	// === SNAPSHOT SYNC ke school_teachers ===
 	changedSnapshot :=
 		before.UserTeacherName != m.UserTeacherName ||
 			derefStr(before.UserTeacherAvatarURL) != derefStr(m.UserTeacherAvatarURL) ||
@@ -523,24 +523,24 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 	if changedSnapshot {
 
 		set := map[string]any{
-			"masjid_teacher_user_teacher_name_snapshot":         m.UserTeacherName,
-			"masjid_teacher_user_teacher_avatar_url_snapshot":   m.UserTeacherAvatarURL,
-			"masjid_teacher_user_teacher_whatsapp_url_snapshot": m.UserTeacherWhatsappURL,
-			"masjid_teacher_user_teacher_title_prefix_snapshot": m.UserTeacherTitlePrefix,
-			"masjid_teacher_user_teacher_title_suffix_snapshot": m.UserTeacherTitleSuffix,
-			"masjid_teacher_updated_at":                         time.Now(),
+			"school_teacher_user_teacher_name_snapshot":         m.UserTeacherName,
+			"school_teacher_user_teacher_avatar_url_snapshot":   m.UserTeacherAvatarURL,
+			"school_teacher_user_teacher_whatsapp_url_snapshot": m.UserTeacherWhatsappURL,
+			"school_teacher_user_teacher_title_prefix_snapshot": m.UserTeacherTitlePrefix,
+			"school_teacher_user_teacher_title_suffix_snapshot": m.UserTeacherTitleSuffix,
+			"school_teacher_updated_at":                         time.Now(),
 		}
 
 		// Guard opsional: kalau migrasinya belum naik, jangan bikin 500.
 		// (Boleh dihapus setelah skema terjamin sinkron.)
-		if !uc.DB.Migrator().HasColumn(&masjidTeacherModel.MasjidTeacherModel{}, "masjid_teacher_user_teacher_name_snapshot") {
-			log.Printf("[user-teacher#patch] snapshot columns not found — skip sync to masjid_teachers")
+		if !uc.DB.Migrator().HasColumn(&schoolTeacherModel.SchoolTeacherModel{}, "school_teacher_user_teacher_name_snapshot") {
+			log.Printf("[user-teacher#patch] snapshot columns not found — skip sync to school_teachers")
 		} else {
-			if err := uc.DB.Model(&masjidTeacherModel.MasjidTeacherModel{}).
-				Where("masjid_teacher_user_teacher_id = ? AND masjid_teacher_deleted_at IS NULL", m.UserTeacherID).
+			if err := uc.DB.Model(&schoolTeacherModel.SchoolTeacherModel{}).
+				Where("school_teacher_user_teacher_id = ? AND school_teacher_deleted_at IS NULL", m.UserTeacherID).
 				Updates(set).Error; err != nil {
 				return helper.JsonError(c, fiber.StatusInternalServerError,
-					"Profil tersimpan, tapi gagal sync snapshot pengajar di masjid")
+					"Profil tersimpan, tapi gagal sync snapshot pengajar di school")
 			}
 		}
 	}
@@ -555,13 +555,13 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 		if !(hasTeacherSnap || hasAssistantSnap) {
 			log.Printf("[user-teacher#patch] class_sections snapshot columns not found — skip sync to class_sections")
 		} else {
-			// Ambil semua masjid_teacher_id milik user_teacher ini (yang belum terhapus)
+			// Ambil semua school_teacher_id milik user_teacher ini (yang belum terhapus)
 			var mtIDs []uuid.UUID
 			if err := uc.DB.
-				Model(&masjidTeacherModel.MasjidTeacherModel{}).
-				Where("masjid_teacher_user_teacher_id = ? AND masjid_teacher_deleted_at IS NULL", m.UserTeacherID).
-				Pluck("masjid_teacher_id", &mtIDs).Error; err != nil {
-				log.Printf("[user-teacher#patch] failed pluck masjid_teacher ids: %v", err)
+				Model(&schoolTeacherModel.SchoolTeacherModel{}).
+				Where("school_teacher_user_teacher_id = ? AND school_teacher_deleted_at IS NULL", m.UserTeacherID).
+				Pluck("school_teacher_id", &mtIDs).Error; err != nil {
+				log.Printf("[user-teacher#patch] failed pluck school_teacher ids: %v", err)
 			}
 
 			if len(mtIDs) > 0 {
@@ -638,13 +638,13 @@ func (uc *UserTeacherController) applyPatch(c *fiber.Ctx, m *model.UserTeacherMo
 		if !(hasTeacherSnap || hasAssistantSnap) {
 			log.Printf("[user-teacher#patch] CSST snapshot columns not found — skip sync to class_section_subject_teachers")
 		} else {
-			// Ambil semua masjid_teacher_id milik user_teacher ini (yang belum terhapus)
+			// Ambil semua school_teacher_id milik user_teacher ini (yang belum terhapus)
 			var mtIDs []uuid.UUID
 			if err := uc.DB.
-				Model(&masjidTeacherModel.MasjidTeacherModel{}).
-				Where("masjid_teacher_user_teacher_id = ? AND masjid_teacher_deleted_at IS NULL", m.UserTeacherID).
-				Pluck("masjid_teacher_id", &mtIDs).Error; err != nil {
-				log.Printf("[user-teacher#patch] failed pluck masjid_teacher ids for CSST: %v", err)
+				Model(&schoolTeacherModel.SchoolTeacherModel{}).
+				Where("school_teacher_user_teacher_id = ? AND school_teacher_deleted_at IS NULL", m.UserTeacherID).
+				Pluck("school_teacher_id", &mtIDs).Error; err != nil {
+				log.Printf("[user-teacher#patch] failed pluck school_teacher ids for CSST: %v", err)
 			}
 
 			if len(mtIDs) > 0 {

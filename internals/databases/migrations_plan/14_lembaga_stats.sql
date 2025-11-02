@@ -2,8 +2,8 @@
 -- lembaga_stats (global snapshot, tanpa term)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS lembaga_stats (
-  lembaga_stats_masjid_id UUID PRIMARY KEY
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  lembaga_stats_school_id UUID PRIMARY KEY
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   lembaga_stats_active_classes  INT NOT NULL DEFAULT 0,
   lembaga_stats_active_sections INT NOT NULL DEFAULT 0,

@@ -9,7 +9,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
-	model "masjidku_backend/internals/features/school/submissions_assesments/submissions/model"
+	model "schoolku_backend/internals/features/school/submissions_assesments/submissions/model"
 )
 
 var validate = validator.New()
@@ -60,7 +60,7 @@ func trimPtr(p *string) *string {
 ========================================================= */
 
 type CreateSubmissionURLRequest struct {
-	SubmissionURLMasjidID     uuid.UUID `json:"submission_url_masjid_id" validate:"required"`
+	SubmissionURLSchoolID     uuid.UUID `json:"submission_url_school_id" validate:"required"`
 	SubmissionURLSubmissionID uuid.UUID `json:"submission_url_submission_id" validate:"required"`
 
 	SubmissionURLKind      string  `json:"submission_url_kind" validate:"required,max=24"`
@@ -107,7 +107,7 @@ func (r *CreateSubmissionURLRequest) ToModel() model.SubmissionURLModel {
 		isPrimary = *r.SubmissionURLIsPrimary
 	}
 	return model.SubmissionURLModel{
-		SubmissionURLMasjidID:     r.SubmissionURLMasjidID,
+		SubmissionURLSchoolID:     r.SubmissionURLSchoolID,
 		SubmissionURLSubmissionID: r.SubmissionURLSubmissionID,
 		SubmissionURLKind:         r.SubmissionURLKind,
 
@@ -194,7 +194,7 @@ func (r *UpdateSubmissionURLRequest) ToUpdates() (map[string]any, error) {
 ========================================================= */
 
 type ListSubmissionURLRequest struct {
-	SubmissionURLMasjidID     *uuid.UUID `query:"submission_url_masjid_id"`
+	SubmissionURLSchoolID     *uuid.UUID `query:"submission_url_school_id"`
 	SubmissionURLSubmissionID *uuid.UUID `query:"submission_url_submission_id"`
 	SubmissionURLKind         *string    `query:"submission_url_kind"`
 	SubmissionURLIsPrimary    *bool      `query:"submission_url_is_primary"`
@@ -244,7 +244,7 @@ func (r *ListSubmissionURLRequest) Validate() error {
 
 type SubmissionURLItem struct {
 	SubmissionURLID                 uuid.UUID  `json:"submission_url_id"`
-	SubmissionURLMasjidID           uuid.UUID  `json:"submission_url_masjid_id"`
+	SubmissionURLSchoolID           uuid.UUID  `json:"submission_url_school_id"`
 	SubmissionURLSubmissionID       uuid.UUID  `json:"submission_url_submission_id"`
 	SubmissionURLKind               string     `json:"submission_url_kind"`
 	SubmissionURLHref               *string    `json:"submission_url_href,omitempty"`
@@ -282,7 +282,7 @@ func FromModelsSubmissionURL(m model.SubmissionURLModel) SubmissionURLItem {
 	}
 	return SubmissionURLItem{
 		SubmissionURLID:                 m.SubmissionURLID,
-		SubmissionURLMasjidID:           m.SubmissionURLMasjidID,
+		SubmissionURLSchoolID:           m.SubmissionURLSchoolID,
 		SubmissionURLSubmissionID:       m.SubmissionURLSubmissionID,
 		SubmissionURLKind:               m.SubmissionURLKind,
 		SubmissionURLHref:               m.SubmissionURLHref,

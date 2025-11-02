@@ -7,9 +7,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	dto "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/dto"
-	model "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/model"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	dto "schoolku_backend/internals/features/lembaga/stats/lembaga_stats/dto"
+	model "schoolku_backend/internals/features/lembaga/stats/lembaga_stats/model"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 type LembagaStatsController struct {
@@ -22,15 +22,15 @@ func NewLembagaStatsController(db *gorm.DB) *LembagaStatsController {
 
 /* GET /api/a/lembaga-stats  (tenant dari token) */
 func (h *LembagaStatsController) GetMyLembagaStats(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
+	schoolID, err := helperAuth.GetSchoolIDFromToken(c)
 	if err != nil {
 		return err
 	}
 
 	var m model.LembagaStats
-	if err := h.DB.First(&m, "lembaga_stats_masjid_id = ?", masjidID).Error; err != nil {
+	if err := h.DB.First(&m, "lembaga_stats_school_id = ?", schoolID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			empty := model.LembagaStats{LembagaStatsMasjidID: masjidID}
+			empty := model.LembagaStats{LembagaStatsSchoolID: schoolID}
 			return c.Status(http.StatusOK).JSON(fiber.Map{
 				"data":  dto.FromModel(empty),
 				"found": false,
@@ -50,7 +50,7 @@ func (h *LembagaStatsController) GetMyLembagaStats(c *fiber.Ctx) error {
 /* POST /api/a/lembaga-stats  (create default 0; tenant dari token) */
 func (h *LembagaStatsController) CreateMyLembagaStats(c *fiber.Ctx) error {
 	// NOTE: samakan import helper vs helpers sesuai project-mu
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c) // <- kalau pkg kamu "helper", ganti jadi helper.GetMasjidIDFromToken
+	schoolID, err := helperAuth.GetSchoolIDFromToken(c) // <- kalau pkg kamu "helper", ganti jadi helper.GetSchoolIDFromToken
 	if err != nil {
 		return err
 	}
@@ -58,7 +58,7 @@ func (h *LembagaStatsController) CreateMyLembagaStats(c *fiber.Ctx) error {
 	// Cek sudah ada atau belum
 	var existing model.LembagaStats
 	if err := h.DB.
-		First(&existing, "lembaga_stats_masjid_id = ?", masjidID).Error; err == nil {
+		First(&existing, "lembaga_stats_school_id = ?", schoolID).Error; err == nil {
 		// Sudah ada → kembalikan yang ada (idempotent)
 		return c.Status(http.StatusOK).JSON(fiber.Map{
 			"message": "Lembaga stats already exists",
@@ -71,7 +71,7 @@ func (h *LembagaStatsController) CreateMyLembagaStats(c *fiber.Ctx) error {
 
 	// Belum ada → buat baru dengan default 0
 	newRow := model.LembagaStats{
-		LembagaStatsMasjidID:      masjidID,
+		LembagaStatsSchoolID:       schoolID,
 		LembagaStatsActiveClasses:  0,
 		LembagaStatsActiveSections: 0,
 		LembagaStatsActiveStudents: 0,
@@ -88,11 +88,9 @@ func (h *LembagaStatsController) CreateMyLembagaStats(c *fiber.Ctx) error {
 	})
 }
 
-
-
 // PUT /api/a/lembaga-stats  (update lembaga stats milik tenant dari token)
 func (h *LembagaStatsController) UpdateMyLembagaStats(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c)
+	schoolID, err := helperAuth.GetSchoolIDFromToken(c)
 	if err != nil {
 		return err
 	}
@@ -118,9 +116,9 @@ func (h *LembagaStatsController) UpdateMyLembagaStats(c *fiber.Ctx) error {
 
 	// pastikan baseline ada
 	var m model.LembagaStats
-	if err := h.DB.First(&m, "lembaga_stats_masjid_id = ?", masjidID).Error; err != nil {
+	if err := h.DB.First(&m, "lembaga_stats_school_id = ?", schoolID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			m = model.LembagaStats{LembagaStatsMasjidID: masjidID}
+			m = model.LembagaStats{LembagaStatsSchoolID: schoolID}
 			if err := h.DB.Create(&m).Error; err != nil {
 				return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 			}

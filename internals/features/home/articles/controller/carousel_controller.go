@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"time"
 
-	helper "masjidku_backend/internals/helpers"
+	helper "schoolku_backend/internals/helpers"
 
-	"masjidku_backend/internals/features/home/articles/dto"
-	"masjidku_backend/internals/features/home/articles/model"
+	"schoolku_backend/internals/features/home/articles/dto"
+	"schoolku_backend/internals/features/home/articles/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

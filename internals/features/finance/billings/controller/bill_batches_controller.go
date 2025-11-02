@@ -13,9 +13,9 @@ import (
 	"gorm.io/gorm/clause"
 
 	// ganti sesuai struktur projectmu
-	"masjidku_backend/internals/features/finance/billings/dto"
-	billing "masjidku_backend/internals/features/finance/billings/model"
-	helper "masjidku_backend/internals/helpers"
+	"schoolku_backend/internals/features/finance/billings/dto"
+	billing "schoolku_backend/internals/features/finance/billings/model"
+	helper "schoolku_backend/internals/helpers"
 )
 
 // =======================================================
@@ -108,15 +108,15 @@ func recalcBillBatchTotals(tx *gorm.DB, batchID uuid.UUID) error {
 // INTERNAL: resolve target students (subset / scope)
 // =======================================================
 
-func (h *BillBatchHandler) listTargetStudentIDs(tx *gorm.DB, masjidID uuid.UUID, classID, sectionID *uuid.UUID, selected []uuid.UUID, onlyActive bool) ([]uuid.UUID, error) {
+func (h *BillBatchHandler) listTargetStudentIDs(tx *gorm.DB, schoolID uuid.UUID, classID, sectionID *uuid.UUID, selected []uuid.UUID, onlyActive bool) ([]uuid.UUID, error) {
 	// Jika admin sudah memilih subset siswa → validasi & gunakan itu saja
 	if len(selected) > 0 {
 		type row struct{ ID uuid.UUID }
 		var rows []row
-		q := tx.Table("masjid_students").
-			Select("masjid_student_id AS id").
-			Where("masjid_student_masjid_id = ?", masjidID).
-			Where("masjid_student_id IN ?", selected)
+		q := tx.Table("school_students").
+			Select("school_student_id AS id").
+			Where("school_student_school_id = ?", schoolID).
+			Where("school_student_id IN ?", selected)
 		if onlyActive {
 			q = q.Where("is_active = TRUE")
 		}
@@ -133,9 +133,9 @@ func (h *BillBatchHandler) listTargetStudentIDs(tx *gorm.DB, masjidID uuid.UUID,
 	// Jika tidak, ambil semua siswa pada scope (class/section)
 	type row struct{ ID uuid.UUID }
 	var rows []row
-	q := tx.Table("masjid_students").
-		Select("masjid_student_id AS id").
-		Where("masjid_student_masjid_id = ?", masjidID)
+	q := tx.Table("school_students").
+		Select("school_student_id AS id").
+		Where("school_student_school_id = ?", schoolID)
 
 	if classID != nil {
 		q = q.Where("class_id = ?", *classID)
@@ -160,14 +160,14 @@ func (h *BillBatchHandler) listTargetStudentIDs(tx *gorm.DB, masjidID uuid.UUID,
 // INTERNAL: resolve nominal dari fee_rules (spesifisitas & periode)
 // =======================================================
 
-func (h *BillBatchHandler) resolveAmountFromRules(tx *gorm.DB, masjidID uuid.UUID, optionCode string, batch billing.BillBatch, studentID uuid.UUID) (int, error) {
+func (h *BillBatchHandler) resolveAmountFromRules(tx *gorm.DB, schoolID uuid.UUID, optionCode string, batch billing.BillBatch, studentID uuid.UUID) (int, error) {
 	eff := time.Now()
 	if batch.BillBatchDueDate != nil {
 		eff = *batch.BillBatchDueDate
 	}
 
 	q := tx.Model(&billing.FeeRule{}).
-		Where("fee_rule_masjid_id = ?", masjidID).
+		Where("fee_rule_school_id = ?", schoolID).
 		Where("LOWER(fee_rule_option_code) = ?", strings.ToLower(optionCode)).
 		Where("fee_rule_deleted_at IS NULL").
 		Where("?::date >= COALESCE(fee_rule_effective_from, '-infinity'::date) AND ?::date <= COALESCE(fee_rule_effective_to, 'infinity'::date)", eff, eff)
@@ -187,9 +187,9 @@ func (h *BillBatchHandler) resolveAmountFromRules(tx *gorm.DB, masjidID uuid.UUI
 	// pilih rule paling spesifik
 	var rule billing.FeeRule
 	err := q.Where(`
-		(fee_rule_scope = 'student' AND fee_rule_masjid_student_id = ?)
-		OR (fee_rule_scope = 'section' AND fee_rule_section_id = (SELECT section_id FROM masjid_students WHERE masjid_student_id = ? LIMIT 1))
-		OR (fee_rule_scope = 'class'   AND fee_rule_class_id   = (SELECT class_id   FROM masjid_students WHERE masjid_student_id = ? LIMIT 1))
+		(fee_rule_scope = 'student' AND fee_rule_school_student_id = ?)
+		OR (fee_rule_scope = 'section' AND fee_rule_section_id = (SELECT section_id FROM school_students WHERE school_student_id = ? LIMIT 1))
+		OR (fee_rule_scope = 'class'   AND fee_rule_class_id   = (SELECT class_id   FROM school_students WHERE school_student_id = ? LIMIT 1))
 		OR (fee_rule_scope = 'class_parent' AND fee_rule_class_parent_id IS NOT NULL)
 		OR (fee_rule_scope = 'tenant')
 	`, studentID, studentID, studentID).
@@ -216,13 +216,13 @@ func (h *BillBatchHandler) resolveAmountFromRules(tx *gorm.DB, masjidID uuid.UUI
 }
 
 // =======================================================
-// CREATE (hanya buat batch; masjid_id dari path)
+// CREATE (hanya buat batch; school_id dari path)
 // =======================================================
 
 func (h *BillBatchHandler) CreateBillBatch(c *fiber.Ctx) error {
-	masjidID, err := mustMasjidID(c)
+	schoolID, err := mustSchoolID(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid school_id")
 	}
 
 	var in dto.BillBatchCreateDTO
@@ -231,7 +231,7 @@ func (h *BillBatchHandler) CreateBillBatch(c *fiber.Ctx) error {
 	}
 
 	// override dari path
-	in.BillBatchMasjidID = masjidID
+	in.BillBatchSchoolID = schoolID
 	in.BillBatchBillCode = normalizeBillCode(in.BillBatchBillCode)
 	in.BillBatchOptionCode = strPtrOrNil(in.BillBatchOptionCode)
 
@@ -267,9 +267,9 @@ func (h *BillBatchHandler) CreateBillBatch(c *fiber.Ctx) error {
 // =======================================================
 
 func (h *BillBatchHandler) UpdateBillBatch(c *fiber.Ctx) error {
-	masjidID, err := mustMasjidID(c)
+	schoolID, err := mustSchoolID(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid school_id")
 	}
 
 	id, err := parseUUIDParam(c, "id")
@@ -283,7 +283,7 @@ func (h *BillBatchHandler) UpdateBillBatch(c *fiber.Ctx) error {
 	}
 
 	var m billing.BillBatch
-	if err := h.DB.First(&m, "bill_batch_id = ? AND bill_batch_masjid_id = ? AND bill_batch_deleted_at IS NULL", id, masjidID).Error; err != nil {
+	if err := h.DB.First(&m, "bill_batch_id = ? AND bill_batch_school_id = ? AND bill_batch_deleted_at IS NULL", id, schoolID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "bill batch not found")
 		}
@@ -319,9 +319,9 @@ func (h *BillBatchHandler) UpdateBillBatch(c *fiber.Ctx) error {
 // =======================================================
 
 func (h *BillBatchHandler) DeleteBillBatch(c *fiber.Ctx) error {
-	masjidID, err := mustMasjidID(c)
+	schoolID, err := mustSchoolID(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid school_id")
 	}
 
 	id, err := parseUUIDParam(c, "id")
@@ -332,7 +332,7 @@ func (h *BillBatchHandler) DeleteBillBatch(c *fiber.Ctx) error {
 	err = h.DB.Transaction(func(tx *gorm.DB) error {
 		var m billing.BillBatch
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			First(&m, "bill_batch_id = ? AND bill_batch_masjid_id = ? AND bill_batch_deleted_at IS NULL", id, masjidID).Error; err != nil {
+			First(&m, "bill_batch_id = ? AND bill_batch_school_id = ? AND bill_batch_deleted_at IS NULL", id, schoolID).Error; err != nil {
 			return err
 		}
 		now := time.Now()
@@ -351,13 +351,13 @@ func (h *BillBatchHandler) DeleteBillBatch(c *fiber.Ctx) error {
 
 // =======================================================
 // CREATE + GENERATE student_bills dari fee_rules (sekali jalan)
-// POST /api/a/:masjid_id/spp/bill-batches/generate
+// POST /api/a/:school_id/spp/bill-batches/generate
 // =======================================================
 
 func (h *BillBatchHandler) CreateBillBatchAndGenerate(c *fiber.Ctx) error {
-	masjidID, err := mustMasjidID(c)
+	schoolID, err := mustSchoolID(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid school_id")
 	}
 
 	var in dto.BillBatchGenerateDTO
@@ -388,7 +388,7 @@ func (h *BillBatchHandler) CreateBillBatchAndGenerate(c *fiber.Ctx) error {
 	err = h.DB.Transaction(func(tx *gorm.DB) error {
 		// 1) Buat batch
 		batch := billing.BillBatch{
-			BillBatchMasjidID:             masjidID,
+			BillBatchSchoolID:             schoolID,
 			BillBatchClassID:              in.BillBatchClassID,
 			BillBatchSectionID:            in.BillBatchSectionID,
 			BillBatchMonth:                in.BillBatchMonth,
@@ -409,7 +409,7 @@ func (h *BillBatchHandler) CreateBillBatchAndGenerate(c *fiber.Ctx) error {
 		}
 
 		// 2) Ambil target siswa
-		targetIDs, err := h.listTargetStudentIDs(tx, masjidID, in.BillBatchClassID, in.BillBatchSectionID, in.SelectedStudentIDs, in.OnlyActiveStudents)
+		targetIDs, err := h.listTargetStudentIDs(tx, schoolID, in.BillBatchClassID, in.BillBatchSectionID, in.SelectedStudentIDs, in.OnlyActiveStudents)
 		if err != nil {
 			return err
 		}
@@ -417,7 +417,7 @@ func (h *BillBatchHandler) CreateBillBatchAndGenerate(c *fiber.Ctx) error {
 		// 3) Generate student_bills sesuai fee_rules
 		ins, skip := 0, 0
 		for _, sid := range targetIDs {
-			amount, err := h.resolveAmountFromRules(tx, masjidID, in.Labeling.OptionCode, batch, sid)
+			amount, err := h.resolveAmountFromRules(tx, schoolID, in.Labeling.OptionCode, batch, sid)
 			if err != nil {
 				// Kalau ingin strict, ganti ke: return err
 				skip++
@@ -425,15 +425,15 @@ func (h *BillBatchHandler) CreateBillBatchAndGenerate(c *fiber.Ctx) error {
 			}
 			sb := billing.StudentBill{
 				StudentBillBatchID:         batch.BillBatchID,
-				StudentBillMasjidID:        masjidID,
-				StudentBillMasjidStudentID: &sid,
+				StudentBillSchoolID:        schoolID,
+				StudentBillSchoolStudentID: &sid,
 				StudentBillOptionCode:      &in.Labeling.OptionCode, // labeling utk student_bills
 				StudentBillOptionLabel:     in.Labeling.OptionLabel,
 				StudentBillAmountIDR:       amount,
 				StudentBillStatus:          "unpaid",
 			}
 			if err := tx.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "student_bill_batch_id"}, {Name: "student_bill_masjid_student_id"}},
+				Columns:   []clause.Column{{Name: "student_bill_batch_id"}, {Name: "student_bill_school_student_id"}},
 				DoNothing: true,
 			}).Create(&sb).Error; err != nil {
 				return err

@@ -15,7 +15,7 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;  -- untuk EXCLUDE + rentang overlap
 DROP TABLE IF EXISTS subjects CASCADE;
 CREATE TABLE IF NOT EXISTS subjects (
   subjects_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  subjects_masjid_id  UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  subjects_school_id  UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   subjects_code       VARCHAR(40)  NOT NULL,
   subjects_name       VARCHAR(120) NOT NULL,
@@ -49,12 +49,12 @@ CREATE TABLE IF NOT EXISTS subjects (
 );
 
 -- Unik per tenant (soft-delete aware)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_subjects_code_per_masjid
-  ON subjects (subjects_masjid_id, lower(subjects_code))
+CREATE UNIQUE INDEX IF NOT EXISTS uq_subjects_code_per_school
+  ON subjects (subjects_school_id, lower(subjects_code))
   WHERE subjects_deleted_at IS NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_subjects_slug_per_masjid
-  ON subjects (subjects_masjid_id, lower(subjects_slug))
+CREATE UNIQUE INDEX IF NOT EXISTS uq_subjects_slug_per_school
+  ON subjects (subjects_school_id, lower(subjects_slug))
   WHERE subjects_deleted_at IS NULL;
 
 -- Indeks pencarian & filter
@@ -62,12 +62,12 @@ CREATE INDEX IF NOT EXISTS gin_subjects_name_trgm
   ON subjects USING gin (subjects_name gin_trgm_ops)
   WHERE subjects_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_subjects_masjid_alive
-  ON subjects(subjects_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_subjects_school_alive
+  ON subjects(subjects_school_id)
   WHERE subjects_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_subjects_active
-  ON subjects(subjects_masjid_id)
+  ON subjects(subjects_school_id)
   WHERE subjects_is_active = TRUE AND subjects_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS gin_subjects_tags ON subjects USING GIN (subjects_tags);
@@ -92,7 +92,7 @@ DROP TABLE IF EXISTS class_subjects CASCADE;
 CREATE TABLE IF NOT EXISTS class_subjects (
   class_subjects_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  class_subjects_masjid_id  UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_subjects_school_id  UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
   class_subjects_class_id   UUID NOT NULL,
   class_subjects_subject_id UUID NOT NULL REFERENCES subjects(subjects_id) ON DELETE RESTRICT,
 
@@ -148,11 +148,11 @@ CREATE TABLE IF NOT EXISTS class_subjects (
 -- FK komposit ke classes (tenant-safe)
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_cs_class_masjid_pair') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_cs_class_school_pair') THEN
     ALTER TABLE class_subjects
-      ADD CONSTRAINT fk_cs_class_masjid_pair
-      FOREIGN KEY (class_subjects_class_id, class_subjects_masjid_id)
-      REFERENCES classes (class_id, class_masjid_id)
+      ADD CONSTRAINT fk_cs_class_school_pair
+      FOREIGN KEY (class_subjects_class_id, class_subjects_school_id)
+      REFERENCES classes (class_id, class_school_id)
       ON UPDATE CASCADE ON DELETE CASCADE;
   END IF;
 END$$;
@@ -174,7 +174,7 @@ END$$;
 DROP INDEX IF EXISTS uq_class_subjects_by_term;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_subjects_by_term
 ON class_subjects (
-  class_subjects_masjid_id,
+  class_subjects_school_id,
   class_subjects_class_id,
   class_subjects_subject_id,
   COALESCE(class_subjects_term_id::text,'')
@@ -184,7 +184,7 @@ WHERE class_subjects_deleted_at IS NULL;
 -- Unik tambahan: periode tanpa term_id
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_subjects_by_period
 ON class_subjects (
-  class_subjects_masjid_id,
+  class_subjects_school_id,
   class_subjects_class_id,
   class_subjects_subject_id,
   COALESCE(class_subjects_academic_year_id::text,''),
@@ -194,7 +194,7 @@ WHERE class_subjects_deleted_at IS NULL AND class_subjects_term_id IS NULL;
 
 -- Indeks umum & waktu
 CREATE INDEX IF NOT EXISTS idx_cs_active
-  ON class_subjects(class_subjects_masjid_id, class_subjects_class_id)
+  ON class_subjects(class_subjects_school_id, class_subjects_class_id)
   WHERE class_subjects_is_active = TRUE AND class_subjects_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS brin_cs_created_at
@@ -259,8 +259,8 @@ DROP TABLE IF EXISTS class_section_subject_teachers CASCADE;
 CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teachers_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  class_section_subject_teachers_masjid_id  UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_section_subject_teachers_school_id  UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   class_section_subject_teachers_section_id UUID NOT NULL
     REFERENCES class_sections(class_sections_id) ON DELETE CASCADE,
@@ -269,7 +269,7 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
     REFERENCES class_subjects(class_subjects_id) ON UPDATE CASCADE ON DELETE CASCADE,
 
   class_section_subject_teachers_teacher_id UUID NOT NULL
-    REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE RESTRICT,
+    REFERENCES school_teachers(school_teacher_id) ON DELETE RESTRICT,
 
   -- Tambahan kolom penugasan
   class_section_subject_teachers_role TEXT
@@ -312,11 +312,11 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
 -- Konsistensi section ↔️ tenant (komposit)
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_csst_section_masjid_pair') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_csst_section_school_pair') THEN
     ALTER TABLE class_section_subject_teachers
-      ADD CONSTRAINT fk_csst_section_masjid_pair
-      FOREIGN KEY (class_section_subject_teachers_section_id, class_section_subject_teachers_masjid_id)
-      REFERENCES class_sections (class_sections_id, class_sections_masjid_id)
+      ADD CONSTRAINT fk_csst_section_school_pair
+      FOREIGN KEY (class_section_subject_teachers_section_id, class_section_subject_teachers_school_id)
+      REFERENCES class_sections (class_sections_id, class_sections_school_id)
       ON UPDATE CASCADE ON DELETE CASCADE;
   END IF;
 END$$;
@@ -324,7 +324,7 @@ END$$;
 -- Unik aktif: hindari duplikasi penugasan aktif untuk (section, class_subjects, teacher)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_active_section_subject_teacher
 ON class_section_subject_teachers (
-  class_section_subject_teachers_masjid_id,
+  class_section_subject_teachers_school_id,
   class_section_subject_teachers_section_id,
   class_section_subject_teachers_class_subjects_id,
   class_section_subject_teachers_teacher_id
@@ -339,7 +339,7 @@ WHERE class_section_subject_teachers_deleted_at IS NULL
 -- Opsional: hanya 1 "lead" aktif per (section, class_subjects)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_active_lead_per_section_subject
 ON class_section_subject_teachers (
-  class_section_subject_teachers_masjid_id,
+  class_section_subject_teachers_school_id,
   class_section_subject_teachers_section_id,
   class_section_subject_teachers_class_subjects_id
 )
@@ -378,7 +378,7 @@ END$$;
 
 -- Indeks umum
 CREATE INDEX IF NOT EXISTS idx_csst_active
-  ON class_section_subject_teachers(class_section_subject_teachers_masjid_id, class_section_subject_teachers_section_id)
+  ON class_section_subject_teachers(class_section_subject_teachers_school_id, class_section_subject_teachers_section_id)
   WHERE class_section_subject_teachers_deleted_at IS NULL
     AND class_section_subject_teachers_is_active = TRUE;
 

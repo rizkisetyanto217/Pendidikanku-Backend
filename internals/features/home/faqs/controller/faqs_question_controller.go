@@ -4,9 +4,9 @@ import (
 	"errors"
 	"strings"
 
-	"masjidku_backend/internals/features/home/faqs/dto"
-	"masjidku_backend/internals/features/home/faqs/model"
-	resp "masjidku_backend/internals/helpers"
+	"schoolku_backend/internals/features/home/faqs/dto"
+	"schoolku_backend/internals/features/home/faqs/model"
+	resp "schoolku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -95,76 +95,76 @@ func (ctrl *FaqQuestionController) GetFaqQuestionByID(c *fiber.Ctx) error {
 // Update FaqQuestion (partial, aman untuk *string)
 // ======================
 func (ctrl *FaqQuestionController) UpdateFaqQuestion(c *fiber.Ctx) error {
-    id := c.Params("id")
-    if _, err := uuid.Parse(id); err != nil {
-        return resp.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
-    }
+	id := c.Params("id")
+	if _, err := uuid.Parse(id); err != nil {
+		return resp.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
+	}
 
-    var body dto.UpdateFaqQuestionRequest
-    if err := c.BodyParser(&body); err != nil {
-        return resp.JsonError(c, fiber.StatusBadRequest, "Invalid request")
-    }
+	var body dto.UpdateFaqQuestionRequest
+	if err := c.BodyParser(&body); err != nil {
+		return resp.JsonError(c, fiber.StatusBadRequest, "Invalid request")
+	}
 
-    var faq model.FaqQuestionModel
-    if err := ctrl.DB.WithContext(c.Context()).
-        First(&faq, "faq_question_id = ?", id).Error; err != nil {
-        if errors.Is(err, gorm.ErrRecordNotFound) {
-            return resp.JsonError(c, fiber.StatusNotFound, "FAQ not found")
-        }
-        return resp.JsonError(c, fiber.StatusInternalServerError, "Failed to get FAQ")
-    }
+	var faq model.FaqQuestionModel
+	if err := ctrl.DB.WithContext(c.Context()).
+		First(&faq, "faq_question_id = ?", id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return resp.JsonError(c, fiber.StatusNotFound, "FAQ not found")
+		}
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Failed to get FAQ")
+	}
 
-    // Kumpulkan field yang benar-benar diupdate
-    updates := map[string]any{}
+	// Kumpulkan field yang benar-benar diupdate
+	updates := map[string]any{}
 
-    if body.FaqQuestionText != "" {
-        updates["faq_question_text"] = body.FaqQuestionText
-    }
+	if body.FaqQuestionText != "" {
+		updates["faq_question_text"] = body.FaqQuestionText
+	}
 
-    if body.FaqQuestionLectureID != nil { // dikirim di JSON (bisa "" untuk clear)
-        if *body.FaqQuestionLectureID == "" {
-            updates["faq_question_lecture_id"] = nil // clear kolom
-        } else {
-            if _, err := uuid.Parse(*body.FaqQuestionLectureID); err != nil {
-                return resp.JsonError(c, fiber.StatusBadRequest, "Lecture ID tidak valid")
-            }
-            updates["faq_question_lecture_id"] = *body.FaqQuestionLectureID
-        }
-    }
+	if body.FaqQuestionLectureID != nil { // dikirim di JSON (bisa "" untuk clear)
+		if *body.FaqQuestionLectureID == "" {
+			updates["faq_question_lecture_id"] = nil // clear kolom
+		} else {
+			if _, err := uuid.Parse(*body.FaqQuestionLectureID); err != nil {
+				return resp.JsonError(c, fiber.StatusBadRequest, "Lecture ID tidak valid")
+			}
+			updates["faq_question_lecture_id"] = *body.FaqQuestionLectureID
+		}
+	}
 
-    if body.FaqQuestionLectureSessionID != nil {
-        if *body.FaqQuestionLectureSessionID == "" {
-            updates["faq_question_lecture_session_id"] = nil
-        } else {
-            if _, err := uuid.Parse(*body.FaqQuestionLectureSessionID); err != nil {
-                return resp.JsonError(c, fiber.StatusBadRequest, "Lecture Session ID tidak valid")
-            }
-            updates["faq_question_lecture_session_id"] = *body.FaqQuestionLectureSessionID
-        }
-    }
+	if body.FaqQuestionLectureSessionID != nil {
+		if *body.FaqQuestionLectureSessionID == "" {
+			updates["faq_question_lecture_session_id"] = nil
+		} else {
+			if _, err := uuid.Parse(*body.FaqQuestionLectureSessionID); err != nil {
+				return resp.JsonError(c, fiber.StatusBadRequest, "Lecture Session ID tidak valid")
+			}
+			updates["faq_question_lecture_session_id"] = *body.FaqQuestionLectureSessionID
+		}
+	}
 
-    if body.FaqQuestionIsAnswered != nil {
-        updates["faq_question_is_answered"] = *body.FaqQuestionIsAnswered
-    }
+	if body.FaqQuestionIsAnswered != nil {
+		updates["faq_question_is_answered"] = *body.FaqQuestionIsAnswered
+	}
 
-    if len(updates) == 0 {
-        // tidak ada perubahan — kembalikan data lama
-        return resp.JsonOK(c, "Tidak ada perubahan", dto.ToFaqQuestionDTO(faq))
-    }
+	if len(updates) == 0 {
+		// tidak ada perubahan — kembalikan data lama
+		return resp.JsonOK(c, "Tidak ada perubahan", dto.ToFaqQuestionDTO(faq))
+	}
 
-    if err := ctrl.DB.WithContext(c.Context()).
-        Model(&faq).Updates(updates).Error; err != nil {
-        return resp.JsonError(c, fiber.StatusInternalServerError, "Failed to update FAQ")
-    }
+	if err := ctrl.DB.WithContext(c.Context()).
+		Model(&faq).Updates(updates).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Failed to update FAQ")
+	}
 
-    // refresh struct 'faq' supaya DTO menampilkan nilai terbaru
-    if err := ctrl.DB.WithContext(c.Context()).
-        Preload("FaqAnswers").
-        First(&faq, "faq_question_id = ?", id).Error; err != nil {
-        return resp.JsonError(c, fiber.StatusInternalServerError, "Updated but failed to re-fetch FAQ")
-    }
+	// refresh struct 'faq' supaya DTO menampilkan nilai terbaru
+	if err := ctrl.DB.WithContext(c.Context()).
+		Preload("FaqAnswers").
+		First(&faq, "faq_question_id = ?", id).Error; err != nil {
+		return resp.JsonError(c, fiber.StatusInternalServerError, "Updated but failed to re-fetch FAQ")
+	}
 
-    return resp.JsonUpdated(c, "FAQ updated", dto.ToFaqQuestionDTO(faq))
+	return resp.JsonUpdated(c, "FAQ updated", dto.ToFaqQuestionDTO(faq))
 }
 
 // ======================

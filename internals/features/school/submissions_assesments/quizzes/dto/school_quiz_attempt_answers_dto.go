@@ -4,7 +4,7 @@ package dto
 import (
 	"time"
 
-	model "masjidku_backend/internals/features/school/submissions_assesments/quizzes/model"
+	model "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
 
 	"github.com/google/uuid"
 )

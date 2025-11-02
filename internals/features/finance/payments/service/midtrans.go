@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"masjidku_backend/internals/features/finance/payments/model"
+	"schoolku_backend/internals/features/finance/payments/model"
 
 	midtrans "github.com/midtrans/midtrans-go"
 	"github.com/midtrans/midtrans-go/snap"

@@ -11,14 +11,14 @@ BEGIN
   -- class_sections
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'class_sections') THEN
     EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS uq_class_section_id_tenant
-             ON class_sections (class_section_id, class_section_masjid_id)';
+             ON class_sections (class_section_id, class_section_school_id)';
 
     IF EXISTS (
       SELECT 1 FROM information_schema.columns
       WHERE table_name = 'class_sections' AND column_name = 'class_sections_deleted_at'
     ) THEN
       EXECUTE 'CREATE INDEX IF NOT EXISTS ix_class_sections_tenant_alive
-               ON class_sections (class_section_masjid_id, class_section_id)
+               ON class_sections (class_section_school_id, class_section_id)
                WHERE class_sections_deleted_at IS NULL';
     END IF;
 
@@ -27,23 +27,23 @@ BEGIN
       WHERE table_name = 'class_sections' AND column_name = 'class_section_is_active'
     ) THEN
       EXECUTE 'CREATE INDEX IF NOT EXISTS ix_class_sections_tenant_active
-               ON class_sections (class_section_masjid_id, class_section_id)
+               ON class_sections (class_section_school_id, class_section_id)
                WHERE class_section_is_active = TRUE';
     END IF;
   END IF;
 
-  -- masjid_teachers
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'masjid_teachers') THEN
-    EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS uq_masjid_teachers_id_tenant
-             ON masjid_teachers (masjid_teacher_id, masjid_teacher_masjid_id)';
+  -- school_teachers
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'school_teachers') THEN
+    EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS uq_school_teachers_id_tenant
+             ON school_teachers (school_teacher_id, school_teacher_school_id)';
 
     IF EXISTS (
       SELECT 1 FROM information_schema.columns
-      WHERE table_name = 'masjid_teachers' AND column_name = 'masjid_teacher_deleted_at'
+      WHERE table_name = 'school_teachers' AND column_name = 'school_teacher_deleted_at'
     ) THEN
-      EXECUTE 'CREATE INDEX IF NOT EXISTS ix_masjid_teachers_alive
-               ON masjid_teachers (masjid_teacher_masjid_id, masjid_teacher_id)
-               WHERE masjid_teacher_deleted_at IS NULL';
+      EXECUTE 'CREATE INDEX IF NOT EXISTS ix_school_teachers_alive
+               ON school_teachers (school_teacher_school_id, school_teacher_id)
+               WHERE school_teacher_deleted_at IS NULL';
     END IF;
   END IF;
 END
@@ -54,7 +54,7 @@ $do$;
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS post_themes (
   post_theme_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  post_theme_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  post_theme_school_id UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   post_theme_kind      VARCHAR(24) NOT NULL
     CHECK (post_theme_kind IN ('announcement','material','post','other')),
@@ -82,15 +82,15 @@ CREATE TABLE IF NOT EXISTS post_themes (
 
 -- Indexing post_themes (disesuaikan ON ke tabel baru)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_post_theme_name_per_tenant_kind_alive
-  ON post_themes (post_theme_masjid_id, post_theme_kind, lower(post_theme_name))
+  ON post_themes (post_theme_school_id, post_theme_kind, lower(post_theme_name))
   WHERE post_theme_deleted_at IS NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_post_theme_slug_per_tenant_kind_alive
-  ON post_themes (post_theme_masjid_id, post_theme_kind, lower(post_theme_slug))
+  ON post_themes (post_theme_school_id, post_theme_kind, lower(post_theme_slug))
   WHERE post_theme_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_post_theme_tenant_kind_active_alive
-  ON post_themes (post_theme_masjid_id, post_theme_kind, post_theme_is_active)
+  ON post_themes (post_theme_school_id, post_theme_kind, post_theme_is_active)
   WHERE post_theme_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_post_theme_parent_alive
@@ -106,7 +106,7 @@ CREATE INDEX IF NOT EXISTS ix_post_theme_icon_purge_due
   WHERE post_theme_icon_object_key_old IS NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_post_theme_id_tenant
-  ON post_themes (post_theme_id, post_theme_masjid_id);
+  ON post_themes (post_theme_id, post_theme_school_id);
 
 
 
@@ -115,7 +115,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_post_theme_id_tenant
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS posts (
   post_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  post_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  post_school_id UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   post_kind VARCHAR(24) NOT NULL
     CHECK (post_kind IN ('announcement','material','post','other')),
@@ -154,31 +154,31 @@ CREATE TABLE IF NOT EXISTS posts (
   post_audience_snapshot JSONB,
 
   CONSTRAINT fk_post_created_by_teacher_same_tenant
-    FOREIGN KEY (post_created_by_teacher_id, post_masjid_id)
-    REFERENCES masjid_teachers (masjid_teacher_id, masjid_teacher_masjid_id)
+    FOREIGN KEY (post_created_by_teacher_id, post_school_id)
+    REFERENCES school_teachers (school_teacher_id, school_teacher_school_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
   CONSTRAINT fk_post_section_same_tenant
-    FOREIGN KEY (post_class_section_id, post_masjid_id)
-    REFERENCES class_sections (class_section_id, class_section_masjid_id)
+    FOREIGN KEY (post_class_section_id, post_school_id)
+    REFERENCES class_sections (class_section_id, class_section_school_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
   CONSTRAINT fk_post_theme_same_tenant
-    FOREIGN KEY (post_theme_id, post_masjid_id)
-    REFERENCES post_themes (post_theme_id, post_theme_masjid_id)
+    FOREIGN KEY (post_theme_id, post_school_id)
+    REFERENCES post_themes (post_theme_id, post_theme_school_id)
     ON UPDATE CASCADE ON DELETE SET NULL
 );
 
 -- Indexing posts
 CREATE UNIQUE INDEX IF NOT EXISTS uq_post_id_tenant
-  ON posts (post_id, post_masjid_id);
+  ON posts (post_id, post_school_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_post_slug_per_tenant_alive
-  ON posts (post_masjid_id, lower(post_slug))
+  ON posts (post_school_id, lower(post_slug))
   WHERE post_deleted_at IS NULL AND post_slug IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS ix_post_tenant_kind_date_live
-  ON posts (post_masjid_id, post_kind, post_date DESC)
+  ON posts (post_school_id, post_kind, post_date DESC)
   WHERE post_deleted_at IS NULL AND post_is_active = TRUE;
 
 CREATE INDEX IF NOT EXISTS ix_post_theme_live
@@ -211,7 +211,7 @@ CREATE INDEX IF NOT EXISTS ix_post_section_ids_gin_live
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS post_urls (
   post_url_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  post_url_masjid_id  UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  post_url_school_id  UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
   post_url_post_id    UUID NOT NULL REFERENCES posts(post_id) ON DELETE CASCADE,
 
   post_url_kind       VARCHAR(24) NOT NULL,
@@ -236,8 +236,8 @@ CREATE INDEX IF NOT EXISTS ix_post_url_by_owner_live
   ON post_urls (post_url_post_id, post_url_kind, post_url_is_primary DESC, post_url_order, post_url_created_at)
   WHERE post_url_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS ix_post_url_by_masjid_live
-  ON post_urls (post_url_masjid_id)
+CREATE INDEX IF NOT EXISTS ix_post_url_by_school_live
+  ON post_urls (post_url_school_id)
   WHERE post_url_deleted_at IS NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_post_url_primary_per_kind_alive
@@ -295,17 +295,17 @@ EXECUTE FUNCTION trg_post_theme_kind_match();
 -- Guard tenant (ON posts, refer ke post_themes)
 CREATE OR REPLACE FUNCTION trg_post_theme_tenant_guard()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
-DECLARE v_theme_masjid UUID;
+DECLARE v_theme_school UUID;
 BEGIN
   IF NEW.post_theme_id IS NULL THEN RETURN NEW; END IF;
 
-  SELECT post_theme_masjid_id INTO v_theme_masjid
+  SELECT post_theme_school_id INTO v_theme_school
   FROM post_themes
   WHERE post_theme_id = NEW.post_theme_id
     AND post_theme_deleted_at IS NULL;
 
-  IF v_theme_masjid IS NULL OR v_theme_masjid <> NEW.post_masjid_id THEN
-    RAISE EXCEPTION 'post_theme belongs to different masjid';
+  IF v_theme_school IS NULL OR v_theme_school <> NEW.post_school_id THEN
+    RAISE EXCEPTION 'post_theme belongs to different school';
   END IF;
 
   RETURN NEW;
@@ -313,7 +313,7 @@ END $$;
 
 DROP TRIGGER IF EXISTS tg_post_theme_tenant_guard ON posts;
 CREATE TRIGGER tg_post_theme_tenant_guard
-BEFORE INSERT OR UPDATE OF post_theme_id, post_masjid_id
+BEFORE INSERT OR UPDATE OF post_theme_id, post_school_id
 ON posts
 FOR EACH ROW
 EXECUTE FUNCTION trg_post_theme_tenant_guard();
@@ -323,7 +323,7 @@ EXECUTE FUNCTION trg_post_theme_tenant_guard();
 -- =====================================================================
 
 CREATE OR REPLACE FUNCTION resolve_teacher_sections_by_csst(
-  p_masjid_id UUID,
+  p_school_id UUID,
   p_teacher_id UUID,
   p_class_subjects_id UUID DEFAULT NULL
 ) RETURNS UUID[]
@@ -332,7 +332,7 @@ AS $$
   SELECT COALESCE(ARRAY(
     SELECT DISTINCT csst.class_section_subject_teacher_section_id
     FROM class_section_subject_teachers csst
-    WHERE csst.class_section_subject_teacher_masjid_id = p_masjid_id
+    WHERE csst.class_section_subject_teacher_school_id = p_school_id
       AND csst.class_section_subject_teacher_teacher_id = p_teacher_id
       AND csst.class_section_subject_teacher_is_active = TRUE
       AND csst.class_section_subject_teacher_deleted_at IS NULL
@@ -398,7 +398,7 @@ END $$;
 
 CREATE OR REPLACE FUNCTION publish_post_for_all_sections(
   p_post_id UUID,
-  p_masjid_id UUID,
+  p_school_id UUID,
   p_fill_inbox BOOLEAN DEFAULT TRUE
 ) RETURNS VOID
 LANGUAGE plpgsql AS $$
@@ -413,7 +413,7 @@ BEGIN
     SELECT ARRAY(
       SELECT cs.class_section_id
       FROM class_sections cs
-      WHERE cs.class_section_masjid_id = $1
+      WHERE cs.class_section_school_id = $1
   ';
   IF EXISTS (SELECT 1 FROM information_schema.columns
              WHERE table_name='class_sections' AND column_name='class_section_deleted_at') THEN
@@ -426,7 +426,7 @@ BEGIN
 
   v_sql := v_sql || ' ) ';
 
-  EXECUTE v_sql USING p_masjid_id INTO v_section_ids;
+  EXECUTE v_sql USING p_school_id INTO v_section_ids;
   v_section_ids := COALESCE(v_section_ids, '{}');
 
   PERFORM publish_post_with_sections(p_post_id, v_section_ids, TRUE);
@@ -434,7 +434,7 @@ END $$;
 
 CREATE OR REPLACE FUNCTION publish_post_via_csst(
   p_post_id UUID,
-  p_masjid_id UUID,
+  p_school_id UUID,
   p_teacher_id UUID,
   p_class_subjects_id UUID DEFAULT NULL,
   p_fill_inbox BOOLEAN DEFAULT TRUE
@@ -451,7 +451,7 @@ BEGIN
     RAISE EXCEPTION 'Tabel class_section_subject_teachers tidak tersedia';
   END IF;
 
-  v_section_ids := resolve_teacher_sections_by_csst(p_masjid_id, p_teacher_id, p_class_subjects_id);
+  v_section_ids := resolve_teacher_sections_by_csst(p_school_id, p_teacher_id, p_class_subjects_id);
   PERFORM publish_post_with_sections(p_post_id, v_section_ids, TRUE);
 
   IF p_class_subjects_id IS NOT NULL THEN
@@ -460,7 +460,7 @@ BEGIN
     SELECT COALESCE(ARRAY(
       SELECT DISTINCT csst.class_section_subject_teacher_class_subject_id
       FROM class_section_subject_teachers csst
-      WHERE csst.class_section_subject_teacher_masjid_id = p_masjid_id
+      WHERE csst.class_section_subject_teacher_school_id = p_school_id
         AND csst.class_section_subject_teacher_teacher_id = p_teacher_id
         AND csst.class_section_subject_teacher_is_active = TRUE
         AND csst.class_section_subject_teacher_deleted_at IS NULL

@@ -11,7 +11,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
-	model "masjidku_backend/internals/features/school/classes/class_events/model"
+	model "schoolku_backend/internals/features/school/classes/class_events/model"
 )
 
 /* =========================================================
@@ -81,7 +81,7 @@ func (p PatchField[T]) Get() (*T, bool) { return p.Value, p.Present }
    ========================================================= */
 
 type CreateClassEventThemeRequest struct {
-	// MasjidID dipaksa dari controller/path; tidak dari body
+	// SchoolID dipaksa dari controller/path; tidak dari body
 	ClassEventThemeCode        string  `json:"class_event_theme_code" validate:"required,max=64"`
 	ClassEventThemeName        string  `json:"class_event_theme_name" validate:"required,max=120"`
 	ClassEventThemeColor       *string `json:"class_event_theme_color" validate:"omitempty,max=32"`
@@ -107,13 +107,13 @@ func (r *CreateClassEventThemeRequest) Validate(v *validator.Validate) error {
 	return nil
 }
 
-func (r *CreateClassEventThemeRequest) ToModel(masjidID uuid.UUID) *model.ClassEventThemeModel {
+func (r *CreateClassEventThemeRequest) ToModel(schoolID uuid.UUID) *model.ClassEventThemeModel {
 	isActive := true
 	if r.ClassEventThemeIsActive != nil {
 		isActive = *r.ClassEventThemeIsActive
 	}
 	return &model.ClassEventThemeModel{
-		ClassEventThemeMasjidID:    masjidID,
+		ClassEventThemeSchoolID:    schoolID,
 		ClassEventThemeCode:        r.ClassEventThemeCode,
 		ClassEventThemeName:        r.ClassEventThemeName,
 		ClassEventThemeColor:       r.ClassEventThemeColor,
@@ -246,7 +246,7 @@ func (q *ListClassEventThemeQuery) OrderExpr() string {
 
 type ClassEventThemeResponse struct {
 	ClassEventThemeID          uuid.UUID `json:"class_event_theme_id"`
-	ClassEventThemeMasjidID    uuid.UUID `json:"class_event_theme_masjid_id"`
+	ClassEventThemeSchoolID    uuid.UUID `json:"class_event_theme_school_id"`
 	ClassEventThemeCode        string    `json:"class_event_theme_code"`
 	ClassEventThemeName        string    `json:"class_event_theme_name"`
 	ClassEventThemeColor       *string   `json:"class_event_theme_color,omitempty"`
@@ -260,7 +260,7 @@ type ClassEventThemeResponse struct {
 func FromModel(m *model.ClassEventThemeModel) ClassEventThemeResponse {
 	return ClassEventThemeResponse{
 		ClassEventThemeID:          m.ClassEventThemeID,
-		ClassEventThemeMasjidID:    m.ClassEventThemeMasjidID,
+		ClassEventThemeSchoolID:    m.ClassEventThemeSchoolID,
 		ClassEventThemeCode:        m.ClassEventThemeCode,
 		ClassEventThemeName:        m.ClassEventThemeName,
 		ClassEventThemeColor:       m.ClassEventThemeColor,

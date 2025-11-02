@@ -8,7 +8,7 @@
 -- (DROP INDEX opsional; tabel drop otomatis menghapus index)
 -- -----------------------------
 DROP INDEX IF EXISTS brin_user_note_urls_created_at;
-DROP INDEX IF EXISTS idx_user_note_urls_masjid_kind;
+DROP INDEX IF EXISTS idx_user_note_urls_school_kind;
 DROP INDEX IF EXISTS gin_user_note_urls_title_trgm;
 DROP INDEX IF EXISTS gin_user_note_urls_url_trgm;
 DROP INDEX IF EXISTS gin_user_note_urls_tags;
@@ -52,7 +52,7 @@ DROP INDEX IF EXISTS idx_user_notes_student_created;
 DROP INDEX IF EXISTS idx_user_notes_scope;
 DROP INDEX IF EXISTS idx_user_notes_author_teacher;
 DROP INDEX IF EXISTS idx_user_notes_author;
-DROP INDEX IF EXISTS idx_user_notes_masjid;
+DROP INDEX IF EXISTS idx_user_notes_school;
 
 DROP TABLE IF EXISTS user_notes;
 
@@ -60,6 +60,6 @@ DROP TABLE IF EXISTS user_notes;
 -- 4) MASTER: user_note_types
 -- -----------------------------
 DROP INDEX IF EXISTS idx_note_types_owner_active_sort;
-DROP INDEX IF EXISTS idx_note_types_masjid;
+DROP INDEX IF EXISTS idx_note_types_school;
 
 DROP TABLE IF EXISTS user_note_types;

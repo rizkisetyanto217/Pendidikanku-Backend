@@ -5,10 +5,10 @@ import (
 	"errors"
 	"strings"
 
-	csDTO "masjidku_backend/internals/features/school/academics/subjects/dto"
-	csModel "masjidku_backend/internals/features/school/academics/subjects/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	csDTO "schoolku_backend/internals/features/school/academics/subjects/dto"
+	csModel "schoolku_backend/internals/features/school/academics/subjects/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -34,26 +34,26 @@ import (
 =========================================================
 */
 func (h *ClassSubjectController) List(c *fiber.Ctx) error {
-	// ===== Masjid context (PUBLIC): no role check =====
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// ===== School context (PUBLIC): no role check =====
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	var masjidID uuid.UUID
+	var schoolID uuid.UUID
 	switch {
 	case mc.ID != uuid.Nil:
-		masjidID = mc.ID
+		schoolID = mc.ID
 	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetMasjidIDBySlug(c, strings.TrimSpace(mc.Slug))
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
 		if er != nil {
 			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+				return fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
 			}
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal resolve masjid dari slug")
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal resolve school dari slug")
 		}
-		masjidID = id
+		schoolID = id
 	default:
-		return helperAuth.ErrMasjidContextMissing
+		return helperAuth.ErrSchoolContextMissing
 	}
 
 	// ===== Parse & guard pagination
@@ -71,7 +71,7 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 
 	// ===== Base query (single-tenant via context) =====
 	tx := h.DB.Model(&csModel.ClassSubjectModel{}).
-		Where("class_subject_masjid_id = ?", masjidID)
+		Where("class_subject_school_id = ?", schoolID)
 
 	// ===== Soft delete (default exclude)
 	if q.WithDeleted == nil || !*q.WithDeleted {

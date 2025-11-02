@@ -4,25 +4,25 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	sppapi "masjidku_backend/internals/features/finance/billings/controller"
-	masjidkuMiddleware "masjidku_backend/internals/middlewares/features"
+	sppapi "schoolku_backend/internals/features/finance/billings/controller"
+	schoolkuMiddleware "schoolku_backend/internals/middlewares/features"
 )
 
 /*
 Admin routes (CRUD & actions)
-Diproteksi IsMasjidAdmin() — sesuaikan jika ada varian ByParam.
+Diproteksi IsSchoolAdmin() — sesuaikan jika ada varian ByParam.
 */
 func BillingsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	h := &sppapi.Handler{DB: db}
 	billBatch := &sppapi.BillBatchHandler{DB: db}
 	studentBill := &sppapi.StudentBillHandler{DB: db}
 
-	// Jika kamu punya resolver konteks masjid berbasis param, aktifkan di sini
-	// contoh: ResolveMasjidContextByParam("masjid_id")
+	// Jika kamu punya resolver konteks school berbasis param, aktifkan di sini
+	// contoh: ResolveSchoolContextByParam("school_id")
 	grp := admin.Group(
-		"/:masjid_id",
-		// masjidkuMiddleware.ResolveMasjidContextByParam("masjid_id"), // opsional kalau ada
-		masjidkuMiddleware.IsMasjidAdmin(),
+		"/:school_id",
+		// schoolkuMiddleware.ResolveSchoolContextByParam("school_id"), // opsional kalau ada
+		schoolkuMiddleware.IsSchoolAdmin(),
 	)
 
 	{

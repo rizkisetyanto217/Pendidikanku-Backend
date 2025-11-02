@@ -12,12 +12,12 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	csDTO "masjidku_backend/internals/features/school/academics/subjects/dto"
-	csModel "masjidku_backend/internals/features/school/academics/subjects/model"
-	snapshotSubject "masjidku_backend/internals/features/school/academics/subjects/snapshot"
+	csDTO "schoolku_backend/internals/features/school/academics/subjects/dto"
+	csModel "schoolku_backend/internals/features/school/academics/subjects/model"
+	snapshotSubject "schoolku_backend/internals/features/school/academics/subjects/snapshot"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 type ClassSubjectController struct {
@@ -36,18 +36,18 @@ func ptrStr(p *string) string {
 =========================================================
 
 	CREATE
-	POST /admin/:masjid_id/class-subjects
-	(atau /admin/:masjid_slug/class-subjects)
+	POST /admin/:school_id/class-subjects
+	(atau /admin/:school_slug/class-subjects)
 
 =========================================================
 */
 func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
-	// 🔐 Ambil konteks masjid & pastikan DKM/Admin
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// 🔐 Ambil konteks school & pastikan DKM/Admin
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -56,7 +56,7 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
-	req.MasjidID = masjidID // force tenant
+	req.SchoolID = schoolID // force tenant
 
 	// Normalisasi ringan
 	if req.Desc != nil {
@@ -86,12 +86,12 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 			var subjName, parentSlug string
 			_ = tx.Table("subjects").
 				Select("subject_name").
-				Where("subject_id = ? AND subject_masjid_id = ?", req.SubjectID, req.MasjidID).
+				Where("subject_id = ? AND subject_school_id = ?", req.SubjectID, req.SchoolID).
 				Scan(&subjName).Error
 
 			_ = tx.Table("class_parents").
 				Select("class_parent_slug").
-				Where("class_parent_id = ? AND class_parent_masjid_id = ?", req.ParentID, req.MasjidID).
+				Where("class_parent_id = ? AND class_parent_school_id = ?", req.ParentID, req.SchoolID).
 				Scan(&parentSlug).Error
 
 			switch {
@@ -117,7 +117,7 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 			"class_subject_slug",
 			baseSlug,
 			func(q *gorm.DB) *gorm.DB {
-				return q.Where("class_subject_masjid_id = ? AND class_subject_deleted_at IS NULL", req.MasjidID)
+				return q.Where("class_subject_school_id = ? AND class_subject_deleted_at IS NULL", req.SchoolID)
 			},
 			160,
 		)
@@ -126,13 +126,13 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 		}
 
 		// === Ambil SubjectSnapshot (tenant-aware) ===
-		subjSnap, err := snapshotSubject.BuildSubjectSnapshot(c.Context(), tx, req.MasjidID, req.SubjectID)
+		subjSnap, err := snapshotSubject.BuildSubjectSnapshot(c.Context(), tx, req.SchoolID, req.SubjectID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return fiber.NewError(fiber.StatusNotFound, "Subject tidak ditemukan")
 			}
-			if errors.Is(err, snapshotSubject.ErrMasjidMismatch) {
-				return fiber.NewError(fiber.StatusForbidden, "Subject bukan milik masjid ini")
+			if errors.Is(err, snapshotSubject.ErrSchoolMismatch) {
+				return fiber.NewError(fiber.StatusForbidden, "Subject bukan milik school ini")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot subject")
 		}
@@ -163,11 +163,11 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 			var existing csModel.ClassSubjectModel
 			if err := tx.
 				Where(`
-					class_subject_masjid_id = ?
+					class_subject_school_id = ?
 					AND class_subject_parent_id = ?
 					AND class_subject_subject_id = ?
 					AND class_subject_deleted_at IS NULL
-				`, req.MasjidID, req.ParentID, req.SubjectID).
+				`, req.SchoolID, req.ParentID, req.SubjectID).
 				Take(&existing).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					// race ekstrem — retry sekali
@@ -212,17 +212,17 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 =========================================================
 
 	UPDATE (partial)
-	PUT /admin/:masjid_id/class-subjects/:id
+	PUT /admin/:school_id/class-subjects/:id
 
 =========================================================
 */
 func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 	// 🔐 Context & role
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -238,7 +238,7 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
-	req.MasjidID = &masjidID
+	req.SchoolID = &schoolID
 
 	// Normalisasi ringan
 	if req.Desc != nil {
@@ -281,8 +281,8 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 		}
-		if m.ClassSubjectMasjidID != masjidID {
-			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengubah data milik masjid lain")
+		if m.ClassSubjectSchoolID != schoolID {
+			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengubah data milik school lain")
 		}
 		if m.ClassSubjectDeletedAt.Valid {
 			return fiber.NewError(fiber.StatusBadRequest, "Data sudah dihapus")
@@ -298,13 +298,13 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 
 		// === Jika SubjectID berubah → refresh SubjectSnapshot ===
 		if m.ClassSubjectSubjectID != oldSubjectID {
-			subjSnap, err := snapshotSubject.BuildSubjectSnapshot(c.Context(), tx, masjidID, m.ClassSubjectSubjectID)
+			subjSnap, err := snapshotSubject.BuildSubjectSnapshot(c.Context(), tx, schoolID, m.ClassSubjectSubjectID)
 			if err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return fiber.NewError(fiber.StatusNotFound, "Subject tidak ditemukan")
 				}
-				if errors.Is(err, snapshotSubject.ErrMasjidMismatch) {
-					return fiber.NewError(fiber.StatusForbidden, "Subject bukan milik masjid ini")
+				if errors.Is(err, snapshotSubject.ErrSchoolMismatch) {
+					return fiber.NewError(fiber.StatusForbidden, "Subject bukan milik school ini")
 				}
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot subject")
 			}
@@ -328,12 +328,12 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			var subjName, parentSlug string
 			_ = tx.Table("subjects").
 				Select("subject_name").
-				Where("subject_id = ? AND subject_masjid_id = ?", m.ClassSubjectSubjectID, masjidID).
+				Where("subject_id = ? AND subject_school_id = ?", m.ClassSubjectSubjectID, schoolID).
 				Scan(&subjName).Error
 
 			_ = tx.Table("class_parents").
 				Select("class_parent_slug").
-				Where("class_parent_id = ? AND class_parent_masjid_id = ?", m.ClassSubjectParentID, masjidID).
+				Where("class_parent_id = ? AND class_parent_school_id = ?", m.ClassSubjectParentID, schoolID).
 				Scan(&parentSlug).Error
 
 			switch {
@@ -361,10 +361,10 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 				baseSlug,
 				func(q *gorm.DB) *gorm.DB {
 					return q.Where(`
-						class_subject_masjid_id = ?
+						class_subject_school_id = ?
 						AND class_subject_deleted_at IS NULL
 						AND class_subject_id <> ?
-					`, masjidID, m.ClassSubjectID)
+					`, schoolID, m.ClassSubjectID)
 				},
 				160,
 			)
@@ -378,7 +378,7 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 		if err := tx.Model(&csModel.ClassSubjectModel{}).
 			Where("class_subject_id = ?", m.ClassSubjectID).
 			Updates(map[string]any{
-				"class_subject_masjid_id":              m.ClassSubjectMasjidID,
+				"class_subject_school_id":              m.ClassSubjectSchoolID,
 				"class_subject_parent_id":              m.ClassSubjectParentID,
 				"class_subject_subject_id":             m.ClassSubjectSubjectID,
 				"class_subject_slug":                   m.ClassSubjectSlug,
@@ -424,24 +424,24 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 =========================================================
 
 	DELETE
-	DELETE /admin/:masjid_id/class-subjects/:id?force=true
+	DELETE /admin/:school_id/class-subjects/:id?force=true
 
 =========================================================
 */
 func (h *ClassSubjectController) Delete(c *fiber.Ctx) error {
 	// 🔐 Context + role check (DKM/Admin)
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
 
 	// Hanya Admin (bukan sekadar DKM) yang boleh hard delete
-	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
-	isAdmin := adminMasjidID != uuid.Nil && adminMasjidID == masjidID
+	adminSchoolID, _ := helperAuth.GetSchoolIDFromToken(c)
+	isAdmin := adminSchoolID != uuid.Nil && adminSchoolID == schoolID
 	force := strings.EqualFold(c.Query("force"), "true")
 	if force && !isAdmin {
 		return fiber.NewError(fiber.StatusForbidden, "Hanya admin yang boleh hard delete")
@@ -460,8 +460,8 @@ func (h *ClassSubjectController) Delete(c *fiber.Ctx) error {
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 		}
-		if m.ClassSubjectMasjidID != masjidID {
-			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh menghapus data milik masjid lain")
+		if m.ClassSubjectSchoolID != schoolID {
+			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh menghapus data milik school lain")
 		}
 
 		if force {

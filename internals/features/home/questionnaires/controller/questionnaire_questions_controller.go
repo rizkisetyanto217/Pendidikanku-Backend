@@ -4,9 +4,9 @@ package controller
 import (
 	"errors"
 
-	"masjidku_backend/internals/features/home/questionnaires/dto"
-	"masjidku_backend/internals/features/home/questionnaires/model"
-	helper "masjidku_backend/internals/helpers"
+	"schoolku_backend/internals/features/home/questionnaires/dto"
+	"schoolku_backend/internals/features/home/questionnaires/model"
+	helper "schoolku_backend/internals/helpers"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"

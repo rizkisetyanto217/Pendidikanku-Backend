@@ -4,7 +4,7 @@
 
 -- Indexes for class_attendance_session_urls
 DROP INDEX IF EXISTS ix_casu_by_owner_live;
-DROP INDEX IF EXISTS ix_casu_by_masjid_live;
+DROP INDEX IF EXISTS ix_casu_by_school_live;
 DROP INDEX IF EXISTS uq_casu_primary_per_kind_alive;
 DROP INDEX IF EXISTS ix_casu_purge_due;
 DROP INDEX IF EXISTS gin_casu_label_trgm_live;
@@ -16,8 +16,8 @@ DROP TABLE IF EXISTS class_attendance_session_urls;
 DROP INDEX IF EXISTS uq_cas_id_tenant;
 DROP INDEX IF EXISTS uq_cas_slug_per_tenant_alive;
 DROP INDEX IF EXISTS gin_cas_slug_trgm_alive;
-DROP INDEX IF EXISTS uq_cas_masjid_schedule_date_alive;
-DROP INDEX IF EXISTS idx_cas_masjid_date_alive;
+DROP INDEX IF EXISTS uq_cas_school_schedule_date_alive;
+DROP INDEX IF EXISTS idx_cas_school_date_alive;
 DROP INDEX IF EXISTS idx_cas_schedule_date_alive;
 DROP INDEX IF EXISTS idx_cas_teacher_date_alive;
 DROP INDEX IF EXISTS idx_cas_canceled_date_alive;

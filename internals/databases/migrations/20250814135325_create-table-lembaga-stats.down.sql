@@ -39,9 +39,9 @@ DROP FUNCTION IF EXISTS fn_ucass_validate_links();
 -- 2) Uniques & supporting indexes
 DROP INDEX IF EXISTS uq_ucass_tenant_userclass_section_term;
 DROP INDEX IF EXISTS uq_ucass_tenant_userclass_section_period;
-DROP INDEX IF EXISTS ix_ucass_masjid_term;
+DROP INDEX IF EXISTS ix_ucass_school_term;
 DROP INDEX IF EXISTS ix_ucass_term;
-DROP INDEX IF EXISTS ix_ucass_masjid_section_period;
+DROP INDEX IF EXISTS ix_ucass_school_section_period;
 DROP INDEX IF EXISTS ix_ucass_userclass;
 
 -- 3) Hapus FK ke academic_terms (nama constraint auto → cari & drop)

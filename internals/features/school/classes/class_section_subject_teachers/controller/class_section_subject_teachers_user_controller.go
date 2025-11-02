@@ -4,9 +4,9 @@ package controller
 import (
 	"errors"
 	"fmt"
-	modelCSST "masjidku_backend/internals/features/school/classes/class_section_subject_teachers/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	modelCSST "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 	"strings"
 	"sync"
 
@@ -25,14 +25,14 @@ var (
 	csstCreatedAtCol string
 	csstUpdatedAtCol string
 	csstDeletedAtCol string
-	csstMasjidCol    string
+	csstSchoolCol    string
 	csstIsActiveCol  string
 
 	// FK kandidat yang mungkin berbeda antar environment
 	csstClassSubjectFK string // class_subject_id / class_subjects_id / csst...
 	csstSubjectFK      string // subject_id / subjects_id / csst...
 	csstSectionFK      string // class_section_id / section_id / class_sections_id / csst...
-	csstTeacherFK      string // masjid teacher id kolom di csst
+	csstTeacherFK      string // school teacher id kolom di csst
 )
 
 func hasColumn(db *gorm.DB, table, col string) bool {
@@ -96,13 +96,13 @@ func detectCSSTFKs(db *gorm.DB) {
 		}
 
 		// tenant & status
-		csstMasjidCol = firstExisting(db, tbl,
-			"class_section_subject_teacher_masjid_id", // ← terlihat di log kamu
-			"class_section_subject_teachers_masjid_id",
-			"masjid_id",
+		csstSchoolCol = firstExisting(db, tbl,
+			"class_section_subject_teacher_school_id", // ← terlihat di log kamu
+			"class_section_subject_teachers_school_id",
+			"school_id",
 		)
-		if csstMasjidCol == "" {
-			csstMasjidCol = "masjid_id"
+		if csstSchoolCol == "" {
+			csstSchoolCol = "school_id"
 		}
 		csstIsActiveCol = firstExisting(db, tbl,
 			"class_section_subject_teacher_is_active",
@@ -265,25 +265,25 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	detectCSSTFKs(ctl.DB)
 	_ = csstSubjectFK
 
-	// === Masjid context (PUBLIC): no role check ===
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// === School context (PUBLIC): no role check ===
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	var masjidID uuid.UUID
+	var schoolID uuid.UUID
 	if mc.ID != uuid.Nil {
-		masjidID = mc.ID
+		schoolID = mc.ID
 	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil {
 			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve masjid dari slug")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
 		}
-		masjidID = id
+		schoolID = id
 	} else {
-		return helperAuth.ErrMasjidContextMissing
+		return helperAuth.ErrSchoolContextMissing
 	}
 
 	// path :id (detail)
@@ -344,7 +344,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	/* ===================== BASE QUERY (DATA) ===================== */
 	tx := ctl.DB.
 		Table("class_section_subject_teachers AS csst").
-		Where(fmt.Sprintf("csst.%s = ?", csstMasjidCol), masjidID)
+		Where(fmt.Sprintf("csst.%s = ?", csstSchoolCol), schoolID)
 
 	// soft delete guard
 	if q.WithDeleted == nil || !*q.WithDeleted {
@@ -380,10 +380,10 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 				EXISTS (
 					SELECT 1 FROM class_subjects cs
 					WHERE cs.class_subject_id = csst.%s
-					  AND cs.class_subject_masjid_id = csst.%s
+					  AND cs.class_subject_school_id = csst.%s
 					  AND cs.class_subject_subject_id = ?
 				)
-			`, csstClassSubjectFK, csstMasjidCol), subjectID)
+			`, csstClassSubjectFK, csstSchoolCol), subjectID)
 		}
 	}
 
@@ -412,7 +412,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	/* ============================ COUNT ============================ */
 	countTx := ctl.DB.
 		Table("class_section_subject_teachers AS csst").
-		Where(fmt.Sprintf("csst.%s = ?", csstMasjidCol), masjidID)
+		Where(fmt.Sprintf("csst.%s = ?", csstSchoolCol), schoolID)
 
 	if q.WithDeleted == nil || !*q.WithDeleted {
 		countTx = countTx.Where(fmt.Sprintf("csst.%s IS NULL", csstDeletedAtCol))
@@ -441,10 +441,10 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 				EXISTS (
 					SELECT 1 FROM class_subjects cs
 					WHERE cs.class_subject_id = csst.%s
-					  AND cs.class_subject_masjid_id = csst.%s
+					  AND cs.class_subject_school_id = csst.%s
 					  AND cs.class_subject_subject_id = ?
 				)
-			`, csstClassSubjectFK, csstMasjidCol), subjectID)
+			`, csstClassSubjectFK, csstSchoolCol), subjectID)
 		}
 	}
 	if qtext != "" {

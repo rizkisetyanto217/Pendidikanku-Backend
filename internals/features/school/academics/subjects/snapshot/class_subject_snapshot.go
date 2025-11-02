@@ -15,7 +15,7 @@ import (
 // class_section_subject_teacher_class_subject_snapshot (JSONB)
 type ClassSubjectSnapshot struct {
 	ID        uuid.UUID `json:"id"`
-	MasjidID  uuid.UUID `json:"masjid_id"`
+	SchoolID  uuid.UUID `json:"school_id"`
 	ParentID  uuid.UUID `json:"parent_id"`
 	SubjectID uuid.UUID `json:"subject_id"`
 
@@ -33,16 +33,16 @@ type ClassSubjectSnapshot struct {
 // - Validasi tenant & soft-delete pada class_subjects
 // - Prefer ambil dari tabel subjects (jika masih ada), fallback ke snapshot di class_subjects
 // - gorm.ErrRecordNotFound bila class_subject tidak ada
-// - ErrMasjidMismatch bila tenant beda
+// - ErrSchoolMismatch bila tenant beda
 func BuildClassSubjectSnapshot(
 	ctx context.Context,
 	tx *gorm.DB,
-	masjidID uuid.UUID,
+	schoolID uuid.UUID,
 	classSubjectID uuid.UUID,
 ) (*ClassSubjectSnapshot, error) {
 	var row struct {
 		// dari class_subjects
-		CSMasjidID       uuid.UUID
+		CSSchoolID       uuid.UUID
 		CSID             uuid.UUID
 		ParentID         uuid.UUID
 		SubjectID        uuid.UUID
@@ -63,7 +63,7 @@ func BuildClassSubjectSnapshot(
 
 	if err := tx.WithContext(ctx).Raw(`
 		SELECT
-			cs.class_subject_masjid_id  AS cs_masjid_id,
+			cs.class_subject_school_id  AS cs_school_id,
 			cs.class_subject_id         AS cs_id,
 			cs.class_subject_parent_id  AS parent_id,
 			cs.class_subject_subject_id AS subject_id,
@@ -94,8 +94,8 @@ func BuildClassSubjectSnapshot(
 		return nil, gorm.ErrRecordNotFound
 	}
 	// tenant check
-	if row.CSMasjidID != masjidID {
-		return nil, ErrMasjidMismatch
+	if row.CSSchoolID != schoolID {
+		return nil, ErrSchoolMismatch
 	}
 
 	trim := func(s string) string { return strings.TrimSpace(s) }
@@ -142,7 +142,7 @@ func BuildClassSubjectSnapshot(
 
 	out := &ClassSubjectSnapshot{
 		ID:               row.CSID,
-		MasjidID:         row.CSMasjidID,
+		SchoolID:         row.CSSchoolID,
 		ParentID:         row.ParentID,
 		SubjectID:        row.SubjectID,
 		Name:             name,
@@ -158,10 +158,10 @@ func BuildClassSubjectSnapshot(
 func BuildClassSubjectSnapshotJSON(
 	ctx context.Context,
 	tx *gorm.DB,
-	masjidID uuid.UUID,
+	schoolID uuid.UUID,
 	classSubjectID uuid.UUID,
 ) (datatypes.JSON, error) {
-	snap, err := BuildClassSubjectSnapshot(ctx, tx, masjidID, classSubjectID)
+	snap, err := BuildClassSubjectSnapshot(ctx, tx, schoolID, classSubjectID)
 	if err != nil {
 		return nil, err
 	}

@@ -17,12 +17,12 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
-	dto "masjidku_backend/internals/features/school/academics/rooms/dto"
-	model "masjidku_backend/internals/features/school/academics/rooms/model"
-	helperOSS "masjidku_backend/internals/helpers/oss"
+	dto "schoolku_backend/internals/features/school/academics/rooms/dto"
+	model "schoolku_backend/internals/features/school/academics/rooms/model"
+	helperOSS "schoolku_backend/internals/helpers/oss"
 )
 
 /* =======================================================
@@ -70,12 +70,12 @@ func pickImageFile(c *fiber.Ctx, names ...string) *multipart.FileHeader {
 func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	ctl.ensureValidator()
 
-	// 🔒 Ambil context masjid & guard
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// 🔒 Ambil context school & guard
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -185,7 +185,7 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	}
 
 	// 🚩 Inject tenant dari server
-	req.ClassRoomMasjidID = masjidID
+	req.ClassRoomSchoolID = schoolID
 
 	// ✅ Validasi payload
 	if err := ctl.Validate.Struct(&req); err != nil {
@@ -208,7 +208,7 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 		"class_rooms", "class_room_slug",
 		base,
 		func(q *gorm.DB) *gorm.DB {
-			return q.Where("class_room_masjid_id = ? AND class_room_deleted_at IS NULL", masjidID)
+			return q.Where("class_room_school_id = ? AND class_room_deleted_at IS NULL", schoolID)
 		},
 		50,
 	)
@@ -223,7 +223,7 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	}
 
 	// 🔒 Pastikan dari server
-	m.ClassRoomMasjidID = masjidID
+	m.ClassRoomSchoolID = schoolID
 	m.ClassRoomSlug = &slug
 
 	// 💾 Simpan awal (tanpa image)
@@ -240,7 +240,7 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 		if fh := pickImageFile(c, "image", "file", "cover"); fh != nil {
 			log.Printf("[CLASSROOM][CREATE] will upload file: name=%q size=%d", fh.Filename, fh.Size)
 
-			keyPrefix := fmt.Sprintf("masjids/%s/school/class-rooms", masjidID.String())
+			keyPrefix := fmt.Sprintf("schools/%s/school/class-rooms", schoolID.String())
 
 			svc, er := helperOSS.NewOSSServiceFromEnv("") // gunakan env default
 			if er != nil {
@@ -299,11 +299,11 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 	ctl.ensureValidator()
 
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -323,7 +323,7 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 
 	var m model.ClassRoomModel
 	if err := ctl.DB.WithContext(reqCtx(c)).
-		Where("class_room_id = ? AND class_room_masjid_id = ? AND class_room_deleted_at IS NULL", id, masjidID).
+		Where("class_room_id = ? AND class_room_school_id = ? AND class_room_deleted_at IS NULL", id, schoolID).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -346,8 +346,8 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 				"class_rooms", "class_room_slug",
 				base,
 				func(q *gorm.DB) *gorm.DB {
-					// unik per masjid, exclude diri sendiri, hanya alive
-					return q.Where("class_room_masjid_id = ? AND class_room_id <> ? AND class_room_deleted_at IS NULL", masjidID, id)
+					// unik per school, exclude diri sendiri, hanya alive
+					return q.Where("class_room_school_id = ? AND class_room_id <> ? AND class_room_deleted_at IS NULL", schoolID, id)
 				},
 				50,
 			)
@@ -363,7 +363,7 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 				"class_rooms", "class_room_slug",
 				base,
 				func(q *gorm.DB) *gorm.DB {
-					return q.Where("class_room_masjid_id = ? AND class_room_id <> ? AND class_room_deleted_at IS NULL", masjidID, id)
+					return q.Where("class_room_school_id = ? AND class_room_id <> ? AND class_room_deleted_at IS NULL", schoolID, id)
 				},
 				50,
 			)
@@ -395,12 +395,12 @@ func (ctl *ClassRoomController) Patch(c *fiber.Ctx) error {
 /* ============================ DELETE ============================ */
 
 func (ctl *ClassRoomController) Delete(c *fiber.Ctx) error {
-	// Require DKM/Admin + resolve masjidID
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// Require DKM/Admin + resolve schoolID
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -412,7 +412,7 @@ func (ctl *ClassRoomController) Delete(c *fiber.Ctx) error {
 
 	// Pastikan tenant match & alive → soft delete
 	tx := ctl.DB.WithContext(reqCtx(c)).Model(&model.ClassRoomModel{}).
-		Where("class_room_id = ? AND class_room_masjid_id = ? AND class_room_deleted_at IS NULL", id, masjidID).
+		Where("class_room_id = ? AND class_room_school_id = ? AND class_room_deleted_at IS NULL", id, schoolID).
 		Update("class_room_deleted_at", time.Now())
 	if tx.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus data")
@@ -426,12 +426,12 @@ func (ctl *ClassRoomController) Delete(c *fiber.Ctx) error {
 /* ============================ RESTORE ============================ */
 
 func (ctl *ClassRoomController) Restore(c *fiber.Ctx) error {
-	// Require DKM/Admin + resolve masjidID
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// Require DKM/Admin + resolve schoolID
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -443,7 +443,7 @@ func (ctl *ClassRoomController) Restore(c *fiber.Ctx) error {
 
 	// Hanya bisa restore jika baris soft-deleted & tenant match
 	tx := ctl.DB.WithContext(reqCtx(c)).Model(&model.ClassRoomModel{}).
-		Where("class_room_id = ? AND class_room_masjid_id = ? AND class_room_deleted_at IS NOT NULL", id, masjidID).
+		Where("class_room_id = ? AND class_room_school_id = ? AND class_room_deleted_at IS NOT NULL", id, schoolID).
 		Updates(map[string]interface{}{
 			"class_room_deleted_at": nil,
 			"class_room_updated_at": time.Now(),
@@ -462,7 +462,7 @@ func (ctl *ClassRoomController) Restore(c *fiber.Ctx) error {
 	// Return row terbaru
 	var m model.ClassRoomModel
 	if err := ctl.DB.WithContext(reqCtx(c)).
-		Where("class_room_id = ? AND class_room_masjid_id = ? AND class_room_deleted_at IS NULL", id, masjidID).
+		Where("class_room_id = ? AND class_room_school_id = ? AND class_room_deleted_at IS NULL", id, schoolID).
 		First(&m).Error; err != nil {
 		// kalau gagal ambil ulang, minimal beri flag restored
 		return helper.JsonOK(c, "Restored", fiber.Map{"restored": true})

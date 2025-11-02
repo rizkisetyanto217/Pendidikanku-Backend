@@ -14,7 +14,7 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 -- ENUMs
 -- =========================================================
 DO $$ BEGIN
-  CREATE TYPE assessment_snapshots_scope AS ENUM ('ucsst','section','masjid');
+  CREATE TYPE assessment_snapshots_scope AS ENUM ('ucsst','section','school');
 EXCEPTION WHEN duplicate_object THEN END $$;
 
 DO $$ BEGIN
@@ -28,8 +28,8 @@ CREATE TABLE IF NOT EXISTS assessment_snapshots (
   assessment_snapshots_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Tenant
-  assessment_snapshots_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  assessment_snapshots_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- Partition key
   assessment_snapshots_scope assessment_snapshots_scope NOT NULL,
@@ -157,8 +157,8 @@ CREATE TABLE IF NOT EXISTS assessment_snapshots_ucsst
 
   -- FKs
   CONSTRAINT fk_assessment_snapshots_ucsst_assessment_tenant
-    FOREIGN KEY (assessment_snapshots_assessment_id, assessment_snapshots_masjid_id)
-    REFERENCES assessments(assessment_id, assessment_masjid_id)
+    FOREIGN KEY (assessment_snapshots_assessment_id, assessment_snapshots_school_id)
+    REFERENCES assessments(assessment_id, assessment_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   CONSTRAINT fk_assessment_snapshots_ucsst_ucsst
@@ -168,7 +168,7 @@ CREATE TABLE IF NOT EXISTS assessment_snapshots_ucsst
 
   -- Exclusion: final snapshots tidak overlap per (tenant, ucsst, tipe, rentang)
   CONSTRAINT assessment_snapshots_ucsst_final_no_overlap EXCLUDE USING gist (
-    assessment_snapshots_masjid_id WITH =,
+    assessment_snapshots_school_id WITH =,
     assessment_snapshots_ucsst_id  WITH =,
     assessment_snapshots_period_type WITH =,
     daterange(assessment_snapshots_period_start, assessment_snapshots_period_end, '[]') WITH &&
@@ -177,14 +177,14 @@ CREATE TABLE IF NOT EXISTS assessment_snapshots_ucsst
 
 -- Unique (alive) — assessment per scope (ikut anchor)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_snapshots_ucsst_alive_assessment
-  ON assessment_snapshots_ucsst (assessment_snapshots_masjid_id, assessment_snapshots_assessment_id, assessment_snapshots_ucsst_id)
+  ON assessment_snapshots_ucsst (assessment_snapshots_school_id, assessment_snapshots_assessment_id, assessment_snapshots_ucsst_id)
   WHERE assessment_snapshots_deleted_at IS NULL
     AND assessment_snapshots_period_type = 'assessment';
 
 -- Unique (alive) — period per scope
 CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_snapshots_ucsst_alive_period
   ON assessment_snapshots_ucsst (
-    assessment_snapshots_masjid_id,
+    assessment_snapshots_school_id,
     assessment_snapshots_ucsst_id,
     assessment_snapshots_period_type,
     assessment_snapshots_period_start,
@@ -224,8 +224,8 @@ CREATE TABLE IF NOT EXISTS assessment_snapshots_section
 
   -- FKs
   CONSTRAINT fk_assessment_snapshots_section_assessment_tenant
-    FOREIGN KEY (assessment_snapshots_assessment_id, assessment_snapshots_masjid_id)
-    REFERENCES assessments(assessment_id, assessment_masjid_id)
+    FOREIGN KEY (assessment_snapshots_assessment_id, assessment_snapshots_school_id)
+    REFERENCES assessments(assessment_id, assessment_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   CONSTRAINT fk_assessment_snapshots_section_section
@@ -235,7 +235,7 @@ CREATE TABLE IF NOT EXISTS assessment_snapshots_section
 
   -- Exclusion: final snapshots tidak overlap per (tenant, section, tipe, rentang)
   CONSTRAINT assessment_snapshots_section_final_no_overlap EXCLUDE USING gist (
-    assessment_snapshots_masjid_id WITH =,
+    assessment_snapshots_school_id WITH =,
     assessment_snapshots_section_id WITH =,
     assessment_snapshots_period_type WITH =,
     daterange(assessment_snapshots_period_start, assessment_snapshots_period_end, '[]') WITH &&
@@ -244,14 +244,14 @@ CREATE TABLE IF NOT EXISTS assessment_snapshots_section
 
 -- Unique (alive) — assessment per scope (ikut anchor)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_snapshots_section_alive_assessment
-  ON assessment_snapshots_section (assessment_snapshots_masjid_id, assessment_snapshots_assessment_id, assessment_snapshots_section_id)
+  ON assessment_snapshots_section (assessment_snapshots_school_id, assessment_snapshots_assessment_id, assessment_snapshots_section_id)
   WHERE assessment_snapshots_deleted_at IS NULL
     AND assessment_snapshots_period_type = 'assessment';
 
 -- Unique (alive) — period per scope
 CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_snapshots_section_alive_period
   ON assessment_snapshots_section (
-    assessment_snapshots_masjid_id,
+    assessment_snapshots_school_id,
     assessment_snapshots_section_id,
     assessment_snapshots_period_type,
     assessment_snapshots_period_start,
@@ -263,13 +263,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_snapshots_section_alive_period
 -- =========================================================
 -- PARTITION: MASJID
 -- =========================================================
-CREATE TABLE IF NOT EXISTS assessment_snapshots_masjid
-  PARTITION OF assessment_snapshots FOR VALUES IN ('masjid')
+CREATE TABLE IF NOT EXISTS assessment_snapshots_school
+  PARTITION OF assessment_snapshots FOR VALUES IN ('school')
 (
   -- Shape rules:
   -- - 'assessment' → wajib (assessment_id)
   -- - period → wajib (period_start, period_end), label wajib utk semester
-  CONSTRAINT ck_assessment_snapshots_masjid_shape CHECK (
+  CONSTRAINT ck_assessment_snapshots_school_shape CHECK (
     (
       assessment_snapshots_period_type = 'assessment'
       AND assessment_snapshots_assessment_id IS NOT NULL
@@ -288,29 +288,29 @@ CREATE TABLE IF NOT EXISTS assessment_snapshots_masjid
   ),
 
   -- FK
-  CONSTRAINT fk_assessment_snapshots_masjid_assessment_tenant
-    FOREIGN KEY (assessment_snapshots_assessment_id, assessment_snapshots_masjid_id)
-    REFERENCES assessments(assessment_id, assessment_masjid_id)
+  CONSTRAINT fk_assessment_snapshots_school_assessment_tenant
+    FOREIGN KEY (assessment_snapshots_assessment_id, assessment_snapshots_school_id)
+    REFERENCES assessments(assessment_id, assessment_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   -- Exclusion: final snapshots tidak overlap per (tenant, tipe, rentang)
-  CONSTRAINT assessment_snapshots_masjid_final_no_overlap EXCLUDE USING gist (
-    assessment_snapshots_masjid_id WITH =,
+  CONSTRAINT assessment_snapshots_school_final_no_overlap EXCLUDE USING gist (
+    assessment_snapshots_school_id WITH =,
     assessment_snapshots_period_type WITH =,
     daterange(assessment_snapshots_period_start, assessment_snapshots_period_end, '[]') WITH &&
   ) WHERE (assessment_snapshots_is_final)
 );
 
 -- Unique (alive) — assessment per scope (ikut anchor)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_snapshots_masjid_alive_assessment
-  ON assessment_snapshots_masjid (assessment_snapshots_masjid_id, assessment_snapshots_assessment_id)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_snapshots_school_alive_assessment
+  ON assessment_snapshots_school (assessment_snapshots_school_id, assessment_snapshots_assessment_id)
   WHERE assessment_snapshots_deleted_at IS NULL
     AND assessment_snapshots_period_type = 'assessment';
 
 -- Unique (alive) — period per scope
-CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_snapshots_masjid_alive_period
-  ON assessment_snapshots_masjid (
-    assessment_snapshots_masjid_id,
+CREATE UNIQUE INDEX IF NOT EXISTS uq_assessment_snapshots_school_alive_period
+  ON assessment_snapshots_school (
+    assessment_snapshots_school_id,
     assessment_snapshots_period_type,
     assessment_snapshots_period_start,
     assessment_snapshots_period_end
@@ -337,7 +337,7 @@ CREATE INDEX IF NOT EXISTS brin_assessment_snapshots_last_submitted
 -- Helpful query indexes
 -- =========================================================
 CREATE INDEX IF NOT EXISTS idx_assessment_snapshots_tenant_periodtype
-  ON assessment_snapshots (assessment_snapshots_masjid_id, assessment_snapshots_period_type)
+  ON assessment_snapshots (assessment_snapshots_school_id, assessment_snapshots_period_type)
   WHERE assessment_snapshots_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_assessment_snapshots_period_range

@@ -1,8 +1,8 @@
 package model
 
 import (
-	MasjidModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/masjids/model"
-	UserModel "masjidku_backend/internals/features/users/users/model"
+	SchoolModel "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
+	UserModel "schoolku_backend/internals/features/users/users/model"
 	"time"
 )
 
@@ -11,12 +11,12 @@ type PostLikeModel struct {
 	PostLikeIsLiked   bool      `gorm:"column:post_like_is_liked;default:true" json:"post_like_is_liked"`
 	PostLikePostID    string    `gorm:"column:post_like_post_id;type:uuid;not null" json:"post_like_post_id"`
 	PostLikeUserID    string    `gorm:"column:post_like_user_id;type:uuid;not null" json:"post_like_user_id"`
-	PostLikeMasjidID  string    `gorm:"column:post_like_masjid_id;type:uuid;not null" json:"post_like_masjid_id"` // ✅ baru ditambahkan
+	PostLikeSchoolID  string    `gorm:"column:post_like_school_id;type:uuid;not null" json:"post_like_school_id"` // ✅ baru ditambahkan
 	PostLikeUpdatedAt time.Time `gorm:"column:post_like_updated_at;autoUpdateTime" json:"post_like_updated_at"`
 
 	// Relations
 	User   *UserModel.UserModel     `gorm:"foreignKey:PostLikeUserID"`
-	Masjid *MasjidModel.MasjidModel `gorm:"foreignKey:PostLikeMasjidID"`
+	School *SchoolModel.SchoolModel `gorm:"foreignKey:PostLikeSchoolID"`
 	// Post *PostModel              `gorm:"foreignKey:PostLikePostID"` // Uncomment if needed
 }
 

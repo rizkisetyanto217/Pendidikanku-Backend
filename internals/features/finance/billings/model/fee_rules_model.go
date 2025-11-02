@@ -25,14 +25,14 @@ type FeeRule struct {
 	FeeRuleID uuid.UUID `json:"fee_rule_id" gorm:"column:fee_rule_id;type:uuid;default:gen_random_uuid();primaryKey"`
 
 	// Tenant
-	FeeRuleMasjidID uuid.UUID `json:"fee_rule_masjid_id" gorm:"column:fee_rule_masjid_id;type:uuid;not null;index:idx_fee_rules_tenant_scope,priority:1"`
+	FeeRuleSchoolID uuid.UUID `json:"fee_rule_school_id" gorm:"column:fee_rule_school_id;type:uuid;not null;index:idx_fee_rules_tenant_scope,priority:1"`
 
 	// Scope + Target
 	FeeRuleScope           FeeScope   `json:"fee_rule_scope" gorm:"column:fee_rule_scope;type:fee_scope;not null;index:idx_fee_rules_tenant_scope,priority:2;index:ix_fee_rules_billcode,priority:2"`
 	FeeRuleClassParentID   *uuid.UUID `json:"fee_rule_class_parent_id,omitempty" gorm:"column:fee_rule_class_parent_id;type:uuid"`
 	FeeRuleClassID         *uuid.UUID `json:"fee_rule_class_id,omitempty" gorm:"column:fee_rule_class_id;type:uuid"`
 	FeeRuleSectionID       *uuid.UUID `json:"fee_rule_section_id,omitempty" gorm:"column:fee_rule_section_id;type:uuid"`
-	FeeRuleMasjidStudentID *uuid.UUID `json:"fee_rule_masjid_student_id,omitempty" gorm:"column:fee_rule_masjid_student_id;type:uuid"`
+	FeeRuleSchoolStudentID *uuid.UUID `json:"fee_rule_school_student_id,omitempty" gorm:"column:fee_rule_school_student_id;type:uuid"`
 
 	// Periode (pilih: term_id ATAU year+month)
 	FeeRuleTermID *uuid.UUID `json:"fee_rule_term_id,omitempty" gorm:"column:fee_rule_term_id;type:uuid;index:idx_fee_rules_term"`

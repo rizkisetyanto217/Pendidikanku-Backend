@@ -17,13 +17,13 @@ import (
 
 type Service interface {
 	// Hooks enrolment
-	OnEnrollmentActivated(tx *gorm.DB, userID, masjidID, assignedBy uuid.UUID) error
-	OnEnrollmentDeactivated(tx *gorm.DB, userID, masjidID uuid.UUID) error
+	OnEnrollmentActivated(tx *gorm.DB, userID, schoolID, assignedBy uuid.UUID) error
+	OnEnrollmentDeactivated(tx *gorm.DB, userID, schoolID uuid.UUID) error
 
 	// Utilities
-	GrantRole(tx *gorm.DB, userID uuid.UUID, roleName string, masjidID *uuid.UUID, assignedBy uuid.UUID) error
-	RevokeRole(tx *gorm.DB, userID uuid.UUID, roleName string, masjidID *uuid.UUID) error
-	EnsureMasjidStudentStatus(tx *gorm.DB, userID, masjidID uuid.UUID, status string) error
+	GrantRole(tx *gorm.DB, userID uuid.UUID, roleName string, schoolID *uuid.UUID, assignedBy uuid.UUID) error
+	RevokeRole(tx *gorm.DB, userID uuid.UUID, roleName string, schoolID *uuid.UUID) error
+	EnsureSchoolStudentStatus(tx *gorm.DB, userID, schoolID uuid.UUID, status string) error
 }
 
 type membershipSvc struct{}
@@ -34,63 +34,63 @@ func New() Service { return &membershipSvc{} }
 // Hooks
 // ————————————————————————————
 
-func (s *membershipSvc) OnEnrollmentActivated(tx *gorm.DB, userID, masjidID, assignedBy uuid.UUID) error {
-	log.Printf("[membership] OnEnrollmentActivated user=%s masjid=%s assignedBy=%s", userID, masjidID, assignedBy)
+func (s *membershipSvc) OnEnrollmentActivated(tx *gorm.DB, userID, schoolID, assignedBy uuid.UUID) error {
+	log.Printf("[membership] OnEnrollmentActivated user=%s school=%s assignedBy=%s", userID, schoolID, assignedBy)
 
-	// Grant scoped role: student@masjid
-	if err := s.GrantRole(tx, userID, "student", &masjidID, assignedBy); err != nil {
-		log.Printf("[membership] GrantRole ERROR user=%s masjid=%s err=%v", userID, masjidID, err)
+	// Grant scoped role: student@school
+	if err := s.GrantRole(tx, userID, "student", &schoolID, assignedBy); err != nil {
+		log.Printf("[membership] GrantRole ERROR user=%s school=%s err=%v", userID, schoolID, err)
 		return err
 	}
 
-	// Ensure masjid_students → active
-	if err := s.EnsureMasjidStudentStatus(tx, userID, masjidID, StatusActive); err != nil {
-		log.Printf("[membership] EnsureMasjidStudentStatus ERROR user=%s masjid=%s err=%v", userID, masjidID, err)
+	// Ensure school_students → active
+	if err := s.EnsureSchoolStudentStatus(tx, userID, schoolID, StatusActive); err != nil {
+		log.Printf("[membership] EnsureSchoolStudentStatus ERROR user=%s school=%s err=%v", userID, schoolID, err)
 		return err
 	}
 
-	log.Printf("[membership] OnEnrollmentActivated DONE user=%s masjid=%s", userID, masjidID)
+	log.Printf("[membership] OnEnrollmentActivated DONE user=%s school=%s", userID, schoolID)
 	return nil
 }
 
-func (s *membershipSvc) OnEnrollmentDeactivated(tx *gorm.DB, userID, masjidID uuid.UUID) error {
+func (s *membershipSvc) OnEnrollmentDeactivated(tx *gorm.DB, userID, schoolID uuid.UUID) error {
 	// Kebijakan minimal: role tidak otomatis dicabut; hanya turunkan status ms ke inactive.
-	return s.EnsureMasjidStudentStatus(tx, userID, masjidID, StatusInactive)
+	return s.EnsureSchoolStudentStatus(tx, userID, schoolID, StatusInactive)
 }
 
 // ————————————————————————————
 // Utilities
 // ————————————————————————————
 
-func (s *membershipSvc) GrantRole(tx *gorm.DB, userID uuid.UUID, roleName string, masjidID *uuid.UUID, assignedBy uuid.UUID) error {
+func (s *membershipSvc) GrantRole(tx *gorm.DB, userID uuid.UUID, roleName string, schoolID *uuid.UUID, assignedBy uuid.UUID) error {
 	role := sanitize(roleName)
 	var idStr string
 
-	if masjidID == nil {
+	if schoolID == nil {
 		err := tx.Raw(
 			`SELECT fn_grant_role(?::uuid, ?::text, NULL::uuid, ?::uuid)::text AS id`,
 			userID, role, assignedBy,
 		).Scan(&idStr).Error
-		log.Printf("[membership] GrantRole user=%s role=%s masjid=NULL assignedBy=%s -> id=%s err=%v",
+		log.Printf("[membership] GrantRole user=%s role=%s school=NULL assignedBy=%s -> id=%s err=%v",
 			userID, role, assignedBy, idStr, err)
 		return err
 	}
 
 	err := tx.Raw(
 		`SELECT fn_grant_role(?::uuid, ?::text, ?::uuid, ?::uuid)::text AS id`,
-		userID, role, *masjidID, assignedBy,
+		userID, role, *schoolID, assignedBy,
 	).Scan(&idStr).Error
-	log.Printf("[membership] GrantRole user=%s role=%s masjid=%s assignedBy=%s -> id=%s err=%v",
-		userID, role, *masjidID, assignedBy, idStr, err)
+	log.Printf("[membership] GrantRole user=%s role=%s school=%s assignedBy=%s -> id=%s err=%v",
+		userID, role, *schoolID, assignedBy, idStr, err)
 	return err
 }
 
-func (s *membershipSvc) RevokeRole(tx *gorm.DB, userID uuid.UUID, roleName string, masjidID *uuid.UUID) error {
+func (s *membershipSvc) RevokeRole(tx *gorm.DB, userID uuid.UUID, roleName string, schoolID *uuid.UUID) error {
 	role := sanitize(roleName)
 	var ok bool
 
-	// fn_revoke_role(user, role, masjid|null) → boolean
-	if masjidID == nil {
+	// fn_revoke_role(user, role, school|null) → boolean
+	if schoolID == nil {
 		return tx.Raw(
 			`SELECT fn_revoke_role(?::uuid, ?::text, NULL::uuid)`,
 			userID, role,
@@ -99,62 +99,62 @@ func (s *membershipSvc) RevokeRole(tx *gorm.DB, userID uuid.UUID, roleName strin
 
 	return tx.Raw(
 		`SELECT fn_revoke_role(?::uuid, ?::text, ?::uuid)`,
-		userID, role, *masjidID,
+		userID, role, *schoolID,
 	).Scan(&ok).Error
 }
 
-// EnsureMasjidStudentStatus memastikan ada baris masjid_students (alive) untuk (user, masjid)
+// EnsureSchoolStudentStatus memastikan ada baris school_students (alive) untuk (user, school)
 // dan mengeset status-nya (active|inactive|alumni). Idempotent & revive bila soft-deleted.
-func (s *membershipSvc) EnsureMasjidStudentStatus(tx *gorm.DB, userID, masjidID uuid.UUID, status string) error {
+func (s *membershipSvc) EnsureSchoolStudentStatus(tx *gorm.DB, userID, schoolID uuid.UUID, status string) error {
 	status = sanitize(status)
 	if !isValidStatus(status) {
-		return ErrInvalidMasjidStudentStatus
+		return ErrInvalidSchoolStudentStatus
 	}
 
 	// ——— BEFORE: status existing (kalau ada) ———
 	var before sql.NullString
 	_ = tx.Raw(`
-		SELECT masjid_student_status
-		FROM masjid_students
-		WHERE masjid_student_user_id = @user
-		  AND masjid_student_masjid_id = @masjid
-		  AND masjid_student_deleted_at IS NULL
-		ORDER BY masjid_student_created_at DESC
+		SELECT school_student_status
+		FROM school_students
+		WHERE school_student_user_id = @user
+		  AND school_student_school_id = @school
+		  AND school_student_deleted_at IS NULL
+		ORDER BY school_student_created_at DESC
 		LIMIT 1
-	`, sql.Named("user", userID), sql.Named("masjid", masjidID)).Scan(&before).Error
-	log.Printf("[membership] MS Ensure BEFORE user=%s masjid=%s current=%s target=%s",
-		userID, masjidID, nullStr(before), status)
+	`, sql.Named("user", userID), sql.Named("school", schoolID)).Scan(&before).Error
+	log.Printf("[membership] MS Ensure BEFORE user=%s school=%s current=%s target=%s",
+		userID, schoolID, nullStr(before), status)
 
 	// ——— CTE dengan indikator cabang ———
 	const q = `
 WITH revived AS (
-  UPDATE masjid_students
-     SET masjid_student_deleted_at = NULL,
-         masjid_student_status = @status,
-         masjid_student_updated_at = now()
-   WHERE masjid_student_user_id = @user
-     AND masjid_student_masjid_id = @masjid
-     AND masjid_student_deleted_at IS NOT NULL
+  UPDATE school_students
+     SET school_student_deleted_at = NULL,
+         school_student_status = @status,
+         school_student_updated_at = now()
+   WHERE school_student_user_id = @user
+     AND school_student_school_id = @school
+     AND school_student_deleted_at IS NOT NULL
   RETURNING 1
 ),
 updated AS (
-  UPDATE masjid_students
-     SET masjid_student_status = @status,
-         masjid_student_updated_at = now()
-   WHERE masjid_student_user_id = @user
-     AND masjid_student_masjid_id = @masjid
-     AND masjid_student_deleted_at IS NULL
-     AND masjid_student_status <> @status
+  UPDATE school_students
+     SET school_student_status = @status,
+         school_student_updated_at = now()
+   WHERE school_student_user_id = @user
+     AND school_student_school_id = @school
+     AND school_student_deleted_at IS NULL
+     AND school_student_status <> @status
   RETURNING 1
 ),
 inserted AS (
-  INSERT INTO masjid_students (masjid_student_user_id, masjid_student_masjid_id, masjid_student_status)
-  SELECT @user, @masjid, @status
+  INSERT INTO school_students (school_student_user_id, school_student_school_id, school_student_status)
+  SELECT @user, @school, @status
   WHERE NOT EXISTS (
-    SELECT 1 FROM masjid_students
-     WHERE masjid_student_user_id = @user
-       AND masjid_student_masjid_id = @masjid
-       AND masjid_student_deleted_at IS NULL
+    SELECT 1 FROM school_students
+     WHERE school_student_user_id = @user
+       AND school_student_school_id = @school
+       AND school_student_deleted_at IS NULL
   )
   RETURNING 1
 )
@@ -170,27 +170,27 @@ SELECT
 	}
 	if err := tx.Raw(q,
 		sql.Named("user", userID),
-		sql.Named("masjid", masjidID),
+		sql.Named("school", schoolID),
 		sql.Named("status", status),
 	).Scan(&meta).Error; err != nil {
-		log.Printf("[membership] MS Ensure ERROR user=%s masjid=%s err=%v", userID, masjidID, err)
+		log.Printf("[membership] MS Ensure ERROR user=%s school=%s err=%v", userID, schoolID, err)
 		return err
 	}
 
 	// ——— AFTER: status existing (kalau ada) ———
 	var after sql.NullString
 	_ = tx.Raw(`
-		SELECT masjid_student_status
-		FROM masjid_students
-		WHERE masjid_student_user_id = @user
-		  AND masjid_student_masjid_id = @masjid
-		  AND masjid_student_deleted_at IS NULL
-		ORDER BY masjid_student_created_at DESC
+		SELECT school_student_status
+		FROM school_students
+		WHERE school_student_user_id = @user
+		  AND school_student_school_id = @school
+		  AND school_student_deleted_at IS NULL
+		ORDER BY school_student_created_at DESC
 		LIMIT 1
-	`, sql.Named("user", userID), sql.Named("masjid", masjidID)).Scan(&after).Error
+	`, sql.Named("user", userID), sql.Named("school", schoolID)).Scan(&after).Error
 
-	log.Printf("[membership] MS Ensure AFTER  user=%s masjid=%s result[revived=%d updated=%d inserted=%d] => current=%s",
-		userID, masjidID, meta.Revived, meta.Updated, meta.Inserted, nullStr(after))
+	log.Printf("[membership] MS Ensure AFTER  user=%s school=%s result[revived=%d updated=%d inserted=%d] => current=%s",
+		userID, schoolID, meta.Revived, meta.Updated, meta.Inserted, nullStr(after))
 
 	return nil
 }
@@ -212,7 +212,7 @@ const (
 	StatusAlumni   = "alumni"
 )
 
-var ErrInvalidMasjidStudentStatus = errors.New("invalid masjid_student_status")
+var ErrInvalidSchoolStudentStatus = errors.New("invalid school_student_status")
 
 func isValidStatus(s string) bool {
 	switch s {

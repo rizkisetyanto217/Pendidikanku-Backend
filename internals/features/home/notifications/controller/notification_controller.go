@@ -4,10 +4,10 @@ import (
 	"log"
 	"strconv"
 
-	"masjidku_backend/internals/features/home/notifications/dto"
-	"masjidku_backend/internals/features/home/notifications/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	"schoolku_backend/internals/features/home/notifications/dto"
+	"schoolku_backend/internals/features/home/notifications/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -39,13 +39,13 @@ func (ctrl *NotificationController) CreateNotification(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Notifikasi berhasil dikirim", dto.ToNotificationResponse(newNotif))
 }
 
-// 🟢 POST /api/a/notifications/by-masjid  (body { "masjid_id": "..." }) + pagination
-func (ctrl *NotificationController) GetNotificationsByMasjid(c *fiber.Ctx) error {
-	type MasjidPayload struct {
-		MasjidID uuid.UUID `json:"masjid_id"`
+// 🟢 POST /api/a/notifications/by-school  (body { "school_id": "..." }) + pagination
+func (ctrl *NotificationController) GetNotificationsBySchool(c *fiber.Ctx) error {
+	type SchoolPayload struct {
+		SchoolID uuid.UUID `json:"school_id"`
 	}
-	var payload MasjidPayload
-	if err := c.BodyParser(&payload); err != nil || payload.MasjidID == uuid.Nil {
+	var payload SchoolPayload
+	if err := c.BodyParser(&payload); err != nil || payload.SchoolID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 
@@ -66,16 +66,16 @@ func (ctrl *NotificationController) GetNotificationsByMasjid(c *fiber.Ctx) error
 	// count
 	var total int64
 	if err := ctrl.DB.Model(&model.NotificationModel{}).
-		Where("notification_masjid_id = ?", payload.MasjidID).
+		Where("notification_school_id = ?", payload.SchoolID).
 		Count(&total).Error; err != nil {
-		log.Printf("[ERROR] Count notifs by masjid: %v", err)
+		log.Printf("[ERROR] Count notifs by school: %v", err)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
 	}
 
 	// data
 	var notifs []model.NotificationModel
 	if err := ctrl.DB.
-		Where("notification_masjid_id = ?", payload.MasjidID).
+		Where("notification_school_id = ?", payload.SchoolID).
 		Order("notification_created_at DESC").
 		Limit(limit).Offset(offset).
 		Find(&notifs).Error; err != nil {
@@ -90,7 +90,7 @@ func (ctrl *NotificationController) GetNotificationsByMasjid(c *fiber.Ctx) error
 		"total_pages": int((total + int64(limit) - 1) / int64(limit)),
 		"has_next":    int64(page*limit) < total,
 		"has_prev":    page > 1,
-		"masjid_id":   payload.MasjidID,
+		"school_id":   payload.SchoolID,
 	}
 
 	return helper.JsonList(c, dto.ToNotificationResponseList(notifs), pagination)
@@ -183,7 +183,6 @@ func (ctrl *NotificationController) GetAllNotificationsForUser(c *fiber.Ctx) err
 	return helper.JsonList(c, dto.ToNotificationResponseList(notifs), pagination)
 }
 
-
 // 🛑 DELETE /api/a/notifications/:id[?hard=true]
 func (ctrl *NotificationController) DeleteNotification(c *fiber.Ctx) error {
 	// param id
@@ -203,12 +202,12 @@ func (ctrl *NotificationController) DeleteNotification(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusNotFound, "Notifikasi tidak ditemukan")
 	}
 
-	// otorisasi tenant (jika notifikasi terikat masjid)
-	// global notification (notification_masjid_id == NULL) bebas dari scope ini;
+	// otorisasi tenant (jika notifikasi terikat school)
+	// global notification (notification_school_id == NULL) bebas dari scope ini;
 	// kalau ingin dibatasi, tambahkan pengecekan role di sini.
-	if notif.NotificationMasjidID != nil {
-		masjidID, terr := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
-		if terr != nil || *notif.NotificationMasjidID != masjidID {
+	if notif.NotificationSchoolID != nil {
+		schoolID, terr := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
+		if terr != nil || *notif.NotificationSchoolID != schoolID {
 			return helper.JsonError(c, fiber.StatusForbidden, "Tidak punya akses untuk menghapus notifikasi ini")
 		}
 	}

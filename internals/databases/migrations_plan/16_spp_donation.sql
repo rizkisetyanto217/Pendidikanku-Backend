@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS spp_billings (
   spp_billing_id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- konteks
-  spp_billing_masjid_id        UUID REFERENCES masjids(masjid_id) ON DELETE SET NULL,
+  spp_billing_school_id        UUID REFERENCES schools(school_id) ON DELETE SET NULL,
   spp_billing_class_id         UUID REFERENCES classes(class_id)   ON DELETE SET NULL,
   spp_billing_term_id          UUID,
   spp_billing_academic_year_id UUID,
@@ -100,10 +100,10 @@ CREATE TABLE IF NOT EXISTS user_spp_billings (
   -- relasi
   user_spp_billing_billing_id     UUID NOT NULL REFERENCES spp_billings(spp_billing_id) ON DELETE CASCADE,
   user_spp_billing_user_id        UUID REFERENCES users(id) ON DELETE SET NULL,
-  user_spp_billing_masjid_student_id UUID,
+  user_spp_billing_school_student_id UUID,
   user_spp_billing_guardian_id    UUID,
   user_spp_billing_user_class_id  UUID,
-  user_spp_billing_masjid_id      UUID,
+  user_spp_billing_school_id      UUID,
 
   -- identitas invoice
   user_spp_billing_invoice_no     VARCHAR(80),
@@ -222,7 +222,7 @@ CREATE TABLE IF NOT EXISTS  (
 
   -- donor & konteks
   donation_user_id               UUID REFERENCES users(id) ON DELETE SET NULL,
-  donation_masjid_id             UUID REFERENCES masjids(masjid_id) ON DELETE SET NULL,
+  donation_school_id             UUID REFERENCES schools(school_id) ON DELETE SET NULL,
   donation_user_spp_billing_id   UUID REFERENCES user_spp_billings(user_spp_billing_id) ON DELETE SET NULL,
 
   -- campaign/tujuan
@@ -246,9 +246,9 @@ CREATE TABLE IF NOT EXISTS  (
   donation_max_amount_cents      BIGINT,
 
   -- split distribusi
-  donation_amount_masjid_cents           BIGINT,
+  donation_amount_school_cents           BIGINT,
   donation_amount_platform_cents         BIGINT,
-  donation_amount_platform_to_masjid_cents BIGINT,
+  donation_amount_platform_to_school_cents BIGINT,
   donation_amount_platform_to_app_cents  BIGINT,
 
   -- status lifecycle

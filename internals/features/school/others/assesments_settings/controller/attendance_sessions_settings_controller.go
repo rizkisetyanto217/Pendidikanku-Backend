@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"strings"
 
-	dto "masjidku_backend/internals/features/school/others/assesments_settings/dto"
-	mdl "masjidku_backend/internals/features/school/others/assesments_settings/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	dto "schoolku_backend/internals/features/school/others/assesments_settings/dto"
+	mdl "schoolku_backend/internals/features/school/others/assesments_settings/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -28,16 +28,16 @@ func NewClassAttendanceSettingController(db *gorm.DB) *ClassAttendanceSettingCon
 
 // ========== GET ==========
 // GET /class_attendance_settings
-// - Ambil settings utk masjid di token (prefer teacher → union → admin)
+// - Ambil settings utk school di token (prefer teacher → union → admin)
 func (ctl *ClassAttendanceSettingController) GetBySchool(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	schoolID, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
 	if err != nil {
 		return err
 	}
 
 	var m mdl.ClassAttendanceSetting
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("class_attendance_setting_masjid_id = ?", masjidID).
+		Where("class_attendance_setting_school_id = ?", schoolID).
 		Limit(1).
 		Find(&m).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
@@ -49,13 +49,12 @@ func (ctl *ClassAttendanceSettingController) GetBySchool(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "attendance settings retrieved", dto.FromModel(&m))
 }
 
-
 // ========== POST (CREATE) ==========
 // POST /class_attendance_settings
-// - Membuat baris baru untuk masjid di token (admin-only).
+// - Membuat baris baru untuk school di token (admin-only).
 // - Jika sudah ada → 409 Conflict.
 func (ctl *ClassAttendanceSettingController) CreateBySchool(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c) // admin-only
+	schoolID, err := helperAuth.GetSchoolIDFromToken(c) // admin-only
 	if err != nil {
 		return err
 	}
@@ -72,7 +71,7 @@ func (ctl *ClassAttendanceSettingController) CreateBySchool(c *fiber.Ctx) error 
 		return helper.JsonError(c, http.StatusBadRequest, "invalid JSON: "+err.Error())
 	}
 
-	payload.ClassAttendanceSettingMasjidID = masjidID
+	payload.ClassAttendanceSettingSchoolID = schoolID
 	payload.ClassAttendanceSettingID = uuid.Nil
 	m := payload.ToModel()
 
@@ -91,16 +90,14 @@ func (ctl *ClassAttendanceSettingController) CreateBySchool(c *fiber.Ctx) error 
 	return helper.JsonCreated(c, "attendance settings created", dto.FromModel(m))
 }
 
-
-
 // ========== PUT (UPDATE) ==========
 // PUT /class_attendance_settings
-// - Mengubah baris yang sudah ada utk masjid di token (admin-only).
+// - Mengubah baris yang sudah ada utk school di token (admin-only).
 // - Jika belum ada → 404 Not Found.
 // - Partial update: hanya field yang dikirim yang di-update.
 
 func (ctl *ClassAttendanceSettingController) UpdateBySchool(c *fiber.Ctx) error {
-	masjidID, err := helperAuth.GetMasjidIDFromToken(c) // admin-only
+	schoolID, err := helperAuth.GetSchoolIDFromToken(c) // admin-only
 	if err != nil {
 		return err
 	}
@@ -108,7 +105,7 @@ func (ctl *ClassAttendanceSettingController) UpdateBySchool(c *fiber.Ctx) error 
 	// pastikan sudah ada record
 	var existing mdl.ClassAttendanceSetting
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("class_attendance_setting_masjid_id = ?", masjidID).
+		Where("class_attendance_setting_school_id = ?", schoolID).
 		Limit(1).
 		Find(&existing).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
@@ -218,7 +215,7 @@ func (ctl *ClassAttendanceSettingController) UpdateBySchool(c *fiber.Ctx) error 
 	// UPDATE hanya kolom yang dikirim
 	res := ctl.DB.WithContext(c.Context()).
 		Model(&mdl.ClassAttendanceSetting{}).
-		Where("class_attendance_setting_masjid_id = ?", masjidID).
+		Where("class_attendance_setting_school_id = ?", schoolID).
 		Updates(updates)
 	if res.Error != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, res.Error.Error())
@@ -230,7 +227,7 @@ func (ctl *ClassAttendanceSettingController) UpdateBySchool(c *fiber.Ctx) error 
 	// Ambil lagi hasil akhir untuk response
 	var saved mdl.ClassAttendanceSetting
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("class_attendance_setting_masjid_id = ?", masjidID).
+		Where("class_attendance_setting_school_id = ?", schoolID).
 		Limit(1).
 		Find(&saved).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
@@ -238,6 +235,7 @@ func (ctl *ClassAttendanceSettingController) UpdateBySchool(c *fiber.Ctx) error 
 
 	return helper.JsonUpdated(c, "attendance settings updated", dto.FromModel(&saved))
 }
+
 // ========== helper ==========
 func validateRequireImpliesEnable(m *mdl.ClassAttendanceSetting) error {
 	type pair struct {

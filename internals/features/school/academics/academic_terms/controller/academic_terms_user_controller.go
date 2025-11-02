@@ -14,10 +14,10 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"masjidku_backend/internals/features/school/academics/academic_terms/dto"
-	"masjidku_backend/internals/features/school/academics/academic_terms/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	"schoolku_backend/internals/features/school/academics/academic_terms/dto"
+	"schoolku_backend/internals/features/school/academics/academic_terms/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 /* ================= Controller & Constructor ================= */
@@ -27,27 +27,27 @@ var fallbackValidator = validator.New()
 /* ================= Handlers ================= */
 
 // GET /api/a/academic-terms
-// GET /api/u/:masjid_id/academic-terms
+// GET /api/u/:school_id/academic-terms
 func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
-	// ===== Masjid context (PUBLIC) =====
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// ===== School context (PUBLIC) =====
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	var masjidID uuid.UUID
+	var schoolID uuid.UUID
 	if mc.ID != uuid.Nil {
-		masjidID = mc.ID
+		schoolID = mc.ID
 	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil {
 			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve masjid dari slug")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
 		}
-		masjidID = id
+		schoolID = id
 	} else {
-		return helperAuth.ErrMasjidContextMissing
+		return helperAuth.ErrSchoolContextMissing
 	}
 
 	var q dto.AcademicTermFilterDTO
@@ -88,7 +88,7 @@ func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
 	orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
 
 	dbq := ctl.DB.Model(&model.AcademicTermModel{}).
-		Where("academic_term_masjid_id = ? AND academic_term_deleted_at IS NULL", masjidID)
+		Where("academic_term_school_id = ? AND academic_term_deleted_at IS NULL", schoolID)
 
 	// filter ID (robust)
 	if rawID, has := c.Queries()["id"]; has {
@@ -144,29 +144,29 @@ type AcademicTermWithOpeningsResponse struct {
 	Openings []dto.OpeningWithClass `json:"openings"`
 }
 
-// GET /api/u/:masjid_id/academic-terms/search?year=2026&angkatan=10&per_page=20&page=1
+// GET /api/u/:school_id/academic-terms/search?year=2026&angkatan=10&per_page=20&page=1
 func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 	yearQ := strings.TrimSpace(c.Query("year"))
 
-	// ===== Masjid context (PUBLIC) =====
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// ===== School context (PUBLIC) =====
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	var masjidID uuid.UUID
+	var schoolID uuid.UUID
 	if mc.ID != uuid.Nil {
-		masjidID = mc.ID
+		schoolID = mc.ID
 	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil {
 			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve masjid dari slug")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
 		}
-		masjidID = id
+		schoolID = id
 	} else {
-		return helperAuth.ErrMasjidContextMissing
+		return helperAuth.ErrSchoolContextMissing
 	}
 
 	// ==== Pagination (helper) ====
@@ -202,7 +202,7 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 	}
 
 	dbq := ctl.DB.Model(&model.AcademicTermModel{}).
-		Where("academic_term_masjid_id = ? AND academic_term_deleted_at IS NULL", masjidID)
+		Where("academic_term_school_id = ? AND academic_term_deleted_at IS NULL", schoolID)
 	if yearQ != "" {
 		dbq = dbq.Where("academic_term_academic_year ILIKE ?", "%"+yearQ+"%")
 	}
@@ -236,7 +236,7 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 		type row struct {
 			// opening
 			ClassTermOpeningsID                    uuid.UUID
-			ClassTermOpeningsMasjidID              uuid.UUID
+			ClassTermOpeningsSchoolID              uuid.UUID
 			ClassTermOpeningsClassID               uuid.UUID
 			ClassTermOpeningsTermID                uuid.UUID
 			ClassTermOpeningsIsOpen                bool
@@ -251,7 +251,7 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 			ClassTermOpeningsDeletedAt             *time.Time
 			// class
 			ClassID          uuid.UUID
-			ClassMasjidID    *uuid.UUID
+			ClassSchoolID    *uuid.UUID
 			ClassName        string
 			ClassSlug        string
 			ClassDescription *string
@@ -264,18 +264,18 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 		if err := ctl.DB.
 			Table("class_term_openings AS o").
 			Select(`
-				o.class_term_openings_id, o.class_term_openings_masjid_id, o.class_term_openings_class_id,
+				o.class_term_openings_id, o.class_term_openings_school_id, o.class_term_openings_class_id,
 				o.class_term_openings_term_id, o.class_term_openings_is_open,
 				o.class_term_openings_registration_opens_at, o.class_term_openings_registration_closes_at,
 				o.class_term_openings_quota_total, o.class_term_openings_quota_taken,
 				o.class_term_openings_fee_override_monthly_idr, o.class_term_openings_notes,
 				o.class_term_openings_created_at, o.class_term_openings_updated_at, o.class_term_openings_deleted_at,
-				c.class_id, c.class_masjid_id, c.class_name, c.class_slug, c.class_description,
+				c.class_id, c.class_school_id, c.class_name, c.class_slug, c.class_description,
 				c.class_level, c.class_image_url, c.class_is_active
 			`).
 			Joins("JOIN classes c ON c.class_id = o.class_term_openings_class_id AND c.class_deleted_at IS NULL").
 			Where("o.class_term_openings_term_id IN (?)", termIDs).
-			Where("o.class_term_openings_masjid_id = ?", masjidID).
+			Where("o.class_term_openings_school_id = ?", schoolID).
 			Where("o.class_term_openings_deleted_at IS NULL").
 			Order("o.class_term_openings_created_at DESC").
 			Find(&rows).Error; err != nil {
@@ -285,7 +285,7 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 		for _, r := range rows {
 			item := dto.OpeningWithClass{
 				ClassTermOpeningsID:                    r.ClassTermOpeningsID,
-				ClassTermOpeningsMasjidID:              r.ClassTermOpeningsMasjidID,
+				ClassTermOpeningsSchoolID:              r.ClassTermOpeningsSchoolID,
 				ClassTermOpeningsClassID:               r.ClassTermOpeningsClassID,
 				ClassTermOpeningsTermID:                r.ClassTermOpeningsTermID,
 				ClassTermOpeningsIsOpen:                r.ClassTermOpeningsIsOpen,
@@ -300,7 +300,7 @@ func (ctl *AcademicTermController) SearchByYear(c *fiber.Ctx) error {
 				ClassTermOpeningsDeletedAt:             r.ClassTermOpeningsDeletedAt,
 			}
 			item.Class.ClassID = r.ClassID
-			item.Class.ClassMasjidID = r.ClassMasjidID
+			item.Class.ClassSchoolID = r.ClassSchoolID
 			item.Class.ClassName = r.ClassName
 			item.Class.ClassSlug = r.ClassSlug
 			item.Class.ClassDescription = r.ClassDescription

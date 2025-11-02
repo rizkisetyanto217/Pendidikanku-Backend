@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	csbDTO "masjidku_backend/internals/features/school/academics/books/dto"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	csbDTO "schoolku_backend/internals/features/school/academics/books/dto"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -17,7 +17,7 @@ import (
 /*
 =========================================================
 LIST (simple, pakai DTO, tanpa join)
-GET /admin/:masjid_id/class-subject-books
+GET /admin/:school_id/class-subject-books
 
 Query:
   - id / ids         : UUID atau comma-separated UUIDs
@@ -33,12 +33,12 @@ Query:
 =========================================================
 */
 func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
-	// 🔐 Masjid scope + DKM/Admin
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// 🔐 School scope + DKM/Admin
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -75,7 +75,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	// ===== Base query (tenant-safe, no join) =====
 	qBase := h.DB.WithContext(c.Context()).
 		Table("class_subject_books AS csb").
-		Where("csb.class_subject_book_masjid_id = ?", masjidID)
+		Where("csb.class_subject_book_school_id = ?", schoolID)
 
 	// Soft delete
 	withDeleted := (q.WithDeleted != nil && *q.WithDeleted) ||
@@ -150,7 +150,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	// ===== Select & scan ke ROW lalu map → DTO =====
 	selectCols := []string{
 		"csb.class_subject_book_id",
-		"csb.class_subject_book_masjid_id",
+		"csb.class_subject_book_school_id",
 		"csb.class_subject_book_class_subject_id",
 		"csb.class_subject_book_book_id",
 		"csb.class_subject_book_slug",
@@ -177,7 +177,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 
 	type row struct {
 		ClassSubjectBookID             uuid.UUID  `gorm:"column:class_subject_book_id"`
-		ClassSubjectBookMasjidID       uuid.UUID  `gorm:"column:class_subject_book_masjid_id"`
+		ClassSubjectBookSchoolID       uuid.UUID  `gorm:"column:class_subject_book_school_id"`
 		ClassSubjectBookClassSubjectID uuid.UUID  `gorm:"column:class_subject_book_class_subject_id"`
 		ClassSubjectBookBookID         uuid.UUID  `gorm:"column:class_subject_book_book_id"`
 		ClassSubjectBookSlug           *string    `gorm:"column:class_subject_book_slug"`
@@ -217,7 +217,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	for _, r := range rows {
 		items = append(items, csbDTO.ClassSubjectBookResponse{
 			ClassSubjectBookID:             r.ClassSubjectBookID,
-			ClassSubjectBookMasjidID:       r.ClassSubjectBookMasjidID,
+			ClassSubjectBookSchoolID:       r.ClassSubjectBookSchoolID,
 			ClassSubjectBookClassSubjectID: r.ClassSubjectBookClassSubjectID,
 			ClassSubjectBookBookID:         r.ClassSubjectBookBookID,
 			ClassSubjectBookSlug:           r.ClassSubjectBookSlug,

@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	scsModel "masjidku_backend/internals/features/school/classes/class_sections/model"
+	scsModel "schoolku_backend/internals/features/school/classes/class_sections/model"
 )
 
 // Input minimal agar tidak import ke package profiles (hindari cycle).
@@ -52,22 +52,22 @@ func SyncUCSnapshotsFromUserProfile(ctx context.Context, db *gorm.DB, in UserPro
 		return
 	}
 
-	// Kumpulkan masjid_student_id milik user (aktif)
+	// Kumpulkan school_student_id milik user (aktif)
 	var msIDs []uuid.UUID
-	q := db.WithContext(ctx).Table("masjid_students AS ms")
+	q := db.WithContext(ctx).Table("school_students AS ms")
 
 	// Prefer: filter langsung dengan user_profile_id (paling efisien)
 	if in.UserProfileID != nil && *in.UserProfileID != uuid.Nil {
-		q = q.Where("ms.masjid_student_user_profile_id = ? AND ms.masjid_student_deleted_at IS NULL", *in.UserProfileID)
+		q = q.Where("ms.school_student_user_profile_id = ? AND ms.school_student_deleted_at IS NULL", *in.UserProfileID)
 	} else {
 		// Fallback: JOIN ke user_profiles untuk map dari user_id -> user_profile_id
 		q = q.
-			Joins("JOIN user_profiles up ON up.user_profile_id = ms.masjid_student_user_profile_id").
-			Where("up.user_profile_user_id = ? AND ms.masjid_student_deleted_at IS NULL", in.UserID)
+			Joins("JOIN user_profiles up ON up.user_profile_id = ms.school_student_user_profile_id").
+			Where("up.user_profile_user_id = ? AND ms.school_student_deleted_at IS NULL", in.UserID)
 	}
 
-	if err := q.Pluck("ms.masjid_student_id", &msIDs).Error; err != nil {
-		log.Printf("[scs/sync] pluck masjid_student_id failed: %v", err)
+	if err := q.Pluck("ms.school_student_id", &msIDs).Error; err != nil {
+		log.Printf("[scs/sync] pluck school_student_id failed: %v", err)
 		return
 	}
 	if len(msIDs) == 0 {
@@ -99,7 +99,7 @@ func SyncUCSnapshotsFromUserProfile(ctx context.Context, db *gorm.DB, in UserPro
 
 	if err := db.WithContext(ctx).
 		Model(&scsModel.StudentClassSection{}).
-		Where("student_class_section_masjid_student_id IN ? AND student_class_section_deleted_at IS NULL", msIDs).
+		Where("student_class_section_school_student_id IN ? AND student_class_section_deleted_at IS NULL", msIDs).
 		Updates(set).Error; err != nil {
 		log.Printf("[scs/sync] update snapshots failed: %v", err)
 	}

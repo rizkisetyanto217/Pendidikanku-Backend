@@ -5,11 +5,11 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	teacherProfile "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/route"
-	surveyRoute "masjidku_backend/internals/features/users/survey/route"
-	userTeacher "masjidku_backend/internals/features/users/user_teachers/route"
-	userRoute "masjidku_backend/internals/features/users/users/route"
-	rateLimiter "masjidku_backend/internals/middlewares"
+	teacherProfile "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/route"
+	surveyRoute "schoolku_backend/internals/features/users/survey/route"
+	userTeacher "schoolku_backend/internals/features/users/user_teachers/route"
+	userRoute "schoolku_backend/internals/features/users/users/route"
+	rateLimiter "schoolku_backend/internals/middlewares"
 )
 
 func UserRoutes(app *fiber.App, db *gorm.DB) {

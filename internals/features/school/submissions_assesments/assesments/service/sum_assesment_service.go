@@ -10,19 +10,19 @@ type Service struct{}
 
 func New() *Service { return &Service{} }
 
-// SumActiveWeights menghitung total bobot tipe assessment AKTIF untuk 1 masjid.
+// SumActiveWeights menghitung total bobot tipe assessment AKTIF untuk 1 school.
 // excludeID opsional: tidak ikut menghitung row dengan id tsb (berguna saat PATCH).
-func (s *Service) SumActiveWeights(db *gorm.DB, masjidID uuid.UUID, excludeID *uuid.UUID) (float64, error) {
+func (s *Service) SumActiveWeights(db *gorm.DB, schoolID uuid.UUID, excludeID *uuid.UUID) (float64, error) {
 	var sum float64
 
 	q := db.
 		Table("assessment_types").
 		Select("COALESCE(SUM(assessment_type_weight_percent), 0)").
 		Where(`
-			assessment_type_masjid_id = ?
+			assessment_type_school_id = ?
 			AND assessment_type_is_active = TRUE
 			AND assessment_type_deleted_at IS NULL
-		`, masjidID)
+		`, schoolID)
 
 	if excludeID != nil {
 		q = q.Where("assessment_type_id <> ?", *excludeID)

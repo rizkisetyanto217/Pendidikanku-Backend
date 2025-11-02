@@ -7,8 +7,8 @@ import (
 
 	"github.com/google/uuid"
 
-	linkModel "masjidku_backend/internals/features/school/academics/books/model"
-	csModel "masjidku_backend/internals/features/school/academics/subjects/model"
+	linkModel "schoolku_backend/internals/features/school/academics/books/model"
+	csModel "schoolku_backend/internals/features/school/academics/subjects/model"
 )
 
 /* =========================================================
@@ -54,7 +54,7 @@ func int16ToIntPtr(p *int16) *int {
    ========================================================= */
 
 type CreateClassSubjectRequest struct {
-	MasjidID  uuid.UUID `json:"class_subject_masjid_id"  validate:"required"`
+	SchoolID  uuid.UUID `json:"class_subject_school_id"  validate:"required"`
 	ParentID  uuid.UUID `json:"class_subject_parent_id"  validate:"required"`
 	SubjectID uuid.UUID `json:"class_subject_subject_id" validate:"required"`
 
@@ -80,7 +80,7 @@ type CreateClassSubjectRequest struct {
 }
 
 type UpdateClassSubjectRequest struct {
-	MasjidID  *uuid.UUID `json:"class_subject_masjid_id"  validate:"omitempty"`
+	SchoolID  *uuid.UUID `json:"class_subject_school_id"  validate:"omitempty"`
 	ParentID  *uuid.UUID `json:"class_subject_parent_id"  validate:"omitempty"`
 	SubjectID *uuid.UUID `json:"class_subject_subject_id" validate:"omitempty"`
 
@@ -114,7 +114,7 @@ type ListClassSubjectQuery struct {
 	Sort        *string `query:"sort"          validate:"omitempty,oneof=asc desc"`
 	WithDeleted *bool   `query:"with_deleted"  validate:"omitempty"`
 	// (opsional) filter tambahan
-	MasjidID  *uuid.UUID `query:"masjid_id"     validate:"omitempty"`
+	SchoolID  *uuid.UUID `query:"school_id"     validate:"omitempty"`
 	ParentID  *uuid.UUID `query:"parent_id"     validate:"omitempty"`
 	SubjectID *uuid.UUID `query:"subject_id"   validate:"omitempty"`
 }
@@ -125,7 +125,7 @@ type ListClassSubjectQuery struct {
 
 type ClassSubjectResponse struct {
 	ID        uuid.UUID `json:"class_subject_id"`
-	MasjidID  uuid.UUID `json:"class_subject_masjid_id"`
+	SchoolID  uuid.UUID `json:"class_subject_school_id"`
 	ParentID  uuid.UUID `json:"class_subject_parent_id"`
 	SubjectID uuid.UUID `json:"class_subject_subject_id"`
 
@@ -193,7 +193,7 @@ func (r CreateClassSubjectRequest) ToModel() csModel.ClassSubjectModel {
 	}
 
 	return csModel.ClassSubjectModel{
-		ClassSubjectMasjidID:  r.MasjidID,
+		ClassSubjectSchoolID:  r.SchoolID,
 		ClassSubjectParentID:  r.ParentID,
 		ClassSubjectSubjectID: r.SubjectID,
 
@@ -229,7 +229,7 @@ func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
 
 	return ClassSubjectResponse{
 		ID:        m.ClassSubjectID,
-		MasjidID:  m.ClassSubjectMasjidID,
+		SchoolID:  m.ClassSubjectSchoolID,
 		ParentID:  m.ClassSubjectParentID,
 		SubjectID: m.ClassSubjectSubjectID,
 
@@ -278,8 +278,8 @@ func FromClassSubjectModels(list []csModel.ClassSubjectModel) []ClassSubjectResp
 }
 
 func (r UpdateClassSubjectRequest) Apply(m *csModel.ClassSubjectModel) {
-	if r.MasjidID != nil {
-		m.ClassSubjectMasjidID = *r.MasjidID
+	if r.SchoolID != nil {
+		m.ClassSubjectSchoolID = *r.SchoolID
 	}
 	if r.ParentID != nil {
 		m.ClassSubjectParentID = *r.ParentID

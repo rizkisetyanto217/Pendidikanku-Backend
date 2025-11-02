@@ -1,7 +1,7 @@
 package route
 
 import (
-	settingCtrl "masjidku_backend/internals/features/school/others/assesments_settings/controller"
+	settingCtrl "schoolku_backend/internals/features/school/others/assesments_settings/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

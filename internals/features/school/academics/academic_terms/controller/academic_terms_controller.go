@@ -11,11 +11,11 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "masjidku_backend/internals/features/school/academics/academic_terms/dto"
-	model "masjidku_backend/internals/features/school/academics/academic_terms/model"
-	classmodel "masjidku_backend/internals/features/school/classes/classes/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	dto "schoolku_backend/internals/features/school/academics/academic_terms/dto"
+	model "schoolku_backend/internals/features/school/academics/academic_terms/model"
+	classmodel "schoolku_backend/internals/features/school/classes/classes/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 /* ============================================
@@ -70,21 +70,21 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusBadRequest, "Tanggal akhir harus >= tanggal mulai")
 	}
 
-	// === Masjid context (eksplisit & DKM only) ===
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// === School context (eksplisit & DKM only) ===
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return httpErr(c, err.(*fiber.Error).Code, err.Error())
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return httpErr(c, err.(*fiber.Error).Code, err.Error())
 	}
 
-	// Uniqueness per masjid untuk code (opsional)
+	// Uniqueness per school untuk code (opsional)
 	if p.AcademicTermCode != nil && strings.TrimSpace(*p.AcademicTermCode) != "" {
 		var cnt int64
 		if err := ctl.DB.Model(&model.AcademicTermModel{}).
-			Where("academic_term_masjid_id = ? AND academic_term_code = ?", masjidID, *p.AcademicTermCode).
+			Where("academic_term_school_id = ? AND academic_term_code = ?", schoolID, *p.AcademicTermCode).
 			Count(&cnt).Error; err != nil {
 			return httpErr(c, fiber.StatusInternalServerError, "Gagal memeriksa kode")
 		}
@@ -107,7 +107,7 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 		"academic_term_slug",
 		baseSlug,
 		func(q *gorm.DB) *gorm.DB {
-			return q.Where("academic_term_masjid_id = ?", masjidID)
+			return q.Where("academic_term_school_id = ?", schoolID)
 		},
 		50,
 	)
@@ -115,7 +115,7 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 	}
 
-	ent := p.ToModel(masjidID)
+	ent := p.ToModel(schoolID)
 	ent.AcademicTermSlug = &uniqueSlug
 
 	if err := ctl.DB.Create(&ent).Error; err != nil {
@@ -139,12 +139,12 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 		return httpErr(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// === Masjid context (eksplisit & DKM only), sama seperti Create ===
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// === School context (eksplisit & DKM only), sama seperti Create ===
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return httpErr(c, err.(*fiber.Error).Code, err.Error())
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return httpErr(c, err.(*fiber.Error).Code, err.Error())
 	}
@@ -154,7 +154,7 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 	txErr := ctl.DB.Transaction(func(tx *gorm.DB) error {
 		var ent model.AcademicTermModel
 		if err := tx.
-			Where("academic_term_masjid_id = ? AND academic_term_id = ?", masjidID, id).
+			Where("academic_term_school_id = ? AND academic_term_id = ?", schoolID, id).
 			First(&ent).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return httpErr(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -204,8 +204,8 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 		if p.AcademicTermCode != nil && strings.TrimSpace(*p.AcademicTermCode) != "" {
 			var cnt int64
 			if err := tx.Model(&model.AcademicTermModel{}).
-				Where(`academic_term_masjid_id = ? AND academic_term_code = ? AND academic_term_id <> ?`,
-					masjidID, *p.AcademicTermCode, ent.AcademicTermID).
+				Where(`academic_term_school_id = ? AND academic_term_code = ? AND academic_term_id <> ?`,
+					schoolID, *p.AcademicTermCode, ent.AcademicTermID).
 				Count(&cnt).Error; err != nil {
 				return httpErr(c, fiber.StatusInternalServerError, "Gagal memeriksa kode")
 			}
@@ -234,7 +234,7 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 				"academic_terms", "academic_term_slug",
 				baseSlug,
 				func(q *gorm.DB) *gorm.DB {
-					return q.Where("academic_term_masjid_id = ? AND academic_term_id <> ?", masjidID, ent.AcademicTermID)
+					return q.Where("academic_term_school_id = ? AND academic_term_id <> ?", schoolID, ent.AcademicTermID)
 				},
 				50,
 			)
@@ -280,8 +280,8 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 			)
 
 			if err := tx.Model(&classmodel.ClassModel{}).
-				Where("class_masjid_id = ? AND class_term_id = ? AND class_deleted_at IS NULL",
-					masjidID, ent.AcademicTermID).
+				Where("class_school_id = ? AND class_term_id = ? AND class_deleted_at IS NULL",
+					schoolID, ent.AcademicTermID).
 				Updates(map[string]any{
 					"class_term_academic_year_snapshot": ent.AcademicTermAcademicYear,
 					"class_term_name_snapshot":          ent.AcademicTermName,
@@ -320,19 +320,19 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// === Masjid context (eksplisit & DKM only) ===
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// === School context (eksplisit & DKM only) ===
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return httpErr(c, err.(*fiber.Error).Code, err.Error())
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return httpErr(c, err.(*fiber.Error).Code, err.Error())
 	}
 
 	var ent model.AcademicTermModel
 	if err := ctl.DB.
-		Where("academic_term_masjid_id = ? AND academic_term_id = ?", masjidID, id).
+		Where("academic_term_school_id = ? AND academic_term_id = ?", schoolID, id).
 		First(&ent).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return httpErr(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -360,23 +360,23 @@ func (ctl *AcademicTermController) Restore(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	masjidID, err := helperAuth.GetActiveMasjidID(c)
+	schoolID, err := helperAuth.GetActiveSchoolID(c)
 	if err != nil {
-		if id2, err2 := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err2 == nil {
-			masjidID = id2
+		if id2, err2 := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err2 == nil {
+			schoolID = id2
 		} else {
-			return httpErr(c, fiber.StatusUnauthorized, "Masjid context tidak ditemukan")
+			return httpErr(c, fiber.StatusUnauthorized, "School context tidak ditemukan")
 		}
 	}
 
 	// === DKM only
-	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 
 	var ent model.AcademicTermModel
 	if err := ctl.DB.Unscoped().
-		Where("academic_term_masjid_id = ? AND academic_term_id = ?", masjidID, id).
+		Where("academic_term_school_id = ? AND academic_term_id = ?", schoolID, id).
 		First(&ent).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return httpErr(c, fiber.StatusNotFound, "Data tidak ditemukan / belum pernah ada")
@@ -391,7 +391,7 @@ func (ctl *AcademicTermController) Restore(c *fiber.Ctx) error {
 	}
 
 	if err := ctl.DB.
-		Where("academic_term_masjid_id = ? AND academic_term_id = ?", masjidID, id).
+		Where("academic_term_school_id = ? AND academic_term_id = ?", schoolID, id).
 		First(&ent).Error; err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengambil data setelah restore")
 	}
@@ -410,23 +410,23 @@ func (ctl *AcademicTermController) SetActive(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	masjidID, err := helperAuth.GetActiveMasjidID(c)
+	schoolID, err := helperAuth.GetActiveSchoolID(c)
 	if err != nil {
-		if id2, err2 := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err2 == nil {
-			masjidID = id2
+		if id2, err2 := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err2 == nil {
+			schoolID = id2
 		} else {
-			return httpErr(c, fiber.StatusUnauthorized, "Masjid context tidak ditemukan")
+			return httpErr(c, fiber.StatusUnauthorized, "School context tidak ditemukan")
 		}
 	}
 
 	// === DKM only
-	if err := helperAuth.EnsureDKMMasjid(c, masjidID); err != nil {
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 
 	var ent model.AcademicTermModel
 	if err := ctl.DB.
-		Where("academic_term_masjid_id = ? AND academic_term_id = ?", masjidID, id).
+		Where("academic_term_school_id = ? AND academic_term_id = ?", schoolID, id).
 		First(&ent).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return httpErr(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -434,9 +434,9 @@ func (ctl *AcademicTermController) SetActive(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Jika ingin eksklusif hanya 1 aktif per masjid, uncomment blok ini:
+	// Jika ingin eksklusif hanya 1 aktif per school, uncomment blok ini:
 	// if err := ctl.DB.Model(&model.AcademicTerm{}).
-	// 	Where("academic_term_masjid_id = ? AND academic_term_id <> ?", masjidID, id).
+	// 	Where("academic_term_school_id = ? AND academic_term_id <> ?", schoolID, id).
 	// 	Update("academic_term_is_active", false).Error; err != nil {
 	// 	return httpErr(c, fiber.StatusInternalServerError, "Gagal menonaktifkan term lain")
 	// }

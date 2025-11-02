@@ -14,16 +14,16 @@ CREATE TABLE IF NOT EXISTS submissions (
   submission_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- keterkaitan tenant & entitas
-  submission_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  submission_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   submission_assessment_id UUID NOT NULL
     REFERENCES assessments(assessment_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
-  -- pengumpul: relasi ke masjid_students (BUKAN users langsung)
+  -- pengumpul: relasi ke school_students (BUKAN users langsung)
   submission_student_id UUID NOT NULL
-    REFERENCES masjid_students(masjid_student_id)
+    REFERENCES school_students(school_student_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   -- isi & status pengumpulan
@@ -38,9 +38,9 @@ CREATE TABLE IF NOT EXISTS submissions (
   submission_score    NUMERIC(5,2) CHECK (submission_score >= 0 AND submission_score <= 100),
   submission_feedback TEXT,
 
-  -- pengoreksi: relasi ke masjid_teachers
+  -- pengoreksi: relasi ke school_teachers
   submission_graded_by_teacher_id UUID
-    REFERENCES masjid_teachers(masjid_teacher_id)
+    REFERENCES school_teachers(school_teacher_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
   submission_graded_at TIMESTAMPTZ,
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS submissions (
 
 -- Pair unik id+tenant (tenant-safe)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_submissions_id_tenant
-  ON submissions (submission_id, submission_masjid_id);
+  ON submissions (submission_id, submission_school_id);
 
 -- Unik: 1 submission aktif per (assessment, student)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_submissions_assessment_student_alive
@@ -70,8 +70,8 @@ CREATE INDEX IF NOT EXISTS idx_submissions_student_alive
   ON submissions (submission_student_id)
   WHERE submission_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_submissions_masjid_alive
-  ON submissions (submission_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_submissions_school_alive
+  ON submissions (submission_school_id)
   WHERE submission_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_submissions_status_alive
@@ -102,8 +102,8 @@ CREATE TABLE IF NOT EXISTS submission_urls (
   submission_url_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Tenant & owner
-  submission_url_masjid_id       UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  submission_url_school_id       UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
   submission_url_submission_id   UUID NOT NULL
     REFERENCES submissions(submission_id) ON UPDATE CASCADE ON DELETE CASCADE,
 
@@ -122,14 +122,14 @@ CREATE TABLE IF NOT EXISTS submission_urls (
   submission_url_order           INT NOT NULL DEFAULT 0,
   submission_url_is_primary      BOOLEAN NOT NULL DEFAULT FALSE,
 
-  -- Pengumpul: relasi ke masjid_students (BUKAN users langsung)
+  -- Pengumpul: relasi ke school_students (BUKAN users langsung)
   submission_url_student_id UUID NOT NULL
-    REFERENCES masjid_students(masjid_student_id)
+    REFERENCES school_students(school_student_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
-  -- Pengumpul: relasi ke masjid_teachers (BUKAN users langsung)
+  -- Pengumpul: relasi ke school_teachers (BUKAN users langsung)
   submission_url_teacher_id UUID
-    REFERENCES masjid_teachers(masjid_teacher_id)
+    REFERENCES school_teachers(school_teacher_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
   -- Audit & retensi
@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS submission_urls (
 
 -- Pair unik id+tenant (tenant-safe)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_submission_urls_id_tenant
-  ON submission_urls (submission_url_id, submission_url_masjid_id);
+  ON submission_urls (submission_url_id, submission_url_school_id);
 
 -- Lookup per submission (live only) + urutan tampil
 CREATE INDEX IF NOT EXISTS ix_submission_urls_by_owner_live
@@ -156,8 +156,8 @@ CREATE INDEX IF NOT EXISTS ix_submission_urls_by_owner_live
   WHERE submission_url_deleted_at IS NULL;
 
 -- Filter per tenant (live only)
-CREATE INDEX IF NOT EXISTS ix_submission_urls_by_masjid_live
-  ON submission_urls (submission_url_masjid_id)
+CREATE INDEX IF NOT EXISTS ix_submission_urls_by_school_live
+  ON submission_urls (submission_url_school_id)
   WHERE submission_url_deleted_at IS NULL;
 
 -- Satu primary per (submission, kind) (live only)

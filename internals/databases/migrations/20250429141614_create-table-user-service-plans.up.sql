@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS user_service_plans (
   ),
 
   -- Kuota/limit user-level
-  user_service_plan_max_masjids_owned   INT,
+  user_service_plan_max_schools_owned   INT,
   user_service_plan_max_storage_mb      INT,
   user_service_plan_max_custom_themes   INT,
 
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS user_service_plans (
   user_service_plan_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   user_service_plan_deleted_at TIMESTAMPTZ,
 
-  -- Uniqueness & checks (paralel dengan masjid)
+  -- Uniqueness & checks (paralel dengan school)
   CONSTRAINT ux_usp_code UNIQUE (user_service_plan_code),
   CONSTRAINT chk_usp_code_format CHECK (
     user_service_plan_code ~ '^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$'
@@ -61,13 +61,13 @@ CREATE TABLE IF NOT EXISTS user_service_plans (
     (user_service_plan_price_yearly  IS NULL OR user_service_plan_price_yearly  >= 0)
   ),
   CONSTRAINT chk_usp_limits_nonneg CHECK (
-    (user_service_plan_max_masjids_owned IS NULL OR user_service_plan_max_masjids_owned >= 0) AND
+    (user_service_plan_max_schools_owned IS NULL OR user_service_plan_max_schools_owned >= 0) AND
     (user_service_plan_max_storage_mb    IS NULL OR user_service_plan_max_storage_mb    >= 0) AND
     (user_service_plan_max_custom_themes IS NULL OR user_service_plan_max_custom_themes >= 0)
   )
 );
 
--- Index katalog (selaras dgn masjid)
+-- Index katalog (selaras dgn school)
 CREATE UNIQUE INDEX IF NOT EXISTS ux_usp_code_lower
   ON user_service_plans (lower(user_service_plan_code))
   WHERE user_service_plan_deleted_at IS NULL;
@@ -97,7 +97,7 @@ CREATE INDEX IF NOT EXISTS brin_usp_updated_at
 -- ============================ --
 INSERT INTO user_service_plans (
   user_service_plan_code, user_service_plan_name, user_service_plan_description,
-  user_service_plan_max_masjids_owned, user_service_plan_max_storage_mb, user_service_plan_max_custom_themes,
+  user_service_plan_max_schools_owned, user_service_plan_max_storage_mb, user_service_plan_max_custom_themes,
   user_service_plan_price_monthly, user_service_plan_price_yearly,
   user_service_plan_is_active
 ) VALUES

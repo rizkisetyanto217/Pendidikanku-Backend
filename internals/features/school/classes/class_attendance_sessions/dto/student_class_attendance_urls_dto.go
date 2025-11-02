@@ -9,7 +9,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
-	model "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
+	model "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
 )
 
 /* =========================================================
@@ -32,13 +32,13 @@ const (
 
 /* =========================================================
    Create
-   - Minimal: masjid_id, attendance_id, kind
+   - Minimal: school_id, attendance_id, kind
    - Salah satu dari: href atau object_key (boleh dua-duanya)
 ========================================================= */
 
 type StudentClassSessionAttendanceURLCreateRequest struct {
 	// Tenant & owner (biasanya diisi dari resolver, bukan dari body)
-	StudentClassSessionAttendanceURLMasjidID     uuid.UUID `json:"masjid_id"      validate:"required"`
+	StudentClassSessionAttendanceURLSchoolID     uuid.UUID `json:"school_id"      validate:"required"`
 	StudentClassSessionAttendanceURLAttendanceID uuid.UUID `json:"attendance_id"  validate:"required"`
 
 	// Optional lookup type
@@ -165,13 +165,13 @@ func (r *StudentClassSessionAttendanceURLUpdateRequest) Validate() error {
 
 /* =========================================================
    List (Query Params)
-   - filter masjid_id, attendance_id, kind, is_primary, q(label contains)
+   - filter school_id, attendance_id, kind, is_primary, q(label contains)
    - paging & ordering
 ========================================================= */
 
 type StudentClassSessionAttendanceURLListRequest struct {
 	// Filter
-	MasjidID     *uuid.UUID `query:"masjid_id"`
+	SchoolID     *uuid.UUID `query:"school_id"`
 	AttendanceID *uuid.UUID `query:"attendance_id"`
 	Kind         *string    `query:"kind"`
 	IsPrimary    *bool      `query:"is_primary"`
@@ -226,7 +226,7 @@ func (r *StudentClassSessionAttendanceURLListRequest) Validate() error {
 
 type StudentClassSessionAttendanceURLItem struct {
 	ID                 uuid.UUID  `json:"id"`
-	MasjidID           uuid.UUID  `json:"masjid_id"`
+	SchoolID           uuid.UUID  `json:"school_id"`
 	AttendanceID       uuid.UUID  `json:"attendance_id"`
 	TypeID             *uuid.UUID `json:"type_id,omitempty"`
 	Kind               string     `json:"kind"`
@@ -268,7 +268,7 @@ func FromModelStudentClassSessionAttendanceURL(m model.StudentClassSessionAttend
 	}
 	return StudentClassSessionAttendanceURLItem{
 		ID:                 m.StudentClassSessionAttendanceURLID,
-		MasjidID:           m.StudentClassSessionAttendanceURLMasjidID,
+		SchoolID:           m.StudentClassSessionAttendanceURLSchoolID,
 		AttendanceID:       m.StudentClassSessionAttendanceURLAttendanceID,
 		TypeID:             m.StudentClassSessionAttendanceTypeID,
 		Kind:               m.StudentClassSessionAttendanceURLKind,

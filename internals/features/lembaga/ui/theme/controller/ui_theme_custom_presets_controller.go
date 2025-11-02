@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"masjidku_backend/internals/features/lembaga/ui/theme/dto"
-	"masjidku_backend/internals/features/lembaga/ui/theme/model"
-	helper "masjidku_backend/internals/helpers"
+	"schoolku_backend/internals/features/lembaga/ui/theme/dto"
+	"schoolku_backend/internals/features/lembaga/ui/theme/model"
+	helper "schoolku_backend/internals/helpers"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -38,7 +38,9 @@ func parseUUID(str string) (uuid.UUID, error) {
 
 // Detect Postgres unique violation (23505)
 func isUniqueViolation(err error) bool {
-	if err == nil { return false }
+	if err == nil {
+		return false
+	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "duplicate key value violates unique constraint") ||
 		strings.Contains(msg, "sqlstate 23505") ||
@@ -65,7 +67,7 @@ func (ctl *UIThemeCustomPresetController) Create(c *fiber.Ctx) error {
 	}
 
 	entity := model.UIThemeCustomPreset{
-		UIThemeCustomPresetMasjidID: *req.UIThemeCustomPresetMasjidID,
+		UIThemeCustomPresetSchoolID: *req.UIThemeCustomPresetSchoolID,
 		UIThemeCustomPresetCode:     *req.UIThemeCustomPresetCode,
 		UIThemeCustomPresetName:     *req.UIThemeCustomPresetName,
 		UIThemeCustomPresetLight:    *req.UIThemeCustomPresetLight,
@@ -81,7 +83,7 @@ func (ctl *UIThemeCustomPresetController) Create(c *fiber.Ctx) error {
 
 	if err := ctl.DB.Create(&entity).Error; err != nil {
 		if isUniqueViolation(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "custom preset code already exists for this masjid")
+			return helper.JsonError(c, fiber.StatusConflict, "custom preset code already exists for this school")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
@@ -92,7 +94,7 @@ func (ctl *UIThemeCustomPresetController) Create(c *fiber.Ctx) error {
 /* =========================
    GET /ui-theme-custom-presets
    - Public list or get-by-id (?id=UUID)
-   - Optional filter: ?masjid_id=UUID & ?q=keyword
+   - Optional filter: ?school_id=UUID & ?q=keyword
 ========================= */
 
 func (ctl *UIThemeCustomPresetController) Get(c *fiber.Ctx) error {
@@ -117,20 +119,20 @@ func (ctl *UIThemeCustomPresetController) Get(c *fiber.Ctx) error {
 	limit := c.QueryInt("limit", 20)
 	offset := c.QueryInt("offset", 0)
 
-	var masjidFilter uuid.UUID
-	if s := strings.TrimSpace(c.Query("masjid_id")); s != "" {
+	var schoolFilter uuid.UUID
+	if s := strings.TrimSpace(c.Query("school_id")); s != "" {
 		if id, err := uuid.Parse(s); err == nil {
-			masjidFilter = id
+			schoolFilter = id
 		} else {
-			return helper.JsonError(c, fiber.StatusBadRequest, "invalid masjid_id")
+			return helper.JsonError(c, fiber.StatusBadRequest, "invalid school_id")
 		}
 	}
 
 	var rows []model.UIThemeCustomPreset
 	dbq := ctl.DB.Model(&model.UIThemeCustomPreset{})
 
-	if masjidFilter != uuid.Nil {
-		dbq = dbq.Where("ui_theme_custom_preset_masjid_id = ?", masjidFilter)
+	if schoolFilter != uuid.Nil {
+		dbq = dbq.Where("ui_theme_custom_preset_school_id = ?", schoolFilter)
 	}
 	if q != "" {
 		like := "%" + q + "%"
@@ -203,7 +205,7 @@ func (ctl *UIThemeCustomPresetController) Patch(c *fiber.Ctx) error {
 
 	if err := ctl.DB.Save(&entity).Error; err != nil {
 		if isUniqueViolation(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "custom preset code already exists for this masjid")
+			return helper.JsonError(c, fiber.StatusConflict, "custom preset code already exists for this school")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}

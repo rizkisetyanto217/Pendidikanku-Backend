@@ -1,9 +1,9 @@
 package route
 
 import (
-	"masjidku_backend/internals/constants"
-	homeController "masjidku_backend/internals/features/home/qoutes/controller"
-	authMiddleware "masjidku_backend/internals/middlewares/auth"
+	"schoolku_backend/internals/constants"
+	homeController "schoolku_backend/internals/features/home/qoutes/controller"
+	authMiddleware "schoolku_backend/internals/middlewares/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -20,10 +20,10 @@ func QuoteAdminRoutes(router fiber.Router, db *gorm.DB) {
 		),
 	)
 
-	admin.Post("/", ctrl.CreateQuote)           // ➕ Buat quote
-	admin.Post("/batch", ctrl.CreateQuotes)     // ➕ Tambah banyak quote
-	admin.Put("/:id", ctrl.UpdateQuote)         // ✏️ Ubah quote
-	admin.Delete("/:id", ctrl.DeleteQuote)      // 🗑️ Hapus quote
-	admin.Get("/", ctrl.GetAllQuotes)           // 📄 Lihat semua (termasuk non-publish kalau controllernya dukung)
-	admin.Get("/:id", ctrl.GetQuoteByID)        // 🔍 Detail quote
+	admin.Post("/", ctrl.CreateQuote)       // ➕ Buat quote
+	admin.Post("/batch", ctrl.CreateQuotes) // ➕ Tambah banyak quote
+	admin.Put("/:id", ctrl.UpdateQuote)     // ✏️ Ubah quote
+	admin.Delete("/:id", ctrl.DeleteQuote)  // 🗑️ Hapus quote
+	admin.Get("/", ctrl.GetAllQuotes)       // 📄 Lihat semua (termasuk non-publish kalau controllernya dukung)
+	admin.Get("/:id", ctrl.GetQuoteByID)    // 🔍 Detail quote
 }

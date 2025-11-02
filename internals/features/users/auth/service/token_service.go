@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	authModel "masjidku_backend/internals/features/users/auth/model"
-	authRepo "masjidku_backend/internals/features/users/auth/repository"
-	helpers "masjidku_backend/internals/helpers"
-	helpersAuth "masjidku_backend/internals/helpers/auth"
+	authModel "schoolku_backend/internals/features/users/auth/model"
+	authRepo "schoolku_backend/internals/features/users/auth/repository"
+	helpers "schoolku_backend/internals/helpers"
+	helpersAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v4"
@@ -82,20 +82,20 @@ func RefreshToken(db *gorm.DB, c *fiber.Ctx) error {
 
 	// Build claims lagi (ringkas pakai helper lama)
 	isOwner := hasGlobalRole(rolesClaim, "owner")
-	masjidIDs := deriveMasjidIDsFromRolesClaim(rolesClaim)
-	activeMasjidID := helpersAuth.GetActiveMasjidIDIfSingle(rolesClaim)
+	schoolIDs := deriveSchoolIDsFromRolesClaim(rolesClaim)
+	activeSchoolID := helpersAuth.GetActiveSchoolIDIfSingle(rolesClaim)
 	teacherRecords := buildTeacherRecords(db, userFull.ID, rolesClaim)
 	studentRecords := buildStudentRecords(db, userFull.ID, rolesClaim)
-	tpMap := getTenantProfilesMapStr(c.Context(), db, masjidUUIDsFromClaim(rolesClaim))
+	tpMap := getTenantProfilesMapStr(c.Context(), db, schoolUUIDsFromClaim(rolesClaim))
 	combined := combineRolesWithTenant(rolesClaim, tpMap)
 
 	var tenantProfile *string
-	if activeMasjidID != nil {
-		if mid, err := uuid.Parse(*activeMasjidID); err == nil {
-			tenantProfile = getMasjidTenantProfileStr(c.Context(), db, mid)
+	if activeSchoolID != nil {
+		if mid, err := uuid.Parse(*activeSchoolID); err == nil {
+			tenantProfile = getSchoolTenantProfileStr(c.Context(), db, mid)
 		}
 	}
-	accessClaims := buildAccessClaims(*userFull, rolesClaim, masjidIDs, isOwner, activeMasjidID, tenantProfile, combined, teacherRecords, studentRecords, now)
+	accessClaims := buildAccessClaims(*userFull, rolesClaim, schoolIDs, isOwner, activeSchoolID, tenantProfile, combined, teacherRecords, studentRecords, now)
 	refreshClaims := buildRefreshClaims(userFull.ID, now)
 
 	newAccess, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString([]byte(jwtSecret))

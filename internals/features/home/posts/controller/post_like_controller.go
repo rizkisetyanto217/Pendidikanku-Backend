@@ -6,9 +6,9 @@ import (
 	"math"
 	"strconv"
 
-	"masjidku_backend/internals/features/home/posts/dto"
-	"masjidku_backend/internals/features/home/posts/model"
-	helper "masjidku_backend/internals/helpers"
+	"schoolku_backend/internals/features/home/posts/dto"
+	"schoolku_backend/internals/features/home/posts/model"
+	helper "schoolku_backend/internals/helpers"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -45,38 +45,38 @@ func (ctrl *PostLikeController) ToggleLike(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized user")
 	}
 
-	// Ambil masjid_id via slug
+	// Ambil school_id via slug
 	slug := c.Params("slug")
 	if slug == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Slug masjid tidak ditemukan")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Slug school tidak ditemukan")
 	}
 
-	var masjidID string
+	var schoolID string
 	if err := ctrl.DB.
-		Table("masjids").
-		Select("masjid_id").
-		Where("masjid_slug = ?", slug).
-		Scan(&masjidID).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil masjid")
+		Table("schools").
+		Select("school_id").
+		Where("school_slug = ?", slug).
+		Scan(&schoolID).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil school")
 	}
-	if masjidID == "" {
-		return helper.JsonError(c, fiber.StatusNotFound, "Masjid tidak ditemukan")
+	if schoolID == "" {
+		return helper.JsonError(c, fiber.StatusNotFound, "School tidak ditemukan")
 	}
 
-	// Pastikan post ada dan milik masjid yang sama (opsional tapi disarankan)
-	var postMasjidID sql.NullString
+	// Pastikan post ada dan milik school yang sama (opsional tapi disarankan)
+	var postSchoolID sql.NullString
 	if err := ctrl.DB.
 		Table("posts").
-		Select("post_masjid_id").
+		Select("post_school_id").
 		Where("post_id = ?", req.PostID).
-		Scan(&postMasjidID).Error; err != nil {
+		Scan(&postSchoolID).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memeriksa post")
 	}
-	if !postMasjidID.Valid {
+	if !postSchoolID.Valid {
 		return helper.JsonError(c, fiber.StatusNotFound, "Post tidak ditemukan")
 	}
-	if postMasjidID.String != masjidID {
-		return helper.JsonError(c, fiber.StatusForbidden, "Post tidak termasuk ke masjid ini")
+	if postSchoolID.String != schoolID {
+		return helper.JsonError(c, fiber.StatusForbidden, "Post tidak termasuk ke school ini")
 	}
 
 	// Atomic toggle via ON CONFLICT (post_id, user_id)
@@ -87,9 +87,9 @@ func (ctrl *PostLikeController) ToggleLike(c *fiber.Ctx) error {
 			post_like_is_liked,
 			post_like_post_id,
 			post_like_user_id,
-			post_like_masjid_id
+			post_like_school_id
 		)
-		VALUES (gen_random_uuid(), TRUE, @post_id, @user_id, @masjid_id)
+		VALUES (gen_random_uuid(), TRUE, @post_id, @user_id, @school_id)
 		ON CONFLICT (post_like_post_id, post_like_user_id)
 		DO UPDATE SET
 			post_like_is_liked = NOT post_likes.post_like_is_liked,
@@ -99,11 +99,11 @@ func (ctrl *PostLikeController) ToggleLike(c *fiber.Ctx) error {
 			post_like_is_liked,
 			post_like_post_id,
 			post_like_user_id,
-			post_like_masjid_id,
+			post_like_school_id,
 			post_like_updated_at
 	`
 	if err := ctrl.DB.
-		Raw(raw, sql.Named("post_id", req.PostID), sql.Named("user_id", userID), sql.Named("masjid_id", masjidID)).
+		Raw(raw, sql.Named("post_id", req.PostID), sql.Named("user_id", userID), sql.Named("school_id", schoolID)).
 		Scan(&row).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal toggle like")
 	}
@@ -122,6 +122,7 @@ func (ctrl *PostLikeController) ToggleLike(c *fiber.Ctx) error {
 // Query params:
 //   - page (default 1)
 //   - limit (default 10, max 100)
+//
 // =====================================================
 func (ctrl *PostLikeController) GetAllLikesByPost(c *fiber.Ctx) error {
 	postID := c.Params("post_id")

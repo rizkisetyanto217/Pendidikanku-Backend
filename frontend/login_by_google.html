@@ -1,74 +1,90 @@
 <!DOCTYPE html>
 <html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Google Login Test</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+  </head>
 
-<head>
-  <meta charset="UTF-8">
-  <title>Google Login Test</title>
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-</head>
+  <body>
+    <h1>Login with Google</h1>
 
-<body>
+    <div
+      id="g_id_onload"
+      data-client_id="330051036041-8src8un315p823ap640hv70vp3448ruh.apps.googleusercontent.com"
+      data-callback="handleCredentialResponse"
+      data-auto_prompt="false"
+    ></div>
 
-  <h1>Login with Google</h1>
+    <div class="g_id_signin" data-type="standard"></div>
 
-  <div id="g_id_onload" data-client_id="330051036041-8src8un315p823ap640hv70vp3448ruh.apps.googleusercontent.com"
-    data-callback="handleCredentialResponse" data-auto_prompt="false">
-  </div>
+    <p
+      id="token-output"
+      style="margin-top: 20px; font-family: monospace; white-space: pre-wrap"
+    ></p>
 
-  <div class="g_id_signin" data-type="standard"></div>
+    <script>
+      function handleCredentialResponse(response) {
+        console.log("[DEBUG] ID Token dari Google:", response.credential);
 
-  <p id="token-output" style="margin-top:20px; font-family: monospace; white-space: pre-wrap;"></p>
-
-  <script>
-    function handleCredentialResponse(response) {
-      console.log("[DEBUG] ID Token dari Google:", response.credential);
-
-      fetch('https://masjidkubackend4-production.up.railway.app/auth/login-google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id_token: response.credential })
-      })
-        .then(res => res.json())
-        .then(data => {
-          const output = document.getElementById('token-output');
-
-          if (data.status === "success" && data.data && data.data.access_token) {
-            const accessToken = data.data.access_token;
-
-            output.textContent = '✅ Login sukses!\n\nAccess Token:\n' + accessToken;
-
-            // 🔥 Kirim token ke endpoint /api/u/tokens
-            fetch(' https://masjidkubackend4-production.up.railway.app/api/u/tokens', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + accessToken // jika endpoint dilindungi middleware
-              },
-              body: JSON.stringify({
-                token: accessToken
-              })
-            })
-              .then(res => res.json())
-              .then(result => {
-                console.log('[TOKEN POSTED]', result);
-                output.textContent += '\n\n🚀 Token berhasil dikirim ke server!';
-              })
-              .catch(err => {
-                console.error('[POST ERROR]', err);
-                output.textContent += '\n\n❌ Gagal mengirim token ke server: ' + err.message;
-              });
-
-          } else {
-            output.textContent = '❌ Login gagal: ' + (data.error || 'Token tidak ditemukan.');
+        fetch(
+          "https://schoolkubackend4-production.up.railway.app/auth/login-google",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id_token: response.credential }),
           }
-        })
-        .catch(err => {
-          console.error('[LOGIN ERROR]', err);
-          document.getElementById('token-output').textContent = '❌ Login gagal: ' + err.message;
-        });
-    }
-  </script>
+        )
+          .then((res) => res.json())
+          .then((data) => {
+            const output = document.getElementById("token-output");
 
-</body>
+            if (
+              data.status === "success" &&
+              data.data &&
+              data.data.access_token
+            ) {
+              const accessToken = data.data.access_token;
 
+              output.textContent =
+                "✅ Login sukses!\n\nAccess Token:\n" + accessToken;
+
+              // 🔥 Kirim token ke endpoint /api/u/tokens
+              fetch(
+                " https://schoolkubackend4-production.up.railway.app/api/u/tokens",
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: "Bearer " + accessToken, // jika endpoint dilindungi middleware
+                  },
+                  body: JSON.stringify({
+                    token: accessToken,
+                  }),
+                }
+              )
+                .then((res) => res.json())
+                .then((result) => {
+                  console.log("[TOKEN POSTED]", result);
+                  output.textContent +=
+                    "\n\n🚀 Token berhasil dikirim ke server!";
+                })
+                .catch((err) => {
+                  console.error("[POST ERROR]", err);
+                  output.textContent +=
+                    "\n\n❌ Gagal mengirim token ke server: " + err.message;
+                });
+            } else {
+              output.textContent =
+                "❌ Login gagal: " + (data.error || "Token tidak ditemukan.");
+            }
+          })
+          .catch((err) => {
+            console.error("[LOGIN ERROR]", err);
+            document.getElementById("token-output").textContent =
+              "❌ Login gagal: " + err.message;
+          });
+      }
+    </script>
+  </body>
 </html>

@@ -11,10 +11,10 @@ import (
 
 	validator "github.com/go-playground/validator/v10"
 
-	qdto "masjidku_backend/internals/features/school/submissions_assesments/quizzes/dto"
-	qmodel "masjidku_backend/internals/features/school/submissions_assesments/quizzes/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	qdto "schoolku_backend/internals/features/school/submissions_assesments/quizzes/dto"
+	qmodel "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 type StudentQuizAttemptsController struct {
@@ -36,28 +36,28 @@ func (ctl *StudentQuizAttemptsController) ensureValidator() {
    Helpers — scope & relasi
 ========================================================= */
 
-// Ambil masjid_id dari quizzes (kolom: quiz_masjid_id / quiz_id)
-func (ctl *StudentQuizAttemptsController) getQuizMasjidID(quizID uuid.UUID) (uuid.UUID, error) {
+// Ambil school_id dari quizzes (kolom: quiz_school_id / quiz_id)
+func (ctl *StudentQuizAttemptsController) getQuizSchoolID(quizID uuid.UUID) (uuid.UUID, error) {
 	if quizID == uuid.Nil {
 		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "quiz_id wajib")
 	}
 
-	var masjidIDStr string
+	var schoolIDStr string
 	if err := ctl.DB.
-		Raw(`SELECT quiz_masjid_id::text
+		Raw(`SELECT quiz_school_id::text
 			   FROM quizzes
 			  WHERE quiz_id = ? AND quiz_deleted_at IS NULL`,
 			quizID).
-		Scan(&masjidIDStr).Error; err != nil {
+		Scan(&schoolIDStr).Error; err != nil {
 		return uuid.Nil, err
 	}
-	if strings.TrimSpace(masjidIDStr) == "" {
+	if strings.TrimSpace(schoolIDStr) == "" {
 		return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "Quiz tidak ditemukan / sudah dihapus")
 	}
 
-	mid, err := uuid.Parse(masjidIDStr)
+	mid, err := uuid.Parse(schoolIDStr)
 	if err != nil {
-		return uuid.Nil, fiber.NewError(fiber.StatusInternalServerError, "Masjid ID quiz tidak valid")
+		return uuid.Nil, fiber.NewError(fiber.StatusInternalServerError, "School ID quiz tidak valid")
 	}
 	return mid, nil
 }
@@ -74,24 +74,24 @@ func validAttemptStatus(s qmodel.StudentQuizAttemptStatus) bool {
 	}
 }
 
-// balikin (masjidID, studentID, isStudent)
+// balikin (schoolID, studentID, isStudent)
 func (ctl *StudentQuizAttemptsController) resolveScopeForCreate(
 	c *fiber.Ctx,
 	req *qdto.CreateStudentQuizAttemptRequest,
 ) (uuid.UUID, uuid.UUID, bool, error) {
-	// 1) derive masjid dari quiz
-	qMid, err := ctl.getQuizMasjidID(req.StudentQuizAttemptQuizID)
+	// 1) derive school dari quiz
+	qMid, err := ctl.getQuizSchoolID(req.StudentQuizAttemptQuizID)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, false, err
 	}
 
-	// 2) siswa → wajib terdaftar sebagai student di masjid quiz & gunakan student_id dari token
+	// 2) siswa → wajib terdaftar sebagai student di school quiz & gunakan student_id dari token
 	if helperAuth.IsStudent(c) {
-		// pastikan benar-benar student di masjid quiz
-		if err := helperAuth.EnsureStudentMasjid(c, qMid); err != nil {
+		// pastikan benar-benar student di school quiz
+		if err := helperAuth.EnsureStudentSchool(c, qMid); err != nil {
 			return uuid.Nil, uuid.Nil, true, err
 		}
-		sid, err := helperAuth.GetMasjidStudentIDForMasjid(c, qMid)
+		sid, err := helperAuth.GetSchoolStudentIDForSchool(c, qMid)
 		if err != nil {
 			return uuid.Nil, uuid.Nil, true, err
 		}
@@ -99,7 +99,7 @@ func (ctl *StudentQuizAttemptsController) resolveScopeForCreate(
 	}
 
 	// 3) non-student → harus DKM/Teacher (Owner juga diizinkan)
-	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, qMid); err != nil && !helperAuth.IsOwner(c) {
+	if err := helperAuth.EnsureDKMOrTeacherSchool(c, qMid); err != nil && !helperAuth.IsOwner(c) {
 		return uuid.Nil, uuid.Nil, false, err
 	}
 
@@ -108,18 +108,18 @@ func (ctl *StudentQuizAttemptsController) resolveScopeForCreate(
 		return uuid.Nil, uuid.Nil, false, fiber.NewError(fiber.StatusBadRequest, "student_quiz_attempt_student_id wajib untuk admin/dkm/teacher")
 	}
 
-	// validasi student milik masjid tsb
+	// validasi student milik school tsb
 	var ok bool
 	if err := ctl.DB.Raw(`
 		SELECT EXISTS(
-			SELECT 1 FROM masjid_students
-			 WHERE masjid_student_id = ? AND masjid_id = ?
+			SELECT 1 FROM school_students
+			 WHERE school_student_id = ? AND school_id = ?
 		)
 	`, *req.StudentQuizAttemptStudentID, qMid).Scan(&ok).Error; err != nil {
 		return uuid.Nil, uuid.Nil, false, err
 	}
 	if !ok {
-		return uuid.Nil, uuid.Nil, false, fiber.NewError(fiber.StatusBadRequest, "student tidak terdaftar di masjid quiz")
+		return uuid.Nil, uuid.Nil, false, fiber.NewError(fiber.StatusBadRequest, "student tidak terdaftar di school quiz")
 	}
 
 	return qMid, *req.StudentQuizAttemptStudentID, false, nil
@@ -151,7 +151,7 @@ func (ctl *StudentQuizAttemptsController) Create(c *fiber.Ctx) error {
 	}
 
 	// Override anti-spoof
-	req.StudentQuizAttemptMasjidID = &mid
+	req.StudentQuizAttemptSchoolID = &mid
 	req.StudentQuizAttemptStudentID = &sid
 
 	m := req.ToModel()
@@ -190,7 +190,7 @@ func (ctl *StudentQuizAttemptsController) Patch(c *fiber.Ctx) error {
 	}
 
 	// scope: DKM/Teacher (Owner juga diizinkan)
-	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, m.StudentQuizAttemptMasjidID); err != nil && !helperAuth.IsOwner(c) {
+	if err := helperAuth.EnsureDKMOrTeacherSchool(c, m.StudentQuizAttemptSchoolID); err != nil && !helperAuth.IsOwner(c) {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
@@ -236,7 +236,7 @@ func (ctl *StudentQuizAttemptsController) Delete(c *fiber.Ctx) error {
 
 	var m qmodel.StudentQuizAttemptModel
 	if err := ctl.DB.
-		Select("student_quiz_attempt_id, student_quiz_attempt_masjid_id").
+		Select("student_quiz_attempt_id, student_quiz_attempt_school_id").
 		First(&m, "student_quiz_attempt_id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Attempt tidak ditemukan")
@@ -245,7 +245,7 @@ func (ctl *StudentQuizAttemptsController) Delete(c *fiber.Ctx) error {
 	}
 
 	// scope: DKM/Teacher (Owner juga diizinkan)
-	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, m.StudentQuizAttemptMasjidID); err != nil && !helperAuth.IsOwner(c) {
+	if err := helperAuth.EnsureDKMOrTeacherSchool(c, m.StudentQuizAttemptSchoolID); err != nil && !helperAuth.IsOwner(c) {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
@@ -258,59 +258,59 @@ func (ctl *StudentQuizAttemptsController) Delete(c *fiber.Ctx) error {
 	return helper.JsonDeleted(c, "Berhasil menghapus", fiber.Map{"deleted_id": id})
 }
 
-// GET /student-quiz-attempts?quiz_id=&student_id=&status=&active_only=true&masjid_id=
+// GET /student-quiz-attempts?quiz_id=&student_id=&status=&active_only=true&school_id=
 func (ctl *StudentQuizAttemptsController) List(c *fiber.Ctx) error {
 	quizIDStr := strings.TrimSpace(c.Query("quiz_id"))
 	studentIDStr := strings.TrimSpace(c.Query("student_id"))
 	statusStr := strings.TrimSpace(c.Query("status"))
 	activeOnly := strings.EqualFold(strings.TrimSpace(c.Query("active_only")), "true")
-	masjidIDStr := strings.TrimSpace(c.Query("masjid_id"))
+	schoolIDStr := strings.TrimSpace(c.Query("school_id"))
 
 	q := ctl.DB.Model(&qmodel.StudentQuizAttemptModel{})
 
 	// Role-based scoping
 	if helperAuth.IsStudent(c) {
-		// Student: lock ke masjid aktif + student_id sendiri
-		mid, err := helperAuth.GetActiveMasjidID(c)
+		// Student: lock ke school aktif + student_id sendiri
+		mid, err := helperAuth.GetActiveSchoolID(c)
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 		}
-		if err := helperAuth.EnsureStudentMasjid(c, mid); err != nil {
+		if err := helperAuth.EnsureStudentSchool(c, mid); err != nil {
 			return err
 		}
-		sid, err := helperAuth.GetMasjidStudentIDForMasjid(c, mid)
+		sid, err := helperAuth.GetSchoolStudentIDForSchool(c, mid)
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 		}
-		q = q.Where("student_quiz_attempt_masjid_id = ? AND student_quiz_attempt_student_id = ?", mid, sid)
+		q = q.Where("student_quiz_attempt_school_id = ? AND student_quiz_attempt_student_id = ?", mid, sid)
 	} else {
 		// Admin/DKM/Teacher (Owner juga diizinkan)
 		var mid uuid.UUID
 		var err error
-		if masjidIDStr != "" {
-			mid, err = uuid.Parse(masjidIDStr)
+		if schoolIDStr != "" {
+			mid, err = uuid.Parse(schoolIDStr)
 			if err != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id tidak valid")
+				return helper.JsonError(c, fiber.StatusBadRequest, "school_id tidak valid")
 			}
-			if err := helperAuth.EnsureDKMOrTeacherMasjid(c, mid); err != nil && !helperAuth.IsOwner(c) {
+			if err := helperAuth.EnsureDKMOrTeacherSchool(c, mid); err != nil && !helperAuth.IsOwner(c) {
 				if fe, ok := err.(*fiber.Error); ok {
 					return helper.JsonError(c, fe.Code, fe.Message)
 				}
 				return err
 			}
 		} else {
-			mid, err = helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+			mid, err = helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
 			if err != nil {
 				return helper.JsonError(c, fiber.StatusUnauthorized, err.Error())
 			}
-			if err := helperAuth.EnsureDKMOrTeacherMasjid(c, mid); err != nil && !helperAuth.IsOwner(c) {
+			if err := helperAuth.EnsureDKMOrTeacherSchool(c, mid); err != nil && !helperAuth.IsOwner(c) {
 				if fe, ok := err.(*fiber.Error); ok {
 					return helper.JsonError(c, fe.Code, fe.Message)
 				}
 				return err
 			}
 		}
-		q = q.Where("student_quiz_attempt_masjid_id = ?", mid)
+		q = q.Where("student_quiz_attempt_school_id = ?", mid)
 
 		// teacher/dkm boleh filter student_id tertentu
 		if studentIDStr != "" {

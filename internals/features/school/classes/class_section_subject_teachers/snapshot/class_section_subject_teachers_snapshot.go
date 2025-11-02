@@ -48,7 +48,7 @@ func firstExisting(cols map[string]struct{}, cands ...string) string {
 
 func ValidateAndSnapshotCSST(
 	tx *gorm.DB,
-	expectMasjidID uuid.UUID,
+	expectSchoolID uuid.UUID,
 	csstID uuid.UUID,
 ) (*CSSTSnapshot, error) {
 	cols, err := tableColumns(tx, "class_section_subject_teachers")
@@ -57,11 +57,11 @@ func ValidateAndSnapshotCSST(
 	}
 
 	idCol := firstExisting(cols, "class_section_subject_teacher_id", "id")
-	masjidCol := firstExisting(cols, "class_section_subject_teacher_masjid_id", "masjid_id")
+	schoolCol := firstExisting(cols, "class_section_subject_teacher_school_id", "school_id")
 	nameCol := firstExisting(cols, "class_section_subject_teacher_name", "name")
 	teacherCol := firstExisting(cols,
 		"class_section_subject_teacher_teacher_id",
-		"masjid_teacher_id",
+		"school_teacher_id",
 		"teacher_id",
 	)
 	sectionCol := firstExisting(cols,
@@ -71,7 +71,7 @@ func ValidateAndSnapshotCSST(
 	)
 	deletedCol := firstExisting(cols, "class_section_subject_teacher_deleted_at", "deleted_at")
 
-	if idCol == "" || masjidCol == "" || nameCol == "" {
+	if idCol == "" || schoolCol == "" || nameCol == "" {
 		return nil, fiber.NewError(fiber.StatusInternalServerError, "CSST snapshot: kolom minimal tidak ditemukan")
 	}
 
@@ -90,7 +90,7 @@ func ValidateAndSnapshotCSST(
 
 	q := fmt.Sprintf(`
 SELECT
-  csst.%s::text AS masjid_id,
+  csst.%s::text AS school_id,
   csst.%s       AS name,
   %s            AS teacher_id,
   %s            AS section_id
@@ -98,11 +98,11 @@ FROM class_section_subject_teachers csst
 WHERE csst.%s = ?
 %s
 LIMIT 1`,
-		masjidCol, nameCol, teachExpr, secExpr, idCol, whereDeleted,
+		schoolCol, nameCol, teachExpr, secExpr, idCol, whereDeleted,
 	)
 
 	var row struct {
-		MasjidID  string     `gorm:"column:masjid_id"`
+		SchoolID  string     `gorm:"column:school_id"`
 		Name      *string    `gorm:"column:name"`
 		TeacherID *uuid.UUID `gorm:"column:teacher_id"`
 		SectionID *uuid.UUID `gorm:"column:section_id"`
@@ -110,16 +110,16 @@ LIMIT 1`,
 	if err := tx.Raw(q, csstID).Scan(&row).Error; err != nil {
 		return nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal memuat CSST")
 	}
-	if strings.TrimSpace(row.MasjidID) == "" {
+	if strings.TrimSpace(row.SchoolID) == "" {
 		return nil, fiber.NewError(fiber.StatusBadRequest, "CSST tidak ditemukan")
 	}
 
-	rmz, perr := uuid.Parse(strings.TrimSpace(row.MasjidID))
+	rmz, perr := uuid.Parse(strings.TrimSpace(row.SchoolID))
 	if perr != nil {
-		return nil, fiber.NewError(fiber.StatusInternalServerError, "Format masjid_id CSST tidak valid")
+		return nil, fiber.NewError(fiber.StatusInternalServerError, "Format school_id CSST tidak valid")
 	}
-	if expectMasjidID != uuid.Nil && rmz != uuid.Nil && rmz != expectMasjidID {
-		return nil, fiber.NewError(fiber.StatusForbidden, "CSST bukan milik masjid Anda")
+	if expectSchoolID != uuid.Nil && rmz != uuid.Nil && rmz != expectSchoolID {
+		return nil, fiber.NewError(fiber.StatusForbidden, "CSST bukan milik school Anda")
 	}
 
 	trimPtr := func(p *string) *string {

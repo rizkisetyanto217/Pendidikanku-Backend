@@ -23,7 +23,7 @@ type AssessmentURLModel struct {
 	AssessmentURLID uuid.UUID `gorm:"column:assessment_url_id;type:uuid;primaryKey;default:gen_random_uuid()"`
 
 	// Tenant & owner
-	AssessmentURLMasjidID   uuid.UUID `gorm:"column:assessment_url_masjid_id;type:uuid;not null"`
+	AssessmentURLSchoolID   uuid.UUID `gorm:"column:assessment_url_school_id;type:uuid;not null"`
 	AssessmentURLAssessment uuid.UUID `gorm:"column:assessment_url_assessment_id;type:uuid;not null"`
 
 	// Jenis/peran aset

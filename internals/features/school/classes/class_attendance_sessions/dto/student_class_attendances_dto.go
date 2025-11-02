@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
-	attendanceModel "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
+	attendanceModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
 )
 
 /* ===================== PatchField (tri-state) ===================== */
@@ -106,9 +106,9 @@ type StudentClassSessionAttendanceURLOpDTO struct {
 /* ===================== Create DTO ===================== */
 
 type StudentClassSessionAttendanceCreateRequest struct {
-	MasjidID        uuid.UUID `json:"masjid_id"         validate:"required,uuid4"`
+	SchoolID        uuid.UUID `json:"school_id"         validate:"required,uuid4"`
 	SessionID       uuid.UUID `json:"session_id"        validate:"required,uuid4"`
-	MasjidStudentID uuid.UUID `json:"masjid_student_id" validate:"required,uuid4"`
+	SchoolStudentID uuid.UUID `json:"school_student_id" validate:"required,uuid4"`
 
 	Status      *string    `json:"status,omitempty" validate:"omitempty,oneof=unmarked present absent excused late"`
 	TypeID      *uuid.UUID `json:"type_id,omitempty" validate:"omitempty,uuid4"`
@@ -133,9 +133,9 @@ type StudentClassSessionAttendanceCreateRequest struct {
 
 func (r StudentClassSessionAttendanceCreateRequest) ToModel() attendanceModel.StudentClassSessionAttendanceModel {
 	m := attendanceModel.StudentClassSessionAttendanceModel{
-		StudentClassSessionAttendanceMasjidID:        r.MasjidID,
+		StudentClassSessionAttendanceSchoolID:        r.SchoolID,
 		StudentClassSessionAttendanceSessionID:       r.SessionID,
-		StudentClassSessionAttendanceMasjidStudentID: r.MasjidStudentID,
+		StudentClassSessionAttendanceSchoolStudentID: r.SchoolStudentID,
 
 		StudentClassSessionAttendanceDesc:        r.Desc,
 		StudentClassSessionAttendanceScore:       r.Score,
@@ -257,7 +257,7 @@ type ListStudentClassSessionAttendanceQuery struct {
 	MethodIn CSV    `query:"method_in"` // manual|qr|geo|import|api|self
 
 	SessionID         string `query:"session_id"`
-	MasjidStudentID   string `query:"masjid_student_id"`
+	SchoolStudentID   string `query:"school_student_id"`
 	TypeID            string `query:"type_id"`
 	MarkedByTeacherID string `query:"marked_by_teacher_id"`
 
@@ -275,7 +275,7 @@ type URLMutations struct {
 	ToDelete []uuid.UUID
 }
 
-func BuildURLMutations(attendanceID uuid.UUID, masjidID uuid.UUID, ops []StudentClassSessionAttendanceURLOpDTO) (URLMutations, error) {
+func BuildURLMutations(attendanceID uuid.UUID, schoolID uuid.UUID, ops []StudentClassSessionAttendanceURLOpDTO) (URLMutations, error) {
 	var out URLMutations
 	for _, op := range ops {
 		switch op.Op {
@@ -289,7 +289,7 @@ func BuildURLMutations(attendanceID uuid.UUID, masjidID uuid.UUID, ops []Student
 					return out, err
 				}
 				row := attendanceModel.StudentClassSessionAttendanceURLModel{
-					StudentClassSessionAttendanceURLMasjidID:           masjidID,
+					StudentClassSessionAttendanceURLSchoolID:           schoolID,
 					StudentClassSessionAttendanceURLAttendanceID:       attendanceID,
 					StudentClassSessionAttendanceURLKind:               kind,
 					StudentClassSessionAttendanceURLLabel:              op.Label,

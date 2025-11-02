@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"strings"
 
-	csbDTO "masjidku_backend/internals/features/school/academics/books/dto"
-	csbModel "masjidku_backend/internals/features/school/academics/books/model"
-	bookSnap "masjidku_backend/internals/features/school/academics/books/snapshot"
+	csbDTO "schoolku_backend/internals/features/school/academics/books/dto"
+	csbModel "schoolku_backend/internals/features/school/academics/books/model"
+	bookSnap "schoolku_backend/internals/features/school/academics/books/snapshot"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -32,11 +32,11 @@ Body: CreateClassSubjectBookRequest
 */
 func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 	// 🔐 Tenant scope
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -46,7 +46,7 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
-	req.ClassSubjectBookMasjidID = masjidID
+	req.ClassSubjectBookSchoolID = schoolID
 	req.Normalize()
 	if err := validator.New().Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -55,10 +55,10 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 	var created csbModel.ClassSubjectBookModel
 	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		// ✅ Validasi kepemilikan tenant (EXISTS)
-		if err := ensureClassSubjectTenantExists(tx, req.ClassSubjectBookClassSubjectID, masjidID); err != nil {
+		if err := ensureClassSubjectTenantExists(tx, req.ClassSubjectBookClassSubjectID, schoolID); err != nil {
 			return err
 		}
-		if err := ensureBookTenantExists(tx, req.ClassSubjectBookBookID, masjidID); err != nil {
+		if err := ensureBookTenantExists(tx, req.ClassSubjectBookBookID, schoolID); err != nil {
 			return err
 		}
 
@@ -101,9 +101,9 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 			baseSlug,
 			func(q *gorm.DB) *gorm.DB {
 				return q.Where(`
-					class_subject_book_masjid_id = ?
+					class_subject_book_school_id = ?
 					AND class_subject_book_deleted_at IS NULL
-				`, masjidID)
+				`, schoolID)
 			},
 			160,
 		)
@@ -141,7 +141,7 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 			case strings.Contains(msg, "uq_csb_unique") ||
 				strings.Contains(msg, "duplicate") ||
 				(strings.Contains(msg, "unique") &&
-					strings.Contains(msg, "masjid") && strings.Contains(msg, "class_subject") && strings.Contains(msg, "book")):
+					strings.Contains(msg, "school") && strings.Contains(msg, "class_subject") && strings.Contains(msg, "book")):
 				return fiber.NewError(fiber.StatusConflict, "Buku sudah terdaftar pada class_subject tersebut")
 			case strings.Contains(msg, "uq_csb_slug_per_tenant_alive") ||
 				(strings.Contains(msg, "class_subject_book_slug") && strings.Contains(msg, "unique")):
@@ -164,16 +164,16 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 
 /* ================= Helpers: EXISTS-based tenant checks ================= */
 
-func ensureClassSubjectTenantExists(db *gorm.DB, classSubjectID, masjidID uuid.UUID) error {
+func ensureClassSubjectTenantExists(db *gorm.DB, classSubjectID, schoolID uuid.UUID) error {
 	var ok bool
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1
 			FROM class_subjects
 			WHERE class_subject_id = ?
-			  AND class_subject_masjid_id = ?
+			  AND class_subject_school_id = ?
 			  AND class_subject_deleted_at IS NULL
-		)`, classSubjectID, masjidID).Scan(&ok).Error; err != nil {
+		)`, classSubjectID, schoolID).Scan(&ok).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi class_subject")
 	}
 	if !ok {
@@ -182,16 +182,16 @@ func ensureClassSubjectTenantExists(db *gorm.DB, classSubjectID, masjidID uuid.U
 	return nil
 }
 
-func ensureBookTenantExists(db *gorm.DB, bookID, masjidID uuid.UUID) error {
+func ensureBookTenantExists(db *gorm.DB, bookID, schoolID uuid.UUID) error {
 	var ok bool
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1
 			FROM books
 			WHERE book_id = ?
-			  AND book_masjid_id = ?
+			  AND book_school_id = ?
 			  AND book_deleted_at IS NULL
-		)`, bookID, masjidID).Scan(&ok).Error; err != nil {
+		)`, bookID, schoolID).Scan(&ok).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi buku")
 	}
 	if !ok {
@@ -240,11 +240,11 @@ PUT /admin/class-subject-books/:id
 =========================================================
 */
 func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -259,7 +259,7 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	// paksa tenant
-	req.ClassSubjectBookMasjidID = &masjidID
+	req.ClassSubjectBookSchoolID = &schoolID
 
 	if err := validator.New().Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -276,8 +276,8 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 		}
-		if m.ClassSubjectBookMasjidID != masjidID {
-			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengubah data milik masjid lain")
+		if m.ClassSubjectBookSchoolID != schoolID {
+			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh mengubah data milik school lain")
 		}
 		if m.ClassSubjectBookDeletedAt.Valid {
 			return fiber.NewError(fiber.StatusBadRequest, "Data sudah dihapus")
@@ -290,7 +290,7 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 
 		// Jika class_subject_id diubah → validasi tenant + refresh SUBJECT snapshot
 		if req.ClassSubjectBookClassSubjectID != nil {
-			if err := ensureClassSubjectTenantExists(tx, *req.ClassSubjectBookClassSubjectID, masjidID); err != nil {
+			if err := ensureClassSubjectTenantExists(tx, *req.ClassSubjectBookClassSubjectID, schoolID); err != nil {
 				return err
 			}
 			snapS, err := fetchSubjectSnapshotByClassSubjectID(tx, *req.ClassSubjectBookClassSubjectID)
@@ -305,7 +305,7 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 
 		// Jika book_id diubah → validasi tenant + refresh BOOK snapshot
 		if req.ClassSubjectBookBookID != nil {
-			if err := ensureBookTenantExists(tx, *req.ClassSubjectBookBookID, masjidID); err != nil {
+			if err := ensureBookTenantExists(tx, *req.ClassSubjectBookBookID, schoolID); err != nil {
 				return err
 			}
 			snapB, err := bookSnap.FetchBookSnapshot(tx, *req.ClassSubjectBookBookID)
@@ -334,10 +334,10 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 					base,
 					func(q *gorm.DB) *gorm.DB {
 						return q.Where(`
-							class_subject_book_masjid_id = ?
+							class_subject_book_school_id = ?
 							AND class_subject_book_deleted_at IS NULL
 							AND class_subject_book_id <> ?
-						`, masjidID, m.ClassSubjectBookID)
+						`, schoolID, m.ClassSubjectBookID)
 					},
 					160,
 				)
@@ -367,10 +367,10 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 				base,
 				func(q *gorm.DB) *gorm.DB {
 					return q.Where(`
-						class_subject_book_masjid_id = ?
+						class_subject_book_school_id = ?
 						AND class_subject_book_deleted_at IS NULL
 						AND class_subject_book_id <> ?
-					`, masjidID, m.ClassSubjectBookID)
+					`, schoolID, m.ClassSubjectBookID)
 				},
 				160,
 			)
@@ -388,7 +388,7 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 			case strings.Contains(msg, "uq_csb_unique") ||
 				strings.Contains(msg, "duplicate") ||
 				(strings.Contains(msg, "unique") &&
-					strings.Contains(msg, "masjid") && strings.Contains(msg, "class_subject") && strings.Contains(msg, "book")):
+					strings.Contains(msg, "school") && strings.Contains(msg, "class_subject") && strings.Contains(msg, "book")):
 				return fiber.NewError(fiber.StatusConflict, "Buku sudah terdaftar pada class_subject tersebut")
 			case strings.Contains(msg, "uq_csb_slug_per_tenant_alive") ||
 				(strings.Contains(msg, "class_subject_book_slug") && strings.Contains(msg, "unique")):
@@ -416,17 +416,17 @@ DELETE /admin/class-subject-books/:id?force=true
 =========================================================
 */
 func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
 
-	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
-	isAdmin := adminMasjidID != uuid.Nil && adminMasjidID == masjidID
+	adminSchoolID, _ := helperAuth.GetSchoolIDFromToken(c)
+	isAdmin := adminSchoolID != uuid.Nil && adminSchoolID == schoolID
 	force := strings.EqualFold(c.Query("force"), "true")
 	if force && !isAdmin {
 		return fiber.NewError(fiber.StatusForbidden, "Hanya admin yang boleh hard delete")
@@ -446,8 +446,8 @@ func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 		}
-		if m.ClassSubjectBookMasjidID != masjidID {
-			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh menghapus data milik masjid lain")
+		if m.ClassSubjectBookSchoolID != schoolID {
+			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh menghapus data milik school lain")
 		}
 
 		if force {

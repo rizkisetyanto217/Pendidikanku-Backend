@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS faq_answers (
   faq_answer_question_id  UUID NOT NULL REFERENCES faq_questions(faq_question_id) ON DELETE CASCADE,
   faq_answer_answered_by  UUID REFERENCES users(id) ON DELETE SET NULL,
   faq_answer_text         TEXT NOT NULL,
-  faq_answer_masjid_id    UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  faq_answer_school_id    UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
   faq_answer_created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   faq_answer_updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   faq_answer_deleted_at   TIMESTAMPTZ NULL,
@@ -130,8 +130,8 @@ CREATE INDEX IF NOT EXISTS idx_fqa_answered_by_created
   ON faq_answers (faq_answer_answered_by, faq_answer_created_at DESC)
   WHERE faq_answer_answered_by IS NOT NULL AND faq_answer_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_fqa_masjid_created
-  ON faq_answers (faq_answer_masjid_id, faq_answer_created_at DESC)
+CREATE INDEX IF NOT EXISTS idx_fqa_school_created
+  ON faq_answers (faq_answer_school_id, faq_answer_created_at DESC)
   WHERE faq_answer_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_fqa_search_fts

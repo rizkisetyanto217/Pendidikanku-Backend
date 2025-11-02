@@ -4,16 +4,16 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	ctr "masjidku_backend/internals/features/school/submissions_assesments/assesments/controller"
+	ctr "schoolku_backend/internals/features/school/submissions_assesments/assesments/controller"
 )
 
-// AssessmentAdminRoutes mendaftarkan route ADMIN untuk assessment types, assessments (scoped by :masjid_id)
+// AssessmentAdminRoutes mendaftarkan route ADMIN untuk assessment types, assessments (scoped by :school_id)
 func AssessmentAdminRoutes(r fiber.Router, db *gorm.DB) {
 	typeCtrl := ctr.NewAssessmentTypeController(db)
 	assessCtrl := ctr.NewAssessmentController(db)
 
-	// Base group pakai :masjid_id di path
-	g := r.Group("/:masjid_id")
+	// Base group pakai :school_id di path
+	g := r.Group("/:school_id")
 
 	// ---------- Assessment Types (ADMIN: full CRUD) ----------
 	typeGroup := g.Group("/assessment-types")

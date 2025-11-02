@@ -12,8 +12,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
-	m "masjidku_backend/internals/features/school/academics/subjects/model"
-	helper "masjidku_backend/internals/helpers"
+	m "schoolku_backend/internals/features/school/academics/subjects/model"
+	helper "schoolku_backend/internals/helpers"
 )
 
 /* =========================================================
@@ -46,7 +46,7 @@ func (p PatchField[T]) Get() (*T, bool) { return p.Value, p.Present }
    ========================================================= */
 
 type CreateSubjectRequest struct {
-	MasjidID uuid.UUID `json:"subject_masjid_id" form:"subject_masjid_id" validate:"required"`
+	SchoolID uuid.UUID `json:"subject_school_id" form:"subject_school_id" validate:"required"`
 
 	Code string `json:"subject_code" form:"subject_code" validate:"required,min=1,max=40"`
 	Name string `json:"subject_name" form:"subject_name" validate:"required,min=1,max=120"`
@@ -116,7 +116,7 @@ func (r CreateSubjectRequest) ToModel() m.SubjectModel {
 	}
 
 	mm := m.SubjectModel{
-		SubjectMasjidID:                r.MasjidID,
+		SubjectSchoolID:                r.SchoolID,
 		SubjectCode:                    r.Code,
 		SubjectName:                    r.Name,
 		SubjectDesc:                    r.Desc,
@@ -158,9 +158,9 @@ func BindMultipartCreate(c *fiber.Ctx) (CreateSubjectRequest, *multipart.FileHea
 			req.IsActive = &b
 		}
 	}
-	if v := strings.TrimSpace(c.FormValue("subject_masjid_id")); v != "" {
+	if v := strings.TrimSpace(c.FormValue("subject_school_id")); v != "" {
 		if id, err := uuid.Parse(v); err == nil {
-			req.MasjidID = id
+			req.SchoolID = id
 		}
 	}
 
@@ -199,7 +199,7 @@ func BindMultipartCreate(c *fiber.Ctx) (CreateSubjectRequest, *multipart.FileHea
    ========================================================= */
 
 type UpdateSubjectRequest struct {
-	MasjidID *uuid.UUID `json:"subject_masjid_id" form:"subject_masjid_id"`
+	SchoolID *uuid.UUID `json:"subject_school_id" form:"subject_school_id"`
 
 	Code     PatchField[string]  `json:"subject_code"`
 	Name     PatchField[string]  `json:"subject_name"`
@@ -262,8 +262,8 @@ func (p *UpdateSubjectRequest) Normalize() {
 }
 
 func (p UpdateSubjectRequest) Apply(mo *m.SubjectModel) {
-	if p.MasjidID != nil {
-		mo.SubjectMasjidID = *p.MasjidID
+	if p.SchoolID != nil {
+		mo.SubjectSchoolID = *p.SchoolID
 	}
 
 	// scalar
@@ -361,10 +361,10 @@ func BindMultipartPatch(c *fiber.Ctx) (UpdateSubjectRequest, *multipart.FileHead
 		*dst = &v
 	}
 
-	// masjid_id (opsional; biasanya di-force di controller)
-	if has("subject_masjid_id") {
-		if id, err := uuid.Parse(get("subject_masjid_id")); err == nil {
-			req.MasjidID = &id
+	// school_id (opsional; biasanya di-force di controller)
+	if has("subject_school_id") {
+		if id, err := uuid.Parse(get("subject_school_id")); err == nil {
+			req.SchoolID = &id
 		}
 	}
 
@@ -505,7 +505,7 @@ type ListSubjectQuery struct {
 
 type SubjectResponse struct {
 	SubjectID                      uuid.UUID  `json:"subject_id"`
-	SubjectMasjidID                uuid.UUID  `json:"subject_masjid_id"`
+	SubjectSchoolID                uuid.UUID  `json:"subject_school_id"`
 	SubjectCode                    string     `json:"subject_code"`
 	SubjectName                    string     `json:"subject_name"`
 	SubjectDesc                    *string    `json:"subject_desc,omitempty"`
@@ -529,7 +529,7 @@ func FromSubjectModel(mo m.SubjectModel) SubjectResponse {
 	}
 	return SubjectResponse{
 		SubjectID:                      mo.SubjectID,
-		SubjectMasjidID:                mo.SubjectMasjidID,
+		SubjectSchoolID:                mo.SubjectSchoolID,
 		SubjectCode:                    mo.SubjectCode,
 		SubjectName:                    mo.SubjectName,
 		SubjectDesc:                    mo.SubjectDesc,

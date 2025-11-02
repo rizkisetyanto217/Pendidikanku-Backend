@@ -12,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS btree_gin;  -- optional combo indexes
    ========================================================= */
 CREATE TABLE IF NOT EXISTS books (
   book_id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  book_masjid_id        UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  book_school_id        UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   book_title            TEXT NOT NULL,
   book_author           TEXT,
@@ -38,22 +38,22 @@ CREATE TABLE IF NOT EXISTS books (
 );
 
 -- Pair unik utk FK komposit downstream (opsional, aman di-rerun)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_books_id_masjid
-  ON books (book_id, book_masjid_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_books_id_school
+  ON books (book_id, book_school_id);
 
--- Unik slug per masjid (alive only, case-insensitive)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_books_slug_per_masjid_alive
-  ON books (book_masjid_id, LOWER(book_slug))
+-- Unik slug per school (alive only, case-insensitive)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_books_slug_per_school_alive
+  ON books (book_school_id, LOWER(book_slug))
   WHERE book_deleted_at IS NULL AND book_slug IS NOT NULL;
 
 -- Lookup umum (alive only)
-CREATE INDEX IF NOT EXISTS idx_books_masjid_alive
-  ON books (book_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_books_school_alive
+  ON books (book_school_id)
   WHERE book_deleted_at IS NULL;
 
 -- Sort terbaru per tenant (alive only)
 CREATE INDEX IF NOT EXISTS ix_books_tenant_created_alive
-  ON books (book_masjid_id, book_created_at DESC)
+  ON books (book_school_id, book_created_at DESC)
   WHERE book_deleted_at IS NULL;
 
 -- BRIN: time-scan besar
@@ -77,8 +77,8 @@ CREATE TABLE IF NOT EXISTS class_subject_books (
   class_subject_book_id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant
-  class_subject_book_masjid_id        UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_subject_book_school_id        UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- relasi
   class_subject_book_class_subject_id UUID NOT NULL
@@ -119,7 +119,7 @@ CREATE TABLE IF NOT EXISTS class_subject_books (
 -- Unik per (tenant, class_subject, book) — soft-delete aware
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csb_unique_alive
   ON class_subject_books (
-    class_subject_book_masjid_id,
+    class_subject_book_school_id,
     class_subject_book_class_subject_id,
     class_subject_book_book_id
   )
@@ -128,7 +128,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csb_unique_alive
 -- Unik SLUG per tenant (alive only, case-insensitive)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csb_slug_per_tenant_alive
   ON class_subject_books (
-    class_subject_book_masjid_id,
+    class_subject_book_school_id,
     LOWER(class_subject_book_slug)
   )
   WHERE class_subject_book_deleted_at IS NULL
@@ -141,8 +141,8 @@ CREATE INDEX IF NOT EXISTS gin_csb_slug_trgm_alive
     AND class_subject_book_slug IS NOT NULL;
 
 -- Lookup umum (alive only)
-CREATE INDEX IF NOT EXISTS idx_csb_masjid_alive
-  ON class_subject_books (class_subject_book_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_csb_school_alive
+  ON class_subject_books (class_subject_book_school_id)
   WHERE class_subject_book_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_csb_class_subject_alive
@@ -160,7 +160,7 @@ CREATE INDEX IF NOT EXISTS idx_csb_active_alive
 -- List cepat per (tenant, subject, active) + sort waktu (alive only)
 CREATE INDEX IF NOT EXISTS ix_csb_tenant_subject_active_created_alive
   ON class_subject_books (
-    class_subject_book_masjid_id,
+    class_subject_book_school_id,
     class_subject_book_class_subject_id,
     class_subject_book_is_active,
     class_subject_book_created_at DESC
@@ -213,8 +213,8 @@ CREATE TABLE IF NOT EXISTS book_urls (
   book_url_id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant & owner
-  book_url_masjid_id           UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  book_url_school_id           UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
   book_url_book_id             UUID NOT NULL
     REFERENCES books(book_id) ON DELETE CASCADE,
 
@@ -251,8 +251,8 @@ CREATE INDEX IF NOT EXISTS ix_book_urls_by_owner_live
   WHERE book_url_deleted_at IS NULL;
 
 -- Filter per tenant (alive only)
-CREATE INDEX IF NOT EXISTS ix_book_urls_by_masjid_live
-  ON book_urls (book_url_masjid_id)
+CREATE INDEX IF NOT EXISTS ix_book_urls_by_school_live
+  ON book_urls (book_url_school_id)
   WHERE book_url_deleted_at IS NULL;
 
 -- Satu primary per (book, kind) (alive only)

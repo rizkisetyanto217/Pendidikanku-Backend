@@ -80,139 +80,139 @@ COMMIT;
 
 
 /* =========================================================
-   2) MASJID_STUDENTS (pivot user ↔ masjid, role fixed student)
+   2) MASJID_STUDENTS (pivot user ↔ school, role fixed student)
    ========================================================= */
-CREATE TABLE IF NOT EXISTS masjid_students (
-  masjid_student_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+CREATE TABLE IF NOT EXISTS school_students (
+  school_student_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  masjid_student_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  school_student_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
-  masjid_student_user_id UUID NOT NULL
+  school_student_user_id UUID NOT NULL
     REFERENCES users(id) ON DELETE CASCADE,
 
   -- Identitas siswa di tenant
-  masjid_student_code VARCHAR(50),   -- kartu/member code (opsional)
-  masjid_student_nim  VARCHAR(50),   -- NIM/NIS/NISN lokal per masjid/sekolah
+  school_student_code VARCHAR(50),   -- kartu/member code (opsional)
+  school_student_nim  VARCHAR(50),   -- NIM/NIS/NISN lokal per school/sekolah
 
   -- Status keanggotaan
-  masjid_student_status TEXT NOT NULL DEFAULT 'active'
-    CHECK (masjid_student_status IN ('active','inactive','alumni')),
+  school_student_status TEXT NOT NULL DEFAULT 'active'
+    CHECK (school_student_status IN ('active','inactive','alumni')),
 
   -- Operasional (histori)
-  masjid_student_joined_at TIMESTAMPTZ,
-  masjid_student_left_at   TIMESTAMPTZ,
+  school_student_joined_at TIMESTAMPTZ,
+  school_student_left_at   TIMESTAMPTZ,
 
   -- Catatan umum santri
-  masjid_student_note TEXT,
+  school_student_note TEXT,
 
   -- Penempatan akademik (snapshot ringan)
-  masjid_student_current_class_id UUID,           -- FK opsional ke class_sections/rooms
+  school_student_current_class_id UUID,           -- FK opsional ke class_sections/rooms
 
   -- Audit core
-  masjid_student_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  masjid_student_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  masjid_student_deleted_at TIMESTAMPTZ,
+  school_student_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  school_student_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  school_student_deleted_at TIMESTAMPTZ,
 
   -- Validasi pola (opsional & ringan)
   CONSTRAINT ck_ms_nim_format CHECK (
-    masjid_student_nim IS NULL OR masjid_student_nim ~ '^[A-Za-z0-9._-]{3,30}$'
+    school_student_nim IS NULL OR school_student_nim ~ '^[A-Za-z0-9._-]{3,30}$'
   ),
 );
 
 -- Pair unik (tenant-safe join ops) — idempotent via DO
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_ms_id_masjid') THEN
-    ALTER TABLE masjid_students
-      ADD CONSTRAINT uq_ms_id_masjid UNIQUE (masjid_student_id, masjid_student_masjid_id);
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_ms_id_school') THEN
+    ALTER TABLE school_students
+      ADD CONSTRAINT uq_ms_id_school UNIQUE (school_student_id, school_student_school_id);
   END IF;
 END$$;
 
--- Unik: 1 user AKTIF per masjid (soft-delete aware)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_ms_user_per_masjid_live
-  ON masjid_students (masjid_student_masjid_id, masjid_student_user_id)
-  WHERE masjid_student_deleted_at IS NULL
-    AND masjid_student_status = 'active';
+-- Unik: 1 user AKTIF per school (soft-delete aware)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_ms_user_per_school_live
+  ON school_students (school_student_school_id, school_student_user_id)
+  WHERE school_student_deleted_at IS NULL
+    AND school_student_status = 'active';
 
--- Unik CODE per masjid (case-insensitive; alive only)
+-- Unik CODE per school (case-insensitive; alive only)
 CREATE UNIQUE INDEX IF NOT EXISTS ux_ms_code_alive_ci
-  ON masjid_students (masjid_student_masjid_id, LOWER(masjid_student_code))
-  WHERE masjid_student_deleted_at IS NULL
-    AND masjid_student_code IS NOT NULL;
+  ON school_students (school_student_school_id, LOWER(school_student_code))
+  WHERE school_student_deleted_at IS NULL
+    AND school_student_code IS NOT NULL;
 
--- Unik NIM per masjid (case-insensitive; alive only)
+-- Unik NIM per school (case-insensitive; alive only)
 CREATE UNIQUE INDEX IF NOT EXISTS ux_ms_nim_alive_ci
-  ON masjid_students (masjid_student_masjid_id, LOWER(masjid_student_nim))
-  WHERE masjid_student_deleted_at IS NULL
-    AND masjid_student_nim IS NOT NULL;
+  ON school_students (school_student_school_id, LOWER(school_student_nim))
+  WHERE school_student_deleted_at IS NULL
+    AND school_student_nim IS NOT NULL;
 
 -- Lookups umum per tenant (alive only) + created_at untuk pagination
 CREATE INDEX IF NOT EXISTS ix_ms_tenant_status_created
-  ON masjid_students (masjid_student_masjid_id, masjid_student_status, masjid_student_created_at DESC)
-  WHERE masjid_student_deleted_at IS NULL;
+  ON school_students (school_student_school_id, school_student_status, school_student_created_at DESC)
+  WHERE school_student_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_ms_masjid_alive
-  ON masjid_students (masjid_student_masjid_id)
-  WHERE masjid_student_deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_ms_school_alive
+  ON school_students (school_student_school_id)
+  WHERE school_student_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ms_user_alive
-  ON masjid_students (masjid_student_user_id)
-  WHERE masjid_student_deleted_at IS NULL;
+  ON school_students (school_student_user_id)
+  WHERE school_student_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_ms_masjid_status_alive
-  ON masjid_students (masjid_student_masjid_id, masjid_student_status)
-  WHERE masjid_student_deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_ms_school_status_alive
+  ON school_students (school_student_school_id, school_student_status)
+  WHERE school_student_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ms_user_status_alive
-  ON masjid_students (masjid_student_user_id, masjid_student_status)
-  WHERE masjid_student_deleted_at IS NULL;
+  ON school_students (school_student_user_id, school_student_status)
+  WHERE school_student_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ms_joined_at_alive
-  ON masjid_students (masjid_student_joined_at DESC)
-  WHERE masjid_student_deleted_at IS NULL;
+  ON school_students (school_student_joined_at DESC)
+  WHERE school_student_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ms_left_at_alive
-  ON masjid_students (masjid_student_left_at)
-  WHERE masjid_student_deleted_at IS NULL
-    AND masjid_student_left_at IS NOT NULL;
+  ON school_students (school_student_left_at)
+  WHERE school_student_deleted_at IS NULL
+    AND school_student_left_at IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ms_created_at_alive
-  ON masjid_students (masjid_student_created_at DESC)
-  WHERE masjid_student_deleted_at IS NULL;
+  ON school_students (school_student_created_at DESC)
+  WHERE school_student_deleted_at IS NULL;
 
 -- Teks: catatan santri, pakai ILIKE
 CREATE INDEX IF NOT EXISTS gin_ms_note_trgm_alive
-  ON masjid_students USING GIN (LOWER(masjid_student_note) gin_trgm_ops)
-  WHERE masjid_student_deleted_at IS NULL;
+  ON school_students USING GIN (LOWER(school_student_note) gin_trgm_ops)
+  WHERE school_student_deleted_at IS NULL;
 
 -- BRIN untuk range waktu besar (timeline ingestion)
 CREATE INDEX IF NOT EXISTS brin_ms_created_at
-  ON masjid_students USING BRIN (masjid_student_created_at);
+  ON school_students USING BRIN (school_student_created_at);
 
 -- Tambahan index untuk kolom rekomendasi (aktif bila kolom dipakai)
 CREATE INDEX IF NOT EXISTS idx_ms_intake_year_alive
-  ON masjid_students (masjid_student_intake_year)
-  WHERE masjid_student_deleted_at IS NULL;
+  ON school_students (school_student_intake_year)
+  WHERE school_student_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ms_admission_batch_alive
-  ON masjid_students (masjid_student_masjid_id, masjid_student_admission_batch)
-  WHERE masjid_student_deleted_at IS NULL;
+  ON school_students (school_student_school_id, school_student_admission_batch)
+  WHERE school_student_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ms_current_class_alive
-  ON masjid_students (masjid_student_current_class_id)
-  WHERE masjid_student_deleted_at IS NULL;
+  ON school_students (school_student_current_class_id)
+  WHERE school_student_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ms_grade_alive
-  ON masjid_students (masjid_student_current_grade)
-  WHERE masjid_student_deleted_at IS NULL;
+  ON school_students (school_student_current_grade)
+  WHERE school_student_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ms_verified_alive
-  ON masjid_students (masjid_student_is_verified, masjid_student_verified_at DESC)
-  WHERE masjid_student_deleted_at IS NULL;
+  ON school_students (school_student_is_verified, school_student_verified_at DESC)
+  WHERE school_student_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ms_status_changed_alive
-  ON masjid_students (masjid_student_status, masjid_student_status_changed_at DESC)
-  WHERE masjid_student_deleted_at IS NULL;
+  ON school_students (school_student_status, school_student_status_changed_at DESC)
+  WHERE school_student_deleted_at IS NULL;
 
 COMMIT;

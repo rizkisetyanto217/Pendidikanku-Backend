@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	model "masjidku_backend/internals/features/school/academics/books/model"
+	model "schoolku_backend/internals/features/school/academics/books/model"
 
 	"github.com/google/uuid"
 )
@@ -17,7 +17,7 @@ import (
 
 // Create
 type CreateClassSubjectBookRequest struct {
-	ClassSubjectBookMasjidID       uuid.UUID `json:"class_subject_book_masjid_id"        validate:"required"`
+	ClassSubjectBookSchoolID       uuid.UUID `json:"class_subject_book_school_id"        validate:"required"`
 	ClassSubjectBookClassSubjectID uuid.UUID `json:"class_subject_book_class_subject_id" validate:"required"`
 	ClassSubjectBookBookID         uuid.UUID `json:"class_subject_book_book_id"          validate:"required"`
 
@@ -54,7 +54,7 @@ func (r CreateClassSubjectBookRequest) ToModel() model.ClassSubjectBookModel {
 		isActive = *r.ClassSubjectBookIsActive
 	}
 	return model.ClassSubjectBookModel{
-		ClassSubjectBookMasjidID:       r.ClassSubjectBookMasjidID,
+		ClassSubjectBookSchoolID:       r.ClassSubjectBookSchoolID,
 		ClassSubjectBookClassSubjectID: r.ClassSubjectBookClassSubjectID,
 		ClassSubjectBookBookID:         r.ClassSubjectBookBookID,
 		ClassSubjectBookSlug:           r.ClassSubjectBookSlug,
@@ -65,7 +65,7 @@ func (r CreateClassSubjectBookRequest) ToModel() model.ClassSubjectBookModel {
 
 // Update (partial)
 type UpdateClassSubjectBookRequest struct {
-	ClassSubjectBookMasjidID       *uuid.UUID `json:"class_subject_book_masjid_id"        validate:"omitempty"`
+	ClassSubjectBookSchoolID       *uuid.UUID `json:"class_subject_book_school_id"        validate:"omitempty"`
 	ClassSubjectBookClassSubjectID *uuid.UUID `json:"class_subject_book_class_subject_id" validate:"omitempty"`
 	ClassSubjectBookBookID         *uuid.UUID `json:"class_subject_book_book_id"          validate:"omitempty"`
 
@@ -80,8 +80,8 @@ func (r *UpdateClassSubjectBookRequest) Apply(m *model.ClassSubjectBookModel) er
 	if m == nil {
 		return errors.New("nil model")
 	}
-	if r.ClassSubjectBookMasjidID != nil {
-		m.ClassSubjectBookMasjidID = *r.ClassSubjectBookMasjidID
+	if r.ClassSubjectBookSchoolID != nil {
+		m.ClassSubjectBookSchoolID = *r.ClassSubjectBookSchoolID
 	}
 	if r.ClassSubjectBookClassSubjectID != nil {
 		m.ClassSubjectBookClassSubjectID = *r.ClassSubjectBookClassSubjectID
@@ -138,7 +138,7 @@ type ListClassSubjectBookQuery struct {
 // (Opsional) embed URL buku kalau controller melakukan join ke book_urls
 type BookURLLite struct {
 	BookURLID                 uuid.UUID  `json:"book_url_id"`
-	BookURLMasjidID           uuid.UUID  `json:"book_url_masjid_id"`
+	BookURLSchoolID           uuid.UUID  `json:"book_url_school_id"`
 	BookURLBookID             uuid.UUID  `json:"book_url_book_id"`
 	BookURLLabel              *string    `json:"book_url_label,omitempty"`
 	BookURLHref               string     `json:"book_url_href"`
@@ -155,7 +155,7 @@ type BookURLLite struct {
 // (Opsional) ringkasan buku asli bila controller melakukan join langsung ke books
 type BookLite struct {
 	BookID        uuid.UUID     `json:"book_id"`
-	BookMasjidID  uuid.UUID     `json:"book_masjid_id"`
+	BookSchoolID  uuid.UUID     `json:"book_school_id"`
 	BookTitle     string        `json:"book_title"`
 	BookAuthor    *string       `json:"book_author,omitempty"`
 	BookSlug      *string       `json:"book_slug,omitempty"`
@@ -168,7 +168,7 @@ type BookLite struct {
 // (Opsional) ringkasan subject asli bila controller join ke subjects
 type SubjectLite struct {
 	SubjectID       uuid.UUID `json:"subject_id"`
-	SubjectMasjidID uuid.UUID `json:"subject_masjid_id"`
+	SubjectSchoolID uuid.UUID `json:"subject_school_id"`
 	SubjectCode     string    `json:"subject_code"`
 	SubjectName     string    `json:"subject_name"`
 	SubjectSlug     string    `json:"subject_slug"`
@@ -177,7 +177,7 @@ type SubjectLite struct {
 // Response utama relasi + snapshot buku/subject (dibekukan via trigger)
 type ClassSubjectBookResponse struct {
 	ClassSubjectBookID             uuid.UUID `json:"class_subject_book_id"`
-	ClassSubjectBookMasjidID       uuid.UUID `json:"class_subject_book_masjid_id"`
+	ClassSubjectBookSchoolID       uuid.UUID `json:"class_subject_book_school_id"`
 	ClassSubjectBookClassSubjectID uuid.UUID `json:"class_subject_book_class_subject_id"`
 	ClassSubjectBookBookID         uuid.UUID `json:"class_subject_book_book_id"`
 
@@ -231,7 +231,7 @@ func FromModel(m model.ClassSubjectBookModel) ClassSubjectBookResponse {
 	}
 	return ClassSubjectBookResponse{
 		ClassSubjectBookID:             m.ClassSubjectBookID,
-		ClassSubjectBookMasjidID:       m.ClassSubjectBookMasjidID,
+		ClassSubjectBookSchoolID:       m.ClassSubjectBookSchoolID,
 		ClassSubjectBookClassSubjectID: m.ClassSubjectBookClassSubjectID,
 		ClassSubjectBookBookID:         m.ClassSubjectBookBookID,
 

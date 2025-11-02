@@ -1,7 +1,7 @@
 package middlewares
 
 import (
-	loggerMiddleware "masjidku_backend/internals/middlewares/logger"
+	loggerMiddleware "schoolku_backend/internals/middlewares/logger"
 
 	"github.com/gofiber/fiber/v2"
 )

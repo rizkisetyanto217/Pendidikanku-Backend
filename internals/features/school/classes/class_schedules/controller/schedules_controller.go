@@ -17,13 +17,13 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
-	sessModel "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
-	d "masjidku_backend/internals/features/school/classes/class_schedules/dto"
-	m "masjidku_backend/internals/features/school/classes/class_schedules/model"
-	svc "masjidku_backend/internals/features/school/classes/class_schedules/services"
+	sessModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
+	d "schoolku_backend/internals/features/school/classes/class_schedules/dto"
+	m "schoolku_backend/internals/features/school/classes/class_schedules/model"
+	svc "schoolku_backend/internals/features/school/classes/class_schedules/services"
 )
 
 /* =========================
@@ -51,18 +51,18 @@ func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
 	return uuid.Parse(idStr)
 }
 
-// Ambil masjid_id aktif dari token (teacher/admin/dkm) dan pastikan konsisten dengan body.
-// Jika token tidak punya scope masjid, dilepas (public).
-func enforceMasjidScopeAuth(c *fiber.Ctx, bodyMasjidID *uuid.UUID) error {
-	if bodyMasjidID == nil || *bodyMasjidID == uuid.Nil {
+// Ambil school_id aktif dari token (teacher/admin/dkm) dan pastikan konsisten dengan body.
+// Jika token tidak punya scope school, dilepas (public).
+func enforceSchoolScopeAuth(c *fiber.Ctx, bodySchoolID *uuid.UUID) error {
+	if bodySchoolID == nil || *bodySchoolID == uuid.Nil {
 		return nil
 	}
-	act, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	act, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
 	if err != nil || act == uuid.Nil {
 		return nil
 	}
-	if act != *bodyMasjidID {
-		return fiber.NewError(fiber.StatusForbidden, "masjid scope mismatch")
+	if act != *bodySchoolID {
+		return fiber.NewError(fiber.StatusForbidden, "school scope mismatch")
 	}
 	return nil
 }
@@ -140,22 +140,22 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	// Masjid scope
-	var actMasjidID uuid.UUID
-	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		id, er := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	// School scope
+	var actSchoolID uuid.UUID
+	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		id, er := helperAuth.EnsureSchoolAccessDKM(c, mc)
 		if er != nil {
-			log.Printf("[ClassSchedule.Create] EnsureMasjidAccessDKM error: %v", er)
+			log.Printf("[ClassSchedule.Create] EnsureSchoolAccessDKM error: %v", er)
 			return er
 		}
-		actMasjidID = id
+		actSchoolID = id
 	} else {
-		id, er := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+		id, er := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
 		if er != nil || id == uuid.Nil {
-			log.Printf("[ClassSchedule.Create] Masjid scope tidak ditemukan: %v", er)
-			return helper.JsonError(c, http.StatusUnauthorized, "Masjid scope tidak ditemukan di token")
+			log.Printf("[ClassSchedule.Create] School scope tidak ditemukan: %v", er)
+			return helper.JsonError(c, http.StatusUnauthorized, "School scope tidak ditemukan di token")
 		}
-		actMasjidID = id
+		actSchoolID = id
 	}
 
 	// Validate
@@ -167,7 +167,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 	}
 
 	// Build header
-	header := req.ToModel(actMasjidID)
+	header := req.ToModel(actSchoolID)
 	if header.ClassScheduleStartDate.After(header.ClassScheduleEndDate) {
 		return helper.JsonError(c, http.StatusBadRequest, "start_date harus <= end_date")
 	}
@@ -197,7 +197,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 
 		// 2) rules (opsional)
 		if len(req.Rules) > 0 {
-			ruleModels, er := req.RulesToModels(actMasjidID, header.ClassScheduleID)
+			ruleModels, er := req.RulesToModels(actSchoolID, header.ClassScheduleID)
 			if er != nil {
 				log.Printf("[ClassSchedule.Create] RulesToModels error: %v", er)
 				return er
@@ -213,7 +213,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 		// 3) sessions (opsional, langsung dari payload)
 		if len(req.Sessions) > 0 {
 			ms, er := req.SessionsToModels(
-				actMasjidID,
+				actSchoolID,
 				header.ClassScheduleID,
 				header.ClassScheduleStartDate,
 				header.ClassScheduleEndDate,
@@ -283,7 +283,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 			c.Context(),
 			header.ClassScheduleID.String(),
 			&svc.GenerateOptions{
-				TZName:                  "Asia/Jakarta", // TODO: tarik dari profil masjid
+				TZName:                  "Asia/Jakarta", // TODO: tarik dari profil school
 				DefaultCSSTID:           defCSST,
 				DefaultRoomID:           defRoom,
 				DefaultTeacherID:        defTeacher,
@@ -348,16 +348,16 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 	}
 	req.Apply(&existing)
 
-	// Masjid scope check (allow via DKM context)
-	if err := enforceMasjidScopeAuth(c, &existing.ClassScheduleMasjidID); err != nil {
-		if mc, er := helperAuth.ResolveMasjidContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassScheduleMasjidID {
+	// School scope check (allow via DKM context)
+	if err := enforceSchoolScopeAuth(c, &existing.ClassScheduleSchoolID); err != nil {
+		if mc, er := helperAuth.ResolveSchoolContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+			if idOK, er2 := helperAuth.EnsureSchoolAccessDKM(c, mc); er2 == nil && idOK == existing.ClassScheduleSchoolID {
 				// allowed
 			} else {
-				return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
+				return helper.JsonError(c, http.StatusForbidden, "school scope mismatch")
 			}
 		} else {
-			return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
+			return helper.JsonError(c, http.StatusForbidden, "school scope mismatch")
 		}
 	}
 
@@ -395,16 +395,16 @@ func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 		return writePGError(c, err)
 	}
 
-	// Masjid scope check (allow via DKM context)
-	if err := enforceMasjidScopeAuth(c, &existing.ClassScheduleMasjidID); err != nil {
-		if mc, er := helperAuth.ResolveMasjidContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-			if idOK, er2 := helperAuth.EnsureMasjidAccessDKM(c, mc); er2 == nil && idOK == existing.ClassScheduleMasjidID {
+	// School scope check (allow via DKM context)
+	if err := enforceSchoolScopeAuth(c, &existing.ClassScheduleSchoolID); err != nil {
+		if mc, er := helperAuth.ResolveSchoolContext(c); er == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+			if idOK, er2 := helperAuth.EnsureSchoolAccessDKM(c, mc); er2 == nil && idOK == existing.ClassScheduleSchoolID {
 				// allowed
 			} else {
-				return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
+				return helper.JsonError(c, http.StatusForbidden, "school scope mismatch")
 			}
 		} else {
-			return helper.JsonError(c, http.StatusForbidden, "masjid scope mismatch")
+			return helper.JsonError(c, http.StatusForbidden, "school scope mismatch")
 		}
 	}
 

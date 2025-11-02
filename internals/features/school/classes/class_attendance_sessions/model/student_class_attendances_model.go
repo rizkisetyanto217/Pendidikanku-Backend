@@ -10,9 +10,9 @@ import (
 
 type StudentClassSessionAttendanceModel struct {
 	StudentClassSessionAttendanceID              uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:student_class_session_attendance_id" json:"student_class_session_attendance_id"`
-	StudentClassSessionAttendanceMasjidID        uuid.UUID `gorm:"type:uuid;not null;column:student_class_session_attendance_masjid_id"                    json:"student_class_session_attendance_masjid_id"`
+	StudentClassSessionAttendanceSchoolID        uuid.UUID `gorm:"type:uuid;not null;column:student_class_session_attendance_school_id"                    json:"student_class_session_attendance_school_id"`
 	StudentClassSessionAttendanceSessionID       uuid.UUID `gorm:"type:uuid;not null;column:student_class_session_attendance_session_id"                   json:"student_class_session_attendance_session_id"`
-	StudentClassSessionAttendanceMasjidStudentID uuid.UUID `gorm:"type:uuid;not null;column:student_class_session_attendance_masjid_student_id"            json:"student_class_session_attendance_masjid_student_id"`
+	StudentClassSessionAttendanceSchoolStudentID uuid.UUID `gorm:"type:uuid;not null;column:student_class_session_attendance_school_student_id"            json:"student_class_session_attendance_school_student_id"`
 
 	StudentClassSessionAttendanceStatus string `gorm:"type:varchar(16);not null;default:'unmarked';column:student_class_session_attendance_status" json:"student_class_session_attendance_status"`
 

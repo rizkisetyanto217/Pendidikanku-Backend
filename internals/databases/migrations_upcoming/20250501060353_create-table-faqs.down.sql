@@ -7,7 +7,7 @@ BEGIN;
 -- Drop indexes (answers → questions)
 DROP INDEX IF EXISTS idx_fqa_text_trgm;
 DROP INDEX IF EXISTS idx_fqa_search_fts;
-DROP INDEX IF EXISTS idx_fqa_masjid_created;
+DROP INDEX IF EXISTS idx_fqa_school_created;
 DROP INDEX IF EXISTS idx_fqa_answered_by_created;
 DROP INDEX IF EXISTS idx_fqa_question_created;
 

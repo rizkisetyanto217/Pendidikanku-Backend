@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS btree_gin;  -- optional
 -- =========================================================
 CREATE TABLE IF NOT EXISTS subjects (
   subject_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  subject_masjid_id  UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  subject_school_id  UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   subject_code       VARCHAR(40)  NOT NULL,
   subject_name       VARCHAR(120) NOT NULL,
@@ -33,20 +33,20 @@ CREATE TABLE IF NOT EXISTS subjects (
 );
 
 -- Pair unik untuk tenant-safe lookup
-CREATE UNIQUE INDEX IF NOT EXISTS uq_subject_id_masjid
-  ON subjects (subject_id, subject_masjid_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_subject_id_school
+  ON subjects (subject_id, subject_school_id);
 
 -- Indexing subjects
-CREATE UNIQUE INDEX IF NOT EXISTS uq_subject_code_per_masjid_alive
-  ON subjects (subject_masjid_id, lower(subject_code))
+CREATE UNIQUE INDEX IF NOT EXISTS uq_subject_code_per_school_alive
+  ON subjects (subject_school_id, lower(subject_code))
   WHERE subject_deleted_at IS NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_subject_slug_per_masjid_alive
-  ON subjects (subject_masjid_id, lower(subject_slug))
+CREATE UNIQUE INDEX IF NOT EXISTS uq_subject_slug_per_school_alive
+  ON subjects (subject_school_id, lower(subject_slug))
   WHERE subject_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_subject_masjid_alive
-  ON subjects (subject_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_subject_school_alive
+  ON subjects (subject_school_id)
   WHERE subject_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_subject_active_alive
@@ -73,7 +73,7 @@ CREATE INDEX IF NOT EXISTS idx_subject_image_purge_due
 CREATE TABLE IF NOT EXISTS class_subjects (
   class_subject_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  class_subject_masjid_id   UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_subject_school_id   UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
   class_subject_parent_id   UUID NOT NULL REFERENCES class_parents(class_parent_id) ON DELETE CASCADE,
   class_subject_subject_id  UUID NOT NULL REFERENCES subjects(subject_id) ON DELETE RESTRICT,
 
@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS class_subjects (
   class_subject_deleted_at  TIMESTAMPTZ,
 
   -- (opsional) tenant-safe pair agar join-by-tenant aman
-  UNIQUE (class_subject_id, class_subject_masjid_id),
+  UNIQUE (class_subject_id, class_subject_school_id),
 
   -- (opsional) guard bobot tidak negatif
   CONSTRAINT ck_class_subject_weights_nonneg CHECK (
@@ -137,20 +137,20 @@ CREATE INDEX IF NOT EXISTS idx_class_subject_active_alive
   WHERE class_subject_deleted_at IS NULL;
 
 -- Filter cepat per tenant/parent/subject
-CREATE INDEX IF NOT EXISTS idx_class_subjects_masjid
-  ON class_subjects (class_subject_masjid_id);
+CREATE INDEX IF NOT EXISTS idx_class_subjects_school
+  ON class_subjects (class_subject_school_id);
 
 CREATE INDEX IF NOT EXISTS idx_class_subjects_parent
   ON class_subjects (class_subject_parent_id);
 
 -- Unik kombinasi (hindari duplikat subject di parent yang sama, tenant-aware, hanya untuk baris hidup)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_subject_per_parent_subject_alive
-  ON class_subjects (class_subject_masjid_id, class_subject_parent_id, class_subject_subject_id)
+  ON class_subjects (class_subject_school_id, class_subject_parent_id, class_subject_subject_id)
   WHERE class_subject_deleted_at IS NULL;
 
 -- Unik SLUG per tenant (alive only)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_subject_slug_per_tenant_alive
-  ON class_subjects (class_subject_masjid_id, lower(class_subject_slug))
+  ON class_subjects (class_subject_school_id, lower(class_subject_slug))
   WHERE class_subject_deleted_at IS NULL
     AND class_subject_slug IS NOT NULL;
 

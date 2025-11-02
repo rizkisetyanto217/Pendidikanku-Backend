@@ -79,7 +79,7 @@ type bookListSnap struct {
 func BuildBooksSnapshotJSON(
 	_ context.Context,
 	tx *gorm.DB,
-	masjidID uuid.UUID,
+	schoolID uuid.UUID,
 	classSubjectID uuid.UUID,
 ) (datatypes.JSON, error) {
 
@@ -102,15 +102,15 @@ func BuildBooksSnapshotJSON(
 		Joins(`
 			JOIN books b
 			  ON b.book_id = csb.class_subject_book_book_id
-			 AND b.book_masjid_id = csb.class_subject_book_masjid_id
+			 AND b.book_school_id = csb.class_subject_book_school_id
 			 AND b.book_deleted_at IS NULL
 		`).
 		Where(`
-			csb.class_subject_book_masjid_id = ?
+			csb.class_subject_book_school_id = ?
 			AND csb.class_subject_book_class_subject_id = ?
 			AND csb.class_subject_book_deleted_at IS NULL
 			AND csb.class_subject_book_is_active = TRUE
-		`, masjidID, classSubjectID).
+		`, schoolID, classSubjectID).
 		Order("csb.class_subject_book_created_at DESC").
 		Scan(&rows).Error
 	if err != nil {

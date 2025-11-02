@@ -7,7 +7,7 @@ BEGIN;
 
 -- 1) Drop indexes (aman meski sudah terhapus karena DROP TABLE)
 DROP INDEX IF EXISTS uq_quiz_settings_quiz_alive;
-DROP INDEX IF EXISTS idx_qs_masjid_alive;
+DROP INDEX IF EXISTS idx_qs_school_alive;
 DROP INDEX IF EXISTS idx_qs_quiz_alive;
 DROP INDEX IF EXISTS brin_qs_created_at;
 DROP INDEX IF EXISTS idx_qs_review_window;

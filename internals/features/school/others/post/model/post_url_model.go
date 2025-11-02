@@ -18,7 +18,7 @@ post_urls
 type PostURL struct {
 	// PK & tenant
 	PostURLID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:post_url_id" json:"post_url_id"`
-	PostURLMasjidID uuid.UUID `gorm:"type:uuid;not null;column:post_url_masjid_id" json:"post_url_masjid_id"`
+	PostURLSchoolID uuid.UUID `gorm:"type:uuid;not null;column:post_url_school_id" json:"post_url_school_id"`
 	PostURLPostID   uuid.UUID `gorm:"type:uuid;not null;column:post_url_post_id" json:"post_url_post_id"`
 
 	// Jenis & lokasi file/link

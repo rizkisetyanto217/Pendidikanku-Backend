@@ -1,32 +1,32 @@
 package controller
 
 import (
-	"masjidku_backend/internals/constants"
-	"masjidku_backend/internals/features/home/posts/dto"
-	"masjidku_backend/internals/features/home/posts/model"
-	helper "masjidku_backend/internals/helpers"
+	"schoolku_backend/internals/constants"
+	"schoolku_backend/internals/features/home/posts/dto"
+	"schoolku_backend/internals/features/home/posts/model"
+	helper "schoolku_backend/internals/helpers"
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-// 📄 Get Posts by Masjid Slug (pagination opsional: ?page=1&page_size=20)
-func (ctrl *PostController) GetPostsByMasjidSlug(c *fiber.Ctx) error {
+// 📄 Get Posts by School Slug (pagination opsional: ?page=1&page_size=20)
+func (ctrl *PostController) GetPostsBySchoolSlug(c *fiber.Ctx) error {
 	slug := c.Params("slug")
 	if slug == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Slug masjid wajib diisi")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Slug school wajib diisi")
 	}
 
-	// 🔍 Ambil masjid_id dari slug
-	var masjid struct {
-		MasjidID string `gorm:"column:masjid_id"`
+	// 🔍 Ambil school_id dari slug
+	var school struct {
+		SchoolID string `gorm:"column:school_id"`
 	}
 	if err := ctrl.DB.
-		Table("masjids").
-		Select("masjid_id").
-		Where("masjid_slug = ? AND masjid_deleted_at IS NULL", slug).
-		First(&masjid).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusNotFound, "Masjid dengan slug tersebut tidak ditemukan")
+		Table("schools").
+		Select("school_id").
+		Where("school_slug = ? AND school_deleted_at IS NULL", slug).
+		First(&school).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "School dengan slug tersebut tidak ditemukan")
 	}
 
 	// pagination
@@ -43,19 +43,19 @@ func (ctrl *PostController) GetPostsByMasjidSlug(c *fiber.Ctx) error {
 	// total
 	var total int64
 	if err := ctrl.DB.Model(&model.PostModel{}).
-		Where("post_masjid_id = ? AND post_deleted_at IS NULL", masjid.MasjidID).
+		Where("post_school_id = ? AND post_deleted_at IS NULL", school.SchoolID).
 		Count(&total).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung postingan masjid")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung postingan school")
 	}
 
-	// 🔍 Ambil post masjid (page)
+	// 🔍 Ambil post school (page)
 	var posts []model.PostModel
 	if err := ctrl.DB.
-		Where("post_masjid_id = ? AND post_deleted_at IS NULL", masjid.MasjidID).
+		Where("post_school_id = ? AND post_deleted_at IS NULL", school.SchoolID).
 		Order("post_created_at DESC").
 		Limit(pageSize).Offset(offset).
 		Find(&posts).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil postingan masjid")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil postingan school")
 	}
 
 	// 🧠 Kumpulkan postIDs & themeIDs dari hasil halaman
@@ -142,8 +142,8 @@ func (ctrl *PostController) GetPostsByMasjidSlug(c *fiber.Ctx) error {
 			}
 			return (total + int64(pageSize) - 1) / int64(pageSize)
 		}(),
-		"has_next":  int64(offset+pageSize) < total,
-		"has_prev":  page > 1,
+		"has_next": int64(offset+pageSize) < total,
+		"has_prev": page > 1,
 		"next_page": func() int {
 			if int64(offset+pageSize) < total {
 				return page + 1

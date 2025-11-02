@@ -11,11 +11,11 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
-	d "masjidku_backend/internals/features/school/classes/class_schedules/dto"
-	m "masjidku_backend/internals/features/school/classes/class_schedules/model"
+	d "schoolku_backend/internals/features/school/classes/class_schedules/dto"
+	m "schoolku_backend/internals/features/school/classes/class_schedules/model"
 )
 
 /* =========================

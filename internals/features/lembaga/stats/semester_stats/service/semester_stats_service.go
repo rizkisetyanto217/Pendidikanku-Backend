@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	model "masjidku_backend/internals/features/lembaga/stats/semester_stats/model"
+	model "schoolku_backend/internals/features/lembaga/stats/semester_stats/model"
 )
 
 type SemesterStatsService struct{}
@@ -29,9 +29,9 @@ func semesterRangeFor(anchor time.Time) (time.Time, time.Time) {
 }
 
 // Upsert satu row stats (unik via index komposit)
-func upsertEmptySemesterStats(tx *gorm.DB, masjidID, userClassID, sectionID uuid.UUID, start, end time.Time) error {
+func upsertEmptySemesterStats(tx *gorm.DB, schoolID, userClassID, sectionID uuid.UUID, start, end time.Time) error {
 	rec := model.UserClassAttendanceSemesterStatsModel{
-		MasjidID:    masjidID,
+		SchoolID:    schoolID,
 		UserClassID: userClassID,
 		SectionID:   sectionID,
 		PeriodStart: start,
@@ -51,7 +51,7 @@ func upsertEmptySemesterStats(tx *gorm.DB, masjidID, userClassID, sectionID uuid
 	return tx.Clauses(clause.OnConflict{
 		// atau: Constraint: "uq_ucass_tenant_userclass_section_period"
 		Columns: []clause.Column{
-			{Name: "user_class_attendance_semester_stats_masjid_id"},
+			{Name: "user_class_attendance_semester_stats_school_id"},
 			{Name: "user_class_attendance_semester_stats_user_class_id"},
 			{Name: "user_class_attendance_semester_stats_section_id"},
 			{Name: "user_class_attendance_semester_stats_period_start"},
@@ -63,25 +63,25 @@ func upsertEmptySemesterStats(tx *gorm.DB, masjidID, userClassID, sectionID uuid
 
 // Publik: 1 user_class & section, semester dihitung dari anchor
 func (s *SemesterStatsService) EnsureSemesterStatsForUserClassWithAnchor(
-	tx *gorm.DB, masjidID, userClassID, sectionID uuid.UUID, anchor time.Time,
+	tx *gorm.DB, schoolID, userClassID, sectionID uuid.UUID, anchor time.Time,
 ) error {
 	if anchor.IsZero() {
 		anchor = time.Now()
 	}
 	start, end := semesterRangeFor(anchor)
-	return upsertEmptySemesterStats(tx, masjidID, userClassID, sectionID, start, end)
+	return upsertEmptySemesterStats(tx, schoolID, userClassID, sectionID, start, end)
 }
 
 // Publik: 1 user_class & section, anchor = waktu saat ini (fallback lama)
 func (s *SemesterStatsService) EnsureSemesterStatsForUserClass(
-	tx *gorm.DB, masjidID, userClassID, sectionID uuid.UUID,
+	tx *gorm.DB, schoolID, userClassID, sectionID uuid.UUID,
 ) error {
-	return s.EnsureSemesterStatsForUserClassWithAnchor(tx, masjidID, userClassID, sectionID, time.Now())
+	return s.EnsureSemesterStatsForUserClassWithAnchor(tx, schoolID, userClassID, sectionID, time.Now())
 }
 
 // Opsional: semua user di section → anchor pakai hari ini
 func (s *SemesterStatsService) EnsureSemesterStatsForSection(
-	tx *gorm.DB, masjidID, sectionID uuid.UUID,
+	tx *gorm.DB, schoolID, sectionID uuid.UUID,
 ) error {
 	start, end := semesterRangeFor(time.Now())
 
@@ -90,26 +90,25 @@ func (s *SemesterStatsService) EnsureSemesterStatsForSection(
 	}
 	var ucs []ucRow
 	if err := tx.Table("user_classes").
-		Where("user_classes_masjid_id = ? AND user_classes_section_id = ?", masjidID, sectionID).
+		Where("user_classes_school_id = ? AND user_classes_section_id = ?", schoolID, sectionID).
 		Select("user_classes_id").
 		Find(&ucs).Error; err != nil {
 		return err
 	}
 
 	for _, r := range ucs {
-		if err := upsertEmptySemesterStats(tx, masjidID, r.ID, sectionID, start, end); err != nil {
+		if err := upsertEmptySemesterStats(tx, schoolID, r.ID, sectionID, start, end); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-
 // ... (imports & type SemesterStatsService, semesterRangeFor, upsertEmptySemesterStats, EnsureSemesterStatsForUserClassWithAnchor sudah ada)
 
 // Ensure semua murid di section punya baris stats utk semester tanggal anchor
 func (s *SemesterStatsService) EnsureSemesterStatsForSectionAtAnchor(
-	tx *gorm.DB, masjidID, sectionID uuid.UUID, anchor time.Time,
+	tx *gorm.DB, schoolID, sectionID uuid.UUID, anchor time.Time,
 ) error {
 	if anchor.IsZero() {
 		anchor = time.Now()
@@ -123,7 +122,7 @@ func (s *SemesterStatsService) EnsureSemesterStatsForSectionAtAnchor(
 	var rows []row
 	if err := tx.Table("user_class_sections").
 		Select("user_class_sections_user_class_id").
-		Where("user_class_sections_masjid_id = ?", masjidID).
+		Where("user_class_sections_school_id = ?", schoolID).
 		Where("user_class_sections_section_id = ?", sectionID).
 		Where("user_class_sections_assigned_at <= ?", anchor).
 		Where("(user_class_sections_unassigned_at IS NULL OR user_class_sections_unassigned_at > ?)", anchor).
@@ -132,7 +131,7 @@ func (s *SemesterStatsService) EnsureSemesterStatsForSectionAtAnchor(
 	}
 
 	for _, r := range rows {
-		if err := upsertEmptySemesterStats(tx, masjidID, r.UserClassID, sectionID, start, end); err != nil {
+		if err := upsertEmptySemesterStats(tx, schoolID, r.UserClassID, sectionID, start, end); err != nil {
 			return err
 		}
 	}
@@ -144,7 +143,7 @@ func (s *SemesterStatsService) EnsureSemesterStatsForSectionAtAnchor(
 // BumpCounters: pastikan baris semester ada, lalu increment counter aman (anti-minus)
 func (s *SemesterStatsService) BumpCounters(
 	tx *gorm.DB,
-	masjidID, userClassID, sectionID uuid.UUID,
+	schoolID, userClassID, sectionID uuid.UUID,
 	anchor time.Time,
 	dPresent, dSick, dLeave, dAbsent int,
 	dSumScore *int, dPassed *int, dFailed *int,
@@ -153,7 +152,7 @@ func (s *SemesterStatsService) BumpCounters(
 		anchor = time.Now()
 	}
 	// pastikan row ada (idempotent)
-	if err := s.EnsureSemesterStatsForUserClassWithAnchor(tx, masjidID, userClassID, sectionID, anchor); err != nil {
+	if err := s.EnsureSemesterStatsForUserClassWithAnchor(tx, schoolID, userClassID, sectionID, anchor); err != nil {
 		return err
 	}
 
@@ -197,7 +196,7 @@ func (s *SemesterStatsService) BumpCounters(
 	}
 
 	return tx.Table("user_class_attendance_semester_stats").
-		Where("user_class_attendance_semester_stats_masjid_id = ?", masjidID).
+		Where("user_class_attendance_semester_stats_school_id = ?", schoolID).
 		Where("user_class_attendance_semester_stats_user_class_id = ?", userClassID).
 		Where("user_class_attendance_semester_stats_section_id = ?", sectionID).
 		Where("?::date BETWEEN user_class_attendance_semester_stats_period_start AND user_class_attendance_semester_stats_period_end", anchor).

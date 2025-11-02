@@ -16,7 +16,7 @@ type QuizModel struct {
 	QuizID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:quiz_id" json:"quiz_id"`
 
 	// Tenant
-	QuizMasjidID uuid.UUID `gorm:"type:uuid;not null;column:quiz_masjid_id" json:"quiz_masjid_id"`
+	QuizSchoolID uuid.UUID `gorm:"type:uuid;not null;column:quiz_school_id" json:"quiz_school_id"`
 
 	// Opsional relasi ke assessments
 	QuizAssessmentID *uuid.UUID `gorm:"type:uuid;column:quiz_assessment_id" json:"quiz_assessment_id,omitempty"`

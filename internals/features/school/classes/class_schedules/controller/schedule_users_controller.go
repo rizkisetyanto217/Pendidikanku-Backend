@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	d "masjidku_backend/internals/features/school/classes/class_schedules/dto"
-	m "masjidku_backend/internals/features/school/classes/class_schedules/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	d "schoolku_backend/internals/features/school/classes/class_schedules/dto"
+	m "schoolku_backend/internals/features/school/classes/class_schedules/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -61,16 +61,16 @@ func includeRulesFromQuery(c *fiber.Ctx) bool {
 	return false
 }
 
-func resolveMasjidID(c *fiber.Ctx) (uuid.UUID, error) {
-	// Prefer explicit masjid context (DKM/Admin required).
-	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		return helperAuth.EnsureMasjidAccessDKM(c, mc)
+func resolveSchoolID(c *fiber.Ctx) (uuid.UUID, error) {
+	// Prefer explicit school context (DKM/Admin required).
+	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		return helperAuth.EnsureSchoolAccessDKM(c, mc)
 	}
 	// Fallback to token (teacher-aware).
-	if act, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && act != uuid.Nil {
+	if act, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && act != uuid.Nil {
 		return act, nil
 	}
-	return uuid.Nil, fiber.NewError(http.StatusForbidden, "Scope masjid tidak ditemukan")
+	return uuid.Nil, fiber.NewError(http.StatusForbidden, "Scope school tidak ditemukan")
 }
 
 func buildScheduleOrder(sort *string) string {
@@ -122,7 +122,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	masjidID, err := resolveMasjidID(c)
+	schoolID, err := resolveSchoolID(c)
 	if err != nil {
 		return err
 	}
@@ -140,7 +140,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	}
 
 	// tenant
-	tx = tx.Where("class_schedule_masjid_id = ?", masjidID)
+	tx = tx.Where("class_schedule_school_id = ?", schoolID)
 
 	// status
 	if q.Status != nil {
@@ -211,7 +211,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		sIDs = append(sIDs, schedRows[i].ClassScheduleID)
 	}
 
-	rulesBySched, err := fetchRulesGrouped(ctl.DB, masjidID, sIDs, q.WithDeleted)
+	rulesBySched, err := fetchRulesGrouped(ctl.DB, schoolID, sIDs, q.WithDeleted)
 	if err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
@@ -240,7 +240,7 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 
 =========================
 */
-func fetchRulesGrouped(db *gorm.DB, masjidID uuid.UUID, scheduleIDs []uuid.UUID, withDeleted *bool) (map[uuid.UUID][]d.ClassScheduleRuleResponse, error) {
+func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID, withDeleted *bool) (map[uuid.UUID][]d.ClassScheduleRuleResponse, error) {
 	out := make(map[uuid.UUID][]d.ClassScheduleRuleResponse, len(scheduleIDs))
 	if len(scheduleIDs) == 0 {
 		return out, nil
@@ -249,7 +249,7 @@ func fetchRulesGrouped(db *gorm.DB, masjidID uuid.UUID, scheduleIDs []uuid.UUID,
 	// Struct flat: waktu sebagai string (HH:MM:SS), weeks array sebagai pq.Int64Array
 	type ruleFlat struct {
 		ID                 uuid.UUID     `gorm:"column:class_schedule_rule_id"`
-		MasjidID           uuid.UUID     `gorm:"column:class_schedule_rule_masjid_id"`
+		SchoolID           uuid.UUID     `gorm:"column:class_schedule_rule_school_id"`
 		ScheduleID         uuid.UUID     `gorm:"column:class_schedule_rule_schedule_id"`
 		DayOfWeek          int           `gorm:"column:class_schedule_rule_day_of_week"`
 		StartTimeStr       string        `gorm:"column:class_schedule_rule_start_time"` // HH:MM:SS
@@ -260,7 +260,7 @@ func fetchRulesGrouped(db *gorm.DB, masjidID uuid.UUID, scheduleIDs []uuid.UUID,
 		WeeksOfMonth       pq.Int64Array `gorm:"column:class_schedule_rule_weeks_of_month"` // int[]
 		LastWeekOfMonth    bool          `gorm:"column:class_schedule_rule_last_week_of_month"`
 		CSSTID             uuid.UUID     `gorm:"column:class_schedule_rule_csst_id"`
-		CSSTMasjidID       uuid.UUID     `gorm:"column:class_schedule_rule_csst_masjid_id"`
+		CSSTSchoolID       uuid.UUID     `gorm:"column:class_schedule_rule_csst_school_id"`
 		CSSTSnapshotRaw    []byte        `gorm:"column:class_schedule_rule_csst_snapshot"` // jsonb
 		CSSTTeacherID      *uuid.UUID    `gorm:"column:class_schedule_rule_csst_teacher_id"`
 		CSSTSectionID      *uuid.UUID    `gorm:"column:class_schedule_rule_csst_section_id"`
@@ -276,7 +276,7 @@ func fetchRulesGrouped(db *gorm.DB, masjidID uuid.UUID, scheduleIDs []uuid.UUID,
 		// waktu dipaksa ke string HH24:MI:SS agar aman di-scan
 		Select(`
 			class_schedule_rule_id,
-			class_schedule_rule_masjid_id,
+			class_schedule_rule_school_id,
 			class_schedule_rule_schedule_id,
 			class_schedule_rule_day_of_week,
 			to_char(class_schedule_rule_start_time::time, 'HH24:MI:SS') AS class_schedule_rule_start_time,
@@ -287,7 +287,7 @@ func fetchRulesGrouped(db *gorm.DB, masjidID uuid.UUID, scheduleIDs []uuid.UUID,
 			class_schedule_rule_weeks_of_month,
 			class_schedule_rule_last_week_of_month,
 			class_schedule_rule_csst_id,
-			class_schedule_rule_csst_masjid_id,
+			class_schedule_rule_csst_school_id,
 			class_schedule_rule_csst_snapshot,
 			class_schedule_rule_csst_teacher_id,
 			class_schedule_rule_csst_section_id,
@@ -297,7 +297,7 @@ func fetchRulesGrouped(db *gorm.DB, masjidID uuid.UUID, scheduleIDs []uuid.UUID,
 			class_schedule_rule_updated_at,
 			class_schedule_rule_deleted_at
 		`).
-		Where("class_schedule_rule_masjid_id = ?", masjidID).
+		Where("class_schedule_rule_school_id = ?", schoolID).
 		Where("class_schedule_rule_schedule_id IN ?", scheduleIDs)
 
 	if withDeleted == nil || !*withDeleted {
@@ -327,7 +327,7 @@ func fetchRulesGrouped(db *gorm.DB, masjidID uuid.UUID, scheduleIDs []uuid.UUID,
 
 		resp := d.ClassScheduleRuleResponse{
 			ClassScheduleRuleID:                 r.ID,
-			ClassScheduleRuleMasjidID:           r.MasjidID,
+			ClassScheduleRuleSchoolID:           r.SchoolID,
 			ClassScheduleRuleScheduleID:         r.ScheduleID,
 			ClassScheduleRuleDayOfWeek:          r.DayOfWeek,
 			ClassScheduleRuleStartTime:          r.StartTimeStr, // sudah "HH:MM:SS"
@@ -338,7 +338,7 @@ func fetchRulesGrouped(db *gorm.DB, masjidID uuid.UUID, scheduleIDs []uuid.UUID,
 			ClassScheduleRuleWeeksOfMonth:       []int64(r.WeeksOfMonth),
 			ClassScheduleRuleLastWeekOfMonth:    r.LastWeekOfMonth,
 			ClassScheduleRuleCSSTID:             r.CSSTID,
-			ClassScheduleRuleCSSTMasjidID:       r.CSSTMasjidID,
+			ClassScheduleRuleCSSTSchoolID:       r.CSSTSchoolID,
 			ClassScheduleRuleCSSTSnapshot:       snap,
 			ClassScheduleRuleCSSTTeacherID:      r.CSSTTeacherID,
 			ClassScheduleRuleCSSTSectionID:      r.CSSTSectionID,

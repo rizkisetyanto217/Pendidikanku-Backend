@@ -1,9 +1,9 @@
 package route
 
 import (
-	"masjidku_backend/internals/constants"
-	cbController "masjidku_backend/internals/features/school/academics/books/controller"
-	"masjidku_backend/internals/middlewares/auth"
+	"schoolku_backend/internals/constants"
+	cbController "schoolku_backend/internals/features/school/academics/books/controller"
+	"schoolku_backend/internals/middlewares/auth"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -13,9 +13,9 @@ import (
 // Panggil: route.ClassBooksAdminRoutes(app.Group("/api/a"), db)
 // Endpoint hasil:
 //
-//	/api/a/:masjid_id/books
-//	/api/a/:masjid_id/class-subject-books
-//	/api/a/:masjid_id/book-urls
+//	/api/a/:school_id/books
+//	/api/a/:school_id/class-subject-books
+//	/api/a/:school_id/book-urls
 func ClassBooksAdminRoutes(r fiber.Router, db *gorm.DB) {
 	booksCtl := &cbController.BooksController{DB: db}
 	csbCtl := &cbController.ClassSubjectBookController{DB: db}
@@ -31,8 +31,8 @@ func ClassBooksAdminRoutes(r fiber.Router, db *gorm.DB) {
 		constants.AdminAndAbove,
 	)
 
-	// ► Param pakai dash: :masjid_id
-	g := r.Group("/:masjid_id", adminGuard)
+	// ► Param pakai dash: :school_id
+	g := r.Group("/:school_id", adminGuard)
 
 	// Books
 	books := g.Group("/books")

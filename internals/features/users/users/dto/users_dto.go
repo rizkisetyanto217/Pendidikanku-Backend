@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	uModel "masjidku_backend/internals/features/users/users/model"
+	uModel "schoolku_backend/internals/features/users/users/model"
 
 	"github.com/google/uuid"
 )
@@ -133,14 +133,14 @@ func (r *UpdateUserRequest) ApplyToModel(m *uModel.UserModel) {
 type GrantRoleRequest struct {
 	UserID     uuid.UUID  `json:"user_id" validate:"required"`
 	RoleName   string     `json:"role_name" validate:"required"`
-	MasjidID   *uuid.UUID `json:"masjid_id,omitempty"` // null = global
+	SchoolID   *uuid.UUID `json:"school_id,omitempty"` // null = global
 	AssignedBy *uuid.UUID `json:"assigned_by,omitempty"`
 }
 
 type RevokeRoleRequest struct {
 	UserID   uuid.UUID  `json:"user_id" validate:"required"`
 	RoleName string     `json:"role_name" validate:"required"`
-	MasjidID *uuid.UUID `json:"masjid_id,omitempty"` // null = global
+	SchoolID *uuid.UUID `json:"school_id,omitempty"` // null = global
 }
 
 /* =======================================================
@@ -165,13 +165,13 @@ type UserResponseWithDeletedAt struct {
 }
 
 // RolesClaim (cermin dari fn_user_roles_claim)
-type MasjidRole struct {
-	MasjidID uuid.UUID `json:"masjid_id"`
+type SchoolRole struct {
+	SchoolID uuid.UUID `json:"school_id"`
 	Roles    []string  `json:"roles"`
 }
 type RolesClaim struct {
 	RoleGlobal  []string     `json:"role_global"`
-	MasjidRoles []MasjidRole `json:"masjid_roles"`
+	SchoolRoles []SchoolRole `json:"school_roles"`
 }
 
 type UserWithRolesResponse struct {

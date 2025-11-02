@@ -16,13 +16,13 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	dto "masjidku_backend/internals/features/school/classes/class_sections/dto"
-	model "masjidku_backend/internals/features/school/classes/class_sections/model"
+	dto "schoolku_backend/internals/features/school/classes/class_sections/dto"
+	model "schoolku_backend/internals/features/school/classes/class_sections/model"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
-	userProfileSnapshot "masjidku_backend/internals/features/users/users/snapshot"
+	userProfileSnapshot "schoolku_backend/internals/features/users/users/snapshot"
 )
 
 /* =========================
@@ -79,18 +79,18 @@ func getUsersProfileID(tx *gorm.DB, userID uuid.UUID) (uuid.UUID, error) {
 	return r.ID, nil
 }
 
-// Snapshot masjid (ringkas)
-func getMasjidSnapshot(tx *gorm.DB, masjidID uuid.UUID) (name, slug, logo, icon, bg *string, err error) {
+// Snapshot school (ringkas)
+func getSchoolSnapshot(tx *gorm.DB, schoolID uuid.UUID) (name, slug, logo, icon, bg *string, err error) {
 	var row struct {
-		Name *string `gorm:"column:masjid_name"`
-		Slug *string `gorm:"column:masjid_slug"`
-		Logo *string `gorm:"column:masjid_logo_url"`
-		Icon *string `gorm:"column:masjid_icon_url"`
-		Bg   *string `gorm:"column:masjid_background_url"`
+		Name *string `gorm:"column:school_name"`
+		Slug *string `gorm:"column:school_slug"`
+		Logo *string `gorm:"column:school_logo_url"`
+		Icon *string `gorm:"column:school_icon_url"`
+		Bg   *string `gorm:"column:school_background_url"`
 	}
-	err = tx.Table("masjids").
-		Select("masjid_name, masjid_slug, masjid_logo_url, masjid_icon_url, masjid_background_url").
-		Where("masjid_id = ? AND masjid_deleted_at IS NULL", masjidID).
+	err = tx.Table("schools").
+		Select("school_name, school_slug, school_logo_url, school_icon_url, school_background_url").
+		Where("school_id = ? AND school_deleted_at IS NULL", schoolID).
 		Take(&row).Error
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
@@ -102,11 +102,11 @@ func getMasjidSnapshot(tx *gorm.DB, masjidID uuid.UUID) (name, slug, logo, icon,
    Student upsert + snapshots
 ========================= */
 
-// Get/create masjid_students + isi snapshots (profil & masjid)
-func getOrCreateMasjidStudentWithSnapshots(
+// Get/create school_students + isi snapshots (profil & school)
+func getOrCreateSchoolStudentWithSnapshots(
 	ctx context.Context,
 	tx *gorm.DB,
-	masjidID uuid.UUID,
+	schoolID uuid.UUID,
 	userProfileID uuid.UUID,
 	profileSnap *userProfileSnapshot.UserProfileSnapshot, // boleh nil
 ) (uuid.UUID, error) {
@@ -116,17 +116,17 @@ func getOrCreateMasjidStudentWithSnapshots(
 			profileSnap = ps
 		}
 	}
-	// snapshot masjid
-	mName, mSlug, mLogo, mIcon, mBg, _ := getMasjidSnapshot(tx, masjidID)
+	// snapshot school
+	mName, mSlug, mLogo, mIcon, mBg, _ := getSchoolSnapshot(tx, schoolID)
 
 	// ada existing?
 	var cur struct {
-		ID uuid.UUID `gorm:"column:masjid_student_id"`
+		ID uuid.UUID `gorm:"column:school_student_id"`
 	}
-	err := tx.Table("masjid_students").
-		Select("masjid_student_id").
-		Where("masjid_student_masjid_id = ? AND masjid_student_user_profile_id = ? AND masjid_student_deleted_at IS NULL",
-			masjidID, userProfileID).
+	err := tx.Table("school_students").
+		Select("school_student_id").
+		Where("school_student_school_id = ? AND school_student_user_profile_id = ? AND school_student_deleted_at IS NULL",
+			schoolID, userProfileID).
 		Take(&cur).Error
 
 	now := time.Now()
@@ -134,41 +134,41 @@ func getOrCreateMasjidStudentWithSnapshots(
 	if err == nil {
 		// top-up snapshots (best-effort)
 		updates := map[string]any{
-			"masjid_student_updated_at": now,
+			"school_student_updated_at": now,
 		}
 		if profileSnap != nil {
 			if name := strings.TrimSpace(profileSnap.Name); name != "" {
-				updates["masjid_student_user_profile_name_snapshot"] = name
+				updates["school_student_user_profile_name_snapshot"] = name
 			}
 			if v := nzTrim(profileSnap.AvatarURL); v != nil {
-				updates["masjid_student_user_profile_avatar_url_snapshot"] = *v
+				updates["school_student_user_profile_avatar_url_snapshot"] = *v
 			}
 			if v := nzTrim(profileSnap.WhatsappURL); v != nil {
-				updates["masjid_student_user_profile_whatsapp_url_snapshot"] = *v
+				updates["school_student_user_profile_whatsapp_url_snapshot"] = *v
 			}
 			if v := nzTrim(profileSnap.ParentName); v != nil {
-				updates["masjid_student_user_profile_parent_name_snapshot"] = *v
+				updates["school_student_user_profile_parent_name_snapshot"] = *v
 			}
 			if v := nzTrim(profileSnap.ParentWhatsappURL); v != nil {
-				updates["masjid_student_user_profile_parent_whatsapp_url_snapshot"] = *v
+				updates["school_student_user_profile_parent_whatsapp_url_snapshot"] = *v
 			}
 		}
 		if v := nzTrim(mName); v != nil {
-			updates["masjid_student_masjid_name_snapshot"] = *v
+			updates["school_student_school_name_snapshot"] = *v
 		}
 		if v := nzTrim(mSlug); v != nil {
-			updates["masjid_student_masjid_slug_snapshot"] = *v
+			updates["school_student_school_slug_snapshot"] = *v
 		}
 		if v := nzTrim(mLogo); v != nil {
-			updates["masjid_student_masjid_logo_url_snapshot"] = *v
+			updates["school_student_school_logo_url_snapshot"] = *v
 		}
 		if v := nzTrim(mIcon); v != nil {
-			updates["masjid_student_masjid_icon_url_snapshot"] = *v
+			updates["school_student_school_icon_url_snapshot"] = *v
 		}
 		if v := nzTrim(mBg); v != nil {
-			updates["masjid_student_masjid_background_url_snapshot"] = *v
+			updates["school_student_school_background_url_snapshot"] = *v
 		}
-		if e := tx.Table("masjid_students").Where("masjid_student_id = ?", cur.ID).Updates(updates).Error; e != nil {
+		if e := tx.Table("school_students").Where("school_student_id = ?", cur.ID).Updates(updates).Error; e != nil {
 			return uuid.Nil, e
 		}
 		return cur.ID, nil
@@ -180,49 +180,49 @@ func getOrCreateMasjidStudentWithSnapshots(
 	// create baru (lengkap snapshots)
 	newID := uuid.New()
 	values := map[string]any{
-		"masjid_student_id":              newID,
-		"masjid_student_masjid_id":       masjidID,
-		"masjid_student_user_profile_id": userProfileID,
-		"masjid_student_slug":            newID.String(),
-		"masjid_student_status":          "active",
-		"masjid_student_sections":        datatypes.JSON([]byte("[]")),
-		"masjid_student_created_at":      now,
-		"masjid_student_updated_at":      now,
+		"school_student_id":              newID,
+		"school_student_school_id":       schoolID,
+		"school_student_user_profile_id": userProfileID,
+		"school_student_slug":            newID.String(),
+		"school_student_status":          "active",
+		"school_student_sections":        datatypes.JSON([]byte("[]")),
+		"school_student_created_at":      now,
+		"school_student_updated_at":      now,
 	}
 	if profileSnap != nil {
 		if name := strings.TrimSpace(profileSnap.Name); name != "" {
-			values["masjid_student_user_profile_name_snapshot"] = name
+			values["school_student_user_profile_name_snapshot"] = name
 		}
 		if v := nzTrim(profileSnap.AvatarURL); v != nil {
-			values["masjid_student_user_profile_avatar_url_snapshot"] = *v
+			values["school_student_user_profile_avatar_url_snapshot"] = *v
 		}
 		if v := nzTrim(profileSnap.WhatsappURL); v != nil {
-			values["masjid_student_user_profile_whatsapp_url_snapshot"] = *v
+			values["school_student_user_profile_whatsapp_url_snapshot"] = *v
 		}
 		if v := nzTrim(profileSnap.ParentName); v != nil {
-			values["masjid_student_user_profile_parent_name_snapshot"] = *v
+			values["school_student_user_profile_parent_name_snapshot"] = *v
 		}
 		if v := nzTrim(profileSnap.ParentWhatsappURL); v != nil {
-			values["masjid_student_user_profile_parent_whatsapp_url_snapshot"] = *v
+			values["school_student_user_profile_parent_whatsapp_url_snapshot"] = *v
 		}
 	}
 	if v := nzTrim(mName); v != nil {
-		values["masjid_student_masjid_name_snapshot"] = *v
+		values["school_student_school_name_snapshot"] = *v
 	}
 	if v := nzTrim(mSlug); v != nil {
-		values["masjid_student_masjid_slug_snapshot"] = *v
+		values["school_student_school_slug_snapshot"] = *v
 	}
 	if v := nzTrim(mLogo); v != nil {
-		values["masjid_student_masjid_logo_url_snapshot"] = *v
+		values["school_student_school_logo_url_snapshot"] = *v
 	}
 	if v := nzTrim(mIcon); v != nil {
-		values["masjid_student_masjid_icon_url_snapshot"] = *v
+		values["school_student_school_icon_url_snapshot"] = *v
 	}
 	if v := nzTrim(mBg); v != nil {
-		values["masjid_student_masjid_background_url_snapshot"] = *v
+		values["school_student_school_background_url_snapshot"] = *v
 	}
 
-	if err := tx.Table("masjid_students").Create(values).Error; err != nil {
+	if err := tx.Table("school_students").Create(values).Error; err != nil {
 		return uuid.Nil, err
 	}
 	return newID, nil
@@ -232,10 +232,10 @@ func getOrCreateMasjidStudentWithSnapshots(
    Handler
 ========================= */
 
-// POST /api/a/:masjid_id/student-class-sections/join     (versi lama: masjid_id di path)
-// POST /api/student-class-sections/join                   (versi baru: auto masjid dari code)
+// POST /api/a/:school_id/student-class-sections/join     (versi lama: school_id di path)
+// POST /api/student-class-sections/join                   (versi baru: auto school dari code)
 // Body: { "student_code": "...." }
-func (ctl *StudentClassSectionController) JoinByCodeAutoMasjid(c *fiber.Ctx) error {
+func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) error {
 	// --- auth wajib login ---
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
@@ -263,7 +263,7 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoMasjid(c *fiber.Ctx) err
 		}
 	}()
 
-	// --- 1) Temukan section dari code (tanpa filter masjid dulu) ---
+	// --- 1) Temukan section dari code (tanpa filter school dulu) ---
 	var sec model.ClassSectionModel
 	found := false
 
@@ -318,11 +318,11 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoMasjid(c *fiber.Ctx) err
 		}
 	}
 
-	// ✅ masjid_id diturunkan dari section
-	masjidID := sec.ClassSectionMasjidID
-	if masjidID == uuid.Nil {
+	// ✅ school_id diturunkan dari section
+	schoolID := sec.ClassSectionSchoolID
+	if schoolID == uuid.Nil {
 		_ = tx.Rollback()
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Section tidak memiliki konteks masjid yang valid")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Section tidak memiliki konteks school yang valid")
 	}
 
 	// --- 2) Validasi section (awal; guard final di UPDATE atomic) ---
@@ -337,7 +337,7 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoMasjid(c *fiber.Ctx) err
 	// 	return helper.JsonError(c, fiber.StatusConflict, "Kelas penuh")
 	// }
 
-	// --- 3) Pastikan ada masjid_student + isi snapshots ---
+	// --- 3) Pastikan ada school_student + isi snapshots ---
 	usersProfileID, err := getUsersProfileID(tx, userID)
 	if err != nil {
 		_ = tx.Rollback()
@@ -348,7 +348,7 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoMasjid(c *fiber.Ctx) err
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil snapshot profil")
 	}
-	masjidStudentID, err := getOrCreateMasjidStudentWithSnapshots(c.Context(), tx, masjidID, usersProfileID, profileSnap)
+	schoolStudentID, err := getOrCreateSchoolStudentWithSnapshots(c.Context(), tx, schoolID, usersProfileID, profileSnap)
 	if err != nil {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek/buat status student")
@@ -358,11 +358,11 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoMasjid(c *fiber.Ctx) err
 	var exists int64
 	if err := tx.Table("student_class_sections").
 		Where(`
-			student_class_section_masjid_id = ?
-			AND student_class_section_masjid_student_id = ?
+			student_class_section_school_id = ?
+			AND student_class_section_school_student_id = ?
 			AND student_class_section_section_id = ?
 			AND student_class_section_deleted_at IS NULL
-		`, masjidID, masjidStudentID, sec.ClassSectionID).
+		`, schoolID, schoolStudentID, sec.ClassSectionID).
 		Count(&exists).Error; err != nil {
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek keanggotaan")
@@ -376,8 +376,8 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoMasjid(c *fiber.Ctx) err
 	now := time.Now()
 	scs := &model.StudentClassSection{
 		StudentClassSectionID:              uuid.New(),
-		StudentClassSectionMasjidID:        masjidID,
-		StudentClassSectionMasjidStudentID: masjidStudentID,
+		StudentClassSectionSchoolID:        schoolID,
+		StudentClassSectionSchoolStudentID: schoolStudentID,
 		StudentClassSectionSectionID:       sec.ClassSectionID,
 		StudentClassSectionStatus:          model.StudentClassSectionActive,
 		StudentClassSectionAssignedAt:      now,
@@ -454,14 +454,14 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoMasjid(c *fiber.Ctx) err
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Transaksi gagal")
 	}
 
-	log.Printf("[SCS][JOIN] user=%s masjid=%s section=%s", userID, masjidID, sec.ClassSectionID)
+	log.Printf("[SCS][JOIN] user=%s school=%s section=%s", userID, schoolID, sec.ClassSectionID)
 
 	resp := fiber.Map{
 		"item": fiber.Map{
 			"student_class_section": dto.FromModel(scs),
 			"class_section_id":      sec.ClassSectionID.String(),
 		},
-		"masjid_id": masjidID.String(),
+		"school_id": schoolID.String(),
 	}
 	if profileSnap != nil {
 		resp["user_profile_snapshot"] = profileSnap

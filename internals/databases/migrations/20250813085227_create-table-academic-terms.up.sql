@@ -9,8 +9,8 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;   -- trigram untuk GIN trgm
 -- =========================================================
 CREATE TABLE IF NOT EXISTS academic_terms (
   academic_term_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  academic_term_masjid_id     UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  academic_term_school_id     UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   academic_term_academic_year TEXT NOT NULL,  -- contoh: '2026/2027'
   academic_term_name          TEXT NOT NULL,  -- 'Ganjil' | 'Genap' | 'Pendek' | dst.
@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS academic_terms (
 
 -- Rentang tanggal per tenant (range query cepat)
 CREATE INDEX IF NOT EXISTS ix_academic_terms_tenant_dates
-  ON academic_terms (academic_term_masjid_id, academic_term_start_date, academic_term_end_date)
+  ON academic_terms (academic_term_school_id, academic_term_start_date, academic_term_end_date)
   WHERE academic_term_deleted_at IS NULL;
 
 -- GIST untuk period range (cek overlap/periode berjalan)
@@ -60,7 +60,7 @@ CREATE INDEX IF NOT EXISTS ix_academic_terms_period_gist
 
 -- Satu set indeks untuk "yang aktif" per tenant
 CREATE INDEX IF NOT EXISTS ix_academic_terms_tenant_active_live
-  ON academic_terms (academic_term_masjid_id)
+  ON academic_terms (academic_term_school_id)
   WHERE academic_term_is_active = TRUE
     AND academic_term_deleted_at IS NULL;
 
@@ -71,7 +71,7 @@ CREATE INDEX IF NOT EXISTS ix_academic_terms_name_trgm
 
 -- Tahun akademik per tenant
 CREATE INDEX IF NOT EXISTS ix_academic_terms_year
-  ON academic_terms (academic_term_masjid_id, academic_term_academic_year)
+  ON academic_terms (academic_term_school_id, academic_term_academic_year)
   WHERE academic_term_deleted_at IS NULL;
 
 -- Pencarian tahun akademik fuzzy (trgm, lower)
@@ -81,20 +81,20 @@ CREATE INDEX IF NOT EXISTS ix_academic_terms_year_trgm_lower
 
 -- Angkatan per tenant
 CREATE INDEX IF NOT EXISTS ix_academic_terms_tenant_angkatan
-  ON academic_terms (academic_term_masjid_id, academic_term_angkatan)
+  ON academic_terms (academic_term_school_id, academic_term_angkatan)
   WHERE academic_term_deleted_at IS NULL;
 
 -- Arsip waktu per tenant
 CREATE INDEX IF NOT EXISTS ix_academic_terms_tenant_created_at
-  ON academic_terms (academic_term_masjid_id, academic_term_created_at)
+  ON academic_terms (academic_term_school_id, academic_term_created_at)
   WHERE academic_term_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_academic_terms_tenant_updated_at
-  ON academic_terms (academic_term_masjid_id, academic_term_updated_at)
+  ON academic_terms (academic_term_school_id, academic_term_updated_at)
   WHERE academic_term_deleted_at IS NULL;
 
 -- (Opsional) Unique komposit tenant-safe (berguna untuk FK komposit di downstream)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_academic_terms_id_masjid
-  ON academic_terms (academic_term_id, academic_term_masjid_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_academic_terms_id_school
+  ON academic_terms (academic_term_id, academic_term_school_id);
 
 COMMIT;

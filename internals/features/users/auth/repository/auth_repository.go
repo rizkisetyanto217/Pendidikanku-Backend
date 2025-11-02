@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	authModel "masjidku_backend/internals/features/users/auth/model"
-	userModel "masjidku_backend/internals/features/users/users/model"
+	authModel "schoolku_backend/internals/features/users/auth/model"
+	userModel "schoolku_backend/internals/features/users/users/model"
 )
 
 /* ====================== USER ====================== */
@@ -100,10 +100,6 @@ func CleanupExpiredBlacklist(db *gorm.DB) (int64, error) {
 	return res.RowsAffected, res.Error
 }
 
-
-
-
-
 // IsUsernameTaken — cek apakah username sudah dipakai
 func IsUsernameTaken(db *gorm.DB, username string) (bool, error) {
 	if username == "" {
@@ -119,4 +115,3 @@ func IsUsernameTaken(db *gorm.DB, username string) (bool, error) {
 	}
 	return exists, nil
 }
-

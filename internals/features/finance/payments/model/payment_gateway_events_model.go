@@ -42,7 +42,7 @@ type PaymentGatewayEvent struct {
 	PaymentGatewayEventID uuid.UUID `json:"payment_gateway_event_id" gorm:"column:payment_gateway_event_id;type:uuid;primaryKey;default:gen_random_uuid()"`
 
 	// Nullable FKs (ON DELETE SET NULL)
-	PaymentGatewayEventMasjidID  *uuid.UUID `json:"payment_gateway_event_masjid_id,omitempty"  gorm:"column:payment_gateway_event_masjid_id;type:uuid"`
+	PaymentGatewayEventSchoolID  *uuid.UUID `json:"payment_gateway_event_school_id,omitempty"  gorm:"column:payment_gateway_event_school_id;type:uuid"`
 	PaymentGatewayEventPaymentID *uuid.UUID `json:"payment_gateway_event_payment_id,omitempty" gorm:"column:payment_gateway_event_payment_id;type:uuid"`
 
 	// Enums
@@ -105,9 +105,9 @@ func ScopePGWByPayment(paymentID uuid.UUID) func(*gorm.DB) *gorm.DB {
 		return db.Where("payment_gateway_event_payment_id = ?", paymentID)
 	}
 }
-func ScopePGWByMasjid(masjidID uuid.UUID) func(*gorm.DB) *gorm.DB {
+func ScopePGWBySchool(schoolID uuid.UUID) func(*gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
-		return db.Where("payment_gateway_event_masjid_id = ?", masjidID)
+		return db.Where("payment_gateway_event_school_id = ?", schoolID)
 	}
 }
 func ScopePGWByStatus(status string) func(*gorm.DB) *gorm.DB {

@@ -22,7 +22,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 -- =========================================================
 CREATE TABLE IF NOT EXISTS general_billing_kinds (
   general_billing_kind_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  general_billing_kind_masjid_id       UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE, -- NULL = GLOBAL
+  general_billing_kind_school_id       UUID REFERENCES schools(school_id) ON DELETE CASCADE, -- NULL = GLOBAL
 
   general_billing_kind_code            VARCHAR(60) NOT NULL,
   general_billing_kind_name            TEXT NOT NULL,
@@ -51,18 +51,18 @@ CREATE TABLE IF NOT EXISTS general_billing_kinds (
 
 -- Unique code per-tenant (alive only)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_gbk_code_per_tenant_alive
-  ON general_billing_kinds (general_billing_kind_masjid_id, LOWER(general_billing_kind_code))
+  ON general_billing_kinds (general_billing_kind_school_id, LOWER(general_billing_kind_code))
   WHERE general_billing_kind_deleted_at IS NULL;
 
--- Unique code untuk GLOBAL (tanpa masjid) (alive only)
+-- Unique code untuk GLOBAL (tanpa school) (alive only)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_gbk_code_global_alive
   ON general_billing_kinds (LOWER(general_billing_kind_code))
   WHERE general_billing_kind_deleted_at IS NULL
-    AND general_billing_kind_masjid_id IS NULL;
+    AND general_billing_kind_school_id IS NULL;
 
 -- Filter umum
 CREATE INDEX IF NOT EXISTS ix_gbk_tenant_active
-  ON general_billing_kinds (general_billing_kind_masjid_id, general_billing_kind_is_active)
+  ON general_billing_kinds (general_billing_kind_school_id, general_billing_kind_is_active)
   WHERE general_billing_kind_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_gbk_created_at_alive
@@ -97,13 +97,13 @@ CREATE INDEX IF NOT EXISTS idx_gbk_name_trgm
 -- =========================================================
 CREATE TABLE IF NOT EXISTS fee_rules (
   fee_rule_id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  fee_rule_masjid_id         UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  fee_rule_school_id         UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   fee_rule_scope             fee_scope NOT NULL,
   fee_rule_class_parent_id   UUID,
   fee_rule_class_id          UUID,
   fee_rule_section_id        UUID,
-  fee_rule_masjid_student_id UUID,
+  fee_rule_school_student_id UUID,
 
   -- Periode (salah satu: term_id ATAU year+month) — validasi di-backend
   fee_rule_term_id           UUID REFERENCES academic_terms(academic_term_id) ON DELETE SET NULL,
@@ -151,7 +151,7 @@ CREATE TABLE IF NOT EXISTS fee_rules (
 -- INDEXES: fee_rules
 -- =========================
 CREATE INDEX IF NOT EXISTS idx_fee_rules_tenant_scope
-  ON fee_rules (fee_rule_masjid_id, fee_rule_scope);
+  ON fee_rules (fee_rule_school_id, fee_rule_scope);
 
 CREATE INDEX IF NOT EXISTS idx_fee_rules_term
   ON fee_rules (fee_rule_term_id);
@@ -182,8 +182,8 @@ CREATE INDEX IF NOT EXISTS ix_fee_rules_billcode
 CREATE TABLE IF NOT EXISTS bill_batches (
   bill_batch_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  bill_batch_masjid_id  UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  bill_batch_school_id  UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   bill_batch_class_id   UUID REFERENCES classes(class_id) ON DELETE SET NULL,
   bill_batch_section_id UUID REFERENCES class_sections(class_section_id) ON DELETE SET NULL,
@@ -225,48 +225,48 @@ CREATE TABLE IF NOT EXISTS bill_batches (
 -- Idempotensi BATCH:
 -- Periodik (SPP) → option_code NULL, unik per YM
 CREATE UNIQUE INDEX IF NOT EXISTS uq_batch_periodic_section
-  ON bill_batches (bill_batch_masjid_id, bill_batch_bill_code, bill_batch_section_id, bill_batch_term_id, bill_batch_year, bill_batch_month)
+  ON bill_batches (bill_batch_school_id, bill_batch_bill_code, bill_batch_section_id, bill_batch_term_id, bill_batch_year, bill_batch_month)
   WHERE bill_batch_deleted_at IS NULL
     AND bill_batch_section_id IS NOT NULL
     AND bill_batch_option_code IS NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_batch_periodic_class
-  ON bill_batches (bill_batch_masjid_id, bill_batch_bill_code, bill_batch_class_id, bill_batch_term_id, bill_batch_year, bill_batch_month)
+  ON bill_batches (bill_batch_school_id, bill_batch_bill_code, bill_batch_class_id, bill_batch_term_id, bill_batch_year, bill_batch_month)
   WHERE bill_batch_deleted_at IS NULL
     AND bill_batch_class_id IS NOT NULL
     AND bill_batch_option_code IS NULL;
 
 -- One-off (UNIFORM/BOOK/TRIP/REG) → option_code WAJIB, tanpa YM
 CREATE UNIQUE INDEX IF NOT EXISTS uq_batch_oneoff_section
-  ON bill_batches (bill_batch_masjid_id, bill_batch_bill_code, bill_batch_section_id, bill_batch_term_id, bill_batch_option_code)
+  ON bill_batches (bill_batch_school_id, bill_batch_bill_code, bill_batch_section_id, bill_batch_term_id, bill_batch_option_code)
   WHERE bill_batch_deleted_at IS NULL
     AND bill_batch_section_id IS NOT NULL
     AND bill_batch_option_code IS NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_batch_oneoff_class
-  ON bill_batches (bill_batch_masjid_id, bill_batch_bill_code, bill_batch_class_id, bill_batch_term_id, bill_batch_option_code)
+  ON bill_batches (bill_batch_school_id, bill_batch_bill_code, bill_batch_class_id, bill_batch_term_id, bill_batch_option_code)
   WHERE bill_batch_deleted_at IS NULL
     AND bill_batch_class_id IS NOT NULL
     AND bill_batch_option_code IS NOT NULL;
 
 -- Index bantu query batch
 CREATE INDEX IF NOT EXISTS ix_bill_batches_tenant_ym_alive
-  ON bill_batches (bill_batch_masjid_id, bill_batch_year, bill_batch_month)
+  ON bill_batches (bill_batch_school_id, bill_batch_year, bill_batch_month)
   WHERE bill_batch_deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS ix_bill_batches_due_date_alive
   ON bill_batches (bill_batch_due_date)
   WHERE bill_batch_deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS ix_bill_batches_masjid_created_at_alive
-  ON bill_batches (bill_batch_masjid_id, bill_batch_created_at DESC)
+CREATE INDEX IF NOT EXISTS ix_bill_batches_school_created_at_alive
+  ON bill_batches (bill_batch_school_id, bill_batch_created_at DESC)
   WHERE bill_batch_deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS ix_bill_batches_masjid_updated_at_alive
-  ON bill_batches (bill_batch_masjid_id, bill_batch_updated_at DESC)
+CREATE INDEX IF NOT EXISTS ix_bill_batches_school_updated_at_alive
+  ON bill_batches (bill_batch_school_id, bill_batch_updated_at DESC)
   WHERE bill_batch_deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS ix_bill_batches_term_alive
   ON bill_batches (bill_batch_term_id)
   WHERE bill_batch_deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS ix_bill_batches_masjid_term_alive
-  ON bill_batches (bill_batch_masjid_id, bill_batch_term_id)
+CREATE INDEX IF NOT EXISTS ix_bill_batches_school_term_alive
+  ON bill_batches (bill_batch_school_id, bill_batch_term_id)
   WHERE bill_batch_deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS ix_bill_batches_class_alive
   ON bill_batches (bill_batch_class_id)
@@ -274,8 +274,8 @@ CREATE INDEX IF NOT EXISTS ix_bill_batches_class_alive
 CREATE INDEX IF NOT EXISTS ix_bill_batches_section_alive
   ON bill_batches (bill_batch_section_id)
   WHERE bill_batch_deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS ix_bill_batches_masjid_due_date_alive
-  ON bill_batches (bill_batch_masjid_id, bill_batch_due_date)
+CREATE INDEX IF NOT EXISTS ix_bill_batches_school_due_date_alive
+  ON bill_batches (bill_batch_school_id, bill_batch_due_date)
   WHERE bill_batch_deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS ix_bill_batches_title_trgm_alive
   ON bill_batches USING GIN (LOWER(bill_batch_title) gin_trgm_ops)
@@ -290,10 +290,10 @@ CREATE TABLE IF NOT EXISTS student_bills (
   student_bill_id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   student_bill_batch_id          UUID NOT NULL REFERENCES bill_batches(bill_batch_id) ON DELETE CASCADE,
 
-  student_bill_masjid_id         UUID NOT NULL,
-  student_bill_masjid_student_id UUID,
-  CONSTRAINT fk_student_bill_student_tenant FOREIGN KEY (student_bill_masjid_student_id, student_bill_masjid_id)
-    REFERENCES masjid_students (masjid_student_id, masjid_student_masjid_id)
+  student_bill_school_id         UUID NOT NULL,
+  student_bill_school_student_id UUID,
+  CONSTRAINT fk_student_bill_student_tenant FOREIGN KEY (student_bill_school_student_id, student_bill_school_id)
+    REFERENCES school_students (school_student_id, school_student_school_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
   student_bill_payer_user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -323,7 +323,7 @@ CREATE TABLE IF NOT EXISTS student_bills (
   student_bill_deleted_at        TIMESTAMPTZ,
 
   -- Idempotensi per-batch
-  CONSTRAINT uq_student_bill_per_student UNIQUE (student_bill_batch_id, student_bill_masjid_student_id)
+  CONSTRAINT uq_student_bill_per_student UNIQUE (student_bill_batch_id, student_bill_school_student_id)
 );
 
 CREATE INDEX IF NOT EXISTS ix_student_bills_gbk ON student_bills (student_bill_general_billing_kind_id);
@@ -334,13 +334,13 @@ CREATE INDEX IF NOT EXISTS ix_student_bill_created_at ON student_bills (student_
 -- Idempotensi baris siswa:
 -- Periodik (SPP) → tanpa option_code
 CREATE UNIQUE INDEX IF NOT EXISTS uq_student_periodic
-  ON student_bills (student_bill_masjid_id, student_bill_masjid_student_id, student_bill_bill_code, student_bill_term_id, student_bill_year, student_bill_month)
+  ON student_bills (student_bill_school_id, student_bill_school_student_id, student_bill_bill_code, student_bill_term_id, student_bill_year, student_bill_month)
   WHERE student_bill_deleted_at IS NULL
     AND student_bill_option_code IS NULL;
 
 -- One-off (UNIFORM/BOOK/TRIP/REG) → wajib option_code
 CREATE UNIQUE INDEX IF NOT EXISTS uq_student_oneoff
-  ON student_bills (student_bill_masjid_id, student_bill_masjid_student_id, student_bill_bill_code, student_bill_option_code)
+  ON student_bills (student_bill_school_id, student_bill_school_student_id, student_bill_bill_code, student_bill_option_code)
   WHERE student_bill_deleted_at IS NULL
     AND student_bill_option_code IS NOT NULL;
 
@@ -350,8 +350,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_student_oneoff
 CREATE TABLE IF NOT EXISTS general_billings (
   general_billing_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  general_billing_masjid_id  UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  general_billing_school_id  UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   general_billing_kind_id    UUID NOT NULL
     REFERENCES general_billing_kinds(general_billing_kind_id)
@@ -383,11 +383,11 @@ CREATE TABLE IF NOT EXISTS general_billings (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_general_billings_code_per_tenant_alive
-  ON general_billings (general_billing_masjid_id, LOWER(general_billing_code))
+  ON general_billings (general_billing_school_id, LOWER(general_billing_code))
   WHERE general_billing_deleted_at IS NULL AND general_billing_code IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS ix_gb_tenant_kind_active_created
-  ON general_billings (general_billing_masjid_id, general_billing_kind_id, general_billing_is_active, general_billing_created_at DESC)
+  ON general_billings (general_billing_school_id, general_billing_kind_id, general_billing_is_active, general_billing_created_at DESC)
   WHERE general_billing_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_gb_due_alive

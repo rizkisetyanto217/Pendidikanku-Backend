@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	model "masjidku_backend/internals/features/users/survey/model"
-	helper "masjidku_backend/internals/helpers"
+	model "schoolku_backend/internals/features/users/survey/model"
+	helper "schoolku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -40,7 +40,7 @@ func (ctrl *UserSurveyController) SubmitSurveyAnswers(c *fiber.Ctx) error {
 	}
 	if err := c.BodyParser(&inputs); err != nil {
 		log.Println("[ERROR] Failed to parse user survey input:", err)
-	return helper.JsonError(c, fiber.StatusBadRequest, "Invalid input (expected JSON array)")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid input (expected JSON array)")
 	}
 	if len(inputs) == 0 {
 		return helper.JsonError(c, fiber.StatusBadRequest, "No answers provided")
@@ -51,7 +51,7 @@ func (ctrl *UserSurveyController) SubmitSurveyAnswers(c *fiber.Ctx) error {
 	answers := make([]model.UserSurvey, 0, len(inputs))
 	for i, in := range inputs {
 		if in.SurveyQuestionID == 0 || in.UserAnswer == "" {
-			return helper.JsonError(c, fiber.StatusBadRequest, 
+			return helper.JsonError(c, fiber.StatusBadRequest,
 				"Invalid item at index "+fmt.Sprint(i)+": survey_question_id and user_answer are required")
 		}
 		answers = append(answers, model.UserSurvey{

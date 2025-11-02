@@ -10,8 +10,8 @@ import (
 
 type ClassSubjectModel struct {
 	/* ============ PK & Tenant ============ */
-	ClassSubjectID       uuid.UUID `gorm:"column:class_subject_id;type:uuid;default:gen_random_uuid();primaryKey;uniqueIndex:uq_class_subject_id_masjid" json:"class_subject_id"`
-	ClassSubjectMasjidID uuid.UUID `gorm:"column:class_subject_masjid_id;type:uuid;not null;uniqueIndex:uq_class_subject_id_masjid;index:idx_class_subjects_masjid" json:"class_subject_masjid_id"`
+	ClassSubjectID       uuid.UUID `gorm:"column:class_subject_id;type:uuid;default:gen_random_uuid();primaryKey;uniqueIndex:uq_class_subject_id_school" json:"class_subject_id"`
+	ClassSubjectSchoolID uuid.UUID `gorm:"column:class_subject_school_id;type:uuid;not null;uniqueIndex:uq_class_subject_id_school;index:idx_class_subjects_school" json:"class_subject_school_id"`
 
 	/* ============ FK eksplisit (→ class_parents & subjects) ============ */
 	ClassSubjectParentID  uuid.UUID `gorm:"column:class_subject_parent_id;type:uuid;not null;index:idx_class_subjects_parent"  json:"class_subject_parent_id"`

@@ -3,33 +3,33 @@ package details
 
 import (
 	// ====== Lembaga features ======
-	YayasanRoutes "masjidku_backend/internals/features/lembaga/masjid_yayasans/yayasans/route"
-	LembagaStatsRoutes "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/route"
-	SemesterStatsRoutes "masjidku_backend/internals/features/lembaga/stats/semester_stats/route"
-	AcademicYearRoutes "masjidku_backend/internals/features/school/academics/academic_terms/route"
-	ClassBooksRoutes "masjidku_backend/internals/features/school/academics/books/route"
-	CertificateRoutes "masjidku_backend/internals/features/school/academics/certificates/route"
-	RoomsRoutes "masjidku_backend/internals/features/school/academics/rooms/route"
-	SubjectRoutes "masjidku_backend/internals/features/school/academics/subjects/route"
-	ClassAttendanceSessionsRoutes "masjidku_backend/internals/features/school/classes/class_attendance_sessions/route"
-	EventRoutes "masjidku_backend/internals/features/school/classes/class_events/route"
-	ScheduleRoutes "masjidku_backend/internals/features/school/classes/class_schedules/route"
-	ClassSectionsRoutes "masjidku_backend/internals/features/school/classes/class_sections/route"
-	ClassesRoutes "masjidku_backend/internals/features/school/classes/classes/route"
-	AttendanceSettingsRoute "masjidku_backend/internals/features/school/others/assesments_settings/route"
-	PostRoutes "masjidku_backend/internals/features/school/others/post/route"
-	AssessmentsRoutes "masjidku_backend/internals/features/school/submissions_assesments/assesments/route"
-	QuizzesRoutes "masjidku_backend/internals/features/school/submissions_assesments/quizzes/route"
-	SubmissionsRoutes "masjidku_backend/internals/features/school/submissions_assesments/submissions/route"
+	YayasanRoutes "schoolku_backend/internals/features/lembaga/school_yayasans/yayasans/route"
+	LembagaStatsRoutes "schoolku_backend/internals/features/lembaga/stats/lembaga_stats/route"
+	SemesterStatsRoutes "schoolku_backend/internals/features/lembaga/stats/semester_stats/route"
+	AcademicYearRoutes "schoolku_backend/internals/features/school/academics/academic_terms/route"
+	ClassBooksRoutes "schoolku_backend/internals/features/school/academics/books/route"
+	// CertificateRoutes "schoolku_backend/internals/features/school/academics/certificates/route"
+	RoomsRoutes "schoolku_backend/internals/features/school/academics/rooms/route"
+	SubjectRoutes "schoolku_backend/internals/features/school/academics/subjects/route"
+	ClassAttendanceSessionsRoutes "schoolku_backend/internals/features/school/classes/class_attendance_sessions/route"
+	EventRoutes "schoolku_backend/internals/features/school/classes/class_events/route"
+	ScheduleRoutes "schoolku_backend/internals/features/school/classes/class_schedules/route"
+	ClassSectionsRoutes "schoolku_backend/internals/features/school/classes/class_sections/route"
+	ClassesRoutes "schoolku_backend/internals/features/school/classes/classes/route"
+	AttendanceSettingsRoute "schoolku_backend/internals/features/school/others/assesments_settings/route"
+	PostRoutes "schoolku_backend/internals/features/school/others/post/route"
+	AssessmentsRoutes "schoolku_backend/internals/features/school/submissions_assesments/assesments/route"
+	QuizzesRoutes "schoolku_backend/internals/features/school/submissions_assesments/quizzes/route"
+	SubmissionsRoutes "schoolku_backend/internals/features/school/submissions_assesments/submissions/route"
 
-	CSSTRoutes "masjidku_backend/internals/features/school/classes/class_section_subject_teachers/route"
+	CSSTRoutes "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/route"
 
 	// Tambahkan import route lain di sini saat modul siap:
-	// SectionRoutes "masjidku_backend/internals/features/lembaga/sections/main/route"
-	// StudentRoutes "masjidku_backend/internals/features/lembaga/students/main/route"
-	// TeacherRoutes "masjidku_backend/internals/features/lembaga/teachers/main/route"
-	// ScheduleRoutes "masjidku_backend/internals/features/lembaga/schedules/main/route"
-	// FinanceRoutes  "masjidku_backend/internals/features/lembaga/finance/main/route"
+	// SectionRoutes "schoolku_backend/internals/features/lembaga/sections/main/route"
+	// StudentRoutes "schoolku_backend/internals/features/lembaga/students/main/route"
+	// TeacherRoutes "schoolku_backend/internals/features/lembaga/teachers/main/route"
+	// ScheduleRoutes "schoolku_backend/internals/features/lembaga/schedules/main/route"
+	// FinanceRoutes  "schoolku_backend/internals/features/lembaga/finance/main/route"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -67,7 +67,7 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	ClassAttendanceSessionsRoutes.AttendanceSessionsTeacherRoutes(r, db)
 	ScheduleRoutes.ScheduleUserRoutes(r, db)
 
-	CertificateRoutes.CertificateUserRoutes(r, db)
+	// CertificateRoutes.CertificateUserRoutes(r, db)
 	AssessmentsRoutes.AssessmentUserRoutes(r, db)
 	AssessmentsRoutes.AssessmentTeacherRoutes(r, db)
 	SubmissionsRoutes.SubmissionUserRoutes(r, db)
@@ -82,7 +82,7 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 }
 
 /* ===================== ADMIN ===================== */
-// Endpoint khusus admin lembaga/masjid (token + guard admin)
+// Endpoint khusus admin lembaga/school (token + guard admin)
 func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// Classes (CRUD admin)
 	ClassesRoutes.ClassAdminRoutes(r, db)
@@ -98,7 +98,7 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	RoomsRoutes.RoomsAdminRoutes(r, db)
 	ScheduleRoutes.ScheduleAdminRoutes(r, db)
 	ClassAttendanceSessionsRoutes.AttendanceSessionsAdminRoutes(r, db)
-	CertificateRoutes.CertificateAdminRoutes(r, db)
+	// CertificateRoutes.CertificateAdminRoutes(r, db)
 	AssessmentsRoutes.AssessmentAdminRoutes(r, db)
 	SubmissionsRoutes.SubmissionAdminRoutes(r, db)
 	QuizzesRoutes.QuizzesAdminRoutes(r, db)

@@ -5,15 +5,15 @@ BEGIN;
 DROP INDEX IF EXISTS ix_ugb_created_at_alive;
 DROP INDEX IF EXISTS ix_ugb_status_alive;
 DROP INDEX IF EXISTS ix_ugb_billing_alive;
-DROP INDEX IF EXISTS ix_ugb_masjid_alive;
+DROP INDEX IF EXISTS ix_ugb_school_alive;
 DROP INDEX IF EXISTS uq_ugb_per_payer_alive;
 DROP INDEX IF EXISTS uq_ugb_per_student_alive;
 -- (opsional) bila sempat dibuat
 DROP INDEX IF EXISTS ix_ugb_meta_gin_alive;
 
 -- ===== general_billings: drop indexes =====
-DROP INDEX IF EXISTS ix_gb_masjid_updated_at_alive;
-DROP INDEX IF EXISTS ix_gb_masjid_created_at_alive;
+DROP INDEX IF EXISTS ix_gb_school_updated_at_alive;
+DROP INDEX IF EXISTS ix_gb_school_created_at_alive;
 DROP INDEX IF EXISTS ix_gb_kind_alive;
 DROP INDEX IF EXISTS ix_gb_due_alive;
 DROP INDEX IF EXISTS ix_gb_tenant_kind_active_created;

@@ -23,16 +23,16 @@ DROP TABLE IF EXISTS class_schedule_rules;
 DROP TABLE IF EXISTS class_schedules;
 
 /* ---------------------------------------------------------
-   3) masjid_holidays (independent of others here)
+   3) school_holidays (independent of others here)
 --------------------------------------------------------- */
 -- (opsional) explicit drop indexes:
--- DROP INDEX IF EXISTS brin_masjid_holidays_created_at;
--- DROP INDEX IF EXISTS gin_masjid_holidays_slug_trgm_alive;
--- DROP INDEX IF EXISTS idx_masjid_holidays_date_range_alive;
--- DROP INDEX IF EXISTS idx_masjid_holidays_tenant_alive;
--- DROP INDEX IF EXISTS uq_masjid_holidays_slug_per_tenant_alive;
+-- DROP INDEX IF EXISTS brin_school_holidays_created_at;
+-- DROP INDEX IF EXISTS gin_school_holidays_slug_trgm_alive;
+-- DROP INDEX IF EXISTS idx_school_holidays_date_range_alive;
+-- DROP INDEX IF EXISTS idx_school_holidays_tenant_alive;
+-- DROP INDEX IF EXISTS uq_school_holidays_slug_per_tenant_alive;
 
-DROP TABLE IF EXISTS masjid_holidays;
+DROP TABLE IF EXISTS school_holidays;
 
 /* ---------------------------------------------------------
    4) national_holidays (independent of others here)

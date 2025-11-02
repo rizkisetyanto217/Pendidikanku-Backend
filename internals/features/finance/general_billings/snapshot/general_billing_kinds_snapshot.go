@@ -26,15 +26,15 @@ type GBKSnapshot struct {
 
 // ValidateAndSnapshotGBK:
 // - Memuat baris GBK yang hidup (deleted_at NULL)
-// - Memastikan tenant sesuai (atau GLOBAL = masjid_id NULL)
+// - Memastikan tenant sesuai (atau GLOBAL = school_id NULL)
 // - Mengembalikan snapshot siap pakai
 func ValidateAndSnapshotGBK(
 	tx *gorm.DB,
-	expectMasjidID uuid.UUID, // boleh uuid.Nil: lewati guard tenant
+	expectSchoolID uuid.UUID, // boleh uuid.Nil: lewati guard tenant
 	gbkID uuid.UUID,
 ) (*GBKSnapshot, error) {
 	var row struct {
-		MasjidID         *string `gorm:"column:masjid_id"` // text agar aman saat NULL
+		SchoolID         *string `gorm:"column:school_id"` // text agar aman saat NULL
 		Code             *string `gorm:"column:code"`
 		Name             *string `gorm:"column:name"`
 		Category         *string `gorm:"column:category"`
@@ -50,7 +50,7 @@ func ValidateAndSnapshotGBK(
 	// SELECT eksplisit sesuai schema migrasi terbaru
 	q := tx.Raw(`
 		SELECT
-		  gbk.general_billing_kind_masjid_id::text               AS masjid_id,
+		  gbk.general_billing_kind_school_id::text               AS school_id,
 		  gbk.general_billing_kind_code                           AS code,
 		  gbk.general_billing_kind_name                           AS name,
 		  gbk.general_billing_kind_category::text                 AS category,
@@ -75,15 +75,15 @@ func ValidateAndSnapshotGBK(
 		return nil, fiber.NewError(fiber.StatusNotFound, "General Billing Kind tidak ditemukan")
 	}
 
-	// Guard tenant: jika GBK punya masjid_id dan bukan GLOBAL (masjid_id != NULL),
-	// pastikan sama dengan expectMasjidID (kecuali expectMasjidID == uuid.Nil => skip guard)
-	if expectMasjidID != uuid.Nil && row.MasjidID != nil && strings.TrimSpace(*row.MasjidID) != "" {
-		rmz, perr := uuid.Parse(strings.TrimSpace(*row.MasjidID))
+	// Guard tenant: jika GBK punya school_id dan bukan GLOBAL (school_id != NULL),
+	// pastikan sama dengan expectSchoolID (kecuali expectSchoolID == uuid.Nil => skip guard)
+	if expectSchoolID != uuid.Nil && row.SchoolID != nil && strings.TrimSpace(*row.SchoolID) != "" {
+		rmz, perr := uuid.Parse(strings.TrimSpace(*row.SchoolID))
 		if perr != nil {
-			return nil, fiber.NewError(fiber.StatusInternalServerError, "Format masjid_id GBK tidak valid")
+			return nil, fiber.NewError(fiber.StatusInternalServerError, "Format school_id GBK tidak valid")
 		}
-		if rmz != uuid.Nil && rmz != expectMasjidID {
-			return nil, fiber.NewError(fiber.StatusForbidden, "GBK bukan milik masjid Anda")
+		if rmz != uuid.Nil && rmz != expectSchoolID {
+			return nil, fiber.NewError(fiber.StatusForbidden, "GBK bukan milik school Anda")
 		}
 	}
 

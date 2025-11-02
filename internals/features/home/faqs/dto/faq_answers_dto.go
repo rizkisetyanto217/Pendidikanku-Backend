@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	faqmodel "masjidku_backend/internals/features/home/faqs/model"
+	faqmodel "schoolku_backend/internals/features/home/faqs/model"
 )
 
 // ====================
@@ -16,7 +16,7 @@ type FaqAnswerDTO struct {
 	FaqAnswerQuestionID string     `json:"faq_answer_question_id"`
 	FaqAnswerAnsweredBy *string    `json:"faq_answer_answered_by,omitempty"` // nullable; diisi id/username penjawab jika ada
 	AnsweredByName      *string    `json:"answered_by_name,omitempty"`       // opsional; human readable name dari relasi User
-	FaqAnswerMasjidID   string     `json:"faq_answer_masjid_id"`
+	FaqAnswerSchoolID   string     `json:"faq_answer_school_id"`
 	FaqAnswerText       string     `json:"faq_answer_text"`
 	FaqAnswerCreatedAt  time.Time  `json:"faq_answer_created_at"`
 	FaqAnswerUpdatedAt  *time.Time `json:"faq_answer_updated_at,omitempty"` // nullable; hanya jika non-zero
@@ -28,7 +28,7 @@ type FaqAnswerDTO struct {
 
 type CreateFaqAnswerRequest struct {
 	FaqAnswerQuestionID string `json:"faq_answer_question_id" validate:"required,uuid"`
-	FaqAnswerMasjidID   string `json:"faq_answer_masjid_id" validate:"required,uuid"`
+	FaqAnswerSchoolID   string `json:"faq_answer_school_id" validate:"required,uuid"`
 	FaqAnswerText       string `json:"faq_answer_text" validate:"required,min=3"`
 }
 
@@ -48,8 +48,8 @@ func ToFaqAnswerDTO(m faqmodel.FaqAnswerModel) FaqAnswerDTO {
 	if m.User != nil {
 		// Prioritas pakai UserName (string), fallback ke FullName (*string) bila ada
 		if name := strings.TrimSpace(m.User.UserName); name != "" {
-			n := name            // buat salinan lokal agar aman
-			answeredByName = &n  // pointer ke salinan lokal
+			n := name           // buat salinan lokal agar aman
+			answeredByName = &n // pointer ke salinan lokal
 		} else if m.User.FullName != nil {
 			if fn := strings.TrimSpace(*m.User.FullName); fn != "" {
 				answeredByName = m.User.FullName // sudah *string
@@ -69,7 +69,7 @@ func ToFaqAnswerDTO(m faqmodel.FaqAnswerModel) FaqAnswerDTO {
 		FaqAnswerQuestionID: m.FaqAnswerQuestionID,
 		FaqAnswerAnsweredBy: m.FaqAnswerAnsweredBy, // *string
 		AnsweredByName:      answeredByName,        // *string
-		FaqAnswerMasjidID:   m.FaqAnswerMasjidID,
+		FaqAnswerSchoolID:   m.FaqAnswerSchoolID,
 		FaqAnswerText:       m.FaqAnswerText,
 		FaqAnswerCreatedAt:  m.FaqAnswerCreatedAt,
 		FaqAnswerUpdatedAt:  updatedAtPtr,
@@ -91,7 +91,7 @@ func (r CreateFaqAnswerRequest) ToModel(answeredBy *string) faqmodel.FaqAnswerMo
 	return faqmodel.FaqAnswerModel{
 		FaqAnswerQuestionID: r.FaqAnswerQuestionID,
 		FaqAnswerAnsweredBy: answeredBy, // *string
-		FaqAnswerMasjidID:   r.FaqAnswerMasjidID,
+		FaqAnswerSchoolID:   r.FaqAnswerSchoolID,
 		FaqAnswerText:       r.FaqAnswerText,
 	}
 }

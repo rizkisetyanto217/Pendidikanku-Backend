@@ -2,8 +2,8 @@
 package router
 
 import (
-	subjectsController "masjidku_backend/internals/features/school/academics/subjects/controller"
-	masjidkuMiddleware "masjidku_backend/internals/middlewares/features"
+	subjectsController "schoolku_backend/internals/features/school/academics/subjects/controller"
+	schoolkuMiddleware "schoolku_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -17,8 +17,8 @@ Contoh mount:
 
 Sehingga endpoint jadi:
 
-	GET /api/u/:masjid_id/subjects/list
-	GET /api/u/:masjid_slug/subjects/list
+	GET /api/u/:school_id/subjects/list
+	GET /api/u/:school_slug/subjects/list
 	dst.
 */
 func AllSubjectRoutes(r fiber.Router, db *gorm.DB) {
@@ -26,10 +26,9 @@ func AllSubjectRoutes(r fiber.Router, db *gorm.DB) {
 	subjectCtl := &subjectsController.SubjectsController{DB: db}
 	classSubjectCtl := &subjectsController.ClassSubjectController{DB: db}
 
-
-	// ===== Base by masjid_id =====
-	baseByID := r.Group("/:masjid_id") // set ctx masjid dari param
-	// tambahkan middleware auth ringan bila perlu (mis. RequireLogin / IsMasjidMember)
+	// ===== Base by school_id =====
+	baseByID := r.Group("/:school_id") // set ctx school dari param
+	// tambahkan middleware auth ringan bila perlu (mis. RequireLogin / IsSchoolMember)
 
 	subjectsByID := baseByID.Group("/subjects")
 	subjectsByID.Get("/list", subjectCtl.ListSubjects)
@@ -37,9 +36,9 @@ func AllSubjectRoutes(r fiber.Router, db *gorm.DB) {
 	classSubjectsByID := baseByID.Group("/class-subjects")
 	classSubjectsByID.Get("/list", classSubjectCtl.List)
 
-	// ===== Base by masjid_slug (opsional dukung slug/subdomain) =====
-	baseBySlug := r.Group("/:masjid_slug",
-		masjidkuMiddleware.UseMasjidScope(),
+	// ===== Base by school_slug (opsional dukung slug/subdomain) =====
+	baseBySlug := r.Group("/:school_slug",
+		schoolkuMiddleware.UseSchoolScope(),
 	)
 
 	subjectsBySlug := baseBySlug.Group("/subjects")

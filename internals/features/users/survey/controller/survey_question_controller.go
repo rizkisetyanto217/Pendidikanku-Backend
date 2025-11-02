@@ -2,9 +2,9 @@ package controller
 
 import (
 	"encoding/json"
-	"masjidku_backend/internals/features/users/survey/dto"
-	"masjidku_backend/internals/features/users/survey/model"
-	helper "masjidku_backend/internals/helpers"
+	"schoolku_backend/internals/features/users/survey/dto"
+	"schoolku_backend/internals/features/users/survey/model"
+	helper "schoolku_backend/internals/helpers"
 	"time"
 
 	"github.com/gofiber/fiber/v2"

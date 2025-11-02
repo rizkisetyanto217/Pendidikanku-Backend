@@ -3,7 +3,7 @@ package user
 // import (
 // 	"encoding/json"
 // 	"log"
-// 	"masjidku_backend/internals/features/users/user/model"
+// 	"schoolku_backend/internals/features/users/user/model"
 // 	"os"
 
 // 	"github.com/google/uuid"

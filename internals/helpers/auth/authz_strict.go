@@ -3,30 +3,30 @@ package helper
 import (
 	"strings"
 
-	helper "masjidku_backend/internals/helpers"
+	helper "schoolku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
 
 type mrEntry struct {
-	MasjidID uuid.UUID
+	SchoolID uuid.UUID
 	Roles    []string
 }
 
-func parseMasjidRolesStrict(c *fiber.Ctx) ([]mrEntry, error) {
-	v := c.Locals(LocMasjidRoles) // HARUS dari middleware verifikasi JWT
+func parseSchoolRolesStrict(c *fiber.Ctx) ([]mrEntry, error) {
+	v := c.Locals(LocSchoolRoles) // HARUS dari middleware verifikasi JWT
 	if v == nil {
-		return nil, fiber.NewError(fiber.StatusUnauthorized, LocMasjidRoles+" tidak ditemukan di token")
+		return nil, fiber.NewError(fiber.StatusUnauthorized, LocSchoolRoles+" tidak ditemukan di token")
 	}
 	out := make([]mrEntry, 0)
 	switch arr := v.(type) {
 	case []map[string]any:
 		for _, m := range arr {
 			var e mrEntry
-			if s, ok := m["masjid_id"].(string); ok {
+			if s, ok := m["school_id"].(string); ok {
 				if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
-					e.MasjidID = id
+					e.SchoolID = id
 				}
 			}
 			if rr, ok := m["roles"].([]interface{}); ok {
@@ -39,7 +39,7 @@ func parseMasjidRolesStrict(c *fiber.Ctx) ([]mrEntry, error) {
 					}
 				}
 			}
-			if e.MasjidID != uuid.Nil && len(e.Roles) > 0 {
+			if e.SchoolID != uuid.Nil && len(e.Roles) > 0 {
 				out = append(out, e)
 			}
 		}
@@ -47,9 +47,9 @@ func parseMasjidRolesStrict(c *fiber.Ctx) ([]mrEntry, error) {
 		for _, it := range arr {
 			if m, ok := it.(map[string]any); ok {
 				var e mrEntry
-				if s, ok := m["masjid_id"].(string); ok {
+				if s, ok := m["school_id"].(string); ok {
 					if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
-						e.MasjidID = id
+						e.SchoolID = id
 					}
 				}
 				if rr, ok := m["roles"].([]interface{}); ok {
@@ -62,31 +62,31 @@ func parseMasjidRolesStrict(c *fiber.Ctx) ([]mrEntry, error) {
 						}
 					}
 				}
-				if e.MasjidID != uuid.Nil && len(e.Roles) > 0 {
+				if e.SchoolID != uuid.Nil && len(e.Roles) > 0 {
 					out = append(out, e)
 				}
 			}
 		}
 	default:
-		return nil, fiber.NewError(fiber.StatusBadRequest, LocMasjidRoles+" format tidak didukung")
+		return nil, fiber.NewError(fiber.StatusBadRequest, LocSchoolRoles+" format tidak didukung")
 	}
 	if len(out) == 0 {
-		return nil, fiber.NewError(fiber.StatusUnauthorized, LocMasjidRoles+" kosong/invalid")
+		return nil, fiber.NewError(fiber.StatusUnauthorized, LocSchoolRoles+" kosong/invalid")
 	}
 	return out, nil
 }
 
-func hasRoleInMasjidStrict(c *fiber.Ctx, masjidID uuid.UUID, role string) bool {
+func hasRoleInSchoolStrict(c *fiber.Ctx, schoolID uuid.UUID, role string) bool {
 	role = strings.ToLower(strings.TrimSpace(role))
-	if role == "" || masjidID == uuid.Nil {
+	if role == "" || schoolID == uuid.Nil {
 		return false
 	}
-	entries, err := parseMasjidRolesStrict(c)
+	entries, err := parseSchoolRolesStrict(c)
 	if err != nil {
 		return false
 	}
 	for _, e := range entries {
-		if e.MasjidID == masjidID {
+		if e.SchoolID == schoolID {
 			for _, r := range e.Roles {
 				if r == role {
 					return true
@@ -97,16 +97,16 @@ func hasRoleInMasjidStrict(c *fiber.Ctx, masjidID uuid.UUID, role string) bool {
 	return false
 }
 
-func isMasjidPresentStrict(c *fiber.Ctx, masjidID uuid.UUID) bool {
-	if masjidID == uuid.Nil {
+func isSchoolPresentStrict(c *fiber.Ctx, schoolID uuid.UUID) bool {
+	if schoolID == uuid.Nil {
 		return false
 	}
-	entries, err := parseMasjidRolesStrict(c)
+	entries, err := parseSchoolRolesStrict(c)
 	if err != nil {
 		return false
 	}
 	for _, e := range entries {
-		if e.MasjidID == masjidID {
+		if e.SchoolID == schoolID {
 			return true
 		}
 	}
@@ -131,52 +131,52 @@ func isPrivilegedStrict(c *fiber.Ctx) bool {
 }
 
 // ===== Strict wrappers (tidak ada legacy fallback) =====
-func EnsureStaffMasjidStrict(c *fiber.Ctx, masjidID uuid.UUID) error {
-	if masjidID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id wajib")
+func EnsureStaffSchoolStrict(c *fiber.Ctx, schoolID uuid.UUID) error {
+	if schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "school_id wajib")
 	}
 	if isPrivilegedStrict(c) {
 		return nil
 	}
-	if !isMasjidPresentStrict(c, masjidID) {
-		return helper.JsonError(c, fiber.StatusForbidden, "[AUTHZ strict] Masjid ini tidak ada dalam token Anda")
+	if !isSchoolPresentStrict(c, schoolID) {
+		return helper.JsonError(c, fiber.StatusForbidden, "[AUTHZ strict] School ini tidak ada dalam token Anda")
 	}
-	if hasRoleInMasjidStrict(c, masjidID, "teacher") ||
-		hasRoleInMasjidStrict(c, masjidID, "dkm") ||
-		hasRoleInMasjidStrict(c, masjidID, "admin") ||
-		hasRoleInMasjidStrict(c, masjidID, "bendahara") {
+	if hasRoleInSchoolStrict(c, schoolID, "teacher") ||
+		hasRoleInSchoolStrict(c, schoolID, "dkm") ||
+		hasRoleInSchoolStrict(c, schoolID, "admin") ||
+		hasRoleInSchoolStrict(c, schoolID, "bendahara") {
 		return nil
 	}
 	return helper.JsonError(c, fiber.StatusForbidden, "[AUTHZ strict] Hanya guru/DKM yang diizinkan")
 }
 
-func EnsureTeacherMasjidStrict(c *fiber.Ctx, masjidID uuid.UUID) error {
-	if masjidID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id wajib")
+func EnsureTeacherSchoolStrict(c *fiber.Ctx, schoolID uuid.UUID) error {
+	if schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "school_id wajib")
 	}
 	if isPrivilegedStrict(c) {
 		return nil
 	}
-	if !isMasjidPresentStrict(c, masjidID) {
-		return helper.JsonError(c, fiber.StatusForbidden, "[AUTHZ strict] Masjid ini tidak ada dalam token Anda")
+	if !isSchoolPresentStrict(c, schoolID) {
+		return helper.JsonError(c, fiber.StatusForbidden, "[AUTHZ strict] School ini tidak ada dalam token Anda")
 	}
-	if hasRoleInMasjidStrict(c, masjidID, "teacher") {
+	if hasRoleInSchoolStrict(c, schoolID, "teacher") {
 		return nil
 	}
 	return helper.JsonError(c, fiber.StatusForbidden, "[AUTHZ strict] Hanya guru yang diizinkan")
 }
 
-func EnsureDKMMasjidStrict(c *fiber.Ctx, masjidID uuid.UUID) error {
-	if masjidID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id wajib")
+func EnsureDKMSchoolStrict(c *fiber.Ctx, schoolID uuid.UUID) error {
+	if schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "school_id wajib")
 	}
 	if isPrivilegedStrict(c) {
 		return nil
 	}
-	if !isMasjidPresentStrict(c, masjidID) {
-		return helper.JsonError(c, fiber.StatusForbidden, "[AUTHZ strict] Masjid ini tidak ada dalam token Anda")
+	if !isSchoolPresentStrict(c, schoolID) {
+		return helper.JsonError(c, fiber.StatusForbidden, "[AUTHZ strict] School ini tidak ada dalam token Anda")
 	}
-	if hasRoleInMasjidStrict(c, masjidID, "dkm") || hasRoleInMasjidStrict(c, masjidID, "admin") {
+	if hasRoleInSchoolStrict(c, schoolID, "dkm") || hasRoleInSchoolStrict(c, schoolID, "admin") {
 		return nil
 	}
 	return helper.JsonError(c, fiber.StatusForbidden, "[AUTHZ strict] Hanya DKM yang diizinkan")

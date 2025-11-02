@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	// Model FeeRule yang benar (bukan billings)
-	fee "masjidku_backend/internals/features/finance/billings/model"
+	fee "schoolku_backend/internals/features/finance/billings/model"
 )
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -47,13 +47,13 @@ type PagedResult[T any] struct {
 
 // Create
 type FeeRuleCreateDTO struct {
-	FeeRuleMasjidID uuid.UUID `json:"fee_rule_masjid_id" validate:"required"`
+	FeeRuleSchoolID uuid.UUID `json:"fee_rule_school_id" validate:"required"`
 	FeeRuleScope    FeeScope  `json:"fee_rule_scope" validate:"required,oneof=tenant class_parent class section student"`
 
 	FeeRuleClassParentID   *uuid.UUID `json:"fee_rule_class_parent_id,omitempty"`
 	FeeRuleClassID         *uuid.UUID `json:"fee_rule_class_id,omitempty"`
 	FeeRuleSectionID       *uuid.UUID `json:"fee_rule_section_id,omitempty"`
-	FeeRuleMasjidStudentID *uuid.UUID `json:"fee_rule_masjid_student_id,omitempty"`
+	FeeRuleSchoolStudentID *uuid.UUID `json:"fee_rule_school_student_id,omitempty"`
 
 	// Periode (pilih salah satu: term_id ATAU year+month)
 	FeeRuleTermID *uuid.UUID `json:"fee_rule_term_id,omitempty"`
@@ -85,7 +85,7 @@ type FeeRuleUpdateDTO struct {
 	FeeRuleClassParentID   *uuid.UUID `json:"fee_rule_class_parent_id,omitempty"`
 	FeeRuleClassID         *uuid.UUID `json:"fee_rule_class_id,omitempty"`
 	FeeRuleSectionID       *uuid.UUID `json:"fee_rule_section_id,omitempty"`
-	FeeRuleMasjidStudentID *uuid.UUID `json:"fee_rule_masjid_student_id,omitempty"`
+	FeeRuleSchoolStudentID *uuid.UUID `json:"fee_rule_school_student_id,omitempty"`
 
 	FeeRuleTermID *uuid.UUID `json:"fee_rule_term_id,omitempty"`
 	FeeRuleMonth  *int16     `json:"fee_rule_month,omitempty"`
@@ -109,12 +109,12 @@ type FeeRuleUpdateDTO struct {
 // Response (ditambah kolom snapshot GBK agar selaras dengan schema)
 type FeeRuleResponse struct {
 	FeeRuleID              uuid.UUID  `json:"fee_rule_id"`
-	FeeRuleMasjidID        uuid.UUID  `json:"fee_rule_masjid_id"`
+	FeeRuleSchoolID        uuid.UUID  `json:"fee_rule_school_id"`
 	FeeRuleScope           FeeScope   `json:"fee_rule_scope"`
 	FeeRuleClassParentID   *uuid.UUID `json:"fee_rule_class_parent_id,omitempty"`
 	FeeRuleClassID         *uuid.UUID `json:"fee_rule_class_id,omitempty"`
 	FeeRuleSectionID       *uuid.UUID `json:"fee_rule_section_id,omitempty"`
-	FeeRuleMasjidStudentID *uuid.UUID `json:"fee_rule_masjid_student_id,omitempty"`
+	FeeRuleSchoolStudentID *uuid.UUID `json:"fee_rule_school_student_id,omitempty"`
 
 	FeeRuleTermID *uuid.UUID `json:"fee_rule_term_id,omitempty"`
 	FeeRuleMonth  *int16     `json:"fee_rule_month,omitempty"`
@@ -170,7 +170,7 @@ type SourceDTO struct {
 	Type             string      `json:"type" validate:"required,oneof=class section students"`
 	ClassID          *uuid.UUID  `json:"class_id,omitempty"`
 	SectionID        *uuid.UUID  `json:"section_id,omitempty"`
-	MasjidStudentIDs []uuid.UUID `json:"masjid_student_ids,omitempty"`
+	SchoolStudentIDs []uuid.UUID `json:"school_student_ids,omitempty"`
 }
 
 type LabelingDTO struct {
@@ -180,7 +180,7 @@ type LabelingDTO struct {
 
 type GenerateStudentBillsRequest struct {
 	BillBatchID         uuid.UUID `json:"bill_batch_id" validate:"required"`
-	StudentBillMasjidID uuid.UUID `json:"student_bill_masjid_id" validate:"required"`
+	StudentBillSchoolID uuid.UUID `json:"student_bill_school_id" validate:"required"`
 
 	Source         SourceDTO         `json:"source" validate:"required"`
 	AmountStrategy AmountStrategyDTO `json:"amount_strategy" validate:"required"`
@@ -207,12 +207,12 @@ type GenerateStudentBillsResponse struct {
 func ToFeeRuleResponse(m fee.FeeRule) FeeRuleResponse {
 	return FeeRuleResponse{
 		FeeRuleID:                   m.FeeRuleID,
-		FeeRuleMasjidID:             m.FeeRuleMasjidID,
+		FeeRuleSchoolID:             m.FeeRuleSchoolID,
 		FeeRuleScope:                FeeScope(m.FeeRuleScope),
 		FeeRuleClassParentID:        m.FeeRuleClassParentID,
 		FeeRuleClassID:              m.FeeRuleClassID,
 		FeeRuleSectionID:            m.FeeRuleSectionID,
-		FeeRuleMasjidStudentID:      m.FeeRuleMasjidStudentID,
+		FeeRuleSchoolStudentID:      m.FeeRuleSchoolStudentID,
 		FeeRuleTermID:               m.FeeRuleTermID,
 		FeeRuleMonth:                m.FeeRuleMonth,
 		FeeRuleYear:                 m.FeeRuleYear,
@@ -253,12 +253,12 @@ func FeeRuleCreateDTOToModel(d FeeRuleCreateDTO) fee.FeeRule {
 	}
 
 	return fee.FeeRule{
-		FeeRuleMasjidID:             d.FeeRuleMasjidID,
+		FeeRuleSchoolID:             d.FeeRuleSchoolID,
 		FeeRuleScope:                fee.FeeScope(d.FeeRuleScope),
 		FeeRuleClassParentID:        d.FeeRuleClassParentID,
 		FeeRuleClassID:              d.FeeRuleClassID,
 		FeeRuleSectionID:            d.FeeRuleSectionID,
-		FeeRuleMasjidStudentID:      d.FeeRuleMasjidStudentID,
+		FeeRuleSchoolStudentID:      d.FeeRuleSchoolStudentID,
 		FeeRuleTermID:               d.FeeRuleTermID,
 		FeeRuleMonth:                d.FeeRuleMonth,
 		FeeRuleYear:                 d.FeeRuleYear,
@@ -288,8 +288,8 @@ func ApplyFeeRuleUpdate(m *fee.FeeRule, d FeeRuleUpdateDTO) {
 	if d.FeeRuleSectionID != nil {
 		m.FeeRuleSectionID = d.FeeRuleSectionID
 	}
-	if d.FeeRuleMasjidStudentID != nil {
-		m.FeeRuleMasjidStudentID = d.FeeRuleMasjidStudentID
+	if d.FeeRuleSchoolStudentID != nil {
+		m.FeeRuleSchoolStudentID = d.FeeRuleSchoolStudentID
 	}
 	if d.FeeRuleTermID != nil {
 		m.FeeRuleTermID = d.FeeRuleTermID

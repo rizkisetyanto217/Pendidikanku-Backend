@@ -13,7 +13,7 @@ type ClassAttendanceSessionURLModel struct {
 	ClassAttendanceSessionURLID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:class_attendance_session_url_id" json:"class_attendance_session_url_id"`
 
 	// Tenant & Owner
-	ClassAttendanceSessionURLMasjidID  uuid.UUID `gorm:"type:uuid;not null;column:class_attendance_session_url_masjid_id" json:"class_attendance_session_url_masjid_id"`
+	ClassAttendanceSessionURLSchoolID  uuid.UUID `gorm:"type:uuid;not null;column:class_attendance_session_url_school_id" json:"class_attendance_session_url_school_id"`
 	ClassAttendanceSessionURLSessionID uuid.UUID `gorm:"type:uuid;not null;column:class_attendance_session_url_session_id" json:"class_attendance_session_url_session_id"`
 
 	// Jenis/peran aset

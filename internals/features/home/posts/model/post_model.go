@@ -1,8 +1,8 @@
 package model
 
 import (
-	MasjidModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/masjids/model"
-	UserModel "masjidku_backend/internals/features/users/users/model"
+	SchoolModel "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
+	UserModel "schoolku_backend/internals/features/users/users/model"
 
 	"time"
 )
@@ -16,7 +16,7 @@ type PostModel struct {
 	PostType        string  `gorm:"column:post_type;type:varchar(50);default:'text'"`
 
 	PostThemeID  *string `gorm:"column:post_theme_id;type:uuid"`
-	PostMasjidID *string `gorm:"column:post_masjid_id;type:uuid"`
+	PostSchoolID *string `gorm:"column:post_school_id;type:uuid"`
 	PostUserID   *string `gorm:"column:post_user_id;type:uuid"`
 
 	PostCreatedAt time.Time  `gorm:"column:post_created_at;autoCreateTime"`
@@ -24,7 +24,7 @@ type PostModel struct {
 	PostDeletedAt *time.Time `gorm:"column:post_deleted_at"`
 
 	// Relations
-	Masjid *MasjidModel.MasjidModel `gorm:"foreignKey:PostMasjidID"`
+	School *SchoolModel.SchoolModel `gorm:"foreignKey:PostSchoolID"`
 	User   *UserModel.UserModel     `gorm:"foreignKey:PostUserID"`
 	// Theme  *PostThemeModel.PostThemeModel `gorm:"foreignKey:PostThemeID"`
 	Likes []PostLikeModel `gorm:"foreignKey:PostLikePostID"`

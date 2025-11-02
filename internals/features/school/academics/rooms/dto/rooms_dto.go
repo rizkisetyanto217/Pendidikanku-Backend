@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"masjidku_backend/internals/features/school/academics/rooms/model"
+	"schoolku_backend/internals/features/school/academics/rooms/model"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
@@ -34,7 +34,7 @@ type AnyObject = map[string]any
 
 type CreateClassRoomRequest struct {
 	// Tenant
-	ClassRoomMasjidID uuid.UUID `json:"class_room_masjid_id" validate:"required"`
+	ClassRoomSchoolID uuid.UUID `json:"class_room_school_id" validate:"required"`
 
 	// Identitas
 	ClassRoomName        string  `json:"class_room_name" validate:"required"`
@@ -69,7 +69,7 @@ type CreateClassRoomRequest struct {
 
 func (r CreateClassRoomRequest) ToModel() (model.ClassRoomModel, error) {
 	m := model.ClassRoomModel{
-		ClassRoomMasjidID:  r.ClassRoomMasjidID,
+		ClassRoomSchoolID:  r.ClassRoomSchoolID,
 		ClassRoomName:      r.ClassRoomName,
 		ClassRoomIsVirtual: false,
 		ClassRoomIsActive:  true,
@@ -284,7 +284,7 @@ func (r UpdateClassRoomRequest) ApplyPatch(m *model.ClassRoomModel) error {
 type ClassRoomResponse struct {
 	// Inti
 	ClassRoomID       uuid.UUID `json:"class_room_id"`
-	ClassRoomMasjidID uuid.UUID `json:"class_room_masjid_id"`
+	ClassRoomSchoolID uuid.UUID `json:"class_room_school_id"`
 
 	// Identitas
 	ClassRoomName        string  `json:"class_room_name"`
@@ -324,7 +324,7 @@ type ClassRoomResponse struct {
 func ToClassRoomResponse(m model.ClassRoomModel) ClassRoomResponse {
 	return ClassRoomResponse{
 		ClassRoomID:                      m.ClassRoomID,
-		ClassRoomMasjidID:                m.ClassRoomMasjidID,
+		ClassRoomSchoolID:                m.ClassRoomSchoolID,
 		ClassRoomName:                    m.ClassRoomName,
 		ClassRoomCode:                    m.ClassRoomCode,
 		ClassRoomSlug:                    m.ClassRoomSlug,

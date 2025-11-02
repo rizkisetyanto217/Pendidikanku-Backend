@@ -19,18 +19,18 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
-	helperOSS "masjidku_backend/internals/helpers/oss"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
+	helperOSS "schoolku_backend/internals/helpers/oss"
 
-	semstats "masjidku_backend/internals/features/lembaga/stats/semester_stats/service"
-	secDTO "masjidku_backend/internals/features/school/classes/class_sections/dto"
-	secModel "masjidku_backend/internals/features/school/classes/class_sections/model"
-	classModel "masjidku_backend/internals/features/school/classes/classes/model"
+	semstats "schoolku_backend/internals/features/lembaga/stats/semester_stats/service"
+	secDTO "schoolku_backend/internals/features/school/classes/class_sections/dto"
+	secModel "schoolku_backend/internals/features/school/classes/class_sections/model"
+	classModel "schoolku_backend/internals/features/school/classes/classes/model"
 
-	teacherSnapshot "masjidku_backend/internals/features/users/user_teachers/snapshot"
+	teacherSnapshot "schoolku_backend/internals/features/users/user_teachers/snapshot"
 
-	roomSnapshot "masjidku_backend/internals/features/school/academics/rooms/snapshot"
+	roomSnapshot "schoolku_backend/internals/features/school/academics/rooms/snapshot"
 )
 
 type ClassSectionController struct {
@@ -56,7 +56,7 @@ func isValidEnrollmentMode(s string) bool {
 }
 
 type ClassParentAndTermSnapshot struct {
-	MasjidID uuid.UUID
+	SchoolID uuid.UUID
 
 	// class
 	ClassSlug string
@@ -85,13 +85,13 @@ type LeaderStudentSnapshot struct {
 
 func validateAndSnapshotLeaderStudent(
 	tx *gorm.DB,
-	masjidID uuid.UUID,
-	leaderMasjidStudentID uuid.UUID,
+	schoolID uuid.UUID,
+	leaderSchoolStudentID uuid.UUID,
 ) (*LeaderStudentSnapshot, error) {
-	log.Printf("[SECTIONS][CREATE] 🔎 validating leader_student=%s", leaderMasjidStudentID)
+	log.Printf("[SECTIONS][CREATE] 🔎 validating leader_student=%s", leaderSchoolStudentID)
 
 	var row struct {
-		MasjidID    uuid.UUID
+		SchoolID    uuid.UUID
 		UserID      uuid.UUID
 		FullName    *string
 		WhatsappURL *string
@@ -99,33 +99,33 @@ func validateAndSnapshotLeaderStudent(
 		ParentWA    *string
 	}
 
-	// Pastikan ketua adalah siswa milik masjid ini (tenant-safe)
+	// Pastikan ketua adalah siswa milik school ini (tenant-safe)
 	if err := tx.Raw(`
 		SELECT
-			ms.masjid_student_masjid_id             AS masjid_id,
+			ms.school_student_school_id             AS school_id,
 			up.user_profile_user_id                 AS user_id,
 			COALESCE(up.user_profile_full_name_snapshot, '') AS full_name,
 			up.user_profile_whatsapp_url            AS whatsapp_url,
 			up.user_profile_avatar_url              AS avatar_url,
 			up.user_profile_parent_whatsapp_url     AS parent_wa
-		FROM masjid_students ms
+		FROM school_students ms
 		JOIN user_profiles up
-		  ON up.user_profile_user_id = ms.masjid_student_user_id
-		WHERE ms.masjid_student_id = ?
-		  AND ms.masjid_student_deleted_at IS NULL
+		  ON up.user_profile_user_id = ms.school_student_user_id
+		WHERE ms.school_student_id = ?
+		  AND ms.school_student_deleted_at IS NULL
 		  AND up.user_profile_deleted_at IS NULL
-	`, leaderMasjidStudentID).Scan(&row).Error; err != nil {
+	`, leaderSchoolStudentID).Scan(&row).Error; err != nil {
 		log.Printf("[SECTIONS][CREATE] ❌ leader validate db error: %v", err)
 		return nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi ketua kelas")
 	}
 
-	if row.MasjidID == uuid.Nil {
-		log.Printf("[SECTIONS][CREATE] ❌ leader not found id=%s", leaderMasjidStudentID)
+	if row.SchoolID == uuid.Nil {
+		log.Printf("[SECTIONS][CREATE] ❌ leader not found id=%s", leaderSchoolStudentID)
 		return nil, fiber.NewError(fiber.StatusBadRequest, "Ketua kelas tidak ditemukan")
 	}
-	if row.MasjidID != masjidID {
-		log.Printf("[SECTIONS][CREATE] ❌ leader masjid mismatch row=%s expect=%s", row.MasjidID, masjidID)
-		return nil, fiber.NewError(fiber.StatusForbidden, "Ketua kelas bukan milik masjid Anda")
+	if row.SchoolID != schoolID {
+		log.Printf("[SECTIONS][CREATE] ❌ leader school mismatch row=%s expect=%s", row.SchoolID, schoolID)
+		return nil, fiber.NewError(fiber.StatusForbidden, "Ketua kelas bukan milik school Anda")
 	}
 
 	trim := func(p *string) *string {
@@ -165,7 +165,7 @@ func validateAndSnapshotLeaderStudent(
 
 func snapshotClassParentAndTerm(
 	tx *gorm.DB,
-	masjidID uuid.UUID,
+	schoolID uuid.UUID,
 	classID uuid.UUID,
 ) (*ClassParentAndTermSnapshot, error) {
 	log.Printf("[SECTIONS][SNAP] 🔎 class->parent snapshot class_id=%s", classID)
@@ -173,7 +173,7 @@ func snapshotClassParentAndTerm(
 	var row ClassParentAndTermSnapshot
 	if err := tx.Raw(`
 		SELECT
-			c.class_masjid_id                         AS masjid_id,
+			c.class_school_id                         AS school_id,
 			c.class_slug                              AS class_slug,
 
 			cp.class_parent_name                      AS parent_name,
@@ -188,11 +188,11 @@ func snapshotClassParentAndTerm(
 		FROM classes c
 		JOIN class_parents cp
 		  ON cp.class_parent_id = c.class_parent_id
-		 AND cp.class_parent_masjid_id = c.class_masjid_id
+		 AND cp.class_parent_school_id = c.class_school_id
 		 AND cp.class_parent_deleted_at IS NULL
 		LEFT JOIN academic_terms at
 		  ON at.academic_term_id = c.class_term_id
-		 AND at.academic_term_masjid_id = c.class_masjid_id
+		 AND at.academic_term_school_id = c.class_school_id
 		 AND at.academic_term_deleted_at IS NULL
 		WHERE c.class_id = ? AND c.class_deleted_at IS NULL
 	`, classID).Scan(&row).Error; err != nil {
@@ -200,11 +200,11 @@ func snapshotClassParentAndTerm(
 		return nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot class/parent/term")
 	}
 
-	if row.MasjidID == uuid.Nil {
+	if row.SchoolID == uuid.Nil {
 		return nil, fiber.NewError(fiber.StatusBadRequest, "Class tidak ditemukan")
 	}
-	if row.MasjidID != masjidID {
-		return nil, fiber.NewError(fiber.StatusForbidden, "Class bukan milik masjid Anda")
+	if row.SchoolID != schoolID {
+		return nil, fiber.NewError(fiber.StatusForbidden, "Class bukan milik school Anda")
 	}
 
 	// Normalisasi ringan
@@ -367,29 +367,29 @@ func bcryptHash(s string) ([]byte, error) {
 func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	log.Printf("[SECTIONS][CREATE] ▶️ incoming request")
 
-	// ---- Masjid context ----
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// ---- School context ----
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	var masjidID uuid.UUID
+	var schoolID uuid.UUID
 	switch {
 	case mc.ID != uuid.Nil:
-		masjidID = mc.ID
+		schoolID = mc.ID
 	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetMasjidIDBySlug(c, strings.TrimSpace(mc.Slug))
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
 		if er != nil {
-			return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
-		masjidID = id
+		schoolID = id
 	default:
-		id, er := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+		id, er := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
 		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak ditemukan")
 		}
-		masjidID = id
+		schoolID = id
 	}
-	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
+	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
 		return err
 	}
 
@@ -398,7 +398,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
-	req.ClassSectionMasjidID = masjidID
+	req.ClassSectionSchoolID = schoolID
 	req.Normalize()
 
 	// ---- Validasi ringan ----
@@ -429,10 +429,10 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		}
 	}()
 
-	// ---- Validasi class belong-to masjid ----
+	// ---- Validasi class belong-to school ----
 	{
 		var cls classModel.ClassModel
-		if err := tx.Select("class_id, class_masjid_id").
+		if err := tx.Select("class_id, class_school_id").
 			Where("class_id = ? AND class_deleted_at IS NULL", req.ClassSectionClassID).
 			First(&cls).Error; err != nil {
 			_ = tx.Rollback()
@@ -441,18 +441,18 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi class")
 		}
-		if cls.ClassMasjidID != masjidID {
+		if cls.ClassSchoolID != schoolID {
 			_ = tx.Rollback()
-			return fiber.NewError(fiber.StatusForbidden, "Class bukan milik masjid Anda")
+			return fiber.NewError(fiber.StatusForbidden, "Class bukan milik school Anda")
 		}
 	}
 
 	// ---- Map req -> model ----
 	m := req.ToModel()
-	m.ClassSectionMasjidID = masjidID
+	m.ClassSectionSchoolID = schoolID
 
 	// ---- Snapshot relasi (class→parent/term) ----
-	if snap, err := snapshotClassParentAndTerm(tx, masjidID, req.ClassSectionClassID); err != nil {
+	if snap, err := snapshotClassParentAndTerm(tx, schoolID, req.ClassSectionClassID); err != nil {
 		_ = tx.Rollback()
 		return err
 	} else {
@@ -461,14 +461,14 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 
 	// ---- Snapshot TEACHER / ASSISTANT ----
 	if req.ClassSectionTeacherID != nil {
-		ts, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, masjidID, *req.ClassSectionTeacherID)
+		ts, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, schoolID, *req.ClassSectionTeacherID)
 		if err != nil {
 			_ = tx.Rollback()
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak ditemukan / sudah dihapus")
 			}
 			if fe, ok := err.(*fiber.Error); ok && fe.Code == fiber.StatusForbidden {
-				return helper.JsonError(c, fiber.StatusForbidden, "Guru bukan milik masjid Anda")
+				return helper.JsonError(c, fiber.StatusForbidden, "Guru bukan milik school Anda")
 			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi guru")
 		}
@@ -479,14 +479,14 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		}
 	}
 	if req.ClassSectionAssistantTeacherID != nil {
-		as, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, masjidID, *req.ClassSectionAssistantTeacherID)
+		as, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, schoolID, *req.ClassSectionAssistantTeacherID)
 		if err != nil {
 			_ = tx.Rollback()
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Asisten guru tidak valid / sudah dihapus")
 			}
 			if fe, ok := err.(*fiber.Error); ok && fe.Code == fiber.StatusForbidden {
-				return helper.JsonError(c, fiber.StatusForbidden, "Asisten guru bukan milik masjid Anda")
+				return helper.JsonError(c, fiber.StatusForbidden, "Asisten guru bukan milik school Anda")
 			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi asisten guru")
 		}
@@ -499,7 +499,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 
 	// ---- Snapshot LEADER STUDENT ----
 	if req.ClassSectionLeaderStudentID != nil {
-		snap, err := validateAndSnapshotLeaderStudent(tx, masjidID, *req.ClassSectionLeaderStudentID)
+		snap, err := validateAndSnapshotLeaderStudent(tx, schoolID, *req.ClassSectionLeaderStudentID)
 		if err != nil {
 			_ = tx.Rollback()
 			return err
@@ -511,7 +511,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 
 	// ==== ⬇️ Snapshot ROOM (ikuti pola Update) ⬇️ ====
 	if m.ClassSectionClassRoomID != nil {
-		rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, masjidID, *m.ClassSectionClassRoomID)
+		rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, schoolID, *m.ClassSectionClassRoomID)
 		if err != nil {
 			_ = tx.Rollback()
 			if fe, ok := err.(*fiber.Error); ok {
@@ -538,7 +538,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		"class_sections", "class_section_slug",
 		baseSlug,
 		func(q *gorm.DB) *gorm.DB {
-			return q.Where("class_section_masjid_id = ? AND class_section_deleted_at IS NULL", masjidID)
+			return q.Where("class_section_school_id = ? AND class_section_deleted_at IS NULL", schoolID)
 		},
 		160,
 	)
@@ -629,8 +629,8 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// ---- Guard staff masjid ----
-	if err := helperAuth.EnsureStaffMasjid(c, existing.ClassSectionMasjidID); err != nil {
+	// ---- Guard staff school ----
+	if err := helperAuth.EnsureStaffSchool(c, existing.ClassSectionSchoolID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -662,22 +662,22 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	}
 	// ---- Validasi teacher kalau diubah ----
 	if req.ClassSectionTeacherID.Present && req.ClassSectionTeacherID.Value != nil {
-		var tMasjid uuid.UUID
+		var tSchool uuid.UUID
 		if err := tx.Raw(`
-             SELECT masjid_teacher_masjid_id
-             FROM masjid_teachers
-             WHERE masjid_teacher_id = ? AND masjid_teacher_deleted_at IS NULL
-         `, *req.ClassSectionTeacherID.Value).Scan(&tMasjid).Error; err != nil {
+             SELECT school_teacher_school_id
+             FROM school_teachers
+             WHERE school_teacher_id = ? AND school_teacher_deleted_at IS NULL
+         `, *req.ClassSectionTeacherID.Value).Scan(&tSchool).Error; err != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi pengajar")
 		}
-		if tMasjid == uuid.Nil {
+		if tSchool == uuid.Nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusBadRequest, "Pengajar tidak ditemukan")
 		}
-		if tMasjid != existing.ClassSectionMasjidID {
+		if tSchool != existing.ClassSectionSchoolID {
 			_ = tx.Rollback()
-			return helper.JsonError(c, fiber.StatusForbidden, "Pengajar bukan milik masjid Anda")
+			return helper.JsonError(c, fiber.StatusForbidden, "Pengajar bukan milik school Anda")
 		}
 	}
 
@@ -693,7 +693,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		if req.ClassSectionClassRoomID.Value != nil {
 			rs, err := roomSnapshot.ValidateAndSnapshotRoom(
 				tx,
-				existing.ClassSectionMasjidID,
+				existing.ClassSectionSchoolID,
 				*req.ClassSectionClassRoomID.Value,
 			)
 			if err != nil {
@@ -731,8 +731,8 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 			base,
 			func(q *gorm.DB) *gorm.DB {
 				return q.Where(
-					"class_section_masjid_id = ? AND class_section_id <> ? AND class_section_deleted_at IS NULL",
-					existing.ClassSectionMasjidID, existing.ClassSectionID,
+					"class_section_school_id = ? AND class_section_id <> ? AND class_section_deleted_at IS NULL",
+					existing.ClassSectionSchoolID, existing.ClassSectionID,
 				)
 			},
 			160,
@@ -754,8 +754,8 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 			base,
 			func(q *gorm.DB) *gorm.DB {
 				return q.Where(
-					"class_section_masjid_id = ? AND class_section_id <> ? AND class_section_deleted_at IS NULL",
-					existing.ClassSectionMasjidID, existing.ClassSectionID,
+					"class_section_school_id = ? AND class_section_id <> ? AND class_section_deleted_at IS NULL",
+					existing.ClassSectionSchoolID, existing.ClassSectionID,
 				)
 			},
 			160,
@@ -797,7 +797,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	uploadedURL := ""
 	if fh := pickImageFile(c, "image", "file"); fh != nil {
 		log.Printf("[SECTIONS][PATCH] 📤 uploading image filename=%s size=%d", fh.Filename, fh.Size)
-		if url, upErr := helperOSS.UploadImageToOSSScoped(existing.ClassSectionMasjidID, "classes/sections", fh); upErr == nil && strings.TrimSpace(url) != "" {
+		if url, upErr := helperOSS.UploadImageToOSSScoped(existing.ClassSectionSchoolID, "classes/sections", fh); upErr == nil && strings.TrimSpace(url) != "" {
 			uploadedURL = url
 
 			newObjKey := ""
@@ -862,7 +862,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	// ---- Update stats kalau status aktif berubah ----
 	if wasActive != newActive {
 		stats := semstats.NewLembagaStatsService()
-		if err := stats.EnsureForMasjid(tx, existing.ClassSectionMasjidID); err != nil {
+		if err := stats.EnsureForSchool(tx, existing.ClassSectionSchoolID); err != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal inisialisasi lembaga_stats: "+err.Error())
 		}
@@ -870,7 +870,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		if newActive {
 			delta = +1
 		}
-		if err := stats.IncActiveSections(tx, existing.ClassSectionMasjidID, delta); err != nil {
+		if err := stats.IncActiveSections(tx, existing.ClassSectionSchoolID, delta); err != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update lembaga_stats: "+err.Error())
 		}
@@ -921,8 +921,8 @@ func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Guard akses staff pada masjid terkait
-	if err := helperAuth.EnsureStaffMasjid(c, m.ClassSectionMasjidID); err != nil {
+	// Guard akses staff pada school terkait
+	if err := helperAuth.EnsureStaffSchool(c, m.ClassSectionSchoolID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -943,11 +943,11 @@ func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 
 	if wasActive {
 		stats := semstats.NewLembagaStatsService()
-		if err := stats.EnsureForMasjid(tx, m.ClassSectionMasjidID); err != nil {
+		if err := stats.EnsureForSchool(tx, m.ClassSectionSchoolID); err != nil {
 			_ = tx.Rollback()
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal inisialisasi lembaga_stats: "+err.Error())
 		}
-		if err := stats.IncActiveSections(tx, m.ClassSectionMasjidID, -1); err != nil {
+		if err := stats.IncActiveSections(tx, m.ClassSectionSchoolID, -1); err != nil {
 			_ = tx.Rollback()
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal update lembaga_stats: "+err.Error())
 		}

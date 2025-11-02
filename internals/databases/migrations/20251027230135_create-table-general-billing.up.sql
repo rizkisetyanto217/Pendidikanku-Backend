@@ -2,13 +2,13 @@
 BEGIN;
 
 -- =========================================================
--- GENERAL billings (non-per-siswa) — masjid_id NULL = GLOBAL
+-- GENERAL billings (non-per-siswa) — school_id NULL = GLOBAL
 -- =========================================================
 CREATE TABLE IF NOT EXISTS general_billings (
   general_billing_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- NULL = GLOBAL (milik aplikasi), non-NULL = tenant-scoped
-  general_billing_masjid_id  UUID REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  general_billing_school_id  UUID REFERENCES schools(school_id) ON DELETE CASCADE,
 
   general_billing_kind_id    UUID NOT NULL
     REFERENCES general_billing_kinds(general_billing_kind_id)
@@ -32,23 +32,23 @@ CREATE TABLE IF NOT EXISTS general_billings (
 -- bersihkan unique lama (jika ada)
 DROP INDEX IF EXISTS uq_general_billings_code_per_tenant_alive;
 
--- Unik per-tenant (baris dengan masjid_id TIDAK NULL)
+-- Unik per-tenant (baris dengan school_id TIDAK NULL)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_gb_code_per_tenant_alive
-  ON general_billings (general_billing_masjid_id, LOWER(general_billing_code))
+  ON general_billings (general_billing_school_id, LOWER(general_billing_code))
   WHERE general_billing_deleted_at IS NULL
     AND general_billing_code IS NOT NULL
-    AND general_billing_masjid_id IS NOT NULL;
+    AND general_billing_school_id IS NOT NULL;
 
--- Unik GLOBAL (baris dengan masjid_id NULL)
+-- Unik GLOBAL (baris dengan school_id NULL)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_gb_code_global_alive
   ON general_billings (LOWER(general_billing_code))
   WHERE general_billing_deleted_at IS NULL
     AND general_billing_code IS NOT NULL
-    AND general_billing_masjid_id IS NULL;
+    AND general_billing_school_id IS NULL;
 
 -- ==== Indeks bantu query umum ====
 CREATE INDEX IF NOT EXISTS ix_gb_tenant_kind_active_created
-  ON general_billings (general_billing_masjid_id, general_billing_kind_id, general_billing_is_active, general_billing_created_at DESC)
+  ON general_billings (general_billing_school_id, general_billing_kind_id, general_billing_is_active, general_billing_created_at DESC)
   WHERE general_billing_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_gb_due_alive
@@ -59,19 +59,19 @@ CREATE INDEX IF NOT EXISTS ix_gb_kind_alive
   ON general_billings (general_billing_kind_id)
   WHERE general_billing_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS ix_gb_masjid_created_at_alive
-  ON general_billings (general_billing_masjid_id, general_billing_created_at DESC)
+CREATE INDEX IF NOT EXISTS ix_gb_school_created_at_alive
+  ON general_billings (general_billing_school_id, general_billing_created_at DESC)
   WHERE general_billing_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS ix_gb_masjid_updated_at_alive
-  ON general_billings (general_billing_masjid_id, general_billing_updated_at DESC)
+CREATE INDEX IF NOT EXISTS ix_gb_school_updated_at_alive
+  ON general_billings (general_billing_school_id, general_billing_updated_at DESC)
   WHERE general_billing_deleted_at IS NULL;
 
 -- Indeks bantu untuk GLOBAL items (opsional tapi berguna)
 CREATE INDEX IF NOT EXISTS ix_gb_global_active_created
   ON general_billings (general_billing_is_active, general_billing_created_at DESC)
   WHERE general_billing_deleted_at IS NULL
-    AND general_billing_masjid_id IS NULL;
+    AND general_billing_school_id IS NULL;
 
 -- =========================================================
 -- USER general billings (assign/tagihan ke user/siswa untuk GB di atas)
@@ -79,12 +79,12 @@ CREATE INDEX IF NOT EXISTS ix_gb_global_active_created
 CREATE TABLE IF NOT EXISTS user_general_billings (
   user_general_billing_id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  user_general_billing_masjid_id          UUID NOT NULL,
+  user_general_billing_school_id          UUID NOT NULL,
 
-  -- relasi ke siswa (opsional) — composite FK (id, masjid_id)
-  user_general_billing_masjid_student_id  UUID,
-  CONSTRAINT fk_ugb_student_tenant FOREIGN KEY (user_general_billing_masjid_student_id, user_general_billing_masjid_id)
-    REFERENCES masjid_students (masjid_student_id, masjid_student_masjid_id)
+  -- relasi ke siswa (opsional) — composite FK (id, school_id)
+  user_general_billing_school_student_id  UUID,
+  CONSTRAINT fk_ugb_student_tenant FOREIGN KEY (user_general_billing_school_student_id, user_general_billing_school_id)
+    REFERENCES school_students (school_student_id, school_student_school_id)
     ON UPDATE CASCADE ON DELETE SET NULL,
 
   -- payer (opsional)
@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS user_general_billings (
 
 -- Unik per student untuk satu billing (abaikan baris yang soft-deleted)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_ugb_per_student_alive
-  ON user_general_billings (user_general_billing_billing_id, user_general_billing_masjid_student_id)
+  ON user_general_billings (user_general_billing_billing_id, user_general_billing_school_student_id)
   WHERE user_general_billing_deleted_at IS NULL;
 
 -- Unik per payer untuk satu billing (abaikan baris yang soft-deleted)
@@ -127,8 +127,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_ugb_per_payer_alive
   WHERE user_general_billing_deleted_at IS NULL;
 
 -- Indeks bantu query
-CREATE INDEX IF NOT EXISTS ix_ugb_masjid_alive
-  ON user_general_billings (user_general_billing_masjid_id)
+CREATE INDEX IF NOT EXISTS ix_ugb_school_alive
+  ON user_general_billings (user_general_billing_school_id)
   WHERE user_general_billing_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_ugb_billing_alive

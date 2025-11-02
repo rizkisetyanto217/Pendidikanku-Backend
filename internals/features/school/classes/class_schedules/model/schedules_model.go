@@ -19,7 +19,7 @@ const (
 
 type ClassScheduleModel struct {
 	ClassScheduleID        uuid.UUID     `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:class_schedule_id" json:"class_schedule_id"`
-	ClassScheduleMasjidID  uuid.UUID     `gorm:"type:uuid;not null;column:class_schedule_masjid_id" json:"class_schedule_masjid_id"`
+	ClassScheduleSchoolID  uuid.UUID     `gorm:"type:uuid;not null;column:class_schedule_school_id" json:"class_schedule_school_id"`
 	ClassScheduleSlug      *string       `gorm:"type:varchar(160);column:class_schedule_slug" json:"class_schedule_slug,omitempty"`
 	ClassScheduleStartDate time.Time     `gorm:"type:date;not null;column:class_schedule_start_date" json:"class_schedule_start_date"`
 	ClassScheduleEndDate   time.Time     `gorm:"type:date;not null;column:class_schedule_end_date" json:"class_schedule_end_date"`

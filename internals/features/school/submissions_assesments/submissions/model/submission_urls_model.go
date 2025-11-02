@@ -11,7 +11,7 @@ import (
 type SubmissionURLModel struct {
 	SubmissionURLID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:submission_url_id" json:"submission_url_id"`
 
-	SubmissionURLMasjidID     uuid.UUID `gorm:"type:uuid;not null;column:submission_url_masjid_id" json:"submission_url_masjid_id"`
+	SubmissionURLSchoolID     uuid.UUID `gorm:"type:uuid;not null;column:submission_url_school_id" json:"submission_url_school_id"`
 	SubmissionURLSubmissionID uuid.UUID `gorm:"type:uuid;not null;column:submission_url_submission_id" json:"submission_url_submission_id"`
 
 	SubmissionURLKind string `gorm:"type:varchar(24);not null;column:submission_url_kind" json:"submission_url_kind"`

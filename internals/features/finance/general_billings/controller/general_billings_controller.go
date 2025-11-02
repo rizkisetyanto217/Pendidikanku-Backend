@@ -10,11 +10,11 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "masjidku_backend/internals/features/finance/general_billings/dto"
-	model "masjidku_backend/internals/features/finance/general_billings/model"
+	dto "schoolku_backend/internals/features/finance/general_billings/dto"
+	model "schoolku_backend/internals/features/finance/general_billings/model"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 type GeneralBillingController struct {
@@ -45,25 +45,25 @@ func (ctl *GeneralBillingController) Create(c *fiber.Ctx) error {
 	}
 
 	// Context tenant
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
 	}
-	mid, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	mid, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
 
 	// Guard: GLOBAL vs TENANT
-	if req.GeneralBillingMasjidID == nil {
+	if req.GeneralBillingSchoolID == nil {
 		// GLOBAL item: batasi ke Owner saja
 		if !helperAuth.IsOwner(c) {
 			return helper.JsonError(c, fiber.StatusForbidden, "Hanya owner yang boleh membuat billing GLOBAL")
 		}
 	} else {
 		// TENANT item: harus cocok dengan mid context
-		if *req.GeneralBillingMasjidID != mid {
-			return helper.JsonError(c, fiber.StatusForbidden, "Masjid tidak cocok dengan context")
+		if *req.GeneralBillingSchoolID != mid {
+			return helper.JsonError(c, fiber.StatusForbidden, "School tidak cocok dengan context")
 		}
 	}
 
@@ -102,23 +102,23 @@ func (ctl *GeneralBillingController) Patch(c *fiber.Ctx) error {
 	}
 
 	// Tenant context
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
 	}
-	mid, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	mid, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
 
 	// Guard: GLOBAL vs TENANT pada record yg diedit
-	if gb.GeneralBillingMasjidID == nil {
+	if gb.GeneralBillingSchoolID == nil {
 		// GLOBAL: hanya owner boleh edit
 		if !helperAuth.IsOwner(c) {
 			return helper.JsonError(c, fiber.StatusForbidden, "Hanya owner yang boleh mengubah billing GLOBAL")
 		}
 	} else {
-		if *gb.GeneralBillingMasjidID != mid {
+		if *gb.GeneralBillingSchoolID != mid {
 			return helper.JsonError(c, fiber.StatusForbidden, "Tidak boleh mengubah data tenant lain")
 		}
 	}
@@ -129,7 +129,7 @@ func (ctl *GeneralBillingController) Patch(c *fiber.Ctx) error {
 	}
 
 	// (opsional) kamu bisa tambahkan guard agar PATCH tidak memindah-mindahkan tenant tanpa hak
-	// misalnya, jika req.GeneralBillingMasjidID.Set == true → tolak kecuali owner, dsb.
+	// misalnya, jika req.GeneralBillingSchoolID.Set == true → tolak kecuali owner, dsb.
 
 	if err := req.ApplyTo(&gb); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -166,22 +166,22 @@ func (ctl *GeneralBillingController) Delete(c *fiber.Ctx) error {
 	}
 
 	// Tenant context
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
 	}
-	mid, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	mid, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
 
 	// Guard: GLOBAL vs TENANT
-	if gb.GeneralBillingMasjidID == nil {
+	if gb.GeneralBillingSchoolID == nil {
 		if !helperAuth.IsOwner(c) {
 			return helper.JsonError(c, fiber.StatusForbidden, "Hanya owner yang boleh menghapus billing GLOBAL")
 		}
 	} else {
-		if *gb.GeneralBillingMasjidID != mid {
+		if *gb.GeneralBillingSchoolID != mid {
 			return helper.JsonError(c, fiber.StatusForbidden, "Tidak boleh menghapus data tenant lain")
 		}
 	}

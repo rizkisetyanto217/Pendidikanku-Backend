@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS lecture_sessions_materials (
   lecture_sessions_material_lecture_session_id UUID NOT NULL
     REFERENCES lecture_sessions(lecture_session_id) ON DELETE CASCADE,
 
-  lecture_sessions_material_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  lecture_sessions_material_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   lecture_sessions_material_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   lecture_sessions_material_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -32,8 +32,8 @@ CREATE INDEX IF NOT EXISTS idx_lsmat_session_created_desc
   ON lecture_sessions_materials (lecture_sessions_material_lecture_session_id, lecture_sessions_material_created_at DESC)
   WHERE lecture_sessions_material_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_lsmat_masjid_created_desc
-  ON lecture_sessions_materials (lecture_sessions_material_masjid_id, lecture_sessions_material_created_at DESC)
+CREATE INDEX IF NOT EXISTS idx_lsmat_school_created_desc
+  ON lecture_sessions_materials (lecture_sessions_material_school_id, lecture_sessions_material_created_at DESC)
   WHERE lecture_sessions_material_deleted_at IS NULL;
 
 -- Full-Text Search: summary + transcript
@@ -64,8 +64,8 @@ CREATE TABLE IF NOT EXISTS lecture_sessions_assets (
   lecture_sessions_asset_file_type INT  NOT NULL,  -- 1 = YouTube, 2 = PDF, 3 = DOCX, ...
   lecture_sessions_asset_lecture_session_id UUID NOT NULL
     REFERENCES lecture_sessions(lecture_session_id) ON DELETE CASCADE,
-  lecture_sessions_asset_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  lecture_sessions_asset_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   lecture_sessions_asset_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   lecture_sessions_asset_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -89,8 +89,8 @@ CREATE INDEX IF NOT EXISTS idx_lsasset_session_created_desc
   ON lecture_sessions_assets (lecture_sessions_asset_lecture_session_id, lecture_sessions_asset_created_at DESC)
   WHERE lecture_sessions_asset_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_lsasset_masjid_created_desc
-  ON lecture_sessions_assets (lecture_sessions_asset_masjid_id, lecture_sessions_asset_created_at DESC)
+CREATE INDEX IF NOT EXISTS idx_lsasset_school_created_desc
+  ON lecture_sessions_assets (lecture_sessions_asset_school_id, lecture_sessions_asset_created_at DESC)
   WHERE lecture_sessions_asset_deleted_at IS NULL;
 
 -- Filter by type

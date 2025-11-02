@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	classmodel "masjidku_backend/internals/features/school/classes/classes/model"
+	classmodel "schoolku_backend/internals/features/school/classes/classes/model"
 )
 
 // Struktur row kecil agar loose-coupling ke tabel academic_terms
@@ -24,7 +24,7 @@ type academicTermSnapRow struct {
 func fetchAcademicTermSnapRow(
 	ctx context.Context,
 	tx *gorm.DB,
-	masjidID uuid.UUID,
+	schoolID uuid.UUID,
 	termID uuid.UUID,
 ) (academicTermSnapRow, error) {
 	var tr academicTermSnapRow
@@ -32,13 +32,13 @@ func fetchAcademicTermSnapRow(
 		Table("academic_terms").
 		Select("academic_term_academic_year, academic_term_name, academic_term_slug, academic_term_angkatan").
 		Where(
-			"academic_term_id = ? AND academic_term_masjid_id = ? AND academic_term_deleted_at IS NULL",
-			termID, masjidID,
+			"academic_term_id = ? AND academic_term_school_id = ? AND academic_term_deleted_at IS NULL",
+			termID, schoolID,
 		).
 		Take(&tr).Error; err != nil {
 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return tr, fiber.NewError(fiber.StatusBadRequest, "Academic term tidak ditemukan di masjid ini")
+			return tr, fiber.NewError(fiber.StatusBadRequest, "Academic term tidak ditemukan di school ini")
 		}
 		return tr, err
 	}
@@ -62,7 +62,7 @@ func applyAcademicTermSnapshot(m *classmodel.ClassModel, tr academicTermSnapRow)
 func HydrateAcademicTermSnapshot(
 	ctx context.Context,
 	tx *gorm.DB,
-	masjidID uuid.UUID,
+	schoolID uuid.UUID,
 	m *classmodel.ClassModel,
 ) error {
 	if m.ClassTermID == nil {
@@ -72,7 +72,7 @@ func HydrateAcademicTermSnapshot(
 		m.ClassTermAngkatanSnapshot = nil
 		return nil
 	}
-	tr, err := fetchAcademicTermSnapRow(ctx, tx, masjidID, *m.ClassTermID)
+	tr, err := fetchAcademicTermSnapRow(ctx, tx, schoolID, *m.ClassTermID)
 	if err != nil {
 		return err
 	}

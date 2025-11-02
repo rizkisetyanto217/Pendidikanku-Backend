@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	model "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
+	model "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
 )
 
 /* =========================================================
@@ -27,7 +27,7 @@ type PatchField[T any] struct {
 
 type StudentClassSessionAttendanceTypeCreateDTO struct {
 	// tenant
-	StudentClassSessionAttendanceTypeMasjidID uuid.UUID `json:"student_class_session_attendance_type_masjid_id" validate:"required"`
+	StudentClassSessionAttendanceTypeSchoolID uuid.UUID `json:"student_class_session_attendance_type_school_id" validate:"required"`
 
 	// data
 	StudentClassSessionAttendanceTypeCode     string  `json:"student_class_session_attendance_type_code" validate:"required,max=32"`
@@ -42,7 +42,7 @@ type StudentClassSessionAttendanceTypeCreateDTO struct {
 func (in *StudentClassSessionAttendanceTypeCreateDTO) ToModel() *model.StudentClassSessionAttendanceTypeModel {
 	now := time.Now()
 	m := &model.StudentClassSessionAttendanceTypeModel{
-		StudentClassSessionAttendanceTypeMasjidID: in.StudentClassSessionAttendanceTypeMasjidID,
+		StudentClassSessionAttendanceTypeSchoolID: in.StudentClassSessionAttendanceTypeSchoolID,
 		StudentClassSessionAttendanceTypeCode:     strings.TrimSpace(in.StudentClassSessionAttendanceTypeCode),
 		StudentClassSessionAttendanceTypeLabel:    trimPtr(in.StudentClassSessionAttendanceTypeLabel),
 		StudentClassSessionAttendanceTypeSlug:     trimPtr(in.StudentClassSessionAttendanceTypeSlug),
@@ -66,7 +66,7 @@ func (in *StudentClassSessionAttendanceTypeCreateDTO) ToModel() *model.StudentCl
 type StudentClassSessionAttendanceTypePatchDTO struct {
 	// kunci
 	StudentClassSessionAttendanceTypeID       uuid.UUID `json:"student_class_session_attendance_type_id" validate:"required"`
-	StudentClassSessionAttendanceTypeMasjidID uuid.UUID `json:"student_class_session_attendance_type_masjid_id" validate:"required"`
+	StudentClassSessionAttendanceTypeSchoolID uuid.UUID `json:"student_class_session_attendance_type_school_id" validate:"required"`
 
 	// field yang bisa diubah (opsional via PatchField)
 	StudentClassSessionAttendanceTypeCode     PatchField[string]  `json:"student_class_session_attendance_type_code"`
@@ -105,7 +105,7 @@ func (p *StudentClassSessionAttendanceTypePatchDTO) ApplyPatch(m *model.StudentC
    ========================================================= */
 
 type StudentClassSessionAttendanceTypeListQuery struct {
-	StudentClassSessionAttendanceTypeMasjidID uuid.UUID `json:"student_class_session_attendance_type_masjid_id" validate:"required"`
+	StudentClassSessionAttendanceTypeSchoolID uuid.UUID `json:"student_class_session_attendance_type_school_id" validate:"required"`
 
 	// filter opsional
 	CodeEq        *string `json:"code_eq"        validate:"omitempty,max=32"`  // match code (case-insensitive)
@@ -122,7 +122,7 @@ type StudentClassSessionAttendanceTypeListQuery struct {
 // BuildQuery: terapkan filter ke *gorm.DB (tidak memanggil Find/Count)
 func (q *StudentClassSessionAttendanceTypeListQuery) BuildQuery(db *gorm.DB) *gorm.DB {
 	g := db.Model(&model.StudentClassSessionAttendanceTypeModel{}).
-		Where("student_class_session_attendance_type_masjid_id = ?", q.StudentClassSessionAttendanceTypeMasjidID).
+		Where("student_class_session_attendance_type_school_id = ?", q.StudentClassSessionAttendanceTypeSchoolID).
 		Where("student_class_session_attendance_type_deleted_at IS NULL") // soft-delete aware default
 
 	if q.CodeEq != nil && strings.TrimSpace(*q.CodeEq) != "" {
@@ -174,7 +174,7 @@ func (q *StudentClassSessionAttendanceTypeListQuery) BuildQuery(db *gorm.DB) *go
 
 type StudentClassSessionAttendanceTypeItem struct {
 	StudentClassSessionAttendanceTypeID        uuid.UUID `json:"student_class_session_attendance_type_id"`
-	StudentClassSessionAttendanceTypeMasjidID  uuid.UUID `json:"student_class_session_attendance_type_masjid_id"`
+	StudentClassSessionAttendanceTypeSchoolID  uuid.UUID `json:"student_class_session_attendance_type_school_id"`
 	StudentClassSessionAttendanceTypeCode      string    `json:"student_class_session_attendance_type_code"`
 	StudentClassSessionAttendanceTypeLabel     *string   `json:"student_class_session_attendance_type_label,omitempty"`
 	StudentClassSessionAttendanceTypeSlug      *string   `json:"student_class_session_attendance_type_slug,omitempty"`
@@ -188,7 +188,7 @@ type StudentClassSessionAttendanceTypeItem struct {
 func FromModel(m *model.StudentClassSessionAttendanceTypeModel) StudentClassSessionAttendanceTypeItem {
 	return StudentClassSessionAttendanceTypeItem{
 		StudentClassSessionAttendanceTypeID:        m.StudentClassSessionAttendanceTypeID,
-		StudentClassSessionAttendanceTypeMasjidID:  m.StudentClassSessionAttendanceTypeMasjidID,
+		StudentClassSessionAttendanceTypeSchoolID:  m.StudentClassSessionAttendanceTypeSchoolID,
 		StudentClassSessionAttendanceTypeCode:      m.StudentClassSessionAttendanceTypeCode,
 		StudentClassSessionAttendanceTypeLabel:     m.StudentClassSessionAttendanceTypeLabel,
 		StudentClassSessionAttendanceTypeSlug:      m.StudentClassSessionAttendanceTypeSlug,

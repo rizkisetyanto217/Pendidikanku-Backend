@@ -1,7 +1,7 @@
 package details
 
 import (
-	authRoute "masjidku_backend/internals/features/users/auth/route"
+	authRoute "schoolku_backend/internals/features/users/auth/route"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

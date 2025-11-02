@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	qdto "masjidku_backend/internals/features/school/submissions_assesments/quizzes/dto"
-	qmodel "masjidku_backend/internals/features/school/submissions_assesments/quizzes/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	qdto "schoolku_backend/internals/features/school/submissions_assesments/quizzes/dto"
+	qmodel "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -45,7 +45,7 @@ func (ctl *StudentQuizAttemptAnswersController) ensureValidator() {
 ============================================================ */
 
 type attemptCore struct {
-	MasjidID  uuid.UUID `gorm:"column:student_quiz_attempt_masjid_id"`
+	SchoolID  uuid.UUID `gorm:"column:student_quiz_attempt_school_id"`
 	StudentID uuid.UUID `gorm:"column:student_quiz_attempt_student_id"`
 	QuizID    uuid.UUID `gorm:"column:student_quiz_attempt_quiz_id"`
 }
@@ -59,7 +59,7 @@ func (ctl *StudentQuizAttemptAnswersController) loadAttemptCore(id uuid.UUID) (*
 	var core attemptCore
 	err := ctl.DB.
 		Table("student_quiz_attempts").
-		Select("student_quiz_attempt_masjid_id, student_quiz_attempt_student_id, student_quiz_attempt_quiz_id").
+		Select("student_quiz_attempt_school_id, student_quiz_attempt_student_id, student_quiz_attempt_quiz_id").
 		Where("student_quiz_attempt_id = ?", id).
 		Take(&core).Error
 
@@ -97,8 +97,8 @@ func (ctl *StudentQuizAttemptAnswersController) questionBelongsToQuiz(questionID
 }
 
 // Scope enforcement:
-// - Student: harus terdaftar sbg student di masjid attempt & student_id harus cocok
-// - Non-student: Owner diizinkan; selain itu wajib DKM/Teacher di masjid attempt
+// - Student: harus terdaftar sbg student di school attempt & student_id harus cocok
+// - Non-student: Owner diizinkan; selain itu wajib DKM/Teacher di school attempt
 func (ctl *StudentQuizAttemptAnswersController) ensureScopeForAttempt(c *fiber.Ctx, core *attemptCore) error {
 	if core == nil {
 		return fiber.NewError(http.StatusInternalServerError, "internal: attemptCore nil")
@@ -106,12 +106,12 @@ func (ctl *StudentQuizAttemptAnswersController) ensureScopeForAttempt(c *fiber.C
 
 	// Student flow
 	if helperAuth.IsStudent(c) {
-		if err := helperAuth.EnsureStudentMasjid(c, core.MasjidID); err != nil {
+		if err := helperAuth.EnsureStudentSchool(c, core.SchoolID); err != nil {
 			return err
 		}
-		sid, err := helperAuth.GetMasjidStudentIDForMasjid(c, core.MasjidID)
+		sid, err := helperAuth.GetSchoolStudentIDForSchool(c, core.SchoolID)
 		if err != nil {
-			return fiber.NewError(http.StatusForbidden, "tidak terdaftar sebagai student pada masjid attempt")
+			return fiber.NewError(http.StatusForbidden, "tidak terdaftar sebagai student pada school attempt")
 		}
 		if sid != core.StudentID {
 			return fiber.NewError(http.StatusForbidden, "attempt bukan milik kamu")
@@ -123,7 +123,7 @@ func (ctl *StudentQuizAttemptAnswersController) ensureScopeForAttempt(c *fiber.C
 	if helperAuth.IsOwner(c) {
 		return nil
 	}
-	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, core.MasjidID); err != nil {
+	if err := helperAuth.EnsureDKMOrTeacherSchool(c, core.SchoolID); err != nil {
 		return err
 	}
 	return nil

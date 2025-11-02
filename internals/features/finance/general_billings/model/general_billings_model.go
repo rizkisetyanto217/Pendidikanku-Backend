@@ -10,7 +10,7 @@ import (
 
 /*
 SQL acuan (ringkas):
-- general_billing_masjid_id UUID NULL (GLOBAL bila NULL)
+- general_billing_school_id UUID NULL (GLOBAL bila NULL)
 - general_billing_kind_id   UUID NOT NULL (FK RESTRICT)
 - general_billing_code      VARCHAR(60) NULL (unique per-tenant/global via partial index)
 - general_billing_title     TEXT NOT NULL
@@ -25,7 +25,7 @@ type GeneralBilling struct {
 	GeneralBillingID uuid.UUID `json:"general_billing_id" gorm:"column:general_billing_id;type:uuid;primaryKey;default:gen_random_uuid()"`
 
 	// NULL = GLOBAL (milik aplikasi), non-NULL = tenant-scoped
-	GeneralBillingMasjidID *uuid.UUID `json:"general_billing_masjid_id,omitempty" gorm:"column:general_billing_masjid_id;type:uuid"`
+	GeneralBillingSchoolID *uuid.UUID `json:"general_billing_school_id,omitempty" gorm:"column:general_billing_school_id;type:uuid"`
 
 	// kind (ON UPDATE CASCADE, ON DELETE RESTRICT)
 	GeneralBillingKindID uuid.UUID `json:"general_billing_kind_id" gorm:"column:general_billing_kind_id;type:uuid;not null;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT"`

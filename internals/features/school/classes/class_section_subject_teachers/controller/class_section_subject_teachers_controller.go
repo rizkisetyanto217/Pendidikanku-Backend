@@ -13,21 +13,21 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	modelMasjidTeacher "masjidku_backend/internals/features/lembaga/masjid_yayasans/teachers_students/model"
-	modelClassSection "masjidku_backend/internals/features/school/classes/class_sections/model"
+	modelSchoolTeacher "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
+	modelClassSection "schoolku_backend/internals/features/school/classes/class_sections/model"
 
 	// === pakai model & dto CSST terbaru (sectionsubjectteachers) ===
-	dto "masjidku_backend/internals/features/school/classes/class_section_subject_teachers/dto"
-	modelCSST "masjidku_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	dto "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/dto"
+	modelCSST "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
-	roomSnapshot "masjidku_backend/internals/features/school/academics/rooms/snapshot"
-	teacherSnapshot "masjidku_backend/internals/features/users/user_teachers/snapshot"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	roomSnapshot "schoolku_backend/internals/features/school/academics/rooms/snapshot"
+	teacherSnapshot "schoolku_backend/internals/features/users/user_teachers/snapshot"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
-	snapshotClassSubject "masjidku_backend/internals/features/school/academics/subjects/snapshot"
+	snapshotClassSubject "schoolku_backend/internals/features/school/academics/subjects/snapshot"
 
-	snapshotBooks "masjidku_backend/internals/features/school/academics/books/snapshot"
+	snapshotBooks "schoolku_backend/internals/features/school/academics/books/snapshot"
 )
 
 type ClassSectionSubjectTeacherController struct {
@@ -52,12 +52,12 @@ func ptrStr(p *string) string {
 // Helpers (private)
 // =====================
 
-func getBaseForSlug(ctx context.Context, tx *gorm.DB, masjidID, sectionID, classSubjectID, teacherID uuid.UUID) string {
+func getBaseForSlug(ctx context.Context, tx *gorm.DB, schoolID, sectionID, classSubjectID, teacherID uuid.UUID) string {
 	var sectionName, subjectName string
 
 	_ = tx.Table("class_sections").
 		Select("class_section_name").
-		Where("class_section_id = ? AND class_section_masjid_id = ?", sectionID, masjidID).
+		Where("class_section_id = ? AND class_section_school_id = ?", sectionID, schoolID).
 		Scan(&sectionName).Error
 
 	_ = tx.Table("class_subjects AS cs").
@@ -66,9 +66,9 @@ func getBaseForSlug(ctx context.Context, tx *gorm.DB, masjidID, sectionID, class
 		           ON s.subject_id = cs.class_subject_subject_id
 		          AND s.subject_deleted_at IS NULL`).
 		Where(`cs.class_subject_id = ?
-		           AND cs.class_subject_masjid_id = ?
+		           AND cs.class_subject_school_id = ?
 		           AND cs.class_subject_deleted_at IS NULL`,
-			classSubjectID, masjidID).
+			classSubjectID, schoolID).
 		Scan(&subjectName).Error
 
 	var parts []string
@@ -88,16 +88,16 @@ func getBaseForSlug(ctx context.Context, tx *gorm.DB, masjidID, sectionID, class
 	)
 }
 
-func ensureUniqueSlug(ctx context.Context, tx *gorm.DB, masjidID uuid.UUID, base string) (string, error) {
+func ensureUniqueSlug(ctx context.Context, tx *gorm.DB, schoolID uuid.UUID, base string) (string, error) {
 	return helper.EnsureUniqueSlugCI(
 		ctx, tx,
 		"class_section_subject_teachers", "class_section_subject_teacher_slug",
 		base,
 		func(q *gorm.DB) *gorm.DB {
 			return q.Where(`
-				class_section_subject_teacher_masjid_id = ?
+				class_section_subject_teacher_school_id = ?
 				AND class_section_subject_teacher_deleted_at IS NULL
-			`, masjidID)
+			`, schoolID)
 		},
 		160,
 	)
@@ -113,16 +113,16 @@ func deriveNameFromSlug(slug string) string {
 	return name
 }
 
-// * CREATE (admin/DKM via masjid context)
-// POST /admin/:masjid_id/class-section-subject-teachers
-// /admin/:masjid_slug/class-section-subject-teachers
+// * CREATE (admin/DKM via school context)
+// POST /admin/:school_id/class-section-subject-teachers
+// /admin/:school_slug/class-section-subject-teachers
 func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		fmt.Println("[CSST.Create] resolve masjid context ERROR:", err)
+		fmt.Println("[CSST.Create] resolve school context ERROR:", err)
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		fmt.Println("[CSST.Create] ensure access DKM ERROR:", err)
 		return err
@@ -138,8 +138,8 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	fmt.Printf("[CSST.Create] REQUEST masjid=%s section=%s class_subject=%s teacher=%s\n",
-		masjidID, req.ClassSectionSubjectTeacherSectionID, req.ClassSectionSubjectTeacherClassSubjectID, req.ClassSectionSubjectTeacherTeacherID)
+	fmt.Printf("[CSST.Create] REQUEST school=%s section=%s class_subject=%s teacher=%s\n",
+		schoolID, req.ClassSectionSubjectTeacherSectionID, req.ClassSectionSubjectTeacherClassSubjectID, req.ClassSectionSubjectTeacherTeacherID)
 
 	return ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		tx = tx.Debug()
@@ -147,8 +147,8 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		// 1) SECTION exists & same tenant
 		var sec modelClassSection.ClassSectionModel
 		if err := tx.
-			Where("class_section_id = ? AND class_section_masjid_id = ? AND class_section_deleted_at IS NULL",
-				req.ClassSectionSubjectTeacherSectionID, masjidID).
+			Where("class_section_id = ? AND class_section_school_id = ? AND class_section_deleted_at IS NULL",
+				req.ClassSectionSubjectTeacherSectionID, schoolID).
 			First(&sec).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				fmt.Println("[CSST.Create] SECTION not found / tenant mismatch")
@@ -163,8 +163,8 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		var cls struct{ ClassParentID uuid.UUID }
 		if err := tx.Table("classes").
 			Select("class_parent_id").
-			Where("class_id = ? AND class_masjid_id = ? AND class_deleted_at IS NULL",
-				sec.ClassSectionClassID, masjidID).
+			Where("class_id = ? AND class_school_id = ? AND class_deleted_at IS NULL",
+				sec.ClassSectionClassID, schoolID).
 			Take(&cls).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				fmt.Println("[CSST.Create] CLASS for section not found / tenant mismatch")
@@ -175,11 +175,11 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		}
 
 		var cs struct {
-			MasjidID uuid.UUID
+			SchoolID uuid.UUID
 			ParentID uuid.UUID
 		}
 		if err := tx.Table("class_subjects").
-			Select("class_subject_masjid_id AS masjid_id, class_subject_parent_id AS parent_id").
+			Select("class_subject_school_id AS school_id, class_subject_parent_id AS parent_id").
 			Where("class_subject_id = ? AND class_subject_deleted_at IS NULL",
 				req.ClassSectionSubjectTeacherClassSubjectID).
 			Take(&cs).Error; err != nil {
@@ -190,9 +190,9 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			fmt.Println("[CSST.Create] CLASS_SUBJECT check ERROR:", err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek class_subject")
 		}
-		if cs.MasjidID != masjidID {
-			fmt.Printf("[CSST.Create] CLASS_SUBJECT tenant mismatch: have=%s want=%s\n", cs.MasjidID, masjidID)
-			return helper.JsonError(c, fiber.StatusBadRequest, "Masjid mismatch: class_subject milik masjid lain")
+		if cs.SchoolID != schoolID {
+			fmt.Printf("[CSST.Create] CLASS_SUBJECT tenant mismatch: have=%s want=%s\n", cs.SchoolID, schoolID)
+			return helper.JsonError(c, fiber.StatusBadRequest, "School mismatch: class_subject milik school lain")
 		}
 		if cs.ParentID != cls.ClassParentID {
 			fmt.Printf("[CSST.Create] PARENT mismatch: section.parent=%s subject.parent=%s\n", cls.ClassParentID, cs.ParentID)
@@ -202,12 +202,12 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 
 		// 3) TEACHER exists & same tenant
 		if err := tx.
-			Where("masjid_teacher_id = ? AND masjid_teacher_masjid_id = ? AND masjid_teacher_deleted_at IS NULL",
-				req.ClassSectionSubjectTeacherTeacherID, masjidID).
-			First(&modelMasjidTeacher.MasjidTeacherModel{}).Error; err != nil {
+			Where("school_teacher_id = ? AND school_teacher_school_id = ? AND school_teacher_deleted_at IS NULL",
+				req.ClassSectionSubjectTeacherTeacherID, schoolID).
+			First(&modelSchoolTeacher.SchoolTeacherModel{}).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				fmt.Println("[CSST.Create] TEACHER not found / tenant mismatch")
-				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak ditemukan / bukan guru masjid ini")
+				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak ditemukan / bukan guru school ini")
 			}
 			fmt.Println("[CSST.Create] TEACHER check ERROR:", err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek guru")
@@ -218,7 +218,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		var finalRoomID *uuid.UUID
 		var finalRoomSnap *roomSnapshot.RoomSnapshot
 		if req.ClassSectionSubjectTeacherRoomID != nil {
-			rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, masjidID, *req.ClassSectionSubjectTeacherRoomID)
+			rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, schoolID, *req.ClassSectionSubjectTeacherRoomID)
 			if err != nil {
 				var fe *fiber.Error
 				if errors.As(err, &fe) {
@@ -231,7 +231,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			finalRoomID = req.ClassSectionSubjectTeacherRoomID
 			fmt.Println("[CSST.Create] ROOM snapshot from explicit CSST room_id")
 		} else if sec.ClassSectionClassRoomID != nil {
-			rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, masjidID, *sec.ClassSectionClassRoomID)
+			rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, schoolID, *sec.ClassSectionClassRoomID)
 			if err != nil {
 				var fe *fiber.Error
 				if errors.As(err, &fe) {
@@ -249,7 +249,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 
 		// 4) Build row dari DTO
 		row := req.ToModel()
-		row.ClassSectionSubjectTeacherMasjidID = masjidID
+		row.ClassSectionSubjectTeacherSchoolID = schoolID
 
 		// set room & snapshot (jika ada)
 		if finalRoomID != nil {
@@ -281,13 +281,13 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		}
 
 		// 4a) SNAPSHOT GURU
-		if ts, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, masjidID, req.ClassSectionSubjectTeacherTeacherID); err != nil {
+		if ts, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, schoolID, req.ClassSectionSubjectTeacherTeacherID); err != nil {
 			fmt.Println("[CSST.Create] teacher snapshot ERROR:", err)
 			switch {
 			case errors.Is(err, gorm.ErrRecordNotFound):
 				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak valid / sudah dihapus")
-			case errors.Is(err, teacherSnapshot.ErrMasjidMismatch):
-				return helper.JsonError(c, fiber.StatusForbidden, "Guru bukan milik masjid Anda")
+			case errors.Is(err, teacherSnapshot.ErrSchoolMismatch):
+				return helper.JsonError(c, fiber.StatusForbidden, "Guru bukan milik school Anda")
 			default:
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot guru")
 			}
@@ -300,13 +300,13 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 
 		// 4b) SNAPSHOT ASISTEN (opsional)
 		if req.ClassSectionSubjectTeacherAssistantTeacherID != nil {
-			if ats, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, masjidID, *req.ClassSectionSubjectTeacherAssistantTeacherID); err != nil {
+			if ats, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, schoolID, *req.ClassSectionSubjectTeacherAssistantTeacherID); err != nil {
 				fmt.Println("[CSST.Create] assistant snapshot ERROR:", err)
 				switch {
 				case errors.Is(err, gorm.ErrRecordNotFound):
 					return helper.JsonError(c, fiber.StatusBadRequest, "Asisten guru tidak valid / sudah dihapus")
-				case errors.Is(err, teacherSnapshot.ErrMasjidMismatch):
-					return helper.JsonError(c, fiber.StatusForbidden, "Asisten guru bukan milik masjid Anda")
+				case errors.Is(err, teacherSnapshot.ErrSchoolMismatch):
+					return helper.JsonError(c, fiber.StatusForbidden, "Asisten guru bukan milik school Anda")
 				default:
 					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot asisten guru")
 				}
@@ -319,13 +319,13 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		}
 
 		// 4c) SNAPSHOT CLASS_SUBJECT (BARU)
-		if j, err := snapshotClassSubject.BuildClassSubjectSnapshotJSON(c.Context(), tx, masjidID, req.ClassSectionSubjectTeacherClassSubjectID); err != nil {
+		if j, err := snapshotClassSubject.BuildClassSubjectSnapshotJSON(c.Context(), tx, schoolID, req.ClassSectionSubjectTeacherClassSubjectID); err != nil {
 			fmt.Println("[CSST.Create] class_subject snapshot ERROR:", err)
 			switch {
 			case errors.Is(err, gorm.ErrRecordNotFound):
 				return helper.JsonError(c, fiber.StatusBadRequest, "Class subject tidak ditemukan / sudah dihapus")
-			case errors.Is(err, snapshotClassSubject.ErrMasjidMismatch):
-				return helper.JsonError(c, fiber.StatusForbidden, "Class subject milik masjid lain")
+			case errors.Is(err, snapshotClassSubject.ErrSchoolMismatch):
+				return helper.JsonError(c, fiber.StatusForbidden, "Class subject milik school lain")
 			default:
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot class subject")
 			}
@@ -338,7 +338,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		// Hasilnya JSONB array (bisa kosong "[]"), cocok disimpan di kolom CSST.
 		// Tidak perlu hard-fail kalau error, tapi silakan ubah kalau kamu ingin wajib sukses.
 		// jb bertipe datatypes.JSON
-		if jb, err := snapshotBooks.BuildBooksSnapshotJSON(c.Context(), tx, masjidID, req.ClassSectionSubjectTeacherClassSubjectID); err != nil {
+		if jb, err := snapshotBooks.BuildBooksSnapshotJSON(c.Context(), tx, schoolID, req.ClassSectionSubjectTeacherClassSubjectID); err != nil {
 			fmt.Println("[CSST.Create] books snapshot ERROR:", err)
 		} else {
 			// Field kamu bertipe datatypes.JSON → JANGAN pakai &
@@ -353,7 +353,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			fmt.Println("[CSST.Create] input slug sanitized:", s)
 		}
 
-		base := strings.TrimSpace(getBaseForSlug(c.Context(), tx, masjidID,
+		base := strings.TrimSpace(getBaseForSlug(c.Context(), tx, schoolID,
 			req.ClassSectionSubjectTeacherSectionID,
 			req.ClassSectionSubjectTeacherClassSubjectID,
 			req.ClassSectionSubjectTeacherTeacherID,
@@ -367,7 +367,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		candidate = helper.Slugify(candidate, 160)
 		fmt.Println("[CSST.Create] slug candidate:", candidate)
 
-		uniqueSlug, err := ensureUniqueSlug(c.Context(), tx, masjidID, candidate)
+		uniqueSlug, err := ensureUniqueSlug(c.Context(), tx, schoolID, candidate)
 		if err != nil {
 			fmt.Println("[CSST.Create] ensureUniqueSlug ERROR:", err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
@@ -377,8 +377,8 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		fmt.Printf("[CSST.Create] slug unique=%s | name=%s\n", uniqueSlug, row.ClassSectionSubjectTeacherName)
 
 		// 6) INSERT
-		fmt.Printf("[CSST.Create] INSERT row: masjid=%s section=%s subject=%s teacher=%s room=%v slug=%s name=%s mode=%s active=%v\n",
-			row.ClassSectionSubjectTeacherMasjidID,
+		fmt.Printf("[CSST.Create] INSERT row: school=%s section=%s subject=%s teacher=%s room=%v slug=%s name=%s mode=%s active=%v\n",
+			row.ClassSectionSubjectTeacherSchoolID,
 			row.ClassSectionSubjectTeacherSectionID,
 			row.ClassSectionSubjectTeacherClassSubjectID,
 			row.ClassSectionSubjectTeacherTeacherID,
@@ -416,7 +416,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (SECTION): section tidak ditemukan / beda tenant")
 				case strings.Contains(msg, "class_subjects"):
 					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (CLASS_SUBJECTS): tidak ditemukan / beda tenant")
-				case strings.Contains(msg, "masjid_teachers"):
+				case strings.Contains(msg, "school_teachers"):
 					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (GURU): guru tidak ditemukan / beda tenant")
 				case strings.Contains(msg, "class_rooms"):
 					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (ROOM): ruangan tidak ditemukan / beda tenant")
@@ -434,13 +434,13 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 
 /* ======================== Helpers (inline room) ======================== */
 // UPDATE (partial)
-// PUT /admin/:masjid_id/class-section-subject-teachers/:id
+// PUT /admin/:school_id/class-section-subject-teachers/:id
 func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -470,7 +470,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 		}
 		// Tenant guard
-		if row.ClassSectionSubjectTeacherMasjidID != masjidID {
+		if row.ClassSectionSubjectTeacherSchoolID != schoolID {
 			return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 		}
 
@@ -488,7 +488,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			// cek section milik tenant
 			var sec modelClassSection.ClassSectionModel
 			if err := tx.
-				Where("class_section_id = ? AND class_section_masjid_id = ? AND class_section_deleted_at IS NULL", sectionID, masjidID).
+				Where("class_section_id = ? AND class_section_school_id = ? AND class_section_deleted_at IS NULL", sectionID, schoolID).
 				First(&sec).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return helper.JsonError(c, fiber.StatusBadRequest, "Section tidak ditemukan / beda tenant")
@@ -498,12 +498,12 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 
 			// cek class_subject milik tenant + parent sama dengan class parent dari section
 			var cs struct {
-				MasjidID uuid.UUID
+				SchoolID uuid.UUID
 				ParentID uuid.UUID
 			}
 			if err := tx.
 				Table("class_subjects").
-				Select("class_subject_masjid_id AS masjid_id, class_subject_parent_id AS parent_id").
+				Select("class_subject_school_id AS school_id, class_subject_parent_id AS parent_id").
 				Where("class_subject_id = ? AND class_subject_deleted_at IS NULL", classSubjectID).
 				Take(&cs).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -511,14 +511,14 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 				}
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek class_subject")
 			}
-			if cs.MasjidID != masjidID {
-				return helper.JsonError(c, fiber.StatusBadRequest, "Masjid mismatch: class_subject milik masjid lain")
+			if cs.SchoolID != schoolID {
+				return helper.JsonError(c, fiber.StatusBadRequest, "School mismatch: class_subject milik school lain")
 			}
 
 			var cls struct{ ClassParentID uuid.UUID }
 			if err := tx.Table("classes").
 				Select("class_parent_id").
-				Where("class_id = ? AND class_masjid_id = ? AND class_deleted_at IS NULL", sec.ClassSectionClassID, masjidID).
+				Where("class_id = ? AND class_school_id = ? AND class_deleted_at IS NULL", sec.ClassSectionClassID, schoolID).
 				Take(&cls).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return helper.JsonError(c, fiber.StatusBadRequest, "Kelas untuk section ini tidak ditemukan / beda tenant")
@@ -545,13 +545,13 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 		if csChanged {
 			// 1) class_subject snapshot → JSONB (*pointer* di model)
 			if j, err := snapshotClassSubject.BuildClassSubjectSnapshotJSON(
-				c.Context(), tx, masjidID, row.ClassSectionSubjectTeacherClassSubjectID,
+				c.Context(), tx, schoolID, row.ClassSectionSubjectTeacherClassSubjectID,
 			); err != nil {
 				switch {
 				case errors.Is(err, gorm.ErrRecordNotFound):
 					return helper.JsonError(c, fiber.StatusBadRequest, "Class subject tidak valid / sudah dihapus")
-				case errors.Is(err, snapshotClassSubject.ErrMasjidMismatch):
-					return helper.JsonError(c, fiber.StatusForbidden, "Class subject milik masjid lain")
+				case errors.Is(err, snapshotClassSubject.ErrSchoolMismatch):
+					return helper.JsonError(c, fiber.StatusForbidden, "Class subject milik school lain")
 				default:
 					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot class subject")
 				}
@@ -561,7 +561,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 
 			// 2) books snapshot list → JSONB (non-pointer di model)
 			if booksJB, err := snapshotBooks.BuildBooksSnapshotJSON(
-				c.Context(), tx, masjidID, row.ClassSectionSubjectTeacherClassSubjectID,
+				c.Context(), tx, schoolID, row.ClassSectionSubjectTeacherClassSubjectID,
 			); err == nil {
 				row.ClassSectionSubjectTeacherBooksSnapshot = booksJB
 			}
@@ -592,22 +592,22 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 
 				_ = tx.Table("class_sections").
 					Select("class_section_name").
-					Where("class_section_id = ? AND class_section_masjid_id = ?", row.ClassSectionSubjectTeacherSectionID, masjidID).
+					Where("class_section_id = ? AND class_section_school_id = ?", row.ClassSectionSubjectTeacherSectionID, schoolID).
 					Scan(&sectionName).Error
 
 				_ = tx.Table("class_subjects cs").
 					Select("c.class_name, s.subject_name").
 					Joins("JOIN classes c ON c.class_id = cs.class_subject_parent_id AND c.class_deleted_at IS NULL").
 					Joins("JOIN subjects s ON s.subject_id = cs.class_subject_subject_id AND s.subject_deleted_at IS NULL").
-					Where("cs.class_subject_id = ? AND cs.class_subject_masjid_id = ?", row.ClassSectionSubjectTeacherClassSubjectID, masjidID).
+					Where("cs.class_subject_id = ? AND cs.class_subject_school_id = ?", row.ClassSectionSubjectTeacherClassSubjectID, schoolID).
 					Scan(&struct {
 						ClassName   *string
 						SubjectName *string
 					}{&className, &subjectName}).Error
 
-				_ = tx.Table("masjid_teachers").
-					Select("masjid_teacher_name").
-					Where("masjid_teacher_id = ? AND masjid_teacher_masjid_id = ?", row.ClassSectionSubjectTeacherTeacherID, masjidID).
+				_ = tx.Table("school_teachers").
+					Select("school_teacher_name").
+					Where("school_teacher_id = ? AND school_teacher_school_id = ?", row.ClassSectionSubjectTeacherTeacherID, schoolID).
 					Scan(&teacherName).Error
 
 				parts := []string{}
@@ -645,10 +645,10 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 				baseSlug,
 				func(q *gorm.DB) *gorm.DB {
 					return q.Where(`
-						class_section_subject_teacher_masjid_id = ?
+						class_section_subject_teacher_school_id = ?
 						AND class_section_subject_teacher_deleted_at IS NULL
 						AND class_section_subject_teacher_id <> ?
-					`, masjidID, row.ClassSectionSubjectTeacherID)
+					`, schoolID, row.ClassSectionSubjectTeacherID)
 				},
 				160,
 			)
@@ -679,7 +679,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (SECTION): section tidak ditemukan / beda tenant")
 				case strings.Contains(msg, "class_subjects"):
 					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (CLASS_SUBJECTS): tidak ditemukan / beda tenant")
-				case strings.Contains(msg, "masjid_teachers"):
+				case strings.Contains(msg, "school_teachers"):
 					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (GURU): guru tidak ditemukan / beda tenant")
 				case strings.Contains(msg, "class_rooms"):
 					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (ROOM): ruangan tidak ditemukan / beda tenant")
@@ -698,16 +698,16 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 ===============================
 
 	DELETE (soft delete)
-	DELETE /admin/:masjid_id/class-section-subject-teachers/:id
+	DELETE /admin/:school_id/class-section-subject-teachers/:id
 
 ===============================
 */
 func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -725,7 +725,7 @@ func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
-	if row.ClassSectionSubjectTeacherMasjidID != masjidID {
+	if row.ClassSectionSubjectTeacherSchoolID != schoolID {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
 	if row.ClassSectionSubjectTeacherDeletedAt.Valid {

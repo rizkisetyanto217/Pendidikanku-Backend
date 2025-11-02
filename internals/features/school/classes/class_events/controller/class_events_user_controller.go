@@ -9,10 +9,10 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
-	d "masjidku_backend/internals/features/school/classes/class_events/dto"
-	m "masjidku_backend/internals/features/school/classes/class_events/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	d "schoolku_backend/internals/features/school/classes/class_events/dto"
+	m "schoolku_backend/internals/features/school/classes/class_events/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 /* =========================
@@ -22,23 +22,23 @@ import (
 func (ctl *ClassEventsController) List(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
 
-	// resolve masjid ID (public)
-	var masjidID uuid.UUID
+	// resolve school ID (public)
+	var schoolID uuid.UUID
 	if mc.ID != uuid.Nil {
-		masjidID = mc.ID
+		schoolID = mc.ID
 	} else if strings.TrimSpace(mc.Slug) != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+		id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
 		if er != nil {
-			return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			return fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
-		masjidID = id
+		schoolID = id
 	} else {
-		return helperAuth.ErrMasjidContextMissing
+		return helperAuth.ErrSchoolContextMissing
 	}
 
 	// parse filter DTO
@@ -59,7 +59,7 @@ func (ctl *ClassEventsController) List(c *fiber.Ctx) error {
 
 	tx := ctl.DB.WithContext(c.Context()).
 		Model(&m.ClassEventModel{}).
-		Where("class_event_masjid_id = ? AND class_event_deleted_at IS NULL", masjidID)
+		Where("class_event_school_id = ? AND class_event_deleted_at IS NULL", schoolID)
 
 	// only_active
 	if q.OnlyActive != nil && *q.OnlyActive {

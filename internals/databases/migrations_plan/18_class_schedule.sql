@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant & relasi inti
-  class_schedules_masjid_id           UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_schedules_school_id           UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
   class_schedules_section_id          UUID REFERENCES class_sections(class_sections_id) ON DELETE CASCADE,
   class_schedules_class_subject_id    UUID REFERENCES class_subjects(class_subjects_id) ON DELETE RESTRICT,
   class_schedules_csst_id             UUID REFERENCES class_section_subject_teachers(class_section_subject_teachers_id) ON UPDATE CASCADE ON DELETE SET NULL,
@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS class_schedules (
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_schedule_overrides (
   class_schedule_overrides_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_schedule_overrides_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_schedule_overrides_school_id UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
   class_schedule_overrides_schedule_id UUID NOT NULL REFERENCES class_schedules(class_schedule_id) ON DELETE CASCADE,
 
   -- occurrence yang terkena
@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS class_schedule_overrides (
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_events (
   class_events_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_events_masjid_id     UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_events_school_id     UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- target opsional
   class_events_section_id       UUID,
@@ -214,12 +214,12 @@ CREATE TABLE IF NOT EXISTS class_events (
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_event_attendees (
   class_event_attendees_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_event_attendees_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_event_attendees_school_id UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
   class_event_attendees_event_id  UUID NOT NULL REFERENCES class_events(class_events_id) ON DELETE CASCADE,
 
   -- identitas (isi salah satu)
   class_event_attendees_user_id           UUID,
-  class_event_attendees_masjid_student_id UUID,
+  class_event_attendees_school_student_id UUID,
   class_event_attendees_guardian_id       UUID,
 
   -- RSVP & kehadiran

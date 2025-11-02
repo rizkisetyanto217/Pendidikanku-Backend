@@ -1,6 +1,6 @@
 {
   "class_room_id": "d44c6e58-5a6a-4f76-9d2e-8e3f2f5b1c11",
-  "class_room_masjid_id": "3a7f5b8e-2f20-4a81-9d04-6a7d1b7d9c22",
+  "class_room_school_id": "3a7f5b8e-2f20-4a81-9d04-6a7d1b7d9c22",
   "class_room_name": "Virtual Room — Kelas 7",
   "class_room_code": "V-7",
   "class_room_slug": "virtual-room-kelas-7",
@@ -43,7 +43,7 @@
 
 {
   "class_room_id": "8b9c2fcb-7c0c-4a7c-a2b3-3d7c1d9e2a10",
-  "class_room_masjid_id": "3a7f5b8e-2f20-4a81-9d04-6a7d1b7d9c22",
+  "class_room_school_id": "3a7f5b8e-2f20-4a81-9d04-6a7d1b7d9c22",
   "class_room_name": "Ruang Kelas A1",
   "class_room_code": "A1",
   "class_room_slug": "ruang-kelas-a1",

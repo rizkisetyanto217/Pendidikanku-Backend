@@ -5,8 +5,8 @@ BEGIN;
 -- ============================ --
 
 -- Drop indexes (aman bila sudah tidak ada)
-DROP INDEX IF EXISTS uq_mss_masjid_current_alive;
-DROP INDEX IF EXISTS idx_mss_masjid_alive;
+DROP INDEX IF EXISTS uq_mss_school_current_alive;
+DROP INDEX IF EXISTS idx_mss_school_alive;
 DROP INDEX IF EXISTS idx_mss_plan_alive;
 DROP INDEX IF EXISTS idx_mss_status_alive;
 DROP INDEX IF EXISTS idx_mss_current_window;
@@ -17,7 +17,7 @@ DROP INDEX IF EXISTS brin_mss_created_at;
 DROP INDEX IF EXISTS brin_mss_updated_at;
 
 -- Drop table
-DROP TABLE IF EXISTS masjid_service_subscriptions CASCADE;
+DROP TABLE IF EXISTS school_service_subscriptions CASCADE;
 
 
 -- ============================ --

@@ -7,14 +7,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 
-	model "masjidku_backend/internals/features/school/classes/class_schedules/model"
+	model "schoolku_backend/internals/features/school/classes/class_schedules/model"
 )
 
 /* =========================================================
    Helpers
    ========================================================= */
-
-
 
 func parseTimeOfDay(s string) (time.Time, bool) {
 	s = strings.TrimSpace(s)
@@ -61,7 +59,7 @@ type CreateClassScheduleRuleRequest struct {
 
 	// CSST (WAJIB, tenant-safe)
 	ClassScheduleRuleCSSTID       uuid.UUID `json:"class_schedule_rule_csst_id"        validate:"required,uuid"`
-	ClassScheduleRuleCSSTMasjidID uuid.UUID `json:"class_schedule_rule_csst_masjid_id" validate:"required,uuid"`
+	ClassScheduleRuleCSSTSchoolID uuid.UUID `json:"class_schedule_rule_csst_school_id" validate:"required,uuid"`
 
 	// opsional (defaults: 1, 0, "all", nil, false)
 	ClassScheduleRuleIntervalWeeks    *int    `json:"class_schedule_rule_interval_weeks"     validate:"omitempty,min=1"`
@@ -71,8 +69,8 @@ type CreateClassScheduleRuleRequest struct {
 	ClassScheduleRuleLastWeekOfMonth  *bool   `json:"class_schedule_rule_last_week_of_month" validate:"omitempty"`
 }
 
-// masjidID dipaksa dari controller
-func (r CreateClassScheduleRuleRequest) ToModel(masjidID uuid.UUID) (model.ClassScheduleRuleModel, error) {
+// schoolID dipaksa dari controller
+func (r CreateClassScheduleRuleRequest) ToModel(schoolID uuid.UUID) (model.ClassScheduleRuleModel, error) {
 	st, ok := parseTimeOfDay(r.ClassScheduleRuleStartTime)
 	if !ok {
 		return model.ClassScheduleRuleModel{}, ErrInvalidStartTime
@@ -107,7 +105,7 @@ func (r CreateClassScheduleRuleRequest) ToModel(masjidID uuid.UUID) (model.Class
 	}
 
 	return model.ClassScheduleRuleModel{
-		ClassScheduleRuleMasjidID:   masjidID,
+		ClassScheduleRuleSchoolID:   schoolID,
 		ClassScheduleRuleScheduleID: r.ClassScheduleRuleScheduleID,
 
 		ClassScheduleRuleDayOfWeek: r.ClassScheduleRuleDayOfWeek,
@@ -122,7 +120,7 @@ func (r CreateClassScheduleRuleRequest) ToModel(masjidID uuid.UUID) (model.Class
 
 		// CSST wajib
 		ClassScheduleRuleCSSTID:       r.ClassScheduleRuleCSSTID,
-		ClassScheduleRuleCSSTMasjidID: r.ClassScheduleRuleCSSTMasjidID,
+		ClassScheduleRuleCSSTSchoolID: r.ClassScheduleRuleCSSTSchoolID,
 	}, nil
 }
 
@@ -139,7 +137,7 @@ type UpdateClassScheduleRuleRequest struct {
 
 	// ganti CSST (opsional; butuh guard tenant di service/DB)
 	ClassScheduleRuleCSSTID       *uuid.UUID `json:"class_schedule_rule_csst_id"        validate:"omitempty,uuid"`
-	ClassScheduleRuleCSSTMasjidID *uuid.UUID `json:"class_schedule_rule_csst_masjid_id" validate:"omitempty,uuid"`
+	ClassScheduleRuleCSSTSchoolID *uuid.UUID `json:"class_schedule_rule_csst_school_id" validate:"omitempty,uuid"`
 }
 
 func (r UpdateClassScheduleRuleRequest) Apply(m *model.ClassScheduleRuleModel) error {
@@ -185,8 +183,8 @@ func (r UpdateClassScheduleRuleRequest) Apply(m *model.ClassScheduleRuleModel) e
 	if r.ClassScheduleRuleCSSTID != nil {
 		m.ClassScheduleRuleCSSTID = *r.ClassScheduleRuleCSSTID
 	}
-	if r.ClassScheduleRuleCSSTMasjidID != nil {
-		m.ClassScheduleRuleCSSTMasjidID = *r.ClassScheduleRuleCSSTMasjidID
+	if r.ClassScheduleRuleCSSTSchoolID != nil {
+		m.ClassScheduleRuleCSSTSchoolID = *r.ClassScheduleRuleCSSTSchoolID
 	}
 	return nil
 }
@@ -221,7 +219,7 @@ type ListClassScheduleRuleQuery struct {
 type ClassScheduleRuleResponse struct {
 	ClassScheduleRuleID uuid.UUID `json:"class_schedule_rule_id"`
 
-	ClassScheduleRuleMasjidID   uuid.UUID `json:"class_schedule_rule_masjid_id"`
+	ClassScheduleRuleSchoolID   uuid.UUID `json:"class_schedule_rule_school_id"`
 	ClassScheduleRuleScheduleID uuid.UUID `json:"class_schedule_rule_schedule_id"`
 
 	ClassScheduleRuleDayOfWeek int    `json:"class_schedule_rule_day_of_week"`
@@ -237,7 +235,7 @@ type ClassScheduleRuleResponse struct {
 
 	// CSST (idempotent dengan DB)
 	ClassScheduleRuleCSSTID       uuid.UUID `json:"class_schedule_rule_csst_id"`
-	ClassScheduleRuleCSSTMasjidID uuid.UUID `json:"class_schedule_rule_csst_masjid_id"`
+	ClassScheduleRuleCSSTSchoolID uuid.UUID `json:"class_schedule_rule_csst_school_id"`
 
 	// Snapshot minimal (raw) + generated columns (flatten) biar UI tanpa join
 	ClassScheduleRuleCSSTSnapshot       map[string]any `json:"class_schedule_rule_csst_snapshot,omitempty"`
@@ -270,7 +268,7 @@ func FromRuleModel(m model.ClassScheduleRuleModel) ClassScheduleRuleResponse {
 	return ClassScheduleRuleResponse{
 		ClassScheduleRuleID: m.ClassScheduleRuleID,
 
-		ClassScheduleRuleMasjidID:   m.ClassScheduleRuleMasjidID,
+		ClassScheduleRuleSchoolID:   m.ClassScheduleRuleSchoolID,
 		ClassScheduleRuleScheduleID: m.ClassScheduleRuleScheduleID,
 
 		ClassScheduleRuleDayOfWeek: m.ClassScheduleRuleDayOfWeek,
@@ -285,7 +283,7 @@ func FromRuleModel(m model.ClassScheduleRuleModel) ClassScheduleRuleResponse {
 		ClassScheduleRuleLastWeekOfMonth: m.ClassScheduleRuleLastWeekOfMonth,
 
 		ClassScheduleRuleCSSTID:       m.ClassScheduleRuleCSSTID,
-		ClassScheduleRuleCSSTMasjidID: m.ClassScheduleRuleCSSTMasjidID,
+		ClassScheduleRuleCSSTSchoolID: m.ClassScheduleRuleCSSTSchoolID,
 
 		ClassScheduleRuleCSSTSnapshot:       snap,
 		ClassScheduleRuleCSSTTeacherID:      m.ClassScheduleRuleCSSTTeacherID,

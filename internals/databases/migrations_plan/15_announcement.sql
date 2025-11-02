@@ -10,7 +10,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;   -- trigram index untuk pencarian
 DROP TABLE IF EXISTS announcements CASCADE;
 CREATE TABLE IF NOT EXISTS announcements (
   announcement_id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  announcement_masjid_id          UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  announcement_school_id          UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- authoring
   announcement_created_by_teacher_id UUID,
@@ -102,38 +102,38 @@ CREATE TABLE IF NOT EXISTS announcements (
 
 -- Slug unik per tenant (live rows)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_announcements_slug_per_tenant_live
-  ON announcements (announcement_masjid_id, lower(announcement_slug))
+  ON announcements (announcement_school_id, lower(announcement_slug))
   WHERE announcement_slug IS NOT NULL AND announcement_deleted_at IS NULL;
 
 -- Status & active
 CREATE INDEX IF NOT EXISTS ix_announcements_status_live
-  ON announcements (announcement_masjid_id, announcement_status)
+  ON announcements (announcement_school_id, announcement_status)
   WHERE announcement_deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS ix_announcements_active_live
-  ON announcements (announcement_masjid_id, announcement_is_active)
+  ON announcements (announcement_school_id, announcement_is_active)
   WHERE announcement_deleted_at IS NULL;
 
 -- Publish & expire window
 CREATE INDEX IF NOT EXISTS ix_announcements_publish_at_live
-  ON announcements (announcement_masjid_id, announcement_publish_at)
+  ON announcements (announcement_school_id, announcement_publish_at)
   WHERE announcement_deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS ix_announcements_expire_at_live
-  ON announcements (announcement_masjid_id, announcement_expire_at)
+  ON announcements (announcement_school_id, announcement_expire_at)
   WHERE announcement_deleted_at IS NULL;
 
 -- Pin & priority
 CREATE INDEX IF NOT EXISTS ix_announcements_pinned_live
-  ON announcements (announcement_masjid_id, announcement_is_pinned, announcement_priority NULLS LAST, announcement_pin_until)
+  ON announcements (announcement_school_id, announcement_is_pinned, announcement_priority NULLS LAST, announcement_pin_until)
   WHERE announcement_deleted_at IS NULL;
 
 -- Multichannel flags (untuk filter cepat)
 CREATE INDEX IF NOT EXISTS ix_announcements_channels_live
-  ON announcements (announcement_masjid_id, announcement_via_web, announcement_via_push, announcement_via_email, announcement_via_sms, announcement_via_whatsapp)
+  ON announcements (announcement_school_id, announcement_via_web, announcement_via_push, announcement_via_email, announcement_via_sms, announcement_via_whatsapp)
   WHERE announcement_deleted_at IS NULL;
 
 -- Moderation status
 CREATE INDEX IF NOT EXISTS ix_announcements_moderation_live
-  ON announcements (announcement_masjid_id, announcement_moderation_status)
+  ON announcements (announcement_school_id, announcement_moderation_status)
   WHERE announcement_deleted_at IS NULL;
 
 -- FTS
@@ -152,7 +152,7 @@ BEGIN;
 DROP TABLE IF EXISTS announcement_themes CASCADE;
 CREATE TABLE IF NOT EXISTS announcement_themes (
   announcement_themes_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  announcement_themes_masjid_id  UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  announcement_themes_school_id  UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- basic
   announcement_themes_name        VARCHAR(80)  NOT NULL,
@@ -185,16 +185,16 @@ CREATE TABLE IF NOT EXISTS announcement_themes (
 
 -- Unik per tenant (by name & slug)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_announcement_themes_tenant_name_live
-  ON announcement_themes (announcement_themes_masjid_id, lower(announcement_themes_name))
+  ON announcement_themes (announcement_themes_school_id, lower(announcement_themes_name))
   WHERE announcement_themes_deleted_at IS NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_announcement_themes_tenant_slug_live
-  ON announcement_themes (announcement_themes_masjid_id, announcement_themes_slug)
+  ON announcement_themes (announcement_themes_school_id, announcement_themes_slug)
   WHERE announcement_themes_deleted_at IS NULL;
 
 -- Aktif per tenant
 CREATE INDEX IF NOT EXISTS ix_announcement_themes_tenant_active_live
-  ON announcement_themes (announcement_themes_masjid_id, announcement_themes_is_active)
+  ON announcement_themes (announcement_themes_school_id, announcement_themes_is_active)
   WHERE announcement_themes_deleted_at IS NULL;
 
 -- Fuzzy search name
@@ -217,15 +217,15 @@ DROP TABLE IF EXISTS announcement_reads CASCADE;
 CREATE TABLE IF NOT EXISTS announcement_reads (
   announcement_reads_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  announcement_reads_masjid_id   UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  announcement_reads_school_id   UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   announcement_reads_announcement_id UUID NOT NULL
     REFERENCES announcements(announcement_id) ON DELETE CASCADE,
 
   -- siapa yang membaca (user, student, atau guardian — pilih salah satu; isi salah satunya saja)
   announcement_reads_user_id           UUID,
-  announcement_reads_masjid_student_id UUID,
+  announcement_reads_school_student_id UUID,
   announcement_reads_guardian_id       UUID,
 
   announcement_reads_first_read_at TIMESTAMPTZ,
@@ -246,7 +246,7 @@ CREATE TABLE IF NOT EXISTS announcement_reads (
   -- minimal satu identitas pembaca diisi
   CONSTRAINT chk_ann_reads_identity_present CHECK (
     (announcement_reads_user_id IS NOT NULL)::int
-    + (announcement_reads_masjid_student_id IS NOT NULL)::int
+    + (announcement_reads_school_student_id IS NOT NULL)::int
     + (announcement_reads_guardian_id IS NOT NULL)::int >= 1
   )
 );
@@ -254,21 +254,21 @@ CREATE TABLE IF NOT EXISTS announcement_reads (
 -- Satu baris aktif per (tenant, announcement, identity) — soft-delete aware
 CREATE UNIQUE INDEX IF NOT EXISTS uq_ann_reads_unique_alive
   ON announcement_reads (
-    announcement_reads_masjid_id,
+    announcement_reads_school_id,
     announcement_reads_announcement_id,
     COALESCE(announcement_reads_user_id,            '00000000-0000-0000-0000-000000000000'::uuid),
-    COALESCE(announcement_reads_masjid_student_id,  '00000000-0000-0000-0000-000000000000'::uuid),
+    COALESCE(announcement_reads_school_student_id,  '00000000-0000-0000-0000-000000000000'::uuid),
     COALESCE(announcement_reads_guardian_id,        '00000000-0000-0000-0000-000000000000'::uuid)
   )
   WHERE announcement_reads_deleted_at IS NULL;
 
 -- Lookups umum
 CREATE INDEX IF NOT EXISTS ix_ann_reads_by_announcement
-  ON announcement_reads (announcement_reads_masjid_id, announcement_reads_announcement_id)
+  ON announcement_reads (announcement_reads_school_id, announcement_reads_announcement_id)
   WHERE announcement_reads_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_ann_reads_by_user
-  ON announcement_reads (announcement_reads_masjid_id, announcement_reads_user_id)
+  ON announcement_reads (announcement_reads_school_id, announcement_reads_user_id)
   WHERE announcement_reads_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_ann_reads_first_last
@@ -296,15 +296,15 @@ DROP TABLE IF EXISTS announcement_comments CASCADE;
 CREATE TABLE IF NOT EXISTS announcement_comments (
   announcement_comments_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  announcement_comments_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  announcement_comments_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   announcement_comments_announcement_id UUID NOT NULL
     REFERENCES announcements(announcement_id) ON DELETE CASCADE,
 
   -- siapa yang komentar (boleh user/student/guardian — salah satu minimal)
   announcement_comments_user_id           UUID,
-  announcement_comments_masjid_student_id UUID,
+  announcement_comments_school_student_id UUID,
   announcement_comments_guardian_id       UUID,
 
   -- threading sederhana
@@ -329,7 +329,7 @@ CREATE TABLE IF NOT EXISTS announcement_comments (
   -- Guards
   CONSTRAINT chk_ann_comments_identity_present CHECK (
     (announcement_comments_user_id IS NOT NULL)::int
-    + (announcement_comments_masjid_student_id IS NOT NULL)::int
+    + (announcement_comments_school_student_id IS NOT NULL)::int
     + (announcement_comments_guardian_id IS NOT NULL)::int >= 1
   ),
   CONSTRAINT chk_ann_comments_moderation CHECK (
@@ -343,11 +343,11 @@ CREATE TABLE IF NOT EXISTS announcement_comments (
 
 -- Indeks umum
 CREATE INDEX IF NOT EXISTS ix_ann_comments_by_announcement
-  ON announcement_comments (announcement_comments_masjid_id, announcement_comments_announcement_id, announcement_comments_created_at)
+  ON announcement_comments (announcement_comments_school_id, announcement_comments_announcement_id, announcement_comments_created_at)
   WHERE announcement_comments_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_ann_comments_by_user
-  ON announcement_comments (announcement_comments_masjid_id, announcement_comments_user_id, announcement_comments_created_at)
+  ON announcement_comments (announcement_comments_school_id, announcement_comments_user_id, announcement_comments_created_at)
   WHERE announcement_comments_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_ann_comments_parent

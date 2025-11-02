@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	m "masjidku_backend/internals/features/school/classes/class_events/model"
+	m "schoolku_backend/internals/features/school/classes/class_events/model"
 )
 
 /* =========================================================
@@ -79,7 +79,7 @@ var (
 	ErrKindEmpty = errors.New("class_event_url_kind cannot be empty")
 )
 
-func (r CreateClassEventURLRequest) ToModel(masjidID uuid.UUID) (m.ClassEventURLModel, error) {
+func (r CreateClassEventURLRequest) ToModel(schoolID uuid.UUID) (m.ClassEventURLModel, error) {
 	kind := strings.TrimSpace(r.ClassEventURLKind)
 	if kind == "" {
 		return m.ClassEventURLModel{}, ErrKindEmpty
@@ -91,7 +91,7 @@ func (r CreateClassEventURLRequest) ToModel(masjidID uuid.UUID) (m.ClassEventURL
 	}
 
 	model := m.ClassEventURLModel{
-		ClassEventURLMasjidID:           masjidID,
+		ClassEventURLSchoolID:           schoolID,
 		ClassEventURLEventID:            r.ClassEventURLEventID,
 		ClassEventURLKind:               kind,
 		ClassEventURLLabel:              trimPtr(r.ClassEventURLLabel),
@@ -244,7 +244,7 @@ func (q *ListClassEventURLQuery) Normalize() {
 
 type ClassEventURLResponse struct {
 	ClassEventURLID       uuid.UUID `json:"class_event_url_id"`
-	ClassEventURLMasjidID uuid.UUID `json:"class_event_url_masjid_id"`
+	ClassEventURLSchoolID uuid.UUID `json:"class_event_url_school_id"`
 	ClassEventURLEventID  uuid.UUID `json:"class_event_url_event_id"`
 
 	ClassEventURLKind  string  `json:"class_event_url_kind"`
@@ -284,7 +284,7 @@ func FromModelClassEventURL(u m.ClassEventURLModel) ClassEventURLResponse {
 	}
 	return ClassEventURLResponse{
 		ClassEventURLID:                 u.ClassEventURLID,
-		ClassEventURLMasjidID:           u.ClassEventURLMasjidID,
+		ClassEventURLSchoolID:           u.ClassEventURLSchoolID,
 		ClassEventURLEventID:            u.ClassEventURLEventID,
 		ClassEventURLKind:               u.ClassEventURLKind,
 		ClassEventURLLabel:              u.ClassEventURLLabel,

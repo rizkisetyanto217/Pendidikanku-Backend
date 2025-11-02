@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	m "masjidku_backend/internals/features/school/classes/class_events/model"
+	m "schoolku_backend/internals/features/school/classes/class_events/model"
 )
 
 /* =========================================================
@@ -165,7 +165,7 @@ var (
 	ErrEmptyTitle       = errors.New("class_event_title cannot be empty")
 )
 
-func (r CreateClassEventRequest) ToModel(masjidID uuid.UUID) (m.ClassEventModel, error) {
+func (r CreateClassEventRequest) ToModel(schoolID uuid.UUID) (m.ClassEventModel, error) {
 	if strings.TrimSpace(r.ClassEventTitle) == "" {
 		return m.ClassEventModel{}, ErrEmptyTitle
 	}
@@ -231,7 +231,7 @@ func (r CreateClassEventRequest) ToModel(masjidID uuid.UUID) (m.ClassEventModel,
 	}
 
 	return m.ClassEventModel{
-		ClassEventMasjidID:         masjidID,
+		ClassEventSchoolID:         schoolID,
 		ClassEventThemeID:          r.ClassEventThemeID,
 		ClassEventScheduleID:       r.ClassEventScheduleID,
 		ClassEventSectionID:        r.ClassEventSectionID,
@@ -548,7 +548,7 @@ func (q *ListClassEventsQuery) Normalize() {
 
 type ClassEventResponse struct {
 	ClassEventID       uuid.UUID `json:"class_event_id"`
-	ClassEventMasjidID uuid.UUID `json:"class_event_masjid_id"`
+	ClassEventSchoolID uuid.UUID `json:"class_event_school_id"`
 
 	ClassEventThemeID    *uuid.UUID `json:"class_event_theme_id,omitempty"`
 	ClassEventScheduleID *uuid.UUID `json:"class_event_schedule_id,omitempty"`
@@ -626,7 +626,7 @@ func FromModelClassEvent(ev m.ClassEventModel) ClassEventResponse {
 
 	return ClassEventResponse{
 		ClassEventID:               ev.ClassEventID,
-		ClassEventMasjidID:         ev.ClassEventMasjidID,
+		ClassEventSchoolID:         ev.ClassEventSchoolID,
 		ClassEventThemeID:          ev.ClassEventThemeID,
 		ClassEventScheduleID:       ev.ClassEventScheduleID,
 		ClassEventSectionID:        ev.ClassEventSectionID,

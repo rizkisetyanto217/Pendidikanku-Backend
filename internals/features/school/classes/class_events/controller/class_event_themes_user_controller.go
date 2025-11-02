@@ -7,16 +7,16 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	dto "masjidku_backend/internals/features/school/classes/class_events/dto"
-	model "masjidku_backend/internals/features/school/classes/class_events/model"
-	helper "masjidku_backend/internals/helpers"
+	dto "schoolku_backend/internals/features/school/classes/class_events/dto"
+	model "schoolku_backend/internals/features/school/classes/class_events/model"
+	helper "schoolku_backend/internals/helpers"
 )
 
 /*
 =========================================================
 
 	LIST
-	GET /api/a/:masjid_id/events/themes
+	GET /api/a/:school_id/events/themes
 	Query:
 	- q
 	- is_active (true|false)
@@ -28,7 +28,7 @@ import (
 =========================================================
 */
 func (ctl *ClassEventThemeController) List(c *fiber.Ctx) error {
-	masjidID, err := ctl.resolveMasjidAndEnsureDKM(c)
+	schoolID, err := ctl.resolveSchoolAndEnsureDKM(c)
 	if err != nil {
 		return nil // response sudah dikirim oleh resolver
 	}
@@ -68,7 +68,7 @@ func (ctl *ClassEventThemeController) List(c *fiber.Ctx) error {
 	// --- query ---
 	tx := ctl.DB.
 		Model(&model.ClassEventThemeModel{}).
-		Where("class_event_theme_masjid_id = ? AND class_event_theme_deleted_at IS NULL", masjidID)
+		Where("class_event_theme_school_id = ? AND class_event_theme_deleted_at IS NULL", schoolID)
 
 	if isActive != nil {
 		tx = tx.Where("class_event_theme_is_active = ?", *isActive)

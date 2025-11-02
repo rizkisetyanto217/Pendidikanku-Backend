@@ -15,11 +15,11 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	dto "masjidku_backend/internals/features/school/academics/books/dto"
-	model "masjidku_backend/internals/features/school/academics/books/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
-	helperOSS "masjidku_backend/internals/helpers/oss"
+	dto "schoolku_backend/internals/features/school/academics/books/dto"
+	model "schoolku_backend/internals/features/school/academics/books/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
+	helperOSS "schoolku_backend/internals/helpers/oss"
 )
 
 type BooksController struct {
@@ -124,17 +124,17 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 	p.Normalize()
 	log.Printf("[BOOKS][CREATE] Parsed: title=%q author=%q slug=%v", p.BookTitle, derefStr(p.BookAuthor), p.BookSlug)
 
-	// 2) Masjid context + guard
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// 2) School context + guard
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
-	p.BookMasjidID = masjidID
-	log.Printf("[BOOKS][CREATE] masjid_id=%s", masjidID)
+	p.BookSchoolID = schoolID
+	log.Printf("[BOOKS][CREATE] school_id=%s", schoolID)
 
 	// 3) Slug unik
 	baseSlug := ""
@@ -147,7 +147,7 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 		}
 	}
 	scope := func(q *gorm.DB) *gorm.DB {
-		return q.Where("book_masjid_id = ? AND book_deleted_at IS NULL", masjidID)
+		return q.Where("book_school_id = ? AND book_deleted_at IS NULL", schoolID)
 	}
 	uniqueSlug, err := helper.EnsureUniqueSlugCI(c.Context(), h.DB, "books", "book_slug", baseSlug, scope, 160)
 	if err != nil {
@@ -157,12 +157,12 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 
 	// 4) Create entity
 	ent := p.ToModel() // *model.BookModel
-	ent.BookMasjidID = masjidID
+	ent.BookSchoolID = schoolID
 	ent.BookSlug = &uniqueSlug
 	if err := h.DB.Create(ent).Error; err != nil {
 		msg := strings.ToLower(err.Error())
-		if strings.Contains(msg, "uq_books_slug_per_masjid_alive") {
-			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
+		if strings.Contains(msg, "uq_books_slug_per_school_alive") {
+			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di school ini")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan buku")
 	}
@@ -175,7 +175,7 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 
 		if fh := pickImageFile(c, "image", "file", "cover"); fh != nil {
 			log.Printf("[BOOKS][CREATE] will upload file: name=%q size=%d", fh.Filename, fh.Size)
-			keyPrefix := fmt.Sprintf("masjids/%s/library/books", masjidID.String())
+			keyPrefix := fmt.Sprintf("schools/%s/library/books", schoolID.String())
 			if svc, er := helperOSS.NewOSSServiceFromEnv(""); er != nil {
 				log.Printf("[BOOKS][CREATE] OSS init error: %T %v", er, er)
 			} else {
@@ -242,7 +242,7 @@ func derefStr(p *string) string {
 	return *p
 }
 
-// PATCH /api/a/:masjid_id/books/:id
+// PATCH /api/a/:school_id/books/:id
 func (h *BooksController) Patch(c *fiber.Ctx) error {
 	// inject DB utk helper
 	if c.Locals("DB") == nil {
@@ -250,11 +250,11 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 	}
 
 	// --- Tenant guard ---
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -286,7 +286,7 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil buku")
 	}
-	if m.BookMasjidID != masjidID {
+	if m.BookSchoolID != schoolID {
 		_ = tx.Rollback().Error
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
@@ -328,7 +328,7 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 		}
 		scope := func(q *gorm.DB) *gorm.DB {
 			// EXCLUDE diri sendiri saat cek unik
-			return q.Where("book_masjid_id = ? AND book_deleted_at IS NULL AND book_id <> ?", masjidID, bookID)
+			return q.Where("book_school_id = ? AND book_deleted_at IS NULL AND book_id <> ?", schoolID, bookID)
 		}
 		uniq, err := helper.EnsureUniqueSlugCI(c.Context(), tx, "books", "book_slug", base, scope, 160)
 		if err != nil {
@@ -342,7 +342,7 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 	if p.BookSlug != nil && (m.BookSlug == nil || *p.BookSlug != *m.BookSlug) {
 		base := helper.Slugify(*p.BookSlug, 160)
 		scope := func(q *gorm.DB) *gorm.DB {
-			return q.Where("book_masjid_id = ? AND book_deleted_at IS NULL AND book_id <> ?", masjidID, bookID)
+			return q.Where("book_school_id = ? AND book_deleted_at IS NULL AND book_id <> ?", schoolID, bookID)
 		}
 		uniq, err := helper.EnsureUniqueSlugCI(c.Context(), tx, "books", "book_slug", base, scope, 160)
 		if err != nil {
@@ -358,7 +358,7 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 	// --- Upload cover (opsional, multipart) ---
 	if isMultipart {
 		if fh := pickImageFile(c, "image", "file", "cover"); fh != nil {
-			keyPrefix := fmt.Sprintf("masjids/%s/library/books", masjidID.String())
+			keyPrefix := fmt.Sprintf("schools/%s/library/books", schoolID.String())
 			if svc, er := helperOSS.NewOSSServiceFromEnv(""); er == nil {
 				ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
 				defer cancel()
@@ -380,8 +380,8 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 	if err := tx.Save(&m).Error; err != nil {
 		_ = tx.Rollback().Error
 		msg := strings.ToLower(err.Error())
-		if strings.Contains(msg, "uq_books_slug_per_masjid_alive") {
-			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
+		if strings.Contains(msg, "uq_books_slug_per_school_alive") {
+			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di school ini")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan perubahan buku")
 	}
@@ -407,10 +407,10 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 
 	if err := tx.Model(&model.ClassSubjectBookModel{}).
 		Where(`
-			class_subject_book_masjid_id = ?
+			class_subject_book_school_id = ?
 			AND class_subject_book_book_id = ?
 			AND class_subject_book_deleted_at IS NULL
-		`, masjidID, m.BookID).
+		`, schoolID, m.BookID).
 		Updates(upd).Error; err != nil {
 		_ = tx.Rollback().Error
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal sinkron snapshot pemakaian buku")
@@ -430,7 +430,7 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 /*
 =========================================================
 
-	DELETE (soft) - /api/a/:masjid_id/book-urls/:id
+	DELETE (soft) - /api/a/:school_id/book-urls/:id
 
 =========================================================
 */
@@ -438,11 +438,11 @@ func (h *BooksController) Delete(c *fiber.Ctx) error {
 	if c.Locals("DB") == nil {
 		c.Locals("DB", h.DB)
 	}
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		return err
 	}
@@ -460,7 +460,7 @@ func (h *BooksController) Delete(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data URL")
 	}
-	if u.BookURLMasjidID != masjidID {
+	if u.BookURLSchoolID != schoolID {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
 	}
 

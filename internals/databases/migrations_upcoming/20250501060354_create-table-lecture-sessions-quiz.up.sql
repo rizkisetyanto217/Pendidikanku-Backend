@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS lecture_sessions_quiz (
   lecture_sessions_quiz_lecture_session_id UUID NOT NULL
     REFERENCES lecture_sessions(lecture_session_id) ON DELETE CASCADE,
 
-  lecture_sessions_quiz_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  lecture_sessions_quiz_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   lecture_sessions_quiz_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   lecture_sessions_quiz_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -44,8 +44,8 @@ CREATE INDEX IF NOT EXISTS idx_lsquiz_session_created_desc
   ON lecture_sessions_quiz (lecture_sessions_quiz_lecture_session_id, lecture_sessions_quiz_created_at DESC)
   WHERE lecture_sessions_quiz_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_lsquiz_masjid_created_desc
-  ON lecture_sessions_quiz (lecture_sessions_quiz_masjid_id, lecture_sessions_quiz_created_at DESC)
+CREATE INDEX IF NOT EXISTS idx_lsquiz_school_created_desc
+  ON lecture_sessions_quiz (lecture_sessions_quiz_school_id, lecture_sessions_quiz_created_at DESC)
   WHERE lecture_sessions_quiz_deleted_at IS NULL;
 
 -- Full-Text Search (judul + deskripsi)
@@ -84,8 +84,8 @@ CREATE TABLE IF NOT EXISTS user_lecture_sessions_quiz (
     REFERENCES lecture_sessions(lecture_session_id) ON DELETE CASCADE,
   user_lecture_sessions_quiz_duration_seconds INT,
 
-  user_lecture_sessions_quiz_masjid_id       UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  user_lecture_sessions_quiz_school_id       UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   user_lecture_sessions_quiz_created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_lecture_sessions_quiz_updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -121,6 +121,6 @@ CREATE INDEX IF NOT EXISTS idx_ulsq_user_created_desc
   ON user_lecture_sessions_quiz (user_lecture_sessions_quiz_user_id, user_lecture_sessions_quiz_created_at DESC)
   WHERE user_lecture_sessions_quiz_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_ulsq_masjid_created_desc
-  ON user_lecture_sessions_quiz (user_lecture_sessions_quiz_masjid_id, user_lecture_sessions_quiz_created_at DESC)
+CREATE INDEX IF NOT EXISTS idx_ulsq_school_created_desc
+  ON user_lecture_sessions_quiz (user_lecture_sessions_quiz_school_id, user_lecture_sessions_quiz_created_at DESC)
   WHERE user_lecture_sessions_quiz_deleted_at IS NULL;

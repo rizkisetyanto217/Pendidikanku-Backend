@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	sessModel "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
-	model "masjidku_backend/internals/features/school/classes/class_schedules/model"
+	sessModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
+	model "schoolku_backend/internals/features/school/classes/class_schedules/model"
 )
 
 /* =========================================================
@@ -112,9 +112,9 @@ type CreateClassAttendanceSessionLite struct {
 	// opsional metadata (pakai yang ada di model session)
 	ClassRoomID *uuid.UUID `json:"class_room_id,omitempty" validate:"omitempty"`
 
-	// CSST efektif untuk sesi (WAJIB di DB); kalau masjid_id tidak diisi, fallback ke masjidID schedule
+	// CSST efektif untuk sesi (WAJIB di DB); kalau school_id tidak diisi, fallback ke schoolID schedule
 	CSSTID       *uuid.UUID `json:"csst_id,omitempty"         validate:"omitempty,uuid"`
-	CSSTMasjidID *uuid.UUID `json:"csst_masjid_id,omitempty"  validate:"omitempty,uuid"`
+	CSSTSchoolID *uuid.UUID `json:"csst_school_id,omitempty"  validate:"omitempty,uuid"`
 
 	// opsional metadata
 	TeacherID *uuid.UUID `json:"teacher_id,omitempty" validate:"omitempty,uuid"`
@@ -125,9 +125,9 @@ type CreateClassAttendanceSessionLite struct {
 	Notes  *string `json:"notes,omitempty"  validate:"omitempty,max=500"`
 }
 
-// Mapper: sessions → models (butuh masjid & schedule id)
+// Mapper: sessions → models (butuh school & schedule id)
 func (r CreateClassScheduleRequest) SessionsToModels(
-	masjidID, scheduleID uuid.UUID,
+	schoolID, scheduleID uuid.UUID,
 	schedStart, schedEnd time.Time,
 ) ([]sessModel.ClassAttendanceSessionModel, error) {
 	if len(r.Sessions) == 0 {
@@ -135,7 +135,7 @@ func (r CreateClassScheduleRequest) SessionsToModels(
 	}
 	out := make([]sessModel.ClassAttendanceSessionModel, 0, len(r.Sessions))
 
-	// TODO: ambil TZ dari profil masjid kalau ada
+	// TODO: ambil TZ dari profil school kalau ada
 	const tzName = "Asia/Jakarta"
 
 	for i, s := range r.Sessions {
@@ -182,10 +182,10 @@ func (r CreateClassScheduleRequest) SessionsToModels(
 		if s.CSSTID == nil {
 			return nil, fmt.Errorf("sessions[%d]: csst_id wajib", i)
 		}
-		// Komposit FK kita pakai (csst_id, session_masjid_id)
-		// Jika request menyertakan CSSTMasjidID dan berbeda → tolak
-		if s.CSSTMasjidID != nil && *s.CSSTMasjidID != masjidID {
-			return nil, fmt.Errorf("sessions[%d]: csst_masjid_id != session_masjid_id", i)
+		// Komposit FK kita pakai (csst_id, session_school_id)
+		// Jika request menyertakan CSSTSchoolID dan berbeda → tolak
+		if s.CSSTSchoolID != nil && *s.CSSTSchoolID != schoolID {
+			return nil, fmt.Errorf("sessions[%d]: csst_school_id != session_school_id", i)
 		}
 
 		// --- PENTING: set DATE lokal dari startLocal ---
@@ -193,7 +193,7 @@ func (r CreateClassScheduleRequest) SessionsToModels(
 		dateUTC := toUTCDateFromLocal(dateLocal)        // simpan DATE sebagai midnight UTC
 
 		m := sessModel.ClassAttendanceSessionModel{
-			ClassAttendanceSessionMasjidID:   masjidID,
+			ClassAttendanceSessionSchoolID:   schoolID,
 			ClassAttendanceSessionScheduleID: &scheduleID,
 
 			ClassAttendanceSessionDate:     dateUTC,   // DATE (midnight UTC)
@@ -221,7 +221,7 @@ func (r CreateClassScheduleRequest) SessionsToModels(
    1) REQUESTS (singular)
    ========================================================= */
 
-// Create: masjid_id dipaksa dari controller (parameter ToModel).
+// Create: school_id dipaksa dari controller (parameter ToModel).
 // Mendukung pengiriman RULES & SESSIONS langsung.
 type CreateClassScheduleRequest struct {
 	// optional slug
@@ -262,10 +262,10 @@ type CreateClassScheduleRuleLite struct {
 
 	// CSST wajib untuk rule
 	CSSTID       uuid.UUID `json:"csst_id"        validate:"required,uuid"`
-	CSSTMasjidID uuid.UUID `json:"csst_masjid_id" validate:"required,uuid"`
+	CSSTSchoolID uuid.UUID `json:"csst_school_id" validate:"required,uuid"`
 }
 
-func (r CreateClassScheduleRequest) ToModel(masjidID uuid.UUID) model.ClassScheduleModel {
+func (r CreateClassScheduleRequest) ToModel(schoolID uuid.UUID) model.ClassScheduleModel {
 	start, _ := parseDateYYYYMMDD(r.ClassScheduleStartDate)
 	end, _ := parseDateYYYYMMDD(r.ClassScheduleEndDate)
 
@@ -289,7 +289,7 @@ func (r CreateClassScheduleRequest) ToModel(masjidID uuid.UUID) model.ClassSched
 	}
 
 	return model.ClassScheduleModel{
-		ClassScheduleMasjidID:  masjidID,
+		ClassScheduleSchoolID:  schoolID,
 		ClassScheduleSlug:      trimPtr(r.ClassScheduleSlug),
 		ClassScheduleStartDate: start,
 		ClassScheduleEndDate:   end,
@@ -298,8 +298,8 @@ func (r CreateClassScheduleRequest) ToModel(masjidID uuid.UUID) model.ClassSched
 	}
 }
 
-// Konversi Rules lite di body menjadi models lengkap (butuh masjidID & scheduleID)
-func (r CreateClassScheduleRequest) RulesToModels(masjidID, scheduleID uuid.UUID) ([]model.ClassScheduleRuleModel, error) {
+// Konversi Rules lite di body menjadi models lengkap (butuh schoolID & scheduleID)
+func (r CreateClassScheduleRequest) RulesToModels(schoolID, scheduleID uuid.UUID) ([]model.ClassScheduleRuleModel, error) {
 	if len(r.Rules) == 0 {
 		return nil, nil
 	}
@@ -322,9 +322,9 @@ func (r CreateClassScheduleRequest) RulesToModels(masjidID, scheduleID uuid.UUID
 
 			// CSST wajib
 			ClassScheduleRuleCSSTID:       it.CSSTID,
-			ClassScheduleRuleCSSTMasjidID: it.CSSTMasjidID,
+			ClassScheduleRuleCSSTSchoolID: it.CSSTSchoolID,
 		}
-		m, err := cr.ToModel(masjidID)
+		m, err := cr.ToModel(schoolID)
 		if err != nil {
 			return nil, err
 		}
@@ -403,7 +403,7 @@ type ListClassScheduleQuery struct {
 
 type ClassScheduleResponse struct {
 	ClassScheduleID       uuid.UUID `json:"class_schedule_id"`
-	ClassScheduleMasjidID uuid.UUID `json:"class_schedule_masjid_id"`
+	ClassScheduleSchoolID uuid.UUID `json:"class_schedule_school_id"`
 
 	ClassScheduleSlug      *string   `json:"class_schedule_slug,omitempty"`
 	ClassScheduleStartDate time.Time `json:"class_schedule_start_date"`
@@ -440,7 +440,7 @@ func FromModel(m model.ClassScheduleModel) ClassScheduleResponse {
 
 	return ClassScheduleResponse{
 		ClassScheduleID:       m.ClassScheduleID,
-		ClassScheduleMasjidID: m.ClassScheduleMasjidID,
+		ClassScheduleSchoolID: m.ClassScheduleSchoolID,
 
 		ClassScheduleSlug:      m.ClassScheduleSlug,
 		ClassScheduleStartDate: m.ClassScheduleStartDate,

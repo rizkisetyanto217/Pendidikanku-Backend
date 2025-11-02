@@ -17,14 +17,14 @@ import (
 	"gorm.io/gorm/clause"
 
 	// Services & helpers
-	"masjidku_backend/internals/features/lembaga/stats/lembaga_stats/service"
-	academicTermsSnapshot "masjidku_backend/internals/features/school/academics/academic_terms/snapshot"
-	dto "masjidku_backend/internals/features/school/classes/classes/dto"
-	classmodel "masjidku_backend/internals/features/school/classes/classes/model"
-	classParentSnapshot "masjidku_backend/internals/features/school/classes/classes/snapshot"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
-	helperOSS "masjidku_backend/internals/helpers/oss"
+	"schoolku_backend/internals/features/lembaga/stats/lembaga_stats/service"
+	academicTermsSnapshot "schoolku_backend/internals/features/school/academics/academic_terms/snapshot"
+	dto "schoolku_backend/internals/features/school/classes/classes/dto"
+	classmodel "schoolku_backend/internals/features/school/classes/classes/model"
+	classParentSnapshot "schoolku_backend/internals/features/school/classes/classes/snapshot"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
+	helperOSS "schoolku_backend/internals/helpers/oss"
 )
 
 /* ================= Controller & Constructor ================= */
@@ -65,7 +65,7 @@ func slugifySafe(s string, maxLen int) string {
 func buildClassBaseSlug(
 	ctx context.Context,
 	db *gorm.DB,
-	masjidID uuid.UUID,
+	schoolID uuid.UUID,
 	classParentID uuid.UUID,
 	academicTermID *uuid.UUID,
 	explicitBase string,
@@ -90,8 +90,8 @@ func buildClassBaseSlug(
 	if err := db.WithContext(ctx).
 		Table("class_parents").
 		Select("class_parent_slug, class_parent_name").
-		Where("class_parent_id = ? AND class_parent_masjid_id = ? AND class_parent_deleted_at IS NULL",
-			classParentID, masjidID).
+		Where("class_parent_id = ? AND class_parent_school_id = ? AND class_parent_deleted_at IS NULL",
+			classParentID, schoolID).
 		Take(&pr).Error; err != nil {
 		return "", fmt.Errorf("class_parent tidak ditemukan / db error: %w", err)
 	}
@@ -112,8 +112,8 @@ func buildClassBaseSlug(
 		if err := db.WithContext(ctx).
 			Table("academic_terms").
 			Select("academic_term_slug, academic_term_academic_year, academic_term_name").
-			Where("academic_term_id = ? AND academic_term_masjid_id = ? AND academic_term_deleted_at IS NULL",
-				*academicTermID, masjidID).
+			Where("academic_term_id = ? AND academic_term_school_id = ? AND academic_term_deleted_at IS NULL",
+				*academicTermID, schoolID).
 			Take(&tr).Error; err == nil {
 			if s := strings.TrimSpace(ptrToStr(tr.Slug)); s != "" {
 				termPart = helper.Slugify(s, maxLen)
@@ -154,36 +154,36 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	start := time.Now()
 	log.Printf("[CLASSES][CREATE] ▶️ incoming request")
 
-	/* ---- Resolve Masjid Context + Staff Guard ---- */
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	/* ---- Resolve School Context + Staff Guard ---- */
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		log.Printf("[CLASSES][CREATE] ❌ resolve masjid ctx error: %v", err)
+		log.Printf("[CLASSES][CREATE] ❌ resolve school ctx error: %v", err)
 		return err
 	}
-	var masjidID uuid.UUID
+	var schoolID uuid.UUID
 	switch {
 	case mc.ID != uuid.Nil:
-		masjidID = mc.ID
-		log.Printf("[CLASSES][CREATE] 🕌 masjid_id from ctx.ID=%s", masjidID)
+		schoolID = mc.ID
+		log.Printf("[CLASSES][CREATE] 🕌 school_id from ctx.ID=%s", schoolID)
 	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetMasjidIDBySlug(c, strings.TrimSpace(mc.Slug))
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
 		if er != nil {
-			log.Printf("[CLASSES][CREATE] ❌ masjid by slug(%s) not found: %v", mc.Slug, er)
-			return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			log.Printf("[CLASSES][CREATE] ❌ school by slug(%s) not found: %v", mc.Slug, er)
+			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
-		masjidID = id
-		log.Printf("[CLASSES][CREATE] 🕌 masjid_id from slug=%s → %s", mc.Slug, masjidID)
+		schoolID = id
+		log.Printf("[CLASSES][CREATE] 🕌 school_id from slug=%s → %s", mc.Slug, schoolID)
 	default:
-		id, er := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+		id, er := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
 		if er != nil || id == uuid.Nil {
-			log.Printf("[CLASSES][CREATE] ❌ masjid context not found via token: %v", er)
-			return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak ditemukan")
+			log.Printf("[CLASSES][CREATE] ❌ school context not found via token: %v", er)
+			return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak ditemukan")
 		}
-		masjidID = id
-		log.Printf("[CLASSES][CREATE] 🕌 masjid_id from token=%s", masjidID)
+		schoolID = id
+		log.Printf("[CLASSES][CREATE] 🕌 school_id from token=%s", schoolID)
 	}
-	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
-		log.Printf("[CLASSES][CREATE] ❌ ensure staff masjid failed: %v", err)
+	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
+		log.Printf("[CLASSES][CREATE] ❌ ensure staff school failed: %v", err)
 		return err
 	}
 
@@ -193,7 +193,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		log.Printf("[CLASSES][CREATE] ❌ body parse error: %v", err)
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
-	req.ClassMasjidID = masjidID
+	req.ClassSchoolID = schoolID
 	req.Normalize()
 	log.Printf("[CLASSES][CREATE] 📩 req: parent_id=%s term_id=%v delivery=%v status=%v slug_in='%s'",
 		req.ClassParentID, req.ClassTermID, req.ClassDeliveryMode, req.ClassStatus, req.ClassSlug)
@@ -227,9 +227,9 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		}
 	}()
 
-	/* ---- Slug komposit (parent + term) → CI-unique per masjid ---- */
+	/* ---- Slug komposit (parent + term) → CI-unique per school ---- */
 	baseSlug, err := buildClassBaseSlug(
-		c.Context(), tx, masjidID,
+		c.Context(), tx, schoolID,
 		m.ClassParentID,
 		m.ClassTermID, // boleh nil
 		"",            // paksa komposit
@@ -245,7 +245,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		"classes", "class_slug",
 		baseSlug,
 		func(q *gorm.DB) *gorm.DB {
-			return q.Where("class_masjid_id = ? AND class_deleted_at IS NULL", masjidID)
+			return q.Where("class_school_id = ? AND class_deleted_at IS NULL", schoolID)
 		},
 		160,
 	)
@@ -258,12 +258,12 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	log.Printf("[CLASSES][CREATE] ✅ unique_slug='%s'", m.ClassSlug)
 
 	/* ---- SNAPSHOT (parent + term) ---- */
-	if err := classParentSnapshot.HydrateClassParentSnapshot(c.Context(), tx, masjidID, m); err != nil {
+	if err := classParentSnapshot.HydrateClassParentSnapshot(c.Context(), tx, schoolID, m); err != nil {
 		_ = tx.Rollback().Error
 		log.Printf("[CLASSES][CREATE] ❌ parent snapshot error: %v", err)
 		return err
 	}
-	if err := academicTermsSnapshot.HydrateAcademicTermSnapshot(c.Context(), tx, masjidID, m); err != nil {
+	if err := academicTermsSnapshot.HydrateAcademicTermSnapshot(c.Context(), tx, schoolID, m); err != nil {
 		_ = tx.Rollback().Error
 		log.Printf("[CLASSES][CREATE] ❌ term snapshot error: %v", err)
 		return err
@@ -281,9 +281,9 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		_ = tx.Rollback().Error
 		low := strings.ToLower(err.Error())
 		log.Printf("[CLASSES][CREATE] ❌ insert error: %v", err)
-		if strings.Contains(low, "uq_classes_slug_per_masjid_alive") ||
+		if strings.Contains(low, "uq_classes_slug_per_school_alive") ||
 			(strings.Contains(low, "duplicate") && strings.Contains(low, "class_slug")) {
-			return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
+			return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di school ini")
 		}
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat data kelas")
 	}
@@ -298,7 +298,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 			ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
 			defer cancel()
 
-			keyPrefix := fmt.Sprintf("masjids/%s/classes", masjidID.String())
+			keyPrefix := fmt.Sprintf("schools/%s/classes", schoolID.String())
 			if url, upErr := svc.UploadAsWebP(ctx, fh, keyPrefix); upErr == nil {
 				uploadedURL = url
 
@@ -333,12 +333,12 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	if m.ClassStatus == classmodel.ClassStatusActive {
 		log.Printf("[CLASSES][CREATE] 📊 updating lembaga_stats (active +1)")
 		statsSvc := service.NewLembagaStatsService()
-		if err := statsSvc.EnsureForMasjid(tx, masjidID); err != nil {
+		if err := statsSvc.EnsureForSchool(tx, schoolID); err != nil {
 			_ = tx.Rollback().Error
 			log.Printf("[CLASSES][CREATE] ❌ ensure stats error: %v", err)
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal inisialisasi lembaga_stats: "+err.Error())
 		}
-		if err := statsSvc.IncActiveClasses(tx, masjidID, +1); err != nil {
+		if err := statsSvc.IncActiveClasses(tx, schoolID, +1); err != nil {
 			_ = tx.Rollback().Error
 			log.Printf("[CLASSES][CREATE] ❌ inc active classes error: %v", err)
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal update lembaga_stats: "+err.Error())
@@ -398,8 +398,8 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// ---- Guard staff pada masjid terkait ----
-	if err := helperAuth.EnsureStaffMasjid(c, existing.ClassMasjidID); err != nil {
+	// ---- Guard staff pada school terkait ----
+	if err := helperAuth.EnsureStaffSchool(c, existing.ClassSchoolID); err != nil {
 		_ = tx.Rollback().Error
 		return err
 	}
@@ -430,7 +430,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	parentChanged := (existing.ClassParentID != prevParentID)
 	termChanged := uuidPtrChanged(existing.ClassTermID, prevTermID)
 
-	// 1) Kalau user PATCH slug manual → hormati, tapi CI-unique per masjid.
+	// 1) Kalau user PATCH slug manual → hormati, tapi CI-unique per school.
 	if req.ClassSlug.Present && req.ClassSlug.Value != nil {
 		exp := slugifySafe(existing.ClassSlug, 160) // existing.ClassSlug sudah dari apply()
 		if exp == "" {
@@ -443,8 +443,8 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 			exp,
 			func(q *gorm.DB) *gorm.DB {
 				return q.Where(
-					"class_masjid_id = ? AND class_id <> ? AND class_deleted_at IS NULL",
-					existing.ClassMasjidID, existing.ClassID,
+					"class_school_id = ? AND class_id <> ? AND class_deleted_at IS NULL",
+					existing.ClassSchoolID, existing.ClassID,
 				)
 			},
 			160,
@@ -455,7 +455,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		}
 		if uniq != exp {
 			_ = tx.Rollback().Error
-			return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
+			return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di school ini")
 		}
 		existing.ClassSlug = uniq
 	} else {
@@ -463,7 +463,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		if parentChanged || termChanged {
 			baseSlug, gErr := buildClassBaseSlug(
 				c.Context(), tx,
-				existing.ClassMasjidID,
+				existing.ClassSchoolID,
 				existing.ClassParentID,
 				existing.ClassTermID,
 				"", // paksa komposit
@@ -479,8 +479,8 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 				baseSlug,
 				func(q *gorm.DB) *gorm.DB {
 					return q.Where(
-						"class_masjid_id = ? AND class_id <> ? AND class_deleted_at IS NULL",
-						existing.ClassMasjidID, existing.ClassID,
+						"class_school_id = ? AND class_id <> ? AND class_deleted_at IS NULL",
+						existing.ClassSchoolID, existing.ClassID,
 					)
 				},
 				160,
@@ -495,11 +495,11 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 
 	// ---- Refresh snapshot (parent + term) & class_name jika parent/term berubah ----
 	if parentChanged || termChanged {
-		if err := classParentSnapshot.HydrateClassParentSnapshot(c.Context(), tx, existing.ClassMasjidID, &existing); err != nil {
+		if err := classParentSnapshot.HydrateClassParentSnapshot(c.Context(), tx, existing.ClassSchoolID, &existing); err != nil {
 			_ = tx.Rollback().Error
 			return err
 		}
-		if err := academicTermsSnapshot.HydrateAcademicTermSnapshot(c.Context(), tx, existing.ClassMasjidID, &existing); err != nil {
+		if err := academicTermsSnapshot.HydrateAcademicTermSnapshot(c.Context(), tx, existing.ClassSchoolID, &existing); err != nil {
 			_ = tx.Rollback().Error
 			return err
 		}
@@ -519,9 +519,9 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		_ = tx.Rollback().Error
 		low := strings.ToLower(err.Error())
 		switch {
-		case strings.Contains(low, "uq_classes_slug_per_masjid_alive") ||
+		case strings.Contains(low, "uq_classes_slug_per_school_alive") ||
 			(strings.Contains(low, "duplicate") && strings.Contains(low, "class_slug")):
-			return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di masjid ini")
+			return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di school ini")
 		default:
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal memperbarui data")
 		}
@@ -537,7 +537,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 			ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)
 			defer cancel()
 
-			keyPrefix := fmt.Sprintf("masjids/%s/classes", existing.ClassMasjidID.String())
+			keyPrefix := fmt.Sprintf("schools/%s/classes", existing.ClassSchoolID.String())
 			if url, upErr := svc.UploadAsWebP(ctx, fh, keyPrefix); upErr == nil {
 				uploadedURL = url
 
@@ -607,7 +607,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	// ---- Update lembaga_stats jika transisi active berubah ----
 	if wasActive != newActive {
 		stats := service.NewLembagaStatsService()
-		if err := stats.EnsureForMasjid(tx, existing.ClassMasjidID); err != nil {
+		if err := stats.EnsureForSchool(tx, existing.ClassSchoolID); err != nil {
 			_ = tx.Rollback().Error
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal inisialisasi lembaga_stats: "+err.Error())
 		}
@@ -615,7 +615,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		if newActive {
 			delta = +1
 		}
-		if err := stats.IncActiveClasses(tx, existing.ClassMasjidID, delta); err != nil {
+		if err := stats.IncActiveClasses(tx, existing.ClassSchoolID, delta); err != nil {
 			_ = tx.Rollback().Error
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal update lembaga_stats: "+err.Error())
 		}
@@ -641,7 +641,7 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// Lock row + cek masjid_id untuk guard
+	// Lock row + cek school_id untuk guard
 	tx := ctrl.DB.Begin()
 	if tx.Error != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, tx.Error.Error())
@@ -665,8 +665,8 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Guard staff pada masjid terkait
-	if err := helperAuth.EnsureStaffMasjid(c, m.ClassMasjidID); err != nil {
+	// Guard staff pada school terkait
+	if err := helperAuth.EnsureStaffSchool(c, m.ClassSchoolID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -690,11 +690,11 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 	// Decrement stats jika sebelumnya ACTIVE
 	if wasActive {
 		stats := service.NewLembagaStatsService()
-		if err := stats.EnsureForMasjid(tx, m.ClassMasjidID); err != nil {
+		if err := stats.EnsureForSchool(tx, m.ClassSchoolID); err != nil {
 			_ = tx.Rollback()
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal inisialisasi lembaga_stats: "+err.Error())
 		}
-		if err := stats.IncActiveClasses(tx, m.ClassMasjidID, -1); err != nil {
+		if err := stats.IncActiveClasses(tx, m.ClassSchoolID, -1); err != nil {
 			_ = tx.Rollback()
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal update lembaga_stats: "+err.Error())
 		}

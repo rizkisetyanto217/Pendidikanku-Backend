@@ -5,17 +5,18 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	clsCtl "masjidku_backend/internals/features/school/academics/rooms/controller"
+	clsCtl "schoolku_backend/internals/features/school/academics/rooms/controller"
 )
 
 // RoomsAdminRoutes — route khusus ADMIN (CRUD penuh + restore).
 // Contoh mount dari caller:
-//   admin := api.Group("/api/a") // atau sesuai prefix kamu
-//   routes.RoomsAdminRoutes(admin, db)
+//
+//	admin := api.Group("/api/a") // atau sesuai prefix kamu
+//	routes.RoomsAdminRoutes(admin, db)
 func RoomsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	ctl := clsCtl.NewClassRoomController(db, nil) // validator nil
-	// Tambah :masjid_id biar ResolveMasjidContext bisa resolve dari path
-	g := admin.Group("/:masjid_id/class-rooms")
+	// Tambah :school_id biar ResolveSchoolContext bisa resolve dari path
+	g := admin.Group("/:school_id/class-rooms")
 
 	// Write
 	g.Post("/", ctl.Create)

@@ -74,8 +74,8 @@ func (e *ClassSectionCSSTEnrollmentMode) Scan(v any) error {
 
 type ClassSectionModel struct {
 	// ============== PK & Tenant ==============
-	ClassSectionID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:class_section_id;uniqueIndex:uq_class_section_id_masjid" json:"class_section_id"`
-	ClassSectionMasjidID uuid.UUID `gorm:"type:uuid;not null;column:class_section_masjid_id;uniqueIndex:uq_class_section_id_masjid" json:"class_section_masjid_id"`
+	ClassSectionID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:class_section_id;uniqueIndex:uq_class_section_id_school" json:"class_section_id"`
+	ClassSectionSchoolID uuid.UUID `gorm:"type:uuid;not null;column:class_section_school_id;uniqueIndex:uq_class_section_id_school" json:"class_section_school_id"`
 
 	// ============== Relasi inti ==============
 	ClassSectionClassID            uuid.UUID  `gorm:"type:uuid;not null;column:class_section_class_id" json:"class_section_class_id"`

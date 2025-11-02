@@ -12,31 +12,31 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	masjidModel "masjidku_backend/internals/features/lembaga/masjid_yayasans/masjids/model"
-	userModel "masjidku_backend/internals/features/users/users/model"
+	schoolModel "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
+	userModel "schoolku_backend/internals/features/users/users/model"
 
-	helper "masjidku_backend/internals/helpers" // JsonOK/JsonError
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers" // JsonOK/JsonError
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 /* =============== Link models (pastikan ada, atau definisikan ringan di sini) =============== */
 // type UserTeacher struct {...}      func (UserTeacher) TableName() string { return "user_teachers" }
-// type MasjidTeacher struct {...}    func (MasjidTeacher) TableName() string { return "masjid_teachers" }
+// type SchoolTeacher struct {...}    func (SchoolTeacher) TableName() string { return "school_teachers" }
 // type UserProfile struct {...}      func (UserProfile) TableName() string { return "user_profiles" }
-// type MasjidStudent struct {...}    func (MasjidStudent) TableName() string { return "masjid_students" }
+// type SchoolStudent struct {...}    func (SchoolStudent) TableName() string { return "school_students" }
 
 /* =============== DTO Response (baru & ringkas) =============== */
 
-type MasjidRoleOption struct {
-	MasjidID      uuid.UUID `json:"masjid_id"`
-	MasjidName    string    `json:"masjid_name"`
-	MasjidSlug    string    `json:"masjid_slug"`
-	MasjidIconURL *string   `json:"masjid_icon_url,omitempty"`
+type SchoolRoleOption struct {
+	SchoolID      uuid.UUID `json:"school_id"`
+	SchoolName    string    `json:"school_name"`
+	SchoolSlug    string    `json:"school_slug"`
+	SchoolIconURL *string   `json:"school_icon_url,omitempty"`
 	Roles         []string  `json:"roles"`
 }
 
 type ScopeSelection struct {
-	MasjidID *uuid.UUID `json:"masjid_id,omitempty"`
+	SchoolID *uuid.UUID `json:"school_id,omitempty"`
 	Role     *string    `json:"role,omitempty"`
 }
 
@@ -45,20 +45,20 @@ type MyScopeResponse struct {
 	UserID        uuid.UUID          `json:"user_id"`
 	UserName      string             `json:"user_name"`
 	UserAvatarURL *string            `json:"user_avatar_url,omitempty"` // ⬅️ baru
-	Memberships   []MasjidRoleOption `json:"memberships"`
+	Memberships   []SchoolRoleOption `json:"memberships"`
 	Selection     *ScopeSelection    `json:"selection,omitempty"`
 }
 
 /* =============== Helper lokal: decode klaim JWT (tanpa verifikasi) =============== */
 
-type jwtMasjidRole struct {
-	MasjidID string   `json:"masjid_id"`
+type jwtSchoolRole struct {
+	SchoolID string   `json:"school_id"`
 	Roles    []string `json:"roles"`
 }
 type jwtClaimsLite struct {
-	MasjidIDs      []string        `json:"masjid_ids"`
-	MasjidRoles    []jwtMasjidRole `json:"masjid_roles"`
-	ActiveMasjidID string          `json:"active_masjid_id"`
+	SchoolIDs      []string        `json:"school_ids"`
+	SchoolRoles    []jwtSchoolRole `json:"school_roles"`
+	ActiveSchoolID string          `json:"active_school_id"`
 }
 
 // Ambil token dari Authorization: Bearer ... atau cookie access_token
@@ -75,7 +75,7 @@ func getAccessTokenFromCtx(c *fiber.Ctx) string {
 }
 
 // Decode payload JWT (bagian tengah) tanpa verifikasi untuk baca klaim
-func parseMasjidInfoFromJWT(c *fiber.Ctx) (ids []uuid.UUID, roleMap map[uuid.UUID]map[string]struct{}) {
+func parseSchoolInfoFromJWT(c *fiber.Ctx) (ids []uuid.UUID, roleMap map[uuid.UUID]map[string]struct{}) {
 	roleMap = map[uuid.UUID]map[string]struct{}{}
 
 	token := getAccessTokenFromCtx(c)
@@ -104,9 +104,9 @@ func parseMasjidInfoFromJWT(c *fiber.Ctx) (ids []uuid.UUID, roleMap map[uuid.UUI
 		return
 	}
 
-	// kumpulkan masjid_ids
+	// kumpulkan school_ids
 	seen := map[uuid.UUID]struct{}{}
-	for _, s := range cl.MasjidIDs {
+	for _, s := range cl.SchoolIDs {
 		if id, e := uuid.Parse(strings.TrimSpace(s)); e == nil && id != uuid.Nil {
 			if _, ok := seen[id]; !ok {
 				ids = append(ids, id)
@@ -114,9 +114,9 @@ func parseMasjidInfoFromJWT(c *fiber.Ctx) (ids []uuid.UUID, roleMap map[uuid.UUI
 			}
 		}
 	}
-	// dari masjid_roles[].masjid_id
-	for _, mr := range cl.MasjidRoles {
-		if id, e := uuid.Parse(strings.TrimSpace(mr.MasjidID)); e == nil && id != uuid.Nil {
+	// dari school_roles[].school_id
+	for _, mr := range cl.SchoolRoles {
+		if id, e := uuid.Parse(strings.TrimSpace(mr.SchoolID)); e == nil && id != uuid.Nil {
 			if _, ok := seen[id]; !ok {
 				ids = append(ids, id)
 				seen[id] = struct{}{}
@@ -132,9 +132,9 @@ func parseMasjidInfoFromJWT(c *fiber.Ctx) (ids []uuid.UUID, roleMap map[uuid.UUI
 			}
 		}
 	}
-	// active_masjid_id (opsional)
-	if cl.ActiveMasjidID != "" {
-		if id, e := uuid.Parse(strings.TrimSpace(cl.ActiveMasjidID)); e == nil && id != uuid.Nil {
+	// active_school_id (opsional)
+	if cl.ActiveSchoolID != "" {
+		if id, e := uuid.Parse(strings.TrimSpace(cl.ActiveSchoolID)); e == nil && id != uuid.Nil {
 			if _, ok := seen[id]; !ok {
 				ids = append(ids, id)
 			}
@@ -188,8 +188,8 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil avatar: "+err.Error())
 	}
 
-	// 3) Kumpulkan masjid_id via TEACHER & STUDENT
-	masjidRoles := map[uuid.UUID]map[string]struct{}{}
+	// 3) Kumpulkan school_id via TEACHER & STUDENT
+	schoolRoles := map[uuid.UUID]map[string]struct{}{}
 
 	// 3a) TEACHER
 	{
@@ -201,19 +201,19 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil user_teachers: "+err.Error())
 		}
 		if len(userTeacherIDs) > 0 {
-			var mtMasjidIDs []uuid.UUID
+			var mtSchoolIDs []uuid.UUID
 			if err := ac.DB.WithContext(c.Context()).
-				Model(&MasjidTeacher{}).
-				Where("masjid_teacher_user_teacher_id IN ?", userTeacherIDs).
-				Where("masjid_teacher_deleted_at IS NULL").
-				Pluck("masjid_teacher_masjid_id", &mtMasjidIDs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil masjid_teachers: "+err.Error())
+				Model(&SchoolTeacher{}).
+				Where("school_teacher_user_teacher_id IN ?", userTeacherIDs).
+				Where("school_teacher_deleted_at IS NULL").
+				Pluck("school_teacher_school_id", &mtSchoolIDs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil school_teachers: "+err.Error())
 			}
-			for _, id := range mtMasjidIDs {
-				if _, ok := masjidRoles[id]; !ok {
-					masjidRoles[id] = map[string]struct{}{}
+			for _, id := range mtSchoolIDs {
+				if _, ok := schoolRoles[id]; !ok {
+					schoolRoles[id] = map[string]struct{}{}
 				}
-				masjidRoles[id]["teacher"] = struct{}{}
+				schoolRoles[id]["teacher"] = struct{}{}
 			}
 		}
 	}
@@ -229,40 +229,40 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil user_profiles: "+err.Error())
 		}
 		if len(profileIDs) > 0 {
-			var msMasjidIDs []uuid.UUID
+			var msSchoolIDs []uuid.UUID
 			if err := ac.DB.WithContext(c.Context()).
-				Model(&MasjidStudent{}).
-				Where("masjid_student_user_profile_id IN ?", profileIDs).
-				Where("masjid_student_deleted_at IS NULL").
-				Pluck("masjid_student_masjid_id", &msMasjidIDs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil masjid_students: "+err.Error())
+				Model(&SchoolStudent{}).
+				Where("school_student_user_profile_id IN ?", profileIDs).
+				Where("school_student_deleted_at IS NULL").
+				Pluck("school_student_school_id", &msSchoolIDs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil school_students: "+err.Error())
 			}
-			for _, id := range msMasjidIDs {
-				if _, ok := masjidRoles[id]; !ok {
-					masjidRoles[id] = map[string]struct{}{}
+			for _, id := range msSchoolIDs {
+				if _, ok := schoolRoles[id]; !ok {
+					schoolRoles[id] = map[string]struct{}{}
 				}
-				masjidRoles[id]["student"] = struct{}{}
+				schoolRoles[id]["student"] = struct{}{}
 			}
 		}
 	}
 
 	// 3c) CLAIMS-ONLY dari JWT
-	idsFromJWT, roleMapFromJWT := parseMasjidInfoFromJWT(c)
+	idsFromJWT, roleMapFromJWT := parseSchoolInfoFromJWT(c)
 
-	// 4) Union kandidat masjid
+	// 4) Union kandidat school
 	candidate := map[uuid.UUID]struct{}{}
-	for id := range masjidRoles {
+	for id := range schoolRoles {
 		candidate[id] = struct{}{}
 	}
 	for _, id := range idsFromJWT {
 		candidate[id] = struct{}{}
 	}
 
-	addIf := func(masjidID uuid.UUID, role string) {
-		if _, ok := masjidRoles[masjidID]; !ok {
-			masjidRoles[masjidID] = map[string]struct{}{}
+	addIf := func(schoolID uuid.UUID, role string) {
+		if _, ok := schoolRoles[schoolID]; !ok {
+			schoolRoles[schoolID] = map[string]struct{}{}
 		}
-		masjidRoles[masjidID][role] = struct{}{}
+		schoolRoles[schoolID][role] = struct{}{}
 	}
 
 	for mid, set := range roleMapFromJWT {
@@ -272,41 +272,41 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 	}
 	for mid := range candidate {
 		for _, r := range []string{"dkm", "admin", "bendahara"} {
-			if helperAuth.HasRoleInMasjid(c, mid, r) {
+			if helperAuth.HasRoleInSchool(c, mid, r) {
 				addIf(mid, r)
 			}
 		}
 	}
 
-	// 5) Ambil info ringkas masjid
-	masjidIDs := make([]uuid.UUID, 0, len(candidate))
+	// 5) Ambil info ringkas school
+	schoolIDs := make([]uuid.UUID, 0, len(candidate))
 	for id := range candidate {
-		masjidIDs = append(masjidIDs, id)
+		schoolIDs = append(schoolIDs, id)
 	}
 
 	resp := MyScopeResponse{
 		UserID:        me.ID,
 		UserName:      me.UserName,
 		UserAvatarURL: avatarRecord.URL, // ⬅️ isi dari query avatar
-		Memberships:   []MasjidRoleOption{},
+		Memberships:   []SchoolRoleOption{},
 	}
 
-	if len(masjidIDs) == 0 {
+	if len(schoolIDs) == 0 {
 		return helper.JsonOK(c, "Context berhasil diambil", resp)
 	}
 
-	var masjids []masjidModel.MasjidModel
+	var schools []schoolModel.SchoolModel
 	if err := ac.DB.WithContext(c.Context()).
-		Select("masjid_id, masjid_name, masjid_slug, masjid_icon_url").
-		Where("masjid_id IN ?", masjidIDs).
-		Where("masjid_deleted_at IS NULL").
-		Where("masjid_is_active = ?", true).
-		Find(&masjids).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil masjid: "+err.Error())
+		Select("school_id, school_name, school_slug, school_icon_url").
+		Where("school_id IN ?", schoolIDs).
+		Where("school_deleted_at IS NULL").
+		Where("school_is_active = ?", true).
+		Find(&schools).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil school: "+err.Error())
 	}
 
-	for _, m := range masjids {
-		set := masjidRoles[m.MasjidID]
+	for _, m := range schools {
+		set := schoolRoles[m.SchoolID]
 		if len(set) == 0 {
 			continue
 		}
@@ -314,22 +314,22 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 		for r := range set {
 			roles = append(roles, r)
 		}
-		resp.Memberships = append(resp.Memberships, MasjidRoleOption{
-			MasjidID:      m.MasjidID,
-			MasjidName:    m.MasjidName,
-			MasjidSlug:    m.MasjidSlug,
-			MasjidIconURL: m.MasjidIconURL,
+		resp.Memberships = append(resp.Memberships, SchoolRoleOption{
+			SchoolID:      m.SchoolID,
+			SchoolName:    m.SchoolName,
+			SchoolSlug:    m.SchoolSlug,
+			SchoolIconURL: m.SchoolIconURL,
 			Roles:         roles,
 		})
 	}
 
 	// 6) (Opsional) handle seleksi dan set cookie
-	if selMasjidStr := strings.TrimSpace(c.Query("select_masjid_id")); selMasjidStr != "" {
-		if selMasjidID, e := uuid.Parse(selMasjidStr); e == nil {
+	if selSchoolStr := strings.TrimSpace(c.Query("select_school_id")); selSchoolStr != "" {
+		if selSchoolID, e := uuid.Parse(selSchoolStr); e == nil {
 			if selRole := strings.ToLower(strings.TrimSpace(c.Query("select_role"))); selRole != "" {
 				valid := false
 				for _, m := range resp.Memberships {
-					if m.MasjidID == selMasjidID {
+					if m.SchoolID == selSchoolID {
 						for _, r := range m.Roles {
 							if r == selRole {
 								valid = true
@@ -341,8 +341,8 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 				}
 				if valid {
 					c.Cookie(&fiber.Cookie{
-						Name:     "active_masjid_id",
-						Value:    selMasjidID.String(),
+						Name:     "active_school_id",
+						Value:    selSchoolID.String(),
 						Path:     "/",
 						HTTPOnly: true,
 						SameSite: "Lax",
@@ -357,11 +357,11 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 						Expires:  time.Now().Add(12 * time.Hour),
 					})
 					resp.Selection = &ScopeSelection{
-						MasjidID: &selMasjidID,
+						SchoolID: &selSchoolID,
 						Role:     &selRole,
 					}
 				} else {
-					return helper.JsonError(c, fiber.StatusBadRequest, "Role/masjid tidak valid untuk user ini")
+					return helper.JsonError(c, fiber.StatusBadRequest, "Role/school tidak valid untuk user ini")
 				}
 			}
 		}

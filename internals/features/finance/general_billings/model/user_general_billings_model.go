@@ -24,8 +24,8 @@ type UserGeneralBilling struct {
 	UserGeneralBillingID uuid.UUID `json:"user_general_billing_id" gorm:"type:uuid;primaryKey;column:user_general_billing_id;default:gen_random_uuid()"`
 
 	// Tenant & subject (student)
-	UserGeneralBillingMasjidID        uuid.UUID  `json:"user_general_billing_masjid_id" gorm:"type:uuid;not null;column:user_general_billing_masjid_id"`
-	UserGeneralBillingMasjidStudentID *uuid.UUID `json:"user_general_billing_masjid_student_id" gorm:"type:uuid;column:user_general_billing_masjid_student_id"`
+	UserGeneralBillingSchoolID        uuid.UUID  `json:"user_general_billing_school_id" gorm:"type:uuid;not null;column:user_general_billing_school_id"`
+	UserGeneralBillingSchoolStudentID *uuid.UUID `json:"user_general_billing_school_student_id" gorm:"type:uuid;column:user_general_billing_school_student_id"`
 
 	// Payer (users)
 	UserGeneralBillingPayerUserID *uuid.UUID `json:"user_general_billing_payer_user_id" gorm:"type:uuid;column:user_general_billing_payer_user_id"`
@@ -54,8 +54,8 @@ type UserGeneralBilling struct {
 	UserGeneralBillingDeletedAt gorm.DeletedAt `json:"user_general_billing_deleted_at" gorm:"type:timestamptz;index;column:user_general_billing_deleted_at"`
 
 	/* ========== Relations (optional) ========== */
-	// - Masjid Student (composite FK)
-	MasjidStudent *MasjidStudent `json:"masjid_student,omitempty" gorm:"foreignKey:UserGeneralBillingMasjidStudentID,UserGeneralBillingMasjidID;references:MasjidStudentID,MasjidStudentMasjidID"`
+	// - School Student (composite FK)
+	SchoolStudent *SchoolStudent `json:"school_student,omitempty" gorm:"foreignKey:UserGeneralBillingSchoolStudentID,UserGeneralBillingSchoolID;references:SchoolStudentID,SchoolStudentSchoolID"`
 
 	// - Payer User
 	PayerUser *User `json:"payer_user,omitempty" gorm:"foreignKey:UserGeneralBillingPayerUserID;references:ID"`
@@ -70,13 +70,13 @@ func (UserGeneralBilling) TableName() string { return "user_general_billings" }
 
 // Index definitions using GORM tags on fields above:
 //
-//   CONSTRAINT uq_ugb_per_student UNIQUE (user_general_billing_billing_id, user_general_billing_masjid_student_id)
+//   CONSTRAINT uq_ugb_per_student UNIQUE (user_general_billing_billing_id, user_general_billing_school_student_id)
 //   CONSTRAINT uq_ugb_per_payer   UNIQUE (user_general_billing_billing_id, user_general_billing_payer_user_id)
 //
 // Achieved via the following tags (already applied on fields):
 //
 //   UserGeneralBillingBillingID        gorm:"uniqueIndex:uq_ugb_per_student;uniqueIndex:uq_ugb_per_payer"
-//   UserGeneralBillingMasjidStudentID  gorm:"uniqueIndex:uq_ugb_per_student"
+//   UserGeneralBillingSchoolStudentID  gorm:"uniqueIndex:uq_ugb_per_student"
 //   UserGeneralBillingPayerUserID      gorm:"uniqueIndex:uq_ugb_per_payer"
 
 /* ===================== Lightweight related stubs ===================== */
@@ -86,9 +86,9 @@ type User struct {
 	ID uuid.UUID `gorm:"type:uuid;primaryKey;column:id"`
 }
 
-type MasjidStudent struct {
-	MasjidStudentID       uuid.UUID `gorm:"type:uuid;primaryKey;column:masjid_student_id"`
-	MasjidStudentMasjidID uuid.UUID `gorm:"type:uuid;column:masjid_student_masjid_id"`
+type SchoolStudent struct {
+	SchoolStudentID       uuid.UUID `gorm:"type:uuid;primaryKey;column:school_student_id"`
+	SchoolStudentSchoolID uuid.UUID `gorm:"type:uuid;column:school_student_school_id"`
 }
 
 // type GeneralBilling struct {

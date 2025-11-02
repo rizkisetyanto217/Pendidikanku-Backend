@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	cpdto "masjidku_backend/internals/features/school/classes/classes/dto"
-	classModel "masjidku_backend/internals/features/school/classes/classes/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
-	helperOSS "masjidku_backend/internals/helpers/oss"
+	cpdto "schoolku_backend/internals/features/school/classes/classes/dto"
+	classModel "schoolku_backend/internals/features/school/classes/classes/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
+	helperOSS "schoolku_backend/internals/helpers/oss"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -68,37 +68,37 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// 2) Resolve masjid **dari URL/slug saja** (TANPA fallback token)
-	var masjidID uuid.UUID
-	// a) coba param :masjid_id
-	if s := strings.TrimSpace(c.Params("masjid_id")); s != "" {
+	// 2) Resolve school **dari URL/slug saja** (TANPA fallback token)
+	var schoolID uuid.UUID
+	// a) coba param :school_id
+	if s := strings.TrimSpace(c.Params("school_id")); s != "" {
 		id, err := uuid.Parse(s)
 		if err != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "masjid_id pada URL tidak valid")
+			return helper.JsonError(c, fiber.StatusBadRequest, "school_id pada URL tidak valid")
 		}
-		masjidID = id
-	} else if s := strings.TrimSpace(c.Params("masjid_slug")); s != "" {
-		// b) atau param :masjid_slug (kalau route pakai slug)
-		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		schoolID = id
+	} else if s := strings.TrimSpace(c.Params("school_slug")); s != "" {
+		// b) atau param :school_slug (kalau route pakai slug)
+		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
-		masjidID = id
+		schoolID = id
 	} else {
-		// ❗ TIDAK ADA fallback ke GetMasjidIDFromTokenPreferTeacher di endpoint admin/staff
-		return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context wajib via URL (masjid_id/masjid_slug)")
+		// ❗ TIDAK ADA fallback ke GetSchoolIDFromTokenPreferTeacher di endpoint admin/staff
+		return helper.JsonError(c, fiber.StatusBadRequest, "School context wajib via URL (school_id/school_slug)")
 	}
 
 	// 3) Staff guard di MASJID TARGET
-	if err := helperAuth.EnsureStaffMasjidStrict(c, masjidID); err != nil {
+	if err := helperAuth.EnsureStaffSchoolStrict(c, schoolID); err != nil {
 		return err
 	}
 
 	// 4) Paksa body sesuai context (abaikan yang datang dari client)
-	if p.ClassParentMasjidID == uuid.Nil {
-		p.ClassParentMasjidID = masjidID
-	} else if p.ClassParentMasjidID != masjidID {
-		return helper.JsonError(c, fiber.StatusConflict, "class_parent_masjid_id pada body tidak cocok dengan konteks masjid")
+	if p.ClassParentSchoolID == uuid.Nil {
+		p.ClassParentSchoolID = schoolID
+	} else if p.ClassParentSchoolID != schoolID {
+		return helper.JsonError(c, fiber.StatusConflict, "class_parent_school_id pada body tidak cocok dengan konteks school")
 	}
 
 	// 5) Uniqueness: code (opsional)
@@ -107,8 +107,8 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		if code != "" {
 			var cnt int64
 			if err := ctl.DB.Model(&classModel.ClassParentModel{}).
-				Where("class_parent_masjid_id = ? AND class_parent_code = ? AND class_parent_deleted_at IS NULL",
-					masjidID, code).
+				Where("class_parent_school_id = ? AND class_parent_code = ? AND class_parent_deleted_at IS NULL",
+					schoolID, code).
 				Count(&cnt).Error; err != nil {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek kode")
 			}
@@ -118,7 +118,7 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// 6) Slug unik (CI) per masjid
+	// 6) Slug unik (CI) per school
 	var baseSlug string
 	if p.ClassParentSlug != nil && strings.TrimSpace(*p.ClassParentSlug) != "" {
 		baseSlug = helper.Slugify(*p.ClassParentSlug, 160)
@@ -129,7 +129,7 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		}
 	}
 	scope := func(q *gorm.DB) *gorm.DB {
-		return q.Where("class_parent_masjid_id = ?", masjidID).
+		return q.Where("class_parent_school_id = ?", schoolID).
 			Where("class_parent_deleted_at IS NULL")
 	}
 	uniqueSlug, err := helper.EnsureUniqueSlugCI(
@@ -141,9 +141,9 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug")
 	}
 
-	// 7) Build entity & simpan (pakai masjidID yang kita lock)
+	// 7) Build entity & simpan (pakai schoolID yang kita lock)
 	ent := p.ToModel()
-	ent.ClassParentMasjidID = masjidID
+	ent.ClassParentSchoolID = schoolID
 	entSlug := uniqueSlug
 	ent.ClassParentSlug = &entSlug
 
@@ -154,7 +154,7 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 	// 8) Optional upload file → simpan ke DB (image_url + object_key)
 	uploadedURL := ""
 	if fh := pickImageFile(c, "image", "file"); fh != nil {
-		url, upErr := helperOSS.UploadImageToOSSScoped(masjidID, "classes/class-parents", fh)
+		url, upErr := helperOSS.UploadImageToOSSScoped(schoolID, "classes/class-parents", fh)
 		if upErr == nil {
 			uploadedURL = url
 
@@ -187,7 +187,7 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 	})
 }
 
-// PATCH /api/a/:masjid_id/class-parents/:id
+// PATCH /api/a/:school_id/class-parents/:id
 func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
@@ -218,7 +218,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 	}
 
 	// Guard staff/tenant
-	if err := helperAuth.EnsureStaffMasjid(c, ent.ClassParentMasjidID); err != nil {
+	if err := helperAuth.EnsureStaffSchool(c, ent.ClassParentSchoolID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -235,8 +235,8 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		if v := strings.TrimSpace(**p.ClassParentCode.Value); v != "" {
 			var cnt int64
 			if err := tx.Model(&classModel.ClassParentModel{}).
-				Where(`class_parent_masjid_id = ? AND class_parent_code = ? AND class_parent_id <> ? AND class_parent_deleted_at IS NULL`,
-					ent.ClassParentMasjidID, v, ent.ClassParentID).
+				Where(`class_parent_school_id = ? AND class_parent_code = ? AND class_parent_id <> ? AND class_parent_deleted_at IS NULL`,
+					ent.ClassParentSchoolID, v, ent.ClassParentID).
 				Count(&cnt).Error; err != nil {
 
 				_ = tx.Rollback()
@@ -271,7 +271,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 	// === Apply patch ke entity in-memory
 	p.Apply(&ent)
 
-	// === Slug handling (unique per masjid)
+	// === Slug handling (unique per school)
 	if p.ClassParentSlug.Present {
 		if p.ClassParentSlug.Value != nil {
 			base := helper.Slugify(strings.TrimSpace(**p.ClassParentSlug.Value), 100)
@@ -284,8 +284,8 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 				base,
 				func(q *gorm.DB) *gorm.DB {
 					return q.Where(
-						"class_parent_masjid_id = ? AND class_parent_id <> ? AND class_parent_deleted_at IS NULL",
-						ent.ClassParentMasjidID, ent.ClassParentID,
+						"class_parent_school_id = ? AND class_parent_id <> ? AND class_parent_deleted_at IS NULL",
+						ent.ClassParentSchoolID, ent.ClassParentID,
 					)
 				},
 				100,
@@ -307,8 +307,8 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 			base,
 			func(q *gorm.DB) *gorm.DB {
 				return q.Where(
-					"class_parent_masjid_id = ? AND class_parent_id <> ? AND class_parent_deleted_at IS NULL",
-					ent.ClassParentMasjidID, ent.ClassParentID,
+					"class_parent_school_id = ? AND class_parent_id <> ? AND class_parent_deleted_at IS NULL",
+					ent.ClassParentSchoolID, ent.ClassParentID,
 				)
 			},
 			100,
@@ -343,7 +343,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		defer cancel()
 
 		// folder: classes/class-parents  (rapi & konsisten)
-		url, upErr := helperOSS.UploadImageToOSS(ctx, svc, ent.ClassParentMasjidID, "classes/class-parents", fh)
+		url, upErr := helperOSS.UploadImageToOSS(ctx, svc, ent.ClassParentSchoolID, "classes/class-parents", fh)
 		if upErr != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, upErr.Error())
@@ -423,7 +423,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		// --- 1) Refresh snapshot di tabel classes (SUDAH ADA punyamu) ---
 		type classmodel = classModel.ClassModel
 		if err := tx.Model(&classmodel{}).
-			Where("class_masjid_id = ? AND class_parent_id = ?", ent.ClassParentMasjidID, ent.ClassParentID).
+			Where("class_school_id = ? AND class_parent_id = ?", ent.ClassParentSchoolID, ent.ClassParentID).
 			Updates(map[string]any{
 				"class_parent_code_snapshot": func() any {
 					if ent.ClassParentCode == nil {
@@ -465,7 +465,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
         WHERE
             cs.class_section_class_id = c.class_id
             AND c.class_parent_id = $1
-            AND cs.class_section_masjid_id = $6
+            AND cs.class_section_school_id = $6
     `,
 			ent.ClassParentID,
 			func() any {
@@ -487,7 +487,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 				}
 				return *ent.ClassParentLevel
 			}(),
-			ent.ClassParentMasjidID,
+			ent.ClassParentSchoolID,
 		).Error
 		if execErr != nil {
 			_ = tx.Rollback()
@@ -521,7 +521,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
     WHERE
         csst.class_section_subject_teacher_section_id = sec.class_section_id
         AND c.class_parent_id = $1
-        AND csst.class_section_subject_teacher_masjid_id = $6
+        AND csst.class_section_subject_teacher_school_id = $6
 `,
 			ent.ClassParentID,
 			func() any {
@@ -543,7 +543,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 				}
 				return *ent.ClassParentLevel
 			}(),
-			ent.ClassParentMasjidID,
+			ent.ClassParentSchoolID,
 		).Error
 		if execErr2 != nil {
 			_ = tx.Rollback()
@@ -586,8 +586,8 @@ func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// Guard akses staff pada masjid terkait
-	if err := helperAuth.EnsureStaffMasjid(c, ent.ClassParentMasjidID); err != nil {
+	// Guard akses staff pada school terkait
+	if err := helperAuth.EnsureStaffSchool(c, ent.ClassParentSchoolID); err != nil {
 		return err
 	}
 

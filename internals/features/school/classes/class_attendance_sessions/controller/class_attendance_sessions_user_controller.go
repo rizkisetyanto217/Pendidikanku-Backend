@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	sessiondto "masjidku_backend/internals/features/school/classes/class_attendance_sessions/dto"
+	sessiondto "schoolku_backend/internals/features/school/classes/class_attendance_sessions/dto"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -23,9 +23,9 @@ import (
    Scopes & small helpers
 ========================= */
 
-func scopeMasjid(masjidID uuid.UUID) func(*gorm.DB) *gorm.DB {
+func scopeSchool(schoolID uuid.UUID) func(*gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
-		return db.Where("class_attendance_session_masjid_id = ?", masjidID)
+		return db.Where("class_attendance_session_school_id = ?", schoolID)
 	}
 }
 
@@ -120,37 +120,37 @@ func jsonToMap(j datatypes.JSON) map[string]any {
 //	&date_from=&date_to=&limit=&offset=&q=&sort_by=&sort=
 //	&include=ua,ua_urls,urls|session_urls|casu
 func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fiber.Ctx) error {
-	// ===== Masjid context (pakai helpers) =====
+	// ===== School context (pakai helpers) =====
 	c.Locals("DB", ctrl.DB) // resolver slug→id butuh DB
 
-	var masjidID uuid.UUID
-	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		id, er := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	var schoolID uuid.UUID
+	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		id, er := helperAuth.EnsureSchoolAccessDKM(c, mc)
 		if er != nil {
 			return er
 		}
-		masjidID = id
+		schoolID = id
 	} else {
-		if id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			masjidID = id
+		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+			schoolID = id
 		} else {
-			return helper.JsonError(c, http.StatusForbidden, "Scope masjid tidak ditemukan")
+			return helper.JsonError(c, http.StatusForbidden, "Scope school tidak ditemukan")
 		}
 	}
 
 	// ===== Role (dipakai hanya untuk UA scope) =====
 	userID, _ := helperAuth.GetUserIDFromToken(c)
-	adminMasjidID, _ := helperAuth.GetMasjidIDFromToken(c)
-	teacherMasjidID, _ := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+	adminSchoolID, _ := helperAuth.GetSchoolIDFromToken(c)
+	teacherSchoolID, _ := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
 
-	isAdmin := (adminMasjidID != uuid.Nil && adminMasjidID == masjidID) ||
-		helperAuth.HasRoleInMasjid(c, masjidID, "admin") ||
-		helperAuth.HasRoleInMasjid(c, masjidID, "dkm") ||
-		helperAuth.IsDKMInMasjid(c, masjidID)
+	isAdmin := (adminSchoolID != uuid.Nil && adminSchoolID == schoolID) ||
+		helperAuth.HasRoleInSchool(c, schoolID, "admin") ||
+		helperAuth.HasRoleInSchool(c, schoolID, "dkm") ||
+		helperAuth.IsDKMInSchool(c, schoolID)
 
-	isTeacher := (teacherMasjidID != uuid.Nil && teacherMasjidID == masjidID) ||
-		helperAuth.HasRoleInMasjid(c, masjidID, "teacher") ||
-		helperAuth.IsTeacherInMasjid(c, masjidID)
+	isTeacher := (teacherSchoolID != uuid.Nil && teacherSchoolID == schoolID) ||
+		helperAuth.HasRoleInSchool(c, schoolID, "teacher") ||
+		helperAuth.IsTeacherInSchool(c, schoolID)
 
 	// ===== Includes =====
 	includeStr := strings.ToLower(strings.TrimSpace(c.Query("include")))
@@ -235,7 +235,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	// ===== Base query (aliases) =====
 	db := ctrl.DB
 	qBase := db.Table("class_attendance_sessions AS cas").
-		Where("cas.class_attendance_session_masjid_id = ?", masjidID).
+		Where("cas.class_attendance_session_school_id = ?", schoolID).
 		Where("cas.class_attendance_session_deleted_at IS NULL")
 
 	// date range (optional) — pakai nilai pointer
@@ -264,11 +264,11 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	}
 	if teacherUserIDPtr != nil {
 		qBase = qBase.
-			Joins(`LEFT JOIN masjid_teachers mt_cas
-                     ON mt_cas.masjid_teacher_id = cas.class_attendance_session_teacher_id
-                    AND mt_cas.masjid_teacher_deleted_at IS NULL
-                    AND mt_cas.masjid_teacher_masjid_id = cas.class_attendance_session_masjid_id`).
-			Where(`mt_cas.masjid_teacher_user_id = ?`, *teacherUserIDPtr)
+			Joins(`LEFT JOIN school_teachers mt_cas
+                     ON mt_cas.school_teacher_id = cas.class_attendance_session_teacher_id
+                    AND mt_cas.school_teacher_deleted_at IS NULL
+                    AND mt_cas.school_teacher_school_id = cas.class_attendance_session_school_id`).
+			Where(`mt_cas.school_teacher_user_id = ?`, *teacherUserIDPtr)
 	}
 	if like != nil {
 		qBase = qBase.Where(`
@@ -288,7 +288,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	// ===== Data page (sessions) =====
 	type row struct {
 		ID         uuid.UUID  `gorm:"column:class_attendance_session_id"`
-		MasjidID   uuid.UUID  `gorm:"column:class_attendance_session_masjid_id"`
+		SchoolID   uuid.UUID  `gorm:"column:class_attendance_session_school_id"`
 		ScheduleID *uuid.UUID `gorm:"column:class_attendance_session_schedule_id"`
 		RoomID     *uuid.UUID `gorm:"column:class_attendance_session_class_room_id"`
 
@@ -322,7 +322,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	if err := qBase.
 		Select(`
 			cas.class_attendance_session_id,
-			cas.class_attendance_session_masjid_id,
+			cas.class_attendance_session_school_id,
 			cas.class_attendance_session_schedule_id,
 			cas.class_attendance_session_class_room_id,
 
@@ -368,7 +368,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	type UserAttendanceLite struct {
 		UserAttendanceID uuid.UUID  `json:"user_attendance_id"`
 		SessionID        uuid.UUID  `json:"user_attendance_session_id"`
-		MasjidStudentID  uuid.UUID  `json:"user_attendance_masjid_student_id"`
+		SchoolStudentID  uuid.UUID  `json:"user_attendance_school_student_id"`
 		Status           string     `json:"user_attendance_status"`
 		TypeID           *uuid.UUID `json:"user_attendance_type_id,omitempty"`
 		Desc             *string    `json:"user_attendance_desc,omitempty"`
@@ -393,7 +393,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			return err
 		} else if len(ids) > 0 {
 			uaStudentIDs = ids
-		} else if ids, err := parseUUIDList(c.Query("masjid_student_id")); err != nil {
+		} else if ids, err := parseUUIDList(c.Query("school_student_id")); err != nil {
 			return err
 		} else if len(ids) > 0 {
 			uaStudentIDs = ids
@@ -417,7 +417,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 
 		uaQ := ctrl.DB.Table("user_attendance AS ua").
 			Where("ua.user_attendance_deleted_at IS NULL").
-			Where("ua.user_attendance_masjid_id = ?", masjidID).
+			Where("ua.user_attendance_school_id = ?", schoolID).
 			Where("ua.user_attendance_session_id IN ?", pageIDs)
 
 		if uaStatus != "" {
@@ -427,7 +427,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			uaQ = uaQ.Where("ua.user_attendance_type_id = ?", *uaTypeIDPtr)
 		}
 		if len(uaStudentIDs) > 0 {
-			uaQ = uaQ.Where("ua.user_attendance_masjid_student_id IN ?", uaStudentIDs)
+			uaQ = uaQ.Where("ua.user_attendance_school_student_id IN ?", uaStudentIDs)
 		}
 		if uaLike != nil {
 			uaQ = uaQ.Where(`
@@ -445,17 +445,17 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 				return fiber.NewError(fiber.StatusUnauthorized, "User tidak terautentik")
 			}
 			uaQ = uaQ.Joins(`
-				JOIN masjid_students ms ON ms.masjid_student_id = ua.user_attendance_masjid_student_id
-				 AND ms.masjid_student_deleted_at IS NULL
-				 AND ms.masjid_student_user_id = ?
-				 AND ms.masjid_student_masjid_id = ?
-			`, userID, masjidID)
+				JOIN school_students ms ON ms.school_student_id = ua.user_attendance_school_student_id
+				 AND ms.school_student_deleted_at IS NULL
+				 AND ms.school_student_user_id = ?
+				 AND ms.school_student_school_id = ?
+			`, userID, schoolID)
 		}
 
 		type uaRow struct {
 			ID          uuid.UUID  `gorm:"column:user_attendance_id"`
 			SessionID   uuid.UUID  `gorm:"column:user_attendance_session_id"`
-			StudentID   uuid.UUID  `gorm:"column:user_attendance_masjid_student_id"`
+			StudentID   uuid.UUID  `gorm:"column:user_attendance_school_student_id"`
 			Status      string     `gorm:"column:user_attendance_status"`
 			TypeID      *uuid.UUID `gorm:"column:user_attendance_type_id"`
 			Desc        *string    `gorm:"column:user_attendance_desc"`
@@ -471,7 +471,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			Select(`
 				ua.user_attendance_id,
 				ua.user_attendance_session_id,
-				ua.user_attendance_masjid_student_id,
+				ua.user_attendance_school_student_id,
 				ua.user_attendance_status,
 				ua.user_attendance_type_id,
 				ua.user_attendance_desc,
@@ -489,7 +489,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 
 		for _, r := range uaRows {
 			uaMap[r.SessionID] = append(uaMap[r.SessionID], UserAttendanceLite{
-				UserAttendanceID: r.ID, SessionID: r.SessionID, MasjidStudentID: r.StudentID,
+				UserAttendanceID: r.ID, SessionID: r.SessionID, SchoolStudentID: r.StudentID,
 				Status: r.Status, TypeID: r.TypeID, Desc: r.Desc, Score: r.Score,
 				IsPassed: r.IsPassed, UserNote: r.UserNote, TeacherNote: r.TeacherNote,
 				CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
@@ -501,7 +501,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	buildBase := func(r row) sessiondto.ClassAttendanceSessionResponse {
 		return sessiondto.ClassAttendanceSessionResponse{
 			ClassAttendanceSessionId:           r.ID,
-			ClassAttendanceSessionMasjidId:     r.MasjidID,
+			ClassAttendanceSessionSchoolId:     r.SchoolID,
 			ClassAttendanceSessionScheduleId:   r.ScheduleID, // pointer (nullable)
 			ClassAttendanceSessionDate:         r.Date,
 			ClassAttendanceSessionTitle:        r.Title,
@@ -569,34 +569,34 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 		return fiber.NewError(fiber.StatusUnauthorized, "Hanya guru (atau admin) yang diizinkan")
 	}
 
-	// 🎯 Resolusi context masjid
-	mc, er := helperAuth.ResolveMasjidContext(c)
+	// 🎯 Resolusi context school
+	mc, er := helperAuth.ResolveSchoolContext(c)
 	if er != nil {
 		return helper.JsonError(c, er.(*fiber.Error).Code, er.Error())
 	}
 
-	var masjidID uuid.UUID
+	var schoolID uuid.UUID
 	switch {
 	case helperAuth.IsOwner(c) || helperAuth.IsDKM(c):
-		id, er := helperAuth.EnsureMasjidAccessDKM(c, mc)
+		id, er := helperAuth.EnsureSchoolAccessDKM(c, mc)
 		if er != nil {
 			return helper.JsonError(c, er.(*fiber.Error).Code, er.Error())
 		}
-		masjidID = id
-	default: // Teacher ⇒ wajib member pada masjid context
+		schoolID = id
+	default: // Teacher ⇒ wajib member pada school context
 		if mc.ID != uuid.Nil {
-			masjidID = mc.ID
+			schoolID = mc.ID
 		} else if strings.TrimSpace(mc.Slug) != "" {
-			id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+			id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
 			if er != nil {
-				return helper.JsonError(c, http.StatusNotFound, "Masjid (slug) tidak ditemukan")
+				return helper.JsonError(c, http.StatusNotFound, "School (slug) tidak ditemukan")
 			}
-			masjidID = id
-		} else if id, er := helperAuth.GetActiveMasjidID(c); er == nil && id != uuid.Nil {
-			masjidID = id
+			schoolID = id
+		} else if id, er := helperAuth.GetActiveSchoolID(c); er == nil && id != uuid.Nil {
+			schoolID = id
 		}
-		if masjidID == uuid.Nil || !helperAuth.UserHasMasjid(c, masjidID) {
-			return helper.JsonError(c, fiber.StatusForbidden, "Scope masjid tidak valid untuk Teacher")
+		if schoolID == uuid.Nil || !helperAuth.UserHasSchool(c, schoolID) {
+			return helper.JsonError(c, fiber.StatusForbidden, "Scope school tidak valid untuk Teacher")
 		}
 	}
 
@@ -645,25 +645,25 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 	// Cakup dua kemungkinan: override teacher (FK langsung) & teacher dari snapshot (generated *_snap)
 	qBase := db.Table("class_attendance_sessions AS cas").
 		Joins(`
-			LEFT JOIN masjid_teachers AS mt_override
-			  ON mt_override.masjid_teacher_id = cas.class_attendance_session_teacher_id
-			 AND mt_override.masjid_teacher_deleted_at IS NULL
-			 AND mt_override.masjid_teacher_masjid_id = cas.class_attendance_session_masjid_id
+			LEFT JOIN school_teachers AS mt_override
+			  ON mt_override.school_teacher_id = cas.class_attendance_session_teacher_id
+			 AND mt_override.school_teacher_deleted_at IS NULL
+			 AND mt_override.school_teacher_school_id = cas.class_attendance_session_school_id
 		`).
 		Joins(`
-			LEFT JOIN masjid_teachers AS mt_snap
-			  ON mt_snap.masjid_teacher_id = cas.class_attendance_session_teacher_id_snap
-			 AND mt_snap.masjid_teacher_deleted_at IS NULL
-			 AND mt_snap.masjid_teacher_masjid_id = cas.class_attendance_session_masjid_id
+			LEFT JOIN school_teachers AS mt_snap
+			  ON mt_snap.school_teacher_id = cas.class_attendance_session_teacher_id_snap
+			 AND mt_snap.school_teacher_deleted_at IS NULL
+			 AND mt_snap.school_teacher_school_id = cas.class_attendance_session_school_id
 		`).
 		Where(`
-			cas.class_attendance_session_masjid_id = ?
+			cas.class_attendance_session_school_id = ?
 			AND cas.class_attendance_session_deleted_at IS NULL
 			AND (
-			     mt_override.masjid_teacher_user_id = ?
-			  OR mt_snap.masjid_teacher_user_id = ?
+			     mt_override.school_teacher_user_id = ?
+			  OR mt_snap.school_teacher_user_id = ?
 			)
-		`, masjidID, userID, userID)
+		`, schoolID, userID, userID)
 
 	// Filter tanggal opsional
 	if lo != nil && hi != nil {
@@ -707,7 +707,7 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 	// Data
 	type row struct {
 		ID            uuid.UUID  `gorm:"column:id"`
-		MasjidID      uuid.UUID  `gorm:"column:masjid_id"`
+		SchoolID      uuid.UUID  `gorm:"column:school_id"`
 		Date          time.Time  `gorm:"column:date"`
 		Title         *string    `gorm:"column:title"`
 		Display       *string    `gorm:"column:display"`
@@ -724,7 +724,7 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 	if err := qBase.
 		Select(`
 			cas.class_attendance_session_id         AS id,
-			cas.class_attendance_session_masjid_id  AS masjid_id,
+			cas.class_attendance_session_school_id  AS school_id,
 			cas.class_attendance_session_date       AS date,
 			cas.class_attendance_session_title      AS title,
 			cas.class_attendance_session_display_title AS display,
@@ -749,7 +749,7 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 	for _, r := range rows {
 		resp = append(resp, sessiondto.ClassAttendanceSessionResponse{
 			ClassAttendanceSessionId:           r.ID,
-			ClassAttendanceSessionMasjidId:     r.MasjidID,
+			ClassAttendanceSessionSchoolId:     r.SchoolID,
 			ClassAttendanceSessionScheduleId:   r.ScheduleID, // ✅ pointer; bisa nil
 			ClassAttendanceSessionDate:         r.Date,
 			ClassAttendanceSessionTitle:        r.Title,

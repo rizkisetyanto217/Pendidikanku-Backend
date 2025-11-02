@@ -3,115 +3,115 @@
 -- ============================ --
 -- TABLE MASJID SERVICE SUBSCRIPTIONS
 -- ============================ --
-CREATE TABLE IF NOT EXISTS masjid_service_subscriptions (
-  masjid_service_subscription_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+CREATE TABLE IF NOT EXISTS school_service_subscriptions (
+  school_service_subscription_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  masjid_service_subscription_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  school_service_subscription_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
-  masjid_service_subscription_plan_id UUID NOT NULL
-    REFERENCES masjid_service_plans(masjid_service_plan_id) ON DELETE RESTRICT,
+  school_service_subscription_plan_id UUID NOT NULL
+    REFERENCES school_service_plans(school_service_plan_id) ON DELETE RESTRICT,
 
-  masjid_service_subscription_status masjid_subscription_status_enum NOT NULL DEFAULT 'active',
-  masjid_service_subscription_is_auto_renew BOOLEAN NOT NULL DEFAULT FALSE,
+  school_service_subscription_status school_subscription_status_enum NOT NULL DEFAULT 'active',
+  school_service_subscription_is_auto_renew BOOLEAN NOT NULL DEFAULT FALSE,
 
-  masjid_service_subscription_start_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  masjid_service_subscription_end_at   TIMESTAMPTZ,
-  masjid_service_subscription_trial_end_at TIMESTAMPTZ,
+  school_service_subscription_start_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  school_service_subscription_end_at   TIMESTAMPTZ,
+  school_service_subscription_trial_end_at TIMESTAMPTZ,
 
   -- Snapshot harga saat checkout
-  masjid_service_subscription_price_monthly NUMERIC(12,2),
-  masjid_service_subscription_price_yearly  NUMERIC(12,2),
+  school_service_subscription_price_monthly NUMERIC(12,2),
+  school_service_subscription_price_yearly  NUMERIC(12,2),
 
   -- Metadata billing
-  masjid_service_subscription_provider        VARCHAR(40),
-  masjid_service_subscription_provider_ref_id VARCHAR(100),
-  masjid_service_subscription_canceled_at     TIMESTAMPTZ,
+  school_service_subscription_provider        VARCHAR(40),
+  school_service_subscription_provider_ref_id VARCHAR(100),
+  school_service_subscription_canceled_at     TIMESTAMPTZ,
 
   -- Override kuota (NULL = ikut plan)
-  masjid_service_subscription_max_teachers_override      INT,
-  masjid_service_subscription_max_students_override      INT,
-  masjid_service_subscription_max_storage_mb_override    INT,
-  masjid_service_subscription_max_custom_themes_override INT,
+  school_service_subscription_max_teachers_override      INT,
+  school_service_subscription_max_students_override      INT,
+  school_service_subscription_max_storage_mb_override    INT,
+  school_service_subscription_max_custom_themes_override INT,
 
   -- Snapshot Name
-  masjid_service_subscription_name_plan_snapshot VARCHAR(100) NOT NULL,
+  school_service_subscription_name_plan_snapshot VARCHAR(100) NOT NULL,
 
-  masjid_service_subscription_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  masjid_service_subscription_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  masjid_service_subscription_deleted_at TIMESTAMPTZ,
+  school_service_subscription_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  school_service_subscription_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  school_service_subscription_deleted_at TIMESTAMPTZ,
 
   -- Konsistensi
   CONSTRAINT ck_mss_time_order CHECK (
-    masjid_service_subscription_end_at IS NULL
-    OR masjid_service_subscription_end_at >= masjid_service_subscription_start_at
+    school_service_subscription_end_at IS NULL
+    OR school_service_subscription_end_at >= school_service_subscription_start_at
   ),
   CONSTRAINT ck_mss_overrides_nonneg CHECK (
-    (masjid_service_subscription_max_teachers_override      IS NULL OR masjid_service_subscription_max_teachers_override      >= 0) AND
-    (masjid_service_subscription_max_students_override      IS NULL OR masjid_service_subscription_max_students_override      >= 0) AND
-    (masjid_service_subscription_max_storage_mb_override    IS NULL OR masjid_service_subscription_max_storage_mb_override    >= 0) AND
-    (masjid_service_subscription_max_custom_themes_override IS NULL OR masjid_service_subscription_max_custom_themes_override >= 0)
+    (school_service_subscription_max_teachers_override      IS NULL OR school_service_subscription_max_teachers_override      >= 0) AND
+    (school_service_subscription_max_students_override      IS NULL OR school_service_subscription_max_students_override      >= 0) AND
+    (school_service_subscription_max_storage_mb_override    IS NULL OR school_service_subscription_max_storage_mb_override    >= 0) AND
+    (school_service_subscription_max_custom_themes_override IS NULL OR school_service_subscription_max_custom_themes_override >= 0)
   ),
 
   -- Generated column: window periode (untuk query overlap/now())
-  masjid_service_subscription_period tstzrange
+  school_service_subscription_period tstzrange
     GENERATED ALWAYS AS (
       tstzrange(
-        masjid_service_subscription_start_at,
-        COALESCE(masjid_service_subscription_end_at, 'infinity'::timestamptz),
+        school_service_subscription_start_at,
+        COALESCE(school_service_subscription_end_at, 'infinity'::timestamptz),
         '[)'
       )
     ) STORED
 );
 
 -- Indexes: subscriptions
--- Maks. 1 langganan "current" (end_at IS NULL) per masjid
-CREATE UNIQUE INDEX IF NOT EXISTS uq_mss_masjid_current_alive
-  ON masjid_service_subscriptions (masjid_service_subscription_masjid_id)
-  WHERE masjid_service_subscription_deleted_at IS NULL
-    AND masjid_service_subscription_end_at IS NULL;
+-- Maks. 1 langganan "current" (end_at IS NULL) per school
+CREATE UNIQUE INDEX IF NOT EXISTS uq_mss_school_current_alive
+  ON school_service_subscriptions (school_service_subscription_school_id)
+  WHERE school_service_subscription_deleted_at IS NULL
+    AND school_service_subscription_end_at IS NULL;
 
 -- Lookup umum
-CREATE INDEX IF NOT EXISTS idx_mss_masjid_alive
-  ON masjid_service_subscriptions (masjid_service_subscription_masjid_id)
-  WHERE masjid_service_subscription_deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_mss_school_alive
+  ON school_service_subscriptions (school_service_subscription_school_id)
+  WHERE school_service_subscription_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_mss_plan_alive
-  ON masjid_service_subscriptions (masjid_service_subscription_plan_id)
-  WHERE masjid_service_subscription_deleted_at IS NULL;
+  ON school_service_subscriptions (school_service_subscription_plan_id)
+  WHERE school_service_subscription_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_mss_status_alive
-  ON masjid_service_subscriptions (masjid_service_subscription_status)
-  WHERE masjid_service_subscription_deleted_at IS NULL;
+  ON school_service_subscriptions (school_service_subscription_status)
+  WHERE school_service_subscription_deleted_at IS NULL;
 
 -- Performa query waktu-kini / window
 CREATE INDEX IF NOT EXISTS idx_mss_current_window
-  ON masjid_service_subscriptions (masjid_service_subscription_masjid_id, masjid_service_subscription_start_at DESC)
-  WHERE masjid_service_subscription_deleted_at IS NULL;
+  ON school_service_subscriptions (school_service_subscription_school_id, school_service_subscription_start_at DESC)
+  WHERE school_service_subscription_deleted_at IS NULL;
 
 -- Range index untuk period (bisa dipakai cek "NOW() ∈ period")
 CREATE INDEX IF NOT EXISTS gist_mss_period
-  ON masjid_service_subscriptions
-  USING gist (masjid_service_subscription_period)
-  WHERE masjid_service_subscription_deleted_at IS NULL;
+  ON school_service_subscriptions
+  USING gist (school_service_subscription_period)
+  WHERE school_service_subscription_deleted_at IS NULL;
 
 -- Yang mau/sudah habis (monitoring/cron)
 CREATE INDEX IF NOT EXISTS idx_mss_end_at_alive
-  ON masjid_service_subscriptions (masjid_service_subscription_end_at)
-  WHERE masjid_service_subscription_deleted_at IS NULL;
+  ON school_service_subscriptions (school_service_subscription_end_at)
+  WHERE school_service_subscription_deleted_at IS NULL;
 
 -- Provider ref unik (hindari duplikasi webhook)
 CREATE UNIQUE INDEX IF NOT EXISTS ux_mss_provider_ref_alive
-  ON masjid_service_subscriptions (masjid_service_subscription_provider, masjid_service_subscription_provider_ref_id)
-  WHERE masjid_service_subscription_deleted_at IS NULL
-    AND masjid_service_subscription_provider IS NOT NULL
-    AND masjid_service_subscription_provider_ref_id IS NOT NULL;
+  ON school_service_subscriptions (school_service_subscription_provider, school_service_subscription_provider_ref_id)
+  WHERE school_service_subscription_deleted_at IS NULL
+    AND school_service_subscription_provider IS NOT NULL
+    AND school_service_subscription_provider_ref_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS brin_mss_created_at
-  ON masjid_service_subscriptions USING brin (masjid_service_subscription_created_at);
+  ON school_service_subscriptions USING brin (school_service_subscription_created_at);
 
 CREATE INDEX IF NOT EXISTS brin_mss_updated_at
-  ON masjid_service_subscriptions USING brin (masjid_service_subscription_updated_at);
+  ON school_service_subscriptions USING brin (school_service_subscription_updated_at);
 
 
 
@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS user_service_subscriptions (
   user_service_subscription_canceled_at     TIMESTAMPTZ,
 
   -- Overrides (NULL = ikut plan)
-  user_service_subscription_max_masjids_owned_override   INT,
+  user_service_subscription_max_schools_owned_override   INT,
   user_service_subscription_max_storage_mb_override      INT,
   user_service_subscription_max_custom_themes_override   INT,
 
@@ -162,7 +162,7 @@ CREATE TABLE IF NOT EXISTS user_service_subscriptions (
     OR user_service_subscription_end_at >= user_service_subscription_start_at
   ),
   CONSTRAINT ck_uss_overrides_nonneg CHECK (
-    (user_service_subscription_max_masjids_owned_override IS NULL OR user_service_subscription_max_masjids_owned_override >= 0) AND
+    (user_service_subscription_max_schools_owned_override IS NULL OR user_service_subscription_max_schools_owned_override >= 0) AND
     (user_service_subscription_max_storage_mb_override    IS NULL OR user_service_subscription_max_storage_mb_override    >= 0) AND
     (user_service_subscription_max_custom_themes_override IS NULL OR user_service_subscription_max_custom_themes_override >= 0)
   ),
@@ -178,7 +178,7 @@ CREATE TABLE IF NOT EXISTS user_service_subscriptions (
     ) STORED
 );
 
--- Index subscriptions (selaras dgn masjid)
+-- Index subscriptions (selaras dgn school)
 -- Maks. 1 langganan "current" (end_at IS NULL) per user
 CREATE UNIQUE INDEX IF NOT EXISTS uq_uss_user_current_alive
   ON user_service_subscriptions (user_service_subscription_user_id)

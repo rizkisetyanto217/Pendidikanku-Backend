@@ -1,15 +1,15 @@
 package controller
 
 import (
-	dto "masjidku_backend/internals/features/school/submissions_assesments/assesments/dto"
-	model "masjidku_backend/internals/features/school/submissions_assesments/assesments/model"
-	helper "masjidku_backend/internals/helpers"
+	dto "schoolku_backend/internals/features/school/submissions_assesments/assesments/dto"
+	model "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
+	helper "schoolku_backend/internals/helpers"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 // GET /assessment-types?active=&q=&limit=&offset=&sort_by=&sort_dir=
@@ -17,8 +17,8 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 	// Pastikan helper slug→id bisa akses DB dari context
 	c.Locals("DB", ctl.DB)
 
-	// 1) Resolve masjid context
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// 1) Resolve school context
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -31,23 +31,23 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 	if mc.ID != uuid.Nil {
 		mid = mc.ID
 	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
 		mid = id
 	} else {
-		return helper.JsonError(c, helperAuth.ErrMasjidContextMissing.Code, helperAuth.ErrMasjidContextMissing.Message)
+		return helper.JsonError(c, helperAuth.ErrSchoolContextMissing.Code, helperAuth.ErrSchoolContextMissing.Message)
 	}
 
-	// 2) Authorize: minimal member masjid (any role)
-	if !helperAuth.UserHasMasjid(c, mid) {
-		return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar pada masjid ini (membership).")
+	// 2) Authorize: minimal member school (any role)
+	if !helperAuth.UserHasSchool(c, mid) {
+		return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar pada school ini (membership).")
 	}
 
 	// 3) Build filter & validate
 	var filt dto.ListAssessmentTypeFilter
-	filt.AssessmentTypeMasjidID = mid
+	filt.AssessmentTypeSchoolID = mid
 
 	// Filters opsional
 	if v := strings.TrimSpace(c.Query("active")); v != "" {
@@ -74,7 +74,7 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 
 	// 4) Query tenant-scoped
 	qry := ctl.DB.Model(&model.AssessmentTypeModel{}).
-		Where("assessment_type_masjid_id = ?", filt.AssessmentTypeMasjidID)
+		Where("assessment_type_school_id = ?", filt.AssessmentTypeSchoolID)
 
 	if filt.Active != nil {
 		qry = qry.Where("assessment_type_is_active = ?", *filt.Active)

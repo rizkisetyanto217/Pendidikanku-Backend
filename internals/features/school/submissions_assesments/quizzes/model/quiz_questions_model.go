@@ -35,7 +35,7 @@ type QuizQuestionModel struct {
 	QuizQuestionQuizID uuid.UUID `gorm:"type:uuid;not null;column:quiz_question_quiz_id;index:idx_qq_quiz_alive,priority:1" json:"quiz_question_quiz_id"`
 
 	// Tenant
-	QuizQuestionMasjidID uuid.UUID `gorm:"type:uuid;not null;column:quiz_question_masjid_id;index:idx_qq_masjid_alive,priority:1" json:"quiz_question_masjid_id"`
+	QuizQuestionSchoolID uuid.UUID `gorm:"type:uuid;not null;column:quiz_question_school_id;index:idx_qq_school_alive,priority:1" json:"quiz_question_school_id"`
 
 	// Jenis soal
 	QuizQuestionType QuizQuestionType `gorm:"type:varchar(8);not null;column:quiz_question_type" json:"quiz_question_type"`

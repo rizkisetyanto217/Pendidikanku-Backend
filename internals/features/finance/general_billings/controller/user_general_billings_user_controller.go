@@ -1,9 +1,9 @@
 package controller
 
 import (
-	dto "masjidku_backend/internals/features/finance/general_billings/dto"
-	model "masjidku_backend/internals/features/finance/general_billings/model"
-	helper "masjidku_backend/internals/helpers"
+	dto "schoolku_backend/internals/features/finance/general_billings/dto"
+	model "schoolku_backend/internals/features/finance/general_billings/model"
+	helper "schoolku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -36,14 +36,14 @@ func (ctl *UserGeneralBillingController) List(c *fiber.Ctx) error {
 	tx := ctl.DB.Model(&model.UserGeneralBilling{})
 
 	// ===== Filters =====
-	if q.MasjidID != nil {
-		tx = tx.Where("user_general_billing_masjid_id = ?", *q.MasjidID)
+	if q.SchoolID != nil {
+		tx = tx.Where("user_general_billing_school_id = ?", *q.SchoolID)
 	}
 	if q.BillingID != nil {
 		tx = tx.Where("user_general_billing_billing_id = ?", *q.BillingID)
 	}
-	if q.MasjidStudentID != nil {
-		tx = tx.Where("user_general_billing_masjid_student_id = ?", *q.MasjidStudentID)
+	if q.SchoolStudentID != nil {
+		tx = tx.Where("user_general_billing_school_student_id = ?", *q.SchoolStudentID)
 	}
 	if q.PayerUserID != nil {
 		tx = tx.Where("user_general_billing_payer_user_id = ?", *q.PayerUserID)

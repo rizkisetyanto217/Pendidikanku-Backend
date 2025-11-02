@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	attDTO "masjidku_backend/internals/features/school/classes/class_attendance_sessions/dto"
-	attModel "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
+	attDTO "schoolku_backend/internals/features/school/classes/class_attendance_sessions/dto"
+	attModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
-	helperOSS "masjidku_backend/internals/helpers/oss"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
+	helperOSS "schoolku_backend/internals/helpers/oss"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -54,19 +54,19 @@ const dateLayout = "2006-01-02"
 // Helpers
 // ===============================
 
-// Pastikan session milik masjid ini (tenant-safe)
+// Pastikan session milik school ini (tenant-safe)
 // NOTE: Tabel session tetap pakai nama lama (class_attendance_sessions)
-func (ctl *StudentAttendanceController) ensureSessionBelongsToMasjid(c *fiber.Ctx, sessionID, masjidID uuid.UUID) error {
+func (ctl *StudentAttendanceController) ensureSessionBelongsToSchool(c *fiber.Ctx, sessionID, schoolID uuid.UUID) error {
 	var count int64
 	if err := ctl.DB.WithContext(c.Context()).
 		Table("class_attendance_sessions").
-		Where("class_attendance_sessions_id = ? AND class_attendance_sessions_masjid_id = ? AND class_attendance_sessions_deleted_at IS NULL",
-			sessionID, masjidID).
+		Where("class_attendance_sessions_id = ? AND class_attendance_sessions_school_id = ? AND class_attendance_sessions_deleted_at IS NULL",
+			sessionID, schoolID).
 		Count(&count).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	if count == 0 {
-		return fiber.NewError(fiber.StatusForbidden, "Session tidak ditemukan/diizinkan untuk masjid ini")
+		return fiber.NewError(fiber.StatusForbidden, "Session tidak ditemukan/diizinkan untuk school ini")
 	}
 	return nil
 }
@@ -93,12 +93,12 @@ POST /student-attendance (WITH URLs)
 */
 func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
-	var masjidID uuid.UUID
+	var schoolID uuid.UUID
 
-	// resolve masjid
-	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureMasjidAccessDKM(c, mc); er == nil {
-			masjidID = id
+	// resolve school
+	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
+			schoolID = id
 		} else {
 			if fe, ok := er.(*fiber.Error); ok {
 				return helper.JsonError(c, fe.Code, fe.Message)
@@ -106,10 +106,10 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
 		}
 	} else {
-		if id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			masjidID = id
+		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+			schoolID = id
 		} else {
-			return helper.JsonError(c, fiber.StatusForbidden, "Scope masjid tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusForbidden, "Scope school tidak ditemukan")
 		}
 	}
 
@@ -146,7 +146,7 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 				}
 				ctx := context.Background()
 				for _, fh := range fhs {
-					publicURL, uerr := helperOSS.UploadAnyToOSS(ctx, oss, masjidID, "student_attendance", fh)
+					publicURL, uerr := helperOSS.UploadAnyToOSS(ctx, oss, schoolID, "student_attendance", fh)
 					if uerr != nil {
 						return uerr
 					}
@@ -191,16 +191,16 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Tenant guard: session harus milik masjid
-	if err := ctl.ensureSessionBelongsToMasjid(c, attReq.SessionID, masjidID); err != nil {
+	// Tenant guard: session harus milik school
+	if err := ctl.ensureSessionBelongsToSchool(c, attReq.SessionID, schoolID); err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Set masjid ke request
-	attReq.MasjidID = masjidID
+	// Set school ke request
+	attReq.SchoolID = schoolID
 
 	// =========================
 	// Transaksi
@@ -218,7 +218,7 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 		}
 
 		// 2) URLs via URLMutations (create only)
-		muts, err := attDTO.BuildURLMutations(m.StudentClassSessionAttendanceID, masjidID, urlOps)
+		muts, err := attDTO.BuildURLMutations(m.StudentClassSessionAttendanceID, schoolID, urlOps)
 		if err != nil {
 			return err
 		}
@@ -270,11 +270,11 @@ Multipart (opsional):
 func (ctl *StudentAttendanceController) Patch(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	// Resolve masjid
-	var masjidID uuid.UUID
-	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureMasjidAccessDKM(c, mc); er == nil {
-			masjidID = id
+	// Resolve school
+	var schoolID uuid.UUID
+	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
+			schoolID = id
 		} else {
 			if fe, ok := er.(*fiber.Error); ok {
 				return helper.JsonError(c, fe.Code, fe.Message)
@@ -282,10 +282,10 @@ func (ctl *StudentAttendanceController) Patch(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
 		}
 	} else {
-		if id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			masjidID = id
+		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+			schoolID = id
 		} else {
-			return helper.JsonError(c, fiber.StatusForbidden, "Scope masjid tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusForbidden, "Scope school tidak ditemukan")
 		}
 	}
 
@@ -311,7 +311,7 @@ func (ctl *StudentAttendanceController) Patch(c *fiber.Ctx) error {
 				}
 				ctx := context.Background()
 				for _, fh := range fhs {
-					publicURL, uerr := helperOSS.UploadAnyToOSS(ctx, oss, masjidID, "student_attendance", fh)
+					publicURL, uerr := helperOSS.UploadAnyToOSS(ctx, oss, schoolID, "student_attendance", fh)
 					if uerr != nil {
 						return uerr
 					}
@@ -357,8 +357,8 @@ func (ctl *StudentAttendanceController) Patch(c *fiber.Ctx) error {
 		var m attModel.StudentClassSessionAttendanceModel
 		q := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("student_class_session_attendance_id = ? AND student_class_session_attendance_deleted_at IS NULL", req.AttendanceID)
-		if masjidID != uuid.Nil {
-			q = q.Where("student_class_session_attendance_masjid_id = ?", masjidID)
+		if schoolID != uuid.Nil {
+			q = q.Where("student_class_session_attendance_school_id = ?", schoolID)
 		}
 		if err := q.First(&m).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -376,7 +376,7 @@ func (ctl *StudentAttendanceController) Patch(c *fiber.Ctx) error {
 		}
 
 		// URL ops → mutations
-		muts, err := attDTO.BuildURLMutations(m.StudentClassSessionAttendanceID, m.StudentClassSessionAttendanceMasjidID, req.URLs)
+		muts, err := attDTO.BuildURLMutations(m.StudentClassSessionAttendanceID, m.StudentClassSessionAttendanceSchoolID, req.URLs)
 		if err != nil {
 			return err
 		}
@@ -439,11 +439,11 @@ func (ctl *StudentAttendanceController) Patch(c *fiber.Ctx) error {
 func (ctl *StudentAttendanceController) Delete(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	// Resolve masjid
-	var masjidID uuid.UUID
-	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureMasjidAccessDKM(c, mc); er == nil {
-			masjidID = id
+	// Resolve school
+	var schoolID uuid.UUID
+	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
+			schoolID = id
 		} else {
 			if fe, ok := er.(*fiber.Error); ok {
 				return helper.JsonError(c, fe.Code, fe.Message)
@@ -451,10 +451,10 @@ func (ctl *StudentAttendanceController) Delete(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
 		}
 	} else {
-		if id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			masjidID = id
+		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+			schoolID = id
 		} else {
-			return helper.JsonError(c, fiber.StatusForbidden, "Scope masjid tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusForbidden, "Scope school tidak ditemukan")
 		}
 	}
 
@@ -473,9 +473,9 @@ func (ctl *StudentAttendanceController) Delete(c *fiber.Ctx) error {
 		Where(`
 			student_class_session_attendance_url_id = ?
 			AND student_class_session_attendance_url_attendance_id = ?
-			AND student_class_session_attendance_url_masjid_id = ?
+			AND student_class_session_attendance_url_school_id = ?
 			AND student_class_session_attendance_url_deleted_at IS NULL
-		`, urlID, attID, masjidID).
+		`, urlID, attID, schoolID).
 		Take(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "URL tidak ditemukan")

@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	model "masjidku_backend/internals/features/finance/general_billings/model"
+	model "schoolku_backend/internals/features/finance/general_billings/model"
 )
 
 /* =========================================================
@@ -40,11 +40,11 @@ func (p *PatchField[T]) UnmarshalJSON(b []byte) error {
 }
 
 /* =========================================================
-   REQUEST: Create (masjid_id optional untuk GLOBAL)
+   REQUEST: Create (school_id optional untuk GLOBAL)
    ========================================================= */
 
 type CreateGeneralBillingRequest struct {
-	GeneralBillingMasjidID *uuid.UUID `json:"general_billing_masjid_id,omitempty"` // NULL = GLOBAL
+	GeneralBillingSchoolID *uuid.UUID `json:"general_billing_school_id,omitempty"` // NULL = GLOBAL
 	GeneralBillingKindID   uuid.UUID  `json:"general_billing_kind_id" validate:"required"`
 
 	GeneralBillingCode  *string `json:"general_billing_code"  validate:"omitempty,max=60"`
@@ -60,7 +60,7 @@ type CreateGeneralBillingRequest struct {
 
 func (r *CreateGeneralBillingRequest) ToModel() (*model.GeneralBilling, error) {
 	gb := &model.GeneralBilling{
-		GeneralBillingMasjidID: r.GeneralBillingMasjidID,
+		GeneralBillingSchoolID: r.GeneralBillingSchoolID,
 		GeneralBillingKindID:   r.GeneralBillingKindID,
 		GeneralBillingCode:     r.GeneralBillingCode,
 		GeneralBillingTitle:    r.GeneralBillingTitle,
@@ -88,7 +88,7 @@ func (r *CreateGeneralBillingRequest) ToModel() (*model.GeneralBilling, error) {
    ========================================================= */
 
 type PatchGeneralBillingRequest struct {
-	GeneralBillingMasjidID PatchField[uuid.UUID] `json:"general_billing_masjid_id"` // null => GLOBAL
+	GeneralBillingSchoolID PatchField[uuid.UUID] `json:"general_billing_school_id"` // null => GLOBAL
 	GeneralBillingKindID   PatchField[uuid.UUID] `json:"general_billing_kind_id"`
 
 	GeneralBillingCode  PatchField[string] `json:"general_billing_code"`
@@ -103,11 +103,11 @@ type PatchGeneralBillingRequest struct {
 
 func (p *PatchGeneralBillingRequest) ApplyTo(gb *model.GeneralBilling) error {
 	// Tenant & Kind
-	if p.GeneralBillingMasjidID.Set {
-		if p.GeneralBillingMasjidID.Null {
-			gb.GeneralBillingMasjidID = nil
+	if p.GeneralBillingSchoolID.Set {
+		if p.GeneralBillingSchoolID.Null {
+			gb.GeneralBillingSchoolID = nil
 		} else {
-			gb.GeneralBillingMasjidID = p.GeneralBillingMasjidID.Value
+			gb.GeneralBillingSchoolID = p.GeneralBillingSchoolID.Value
 		}
 	}
 	if p.GeneralBillingKindID.Set && !p.GeneralBillingKindID.Null {
@@ -170,7 +170,7 @@ func (p *PatchGeneralBillingRequest) ApplyTo(gb *model.GeneralBilling) error {
 type GeneralBillingResponse struct {
 	GeneralBillingID uuid.UUID `json:"general_billing_id"`
 
-	GeneralBillingMasjidID *uuid.UUID `json:"general_billing_masjid_id,omitempty"` // null = GLOBAL
+	GeneralBillingSchoolID *uuid.UUID `json:"general_billing_school_id,omitempty"` // null = GLOBAL
 	GeneralBillingKindID   uuid.UUID  `json:"general_billing_kind_id"`
 
 	GeneralBillingCode  *string `json:"general_billing_code,omitempty"`
@@ -196,7 +196,7 @@ func FromModelGeneralBilling(m *model.GeneralBilling) *GeneralBillingResponse {
 	}
 	return &GeneralBillingResponse{
 		GeneralBillingID:               m.GeneralBillingID,
-		GeneralBillingMasjidID:         m.GeneralBillingMasjidID,
+		GeneralBillingSchoolID:         m.GeneralBillingSchoolID,
 		GeneralBillingKindID:           m.GeneralBillingKindID,
 		GeneralBillingCode:             m.GeneralBillingCode,
 		GeneralBillingTitle:            m.GeneralBillingTitle,

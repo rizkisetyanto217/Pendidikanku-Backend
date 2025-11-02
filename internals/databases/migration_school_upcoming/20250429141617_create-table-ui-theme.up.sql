@@ -27,16 +27,16 @@ CREATE TABLE IF NOT EXISTS ui_theme_presets (
 -- TABLE UI THEME COSTUM PRESETS --
 -- ============================ --
 -- ---------------------------------------------------------
---    - Masjid bisa menyimpan beberapa preset kustom
+--    - School bisa menyimpan beberapa preset kustom
 --    - Boleh "turunan" dari preset sistem: base_preset_id (opsional)
 -- ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ui_theme_custom_presets (
   ui_theme_custom_preset_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  ui_theme_custom_preset_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  ui_theme_custom_preset_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
-  ui_theme_custom_preset_code VARCHAR(64)  NOT NULL,   -- unik per masjid (ex: 'brand-2025')
+  ui_theme_custom_preset_code VARCHAR(64)  NOT NULL,   -- unik per school (ex: 'brand-2025')
   ui_theme_custom_preset_name VARCHAR(128) NOT NULL,
 
   ui_theme_custom_preset_light JSONB NOT NULL,
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS ui_theme_custom_presets (
   ui_theme_custom_preset_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   -- unik per tenant
-  CONSTRAINT ux_custom_preset_tenant_code UNIQUE (ui_theme_custom_preset_masjid_id, ui_theme_custom_preset_code)
+  CONSTRAINT ux_custom_preset_tenant_code UNIQUE (ui_theme_custom_preset_school_id, ui_theme_custom_preset_code)
 );
 
 
@@ -61,15 +61,15 @@ CREATE TABLE IF NOT EXISTS ui_theme_custom_presets (
 -- ============================ --
 -- ---------------------------------------------------------
 -- 3) CHOICES per MASJID (bisa pilih banyak; 1 default)
---    - Satu baris mengaktifkan satu pilihan untuk masjid
+--    - Satu baris mengaktifkan satu pilihan untuk school
 --    - Pilihan bisa dari: preset sistem ATAU custom preset
 --    - Tanpa trigger: pakai CHECK untuk "exactly one"
 -- ---------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ui_theme_choices (
   ui_theme_choice_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  ui_theme_choice_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  ui_theme_choice_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- salah satu harus diisi:
   ui_theme_choice_preset_id UUID
@@ -96,19 +96,19 @@ CREATE TABLE IF NOT EXISTS ui_theme_choices (
 -- 4) Indexes & Constraints
 -- ---------------------------------------------------------
 
--- Cegah duplikat pilihan preset SISTEM per masjid
+-- Cegah duplikat pilihan preset SISTEM per school
 CREATE UNIQUE INDEX IF NOT EXISTS ux_theme_choice_tenant_system_preset
-  ON ui_theme_choices (ui_theme_choice_masjid_id, ui_theme_choice_preset_id)
+  ON ui_theme_choices (ui_theme_choice_school_id, ui_theme_choice_preset_id)
   WHERE ui_theme_choice_preset_id IS NOT NULL;
 
--- Cegah duplikat pilihan preset CUSTOM per masjid
+-- Cegah duplikat pilihan preset CUSTOM per school
 CREATE UNIQUE INDEX IF NOT EXISTS ux_theme_choice_tenant_custom_preset
-  ON ui_theme_choices (ui_theme_choice_masjid_id, ui_theme_choice_custom_preset_id)
+  ON ui_theme_choices (ui_theme_choice_school_id, ui_theme_choice_custom_preset_id)
   WHERE ui_theme_choice_custom_preset_id IS NOT NULL;
 
--- Hanya SATU default per masjid
+-- Hanya SATU default per school
 CREATE UNIQUE INDEX IF NOT EXISTS ux_theme_choice_one_default_per_tenant
-  ON ui_theme_choices (ui_theme_choice_masjid_id)
+  ON ui_theme_choices (ui_theme_choice_school_id)
   WHERE ui_theme_choice_is_default = TRUE;
 
 COMMIT;

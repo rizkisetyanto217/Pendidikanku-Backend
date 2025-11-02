@@ -4,9 +4,9 @@ package controller
 import (
 	"strings"
 
-	dto "masjidku_backend/internals/features/school/others/post/dto"
-	model "masjidku_backend/internals/features/school/others/post/model"
-	helper "masjidku_backend/internals/helpers"
+	dto "schoolku_backend/internals/features/school/others/post/dto"
+	model "schoolku_backend/internals/features/school/others/post/model"
+	helper "schoolku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -18,7 +18,7 @@ import (
 // id, slug (exact, bisa untuk single fetch via list)
 func (ctl *PostController) List(c *fiber.Ctx) error {
 	// auth: minimal member
-	mid, err := resolveMasjidForRead(c, ctl.DB)
+	mid, err := resolveSchoolForRead(c, ctl.DB)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -42,7 +42,7 @@ func (ctl *PostController) List(c *fiber.Ctx) error {
 
 	q := ctl.DB.WithContext(c.Context()).
 		Model(&model.Post{}).
-		Where("post_masjid_id = ? AND post_deleted_at IS NULL", mid)
+		Where("post_school_id = ? AND post_deleted_at IS NULL", mid)
 
 	// exact filters
 	if idStr != "" {

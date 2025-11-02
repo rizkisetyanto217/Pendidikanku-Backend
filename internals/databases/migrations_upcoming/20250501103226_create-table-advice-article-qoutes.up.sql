@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS articles (
   article_image_url   TEXT,
   article_order_id    INT,
 
-  article_masjid_id   UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  article_school_id   UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   article_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   article_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -56,8 +56,8 @@ CREATE TABLE IF NOT EXISTS articles (
 );
 
 
-CREATE INDEX IF NOT EXISTS idx_articles_masjid_active
-  ON articles(article_masjid_id, article_order_id NULLS LAST)
+CREATE INDEX IF NOT EXISTS idx_articles_school_active
+  ON articles(article_school_id, article_order_id NULLS LAST)
   WHERE article_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_articles_created_at

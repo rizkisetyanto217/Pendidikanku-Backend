@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	model "masjidku_backend/internals/features/school/academics/books/model"
+	model "schoolku_backend/internals/features/school/academics/books/model"
 )
 
 /* =========================================
@@ -15,7 +15,7 @@ import (
    ========================================= */
 
 type CreateBookURLRequest struct {
-	BookURLMasjidID uuid.UUID `json:"book_url_masjid_id" validate:"required"`
+	BookURLSchoolID uuid.UUID `json:"book_url_school_id" validate:"required"`
 	BookURLBookID   uuid.UUID `json:"book_url_book_id"   validate:"required"`
 
 	BookURLKind string `json:"book_url_kind" validate:"required,max=24"`
@@ -31,7 +31,7 @@ type CreateBookURLRequest struct {
 
 type PatchBookURLRequest struct {
 	// Semua opsional; dipakai untuk PATCH parsial
-	BookURLMasjidID *uuid.UUID `json:"book_url_masjid_id,omitempty" validate:"omitempty"`
+	BookURLSchoolID *uuid.UUID `json:"book_url_school_id,omitempty" validate:"omitempty"`
 	BookURLBookID   *uuid.UUID `json:"book_url_book_id,omitempty"   validate:"omitempty"`
 
 	BookURLKind *string `json:"book_url_kind,omitempty" validate:"omitempty,max=24"`
@@ -52,7 +52,7 @@ type PatchBookURLRequest struct {
 type BookURLResponse struct {
 	BookURLID uuid.UUID `json:"book_url_id"`
 
-	BookURLMasjidID uuid.UUID `json:"book_url_masjid_id"`
+	BookURLSchoolID uuid.UUID `json:"book_url_school_id"`
 	BookURLBookID   uuid.UUID `json:"book_url_book_id"`
 
 	BookURLKind string  `json:"book_url_kind"`
@@ -77,7 +77,7 @@ type BookURLResponse struct {
 
 func (r CreateBookURLRequest) ToModel() *model.BookURLModel {
 	m := &model.BookURLModel{
-		BookURLMasjidID: r.BookURLMasjidID,
+		BookURLSchoolID: r.BookURLSchoolID,
 		BookURLBookID:   r.BookURLBookID,
 
 		BookURLKind: strings.TrimSpace(r.BookURLKind),
@@ -98,8 +98,8 @@ func (r CreateBookURLRequest) ToModel() *model.BookURLModel {
 }
 
 func (p PatchBookURLRequest) Apply(dst *model.BookURLModel) {
-	if p.BookURLMasjidID != nil {
-		dst.BookURLMasjidID = *p.BookURLMasjidID
+	if p.BookURLSchoolID != nil {
+		dst.BookURLSchoolID = *p.BookURLSchoolID
 	}
 	if p.BookURLBookID != nil {
 		dst.BookURLBookID = *p.BookURLBookID
@@ -140,7 +140,7 @@ func FromBookURLModel(m *model.BookURLModel) BookURLResponse {
 	return BookURLResponse{
 		BookURLID: m.BookURLID,
 
-		BookURLMasjidID: m.BookURLMasjidID,
+		BookURLSchoolID: m.BookURLSchoolID,
 		BookURLBookID:   m.BookURLBookID,
 
 		BookURLKind: m.BookURLKind,

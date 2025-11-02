@@ -23,7 +23,7 @@ type ClassScheduleRuleModel struct {
 	ClassScheduleRuleID uuid.UUID `gorm:"column:class_schedule_rule_id;type:uuid;default:gen_random_uuid();primaryKey" json:"class_schedule_rule_id"`
 
 	// Tenant & header (FK komposit → tenant-safe)
-	ClassScheduleRuleMasjidID   uuid.UUID `gorm:"column:class_schedule_rule_masjid_id;type:uuid;not null" json:"class_schedule_rule_masjid_id"`
+	ClassScheduleRuleSchoolID   uuid.UUID `gorm:"column:class_schedule_rule_school_id;type:uuid;not null" json:"class_schedule_rule_school_id"`
 	ClassScheduleRuleScheduleID uuid.UUID `gorm:"column:class_schedule_rule_schedule_id;type:uuid;not null" json:"class_schedule_rule_schedule_id"`
 
 	// Pola per pekan
@@ -40,7 +40,7 @@ type ClassScheduleRuleModel struct {
 
 	// Default penugasan CSST (tenant-safe, wajib)
 	ClassScheduleRuleCSSTID       uuid.UUID `gorm:"column:class_schedule_rule_csst_id;type:uuid;not null" json:"class_schedule_rule_csst_id"`
-	ClassScheduleRuleCSSTMasjidID uuid.UUID `gorm:"column:class_schedule_rule_csst_masjid_id;type:uuid;not null" json:"class_schedule_rule_csst_masjid_id"`
+	ClassScheduleRuleCSSTSchoolID uuid.UUID `gorm:"column:class_schedule_rule_csst_school_id;type:uuid;not null" json:"class_schedule_rule_csst_school_id"`
 
 	// Snapshot CSST (denormalized)
 	ClassScheduleRuleCSSTSnapshot datatypes.JSONMap `gorm:"column:class_schedule_rule_csst_snapshot;type:jsonb;not null;default:'{}'" json:"class_schedule_rule_csst_snapshot"`

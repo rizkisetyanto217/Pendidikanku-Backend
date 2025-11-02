@@ -6,9 +6,9 @@ package user
 // 	"os"
 // 	"time"
 
-// 	"masjidku_backend/internals/features/users/user/model"
+// 	"schoolku_backend/internals/features/users/user/model"
 
-// 	authHelper "masjidku_backend/internals/features/users/auth/helper"
+// 	authHelper "schoolku_backend/internals/features/users/auth/helper"
 
 // 	"github.com/google/uuid"
 // 	"gorm.io/gorm"

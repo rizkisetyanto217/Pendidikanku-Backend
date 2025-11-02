@@ -1,1 +1,1 @@
-package masjidprofile
+package schoolprofile

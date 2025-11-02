@@ -2,8 +2,8 @@
 package router
 
 import (
-	subjectsController "masjidku_backend/internals/features/school/academics/subjects/controller"
-	masjidkuMiddleware "masjidku_backend/internals/middlewares/features" // ⬅️ tambah ini
+	subjectsController "schoolku_backend/internals/features/school/academics/subjects/controller"
+	schoolkuMiddleware "schoolku_backend/internals/middlewares/features" // ⬅️ tambah ini
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -14,16 +14,16 @@ Admin routes: full CRUD
 Contoh mount: SubjectAdminRoutes(app.Group("/api/a"), db)
 
 Final paths yang didukung:
-- /api/a/:masjid_id/subjects ...
-- /api/a/:masjid_slug/subjects ...
+- /api/a/:school_id/subjects ...
+- /api/a/:school_slug/subjects ...
 */
 func SubjectAdminRoutes(r fiber.Router, db *gorm.DB) {
 	subjectCtl := &subjectsController.SubjectsController{DB: db}
 	classSubjectCtl := &subjectsController.ClassSubjectController{DB: db}
 
-	// ====== BASE: by masjid_id ======
-	baseByID := r.Group("/:masjid_id",
-		masjidkuMiddleware.IsMasjidAdmin(), // guard DKM/admin
+	// ====== BASE: by school_id ======
+	baseByID := r.Group("/:school_id",
+		schoolkuMiddleware.IsSchoolAdmin(), // guard DKM/admin
 	)
 
 	subjectsByID := baseByID.Group("/subjects")
@@ -36,10 +36,10 @@ func SubjectAdminRoutes(r fiber.Router, db *gorm.DB) {
 	classSubjectsByID.Patch("/:id", classSubjectCtl.Update)
 	classSubjectsByID.Delete("/:id", classSubjectCtl.Delete)
 
-	// ====== BASE: by masjid_slug (opsional, kalau mau dukung subdomain/slug) ======
-	baseBySlug := r.Group("/:masjid_slug",
-		masjidkuMiddleware.UseMasjidScope(),
-		masjidkuMiddleware.IsMasjidAdmin(),
+	// ====== BASE: by school_slug (opsional, kalau mau dukung subdomain/slug) ======
+	baseBySlug := r.Group("/:school_slug",
+		schoolkuMiddleware.UseSchoolScope(),
+		schoolkuMiddleware.IsSchoolAdmin(),
 	)
 
 	subjectsBySlug := baseBySlug.Group("/subjects")

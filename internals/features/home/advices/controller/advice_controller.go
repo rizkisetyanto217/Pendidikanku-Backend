@@ -4,9 +4,9 @@ import (
 	"math"
 	"strconv"
 
-	"masjidku_backend/internals/features/home/advices/dto"
-	"masjidku_backend/internals/features/home/advices/model"
-	helper "masjidku_backend/internals/helpers"
+	"schoolku_backend/internals/features/home/advices/dto"
+	"schoolku_backend/internals/features/home/advices/model"
+	helper "schoolku_backend/internals/helpers"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -61,8 +61,12 @@ func (ctrl *AdviceController) CreateAdvice(c *fiber.Ctx) error {
 func (ctrl *AdviceController) GetAllAdvices(c *fiber.Ctx) error {
 	page := parseIntDefault(c.Query("page"), 1)
 	limit := parseIntDefault(c.Query("limit"), 10)
-	if limit <= 0 { limit = 10 }
-	if limit > 100 { limit = 100 }
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
 	offset := (page - 1) * limit
 
 	var total int64
@@ -106,8 +110,12 @@ func (ctrl *AdviceController) GetAdvicesByLectureID(c *fiber.Ctx) error {
 
 	page := parseIntDefault(c.Query("page"), 1)
 	limit := parseIntDefault(c.Query("limit"), 10)
-	if limit <= 0 { limit = 10 }
-	if limit > 100 { limit = 100 }
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
 	offset := (page - 1) * limit
 
 	var total int64
@@ -155,8 +163,12 @@ func (ctrl *AdviceController) GetAdvicesByUserID(c *fiber.Ctx) error {
 
 	page := parseIntDefault(c.Query("page"), 1)
 	limit := parseIntDefault(c.Query("limit"), 10)
-	if limit <= 0 { limit = 10 }
-	if limit > 100 { limit = 100 }
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
 	offset := (page - 1) * limit
 
 	var total int64

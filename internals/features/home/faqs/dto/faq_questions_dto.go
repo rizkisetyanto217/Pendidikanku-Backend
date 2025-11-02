@@ -1,7 +1,7 @@
 package dto
 
 import (
-	"masjidku_backend/internals/features/home/faqs/model"
+	"schoolku_backend/internals/features/home/faqs/model"
 	"time"
 )
 

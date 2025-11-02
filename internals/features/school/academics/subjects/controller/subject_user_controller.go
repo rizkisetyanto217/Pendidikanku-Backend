@@ -3,10 +3,10 @@ package controller
 
 import (
 	"errors"
-	subjectDTO "masjidku_backend/internals/features/school/academics/subjects/dto"
-	subjectModel "masjidku_backend/internals/features/school/academics/subjects/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	subjectDTO "schoolku_backend/internals/features/school/academics/subjects/dto"
+	subjectModel "schoolku_backend/internals/features/school/academics/subjects/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -24,28 +24,28 @@ import (
 	=========================================================
 */
 func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
-	// === Masjid context (PUBLIC): no role check ===
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// === School context (PUBLIC): no role check ===
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		// sudah fiber.Error yang proper (bad request kalau kosong)
 		return err
 	}
 
-	var masjidID uuid.UUID
+	var schoolID uuid.UUID
 	if mc.ID != uuid.Nil {
-		masjidID = mc.ID
+		schoolID = mc.ID
 	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil {
 			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+				return fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
 			}
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal resolve masjid dari slug")
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal resolve school dari slug")
 		}
-		masjidID = id
+		schoolID = id
 	} else {
 		// fallback bila resolver benar-benar tak menemukan konteks
-		return helperAuth.ErrMasjidContextMissing
+		return helperAuth.ErrSchoolContextMissing
 	}
 
 	// --- Query params & defaults ---
@@ -64,7 +64,7 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 
 	// --- Base query (tenant + soft delete by default) ---
 	tx := h.DB.Model(&subjectModel.SubjectModel{}).
-		Where("subject_masjid_id = ?", masjidID)
+		Where("subject_school_id = ?", schoolID)
 
 	// exclude soft-deleted by default
 	if q.WithDeleted == nil || !*q.WithDeleted {
@@ -117,7 +117,7 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 	if err := tx.
 		Select(`
 			subject_id,
-			subject_masjid_id,
+			subject_school_id,
 			subject_code,
 			subject_name,
 			subject_desc,

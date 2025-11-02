@@ -5,9 +5,9 @@ import (
 	"strconv"
 	"time"
 
-	"masjidku_backend/internals/features/home/articles/dto"
-	"masjidku_backend/internals/features/home/articles/model"
-	helper "masjidku_backend/internals/helpers"
+	"schoolku_backend/internals/features/home/articles/dto"
+	"schoolku_backend/internals/features/home/articles/model"
+	helper "schoolku_backend/internals/helpers"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -41,9 +41,9 @@ func (ctrl *ArticleController) CreateArticle(c *fiber.Ctx) error {
 		ArticleDescription: body.ArticleDescription,
 		ArticleImageURL:    body.ArticleImageURL,
 		ArticleOrderID:     body.ArticleOrderID,
-		// NOTE: kalau tabel articles mewajibkan article_masjid_id,
+		// NOTE: kalau tabel articles mewajibkan article_school_id,
 		// pastikan body/DTO-mu memuatnya dan set di sini.
-		// ArticleMasjidID: body.ArticleMasjidID,
+		// ArticleSchoolID: body.ArticleSchoolID,
 	}
 
 	if err := ctrl.DB.Create(&article).Error; err != nil {
@@ -109,8 +109,12 @@ func (ctrl *ArticleController) DeleteArticle(c *fiber.Ctx) error {
 func (ctrl *ArticleController) GetAllArticles(c *fiber.Ctx) error {
 	page := parseIntDefault(c.Query("page"), 1)
 	limit := parseIntDefault(c.Query("limit"), 10)
-	if limit <= 0 { limit = 10 }
-	if limit > 100 { limit = 100 }
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
 	offset := (page - 1) * limit
 
 	var total int64

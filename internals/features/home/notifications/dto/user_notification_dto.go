@@ -1,7 +1,7 @@
 package dto
 
 import (
-	"masjidku_backend/internals/features/home/notifications/model"
+	"schoolku_backend/internals/features/home/notifications/model"
 	"time"
 
 	"github.com/google/uuid"
@@ -11,7 +11,7 @@ import (
 type NotificationUserRequest struct {
 	NotificationID uuid.UUID  `json:"notification_users_notification_id"`
 	UserID         uuid.UUID  `json:"notification_users_user_id"`
-	MasjidID       uuid.UUID  `json:"notification_users_masjid_id"` // ✅ Ditambahkan
+	SchoolID       uuid.UUID  `json:"notification_users_school_id"` // ✅ Ditambahkan
 	Read           bool       `json:"notification_users_read"`
 	ReadAt         *time.Time `json:"notification_users_read_at,omitempty"` // opsional
 }
@@ -21,7 +21,7 @@ type NotificationUserResponse struct {
 	ID             uuid.UUID `json:"notification_users_id"`
 	NotificationID uuid.UUID `json:"notification_users_notification_id"`
 	UserID         uuid.UUID `json:"notification_users_user_id"`
-	MasjidID       uuid.UUID `json:"notification_users_masjid_id"` // ✅ Ditambahkan
+	SchoolID       uuid.UUID `json:"notification_users_school_id"` // ✅ Ditambahkan
 	Read           bool      `json:"notification_users_read"`
 	SentAt         string    `json:"notification_users_sent_at"`
 	ReadAt         *string   `json:"notification_users_read_at,omitempty"`
@@ -32,7 +32,7 @@ func (r *NotificationUserRequest) ToModel() *model.NotificationUserModel {
 	return &model.NotificationUserModel{
 		NotificationUserNotificationID: r.NotificationID,
 		NotificationUserUserID:         r.UserID,
-		NotificationUserMasjidID:       r.MasjidID,
+		NotificationUserSchoolID:       r.SchoolID,
 		NotificationUserRead:           r.Read,
 		NotificationUserReadAt:         r.ReadAt,
 	}
@@ -50,7 +50,7 @@ func ToNotificationUserResponse(m *model.NotificationUserModel) *NotificationUse
 		ID:             m.NotificationUserID,
 		NotificationID: m.NotificationUserNotificationID,
 		UserID:         m.NotificationUserUserID,
-		MasjidID:       m.NotificationUserMasjidID,
+		SchoolID:       m.NotificationUserSchoolID,
 		Read:           m.NotificationUserRead,
 		SentAt:         m.NotificationUserSentAt.Format("2006-01-02 15:04:05"),
 		ReadAt:         readAt,

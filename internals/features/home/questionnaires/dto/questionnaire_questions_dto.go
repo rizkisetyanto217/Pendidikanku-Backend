@@ -1,7 +1,7 @@
 package dto
 
 import (
-	"masjidku_backend/internals/features/home/questionnaires/model"
+	"schoolku_backend/internals/features/home/questionnaires/model"
 	"time"
 )
 
@@ -33,13 +33,12 @@ type CreateQuestionnaireQuestionRequest struct {
 
 type UpdateQuestionnaireQuestionRequest struct {
 	QuestionText     *string   `json:"question_text,omitempty"`
-	QuestionType     *int      `json:"question_type,omitempty"`                 // 1=rating, 2=text, 3=choice
-	QuestionOptions  *[]string `json:"question_options,omitempty"`              // wajib kalau type==3
-	EventID          *string   `json:"event_id,omitempty"`                      // wajib jika scope=2
-	LectureSessionID *string   `json:"lecture_session_id,omitempty"`            // wajib jika scope=3
-	QuestionScope    *int      `json:"question_scope,omitempty"`                // 1=general, 2=event, 3=lecture
+	QuestionType     *int      `json:"question_type,omitempty"`      // 1=rating, 2=text, 3=choice
+	QuestionOptions  *[]string `json:"question_options,omitempty"`   // wajib kalau type==3
+	EventID          *string   `json:"event_id,omitempty"`           // wajib jika scope=2
+	LectureSessionID *string   `json:"lecture_session_id,omitempty"` // wajib jika scope=3
+	QuestionScope    *int      `json:"question_scope,omitempty"`     // 1=general, 2=event, 3=lecture
 }
-
 
 // =============================
 // 🔁 Converters

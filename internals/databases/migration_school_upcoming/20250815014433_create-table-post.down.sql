@@ -42,8 +42,8 @@ DROP TABLE IF EXISTS post_themes;
 -- DROP INDEX IF EXISTS ix_class_sections_tenant_alive;
 -- DROP INDEX IF EXISTS ix_class_sections_tenant_active;
 
--- DROP INDEX IF EXISTS uq_masjid_teachers_id_tenant;
--- DROP INDEX IF EXISTS ix_masjid_teachers_alive;
+-- DROP INDEX IF EXISTS uq_school_teachers_id_tenant;
+-- DROP INDEX IF EXISTS ix_school_teachers_alive;
 
 -- Catatan:
 -- - Extensions (pgcrypto, pg_trgm) tidak perlu di-DROP di Down.

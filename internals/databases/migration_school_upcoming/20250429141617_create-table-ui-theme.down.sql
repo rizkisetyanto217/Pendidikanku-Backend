@@ -12,7 +12,7 @@ DROP INDEX IF EXISTS ux_theme_choice_tenant_system_preset;
 DROP TABLE IF EXISTS ui_theme_choices;
 
 -- 2) MIDDLE: ui_theme_custom_presets
--- (punya FK ke masjids dan ui_theme_presets)
+-- (punya FK ke schools dan ui_theme_presets)
 -- (index unique ux_custom_preset_tenant_code ikut terhapus)
 DROP TABLE IF EXISTS ui_theme_custom_presets;
 

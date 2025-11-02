@@ -2,9 +2,9 @@
 package details
 
 import (
-	BillingRoute "masjidku_backend/internals/features/finance/billings/routes"
-	GeneralBillingRoute "masjidku_backend/internals/features/finance/general_billings/route"
-	PaymentRoute "masjidku_backend/internals/features/finance/payments/route"
+	BillingRoute "schoolku_backend/internals/features/finance/billings/routes"
+	GeneralBillingRoute "schoolku_backend/internals/features/finance/general_billings/route"
+	PaymentRoute "schoolku_backend/internals/features/finance/payments/route"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"

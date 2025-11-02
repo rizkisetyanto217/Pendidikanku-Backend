@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	model "masjidku_backend/internals/features/school/submissions_assesments/assesments/model"
+	model "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
 
 	"github.com/google/uuid"
 )
@@ -16,7 +16,7 @@ import (
 
 type CreateAssessmentRequest struct {
 	// Tenant (diisi dari context di controller)
-	AssessmentMasjidID uuid.UUID `json:"assessment_masjid_id" validate:"required"`
+	AssessmentSchoolID uuid.UUID `json:"assessment_school_id" validate:"required"`
 
 	// Relasi
 	AssessmentClassSectionSubjectTeacherID *uuid.UUID `json:"assessment_class_section_subject_teacher_id" validate:"omitempty,uuid"`
@@ -97,7 +97,7 @@ func (r CreateAssessmentRequest) ToModel() model.AssessmentModel {
 	}
 
 	return model.AssessmentModel{
-		AssessmentMasjidID:                     r.AssessmentMasjidID,
+		AssessmentSchoolID:                     r.AssessmentSchoolID,
 		AssessmentClassSectionSubjectTeacherID: r.AssessmentClassSectionSubjectTeacherID,
 		AssessmentTypeID:                       r.AssessmentTypeID,
 
@@ -257,7 +257,7 @@ func (p PatchAssessmentRequest) Apply(m *model.AssessmentModel) {
 
 type AssessmentResponse struct {
 	AssessmentID                           uuid.UUID  `json:"assessment_id"`
-	AssessmentMasjidID                     uuid.UUID  `json:"assessment_masjid_id"`
+	AssessmentSchoolID                     uuid.UUID  `json:"assessment_school_id"`
 	AssessmentClassSectionSubjectTeacherID *uuid.UUID `json:"assessment_class_section_subject_teacher_id,omitempty"`
 	AssessmentTypeID                       *uuid.UUID `json:"assessment_type_id,omitempty"`
 
@@ -341,7 +341,7 @@ func FromModelAssesment(m model.AssessmentModel) AssessmentResponse {
 
 	return AssessmentResponse{
 		AssessmentID:                           m.AssessmentID,
-		AssessmentMasjidID:                     m.AssessmentMasjidID,
+		AssessmentSchoolID:                     m.AssessmentSchoolID,
 		AssessmentClassSectionSubjectTeacherID: m.AssessmentClassSectionSubjectTeacherID,
 		AssessmentTypeID:                       m.AssessmentTypeID,
 

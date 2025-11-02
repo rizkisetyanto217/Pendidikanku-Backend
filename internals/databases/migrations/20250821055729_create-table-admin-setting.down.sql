@@ -11,8 +11,8 @@ ALTER TABLE class_attendance_settings
   DROP CONSTRAINT IF EXISTS fk_cas_updated_by;
 
 -- 3) Hapus index (unik & non-unik)
-DROP INDEX IF EXISTS uq_cas_masjid_unique;
-DROP INDEX IF EXISTS idx_cas_masjid_id;
+DROP INDEX IF EXISTS uq_cas_school_unique;
+DROP INDEX IF EXISTS idx_cas_school_id;
 DROP INDEX IF EXISTS idx_cas_deleted_at;
 
 -- 4) Terakhir: drop tabel

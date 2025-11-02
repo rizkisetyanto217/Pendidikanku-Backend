@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	// ganti path sesuai modelmu
-	billing "masjidku_backend/internals/features/finance/billings/model"
+	billing "schoolku_backend/internals/features/finance/billings/model"
 )
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -16,12 +16,12 @@ import (
 ////////////////////////////////////////////////////////////////////////////////
 
 // Create: wajib isi salah satu -> ClassID ATAU SectionID
-// NOTE: Controller akan override BillBatchMasjidID dari :masjid_id path.
+// NOTE: Controller akan override BillBatchSchoolID dari :school_id path.
 // Aturan:
 // - PERIODIC  => option_code kosong => month & year WAJIB
 // - ONE-OFF   => option_code terisi => month & year OPSIONAL
 type BillBatchCreateDTO struct {
-	BillBatchMasjidID uuid.UUID `json:"bill_batch_masjid_id" validate:"required"`
+	BillBatchSchoolID uuid.UUID `json:"bill_batch_school_id" validate:"required"`
 
 	BillBatchClassID   *uuid.UUID `json:"bill_batch_class_id,omitempty"`
 	BillBatchSectionID *uuid.UUID `json:"bill_batch_section_id,omitempty"`
@@ -64,7 +64,7 @@ type BillBatchUpdateDTO struct {
 // Response — gunakan pointer untuk YM agar null merefleksikan one-off tanpa YM
 type BillBatchResponse struct {
 	BillBatchID        uuid.UUID  `json:"bill_batch_id"`
-	BillBatchMasjidID  uuid.UUID  `json:"bill_batch_masjid_id"`
+	BillBatchSchoolID  uuid.UUID  `json:"bill_batch_school_id"`
 	BillBatchClassID   *uuid.UUID `json:"bill_batch_class_id,omitempty"`
 	BillBatchSectionID *uuid.UUID `json:"bill_batch_section_id,omitempty"`
 
@@ -98,7 +98,7 @@ type BillBatchResponse struct {
 func ToBillBatchResponse(m billing.BillBatch) BillBatchResponse {
 	return BillBatchResponse{
 		BillBatchID:                   m.BillBatchID,
-		BillBatchMasjidID:             m.BillBatchMasjidID,
+		BillBatchSchoolID:             m.BillBatchSchoolID,
 		BillBatchClassID:              m.BillBatchClassID,
 		BillBatchSectionID:            m.BillBatchSectionID,
 		BillBatchMonth:                m.BillBatchMonth,
@@ -125,7 +125,7 @@ func ToBillBatchResponse(m billing.BillBatch) BillBatchResponse {
 // CreateDTO -> Model
 func BillBatchCreateDTOToModel(d BillBatchCreateDTO) billing.BillBatch {
 	return billing.BillBatch{
-		BillBatchMasjidID:             d.BillBatchMasjidID,
+		BillBatchSchoolID:             d.BillBatchSchoolID,
 		BillBatchClassID:              d.BillBatchClassID,
 		BillBatchSectionID:            d.BillBatchSectionID,
 		BillBatchMonth:                d.BillBatchMonth,

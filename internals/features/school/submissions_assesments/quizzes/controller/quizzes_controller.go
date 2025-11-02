@@ -9,10 +9,10 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "masjidku_backend/internals/features/school/submissions_assesments/quizzes/dto"
-	model "masjidku_backend/internals/features/school/submissions_assesments/quizzes/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	dto "schoolku_backend/internals/features/school/submissions_assesments/quizzes/dto"
+	model "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 type QuizController struct {
@@ -59,8 +59,8 @@ func applyFiltersQuizzes(db *gorm.DB, q *dto.ListQuizzesQuery) *gorm.DB {
 	if q.ID != nil && *q.ID != uuid.Nil {
 		db = db.Where("quiz_id = ?", *q.ID)
 	}
-	if q.MasjidID != nil && *q.MasjidID != uuid.Nil {
-		db = db.Where("quiz_masjid_id = ?", *q.MasjidID)
+	if q.SchoolID != nil && *q.SchoolID != uuid.Nil {
+		db = db.Where("quiz_school_id = ?", *q.SchoolID)
 	}
 	if q.AssessmentID != nil && *q.AssessmentID != uuid.Nil {
 		db = db.Where("quiz_assessment_id = ?", *q.AssessmentID)
@@ -81,8 +81,8 @@ func applyFiltersQuizzes(db *gorm.DB, q *dto.ListQuizzesQuery) *gorm.DB {
 func preloadQuestions(tx *gorm.DB, q *dto.ListQuizzesQuery) *gorm.DB {
 	return tx.Preload("Questions", func(db *gorm.DB) *gorm.DB {
 		db = db.Where("quiz_questions_deleted_at IS NULL")
-		if q.MasjidID != nil && *q.MasjidID != uuid.Nil {
-			db = db.Where("quiz_questions_masjid_id = ?", *q.MasjidID)
+		if q.SchoolID != nil && *q.SchoolID != uuid.Nil {
+			db = db.Where("quiz_questions_school_id = ?", *q.SchoolID)
 		}
 		switch strings.ToLower(strings.TrimSpace(q.QuestionsOrder)) {
 		case "created_at":
@@ -101,11 +101,11 @@ func preloadQuestions(tx *gorm.DB, q *dto.ListQuizzesQuery) *gorm.DB {
    Auth helper (DKM/Admin ATAU Teacher)
 ======================= */
 
-func resolveMasjidForDKMOrTeacher(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) {
-	// injek DB agar GetMasjidIDBySlug bisa jalan
+func resolveSchoolForDKMOrTeacher(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) {
+	// injek DB agar GetSchoolIDBySlug bisa jalan
 	c.Locals("DB", db)
 
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -114,26 +114,26 @@ func resolveMasjidForDKMOrTeacher(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) 
 	if mc.ID != uuid.Nil {
 		mid = mc.ID
 	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil || id == uuid.Nil {
-			return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
 		mid = id
 	} else {
-		return uuid.Nil, helperAuth.ErrMasjidContextMissing
+		return uuid.Nil, helperAuth.ErrSchoolContextMissing
 	}
 
 	// 1) DKM/Admin?
-	if err := helperAuth.EnsureDKMMasjid(c, mid); err == nil {
+	if err := helperAuth.EnsureDKMSchool(c, mid); err == nil {
 		return mid, nil
 	}
-	// 2) Teacher pada masjid ini?
-	if _, err := helperAuth.GetMasjidTeacherIDForMasjid(c, mid); err == nil {
+	// 2) Teacher pada school ini?
+	if _, err := helperAuth.GetSchoolTeacherIDForSchool(c, mid); err == nil {
 		return mid, nil
 	}
 
 	// 3) gagal
-	return uuid.Nil, helperAuth.ErrMasjidContextForbidden
+	return uuid.Nil, helperAuth.ErrSchoolContextForbidden
 }
 
 /* =======================
@@ -150,15 +150,15 @@ func (ctrl *QuizController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// 🔐 Force masjid scope (DKM/Teacher)
-	mid, err := resolveMasjidForDKMOrTeacher(c, ctrl.DB)
+	// 🔐 Force school scope (DKM/Teacher)
+	mid, err := resolveSchoolForDKMOrTeacher(c, ctrl.DB)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	body.QuizMasjidID = mid
+	body.QuizSchoolID = mid
 
 	// Build model dari DTO
 	m := body.ToModel()
@@ -177,7 +177,7 @@ func (ctrl *QuizController) Create(c *fiber.Ctx) error {
 		"quiz_slug",
 		base,
 		func(q *gorm.DB) *gorm.DB {
-			return q.Where("quiz_masjid_id = ? AND quiz_deleted_at IS NULL", mid)
+			return q.Where("quiz_school_id = ? AND quiz_deleted_at IS NULL", mid)
 		},
 		160,
 	)
@@ -201,7 +201,7 @@ func (ctrl *QuizController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	mid, err := resolveMasjidForDKMOrTeacher(c, ctrl.DB)
+	mid, err := resolveSchoolForDKMOrTeacher(c, ctrl.DB)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -211,7 +211,7 @@ func (ctrl *QuizController) Patch(c *fiber.Ctx) error {
 
 	var m model.QuizModel
 	if err := ctrl.DB.WithContext(c.Context()).
-		First(&m, "quiz_id = ? AND quiz_masjid_id = ?", id, mid).Error; err != nil {
+		First(&m, "quiz_id = ? AND quiz_school_id = ?", id, mid).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return helper.JsonError(c, fiber.StatusNotFound, "Quiz tidak ditemukan")
 		}
@@ -242,7 +242,7 @@ func (ctrl *QuizController) Patch(c *fiber.Ctx) error {
 				"quiz_slug",
 				base,
 				func(q *gorm.DB) *gorm.DB {
-					return q.Where("quiz_masjid_id = ? AND quiz_deleted_at IS NULL AND quiz_id <> ?", mid, id)
+					return q.Where("quiz_school_id = ? AND quiz_deleted_at IS NULL AND quiz_id <> ?", mid, id)
 				},
 				160,
 			)
@@ -259,14 +259,14 @@ func (ctrl *QuizController) Patch(c *fiber.Ctx) error {
 
 	if err := ctrl.DB.WithContext(c.Context()).
 		Model(&m).
-		Where("quiz_id = ? AND quiz_masjid_id = ?", id, mid).
+		Where("quiz_id = ? AND quiz_school_id = ?", id, mid).
 		Updates(updates).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	// reload
 	if err := ctrl.DB.WithContext(c.Context()).
-		First(&m, "quiz_id = ? AND quiz_masjid_id = ?", id, mid).Error; err != nil {
+		First(&m, "quiz_id = ? AND quiz_school_id = ?", id, mid).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
@@ -280,7 +280,7 @@ func (ctrl *QuizController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	mid, err := resolveMasjidForDKMOrTeacher(c, ctrl.DB)
+	mid, err := resolveSchoolForDKMOrTeacher(c, ctrl.DB)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -291,7 +291,7 @@ func (ctrl *QuizController) Delete(c *fiber.Ctx) error {
 	var m model.QuizModel
 	if err := ctrl.DB.WithContext(c.Context()).
 		Select("quiz_id").
-		First(&m, "quiz_id = ? AND quiz_masjid_id = ?", id, mid).Error; err != nil {
+		First(&m, "quiz_id = ? AND quiz_school_id = ?", id, mid).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return helper.JsonError(c, fiber.StatusNotFound, "Quiz tidak ditemukan")
 		}

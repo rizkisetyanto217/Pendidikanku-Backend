@@ -11,7 +11,7 @@ import (
 type SubjectModel struct {
 	// PK & tenant
 	SubjectID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:subject_id"         json:"subject_id"`
-	SubjectMasjidID uuid.UUID `gorm:"type:uuid;not null;column:subject_masjid_id"                              json:"subject_masjid_id"`
+	SubjectSchoolID uuid.UUID `gorm:"type:uuid;not null;column:subject_school_id"                              json:"subject_school_id"`
 
 	// Identitas
 	SubjectCode string  `gorm:"type:varchar(40);not null;column:subject_code"     json:"subject_code"`

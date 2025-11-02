@@ -11,11 +11,11 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
-	d "masjidku_backend/internals/features/school/classes/class_schedules/dto"
-	m "masjidku_backend/internals/features/school/classes/class_schedules/model" // mengikuti DTO kamu
+	d "schoolku_backend/internals/features/school/classes/class_schedules/dto"
+	m "schoolku_backend/internals/features/school/classes/class_schedules/model" // mengikuti DTO kamu
 )
 
 /* =========================
@@ -36,23 +36,23 @@ func NewSchoolHoliday(db *gorm.DB, v *validator.Validate) *SchoolHolidayControll
    ========================= */
 
 /* =========================
-   Create  (OWNER or DKM/Admin Masjid)
-   Path: POST /:masjid_id/holidays/school
+   Create  (OWNER or DKM/Admin School)
+   Path: POST /:school_id/holidays/school
    ========================= */
 
 func (ctl *SchoolHolidayController) Create(c *fiber.Ctx) error {
-	masjidID, err := parseUUIDParam(c, "masjid_id")
+	schoolID, err := parseUUIDParam(c, "school_id")
 	if err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
-	// owner bypass, selain itu wajib DKM/Admin masjid tsb
+	// owner bypass, selain itu wajib DKM/Admin school tsb
 	if !helperAuth.IsOwner(c) {
-		if er := helperAuth.EnsureDKMMasjid(c, masjidID); er != nil {
+		if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
 			return er
 		}
 	}
 
-	var req d.CreateMasjidHolidayRequest
+	var req d.CreateSchoolHolidayRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
@@ -62,7 +62,7 @@ func (ctl *SchoolHolidayController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	model, err := req.ToModel(masjidID)
+	model, err := req.ToModel(schoolID)
 	if err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
@@ -71,21 +71,21 @@ func (ctl *SchoolHolidayController) Create(c *fiber.Ctx) error {
 		return writePGError(c, err)
 	}
 
-	return helper.JsonCreated(c, "School holiday created", d.FromModelMasjidHoliday(model))
+	return helper.JsonCreated(c, "School holiday created", d.FromModelSchoolHoliday(model))
 }
 
 /* =========================
-   Patch  (OWNER or DKM/Admin Masjid)
-   Path: PATCH /:masjid_id/holidays/school/:id
+   Patch  (OWNER or DKM/Admin School)
+   Path: PATCH /:school_id/holidays/school/:id
    ========================= */
 
 func (ctl *SchoolHolidayController) Patch(c *fiber.Ctx) error {
-	masjidID, err := parseUUIDParam(c, "masjid_id")
+	schoolID, err := parseUUIDParam(c, "school_id")
 	if err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 	if !helperAuth.IsOwner(c) {
-		if er := helperAuth.EnsureDKMMasjid(c, masjidID); er != nil {
+		if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
 			return er
 		}
 	}
@@ -95,9 +95,9 @@ func (ctl *SchoolHolidayController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	var existing m.MasjidHoliday
+	var existing m.SchoolHoliday
 	if err := ctl.DB.
-		Where("masjid_holiday_id = ? AND masjid_holiday_masjid_id = ? AND masjid_holiday_deleted_at IS NULL", id, masjidID).
+		Where("school_holiday_id = ? AND school_holiday_school_id = ? AND school_holiday_deleted_at IS NULL", id, schoolID).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "school holiday not found")
@@ -105,7 +105,7 @@ func (ctl *SchoolHolidayController) Patch(c *fiber.Ctx) error {
 		return writePGError(c, err)
 	}
 
-	var req d.PatchMasjidHolidayRequest
+	var req d.PatchSchoolHolidayRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
@@ -119,21 +119,21 @@ func (ctl *SchoolHolidayController) Patch(c *fiber.Ctx) error {
 		return writePGError(c, err)
 	}
 
-	return helper.JsonUpdated(c, "School holiday updated", d.FromModelMasjidHoliday(&existing))
+	return helper.JsonUpdated(c, "School holiday updated", d.FromModelSchoolHoliday(&existing))
 }
 
 /* =========================
-   Delete (soft)  (OWNER or DKM/Admin Masjid)
-   Path: DELETE /:masjid_id/holidays/school/:id
+   Delete (soft)  (OWNER or DKM/Admin School)
+   Path: DELETE /:school_id/holidays/school/:id
    ========================= */
 
 func (ctl *SchoolHolidayController) Delete(c *fiber.Ctx) error {
-	masjidID, err := parseUUIDParam(c, "masjid_id")
+	schoolID, err := parseUUIDParam(c, "school_id")
 	if err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 	if !helperAuth.IsOwner(c) {
-		if er := helperAuth.EnsureDKMMasjid(c, masjidID); er != nil {
+		if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
 			return er
 		}
 	}
@@ -143,9 +143,9 @@ func (ctl *SchoolHolidayController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	var existing m.MasjidHoliday
+	var existing m.SchoolHoliday
 	if err := ctl.DB.
-		Where("masjid_holiday_id = ? AND masjid_holiday_masjid_id = ? AND masjid_holiday_deleted_at IS NULL", id, masjidID).
+		Where("school_holiday_id = ? AND school_holiday_school_id = ? AND school_holiday_deleted_at IS NULL", id, schoolID).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "school holiday not found")
@@ -162,11 +162,11 @@ func (ctl *SchoolHolidayController) Delete(c *fiber.Ctx) error {
 
 /* =========================
    Get By ID  (PUBLIC)
-   Path: GET /:masjid_id/holidays/school/:id
+   Path: GET /:school_id/holidays/school/:id
    ========================= */
 
 func (ctl *SchoolHolidayController) GetByID(c *fiber.Ctx) error {
-	masjidID, err := parseUUIDParam(c, "masjid_id")
+	schoolID, err := parseUUIDParam(c, "school_id")
 	if err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
@@ -175,9 +175,9 @@ func (ctl *SchoolHolidayController) GetByID(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	var row m.MasjidHoliday
+	var row m.SchoolHoliday
 	if err := ctl.DB.
-		Where("masjid_holiday_id = ? AND masjid_holiday_masjid_id = ? AND masjid_holiday_deleted_at IS NULL", id, masjidID).
+		Where("school_holiday_id = ? AND school_holiday_school_id = ? AND school_holiday_deleted_at IS NULL", id, schoolID).
 		First(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "school holiday not found")
@@ -185,22 +185,22 @@ func (ctl *SchoolHolidayController) GetByID(c *fiber.Ctx) error {
 		return writePGError(c, err)
 	}
 
-	return helper.JsonOK(c, "OK", d.FromModelMasjidHoliday(&row))
+	return helper.JsonOK(c, "OK", d.FromModelSchoolHoliday(&row))
 }
 
 /* =========================
    List (index)  (PUBLIC)
-   Path: GET /:masjid_id/holidays/school
+   Path: GET /:school_id/holidays/school
    Query: ?date_from&date_to&only_active&q&limit&offset
    ========================= */
 
 func (ctl *SchoolHolidayController) List(c *fiber.Ctx) error {
-	masjidID, err := parseUUIDParam(c, "masjid_id")
+	schoolID, err := parseUUIDParam(c, "school_id")
 	if err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	var q d.ListMasjidHolidaysQuery
+	var q d.ListSchoolHolidaysQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
@@ -211,21 +211,21 @@ func (ctl *SchoolHolidayController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	tx := ctl.DB.WithContext(c.Context()).Model(&m.MasjidHoliday{}).
-		Where("masjid_holiday_masjid_id = ?", masjidID).
-		Where("masjid_holiday_deleted_at IS NULL")
+	tx := ctl.DB.WithContext(c.Context()).Model(&m.SchoolHoliday{}).
+		Where("school_holiday_school_id = ?", schoolID).
+		Where("school_holiday_deleted_at IS NULL")
 
 	// only_active
 	if q.OnlyActive != nil && *q.OnlyActive {
-		tx = tx.Where("masjid_holiday_is_active = TRUE")
+		tx = tx.Where("school_holiday_is_active = TRUE")
 	}
 
 	// search q (slug/title)
 	if q.Q != nil {
 		kw := "%" + strings.ToLower(*q.Q) + "%"
 		tx = tx.Where(`
-			LOWER(COALESCE(masjid_holiday_slug, '')) LIKE ? OR
-			LOWER(masjid_holiday_title) LIKE ?
+			LOWER(COALESCE(school_holiday_slug, '')) LIKE ? OR
+			LOWER(school_holiday_title) LIKE ?
 		`, kw, kw)
 	}
 
@@ -246,15 +246,15 @@ func (ctl *SchoolHolidayController) List(c *fiber.Ctx) error {
 		}
 	}
 	if dateFrom != nil && dateTo != nil {
-		tx = tx.Where("masjid_holiday_end_date >= ? AND masjid_holiday_start_date <= ?", *dateFrom, *dateTo)
+		tx = tx.Where("school_holiday_end_date >= ? AND school_holiday_start_date <= ?", *dateFrom, *dateTo)
 	} else if dateFrom != nil {
-		tx = tx.Where("masjid_holiday_end_date >= ?", *dateFrom)
+		tx = tx.Where("school_holiday_end_date >= ?", *dateFrom)
 	} else if dateTo != nil {
-		tx = tx.Where("masjid_holiday_start_date <= ?", *dateTo)
+		tx = tx.Where("school_holiday_start_date <= ?", *dateTo)
 	}
 
 	// default sort: created_at desc
-	tx = tx.Order("masjid_holiday_created_at DESC")
+	tx = tx.Order("school_holiday_created_at DESC")
 
 	// total
 	var total int64
@@ -263,20 +263,20 @@ func (ctl *SchoolHolidayController) List(c *fiber.Ctx) error {
 	}
 
 	// data
-	var rows []m.MasjidHoliday
+	var rows []m.SchoolHoliday
 	if err := tx.Limit(q.Limit).Offset(q.Offset).Find(&rows).Error; err != nil {
 		return writePGError(c, err)
 	}
 
-	resp := d.MasjidHolidayListResponse{
-		Data: make([]*d.MasjidHolidayResponse, 0, len(rows)),
+	resp := d.SchoolHolidayListResponse{
+		Data: make([]*d.SchoolHolidayResponse, 0, len(rows)),
 	}
 	resp.Pagination.Limit = q.Limit
 	resp.Pagination.Offset = q.Offset
 	resp.Pagination.Total = int(total)
 
 	for i := range rows {
-		resp.Data = append(resp.Data, d.FromModelMasjidHoliday(&rows[i]))
+		resp.Data = append(resp.Data, d.FromModelSchoolHoliday(&rows[i]))
 	}
 
 	return helper.JsonOK(c, "OK", resp)

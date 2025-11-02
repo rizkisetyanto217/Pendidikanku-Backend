@@ -10,7 +10,7 @@ import (
 
 type StudentClassSessionAttendanceURLModel struct {
 	StudentClassSessionAttendanceURLID           uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:student_class_session_attendance_url_id"                 json:"student_class_session_attendance_url_id"`
-	StudentClassSessionAttendanceURLMasjidID     uuid.UUID `gorm:"type:uuid;not null;column:student_class_session_attendance_url_masjid_id"                                   json:"student_class_session_attendance_url_masjid_id"`
+	StudentClassSessionAttendanceURLSchoolID     uuid.UUID `gorm:"type:uuid;not null;column:student_class_session_attendance_url_school_id"                                   json:"student_class_session_attendance_url_school_id"`
 	StudentClassSessionAttendanceURLAttendanceID uuid.UUID `gorm:"type:uuid;not null;column:student_class_session_attendance_url_attendance_id"                               json:"student_class_session_attendance_url_attendance_id"`
 
 	// optional FK ke type

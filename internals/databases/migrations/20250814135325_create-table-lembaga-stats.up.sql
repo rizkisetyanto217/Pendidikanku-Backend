@@ -2,8 +2,8 @@
 -- lembaga_stats (global snapshot, tanpa term)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS lembaga_stats (
-  lembaga_stats_masjid_id UUID PRIMARY KEY
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  lembaga_stats_school_id UUID PRIMARY KEY
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   lembaga_stats_active_classes  INT NOT NULL DEFAULT 0,
   lembaga_stats_active_sections INT NOT NULL DEFAULT 0,
@@ -66,8 +66,8 @@ END$$;
 CREATE TABLE IF NOT EXISTS user_class_attendance_semester_stats (
   user_class_attendance_semester_stats_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  user_class_attendance_semester_stats_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  user_class_attendance_semester_stats_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- Hanya relasi ke SECTION (komposit tenant-safe)
   user_class_attendance_semester_stats_section_id UUID NOT NULL,
@@ -125,14 +125,14 @@ CREATE TABLE IF NOT EXISTS user_class_attendance_semester_stats (
   /* ================== FK KOMPOSIT (tenant-safe) ================== */
   CONSTRAINT fk_ucass_section
     FOREIGN KEY (user_class_attendance_semester_stats_section_id,
-                 user_class_attendance_semester_stats_masjid_id)
-    REFERENCES class_sections (class_section_id, class_section_masjid_id)
+                 user_class_attendance_semester_stats_school_id)
+    REFERENCES class_sections (class_section_id, class_section_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   CONSTRAINT fk_ucass_term
     FOREIGN KEY (user_class_attendance_semester_stats_term_id,
-                 user_class_attendance_semester_stats_masjid_id)
-    REFERENCES academic_terms (academic_term_id, academic_term_masjid_id)
+                 user_class_attendance_semester_stats_school_id)
+    REFERENCES academic_terms (academic_term_id, academic_term_school_id)
     ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
@@ -144,44 +144,44 @@ CREATE TABLE IF NOT EXISTS user_class_attendance_semester_stats (
 CREATE OR REPLACE FUNCTION fn_ucass_validate_links()
 RETURNS TRIGGER AS $$
 DECLARE
-  v_sec_masjid UUID;
-  v_term_masjid UUID;
+  v_sec_school UUID;
+  v_term_school UUID;
   v_term_period DATERANGE;
   v_row_period  DATERANGE;
 BEGIN
   -- class_sections → pastikan tenant cocok
-  SELECT class_section_masjid_id
-    INTO v_sec_masjid
+  SELECT class_section_school_id
+    INTO v_sec_school
   FROM class_sections
   WHERE class_section_id = NEW.user_class_attendance_semester_stats_section_id
     AND class_section_deleted_at IS NULL;
 
-  IF v_sec_masjid IS NULL THEN
+  IF v_sec_school IS NULL THEN
     RAISE EXCEPTION 'Section % tidak ditemukan/terhapus',
       NEW.user_class_attendance_semester_stats_section_id;
   END IF;
 
-  IF NEW.user_class_attendance_semester_stats_masjid_id <> v_sec_masjid THEN
-    RAISE EXCEPTION 'Masjid mismatch: row(%) vs section(%)',
-      NEW.user_class_attendance_semester_stats_masjid_id, v_sec_masjid;
+  IF NEW.user_class_attendance_semester_stats_school_id <> v_sec_school THEN
+    RAISE EXCEPTION 'School mismatch: row(%) vs section(%)',
+      NEW.user_class_attendance_semester_stats_school_id, v_sec_school;
   END IF;
 
   -- Jika ada term → cek tenant & cakupan periode
   IF NEW.user_class_attendance_semester_stats_term_id IS NOT NULL THEN
-    SELECT academic_term_masjid_id, academic_term_period
-      INTO v_term_masjid, v_term_period
+    SELECT academic_term_school_id, academic_term_period
+      INTO v_term_school, v_term_period
     FROM academic_terms
     WHERE academic_term_id = NEW.user_class_attendance_semester_stats_term_id
       AND academic_term_deleted_at IS NULL;
 
-    IF v_term_masjid IS NULL THEN
+    IF v_term_school IS NULL THEN
       RAISE EXCEPTION 'Term % tidak ditemukan/terhapus',
         NEW.user_class_attendance_semester_stats_term_id;
     END IF;
 
-    IF v_term_masjid <> NEW.user_class_attendance_semester_stats_masjid_id THEN
-      RAISE EXCEPTION 'Masjid mismatch: term(%) != row(%)',
-        v_term_masjid, NEW.user_class_attendance_semester_stats_masjid_id;
+    IF v_term_school <> NEW.user_class_attendance_semester_stats_school_id THEN
+      RAISE EXCEPTION 'School mismatch: term(%) != row(%)',
+        v_term_school, NEW.user_class_attendance_semester_stats_school_id;
     END IF;
 
     -- Row range: [start, end] → konversi ke half-open [start, end+1) untuk bandingkan ke academic_term_period
@@ -210,7 +210,7 @@ BEGIN
 
   CREATE CONSTRAINT TRIGGER trg_ucass_validate_links
     AFTER INSERT OR UPDATE OF
-      user_class_attendance_semester_stats_masjid_id,
+      user_class_attendance_semester_stats_school_id,
       user_class_attendance_semester_stats_section_id,
       user_class_attendance_semester_stats_term_id,
       user_class_attendance_semester_stats_period_start,

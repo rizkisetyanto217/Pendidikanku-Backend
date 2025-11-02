@@ -13,12 +13,12 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
-	"masjidku_backend/internals/features/school/classes/class_section_subject_teachers/snapshot"
-	dto "masjidku_backend/internals/features/school/submissions_assesments/assesments/dto"
-	model "masjidku_backend/internals/features/school/submissions_assesments/assesments/model"
+	"schoolku_backend/internals/features/school/classes/class_section_subject_teachers/snapshot"
+	dto "schoolku_backend/internals/features/school/submissions_assesments/assesments/dto"
+	model "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 /*
@@ -93,7 +93,7 @@ func autofillDesc(curr *string, ann *sessRow, col *sessRow) *string {
 
 type sessRow struct {
 	ID       uuid.UUID  `gorm:"column:id"`
-	MasjidID uuid.UUID  `gorm:"column:masjid_id"`
+	SchoolID uuid.UUID  `gorm:"column:school_id"`
 	StartsAt *time.Time `gorm:"column:starts_at"`
 	Date     *time.Time `gorm:"column:date"`
 	Deleted  *time.Time `gorm:"column:deleted_at"`
@@ -109,7 +109,7 @@ func (ctl *AssessmentController) fetchSess(c *fiber.Ctx, id uuid.UUID) (*sessRow
 		Table("class_attendance_sessions").
 		Select(`
 			class_attendance_session_id                  AS id,
-			class_attendance_session_masjid_id           AS masjid_id,
+			class_attendance_session_school_id           AS school_id,
 			class_attendance_session_starts_at           AS starts_at,
 			(class_attendance_session_date)::timestamptz AS date,
 			class_attendance_session_deleted_at          AS deleted_at,
@@ -162,64 +162,64 @@ func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
 	return uuid.Parse(strings.TrimSpace(c.Params(name)))
 }
 
-// validasi guru milik masjid
-// assertTeacherBelongsToMasjid: pastikan masjid_teacher milik masjid
-// was: func (ctl *AssessmentController) assertTeacherBelongsToMasjid(ctx fiber.Ctx, masjidID uuid.UUID, teacherID *uuid.UUID) error
-func (ctl *AssessmentController) assertTeacherBelongsToMasjid(c *fiber.Ctx, masjidID uuid.UUID, teacherID *uuid.UUID) error {
+// validasi guru milik school
+// assertTeacherBelongsToSchool: pastikan school_teacher milik school
+// was: func (ctl *AssessmentController) assertTeacherBelongsToSchool(ctx fiber.Ctx, schoolID uuid.UUID, teacherID *uuid.UUID) error
+func (ctl *AssessmentController) assertTeacherBelongsToSchool(c *fiber.Ctx, schoolID uuid.UUID, teacherID *uuid.UUID) error {
 	if teacherID == nil || *teacherID == uuid.Nil {
 		return nil
 	}
 
-	// Ambil masjid_id dari masjid_teachers
+	// Ambil school_id dari school_teachers
 	var row struct {
 		M uuid.UUID `gorm:"column:m"`
 	}
 	if err := ctl.DB.WithContext(c.Context()).
-		Table("masjid_teachers").
-		Select("masjid_teacher_masjid_id AS m").
-		Where("masjid_teacher_id = ? AND masjid_teacher_deleted_at IS NULL", *teacherID).
+		Table("school_teachers").
+		Select("school_teacher_school_id AS m").
+		Where("school_teacher_id = ? AND school_teacher_deleted_at IS NULL", *teacherID).
 		Take(&row).Error; err != nil {
 		return err
 	}
 
-	// Pastikan teacher milik masjid yang sama
-	if row.M != masjidID {
-		return fiber.NewError(fiber.StatusForbidden, "Guru bukan milik masjid Anda")
+	// Pastikan teacher milik school yang sama
+	if row.M != schoolID {
+		return fiber.NewError(fiber.StatusForbidden, "Guru bukan milik school Anda")
 	}
 	return nil
 }
 
-// Resolver akses: DKM/Admin via helper, atau Teacher pada masjid tsb.
-func resolveMasjidForDKMOrTeacher(c *fiber.Ctx) (uuid.UUID, error) {
-	// 1) Ambil masjid context (path/header/cookie/query/host/token)
-	mc, err := helperAuth.ResolveMasjidContext(c)
+// Resolver akses: DKM/Admin via helper, atau Teacher pada school tsb.
+func resolveSchoolForDKMOrTeacher(c *fiber.Ctx) (uuid.UUID, error) {
+	// 1) Ambil school context (path/header/cookie/query/host/token)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return uuid.Nil, err
 	}
 
 	// 2) Coba jalur DKM/Admin
-	if id, er := helperAuth.EnsureMasjidAccessDKM(c, mc); er == nil && id != uuid.Nil {
+	if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil && id != uuid.Nil {
 		return id, nil
 	}
 
-	// 3) Fallback: izinkan GURU pada masjid ini
-	var masjidID uuid.UUID
+	// 3) Fallback: izinkan GURU pada school ini
+	var schoolID uuid.UUID
 	if mc.ID != uuid.Nil {
-		masjidID = mc.ID
+		schoolID = mc.ID
 	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil || id == uuid.Nil {
-			return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
-		masjidID = id
+		schoolID = id
 	} else {
-		return uuid.Nil, helperAuth.ErrMasjidContextMissing
+		return uuid.Nil, helperAuth.ErrSchoolContextMissing
 	}
 
-	if helperAuth.IsTeacherInMasjid(c, masjidID) {
-		return masjidID, nil
+	if helperAuth.IsTeacherInSchool(c, schoolID) {
+		return schoolID, nil
 	}
-	return uuid.Nil, helperAuth.ErrMasjidContextForbidden
+	return uuid.Nil, helperAuth.ErrSchoolContextForbidden
 }
 
 /* ===============================
@@ -237,7 +237,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	req.Normalize()
 
 	// 🔒 resolve & authorize
-	mid, err := resolveMasjidForDKMOrTeacher(c)
+	mid, err := resolveSchoolForDKMOrTeacher(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -245,7 +245,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 	// Enforce tenant
-	req.AssessmentMasjidID = mid
+	req.AssessmentSchoolID = mid
 
 	// =============== CSST SNAPSHOT (opsional, +auto teacher & auto-title) ===============
 	var csstSnap datatypes.JSONMap
@@ -280,8 +280,8 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	}
 
 	// Validasi creator teacher (opsional)
-	// before: if err := ctl.assertTeacherBelongsToMasjid(*c, mid, req.AssessmentCreatedByTeacherID); err != nil {
-	if err := ctl.assertTeacherBelongsToMasjid(c, mid, req.AssessmentCreatedByTeacherID); err != nil {
+	// before: if err := ctl.assertTeacherBelongsToSchool(*c, mid, req.AssessmentCreatedByTeacherID); err != nil {
+	if err := ctl.assertTeacherBelongsToSchool(c, mid, req.AssessmentCreatedByTeacherID); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
@@ -301,8 +301,8 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 			if er != nil {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Sesi announce tidak ditemukan")
 			}
-			if r.Deleted != nil || r.MasjidID != mid {
-				return helper.JsonError(c, fiber.StatusForbidden, "Sesi announce bukan milik masjid Anda / sudah dihapus")
+			if r.Deleted != nil || r.SchoolID != mid {
+				return helper.JsonError(c, fiber.StatusForbidden, "Sesi announce bukan milik school Anda / sudah dihapus")
 			}
 			ann = r
 		}
@@ -311,8 +311,8 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 			if er != nil {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Sesi collect tidak ditemukan")
 			}
-			if r.Deleted != nil || r.MasjidID != mid {
-				return helper.JsonError(c, fiber.StatusForbidden, "Sesi collect bukan milik masjid Anda / sudah dihapus")
+			if r.Deleted != nil || r.SchoolID != mid {
+				return helper.JsonError(c, fiber.StatusForbidden, "Sesi collect bukan milik school Anda / sudah dihapus")
 			}
 			col = r
 		}
@@ -407,7 +407,7 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	}
 
 	// 🔒 resolve & authorize
-	mid, err := resolveMasjidForDKMOrTeacher(c)
+	mid, err := resolveSchoolForDKMOrTeacher(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -419,7 +419,7 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	if err := ctl.DB.WithContext(c.Context()).
 		Where(`
 			assessment_id = ?
-			AND assessment_masjid_id = ?
+			AND assessment_school_id = ?
 			AND assessment_deleted_at IS NULL
 		`, id, mid).
 		First(&existing).Error; err != nil {
@@ -430,8 +430,8 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	}
 
 	// validasi guru bila diubah
-	// before: if err := ctl.assertTeacherBelongsToMasjid(*c, mid, req.AssessmentCreatedByTeacherID); err != nil {
-	if err := ctl.assertTeacherBelongsToMasjid(c, mid, req.AssessmentCreatedByTeacherID); err != nil {
+	// before: if err := ctl.assertTeacherBelongsToSchool(*c, mid, req.AssessmentCreatedByTeacherID); err != nil {
+	if err := ctl.assertTeacherBelongsToSchool(c, mid, req.AssessmentCreatedByTeacherID); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
@@ -491,8 +491,8 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 			if er != nil {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Sesi announce tidak ditemukan")
 			}
-			if r.Deleted != nil || r.MasjidID != mid {
-				return helper.JsonError(c, fiber.StatusForbidden, "Sesi announce bukan milik masjid Anda / sudah dihapus")
+			if r.Deleted != nil || r.SchoolID != mid {
+				return helper.JsonError(c, fiber.StatusForbidden, "Sesi announce bukan milik school Anda / sudah dihapus")
 			}
 			ann = r
 		}
@@ -501,8 +501,8 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 			if er != nil {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Sesi collect tidak ditemukan")
 			}
-			if r.Deleted != nil || r.MasjidID != mid {
-				return helper.JsonError(c, fiber.StatusForbidden, "Sesi collect bukan milik masjid Anda / sudah dihapus")
+			if r.Deleted != nil || r.SchoolID != mid {
+				return helper.JsonError(c, fiber.StatusForbidden, "Sesi collect bukan milik school Anda / sudah dihapus")
 			}
 			col = r
 		}
@@ -602,7 +602,7 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 	}
 
 	// 🔒 resolve & authorize
-	mid, err := resolveMasjidForDKMOrTeacher(c)
+	mid, err := resolveSchoolForDKMOrTeacher(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -614,7 +614,7 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 	if err := ctl.DB.WithContext(c.Context()).
 		Where(`
 			assessment_id = ?
-			AND assessment_masjid_id = ?
+			AND assessment_school_id = ?
 			AND assessment_deleted_at IS NULL
 		`, id, mid).
 		First(&row).Error; err != nil {

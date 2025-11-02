@@ -15,13 +15,13 @@ INSERT INTO roles(role_name) VALUES
 ON CONFLICT (role_name) DO NOTHING;
 
 -- =========================================================
--- 4) USER_ROLES (assignment per user-per masjid, soft delete)
+-- 4) USER_ROLES (assignment per user-per school, soft delete)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS user_roles (
   user_role_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role_id      UUID NOT NULL REFERENCES roles(role_id) ON DELETE RESTRICT,
-  masjid_id    UUID     REFERENCES masjids(masjid_id) ON DELETE CASCADE, -- NULL = global
+  school_id    UUID     REFERENCES schools(school_id) ON DELETE CASCADE, -- NULL = global
   assigned_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   assigned_by  UUID REFERENCES users(id) ON DELETE SET NULL,
   deleted_at   TIMESTAMPTZ
@@ -29,12 +29,12 @@ CREATE TABLE IF NOT EXISTS user_roles (
 
 -- Unik hanya untuk baris "alive"
 CREATE UNIQUE INDEX IF NOT EXISTS uq_user_roles_scope_alive
-  ON user_roles (user_id, role_id, masjid_id)
+  ON user_roles (user_id, role_id, school_id)
   WHERE deleted_at IS NULL;
 
 -- Akses cepat
 CREATE INDEX IF NOT EXISTS idx_user_roles_user_scope_alive
-  ON user_roles (user_id, masjid_id) WHERE deleted_at IS NULL;
+  ON user_roles (user_id, school_id) WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_user_roles_role_alive
   ON user_roles (role_id) WHERE deleted_at IS NULL;
@@ -65,7 +65,7 @@ $$ LANGUAGE plpgsql IMMUTABLE;
 CREATE OR REPLACE FUNCTION fn_grant_role(
   p_user_id     uuid,
   p_role_name   text,
-  p_masjid_id   uuid DEFAULT NULL,
+  p_school_id   uuid DEFAULT NULL,
   p_assigned_by uuid DEFAULT NULL
 ) RETURNS uuid AS $$
 DECLARE
@@ -84,7 +84,7 @@ BEGIN
          assigned_by = COALESCE(p_assigned_by, assigned_by)
    WHERE user_id = p_user_id
      AND role_id = v_role_id
-     AND ((masjid_id IS NULL AND p_masjid_id IS NULL) OR masjid_id = p_masjid_id)
+     AND ((school_id IS NULL AND p_school_id IS NULL) OR school_id = p_school_id)
      AND deleted_at IS NOT NULL
   RETURNING user_role_id INTO v_user_role_id;
 
@@ -93,13 +93,13 @@ BEGIN
   END IF;
 
   -- Insert baru jika belum ada baris alive
-  INSERT INTO user_roles(user_id, role_id, masjid_id, assigned_at, assigned_by)
-  SELECT p_user_id, v_role_id, p_masjid_id, now(), p_assigned_by
+  INSERT INTO user_roles(user_id, role_id, school_id, assigned_at, assigned_by)
+  SELECT p_user_id, v_role_id, p_school_id, now(), p_assigned_by
   WHERE NOT EXISTS (
     SELECT 1 FROM user_roles ur
     WHERE ur.user_id   = p_user_id
       AND ur.role_id   = v_role_id
-      AND ((ur.masjid_id IS NULL AND p_masjid_id IS NULL) OR ur.masjid_id = p_masjid_id)
+      AND ((ur.school_id IS NULL AND p_school_id IS NULL) OR ur.school_id = p_school_id)
       AND ur.deleted_at IS NULL
   )
   RETURNING user_role_id INTO v_user_role_id;
@@ -109,7 +109,7 @@ BEGIN
     SELECT user_role_id INTO v_user_role_id FROM user_roles ur
     WHERE ur.user_id   = p_user_id
       AND ur.role_id   = v_role_id
-      AND ((ur.masjid_id IS NULL AND p_masjid_id IS NULL) OR ur.masjid_id = p_masjid_id)
+      AND ((ur.school_id IS NULL AND p_school_id IS NULL) OR ur.school_id = p_school_id)
       AND ur.deleted_at IS NULL
     LIMIT 1;
   END IF;
@@ -122,7 +122,7 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION fn_revoke_role(
   p_user_id   uuid,
   p_role_name text,
-  p_masjid_id uuid DEFAULT NULL
+  p_school_id uuid DEFAULT NULL
 ) RETURNS boolean AS $$
 DECLARE
   v_role_id  uuid;
@@ -137,7 +137,7 @@ BEGIN
      SET deleted_at = now()
    WHERE user_id   = p_user_id
      AND role_id   = v_role_id
-     AND ((masjid_id IS NULL AND p_masjid_id IS NULL) OR masjid_id = p_masjid_id)
+     AND ((school_id IS NULL AND p_school_id IS NULL) OR school_id = p_school_id)
      AND deleted_at IS NULL;
 
   GET DIAGNOSTICS v_affected = ROW_COUNT;
@@ -149,7 +149,7 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION fn_user_has_role_scope(
   p_user_id   uuid,
   p_role_name text,
-  p_masjid_id uuid
+  p_school_id uuid
 ) RETURNS boolean AS $$
 DECLARE
   v_role_id uuid;
@@ -166,7 +166,7 @@ BEGIN
     WHERE ur.user_id   = p_user_id
       AND ur.role_id   = v_role_id
       AND ur.deleted_at IS NULL
-      AND (ur.masjid_id = p_masjid_id OR ur.masjid_id IS NULL) -- global fallback
+      AND (ur.school_id = p_school_id OR ur.school_id IS NULL) -- global fallback
   )
   INTO v_exists;
 
@@ -188,7 +188,7 @@ RETURNS text[] AS $$
       JOIN roles r ON r.role_id = ur.role_id
       WHERE ur.user_id = p_user_id
         AND ur.deleted_at IS NULL
-        AND ur.masjid_id IS NULL
+        AND ur.school_id IS NULL
       GROUP BY r.role_name
       ORDER BY fn_role_priority(r.role_name) DESC, r.role_name ASC
     ),
@@ -197,7 +197,7 @@ RETURNS text[] AS $$
 $$ LANGUAGE sql STABLE;
 
 -- Roles di scope (include global fallback) → pakai GROUP BY (hindari DISTINCT+ORDER BY)
-CREATE OR REPLACE FUNCTION fn_user_roles_in_scope(p_user_id uuid, p_masjid_id uuid)
+CREATE OR REPLACE FUNCTION fn_user_roles_in_scope(p_user_id uuid, p_school_id uuid)
 RETURNS text[] AS $$
   SELECT COALESCE(
     ARRAY(
@@ -206,7 +206,7 @@ RETURNS text[] AS $$
       JOIN roles r ON r.role_id = ur.role_id
       WHERE ur.user_id = p_user_id
         AND ur.deleted_at IS NULL
-        AND (ur.masjid_id = p_masjid_id OR ur.masjid_id IS NULL)
+        AND (ur.school_id = p_school_id OR ur.school_id IS NULL)
       GROUP BY r.role_name
       ORDER BY fn_role_priority(r.role_name) DESC, r.role_name ASC
     ),
@@ -222,14 +222,14 @@ RETURNS text AS $$
   JOIN roles r ON r.role_id = ur.role_id
   WHERE ur.user_id = p_user_id
     AND ur.deleted_at IS NULL
-    AND ur.masjid_id IS NULL
+    AND ur.school_id IS NULL
   GROUP BY r.role_name
   ORDER BY fn_role_priority(r.role_name) DESC, r.role_name ASC
   LIMIT 1;
 $$ LANGUAGE sql STABLE;
 
 -- Primary role (single) per scope (dengan global fallback) → subquery pakai GROUP BY
-CREATE OR REPLACE FUNCTION fn_user_primary_role_in_scope(p_user_id uuid, p_masjid_id uuid)
+CREATE OR REPLACE FUNCTION fn_user_primary_role_in_scope(p_user_id uuid, p_school_id uuid)
 RETURNS text AS $$
   SELECT role_name
   FROM (
@@ -238,7 +238,7 @@ RETURNS text AS $$
     JOIN roles r ON r.role_id = ur.role_id
     WHERE ur.user_id = p_user_id
       AND ur.deleted_at IS NULL
-      AND (ur.masjid_id = p_masjid_id OR ur.masjid_id IS NULL)
+      AND (ur.school_id = p_school_id OR ur.school_id IS NULL)
     GROUP BY r.role_name
   ) AS t
   ORDER BY fn_role_priority(role_name) DESC, role_name ASC
@@ -253,27 +253,27 @@ RETURNS jsonb AS $$
     SELECT fn_user_global_roles(p_user_id) AS roles_global
   ),
   p AS (
-    SELECT ur.masjid_id,
+    SELECT ur.school_id,
            ARRAY(
              SELECT r2.role_name
              FROM user_roles ur2
              JOIN roles r2 ON r2.role_id = ur2.role_id
              WHERE ur2.user_id = p_user_id
                AND ur2.deleted_at IS NULL
-               AND ur2.masjid_id = ur.masjid_id
+               AND ur2.school_id = ur.school_id
              GROUP BY r2.role_name
              ORDER BY fn_role_priority(r2.role_name) DESC, r2.role_name ASC
            ) AS roles
     FROM user_roles ur
     WHERE ur.user_id = p_user_id
       AND ur.deleted_at IS NULL
-      AND ur.masjid_id IS NOT NULL
-    GROUP BY ur.masjid_id
+      AND ur.school_id IS NOT NULL
+    GROUP BY ur.school_id
   )
   SELECT jsonb_build_object(
     'role_global', COALESCE((SELECT to_jsonb(roles_global) FROM g), '[]'::jsonb),
-    'masjid_roles', COALESCE(
-      (SELECT jsonb_agg(jsonb_build_object('masjid_id', masjid_id, 'roles', to_jsonb(roles)))
+    'school_roles', COALESCE(
+      (SELECT jsonb_agg(jsonb_build_object('school_id', school_id, 'roles', to_jsonb(roles)))
        FROM p),
       '[]'::jsonb
     )
@@ -293,7 +293,7 @@ SELECT
   u.full_name,
   ur.role_id,
   r.role_name,
-  ur.masjid_id,
+  ur.school_id,
   ur.assigned_at,
   ur.assigned_by
 FROM user_roles ur
@@ -305,21 +305,21 @@ WHERE ur.deleted_at IS NULL;
 CREATE OR REPLACE VIEW v_user_roles_compact AS
 SELECT
   ur.user_id,
-  ur.masjid_id,
+  ur.school_id,
   ARRAY(
     SELECT r2.role_name
     FROM user_roles ur2
     JOIN roles r2 ON r2.role_id = ur2.role_id
     WHERE ur2.user_id = ur.user_id
       AND ur2.deleted_at IS NULL
-      AND COALESCE(ur2.masjid_id, '00000000-0000-0000-0000-000000000000'::uuid) =
-          COALESCE(ur.masjid_id, '00000000-0000-0000-0000-000000000000'::uuid)
+      AND COALESCE(ur2.school_id, '00000000-0000-0000-0000-000000000000'::uuid) =
+          COALESCE(ur.school_id, '00000000-0000-0000-0000-000000000000'::uuid)
     GROUP BY r2.role_name
     ORDER BY fn_role_priority(r2.role_name) DESC, r2.role_name ASC
   ) AS roles
 FROM user_roles ur
 WHERE ur.deleted_at IS NULL
-GROUP BY ur.user_id, ur.masjid_id;
+GROUP BY ur.user_id, ur.school_id;
 
 -- Users + roles_global (ringkas)
 CREATE OR REPLACE VIEW v_users_with_roles AS

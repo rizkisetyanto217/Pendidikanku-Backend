@@ -20,12 +20,12 @@ const (
 type AssessmentModel struct {
 	// PK & Tenant
 	AssessmentID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:assessment_id" json:"assessment_id"`
-	AssessmentMasjidID uuid.UUID `gorm:"type:uuid;not null;column:assessment_masjid_id" json:"assessment_masjid_id"`
+	AssessmentSchoolID uuid.UUID `gorm:"type:uuid;not null;column:assessment_school_id" json:"assessment_school_id"`
 
 	// Relasi ke CSST (tenant-safe dijaga via composite FK di DB)
 	AssessmentClassSectionSubjectTeacherID *uuid.UUID `gorm:"type:uuid;column:assessment_class_section_subject_teacher_id" json:"assessment_class_section_subject_teacher_id,omitempty"`
 
-	// Tipe penilaian (tenant-safe via composite FK: assessment_type_id + assessment_masjid_id)
+	// Tipe penilaian (tenant-safe via composite FK: assessment_type_id + assessment_school_id)
 	AssessmentTypeID *uuid.UUID `gorm:"type:uuid;column:assessment_type_id" json:"assessment_type_id,omitempty"`
 
 	// Identitas

@@ -2,10 +2,10 @@
 BEGIN;
 
 -- 2) DROP parent table (catalog plans)
-DROP TABLE IF EXISTS masjid_service_plans CASCADE;
+DROP TABLE IF EXISTS school_service_plans CASCADE;
 
 -- 3) DROP enum type
-DROP TYPE IF EXISTS masjid_subscription_status_enum;
+DROP TYPE IF EXISTS school_subscription_status_enum;
 
 -- (Opsional) DROP extensions
 -- ⚠️ Hanya lakukan jika Anda yakin tidak dipakai modul lain.

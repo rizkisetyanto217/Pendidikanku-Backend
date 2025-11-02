@@ -12,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS btree_gin;
 -- ENUM scope
 -- =========================================================
 DO $$ BEGIN
-  CREATE TYPE attendance_snapshots_scope AS ENUM ('ucsst','section','masjid');
+  CREATE TYPE attendance_snapshots_scope AS ENUM ('ucsst','section','school');
 EXCEPTION WHEN duplicate_object THEN END $$;
 
 -- =========================================================
@@ -20,8 +20,8 @@ EXCEPTION WHEN duplicate_object THEN END $$;
 -- =========================================================
 CREATE TABLE IF NOT EXISTS attendance_snapshots (
   attendance_snapshots_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  attendance_snapshots_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  attendance_snapshots_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   attendance_snapshots_scope attendance_snapshots_scope NOT NULL, -- partition key
   attendance_snapshots_period_type VARCHAR(12) NOT NULL
@@ -151,10 +151,10 @@ CREATE TABLE IF NOT EXISTS attendance_snapshots_section
 -- =========================================================
 -- PARTITION: MASJID
 -- =========================================================
-CREATE TABLE IF NOT EXISTS attendance_snapshots_masjid
-  PARTITION OF attendance_snapshots FOR VALUES IN ('masjid')
+CREATE TABLE IF NOT EXISTS attendance_snapshots_school
+  PARTITION OF attendance_snapshots FOR VALUES IN ('school')
   (
-    CONSTRAINT ck_attendance_snapshots_masjid_shape CHECK (
+    CONSTRAINT ck_attendance_snapshots_school_shape CHECK (
       (attendance_snapshots_period_type = 'session'
         AND attendance_snapshots_session_id IS NOT NULL)
       OR
@@ -164,7 +164,7 @@ CREATE TABLE IF NOT EXISTS attendance_snapshots_masjid
         AND attendance_snapshots_period_start <= attendance_snapshots_period_end)
     ),
 
-    CONSTRAINT fk_attendance_snapshots_masjid_session
+    CONSTRAINT fk_attendance_snapshots_school_session
       FOREIGN KEY (attendance_snapshots_session_id)
       REFERENCES class_attendance_sessions(class_attendance_session_id)
       ON UPDATE CASCADE ON DELETE CASCADE
@@ -176,7 +176,7 @@ CREATE TABLE IF NOT EXISTS attendance_snapshots_masjid
 
 -- UCSST: unik per session
 CREATE UNIQUE INDEX IF NOT EXISTS uq_attendance_snapshots_ucsst_alive_session
-  ON attendance_snapshots_ucsst (attendance_snapshots_masjid_id, attendance_snapshots_session_id)
+  ON attendance_snapshots_ucsst (attendance_snapshots_school_id, attendance_snapshots_session_id)
   WHERE attendance_snapshots_deleted_at IS NULL
     AND attendance_snapshots_period_type = 'session'
     AND attendance_snapshots_session_id IS NOT NULL;
@@ -184,7 +184,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_attendance_snapshots_ucsst_alive_session
 -- UCSST: unik per period
 CREATE UNIQUE INDEX IF NOT EXISTS uq_attendance_snapshots_ucsst_alive_period
   ON attendance_snapshots_ucsst (
-    attendance_snapshots_masjid_id,
+    attendance_snapshots_school_id,
     attendance_snapshots_ucsst_id,
     attendance_snapshots_period_type,
     attendance_snapshots_period_start,
@@ -196,7 +196,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_attendance_snapshots_ucsst_alive_period
 
 -- SECTION: unik per session
 CREATE UNIQUE INDEX IF NOT EXISTS uq_attendance_snapshots_section_alive_session
-  ON attendance_snapshots_section (attendance_snapshots_masjid_id, attendance_snapshots_session_id)
+  ON attendance_snapshots_section (attendance_snapshots_school_id, attendance_snapshots_session_id)
   WHERE attendance_snapshots_deleted_at IS NULL
     AND attendance_snapshots_period_type = 'session'
     AND attendance_snapshots_session_id IS NOT NULL;
@@ -204,7 +204,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_attendance_snapshots_section_alive_session
 -- SECTION: unik per period
 CREATE UNIQUE INDEX IF NOT EXISTS uq_attendance_snapshots_section_alive_period
   ON attendance_snapshots_section (
-    attendance_snapshots_masjid_id,
+    attendance_snapshots_school_id,
     attendance_snapshots_section_id,
     attendance_snapshots_period_type,
     attendance_snapshots_period_start,
@@ -215,16 +215,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_attendance_snapshots_section_alive_period
     AND attendance_snapshots_section_id IS NOT NULL;
 
 -- MASJID: unik per session
-CREATE UNIQUE INDEX IF NOT EXISTS uq_attendance_snapshots_masjid_alive_session
-  ON attendance_snapshots_masjid (attendance_snapshots_masjid_id, attendance_snapshots_session_id)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_attendance_snapshots_school_alive_session
+  ON attendance_snapshots_school (attendance_snapshots_school_id, attendance_snapshots_session_id)
   WHERE attendance_snapshots_deleted_at IS NULL
     AND attendance_snapshots_period_type = 'session'
     AND attendance_snapshots_session_id IS NOT NULL;
 
 -- MASJID: unik per period
-CREATE UNIQUE INDEX IF NOT EXISTS uq_attendance_snapshots_masjid_alive_period
-  ON attendance_snapshots_masjid (
-    attendance_snapshots_masjid_id,
+CREATE UNIQUE INDEX IF NOT EXISTS uq_attendance_snapshots_school_alive_period
+  ON attendance_snapshots_school (
+    attendance_snapshots_school_id,
     attendance_snapshots_period_type,
     attendance_snapshots_period_start,
     attendance_snapshots_period_end

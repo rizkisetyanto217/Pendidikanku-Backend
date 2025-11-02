@@ -12,15 +12,15 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE TABLE IF NOT EXISTS user_note_types (
   user_note_type_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  user_note_type_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  user_note_type_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   user_note_type_owner_user_id UUID NOT NULL
     REFERENCES users(id) ON DELETE CASCADE,
 
   -- opsional: jika owner adalah guru
   user_note_type_owner_teacher_id UUID
-    REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE CASCADE,
+    REFERENCES school_teachers(school_teacher_id) ON DELETE CASCADE,
 
   user_note_type_code  VARCHAR(32)  NOT NULL,  -- unik per tenant + owner
   user_note_type_name  VARCHAR(80)  NOT NULL,
@@ -34,12 +34,12 @@ CREATE TABLE IF NOT EXISTS user_note_types (
   user_note_type_deleted_at TIMESTAMPTZ,
 
   CONSTRAINT uq_note_type_per_tenant_owner_code
-    UNIQUE (user_note_type_masjid_id, user_note_type_owner_user_id, user_note_type_code)
+    UNIQUE (user_note_type_school_id, user_note_type_owner_user_id, user_note_type_code)
 );
 
 -- Indexes (lookup cepat)
-CREATE INDEX IF NOT EXISTS idx_note_types_masjid
-  ON user_note_types(user_note_type_masjid_id);
+CREATE INDEX IF NOT EXISTS idx_note_types_school
+  ON user_note_types(user_note_type_school_id);
 
 CREATE INDEX IF NOT EXISTS idx_note_types_owner_active_sort
   ON user_note_types(user_note_type_owner_user_id, user_note_type_is_active, user_note_type_sort)
@@ -52,15 +52,15 @@ CREATE TABLE IF NOT EXISTS user_notes (
   user_note_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant scope
-  user_note_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  user_note_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- author
   user_note_author_user_id UUID NOT NULL
     REFERENCES users(id) ON DELETE CASCADE,
 
   user_note_author_teacher_id UUID
-    REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE CASCADE,
+    REFERENCES school_teachers(school_teacher_id) ON DELETE CASCADE,
 
   -- cakupan/target
   user_note_scope VARCHAR(16) NOT NULL DEFAULT 'student'
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS user_notes (
 
   -- target (nullable sesuai scope)
   user_note_student_id UUID
-    REFERENCES masjid_students(masjid_student_id) ON DELETE CASCADE,
+    REFERENCES school_students(school_student_id) ON DELETE CASCADE,
 
   -- NOTE: kolom PK table ini biasanya "class_section_id"
   user_note_class_section_id UUID
@@ -109,8 +109,8 @@ CREATE TABLE IF NOT EXISTS user_notes (
 -- ---------------------------------------------------------
 -- Indexes (tanpa fungsi/trigger) — user_notes
 -- ---------------------------------------------------------
-CREATE INDEX IF NOT EXISTS idx_user_notes_masjid
-  ON user_notes(user_note_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_user_notes_school
+  ON user_notes(user_note_school_id)
   WHERE user_note_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_user_notes_author
@@ -141,11 +141,11 @@ CREATE INDEX IF NOT EXISTS idx_user_notes_labels_gin
   ON user_notes USING GIN (user_note_labels);
 
 CREATE INDEX IF NOT EXISTS idx_user_notes_pinned_partial
-  ON user_notes(user_note_masjid_id, user_note_created_at DESC)
+  ON user_notes(user_note_school_id, user_note_created_at DESC)
   WHERE user_note_is_pinned = TRUE AND user_note_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_user_notes_due_date
-  ON user_notes(user_note_masjid_id, user_note_due_date)
+  ON user_notes(user_note_school_id, user_note_due_date)
   WHERE user_note_deleted_at IS NULL AND user_note_due_date IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS gin_user_notes_title_trgm
@@ -171,8 +171,8 @@ CREATE TABLE IF NOT EXISTS user_note_urls (
   user_note_url_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant guard (aman walau join langsung tanpa ikut parent)
-  user_note_url_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  user_note_url_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- parent
   user_note_url_note_id UUID NOT NULL
@@ -236,9 +236,9 @@ CREATE INDEX IF NOT EXISTS gin_user_note_urls_title_trgm
   ON user_note_urls USING GIN (user_note_url_title gin_trgm_ops)
   WHERE user_note_url_deleted_at IS NULL;
 
--- Lookup per masjid/kind
-CREATE INDEX IF NOT EXISTS idx_user_note_urls_masjid_kind
-  ON user_note_urls(user_note_url_masjid_id, user_note_url_kind)
+-- Lookup per school/kind
+CREATE INDEX IF NOT EXISTS idx_user_note_urls_school_kind
+  ON user_note_urls(user_note_url_school_id, user_note_url_kind)
   WHERE user_note_url_deleted_at IS NULL;
 
 -- Arsip waktu (ringan)

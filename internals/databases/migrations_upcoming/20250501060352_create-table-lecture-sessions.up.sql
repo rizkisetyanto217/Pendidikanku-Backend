@@ -27,9 +27,9 @@ CREATE TABLE IF NOT EXISTS lecture_sessions (
   lecture_session_place        TEXT,
   lecture_session_image_url    TEXT,
 
-  -- Relasi & cache masjid
+  -- Relasi & cache school
   lecture_session_lecture_id   UUID REFERENCES lectures(lecture_id) ON DELETE CASCADE,
-  lecture_session_masjid_id    UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  lecture_session_school_id    UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- Validasi
   lecture_session_approved_by_admin_id   UUID REFERENCES users(id),
@@ -64,9 +64,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_ls_slug_ci
   ON lecture_sessions (LOWER(lecture_session_slug))
   WHERE lecture_session_deleted_at IS NULL;
 
--- Listing upcoming per masjid (aktif)
-CREATE INDEX IF NOT EXISTS idx_ls_masjid_active_start
-  ON lecture_sessions (lecture_session_masjid_id, lecture_session_is_active, lecture_session_start_time)
+-- Listing upcoming per school (aktif)
+CREATE INDEX IF NOT EXISTS idx_ls_school_active_start
+  ON lecture_sessions (lecture_session_school_id, lecture_session_is_active, lecture_session_start_time)
   WHERE lecture_session_deleted_at IS NULL;
 
 -- Jadwal per teacher
@@ -79,9 +79,9 @@ CREATE INDEX IF NOT EXISTS idx_ls_lecture_start
   ON lecture_sessions (lecture_session_lecture_id, lecture_session_start_time)
   WHERE lecture_session_deleted_at IS NULL;
 
--- Sesi aktif terbaru per masjid (opsional)
-CREATE INDEX IF NOT EXISTS idx_ls_masjid_active_created_desc
-  ON lecture_sessions (lecture_session_masjid_id, lecture_session_is_active, lecture_session_created_at DESC)
+-- Sesi aktif terbaru per school (opsional)
+CREATE INDEX IF NOT EXISTS idx_ls_school_active_created_desc
+  ON lecture_sessions (lecture_session_school_id, lecture_session_is_active, lecture_session_created_at DESC)
   WHERE lecture_session_deleted_at IS NULL;
 
 -- Full-Text Search
@@ -116,8 +116,8 @@ CREATE TABLE IF NOT EXISTS user_lecture_sessions (
   user_lecture_session_user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   user_lecture_session_lecture_id         UUID NOT NULL REFERENCES lectures(lecture_id) ON DELETE CASCADE,
 
-  -- Masjid cache
-  user_lecture_session_masjid_id          UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  -- School cache
+  user_lecture_session_school_id          UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- Waktu (TIMESTAMPTZ)
   user_lecture_session_created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -140,9 +140,9 @@ CREATE INDEX IF NOT EXISTS idx_uls_by_session_alive
   ON user_lecture_sessions (user_lecture_session_lecture_session_id)
   WHERE user_lecture_session_deleted_at IS NULL;
 
--- Partisipasi user per masjid terbaru (alive only)
-CREATE INDEX IF NOT EXISTS idx_uls_user_masjid_created_desc_alive
-  ON user_lecture_sessions (user_lecture_session_user_id, user_lecture_session_masjid_id, user_lecture_session_created_at DESC)
+-- Partisipasi user per school terbaru (alive only)
+CREATE INDEX IF NOT EXISTS idx_uls_user_school_created_desc_alive
+  ON user_lecture_sessions (user_lecture_session_user_id, user_lecture_session_school_id, user_lecture_session_created_at DESC)
   WHERE user_lecture_session_deleted_at IS NULL;
 
 -- Analitik nilai per lecture (alive only)

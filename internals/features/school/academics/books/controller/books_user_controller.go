@@ -3,8 +3,8 @@ package controller
 
 import (
 	"errors"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 	"strings"
 	"time"
 
@@ -21,27 +21,27 @@ GET /api/a/books/list (versi sederhana)
 - Tanpa DTO eksternal (struct lokal) & tanpa preload/joins
 */
 func (h *BooksController) List(c *fiber.Ctx) error {
-	// ===== Masjid context (PUBLIC): no role check =====
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// ===== School context (PUBLIC): no role check =====
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
 
-	var masjidID uuid.UUID
+	var schoolID uuid.UUID
 	switch {
 	case mc.ID != uuid.Nil:
-		masjidID = mc.ID
+		schoolID = mc.ID
 	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetMasjidIDBySlug(c, strings.TrimSpace(mc.Slug))
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
 		if er != nil {
 			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve masjid dari slug")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
 		}
-		masjidID = id
+		schoolID = id
 	default:
-		return helperAuth.ErrMasjidContextMissing
+		return helperAuth.ErrSchoolContextMissing
 	}
 
 	// ===== Query params dasar =====
@@ -116,7 +116,7 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	// ===== Query dasar =====
 	type row struct {
 		BookID             uuid.UUID  `json:"book_id"               gorm:"column:book_id"`
-		BookMasjidID       uuid.UUID  `json:"book_masjid_id"        gorm:"column:book_masjid_id"`
+		BookSchoolID       uuid.UUID  `json:"book_school_id"        gorm:"column:book_school_id"`
 		BookTitle          string     `json:"book_title"            gorm:"column:book_title"`
 		BookAuthor         *string    `json:"book_author,omitempty" gorm:"column:book_author"`
 		BookDesc           *string    `json:"book_desc,omitempty"   gorm:"column:book_desc"`
@@ -130,7 +130,7 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	}
 
 	base := h.DB.Table("books AS b").
-		Where("b.book_masjid_id = ?", masjidID)
+		Where("b.book_school_id = ?", schoolID)
 
 	if !withDeleted {
 		base = base.Where("b.book_deleted_at IS NULL")
@@ -166,7 +166,7 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 	if err := base.
 		Select(`
 			b.book_id,
-			b.book_masjid_id,
+			b.book_school_id,
 			b.book_title,
 			b.book_author,
 			b.book_desc,

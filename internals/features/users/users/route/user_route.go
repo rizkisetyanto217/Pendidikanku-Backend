@@ -3,7 +3,7 @@ package routes
 import (
 	"log"
 
-	userController "masjidku_backend/internals/features/users/users/controller"
+	userController "schoolku_backend/internals/features/users/users/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -21,9 +21,9 @@ func UserUserRoutes(app fiber.Router, db *gorm.DB) {
 
 	// ===== /users/profile (JWT; profile milik sendiri) =====
 	profile := app.Group("/user-profile")
-	profile.Get("/",    userProfileCtrl.GetProfile)     // GET   /users/profile
+	profile.Get("/", userProfileCtrl.GetProfile)         // GET   /users/profile
 	profile.Get("/:user_id", userProfileCtrl.GetProfile) // GET   /users/profile/:id
-	profile.Post("/",   userProfileCtrl.CreateProfile)  // POST  /users/profile
-	profile.Patch("/",  userProfileCtrl.UpdateProfile)  // PATCH /users/profile
-	profile.Delete("/", userProfileCtrl.DeleteProfile)  // DELETE /users/profile
+	profile.Post("/", userProfileCtrl.CreateProfile)     // POST  /users/profile
+	profile.Patch("/", userProfileCtrl.UpdateProfile)    // PATCH /users/profile
+	profile.Delete("/", userProfileCtrl.DeleteProfile)   // DELETE /users/profile
 }

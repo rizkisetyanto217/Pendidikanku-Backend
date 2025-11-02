@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"masjidku_backend/internals/features/lembaga/ui/theme/model"
+	"schoolku_backend/internals/features/lembaga/ui/theme/model"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
@@ -17,13 +17,13 @@ import (
 UIThemePresetRequest
 - Dipakai untuk CREATE, UPDATE, maupun PATCH.
 - Aturan umum:
-  * CREATE: wajib kirim Code, Name, Light, Dark (semua non-nil & valid)
-  * UPDATE (replace-style): field pointer non-nil → REPLACE nilai (scalar/JSON)
-  * PATCH: bisa campur:
-      - REPLACE penuh JSON via Light/Dark (pointer JSON non-nil)
-      - MERGE parsial JSON via LightPatch/DarkPatch (RFC 7386: null = hapus key)
-- Controller bebas menentukan "mode" dan validasi yang diperlukan
-  (misal, pastikan field wajib terisi pada CREATE).
+  - CREATE: wajib kirim Code, Name, Light, Dark (semua non-nil & valid)
+  - UPDATE (replace-style): field pointer non-nil → REPLACE nilai (scalar/JSON)
+  - PATCH: bisa campur:
+  - REPLACE penuh JSON via Light/Dark (pointer JSON non-nil)
+  - MERGE parsial JSON via LightPatch/DarkPatch (RFC 7386: null = hapus key)
+  - Controller bebas menentukan "mode" dan validasi yang diperlukan
+    (misal, pastikan field wajib terisi pada CREATE).
 */
 type UIThemePresetRequest struct {
 	// Scalar fields (pointer → optional)

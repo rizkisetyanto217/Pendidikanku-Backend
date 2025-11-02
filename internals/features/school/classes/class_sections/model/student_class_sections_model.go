@@ -32,9 +32,9 @@ type StudentClassSection struct {
 	StudentClassSectionID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:student_class_section_id" json:"student_class_section_id"`
 
 	// Identitas siswa & tenant
-	StudentClassSectionMasjidStudentID uuid.UUID `gorm:"type:uuid;not null;column:student_class_section_masjid_student_id" json:"student_class_section_masjid_student_id"`
+	StudentClassSectionSchoolStudentID uuid.UUID `gorm:"type:uuid;not null;column:student_class_section_school_student_id" json:"student_class_section_school_student_id"`
 	StudentClassSectionSectionID       uuid.UUID `gorm:"type:uuid;not null;column:student_class_section_section_id" json:"student_class_section_section_id"`
-	StudentClassSectionMasjidID        uuid.UUID `gorm:"type:uuid;not null;column:student_class_section_masjid_id" json:"student_class_section_masjid_id"`
+	StudentClassSectionSchoolID        uuid.UUID `gorm:"type:uuid;not null;column:student_class_section_school_id" json:"student_class_section_school_id"`
 
 	// Lifecycle enrolment
 	StudentClassSectionStatus StudentClassSectionStatus  `gorm:"type:text;not null;default:'active';column:student_class_section_status" json:"student_class_section_status"`

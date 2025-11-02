@@ -32,8 +32,8 @@ const (
 type GeneralBillingKind struct {
 	GeneralBillingKindID uuid.UUID `json:"general_billing_kind_id" gorm:"column:general_billing_kind_id;type:uuid;default:gen_random_uuid();primaryKey"`
 
-	// NULLABLE: global kind (operasional aplikasi) tidak punya masjid_id
-	GeneralBillingKindMasjidID *uuid.UUID `json:"general_billing_kind_masjid_id,omitempty" gorm:"column:general_billing_kind_masjid_id;type:uuid"`
+	// NULLABLE: global kind (operasional aplikasi) tidak punya school_id
+	GeneralBillingKindSchoolID *uuid.UUID `json:"general_billing_kind_school_id,omitempty" gorm:"column:general_billing_kind_school_id;type:uuid"`
 
 	GeneralBillingKindCode string  `json:"general_billing_kind_code" gorm:"column:general_billing_kind_code;type:varchar(60);not null"`
 	GeneralBillingKindName string  `json:"general_billing_kind_name" gorm:"column:general_billing_kind_name;type:text;not null"`
@@ -60,4 +60,3 @@ type GeneralBillingKind struct {
 }
 
 func (GeneralBillingKind) TableName() string { return "general_billing_kinds" }
-

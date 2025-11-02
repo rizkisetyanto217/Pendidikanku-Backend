@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	m "masjidku_backend/internals/features/finance/general_billings/model"
+	m "schoolku_backend/internals/features/finance/general_billings/model"
 )
 
 /* =========================================================
@@ -15,7 +15,7 @@ import (
 
 type GeneralBillingKindDTO struct {
 	ID               uuid.UUID  `json:"general_billing_kind_id"`
-	MasjidID         *uuid.UUID `json:"general_billing_kind_masjid_id,omitempty"` // nullable utk GLOBAL
+	SchoolID         *uuid.UUID `json:"general_billing_kind_school_id,omitempty"` // nullable utk GLOBAL
 	Code             string     `json:"general_billing_kind_code"`
 	Name             string     `json:"general_billing_kind_name"`
 	Desc             *string    `json:"general_billing_kind_desc,omitempty"`
@@ -39,7 +39,7 @@ type GeneralBillingKindDTO struct {
 func FromModel(g m.GeneralBillingKind) GeneralBillingKindDTO {
 	dto := GeneralBillingKindDTO{
 		ID:                 g.GeneralBillingKindID,
-		MasjidID:           g.GeneralBillingKindMasjidID,
+		SchoolID:           g.GeneralBillingKindSchoolID,
 		Code:               g.GeneralBillingKindCode,
 		Name:               g.GeneralBillingKindName,
 		Desc:               g.GeneralBillingKindDesc,
@@ -74,8 +74,8 @@ func FromModelSlice(xs []m.GeneralBillingKind) []GeneralBillingKindDTO {
 ========================================================= */
 
 type CreateGeneralBillingKindRequest struct {
-	// MasjidID boleh kosong (GLOBAL kind); biasanya di-path dan di-override controller
-	MasjidID *uuid.UUID `json:"general_billing_kind_masjid_id,omitempty"`
+	// SchoolID boleh kosong (GLOBAL kind); biasanya di-path dan di-override controller
+	SchoolID *uuid.UUID `json:"general_billing_kind_school_id,omitempty"`
 
 	Code             string  `json:"general_billing_kind_code"`
 	Name             string  `json:"general_billing_kind_name"`
@@ -130,7 +130,7 @@ func (r CreateGeneralBillingKindRequest) ToModel() m.GeneralBillingKind {
 	}
 
 	return m.GeneralBillingKind{
-		GeneralBillingKindMasjidID:         r.MasjidID,
+		GeneralBillingKindSchoolID:         r.SchoolID,
 		GeneralBillingKindCode:             r.Code,
 		GeneralBillingKindName:             r.Name,
 		GeneralBillingKindDesc:             r.Desc,
@@ -222,7 +222,7 @@ func (p PatchGeneralBillingKindRequest) ApplyTo(g *m.GeneralBillingKind) {
 ========================================================= */
 
 type ListGeneralBillingKindsQuery struct {
-	MasjidID *uuid.UUID `query:"masjid_id"`
+	SchoolID *uuid.UUID `query:"school_id"`
 
 	Search   string  `query:"search"`     // cari di code/name
 	IsActive *bool   `query:"is_active"`  // nil=all
@@ -264,6 +264,6 @@ type UpsertGeneralBillingKindItem struct {
 }
 
 type UpsertGeneralBillingKindsRequest struct {
-	MasjidID *uuid.UUID                     `json:"general_billing_kind_masjid_id,omitempty"`
+	SchoolID *uuid.UUID                     `json:"general_billing_kind_school_id,omitempty"`
 	Items    []UpsertGeneralBillingKindItem `json:"items"`
 }

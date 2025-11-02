@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS lecture_exams (
   lecture_exam_title VARCHAR(255) NOT NULL,
   lecture_exam_description TEXT,
   lecture_exam_lecture_id UUID REFERENCES lectures(lecture_id) ON DELETE CASCADE,
-  lecture_exam_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  lecture_exam_school_id UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   lecture_exam_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   lecture_exam_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -31,8 +31,8 @@ CREATE INDEX IF NOT EXISTS idx_lexams_lecture_created_desc
   ON lecture_exams (lecture_exam_lecture_id, lecture_exam_created_at DESC)
   WHERE lecture_exam_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_lexams_masjid_created_desc
-  ON lecture_exams (lecture_exam_masjid_id, lecture_exam_created_at DESC)
+CREATE INDEX IF NOT EXISTS idx_lexams_school_created_desc
+  ON lecture_exams (lecture_exam_school_id, lecture_exam_created_at DESC)
   WHERE lecture_exam_deleted_at IS NULL;
 
 -- Full-Text Search (judul + deskripsi)
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS user_lecture_exams (
   user_lecture_exam_exam_id UUID REFERENCES lecture_exams(lecture_exam_id) ON DELETE CASCADE,
   user_lecture_exam_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   user_lecture_exam_user_name VARCHAR(100),
-  user_lecture_exam_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  user_lecture_exam_school_id UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   user_lecture_exam_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   user_lecture_exam_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -93,8 +93,8 @@ CREATE INDEX IF NOT EXISTS idx_ulexams_user_created_desc
   ON user_lecture_exams (user_lecture_exam_user_id, user_lecture_exam_created_at DESC)
   WHERE user_lecture_exam_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_ulexams_masjid_created_desc
-  ON user_lecture_exams (user_lecture_exam_masjid_id, user_lecture_exam_created_at DESC)
+CREATE INDEX IF NOT EXISTS idx_ulexams_school_created_desc
+  ON user_lecture_exams (user_lecture_exam_school_id, user_lecture_exam_created_at DESC)
   WHERE user_lecture_exam_deleted_at IS NULL;
 
 -- Pencarian nama user (fuzzy, hanya baris hidup)

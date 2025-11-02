@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	profilemodel "masjidku_backend/internals/features/users/users/model"
+	profilemodel "schoolku_backend/internals/features/users/users/model"
 )
 
 // service/user_profile_service.go

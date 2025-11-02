@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
-	dto "masjidku_backend/internals/features/school/academics/books/dto"
-	model "masjidku_backend/internals/features/school/academics/books/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	dto "schoolku_backend/internals/features/school/academics/books/dto"
+	model "schoolku_backend/internals/features/school/academics/books/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -70,39 +70,39 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// 3) Resolve masjid context + guard staff
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// 3) Resolve school context + guard staff
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	var masjidID uuid.UUID
+	var schoolID uuid.UUID
 	switch {
 	case mc.ID != uuid.Nil:
-		masjidID = mc.ID
+		schoolID = mc.ID
 	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+		id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
 		if er != nil {
-			return helper.JsonError(c, fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
-		masjidID = id
+		schoolID = id
 	default:
-		id, er := helperAuth.GetMasjidIDFromTokenPreferTeacher(c)
+		id, er := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
 		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Masjid context tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak ditemukan")
 		}
-		masjidID = id
+		schoolID = id
 	}
-	if err := helperAuth.EnsureStaffMasjid(c, masjidID); err != nil {
+	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
 		return err
 	}
 
-	// 4) Validasi: book harus milik masjid & masih hidup
+	// 4) Validasi: book harus milik school & masih hidup
 	var bk struct {
-		MasjidID  uuid.UUID  `gorm:"column:masjid_id"`
+		SchoolID  uuid.UUID  `gorm:"column:school_id"`
 		DeletedAt *time.Time `gorm:"column:deleted_at"`
 	}
 	if err := ctl.DB.Table("books").
-		Select("books_masjid_id AS masjid_id, books_deleted_at AS deleted_at").
+		Select("books_school_id AS school_id, books_deleted_at AS deleted_at").
 		Where("books_id = ?", p.BookURLBookID).
 		Take(&bk).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -110,8 +110,8 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data buku")
 	}
-	if bk.MasjidID != masjidID {
-		return helper.JsonError(c, fiber.StatusForbidden, "Buku bukan milik masjid Anda")
+	if bk.SchoolID != schoolID {
+		return helper.JsonError(c, fiber.StatusForbidden, "Buku bukan milik school Anda")
 	}
 	if bk.DeletedAt != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Buku sudah dihapus")
@@ -121,17 +121,17 @@ func (ctl *BookURLController) Create(c *fiber.Ctx) error {
 	var created model.BookURLModel
 	if err := ctl.DB.Transaction(func(tx *gorm.DB) error {
 		// Enforce tenant ke payload sebelum buat model
-		p.BookURLMasjidID = masjidID
+		p.BookURLSchoolID = schoolID
 
 		// Jika primary → nonaktifkan yang lain dulu agar tidak kena unique partial index
 		if p.BookURLIsPrimary != nil && *p.BookURLIsPrimary {
 			if err := tx.Model(&model.BookURLModel{}).
 				Where(`
-					book_url_masjid_id = ?
+					book_url_school_id = ?
 					AND book_url_book_id = ?
 					AND book_url_kind = ?
 					AND book_url_deleted_at IS NULL
-				`, masjidID, p.BookURLBookID, p.BookURLKind).
+				`, schoolID, p.BookURLBookID, p.BookURLKind).
 				Updates(map[string]any{
 					"book_url_is_primary": false,
 					"book_url_updated_at": time.Now(),
@@ -192,8 +192,8 @@ func (ctl *BookURLController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// Guard staff pada masjid terkait
-	if err := helperAuth.EnsureStaffMasjid(c, ex.BookURLMasjidID); err != nil {
+	// Guard staff pada school terkait
+	if err := helperAuth.EnsureStaffSchool(c, ex.BookURLSchoolID); err != nil {
 		return err
 	}
 
@@ -249,11 +249,11 @@ func (ctl *BookURLController) Patch(c *fiber.Ctx) error {
 	// Jika book_id diganti → validasi kepemilikan & alive
 	if p.BookURLBookID != nil {
 		var bk struct {
-			MasjidID  uuid.UUID  `gorm:"column:masjid_id"`
+			SchoolID  uuid.UUID  `gorm:"column:school_id"`
 			DeletedAt *time.Time `gorm:"column:deleted_at"`
 		}
 		if err := ctl.DB.Table("books").
-			Select("books_masjid_id AS masjid_id, books_deleted_at AS deleted_at").
+			Select("books_school_id AS school_id, books_deleted_at AS deleted_at").
 			Where("books_id = ?", *p.BookURLBookID).
 			Take(&bk).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
@@ -261,8 +261,8 @@ func (ctl *BookURLController) Patch(c *fiber.Ctx) error {
 			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data buku")
 		}
-		if bk.MasjidID != ex.BookURLMasjidID {
-			return helper.JsonError(c, fiber.StatusForbidden, "Buku bukan milik masjid Anda")
+		if bk.SchoolID != ex.BookURLSchoolID {
+			return helper.JsonError(c, fiber.StatusForbidden, "Buku bukan milik school Anda")
 		}
 		if bk.DeletedAt != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Buku sudah dihapus")
@@ -332,13 +332,13 @@ func (ctl *BookURLController) Patch(c *fiber.Ctx) error {
 		if p.BookURLIsPrimary != nil && *p.BookURLIsPrimary {
 			if err := tx.Model(&model.BookURLModel{}).
 				Where(`
-					book_url_masjid_id = ?
+					book_url_school_id = ?
 					AND book_url_book_id = ?
 					AND book_url_kind = ?
 					AND book_url_deleted_at IS NULL
 					AND book_url_id <> ?
 				`,
-					ex.BookURLMasjidID, effBookID, effKind, ex.BookURLID,
+					ex.BookURLSchoolID, effBookID, effKind, ex.BookURLID,
 				).
 				Updates(map[string]any{
 					"book_url_is_primary": false,
@@ -404,7 +404,7 @@ func (ctl *BookURLController) Delete(c *fiber.Ctx) error {
 	}
 
 	// Guard staff
-	if err := helperAuth.EnsureStaffMasjid(c, ex.BookURLMasjidID); err != nil {
+	if err := helperAuth.EnsureStaffSchool(c, ex.BookURLSchoolID); err != nil {
 		return err
 	}
 

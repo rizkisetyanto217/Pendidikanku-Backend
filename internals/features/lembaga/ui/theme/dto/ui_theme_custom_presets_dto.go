@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"masjidku_backend/internals/features/lembaga/ui/theme/model"
+	"schoolku_backend/internals/features/lembaga/ui/theme/model"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
@@ -21,7 +21,7 @@ UIThemeCustomPresetRequest
 */
 type UIThemeCustomPresetRequest struct {
 	// Scalar fields
-	UIThemeCustomPresetMasjidID *uuid.UUID `json:"ui_theme_custom_preset_masjid_id,omitempty"`
+	UIThemeCustomPresetSchoolID *uuid.UUID `json:"ui_theme_custom_preset_school_id,omitempty"`
 	UIThemeCustomPresetCode     *string    `json:"ui_theme_custom_preset_code,omitempty" validate:"omitempty,max=64"`
 	UIThemeCustomPresetName     *string    `json:"ui_theme_custom_preset_name,omitempty" validate:"omitempty,max=128"`
 
@@ -46,7 +46,7 @@ UIThemeCustomPresetResponse
 */
 type UIThemeCustomPresetResponse struct {
 	UIThemeCustomPresetID        uuid.UUID      `json:"ui_theme_custom_preset_id"`
-	UIThemeCustomPresetMasjidID  uuid.UUID      `json:"ui_theme_custom_preset_masjid_id"`
+	UIThemeCustomPresetSchoolID  uuid.UUID      `json:"ui_theme_custom_preset_school_id"`
 	UIThemeCustomPresetCode      string         `json:"ui_theme_custom_preset_code"`
 	UIThemeCustomPresetName      string         `json:"ui_theme_custom_preset_name"`
 	UIThemeCustomPresetLight     datatypes.JSON `json:"ui_theme_custom_preset_light"`
@@ -62,8 +62,8 @@ type UIThemeCustomPresetResponse struct {
 ========================= */
 
 func (r *UIThemeCustomPresetRequest) ValidateCreate() error {
-	if r.UIThemeCustomPresetMasjidID == nil {
-		return errors.New("ui_theme_custom_preset_masjid_id is required")
+	if r.UIThemeCustomPresetSchoolID == nil {
+		return errors.New("ui_theme_custom_preset_school_id is required")
 	}
 	if r.UIThemeCustomPresetCode == nil || len(strings.TrimSpace(*r.UIThemeCustomPresetCode)) == 0 {
 		return errors.New("ui_theme_custom_preset_code is required")
@@ -81,7 +81,7 @@ func (r *UIThemeCustomPresetRequest) ValidateCreate() error {
 }
 
 func (r *UIThemeCustomPresetRequest) IsNoop() bool {
-	return r.UIThemeCustomPresetMasjidID == nil &&
+	return r.UIThemeCustomPresetSchoolID == nil &&
 		r.UIThemeCustomPresetCode == nil &&
 		r.UIThemeCustomPresetName == nil &&
 		r.UIThemeCustomPresetLight == nil &&
@@ -99,7 +99,7 @@ func (r *UIThemeCustomPresetRequest) IsNoop() bool {
 func ToUIThemeCustomPresetResponse(m *model.UIThemeCustomPreset) UIThemeCustomPresetResponse {
 	return UIThemeCustomPresetResponse{
 		UIThemeCustomPresetID:        m.UIThemeCustomPresetID,
-		UIThemeCustomPresetMasjidID:  m.UIThemeCustomPresetMasjidID,
+		UIThemeCustomPresetSchoolID:  m.UIThemeCustomPresetSchoolID,
 		UIThemeCustomPresetCode:      m.UIThemeCustomPresetCode,
 		UIThemeCustomPresetName:      m.UIThemeCustomPresetName,
 		UIThemeCustomPresetLight:     m.UIThemeCustomPresetLight,
@@ -111,16 +111,14 @@ func ToUIThemeCustomPresetResponse(m *model.UIThemeCustomPreset) UIThemeCustomPr
 	}
 }
 
-
-
 /* =========================
    ApplyPatch Helper
 ========================= */
 
 func ApplyPatchToCustomModel(entity *model.UIThemeCustomPreset, req *UIThemeCustomPresetRequest) error {
 	// Scalars
-	if req.UIThemeCustomPresetMasjidID != nil {
-		entity.UIThemeCustomPresetMasjidID = *req.UIThemeCustomPresetMasjidID
+	if req.UIThemeCustomPresetSchoolID != nil {
+		entity.UIThemeCustomPresetSchoolID = *req.UIThemeCustomPresetSchoolID
 	}
 	if req.UIThemeCustomPresetCode != nil {
 		entity.UIThemeCustomPresetCode = *req.UIThemeCustomPresetCode

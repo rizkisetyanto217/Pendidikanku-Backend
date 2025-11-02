@@ -13,11 +13,11 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
-	d "masjidku_backend/internals/features/school/classes/class_events/dto"
-	m "masjidku_backend/internals/features/school/classes/class_events/model"
+	d "schoolku_backend/internals/features/school/classes/class_events/dto"
+	m "schoolku_backend/internals/features/school/classes/class_events/model"
 )
 
 /* =========================
@@ -80,7 +80,7 @@ func writePGError(c *fiber.Ctx, err error) error {
 }
 
 /* =========================
-   Create  (OWNER or DKM/Admin Masjid)
+   Create  (OWNER or DKM/Admin School)
    Context via resolver (path/header/query/host/token)
    ========================= */
 
@@ -88,34 +88,34 @@ func (ctl *ClassEventsController) Create(c *fiber.Ctx) error {
 	// sediakan DB untuk resolver slug→id
 	c.Locals("DB", ctl.DB)
 
-	// resolve masjid context
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// resolve school context
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
 
-	// tentukan masjid aktif
-	var actMasjidID uuid.UUID
+	// tentukan school aktif
+	var actSchoolID uuid.UUID
 	if helperAuth.IsOwner(c) {
-		// owner: tidak perlu cek role, tapi tetap perlu id masjid
+		// owner: tidak perlu cek role, tapi tetap perlu id school
 		if mc.ID != uuid.Nil {
-			actMasjidID = mc.ID
+			actSchoolID = mc.ID
 		} else if strings.TrimSpace(mc.Slug) != "" {
-			id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+			id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
 			if er != nil {
-				return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+				return fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
 			}
-			actMasjidID = id
+			actSchoolID = id
 		} else {
-			return helperAuth.ErrMasjidContextMissing
+			return helperAuth.ErrSchoolContextMissing
 		}
 	} else {
 		// non-owner: wajib DKM/Admin
-		id, er := helperAuth.EnsureMasjidAccessDKM(c, mc)
+		id, er := helperAuth.EnsureSchoolAccessDKM(c, mc)
 		if er != nil {
 			return er
 		}
-		actMasjidID = id
+		actSchoolID = id
 	}
 
 	var req d.CreateClassEventRequest
@@ -128,7 +128,7 @@ func (ctl *ClassEventsController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	model, err := req.ToModel(actMasjidID)
+	model, err := req.ToModel(actSchoolID)
 	if err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
@@ -141,36 +141,36 @@ func (ctl *ClassEventsController) Create(c *fiber.Ctx) error {
 }
 
 /* =========================
-   Patch  (OWNER or DKM/Admin Masjid)
+   Patch  (OWNER or DKM/Admin School)
    ========================= */
 
 func (ctl *ClassEventsController) Patch(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
 
-	var actMasjidID uuid.UUID
+	var actSchoolID uuid.UUID
 	if helperAuth.IsOwner(c) {
 		if mc.ID != uuid.Nil {
-			actMasjidID = mc.ID
+			actSchoolID = mc.ID
 		} else if strings.TrimSpace(mc.Slug) != "" {
-			id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+			id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
 			if er != nil {
-				return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+				return fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
 			}
-			actMasjidID = id
+			actSchoolID = id
 		} else {
-			return helperAuth.ErrMasjidContextMissing
+			return helperAuth.ErrSchoolContextMissing
 		}
 	} else {
-		id, er := helperAuth.EnsureMasjidAccessDKM(c, mc)
+		id, er := helperAuth.EnsureSchoolAccessDKM(c, mc)
 		if er != nil {
 			return er
 		}
-		actMasjidID = id
+		actSchoolID = id
 	}
 
 	eventID, err := parseUUIDParam(c, "id")
@@ -180,7 +180,7 @@ func (ctl *ClassEventsController) Patch(c *fiber.Ctx) error {
 
 	var existing m.ClassEventModel
 	if err := ctl.DB.
-		Where("class_event_id = ? AND class_event_masjid_id = ? AND class_event_deleted_at IS NULL", eventID, actMasjidID).
+		Where("class_event_id = ? AND class_event_school_id = ? AND class_event_deleted_at IS NULL", eventID, actSchoolID).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "class event not found")
@@ -204,36 +204,36 @@ func (ctl *ClassEventsController) Patch(c *fiber.Ctx) error {
 }
 
 /* =========================
-   Delete (soft)  (OWNER or DKM/Admin Masjid)
+   Delete (soft)  (OWNER or DKM/Admin School)
    ========================= */
 
 func (ctl *ClassEventsController) Delete(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
 
-	var actMasjidID uuid.UUID
+	var actSchoolID uuid.UUID
 	if helperAuth.IsOwner(c) {
 		if mc.ID != uuid.Nil {
-			actMasjidID = mc.ID
+			actSchoolID = mc.ID
 		} else if strings.TrimSpace(mc.Slug) != "" {
-			id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+			id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
 			if er != nil {
-				return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+				return fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
 			}
-			actMasjidID = id
+			actSchoolID = id
 		} else {
-			return helperAuth.ErrMasjidContextMissing
+			return helperAuth.ErrSchoolContextMissing
 		}
 	} else {
-		id, er := helperAuth.EnsureMasjidAccessDKM(c, mc)
+		id, er := helperAuth.EnsureSchoolAccessDKM(c, mc)
 		if er != nil {
 			return er
 		}
-		actMasjidID = id
+		actSchoolID = id
 	}
 
 	eventID, err := parseUUIDParam(c, "id")
@@ -243,7 +243,7 @@ func (ctl *ClassEventsController) Delete(c *fiber.Ctx) error {
 
 	var existing m.ClassEventModel
 	if err := ctl.DB.
-		Where("class_event_id = ? AND class_event_masjid_id = ? AND class_event_deleted_at IS NULL", eventID, actMasjidID).
+		Where("class_event_id = ? AND class_event_school_id = ? AND class_event_deleted_at IS NULL", eventID, actSchoolID).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "class event not found")

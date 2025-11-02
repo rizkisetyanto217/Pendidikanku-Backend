@@ -28,8 +28,8 @@ EXCEPTION WHEN duplicate_object THEN END $$;
 -- =========================
 CREATE TABLE IF NOT EXISTS user_score_snapshots (
   user_score_snapshots_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_score_snapshots_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  user_score_snapshots_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- partition key
   user_score_snapshots_scope user_score_snapshots_scope NOT NULL,
@@ -146,12 +146,12 @@ CREATE TABLE IF NOT EXISTS user_score_snapshots_ucsst
 
   -- Unik per (tenant × ucsst × grain × start)
   CONSTRAINT uq_user_score_snapshots_ucsst_unique
-    UNIQUE (user_score_snapshots_masjid_id, user_score_snapshots_ucsst_id, user_score_snapshots_grain, user_score_snapshots_start)
+    UNIQUE (user_score_snapshots_school_id, user_score_snapshots_ucsst_id, user_score_snapshots_grain, user_score_snapshots_start)
 );
 
 -- Indexes UC-SST
 CREATE INDEX IF NOT EXISTS idx_user_score_snapshots_ucsst_tenant_anchor
-  ON user_score_snapshots_ucsst (user_score_snapshots_masjid_id, user_score_snapshots_ucsst_id);
+  ON user_score_snapshots_ucsst (user_score_snapshots_school_id, user_score_snapshots_ucsst_id);
 
 CREATE INDEX IF NOT EXISTS brin_user_score_snapshots_ucsst_start
   ON user_score_snapshots_ucsst USING BRIN (user_score_snapshots_start);
@@ -161,15 +161,15 @@ CREATE INDEX IF NOT EXISTS idx_user_score_snapshots_ucsst_updated_at
 
 -- Partial index per grain
 CREATE INDEX IF NOT EXISTS idx_user_score_snapshots_ucsst_week
-  ON user_score_snapshots_ucsst (user_score_snapshots_masjid_id, user_score_snapshots_ucsst_id, user_score_snapshots_start)
+  ON user_score_snapshots_ucsst (user_score_snapshots_school_id, user_score_snapshots_ucsst_id, user_score_snapshots_start)
   WHERE user_score_snapshots_grain = 'week';
 
 CREATE INDEX IF NOT EXISTS idx_user_score_snapshots_ucsst_month
-  ON user_score_snapshots_ucsst (user_score_snapshots_masjid_id, user_score_snapshots_ucsst_id, user_score_snapshots_start)
+  ON user_score_snapshots_ucsst (user_score_snapshots_school_id, user_score_snapshots_ucsst_id, user_score_snapshots_start)
   WHERE user_score_snapshots_grain = 'month';
 
 CREATE INDEX IF NOT EXISTS idx_user_score_snapshots_ucsst_semester
-  ON user_score_snapshots_ucsst (user_score_snapshots_masjid_id, user_score_snapshots_ucsst_id, user_score_snapshots_start)
+  ON user_score_snapshots_ucsst (user_score_snapshots_school_id, user_score_snapshots_ucsst_id, user_score_snapshots_start)
   WHERE user_score_snapshots_grain = 'semester';
 
 -- JSONB indexes
@@ -221,12 +221,12 @@ CREATE TABLE IF NOT EXISTS user_score_snapshots_ucsec
 
   -- Unik per (tenant × ucsec × grain × start)
   CONSTRAINT uq_user_score_snapshots_ucsec_unique
-    UNIQUE (user_score_snapshots_masjid_id, user_score_snapshots_ucsec_id, user_score_snapshots_grain, user_score_snapshots_start)
+    UNIQUE (user_score_snapshots_school_id, user_score_snapshots_ucsec_id, user_score_snapshots_grain, user_score_snapshots_start)
 );
 
 -- Indexes UC-SEC
 CREATE INDEX IF NOT EXISTS idx_user_score_snapshots_ucsec_tenant_anchor
-  ON user_score_snapshots_ucsec (user_score_snapshots_masjid_id, user_score_snapshots_ucsec_id);
+  ON user_score_snapshots_ucsec (user_score_snapshots_school_id, user_score_snapshots_ucsec_id);
 
 CREATE INDEX IF NOT EXISTS brin_user_score_snapshots_ucsec_start
   ON user_score_snapshots_ucsec USING BRIN (user_score_snapshots_start);
@@ -236,15 +236,15 @@ CREATE INDEX IF NOT EXISTS idx_user_score_snapshots_ucsec_updated_at
 
 -- Partial index per grain
 CREATE INDEX IF NOT EXISTS idx_user_score_snapshots_ucsec_week
-  ON user_score_snapshots_ucsec (user_score_snapshots_masjid_id, user_score_snapshots_ucsec_id, user_score_snapshots_start)
+  ON user_score_snapshots_ucsec (user_score_snapshots_school_id, user_score_snapshots_ucsec_id, user_score_snapshots_start)
   WHERE user_score_snapshots_grain = 'week';
 
 CREATE INDEX IF NOT EXISTS idx_user_score_snapshots_ucsec_month
-  ON user_score_snapshots_ucsec (user_score_snapshots_masjid_id, user_score_snapshots_ucsec_id, user_score_snapshots_start)
+  ON user_score_snapshots_ucsec (user_score_snapshots_school_id, user_score_snapshots_ucsec_id, user_score_snapshots_start)
   WHERE user_score_snapshots_grain = 'month';
 
 CREATE INDEX IF NOT EXISTS idx_user_score_snapshots_ucsec_semester
-  ON user_score_snapshots_ucsec (user_score_snapshots_masjid_id, user_score_snapshots_ucsec_id, user_score_snapshots_start)
+  ON user_score_snapshots_ucsec (user_score_snapshots_school_id, user_score_snapshots_ucsec_id, user_score_snapshots_start)
   WHERE user_score_snapshots_grain = 'semester';
 
 -- JSONB indexes
@@ -265,7 +265,7 @@ CREATE INDEX IF NOT EXISTS gin_user_score_snapshots_ucsec_submissions_week_only
 -- Helpful Parent Indexes
 -- =========================
 CREATE INDEX IF NOT EXISTS idx_user_score_snapshots_tenant_grain_start
-  ON user_score_snapshots (user_score_snapshots_masjid_id, user_score_snapshots_grain, user_score_snapshots_start);
+  ON user_score_snapshots (user_score_snapshots_school_id, user_score_snapshots_grain, user_score_snapshots_start);
 
 CREATE INDEX IF NOT EXISTS brin_user_score_snapshots_created
   ON user_score_snapshots USING BRIN (user_score_snapshots_created_at);

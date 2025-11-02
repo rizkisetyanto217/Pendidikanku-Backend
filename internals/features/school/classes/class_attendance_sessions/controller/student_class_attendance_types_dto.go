@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	dto "masjidku_backend/internals/features/school/classes/class_attendance_sessions/dto"
-	model "masjidku_backend/internals/features/school/classes/class_attendance_sessions/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	dto "schoolku_backend/internals/features/school/classes/class_attendance_sessions/dto"
+	model "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -39,12 +39,12 @@ func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
 
 // POST /
 func (ctl *StudentAttendanceTypeController) Create(c *fiber.Ctx) error {
-	// Masjid context via helpers (slug/ID di path/header/query/host) → wajib DKM/Admin
+	// School context via helpers (slug/ID di path/header/query/host) → wajib DKM/Admin
 	c.Locals("DB", ctl.DB)
-	var masjidID uuid.UUID
-	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureMasjidAccessDKM(c, mc); er == nil {
-			masjidID = id
+	var schoolID uuid.UUID
+	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
+			schoolID = id
 		} else {
 			if fe, ok := er.(*fiber.Error); ok {
 				return helper.JsonError(c, fe.Code, fe.Message)
@@ -53,10 +53,10 @@ func (ctl *StudentAttendanceTypeController) Create(c *fiber.Ctx) error {
 		}
 	} else {
 		// Fallback: prefer TEACHER → DKM/Admin (single-tenant token)
-		if id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			masjidID = id
+		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+			schoolID = id
 		} else {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "Scope masjid tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusUnauthorized, "Scope school tidak ditemukan")
 		}
 	}
 
@@ -65,7 +65,7 @@ func (ctl *StudentAttendanceTypeController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	// Enforce tenant dari context
-	in.StudentClassSessionAttendanceTypeMasjidID = masjidID
+	in.StudentClassSessionAttendanceTypeSchoolID = schoolID
 
 	if err := dto.ValidateStruct(ctl.Validator, &in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -74,7 +74,7 @@ func (ctl *StudentAttendanceTypeController) Create(c *fiber.Ctx) error {
 	m := in.ToModel()
 	if err := ctl.DB.WithContext(c.Context()).Create(m).Error; err != nil {
 		if isDuplicateKey(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Kode sudah terpakai untuk masjid ini (aktif)")
+			return helper.JsonError(c, fiber.StatusConflict, "Kode sudah terpakai untuk school ini (aktif)")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
@@ -84,12 +84,12 @@ func (ctl *StudentAttendanceTypeController) Create(c *fiber.Ctx) error {
 
 // GET /
 func (ctl *StudentAttendanceTypeController) List(c *fiber.Ctx) error {
-	// Masjid context (DKM/Admin jika eksplisit; jika tidak, fallback token/teacher)
+	// School context (DKM/Admin jika eksplisit; jika tidak, fallback token/teacher)
 	c.Locals("DB", ctl.DB)
-	var masjidID uuid.UUID
-	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureMasjidAccessDKM(c, mc); er == nil {
-			masjidID = id
+	var schoolID uuid.UUID
+	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
+			schoolID = id
 		} else {
 			if fe, ok := er.(*fiber.Error); ok {
 				return helper.JsonError(c, fe.Code, fe.Message)
@@ -97,10 +97,10 @@ func (ctl *StudentAttendanceTypeController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
 		}
 	} else {
-		if id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			masjidID = id
+		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+			schoolID = id
 		} else {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "Scope masjid tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusUnauthorized, "Scope school tidak ditemukan")
 		}
 	}
 
@@ -109,7 +109,7 @@ func (ctl *StudentAttendanceTypeController) List(c *fiber.Ctx) error {
 
 	// Query filter
 	q := dto.StudentClassSessionAttendanceTypeListQuery{
-		StudentClassSessionAttendanceTypeMasjidID: masjidID,
+		StudentClassSessionAttendanceTypeSchoolID: schoolID,
 	}
 
 	if v := strings.TrimSpace(c.Query("code_eq")); v != "" {
@@ -186,12 +186,12 @@ func (ctl *StudentAttendanceTypeController) List(c *fiber.Ctx) error {
 
 // PATCH /:id
 func (ctl *StudentAttendanceTypeController) Patch(c *fiber.Ctx) error {
-	// Masjid context
+	// School context
 	c.Locals("DB", ctl.DB)
-	var masjidID uuid.UUID
-	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureMasjidAccessDKM(c, mc); er == nil {
-			masjidID = id
+	var schoolID uuid.UUID
+	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
+			schoolID = id
 		} else {
 			if fe, ok := er.(*fiber.Error); ok {
 				return helper.JsonError(c, fe.Code, fe.Message)
@@ -199,10 +199,10 @@ func (ctl *StudentAttendanceTypeController) Patch(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
 		}
 	} else {
-		if id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			masjidID = id
+		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+			schoolID = id
 		} else {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "Scope masjid tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusUnauthorized, "Scope school tidak ditemukan")
 		}
 	}
 
@@ -216,9 +216,9 @@ func (ctl *StudentAttendanceTypeController) Patch(c *fiber.Ctx) error {
 	if err := ctl.DB.WithContext(c.Context()).
 		Where(`
 			student_class_session_attendance_type_id = ?
-			AND student_class_session_attendance_type_masjid_id = ?
+			AND student_class_session_attendance_type_school_id = ?
 			AND student_class_session_attendance_type_deleted_at IS NULL
-		`, id, masjidID).
+		`, id, schoolID).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -232,7 +232,7 @@ func (ctl *StudentAttendanceTypeController) Patch(c *fiber.Ctx) error {
 	}
 	// enforce key dari path + context
 	in.StudentClassSessionAttendanceTypeID = id
-	in.StudentClassSessionAttendanceTypeMasjidID = masjidID
+	in.StudentClassSessionAttendanceTypeSchoolID = schoolID
 
 	if err := dto.ValidateStruct(ctl.Validator, &in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -254,7 +254,7 @@ func (ctl *StudentAttendanceTypeController) Patch(c *fiber.Ctx) error {
 		).
 		Updates(&m).Error; err != nil {
 		if isDuplicateKey(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Kode sudah terpakai untuk masjid ini (aktif)")
+			return helper.JsonError(c, fiber.StatusConflict, "Kode sudah terpakai untuk school ini (aktif)")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
@@ -264,12 +264,12 @@ func (ctl *StudentAttendanceTypeController) Patch(c *fiber.Ctx) error {
 
 // DELETE /:id (soft delete)
 func (ctl *StudentAttendanceTypeController) Delete(c *fiber.Ctx) error {
-	// Masjid context
+	// School context
 	c.Locals("DB", ctl.DB)
-	var masjidID uuid.UUID
-	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureMasjidAccessDKM(c, mc); er == nil {
-			masjidID = id
+	var schoolID uuid.UUID
+	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
+			schoolID = id
 		} else {
 			if fe, ok := er.(*fiber.Error); ok {
 				return helper.JsonError(c, fe.Code, fe.Message)
@@ -277,10 +277,10 @@ func (ctl *StudentAttendanceTypeController) Delete(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
 		}
 	} else {
-		if id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			masjidID = id
+		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+			schoolID = id
 		} else {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "Scope masjid tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusUnauthorized, "Scope school tidak ditemukan")
 		}
 	}
 
@@ -293,9 +293,9 @@ func (ctl *StudentAttendanceTypeController) Delete(c *fiber.Ctx) error {
 		Model(&model.StudentClassSessionAttendanceTypeModel{}).
 		Where(`
 			student_class_session_attendance_type_id = ?
-			AND student_class_session_attendance_type_masjid_id = ?
+			AND student_class_session_attendance_type_school_id = ?
 			AND student_class_session_attendance_type_deleted_at IS NULL
-		`, id, masjidID).
+		`, id, schoolID).
 		Updates(map[string]any{
 			"student_class_session_attendance_type_deleted_at": time.Now(),
 			"student_class_session_attendance_type_updated_at": time.Now(),
@@ -312,12 +312,12 @@ func (ctl *StudentAttendanceTypeController) Delete(c *fiber.Ctx) error {
 
 // POST /:id/restore
 func (ctl *StudentAttendanceTypeController) Restore(c *fiber.Ctx) error {
-	// Masjid context
+	// School context
 	c.Locals("DB", ctl.DB)
-	var masjidID uuid.UUID
-	if mc, err := helperAuth.ResolveMasjidContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureMasjidAccessDKM(c, mc); er == nil {
-			masjidID = id
+	var schoolID uuid.UUID
+	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
+			schoolID = id
 		} else {
 			if fe, ok := er.(*fiber.Error); ok {
 				return helper.JsonError(c, fe.Code, fe.Message)
@@ -325,10 +325,10 @@ func (ctl *StudentAttendanceTypeController) Restore(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
 		}
 	} else {
-		if id, err := helperAuth.GetMasjidIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			masjidID = id
+		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+			schoolID = id
 		} else {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "Scope masjid tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusUnauthorized, "Scope school tidak ditemukan")
 		}
 	}
 
@@ -341,9 +341,9 @@ func (ctl *StudentAttendanceTypeController) Restore(c *fiber.Ctx) error {
 		Model(&model.StudentClassSessionAttendanceTypeModel{}).
 		Where(`
 			student_class_session_attendance_type_id = ?
-			AND student_class_session_attendance_type_masjid_id = ?
+			AND student_class_session_attendance_type_school_id = ?
 			AND student_class_session_attendance_type_deleted_at IS NOT NULL
-		`, id, masjidID).
+		`, id, schoolID).
 		Updates(map[string]any{
 			"student_class_session_attendance_type_deleted_at": nil,
 			"student_class_session_attendance_type_updated_at": time.Now(),

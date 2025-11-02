@@ -6,10 +6,10 @@ import (
 	"os"
 	"time"
 
-	masjidkuMiddleware "masjidku_backend/internals/middlewares/auth_masjid"
-	featuresMiddleware "masjidku_backend/internals/middlewares/features"
+	schoolkuMiddleware "schoolku_backend/internals/middlewares/auth_school"
+	featuresMiddleware "schoolku_backend/internals/middlewares/features"
 
-	routeDetails "masjidku_backend/internals/route/details"
+	routeDetails "schoolku_backend/internals/route/details"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -35,45 +35,45 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 
 	// ===================== PRIVATE (USER) =====================
 	// 🔓 privateLoose: TANPA scope/role strict. Dipakai untuk endpoint yang
-	//     tidak membutuhkan masjid_id pada path (contoh: join by code).
+	//     tidak membutuhkan school_id pada path (contoh: join by code).
 	log.Println("[INFO] Setting up PRIVATE (loose) group...")
 	privateLoose := app.Group("/api/u",
-		masjidkuMiddleware.AuthJWT(masjidkuMiddleware.AuthJWTOpts{
+		schoolkuMiddleware.AuthJWT(schoolkuMiddleware.AuthJWTOpts{
 			Secret:              os.Getenv("JWT_SECRET"),
 			AllowCookieFallback: true,
 		}),
 	)
 
 	// 🔒 privateScoped: (jika diperlukan) pasang middleware features di
-	//     sub-paket yang memang butuh masjid scope. Di sini kita tidak
-	//     memaksa UseMasjidScope global agar tidak menular ke endpoint loose.
+	//     sub-paket yang memang butuh school scope. Di sini kita tidak
+	//     memaksa UseSchoolScope global agar tidak menular ke endpoint loose.
 	log.Println("[INFO] Setting up PRIVATE (scoped) group...")
 	privateScoped := app.Group("/api/u",
-		masjidkuMiddleware.AuthJWT(masjidkuMiddleware.AuthJWTOpts{
+		schoolkuMiddleware.AuthJWT(schoolkuMiddleware.AuthJWTOpts{
 			Secret:              os.Getenv("JWT_SECRET"),
 			AllowCookieFallback: true,
 		}),
-		// NOTE: JANGAN taruh UseMasjidScope di sini secara global
+		// NOTE: JANGAN taruh UseSchoolScope di sini secara global
 		// Jika sebuah paket user memang butuh scope strict,
 		// pasang di file route paket tersebut (di level subgroup).
 	)
 
-	// ===================== ADMIN (per masjid) =====================
+	// ===================== ADMIN (per school) =====================
 	log.Println("[INFO] Setting up ADMIN group (Auth + Scope + RoleCheck)...")
 	admin := app.Group("/api/a",
-		masjidkuMiddleware.AuthJWT(masjidkuMiddleware.AuthJWTOpts{
+		schoolkuMiddleware.AuthJWT(schoolkuMiddleware.AuthJWTOpts{
 			Secret:              os.Getenv("JWT_SECRET"),
 			AllowCookieFallback: true,
 		}),
-		featuresMiddleware.UseMasjidScope(),
+		featuresMiddleware.UseSchoolScope(),
 		featuresMiddleware.RequirePathScopeMatch(),
-		featuresMiddleware.IsMasjidAdmin(),
+		featuresMiddleware.IsSchoolAdmin(),
 	)
 
 	// ===================== OWNER (GLOBAL) =====================
 	log.Println("[INFO] Setting up OWNER group (Auth + owner global)...")
 	owner := app.Group("/api/o",
-		masjidkuMiddleware.AuthJWT(masjidkuMiddleware.AuthJWTOpts{
+		schoolkuMiddleware.AuthJWT(schoolkuMiddleware.AuthJWTOpts{
 			Secret:              os.Getenv("JWT_SECRET"),
 			AllowCookieFallback: true,
 		}),
@@ -81,11 +81,11 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	)
 
 	// ===================== MOUNT ROUTES =====================
-	log.Println("[INFO] Mounting Masjid routes...")
-	routeDetails.MasjidPublicRoutes(public, db)
-	routeDetails.MasjidUserRoutes(privateScoped, db) // user routes lain → scoped (kalau perlu scope pasang di sub-group paketnya)
-	routeDetails.MasjidAdminRoutes(admin, db)
-	routeDetails.MasjidOwnerRoutes(owner, db)
+	log.Println("[INFO] Mounting School routes...")
+	routeDetails.SchoolPublicRoutes(public, db)
+	routeDetails.SchoolUserRoutes(privateScoped, db) // user routes lain → scoped (kalau perlu scope pasang di sub-group paketnya)
+	routeDetails.SchoolAdminRoutes(admin, db)
+	routeDetails.SchoolOwnerRoutes(owner, db)
 
 	log.Println("[INFO] Mounting Lembaga routes...")
 	routeDetails.LembagaPublicRoutes(public, db)
@@ -93,7 +93,7 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	routeDetails.LembagaAdminRoutes(admin, db)
 	routeDetails.LembagaOwnerRoutes(owner, db)
 
-	// 🔓 Mount route JOIN GLOBAL (tanpa masjid_id) KE privateLoose
+	// 🔓 Mount route JOIN GLOBAL (tanpa school_id) KE privateLoose
 	routeDetails.ClassSectionUserGlobalRoutes(privateLoose, db)
 
 	log.Println("[INFO] Mounting Home routes...")

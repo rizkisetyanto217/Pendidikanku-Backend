@@ -16,7 +16,7 @@ type BillBatch struct {
 	BillBatchID uuid.UUID `gorm:"type:uuid;primaryKey;column:bill_batch_id" json:"bill_batch_id"`
 
 	// Tenant
-	BillBatchMasjidID uuid.UUID `gorm:"type:uuid;not null;column:bill_batch_masjid_id" json:"bill_batch_masjid_id"`
+	BillBatchSchoolID uuid.UUID `gorm:"type:uuid;not null;column:bill_batch_school_id" json:"bill_batch_school_id"`
 
 	// Scope (XOR: tepat salah satu yang terisi)
 	BillBatchClassID   *uuid.UUID `gorm:"type:uuid;column:bill_batch_class_id" json:"bill_batch_class_id,omitempty"`
@@ -61,8 +61,8 @@ func (b *BillBatch) BeforeCreate(tx *gorm.DB) error {
 	if b.BillBatchID == uuid.Nil {
 		b.BillBatchID = uuid.New()
 	}
-	if b.BillBatchMasjidID == uuid.Nil {
-		return fmt.Errorf("bill_batch_masjid_id is required")
+	if b.BillBatchSchoolID == uuid.Nil {
+		return fmt.Errorf("bill_batch_school_id is required")
 	}
 	// XOR guard class/section
 	if (b.BillBatchClassID == nil && b.BillBatchSectionID == nil) ||

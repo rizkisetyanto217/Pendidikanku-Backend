@@ -13,7 +13,7 @@ import (
 type AcademicTermModel struct {
 	// ============ PK & Tenant ============
 	AcademicTermID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:academic_term_id" json:"academic_term_id"`
-	AcademicTermMasjidID uuid.UUID `gorm:"type:uuid;not null;column:academic_term_masjid_id" json:"academic_term_masjid_id"`
+	AcademicTermSchoolID uuid.UUID `gorm:"type:uuid;not null;column:academic_term_school_id" json:"academic_term_school_id"`
 
 	// ============ Identitas ============
 	// Contoh academic_year: "2026/2027"

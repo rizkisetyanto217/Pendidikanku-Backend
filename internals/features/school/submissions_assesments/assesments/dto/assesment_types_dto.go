@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	model "masjidku_backend/internals/features/school/submissions_assesments/assesments/model"
+	model "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
 
 	"github.com/google/uuid"
 )
@@ -15,9 +15,9 @@ import (
 ============================== */
 
 // Create (POST /assessment-types)
-// Catatan: assessment_type_masjid_id tetap diisi dari token di controller.
+// Catatan: assessment_type_school_id tetap diisi dari token di controller.
 type CreateAssessmentTypeRequest struct {
-	AssessmentTypeMasjidID      uuid.UUID `json:"assessment_type_masjid_id" validate:"required"`
+	AssessmentTypeSchoolID      uuid.UUID `json:"assessment_type_school_id" validate:"required"`
 	AssessmentTypeKey           string    `json:"assessment_type_key" validate:"required,max=32"`
 	AssessmentTypeName          string    `json:"assessment_type_name" validate:"required,max=120"`
 	AssessmentTypeWeightPercent float64   `json:"assessment_type_weight_percent" validate:"gte=0,lte=100"`
@@ -33,7 +33,7 @@ type PatchAssessmentTypeRequest struct {
 
 // List filter (GET /assessment-types)
 type ListAssessmentTypeFilter struct {
-	AssessmentTypeMasjidID uuid.UUID `query:"masjid_id" validate:"required"` // diisi dari token di controller
+	AssessmentTypeSchoolID uuid.UUID `query:"school_id" validate:"required"` // diisi dari token di controller
 	Active                 *bool     `query:"active" validate:"omitempty"`
 	Q                      *string   `query:"q" validate:"omitempty,max=120"`
 	Limit                  int       `query:"limit" validate:"omitempty,min=1,max=200"`
@@ -48,7 +48,7 @@ type ListAssessmentTypeFilter struct {
 
 type AssessmentTypeResponse struct {
 	AssessmentTypeID            uuid.UUID `json:"assessment_type_id"`
-	AssessmentTypeMasjidID      uuid.UUID `json:"assessment_type_masjid_id"`
+	AssessmentTypeSchoolID      uuid.UUID `json:"assessment_type_school_id"`
 	AssessmentTypeKey           string    `json:"assessment_type_key"`
 	AssessmentTypeName          string    `json:"assessment_type_name"`
 	AssessmentTypeWeightPercent float64   `json:"assessment_type_weight_percent"`
@@ -81,7 +81,7 @@ func (r CreateAssessmentTypeRequest) ToModel() model.AssessmentTypeModel {
 		isActive = *r.AssessmentTypeIsActive
 	}
 	return model.AssessmentTypeModel{
-		AssessmentTypeMasjidID:      r.AssessmentTypeMasjidID,
+		AssessmentTypeSchoolID:      r.AssessmentTypeSchoolID,
 		AssessmentTypeKey:           r.AssessmentTypeKey,
 		AssessmentTypeName:          r.AssessmentTypeName,
 		AssessmentTypeWeightPercent: r.AssessmentTypeWeightPercent,
@@ -105,7 +105,7 @@ func (p PatchAssessmentTypeRequest) Apply(m *model.AssessmentTypeModel) {
 func FromModel(m model.AssessmentTypeModel) AssessmentTypeResponse {
 	return AssessmentTypeResponse{
 		AssessmentTypeID:            m.AssessmentTypeID,
-		AssessmentTypeMasjidID:      m.AssessmentTypeMasjidID,
+		AssessmentTypeSchoolID:      m.AssessmentTypeSchoolID,
 		AssessmentTypeKey:           m.AssessmentTypeKey,
 		AssessmentTypeName:          m.AssessmentTypeName,
 		AssessmentTypeWeightPercent: m.AssessmentTypeWeightPercent,

@@ -1,8 +1,8 @@
-// file: internals/route/details/without_masjid_routes.go
+// file: internals/route/details/without_school_routes.go
 package details
 
 import (
-	ucsctrl "masjidku_backend/internals/features/school/classes/class_sections/controller" // <-- controller, bukan route
+	ucsctrl "schoolku_backend/internals/features/school/classes/class_sections/controller" // <-- controller, bukan route
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -11,5 +11,5 @@ import (
 func ClassSectionUserGlobalRoutes(private fiber.Router, db *gorm.DB) {
 	ucsH := ucsctrl.NewStudentClassSectionController(db) // constructor ada di controller
 	grp := private.Group("/student-class-sections")
-	grp.Post("/join", ucsH.JoinByCodeAutoMasjid) // handler global (tanpa :masjid_id)
+	grp.Post("/join", ucsH.JoinByCodeAutoSchool) // handler global (tanpa :school_id)
 }

@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	m "masjidku_backend/internals/features/school/classes/class_schedules/model"
+	m "schoolku_backend/internals/features/school/classes/class_schedules/model"
 )
 
 /* =========================================================
@@ -59,26 +59,26 @@ func (p PatchNullable[T]) IsSet() bool { return p.Set }
    ========================================================= */
 
 // Create
-type CreateMasjidHolidayRequest struct {
-	MasjidHolidaySlug *string `json:"school_holiday_slug" validate:"omitempty,max=160"`
+type CreateSchoolHolidayRequest struct {
+	SchoolHolidaySlug *string `json:"school_holiday_slug" validate:"omitempty,max=160"`
 
 	// Dates in "YYYY-MM-DD"
-	MasjidHolidayStartDate string `json:"school_holiday_start_date" validate:"required,datetime=2006-01-02"`
-	MasjidHolidayEndDate   string `json:"school_holiday_end_date"   validate:"required,datetime=2006-01-02"`
+	SchoolHolidayStartDate string `json:"school_holiday_start_date" validate:"required,datetime=2006-01-02"`
+	SchoolHolidayEndDate   string `json:"school_holiday_end_date"   validate:"required,datetime=2006-01-02"`
 
-	MasjidHolidayTitle  string  `json:"school_holiday_title"  validate:"required,max=200"`
-	MasjidHolidayReason *string `json:"school_holiday_reason" validate:"omitempty,max=10000"`
+	SchoolHolidayTitle  string  `json:"school_holiday_title"  validate:"required,max=200"`
+	SchoolHolidayReason *string `json:"school_holiday_reason" validate:"omitempty,max=10000"`
 
-	MasjidHolidayIsActive          *bool `json:"school_holiday_is_active"`           // default true (db)
-	MasjidHolidayIsRecurringYearly *bool `json:"school_holiday_is_recurring_yearly"` // default false (db)
+	SchoolHolidayIsActive          *bool `json:"school_holiday_is_active"`           // default true (db)
+	SchoolHolidayIsRecurringYearly *bool `json:"school_holiday_is_recurring_yearly"` // default false (db)
 }
 
-func (r *CreateMasjidHolidayRequest) ToModel(masjidID uuid.UUID) (*m.MasjidHoliday, error) {
-	start, ok := parseDateYYYYMMDD(r.MasjidHolidayStartDate)
+func (r *CreateSchoolHolidayRequest) ToModel(schoolID uuid.UUID) (*m.SchoolHoliday, error) {
+	start, ok := parseDateYYYYMMDD(r.SchoolHolidayStartDate)
 	if !ok {
 		return nil, errors.New("invalid school_holiday_start_date (expected YYYY-MM-DD)")
 	}
-	end, ok := parseDateYYYYMMDD(r.MasjidHolidayEndDate)
+	end, ok := parseDateYYYYMMDD(r.SchoolHolidayEndDate)
 	if !ok {
 		return nil, errors.New("invalid school_holiday_end_date (expected YYYY-MM-DD)")
 	}
@@ -86,27 +86,27 @@ func (r *CreateMasjidHolidayRequest) ToModel(masjidID uuid.UUID) (*m.MasjidHolid
 		return nil, errors.New("school_holiday_end_date must be >= school_holiday_start_date")
 	}
 
-	h := &m.MasjidHoliday{
-		MasjidHolidayMasjidID: masjidID,
+	h := &m.SchoolHoliday{
+		SchoolHolidaySchoolID: schoolID,
 
-		MasjidHolidaySlug: trimPtr(r.MasjidHolidaySlug),
+		SchoolHolidaySlug: trimPtr(r.SchoolHolidaySlug),
 
-		MasjidHolidayStartDate: start,
-		MasjidHolidayEndDate:   end,
+		SchoolHolidayStartDate: start,
+		SchoolHolidayEndDate:   end,
 
-		MasjidHolidayTitle:  strings.TrimSpace(r.MasjidHolidayTitle),
-		MasjidHolidayReason: trimPtr(r.MasjidHolidayReason),
+		SchoolHolidayTitle:  strings.TrimSpace(r.SchoolHolidayTitle),
+		SchoolHolidayReason: trimPtr(r.SchoolHolidayReason),
 	}
 
-	if r.MasjidHolidayIsActive != nil {
-		h.MasjidHolidayIsActive = *r.MasjidHolidayIsActive
+	if r.SchoolHolidayIsActive != nil {
+		h.SchoolHolidayIsActive = *r.SchoolHolidayIsActive
 	} else {
-		h.MasjidHolidayIsActive = true
+		h.SchoolHolidayIsActive = true
 	}
-	if r.MasjidHolidayIsRecurringYearly != nil {
-		h.MasjidHolidayIsRecurringYearly = *r.MasjidHolidayIsRecurringYearly
+	if r.SchoolHolidayIsRecurringYearly != nil {
+		h.SchoolHolidayIsRecurringYearly = *r.SchoolHolidayIsRecurringYearly
 	} else {
-		h.MasjidHolidayIsRecurringYearly = false
+		h.SchoolHolidayIsRecurringYearly = false
 	}
 
 	return h, nil
@@ -116,86 +116,86 @@ func (r *CreateMasjidHolidayRequest) ToModel(masjidID uuid.UUID) (*m.MasjidHolid
 // Catatan:
 //   - Untuk kolom nullable (slug, reason, deleted_at) gunakan PatchNullable
 //     sehingga bisa membedakan set null vs kosong vs tidak diubah.
-type PatchMasjidHolidayRequest struct {
-	MasjidHolidaySlug PatchNullable[string] `json:"school_holiday_slug"`
+type PatchSchoolHolidayRequest struct {
+	SchoolHolidaySlug PatchNullable[string] `json:"school_holiday_slug"`
 
 	// Dates in "YYYY-MM-DD" (bila hadir → wajib valid)
-	MasjidHolidayStartDate Patch[string] `json:"school_holiday_start_date"`
-	MasjidHolidayEndDate   Patch[string] `json:"school_holiday_end_date"`
+	SchoolHolidayStartDate Patch[string] `json:"school_holiday_start_date"`
+	SchoolHolidayEndDate   Patch[string] `json:"school_holiday_end_date"`
 
-	MasjidHolidayTitle             Patch[string]         `json:"school_holiday_title"`
-	MasjidHolidayReason            PatchNullable[string] `json:"school_holiday_reason"`
-	MasjidHolidayIsActive          Patch[bool]           `json:"school_holiday_is_active"`
-	MasjidHolidayIsRecurringYearly Patch[bool]           `json:"school_holiday_is_recurring_yearly"`
+	SchoolHolidayTitle             Patch[string]         `json:"school_holiday_title"`
+	SchoolHolidayReason            PatchNullable[string] `json:"school_holiday_reason"`
+	SchoolHolidayIsActive          Patch[bool]           `json:"school_holiday_is_active"`
+	SchoolHolidayIsRecurringYearly Patch[bool]           `json:"school_holiday_is_recurring_yearly"`
 }
 
 // Apply changes to model (in-memory). Validasi ringan disertakan.
-func (p *PatchMasjidHolidayRequest) Apply(h *m.MasjidHoliday) error {
+func (p *PatchSchoolHolidayRequest) Apply(h *m.SchoolHoliday) error {
 	// slug (nullable)
-	if p.MasjidHolidaySlug.IsSet() {
-		if p.MasjidHolidaySlug.Valid {
-			h.MasjidHolidaySlug = trimPtr(&p.MasjidHolidaySlug.Value)
+	if p.SchoolHolidaySlug.IsSet() {
+		if p.SchoolHolidaySlug.Valid {
+			h.SchoolHolidaySlug = trimPtr(&p.SchoolHolidaySlug.Value)
 		} else {
 			// explicit null
-			h.MasjidHolidaySlug = nil
+			h.SchoolHolidaySlug = nil
 		}
 	}
 
 	// title (non-null)
-	if p.MasjidHolidayTitle.IsSet() {
-		title := strings.TrimSpace(p.MasjidHolidayTitle.Value)
+	if p.SchoolHolidayTitle.IsSet() {
+		title := strings.TrimSpace(p.SchoolHolidayTitle.Value)
 		if title == "" {
 			return errors.New("school_holiday_title cannot be empty when set")
 		}
 		if len(title) > 200 {
 			return errors.New("school_holiday_title max length is 200")
 		}
-		h.MasjidHolidayTitle = title
+		h.SchoolHolidayTitle = title
 	}
 
 	// reason (nullable)
-	if p.MasjidHolidayReason.IsSet() {
-		if p.MasjidHolidayReason.Valid {
-			h.MasjidHolidayReason = trimPtr(&p.MasjidHolidayReason.Value)
+	if p.SchoolHolidayReason.IsSet() {
+		if p.SchoolHolidayReason.Valid {
+			h.SchoolHolidayReason = trimPtr(&p.SchoolHolidayReason.Value)
 		} else {
-			h.MasjidHolidayReason = nil
+			h.SchoolHolidayReason = nil
 		}
 	}
 
 	// dates
 	var (
-		newStart = h.MasjidHolidayStartDate
-		newEnd   = h.MasjidHolidayEndDate
+		newStart = h.SchoolHolidayStartDate
+		newEnd   = h.SchoolHolidayEndDate
 	)
 
-	if p.MasjidHolidayStartDate.IsSet() {
-		t, ok := parseDateYYYYMMDD(p.MasjidHolidayStartDate.Value)
+	if p.SchoolHolidayStartDate.IsSet() {
+		t, ok := parseDateYYYYMMDD(p.SchoolHolidayStartDate.Value)
 		if !ok {
 			return errors.New("invalid school_holiday_start_date (expected YYYY-MM-DD)")
 		}
 		newStart = t
 	}
-	if p.MasjidHolidayEndDate.IsSet() {
-		t, ok := parseDateYYYYMMDD(p.MasjidHolidayEndDate.Value)
+	if p.SchoolHolidayEndDate.IsSet() {
+		t, ok := parseDateYYYYMMDD(p.SchoolHolidayEndDate.Value)
 		if !ok {
 			return errors.New("invalid school_holiday_end_date (expected YYYY-MM-DD)")
 		}
 		newEnd = t
 	}
-	if p.MasjidHolidayStartDate.IsSet() || p.MasjidHolidayEndDate.IsSet() {
+	if p.SchoolHolidayStartDate.IsSet() || p.SchoolHolidayEndDate.IsSet() {
 		if newEnd.Before(newStart) {
 			return errors.New("school_holiday_end_date must be >= school_holiday_start_date")
 		}
-		h.MasjidHolidayStartDate = newStart
-		h.MasjidHolidayEndDate = newEnd
+		h.SchoolHolidayStartDate = newStart
+		h.SchoolHolidayEndDate = newEnd
 	}
 
 	// booleans
-	if p.MasjidHolidayIsActive.IsSet() {
-		h.MasjidHolidayIsActive = p.MasjidHolidayIsActive.Value
+	if p.SchoolHolidayIsActive.IsSet() {
+		h.SchoolHolidayIsActive = p.SchoolHolidayIsActive.Value
 	}
-	if p.MasjidHolidayIsRecurringYearly.IsSet() {
-		h.MasjidHolidayIsRecurringYearly = p.MasjidHolidayIsRecurringYearly.Value
+	if p.SchoolHolidayIsRecurringYearly.IsSet() {
+		h.SchoolHolidayIsRecurringYearly = p.SchoolHolidayIsRecurringYearly.Value
 	}
 
 	return nil
@@ -205,7 +205,7 @@ func (p *PatchMasjidHolidayRequest) Apply(h *m.MasjidHoliday) error {
    2) QUERY (list/filter)
    ========================================================= */
 
-type ListMasjidHolidaysQuery struct {
+type ListSchoolHolidaysQuery struct {
 	// Filter tanggal (opsional) — format YYYY-MM-DD
 	DateFrom *string `query:"date_from" validate:"omitempty,datetime=2006-01-02"`
 	DateTo   *string `query:"date_to"   validate:"omitempty,datetime=2006-01-02"`
@@ -221,7 +221,7 @@ type ListMasjidHolidaysQuery struct {
 	Offset int `query:"offset" validate:"omitempty,min=0"`
 }
 
-func (q *ListMasjidHolidaysQuery) Normalize() {
+func (q *ListSchoolHolidaysQuery) Normalize() {
 	if q.Limit == 0 {
 		q.Limit = 20
 	}
@@ -242,51 +242,51 @@ func (q *ListMasjidHolidaysQuery) Normalize() {
    3) RESPONSES
    ========================================================= */
 
-type MasjidHolidayResponse struct {
-	MasjidHolidayID uuid.UUID `json:"school_holiday_id"`
+type SchoolHolidayResponse struct {
+	SchoolHolidayID uuid.UUID `json:"school_holiday_id"`
 
-	MasjidHolidayMasjidID uuid.UUID `json:"school_holiday_masjid_id"`
+	SchoolHolidaySchoolID uuid.UUID `json:"school_holiday_school_id"`
 
-	MasjidHolidaySlug *string `json:"school_holiday_slug,omitempty"`
+	SchoolHolidaySlug *string `json:"school_holiday_slug,omitempty"`
 
-	MasjidHolidayStartDate string `json:"school_holiday_start_date"` // YYYY-MM-DD
-	MasjidHolidayEndDate   string `json:"school_holiday_end_date"`   // YYYY-MM-DD
+	SchoolHolidayStartDate string `json:"school_holiday_start_date"` // YYYY-MM-DD
+	SchoolHolidayEndDate   string `json:"school_holiday_end_date"`   // YYYY-MM-DD
 
-	MasjidHolidayTitle  string  `json:"school_holiday_title"`
-	MasjidHolidayReason *string `json:"school_holiday_reason,omitempty"`
+	SchoolHolidayTitle  string  `json:"school_holiday_title"`
+	SchoolHolidayReason *string `json:"school_holiday_reason,omitempty"`
 
-	MasjidHolidayIsActive          bool `json:"school_holiday_is_active"`
-	MasjidHolidayIsRecurringYearly bool `json:"school_holiday_is_recurring_yearly"`
+	SchoolHolidayIsActive          bool `json:"school_holiday_is_active"`
+	SchoolHolidayIsRecurringYearly bool `json:"school_holiday_is_recurring_yearly"`
 
-	MasjidHolidayCreatedAt time.Time  `json:"school_holiday_created_at"`
-	MasjidHolidayUpdatedAt time.Time  `json:"school_holiday_updated_at"`
-	MasjidHolidayDeletedAt *time.Time `json:"school_holiday_deleted_at,omitempty"`
+	SchoolHolidayCreatedAt time.Time  `json:"school_holiday_created_at"`
+	SchoolHolidayUpdatedAt time.Time  `json:"school_holiday_updated_at"`
+	SchoolHolidayDeletedAt *time.Time `json:"school_holiday_deleted_at,omitempty"`
 }
 
 func dateYMD(t time.Time) string { return t.Format("2006-01-02") }
 
-func FromModelMasjidHoliday(h *m.MasjidHoliday) *MasjidHolidayResponse {
+func FromModelSchoolHoliday(h *m.SchoolHoliday) *SchoolHolidayResponse {
 	if h == nil {
 		return nil
 	}
-	return &MasjidHolidayResponse{
-		MasjidHolidayID:                h.MasjidHolidayID,
-		MasjidHolidayMasjidID:          h.MasjidHolidayMasjidID,
-		MasjidHolidaySlug:              h.MasjidHolidaySlug,
-		MasjidHolidayStartDate:         dateYMD(h.MasjidHolidayStartDate),
-		MasjidHolidayEndDate:           dateYMD(h.MasjidHolidayEndDate),
-		MasjidHolidayTitle:             h.MasjidHolidayTitle,
-		MasjidHolidayReason:            h.MasjidHolidayReason,
-		MasjidHolidayIsActive:          h.MasjidHolidayIsActive,
-		MasjidHolidayIsRecurringYearly: h.MasjidHolidayIsRecurringYearly,
-		MasjidHolidayCreatedAt:         h.MasjidHolidayCreatedAt,
-		MasjidHolidayUpdatedAt:         h.MasjidHolidayUpdatedAt,
-		MasjidHolidayDeletedAt:         h.MasjidHolidayDeletedAt,
+	return &SchoolHolidayResponse{
+		SchoolHolidayID:                h.SchoolHolidayID,
+		SchoolHolidaySchoolID:          h.SchoolHolidaySchoolID,
+		SchoolHolidaySlug:              h.SchoolHolidaySlug,
+		SchoolHolidayStartDate:         dateYMD(h.SchoolHolidayStartDate),
+		SchoolHolidayEndDate:           dateYMD(h.SchoolHolidayEndDate),
+		SchoolHolidayTitle:             h.SchoolHolidayTitle,
+		SchoolHolidayReason:            h.SchoolHolidayReason,
+		SchoolHolidayIsActive:          h.SchoolHolidayIsActive,
+		SchoolHolidayIsRecurringYearly: h.SchoolHolidayIsRecurringYearly,
+		SchoolHolidayCreatedAt:         h.SchoolHolidayCreatedAt,
+		SchoolHolidayUpdatedAt:         h.SchoolHolidayUpdatedAt,
+		SchoolHolidayDeletedAt:         h.SchoolHolidayDeletedAt,
 	}
 }
 
-type MasjidHolidayListResponse struct {
-	Data       []*MasjidHolidayResponse `json:"data"`
+type SchoolHolidayListResponse struct {
+	Data       []*SchoolHolidayResponse `json:"data"`
 	Pagination struct {
 		Limit  int `json:"limit"`
 		Offset int `json:"offset"`
@@ -298,10 +298,10 @@ type MasjidHolidayListResponse struct {
    4) Small convenience for logging/errs
    ========================================================= */
 
-func (r *CreateMasjidHolidayRequest) String() string {
-	return fmt.Sprintf("CreateMasjidHolidayRequest{slug=%v, start=%s, end=%s, title=%q, is_active=%v, yearly=%v}",
-		r.MasjidHolidaySlug, r.MasjidHolidayStartDate, r.MasjidHolidayEndDate, r.MasjidHolidayTitle,
-		boolOrNil(r.MasjidHolidayIsActive), boolOrNil(r.MasjidHolidayIsRecurringYearly))
+func (r *CreateSchoolHolidayRequest) String() string {
+	return fmt.Sprintf("CreateSchoolHolidayRequest{slug=%v, start=%s, end=%s, title=%q, is_active=%v, yearly=%v}",
+		r.SchoolHolidaySlug, r.SchoolHolidayStartDate, r.SchoolHolidayEndDate, r.SchoolHolidayTitle,
+		boolOrNil(r.SchoolHolidayIsActive), boolOrNil(r.SchoolHolidayIsRecurringYearly))
 }
 
 func boolOrNil(p *bool) interface{} {

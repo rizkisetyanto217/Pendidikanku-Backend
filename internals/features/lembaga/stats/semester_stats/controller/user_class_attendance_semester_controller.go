@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "masjidku_backend/internals/features/lembaga/stats/semester_stats/dto"
-	m "masjidku_backend/internals/features/lembaga/stats/semester_stats/model"
+	dto "schoolku_backend/internals/features/lembaga/stats/semester_stats/dto"
+	m "schoolku_backend/internals/features/lembaga/stats/semester_stats/model"
 )
 
 // ====================== CONTROLLER ======================
@@ -39,8 +39,8 @@ func (h *SemesterStatsController) List(c *fiber.Ctx) error {
 	tx := h.DB.Model(&m.UserClassAttendanceSemesterStatsModel{})
 
 	// filter opsional
-	if q.MasjidID != nil {
-		tx = tx.Where("masjid_id = ?", *q.MasjidID)
+	if q.SchoolID != nil {
+		tx = tx.Where("school_id = ?", *q.SchoolID)
 	}
 	if q.UserClassID != nil {
 		tx = tx.Where("user_class_id = ?", *q.UserClassID)
@@ -79,7 +79,7 @@ func (h *SemesterStatsController) List(c *fiber.Ctx) error {
 // GET /api/a/semester-stats/by-user/:user_id
 // "Get by user id": ambil semua semester stats milik user tertentu
 // (melalui JOIN ke user_classes untuk memetakan user → user_class_id)
-// Query params opsional: masjid_id, section_id, start, end, limit, offset
+// Query params opsional: school_id, section_id, start, end, limit, offset
 // --------------------------------------------------------
 func (h *SemesterStatsController) ListByUserID(c *fiber.Ctx) error {
 	userIDStr := strings.TrimSpace(c.Params("user_id"))
@@ -103,8 +103,8 @@ func (h *SemesterStatsController) ListByUserID(c *fiber.Ctx) error {
 		Where("user_classes.user_classes_user_id = ?", userID)
 
 	// filter opsional tambahan
-	if q.MasjidID != nil {
-		tx = tx.Where("user_class_attendance_semester_stats.masjid_id = ?", *q.MasjidID)
+	if q.SchoolID != nil {
+		tx = tx.Where("user_class_attendance_semester_stats.school_id = ?", *q.SchoolID)
 	}
 	if q.SectionID != nil {
 		tx = tx.Where("user_class_attendance_semester_stats.section_id = ?", *q.SectionID)

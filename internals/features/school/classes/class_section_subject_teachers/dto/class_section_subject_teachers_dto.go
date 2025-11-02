@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	csstModel "masjidku_backend/internals/features/school/classes/class_section_subject_teachers/model"
+	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
@@ -60,12 +60,12 @@ type BookSnap struct {
 ========================================================= */
 
 // Create
-// Catatan: class_section_subject_teacher_masjid_id biasanya diisi dari token pada controller.
+// Catatan: class_section_subject_teacher_school_id biasanya diisi dari token pada controller.
 type CreateClassSectionSubjectTeacherRequest struct {
-	ClassSectionSubjectTeacherMasjidID       *uuid.UUID `json:"class_section_subject_teacher_masjid_id"  validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherSchoolID       *uuid.UUID `json:"class_section_subject_teacher_school_id"  validate:"omitempty,uuid"`
 	ClassSectionSubjectTeacherSectionID      uuid.UUID  `json:"class_section_subject_teacher_section_id" validate:"required,uuid"`
 	ClassSectionSubjectTeacherClassSubjectID uuid.UUID  `json:"class_section_subject_teacher_class_subject_id" validate:"required,uuid"`
-	// pakai masjid_teachers.masjid_teacher_id
+	// pakai school_teachers.school_teacher_id
 	ClassSectionSubjectTeacherTeacherID uuid.UUID `json:"class_section_subject_teacher_teacher_id" validate:"required,uuid"`
 
 	// ➕ Asisten (opsional) — dipakai di controller untuk buat snapshot JSON (bukan FK kolom)
@@ -86,7 +86,7 @@ type CreateClassSectionSubjectTeacherRequest struct {
 
 // Update (partial)
 type UpdateClassSectionSubjectTeacherRequest struct {
-	ClassSectionSubjectTeacherMasjidID       *uuid.UUID `json:"class_section_subject_teacher_masjid_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherSchoolID       *uuid.UUID `json:"class_section_subject_teacher_school_id" validate:"omitempty,uuid"`
 	ClassSectionSubjectTeacherSectionID      *uuid.UUID `json:"class_section_subject_teacher_section_id" validate:"omitempty,uuid"`
 	ClassSectionSubjectTeacherClassSubjectID *uuid.UUID `json:"class_section_subject_teacher_class_subject_id" validate:"omitempty,uuid"`
 	ClassSectionSubjectTeacherTeacherID      *uuid.UUID `json:"class_section_subject_teacher_teacher_id" validate:"omitempty,uuid"`
@@ -111,7 +111,7 @@ type UpdateClassSectionSubjectTeacherRequest struct {
 type ClassSectionSubjectTeacherResponse struct {
 	// IDs
 	ClassSectionSubjectTeacherID             uuid.UUID `json:"class_section_subject_teacher_id"`
-	ClassSectionSubjectTeacherMasjidID       uuid.UUID `json:"class_section_subject_teacher_masjid_id"`
+	ClassSectionSubjectTeacherSchoolID       uuid.UUID `json:"class_section_subject_teacher_school_id"`
 	ClassSectionSubjectTeacherSectionID      uuid.UUID `json:"class_section_subject_teacher_section_id"`
 	ClassSectionSubjectTeacherClassSubjectID uuid.UUID `json:"class_section_subject_teacher_class_subject_id"`
 	ClassSectionSubjectTeacherTeacherID      uuid.UUID `json:"class_section_subject_teacher_teacher_id"`
@@ -191,8 +191,8 @@ func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectio
 		}
 	}
 
-	if r.ClassSectionSubjectTeacherMasjidID != nil {
-		m.ClassSectionSubjectTeacherMasjidID = *r.ClassSectionSubjectTeacherMasjidID
+	if r.ClassSectionSubjectTeacherSchoolID != nil {
+		m.ClassSectionSubjectTeacherSchoolID = *r.ClassSectionSubjectTeacherSchoolID
 	}
 	if r.ClassSectionSubjectTeacherIsActive != nil {
 		m.ClassSectionSubjectTeacherIsActive = *r.ClassSectionSubjectTeacherIsActive
@@ -210,8 +210,8 @@ func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectio
 }
 
 func (r UpdateClassSectionSubjectTeacherRequest) Apply(m *csstModel.ClassSectionSubjectTeacherModel) {
-	if r.ClassSectionSubjectTeacherMasjidID != nil {
-		m.ClassSectionSubjectTeacherMasjidID = *r.ClassSectionSubjectTeacherMasjidID
+	if r.ClassSectionSubjectTeacherSchoolID != nil {
+		m.ClassSectionSubjectTeacherSchoolID = *r.ClassSectionSubjectTeacherSchoolID
 	}
 	if r.ClassSectionSubjectTeacherSectionID != nil {
 		m.ClassSectionSubjectTeacherSectionID = *r.ClassSectionSubjectTeacherSectionID
@@ -269,7 +269,7 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 	return ClassSectionSubjectTeacherResponse{
 		// IDs
 		ClassSectionSubjectTeacherID:             m.ClassSectionSubjectTeacherID,
-		ClassSectionSubjectTeacherMasjidID:       m.ClassSectionSubjectTeacherMasjidID,
+		ClassSectionSubjectTeacherSchoolID:       m.ClassSectionSubjectTeacherSchoolID,
 		ClassSectionSubjectTeacherSectionID:      m.ClassSectionSubjectTeacherSectionID,
 		ClassSectionSubjectTeacherClassSubjectID: m.ClassSectionSubjectTeacherClassSubjectID,
 		ClassSectionSubjectTeacherTeacherID:      m.ClassSectionSubjectTeacherTeacherID,

@@ -78,7 +78,7 @@ type UserCSSTBulkCreateRequest struct {
 	ReturnExisting bool                     `json:"return_existing,omitempty"` // true: kalau duplikat, ikut kembalikan data existing
 }
 
-// Upsert berdasarkan natural-unique (masjid_id, section_id, class_subject_id, teacher_id)
+// Upsert berdasarkan natural-unique (school_id, section_id, class_subject_id, teacher_id)
 type UserCSSTUpsertRequest struct {
 	SectionID      uuid.UUID `json:"section_id" validate:"required"`
 	ClassSubjectID uuid.UUID `json:"class_subject_id" validate:"required"`
@@ -195,7 +195,7 @@ type TeacherBrief struct {
 // Item utama
 type UserCSSTItem struct {
 	ID          uuid.UUID  `json:"id"`
-	MasjidID    uuid.UUID  `json:"masjid_id"`
+	SchoolID    uuid.UUID  `json:"school_id"`
 	SectionID   uuid.UUID  `json:"section_id"`
 	ClassSubjID uuid.UUID  `json:"class_subject_id"`
 	TeacherID   uuid.UUID  `json:"teacher_id"`

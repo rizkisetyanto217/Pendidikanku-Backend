@@ -32,9 +32,9 @@ type StudentBill struct {
 	// FK → bill_batches(bill_batch_id)
 	StudentBillBatchID uuid.UUID `gorm:"column:student_bill_batch_id;type:uuid;not null;index" json:"student_bill_batch_id"`
 
-	// FK (composite) → masjid_students (masjid_student_id, masjid_student_masjid_id)
-	StudentBillMasjidID        uuid.UUID  `gorm:"column:student_bill_masjid_id;type:uuid;not null;index:ix_student_bill_masjid" json:"student_bill_masjid_id"`
-	StudentBillMasjidStudentID *uuid.UUID `gorm:"column:student_bill_masjid_student_id;type:uuid;index;index:uniq_batch_student,unique,priority:2" json:"student_bill_masjid_student_id"`
+	// FK (composite) → school_students (school_student_id, school_student_school_id)
+	StudentBillSchoolID        uuid.UUID  `gorm:"column:student_bill_school_id;type:uuid;not null;index:ix_student_bill_school" json:"student_bill_school_id"`
+	StudentBillSchoolStudentID *uuid.UUID `gorm:"column:student_bill_school_student_id;type:uuid;index;index:uniq_batch_student,unique,priority:2" json:"student_bill_school_student_id"`
 
 	// FK → users(id) (optional)
 	StudentBillPayerUserID *uuid.UUID `gorm:"column:student_bill_payer_user_id;type:uuid;index" json:"student_bill_payer_user_id"`
@@ -67,7 +67,7 @@ type StudentBill struct {
 	StudentBillUpdatedAt time.Time      `gorm:"column:student_bill_updated_at;type:timestamptz;not null;default:now()" json:"student_bill_updated_at"`
 	StudentBillDeletedAt gorm.DeletedAt `gorm:"column:student_bill_deleted_at;type:timestamptz;index" json:"-"`
 
-	// Unique constraint (batch_id + masjid_student_id)
+	// Unique constraint (batch_id + school_student_id)
 	// NOTE: GORM composite unique via tag di field kedua:
 	_ struct{} `gorm:"uniqueIndex:uniq_batch_student,priority:1"` // menempel pada kolom StudentBillBatchID
 }

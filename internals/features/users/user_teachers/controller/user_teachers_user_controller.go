@@ -1,12 +1,12 @@
 package controller
 
 import (
-	"masjidku_backend/internals/features/users/user_teachers/model"
+	"schoolku_backend/internals/features/users/user_teachers/model"
 	"strings"
 
-	userdto "masjidku_backend/internals/features/users/user_teachers/dto"
+	userdto "schoolku_backend/internals/features/users/user_teachers/dto"
 
-	helper "masjidku_backend/internals/helpers"
+	helper "schoolku_backend/internals/helpers"
 
 	"github.com/gofiber/fiber/v2"
 )

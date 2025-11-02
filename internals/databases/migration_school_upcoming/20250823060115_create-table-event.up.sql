@@ -2,12 +2,12 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 
 /* =========================================================
-   1) CLASS_EVENT_THEMES (per masjid)
+   1) CLASS_EVENT_THEMES (per school)
    ========================================================= */
 CREATE TABLE IF NOT EXISTS class_event_themes (
   class_event_theme_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_event_theme_masjid_id  UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_event_theme_school_id  UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- identitas tema
   class_event_theme_code        VARCHAR(64)  NOT NULL,
@@ -24,16 +24,16 @@ CREATE TABLE IF NOT EXISTS class_event_themes (
   class_event_theme_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_event_theme_deleted_at  TIMESTAMPTZ,
 
-  CONSTRAINT uq_class_event_themes_masjid_code
-    UNIQUE (class_event_theme_masjid_id, class_event_theme_code)
+  CONSTRAINT uq_class_event_themes_school_code
+    UNIQUE (class_event_theme_school_id, class_event_theme_code)
 );
 
 -- Index bantu listing
-CREATE INDEX IF NOT EXISTS idx_class_event_themes_masjid_active
-  ON class_event_themes (class_event_theme_masjid_id, class_event_theme_is_active);
+CREATE INDEX IF NOT EXISTS idx_class_event_themes_school_active
+  ON class_event_themes (class_event_theme_school_id, class_event_theme_is_active);
 
-CREATE INDEX IF NOT EXISTS idx_class_event_themes_masjid_name
-  ON class_event_themes (class_event_theme_masjid_id, class_event_theme_name);
+CREATE INDEX IF NOT EXISTS idx_class_event_themes_school_name
+  ON class_event_themes (class_event_theme_school_id, class_event_theme_name);
 
 
 /* =========================================================
@@ -51,8 +51,8 @@ END$$;
    ========================================================= */
 CREATE TABLE IF NOT EXISTS class_events (
   class_event_id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_event_masjid_id        UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_event_school_id        UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- referensi tema (opsional)
   class_event_theme_id         UUID
@@ -115,29 +115,29 @@ CREATE TABLE IF NOT EXISTS class_events (
 );
 
 -- Indexes class_events
-CREATE INDEX IF NOT EXISTS idx_class_events_masjid_date
-  ON class_events (class_event_masjid_id, class_event_date);
+CREATE INDEX IF NOT EXISTS idx_class_events_school_date
+  ON class_events (class_event_school_id, class_event_date);
 
 CREATE INDEX IF NOT EXISTS idx_class_events_active
-  ON class_events (class_event_masjid_id, class_event_is_active, class_event_date);
+  ON class_events (class_event_school_id, class_event_is_active, class_event_date);
 
 CREATE INDEX IF NOT EXISTS idx_class_events_theme
-  ON class_events (class_event_masjid_id, class_event_theme_id);
+  ON class_events (class_event_school_id, class_event_theme_id);
 
 CREATE INDEX IF NOT EXISTS idx_class_events_delivery_mode
-  ON class_events (class_event_masjid_id, class_event_delivery_mode);
+  ON class_events (class_event_school_id, class_event_delivery_mode);
 
 CREATE INDEX IF NOT EXISTS idx_class_events_date_range
-  ON class_events (class_event_masjid_id, class_event_date, class_event_end_date);
+  ON class_events (class_event_school_id, class_event_date, class_event_end_date);
 
 CREATE INDEX IF NOT EXISTS idx_class_events_room
-  ON class_events (class_event_masjid_id, class_event_room_id);
+  ON class_events (class_event_school_id, class_event_room_id);
 
 CREATE INDEX IF NOT EXISTS idx_class_events_teacher
-  ON class_events (class_event_masjid_id, class_event_teacher_id);
+  ON class_events (class_event_school_id, class_event_teacher_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_events_id_tenant
-  ON class_events (class_event_id, class_event_masjid_id);
+  ON class_events (class_event_id, class_event_school_id);
 
 
 /* =========================================================
@@ -145,8 +145,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_class_events_id_tenant
    ========================================================= */
 CREATE TABLE IF NOT EXISTS class_event_urls (
   class_event_url_id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_event_url_masjid_id            UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_event_url_school_id            UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
   class_event_url_event_id             UUID NOT NULL
     REFERENCES class_events(class_event_id) ON DELETE CASCADE,
 
@@ -180,8 +180,8 @@ CREATE INDEX IF NOT EXISTS idx_class_event_urls_event_kind
 CREATE INDEX IF NOT EXISTS idx_class_event_urls_primary
   ON class_event_urls (class_event_url_event_id, class_event_url_is_primary);
 
-CREATE INDEX IF NOT EXISTS idx_class_event_urls_masjid
-  ON class_event_urls (class_event_url_masjid_id);
+CREATE INDEX IF NOT EXISTS idx_class_event_urls_school
+  ON class_event_urls (class_event_url_school_id);
 
 -- Unik satu primary per (event, kind) yang hidup
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_event_urls_primary_per_kind_alive

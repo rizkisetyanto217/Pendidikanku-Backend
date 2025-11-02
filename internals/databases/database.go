@@ -19,7 +19,7 @@ func ConnectDB() {
 
 	sslmode := getenv("DB_SSLMODE", "require")
 	dsn := fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s?sslmode=%s&application_name=masjidku&options=-c statement_timeout=3000",
+		"postgres://%s:%s@%s:%s/%s?sslmode=%s&application_name=schoolku&options=-c statement_timeout=3000",
 		os.Getenv("DB_USER"),
 		os.Getenv("DB_PASSWORD"),
 		os.Getenv("DB_HOST"),

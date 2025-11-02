@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
-	model "masjidku_backend/internals/features/school/others/post/model"
+	model "schoolku_backend/internals/features/school/others/post/model"
 )
 
 /* =========================================================
@@ -71,7 +71,7 @@ func parseRFC3339Ptr(s string) (*time.Time, error) {
 ========================================================= */
 
 type CreatePostThemeRequest struct {
-	PostThemeMasjidID uuid.UUID `json:"post_theme_masjid_id" validate:"required"`
+	PostThemeSchoolID uuid.UUID `json:"post_theme_school_id" validate:"required"`
 
 	PostThemeKind     string     `json:"post_theme_kind" validate:"required,oneof=announcement material post other"`
 	PostThemeParentID *uuid.UUID `json:"post_theme_parent_id" validate:"omitempty,uuid"`
@@ -119,7 +119,7 @@ func (r *CreatePostThemeRequest) ToModel() (*model.PostThemeModel, error) {
 	}
 
 	m := &model.PostThemeModel{
-		PostThemeMasjidID: r.PostThemeMasjidID,
+		PostThemeSchoolID: r.PostThemeSchoolID,
 
 		PostThemeKind:     kind,
 		PostThemeParentID: r.PostThemeParentID,
@@ -284,7 +284,7 @@ func ptr[T any](v T) *T { return &v }
 
 type ListPostThemesQuery struct {
 	// filters
-	MasjidID *uuid.UUID `query:"masjid_id" validate:"omitempty,uuid"`
+	SchoolID *uuid.UUID `query:"school_id" validate:"omitempty,uuid"`
 	Kind     *string    `query:"kind"      validate:"omitempty,oneof=announcement material post other"`
 	ParentID *uuid.UUID `query:"parent_id" validate:"omitempty,uuid"`
 	IsActive *bool      `query:"is_active" validate:"omitempty"`
@@ -355,7 +355,7 @@ func (q *ListPostThemesQuery) OrderExpr() string {
 
 type PostThemeResponse struct {
 	PostThemeID       uuid.UUID `json:"post_theme_id"`
-	PostThemeMasjidID uuid.UUID `json:"post_theme_masjid_id"`
+	PostThemeSchoolID uuid.UUID `json:"post_theme_school_id"`
 
 	PostThemeKind     string     `json:"post_theme_kind"`
 	PostThemeParentID *uuid.UUID `json:"post_theme_parent_id,omitempty"`
@@ -388,7 +388,7 @@ func FromModel(m *model.PostThemeModel) PostThemeResponse {
 	}
 	return PostThemeResponse{
 		PostThemeID:       m.PostThemeID,
-		PostThemeMasjidID: m.PostThemeMasjidID,
+		PostThemeSchoolID: m.PostThemeSchoolID,
 
 		PostThemeKind:     string(m.PostThemeKind),
 		PostThemeParentID: m.PostThemeParentID,

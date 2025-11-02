@@ -2,10 +2,10 @@
 package controller
 
 import (
-	dto "masjidku_backend/internals/features/school/submissions_assesments/quizzes/dto"
-	model "masjidku_backend/internals/features/school/submissions_assesments/quizzes/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	dto "schoolku_backend/internals/features/school/submissions_assesments/quizzes/dto"
+	model "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -16,8 +16,8 @@ func (ctrl *QuizController) List(c *fiber.Ctx) error {
 	// Inject DB buat helper slug→id
 	c.Locals("DB", ctrl.DB)
 
-	// 1) Resolve masjid context
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// 1) Resolve school context
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
@@ -28,18 +28,18 @@ func (ctrl *QuizController) List(c *fiber.Ctx) error {
 	case mc.ID != uuid.Nil:
 		mid = mc.ID
 	case mc.Slug != "":
-		id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+		id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
 		if er != nil || id == uuid.Nil {
-			return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			return fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
 		mid = id
 	default:
-		return helperAuth.ErrMasjidContextMissing
+		return helperAuth.ErrSchoolContextMissing
 	}
 
-	// 3) Authorize: minimal member masjid
-	if !helperAuth.UserHasMasjid(c, mid) {
-		return fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada masjid ini (membership).")
+	// 3) Authorize: minimal member school
+	if !helperAuth.UserHasSchool(c, mid) {
+		return fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada school ini (membership).")
 	}
 
 	// 4) Query params
@@ -52,7 +52,7 @@ func (ctrl *QuizController) List(c *fiber.Ctx) error {
 	}
 
 	// Force scope tenant
-	q.MasjidID = &mid
+	q.SchoolID = &mid
 
 	// 5) Pagination (default created_at desc)
 	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)

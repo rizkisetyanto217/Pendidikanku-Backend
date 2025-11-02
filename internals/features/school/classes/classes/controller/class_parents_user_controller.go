@@ -1,10 +1,10 @@
 package controller
 
 import (
-	cpdto "masjidku_backend/internals/features/school/classes/classes/dto"
-	cpmodel "masjidku_backend/internals/features/school/classes/classes/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	cpdto "schoolku_backend/internals/features/school/classes/classes/dto"
+	cpmodel "schoolku_backend/internals/features/school/classes/classes/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -14,30 +14,31 @@ import (
 
 /*
 =========================================================
+
 	LIST (tenant-safe; READ: DKM=semua, member=only_my)
 	=========================================================
 */
 func (ctl *ClassParentController) List(c *fiber.Ctx) error {
-	// -------- Resolve masjid context --------
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// -------- Resolve school context --------
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	var masjidID uuid.UUID
+	var schoolID uuid.UUID
 	if mc.ID != uuid.Nil {
-		masjidID = mc.ID
+		schoolID = mc.ID
 	} else {
 		if strings.TrimSpace(mc.Slug) == "" {
-			return helperAuth.ErrMasjidContextMissing
+			return helperAuth.ErrSchoolContextMissing
 		}
-		id, er := helperAuth.GetMasjidIDBySlug(c, mc.Slug)
+		id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
 		if er != nil {
 			if er == gorm.ErrRecordNotFound {
-				return fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+				return fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
 			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve masjid")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school")
 		}
-		masjidID = id
+		schoolID = id
 	}
 
 	// -------- query params & paging --------
@@ -58,7 +59,7 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 
 	tx := ctl.DB.WithContext(c.Context()).
 		Model(&cpmodel.ClassParentModel{}).
-		Where("class_parent_masjid_id = ? AND class_parent_deleted_at IS NULL", masjidID)
+		Where("class_parent_school_id = ? AND class_parent_deleted_at IS NULL", schoolID)
 
 	// ----- filter by id(s) -----
 	if s := strings.TrimSpace(c.Query("class_parent_id")); s != "" {
@@ -132,21 +133,21 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 					LEFT JOIN class_section_students css
 					  ON css.class_section_students_section_id = s.class_sections_id
 					 AND css.class_section_students_deleted_at IS NULL
-					LEFT JOIN masjid_students ms
-					  ON ms.masjid_student_id = css.class_section_students_masjid_student_id
-					 AND ms.masjid_student_deleted_at IS NULL
-					LEFT JOIN masjid_teachers mt
-					  ON mt.masjid_teacher_id = s.class_sections_teacher_id
-					 AND mt.masjid_teacher_deleted_at IS NULL
+					LEFT JOIN school_students ms
+					  ON ms.school_student_id = css.class_section_students_school_student_id
+					 AND ms.school_student_deleted_at IS NULL
+					LEFT JOIN school_teachers mt
+					  ON mt.school_teacher_id = s.class_sections_teacher_id
+					 AND mt.school_teacher_deleted_at IS NULL
 					WHERE c.class_parent_id = class_parent_id
-					  AND c.class_masjid_id = ?
+					  AND c.class_school_id = ?
 					  AND (
-							(ms.masjid_student_user_id = ?)
-						 OR (mt.masjid_teacher_user_id = ?)
+							(ms.school_student_user_id = ?)
+						 OR (mt.school_teacher_user_id = ?)
 						 OR (s.class_sections_teacher_user_id = ?)
 					  )
 				)
-			`, masjidID, userID, userID, userID)
+			`, schoolID, userID, userID, userID)
 		}
 	}
 

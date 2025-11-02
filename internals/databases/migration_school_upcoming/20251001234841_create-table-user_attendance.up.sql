@@ -25,8 +25,8 @@ EXCEPTION WHEN duplicate_object THEN END $$;
 -- =========================
 CREATE TABLE IF NOT EXISTS user_attendance_snapshots (
   user_attendance_snapshots_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_attendance_snapshots_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  user_attendance_snapshots_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- partition key
   user_attendance_snapshots_scope user_attendance_snapshots_scope NOT NULL,
@@ -142,12 +142,12 @@ CREATE TABLE IF NOT EXISTS user_attendance_snapshots_ucsst
 
   -- Unik per (tenant × ucsst × grain × start)
   CONSTRAINT uq_user_att_snap_ucsst_unique
-    UNIQUE (user_attendance_snapshots_masjid_id, user_attendance_snapshots_ucsst_id, user_attendance_snapshots_grain, user_attendance_snapshots_start)
+    UNIQUE (user_attendance_snapshots_school_id, user_attendance_snapshots_ucsst_id, user_attendance_snapshots_grain, user_attendance_snapshots_start)
 );
 
 -- Indexes UC-SST
 CREATE INDEX IF NOT EXISTS idx_user_att_snap_ucsst_tenant_anchor
-  ON user_attendance_snapshots_ucsst (user_attendance_snapshots_masjid_id, user_attendance_snapshots_ucsst_id);
+  ON user_attendance_snapshots_ucsst (user_attendance_snapshots_school_id, user_attendance_snapshots_ucsst_id);
 
 CREATE INDEX IF NOT EXISTS brin_user_att_snap_ucsst_start
   ON user_attendance_snapshots_ucsst USING BRIN (user_attendance_snapshots_start);
@@ -157,15 +157,15 @@ CREATE INDEX IF NOT EXISTS idx_user_att_snap_ucsst_updated_at
 
 -- Partial per grain
 CREATE INDEX IF NOT EXISTS idx_user_att_snap_ucsst_week
-  ON user_attendance_snapshots_ucsst (user_attendance_snapshots_masjid_id, user_attendance_snapshots_ucsst_id, user_attendance_snapshots_start)
+  ON user_attendance_snapshots_ucsst (user_attendance_snapshots_school_id, user_attendance_snapshots_ucsst_id, user_attendance_snapshots_start)
   WHERE user_attendance_snapshots_grain = 'week';
 
 CREATE INDEX IF NOT EXISTS idx_user_att_snap_ucsst_month
-  ON user_attendance_snapshots_ucsst (user_attendance_snapshots_masjid_id, user_attendance_snapshots_ucsst_id, user_attendance_snapshots_start)
+  ON user_attendance_snapshots_ucsst (user_attendance_snapshots_school_id, user_attendance_snapshots_ucsst_id, user_attendance_snapshots_start)
   WHERE user_attendance_snapshots_grain = 'month';
 
 CREATE INDEX IF NOT EXISTS idx_user_att_snap_ucsst_semester
-  ON user_attendance_snapshots_ucsst (user_attendance_snapshots_masjid_id, user_attendance_snapshots_ucsst_id, user_attendance_snapshots_start)
+  ON user_attendance_snapshots_ucsst (user_attendance_snapshots_school_id, user_attendance_snapshots_ucsst_id, user_attendance_snapshots_start)
   WHERE user_attendance_snapshots_grain = 'semester';
 
 -- JSONB
@@ -217,12 +217,12 @@ CREATE TABLE IF NOT EXISTS user_attendance_snapshots_ucsec
 
   -- Unik per (tenant × ucsec × grain × start)
   CONSTRAINT uq_user_att_snap_ucsec_unique
-    UNIQUE (user_attendance_snapshots_masjid_id, user_attendance_snapshots_ucsec_id, user_attendance_snapshots_grain, user_attendance_snapshots_start)
+    UNIQUE (user_attendance_snapshots_school_id, user_attendance_snapshots_ucsec_id, user_attendance_snapshots_grain, user_attendance_snapshots_start)
 );
 
 -- Indexes UC-SEC
 CREATE INDEX IF NOT EXISTS idx_user_att_snap_ucsec_tenant_anchor
-  ON user_attendance_snapshots_ucsec (user_attendance_snapshots_masjid_id, user_attendance_snapshots_ucsec_id);
+  ON user_attendance_snapshots_ucsec (user_attendance_snapshots_school_id, user_attendance_snapshots_ucsec_id);
 
 CREATE INDEX IF NOT EXISTS brin_user_att_snap_ucsec_start
   ON user_attendance_snapshots_ucsec USING BRIN (user_attendance_snapshots_start);
@@ -231,15 +231,15 @@ CREATE INDEX IF NOT EXISTS idx_user_att_snap_ucsec_updated_at
   ON user_attendance_snapshots_ucsec (user_attendance_snapshots_updated_at);
 
 CREATE INDEX IF NOT EXISTS idx_user_att_snap_ucsec_week
-  ON user_attendance_snapshots_ucsec (user_attendance_snapshots_masjid_id, user_attendance_snapshots_ucsec_id, user_attendance_snapshots_start)
+  ON user_attendance_snapshots_ucsec (user_attendance_snapshots_school_id, user_attendance_snapshots_ucsec_id, user_attendance_snapshots_start)
   WHERE user_attendance_snapshots_grain = 'week';
 
 CREATE INDEX IF NOT EXISTS idx_user_att_snap_ucsec_month
-  ON user_attendance_snapshots_ucsec (user_attendance_snapshots_masjid_id, user_attendance_snapshots_ucsec_id, user_attendance_snapshots_start)
+  ON user_attendance_snapshots_ucsec (user_attendance_snapshots_school_id, user_attendance_snapshots_ucsec_id, user_attendance_snapshots_start)
   WHERE user_attendance_snapshots_grain = 'month';
 
 CREATE INDEX IF NOT EXISTS idx_user_att_snap_ucsec_semester
-  ON user_attendance_snapshots_ucsec (user_attendance_snapshots_masjid_id, user_attendance_snapshots_ucsec_id, user_attendance_snapshots_start)
+  ON user_attendance_snapshots_ucsec (user_attendance_snapshots_school_id, user_attendance_snapshots_ucsec_id, user_attendance_snapshots_start)
   WHERE user_attendance_snapshots_grain = 'semester';
 
 -- JSONB
@@ -257,7 +257,7 @@ CREATE INDEX IF NOT EXISTS gin_user_att_snap_ucsec_sessions_week_only
 -- Helpful Parent Indexes
 -- =========================
 CREATE INDEX IF NOT EXISTS idx_user_att_snap_tenant_grain_start
-  ON user_attendance_snapshots (user_attendance_snapshots_masjid_id, user_attendance_snapshots_grain, user_attendance_snapshots_start);
+  ON user_attendance_snapshots (user_attendance_snapshots_school_id, user_attendance_snapshots_grain, user_attendance_snapshots_start);
 
 CREATE INDEX IF NOT EXISTS brin_user_att_snap_created
   ON user_attendance_snapshots USING BRIN (user_attendance_snapshots_created_at);

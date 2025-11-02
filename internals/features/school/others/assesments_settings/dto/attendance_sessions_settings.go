@@ -1,7 +1,7 @@
 package dto
 
 import (
-	"masjidku_backend/internals/features/school/others/assesments_settings/model"
+	"schoolku_backend/internals/features/school/others/assesments_settings/model"
 	"time"
 
 	"github.com/google/uuid"
@@ -9,28 +9,28 @@ import (
 
 // Dipakai untuk request & response
 type ClassAttendanceSettingDTO struct {
-    ClassAttendanceSettingID       uuid.UUID `json:"class_attendance_setting_id,omitempty"`
-    ClassAttendanceSettingMasjidID uuid.UUID `json:"class_attendance_setting_masjid_id,omitempty"`
+	ClassAttendanceSettingID       uuid.UUID `json:"class_attendance_setting_id,omitempty"`
+	ClassAttendanceSettingSchoolID uuid.UUID `json:"class_attendance_setting_school_id,omitempty"`
 
-    ClassAttendanceSettingEnableScore             bool `json:"class_attendance_setting_enable_score"`
-    ClassAttendanceSettingRequireScore            bool `json:"class_attendance_setting_require_score"`
+	ClassAttendanceSettingEnableScore  bool `json:"class_attendance_setting_enable_score"`
+	ClassAttendanceSettingRequireScore bool `json:"class_attendance_setting_require_score"`
 
-    ClassAttendanceSettingEnableGradePassed       bool `json:"class_attendance_setting_enable_grade_passed"`
-    ClassAttendanceSettingRequireGradePassed      bool `json:"class_attendance_setting_require_grade_passed"`
+	ClassAttendanceSettingEnableGradePassed  bool `json:"class_attendance_setting_enable_grade_passed"`
+	ClassAttendanceSettingRequireGradePassed bool `json:"class_attendance_setting_require_grade_passed"`
 
-    ClassAttendanceSettingEnableMaterialPersonal  bool `json:"class_attendance_setting_enable_material_personal"`
-    ClassAttendanceSettingRequireMaterialPersonal bool `json:"class_attendance_setting_require_material_personal"`
+	ClassAttendanceSettingEnableMaterialPersonal  bool `json:"class_attendance_setting_enable_material_personal"`
+	ClassAttendanceSettingRequireMaterialPersonal bool `json:"class_attendance_setting_require_material_personal"`
 
-    ClassAttendanceSettingEnablePersonalNote      bool `json:"class_attendance_setting_enable_personal_note"`
-    ClassAttendanceSettingRequirePersonalNote     bool `json:"class_attendance_setting_require_personal_note"`
+	ClassAttendanceSettingEnablePersonalNote  bool `json:"class_attendance_setting_enable_personal_note"`
+	ClassAttendanceSettingRequirePersonalNote bool `json:"class_attendance_setting_require_personal_note"`
 
-    ClassAttendanceSettingEnableMemorization      bool `json:"class_attendance_setting_enable_memorization"`
-    ClassAttendanceSettingRequireMemorization     bool `json:"class_attendance_setting_require_memorization"`
+	ClassAttendanceSettingEnableMemorization  bool `json:"class_attendance_setting_enable_memorization"`
+	ClassAttendanceSettingRequireMemorization bool `json:"class_attendance_setting_require_memorization"`
 
-    ClassAttendanceSettingEnableHomework          bool `json:"class_attendance_setting_enable_homework"`
-    ClassAttendanceSettingRequireHomework         bool `json:"class_attendance_setting_require_homework"`
+	ClassAttendanceSettingEnableHomework  bool `json:"class_attendance_setting_enable_homework"`
+	ClassAttendanceSettingRequireHomework bool `json:"class_attendance_setting_require_homework"`
 
-    ClassAttendanceSettingCreatedAt time.Time `json:"class_attendance_setting_created_at,omitempty"`
+	ClassAttendanceSettingCreatedAt time.Time `json:"class_attendance_setting_created_at,omitempty"`
 }
 
 /* ====================
@@ -44,7 +44,7 @@ func FromModel(m *model.ClassAttendanceSetting) *ClassAttendanceSettingDTO {
 	}
 	return &ClassAttendanceSettingDTO{
 		ClassAttendanceSettingID:       m.ClassAttendanceSettingID,
-		ClassAttendanceSettingMasjidID: m.ClassAttendanceSettingMasjidID,
+		ClassAttendanceSettingSchoolID: m.ClassAttendanceSettingSchoolID,
 
 		ClassAttendanceSettingEnableScore:             m.ClassAttendanceSettingEnableScore,
 		ClassAttendanceSettingRequireScore:            m.ClassAttendanceSettingRequireScore,
@@ -64,14 +64,14 @@ func FromModel(m *model.ClassAttendanceSetting) *ClassAttendanceSettingDTO {
 }
 
 // ToModel -> Model (dipakai controller untuk Create/Update)
-// Catatan: controller override MasjidID dari path; untuk POST set ID = uuid.Nil.
+// Catatan: controller override SchoolID dari path; untuk POST set ID = uuid.Nil.
 func (d *ClassAttendanceSettingDTO) ToModel() *model.ClassAttendanceSetting {
 	if d == nil {
 		return nil
 	}
 	return &model.ClassAttendanceSetting{
 		ClassAttendanceSettingID:       d.ClassAttendanceSettingID,
-		ClassAttendanceSettingMasjidID: d.ClassAttendanceSettingMasjidID,
+		ClassAttendanceSettingSchoolID: d.ClassAttendanceSettingSchoolID,
 
 		ClassAttendanceSettingEnableScore:             d.ClassAttendanceSettingEnableScore,
 		ClassAttendanceSettingRequireScore:            d.ClassAttendanceSettingRequireScore,

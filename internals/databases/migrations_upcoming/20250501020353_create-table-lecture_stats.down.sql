@@ -16,8 +16,8 @@ DROP FUNCTION IF EXISTS fn_touch_lecture_stats_updated_at();
 DROP FUNCTION IF EXISTS recalc_lecture_stats(UUID);
 
 -- Hapus index
-DROP INDEX IF EXISTS idx_lecture_stats_masjid_recent;
-DROP INDEX IF EXISTS idx_lecture_stats_masjid_id;
+DROP INDEX IF EXISTS idx_lecture_stats_school_recent;
+DROP INDEX IF EXISTS idx_lecture_stats_school_id;
 DROP INDEX IF EXISTS idx_lecture_stats_lecture_id;
 
 -- Hapus tabel

@@ -10,7 +10,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- =========================================================
 CREATE TABLE IF NOT EXISTS books (
   books_id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  books_masjid_id          UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  books_school_id          UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- Identitas & deskripsi
   books_title              TEXT NOT NULL,
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS books (
 CREATE TABLE IF NOT EXISTS class_subject_books (
   class_subject_books_id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  class_subject_books_masjid_id      UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_subject_books_school_id      UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
   class_subject_books_class_subject_id UUID NOT NULL REFERENCES class_subjects(class_subjects_id) ON DELETE CASCADE,
   class_subject_books_book_id        UUID NOT NULL REFERENCES books(books_id) ON DELETE RESTRICT,
 

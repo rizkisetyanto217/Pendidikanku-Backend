@@ -24,7 +24,7 @@ type ClassRoomModel struct {
 	ClassRoomID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:class_room_id" json:"class_room_id"`
 
 	// Tenant / scope
-	ClassRoomMasjidID uuid.UUID `gorm:"type:uuid;not null;column:class_room_masjid_id" json:"class_room_masjid_id"`
+	ClassRoomSchoolID uuid.UUID `gorm:"type:uuid;not null;column:class_room_school_id" json:"class_room_school_id"`
 
 	// Identitas ruang
 	ClassRoomName        string  `gorm:"type:text;not null;column:class_room_name" json:"class_room_name"`
@@ -49,10 +49,10 @@ type ClassRoomModel struct {
 	ClassRoomFeatures datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:class_room_features" json:"class_room_features"`
 
 	// ONLINE FIELDS (sesuai SQL)
-	ClassRoomPlatform   *string `gorm:"type:varchar(30);column:class_room_platform" json:"class_room_platform,omitempty"`     // gunakan nilai dari konstanta di atas
-	ClassRoomJoinURL    *string `gorm:"type:text;column:class_room_join_url" json:"class_room_join_url,omitempty"`
-	ClassRoomMeetingID  *string `gorm:"type:text;column:class_room_meeting_id" json:"class_room_meeting_id,omitempty"`
-	ClassRoomPasscode   *string `gorm:"type:text;column:class_room_passcode" json:"class_room_passcode,omitempty"`
+	ClassRoomPlatform  *string `gorm:"type:varchar(30);column:class_room_platform" json:"class_room_platform,omitempty"` // gunakan nilai dari konstanta di atas
+	ClassRoomJoinURL   *string `gorm:"type:text;column:class_room_join_url" json:"class_room_join_url,omitempty"`
+	ClassRoomMeetingID *string `gorm:"type:text;column:class_room_meeting_id" json:"class_room_meeting_id,omitempty"`
+	ClassRoomPasscode  *string `gorm:"type:text;column:class_room_passcode" json:"class_room_passcode,omitempty"`
 
 	// JADWAL & CATATAN (JSONB) — sesuai SQL
 	ClassRoomSchedule datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:class_room_schedule" json:"class_room_schedule"`

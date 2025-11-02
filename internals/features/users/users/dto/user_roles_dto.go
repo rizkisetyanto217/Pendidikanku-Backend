@@ -4,7 +4,7 @@ package dto
 import (
 	"time"
 
-	"masjidku_backend/internals/features/users/users/model"
+	"schoolku_backend/internals/features/users/users/model"
 
 	"github.com/google/uuid"
 )
@@ -17,7 +17,7 @@ type UserRoleResponse struct {
 	UserRoleID uuid.UUID  `json:"user_role_id"`
 	UserID     uuid.UUID  `json:"user_id"`
 	RoleID     uuid.UUID  `json:"role_id"`
-	MasjidID   *uuid.UUID `json:"masjid_id,omitempty"`
+	SchoolID   *uuid.UUID `json:"school_id,omitempty"`
 	AssignedAt *time.Time `json:"assigned_at,omitempty"`
 	AssignedBy *uuid.UUID `json:"assigned_by,omitempty"`
 	DeletedAt  *time.Time `json:"deleted_at,omitempty"`
@@ -28,7 +28,7 @@ func FromModelUserRole(m model.UserRole) UserRoleResponse {
 		UserRoleID: m.UserRoleID,
 		UserID:     m.UserID,
 		RoleID:     m.RoleID,
-		MasjidID:   m.MasjidID,
+		SchoolID:   m.SchoolID,
 		AssignedAt: m.AssignedAt,
 		AssignedBy: m.AssignedBy,
 		DeletedAt:  m.DeletedAt,
@@ -42,7 +42,7 @@ func FromModelUserRole(m model.UserRole) UserRoleResponse {
 type CreateUserRoleRequest struct {
 	UserID     uuid.UUID  `json:"user_id"    validate:"required"`
 	RoleID     uuid.UUID  `json:"role_id"    validate:"required"`
-	MasjidID   *uuid.UUID `json:"masjid_id,omitempty"`   // null = global
+	SchoolID   *uuid.UUID `json:"school_id,omitempty"`   // null = global
 	AssignedBy *uuid.UUID `json:"assigned_by,omitempty"` // opsional
 }
 
@@ -50,7 +50,7 @@ func (r CreateUserRoleRequest) ToModel() model.UserRole {
 	return model.UserRole{
 		UserID:     r.UserID,
 		RoleID:     r.RoleID,
-		MasjidID:   r.MasjidID,
+		SchoolID:   r.SchoolID,
 		AssignedBy: r.AssignedBy,
 		// AssignedAt biarkan diisi default DB (NOW())
 	}
@@ -62,22 +62,22 @@ func (r CreateUserRoleRequest) ToModel() model.UserRole {
 
 type UpdateUserRoleRequest struct {
 	// Hanya izinkan ubah scope & assigned_by (user_id & role_id dianggap immutable)
-	MasjidID      *uuid.UUID `json:"masjid_id,omitempty"`       // kirim untuk ubah nilai
-	ClearMasjidID *bool      `json:"clear_masjid_id,omitempty"` // true => set NULL (global)
+	SchoolID      *uuid.UUID `json:"school_id,omitempty"`       // kirim untuk ubah nilai
+	ClearSchoolID *bool      `json:"clear_school_id,omitempty"` // true => set NULL (global)
 	AssignedBy    *uuid.UUID `json:"assigned_by,omitempty"`
 }
 
 // Apply menerapkan perubahan partial ke model.
 //
-// Aturan MasjidID:
-// - Jika ClearMasjidID == true -> set m.MasjidID = nil
-// - Else jika MasjidID != nil   -> set m.MasjidID = MasjidID
+// Aturan SchoolID:
+// - Jika ClearSchoolID == true -> set m.SchoolID = nil
+// - Else jika SchoolID != nil   -> set m.SchoolID = SchoolID
 // - Else                        -> tidak diubah
 func (r UpdateUserRoleRequest) Apply(m *model.UserRole) {
-	if r.ClearMasjidID != nil && *r.ClearMasjidID {
-		m.MasjidID = nil
-	} else if r.MasjidID != nil {
-		m.MasjidID = r.MasjidID
+	if r.ClearSchoolID != nil && *r.ClearSchoolID {
+		m.SchoolID = nil
+	} else if r.SchoolID != nil {
+		m.SchoolID = r.SchoolID
 	}
 	if r.AssignedBy != nil {
 		m.AssignedBy = r.AssignedBy
@@ -91,7 +91,7 @@ func (r UpdateUserRoleRequest) Apply(m *model.UserRole) {
 type ListUserRoleQuery struct {
 	UserID    *uuid.UUID `query:"user_id"`
 	RoleID    *uuid.UUID `query:"role_id"`
-	MasjidID  *uuid.UUID `query:"masjid_id"`  // null = global, kosong = semua
+	SchoolID  *uuid.UUID `query:"school_id"`  // null = global, kosong = semua
 	OnlyAlive *bool      `query:"only_alive"` // default: true
 	Limit     int        `query:"limit"`      // default: 20
 	Offset    int        `query:"offset"`     // default: 0

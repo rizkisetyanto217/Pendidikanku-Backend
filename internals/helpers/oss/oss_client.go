@@ -54,29 +54,25 @@ var (
 	maxUploadSize = int64(5 * 1024 * 1024)
 )
 
-
 /* =======================================================================
    Konfigurasi WebP (ENV-Driven) + Opsi per-call
 ======================================================================= */
 
 type WebPOptions struct {
-	MaxW         int     // batas lebar (resize keep-aspect)
-	MaxH         int     // batas tinggi
-	TargetKB     int     // target ukuran; 0 = non-aktif (pakai Quality saja)
-	Quality      float32 // default quality saat TargetKB=0 atau initial guess
-	MinQ         float32 // min quality utk binary search
-	MaxQ         float32 // max quality utk binary search
-	ToleranceKB  int     // toleransi di atas target
-	Lossless     bool    // jarang dipakai; default false (foto = lossy)
+	MaxW        int     // batas lebar (resize keep-aspect)
+	MaxH        int     // batas tinggi
+	TargetKB    int     // target ukuran; 0 = non-aktif (pakai Quality saja)
+	Quality     float32 // default quality saat TargetKB=0 atau initial guess
+	MinQ        float32 // min quality utk binary search
+	MaxQ        float32 // max quality utk binary search
+	ToleranceKB int     // toleransi di atas target
+	Lossless    bool    // jarang dipakai; default false (foto = lossy)
 	// + tambahkan di WebPOptions
-	MinW       int     // lebar minimum saat iterative downscale
-	MinH       int     // tinggi minimum
-	ScaleStep  float32 // faktor perkecil tiap iterasi (0<step<1), mis. 0.85 = 85%
+	MinW      int     // lebar minimum saat iterative downscale
+	MinH      int     // tinggi minimum
+	ScaleStep float32 // faktor perkecil tiap iterasi (0<step<1), mis. 0.85 = 85%
 
 }
-
-
-
 
 func defaultWebPOptionsFromEnv() WebPOptions {
 	return WebPOptions{
@@ -88,9 +84,9 @@ func defaultWebPOptionsFromEnv() WebPOptions {
 		MaxQ:        envFloat("IMAGE_WEBP_MAX_Q", 85),
 		ToleranceKB: envInt("IMAGE_WEBP_TOLERANCE_KB", 8),
 		Lossless:    false,
-		MinW:      envInt("IMAGE_WEBP_MIN_W", 480),
-		MinH:      envInt("IMAGE_WEBP_MIN_H", 480),
-		ScaleStep: envFloat("IMAGE_WEBP_SCALE_STEP", 0.85),
+		MinW:        envInt("IMAGE_WEBP_MIN_W", 480),
+		MinH:        envInt("IMAGE_WEBP_MIN_H", 480),
+		ScaleStep:   envFloat("IMAGE_WEBP_SCALE_STEP", 0.85),
 	}
 }
 
@@ -211,16 +207,28 @@ func encodeToWebP(img image.Image, opt WebPOptions) ([]byte, error) {
 	}
 	minQ := opt.MinQ
 	maxQ := opt.MaxQ
-	if minQ <= 0 { minQ = 45 }
-	if maxQ <= 0 { maxQ = 85 }
-	if minQ > maxQ { minQ, maxQ = maxQ, minQ }
+	if minQ <= 0 {
+		minQ = 45
+	}
+	if maxQ <= 0 {
+		maxQ = 85
+	}
+	if minQ > maxQ {
+		minQ, maxQ = maxQ, minQ
+	}
 
 	minW := opt.MinW
 	minH := opt.MinH
-	if minW <= 0 { minW = 480 }
-	if minH <= 0 { minH = 480 }
+	if minW <= 0 {
+		minW = 480
+	}
+	if minH <= 0 {
+		minH = 480
+	}
 	step := opt.ScaleStep
-	if step <= 0 || step >= 1 { step = 0.85 }
+	if step <= 0 || step >= 1 {
+		step = 0.85
+	}
 
 	// Mulai dari img yang sudah di-downscale awal (di ConvertToWebPWithOptions)
 	cur := img
@@ -249,7 +257,9 @@ func encodeToWebP(img image.Image, opt WebPOptions) ([]byte, error) {
 			// fallback pakai low
 			var err error
 			best, err = encodeQ(cur, low)
-			if err != nil { return nil, err }
+			if err != nil {
+				return nil, err
+			}
 		}
 		last = best
 
@@ -281,14 +291,22 @@ func encodeToWebP(img image.Image, opt WebPOptions) ([]byte, error) {
 
 		nw := int(math.Round(float64(cw) * scale))
 		nh := int(math.Round(float64(ch) * scale))
-		if nw < minW { nw = minW }
-		if nh < minH { nh = minH }
+		if nw < minW {
+			nw = minW
+		}
+		if nh < minH {
+			nh = minH
+		}
 		if nw >= cw && nh >= ch {
 			// tidak mengecil → paksa step
 			nw = int(float64(cw) * float64(step))
 			nh = int(float64(ch) * float64(step))
-			if nw < minW { nw = minW }
-			if nh < minH { nh = minH }
+			if nw < minW {
+				nw = minW
+			}
+			if nh < minH {
+				nh = minH
+			}
 		}
 
 		dst := image.NewRGBA(image.Rect(0, 0, nw, nh))
@@ -753,10 +771,10 @@ func (s *OSSService) UploadFromFormFileToDir(ctx context.Context, dir string, fh
 	return key, ct, nil
 }
 
-// UploadImageToOSSScoped: helper praktis ke "masjids/{masjid_id}/{kategori}" (tanpa recompress)
-func UploadImageToOSSScoped(masjidID uuid.UUID, kategori string, fh *multipart.FileHeader) (string, error) {
-	if masjidID == uuid.Nil {
-		return "", fmt.Errorf("masjidID kosong/invalid")
+// UploadImageToOSSScoped: helper praktis ke "schools/{school_id}/{kategori}" (tanpa recompress)
+func UploadImageToOSSScoped(schoolID uuid.UUID, kategori string, fh *multipart.FileHeader) (string, error) {
+	if schoolID == uuid.Nil {
+		return "", fmt.Errorf("schoolID kosong/invalid")
 	}
 	if strings.TrimSpace(kategori) == "" {
 		kategori = "misc"
@@ -770,7 +788,7 @@ func UploadImageToOSSScoped(masjidID uuid.UUID, kategori string, fh *multipart.F
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	dir := joinParts("masjids", masjidID.String(), kategori)
+	dir := joinParts("schools", schoolID.String(), kategori)
 	key, _, err := svc.UploadFromFormFileToDir(ctx, dir, fh)
 	if err != nil {
 		return "", err
@@ -779,12 +797,12 @@ func UploadImageToOSSScoped(masjidID uuid.UUID, kategori string, fh *multipart.F
 }
 
 // UploadImageToOSS: helper lama — selalu convert ke WebP
-func UploadImageToOSS(ctx context.Context, svc *OSSService, masjidID uuid.UUID, slot string, fh *multipart.FileHeader) (string, error) {
+func UploadImageToOSS(ctx context.Context, svc *OSSService, schoolID uuid.UUID, slot string, fh *multipart.FileHeader) (string, error) {
 	if fh == nil {
 		return "", fiber.NewError(fiber.StatusBadRequest, "File tidak ditemukan")
 	}
-	if masjidID == uuid.Nil {
-		return "", fiber.NewError(fiber.StatusBadRequest, "masjid_id tidak valid")
+	if schoolID == uuid.Nil {
+		return "", fiber.NewError(fiber.StatusBadRequest, "school_id tidak valid")
 	}
 	if fh.Size > maxUploadSize {
 		return "", fiber.NewError(fiber.StatusRequestEntityTooLarge, "Ukuran gambar maksimal 5MB")
@@ -794,7 +812,7 @@ func UploadImageToOSS(ctx context.Context, svc *OSSService, masjidID uuid.UUID, 
 	if slot == "" {
 		slot = "default"
 	}
-	dir := fmt.Sprintf("masjids/%s/images/%s", masjidID.String(), slot)
+	dir := fmt.Sprintf("schools/%s/images/%s", schoolID.String(), slot)
 
 	url, err := svc.UploadAsWebP(ctx, fh, dir)
 	if err != nil {
@@ -908,15 +926,22 @@ func init() {
 	_ = mime.AddExtensionType(".svg", "image/svg+xml")
 }
 
-
 // internals/helpers/oss_file.go
-func UploadAnyToOSS(ctx context.Context, svc *OSSService, masjidID uuid.UUID, slot string, fh *multipart.FileHeader) (string, error) {
-	if fh == nil { return "", fiber.NewError(fiber.StatusBadRequest, "File tidak ditemukan") }
-	if masjidID == uuid.Nil { return "", fiber.NewError(fiber.StatusBadRequest, "masjid_id tidak valid") }
-	if fh.Size > maxUploadSize { return "", fiber.NewError(fiber.StatusRequestEntityTooLarge, "Ukuran file maksimal 5MB") }
+func UploadAnyToOSS(ctx context.Context, svc *OSSService, schoolID uuid.UUID, slot string, fh *multipart.FileHeader) (string, error) {
+	if fh == nil {
+		return "", fiber.NewError(fiber.StatusBadRequest, "File tidak ditemukan")
+	}
+	if schoolID == uuid.Nil {
+		return "", fiber.NewError(fiber.StatusBadRequest, "school_id tidak valid")
+	}
+	if fh.Size > maxUploadSize {
+		return "", fiber.NewError(fiber.StatusRequestEntityTooLarge, "Ukuran file maksimal 5MB")
+	}
 
 	slot = strings.Trim(strings.ToLower(strings.TrimSpace(slot)), "/")
-	if slot == "" { slot = "default" }
+	if slot == "" {
+		slot = "default"
+	}
 
 	// sniff cepat: kalau image → ke WebP; selain itu → upload mentah
 	name := strings.ToLower(fh.Filename)
@@ -924,18 +949,20 @@ func UploadAnyToOSS(ctx context.Context, svc *OSSService, masjidID uuid.UUID, sl
 		strings.HasSuffix(name, ".png") || strings.HasSuffix(name, ".webp")
 
 	if isImage {
-		dir := fmt.Sprintf("masjids/%s/images/%s", masjidID.String(), slot)
+		dir := fmt.Sprintf("schools/%s/images/%s", schoolID.String(), slot)
 		if url, err := svc.UploadAsWebP(ctx, fh, dir); err == nil {
 			return url, nil
 		} else {
 			var fe *fiber.Error
-			if errors.As(err, &fe) { return "", fe }
+			if errors.As(err, &fe) {
+				return "", fe
+			}
 			return "", fiber.NewError(fiber.StatusBadGateway, "Gagal upload ke OSS")
 		}
 	}
 
 	// non-image → simpan mentah
-	dir := fmt.Sprintf("masjids/%s/files/%s", masjidID.String(), slot)
+	dir := fmt.Sprintf("schools/%s/files/%s", schoolID.String(), slot)
 	key, _, err := svc.UploadFromFormFileToDir(ctx, dir, fh)
 	if err != nil {
 		return "", fiber.NewError(fiber.StatusBadGateway, "Gagal upload ke OSS")

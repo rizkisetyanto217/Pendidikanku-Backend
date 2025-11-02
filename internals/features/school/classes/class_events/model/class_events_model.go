@@ -16,7 +16,7 @@ import (
 type ClassDeliveryMode string
 
 const (
-	ClassDeliveryModeOnline ClassDeliveryMode = "online"
+	ClassDeliveryModeOnline  ClassDeliveryMode = "online"
 	ClassDeliveryModeOffline ClassDeliveryMode = "offline"
 	ClassDeliveryModeHybrid  ClassDeliveryMode = "hybrid"
 )
@@ -35,8 +35,8 @@ const (
 ========================================================= */
 
 type ClassEventModel struct {
-	ClassEventID        uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:class_event_id" json:"class_event_id"`
-	ClassEventMasjidID  uuid.UUID `gorm:"type:uuid;not null;column:class_event_masjid_id" json:"class_event_masjid_id"`
+	ClassEventID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:class_event_id" json:"class_event_id"`
+	ClassEventSchoolID uuid.UUID `gorm:"type:uuid;not null;column:class_event_school_id" json:"class_event_school_id"`
 
 	// optional relations
 	ClassEventThemeID    *uuid.UUID `gorm:"type:uuid;column:class_event_theme_id" json:"class_event_theme_id,omitempty"`
@@ -52,8 +52,8 @@ type ClassEventModel struct {
 	ClassEventDesc  *string `gorm:"type:text;column:class_event_desc" json:"class_event_desc,omitempty"`
 
 	// dates & times
-	ClassEventDate     time.Time  `gorm:"type:date;not null;column:class_event_date" json:"class_event_date"`
-	ClassEventEndDate  *time.Time `gorm:"type:date;column:class_event_end_date" json:"class_event_end_date,omitempty"`
+	ClassEventDate      time.Time  `gorm:"type:date;not null;column:class_event_date" json:"class_event_date"`
+	ClassEventEndDate   *time.Time `gorm:"type:date;column:class_event_end_date" json:"class_event_end_date,omitempty"`
 	ClassEventStartTime *time.Time `gorm:"type:time;column:class_event_start_time" json:"class_event_start_time,omitempty"`
 	ClassEventEndTime   *time.Time `gorm:"type:time;column:class_event_end_time" json:"class_event_end_time,omitempty"`
 
@@ -67,7 +67,7 @@ type ClassEventModel struct {
 	ClassEventTeacherDesc *string    `gorm:"type:text;column:class_event_teacher_desc" json:"class_event_teacher_desc,omitempty"`
 
 	// capacity & RSVP
-	ClassEventCapacity        *int                        `gorm:"column:class_event_capacity" json:"class_event_capacity,omitempty"`
+	ClassEventCapacity         *int                        `gorm:"column:class_event_capacity" json:"class_event_capacity,omitempty"`
 	ClassEventEnrollmentPolicy *ClassEventEnrollmentPolicy `gorm:"type:varchar(16);column:class_event_enrollment_policy" json:"class_event_enrollment_policy,omitempty"`
 
 	// status

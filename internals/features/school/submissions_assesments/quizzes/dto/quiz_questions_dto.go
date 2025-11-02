@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
-	qmodel "masjidku_backend/internals/features/school/submissions_assesments/quizzes/model"
+	qmodel "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
 )
 
 /* =========================================================
@@ -20,7 +20,7 @@ import (
 // ESSAY : biarkan answers & correct kosong.
 type CreateQuizQuestionRequest struct {
 	QuizQuestionQuizID      uuid.UUID               `json:"quiz_question_quiz_id" validate:"required"`
-	QuizQuestionMasjidID    uuid.UUID               `json:"quiz_question_masjid_id"` // controller boleh force override dari tenant
+	QuizQuestionSchoolID    uuid.UUID               `json:"quiz_question_school_id"` // controller boleh force override dari tenant
 	QuizQuestionType        qmodel.QuizQuestionType `json:"quiz_question_type" validate:"required,oneof=single essay"`
 	QuizQuestionText        string                  `json:"quiz_question_text" validate:"required"`
 	QuizQuestionPoints      *float64                `json:"quiz_question_points" validate:"omitempty,gte=0"`
@@ -48,7 +48,7 @@ func (r *CreateQuizQuestionRequest) ToModel() (*qmodel.QuizQuestionModel, error)
 
 	m := &qmodel.QuizQuestionModel{
 		QuizQuestionQuizID:      r.QuizQuestionQuizID,
-		QuizQuestionMasjidID:    r.QuizQuestionMasjidID,
+		QuizQuestionSchoolID:    r.QuizQuestionSchoolID,
 		QuizQuestionType:        r.QuizQuestionType,
 		QuizQuestionText:        strings.TrimSpace(r.QuizQuestionText),
 		QuizQuestionPoints:      points,
@@ -70,7 +70,7 @@ func (r *CreateQuizQuestionRequest) ToModel() (*qmodel.QuizQuestionModel, error)
 
 type PatchQuizQuestionRequest struct {
 	QuizQuestionQuizID      UpdateField[uuid.UUID]               `json:"quiz_question_quiz_id"`
-	QuizQuestionMasjidID    UpdateField[uuid.UUID]               `json:"quiz_question_masjid_id"` // biasanya tidak diizinkan ubah
+	QuizQuestionSchoolID    UpdateField[uuid.UUID]               `json:"quiz_question_school_id"` // biasanya tidak diizinkan ubah
 	QuizQuestionType        UpdateField[qmodel.QuizQuestionType] `json:"quiz_question_type"`      // single/essay
 	QuizQuestionText        UpdateField[string]                  `json:"quiz_question_text"`
 	QuizQuestionPoints      UpdateField[float64]                 `json:"quiz_question_points"`
@@ -85,8 +85,8 @@ func (p *PatchQuizQuestionRequest) ApplyToModel(m *qmodel.QuizQuestionModel) err
 	if p.QuizQuestionQuizID.ShouldUpdate() && !p.QuizQuestionQuizID.IsNull() {
 		m.QuizQuestionQuizID = p.QuizQuestionQuizID.Val()
 	}
-	if p.QuizQuestionMasjidID.ShouldUpdate() && !p.QuizQuestionMasjidID.IsNull() {
-		m.QuizQuestionMasjidID = p.QuizQuestionMasjidID.Val()
+	if p.QuizQuestionSchoolID.ShouldUpdate() && !p.QuizQuestionSchoolID.IsNull() {
+		m.QuizQuestionSchoolID = p.QuizQuestionSchoolID.Val()
 	}
 
 	// Type
@@ -152,7 +152,7 @@ func (p *PatchQuizQuestionRequest) ApplyToModel(m *qmodel.QuizQuestionModel) err
 type QuizQuestionResponse struct {
 	QuizQuestionID          uuid.UUID               `json:"quiz_question_id"`
 	QuizQuestionQuizID      uuid.UUID               `json:"quiz_question_quiz_id"`
-	QuizQuestionMasjidID    uuid.UUID               `json:"quiz_question_masjid_id"`
+	QuizQuestionSchoolID    uuid.UUID               `json:"quiz_question_school_id"`
 	QuizQuestionType        qmodel.QuizQuestionType `json:"quiz_question_type"`
 	QuizQuestionText        string                  `json:"quiz_question_text"`
 	QuizQuestionPoints      float64                 `json:"quiz_question_points"`
@@ -173,7 +173,7 @@ func FromModelQuizQuestion(m *qmodel.QuizQuestionModel) *QuizQuestionResponse {
 	return &QuizQuestionResponse{
 		QuizQuestionID:          m.QuizQuestionID,
 		QuizQuestionQuizID:      m.QuizQuestionQuizID,
-		QuizQuestionMasjidID:    m.QuizQuestionMasjidID,
+		QuizQuestionSchoolID:    m.QuizQuestionSchoolID,
 		QuizQuestionType:        m.QuizQuestionType,
 		QuizQuestionText:        m.QuizQuestionText,
 		QuizQuestionPoints:      m.QuizQuestionPoints,
@@ -198,5 +198,3 @@ func FromModelsQuizQuestions(arr []qmodel.QuizQuestionModel) []*QuizQuestionResp
 ========================================================= */
 
 const timeRFC3339 = "2006-01-02T15:04:05Z07:00"
-
-

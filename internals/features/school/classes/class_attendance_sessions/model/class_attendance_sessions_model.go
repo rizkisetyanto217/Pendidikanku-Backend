@@ -37,8 +37,8 @@ type ClassAttendanceSessionModel struct {
 	ClassAttendanceSessionID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:class_attendance_session_id" json:"class_attendance_session_id"`
 
 	// Tenant & relasi utama
-	ClassAttendanceSessionMasjidID   uuid.UUID  `gorm:"type:uuid;not null;column:class_attendance_session_masjid_id" json:"class_attendance_session_masjid_id"`
-	ClassAttendanceSessionScheduleID *uuid.UUID  `gorm:"type:uuid;not null;column:class_attendance_session_schedule_id" json:"class_attendance_session_schedule_id"`
+	ClassAttendanceSessionSchoolID   uuid.UUID  `gorm:"type:uuid;not null;column:class_attendance_session_school_id" json:"class_attendance_session_school_id"`
+	ClassAttendanceSessionScheduleID *uuid.UUID `gorm:"type:uuid;not null;column:class_attendance_session_schedule_id" json:"class_attendance_session_schedule_id"`
 	ClassAttendanceSessionRuleID     *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_rule_id" json:"class_attendance_session_rule_id,omitempty"`
 
 	// SLUG opsional

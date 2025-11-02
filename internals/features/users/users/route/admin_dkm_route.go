@@ -1,9 +1,9 @@
 package routes
 
 import (
-	"masjidku_backend/internals/constants"
-	userController "masjidku_backend/internals/features/users/users/controller"
-	authMiddleware "masjidku_backend/internals/middlewares/auth"
+	"schoolku_backend/internals/constants"
+	userController "schoolku_backend/internals/features/users/users/controller"
+	authMiddleware "schoolku_backend/internals/middlewares/auth"
 
 	// ⬅️ TAMBAH
 	"github.com/gofiber/fiber/v2"

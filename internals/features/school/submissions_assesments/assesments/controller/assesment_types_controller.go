@@ -12,12 +12,12 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "masjidku_backend/internals/features/school/submissions_assesments/assesments/dto"
-	model "masjidku_backend/internals/features/school/submissions_assesments/assesments/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	dto "schoolku_backend/internals/features/school/submissions_assesments/assesments/dto"
+	model "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
-	assessSvc "masjidku_backend/internals/features/school/submissions_assesments/assesments/service"
+	assessSvc "schoolku_backend/internals/features/school/submissions_assesments/assesments/service"
 )
 
 type AssessmentTypeController struct {
@@ -37,7 +37,7 @@ func NewAssessmentTypeController(db *gorm.DB) *AssessmentTypeController {
 func mapToResponse(m *model.AssessmentTypeModel) dto.AssessmentTypeResponse {
 	return dto.AssessmentTypeResponse{
 		AssessmentTypeID:            m.AssessmentTypeID,
-		AssessmentTypeMasjidID:      m.AssessmentTypeMasjidID,
+		AssessmentTypeSchoolID:      m.AssessmentTypeSchoolID,
 		AssessmentTypeKey:           m.AssessmentTypeKey,
 		AssessmentTypeName:          m.AssessmentTypeName,
 		AssessmentTypeWeightPercent: m.AssessmentTypeWeightPercent,
@@ -72,15 +72,15 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 	}
 	req = req.Normalize()
 
-	// 🔒 Masjid context + ensure DKM/Admin untuk masjid tsb
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// 🔒 School context + ensure DKM/Admin untuk school tsb
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -97,7 +97,7 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 	now := time.Now()
 	row := model.AssessmentTypeModel{
 		AssessmentTypeID:            uuid.New(),
-		AssessmentTypeMasjidID:      masjidID, // ⛔ enforce dari context (anti cross-tenant)
+		AssessmentTypeSchoolID:      schoolID, // ⛔ enforce dari context (anti cross-tenant)
 		AssessmentTypeKey:           strings.TrimSpace(req.AssessmentTypeKey),
 		AssessmentTypeName:          strings.TrimSpace(req.AssessmentTypeName),
 		AssessmentTypeWeightPercent: req.AssessmentTypeWeightPercent,
@@ -111,7 +111,7 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 
 	// Validasi agregat aktif ≤ 100
 	if row.AssessmentTypeIsActive {
-		sum, err := assessSvc.New().SumActiveWeights(ctl.DB.WithContext(c.Context()), masjidID, nil)
+		sum, err := assessSvc.New().SumActiveWeights(ctl.DB.WithContext(c.Context()), schoolID, nil)
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total bobot")
 		}
@@ -127,7 +127,7 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 
 	if err := ctl.DB.WithContext(c.Context()).Create(&row).Error; err != nil {
 		if isUniqueViolation(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Key sudah dipakai untuk masjid ini")
+			return helper.JsonError(c, fiber.StatusConflict, "Key sudah dipakai untuk school ini")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
@@ -153,15 +153,15 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// 🔒 Masjid context + ensure DKM/Admin
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// 🔒 School context + ensure DKM/Admin
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -171,7 +171,7 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 
 	var existing model.AssessmentTypeModel
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("assessment_type_id = ? AND assessment_type_masjid_id = ? AND assessment_type_deleted_at IS NULL", id, masjidID).
+		Where("assessment_type_id = ? AND assessment_type_school_id = ? AND assessment_type_deleted_at IS NULL", id, schoolID).
 		First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -195,7 +195,7 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 
 	// Validasi agregat (aktif) ≤ 100 — exclude row ini
 	if finalActive {
-		sum, err := assessSvc.New().SumActiveWeights(ctl.DB.WithContext(c.Context()), masjidID, &existing.AssessmentTypeID)
+		sum, err := assessSvc.New().SumActiveWeights(ctl.DB.WithContext(c.Context()), schoolID, &existing.AssessmentTypeID)
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total bobot")
 		}
@@ -226,17 +226,17 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 
 	if err := ctl.DB.WithContext(c.Context()).
 		Model(&model.AssessmentTypeModel{}).
-		Where("assessment_type_id = ? AND assessment_type_masjid_id = ?", id, masjidID).
+		Where("assessment_type_id = ? AND assessment_type_school_id = ?", id, schoolID).
 		Updates(updates).Error; err != nil {
 		if isUniqueViolation(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Key sudah dipakai untuk masjid ini")
+			return helper.JsonError(c, fiber.StatusConflict, "Key sudah dipakai untuk school ini")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	var after model.AssessmentTypeModel
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("assessment_type_id = ? AND assessment_type_masjid_id = ?", id, masjidID).
+		Where("assessment_type_id = ? AND assessment_type_school_id = ?", id, schoolID).
 		First(&after).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
@@ -254,15 +254,15 @@ func (ctl *AssessmentTypeController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "assessment_type_id tidak valid")
 	}
 
-	// 🔒 Masjid context + ensure DKM/Admin
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	// 🔒 School context + ensure DKM/Admin
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -272,7 +272,7 @@ func (ctl *AssessmentTypeController) Delete(c *fiber.Ctx) error {
 
 	var row model.AssessmentTypeModel
 	if err := ctl.DB.WithContext(c.Context()).
-		Where("assessment_type_id = ? AND assessment_type_masjid_id = ?", id, masjidID).
+		Where("assessment_type_id = ? AND assessment_type_school_id = ?", id, schoolID).
 		First(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")

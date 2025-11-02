@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_sessions_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Tenant guard
-  class_attendance_sessions_masjid_id UUID NOT NULL,
+  class_attendance_sessions_school_id UUID NOT NULL,
 
   -- Relasi utama: assignment (CSST)
   class_attendance_sessions_csst_id UUID NOT NULL
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
 
   -- Guru (tetap/pengganti)
   class_attendance_sessions_teacher_id UUID
-    REFERENCES masjid_teachers (masjid_teacher_id) ON DELETE SET NULL,
+    REFERENCES school_teachers (school_teacher_id) ON DELETE SET NULL,
 
   -- Soft delete
   class_attendance_sessions_deleted_at TIMESTAMPTZ,

@@ -67,8 +67,8 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant scope
-  class_schedule_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_schedule_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- slug (unik per tenant selama alive)
   class_schedule_slug VARCHAR(160),
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS class_schedules (
   class_schedule_deleted_at TIMESTAMPTZ,
 
   -- tenant-safe composite key (target FK komposit)
-  UNIQUE (class_schedule_masjid_id, class_schedule_id),
+  UNIQUE (class_schedule_school_id, class_schedule_id),
 
   -- CHECK: validasi & anti-duplikat
   CONSTRAINT chk_class_schedule_rules_valid
@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS class_schedules (
 
 -- Indexes (class_schedules)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_schedules_slug_per_tenant_alive
-  ON class_schedules (class_schedule_masjid_id, LOWER(class_schedule_slug))
+  ON class_schedules (class_schedule_school_id, LOWER(class_schedule_slug))
   WHERE class_schedule_deleted_at IS NULL
     AND class_schedule_slug IS NOT NULL;
 
@@ -113,7 +113,7 @@ CREATE INDEX IF NOT EXISTS gin_class_schedules_slug_trgm_alive
     AND class_schedule_slug IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_class_schedules_tenant_alive
-  ON class_schedules (class_schedule_masjid_id)
+  ON class_schedules (class_schedule_school_id)
   WHERE class_schedule_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_class_schedules_active_alive
@@ -137,7 +137,7 @@ CREATE INDEX IF NOT EXISTS gin_class_schedule_rules
 -- =========================================================
 CREATE OR REPLACE VIEW class_schedule_rules_v AS
 SELECT
-  cs.class_schedule_masjid_id,
+  cs.class_schedule_school_id,
   cs.class_schedule_id,
   (r->>'day_of_week')::int                         AS day_of_week,
   (r->>'start_time')::time                         AS start_time,
@@ -151,7 +151,7 @@ SELECT
   ), '{}')::int[]                                  AS weeks_of_month,
   COALESCE((r->>'last_week_of_month')::boolean, false) AS last_week_of_month,
   row_number() OVER (
-    PARTITION BY cs.class_schedule_masjid_id, cs.class_schedule_id
+    PARTITION BY cs.class_schedule_school_id, cs.class_schedule_id
     ORDER BY (r->>'day_of_week'), (r->>'start_time'), (r->>'end_time')
   )::int                                           AS rule_idx,
   r                                                AS rule_json
@@ -164,7 +164,7 @@ WHERE cs.class_schedule_deleted_at IS NULL;
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_schedule_exceptions (
   cse_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  cse_masjid_id UUID NOT NULL,
+  cse_school_id UUID NOT NULL,
   cse_schedule_id UUID NOT NULL,
   cse_date DATE NOT NULL,
   cse_is_canceled BOOLEAN NOT NULL DEFAULT FALSE,
@@ -175,19 +175,19 @@ CREATE TABLE IF NOT EXISTS class_schedule_exceptions (
   cse_note TEXT,
   cse_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   cse_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (cse_masjid_id, cse_schedule_id, cse_date)
+  UNIQUE (cse_school_id, cse_schedule_id, cse_date)
 );
 
 -- =========================================================
 -- FUNC: expand_occurrences_jsonb (rules → rentang tanggal)
 -- =========================================================
 CREATE OR REPLACE FUNCTION expand_occurrences_jsonb(
-  p_masjid_id   UUID,
+  p_school_id   UUID,
   p_schedule_id UUID,
   p_from        DATE,
   p_to          DATE
 ) RETURNS TABLE(
-  masjid_id   UUID,
+  school_id   UUID,
   schedule_id UUID,
   dt          DATE,
   start_time  TIME,
@@ -204,7 +204,7 @@ CREATE OR REPLACE FUNCTION expand_occurrences_jsonb(
   sched AS (
     SELECT *
     FROM class_schedule_rules_v r
-    WHERE r.class_schedule_masjid_id = p_masjid_id
+    WHERE r.class_schedule_school_id = p_school_id
       AND r.class_schedule_id = p_schedule_id
   ),
   match_dow AS (
@@ -219,10 +219,10 @@ CREATE OR REPLACE FUNCTION expand_occurrences_jsonb(
       -- minggu sejak start_date (kasar tapi cukup untuk interval & parity)
       (EXTRACT(WEEK FROM m.dt)::int - EXTRACT(WEEK FROM (SELECT class_schedule_start_date FROM class_schedules
                                                          WHERE class_schedule_id = p_schedule_id
-                                                           AND class_schedule_masjid_id = p_masjid_id))::int
+                                                           AND class_schedule_school_id = p_school_id))::int
          + 52 * (EXTRACT(YEAR FROM m.dt)::int - EXTRACT(YEAR FROM (SELECT class_schedule_start_date FROM class_schedules
                                                                    WHERE class_schedule_id = p_schedule_id
-                                                                     AND class_schedule_masjid_id = p_masjid_id))::int)
+                                                                     AND class_schedule_school_id = p_school_id))::int)
       ) AS weeks_since_start,
       (EXTRACT(WEEK FROM m.dt)::int % 2) AS week_parity_mod,
       ((EXTRACT(DAY FROM m.dt)::int - 1)/7 + 1) AS week_of_month,
@@ -235,9 +235,9 @@ CREATE OR REPLACE FUNCTION expand_occurrences_jsonb(
     WHERE
       -- within header date bounds
       dt BETWEEN (SELECT class_schedule_start_date FROM class_schedules
-                  WHERE class_schedule_id = p_schedule_id AND class_schedule_masjid_id = p_masjid_id)
+                  WHERE class_schedule_id = p_schedule_id AND class_schedule_school_id = p_school_id)
               AND (SELECT class_schedule_end_date   FROM class_schedules
-                  WHERE class_schedule_id = p_schedule_id AND class_schedule_masjid_id = p_masjid_id)
+                  WHERE class_schedule_id = p_schedule_id AND class_schedule_school_id = p_school_id)
       -- interval & offset
       AND (weeks_since_start - start_offset_weeks) % GREATEST(interval_weeks,1) = 0
       -- parity
@@ -258,7 +258,7 @@ CREATE OR REPLACE FUNCTION expand_occurrences_jsonb(
       )
   )
   SELECT
-    p_masjid_id   AS masjid_id,
+    p_school_id   AS school_id,
     p_schedule_id AS schedule_id,
     f.dt,
     f.start_time,
@@ -276,11 +276,11 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant guard + relasi header (FK komposit tenant-safe → schedules)
-  class_attendance_session_masjid_id   UUID NOT NULL,
+  class_attendance_session_school_id   UUID NOT NULL,
   class_attendance_session_schedule_id UUID NOT NULL,
   CONSTRAINT fk_cas_schedule_tenant
-    FOREIGN KEY (class_attendance_session_masjid_id, class_attendance_session_schedule_id)
-    REFERENCES class_schedules (class_schedule_masjid_id, class_schedule_id)
+    FOREIGN KEY (class_attendance_session_school_id, class_attendance_session_schedule_id)
+    REFERENCES class_schedules (class_schedule_school_id, class_schedule_id)
     ON UPDATE CASCADE ON DELETE RESTRICT,
 
   -- jejak rule asal (snapshot JSONB + idx)
@@ -307,7 +307,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_override_reason TEXT,
 
   -- override resource (opsional)
-  class_attendance_session_teacher_id    UUID REFERENCES masjid_teachers(masjid_teacher_id) ON DELETE SET NULL,
+  class_attendance_session_teacher_id    UUID REFERENCES school_teachers(school_teacher_id) ON DELETE SET NULL,
   class_attendance_session_class_room_id UUID REFERENCES class_rooms(class_room_id)         ON DELETE SET NULL,
   class_attendance_session_csst_id       UUID REFERENCES class_section_subject_teachers(class_section_subject_teacher_id) ON DELETE SET NULL,
 
@@ -346,11 +346,11 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
 
 -- Indexes (sessions)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_id_tenant
-  ON class_attendance_sessions (class_attendance_session_id, class_attendance_session_masjid_id);
+  ON class_attendance_sessions (class_attendance_session_id, class_attendance_session_school_id);
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_masjid_schedule_date_alive
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_school_schedule_date_alive
   ON class_attendance_sessions (
-    class_attendance_session_masjid_id,
+    class_attendance_session_school_id,
     class_attendance_session_schedule_id,
     class_attendance_session_date
   )
@@ -362,9 +362,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_sched_start
     class_attendance_session_starts_at
   );
 
-CREATE INDEX IF NOT EXISTS idx_cas_masjid_date_alive
+CREATE INDEX IF NOT EXISTS idx_cas_school_date_alive
   ON class_attendance_sessions (
-    class_attendance_session_masjid_id,
+    class_attendance_session_school_id,
     class_attendance_session_date DESC
   )
   WHERE class_attendance_session_deleted_at IS NULL;
@@ -378,7 +378,7 @@ CREATE INDEX IF NOT EXISTS idx_cas_schedule_date_alive
 
 CREATE INDEX IF NOT EXISTS idx_cas_teacher_date_alive
   ON class_attendance_sessions (
-    class_attendance_session_masjid_id,
+    class_attendance_session_school_id,
     class_attendance_session_teacher_id,
     class_attendance_session_date DESC
   )
@@ -386,7 +386,7 @@ CREATE INDEX IF NOT EXISTS idx_cas_teacher_date_alive
 
 CREATE INDEX IF NOT EXISTS idx_cas_canceled_date_alive
   ON class_attendance_sessions (
-    class_attendance_session_masjid_id,
+    class_attendance_session_school_id,
     class_attendance_session_is_canceled,
     class_attendance_session_date DESC
   )
@@ -394,7 +394,7 @@ CREATE INDEX IF NOT EXISTS idx_cas_canceled_date_alive
 
 CREATE INDEX IF NOT EXISTS idx_cas_override_date_alive
   ON class_attendance_sessions (
-    class_attendance_session_masjid_id,
+    class_attendance_session_school_id,
     class_attendance_session_is_override,
     class_attendance_session_date DESC
   )
@@ -402,7 +402,7 @@ CREATE INDEX IF NOT EXISTS idx_cas_override_date_alive
 
 CREATE INDEX IF NOT EXISTS idx_cas_override_event_alive
   ON class_attendance_sessions (
-    class_attendance_session_masjid_id,
+    class_attendance_session_school_id,
     class_attendance_session_csst_id
   )
   WHERE class_attendance_session_deleted_at IS NULL;

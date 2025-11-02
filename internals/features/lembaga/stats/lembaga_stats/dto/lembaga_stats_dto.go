@@ -4,7 +4,7 @@ package dto
 import (
 	"time"
 
-	model "masjidku_backend/internals/features/lembaga/stats/lembaga_stats/model"
+	model "schoolku_backend/internals/features/lembaga/stats/lembaga_stats/model"
 
 	"github.com/google/uuid"
 )
@@ -12,7 +12,7 @@ import (
 /* ===================== RESPONSES ===================== */
 
 type LembagaStatsResponse struct {
-	LembagaStatsMasjidID      uuid.UUID  `json:"lembaga_stats_masjid_id"`
+	LembagaStatsSchoolID       uuid.UUID  `json:"lembaga_stats_school_id"`
 	LembagaStatsActiveClasses  int        `json:"lembaga_stats_active_classes"`
 	LembagaStatsActiveSections int        `json:"lembaga_stats_active_sections"`
 	LembagaStatsActiveStudents int        `json:"lembaga_stats_active_students"`
@@ -23,7 +23,7 @@ type LembagaStatsResponse struct {
 
 func FromModel(m model.LembagaStats) LembagaStatsResponse {
 	return LembagaStatsResponse{
-		LembagaStatsMasjidID:      m.LembagaStatsMasjidID,
+		LembagaStatsSchoolID:       m.LembagaStatsSchoolID,
 		LembagaStatsActiveClasses:  m.LembagaStatsActiveClasses,
 		LembagaStatsActiveSections: m.LembagaStatsActiveSections,
 		LembagaStatsActiveStudents: m.LembagaStatsActiveStudents,
@@ -38,7 +38,7 @@ func FromModel(m model.LembagaStats) LembagaStatsResponse {
 // Untuk inisialisasi (upsert/create) satu baris stats lembaga.
 // Biasanya dipakai saat migrasi/seed, atau saat lembaga baru dibuat.
 type UpsertLembagaStatsRequest struct {
-	LembagaStatsMasjidID      uuid.UUID `json:"lembaga_stats_masjid_id" validate:"required"`
+	LembagaStatsSchoolID       uuid.UUID `json:"lembaga_stats_school_id" validate:"required"`
 	LembagaStatsActiveClasses  int       `json:"lembaga_stats_active_classes"  validate:"gte=0"`
 	LembagaStatsActiveSections int       `json:"lembaga_stats_active_sections" validate:"gte=0"`
 	LembagaStatsActiveStudents int       `json:"lembaga_stats_active_students" validate:"gte=0"`
@@ -59,7 +59,7 @@ type UpdateLembagaStatsRequest struct {
 func (r UpsertLembagaStatsRequest) ToModel() model.LembagaStats {
 	now := time.Now()
 	return model.LembagaStats{
-		LembagaStatsMasjidID:      r.LembagaStatsMasjidID,
+		LembagaStatsSchoolID:       r.LembagaStatsSchoolID,
 		LembagaStatsActiveClasses:  r.LembagaStatsActiveClasses,
 		LembagaStatsActiveSections: r.LembagaStatsActiveSections,
 		LembagaStatsActiveStudents: r.LembagaStatsActiveStudents,

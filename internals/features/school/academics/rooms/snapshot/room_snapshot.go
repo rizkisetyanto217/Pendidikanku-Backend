@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	secModel "masjidku_backend/internals/features/school/classes/class_sections/model"
+	secModel "schoolku_backend/internals/features/school/classes/class_sections/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -26,15 +26,15 @@ type RoomSnapshot struct {
 	JoinURL   *string
 }
 
-// ValidateAndSnapshotRoom mengambil data ruang + cek tenant (masjid) aman.
-// Catatan: class_room_masjid_id di-cast ke TEXT supaya aman bila kolom belum bertipe UUID native.
+// ValidateAndSnapshotRoom mengambil data ruang + cek tenant (school) aman.
+// Catatan: class_room_school_id di-cast ke TEXT supaya aman bila kolom belum bertipe UUID native.
 func ValidateAndSnapshotRoom(
 	tx *gorm.DB,
-	expectMasjidID uuid.UUID,
+	expectSchoolID uuid.UUID,
 	roomID uuid.UUID,
 ) (*RoomSnapshot, error) {
 	var row struct {
-		MasjidID  string  `gorm:"column:masjid_id"`
+		SchoolID  string  `gorm:"column:school_id"`
 		Name      string  `gorm:"column:name"`
 		Slug      *string `gorm:"column:slug"`
 		Location  *string `gorm:"column:location"`
@@ -47,7 +47,7 @@ func ValidateAndSnapshotRoom(
 
 	if err := tx.Raw(`
 		SELECT
-			class_room_masjid_id::text AS masjid_id,
+			class_room_school_id::text AS school_id,
 			class_room_name             AS name,
 			class_room_slug             AS slug,
 			class_room_location         AS location,
@@ -62,15 +62,15 @@ func ValidateAndSnapshotRoom(
 		return nil, fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi ruang kelas")
 	}
 
-	if strings.TrimSpace(row.MasjidID) == "" {
+	if strings.TrimSpace(row.SchoolID) == "" {
 		return nil, fiber.NewError(fiber.StatusBadRequest, "Ruang kelas tidak ditemukan")
 	}
-	rmz, perr := uuid.Parse(strings.TrimSpace(row.MasjidID))
+	rmz, perr := uuid.Parse(strings.TrimSpace(row.SchoolID))
 	if perr != nil {
-		return nil, fiber.NewError(fiber.StatusInternalServerError, "Format masjid_id ruang kelas tidak valid")
+		return nil, fiber.NewError(fiber.StatusInternalServerError, "Format school_id ruang kelas tidak valid")
 	}
-	if rmz != expectMasjidID {
-		return nil, fiber.NewError(fiber.StatusForbidden, "Ruang kelas bukan milik masjid Anda")
+	if rmz != expectSchoolID {
+		return nil, fiber.NewError(fiber.StatusForbidden, "Ruang kelas bukan milik school Anda")
 	}
 
 	// Normalisasi ringan

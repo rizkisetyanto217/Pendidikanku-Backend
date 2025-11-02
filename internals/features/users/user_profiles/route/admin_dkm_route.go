@@ -1,9 +1,9 @@
 package routes
 
 import (
-	"masjidku_backend/internals/constants"
-	userController "masjidku_backend/internals/features/users/user_profiles/controller"
-	authMiddleware "masjidku_backend/internals/middlewares/auth"
+	"schoolku_backend/internals/constants"
+	userController "schoolku_backend/internals/features/users/user_profiles/controller"
+	authMiddleware "schoolku_backend/internals/middlewares/auth"
 
 	// ⬅️ TAMBAH
 	"github.com/gofiber/fiber/v2"
@@ -12,7 +12,6 @@ import (
 
 func UserProfileAdminRoutes(app fiber.Router, db *gorm.DB) {
 	formalCtrl := userController.NewUsersProfileFormalController(db)
-
 
 	// ✅ Admin akses formal profile by user_id
 	usersFormal := app.Group("/users-profiles-formal",

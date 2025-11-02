@@ -10,7 +10,7 @@ import (
 
 type dueSession struct {
 	SessionID string
-	MasjidID  string
+	SchoolID  string
 }
 
 func RunSeedWorker(ctx context.Context, db *gorm.DB, cfg Config) {
@@ -49,7 +49,7 @@ func runOnce(ctx context.Context, db *gorm.DB, cfg Config) error {
 		}
 		rows, err := tx.Raw(`
 			SELECT s.class_attendance_sessions_id   AS session_id,
-				s.class_attendance_sessions_masjid_id AS masjid_id
+				s.class_attendance_sessions_school_id AS school_id
 			FROM class_attendance_sessions s
 			WHERE s.class_attendance_sessions_deleted_at IS NULL
 			AND s.class_attendance_sessions_status IN ('scheduled','open')
@@ -73,10 +73,10 @@ func runOnce(ctx context.Context, db *gorm.DB, cfg Config) error {
 		)
 
 		for rows.Next() {
-			if err := rows.Scan(&ds.SessionID, &ds.MasjidID); err != nil {
+			if err := rows.Scan(&ds.SessionID, &ds.SchoolID); err != nil {
 				return err
 			}
-			if err := ensureSessionSeededTx(tx, ds.SessionID, ds.MasjidID, cfg.AutoOpen); err != nil {
+			if err := ensureSessionSeededTx(tx, ds.SessionID, ds.SchoolID, cfg.AutoOpen); err != nil {
 				log.Printf("[seed-worker] seed %s err: %v", ds.SessionID, err)
 				continue
 			}

@@ -13,9 +13,9 @@ import (
 type ClassModel struct {
 	// PK & Tenant
 	ClassID       uuid.UUID `json:"class_id"        gorm:"column:class_id;type:uuid;default:gen_random_uuid();primaryKey"`
-	ClassMasjidID uuid.UUID `json:"class_masjid_id" gorm:"column:class_masjid_id;type:uuid;not null"`
+	ClassSchoolID uuid.UUID `json:"class_school_id" gorm:"column:class_school_id;type:uuid;not null"`
 
-	// Parent (FK komposit di DB dg masjid)
+	// Parent (FK komposit di DB dg school)
 	ClassParentID uuid.UUID `json:"class_parent_id" gorm:"column:class_parent_id;type:uuid;not null"`
 
 	// Identitas

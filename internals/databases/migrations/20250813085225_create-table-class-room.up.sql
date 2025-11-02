@@ -5,8 +5,8 @@ CREATE TABLE IF NOT EXISTS class_rooms (
   class_room_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant / scope
-  class_room_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_room_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- identitas ruang
   class_room_name        TEXT        NOT NULL,
@@ -91,22 +91,22 @@ CREATE TABLE IF NOT EXISTS class_rooms (
 
 -- INDEXES & UNIQUES (soft-delete aware)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_code_ci_alive
-  ON class_rooms (class_room_masjid_id, lower(class_room_code))
+  ON class_rooms (class_room_school_id, lower(class_room_code))
   WHERE class_room_deleted_at IS NULL
     AND class_room_code IS NOT NULL
     AND length(btrim(class_room_code)) > 0;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_tenant_slug_ci_alive
-  ON class_rooms (class_room_masjid_id, lower(class_room_slug))
+  ON class_rooms (class_room_school_id, lower(class_room_slug))
   WHERE class_room_deleted_at IS NULL
     AND class_room_slug IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_class_rooms_masjid_alive
-  ON class_rooms (class_room_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_class_rooms_school_alive
+  ON class_rooms (class_room_school_id)
   WHERE class_room_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_class_rooms_tenant_active_alive
-  ON class_rooms (class_room_masjid_id, class_room_is_active)
+  ON class_rooms (class_room_school_id, class_room_is_active)
   WHERE class_room_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_class_rooms_features_gin_alive
@@ -143,8 +143,8 @@ CREATE TABLE IF NOT EXISTS class_room_urls (
   class_room_url_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant & owner
-  class_room_url_masjid_id       UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_room_url_school_id       UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
   class_room_url_room_id         UUID NOT NULL
     REFERENCES class_rooms(class_room_id) ON DELETE CASCADE,
 
@@ -192,13 +192,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_room_urls_label_ci
     AND class_room_url_label IS NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_room_urls_object_key_ci
-  ON class_room_urls (class_room_url_masjid_id, lower(class_room_url_object_key))
+  ON class_room_urls (class_room_url_school_id, lower(class_room_url_object_key))
   WHERE class_room_url_deleted_at IS NULL
     AND class_room_url_object_key IS NOT NULL
     AND length(trim(class_room_url_object_key)) > 0;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_room_urls_href_ci
-  ON class_room_urls (class_room_url_masjid_id, lower(class_room_url_href))
+  ON class_room_urls (class_room_url_school_id, lower(class_room_url_href))
   WHERE class_room_url_deleted_at IS NULL
     AND class_room_url_href IS NOT NULL
     AND length(trim(class_room_url_href)) > 0;
@@ -216,5 +216,5 @@ CREATE INDEX IF NOT EXISTS idx_room_urls_href_trgm
   WHERE class_room_url_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_room_urls_tenant_alive
-  ON class_room_urls (class_room_url_masjid_id, class_room_url_kind)
+  ON class_room_urls (class_room_url_school_id, class_room_url_kind)
   WHERE class_room_url_deleted_at IS NULL;

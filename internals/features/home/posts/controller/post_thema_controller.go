@@ -1,9 +1,9 @@
 package controller
 
 import (
-	"masjidku_backend/internals/features/home/posts/dto"
-	"masjidku_backend/internals/features/home/posts/model"
-	helper "masjidku_backend/internals/helpers"
+	"schoolku_backend/internals/features/home/posts/dto"
+	"schoolku_backend/internals/features/home/posts/model"
+	helper "schoolku_backend/internals/helpers"
 	"strconv"
 	"strings"
 
@@ -32,16 +32,16 @@ func (ctrl *PostThemeController) CreateTheme(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Ambil masjid_id dari token
-	masjidID := c.Locals("masjid_id")
-	if masjidID == nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID not found in token")
+	// Ambil school_id dari token
+	schoolID := c.Locals("school_id")
+	if schoolID == nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "School ID not found in token")
 	}
 
 	theme := model.PostThemeModel{
 		PostThemeName:        req.PostThemeName,
 		PostThemeDescription: req.PostThemeDescription,
-		PostThemeMasjidID:    masjidID.(string),
+		PostThemeSchoolID:    schoolID.(string),
 	}
 
 	if err := ctrl.DB.Create(&theme).Error; err != nil {
@@ -102,7 +102,7 @@ func (ctrl *PostThemeController) GetAllThemes(c *fiber.Ctx) error {
 	var themes []model.PostThemeModel
 	if err := ctrl.DB.
 		Where("post_theme_deleted_at IS NULL").
-		Preload("Masjid").
+		Preload("School").
 		Order("post_theme_created_at DESC").
 		Limit(pageSize).Offset(offset).
 		Find(&themes).Error; err != nil {
@@ -124,8 +124,8 @@ func (ctrl *PostThemeController) GetAllThemes(c *fiber.Ctx) error {
 			}
 			return (total + int64(pageSize) - 1) / int64(pageSize)
 		}(),
-		"has_next":  int64(offset+pageSize) < total,
-		"has_prev":  page > 1,
+		"has_next": int64(offset+pageSize) < total,
+		"has_prev": page > 1,
 		"next_page": func() int {
 			if int64(offset+pageSize) < total {
 				return page + 1
@@ -148,7 +148,7 @@ func (ctrl *PostThemeController) GetThemeByID(c *fiber.Ctx) error {
 	id := c.Params("id")
 
 	var theme model.PostThemeModel
-	if err := ctrl.DB.Preload("Masjid").First(&theme, "post_theme_id = ?", id).Error; err != nil {
+	if err := ctrl.DB.Preload("School").First(&theme, "post_theme_id = ?", id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return helper.JsonError(c, fiber.StatusNotFound, "Theme not found")
 		}
@@ -157,13 +157,14 @@ func (ctrl *PostThemeController) GetThemeByID(c *fiber.Ctx) error {
 
 	return helper.JsonOK(c, "OK", dto.ToPostThemeDTO(theme))
 }
-// 📄 Get Tema by Masjid (dari token, pagination opsional)
-func (ctrl *PostThemeController) GetThemesByMasjid(c *fiber.Ctx) error {
-	masjidIDRaw := c.Locals("masjid_id")
-	if masjidIDRaw == nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "Masjid ID tidak ditemukan di token")
+
+// 📄 Get Tema by School (dari token, pagination opsional)
+func (ctrl *PostThemeController) GetThemesBySchool(c *fiber.Ctx) error {
+	schoolIDRaw := c.Locals("school_id")
+	if schoolIDRaw == nil {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "School ID tidak ditemukan di token")
 	}
-	masjidID := masjidIDRaw.(string)
+	schoolID := schoolIDRaw.(string)
 
 	// pagination
 	page, _ := strconv.Atoi(c.Query("page", "1"))
@@ -178,14 +179,14 @@ func (ctrl *PostThemeController) GetThemesByMasjid(c *fiber.Ctx) error {
 
 	var total int64
 	if err := ctrl.DB.Model(&model.PostThemeModel{}).
-		Where("post_theme_masjid_id = ? AND post_theme_deleted_at IS NULL", masjidID).
+		Where("post_theme_school_id = ? AND post_theme_deleted_at IS NULL", schoolID).
 		Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung daftar tema")
 	}
 
 	var themes []model.PostThemeModel
 	if err := ctrl.DB.
-		Where("post_theme_masjid_id = ? AND post_theme_deleted_at IS NULL", masjidID).
+		Where("post_theme_school_id = ? AND post_theme_deleted_at IS NULL", schoolID).
 		Order("post_theme_created_at DESC").
 		Limit(pageSize).Offset(offset).
 		Find(&themes).Error; err != nil {
@@ -207,8 +208,8 @@ func (ctrl *PostThemeController) GetThemesByMasjid(c *fiber.Ctx) error {
 			}
 			return (total + int64(pageSize) - 1) / int64(pageSize)
 		}(),
-		"has_next":  int64(offset+pageSize) < total,
-		"has_prev":  page > 1,
+		"has_next": int64(offset+pageSize) < total,
+		"has_prev": page > 1,
 		"next_page": func() int {
 			if int64(offset+pageSize) < total {
 				return page + 1
@@ -225,8 +226,6 @@ func (ctrl *PostThemeController) GetThemesByMasjid(c *fiber.Ctx) error {
 
 	return helper.JsonList(c, result, pagination)
 }
-
-
 
 // 🗑️ Hapus Tema (soft by default; hard with ?hard=true)
 func (ctrl *PostThemeController) DeleteTheme(c *fiber.Ctx) error {

@@ -11,24 +11,24 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 -- =========================================================
 -- PREREQUISITES: UNIQUE INDEX untuk target FK komposit
--- (harus ada agar FK (id, masjid_id) valid)
+-- (harus ada agar FK (id, school_id) valid)
 -- =========================================================
 
--- class_sections(id, masjid_id)
+-- class_sections(id, school_id)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_sections_id_tenant
-  ON class_sections (class_section_id, class_section_masjid_id);
+  ON class_sections (class_section_id, class_section_school_id);
 
--- class_subjects(id, masjid_id)
+-- class_subjects(id, school_id)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_subjects_id_tenant
-  ON class_subjects (class_subject_id, class_subject_masjid_id);
+  ON class_subjects (class_subject_id, class_subject_school_id);
 
--- masjid_teachers(id, masjid_id)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_masjid_teachers_id_tenant
-  ON masjid_teachers (masjid_teacher_id, masjid_teacher_masjid_id);
+-- school_teachers(id, school_id)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_school_teachers_id_tenant
+  ON school_teachers (school_teacher_id, school_teacher_school_id);
 
--- class_rooms(id, masjid_id)
+-- class_rooms(id, school_id)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_id_tenant
-  ON class_rooms (class_room_id, class_room_masjid_id);
+  ON class_rooms (class_room_id, class_room_school_id);
 
 
 BEGIN;
@@ -49,8 +49,8 @@ END$$;
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_section_subject_teacher_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_section_subject_teacher_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- target penugasan
   class_section_subject_teacher_section_id UUID NOT NULL,
@@ -125,26 +125,26 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   -- =============== TENANT-SAFE FKs ===============
   CONSTRAINT fk_csst_section_tenant FOREIGN KEY (
     class_section_subject_teacher_section_id,
-    class_section_subject_teacher_masjid_id
-  ) REFERENCES class_sections (class_section_id, class_section_masjid_id)
+    class_section_subject_teacher_school_id
+  ) REFERENCES class_sections (class_section_id, class_section_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   CONSTRAINT fk_csst_class_subject_tenant FOREIGN KEY (
     class_section_subject_teacher_class_subject_id,
-    class_section_subject_teacher_masjid_id
-  ) REFERENCES class_subjects (class_subject_id, class_subject_masjid_id)
+    class_section_subject_teacher_school_id
+  ) REFERENCES class_subjects (class_subject_id, class_subject_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   CONSTRAINT fk_csst_teacher_tenant FOREIGN KEY (
     class_section_subject_teacher_teacher_id,
-    class_section_subject_teacher_masjid_id
-  ) REFERENCES masjid_teachers (masjid_teacher_id, masjid_teacher_masjid_id)
+    class_section_subject_teacher_school_id
+  ) REFERENCES school_teachers (school_teacher_id, school_teacher_school_id)
     ON UPDATE CASCADE ON DELETE RESTRICT,
 
   CONSTRAINT fk_csst_room_tenant FOREIGN KEY (
     class_section_subject_teacher_room_id,
-    class_section_subject_teacher_masjid_id
-  ) REFERENCES class_rooms (class_room_id, class_room_masjid_id)
+    class_section_subject_teacher_school_id
+  ) REFERENCES class_rooms (class_room_id, class_room_school_id)
     ON UPDATE CASCADE ON DELETE SET NULL
 );
 
@@ -154,12 +154,12 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
 
 -- PK + tenant (proteksi akses lintas tenant by habit)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_tenant
-  ON class_section_subject_teachers (class_section_subject_teacher_id, class_section_subject_teacher_masjid_id);
+  ON class_section_subject_teachers (class_section_subject_teacher_id, class_section_subject_teacher_school_id);
 
 -- Unik kombinasi penugasan "alive"
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_unique_alive
   ON class_section_subject_teachers (
-    class_section_subject_teacher_masjid_id,
+    class_section_subject_teacher_school_id,
     class_section_subject_teacher_section_id,
     class_section_subject_teacher_class_subject_id,
     class_section_subject_teacher_teacher_id
@@ -169,7 +169,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_unique_alive
 -- Satu aktif per section+class_subject (alive)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_one_active_per_section_subject_alive
   ON class_section_subject_teachers (
-    class_section_subject_teacher_masjid_id,
+    class_section_subject_teacher_school_id,
     class_section_subject_teacher_section_id,
     class_section_subject_teacher_class_subject_id
   )
@@ -179,15 +179,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_one_active_per_section_subject_alive
 -- Slug unik per tenant (alive, case-insensitive)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_slug_per_tenant_alive
   ON class_section_subject_teachers (
-    class_section_subject_teacher_masjid_id,
+    class_section_subject_teacher_school_id,
     lower(class_section_subject_teacher_slug)
   )
   WHERE class_section_subject_teacher_deleted_at IS NULL
     AND class_section_subject_teacher_slug IS NOT NULL;
 
 -- Search & perf indexes
-CREATE INDEX IF NOT EXISTS idx_csst_masjid_alive
-  ON class_section_subject_teachers (class_section_subject_teacher_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_csst_school_alive
+  ON class_section_subject_teachers (class_section_subject_teacher_school_id)
   WHERE class_section_subject_teacher_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_csst_section_alive
@@ -257,8 +257,8 @@ BEGIN;
 -- =========================================================
 CREATE TABLE IF NOT EXISTS student_class_section_subject_teachers (
   student_class_section_subject_teacher_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  student_class_section_subject_teacher_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  student_class_section_subject_teacher_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- Anchor hubungan
   student_class_section_subject_teacher_student_id UUID NOT NULL,
@@ -317,16 +317,16 @@ CREATE TABLE IF NOT EXISTS student_class_section_subject_teachers (
   -- ===== Tenant-safe FKs =====
   CONSTRAINT fk_scsst_student_tenant FOREIGN KEY (
     student_class_section_subject_teacher_student_id,
-    student_class_section_subject_teacher_masjid_id
-  ) REFERENCES masjid_students (masjid_student_id, masjid_student_masjid_id)
+    student_class_section_subject_teacher_school_id
+  ) REFERENCES school_students (school_student_id, school_student_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   CONSTRAINT fk_scsst_csst_tenant FOREIGN KEY (
     student_class_section_subject_teacher_csst_id,
-    student_class_section_subject_teacher_masjid_id
+    student_class_section_subject_teacher_school_id
   ) REFERENCES class_section_subject_teachers (
         class_section_subject_teacher_id,
-        class_section_subject_teacher_masjid_id
+        class_section_subject_teacher_school_id
       )
     ON UPDATE CASCADE ON DELETE RESTRICT
 );
@@ -339,13 +339,13 @@ CREATE TABLE IF NOT EXISTS student_class_section_subject_teachers (
 CREATE UNIQUE INDEX IF NOT EXISTS uq_scsst_id_tenant
   ON student_class_section_subject_teachers (
     student_class_section_subject_teacher_id,
-    student_class_section_subject_teacher_masjid_id
+    student_class_section_subject_teacher_school_id
   );
 
 -- Satu mapping aktif per (student × CSST)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_scsst_one_active_per_student_csst_alive
   ON student_class_section_subject_teachers (
-    student_class_section_subject_teacher_masjid_id,
+    student_class_section_subject_teacher_school_id,
     student_class_section_subject_teacher_student_id,
     student_class_section_subject_teacher_csst_id
   )
@@ -355,15 +355,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_scsst_one_active_per_student_csst_alive
 -- Optional slug per tenant
 CREATE UNIQUE INDEX IF NOT EXISTS uq_scsst_slug_per_tenant_alive
   ON student_class_section_subject_teachers (
-    student_class_section_subject_teacher_masjid_id,
+    student_class_section_subject_teacher_school_id,
     lower(student_class_section_subject_teacher_slug)
   )
   WHERE student_class_section_subject_teacher_deleted_at IS NULL
     AND student_class_section_subject_teacher_slug IS NOT NULL;
 
 -- Index umum
-CREATE INDEX IF NOT EXISTS idx_scsst_masjid_alive
-  ON student_class_section_subject_teachers (student_class_section_subject_teacher_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_scsst_school_alive
+  ON student_class_section_subject_teachers (student_class_section_subject_teacher_school_id)
   WHERE student_class_section_subject_teacher_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_scsst_student_alive

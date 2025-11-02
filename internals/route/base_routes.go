@@ -4,9 +4,10 @@ import (
 	"os"
 	"time"
 
+	databases "schoolku_backend/internals/databases"
+
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
-	databases "masjidku_backend/internals/databases"
 )
 
 func BaseRoutes(app *fiber.App, db *gorm.DB) {

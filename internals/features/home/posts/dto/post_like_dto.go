@@ -1,7 +1,7 @@
 package dto
 
 import (
-	"masjidku_backend/internals/features/home/posts/model"
+	"schoolku_backend/internals/features/home/posts/model"
 	"time"
 )
 
@@ -9,22 +9,20 @@ import (
 // Response DTO
 // ============================
 type PostLikeDTO struct {
-	PostLikeID        string    `json:"post_like_id"`
-	PostLikeIsLiked   bool      `json:"post_like_is_liked"`
-	PostLikePostID    string    `json:"post_like_post_id"`
-	PostLikeUserID    string    `json:"post_like_user_id"`
-	PostLikeMasjidID  string    `json:"post_like_masjid_id"` // ✅ Tambahan
-	UpdatedAt         time.Time `json:"updated_at"`
+	PostLikeID       string    `json:"post_like_id"`
+	PostLikeIsLiked  bool      `json:"post_like_is_liked"`
+	PostLikePostID   string    `json:"post_like_post_id"`
+	PostLikeUserID   string    `json:"post_like_user_id"`
+	PostLikeSchoolID string    `json:"post_like_school_id"` // ✅ Tambahan
+	UpdatedAt        time.Time `json:"updated_at"`
 }
-
 
 // ============================
 // Create or Toggle Request DTO
 // ============================
 type ToggleLikeRequest struct {
-	PostID    string `json:"post_id" validate:"required,uuid"`
+	PostID string `json:"post_id" validate:"required,uuid"`
 }
-
 
 // ============================
 // Converter
@@ -35,7 +33,7 @@ func ToPostLikeDTO(m model.PostLikeModel) PostLikeDTO {
 		PostLikeIsLiked:  m.PostLikeIsLiked,
 		PostLikePostID:   m.PostLikePostID,
 		PostLikeUserID:   m.PostLikeUserID,
-		PostLikeMasjidID: m.PostLikeMasjidID, // ✅ Ambil dari model
+		PostLikeSchoolID: m.PostLikeSchoolID, // ✅ Ambil dari model
 		UpdatedAt:        m.PostLikeUpdatedAt,
 	}
 }

@@ -2,10 +2,10 @@ package controller
 
 import (
 	"fmt"
-	"masjidku_backend/internals/features/finance/billings/dto"
-	billing "masjidku_backend/internals/features/finance/billings/model"
-	helper "masjidku_backend/internals/helpers"
 	"net/http"
+	"schoolku_backend/internals/features/finance/billings/dto"
+	billing "schoolku_backend/internals/features/finance/billings/model"
+	helper "schoolku_backend/internals/helpers"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -24,9 +24,9 @@ func (h *BillBatchHandler) ListBillBatches(c *fiber.Ctx) error {
 	q := h.DB.Model(&billing.BillBatch{}).Where("bill_batch_deleted_at IS NULL")
 
 	// Filters
-	if s := c.Query("masjid_id"); s != "" {
+	if s := c.Query("school_id"); s != "" {
 		if id, err := uuid.Parse(s); err == nil {
-			q = q.Where("bill_batch_masjid_id = ?", id)
+			q = q.Where("bill_batch_school_id = ?", id)
 		}
 	}
 	if s := c.Query("class_id"); s != "" {

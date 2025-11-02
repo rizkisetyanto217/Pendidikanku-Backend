@@ -3,7 +3,7 @@ package dto
 import (
 	"time"
 
-	"masjidku_backend/internals/features/home/qoutes/model"
+	"schoolku_backend/internals/features/home/qoutes/model"
 )
 
 // ============================
@@ -11,12 +11,12 @@ import (
 // ============================
 
 type QuoteDTO struct {
-	QuoteID          string     `json:"quote_id"`
-	QuoteText        string     `json:"quote_text"`
-	QuoteIsPublished bool       `json:"quote_is_published"`
+	QuoteID           string    `json:"quote_id"`
+	QuoteText         string    `json:"quote_text"`
+	QuoteIsPublished  bool      `json:"quote_is_published"`
 	QuoteDisplayOrder *int      `json:"quote_display_order,omitempty"`
-	QuoteCreatedAt   time.Time  `json:"quote_created_at"`
-	QuoteUpdatedAt   time.Time  `json:"quote_updated_at"`
+	QuoteCreatedAt    time.Time `json:"quote_created_at"`
+	QuoteUpdatedAt    time.Time `json:"quote_updated_at"`
 }
 
 // ============================

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	subModel "masjidku_backend/internals/features/school/submissions_assesments/submissions/model"
+	subModel "schoolku_backend/internals/features/school/submissions_assesments/submissions/model"
 
 	"github.com/google/uuid"
 )
@@ -34,7 +34,7 @@ func (p *PatchField[T]) UnmarshalJSON(b []byte) error {
 	p.Value = &v
 	return nil
 }
-func (p PatchField[T]) IsNull() bool     { return p.Present && p.Value == nil }
+func (p PatchField[T]) IsNull() bool       { return p.Present && p.Value == nil }
 func (p PatchField[T]) ShouldUpdate() bool { return p.Present }
 
 /* =========================
@@ -42,14 +42,14 @@ func (p PatchField[T]) ShouldUpdate() bool { return p.Present }
    ========================= */
 
 type CreateSubmissionRequest struct {
-	SubmissionMasjidID     uuid.UUID                  `json:"submission_masjid_id" validate:"required"`
-	SubmissionAssessmentID uuid.UUID                  `json:"submission_assessment_id" validate:"required"`
-	SubmissionStudentID    uuid.UUID                  `json:"submission_student_id" validate:"required"`
+	SubmissionSchoolID     uuid.UUID `json:"submission_school_id" validate:"required"`
+	SubmissionAssessmentID uuid.UUID `json:"submission_assessment_id" validate:"required"`
+	SubmissionStudentID    uuid.UUID `json:"submission_student_id" validate:"required"`
 
-	SubmissionText        *string                     `json:"submission_text,omitempty"`
-	SubmissionStatus      *subModel.SubmissionStatus  `json:"submission_status,omitempty" validate:"omitempty,oneof=draft submitted resubmitted graded returned"`
-	SubmissionSubmittedAt *time.Time                  `json:"submission_submitted_at,omitempty"`
-	SubmissionIsLate      *bool                       `json:"submission_is_late,omitempty"`
+	SubmissionText        *string                    `json:"submission_text,omitempty"`
+	SubmissionStatus      *subModel.SubmissionStatus `json:"submission_status,omitempty" validate:"omitempty,oneof=draft submitted resubmitted graded returned"`
+	SubmissionSubmittedAt *time.Time                 `json:"submission_submitted_at,omitempty"`
+	SubmissionIsLate      *bool                      `json:"submission_is_late,omitempty"`
 }
 
 func (r CreateSubmissionRequest) ToModel() subModel.Submission {
@@ -58,7 +58,7 @@ func (r CreateSubmissionRequest) ToModel() subModel.Submission {
 		status = *r.SubmissionStatus
 	}
 	return subModel.Submission{
-		SubmissionMasjidID:     r.SubmissionMasjidID,
+		SubmissionSchoolID:     r.SubmissionSchoolID,
 		SubmissionAssessmentID: r.SubmissionAssessmentID,
 		SubmissionStudentID:    r.SubmissionStudentID,
 
@@ -76,10 +76,10 @@ func (r CreateSubmissionRequest) ToModel() subModel.Submission {
 
 type PatchSubmissionRequest struct {
 	// isi & status
-	SubmissionText        *PatchField[string]                `json:"submission_text,omitempty"`
+	SubmissionText        *PatchField[string]                    `json:"submission_text,omitempty"`
 	SubmissionStatus      *PatchField[subModel.SubmissionStatus] `json:"submission_status,omitempty"`
-	SubmissionSubmittedAt *PatchField[time.Time]             `json:"submission_submitted_at,omitempty"`
-	SubmissionIsLate      *PatchField[bool]                  `json:"submission_is_late,omitempty"`
+	SubmissionSubmittedAt *PatchField[time.Time]                 `json:"submission_submitted_at,omitempty"`
+	SubmissionIsLate      *PatchField[bool]                      `json:"submission_is_late,omitempty"`
 
 	// penilaian
 	SubmissionScore    *PatchField[float64]   `json:"submission_score,omitempty"` // 0..100 (cek di controller)
@@ -101,27 +101,51 @@ func (p *PatchSubmissionRequest) ToUpdates() map[string]any {
 		switch f := pf.(type) {
 		case *PatchField[string]:
 			if f != nil && f.ShouldUpdate() {
-				if f.IsNull() { upd[key] = nil } else { upd[key] = *f.Value }
+				if f.IsNull() {
+					upd[key] = nil
+				} else {
+					upd[key] = *f.Value
+				}
 			}
 		case *PatchField[bool]:
 			if f != nil && f.ShouldUpdate() {
-				if f.IsNull() { upd[key] = nil } else { upd[key] = *f.Value }
+				if f.IsNull() {
+					upd[key] = nil
+				} else {
+					upd[key] = *f.Value
+				}
 			}
 		case *PatchField[float64]:
 			if f != nil && f.ShouldUpdate() {
-				if f.IsNull() { upd[key] = nil } else { upd[key] = *f.Value }
+				if f.IsNull() {
+					upd[key] = nil
+				} else {
+					upd[key] = *f.Value
+				}
 			}
 		case *PatchField[uuid.UUID]:
 			if f != nil && f.ShouldUpdate() {
-				if f.IsNull() { upd[key] = nil } else { upd[key] = *f.Value }
+				if f.IsNull() {
+					upd[key] = nil
+				} else {
+					upd[key] = *f.Value
+				}
 			}
 		case *PatchField[time.Time]:
 			if f != nil && f.ShouldUpdate() {
-				if f.IsNull() { upd[key] = nil } else { upd[key] = *f.Value }
+				if f.IsNull() {
+					upd[key] = nil
+				} else {
+					upd[key] = *f.Value
+				}
 			}
 		case *PatchField[subModel.SubmissionStatus]:
 			if f != nil && f.ShouldUpdate() {
-				if f.IsNull() { upd[key] = nil } else { upd[key] = *f.Value }
+				if f.IsNull() {
+					upd[key] = nil
+				} else {
+					upd[key] = *f.Value
+				}
 			}
 		}
 	}
@@ -167,7 +191,7 @@ func (g *GradeSubmissionRequest) ToUpdates() map[string]any {
 
 type ListSubmissionsQuery struct {
 	// filter
-	MasjidID     *uuid.UUID                 `query:"masjid_id"`
+	SchoolID     *uuid.UUID                 `query:"school_id"`
 	AssessmentID *uuid.UUID                 `query:"assessment_id"`
 	StudentID    *uuid.UUID                 `query:"student_id"`
 	Status       *subModel.SubmissionStatus `query:"status" validate:"omitempty,oneof=draft submitted resubmitted graded returned"`
@@ -190,10 +214,10 @@ type ListSubmissionsQuery struct {
    ========================= */
 
 type SubmissionResponse struct {
-	SubmissionID           uuid.UUID                `json:"submission_id"`
-	SubmissionMasjidID     uuid.UUID                `json:"submission_masjid_id"`
-	SubmissionAssessmentID uuid.UUID                `json:"submission_assessment_id"`
-	SubmissionStudentID    uuid.UUID                `json:"submission_student_id"`
+	SubmissionID           uuid.UUID `json:"submission_id"`
+	SubmissionSchoolID     uuid.UUID `json:"submission_school_id"`
+	SubmissionAssessmentID uuid.UUID `json:"submission_assessment_id"`
+	SubmissionStudentID    uuid.UUID `json:"submission_student_id"`
 
 	SubmissionText        *string                   `json:"submission_text,omitempty"`
 	SubmissionStatus      subModel.SubmissionStatus `json:"submission_status"`
@@ -218,7 +242,7 @@ func FromModel(m *subModel.Submission) SubmissionResponse {
 	}
 	return SubmissionResponse{
 		SubmissionID:           m.SubmissionID,
-		SubmissionMasjidID:     m.SubmissionMasjidID,
+		SubmissionSchoolID:     m.SubmissionSchoolID,
 		SubmissionAssessmentID: m.SubmissionAssessmentID,
 		SubmissionStudentID:    m.SubmissionStudentID,
 

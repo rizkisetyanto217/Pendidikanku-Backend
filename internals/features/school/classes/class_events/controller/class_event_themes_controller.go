@@ -14,11 +14,11 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
-	dto "masjidku_backend/internals/features/school/classes/class_events/dto"
-	model "masjidku_backend/internals/features/school/classes/class_events/model"
+	dto "schoolku_backend/internals/features/school/classes/class_events/dto"
+	model "schoolku_backend/internals/features/school/classes/class_events/model"
 )
 
 /* =========================
@@ -74,9 +74,9 @@ func isDuplicateKey(err error) bool {
 	return strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique constraint") || strings.Contains(msg, "23505")
 }
 
-// resolveMasjidAndEnsureDKM: gunakan helper resolver & guard
-func (ctl *ClassEventThemeController) resolveMasjidAndEnsureDKM(c *fiber.Ctx) (uuid.UUID, error) {
-	mc, err := helperAuth.ResolveMasjidContext(c)
+// resolveSchoolAndEnsureDKM: gunakan helper resolver & guard
+func (ctl *ClassEventThemeController) resolveSchoolAndEnsureDKM(c *fiber.Ctx) (uuid.UUID, error) {
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			_ = helper.JsonError(c, fe.Code, fe.Message)
@@ -85,7 +85,7 @@ func (ctl *ClassEventThemeController) resolveMasjidAndEnsureDKM(c *fiber.Ctx) (u
 		_ = helper.JsonError(c, http.StatusBadRequest, err.Error())
 		return uuid.Nil, err
 	}
-	masjidID, err := helperAuth.EnsureMasjidAccessDKM(c, mc)
+	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			_ = helper.JsonError(c, fe.Code, fe.Message)
@@ -94,21 +94,20 @@ func (ctl *ClassEventThemeController) resolveMasjidAndEnsureDKM(c *fiber.Ctx) (u
 		_ = helper.JsonError(c, http.StatusForbidden, err.Error())
 		return uuid.Nil, err
 	}
-	return masjidID, nil
+	return schoolID, nil
 }
-
 
 /*
 =========================================================
 
 	CREATE
-	POST /api/a/:masjid_id/events/themes
+	POST /api/a/:school_id/events/themes
 	Body: JSON CreateClassEventThemeRequest
 
 =========================================================
 */
 func (ctl *ClassEventThemeController) Create(c *fiber.Ctx) error {
-	masjidID, err := ctl.resolveMasjidAndEnsureDKM(c)
+	schoolID, err := ctl.resolveSchoolAndEnsureDKM(c)
 	if err != nil {
 		return nil
 	}
@@ -122,11 +121,11 @@ func (ctl *ClassEventThemeController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	m := req.ToModel(masjidID)
+	m := req.ToModel(schoolID)
 
 	if err := ctl.DB.Create(m).Error; err != nil {
 		if isDuplicateKey(err) {
-			return helper.JsonError(c, http.StatusConflict, "theme code already exists for this masjid")
+			return helper.JsonError(c, http.StatusConflict, "theme code already exists for this school")
 		}
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
@@ -138,13 +137,13 @@ func (ctl *ClassEventThemeController) Create(c *fiber.Ctx) error {
 =========================================================
 
 	PATCH
-	PATCH /api/a/:masjid_id/events/themes/:id
+	PATCH /api/a/:school_id/events/themes/:id
 	Body: JSON PatchClassEventThemeRequest (tri-state)
 
 =========================================================
 */
 func (ctl *ClassEventThemeController) Patch(c *fiber.Ctx) error {
-	masjidID, err := ctl.resolveMasjidAndEnsureDKM(c)
+	schoolID, err := ctl.resolveSchoolAndEnsureDKM(c)
 	if err != nil {
 		return nil
 	}
@@ -166,7 +165,7 @@ func (ctl *ClassEventThemeController) Patch(c *fiber.Ctx) error {
 	var m model.ClassEventThemeModel
 	if err := ctl.DB.
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("class_event_theme_id = ? AND class_event_theme_masjid_id = ? AND class_event_theme_deleted_at IS NULL", id, masjidID).
+		Where("class_event_theme_id = ? AND class_event_theme_school_id = ? AND class_event_theme_deleted_at IS NULL", id, schoolID).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "resource not found")
@@ -178,7 +177,7 @@ func (ctl *ClassEventThemeController) Patch(c *fiber.Ctx) error {
 
 	if err := ctl.DB.Save(&m).Error; err != nil {
 		if isDuplicateKey(err) {
-			return helper.JsonError(c, http.StatusConflict, "theme code already exists for this masjid")
+			return helper.JsonError(c, http.StatusConflict, "theme code already exists for this school")
 		}
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
@@ -190,12 +189,12 @@ func (ctl *ClassEventThemeController) Patch(c *fiber.Ctx) error {
 =========================================================
 
 	DELETE (soft)
-	DELETE /api/a/:masjid_id/events/themes/:id
+	DELETE /api/a/:school_id/events/themes/:id
 
 =========================================================
 */
 func (ctl *ClassEventThemeController) Delete(c *fiber.Ctx) error {
-	masjidID, err := ctl.resolveMasjidAndEnsureDKM(c)
+	schoolID, err := ctl.resolveSchoolAndEnsureDKM(c)
 	if err != nil {
 		return nil
 	}
@@ -207,7 +206,7 @@ func (ctl *ClassEventThemeController) Delete(c *fiber.Ctx) error {
 
 	var m model.ClassEventThemeModel
 	if err := ctl.DB.
-		Where("class_event_theme_id = ? AND class_event_theme_masjid_id = ? AND class_event_theme_deleted_at IS NULL", id, masjidID).
+		Where("class_event_theme_id = ? AND class_event_theme_school_id = ? AND class_event_theme_deleted_at IS NULL", id, schoolID).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "resource not found")
@@ -227,14 +226,14 @@ func (ctl *ClassEventThemeController) Delete(c *fiber.Ctx) error {
 /*
 =========================================================
 
-	UPSERT (by masjid_id, code)
-	POST /api/a/:masjid_id/events/themes:upsert
+	UPSERT (by school_id, code)
+	POST /api/a/:school_id/events/themes:upsert
 	Body: CreateClassEventThemeRequest
 
 =========================================================
 */
 func (ctl *ClassEventThemeController) Upsert(c *fiber.Ctx) error {
-	masjidID, err := ctl.resolveMasjidAndEnsureDKM(c)
+	schoolID, err := ctl.resolveSchoolAndEnsureDKM(c)
 	if err != nil {
 		return nil
 	}
@@ -250,12 +249,12 @@ func (ctl *ClassEventThemeController) Upsert(c *fiber.Ctx) error {
 
 	now := time.Now()
 
-	m := req.ToModel(masjidID)
+	m := req.ToModel(schoolID)
 	m.ClassEventThemeUpdatedAt = now
 
 	if err := ctl.DB.Clauses(clause.OnConflict{
 		Columns: []clause.Column{
-			{Name: "class_event_theme_masjid_id"},
+			{Name: "class_event_theme_school_id"},
 			{Name: "class_event_theme_code"},
 		},
 		DoUpdates: clause.Assignments(map[string]interface{}{
@@ -271,8 +270,8 @@ func (ctl *ClassEventThemeController) Upsert(c *fiber.Ctx) error {
 
 	var out model.ClassEventThemeModel
 	if err := ctl.DB.
-		Where("class_event_theme_masjid_id = ? AND class_event_theme_code = ? AND class_event_theme_deleted_at IS NULL",
-			masjidID, m.ClassEventThemeCode).
+		Where("class_event_theme_school_id = ? AND class_event_theme_code = ? AND class_event_theme_deleted_at IS NULL",
+			schoolID, m.ClassEventThemeCode).
 		First(&out).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}

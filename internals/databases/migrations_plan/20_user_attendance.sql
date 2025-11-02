@@ -7,13 +7,13 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- trigram ops (label search)
 
 -- =========================================================
--- A) USER_ATTENDANCE_TYPE (master jenis attendance per masjid)
+-- A) USER_ATTENDANCE_TYPE (master jenis attendance per school)
 --    FINAL CREATE (semua kolom sudah terintegrasi)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS user_attendance_type (
   user_attendance_type_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_attendance_type_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  user_attendance_type_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- Identitas dasar
   user_attendance_type_code  VARCHAR(32) NOT NULL,  -- ex: SETORAN, MURAJAAH, TILAWAH
@@ -66,10 +66,10 @@ CREATE TABLE IF NOT EXISTS user_attendance_type (
   user_attendance_type_deleted_at TIMESTAMPTZ
 );
 
--- Unik per masjid + code (soft-delete aware)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_uatt_code_per_masjid_alive
+-- Unik per school + code (soft-delete aware)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_uatt_code_per_school_alive
   ON user_attendance_type (
-    user_attendance_type_masjid_id,
+    user_attendance_type_school_id,
     UPPER(user_attendance_type_code)
   )
   WHERE user_attendance_type_deleted_at IS NULL;
@@ -79,14 +79,14 @@ CREATE INDEX IF NOT EXISTS gin_uatt_label_trgm
   ON user_attendance_type USING GIN (user_attendance_type_label gin_trgm_ops)
   WHERE user_attendance_type_deleted_at IS NULL;
 
--- Filter umum per masjid (aktif saja)
-CREATE INDEX IF NOT EXISTS idx_uatt_masjid_active
-  ON user_attendance_type (user_attendance_type_masjid_id, user_attendance_type_is_active)
+-- Filter umum per school (aktif saja)
+CREATE INDEX IF NOT EXISTS idx_uatt_school_active
+  ON user_attendance_type (user_attendance_type_school_id, user_attendance_type_is_active)
   WHERE user_attendance_type_deleted_at IS NULL;
 
--- Listing terbaru per masjid
-CREATE INDEX IF NOT EXISTS idx_uatt_masjid_created_desc
-  ON user_attendance_type (user_attendance_type_masjid_id, user_attendance_type_created_at DESC)
+-- Listing terbaru per school
+CREATE INDEX IF NOT EXISTS idx_uatt_school_created_desc
+  ON user_attendance_type (user_attendance_type_school_id, user_attendance_type_created_at DESC)
   WHERE user_attendance_type_deleted_at IS NULL;
 
 -- BRIN untuk time-series besar
@@ -112,15 +112,15 @@ CREATE TABLE IF NOT EXISTS user_attendance (
   user_attendance_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- Tenant & relasi
-  user_attendance_masjid_id  UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  user_attendance_school_id  UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   user_attendance_session_id UUID NOT NULL
     REFERENCES class_attendance_sessions(class_attendance_sessions_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
-  user_attendance_masjid_student_id UUID NOT NULL
-    REFERENCES masjid_students(masjid_student_id) ON DELETE CASCADE,
+  user_attendance_school_student_id UUID NOT NULL
+    REFERENCES school_students(school_student_id) ON DELETE CASCADE,
 
   -- status kehadiran
   user_attendance_status VARCHAR(16) NOT NULL DEFAULT 'present'
@@ -177,14 +177,14 @@ CREATE TABLE IF NOT EXISTS user_attendance (
   user_attendance_deleted_at TIMESTAMPTZ
 );
 
--- Anti-duplikat: satu baris per (masjid, session, student) untuk data hidup
+-- Anti-duplikat: satu baris per (school, session, student) untuk data hidup
 CREATE UNIQUE INDEX IF NOT EXISTS uq_user_attendance_per_session_student_alive
-  ON user_attendance (user_attendance_masjid_id, user_attendance_session_id, user_attendance_masjid_student_id)
+  ON user_attendance (user_attendance_school_id, user_attendance_session_id, user_attendance_school_student_id)
   WHERE user_attendance_deleted_at IS NULL;
 
 -- Idempotensi import/API: cegah duplikat ketika dedup_key terisi
 CREATE UNIQUE INDEX IF NOT EXISTS uq_user_attendance_dedup_alive
-  ON user_attendance (user_attendance_masjid_id, user_attendance_session_id, user_attendance_masjid_student_id, user_attendance_dedup_key)
+  ON user_attendance (user_attendance_school_id, user_attendance_session_id, user_attendance_school_student_id, user_attendance_dedup_key)
   WHERE user_attendance_deleted_at IS NULL
     AND user_attendance_dedup_key IS NOT NULL
     AND length(btrim(user_attendance_dedup_key)) > 0;
@@ -199,7 +199,7 @@ CREATE INDEX IF NOT EXISTS idx_user_attendance_session_alive
   WHERE user_attendance_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_user_attendance_student_alive
-  ON user_attendance (user_attendance_masjid_student_id, user_attendance_status)
+  ON user_attendance (user_attendance_school_student_id, user_attendance_status)
   WHERE user_attendance_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_user_attendance_type_alive
@@ -223,9 +223,9 @@ CREATE INDEX IF NOT EXISTS idx_user_attendance_export
   ON user_attendance (user_attendance_export_batch_id, user_attendance_exported_at)
   WHERE user_attendance_deleted_at IS NULL;
 
--- Listing terbaru per masjid
-CREATE INDEX IF NOT EXISTS idx_user_attendance_masjid_created_desc
-  ON user_attendance (user_attendance_masjid_id, user_attendance_created_at DESC)
+-- Listing terbaru per school
+CREATE INDEX IF NOT EXISTS idx_user_attendance_school_created_desc
+  ON user_attendance (user_attendance_school_id, user_attendance_created_at DESC)
   WHERE user_attendance_deleted_at IS NULL;
 
 -- BRIN time-series

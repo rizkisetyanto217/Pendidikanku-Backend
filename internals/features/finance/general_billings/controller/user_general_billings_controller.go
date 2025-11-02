@@ -11,9 +11,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "masjidku_backend/internals/features/finance/general_billings/dto"
-	model "masjidku_backend/internals/features/finance/general_billings/model"
-	helper "masjidku_backend/internals/helpers" // <- pastikan path-nya sesuai lokasi Json* helper kamu
+	dto "schoolku_backend/internals/features/finance/general_billings/dto"
+	model "schoolku_backend/internals/features/finance/general_billings/model"
+	helper "schoolku_backend/internals/helpers" // <- pastikan path-nya sesuai lokasi Json* helper kamu
 )
 
 /* ========================================================
@@ -52,7 +52,6 @@ func isPgFKErr(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "violates foreign key constraint")
 }
 
-
 /* ========================================================
    Handlers
 ======================================================== */
@@ -88,7 +87,6 @@ func (ctl *UserGeneralBillingController) Create(c *fiber.Ctx) error {
 
 	return helper.JsonCreated(c, "created", dto.FromModelUserGeneralBilling(m))
 }
-
 
 // PATCH /finance/user-general-billings/:id
 func (ctl *UserGeneralBillingController) Patch(c *fiber.Ctx) error {

@@ -5,8 +5,8 @@ BEGIN;
    ========================================================= */
 CREATE TABLE IF NOT EXISTS class_attendance_events (
   class_attendance_event_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_attendance_event_masjid_id  UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_attendance_event_school_id  UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
   class_attendance_event_event_id   UUID NOT NULL
     REFERENCES class_events(class_event_id) ON DELETE CASCADE,
 
@@ -44,8 +44,8 @@ CREATE TABLE IF NOT EXISTS class_attendance_events (
 -- Indeks umum
 CREATE INDEX IF NOT EXISTS idx_class_attendance_events_event
   ON class_attendance_events(class_attendance_event_event_id);
-CREATE INDEX IF NOT EXISTS idx_class_attendance_events_masjid
-  ON class_attendance_events(class_attendance_event_masjid_id);
+CREATE INDEX IF NOT EXISTS idx_class_attendance_events_school
+  ON class_attendance_events(class_attendance_event_school_id);
 
 
 
@@ -56,8 +56,8 @@ CREATE TABLE IF NOT EXISTS class_attendance_event_urls (
   class_attendance_event_url_id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- tenant & owner
-  class_attendance_event_url_masjid_id           UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  class_attendance_event_url_school_id           UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
   class_attendance_event_url_attendance_event_id UUID NOT NULL
     REFERENCES class_attendance_events(class_attendance_event_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
@@ -99,8 +99,8 @@ CREATE INDEX IF NOT EXISTS idx_class_attendance_event_urls_owner_live
   )
   WHERE class_attendance_event_url_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_class_attendance_event_urls_masjid_live
-  ON class_attendance_event_urls (class_attendance_event_url_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_class_attendance_event_urls_school_live
+  ON class_attendance_event_urls (class_attendance_event_url_school_id)
   WHERE class_attendance_event_url_deleted_at IS NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_class_attendance_event_urls_primary_per_kind_alive
@@ -131,14 +131,14 @@ CREATE INDEX IF NOT EXISTS gin_class_attendance_event_url_label_trgm_live
    ========================================================= */
 CREATE TABLE IF NOT EXISTS user_class_attendance_events (
   user_class_attendance_event_id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_class_attendance_event_masjid_id         UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  user_class_attendance_event_school_id         UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
   user_class_attendance_event_event_id          UUID NOT NULL
     REFERENCES class_events(class_event_id) ON DELETE CASCADE,
 
   -- identitas peserta (TEPAT SATU)
   user_class_attendance_event_user_id           UUID,
-  user_class_attendance_event_masjid_student_id UUID,
+  user_class_attendance_event_school_student_id UUID,
   user_class_attendance_event_guardian_id       UUID,
 
   -- RSVP & kehadiran
@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS user_class_attendance_events (
   CONSTRAINT chk_user_class_attendance_event_identity_one
     CHECK (num_nonnulls(
       user_class_attendance_event_user_id,
-      user_class_attendance_event_masjid_student_id,
+      user_class_attendance_event_school_student_id,
       user_class_attendance_event_guardian_id
     ) = 1),
   CONSTRAINT chk_user_class_attendance_event_rsvp
@@ -174,21 +174,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_user_class_attendance_events_unique_identit
 ON user_class_attendance_events(
   user_class_attendance_event_event_id,
   COALESCE(user_class_attendance_event_user_id,           '00000000-0000-0000-0000-000000000000'::uuid),
-  COALESCE(user_class_attendance_event_masjid_student_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  COALESCE(user_class_attendance_event_school_student_id, '00000000-0000-0000-0000-000000000000'::uuid),
   COALESCE(user_class_attendance_event_guardian_id,       '00000000-0000-0000-0000-000000000000'::uuid)
 );
 
 -- Indeks bantu
 CREATE INDEX IF NOT EXISTS idx_user_class_attendance_events_event
   ON user_class_attendance_events(user_class_attendance_event_event_id);
-CREATE INDEX IF NOT EXISTS idx_user_class_attendance_events_masjid_rsvp
-  ON user_class_attendance_events(user_class_attendance_event_masjid_id, user_class_attendance_event_rsvp_status);
+CREATE INDEX IF NOT EXISTS idx_user_class_attendance_events_school_rsvp
+  ON user_class_attendance_events(user_class_attendance_event_school_id, user_class_attendance_event_rsvp_status);
 CREATE INDEX IF NOT EXISTS idx_user_class_attendance_events_checkedin
   ON user_class_attendance_events(user_class_attendance_event_event_id, user_class_attendance_event_checked_in_at);
 
--- (opsional) daftar kehadiran per user dalam satu masjid
-CREATE INDEX IF NOT EXISTS idx_user_class_attendance_events_masjid_user
-  ON user_class_attendance_events(user_class_attendance_event_masjid_id, user_class_attendance_event_user_id);
+-- (opsional) daftar kehadiran per user dalam satu school
+CREATE INDEX IF NOT EXISTS idx_user_class_attendance_events_school_user
+  ON user_class_attendance_events(user_class_attendance_event_school_id, user_class_attendance_event_user_id);
 
 
 /* =========================================================
@@ -199,8 +199,8 @@ CREATE TABLE IF NOT EXISTS user_class_attendance_events_urls (
   user_class_attendance_event_url_id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- scope tenant
-  user_class_attendance_event_url_masjid_id        UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  user_class_attendance_event_url_school_id        UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- parent attendance
   user_class_attendance_event_url_attendance_id    UUID NOT NULL
@@ -235,11 +235,11 @@ CREATE TABLE IF NOT EXISTS user_class_attendance_events_urls (
      FOREIGN KEYS (tenant-safe)
      ========================= */
 
-  -- teacher: FK komposit (id, masjid_id) → masjid_teachers
+  -- teacher: FK komposit (id, school_id) → school_teachers
   CONSTRAINT fk_ucae_url_sender_teacher
     FOREIGN KEY (user_class_attendance_event_url_sender_teacher_id,
-                 user_class_attendance_event_url_masjid_id)
-    REFERENCES masjid_teachers(masjid_teacher_id, masjid_teacher_masjid_id)
+                 user_class_attendance_event_url_school_id)
+    REFERENCES school_teachers(school_teacher_id, school_teacher_school_id)
     ON UPDATE CASCADE ON DELETE RESTRICT,
 
   -- user: langsung ke users(id)
@@ -286,9 +286,9 @@ CREATE INDEX IF NOT EXISTS idx_ucae_urls_primary
     user_class_attendance_event_url_is_primary
   );
 
-CREATE INDEX IF NOT EXISTS idx_ucae_urls_masjid_sender
+CREATE INDEX IF NOT EXISTS idx_ucae_urls_school_sender
   ON user_class_attendance_events_urls (
-    user_class_attendance_event_url_masjid_id,
+    user_class_attendance_event_url_school_id,
     user_class_attendance_event_url_sender_role
   );
 

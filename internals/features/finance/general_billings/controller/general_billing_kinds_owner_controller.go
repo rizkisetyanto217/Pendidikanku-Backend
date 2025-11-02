@@ -7,9 +7,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	dto "masjidku_backend/internals/features/finance/general_billings/dto"
-	m "masjidku_backend/internals/features/finance/general_billings/model"
-	helper "masjidku_backend/internals/helpers" // sesuaikan helper JSON response
+	dto "schoolku_backend/internals/features/finance/general_billings/dto"
+	m "schoolku_backend/internals/features/finance/general_billings/model"
+	helper "schoolku_backend/internals/helpers" // sesuaikan helper JSON response
 	// sesuaikan guard/ACL
 )
 
@@ -32,8 +32,8 @@ func (ctl *GeneralBillingKindController) CreateGlobal(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "code and name are required")
 	}
 
-	// Paksa GLOBAL: masjid_id = NULL, is_global = true
-	req.MasjidID = nil
+	// Paksa GLOBAL: school_id = NULL, is_global = true
+	req.SchoolID = nil
 	trueVal := true
 	req.IsGlobal = &trueVal
 
@@ -69,7 +69,7 @@ func (ctl *GeneralBillingKindController) PatchGlobal(c *fiber.Ctx) error {
 
 	var rec m.GeneralBillingKind
 	tx := ctl.DB.WithContext(c.Context()).
-		Where("general_billing_kind_id = ? AND general_billing_kind_masjid_id IS NULL AND general_billing_kind_deleted_at IS NULL", id).
+		Where("general_billing_kind_id = ? AND general_billing_kind_school_id IS NULL AND general_billing_kind_deleted_at IS NULL", id).
 		First(&rec)
 	if tx.Error != nil {
 		if tx.Error == gorm.ErrRecordNotFound {
@@ -97,7 +97,7 @@ func (ctl *GeneralBillingKindController) DeleteGlobal(c *fiber.Ctx) error {
 	// Soft delete
 	q := ctl.DB.WithContext(c.Context()).
 		Model(&m.GeneralBillingKind{}).
-		Where("general_billing_kind_id = ? AND general_billing_kind_masjid_id IS NULL AND general_billing_kind_deleted_at IS NULL", id).
+		Where("general_billing_kind_id = ? AND general_billing_kind_school_id IS NULL AND general_billing_kind_deleted_at IS NULL", id).
 		Update("general_billing_kind_deleted_at", gorm.Expr("NOW()"))
 	if q.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, q.Error.Error())
@@ -116,7 +116,7 @@ func (ctl *GeneralBillingKindController) ListGlobal(c *fiber.Ctx) error {
 	var items []m.GeneralBillingKind
 	tx := ctl.DB.WithContext(c.Context()).
 		Where(`
-            general_billing_kind_masjid_id IS NULL
+            general_billing_kind_school_id IS NULL
             AND general_billing_kind_deleted_at IS NULL
             AND general_billing_kind_category = ?
             AND general_billing_kind_is_global = TRUE
@@ -143,7 +143,7 @@ func (ctl *GeneralBillingKindController) ListGlobal(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// DTO pakai `omitempty` → masjid_id tidak muncul bila NULL
+	// DTO pakai `omitempty` → school_id tidak muncul bila NULL
 	return helper.JsonOK(c, "ok", dto.FromModelSlice(items))
 }
 
@@ -157,7 +157,7 @@ func (ctl *GeneralBillingKindController) GetGlobalByID(c *fiber.Ctx) error {
 
 	var rec m.GeneralBillingKind
 	tx := ctl.DB.WithContext(c.Context()).
-		Where("general_billing_kind_id = ? AND general_billing_kind_masjid_id IS NULL AND general_billing_kind_deleted_at IS NULL", id).
+		Where("general_billing_kind_id = ? AND general_billing_kind_school_id IS NULL AND general_billing_kind_deleted_at IS NULL", id).
 		First(&rec)
 	if tx.Error != nil {
 		if tx.Error == gorm.ErrRecordNotFound {
@@ -178,7 +178,7 @@ func (ctl *GeneralBillingKindController) ListPublic(c *fiber.Ctx) error {
 	// hanya tampilkan global + visibility=public + active
 	var items []m.GeneralBillingKind
 	q := ctl.DB.WithContext(c.Context()).
-		Where("general_billing_kind_masjid_id IS NULL AND general_billing_kind_deleted_at IS NULL").
+		Where("general_billing_kind_school_id IS NULL AND general_billing_kind_deleted_at IS NULL").
 		Where("general_billing_kind_visibility = ? AND general_billing_kind_is_active = TRUE", m.GBKVisibilityPublic)
 
 	// optional filter cat=campaign
@@ -205,7 +205,7 @@ func (ctl *GeneralBillingKindController) GetPublicByID(c *fiber.Ctx) error {
 
 	var rec m.GeneralBillingKind
 	tx := ctl.DB.WithContext(c.Context()).
-		Where("general_billing_kind_id = ? AND general_billing_kind_masjid_id IS NULL AND general_billing_kind_deleted_at IS NULL", id).
+		Where("general_billing_kind_id = ? AND general_billing_kind_school_id IS NULL AND general_billing_kind_deleted_at IS NULL", id).
 		Where("general_billing_kind_visibility = ? AND general_billing_kind_is_active = TRUE", m.GBKVisibilityPublic).
 		First(&rec)
 	if tx.Error != nil {

@@ -16,12 +16,12 @@ CREATE TABLE IF NOT EXISTS user_classes (
   user_classes_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   -- identitas siswa pada tenant (WAJIB)
-  user_classes_masjid_student_id UUID NOT NULL,
+  user_classes_school_student_id UUID NOT NULL,
 
   -- kelas & tenant
   user_classes_class_id  UUID NOT NULL,
-  user_classes_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE RESTRICT,
+  user_classes_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE RESTRICT,
 
   -- lifecycle enrolment
   user_classes_status TEXT NOT NULL DEFAULT 'active'
@@ -91,52 +91,52 @@ CREATE TABLE IF NOT EXISTS user_classes (
   ),
 
   -- FK tenant-safe (komposit) ke classes
-  CONSTRAINT fk_uc_class_masjid_pair
-    FOREIGN KEY (user_classes_class_id, user_classes_masjid_id)
-    REFERENCES classes (class_id, class_masjid_id)
+  CONSTRAINT fk_uc_class_school_pair
+    FOREIGN KEY (user_classes_class_id, user_classes_school_id)
+    REFERENCES classes (class_id, class_school_id)
     ON UPDATE CASCADE ON DELETE RESTRICT,
 
-  -- FK ke masjid_students
-  CONSTRAINT fk_uc_masjid_student
-    FOREIGN KEY (user_classes_masjid_student_id)
-    REFERENCES masjid_students(masjid_student_id)
+  -- FK ke school_students
+  CONSTRAINT fk_uc_school_student
+    FOREIGN KEY (user_classes_school_student_id)
+    REFERENCES school_students(school_student_id)
     ON UPDATE CASCADE ON DELETE RESTRICT,
 
   -- Guard unik multi-tenant
-  CONSTRAINT uq_user_classes_id_masjid
-    UNIQUE (user_classes_id, user_classes_masjid_id)
+  CONSTRAINT uq_user_classes_id_school
+    UNIQUE (user_classes_id, user_classes_school_id)
 );
 
 -- =======================
 -- INDEKS user_classes
 -- =======================
 CREATE UNIQUE INDEX IF NOT EXISTS uq_uc_active_per_student_class
-  ON user_classes (user_classes_masjid_student_id, user_classes_class_id, user_classes_masjid_id)
+  ON user_classes (user_classes_school_student_id, user_classes_class_id, user_classes_school_id)
   WHERE user_classes_deleted_at IS NULL
     AND user_classes_status = 'active';
 
 CREATE INDEX IF NOT EXISTS ix_uc_tenant_student_created
-  ON user_classes (user_classes_masjid_id, user_classes_masjid_student_id, user_classes_created_at DESC)
+  ON user_classes (user_classes_school_id, user_classes_school_student_id, user_classes_created_at DESC)
   WHERE user_classes_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_uc_tenant_status_created
-  ON user_classes (user_classes_masjid_id, user_classes_status, user_classes_created_at DESC)
+  ON user_classes (user_classes_school_id, user_classes_status, user_classes_created_at DESC)
   WHERE user_classes_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_uc_class_alive
   ON user_classes(user_classes_class_id)
   WHERE user_classes_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_uc_masjid_alive
-  ON user_classes(user_classes_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_uc_school_alive
+  ON user_classes(user_classes_school_id)
   WHERE user_classes_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_uc_masjid_student_alive
-  ON user_classes(user_classes_masjid_student_id)
+CREATE INDEX IF NOT EXISTS idx_uc_school_student_alive
+  ON user_classes(user_classes_school_student_id)
   WHERE user_classes_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_uc_tenant_class_active
-  ON user_classes (user_classes_masjid_id, user_classes_class_id)
+  ON user_classes (user_classes_school_id, user_classes_class_id)
   WHERE user_classes_deleted_at IS NULL
     AND user_classes_status = 'active';
 
@@ -148,7 +148,7 @@ CREATE INDEX IF NOT EXISTS idx_uc_last_attended  ON user_classes(user_classes_la
 CREATE INDEX IF NOT EXISTS idx_uc_last_activity  ON user_classes(user_classes_last_activity_at);
 
 CREATE INDEX IF NOT EXISTS ix_uc_tenant_academic_term
-  ON user_classes (user_classes_masjid_id, user_classes_academic_year_id, user_classes_term)
+  ON user_classes (user_classes_school_id, user_classes_academic_year_id, user_classes_term)
   WHERE user_classes_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_uc_teacher
@@ -175,7 +175,7 @@ CREATE TABLE IF NOT EXISTS user_class_sections (
   user_class_sections_section_id UUID NOT NULL,
 
   -- tenant (denormalized)
-  user_class_sections_masjid_id UUID NOT NULL,
+  user_class_sections_school_id UUID NOT NULL,
 
   -- timeline penempatan
   user_class_sections_assigned_at   DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -211,15 +211,15 @@ CREATE TABLE IF NOT EXISTS user_class_sections (
   ),
 
   -- FK komposit tenant-safe ke user_classes
-  CONSTRAINT fk_ucs_user_class_masjid_pair
-    FOREIGN KEY (user_class_sections_user_class_id, user_class_sections_masjid_id)
-    REFERENCES user_classes (user_classes_id, user_classes_masjid_id)
+  CONSTRAINT fk_ucs_user_class_school_pair
+    FOREIGN KEY (user_class_sections_user_class_id, user_class_sections_school_id)
+    REFERENCES user_classes (user_classes_id, user_classes_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   -- FK komposit tenant-safe ke class_sections
-  CONSTRAINT fk_ucs_section_masjid_pair
-    FOREIGN KEY (user_class_sections_section_id, user_class_sections_masjid_id)
-    REFERENCES class_sections (class_sections_id, class_sections_masjid_id)
+  CONSTRAINT fk_ucs_section_school_pair
+    FOREIGN KEY (user_class_sections_section_id, user_class_sections_school_id)
+    REFERENCES class_sections (class_sections_id, class_sections_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE
 );
 
@@ -243,8 +243,8 @@ CREATE INDEX IF NOT EXISTS idx_user_class_sections_user_class
 CREATE INDEX IF NOT EXISTS idx_user_class_sections_section
   ON user_class_sections(user_class_sections_section_id);
 
-CREATE INDEX IF NOT EXISTS idx_user_class_sections_masjid
-  ON user_class_sections(user_class_sections_masjid_id);
+CREATE INDEX IF NOT EXISTS idx_user_class_sections_school
+  ON user_class_sections(user_class_sections_school_id);
 
 -- Timeline & masa berlaku
 CREATE INDEX IF NOT EXISTS idx_user_class_sections_assigned_at
@@ -257,8 +257,8 @@ CREATE INDEX IF NOT EXISTS idx_ucs_effective_until
   ON user_class_sections(user_class_sections_effective_until);
 
 -- Aktif per tenant
-CREATE INDEX IF NOT EXISTS idx_user_class_sections_masjid_active
-  ON user_class_sections(user_class_sections_masjid_id,
+CREATE INDEX IF NOT EXISTS idx_user_class_sections_school_active
+  ON user_class_sections(user_class_sections_school_id,
                          user_class_sections_user_class_id,
                          user_class_sections_section_id)
   WHERE user_class_sections_unassigned_at IS NULL
@@ -387,13 +387,13 @@ END$$;
 -- ADD-ONS #6 — Partial index stateful (unpaid/active & completed recent)
 -- =========================================================
 CREATE INDEX IF NOT EXISTS ix_uc_unpaid_active
-  ON user_classes(user_classes_masjid_id, user_classes_class_id)
+  ON user_classes(user_classes_school_id, user_classes_class_id)
   WHERE user_classes_deleted_at IS NULL
     AND COALESCE(user_classes_is_paid, FALSE) = FALSE
     AND user_classes_status IN ('active','inactive');
 
 CREATE INDEX IF NOT EXISTS ix_uc_completed_recent
-  ON user_classes(user_classes_masjid_id, user_classes_completed_at DESC)
+  ON user_classes(user_classes_school_id, user_classes_completed_at DESC)
   WHERE user_classes_deleted_at IS NULL
     AND user_classes_status = 'completed';
 

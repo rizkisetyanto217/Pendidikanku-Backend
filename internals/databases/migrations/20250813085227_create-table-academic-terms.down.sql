@@ -25,10 +25,10 @@ DROP INDEX IF EXISTS ix_academic_terms_tenant_updated_at;
 DO $$
 BEGIN
   IF EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'uq_academic_terms_id_masjid'
+    SELECT 1 FROM pg_constraint WHERE conname = 'uq_academic_terms_id_school'
   ) THEN
     ALTER TABLE academic_terms
-      DROP CONSTRAINT uq_academic_terms_id_masjid;
+      DROP CONSTRAINT uq_academic_terms_id_school;
   END IF;
 END$$;
 

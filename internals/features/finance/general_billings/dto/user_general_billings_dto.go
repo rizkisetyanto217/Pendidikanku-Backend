@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 
-	model "masjidku_backend/internals/features/finance/general_billings/model"
+	model "schoolku_backend/internals/features/finance/general_billings/model"
 )
 
 /* =========================================================
@@ -27,8 +27,8 @@ func ptr[T any](v T) *T { return &v }
    ========================================================= */
 
 type CreateUserGeneralBillingRequest struct {
-	UserGeneralBillingMasjidID        uuid.UUID  `json:"user_general_billing_masjid_id" validate:"required"`
-	UserGeneralBillingMasjidStudentID *uuid.UUID `json:"user_general_billing_masjid_student_id"` // optional (minimal salah satu ini atau payer harus diisi)
+	UserGeneralBillingSchoolID        uuid.UUID  `json:"user_general_billing_school_id" validate:"required"`
+	UserGeneralBillingSchoolStudentID *uuid.UUID `json:"user_general_billing_school_student_id"` // optional (minimal salah satu ini atau payer harus diisi)
 	UserGeneralBillingPayerUserID     *uuid.UUID `json:"user_general_billing_payer_user_id"`     // optional (lihat rule di atas)
 
 	UserGeneralBillingBillingID uuid.UUID `json:"user_general_billing_billing_id" validate:"required"`
@@ -46,8 +46,8 @@ type CreateUserGeneralBillingRequest struct {
 
 func (r *CreateUserGeneralBillingRequest) Validate() error {
 	// Minimal salah satu target harus ada: student atau payer
-	if r.UserGeneralBillingMasjidStudentID == nil && r.UserGeneralBillingPayerUserID == nil {
-		return errors.New("either user_general_billing_masjid_student_id or user_general_billing_payer_user_id must be provided")
+	if r.UserGeneralBillingSchoolStudentID == nil && r.UserGeneralBillingPayerUserID == nil {
+		return errors.New("either user_general_billing_school_student_id or user_general_billing_payer_user_id must be provided")
 	}
 	return nil
 }
@@ -64,8 +64,8 @@ func (r CreateUserGeneralBillingRequest) ToModel() model.UserGeneralBilling {
 	}
 
 	return model.UserGeneralBilling{
-		UserGeneralBillingMasjidID:        r.UserGeneralBillingMasjidID,
-		UserGeneralBillingMasjidStudentID: r.UserGeneralBillingMasjidStudentID,
+		UserGeneralBillingSchoolID:        r.UserGeneralBillingSchoolID,
+		UserGeneralBillingSchoolStudentID: r.UserGeneralBillingSchoolStudentID,
 		UserGeneralBillingPayerUserID:     r.UserGeneralBillingPayerUserID,
 		UserGeneralBillingBillingID:       r.UserGeneralBillingBillingID,
 
@@ -88,8 +88,8 @@ func (r CreateUserGeneralBillingRequest) ToModel() model.UserGeneralBilling {
    ========================================================= */
 
 type PatchUserGeneralBillingRequest struct {
-	// Tidak mengizinkan update MasjidID atau BillingID via patch (biasanya immutable)
-	UserGeneralBillingMasjidStudentID PatchField[uuid.UUID] `json:"user_general_billing_masjid_student_id"` // boleh null-kan (cabut relasi)
+	// Tidak mengizinkan update SchoolID atau BillingID via patch (biasanya immutable)
+	UserGeneralBillingSchoolStudentID PatchField[uuid.UUID] `json:"user_general_billing_school_student_id"` // boleh null-kan (cabut relasi)
 	UserGeneralBillingPayerUserID     PatchField[uuid.UUID] `json:"user_general_billing_payer_user_id"`     // boleh null-kan
 
 	UserGeneralBillingAmountIDR PatchField[int]       `json:"user_general_billing_amount_idr"`
@@ -107,8 +107,8 @@ type PatchUserGeneralBillingRequest struct {
 
 func (p PatchUserGeneralBillingRequest) ValidateAfterApply(m model.UserGeneralBilling) error {
 	// Pastikan minimal salah satu tetap ada setelah patch (student/payer)
-	if m.UserGeneralBillingMasjidStudentID == nil && m.UserGeneralBillingPayerUserID == nil {
-		return errors.New("after patch, at least one of masjid_student_id or payer_user_id must be non-null")
+	if m.UserGeneralBillingSchoolStudentID == nil && m.UserGeneralBillingPayerUserID == nil {
+		return errors.New("after patch, at least one of school_student_id or payer_user_id must be non-null")
 	}
 	// Validasi status kalau di-set
 	if p.UserGeneralBillingStatus.Set && !p.UserGeneralBillingStatus.Null && p.UserGeneralBillingStatus.Value != nil {
@@ -127,12 +127,12 @@ func (p PatchUserGeneralBillingRequest) ValidateAfterApply(m model.UserGeneralBi
 }
 
 func (p PatchUserGeneralBillingRequest) Apply(m *model.UserGeneralBilling) (changed bool) {
-	// MasjidStudentID (*uuid.UUID)
-	if p.UserGeneralBillingMasjidStudentID.Set {
-		if p.UserGeneralBillingMasjidStudentID.Null {
-			m.UserGeneralBillingMasjidStudentID = nil
-		} else if p.UserGeneralBillingMasjidStudentID.Value != nil {
-			m.UserGeneralBillingMasjidStudentID = ptr(*p.UserGeneralBillingMasjidStudentID.Value)
+	// SchoolStudentID (*uuid.UUID)
+	if p.UserGeneralBillingSchoolStudentID.Set {
+		if p.UserGeneralBillingSchoolStudentID.Null {
+			m.UserGeneralBillingSchoolStudentID = nil
+		} else if p.UserGeneralBillingSchoolStudentID.Value != nil {
+			m.UserGeneralBillingSchoolStudentID = ptr(*p.UserGeneralBillingSchoolStudentID.Value)
 		}
 		changed = true
 	}
@@ -229,8 +229,8 @@ func (p PatchUserGeneralBillingRequest) Apply(m *model.UserGeneralBilling) (chan
 type UserGeneralBillingResponse struct {
 	UserGeneralBillingID uuid.UUID `json:"user_general_billing_id"`
 
-	UserGeneralBillingMasjidID        uuid.UUID  `json:"user_general_billing_masjid_id"`
-	UserGeneralBillingMasjidStudentID *uuid.UUID `json:"user_general_billing_masjid_student_id"`
+	UserGeneralBillingSchoolID        uuid.UUID  `json:"user_general_billing_school_id"`
+	UserGeneralBillingSchoolStudentID *uuid.UUID `json:"user_general_billing_school_student_id"`
 	UserGeneralBillingPayerUserID     *uuid.UUID `json:"user_general_billing_payer_user_id"`
 
 	UserGeneralBillingBillingID uuid.UUID `json:"user_general_billing_billing_id"`
@@ -257,8 +257,8 @@ func FromModelUserGeneralBilling(m model.UserGeneralBilling) UserGeneralBillingR
 	}
 	return UserGeneralBillingResponse{
 		UserGeneralBillingID:               m.UserGeneralBillingID,
-		UserGeneralBillingMasjidID:         m.UserGeneralBillingMasjidID,
-		UserGeneralBillingMasjidStudentID:  m.UserGeneralBillingMasjidStudentID,
+		UserGeneralBillingSchoolID:         m.UserGeneralBillingSchoolID,
+		UserGeneralBillingSchoolStudentID:  m.UserGeneralBillingSchoolStudentID,
 		UserGeneralBillingPayerUserID:      m.UserGeneralBillingPayerUserID,
 		UserGeneralBillingBillingID:        m.UserGeneralBillingBillingID,
 		UserGeneralBillingAmountIDR:        m.UserGeneralBillingAmountIDR,
@@ -280,9 +280,9 @@ func FromModelUserGeneralBilling(m model.UserGeneralBilling) UserGeneralBillingR
 
 type ListUserGeneralBillingQuery struct {
 	// Filter
-	MasjidID        *uuid.UUID `query:"masjid_id"`
+	SchoolID        *uuid.UUID `query:"school_id"`
 	BillingID       *uuid.UUID `query:"billing_id"`
-	MasjidStudentID *uuid.UUID `query:"masjid_student_id"`
+	SchoolStudentID *uuid.UUID `query:"school_student_id"`
 	PayerUserID     *uuid.UUID `query:"payer_user_id"`
 	Status          *string    `query:"status"` // unpaid|paid|canceled
 

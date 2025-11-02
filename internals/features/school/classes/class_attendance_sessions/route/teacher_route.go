@@ -2,15 +2,15 @@
 package route
 
 import (
-	uaCtrl "masjidku_backend/internals/features/school/classes/class_attendance_sessions/controller"
+	uaCtrl "schoolku_backend/internals/features/school/classes/class_attendance_sessions/controller"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
 
 func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
-	// ✅ Group dengan masjid context
-	masjidGroup := r.Group("/:masjid_id")
+	// ✅ Group dengan school context
+	schoolGroup := r.Group("/:school_id")
 
 	// Controller untuk sessions
 	sessionController := uaCtrl.NewClassAttendanceSessionController(db)
@@ -18,7 +18,7 @@ func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	// =====================
 	// Attendance Sessions
 	// =====================
-	sGroup := masjidGroup.Group("/sessions")
+	sGroup := schoolGroup.Group("/sessions")
 	sGroup.Post("/", sessionController.CreateClassAttendanceSession)
 	sGroup.Put("/:id", sessionController.PatchClassAttendanceSessionUrl)
 	sGroup.Delete("/:id", sessionController.DeleteClassAttendanceSessionUrl)
@@ -28,7 +28,7 @@ func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	// User Attendance Types (CRUD)
 	// =====================
 	uattCtl := uaCtrl.NewStudentAttendanceTypeController(db)
-	uatt := masjidGroup.Group("/student-attendance-types")
+	uatt := schoolGroup.Group("/student-attendance-types")
 	uatt.Post("/", uattCtl.Create)
 	uatt.Get("/", uattCtl.List)
 	uatt.Patch("/:id", uattCtl.Patch)

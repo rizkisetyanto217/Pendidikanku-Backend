@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"masjidku_backend/internals/features/lembaga/ui/theme/dto"
-	"masjidku_backend/internals/features/lembaga/ui/theme/model"
-	helper "masjidku_backend/internals/helpers"
+	"schoolku_backend/internals/features/lembaga/ui/theme/dto"
+	"schoolku_backend/internals/features/lembaga/ui/theme/model"
+	helper "schoolku_backend/internals/helpers"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -23,7 +23,6 @@ type UIThemePresetController struct {
 func NewUIThemePresetController(db *gorm.DB, validate *validator.Validate) *UIThemePresetController {
 	return &UIThemePresetController{DB: db, Validate: validate}
 }
-
 
 /* =========================
    POST /ui-theme-presets

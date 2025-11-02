@@ -21,9 +21,9 @@ CREATE TABLE IF NOT EXISTS lecture_sessions_questions (
   lecture_question_exam_id UUID
     REFERENCES lecture_exams(lecture_exam_id) ON DELETE SET NULL,
 
-  -- Masjid wajib
-  lecture_sessions_question_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  -- School wajib
+  lecture_sessions_question_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   lecture_sessions_question_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   lecture_sessions_question_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -62,13 +62,13 @@ CREATE INDEX IF NOT EXISTS idx_ls_questions_created_at
   ON lecture_sessions_questions(lecture_sessions_question_created_at)
   WHERE lecture_sessions_question_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_ls_questions_masjid_id
-  ON lecture_sessions_questions(lecture_sessions_question_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_ls_questions_school_id
+  ON lecture_sessions_questions(lecture_sessions_question_school_id)
   WHERE lecture_sessions_question_deleted_at IS NULL;
 
--- Komposit: masjid + created_at (sorting terbaru per masjid)
-CREATE INDEX IF NOT EXISTS idx_ls_questions_masjid_created_desc
-  ON lecture_sessions_questions(lecture_sessions_question_masjid_id, lecture_sessions_question_created_at DESC)
+-- Komposit: school + created_at (sorting terbaru per school)
+CREATE INDEX IF NOT EXISTS idx_ls_questions_school_created_desc
+  ON lecture_sessions_questions(lecture_sessions_question_school_id, lecture_sessions_question_created_at DESC)
   WHERE lecture_sessions_question_deleted_at IS NULL;
 
 -- GIN untuk JSONB answers
@@ -97,9 +97,9 @@ CREATE TABLE IF NOT EXISTS lecture_sessions_user_questions (
   lecture_sessions_user_question_question_id UUID NOT NULL
     REFERENCES lecture_sessions_questions(lecture_sessions_question_id) ON DELETE CASCADE,
 
-  -- Masjid wajib
-  lecture_sessions_user_question_masjid_id UUID NOT NULL
-    REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+  -- School wajib
+  lecture_sessions_user_question_school_id UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   lecture_sessions_user_question_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   lecture_sessions_user_question_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -111,8 +111,8 @@ CREATE INDEX IF NOT EXISTS idx_ls_user_questions_question_id
   ON lecture_sessions_user_questions(lecture_sessions_user_question_question_id)
   WHERE lecture_sessions_user_question_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_ls_user_questions_masjid_id
-  ON lecture_sessions_user_questions(lecture_sessions_user_question_masjid_id)
+CREATE INDEX IF NOT EXISTS idx_ls_user_questions_school_id
+  ON lecture_sessions_user_questions(lecture_sessions_user_question_school_id)
   WHERE lecture_sessions_user_question_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ls_user_questions_created_at

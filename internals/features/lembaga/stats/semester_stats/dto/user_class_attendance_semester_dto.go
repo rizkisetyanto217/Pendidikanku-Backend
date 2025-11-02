@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	m "masjidku_backend/internals/features/lembaga/stats/semester_stats/model"
+	m "schoolku_backend/internals/features/lembaga/stats/semester_stats/model"
 )
 
 /* ===================== REQUESTS ===================== */
@@ -14,17 +14,17 @@ import (
 // Upsert manual (mis. hasil ETL atau admin input)
 // Catatan: kolom generated (total_sessions, avg_score) tidak perlu diisi.
 type UpsertSemesterStatsRequest struct {
-	MasjidID    uuid.UUID `json:"masjid_id" validate:"required"`
+	SchoolID    uuid.UUID `json:"school_id" validate:"required"`
 	UserClassID uuid.UUID `json:"user_class_id" validate:"required"`
 	SectionID   uuid.UUID `json:"section_id" validate:"required"`
 
 	PeriodStart time.Time `json:"period_start" validate:"required"`
 	PeriodEnd   time.Time `json:"period_end" validate:"required,gtefield=PeriodStart"`
 
-	PresentCount int  `json:"present_count" validate:"gte=0"`
-	SickCount    int  `json:"sick_count" validate:"gte=0"`
-	LeaveCount   int  `json:"leave_count" validate:"gte=0"`
-	AbsentCount  int  `json:"absent_count" validate:"gte=0"`
+	PresentCount int `json:"present_count" validate:"gte=0"`
+	SickCount    int `json:"sick_count" validate:"gte=0"`
+	LeaveCount   int `json:"leave_count" validate:"gte=0"`
+	AbsentCount  int `json:"absent_count" validate:"gte=0"`
 
 	SumScore         *int       `json:"sum_score" validate:"omitempty,gte=0"`
 	GradePassedCount *int       `json:"grade_passed_count" validate:"omitempty,gte=0"`
@@ -34,7 +34,7 @@ type UpsertSemesterStatsRequest struct {
 
 // Query list/pencarian
 type ListSemesterStatsQuery struct {
-	MasjidID    *uuid.UUID `query:"masjid_id" validate:"omitempty"`
+	SchoolID    *uuid.UUID `query:"school_id" validate:"omitempty"`
 	UserClassID *uuid.UUID `query:"user_class_id" validate:"omitempty"`
 	SectionID   *uuid.UUID `query:"section_id" validate:"omitempty"`
 	Start       *time.Time `query:"start" validate:"omitempty"`
@@ -48,7 +48,7 @@ type ListSemesterStatsQuery struct {
 
 type SemesterStatsResponse struct {
 	ID          uuid.UUID `json:"id"`
-	MasjidID    uuid.UUID `json:"masjid_id"`
+	SchoolID    uuid.UUID `json:"school_id"`
 	UserClassID uuid.UUID `json:"user_class_id"`
 	SectionID   uuid.UUID `json:"section_id"`
 
@@ -83,7 +83,7 @@ type SemesterStatsListResponse struct {
 func FromModel(x m.UserClassAttendanceSemesterStatsModel) SemesterStatsResponse {
 	return SemesterStatsResponse{
 		ID:               x.ID,
-		MasjidID:         x.MasjidID,
+		SchoolID:         x.SchoolID,
 		UserClassID:      x.UserClassID,
 		SectionID:        x.SectionID,
 		PeriodStart:      x.PeriodStart,
@@ -113,7 +113,7 @@ func FromModels(list []m.UserClassAttendanceSemesterStatsModel, total int64) Sem
 
 func (r UpsertSemesterStatsRequest) ToModel(existingID *uuid.UUID) m.UserClassAttendanceSemesterStatsModel {
 	mx := m.UserClassAttendanceSemesterStatsModel{
-		MasjidID:         r.MasjidID,
+		SchoolID:         r.SchoolID,
 		UserClassID:      r.UserClassID,
 		SectionID:        r.SectionID,
 		PeriodStart:      r.PeriodStart,

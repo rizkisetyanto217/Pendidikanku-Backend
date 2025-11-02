@@ -20,7 +20,7 @@ END$$ LANGUAGE plpgsql;
 -- =========================================================
 CREATE TABLE IF NOT EXISTS academic_terms (
 academic_terms_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-academic_terms_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+academic_terms_school_id UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 academic_terms_academic_year TEXT NOT NULL, -- "2025/2026"
 academic_terms_name TEXT NOT NULL, -- "Ganjil" | "Genap" | dst.
 academic_terms_start_date DATE NOT NULL,
@@ -35,11 +35,11 @@ CHECK (academic_terms_end_date >= academic_terms_start_date)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_academic_terms_tenant_year_name_live
-ON academic_terms(academic_terms_masjid_id, academic_terms_academic_year, academic_terms_name)
+ON academic_terms(academic_terms_school_id, academic_terms_academic_year, academic_terms_name)
 WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_academic_terms_tenant_active_live
-ON academic_terms(academic_terms_masjid_id, academic_terms_is_active)
+ON academic_terms(academic_terms_school_id, academic_terms_is_active)
 WHERE deleted_at IS NULL;
 
 DROP TRIGGER IF EXISTS trg_touch_academic_terms ON academic_terms;
@@ -53,7 +53,7 @@ FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_generic();
 CREATE TABLE IF NOT EXISTS class_subject_grading_policies (
 class_subject_grading_policies_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-class_subject_grading_policies_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+class_subject_grading_policies_school_id UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 class_subject_grading_policies_class_subject_id UUID NOT NULL REFERENCES class_subjects(class_subjects_id) ON DELETE CASCADE,
 
 -- null = berlaku lintas tahun (jika lembaga tidak membedakan)
@@ -82,10 +82,10 @@ COALESCE((class_subject_grading_policies_weights->>'behavior')::int, 0)
 )
 );
 
--- Satu policy AKTIF per (masjid, class_subject, academic_year) yang masih live
+-- Satu policy AKTIF per (school, class_subject, academic_year) yang masih live
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csgp_active_per_cs_year_live
 ON class_subject_grading_policies (
-class_subject_grading_policies_masjid_id,
+class_subject_grading_policies_school_id,
 class_subject_grading_policies_class_subject_id,
 COALESCE(class_subject_grading_policies_academic_year,'')
 )
@@ -94,7 +94,7 @@ AND deleted_at IS NULL;
 
 -- Bantu query
 CREATE INDEX IF NOT EXISTS ix_csgp_tenant_cs_live
-ON class_subject_grading_policies (class_subject_grading_policies_masjid_id, class_subject_grading_policies_class_subject_id)
+ON class_subject_grading_policies (class_subject_grading_policies_school_id, class_subject_grading_policies_class_subject_id)
 WHERE deleted_at IS NULL;
 
 DROP TRIGGER IF EXISTS trg_touch_csgp ON class_subject_grading_policies;
@@ -108,7 +108,7 @@ FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_generic();
 CREATE TABLE IF NOT EXISTS class_subject_assessments (
 class_subject_assessments_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-class_subject_assessments_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+class_subject_assessments_school_id UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 class_subject_assessments_class_subject_id UUID NOT NULL REFERENCES class_subjects(class_subjects_id) ON DELETE CASCADE,
 
 class_subject_assessments_type TEXT NOT NULL
@@ -130,7 +130,7 @@ deleted_at TIMESTAMP
 
 -- Index umum
 CREATE INDEX IF NOT EXISTS ix_csa_tenant_cs_date_live
-ON class_subject_assessments (class_subject_assessments_masjid_id, class_subject_assessments_class_subject_id, class_subject_assessments_date DESC)
+ON class_subject_assessments (class_subject_assessments_school_id, class_subject_assessments_class_subject_id, class_subject_assessments_date DESC)
 WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_csa_type_live
@@ -153,7 +153,7 @@ FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_generic();
 CREATE TABLE IF NOT EXISTS class_subject_assessment_scores (
 class_subject_assessment_scores_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-class_subject_assessment_scores_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+class_subject_assessment_scores_school_id UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 class_subject_assessment_scores_assessment_id UUID NOT NULL REFERENCES class_subject_assessments(class_subject_assessments_id) ON DELETE CASCADE,
 class_subject_assessment_scores_user_class_id UUID NOT NULL REFERENCES user_classes(user_classes_id) ON DELETE CASCADE,
 
@@ -171,8 +171,8 @@ ON class_subject_assessment_scores (class_subject_assessment_scores_assessment_i
 WHERE deleted_at IS NULL;
 
 -- Bantu query
-CREATE INDEX IF NOT EXISTS ix_csas_masjid_assessment_live
-ON class_subject_assessment_scores (class_subject_assessment_scores_masjid_id, class_subject_assessment_scores_assessment_id)
+CREATE INDEX IF NOT EXISTS ix_csas_school_assessment_live
+ON class_subject_assessment_scores (class_subject_assessment_scores_school_id, class_subject_assessment_scores_assessment_id)
 WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_csas_user_class_live
@@ -184,23 +184,23 @@ CREATE TRIGGER trg_touch_csas
 BEFORE UPDATE ON class_subject_assessment_scores
 FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_generic();
 
--- Validasi tenant: masjid score harus sama dengan masjid assessment (DEFERRABLE)
+-- Validasi tenant: school score harus sama dengan school assessment (DEFERRABLE)
 CREATE OR REPLACE FUNCTION fn_csas_validate_tenant()
 RETURNS TRIGGER AS $$
-DECLARE v_assess_masjid UUID;
+DECLARE v_assess_school UUID;
 BEGIN
-SELECT class_subject_assessments_masjid_id
-INTO v_assess_masjid
+SELECT class_subject_assessments_school_id
+INTO v_assess_school
 FROM class_subject_assessments
 WHERE class_subject_assessments_id = NEW.class_subject_assessment_scores_assessment_id
 AND deleted_at IS NULL;
 
-IF v_assess_masjid IS NULL THEN
+IF v_assess_school IS NULL THEN
 RAISE EXCEPTION 'Assessment invalid/terhapus';
 END IF;
-IF v_assess_masjid <> NEW.class_subject_assessment_scores_masjid_id THEN
-RAISE EXCEPTION 'Masjid mismatch: score(%) vs assessment(%)',
-NEW.class_subject_assessment_scores_masjid_id, v_assess_masjid;
+IF v_assess_school <> NEW.class_subject_assessment_scores_school_id THEN
+RAISE EXCEPTION 'School mismatch: score(%) vs assessment(%)',
+NEW.class_subject_assessment_scores_school_id, v_assess_school;
 END IF;
 RETURN NEW;
 END$$ LANGUAGE plpgsql;
@@ -212,7 +212,7 @@ DROP TRIGGER trg_csas_validate_tenant ON class_subject_assessment_scores;
 END IF;
 
 CREATE CONSTRAINT TRIGGER trg_csas_validate_tenant
-AFTER INSERT OR UPDATE OF class_subject_assessment_scores_masjid_id, class_subject_assessment_scores_assessment_id
+AFTER INSERT OR UPDATE OF class_subject_assessment_scores_school_id, class_subject_assessment_scores_assessment_id
 ON class_subject_assessment_scores
 DEFERRABLE INITIALLY DEFERRED
 FOR EACH ROW
@@ -225,7 +225,7 @@ END$$;
 CREATE TABLE IF NOT EXISTS user_class_subject_final_grades (
 user_class_subject_final_grades_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-user_class_subject_final_grades_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+user_class_subject_final_grades_school_id UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 user_class_subject_final_grades_user_class_id UUID NOT NULL REFERENCES user_classes(user_classes_id) ON DELETE CASCADE,
 user_class_subject_final_grades_class_subject_id UUID NOT NULL REFERENCES class_subjects(class_subjects_id) ON DELETE CASCADE,
 
@@ -252,7 +252,7 @@ deleted_at TIMESTAMP
 -- Unik per (tenant, user_class, class_subject, academic_year) yang live
 CREATE UNIQUE INDEX IF NOT EXISTS uq_ucsf_tenant_uc_cs_year_live
 ON user_class_subject_final_grades (
-user_class_subject_final_grades_masjid_id,
+user_class_subject_final_grades_school_id,
 user_class_subject_final_grades_user_class_id,
 user_class_subject_final_grades_class_subject_id,
 COALESCE(user_class_subject_final_grades_academic_year,'')
@@ -277,34 +277,34 @@ FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_generic();
 CREATE OR REPLACE FUNCTION fn_ucsf_validate_links()
 RETURNS TRIGGER AS $$
 DECLARE
-v_cs_masjid UUID;
+v_cs_school UUID;
 v_cs_class UUID;
-v_uc_masjid UUID;
+v_uc_school UUID;
 v_uc_class UUID;
 BEGIN
-SELECT class_subjects_masjid_id, class_subjects_class_id
-INTO v_cs_masjid, v_cs_class
+SELECT class_subjects_school_id, class_subjects_class_id
+INTO v_cs_school, v_cs_class
 FROM class_subjects
 WHERE class_subjects_id = NEW.user_class_subject_final_grades_class_subject_id
 AND class_subjects_deleted_at IS NULL;
 
-IF v_cs_masjid IS NULL THEN
+IF v_cs_school IS NULL THEN
 RAISE EXCEPTION 'class_subject invalid/terhapus';
 END IF;
 
-SELECT user_classes_masjid_id, user_classes_class_id
-INTO v_uc_masjid, v_uc_class
+SELECT user_classes_school_id, user_classes_class_id
+INTO v_uc_school, v_uc_class
 FROM user_classes
 WHERE user_classes_id = NEW.user_class_subject_final_grades_user_class_id;
 
-IF v_uc_masjid IS NULL THEN
+IF v_uc_school IS NULL THEN
 RAISE EXCEPTION 'user_class invalid';
 END IF;
 
 -- Tenant harus sama
-IF NEW.user_class_subject_final_grades_masjid_id <> v_cs_masjid
-OR NEW.user_class_subject_final_grades_masjid_id <> v_uc_masjid THEN
-RAISE EXCEPTION 'Masjid mismatch di final_grades';
+IF NEW.user_class_subject_final_grades_school_id <> v_cs_school
+OR NEW.user_class_subject_final_grades_school_id <> v_uc_school THEN
+RAISE EXCEPTION 'School mismatch di final_grades';
 END IF;
 
 -- Siswa harus berada di class yang sama dengan class_subject
@@ -323,7 +323,7 @@ END IF;
 
 CREATE CONSTRAINT TRIGGER trg_ucsf_validate_links
 AFTER INSERT OR UPDATE OF
-user_class_subject_final_grades_masjid_id,
+user_class_subject_final_grades_school_id,
 user_class_subject_final_grades_user_class_id,
 user_class_subject_final_grades_class_subject_id
 ON user_class_subject_final_grades
@@ -337,7 +337,7 @@ END$$;
 -- =========================================================
 CREATE TABLE IF NOT EXISTS report_cards (
 report_cards_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-report_cards_masjid_id UUID NOT NULL REFERENCES masjids(masjid_id) ON DELETE CASCADE,
+report_cards_school_id UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
 report_cards_user_class_id UUID NOT NULL REFERENCES user_classes(user_classes_id) ON DELETE CASCADE,
 
 report_cards_academic_year TEXT,
@@ -373,7 +373,7 @@ deleted_at TIMESTAMP
 -- Unik 1 rapor per scope (live only)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_report_cards_scope_live
 ON report_cards (
-report_cards_masjid_id,
+report_cards_school_id,
 report_cards_user_class_id,
 COALESCE(report_cards_academic_year,''),
 COALESCE(report_cards_term_id::text,''),
@@ -382,7 +382,7 @@ report_cards_period_end
 ) WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS ix_report_cards_tenant_userclass_live
-ON report_cards (report_cards_masjid_id, report_cards_user_class_id)
+ON report_cards (report_cards_school_id, report_cards_user_class_id)
 WHERE deleted_at IS NULL;
 
 DROP TRIGGER IF EXISTS trg_touch_report_cards ON report_cards;
@@ -394,37 +394,37 @@ FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_generic();
 CREATE OR REPLACE FUNCTION fn_report_cards_validate_links()
 RETURNS TRIGGER AS $$
 DECLARE
-v_uc_masjid UUID;
-v_term_masjid UUID;
+v_uc_school UUID;
+v_term_school UUID;
 v_term_start DATE;
 v_term_end DATE;
 BEGIN
 -- user_class tenant
-SELECT user_classes_masjid_id
-INTO v_uc_masjid
+SELECT user_classes_school_id
+INTO v_uc_school
 FROM user_classes
 WHERE user_classes_id = NEW.report_cards_user_class_id;
 
-IF v_uc_masjid IS NULL THEN
+IF v_uc_school IS NULL THEN
 RAISE EXCEPTION 'user_class invalid';
 END IF;
-IF NEW.report_cards_masjid_id <> v_uc_masjid THEN
-RAISE EXCEPTION 'Masjid mismatch pada report_cards';
+IF NEW.report_cards_school_id <> v_uc_school THEN
+RAISE EXCEPTION 'School mismatch pada report_cards';
 END IF;
 
 -- jika term_id diisi: tenant & periode harus berada dalam rentang term
 IF NEW.report_cards_term_id IS NOT NULL THEN
-SELECT academic_terms_masjid_id, academic_terms_start_date, academic_terms_end_date
-INTO v_term_masjid, v_term_start, v_term_end
+SELECT academic_terms_school_id, academic_terms_start_date, academic_terms_end_date
+INTO v_term_school, v_term_start, v_term_end
 FROM academic_terms
 WHERE academic_terms_id = NEW.report_cards_term_id
 AND deleted_at IS NULL;
 
-    IF v_term_masjid IS NULL THEN
+    IF v_term_school IS NULL THEN
       RAISE EXCEPTION 'academic_term invalid/terhapus';
     END IF;
-    IF v_term_masjid <> NEW.report_cards_masjid_id THEN
-      RAISE EXCEPTION 'Masjid mismatch: report_cards vs academic_terms';
+    IF v_term_school <> NEW.report_cards_school_id THEN
+      RAISE EXCEPTION 'School mismatch: report_cards vs academic_terms';
     END IF;
     IF NOT (NEW.report_cards_period_start >= v_term_start AND NEW.report_cards_period_end <= v_term_end) THEN
       RAISE EXCEPTION 'Periode rapor tidak berada dalam rentang academic_term';
@@ -443,7 +443,7 @@ END IF;
 
 CREATE CONSTRAINT TRIGGER trg_report_cards_validate_links
 AFTER INSERT OR UPDATE OF
-report_cards_masjid_id, report_cards_user_class_id, report_cards_term_id,
+report_cards_school_id, report_cards_user_class_id, report_cards_term_id,
 report_cards_period_start, report_cards_period_end
 ON report_cards
 DEFERRABLE INITIALLY DEFERRED
@@ -494,19 +494,19 @@ FOR EACH ROW EXECUTE FUNCTION fn_touch_updated_at_generic();
 CREATE OR REPLACE FUNCTION fn_report_card_items_validate_links()
 RETURNS TRIGGER AS $$
 DECLARE
-v_rc_masjid UUID;
+v_rc_school UUID;
 v_rc_user_class UUID;
 v_cs_class UUID;
 v_uc_class UUID;
 BEGIN
 -- pastikan item mengacu ke rapor yang valid
-SELECT report_cards_masjid_id, report_cards_user_class_id
-INTO v_rc_masjid, v_rc_user_class
+SELECT report_cards_school_id, report_cards_user_class_id
+INTO v_rc_school, v_rc_user_class
 FROM report_cards
 WHERE report_cards_id = NEW.report_card_items_report_card_id
 AND deleted_at IS NULL;
 
-IF v_rc_masjid IS NULL THEN
+IF v_rc_school IS NULL THEN
 RAISE EXCEPTION 'report_card invalid/terhapus';
 END IF;
 
@@ -556,11 +556,7 @@ END$$;
 -- =========================================================
 -- Catatan performa:
 -- - Semua UNIQUE memakai partial index “WHERE deleted_at IS NULL” agar soft-delete aman.
--- - Index komposit diawali kolom tenant (…\_masjid_id) supaya selective untuk multi-tenant.
+-- - Index komposit diawali kolom tenant (…\_school_id) supaya selective untuk multi-tenant.
 -- - TRGM disiapkan untuk kolom judul/teks yang dicari bebas.
 -- - Trigger DEFERRABLE menjaga konsistensi lintas tabel tanpa mengorbankan kecepatan insert bulk.
 -- =========================================================
-
-
-
-

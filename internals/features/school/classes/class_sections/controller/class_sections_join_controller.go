@@ -2,9 +2,9 @@ package controller
 
 import (
 	"errors"
-	secModel "masjidku_backend/internals/features/school/classes/class_sections/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	secModel "schoolku_backend/internals/features/school/classes/class_sections/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 	"strings"
 	"time"
 
@@ -30,7 +30,7 @@ func (ctrl *ClassSectionController) loadSectionForStaff(c *fiber.Ctx) (*secModel
 		return nil, helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data section")
 	}
 	// Guard akses staff
-	if err := helperAuth.EnsureStaffMasjid(c, m.ClassSectionMasjidID); err != nil {
+	if err := helperAuth.EnsureStaffSchool(c, m.ClassSectionSchoolID); err != nil {
 		return nil, err
 	}
 	return &m, nil

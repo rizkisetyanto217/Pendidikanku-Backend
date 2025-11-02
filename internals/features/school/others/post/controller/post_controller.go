@@ -12,10 +12,10 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	dto "masjidku_backend/internals/features/school/others/post/dto"
-	model "masjidku_backend/internals/features/school/others/post/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	dto "schoolku_backend/internals/features/school/others/post/dto"
+	model "schoolku_backend/internals/features/school/others/post/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 /* ==============================
@@ -115,13 +115,13 @@ func isUniqueViolation(err error) bool {
 }
 
 /* ==============================
-   Auth & masjid context
+   Auth & school context
 ============================== */
 
-// Resolve masjid via context (id/slug) dan pastikan user adalah member
-func resolveMasjidForRead(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) {
+// Resolve school via context (id/slug) dan pastikan user adalah member
+func resolveSchoolForRead(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) {
 	c.Locals("DB", db) // untuk helper slug→id
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -130,26 +130,26 @@ func resolveMasjidForRead(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) {
 	if mc.ID != uuid.Nil {
 		mid = mc.ID
 	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil || id == uuid.Nil {
-			return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
 		mid = id
 	} else {
-		return uuid.Nil, helperAuth.ErrMasjidContextMissing
+		return uuid.Nil, helperAuth.ErrSchoolContextMissing
 	}
 
 	// minimal member
-	if !helperAuth.UserHasMasjid(c, mid) {
-		return uuid.Nil, fiber.NewError(fiber.StatusForbidden, "Anda bukan member masjid ini")
+	if !helperAuth.UserHasSchool(c, mid) {
+		return uuid.Nil, fiber.NewError(fiber.StatusForbidden, "Anda bukan member school ini")
 	}
 	return mid, nil
 }
 
-// Resolve masjid untuk write (DKM/Teacher/Owner)
-func resolveMasjidForWrite(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) {
+// Resolve school untuk write (DKM/Teacher/Owner)
+func resolveSchoolForWrite(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) {
 	c.Locals("DB", db)
-	mc, err := helperAuth.ResolveMasjidContext(c)
+	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -158,17 +158,17 @@ func resolveMasjidForWrite(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) {
 	if mc.ID != uuid.Nil {
 		mid = mc.ID
 	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetMasjidIDBySlug(c, s)
+		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil || id == uuid.Nil {
-			return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "Masjid (slug) tidak ditemukan")
+			return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
 		mid = id
 	} else {
-		return uuid.Nil, helperAuth.ErrMasjidContextMissing
+		return uuid.Nil, helperAuth.ErrSchoolContextMissing
 	}
 
 	// DKM/Teacher (Owner juga boleh)
-	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, mid); err != nil && !helperAuth.IsOwner(c) {
+	if err := helperAuth.EnsureDKMOrTeacherSchool(c, mid); err != nil && !helperAuth.IsOwner(c) {
 		return uuid.Nil, err
 	}
 	return mid, nil
@@ -181,7 +181,7 @@ func resolveMasjidForWrite(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) {
 // POST /posts — Create
 func (ctl *PostController) Create(c *fiber.Ctx) error {
 	// auth
-	mid, err := resolveMasjidForWrite(c, ctl.DB)
+	mid, err := resolveSchoolForWrite(c, ctl.DB)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -198,7 +198,7 @@ func (ctl *PostController) Create(c *fiber.Ctx) error {
 	}
 
 	// force tenant
-	req.PostMasjidID = mid
+	req.PostSchoolID = mid
 
 	m := req.ToModel()
 
@@ -216,7 +216,7 @@ func (ctl *PostController) Create(c *fiber.Ctx) error {
 		"post_slug",
 		base,
 		func(q *gorm.DB) *gorm.DB {
-			return q.Where("post_masjid_id = ? AND post_deleted_at IS NULL", mid)
+			return q.Where("post_school_id = ? AND post_deleted_at IS NULL", mid)
 		},
 		160,
 	)
@@ -247,7 +247,7 @@ func (ctl *PostController) Patch(c *fiber.Ctx) error {
 	var mid uuid.UUID
 	var err error
 
-	// Jika param UUID → ambil langsung by ID; lalu authorize di masjid row tsb.
+	// Jika param UUID → ambil langsung by ID; lalu authorize di school row tsb.
 	if isUUID(idOrSlug) {
 		id, _ := uuid.Parse(idOrSlug)
 		if err := ctl.DB.WithContext(c.Context()).
@@ -257,17 +257,17 @@ func (ctl *PostController) Patch(c *fiber.Ctx) error {
 			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
-		mid = row.PostMasjidID
+		mid = row.PostSchoolID
 		// authorize
-		if err := helperAuth.EnsureDKMOrTeacherMasjid(c, mid); err != nil && !helperAuth.IsOwner(c) {
+		if err := helperAuth.EnsureDKMOrTeacherSchool(c, mid); err != nil && !helperAuth.IsOwner(c) {
 			if fe, ok := err.(*fiber.Error); ok {
 				return helper.JsonError(c, fe.Code, fe.Message)
 			}
 			return err
 		}
 	} else {
-		// Param dianggap slug → wajib masjid context
-		mid, err = resolveMasjidForWrite(c, ctl.DB)
+		// Param dianggap slug → wajib school context
+		mid, err = resolveSchoolForWrite(c, ctl.DB)
 		if err != nil {
 			if fe, ok := err.(*fiber.Error); ok {
 				return helper.JsonError(c, fe.Code, fe.Message)
@@ -275,7 +275,7 @@ func (ctl *PostController) Patch(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 		}
 		if err := ctl.DB.WithContext(c.Context()).
-			First(&row, "post_masjid_id = ? AND post_slug = ? AND post_deleted_at IS NULL", mid, idOrSlug).Error; err != nil {
+			First(&row, "post_school_id = ? AND post_slug = ? AND post_deleted_at IS NULL", mid, idOrSlug).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, fiber.StatusNotFound, "Post tidak ditemukan")
 			}
@@ -307,8 +307,8 @@ func (ctl *PostController) Patch(c *fiber.Ctx) error {
 				base,
 				func(q *gorm.DB) *gorm.DB {
 					return q.Where(
-						"post_masjid_id = ? AND post_deleted_at IS NULL AND post_id <> ?",
-						row.PostMasjidID, row.PostID,
+						"post_school_id = ? AND post_deleted_at IS NULL AND post_id <> ?",
+						row.PostSchoolID, row.PostID,
 					)
 				},
 				160,
@@ -361,7 +361,7 @@ func (ctl *PostController) Delete(c *fiber.Ctx) error {
 	}
 
 	// authorize
-	if err := helperAuth.EnsureDKMOrTeacherMasjid(c, row.PostMasjidID); err != nil && !helperAuth.IsOwner(c) {
+	if err := helperAuth.EnsureDKMOrTeacherSchool(c, row.PostSchoolID); err != nil && !helperAuth.IsOwner(c) {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}

@@ -3,25 +3,25 @@ package controller
 import (
 	"strings"
 
-	dto "masjidku_backend/internals/features/finance/general_billings/dto"
-	m "masjidku_backend/internals/features/finance/general_billings/model"
-	helper "masjidku_backend/internals/helpers"
-	helperAuth "masjidku_backend/internals/helpers/auth"
+	dto "schoolku_backend/internals/features/finance/general_billings/dto"
+	m "schoolku_backend/internals/features/finance/general_billings/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-// GET /api/a/:masjid_id/general-billing-kinds
+// GET /api/a/:school_id/general-billing-kinds
 func (ctl *GeneralBillingKindController) List(c *fiber.Ctx) error {
-	// 1) Guard masjid di path
-	masjidID, err := helperAuth.ParseMasjidIDFromPath(c)
+	// 1) Guard school di path
+	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
 	if err != nil {
 		return err
 	}
-	if er := helperAuth.EnsureDKMOrTeacherMasjid(c, masjidID); er != nil {
+	if er := helperAuth.EnsureDKMOrTeacherSchool(c, schoolID); er != nil {
 		return er
 	}
-	c.Locals("__masjid_guard_ok", masjidID.String())
+	c.Locals("__school_guard_ok", schoolID.String())
 
 	// 2) Ambil query (non-paging)
 	var q dto.ListGeneralBillingKindsQuery
@@ -53,7 +53,7 @@ func (ctl *GeneralBillingKindController) List(c *fiber.Ctx) error {
 	// 4) Base query: tenant + belum dihapus
 	tx := ctl.DB.WithContext(c.Context()).
 		Model(&m.GeneralBillingKind{}).
-		Where("general_billing_kind_masjid_id = ? AND general_billing_kind_deleted_at IS NULL", masjidID)
+		Where("general_billing_kind_school_id = ? AND general_billing_kind_deleted_at IS NULL", schoolID)
 
 	// 5) Filters tambahan
 	if q.IsActive != nil {

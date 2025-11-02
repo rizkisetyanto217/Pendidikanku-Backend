@@ -45,7 +45,7 @@ type PostURLUpdateDTO struct {
 
 type PostURLResponseDTO struct {
 	PostURLID              uuid.UUID  `json:"post_url_id"`
-	PostURLMasjidID        uuid.UUID  `json:"post_url_masjid_id"`
+	PostURLSchoolID        uuid.UUID  `json:"post_url_school_id"`
 	PostURLPostID          uuid.UUID  `json:"post_url_post_id"`
 	PostURLKind            string     `json:"post_url_kind"`
 	PostURLHref            *string    `json:"post_url_href,omitempty"`

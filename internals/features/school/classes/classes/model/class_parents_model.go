@@ -13,7 +13,7 @@ import (
 type ClassParentModel struct {
 	// PK & Tenant
 	ClassParentID       uuid.UUID `json:"class_parent_id"        gorm:"column:class_parent_id;type:uuid;primaryKey;default:gen_random_uuid()"`
-	ClassParentMasjidID uuid.UUID `json:"class_parent_masjid_id" gorm:"column:class_parent_masjid_id;type:uuid;not null"`
+	ClassParentSchoolID uuid.UUID `json:"class_parent_school_id" gorm:"column:class_parent_school_id;type:uuid;not null"`
 
 	// Identitas
 	ClassParentName        string  `json:"class_parent_name"        gorm:"column:class_parent_name;type:varchar(120);not null"`

@@ -1,7 +1,7 @@
 package dto
 
 import (
-	"masjidku_backend/internals/features/home/posts/model"
+	"schoolku_backend/internals/features/home/posts/model"
 	"time"
 )
 
@@ -9,21 +9,21 @@ import (
 // Response DTO
 // ============================
 type PostDTO struct {
-	PostID          string         `json:"post_id"`
-	PostTitle       string         `json:"post_title"`
-	PostContent     string         `json:"post_content"`
-	PostImageURL    *string        `json:"post_image_url"`
-	PostIsPublished bool           `json:"post_is_published"`
-	PostType        string         `json:"post_type"`
-	PostThemeID     *string        `json:"post_theme_id"`
-	PostMasjidID    *string        `json:"post_masjid_id"`
-	PostUserID      *string        `json:"post_user_id"`
-	PostCreatedAt   time.Time      `json:"post_created_at"`
-	PostUpdatedAt   time.Time      `json:"post_updated_at"`
-	PostDeletedAt   *time.Time     `json:"post_deleted_at"`
-	PostTheme       *PostThemeDTO  `json:"post_theme,omitempty"`
-	LikeCount       int64          `json:"like_count"`
-	IsLikedByUser   bool           `json:"is_liked_by_user"`
+	PostID          string        `json:"post_id"`
+	PostTitle       string        `json:"post_title"`
+	PostContent     string        `json:"post_content"`
+	PostImageURL    *string       `json:"post_image_url"`
+	PostIsPublished bool          `json:"post_is_published"`
+	PostType        string        `json:"post_type"`
+	PostThemeID     *string       `json:"post_theme_id"`
+	PostSchoolID    *string       `json:"post_school_id"`
+	PostUserID      *string       `json:"post_user_id"`
+	PostCreatedAt   time.Time     `json:"post_created_at"`
+	PostUpdatedAt   time.Time     `json:"post_updated_at"`
+	PostDeletedAt   *time.Time    `json:"post_deleted_at"`
+	PostTheme       *PostThemeDTO `json:"post_theme,omitempty"`
+	LikeCount       int64         `json:"like_count"`
+	IsLikedByUser   bool          `json:"is_liked_by_user"`
 }
 
 // ============================
@@ -36,7 +36,7 @@ type CreatePostRequest struct {
 	PostIsPublished bool    `json:"post_is_published"`
 	PostType        string  `json:"post_type" validate:"omitempty,oneof=text image video"`
 	PostThemeID     *string `json:"post_theme_id" validate:"omitempty,uuid"`
-	PostMasjidID    *string `json:"post_masjid_id"`
+	PostSchoolID    *string `json:"post_school_id"`
 }
 
 // ============================
@@ -65,7 +65,7 @@ func ToPostDTO(m model.PostModel, likeCount int64) PostDTO {
 		PostIsPublished: m.PostIsPublished,
 		PostType:        m.PostType,
 		PostThemeID:     m.PostThemeID,
-		PostMasjidID:    m.PostMasjidID,
+		PostSchoolID:    m.PostSchoolID,
 		PostUserID:      m.PostUserID,
 		PostCreatedAt:   m.PostCreatedAt,
 		PostUpdatedAt:   m.PostUpdatedAt,
@@ -90,7 +90,7 @@ func ToPostDTOFull(m model.PostModel, theme *model.PostThemeModel, likeCount int
 		PostIsPublished: m.PostIsPublished,
 		PostType:        m.PostType,
 		PostThemeID:     m.PostThemeID,
-		PostMasjidID:    m.PostMasjidID,
+		PostSchoolID:    m.PostSchoolID,
 		PostUserID:      m.PostUserID,
 		PostCreatedAt:   m.PostCreatedAt,
 		PostUpdatedAt:   m.PostUpdatedAt,
@@ -104,7 +104,7 @@ func ToPostDTOFull(m model.PostModel, theme *model.PostThemeModel, likeCount int
 			PostThemeID:          theme.PostThemeID,
 			PostThemeName:        theme.PostThemeName,
 			PostThemeDescription: theme.PostThemeDescription,
-			PostThemeMasjidID:    theme.PostThemeMasjidID,
+			PostThemeSchoolID:    theme.PostThemeSchoolID,
 			PostThemeCreatedAt:   theme.PostThemeCreatedAt,
 		}
 	}
@@ -121,7 +121,7 @@ func ToPostModel(req CreatePostRequest, userID *string) model.PostModel {
 		PostIsPublished: req.PostIsPublished,
 		PostType:        req.PostType,
 		PostThemeID:     req.PostThemeID,
-		PostMasjidID:    req.PostMasjidID,
+		PostSchoolID:    req.PostSchoolID,
 		PostUserID:      userID,
 	}
 }

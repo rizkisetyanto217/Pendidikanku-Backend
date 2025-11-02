@@ -5,7 +5,7 @@ package service
 // 	"math"
 // 	"time"
 
-// 	rmodel "masjidku_backend/internals/features/school/sessions/schedules/model"
+// 	rmodel "schoolku_backend/internals/features/school/sessions/schedules/model"
 // )
 
 // // Map Go's time.Weekday() (0=Sunday) → 1..7 (Mon..Sun)
