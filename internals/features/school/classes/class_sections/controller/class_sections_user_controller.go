@@ -1,11 +1,13 @@
+// file: internals/features/school/classes/class_sections/controller/class_section_list.go
 package controller
 
 import (
-	"errors"
 	"strings"
 
+	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	secDTO "schoolku_backend/internals/features/school/classes/class_sections/dto"
 	secModel "schoolku_backend/internals/features/school/classes/class_sections/model"
+
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
 
@@ -13,14 +15,12 @@ import (
 	"github.com/google/uuid"
 )
 
-/* ================= Helpers ================= */
+// ... parseUUIDList tetap sama
 
-// parseUUIDList: "a,b,c" → []uuid.UUID (dedupe + validasi)
 func parseUUIDList(s string) ([]uuid.UUID, error) {
 	parts := strings.Split(s, ",")
 	seen := make(map[uuid.UUID]struct{}, len(parts))
 	out := make([]uuid.UUID, 0, len(parts))
-
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
 		if p == "" {
@@ -28,7 +28,7 @@ func parseUUIDList(s string) ([]uuid.UUID, error) {
 		}
 		id, err := uuid.Parse(p)
 		if err != nil {
-			return nil, errors.New("UUID tidak valid: " + p)
+			return nil, err
 		}
 		if _, ok := seen[id]; !ok {
 			seen[id] = struct{}{}
@@ -36,22 +36,14 @@ func parseUUIDList(s string) ([]uuid.UUID, error) {
 		}
 	}
 	if len(out) == 0 {
-		return nil, errors.New("daftar kosong")
+		return nil, fiber.NewError(fiber.StatusBadRequest, "daftar id kosong")
 	}
 	return out, nil
 }
 
-/* ================= List (simple, snapshot-first) ================= */
-
 // GET /api/{a|u}/:school_id/class-sections/list
-// Params ringan:
-//   - q atau search         : keyword (min 2 char bila pakai q)
-//   - is_active             : bool
-//   - id                    : comma-separated UUIDs (opsional)
-//
-// Sort & paging via helper.ParseFiber (sortBy: name|created_at)
 func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
-	/* ---------- School context dari path/slug (PUBLIC) ---------- */
+	/* ---------- School context ---------- */
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
@@ -80,7 +72,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 		}
 	}
 
-	/* ---------- Paging & sorting (default dinamis) ---------- */
+	/* ---------- Paging & sorting ---------- */
 	defaultSortBy := "created_at"
 	defaultSortOrder := "desc"
 	if searchTerm != "" {
@@ -89,15 +81,17 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	}
 	p := helper.ParseFiber(c, defaultSortBy, defaultSortOrder, helper.AdminOpts)
 
-	// whitelist kolom → nama kolom DB
 	allowed := map[string]string{
 		"name":       "class_section_name",
 		"created_at": "class_section_created_at",
 	}
-	orderClause, _ := (helper.Params{SortBy: p.SortBy, SortOrder: p.SortOrder}).SafeOrderClause(allowed, defaultSortBy)
+	orderClause, _ := (helper.Params{
+		SortBy:    p.SortBy,
+		SortOrder: p.SortOrder,
+	}).SafeOrderClause(allowed, defaultSortBy)
 	orderClause = strings.TrimPrefix(orderClause, "ORDER BY ")
 
-	/* ---------- Filters ringan ---------- */
+	/* ---------- Filters ---------- */
 	var (
 		sectionIDs []uuid.UUID
 		activeOnly *bool
@@ -113,8 +107,9 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 		v := c.QueryBool("is_active")
 		activeOnly = &v
 	}
+	withCSST := c.QueryBool("with_csst")
 
-	/* ---------- Base query (single-tenant via school context) ---------- */
+	/* ---------- Query base (tenant-safe) ---------- */
 	tx := ctrl.DB.Model(&secModel.ClassSectionModel{}).
 		Where("class_section_deleted_at IS NULL").
 		Where("class_section_school_id = ?", schoolID)
@@ -137,7 +132,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	/* ---------- Total ---------- */
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung total")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total")
 	}
 
 	/* ---------- Data ---------- */
@@ -150,22 +145,59 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 
 	var rows []secModel.ClassSectionModel
 	if err := tx.Find(&rows).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	/* ---------- Build response dari snapshot DTO ---------- */
-	/* ---------- Build response dari snapshot DTO (tanpa "data") ---------- */
+	/* ---------- Build items ---------- */
 	items := make([]secDTO.ClassSectionResponse, 0, len(rows))
+	idsInPage := make([]uuid.UUID, 0, len(rows))
 	for i := range rows {
 		items = append(items, secDTO.FromModelClassSection(&rows[i]))
+		idsInPage = append(idsInPage, rows[i].ClassSectionID)
 	}
 
-	meta := helper.BuildMeta(total, p)
+	// pagination pakai helper kamu: key "pagination"
+	pagination := helper.BuildMeta(total, p) // kalau namanya "meta", tetap bisa dipakai sebagai payload pagination
 
-	// langsung kirim tanpa wrapper "data"
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"data": items,
-		"meta": meta,
-	})
+	/* ---------- (Opsional) CSST includes ---------- */
+	/* ---------- (Opsional) CSST includes ---------- */
+	if withCSST {
+		targetIDs := sectionIDs
+		if len(targetIDs) == 0 {
+			targetIDs = idsInPage
+		}
 
+		// Selalu siapkan includes kosong agar schema stabil
+		csstBySection := make(map[uuid.UUID][]csstModel.ClassSectionSubjectTeacherModel, len(targetIDs))
+
+		if len(targetIDs) > 0 {
+			var csstRows []csstModel.ClassSectionSubjectTeacherModel
+			csstQ := ctrl.DB.Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+				Where("class_section_subject_teacher_deleted_at IS NULL").
+				Where("class_section_subject_teacher_school_id = ?", schoolID).
+				Where("class_section_subject_teacher_section_id IN ?", targetIDs)
+
+			if activeOnly != nil {
+				csstQ = csstQ.Where("class_section_subject_teacher_is_active = ?", *activeOnly)
+			}
+
+			if err := csstQ.Find(&csstRows).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil CSST")
+			}
+
+			for i := range csstRows {
+				r := csstRows[i]
+				csstBySection[r.ClassSectionSubjectTeacherSectionID] =
+					append(csstBySection[r.ClassSectionSubjectTeacherSectionID], r)
+			}
+		}
+
+		includes := fiber.Map{
+			"csst_by_section": csstBySection, // map[UUID][]ClassSectionSubjectTeacherModel
+		}
+		return helper.JsonListEx(c, items, pagination, includes)
+	}
+
+	// ✅ default tanpa includes
+	return helper.JsonList(c, items, pagination)
 }

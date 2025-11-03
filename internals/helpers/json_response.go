@@ -2,7 +2,6 @@ package helper
 
 import "github.com/gofiber/fiber/v2"
 
-
 // ===============================
 // Response JSON standar
 // ===============================
@@ -56,4 +55,11 @@ func JsonError(c *fiber.Ctx, status int, message string) error {
 	})
 }
 
-
+// Success: list + includes (opsional)
+func JsonListEx(c *fiber.Ctx, data any, pagination any, includes any) error {
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"data":       data,
+		"pagination": pagination,
+		"includes":   includes,
+	})
+}
