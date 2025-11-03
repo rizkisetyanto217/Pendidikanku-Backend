@@ -40,8 +40,6 @@ func trimPtr(s *string) *string {
 
 /* =========================================================
    0) TYPES untuk Snapshot Buku (parsed)
-   - Disinkronkan dgn builder snapshot di DB:
-   - key: csb_id, book_id, title, author, slug, image_url, is_primary, created_at
 ========================================================= */
 
 type BookSnap struct {
@@ -51,7 +49,7 @@ type BookSnap struct {
 	Author    *string    `json:"author,omitempty"`
 	Slug      *string    `json:"slug,omitempty"`
 	ImageURL  *string    `json:"image_url,omitempty"`
-	IsPrimary bool       `json:"is_primary"` // jika di snapshot diset; default false kalau tidak ada
+	IsPrimary bool       `json:"is_primary"`
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 }
 
@@ -60,15 +58,16 @@ type BookSnap struct {
 ========================================================= */
 
 // Create
-// Catatan: class_section_subject_teacher_school_id biasanya diisi dari token pada controller.
 type CreateClassSectionSubjectTeacherRequest struct {
-	ClassSectionSubjectTeacherSchoolID       *uuid.UUID `json:"class_section_subject_teacher_school_id"  validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherSectionID      uuid.UUID  `json:"class_section_subject_teacher_section_id" validate:"required,uuid"`
-	ClassSectionSubjectTeacherClassSubjectID uuid.UUID  `json:"class_section_subject_teacher_class_subject_id" validate:"required,uuid"`
+	// Biasanya diisi dari context auth pada controller
+	ClassSectionSubjectTeacherSchoolID *uuid.UUID `json:"class_section_subject_teacher_school_id"  validate:"omitempty,uuid"`
+
+	ClassSectionSubjectTeacherSectionID          uuid.UUID `json:"class_section_subject_teacher_section_id" validate:"required,uuid"`
+	ClassSectionSubjectTeacherClassSubjectBookID uuid.UUID `json:"class_section_subject_teacher_class_subject_book_id" validate:"required,uuid"`
 	// pakai school_teachers.school_teacher_id
 	ClassSectionSubjectTeacherTeacherID uuid.UUID `json:"class_section_subject_teacher_teacher_id" validate:"required,uuid"`
 
-	// ➕ Asisten (opsional) — dipakai di controller untuk buat snapshot JSON (bukan FK kolom)
+	// ➕ Asisten (opsional) — dipakai di controller untuk build snapshot JSON (bukan FK)
 	ClassSectionSubjectTeacherAssistantTeacherID *uuid.UUID `json:"class_section_subject_teacher_assistant_teacher_id" validate:"omitempty,uuid"`
 
 	// Opsional
@@ -77,8 +76,9 @@ type CreateClassSectionSubjectTeacherRequest struct {
 	ClassSectionSubjectTeacherRoomID      *uuid.UUID `json:"class_section_subject_teacher_room_id" validate:"omitempty,uuid"`
 	ClassSectionSubjectTeacherGroupURL    *string    `json:"class_section_subject_teacher_group_url" validate:"omitempty,max=2000"`
 	ClassSectionSubjectTeacherCapacity    *int       `json:"class_section_subject_teacher_capacity" validate:"omitempty"` // >=0 divalidasi di DB (CHECK)
+
 	// enum: offline|online|hybrid
-	ClassSectionsSubjectTeacherDeliveryMode *csstModel.ClassDeliveryMode `json:"class_sections_subject_teacher_delivery_mode" validate:"omitempty,oneof=offline online hybrid"`
+	ClassSectionSubjectTeacherDeliveryMode *csstModel.ClassDeliveryMode `json:"class_section_subject_teacher_delivery_mode" validate:"omitempty,oneof=offline online hybrid"`
 
 	// Status
 	ClassSectionSubjectTeacherIsActive *bool `json:"class_section_subject_teacher_is_active" validate:"omitempty"`
@@ -86,35 +86,35 @@ type CreateClassSectionSubjectTeacherRequest struct {
 
 // Update (partial)
 type UpdateClassSectionSubjectTeacherRequest struct {
-	ClassSectionSubjectTeacherSchoolID       *uuid.UUID `json:"class_section_subject_teacher_school_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherSectionID      *uuid.UUID `json:"class_section_subject_teacher_section_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherClassSubjectID *uuid.UUID `json:"class_section_subject_teacher_class_subject_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherTeacherID      *uuid.UUID `json:"class_section_subject_teacher_teacher_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherSchoolID           *uuid.UUID `json:"class_section_subject_teacher_school_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherSectionID          *uuid.UUID `json:"class_section_subject_teacher_section_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherClassSubjectBookID *uuid.UUID `json:"class_section_subject_teacher_class_subject_book_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherTeacherID          *uuid.UUID `json:"class_section_subject_teacher_teacher_id" validate:"omitempty,uuid"`
 
 	// ➕ Asisten (opsional) — untuk rebuild snapshot asisten saat update (jika perlu)
 	ClassSectionSubjectTeacherAssistantTeacherID *uuid.UUID `json:"class_section_subject_teacher_assistant_teacher_id" validate:"omitempty,uuid"`
 
-	ClassSectionSubjectTeacherSlug          *string                      `json:"class_section_subject_teacher_slug" validate:"omitempty,max=160"`
-	ClassSectionSubjectTeacherDescription   *string                      `json:"class_section_subject_teacher_description" validate:"omitempty"`
-	ClassSectionSubjectTeacherRoomID        *uuid.UUID                   `json:"class_section_subject_teacher_room_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherGroupURL      *string                      `json:"class_section_subject_teacher_group_url" validate:"omitempty,max=2000"`
-	ClassSectionSubjectTeacherCapacity      *int                         `json:"class_section_subject_teacher_capacity" validate:"omitempty"`
-	ClassSectionsSubjectTeacherDeliveryMode *csstModel.ClassDeliveryMode `json:"class_sections_subject_teacher_delivery_mode" validate:"omitempty,oneof=offline online hybrid"`
+	ClassSectionSubjectTeacherSlug         *string                      `json:"class_section_subject_teacher_slug" validate:"omitempty,max=160"`
+	ClassSectionSubjectTeacherDescription  *string                      `json:"class_section_subject_teacher_description" validate:"omitempty"`
+	ClassSectionSubjectTeacherRoomID       *uuid.UUID                   `json:"class_section_subject_teacher_room_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherGroupURL     *string                      `json:"class_section_subject_teacher_group_url" validate:"omitempty,max=2000"`
+	ClassSectionSubjectTeacherCapacity     *int                         `json:"class_section_subject_teacher_capacity" validate:"omitempty"`
+	ClassSectionSubjectTeacherDeliveryMode *csstModel.ClassDeliveryMode `json:"class_section_subject_teacher_delivery_mode" validate:"omitempty,oneof=offline online hybrid"`
 
 	ClassSectionSubjectTeacherIsActive *bool `json:"class_section_subject_teacher_is_active" validate:"omitempty"`
 }
 
 /* =========================================================
-   2) RESPONSE DTO — sinkron dgn SQL/model terbaru
+   2) RESPONSE DTO — sinkron SQL/model terbaru
 ========================================================= */
 
 type ClassSectionSubjectTeacherResponse struct {
 	// IDs
-	ClassSectionSubjectTeacherID             uuid.UUID `json:"class_section_subject_teacher_id"`
-	ClassSectionSubjectTeacherSchoolID       uuid.UUID `json:"class_section_subject_teacher_school_id"`
-	ClassSectionSubjectTeacherSectionID      uuid.UUID `json:"class_section_subject_teacher_section_id"`
-	ClassSectionSubjectTeacherClassSubjectID uuid.UUID `json:"class_section_subject_teacher_class_subject_id"`
-	ClassSectionSubjectTeacherTeacherID      uuid.UUID `json:"class_section_subject_teacher_teacher_id"`
+	ClassSectionSubjectTeacherID                 uuid.UUID `json:"class_section_subject_teacher_id"`
+	ClassSectionSubjectTeacherSchoolID           uuid.UUID `json:"class_section_subject_teacher_school_id"`
+	ClassSectionSubjectTeacherSectionID          uuid.UUID `json:"class_section_subject_teacher_section_id"`
+	ClassSectionSubjectTeacherClassSubjectBookID uuid.UUID `json:"class_section_subject_teacher_class_subject_book_id"`
+	ClassSectionSubjectTeacherTeacherID          uuid.UUID `json:"class_section_subject_teacher_teacher_id"`
 
 	// Identitas / fasilitas
 	ClassSectionSubjectTeacherName        string     `json:"class_section_subject_teacher_name"`
@@ -127,7 +127,7 @@ type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherTotalAttendance int    `json:"class_section_subject_teacher_total_attendance"`
 	ClassSectionSubjectTeacherCapacity        *int   `json:"class_section_subject_teacher_capacity,omitempty"`
 	ClassSectionSubjectTeacherEnrolledCount   int    `json:"class_section_subject_teacher_enrolled_count"`
-	ClassSectionsSubjectTeacherDeliveryMode   string `json:"class_sections_subject_teacher_delivery_mode"`
+	ClassSectionSubjectTeacherDeliveryMode    string `json:"class_section_subject_teacher_delivery_mode"`
 
 	// Room snapshot + turunan (generated)
 	ClassSectionSubjectTeacherRoomSnapshot     *datatypes.JSON `json:"class_section_subject_teacher_room_snapshot,omitempty"`
@@ -141,22 +141,27 @@ type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherTeacherNameSnap          *string         `json:"class_section_subject_teacher_teacher_name_snap,omitempty"`
 	ClassSectionSubjectTeacherAssistantTeacherNameSnap *string         `json:"class_section_subject_teacher_assistant_teacher_name_snap,omitempty"`
 
-	// Class Subject snapshot + turunan (generated)
-	ClassSectionSubjectTeacherClassSubjectSnapshot *datatypes.JSON `json:"class_section_subject_teacher_class_subject_snapshot,omitempty"`
-	ClassSectionSubjectTeacherClassSubjectNameSnap *string         `json:"class_section_subject_teacher_class_subject_name_snap,omitempty"`
-	ClassSectionSubjectTeacherClassSubjectCodeSnap *string         `json:"class_section_subject_teacher_class_subject_code_snap,omitempty"`
-	ClassSectionSubjectTeacherClassSubjectSlugSnap *string         `json:"class_section_subject_teacher_class_subject_slug_snap,omitempty"`
-	ClassSectionSubjectTeacherClassSubjectURLSnap  *string         `json:"class_section_subject_teacher_class_subject_url_snap,omitempty"`
+	// ===== Snapshot CSB gabungan (opsional dikirim) =====
+	// Raw snapshot gabungan (jika controller ingin expose)
+	ClassSectionSubjectTeacherClassSubjectBookSnapshot *datatypes.JSON `json:"class_section_subject_teacher_class_subject_book_snapshot,omitempty"`
 
-	// ===== NEW: BOOKS snapshot (raw + turunan/generated) =====
-	// Raw JSONB exactly from table (biar kompatibel dgn existing API)
-	ClassSectionSubjectTeacherBooksSnapshot datatypes.JSON `json:"class_section_subject_teacher_books_snapshot"`
+	// Turunan dari snapshot: BOOK*
+	ClassSectionSubjectTeacherBookTitleSnap    *string `json:"class_section_subject_teacher_book_title_snap,omitempty"`
+	ClassSectionSubjectTeacherBookAuthorSnap   *string `json:"class_section_subject_teacher_book_author_snap,omitempty"`
+	ClassSectionSubjectTeacherBookSlugSnap     *string `json:"class_section_subject_teacher_book_slug_snap,omitempty"`
+	ClassSectionSubjectTeacherBookImageURLSnap *string `json:"class_section_subject_teacher_book_image_url_snap,omitempty"`
 
-	// Turunan (generated column di DB, kalau ada)
-	ClassSectionSubjectTeacherBooksCount       *int    `json:"class_section_subject_teacher_books_count,omitempty"`
-	ClassSectionSubjectTeacherPrimaryBookTitle *string `json:"class_section_subject_teacher_primary_book_title,omitempty"`
+	// Turunan dari snapshot: SUBJECT*
+	ClassSectionSubjectTeacherSubjectNameSnap *string `json:"class_section_subject_teacher_subject_name_snap,omitempty"`
+	ClassSectionSubjectTeacherSubjectCodeSnap *string `json:"class_section_subject_teacher_subject_code_snap,omitempty"`
+	ClassSectionSubjectTeacherSubjectSlugSnap *string `json:"class_section_subject_teacher_subject_slug_snap,omitempty"`
 
-	// Versi parsed yang enak dipakai di FE (dibangun di mapper)
+	// ===== BOOKS snapshot array (raw + turunan) =====
+	ClassSectionSubjectTeacherBooksSnapshot    datatypes.JSON `json:"class_section_subject_teacher_books_snapshot"`
+	ClassSectionSubjectTeacherBooksCount       *int           `json:"class_section_subject_teacher_books_count,omitempty"`
+	ClassSectionSubjectTeacherPrimaryBookTitle *string        `json:"class_section_subject_teacher_primary_book_title,omitempty"`
+
+	// Versi parsed yang enak dipakai di FE
 	BooksInUse []BookSnap `json:"books_in_use,omitempty"`
 
 	// Status & audit
@@ -172,9 +177,9 @@ type ClassSectionSubjectTeacherResponse struct {
 
 func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectionSubjectTeacherModel {
 	m := csstModel.ClassSectionSubjectTeacherModel{
-		ClassSectionSubjectTeacherSectionID:      r.ClassSectionSubjectTeacherSectionID,
-		ClassSectionSubjectTeacherClassSubjectID: r.ClassSectionSubjectTeacherClassSubjectID,
-		ClassSectionSubjectTeacherTeacherID:      r.ClassSectionSubjectTeacherTeacherID,
+		ClassSectionSubjectTeacherSectionID:          r.ClassSectionSubjectTeacherSectionID,
+		ClassSectionSubjectTeacherClassSubjectBookID: r.ClassSectionSubjectTeacherClassSubjectBookID,
+		ClassSectionSubjectTeacherTeacherID:          r.ClassSectionSubjectTeacherTeacherID,
 
 		// opsional
 		ClassSectionSubjectTeacherSlug:        trimLowerPtr(r.ClassSectionSubjectTeacherSlug), // slug → lowercase
@@ -202,8 +207,8 @@ func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectio
 	if r.ClassSectionSubjectTeacherCapacity != nil {
 		m.ClassSectionSubjectTeacherCapacity = r.ClassSectionSubjectTeacherCapacity
 	}
-	if r.ClassSectionsSubjectTeacherDeliveryMode != nil {
-		m.ClassSectionsSubjectTeacherDeliveryMode = *r.ClassSectionsSubjectTeacherDeliveryMode
+	if r.ClassSectionSubjectTeacherDeliveryMode != nil {
+		m.ClassSectionSubjectTeacherDeliveryMode = *r.ClassSectionSubjectTeacherDeliveryMode
 	}
 
 	return m
@@ -216,8 +221,8 @@ func (r UpdateClassSectionSubjectTeacherRequest) Apply(m *csstModel.ClassSection
 	if r.ClassSectionSubjectTeacherSectionID != nil {
 		m.ClassSectionSubjectTeacherSectionID = *r.ClassSectionSubjectTeacherSectionID
 	}
-	if r.ClassSectionSubjectTeacherClassSubjectID != nil {
-		m.ClassSectionSubjectTeacherClassSubjectID = *r.ClassSectionSubjectTeacherClassSubjectID
+	if r.ClassSectionSubjectTeacherClassSubjectBookID != nil {
+		m.ClassSectionSubjectTeacherClassSubjectBookID = *r.ClassSectionSubjectTeacherClassSubjectBookID
 	}
 	if r.ClassSectionSubjectTeacherTeacherID != nil {
 		m.ClassSectionSubjectTeacherTeacherID = *r.ClassSectionSubjectTeacherTeacherID
@@ -243,8 +248,8 @@ func (r UpdateClassSectionSubjectTeacherRequest) Apply(m *csstModel.ClassSection
 	if r.ClassSectionSubjectTeacherCapacity != nil {
 		m.ClassSectionSubjectTeacherCapacity = r.ClassSectionSubjectTeacherCapacity
 	}
-	if r.ClassSectionsSubjectTeacherDeliveryMode != nil {
-		m.ClassSectionsSubjectTeacherDeliveryMode = *r.ClassSectionsSubjectTeacherDeliveryMode
+	if r.ClassSectionSubjectTeacherDeliveryMode != nil {
+		m.ClassSectionSubjectTeacherDeliveryMode = *r.ClassSectionSubjectTeacherDeliveryMode
 	}
 
 	if r.ClassSectionSubjectTeacherIsActive != nil {
@@ -260,7 +265,7 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		deletedAt = &t
 	}
 
-	// --- parse snapshot books JSONB → []BookSnap (optional, aman kalau gagal) ---
+	// Parse snapshot books JSONB → []BookSnap (opsional)
 	var parsedBooks []BookSnap
 	if len(m.ClassSectionSubjectTeacherBooksSnapshot) > 0 {
 		_ = json.Unmarshal(m.ClassSectionSubjectTeacherBooksSnapshot, &parsedBooks)
@@ -268,11 +273,11 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 
 	return ClassSectionSubjectTeacherResponse{
 		// IDs
-		ClassSectionSubjectTeacherID:             m.ClassSectionSubjectTeacherID,
-		ClassSectionSubjectTeacherSchoolID:       m.ClassSectionSubjectTeacherSchoolID,
-		ClassSectionSubjectTeacherSectionID:      m.ClassSectionSubjectTeacherSectionID,
-		ClassSectionSubjectTeacherClassSubjectID: m.ClassSectionSubjectTeacherClassSubjectID,
-		ClassSectionSubjectTeacherTeacherID:      m.ClassSectionSubjectTeacherTeacherID,
+		ClassSectionSubjectTeacherID:                 m.ClassSectionSubjectTeacherID,
+		ClassSectionSubjectTeacherSchoolID:           m.ClassSectionSubjectTeacherSchoolID,
+		ClassSectionSubjectTeacherSectionID:          m.ClassSectionSubjectTeacherSectionID,
+		ClassSectionSubjectTeacherClassSubjectBookID: m.ClassSectionSubjectTeacherClassSubjectBookID,
+		ClassSectionSubjectTeacherTeacherID:          m.ClassSectionSubjectTeacherTeacherID,
 
 		// Identitas / fasilitas
 		ClassSectionSubjectTeacherName:        m.ClassSectionSubjectTeacherName,
@@ -285,7 +290,7 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		ClassSectionSubjectTeacherTotalAttendance: m.ClassSectionSubjectTeacherTotalAttendance,
 		ClassSectionSubjectTeacherCapacity:        m.ClassSectionSubjectTeacherCapacity,
 		ClassSectionSubjectTeacherEnrolledCount:   m.ClassSectionSubjectTeacherEnrolledCount,
-		ClassSectionsSubjectTeacherDeliveryMode:   string(m.ClassSectionsSubjectTeacherDeliveryMode),
+		ClassSectionSubjectTeacherDeliveryMode:    string(m.ClassSectionSubjectTeacherDeliveryMode),
 
 		// Snapshots: Room
 		ClassSectionSubjectTeacherRoomSnapshot:     m.ClassSectionSubjectTeacherRoomSnapshot,
@@ -299,14 +304,21 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		ClassSectionSubjectTeacherTeacherNameSnap:          m.ClassSectionSubjectTeacherTeacherNameSnap,
 		ClassSectionSubjectTeacherAssistantTeacherNameSnap: m.ClassSectionSubjectTeacherAssistantTeacherNameSnap,
 
-		// Snapshots: Class Subject
-		ClassSectionSubjectTeacherClassSubjectSnapshot: m.ClassSectionSubjectTeacherClassSubjectSnapshot,
-		ClassSectionSubjectTeacherClassSubjectNameSnap: m.ClassSectionSubjectTeacherClassSubjectNameSnap,
-		ClassSectionSubjectTeacherClassSubjectCodeSnap: m.ClassSectionSubjectTeacherClassSubjectCodeSnap,
-		ClassSectionSubjectTeacherClassSubjectSlugSnap: m.ClassSectionSubjectTeacherClassSubjectSlugSnap,
-		ClassSectionSubjectTeacherClassSubjectURLSnap:  m.ClassSectionSubjectTeacherClassSubjectURLSnap,
+		// Snapshot CSB gabungan (opsional expose)
+		ClassSectionSubjectTeacherClassSubjectBookSnapshot: m.ClassSectionSubjectTeacherClassSubjectBookSnapshot,
 
-		// NEW: Books snapshot (raw + parsed + generated)
+		// Turunan BOOK
+		ClassSectionSubjectTeacherBookTitleSnap:    m.ClassSectionSubjectTeacherBookTitleSnap,
+		ClassSectionSubjectTeacherBookAuthorSnap:   m.ClassSectionSubjectTeacherBookAuthorSnap,
+		ClassSectionSubjectTeacherBookSlugSnap:     m.ClassSectionSubjectTeacherBookSlugSnap,
+		ClassSectionSubjectTeacherBookImageURLSnap: m.ClassSectionSubjectTeacherBookImageURLSnap,
+
+		// Turunan SUBJECT
+		ClassSectionSubjectTeacherSubjectNameSnap: m.ClassSectionSubjectTeacherSubjectNameSnap,
+		ClassSectionSubjectTeacherSubjectCodeSnap: m.ClassSectionSubjectTeacherSubjectCodeSnap,
+		ClassSectionSubjectTeacherSubjectSlugSnap: m.ClassSectionSubjectTeacherSubjectSlugSnap,
+
+		// Books snapshot (raw + parsed)
 		ClassSectionSubjectTeacherBooksSnapshot:    m.ClassSectionSubjectTeacherBooksSnapshot,
 		ClassSectionSubjectTeacherBooksCount:       m.ClassSectionSubjectTeacherBooksCount,
 		ClassSectionSubjectTeacherPrimaryBookTitle: m.ClassSectionSubjectTeacherPrimaryBookTitle,

@@ -7,8 +7,6 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS btree_gin;
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 
-
-
 -- =========================================================
 -- PREREQUISITES: UNIQUE INDEX untuk target FK komposit
 -- (harus ada agar FK (id, school_id) valid)
@@ -18,9 +16,9 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_sections_id_tenant
   ON class_sections (class_section_id, class_section_school_id);
 
--- class_subjects(id, school_id)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_class_subjects_id_tenant
-  ON class_subjects (class_subject_id, class_subject_school_id);
+-- class_subject_books(id, school_id)  -- target relasi BARU
+CREATE UNIQUE INDEX IF NOT EXISTS uq_class_subject_books_id_tenant
+  ON class_subject_books (class_subject_book_id, class_subject_book_school_id);
 
 -- school_teachers(id, school_id)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_school_teachers_id_tenant
@@ -30,9 +28,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_school_teachers_id_tenant
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_rooms_id_tenant
   ON class_rooms (class_room_id, class_room_school_id);
 
-
 BEGIN;
-
 
 -- =========================================================
 -- ENUMS (idempotent)
@@ -46,6 +42,7 @@ END$$;
 
 -- =========================================================
 -- TABLE: class_section_subject_teachers (CSST)
+--   Relasi utama: section × class_subject_book × teacher (per tenant)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -54,7 +51,7 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
 
   -- target penugasan
   class_section_subject_teacher_section_id UUID NOT NULL,
-  class_section_subject_teacher_class_subject_id UUID NOT NULL,
+  class_section_subject_teacher_class_subject_book_id UUID NOT NULL, -- ← ganti: dulu class_subject_id
   class_section_subject_teacher_teacher_id UUID NOT NULL,
 
   class_section_subject_teacher_name VARCHAR(160) NOT NULL,
@@ -70,22 +67,23 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_capacity INT,
   class_section_subject_teacher_enrolled_count INT NOT NULL DEFAULT 0,
 
-  -- delivery mode (mengikuti penamaan kamu sebelumnya)
-  class_sections_subject_teacher_delivery_mode class_delivery_mode_enum NOT NULL DEFAULT 'offline',
+  -- delivery mode (fix typo)
+  class_section_subject_teacher_delivery_mode class_delivery_mode_enum NOT NULL DEFAULT 'offline',
 
   -- =======================
   -- SNAPSHOTS (JSONB)
   -- =======================
 
-  -- Room & People (existing)
+  -- Room & People
   class_section_subject_teacher_room_snapshot JSONB,
   class_section_subject_teacher_teacher_snapshot JSONB,
   class_section_subject_teacher_assistant_teacher_snapshot JSONB,
   class_section_subject_teacher_books_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,
 
-  -- Class Subject (baru, langsung di tabel)
-  -- Kunci JSON yang diharapkan: name, code, slug, url
-  class_section_subject_teacher_class_subject_snapshot JSONB,
+  -- Snapshot dari CLASS_SUBJECT_BOOK (gabungan info book & subject)
+  -- Rekomendasi struktur:
+  -- { "book": {title,author,slug,image_url,...}, "subject": {name,code,slug,url,...} }
+  class_section_subject_teacher_class_subject_book_snapshot JSONB,
 
   -- =======================
   -- GENERATED COLUMNS
@@ -100,15 +98,23 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_teacher_name_snap TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_teacher_snapshot->>'name')) STORED,
   class_section_subject_teacher_assistant_teacher_name_snap TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_assistant_teacher_snapshot->>'name')) STORED,
 
-  -- Class Subject (generated dari snapshot)
-  class_section_subject_teacher_class_subject_name_snap TEXT
-    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_snapshot->>'name')) STORED,
-  class_section_subject_teacher_class_subject_code_snap TEXT
-    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_snapshot->>'code')) STORED,
-  class_section_subject_teacher_class_subject_slug_snap TEXT
-    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_snapshot->>'slug')) STORED,
-  class_section_subject_teacher_class_subject_url_snap  TEXT
-    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_snapshot->>'url')) STORED,
+  -- BOOK (from snapshot)
+  class_section_subject_teacher_book_title_snap     TEXT
+    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_book_snapshot->'book'->>'title')) STORED,
+  class_section_subject_teacher_book_author_snap    TEXT
+    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_book_snapshot->'book'->>'author')) STORED,
+  class_section_subject_teacher_book_slug_snap      TEXT
+    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_book_snapshot->'book'->>'slug')) STORED,
+  class_section_subject_teacher_book_image_url_snap TEXT
+    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_book_snapshot->'book'->>'image_url')) STORED,
+
+  -- SUBJECT (from snapshot)
+  class_section_subject_teacher_subject_name_snap   TEXT
+    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_book_snapshot->'subject'->>'name')) STORED,
+  class_section_subject_teacher_subject_code_snap   TEXT
+    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_book_snapshot->'subject'->>'code')) STORED,
+  class_section_subject_teacher_subject_slug_snap   TEXT
+    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_book_snapshot->'subject'->>'slug')) STORED,
 
   -- status & audit
   class_section_subject_teacher_is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -129,10 +135,11 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   ) REFERENCES class_sections (class_section_id, class_section_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
-  CONSTRAINT fk_csst_class_subject_tenant FOREIGN KEY (
-    class_section_subject_teacher_class_subject_id,
+  -- 🔗 RELASI BARU → class_subject_books (komposit + tenant)
+  CONSTRAINT fk_csst_class_subject_book_tenant FOREIGN KEY (
+    class_section_subject_teacher_class_subject_book_id,
     class_section_subject_teacher_school_id
-  ) REFERENCES class_subjects (class_subject_id, class_subject_school_id)
+  ) REFERENCES class_subject_books (class_subject_book_id, class_subject_book_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   CONSTRAINT fk_csst_teacher_tenant FOREIGN KEY (
@@ -152,26 +159,27 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
 -- UNIQUE & INDEXES (idempotent)
 -- =========================================================
 
--- PK + tenant (proteksi akses lintas tenant by habit)
+-- PK + tenant
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_tenant
   ON class_section_subject_teachers (class_section_subject_teacher_id, class_section_subject_teacher_school_id);
 
 -- Unik kombinasi penugasan "alive"
+-- (tenant, section, class_subject_book, teacher)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_unique_alive
   ON class_section_subject_teachers (
     class_section_subject_teacher_school_id,
     class_section_subject_teacher_section_id,
-    class_section_subject_teacher_class_subject_id,
+    class_section_subject_teacher_class_subject_book_id,
     class_section_subject_teacher_teacher_id
   )
   WHERE class_section_subject_teacher_deleted_at IS NULL;
 
--- Satu aktif per section+class_subject (alive)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_one_active_per_section_subject_alive
+-- Satu aktif per (section + class_subject_book) (alive)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_one_active_per_section_csb_alive
   ON class_section_subject_teachers (
     class_section_subject_teacher_school_id,
     class_section_subject_teacher_section_id,
-    class_section_subject_teacher_class_subject_id
+    class_section_subject_teacher_class_subject_book_id
   )
   WHERE class_section_subject_teacher_deleted_at IS NULL
     AND class_section_subject_teacher_is_active = TRUE;
@@ -180,7 +188,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_one_active_per_section_subject_alive
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_slug_per_tenant_alive
   ON class_section_subject_teachers (
     class_section_subject_teacher_school_id,
-    lower(class_section_subject_teacher_slug)
+    LOWER(class_section_subject_teacher_slug)
   )
   WHERE class_section_subject_teacher_deleted_at IS NULL
     AND class_section_subject_teacher_slug IS NOT NULL;
@@ -194,8 +202,9 @@ CREATE INDEX IF NOT EXISTS idx_csst_section_alive
   ON class_section_subject_teachers (class_section_subject_teacher_section_id)
   WHERE class_section_subject_teacher_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_csst_class_subject_alive
-  ON class_section_subject_teachers (class_section_subject_teacher_class_subject_id)
+-- lookup by CLASS_SUBJECT_BOOK (alive)
+CREATE INDEX IF NOT EXISTS idx_csst_class_subject_book_alive
+  ON class_section_subject_teachers (class_section_subject_teacher_class_subject_book_id)
   WHERE class_section_subject_teacher_deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_csst_teacher_alive
@@ -209,7 +218,7 @@ CREATE INDEX IF NOT EXISTS idx_csst_room_alive
 -- Trigram search untuk slug (butuh pg_trgm)
 CREATE INDEX IF NOT EXISTS gin_csst_slug_trgm_alive
   ON class_section_subject_teachers
-  USING GIN (lower(class_section_subject_teacher_slug) gin_trgm_ops)
+  USING GIN (LOWER(class_section_subject_teacher_slug) gin_trgm_ops)
   WHERE class_section_subject_teacher_deleted_at IS NULL
     AND class_section_subject_teacher_slug IS NOT NULL;
 
@@ -227,24 +236,39 @@ CREATE INDEX IF NOT EXISTS idx_csst_enrolled_count_alive
   WHERE class_section_subject_teacher_deleted_at IS NULL;
 
 -- ==============================
--- Index pendukung snapshot class_subject
+-- Index pendukung snapshot BOOK/SUBJECT (dari CSB snapshot)
 -- ==============================
-CREATE INDEX IF NOT EXISTS idx_csst_class_subject_name_snap_alive
-  ON class_section_subject_teachers (LOWER(class_section_subject_teacher_class_subject_name_snap))
-  WHERE class_section_subject_teacher_deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS idx_csst_class_subject_code_snap_alive
-  ON class_section_subject_teachers (LOWER(class_section_subject_teacher_class_subject_code_snap))
-  WHERE class_section_subject_teacher_deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS gin_csst_class_subject_slug_snap_trgm_alive
+-- BOOK snapshots
+CREATE INDEX IF NOT EXISTS gin_csst_book_title_snap_trgm_alive
   ON class_section_subject_teachers
-  USING GIN (LOWER(class_section_subject_teacher_class_subject_slug_snap) gin_trgm_ops)
+  USING GIN (LOWER(class_section_subject_teacher_book_title_snap) gin_trgm_ops)
   WHERE class_section_subject_teacher_deleted_at IS NULL
-    AND class_section_subject_teacher_class_subject_slug_snap IS NOT NULL;
+    AND class_section_subject_teacher_book_title_snap IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_csst_book_slug_snap_alive
+  ON class_section_subject_teachers (LOWER(class_section_subject_teacher_book_slug_snap))
+  WHERE class_section_subject_teacher_deleted_at IS NULL
+    AND class_section_subject_teacher_book_slug_snap IS NOT NULL;
+
+-- SUBJECT snapshots
+CREATE INDEX IF NOT EXISTS gin_csst_subject_name_snap_trgm_alive
+  ON class_section_subject_teachers
+  USING GIN (LOWER(class_section_subject_teacher_subject_name_snap) gin_trgm_ops)
+  WHERE class_section_subject_teacher_deleted_at IS NULL
+    AND class_section_subject_teacher_subject_name_snap IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_csst_subject_code_snap_alive
+  ON class_section_subject_teachers (LOWER(class_section_subject_teacher_subject_code_snap))
+  WHERE class_section_subject_teacher_deleted_at IS NULL
+    AND class_section_subject_teacher_subject_code_snap IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS gin_csst_subject_slug_snap_trgm_alive
+  ON class_section_subject_teachers
+  USING GIN (LOWER(class_section_subject_teacher_subject_slug_snap) gin_trgm_ops)
+  WHERE class_section_subject_teacher_deleted_at IS NULL
+    AND class_section_subject_teacher_subject_slug_snap IS NOT NULL;
 
 COMMIT;
-
 
 
 

@@ -3,6 +3,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,12 +12,13 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	modelSchoolTeacher "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
 	modelClassSection "schoolku_backend/internals/features/school/classes/class_sections/model"
 
-	// === pakai model & dto CSST terbaru (sectionsubjectteachers) ===
+	// DTO & Model CSST (path kamu sebelumnya)
 	dto "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 	modelCSST "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
@@ -24,23 +26,12 @@ import (
 	teacherSnapshot "schoolku_backend/internals/features/users/user_teachers/snapshot"
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
-
-	snapshotClassSubject "schoolku_backend/internals/features/school/academics/subjects/snapshot"
-
-	snapshotBooks "schoolku_backend/internals/features/school/academics/books/snapshot"
 )
 
-type ClassSectionSubjectTeacherController struct {
-	DB *gorm.DB
-}
-
-func NewClassSectionSubjectTeacherController(db *gorm.DB) *ClassSectionSubjectTeacherController {
-	return &ClassSectionSubjectTeacherController{DB: db}
-}
+/* ===================== Helpers kecil ===================== */
 
 func intPtr(v int) *int { return &v }
 
-// util kecil
 func ptrStr(p *string) string {
 	if p == nil {
 		return ""
@@ -48,42 +39,53 @@ func ptrStr(p *string) string {
 	return *p
 }
 
-// =====================
-// Helpers (private)
-// =====================
+/*
+	=========================================================
+	  SLUG base: Section + Subject (dari CSB) + Book Title (dari CSB)
 
-func getBaseForSlug(ctx context.Context, tx *gorm.DB, schoolID, sectionID, classSubjectID, teacherID uuid.UUID) string {
-	var sectionName, subjectName string
+=========================================================
+*/
+func getBaseForSlug(ctx context.Context, tx *gorm.DB, schoolID, sectionID, csbID, teacherID uuid.UUID) string {
+	var sectionName, subjectName, bookTitle string
 
 	_ = tx.Table("class_sections").
 		Select("class_section_name").
 		Where("class_section_id = ? AND class_section_school_id = ?", sectionID, schoolID).
 		Scan(&sectionName).Error
 
-	_ = tx.Table("class_subjects AS cs").
-		Select("s.subject_name").
-		Joins(`JOIN subjects AS s
-		           ON s.subject_id = cs.class_subject_subject_id
-		          AND s.subject_deleted_at IS NULL`).
-		Where(`cs.class_subject_id = ?
-		           AND cs.class_subject_school_id = ?
-		           AND cs.class_subject_deleted_at IS NULL`,
-			classSubjectID, schoolID).
-		Scan(&subjectName).Error
+	// Ambil subject_name & book_title dari CSB (pakai snapshot jika ada)
+	_ = tx.Table("class_subject_books AS csb").
+		Select(`
+			COALESCE(csb.class_subject_book_subject_name_snapshot, s.subject_name) AS subject_name,
+			COALESCE(csb.class_subject_book_book_title_snapshot, b.book_title)     AS book_title
+		`).
+		Joins(`LEFT JOIN class_subjects cs ON cs.class_subject_id = csb.class_subject_book_class_subject_id AND cs.class_subject_deleted_at IS NULL`).
+		Joins(`LEFT JOIN subjects s ON s.subject_id = cs.class_subject_subject_id AND s.subject_deleted_at IS NULL`).
+		Joins(`LEFT JOIN books b ON b.book_id = csb.class_subject_book_book_id AND b.book_deleted_at IS NULL`).
+		Where(`csb.class_subject_book_id = ?
+		       AND csb.class_subject_book_school_id = ?
+		       AND csb.class_subject_book_deleted_at IS NULL`, csbID, schoolID).
+		Scan(&struct {
+			SubjectName *string
+			BookTitle   *string
+		}{&subjectName, &bookTitle}).Error
 
-	var parts []string
+	parts := []string{}
 	if strings.TrimSpace(sectionName) != "" {
 		parts = append(parts, sectionName)
 	}
 	if strings.TrimSpace(subjectName) != "" {
 		parts = append(parts, subjectName)
 	}
+	if strings.TrimSpace(bookTitle) != "" {
+		parts = append(parts, bookTitle)
+	}
 	if len(parts) > 0 {
 		return strings.Join(parts, " ")
 	}
 	return fmt.Sprintf("csst-%s-%s-%s",
 		strings.Split(sectionID.String(), "-")[0],
-		strings.Split(classSubjectID.String(), "-")[0],
+		strings.Split(csbID.String(), "-")[0],
 		strings.Split(teacherID.String(), "-")[0],
 	)
 }
@@ -104,7 +106,6 @@ func ensureUniqueSlug(ctx context.Context, tx *gorm.DB, schoolID uuid.UUID, base
 }
 
 func deriveNameFromSlug(slug string) string {
-	// "-" -> " ", hilangkan spasi beruntun, crop ke 160 chars
 	name := strings.ReplaceAll(slug, "-", " ")
 	name = strings.TrimSpace(strings.Join(strings.Fields(name), " "))
 	if len(name) > 160 {
@@ -113,33 +114,158 @@ func deriveNameFromSlug(slug string) string {
 	return name
 }
 
-// * CREATE (admin/DKM via school context)
+/*
+	=========================================================
+	  Snapshot CSB (gabungan Book + Subject) → JSONB
+	  Struktur:
+	  {
+	    "book":    { "id","title","author","slug","image_url" },
+	    "subject": { "id","name","code","slug","url" }
+	  }
+
+=========================================================
+*/
+func buildCSBSnapshotJSON(ctx context.Context, tx *gorm.DB, schoolID, csbID uuid.UUID) (datatypes.JSON, error) {
+	type rrow struct {
+		BookID     uuid.UUID
+		TitleSnap  *string
+		AuthorSnap *string
+		SlugSnap   *string
+		ImageSnap  *string
+
+		SubjectID   *uuid.UUID
+		SubjectName *string
+		SubjectCode *string
+		SubjectSlug *string
+	}
+	var r rrow
+	if err := tx.WithContext(ctx).
+		Table("class_subject_books AS csb").
+		Select(`
+			csb.class_subject_book_book_id AS book_id,
+			COALESCE(csb.class_subject_book_book_title_snapshot, b.book_title)        AS title_snap,
+			COALESCE(csb.class_subject_book_book_author_snapshot, b.book_author)      AS author_snap,
+			COALESCE(csb.class_subject_book_book_slug_snapshot, b.book_slug)          AS slug_snap,
+			COALESCE(csb.class_subject_book_book_image_url_snapshot, b.book_image_url) AS image_snap,
+			s.subject_id AS subject_id,
+			COALESCE(csb.class_subject_book_subject_name_snapshot, s.subject_name) AS subject_name,
+			COALESCE(csb.class_subject_book_subject_code_snapshot, s.subject_code) AS subject_code,
+			COALESCE(csb.class_subject_book_subject_slug_snapshot, s.subject_slug) AS subject_slug
+		`).
+		Joins(`LEFT JOIN books b ON b.book_id = csb.class_subject_book_book_id AND b.book_deleted_at IS NULL`).
+		Joins(`LEFT JOIN class_subjects cs ON cs.class_subject_id = csb.class_subject_book_class_subject_id AND cs.class_subject_deleted_at IS NULL`).
+		Joins(`LEFT JOIN subjects s ON s.subject_id = cs.class_subject_subject_id AND s.subject_deleted_at IS NULL`).
+		Where(`csb.class_subject_book_id = ?
+		       AND csb.class_subject_book_school_id = ?
+		       AND csb.class_subject_book_deleted_at IS NULL`, csbID, schoolID).
+		Take(&r).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fiber.NewError(fiber.StatusNotFound, "class_subject_book tidak ditemukan / sudah dihapus")
+		}
+		return nil, err
+	}
+
+	payload := map[string]any{
+		"book": map[string]any{
+			"id":        r.BookID,
+			"title":     r.TitleSnap,
+			"author":    r.AuthorSnap,
+			"slug":      r.SlugSnap,
+			"image_url": r.ImageSnap,
+		},
+		"subject": map[string]any{
+			"id":   r.SubjectID,
+			"name": r.SubjectName,
+			"code": r.SubjectCode,
+			"slug": r.SubjectSlug,
+			"url":  nil, // kalau nanti ada URL, isi di sini
+		},
+	}
+	b, _ := json.Marshal(payload)
+	return datatypes.JSON(b), nil
+}
+
+/*
+	=========================================================
+	  Validasi konsistensi CSB untuk Section:
+	  - CSB tenant harus sama
+	  - class_subject_parent_id dari CSB == class_parent_id dari class milik Section
+
+=========================================================
+*/
+func validateCSBForSection(ctx context.Context, tx *gorm.DB, schoolID, sectionID, csbID uuid.UUID) error {
+	// Parent dari Section
+	var cls struct{ ClassParentID uuid.UUID }
+	if err := tx.WithContext(ctx).
+		Table("classes").
+		Select("class_parent_id").
+		Joins("JOIN class_sections s ON s.class_section_class_id = classes.class_id AND s.class_section_deleted_at IS NULL").
+		Where("s.class_section_id = ? AND s.class_section_school_id = ? AND classes.class_deleted_at IS NULL", sectionID, schoolID).
+		Take(&cls).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fiber.NewError(fiber.StatusBadRequest, "Kelas untuk section ini tidak ditemukan / beda tenant")
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek kelas dari section")
+	}
+
+	// Tenant & Parent dari CSB -> ClassSubject
+	var csb struct {
+		SchoolID uuid.UUID
+		ParentID uuid.UUID
+	}
+	if err := tx.WithContext(ctx).
+		Table("class_subject_books AS csb").
+		Select(`
+			csb.class_subject_book_school_id AS school_id,
+			cs.class_subject_parent_id       AS parent_id
+		`).
+		Joins(`JOIN class_subjects cs ON cs.class_subject_id = csb.class_subject_book_class_subject_id
+		       AND cs.class_subject_deleted_at IS NULL`).
+		Where("csb.class_subject_book_id = ? AND csb.class_subject_book_deleted_at IS NULL", csbID).
+		Take(&csb).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fiber.NewError(fiber.StatusBadRequest, "class_subject_book tidak ditemukan / sudah dihapus")
+		}
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal cek class_subject_book")
+	}
+	if csb.SchoolID != schoolID {
+		return fiber.NewError(fiber.StatusBadRequest, "School mismatch: class_subject_book milik school lain")
+	}
+	if csb.ParentID != cls.ClassParentID {
+		return fiber.NewError(fiber.StatusBadRequest, "Mismatch: parent kelas section ≠ parent pada class_subject_book")
+	}
+	return nil
+}
+
+// pastikan di file yang sama, package: controller
+
+type ClassSectionSubjectTeacherController struct {
+	DB *gorm.DB
+}
+
+func NewClassSectionSubjectTeacherController(db *gorm.DB) *ClassSectionSubjectTeacherController {
+	return &ClassSectionSubjectTeacherController{DB: db}
+}
+
+/* ======================== CREATE ======================== */
 // POST /admin/:school_id/class-section-subject-teachers
-// /admin/:school_slug/class-section-subject-teachers
 func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		fmt.Println("[CSST.Create] resolve school context ERROR:", err)
 		return err
 	}
 	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
-		fmt.Println("[CSST.Create] ensure access DKM ERROR:", err)
 		return err
 	}
 
 	var req dto.CreateClassSectionSubjectTeacherRequest
 	if err := c.BodyParser(&req); err != nil {
-		fmt.Println("[CSST.Create] BodyParser ERROR:", err)
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid: "+err.Error())
 	}
 	if err := validator.New().Struct(req); err != nil {
-		fmt.Println("[CSST.Create] validator ERROR:", err)
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
-
-	fmt.Printf("[CSST.Create] REQUEST school=%s section=%s class_subject=%s teacher=%s\n",
-		schoolID, req.ClassSectionSubjectTeacherSectionID, req.ClassSectionSubjectTeacherClassSubjectID, req.ClassSectionSubjectTeacherTeacherID)
 
 	return ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		tx = tx.Debug()
@@ -151,54 +277,19 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 				req.ClassSectionSubjectTeacherSectionID, schoolID).
 			First(&sec).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				fmt.Println("[CSST.Create] SECTION not found / tenant mismatch")
 				return helper.JsonError(c, fiber.StatusBadRequest, "Section tidak ditemukan / beda tenant")
 			}
-			fmt.Println("[CSST.Create] SECTION check ERROR:", err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek section")
 		}
-		fmt.Println("[CSST.Create] SECTION ok:", sec.ClassSectionID)
 
-		// 2) CLASS_SUBJECT exists + parent harus sama dgn kelas section
-		var cls struct{ ClassParentID uuid.UUID }
-		if err := tx.Table("classes").
-			Select("class_parent_id").
-			Where("class_id = ? AND class_school_id = ? AND class_deleted_at IS NULL",
-				sec.ClassSectionClassID, schoolID).
-			Take(&cls).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				fmt.Println("[CSST.Create] CLASS for section not found / tenant mismatch")
-				return helper.JsonError(c, fiber.StatusBadRequest, "Kelas untuk section ini tidak ditemukan / beda tenant")
+		// 2) VALIDASI CSB konsisten dengan section (tenant + parent)
+		if err := validateCSBForSection(c.Context(), tx, schoolID, req.ClassSectionSubjectTeacherSectionID, req.ClassSectionSubjectTeacherClassSubjectBookID); err != nil {
+			var fe *fiber.Error
+			if errors.As(err, &fe) {
+				return helper.JsonError(c, fe.Code, fe.Message)
 			}
-			fmt.Println("[CSST.Create] CLASS check ERROR:", err)
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek kelas dari section")
+			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
-
-		var cs struct {
-			SchoolID uuid.UUID
-			ParentID uuid.UUID
-		}
-		if err := tx.Table("class_subjects").
-			Select("class_subject_school_id AS school_id, class_subject_parent_id AS parent_id").
-			Where("class_subject_id = ? AND class_subject_deleted_at IS NULL",
-				req.ClassSectionSubjectTeacherClassSubjectID).
-			Take(&cs).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				fmt.Println("[CSST.Create] CLASS_SUBJECT not found / deleted")
-				return helper.JsonError(c, fiber.StatusBadRequest, "class_subject tidak ditemukan / sudah dihapus")
-			}
-			fmt.Println("[CSST.Create] CLASS_SUBJECT check ERROR:", err)
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek class_subject")
-		}
-		if cs.SchoolID != schoolID {
-			fmt.Printf("[CSST.Create] CLASS_SUBJECT tenant mismatch: have=%s want=%s\n", cs.SchoolID, schoolID)
-			return helper.JsonError(c, fiber.StatusBadRequest, "School mismatch: class_subject milik school lain")
-		}
-		if cs.ParentID != cls.ClassParentID {
-			fmt.Printf("[CSST.Create] PARENT mismatch: section.parent=%s subject.parent=%s\n", cls.ClassParentID, cs.ParentID)
-			return helper.JsonError(c, fiber.StatusBadRequest, "Mismatch: parent kelas section ≠ parent pada class_subject")
-		}
-		fmt.Println("[CSST.Create] CLASS_SUBJECT ok")
 
 		// 3) TEACHER exists & same tenant
 		if err := tx.
@@ -206,15 +297,12 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 				req.ClassSectionSubjectTeacherTeacherID, schoolID).
 			First(&modelSchoolTeacher.SchoolTeacherModel{}).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				fmt.Println("[CSST.Create] TEACHER not found / tenant mismatch")
 				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak ditemukan / bukan guru school ini")
 			}
-			fmt.Println("[CSST.Create] TEACHER check ERROR:", err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek guru")
 		}
-		fmt.Println("[CSST.Create] TEACHER ok")
 
-		// 3a) RESOLVE ROOM strictly dari DB
+		// 3a) ROOM resolve (request > default section room)
 		var finalRoomID *uuid.UUID
 		var finalRoomSnap *roomSnapshot.RoomSnapshot
 		if req.ClassSectionSubjectTeacherRoomID != nil {
@@ -229,7 +317,6 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			tmp := *rs
 			finalRoomSnap = &tmp
 			finalRoomID = req.ClassSectionSubjectTeacherRoomID
-			fmt.Println("[CSST.Create] ROOM snapshot from explicit CSST room_id")
 		} else if sec.ClassSectionClassRoomID != nil {
 			rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, schoolID, *sec.ClassSectionClassRoomID)
 			if err != nil {
@@ -242,16 +329,12 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			tmp := *rs
 			finalRoomSnap = &tmp
 			finalRoomID = sec.ClassSectionClassRoomID
-			fmt.Println("[CSST.Create] ROOM snapshot from SECTION default room (fresh DB)")
-		} else {
-			fmt.Println("[CSST.Create] no room provided & section has no default room")
 		}
 
 		// 4) Build row dari DTO
 		row := req.ToModel()
 		row.ClassSectionSubjectTeacherSchoolID = schoolID
 
-		// set room & snapshot (jika ada)
 		if finalRoomID != nil {
 			row.ClassSectionSubjectTeacherRoomID = finalRoomID
 		}
@@ -260,29 +343,22 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			row.ClassSectionSubjectTeacherRoomSnapshot = &jb
 		}
 
-		// Status active default
+		// Status & delivery mode (default)
 		if req.ClassSectionSubjectTeacherIsActive != nil {
 			row.ClassSectionSubjectTeacherIsActive = *req.ClassSectionSubjectTeacherIsActive
 		} else {
 			row.ClassSectionSubjectTeacherIsActive = true
 		}
-
-		// Delivery mode default (auto)
-		if strings.TrimSpace(string(row.ClassSectionsSubjectTeacherDeliveryMode)) == "" {
+		if strings.TrimSpace(string(row.ClassSectionSubjectTeacherDeliveryMode)) == "" {
 			if finalRoomSnap != nil && (finalRoomSnap.IsVirtual || (finalRoomSnap.JoinURL != nil && strings.TrimSpace(*finalRoomSnap.JoinURL) != "")) {
-				row.ClassSectionsSubjectTeacherDeliveryMode = modelCSST.ClassDeliveryMode("online")
-				fmt.Println("[CSST.Create] delivery_mode auto=online (virtual/join_url)")
+				row.ClassSectionSubjectTeacherDeliveryMode = modelCSST.DeliveryModeOnline
 			} else {
-				row.ClassSectionsSubjectTeacherDeliveryMode = modelCSST.ClassDeliveryMode("offline")
-				fmt.Println("[CSST.Create] delivery_mode auto=offline")
+				row.ClassSectionSubjectTeacherDeliveryMode = modelCSST.DeliveryModeOffline
 			}
-		} else {
-			fmt.Println("[CSST.Create] delivery_mode input:", row.ClassSectionsSubjectTeacherDeliveryMode)
 		}
 
 		// 4a) SNAPSHOT GURU
 		if ts, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, schoolID, req.ClassSectionSubjectTeacherTeacherID); err != nil {
-			fmt.Println("[CSST.Create] teacher snapshot ERROR:", err)
 			switch {
 			case errors.Is(err, gorm.ErrRecordNotFound):
 				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak valid / sudah dihapus")
@@ -294,14 +370,12 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		} else if ts != nil {
 			if jb, e := teacherSnapshot.ToJSONB(ts); e == nil {
 				row.ClassSectionSubjectTeacherTeacherSnapshot = &jb
-				fmt.Println("[CSST.Create] teacher snapshot OK")
 			}
 		}
 
 		// 4b) SNAPSHOT ASISTEN (opsional)
 		if req.ClassSectionSubjectTeacherAssistantTeacherID != nil {
 			if ats, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, schoolID, *req.ClassSectionSubjectTeacherAssistantTeacherID); err != nil {
-				fmt.Println("[CSST.Create] assistant snapshot ERROR:", err)
 				switch {
 				case errors.Is(err, gorm.ErrRecordNotFound):
 					return helper.JsonError(c, fiber.StatusBadRequest, "Asisten guru tidak valid / sudah dihapus")
@@ -313,127 +387,77 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			} else if ats != nil {
 				if jb, e := teacherSnapshot.ToJSONB(ats); e == nil {
 					row.ClassSectionSubjectTeacherAssistantTeacherSnapshot = &jb
-					fmt.Println("[CSST.Create] assistant snapshot OK")
 				}
 			}
 		}
 
-		// 4c) SNAPSHOT CLASS_SUBJECT (BARU)
-		if j, err := snapshotClassSubject.BuildClassSubjectSnapshotJSON(c.Context(), tx, schoolID, req.ClassSectionSubjectTeacherClassSubjectID); err != nil {
-			fmt.Println("[CSST.Create] class_subject snapshot ERROR:", err)
-			switch {
-			case errors.Is(err, gorm.ErrRecordNotFound):
-				return helper.JsonError(c, fiber.StatusBadRequest, "Class subject tidak ditemukan / sudah dihapus")
-			case errors.Is(err, snapshotClassSubject.ErrSchoolMismatch):
-				return helper.JsonError(c, fiber.StatusForbidden, "Class subject milik school lain")
-			default:
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot class subject")
+		// 4c) SNAPSHOT CLASS_SUBJECT_BOOK (gabungan)
+		if j, err := buildCSBSnapshotJSON(c.Context(), tx, schoolID, row.ClassSectionSubjectTeacherClassSubjectBookID); err != nil {
+			var fe *fiber.Error
+			if errors.As(err, &fe) {
+				return helper.JsonError(c, fe.Code, fe.Message)
 			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot class_subject_book")
 		} else {
-			row.ClassSectionSubjectTeacherClassSubjectSnapshot = &j
-			fmt.Println("[CSST.Create] class_subject snapshot OK")
+			row.ClassSectionSubjectTeacherClassSubjectBookSnapshot = &j
 		}
 
-		// 4d) SNAPSHOT BOOKS yang dipakai oleh CLASS_SUBJECT (aktif & alive)
-		// Hasilnya JSONB array (bisa kosong "[]"), cocok disimpan di kolom CSST.
-		// Tidak perlu hard-fail kalau error, tapi silakan ubah kalau kamu ingin wajib sukses.
-		// jb bertipe datatypes.JSON
-		if jb, err := snapshotBooks.BuildBooksSnapshotJSON(c.Context(), tx, schoolID, req.ClassSectionSubjectTeacherClassSubjectID); err != nil {
-			fmt.Println("[CSST.Create] books snapshot ERROR:", err)
-		} else {
-			// Field kamu bertipe datatypes.JSON → JANGAN pakai &
-			row.ClassSectionSubjectTeacherBooksSnapshot = jb
-			fmt.Println("[CSST.Create] books snapshot OK")
-		}
-
-		// 5) SLUG → unique + NAME auto
+		// 5) SLUG unik + NAME auto
 		if row.ClassSectionSubjectTeacherSlug != nil {
 			s := helper.Slugify(*row.ClassSectionSubjectTeacherSlug, 160)
 			row.ClassSectionSubjectTeacherSlug = &s
-			fmt.Println("[CSST.Create] input slug sanitized:", s)
 		}
-
 		base := strings.TrimSpace(getBaseForSlug(c.Context(), tx, schoolID,
-			req.ClassSectionSubjectTeacherSectionID,
-			req.ClassSectionSubjectTeacherClassSubjectID,
-			req.ClassSectionSubjectTeacherTeacherID,
+			row.ClassSectionSubjectTeacherSectionID,
+			row.ClassSectionSubjectTeacherClassSubjectBookID,
+			row.ClassSectionSubjectTeacherTeacherID,
 		))
-		fmt.Println("[CSST.Create] slug base:", base)
-
 		candidate := base
 		if row.ClassSectionSubjectTeacherSlug != nil && strings.TrimSpace(*row.ClassSectionSubjectTeacherSlug) != "" {
 			candidate = *row.ClassSectionSubjectTeacherSlug
 		}
 		candidate = helper.Slugify(candidate, 160)
-		fmt.Println("[CSST.Create] slug candidate:", candidate)
-
 		uniqueSlug, err := ensureUniqueSlug(c.Context(), tx, schoolID, candidate)
 		if err != nil {
-			fmt.Println("[CSST.Create] ensureUniqueSlug ERROR:", err)
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 		}
 		row.ClassSectionSubjectTeacherSlug = &uniqueSlug
 		row.ClassSectionSubjectTeacherName = deriveNameFromSlug(uniqueSlug)
-		fmt.Printf("[CSST.Create] slug unique=%s | name=%s\n", uniqueSlug, row.ClassSectionSubjectTeacherName)
 
 		// 6) INSERT
-		fmt.Printf("[CSST.Create] INSERT row: school=%s section=%s subject=%s teacher=%s room=%v slug=%s name=%s mode=%s active=%v\n",
-			row.ClassSectionSubjectTeacherSchoolID,
-			row.ClassSectionSubjectTeacherSectionID,
-			row.ClassSectionSubjectTeacherClassSubjectID,
-			row.ClassSectionSubjectTeacherTeacherID,
-			func() any {
-				if row.ClassSectionSubjectTeacherRoomID == nil {
-					return "<nil>"
-				}
-				return *row.ClassSectionSubjectTeacherRoomID
-			}(),
-			func() string {
-				if row.ClassSectionSubjectTeacherSlug == nil {
-					return "<nil>"
-				}
-				return *row.ClassSectionSubjectTeacherSlug
-			}(),
-			row.ClassSectionSubjectTeacherName,
-			string(row.ClassSectionsSubjectTeacherDeliveryMode),
-			row.ClassSectionSubjectTeacherIsActive,
-		)
-
 		if err := tx.Create(&row).Error; err != nil {
-			fmt.Println("[CSST.Create] INSERT ERROR:", err)
 			msg := strings.ToLower(err.Error())
 			switch {
-			case strings.Contains(msg, "uq_csst_one_active_per_section_subject_alive"),
+			case strings.Contains(msg, "uq_csst_one_active_per_section_csb_alive"),
 				strings.Contains(msg, "uq_csst_unique_alive"),
 				strings.Contains(msg, "duplicate"),
 				strings.Contains(msg, "unique"):
-				return helper.JsonError(c, fiber.StatusConflict, "Penugasan atau slug sudah terdaftar (duplikat).")
-			case strings.Contains(msg, "uq_csst_slug_per_tenant_alive"):
-				return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan pada tenant ini.")
+				if strings.Contains(msg, "uq_csst_slug_per_tenant_alive") {
+					return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan pada tenant ini.")
+				}
+				return helper.JsonError(c, fiber.StatusConflict, "Penugasan sudah terdaftar (duplikat).")
 			case strings.Contains(msg, "23503"), strings.Contains(msg, "foreign key"):
 				switch {
 				case strings.Contains(msg, "class_sections"):
 					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (SECTION): section tidak ditemukan / beda tenant")
-				case strings.Contains(msg, "class_subjects"):
-					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (CLASS_SUBJECTS): tidak ditemukan / beda tenant")
+				case strings.Contains(msg, "class_subject_books"):
+					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (CLASS_SUBJECT_BOOK): tidak ditemukan / beda tenant")
 				case strings.Contains(msg, "school_teachers"):
 					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (GURU): guru tidak ditemukan / beda tenant")
 				case strings.Contains(msg, "class_rooms"):
 					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (ROOM): ruangan tidak ditemukan / beda tenant")
 				default:
-					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal: pastikan section/class_subjects/guru/room valid")
+					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal: pastikan section/CSB/guru/room valid")
 				}
 			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Insert gagal: "+err.Error())
 		}
 
-		fmt.Println("[CSST.Create] INSERT OK")
 		return helper.JsonCreated(c, "Penugasan guru berhasil dibuat", dto.FromClassSectionSubjectTeacherModel(row))
 	})
 }
 
-/* ======================== Helpers (inline room) ======================== */
-// UPDATE (partial)
+/* ======================== UPDATE (partial) ======================== */
 // PUT /admin/:school_id/class-section-subject-teachers/:id
 func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 	mc, err := helperAuth.ResolveSchoolContext(c)
@@ -474,96 +498,46 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 		}
 
-		// Precheck konsistensi (jika section/class_subject berubah)
-		if req.ClassSectionSubjectTeacherSectionID != nil || req.ClassSectionSubjectTeacherClassSubjectID != nil {
+		// Precheck konsistensi jika section/CSB berubah
+		if req.ClassSectionSubjectTeacherSectionID != nil || req.ClassSectionSubjectTeacherClassSubjectBookID != nil {
 			sectionID := row.ClassSectionSubjectTeacherSectionID
 			if req.ClassSectionSubjectTeacherSectionID != nil {
 				sectionID = *req.ClassSectionSubjectTeacherSectionID
 			}
-			classSubjectID := row.ClassSectionSubjectTeacherClassSubjectID
-			if req.ClassSectionSubjectTeacherClassSubjectID != nil {
-				classSubjectID = *req.ClassSectionSubjectTeacherClassSubjectID
+			csbID := row.ClassSectionSubjectTeacherClassSubjectBookID
+			if req.ClassSectionSubjectTeacherClassSubjectBookID != nil {
+				csbID = *req.ClassSectionSubjectTeacherClassSubjectBookID
 			}
-
-			// cek section milik tenant
-			var sec modelClassSection.ClassSectionModel
-			if err := tx.
-				Where("class_section_id = ? AND class_section_school_id = ? AND class_section_deleted_at IS NULL", sectionID, schoolID).
-				First(&sec).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return helper.JsonError(c, fiber.StatusBadRequest, "Section tidak ditemukan / beda tenant")
+			if err := validateCSBForSection(c.Context(), tx, schoolID, sectionID, csbID); err != nil {
+				var fe *fiber.Error
+				if errors.As(err, &fe) {
+					return helper.JsonError(c, fe.Code, fe.Message)
 				}
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek section")
-			}
-
-			// cek class_subject milik tenant + parent sama dengan class parent dari section
-			var cs struct {
-				SchoolID uuid.UUID
-				ParentID uuid.UUID
-			}
-			if err := tx.
-				Table("class_subjects").
-				Select("class_subject_school_id AS school_id, class_subject_parent_id AS parent_id").
-				Where("class_subject_id = ? AND class_subject_deleted_at IS NULL", classSubjectID).
-				Take(&cs).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return helper.JsonError(c, fiber.StatusBadRequest, "class_subject tidak ditemukan / sudah dihapus")
-				}
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek class_subject")
-			}
-			if cs.SchoolID != schoolID {
-				return helper.JsonError(c, fiber.StatusBadRequest, "School mismatch: class_subject milik school lain")
-			}
-
-			var cls struct{ ClassParentID uuid.UUID }
-			if err := tx.Table("classes").
-				Select("class_parent_id").
-				Where("class_id = ? AND class_school_id = ? AND class_deleted_at IS NULL", sec.ClassSectionClassID, schoolID).
-				Take(&cls).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return helper.JsonError(c, fiber.StatusBadRequest, "Kelas untuk section ini tidak ditemukan / beda tenant")
-				}
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek kelas dari section")
-			}
-			if cs.ParentID != cls.ClassParentID {
-				return helper.JsonError(c, fiber.StatusBadRequest, "Mismatch: parent kelas section ≠ parent pada class_subject")
+				return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 			}
 		}
 
-		// Flag perubahan untuk slug/snapshot
+		// Flags perubahan untuk slug/snapshot
 		sectionChanged := req.ClassSectionSubjectTeacherSectionID != nil &&
 			*req.ClassSectionSubjectTeacherSectionID != row.ClassSectionSubjectTeacherSectionID
-		csChanged := req.ClassSectionSubjectTeacherClassSubjectID != nil &&
-			*req.ClassSectionSubjectTeacherClassSubjectID != row.ClassSectionSubjectTeacherClassSubjectID
+		csbChanged := req.ClassSectionSubjectTeacherClassSubjectBookID != nil &&
+			*req.ClassSectionSubjectTeacherClassSubjectBookID != row.ClassSectionSubjectTeacherClassSubjectBookID
 		teacherChanged := req.ClassSectionSubjectTeacherTeacherID != nil &&
 			*req.ClassSectionSubjectTeacherTeacherID != row.ClassSectionSubjectTeacherTeacherID
 
 		// Apply perubahan dasar
 		req.Apply(&row)
 
-		// Rebuild snapshots jika class_subject berubah
-		if csChanged {
-			// 1) class_subject snapshot → JSONB (*pointer* di model)
-			if j, err := snapshotClassSubject.BuildClassSubjectSnapshotJSON(
-				c.Context(), tx, schoolID, row.ClassSectionSubjectTeacherClassSubjectID,
-			); err != nil {
-				switch {
-				case errors.Is(err, gorm.ErrRecordNotFound):
-					return helper.JsonError(c, fiber.StatusBadRequest, "Class subject tidak valid / sudah dihapus")
-				case errors.Is(err, snapshotClassSubject.ErrSchoolMismatch):
-					return helper.JsonError(c, fiber.StatusForbidden, "Class subject milik school lain")
-				default:
-					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot class subject")
+		// Rebuild snapshot jika CSB berubah
+		if csbChanged {
+			if j, err := buildCSBSnapshotJSON(c.Context(), tx, schoolID, row.ClassSectionSubjectTeacherClassSubjectBookID); err != nil {
+				var fe *fiber.Error
+				if errors.As(err, &fe) {
+					return helper.JsonError(c, fe.Code, fe.Message)
 				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat snapshot class_subject_book")
 			} else {
-				row.ClassSectionSubjectTeacherClassSubjectSnapshot = &j
-			}
-
-			// 2) books snapshot list → JSONB (non-pointer di model)
-			if booksJB, err := snapshotBooks.BuildBooksSnapshotJSON(
-				c.Context(), tx, schoolID, row.ClassSectionSubjectTeacherClassSubjectID,
-			); err == nil {
-				row.ClassSectionSubjectTeacherBooksSnapshot = booksJB
+				row.ClassSectionSubjectTeacherClassSubjectBookSnapshot = &j
 			}
 		}
 
@@ -585,53 +559,13 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 				baseSlug = *row.ClassSectionSubjectTeacherSlug
 			}
 		} else if row.ClassSectionSubjectTeacherSlug == nil || strings.TrimSpace(ptrStr(row.ClassSectionSubjectTeacherSlug)) == "" {
-			if sectionChanged || csChanged || teacherChanged || row.ClassSectionSubjectTeacherSlug == nil {
+			if sectionChanged || csbChanged || teacherChanged || row.ClassSectionSubjectTeacherSlug == nil {
 				needEnsureUnique = true
-				// rakit base dari entity terkait (best-effort)
-				var sectionName, className, subjectName, teacherName string
-
-				_ = tx.Table("class_sections").
-					Select("class_section_name").
-					Where("class_section_id = ? AND class_section_school_id = ?", row.ClassSectionSubjectTeacherSectionID, schoolID).
-					Scan(&sectionName).Error
-
-				_ = tx.Table("class_subjects cs").
-					Select("c.class_name, s.subject_name").
-					Joins("JOIN classes c ON c.class_id = cs.class_subject_parent_id AND c.class_deleted_at IS NULL").
-					Joins("JOIN subjects s ON s.subject_id = cs.class_subject_subject_id AND s.subject_deleted_at IS NULL").
-					Where("cs.class_subject_id = ? AND cs.class_subject_school_id = ?", row.ClassSectionSubjectTeacherClassSubjectID, schoolID).
-					Scan(&struct {
-						ClassName   *string
-						SubjectName *string
-					}{&className, &subjectName}).Error
-
-				_ = tx.Table("school_teachers").
-					Select("school_teacher_name").
-					Where("school_teacher_id = ? AND school_teacher_school_id = ?", row.ClassSectionSubjectTeacherTeacherID, schoolID).
-					Scan(&teacherName).Error
-
-				parts := []string{}
-				if strings.TrimSpace(className) != "" {
-					parts = append(parts, className)
-				}
-				if strings.TrimSpace(sectionName) != "" {
-					parts = append(parts, sectionName)
-				}
-				if strings.TrimSpace(subjectName) != "" {
-					parts = append(parts, subjectName)
-				}
-				if strings.TrimSpace(teacherName) != "" {
-					parts = append(parts, teacherName)
-				}
-				if len(parts) == 0 {
-					baseSlug = fmt.Sprintf("csst-%s-%s-%s",
-						strings.Split(row.ClassSectionSubjectTeacherSectionID.String(), "-")[0],
-						strings.Split(row.ClassSectionSubjectTeacherClassSubjectID.String(), "-")[0],
-						strings.Split(row.ClassSectionSubjectTeacherTeacherID.String(), "-")[0],
-					)
-				} else {
-					baseSlug = strings.Join(parts, " ")
-				}
+				baseSlug = getBaseForSlug(c.Context(), tx, schoolID,
+					row.ClassSectionSubjectTeacherSectionID,
+					row.ClassSectionSubjectTeacherClassSubjectBookID,
+					row.ClassSectionSubjectTeacherTeacherID,
+				)
 				baseSlug = helper.Slugify(baseSlug, 160)
 			}
 		}
@@ -665,26 +599,26 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 		// Persist
 		if err := tx.Save(&row).Error; err != nil {
 			msg := strings.ToLower(err.Error())
-			if strings.Contains(msg, "uq_csst_one_active_per_section_subject_alive") ||
+			if strings.Contains(msg, "uq_csst_one_active_per_section_csb_alive") ||
 				strings.Contains(msg, "uq_csst_unique_alive") ||
 				strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique") {
 				if strings.Contains(msg, "uq_csst_slug_per_tenant_alive") {
 					return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan pada tenant ini.")
 				}
-				return helper.JsonError(c, fiber.StatusConflict, "Penugasan guru untuk class_subject ini sudah aktif (duplikat).")
+				return helper.JsonError(c, fiber.StatusConflict, "Penugasan guru untuk CSB ini sudah aktif (duplikat).")
 			}
 			if strings.Contains(msg, "sqlstate 23503") || strings.Contains(msg, "foreign key") {
 				switch {
 				case strings.Contains(msg, "class_sections"):
 					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (SECTION): section tidak ditemukan / beda tenant")
-				case strings.Contains(msg, "class_subjects"):
-					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (CLASS_SUBJECTS): tidak ditemukan / beda tenant")
+				case strings.Contains(msg, "class_subject_books"):
+					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (CLASS_SUBJECT_BOOK): tidak ditemukan / beda tenant")
 				case strings.Contains(msg, "school_teachers"):
 					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (GURU): guru tidak ditemukan / beda tenant")
 				case strings.Contains(msg, "class_rooms"):
 					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal (ROOM): ruangan tidak ditemukan / beda tenant")
 				default:
-					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal: pastikan section/class_subject/guru/room valid")
+					return helper.JsonError(c, fiber.StatusBadRequest, "FK gagal: pastikan section/CSB/guru/room valid")
 				}
 			}
 			return helper.JsonError(c, http.StatusInternalServerError, err.Error())
@@ -694,14 +628,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 	})
 }
 
-/*
-===============================
-
-	DELETE (soft delete)
-	DELETE /admin/:school_id/class-section-subject-teachers/:id
-
-===============================
-*/
+/* ======================== DELETE (soft) ======================== */
 func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
@@ -729,7 +656,6 @@ func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
 	if row.ClassSectionSubjectTeacherDeletedAt.Valid {
-		// idempotent
 		return helper.JsonDeleted(c, "Sudah terhapus", fiber.Map{"id": id})
 	}
 

@@ -1029,7 +1029,7 @@ type ClassSectionSubjectTeacherResponse struct {
 func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectionSubjectTeacherModel {
 	m := csstModel.ClassSectionSubjectTeacherModel{
 		ClassSectionSubjectTeacherSectionID:      r.ClassSectionSubjectTeacherSectionID,
-		ClassSectionSubjectTeacherClassSubjectID: r.ClassSectionSubjectTeacherClassSubjectID,
+		ClassSectionSubjectTeacherClassSubjectBookID: r.ClassSectionSubjectTeacherClassSubjectID,
 		ClassSectionSubjectTeacherTeacherID:      r.ClassSectionSubjectTeacherTeacherID,
 
 		// opsional
@@ -1060,7 +1060,7 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		ClassSectionSubjectTeacherID:             m.ClassSectionSubjectTeacherID,
 		ClassSectionSubjectTeacherSchoolID:       m.ClassSectionSubjectTeacherSchoolID,
 		ClassSectionSubjectTeacherSectionID:      m.ClassSectionSubjectTeacherSectionID,
-		ClassSectionSubjectTeacherClassSubjectID: m.ClassSectionSubjectTeacherClassSubjectID,
+		ClassSectionSubjectTeacherClassSubjectID: m.ClassSectionSubjectTeacherClassSubjectBookID,
 		ClassSectionSubjectTeacherTeacherID:      m.ClassSectionSubjectTeacherTeacherID,
 
 		ClassSectionSubjectTeacherTeacherNameSnap:          m.ClassSectionSubjectTeacherTeacherNameSnap,
