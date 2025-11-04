@@ -4,9 +4,12 @@ import (
 	dto "schoolku_backend/internals/features/finance/general_billings/dto"
 	model "schoolku_backend/internals/features/finance/general_billings/model"
 	helper "schoolku_backend/internals/helpers"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 )
+
+// GET /finance/user-general-billings
 
 // GET /finance/user-general-billings
 func (ctl *UserGeneralBillingController) List(c *fiber.Ctx) error {
@@ -15,8 +18,12 @@ func (ctl *UserGeneralBillingController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid query")
 	}
 
-	// ===== pagination & sorting via helper =====
-	// allowed sort keys -> mapping ke kolom DB yang aman
+	/* ===== Pagination ===== */
+	pg := helper.ResolvePaging(c, 20, 200) // default 20, max 200
+	perPageRaw := strings.ToLower(strings.TrimSpace(c.Query("per_page")))
+	allMode := perPageRaw == "all"
+
+	/* ===== Sorting whitelist ===== */
 	allowedSort := map[string]string{
 		"created_at": "user_general_billing_created_at",
 		"updated_at": "user_general_billing_updated_at",
@@ -24,18 +31,22 @@ func (ctl *UserGeneralBillingController) List(c *fiber.Ctx) error {
 		"status":     "user_general_billing_status",
 		"paid_at":    "user_general_billing_paid_at",
 	}
-
-	// default sort: newest first by created_at
-	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
-
-	orderClause, err := p.SafeOrderClause(allowedSort, "created_at")
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid sort field")
+	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by", "created_at")))
+	col, ok := allowedSort[sortBy]
+	if !ok {
+		col = allowedSort["created_at"]
 	}
+	dir := "DESC"
+	if strings.EqualFold(strings.TrimSpace(c.Query("order")), "asc") {
+		dir = "ASC"
+	}
+	orderExpr := col + " " + dir
 
-	tx := ctl.DB.Model(&model.UserGeneralBilling{})
+	/* ===== Base query ===== */
+	tx := ctl.DB.WithContext(c.Context()).
+		Model(&model.UserGeneralBilling{})
 
-	// ===== Filters =====
+	/* ===== Filters ===== */
 	if q.SchoolID != nil {
 		tx = tx.Where("user_general_billing_school_id = ?", *q.SchoolID)
 	}
@@ -48,35 +59,48 @@ func (ctl *UserGeneralBillingController) List(c *fiber.Ctx) error {
 	if q.PayerUserID != nil {
 		tx = tx.Where("user_general_billing_payer_user_id = ?", *q.PayerUserID)
 	}
-	if q.Status != nil && *q.Status != "" {
-		tx = tx.Where("user_general_billing_status = ?", *q.Status)
+	if q.Status != nil && strings.TrimSpace(*q.Status) != "" {
+		tx = tx.Where("user_general_billing_status = ?", strings.TrimSpace(*q.Status))
 	}
 
-	// ===== Count total (sebelum Limit/Offset) =====
+	/* ===== Count total ===== */
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// ===== Query data dengan sorting & paging =====
+	/* ===== Data + sorting + paging ===== */
 	var rows []model.UserGeneralBilling
-	qry := tx.Order(orderClause)
-	if !p.All { // per_page=all -> skip limit/offset (akan dibatasi AllHardCap oleh ParseFiber)
-		qry = qry.Offset(p.Offset()).Limit(p.Limit())
+	qry := tx.
+		Order(orderExpr).
+		Order("user_general_billing_id DESC") // tie-breaker stabil
+
+	if !allMode {
+		qry = qry.Offset(pg.Offset).Limit(pg.Limit)
 	}
 
 	if err := qry.Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// ===== Map ke DTO =====
+	/* ===== Map ke DTO ===== */
 	out := make([]dto.UserGeneralBillingResponse, 0, len(rows))
 	for _, m := range rows {
 		out = append(out, dto.FromModelUserGeneralBilling(m))
 	}
 
-	// ===== Build meta =====
-	meta := helper.BuildMeta(total, p)
+	/* ===== Pagination meta ===== */
+	var pagination helper.Pagination
+	if allMode {
+		per := int(total)
+		if per <= 0 {
+			per = 1
+		}
+		pagination = helper.BuildPaginationFromPage(total, 1, per)
+	} else {
+		pagination = helper.BuildPaginationFromPage(total, pg.Page, pg.PerPage)
+	}
 
-	return helper.JsonList(c, out, meta)
+	/* ===== JSON response ===== */
+	return helper.JsonList(c, "List user general billings", out, pagination)
 }

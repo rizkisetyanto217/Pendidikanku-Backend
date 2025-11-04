@@ -46,6 +46,9 @@ func buildOrderClause(p helper.Params) string {
 // -----------------------------------------
 // List (GET /:school_id/spp/student-bills)
 // -----------------------------------------
+// -----------------------------------------
+// List (GET /:school_id/spp/student-bills)
+// -----------------------------------------
 func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 	schoolID, err := mustSchoolID(c)
 	if err != nil {
@@ -56,54 +59,78 @@ func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 		return err
 	}
 
-	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
+	/* ===== Pagination ===== */
+	pg := helper.ResolvePaging(c, 20, 200) // default 20, max 200
+	perPageRaw := strings.ToLower(strings.TrimSpace(c.Query("per_page")))
+	allMode := perPageRaw == "all"
 
-	q := h.DB.Model(&billing.StudentBill{}).
+	/* ===== Sorting whitelist ===== */
+	allowedSort := map[string]string{
+		"created_at": "student_bill_created_at",
+		"amount":     "student_bill_amount_idr",
+		"status":     "student_bill_status",
+		"paid_at":    "student_bill_paid_at",
+		"due_date":   "student_bill_due_date", // kalau kolom ada
+	}
+	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by", "created_at")))
+	col, ok := allowedSort[sortBy]
+	if !ok {
+		col = allowedSort["created_at"]
+	}
+	dir := "DESC"
+	if strings.EqualFold(strings.TrimSpace(c.Query("order")), "asc") {
+		dir = "ASC"
+	}
+	orderExpr := col + " " + dir
+
+	/* ===== Base query (tenant scope + alive) ===== */
+	q := h.DB.WithContext(c.Context()).
+		Model(&billing.StudentBill{}).
 		Where("student_bill_deleted_at IS NULL").
-		Where("student_bill_school_id = ?", schoolID) // ← tenant scope
+		Where("student_bill_school_id = ?", schoolID)
 
 	// ---------- filters umum ----------
-	if v := c.Query("batch_id"); v != "" {
+	if v := strings.TrimSpace(c.Query("batch_id")); v != "" {
 		if id, err := uuid.Parse(v); err == nil {
 			q = q.Where("student_bill_batch_id = ?", id)
 		}
 	}
-	if v := c.Query("student_id"); v != "" {
+	if v := strings.TrimSpace(c.Query("student_id")); v != "" {
 		if id, err := uuid.Parse(v); err == nil {
 			q = q.Where("student_bill_school_student_id = ?", id)
 		}
 	}
-	if v := c.Query("payer_user_id"); v != "" {
+	if v := strings.TrimSpace(c.Query("payer_user_id")); v != "" {
 		if id, err := uuid.Parse(v); err == nil {
 			q = q.Where("student_bill_payer_user_id = ?", id)
 		}
 	}
 
-	// ---------- denorm filters baru ----------
-	if v := c.Query("general_billing_kind_id"); v != "" {
+	// ---------- denorm filters ----------
+	if v := strings.TrimSpace(c.Query("general_billing_kind_id")); v != "" {
 		if id, err := uuid.Parse(v); err == nil {
 			q = q.Where("student_bill_general_billing_kind_id = ?", id)
 		}
 	}
-	if v := c.Query("bill_code"); v != "" {
+	if v := strings.TrimSpace(c.Query("bill_code")); v != "" {
 		q = q.Where("LOWER(student_bill_bill_code) = ?", strings.ToLower(v))
 	}
-	if v := c.Query("term_id"); v != "" {
+	if v := strings.TrimSpace(c.Query("term_id")); v != "" {
 		if id, err := uuid.Parse(v); err == nil {
 			q = q.Where("student_bill_term_id = ?", id)
 		}
 	}
-	if v := c.Query("year"); v != "" {
+	if v := strings.TrimSpace(c.Query("year")); v != "" {
 		q = q.Where("student_bill_year = ?", v)
 	}
-	if v := c.Query("month"); v != "" {
+	if v := strings.TrimSpace(c.Query("month")); v != "" {
 		q = q.Where("student_bill_month = ?", v)
 	}
-	if v := c.Query("option_code"); v != "" {
+	if v := strings.TrimSpace(c.Query("option_code")); v != "" {
 		q = q.Where("LOWER(student_bill_option_code) = ?", strings.ToLower(v))
 	}
 	// has_option: periodic=false/true (periodic = option_code NULL)
-	if v := c.Query("has_option"); v != "" { // true|false
+	if v := strings.TrimSpace(c.Query("has_option")); v != "" { // true|false
 		if strings.EqualFold(v, "true") {
 			q = q.Where("student_bill_option_code IS NOT NULL")
 		} else if strings.EqualFold(v, "false") {
@@ -112,10 +139,10 @@ func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 	}
 
 	// ---------- status / amount / date ----------
-	if v := c.Query("status"); v != "" { // unpaid|paid|canceled
+	if v := strings.TrimSpace(c.Query("status")); v != "" { // unpaid|paid|canceled
 		q = q.Where("student_bill_status = ?", v)
 	}
-	if v := c.Query("paid"); v != "" { // paid=true|false
+	if v := strings.TrimSpace(c.Query("paid")); v != "" { // paid=true|false
 		if strings.EqualFold(v, "true") {
 			q = q.Where("student_bill_paid_at IS NOT NULL")
 		} else if strings.EqualFold(v, "false") {
@@ -128,34 +155,59 @@ func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 	if v := c.QueryInt("amount_max"); v > 0 {
 		q = q.Where("student_bill_amount_idr <= ?", v)
 	}
-	if v := c.Query("date_from"); v != "" {
+
+	// date_from/date_to: dukung RFC3339 & YYYY-MM-DD (batas atas < next-day)
+	if v := strings.TrimSpace(c.Query("date_from")); v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			q = q.Where("student_bill_created_at >= ?", t)
+		} else if t, err := time.Parse("2006-01-02", v); err == nil {
 			q = q.Where("student_bill_created_at >= ?", t)
 		}
 	}
-	if v := c.Query("date_to"); v != "" {
+	if v := strings.TrimSpace(c.Query("date_to")); v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
 			q = q.Where("student_bill_created_at <= ?", t)
+		} else if t, err := time.Parse("2006-01-02", v); err == nil {
+			q = q.Where("student_bill_created_at < ?", t.AddDate(0, 0, 1))
 		}
 	}
 
+	/* ===== Count ===== */
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
+	/* ===== Fetch ===== */
 	var list []billing.StudentBill
-	if err := q.
-		Order(buildOrderClause(p)).
-		Limit(p.Limit()).
-		Offset(p.Offset()).
-		Find(&list).Error; err != nil {
+	query := q.
+		Order(orderExpr).
+		Order("student_bill_id DESC") // tie-breaker stabil
+
+	if !allMode {
+		query = query.Limit(pg.Limit).Offset(pg.Offset)
+	}
+
+	if err := query.Find(&list).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	resp := dto.ToStudentBillResponses(list)
-	meta := helper.BuildMeta(total, p)
-	return helper.JsonList(c, resp, meta)
+
+	/* ===== Pagination payload ===== */
+	var pagination helper.Pagination
+	if allMode {
+		per := int(total)
+		if per <= 0 {
+			per = 1
+		}
+		pagination = helper.BuildPaginationFromPage(total, 1, per)
+	} else {
+		pagination = helper.BuildPaginationFromPage(total, pg.Page, pg.PerPage)
+	}
+
+	/* ===== JSON response standar ===== */
+	return helper.JsonList(c, "List student bills", resp, pagination)
 }
 
 // -----------------------------------------

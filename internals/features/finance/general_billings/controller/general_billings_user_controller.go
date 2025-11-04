@@ -18,30 +18,45 @@ import (
 //	q, kind_id, active(=true|false|1|0), due_from(YYYY-MM-DD), due_to(YYYY-MM-DD),
 //	include_global(=true|false)  -> default true
 //	page, per_page, sort_by(created_at|due_date|title), order(asc|desc)
+//
+// GET /api/a/:school_id/general-billings
+// Query:
+//
+//	q, kind_id, active(=true|false|1|0), due_from(YYYY-MM-DD), due_to(YYYY-MM-DD),
+//	include_global(=true|false)  -> default true
+//	page, per_page(atau limit), sort_by(created_at|due_date|title), order(asc|desc)
+//	per_page=all  -> ambil semua (tanpa limit/offset)
 func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 	// === Path param ===
 	midStr := strings.TrimSpace(c.Params("school_id"))
 	if midStr == "" {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "school_id wajib di path"})
+		return helper.JsonError(c, fiber.StatusBadRequest, "school_id wajib di path")
 	}
 	mid, err := uuid.Parse(midStr)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "school_id tidak valid"})
+		return helper.JsonError(c, fiber.StatusBadRequest, "school_id tidak valid")
 	}
 
 	// === Pagination & sorting ===
-	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
+	// pakai helper.ResolvePaging(defaultPerPage=20, maxPerPage=200)
+	pg := helper.ResolvePaging(c, 20, 200)
+
+	// dukung per_page=all (tanpa limit/offset)
+	perPageRaw := strings.ToLower(strings.TrimSpace(c.Query("per_page")))
+	allMode := perPageRaw == "all"
+
 	allowed := map[string]string{
 		"created_at": "general_billing_created_at",
 		"due_date":   "general_billing_due_date",
 		"title":      "general_billing_title",
 	}
-	col, ok := allowed[p.SortBy]
+	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by")))
+	col, ok := allowed[sortBy]
 	if !ok {
 		col = allowed["created_at"]
 	}
 	dir := "DESC"
-	if strings.EqualFold(p.SortOrder, "asc") {
+	if strings.EqualFold(strings.TrimSpace(c.Query("order")), "asc") {
 		dir = "ASC"
 	}
 
@@ -118,8 +133,8 @@ func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 
 	// === Fetch (respect per_page=all) ===
 	listQ := db.Order(fmt.Sprintf("%s %s", col, dir))
-	if !p.All {
-		listQ = listQ.Limit(p.Limit()).Offset(p.Offset())
+	if !allMode {
+		listQ = listQ.Limit(pg.Limit).Offset(pg.Offset)
 	}
 
 	var items []model.GeneralBilling
@@ -132,5 +147,15 @@ func (ctl *GeneralBillingController) List(c *fiber.Ctx) error {
 		out = append(out, dto.FromModelGeneralBilling(&items[i]))
 	}
 
-	return helper.JsonList(c, out, helper.BuildMeta(total, p))
+	// === Build pagination untuk JsonList (helper akan isi count & per_page_options) ===
+	var pagination helper.Pagination
+	if allMode {
+		// semua data di page 1
+		pagination = helper.BuildPaginationFromPage(total, 1, int(total))
+	} else {
+		pagination = helper.BuildPaginationFromPage(total, pg.Page, pg.PerPage)
+	}
+
+	// === JSON response standar ===
+	return helper.JsonList(c, "OK", out, pagination)
 }
