@@ -2,16 +2,21 @@
 package controller
 
 import (
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
 	dto "schoolku_backend/internals/features/finance/general_billings/dto"
 	m "schoolku_backend/internals/features/finance/general_billings/model"
-	helper "schoolku_backend/internals/helpers" // sesuaikan helper JSON response
-	// sesuaikan guard/ACL
+	helper "schoolku_backend/internals/helpers"
 )
+
+/* ======================
+   Controller
+====================== */
 
 /* ======================
    GLOBAL ADMIN endpoints
@@ -20,7 +25,6 @@ import (
 
 // POST /admin/general-billing-kinds
 func (ctl *GeneralBillingKindController) CreateGlobal(c *fiber.Ctx) error {
-
 	var req dto.CreateGeneralBillingKindRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -32,16 +36,16 @@ func (ctl *GeneralBillingKindController) CreateGlobal(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "code and name are required")
 	}
 
-	// Paksa GLOBAL: school_id = NULL, is_global = true
+	// Paksa GLOBAL
 	req.SchoolID = nil
 	trueVal := true
 	req.IsGlobal = &trueVal
 
 	rec := req.ToModel()
-	// Pastikan category/visibility sesuai kebutuhan global campaign (opsional)
-	// contoh default category campaign bila kosong:
-	if rec.GeneralBillingKindCategory == "" {
-		rec.GeneralBillingKindCategory = m.GBKCategoryCampaign
+
+	// Default category bila kosong → "donation" (pengganti "campaign" sebelumnya)
+	if string(rec.GeneralBillingKindCategory) == "" {
+		rec.GeneralBillingKindCategory = m.GeneralBillingKindCategory("donation")
 	}
 
 	if err := ctl.DB.WithContext(c.Context()).Create(&rec).Error; err != nil {
@@ -56,7 +60,6 @@ func (ctl *GeneralBillingKindController) CreateGlobal(c *fiber.Ctx) error {
 
 // PATCH /admin/general-billing-kinds/:id
 func (ctl *GeneralBillingKindController) PatchGlobal(c *fiber.Ctx) error {
-
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -88,7 +91,6 @@ func (ctl *GeneralBillingKindController) PatchGlobal(c *fiber.Ctx) error {
 
 // DELETE /admin/general-billing-kinds/:id
 func (ctl *GeneralBillingKindController) DeleteGlobal(c *fiber.Ctx) error {
-
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -108,48 +110,53 @@ func (ctl *GeneralBillingKindController) DeleteGlobal(c *fiber.Ctx) error {
 	return helper.JsonOK(c, "deleted", nil)
 }
 
-// GET /admin/general-billing-kinds
+// GET /admin/general-billing-kinds?search=&category=&page=&per_page=
 func (ctl *GeneralBillingKindController) ListGlobal(c *fiber.Ctx) error {
-	q := strings.TrimSpace(c.Query("search")) // ?search=...
-	needle := "%" + q + "%"
+	// Paging
+	page := clampInt(parseInt(c.Query("page"), 1), 1, 1_000_000)
+	perPage := clampInt(parseInt(c.Query("per_page"), 50), 1, 200)
+	offset := (page - 1) * perPage
 
-	var items []m.GeneralBillingKind
-	tx := ctl.DB.WithContext(c.Context()).
+	// Filters
+	search := strings.TrimSpace(c.Query("search"))
+	category := strings.TrimSpace(strings.ToLower(c.Query("category")))
+	// defaultkan ke "donation" agar setara “campaign” lama, tapi boleh override via query
+	if category == "" {
+		category = "donation"
+	}
+
+	q := ctl.DB.WithContext(c.Context()).
+		Model(&m.GeneralBillingKind{}).
 		Where(`
-            general_billing_kind_school_id IS NULL
-            AND general_billing_kind_deleted_at IS NULL
-            AND general_billing_kind_category = ?
-            AND general_billing_kind_is_global = TRUE
-        `, "campaign")
+			general_billing_kind_school_id IS NULL
+			AND general_billing_kind_deleted_at IS NULL
+			AND general_billing_kind_is_global = TRUE
+			AND general_billing_kind_category = ?
+		`, category)
 
-	// Search by code/name (pilih salah satu blok: A atau B)
-	if q != "" {
-		// A) Simple ILIKE (tanpa unaccent)
-		// tx = tx.Where(
-		//     "(general_billing_kind_code ILIKE ? OR general_billing_kind_name ILIKE ?)",
-		//     needle, needle,
-		// )
-
-		// B) ILIKE + unaccent (aktifkan extension unaccent; sudah ada di migrasi)
-		tx = tx.Where(
+	if search != "" {
+		needle := "%" + search + "%"
+		q = q.Where(
 			"(unaccent(general_billing_kind_code) ILIKE unaccent(?) OR unaccent(general_billing_kind_name) ILIKE unaccent(?))",
 			needle, needle,
 		)
 	}
 
-	tx = tx.Order("general_billing_kind_created_at DESC")
-
-	if err := tx.Find(&items).Error; err != nil {
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// DTO pakai `omitempty` → school_id tidak muncul bila NULL
-	return helper.JsonOK(c, "ok", dto.FromModelSlice(items))
+	var items []m.GeneralBillingKind
+	if err := q.Order("general_billing_kind_created_at DESC").Limit(perPage).Offset(offset).Find(&items).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	return jsonList(c, "ok", dto.FromModelSlice(items), page, perPage, total)
 }
 
 // GET /admin/general-billing-kinds/:id
 func (ctl *GeneralBillingKindController) GetGlobalByID(c *fiber.Ctx) error {
-
 	id, err := parseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -173,27 +180,45 @@ func (ctl *GeneralBillingKindController) GetGlobalByID(c *fiber.Ctx) error {
    base path: /public/general-billing-kinds
 ====================== */
 
-// GET /public/general-billing-kinds?search=&category=campaign
+// GET /public/general-billing-kinds?search=&category=&page=&per_page=
 func (ctl *GeneralBillingKindController) ListPublic(c *fiber.Ctx) error {
-	// hanya tampilkan global + visibility=public + active
-	var items []m.GeneralBillingKind
+	// Paging
+	page := clampInt(parseInt(c.Query("page"), 1), 1, 1_000_000)
+	perPage := clampInt(parseInt(c.Query("per_page"), 50), 1, 200)
+	offset := (page - 1) * perPage
+
+	// Filters
+	search := strings.TrimSpace(c.Query("search"))
+	category := strings.TrimSpace(strings.ToLower(c.Query("category"))) // optional
+
 	q := ctl.DB.WithContext(c.Context()).
-		Where("general_billing_kind_school_id IS NULL AND general_billing_kind_deleted_at IS NULL").
-		Where("general_billing_kind_visibility = ? AND general_billing_kind_is_active = TRUE", m.GBKVisibilityPublic)
+		Model(&m.GeneralBillingKind{}).
+		Where(`
+			general_billing_kind_school_id IS NULL
+			AND general_billing_kind_deleted_at IS NULL
+			AND general_billing_kind_is_active = TRUE
+			AND general_billing_kind_visibility = ?
+		`, m.GBKVisibilityPublic)
 
-	// optional filter cat=campaign
-	if cat := strings.TrimSpace(c.Query("category")); cat != "" {
-		q = q.Where("general_billing_kind_category = ?", cat)
+	if category != "" {
+		q = q.Where("general_billing_kind_category = ?", category)
 	}
-	if s := strings.TrimSpace(c.Query("search")); s != "" {
-		ss := "%" + strings.ToLower(s) + "%"
-		q = q.Where("LOWER(general_billing_kind_code) LIKE ? OR LOWER(general_billing_kind_name) LIKE ?", ss, ss)
+	if search != "" {
+		needle := "%" + strings.ToLower(search) + "%"
+		q = q.Where("LOWER(general_billing_kind_code) LIKE ? OR LOWER(general_billing_kind_name) LIKE ?", needle, needle)
 	}
 
-	if err := q.Order("general_billing_kind_created_at DESC").Find(&items).Error; err != nil {
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return helper.JsonOK(c, "ok", dto.FromModelSlice(items))
+
+	var items []m.GeneralBillingKind
+	if err := q.Order("general_billing_kind_created_at DESC").Limit(perPage).Offset(offset).Find(&items).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	return jsonList(c, "ok", dto.FromModelSlice(items), page, perPage, total)
 }
 
 // GET /public/general-billing-kinds/:id
@@ -205,8 +230,13 @@ func (ctl *GeneralBillingKindController) GetPublicByID(c *fiber.Ctx) error {
 
 	var rec m.GeneralBillingKind
 	tx := ctl.DB.WithContext(c.Context()).
-		Where("general_billing_kind_id = ? AND general_billing_kind_school_id IS NULL AND general_billing_kind_deleted_at IS NULL", id).
-		Where("general_billing_kind_visibility = ? AND general_billing_kind_is_active = TRUE", m.GBKVisibilityPublic).
+		Where(`
+			general_billing_kind_id = ?
+			AND general_billing_kind_school_id IS NULL
+			AND general_billing_kind_deleted_at IS NULL
+			AND general_billing_kind_is_active = TRUE
+			AND general_billing_kind_visibility = ?
+		`, id, m.GBKVisibilityPublic).
 		First(&rec)
 	if tx.Error != nil {
 		if tx.Error == gorm.ErrRecordNotFound {
@@ -215,4 +245,59 @@ func (ctl *GeneralBillingKindController) GetPublicByID(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, tx.Error.Error())
 	}
 	return helper.JsonOK(c, "ok", dto.FromModel(rec))
+}
+
+/* ======================
+   Helpers (local, ringan)
+====================== */
+
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+func parseInt(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	var (
+		n   int
+		err error
+	)
+	// simple atoi tanpa import strconv? tetap pakai strconv:
+	// (biar pasti) — tapi file ini tidak import strconv; jadi pakai time.ParseDuration trick tidak cocok.
+	// Tambah import strconv di header file kalau IDE protes.
+	return func() int {
+		// shadow import local
+		// NOTE: tambahkan "strconv" di import utama file.
+		n, err = strconv.Atoi(s)
+		if err != nil {
+			return def
+		}
+		return n
+	}()
+}
+
+// jsonList: balikan list dengan envelope message + data + pagination
+func jsonList(c *fiber.Ctx, message string, data any, page, perPage int, total int64) error {
+	totalPages := (total + int64(perPage) - 1) / int64(perPage)
+	pagination := fiber.Map{
+		"page":        page,
+		"per_page":    perPage,
+		"total":       total,
+		"total_pages": totalPages,
+		"has_next":    int64(page) < totalPages,
+		"has_prev":    page > 1,
+	}
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message":    message,
+		"data":       data,
+		"pagination": pagination,
+		"timestamp":  time.Now().UTC(),
+	})
 }

@@ -1,16 +1,16 @@
-// file: internals/features/billings/general_billing_kinds/dto/general_billing_kind_dto.go
+// file: internals/features/finance/general_billings/dto/general_billing_kind_dto.go
 package dto
 
 import (
 	"time"
 
-	"github.com/google/uuid"
-
 	m "schoolku_backend/internals/features/finance/general_billings/model"
+
+	"github.com/google/uuid"
 )
 
 /* =========================================================
-   Response DTO (JSON tag disamakan dengan model)
+   Response DTO
 ========================================================= */
 
 type GeneralBillingKindDTO struct {
@@ -22,7 +22,8 @@ type GeneralBillingKindDTO struct {
 	IsActive         bool       `json:"general_billing_kind_is_active"`
 	DefaultAmountIDR *int       `json:"general_billing_kind_default_amount_idr,omitempty"`
 
-	Category   string  `json:"general_billing_kind_category"` // "billing" | "campaign"
+	// ⬇️ enum kategori baru: registration | spp | mass_student | donation
+	Category   string  `json:"general_billing_kind_category"`
 	IsGlobal   bool    `json:"general_billing_kind_is_global"`
 	Visibility *string `json:"general_billing_kind_visibility,omitempty"` // "public" | "internal" | null
 
@@ -70,11 +71,11 @@ func FromModelSlice(xs []m.GeneralBillingKind) []GeneralBillingKindDTO {
 }
 
 /* =========================================================
-   Create Request (tag JSON disamakan dg model)
+   Create / Patch
+   (request tetap pakai string agar fleksibel; validasi di controller)
 ========================================================= */
 
 type CreateGeneralBillingKindRequest struct {
-	// SchoolID boleh kosong (GLOBAL kind); biasanya di-path dan di-override controller
 	SchoolID *uuid.UUID `json:"general_billing_kind_school_id,omitempty"`
 
 	Code             string  `json:"general_billing_kind_code"`
@@ -83,11 +84,12 @@ type CreateGeneralBillingKindRequest struct {
 	IsActive         *bool   `json:"general_billing_kind_is_active,omitempty"` // default true
 	DefaultAmountIDR *int    `json:"general_billing_kind_default_amount_idr,omitempty"`
 
-	Category   *string `json:"general_billing_kind_category,omitempty"`   // "billing" | "campaign" (default "billing")
+	// ⬇️ enum baru: "registration" | "spp" | "mass_student" | "donation"
+	Category   *string `json:"general_billing_kind_category,omitempty"`
 	IsGlobal   *bool   `json:"general_billing_kind_is_global,omitempty"`  // default false
 	Visibility *string `json:"general_billing_kind_visibility,omitempty"` // "public" | "internal"
 
-	// Flags (default false)
+	// Flags (default false – akan dicek oleh constraint DB ck_gbk_flags_match_category)
 	IsRecurring        *bool `json:"general_billing_kind_is_recurring,omitempty"`
 	RequiresMonthYear  *bool `json:"general_billing_kind_requires_month_year,omitempty"`
 	RequiresOptionCode *bool `json:"general_billing_kind_requires_option_code,omitempty"`
@@ -98,24 +100,20 @@ func (r CreateGeneralBillingKindRequest) ToModel() m.GeneralBillingKind {
 	if r.IsActive != nil {
 		isActive = *r.IsActive
 	}
-
-	// default category "billing"
-	cat := m.GBKCategoryBilling
+	// default kategori di DB = mass_student, tetapi kita set jika diberikan
+	cat := m.GeneralBillingKindCategory("mass_student")
 	if r.Category != nil && *r.Category != "" {
 		cat = m.GeneralBillingKindCategory(*r.Category)
 	}
-
 	var vis *m.GeneralBillingKindVisibility
 	if r.Visibility != nil && *r.Visibility != "" {
 		v := m.GeneralBillingKindVisibility(*r.Visibility)
 		vis = &v
 	}
-
 	isGlobal := false
 	if r.IsGlobal != nil {
 		isGlobal = *r.IsGlobal
 	}
-
 	isRecurring := false
 	if r.IsRecurring != nil {
 		isRecurring = *r.IsRecurring
@@ -146,13 +144,8 @@ func (r CreateGeneralBillingKindRequest) ToModel() m.GeneralBillingKind {
 	}
 }
 
-/* =========================================================
-   Patch/Update Request (tri-state via pointer)
-   (tag JSON disamakan dg model)
-========================================================= */
-
 type PatchGeneralBillingKindRequest struct {
-	ID uuid.UUID `json:"id"` // biasanya di path; tetap disediakan di body jika perlu
+	ID uuid.UUID `json:"id"`
 
 	Code             *string `json:"general_billing_kind_code,omitempty"`
 	Name             *string `json:"general_billing_kind_name,omitempty"`
@@ -160,11 +153,12 @@ type PatchGeneralBillingKindRequest struct {
 	IsActive         *bool   `json:"general_billing_kind_is_active,omitempty"`
 	DefaultAmountIDR *int    `json:"general_billing_kind_default_amount_idr,omitempty"`
 
-	Category   *string `json:"general_billing_kind_category,omitempty"` // "billing" | "campaign"
+	// ⬇️ enum baru: "registration" | "spp" | "mass_student" | "donation"
+	Category   *string `json:"general_billing_kind_category,omitempty"`
 	IsGlobal   *bool   `json:"general_billing_kind_is_global,omitempty"`
 	Visibility *string `json:"general_billing_kind_visibility,omitempty"` // "public" | "internal" | "" => clear
 
-	// Flags (tri-state; nil = no-op)
+	// Flags
 	IsRecurring        *bool `json:"general_billing_kind_is_recurring,omitempty"`
 	RequiresMonthYear  *bool `json:"general_billing_kind_requires_month_year,omitempty"`
 	RequiresOptionCode *bool `json:"general_billing_kind_requires_option_code,omitempty"`
@@ -204,8 +198,6 @@ func (p PatchGeneralBillingKindRequest) ApplyTo(g *m.GeneralBillingKind) {
 			g.GeneralBillingKindVisibility = &v
 		}
 	}
-
-	// Flags
 	if p.IsRecurring != nil {
 		g.GeneralBillingKindIsRecurring = *p.IsRecurring
 	}
@@ -218,52 +210,29 @@ func (p PatchGeneralBillingKindRequest) ApplyTo(g *m.GeneralBillingKind) {
 }
 
 /* =========================================================
-   Query/List Request (untouched; tetap pakai query tag singkat)
+   Query/List Request
 ========================================================= */
 
 type ListGeneralBillingKindsQuery struct {
 	SchoolID *uuid.UUID `query:"school_id"`
 
-	Search   string  `query:"search"`     // cari di code/name
+	Search   string  `query:"search"`     // cari di code/name (case-insensitive)
 	IsActive *bool   `query:"is_active"`  // nil=all
-	Category *string `query:"category"`   // "billing" | "campaign"
+	Category *string `query:"category"`   // "registration" | "spp" | "mass_student" | "donation"
 	IsGlobal *bool   `query:"is_global"`  // true/false
 	Visible  *string `query:"visibility"` // "public" | "internal"
 
-	// Filter flags
+	// Flags
 	IsRecurring        *bool `query:"is_recurring"`
 	RequiresMonthYear  *bool `query:"requires_month_year"`
 	RequiresOptionCode *bool `query:"requires_option_code"`
 
-	Page        int        `query:"page"`      // default 1
-	PageSize    int        `query:"page_size"` // default 20
-	Sort        string     `query:"sort"`      // "created_at_desc"(default) | "created_at_asc" | "name_asc" | "name_desc"
+	// Paging/sort (opsional)
+	Page     int    `query:"page"`
+	PageSize int    `query:"page_size"`
+	Sort     string `query:"sort"`
+
+	// Tanggal; QueryParser aman untuk RFC3339. Controller sediakan fallback YYYY-MM-DD.
 	CreatedFrom *time.Time `query:"created_from"`
 	CreatedTo   *time.Time `query:"created_to"`
-}
-
-/* =========================================================
-   Upsert (opsional)
-========================================================= */
-
-type UpsertGeneralBillingKindItem struct {
-	Code             string  `json:"general_billing_kind_code"`
-	Name             string  `json:"general_billing_kind_name"`
-	Desc             *string `json:"general_billing_kind_desc,omitempty"`
-	IsActive         *bool   `json:"general_billing_kind_is_active,omitempty"`
-	DefaultAmountIDR *int    `json:"general_billing_kind_default_amount_idr,omitempty"`
-
-	Category   *string `json:"general_billing_kind_category,omitempty"`
-	Visibility *string `json:"general_billing_kind_visibility,omitempty"`
-	IsGlobal   *bool   `json:"general_billing_kind_is_global,omitempty"`
-
-	// Flags
-	IsRecurring        *bool `json:"general_billing_kind_is_recurring,omitempty"`
-	RequiresMonthYear  *bool `json:"general_billing_kind_requires_month_year,omitempty"`
-	RequiresOptionCode *bool `json:"general_billing_kind_requires_option_code,omitempty"`
-}
-
-type UpsertGeneralBillingKindsRequest struct {
-	SchoolID *uuid.UUID                     `json:"general_billing_kind_school_id,omitempty"`
-	Items    []UpsertGeneralBillingKindItem `json:"items"`
 }

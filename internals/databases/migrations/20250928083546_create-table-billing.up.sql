@@ -4,49 +4,79 @@ BEGIN;
 -- =========================================================
 -- EXTENSIONS (idempotent)
 -- =========================================================
-CREATE EXTENSION IF NOT EXISTS pgcrypto;    -- gen_random_uuid()
-CREATE EXTENSION IF NOT EXISTS pg_trgm;     -- trigram ops untuk ILIKE
-CREATE EXTENSION IF NOT EXISTS btree_gist;  -- EXCLUDE constraint (range)
-CREATE EXTENSION IF NOT EXISTS unaccent;    -- normalisasi aksen buat pencarian
-
+CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pg_trgm;    -- trigram ops
+CREATE EXTENSION IF NOT EXISTS btree_gist; -- EXCLUDE
+CREATE EXTENSION IF NOT EXISTS unaccent;   -- pencarian
 
 -- =========================================================
 -- ENUMS
 -- =========================================================
+-- fee_scope (dipakai modul fee_rules, keep for later)
 DO $$ BEGIN
-  CREATE TYPE fee_scope AS ENUM ('tenant','class_parent','class','section','student');
+  CREATE TYPE fee_scope AS ENUM ('tenant','class_parent','class','section','student','term');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- kategori GBK: registration (PPDB), spp (berulang), mass_student (one-off ke siswa), donation (kampanye)
+DO $$ BEGIN
+  CREATE TYPE general_billing_kind_category AS ENUM
+  ('registration','spp','mass_student','donation');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- =========================================================
 -- TABLE: general_billing_kinds (katalog; bisa GLOBAL/tenant)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS general_billing_kinds (
-  general_billing_kind_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  general_billing_kind_school_id       UUID REFERENCES schools(school_id) ON DELETE CASCADE, -- NULL = GLOBAL
+  general_billing_kind_id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  general_billing_kind_school_id         UUID REFERENCES schools(school_id) ON DELETE CASCADE, -- NULL = GLOBAL
 
-  general_billing_kind_code            VARCHAR(60) NOT NULL,
-  general_billing_kind_name            TEXT NOT NULL,
-  general_billing_kind_desc            TEXT,
-  general_billing_kind_is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+  general_billing_kind_code              VARCHAR(60) NOT NULL,
+  general_billing_kind_name              TEXT NOT NULL,
+  general_billing_kind_desc              TEXT,
+  general_billing_kind_is_active         BOOLEAN NOT NULL DEFAULT TRUE,
 
   general_billing_kind_default_amount_idr INT,
 
-  general_billing_kind_category        VARCHAR(20) DEFAULT 'billing',   -- 'billing'|'campaign'
-  general_billing_kind_is_global       BOOLEAN NOT NULL DEFAULT FALSE,
-  general_billing_kind_visibility      VARCHAR(20),                      -- 'public'|'internal'
+  -- ⬇️ enum kategori langsung dari awal (tanpa alter)
+  general_billing_kind_category          general_billing_kind_category NOT NULL DEFAULT 'mass_student',
+  general_billing_kind_is_global         BOOLEAN NOT NULL DEFAULT FALSE,
+  general_billing_kind_visibility        VARCHAR(20),  -- 'public'|'internal' (opsional)
 
-  -- flags (logika di-backend)
+  -- flags (logika back-end)
   general_billing_kind_is_recurring          BOOLEAN NOT NULL DEFAULT FALSE,
   general_billing_kind_requires_month_year   BOOLEAN NOT NULL DEFAULT FALSE,
   general_billing_kind_requires_option_code  BOOLEAN NOT NULL DEFAULT FALSE,
 
   general_billing_kind_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   general_billing_kind_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  general_billing_kind_deleted_at TIMESTAMPTZ
+  general_billing_kind_deleted_at TIMESTAMPTZ,
+
+  -- Konsistensi flag ↔ kategori (boleh sesuaikan)
+  CONSTRAINT ck_gbk_flags_match_category CHECK (
+    CASE general_billing_kind_category
+      WHEN 'registration' THEN
+        general_billing_kind_is_recurring = FALSE
+        AND general_billing_kind_requires_month_year = FALSE
+        AND general_billing_kind_requires_option_code = FALSE
+      WHEN 'spp' THEN
+        general_billing_kind_is_recurring = TRUE
+        AND general_billing_kind_requires_month_year = TRUE
+        AND general_billing_kind_requires_option_code = FALSE
+      WHEN 'mass_student' THEN
+        general_billing_kind_is_recurring = FALSE
+        AND general_billing_kind_requires_month_year = FALSE
+        AND general_billing_kind_requires_option_code = TRUE
+      WHEN 'donation' THEN
+        general_billing_kind_is_recurring = FALSE
+        AND general_billing_kind_requires_month_year = FALSE
+        AND (general_billing_kind_requires_option_code = FALSE)
+      ELSE TRUE
+    END
+  )
 );
 
 -- =========================
--- INDEXES: general_billing_kinds
+-- INDEXES
 -- =========================
 
 -- Unique code per-tenant (alive only)
@@ -54,7 +84,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_gbk_code_per_tenant_alive
   ON general_billing_kinds (general_billing_kind_school_id, LOWER(general_billing_kind_code))
   WHERE general_billing_kind_deleted_at IS NULL;
 
--- Unique code untuk GLOBAL (tanpa school) (alive only)
+-- Unique code untuk GLOBAL (alive only)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_gbk_code_global_alive
   ON general_billing_kinds (LOWER(general_billing_kind_code))
   WHERE general_billing_kind_deleted_at IS NULL
@@ -69,6 +99,7 @@ CREATE INDEX IF NOT EXISTS ix_gbk_created_at_alive
   ON general_billing_kinds (general_billing_kind_created_at DESC)
   WHERE general_billing_kind_deleted_at IS NULL;
 
+-- Kategori (enum) + global flag (alive only)
 CREATE INDEX IF NOT EXISTS ix_gbk_category_global_alive
   ON general_billing_kinds (general_billing_kind_category, general_billing_kind_is_global)
   WHERE general_billing_kind_deleted_at IS NULL;

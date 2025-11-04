@@ -8,14 +8,16 @@ import (
 )
 
 /* =========================
-   Enums (Go-side, opsional)
+   Enums (Go-side)
    ========================= */
 
 type GeneralBillingKindCategory string
 
 const (
-	GBKCategoryBilling  GeneralBillingKindCategory = "billing"
-	GBKCategoryCampaign GeneralBillingKindCategory = "campaign"
+	GBKCategoryRegistration GeneralBillingKindCategory = "registration"
+	GBKCategorySPP          GeneralBillingKindCategory = "spp"
+	GBKCategoryMassStudent  GeneralBillingKindCategory = "mass_student"
+	GBKCategoryDonation     GeneralBillingKindCategory = "donation"
 )
 
 type GeneralBillingKindVisibility string
@@ -44,12 +46,13 @@ type GeneralBillingKind struct {
 	// INT di DB; nullable + CHECK >= 0 (ditangani di DB)
 	GeneralBillingKindDefaultAmountIDR *int `json:"general_billing_kind_default_amount_idr,omitempty" gorm:"column:general_billing_kind_default_amount_idr;type:int"`
 
-	// category (DEFAULT 'billing' di DB), visibility nullable, is_global DEFAULT false
-	GeneralBillingKindCategory   GeneralBillingKindCategory    `json:"general_billing_kind_category" gorm:"column:general_billing_kind_category;type:varchar(20);default:'billing'"`
+	// ⬇️ ENUM DB (harus persis dengan migration): general_billing_kind_category
+	GeneralBillingKindCategory GeneralBillingKindCategory `json:"general_billing_kind_category" gorm:"column:general_billing_kind_category;type:general_billing_kind_category;not null;default:'mass_student'"`
+
 	GeneralBillingKindIsGlobal   bool                          `json:"general_billing_kind_is_global"  gorm:"column:general_billing_kind_is_global;not null;default:false"`
 	GeneralBillingKindVisibility *GeneralBillingKindVisibility `json:"general_billing_kind_visibility,omitempty" gorm:"column:general_billing_kind_visibility;type:varchar(20)"`
 
-	// Flags pipeline per-siswa (baru di SQL)
+	// Flags (sinkron dengan constraint ck_gbk_flags_match_category di SQL)
 	GeneralBillingKindIsRecurring        bool `json:"general_billing_kind_is_recurring"         gorm:"column:general_billing_kind_is_recurring;not null;default:false"`
 	GeneralBillingKindRequiresMonthYear  bool `json:"general_billing_kind_requires_month_year"  gorm:"column:general_billing_kind_requires_month_year;not null;default:false"`
 	GeneralBillingKindRequiresOptionCode bool `json:"general_billing_kind_requires_option_code" gorm:"column:general_billing_kind_requires_option_code;not null;default:false"`

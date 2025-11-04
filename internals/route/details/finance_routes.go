@@ -1,10 +1,10 @@
-// file: internals/routes/details/finance_details_routes.go (misal)
+// file: internals/routes/details/finance_details_routes.go
 package details
 
 import (
 	BillingRoute "schoolku_backend/internals/features/finance/billings/routes"
 	GeneralBillingRoute "schoolku_backend/internals/features/finance/general_billings/route"
-	PaymentRoute "schoolku_backend/internals/features/finance/payments/route"
+	PaymentRoute "schoolku_backend/internals/features/finance/payments/route" // ⬅️ pastikan paketnya "router"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -12,14 +12,13 @@ import (
 
 func FinancePublicRoutes(r fiber.Router, db *gorm.DB) {
 	GeneralBillingRoute.AllGeneralBillingRoutes(r, db)
-	PaymentRoute.AllPaymentRoutes(r, db) // ← FIX: pakai r, bukan app
+	PaymentRoute.AllPaymentRoutes(r, db)
 	BillingRoute.BillingsAllRoutes(r, db)
-
 }
 
-func FinanceAdminRoutes(r fiber.Router, db *gorm.DB) {
+func FinanceAdminRoutes(r fiber.Router, db *gorm.DB, midtransServerKey string, useProd bool) {
 	GeneralBillingRoute.AdminGeneralBillingRoutes(r, db)
-
+	PaymentRoute.PaymentAdminRoutes(r, db, midtransServerKey, useProd) // ✅ pass 4 args
 	BillingRoute.BillingsAdminRoutes(r, db)
 }
 

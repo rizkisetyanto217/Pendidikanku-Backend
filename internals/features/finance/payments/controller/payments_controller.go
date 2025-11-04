@@ -2,550 +2,184 @@
 package controller
 
 import (
-	"context"
-	"crypto/sha512"
-	"encoding/hex"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
-	"gorm.io/datatypes"
-	"gorm.io/gorm"
 
 	dto "schoolku_backend/internals/features/finance/payments/dto"
 	model "schoolku_backend/internals/features/finance/payments/model"
-	svc "schoolku_backend/internals/features/finance/payments/service"
-	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
-/* =======================================================================
-   Controller
-======================================================================= */
+/* =========================================================
+   Admin/DKM — List payments by School
+   GET /api/a/:school_id/payments
+========================================================= */
 
-type PaymentController struct {
-	DB                 *gorm.DB
-	Validator          *validator.Validate
-	MidtransServerKey  string // dipakai untuk verify signature di webhook
-	UseMidtransProdEnv bool   // untuk init Snap client di bootstrap
-}
-
-func NewPaymentController(db *gorm.DB, midtransServerKey string, useProd bool) *PaymentController {
-	// init midtrans snap client (sekali saja saat bootstrap)
-	svc.InitMidtrans(midtransServerKey, useProd)
-	return &PaymentController{
-		DB:                 db,
-		Validator:          validator.New(),
-		MidtransServerKey:  midtransServerKey,
-		UseMidtransProdEnv: useProd,
-	}
-}
-
-/* =======================================================================
-   Target resolver (skema baru)
-   - student_bill
-   - general_billing (header)
-   - general_billing_kind (campaign/global/tenant)
-======================================================================= */
-
-type TargetInfo struct {
-	Kind             string     // "student_bill" | "general_billing" | "kind"
-	SchoolID         *uuid.UUID // bisa NULL untuk GLOBAL kind
-	AmountSuggestion *int       // boleh nil
-	PayerUserID      *uuid.UUID // tidak dipakai saat ini (reserved)
-}
-
-func (h *PaymentController) resolveTarget(ctx context.Context, db *gorm.DB, r *dto.CreatePaymentRequest) (TargetInfo, error) {
-	var ti TargetInfo
-
-	switch {
-	case r.PaymentStudentBillID != nil:
-		// student_bills
-		type sbRow struct {
-			ID       uuid.UUID  `gorm:"column:student_bill_id"`
-			SchoolID uuid.UUID  `gorm:"column:student_bill_school_id"`
-			Amount   int        `gorm:"column:student_bill_amount_idr"`
-			Status   string     `gorm:"column:student_bill_status"`
-			PayerUID *uuid.UUID `gorm:"column:student_bill_payer_user_id"`
-		}
-		var row sbRow
-		if err := db.WithContext(ctx).
-			Table("student_bills").
-			Select("student_bill_id, student_bill_school_id, student_bill_amount_idr, student_bill_status, student_bill_payer_user_id").
-			Where("student_bill_id = ? AND student_bill_deleted_at IS NULL", *r.PaymentStudentBillID).
-			Take(&row).Error; err != nil {
-			return ti, fiber.NewError(fiber.StatusNotFound, "student_bill tidak ditemukan")
-		}
-		ti = TargetInfo{
-			Kind:             "student_bill",
-			SchoolID:         &row.SchoolID,
-			AmountSuggestion: &row.Amount,
-			PayerUserID:      row.PayerUID,
-		}
-
-	case r.PaymentGeneralBillingID != nil:
-		// general_billings (header)
-		type gbRow struct {
-			ID       uuid.UUID `gorm:"column:general_billing_id"`
-			SchoolID uuid.UUID `gorm:"column:general_billing_school_id"`
-			Default  *int      `gorm:"column:general_billing_default_amount_idr"`
-		}
-		var row gbRow
-		if err := db.WithContext(ctx).
-			Table("general_billings").
-			Select("general_billing_id, general_billing_school_id, general_billing_default_amount_idr").
-			Where("general_billing_id = ? AND general_billing_deleted_at IS NULL", *r.PaymentGeneralBillingID).
-			Take(&row).Error; err != nil {
-			return ti, fiber.NewError(fiber.StatusNotFound, "general_billing tidak ditemukan")
-		}
-		ti = TargetInfo{
-			Kind:             "general_billing",
-			SchoolID:         &row.SchoolID,
-			AmountSuggestion: row.Default,
-		}
-
-	case r.PaymentGeneralBillingKindID != nil:
-		// general_billing_kinds (kind/campaign); school_id bisa NULL (GLOBAL)
-		type kindRow struct {
-			ID       uuid.UUID  `gorm:"column:general_billing_kind_id"`
-			SchoolID *uuid.UUID `gorm:"column:general_billing_kind_school_id"`
-			Default  *int       `gorm:"column:general_billing_kind_default_amount_idr"`
-			Active   bool       `gorm:"column:general_billing_kind_is_active"`
-		}
-		var row kindRow
-		if err := db.WithContext(ctx).
-			Table("general_billing_kinds").
-			Select("general_billing_kind_id, general_billing_kind_school_id, general_billing_kind_default_amount_idr, general_billing_kind_is_active").
-			Where("general_billing_kind_id = ? AND general_billing_kind_deleted_at IS NULL", *r.PaymentGeneralBillingKindID).
-			Take(&row).Error; err != nil {
-			return ti, fiber.NewError(fiber.StatusNotFound, "general_billing_kind tidak ditemukan")
-		}
-		if !row.Active {
-			return ti, fiber.NewError(fiber.StatusBadRequest, "general_billing_kind tidak aktif")
-		}
-		ti = TargetInfo{
-			Kind:             "kind",
-			SchoolID:         row.SchoolID, // NULL = GLOBAL kind
-			AmountSuggestion: row.Default,
-		}
-	default:
-		return ti, fiber.NewError(fiber.StatusBadRequest, "wajib menyertakan salah satu target: payment_student_bill_id / payment_general_billing_id / payment_general_billing_kind_id")
-	}
-
-	return ti, nil
-}
-
-/* =======================================================================
-   Handlers
-======================================================================= */
-
-// POST /payments
-func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
-	var req dto.CreatePaymentRequest
-	if err := c.BodyParser(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json: "+err.Error())
-	}
-	if err := req.Validate(); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
-
-	// 1) Resolve target → isi school/amount jika kosong
-	ti, err := h.resolveTarget(c.Context(), h.DB, &req)
+func (h *PaymentController) ListPaymentsBySchoolAdmin(c *fiber.Ctx) error {
+	// --- 0) Ambil school_id dari PATH
+	sid, err := helperAuth.ParseSchoolIDFromPath(c)
 	if err != nil {
-		code := fiber.StatusBadRequest
-		if fe, ok := err.(*fiber.Error); ok {
-			code = fe.Code
+		return err
+	}
+
+	// --- 1) Guard: hanya DKM/Admin
+	if aerr := helperAuth.EnsureDKMSchool(c, sid); aerr != nil {
+		return aerr
+	}
+
+	// --- 2) Filters
+	q := strings.TrimSpace(c.Query("q"))
+	statuses := splitCSV(c.Query("status"))
+	methods := splitCSV(c.Query("method"))
+	providers := splitCSV(c.Query("provider"))
+	entryTypes := splitCSV(c.Query("entry_type"))
+
+	var fromPtr, toPtr *time.Time
+	const dFmt = "2006-01-02"
+	if fs := strings.TrimSpace(c.Query("from")); fs != "" {
+		if t, e := time.Parse(dFmt, fs); e == nil {
+			fromPtr = &t
 		}
-		return helper.JsonError(c, code, err.Error())
 	}
-
-	m := req.ToModel()
-
-	// Prefill school dari target kalau kosong
-	if m.PaymentSchoolID == nil && ti.SchoolID != nil {
-		m.PaymentSchoolID = ti.SchoolID
-	}
-	// Prefill user (optional) dari target (kalau ada)
-	if m.PaymentUserID == nil && ti.PayerUserID != nil {
-		m.PaymentUserID = ti.PayerUserID
-	}
-	// Prefill nominal dari target jika request 0
-	if m.PaymentAmountIDR == 0 && ti.AmountSuggestion != nil && *ti.AmountSuggestion > 0 {
-		m.PaymentAmountIDR = *ti.AmountSuggestion
-	}
-
-	// 2) Default provider → midtrans bila method=gateway & provider kosong
-	if m.PaymentMethod == model.PaymentMethodGateway && (m.PaymentGatewayProvider == nil || *m.PaymentGatewayProvider == "") {
-		prov := model.GatewayProviderMidtrans
-		m.PaymentGatewayProvider = &prov
-	}
-
-	// 3) Simpan dulu untuk dapat payment_id
-	if err := h.DB.WithContext(c.Context()).Create(m).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "create payment failed: "+err.Error())
-	}
-
-	// 4) Jika method gateway Midtrans → butuh external_id (order_id) + generate Snap
-	if m.PaymentMethod == model.PaymentMethodGateway &&
-		m.PaymentGatewayProvider != nil && *m.PaymentGatewayProvider == model.GatewayProviderMidtrans {
-
-		if m.PaymentExternalID == nil || strings.TrimSpace(*m.PaymentExternalID) == "" {
-			return helper.JsonError(c, fiber.StatusBadRequest, "payment_external_id (order_id) is required for midtrans")
-		}
-
-		cust := svc.CustomerInput{}
-		if m.PaymentMeta != nil {
-			_ = json.Unmarshal(m.PaymentMeta, &cust)
-		}
-
-		token, redirectURL, err := svc.GenerateSnapToken(*m, cust)
-		if err != nil {
-			return helper.JsonError(c, fiber.StatusBadGateway, "midtrans error: "+err.Error())
-		}
-
-		now := time.Now()
-		m.PaymentCheckoutURL = &redirectURL
-		m.PaymentGatewayReference = &token
-		m.PaymentStatus = model.PaymentStatusPending
-		m.PaymentRequestedAt = &now
-
-		if err := h.DB.WithContext(c.Context()).Save(m).Error; err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "update payment after snap failed: "+err.Error())
+	if ts := strings.TrimSpace(c.Query("to")); ts != "" {
+		if t, e := time.Parse(dFmt, ts); e == nil {
+			t = t.Add(24 * time.Hour) // inklusif
+			toPtr = &t
 		}
 	}
 
-	// 5) Jika pembayaran manual dan sudah ditandai paid sejak awal → sync ke student_bills
-	if m.PaymentMethod != model.PaymentMethodGateway && m.PaymentStatus == model.PaymentStatusPaid {
-		_ = h.applyStudentBillSideEffects(c.Context(), h.DB, m)
-	}
+	// ===== Paging & sorting =====
+	page := clampInt(parseIntDefault(c.Query("page"), 1), 1, 1_000_000)
+	perPage := clampInt(parseIntDefault(c.Query("per_page"), 20), 1, 200)
 
-	return helper.JsonCreated(c, "payment created", dto.FromModel(m))
-}
-
-// GET /payments/:id
-func (h *PaymentController) GetPaymentByID(c *fiber.Ctx) error {
-	idStr := c.Params("id")
-	id, err := uuid.Parse(idStr)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
-	}
-	var m model.Payment
-	if err := h.DB.WithContext(c.Context()).
-		First(&m, "payment_id = ? AND payment_deleted_at IS NULL", id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "payment not found")
+	// fallback kompatibilitas: limit/offset
+	if limStr := strings.TrimSpace(c.Query("limit")); limStr != "" {
+		if lim := parseIntDefault(limStr, perPage); lim > 0 {
+			perPage = clampInt(lim, 1, 200)
 		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return helper.JsonOK(c, "ok", dto.FromModel(&m))
-}
-
-// PATCH /payments/:id
-func (h *PaymentController) PatchPayment(c *fiber.Ctx) error {
-	idStr := c.Params("id")
-	id, err := uuid.Parse(idStr)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
-	}
-	var m model.Payment
-	if err := h.DB.WithContext(c.Context()).
-		First(&m, "payment_id = ? AND payment_deleted_at IS NULL", id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "payment not found")
+	if offStr := strings.TrimSpace(c.Query("offset")); offStr != "" {
+		if off := parseIntDefault(offStr, 0); off >= 0 {
+			page = off/perPage + 1
 		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	offset := (page - 1) * perPage
+
+	sort := strings.ToLower(strings.TrimSpace(c.Query("sort")))
+	order := "payment_created_at DESC"
+	switch sort {
+	case "created_at_asc":
+		order = "payment_created_at ASC"
+	case "amount_desc":
+		order = "payment_amount_idr DESC, payment_created_at DESC"
+	case "amount_asc":
+		order = "payment_amount_idr ASC, payment_created_at DESC"
 	}
 
-	var patch dto.UpdatePaymentRequest
-	if err := c.BodyParser(&patch); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json: "+err.Error())
+	// --- 3) Query builder
+	db := h.DB.WithContext(c.Context()).Model(&model.Payment{}).
+		Where("payment_deleted_at IS NULL").
+		Where("payment_school_id = ?", sid)
+
+	if fromPtr != nil {
+		db = db.Where("payment_created_at >= ?", *fromPtr)
 	}
-	if err := patch.Apply(&m); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	if toPtr != nil {
+		db = db.Where("payment_created_at < ?", *toPtr)
 	}
-	m.PaymentUpdatedAt = time.Now()
-
-	if err := h.DB.WithContext(c.Context()).Save(&m).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "save failed: "+err.Error())
+	if len(statuses) > 0 {
+		db = db.Where("payment_status IN (?)", statuses)
 	}
-
-	// Jika status berubah menjadi paid/failed/canceled/refunded → sinkronkan student_bills
-	_ = h.applyStudentBillSideEffects(c.Context(), h.DB, &m)
-
-	return helper.JsonUpdated(c, "payment updated", dto.FromModel(&m))
-}
-
-/* =======================================================================
-   Webhook Midtrans
-======================================================================= */
-
-type midtransNotif struct {
-	TransactionTime   string `json:"transaction_time"`
-	TransactionStatus string `json:"transaction_status"` // capture, settlement, pending, deny, cancel, expire, refund, partial_refund, failure
-	StatusCode        string `json:"status_code"`
-	SignatureKey      string `json:"signature_key"`
-	OrderID           string `json:"order_id"`
-	GrossAmount       string `json:"gross_amount"`
-	PaymentType       string `json:"payment_type"`
-	FraudStatus       string `json:"fraud_status"` // accept / challenge / deny
-	TransactionID     string `json:"transaction_id"`
-	SettlementTime    string `json:"settlement_time"`
-}
-
-func (h *PaymentController) MidtransWebhook(c *fiber.Ctx) error {
-	// 1) Parse payload
-	var notif midtransNotif
-	if err := c.BodyParser(&notif); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid payload: "+err.Error())
+	if len(methods) > 0 {
+		db = db.Where("payment_method IN (?)", methods)
+	}
+	if len(providers) > 0 {
+		db = db.Where("payment_gateway_provider IN (?)", providers)
+	}
+	if len(entryTypes) > 0 {
+		db = db.Where("payment_entry_type IN (?)", entryTypes)
 	}
 
-	// 2) Verify signature — SHA512(order_id + status_code + gross_amount + ServerKey)
-	want := strings.ToLower(notif.SignatureKey)
-	raw := notif.OrderID + notif.StatusCode + notif.GrossAmount + h.MidtransServerKey
-	got := sha512sum(raw)
-	if want == "" || got != want {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "invalid signature")
+	if q != "" {
+		ilike := "%" + q + "%"
+		db = db.Where(`
+			COALESCE(payment_external_id,'') ILIKE ? OR
+			COALESCE(payment_gateway_reference,'') ILIKE ? OR
+			COALESCE(invoice_number,'') ILIKE ? OR
+			COALESCE(payment_manual_reference,'') ILIKE ? OR
+			COALESCE(payment_description,'') ILIKE ?
+		`, ilike, ilike, ilike, ilike, ilike)
 	}
 
-	// 3) Find payment by external_id (order_id)
-	var p model.Payment
-	if err := h.DB.WithContext(c.Context()).
-		First(&p, "payment_external_id = ? AND payment_deleted_at IS NULL", notif.OrderID).Error; err != nil {
-
-		// Log event tetap meski payment belum ada (mis-order).
-		_ = h.logGatewayEvent(c, nil, notif, "received", fmt.Sprintf("payment not found for order_id=%s", notif.OrderID))
-
-		// Balas 200 agar Midtrans tidak retry terus
-		return helper.JsonOK(c, "ignored: payment not found", fiber.Map{
-			"order_id": notif.OrderID,
-			"status":   "ignored",
-			"reason":   "payment not found",
+	// --- 4) Count & data
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "count failed: " + err.Error(),
 		})
 	}
 
-	// 4) Simpan gateway event (idempotent)
-	_ = h.logGatewayEvent(c, &p, notif, "received", "")
-
-	// 5) Map status midtrans → status internal
-	now := time.Now()
-	newStatus, setFields := h.mapMidtransStatus(&p, notif, now)
-
-	// 6) Terapkan perubahan ke model
-	p.PaymentStatus = newStatus
-	if setFields.PaidAt != nil {
-		p.PaymentPaidAt = setFields.PaidAt
-	}
-	if setFields.CanceledAt != nil {
-		p.PaymentCanceledAt = setFields.CanceledAt
-	}
-	if setFields.FailedAt != nil {
-		p.PaymentFailedAt = setFields.FailedAt
-	}
-	if setFields.RefundedAt != nil {
-		p.PaymentRefundedAt = setFields.RefundedAt
-	}
-	// update referensi gateway (transaction_id)
-	if notif.TransactionID != "" {
-		ref := notif.TransactionID
-		p.PaymentGatewayReference = &ref
-	}
-	// normalisasi amount gross (string → int)
-	if amt, err := strconv.ParseFloat(notif.GrossAmount, 64); err == nil {
-		p.PaymentAmountIDR = int(amt + 0.5)
-	}
-	p.PaymentUpdatedAt = now
-
-	if err := h.DB.WithContext(c.Context()).Save(&p).Error; err != nil {
-		_ = h.updateEventStatus(notif, "failed", err.Error())
-		return helper.JsonError(c, fiber.StatusInternalServerError, "update payment failed: "+err.Error())
+	var rows []model.Payment
+	if err := db.Order(order).Limit(perPage).Offset(offset).Find(&rows).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "query failed: " + err.Error(),
+		})
 	}
 
-	// 7) Side effects ke student_bills (jika ada target)
-	_ = h.applyStudentBillSideEffects(c.Context(), h.DB, &p)
+	// --- 5) Map → DTO
+	data := make([]*dto.PaymentResponse, 0, len(rows))
+	for i := range rows {
+		data = append(data, dto.FromModel(&rows[i]))
+	}
 
-	_ = h.updateEventStatus(notif, "processed", "")
+	// --- 6) Pagination payload
+	totalPages := int((total + int64(perPage) - 1) / int64(perPage))
+	if totalPages == 0 {
+		totalPages = 1
+	}
+	hasNext := page < totalPages
+	hasPrev := page > 1
 
-	return helper.JsonOK(c, "webhook processed", fiber.Map{
-		"payment_id":          p.PaymentID,
-		"payment_status":      p.PaymentStatus,
-		"transaction_status":  notif.TransactionStatus,
-		"fraud_status":        notif.FraudStatus,
-		"payment_gateway_ref": p.PaymentGatewayReference,
+	// --- 7) Return -> message, data, pagination sejajar
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "ok",
+		"data":    data,
+		"pagination": fiber.Map{
+			"page":        page,
+			"per_page":    perPage,
+			"total":       total,
+			"total_pages": totalPages,
+			"has_next":    hasNext,
+			"has_prev":    hasPrev,
+		},
 	})
 }
 
-/* =======================================================================
-   Helpers: webhook / utils
-======================================================================= */
+/* ============== small utils ============== */
 
-func sha512sum(s string) string {
-	h := sha512.Sum512([]byte(s))
-	return hex.EncodeToString(h[:])
-}
-
-func (h *PaymentController) logGatewayEvent(c *fiber.Ctx, p *model.Payment, notif midtransNotif, status string, errMsg string) error {
-	headers := map[string]string{}
-	for k, v := range c.GetReqHeaders() { // v: []string
-		headers[k] = strings.Join(v, ",")
-	}
-
-	headersJSON, _ := json.Marshal(headers)
-	payloadJSON, _ := json.Marshal(notif)
-	rawQuery := string(c.Request().URI().QueryString())
-
-	ev := model.PaymentGatewayEvent{
-		PaymentGatewayEventSchoolID:   nil,
-		PaymentGatewayEventPaymentID:  nil,
-		PaymentGatewayEventProvider:   string(model.GatewayProviderMidtrans),
-		PaymentGatewayEventType:       strPtr(notif.TransactionStatus),
-		PaymentGatewayEventExternalID: strPtr(notif.OrderID),
-		PaymentGatewayEventExternalRef: func() *string {
-			if notif.TransactionID != "" {
-				return &notif.TransactionID
-			}
-			return nil
-		}(),
-		PaymentGatewayEventHeaders:   datatypes.JSON(headersJSON),
-		PaymentGatewayEventPayload:   datatypes.JSON(payloadJSON),
-		PaymentGatewayEventSignature: strPtr(notif.SignatureKey),
-		PaymentGatewayEventRawQuery:  &rawQuery,
-		PaymentGatewayEventStatus:    status,
-		PaymentGatewayEventError:     strPtr(errMsg),
-		PaymentGatewayEventTryCount:  0,
-	}
-	// Jika payment ada, isi relasi & tenantnya
-	if p != nil {
-		ev.PaymentGatewayEventPaymentID = &p.PaymentID
-		ev.PaymentGatewayEventSchoolID = p.PaymentSchoolID
-	}
-
-	// insert
-	if err := h.DB.WithContext(c.Context()).Create(&ev).Error; err != nil {
-		lc := strings.ToLower(err.Error())
-		if strings.Contains(lc, "duplicate") || strings.Contains(lc, "uq_gw_event_provider_extid_live") {
-			return nil
-		}
-		return err
-	}
-	return nil
-}
-
-func (h *PaymentController) updateEventStatus(notif midtransNotif, newStatus string, errMsg string) error {
-	// update by provider+external_id paling mudah
-	var ev model.PaymentGatewayEvent
-	q := h.DB.Where(
-		"payment_gateway_event_provider = ? AND COALESCE(payment_gateway_event_external_id,'') = ? AND payment_gateway_event_deleted_at IS NULL",
-		model.GatewayProviderMidtrans, notif.OrderID,
-	).Order("payment_gateway_event_created_at DESC").
-		Limit(1).
-		First(&ev)
-	if q.Error != nil {
-		return q.Error
-	}
-	ev.PaymentGatewayEventStatus = newStatus
-	ev.PaymentGatewayEventError = strPtr(errMsg)
-	now := time.Now()
-	ev.PaymentGatewayEventProcessedAt = &now
-	return h.DB.Save(&ev).Error
-}
-
-// hasil mapping status: status target + field waktu mana yang perlu di-set
-type mappedFields struct {
-	PaidAt     *time.Time
-	CanceledAt *time.Time
-	FailedAt   *time.Time
-	RefundedAt *time.Time
-}
-
-func (h *PaymentController) mapMidtransStatus(p *model.Payment, n midtransNotif, now time.Time) (model.PaymentStatus, mappedFields) {
-	ts := strings.ToLower(n.TransactionStatus)
-	fraud := strings.ToLower(n.FraudStatus)
-	switch ts {
-	case "capture":
-		// untuk cc: capture + fraud=accept -> paid, fraud=challenge -> awaiting
-		if fraud == "accept" {
-			return model.PaymentStatusPaid, mappedFields{PaidAt: &now}
-		}
-		if fraud == "challenge" {
-			return model.PaymentStatusAwaitingCallback, mappedFields{}
-		}
-		return model.PaymentStatusFailed, mappedFields{FailedAt: &now}
-
-	case "settlement":
-		return model.PaymentStatusPaid, mappedFields{PaidAt: &now}
-
-	case "pending":
-		return model.PaymentStatusPending, mappedFields{}
-
-	case "deny":
-		return model.PaymentStatusFailed, mappedFields{FailedAt: &now}
-
-	case "cancel":
-		return model.PaymentStatusCanceled, mappedFields{CanceledAt: &now}
-
-	case "expire":
-		return model.PaymentStatusExpired, mappedFields{}
-
-	case "refund":
-		return model.PaymentStatusRefunded, mappedFields{RefundedAt: &now}
-
-	case "partial_refund":
-		return model.PaymentStatusPartiallyRefunded, mappedFields{RefundedAt: &now}
-
-	case "failure":
-		return model.PaymentStatusFailed, mappedFields{FailedAt: &now}
-	}
-	// fallback
-	return p.PaymentStatus, mappedFields{}
-}
-
-func strPtr(s string) *string { return &s }
-
-/* =======================================================================
-   Side effects ke student_bills (sinkronisasi status)
-   - dipanggil dari Create (manual paid) dan Webhook/ Patch
-======================================================================= */
-
-func (h *PaymentController) applyStudentBillSideEffects(ctx context.Context, db *gorm.DB, p *model.Payment) error {
-	if p == nil || p.PaymentStudentBillID == nil {
+func splitCSV(s string) []string {
+	if s == "" {
 		return nil
 	}
-
-	switch p.PaymentStatus {
-	case model.PaymentStatusPaid:
-		// tandai student bill paid
-		now := time.Now()
-		paidAt := p.PaymentPaidAt
-		if paidAt == nil {
-			paidAt = &now
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
 		}
-		return db.WithContext(ctx).
-			Exec(`
-				UPDATE student_bills
-				   SET student_bill_status = 'paid',
-				       student_bill_paid_at = COALESCE(student_bill_paid_at, ?),
-				       student_bill_updated_at = NOW()
-				 WHERE student_bill_id = ?
-				   AND student_bill_deleted_at IS NULL
-			`, *paidAt, *p.PaymentStudentBillID).Error
-
-	case model.PaymentStatusCanceled, model.PaymentStatusFailed, model.PaymentStatusExpired, model.PaymentStatusRefunded:
-		// kembalikan ke unpaid (kebijakan sederhana; sesuaikan jika perlu)
-		return db.WithContext(ctx).
-			Exec(`
-				UPDATE student_bills
-				   SET student_bill_status = 'unpaid',
-				       student_bill_paid_at = NULL,
-				       student_bill_updated_at = NOW()
-				 WHERE student_bill_id = ?
-				   AND student_bill_deleted_at IS NULL
-			`, *p.PaymentStudentBillID).Error
 	}
+	return out
+}
 
-	return nil
+func parseIntDefault(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	if v, err := strconv.Atoi(s); err == nil {
+		return v
+	}
+	return def
 }

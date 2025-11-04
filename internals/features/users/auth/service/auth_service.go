@@ -38,7 +38,7 @@ import (
 
 const (
 	// 🔒 Pendekkan TTL access agar window compromise kecil
-	accessTTLDefault  = 15 * time.Minute
+	accessTTLDefault  = 300 * time.Minute
 	refreshTTLDefault = 7 * 24 * time.Hour
 
 	qryTimeoutShort = 800 * time.Millisecond

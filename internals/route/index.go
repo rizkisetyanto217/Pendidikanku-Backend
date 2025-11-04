@@ -4,6 +4,7 @@ package routes
 import (
 	"log"
 	"os"
+	"strconv" // ⬅️ tambah ini
 	"time"
 
 	schoolkuMiddleware "schoolku_backend/internals/middlewares/auth_school"
@@ -34,8 +35,6 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	public := app.Group("/api/public")
 
 	// ===================== PRIVATE (USER) =====================
-	// 🔓 privateLoose: TANPA scope/role strict. Dipakai untuk endpoint yang
-	//     tidak membutuhkan school_id pada path (contoh: join by code).
 	log.Println("[INFO] Setting up PRIVATE (loose) group...")
 	privateLoose := app.Group("/api/u",
 		schoolkuMiddleware.AuthJWT(schoolkuMiddleware.AuthJWTOpts{
@@ -44,18 +43,12 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 		}),
 	)
 
-	// 🔒 privateScoped: (jika diperlukan) pasang middleware features di
-	//     sub-paket yang memang butuh school scope. Di sini kita tidak
-	//     memaksa UseSchoolScope global agar tidak menular ke endpoint loose.
 	log.Println("[INFO] Setting up PRIVATE (scoped) group...")
 	privateScoped := app.Group("/api/u",
 		schoolkuMiddleware.AuthJWT(schoolkuMiddleware.AuthJWTOpts{
 			Secret:              os.Getenv("JWT_SECRET"),
 			AllowCookieFallback: true,
 		}),
-		// NOTE: JANGAN taruh UseSchoolScope di sini secara global
-		// Jika sebuah paket user memang butuh scope strict,
-		// pasang di file route paket tersebut (di level subgroup).
 	)
 
 	// ===================== ADMIN (per school) =====================
@@ -80,16 +73,28 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 		featuresMiddleware.IsOwnerGlobal(),
 	)
 
+	// ===== Midtrans config (dipass ke FinanceAdminRoutes) =====
+	midtransServerKey := os.Getenv("MIDTRANS_SERVER_KEY")
+	useMidtransProd := func() bool {
+		if v := os.Getenv("MIDTRANS_USE_PROD"); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err == nil {
+				return b
+			}
+		}
+		return false
+	}()
+
 	// ===================== MOUNT ROUTES =====================
 	log.Println("[INFO] Mounting School routes...")
 	routeDetails.SchoolPublicRoutes(public, db)
-	routeDetails.SchoolUserRoutes(privateScoped, db) // user routes lain → scoped (kalau perlu scope pasang di sub-group paketnya)
+	routeDetails.SchoolUserRoutes(privateScoped, db)
 	routeDetails.SchoolAdminRoutes(admin, db)
 	routeDetails.SchoolOwnerRoutes(owner, db)
 
 	log.Println("[INFO] Mounting Lembaga routes...")
 	routeDetails.LembagaPublicRoutes(public, db)
-	routeDetails.LembagaUserRoutes(privateScoped, db) // biarkan paket ini pasang middleware scope di level subgroup-nya bila butuh
+	routeDetails.LembagaUserRoutes(privateScoped, db)
 	routeDetails.LembagaAdminRoutes(admin, db)
 	routeDetails.LembagaOwnerRoutes(owner, db)
 
@@ -104,7 +109,6 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	log.Println("[INFO] Mounting Finance routes...")
 	routeDetails.FinancePublicRoutes(public, db)
 	// routeDetails.FinanceUserRoutes(privateScoped, db)
-	routeDetails.FinanceAdminRoutes(admin, db)
+	routeDetails.FinanceAdminRoutes(admin, db, midtransServerKey, useMidtransProd) // ⬅️ FIX: pass 4 argumen
 	routeDetails.FinanceOwnerRoutes(owner, db)
-
 }
