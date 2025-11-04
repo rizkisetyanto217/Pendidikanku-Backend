@@ -3,11 +3,12 @@ package controller
 
 import (
 	"errors"
-	dto "schoolku_backend/internals/features/school/academics/rooms/dto"
-	model "schoolku_backend/internals/features/school/academics/rooms/model"
 	"strconv"
 	"strings"
 	"time"
+
+	dto "schoolku_backend/internals/features/school/academics/rooms/dto"
+	model "schoolku_backend/internals/features/school/academics/rooms/model"
 
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
@@ -34,7 +35,7 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
 		if er != nil {
 			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school")
 		}
@@ -45,7 +46,7 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		// bukan DKM/Admin → cek membership
 		if !helperAuth.UserHasSchool(c, schoolID) {
-			return fiber.NewError(fiber.StatusForbidden, "Anda tidak terdaftar pada school ini (membership).")
+			return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar pada school ini (membership).")
 		}
 	}
 
@@ -85,7 +86,6 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	if strings.ToLower(p.SortOrder) == "asc" {
 		orderDir = "ASC"
 	}
-
 	// legacy override via ?sort=
 	switch sortParam {
 	case "name_asc":
@@ -239,8 +239,9 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	meta := helper.BuildMeta(total, p)
-	return helper.JsonList(c, out, meta)
+	// 🔹 Pagination final lewat helper (JsonList akan auto tambah count & per_page_options)
+	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
+	return helper.JsonList(c, "ok", out, pg)
 }
 
 /* ============================ helpers (local) ============================ */

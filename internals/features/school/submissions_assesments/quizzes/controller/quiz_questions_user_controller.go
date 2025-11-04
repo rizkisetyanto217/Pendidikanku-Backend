@@ -13,6 +13,8 @@ import (
 
 // GET /quiz-questions
 // Query: quiz_id, type, q, page, per_page, sort
+// GET /quiz-questions
+// Query: quiz_id, type, q, page, per_page, sort
 func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 	// biar helper GetSchoolIDBySlug bisa akses DB dari context
 	c.Locals("DB", ctl.DB)
@@ -27,21 +29,21 @@ func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 	}
 
 	// slug → id jika perlu
-	var mid uuid.UUID
+	var schoolID uuid.UUID
 	if mc.ID != uuid.Nil {
-		mid = mc.ID
+		schoolID = mc.ID
 	} else if s := strings.TrimSpace(mc.Slug); s != "" {
 		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil || id == uuid.Nil {
 			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
-		mid = id
+		schoolID = id
 	} else {
 		return helper.JsonError(c, helperAuth.ErrSchoolContextMissing.Code, helperAuth.ErrSchoolContextMissing.Message)
 	}
 
 	// 2) Authorize: minimal member school (semua role)
-	if err := helperAuth.EnsureMemberSchool(c, mid); err != nil {
+	if err := helperAuth.EnsureMemberSchool(c, schoolID); err != nil {
 		return err
 	}
 
@@ -54,17 +56,17 @@ func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, "quiz_id tidak valid")
 		}
 	}
-	qType := c.Query("type") // "single"|"essay"|empty
-	q := c.Query("q")
-	sort := c.Query("sort")
+	qType := strings.TrimSpace(c.Query("type")) // "single"|"essay"|empty
+	q := strings.TrimSpace(c.Query("q"))
+	sort := strings.TrimSpace(c.Query("sort"))
 
-	// pagination (0-based page; kompatibel dgn pageOffset helper yg sudah ada)
-	limit := atoiOr(20, c.Query("per_page"), c.Query("limit"))
-	offset := pageOffset(atoiOr(0, c.Query("page")), limit)
+	// 4) Paging (jsonresponse style)
+	p := helper.ResolvePaging(c, 20, 200) // default 20, max 200
 
-	// 4) Query data (tenant-scoped, kolom singular)
-	dbq := ctl.DB.WithContext(c.Context()).Model(&qmodel.QuizQuestionModel{})
-	dbq = ctl.applyFilters(dbq, mid, quizID, qType, q)
+	// 5) Query data (tenant-scoped)
+	dbq := ctl.DB.WithContext(c.Context()).
+		Model(&qmodel.QuizQuestionModel{})
+	dbq = ctl.applyFilters(dbq, schoolID, quizID, qType, q)
 
 	var total int64
 	if err := dbq.Count(&total).Error; err != nil {
@@ -72,21 +74,18 @@ func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 	}
 
 	dbq = ctl.applySort(dbq, sort)
-	if limit > 0 {
-		dbq = dbq.Offset(offset).Limit(limit)
+	if p.Limit > 0 {
+		dbq = dbq.Offset(p.Offset).Limit(p.Limit)
 	}
 
 	var rows []qmodel.QuizQuestionModel
 	if err := dbq.Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
+
 	out := qdto.FromModelsQuizQuestions(rows)
 
-	// 5) Response
-	meta := fiber.Map{
-		"total":    total,
-		"page":     atoiOr(0, c.Query("page")),
-		"per_page": limit,
-	}
-	return helper.JsonList(c, out, meta)
+	// 6) Response (pagination lengkap)
+	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
+	return helper.JsonList(c, "ok", out, pg)
 }

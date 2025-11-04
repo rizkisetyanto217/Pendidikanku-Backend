@@ -22,41 +22,45 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 	// -------- Resolve school context --------
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		return err
-	}
-	var schoolID uuid.UUID
-	if mc.ID != uuid.Nil {
-		schoolID = mc.ID
-	} else {
-		if strings.TrimSpace(mc.Slug) == "" {
-			return helperAuth.ErrSchoolContextMissing
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
 		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	var schoolID uuid.UUID
+	switch {
+	case mc.ID != uuid.Nil:
+		schoolID = mc.ID
+	case strings.TrimSpace(mc.Slug) != "":
 		id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
 		if er != nil {
 			if er == gorm.ErrRecordNotFound {
-				return fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school")
 		}
 		schoolID = id
+	default:
+		return helper.JsonError(c, fiber.StatusBadRequest, helperAuth.ErrSchoolContextMissing.Error())
 	}
 
-	// -------- query params & paging --------
+	// -------- query params --------
 	var q cpdto.ListClassParentQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
-	q.Limit = clampLimit(q.Limit, 20, 200)
-	if q.Offset < 0 {
-		q.Offset = 0
-	}
+
+	// ✅ Paging (standar jsonresponse) — hilangkan clampLimit
+	p := helper.ResolvePaging(c, 20, 200)
 
 	// only_my flag
 	onlyMy := false
 	if v := strings.TrimSpace(c.Query("only_my")); v != "" {
-		onlyMy = strings.EqualFold(v, "1") || strings.EqualFold(v, "true")
+		onlyMy = strings.EqualFold(v, "1") || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
 	}
 
+	// -------- base query --------
 	tx := ctl.DB.WithContext(c.Context()).
 		Model(&cpmodel.ClassParentModel{}).
 		Where("class_parent_school_id = ? AND class_parent_deleted_at IS NULL", schoolID)
@@ -72,12 +76,12 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 	if s := strings.TrimSpace(c.Query("class_parent_ids")); s != "" {
 		parts := strings.Split(s, ",")
 		ids := make([]uuid.UUID, 0, len(parts))
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p == "" {
+		for _, pstr := range parts {
+			pstr = strings.TrimSpace(pstr)
+			if pstr == "" {
 				continue
 			}
-			id, perr := uuid.Parse(p)
+			id, perr := uuid.Parse(pstr)
 			if perr != nil {
 				return helper.JsonError(c, fiber.StatusBadRequest, "class_parent_ids mengandung UUID tidak valid")
 			}
@@ -115,7 +119,7 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		`, pat, pat, pat)
 	}
 
-	// ----- NEW: filter khusus berdasarkan name -----
+	// ----- filter khusus berdasarkan name -----
 	if s := strings.TrimSpace(q.Name); s != "" {
 		tx = tx.Where("class_parent_name ILIKE ?", "%"+s+"%")
 	}
@@ -151,7 +155,7 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ----- eksekusi -----
+	// -------- eksekusi --------
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
@@ -160,13 +164,15 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 	var rows []cpmodel.ClassParentModel
 	if err := tx.
 		Order("class_parent_created_at DESC").
-		Limit(q.Limit).
-		Offset(q.Offset).
+		Limit(p.Limit).
+		Offset(p.Offset).
 		Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
 	resps := cpdto.ToClassParentResponses(rows)
-	meta := cpdto.NewPaginationMeta(total, q.Limit, q.Offset, len(resps))
-	return helper.JsonList(c, resps, meta)
+
+	// ✅ pagination jsonresponse
+	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
+	return helper.JsonList(c, "ok", resps, pg)
 }

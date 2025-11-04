@@ -20,5 +20,5 @@ func AllAcademicTermsRoutes(user fiber.Router, db *gorm.DB) {
 
 	// Read-only Academic Terms
 	r.Get("/list", termCtl.List)
-	r.Get("/search-with-class", termCtl.SearchByYear) // taruh sebelum :id bila nanti ada detail
+
 }

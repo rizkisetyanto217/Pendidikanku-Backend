@@ -43,34 +43,41 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		return err
 	}
 
-	// ===== Parse query ke DTO =====
+	// ===== Parse query ke DTO (toleran) =====
 	var q csbDTO.ListClassSubjectBookQuery
-	_ = c.QueryParser(&q) // toleran: bila gagal tetap lanjut
+	_ = c.QueryParser(&q)
 
-	// Pagination & sorting (default created_at desc)
-	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
-	// Legacy sort (kompatibilitas)
+	// ===== Paging (jsonresponse helper) =====
+	p := helper.ResolvePaging(c, 20, 100) // default 20, max 100
+
+	// ===== Sorting whitelist (manual) =====
+	// Legacy 'sort' tetap didukung
+	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by", "created_at")))
+	order := strings.ToLower(strings.TrimSpace(c.Query("order", "desc")))
 	if s := strings.ToLower(strings.TrimSpace(c.Query("sort"))); s != "" {
 		switch s {
 		case "created_at_asc":
-			p.SortBy, p.SortOrder = "created_at", "asc"
+			sortBy, order = "created_at", "asc"
 		case "created_at_desc":
-			p.SortBy, p.SortOrder = "created_at", "desc"
+			sortBy, order = "created_at", "desc"
 		case "updated_at_asc":
-			p.SortBy, p.SortOrder = "updated_at", "asc"
+			sortBy, order = "updated_at", "asc"
 		case "updated_at_desc":
-			p.SortBy, p.SortOrder = "updated_at", "desc"
+			sortBy, order = "updated_at", "desc"
 		}
 	}
-	allowedSort := map[string]string{
+	if order != "asc" && order != "desc" {
+		order = "desc"
+	}
+	colMap := map[string]string{
 		"created_at": "csb.class_subject_book_created_at",
 		"updated_at": "csb.class_subject_book_updated_at",
 	}
-	orderClause, err := p.SafeOrderClause(allowedSort, "created_at")
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "sort_by tidak valid")
+	col, ok := colMap[sortBy]
+	if !ok {
+		col = colMap["created_at"]
 	}
-	orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
+	orderExpr := col + " " + strings.ToUpper(order)
 
 	// ===== Base query (tenant-safe, no join) =====
 	qBase := h.DB.WithContext(c.Context()).
@@ -86,9 +93,8 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 
 	// ===== Filters =====
 	// id / ids
-	var e error
-	if qBase, e = applyIDsFilter(c, qBase); e != nil {
-		return e
+	if qBase, err = applyIDsFilter(c, qBase); err != nil {
+		return err
 	}
 	// class_subject_id
 	if q.ClassSubjectID != nil {
@@ -127,16 +133,15 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, "is_active tidak valid")
 		}
 	}
-
-	// q: cari di slug relasi, judul buku snapshot, nama & slug subject snapshot
+	// q: cari di slug relasi & snapshots
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
-		like := "%" + strings.TrimSpace(*q.Q) + "%"
+		needle := "%" + strings.TrimSpace(*q.Q) + "%"
 		qBase = qBase.Where(`
 			(csb.class_subject_book_slug ILIKE ? OR
 			 csb.class_subject_book_book_title_snapshot ILIKE ? OR
 			 csb.class_subject_book_subject_name_snapshot ILIKE ? OR
 			 csb.class_subject_book_subject_slug_snapshot ILIKE ?)`,
-			like, like, like, like)
+			needle, needle, needle, needle)
 	}
 
 	// ===== Hitung total distinct =====
@@ -206,8 +211,8 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 	if err := qBase.
 		Select(strings.Join(selectCols, ",")).
 		Order(orderExpr).
-		Limit(p.Limit()).
-		Offset(p.Offset()).
+		Limit(p.Limit).
+		Offset(p.Offset).
 		Scan(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
@@ -243,9 +248,11 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		})
 	}
 
-	// ===== Response (pakai helper meta standar) =====
-	meta := helper.BuildMeta(total, p)
-	return helper.JsonList(c, items, meta)
+	// ===== Pagination meta (jsonresponse helper) =====
+	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
+
+	// ===== Response (JsonList standar) =====
+	return helper.JsonList(c, "ok", items, pg)
 }
 
 /* ================= Helpers (local) ================= */

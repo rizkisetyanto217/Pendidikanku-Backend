@@ -260,6 +260,9 @@ type listQuery struct {
 
 /* ================================ Handler ================================ */
 /* ================================ Handler (NO-INCLUDE, NO-JOIN) ================================ */
+// file: internals/features/school/academics/subject/controller/class_section_subject_teachers_user_controller.go
+
+// ... (imports & types tetap)
 
 func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	detectCSSTFKs(ctl.DB)
@@ -298,16 +301,17 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 
 	// qparams umum
 	var q listQuery
-	q.Limit, q.Offset = intPtr(20), intPtr(0)
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
-	if q.Limit == nil || *q.Limit <= 0 || *q.Limit > 200 {
-		q.Limit = intPtr(20)
+
+	// ===== Paging (standar jsonresponse) =====
+	// default per_page=20, max=200; hormati ?offset= bila dikirim
+	p := helper.ResolvePaging(c, 20, 200)
+	if q.Offset != nil && *q.Offset >= 0 {
+		p.Offset = *q.Offset
 	}
-	if q.Offset == nil || *q.Offset < 0 {
-		q.Offset = intPtr(0)
-	}
+	limit, offset := p.Limit, p.Offset
 
 	// qparams tambahan (tanpa include)
 	sectionID := strings.TrimSpace(c.Query("section_id"))
@@ -316,7 +320,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	teacherID := strings.TrimSpace(c.Query("teacher_id"))
 	qtext := strings.TrimSpace(strings.ToLower(c.Query("q")))
 
-	// sorting berdasarkan kolom CSST (snapshot/generated)
+	// sorting whitelist
 	orderBy := fmt.Sprintf("csst.%s", csstCreatedAtCol)
 	if q.OrderBy != nil {
 		switch strings.ToLower(*q.OrderBy) {
@@ -387,11 +391,9 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ====== FILTER qtext (pakai display_name dari snapshot) ======
+	// qtext (display_name snapshot)
 	if qtext != "" {
 		tx = tx.Where("LOWER(csst.class_section_subject_teacher_display_name) LIKE ?", "%"+qtext+"%")
-		// (opsional jika kolom tsv tersedia)
-		// tx = tx.Where("csst.class_section_subject_teacher_search_tsv @@ plainto_tsquery('simple', ?)", qtext)
 	}
 
 	// ===== DETAIL BY ID =====
@@ -461,8 +463,8 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	if err := tx.
 		Select(strings.Join(selectCols, ", ")).
 		Order(orderBy + " " + sort).
-		Limit(*q.Limit).
-		Offset(*q.Offset).
+		Limit(limit).
+		Offset(offset).
 		Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
@@ -472,9 +474,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		out = append(out, toCSSTResp(r))
 	}
 
-	return helper.JsonList(c, out, fiber.Map{
-		"limit":  *q.Limit,
-		"offset": *q.Offset,
-		"total":  int(total),
-	})
+	// ===== Pagination meta + response standar =====
+	pg := helper.BuildPaginationFromOffset(total, offset, limit)
+	return helper.JsonList(c, "ok", out, pg)
 }

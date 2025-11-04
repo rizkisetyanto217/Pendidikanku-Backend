@@ -1,3 +1,4 @@
+// file: internals/features/school/submissions_assesments/assesments/controller/assessment_type_controller.go
 package controller
 
 import (
@@ -123,9 +124,7 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		out = append(out, mapToResponse(&rows[i]))
 	}
 
-	return helper.JsonList(c, out, fiber.Map{
-		"total":  total,
-		"limit":  filt.Limit,
-		"offset": filt.Offset,
-	})
+	// ⬇️ gunakan meta konsisten (page, per_page, total, total_pages, has_next, has_prev, count, per_page_options)
+	meta := helper.BuildPaginationFromOffset(total, filt.Offset, filt.Limit)
+	return helper.JsonList(c, "ok", out, meta)
 }

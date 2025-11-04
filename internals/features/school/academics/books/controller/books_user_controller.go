@@ -17,7 +17,7 @@ import (
 GET /api/a/books/list (versi sederhana)
 - Filter: q (title/author/desc, ILIKE), author, id/book_id (CSV UUID), with_deleted
 - Sort: order_by=created_at|title|author + sort=asc|desc (whitelist)
-- Pagination: pakai helper.ParseFiber + helper.BuildMeta
+- Pagination: pakai helper.ParseFiber (offset/limit) → dikemas ke "pagination"
 - Tanpa DTO eksternal (struct lokal) & tanpa preload/joins
 */
 func (h *BooksController) List(c *fiber.Ctx) error {
@@ -189,7 +189,38 @@ func (h *BooksController) List(c *fiber.Ctx) error {
 		rows[i].BookIsDeleted = rows[i].BookDeletedAt != nil && !rows[i].BookDeletedAt.IsZero()
 	}
 
+	// ===== Build pagination meta (format seragam) =====
+	perPage := p.Limit()
+	if perPage <= 0 {
+		perPage = 20 // default aman
+	}
+	offset := p.Offset()
+	page := 1
+	if perPage > 0 {
+		page = (offset / perPage) + 1
+	}
+	totalPages := 1
+	if perPage > 0 {
+		totalPages = int((total + int64(perPage) - 1) / int64(perPage)) // ceil
+		if totalPages == 0 {
+			totalPages = 1
+		}
+	}
+	hasNext := page < totalPages
+	hasPrev := page > 1
+
+	pagination := fiber.Map{
+		"page":        page,
+		"per_page":    perPage,
+		"total":       total,
+		"total_pages": totalPages,
+		"has_next":    hasNext,
+		"has_prev":    hasPrev,
+	}
+
 	// ===== Response =====
-	meta := helper.BuildMeta(total, p)
-	return helper.JsonList(c, rows, meta)
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"data":       rows,
+		"pagination": pagination,
+	})
 }

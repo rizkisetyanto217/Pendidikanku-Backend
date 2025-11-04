@@ -86,11 +86,6 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 	}()
 
 	// ===================== MOUNT ROUTES =====================
-	log.Println("[INFO] Mounting School routes...")
-	routeDetails.SchoolPublicRoutes(public, db)
-	routeDetails.SchoolUserRoutes(privateScoped, db)
-	routeDetails.SchoolAdminRoutes(admin, db)
-	routeDetails.SchoolOwnerRoutes(owner, db)
 
 	log.Println("[INFO] Mounting Lembaga routes...")
 	routeDetails.LembagaPublicRoutes(public, db)
@@ -100,11 +95,6 @@ func SetupRoutes(app *fiber.App, db *gorm.DB) {
 
 	// 🔓 Mount route JOIN GLOBAL (tanpa school_id) KE privateLoose
 	routeDetails.ClassSectionUserGlobalRoutes(privateLoose, db)
-
-	log.Println("[INFO] Mounting Home routes...")
-	routeDetails.HomePublicRoutes(public, db)
-	routeDetails.HomePrivateRoutes(privateScoped, db)
-	routeDetails.HomeAdminRoutes(admin, db)
 
 	log.Println("[INFO] Mounting Finance routes...")
 	routeDetails.FinancePublicRoutes(public, db)

@@ -83,6 +83,10 @@ func (ctl *StudentAttendanceTypeController) Create(c *fiber.Ctx) error {
 }
 
 // GET /
+// file: internals/features/attendance/controller/student_attendance_type_controller.go
+// ... import & type tetap
+
+// GET /
 func (ctl *StudentAttendanceTypeController) List(c *fiber.Ctx) error {
 	// School context (DKM/Admin jika eksplisit; jika tidak, fallback token/teacher)
 	c.Locals("DB", ctl.DB)
@@ -104,12 +108,15 @@ func (ctl *StudentAttendanceTypeController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// Pagination & sorting (pakai helper)
-	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
+	// ===== Paging standar (jsonresponse)
+	// default per_page=20, max=200; mendukung ?page=&per_page= dan alias ?limit=
+	p := helper.ResolvePaging(c, 20, 200)
 
-	// Query filter
+	// ===== Query filter dari querystring
 	q := dto.StudentClassSessionAttendanceTypeListQuery{
 		StudentClassSessionAttendanceTypeSchoolID: schoolID,
+		Limit:  p.Limit,
+		Offset: p.Offset,
 	}
 
 	if v := strings.TrimSpace(c.Query("code_eq")); v != "" {
@@ -125,11 +132,8 @@ func (ctl *StudentAttendanceTypeController) List(c *fiber.Ctx) error {
 		val := strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
 		q.OnlyActive = &val
 	}
-	// Pakai limit/offset dari helper
-	q.Limit = p.Limit()
-	q.Offset = p.Offset()
 
-	// Mapping sort_by/order → q.Sort (opsional; tetap support param "sort" lama)
+	// Mapping sort_by/order → q.Sort (tetap dukung param lama ?sort=)
 	if sb := strings.TrimSpace(c.Query("sort_by")); sb != "" {
 		order := strings.ToLower(strings.TrimSpace(c.Query("order")))
 		if order != "asc" && order != "desc" {
@@ -156,7 +160,6 @@ func (ctl *StudentAttendanceTypeController) List(c *fiber.Ctx) error {
 			}
 		}
 	} else if v := strings.TrimSpace(c.Query("sort")); v != "" {
-		// fallback ke parameter lama "sort"
 		q.Sort = v
 	}
 
@@ -164,7 +167,9 @@ func (ctl *StudentAttendanceTypeController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
+	// ===== Build query, count, fetch
 	g := q.BuildQuery(ctl.DB.WithContext(c.Context()))
+
 	var total int64
 	if err := g.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
@@ -180,8 +185,9 @@ func (ctl *StudentAttendanceTypeController) List(c *fiber.Ctx) error {
 		items[i] = dto.FromModel(&rows[i])
 	}
 
-	meta := helper.BuildMeta(total, p)
-	return helper.JsonList(c, items, meta)
+	// ===== Meta & response (jsonresponse)
+	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
+	return helper.JsonList(c, "ok", items, pg)
 }
 
 // PATCH /:id

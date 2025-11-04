@@ -131,11 +131,16 @@ func (ctl *StudentAttendanceController) buildListQuery(c *fiber.Ctx, q attDTO.Li
 	return tx.Order("student_class_session_attendance_created_at DESC"), nil
 }
 
+// file: internals/features/school/sessions/sessions/controller/student_attendance_list_controller.go
+
 func (ctl *StudentAttendanceController) List(c *fiber.Ctx) error {
 	// ✅ Resolve school context
 	mc, er := helperAuth.ResolveSchoolContext(c)
 	if er != nil {
-		return helper.JsonError(c, er.(*fiber.Error).Code, er.Error())
+		if fe, ok := er.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, er.Error())
 	}
 
 	// ✅ Tentukan schoolID + authorize
@@ -143,7 +148,10 @@ func (ctl *StudentAttendanceController) List(c *fiber.Ctx) error {
 	if helperAuth.IsOwner(c) || helperAuth.IsDKM(c) {
 		id, er := helperAuth.EnsureSchoolAccessDKM(c, mc)
 		if er != nil {
-			return helper.JsonError(c, er.(*fiber.Error).Code, er.Error())
+			if fe, ok := er.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
 		}
 		schoolID = id
 	} else {
@@ -188,10 +196,10 @@ func (ctl *StudentAttendanceController) List(c *fiber.Ctx) error {
 		var m attModel.StudentClassSessionAttendanceModel
 		if err := ctl.DB.WithContext(c.Context()).
 			Where(`
-			student_class_session_attendance_id = ?
-			AND student_class_session_attendance_school_id = ?
-			AND student_class_session_attendance_deleted_at IS NULL
-		`, id, schoolID).
+				student_class_session_attendance_id = ?
+				AND student_class_session_attendance_school_id = ?
+				AND student_class_session_attendance_deleted_at IS NULL
+			`, id, schoolID).
 			First(&m).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan")
@@ -199,39 +207,65 @@ func (ctl *StudentAttendanceController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 		}
 
-		// Tanpa mapper: kembalikan model langsung
 		if !includeURLs {
 			return helper.JsonOK(c, "OK", m)
 		}
-		// (opsional) load URLs di sini kalau perlu.
 		return helper.JsonOK(c, "OK", fiber.Map{
 			"attendance": m,
-			// "urls": urls, // jika nanti di-load
+			// "urls": urls, // siapkan kalau nanti mau diisi
 		})
 	}
 
 	// --- LIST mode ---
-	p := helper.ParseFiber(c, "created_at", "desc", helper.AdminOpts)
-	allowedOrder := map[string]string{
-		"id":         "student_class_session_attendance_id",
-		"created_at": "student_class_session_attendance_created_at",
-	}
-	orderClause, err := p.SafeOrderClause(allowedOrder, "created_at")
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "sort_by tidak valid")
-	}
 
+	// ✅ Pagination (jsonresponse)
+	// default per_page=20, max=200 (silakan ganti kalau mau)
+	p := helper.ResolvePaging(c, 20, 200)
+
+	// ✅ Sorting whitelist (ganti SafeOrderClause)
+	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by")))
+	order := strings.ToLower(strings.TrimSpace(c.Query("order")))
+	if order != "asc" && order != "desc" {
+		// fallback kompatibel dengan param "sort" lama (created_at_desc/dll)
+		if v := strings.ToLower(strings.TrimSpace(c.Query("sort"))); v != "" {
+			switch v {
+			case "created_at_asc":
+				sortBy, order = "created_at", "asc"
+			case "created_at_desc":
+				sortBy, order = "created_at", "desc"
+			case "id_asc":
+				sortBy, order = "id", "asc"
+			case "id_desc":
+				sortBy, order = "id", "desc"
+			default:
+				order = "desc"
+			}
+		} else {
+			order = "desc"
+		}
+	}
+	col := "student_class_session_attendance_created_at"
+	switch sortBy {
+	case "id":
+		col = "student_class_session_attendance_id"
+	case "created_at", "":
+		col = "student_class_session_attendance_created_at"
+	}
+	orderExpr := col + " " + strings.ToUpper(order)
+
+	// ✅ Parse query → DTO
 	var q attDTO.ListStudentClassSessionAttendanceQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 
+	// ✅ Build base query (tenant-aware)
 	tx, err := ctl.buildListQuery(c, q, schoolID)
 	if err != nil {
 		return err
 	}
 
-	// filter id list (opsional)
+	// filter ids (opsional)
 	if raw := strings.TrimSpace(c.Query("ids")); raw != "" {
 		parts := strings.Split(raw, ",")
 		ids := make([]uuid.UUID, 0, len(parts))
@@ -251,49 +285,36 @@ func (ctl *StudentAttendanceController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// Sorting & total
-	tx = tx.Order(strings.TrimPrefix(orderClause, "ORDER BY "))
+	// ✅ Total
 	var total int64
-	if err := tx.Count(&total).Error; err != nil {
+	if err := tx.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Page window
-	qdb := tx
-	if !p.All {
-		qdb = qdb.Limit(p.Limit()).Offset(p.Offset())
-	}
+	// ✅ Page window + order
+	qdb := tx.Order(orderExpr).Limit(p.Limit).Offset(p.Offset)
 
 	var rows []attModel.StudentClassSessionAttendanceModel
 	if err := qdb.Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
+	// ✅ Pagination object (jsonresponse)
+	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
+
+	// ✅ Response (tanpa/ dengan URLs)
 	if !includeURLs {
-		meta := helper.BuildMeta(total, p)
-		return helper.JsonList(c, rows, fiber.Map{
-			"meta":   meta,
-			"total":  total,
-			"limit":  p.PerPage,
-			"offset": p.Offset(),
-		})
+		return helper.JsonList(c, "ok", rows, pg)
 	}
 
 	items := make([]fiber.Map, 0, len(rows))
 	for i := range rows {
 		items = append(items, fiber.Map{
 			"attendance": rows[i],
-			// "urls": urlsByAttendance[rows[i].StudentClassSessionAttendanceID] // kalau nanti di-load batch
+			// "urls": urlsByAttendance[rows[i].StudentClassSessionAttendanceID],
 		})
 	}
-
-	meta := helper.BuildMeta(total, p)
-	return helper.JsonList(c, items, fiber.Map{
-		"meta":   meta,
-		"total":  total,
-		"limit":  p.PerPage,
-		"offset": p.Offset(),
-	})
+	return helper.JsonList(c, "ok", items, pg)
 }
 
 /*

@@ -16,19 +16,21 @@ import (
 
 /*
 =========================================================
-
-	LIST
-	GET /admin/subjects?q=&is_active=&order_by=&sort=&limit=&offset=&with_deleted=&id=&ids=
-	order_by: code|name|created_at|updated_at
-	sort: asc|desc
-	=========================================================
+LIST
+GET /admin/subjects?q=&is_active=&order_by=&sort=&limit=&offset=&with_deleted=&id=&ids=
+order_by: code|name|created_at|updated_at
+sort: asc|desc
+=========================================================
 */
 func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 	// === School context (PUBLIC): no role check ===
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		// sudah fiber.Error yang proper (bad request kalau kosong)
-		return err
+		// balas dengan skema error JSON standar
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	var schoolID uuid.UUID
@@ -38,14 +40,13 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil {
 			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 			}
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
 		}
 		schoolID = id
 	} else {
-		// fallback bila resolver benar-benar tak menemukan konteks
-		return helperAuth.ErrSchoolContextMissing
+		return helper.JsonError(c, fiber.StatusBadRequest, helperAuth.ErrSchoolContextMissing.Error())
 	}
 
 	// --- Query params & defaults ---
@@ -53,7 +54,7 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 	q.Limit, q.Offset = intPtr(20), intPtr(0)
 
 	if err := c.QueryParser(&q); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Query tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 	if q.Limit == nil || *q.Limit <= 0 || *q.Limit > 200 {
 		q.Limit = intPtr(20)
@@ -73,7 +74,11 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 
 	// ========== filter by id / ids (comma-separated) ==========
 	if ids, ok, errResp := uuidListFromQuery(c, "id", "ids"); errResp != nil {
-		return errResp
+		// errResp sudah berupa fiber.Error; bungkus ke JsonError
+		if fe, ok := errResp.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, errResp.Error())
 	} else if ok {
 		tx = tx.Where("subject_id IN ?", ids)
 	}
@@ -109,7 +114,7 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 	// --- total (sebelum limit/offset) ---
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghitung total data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
 	// --- data ---
@@ -135,17 +140,14 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 		Order(orderBy + " " + sort).
 		Limit(*q.Limit).Offset(*q.Offset).
 		Find(&rows).Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	return helper.JsonList(c,
-		subjectDTO.FromSubjectModels(rows),
-		fiber.Map{
-			"limit":  *q.Limit,
-			"offset": *q.Offset,
-			"total":  int(total),
-		},
-	)
+	// --- pagination meta konsisten ---
+	meta := helper.BuildPaginationFromOffset(total, *q.Offset, *q.Limit)
+
+	// --- response standar ---
+	return helper.JsonList(c, "ok", subjectDTO.FromSubjectModels(rows), meta)
 }
 
 /* ================= Helpers lokal ================= */

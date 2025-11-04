@@ -53,8 +53,7 @@ func (ctl *ClassEventsController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ===== pagination & generic sorting via helper =====
-	// default sort: by date desc
+	// pagination & sorting via helper (default: date desc)
 	p := helper.ParseFiber(c, "date", "desc", helper.DefaultOpts)
 
 	tx := ctl.DB.WithContext(c.Context()).
@@ -99,7 +98,7 @@ func (ctl *ClassEventsController) List(c *fiber.Ctx) error {
 
 	// search q (title/desc/teacher_name)
 	if q.Q != nil {
-		kw := "%" + strings.ToLower(*q.Q) + "%"
+		kw := "%" + strings.ToLower(strings.TrimSpace(*q.Q)) + "%"
 		tx = tx.Where(`
 			LOWER(class_event_title) LIKE ? OR
 			LOWER(COALESCE(class_event_desc, '')) LIKE ? OR
@@ -131,12 +130,10 @@ func (ctl *ClassEventsController) List(c *fiber.Ctx) error {
 		tx = tx.Where("class_event_date <= ?", *dateTo)
 	}
 
-	// ===== sorting =====
-	// 1) Jika user pakai domain sort di q.Sort → hormati pola lama
-	// 2) Jika tidak, pakai sort_by/order dari helper (date/start_time/created_at/updated_at/title)
+	// sorting
 	orderExpr := "class_event_date DESC, class_event_start_time ASC NULLS FIRST, class_event_title ASC"
 	if q.Sort != nil && strings.TrimSpace(*q.Sort) != "" {
-		switch *q.Sort {
+		switch strings.TrimSpace(*q.Sort) {
 		case "date_asc":
 			orderExpr = "class_event_date ASC, class_event_start_time ASC NULLS FIRST, class_event_title ASC"
 		case "date_desc":
@@ -167,7 +164,6 @@ func (ctl *ClassEventsController) List(c *fiber.Ctx) error {
 		case "date", "":
 			orderExpr = "class_event_date " + dir + ", class_event_start_time ASC NULLS FIRST, class_event_title ASC"
 		case "start_time":
-			// untuk start_time, tetap beri tiebreaker date
 			orderExpr = "class_event_start_time " + dir + " NULLS FIRST, class_event_date " + dir
 		case "created_at":
 			orderExpr = "class_event_created_at " + dir
@@ -179,19 +175,21 @@ func (ctl *ClassEventsController) List(c *fiber.Ctx) error {
 	}
 	tx = tx.Order(orderExpr)
 
-	// ===== count =====
+	// count
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
-		return writePGError(c, err)
+		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	// ===== data =====
+	// data
 	var rows []m.ClassEventModel
 	if err := tx.Limit(p.Limit()).Offset(p.Offset()).Find(&rows).Error; err != nil {
-		return writePGError(c, err)
+		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	// ===== response (pakai meta dari helper) =====
-	meta := helper.BuildMeta(total, p)
-	return helper.JsonList(c, d.FromModelsClassEvent(rows), meta)
+	// pagination seragam
+	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
+
+	// response seragam
+	return helper.JsonList(c, "ok", d.FromModelsClassEvent(rows), pg)
 }

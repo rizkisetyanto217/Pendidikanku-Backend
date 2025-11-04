@@ -1,101 +1,101 @@
 // controller/announcement_theme_list.go
 package controller
 
-import (
-	"net/http"
-	"strings"
+// import (
+// 	"net/http"
+// 	"strings"
 
-	dto "schoolku_backend/internals/features/school/others/post/dto"
-	pmodel "schoolku_backend/internals/features/school/others/post/model"
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
+// 	dto "schoolku_backend/internals/features/school/others/post/dto"
+// 	pmodel "schoolku_backend/internals/features/school/others/post/model"
+// 	helper "schoolku_backend/internals/helpers"
+// 	helperAuth "schoolku_backend/internals/helpers/auth"
 
-	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
-)
+// 	"github.com/gofiber/fiber/v2"
+// 	"github.com/google/uuid"
+// )
 
-/* =========================================================
-   LIST (PUBLIC)
-   GET /post-themes
-   Query: school context via resolver (slug/id), kind, parent_id, is_active, q, sort_by, order, page/per_page
-========================================================= */
+// /* =========================================================
+//    LIST (PUBLIC)
+//    GET /post-themes
+//    Query: school context via resolver (slug/id), kind, parent_id, is_active, q, sort_by, order, page/per_page
+// ========================================================= */
 
-func (ctl *PostThemeController) List(c *fiber.Ctx) error {
-	// biar resolver slug→id bisa akses DB
-	c.Locals("DB", ctl.DB)
+// func (ctl *PostThemeController) List(c *fiber.Ctx) error {
+// 	// biar resolver slug→id bisa akses DB
+// 	c.Locals("DB", ctl.DB)
 
-	// Resolve school (tanpa auth ketat — publik)
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		return err
-	}
-	var schoolID uuid.UUID
-	if mc.ID != uuid.Nil {
-		schoolID = mc.ID
-	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetSchoolIDBySlug(c, s)
-		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, http.StatusNotFound, "School (slug) tidak ditemukan")
-		}
-		schoolID = id
-	} else {
-		return helperAuth.ErrSchoolContextMissing
-	}
+// 	// Resolve school (tanpa auth ketat — publik)
+// 	mc, err := helperAuth.ResolveSchoolContext(c)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	var schoolID uuid.UUID
+// 	if mc.ID != uuid.Nil {
+// 		schoolID = mc.ID
+// 	} else if s := strings.TrimSpace(mc.Slug); s != "" {
+// 		id, er := helperAuth.GetSchoolIDBySlug(c, s)
+// 		if er != nil || id == uuid.Nil {
+// 			return helper.JsonError(c, http.StatusNotFound, "School (slug) tidak ditemukan")
+// 		}
+// 		schoolID = id
+// 	} else {
+// 		return helperAuth.ErrSchoolContextMissing
+// 	}
 
-	// Filters
-	var q dto.ListPostThemesQuery
-	if err := c.QueryParser(&q); err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "Query tidak valid")
-	}
-	q.Normalize()
+// 	// Filters
+// 	var q dto.ListPostThemesQuery
+// 	if err := c.QueryParser(&q); err != nil {
+// 		return helper.JsonError(c, http.StatusBadRequest, "Query tidak valid")
+// 	}
+// 	q.Normalize()
 
-	// Pagination + Sorting via helper
-	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
-	orderMap := map[string]string{
-		"name":       "post_theme_name",
-		"slug":       "post_theme_slug",
-		"created_at": "post_theme_created_at",
-		"updated_at": "post_theme_updated_at",
-	}
-	orderClause, _ := p.SafeOrderClause(orderMap, "created_at")
-	// GORM .Order() tidak butuh "ORDER BY "
-	orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
+// 	// Pagination + Sorting via helper
+// 	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
+// 	orderMap := map[string]string{
+// 		"name":       "post_theme_name",
+// 		"slug":       "post_theme_slug",
+// 		"created_at": "post_theme_created_at",
+// 		"updated_at": "post_theme_updated_at",
+// 	}
+// 	orderClause, _ := p.SafeOrderClause(orderMap, "created_at")
+// 	// GORM .Order() tidak butuh "ORDER BY "
+// 	orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
 
-	tx := ctl.DB.WithContext(c.Context()).
-		Model(&pmodel.PostThemeModel{}).
-		Where("post_theme_school_id = ? AND post_theme_deleted_at IS NULL", schoolID)
+// 	tx := ctl.DB.WithContext(c.Context()).
+// 		Model(&pmodel.PostThemeModel{}).
+// 		Where("post_theme_school_id = ? AND post_theme_deleted_at IS NULL", schoolID)
 
-	// apply filters
-	if q.Kind != nil && strings.TrimSpace(*q.Kind) != "" {
-		tx = tx.Where("post_theme_kind = ?", strings.ToLower(strings.TrimSpace(*q.Kind)))
-	}
-	if q.ParentID != nil {
-		tx = tx.Where("post_theme_parent_id = ?", *q.ParentID)
-	}
-	if q.IsActive != nil {
-		tx = tx.Where("post_theme_is_active = ?", *q.IsActive)
-	}
-	if q.SearchName != nil {
-		kw := "%" + strings.ToLower(*q.SearchName) + "%"
-		tx = tx.Where("LOWER(post_theme_name) LIKE ?", kw)
-	}
+// 	// apply filters
+// 	if q.Kind != nil && strings.TrimSpace(*q.Kind) != "" {
+// 		tx = tx.Where("post_theme_kind = ?", strings.ToLower(strings.TrimSpace(*q.Kind)))
+// 	}
+// 	if q.ParentID != nil {
+// 		tx = tx.Where("post_theme_parent_id = ?", *q.ParentID)
+// 	}
+// 	if q.IsActive != nil {
+// 		tx = tx.Where("post_theme_is_active = ?", *q.IsActive)
+// 	}
+// 	if q.SearchName != nil {
+// 		kw := "%" + strings.ToLower(*q.SearchName) + "%"
+// 		tx = tx.Where("LOWER(post_theme_name) LIKE ?", kw)
+// 	}
 
-	// count
-	var total int64
-	if err := tx.Count(&total).Error; err != nil {
-		return writeDBErr(c, err)
-	}
+// 	// count
+// 	var total int64
+// 	if err := tx.Count(&total).Error; err != nil {
+// 		return writeDBErr(c, err)
+// 	}
 
-	// data
-	var rows []pmodel.PostThemeModel
-	if err := tx.
-		Order(orderExpr).
-		Limit(p.Limit()).
-		Offset(p.Offset()).
-		Find(&rows).Error; err != nil {
-		return writeDBErr(c, err)
-	}
+// 	// data
+// 	var rows []pmodel.PostThemeModel
+// 	if err := tx.
+// 		Order(orderExpr).
+// 		Limit(p.Limit()).
+// 		Offset(p.Offset()).
+// 		Find(&rows).Error; err != nil {
+// 		return writeDBErr(c, err)
+// 	}
 
-	meta := helper.BuildMeta(total, p)
-	return helper.JsonList(c, dto.FromModels(rows), meta)
-}
+// 	meta := helper.BuildMeta(total, p)
+// 	return helper.JsonList(c, dto.FromModels(rows), meta)
+// }

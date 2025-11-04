@@ -82,22 +82,19 @@ func (ctl *UserRoleController) Create(c *fiber.Ctx) error {
 // LIST: GET /authz/user-roles?user_id=&role_id=&school_id=&only_alive=&limit=&offset=&order_by=&sort=
 // Note: school_id= null  (string literal "null") untuk filter global
 // =====================================================
-
 func (ctl *UserRoleController) List(c *fiber.Ctx) error {
 	var q dto.ListUserRoleQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 
-	// Defaults
+	// ===== defaults
 	if q.OnlyAlive == nil {
 		t := true
 		q.OnlyAlive = &t
 	}
-	q.Limit = clamp(q.Limit, 20, 200)
-	if q.Offset < 0 {
-		q.Offset = 0
-	}
+
+	// ===== order by + sort
 	orderBy := "assigned_at"
 	switch strings.ToLower(strings.TrimSpace(q.OrderBy)) {
 	case "user_id":
@@ -112,6 +109,7 @@ func (ctl *UserRoleController) List(c *fiber.Ctx) error {
 		sortDir = "ASC"
 	}
 
+	// ===== base query
 	tx := ctl.DB.WithContext(c.Context()).Model(&model.UserRole{})
 	if q.OnlyAlive != nil && *q.OnlyAlive {
 		tx = tx.Where("deleted_at IS NULL")
@@ -123,10 +121,7 @@ func (ctl *UserRoleController) List(c *fiber.Ctx) error {
 		tx = tx.Where("role_id = ?", *q.RoleID)
 	}
 
-	// SchoolID filter:
-	// - jika query school_id literal "null" → IS NULL
-	// - jika UUID valid → = ?
-	// - jika kosong → abaikan (semua)
+	// ===== school_id filter: "null" → IS NULL, UUID valid → = ?, kosong → abaikan
 	rawMid := strings.TrimSpace(c.Query("school_id"))
 	if strings.EqualFold(rawMid, "null") {
 		tx = tx.Where("school_id IS NULL")
@@ -138,38 +133,56 @@ func (ctl *UserRoleController) List(c *fiber.Ctx) error {
 		}
 	}
 
+	// ===== total (sebelum limit/offset)
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
+	// ===== paging helper (+ dukung ?all=1)
+	all := parseBool(c.Query("all"))
+	pg := helper.ResolvePaging(c, 20, 200) // default per_page=20, max=200
+
+	// ===== query dengan sort + paging
+	qx := tx.Order(fmt.Sprintf("%s %s", orderBy, sortDir))
+	if !all {
+		qx = qx.Offset(pg.Offset).Limit(pg.Limit)
+	}
+
 	var rows []model.UserRole
-	if err := tx.
-		Order(fmt.Sprintf("%s %s", orderBy, sortDir)).
-		Limit(q.Limit).Offset(q.Offset).
-		Find(&rows).Error; err != nil {
+	if err := qx.Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
+	// ===== map ke DTO
 	resp := make([]dto.UserRoleResponse, 0, len(rows))
 	for _, m := range rows {
 		resp = append(resp, dto.FromModelUserRole(m))
 	}
 
-	meta := dto.Pagination{
-		Total:      int(total),
-		Limit:      q.Limit,
-		Offset:     q.Offset,
-		Returned:   len(resp),
-		NextOffset: q.Offset + q.Limit,
-		PrevOffset: func() int {
-			if q.Offset-q.Limit < 0 {
-				return 0
-			}
-			return q.Offset - q.Limit
-		}(),
+	// ===== build pagination object untuk JsonList
+	var pagination helper.Pagination
+	if all {
+		per := int(total)
+		if per == 0 {
+			per = 1
+		}
+		pagination = helper.BuildPaginationFromPage(total, 1, per)
+	} else {
+		pagination = helper.BuildPaginationFromPage(total, pg.Page, pg.PerPage)
 	}
-	return helper.JsonList(c, resp, meta)
+
+	return helper.JsonList(c, "OK", resp, pagination)
+}
+
+// util kecil (boleh dipindah ke util umummu)
+func parseBool(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // =====================================================

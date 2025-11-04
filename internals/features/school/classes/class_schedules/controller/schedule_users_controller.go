@@ -112,9 +112,9 @@ type classScheduleWithRules struct {
 /* =========================
    List (filters/sort/pagination + optional rules)
 ========================= */
-
+// file: internals/features/school/classes/class_schedules/controller/controller.go
 func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
-	// buat helper lain bisa akses DB bila perlu (slug→ID, dll.)
+	// biar helper lain bisa akses DB bila perlu (slug→ID, dll.)
 	c.Locals("DB", ctl.DB)
 
 	var q d.ListClassScheduleQuery
@@ -128,6 +128,8 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	}
 
 	withRules := includeRulesFromQuery(c)
+
+	// ===== paging (limit/offset gaya lama, dibatasi clamp) =====
 	limit, offset := clampLimitOffset(q.Limit, q.Offset)
 	orderExpr := buildScheduleOrder(q.Sort)
 
@@ -194,14 +196,16 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
+	// 🔹 Pagination object (seragam)
+	pg := helper.BuildPaginationFromOffset(total, offset, limit)
+
 	// ===== No rules? return classic response =====
 	if !withRules {
 		out := make([]d.ClassScheduleResponse, 0, len(schedRows))
 		for i := range schedRows {
 			out = append(out, d.FromModel(schedRows[i]))
 		}
-		meta := fiber.Map{"limit": limit, "offset": offset, "total": total}
-		return helper.JsonList(c, out, meta)
+		return helper.JsonList(c, "ok", out, pg)
 	}
 
 	// ===== WITH RULES =====
@@ -225,13 +229,8 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		})
 	}
 
-	meta := fiber.Map{
-		"limit":   limit,
-		"offset":  offset,
-		"total":   total,
-		"include": []string{"rules"},
-	}
-	return helper.JsonList(c, out, meta)
+	// gunakan JsonListEx agar "includes" rapi (bukan ditaruh di pagination)
+	return helper.JsonListEx(c, "ok", out, pg, []string{"rules"})
 }
 
 /*

@@ -30,7 +30,7 @@ import (
 func (ctl *ClassEventThemeController) List(c *fiber.Ctx) error {
 	schoolID, err := ctl.resolveSchoolAndEnsureDKM(c)
 	if err != nil {
-		return nil // response sudah dikirim oleh resolver
+		return err // <- kembalikan error (sebelumnya 'return nil')
 	}
 
 	// --- parse pagination + sorting (pakai helper) ---
@@ -91,6 +91,9 @@ func (ctl *ClassEventThemeController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	meta := helper.BuildMeta(total, p)
-	return helper.JsonList(c, dto.FromModels(rows), meta)
+	// 🔹 pagination seragam (auto has_next/has_prev, dll.)
+	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
+
+	// 🔹 response seragam (JsonList isi "message", "data", "pagination")
+	return helper.JsonList(c, "ok", dto.FromModels(rows), pg)
 }

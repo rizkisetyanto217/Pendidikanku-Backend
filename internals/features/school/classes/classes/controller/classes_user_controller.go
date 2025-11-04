@@ -3,7 +3,6 @@ package controller
 
 import (
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -16,26 +15,6 @@ import (
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
 )
-
-type termLite struct {
-	ID           uuid.UUID  `json:"id"`
-	Name         string     `json:"name"`
-	AcademicYear string     `json:"academic_year"`
-	StartDate    *time.Time `json:"start_date,omitempty"`
-	EndDate      *time.Time `json:"end_date,omitempty"`
-	IsActive     bool       `json:"is_active"`
-	Angkatan     *int       `json:"angkatan,omitempty"`
-}
-
-type parentLite struct {
-	ID        uuid.UUID  `json:"id"                   gorm:"column:class_parent_id"`
-	Name      string     `json:"name"                 gorm:"column:class_parent_name"`
-	Code      *string    `json:"code,omitempty"       gorm:"column:class_parent_code"`
-	Level     *int16     `json:"level,omitempty"      gorm:"column:class_parent_level"`
-	ImageURL  *string    `json:"image_url,omitempty"  gorm:"column:class_parent_image_url"`
-	IsActive  bool       `json:"is_active"            gorm:"column:class_parent_is_active"`
-	CreatedAt *time.Time `json:"created_at,omitempty" gorm:"column:class_parent_created_at"`
-}
 
 // =====================================================
 // GET /api/u/:school_id/classes/slug/:slug   (PUBLIC)
@@ -98,6 +77,8 @@ func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
 //	(masih support multi-tenant via ?school_id=..,.. / ?school_slug=..,..)
 //
 // =====================================================
+// internals/features/lembaga/classes/user_classes/main/controller/user_my_class_controller.go
+
 func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	// DB ke Locals agar helper bisa dipakai
 	c.Locals("DB", ctrl.DB)
@@ -151,7 +132,6 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 
 	// --- NEW: scope tenant publik pakai SchoolContext lebih dulu ---
 	getTenantSchoolIDs := func() ([]uuid.UUID, error) {
-		// 0) Coba resolve konteks publik (path/header/query/host/token aktif)
 		if mc, er := helperAuth.ResolveSchoolContext(c); er == nil {
 			if mc.ID != uuid.Nil {
 				return []uuid.UUID{mc.ID}, nil
@@ -166,14 +146,11 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 				}
 				return []uuid.UUID{id}, nil
 			}
-		} // jika er == ErrSchoolContextMissing → lanjut ke fallback
-
-		// 1) Fallback ke token (jika ada & multi-tenant)
+		}
 		if ids, err := helperAuth.GetSchoolIDsFromToken(c); err == nil && len(ids) > 0 {
 			return ids, nil
 		}
 
-		// 2) Fallback ke query ?school_id=uuid,uuid
 		var out []uuid.UUID
 		if rawIDs := strings.TrimSpace(c.Query("school_id")); rawIDs != "" {
 			for _, part := range strings.Split(rawIDs, ",") {
@@ -188,8 +165,6 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 				out = append(out, id)
 			}
 		}
-
-		// 3) Atau ?school_slug=slug,slug
 		if len(out) == 0 {
 			if rawSlugs := strings.TrimSpace(c.Query("school_slug")); rawSlugs != "" {
 				slugs := make([]string, 0, 4)
@@ -212,7 +187,6 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 				}
 			}
 		}
-
 		if len(out) == 0 {
 			return nil, fiber.NewError(fiber.StatusBadRequest, "School context tidak ditemukan. Sertakan :school_id pada path atau header X-Active-School-ID / ?school_id / ?school_slug.")
 		}
@@ -221,7 +195,6 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 
 	applyCommonFilters := func(tx *gorm.DB, aliasClass string, q dto.ListClassQuery) *gorm.DB {
 		tx = tx.Where(aliasClass + ".class_deleted_at IS NULL")
-
 		if q.ParentID != nil {
 			tx = tx.Where(aliasClass+".class_parent_id = ?", *q.ParentID)
 		}
@@ -329,10 +302,29 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	parentName := strings.ToLower(strings.TrimSpace(c.Query("parent_name")))
 	parentLike := "%" + parentName + "%"
 
-	// 3) Pagination & sorting
-	rawQuery := string(c.Request().URI().QueryString())
-	httpReq, _ := http.NewRequest("GET", "http://local?"+rawQuery, nil)
-	pg := helper.ParseWith(httpReq, "created_at", "desc", helper.AdminOpts)
+	// 3) Pagination (jsonresponse) & Sorting whitelist
+	pg := helper.ResolvePaging(c, 20, 200) // default 20, max 200
+	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by")))
+	order := strings.ToLower(strings.TrimSpace(c.Query("order")))
+	if order != "asc" && order != "desc" {
+		// fallback param lama "sort" (created_at_desc / created_at_asc / dll)
+		if v := strings.ToLower(strings.TrimSpace(c.Query("sort"))); v != "" {
+			switch v {
+			case "created_at_asc":
+				sortBy, order = "created_at", "asc"
+			case "created_at_desc":
+				sortBy, order = "created_at", "desc"
+			case "slug_asc":
+				sortBy, order = "slug", "asc"
+			case "slug_desc":
+				sortBy, order = "slug", "desc"
+			default:
+				order = "desc"
+			}
+		} else {
+			order = "desc"
+		}
+	}
 
 	// 4) Query: search / non-search
 	parentTbl := detectParentTable(ctrl.DB)
@@ -386,16 +378,22 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			ClassSlug string    `gorm:"column:class_slug"`
 		}
 		var idRows []idRow
+
+		// Sorting di mode search: pakai slug asc (stabil)
+		orderExpr := "LOWER(c.class_slug) ASC"
+
 		if err := filter.
 			Select("c.class_id, c.class_slug").
 			Group("c.class_id, c.class_slug").
-			Order("LOWER(c.class_slug) ASC").
-			Limit(pg.Limit()).Offset(pg.Offset()).
+			Order(orderExpr).
+			Limit(pg.Limit).
+			Offset(pg.Offset).
 			Scan(&idRows).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil daftar kelas")
 		}
 		if len(idRows) == 0 {
-			return helper.JsonList(c, []any{}, helper.BuildMeta(total, pg))
+			pagination := helper.BuildPaginationFromOffset(total, pg.Offset, pg.Limit)
+			return helper.JsonList(c, "ok", []any{}, pagination)
 		}
 		classIDs = make([]uuid.UUID, 0, len(idRows))
 		for _, r := range idRows {
@@ -418,11 +416,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 		}
 
-		sortBy := strings.ToLower(strings.TrimSpace(pg.SortBy))
-		order := strings.ToLower(strings.TrimSpace(pg.SortOrder))
-		if order != "asc" && order != "desc" {
-			order = "desc"
-		}
+		// Sorting whitelist (non-search)
 		switch sortBy {
 		case "slug":
 			tx = tx.Order("LOWER(class_slug) " + strings.ToUpper(order)).Order("class_created_at DESC")
@@ -446,11 +440,12 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			ClassID uuid.UUID `gorm:"column:class_id"`
 		}
 		var idRows []idOnly
-		if err := tx.Select("class_id").Limit(pg.Limit()).Offset(pg.Offset()).Scan(&idRows).Error; err != nil {
+		if err := tx.Select("class_id").Limit(pg.Limit).Offset(pg.Offset).Scan(&idRows).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 		}
 		if len(idRows) == 0 {
-			return helper.JsonList(c, []any{}, helper.BuildMeta(total, pg))
+			pagination := helper.BuildPaginationFromOffset(total, pg.Offset, pg.Limit)
+			return helper.JsonList(c, "ok", []any{}, pagination)
 		}
 		classIDs = make([]uuid.UUID, 0, len(idRows))
 		for _, r := range idRows {
@@ -468,15 +463,27 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	}
 
 	// 6) Prefetch term & parent
+	type termLite struct {
+		ID           uuid.UUID  `json:"id"`
+		Name         string     `json:"name"`
+		AcademicYear string     `json:"academic_year"`
+		StartDate    *time.Time `json:"start_date,omitempty"`
+		EndDate      *time.Time `json:"end_date,omitempty"`
+		IsActive     bool       `json:"is_active"`
+		Angkatan     *int       `json:"angkatan,omitempty"`
+	}
+	type parentLite struct {
+		ID        uuid.UUID  `json:"id"                   gorm:"column:class_parent_id"`
+		Name      string     `json:"name"                 gorm:"column:class_parent_name"`
+		Code      *string    `json:"code,omitempty"       gorm:"column:class_parent_code"`
+		Level     *int16     `json:"level,omitempty"      gorm:"column:class_parent_level"`
+		ImageURL  *string    `json:"image_url,omitempty"  gorm:"column:class_parent_image_url"`
+		IsActive  bool       `json:"is_active"            gorm:"column:class_parent_is_active"`
+		CreatedAt *time.Time `json:"created_at,omitempty" gorm:"column:class_parent_created_at"`
+	}
+
 	termMap := map[uuid.UUID]termLite{}
 	parentMap := map[uuid.UUID]parentLite{}
-
-	if len(rows) > 0 {
-		if includes := strings.ToLower(strings.TrimSpace(c.Query("include"))); includes != "" {
-			// handled later by wantTerm/Parent flag
-			_ = includes
-		}
-	}
 
 	if (wantTerm || wantParent) && len(rows) > 0 {
 		tSet := map[uuid.UUID]struct{}{}
@@ -591,7 +598,6 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		Parent             *parentLite   `json:"parent,omitempty"`
 		Subjects           []SubjectLite `json:"subjects,omitempty"`
 	}
-
 	rowByID := make(map[uuid.UUID]*model.ClassModel, len(rows))
 	for i := range rows {
 		rowByID[rows[i].ClassID] = &rows[i]
@@ -605,7 +611,6 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		}
 		base := dto.FromModel(r)
 		item := &classWithExpand{ClassResponse: &base}
-
 		if wantTerm && r.ClassTermID != nil {
 			if t, ok := termMap[*r.ClassTermID]; ok {
 				tCopy := t
@@ -624,6 +629,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		out = append(out, item)
 	}
 
-	meta := helper.BuildMeta(total, pg)
-	return helper.JsonList(c, out, meta)
+	// ✅ Pagination (jsonresponse)
+	pagination := helper.BuildPaginationFromOffset(total, pg.Offset, pg.Limit)
+	return helper.JsonList(c, "ok", out, pagination)
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	pq "github.com/lib/pq"
 	"gorm.io/gorm"
 
@@ -167,65 +168,82 @@ func (uc *UsersProfileDocumentController) CreateMultipartMany(c *fiber.Ctx) erro
 
 =========================
 */
+// LIST + FILTER + PAGINATION (jsonresponse)
 func (uc *UsersProfileDocumentController) List(c *fiber.Ctx) error {
+	// ===== Auth: harus login
 	userID, err := helperAuth.GetUserIDFromToken(c)
-	if err != nil {
+	if err != nil || userID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
 
+	// ===== Parse query (hanya untuk filter; paging pakai ResolvePaging)
 	var q dto.ListUserProfileDocumentQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
-	page := 1
-	limit := 20
-	if q.Page > 0 {
-		page = q.Page
-	}
-	if q.Limit > 0 {
-		limit = q.Limit
-	}
-	offset := (page - 1) * limit
 
+	// ===== Paging standar
+	p := helper.ResolvePaging(c, 20, 200) // default 20, max 200
+
+	// ===== Sorting whitelist
+	allowedSort := map[string]string{
+		"uploaded_at": "uploaded_at",
+		"created_at":  "created_at",
+		"doc_type":    "doc_type",
+	}
+	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by", "uploaded_at")))
+	sortCol, ok := allowedSort[sortBy]
+	if !ok {
+		sortCol = allowedSort["uploaded_at"]
+	}
+	order := strings.ToUpper(strings.TrimSpace(c.Query("order", "DESC")))
+	if order != "ASC" && order != "DESC" {
+		order = "DESC"
+	}
+	orderExpr := sortCol + " " + order + ", id DESC" // tie-breaker stabil
+
+	// ===== Base query
 	onlyAlive := true
 	if q.OnlyAlive != nil {
 		onlyAlive = *q.OnlyAlive
 	}
 
-	dbq := uc.DB.WithContext(c.Context()).Model(&model.UsersProfileDocumentModel{}).
+	dbq := uc.DB.WithContext(c.Context()).
+		Model(&model.UsersProfileDocumentModel{}).
 		Where("user_id = ?", userID)
 
 	if onlyAlive {
 		dbq = dbq.Where("deleted_at IS NULL")
 	}
-	if q.DocType != nil && *q.DocType != "" {
-		dbq = dbq.Where("doc_type = ?", *q.DocType)
+	if q.DocType != nil && strings.TrimSpace(*q.DocType) != "" {
+		dbq = dbq.Where("doc_type = ?", strings.TrimSpace(*q.DocType))
 	}
 
-	// count
+	// ===== Count
 	var total int64
 	if err := dbq.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// data
+	// ===== Page window
 	var rows []model.UsersProfileDocumentModel
-	if err := dbq.Order("uploaded_at DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+	if err := dbq.
+		Order(orderExpr).
+		Limit(p.Limit).
+		Offset(p.Offset).
+		Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
+	// ===== Map DTO
 	respRows := make([]dto.UserProfileDocumentResponse, 0, len(rows))
 	for _, r := range rows {
 		respRows = append(respRows, dto.ToResponse(r))
 	}
-	totalPages := (int(total) + limit - 1) / limit
 
-	return helper.JsonList(c, respRows, dto.PaginationMeta{
-		Page:       page,
-		Limit:      limit,
-		TotalItems: int(total),
-		TotalPages: totalPages,
-	})
+	// ===== Pagination payload + response
+	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
+	return helper.JsonList(c, "ok", respRows, pg)
 }
 
 /*

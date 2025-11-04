@@ -96,17 +96,20 @@ func (ctl *UIThemeChoiceController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "theme choice created", dto.ToUIThemeChoiceResponse(&entity))
 }
 
-/* =========================
-   GET /ui-theme-choices
-   - ?id=UUID (single)
-   - list + filter: ?school_id=UUID&preset_id=UUID&custom_preset_id=UUID&is_default=true|false&is_enabled=true|false
-   - pagination: ?limit=&offset=
-========================= */
 
+/*
+	=========================
+	  GET /ui-theme-choices
+	  - ?id=UUID (single)
+	  - list + filter: ?school_id=UUID&preset_id=UUID&custom_preset_id=UUID&is_default=true|false&is_enabled=true|false
+	  - pagination & sort: ?page=&per_page= (alias: ?limit=) &sort_by=created_at|updated_at|is_default|is_enabled &sort=asc|desc
+
+=========================
+*/
 func (ctl *UIThemeChoiceController) Get(c *fiber.Ctx) error {
-	// Single by ID
-	if idStr := c.Query("id"); idStr != "" {
-		id, err := parseUUID(idStr)
+	// ---------- Single by ID ----------
+	if idStr := strings.TrimSpace(c.Query("id")); idStr != "" {
+		id, err := uuid.Parse(idStr)
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
 		}
@@ -120,30 +123,43 @@ func (ctl *UIThemeChoiceController) Get(c *fiber.Ctx) error {
 		return helper.JsonOK(c, "success get theme choice", dto.ToUIThemeChoiceResponse(&entity))
 	}
 
-	// List with filters
-	limit := c.QueryInt("limit", 20)
-	offset := c.QueryInt("offset", 0)
+	// ---------- List with filters ----------
+	// Pagination + sorting (pakai helper ParseFiber agar seragam)
+	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
+
+	// Whitelist kolom sort → nama kolom DB
+	allowedSort := map[string]string{
+		"created_at": "ui_theme_choice_created_at",
+		"updated_at": "ui_theme_choice_updated_at",
+		"is_default": "ui_theme_choice_is_default",
+		"is_enabled": "ui_theme_choice_is_enabled",
+	}
+	orderClause, err := p.SafeOrderClause(allowedSort, "created_at")
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid sort_by")
+	}
+	orderClause = strings.TrimPrefix(orderClause, "ORDER BY ")
 
 	// Filters
 	var (
 		schoolID, presetID, customID *uuid.UUID
 	)
 	if s := strings.TrimSpace(c.Query("school_id")); s != "" {
-		if id, err := uuid.Parse(s); err == nil {
+		if id, e := uuid.Parse(s); e == nil {
 			schoolID = &id
 		} else {
 			return helper.JsonError(c, fiber.StatusBadRequest, "invalid school_id")
 		}
 	}
 	if s := strings.TrimSpace(c.Query("preset_id")); s != "" {
-		if id, err := uuid.Parse(s); err == nil {
+		if id, e := uuid.Parse(s); e == nil {
 			presetID = &id
 		} else {
 			return helper.JsonError(c, fiber.StatusBadRequest, "invalid preset_id")
 		}
 	}
 	if s := strings.TrimSpace(c.Query("custom_preset_id")); s != "" {
-		if id, err := uuid.Parse(s); err == nil {
+		if id, e := uuid.Parse(s); e == nil {
 			customID = &id
 		} else {
 			return helper.JsonError(c, fiber.StatusBadRequest, "invalid custom_preset_id")
@@ -152,46 +168,47 @@ func (ctl *UIThemeChoiceController) Get(c *fiber.Ctx) error {
 	isDefault := boolQuery(c, "is_default")
 	isEnabled := boolQuery(c, "is_enabled")
 
-	dbq := ctl.DB.Model(&model.UIThemeChoice{})
+	q := ctl.DB.Model(&model.UIThemeChoice{})
 	if schoolID != nil {
-		dbq = dbq.Where("ui_theme_choice_school_id = ?", *schoolID)
+		q = q.Where("ui_theme_choice_school_id = ?", *schoolID)
 	}
 	if presetID != nil {
-		dbq = dbq.Where("ui_theme_choice_preset_id = ?", *presetID)
+		q = q.Where("ui_theme_choice_preset_id = ?", *presetID)
 	}
 	if customID != nil {
-		dbq = dbq.Where("ui_theme_choice_custom_preset_id = ?", *customID)
+		q = q.Where("ui_theme_choice_custom_preset_id = ?", *customID)
 	}
 	if isDefault != nil {
-		dbq = dbq.Where("ui_theme_choice_is_default = ?", *isDefault)
+		q = q.Where("ui_theme_choice_is_default = ?", *isDefault)
 	}
 	if isEnabled != nil {
-		dbq = dbq.Where("ui_theme_choice_is_enabled = ?", *isEnabled)
+		q = q.Where("ui_theme_choice_is_enabled = ?", *isEnabled)
 	}
 
+	// Count
 	var total int64
-	if err := dbq.Count(&total).Error; err != nil {
+	if err := q.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
+	// Fetch
 	var rows []model.UIThemeChoice
-	if err := dbq.Order("ui_theme_choice_created_at DESC").
-		Limit(limit).Offset(offset).
+	if err := q.Order(orderClause).
+		Offset(p.Offset()).
+		Limit(p.Limit()).
 		Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	out := make([]dto.UIThemeChoiceResponse, 0, len(rows))
+	// Map to response
+	items := make([]dto.UIThemeChoiceResponse, 0, len(rows))
 	for i := range rows {
-		out = append(out, dto.ToUIThemeChoiceResponse(&rows[i]))
+		items = append(items, dto.ToUIThemeChoiceResponse(&rows[i]))
 	}
 
-	pagination := fiber.Map{
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
-	}
-	return helper.JsonList(c, out, pagination)
+	// 🔹 Pagination final via helper (auto count & per_page_options di JsonList)
+	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
+	return helper.JsonList(c, "ok", items, pg)
 }
 
 /* =========================

@@ -166,16 +166,19 @@ func (ctl *StudentQuizAttemptAnswersController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, "gagal memuat attempt")
 	}
 	if err := ctl.ensureScopeForAttempt(c, core); err != nil {
-		return helper.JsonError(c, err.(*fiber.Error).Code, err.Error())
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, http.StatusForbidden, "akses ditolak")
 	}
 
 	var questionID *uuid.UUID
 	if s := strings.TrimSpace(c.Query("question_id")); s != "" {
-		qid, err := uuid.Parse(s)
-		if err != nil {
+		qid, e := uuid.Parse(s)
+		if e != nil {
 			return helper.JsonError(c, http.StatusBadRequest, "question_id tidak valid")
 		}
-		// optional: validasi question belongs to quiz
+		// validasi question belongs to quiz
 		if ok, e := ctl.questionBelongsToQuiz(qid, core.QuizID); e != nil {
 			return helper.JsonError(c, http.StatusInternalServerError, "gagal validasi question")
 		} else if !ok {
@@ -184,46 +187,59 @@ func (ctl *StudentQuizAttemptAnswersController) List(c *fiber.Ctx) error {
 		questionID = &qid
 	}
 
-	// Pagination & sorting
-	params := helper.ParseFiber(c, "answered_at", "desc", helper.DefaultOpts)
+	// ===== Pagination (jsonresponse) =====
+	p := helper.ResolvePaging(c, 20, 200)
+
+	// ===== Sorting whitelist =====
 	allowed := map[string]string{
 		"answered_at": "student_quiz_attempt_answer_answered_at",
 		"points":      "student_quiz_attempt_answer_earned_points",
 		"is_correct":  "student_quiz_attempt_answer_is_correct",
 	}
-	orderClause, err := params.SafeOrderClause(allowed, "answered_at")
-	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "sort_by tidak valid")
+	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by", "answered_at")))
+	col, ok := allowed[sortBy]
+	if !ok {
+		col = allowed["answered_at"]
 	}
+	order := strings.ToUpper(strings.TrimSpace(c.Query("order", "DESC")))
+	if order != "ASC" && order != "DESC" {
+		order = "DESC"
+	}
+	orderExpr := col + " " + order + ", student_quiz_attempt_answer_id DESC" // tie-breaker stabil
 
-	q := ctl.DB.Model(&qmodel.StudentQuizAttemptAnswerModel{}).
+	// ===== Query =====
+	q := ctl.DB.WithContext(c.Context()).
+		Model(&qmodel.StudentQuizAttemptAnswerModel{}).
 		Where("student_quiz_attempt_answer_attempt_id = ?", attemptID)
-
 	if questionID != nil {
 		q = q.Where("student_quiz_attempt_answer_question_id = ?", *questionID)
 	}
 
+	// Total
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, "gagal menghitung data")
 	}
 
+	// Page window
 	var rows []qmodel.StudentQuizAttemptAnswerModel
 	if err := q.
-		Limit(params.Limit()).
-		Offset(params.Offset()).
-		Order(orderClause). // kolom sudah di-whitelist
+		Order(orderExpr).
+		Limit(p.Limit).
+		Offset(p.Offset).
 		Find(&rows).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, "gagal mengambil data")
 	}
 
+	// Map DTO
 	resp := make([]*qdto.StudentQuizAttemptAnswerResponse, 0, len(rows))
 	for i := range rows {
 		resp = append(resp, qdto.FromModelStudentQuizAttemptAnswer(&rows[i]))
 	}
 
-	meta := helper.BuildMeta(total, params)
-	return helper.JsonList(c, resp, meta)
+	// Pagination payload + response
+	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
+	return helper.JsonList(c, "ok", resp, pg)
 }
 
 // POST /student-quiz-attempt-answers

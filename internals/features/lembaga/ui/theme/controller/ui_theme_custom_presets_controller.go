@@ -96,10 +96,19 @@ func (ctl *UIThemeCustomPresetController) Create(c *fiber.Ctx) error {
    - Public list or get-by-id (?id=UUID)
    - Optional filter: ?school_id=UUID & ?q=keyword
 ========================= */
+// internals/features/lembaga/ui/theme/controller/ui_theme_custom_preset_controller.go
+
+/* =========================
+   GET /ui-theme-custom-presets
+   - Public list or get-by-id (?id=UUID)
+   - Optional filter: ?school_id=UUID & ?q=keyword
+   - Pagination & sort (whitelist):
+       ?page=&per_page=&sort_by=created_at|updated_at|code|name&sort=asc|desc
+========================= */
 
 func (ctl *UIThemeCustomPresetController) Get(c *fiber.Ctx) error {
-	if idStr := c.Query("id"); idStr != "" {
-		// === Get by ID ===
+	// === Get by ID (single) ===
+	if idStr := strings.TrimSpace(c.Query("id")); idStr != "" {
 		id, err := parseUUID(idStr)
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
@@ -115,9 +124,24 @@ func (ctl *UIThemeCustomPresetController) Get(c *fiber.Ctx) error {
 	}
 
 	// === List ===
-	q := strings.TrimSpace(c.Query("q"))
-	limit := c.QueryInt("limit", 20)
-	offset := c.QueryInt("offset", 0)
+	// Pagination + sorting (konsisten dengan controller lain)
+	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
+
+	// Whitelist kolom sort → nama kolom DB
+	allowedSort := map[string]string{
+		"created_at": "ui_theme_custom_preset_created_at",
+		"updated_at": "ui_theme_custom_preset_updated_at",
+		"code":       "ui_theme_custom_preset_code",
+		"name":       "ui_theme_custom_preset_name",
+	}
+	orderClause, err := p.SafeOrderClause(allowedSort, "created_at")
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid sort_by")
+	}
+	orderClause = strings.TrimPrefix(orderClause, "ORDER BY ")
+
+	// Filters
+	qkw := strings.TrimSpace(c.Query("q"))
 
 	var schoolFilter uuid.UUID
 	if s := strings.TrimSpace(c.Query("school_id")); s != "" {
@@ -128,39 +152,40 @@ func (ctl *UIThemeCustomPresetController) Get(c *fiber.Ctx) error {
 		}
 	}
 
-	var rows []model.UIThemeCustomPreset
+	// Build query
 	dbq := ctl.DB.Model(&model.UIThemeCustomPreset{})
-
 	if schoolFilter != uuid.Nil {
 		dbq = dbq.Where("ui_theme_custom_preset_school_id = ?", schoolFilter)
 	}
-	if q != "" {
-		like := "%" + q + "%"
+	if qkw != "" {
+		like := "%" + qkw + "%"
 		dbq = dbq.Where("(ui_theme_custom_preset_code ILIKE ? OR ui_theme_custom_preset_name ILIKE ?)", like, like)
 	}
 
+	// Count
 	var total int64
 	if err := dbq.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	if err := dbq.Order("ui_theme_custom_preset_created_at DESC").
-		Limit(limit).Offset(offset).
+	// Fetch
+	var rows []model.UIThemeCustomPreset
+	if err := dbq.Order(orderClause).
+		Offset(p.Offset()).
+		Limit(p.Limit()).
 		Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	out := make([]dto.UIThemeCustomPresetResponse, 0, len(rows))
+	// Map ke response
+	items := make([]dto.UIThemeCustomPresetResponse, 0, len(rows))
 	for i := range rows {
-		out = append(out, dto.ToUIThemeCustomPresetResponse(&rows[i]))
+		items = append(items, dto.ToUIThemeCustomPresetResponse(&rows[i]))
 	}
 
-	pagination := fiber.Map{
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
-	}
-	return helper.JsonList(c, out, pagination)
+	// 🔹 Pagination final via helper (JsonList auto-isi count & per_page_options)
+	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
+	return helper.JsonList(c, "ok", items, pg)
 }
 
 /* =========================

@@ -1,3 +1,4 @@
+// file: internals/features/lembaga/school_yayasans/schools/controller/school_controller.go
 package controller
 
 import (
@@ -12,7 +13,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// 🟢 GET ALL MASJIDS
+// 🟢 GET ALL SCHOOLS (tanpa paging param → seluruh data 1 halaman)
 func (mc *SchoolController) GetAllSchools(c *fiber.Ctx) error {
 	log.Println("[INFO] Fetching all schools")
 
@@ -24,18 +25,25 @@ func (mc *SchoolController) GetAllSchools(c *fiber.Ctx) error {
 
 	log.Printf("[SUCCESS] Retrieved %d schools\n", len(schools))
 
-	// 🔁 Transform ke DTO response
 	resp := make([]schoolDto.SchoolResp, 0, len(schools))
 	for i := range schools {
 		resp = append(resp, schoolDto.FromModel(&schools[i]))
 	}
 
-	return helper.JsonList(c, resp, fiber.Map{
-		"total": len(resp),
-	})
+	// pagination default: seluruh data dalam satu halaman
+	total := len(resp)
+	pg := helper.Pagination{
+		Page:       1,
+		PerPage:    total, // biarkan 0 jika memang kosong; helper akan tetap aman
+		Total:      int64(total),
+		TotalPages: 1,
+		HasNext:    false,
+		HasPrev:    false,
+	}
+	return helper.JsonList(c, "ok", resp, pg)
 }
 
-// 🟢 GET VERIFIED MASJIDS
+// 🟢 GET VERIFIED SCHOOLS (tanpa paging param → seluruh data 1 halaman)
 func (mc *SchoolController) GetAllVerifiedSchools(c *fiber.Ctx) error {
 	log.Println("[INFO] Fetching all verified schools")
 
@@ -47,18 +55,24 @@ func (mc *SchoolController) GetAllVerifiedSchools(c *fiber.Ctx) error {
 
 	log.Printf("[SUCCESS] Retrieved %d verified schools\n", len(schools))
 
-	// 🔁 Transform ke DTO response
 	resp := make([]schoolDto.SchoolResp, 0, len(schools))
 	for i := range schools {
 		resp = append(resp, schoolDto.FromModel(&schools[i]))
 	}
 
-	return helper.JsonList(c, resp, fiber.Map{
-		"total": len(resp),
-	})
+	total := len(resp)
+	pg := helper.Pagination{
+		Page:       1,
+		PerPage:    total,
+		Total:      int64(total),
+		TotalPages: 1,
+		HasNext:    false,
+		HasPrev:    false,
+	}
+	return helper.JsonList(c, "ok", resp, pg)
 }
 
-// 🟢 GET VERIFIED MASJID BY ID
+// 🟢 GET VERIFIED SCHOOL BY ID (single resource)
 func (mc *SchoolController) GetVerifiedSchoolByID(c *fiber.Ctx) error {
 	id := c.Params("id")
 	log.Printf("[INFO] Fetching verified school with ID: %s\n", id)
@@ -78,11 +92,10 @@ func (mc *SchoolController) GetVerifiedSchoolByID(c *fiber.Ctx) error {
 	}
 
 	log.Printf("[SUCCESS] Retrieved verified school: %s\n", m.SchoolName)
-
-	return helper.JsonOK(c, "Data school terverifikasi berhasil diambil", schoolDto.FromModel(&m))
+	return helper.JsonOK(c, "ok", schoolDto.FromModel(&m))
 }
 
-// 🟢 GET MASJID BY SLUG
+// 🟢 GET SCHOOL BY SLUG (single resource)
 func (mc *SchoolController) GetSchoolBySlug(c *fiber.Ctx) error {
 	slug := c.Params("slug")
 	log.Printf("[INFO] Fetching school with slug: %s\n", slug)
@@ -94,6 +107,5 @@ func (mc *SchoolController) GetSchoolBySlug(c *fiber.Ctx) error {
 	}
 
 	log.Printf("[SUCCESS] Retrieved school: %s\n", m.SchoolName)
-
-	return helper.JsonOK(c, "Data school berhasil diambil", schoolDto.FromModel(&m))
+	return helper.JsonOK(c, "ok", schoolDto.FromModel(&m))
 }

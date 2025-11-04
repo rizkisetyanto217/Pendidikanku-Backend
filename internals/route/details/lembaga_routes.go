@@ -8,6 +8,7 @@ import (
 	SemesterStatsRoutes "schoolku_backend/internals/features/lembaga/stats/semester_stats/route"
 	AcademicYearRoutes "schoolku_backend/internals/features/school/academics/academic_terms/route"
 	ClassBooksRoutes "schoolku_backend/internals/features/school/academics/books/route"
+
 	// CertificateRoutes "schoolku_backend/internals/features/school/academics/certificates/route"
 	RoomsRoutes "schoolku_backend/internals/features/school/academics/rooms/route"
 	SubjectRoutes "schoolku_backend/internals/features/school/academics/subjects/route"
@@ -17,7 +18,6 @@ import (
 	ClassSectionsRoutes "schoolku_backend/internals/features/school/classes/class_sections/route"
 	ClassesRoutes "schoolku_backend/internals/features/school/classes/classes/route"
 	AttendanceSettingsRoute "schoolku_backend/internals/features/school/others/assesments_settings/route"
-	PostRoutes "schoolku_backend/internals/features/school/others/post/route"
 	AssessmentsRoutes "schoolku_backend/internals/features/school/submissions_assesments/assesments/route"
 	QuizzesRoutes "schoolku_backend/internals/features/school/submissions_assesments/quizzes/route"
 	SubmissionsRoutes "schoolku_backend/internals/features/school/submissions_assesments/submissions/route"
@@ -61,7 +61,7 @@ func LembagaPublicRoutes(r fiber.Router, db *gorm.DB) {
 func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	ClassesRoutes.ClassUserRoutes(r, db)
 	ClassAttendanceSessionsRoutes.AttendanceSessionsUserRoutes(r, db)
-	PostRoutes.PostUserRoutes(r, db)
+
 	SemesterStatsRoutes.UserClassAttendanceSemesterUserRoutes(r, db)
 	ClassSectionsRoutes.ClassSectionUserRoutes(r, db)
 	ClassAttendanceSessionsRoutes.AttendanceSessionsTeacherRoutes(r, db)
@@ -88,7 +88,6 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	ClassesRoutes.ClassAdminRoutes(r, db)
 	ClassSectionsRoutes.ClassSectionAdminRoutes(r, db)
 	LembagaStatsRoutes.LembagaStatsAdminRoutes(r, db)
-	PostRoutes.PostAdminRoutes(r, db)
 	SemesterStatsRoutes.UserClassAttendanceSemesterAdminRoutes(r, db)
 	SubjectRoutes.SubjectAdminRoutes(r, db)
 	ClassBooksRoutes.ClassBooksAdminRoutes(r, db)

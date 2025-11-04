@@ -1,3 +1,4 @@
+// file: internals/features/lembaga/school_yayasans/teachers_students/controller/school_teacher_list_controller.go
 package controller
 
 import (
@@ -13,12 +14,6 @@ import (
 	"github.com/google/uuid"
 )
 
-/* ===================== LIST ===================== */
-// GET /api/u/schools/:school_id/school-teachers/list
-// GET /api/u/m/:school_slug/school-teachers/list
-// Query: page, per_page|limit, sort_by(created_at|updated_at), order
-//        id, user_teacher_id|user_id, employment, active, verified, public,
-//        joined_from, joined_to (YYYY-MM-DD), q, include=teacher|user|all
 func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	// DB resolver (untuk slug → id)
 	if c.Locals("DB") == nil {
@@ -35,17 +30,25 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 		return err
 	}
 
-	// 2) Pagination & sorting
-	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
-	allowedSort := map[string]string{
+	// 2) Paging (PAKAI helper terbaru)
+	// defaultPerPage = 20, maxPerPage = 100 (silakan sesuaikan kebijakanmu)
+	p := helper.ResolvePaging(c, 20, 100)
+
+	// 2b) Sorting whitelist manual (tanpa SafeOrderClause)
+	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by", "created_at")))
+	order := strings.ToLower(strings.TrimSpace(c.Query("order", "desc")))
+	if order != "asc" && order != "desc" {
+		order = "desc"
+	}
+	colMap := map[string]string{
 		"created_at": "school_teacher_created_at",
 		"updated_at": "school_teacher_updated_at",
 	}
-	orderClause, err := p.SafeOrderClause(allowedSort, "created_at")
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid sort_by")
+	col, ok := colMap[sortBy]
+	if !ok {
+		col = colMap["created_at"]
 	}
-	orderExpr := strings.TrimPrefix(orderClause, "ORDER BY ")
+	orderExpr := col + " " + strings.ToUpper(order)
 
 	// 3) Filters
 	idStr := strings.TrimSpace(c.Query("id"))
@@ -129,8 +132,13 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	if err := tx.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
+
 	var rows []yModel.SchoolTeacherModel
-	if err := tx.Order(orderExpr).Limit(p.Limit()).Offset(p.Offset()).Find(&rows).Error; err != nil {
+	if err := tx.
+		Order(orderExpr).
+		Limit(p.Limit).
+		Offset(p.Offset).
+		Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
@@ -156,15 +164,10 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 	base := make([]*yDTO.SchoolTeacher, 0, len(rows))
 	teacherIDsSet := make(map[uuid.UUID]struct{}, len(rows))
 	for i := range rows {
-		base = append(base, yDTO.NewSchoolTeacherResponse(&rows[i])) // returns *dto.SchoolTeacher
+		base = append(base, yDTO.NewSchoolTeacherResponse(&rows[i]))
 		if rows[i].SchoolTeacherUserTeacherID != uuid.Nil {
 			teacherIDsSet[rows[i].SchoolTeacherUserTeacherID] = struct{}{}
 		}
-	}
-
-	// Jika tidak minta include apa pun, return cepat
-	if !wantTeacher && !wantUser {
-		return helper.JsonList(c, base, helper.BuildMeta(total, p))
 	}
 
 	// ==== include: teacher (user_teachers) ====
@@ -270,7 +273,6 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 				t = &tmp
 			}
 		}
-
 		var u *UserLite
 		if wantUser && t != nil {
 			if v, ok := userMap[t.UserID]; ok {
@@ -278,13 +280,14 @@ func (ctrl *SchoolTeacherController) List(c *fiber.Ctx) error {
 				u = &tmp
 			}
 		}
-
 		out = append(out, Item{
-			SchoolTeacher: base[i], // sudah berisi snapshots + sections/csst dari DTO
+			SchoolTeacher: base[i],
 			Teacher:       t,
 			User:          u,
 		})
 	}
 
-	return helper.JsonList(c, out, helper.BuildMeta(total, p))
+	// 8) Pagination meta via helper (otomatis isi count & per_page_options di JsonList)
+	pg := helper.BuildPaginationFromPage(total, p.Page, p.PerPage)
+	return helper.JsonList(c, "ok", out, pg)
 }

@@ -2,10 +2,11 @@ package controller
 
 import (
 	"encoding/json"
+	"time"
+
 	"schoolku_backend/internals/features/users/survey/dto"
 	"schoolku_backend/internals/features/users/survey/model"
 	helper "schoolku_backend/internals/helpers"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -19,7 +20,12 @@ func NewSurveyQuestionController(db *gorm.DB) *SurveyQuestionController {
 	return &SurveyQuestionController{DB: db}
 }
 
-// ✅ GetAll: seluruh pertanyaan, urut asc by order_index
+/*
+	=========================================================
+	  GET ALL — urut ASC by survey_question_order_index
+
+=========================================================
+*/
 func (ctrl *SurveyQuestionController) GetAll(c *fiber.Ctx) error {
 	var questions []model.SurveyQuestion
 	if err := ctrl.DB.
@@ -28,7 +34,6 @@ func (ctrl *SurveyQuestionController) GetAll(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to fetch questions")
 	}
 
-	// map ke DTO
 	responses := make([]dto.SurveyQuestionResponse, 0, len(questions))
 	for _, q := range questions {
 		responses = append(responses, dto.SurveyQuestionResponse{
@@ -39,10 +44,16 @@ func (ctrl *SurveyQuestionController) GetAll(c *fiber.Ctx) error {
 		})
 	}
 
-	return helper.JsonList(c, responses, nil)
+	// Tidak perlu pagination → kirim nil
+	return helper.JsonList(c, "ok", responses, nil)
 }
 
-// ✅ GetByID: ambil 1 pertanyaan by ID
+/*
+	=========================================================
+	  GET BY ID
+
+=========================================================
+*/
 func (ctrl *SurveyQuestionController) GetByID(c *fiber.Ctx) error {
 	id := c.Params("id")
 
@@ -57,17 +68,22 @@ func (ctrl *SurveyQuestionController) GetByID(c *fiber.Ctx) error {
 		SurveyQuestionAnswer:     q.SurveyQuestionAnswer,
 		SurveyQuestionOrderIndex: q.SurveyQuestionOrderIndex,
 	}
-	return helper.JsonOK(c, "OK", resp)
+	return helper.JsonOK(c, "ok", resp)
 }
 
-// ✅ Create: terima single object atau array objects
+/*
+	=========================================================
+	  CREATE — terima single object atau array
+
+=========================================================
+*/
 func (ctrl *SurveyQuestionController) Create(c *fiber.Ctx) error {
 	body := c.Body()
 	if len(body) == 0 {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Empty request body")
 	}
 
-	// Jika array
+	// ===== Case: Array
 	if body[0] == '[' {
 		var payloads []model.SurveyQuestion
 		if err := json.Unmarshal(body, &payloads); err != nil {
@@ -77,7 +93,7 @@ func (ctrl *SurveyQuestionController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, "Payload array must not be empty")
 		}
 
-		// ambil order terakhir
+		// Ambil order terakhir
 		var maxOrder int
 		if err := ctrl.DB.Model(&model.SurveyQuestion{}).
 			Select("COALESCE(MAX(survey_question_order_index), 0)").
@@ -96,7 +112,6 @@ func (ctrl *SurveyQuestionController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to insert questions")
 		}
 
-		// map ke DTO utk response
 		responses := make([]dto.SurveyQuestionResponse, 0, len(payloads))
 		for _, q := range payloads {
 			responses = append(responses, dto.SurveyQuestionResponse{
@@ -107,10 +122,10 @@ func (ctrl *SurveyQuestionController) Create(c *fiber.Ctx) error {
 			})
 		}
 
-		return helper.JsonCreated(c, "Multiple questions created", responses)
+		return helper.JsonCreated(c, "created", responses)
 	}
 
-	// Jika single object
+	// ===== Case: Single object
 	var payload model.SurveyQuestion
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid object request body")
@@ -138,10 +153,15 @@ func (ctrl *SurveyQuestionController) Create(c *fiber.Ctx) error {
 		SurveyQuestionAnswer:     payload.SurveyQuestionAnswer,
 		SurveyQuestionOrderIndex: payload.SurveyQuestionOrderIndex,
 	}
-	return helper.JsonCreated(c, "Single question created", resp)
+	return helper.JsonCreated(c, "created", resp)
 }
 
-// ✅ Update: ubah pertanyaan by ID
+/*
+	=========================================================
+	  UPDATE
+
+=========================================================
+*/
 func (ctrl *SurveyQuestionController) Update(c *fiber.Ctx) error {
 	id := c.Params("id")
 
@@ -155,7 +175,6 @@ func (ctrl *SurveyQuestionController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Invalid request body")
 	}
 
-	// update fields yang diizinkan
 	q.SurveyQuestionText = payload.SurveyQuestionText
 	q.SurveyQuestionAnswer = payload.SurveyQuestionAnswer
 	q.UpdatedAt = time.Now()
@@ -170,14 +189,18 @@ func (ctrl *SurveyQuestionController) Update(c *fiber.Ctx) error {
 		SurveyQuestionAnswer:     q.SurveyQuestionAnswer,
 		SurveyQuestionOrderIndex: q.SurveyQuestionOrderIndex,
 	}
-	return helper.JsonUpdated(c, "Question updated", resp)
+	return helper.JsonUpdated(c, "updated", resp)
 }
 
-// ✅ Delete: hapus pertanyaan by ID
+/*
+	=========================================================
+	  DELETE
+
+=========================================================
+*/
 func (ctrl *SurveyQuestionController) Delete(c *fiber.Ctx) error {
 	id := c.Params("id")
 
-	// opsional: cek ada dulu
 	var exists int64
 	if err := ctrl.DB.Model(&model.SurveyQuestion{}).
 		Where("survey_question_id = ?", id).
@@ -192,5 +215,5 @@ func (ctrl *SurveyQuestionController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Failed to delete question")
 	}
 
-	return helper.JsonDeleted(c, "Question deleted successfully", fiber.Map{"id": id})
+	return helper.JsonDeleted(c, "deleted", fiber.Map{"id": id})
 }

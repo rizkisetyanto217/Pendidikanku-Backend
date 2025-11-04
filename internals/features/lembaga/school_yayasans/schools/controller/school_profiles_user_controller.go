@@ -1,7 +1,7 @@
+// file: internals/features/lembaga/school_yayasans/schools/controller/list.go
 package controller
 
 import (
-	"math"
 	d "schoolku_backend/internals/features/lembaga/school_yayasans/schools/dto"
 	m "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
 	helper "schoolku_backend/internals/helpers"
@@ -14,20 +14,12 @@ import (
 // GET / (list + filter + pagination)
 func (ctl *SchoolProfileController) List(c *fiber.Ctx) error {
 	q := strings.TrimSpace(c.Query("q"))
-	pageStr := c.Query("page", "1")
-	limitStr := c.Query("limit", "20")
 
-	page, _ := strconv.Atoi(pageStr)
-	if page < 1 {
-		page = 1
-	}
-	limit, _ := strconv.Atoi(limitStr)
-	if limit < 1 || limit > 1000 {
-		limit = 20
-	}
-	offset := (page - 1) * limit
+	// 🔹 Resolve paging dari query (?page, ?per_page / ?limit)
+	pgReq := helper.ResolvePaging(c, 20, 1000)
 
-	dbq := ctl.DB.Model(&m.SchoolProfileModel{}).Where("school_profile_deleted_at IS NULL")
+	dbq := ctl.DB.Model(&m.SchoolProfileModel{}).
+		Where("school_profile_deleted_at IS NULL")
 
 	// Full-text search (tsvector)
 	if q != "" {
@@ -67,7 +59,8 @@ func (ctl *SchoolProfileController) List(c *fiber.Ctx) error {
 	var rows []m.SchoolProfileModel
 	if err := dbq.
 		Order("school_profile_created_at DESC").
-		Offset(offset).Limit(limit).
+		Offset(pgReq.Offset).
+		Limit(pgReq.Limit).
 		Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error: "+err.Error())
 	}
@@ -77,11 +70,7 @@ func (ctl *SchoolProfileController) List(c *fiber.Ctx) error {
 		items = append(items, d.FromModelSchoolProfile(&rows[i]))
 	}
 
-	// Pakai JsonList: data & pagination dipisah
-	return helper.JsonList(c, items, fiber.Map{
-		"page":       page,
-		"limit":      limit,
-		"total":      total,
-		"totalPages": int(math.Ceil(float64(total) / float64(limit))),
-	})
+	// 🔹 Build pagination (JsonList akan auto-isi count & per_page_options)
+	pg := helper.BuildPaginationFromPage(total, pgReq.Page, pgReq.PerPage)
+	return helper.JsonList(c, "ok", items, pg)
 }

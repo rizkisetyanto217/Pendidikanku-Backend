@@ -263,46 +263,6 @@ func (ctl *QuizQuestionsController) Delete(c *fiber.Ctx) error {
    Small utils
 ========================================================= */
 
-func atoiOr(def int, vals ...string) int {
-	for _, s := range vals {
-		s = strings.TrimSpace(s)
-		if s == "" {
-			continue
-		}
-		var n int
-		_, err := fmtSscanf(s, &n)
-		if err == nil {
-			return n
-		}
-	}
-	return def
-}
-
-// very small, avoids strconv import; expects pure integer string
-func fmtSscanf(s string, out *int) (int, error) {
-	var n int
-	sign := 1
-	i := 0
-	if s != "" && (s[0] == '-' || s[0] == '+') {
-		if s[0] == '-' {
-			sign = -1
-		}
-		i++
-	}
-	if i >= len(s) {
-		return 0, errors.New("invalid")
-	}
-	for ; i < len(s); i++ {
-		ch := s[i]
-		if ch < '0' || ch > '9' {
-			return 0, errors.New("invalid")
-		}
-		n = n*10 + int(ch-'0')
-	}
-	*out = n * sign
-	return 1, nil
-}
-
 func pageOffset(page, perPage int) int {
 	if page <= 0 {
 		return 0

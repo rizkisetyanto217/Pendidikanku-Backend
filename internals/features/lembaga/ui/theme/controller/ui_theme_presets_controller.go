@@ -65,9 +65,10 @@ func (ctl *UIThemePresetController) Create(c *fiber.Ctx) error {
 /* =========================
    GET (list or single)
 ========================= */
+// internals/features/lembaga/ui/theme/controller/ui_theme_preset_controller.go
 
 func (ctl *UIThemePresetController) Get(c *fiber.Ctx) error {
-	idStr := c.Query("id")
+	idStr := strings.TrimSpace(c.Query("id"))
 	if idStr != "" {
 		// === Get by ID ===
 		id, err := parseUUID(idStr)
@@ -87,44 +88,59 @@ func (ctl *UIThemePresetController) Get(c *fiber.Ctx) error {
 	}
 
 	// === List ===
-	q := strings.TrimSpace(c.Query("q"))
-	limit := c.QueryInt("limit", 20)
-	offset := c.QueryInt("offset", 0)
-	includeDeleted := strings.EqualFold(c.Query("include_deleted"), "true")
+	// Pagination + sorting (konsisten)
+	p := helper.ParseFiber(c, "created_at", "desc", helper.DefaultOpts)
 
-	var rows []model.UIThemePreset
+	// Whitelist kolom sort → nama kolom DB
+	allowedSort := map[string]string{
+		"created_at": "ui_theme_preset_created_at",
+		"updated_at": "ui_theme_preset_updated_at",
+		"code":       "ui_theme_preset_code",
+		"name":       "ui_theme_preset_name",
+	}
+	orderClause, err := p.SafeOrderClause(allowedSort, "created_at")
+	if err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid sort_by")
+	}
+	orderClause = strings.TrimPrefix(orderClause, "ORDER BY ")
+
+	// Filters
+	qkw := strings.TrimSpace(c.Query("q"))
+	includeDeleted := strings.EqualFold(strings.TrimSpace(c.Query("include_deleted")), "true")
+
 	dbq := ctl.DB.Model(&model.UIThemePreset{})
-
 	if !includeDeleted {
 		dbq = dbq.Where("ui_theme_preset_deleted_at IS NULL")
 	}
-	if q != "" {
-		like := "%" + q + "%"
+	if qkw != "" {
+		like := "%" + qkw + "%"
 		dbq = dbq.Where("(ui_theme_preset_code ILIKE ? OR ui_theme_preset_name ILIKE ?)", like, like)
 	}
 
+	// Count
 	var total int64
 	if err := dbq.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	if err := dbq.Order("ui_theme_preset_created_at DESC").
-		Limit(limit).Offset(offset).
+	// Fetch
+	var rows []model.UIThemePreset
+	if err := dbq.Order(orderClause).
+		Offset(p.Offset()).
+		Limit(p.Limit()).
 		Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	out := make([]dto.UIThemePresetResponse, 0, len(rows))
+	// Map ke response
+	items := make([]dto.UIThemePresetResponse, 0, len(rows))
 	for i := range rows {
-		out = append(out, dto.ToUIThemePresetResponse(&rows[i]))
+		items = append(items, dto.ToUIThemePresetResponse(&rows[i]))
 	}
 
-	pagination := fiber.Map{
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
-	}
-	return helper.JsonList(c, out, pagination)
+	// 🔹 Pagination final via helper (JsonList auto-isi count & per_page_options)
+	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
+	return helper.JsonList(c, "ok", items, pg)
 }
 
 /* =========================

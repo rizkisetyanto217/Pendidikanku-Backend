@@ -5,6 +5,7 @@ import (
 	model "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
+
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -101,6 +102,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	withURLs := eqTrue(c.Query("with_urls"))
 	urlsPublishedOnly := eqTrue(c.Query("urls_published_only"))
 	urlsLimitPer := atoiOr(0, c.Query("urls_limit_per")) // 0 = tanpa batas
+	urlsOrder := strings.ToLower(strings.TrimSpace(c.Query("urls_order")))
 
 	// parse filter id
 	var typeID, csstID *uuid.UUID
@@ -165,9 +167,11 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 
 	// page data
 	var rows []model.AssessmentModel
+	if limit > 0 {
+		qry = qry.Limit(limit).Offset(offset)
+	}
 	if err := qry.
 		Order(getSortClauseAssessment(sbPtr, sdPtr)).
-		Limit(limit).Offset(offset).
 		Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
@@ -243,14 +247,18 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 6) Return response
-	return helper.JsonList(c, out, fiber.Map{
-		"total":               total,
-		"limit":               limit,
-		"offset":              offset,
-		"with_urls":           withURLs,
-		"urls_published_only": urlsPublishedOnly,
-		"urls_limit_per":      urlsLimitPer,
-		"urls_order":          strings.ToLower(strings.TrimSpace(c.Query("urls_order"))),
-	})
+	// 6) Return response — pakai JsonListEx + pagination offset/limit
+	return helper.JsonListEx(
+		c,
+		"OK",
+		out,
+		helper.BuildPaginationFromOffset(total, offset, limit),
+		fiber.Map{
+			"with_urls":           withURLs,
+			"urls_published_only": urlsPublishedOnly,
+			"urls_limit_per":      urlsLimitPer,
+			"urls_order":          urlsOrder,
+			"include_types":       wantTypes,
+		},
+	)
 }

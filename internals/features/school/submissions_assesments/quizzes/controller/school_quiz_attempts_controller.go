@@ -258,17 +258,20 @@ func (ctl *StudentQuizAttemptsController) Delete(c *fiber.Ctx) error {
 	return helper.JsonDeleted(c, "Berhasil menghapus", fiber.Map{"deleted_id": id})
 }
 
-// GET /student-quiz-attempts?quiz_id=&student_id=&status=&active_only=true&school_id=
+// file: internals/features/school/submissions_assesments/quizzes/controller/student_quiz_attempts_controller.go
+
+// GET /student-quiz-attempts?quiz_id=&student_id=&status=&active_only=true&school_id=&all=1
 func (ctl *StudentQuizAttemptsController) List(c *fiber.Ctx) error {
 	quizIDStr := strings.TrimSpace(c.Query("quiz_id"))
 	studentIDStr := strings.TrimSpace(c.Query("student_id"))
 	statusStr := strings.TrimSpace(c.Query("status"))
 	activeOnly := strings.EqualFold(strings.TrimSpace(c.Query("active_only")), "true")
 	schoolIDStr := strings.TrimSpace(c.Query("school_id"))
+	all := parseBool(c.Query("all"))
 
-	q := ctl.DB.Model(&qmodel.StudentQuizAttemptModel{})
+	q := ctl.DB.WithContext(c.Context()).Model(&qmodel.StudentQuizAttemptModel{})
 
-	// Role-based scoping
+	// ===== Role-based scoping =====
 	if helperAuth.IsStudent(c) {
 		// Student: lock ke school aktif + student_id sendiri
 		mid, err := helperAuth.GetActiveSchoolID(c)
@@ -322,7 +325,7 @@ func (ctl *StudentQuizAttemptsController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// filter quiz
+	// ===== Filters =====
 	if quizIDStr != "" {
 		quizID, err := uuid.Parse(quizIDStr)
 		if err != nil {
@@ -330,7 +333,7 @@ func (ctl *StudentQuizAttemptsController) List(c *fiber.Ctx) error {
 		}
 		q = q.Where("student_quiz_attempt_quiz_id = ?", quizID)
 	}
-	// filter status
+
 	if statusStr != "" {
 		st := qmodel.StudentQuizAttemptStatus(statusStr)
 		if !validAttemptStatus(st) {
@@ -338,29 +341,56 @@ func (ctl *StudentQuizAttemptsController) List(c *fiber.Ctx) error {
 		}
 		q = q.Where("student_quiz_attempt_status = ?", st)
 	}
-	// filter active_only
+
 	if activeOnly {
 		q = q.Where("student_quiz_attempt_status IN (?)",
-			[]string{string(qmodel.StudentQuizAttemptInProgress), string(qmodel.StudentQuizAttemptSubmitted)})
+			[]string{
+				string(qmodel.StudentQuizAttemptInProgress),
+				string(qmodel.StudentQuizAttemptSubmitted),
+			})
 	}
 
-	// total
+	// ===== Count total (sebelum limit/offset) =====
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data")
 	}
 
-	// pagination
-	p := helper.ParseFiber(c, "student_quiz_attempt_started_at", "desc", helper.DefaultOpts)
+	// ===== Paging & Sort =====
+	pg := helper.ResolvePaging(c, 20, 100) // default per_page=20, max=100
+	q = q.Order("student_quiz_attempt_started_at DESC")
+	if !all {
+		q = q.Offset(pg.Offset).Limit(pg.Limit)
+	}
 
+	// ===== Fetch =====
 	var rows []qmodel.StudentQuizAttemptModel
-	if err := q.Order("student_quiz_attempt_started_at DESC").
-		Limit(p.Limit()).
-		Offset(p.Offset()).
-		Find(&rows).Error; err != nil {
+	if err := q.Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	meta := helper.BuildMeta(total, p)
-	return helper.JsonList(c, qdto.FromModelsStudentQuizAttempts(rows), meta)
+	// ===== Build pagination object =====
+	var pagination helper.Pagination
+	if all {
+		per := int(total)
+		if per == 0 {
+			per = 1
+		}
+		pagination = helper.BuildPaginationFromPage(total, 1, per)
+	} else {
+		pagination = helper.BuildPaginationFromPage(total, pg.Page, pg.PerPage)
+	}
+
+	// ===== JSON (pakai helper baru) =====
+	return helper.JsonList(c, "OK", qdto.FromModelsStudentQuizAttempts(rows), pagination)
+}
+
+// util kecil; taruh di file yang sama (bawah) atau pakai util umummu
+func parseBool(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }

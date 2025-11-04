@@ -16,16 +16,6 @@ import (
 )
 
 // GET /api/a/school-students
-// Query:
-//
-//	page|per_page|limit,
-//	search,
-//	status_in (multi: active,inactive,alumni),
-//	user_profile_id,
-//	id,
-//	created_ge, created_le (RFC3339),
-//	sort_by(created_at|updated_at|code|status), sort(asc|desc),
-//	include=user_profile (alias: include=user)
 func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 	// Pastikan DB ada di Locals untuk helper resolver slug→id
 	if c.Locals("DB") == nil {
@@ -49,7 +39,6 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		"updated_at": "school_student_updated_at",
 		"code":       "school_student_code",
 		"status":     "school_student_status",
-		// bisa ditambah: "slug": "school_student_slug",
 	}
 	orderClause, err := p.SafeOrderClause(allowedSort, "created_at")
 	if err != nil {
@@ -96,10 +85,8 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	q := h.DB.Model(&model.SchoolStudentModel{})
-
-	// tenant-scope
-	q = q.Where("school_student_school_id = ?", enforcedSchoolID)
+	q := h.DB.Model(&model.SchoolStudentModel{}).
+		Where("school_student_school_id = ?", enforcedSchoolID)
 
 	if rowID != uuid.Nil {
 		q = q.Where("school_student_id = ?", rowID)
@@ -135,9 +122,6 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 			LOWER(COALESCE(school_student_code, '')) LIKE ? OR
 			LOWER(COALESCE(school_student_note, '')) LIKE ?
 		`, like, like)
-		// (opsional) tambah slug/name snapshot bila perlu:
-		// OR LOWER(school_student_slug) LIKE ?
-		// OR LOWER(COALESCE(school_student_user_profile_name_snapshot,'')) LIKE ?
 	}
 
 	// 4) Count + Fetch
@@ -164,17 +148,19 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		}
 	}
 
+	// ==== Pagination final (helper) ====
+	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
+
+	// Branch: tanpa profile
 	baseResp := make([]dto.SchoolStudentResp, 0, len(rows))
 	for i := range rows {
 		baseResp = append(baseResp, dto.FromModel(&rows[i]))
 	}
-
 	if !wantProfile {
-		meta := helper.BuildMeta(total, p)
-		return helper.JsonList(c, baseResp, meta)
+		return helper.JsonList(c, "ok", baseResp, pg)
 	}
 
-	// ---- Join ringan ke users_profile (sinkron DDL teranyar)
+	// ---- Join ringan ke users_profile
 	type ProfileLite struct {
 		ID                uuid.UUID `json:"id"`
 		Name              *string   `json:"name,omitempty"`
@@ -183,7 +169,6 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		ParentName        *string   `json:"parent_name,omitempty"`
 		ParentWhatsappURL *string   `json:"parent_whatsapp_url,omitempty"`
 	}
-
 	type SchoolStudentWithProfileResp struct {
 		dto.SchoolStudentResp `json:",inline"`
 		UserProfile           *ProfileLite `json:"user_profile,omitempty"`
@@ -201,19 +186,19 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		profileIDs = append(profileIDs, id)
 	}
 
-	// Ambil users_profile dalam 1 query (PERHATIKAN nama tabel & kolom!)
+	// Ambil users_profile
 	profileMap := make(map[uuid.UUID]ProfileLite, len(profileIDs))
 	if len(profileIDs) > 0 {
 		var profRows []ProfileLite
 		if err := h.DB.
 			Table("users_profile").
 			Select(`
-				users_profile_id                                  AS id,
-				user_profile_name                                 AS name,
-				user_profile_avatar_url                           AS avatar_url,
-				user_profile_whatsapp_url                         AS whatsapp_url,
-				user_profile_parent_name                          AS parent_name,
-				user_profile_parent_whatsapp_url                  AS parent_whatsapp_url
+				users_profile_id                         AS id,
+				user_profile_name                        AS name,
+				user_profile_avatar_url                  AS avatar_url,
+				user_profile_whatsapp_url                AS whatsapp_url,
+				user_profile_parent_name                 AS parent_name,
+				user_profile_parent_whatsapp_url         AS parent_whatsapp_url
 			`).
 			Where("users_profile_id IN ?", profileIDs).
 			Where("users_profile_deleted_at IS NULL").
@@ -240,6 +225,5 @@ func (h *SchoolStudentController) List(c *fiber.Ctx) error {
 		})
 	}
 
-	meta := helper.BuildMeta(total, p)
-	return helper.JsonList(c, out, meta)
+	return helper.JsonList(c, "ok", out, pg)
 }
