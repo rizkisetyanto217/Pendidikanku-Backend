@@ -160,22 +160,25 @@ func (h *BillBatchHandler) listTargetStudentIDs(tx *gorm.DB, schoolID uuid.UUID,
 // INTERNAL: resolve nominal dari fee_rules (spesifisitas & periode)
 // =======================================================
 
-func (h *BillBatchHandler) resolveAmountFromRules(tx *gorm.DB, schoolID uuid.UUID, optionCode string, batch billing.BillBatch, studentID uuid.UUID) (int, error) {
+func (h *BillBatchHandler) resolveAmountFromRules(
+	tx *gorm.DB,
+	schoolID uuid.UUID,
+	optionCode string,
+	batch billing.BillBatch,
+	studentID uuid.UUID,
+) (int, error) {
 	eff := time.Now()
 	if batch.BillBatchDueDate != nil {
 		eff = *batch.BillBatchDueDate
 	}
 
+	// 🔎 Cari rule berdasarkan tenant + periode (tanpa filter option code)
 	q := tx.Model(&billing.FeeRule{}).
 		Where("fee_rule_school_id = ?", schoolID).
-		Where("LOWER(fee_rule_option_code) = ?", strings.ToLower(optionCode)).
 		Where("fee_rule_deleted_at IS NULL").
 		Where("?::date >= COALESCE(fee_rule_effective_from, '-infinity'::date) AND ?::date <= COALESCE(fee_rule_effective_to, 'infinity'::date)", eff, eff)
 
-	// match periode:
-	// - Jika term ada ⇒ match by term
-	// - Jika YM ada ⇒ match by YM
-	// - Jika one-off tanpa YM ⇒ cari rule general (term NULL, year NULL, month NULL) jika skemamu mendukung
+	// Match periode
 	if batch.BillBatchTermID != nil {
 		q = q.Where("fee_rule_term_id = ?", *batch.BillBatchTermID)
 	} else if batch.BillBatchYear != nil && batch.BillBatchMonth != nil {
@@ -184,7 +187,7 @@ func (h *BillBatchHandler) resolveAmountFromRules(tx *gorm.DB, schoolID uuid.UUI
 		q = q.Where("fee_rule_term_id IS NULL AND fee_rule_year IS NULL AND fee_rule_month IS NULL")
 	}
 
-	// pilih rule paling spesifik
+	// Pilih rule paling spesifik (student → section → class → class_parent → tenant)
 	var rule billing.FeeRule
 	err := q.Where(`
 		(fee_rule_scope = 'student' AND fee_rule_school_student_id = ?)
@@ -208,11 +211,36 @@ func (h *BillBatchHandler) resolveAmountFromRules(tx *gorm.DB, schoolID uuid.UUI
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, fmt.Errorf("no matching fee_rule for option_code=%s", optionCode)
+			return 0, fmt.Errorf("no matching fee_rule for requested period/scope")
 		}
 		return 0, err
 	}
-	return rule.FeeRuleAmountIDR, nil
+
+	// 🎯 Ambil amount dari daftar opsi (prefer exact match by requested optionCode)
+	lcReq := strings.ToLower(strings.TrimSpace(optionCode))
+	if lcReq != "" {
+		for _, opt := range rule.FeeRuleAmountOptions {
+			if strings.ToLower(opt.Code) == lcReq {
+				return opt.Amount, nil
+			}
+		}
+	}
+
+	// Fallback 1: pakai default code dari rule (fee_rule_option_code)
+	if dc := strings.ToLower(strings.TrimSpace(rule.FeeRuleOptionCode)); dc != "" {
+		for _, opt := range rule.FeeRuleAmountOptions {
+			if strings.ToLower(opt.Code) == dc {
+				return opt.Amount, nil
+			}
+		}
+	}
+
+	// Fallback 2: pakai elemen pertama (as last resort)
+	if len(rule.FeeRuleAmountOptions) > 0 {
+		return rule.FeeRuleAmountOptions[0].Amount, nil
+	}
+
+	return 0, fmt.Errorf("fee_rule has no amount options")
 }
 
 // =======================================================

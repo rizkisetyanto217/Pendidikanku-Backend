@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	// Model FeeRule yang benar (bukan billings)
+	// ✅ Model FeeRule yang benar (bukan billings)
 	fee "schoolku_backend/internals/features/finance/billings/model"
 )
 
@@ -45,6 +45,13 @@ type PagedResult[T any] struct {
 // FEE RULES — DTO
 ////////////////////////////////////////////////////////////////////////////////
 
+// Opsi harga (mirror dari item JSONB {code,label,amount})
+type AmountOptionDTO struct {
+	Code   string `json:"code" validate:"required,max=20"`
+	Label  string `json:"label" validate:"required,max=60"`
+	Amount int    `json:"amount" validate:"required,min=1"`
+}
+
 // Create
 type FeeRuleCreateDTO struct {
 	FeeRuleSchoolID uuid.UUID `json:"fee_rule_school_id" validate:"required"`
@@ -64,13 +71,15 @@ type FeeRuleCreateDTO struct {
 	FeeRuleGeneralBillingKindID *uuid.UUID `json:"fee_rule_general_billing_kind_id,omitempty"`
 	FeeRuleBillCode             *string    `json:"fee_rule_bill_code,omitempty" validate:"omitempty,max=60"` // default DB: 'SPP'
 
-	// Opsi/label
-	FeeRuleOptionCode  string  `json:"fee_rule_option_code" validate:"required,max=20"` // default DB: 'T1'
+	// Opsi/label default (single, penanda) — boleh kosong; DB punya default 'T1'
+	FeeRuleOptionCode  *string `json:"fee_rule_option_code,omitempty" validate:"omitempty,max=20"`
 	FeeRuleOptionLabel *string `json:"fee_rule_option_label,omitempty" validate:"omitempty,max=60"`
 
-	// Default & nominal
+	// Prioritas antar-rule
 	FeeRuleIsDefault bool `json:"fee_rule_is_default"`
-	FeeRuleAmountIDR int  `json:"fee_rule_amount_idr" validate:"required,min=0"`
+
+	// >>> Daftar opsi harga (JSONB)
+	FeeRuleAmountOptions []AmountOptionDTO `json:"fee_rule_amount_options" validate:"required,min=1,dive"`
 
 	// Effective window
 	FeeRuleEffectiveFrom *time.Time `json:"fee_rule_effective_from,omitempty"`
@@ -91,14 +100,12 @@ type FeeRuleUpdateDTO struct {
 	FeeRuleMonth  *int16     `json:"fee_rule_month,omitempty"`
 	FeeRuleYear   *int16     `json:"fee_rule_year,omitempty"`
 
-	FeeRuleGeneralBillingKindID *uuid.UUID `json:"fee_rule_general_billing_kind_id,omitempty"`
-	FeeRuleBillCode             *string    `json:"fee_rule_bill_code,omitempty"`
-
-	FeeRuleOptionCode  *string `json:"fee_rule_option_code,omitempty"`
-	FeeRuleOptionLabel *string `json:"fee_rule_option_label,omitempty"`
-
-	FeeRuleIsDefault *bool `json:"fee_rule_is_default,omitempty"`
-	FeeRuleAmountIDR *int  `json:"fee_rule_amount_idr,omitempty"`
+	FeeRuleGeneralBillingKindID *uuid.UUID         `json:"fee_rule_general_billing_kind_id,omitempty"`
+	FeeRuleBillCode             *string            `json:"fee_rule_bill_code,omitempty"`
+	FeeRuleOptionCode           *string            `json:"fee_rule_option_code,omitempty"`
+	FeeRuleOptionLabel          *string            `json:"fee_rule_option_label,omitempty"`
+	FeeRuleIsDefault            *bool              `json:"fee_rule_is_default,omitempty"`
+	FeeRuleAmountOptions        *[]AmountOptionDTO `json:"fee_rule_amount_options,omitempty"`
 
 	FeeRuleEffectiveFrom *time.Time `json:"fee_rule_effective_from,omitempty"`
 	FeeRuleEffectiveTo   *time.Time `json:"fee_rule_effective_to,omitempty"`
@@ -123,11 +130,12 @@ type FeeRuleResponse struct {
 	FeeRuleGeneralBillingKindID *uuid.UUID `json:"fee_rule_general_billing_kind_id,omitempty"`
 	FeeRuleBillCode             string     `json:"fee_rule_bill_code"`
 
-	FeeRuleOptionCode  string  `json:"fee_rule_option_code"`
+	FeeRuleOptionCode  *string `json:"fee_rule_option_code,omitempty"`
 	FeeRuleOptionLabel *string `json:"fee_rule_option_label,omitempty"`
+	FeeRuleIsDefault   bool    `json:"fee_rule_is_default"`
 
-	FeeRuleIsDefault bool `json:"fee_rule_is_default"`
-	FeeRuleAmountIDR int  `json:"fee_rule_amount_idr"`
+	// >>> Daftar opsi harga (mirror JSONB)
+	FeeRuleAmountOptions []AmountOptionDTO `json:"fee_rule_amount_options"`
 
 	FeeRuleEffectiveFrom *time.Time `json:"fee_rule_effective_from,omitempty"`
 	FeeRuleEffectiveTo   *time.Time `json:"fee_rule_effective_to,omitempty"`
@@ -203,6 +211,45 @@ type GenerateStudentBillsResponse struct {
 // MAPPERS — Model <-> DTO
 ////////////////////////////////////////////////////////////////////////////////
 
+func toPtrTimeFromDeletedAt(t any) *time.Time {
+	if tt, ok := t.(interface{ Time() (time.Time, bool) }); ok {
+		if tv, valid := tt.Time(); valid {
+			return &tv
+		}
+	}
+	return nil
+}
+
+func mapAmountOptionsModelToDTO(src []fee.AmountOption) []AmountOptionDTO {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]AmountOptionDTO, 0, len(src))
+	for _, it := range src {
+		out = append(out, AmountOptionDTO{
+			Code:   it.Code,
+			Label:  it.Label,
+			Amount: it.Amount,
+		})
+	}
+	return out
+}
+
+func mapAmountOptionsDTOToModel(src []AmountOptionDTO) []fee.AmountOption {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]fee.AmountOption, 0, len(src))
+	for _, it := range src {
+		out = append(out, fee.AmountOption{
+			Code:   it.Code,
+			Label:  it.Label,
+			Amount: it.Amount,
+		})
+	}
+	return out
+}
+
 // Model -> Response
 func ToFeeRuleResponse(m fee.FeeRule) FeeRuleResponse {
 	return FeeRuleResponse{
@@ -218,10 +265,10 @@ func ToFeeRuleResponse(m fee.FeeRule) FeeRuleResponse {
 		FeeRuleYear:                 m.FeeRuleYear,
 		FeeRuleGeneralBillingKindID: m.FeeRuleGeneralBillingKindID,
 		FeeRuleBillCode:             m.FeeRuleBillCode,
-		FeeRuleOptionCode:           m.FeeRuleOptionCode,
+		FeeRuleOptionCode:           strPtrOrNil(m.FeeRuleOptionCode),
 		FeeRuleOptionLabel:          m.FeeRuleOptionLabel,
 		FeeRuleIsDefault:            m.FeeRuleIsDefault,
-		FeeRuleAmountIDR:            m.FeeRuleAmountIDR,
+		FeeRuleAmountOptions:        mapAmountOptionsModelToDTO(m.FeeRuleAmountOptions),
 		FeeRuleEffectiveFrom:        m.FeeRuleEffectiveFrom,
 		FeeRuleEffectiveTo:          m.FeeRuleEffectiveTo,
 		FeeRuleNote:                 m.FeeRuleNote,
@@ -246,10 +293,14 @@ func ToFeeRuleResponse(m fee.FeeRule) FeeRuleResponse {
 
 // CreateDTO -> Model
 func FeeRuleCreateDTOToModel(d FeeRuleCreateDTO) fee.FeeRule {
-	// default bill code biarkan DB yang isi ('SPP') bila d.FeeRuleBillCode == nil
 	var billCode string
 	if d.FeeRuleBillCode != nil && *d.FeeRuleBillCode != "" {
 		billCode = *d.FeeRuleBillCode
+	}
+	// option code/label opsional, biarkan DB default bila nil
+	var optCode string
+	if d.FeeRuleOptionCode != nil {
+		optCode = *d.FeeRuleOptionCode
 	}
 
 	return fee.FeeRule{
@@ -264,10 +315,10 @@ func FeeRuleCreateDTOToModel(d FeeRuleCreateDTO) fee.FeeRule {
 		FeeRuleYear:                 d.FeeRuleYear,
 		FeeRuleGeneralBillingKindID: d.FeeRuleGeneralBillingKindID,
 		FeeRuleBillCode:             billCode,
-		FeeRuleOptionCode:           d.FeeRuleOptionCode,
+		FeeRuleOptionCode:           optCode,
 		FeeRuleOptionLabel:          d.FeeRuleOptionLabel,
 		FeeRuleIsDefault:            d.FeeRuleIsDefault,
-		FeeRuleAmountIDR:            d.FeeRuleAmountIDR,
+		FeeRuleAmountOptions:        mapAmountOptionsDTOToModel(d.FeeRuleAmountOptions),
 		FeeRuleEffectiveFrom:        d.FeeRuleEffectiveFrom,
 		FeeRuleEffectiveTo:          d.FeeRuleEffectiveTo,
 		FeeRuleNote:                 d.FeeRuleNote,
@@ -315,8 +366,8 @@ func ApplyFeeRuleUpdate(m *fee.FeeRule, d FeeRuleUpdateDTO) {
 	if d.FeeRuleIsDefault != nil {
 		m.FeeRuleIsDefault = *d.FeeRuleIsDefault
 	}
-	if d.FeeRuleAmountIDR != nil {
-		m.FeeRuleAmountIDR = *d.FeeRuleAmountIDR
+	if d.FeeRuleAmountOptions != nil {
+		m.FeeRuleAmountOptions = mapAmountOptionsDTOToModel(*d.FeeRuleAmountOptions)
 	}
 	if d.FeeRuleEffectiveFrom != nil {
 		m.FeeRuleEffectiveFrom = d.FeeRuleEffectiveFrom
@@ -336,4 +387,11 @@ func ToFeeRuleResponses(list []fee.FeeRule) []FeeRuleResponse {
 		out = append(out, ToFeeRuleResponse(v))
 	}
 	return out
+}
+
+func strPtrOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

@@ -3,7 +3,6 @@ package controller
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -11,8 +10,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	// ganti path sesuai projectmu
-	"schoolku_backend/internals/features/finance/billings/dto"
+	// ✅ DTO pakai paket SPP (bukan billings/dto)
+	dto "schoolku_backend/internals/features/finance/billings/dto"
+	// Model tetap dari billings/model
 	billing "schoolku_backend/internals/features/finance/billings/model"
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
@@ -22,49 +22,25 @@ type StudentBillHandler struct {
 	DB *gorm.DB
 }
 
-// --- helpers lokal ---
+/* =========================
+   List (GET /:school_id/spp/student-bills)
+========================= */
 
-func buildOrderClause(p helper.Params) string {
-	allowed := map[string]string{
-		"created_at": "student_bill_created_at",
-		"updated_at": "student_bill_updated_at",
-		"amount":     "student_bill_amount_idr",
-		"status":     "student_bill_status",
-		"paid_at":    "student_bill_paid_at",
-	}
-	col, ok := allowed[strings.ToLower(p.SortBy)]
-	if !ok {
-		col = allowed["created_at"]
-	}
-	dir := "DESC"
-	if strings.EqualFold(p.SortOrder, "asc") {
-		dir = "ASC"
-	}
-	return fmt.Sprintf("%s %s", col, dir)
-}
-
-// -----------------------------------------
-// List (GET /:school_id/spp/student-bills)
-// -----------------------------------------
-// -----------------------------------------
-// List (GET /:school_id/spp/student-bills)
-// -----------------------------------------
 func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 	schoolID, err := mustSchoolID(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid school_id")
 	}
-	// read-only access untuk semua anggota school
+	// read-only access untuk semua member sekolah
 	if err := helperAuth.EnsureMemberSchool(c, schoolID); err != nil {
 		return err
 	}
 
-	/* ===== Pagination ===== */
+	// Paging
 	pg := helper.ResolvePaging(c, 20, 200) // default 20, max 200
-	perPageRaw := strings.ToLower(strings.TrimSpace(c.Query("per_page")))
-	allMode := perPageRaw == "all"
+	allMode := strings.EqualFold(strings.TrimSpace(c.Query("per_page")), "all")
 
-	/* ===== Sorting whitelist ===== */
+	// Sorting whitelist
 	allowedSort := map[string]string{
 		"created_at": "student_bill_created_at",
 		"amount":     "student_bill_amount_idr",
@@ -83,13 +59,13 @@ func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 	}
 	orderExpr := col + " " + dir
 
-	/* ===== Base query (tenant scope + alive) ===== */
+	// Base query (tenant-alive)
 	q := h.DB.WithContext(c.Context()).
 		Model(&billing.StudentBill{}).
 		Where("student_bill_deleted_at IS NULL").
 		Where("student_bill_school_id = ?", schoolID)
 
-	// ---------- filters umum ----------
+	// Filters umum
 	if v := strings.TrimSpace(c.Query("batch_id")); v != "" {
 		if id, err := uuid.Parse(v); err == nil {
 			q = q.Where("student_bill_batch_id = ?", id)
@@ -106,7 +82,7 @@ func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ---------- denorm filters ----------
+	// Denorm filters
 	if v := strings.TrimSpace(c.Query("general_billing_kind_id")); v != "" {
 		if id, err := uuid.Parse(v); err == nil {
 			q = q.Where("student_bill_general_billing_kind_id = ?", id)
@@ -138,7 +114,7 @@ func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ---------- status / amount / date ----------
+	// Status / amount / date
 	if v := strings.TrimSpace(c.Query("status")); v != "" { // unpaid|paid|canceled
 		q = q.Where("student_bill_status = ?", v)
 	}
@@ -156,7 +132,7 @@ func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 		q = q.Where("student_bill_amount_idr <= ?", v)
 	}
 
-	// date_from/date_to: dukung RFC3339 & YYYY-MM-DD (batas atas < next-day)
+	// date_from/date_to: dukung RFC3339 & YYYY-MM-DD (date_to < next-day)
 	if v := strings.TrimSpace(c.Query("date_from")); v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
 			q = q.Where("student_bill_created_at >= ?", t)
@@ -172,29 +148,25 @@ func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 		}
 	}
 
-	/* ===== Count ===== */
+	// Count
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	/* ===== Fetch ===== */
+	// Fetch
 	var list []billing.StudentBill
-	query := q.
-		Order(orderExpr).
-		Order("student_bill_id DESC") // tie-breaker stabil
-
+	query := q.Order(orderExpr).Order("student_bill_id DESC")
 	if !allMode {
 		query = query.Limit(pg.Limit).Offset(pg.Offset)
 	}
-
 	if err := query.Find(&list).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	resp := dto.ToStudentBillResponses(list)
 
-	/* ===== Pagination payload ===== */
+	// Pagination payload
 	var pagination helper.Pagination
 	if allMode {
 		per := int(total)
@@ -206,13 +178,13 @@ func (h *StudentBillHandler) List(c *fiber.Ctx) error {
 		pagination = helper.BuildPaginationFromPage(total, pg.Page, pg.PerPage)
 	}
 
-	/* ===== JSON response standar ===== */
 	return helper.JsonList(c, "List student bills", resp, pagination)
 }
 
-// -----------------------------------------
-// Create (POST /:school_id/spp/student-bills)
-// -----------------------------------------
+/* =========================
+   Create (POST /:school_id/spp/student-bills)
+========================= */
+
 func (h *StudentBillHandler) Create(c *fiber.Ctx) error {
 	schoolID, err := mustSchoolID(c)
 	if err != nil {
@@ -228,7 +200,7 @@ func (h *StudentBillHandler) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json")
 	}
 
-	// Paksa tenant dari path (abaikan body)
+	// Enforce tenant dari path
 	in.StudentBillSchoolID = schoolID
 
 	// Normalisasi bill_code & option
@@ -248,9 +220,7 @@ func (h *StudentBillHandler) Create(c *fiber.Ctx) error {
 	m := dto.StudentBillCreateDTOToModel(in)
 	if err := h.DB.Create(&m).Error; err != nil {
 		if isUniqueViolation(err) {
-			// bisa terjadi karena:
-			// - unique per batch (uq_student_bill_per_student)
-			// - partial unique periodic/oneoff di SQL
+			// bisa dari unique per batch / partial unique periodic/oneoff
 			return helper.JsonError(c, fiber.StatusConflict, "duplicate student bill for the given scope/period")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
@@ -258,9 +228,10 @@ func (h *StudentBillHandler) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "created", dto.ToStudentBillResponse(m))
 }
 
-// -----------------------------------------
-// Update (PATCH /:school_id/spp/student-bills/:id)
-// -----------------------------------------
+/* =========================
+   Update (PATCH /:school_id/spp/student-bills/:id)
+========================= */
+
 func (h *StudentBillHandler) Update(c *fiber.Ctx) error {
 	schoolID, err := mustSchoolID(c)
 	if err != nil {
@@ -280,7 +251,7 @@ func (h *StudentBillHandler) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json")
 	}
 
-	// Normalisasi untuk field yang relevan
+	// Normalisasi untuk field relevan
 	if in.StudentBillBillCode != nil {
 		code := normalizeBillCode(*in.StudentBillBillCode)
 		in.StudentBillBillCode = &code
@@ -299,7 +270,7 @@ func (h *StudentBillHandler) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Terapkan perubahan
+	// Apply partial changes
 	dto.ApplyStudentBillUpdate(&m, in)
 
 	// Re-validate periodic vs one-off setelah apply:
@@ -321,9 +292,10 @@ func (h *StudentBillHandler) Update(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "updated", dto.ToStudentBillResponse(m))
 }
 
-// -----------------------------------------
-// Delete (DELETE /:school_id/spp/student-bills/:id) — soft delete
-// -----------------------------------------
+/* =========================
+   Delete (soft) — DELETE /:school_id/spp/student-bills/:id
+========================= */
+
 func (h *StudentBillHandler) Delete(c *fiber.Ctx) error {
 	schoolID, err := mustSchoolID(c)
 	if err != nil {
@@ -354,9 +326,11 @@ func (h *StudentBillHandler) Delete(c *fiber.Ctx) error {
 	return helper.JsonDeleted(c, "deleted", dto.ToStudentBillResponse(m))
 }
 
-// -----------------------------------------
-// Status: Cancel (POST /:school_id/spp/student-bills/:id/cancel)
-// -----------------------------------------
+/* =========================
+   Status change
+========================= */
+
+// POST /:school_id/spp/student-bills/:id/cancel
 func (h *StudentBillHandler) Cancel(c *fiber.Ctx) error {
 	schoolID, err := mustSchoolID(c)
 	if err != nil {

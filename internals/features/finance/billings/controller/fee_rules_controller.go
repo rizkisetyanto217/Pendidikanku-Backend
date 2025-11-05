@@ -25,18 +25,6 @@ import (
    BOOTSTRAP & HELPERS
 ======================================================= */
 
-func normalizeOrderFragment(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return ""
-	}
-	up := strings.ToUpper(s)
-	if strings.HasPrefix(up, "ORDER BY ") {
-		return strings.TrimSpace(s[9:])
-	}
-	return s
-}
-
 type Handler struct {
 	DB *gorm.DB
 }
@@ -154,93 +142,6 @@ func (h *Handler) UpdateFeeRule(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 	return helper.JsonOK(c, "fee rule updated", dto.ToFeeRuleResponse(m))
-}
-
-// GET /:school_id/spp/fee-rules
-// GET /:school_id/spp/fee-rules
-func (h *Handler) ListFeeRules(c *fiber.Ctx) error {
-	schoolID, err := mustSchoolID(c)
-	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "invalid school_id")
-	}
-	if err := helperAuth.EnsureMemberSchool(c, schoolID); err != nil {
-		return err
-	}
-
-	// === Paging (default 20, max 200) + dukungan per_page=all ===
-	pg := helper.ResolvePaging(c, 20, 200)
-	perPageRaw := strings.ToLower(strings.TrimSpace(c.Query("per_page")))
-	allMode := perPageRaw == "all"
-	offset := (pg.Page - 1) * pg.PerPage
-
-	// === Base query (tenant-scoped & alive) ===
-	q := h.DB.Model(&model.FeeRule{}).
-		Where("fee_rule_deleted_at IS NULL").
-		Where("fee_rule_school_id = ?", schoolID)
-
-	// === Filters ===
-	if oc := strings.TrimSpace(c.Query("option_code")); oc != "" {
-		q = q.Where("LOWER(fee_rule_option_code) = ?", strings.ToLower(oc))
-	}
-	if sc := strings.TrimSpace(c.Query("scope")); sc != "" {
-		q = q.Where("fee_rule_scope = ?", sc)
-	}
-	if tid := strings.TrimSpace(c.Query("term_id")); tid != "" {
-		if id, err := uuid.Parse(tid); err == nil {
-			q = q.Where("fee_rule_term_id = ?", id)
-		}
-	} else if ym := strings.TrimSpace(c.Query("ym")); ym != "" {
-		var y, m int
-		if _, err := fmt.Sscanf(ym, "%d-%d", &y, &m); err == nil && y > 0 && m >= 1 && m <= 12 {
-			q = q.Where("fee_rule_year = ? AND fee_rule_month = ?", y, m)
-		}
-	}
-
-	// === Sorting whitelist ===
-	allowed := map[string]string{
-		"created_at": "fee_rule_created_at",
-		"updated_at": "fee_rule_updated_at",
-		"amount":     "fee_rule_amount_idr",
-		"option":     "fee_rule_option_code",
-	}
-	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by")))
-	sortCol, ok := allowed[sortBy]
-	if !ok {
-		sortCol = allowed["created_at"]
-	}
-	dir := "DESC"
-	if strings.EqualFold(strings.TrimSpace(c.Query("order")), "asc") {
-		dir = "ASC"
-	}
-	orderClause := sortCol + " " + dir
-
-	// === Count ===
-	var total int64
-	if err := q.Count(&total).Error; err != nil {
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
-	}
-
-	// === Fetch (respect per_page=all) ===
-	listQ := q.Order(orderClause)
-	if !allMode {
-		listQ = listQ.Limit(pg.PerPage).Offset(offset)
-	}
-	var list []model.FeeRule
-	if err := listQ.Find(&list).Error; err != nil {
-		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
-	}
-
-	out := dto.ToFeeRuleResponses(list)
-
-	// === Pagination payload untuk JsonList ===
-	var pagination helper.Pagination
-	if allMode {
-		pagination = helper.BuildPaginationFromPage(total, 1, int(total))
-	} else {
-		pagination = helper.BuildPaginationFromPage(total, pg.Page, pg.PerPage)
-	}
-
-	return helper.JsonList(c, "OK", out, pagination)
 }
 
 // =======================================================
@@ -484,34 +385,64 @@ func (h *Handler) getStudentActiveContext(tx *gorm.DB, schoolID, studentID uuid.
 /* =======================================================
    Resolve nominal (rule → fallback fixed)
 ======================================================= */
+/* =======================================================
+   Resolve nominal (rule → fallback fixed)
+   - Konsisten DTO: returns int
+   - Konsisten Model: ambil dari FeeRuleAmountOptions by option_code
+======================================================= */
 
-func (h *Handler) resolveAmountWithContext(tx *gorm.DB, in dto.GenerateStudentBillsRequest, batch model.BillBatch, studentID uuid.UUID) (int, error) {
-	// Mode fixed langsung
-	if in.AmountStrategy.Mode == "fixed" {
+func (h *Handler) resolveAmountWithContext(
+	tx *gorm.DB,
+	in dto.GenerateStudentBillsRequest,
+	batch model.BillBatch,
+	studentID uuid.UUID,
+) (int, error) {
+	// 1) Mode fixed → langsung return (hindari panic saat nil)
+	if strings.EqualFold(strings.TrimSpace(in.AmountStrategy.Mode), "fixed") {
+		if in.AmountStrategy.FixedAmountIDR == nil {
+			return 0, fmt.Errorf("fixed mode but fixed_amount_idr is nil")
+		}
 		return *in.AmountStrategy.FixedAmountIDR, nil
 	}
 
-	// Mode rule_fallback_fixed
+	// Hanya dukung 2 mode
+	if !strings.EqualFold(in.AmountStrategy.Mode, "rule_fallback_fixed") {
+		return 0, fmt.Errorf("unsupported amount strategy mode: %s", in.AmountStrategy.Mode)
+	}
+
+	// 2) Ambil konteks aktif (class/section) siswa
 	ctx, err := h.getStudentActiveContext(tx, in.StudentBillSchoolID, studentID)
 	if err != nil {
 		return 0, err
 	}
 
-	optionCode := strings.ToLower(in.AmountStrategy.PreferRule.OptionCode)
+	// 3) Normalisasi option_code
+	if in.AmountStrategy.PreferRule == nil {
+		return 0, fmt.Errorf("prefer_rule is required for rule_fallback_fixed")
+	}
+	optionCode := strings.ToLower(strings.TrimSpace(in.AmountStrategy.PreferRule.OptionCode))
+	if optionCode == "" {
+		return 0, fmt.Errorf("prefer_rule.option_code is required")
+	}
 
-	// Tanggal efektif referensi (pakai due_date batch jika ada)
+	// 4) Tentukan tanggal efektif (pakai due_date batch jika ada)
 	eff := time.Now()
 	if batch.BillBatchDueDate != nil {
 		eff = *batch.BillBatchDueDate
 	}
 
+	// 5) Base query: tenant, option_code, soft-delete, effective range
 	q := tx.Model(&model.FeeRule{}).
 		Where("fee_rule_school_id = ?", in.StudentBillSchoolID).
 		Where("LOWER(fee_rule_option_code) = ?", optionCode).
 		Where("fee_rule_deleted_at IS NULL").
-		Where("?::date >= COALESCE(fee_rule_effective_from, '-infinity'::date) AND ?::date <= COALESCE(fee_rule_effective_to, 'infinity'::date)", eff, eff)
+		Where(
+			"?::date >= COALESCE(fee_rule_effective_from, '-infinity'::date) AND ?::date <= COALESCE(fee_rule_effective_to, 'infinity'::date)",
+			eff, eff,
+		)
 
-	switch in.AmountStrategy.PreferRule.By {
+	// 6) Filter periode (term vs year-month)
+	switch strings.ToLower(strings.TrimSpace(in.AmountStrategy.PreferRule.By)) {
 	case "term":
 		if batch.BillBatchTermID != nil {
 			q = q.Where("fee_rule_term_id = ?", *batch.BillBatchTermID)
@@ -520,40 +451,89 @@ func (h *Handler) resolveAmountWithContext(tx *gorm.DB, in dto.GenerateStudentBi
 		}
 	case "ym":
 		q = q.Where("fee_rule_term_id IS NULL AND fee_rule_year = ? AND fee_rule_month = ?", batch.BillBatchYear, batch.BillBatchMonth)
+	default:
+		return 0, fmt.Errorf("unsupported prefer_rule.by: %s", in.AmountStrategy.PreferRule.By)
 	}
 
-	// Urutan spesifisitas (gunakan konteks yang ada saja)
+	// 7) Rakit kondisi spesifisitas hanya bila konteks tersedia
+	conds := make([]string, 0, 5)
+	args := make([]any, 0, 5)
+
+	// student: value (uuid.UUID)
+	if studentID != uuid.Nil {
+		conds = append(conds, "(fee_rule_scope = 'student' AND fee_rule_school_student_id = ?)")
+		args = append(args, studentID)
+	}
+
+	// section: pointer (*uuid.UUID)
+	if ctx.SectionID != nil && *ctx.SectionID != uuid.Nil {
+		conds = append(conds, "(fee_rule_scope = 'section' AND fee_rule_section_id = ?)")
+		args = append(args, *ctx.SectionID) // deref
+	}
+
+	// class: pointer (*uuid.UUID)
+	if ctx.ClassID != nil && *ctx.ClassID != uuid.Nil {
+		conds = append(conds, "(fee_rule_scope = 'class' AND fee_rule_class_id = ?)")
+		args = append(args, *ctx.ClassID) // deref
+	}
+
+	// class_parent & tenant selalu disertakan (lebih umum)
+	conds = append(conds, "(fee_rule_scope = 'class_parent' AND fee_rule_class_parent_id IS NOT NULL)")
+	conds = append(conds, "(fee_rule_scope = 'tenant')")
+
+	q = q.Where(strings.Join(conds, " OR "), args...)
+
+	// 8) Ordering prioritas
+	q = q.Order(`
+		CASE fee_rule_scope
+			WHEN 'student' THEN 1
+			WHEN 'section' THEN 2
+			WHEN 'class' THEN 3
+			WHEN 'class_parent' THEN 4
+			WHEN 'tenant' THEN 5
+			ELSE 99
+		END,
+		fee_rule_is_default DESC,
+		fee_rule_created_at DESC
+	`).Limit(1)
+
 	var rule model.FeeRule
-	q = q.Where(`
-		(fee_rule_scope = 'student' AND fee_rule_school_student_id = ?)
-		OR (fee_rule_scope = 'section' AND fee_rule_section_id = ?)
-		OR (fee_rule_scope = 'class'   AND fee_rule_class_id   = ?)
-		OR (fee_rule_scope = 'class_parent' AND fee_rule_class_parent_id IS NOT NULL)
-		OR (fee_rule_scope = 'tenant')
-	`, studentID, ctx.SectionID, ctx.ClassID).
-		Order(`
-			CASE fee_rule_scope
-				WHEN 'student' THEN 1
-				WHEN 'section' THEN 2
-				WHEN 'class' THEN 3
-				WHEN 'class_parent' THEN 4
-				WHEN 'tenant' THEN 5
-				ELSE 99
-			END, fee_rule_is_default DESC, fee_rule_created_at DESC
-		`).
-		Limit(1).
-		First(&rule)
-
-	if q.Error == nil {
-		return rule.FeeRuleAmountIDR, nil
-	}
-	if !errors.Is(q.Error, gorm.ErrRecordNotFound) {
-		return 0, q.Error
+	if err := q.First(&rule).Error; err != nil {
+		// Kalau error bukan not found, return error
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, err
+		}
+		// Not found → Fallback ke fixed (jika ada)
+		if in.AmountStrategy.FixedAmountIDR != nil {
+			return *in.AmountStrategy.FixedAmountIDR, nil
+		}
+		return 0, fmt.Errorf("no matching rule and no fixed fallback for option_code=%s", optionCode)
 	}
 
-	// Fallback ke fixed jika disediakan
+	// 9) Ambil nominal dari FeeRuleAmountOptions berdasarkan option_code
+	amount, ok := findAmountFromOptions(rule.FeeRuleAmountOptions, optionCode)
+	if ok {
+		return amount, nil
+	}
+
+	// Opsi tidak ditemukan di array — terakhir: fallback ke fixed (jika ada)
 	if in.AmountStrategy.FixedAmountIDR != nil {
 		return *in.AmountStrategy.FixedAmountIDR, nil
 	}
-	return 0, fmt.Errorf("no matching rule and no fixed fallback for option_code=%s", optionCode)
+
+	return 0, fmt.Errorf("rule found but no amount option matched for option_code=%s", optionCode)
+}
+
+// Helper kecil: cari nominal pada slice options berdasarkan code (case-insensitive)
+func findAmountFromOptions(opts []model.AmountOption, code string) (int, bool) {
+	if len(opts) == 0 {
+		return 0, false
+	}
+	lc := strings.ToLower(strings.TrimSpace(code))
+	for _, it := range opts {
+		if strings.ToLower(strings.TrimSpace(it.Code)) == lc {
+			return it.Amount, true
+		}
+	}
+	return 0, false
 }

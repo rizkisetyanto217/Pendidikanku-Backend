@@ -60,16 +60,87 @@ func nowPtr() *time.Time {
 	return &t
 }
 
-/* =========================
-   Create
-   POST /api/a/:school_id/general-billing-kinds
-========================= */
+// helper: set flags by category (mirror CHECK constraint) — AMAN utk pointer types
+// ========================
+// ONE HELPER for Create & Patch (pointer-safe)
+// ========================
+func normalizeGBKByCategory(
+	catPtr **string, // pointer ke *string (req.Category & patch.Category)
+	isRecurring **bool, // pointer ke *bool (req.IsRecurring & patch.IsRecurring)
+	reqMonthYear **bool, // pointer ke *bool
+	reqOptionCode **bool, // pointer ke *bool
+	currentCat string, // kategori existing (untuk Patch), "" jika Create
+) {
+	// pilih kategori efektif: req.Category > currentCat > "mass_student"
+	eff := ""
+	if catPtr != nil && *catPtr != nil && strings.TrimSpace(**catPtr) != "" {
+		eff = strings.ToLower(strings.TrimSpace(**catPtr))
+	} else if strings.TrimSpace(currentCat) != "" {
+		eff = strings.ToLower(strings.TrimSpace(currentCat))
+	} else {
+		eff = "mass_student"
+	}
 
+	// jika req.Category kosong, set pointer-nya ke eff
+	if catPtr != nil && *catPtr == nil {
+		v := eff
+		*catPtr = &v
+	} else if catPtr != nil && *catPtr != nil {
+		**catPtr = eff
+	}
+
+	// setter aman utk *bool
+	setBool := func(dst **bool, v bool) {
+		if *dst == nil {
+			b := v
+			*dst = &b
+		} else {
+			**dst = v
+		}
+	}
+
+	// mirror ke aturan CHECK ck_gbk_flags_match_category
+	switch eff {
+	case "registration":
+		setBool(isRecurring, false)
+		setBool(reqMonthYear, false)
+		setBool(reqOptionCode, false)
+	case "spp":
+		setBool(isRecurring, true)
+		setBool(reqMonthYear, true)
+		setBool(reqOptionCode, false)
+	case "mass_student":
+		setBool(isRecurring, false)
+		setBool(reqMonthYear, false)
+		setBool(reqOptionCode, true)
+	case "donation":
+		setBool(isRecurring, false)
+		setBool(reqMonthYear, false)
+		setBool(reqOptionCode, false)
+	default:
+		// fallback selalu valid
+		v := "mass_student"
+		if catPtr != nil {
+			*catPtr = &v
+		}
+		setBool(isRecurring, false)
+		setBool(reqMonthYear, false)
+		setBool(reqOptionCode, true)
+	}
+}
+
+/*
+	=========================
+	  Create
+	  POST /api/a/:school_id/general-billing-kinds
+
+=========================
+*/
 func (ctl *GeneralBillingKindController) Create(c *fiber.Ctx) error {
-	// 1) Ambil school dari path + guard
+	// 1) school guard
 	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
 	if err != nil {
-		return err // helper sudah balikin JSON error
+		return err
 	}
 	if er := helperAuth.EnsureDKMOrTeacherSchool(c, schoolID); er != nil {
 		return er
@@ -82,16 +153,25 @@ func (ctl *GeneralBillingKindController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Paksa tenant dari path (endpoint ini khusus per-school)
+	// paksa tenant dari path
 	req.SchoolID = &schoolID
 
-	// Validasi minimal
+	// minimal validation
 	req.Code = strings.TrimSpace(req.Code)
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Code == "" || req.Name == "" {
 		return helper.JsonError(c, fiber.StatusBadRequest, "code and name are required")
 	}
 
+	// ⬅️ normalize flags berdasar category (abaikan nilai flag yang dikirim client)
+	// setelah validasi minimal, sebelum ToModel()
+	normalizeGBKByCategory(
+		&req.Category,
+		&req.IsRecurring,
+		&req.RequiresMonthYear,
+		&req.RequiresOptionCode,
+		"", // currentCat kosong utk Create
+	)
 	// 3) Persist
 	rec := req.ToModel()
 	if err := ctl.DB.WithContext(c.Context()).Create(&rec).Error; err != nil {
@@ -100,7 +180,6 @@ func (ctl *GeneralBillingKindController) Create(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
-
 	return helper.JsonCreated(c, "created", dto.FromModel(rec))
 }
 
@@ -109,6 +188,17 @@ func (ctl *GeneralBillingKindController) Create(c *fiber.Ctx) error {
    PATCH /api/a/:school_id/general-billing-kinds/:id
 ========================= */
 
+/*
+	=========================
+	  Patch (Update)
+	  PATCH /api/a/:school_id/general-billing-kinds/:id
+
+=========================
+*/
+/* =========================
+   Patch (Update)
+   PATCH /api/a/:school_id/general-billing-kinds/:id
+========================= */
 func (ctl *GeneralBillingKindController) Patch(c *fiber.Ctx) error {
 	// 1) Path + guard
 	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
@@ -132,7 +222,7 @@ func (ctl *GeneralBillingKindController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// 3) Load tenant-safe (hanya milik school ini & belum terhapus)
+	// 3) Load tenant-safe (punya school ini & belum terhapus)
 	var rec m.GeneralBillingKind
 	tx := ctl.DB.WithContext(c.Context()).
 		Where(`
@@ -148,7 +238,16 @@ func (ctl *GeneralBillingKindController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, tx.Error.Error())
 	}
 
-	// 4) Apply + Save
+	// 4) Normalize flags berdasar kategori efektif (request > current)
+	normalizeGBKByCategory(
+		&req.Category,
+		&req.IsRecurring,
+		&req.RequiresMonthYear,
+		&req.RequiresOptionCode,
+		string(rec.GeneralBillingKindCategory), // currentCat
+	)
+
+	// 5) Apply + Save
 	req.ApplyTo(&rec)
 	rec.GeneralBillingKindUpdatedAt = time.Now()
 

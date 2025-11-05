@@ -16,6 +16,7 @@ type PaymentStatus string
 type PaymentMethod string
 type PaymentGatewayProvider string
 type PaymentEntryType string
+type FeeScope string // untuk snapshot fee_rule_scope (enum fee_scope di DB)
 
 const (
 	PaymentStatusInitiated         PaymentStatus = "initiated"
@@ -55,6 +56,16 @@ const (
 	PaymentEntryAdjustment PaymentEntryType = "adjustment"
 )
 
+// enum fee_scope di DB: ('tenant','class_parent','class','section','student','term')
+const (
+	FeeScopeTenant      FeeScope = "tenant"
+	FeeScopeClassParent FeeScope = "class_parent"
+	FeeScopeClass       FeeScope = "class"
+	FeeScopeSection     FeeScope = "section"
+	FeeScopeStudent     FeeScope = "student"
+	FeeScopeTerm        FeeScope = "term"
+)
+
 /* ================================
    MODEL: payments
 ================================ */
@@ -66,12 +77,12 @@ type Payment struct {
 	PaymentSchoolID *uuid.UUID `json:"payment_school_id" gorm:"column:payment_school_id;type:uuid"`
 	PaymentUserID   *uuid.UUID `json:"payment_user_id"   gorm:"column:payment_user_id;type:uuid"`
 
-	// ===== Target FK (salah satu WAJIB terisi) =====
+	// Target (salah satu WAJIB ada — dijaga di DB check)
 	PaymentStudentBillID        *uuid.UUID `json:"payment_student_bill_id"          gorm:"column:payment_student_bill_id;type:uuid"`
 	PaymentGeneralBillingID     *uuid.UUID `json:"payment_general_billing_id"       gorm:"column:payment_general_billing_id;type:uuid"`
 	PaymentGeneralBillingKindID *uuid.UUID `json:"payment_general_billing_kind_id"  gorm:"column:payment_general_billing_kind_id;type:uuid"`
 
-	// ===== Konteks/report (opsional) =====
+	// Konteks/report
 	PaymentBillBatchID *uuid.UUID `json:"payment_bill_batch_id" gorm:"column:payment_bill_batch_id;type:uuid"`
 
 	// Nominal
@@ -100,21 +111,30 @@ type Payment struct {
 	PaymentRefundedAt  *time.Time `json:"payment_refunded_at"  gorm:"column:payment_refunded_at;type:timestamptz"`
 
 	// Manual ops
-	PaymentManualChannel          *string    `json:"payment_manual_channel"           gorm:"column:payment_manual_channel;type:varchar(32)"`
-	PaymentManualReference        *string    `json:"payment_manual_reference"         gorm:"column:payment_manual_reference;type:varchar(120)"`
+	PaymentManualChannel          *string    `json:"payment_manual_channel"             gorm:"column:payment_manual_channel;type:varchar(32)"`
+	PaymentManualReference        *string    `json:"payment_manual_reference"           gorm:"column:payment_manual_reference;type:varchar(120)"`
 	PaymentManualReceivedByUserID *uuid.UUID `json:"payment_manual_received_by_user_id" gorm:"column:payment_manual_received_by_user_id;type:uuid"`
 	PaymentManualVerifiedByUserID *uuid.UUID `json:"payment_manual_verified_by_user_id" gorm:"column:payment_manual_verified_by_user_id;type:uuid"`
-	PaymentManualVerifiedAt       *time.Time `json:"payment_manual_verified_at"       gorm:"column:payment_manual_verified_at;type:timestamptz"`
+	PaymentManualVerifiedAt       *time.Time `json:"payment_manual_verified_at"         gorm:"column:payment_manual_verified_at;type:timestamptz"`
 
-	// Ledger & invoice fields
-	PaymentEntryType PaymentEntryType `json:"payment_entry_type" gorm:"column:payment_entry_type;type:payment_entry_type;not null;default:'payment'"`
-	InvoiceNumber    *string          `json:"invoice_number"     gorm:"column:invoice_number;type:text"`
-	InvoiceDueDate   *time.Time       `json:"invoice_due_date"   gorm:"column:invoice_due_date;type:date"`
-	InvoiceTitle     *string          `json:"invoice_title"      gorm:"column:invoice_title;type:text"`
+	// Ledger & invoice fields (semua diawali payment_)
+	PaymentEntryType      PaymentEntryType `json:"payment_entry_type"       gorm:"column:payment_entry_type;type:payment_entry_type;not null;default:'payment'"`
+	PaymentInvoiceNumber  *string          `json:"payment_invoice_number"   gorm:"column:payment_invoice_number;type:text"`
+	PaymentInvoiceDueDate *time.Time       `json:"payment_invoice_due_date" gorm:"column:payment_invoice_due_date;type:date"`
+	PaymentInvoiceTitle   *string          `json:"payment_invoice_title"    gorm:"column:payment_invoice_title;type:text"`
 
 	// Subject (opsional)
 	PaymentSubjectUserID    *uuid.UUID `json:"payment_subject_user_id"    gorm:"column:payment_subject_user_id;type:uuid"`
 	PaymentSubjectStudentID *uuid.UUID `json:"payment_subject_student_id" gorm:"column:payment_subject_student_id;type:uuid"`
+
+	// Link & snapshot ke fee_rules (opsional)
+	PaymentFeeRuleID             *uuid.UUID `json:"payment_fee_rule_id"              gorm:"column:payment_fee_rule_id;type:uuid"`
+	PaymentFeeRuleOptionCode     *string    `json:"payment_fee_rule_option_code"     gorm:"column:payment_fee_rule_option_code;type:varchar(20)"`
+	PaymentFeeRuleOptionIndex    *int16     `json:"payment_fee_rule_option_index"    gorm:"column:payment_fee_rule_option_index;type:smallint"` // 1-based
+	PaymentFeeRuleAmountSnapshot *int       `json:"payment_fee_rule_amount_snapshot" gorm:"column:payment_fee_rule_amount_snapshot;type:int"`
+	PaymentFeeRuleGBKIDSnapshot  *uuid.UUID `json:"payment_fee_rule_gbk_id_snapshot" gorm:"column:payment_fee_rule_gbk_id_snapshot;type:uuid"`
+	PaymentFeeRuleScopeSnapshot  *FeeScope  `json:"payment_fee_rule_scope_snapshot"  gorm:"column:payment_fee_rule_scope_snapshot;type:fee_scope"`
+	PaymentFeeRuleNoteSnapshot   *string    `json:"payment_fee_rule_note_snapshot"   gorm:"column:payment_fee_rule_note_snapshot;type:text"`
 
 	// Meta
 	PaymentDescription *string        `json:"payment_description" gorm:"column:payment_description;type:text"`

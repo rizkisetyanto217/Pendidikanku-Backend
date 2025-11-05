@@ -4,14 +4,14 @@ BEGIN;
 -- =========================================
 -- Extensions (idempotent)
 -- =========================================
-CREATE EXTENSION IF NOT EXISTS pgcrypto;  -- gen_random_uuid()
-CREATE EXTENSION IF NOT EXISTS pg_trgm;   -- trigram ops
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS unaccent;
 
 -- =========================================
--- Enums (idempotent, safe CREATE-if-missing)
+-- Enums (idempotent)
 -- =========================================
-DO $$
-BEGIN
+DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_status') THEN
     CREATE TYPE payment_status AS ENUM (
       'initiated','pending','awaiting_callback',
@@ -21,15 +21,13 @@ BEGIN
   END IF;
 END$$;
 
-DO $$
-BEGIN
+DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_method') THEN
     CREATE TYPE payment_method AS ENUM ('gateway','bank_transfer','cash','qris','other');
   END IF;
 END$$;
 
-DO $$
-BEGIN
+DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_gateway_provider') THEN
     CREATE TYPE payment_gateway_provider AS ENUM (
       'midtrans','xendit','tripay','duitku','nicepay','stripe','paypal','other'
@@ -37,22 +35,26 @@ BEGIN
   END IF;
 END$$;
 
-DO $$
-BEGIN
+DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'gateway_event_status') THEN
     CREATE TYPE gateway_event_status AS ENUM ('received','processed','ignored','duplicated','failed');
   END IF;
 END$$;
 
-DO $$
-BEGIN
+DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_entry_type') THEN
     CREATE TYPE payment_entry_type AS ENUM ('charge','payment','refund','adjustment');
   END IF;
 END$$;
 
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'fee_scope') THEN
+    CREATE TYPE fee_scope AS ENUM ('tenant','class_parent','class','section','student','term');
+  END IF;
+END$$;
+
 -- =========================================
--- TABLE: payments (ledger tunggal)
+-- TABLE: payments
 -- =========================================
 CREATE TABLE IF NOT EXISTS payments (
   payment_id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -61,12 +63,12 @@ CREATE TABLE IF NOT EXISTS payments (
   payment_school_id                UUID REFERENCES schools(school_id) ON DELETE SET NULL,
   payment_user_id                  UUID REFERENCES users(id)          ON DELETE SET NULL,
 
-  -- Target FK (salah satu WAJIB terisi)
+  -- Header / target
   payment_student_bill_id          UUID REFERENCES student_bills(student_bill_id)               ON DELETE SET NULL,
   payment_general_billing_id       UUID REFERENCES general_billings(general_billing_id)        ON DELETE SET NULL,
   payment_general_billing_kind_id  UUID REFERENCES general_billing_kinds(general_billing_kind_id) ON DELETE SET NULL,
 
-  -- Konteks/report (opsional)
+  -- Context (opsional)
   payment_bill_batch_id            UUID REFERENCES bill_batches(bill_batch_id) ON DELETE SET NULL,
 
   -- Nominal
@@ -95,21 +97,30 @@ CREATE TABLE IF NOT EXISTS payments (
   payment_refunded_at              TIMESTAMPTZ,
 
   -- Manual ops (kasir/admin)
-  payment_manual_channel           VARCHAR(32),            -- cash/bank_transfer/qris/other
+  payment_manual_channel           VARCHAR(32),
   payment_manual_reference         VARCHAR(120),
   payment_manual_received_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   payment_manual_verified_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   payment_manual_verified_at       TIMESTAMPTZ,
 
-  -- Ledger & invoice fields
+  -- Ledger & invoice fields (✅ semua diawali payment_)
   payment_entry_type               payment_entry_type NOT NULL DEFAULT 'payment',
-  invoice_number                   TEXT,
-  invoice_due_date                 DATE,
-  invoice_title                    TEXT,
+  payment_invoice_number           TEXT,
+  payment_invoice_due_date         DATE,
+  payment_invoice_title            TEXT,
 
   -- Subjek (opsional)
   payment_subject_user_id          UUID REFERENCES users(id) ON DELETE SET NULL,
   payment_subject_student_id       UUID REFERENCES school_students(school_student_id) ON DELETE SET NULL,
+
+  -- Link & snapshot ke fee_rules
+  payment_fee_rule_id               UUID REFERENCES fee_rules(fee_rule_id) ON DELETE SET NULL,
+  payment_fee_rule_option_code      VARCHAR(20),
+  payment_fee_rule_option_index     SMALLINT,
+  payment_fee_rule_amount_snapshot  INT CHECK (payment_fee_rule_amount_snapshot IS NULL OR payment_fee_rule_amount_snapshot >= 0),
+  payment_fee_rule_gbk_id_snapshot  UUID,
+  payment_fee_rule_scope_snapshot   fee_scope,
+  payment_fee_rule_note_snapshot    TEXT,
 
   -- Meta
   payment_description              TEXT,
@@ -122,66 +133,62 @@ CREATE TABLE IF NOT EXISTS payments (
   payment_updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   payment_deleted_at               TIMESTAMPTZ,
 
-  -- =========================
-  -- CHECK Constraints
-  -- =========================
-
-  -- Konsistensi method vs provider
+  -- CHECKs
   CONSTRAINT ck_payments_method_provider CHECK (
     (payment_method = 'gateway' AND payment_gateway_provider IS NOT NULL)
     OR
     (payment_method IN ('cash','bank_transfer','qris','other') AND payment_gateway_provider IS NULL)
   ),
-
-  -- Minimal salah satu target FK eksplisit harus terisi
   CONSTRAINT ck_payment_target_any CHECK (
     payment_student_bill_id IS NOT NULL
     OR payment_general_billing_id IS NOT NULL
     OR payment_general_billing_kind_id IS NOT NULL
+  ),
+  CONSTRAINT ck_payment_fee_rule_coherence CHECK (
+    payment_fee_rule_id IS NULL
+    OR (
+         COALESCE(TRIM(payment_fee_rule_option_code),'') <> ''
+         OR payment_fee_rule_option_index IS NOT NULL
+         OR payment_fee_rule_amount_snapshot IS NOT NULL
+       )
+  ),
+  CONSTRAINT ck_payment_fee_rule_option_index CHECK (
+    payment_fee_rule_option_index IS NULL OR payment_fee_rule_option_index >= 1
   )
 );
 
 -- =========================================
--- Indexes (partial untuk “live” = non-deleted)
+-- Indexes
 -- =========================================
-
--- Bersihkan typo index lama bila ada
 DROP INDEX IF EXISTS ix_payments_usb_live;
 DROP INDEX IF EXISTS ix_payments_spp_header_live;
 
--- Idempotency (unik per tenant + key)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_idem_live
   ON payments (payment_school_id, COALESCE(payment_idempotency_key, ''))
   WHERE payment_deleted_at IS NULL AND payment_idempotency_key IS NOT NULL;
 
--- Unik provider + external_id (gateway)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_provider_extid_live
   ON payments (payment_gateway_provider, COALESCE(payment_external_id,''))
   WHERE payment_deleted_at IS NULL
     AND payment_gateway_provider IS NOT NULL
     AND payment_external_id IS NOT NULL;
 
--- Tenant + created_at (listing default)
 CREATE INDEX IF NOT EXISTS ix_payments_tenant_created_live
   ON payments (payment_school_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
--- Status (inbox kasir/gateway monitor)
 CREATE INDEX IF NOT EXISTS ix_payments_status_live
   ON payments (payment_status, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
--- Provider (ops gateway)
 CREATE INDEX IF NOT EXISTS ix_payments_provider_live
   ON payments (payment_gateway_provider, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
--- User (riwayat bayar user)
 CREATE INDEX IF NOT EXISTS ix_payments_user_live
   ON payments (payment_user_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
--- Header/konteks
 CREATE INDEX IF NOT EXISTS ix_payments_student_bill_live
   ON payments (payment_student_bill_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
@@ -198,7 +205,6 @@ CREATE INDEX IF NOT EXISTS ix_payments_gbk_live
   ON payments (payment_general_billing_kind_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
--- Ledger & subject
 CREATE INDEX IF NOT EXISTS ix_payments_entrytype_live
   ON payments (payment_entry_type, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
@@ -207,14 +213,13 @@ CREATE INDEX IF NOT EXISTS ix_payments_subject_student_live
   ON payments (payment_subject_student_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
--- Invoice unik per tenant (hanya untuk entry_type=charge)
+-- ✅ pakai kolom baru payment_invoice_number
 CREATE UNIQUE INDEX IF NOT EXISTS uq_invoice_per_tenant_live
-  ON payments (payment_school_id, LOWER(invoice_number))
+  ON payments (payment_school_id, LOWER(payment_invoice_number))
   WHERE payment_deleted_at IS NULL
     AND payment_entry_type = 'charge'
-    AND invoice_number IS NOT NULL;
+    AND payment_invoice_number IS NOT NULL;
 
--- Anti double-charge per siswa × general_billing (opsional)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_charge_once_per_student_billing_live
   ON payments (payment_subject_student_id, payment_general_billing_id)
   WHERE payment_deleted_at IS NULL
@@ -222,7 +227,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_charge_once_per_student_billing_live
     AND payment_subject_student_id IS NOT NULL
     AND payment_general_billing_id IS NOT NULL;
 
--- Trigram searches (external id / references / manual ref / description)
 CREATE INDEX IF NOT EXISTS gin_payments_extid_trgm_live
   ON payments USING GIN ( (COALESCE(payment_external_id,'')) gin_trgm_ops )
   WHERE payment_deleted_at IS NULL;
@@ -239,8 +243,13 @@ CREATE INDEX IF NOT EXISTS gin_payments_desc_trgm_live
   ON payments USING GIN ( (COALESCE(payment_description,'')) gin_trgm_ops )
   WHERE payment_deleted_at IS NULL;
 
-COMMIT;
+CREATE INDEX IF NOT EXISTS ix_payments_fee_rule_live
+  ON payments (payment_fee_rule_id, payment_created_at DESC)
+  WHERE payment_deleted_at IS NULL;
 
+CREATE INDEX IF NOT EXISTS ix_payments_fee_rule_option_live
+  ON payments (LOWER(payment_fee_rule_option_code), payment_created_at DESC)
+  WHERE payment_deleted_at IS NULL AND payment_fee_rule_option_code IS NOT NULL;
 
 
 -- =========================================
@@ -313,61 +322,4 @@ CREATE INDEX IF NOT EXISTS gin_gw_events_sig_trgm_live
 
 COMMIT;
 
--- =========================================
--- VIEW: v_invoices (invoice = baris CHARGE)
--- (Tetap fokus ke general_billing; bill_batches/student_bills bisa dibuat view terpisah jika dibutuhkan)
--- =========================================
-CREATE OR REPLACE VIEW v_invoices AS
-SELECT
-  c.payment_id                    AS invoice_id,
-  c.payment_school_id,
-  c.payment_general_billing_id,
-  c.payment_general_billing_kind_id,
-  c.payment_subject_user_id,
-  c.payment_subject_student_id,
-  c.invoice_number,
-  c.invoice_title,
-  c.invoice_due_date,
-  c.payment_description,
-  c.payment_meta,
-  c.payment_created_at           AS invoice_created_at,
-  c.payment_updated_at           AS invoice_updated_at,
-  c.payment_amount_idr           AS amount_idr,
 
-  COALESCE(SUM(
-    CASE
-      WHEN p.payment_entry_type IN ('payment','refund')
-       AND p.payment_status = 'paid' THEN p.payment_amount_idr
-      ELSE 0
-    END
-  ),0) AS paid_idr,
-
-  (c.payment_amount_idr
-   - COALESCE(SUM(
-       CASE WHEN p.payment_entry_type IN ('payment','refund')
-             AND p.payment_status='paid'
-            THEN p.payment_amount_idr ELSE 0 END
-     ),0)
-  ) AS balance_idr,
-
-  CASE
-    WHEN (c.payment_amount_idr
-          - COALESCE(SUM(CASE WHEN p.payment_entry_type IN ('payment','refund')
-                                 AND p.payment_status='paid'
-                              THEN p.payment_amount_idr ELSE 0 END),0)
-         ) <= 0
-    THEN 'paid'
-    WHEN c.invoice_due_date IS NOT NULL AND CURRENT_DATE > c.invoice_due_date
-    THEN 'overdue'
-    ELSE 'unpaid'
-  END AS invoice_status
-
-FROM payments c
-LEFT JOIN payments p
-  ON p.payment_subject_student_id IS NOT DISTINCT FROM c.payment_subject_student_id
- AND p.payment_general_billing_id IS NOT DISTINCT FROM c.payment_general_billing_id
- AND p.payment_entry_type IN ('payment','refund')
- AND p.payment_deleted_at IS NULL
-WHERE c.payment_entry_type = 'charge'
-  AND c.payment_deleted_at IS NULL
-GROUP BY c.payment_id;

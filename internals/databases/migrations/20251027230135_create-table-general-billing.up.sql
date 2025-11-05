@@ -2,13 +2,13 @@
 BEGIN;
 
 -- =========================================================
--- GENERAL billings (non-per-siswa) — school_id NULL = GLOBAL
+-- GENERAL billings (tetap, untuk non-per-siswa/campaign)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS general_billings (
   general_billing_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  -- NULL = GLOBAL (milik aplikasi), non-NULL = tenant-scoped
-  general_billing_school_id  UUID REFERENCES schools(school_id) ON DELETE CASCADE,
+  general_billing_school_id  UUID NOT NULL
+    REFERENCES schools(school_id) ON DELETE CASCADE,
 
   general_billing_kind_id    UUID NOT NULL
     REFERENCES general_billing_kinds(general_billing_kind_id)
@@ -18,35 +18,31 @@ CREATE TABLE IF NOT EXISTS general_billings (
   general_billing_title      TEXT NOT NULL,
   general_billing_desc       TEXT,
 
+  -- cakupan akademik (opsional)
+  general_billing_class_id   UUID REFERENCES classes(class_id) ON DELETE SET NULL,
+  general_billing_section_id UUID REFERENCES class_sections(class_section_id) ON DELETE SET NULL,
+  general_billing_term_id    UUID REFERENCES academic_terms(academic_term_id) ON DELETE SET NULL,
+
   general_billing_due_date   DATE,
   general_billing_is_active  BOOLEAN NOT NULL DEFAULT TRUE,
 
   general_billing_default_amount_idr INT CHECK (general_billing_default_amount_idr >= 0),
+
+  -- snapshots (MINIMAL)
+  general_billing_kind_snapshot    JSONB,  -- {id, code, name}
+  general_billing_class_snapshot   JSONB,  -- {id, name, slug}
+  general_billing_section_snapshot JSONB,  -- {id, name, code}
+  general_billing_term_snapshot    JSONB,  -- {id, academic_year, name, slug}
 
   general_billing_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   general_billing_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   general_billing_deleted_at TIMESTAMPTZ
 );
 
--- ==== Uniqueness untuk code: pisah per-tenant & global ====
--- bersihkan unique lama (jika ada)
-DROP INDEX IF EXISTS uq_general_billings_code_per_tenant_alive;
-
--- Unik per-tenant (baris dengan school_id TIDAK NULL)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_gb_code_per_tenant_alive
+CREATE UNIQUE INDEX IF NOT EXISTS uq_general_billings_code_per_tenant_alive
   ON general_billings (general_billing_school_id, LOWER(general_billing_code))
-  WHERE general_billing_deleted_at IS NULL
-    AND general_billing_code IS NOT NULL
-    AND general_billing_school_id IS NOT NULL;
+  WHERE general_billing_deleted_at IS NULL AND general_billing_code IS NOT NULL;
 
--- Unik GLOBAL (baris dengan school_id NULL)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_gb_code_global_alive
-  ON general_billings (LOWER(general_billing_code))
-  WHERE general_billing_deleted_at IS NULL
-    AND general_billing_code IS NOT NULL
-    AND general_billing_school_id IS NULL;
-
--- ==== Indeks bantu query umum ====
 CREATE INDEX IF NOT EXISTS ix_gb_tenant_kind_active_created
   ON general_billings (general_billing_school_id, general_billing_kind_id, general_billing_is_active, general_billing_created_at DESC)
   WHERE general_billing_deleted_at IS NULL;
@@ -59,19 +55,9 @@ CREATE INDEX IF NOT EXISTS ix_gb_kind_alive
   ON general_billings (general_billing_kind_id)
   WHERE general_billing_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS ix_gb_school_created_at_alive
-  ON general_billings (general_billing_school_id, general_billing_created_at DESC)
+CREATE INDEX IF NOT EXISTS ix_gb_term_alive
+  ON general_billings (general_billing_term_id)
   WHERE general_billing_deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS ix_gb_school_updated_at_alive
-  ON general_billings (general_billing_school_id, general_billing_updated_at DESC)
-  WHERE general_billing_deleted_at IS NULL;
-
--- Indeks bantu untuk GLOBAL items (opsional tapi berguna)
-CREATE INDEX IF NOT EXISTS ix_gb_global_active_created
-  ON general_billings (general_billing_is_active, general_billing_created_at DESC)
-  WHERE general_billing_deleted_at IS NULL
-    AND general_billing_school_id IS NULL;
 
 -- =========================================================
 -- USER general billings (assign/tagihan ke user/siswa untuk GB di atas)

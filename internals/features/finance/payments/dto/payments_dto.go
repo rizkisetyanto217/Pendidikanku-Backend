@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -57,7 +58,7 @@ func applyVal[T any](dst *T, f PatchField[T]) {
 }
 
 /* =========================================================
-   REQUEST: CreatePayment
+   REQUEST: CreatePayment (POST)
 ========================================================= */
 
 type CreatePaymentRequest struct {
@@ -69,7 +70,7 @@ type CreatePaymentRequest struct {
 	PaymentGeneralBillingID     *uuid.UUID `json:"payment_general_billing_id"`
 	PaymentGeneralBillingKindID *uuid.UUID `json:"payment_general_billing_kind_id"`
 
-	// Konteks (opsional, untuk reporting SPP batch)
+	// Konteks (opsional)
 	PaymentBillBatchID *uuid.UUID `json:"payment_bill_batch_id"`
 
 	// Nominal
@@ -104,15 +105,24 @@ type CreatePaymentRequest struct {
 	PaymentManualVerifiedByUserID *uuid.UUID `json:"payment_manual_verified_by_user_id"`
 	PaymentManualVerifiedAt       *time.Time `json:"payment_manual_verified_at"`
 
-	// Ledger & invoice (opsional)
-	PaymentEntryType *model.PaymentEntryType `json:"payment_entry_type" validate:"omitempty,oneof=charge payment refund adjustment"`
-	InvoiceNumber    *string                 `json:"invoice_number"`
-	InvoiceDueDate   *time.Time              `json:"invoice_due_date"`
-	InvoiceTitle     *string                 `json:"invoice_title"`
+	// Ledger & invoice (opsional) — pakai prefix payment_invoice_*
+	PaymentEntryType      *model.PaymentEntryType `json:"payment_entry_type" validate:"omitempty,oneof=charge payment refund adjustment"`
+	PaymentInvoiceNumber  *string                 `json:"payment_invoice_number"`
+	PaymentInvoiceDueDate *time.Time              `json:"payment_invoice_due_date"`
+	PaymentInvoiceTitle   *string                 `json:"payment_invoice_title"`
 
 	// Subject (opsional)
 	PaymentSubjectUserID    *uuid.UUID `json:"payment_subject_user_id"`
 	PaymentSubjectStudentID *uuid.UUID `json:"payment_subject_student_id"`
+
+	// Link & snapshot fee_rules (opsional)
+	PaymentFeeRuleID             *uuid.UUID      `json:"payment_fee_rule_id"`
+	PaymentFeeRuleOptionCode     *string         `json:"payment_fee_rule_option_code"`
+	PaymentFeeRuleOptionIndex    *int16          `json:"payment_fee_rule_option_index"`    // 1-based
+	PaymentFeeRuleAmountSnapshot *int            `json:"payment_fee_rule_amount_snapshot"` // >= 0
+	PaymentFeeRuleGBKIDSnapshot  *uuid.UUID      `json:"payment_fee_rule_gbk_id_snapshot"`
+	PaymentFeeRuleScopeSnapshot  *model.FeeScope `json:"payment_fee_rule_scope_snapshot"` // enum fee_scope
+	PaymentFeeRuleNoteSnapshot   *string         `json:"payment_fee_rule_note_snapshot"`
 
 	// Meta
 	PaymentDescription *string        `json:"payment_description"`
@@ -122,7 +132,7 @@ type CreatePaymentRequest struct {
 }
 
 func (r *CreatePaymentRequest) Validate() error {
-	// Minimal salah satu target harus terisi
+	// Minimal salah satu target
 	hasTarget := r.PaymentStudentBillID != nil ||
 		r.PaymentGeneralBillingID != nil ||
 		r.PaymentGeneralBillingKindID != nil
@@ -145,6 +155,21 @@ func (r *CreatePaymentRequest) Validate() error {
 	// Mata uang
 	if r.PaymentCurrency != "" && r.PaymentCurrency != "IDR" {
 		return fmt.Errorf("payment_currency hanya mendukung 'IDR'")
+	}
+
+	// Koherensi fee_rule snapshot (kalau ada fee_rule_id)
+	if r.PaymentFeeRuleID != nil {
+		if (r.PaymentFeeRuleOptionCode == nil || strings.TrimSpace(*r.PaymentFeeRuleOptionCode) == "") &&
+			r.PaymentFeeRuleOptionIndex == nil &&
+			r.PaymentFeeRuleAmountSnapshot == nil {
+			return errors.New("fee_rule_id disertai minimal salah satu: fee_rule_option_code / fee_rule_option_index / fee_rule_amount_snapshot")
+		}
+		if r.PaymentFeeRuleOptionIndex != nil && *r.PaymentFeeRuleOptionIndex < 1 {
+			return errors.New("payment_fee_rule_option_index minimal 1 (1-based)")
+		}
+		if r.PaymentFeeRuleAmountSnapshot != nil && *r.PaymentFeeRuleAmountSnapshot < 0 {
+			return errors.New("payment_fee_rule_amount_snapshot tidak boleh negatif")
+		}
 	}
 
 	return nil
@@ -189,13 +214,22 @@ func (r *CreatePaymentRequest) ToModel() *model.Payment {
 		PaymentManualVerifiedByUserID: r.PaymentManualVerifiedByUserID,
 		PaymentManualVerifiedAt:       r.PaymentManualVerifiedAt,
 
-		PaymentEntryType: model.PaymentEntryPayment,
-		InvoiceNumber:    r.InvoiceNumber,
-		InvoiceDueDate:   r.InvoiceDueDate,
-		InvoiceTitle:     r.InvoiceTitle,
+		PaymentEntryType:      model.PaymentEntryPayment,
+		PaymentInvoiceNumber:  r.PaymentInvoiceNumber,
+		PaymentInvoiceDueDate: r.PaymentInvoiceDueDate,
+		PaymentInvoiceTitle:   r.PaymentInvoiceTitle,
 
 		PaymentSubjectUserID:    r.PaymentSubjectUserID,
 		PaymentSubjectStudentID: r.PaymentSubjectStudentID,
+
+		// fee_rule snapshot
+		PaymentFeeRuleID:             r.PaymentFeeRuleID,
+		PaymentFeeRuleOptionCode:     r.PaymentFeeRuleOptionCode,
+		PaymentFeeRuleOptionIndex:    r.PaymentFeeRuleOptionIndex,
+		PaymentFeeRuleAmountSnapshot: r.PaymentFeeRuleAmountSnapshot,
+		PaymentFeeRuleGBKIDSnapshot:  r.PaymentFeeRuleGBKIDSnapshot,
+		PaymentFeeRuleScopeSnapshot:  r.PaymentFeeRuleScopeSnapshot,
+		PaymentFeeRuleNoteSnapshot:   r.PaymentFeeRuleNoteSnapshot,
 
 		PaymentDescription: r.PaymentDescription,
 		PaymentNote:        r.PaymentNote,
@@ -262,14 +296,24 @@ type UpdatePaymentRequest struct {
 	PaymentManualVerifiedByUserID PatchField[uuid.UUID] `json:"payment_manual_verified_by_user_id"`
 	PaymentManualVerifiedAt       PatchField[time.Time] `json:"payment_manual_verified_at"`
 
-	PaymentEntryType PatchField[model.PaymentEntryType] `json:"payment_entry_type"`
-	InvoiceNumber    PatchField[string]                 `json:"invoice_number"`
-	InvoiceDueDate   PatchField[time.Time]              `json:"invoice_due_date"`
-	InvoiceTitle     PatchField[string]                 `json:"invoice_title"`
+	PaymentEntryType      PatchField[model.PaymentEntryType] `json:"payment_entry_type"`
+	PaymentInvoiceNumber  PatchField[string]                 `json:"payment_invoice_number"`
+	PaymentInvoiceDueDate PatchField[time.Time]              `json:"payment_invoice_due_date"`
+	PaymentInvoiceTitle   PatchField[string]                 `json:"payment_invoice_title"`
 
 	PaymentSubjectUserID    PatchField[uuid.UUID] `json:"payment_subject_user_id"`
 	PaymentSubjectStudentID PatchField[uuid.UUID] `json:"payment_subject_student_id"`
 
+	// fee_rule snapshot
+	PaymentFeeRuleID             PatchField[uuid.UUID]      `json:"payment_fee_rule_id"`
+	PaymentFeeRuleOptionCode     PatchField[string]         `json:"payment_fee_rule_option_code"`
+	PaymentFeeRuleOptionIndex    PatchField[int16]          `json:"payment_fee_rule_option_index"`
+	PaymentFeeRuleAmountSnapshot PatchField[int]            `json:"payment_fee_rule_amount_snapshot"`
+	PaymentFeeRuleGBKIDSnapshot  PatchField[uuid.UUID]      `json:"payment_fee_rule_gbk_id_snapshot"`
+	PaymentFeeRuleScopeSnapshot  PatchField[model.FeeScope] `json:"payment_fee_rule_scope_snapshot"`
+	PaymentFeeRuleNoteSnapshot   PatchField[string]         `json:"payment_fee_rule_note_snapshot"`
+
+	// Meta
 	PaymentDescription PatchField[string]         `json:"payment_description"`
 	PaymentNote        PatchField[string]         `json:"payment_note"`
 	PaymentMeta        PatchField[datatypes.JSON] `json:"payment_meta"`
@@ -348,11 +392,30 @@ func (p *UpdatePaymentRequest) Apply(m *model.Payment) error {
 	applyPtr(&m.PaymentManualVerifiedAt, p.PaymentManualVerifiedAt)
 
 	// invoice & subject
-	applyPtr(&m.InvoiceNumber, p.InvoiceNumber)
-	applyPtr(&m.InvoiceDueDate, p.InvoiceDueDate)
-	applyPtr(&m.InvoiceTitle, p.InvoiceTitle)
+	applyPtr(&m.PaymentInvoiceNumber, p.PaymentInvoiceNumber)
+	applyPtr(&m.PaymentInvoiceDueDate, p.PaymentInvoiceDueDate)
+	applyPtr(&m.PaymentInvoiceTitle, p.PaymentInvoiceTitle)
 	applyPtr(&m.PaymentSubjectUserID, p.PaymentSubjectUserID)
 	applyPtr(&m.PaymentSubjectStudentID, p.PaymentSubjectStudentID)
+
+	// fee_rule snapshot
+	applyPtr(&m.PaymentFeeRuleID, p.PaymentFeeRuleID)
+	applyPtr(&m.PaymentFeeRuleOptionCode, p.PaymentFeeRuleOptionCode)
+	if p.PaymentFeeRuleOptionIndex.Set {
+		if !p.PaymentFeeRuleOptionIndex.Null && p.PaymentFeeRuleOptionIndex.Value != nil && *p.PaymentFeeRuleOptionIndex.Value < 1 {
+			return errors.New("payment_fee_rule_option_index minimal 1 (1-based)")
+		}
+		applyPtr(&m.PaymentFeeRuleOptionIndex, p.PaymentFeeRuleOptionIndex)
+	}
+	if p.PaymentFeeRuleAmountSnapshot.Set {
+		if !p.PaymentFeeRuleAmountSnapshot.Null && p.PaymentFeeRuleAmountSnapshot.Value != nil && *p.PaymentFeeRuleAmountSnapshot.Value < 0 {
+			return errors.New("payment_fee_rule_amount_snapshot tidak boleh negatif")
+		}
+		applyPtr(&m.PaymentFeeRuleAmountSnapshot, p.PaymentFeeRuleAmountSnapshot)
+	}
+	applyPtr(&m.PaymentFeeRuleGBKIDSnapshot, p.PaymentFeeRuleGBKIDSnapshot)
+	applyPtr(&m.PaymentFeeRuleScopeSnapshot, p.PaymentFeeRuleScopeSnapshot)
+	applyPtr(&m.PaymentFeeRuleNoteSnapshot, p.PaymentFeeRuleNoteSnapshot)
 
 	// meta
 	applyPtr(&m.PaymentDescription, p.PaymentDescription)
@@ -360,7 +423,7 @@ func (p *UpdatePaymentRequest) Apply(m *model.Payment) error {
 	applyVal(&m.PaymentMeta, p.PaymentMeta)
 	applyVal(&m.PaymentAttachments, p.PaymentAttachments)
 
-	// konsistensi method/provider
+	// Konsistensi method/provider
 	if p.PaymentMethod.Set || p.PaymentGatewayProvider.Set {
 		if m.PaymentMethod == model.PaymentMethodGateway && m.PaymentGatewayProvider == nil {
 			return errors.New("payment_method=gateway harus menyertakan payment_gateway_provider")
@@ -415,13 +478,22 @@ type PaymentResponse struct {
 	PaymentManualVerifiedByUserID *uuid.UUID `json:"payment_manual_verified_by_user_id"`
 	PaymentManualVerifiedAt       *time.Time `json:"payment_manual_verified_at"`
 
-	PaymentEntryType model.PaymentEntryType `json:"payment_entry_type"`
-	InvoiceNumber    *string                `json:"invoice_number"`
-	InvoiceDueDate   *time.Time             `json:"invoice_due_date"`
-	InvoiceTitle     *string                `json:"invoice_title"`
+	PaymentEntryType      model.PaymentEntryType `json:"payment_entry_type"`
+	PaymentInvoiceNumber  *string                `json:"payment_invoice_number"`
+	PaymentInvoiceDueDate *time.Time             `json:"payment_invoice_due_date"`
+	PaymentInvoiceTitle   *string                `json:"payment_invoice_title"`
 
 	PaymentSubjectUserID    *uuid.UUID `json:"payment_subject_user_id"`
 	PaymentSubjectStudentID *uuid.UUID `json:"payment_subject_student_id"`
+
+	// fee_rule snapshot
+	PaymentFeeRuleID             *uuid.UUID      `json:"payment_fee_rule_id"`
+	PaymentFeeRuleOptionCode     *string         `json:"payment_fee_rule_option_code"`
+	PaymentFeeRuleOptionIndex    *int16          `json:"payment_fee_rule_option_index"`
+	PaymentFeeRuleAmountSnapshot *int            `json:"payment_fee_rule_amount_snapshot"`
+	PaymentFeeRuleGBKIDSnapshot  *uuid.UUID      `json:"payment_fee_rule_gbk_id_snapshot"`
+	PaymentFeeRuleScopeSnapshot  *model.FeeScope `json:"payment_fee_rule_scope_snapshot"`
+	PaymentFeeRuleNoteSnapshot   *string         `json:"payment_fee_rule_note_snapshot"`
 
 	PaymentDescription *string        `json:"payment_description"`
 	PaymentNote        *string        `json:"payment_note"`
@@ -475,13 +547,21 @@ func FromModel(m *model.Payment) *PaymentResponse {
 		PaymentManualVerifiedByUserID: m.PaymentManualVerifiedByUserID,
 		PaymentManualVerifiedAt:       m.PaymentManualVerifiedAt,
 
-		PaymentEntryType: m.PaymentEntryType,
-		InvoiceNumber:    m.InvoiceNumber,
-		InvoiceDueDate:   m.InvoiceDueDate,
-		InvoiceTitle:     m.InvoiceTitle,
+		PaymentEntryType:      m.PaymentEntryType,
+		PaymentInvoiceNumber:  m.PaymentInvoiceNumber,
+		PaymentInvoiceDueDate: m.PaymentInvoiceDueDate,
+		PaymentInvoiceTitle:   m.PaymentInvoiceTitle,
 
 		PaymentSubjectUserID:    m.PaymentSubjectUserID,
 		PaymentSubjectStudentID: m.PaymentSubjectStudentID,
+
+		PaymentFeeRuleID:             m.PaymentFeeRuleID,
+		PaymentFeeRuleOptionCode:     m.PaymentFeeRuleOptionCode,
+		PaymentFeeRuleOptionIndex:    m.PaymentFeeRuleOptionIndex,
+		PaymentFeeRuleAmountSnapshot: m.PaymentFeeRuleAmountSnapshot,
+		PaymentFeeRuleGBKIDSnapshot:  m.PaymentFeeRuleGBKIDSnapshot,
+		PaymentFeeRuleScopeSnapshot:  m.PaymentFeeRuleScopeSnapshot,
+		PaymentFeeRuleNoteSnapshot:   m.PaymentFeeRuleNoteSnapshot,
 
 		PaymentDescription: m.PaymentDescription,
 		PaymentNote:        m.PaymentNote,

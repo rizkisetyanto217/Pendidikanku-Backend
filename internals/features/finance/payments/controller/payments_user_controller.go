@@ -22,6 +22,7 @@ import (
 	model "schoolku_backend/internals/features/finance/payments/model"
 	svc "schoolku_backend/internals/features/finance/payments/service"
 	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
 /* =======================================================================
@@ -190,6 +191,14 @@ func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "create payment failed: "+err.Error())
 	}
 
+	// 3a) Jika meta mengandung kategori registration + enrollment id → link & set awaiting_payment
+	if m.PaymentMeta != nil {
+		meta := parseRegistrationMeta(m.PaymentMeta)
+		if meta.StudentClassEnrollmentID != nil && meta.FeeRuleGBKCategory == "registration" {
+			_ = h.attachEnrollmentOnCreate(c.Context(), h.DB, m, *meta.StudentClassEnrollmentID)
+		}
+	}
+
 	// 4) Jika method gateway Midtrans → butuh external_id (order_id) + generate Snap
 	if m.PaymentMethod == model.PaymentMethodGateway &&
 		m.PaymentGatewayProvider != nil && *m.PaymentGatewayProvider == model.GatewayProviderMidtrans {
@@ -217,11 +226,15 @@ func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 		if err := h.DB.WithContext(c.Context()).Save(m).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "update payment after snap failed: "+err.Error())
 		}
+
+		// Setelah status → pending, sinkronkan lagi enrollment → awaiting_payment + snapshot/ID
+		_ = h.applyEnrollmentSideEffects(c.Context(), h.DB, m)
 	}
 
-	// 5) Jika pembayaran manual dan sudah ditandai paid sejak awal → sync ke student_bills
+	// 5) Jika pembayaran manual dan sudah ditandai paid sejak awal → sync ke student_bills & enrollment
 	if m.PaymentMethod != model.PaymentMethodGateway && m.PaymentStatus == model.PaymentStatusPaid {
 		_ = h.applyStudentBillSideEffects(c.Context(), h.DB, m)
+		_ = h.applyEnrollmentSideEffects(c.Context(), h.DB, m)
 	}
 
 	return helper.JsonCreated(c, "payment created", dto.FromModel(m))
@@ -274,8 +287,9 @@ func (h *PaymentController) PatchPayment(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "save failed: "+err.Error())
 	}
 
-	// Jika status berubah menjadi paid/failed/canceled/refunded → sinkronkan student_bills
+	// Jika status berubah → sinkronkan student_bills & enrollment
 	_ = h.applyStudentBillSideEffects(c.Context(), h.DB, &m)
+	_ = h.applyEnrollmentSideEffects(c.Context(), h.DB, &m)
 
 	return helper.JsonUpdated(c, "payment updated", dto.FromModel(&m))
 }
@@ -365,8 +379,9 @@ func (h *PaymentController) MidtransWebhook(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "update payment failed: "+err.Error())
 	}
 
-	// 7) Side effects ke student_bills (jika ada target)
+	// 7) Side effects ke student_bills & enrollment (jika ada target/meta)
 	_ = h.applyStudentBillSideEffects(c.Context(), h.DB, &p)
+	_ = h.applyEnrollmentSideEffects(c.Context(), h.DB, &p)
 
 	_ = h.updateEventStatus(notif, "processed", "")
 
@@ -427,6 +442,7 @@ func (h *PaymentController) logGatewayEvent(c *fiber.Ctx, p *model.Payment, noti
 	// insert
 	if err := h.DB.WithContext(c.Context()).Create(&ev).Error; err != nil {
 		lc := strings.ToLower(err.Error())
+		// index unik opsional
 		if strings.Contains(lc, "duplicate") || strings.Contains(lc, "uq_gw_event_provider_extid_live") {
 			return nil
 		}
@@ -548,4 +564,560 @@ func (h *PaymentController) applyStudentBillSideEffects(ctx context.Context, db 
 	}
 
 	return nil
+}
+
+/* =======================================================================
+   ===== Enrollment integration based on payment_meta (registration) =====
+======================================================================= */
+
+// Meta yang kita butuhkan untuk hubungkan payment ↔ enrollment
+type registrationMeta struct {
+	StudentClassEnrollmentID *uuid.UUID `json:"student_class_enrollments_id"`
+	FeeRuleGBKCategory       string     `json:"fee_rule_gbk_category_snapshot"`
+
+	// detail fee rule yang akan disalin ke enrollment.preferences
+	FeeRuleID           *uuid.UUID `json:"fee_rule_id"`
+	FeeRuleOptionCode   *string    `json:"fee_rule_option_code"`
+	FeeRuleOptionLabel  *string    `json:"fee_rule_option_label"`
+	FeeRuleOptionAmount *int64     `json:"fee_rule_option_amount_idr"`
+
+	// payer dari token/met
+	PayerUserID *uuid.UUID `json:"payer_user_id"`
+}
+
+// parser meta → normalisasi category lower-case
+func parseRegistrationMeta(j datatypes.JSON) registrationMeta {
+	var m registrationMeta
+	_ = json.Unmarshal(j, &m)
+	m.FeeRuleGBKCategory = strings.ToLower(strings.TrimSpace(m.FeeRuleGBKCategory))
+	return m
+}
+
+// Build patch JSON untuk enrollment.preferences
+func buildEnrollmentPrefPatch(payer *uuid.UUID, meta registrationMeta) datatypes.JSON {
+	payload := map[string]interface{}{
+		"registration": map[string]interface{}{
+			"fee_rule_id":            meta.FeeRuleID,
+			"fee_rule_option_code":   meta.FeeRuleOptionCode,
+			"fee_rule_option_label":  meta.FeeRuleOptionLabel,
+			"fee_rule_option_amount": meta.FeeRuleOptionAmount,
+			"category_snapshot":      meta.FeeRuleGBKCategory,
+		},
+	}
+	if payer != nil {
+		payload["payer_user_id"] = payer
+	}
+	b, _ := json.Marshal(payload)
+	return datatypes.JSON(b)
+}
+
+// Dipanggil segera setelah payment dibuat (CreatePayment) untuk set awaiting_payment & snapshot + merge prefs + set total_due (jika 0)
+func (h *PaymentController) attachEnrollmentOnCreate(
+	ctx context.Context, db *gorm.DB, p *model.Payment, enrollmentID uuid.UUID,
+) error {
+	snap, _ := json.Marshal(dto.FromModel(p))
+
+	meta := registrationMeta{}
+	if p.PaymentMeta != nil {
+		meta = parseRegistrationMeta(p.PaymentMeta)
+	}
+	// tentukan payer: prioritas dari meta.PayerUserID; fallback ke PaymentUserID
+	payer := meta.PayerUserID
+	if payer == nil && p.PaymentUserID != nil {
+		payer = p.PaymentUserID
+	}
+	prefPatch := buildEnrollmentPrefPatch(payer, meta)
+
+	return db.WithContext(ctx).Exec(`
+		UPDATE student_class_enrollments
+		   SET student_class_enrollments_payment_id       = ?,
+		       student_class_enrollments_payment_snapshot = ?::jsonb,
+		       student_class_enrollments_status           = 'awaiting_payment',
+		       student_class_enrollments_preferences      = COALESCE(student_class_enrollments_preferences,'{}'::jsonb) || ?::jsonb,
+		       student_class_enrollments_total_due_idr    = CASE
+		                                                    WHEN COALESCE(student_class_enrollments_total_due_idr,0)=0 THEN ?
+		                                                    ELSE student_class_enrollments_total_due_idr
+		                                                   END,
+		       student_class_enrollments_updated_at       = NOW()
+		 WHERE student_class_enrollments_id = ?
+		   AND student_class_enrollments_deleted_at IS NULL
+	`, p.PaymentID, datatypes.JSON(snap), prefPatch, p.PaymentAmountIDR, enrollmentID).Error
+}
+
+// Sinkronkan status enrollment tiap kali status payment berubah (merge prefs juga)
+func (h *PaymentController) applyEnrollmentSideEffects(ctx context.Context, db *gorm.DB, p *model.Payment) error {
+	if p == nil || p.PaymentMeta == nil {
+		return nil
+	}
+	meta := parseRegistrationMeta(p.PaymentMeta)
+	if meta.StudentClassEnrollmentID == nil || meta.FeeRuleGBKCategory != "registration" {
+		return nil
+	}
+
+	enrollmentID := *meta.StudentClassEnrollmentID
+	now := time.Now()
+
+	// Siapkan patch preferences (re-merge supaya tetap konsisten)
+	payer := meta.PayerUserID
+	if payer == nil && p.PaymentUserID != nil {
+		payer = p.PaymentUserID
+	}
+	prefPatch := buildEnrollmentPrefPatch(payer, meta)
+	snap, _ := json.Marshal(dto.FromModel(p))
+
+	switch p.PaymentStatus {
+	case model.PaymentStatusPaid:
+		return db.WithContext(ctx).Exec(`
+			UPDATE student_class_enrollments
+			   SET student_class_enrollments_status           = 'accepted',
+			       student_class_enrollments_accepted_at      = COALESCE(student_class_enrollments_accepted_at, ?),
+			       student_class_enrollments_payment_id       = ?,
+			       student_class_enrollments_payment_snapshot = ?::jsonb,
+			       student_class_enrollments_preferences      = COALESCE(student_class_enrollments_preferences,'{}'::jsonb) || ?::jsonb,
+			       student_class_enrollments_total_due_idr    = CASE
+		                                                    WHEN COALESCE(student_class_enrollments_total_due_idr,0)=0 THEN ?
+		                                                    ELSE student_class_enrollments_total_due_idr END,
+			       student_class_enrollments_updated_at       = NOW()
+			 WHERE student_class_enrollments_id = ?
+			   AND student_class_enrollments_deleted_at IS NULL
+		`, now, p.PaymentID, datatypes.JSON(snap), prefPatch, p.PaymentAmountIDR, enrollmentID).Error
+
+	case model.PaymentStatusCanceled, model.PaymentStatusFailed, model.PaymentStatusExpired, model.PaymentStatusRefunded, model.PaymentStatusPartiallyRefunded:
+		return db.WithContext(ctx).Exec(`
+			UPDATE student_class_enrollments
+			   SET student_class_enrollments_status           = 'awaiting_payment',
+			       student_class_enrollments_payment_id       = NULL,
+			       student_class_enrollments_payment_snapshot = NULL,
+			       student_class_enrollments_preferences      = COALESCE(student_class_enrollments_preferences,'{}'::jsonb) || ?::jsonb,
+			       student_class_enrollments_updated_at       = NOW()
+			 WHERE student_class_enrollments_id = ?
+			   AND student_class_enrollments_deleted_at IS NULL
+		`, prefPatch, enrollmentID).Error
+
+	case model.PaymentStatusPending, model.PaymentStatusAwaitingCallback, model.PaymentStatusInitiated:
+		return db.WithContext(ctx).Exec(`
+			UPDATE student_class_enrollments
+			   SET student_class_enrollments_status           = 'awaiting_payment',
+			       student_class_enrollments_payment_id       = ?,
+			       student_class_enrollments_payment_snapshot = ?::jsonb,
+			       student_class_enrollments_preferences      = COALESCE(student_class_enrollments_preferences,'{}'::jsonb) || ?::jsonb,
+			       student_class_enrollments_total_due_idr    = CASE
+		                                                    WHEN COALESCE(student_class_enrollments_total_due_idr,0)=0 THEN ?
+		                                                    ELSE student_class_enrollments_total_due_idr END,
+			       student_class_enrollments_updated_at       = NOW()
+			 WHERE student_class_enrollments_id = ?
+			   AND student_class_enrollments_deleted_at IS NULL
+		`, p.PaymentID, datatypes.JSON(snap), prefPatch, p.PaymentAmountIDR, enrollmentID).Error
+	}
+
+	return nil
+}
+
+// ====== Tambahkan di dekat tipe/DTO section controller ini ======
+
+// Request body untuk endpoint registrasi + payment (student-login)
+type CreateRegistrationAndPaymentRequest struct {
+	ClassID   uuid.UUID `json:"class_id"  validate:"required"`
+	FeeRuleID uuid.UUID `json:"fee_rule_id" validate:"required"`
+
+	// Opsional
+	PaymentMethod          *model.PaymentMethod          `json:"payment_method"`           // default gateway
+	PaymentGatewayProvider *model.PaymentGatewayProvider `json:"payment_gateway_provider"` // default midtrans
+	PaymentExternalID      *string                       `json:"payment_external_id"`      // auto-generate kalau kosong
+	Customer               *svc.CustomerInput            `json:"customer,omitempty"`       // opsional data Snap (disimpan utuh di meta)
+	Notes                  string                        `json:"notes,omitempty"`
+}
+
+// Response singkat
+type CreateRegistrationAndPaymentResponse struct {
+	Enrollment any `json:"enrollment"`
+	Payment    any `json:"payment"`
+}
+
+// Bentuk satu option di fee_rule_amount_options
+type optRow struct {
+	Code    string `json:"code"`
+	Label   string `json:"label"`
+	Amount  int64  `json:"amount"`
+	Default *bool  `json:"default,omitempty"`
+}
+
+// Pilih default option: cari yang default=true; kalau tidak ada pakai elemen pertama
+func pickDefaultOption(opts []optRow) *optRow {
+	if len(opts) == 0 {
+		return nil
+	}
+	for i := range opts {
+		if opts[i].Default != nil && *opts[i].Default {
+			return &opts[i]
+		}
+	}
+	return &opts[0]
+}
+
+// Generator order ID sederhana (hindari dependency baru)
+func genOrderID(prefix string) string {
+	// contoh: REG-20251105-150405-<8chars>
+	now := time.Now().In(time.Local).Format("20060102-150405")
+	u := uuid.New().String()
+	if len(u) > 8 {
+		u = u[:8]
+	}
+	return prefix + "-" + now + "-" + strings.ToUpper(u)
+}
+
+// POST /payments/registration-enroll
+// file: internals/features/finance/payments/controller/payment_controller.go
+// Ganti/Update handler berikut (sisanya di file tidak perlu diubah)
+// file: internals/features/finance/payments/controller/payment_controller.go
+
+func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
+	// 0) auth & school
+	userID, err := helperAuth.GetUserIDFromToken(c)
+	if err != nil {
+		return err // sudah 401 kalau user_id tidak ada
+	}
+
+	// Ambil school_id dari PATH → fallback ke context
+	var schoolID uuid.UUID
+	if id, err := helperAuth.ParseSchoolIDFromPath(c); err == nil && id != uuid.Nil {
+		schoolID = id
+	} else {
+		schoolCtx, err := helperAuth.ResolveSchoolContext(c)
+		if err != nil {
+			if fe, ok := err.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		}
+		if schoolCtx.ID != uuid.Nil {
+			schoolID = schoolCtx.ID
+		} else {
+			id2, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(schoolCtx.Slug))
+			if er != nil {
+				return helper.JsonError(c, fiber.StatusBadRequest, "school tidak valid")
+			}
+			schoolID = id2
+		}
+	}
+
+	// Guard role
+	if er := helperAuth.EnsureMemberSchool(c, schoolID); er != nil {
+		return er
+	}
+	c.Locals("__school_guard_ok", schoolID.String())
+
+	// 1) parse body
+	var req CreateRegistrationAndPaymentRequest
+	if err := c.BodyParser(&req); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json: "+err.Error())
+	}
+	if v := validator.New(); v != nil {
+		if err := v.Struct(&req); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		}
+	}
+
+	// default method/provider
+	method := model.PaymentMethodGateway
+	if req.PaymentMethod != nil {
+		method = *req.PaymentMethod
+	}
+	provider := model.GatewayProviderMidtrans
+	if req.PaymentGatewayProvider != nil && *req.PaymentGatewayProvider != "" {
+		provider = *req.PaymentGatewayProvider
+	}
+
+	// ==========================
+	// 2) user → school_student (via user_profile_id) + auto-provision
+	// ==========================
+	var (
+		profileID       uuid.UUID
+		schoolStudentID uuid.UUID
+	)
+
+	// 2a. Ambil user_profile_id milik user login
+	var profileIDStr string
+	if err := h.DB.WithContext(c.Context()).Raw(`
+		SELECT user_profile_id
+		  FROM user_profiles
+		 WHERE user_profile_user_id = ?
+		   AND user_profile_deleted_at IS NULL
+		 LIMIT 1
+	`, userID).Scan(&profileIDStr).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek profile: "+err.Error())
+	}
+	if strings.TrimSpace(profileIDStr) == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "profil pengguna tidak ditemukan")
+	}
+	if pid, perr := uuid.Parse(strings.TrimSpace(profileIDStr)); perr == nil {
+		profileID = pid
+	} else {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal parse user_profile_id")
+	}
+
+	// 2b. Cari school_students aktif (by school_id + user_profile_id)
+	var schoolStudentIDStr string
+	if err := h.DB.WithContext(c.Context()).Raw(`
+		SELECT school_student_id
+		  FROM school_students
+		 WHERE school_student_school_id       = ?
+		   AND school_student_user_profile_id = ?
+		   AND school_student_deleted_at      IS NULL
+		 LIMIT 1
+	`, schoolID, profileID).Scan(&schoolStudentIDStr).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek siswa: "+err.Error())
+	}
+	if s := strings.TrimSpace(schoolStudentIDStr); s != "" {
+		if sid, perr := uuid.Parse(s); perr == nil {
+			schoolStudentID = sid
+		}
+	}
+
+	if schoolStudentID == uuid.Nil {
+		// 2c. Coba restore jika ada yang soft-deleted
+		var deletedIDStr string
+		if er := h.DB.WithContext(c.Context()).Raw(`
+			SELECT school_student_id
+			  FROM school_students
+			 WHERE school_student_school_id       = ?
+			   AND school_student_user_profile_id = ?
+			   AND school_student_deleted_at      IS NOT NULL
+			 LIMIT 1
+		`, schoolID, profileID).Scan(&deletedIDStr).Error; er != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek siswa (deleted): "+er.Error())
+		}
+		var deletedID uuid.UUID
+		if s := strings.TrimSpace(deletedIDStr); s != "" {
+			if did, perr := uuid.Parse(s); perr == nil {
+				deletedID = did
+			}
+		}
+		if deletedID != uuid.Nil {
+			if er := h.DB.WithContext(c.Context()).Exec(`
+				UPDATE school_students
+				   SET school_student_deleted_at = NULL,
+				       school_student_status     = COALESCE(school_student_status, 'active'),
+				       school_student_updated_at = NOW()
+				 WHERE school_student_id = ?
+			`, deletedID).Error; er != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal restore siswa: "+er.Error())
+			}
+			schoolStudentID = deletedID
+		}
+
+		// 2d. Jika tetap belum ada → buat baru
+		if schoolStudentID == uuid.Nil {
+			// slug unik per sekolah
+			shortUID := strings.ReplaceAll(userID.String(), "-", "")
+			if len(shortUID) > 8 {
+				shortUID = shortUID[:8]
+			}
+			rand4 := strings.ToLower(uuid.New().String()[:4])
+			genSlug := fmt.Sprintf("u-%s-%s", shortUID, rand4)
+
+			var newIDStr string
+			if er := h.DB.WithContext(c.Context()).Raw(`
+				INSERT INTO school_students (
+					school_student_school_id,
+					school_student_user_profile_id,
+					school_student_slug,
+					school_student_status,
+					school_student_sections
+				) VALUES (?, ?, ?, 'active', '[]'::jsonb)
+				RETURNING school_student_id
+			`, schoolID, profileID, genSlug).Scan(&newIDStr).Error; er != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal membuat siswa: "+er.Error())
+			}
+			nid, perr := uuid.Parse(strings.TrimSpace(newIDStr))
+			if perr != nil || nid == uuid.Nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal parse school_student_id")
+			}
+			schoolStudentID = nid
+		}
+	}
+
+	// 3) fee rule: validasi & ambil options
+	type feeRuleHeader struct {
+		ID            uuid.UUID      `gorm:"column:fee_rule_id"`
+		SchoolID      uuid.UUID      `gorm:"column:fee_rule_school_id"`
+		GBKID         uuid.UUID      `gorm:"column:fee_rule_general_billing_kind_id"`
+		GBKCategory   string         `gorm:"column:fee_rule_gbk_category_snapshot"`
+		AmountOptions datatypes.JSON `gorm:"column:fee_rule_amount_options"` // [{"code","label","amount","default":true}]
+	}
+	var fr feeRuleHeader
+	if err := h.DB.WithContext(c.Context()).
+		Raw(`
+			SELECT fee_rule_id,
+			       fee_rule_school_id,
+			       fee_rule_general_billing_kind_id,
+			       fee_rule_gbk_category_snapshot,
+			       fee_rule_amount_options
+			  FROM fee_rules
+			 WHERE fee_rule_id = ?
+			   AND fee_rule_deleted_at IS NULL
+			 LIMIT 1
+		`, req.FeeRuleID).Scan(&fr).Error; err != nil || fr.ID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusNotFound, "fee_rule tidak ditemukan")
+	}
+	if strings.ToLower(strings.TrimSpace(fr.GBKCategory)) != "registration" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule bukan kategori registration")
+	}
+	if fr.SchoolID != schoolID {
+		return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule tidak untuk sekolah ini")
+	}
+
+	// parse options & pilih default
+	var opts []optRow
+	if len(fr.AmountOptions) > 0 {
+		_ = json.Unmarshal(fr.AmountOptions, &opts)
+	}
+	picked := pickDefaultOption(opts)
+	if picked == nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule tidak memiliki amount_options")
+	}
+
+	// 4) validasi class (harus milik school yang sama)
+	var classSchoolIDStr string
+	if err := h.DB.WithContext(c.Context()).
+		Raw(`SELECT class_school_id FROM classes WHERE class_id = ? AND class_deleted_at IS NULL`, req.ClassID).
+		Scan(&classSchoolIDStr).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek class: "+err.Error())
+	}
+	if strings.TrimSpace(classSchoolIDStr) == "" {
+		return helper.JsonError(c, fiber.StatusBadRequest, "class tidak ditemukan")
+	}
+	classSchoolID, perr := uuid.Parse(strings.TrimSpace(classSchoolIDStr))
+	if perr != nil || classSchoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal parse class_school_id")
+	}
+	if classSchoolID != schoolID {
+		return helper.JsonError(c, fiber.StatusBadRequest, "class tidak valid di sekolah ini")
+	}
+
+	// 5) buat enrollment (initiated) + preferences awal
+	enrollPrefs := map[string]any{
+		"payer_user_id": userID,
+		"registration": map[string]any{
+			"fee_rule_id":            fr.ID,
+			"fee_rule_option_code":   picked.Code,
+			"fee_rule_option_label":  picked.Label,
+			"fee_rule_option_amount": picked.Amount,
+			"category_snapshot":      "registration",
+		},
+		"notes": strings.TrimSpace(req.Notes),
+	}
+	prefsJSON, _ := json.Marshal(enrollPrefs)
+
+	type enrollRow struct {
+		ID uuid.UUID `gorm:"column:student_class_enrollments_id"`
+	}
+	var enr enrollRow
+	if err := h.DB.WithContext(c.Context()).Raw(`
+		INSERT INTO student_class_enrollments
+		(
+			student_class_enrollments_school_id,
+			student_class_enrollments_school_student_id,
+			student_class_enrollments_class_id,
+			student_class_enrollments_status,
+			student_class_enrollments_total_due_idr,
+			student_class_enrollments_preferences
+		)
+		VALUES (?, ?, ?, 'initiated', ?, ?::jsonb)
+		RETURNING student_class_enrollments_id
+	`, schoolID, schoolStudentID, req.ClassID, picked.Amount, datatypes.JSON(prefsJSON)).
+		Scan(&enr).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "gagal membuat enrollment: kemungkinan duplikat aktif")
+	}
+
+	// 6) buat payment
+	extID := req.PaymentExternalID
+	if extID == nil || strings.TrimSpace(*extID) == "" {
+		s := genOrderID("REG")
+		extID = &s
+	}
+
+	meta := map[string]any{
+		"fee_rule_gbk_category_snapshot": "registration",
+		"student_class_enrollments_id":   enr.ID,
+		"fee_rule_id":                    fr.ID,
+		"fee_rule_option_code":           picked.Code,
+		"fee_rule_option_label":          picked.Label,
+		"fee_rule_option_amount_idr":     picked.Amount,
+		"payer_user_id":                  userID,
+	}
+	if req.Customer != nil {
+		meta["customer"] = req.Customer
+	}
+	metaJSON, _ := json.Marshal(meta)
+
+	pm := &model.Payment{
+		PaymentSchoolID:             &schoolID,
+		PaymentUserID:               &userID,
+		PaymentMethod:               method,
+		PaymentGatewayProvider:      &provider,
+		PaymentExternalID:           extID,
+		PaymentAmountIDR:            int(picked.Amount),
+		PaymentGeneralBillingKindID: &fr.GBKID,
+		PaymentMeta:                 datatypes.JSON(metaJSON),
+	}
+	if pm.PaymentMethod == model.PaymentMethodGateway && (pm.PaymentGatewayProvider == nil || *pm.PaymentGatewayProvider == "") {
+		pr := model.GatewayProviderMidtrans
+		pm.PaymentGatewayProvider = &pr
+	}
+
+	if err := h.DB.WithContext(c.Context()).Create(pm).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal membuat payment: "+err.Error())
+	}
+
+	// link awal ke enrollment
+	_ = h.attachEnrollmentOnCreate(c.Context(), h.DB, pm, enr.ID)
+
+	// 7) gateway midtrans → Snap
+	if pm.PaymentMethod == model.PaymentMethodGateway &&
+		pm.PaymentGatewayProvider != nil && *pm.PaymentGatewayProvider == model.GatewayProviderMidtrans {
+
+		cust := svc.CustomerInput{}
+		if req.Customer != nil {
+			cust = *req.Customer
+		} else if pm.PaymentMeta != nil {
+			var tmp struct {
+				Customer *svc.CustomerInput `json:"customer"`
+			}
+			_ = json.Unmarshal(pm.PaymentMeta, &tmp)
+			if tmp.Customer != nil {
+				cust = *tmp.Customer
+			}
+		}
+
+		token, redirectURL, err := svc.GenerateSnapToken(*pm, cust)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusBadGateway, "midtrans error: "+err.Error())
+		}
+		now := time.Now()
+		pm.PaymentCheckoutURL = &redirectURL
+		pm.PaymentGatewayReference = &token
+		pm.PaymentStatus = model.PaymentStatusPending
+		pm.PaymentRequestedAt = &now
+
+		if err := h.DB.WithContext(c.Context()).Save(pm).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "update payment (snap) gagal: "+err.Error())
+		}
+		_ = h.applyEnrollmentSideEffects(c.Context(), h.DB, pm)
+	}
+
+	// 8) response
+	enrollmentResp := fiber.Map{
+		"student_class_enrollments_id":                enr.ID,
+		"student_class_enrollments_school_id":         schoolID,
+		"student_class_enrollments_school_student_id": schoolStudentID,
+		"student_class_enrollments_class_id":          req.ClassID,
+		"student_class_enrollments_status":            "awaiting_payment",
+		"student_class_enrollments_total_due_idr":     picked.Amount,
+	}
+
+	return helper.JsonCreated(c, "registration enrollment + payment created", CreateRegistrationAndPaymentResponse{
+		Enrollment: enrollmentResp,
+		Payment:    dto.FromModel(pm),
+	})
 }
