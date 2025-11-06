@@ -71,10 +71,19 @@ func sanitizeListCSV(csv string) []string {
 }
 
 // ✅ Pakai FRONTEND_ORIGINS (sama dg CORS) + default yang kamu minta
+// ✅ tambahkan 5174 di default
 var allowedFrontendOrigins = func() []string {
 	env := strings.TrimSpace(os.Getenv("FRONTEND_ORIGINS"))
 	if env == "" {
-		env = "http://localhost:5173,http://127.0.0.1:5173,https://schoolku.org,https://www.schoolku.org,https://pendidikanku-frontend-2-production.up.railway.app"
+		env = strings.Join([]string{
+			"http://localhost:5174",
+			"http://127.0.0.1:5174",
+			"http://localhost:5173",
+			"http://127.0.0.1:5173",
+			"https://masjidku.org",
+			"https://www.masjidku.org",
+			"https://pendidikanku-frontend-2-production.up.railway.app",
+		}, ",")
 	}
 	return sanitizeListCSV(env)
 }()
@@ -227,13 +236,31 @@ func enforceCSRF(c *fiber.Ctx) error {
 // Set XSRF token (bukan HttpOnly agar FE bisa baca nilai cookie untuk dikirim header)
 // utils
 // Set XSRF token (bukan HttpOnly agar FE bisa baca nilai cookie untuk dikirim header)
+
+// helper kecil
+func isLocalDevOrigin(c *fiber.Ctx) bool {
+	o := strings.ToLower(getRequestOrigin(c))
+	return strings.HasPrefix(o, "http://localhost:") || strings.HasPrefix(o, "http://127.0.0.1:")
+}
+
 func setXSRFCookie(c *fiber.Ctx, token string, exp time.Time) {
+	dev := isLocalDevOrigin(c)
+
+	sameSite := "Strict"
+	if isCrossSite(c) { // origin FE != host BE (via proxy → true)
+		sameSite = "None"
+	}
+	// di DEV (http) jangan pakai None karena butuh Secure=true
+	if dev {
+		sameSite = "Lax"
+	}
+
 	c.Cookie(&fiber.Cookie{
 		Name:     "XSRF-TOKEN",
 		Value:    token,
-		HTTPOnly: false,                 // FE harus bisa baca untuk header X-CSRF-Token
-		Secure:   true,                  // wajib kalau SameSite=None
-		SameSite: sameSiteForRequest(c), // "None" jika cross-site dev; "Strict" jika same-site
+		HTTPOnly: false, // FE perlu baca utk header X-CSRF-Token
+		Secure:   !dev,  // ✅ dev=false → cookie dikirim di http
+		SameSite: sameSite,
 		Path:     "/",
 		Expires:  exp,
 	})
@@ -991,19 +1018,27 @@ func buildRefreshClaims(userID uuid.UUID, now time.Time) jwt.MapClaims {
 
 // Refresh cookie
 func setRefreshCookie(c *fiber.Ctx, refreshToken string, exp time.Time) {
-	sameSite := sameSiteForRequest(c) // cross-site → "None"
+	dev := isLocalDevOrigin(c)
+
+	sameSite := "Strict"
+	if isCrossSite(c) { // proxy → true
+		sameSite = "None"
+	}
+	if dev {
+		sameSite = "Lax"
+	}
+
 	c.Cookie(&fiber.Cookie{
 		Name:     "refresh_token",
 		Value:    refreshToken,
 		HTTPOnly: true,
-		Secure:   true,
+		Secure:   !dev, // ✅ dev=false
 		SameSite: sameSite,
 		Path:     "/api/auth/refresh-token",
 		Expires:  exp,
 	})
 
-	if os.Getenv("PARTITIONED_COOKIES") == "1" {
-		// Set-Cookie tambahan dg atribut Partitioned (CHIPS)
+	if os.Getenv("PARTITIONED_COOKIES") == "1" && !dev {
 		c.Append("Set-Cookie",
 			"refresh_token="+url.QueryEscape(refreshToken)+
 				"; Path=/api/auth/refresh-token; HttpOnly; Secure; SameSite=None; Partitioned; Expires="+
