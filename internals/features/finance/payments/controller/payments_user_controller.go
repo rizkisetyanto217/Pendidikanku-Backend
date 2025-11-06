@@ -714,27 +714,41 @@ func (h *PaymentController) applyEnrollmentSideEffects(ctx context.Context, db *
 }
 
 // ====== Tambahkan di dekat tipe/DTO section controller ini ======
+// ================= DTO & helpers =================
 
-// Request body untuk endpoint registrasi + payment (student-login)
+type BundleItem struct {
+	ClassID           uuid.UUID `json:"class_id" validate:"required"`
+	FeeRuleOptionCode *string   `json:"fee_rule_option_code,omitempty"` // pilih kode option untuk kelas ini
+	CustomAmountIDR   *int64    `json:"custom_amount_idr,omitempty"`    // nominal custom utk kelas ini (≥ min option)
+	CustomLabel       *string   `json:"custom_label,omitempty"`         // label custom (opsional)
+}
+
 type CreateRegistrationAndPaymentRequest struct {
-	ClassID   uuid.UUID `json:"class_id"  validate:"required"`
-	FeeRuleID uuid.UUID `json:"fee_rule_id" validate:"required"`
+	// Rekomendasi baru (per-kelas):
+	Items []BundleItem `json:"items" validate:"omitempty,min=1,dive"`
 
-	// Opsional
-	PaymentMethod          *model.PaymentMethod          `json:"payment_method"`           // default gateway
-	PaymentGatewayProvider *model.PaymentGatewayProvider `json:"payment_gateway_provider"` // default midtrans
-	PaymentExternalID      *string                       `json:"payment_external_id"`      // auto-generate kalau kosong
-	Customer               *svc.CustomerInput            `json:"customer,omitempty"`       // opsional data Snap (disimpan utuh di meta)
-	Notes                  string                        `json:"notes,omitempty"`
+	// Backward-compat:
+	ClassIDs          []uuid.UUID `json:"class_ids" validate:"omitempty,min=1,dive,required"`
+	ClassID           uuid.UUID   `json:"class_id"  validate:"-"`
+	FeeRuleID         uuid.UUID   `json:"fee_rule_id" validate:"required"`
+	FeeRuleOptionCode *string     `json:"fee_rule_option_code,omitempty"` // fallback untuk semua kelas
+	CustomAmountIDR   *int64      `json:"custom_amount_idr,omitempty"`    // TOTAL fallback → dibagi rata
+	CustomLabel       *string     `json:"custom_label,omitempty"`
+
+	// Pembayaran
+	PaymentMethod          *model.PaymentMethod          `json:"payment_method"`
+	PaymentGatewayProvider *model.PaymentGatewayProvider `json:"payment_gateway_provider"`
+	PaymentExternalID      *string                       `json:"payment_external_id"`
+
+	Customer *svc.CustomerInput `json:"customer,omitempty"`
+	Notes    string             `json:"notes,omitempty"`
 }
 
-// Response singkat
 type CreateRegistrationAndPaymentResponse struct {
-	Enrollment any `json:"enrollment"`
-	Payment    any `json:"payment"`
+	Enrollments []any `json:"enrollments"`
+	Payment     any   `json:"payment"`
 }
 
-// Bentuk satu option di fee_rule_amount_options
 type optRow struct {
 	Code    string `json:"code"`
 	Label   string `json:"label"`
@@ -742,22 +756,36 @@ type optRow struct {
 	Default *bool  `json:"default,omitempty"`
 }
 
-// Pilih default option: cari yang default=true; kalau tidak ada pakai elemen pertama
-func pickDefaultOption(opts []optRow) *optRow {
-	if len(opts) == 0 {
-		return nil
+func findByCode(opts []optRow, code string) *optRow {
+	c := strings.ToUpper(strings.TrimSpace(code))
+	for i := range opts {
+		if strings.ToUpper(opts[i].Code) == c {
+			return &opts[i]
+		}
 	}
+	return nil
+}
+func firstDefault(opts []optRow) *optRow {
 	for i := range opts {
 		if opts[i].Default != nil && *opts[i].Default {
 			return &opts[i]
 		}
 	}
-	return &opts[0]
+	return nil
 }
-
-// Generator order ID sederhana (hindari dependency baru)
+func minAmount(opts []optRow) int64 {
+	if len(opts) == 0 {
+		return 0
+	}
+	m := opts[0].Amount
+	for i := 1; i < len(opts); i++ {
+		if opts[i].Amount < m {
+			m = opts[i].Amount
+		}
+	}
+	return m
+}
 func genOrderID(prefix string) string {
-	// contoh: REG-20251105-150405-<8chars>
 	now := time.Now().In(time.Local).Format("20060102-150405")
 	u := uuid.New().String()
 	if len(u) > 8 {
@@ -766,59 +794,68 @@ func genOrderID(prefix string) string {
 	return prefix + "-" + now + "-" + strings.ToUpper(u)
 }
 
-// POST /payments/registration-enroll
-// file: internals/features/finance/payments/controller/payment_controller.go
-// Ganti/Update handler berikut (sisanya di file tidak perlu diubah)
-// file: internals/features/finance/payments/controller/payment_controller.go
+// ================= HANDLER: POST /payments/registration-enroll =================
 
 func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
-	// 0) auth & school
+	// 0) Auth & resolve school
 	userID, err := helperAuth.GetUserIDFromToken(c)
 	if err != nil {
-		return err // sudah 401 kalau user_id tidak ada
+		return err
 	}
 
-	// Ambil school_id dari PATH → fallback ke context
 	var schoolID uuid.UUID
-	if id, err := helperAuth.ParseSchoolIDFromPath(c); err == nil && id != uuid.Nil {
+	if id, er := helperAuth.ParseSchoolIDFromPath(c); er == nil && id != uuid.Nil {
 		schoolID = id
 	} else {
-		schoolCtx, err := helperAuth.ResolveSchoolContext(c)
-		if err != nil {
-			if fe, ok := err.(*fiber.Error); ok {
+		sctx, er := helperAuth.ResolveSchoolContext(c)
+		if er != nil {
+			if fe, ok := er.(*fiber.Error); ok {
 				return helper.JsonError(c, fe.Code, fe.Message)
 			}
-			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+			return helper.JsonError(c, fiber.StatusBadRequest, er.Error())
 		}
-		if schoolCtx.ID != uuid.Nil {
-			schoolID = schoolCtx.ID
+		if sctx.ID != uuid.Nil {
+			schoolID = sctx.ID
 		} else {
-			id2, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(schoolCtx.Slug))
-			if er != nil {
+			id2, er2 := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(sctx.Slug))
+			if er2 != nil {
 				return helper.JsonError(c, fiber.StatusBadRequest, "school tidak valid")
 			}
 			schoolID = id2
 		}
 	}
-
-	// Guard role
 	if er := helperAuth.EnsureMemberSchool(c, schoolID); er != nil {
 		return er
 	}
 	c.Locals("__school_guard_ok", schoolID.String())
 
-	// 1) parse body
+	// 1) Body + normalisasi items
 	var req CreateRegistrationAndPaymentRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json: "+err.Error())
 	}
-	if v := validator.New(); v != nil {
-		if err := v.Struct(&req); err != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	// Back-compat → build items
+	if len(req.Items) == 0 {
+		ids := req.ClassIDs
+		if len(ids) == 0 && req.ClassID != uuid.Nil {
+			ids = []uuid.UUID{req.ClassID}
+		}
+		for _, cid := range ids {
+			b := BundleItem{ClassID: cid}
+			if req.CustomAmountIDR != nil {
+				b.CustomAmountIDR = req.CustomAmountIDR // sementara set, validasi berikutnya
+				b.CustomLabel = req.CustomLabel
+			} else if req.FeeRuleOptionCode != nil {
+				b.FeeRuleOptionCode = req.FeeRuleOptionCode
+			}
+			req.Items = append(req.Items, b)
 		}
 	}
+	if len(req.Items) == 0 {
+		return helper.JsonError(c, fiber.StatusBadRequest, "items / class_ids wajib")
+	}
 
-	// default method/provider
+	// Defaults
 	method := model.PaymentMethodGateway
 	if req.PaymentMethod != nil {
 		method = *req.PaymentMethod
@@ -828,87 +865,92 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		provider = *req.PaymentGatewayProvider
 	}
 
-	// ==========================
-	// 2) user → school_student (via user_profile_id) + auto-provision
-	// ==========================
-	var (
-		profileID       uuid.UUID
-		schoolStudentID uuid.UUID
-	)
-
-	// 2a. Ambil user_profile_id milik user login
-	var profileIDStr string
-	if err := h.DB.WithContext(c.Context()).Raw(`
-		SELECT user_profile_id
-		  FROM user_profiles
-		 WHERE user_profile_user_id = ?
-		   AND user_profile_deleted_at IS NULL
-		 LIMIT 1
-	`, userID).Scan(&profileIDStr).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek profile: "+err.Error())
-	}
-	if strings.TrimSpace(profileIDStr) == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "profil pengguna tidak ditemukan")
-	}
-	if pid, perr := uuid.Parse(strings.TrimSpace(profileIDStr)); perr == nil {
-		profileID = pid
-	} else {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal parse user_profile_id")
-	}
-
-	// 2b. Cari school_students aktif (by school_id + user_profile_id)
-	var schoolStudentIDStr string
-	if err := h.DB.WithContext(c.Context()).Raw(`
-		SELECT school_student_id
-		  FROM school_students
-		 WHERE school_student_school_id       = ?
-		   AND school_student_user_profile_id = ?
-		   AND school_student_deleted_at      IS NULL
-		 LIMIT 1
-	`, schoolID, profileID).Scan(&schoolStudentIDStr).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek siswa: "+err.Error())
-	}
-	if s := strings.TrimSpace(schoolStudentIDStr); s != "" {
-		if sid, perr := uuid.Parse(s); perr == nil {
-			schoolStudentID = sid
+	// ==== TX ====
+	tx := h.DB.WithContext(c.Context()).Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			_ = tx.Rollback()
 		}
+	}()
+
+	// 2) user → user_profile_id
+	var profileID uuid.UUID
+	{
+		var pidStr string
+		if err := tx.Raw(`
+			SELECT user_profile_id
+			  FROM user_profiles
+			 WHERE user_profile_user_id = ?
+			   AND user_profile_deleted_at IS NULL
+			 LIMIT 1
+		`, userID).Scan(&pidStr).Error; err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek profile: "+err.Error())
+		}
+		pidStr = strings.TrimSpace(pidStr)
+		if pidStr == "" {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusBadRequest, "profil pengguna tidak ditemukan")
+		}
+		id, er := uuid.Parse(pidStr)
+		if er != nil || id == uuid.Nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal parse user_profile_id")
+		}
+		profileID = id
 	}
 
-	if schoolStudentID == uuid.Nil {
-		// 2c. Coba restore jika ada yang soft-deleted
-		var deletedIDStr string
-		if er := h.DB.WithContext(c.Context()).Raw(`
+	// 2b) map/auto-provision SchoolStudent
+	var schoolStudentID uuid.UUID
+	{
+		var sidStr string
+		if err := tx.Raw(`
 			SELECT school_student_id
 			  FROM school_students
 			 WHERE school_student_school_id       = ?
 			   AND school_student_user_profile_id = ?
-			   AND school_student_deleted_at      IS NOT NULL
+			   AND school_student_deleted_at      IS NULL
 			 LIMIT 1
-		`, schoolID, profileID).Scan(&deletedIDStr).Error; er != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek siswa (deleted): "+er.Error())
+		`, schoolID, profileID).Scan(&sidStr).Error; err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek siswa: "+err.Error())
 		}
-		var deletedID uuid.UUID
-		if s := strings.TrimSpace(deletedIDStr); s != "" {
-			if did, perr := uuid.Parse(s); perr == nil {
-				deletedID = did
+		if s := strings.TrimSpace(sidStr); s != "" {
+			if sid, er := uuid.Parse(s); er == nil {
+				schoolStudentID = sid
 			}
 		}
-		if deletedID != uuid.Nil {
-			if er := h.DB.WithContext(c.Context()).Exec(`
-				UPDATE school_students
-				   SET school_student_deleted_at = NULL,
-				       school_student_status     = COALESCE(school_student_status, 'active'),
-				       school_student_updated_at = NOW()
-				 WHERE school_student_id = ?
-			`, deletedID).Error; er != nil {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal restore siswa: "+er.Error())
-			}
-			schoolStudentID = deletedID
-		}
-
-		// 2d. Jika tetap belum ada → buat baru
 		if schoolStudentID == uuid.Nil {
-			// slug unik per sekolah
+			// restore?
+			var delStr string
+			if er := tx.Raw(`
+				SELECT school_student_id
+				  FROM school_students
+				 WHERE school_student_school_id       = ?
+				   AND school_student_user_profile_id = ?
+				   AND school_student_deleted_at      IS NOT NULL
+				 LIMIT 1
+			`, schoolID, profileID).Scan(&delStr).Error; er != nil {
+				_ = tx.Rollback()
+				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek siswa (deleted): "+er.Error())
+			}
+			if s := strings.TrimSpace(delStr); s != "" {
+				if did, er := uuid.Parse(s); er == nil && did != uuid.Nil {
+					if er2 := tx.Exec(`
+						UPDATE school_students
+						   SET school_student_deleted_at = NULL,
+						       school_student_status     = COALESCE(school_student_status, 'active'),
+						       school_student_updated_at = NOW()
+						 WHERE school_student_id = ?
+					`, did).Error; er2 != nil {
+						_ = tx.Rollback()
+						return helper.JsonError(c, fiber.StatusInternalServerError, "gagal restore siswa: "+er2.Error())
+					}
+					schoolStudentID = did
+				}
+			}
+		}
+		if schoolStudentID == uuid.Nil {
 			shortUID := strings.ReplaceAll(userID.String(), "-", "")
 			if len(shortUID) > 8 {
 				shortUID = shortUID[:8]
@@ -917,7 +959,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			genSlug := fmt.Sprintf("u-%s-%s", shortUID, rand4)
 
 			var newIDStr string
-			if er := h.DB.WithContext(c.Context()).Raw(`
+			if er := tx.Raw(`
 				INSERT INTO school_students (
 					school_student_school_id,
 					school_student_user_profile_id,
@@ -927,110 +969,216 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 				) VALUES (?, ?, ?, 'active', '[]'::jsonb)
 				RETURNING school_student_id
 			`, schoolID, profileID, genSlug).Scan(&newIDStr).Error; er != nil {
+				_ = tx.Rollback()
 				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal membuat siswa: "+er.Error())
 			}
-			nid, perr := uuid.Parse(strings.TrimSpace(newIDStr))
-			if perr != nil || nid == uuid.Nil {
+			nid, er := uuid.Parse(strings.TrimSpace(newIDStr))
+			if er != nil || nid == uuid.Nil {
+				_ = tx.Rollback()
 				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal parse school_student_id")
 			}
 			schoolStudentID = nid
 		}
 	}
 
-	// 3) fee rule: validasi & ambil options
+	// 3) Fee rule + options (1 rule untuk semua item)
 	type feeRuleHeader struct {
 		ID            uuid.UUID      `gorm:"column:fee_rule_id"`
 		SchoolID      uuid.UUID      `gorm:"column:fee_rule_school_id"`
 		GBKID         uuid.UUID      `gorm:"column:fee_rule_general_billing_kind_id"`
 		GBKCategory   string         `gorm:"column:fee_rule_gbk_category_snapshot"`
-		AmountOptions datatypes.JSON `gorm:"column:fee_rule_amount_options"` // [{"code","label","amount","default":true}]
+		AmountOptions datatypes.JSON `gorm:"column:fee_rule_amount_options"`
 	}
 	var fr feeRuleHeader
-	if err := h.DB.WithContext(c.Context()).
-		Raw(`
-			SELECT fee_rule_id,
-			       fee_rule_school_id,
-			       fee_rule_general_billing_kind_id,
-			       fee_rule_gbk_category_snapshot,
-			       fee_rule_amount_options
-			  FROM fee_rules
-			 WHERE fee_rule_id = ?
-			   AND fee_rule_deleted_at IS NULL
-			 LIMIT 1
-		`, req.FeeRuleID).Scan(&fr).Error; err != nil || fr.ID == uuid.Nil {
+	if err := tx.Raw(`
+		SELECT fee_rule_id,
+		       fee_rule_school_id,
+		       fee_rule_general_billing_kind_id,
+		       fee_rule_gbk_category_snapshot,
+		       fee_rule_amount_options
+		  FROM fee_rules
+		 WHERE fee_rule_id = ?
+		   AND fee_rule_deleted_at IS NULL
+		 LIMIT 1
+	`, req.FeeRuleID).Scan(&fr).Error; err != nil || fr.ID == uuid.Nil {
+		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusNotFound, "fee_rule tidak ditemukan")
 	}
 	if strings.ToLower(strings.TrimSpace(fr.GBKCategory)) != "registration" {
+		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule bukan kategori registration")
 	}
 	if fr.SchoolID != schoolID {
+		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule tidak untuk sekolah ini")
 	}
-
-	// parse options & pilih default
 	var opts []optRow
 	if len(fr.AmountOptions) > 0 {
 		_ = json.Unmarshal(fr.AmountOptions, &opts)
 	}
-	picked := pickDefaultOption(opts)
-	if picked == nil {
+	if len(opts) == 0 {
+		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule tidak memiliki amount_options")
 	}
+	minOpt := minAmount(opts)
 
-	// 4) validasi class (harus milik school yang sama)
-	var classSchoolIDStr string
-	if err := h.DB.WithContext(c.Context()).
-		Raw(`SELECT class_school_id FROM classes WHERE class_id = ? AND class_deleted_at IS NULL`, req.ClassID).
-		Scan(&classSchoolIDStr).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek class: "+err.Error())
+	// 4) Validasi semua kelas + hitung nominal per item
+	type itemResolved struct {
+		ClassID     uuid.UUID
+		AmountIDR   int64
+		Source      string // "option"|"custom"
+		Code        string
+		Label       string
+		CustomLabel *string
 	}
-	if strings.TrimSpace(classSchoolIDStr) == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "class tidak ditemukan")
-	}
-	classSchoolID, perr := uuid.Parse(strings.TrimSpace(classSchoolIDStr))
-	if perr != nil || classSchoolID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal parse class_school_id")
-	}
-	if classSchoolID != schoolID {
-		return helper.JsonError(c, fiber.StatusBadRequest, "class tidak valid di sekolah ini")
+	items := make([]itemResolved, 0, len(req.Items))
+	classSeen := map[uuid.UUID]struct{}{}
+
+	for _, it := range req.Items {
+		if it.ClassID == uuid.Nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusBadRequest, "class_id item tidak valid")
+		}
+		// dedup
+		if _, ok := classSeen[it.ClassID]; ok {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusBadRequest, "class_id duplikat pada items")
+		}
+		classSeen[it.ClassID] = struct{}{}
+
+		// cek kepemilikan class
+		var csStr string
+		if err := tx.Raw(`SELECT class_school_id FROM classes WHERE class_id = ? AND class_deleted_at IS NULL`, it.ClassID).
+			Scan(&csStr).Error; err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal cek class: "+err.Error())
+		}
+		csStr = strings.TrimSpace(csStr)
+		if csStr == "" {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusBadRequest, "class tidak ditemukan: "+it.ClassID.String())
+		}
+		cs, er := uuid.Parse(csStr)
+		if er != nil || cs == uuid.Nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal parse class_school_id")
+		}
+		if cs != schoolID {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusBadRequest, "class tidak valid di sekolah ini: "+it.ClassID.String())
+		}
+
+		// tentukan nominal & label per item
+		switch {
+		case it.CustomAmountIDR != nil:
+			if *it.CustomAmountIDR < minOpt {
+				_ = tx.Rollback()
+				return helper.JsonError(c, fiber.StatusBadRequest, fmt.Sprintf("custom_amount_idr minimum %d untuk kelas %s", minOpt, it.ClassID.String()))
+			}
+			lbl := "Custom Amount"
+			if it.CustomLabel != nil && strings.TrimSpace(*it.CustomLabel) != "" {
+				lbl = strings.TrimSpace(*it.CustomLabel)
+			}
+			items = append(items, itemResolved{
+				ClassID:     it.ClassID,
+				AmountIDR:   *it.CustomAmountIDR,
+				Source:      "custom",
+				Code:        "CUSTOM",
+				Label:       lbl,
+				CustomLabel: it.CustomLabel,
+			})
+		default:
+			var chosen *optRow
+			if it.FeeRuleOptionCode != nil && strings.TrimSpace(*it.FeeRuleOptionCode) != "" {
+				chosen = findByCode(opts, *it.FeeRuleOptionCode)
+				if chosen == nil {
+					_ = tx.Rollback()
+					return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule_option_code tidak valid untuk kelas "+it.ClassID.String())
+				}
+			} else {
+				// fallback: request global FeeRuleOptionCode / default option (jika single)
+				if req.FeeRuleOptionCode != nil && strings.TrimSpace(*req.FeeRuleOptionCode) != "" {
+					chosen = findByCode(opts, *req.FeeRuleOptionCode)
+					if chosen == nil {
+						_ = tx.Rollback()
+						return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule_option_code global tidak valid")
+					}
+				} else {
+					chosen = firstDefault(opts)
+					if chosen == nil && len(opts) > 1 {
+						_ = tx.Rollback()
+						return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule punya banyak pilihan; berikan fee_rule_option_code di item")
+					}
+					if chosen == nil {
+						chosen = &opts[0]
+					}
+				}
+			}
+			items = append(items, itemResolved{
+				ClassID:   it.ClassID,
+				AmountIDR: chosen.Amount,
+				Source:    "option",
+				Code:      chosen.Code,
+				Label:     chosen.Label,
+			})
+		}
 	}
 
-	// 5) buat enrollment (initiated) + preferences awal
-	enrollPrefs := map[string]any{
-		"payer_user_id": userID,
-		"registration": map[string]any{
-			"fee_rule_id":            fr.ID,
-			"fee_rule_option_code":   picked.Code,
-			"fee_rule_option_label":  picked.Label,
-			"fee_rule_option_amount": picked.Amount,
-			"category_snapshot":      "registration",
-		},
-		"notes": strings.TrimSpace(req.Notes),
-	}
-	prefsJSON, _ := json.Marshal(enrollPrefs)
+	// 5) Insert enrollments (per item)
+	enrollIDs := make([]uuid.UUID, 0, len(items))
+	perShares := make([]int64, 0, len(items))
+	for idx, it := range items {
+		prefs := map[string]any{
+			"payer_user_id": userID,
+			"registration": map[string]any{
+				"fee_rule_id":            fr.ID,
+				"fee_rule_option_code":   it.Code,
+				"fee_rule_option_label":  it.Label,
+				"fee_rule_option_amount": it.AmountIDR,
+				"picked_source":          it.Source,
+				"bundle_index":           idx,
+				"bundle_count":           len(items),
+				"category_snapshot":      "registration",
+			},
+			"notes": strings.TrimSpace(req.Notes),
+		}
+		if it.Source == "custom" && it.CustomLabel != nil {
+			prefs["registration"].(map[string]any)["custom_label"] = strings.TrimSpace(*it.CustomLabel)
+		}
+		prefsJSON, _ := json.Marshal(prefs)
 
-	type enrollRow struct {
-		ID uuid.UUID `gorm:"column:student_class_enrollments_id"`
-	}
-	var enr enrollRow
-	if err := h.DB.WithContext(c.Context()).Raw(`
-		INSERT INTO student_class_enrollments
-		(
-			student_class_enrollments_school_id,
-			student_class_enrollments_school_student_id,
-			student_class_enrollments_class_id,
-			student_class_enrollments_status,
-			student_class_enrollments_total_due_idr,
-			student_class_enrollments_preferences
-		)
-		VALUES (?, ?, ?, 'initiated', ?, ?::jsonb)
-		RETURNING student_class_enrollments_id
-	`, schoolID, schoolStudentID, req.ClassID, picked.Amount, datatypes.JSON(prefsJSON)).
-		Scan(&enr).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "gagal membuat enrollment: kemungkinan duplikat aktif")
+		var eidStr string
+		if err := tx.Raw(`
+			INSERT INTO student_class_enrollments
+			(
+				student_class_enrollments_school_id,
+				student_class_enrollments_school_student_id,
+				student_class_enrollments_class_id,
+				student_class_enrollments_status,
+				student_class_enrollments_total_due_idr,
+				student_class_enrollments_preferences
+			)
+			VALUES (?, ?, ?, 'initiated', ?, ?::jsonb)
+			RETURNING student_class_enrollments_id
+		`, schoolID, schoolStudentID, it.ClassID, it.AmountIDR, datatypes.JSON(prefsJSON)).Scan(&eidStr).Error; err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusBadRequest, "gagal membuat enrollment (mungkin duplikat aktif)")
+		}
+		eid, er := uuid.Parse(strings.TrimSpace(eidStr))
+		if er != nil || eid == uuid.Nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal parse enrollment_id")
+		}
+		enrollIDs = append(enrollIDs, eid)
+		perShares = append(perShares, it.AmountIDR)
 	}
 
-	// 6) buat payment
+	// 6) Buat 1 payment total (sum)
+	var totalAmount int64
+	for _, s := range perShares {
+		totalAmount += s
+	}
+
 	extID := req.PaymentExternalID
 	if extID == nil || strings.TrimSpace(*extID) == "" {
 		s := genOrderID("REG")
@@ -1039,12 +1187,34 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 
 	meta := map[string]any{
 		"fee_rule_gbk_category_snapshot": "registration",
-		"student_class_enrollments_id":   enr.ID,
 		"fee_rule_id":                    fr.ID,
-		"fee_rule_option_code":           picked.Code,
-		"fee_rule_option_label":          picked.Label,
-		"fee_rule_option_amount_idr":     picked.Amount,
 		"payer_user_id":                  userID,
+		"bundle": map[string]any{
+			"class_ids": func() []uuid.UUID {
+				arr := make([]uuid.UUID, 0, len(items))
+				for _, it := range items {
+					arr = append(arr, it.ClassID)
+				}
+				return arr
+			}(),
+			"enrollment_ids":   enrollIDs,
+			"per_shares_idr":   perShares,
+			"total_amount_idr": totalAmount,
+			"per_items": func() []map[string]any {
+				out := make([]map[string]any, 0, len(items))
+				for i, it := range items {
+					out = append(out, map[string]any{
+						"idx":        i,
+						"class_id":   it.ClassID,
+						"source":     it.Source,
+						"code":       it.Code,
+						"label":      it.Label,
+						"amount_idr": it.AmountIDR,
+					})
+				}
+				return out
+			}(),
+		},
 	}
 	if req.Customer != nil {
 		meta["customer"] = req.Customer
@@ -1057,23 +1227,29 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		PaymentMethod:               method,
 		PaymentGatewayProvider:      &provider,
 		PaymentExternalID:           extID,
-		PaymentAmountIDR:            int(picked.Amount),
+		PaymentAmountIDR:            int(totalAmount),
 		PaymentGeneralBillingKindID: &fr.GBKID,
 		PaymentMeta:                 datatypes.JSON(metaJSON),
 	}
+	// default provider safety
 	if pm.PaymentMethod == model.PaymentMethodGateway && (pm.PaymentGatewayProvider == nil || *pm.PaymentGatewayProvider == "") {
 		pr := model.GatewayProviderMidtrans
 		pm.PaymentGatewayProvider = &pr
 	}
-
-	if err := h.DB.WithContext(c.Context()).Create(pm).Error; err != nil {
+	if err := tx.Create(pm).Error; err != nil {
+		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal membuat payment: "+err.Error())
 	}
 
-	// link awal ke enrollment
-	_ = h.attachEnrollmentOnCreate(c.Context(), h.DB, pm, enr.ID)
+	// Link payment → semua enrollment
+	for _, eid := range enrollIDs {
+		if er := h.attachEnrollmentOnCreate(c.Context(), tx, pm, eid); er != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal link enrollment: "+er.Error())
+		}
+	}
 
-	// 7) gateway midtrans → Snap
+	// Snap (jika gateway=midtrans)
 	if pm.PaymentMethod == model.PaymentMethodGateway &&
 		pm.PaymentGatewayProvider != nil && *pm.PaymentGatewayProvider == model.GatewayProviderMidtrans {
 
@@ -1092,32 +1268,47 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 
 		token, redirectURL, err := svc.GenerateSnapToken(*pm, cust)
 		if err != nil {
+			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusBadGateway, "midtrans error: "+err.Error())
 		}
+
 		now := time.Now()
 		pm.PaymentCheckoutURL = &redirectURL
 		pm.PaymentGatewayReference = &token
 		pm.PaymentStatus = model.PaymentStatusPending
 		pm.PaymentRequestedAt = &now
 
-		if err := h.DB.WithContext(c.Context()).Save(pm).Error; err != nil {
+		if err := tx.Save(pm).Error; err != nil {
+			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "update payment (snap) gagal: "+err.Error())
 		}
-		_ = h.applyEnrollmentSideEffects(c.Context(), h.DB, pm)
+		if er := h.applyEnrollmentSideEffects(c.Context(), tx, pm); er != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal apply efek enrollment: "+er.Error())
+		}
 	}
 
-	// 8) response
-	enrollmentResp := fiber.Map{
-		"student_class_enrollments_id":                enr.ID,
-		"student_class_enrollments_school_id":         schoolID,
-		"student_class_enrollments_school_student_id": schoolStudentID,
-		"student_class_enrollments_class_id":          req.ClassID,
-		"student_class_enrollments_status":            "awaiting_payment",
-		"student_class_enrollments_total_due_idr":     picked.Amount,
+	// Commit
+	if err := tx.Commit().Error; err != nil {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "commit gagal: "+err.Error())
 	}
 
-	return helper.JsonCreated(c, "registration enrollment + payment created", CreateRegistrationAndPaymentResponse{
-		Enrollment: enrollmentResp,
-		Payment:    dto.FromModel(pm),
+	// Response
+	enrollRes := make([]any, 0, len(enrollIDs))
+	for i, eid := range enrollIDs {
+		enrollRes = append(enrollRes, fiber.Map{
+			"student_class_enrollments_id":                eid,
+			"student_class_enrollments_school_id":         schoolID,
+			"student_class_enrollments_school_student_id": schoolStudentID,
+			"student_class_enrollments_class_id":          items[i].ClassID,
+			"student_class_enrollments_status":            "awaiting_payment",
+			"student_class_enrollments_total_due_idr":     perShares[i],
+		})
+	}
+
+	return helper.JsonCreated(c, "registration bundle + payment created", CreateRegistrationAndPaymentResponse{
+		Enrollments: enrollRes,
+		Payment:     dto.FromModel(pm),
 	})
 }
