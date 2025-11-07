@@ -3,6 +3,7 @@ package controller
 
 import (
 	"log"
+	"strings"
 
 	helper "schoolku_backend/internals/helpers"
 
@@ -13,33 +14,91 @@ import (
 	"github.com/google/uuid"
 )
 
-// 🟢 GET ALL SCHOOLS (tanpa paging param → seluruh data 1 halaman)
+
+// 🟢 GET ALL SCHOOLS (filter by name & id/ids) + PAGINATION (?page=&per_page=)
 func (mc *SchoolController) GetAllSchools(c *fiber.Ctx) error {
-	log.Println("[INFO] Fetching all schools")
+	log.Println("[INFO] Fetching all schools (paginated)")
+
+	// ==== query params ====
+	q := strings.TrimSpace(c.Query("q"))          // search by name (ILIKE)
+	id := strings.TrimSpace(c.Query("id"))        // single id
+	idsParam := strings.TrimSpace(c.Query("ids")) // multiple ids, comma-separated
+
+	// ==== paging params ====
+	// defaultPerPage=20; maxPerPage=100 (silakan sesuaikan)
+	paging := helper.ResolvePaging(c, 20, 100)
+
+	// ==== sesuaikan nama kolom sesuai skema DB ====
+	const colID = "school_id" // PK tabel (disesuaikan)
+	const colName = "school_name"    // kolom nama (ganti "school_name" jika perlu)
+
+	// ==== base query (filter) ====
+	dbq := mc.DB.Model(&schoolModel.SchoolModel{})
+
+	// filter single id
+	if id != "" {
+		if _, err := uuid.Parse(id); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Parameter id tidak valid (harus UUID)")
+		}
+		dbq = dbq.Where(colID+" = ?", id)
+	}
+
+	// filter multiple ids
+	if idsParam != "" {
+		raw := strings.Split(idsParam, ",")
+		ids := make([]string, 0, len(raw))
+		for _, s := range raw {
+			v := strings.TrimSpace(s)
+			if v == "" {
+				continue
+			}
+			if _, err := uuid.Parse(v); err != nil {
+				return helper.JsonError(c, fiber.StatusBadRequest, "Parameter ids mengandung UUID tidak valid")
+			}
+			ids = append(ids, v)
+		}
+		if len(ids) > 0 {
+			dbq = dbq.Where(colID+" IN ?", ids)
+		}
+	}
+
+	// filter by name (ILIKE)
+	if q != "" {
+		dbq = dbq.Where(colName+" ILIKE ?", "%"+q+"%")
+	}
+
+	// ==== total count (sebelum limit/offset) ====
+	var total int64
+	if err := dbq.Count(&total).Error; err != nil {
+		log.Printf("[ERROR] Count schools failed: %v\n", err)
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung data school")
+	}
+
+	// ==== ambil data page ini ====
+	// Optional: stabilkan urutan
+	dbq = dbq.Order(colName + " ASC")
 
 	var schools []schoolModel.SchoolModel
-	if err := mc.DB.Find(&schools).Error; err != nil {
+	if err := dbq.
+		Limit(paging.Limit).
+		Offset(paging.Offset).
+		Find(&schools).Error; err != nil {
 		log.Printf("[ERROR] Failed to fetch schools: %v\n", err)
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data school")
 	}
 
-	log.Printf("[SUCCESS] Retrieved %d schools\n", len(schools))
+	log.Printf("[SUCCESS] Retrieved %d schools (page=%d per_page=%d total=%d)\n",
+		len(schools), paging.Page, paging.PerPage, total)
 
+	// ==== mapping DTO ====
 	resp := make([]schoolDto.SchoolResp, 0, len(schools))
 	for i := range schools {
 		resp = append(resp, schoolDto.FromModel(&schools[i]))
 	}
 
-	// pagination default: seluruh data dalam satu halaman
-	total := len(resp)
-	pg := helper.Pagination{
-		Page:       1,
-		PerPage:    total, // biarkan 0 jika memang kosong; helper akan tetap aman
-		Total:      int64(total),
-		TotalPages: 1,
-		HasNext:    false,
-		HasPrev:    false,
-	}
+	// ==== build pagination dari offset/limit ====
+	pg := helper.BuildPaginationFromOffset(total, paging.Offset, paging.Limit)
+
 	return helper.JsonList(c, "ok", resp, pg)
 }
 

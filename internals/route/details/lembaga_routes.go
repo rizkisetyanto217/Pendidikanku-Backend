@@ -22,6 +22,8 @@ import (
 	QuizzesRoutes "schoolku_backend/internals/features/school/submissions_assesments/quizzes/route"
 	SubmissionsRoutes "schoolku_backend/internals/features/school/submissions_assesments/submissions/route"
 
+	SchoolRoutes "schoolku_backend/internals/features/lembaga/school_yayasans/schools/route"
+
 	CSSTRoutes "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/route"
 
 	// Tambahkan import route lain di sini saat modul siap:
@@ -49,11 +51,13 @@ func LembagaPublicRoutes(r fiber.Router, db *gorm.DB) {
 	SubjectRoutes.AllSubjectRoutes(r, db)
 	ClassSectionsRoutes.AllClassSectionRoutes(r, db)
 	CSSTRoutes.AllCSSTRoutes(r, db)
+
 	// Classes (public read)
 	// ClassRoutes.ClassPublicRoutes(r, db)
 	// Tambahkan modul lain (public) di sini:
 	// SectionRoutes.SectionPublicRoutes(r, db)
 	// ScheduleRoutes.SchedulePublicRoutes(r, db)
+	SchoolRoutes.AllSchoolRoutes(r, db)
 }
 
 /* ===================== USER (PRIVATE) ===================== */
@@ -107,10 +111,11 @@ func LembagaAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// SectionRoutes.SectionAdminRoutes(r, db)
 	// TeacherRoutes.TeacherAdminRoutes(r, db)
 	// FinanceRoutes.FinanceAdminRoutes(r, db)
+	SchoolRoutes.SchoolAdminRoutes(r, db)
 }
 
 /* ===================== SUPER ADMIN ===================== */
 // Endpoint khusus super admin (token + guard super admin)
 func LembagaOwnerRoutes(r fiber.Router, db *gorm.DB) {
-
+	SchoolRoutes.SchoolOwnerRoutes(r, db)
 }
