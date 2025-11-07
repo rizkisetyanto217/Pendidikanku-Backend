@@ -83,6 +83,7 @@ var allowedFrontendOrigins = func() []string {
 			"https://masjidku.org",
 			"https://www.masjidku.org",
 			"https://pendidikanku-frontend-2-production.up.railway.app",
+			"https://madinahsalam.up.railway.app",
 		}, ",")
 	}
 	return sanitizeListCSV(env)

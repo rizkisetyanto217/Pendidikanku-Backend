@@ -48,6 +48,7 @@ func CorsMiddleware() fiber.Handler {
 			"http://127.0.0.1:5177",
 			"https://masjidku.org",
 			"https://www.masjidku.org",
+			"https://madinahsalam.up.railway.app/",
 			"https://pendidikanku-frontend-2-production.up.railway.app",
 		}, ",")
 	}
