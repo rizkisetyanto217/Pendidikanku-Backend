@@ -116,10 +116,10 @@ type StudentClassEnrollmentResponse struct {
 	StudentClassEnrollmentCreatedAt time.Time `json:"student_class_enrollments_created_at"`
 	StudentClassEnrollmentUpdatedAt time.Time `json:"student_class_enrollments_updated_at"`
 
-	// Convenience untuk client (opsional)
-	StudentName string  `json:"student_name,omitempty"` // dari StudentNameSnapshot
-	Username    *string `json:"username,omitempty"`     // jika suatu saat di-join ke user table
-	ClassName   string  `json:"class_name,omitempty"`   // dari ClassNameSnapshot
+	// ===== Convenience (konsisten format) =====
+	StudentClassEnrollmentStudentName string  `json:"student_class_enrollments_student_name,omitempty"` // mirror dari snapshot
+	StudentClassEnrollmentUsername    *string `json:"student_class_enrollments_username,omitempty"`     // hasil enrich join user (jika ada)
+	StudentClassEnrollmentClassName   string  `json:"student_class_enrollments_class_name,omitempty"`   // mirror dari snapshot
 }
 
 /* ======================================================
@@ -164,8 +164,8 @@ func FromModelStudentClassEnrollment(mo *m.StudentClassEnrollmentModel) StudentC
 	}
 
 	// Convenience fields dari snapshot
-	resp.StudentName = mo.StudentClassEnrollmentStudentNameSnapshot
-	resp.ClassName = mo.StudentClassEnrollmentClassNameSnapshot
+	resp.StudentClassEnrollmentStudentName = mo.StudentClassEnrollmentStudentNameSnapshot
+	resp.StudentClassEnrollmentClassName = mo.StudentClassEnrollmentClassNameSnapshot
 
 	// Payment ID (opsional)
 	resp.StudentClassEnrollmentPaymentID = mo.StudentClassEnrollmentPaymentID
@@ -199,3 +199,5 @@ type BulkUpdateEnrollmentStatusRequest struct {
 	RejectedAt    *time.Time              `json:"student_class_enrollments_rejected_at"`
 	CanceledAt    *time.Time              `json:"student_class_enrollments_canceled_at"`
 }
+
+

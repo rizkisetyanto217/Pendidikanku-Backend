@@ -1536,11 +1536,11 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		// langsung isi dari snapshot yang tadi kita ambil (biar konsisten dengan DB)
 		if cs, ok := clsMap[items[i].ClassID]; ok {
 			if strings.TrimSpace(cs.Name) != "" {
-				dtoRow.ClassName = cs.Name
+				dtoRow.StudentClassEnrollmentClassName = cs.Name
 			}
 		}
 		if stuSnap.Name != nil && strings.TrimSpace(*stuSnap.Name) != "" {
-			dtoRow.StudentName = strings.TrimSpace(*stuSnap.Name)
+			dtoRow.StudentClassEnrollmentStudentName = strings.TrimSpace(*stuSnap.Name)
 		}
 		enrollDTOs = append(enrollDTOs, dtoRow)
 	}

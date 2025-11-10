@@ -184,16 +184,16 @@ func enrichEnrollmentExtras(ctx context.Context, db *gorm.DB, schoolID uuid.UUID
 	// ===== Isi ke items
 	for i := range items {
 		if s, ok := stuMap[items[i].StudentClassEnrollmentSchoolStudentID]; ok {
-			items[i].StudentName = s.Name
+			items[i].StudentClassEnrollmentStudentName = s.Name
 			if s.UserID != nil {
 				if un, ok2 := uMap[*s.UserID]; ok2 {
 					username := un
-					items[i].Username = &username
+					items[i].StudentClassEnrollmentUsername = &username
 				}
 			}
 		}
 		if c, ok := clsMap[items[i].StudentClassEnrollmentClassID]; ok {
-			items[i].ClassName = c.ClassName
+			items[i].StudentClassEnrollmentClassName = c.ClassName
 		}
 	}
 }
