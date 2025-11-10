@@ -13,7 +13,7 @@ import (
 func FinancePublicRoutes(r fiber.Router, db *gorm.DB) {
 	GeneralBillingRoute.AllGeneralBillingRoutes(r, db)
 	PaymentRoute.AllPaymentRoutes(r, db)
-	BillingRoute.BillingsAllRoutes(r, db)
+	BillingRoute.AllBillingRoutes(r, db)
 }
 
 func FinanceAdminRoutes(r fiber.Router, db *gorm.DB, midtransServerKey string, useProd bool) {
@@ -28,4 +28,6 @@ func FinanceOwnerRoutes(r fiber.Router, db *gorm.DB) {
 
 func FinanceUserRoutes(r fiber.Router, db *gorm.DB) {
 	PaymentRoute.UserPaymentRoutes(r, db)
+	BillingRoute.BillingsUserRoutes(r, db)
+
 }

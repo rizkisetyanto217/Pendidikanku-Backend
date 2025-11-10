@@ -611,6 +611,29 @@ func buildEnrollmentPrefPatch(payer *uuid.UUID, meta registrationMeta) datatypes
 	return datatypes.JSON(b)
 }
 
+// letakkan dekat tipe/DTO meta
+type bundleMeta struct {
+	EnrollmentIDs []uuid.UUID `json:"enrollment_ids"`
+}
+
+func extractEnrollmentIDs(j datatypes.JSON) []uuid.UUID {
+	ids := []uuid.UUID{}
+	// single
+	var r registrationMeta
+	_ = json.Unmarshal(j, &r)
+	if r.StudentClassEnrollmentID != nil {
+		ids = append(ids, *r.StudentClassEnrollmentID)
+	}
+	// bundle
+	var b struct {
+		Bundle bundleMeta `json:"bundle"`
+	}
+	if err := json.Unmarshal(j, &b); err == nil && len(b.Bundle.EnrollmentIDs) > 0 {
+		ids = append(ids, b.Bundle.EnrollmentIDs...)
+	}
+	return ids
+}
+
 // Dipanggil segera setelah payment dibuat (CreatePayment) untuk set awaiting_payment & snapshot + merge prefs + set total_due (jika 0)
 func (h *PaymentController) attachEnrollmentOnCreate(
 	ctx context.Context, db *gorm.DB, p *model.Payment, enrollmentID uuid.UUID,
@@ -649,15 +672,23 @@ func (h *PaymentController) applyEnrollmentSideEffects(ctx context.Context, db *
 	if p == nil || p.PaymentMeta == nil {
 		return nil
 	}
-	meta := parseRegistrationMeta(p.PaymentMeta)
-	if meta.StudentClassEnrollmentID == nil || meta.FeeRuleGBKCategory != "registration" {
+
+	// wajib kategori registration
+	var cat struct {
+		FeeRuleGBKCategory string `json:"fee_rule_gbk_category_snapshot"`
+	}
+	_ = json.Unmarshal(p.PaymentMeta, &cat)
+	if strings.ToLower(strings.TrimSpace(cat.FeeRuleGBKCategory)) != "registration" {
 		return nil
 	}
 
-	enrollmentID := *meta.StudentClassEnrollmentID
-	now := time.Now()
+	ids := extractEnrollmentIDs(p.PaymentMeta)
+	if len(ids) == 0 {
+		return nil
+	}
 
-	// Siapkan patch preferences (re-merge supaya tetap konsisten)
+	// build prefPatch & snap seperti semula ...
+	meta := parseRegistrationMeta(p.PaymentMeta)
 	payer := meta.PayerUserID
 	if payer == nil && p.PaymentUserID != nil {
 		payer = p.PaymentUserID
@@ -667,49 +698,58 @@ func (h *PaymentController) applyEnrollmentSideEffects(ctx context.Context, db *
 
 	switch p.PaymentStatus {
 	case model.PaymentStatusPaid:
-		return db.WithContext(ctx).Exec(`
-			UPDATE student_class_enrollments
-			   SET student_class_enrollments_status           = 'accepted',
-			       student_class_enrollments_accepted_at      = COALESCE(student_class_enrollments_accepted_at, ?),
-			       student_class_enrollments_payment_id       = ?,
-			       student_class_enrollments_payment_snapshot = ?::jsonb,
-			       student_class_enrollments_preferences      = COALESCE(student_class_enrollments_preferences,'{}'::jsonb) || ?::jsonb,
-			       student_class_enrollments_total_due_idr    = CASE
-		                                                    WHEN COALESCE(student_class_enrollments_total_due_idr,0)=0 THEN ?
-		                                                    ELSE student_class_enrollments_total_due_idr END,
-			       student_class_enrollments_updated_at       = NOW()
-			 WHERE student_class_enrollments_id = ?
-			   AND student_class_enrollments_deleted_at IS NULL
-		`, now, p.PaymentID, datatypes.JSON(snap), prefPatch, p.PaymentAmountIDR, enrollmentID).Error
-
+		for _, eid := range ids {
+			if err := db.WithContext(ctx).Exec(`
+                UPDATE student_class_enrollments
+                   SET student_class_enrollments_status           = 'accepted',
+                       student_class_enrollments_accepted_at      = COALESCE(student_class_enrollments_accepted_at, NOW()),
+                       student_class_enrollments_payment_id       = ?,
+                       student_class_enrollments_payment_snapshot = ?::jsonb,
+                       student_class_enrollments_preferences      = COALESCE(student_class_enrollments_preferences,'{}'::jsonb) || ?::jsonb,
+                       student_class_enrollments_total_due_idr    = CASE
+                           WHEN COALESCE(student_class_enrollments_total_due_idr,0)=0 THEN ?
+                           ELSE student_class_enrollments_total_due_idr END,
+                       student_class_enrollments_updated_at       = NOW()
+                 WHERE student_class_enrollments_id = ?
+                   AND student_class_enrollments_deleted_at IS NULL
+            `, p.PaymentID, datatypes.JSON(snap), prefPatch, p.PaymentAmountIDR, eid).Error; err != nil {
+				return err
+			}
+		}
 	case model.PaymentStatusCanceled, model.PaymentStatusFailed, model.PaymentStatusExpired, model.PaymentStatusRefunded, model.PaymentStatusPartiallyRefunded:
-		return db.WithContext(ctx).Exec(`
-			UPDATE student_class_enrollments
-			   SET student_class_enrollments_status           = 'awaiting_payment',
-			       student_class_enrollments_payment_id       = NULL,
-			       student_class_enrollments_payment_snapshot = NULL,
-			       student_class_enrollments_preferences      = COALESCE(student_class_enrollments_preferences,'{}'::jsonb) || ?::jsonb,
-			       student_class_enrollments_updated_at       = NOW()
-			 WHERE student_class_enrollments_id = ?
-			   AND student_class_enrollments_deleted_at IS NULL
-		`, prefPatch, enrollmentID).Error
-
-	case model.PaymentStatusPending, model.PaymentStatusAwaitingCallback, model.PaymentStatusInitiated:
-		return db.WithContext(ctx).Exec(`
-			UPDATE student_class_enrollments
-			   SET student_class_enrollments_status           = 'awaiting_payment',
-			       student_class_enrollments_payment_id       = ?,
-			       student_class_enrollments_payment_snapshot = ?::jsonb,
-			       student_class_enrollments_preferences      = COALESCE(student_class_enrollments_preferences,'{}'::jsonb) || ?::jsonb,
-			       student_class_enrollments_total_due_idr    = CASE
-		                                                    WHEN COALESCE(student_class_enrollments_total_due_idr,0)=0 THEN ?
-		                                                    ELSE student_class_enrollments_total_due_idr END,
-			       student_class_enrollments_updated_at       = NOW()
-			 WHERE student_class_enrollments_id = ?
-			   AND student_class_enrollments_deleted_at IS NULL
-		`, p.PaymentID, datatypes.JSON(snap), prefPatch, p.PaymentAmountIDR, enrollmentID).Error
+		for _, eid := range ids {
+			if err := db.WithContext(ctx).Exec(`
+                UPDATE student_class_enrollments
+                   SET student_class_enrollments_status           = 'awaiting_payment',
+                       student_class_enrollments_payment_id       = NULL,
+                       student_class_enrollments_payment_snapshot = NULL,
+                       student_class_enrollments_preferences      = COALESCE(student_class_enrollments_preferences,'{}'::jsonb) || ?::jsonb,
+                       student_class_enrollments_updated_at       = NOW()
+                 WHERE student_class_enrollments_id = ?
+                   AND student_class_enrollments_deleted_at IS NULL
+            `, prefPatch, eid).Error; err != nil {
+				return err
+			}
+		}
+	default: // pending / awaiting_callback / initiated
+		for _, eid := range ids {
+			if err := db.WithContext(ctx).Exec(`
+                UPDATE student_class_enrollments
+                   SET student_class_enrollments_status           = 'awaiting_payment',
+                       student_class_enrollments_payment_id       = ?,
+                       student_class_enrollments_payment_snapshot = ?::jsonb,
+                       student_class_enrollments_preferences      = COALESCE(student_class_enrollments_preferences,'{}'::jsonb) || ?::jsonb,
+                       student_class_enrollments_total_due_idr    = CASE
+                           WHEN COALESCE(student_class_enrollments_total_due_idr,0)=0 THEN ?
+                           ELSE student_class_enrollments_total_due_idr END,
+                       student_class_enrollments_updated_at       = NOW()
+                 WHERE student_class_enrollments_id = ?
+                   AND student_class_enrollments_deleted_at IS NULL
+            `, p.PaymentID, datatypes.JSON(snap), prefPatch, p.PaymentAmountIDR, eid).Error; err != nil {
+				return err
+			}
+		}
 	}
-
 	return nil
 }
 
