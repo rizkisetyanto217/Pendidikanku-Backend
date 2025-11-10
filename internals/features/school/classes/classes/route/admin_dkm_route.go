@@ -44,7 +44,7 @@ func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	enrollGrp := admin.Group("/:school_id/class-enrollments", schoolkuMiddleware.IsSchoolAdmin())
 	{
 		// LIST: GET /:school_id/class-enrollments
-		enrollGrp.Get("/", enrollHandler.List)
+		enrollGrp.Get("/list", enrollHandler.List)
 
 		// (opsional, siapin slot kalau nanti ada)
 		// enrollGrp.Post("/", enrollHandler.Create)
