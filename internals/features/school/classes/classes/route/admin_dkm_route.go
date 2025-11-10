@@ -32,4 +32,23 @@ func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
 		classParents.Patch("/:id", parentHandler.Patch)
 		classParents.Delete("/:id", parentHandler.Delete)
 	}
+
+	// ================================
+	// Student Class Enrollments
+	// ================================
+	enrollHandler := classctrl.NewStudentClassEnrollmentController(db)
+
+	// kalau ada middleware versi by-param, bisa:
+	// enrollGrp := admin.Group("/:school_id/class-enrollments", schoolkuMiddleware.IsSchoolAdminByParam("school_id"))
+
+	enrollGrp := admin.Group("/:school_id/class-enrollments", schoolkuMiddleware.IsSchoolAdmin())
+	{
+		// LIST: GET /:school_id/class-enrollments
+		enrollGrp.Get("/", enrollHandler.List)
+
+		// (opsional, siapin slot kalau nanti ada)
+		// enrollGrp.Post("/", enrollHandler.Create)
+		// enrollGrp.Patch("/:id", enrollHandler.Patch)
+		// enrollGrp.Delete("/:id", enrollHandler.Delete)
+	}
 }
