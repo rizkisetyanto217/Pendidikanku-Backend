@@ -54,7 +54,7 @@ DO $$ BEGIN
 END$$;
 
 -- =========================================
--- TABLE: payments
+-- TABLE: payments  (kolom snapshot => *_snapshot)
 -- =========================================
 CREATE TABLE IF NOT EXISTS payments (
   payment_id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS payments (
   payment_school_id                UUID REFERENCES schools(school_id) ON DELETE SET NULL,
   payment_user_id                  UUID REFERENCES users(id)          ON DELETE SET NULL,
 
-  -- Header / target
+  -- Target (salah satu wajib)
   payment_student_bill_id          UUID REFERENCES student_bills(student_bill_id)               ON DELETE SET NULL,
   payment_general_billing_id       UUID REFERENCES general_billings(general_billing_id)        ON DELETE SET NULL,
   payment_general_billing_kind_id  UUID REFERENCES general_billing_kinds(general_billing_kind_id) ON DELETE SET NULL,
@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS payments (
   payment_manual_verified_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   payment_manual_verified_at       TIMESTAMPTZ,
 
-  -- Ledger & invoice fields (✅ semua diawali payment_)
+  -- Ledger & invoice
   payment_entry_type               payment_entry_type NOT NULL DEFAULT 'payment',
   payment_invoice_number           TEXT,
   payment_invoice_due_date         DATE,
@@ -113,14 +113,20 @@ CREATE TABLE IF NOT EXISTS payments (
   payment_subject_user_id          UUID REFERENCES users(id) ON DELETE SET NULL,
   payment_subject_student_id       UUID REFERENCES school_students(school_student_id) ON DELETE SET NULL,
 
-  -- Link & snapshot ke fee_rules
-  payment_fee_rule_id               UUID REFERENCES fee_rules(fee_rule_id) ON DELETE SET NULL,
-  payment_fee_rule_option_code      VARCHAR(20),
-  payment_fee_rule_option_index     SMALLINT,
-  payment_fee_rule_amount_snapshot  INT CHECK (payment_fee_rule_amount_snapshot IS NULL OR payment_fee_rule_amount_snapshot >= 0),
-  payment_fee_rule_gbk_id_snapshot  UUID,
-  payment_fee_rule_scope_snapshot   fee_scope,
-  payment_fee_rule_note_snapshot    TEXT,
+  -- ===== Fee rule snapshots =====
+  payment_fee_rule_id                     UUID REFERENCES fee_rules(fee_rule_id) ON DELETE SET NULL,
+  payment_fee_rule_option_code_snapshot   VARCHAR(20),
+  payment_fee_rule_option_index_snapshot  SMALLINT,
+  payment_fee_rule_amount_snapshot        INT CHECK (payment_fee_rule_amount_snapshot IS NULL OR payment_fee_rule_amount_snapshot >= 0),
+  payment_fee_rule_gbk_id_snapshot        UUID,
+  payment_fee_rule_scope_snapshot         fee_scope,
+  payment_fee_rule_note_snapshot          TEXT,
+
+  -- ===== User snapshots (payer) =====
+  payment_user_name_snapshot       TEXT,   -- users.user_name
+  payment_full_name_snapshot       TEXT,   -- users.full_name (atau fallback profile)
+  payment_email_snapshot           TEXT,   -- users.email
+  payment_donation_name_snapshot   TEXT,   -- user_profiles.user_profile_donation_name
 
   -- Meta
   payment_description              TEXT,
@@ -144,35 +150,72 @@ CREATE TABLE IF NOT EXISTS payments (
     OR payment_general_billing_id IS NOT NULL
     OR payment_general_billing_kind_id IS NOT NULL
   ),
-  CONSTRAINT ck_payment_fee_rule_coherence CHECK (
-    payment_fee_rule_id IS NULL
-    OR (
-         COALESCE(TRIM(payment_fee_rule_option_code),'') <> ''
-         OR payment_fee_rule_option_index IS NOT NULL
-         OR payment_fee_rule_amount_snapshot IS NOT NULL
-       )
-  ),
-  CONSTRAINT ck_payment_fee_rule_option_index CHECK (
-    payment_fee_rule_option_index IS NULL OR payment_fee_rule_option_index >= 1
+  CONSTRAINT ck_payment_fee_rule_option_index_snapshot CHECK (
+    payment_fee_rule_option_index_snapshot IS NULL OR payment_fee_rule_option_index_snapshot >= 1
   )
 );
 
 -- =========================================
--- Indexes
+-- Upgrade helpers (rename kolom lama → *_snapshot & add if missing)
 -- =========================================
+DO $$
+BEGIN
+  -- fee_rule option code/index → *_snapshot
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name='payments' AND column_name='payment_fee_rule_option_code')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name='payments' AND column_name='payment_fee_rule_option_code_snapshot')
+  THEN
+    EXECUTE 'ALTER TABLE payments RENAME COLUMN payment_fee_rule_option_code TO payment_fee_rule_option_code_snapshot';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name='payments' AND column_name='payment_fee_rule_option_index')
+     AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name='payments' AND column_name='payment_fee_rule_option_index_snapshot')
+  THEN
+    EXECUTE 'ALTER TABLE payments RENAME COLUMN payment_fee_rule_option_index TO payment_fee_rule_option_index_snapshot';
+  END IF;
+
+  -- Tambah kolom snapshot user bila belum ada
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name='payments' AND column_name='payment_user_name_snapshot') THEN
+    EXECUTE 'ALTER TABLE payments ADD COLUMN payment_user_name_snapshot TEXT';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name='payments' AND column_name='payment_full_name_snapshot') THEN
+    EXECUTE 'ALTER TABLE payments ADD COLUMN payment_full_name_snapshot TEXT';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name='payments' AND column_name='payment_email_snapshot') THEN
+    EXECUTE 'ALTER TABLE payments ADD COLUMN payment_email_snapshot TEXT';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name='payments' AND column_name='payment_donation_name_snapshot') THEN
+    EXECUTE 'ALTER TABLE payments ADD COLUMN payment_donation_name_snapshot TEXT';
+  END IF;
+END$$;
+
+-- =========================================
+-- Indexes (idempotent)
+-- =========================================
+-- Bersih-bersih index lama yang tidak dipakai
 DROP INDEX IF EXISTS ix_payments_usb_live;
 DROP INDEX IF EXISTS ix_payments_spp_header_live;
 
+-- Idempotency per tenant
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_idem_live
   ON payments (payment_school_id, COALESCE(payment_idempotency_key, ''))
   WHERE payment_deleted_at IS NULL AND payment_idempotency_key IS NOT NULL;
 
+-- Unique order_id per provider (aktif)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_provider_extid_live
   ON payments (payment_gateway_provider, COALESCE(payment_external_id,''))
   WHERE payment_deleted_at IS NULL
     AND payment_gateway_provider IS NOT NULL
     AND payment_external_id IS NOT NULL;
 
+-- Umum
 CREATE INDEX IF NOT EXISTS ix_payments_tenant_created_live
   ON payments (payment_school_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
@@ -213,20 +256,7 @@ CREATE INDEX IF NOT EXISTS ix_payments_subject_student_live
   ON payments (payment_subject_student_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
--- ✅ pakai kolom baru payment_invoice_number
-CREATE UNIQUE INDEX IF NOT EXISTS uq_invoice_per_tenant_live
-  ON payments (payment_school_id, LOWER(payment_invoice_number))
-  WHERE payment_deleted_at IS NULL
-    AND payment_entry_type = 'charge'
-    AND payment_invoice_number IS NOT NULL;
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_charge_once_per_student_billing_live
-  ON payments (payment_subject_student_id, payment_general_billing_id)
-  WHERE payment_deleted_at IS NULL
-    AND payment_entry_type = 'charge'
-    AND payment_subject_student_id IS NOT NULL
-    AND payment_general_billing_id IS NOT NULL;
-
+-- Fuzzy search helpers
 CREATE INDEX IF NOT EXISTS gin_payments_extid_trgm_live
   ON payments USING GIN ( (COALESCE(payment_external_id,'')) gin_trgm_ops )
   WHERE payment_deleted_at IS NULL;
@@ -243,44 +273,49 @@ CREATE INDEX IF NOT EXISTS gin_payments_desc_trgm_live
   ON payments USING GIN ( (COALESCE(payment_description,'')) gin_trgm_ops )
   WHERE payment_deleted_at IS NULL;
 
+-- Fee rule snapshot indexes
 CREATE INDEX IF NOT EXISTS ix_payments_fee_rule_live
   ON payments (payment_fee_rule_id, payment_created_at DESC)
   WHERE payment_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS ix_payments_fee_rule_option_live
-  ON payments (LOWER(payment_fee_rule_option_code), payment_created_at DESC)
-  WHERE payment_deleted_at IS NULL AND payment_fee_rule_option_code IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_payments_fee_rule_option_code_snapshot_live
+  ON payments (LOWER(payment_fee_rule_option_code_snapshot), payment_created_at DESC)
+  WHERE payment_deleted_at IS NULL AND payment_fee_rule_option_code_snapshot IS NOT NULL;
 
+-- Snapshot username lookup cepat
+CREATE INDEX IF NOT EXISTS ix_payments_user_name_snapshot_live
+  ON payments (LOWER(payment_user_name_snapshot))
+  WHERE payment_deleted_at IS NULL;
 
 -- =========================================
 -- TABLE: payment_gateway_events
 -- =========================================
 CREATE TABLE IF NOT EXISTS payment_gateway_events (
-  gateway_event_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  gateway_event_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  gateway_event_school_id   UUID REFERENCES schools(school_id) ON DELETE SET NULL,
-  gateway_event_payment_id  UUID REFERENCES payments(payment_id) ON DELETE SET NULL,
+  gateway_event_school_id     UUID REFERENCES schools(school_id) ON DELETE SET NULL,
+  gateway_event_payment_id    UUID REFERENCES payments(payment_id) ON DELETE SET NULL,
 
-  gateway_event_provider    payment_gateway_provider NOT NULL,
-  gateway_event_type        TEXT,
+  gateway_event_provider      payment_gateway_provider NOT NULL,
+  gateway_event_type          TEXT,
   gateway_event_external_id   TEXT,
   gateway_event_external_ref  TEXT,
 
-  gateway_event_headers     JSONB,
-  gateway_event_payload     JSONB,
-  gateway_event_signature   TEXT,
-  gateway_event_raw_query   TEXT,
+  gateway_event_headers       JSONB,
+  gateway_event_payload       JSONB,
+  gateway_event_signature     TEXT,
+  gateway_event_raw_query     TEXT,
 
-  gateway_event_status      gateway_event_status NOT NULL DEFAULT 'received',
-  gateway_event_error       TEXT,
-  gateway_event_try_count   INT NOT NULL DEFAULT 0 CHECK (gateway_event_try_count >= 0),
+  gateway_event_status        gateway_event_status NOT NULL DEFAULT 'received',
+  gateway_event_error         TEXT,
+  gateway_event_try_count     INT NOT NULL DEFAULT 0 CHECK (gateway_event_try_count >= 0),
 
-  gateway_event_received_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  gateway_event_processed_at TIMESTAMPTZ,
+  gateway_event_received_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  gateway_event_processed_at  TIMESTAMPTZ,
 
-  gateway_event_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  gateway_event_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  gateway_event_deleted_at  TIMESTAMPTZ
+  gateway_event_created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  gateway_event_updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  gateway_event_deleted_at    TIMESTAMPTZ
 );
 
 -- Indexes: payment_gateway_events
@@ -321,5 +356,3 @@ CREATE INDEX IF NOT EXISTS gin_gw_events_sig_trgm_live
   WHERE gateway_event_deleted_at IS NULL;
 
 COMMIT;
-
-

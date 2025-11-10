@@ -77,3 +77,6 @@ muhammadrizkisetyanto@MacBook-Air-Muhammad quizku % go run internals/seeds/cmd/m
 # Bila postman macet
 
 killall -9 Postman
+
+
+# Menyamanakn denga

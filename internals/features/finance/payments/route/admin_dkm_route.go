@@ -29,7 +29,6 @@ func PaymentAdminRoutes(r fiber.Router, db *gorm.DB, midtransServerKey string, u
 	// CREATE payment (manual / gateway)
 	payByID.Post("/", ctl.CreatePayment)
 	// DETAIL + PATCH
-	payByID.Get("/:id", ctl.GetPaymentByID)
 	payByID.Patch("/:id", ctl.PatchPayment)
 
 	// ====== BASE: by school_slug (opsional, kalau pakai slug/subdomain) ======
@@ -41,6 +40,5 @@ func PaymentAdminRoutes(r fiber.Router, db *gorm.DB, midtransServerKey string, u
 	payBySlug := baseBySlug.Group("/payments")
 	payBySlug.Get("/", ctl.ListPaymentsBySchoolAdmin)
 	payBySlug.Post("/", ctl.CreatePayment)
-	payBySlug.Get("/:id", ctl.GetPaymentByID)
 	payBySlug.Patch("/:id", ctl.PatchPayment)
 }

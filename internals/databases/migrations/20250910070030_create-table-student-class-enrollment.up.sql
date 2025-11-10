@@ -22,7 +22,7 @@ BEGIN
 END$$;
 
 -- =========================================
--- TABLE: student_class_enrollments
+-- TABLE: student_class_enrollments (+ snapshots)
 -- =========================================
 CREATE TABLE IF NOT EXISTS student_class_enrollments (
   student_class_enrollments_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -58,6 +58,15 @@ CREATE TABLE IF NOT EXISTS student_class_enrollments (
   CONSTRAINT ck_student_class_enrollments_prefs_obj
     CHECK (jsonb_typeof(student_class_enrollments_preferences) = 'object'),
 
+  -- ===== Snapshots (DIMINTA) =====
+  -- Dari classes
+  student_class_enrollments_class_name_snapshot VARCHAR(160),
+  student_class_enrollments_class_slug_snapshot VARCHAR(160),
+  -- Dari school_students (pakai snapshot nama dari user_profile)
+  student_class_enrollments_student_name_snapshot VARCHAR(80),
+  student_class_enrollments_student_code_snapshot VARCHAR(50),
+  student_class_enrollments_student_slug_snapshot VARCHAR(50),
+
   -- jejak waktu (audit)
   student_class_enrollments_applied_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   student_class_enrollments_reviewed_at   TIMESTAMPTZ,
@@ -74,11 +83,7 @@ CREATE TABLE IF NOT EXISTS student_class_enrollments (
   UNIQUE (student_class_enrollments_id, student_class_enrollments_school_id)
 );
 
--- =========================================
--- INDEXES: student_class_enrollments
--- =========================================
-
--- Enrollment "aktif" per (student, class)
+-- Indexes: student_class_enrollments
 CREATE UNIQUE INDEX IF NOT EXISTS uq_student_class_enrollments_active_per_student_class
   ON student_class_enrollments (
     student_class_enrollments_school_student_id,
@@ -87,7 +92,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_student_class_enrollments_active_per_studen
   WHERE student_class_enrollments_deleted_at IS NULL
     AND student_class_enrollments_status IN ('initiated','pending_review','awaiting_payment','accepted','waitlisted');
 
--- Lookups umum
 CREATE INDEX IF NOT EXISTS ix_student_class_enrollments_tenant_student_created
   ON student_class_enrollments (
     student_class_enrollments_school_id,
@@ -111,8 +115,17 @@ CREATE INDEX IF NOT EXISTS ix_student_class_enrollments_status_created
   )
   WHERE student_class_enrollments_deleted_at IS NULL;
 
--- JSONB prefs
 CREATE INDEX IF NOT EXISTS gin_student_class_enrollments_prefs
   ON student_class_enrollments USING GIN (student_class_enrollments_preferences jsonb_path_ops);
+
+-- (Opsional) search cepat pada snapshot nama
+CREATE INDEX IF NOT EXISTS gin_sce_class_name_snap_trgm_alive
+  ON student_class_enrollments USING GIN (LOWER(student_class_enrollments_class_name_snapshot) gin_trgm_ops)
+  WHERE student_class_enrollments_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS gin_sce_student_name_snap_trgm_alive
+  ON student_class_enrollments USING GIN (LOWER(student_class_enrollments_student_name_snapshot) gin_trgm_ops)
+  WHERE student_class_enrollments_deleted_at IS NULL;
+
 
 COMMIT;

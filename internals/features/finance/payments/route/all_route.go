@@ -29,6 +29,5 @@ func AllPaymentRoutes(r fiber.Router, db *gorm.DB) {
 
 	// >>> INI dia endpoint eksplisit:
 	payments.Post("/", h.CreatePayment)    // POST   /api/v1/finance/payments
-	payments.Get("/:id", h.GetPaymentByID) // GET    /api/v1/finance/payments/:id
 	payments.Patch("/:id", h.PatchPayment) // PATCH  /api/v1/finance/payments/:id
 }

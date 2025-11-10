@@ -16,7 +16,7 @@ type PaymentStatus string
 type PaymentMethod string
 type PaymentGatewayProvider string
 type PaymentEntryType string
-type FeeScope string // untuk snapshot fee_rule_scope (enum fee_scope di DB)
+type FeeScope string // mirror enum fee_scope di DB
 
 const (
 	PaymentStatusInitiated         PaymentStatus = "initiated"
@@ -67,7 +67,7 @@ const (
 )
 
 /* ================================
-   MODEL: payments
+   MODEL: payments (sinkron dgn SQL)
 ================================ */
 
 type Payment struct {
@@ -77,7 +77,7 @@ type Payment struct {
 	PaymentSchoolID *uuid.UUID `json:"payment_school_id" gorm:"column:payment_school_id;type:uuid"`
 	PaymentUserID   *uuid.UUID `json:"payment_user_id"   gorm:"column:payment_user_id;type:uuid"`
 
-	// Target (salah satu WAJIB ada — dijaga di DB check)
+	// Target (salah satu wajib)
 	PaymentStudentBillID        *uuid.UUID `json:"payment_student_bill_id"          gorm:"column:payment_student_bill_id;type:uuid"`
 	PaymentGeneralBillingID     *uuid.UUID `json:"payment_general_billing_id"       gorm:"column:payment_general_billing_id;type:uuid"`
 	PaymentGeneralBillingKindID *uuid.UUID `json:"payment_general_billing_kind_id"  gorm:"column:payment_general_billing_kind_id;type:uuid"`
@@ -89,7 +89,7 @@ type Payment struct {
 	PaymentAmountIDR int    `json:"payment_amount_idr" gorm:"column:payment_amount_idr;type:int;not null;check:payment_amount_idr>=0"`
 	PaymentCurrency  string `json:"payment_currency"   gorm:"column:payment_currency;type:varchar(8);not null;default:IDR"`
 
-	// Status & metode (enum DB)
+	// Status & metode
 	PaymentStatus PaymentStatus `json:"payment_status" gorm:"column:payment_status;type:payment_status;not null;default:'initiated'"`
 	PaymentMethod PaymentMethod `json:"payment_method" gorm:"column:payment_method;type:payment_method;not null;default:'gateway'"`
 
@@ -103,7 +103,7 @@ type Payment struct {
 	PaymentIdempotencyKey   *string                 `json:"payment_idempotency_key"   gorm:"column:payment_idempotency_key;type:text"`
 
 	// Timestamps status
-	PaymentRequestedAt *time.Time `json:"payment_requested_at" gorm:"column:payment_requested_at;type:timestamptz;default:now()"`
+	PaymentRequestedAt *time.Time `json:"payment_requested_at" gorm:"column:payment_requested_at;type:timestamptz"`
 	PaymentExpiresAt   *time.Time `json:"payment_expires_at"   gorm:"column:payment_expires_at;type:timestamptz"`
 	PaymentPaidAt      *time.Time `json:"payment_paid_at"      gorm:"column:payment_paid_at;type:timestamptz"`
 	PaymentCanceledAt  *time.Time `json:"payment_canceled_at"  gorm:"column:payment_canceled_at;type:timestamptz"`
@@ -117,7 +117,7 @@ type Payment struct {
 	PaymentManualVerifiedByUserID *uuid.UUID `json:"payment_manual_verified_by_user_id" gorm:"column:payment_manual_verified_by_user_id;type:uuid"`
 	PaymentManualVerifiedAt       *time.Time `json:"payment_manual_verified_at"         gorm:"column:payment_manual_verified_at;type:timestamptz"`
 
-	// Ledger & invoice fields (semua diawali payment_)
+	// Ledger & invoice
 	PaymentEntryType      PaymentEntryType `json:"payment_entry_type"       gorm:"column:payment_entry_type;type:payment_entry_type;not null;default:'payment'"`
 	PaymentInvoiceNumber  *string          `json:"payment_invoice_number"   gorm:"column:payment_invoice_number;type:text"`
 	PaymentInvoiceDueDate *time.Time       `json:"payment_invoice_due_date" gorm:"column:payment_invoice_due_date;type:date"`
@@ -127,14 +127,20 @@ type Payment struct {
 	PaymentSubjectUserID    *uuid.UUID `json:"payment_subject_user_id"    gorm:"column:payment_subject_user_id;type:uuid"`
 	PaymentSubjectStudentID *uuid.UUID `json:"payment_subject_student_id" gorm:"column:payment_subject_student_id;type:uuid"`
 
-	// Link & snapshot ke fee_rules (opsional)
-	PaymentFeeRuleID             *uuid.UUID `json:"payment_fee_rule_id"              gorm:"column:payment_fee_rule_id;type:uuid"`
-	PaymentFeeRuleOptionCode     *string    `json:"payment_fee_rule_option_code"     gorm:"column:payment_fee_rule_option_code;type:varchar(20)"`
-	PaymentFeeRuleOptionIndex    *int16     `json:"payment_fee_rule_option_index"    gorm:"column:payment_fee_rule_option_index;type:smallint"` // 1-based
-	PaymentFeeRuleAmountSnapshot *int       `json:"payment_fee_rule_amount_snapshot" gorm:"column:payment_fee_rule_amount_snapshot;type:int"`
-	PaymentFeeRuleGBKIDSnapshot  *uuid.UUID `json:"payment_fee_rule_gbk_id_snapshot" gorm:"column:payment_fee_rule_gbk_id_snapshot;type:uuid"`
-	PaymentFeeRuleScopeSnapshot  *FeeScope  `json:"payment_fee_rule_scope_snapshot"  gorm:"column:payment_fee_rule_scope_snapshot;type:fee_scope"`
-	PaymentFeeRuleNoteSnapshot   *string    `json:"payment_fee_rule_note_snapshot"   gorm:"column:payment_fee_rule_note_snapshot;type:text"`
+	// ===== Fee rule snapshots (pakai *_snapshot) =====
+	PaymentFeeRuleID                  *uuid.UUID `json:"payment_fee_rule_id"                   gorm:"column:payment_fee_rule_id;type:uuid"`
+	PaymentFeeRuleOptionCodeSnapshot  *string    `json:"payment_fee_rule_option_code_snapshot"  gorm:"column:payment_fee_rule_option_code_snapshot;type:varchar(20)"`
+	PaymentFeeRuleOptionIndexSnapshot *int16     `json:"payment_fee_rule_option_index_snapshot" gorm:"column:payment_fee_rule_option_index_snapshot;type:smallint"`
+	PaymentFeeRuleAmountSnapshot      *int       `json:"payment_fee_rule_amount_snapshot"       gorm:"column:payment_fee_rule_amount_snapshot;type:int"`
+	PaymentFeeRuleGBKIDSnapshot       *uuid.UUID `json:"payment_fee_rule_gbk_id_snapshot"       gorm:"column:payment_fee_rule_gbk_id_snapshot;type:uuid"`
+	PaymentFeeRuleScopeSnapshot       *FeeScope  `json:"payment_fee_rule_scope_snapshot"        gorm:"column:payment_fee_rule_scope_snapshot;type:fee_scope"`
+	PaymentFeeRuleNoteSnapshot        *string    `json:"payment_fee_rule_note_snapshot"         gorm:"column:payment_fee_rule_note_snapshot;type:text"`
+
+	// ===== User snapshots (payer) =====
+	PaymentUserNameSnapshot     *string `json:"payment_user_name_snapshot"     gorm:"column:payment_user_name_snapshot;type:text"`
+	PaymentFullNameSnapshot     *string `json:"payment_full_name_snapshot"     gorm:"column:payment_full_name_snapshot;type:text"`
+	PaymentEmailSnapshot        *string `json:"payment_email_snapshot"         gorm:"column:payment_email_snapshot;type:text"`
+	PaymentDonationNameSnapshot *string `json:"payment_donation_name_snapshot" gorm:"column:payment_donation_name_snapshot;type:text"`
 
 	// Meta
 	PaymentDescription *string        `json:"payment_description" gorm:"column:payment_description;type:text"`

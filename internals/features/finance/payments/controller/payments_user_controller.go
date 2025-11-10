@@ -18,6 +18,10 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
+	// tambahkan di import:
+	cendto "schoolku_backend/internals/features/school/classes/classes/dto"
+	cenmodel "schoolku_backend/internals/features/school/classes/classes/model"
+
 	dto "schoolku_backend/internals/features/finance/payments/dto"
 	model "schoolku_backend/internals/features/finance/payments/model"
 	svc "schoolku_backend/internals/features/finance/payments/service"
@@ -142,6 +146,44 @@ func (h *PaymentController) resolveTarget(ctx context.Context, db *gorm.DB, r *d
 }
 
 /* =======================================================================
+   Helpers (snapshots user)
+======================================================================= */
+
+// Ambil snapshot user_name/full_name/email/donation name dari users + user_profiles
+func (h *PaymentController) hydrateUserSnapshots(ctx context.Context, db *gorm.DB, userID uuid.UUID) (userName, fullName, email, donationName *string, err error) {
+	var row struct {
+		UserName *string `gorm:"column:user_name"`
+		FullName *string `gorm:"column:full_name"`
+		Email    *string `gorm:"column:email"`
+		Donation *string `gorm:"column:donation_name"`
+	}
+	q := `
+		SELECT 
+			COALESCE(NULLIF(u.user_name,''), NULLIF(split_part(u.email,'@',1), ''), NULLIF(up.user_profile_slug,'')) AS user_name,
+			NULLIF(u.full_name,'') AS full_name,
+			NULLIF(u.email,'') AS email,
+			NULLIF(up.user_profile_donation_name,'') AS donation_name
+		FROM users u
+		LEFT JOIN user_profiles up ON up.user_profile_user_id = u.id AND up.user_profile_deleted_at IS NULL
+		WHERE u.id = ?
+		LIMIT 1`
+	if err2 := db.WithContext(ctx).Raw(q, userID).Scan(&row).Error; err2 != nil {
+		return nil, nil, nil, nil, err2
+	}
+	trim := func(p *string) *string {
+		if p == nil {
+			return nil
+		}
+		s := strings.TrimSpace(*p)
+		if s == "" {
+			return nil
+		}
+		return &s
+	}
+	return trim(row.UserName), trim(row.FullName), trim(row.Email), trim(row.Donation), nil
+}
+
+/* =======================================================================
    Handlers
 ======================================================================= */
 
@@ -178,6 +220,24 @@ func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 	// Prefill nominal dari target jika request 0
 	if m.PaymentAmountIDR == 0 && ti.AmountSuggestion != nil && *ti.AmountSuggestion > 0 {
 		m.PaymentAmountIDR = *ti.AmountSuggestion
+	}
+
+	// Auto-hydrate user snapshots (jika ada PaymentUserID)
+	if m.PaymentUserID != nil {
+		if un, fn, em, dn, er := h.hydrateUserSnapshots(c.Context(), h.DB, *m.PaymentUserID); er == nil {
+			if m.PaymentUserNameSnapshot == nil {
+				m.PaymentUserNameSnapshot = un
+			}
+			if m.PaymentFullNameSnapshot == nil {
+				m.PaymentFullNameSnapshot = fn
+			}
+			if m.PaymentEmailSnapshot == nil {
+				m.PaymentEmailSnapshot = em
+			}
+			if m.PaymentDonationNameSnapshot == nil {
+				m.PaymentDonationNameSnapshot = dn
+			}
+		}
 	}
 
 	// 2) Default provider → midtrans bila method=gateway & provider kosong
@@ -238,24 +298,6 @@ func (h *PaymentController) CreatePayment(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonCreated(c, "payment created", dto.FromModel(m))
-}
-
-// GET /payments/:id
-func (h *PaymentController) GetPaymentByID(c *fiber.Ctx) error {
-	idStr := c.Params("id")
-	id, err := uuid.Parse(idStr)
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "invalid id")
-	}
-	var m model.Payment
-	if err := h.DB.WithContext(c.Context()).
-		First(&m, "payment_id = ? AND payment_deleted_at IS NULL", id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "payment not found")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-	return helper.JsonOK(c, "ok", dto.FromModel(&m))
 }
 
 // PATCH /payments/:id
@@ -753,8 +795,7 @@ func (h *PaymentController) applyEnrollmentSideEffects(ctx context.Context, db *
 	return nil
 }
 
-// ====== Tambahkan di dekat tipe/DTO section controller ini ======
-// ================= DTO & helpers =================
+// ================= DTO & helpers (request bundle) =================
 
 type BundleItem struct {
 	ClassID           uuid.UUID `json:"class_id" validate:"required"`
@@ -785,8 +826,8 @@ type CreateRegistrationAndPaymentRequest struct {
 }
 
 type CreateRegistrationAndPaymentResponse struct {
-	Enrollments []any `json:"enrollments"`
-	Payment     any   `json:"payment"`
+	Enrollments []cendto.StudentClassEnrollmentResponse `json:"enrollments"`
+	Payment     any                                     `json:"payment"`
 }
 
 type optRow struct {
@@ -835,7 +876,6 @@ func genOrderID(prefix string) string {
 }
 
 // ================= HANDLER: POST /payments/registration-enroll =================
-
 func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	// 0) Auth & resolve school
 	userID, err := helperAuth.GetUserIDFromToken(c)
@@ -874,7 +914,6 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid json: "+err.Error())
 	}
-	// Back-compat → build items
 	if len(req.Items) == 0 {
 		ids := req.ClassIDs
 		if len(ids) == 0 && req.ClassID != uuid.Nil {
@@ -883,7 +922,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		for _, cid := range ids {
 			b := BundleItem{ClassID: cid}
 			if req.CustomAmountIDR != nil {
-				b.CustomAmountIDR = req.CustomAmountIDR // sementara set, validasi berikutnya
+				b.CustomAmountIDR = req.CustomAmountIDR
 				b.CustomLabel = req.CustomLabel
 			} else if req.FeeRuleOptionCode != nil {
 				b.FeeRuleOptionCode = req.FeeRuleOptionCode
@@ -940,7 +979,38 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		profileID = id
 	}
 
-	// 2b) map/auto-provision SchoolStudent
+	// 2a) Ambil kandidat nama dari users + snapshot profile
+	var prof struct {
+		UserID   uuid.UUID `gorm:"column:user_id"`
+		FullName *string   `gorm:"column:full_name"`
+		Email    *string   `gorm:"column:email"`
+		SnapName *string   `gorm:"column:snap_name"`
+	}
+	if err := tx.Raw(`
+		SELECT 
+			up.user_profile_user_id            AS user_id,
+			u.full_name                        AS full_name,
+			u.email                            AS email,
+			up.user_profile_full_name_snapshot AS snap_name
+		FROM user_profiles up
+		JOIN users u ON u.id = up.user_profile_user_id
+		WHERE up.user_profile_id = ?
+		LIMIT 1
+	`, profileID).Scan(&prof).Error; err != nil {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal ambil profil pengguna")
+	}
+	pickProfileName := func() *string {
+		for _, s := range []*string{prof.FullName, prof.SnapName} {
+			if s != nil && strings.TrimSpace(*s) != "" {
+				v := strings.TrimSpace(*s)
+				return &v
+			}
+		}
+		return nil
+	}()
+
+	// 2b) map/auto-provision SchoolStudent (isi snapshot name jika ada)
 	var schoolStudentID uuid.UUID
 	{
 		var sidStr string
@@ -999,18 +1069,35 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			genSlug := fmt.Sprintf("u-%s-%s", shortUID, rand4)
 
 			var newIDStr string
-			if er := tx.Raw(`
-				INSERT INTO school_students (
-					school_student_school_id,
-					school_student_user_profile_id,
-					school_student_slug,
-					school_student_status,
-					school_student_sections
-				) VALUES (?, ?, ?, 'active', '[]'::jsonb)
-				RETURNING school_student_id
-			`, schoolID, profileID, genSlug).Scan(&newIDStr).Error; er != nil {
-				_ = tx.Rollback()
-				return helper.JsonError(c, fiber.StatusInternalServerError, "gagal membuat siswa: "+er.Error())
+			if pickProfileName != nil {
+				if er := tx.Raw(`
+					INSERT INTO school_students (
+						school_student_school_id,
+						school_student_user_profile_id,
+						school_student_slug,
+						school_student_status,
+						school_student_sections,
+						school_student_user_profile_name_snapshot
+					) VALUES (?, ?, ?, 'active', '[]'::jsonb, ?)
+					RETURNING school_student_id
+				`, schoolID, profileID, genSlug, *pickProfileName).Scan(&newIDStr).Error; er != nil {
+					_ = tx.Rollback()
+					return helper.JsonError(c, fiber.StatusInternalServerError, "gagal membuat siswa: "+er.Error())
+				}
+			} else {
+				if er := tx.Raw(`
+					INSERT INTO school_students (
+						school_student_school_id,
+						school_student_user_profile_id,
+						school_student_slug,
+						school_student_status,
+						school_student_sections
+					) VALUES (?, ?, ?, 'active', '[]'::jsonb)
+					RETURNING school_student_id
+				`, schoolID, profileID, genSlug).Scan(&newIDStr).Error; er != nil {
+					_ = tx.Rollback()
+					return helper.JsonError(c, fiber.StatusInternalServerError, "gagal membuat siswa: "+er.Error())
+				}
 			}
 			nid, er := uuid.Parse(strings.TrimSpace(newIDStr))
 			if er != nil || nid == uuid.Nil {
@@ -1079,7 +1166,6 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusBadRequest, "class_id item tidak valid")
 		}
-		// dedup
 		if _, ok := classSeen[it.ClassID]; ok {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusBadRequest, "class_id duplikat pada items")
@@ -1108,7 +1194,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, "class tidak valid di sekolah ini: "+it.ClassID.String())
 		}
 
-		// tentukan nominal & label per item
+		// nominal & label per item
 		switch {
 		case it.CustomAmountIDR != nil:
 			if *it.CustomAmountIDR < minOpt {
@@ -1136,7 +1222,6 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 					return helper.JsonError(c, fiber.StatusBadRequest, "fee_rule_option_code tidak valid untuk kelas "+it.ClassID.String())
 				}
 			} else {
-				// fallback: request global FeeRuleOptionCode / default option (jika single)
 				if req.FeeRuleOptionCode != nil && strings.TrimSpace(*req.FeeRuleOptionCode) != "" {
 					chosen = findByCode(opts, *req.FeeRuleOptionCode)
 					if chosen == nil {
@@ -1164,9 +1249,63 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		}
 	}
 
-	// 5) Insert enrollments (per item)
+	// ---------------------------
+	// 4a) Ambil SNAPSHOT siswa
+	// ---------------------------
+	var stuSnap struct {
+		Name *string `gorm:"column:name"`
+		Code *string `gorm:"column:code"`
+		Slug *string `gorm:"column:slug"`
+	}
+	if err := tx.Raw(`
+		SELECT 
+			NULLIF(ss.school_student_user_profile_name_snapshot, '') AS name,
+			NULLIF(ss.school_student_code, '')                       AS code,
+			NULLIF(ss.school_student_slug, '')                       AS slug
+		FROM school_students ss
+		WHERE ss.school_student_id = ? AND ss.school_student_school_id = ?
+		LIMIT 1
+	`, schoolStudentID, schoolID).Scan(&stuSnap).Error; err != nil {
+		_ = tx.Rollback()
+		return helper.JsonError(c, fiber.StatusInternalServerError, "gagal baca snapshot siswa: "+err.Error())
+	}
+	// Fallback name bila kosong → pickProfileName
+	if (stuSnap.Name == nil || strings.TrimSpace(*stuSnap.Name) == "") && pickProfileName != nil {
+		n := strings.TrimSpace(*pickProfileName)
+		stuSnap.Name = &n
+	}
+
+	// ---------------------------
+	// 4b) Ambil SNAPSHOT kelas (name, slug) untuk semua class_id
+	// ---------------------------
+	type clsSnap struct {
+		ID   uuid.UUID `gorm:"column:class_id"`
+		Name string    `gorm:"column:class_name"`
+		Slug string    `gorm:"column:class_slug"`
+	}
+	classIDs := make([]uuid.UUID, 0, len(items))
+	for _, it := range items {
+		classIDs = append(classIDs, it.ClassID)
+	}
+	clsMap := make(map[uuid.UUID]clsSnap, len(classIDs))
+	if len(classIDs) > 0 {
+		var rows []clsSnap
+		if err := tx.Table("classes").
+			Select("class_id, class_name, class_slug").
+			Where("class_school_id = ? AND class_id IN ?", schoolID, classIDs).
+			Find(&rows).Error; err != nil {
+			_ = tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "gagal baca snapshot kelas: "+err.Error())
+		}
+		for _, r := range rows {
+			clsMap[r.ID] = r
+		}
+	}
+
+	// 5) Insert enrollments + isi snapshot
 	enrollIDs := make([]uuid.UUID, 0, len(items))
 	perShares := make([]int64, 0, len(items))
+
 	for idx, it := range items {
 		prefs := map[string]any{
 			"payer_user_id": userID,
@@ -1187,6 +1326,32 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		}
 		prefsJSON, _ := json.Marshal(prefs)
 
+		// ambil snapshot kelas utk item ini
+		var cName, cSlug *string
+		if cs, ok := clsMap[it.ClassID]; ok {
+			if s := strings.TrimSpace(cs.Name); s != "" {
+				cName = &cs.Name
+			}
+			if s := strings.TrimSpace(cs.Slug); s != "" {
+				cSlug = &cs.Slug
+			}
+		}
+
+		// siapkan snapshot siswa (boleh nil → NULL)
+		var sName, sCode, sSlug *string
+		if stuSnap.Name != nil && strings.TrimSpace(*stuSnap.Name) != "" {
+			s := strings.TrimSpace(*stuSnap.Name)
+			sName = &s
+		}
+		if stuSnap.Code != nil && strings.TrimSpace(*stuSnap.Code) != "" {
+			s := strings.TrimSpace(*stuSnap.Code)
+			sCode = &s
+		}
+		if stuSnap.Slug != nil && strings.TrimSpace(*stuSnap.Slug) != "" {
+			s := strings.TrimSpace(*stuSnap.Slug)
+			sSlug = &s
+		}
+
 		var eidStr string
 		if err := tx.Raw(`
 			INSERT INTO student_class_enrollments
@@ -1196,14 +1361,29 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 				student_class_enrollments_class_id,
 				student_class_enrollments_status,
 				student_class_enrollments_total_due_idr,
-				student_class_enrollments_preferences
+				student_class_enrollments_preferences,
+				-- SNAPSHOTS
+				student_class_enrollments_class_name_snapshot,
+				student_class_enrollments_class_slug_snapshot,
+				student_class_enrollments_student_name_snapshot,
+				student_class_enrollments_student_code_snapshot,
+				student_class_enrollments_student_slug_snapshot
 			)
-			VALUES (?, ?, ?, 'initiated', ?, ?::jsonb)
+			VALUES (?, ?, ?, 'initiated', ?, ?::jsonb, ?, ?, ?, ?, ?)
 			RETURNING student_class_enrollments_id
-		`, schoolID, schoolStudentID, it.ClassID, it.AmountIDR, datatypes.JSON(prefsJSON)).Scan(&eidStr).Error; err != nil {
+		`,
+			schoolID,
+			schoolStudentID,
+			it.ClassID,
+			it.AmountIDR,
+			datatypes.JSON(prefsJSON),
+			cName, cSlug,
+			sName, sCode, sSlug,
+		).Scan(&eidStr).Error; err != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusBadRequest, "gagal membuat enrollment (mungkin duplikat aktif)")
 		}
+
 		eid, er := uuid.Parse(strings.TrimSpace(eidStr))
 		if er != nil || eid == uuid.Nil {
 			_ = tx.Rollback()
@@ -1213,12 +1393,11 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		perShares = append(perShares, it.AmountIDR)
 	}
 
-	// 6) Buat 1 payment total (sum)
+	// 6) Buat 1 payment (total)
 	var totalAmount int64
 	for _, s := range perShares {
 		totalAmount += s
 	}
-
 	extID := req.PaymentExternalID
 	if extID == nil || strings.TrimSpace(*extID) == "" {
 		s := genOrderID("REG")
@@ -1271,7 +1450,16 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		PaymentGeneralBillingKindID: &fr.GBKID,
 		PaymentMeta:                 datatypes.JSON(metaJSON),
 	}
-	// default provider safety
+	if un, fn, em, dn, er := h.hydrateUserSnapshots(c.Context(), tx, userID); er == nil {
+		pm.PaymentUserNameSnapshot = un
+		if fn != nil {
+			pm.PaymentFullNameSnapshot = fn
+		} else if pickProfileName != nil {
+			pm.PaymentFullNameSnapshot = pickProfileName
+		}
+		pm.PaymentEmailSnapshot = em
+		pm.PaymentDonationNameSnapshot = dn
+	}
 	if pm.PaymentMethod == model.PaymentMethodGateway && (pm.PaymentGatewayProvider == nil || *pm.PaymentGatewayProvider == "") {
 		pr := model.GatewayProviderMidtrans
 		pm.PaymentGatewayProvider = &pr
@@ -1289,7 +1477,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		}
 	}
 
-	// Snap (jika gateway=midtrans)
+	// Snap (Midtrans)
 	if pm.PaymentMethod == model.PaymentMethodGateway &&
 		pm.PaymentGatewayProvider != nil && *pm.PaymentGatewayProvider == model.GatewayProviderMidtrans {
 
@@ -1334,21 +1522,31 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "commit gagal: "+err.Error())
 	}
 
-	// Response
-	enrollRes := make([]any, 0, len(enrollIDs))
+	// ===================== Response (enrichment ringan) =====================
+	enrollDTOs := make([]cendto.StudentClassEnrollmentResponse, 0, len(enrollIDs))
 	for i, eid := range enrollIDs {
-		enrollRes = append(enrollRes, fiber.Map{
-			"student_class_enrollments_id":                eid,
-			"student_class_enrollments_school_id":         schoolID,
-			"student_class_enrollments_school_student_id": schoolStudentID,
-			"student_class_enrollments_class_id":          items[i].ClassID,
-			"student_class_enrollments_status":            "awaiting_payment",
-			"student_class_enrollments_total_due_idr":     perShares[i],
-		})
+		dtoRow := cendto.StudentClassEnrollmentResponse{
+			StudentClassEnrollmentID:              eid,
+			StudentClassEnrollmentSchoolID:        schoolID,
+			StudentClassEnrollmentSchoolStudentID: schoolStudentID,
+			StudentClassEnrollmentClassID:         items[i].ClassID,
+			StudentClassEnrollmentStatus:          cenmodel.EnrollmentAwaitingPay,
+			StudentClassEnrollmentTotalDueIDR:     perShares[i],
+		}
+		// langsung isi dari snapshot yang tadi kita ambil (biar konsisten dengan DB)
+		if cs, ok := clsMap[items[i].ClassID]; ok {
+			if strings.TrimSpace(cs.Name) != "" {
+				dtoRow.ClassName = cs.Name
+			}
+		}
+		if stuSnap.Name != nil && strings.TrimSpace(*stuSnap.Name) != "" {
+			dtoRow.StudentName = strings.TrimSpace(*stuSnap.Name)
+		}
+		enrollDTOs = append(enrollDTOs, dtoRow)
 	}
 
 	return helper.JsonCreated(c, "registration bundle + payment created", CreateRegistrationAndPaymentResponse{
-		Enrollments: enrollRes,
+		Enrollments: enrollDTOs,
 		Payment:     dto.FromModel(pm),
 	})
 }

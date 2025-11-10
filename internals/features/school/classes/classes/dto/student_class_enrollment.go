@@ -98,6 +98,14 @@ type StudentClassEnrollmentResponse struct {
 
 	StudentClassEnrollmentPreferences map[string]interface{} `json:"student_class_enrollments_preferences"`
 
+	// ===== Snapshots (sinkron dengan DDL) =====
+	StudentClassEnrollmentClassNameSnapshot   string `json:"student_class_enrollments_class_name_snapshot"`
+	StudentClassEnrollmentClassSlugSnapshot   string `json:"student_class_enrollments_class_slug_snapshot"`
+	StudentClassEnrollmentStudentNameSnapshot string `json:"student_class_enrollments_student_name_snapshot"`
+	StudentClassEnrollmentStudentCodeSnapshot string `json:"student_class_enrollments_student_code_snapshot"`
+	StudentClassEnrollmentStudentSlugSnapshot string `json:"student_class_enrollments_student_slug_snapshot"`
+
+	// Jejak waktu (audit)
 	StudentClassEnrollmentAppliedAt    time.Time  `json:"student_class_enrollments_applied_at"`
 	StudentClassEnrollmentReviewedAt   *time.Time `json:"student_class_enrollments_reviewed_at"`
 	StudentClassEnrollmentAcceptedAt   *time.Time `json:"student_class_enrollments_accepted_at"`
@@ -107,6 +115,11 @@ type StudentClassEnrollmentResponse struct {
 
 	StudentClassEnrollmentCreatedAt time.Time `json:"student_class_enrollments_created_at"`
 	StudentClassEnrollmentUpdatedAt time.Time `json:"student_class_enrollments_updated_at"`
+
+	// Convenience untuk client (opsional)
+	StudentName string  `json:"student_name,omitempty"` // dari StudentNameSnapshot
+	Username    *string `json:"username,omitempty"`     // jika suatu saat di-join ke user table
+	ClassName   string  `json:"class_name,omitempty"`   // dari ClassNameSnapshot
 }
 
 /* ======================================================
@@ -119,17 +132,27 @@ func FromModelStudentClassEnrollment(mo *m.StudentClassEnrollmentModel) StudentC
 		StudentClassEnrollmentSchoolID:        mo.StudentClassEnrollmentSchoolID,
 		StudentClassEnrollmentSchoolStudentID: mo.StudentClassEnrollmentSchoolStudentID,
 		StudentClassEnrollmentClassID:         mo.StudentClassEnrollmentClassID,
-		StudentClassEnrollmentStatus:          mo.StudentClassEnrollmentStatus,
-		StudentClassEnrollmentTotalDueIDR:     mo.StudentClassEnrollmentTotalDueIDR,
-		StudentClassEnrollmentPaymentID:       mo.StudentClassEnrollmentPaymentID,
-		StudentClassEnrollmentAppliedAt:       mo.StudentClassEnrollmentAppliedAt,
-		StudentClassEnrollmentReviewedAt:      mo.StudentClassEnrollmentReviewedAt,
-		StudentClassEnrollmentAcceptedAt:      mo.StudentClassEnrollmentAcceptedAt,
-		StudentClassEnrollmentWaitlistedAt:    mo.StudentClassEnrollmentWaitlistedAt,
-		StudentClassEnrollmentRejectedAt:      mo.StudentClassEnrollmentRejectedAt,
-		StudentClassEnrollmentCanceledAt:      mo.StudentClassEnrollmentCanceledAt,
-		StudentClassEnrollmentCreatedAt:       mo.StudentClassEnrollmentCreatedAt,
-		StudentClassEnrollmentUpdatedAt:       mo.StudentClassEnrollmentUpdatedAt,
+
+		StudentClassEnrollmentStatus:      mo.StudentClassEnrollmentStatus,
+		StudentClassEnrollmentTotalDueIDR: mo.StudentClassEnrollmentTotalDueIDR,
+
+		// snapshots
+		StudentClassEnrollmentClassNameSnapshot:   mo.StudentClassEnrollmentClassNameSnapshot,
+		StudentClassEnrollmentClassSlugSnapshot:   mo.StudentClassEnrollmentClassSlugSnapshot,
+		StudentClassEnrollmentStudentNameSnapshot: mo.StudentClassEnrollmentStudentNameSnapshot,
+		StudentClassEnrollmentStudentCodeSnapshot: mo.StudentClassEnrollmentStudentCodeSnapshot,
+		StudentClassEnrollmentStudentSlugSnapshot: mo.StudentClassEnrollmentStudentSlugSnapshot,
+
+		// audit
+		StudentClassEnrollmentAppliedAt:    mo.StudentClassEnrollmentAppliedAt,
+		StudentClassEnrollmentReviewedAt:   mo.StudentClassEnrollmentReviewedAt,
+		StudentClassEnrollmentAcceptedAt:   mo.StudentClassEnrollmentAcceptedAt,
+		StudentClassEnrollmentWaitlistedAt: mo.StudentClassEnrollmentWaitlistedAt,
+		StudentClassEnrollmentRejectedAt:   mo.StudentClassEnrollmentRejectedAt,
+		StudentClassEnrollmentCanceledAt:   mo.StudentClassEnrollmentCanceledAt,
+
+		StudentClassEnrollmentCreatedAt: mo.StudentClassEnrollmentCreatedAt,
+		StudentClassEnrollmentUpdatedAt: mo.StudentClassEnrollmentUpdatedAt,
 	}
 
 	// JSON → map[string]interface{}
@@ -139,6 +162,14 @@ func FromModelStudentClassEnrollment(mo *m.StudentClassEnrollmentModel) StudentC
 	if b := mo.StudentClassEnrollmentPreferences; len(b) > 0 && string(b) != "null" {
 		_ = json.Unmarshal(b, &resp.StudentClassEnrollmentPreferences)
 	}
+
+	// Convenience fields dari snapshot
+	resp.StudentName = mo.StudentClassEnrollmentStudentNameSnapshot
+	resp.ClassName = mo.StudentClassEnrollmentClassNameSnapshot
+
+	// Payment ID (opsional)
+	resp.StudentClassEnrollmentPaymentID = mo.StudentClassEnrollmentPaymentID
+
 	return resp
 }
 

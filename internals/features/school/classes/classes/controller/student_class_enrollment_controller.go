@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -94,10 +95,112 @@ func nowPtr() *time.Time {
 	return &t
 }
 
+func enrichEnrollmentExtras(ctx context.Context, db *gorm.DB, schoolID uuid.UUID, items []dto.StudentClassEnrollmentResponse) {
+	if len(items) == 0 {
+		return
+	}
+
+	// Kumpulkan ID unik
+	stuIDsSet := map[uuid.UUID]struct{}{}
+	classIDsSet := map[uuid.UUID]struct{}{}
+	for _, it := range items {
+		stuIDsSet[it.StudentClassEnrollmentSchoolStudentID] = struct{}{}
+		classIDsSet[it.StudentClassEnrollmentClassID] = struct{}{}
+	}
+	stuIDs := make([]uuid.UUID, 0, len(stuIDsSet))
+	classIDs := make([]uuid.UUID, 0, len(classIDsSet))
+	for id := range stuIDsSet {
+		stuIDs = append(stuIDs, id)
+	}
+	for id := range classIDsSet {
+		classIDs = append(classIDs, id)
+	}
+
+	// ===== Ambil students (name, user_id)
+	type stuRow struct {
+		ID     uuid.UUID  `gorm:"column:school_student_id"`
+		Name   string     `gorm:"column:name"`
+		UserID *uuid.UUID `gorm:"column:user_id"`
+	}
+	stuMap := make(map[uuid.UUID]stuRow, len(stuIDs))
+	if len(stuIDs) > 0 {
+		var stus []stuRow
+		_ = db.WithContext(ctx).
+			Table("school_students").
+			Select("school_student_id, name, user_id").
+			Where("school_id = ? AND school_student_id IN ?", schoolID, stuIDs).
+			Find(&stus).Error
+		for _, s := range stus {
+			stuMap[s.ID] = s
+		}
+	}
+
+	// ===== Ambil classes (class_name)
+	type clsRow struct {
+		ID        uuid.UUID `gorm:"column:class_id"`
+		ClassName string    `gorm:"column:class_name"`
+	}
+	clsMap := make(map[uuid.UUID]clsRow, len(classIDs))
+	if len(classIDs) > 0 {
+		var clss []clsRow
+		_ = db.WithContext(ctx).
+			Table("classes").
+			Select("class_id, class_name").
+			Where("class_school_id = ? AND class_id IN ?", schoolID, classIDs).
+			Find(&clss).Error
+		for _, c := range clss {
+			clsMap[c.ID] = c
+		}
+	}
+
+	// ===== Ambil usernames (batch) opsional
+	userIDsSet := map[uuid.UUID]struct{}{}
+	for _, s := range stuMap {
+		if s.UserID != nil {
+			userIDsSet[*s.UserID] = struct{}{}
+		}
+	}
+	userIDs := make([]uuid.UUID, 0, len(userIDsSet))
+	for id := range userIDsSet {
+		userIDs = append(userIDs, id)
+	}
+	type userRow struct {
+		ID       uuid.UUID `gorm:"column:id"`
+		UserName string    `gorm:"column:user_name"`
+	}
+	uMap := make(map[uuid.UUID]string, len(userIDs))
+	if len(userIDs) > 0 {
+		var us []userRow
+		_ = db.WithContext(ctx).
+			Table("users").
+			Select("id, user_name").
+			Where("id IN ?", userIDs).
+			Find(&us).Error
+		for _, u := range us {
+			uMap[u.ID] = u.UserName
+		}
+	}
+
+	// ===== Isi ke items
+	for i := range items {
+		if s, ok := stuMap[items[i].StudentClassEnrollmentSchoolStudentID]; ok {
+			items[i].StudentName = s.Name
+			if s.UserID != nil {
+				if un, ok2 := uMap[*s.UserID]; ok2 {
+					username := un
+					items[i].Username = &username
+				}
+			}
+		}
+		if c, ok := clsMap[items[i].StudentClassEnrollmentClassID]; ok {
+			items[i].ClassName = c.ClassName
+		}
+	}
+}
+
 /* =======================================================
    Routes
    - POST   /:school_id/class-enrollments
-   - GET    /:school_id/class-enrollments
    - GET    /:school_id/class-enrollments/:id
    - PATCH  /:school_id/class-enrollments/:id
    - PATCH  /:school_id/class-enrollments/:id/status
@@ -122,17 +225,60 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid body")
 	}
 
-	// build model
+	// ===== Lookup student (pastikan belong to school) =====
+	var stu struct {
+		ID     uuid.UUID  `gorm:"column:school_student_id"`
+		Name   string     `gorm:"column:name"`
+		Code   string     `gorm:"column:code"`
+		Slug   string     `gorm:"column:slug"`
+		UserID *uuid.UUID `gorm:"column:user_id"`
+	}
+	if err := ctl.DB.WithContext(c.Context()).
+		Table("school_students").
+		Select("school_student_id, name, code, slug, user_id").
+		Where("school_student_id = ? AND school_id = ?", body.SchoolStudentID, schoolID).
+		Take(&stu).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusBadRequest, "invalid student for this school")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	// ===== Lookup class (pastikan belong to school) =====
+	var cls struct {
+		ID        uuid.UUID `gorm:"column:class_id"`
+		ClassName string    `gorm:"column:class_name"`
+		Slug      string    `gorm:"column:class_slug"`
+	}
+	if err := ctl.DB.WithContext(c.Context()).
+		Table("classes").
+		Select("class_id, class_name, class_slug").
+		Where("class_id = ? AND class_school_id = ?", body.ClassID, schoolID).
+		Take(&cls).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusBadRequest, "invalid class for this school")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	// ===== Build model & isi SNAPSHOT =====
 	m := emodel.StudentClassEnrollmentModel{
 		StudentClassEnrollmentSchoolID:        schoolID,
 		StudentClassEnrollmentSchoolStudentID: body.SchoolStudentID,
 		StudentClassEnrollmentClassID:         body.ClassID,
-		StudentClassEnrollmentStatus:          emodel.EnrollmentInitiated,
-		StudentClassEnrollmentTotalDueIDR:     body.TotalDueIDR,
-		StudentClassEnrollmentAppliedAt:       time.Now(),
+
+		StudentClassEnrollmentStatus:      emodel.EnrollmentInitiated,
+		StudentClassEnrollmentTotalDueIDR: body.TotalDueIDR,
+		StudentClassEnrollmentAppliedAt:   time.Now(),
+
+		// snapshots
+		StudentClassEnrollmentClassNameSnapshot:   cls.ClassName,
+		StudentClassEnrollmentClassSlugSnapshot:   cls.Slug,
+		StudentClassEnrollmentStudentNameSnapshot: stu.Name,
+		StudentClassEnrollmentStudentCodeSnapshot: stu.Code,
+		StudentClassEnrollmentStudentSlugSnapshot: stu.Slug,
 	}
 
-	// Preferences (map -> JSON)
 	if body.Preferences != nil {
 		if b, er := json.Marshal(body.Preferences); er == nil {
 			m.StudentClassEnrollmentPreferences = b
@@ -143,7 +289,11 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	return helper.JsonCreated(c, "created", dto.FromModelStudentClassEnrollment(&m))
+	// response
+	resp := dto.FromModelStudentClassEnrollment(&m)
+	list := []dto.StudentClassEnrollmentResponse{resp}
+	enrichEnrollmentExtras(c.Context(), ctl.DB, schoolID, list)
+	return helper.JsonCreated(c, "created", list[0])
 }
 
 // GET /:school_id/class-enrollments/:id

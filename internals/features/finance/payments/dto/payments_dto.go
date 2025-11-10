@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -59,6 +58,7 @@ func applyVal[T any](dst *T, f PatchField[T]) {
 
 /* =========================================================
    REQUEST: CreatePayment (POST)
+   (sinkron dgn model & SQL terbaru)
 ========================================================= */
 
 type CreatePaymentRequest struct {
@@ -115,14 +115,20 @@ type CreatePaymentRequest struct {
 	PaymentSubjectUserID    *uuid.UUID `json:"payment_subject_user_id"`
 	PaymentSubjectStudentID *uuid.UUID `json:"payment_subject_student_id"`
 
-	// Link & snapshot fee_rules (opsional)
-	PaymentFeeRuleID             *uuid.UUID      `json:"payment_fee_rule_id"`
-	PaymentFeeRuleOptionCode     *string         `json:"payment_fee_rule_option_code"`
-	PaymentFeeRuleOptionIndex    *int16          `json:"payment_fee_rule_option_index"`    // 1-based
-	PaymentFeeRuleAmountSnapshot *int            `json:"payment_fee_rule_amount_snapshot"` // >= 0
-	PaymentFeeRuleGBKIDSnapshot  *uuid.UUID      `json:"payment_fee_rule_gbk_id_snapshot"`
-	PaymentFeeRuleScopeSnapshot  *model.FeeScope `json:"payment_fee_rule_scope_snapshot"` // enum fee_scope
-	PaymentFeeRuleNoteSnapshot   *string         `json:"payment_fee_rule_note_snapshot"`
+	// ===== Link & snapshot fee_rules (opsional; sudah *_snapshot) =====
+	PaymentFeeRuleID                  *uuid.UUID      `json:"payment_fee_rule_id"`
+	PaymentFeeRuleOptionCodeSnapshot  *string         `json:"payment_fee_rule_option_code_snapshot"`
+	PaymentFeeRuleOptionIndexSnapshot *int16          `json:"payment_fee_rule_option_index_snapshot"` // 1-based
+	PaymentFeeRuleAmountSnapshot      *int            `json:"payment_fee_rule_amount_snapshot"`       // >= 0
+	PaymentFeeRuleGBKIDSnapshot       *uuid.UUID      `json:"payment_fee_rule_gbk_id_snapshot"`
+	PaymentFeeRuleScopeSnapshot       *model.FeeScope `json:"payment_fee_rule_scope_snapshot"` // enum fee_scope
+	PaymentFeeRuleNoteSnapshot        *string         `json:"payment_fee_rule_note_snapshot"`
+
+	// (opsional) user snapshots — biasanya server isi otomatis saat create
+	PaymentUserNameSnapshot     *string `json:"payment_user_name_snapshot"`
+	PaymentFullNameSnapshot     *string `json:"payment_full_name_snapshot"`
+	PaymentEmailSnapshot        *string `json:"payment_email_snapshot"`
+	PaymentDonationNameSnapshot *string `json:"payment_donation_name_snapshot"`
 
 	// Meta
 	PaymentDescription *string        `json:"payment_description"`
@@ -157,19 +163,12 @@ func (r *CreatePaymentRequest) Validate() error {
 		return fmt.Errorf("payment_currency hanya mendukung 'IDR'")
 	}
 
-	// Koherensi fee_rule snapshot (kalau ada fee_rule_id)
-	if r.PaymentFeeRuleID != nil {
-		if (r.PaymentFeeRuleOptionCode == nil || strings.TrimSpace(*r.PaymentFeeRuleOptionCode) == "") &&
-			r.PaymentFeeRuleOptionIndex == nil &&
-			r.PaymentFeeRuleAmountSnapshot == nil {
-			return errors.New("fee_rule_id disertai minimal salah satu: fee_rule_option_code / fee_rule_option_index / fee_rule_amount_snapshot")
-		}
-		if r.PaymentFeeRuleOptionIndex != nil && *r.PaymentFeeRuleOptionIndex < 1 {
-			return errors.New("payment_fee_rule_option_index minimal 1 (1-based)")
-		}
-		if r.PaymentFeeRuleAmountSnapshot != nil && *r.PaymentFeeRuleAmountSnapshot < 0 {
-			return errors.New("payment_fee_rule_amount_snapshot tidak boleh negatif")
-		}
+	// Fee rule checks (lebih longgar sesuai SQL terbaru)
+	if r.PaymentFeeRuleOptionIndexSnapshot != nil && *r.PaymentFeeRuleOptionIndexSnapshot < 1 {
+		return errors.New("payment_fee_rule_option_index_snapshot minimal 1 (1-based)")
+	}
+	if r.PaymentFeeRuleAmountSnapshot != nil && *r.PaymentFeeRuleAmountSnapshot < 0 {
+		return errors.New("payment_fee_rule_amount_snapshot tidak boleh negatif")
 	}
 
 	return nil
@@ -222,14 +221,20 @@ func (r *CreatePaymentRequest) ToModel() *model.Payment {
 		PaymentSubjectUserID:    r.PaymentSubjectUserID,
 		PaymentSubjectStudentID: r.PaymentSubjectStudentID,
 
-		// fee_rule snapshot
-		PaymentFeeRuleID:             r.PaymentFeeRuleID,
-		PaymentFeeRuleOptionCode:     r.PaymentFeeRuleOptionCode,
-		PaymentFeeRuleOptionIndex:    r.PaymentFeeRuleOptionIndex,
-		PaymentFeeRuleAmountSnapshot: r.PaymentFeeRuleAmountSnapshot,
-		PaymentFeeRuleGBKIDSnapshot:  r.PaymentFeeRuleGBKIDSnapshot,
-		PaymentFeeRuleScopeSnapshot:  r.PaymentFeeRuleScopeSnapshot,
-		PaymentFeeRuleNoteSnapshot:   r.PaymentFeeRuleNoteSnapshot,
+		// fee_rule snapshots
+		PaymentFeeRuleID:                  r.PaymentFeeRuleID,
+		PaymentFeeRuleOptionCodeSnapshot:  r.PaymentFeeRuleOptionCodeSnapshot,
+		PaymentFeeRuleOptionIndexSnapshot: r.PaymentFeeRuleOptionIndexSnapshot,
+		PaymentFeeRuleAmountSnapshot:      r.PaymentFeeRuleAmountSnapshot,
+		PaymentFeeRuleGBKIDSnapshot:       r.PaymentFeeRuleGBKIDSnapshot,
+		PaymentFeeRuleScopeSnapshot:       r.PaymentFeeRuleScopeSnapshot,
+		PaymentFeeRuleNoteSnapshot:        r.PaymentFeeRuleNoteSnapshot,
+
+		// user snapshots (optional; seringnya diisi server dari join)
+		PaymentUserNameSnapshot:     r.PaymentUserNameSnapshot,
+		PaymentFullNameSnapshot:     r.PaymentFullNameSnapshot,
+		PaymentEmailSnapshot:        r.PaymentEmailSnapshot,
+		PaymentDonationNameSnapshot: r.PaymentDonationNameSnapshot,
 
 		PaymentDescription: r.PaymentDescription,
 		PaymentNote:        r.PaymentNote,
@@ -304,14 +309,20 @@ type UpdatePaymentRequest struct {
 	PaymentSubjectUserID    PatchField[uuid.UUID] `json:"payment_subject_user_id"`
 	PaymentSubjectStudentID PatchField[uuid.UUID] `json:"payment_subject_student_id"`
 
-	// fee_rule snapshot
-	PaymentFeeRuleID             PatchField[uuid.UUID]      `json:"payment_fee_rule_id"`
-	PaymentFeeRuleOptionCode     PatchField[string]         `json:"payment_fee_rule_option_code"`
-	PaymentFeeRuleOptionIndex    PatchField[int16]          `json:"payment_fee_rule_option_index"`
-	PaymentFeeRuleAmountSnapshot PatchField[int]            `json:"payment_fee_rule_amount_snapshot"`
-	PaymentFeeRuleGBKIDSnapshot  PatchField[uuid.UUID]      `json:"payment_fee_rule_gbk_id_snapshot"`
-	PaymentFeeRuleScopeSnapshot  PatchField[model.FeeScope] `json:"payment_fee_rule_scope_snapshot"`
-	PaymentFeeRuleNoteSnapshot   PatchField[string]         `json:"payment_fee_rule_note_snapshot"`
+	// ===== fee_rule snapshots =====
+	PaymentFeeRuleID                  PatchField[uuid.UUID]      `json:"payment_fee_rule_id"`
+	PaymentFeeRuleOptionCodeSnapshot  PatchField[string]         `json:"payment_fee_rule_option_code_snapshot"`
+	PaymentFeeRuleOptionIndexSnapshot PatchField[int16]          `json:"payment_fee_rule_option_index_snapshot"`
+	PaymentFeeRuleAmountSnapshot      PatchField[int]            `json:"payment_fee_rule_amount_snapshot"`
+	PaymentFeeRuleGBKIDSnapshot       PatchField[uuid.UUID]      `json:"payment_fee_rule_gbk_id_snapshot"`
+	PaymentFeeRuleScopeSnapshot       PatchField[model.FeeScope] `json:"payment_fee_rule_scope_snapshot"`
+	PaymentFeeRuleNoteSnapshot        PatchField[string]         `json:"payment_fee_rule_note_snapshot"`
+
+	// ===== user snapshots =====
+	PaymentUserNameSnapshot     PatchField[string] `json:"payment_user_name_snapshot"`
+	PaymentFullNameSnapshot     PatchField[string] `json:"payment_full_name_snapshot"`
+	PaymentEmailSnapshot        PatchField[string] `json:"payment_email_snapshot"`
+	PaymentDonationNameSnapshot PatchField[string] `json:"payment_donation_name_snapshot"`
 
 	// Meta
 	PaymentDescription PatchField[string]         `json:"payment_description"`
@@ -398,14 +409,15 @@ func (p *UpdatePaymentRequest) Apply(m *model.Payment) error {
 	applyPtr(&m.PaymentSubjectUserID, p.PaymentSubjectUserID)
 	applyPtr(&m.PaymentSubjectStudentID, p.PaymentSubjectStudentID)
 
-	// fee_rule snapshot
+	// ===== fee_rule snapshots =====
 	applyPtr(&m.PaymentFeeRuleID, p.PaymentFeeRuleID)
-	applyPtr(&m.PaymentFeeRuleOptionCode, p.PaymentFeeRuleOptionCode)
-	if p.PaymentFeeRuleOptionIndex.Set {
-		if !p.PaymentFeeRuleOptionIndex.Null && p.PaymentFeeRuleOptionIndex.Value != nil && *p.PaymentFeeRuleOptionIndex.Value < 1 {
-			return errors.New("payment_fee_rule_option_index minimal 1 (1-based)")
+	applyPtr(&m.PaymentFeeRuleOptionCodeSnapshot, p.PaymentFeeRuleOptionCodeSnapshot)
+
+	if p.PaymentFeeRuleOptionIndexSnapshot.Set {
+		if !p.PaymentFeeRuleOptionIndexSnapshot.Null && p.PaymentFeeRuleOptionIndexSnapshot.Value != nil && *p.PaymentFeeRuleOptionIndexSnapshot.Value < 1 {
+			return errors.New("payment_fee_rule_option_index_snapshot minimal 1 (1-based)")
 		}
-		applyPtr(&m.PaymentFeeRuleOptionIndex, p.PaymentFeeRuleOptionIndex)
+		applyPtr(&m.PaymentFeeRuleOptionIndexSnapshot, p.PaymentFeeRuleOptionIndexSnapshot)
 	}
 	if p.PaymentFeeRuleAmountSnapshot.Set {
 		if !p.PaymentFeeRuleAmountSnapshot.Null && p.PaymentFeeRuleAmountSnapshot.Value != nil && *p.PaymentFeeRuleAmountSnapshot.Value < 0 {
@@ -416,6 +428,12 @@ func (p *UpdatePaymentRequest) Apply(m *model.Payment) error {
 	applyPtr(&m.PaymentFeeRuleGBKIDSnapshot, p.PaymentFeeRuleGBKIDSnapshot)
 	applyPtr(&m.PaymentFeeRuleScopeSnapshot, p.PaymentFeeRuleScopeSnapshot)
 	applyPtr(&m.PaymentFeeRuleNoteSnapshot, p.PaymentFeeRuleNoteSnapshot)
+
+	// ===== user snapshots =====
+	applyPtr(&m.PaymentUserNameSnapshot, p.PaymentUserNameSnapshot)
+	applyPtr(&m.PaymentFullNameSnapshot, p.PaymentFullNameSnapshot)
+	applyPtr(&m.PaymentEmailSnapshot, p.PaymentEmailSnapshot)
+	applyPtr(&m.PaymentDonationNameSnapshot, p.PaymentDonationNameSnapshot)
 
 	// meta
 	applyPtr(&m.PaymentDescription, p.PaymentDescription)
@@ -486,14 +504,20 @@ type PaymentResponse struct {
 	PaymentSubjectUserID    *uuid.UUID `json:"payment_subject_user_id"`
 	PaymentSubjectStudentID *uuid.UUID `json:"payment_subject_student_id"`
 
-	// fee_rule snapshot
-	PaymentFeeRuleID             *uuid.UUID      `json:"payment_fee_rule_id"`
-	PaymentFeeRuleOptionCode     *string         `json:"payment_fee_rule_option_code"`
-	PaymentFeeRuleOptionIndex    *int16          `json:"payment_fee_rule_option_index"`
-	PaymentFeeRuleAmountSnapshot *int            `json:"payment_fee_rule_amount_snapshot"`
-	PaymentFeeRuleGBKIDSnapshot  *uuid.UUID      `json:"payment_fee_rule_gbk_id_snapshot"`
-	PaymentFeeRuleScopeSnapshot  *model.FeeScope `json:"payment_fee_rule_scope_snapshot"`
-	PaymentFeeRuleNoteSnapshot   *string         `json:"payment_fee_rule_note_snapshot"`
+	// ===== fee_rule snapshots =====
+	PaymentFeeRuleID                  *uuid.UUID      `json:"payment_fee_rule_id"`
+	PaymentFeeRuleOptionCodeSnapshot  *string         `json:"payment_fee_rule_option_code_snapshot"`
+	PaymentFeeRuleOptionIndexSnapshot *int16          `json:"payment_fee_rule_option_index_snapshot"`
+	PaymentFeeRuleAmountSnapshot      *int            `json:"payment_fee_rule_amount_snapshot"`
+	PaymentFeeRuleGBKIDSnapshot       *uuid.UUID      `json:"payment_fee_rule_gbk_id_snapshot"`
+	PaymentFeeRuleScopeSnapshot       *model.FeeScope `json:"payment_fee_rule_scope_snapshot"`
+	PaymentFeeRuleNoteSnapshot        *string         `json:"payment_fee_rule_note_snapshot"`
+
+	// ===== user snapshots =====
+	PaymentUserNameSnapshot     *string `json:"payment_user_name_snapshot"`
+	PaymentFullNameSnapshot     *string `json:"payment_full_name_snapshot"`
+	PaymentEmailSnapshot        *string `json:"payment_email_snapshot"`
+	PaymentDonationNameSnapshot *string `json:"payment_donation_name_snapshot"`
 
 	PaymentDescription *string        `json:"payment_description"`
 	PaymentNote        *string        `json:"payment_note"`
@@ -555,13 +579,19 @@ func FromModel(m *model.Payment) *PaymentResponse {
 		PaymentSubjectUserID:    m.PaymentSubjectUserID,
 		PaymentSubjectStudentID: m.PaymentSubjectStudentID,
 
-		PaymentFeeRuleID:             m.PaymentFeeRuleID,
-		PaymentFeeRuleOptionCode:     m.PaymentFeeRuleOptionCode,
-		PaymentFeeRuleOptionIndex:    m.PaymentFeeRuleOptionIndex,
-		PaymentFeeRuleAmountSnapshot: m.PaymentFeeRuleAmountSnapshot,
-		PaymentFeeRuleGBKIDSnapshot:  m.PaymentFeeRuleGBKIDSnapshot,
-		PaymentFeeRuleScopeSnapshot:  m.PaymentFeeRuleScopeSnapshot,
-		PaymentFeeRuleNoteSnapshot:   m.PaymentFeeRuleNoteSnapshot,
+		// snapshots
+		PaymentFeeRuleID:                  m.PaymentFeeRuleID,
+		PaymentFeeRuleOptionCodeSnapshot:  m.PaymentFeeRuleOptionCodeSnapshot,
+		PaymentFeeRuleOptionIndexSnapshot: m.PaymentFeeRuleOptionIndexSnapshot,
+		PaymentFeeRuleAmountSnapshot:      m.PaymentFeeRuleAmountSnapshot,
+		PaymentFeeRuleGBKIDSnapshot:       m.PaymentFeeRuleGBKIDSnapshot,
+		PaymentFeeRuleScopeSnapshot:       m.PaymentFeeRuleScopeSnapshot,
+		PaymentFeeRuleNoteSnapshot:        m.PaymentFeeRuleNoteSnapshot,
+
+		PaymentUserNameSnapshot:     m.PaymentUserNameSnapshot,
+		PaymentFullNameSnapshot:     m.PaymentFullNameSnapshot,
+		PaymentEmailSnapshot:        m.PaymentEmailSnapshot,
+		PaymentDonationNameSnapshot: m.PaymentDonationNameSnapshot,
 
 		PaymentDescription: m.PaymentDescription,
 		PaymentNote:        m.PaymentNote,
