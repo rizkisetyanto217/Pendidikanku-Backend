@@ -78,25 +78,9 @@ CREATE INDEX IF NOT EXISTS idx_class_schedules_date_bounds_alive
 CREATE INDEX IF NOT EXISTS brin_class_schedules_created_at
   ON class_schedules USING BRIN (class_schedule_created_at);
 
--- +migrate Up
 -- =========================================================
--- UP — class_schedule_rules + CSST snapshot
+-- Tambahan UNIQUE untuk urutan kolom yang cocok dengan FK (id, school)
 -- =========================================================
-BEGIN;
-
--- ===== Enums =====
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'session_status_enum') THEN
-    CREATE TYPE session_status_enum AS ENUM ('scheduled','ongoing','completed','canceled');
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'week_parity_enum') THEN
-    CREATE TYPE week_parity_enum AS ENUM ('all','odd','even');
-  END IF;
-END$$;
-
--- ===== Tenant-safe uniqueness di tabel referensi =====
--- class_schedules → untuk FK komposit (id, school)
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_class_schedules_id_school') THEN
@@ -106,7 +90,9 @@ BEGIN
   END IF;
 END$$;
 
--- class_section_subject_teachers (CSST) → FK komposit (id, school)
+-- =========================================================
+-- Pastikan CSST punya UNIQUE (id, school) untuk FK komposit
+-- =========================================================
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_csst_id_school') THEN
@@ -116,13 +102,15 @@ BEGIN
   END IF;
 END$$;
 
+
+
 -- =========================================================
--- TABLE: class_schedule_rules (slot mingguan) + link ke CSST
+-- TABLE: class_schedule_rules (single-tenant column; no trigger)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_schedule_rules (
   class_schedule_rule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  -- tenant + pointer ke header (FK komposit → tenant-safe)
+  -- tenant + pointer ke header (FK komposit → tenant-safe di header)
   class_schedule_rule_school_id   UUID NOT NULL,
   class_schedule_rule_schedule_id UUID NOT NULL,
   CONSTRAINT fk_csr_schedule_tenant
@@ -142,25 +130,29 @@ CREATE TABLE IF NOT EXISTS class_schedule_rules (
   class_schedule_rule_weeks_of_month      INT[],
   class_schedule_rule_last_week_of_month  BOOLEAN NOT NULL DEFAULT FALSE,
 
-  -- DEFAULT PENUGASAN: CSST (tenant-safe, WAJIB)
-  class_schedule_rule_csst_id        UUID NOT NULL,
-  class_schedule_rule_csst_school_id UUID NOT NULL,
+  -- DEFAULT PENUGASAN: CSST (FK satu kolom)
+  class_schedule_rule_csst_id            UUID NOT NULL,
+  class_schedule_rule_csst_slug_snapshot VARCHAR(100),
 
-  -- ===== Snapshot CSST (denormalized) =====
-  class_schedule_rule_csst_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  -- ===== Snapshot CSST (diisi backend) =====
+  class_schedule_rule_csst_snapshot JSONB NOT NULL,
 
-  -- ===== Generated columns dari snapshot (untuk query cepat)
-  class_schedule_rule_csst_teacher_id       UUID GENERATED ALWAYS AS ((class_schedule_rule_csst_snapshot->>'teacher_id')::uuid) STORED,
-  class_schedule_rule_csst_section_id       UUID GENERATED ALWAYS AS ((class_schedule_rule_csst_snapshot->>'section_id')::uuid) STORED,
-  class_schedule_rule_csst_class_subject_id UUID GENERATED ALWAYS AS ((class_schedule_rule_csst_snapshot->>'class_subject_id')::uuid) STORED,
-  class_schedule_rule_csst_room_id          UUID GENERATED ALWAYS AS ((class_schedule_rule_csst_snapshot->>'room_id')::uuid) STORED,
+  -- ===== Generated columns dari snapshot (rename versimu)
+  class_schedule_rule_csst_student_teacher_id UUID GENERATED ALWAYS AS ((class_schedule_rule_csst_snapshot->>'teacher_id')::uuid) STORED,
+  class_schedule_rule_csst_class_section_id   UUID GENERATED ALWAYS AS ((class_schedule_rule_csst_snapshot->>'section_id')::uuid) STORED,
+  class_schedule_rule_csst_class_subject_id   UUID GENERATED ALWAYS AS ((class_schedule_rule_csst_snapshot->>'class_subject_id')::uuid) STORED,
+  class_schedule_rule_csst_class_room_id      UUID GENERATED ALWAYS AS ((class_schedule_rule_csst_snapshot->>'room_id')::uuid) STORED,
+
+  -- Ambil school_id dari snapshot untuk guard tenant
+  class_schedule_rule_csst_school_id_from_snapshot UUID
+    GENERATED ALWAYS AS ((class_schedule_rule_csst_snapshot->>'school_id')::uuid) STORED,
 
   -- audit
   class_schedule_rule_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_schedule_rule_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_schedule_rule_deleted_at TIMESTAMPTZ,
 
-  -- ===== Generated untuk anti-overlap (EXCLUDE gist) =====
+  -- waktu (menit) untuk exclusion
   class_schedule_rule_start_min SMALLINT GENERATED ALWAYS AS (
     (EXTRACT(HOUR FROM class_schedule_rule_start_time)::INT * 60)
     + EXTRACT(MINUTE FROM class_schedule_rule_start_time)::INT
@@ -168,22 +160,28 @@ CREATE TABLE IF NOT EXISTS class_schedule_rules (
   class_schedule_rule_end_min SMALLINT GENERATED ALWAYS AS (
     (EXTRACT(HOUR FROM class_schedule_rule_end_time)::INT * 60)
     + EXTRACT(MINUTE FROM class_schedule_rule_end_time)::INT
-  ) STORED
+  ) STORED,
+
+  -- ===== Tenant guard via snapshot (tanpa kolom dobel & tanpa trigger)
+  CONSTRAINT ck_csr_snapshot_tenant_guard CHECK (
+    (class_schedule_rule_csst_snapshot ? 'school_id')
+    AND (class_schedule_rule_csst_school_id_from_snapshot = class_schedule_rule_school_id)
+  )
 );
 
--- FK ke CSST (komposit, tenant-safe)
+-- FK ke CSST (single-column; PK CSST adalah UUID global)
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_csr_csst_tenant') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_csr_csst_singlecol') THEN
     ALTER TABLE class_schedule_rules
-      ADD CONSTRAINT fk_csr_csst_tenant
-      FOREIGN KEY (class_schedule_rule_csst_id, class_schedule_rule_csst_school_id)
-      REFERENCES class_section_subject_teachers (class_section_subject_teacher_id, class_section_subject_teacher_school_id)
+      ADD CONSTRAINT fk_csr_csst_singlecol
+      FOREIGN KEY (class_schedule_rule_csst_id)
+      REFERENCES class_section_subject_teachers (class_section_subject_teacher_id)
       ON UPDATE CASCADE ON DELETE RESTRICT;
   END IF;
 END$$;
 
--- Indexes (class_schedule_rules)
+-- Indexes
 CREATE INDEX IF NOT EXISTS idx_csr_by_schedule_dow
   ON class_schedule_rules (class_schedule_rule_schedule_id, class_schedule_rule_day_of_week)
   WHERE class_schedule_rule_deleted_at IS NULL;
@@ -191,6 +189,9 @@ CREATE INDEX IF NOT EXISTS idx_csr_by_schedule_dow
 CREATE INDEX IF NOT EXISTS idx_csr_by_school
   ON class_schedule_rules (class_schedule_rule_school_id)
   WHERE class_schedule_rule_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_csr_deleted_at
+  ON class_schedule_rules (class_schedule_rule_deleted_at);
 
 -- Unik: cegah duplikasi slot persis untuk CSST yang sama dalam satu schedule
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csr_unique_slot_per_schedule_csst
@@ -202,9 +203,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csr_unique_slot_per_schedule_csst
     class_schedule_rule_end_time
   )
   WHERE class_schedule_rule_deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS idx_csr_deleted_at
-  ON class_schedule_rules (class_schedule_rule_deleted_at);
 
 -- Exclusion constraint: cegah overlap waktu per (schedule, CSST, hari)
 DO $$
@@ -222,98 +220,10 @@ BEGIN
   END IF;
 END$$;
 
--- =========================================================
--- Snapshot builder dari CSST → JSONB (dipakai di triggers)
--- =========================================================
-CREATE OR REPLACE FUNCTION build_csst_snapshot(p_csst_id UUID, p_school_id UUID)
-RETURNS JSONB
-LANGUAGE plpgsql AS $$
-DECLARE
-  r RECORD;
-BEGIN
-  SELECT
-    t.class_section_subject_teacher_id               AS csst_id,
-    t.class_section_subject_teacher_school_id        AS school_id,
-    t.class_section_subject_teacher_teacher_id       AS teacher_id,
-    t.class_section_subject_teacher_section_id       AS section_id,
-    t.class_section_subject_teacher_class_subject_id AS class_subject_id,
-    t.class_section_subject_teacher_room_id          AS room_id,
-    t.class_section_subject_teacher_group_url        AS group_url,
-    t.class_section_subject_teacher_slug             AS slug,
-    t.class_section_subject_teacher_description      AS description
-  INTO r
-  FROM class_section_subject_teachers t
-  WHERE t.class_section_subject_teacher_id = p_csst_id
-    AND t.class_section_subject_teacher_school_id = p_school_id;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'CSST % (school %) not found', p_csst_id, p_school_id;
-  END IF;
-
-  RETURN jsonb_build_object(
-    'csst_id',          r.csst_id,
-    'school_id',        r.school_id,
-    'teacher_id',       r.teacher_id,
-    'section_id',       r.section_id,
-    'class_subject_id', r.class_subject_id,
-    'room_id',          r.room_id,
-    'group_url',        r.group_url,
-    'slug',             r.slug,
-    'description',      r.description
-  );
-END $$;
 
 -- =========================================================
--- Trigger: isi/refresh snapshot di class_schedule_rules
--- (tanpa menyentuh created_at/updated_at)
--- =========================================================
-CREATE OR REPLACE FUNCTION trg_csr_fill_csst_snapshot()
-RETURNS trigger
-LANGUAGE plpgsql AS $$
-BEGIN
-  -- tenant guard: school rule harus sama dengan school CSST
-  IF NEW.class_schedule_rule_school_id <> NEW.class_schedule_rule_csst_school_id THEN
-    RAISE EXCEPTION 'School mismatch: rule(%) vs csst(%)',
-      NEW.class_schedule_rule_school_id, NEW.class_schedule_rule_csst_school_id;
-  END IF;
-
-  NEW.class_schedule_rule_csst_snapshot :=
-    build_csst_snapshot(
-      NEW.class_schedule_rule_csst_id,
-      NEW.class_schedule_rule_csst_school_id
-    );
-
-  RETURN NEW; -- tidak mutasi timestamp
-END $$;
-
-DROP TRIGGER IF EXISTS trg_csr_fill_csst_snapshot_biu ON class_schedule_rules;
-CREATE TRIGGER trg_csr_fill_csst_snapshot_biu
-BEFORE INSERT OR UPDATE OF
-  class_schedule_rule_csst_id,
-  class_schedule_rule_csst_school_id
-ON class_schedule_rules
-FOR EACH ROW
-EXECUTE FUNCTION trg_csr_fill_csst_snapshot();
-
--- Backfill snapshot rules (tanpa menyentuh updated_at)
-UPDATE class_schedule_rules csr
-SET class_schedule_rule_csst_snapshot =
-      build_csst_snapshot(
-        csr.class_schedule_rule_csst_id,
-        csr.class_schedule_rule_csst_school_id
-      )
-WHERE csr.class_schedule_rule_deleted_at IS NULL
-  AND (csr.class_schedule_rule_csst_snapshot IS NULL
-       OR csr.class_schedule_rule_csst_snapshot = '{}'::jsonb);
-
-COMMIT;
-
-
-
-
--- =========================================
 -- TABLE: national_holidays (dikelola admin)
--- =========================================
+-- =========================================================
 CREATE TABLE IF NOT EXISTS national_holidays (
   national_holiday_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
@@ -328,7 +238,6 @@ CREATE TABLE IF NOT EXISTS national_holidays (
   national_holiday_reason TEXT,
 
   national_holiday_is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  -- jika perlu fixed-date tahunan (mis. 08-17)
   national_holiday_is_recurring_yearly BOOLEAN NOT NULL DEFAULT FALSE,
 
   -- audit
@@ -356,11 +265,9 @@ CREATE INDEX IF NOT EXISTS gin_national_holidays_slug_trgm_alive
 CREATE INDEX IF NOT EXISTS brin_national_holidays_created_at
   ON national_holidays USING BRIN (national_holiday_created_at);
 
-
-
--- =========================================
+-- =========================================================
 -- TABLE: school_holidays (libur custom per school/sekolah)
--- =========================================
+-- =========================================================
 CREATE TABLE IF NOT EXISTS school_holidays (
   school_holiday_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   school_holiday_school_id UUID NOT NULL
@@ -377,8 +284,6 @@ CREATE TABLE IF NOT EXISTS school_holidays (
   school_holiday_reason TEXT,
 
   school_holiday_is_active BOOLEAN NOT NULL DEFAULT TRUE,
-
-  -- biasanya libur sekolah tidak berulang tahunan; tetap disediakan jika perlu
   school_holiday_is_recurring_yearly BOOLEAN NOT NULL DEFAULT FALSE,
 
   -- audit

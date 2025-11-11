@@ -876,6 +876,7 @@ func genOrderID(prefix string) string {
 }
 
 // ================= HANDLER: POST /payments/registration-enroll =================
+// ================= HANDLER: POST /payments/registration-enroll =================
 func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	// 0) Auth & resolve school
 	userID, err := helperAuth.GetUserIDFromToken(c)
@@ -1276,12 +1277,17 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	}
 
 	// ---------------------------
-	// 4b) Ambil SNAPSHOT kelas (name, slug) untuk semua class_id
+	// 4b) Ambil SNAPSHOT kelas + TERM untuk semua class_id
 	// ---------------------------
 	type clsSnap struct {
-		ID   uuid.UUID `gorm:"column:class_id"`
-		Name string    `gorm:"column:class_name"`
-		Slug string    `gorm:"column:class_slug"`
+		ID         uuid.UUID  `gorm:"column:class_id"`
+		Name       string     `gorm:"column:class_name"`
+		Slug       string     `gorm:"column:class_slug"`
+		TermID     *uuid.UUID `gorm:"column:class_term_id"`
+		TermYear   *string    `gorm:"column:class_term_academic_year_snapshot"`
+		TermName   *string    `gorm:"column:class_term_name_snapshot"`
+		TermSlug   *string    `gorm:"column:class_term_slug_snapshot"`
+		TermAngkat *int       `gorm:"column:term_angkatan_int"` // cast dari varchar
 	}
 	classIDs := make([]uuid.UUID, 0, len(items))
 	for _, it := range items {
@@ -1291,7 +1297,16 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 	if len(classIDs) > 0 {
 		var rows []clsSnap
 		if err := tx.Table("classes").
-			Select("class_id, class_name, class_slug").
+			Select(`
+				class_id,
+				class_name,
+				class_slug,
+				class_term_id,
+				class_term_academic_year_snapshot,
+				class_term_name_snapshot,
+				class_term_slug_snapshot,
+				NULLIF(class_term_angkatan_snapshot,'')::int AS term_angkatan_int
+			`).
 			Where("class_school_id = ? AND class_id IN ?", schoolID, classIDs).
 			Find(&rows).Error; err != nil {
 			_ = tx.Rollback()
@@ -1302,7 +1317,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		}
 	}
 
-	// 5) Insert enrollments + isi snapshot
+	// 5) Insert enrollments + isi snapshot (kelas, siswa, TERM)
 	enrollIDs := make([]uuid.UUID, 0, len(items))
 	perShares := make([]int64, 0, len(items))
 
@@ -1326,8 +1341,15 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 		}
 		prefsJSON, _ := json.Marshal(prefs)
 
-		// ambil snapshot kelas utk item ini
-		var cName, cSlug *string
+		// snapshot kelas utk item ini
+		var (
+			cName, cSlug *string
+			tID          *uuid.UUID
+			tYear        *string
+			tName        *string
+			tSlug        *string
+			tAngkat      *int
+		)
 		if cs, ok := clsMap[it.ClassID]; ok {
 			if s := strings.TrimSpace(cs.Name); s != "" {
 				cName = &cs.Name
@@ -1335,9 +1357,14 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			if s := strings.TrimSpace(cs.Slug); s != "" {
 				cSlug = &cs.Slug
 			}
+			tID = cs.TermID
+			tYear = cs.TermYear
+			tName = cs.TermName
+			tSlug = cs.TermSlug
+			tAngkat = cs.TermAngkat
 		}
 
-		// siapkan snapshot siswa (boleh nil → NULL)
+		// snapshot siswa (boleh nil → NULL)
 		var sName, sCode, sSlug *string
 		if stuSnap.Name != nil && strings.TrimSpace(*stuSnap.Name) != "" {
 			s := strings.TrimSpace(*stuSnap.Name)
@@ -1362,14 +1389,22 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 				student_class_enrollments_status,
 				student_class_enrollments_total_due_idr,
 				student_class_enrollments_preferences,
-				-- SNAPSHOTS
+
+				-- SNAPSHOTS (class & student)
 				student_class_enrollments_class_name_snapshot,
 				student_class_enrollments_class_slug_snapshot,
 				student_class_enrollments_student_name_snapshot,
 				student_class_enrollments_student_code_snapshot,
-				student_class_enrollments_student_slug_snapshot
+				student_class_enrollments_student_slug_snapshot,
+
+				-- TERM (denormalized)
+				student_class_enrollments_term_id,
+				student_class_enrollments_term_academic_year_snapshot,
+				student_class_enrollments_term_name_snapshot,
+				student_class_enrollments_term_slug_snapshot,
+				student_class_enrollments_term_angkatan_snapshot
 			)
-			VALUES (?, ?, ?, 'initiated', ?, ?::jsonb, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, 'initiated', ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			RETURNING student_class_enrollments_id
 		`,
 			schoolID,
@@ -1377,8 +1412,11 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			it.ClassID,
 			it.AmountIDR,
 			datatypes.JSON(prefsJSON),
+
 			cName, cSlug,
 			sName, sCode, sSlug,
+
+			tID, tYear, tName, tSlug, tAngkat,
 		).Scan(&eidStr).Error; err != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusBadRequest, "gagal membuat enrollment (mungkin duplikat aktif)")
@@ -1533,11 +1571,17 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 			StudentClassEnrollmentStatus:          cenmodel.EnrollmentAwaitingPay,
 			StudentClassEnrollmentTotalDueIDR:     perShares[i],
 		}
-		// langsung isi dari snapshot yang tadi kita ambil (biar konsisten dengan DB)
+		// langsung isi dari snapshot yang tadi kita ambil (konsisten dengan DB)
 		if cs, ok := clsMap[items[i].ClassID]; ok {
 			if strings.TrimSpace(cs.Name) != "" {
 				dtoRow.StudentClassEnrollmentClassName = cs.Name
 			}
+			// ===== TERM snapshots (baru) =====
+			dtoRow.StudentClassEnrollmentTermID = cs.TermID
+			dtoRow.StudentClassEnrollmentTermAcademicYearSnapshot = cs.TermYear
+			dtoRow.StudentClassEnrollmentTermNameSnapshot = cs.TermName
+			dtoRow.StudentClassEnrollmentTermSlugSnapshot = cs.TermSlug
+			dtoRow.StudentClassEnrollmentTermAngkatanSnapshot = cs.TermAngkat
 		}
 		if stuSnap.Name != nil && strings.TrimSpace(*stuSnap.Name) != "" {
 			dtoRow.StudentClassEnrollmentStudentName = strings.TrimSpace(*stuSnap.Name)

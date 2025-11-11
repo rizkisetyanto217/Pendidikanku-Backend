@@ -32,6 +32,33 @@ func ptrStr(p *string) string {
 	return *p
 }
 
+// ===== Snapshot class_parent (ringan, tenant-aware) =====
+type classParentSnapRow struct {
+	Code  *string
+	Slug  *string
+	Level *int16
+	URL   *string
+	Name  *string
+}
+
+func fetchClassParentSnapshot(tx *gorm.DB, schoolID, parentID uuid.UUID) (*classParentSnapRow, error) {
+	var row classParentSnapRow
+	if err := tx.
+		Table("class_parents").
+		Select(`
+			class_parent_code   AS code,
+			class_parent_slug   AS slug,
+			class_parent_level  AS level,
+			class_parent_url    AS url,
+			class_parent_name   AS name
+		`).
+		Where("class_parent_id = ? AND class_parent_school_id = ?", parentID, schoolID).
+		Take(&row).Error; err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
 /*
 =========================================================
 
@@ -91,7 +118,7 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 
 			_ = tx.Table("class_parents").
 				Select("class_parent_slug").
-				Where("class_parent_id = ? AND class_parent_school_id = ?", req.ParentID, req.SchoolID).
+				Where("class_parent_id = ? AND class_parent_school_id = ?", req.ClassParentID, req.SchoolID).
 				Scan(&parentSlug).Error
 
 			switch {
@@ -104,7 +131,7 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 			default:
 				baseSlug = helper.Slugify(
 					fmt.Sprintf("cs-%s-%s",
-						strings.Split(req.ParentID.String(), "-")[0],
+						strings.Split(req.ClassParentID.String(), "-")[0],
 						strings.Split(req.SubjectID.String(), "-")[0],
 					), 160)
 			}
@@ -137,24 +164,38 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot subject")
 		}
 
+		// === Ambil ClassParentSnapshot ===
+		parentSnap, err := fetchClassParentSnapshot(tx, req.SchoolID, req.ClassParentID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return fiber.NewError(fiber.StatusNotFound, "Class parent tidak ditemukan")
+			}
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot class parent")
+		}
+
 		// === Build model (isi snapshots) ===
 		m := req.ToModel()
 		m.ClassSubjectSlug = &uniqueSlug
+		// subject snapshots
 		m.ClassSubjectSubjectNameSnapshot = &subjSnap.Name
 		m.ClassSubjectSubjectCodeSnapshot = &subjSnap.Code
 		m.ClassSubjectSubjectSlugSnapshot = &subjSnap.Slug
 		m.ClassSubjectSubjectURLSnapshot = subjSnap.URL
+		// class_parent snapshots
+		m.ClassSubjectClassParentCodeSnapshot = parentSnap.Code
+		m.ClassSubjectClassParentSlugSnapshot = parentSnap.Slug
+		m.ClassSubjectClassParentLevelSnapshot = parentSnap.Level
+		m.ClassSubjectClassParentURLSnapshot = parentSnap.URL
+		m.ClassSubjectClassParentNameSnapshot = parentSnap.Name
 
 		// === UPSERT race-safe: DO NOTHING (tanpa target) ===
-		// Kompatibel dengan partial unique index (alive) juga.
 		res := tx.
 			Clauses(clause.OnConflict{
-				DoNothing: true, // ⬅️ cukup ini
+				DoNothing: true,
 			}).
 			Create(&m)
 
 		if res.Error != nil {
-			// error lain (bukan conflict swallowed) — kirim 500
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat class subject")
 		}
 
@@ -164,10 +205,10 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 			if err := tx.
 				Where(`
 					class_subject_school_id = ?
-					AND class_subject_parent_id = ?
+					AND class_subject_class_parent_id = ?
 					AND class_subject_subject_id = ?
 					AND class_subject_deleted_at IS NULL
-				`, req.SchoolID, req.ParentID, req.SubjectID).
+				`, req.SchoolID, req.ClassParentID, req.SubjectID).
 				Take(&existing).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					// race ekstrem — retry sekali
@@ -260,14 +301,6 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
-	// Helper kecil
-	ptrStr := func(p *string) string {
-		if p == nil {
-			return ""
-		}
-		return *p
-	}
-
 	// Transaksi
 	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		// 🔒 Ambil record lama + kunci baris (race-safe)
@@ -289,7 +322,7 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 		}
 
 		// Simpan nilai lama untuk deteksi perubahan
-		oldParentID := m.ClassSubjectParentID
+		oldParentID := m.ClassSubjectClassParentID
 		oldSubjectID := m.ClassSubjectSubjectID
 		oldSlugEmpty := (m.ClassSubjectSlug == nil || strings.TrimSpace(ptrStr(m.ClassSubjectSlug)) == "")
 
@@ -314,6 +347,22 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			m.ClassSubjectSubjectURLSnapshot = subjSnap.URL
 		}
 
+		// === Jika ClassParentID berubah → refresh ClassParentSnapshot ===
+		if m.ClassSubjectClassParentID != oldParentID {
+			parentSnap, err := fetchClassParentSnapshot(tx, schoolID, m.ClassSubjectClassParentID)
+			if err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return fiber.NewError(fiber.StatusNotFound, "Class parent tidak ditemukan")
+				}
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot class parent")
+			}
+			m.ClassSubjectClassParentCodeSnapshot = parentSnap.Code
+			m.ClassSubjectClassParentSlugSnapshot = parentSnap.Slug
+			m.ClassSubjectClassParentLevelSnapshot = parentSnap.Level
+			m.ClassSubjectClassParentURLSnapshot = parentSnap.URL
+			m.ClassSubjectClassParentNameSnapshot = parentSnap.Name
+		}
+
 		// === Slug handling (regen jika kosong / parent berubah / subject berubah / user set slug manual) ===
 		needSetSlug := false
 		var baseSlug string
@@ -322,7 +371,7 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			// User provide slug manual
 			baseSlug = *req.Slug
 			needSetSlug = true
-		} else if oldSlugEmpty || m.ClassSubjectParentID != oldParentID || m.ClassSubjectSubjectID != oldSubjectID {
+		} else if oldSlugEmpty || m.ClassSubjectClassParentID != oldParentID || m.ClassSubjectSubjectID != oldSubjectID {
 			needSetSlug = true
 
 			var subjName, parentSlug string
@@ -333,7 +382,7 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 
 			_ = tx.Table("class_parents").
 				Select("class_parent_slug").
-				Where("class_parent_id = ? AND class_parent_school_id = ?", m.ClassSubjectParentID, schoolID).
+				Where("class_parent_id = ? AND class_parent_school_id = ?", m.ClassSubjectClassParentID, schoolID).
 				Scan(&parentSlug).Error
 
 			switch {
@@ -346,7 +395,7 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			default:
 				baseSlug = helper.Slugify(
 					fmt.Sprintf("cs-%s-%s",
-						strings.Split(m.ClassSubjectParentID.String(), "-")[0],
+						strings.Split(m.ClassSubjectClassParentID.String(), "-")[0],
 						strings.Split(m.ClassSubjectSubjectID.String(), "-")[0],
 					), 160)
 			}
@@ -374,12 +423,12 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			m.ClassSubjectSlug = &uniqueSlug
 		}
 
-		// === Persist (tanpa COUNT duplikasi; biarkan DB enforce unique) ===
+		// === Persist (biarkan DB enforce unique) ===
 		if err := tx.Model(&csModel.ClassSubjectModel{}).
 			Where("class_subject_id = ?", m.ClassSubjectID).
 			Updates(map[string]any{
 				"class_subject_school_id":              m.ClassSubjectSchoolID,
-				"class_subject_parent_id":              m.ClassSubjectParentID,
+				"class_subject_class_parent_id":        m.ClassSubjectClassParentID,
 				"class_subject_subject_id":             m.ClassSubjectSubjectID,
 				"class_subject_slug":                   m.ClassSubjectSlug,
 				"class_subject_order_index":            m.ClassSubjectOrderIndex,
@@ -398,7 +447,14 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 				"class_subject_subject_code_snapshot": m.ClassSubjectSubjectCodeSnapshot,
 				"class_subject_subject_slug_snapshot": m.ClassSubjectSubjectSlugSnapshot,
 				"class_subject_subject_url_snapshot":  m.ClassSubjectSubjectURLSnapshot,
-				"class_subject_is_active":             m.ClassSubjectIsActive,
+				// snapshots class_parent (mungkin unchanged)
+				"class_subject_class_parent_code_snapshot":  m.ClassSubjectClassParentCodeSnapshot,
+				"class_subject_class_parent_slug_snapshot":  m.ClassSubjectClassParentSlugSnapshot,
+				"class_subject_class_parent_level_snapshot": m.ClassSubjectClassParentLevelSnapshot,
+				"class_subject_class_parent_url_snapshot":   m.ClassSubjectClassParentURLSnapshot,
+				"class_subject_class_parent_name_snapshot":  m.ClassSubjectClassParentNameSnapshot,
+
+				"class_subject_is_active": m.ClassSubjectIsActive,
 			}).Error; err != nil {
 
 			msg := strings.ToLower(err.Error())

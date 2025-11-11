@@ -330,12 +330,6 @@ func (ctl *StudentClassSectionController) JoinByCodeAutoSchool(c *fiber.Ctx) err
 		_ = tx.Rollback()
 		return helper.JsonError(c, fiber.StatusConflict, "Section tidak aktif")
 	}
-	// Pre-check kapasitas bisa dilewati; final guard ada di UPDATE atomic di bawah.
-	// if sec.ClassSectionCapacity != nil && *sec.ClassSectionCapacity > 0 &&
-	// 	sec.ClassSectionTotalStudents >= *sec.ClassSectionCapacity {
-	// 	_ = tx.Rollback()
-	// 	return helper.JsonError(c, fiber.StatusConflict, "Kelas penuh")
-	// }
 
 	// --- 3) Pastikan ada school_student + isi snapshots ---
 	usersProfileID, err := getUsersProfileID(tx, userID)

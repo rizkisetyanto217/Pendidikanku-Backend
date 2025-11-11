@@ -9,12 +9,7 @@ import (
 	"gorm.io/gorm"
 )
 
-/*
-	============================
-	  ENUM delivery mode (map ke DB type: class_delivery_mode_enum)
-
-============================
-*/
+/* ===== ENUM (ikuti DB: class_delivery_mode_enum) ===== */
 type ClassDeliveryMode string
 
 const (
@@ -23,86 +18,74 @@ const (
 	DeliveryModeHybrid  ClassDeliveryMode = "hybrid"
 )
 
-/*
-	=========================================================
-	  MODEL: class_section_subject_teachers
-	  Sinkron dengan SQL:
-	  - FK: section_id, class_subject_book_id, teacher_id (tenant-safe)
-	  - Kolom delivery mode: class_section_subject_teacher_delivery_mode
-	  - Snapshot: class_subject_book_snapshot (gabungan book+subject)
-	  - Generated columns: room_*, teacher_*, book_*, subject_*
-
-=========================================================
-*/
+/* =========================================================
+   MODEL: class_section_subject_teachers (ikut SQL persis)
+========================================================= */
 type ClassSectionSubjectTeacherModel struct {
-	// ===== PK
-	ClassSectionSubjectTeacherID uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:class_section_subject_teacher_id" json:"class_section_subject_teacher_id"`
-
-	// ===== Tenant
+	/* ===== PK & Tenant ===== */
+	ClassSectionSubjectTeacherID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:class_section_subject_teacher_id" json:"class_section_subject_teacher_id"`
 	ClassSectionSubjectTeacherSchoolID uuid.UUID `gorm:"type:uuid;not null;column:class_section_subject_teacher_school_id" json:"class_section_subject_teacher_school_id"`
 
-	// ===== Relations (IDs)
-	ClassSectionSubjectTeacherSectionID          uuid.UUID `gorm:"type:uuid;not null;column:class_section_subject_teacher_section_id" json:"class_section_subject_teacher_section_id"`
-	ClassSectionSubjectTeacherClassSubjectBookID uuid.UUID `gorm:"type:uuid;not null;column:class_section_subject_teacher_class_subject_book_id" json:"class_section_subject_teacher_class_subject_book_id"`
-	ClassSectionSubjectTeacherTeacherID          uuid.UUID `gorm:"type:uuid;not null;column:class_section_subject_teacher_teacher_id" json:"class_section_subject_teacher_teacher_id"`
+	/* ===== Identitas & Fasilitas ===== */
+	ClassSectionSubjectTeacherSlug        *string `gorm:"type:varchar(160);column:class_section_subject_teacher_slug" json:"class_section_subject_teacher_slug,omitempty"`
+	ClassSectionSubjectTeacherDescription *string `gorm:"type:text;column:class_section_subject_teacher_description" json:"class_section_subject_teacher_description,omitempty"`
+	ClassSectionSubjectTeacherGroupURL    *string `gorm:"type:text;column:class_section_subject_teacher_group_url" json:"class_section_subject_teacher_group_url,omitempty"`
 
-	// ===== Identitas
-	ClassSectionSubjectTeacherName string  `gorm:"type:varchar(160);not null;column:class_section_subject_teacher_name" json:"class_section_subject_teacher_name"`
-	ClassSectionSubjectTeacherSlug *string `gorm:"type:varchar(160);column:class_section_subject_teacher_slug" json:"class_section_subject_teacher_slug,omitempty"`
-
-	// ===== Fasilitas
-	ClassSectionSubjectTeacherDescription *string    `gorm:"type:text;column:class_section_subject_teacher_description" json:"class_section_subject_teacher_description,omitempty"`
-	ClassSectionSubjectTeacherRoomID      *uuid.UUID `gorm:"type:uuid;column:class_section_subject_teacher_room_id" json:"class_section_subject_teacher_room_id,omitempty"`
-	ClassSectionSubjectTeacherGroupURL    *string    `gorm:"type:text;column:class_section_subject_teacher_group_url" json:"class_section_subject_teacher_group_url,omitempty"`
-
-	// ===== Agregat & kapasitas
+	/* ===== Agregat & kapasitas ===== */
 	ClassSectionSubjectTeacherTotalAttendance int  `gorm:"not null;default:0;column:class_section_subject_teacher_total_attendance" json:"class_section_subject_teacher_total_attendance"`
-	ClassSectionSubjectTeacherCapacity        *int `gorm:"column:class_section_subject_teacher_capacity" json:"class_section_subject_teacher_capacity,omitempty"` // NULL = unlimited
+	ClassSectionSubjectTeacherCapacity        *int `gorm:"column:class_section_subject_teacher_capacity" json:"class_section_subject_teacher_capacity,omitempty"`
 	ClassSectionSubjectTeacherEnrolledCount   int  `gorm:"not null;default:0;column:class_section_subject_teacher_enrolled_count" json:"class_section_subject_teacher_enrolled_count"`
 
-	// ===== Delivery mode (per DDL baru: class_section_subject_teacher_delivery_mode)
+	/* ===== Delivery mode (enum) ===== */
 	ClassSectionSubjectTeacherDeliveryMode ClassDeliveryMode `gorm:"type:class_delivery_mode_enum;not null;default:'offline';column:class_section_subject_teacher_delivery_mode" json:"class_section_subject_teacher_delivery_mode"`
 
-	/* =======================
-	   SNAPSHOTS (JSONB)
-	======================= */
+	/* ===== SECTION snapshots (tanpa JSONB) ===== */
+	ClassSectionSubjectTeacherClassSectionID            uuid.UUID `gorm:"type:uuid;not null;column:class_section_subject_teacher_class_section_id" json:"class_section_subject_teacher_class_section_id"`
+	ClassSectionSubjectTeacherClassSectionSlugSnapshot  *string   `gorm:"type:varchar(160);column:class_section_subject_teacher_class_section_slug_snapshot" json:"class_section_subject_teacher_class_section_slug_snapshot,omitempty"`
+	ClassSectionSubjectTeacherClassSectionNameSnapshot  *string   `gorm:"type:varchar(160);column:class_section_subject_teacher_class_section_name_snapshot" json:"class_section_subject_teacher_class_section_name_snapshot,omitempty"`
+	ClassSectionSubjectTeacherClassSectionCodeSnapshot  *string   `gorm:"type:varchar(50);column:class_section_subject_teacher_class_section_code_snapshot" json:"class_section_subject_teacher_class_section_code_snapshot,omitempty"`
+	ClassSectionSubjectTeacherClassSectionURLSnapshot   *string   `gorm:"type:text;column:class_section_subject_teacher_class_section_url_snapshot" json:"class_section_subject_teacher_class_section_url_snapshot,omitempty"`
 
-	// ---- Room snapshot + generated
-	ClassSectionSubjectTeacherRoomSnapshot     *datatypes.JSON `gorm:"type:jsonb;column:class_section_subject_teacher_room_snapshot" json:"class_section_subject_teacher_room_snapshot,omitempty"`
-	ClassSectionSubjectTeacherRoomNameSnap     *string         `gorm:"->;column:class_section_subject_teacher_room_name_snap" json:"class_section_subject_teacher_room_name_snap,omitempty"`
-	ClassSectionSubjectTeacherRoomSlugSnap     *string         `gorm:"->;column:class_section_subject_teacher_room_slug_snap" json:"class_section_subject_teacher_room_slug_snap,omitempty"`
-	ClassSectionSubjectTeacherRoomLocationSnap *string         `gorm:"->;column:class_section_subject_teacher_room_location_snap" json:"class_section_subject_teacher_room_location_snap,omitempty"`
+	/* ===== ROOM snapshot ===== */
+	ClassSectionSubjectTeacherClassRoomID                *uuid.UUID     `gorm:"type:uuid;column:class_section_subject_teacher_class_room_id" json:"class_section_subject_teacher_class_room_id,omitempty"`
+	ClassSectionSubjectTeacherClassRoomSlugSnapshot      *string        `gorm:"type:varchar(160);column:class_section_subject_teacher_class_room_slug_snapshot" json:"class_section_subject_teacher_class_room_slug_snapshot,omitempty"`
+	ClassSectionSubjectTeacherClassRoomSnapshot          *datatypes.JSON`gorm:"type:jsonb;column:class_section_subject_teacher_class_room_snapshot" json:"class_section_subject_teacher_class_room_snapshot,omitempty"`
+	// generated (read-only)
+	ClassSectionSubjectTeacherClassRoomNameSnapshot     *string `gorm:"->;column:class_section_subject_teacher_class_room_name_snapshot" json:"class_section_subject_teacher_class_room_name_snapshot,omitempty"`
+	ClassSectionSubjectTeacherClassRoomSlugSnapshotGen  *string `gorm:"->;column:class_section_subject_teacher_class_room_slug_snapshot_gen" json:"class_section_subject_teacher_class_room_slug_snapshot_gen,omitempty"`
+	ClassSectionSubjectTeacherClassRoomLocationSnapshot *string `gorm:"->;column:class_section_subject_teacher_class_room_location_snapshot" json:"class_section_subject_teacher_class_room_location_snapshot,omitempty"`
 
-	// ---- People snapshots + generated
-	ClassSectionSubjectTeacherTeacherSnapshot          *datatypes.JSON `gorm:"type:jsonb;column:class_section_subject_teacher_teacher_snapshot" json:"class_section_subject_teacher_teacher_snapshot,omitempty"`
-	ClassSectionSubjectTeacherAssistantTeacherSnapshot *datatypes.JSON `gorm:"type:jsonb;column:class_section_subject_teacher_assistant_teacher_snapshot" json:"class_section_subject_teacher_assistant_teacher_snapshot,omitempty"`
-	ClassSectionSubjectTeacherTeacherNameSnap          *string         `gorm:"->;column:class_section_subject_teacher_teacher_name_snap" json:"class_section_subject_teacher_teacher_name_snap,omitempty"`
-	ClassSectionSubjectTeacherAssistantTeacherNameSnap *string         `gorm:"->;column:class_section_subject_teacher_assistant_teacher_name_snap" json:"class_section_subject_teacher_assistant_teacher_name_snap,omitempty"`
+	/* ===== PEOPLE snapshots (teacher & assistant) ===== */
+	ClassSectionSubjectTeacherSchoolTeacherID                 uuid.UUID      `gorm:"type:uuid;not null;column:class_section_subject_teacher_school_teacher_id" json:"class_section_subject_teacher_school_teacher_id"`
+	ClassSectionSubjectTeacherSchoolTeacherSlugSnapshot       *string        `gorm:"type:varchar(160);column:class_section_subject_teacher_school_teacher_slug_snapshot" json:"class_section_subject_teacher_school_teacher_slug_snapshot,omitempty"`
+	ClassSectionSubjectTeacherSchoolTeacherSnapshot           *datatypes.JSON`gorm:"type:jsonb;column:class_section_subject_teacher_school_teacher_snapshot" json:"class_section_subject_teacher_school_teacher_snapshot,omitempty"`
 
-	// ---- CLASS_SUBJECT_BOOK snapshot (gabungan book + subject)
-	// Rekomendasi struktur JSON:
-	// { "book": {"title","author","slug","image_url"}, "subject": {"name","code","slug","url"} }
-	ClassSectionSubjectTeacherClassSubjectBookSnapshot *datatypes.JSON `gorm:"type:jsonb;column:class_section_subject_teacher_class_subject_book_snapshot" json:"class_section_subject_teacher_class_subject_book_snapshot,omitempty"`
+	ClassSectionSubjectTeacherAssistantSchoolTeacherID            *uuid.UUID     `gorm:"type:uuid;column:class_section_subject_teacher_assistant_school_teacher_id" json:"class_section_subject_teacher_assistant_school_teacher_id,omitempty"`
+	ClassSectionSubjectTeacherAssistantSchoolTeacherSlugSnapshot  *string        `gorm:"type:varchar(160);column:class_section_subject_teacher_assistant_school_teacher_slug_snapshot" json:"class_section_subject_teacher_assistant_school_teacher_slug_snapshot,omitempty"`
+	ClassSectionSubjectTeacherAssistantSchoolTeacherSnapshot      *datatypes.JSON`gorm:"type:jsonb;column:class_section_subject_teacher_assistant_school_teacher_snapshot" json:"class_section_subject_teacher_assistant_school_teacher_snapshot,omitempty"`
 
-	// ---- Generated dari CLASS_SUBJECT_BOOK snapshot: BOOK*
-	ClassSectionSubjectTeacherBookTitleSnap    *string `gorm:"->;column:class_section_subject_teacher_book_title_snap" json:"class_section_subject_teacher_book_title_snap,omitempty"`
-	ClassSectionSubjectTeacherBookAuthorSnap   *string `gorm:"->;column:class_section_subject_teacher_book_author_snap" json:"class_section_subject_teacher_book_author_snap,omitempty"`
-	ClassSectionSubjectTeacherBookSlugSnap     *string `gorm:"->;column:class_section_subject_teacher_book_slug_snap" json:"class_section_subject_teacher_book_slug_snap,omitempty"`
-	ClassSectionSubjectTeacherBookImageURLSnap *string `gorm:"->;column:class_section_subject_teacher_book_image_url_snap" json:"class_section_subject_teacher_book_image_url_snap,omitempty"`
+	// generated names (read-only)
+	ClassSectionSubjectTeacherSchoolTeacherNameSnapshot          *string `gorm:"->;column:class_section_subject_teacher_school_teacher_name_snapshot" json:"class_section_subject_teacher_school_teacher_name_snapshot,omitempty"`
+	ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot *string `gorm:"->;column:class_section_subject_teacher_assistant_school_teacher_name_snapshot" json:"class_section_subject_teacher_assistant_school_teacher_name_snapshot,omitempty"`
 
-	// ---- Generated dari CLASS_SUBJECT_BOOK snapshot: SUBJECT*
-	ClassSectionSubjectTeacherSubjectNameSnap *string `gorm:"->;column:class_section_subject_teacher_subject_name_snap" json:"class_section_subject_teacher_subject_name_snap,omitempty"`
-	ClassSectionSubjectTeacherSubjectCodeSnap *string `gorm:"->;column:class_section_subject_teacher_subject_code_snap" json:"class_section_subject_teacher_subject_code_snap,omitempty"`
-	ClassSectionSubjectTeacherSubjectSlugSnap *string `gorm:"->;column:class_section_subject_teacher_subject_slug_snap" json:"class_section_subject_teacher_subject_slug_snap,omitempty"`
+	/* ===== CLASS_SUBJECT_BOOK snapshot ===== */
+	ClassSectionSubjectTeacherClassSubjectBookID             uuid.UUID      `gorm:"type:uuid;not null;column:class_section_subject_teacher_class_subject_book_id" json:"class_section_subject_teacher_class_subject_book_id"`
+	ClassSectionSubjectTeacherClassSubjectBookSlugSnapshot   *string        `gorm:"type:varchar(160);column:class_section_subject_teacher_class_subject_book_slug_snapshot" json:"class_section_subject_teacher_class_subject_book_slug_snapshot,omitempty"`
+	ClassSectionSubjectTeacherClassSubjectBookSnapshot       *datatypes.JSON`gorm:"type:jsonb;column:class_section_subject_teacher_class_subject_book_snapshot" json:"class_section_subject_teacher_class_subject_book_snapshot,omitempty"`
 
-	// ---- Books snapshot array (tetap, untuk daftar buku terpakai)
-	ClassSectionSubjectTeacherBooksSnapshot datatypes.JSON `gorm:"type:jsonb;not null;default:'[]'::jsonb;column:class_section_subject_teacher_books_snapshot" json:"class_section_subject_teacher_books_snapshot"`
+	/* ===== Derived from CSB snapshot — BOOK* ===== */
+	ClassSectionSubjectTeacherBookTitleSnapshot    *string `gorm:"->;column:class_section_subject_teacher_book_title_snapshot" json:"class_section_subject_teacher_book_title_snapshot,omitempty"`
+	ClassSectionSubjectTeacherBookAuthorSnapshot   *string `gorm:"->;column:class_section_subject_teacher_book_author_snapshot" json:"class_section_subject_teacher_book_author_snapshot,omitempty"`
+	ClassSectionSubjectTeacherBookSlugSnapshot     *string `gorm:"->;column:class_section_subject_teacher_book_slug_snapshot" json:"class_section_subject_teacher_book_slug_snapshot,omitempty"`
+	ClassSectionSubjectTeacherBookImageURLSnapshot *string `gorm:"->;column:class_section_subject_teacher_book_image_url_snapshot" json:"class_section_subject_teacher_book_image_url_snapshot,omitempty"`
 
-	// (Opsional) kolom turunan jika kamu menambahkannya di DB (tidak wajib ada)
-	ClassSectionSubjectTeacherBooksCount       *int    `gorm:"->;column:class_section_subject_teacher_books_count" json:"class_section_subject_teacher_books_count,omitempty"`
-	ClassSectionSubjectTeacherPrimaryBookTitle *string `gorm:"->;column:class_section_subject_teacher_primary_book_title" json:"class_section_subject_teacher_primary_book_title,omitempty"`
+	/* ===== Derived from CSB snapshot — SUBJECT* ===== */
+	ClassSectionSubjectTeacherSubjectIDSnapshot   *uuid.UUID `gorm:"column:class_section_subject_teacher_subject_id_snapshot" json:"class_section_subject_teacher_subject_id_snapshot,omitempty"`
+	ClassSectionSubjectTeacherSubjectNameSnapshot *string    `gorm:"->;column:class_section_subject_teacher_subject_name_snapshot" json:"class_section_subject_teacher_subject_name_snapshot,omitempty"`
+	ClassSectionSubjectTeacherSubjectCodeSnapshot *string    `gorm:"->;column:class_section_subject_teacher_subject_code_snapshot" json:"class_section_subject_teacher_subject_code_snapshot,omitempty"`
+	ClassSectionSubjectTeacherSubjectSlugSnapshot *string    `gorm:"->;column:class_section_subject_teacher_subject_slug_snapshot" json:"class_section_subject_teacher_subject_slug_snapshot,omitempty"`
 
-	// ===== Status & audit
+	/* ===== Status & audit ===== */
 	ClassSectionSubjectTeacherIsActive  bool           `gorm:"not null;default:true;column:class_section_subject_teacher_is_active" json:"class_section_subject_teacher_is_active"`
 	ClassSectionSubjectTeacherCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:class_section_subject_teacher_created_at" json:"class_section_subject_teacher_created_at"`
 	ClassSectionSubjectTeacherUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:class_section_subject_teacher_updated_at" json:"class_section_subject_teacher_updated_at"`

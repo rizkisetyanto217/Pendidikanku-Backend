@@ -60,6 +60,15 @@ func slugifySafe(s string, maxLen int) string {
 	return helper.Slugify(strings.TrimSpace(s), maxLen)
 }
 
+// ClassName di model bertipe *string → bungkus string jadi *string (kosong → nil)
+func strPtrOrNil(s string) *string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 /* ================= Slug builder (parent + optional term) ================= */
 
 func buildClassBaseSlug(
@@ -196,7 +205,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	req.ClassSchoolID = schoolID
 	req.Normalize()
 	log.Printf("[CLASSES][CREATE] 📩 req: parent_id=%s term_id=%v delivery=%v status=%v slug_in='%s'",
-		req.ClassParentID, req.ClassTermID, req.ClassDeliveryMode, req.ClassStatus, req.ClassSlug)
+		req.ClassClassParentID, req.ClassAcademicTermID, req.ClassDeliveryMode, req.ClassStatus, req.ClassSlug)
 
 	/* ---- Validasi ---- */
 	if err := req.Validate(); err != nil {
@@ -211,7 +220,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	/* ---- Bentuk model awal ---- */
 	m := req.ToModel()
 	log.Printf("[CLASSES][CREATE] 🔧 model init: parent_id=%s term_id=%v status=%s",
-		m.ClassParentID, m.ClassTermID, m.ClassStatus)
+		m.ClassClassParentID, m.ClassAcademicTermID, m.ClassStatus)
 
 	/* ---- TX ---- */
 	tx := ctrl.DB.WithContext(c.Context()).Begin()
@@ -230,9 +239,9 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	/* ---- Slug komposit (parent + term) → CI-unique per school ---- */
 	baseSlug, err := buildClassBaseSlug(
 		c.Context(), tx, schoolID,
-		m.ClassParentID,
-		m.ClassTermID, // boleh nil
-		"",            // paksa komposit
+		m.ClassClassParentID,
+		m.ClassAcademicTermID, // boleh nil
+		"",                    // paksa komposit
 		160,
 	)
 	if err != nil {
@@ -274,7 +283,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	if m.ClassParentNameSnapshot != nil {
 		parent = *m.ClassParentNameSnapshot
 	}
-	m.ClassName = dto.ComposeClassNameSpace(parent, m.ClassTermNameSnapshot)
+	m.ClassName = strPtrOrNil(dto.ComposeClassNameSpace(parent, m.ClassAcademicTermNameSnapshot))
 
 	/* ---- Insert ---- */
 	if err := tx.Create(m).Error; err != nil {
@@ -291,7 +300,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 
 	/* ---- Optional upload image ---- */
 	uploadedURL := ""
-	if fh, ferr := getImageFormFile(c); ferr == nil && fh != nil {
+	if fh := pickImageFile(c, "image", "file", "class_image"); fh != nil {
 		log.Printf("[CLASSES][CREATE] 📤 uploading image filename=%s size=%d", fh.Filename, fh.Size)
 		svc, er := helperOSS.NewOSSServiceFromEnv("")
 		if er == nil {
@@ -360,7 +369,6 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 
 /* =========================== PATCH =========================== */
 // PATCH /admin/classes/:id
-// PATCH /admin/classes/:id
 func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	// ---- Path param ----
 	classID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
@@ -405,8 +413,8 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	}
 
 	// ---- Snapshot sebelum apply (untuk deteksi perubahan & stats) ----
-	prevParentID := existing.ClassParentID
-	prevTermID := existing.ClassTermID
+	prevParentID := existing.ClassClassParentID
+	prevTermID := existing.ClassAcademicTermID
 	wasActive := (existing.ClassStatus == classmodel.ClassStatusActive)
 
 	// ---- Apply patch ke entity ----
@@ -427,8 +435,8 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	}
 
 	// Hitung perubahan parent/term SEKALI
-	parentChanged := (existing.ClassParentID != prevParentID)
-	termChanged := uuidPtrChanged(existing.ClassTermID, prevTermID)
+	parentChanged := (existing.ClassClassParentID != prevParentID)
+	termChanged := uuidPtrChanged(existing.ClassAcademicTermID, prevTermID)
 
 	// 1) Kalau user PATCH slug manual → hormati, tapi CI-unique per school.
 	if req.ClassSlug.Present && req.ClassSlug.Value != nil {
@@ -464,8 +472,8 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 			baseSlug, gErr := buildClassBaseSlug(
 				c.Context(), tx,
 				existing.ClassSchoolID,
-				existing.ClassParentID,
-				existing.ClassTermID,
+				existing.ClassClassParentID,
+				existing.ClassAcademicTermID,
 				"", // paksa komposit
 				160,
 			)
@@ -508,7 +516,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		if existing.ClassParentNameSnapshot != nil {
 			parent = *existing.ClassParentNameSnapshot
 		}
-		existing.ClassName = dto.ComposeClassNameSpace(parent, existing.ClassTermNameSnapshot)
+		existing.ClassName = strPtrOrNil(dto.ComposeClassNameSpace(parent, existing.ClassAcademicTermNameSnapshot))
 	}
 
 	// ---- Simpan ----
@@ -531,7 +539,7 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 	uploadedURL := ""
 	movedOld := ""
 
-	if fh, ferr := getImageFormFile(c); ferr == nil && fh != nil {
+	if fh := pickImageFile(c, "image", "file", "class_image"); fh != nil {
 		svc, er := helperOSS.NewOSSServiceFromEnv("")
 		if er == nil {
 			ctx, cancel := context.WithTimeout(c.Context(), 45*time.Second)

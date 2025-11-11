@@ -1,4 +1,4 @@
-// internals/features/lembaga/class_section_subject_teachers/controller/csst_controller.go
+// file: internals/features/lembaga/class_section_subject_teachers/controller/csst_controller.go
 package controller
 
 import (
@@ -18,7 +18,7 @@ import (
 	modelSchoolTeacher "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/model"
 	modelClassSection "schoolku_backend/internals/features/school/classes/class_sections/model"
 
-	// DTO & Model CSST (path kamu sebelumnya)
+	// DTO & Model
 	dto "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/dto"
 	modelCSST "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
@@ -40,12 +40,13 @@ func ptrStr(p *string) string {
 }
 
 /*
-	=========================================================
-	  SLUG base: Section + Subject (dari CSB) + Book Title (dari CSB)
+=========================================================
+
+	SLUG base: Section + Subject (dari CSB) + Book Title (dari CSB)
 
 =========================================================
 */
-func getBaseForSlug(ctx context.Context, tx *gorm.DB, schoolID, sectionID, csbID, teacherID uuid.UUID) string {
+func getBaseForSlug(ctx context.Context, tx *gorm.DB, schoolID, sectionID, csbID, schoolTeacherID uuid.UUID) string {
 	var sectionName, subjectName, bookTitle string
 
 	_ = tx.Table("class_sections").
@@ -53,7 +54,6 @@ func getBaseForSlug(ctx context.Context, tx *gorm.DB, schoolID, sectionID, csbID
 		Where("class_section_id = ? AND class_section_school_id = ?", sectionID, schoolID).
 		Scan(&sectionName).Error
 
-	// Ambil subject_name & book_title dari CSB (pakai snapshot jika ada)
 	_ = tx.Table("class_subject_books AS csb").
 		Select(`
 			COALESCE(csb.class_subject_book_subject_name_snapshot, s.subject_name) AS subject_name,
@@ -86,7 +86,7 @@ func getBaseForSlug(ctx context.Context, tx *gorm.DB, schoolID, sectionID, csbID
 	return fmt.Sprintf("csst-%s-%s-%s",
 		strings.Split(sectionID.String(), "-")[0],
 		strings.Split(csbID.String(), "-")[0],
-		strings.Split(teacherID.String(), "-")[0],
+		strings.Split(schoolTeacherID.String(), "-")[0],
 	)
 }
 
@@ -105,23 +105,10 @@ func ensureUniqueSlug(ctx context.Context, tx *gorm.DB, schoolID uuid.UUID, base
 	)
 }
 
-func deriveNameFromSlug(slug string) string {
-	name := strings.ReplaceAll(slug, "-", " ")
-	name = strings.TrimSpace(strings.Join(strings.Fields(name), " "))
-	if len(name) > 160 {
-		name = name[:160]
-	}
-	return name
-}
-
 /*
-	=========================================================
-	  Snapshot CSB (gabungan Book + Subject) → JSONB
-	  Struktur:
-	  {
-	    "book":    { "id","title","author","slug","image_url" },
-	    "subject": { "id","name","code","slug","url" }
-	  }
+=========================================================
+
+	Snapshot CSB (gabungan Book + Subject) → JSONB
 
 =========================================================
 */
@@ -178,7 +165,7 @@ func buildCSBSnapshotJSON(ctx context.Context, tx *gorm.DB, schoolID, csbID uuid
 			"name": r.SubjectName,
 			"code": r.SubjectCode,
 			"slug": r.SubjectSlug,
-			"url":  nil, // kalau nanti ada URL, isi di sini
+			"url":  nil,
 		},
 	}
 	b, _ := json.Marshal(payload)
@@ -186,10 +173,9 @@ func buildCSBSnapshotJSON(ctx context.Context, tx *gorm.DB, schoolID, csbID uuid
 }
 
 /*
-	=========================================================
-	  Validasi konsistensi CSB untuk Section:
-	  - CSB tenant harus sama
-	  - class_subject_parent_id dari CSB == class_parent_id dari class milik Section
+=========================================================
+
+	Validasi konsistensi CSB untuk Section
 
 =========================================================
 */
@@ -237,8 +223,6 @@ func validateCSBForSection(ctx context.Context, tx *gorm.DB, schoolID, sectionID
 	return nil
 }
 
-// pastikan di file yang sama, package: controller
-
 type ClassSectionSubjectTeacherController struct {
 	DB *gorm.DB
 }
@@ -274,7 +258,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		var sec modelClassSection.ClassSectionModel
 		if err := tx.
 			Where("class_section_id = ? AND class_section_school_id = ? AND class_section_deleted_at IS NULL",
-				req.ClassSectionSubjectTeacherSectionID, schoolID).
+				req.ClassSectionSubjectTeacherClassSectionID, schoolID).
 			First(&sec).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Section tidak ditemukan / beda tenant")
@@ -283,7 +267,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		}
 
 		// 2) VALIDASI CSB konsisten dengan section (tenant + parent)
-		if err := validateCSBForSection(c.Context(), tx, schoolID, req.ClassSectionSubjectTeacherSectionID, req.ClassSectionSubjectTeacherClassSubjectBookID); err != nil {
+		if err := validateCSBForSection(c.Context(), tx, schoolID, req.ClassSectionSubjectTeacherClassSectionID, req.ClassSectionSubjectTeacherClassSubjectBookID); err != nil {
 			var fe *fiber.Error
 			if errors.As(err, &fe) {
 				return helper.JsonError(c, fe.Code, fe.Message)
@@ -294,7 +278,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		// 3) TEACHER exists & same tenant
 		if err := tx.
 			Where("school_teacher_id = ? AND school_teacher_school_id = ? AND school_teacher_deleted_at IS NULL",
-				req.ClassSectionSubjectTeacherTeacherID, schoolID).
+				req.ClassSectionSubjectTeacherSchoolTeacherID, schoolID).
 			First(&modelSchoolTeacher.SchoolTeacherModel{}).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak ditemukan / bukan guru school ini")
@@ -302,11 +286,14 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal cek guru")
 		}
 
-		// 3a) ROOM resolve (request > default section room)
-		var finalRoomID *uuid.UUID
+		// 3a) ROOM resolve (request > default section room/snapshot)
+		var finalClassRoomID *uuid.UUID
 		var finalRoomSnap *roomSnapshot.RoomSnapshot
-		if req.ClassSectionSubjectTeacherRoomID != nil {
-			rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, schoolID, *req.ClassSectionSubjectTeacherRoomID)
+		var finalRoomJSON *datatypes.JSON
+
+		if req.ClassSectionSubjectTeacherClassRoomID != nil {
+			// explicit override dari request
+			rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, schoolID, *req.ClassSectionSubjectTeacherClassRoomID)
 			if err != nil {
 				var fe *fiber.Error
 				if errors.As(err, &fe) {
@@ -316,39 +303,43 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			}
 			tmp := *rs
 			finalRoomSnap = &tmp
-			finalRoomID = req.ClassSectionSubjectTeacherRoomID
-		} else if sec.ClassSectionClassRoomID != nil {
-			rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, schoolID, *sec.ClassSectionClassRoomID)
-			if err != nil {
-				var fe *fiber.Error
-				if errors.As(err, &fe) {
-					return helper.JsonError(c, fe.Code, fe.Message)
+			finalClassRoomID = req.ClassSectionSubjectTeacherClassRoomID
+		} else {
+			// pakai default dari Section
+			if sec.ClassSectionClassRoomIDSnapshot != nil {
+				rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, schoolID, *sec.ClassSectionClassRoomIDSnapshot)
+				if err != nil {
+					var fe *fiber.Error
+					if errors.As(err, &fe) {
+						return helper.JsonError(c, fe.Code, fe.Message)
+					}
+					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil snapshot ruangan (section)")
 				}
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil snapshot ruangan (section)")
+				tmp := *rs
+				finalRoomSnap = &tmp
+				idCopy := *sec.ClassSectionClassRoomIDSnapshot
+				finalClassRoomID = &idCopy
+			} else if sec.ClassSectionClassRoomSnapshot != nil && len(sec.ClassSectionClassRoomSnapshot) > 0 {
+				jb := datatypes.JSON(sec.ClassSectionClassRoomSnapshot)
+				finalRoomJSON = &jb
 			}
-			tmp := *rs
-			finalRoomSnap = &tmp
-			finalRoomID = sec.ClassSectionClassRoomID
 		}
 
 		// 4) Build row dari DTO
 		row := req.ToModel()
 		row.ClassSectionSubjectTeacherSchoolID = schoolID
 
-		if finalRoomID != nil {
-			row.ClassSectionSubjectTeacherRoomID = finalRoomID
+		if finalClassRoomID != nil {
+			row.ClassSectionSubjectTeacherClassRoomID = finalClassRoomID
 		}
 		if finalRoomSnap != nil {
 			jb := roomSnapshot.ToJSON(finalRoomSnap)
-			row.ClassSectionSubjectTeacherRoomSnapshot = &jb
+			row.ClassSectionSubjectTeacherClassRoomSnapshot = &jb
+		} else if finalRoomJSON != nil {
+			row.ClassSectionSubjectTeacherClassRoomSnapshot = finalRoomJSON
 		}
 
-		// Status & delivery mode (default)
-		if req.ClassSectionSubjectTeacherIsActive != nil {
-			row.ClassSectionSubjectTeacherIsActive = *req.ClassSectionSubjectTeacherIsActive
-		} else {
-			row.ClassSectionSubjectTeacherIsActive = true
-		}
+		// Default delivery mode jika kosong
 		if strings.TrimSpace(string(row.ClassSectionSubjectTeacherDeliveryMode)) == "" {
 			if finalRoomSnap != nil && (finalRoomSnap.IsVirtual || (finalRoomSnap.JoinURL != nil && strings.TrimSpace(*finalRoomSnap.JoinURL) != "")) {
 				row.ClassSectionSubjectTeacherDeliveryMode = modelCSST.DeliveryModeOnline
@@ -358,7 +349,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 		}
 
 		// 4a) SNAPSHOT GURU
-		if ts, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, schoolID, req.ClassSectionSubjectTeacherTeacherID); err != nil {
+		if ts, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, schoolID, req.ClassSectionSubjectTeacherSchoolTeacherID); err != nil {
 			switch {
 			case errors.Is(err, gorm.ErrRecordNotFound):
 				return helper.JsonError(c, fiber.StatusBadRequest, "Guru tidak valid / sudah dihapus")
@@ -369,13 +360,13 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			}
 		} else if ts != nil {
 			if jb, e := teacherSnapshot.ToJSONB(ts); e == nil {
-				row.ClassSectionSubjectTeacherTeacherSnapshot = &jb
+				row.ClassSectionSubjectTeacherSchoolTeacherSnapshot = &jb
 			}
 		}
 
 		// 4b) SNAPSHOT ASISTEN (opsional)
-		if req.ClassSectionSubjectTeacherAssistantTeacherID != nil {
-			if ats, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, schoolID, *req.ClassSectionSubjectTeacherAssistantTeacherID); err != nil {
+		if req.ClassSectionSubjectTeacherAssistantSchoolTeacherID != nil {
+			if ats, err := teacherSnapshot.BuildTeacherSnapshot(c.Context(), tx, schoolID, *req.ClassSectionSubjectTeacherAssistantSchoolTeacherID); err != nil {
 				switch {
 				case errors.Is(err, gorm.ErrRecordNotFound):
 					return helper.JsonError(c, fiber.StatusBadRequest, "Asisten guru tidak valid / sudah dihapus")
@@ -386,7 +377,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 				}
 			} else if ats != nil {
 				if jb, e := teacherSnapshot.ToJSONB(ats); e == nil {
-					row.ClassSectionSubjectTeacherAssistantTeacherSnapshot = &jb
+					row.ClassSectionSubjectTeacherAssistantSchoolTeacherSnapshot = &jb
 				}
 			}
 		}
@@ -402,15 +393,16 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			row.ClassSectionSubjectTeacherClassSubjectBookSnapshot = &j
 		}
 
-		// 5) SLUG unik + NAME auto
+		// 5) SLUG unik (tanpa name)
 		if row.ClassSectionSubjectTeacherSlug != nil {
 			s := helper.Slugify(*row.ClassSectionSubjectTeacherSlug, 160)
 			row.ClassSectionSubjectTeacherSlug = &s
 		}
-		base := strings.TrimSpace(getBaseForSlug(c.Context(), tx, schoolID,
-			row.ClassSectionSubjectTeacherSectionID,
+		base := strings.TrimSpace(getBaseForSlug(
+			c.Context(), tx, schoolID,
+			row.ClassSectionSubjectTeacherClassSectionID,
 			row.ClassSectionSubjectTeacherClassSubjectBookID,
-			row.ClassSectionSubjectTeacherTeacherID,
+			row.ClassSectionSubjectTeacherSchoolTeacherID,
 		))
 		candidate := base
 		if row.ClassSectionSubjectTeacherSlug != nil && strings.TrimSpace(*row.ClassSectionSubjectTeacherSlug) != "" {
@@ -422,7 +414,6 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 		}
 		row.ClassSectionSubjectTeacherSlug = &uniqueSlug
-		row.ClassSectionSubjectTeacherName = deriveNameFromSlug(uniqueSlug)
 
 		// 6) INSERT
 		if err := tx.Create(&row).Error; err != nil {
@@ -499,10 +490,10 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 		}
 
 		// Precheck konsistensi jika section/CSB berubah
-		if req.ClassSectionSubjectTeacherSectionID != nil || req.ClassSectionSubjectTeacherClassSubjectBookID != nil {
-			sectionID := row.ClassSectionSubjectTeacherSectionID
-			if req.ClassSectionSubjectTeacherSectionID != nil {
-				sectionID = *req.ClassSectionSubjectTeacherSectionID
+		if req.ClassSectionSubjectTeacherClassSectionID != nil || req.ClassSectionSubjectTeacherClassSubjectBookID != nil {
+			sectionID := row.ClassSectionSubjectTeacherClassSectionID
+			if req.ClassSectionSubjectTeacherClassSectionID != nil {
+				sectionID = *req.ClassSectionSubjectTeacherClassSectionID
 			}
 			csbID := row.ClassSectionSubjectTeacherClassSubjectBookID
 			if req.ClassSectionSubjectTeacherClassSubjectBookID != nil {
@@ -518,12 +509,12 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 		}
 
 		// Flags perubahan untuk slug/snapshot
-		sectionChanged := req.ClassSectionSubjectTeacherSectionID != nil &&
-			*req.ClassSectionSubjectTeacherSectionID != row.ClassSectionSubjectTeacherSectionID
+		sectionChanged := req.ClassSectionSubjectTeacherClassSectionID != nil &&
+			*req.ClassSectionSubjectTeacherClassSectionID != row.ClassSectionSubjectTeacherClassSectionID
 		csbChanged := req.ClassSectionSubjectTeacherClassSubjectBookID != nil &&
 			*req.ClassSectionSubjectTeacherClassSubjectBookID != row.ClassSectionSubjectTeacherClassSubjectBookID
-		teacherChanged := req.ClassSectionSubjectTeacherTeacherID != nil &&
-			*req.ClassSectionSubjectTeacherTeacherID != row.ClassSectionSubjectTeacherTeacherID
+		teacherChanged := req.ClassSectionSubjectTeacherSchoolTeacherID != nil &&
+			*req.ClassSectionSubjectTeacherSchoolTeacherID != row.ClassSectionSubjectTeacherSchoolTeacherID
 
 		// Apply perubahan dasar
 		req.Apply(&row)
@@ -541,7 +532,7 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 			}
 		}
 
-		// SLUG handling (mirror create)
+		// SLUG handling (mirror create — tanpa “name”)
 		if req.ClassSectionSubjectTeacherSlug != nil {
 			if s := strings.TrimSpace(*req.ClassSectionSubjectTeacherSlug); s != "" {
 				norm := helper.Slugify(s, 160)
@@ -561,10 +552,11 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 		} else if row.ClassSectionSubjectTeacherSlug == nil || strings.TrimSpace(ptrStr(row.ClassSectionSubjectTeacherSlug)) == "" {
 			if sectionChanged || csbChanged || teacherChanged || row.ClassSectionSubjectTeacherSlug == nil {
 				needEnsureUnique = true
-				baseSlug = getBaseForSlug(c.Context(), tx, schoolID,
-					row.ClassSectionSubjectTeacherSectionID,
+				baseSlug = getBaseForSlug(
+					c.Context(), tx, schoolID,
+					row.ClassSectionSubjectTeacherClassSectionID,
 					row.ClassSectionSubjectTeacherClassSubjectBookID,
-					row.ClassSectionSubjectTeacherTeacherID,
+					row.ClassSectionSubjectTeacherSchoolTeacherID,
 				)
 				baseSlug = helper.Slugify(baseSlug, 160)
 			}

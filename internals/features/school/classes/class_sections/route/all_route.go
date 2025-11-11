@@ -14,6 +14,6 @@ func AllClassSectionRoutes(r fiber.Router, db *gorm.DB) {
 	// ===== Base by school_id =====
 	baseByID := r.Group("/:school_id")
 	sectionsByID := baseByID.Group("/class-sections")
-	sectionsByID.Get("/list", h.ListClassSections)
+	sectionsByID.Get("/list", h.List)
 
 }

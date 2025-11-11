@@ -14,7 +14,7 @@ func ClassSectionUserRoutes(admin fiber.Router, db *gorm.DB) {
 
 	// ================== PUBLIC (READ-ONLY) ==================
 	pub := admin.Group("/:school_id/class-sections")
-	pub.Get("/list", sectionH.ListClassSections)
+	pub.Get("/list", sectionH.List)
 
 	// ================== USER (scoped by school_id in path) ==================
 	user := admin.Group("/:school_id/student-class-sections")

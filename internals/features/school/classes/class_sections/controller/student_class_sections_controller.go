@@ -61,7 +61,6 @@ func (ctl *StudentClassSectionController) Create(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
-
 	req.Normalize()
 
 	// Paksa tenant dari path (jangan percaya payload)
@@ -71,13 +70,35 @@ func (ctl *StudentClassSectionController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
+	// ========= ensure slug snapshot dari class_sections (tenant-safe) =========
+	// Jika client tidak kirim snapshot, kita ambil dari sumbernya.
+	if req.StudentClassSectionSectionSlugSnapshot == nil {
+		var row struct {
+			Slug string `gorm:"column:class_section_slug"`
+		}
+		if err := ctl.DB.Table("class_sections").
+			Select("class_section_slug").
+			Where(`
+				class_section_id = ?
+				AND class_section_school_id = ?
+				AND class_section_deleted_at IS NULL
+			`, req.StudentClassSectionSectionID, schoolID).
+			First(&row).Error; err != nil {
+
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusBadRequest, "Section tidak ditemukan / beda tenant")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil slug section")
+		}
+		req.StudentClassSectionSectionSlugSnapshot = &row.Slug
+	}
+
 	m := req.ToModel() // *model.StudentClassSection
+
 	now := time.Now()
 	m.StudentClassSectionCreatedAt = now
 	m.StudentClassSectionUpdatedAt = now
-
-	// Safety: hard-guard tenant
-	m.StudentClassSectionSchoolID = schoolID
+	m.StudentClassSectionSchoolID = schoolID // hard-guard tenant
 
 	if err := ctl.DB.Create(m).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat student_class_section")
@@ -124,7 +145,7 @@ func (ctl *StudentClassSectionController) GetDetail(c *fiber.Ctx) error {
 // ========== LIST ALL (by school, untuk staff/admin) ==========
 // GET /api/a/:school_id/student-class-sections/list
 func (ctl *StudentClassSectionController) ListAll(c *fiber.Ctx) error {
-	schoolID, err := helperAuth.ParseSchoolIDFromPath(c) // <-- use Exported name
+	schoolID, err := helperAuth.ParseSchoolIDFromPath(c) // gunakan helper export
 	if err != nil {
 		return err
 	}
@@ -181,9 +202,8 @@ func (ctl *StudentClassSectionController) ListAll(c *fiber.Ctx) error {
 		s := "%" + strings.ToLower(searchTerm) + "%"
 		q = q.Where(`
 			LOWER(COALESCE(student_class_section_user_profile_name_snapshot,'')) LIKE ?
-			OR LOWER(COALESCE(student_class_section_fee_snapshot->>'section_code','')) LIKE ?
-			OR LOWER(COALESCE(student_class_section_fee_snapshot->>'section_slug','')) LIKE ?
-		`, s, s, s)
+			OR LOWER(student_class_section_section_slug_snapshot) LIKE ?
+		`, s, s)
 	}
 
 	page, size := getPageSize(c)
@@ -230,13 +250,12 @@ func (ctl *StudentClassSectionController) ListMine(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Unauthorized")
 	}
 
-	// opsional: tetap boleh cek member (DKM/teacher/student). Biarkan kalau kamu mau harden.
+	// opsional: tetap boleh cek member
 	if e := helperAuth.EnsureMemberSchool(c, schoolID); e != nil {
-		// Jika kamu tidak ingin memaksa membership strict, comment return-nya dan lanjutkan.
-		// return e
+		// return e // kalau mau strict
 	}
 
-	// --- mulai TX (perlu kalau nanti create school_student) ---
+	// --- mulai TX ---
 	tx := ctl.DB.WithContext(c.Context()).Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -252,18 +271,15 @@ func (ctl *StudentClassSectionController) ListMine(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Profil user belum ada. Lengkapi profil terlebih dahulu.")
 	}
 
-	// Ambil school_student_id:
-	// - jika query param ada, validasi milik user & tenant
-	// - kalau kosong, buat/ambil otomatis berdasarkan profile
+	// Ambil/resolve school_student_id
 	var schoolStudentID uuid.UUID
-
 	if raw := strings.TrimSpace(c.Query("school_student_id", "")); raw != "" {
 		msID, e := uuid.Parse(raw)
 		if e != nil || msID == uuid.Nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusBadRequest, "school_student_id tidak valid")
 		}
-		// validasi kepemilikan (tenant + user profile)
+		// validasi kepemilikan (tenant + profile)
 		var cnt int64
 		if err := tx.Table("school_students").
 			Where(`
@@ -282,7 +298,6 @@ func (ctl *StudentClassSectionController) ListMine(c *fiber.Ctx) error {
 		}
 		schoolStudentID = msID
 	} else {
-		// auto resolve (dan buat jika belum ada)
 		msID, e := getOrCreateSchoolStudentWithSnapshots(c.Context(), tx, schoolID, usersProfileID, nil)
 		if e != nil {
 			_ = tx.Rollback()
@@ -329,7 +344,7 @@ func (ctl *StudentClassSectionController) ListMine(c *fiber.Ctx) error {
 	}
 
 	return helper.JsonOK(c, "OK", fiber.Map{
-		"school_student_id": schoolStudentID, // biar klien tahu ID yang dipakai
+		"school_student_id": schoolStudentID,
 		"items":             out,
 		"meta": fiber.Map{
 			"page":  page,
@@ -346,7 +361,7 @@ func (ctl *StudentClassSectionController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// hanya anggota (atau kalau mau lebih ketat: EnsureDKMOrTeacherSchool)
+	// hanya anggota (bisa ganti EnsureDKMOrTeacherSchool kalau mau)
 	if e := helperAuth.EnsureMemberSchool(c, schoolID); e != nil {
 		return e
 	}

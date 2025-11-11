@@ -1,9 +1,11 @@
-package controller
+// file: internals/features/school/academics/academic_terms/snapshot/academic_term_snapshot_for_class.go
+package snapshot
 
 import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -12,15 +14,27 @@ import (
 	classmodel "schoolku_backend/internals/features/school/classes/classes/model"
 )
 
-// Struktur row kecil agar loose-coupling ke tabel academic_terms
+/*
+Row kecil → longgar terhadap struktur tabel academic_terms
+*/
 type academicTermSnapRow struct {
-	Year     string  `gorm:"column:academic_term_academic_year"`
-	Name     string  `gorm:"column:academic_term_name"`
-	Slug     *string `gorm:"column:academic_term_slug"`
-	Angkatan *int    `gorm:"column:academic_term_angkatan"`
+	Slug         *string `gorm:"column:academic_term_slug"`
+	Name         *string `gorm:"column:academic_term_name"`
+	AcademicYear *string `gorm:"column:academic_term_academic_year"`
+	Angkatan     *int    `gorm:"column:academic_term_angkatan"`
 }
 
-// Ambil data snapshot term dari DB (guard tenant & soft-delete)
+func trimPtr(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	t := strings.TrimSpace(*s)
+	if t == "" {
+		return nil
+	}
+	return &t
+}
+
 func fetchAcademicTermSnapRow(
 	ctx context.Context,
 	tx *gorm.DB,
@@ -30,11 +44,9 @@ func fetchAcademicTermSnapRow(
 	var tr academicTermSnapRow
 	if err := tx.WithContext(ctx).
 		Table("academic_terms").
-		Select("academic_term_academic_year, academic_term_name, academic_term_slug, academic_term_angkatan").
-		Where(
-			"academic_term_id = ? AND academic_term_school_id = ? AND academic_term_deleted_at IS NULL",
-			termID, schoolID,
-		).
+		Select("academic_term_slug, academic_term_name, academic_term_academic_year, academic_term_angkatan").
+		Where("academic_term_id = ? AND academic_term_school_id = ? AND academic_term_deleted_at IS NULL",
+			termID, schoolID).
 		Take(&tr).Error; err != nil {
 
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -45,37 +57,44 @@ func fetchAcademicTermSnapRow(
 	return tr, nil
 }
 
-// Apply nilai snapshot term ke model ClassModel
-func applyAcademicTermSnapshot(m *classmodel.ClassModel, tr academicTermSnapRow) {
-	m.ClassTermAcademicYearSnapshot = &tr.Year
-	m.ClassTermNameSnapshot = &tr.Name
-	m.ClassTermSlugSnapshot = tr.Slug
+func applyAcademicTermSnapshotToClass(m *classmodel.ClassModel, tr academicTermSnapRow) {
+	m.ClassAcademicTermSlugSnapshot = trimPtr(tr.Slug)
+	m.ClassAcademicTermNameSnapshot = trimPtr(tr.Name)
+	m.ClassAcademicTermAcademicYearSnapshot = trimPtr(tr.AcademicYear)
+
+	// Di ClassModel: angkatan bertipe *string → convert dari *int bila ada
 	if tr.Angkatan != nil {
 		s := strconv.Itoa(*tr.Angkatan)
-		m.ClassTermAngkatanSnapshot = &s
+		m.ClassAcademicTermAngkatanSnapshot = &s
 	} else {
-		m.ClassTermAngkatanSnapshot = nil
+		m.ClassAcademicTermAngkatanSnapshot = nil
 	}
 }
 
-// Fungsi publik: isi snapshot term ke model (aman utk term nil)
+func clearAcademicTermSnapshotOnClass(m *classmodel.ClassModel) {
+	m.ClassAcademicTermSlugSnapshot = nil
+	m.ClassAcademicTermNameSnapshot = nil
+	m.ClassAcademicTermAcademicYearSnapshot = nil
+	m.ClassAcademicTermAngkatanSnapshot = nil
+}
+
+// Fungsi publik: isi snapshot term ke ClassModel
 func HydrateAcademicTermSnapshot(
 	ctx context.Context,
 	tx *gorm.DB,
 	schoolID uuid.UUID,
 	m *classmodel.ClassModel,
 ) error {
-	if m.ClassTermID == nil {
-		m.ClassTermAcademicYearSnapshot = nil
-		m.ClassTermNameSnapshot = nil
-		m.ClassTermSlugSnapshot = nil
-		m.ClassTermAngkatanSnapshot = nil
+	// Perhatikan: field FK di model adalah ClassAcademicTermID (*uuid.UUID)
+	if m.ClassAcademicTermID == nil || *m.ClassAcademicTermID == uuid.Nil {
+		clearAcademicTermSnapshotOnClass(m)
 		return nil
 	}
-	tr, err := fetchAcademicTermSnapRow(ctx, tx, schoolID, *m.ClassTermID)
+
+	tr, err := fetchAcademicTermSnapRow(ctx, tx, schoolID, *m.ClassAcademicTermID)
 	if err != nil {
 		return err
 	}
-	applyAcademicTermSnapshot(m, tr)
+	applyAcademicTermSnapshotToClass(m, tr)
 	return nil
 }

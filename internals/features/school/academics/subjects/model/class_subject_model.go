@@ -14,17 +14,17 @@ type ClassSubjectModel struct {
 	ClassSubjectSchoolID uuid.UUID `gorm:"column:class_subject_school_id;type:uuid;not null;uniqueIndex:uq_class_subject_id_school;index:idx_class_subjects_school" json:"class_subject_school_id"`
 
 	/* ============ FK eksplisit (→ class_parents & subjects) ============ */
-	ClassSubjectParentID  uuid.UUID `gorm:"column:class_subject_parent_id;type:uuid;not null;index:idx_class_subjects_parent"  json:"class_subject_parent_id"`
-	ClassSubjectSubjectID uuid.UUID `gorm:"column:class_subject_subject_id;type:uuid;not null"                                  json:"class_subject_subject_id"`
+	ClassSubjectClassParentID uuid.UUID `gorm:"column:class_subject_class_parent_id;type:uuid;not null;index:idx_class_subjects_parent" json:"class_subject_class_parent_id"`
+	ClassSubjectSubjectID     uuid.UUID `gorm:"column:class_subject_subject_id;type:uuid;not null"                                              json:"class_subject_subject_id"`
 
 	/* ============ Identitas & atribut ============ */
-	ClassSubjectSlug            *string `gorm:"column:class_subject_slug;type:varchar(160)"                json:"class_subject_slug,omitempty"`
-	ClassSubjectOrderIndex      *int    `gorm:"column:class_subject_order_index"                           json:"class_subject_order_index,omitempty"`
-	ClassSubjectHoursPerWeek    *int    `gorm:"column:class_subject_hours_per_week"                        json:"class_subject_hours_per_week,omitempty"`
-	ClassSubjectMinPassingScore *int    `gorm:"column:class_subject_min_passing_score"                     json:"class_subject_min_passing_score,omitempty"`
-	ClassSubjectWeightOnReport  *int    `gorm:"column:class_subject_weight_on_report"                      json:"class_subject_weight_on_report,omitempty"`
-	ClassSubjectIsCore          bool    `gorm:"column:class_subject_is_core;not null;default:false"        json:"class_subject_is_core"`
-	ClassSubjectDesc            *string `gorm:"column:class_subject_desc;type:text"                        json:"class_subject_desc,omitempty"`
+	ClassSubjectSlug            *string `gorm:"column:class_subject_slug;type:varchar(160)"          json:"class_subject_slug,omitempty"`
+	ClassSubjectOrderIndex      *int    `gorm:"column:class_subject_order_index"                     json:"class_subject_order_index,omitempty"`
+	ClassSubjectHoursPerWeek    *int    `gorm:"column:class_subject_hours_per_week"                  json:"class_subject_hours_per_week,omitempty"`
+	ClassSubjectMinPassingScore *int    `gorm:"column:class_subject_min_passing_score"               json:"class_subject_min_passing_score,omitempty"`
+	ClassSubjectWeightOnReport  *int    `gorm:"column:class_subject_weight_on_report"                json:"class_subject_weight_on_report,omitempty"`
+	ClassSubjectIsCore          bool    `gorm:"column:class_subject_is_core;not null;default:false"  json:"class_subject_is_core"`
+	ClassSubjectDesc            *string `gorm:"column:class_subject_desc;type:text"                  json:"class_subject_desc,omitempty"`
 
 	/* ============ Bobot penilaian (SMALLINT di DB) ============ */
 	ClassSubjectWeightAssignment     *int16 `gorm:"column:class_subject_weight_assignment"      json:"class_subject_weight_assignment,omitempty"`
@@ -39,12 +39,12 @@ type ClassSubjectModel struct {
 	ClassSubjectSubjectSlugSnapshot *string `gorm:"column:class_subject_subject_slug_snapshot;type:varchar(160)" json:"class_subject_subject_slug_snapshot,omitempty"`
 	ClassSubjectSubjectURLSnapshot  *string `gorm:"column:class_subject_subject_url_snapshot;type:text"          json:"class_subject_subject_url_snapshot,omitempty"`
 
-	/* ============ Snapshots: class_parent ============ */
-	ClassSubjectParentCodeSnapshot  *string `gorm:"column:class_subject_parent_code_snapshot;type:varchar(80)"   json:"class_subject_parent_code_snapshot,omitempty"`
-	ClassSubjectParentSlugSnapshot  *string `gorm:"column:class_subject_parent_slug_snapshot;type:varchar(160)"  json:"class_subject_parent_slug_snapshot,omitempty"`
-	ClassSubjectParentLevelSnapshot *int16  `gorm:"column:class_subject_parent_level_snapshot"                   json:"class_subject_parent_level_snapshot,omitempty"`
-	ClassSubjectParentURLSnapshot   *string `gorm:"column:class_subject_parent_url_snapshot;type:text"           json:"class_subject_parent_url_snapshot,omitempty"`
-	ClassSubjectParentNameSnapshot  *string `gorm:"column:class_subject_parent_name_snapshot;type:varchar(160)"  json:"class_subject_parent_name_snapshot,omitempty"`
+	/* ============ Snapshots: class_parent (pakai prefix class_parent) ============ */
+	ClassSubjectClassParentCodeSnapshot  *string `gorm:"column:class_subject_class_parent_code_snapshot;type:varchar(80)"   json:"class_subject_class_parent_code_snapshot,omitempty"`
+	ClassSubjectClassParentSlugSnapshot  *string `gorm:"column:class_subject_class_parent_slug_snapshot;type:varchar(160)"  json:"class_subject_class_parent_slug_snapshot,omitempty"`
+	ClassSubjectClassParentLevelSnapshot *int16  `gorm:"column:class_subject_class_parent_level_snapshot"                   json:"class_subject_class_parent_level_snapshot,omitempty"`
+	ClassSubjectClassParentURLSnapshot   *string `gorm:"column:class_subject_class_parent_url_snapshot;type:text"           json:"class_subject_class_parent_url_snapshot,omitempty"`
+	ClassSubjectClassParentNameSnapshot  *string `gorm:"column:class_subject_class_parent_name_snapshot;type:varchar(160)"  json:"class_subject_class_parent_name_snapshot,omitempty"`
 
 	/* ============ Status & audit ============ */
 	ClassSubjectIsActive  bool           `gorm:"column:class_subject_is_active;not null;default:true;index:idx_class_subject_active_alive" json:"class_subject_is_active"`

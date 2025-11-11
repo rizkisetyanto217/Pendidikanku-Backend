@@ -6,10 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	"gorm.io/datatypes"
-
 	model "schoolku_backend/internals/features/school/classes/class_sections/model"
+
+	"github.com/google/uuid"
 )
 
 /* =========================================================
@@ -46,9 +45,22 @@ type StudentClassSectionCreateReq struct {
 	StudentClassSectionSectionID       uuid.UUID `json:"student_class_section_section_id"`
 	StudentClassSectionSchoolID        uuid.UUID `json:"student_class_section_school_id"`
 
-	StudentClassSectionStatus string          `json:"student_class_section_status,omitempty"` // default: active
-	StudentClassSectionResult *string         `json:"student_class_section_result,omitempty"`
-	StudentClassSectionFee    *datatypes.JSON `json:"student_class_section_fee_snapshot,omitempty"`
+	// biasanya diisi service dari class_sections; tetap disediakan optional kalau mau override
+	StudentClassSectionSectionSlugSnapshot *string `json:"student_class_section_section_slug_snapshot,omitempty"`
+
+	StudentClassSectionStatus string  `json:"student_class_section_status,omitempty"` // default: active
+	StudentClassSectionResult *string `json:"student_class_section_result,omitempty"`
+
+	// ==========================
+	// NILAI AKHIR (optional saat create; WAJIB kalau status=completed)
+	// ==========================
+	StudentClassSectionFinalScore        *float64   `json:"student_class_section_final_score,omitempty"`
+	StudentClassSectionFinalGradeLetter  *string    `json:"student_class_section_final_grade_letter,omitempty"`
+	StudentClassSectionFinalGradePoint   *float64   `json:"student_class_section_final_grade_point,omitempty"`
+	StudentClassSectionFinalRank         *int       `json:"student_class_section_final_rank,omitempty"`
+	StudentClassSectionFinalRemarks      *string    `json:"student_class_section_final_remarks,omitempty"`
+	StudentClassSectionGradedByTeacherID *uuid.UUID `json:"student_class_section_graded_by_teacher_id,omitempty"`
+	StudentClassSectionGradedAt          *time.Time `json:"student_class_section_graded_at,omitempty"`
 
 	// Snapshot users_profile (opsional; dibekukan saat enrol)
 	StudentClassSectionUserProfileNameSnapshot              *string `json:"student_class_section_user_profile_name_snapshot,omitempty"`
@@ -68,7 +80,6 @@ func (r *StudentClassSectionCreateReq) Normalize() {
 		r.StudentClassSectionStatus = string(model.StudentClassSectionActive)
 	}
 	r.StudentClassSectionStatus = strings.ToLower(strings.TrimSpace(r.StudentClassSectionStatus))
-
 	if r.StudentClassSectionResult != nil {
 		res := strings.ToLower(strings.TrimSpace(*r.StudentClassSectionResult))
 		if res == "" {
@@ -78,7 +89,8 @@ func (r *StudentClassSectionCreateReq) Normalize() {
 		}
 	}
 
-	// snapshots → trim whitespace; kosong → nil
+	// trim snapshots
+	r.StudentClassSectionSectionSlugSnapshot = trimPtr(r.StudentClassSectionSectionSlugSnapshot)
 	r.StudentClassSectionUserProfileNameSnapshot = trimPtr(r.StudentClassSectionUserProfileNameSnapshot)
 	r.StudentClassSectionUserProfileAvatarURLSnapshot = trimPtr(r.StudentClassSectionUserProfileAvatarURLSnapshot)
 	r.StudentClassSectionUserProfileWhatsappURLSnapshot = trimPtr(r.StudentClassSectionUserProfileWhatsappURLSnapshot)
@@ -97,13 +109,10 @@ func (r *StudentClassSectionCreateReq) Validate() error {
 	if isZeroUUID(r.StudentClassSectionSchoolID) {
 		return errors.New("student_class_section_school_id wajib diisi")
 	}
-
-	// status
+	// status/result
 	if !isValidStatus(r.StudentClassSectionStatus) {
 		return errors.New("invalid student_class_section_status")
 	}
-
-	// result (jika ada) harus valid
 	if r.StudentClassSectionResult != nil && !isValidResult(*r.StudentClassSectionResult) {
 		return errors.New("invalid student_class_section_result (gunakan 'passed' atau 'failed')")
 	}
@@ -116,23 +125,46 @@ func (r *StudentClassSectionCreateReq) Validate() error {
 		if r.StudentClassSectionCompletedAt == nil {
 			return errors.New("student_class_section_completed_at wajib diisi jika status completed")
 		}
+		// minimal salah satu metrik nilai terisi
+		if r.StudentClassSectionFinalScore == nil &&
+			r.StudentClassSectionFinalGradeLetter == nil &&
+			r.StudentClassSectionFinalGradePoint == nil {
+			return errors.New("minimal salah satu dari final_score/final_grade_letter/final_grade_point wajib diisi saat completed")
+		}
 	} else {
-		// jika bukan completed, larang pengisian result/completed_at
-		if r.StudentClassSectionResult != nil {
-			return errors.New("student_class_section_result harus kosong jika status bukan 'completed'")
-		}
-		if r.StudentClassSectionCompletedAt != nil {
-			return errors.New("student_class_section_completed_at harus kosong jika status bukan 'completed'")
-		}
-	}
-
-	// validasi tanggal unassigned >= assigned (jika keduanya ada)
-	if r.StudentClassSectionAssignedAt != nil && r.StudentClassSectionUnassignedAt != nil {
-		if r.StudentClassSectionUnassignedAt.Before(*r.StudentClassSectionAssignedAt) {
-			return errors.New("student_class_section_unassigned_at tidak boleh lebih awal dari student_class_section_assigned_at")
+		// jika bukan completed, larang isi fields nilai
+		if r.StudentClassSectionResult != nil ||
+			r.StudentClassSectionCompletedAt != nil ||
+			r.StudentClassSectionFinalScore != nil ||
+			r.StudentClassSectionFinalGradeLetter != nil ||
+			r.StudentClassSectionFinalGradePoint != nil ||
+			r.StudentClassSectionFinalRank != nil ||
+			r.StudentClassSectionFinalRemarks != nil ||
+			r.StudentClassSectionGradedAt != nil {
+			return errors.New("field nilai akhir & completed_at harus kosong jika status bukan 'completed'")
 		}
 	}
 
+	// validasi range nilai (jika diisi)
+	if r.StudentClassSectionFinalScore != nil {
+		if *r.StudentClassSectionFinalScore < 0 || *r.StudentClassSectionFinalScore > 100 {
+			return errors.New("final_score harus di antara 0..100")
+		}
+	}
+	if r.StudentClassSectionFinalGradePoint != nil {
+		if *r.StudentClassSectionFinalGradePoint < 0 || *r.StudentClassSectionFinalGradePoint > 4 {
+			return errors.New("final_grade_point harus di antara 0..4")
+		}
+	}
+	if r.StudentClassSectionFinalRank != nil && *r.StudentClassSectionFinalRank <= 0 {
+		return errors.New("final_rank harus > 0")
+	}
+
+	// tanggal
+	if r.StudentClassSectionAssignedAt != nil && r.StudentClassSectionUnassignedAt != nil &&
+		r.StudentClassSectionUnassignedAt.Before(*r.StudentClassSectionAssignedAt) {
+		return errors.New("student_class_section_unassigned_at tidak boleh lebih awal dari student_class_section_assigned_at")
+	}
 	return nil
 }
 
@@ -142,18 +174,29 @@ func (r *StudentClassSectionCreateReq) ToModel() *model.StudentClassSection {
 		StudentClassSectionSectionID:       r.StudentClassSectionSectionID,
 		StudentClassSectionSchoolID:        r.StudentClassSectionSchoolID,
 		StudentClassSectionStatus:          model.StudentClassSectionStatus(r.StudentClassSectionStatus),
-		// kolom JSONB nullable; kalau tidak dikirim, biarkan NULL
 	}
 
+	// Snapshot slug section (bila disediakan); kalau nil, service layer wajib mengisi sebelum INSERT
+	if r.StudentClassSectionSectionSlugSnapshot != nil {
+		m.StudentClassSectionSectionSlugSnapshot = *r.StudentClassSectionSectionSlugSnapshot
+	}
+
+	// result
 	if r.StudentClassSectionResult != nil {
 		res := model.StudentClassSectionResult(*r.StudentClassSectionResult)
 		m.StudentClassSectionResult = &res
 	}
-	if r.StudentClassSectionFee != nil {
-		m.StudentClassSectionFeeSnapshot = *r.StudentClassSectionFee
-	}
 
-	// snapshots
+	// nilai akhir
+	m.StudentClassSectionFinalScore = r.StudentClassSectionFinalScore
+	m.StudentClassSectionFinalGradeLetter = r.StudentClassSectionFinalGradeLetter
+	m.StudentClassSectionFinalGradePoint = r.StudentClassSectionFinalGradePoint
+	m.StudentClassSectionFinalRank = r.StudentClassSectionFinalRank
+	m.StudentClassSectionFinalRemarks = r.StudentClassSectionFinalRemarks
+	m.StudentClassSectionGradedByTeacherID = r.StudentClassSectionGradedByTeacherID
+	m.StudentClassSectionGradedAt = r.StudentClassSectionGradedAt
+
+	// snapshots user
 	m.StudentClassSectionUserProfileNameSnapshot = r.StudentClassSectionUserProfileNameSnapshot
 	m.StudentClassSectionUserProfileAvatarURLSnapshot = r.StudentClassSectionUserProfileAvatarURLSnapshot
 	m.StudentClassSectionUserProfileWhatsappURLSnapshot = r.StudentClassSectionUserProfileWhatsappURLSnapshot
@@ -164,12 +207,8 @@ func (r *StudentClassSectionCreateReq) ToModel() *model.StudentClassSection {
 	if r.StudentClassSectionAssignedAt != nil {
 		m.StudentClassSectionAssignedAt = *r.StudentClassSectionAssignedAt
 	}
-	if r.StudentClassSectionUnassignedAt != nil {
-		m.StudentClassSectionUnassignedAt = r.StudentClassSectionUnassignedAt
-	}
-	if r.StudentClassSectionCompletedAt != nil {
-		m.StudentClassSectionCompletedAt = r.StudentClassSectionCompletedAt
-	}
+	m.StudentClassSectionUnassignedAt = r.StudentClassSectionUnassignedAt
+	m.StudentClassSectionCompletedAt = r.StudentClassSectionCompletedAt
 	return m
 }
 
@@ -185,9 +224,17 @@ type PatchField[T any] struct {
 func (p *PatchField[T]) IsZero() bool { return p == nil || !p.Set }
 
 type StudentClassSectionPatchReq struct {
-	StudentClassSectionStatus *PatchField[string]          `json:"student_class_section_status,omitempty"`
-	StudentClassSectionResult *PatchField[*string]         `json:"student_class_section_result,omitempty"`
-	StudentClassSectionFee    *PatchField[*datatypes.JSON] `json:"student_class_section_fee_snapshot,omitempty"`
+	StudentClassSectionStatus *PatchField[string]  `json:"student_class_section_status,omitempty"`
+	StudentClassSectionResult *PatchField[*string] `json:"student_class_section_result,omitempty"`
+
+	// nilai akhir (patchable)
+	StudentClassSectionFinalScore        *PatchField[*float64]   `json:"student_class_section_final_score,omitempty"`
+	StudentClassSectionFinalGradeLetter  *PatchField[*string]    `json:"student_class_section_final_grade_letter,omitempty"`
+	StudentClassSectionFinalGradePoint   *PatchField[*float64]   `json:"student_class_section_final_grade_point,omitempty"`
+	StudentClassSectionFinalRank         *PatchField[*int]       `json:"student_class_section_final_rank,omitempty"`
+	StudentClassSectionFinalRemarks      *PatchField[*string]    `json:"student_class_section_final_remarks,omitempty"`
+	StudentClassSectionGradedByTeacherID *PatchField[*uuid.UUID] `json:"student_class_section_graded_by_teacher_id,omitempty"`
+	StudentClassSectionGradedAt          *PatchField[*time.Time] `json:"student_class_section_graded_at,omitempty"`
 
 	// Snapshot users_profile
 	StudentClassSectionUserProfileNameSnapshot              *PatchField[*string] `json:"student_class_section_user_profile_name_snapshot,omitempty"`
@@ -214,7 +261,7 @@ func (r *StudentClassSectionPatchReq) Normalize() {
 		}
 	}
 
-	// snapshots: trim; kosong → nil
+	// trim snapshot fields
 	if r.StudentClassSectionUserProfileNameSnapshot != nil && r.StudentClassSectionUserProfileNameSnapshot.Set {
 		r.StudentClassSectionUserProfileNameSnapshot.Value = trimPtr(r.StudentClassSectionUserProfileNameSnapshot.Value)
 	}
@@ -233,21 +280,22 @@ func (r *StudentClassSectionPatchReq) Normalize() {
 }
 
 func (r *StudentClassSectionPatchReq) Validate() error {
-	// status (jika di-set) harus valid
+	// status valid?
 	if r.StudentClassSectionStatus != nil && r.StudentClassSectionStatus.Set {
 		if !isValidStatus(r.StudentClassSectionStatus.Value) {
 			return errors.New("invalid status")
 		}
 	}
 
-	// result (jika di-set & tidak nil) harus valid
+	// result valid?
 	if r.StudentClassSectionResult != nil && r.StudentClassSectionResult.Set && r.StudentClassSectionResult.Value != nil {
 		if !isValidResult(*r.StudentClassSectionResult.Value) {
 			return errors.New("invalid result (gunakan 'passed' atau 'failed')")
 		}
 	}
 
-	// aturan completed (jika status di-set menjadi completed)
+	// jika status di-set menjadi completed → completed_at & result wajib,
+	// dan minimal salah satu metrik nilai harus diset (non-nil)
 	if r.StudentClassSectionStatus != nil && r.StudentClassSectionStatus.Set &&
 		r.StudentClassSectionStatus.Value == string(model.StudentClassSectionCompleted) {
 
@@ -257,9 +305,17 @@ func (r *StudentClassSectionPatchReq) Validate() error {
 		if r.StudentClassSectionResult == nil || !r.StudentClassSectionResult.Set || r.StudentClassSectionResult.Value == nil {
 			return errors.New("result wajib diisi jika status completed")
 		}
+
+		hasAnyGrade :=
+			(r.StudentClassSectionFinalScore != nil && r.StudentClassSectionFinalScore.Set && r.StudentClassSectionFinalScore.Value != nil) ||
+				(r.StudentClassSectionFinalGradeLetter != nil && r.StudentClassSectionFinalGradeLetter.Set && r.StudentClassSectionFinalGradeLetter.Value != nil) ||
+				(r.StudentClassSectionFinalGradePoint != nil && r.StudentClassSectionFinalGradePoint.Set && r.StudentClassSectionFinalGradePoint.Value != nil)
+		if !hasAnyGrade {
+			return errors.New("minimal salah satu dari final_score/final_grade_letter/final_grade_point harus diisi saat completed")
+		}
 	}
 
-	// jika status di-set menjadi non-completed, larang set result/completed_at bersamaan
+	// jika status di-set menjadi non-completed → larang isi result/completed_at atau kolom nilai
 	if r.StudentClassSectionStatus != nil && r.StudentClassSectionStatus.Set &&
 		r.StudentClassSectionStatus.Value != string(model.StudentClassSectionCompleted) {
 
@@ -269,24 +325,49 @@ func (r *StudentClassSectionPatchReq) Validate() error {
 		if r.StudentClassSectionCompletedAt != nil && r.StudentClassSectionCompletedAt.Set && r.StudentClassSectionCompletedAt.Value != nil {
 			return errors.New("completed_at harus dikosongkan jika status bukan 'completed'")
 		}
+		if (r.StudentClassSectionFinalScore != nil && r.StudentClassSectionFinalScore.Set && r.StudentClassSectionFinalScore.Value != nil) ||
+			(r.StudentClassSectionFinalGradeLetter != nil && r.StudentClassSectionFinalGradeLetter.Set && r.StudentClassSectionFinalGradeLetter.Value != nil) ||
+			(r.StudentClassSectionFinalGradePoint != nil && r.StudentClassSectionFinalGradePoint.Set && r.StudentClassSectionFinalGradePoint.Value != nil) ||
+			(r.StudentClassSectionFinalRank != nil && r.StudentClassSectionFinalRank.Set && r.StudentClassSectionFinalRank.Value != nil) ||
+			(r.StudentClassSectionFinalRemarks != nil && r.StudentClassSectionFinalRemarks.Set && r.StudentClassSectionFinalRemarks.Value != nil) ||
+			(r.StudentClassSectionGradedAt != nil && r.StudentClassSectionGradedAt.Set && r.StudentClassSectionGradedAt.Value != nil) {
+			return errors.New("field nilai akhir harus dikosongkan jika status bukan 'completed'")
+		}
 	}
 
-	// validasi tanggal unassigned >= assigned jika keduanya di-set
+	// range nilai (kalau di-set)
+	if r.StudentClassSectionFinalScore != nil && r.StudentClassSectionFinalScore.Set && r.StudentClassSectionFinalScore.Value != nil {
+		v := *r.StudentClassSectionFinalScore.Value
+		if v < 0 || v > 100 {
+			return errors.New("final_score harus di antara 0..100")
+		}
+	}
+	if r.StudentClassSectionFinalGradePoint != nil && r.StudentClassSectionFinalGradePoint.Set && r.StudentClassSectionFinalGradePoint.Value != nil {
+		v := *r.StudentClassSectionFinalGradePoint.Value
+		if v < 0 || v > 4 {
+			return errors.New("final_grade_point harus di antara 0..4")
+		}
+	}
+	if r.StudentClassSectionFinalRank != nil && r.StudentClassSectionFinalRank.Set && r.StudentClassSectionFinalRank.Value != nil {
+		if *r.StudentClassSectionFinalRank.Value <= 0 {
+			return errors.New("final_rank harus > 0")
+		}
+	}
+
+	// tanggal
 	if r.StudentClassSectionAssignedAt != nil && r.StudentClassSectionAssignedAt.Set &&
 		r.StudentClassSectionAssignedAt.Value != nil &&
 		r.StudentClassSectionUnassignedAt != nil && r.StudentClassSectionUnassignedAt.Set &&
 		r.StudentClassSectionUnassignedAt.Value != nil {
-
 		if r.StudentClassSectionUnassignedAt.Value.Before(*r.StudentClassSectionAssignedAt.Value) {
 			return errors.New("unassigned_at tidak boleh lebih awal dari assigned_at")
 		}
 	}
 
-	// Kolom assigned_at di DB NOT NULL → jangan izinkan clear (nil) eksplisit
+	// assigned_at NOT NULL → jangan izinkan clear eksplisit
 	if r.StudentClassSectionAssignedAt != nil && r.StudentClassSectionAssignedAt.Set && r.StudentClassSectionAssignedAt.Value == nil {
 		return errors.New("assigned_at tidak boleh dikosongkan (NOT NULL)")
 	}
-
 	return nil
 }
 
@@ -303,13 +384,28 @@ func (r *StudentClassSectionPatchReq) Apply(m *model.StudentClassSection) {
 			m.StudentClassSectionResult = nil
 		}
 	}
-	if r.StudentClassSectionFee != nil && r.StudentClassSectionFee.Set {
-		if r.StudentClassSectionFee.Value != nil {
-			m.StudentClassSectionFeeSnapshot = *r.StudentClassSectionFee.Value
-		} else {
-			// nullable → jika ingin clear, set ke NULL (bukan "{}")
-			m.StudentClassSectionFeeSnapshot = nil
-		}
+
+	// nilai akhir
+	if r.StudentClassSectionFinalScore != nil && r.StudentClassSectionFinalScore.Set {
+		m.StudentClassSectionFinalScore = r.StudentClassSectionFinalScore.Value
+	}
+	if r.StudentClassSectionFinalGradeLetter != nil && r.StudentClassSectionFinalGradeLetter.Set {
+		m.StudentClassSectionFinalGradeLetter = r.StudentClassSectionFinalGradeLetter.Value
+	}
+	if r.StudentClassSectionFinalGradePoint != nil && r.StudentClassSectionFinalGradePoint.Set {
+		m.StudentClassSectionFinalGradePoint = r.StudentClassSectionFinalGradePoint.Value
+	}
+	if r.StudentClassSectionFinalRank != nil && r.StudentClassSectionFinalRank.Set {
+		m.StudentClassSectionFinalRank = r.StudentClassSectionFinalRank.Value
+	}
+	if r.StudentClassSectionFinalRemarks != nil && r.StudentClassSectionFinalRemarks.Set {
+		m.StudentClassSectionFinalRemarks = r.StudentClassSectionFinalRemarks.Value
+	}
+	if r.StudentClassSectionGradedByTeacherID != nil && r.StudentClassSectionGradedByTeacherID.Set {
+		m.StudentClassSectionGradedByTeacherID = r.StudentClassSectionGradedByTeacherID.Value
+	}
+	if r.StudentClassSectionGradedAt != nil && r.StudentClassSectionGradedAt.Set {
+		m.StudentClassSectionGradedAt = r.StudentClassSectionGradedAt.Value
 	}
 
 	// snapshots
@@ -352,9 +448,19 @@ type StudentClassSectionResp struct {
 	StudentClassSectionSectionID       uuid.UUID `json:"student_class_section_section_id"`
 	StudentClassSectionSchoolID        uuid.UUID `json:"student_class_section_school_id"`
 
-	StudentClassSectionStatus string          `json:"student_class_section_status"`
-	StudentClassSectionResult *string         `json:"student_class_section_result,omitempty"`
-	StudentClassSectionFee    *datatypes.JSON `json:"student_class_section_fee_snapshot,omitempty"`
+	StudentClassSectionSectionSlugSnapshot string `json:"student_class_section_section_slug_snapshot"`
+
+	StudentClassSectionStatus string  `json:"student_class_section_status"`
+	StudentClassSectionResult *string `json:"student_class_section_result,omitempty"`
+
+	// nilai akhir
+	StudentClassSectionFinalScore        *float64   `json:"student_class_section_final_score,omitempty"`
+	StudentClassSectionFinalGradeLetter  *string    `json:"student_class_section_final_grade_letter,omitempty"`
+	StudentClassSectionFinalGradePoint   *float64   `json:"student_class_section_final_grade_point,omitempty"`
+	StudentClassSectionFinalRank         *int       `json:"student_class_section_final_rank,omitempty"`
+	StudentClassSectionFinalRemarks      *string    `json:"student_class_section_final_remarks,omitempty"`
+	StudentClassSectionGradedByTeacherID *uuid.UUID `json:"student_class_section_graded_by_teacher_id,omitempty"`
+	StudentClassSectionGradedAt          *time.Time `json:"student_class_section_graded_at,omitempty"`
 
 	// Snapshot users_profile
 	StudentClassSectionUserProfileNameSnapshot              *string `json:"student_class_section_user_profile_name_snapshot,omitempty"`
@@ -383,11 +489,6 @@ func FromModel(m *model.StudentClassSection) StudentClassSectionResp {
 		t := m.StudentClassSectionDeletedAt.Time
 		delAt = &t
 	}
-	var feePtr *datatypes.JSON
-	if m.StudentClassSectionFeeSnapshot != nil {
-		tmp := m.StudentClassSectionFeeSnapshot
-		feePtr = &tmp
-	}
 
 	return StudentClassSectionResp{
 		StudentClassSectionID: m.StudentClassSectionID,
@@ -396,11 +497,19 @@ func FromModel(m *model.StudentClassSection) StudentClassSectionResp {
 		StudentClassSectionSectionID:       m.StudentClassSectionSectionID,
 		StudentClassSectionSchoolID:        m.StudentClassSectionSchoolID,
 
+		StudentClassSectionSectionSlugSnapshot: m.StudentClassSectionSectionSlugSnapshot,
+
 		StudentClassSectionStatus: string(m.StudentClassSectionStatus),
 		StudentClassSectionResult: res,
-		StudentClassSectionFee:    feePtr,
 
-		// snapshots
+		StudentClassSectionFinalScore:        m.StudentClassSectionFinalScore,
+		StudentClassSectionFinalGradeLetter:  m.StudentClassSectionFinalGradeLetter,
+		StudentClassSectionFinalGradePoint:   m.StudentClassSectionFinalGradePoint,
+		StudentClassSectionFinalRank:         m.StudentClassSectionFinalRank,
+		StudentClassSectionFinalRemarks:      m.StudentClassSectionFinalRemarks,
+		StudentClassSectionGradedByTeacherID: m.StudentClassSectionGradedByTeacherID,
+		StudentClassSectionGradedAt:          m.StudentClassSectionGradedAt,
+
 		StudentClassSectionUserProfileNameSnapshot:              m.StudentClassSectionUserProfileNameSnapshot,
 		StudentClassSectionUserProfileAvatarURLSnapshot:         m.StudentClassSectionUserProfileAvatarURLSnapshot,
 		StudentClassSectionUserProfileWhatsappURLSnapshot:       m.StudentClassSectionUserProfileWhatsappURLSnapshot,

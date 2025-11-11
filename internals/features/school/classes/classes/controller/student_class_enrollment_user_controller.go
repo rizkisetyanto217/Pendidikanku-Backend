@@ -92,17 +92,33 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	}
 
 	// ========== data ==========
+	// ========== data ==========
 	tx := base // copy builder for data fetch
 
-	// optimisasi kolom saat compact
+	// optimisasi kolom saat compact -> pastikan semua field untuk DTO compact ikut di-select
 	if view == "compact" || view == "summary" {
 		tx = tx.Select([]string{
+			// id & status & nominal
 			"student_class_enrollments_id",
 			"student_class_enrollments_status",
 			"student_class_enrollments_total_due_idr",
-			"student_class_enrollments_payment_snapshot",
-			"student_class_enrollments_class_name_snapshot",
+
+			// convenience (mirror snapshot & ids)
+			"student_class_enrollments_school_student_id",
 			"student_class_enrollments_student_name_snapshot",
+			"student_class_enrollments_class_id",
+			"student_class_enrollments_class_name_snapshot",
+
+			// term (denormalized, optional)
+			"student_class_enrollments_term_id",
+			"student_class_enrollments_term_name_snapshot",
+			"student_class_enrollments_term_academic_year_snapshot",
+			"student_class_enrollments_term_angkatan_snapshot",
+
+			// payment snapshot (untuk derive PaymentStatus/CheckoutURL)
+			"student_class_enrollments_payment_snapshot",
+
+			// jejak penting
 			"student_class_enrollments_applied_at",
 		})
 	}

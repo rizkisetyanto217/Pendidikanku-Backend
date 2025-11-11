@@ -54,9 +54,9 @@ func int16ToIntPtr(p *int16) *int {
    ========================================================= */
 
 type CreateClassSubjectRequest struct {
-	SchoolID  uuid.UUID `json:"class_subject_school_id"  validate:"required"`
-	ParentID  uuid.UUID `json:"class_subject_parent_id"  validate:"required"`
-	SubjectID uuid.UUID `json:"class_subject_subject_id" validate:"required"`
+	SchoolID      uuid.UUID `json:"class_subject_school_id"        validate:"required"`
+	ClassParentID uuid.UUID `json:"class_subject_class_parent_id"  validate:"required"`
+	SubjectID     uuid.UUID `json:"class_subject_subject_id"       validate:"required"`
 
 	// slug
 	Slug *string `json:"class_subject_slug" validate:"omitempty,max=160"`
@@ -80,9 +80,9 @@ type CreateClassSubjectRequest struct {
 }
 
 type UpdateClassSubjectRequest struct {
-	SchoolID  *uuid.UUID `json:"class_subject_school_id"  validate:"omitempty"`
-	ParentID  *uuid.UUID `json:"class_subject_parent_id"  validate:"omitempty"`
-	SubjectID *uuid.UUID `json:"class_subject_subject_id" validate:"omitempty"`
+	SchoolID      *uuid.UUID `json:"class_subject_school_id"        validate:"omitempty"`
+	ClassParentID *uuid.UUID `json:"class_subject_class_parent_id"  validate:"omitempty"`
+	SubjectID     *uuid.UUID `json:"class_subject_subject_id"       validate:"omitempty"`
 
 	// slug
 	Slug *string `json:"class_subject_slug" validate:"omitempty,max=160"`
@@ -113,10 +113,11 @@ type ListClassSubjectQuery struct {
 	OrderBy     *string `query:"order_by"      validate:"omitempty,oneof=order_index created_at updated_at"`
 	Sort        *string `query:"sort"          validate:"omitempty,oneof=asc desc"`
 	WithDeleted *bool   `query:"with_deleted"  validate:"omitempty"`
-	// (opsional) filter tambahan
-	SchoolID  *uuid.UUID `query:"school_id"     validate:"omitempty"`
-	ParentID  *uuid.UUID `query:"parent_id"     validate:"omitempty"`
-	SubjectID *uuid.UUID `query:"subject_id"   validate:"omitempty"`
+
+	// filter tambahan
+	SchoolID      *uuid.UUID `query:"school_id"         validate:"omitempty"`
+	ClassParentID *uuid.UUID `query:"class_parent_id"   validate:"omitempty"`
+	SubjectID     *uuid.UUID `query:"subject_id"        validate:"omitempty"`
 }
 
 /* =========================================================
@@ -124,10 +125,11 @@ type ListClassSubjectQuery struct {
    ========================================================= */
 
 type ClassSubjectResponse struct {
-	ID        uuid.UUID `json:"class_subject_id"`
-	SchoolID  uuid.UUID `json:"class_subject_school_id"`
-	ParentID  uuid.UUID `json:"class_subject_parent_id"`
-	SubjectID uuid.UUID `json:"class_subject_subject_id"`
+	ID       uuid.UUID `json:"class_subject_id"`
+	SchoolID uuid.UUID `json:"class_subject_school_id"`
+	// relasi
+	ClassParentID uuid.UUID `json:"class_subject_class_parent_id"`
+	SubjectID     uuid.UUID `json:"class_subject_subject_id"`
 
 	// slug
 	Slug *string `json:"class_subject_slug,omitempty"`
@@ -140,7 +142,7 @@ type ClassSubjectResponse struct {
 	IsCore       bool    `json:"class_subject_is_core"`
 	Desc         *string `json:"class_subject_desc,omitempty"`
 
-	// bobot (int untuk JSON, disimpan sebagai SMALLINT di DB)
+	// bobot (int untuk JSON, SMALLINT di DB)
 	WeightAssignment     *int `json:"class_subject_weight_assignment,omitempty"`
 	WeightQuiz           *int `json:"class_subject_weight_quiz,omitempty"`
 	WeightMid            *int `json:"class_subject_weight_mid,omitempty"`
@@ -153,12 +155,12 @@ type ClassSubjectResponse struct {
 	SubjectSlugSnapshot *string `json:"class_subject_subject_slug_snapshot,omitempty"`
 	SubjectURLSnapshot  *string `json:"class_subject_subject_url_snapshot,omitempty"`
 
-	// ============ Snapshots: class_parent ============
-	ParentCodeSnapshot  *string `json:"class_subject_parent_code_snapshot,omitempty"`
-	ParentSlugSnapshot  *string `json:"class_subject_parent_slug_snapshot,omitempty"`
-	ParentLevelSnapshot *int16  `json:"class_subject_parent_level_snapshot,omitempty"`
-	ParentURLSnapshot   *string `json:"class_subject_parent_url_snapshot,omitempty"`
-	ParentNameSnapshot  *string `json:"class_subject_parent_name_snapshot,omitempty"`
+	// ============ Snapshots: class_parent (prefix class_parent) ============
+	ClassParentCodeSnapshot  *string `json:"class_subject_class_parent_code_snapshot,omitempty"`
+	ClassParentSlugSnapshot  *string `json:"class_subject_class_parent_slug_snapshot,omitempty"`
+	ClassParentLevelSnapshot *int16  `json:"class_subject_class_parent_level_snapshot,omitempty"`
+	ClassParentURLSnapshot   *string `json:"class_subject_class_parent_url_snapshot,omitempty"`
+	ClassParentNameSnapshot  *string `json:"class_subject_class_parent_name_snapshot,omitempty"`
 
 	// status & timestamps
 	IsActive  bool       `json:"class_subject_is_active"`
@@ -193,9 +195,9 @@ func (r CreateClassSubjectRequest) ToModel() csModel.ClassSubjectModel {
 	}
 
 	return csModel.ClassSubjectModel{
-		ClassSubjectSchoolID:  r.SchoolID,
-		ClassSubjectParentID:  r.ParentID,
-		ClassSubjectSubjectID: r.SubjectID,
+		ClassSubjectSchoolID:      r.SchoolID,
+		ClassSubjectClassParentID: r.ClassParentID,
+		ClassSubjectSubjectID:     r.SubjectID,
 
 		// slug (trim)
 		ClassSubjectSlug: trimPtr(r.Slug),
@@ -208,7 +210,7 @@ func (r CreateClassSubjectRequest) ToModel() csModel.ClassSubjectModel {
 		ClassSubjectIsCore:          isCore,
 		ClassSubjectDesc:            trimPtr(r.Desc),
 
-		// bobot (konversi ke *int16)
+		// bobot (→ *int16)
 		ClassSubjectWeightAssignment:     intToInt16Ptr(r.WeightAssignment),
 		ClassSubjectWeightQuiz:           intToInt16Ptr(r.WeightQuiz),
 		ClassSubjectWeightMid:            intToInt16Ptr(r.WeightMid),
@@ -228,10 +230,10 @@ func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
 	}
 
 	return ClassSubjectResponse{
-		ID:        m.ClassSubjectID,
-		SchoolID:  m.ClassSubjectSchoolID,
-		ParentID:  m.ClassSubjectParentID,
-		SubjectID: m.ClassSubjectSubjectID,
+		ID:            m.ClassSubjectID,
+		SchoolID:      m.ClassSubjectSchoolID,
+		ClassParentID: m.ClassSubjectClassParentID,
+		SubjectID:     m.ClassSubjectSubjectID,
 
 		Slug: m.ClassSubjectSlug,
 
@@ -242,7 +244,7 @@ func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
 		IsCore:       m.ClassSubjectIsCore,
 		Desc:         m.ClassSubjectDesc,
 
-		// bobot (konversi *int16 → *int untuk JSON)
+		// bobot (*int16 → *int untuk JSON)
 		WeightAssignment:     int16ToIntPtr(m.ClassSubjectWeightAssignment),
 		WeightQuiz:           int16ToIntPtr(m.ClassSubjectWeightQuiz),
 		WeightMid:            int16ToIntPtr(m.ClassSubjectWeightMid),
@@ -256,11 +258,11 @@ func FromClassSubjectModel(m csModel.ClassSubjectModel) ClassSubjectResponse {
 		SubjectURLSnapshot:  m.ClassSubjectSubjectURLSnapshot,
 
 		// snapshots: class_parent
-		ParentCodeSnapshot:  m.ClassSubjectParentCodeSnapshot,
-		ParentSlugSnapshot:  m.ClassSubjectParentSlugSnapshot,
-		ParentLevelSnapshot: m.ClassSubjectParentLevelSnapshot,
-		ParentURLSnapshot:   m.ClassSubjectParentURLSnapshot,
-		ParentNameSnapshot:  m.ClassSubjectParentNameSnapshot,
+		ClassParentCodeSnapshot:  m.ClassSubjectClassParentCodeSnapshot,
+		ClassParentSlugSnapshot:  m.ClassSubjectClassParentSlugSnapshot,
+		ClassParentLevelSnapshot: m.ClassSubjectClassParentLevelSnapshot,
+		ClassParentURLSnapshot:   m.ClassSubjectClassParentURLSnapshot,
+		ClassParentNameSnapshot:  m.ClassSubjectClassParentNameSnapshot,
 
 		IsActive:  m.ClassSubjectIsActive,
 		CreatedAt: m.ClassSubjectCreatedAt,
@@ -281,8 +283,8 @@ func (r UpdateClassSubjectRequest) Apply(m *csModel.ClassSubjectModel) {
 	if r.SchoolID != nil {
 		m.ClassSubjectSchoolID = *r.SchoolID
 	}
-	if r.ParentID != nil {
-		m.ClassSubjectParentID = *r.ParentID
+	if r.ClassParentID != nil {
+		m.ClassSubjectClassParentID = *r.ClassParentID
 	}
 	if r.SubjectID != nil {
 		m.ClassSubjectSubjectID = *r.SubjectID

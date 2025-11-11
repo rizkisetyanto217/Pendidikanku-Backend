@@ -26,8 +26,8 @@ type RoomSnapshot struct {
 	JoinURL   *string
 }
 
-// ValidateAndSnapshotRoom mengambil data ruang + cek tenant (school) aman.
-// Catatan: class_room_school_id di-cast ke TEXT supaya aman bila kolom belum bertipe UUID native.
+// ValidateAndSnapshotRoom membaca room dari DB + validasi tenant.
+// Catatan: class_room_school_id di-cast ke TEXT agar aman walau kolom bukan UUID native.
 func ValidateAndSnapshotRoom(
 	tx *gorm.DB,
 	expectSchoolID uuid.UUID,
@@ -102,63 +102,73 @@ func ValidateAndSnapshotRoom(
 }
 
 // ApplyRoomSnapshotToSection menulis snapshot ruang ke model section
-// (JSON + kolom turunan: *_name_snap, *_slug_snap, *_location_snap).
+// (JSON + kolom turunan: *_name_snapshot, *_slug_snapshot, *_location_snapshot).
+// Catatan: fungsi ini TIDAK mengubah class_section_class_room_id_snapshot.
+// Jika ingin sekalian set ID, gunakan ApplyRoomIDAndSnapshotToSection.
 func ApplyRoomSnapshotToSection(mcs *secModel.ClassSectionModel, rs *RoomSnapshot) {
 	if rs == nil {
-		// clear snapshot
-		mcs.ClassSectionRoomSnapshot = datatypes.JSON([]byte("null"))
-		mcs.ClassSectionRoomNameSnap = nil
-		mcs.ClassSectionRoomSlugSnap = nil
-		mcs.ClassSectionRoomLocationSnap = nil
+		// clear snapshot JSON & turunan string
+		mcs.ClassSectionClassRoomSnapshot = datatypes.JSON([]byte("null"))
+		mcs.ClassSectionClassRoomNameSnapshot = nil
+		mcs.ClassSectionClassRoomSlugSnapshot = nil
+		mcs.ClassSectionClassRoomLocationSnapshot = nil
 		return
 	}
 
 	snap := map[string]any{
-		"name": rs.Name,
+		"name":       rs.Name,
+		"is_virtual": rs.IsVirtual,
 	}
-	if rs.Slug != nil {
+	if rs.Slug != nil && strings.TrimSpace(*rs.Slug) != "" {
 		snap["slug"] = *rs.Slug
 	}
-	if rs.Location != nil {
+	if rs.Location != nil && strings.TrimSpace(*rs.Location) != "" {
 		snap["location"] = *rs.Location
 	}
 	// metadata opsional
-	if rs.Code != nil {
+	if rs.Code != nil && strings.TrimSpace(*rs.Code) != "" {
 		snap["code"] = *rs.Code
 	}
 	if rs.Capacity != nil {
 		snap["capacity"] = *rs.Capacity
 	}
-	snap["is_virtual"] = rs.IsVirtual
-	if rs.Platform != nil {
+	if rs.Platform != nil && strings.TrimSpace(*rs.Platform) != "" {
 		snap["platform"] = *rs.Platform
 	}
-	if rs.JoinURL != nil {
+	if rs.JoinURL != nil && strings.TrimSpace(*rs.JoinURL) != "" {
 		snap["join_url"] = *rs.JoinURL
 	}
 
 	if b, err := json.Marshal(snap); err == nil {
-		mcs.ClassSectionRoomSnapshot = datatypes.JSON(b)
+		mcs.ClassSectionClassRoomSnapshot = datatypes.JSON(b) // datatypes.JSON == []byte
 	} else {
 		// fallback defensif
-		mcs.ClassSectionRoomSnapshot = datatypes.JSON([]byte("null"))
+		mcs.ClassSectionClassRoomSnapshot = datatypes.JSON([]byte("null"))
 	}
 
 	// kolom turunan (string) untuk filter/sort cepat
 	name := rs.Name
-	mcs.ClassSectionRoomNameSnap = &name
+	mcs.ClassSectionClassRoomNameSnapshot = &name
 
 	if rs.Slug != nil && strings.TrimSpace(*rs.Slug) != "" {
-		mcs.ClassSectionRoomSlugSnap = rs.Slug
+		mcs.ClassSectionClassRoomSlugSnapshot = rs.Slug
 	} else {
-		mcs.ClassSectionRoomSlugSnap = nil
+		mcs.ClassSectionClassRoomSlugSnapshot = nil
 	}
 
 	if rs.Location != nil && strings.TrimSpace(*rs.Location) != "" {
-		mcs.ClassSectionRoomLocationSnap = rs.Location
+		mcs.ClassSectionClassRoomLocationSnapshot = rs.Location
 	} else {
-		mcs.ClassSectionRoomLocationSnap = nil
+		mcs.ClassSectionClassRoomLocationSnapshot = nil
 	}
+}
+
+// ApplyRoomIDAndSnapshotToSection mengisi ID snapshot dan JSON snapshot sekaligus.
+func ApplyRoomIDAndSnapshotToSection(mcs *secModel.ClassSectionModel, roomID *uuid.UUID, rs *RoomSnapshot) {
+	// set ID snapshot (boleh nil untuk clear)
+	mcs.ClassSectionClassRoomIDSnapshot = roomID
+	// set JSON & turunan
+	ApplyRoomSnapshotToSection(mcs, rs)
 }
 
 // ToJSON mengubah RoomSnapshot → datatypes.JSON (schema sama dengan ApplyRoomSnapshotToSection)

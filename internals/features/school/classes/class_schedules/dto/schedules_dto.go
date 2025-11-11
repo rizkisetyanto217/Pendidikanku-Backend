@@ -126,6 +126,7 @@ type CreateClassAttendanceSessionLite struct {
 }
 
 // Mapper: sessions → models (butuh school & schedule id)
+// Mapper: sessions → models (butuh school & schedule id)
 func (r CreateClassScheduleRequest) SessionsToModels(
 	schoolID, scheduleID uuid.UUID,
 	schedStart, schedEnd time.Time,
@@ -156,10 +157,10 @@ func (r CreateClassScheduleRequest) SessionsToModels(
 		if err != nil {
 			return nil, fmt.Errorf("sessions[%d]: end_time invalid: %v", i, err)
 		}
-		// Overnight guard: jika end < start di waktu lokal → tambah 24 jam
+		// Overnight guard
 		if endLocal.Before(startLocal) {
 			endLocal = endLocal.Add(24 * time.Hour)
-			endUTC = endLocal.In(time.UTC) // pastikan UTC ikut bergeser
+			endUTC = endLocal.In(time.UTC)
 		}
 		if !endLocal.After(startLocal) {
 			return nil, fmt.Errorf("sessions[%d]: end_time harus > start_time", i)
@@ -182,15 +183,15 @@ func (r CreateClassScheduleRequest) SessionsToModels(
 		if s.CSSTID == nil {
 			return nil, fmt.Errorf("sessions[%d]: csst_id wajib", i)
 		}
-		// Komposit FK kita pakai (csst_id, session_school_id)
-		// Jika request menyertakan CSSTSchoolID dan berbeda → tolak
+		// Komposit FK: (csst_id, session_school_id). Jika csst_school_id diisi dan beda → tolak.
+		// Jika tidak diisi, dianggap sama dengan schoolID dari path (tidak perlu disimpan eksplisit).
 		if s.CSSTSchoolID != nil && *s.CSSTSchoolID != schoolID {
-			return nil, fmt.Errorf("sessions[%d]: csst_school_id != session_school_id", i)
+			return nil, fmt.Errorf("sessions[%d]: csst_school_id != path school_id", i)
 		}
 
-		// --- PENTING: set DATE lokal dari startLocal ---
-		dateLocal := startOfDayInTZ(startLocal, tzName) // midnight di tzName
-		dateUTC := toUTCDateFromLocal(dateLocal)        // simpan DATE sebagai midnight UTC
+		// --- Set DATE lokal dari startLocal ---
+		dateLocal := startOfDayInTZ(startLocal, tzName)
+		dateUTC := toUTCDateFromLocal(dateLocal)
 
 		m := sessModel.ClassAttendanceSessionModel{
 			ClassAttendanceSessionSchoolID:   schoolID,
@@ -208,7 +209,7 @@ func (r CreateClassScheduleRequest) SessionsToModels(
 			ClassAttendanceSessionClassRoomID: s.ClassRoomID,
 			ClassAttendanceSessionTeacherID:   s.TeacherID,
 
-			// CSST: kirim POINTER, jangan di-*dereference*
+			// CSST pointer saja (komposit FK pakai school_id schedule)
 			ClassAttendanceSessionCSSTID: s.CSSTID,
 		}
 
@@ -261,8 +262,8 @@ type CreateClassScheduleRuleLite struct {
 	LastWeekOfMonth  *bool   `json:"last_week_of_month"  validate:"omitempty"`
 
 	// CSST wajib untuk rule
-	CSSTID       uuid.UUID `json:"csst_id"        validate:"required,uuid"`
-	CSSTSchoolID uuid.UUID `json:"csst_school_id" validate:"required,uuid"`
+	CSSTID       uuid.UUID  `json:"csst_id"                 validate:"required,uuid"`
+	CSSTSchoolID *uuid.UUID `json:"csst_school_id,omitempty" validate:"omitempty,uuid"` // ← opsional: auto=path school_id
 }
 
 func (r CreateClassScheduleRequest) ToModel(schoolID uuid.UUID) model.ClassScheduleModel {
@@ -299,16 +300,30 @@ func (r CreateClassScheduleRequest) ToModel(schoolID uuid.UUID) model.ClassSched
 }
 
 // Konversi Rules lite di body menjadi models lengkap (butuh schoolID & scheduleID)
+// Konversi Rules lite di body menjadi models lengkap (butuh schoolID & scheduleID)
 func (r CreateClassScheduleRequest) RulesToModels(schoolID, scheduleID uuid.UUID) ([]model.ClassScheduleRuleModel, error) {
 	if len(r.Rules) == 0 {
 		return nil, nil
 	}
 	out := make([]model.ClassScheduleRuleModel, 0, len(r.Rules))
+
 	for idx, it := range r.Rules {
 		// validasi ringan
 		if strings.TrimSpace(it.StartTime) == "" || strings.TrimSpace(it.EndTime) == "" {
 			return nil, fmt.Errorf("rules[%d]: start_time/end_time wajib", idx)
 		}
+
+		// Normalisasi csst_school_id: jika tidak ada → isi dengan schoolID dari PATH
+		var csstSchoolID uuid.UUID
+		if it.CSSTSchoolID == nil {
+			csstSchoolID = schoolID
+		} else {
+			csstSchoolID = *it.CSSTSchoolID
+			if csstSchoolID != schoolID {
+				return nil, fmt.Errorf("rules[%d]: csst_school_id != path school_id", idx)
+			}
+		}
+
 		cr := CreateClassScheduleRuleRequest{
 			ClassScheduleRuleScheduleID:       scheduleID,
 			ClassScheduleRuleDayOfWeek:        it.DayOfWeek,
@@ -322,14 +337,16 @@ func (r CreateClassScheduleRequest) RulesToModels(schoolID, scheduleID uuid.UUID
 
 			// CSST wajib
 			ClassScheduleRuleCSSTID:       it.CSSTID,
-			ClassScheduleRuleCSSTSchoolID: it.CSSTSchoolID,
+			ClassScheduleRuleCSSTSchoolID: csstSchoolID, // ← hasil normalisasi
 		}
+
 		m, err := cr.ToModel(schoolID)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, m)
 	}
+
 	return out, nil
 }
 

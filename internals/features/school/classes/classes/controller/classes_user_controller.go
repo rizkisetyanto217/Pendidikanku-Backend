@@ -1,4 +1,4 @@
-// internals/features/lembaga/classes/user_classes/main/controller/user_my_class_controller.go
+// file: internals/features/lembaga/classes/user_classes/main/controller/user_my_class_controller.go
 package controller
 
 import (
@@ -18,10 +18,6 @@ import (
 
 // =====================================================
 // GET /api/u/:school_id/classes/slug/:slug   (PUBLIC)
-//
-//	/api/u/:school_slug/classes/slug/:slug
-//	/api/u/classes/slug/:slug  + header/query/host
-//
 // =====================================================
 func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
 	// Pastikan helper slug→id bisa akses DB
@@ -30,7 +26,7 @@ func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
 	// 1) Resolve school context secara publik
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		return err // sudah mengembalikan 400 kalau konteks tidak ada
+		return err // helper sudah kasih 400 kalau konteks tak ada
 	}
 
 	var schoolID uuid.UUID
@@ -47,7 +43,7 @@ func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
 		schoolID = id
 	}
 
-	// 2) Normalisasi slug kelas (pakai helpers slug baru)
+	// 2) Normalisasi slug kelas
 	slug := helper.Slugify(c.Params("slug"), 120)
 
 	// 3) Ambil data kelas (public)
@@ -71,19 +67,12 @@ func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
 
 // =====================================================
 // GET /api/u/:school_id/classes/list        (PUBLIC)
-//
-//	/api/u/:school_slug/classes/list
-//	/api/u/classes/list + header/query/host
-//	(masih support multi-tenant via ?school_id=..,.. / ?school_slug=..,..)
-//
 // =====================================================
-// internals/features/lembaga/classes/user_classes/main/controller/user_my_class_controller.go
-
 func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	// DB ke Locals agar helper bisa dipakai
 	c.Locals("DB", ctrl.DB)
 
-	// --- util: deteksi table parent ---
+	// --- util: deteksi table parent (class_parents / class_parent) ---
 	detectParentTable := func(db *gorm.DB) string {
 		var reg *string
 		db.Raw(`SELECT to_regclass('class_parents')::text`).Scan(&reg)
@@ -120,17 +109,18 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		return ""
 	}
 
+	// LEFT JOIN parent pakai kolom baru di tabel classes
 	addParentJoin := func(tx *gorm.DB, aliasClass, parentTbl string) (*gorm.DB, bool) {
 		if parentTbl == "" {
 			return tx, false
 		}
 		j := fmt.Sprintf(`LEFT JOIN %s AS p
-			ON p.class_parent_id = %s.class_parent_id
+			ON p.class_parent_id = %s.class_class_parent_id
 		   AND p.class_parent_deleted_at IS NULL`, parentTbl, aliasClass)
 		return tx.Joins(j), true
 	}
 
-	// --- NEW: scope tenant publik pakai SchoolContext lebih dulu ---
+	// --- resolve tenant scope publik ---
 	getTenantSchoolIDs := func() ([]uuid.UUID, error) {
 		if mc, er := helperAuth.ResolveSchoolContext(c); er == nil {
 			if mc.ID != uuid.Nil {
@@ -193,13 +183,14 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		return out, nil
 	}
 
+	// filter umum untuk alias class table
 	applyCommonFilters := func(tx *gorm.DB, aliasClass string, q dto.ListClassQuery) *gorm.DB {
 		tx = tx.Where(aliasClass + ".class_deleted_at IS NULL")
 		if q.ParentID != nil {
-			tx = tx.Where(aliasClass+".class_parent_id = ?", *q.ParentID)
+			tx = tx.Where(aliasClass+".class_class_parent_id = ?", *q.ParentID)
 		}
 		if q.TermID != nil {
-			tx = tx.Where(aliasClass+".class_term_id = ?", *q.TermID)
+			tx = tx.Where(aliasClass+".class_academic_term_id = ?", *q.TermID)
 		}
 		if raw := strings.TrimSpace(c.Query("id")); raw != "" {
 			var ids []uuid.UUID
@@ -290,9 +281,11 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			includes[p] = true
 		}
 	}
-	wantTerm := includeAll || includes["term"] || includes["terms"]
-	wantParent := includeAll || includes["parent"] || includes["parents"]
+
 	wantSubjects := includeAll || includes["subject"] || includes["subjects"]
+	wantSections := includeAll || includes["class_sections"]
+
+	sectionsOnlyActive := strings.EqualFold(strings.TrimSpace(c.Query("sections_active")), "true")
 
 	searchQ := strings.ToLower(strings.TrimSpace(c.Query("q")))
 	if searchQ != "" {
@@ -302,12 +295,11 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	parentName := strings.ToLower(strings.TrimSpace(c.Query("parent_name")))
 	parentLike := "%" + parentName + "%"
 
-	// 3) Pagination (jsonresponse) & Sorting whitelist
+	// 3) Pagination & Sorting
 	pg := helper.ResolvePaging(c, 20, 200) // default 20, max 200
 	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by")))
 	order := strings.ToLower(strings.TrimSpace(c.Query("order")))
 	if order != "asc" && order != "desc" {
-		// fallback param lama "sort" (created_at_desc / created_at_asc / dll)
 		if v := strings.ToLower(strings.TrimSpace(c.Query("sort"))); v != "" {
 			switch v {
 			case "created_at_asc":
@@ -333,16 +325,17 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	var total int64
 
 	if searchQ != "" {
+		// SEARCH MODE: JOIN subjects via class_subjects by PARENT (baru)
 		filter := ctrl.DB.Table("classes AS c").
 			Where("c.class_school_id IN ?", schoolIDs).
 			Joins(`
 				LEFT JOIN class_subjects AS cs
-				  ON cs.class_subjects_class_id = c.class_id
-				 AND cs.class_subjects_school_id = c.class_school_id
-				 AND cs.class_subjects_is_active = TRUE
-				 AND cs.class_subjects_deleted_at IS NULL
+				  ON  cs.class_subject_class_parent_id = c.class_class_parent_id
+				  AND cs.class_subject_school_id = c.class_school_id
+				  AND cs.class_subject_is_active = TRUE
+				  AND cs.class_subject_deleted_at IS NULL
 			`).
-			Joins(`LEFT JOIN subjects AS s ON s.subjects_id = cs.class_subjects_subject_id`)
+			Joins(`LEFT JOIN subjects AS s ON s.subject_id = cs.class_subject_subject_id`)
 
 		filter = applyCommonFilters(filter, "c", q)
 		var hasParent bool
@@ -352,14 +345,14 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			filter = filter.Where(`
 				LOWER(c.class_slug) LIKE ? OR
 				LOWER(COALESCE(c.class_notes,'')) LIKE ? OR
-				LOWER(s.subjects_name) LIKE ? OR
+				LOWER(s.subject_name) LIKE ? OR
 				LOWER(COALESCE(p.class_parent_name,'')) LIKE ?
 			`, like, like, like, like)
 		} else {
 			filter = filter.Where(`
 				LOWER(c.class_slug) LIKE ? OR
 				LOWER(COALESCE(c.class_notes,'')) LIKE ? OR
-				LOWER(s.subjects_name) LIKE ?
+				LOWER(s.subject_name) LIKE ?
 			`, like, like, like)
 		}
 
@@ -464,59 +457,65 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 
 	// 6) Prefetch term & parent
 	type termLite struct {
-		ID           uuid.UUID  `json:"id"`
-		Name         string     `json:"name"`
-		AcademicYear string     `json:"academic_year"`
-		StartDate    *time.Time `json:"start_date,omitempty"`
-		EndDate      *time.Time `json:"end_date,omitempty"`
-		IsActive     bool       `json:"is_active"`
-		Angkatan     *int       `json:"angkatan,omitempty"`
+		ID           uuid.UUID  `json:"academic_terms_id"`
+		Name         string     `json:"academic_terms_name"`
+		AcademicYear string     `json:"academic_terms_academic_year"`
+		StartDate    *time.Time `json:"academic_terms_start_date,omitempty"`
+		EndDate      *time.Time `json:"academic_terms_end_date,omitempty"`
+		IsActive     bool       `json:"academic_terms_is_active"`
+		Angkatan     *int       `json:"academic_terms_angkatan,omitempty"`
 	}
 	type parentLite struct {
-		ID        uuid.UUID  `json:"id"                   gorm:"column:class_parent_id"`
-		Name      string     `json:"name"                 gorm:"column:class_parent_name"`
-		Code      *string    `json:"code,omitempty"       gorm:"column:class_parent_code"`
-		Level     *int16     `json:"level,omitempty"      gorm:"column:class_parent_level"`
-		ImageURL  *string    `json:"image_url,omitempty"  gorm:"column:class_parent_image_url"`
-		IsActive  bool       `json:"is_active"            gorm:"column:class_parent_is_active"`
-		CreatedAt *time.Time `json:"created_at,omitempty" gorm:"column:class_parent_created_at"`
+		ID        uuid.UUID  `json:"class_parent_id"                   gorm:"column:class_parent_id"`
+		Name      string     `json:"class_parent_name"                 gorm:"column:class_parent_name"`
+		Code      *string    `json:"class_parent_code,omitempty"       gorm:"column:class_parent_code"`
+		Level     *int16     `json:"class_parent_level,omitempty"      gorm:"column:class_parent_level"`
+		ImageURL  *string    `json:"class_parent_image_url,omitempty"  gorm:"column:class_parent_image_url"`
+		IsActive  bool       `json:"class_parent_is_active"            gorm:"column:class_parent_is_active"`
+		CreatedAt *time.Time `json:"class_parent_created_at,omitempty" gorm:"column:class_parent_created_at"`
 	}
 
 	termMap := map[uuid.UUID]termLite{}
 	parentMap := map[uuid.UUID]parentLite{}
 
-	if (wantTerm || wantParent) && len(rows) > 0 {
+	if len(rows) > 0 {
 		tSet := map[uuid.UUID]struct{}{}
 		pSet := map[uuid.UUID]struct{}{}
 		for i := range rows {
-			if wantTerm && rows[i].ClassTermID != nil {
-				tSet[*rows[i].ClassTermID] = struct{}{}
+			if rows[i].ClassAcademicTermID != nil {
+				tSet[*rows[i].ClassAcademicTermID] = struct{}{}
 			}
-			if wantParent && rows[i].ClassParentID != uuid.Nil {
-				pSet[rows[i].ClassParentID] = struct{}{}
+			if rows[i].ClassClassParentID != uuid.Nil {
+				pSet[rows[i].ClassClassParentID] = struct{}{}
 			}
 		}
-		if wantTerm && len(tSet) > 0 {
+		if len(tSet) > 0 {
 			ids := make([]uuid.UUID, 0, len(tSet))
 			for id := range tSet {
 				ids = append(ids, id)
 			}
 			type tr struct {
-				ID           uuid.UUID  `gorm:"column:academic_terms_id"`
-				Name         string     `gorm:"column:academic_terms_name"`
-				AcademicYear string     `gorm:"column:academic_terms_academic_year"`
-				Start        *time.Time `gorm:"column:academic_terms_start_date"`
-				End          *time.Time `gorm:"column:academic_terms_end_date"`
-				IsActive     bool       `gorm:"column:academic_terms_is_active"`
-				Angkatan     *int       `gorm:"column:academic_terms_angkatan"`
+				ID           uuid.UUID  `gorm:"column:academic_term_id"`
+				Name         string     `gorm:"column:academic_term_name"`
+				AcademicYear string     `gorm:"column:academic_term_academic_year"`
+				Start        *time.Time `gorm:"column:academic_term_start_date"`
+				End          *time.Time `gorm:"column:academic_term_end_date"`
+				IsActive     bool       `gorm:"column:academic_term_is_active"`
+				Angkatan     *int       `gorm:"column:academic_term_angkatan"`
 			}
 			var ts []tr
 			if err := ctrl.DB.
 				Table("academic_terms").
-				Select(`academic_terms_id, academic_terms_name, academic_terms_academic_year,
-				        academic_terms_start_date, academic_terms_end_date,
-				        academic_terms_is_active, academic_terms_angkatan`).
-				Where("academic_terms_id IN ? AND academic_terms_deleted_at IS NULL", ids).
+				Select(`
+					academic_term_id,
+					academic_term_name,
+					academic_term_academic_year,
+					academic_term_start_date,
+					academic_term_end_date,
+					academic_term_is_active,
+					academic_term_angkatan
+				`).
+				Where("academic_term_id IN ? AND academic_term_deleted_at IS NULL", ids).
 				Find(&ts).Error; err != nil {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil academic_terms")
 			}
@@ -527,7 +526,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 				}
 			}
 		}
-		if wantParent && len(pSet) > 0 {
+		if len(pSet) > 0 {
 			ids := make([]uuid.UUID, 0, len(pSet))
 			for id := range pSet {
 				ids = append(ids, id)
@@ -550,54 +549,151 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		}
 	}
 
-	// 7) Prefetch subjects (opsional)
+	// 7) Prefetch subjects (opsional) — via class_parent (bukan class_id)
 	type SubjectLite struct {
-		SubjectsID      uuid.UUID `json:"subjects_id"`
-		SubjectsName    string    `json:"subjects_name"`
-		ClassSubjectsID uuid.UUID `json:"class_subjects_id"`
+		SubjectID      uuid.UUID `json:"subject_id"       gorm:"column:subject_id"`
+		SubjectName    string    `json:"subject_name"     gorm:"column:subject_name"`
+		ClassSubjectID uuid.UUID `json:"class_subject_id" gorm:"column:class_subject_id"`
 	}
-	subjectsMap := map[uuid.UUID][]SubjectLite{}
+	subjectsMap := map[uuid.UUID][]SubjectLite{} // key: class_id
+
 	if wantSubjects && len(rows) > 0 {
+		// kumpulkan parent_id dari kelas pada halaman ini
+		parentSet := map[uuid.UUID]struct{}{}
+		classToParent := make(map[uuid.UUID]uuid.UUID, len(rows))
+		for i := range rows {
+			p := rows[i].ClassClassParentID
+			classToParent[rows[i].ClassID] = p
+			parentSet[p] = struct{}{}
+		}
+
+		parentIDs := make([]uuid.UUID, 0, len(parentSet))
+		for id := range parentSet {
+			parentIDs = append(parentIDs, id)
+		}
+
+		type subjRow struct {
+			ParentID       uuid.UUID `gorm:"column:parent_id"`
+			SubjectID      uuid.UUID `gorm:"column:subject_id"`
+			SubjectName    string    `gorm:"column:subject_name"`
+			ClassSubjectID uuid.UUID `gorm:"column:class_subject_id"`
+		}
+		var sjRows []subjRow
+
+		if len(parentIDs) > 0 {
+			if err := ctrl.DB.
+				Table("class_subjects AS cs").
+				Joins(`JOIN subjects AS s ON s.subject_id = cs.class_subject_subject_id`).
+				Where(`
+					cs.class_subject_school_id IN ?
+					AND cs.class_subject_is_active = TRUE
+					AND cs.class_subject_deleted_at IS NULL
+				`, schoolIDs).
+				Where("cs.class_subject_class_parent_id IN ?", parentIDs).
+				Select(`
+					cs.class_subject_class_parent_id AS parent_id,
+					s.subject_id,
+					s.subject_name,
+					cs.class_subject_id
+				`).
+				Order("s.subject_name ASC").
+				Scan(&sjRows).Error; err != nil {
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil subject kelas")
+			}
+		}
+
+		parentSubjects := make(map[uuid.UUID][]SubjectLite, len(parentIDs))
+		for _, r := range sjRows {
+			parentSubjects[r.ParentID] = append(parentSubjects[r.ParentID], SubjectLite{
+				SubjectID:      r.SubjectID,
+				SubjectName:    r.SubjectName,
+				ClassSubjectID: r.ClassSubjectID,
+			})
+		}
+
+		for classID, parentID := range classToParent {
+			subjectsMap[classID] = parentSubjects[parentID]
+		}
+	}
+
+	// 7b) Prefetch class sections (opsional)
+	type SectionLite struct {
+		ClassSectionID      uuid.UUID `json:"class_section_id" gorm:"column:class_section_id"`
+		ClassSectionClassID uuid.UUID `json:"class_section_class_id" gorm:"column:class_section_class_id"`
+		Slug                string    `json:"class_section_slug" gorm:"column:class_section_slug"`
+		Name                string    `json:"class_section_name" gorm:"column:class_section_name"`
+		Code                *string   `json:"class_section_code,omitempty" gorm:"column:class_section_code"`
+		Capacity            *int      `json:"class_section_capacity,omitempty" gorm:"column:class_section_capacity"`
+		TotalStudents       int       `json:"class_section_total_students" gorm:"column:class_section_total_students"`
+		IsActive            bool      `json:"class_section_is_active" gorm:"column:class_section_is_active"`
+
+		// kolom snapshot (nama kolom sesuai model baru)
+		TeacherNameSnap      *string `json:"class_section_teacher_name_snap,omitempty" gorm:"column:class_section_school_teacher_name_snapshot"`
+		AssistantTeacherName *string `json:"class_section_assistant_teacher_name_snap,omitempty" gorm:"column:class_section_assistant_school_teacher_name_snapshot"`
+		RoomNameSnap         *string `json:"class_section_room_name_snap,omitempty" gorm:"column:class_section_class_room_name_snapshot"`
+
+		// term id section
+		TermID *uuid.UUID `json:"class_section_term_id,omitempty" gorm:"column:class_section_academic_term_id"`
+
+		// counter kolom yang benar
+		CSSTCount       int `json:"class_sections_subject_teachers_count" gorm:"column:class_section_subject_teachers_count"`
+		CSSTActiveCount int `json:"class_sections_subject_teachers_active_count" gorm:"column:class_section_subject_teachers_active_count"`
+	}
+	sectionsMap := map[uuid.UUID][]SectionLite{}
+
+	if wantSections && len(rows) > 0 {
 		classIDs2 := make([]uuid.UUID, 0, len(rows))
 		for i := range rows {
 			classIDs2 = append(classIDs2, rows[i].ClassID)
 		}
-		type subjRow struct {
-			ClassID         uuid.UUID `gorm:"column:class_id"`
-			SubjectsID      uuid.UUID `gorm:"column:subjects_id"`
-			SubjectsName    string    `gorm:"column:subjects_name"`
-			ClassSubjectsID uuid.UUID `gorm:"column:class_subjects_id"`
+
+		txSec := ctrl.DB.
+			Table("class_sections").
+			Select(`
+				class_section_id,
+				class_section_school_id,
+				class_section_class_id,
+				class_section_slug,
+				class_section_name,
+				class_section_code,
+				class_section_capacity,
+				class_section_total_students,
+				class_section_is_active,
+				class_section_school_teacher_name_snapshot,
+				class_section_assistant_school_teacher_name_snapshot,
+				class_section_class_room_name_snapshot,
+				class_section_academic_term_id,
+				class_section_subject_teachers_count,
+				class_section_subject_teachers_active_count
+			`).
+			Where("class_section_deleted_at IS NULL").
+			Where("class_section_school_id IN ?", schoolIDs).
+			Where("class_section_class_id IN ?", classIDs2)
+
+		if sectionsOnlyActive {
+			txSec = txSec.Where("class_section_is_active = TRUE")
 		}
-		var sjRows []subjRow
-		if err := ctrl.DB.Table("class_subjects AS cs").
-			Joins(`JOIN subjects AS s ON s.subjects_id = cs.class_subjects_subject_id`).
-			Where(`
-				cs.class_subjects_school_id IN ?
-				AND cs.class_subjects_is_active = TRUE
-				AND cs.class_subjects_deleted_at IS NULL
-			`, schoolIDs).
-			Where("cs.class_subjects_class_id IN ?", classIDs2).
-			Select(`cs.class_subjects_class_id AS class_id, s.subjects_id, s.subjects_name, cs.class_subjects_id`).
-			Order("s.subjects_name ASC").
-			Scan(&sjRows).Error; err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil subject kelas")
+
+		txSec = txSec.Order("LOWER(class_section_name) ASC, class_section_created_at DESC")
+
+		var secRows []SectionLite
+		if err := txSec.Scan(&secRows).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil class sections")
 		}
-		for _, r := range sjRows {
-			subjectsMap[r.ClassID] = append(subjectsMap[r.ClassID], SubjectLite{
-				SubjectsID:      r.SubjectsID,
-				SubjectsName:    r.SubjectsName,
-				ClassSubjectsID: r.ClassSubjectsID,
-			})
+		for _, s := range secRows {
+			sectionsMap[s.ClassSectionClassID] = append(sectionsMap[s.ClassSectionClassID], s)
 		}
 	}
 
 	// 8) Compose output (pertahankan urutan page)
 	type classWithExpand struct {
 		*dto.ClassResponse `json:",inline"`
-		Term               *termLite     `json:"term,omitempty"`
-		Parent             *parentLite   `json:"parent,omitempty"`
+		AcademicTerms      *termLite     `json:"academic_terms,omitempty"`
+		ClassParents       *parentLite   `json:"class_parents,omitempty"`
 		Subjects           []SubjectLite `json:"subjects,omitempty"`
+		ClassSections      []SectionLite `json:"class_sections,omitempty"`
 	}
+
 	rowByID := make(map[uuid.UUID]*model.ClassModel, len(rows))
 	for i := range rows {
 		rowByID[rows[i].ClassID] = &rows[i]
@@ -611,25 +707,27 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		}
 		base := dto.FromModel(r)
 		item := &classWithExpand{ClassResponse: &base}
-		if wantTerm && r.ClassTermID != nil {
-			if t, ok := termMap[*r.ClassTermID]; ok {
+
+		if r.ClassAcademicTermID != nil {
+			if t, ok := termMap[*r.ClassAcademicTermID]; ok {
 				tCopy := t
-				item.Term = &tCopy
+				item.AcademicTerms = &tCopy
 			}
 		}
-		if wantParent {
-			if pLite, ok := parentMap[r.ClassParentID]; ok {
-				pCopy := pLite
-				item.Parent = &pCopy
-			}
+		if pLite, ok := parentMap[r.ClassClassParentID]; ok {
+			pCopy := pLite
+			item.ClassParents = &pCopy
 		}
 		if wantSubjects {
 			item.Subjects = subjectsMap[r.ClassID]
 		}
+		if wantSections {
+			item.ClassSections = sectionsMap[r.ClassID]
+		}
 		out = append(out, item)
 	}
 
-	// ✅ Pagination (jsonresponse)
+	// ✅ Pagination
 	pagination := helper.BuildPaginationFromOffset(total, pg.Offset, pg.Limit)
 	return helper.JsonList(c, "ok", out, pagination)
 }

@@ -9,9 +9,9 @@ import (
 	"gorm.io/gorm"
 )
 
-/* ======================================================
+/* ==============================================
    ENUM mapping (Postgres: class_enrollment_status)
-====================================================== */
+================================================= */
 
 type ClassEnrollmentStatus string
 
@@ -25,9 +25,9 @@ const (
 	EnrollmentCanceled      ClassEnrollmentStatus = "canceled"
 )
 
-/* ======================================================
+/* ==============================================
    Model: student_class_enrollments
-====================================================== */
+================================================= */
 
 type StudentClassEnrollmentModel struct {
 	// PK
@@ -49,11 +49,18 @@ type StudentClassEnrollmentModel struct {
 	// Preferensi (opsional) → JSON object
 	StudentClassEnrollmentPreferences datatypes.JSON `gorm:"type:jsonb;not null;default:'{}';column:student_class_enrollments_preferences" json:"student_class_enrollments_preferences"`
 
-	// ===== Snapshots (diminta di DDL) =====
-	// Dari classes
+	// ===== Snapshots dari classes =====
 	StudentClassEnrollmentClassNameSnapshot string `gorm:"type:varchar(160);column:student_class_enrollments_class_name_snapshot" json:"student_class_enrollments_class_name_snapshot"`
 	StudentClassEnrollmentClassSlugSnapshot string `gorm:"type:varchar(160);column:student_class_enrollments_class_slug_snapshot" json:"student_class_enrollments_class_slug_snapshot"`
-	// Dari school_students (nama/kode/slug siswa)
+
+	// ===== Denormalized TERM (sinkron via trigger dari classes) =====
+	StudentClassEnrollmentTermID                   *uuid.UUID `gorm:"column:student_class_enrollments_term_id" json:"student_class_enrollments_term_id"`
+	StudentClassEnrollmentTermAcademicYearSnapshot *string    `gorm:"column:student_class_enrollments_term_academic_year_snapshot" json:"student_class_enrollments_term_academic_year_snapshot"`
+	StudentClassEnrollmentTermNameSnapshot         *string    `gorm:"column:student_class_enrollments_term_name_snapshot" json:"student_class_enrollments_term_name_snapshot"`
+	StudentClassEnrollmentTermSlugSnapshot         *string    `gorm:"column:student_class_enrollments_term_slug_snapshot" json:"student_class_enrollments_term_slug_snapshot"`
+	StudentClassEnrollmentTermAngkatanSnapshot     *int       `gorm:"column:student_class_enrollments_term_angkatan_snapshot" json:"student_class_enrollments_term_angkatan_snapshot"`
+
+	// ===== Snapshots identitas siswa =====
 	StudentClassEnrollmentStudentNameSnapshot string `gorm:"type:varchar(80);column:student_class_enrollments_student_name_snapshot" json:"student_class_enrollments_student_name_snapshot"`
 	StudentClassEnrollmentStudentCodeSnapshot string `gorm:"type:varchar(50);column:student_class_enrollments_student_code_snapshot" json:"student_class_enrollments_student_code_snapshot"`
 	StudentClassEnrollmentStudentSlugSnapshot string `gorm:"type:varchar(50);column:student_class_enrollments_student_slug_snapshot" json:"student_class_enrollments_student_slug_snapshot"`

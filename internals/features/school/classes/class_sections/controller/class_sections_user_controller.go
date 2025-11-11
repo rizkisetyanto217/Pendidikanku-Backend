@@ -2,12 +2,12 @@
 package controller
 
 import (
+	"encoding/json"
 	"strings"
 
 	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	secDTO "schoolku_backend/internals/features/school/classes/class_sections/dto"
 	secModel "schoolku_backend/internals/features/school/classes/class_sections/model"
-
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
 
@@ -43,8 +43,10 @@ func parseUUIDList(s string) ([]uuid.UUID, error) {
 }
 
 // GET /api/{a|u}/:school_id/class-sections/list
-func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
-	/* ---------- School context ---------- */
+
+// GET /api/{a|u}/:school_id/class-sections/list
+func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
+	// ---------- School context ----------
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -66,7 +68,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, helperAuth.ErrSchoolContextMissing.Error())
 	}
 
-	/* ---------- Search term ---------- */
+	// ---------- Search term ----------
 	rawQ := strings.TrimSpace(c.Query("q"))
 	rawSearch := strings.TrimSpace(c.Query("search"))
 	searchTerm := rawSearch
@@ -77,24 +79,20 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 		}
 	}
 
-	/* ---------- Paging & sorting (jsonresponse style) ---------- */
-	// Default: created_at desc, tapi kalau ada search → name asc
+	// ---------- Paging & sorting ----------
 	defaultSortBy := "created_at"
 	defaultOrder := "desc"
 	if searchTerm != "" {
 		defaultSortBy = "name"
 		defaultOrder = "asc"
 	}
-
-	pg := helper.ResolvePaging(c, 20, 200) // per_page default=20, max=200
+	pg := helper.ResolvePaging(c, 20, 200)
 
 	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by", defaultSortBy)))
 	order := strings.ToLower(strings.TrimSpace(c.Query("order", defaultOrder)))
 	if order != "asc" && order != "desc" {
 		order = defaultOrder
 	}
-
-	// whitelist kolom → nama kolom DB
 	col := "class_section_created_at"
 	switch sortBy {
 	case "name":
@@ -104,7 +102,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	}
 	orderExpr := col + " " + strings.ToUpper(order)
 
-	/* ---------- Filters ---------- */
+	// ---------- Filters ----------
 	var (
 		sectionIDs []uuid.UUID
 		activeOnly *bool
@@ -122,7 +120,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 	}
 	withCSST := c.QueryBool("with_csst")
 
-	/* ---------- Query base (tenant-safe) ---------- */
+	// ---------- Query base ----------
 	tx := ctrl.DB.
 		Model(&secModel.ClassSectionModel{}).
 		Where("class_section_deleted_at IS NULL").
@@ -143,19 +141,19 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 			s, s, s)
 	}
 
-	/* ---------- Total ---------- */
+	// ---------- Total ----------
 	var total int64
 	if err := tx.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total")
 	}
 
-	/* ---------- Optional: all=1 untuk ambil semua ---------- */
+	// ---------- Optional: all=1 ----------
 	if c.QueryBool("all") {
 		pg.Offset = 0
 		pg.Limit = int(total)
 	}
 
-	/* ---------- Data ---------- */
+	// ---------- Data ----------
 	tx = tx.Order(orderExpr).Limit(pg.Limit).Offset(pg.Offset)
 
 	var rows []secModel.ClassSectionModel
@@ -163,7 +161,7 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	/* ---------- Build items ---------- */
+	// ---------- Build items ----------
 	items := make([]secDTO.ClassSectionResponse, 0, len(rows))
 	idsInPage := make([]uuid.UUID, 0, len(rows))
 	for i := range rows {
@@ -171,17 +169,14 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 		idsInPage = append(idsInPage, rows[i].ClassSectionID)
 	}
 
-	// pagination object jsonresponse
 	pagination := helper.BuildPaginationFromOffset(total, pg.Offset, pg.Limit)
 
-	/* ---------- (Opsional) CSST includes ---------- */
+	// ---------- Inject CSST ----------
 	if withCSST {
 		targetIDs := sectionIDs
 		if len(targetIDs) == 0 {
 			targetIDs = idsInPage
 		}
-
-		csstBySection := make(map[uuid.UUID][]csstModel.ClassSectionSubjectTeacherModel, len(targetIDs))
 
 		if len(targetIDs) > 0 {
 			var csstRows []csstModel.ClassSectionSubjectTeacherModel
@@ -189,29 +184,52 @@ func (ctrl *ClassSectionController) ListClassSections(c *fiber.Ctx) error {
 				Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 				Where("class_section_subject_teacher_deleted_at IS NULL").
 				Where("class_section_subject_teacher_school_id = ?", schoolID).
-				Where("class_section_subject_teacher_section_id IN ?", targetIDs)
-
+				Where("class_section_subject_teacher_class_section_id IN ?", targetIDs) // ✅ kolom baru
 			if activeOnly != nil {
 				csstQ = csstQ.Where("class_section_subject_teacher_is_active = ?", *activeOnly)
 			}
-
 			if err := csstQ.Find(&csstRows).Error; err != nil {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil CSST")
 			}
 
+			// group by class_section_id
+			bySection := make(map[uuid.UUID][]csstModel.ClassSectionSubjectTeacherModel, len(targetIDs))
 			for i := range csstRows {
 				r := csstRows[i]
-				csstBySection[r.ClassSectionSubjectTeacherSectionID] =
-					append(csstBySection[r.ClassSectionSubjectTeacherSectionID], r)
+				bySection[r.ClassSectionSubjectTeacherClassSectionID] = // ✅ field model baru
+					append(bySection[r.ClassSectionSubjectTeacherClassSectionID], r)
 			}
+
+			out := make([]fiber.Map, 0, len(items))
+			for i := range items {
+				b, _ := json.Marshal(items[i])
+				var m fiber.Map
+				_ = json.Unmarshal(b, &m)
+
+				m["class_sections_csst"] = []secDTO.CSSTItemLite{}
+				m["class_sections_csst_count"] = 0
+				m["class_sections_csst_active_count"] = 0
+
+				secID := items[i].ClassSectionID
+				if list, ok := bySection[secID]; ok && len(list) > 0 {
+					lite := secDTO.CSSTLiteSliceFromModels(list)
+					active := 0
+					for _, it := range list {
+						if it.ClassSectionSubjectTeacherIsActive {
+							active++
+						}
+					}
+					m["class_sections_csst"] = lite
+					m["class_sections_csst_count"] = len(lite)
+					m["class_sections_csst_active_count"] = active
+				}
+				out = append(out, m)
+			}
+			return helper.JsonList(c, "ok", out, pagination)
 		}
 
-		includes := fiber.Map{
-			"csst_by_section": csstBySection, // map[UUID][]ClassSectionSubjectTeacherModel
-		}
-		return helper.JsonListEx(c, "ok", items, pagination, includes)
+		return helper.JsonList(c, "ok", items, pagination)
 	}
 
-	// ✅ default tanpa includes
 	return helper.JsonList(c, "ok", items, pagination)
 }

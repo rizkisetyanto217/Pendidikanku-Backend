@@ -49,15 +49,23 @@ type UpdateStudentClassEnrollmentStatusRequest struct {
 ====================================================== */
 
 type ListStudentClassEnrollmentQuery struct {
-	// filters
+	// filters (existing)
 	StudentID *uuid.UUID                `query:"student_id"`
 	ClassID   *uuid.UUID                `query:"class_id"`
-	StatusIn  []m.ClassEnrollmentStatus `query:"status_in"` // comma-separated → use custom parser in controller if needed
+	StatusIn  []m.ClassEnrollmentStatus `query:"status_in"` // comma-separated → parser di controller
 
 	AppliedFrom *time.Time `query:"applied_from"`
 	AppliedTo   *time.Time `query:"applied_to"`
 
 	OnlyAlive *bool `query:"only_alive"`
+
+	// NEW: term filters (denormalized kolom)
+	TermID       *uuid.UUID `query:"term_id"`
+	AcademicYear string     `query:"academic_year"` // ex: "2026/2027"
+	Angkatan     *int       `query:"angkatan"`      // ex: 2024
+
+	// NEW: simple search (on snapshots: student/class/term)
+	Q string `query:"q"`
 
 	// paging & sort
 	Limit   int    `query:"limit"`
@@ -77,7 +85,7 @@ const (
    Response
 ====================================================== */
 
-// Wrapper untuk kompatibel dengan helper.JsonList (optional untuk consumer)
+// Wrapper untuk helper.JsonList (optional)
 type StudentClassEnrollmentListResponse struct {
 	Message    string                           `json:"message"`
 	Data       []StudentClassEnrollmentResponse `json:"data"`
@@ -93,17 +101,24 @@ type StudentClassEnrollmentResponse struct {
 	StudentClassEnrollmentStatus      m.ClassEnrollmentStatus `json:"student_class_enrollments_status"`
 	StudentClassEnrollmentTotalDueIDR int64                   `json:"student_class_enrollments_total_due_idr"`
 
-	StudentClassEnrollmentPaymentID       *uuid.UUID             `json:"student_class_enrollments_payment_id"`
-	StudentClassEnrollmentPaymentSnapshot map[string]interface{} `json:"student_class_enrollments_payment_snapshot"`
+	StudentClassEnrollmentPaymentID       *uuid.UUID             `json:"student_class_enrollments_payment_id,omitempty"`
+	StudentClassEnrollmentPaymentSnapshot map[string]interface{} `json:"student_class_enrollments_payment_snapshot,omitempty"`
 
-	StudentClassEnrollmentPreferences map[string]interface{} `json:"student_class_enrollments_preferences"`
+	StudentClassEnrollmentPreferences map[string]interface{} `json:"student_class_enrollments_preferences,omitempty"`
 
-	// ===== Snapshots (sinkron dengan DDL) =====
+	// ===== Snapshots dari classes (sesuai DDL) =====
 	StudentClassEnrollmentClassNameSnapshot   string `json:"student_class_enrollments_class_name_snapshot"`
 	StudentClassEnrollmentClassSlugSnapshot   string `json:"student_class_enrollments_class_slug_snapshot"`
 	StudentClassEnrollmentStudentNameSnapshot string `json:"student_class_enrollments_student_name_snapshot"`
 	StudentClassEnrollmentStudentCodeSnapshot string `json:"student_class_enrollments_student_code_snapshot"`
 	StudentClassEnrollmentStudentSlugSnapshot string `json:"student_class_enrollments_student_slug_snapshot"`
+
+	// ===== Denormalized TERM (baru) =====
+	StudentClassEnrollmentTermID                   *uuid.UUID `json:"student_class_enrollments_term_id,omitempty"`
+	StudentClassEnrollmentTermAcademicYearSnapshot *string    `json:"student_class_enrollments_term_academic_year_snapshot,omitempty"`
+	StudentClassEnrollmentTermNameSnapshot         *string    `json:"student_class_enrollments_term_name_snapshot,omitempty"`
+	StudentClassEnrollmentTermSlugSnapshot         *string    `json:"student_class_enrollments_term_slug_snapshot,omitempty"`
+	StudentClassEnrollmentTermAngkatanSnapshot     *int       `json:"student_class_enrollments_term_angkatan_snapshot,omitempty"`
 
 	// Jejak waktu (audit)
 	StudentClassEnrollmentAppliedAt    time.Time  `json:"student_class_enrollments_applied_at"`
@@ -116,9 +131,9 @@ type StudentClassEnrollmentResponse struct {
 	StudentClassEnrollmentCreatedAt time.Time `json:"student_class_enrollments_created_at"`
 	StudentClassEnrollmentUpdatedAt time.Time `json:"student_class_enrollments_updated_at"`
 
-	// ===== Convenience (konsisten format) =====
+	// ===== Convenience (mirror snapshot) =====
 	StudentClassEnrollmentStudentName string  `json:"student_class_enrollments_student_name,omitempty"` // mirror dari snapshot
-	StudentClassEnrollmentUsername    *string `json:"student_class_enrollments_username,omitempty"`     // hasil enrich join user (jika ada)
+	StudentClassEnrollmentUsername    *string `json:"student_class_enrollments_username,omitempty"`     // join user (jika ada)
 	StudentClassEnrollmentClassName   string  `json:"student_class_enrollments_class_name,omitempty"`   // mirror dari snapshot
 }
 
@@ -136,7 +151,7 @@ func FromModelStudentClassEnrollment(mo *m.StudentClassEnrollmentModel) StudentC
 		StudentClassEnrollmentStatus:      mo.StudentClassEnrollmentStatus,
 		StudentClassEnrollmentTotalDueIDR: mo.StudentClassEnrollmentTotalDueIDR,
 
-		// snapshots
+		// snapshots (class & student)
 		StudentClassEnrollmentClassNameSnapshot:   mo.StudentClassEnrollmentClassNameSnapshot,
 		StudentClassEnrollmentClassSlugSnapshot:   mo.StudentClassEnrollmentClassSlugSnapshot,
 		StudentClassEnrollmentStudentNameSnapshot: mo.StudentClassEnrollmentStudentNameSnapshot,
@@ -153,7 +168,21 @@ func FromModelStudentClassEnrollment(mo *m.StudentClassEnrollmentModel) StudentC
 
 		StudentClassEnrollmentCreatedAt: mo.StudentClassEnrollmentCreatedAt,
 		StudentClassEnrollmentUpdatedAt: mo.StudentClassEnrollmentUpdatedAt,
+
+		// mirrors
+		StudentClassEnrollmentStudentName: mo.StudentClassEnrollmentStudentNameSnapshot,
+		StudentClassEnrollmentClassName:   mo.StudentClassEnrollmentClassNameSnapshot,
 	}
+
+	// ===== Term denormalized (pointer fields)
+	resp.StudentClassEnrollmentTermID = mo.StudentClassEnrollmentTermID
+	resp.StudentClassEnrollmentTermAcademicYearSnapshot = mo.StudentClassEnrollmentTermAcademicYearSnapshot
+	resp.StudentClassEnrollmentTermNameSnapshot = mo.StudentClassEnrollmentTermNameSnapshot
+	resp.StudentClassEnrollmentTermSlugSnapshot = mo.StudentClassEnrollmentTermSlugSnapshot
+	resp.StudentClassEnrollmentTermAngkatanSnapshot = mo.StudentClassEnrollmentTermAngkatanSnapshot
+
+	// ===== Payment (optional)
+	resp.StudentClassEnrollmentPaymentID = mo.StudentClassEnrollmentPaymentID
 
 	// JSON → map[string]interface{}
 	if b := mo.StudentClassEnrollmentPaymentSnapshot; len(b) > 0 && string(b) != "null" {
@@ -162,13 +191,6 @@ func FromModelStudentClassEnrollment(mo *m.StudentClassEnrollmentModel) StudentC
 	if b := mo.StudentClassEnrollmentPreferences; len(b) > 0 && string(b) != "null" {
 		_ = json.Unmarshal(b, &resp.StudentClassEnrollmentPreferences)
 	}
-
-	// Convenience fields dari snapshot
-	resp.StudentClassEnrollmentStudentName = mo.StudentClassEnrollmentStudentNameSnapshot
-	resp.StudentClassEnrollmentClassName = mo.StudentClassEnrollmentClassNameSnapshot
-
-	// Payment ID (opsional)
-	resp.StudentClassEnrollmentPaymentID = mo.StudentClassEnrollmentPaymentID
 
 	return resp
 }
@@ -199,5 +221,3 @@ type BulkUpdateEnrollmentStatusRequest struct {
 	RejectedAt    *time.Time              `json:"student_class_enrollments_rejected_at"`
 	CanceledAt    *time.Time              `json:"student_class_enrollments_canceled_at"`
 }
-
-

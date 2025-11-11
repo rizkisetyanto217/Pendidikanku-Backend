@@ -23,7 +23,7 @@ GET /admin/class-subjects
 Query (mengikuti DTO ListClassSubjectQuery):
   - q                 : cari pada desc (ILIKE)
   - is_active         : bool
-  - parent_id         : UUID
+  - class_parent_id   : UUID
   - subject_id        : UUID
   - with_deleted      : bool (default false)
   - order_by          : order_index|created_at|updated_at (default: created_at)
@@ -80,8 +80,8 @@ func (h *ClassSubjectController) List(c *fiber.Ctx) error {
 	if q.IsActive != nil {
 		tx = tx.Where("class_subject_is_active = ?", *q.IsActive)
 	}
-	if q.ParentID != nil {
-		tx = tx.Where("class_subject_parent_id = ?", *q.ParentID)
+	if q.ClassParentID != nil {
+		tx = tx.Where("class_subject_class_parent_id = ?", *q.ClassParentID)
 	}
 	if q.SubjectID != nil {
 		tx = tx.Where("class_subject_subject_id = ?", *q.SubjectID)

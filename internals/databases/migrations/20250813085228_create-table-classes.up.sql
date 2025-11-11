@@ -96,7 +96,7 @@ CREATE INDEX IF NOT EXISTS idx_class_parents_image_purge_due
   ON class_parents (class_parent_image_delete_pending_until)
   WHERE class_parent_image_object_key_old IS NOT NULL;
 
--- Trigram per kolom (direkomendasikan)
+-- Trigram (hindari duplikat nama index)
 CREATE INDEX IF NOT EXISTS idx_cp_name_trgm_alive
   ON class_parents USING GIN (class_parent_name gin_trgm_ops)
   WHERE class_parent_deleted_at IS NULL;
@@ -108,13 +108,6 @@ CREATE INDEX IF NOT EXISTS idx_cp_code_trgm_alive
 CREATE INDEX IF NOT EXISTS idx_cp_desc_trgm_alive
   ON class_parents USING GIN (class_parent_description gin_trgm_ops)
   WHERE class_parent_deleted_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS idx_cp_name_trgm_alive
-  ON class_parents USING GIN (class_parent_name gin_trgm_ops)
-  WHERE class_parent_deleted_at IS NULL;
-
-
-
 
 
 -- Pastikan academic_terms punya UNIQUE (id, school_id) untuk FK komposit
@@ -135,10 +128,9 @@ END$$;
 CREATE TABLE IF NOT EXISTS classes (
   class_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   class_school_id UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
-  class_parent_id UUID NOT NULL,
+ 
   class_name VARCHAR(160),
-
-  class_slug      VARCHAR(160) NOT NULL,
+  class_slug VARCHAR(160) NOT NULL,
 
   class_start_date DATE,
   class_end_date   DATE,
@@ -148,8 +140,7 @@ CREATE TABLE IF NOT EXISTS classes (
     OR class_end_date >= class_start_date
   ),
 
-  -- Registrasi / Term
-  class_term_id UUID,
+  -- Registrasi
   class_registration_opens_at  TIMESTAMPTZ,
   class_registration_closes_at TIMESTAMPTZ,
   CONSTRAINT ck_class_reg_window CHECK (
@@ -181,17 +172,19 @@ CREATE TABLE IF NOT EXISTS classes (
   class_image_delete_pending_until  TIMESTAMPTZ,
 
   -- Snapshot Class Parent (FIXED)
-  class_parent_code_snapshot   VARCHAR(40),
-  class_parent_name_snapshot   VARCHAR(80),
-  class_parent_slug_snapshot   VARCHAR(160),
-  class_parent_level_snapshot  SMALLINT,
-  class_parent_url_snapshot    VARCHAR(160),
+  class_class_parent_id UUID NOT NULL,
+  class_class_parent_code_snapshot   VARCHAR(40),
+  class_class_parent_name_snapshot   VARCHAR(80),
+  class_class_parent_slug_snapshot   VARCHAR(160),
+  class_class_parent_level_snapshot  SMALLINT,
+  class_class_parent_url_snapshot    VARCHAR(160),
 
-  -- Snapshot Class Term
-  class_term_academic_year_snapshot VARCHAR(40),
-  class_term_name_snapshot          VARCHAR(100),
-  class_term_slug_snapshot          VARCHAR(160),
-  class_term_angkatan_snapshot      VARCHAR(40),
+  -- Snapshot Class Term (FIXED)
+  class_academic_term_id UUID,
+  class_academic_term_academic_year_snapshot VARCHAR(40),
+  class_academic_term_name_snapshot          VARCHAR(100),
+  class_academic_term_slug_snapshot          VARCHAR(160),
+  class_academic_term_angkatan_snapshot      VARCHAR(40),
 
   -- Audit
   class_created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -201,14 +194,14 @@ CREATE TABLE IF NOT EXISTS classes (
   -- tenant-safe pair
   UNIQUE (class_id, class_school_id),
 
-  -- FKs komposit (parent & term pada tenant yang sama)
+  -- FKs komposit (gunakan kolom yang benar)
   CONSTRAINT fk_classes_parent_same_school
-    FOREIGN KEY (class_parent_id, class_school_id)
+    FOREIGN KEY (class_class_parent_id, class_school_id)
     REFERENCES class_parents (class_parent_id, class_parent_school_id)
     ON DELETE CASCADE,
 
   CONSTRAINT fk_classes_term_school_pair
-    FOREIGN KEY (class_term_id, class_school_id)
+    FOREIGN KEY (class_academic_term_id, class_school_id)
     REFERENCES academic_terms (academic_term_id, academic_term_school_id)
     ON UPDATE CASCADE ON DELETE RESTRICT
 );
@@ -220,8 +213,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_slug_per_school_alive
   ON classes (class_school_id, LOWER(class_slug))
   WHERE class_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_classes_school ON classes (class_school_id);
-CREATE INDEX IF NOT EXISTS idx_classes_parent ON classes (class_parent_id);
+CREATE INDEX IF NOT EXISTS idx_classes_school
+  ON classes (class_school_id);
+
+-- kolom parent yang benar
+CREATE INDEX IF NOT EXISTS idx_classes_class_parent
+  ON classes (class_class_parent_id);
 
 CREATE INDEX IF NOT EXISTS idx_classes_status_alive
   ON classes (class_status)
@@ -246,21 +243,21 @@ CREATE INDEX IF NOT EXISTS gin_classes_notes_trgm_alive
   ON classes USING GIN (LOWER(class_notes) gin_trgm_ops)
   WHERE class_deleted_at IS NULL;
 
--- Purge kandidat image lama (nama index sudah diperbaiki)
+-- Purge kandidat image lama
 CREATE INDEX IF NOT EXISTS idx_classes_image_purge_due
   ON classes (class_image_delete_pending_until)
   WHERE class_image_object_key_old IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_classes_tenant_term
-  ON classes (class_school_id, class_term_id);
+-- pasangan tenant + term dengan kolom yang benar
+CREATE INDEX IF NOT EXISTS idx_classes_tenant_academic_term
+  ON classes (class_school_id, class_academic_term_id);
 
-  -- 4) Tambah indeks2
---    Unik “nama per school” untuk yang belum dihapus (opsional; kalau kamu memang mau larang nama duplikat):
+-- Unik “nama per school” untuk yang belum dihapus (opsional)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_classes_name_per_school_alive
   ON classes (class_school_id, LOWER(class_name))
   WHERE class_deleted_at IS NULL;
 
---    Trigram buat search nama (opsional, but useful)
+-- Trigram buat search nama (opsional)
 CREATE INDEX IF NOT EXISTS gin_classes_name_trgm_alive
   ON classes USING GIN (LOWER(class_name) gin_trgm_ops)
   WHERE class_deleted_at IS NULL;

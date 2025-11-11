@@ -66,18 +66,12 @@ CREATE INDEX IF NOT EXISTS idx_subject_image_purge_due
 
 
 
-
--- =========================================================
--- TABLE: class_subjects (RELASI KE class_parents, BUKAN classes)
--- =========================================================
+-- CLASS_SUBJECTS
 CREATE TABLE IF NOT EXISTS class_subjects (
   class_subject_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
   class_subject_school_id   UUID NOT NULL REFERENCES schools(school_id) ON DELETE CASCADE,
-  class_subject_parent_id   UUID NOT NULL REFERENCES class_parents(class_parent_id) ON DELETE CASCADE,
-  class_subject_subject_id  UUID NOT NULL REFERENCES subjects(subject_id) ON DELETE RESTRICT,
 
-  -- >>> SLUG <<<
+  -- slug opsional
   class_subject_slug        VARCHAR(160),
 
   class_subject_order_index       INT,
@@ -87,74 +81,83 @@ CREATE TABLE IF NOT EXISTS class_subjects (
   class_subject_is_core           BOOLEAN NOT NULL DEFAULT FALSE,
   class_subject_desc              TEXT,
 
-  -- Bobot penilaian (opsional)
   class_subject_weight_assignment SMALLINT,
   class_subject_weight_quiz       SMALLINT,
   class_subject_weight_mid        SMALLINT,
   class_subject_weight_final      SMALLINT,
   class_subject_min_attendance_percent SMALLINT,
 
-  -- ============================
-  -- Snapshots dari subjects
-  -- ============================
+  -- ===== Subject snapshot & FK (TENANT-SAFE) =====
+  class_subject_subject_id  UUID NOT NULL,
   class_subject_subject_name_snapshot VARCHAR(160),
   class_subject_subject_code_snapshot VARCHAR(80),
   class_subject_subject_slug_snapshot VARCHAR(160),
   class_subject_subject_url_snapshot  TEXT,
 
-  -- ============================
-  -- Snapshots dari class_parent
-  -- ============================
-  class_subject_parent_code_snapshot  VARCHAR(80),
-  class_subject_parent_slug_snapshot  VARCHAR(160),
-  class_subject_parent_level_snapshot SMALLINT,
-  class_subject_parent_url_snapshot   TEXT,
-  class_subject_parent_name_snapshot  VARCHAR(160),
+  -- ===== Class Parent snapshot & FK (TENANT-SAFE) =====
+  class_subject_class_parent_id   UUID NOT NULL,
+  class_subject_class_parent_code_snapshot  VARCHAR(80),
+  class_subject_class_parent_slug_snapshot  VARCHAR(160),
+  class_subject_class_parent_level_snapshot SMALLINT,
+  class_subject_class_parent_url_snapshot   TEXT,
+  class_subject_class_parent_name_snapshot  VARCHAR(160),
 
-  -- ============================
-  -- Audit & lifecycle
-  -- ============================
+  -- lifecycle
   class_subject_is_active   BOOLEAN     NOT NULL DEFAULT TRUE,
   class_subject_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_subject_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_subject_deleted_at  TIMESTAMPTZ,
 
-  -- (opsional) tenant-safe pair agar join-by-tenant aman
+  -- tenant-safe pair
   UNIQUE (class_subject_id, class_subject_school_id),
 
-  -- (opsional) guard bobot tidak negatif
+  -- guard bobot
   CONSTRAINT ck_class_subject_weights_nonneg CHECK (
     (class_subject_weight_assignment IS NULL OR class_subject_weight_assignment >= 0) AND
     (class_subject_weight_quiz       IS NULL OR class_subject_weight_quiz       >= 0) AND
     (class_subject_weight_mid        IS NULL OR class_subject_weight_mid        >= 0) AND
     (class_subject_weight_final      IS NULL OR class_subject_weight_final      >= 0)
-  )
+  ),
+
+  -- ===== FK KOMPOSIT TENANT-SAFE =====
+  CONSTRAINT fk_class_subject_subject_same_school
+    FOREIGN KEY (class_subject_subject_id, class_subject_school_id)
+    REFERENCES subjects (subject_id, subject_school_id)
+    ON UPDATE CASCADE ON DELETE RESTRICT,
+
+  CONSTRAINT fk_class_subject_parent_same_school
+    FOREIGN KEY (class_subject_class_parent_id, class_subject_school_id)
+    REFERENCES class_parents (class_parent_id, class_parent_school_id)
+    ON UPDATE CASCADE ON DELETE CASCADE
 );
 
--- Lookup umum
+-- ===== Indexes untuk class_subjects =====
+
+-- aktif (alive only)
 CREATE INDEX IF NOT EXISTS idx_class_subject_active_alive
   ON class_subjects (class_subject_is_active)
   WHERE class_subject_deleted_at IS NULL;
 
--- Filter cepat per tenant/parent/subject
+-- tenant
 CREATE INDEX IF NOT EXISTS idx_class_subjects_school
   ON class_subjects (class_subject_school_id);
 
+-- parent (PERBAIKAN: pakai class_subject_class_parent_id)
 CREATE INDEX IF NOT EXISTS idx_class_subjects_parent
-  ON class_subjects (class_subject_parent_id);
+  ON class_subjects (class_subject_class_parent_id);
 
--- Unik kombinasi (hindari duplikat subject di parent yang sama, tenant-aware, hanya untuk baris hidup)
+-- unik kombinasi per tenant+parent+subject, alive only (PERBAIKAN kolom)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_subject_per_parent_subject_alive
-  ON class_subjects (class_subject_school_id, class_subject_parent_id, class_subject_subject_id)
+  ON class_subjects (class_subject_school_id, class_subject_class_parent_id, class_subject_subject_id)
   WHERE class_subject_deleted_at IS NULL;
 
--- Unik SLUG per tenant (alive only)
+-- slug per tenant, alive only
 CREATE UNIQUE INDEX IF NOT EXISTS uq_class_subject_slug_per_tenant_alive
   ON class_subjects (class_subject_school_id, lower(class_subject_slug))
   WHERE class_subject_deleted_at IS NULL
     AND class_subject_slug IS NOT NULL;
 
--- Pencarian slug cepat
+-- trigram slug (opsional)
 CREATE INDEX IF NOT EXISTS gin_class_subject_slug_trgm_alive
   ON class_subjects USING GIN (lower(class_subject_slug) gin_trgm_ops)
   WHERE class_subject_deleted_at IS NULL
