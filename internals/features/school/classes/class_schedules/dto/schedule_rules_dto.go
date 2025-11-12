@@ -57,9 +57,8 @@ type CreateClassScheduleRuleRequest struct {
 	ClassScheduleRuleStartTime  string    `json:"class_schedule_rule_start_time"   validate:"required"` // "HH:mm" / "HH:mm:ss"
 	ClassScheduleRuleEndTime    string    `json:"class_schedule_rule_end_time"     validate:"required"` // "HH:mm" / "HH:mm:ss"
 
-	// CSST (WAJIB, tenant-safe)
-	ClassScheduleRuleCSSTID       uuid.UUID `json:"class_schedule_rule_csst_id"        validate:"required,uuid"`
-	ClassScheduleRuleCSSTSchoolID uuid.UUID `json:"class_schedule_rule_csst_school_id" validate:"required,uuid"`
+	// CSST (WAJIB)
+	ClassScheduleRuleCSSTID uuid.UUID `json:"class_schedule_rule_csst_id" validate:"required,uuid"`
 
 	// opsional (defaults: 1, 0, "all", nil, false)
 	ClassScheduleRuleIntervalWeeks    *int    `json:"class_schedule_rule_interval_weeks"     validate:"omitempty,min=1"`
@@ -119,8 +118,7 @@ func (r CreateClassScheduleRuleRequest) ToModel(schoolID uuid.UUID) (model.Class
 		ClassScheduleRuleLastWeekOfMonth:  lastWeek,
 
 		// CSST wajib
-		ClassScheduleRuleCSSTID:       r.ClassScheduleRuleCSSTID,
-		ClassScheduleRuleCSSTSchoolID: r.ClassScheduleRuleCSSTSchoolID,
+		ClassScheduleRuleCSSTID: r.ClassScheduleRuleCSSTID,
 	}, nil
 }
 
@@ -134,10 +132,8 @@ type UpdateClassScheduleRuleRequest struct {
 	// pointer agar bisa bedakan "tidak diubah" (nil) vs "set ke []" (empty slice & non-nil)
 	ClassScheduleRuleWeeksOfMonth    *[]int `json:"class_schedule_rule_weeks_of_month"     validate:"omitempty,dive,min=1,max=5"`
 	ClassScheduleRuleLastWeekOfMonth *bool  `json:"class_schedule_rule_last_week_of_month" validate:"omitempty"`
-
-	// ganti CSST (opsional; butuh guard tenant di service/DB)
-	ClassScheduleRuleCSSTID       *uuid.UUID `json:"class_schedule_rule_csst_id"        validate:"omitempty,uuid"`
-	ClassScheduleRuleCSSTSchoolID *uuid.UUID `json:"class_schedule_rule_csst_school_id" validate:"omitempty,uuid"`
+	// ganti CSST (opsional)
+	ClassScheduleRuleCSSTID *uuid.UUID `json:"class_schedule_rule_csst_id"        validate:"omitempty,uuid"`
 }
 
 func (r UpdateClassScheduleRuleRequest) Apply(m *model.ClassScheduleRuleModel) error {
@@ -183,9 +179,6 @@ func (r UpdateClassScheduleRuleRequest) Apply(m *model.ClassScheduleRuleModel) e
 	if r.ClassScheduleRuleCSSTID != nil {
 		m.ClassScheduleRuleCSSTID = *r.ClassScheduleRuleCSSTID
 	}
-	if r.ClassScheduleRuleCSSTSchoolID != nil {
-		m.ClassScheduleRuleCSSTSchoolID = *r.ClassScheduleRuleCSSTSchoolID
-	}
 	return nil
 }
 
@@ -201,10 +194,10 @@ type ListClassScheduleRuleQuery struct {
 	WeekParity *string    `query:"parity"      validate:"omitempty,oneof=all odd even"`
 
 	// Filter by generated columns (tanpa join)
-	TeacherID      *uuid.UUID `query:"teacher_id"       validate:"omitempty,uuid"`
-	SectionID      *uuid.UUID `query:"section_id"       validate:"omitempty,uuid"`
-	ClassSubjectID *uuid.UUID `query:"class_subject_id" validate:"omitempty,uuid"`
-	RoomID         *uuid.UUID `query:"room_id"          validate:"omitempty,uuid"`
+	StudentTeacherID *uuid.UUID `query:"teacher_id"       validate:"omitempty,uuid"`
+	ClassSectionID   *uuid.UUID `query:"section_id"       validate:"omitempty,uuid"`
+	ClassSubjectID   *uuid.UUID `query:"class_subject_id" validate:"omitempty,uuid"`
+	ClassRoomID      *uuid.UUID `query:"room_id"          validate:"omitempty,uuid"`
 
 	// sort_by: day_of_week|start_time|end_time|created_at|updated_at
 	// order: asc|desc
@@ -233,16 +226,16 @@ type ClassScheduleRuleResponse struct {
 	ClassScheduleRuleWeeksOfMonth    []int64 `json:"class_schedule_rule_weeks_of_month,omitempty"`
 	ClassScheduleRuleLastWeekOfMonth bool    `json:"class_schedule_rule_last_week_of_month"`
 
-	// CSST (idempotent dengan DB)
-	ClassScheduleRuleCSSTID       uuid.UUID `json:"class_schedule_rule_csst_id"`
-	ClassScheduleRuleCSSTSchoolID uuid.UUID `json:"class_schedule_rule_csst_school_id"`
+	// CSST
+	ClassScheduleRuleCSSTID           uuid.UUID      `json:"class_schedule_rule_csst_id"`
+	ClassScheduleRuleCSSTSlugSnapshot *string        `json:"class_schedule_rule_csst_slug_snapshot,omitempty"`
+	ClassScheduleRuleCSSTSnapshot     map[string]any `json:"class_schedule_rule_csst_snapshot,omitempty"`
 
-	// Snapshot minimal (raw) + generated columns (flatten) biar UI tanpa join
-	ClassScheduleRuleCSSTSnapshot       map[string]any `json:"class_schedule_rule_csst_snapshot,omitempty"`
-	ClassScheduleRuleCSSTTeacherID      *uuid.UUID     `json:"class_schedule_rule_csst_teacher_id,omitempty"`
-	ClassScheduleRuleCSSTSectionID      *uuid.UUID     `json:"class_schedule_rule_csst_section_id,omitempty"`
-	ClassScheduleRuleCSSTClassSubjectID *uuid.UUID     `json:"class_schedule_rule_csst_class_subject_id,omitempty"`
-	ClassScheduleRuleCSSTRoomID         *uuid.UUID     `json:"class_schedule_rule_csst_room_id,omitempty"`
+	// Generated columns (tanpa join)
+	ClassScheduleRuleCSSTStudentTeacherID *uuid.UUID `json:"class_schedule_rule_csst_student_teacher_id,omitempty"`
+	ClassScheduleRuleCSSTClassSectionID   *uuid.UUID `json:"class_schedule_rule_csst_class_section_id,omitempty"`
+	ClassScheduleRuleCSSTClassSubjectID   *uuid.UUID `json:"class_schedule_rule_csst_class_subject_id,omitempty"`
+	ClassScheduleRuleCSSTClassRoomID      *uuid.UUID `json:"class_schedule_rule_csst_class_room_id,omitempty"`
 
 	ClassScheduleRuleCreatedAt time.Time `json:"class_schedule_rule_created_at"`
 	ClassScheduleRuleUpdatedAt time.Time `json:"class_schedule_rule_updated_at"`
@@ -282,17 +275,18 @@ func FromRuleModel(m model.ClassScheduleRuleModel) ClassScheduleRuleResponse {
 		ClassScheduleRuleWeeksOfMonth:    weeks,
 		ClassScheduleRuleLastWeekOfMonth: m.ClassScheduleRuleLastWeekOfMonth,
 
-		ClassScheduleRuleCSSTID:       m.ClassScheduleRuleCSSTID,
-		ClassScheduleRuleCSSTSchoolID: m.ClassScheduleRuleCSSTSchoolID,
-
-		ClassScheduleRuleCSSTSnapshot:       snap,
-		ClassScheduleRuleCSSTTeacherID:      m.ClassScheduleRuleCSSTTeacherID,
-		ClassScheduleRuleCSSTSectionID:      m.ClassScheduleRuleCSSTSectionID,
-		ClassScheduleRuleCSSTClassSubjectID: m.ClassScheduleRuleCSSTClassSubjectID,
-		ClassScheduleRuleCSSTRoomID:         m.ClassScheduleRuleCSSTRoomID,
+		ClassScheduleRuleCSSTID:           m.ClassScheduleRuleCSSTID,
+		ClassScheduleRuleCSSTSlugSnapshot: m.ClassScheduleRuleCSSTSlugSnapshot,
+		ClassScheduleRuleCSSTSnapshot:     snap,
 
 		ClassScheduleRuleCreatedAt: m.ClassScheduleRuleCreatedAt,
 		ClassScheduleRuleUpdatedAt: m.ClassScheduleRuleUpdatedAt,
+
+		// generated columns
+		ClassScheduleRuleCSSTStudentTeacherID: m.ClassScheduleRuleCSSTStudentTeacherID,
+		ClassScheduleRuleCSSTClassSectionID:   m.ClassScheduleRuleCSSTClassSectionID,
+		ClassScheduleRuleCSSTClassSubjectID:   m.ClassScheduleRuleCSSTClassSubjectID,
+		ClassScheduleRuleCSSTClassRoomID:      m.ClassScheduleRuleCSSTClassRoomID,
 	}
 }
 

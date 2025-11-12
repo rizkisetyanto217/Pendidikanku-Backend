@@ -418,7 +418,6 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 			}
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi ruang kelas")
 		}
-		// isi JSONB + *_name/_slug/_location snapshot
 		sectionroomsnap.ApplyRoomSnapshotToSection(m, rs)
 	}
 
@@ -475,20 +474,61 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal meng-hash teacher join code")
 	}
 
+	// ==========================
+	// 🔼 Upload file dari form-data ("file")
+	// ==========================
+	if fh, err := c.FormFile("file"); err == nil && fh != nil && fh.Size > 0 {
+		// inisialisasi OSS service
+		ossSvc, err := helperOSS.NewOSSServiceFromEnv("")
+		if err != nil {
+			_ = tx.Rollback()
+			return fiber.NewError(fiber.StatusBadGateway, "Konfigurasi OSS tidak valid")
+		}
+
+		// slot direktori: schools/{schoolID}/images/class-sections (auto buat oleh helper)
+		slot := "class-sections"
+
+		// ===== Opsi default: fleksibel (image -> WebP, non-image -> raw) =====
+		publicURL, err := helperOSS.UploadAnyToOSS(c.Context(), ossSvc, schoolID, slot, fh)
+		if err != nil {
+			_ = tx.Rollback()
+			var fe *fiber.Error
+			if errors.As(err, &fe) {
+				return fe
+			}
+			return fiber.NewError(fiber.StatusBadGateway, "Gagal upload file")
+		}
+		m.ClassSectionImageURL = &publicURL
+		if key, kErr := helperOSS.ExtractKeyFromPublicURL(publicURL); kErr == nil {
+			m.ClassSectionImageObjectKey = &key
+		}
+
+		// ===== (Alternatif) paksa semua image jadi WebP, non-image ditolak =====
+		// publicURL, err := helper.UploadImageToOSS(c.Context(), ossSvc, schoolID, slot, fh)
+		// if err != nil {
+		//   _ = tx.Rollback()
+		//   var fe *fiber.Error
+		//   if errors.As(err, &fe) { return fe }
+		//   return fiber.NewError(fiber.StatusBadGateway, "Gagal upload gambar")
+		// }
+		// m.ClassSectionImageURL = &publicURL
+		// if key, kErr := helper.ExtractKeyFromPublicURL(publicURL); kErr == nil {
+		//   m.ClassSectionImageObjectKey = &key
+		// }
+	}
+
 	// ---- INSERT ----
 	if err := tx.Create(m).Error; err != nil {
 		_ = tx.Rollback()
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat section")
 	}
 
-	// (opsional) upload image, update stats, dll...
-
 	if err := tx.Commit().Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	return helper.JsonCreated(c, "Section berhasil dibuat", fiber.Map{
 		"section":            secDTO.FromModelClassSection(m),
-		"uploaded_image_url": "",
+		"uploaded_image_url": m.ClassSectionImageURL,
 		"join_code_preview":  plainCode,
 	})
 }

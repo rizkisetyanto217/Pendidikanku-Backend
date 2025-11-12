@@ -30,9 +30,14 @@ import (
 type SchoolRoleOption struct {
 	SchoolID      uuid.UUID `json:"school_id"`
 	SchoolName    string    `json:"school_name"`
-	SchoolSlug    string    `json:"school_slug"`
+	SchoolSlug    *string   `json:"school_slug,omitempty"`
 	SchoolIconURL *string   `json:"school_icon_url,omitempty"`
-	Roles         []string  `json:"roles"`
+
+	Roles []string `json:"roles"`
+
+	// ⬇️ Tambahan baru (opsional, aman untuk klien lama)
+	SchoolTeacherID *uuid.UUID `json:"school_teacher_id,omitempty"`
+	SchoolStudentID *uuid.UUID `json:"school_student_id,omitempty"`
 }
 
 type ScopeSelection struct {
@@ -59,6 +64,14 @@ type jwtClaimsLite struct {
 	SchoolIDs      []string        `json:"school_ids"`
 	SchoolRoles    []jwtSchoolRole `json:"school_roles"`
 	ActiveSchoolID string          `json:"active_school_id"`
+}
+
+// strptr mengubah string menjadi *string; kosong -> nil (biar omitempty jalan)
+func strptr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // Ambil token dari Authorization: Bearer ... atau cookie access_token
@@ -145,6 +158,17 @@ func parseSchoolInfoFromJWT(c *fiber.Ctx) (ids []uuid.UUID, roleMap map[uuid.UUI
 }
 
 /* =============== Controller: GetMyContext (versi scope/role) =============== */
+// Tambahan saran DTO (pastikan struct kamu punya field ini):
+// type SchoolRoleOption struct {
+//     SchoolID      uuid.UUID  `json:"school_id"`
+//     SchoolName    string     `json:"school_name"`
+//     SchoolSlug    *string    `json:"school_slug,omitempty"`
+//     SchoolIconURL *string    `json:"school_icon_url,omitempty"`
+//     Roles         []string   `json:"roles"`
+//     SchoolTeacherID *uuid.UUID `json:"school_teacher_id,omitempty"`
+//     SchoolStudentID *uuid.UUID `json:"school_student_id,omitempty"`
+// }
+
 func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 	// 1) Ambil user_id via helperAuth (diisi middleware)
 	userUUID, err := helperAuth.GetUserIDFromToken(c)
@@ -172,7 +196,7 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil user: "+err.Error())
 	}
 
-	// 2a) ⬅️ Ambil avatar URL terkini dari user_profiles (yang tidak terhapus)
+	// 2a) Ambil avatar URL terkini
 	var avatarRecord struct {
 		URL *string `gorm:"column:url"`
 	}
@@ -181,45 +205,62 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 		Select("user_profile_avatar_url AS url").
 		Where("user_profile_user_id = ?", userUUID).
 		Where("user_profile_deleted_at IS NULL").
-		// urutkan by updated_at (fallback ke created_at), ambil yang paling baru
 		Order("COALESCE(user_profile_updated_at, user_profile_created_at) DESC").
 		Limit(1).
 		Scan(&avatarRecord).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil avatar: "+err.Error())
 	}
 
-	// 3) Kumpulkan school_id via TEACHER & STUDENT
-	schoolRoles := map[uuid.UUID]map[string]struct{}{}
-
-	// 3a) TEACHER
-	{
-		var userTeacherIDs []uuid.UUID
-		if err := ac.DB.WithContext(c.Context()).
-			Model(&UserTeacher{}).
-			Where("user_teacher_user_id = ?", userUUID).
-			Pluck("user_teacher_id", &userTeacherIDs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil user_teachers: "+err.Error())
+	// ====== Per-school bucket: roles + optional ID teacher/student ======
+	type roleBucket struct {
+		roles     map[string]struct{}
+		teacherID *uuid.UUID
+		studentID *uuid.UUID
+	}
+	schoolRoles := map[uuid.UUID]*roleBucket{}
+	getBucket := func(sid uuid.UUID) *roleBucket {
+		if b, ok := schoolRoles[sid]; ok {
+			return b
 		}
-		if len(userTeacherIDs) > 0 {
-			var mtSchoolIDs []uuid.UUID
-			if err := ac.DB.WithContext(c.Context()).
-				Model(&SchoolTeacher{}).
-				Where("school_teacher_user_teacher_id IN ?", userTeacherIDs).
-				Where("school_teacher_deleted_at IS NULL").
-				Pluck("school_teacher_school_id", &mtSchoolIDs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil school_teachers: "+err.Error())
-			}
-			for _, id := range mtSchoolIDs {
-				if _, ok := schoolRoles[id]; !ok {
-					schoolRoles[id] = map[string]struct{}{}
-				}
-				schoolRoles[id]["teacher"] = struct{}{}
-			}
+		b := &roleBucket{roles: map[string]struct{}{}}
+		schoolRoles[sid] = b
+		return b
+	}
+	addRole := func(sid uuid.UUID, r string) {
+		getBucket(sid).roles[r] = struct{}{}
+	}
+
+	// 3a) TEACHER — ambil (school_teacher_id, school_id) lalu set role & ID
+	{
+		var mtRows []struct {
+			ID       uuid.UUID `gorm:"column:school_teacher_id"`
+			SchoolID uuid.UUID `gorm:"column:school_teacher_school_id"`
+		}
+		if err := ac.DB.WithContext(c.Context()).
+			Model(&SchoolTeacher{}).
+			Select("school_teacher_id, school_teacher_school_id").
+			Joins("JOIN user_teachers ut ON ut.user_teacher_id = school_teachers.school_teacher_user_teacher_id").
+			Where("ut.user_teacher_user_id = ?", userUUID).
+			Where("school_teacher_deleted_at IS NULL").
+			Scan(&mtRows).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil school_teachers: "+err.Error())
+		}
+		for _, row := range mtRows {
+			addRole(row.SchoolID, "teacher")
+			b := getBucket(row.SchoolID)
+			// Jika ada lebih dari satu (harusnya unik alive), pakai yang terakhir saja
+			id := row.ID
+			b.teacherID = &id
 		}
 	}
 
-	// 3b) STUDENT
+	// 3b) STUDENT — ambil (school_student_id, school_id) via user_profiles aktif
 	{
+		var msRows []struct {
+			ID       uuid.UUID `gorm:"column:school_student_id"`
+			SchoolID uuid.UUID `gorm:"column:school_student_school_id"`
+		}
+		// Ambil semua profile aktif user ini
 		var profileIDs []uuid.UUID
 		if err := ac.DB.WithContext(c.Context()).
 			Model(&UserProfile{}).
@@ -229,53 +270,46 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil user_profiles: "+err.Error())
 		}
 		if len(profileIDs) > 0 {
-			var msSchoolIDs []uuid.UUID
 			if err := ac.DB.WithContext(c.Context()).
 				Model(&SchoolStudent{}).
+				Select("school_student_id, school_student_school_id").
 				Where("school_student_user_profile_id IN ?", profileIDs).
 				Where("school_student_deleted_at IS NULL").
-				Pluck("school_student_school_id", &msSchoolIDs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				Scan(&msRows).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil school_students: "+err.Error())
 			}
-			for _, id := range msSchoolIDs {
-				if _, ok := schoolRoles[id]; !ok {
-					schoolRoles[id] = map[string]struct{}{}
-				}
-				schoolRoles[id]["student"] = struct{}{}
+			for _, row := range msRows {
+				addRole(row.SchoolID, "student")
+				b := getBucket(row.SchoolID)
+				id := row.ID
+				b.studentID = &id
 			}
 		}
 	}
 
-	// 3c) CLAIMS-ONLY dari JWT
+	// 3c) CLAIMS-ONLY dari JWT (roles tambahan dari token/cookie)
 	idsFromJWT, roleMapFromJWT := parseSchoolInfoFromJWT(c)
+	for mid, set := range roleMapFromJWT {
+		for r := range set {
+			addRole(mid, r)
+		}
+	}
+	// Role dari helperAuth (dkm/admin/bendahara)
+	for _, mid := range idsFromJWT {
+		for _, r := range []string{"dkm", "admin", "bendahara"} {
+			if helperAuth.HasRoleInSchool(c, mid, r) {
+				addRole(mid, r)
+			}
+		}
+	}
 
-	// 4) Union kandidat school
+	// 4) Kumpulan kandidat school_id
 	candidate := map[uuid.UUID]struct{}{}
 	for id := range schoolRoles {
 		candidate[id] = struct{}{}
 	}
 	for _, id := range idsFromJWT {
 		candidate[id] = struct{}{}
-	}
-
-	addIf := func(schoolID uuid.UUID, role string) {
-		if _, ok := schoolRoles[schoolID]; !ok {
-			schoolRoles[schoolID] = map[string]struct{}{}
-		}
-		schoolRoles[schoolID][role] = struct{}{}
-	}
-
-	for mid, set := range roleMapFromJWT {
-		for r := range set {
-			addIf(mid, r)
-		}
-	}
-	for mid := range candidate {
-		for _, r := range []string{"dkm", "admin", "bendahara"} {
-			if helperAuth.HasRoleInSchool(c, mid, r) {
-				addIf(mid, r)
-			}
-		}
 	}
 
 	// 5) Ambil info ringkas school
@@ -287,10 +321,9 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 	resp := MyScopeResponse{
 		UserID:        me.ID,
 		UserName:      me.UserName,
-		UserAvatarURL: avatarRecord.URL, // ⬅️ isi dari query avatar
+		UserAvatarURL: avatarRecord.URL,
 		Memberships:   []SchoolRoleOption{},
 	}
-
 	if len(schoolIDs) == 0 {
 		return helper.JsonOK(c, "Context berhasil diambil", resp)
 	}
@@ -304,23 +337,33 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 		Find(&schools).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal ambil school: "+err.Error())
 	}
-
-	for _, m := range schools {
-		set := schoolRoles[m.SchoolID]
-		if len(set) == 0 {
+	for _, s := range schools {
+		b := schoolRoles[s.SchoolID]
+		if b == nil || len(b.roles) == 0 {
 			continue
 		}
-		roles := make([]string, 0, len(set))
-		for r := range set {
+		roles := make([]string, 0, len(b.roles))
+		for r := range b.roles {
 			roles = append(roles, r)
 		}
-		resp.Memberships = append(resp.Memberships, SchoolRoleOption{
-			SchoolID:      m.SchoolID,
-			SchoolName:    m.SchoolName,
-			SchoolSlug:    m.SchoolSlug,
-			SchoolIconURL: m.SchoolIconURL,
-			Roles:         roles,
-		})
+
+		opt := SchoolRoleOption{
+			SchoolID:   s.SchoolID,
+			SchoolName: s.SchoolName,
+			Roles:      roles,
+		}
+
+		// isi pointer dengan aman (tanpa ambil alamat dari range var)
+		opt.SchoolSlug = strptr(s.SchoolSlug)
+
+		if b.teacherID != nil {
+			opt.SchoolTeacherID = b.teacherID
+		}
+		if b.studentID != nil {
+			opt.SchoolStudentID = b.studentID
+		}
+
+		resp.Memberships = append(resp.Memberships, opt)
 	}
 
 	// 6) (Opsional) handle seleksi dan set cookie

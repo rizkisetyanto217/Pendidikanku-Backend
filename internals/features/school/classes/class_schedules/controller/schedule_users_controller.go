@@ -259,12 +259,12 @@ func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID,
 		WeeksOfMonth       pq.Int64Array `gorm:"column:class_schedule_rule_weeks_of_month"` // int[]
 		LastWeekOfMonth    bool          `gorm:"column:class_schedule_rule_last_week_of_month"`
 		CSSTID             uuid.UUID     `gorm:"column:class_schedule_rule_csst_id"`
-		CSSTSchoolID       uuid.UUID     `gorm:"column:class_schedule_rule_csst_school_id"`
+		CSSTSlugSnapshot   *string       `gorm:"column:class_schedule_rule_csst_slug_snapshot"`
 		CSSTSnapshotRaw    []byte        `gorm:"column:class_schedule_rule_csst_snapshot"` // jsonb
-		CSSTTeacherID      *uuid.UUID    `gorm:"column:class_schedule_rule_csst_teacher_id"`
-		CSSTSectionID      *uuid.UUID    `gorm:"column:class_schedule_rule_csst_section_id"`
+		CSSTTeacherID      *uuid.UUID    `gorm:"column:class_schedule_rule_csst_student_teacher_id"`
+		CSSTSectionID      *uuid.UUID    `gorm:"column:class_schedule_rule_csst_class_section_id"`
 		CSSTClassSubjectID *uuid.UUID    `gorm:"column:class_schedule_rule_csst_class_subject_id"`
-		CSSTRoomID         *uuid.UUID    `gorm:"column:class_schedule_rule_csst_room_id"`
+		CSSTRoomID         *uuid.UUID    `gorm:"column:class_schedule_rule_csst_class_room_id"`
 		CreatedAt          time.Time     `gorm:"column:class_schedule_rule_created_at"`
 		UpdatedAt          time.Time     `gorm:"column:class_schedule_rule_updated_at"`
 		DeletedAt          *time.Time    `gorm:"column:class_schedule_rule_deleted_at"`
@@ -286,12 +286,12 @@ func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID,
 			class_schedule_rule_weeks_of_month,
 			class_schedule_rule_last_week_of_month,
 			class_schedule_rule_csst_id,
-			class_schedule_rule_csst_school_id,
+			class_schedule_rule_csst_slug_snapshot,
 			class_schedule_rule_csst_snapshot,
-			class_schedule_rule_csst_teacher_id,
-			class_schedule_rule_csst_section_id,
+			class_schedule_rule_csst_student_teacher_id,
+			class_schedule_rule_csst_class_section_id,
 			class_schedule_rule_csst_class_subject_id,
-			class_schedule_rule_csst_room_id,
+			class_schedule_rule_csst_class_room_id,
 			class_schedule_rule_created_at,
 			class_schedule_rule_updated_at,
 			class_schedule_rule_deleted_at
@@ -325,26 +325,26 @@ func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID,
 		}
 
 		resp := d.ClassScheduleRuleResponse{
-			ClassScheduleRuleID:                 r.ID,
-			ClassScheduleRuleSchoolID:           r.SchoolID,
-			ClassScheduleRuleScheduleID:         r.ScheduleID,
-			ClassScheduleRuleDayOfWeek:          r.DayOfWeek,
-			ClassScheduleRuleStartTime:          r.StartTimeStr, // sudah "HH:MM:SS"
-			ClassScheduleRuleEndTime:            r.EndTimeStr,   // sudah "HH:MM:SS"
-			ClassScheduleRuleIntervalWeeks:      r.IntervalWeeks,
-			ClassScheduleRuleStartOffsetWeeks:   r.StartOffsetWeeks,
-			ClassScheduleRuleWeekParity:         r.WeekParity,
-			ClassScheduleRuleWeeksOfMonth:       []int64(r.WeeksOfMonth),
-			ClassScheduleRuleLastWeekOfMonth:    r.LastWeekOfMonth,
-			ClassScheduleRuleCSSTID:             r.CSSTID,
-			ClassScheduleRuleCSSTSchoolID:       r.CSSTSchoolID,
-			ClassScheduleRuleCSSTSnapshot:       snap,
-			ClassScheduleRuleCSSTTeacherID:      r.CSSTTeacherID,
-			ClassScheduleRuleCSSTSectionID:      r.CSSTSectionID,
-			ClassScheduleRuleCSSTClassSubjectID: r.CSSTClassSubjectID,
-			ClassScheduleRuleCSSTRoomID:         r.CSSTRoomID,
-			ClassScheduleRuleCreatedAt:          r.CreatedAt,
-			ClassScheduleRuleUpdatedAt:          r.UpdatedAt,
+			ClassScheduleRuleID:                   r.ID,
+			ClassScheduleRuleSchoolID:             r.SchoolID,
+			ClassScheduleRuleScheduleID:           r.ScheduleID,
+			ClassScheduleRuleDayOfWeek:            r.DayOfWeek,
+			ClassScheduleRuleStartTime:            r.StartTimeStr, // "HH:MM:SS"
+			ClassScheduleRuleEndTime:              r.EndTimeStr,   // "HH:MM:SS"
+			ClassScheduleRuleIntervalWeeks:        r.IntervalWeeks,
+			ClassScheduleRuleStartOffsetWeeks:     r.StartOffsetWeeks,
+			ClassScheduleRuleWeekParity:           r.WeekParity,
+			ClassScheduleRuleWeeksOfMonth:         []int64(r.WeeksOfMonth),
+			ClassScheduleRuleLastWeekOfMonth:      r.LastWeekOfMonth,
+			ClassScheduleRuleCSSTID:               r.CSSTID,
+			ClassScheduleRuleCSSTSlugSnapshot:     r.CSSTSlugSnapshot,
+			ClassScheduleRuleCSSTSnapshot:         snap,
+			ClassScheduleRuleCSSTStudentTeacherID: r.CSSTTeacherID,
+			ClassScheduleRuleCSSTClassSectionID:   r.CSSTSectionID,
+			ClassScheduleRuleCSSTClassSubjectID:   r.CSSTClassSubjectID,
+			ClassScheduleRuleCSSTClassRoomID:      r.CSSTRoomID,
+			ClassScheduleRuleCreatedAt:            r.CreatedAt,
+			ClassScheduleRuleUpdatedAt:            r.UpdatedAt,
 		}
 
 		out[r.ScheduleID] = append(out[r.ScheduleID], resp)

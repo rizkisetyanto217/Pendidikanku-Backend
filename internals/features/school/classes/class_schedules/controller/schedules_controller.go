@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/lib/pq"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -121,142 +122,300 @@ func ParseBoolLoose(s string) (bool, bool) {
 	}
 }
 
-// file: .../class_schedules/controller/class_schedule_controller.go
+/* ==================================================================== */
+/* Helper: ambil core CSST (tenant-safe) untuk snapshot & fallback      */
+/* ==================================================================== */
 
-func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
-    c.Locals("DB", ctl.DB)
+// --- ganti helper csstCore & getCSSTCore ---
 
-    // Guard role
-    if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
-        return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
-    }
-
-    // 1) Ambil school_id dari PATH + pastikan membership
-    actSchoolID, err := helperAuth.ParseSchoolIDFromPath(c)
-    if err != nil {
-        return helper.JsonError(c, http.StatusBadRequest, "school_id invalid di path")
-    }
-    if er := helperAuth.EnsureMemberSchool(c, actSchoolID); er != nil {
-        return er // sudah fiber.Error 403/401 sesuai helper kamu
-    }
-
-    // 2) Body
-    var req d.CreateClassScheduleRequest
-    if err := c.BodyParser(&req); err != nil {
-        log.Printf("[ClassSchedule.Create] BodyParser error: %v", err)
-        return helper.JsonError(c, http.StatusBadRequest, err.Error())
-    }
-
-    // 3) Validasi payload
-    if ctl.Validate != nil {
-        if err := ctl.Validate.Struct(req); err != nil {
-            log.Printf("[ClassSchedule.Create] Validation error: %v", err)
-            return helper.JsonError(c, http.StatusBadRequest, err.Error())
-        }
-    }
-
-    // 4) Build header (school di-inject server)
-    header := req.ToModel(actSchoolID)
-    if header.ClassScheduleStartDate.After(header.ClassScheduleEndDate) {
-        return helper.JsonError(c, http.StatusBadRequest, "start_date harus <= end_date")
-    }
-
-    // ===== Query flag: generate_sessions (tetap sama)
-    doGen := true
-    if q := c.Query("generate_sessions", ""); q != "" {
-        if v, ok := ParseBoolLoose(q); ok { doGen = v } else {
-            return helper.JsonError(c, http.StatusBadRequest, "Query generate_sessions harus boolean")
-        }
-    } else if req.GenerateSessions != nil {
-        doGen = *req.GenerateSessions
-    }
-
-    var sessionsProvided []sessModel.ClassAttendanceSessionModel
-
-    // 5) TX: create schedule + rules + sessions
-    if err := ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-        // (a) schedule
-        if er := tx.Create(&header).Error; er != nil { return er }
-
-        // (b) rules (opsional) — konversi dan auto-isi csst_school_id jika kosong
-        if len(req.Rules) > 0 {
-            ruleModels, er := req.RulesToModels(actSchoolID, header.ClassScheduleID)
-            if er != nil { return er }
-            if len(ruleModels) > 0 {
-                if er := tx.Create(&ruleModels).Error; er != nil { return er }
-            }
-        }
-
-        // (c) sessions (opsional) — validasi range + auto-guard csst_school_id
-        if len(req.Sessions) > 0 {
-            ms, er := req.SessionsToModels(
-                actSchoolID,
-                header.ClassScheduleID,
-                header.ClassScheduleStartDate,
-                header.ClassScheduleEndDate,
-            )
-            if er != nil {
-                return helper.JsonError(c, fiber.StatusBadRequest, er.Error())
-            }
-            if len(ms) > 0 {
-                if er := tx.
-                    Clauses(clause.OnConflict{DoNothing: true}).
-                    Create(&ms).Error; er != nil { return er }
-                sessionsProvided = ms
-            }
-        }
-        return nil
-    }); err != nil {
-        if fiberErr, ok := err.(*fiber.Error); ok {
-            return helper.JsonError(c, fiberErr.Code, fiberErr.Message)
-        }
-        return writePGError(c, err)
-    }
-
-    // 6) Generate sessions dari rules (opsional)
-    sessionsGenerated := 0
-    var genErr error
-    if doGen {
-        var defCSST, defRoom, defTeacher *uuid.UUID
-        if req.DefaultCSSTID != nil { v := *req.DefaultCSSTID; defCSST = &v }
-        if req.DefaultRoomID != nil { v := *req.DefaultRoomID; defRoom = &v }
-        if req.DefaultTeacherID != nil { v := *req.DefaultTeacherID; defTeacher = &v }
-
-        // fallback dari sessions payload (kalau ada)
-        for _, s := range req.Sessions {
-            if s.CSSTID != nil && defCSST == nil { v := *s.CSSTID; defCSST = &v }
-            if s.ClassRoomID != nil && defRoom == nil { v := *s.ClassRoomID; defRoom = &v }
-        }
-
-        gen := svc.Generator{DB: ctl.DB}
-        sessionsGenerated, genErr = gen.GenerateSessionsForScheduleWithOpts(
-            c.Context(),
-            header.ClassScheduleID.String(),
-            &svc.GenerateOptions{
-                TZName:                  "Asia/Jakarta",
-                DefaultCSSTID:           defCSST,
-                DefaultRoomID:           defRoom,
-                DefaultTeacherID:        defTeacher,
-                DefaultAttendanceStatus: "open",
-                BatchSize:               500,
-            },
-        )
-        if genErr != nil { log.Printf("[ClassSchedule.Create] Generate error: %v", genErr) }
-    }
-
-    // 7) Response
-    resp := fiber.Map{
-        "schedule":           d.FromModel(header),
-        "sessions_provided":  len(sessionsProvided),
-        "sessions_generated": sessionsGenerated,
-        "generated":          doGen,
-    }
-    if genErr != nil {
-        resp["generation_warning"] = genErr.Error()
-    }
-    return helper.JsonCreated(c, "Schedule created", resp)
+type csstCore struct {
+	ID            uuid.UUID
+	SchoolID      uuid.UUID
+	Slug          *string
+	SectionID     *uuid.UUID
+	SubjectBookID *uuid.UUID // anchor ke class_subject_books
+	SubjectID     *uuid.UUID // di-resolve via class_subjects
+	TeacherID     *uuid.UUID
+	RoomID        *uuid.UUID
 }
 
+func getCSSTCore(tx *gorm.DB, schoolID, csstID uuid.UUID) (csstCore, error) {
+	var r csstCore
+	err := tx.
+		Table("class_section_subject_teachers AS csst").
+		Select(`
+			csst.class_section_subject_teacher_id                AS id,
+			csst.class_section_subject_teacher_school_id         AS school_id,
+			csst.class_section_subject_teacher_slug              AS slug,
+			csst.class_section_subject_teacher_class_section_id  AS section_id,
+			csst.class_section_subject_teacher_class_subject_book_id AS subject_book_id,
+			s.class_subject_subject_id                           AS subject_id,    -- << ambil dari class_subjects
+			csst.class_section_subject_teacher_school_teacher_id AS teacher_id,
+			csst.class_section_subject_teacher_class_room_id     AS room_id
+		`).
+		Joins(`
+			LEFT JOIN class_subject_books b
+				   ON b.class_subject_book_id = csst.class_section_subject_teacher_class_subject_book_id
+				  AND b.class_subject_book_school_id = csst.class_section_subject_teacher_school_id
+		`).
+		Joins(`
+			LEFT JOIN class_subjects s
+				   ON s.class_subject_id = b.class_subject_book_class_subject_id
+				  AND s.class_subject_school_id = b.class_subject_book_school_id
+		`).
+		Where(`
+			csst.class_section_subject_teacher_id = ?
+			AND csst.class_section_subject_teacher_school_id = ?
+			AND csst.class_section_subject_teacher_deleted_at IS NULL
+		`, csstID, schoolID).
+		Take(&r).Error
+	if err != nil {
+		return r, err
+	}
+	if r.SchoolID != schoolID {
+		return r, fiber.NewError(fiber.StatusForbidden, "CSST milik school lain")
+	}
+	return r, nil
+}
+
+/*
+=========================
+
+	Create
+	=========================
+*/
+func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
+	c.Locals("DB", ctl.DB)
+
+	// Guard role
+	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
+	}
+
+	// 1) school dari PATH + pastikan membership
+	actSchoolID, err := helperAuth.ParseSchoolIDFromPath(c)
+	if err != nil {
+		return helper.JsonError(c, http.StatusBadRequest, "school_id invalid di path")
+	}
+	if er := helperAuth.EnsureMemberSchool(c, actSchoolID); er != nil {
+		return er
+	}
+
+	// 2) Body
+	var req d.CreateClassScheduleRequest
+	if err := c.BodyParser(&req); err != nil {
+		log.Printf("[ClassSchedule.Create] BodyParser error: %v", err)
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
+	}
+
+	// 3) Validasi payload
+	if ctl.Validate != nil {
+		if err := ctl.Validate.Struct(req); err != nil {
+			log.Printf("[ClassSchedule.Create] Validation error: %v", err)
+			return helper.JsonError(c, http.StatusBadRequest, err.Error())
+		}
+	}
+
+	// 4) Build header
+	header := req.ToModel(actSchoolID)
+	if header.ClassScheduleStartDate.After(header.ClassScheduleEndDate) {
+		return helper.JsonError(c, http.StatusBadRequest, "start_date harus <= end_date")
+	}
+
+	// Flag generate
+	doGen := true
+	if q := c.Query("generate_sessions", ""); q != "" {
+		if v, ok := ParseBoolLoose(q); ok {
+			doGen = v
+		} else {
+			return helper.JsonError(c, http.StatusBadRequest, "Query generate_sessions harus boolean")
+		}
+	} else if req.GenerateSessions != nil {
+		doGen = *req.GenerateSessions
+	}
+
+	var sessionsProvided []sessModel.ClassAttendanceSessionModel
+
+	if err := ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
+		// (a) schedule
+		if er := tx.Create(&header).Error; er != nil {
+			return er
+		}
+
+		// (b) rules (opsional) — enrich CSST slug+snapshot
+		if len(req.Rules) > 0 {
+			ruleModels, er := req.RulesToModels(actSchoolID, header.ClassScheduleID)
+			if er != nil {
+				return er
+			}
+			for i := range ruleModels {
+				csstID := ruleModels[i].ClassScheduleRuleCSSTID
+				core, e := getCSSTCore(tx, actSchoolID, csstID)
+				if e != nil {
+					if errors.Is(e, gorm.ErrRecordNotFound) {
+						return helper.JsonError(c, http.StatusBadRequest, "CSST tidak ditemukan / beda tenant")
+					}
+					var fe *fiber.Error
+					if errors.As(e, &fe) {
+						return helper.JsonError(c, fe.Code, fe.Message)
+					}
+					return e
+				}
+				ruleModels[i].ClassScheduleRuleCSSTSlugSnapshot = core.Slug
+				ruleModels[i].ClassScheduleRuleCSSTSnapshot = datatypes.JSONMap{
+					"school_id":             core.SchoolID.String(),
+					"csst_id":               core.ID.String(),
+					"slug":                  core.Slug,
+					"section_id":            core.SectionID,
+					"class_subject_book_id": core.SubjectBookID,
+					"subject_id":            core.SubjectID,
+					"teacher_id":            core.TeacherID,
+					"room_id":               core.RoomID,
+				}
+			}
+			if er := tx.Create(&ruleModels).Error; er != nil {
+				return er
+			}
+		}
+
+		// (c) sessions (opsional) — enrich snapshot CSST + fallback teacher/room
+		if len(req.Sessions) > 0 {
+			ms, er := req.SessionsToModels(
+				actSchoolID,
+				header.ClassScheduleID,
+				header.ClassScheduleStartDate,
+				header.ClassScheduleEndDate,
+			)
+			if er != nil {
+				return helper.JsonError(c, fiber.StatusBadRequest, er.Error())
+			}
+
+			for i := range ms {
+				if ms[i].ClassAttendanceSessionCSSTID == nil {
+					return helper.JsonError(c, fiber.StatusBadRequest, fmt.Sprintf("sessions[%d]: csst_id wajib", i))
+				}
+				core, e := getCSSTCore(tx, actSchoolID, *ms[i].ClassAttendanceSessionCSSTID)
+				if e != nil {
+					if errors.Is(e, gorm.ErrRecordNotFound) {
+						return helper.JsonError(c, fiber.StatusBadRequest, fmt.Sprintf("sessions[%d]: CSST tidak ditemukan / beda tenant", i))
+					}
+					var fe *fiber.Error
+					if errors.As(e, &fe) {
+						return helper.JsonError(c, fe.Code, fe.Message)
+					}
+					return e
+				}
+
+				// Snapshot CSST (minimal namun cukup)
+				ms[i].ClassAttendanceSessionCSSTSnapshot = datatypes.JSONMap{
+					"school_id":             core.SchoolID.String(),
+					"csst_id":               core.ID.String(),
+					"slug":                  core.Slug,
+					"section_id":            core.SectionID,
+					"class_subject_book_id": core.SubjectBookID,
+					"subject_id":            core.SubjectID,
+					"teacher_id":            core.TeacherID,
+					"room_id":               core.RoomID,
+				}
+
+				// Fallback override teacher/room jika payload kosong (tetap dipertahankan)
+				if ms[i].ClassAttendanceSessionTeacherID == nil && core.TeacherID != nil {
+					v := *core.TeacherID
+					ms[i].ClassAttendanceSessionTeacherID = &v
+				}
+				if ms[i].ClassAttendanceSessionClassRoomID == nil && core.RoomID != nil {
+					v := *core.RoomID
+					ms[i].ClassAttendanceSessionClassRoomID = &v
+				}
+
+				// CHANGED: Hapus penulisan snapshot override teacher/room.
+				//   DULU:
+				//     ms[i].ClassAttendanceSessionTeacherSnapshot = datatypes.JSONMap{...}
+				//     ms[i].ClassAttendanceSessionRoomSnapshot    = datatypes.JSONMap{...}
+				//   SEKARANG:
+				//     Tidak lagi menyimpan snapshot ini, karena skema terbaru
+				//     hanya memakai CSST raw snapshot + kolom turunan *_snapshot.
+			}
+
+			if len(ms) > 0 {
+				if er := tx.
+					Clauses(clause.OnConflict{DoNothing: true}).
+					Clauses(clause.Returning{}).
+					Create(&ms).Error; er != nil {
+					return er
+				}
+				sessionsProvided = ms // sudah berisi ID & timestamps dari DB
+			}
+		}
+
+		return nil
+	}); err != nil {
+		if fiberErr, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fiberErr.Code, fiberErr.Message)
+		}
+		return writePGError(c, err)
+	}
+
+	// 6) Generate sessions dari rules (opsional)
+	sessionsGenerated := 0
+	var genErr error
+	if doGen {
+		var defCSST, defRoom, defTeacher *uuid.UUID
+		if req.DefaultCSSTID != nil {
+			v := *req.DefaultCSSTID
+			defCSST = &v
+		}
+		if req.DefaultRoomID != nil {
+			v := *req.DefaultRoomID
+			defRoom = &v
+		}
+		if req.DefaultTeacherID != nil {
+			v := *req.DefaultTeacherID
+			defTeacher = &v
+		}
+
+		// fallback dari sessions payload (kalau ada)
+		for _, s := range req.Sessions {
+			if s.CSSTID != nil && defCSST == nil {
+				v := *s.CSSTID
+				defCSST = &v
+			}
+			if s.ClassRoomID != nil && defRoom == nil {
+				v := *s.ClassRoomID
+				defRoom = &v
+			}
+		}
+
+		gen := svc.Generator{DB: ctl.DB}
+		sessionsGenerated, genErr = gen.GenerateSessionsForScheduleWithOpts(
+			c.Context(),
+			header.ClassScheduleID.String(),
+			&svc.GenerateOptions{
+				TZName:                  "Asia/Jakarta",
+				DefaultCSSTID:           defCSST,
+				DefaultRoomID:           defRoom,
+				DefaultTeacherID:        defTeacher,
+				DefaultAttendanceStatus: "open",
+				BatchSize:               500,
+			},
+		)
+		if genErr != nil {
+			log.Printf("[ClassSchedule.Create] Generate error: %v", genErr)
+		}
+	}
+
+	// 7) Response
+	resp := fiber.Map{
+		"schedule":           d.FromModel(header),
+		"sessions_provided":  len(sessionsProvided),
+		"sessions_generated": sessionsGenerated,
+		"generated":          doGen,
+	}
+	if genErr != nil {
+		resp["generation_warning"] = genErr.Error()
+	}
+	return helper.JsonCreated(c, "Schedule created", resp)
+}
 
 /* =========================
    Patch (Partial) — pointer-based DTO

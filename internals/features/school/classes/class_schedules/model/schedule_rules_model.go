@@ -22,7 +22,7 @@ type ClassScheduleRuleModel struct {
 	// PK
 	ClassScheduleRuleID uuid.UUID `gorm:"column:class_schedule_rule_id;type:uuid;default:gen_random_uuid();primaryKey" json:"class_schedule_rule_id"`
 
-	// Tenant & header (FK komposit → tenant-safe)
+	// Tenant & header (FK komposit → tenant-safe di header)
 	ClassScheduleRuleSchoolID   uuid.UUID `gorm:"column:class_schedule_rule_school_id;type:uuid;not null" json:"class_schedule_rule_school_id"`
 	ClassScheduleRuleScheduleID uuid.UUID `gorm:"column:class_schedule_rule_schedule_id;type:uuid;not null" json:"class_schedule_rule_schedule_id"`
 
@@ -38,18 +38,21 @@ type ClassScheduleRuleModel struct {
 	ClassScheduleRuleWeeksOfMonth     pq.Int64Array  `gorm:"column:class_schedule_rule_weeks_of_month;type:int[]" json:"class_schedule_rule_weeks_of_month,omitempty"`
 	ClassScheduleRuleLastWeekOfMonth  bool           `gorm:"column:class_schedule_rule_last_week_of_month;not null;default:false" json:"class_schedule_rule_last_week_of_month"`
 
-	// Default penugasan CSST (tenant-safe, wajib)
-	ClassScheduleRuleCSSTID       uuid.UUID `gorm:"column:class_schedule_rule_csst_id;type:uuid;not null" json:"class_schedule_rule_csst_id"`
-	ClassScheduleRuleCSSTSchoolID uuid.UUID `gorm:"column:class_schedule_rule_csst_school_id;type:uuid;not null" json:"class_schedule_rule_csst_school_id"`
+	// Default penugasan CSST (FK single-column)
+	ClassScheduleRuleCSSTID           uuid.UUID `gorm:"column:class_schedule_rule_csst_id;type:uuid;not null" json:"class_schedule_rule_csst_id"`
+	ClassScheduleRuleCSSTSlugSnapshot *string   `gorm:"column:class_schedule_rule_csst_slug_snapshot;type:varchar(100)" json:"class_schedule_rule_csst_slug_snapshot,omitempty"`
 
-	// Snapshot CSST (denormalized)
-	ClassScheduleRuleCSSTSnapshot datatypes.JSONMap `gorm:"column:class_schedule_rule_csst_snapshot;type:jsonb;not null;default:'{}'" json:"class_schedule_rule_csst_snapshot"`
+	// Snapshot CSST (diisi backend, NOT NULL)
+	ClassScheduleRuleCSSTSnapshot datatypes.JSONMap `gorm:"column:class_schedule_rule_csst_snapshot;type:jsonb;not null" json:"class_schedule_rule_csst_snapshot"`
 
 	// Generated columns (read-only) dari snapshot
-	ClassScheduleRuleCSSTTeacherID      *uuid.UUID `gorm:"column:class_schedule_rule_csst_teacher_id;type:uuid;->" json:"class_schedule_rule_csst_teacher_id,omitempty"`
-	ClassScheduleRuleCSSTSectionID      *uuid.UUID `gorm:"column:class_schedule_rule_csst_section_id;type:uuid;->" json:"class_schedule_rule_csst_section_id,omitempty"`
-	ClassScheduleRuleCSSTClassSubjectID *uuid.UUID `gorm:"column:class_schedule_rule_csst_class_subject_id;type:uuid;->" json:"class_schedule_rule_csst_class_subject_id,omitempty"`
-	ClassScheduleRuleCSSTRoomID         *uuid.UUID `gorm:"column:class_schedule_rule_csst_room_id;type:uuid;->" json:"class_schedule_rule_csst_room_id,omitempty"`
+	ClassScheduleRuleCSSTStudentTeacherID *uuid.UUID `gorm:"column:class_schedule_rule_csst_student_teacher_id;type:uuid;->" json:"class_schedule_rule_csst_student_teacher_id,omitempty"`
+	ClassScheduleRuleCSSTClassSectionID   *uuid.UUID `gorm:"column:class_schedule_rule_csst_class_section_id;type:uuid;->" json:"class_schedule_rule_csst_class_section_id,omitempty"`
+	ClassScheduleRuleCSSTClassSubjectID   *uuid.UUID `gorm:"column:class_schedule_rule_csst_class_subject_id;type:uuid;->" json:"class_schedule_rule_csst_class_subject_id,omitempty"`
+	ClassScheduleRuleCSSTClassRoomID      *uuid.UUID `gorm:"column:class_schedule_rule_csst_class_room_id;type:uuid;->" json:"class_schedule_rule_csst_class_room_id,omitempty"`
+
+	// school_id dari snapshot (read-only, dipakai DB CHECK)
+	ClassScheduleRuleCSSTSchoolIDFromSnapshot *uuid.UUID `gorm:"column:class_schedule_rule_csst_school_id_from_snapshot;type:uuid;->" json:"class_schedule_rule_csst_school_id_from_snapshot,omitempty"`
 
 	// Audit
 	ClassScheduleRuleCreatedAt time.Time      `gorm:"column:class_schedule_rule_created_at;type:timestamptz;not null;autoCreateTime" json:"class_schedule_rule_created_at"`
@@ -62,3 +65,11 @@ type ClassScheduleRuleModel struct {
 }
 
 func (ClassScheduleRuleModel) TableName() string { return "class_schedule_rules" }
+
+// Optional guard: pastikan snapshot tidak NULL saat create/update
+func (m *ClassScheduleRuleModel) BeforeSave(tx *gorm.DB) error {
+	if m.ClassScheduleRuleCSSTSnapshot == nil {
+		m.ClassScheduleRuleCSSTSnapshot = datatypes.JSONMap{}
+	}
+	return nil
+}

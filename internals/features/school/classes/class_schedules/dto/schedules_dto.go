@@ -251,6 +251,7 @@ type CreateClassScheduleRequest struct {
 }
 
 // Lite rule untuk keperluan embed di CreateClassScheduleRequest
+// Lite rule untuk keperluan embed di CreateClassScheduleRequest
 type CreateClassScheduleRuleLite struct {
 	DayOfWeek        int     `json:"day_of_week"         validate:"required,min=1,max=7"`
 	StartTime        string  `json:"start_time"          validate:"required"` // "HH:mm" / "HH:mm:ss"
@@ -262,8 +263,8 @@ type CreateClassScheduleRuleLite struct {
 	LastWeekOfMonth  *bool   `json:"last_week_of_month"  validate:"omitempty"`
 
 	// CSST wajib untuk rule
-	CSSTID       uuid.UUID  `json:"csst_id"                 validate:"required,uuid"`
-	CSSTSchoolID *uuid.UUID `json:"csst_school_id,omitempty" validate:"omitempty,uuid"` // ← opsional: auto=path school_id
+	CSSTID       uuid.UUID  `json:"csst_id"                  validate:"required,uuid"`
+	CSSTSchoolID *uuid.UUID `json:"csst_school_id,omitempty" validate:"omitempty,uuid"` // hanya untuk validasi; tidak dipetakan lagi
 }
 
 func (r CreateClassScheduleRequest) ToModel(schoolID uuid.UUID) model.ClassScheduleModel {
@@ -300,7 +301,6 @@ func (r CreateClassScheduleRequest) ToModel(schoolID uuid.UUID) model.ClassSched
 }
 
 // Konversi Rules lite di body menjadi models lengkap (butuh schoolID & scheduleID)
-// Konversi Rules lite di body menjadi models lengkap (butuh schoolID & scheduleID)
 func (r CreateClassScheduleRequest) RulesToModels(schoolID, scheduleID uuid.UUID) ([]model.ClassScheduleRuleModel, error) {
 	if len(r.Rules) == 0 {
 		return nil, nil
@@ -313,15 +313,9 @@ func (r CreateClassScheduleRequest) RulesToModels(schoolID, scheduleID uuid.UUID
 			return nil, fmt.Errorf("rules[%d]: start_time/end_time wajib", idx)
 		}
 
-		// Normalisasi csst_school_id: jika tidak ada → isi dengan schoolID dari PATH
-		var csstSchoolID uuid.UUID
-		if it.CSSTSchoolID == nil {
-			csstSchoolID = schoolID
-		} else {
-			csstSchoolID = *it.CSSTSchoolID
-			if csstSchoolID != schoolID {
-				return nil, fmt.Errorf("rules[%d]: csst_school_id != path school_id", idx)
-			}
+		// Jika klien mengirim csst_school_id dan beda dengan schoolID path → tolak (guard aplikasi saja)
+		if it.CSSTSchoolID != nil && *it.CSSTSchoolID != schoolID {
+			return nil, fmt.Errorf("rules[%d]: csst_school_id != path school_id", idx)
 		}
 
 		cr := CreateClassScheduleRuleRequest{
@@ -336,8 +330,7 @@ func (r CreateClassScheduleRequest) RulesToModels(schoolID, scheduleID uuid.UUID
 			ClassScheduleRuleLastWeekOfMonth:  it.LastWeekOfMonth,
 
 			// CSST wajib
-			ClassScheduleRuleCSSTID:       it.CSSTID,
-			ClassScheduleRuleCSSTSchoolID: csstSchoolID, // ← hasil normalisasi
+			ClassScheduleRuleCSSTID: it.CSSTID,
 		}
 
 		m, err := cr.ToModel(schoolID)

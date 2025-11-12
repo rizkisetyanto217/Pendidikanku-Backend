@@ -17,8 +17,6 @@ import (
 	attendanceModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
 	helperOSS "schoolku_backend/internals/helpers/oss"
 
-	snapshotTeacher "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/snapshot"
-	snapshotClassRoom "schoolku_backend/internals/features/school/academics/rooms/snapshot"
 	serviceSchedule "schoolku_backend/internals/features/school/classes/class_schedules/services"
 	snapshotCSST "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/snapshot"
 
@@ -50,7 +48,7 @@ func parseYMDLocal(s string) (*time.Time, error) {
 	return &t0, nil
 }
 
-// --- helper kecil di atas file (boleh taruh di luar fungsi) ---
+// Ambil nama tampilan CSST (fallback name)
 func getCSSTName(tx *gorm.DB, csstID uuid.UUID) (string, error) {
 	var row struct {
 		Name *string `gorm:"column:name"`
@@ -60,7 +58,7 @@ SELECT
   COALESCE(class_section_subject_teacher_name, name) AS name
 FROM class_section_subject_teachers
 WHERE class_section_subject_teacher_id = ?
-  AND (class_section_subject_teacher_deleted_at IS NULL OR class_section_subject_teacher_deleted_at IS NULL)
+  AND class_section_subject_teacher_deleted_at IS NULL
 LIMIT 1`
 	if err := tx.Raw(q, csstID).Scan(&row).Error; err != nil {
 		return "", err
@@ -383,18 +381,16 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 			}
 		}
 
-		// ====== SNAPSHOTS & EFEKTIF ASSIGNMENTS ======
+		// ====== SNAPSHOT (hanya CSST) & EFEKTIF ASSIGNMENTS ======
 		var (
 			effCSSTID    *uuid.UUID
 			effTeacherID *uuid.UUID
 			effRoomID    *uuid.UUID
 
-			csstSnapJSON    datatypes.JSONMap
-			teacherSnapJSON datatypes.JSONMap
-			roomSnapJSON    datatypes.JSONMap
+			csstSnapJSON datatypes.JSONMap
 		)
 
-		// 1) CSST efektif
+		// 1) CSST efektif (+snapshot satu-satunya)
 		if req.ClassAttendanceSessionCSSTId != nil && *req.ClassAttendanceSessionCSSTId != uuid.Nil {
 			effCSSTID = req.ClassAttendanceSessionCSSTId
 
@@ -413,52 +409,42 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 			}
 		}
 
-		// 2) Teacher efektif
+		// 2) Teacher efektif (ID saja; snapshot guru TIDAK disimpan lagi)
 		if req.ClassAttendanceSessionTeacherId != nil && *req.ClassAttendanceSessionTeacherId != uuid.Nil {
 			effTeacherID = req.ClassAttendanceSessionTeacherId
-
-			if ts, err := snapshotTeacher.ValidateAndSnapshotTeacher(tx, schoolID, *effTeacherID); err == nil {
-				jb := snapshotTeacher.ToJSON(ts)
-				var mm map[string]any
-				_ = json.Unmarshal(jb, &mm)
-				teacherSnapJSON = datatypes.JSONMap(mm)
-			} else {
-				return fiber.NewError(fiber.StatusBadRequest, "Guru tidak valid / bukan milik school Anda")
-			}
 		}
 
-		// 3) Room efektif
+		// 3) Room efektif (coba resolve dari CSST/Section; snapshot ruang TIDAK disimpan lagi)
 		if effCSSTID != nil {
 			gen := &serviceSchedule.Generator{DB: tx}
-			roomID, roomSnap, rerr := gen.ResolveRoomFromCSSTOrSection(
+			roomID, _, rerr := gen.ResolveRoomFromCSSTOrSection(
 				c.Context(),
 				schoolID,
 				effCSSTID,
 			)
 			if rerr == nil && roomID != nil {
 				effRoomID = roomID
-				if roomSnap != nil {
-					roomSnapJSON = roomSnap
-				}
 			}
 		}
 		if effRoomID == nil && req.ClassAttendanceSessionClassRoomId != nil && *req.ClassAttendanceSessionClassRoomId != uuid.Nil {
 			rid := *req.ClassAttendanceSessionClassRoomId
-			if rs, err := snapshotClassRoom.ValidateAndSnapshotRoom(tx, schoolID, rid); err == nil {
-				jb := snapshotClassRoom.ToJSON(rs)
-				var mm map[string]any
-				_ = json.Unmarshal(jb, &mm)
-				effRoomID = &rid
-				roomSnapJSON = datatypes.JSONMap(mm)
-			} else {
+			// validasi kepemilikan room (tanpa snapshot)
+			var rc int64
+			if err := tx.Table("class_rooms").
+				Where("class_room_id = ? AND class_room_school_id = ? AND class_room_deleted_at IS NULL", rid, schoolID).
+				Count(&rc).Error; err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi ruang")
+			}
+			if rc == 0 {
 				return fiber.NewError(fiber.StatusBadRequest, "Ruang kelas tidak valid / bukan milik school Anda")
 			}
+			effRoomID = &rid
 		}
 
 		// 4) Build model dari DTO
 		m := req.ToModel()
 		m.ClassAttendanceSessionSchoolID = schoolID
-		// (Schedule sudah pointer-aware di ToModel, tak perlu nulis apa-apa lagi)
+		// (Schedule sudah pointer-aware di ToModel)
 
 		if effCSSTID != nil {
 			m.ClassAttendanceSessionCSSTID = effCSSTID
@@ -468,15 +454,9 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 		}
 		if effTeacherID != nil {
 			m.ClassAttendanceSessionTeacherID = effTeacherID
-			if teacherSnapJSON != nil {
-				m.ClassAttendanceSessionTeacherSnapshot = teacherSnapJSON
-			}
 		}
 		if effRoomID != nil {
 			m.ClassAttendanceSessionClassRoomID = effRoomID
-			if roomSnapJSON != nil {
-				m.ClassAttendanceSessionRoomSnapshot = roomSnapJSON
-			}
 		}
 
 		// 5) Simpan sesi
@@ -568,6 +548,8 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 						row.ClassAttendanceSessionURLHref = &publicURL
 						if key, kerr := helperOSS.ExtractKeyFromPublicURL(publicURL); kerr == nil {
 							row.ClassAttendanceSessionURLObjectKey = &key
+						} else {
+							row.ClassAttendanceSessionURLObjectKey = nil
 						}
 						if strings.TrimSpace(row.ClassAttendanceSessionURLKind) == "" {
 							row.ClassAttendanceSessionURLKind = "attachment"

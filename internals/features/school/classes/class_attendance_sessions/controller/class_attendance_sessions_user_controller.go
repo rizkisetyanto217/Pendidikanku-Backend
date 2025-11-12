@@ -1,3 +1,4 @@
+// file: internals/features/school/classes/class_attendance_sessions/controller/list_controller.go
 package controller
 
 import (
@@ -19,40 +20,8 @@ import (
 )
 
 /* =========================
-   Scopes & small helpers
+   Utils (tanpa perubahan besar)
 ========================= */
-
-func scopeSchool(schoolID uuid.UUID) func(*gorm.DB) *gorm.DB {
-	return func(db *gorm.DB) *gorm.DB {
-		return db.Where("class_attendance_session_school_id = ?", schoolID)
-	}
-}
-
-func scopeDateBetween(df, dt *time.Time) func(*gorm.DB) *gorm.DB {
-	return func(db *gorm.DB) *gorm.DB {
-		// inclusive [df, dt]
-		if df != nil && dt != nil {
-			return db.Where("class_attendance_session_date BETWEEN ? AND ?", *df, *dt)
-		}
-		if df != nil {
-			return db.Where("class_attendance_session_date >= ?", *df)
-		}
-		if dt != nil {
-			return db.Where("class_attendance_session_date <= ?", *dt)
-		}
-		return db
-	}
-}
-
-// filter by SCHEDULE (kolom di CAS)
-func scopeSchedule(id *uuid.UUID) func(*gorm.DB) *gorm.DB {
-	return func(db *gorm.DB) *gorm.DB {
-		if id == nil {
-			return db
-		}
-		return db.Where("class_attendance_session_schedule_id = ?", *id)
-	}
-}
 
 func parseYmd(s string) (*time.Time, error) {
 	s = strings.TrimSpace(s)
@@ -110,16 +79,9 @@ func jsonToMap(j datatypes.JSON) map[string]any {
 }
 
 /* =================================================================
-   LIST /admin/class-attendance-sessions — schedule opsional & null
+   LIST /admin/class-attendance-sessions — updated to DTO terbaru
 ================================================================= */
 
-// GET /admin/class-attendance-sessions
-//
-//	?id=&session_id=&cas_id=&teacher_id=&teacher_user_id=&schedule_id=|null
-//	&date_from=&date_to=&limit=&offset=&q=&sort_by=&sort=
-//	&include=ua,ua_urls,urls|session_urls|casu
-//
-// file: internals/features/school/classes/class_attendance_sessions/controller/list_controller.go
 func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fiber.Ctx) error {
 	// ===== School context =====
 	c.Locals("DB", ctrl.DB)
@@ -127,7 +89,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
 		id, er := helperAuth.EnsureSchoolAccessDKM(c, mc)
 		if er != nil {
-			// tetap balikin via helper agar seragam
 			if fe, ok := er.(*fiber.Error); ok {
 				return helper.JsonError(c, fe.Code, fe.Message)
 			}
@@ -140,7 +101,7 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		return helper.JsonError(c, http.StatusForbidden, "Scope school tidak ditemukan")
 	}
 
-	// ===== Roles (buat UA scope di bawah) =====
+	// ===== Roles =====
 	userID, _ := helperAuth.GetUserIDFromToken(c)
 	adminSchoolID, _ := helperAuth.GetSchoolIDFromToken(c)
 	teacherSchoolID, _ := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
@@ -165,11 +126,10 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	}
 	wantUA := includeAll || includeSet["user_attendance"] || includeSet["user_attendances"] || includeSet["attendance"] || includeSet["ua"]
 
-	// ===== Pagination (jsonresponse) =====
-	// default per_page = 20, max = 200
+	// ===== Pagination =====
 	p := helper.ResolvePaging(c, 20, 200)
 
-	// ===== Sorting whitelist (gantikan SafeOrderClause) =====
+	// ===== Sorting whitelist =====
 	sortBy := strings.ToLower(strings.TrimSpace(c.Query("sort_by")))
 	order := strings.ToLower(strings.TrimSpace(c.Query("sort")))
 	if order != "asc" && order != "desc" {
@@ -181,8 +141,6 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		col = "cas.class_attendance_session_title"
 	case "date", "":
 		col = "cas.class_attendance_session_date"
-	default:
-		// sort_by tak dikenal → tetap default
 	}
 	orderExpr := col + " " + strings.ToUpper(order)
 
@@ -289,19 +247,37 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
-	// ===== Page data =====
+	// ===== Page data (UPDATED to DTO) =====
 	type row struct {
-		ID, SchoolID                                   uuid.UUID
-		ScheduleID, RoomID, TeacherID                  *uuid.UUID
-		Date                                           time.Time
-		Title, Disp, Gen, Note                         *string // Gen di DB string → baca ke *string aman
-		DeletedAt                                      *time.Time
-		CSSTSnap, TeacherSnap, RoomSnap                datatypes.JSON
-		CSSTIDSnap, SubjectIDSnap, SectionIDSnap       *uuid.UUID
-		TeacherIDSnap, RoomIDSnap                      *uuid.UUID
-		SubjectCodeSnap, SubjectNameSnap               *string
-		SectionNameSnap, TeacherNameSnap, RoomNameSnap *string
+		ID         uuid.UUID  `gorm:"column:class_attendance_session_id"`
+		SchoolID   uuid.UUID  `gorm:"column:class_attendance_session_school_id"`
+		ScheduleID *uuid.UUID `gorm:"column:class_attendance_session_schedule_id"`
+		RoomID     *uuid.UUID `gorm:"column:class_attendance_session_class_room_id"`
+		TeacherID  *uuid.UUID `gorm:"column:class_attendance_session_teacher_id"`
+
+		Date      time.Time  `gorm:"column:class_attendance_session_date"`
+		Title     *string    `gorm:"column:class_attendance_session_title"`
+		Disp      *string    `gorm:"column:class_attendance_session_display_title"`
+		Gen       *string    `gorm:"column:class_attendance_session_general_info"`
+		Note      *string    `gorm:"column:class_attendance_session_note"`
+		DeletedAt *time.Time `gorm:"column:class_attendance_session_deleted_at"`
+
+		// hanya CSST snapshot raw yang tersisa
+		CSSTSnap datatypes.JSON `gorm:"column:class_attendance_session_csst_snapshot"`
+
+		// generated snapshot columns (pakai *_snapshot)
+		CSSTIDSnapshot      *uuid.UUID `gorm:"column:class_attendance_session_csst_id_snapshot"`
+		SubjectIDSnapshot   *uuid.UUID `gorm:"column:class_attendance_session_subject_id_snapshot"`
+		SectionIDSnapshot   *uuid.UUID `gorm:"column:class_attendance_session_section_id_snapshot"`
+		TeacherIDSnapshot   *uuid.UUID `gorm:"column:class_attendance_session_teacher_id_snapshot"`
+		RoomIDSnapshot      *uuid.UUID `gorm:"column:class_attendance_session_room_id_snapshot"`
+		SubjectCodeSnapshot *string    `gorm:"column:class_attendance_session_subject_code_snapshot"`
+		SubjectNameSnapshot *string    `gorm:"column:class_attendance_session_subject_name_snapshot"`
+		SectionNameSnapshot *string    `gorm:"column:class_attendance_session_section_name_snapshot"`
+		TeacherNameSnapshot *string    `gorm:"column:class_attendance_session_teacher_name_snapshot"`
+		RoomNameSnapshot    *string    `gorm:"column:class_attendance_session_room_name_snapshot"`
 	}
+
 	var rows []row
 	if err := qBase.
 		Select(`
@@ -309,32 +285,29 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			cas.class_attendance_session_school_id,
 			cas.class_attendance_session_schedule_id,
 			cas.class_attendance_session_class_room_id,
+			cas.class_attendance_session_teacher_id,
 
 			cas.class_attendance_session_date,
 			cas.class_attendance_session_title,
 			cas.class_attendance_session_display_title,
 			cas.class_attendance_session_general_info,
 			cas.class_attendance_session_note,
-			cas.class_attendance_session_teacher_id,
 			cas.class_attendance_session_deleted_at,
 
 			cas.class_attendance_session_csst_snapshot,
-			cas.class_attendance_session_teacher_snapshot,
-			cas.class_attendance_session_room_snapshot,
 
-			cas.class_attendance_session_csst_id_snap,
-			cas.class_attendance_session_subject_id_snap,
-			cas.class_attendance_session_section_id_snap,
-			cas.class_attendance_session_teacher_id_snap,
-			cas.class_attendance_session_room_id_snap,
-			cas.class_attendance_session_subject_code_snap,
-			cas.class_attendance_session_subject_name_snap,
-			cas.class_attendance_session_section_name_snap,
-			cas.class_attendance_session_teacher_name_snap,
-			cas.class_attendance_session_room_name_snap
+			cas.class_attendance_session_csst_id_snapshot,
+			cas.class_attendance_session_subject_id_snapshot,
+			cas.class_attendance_session_section_id_snapshot,
+			cas.class_attendance_session_teacher_id_snapshot,
+			cas.class_attendance_session_room_id_snapshot,
+			cas.class_attendance_session_subject_code_snapshot,
+			cas.class_attendance_session_subject_name_snapshot,
+			cas.class_attendance_session_section_name_snapshot,
+			cas.class_attendance_session_teacher_name_snapshot,
+			cas.class_attendance_session_room_name_snapshot
 		`).
 		Order(orderExpr).
-		// tie-breaker stabil
 		Order("cas.class_attendance_session_date DESC, cas.class_attendance_session_id DESC").
 		Limit(p.Limit).
 		Offset(p.Offset).
@@ -471,42 +444,44 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		}
 	}
 
-	// ===== Compose response =====
+	// ===== Compose response (UPDATED to DTO) =====
 	buildBase := func(r row) sessiondto.ClassAttendanceSessionResponse {
-		// r.Gen bertipe *string di struct lokal (aman untuk nil)
 		gen := ""
 		if r.Gen != nil {
 			gen = *r.Gen
 		}
 		return sessiondto.ClassAttendanceSessionResponse{
-			ClassAttendanceSessionId:              r.ID,
-			ClassAttendanceSessionSchoolId:        r.SchoolID,
-			ClassAttendanceSessionScheduleId:      r.ScheduleID,
-			ClassAttendanceSessionDate:            r.Date,
-			ClassAttendanceSessionTitle:           r.Title,
-			ClassAttendanceSessionDisplayTitle:    r.Disp,
-			ClassAttendanceSessionGeneralInfo:     gen,
-			ClassAttendanceSessionNote:            r.Note,
-			ClassAttendanceSessionTeacherId:       r.TeacherID,
-			ClassAttendanceSessionClassRoomId:     r.RoomID,
-			ClassAttendanceSessionCSSTSnapshot:    jsonToMap(r.CSSTSnap),
-			ClassAttendanceSessionTeacherSnapshot: jsonToMap(r.TeacherSnap),
-			ClassAttendanceSessionRoomSnapshot:    jsonToMap(r.RoomSnap),
-			ClassAttendanceSessionCSSTIdSnap:      r.CSSTIDSnap,
-			ClassAttendanceSessionSubjectIdSnap:   r.SubjectIDSnap,
-			ClassAttendanceSessionSectionIdSnap:   r.SectionIDSnap,
-			ClassAttendanceSessionTeacherIdSnap:   r.TeacherIDSnap,
-			ClassAttendanceSessionRoomIdSnap:      r.RoomIDSnap,
-			ClassAttendanceSessionSubjectCodeSnap: r.SubjectCodeSnap,
-			ClassAttendanceSessionSubjectNameSnap: r.SubjectNameSnap,
-			ClassAttendanceSessionSectionNameSnap: r.SectionNameSnap,
-			ClassAttendanceSessionTeacherNameSnap: r.TeacherNameSnap,
-			ClassAttendanceSessionRoomNameSnap:    r.RoomNameSnap,
-			ClassAttendanceSessionDeletedAt:       r.DeletedAt,
+			ClassAttendanceSessionId:           r.ID,
+			ClassAttendanceSessionSchoolId:     r.SchoolID,
+			ClassAttendanceSessionScheduleId:   r.ScheduleID,
+			ClassAttendanceSessionDate:         r.Date,
+			ClassAttendanceSessionTitle:        r.Title,
+			ClassAttendanceSessionDisplayTitle: r.Disp,
+			ClassAttendanceSessionGeneralInfo:  gen,
+			ClassAttendanceSessionNote:         r.Note,
+			ClassAttendanceSessionTeacherId:    r.TeacherID,
+			ClassAttendanceSessionClassRoomId:  r.RoomID,
+
+			// only CSST raw snapshot left
+			ClassAttendanceSessionCSSTSnapshot: jsonToMap(r.CSSTSnap),
+
+			// generated snapshots
+			ClassAttendanceSessionCSSTIdSnapshot:      r.CSSTIDSnapshot,
+			ClassAttendanceSessionSubjectIdSnapshot:   r.SubjectIDSnapshot,
+			ClassAttendanceSessionSectionIdSnapshot:   r.SectionIDSnapshot,
+			ClassAttendanceSessionTeacherIdSnapshot:   r.TeacherIDSnapshot,
+			ClassAttendanceSessionRoomIdSnapshot:      r.RoomIDSnapshot,
+			ClassAttendanceSessionSubjectCodeSnapshot: r.SubjectCodeSnapshot,
+			ClassAttendanceSessionSubjectNameSnapshot: r.SubjectNameSnapshot,
+			ClassAttendanceSessionSectionNameSnapshot: r.SectionNameSnapshot,
+			ClassAttendanceSessionTeacherNameSnapshot: r.TeacherNameSnapshot,
+			ClassAttendanceSessionRoomNameSnapshot:    r.RoomNameSnapshot,
+
+			ClassAttendanceSessionDeletedAt: r.DeletedAt,
 		}
 	}
 
-	// ===== Meta (jsonresponse) =====
+	// ===== Meta =====
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
 
 	if wantUA {
@@ -532,16 +507,15 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 }
 
 /* ==========================================================
-   LIST by TEACHER (SELF) — schedule opsional & pointer-safe
+   LIST by TEACHER (SELF) — updated to DTO terbaru
 ========================================================== */
 
-// GET /api/u/sessions/teacher/me?section_id=&schedule_id=&date_from=&date_to=&limit=&offset=&q=
 func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ctx) error {
 	if !helperAuth.IsTeacher(c) && !helperAuth.IsDKM(c) && !helperAuth.IsOwner(c) {
 		return helper.JsonError(c, fiber.StatusUnauthorized, "Hanya guru (atau admin) yang diizinkan")
 	}
 
-	// ===== School context (seragam helper) =====
+	// ===== School context =====
 	mc, er := helperAuth.ResolveSchoolContext(c)
 	if er != nil {
 		if fe, ok := er.(*fiber.Error); ok {
@@ -557,7 +531,7 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 			if fe, ok := er.(*fiber.Error); ok {
 				return helper.JsonError(c, fe.Code, fe.Message)
 			}
-			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
+			return helper.JsonError(c, http.StatusForbidden, er.Error())
 		}
 		schoolID = id
 	default:
@@ -582,7 +556,7 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 		return helper.JsonError(c, fiber.StatusUnauthorized, "User tidak terautentik")
 	}
 
-	// ===== Pagination (jsonresponse) =====
+	// ===== Pagination =====
 	p := helper.ResolvePaging(c, 20, 200)
 
 	// ===== Sorting whitelist =====
@@ -597,7 +571,6 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 		col = "cas.class_attendance_session_title"
 	case "date", "":
 		col = "cas.class_attendance_session_date"
-	default:
 	}
 	orderExpr := col + " " + strings.ToUpper(order)
 
@@ -632,7 +605,7 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 		`).
 		Joins(`
 			LEFT JOIN school_teachers AS mt_snap
-			  ON mt_snap.school_teacher_id = cas.class_attendance_session_teacher_id_snap
+			  ON mt_snap.school_teacher_id = cas.class_attendance_session_teacher_id_snapshot
 			 AND mt_snap.school_teacher_deleted_at IS NULL
 			 AND mt_snap.school_teacher_school_id = cas.class_attendance_session_school_id
 		`).
@@ -658,7 +631,7 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 		if e != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "section_id tidak valid")
 		}
-		qBase = qBase.Where("cas.class_attendance_session_section_id_snap = ?", id)
+		qBase = qBase.Where("cas.class_attendance_session_section_id_snapshot = ?", id)
 	}
 	if s := strings.TrimSpace(c.Query("schedule_id")); s != "" {
 		id, e := uuid.Parse(s)
@@ -679,13 +652,14 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
-	// Data
+	// Data (UPDATED to DTO)
 	type row struct {
 		ID, SchoolID                  uuid.UUID
 		Date                          time.Time
 		Title, Display, General, Note *string
 		TeacherID, RoomID, ScheduleID *uuid.UUID
-		SectionIDSnap, SubjectIDSnap  *uuid.UUID
+		SectionIDSnapshot             *uuid.UUID `gorm:"column:class_attendance_session_section_id_snapshot"`
+		SubjectIDSnapshot             *uuid.UUID `gorm:"column:class_attendance_session_subject_id_snapshot"`
 		DeletedAt                     *time.Time
 	}
 	var rows []row
@@ -702,8 +676,8 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 			cas.class_attendance_session_class_room_id AS room_id,
 			cas.class_attendance_session_schedule_id   AS schedule_id,
 			cas.class_attendance_session_deleted_at AS deleted_at,
-			cas.class_attendance_session_section_id_snap AS section_id_snap,
-			cas.class_attendance_session_subject_id_snap AS subject_id_snap
+			cas.class_attendance_session_section_id_snapshot,
+			cas.class_attendance_session_subject_id_snapshot
 		`).
 		Order(orderExpr).
 		Order("cas.class_attendance_session_date DESC, cas.class_attendance_session_id DESC").
@@ -720,19 +694,21 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 			gen = *r.General
 		}
 		resp = append(resp, sessiondto.ClassAttendanceSessionResponse{
-			ClassAttendanceSessionId:            r.ID,
-			ClassAttendanceSessionSchoolId:      r.SchoolID,
-			ClassAttendanceSessionScheduleId:    r.ScheduleID,
-			ClassAttendanceSessionDate:          r.Date,
-			ClassAttendanceSessionTitle:         r.Title,
-			ClassAttendanceSessionDisplayTitle:  r.Display,
-			ClassAttendanceSessionGeneralInfo:   gen,
-			ClassAttendanceSessionNote:          r.Note,
-			ClassAttendanceSessionTeacherId:     r.TeacherID,
-			ClassAttendanceSessionClassRoomId:   r.RoomID,
-			ClassAttendanceSessionDeletedAt:     r.DeletedAt,
-			ClassAttendanceSessionSectionIdSnap: r.SectionIDSnap,
-			ClassAttendanceSessionSubjectIdSnap: r.SubjectIDSnap,
+			ClassAttendanceSessionId:           r.ID,
+			ClassAttendanceSessionSchoolId:     r.SchoolID,
+			ClassAttendanceSessionScheduleId:   r.ScheduleID,
+			ClassAttendanceSessionDate:         r.Date,
+			ClassAttendanceSessionTitle:        r.Title,
+			ClassAttendanceSessionDisplayTitle: r.Display,
+			ClassAttendanceSessionGeneralInfo:  gen,
+			ClassAttendanceSessionNote:         r.Note,
+			ClassAttendanceSessionTeacherId:    r.TeacherID,
+			ClassAttendanceSessionClassRoomId:  r.RoomID,
+			ClassAttendanceSessionDeletedAt:    r.DeletedAt,
+
+			// generated (subset yang dipakai endpoint ini)
+			ClassAttendanceSessionSectionIdSnapshot: r.SectionIDSnapshot,
+			ClassAttendanceSessionSubjectIdSnapshot: r.SubjectIDSnapshot,
 		})
 	}
 

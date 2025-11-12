@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_override_reason TEXT,
   class_attendance_session_override_event_id UUID, -- utk relasi/cek/index override event
 
-  -- override resource (referensi langsung; opsional)
+  -- override resources (referensi langsung; opsional)
   class_attendance_session_teacher_id    UUID REFERENCES school_teachers(school_teacher_id) ON DELETE SET NULL,
   class_attendance_session_class_room_id UUID REFERENCES class_rooms(class_room_id)         ON DELETE SET NULL,
   class_attendance_session_csst_id       UUID REFERENCES class_section_subject_teachers(class_section_subject_teacher_id) ON DELETE SET NULL,
@@ -70,23 +70,21 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_sick_count    INT,
   class_attendance_session_leave_count   INT,
 
-  -- SNAPSHOTS (untuk render/filter tanpa JOIN)
-  class_attendance_session_csst_snapshot    JSONB,
-  class_attendance_session_teacher_snapshot JSONB,
-  class_attendance_session_room_snapshot    JSONB,
+  -- ===== Satu SNAPSHOT (CSST + turunan) =====
+  class_attendance_session_csst_snapshot JSONB,
 
-  -- ===== Generated from CSST snapshot =====
-  class_attendance_session_csst_id_snap        UUID GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'csst_id')::uuid) STORED,
-  class_attendance_session_subject_id_snap     UUID GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'subject_id')::uuid) STORED,
-  class_attendance_session_section_id_snap     UUID GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'section_id')::uuid) STORED,
-  class_attendance_session_teacher_id_snap     UUID GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'teacher_id')::uuid) STORED,
-  class_attendance_session_room_id_snap        UUID GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'room_id')::uuid) STORED,
+  -- ===== Kolom turunan (GENERATED) dari snapshot =====
+  class_attendance_session_csst_id_snapshot    UUID   GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'csst_id')::uuid) STORED,
+  class_attendance_session_subject_id_snapshot UUID   GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'subject_id')::uuid) STORED,
+  class_attendance_session_section_id_snapshot UUID   GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'section_id')::uuid) STORED,
+  class_attendance_session_teacher_id_snapshot UUID   GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'teacher_id')::uuid) STORED,
+  class_attendance_session_room_id_snapshot    UUID   GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'room_id')::uuid) STORED,
 
-  class_attendance_session_subject_code_snap   TEXT GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'subject_code')) STORED,
-  class_attendance_session_subject_name_snap   TEXT GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'subject_name')) STORED,
-  class_attendance_session_section_name_snap   TEXT GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'section_name')) STORED,
-  class_attendance_session_teacher_name_snap   TEXT GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'teacher_name')) STORED,
-  class_attendance_session_room_name_snap      TEXT GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'room_name')) STORED,
+  class_attendance_session_subject_code_snapshot  TEXT GENERATED ALWAYS AS (NULLIF(class_attendance_session_csst_snapshot->>'subject_code','')) STORED,
+  class_attendance_session_subject_name_snapshot  TEXT GENERATED ALWAYS AS (NULLIF(class_attendance_session_csst_snapshot->>'subject_name','')) STORED,
+  class_attendance_session_section_name_snapshot  TEXT GENERATED ALWAYS AS (NULLIF(class_attendance_session_csst_snapshot->>'section_name','')) STORED,
+  class_attendance_session_teacher_name_snapshot  TEXT GENERATED ALWAYS AS (NULLIF(class_attendance_session_csst_snapshot->>'teacher_name','')) STORED,
+  class_attendance_session_room_name_snapshot     TEXT GENERATED ALWAYS AS (NULLIF(class_attendance_session_csst_snapshot->>'room_name','')) STORED,
 
   class_attendance_session_display_title TEXT
     GENERATED ALWAYS AS (
@@ -102,16 +100,6 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
            THEN ' (' || (class_attendance_session_csst_snapshot->>'teacher_name') || ')' ELSE '' END
       , '')
     ) STORED,
-
-  -- ===== Generated from TEACHER override snapshot =====
-  class_attendance_session_override_teacher_id_snap   UUID GENERATED ALWAYS AS ((class_attendance_session_teacher_snapshot->>'teacher_id')::uuid) STORED,
-  class_attendance_session_override_teacher_name_snap TEXT GENERATED ALWAYS AS ((class_attendance_session_teacher_snapshot->>'teacher_name')) STORED,
-  class_attendance_session_override_teacher_code_snap TEXT GENERATED ALWAYS AS ((class_attendance_session_teacher_snapshot->>'teacher_code')) STORED,
-
-  -- ===== Generated from ROOM override snapshot =====
-  class_attendance_session_override_room_id_snap   UUID GENERATED ALWAYS AS ((class_attendance_session_room_snapshot->>'room_id')::uuid) STORED,
-  class_attendance_session_override_room_name_snap TEXT GENERATED ALWAYS AS ((class_attendance_session_room_snapshot->>'room_name')) STORED,
-  class_attendance_session_override_room_loc_snap  TEXT GENERATED ALWAYS AS ((class_attendance_session_room_snapshot->>'location')) STORED,
 
   -- audit
   class_attendance_session_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -240,11 +228,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_sched_start
     class_attendance_session_starts_at
   );
 
--- Unik per (tenant, csst_id_snap, date, starts_at) — idempotent materialize
+-- Idempotent materialize per (tenant, csst, date, start)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cas_tenant_csst_date_start_alive
   ON class_attendance_sessions (
     class_attendance_session_school_id,
-    class_attendance_session_csst_id_snap,
+    class_attendance_session_csst_id_snapshot,
     class_attendance_session_date,
     class_attendance_session_starts_at
   )
@@ -269,6 +257,7 @@ CREATE INDEX IF NOT EXISTS gin_cas_display_title_trgm_alive
   USING GIN ((lower(class_attendance_session_display_title)) gin_trgm_ops)
   WHERE class_attendance_session_deleted_at IS NULL
     AND class_attendance_session_display_title IS NOT NULL;
+
 
 
 -- =========================================

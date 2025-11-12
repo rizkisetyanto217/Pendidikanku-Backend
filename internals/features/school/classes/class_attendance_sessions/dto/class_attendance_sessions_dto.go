@@ -1,3 +1,4 @@
+// file: internals/features/school/classes/class_attendance_sessions/dto/dto.go
 package dto
 
 import (
@@ -32,6 +33,7 @@ func (p *PatchFieldSessions[T]) UnmarshalJSON(b []byte) error {
 	p.Value = &v
 	return nil
 }
+
 func (p PatchFieldSessions[T]) Get() (*T, bool) { return p.Value, p.Present }
 
 // Helper kecil
@@ -146,6 +148,7 @@ func (r *ClassAttendanceSessionURLCreateRequest) Normalize() {
 		r.URLs[i].Normalize()
 	}
 }
+
 func (r *ClassAttendanceSessionURLCreateRequest) ToModels() []model.ClassAttendanceSessionURLModel {
 	out := make([]model.ClassAttendanceSessionURLModel, 0, len(r.URLs))
 	for _, u := range r.URLs {
@@ -327,22 +330,20 @@ type ClassAttendanceSessionResponse struct {
 	ClassAttendanceSessionClassRoomId *uuid.UUID `json:"class_attendance_session_class_room_id,omitempty"`
 	ClassAttendanceSessionCSSTId      *uuid.UUID `json:"class_attendance_session_csst_id,omitempty"`
 
-	// Snapshots (raw)
-	ClassAttendanceSessionCSSTSnapshot    map[string]any `json:"class_attendance_session_csst_snapshot,omitempty"`
-	ClassAttendanceSessionTeacherSnapshot map[string]any `json:"class_attendance_session_teacher_snapshot,omitempty"`
-	ClassAttendanceSessionRoomSnapshot    map[string]any `json:"class_attendance_session_room_snapshot,omitempty"`
+	// Snapshot (raw) — hanya CSST
+	ClassAttendanceSessionCSSTSnapshot map[string]any `json:"class_attendance_session_csst_snapshot,omitempty"`
 
-	// Generated from CSST snapshot (read-only)
-	ClassAttendanceSessionCSSTIdSnap      *uuid.UUID `json:"class_attendance_session_csst_id_snap,omitempty"`
-	ClassAttendanceSessionSubjectIdSnap   *uuid.UUID `json:"class_attendance_session_subject_id_snap,omitempty"`
-	ClassAttendanceSessionSectionIdSnap   *uuid.UUID `json:"class_attendance_session_section_id_snap,omitempty"`
-	ClassAttendanceSessionTeacherIdSnap   *uuid.UUID `json:"class_attendance_session_teacher_id_snap,omitempty"`
-	ClassAttendanceSessionRoomIdSnap      *uuid.UUID `json:"class_attendance_session_room_id_snap,omitempty"`
-	ClassAttendanceSessionSubjectCodeSnap *string    `json:"class_attendance_session_subject_code_snap,omitempty"`
-	ClassAttendanceSessionSubjectNameSnap *string    `json:"class_attendance_session_subject_name_snap,omitempty"`
-	ClassAttendanceSessionSectionNameSnap *string    `json:"class_attendance_session_section_name_snap,omitempty"`
-	ClassAttendanceSessionTeacherNameSnap *string    `json:"class_attendance_session_teacher_name_snap,omitempty"`
-	ClassAttendanceSessionRoomNameSnap    *string    `json:"class_attendance_session_room_name_snap,omitempty"`
+	// Generated from CSST snapshot (read-only, *_snapshot)
+	ClassAttendanceSessionCSSTIdSnapshot      *uuid.UUID `json:"class_attendance_session_csst_id_snapshot,omitempty"`
+	ClassAttendanceSessionSubjectIdSnapshot   *uuid.UUID `json:"class_attendance_session_subject_id_snapshot,omitempty"`
+	ClassAttendanceSessionSectionIdSnapshot   *uuid.UUID `json:"class_attendance_session_section_id_snapshot,omitempty"`
+	ClassAttendanceSessionTeacherIdSnapshot   *uuid.UUID `json:"class_attendance_session_teacher_id_snapshot,omitempty"`
+	ClassAttendanceSessionRoomIdSnapshot      *uuid.UUID `json:"class_attendance_session_room_id_snapshot,omitempty"`
+	ClassAttendanceSessionSubjectCodeSnapshot *string    `json:"class_attendance_session_subject_code_snapshot,omitempty"`
+	ClassAttendanceSessionSubjectNameSnapshot *string    `json:"class_attendance_session_subject_name_snapshot,omitempty"`
+	ClassAttendanceSessionSectionNameSnapshot *string    `json:"class_attendance_session_section_name_snapshot,omitempty"`
+	ClassAttendanceSessionTeacherNameSnapshot *string    `json:"class_attendance_session_teacher_name_snapshot,omitempty"`
+	ClassAttendanceSessionRoomNameSnapshot    *string    `json:"class_attendance_session_room_name_snapshot,omitempty"`
 
 	// Audit & soft delete
 	ClassAttendanceSessionCreatedAt time.Time  `json:"class_attendance_session_created_at"`
@@ -431,16 +432,10 @@ func FromClassAttendanceSessionModel(m model.ClassAttendanceSessionModel) ClassA
 		deletedAt = &m.ClassAttendanceSessionDeletedAt.Time
 	}
 
-	// snapshots → map[string]any
-	var csstSnap, teacherSnap, roomSnap map[string]any
+	// snapshot → map[string]any (hanya CSST)
+	var csstSnap map[string]any
 	if m.ClassAttendanceSessionCSSTSnapshot != nil {
 		csstSnap = map[string]any(m.ClassAttendanceSessionCSSTSnapshot)
-	}
-	if m.ClassAttendanceSessionTeacherSnapshot != nil {
-		teacherSnap = map[string]any(m.ClassAttendanceSessionTeacherSnapshot)
-	}
-	if m.ClassAttendanceSessionRoomSnapshot != nil {
-		roomSnap = map[string]any(m.ClassAttendanceSessionRoomSnapshot)
 	}
 
 	return ClassAttendanceSessionResponse{
@@ -451,6 +446,9 @@ func FromClassAttendanceSessionModel(m model.ClassAttendanceSessionModel) ClassA
 		ClassAttendanceSessionSlug:         m.ClassAttendanceSessionSlug,
 		ClassAttendanceSessionTitle:        m.ClassAttendanceSessionTitle,
 		ClassAttendanceSessionDisplayTitle: m.ClassAttendanceSessionDisplayTitle,
+
+		ClassAttendanceSessionGeneralInfo: m.ClassAttendanceSessionGeneralInfo,
+		ClassAttendanceSessionNote:        m.ClassAttendanceSessionNote,
 
 		ClassAttendanceSessionDate:     m.ClassAttendanceSessionDate,
 		ClassAttendanceSessionStartsAt: m.ClassAttendanceSessionStartsAt,
@@ -472,24 +470,25 @@ func FromClassAttendanceSessionModel(m model.ClassAttendanceSessionModel) ClassA
 		ClassAttendanceSessionClassRoomId: m.ClassAttendanceSessionClassRoomID,
 		ClassAttendanceSessionCSSTId:      m.ClassAttendanceSessionCSSTID,
 
-		ClassAttendanceSessionCSSTSnapshot:    csstSnap,
-		ClassAttendanceSessionTeacherSnapshot: teacherSnap,
-		ClassAttendanceSessionRoomSnapshot:    roomSnap,
+		ClassAttendanceSessionCSSTSnapshot: csstSnap,
 
-		ClassAttendanceSessionCSSTIdSnap:      m.ClassAttendanceSessionCSSTIDSnap,
-		ClassAttendanceSessionSubjectIdSnap:   m.ClassAttendanceSessionSubjectIDSnap,
-		ClassAttendanceSessionSectionIdSnap:   m.ClassAttendanceSessionSectionIDSnap,
-		ClassAttendanceSessionTeacherIdSnap:   m.ClassAttendanceSessionTeacherIDSnap,
-		ClassAttendanceSessionRoomIdSnap:      m.ClassAttendanceSessionRoomIDSnap,
-		ClassAttendanceSessionSubjectCodeSnap: m.ClassAttendanceSessionSubjectCodeSnap,
-		ClassAttendanceSessionSubjectNameSnap: m.ClassAttendanceSessionSubjectNameSnap,
-		ClassAttendanceSessionSectionNameSnap: m.ClassAttendanceSessionSectionNameSnap,
-		ClassAttendanceSessionTeacherNameSnap: m.ClassAttendanceSessionTeacherNameSnap,
-		ClassAttendanceSessionRoomNameSnap:    m.ClassAttendanceSessionRoomNameSnap,
+		// generated (nama *_snapshot)
+		ClassAttendanceSessionCSSTIdSnapshot:      m.ClassAttendanceSessionCSSTIDSnapshot,
+		ClassAttendanceSessionSubjectIdSnapshot:   m.ClassAttendanceSessionSubjectIDSnapshot,
+		ClassAttendanceSessionSectionIdSnapshot:   m.ClassAttendanceSessionSectionIDSnapshot,
+		ClassAttendanceSessionTeacherIdSnapshot:   m.ClassAttendanceSessionTeacherIDSnapshot,
+		ClassAttendanceSessionRoomIdSnapshot:      m.ClassAttendanceSessionRoomIDSnapshot,
+		ClassAttendanceSessionSubjectCodeSnapshot: m.ClassAttendanceSessionSubjectCodeSnapshot,
+		ClassAttendanceSessionSubjectNameSnapshot: m.ClassAttendanceSessionSubjectNameSnapshot,
+		ClassAttendanceSessionSectionNameSnapshot: m.ClassAttendanceSessionSectionNameSnapshot,
+		ClassAttendanceSessionTeacherNameSnapshot: m.ClassAttendanceSessionTeacherNameSnapshot,
+		ClassAttendanceSessionRoomNameSnapshot:    m.ClassAttendanceSessionRoomNameSnapshot,
 
 		ClassAttendanceSessionCreatedAt: m.ClassAttendanceSessionCreatedAt,
 		ClassAttendanceSessionUpdatedAt: m.ClassAttendanceSessionUpdatedAt,
 		ClassAttendanceSessionDeletedAt: deletedAt,
+
+		// URLs diisi di service/controller (preload/relasi)
 	}
 }
 
@@ -513,13 +512,12 @@ func (r UpdateClassAttendanceSessionRequest) Apply(m *model.ClassAttendanceSessi
 	if v, ok := r.ClassAttendanceSessionScheduleId.Get(); ok {
 		// field hadir di payload
 		if v == nil {
-			// clear ke NULL
 			m.ClassAttendanceSessionScheduleID = nil
 		} else if !isZeroUUID(*v) {
 			vv := *v
 			m.ClassAttendanceSessionScheduleID = &vv
 		} else {
-			// zero-UUID dianggap clear; kalau mau ketat, bisa diganti return error di controller
+			// zero-UUID dianggap clear
 			m.ClassAttendanceSessionScheduleID = nil
 		}
 	}

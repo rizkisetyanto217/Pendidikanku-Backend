@@ -4,6 +4,7 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
@@ -24,7 +25,7 @@ type ClassSubjectController struct {
 	DB *gorm.DB
 }
 
-// util kecil
+/* ====== Tambahkan ini (helper kecil) ====== */
 func ptrStr(p *string) string {
 	if p == nil {
 		return ""
@@ -33,30 +34,55 @@ func ptrStr(p *string) string {
 }
 
 // ===== Snapshot class_parent (ringan, tenant-aware) =====
-type classParentSnapRow struct {
+type classParentSnap struct {
 	Code  *string
 	Slug  *string
-	Level *int16
-	URL   *string
+	Level *int16 // <-- samakan dengan tipe di model/DB kamu
 	Name  *string
 }
 
-func fetchClassParentSnapshot(tx *gorm.DB, schoolID, parentID uuid.UUID) (*classParentSnapRow, error) {
-	var row classParentSnapRow
-	if err := tx.
+// Ambil snapshot Class Parent — TANPA SELECT kolom yang tak ada.
+func fetchClassParentSnapshot(db *gorm.DB, schoolID, parentID uuid.UUID) (classParentSnap, error) {
+	var snap classParentSnap
+	err := db.
 		Table("class_parents").
 		Select(`
-			class_parent_code   AS code,
-			class_parent_slug   AS slug,
-			class_parent_level  AS level,
-			class_parent_url    AS url,
-			class_parent_name   AS name
+			class_parent_code  AS code,
+			class_parent_slug  AS slug,
+			class_parent_level AS level,
+			class_parent_name  AS name
 		`).
 		Where("class_parent_id = ? AND class_parent_school_id = ?", parentID, schoolID).
-		Take(&row).Error; err != nil {
-		return nil, err
+		Take(&snap).
+		Error
+	return snap, err
+}
+
+// Derive URL dari slug (opsional). Balikkan *string atau nil.
+func parentURLFromSlug(slug *string) *string {
+	if slug == nil {
+		return nil
 	}
-	return &row, nil
+	s := strings.TrimSpace(*slug)
+	if s == "" {
+		return nil
+	}
+	u := "/class-parents/" + s
+	return &u
+}
+
+// setParentURLSnapshotIfExists: set field "ClassSubjectClassParentURLSnapshot" jika ada di model.
+// Aman: kalau field nggak ada, fungsi ini no-op.
+func setParentURLSnapshotIfExists(m *csModel.ClassSubjectModel, url *string) {
+	v := reflect.ValueOf(m).Elem()
+	f := v.FieldByName("ClassSubjectClassParentURLSnapshot")
+	if !f.IsValid() || !f.CanSet() {
+		return
+	}
+	// cocokkan tipe (*string)
+	if f.Type() == reflect.TypeOf((*string)(nil)) {
+		f.Set(reflect.ValueOf(url))
+	}
 }
 
 /*
@@ -69,7 +95,7 @@ func fetchClassParentSnapshot(tx *gorm.DB, schoolID, parentID uuid.UUID) (*class
 =========================================================
 */
 func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
-	// 🔐 Ambil konteks school & pastikan DKM/Admin
+	// 🔐 Context & auth
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
@@ -79,33 +105,35 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 		return err
 	}
 
+	// 📦 Parse payload
 	var req csDTO.CreateClassSubjectRequest
 	if err := c.BodyParser(&req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	req.SchoolID = schoolID // force tenant
 
-	// Normalisasi ringan
+	// 🧼 Normalisasi ringan
 	if req.Desc != nil {
 		d := strings.TrimSpace(*req.Desc)
 		req.Desc = &d
 	}
 	if req.Slug != nil {
-		s := strings.TrimSpace(*req.Slug)
+		s := helper.Slugify(strings.TrimSpace(*req.Slug), 160)
 		if s == "" {
 			req.Slug = nil
 		} else {
-			s = helper.Slugify(s, 160)
 			req.Slug = &s
 		}
 	}
 
+	// ✅ Validasi
 	if err := validator.New().Struct(req); err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 
+	// 🧾 Transaksi
 	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// === Generate slug unik ===
+		// === Slug dasar ===
 		baseSlug := ""
 		if req.Slug != nil {
 			baseSlug = *req.Slug
@@ -137,6 +165,7 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 			}
 		}
 
+		// === Slug unik (tenant-safe) ===
 		uniqueSlug, err := helper.EnsureUniqueSlugCI(
 			c.Context(),
 			tx,
@@ -152,19 +181,20 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 		}
 
-		// === Ambil SubjectSnapshot (tenant-aware) ===
+		// === Snapshot Subject (tenant-aware) ===
 		subjSnap, err := snapshotSubject.BuildSubjectSnapshot(c.Context(), tx, req.SchoolID, req.SubjectID)
 		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
+			switch {
+			case errors.Is(err, gorm.ErrRecordNotFound):
 				return fiber.NewError(fiber.StatusNotFound, "Subject tidak ditemukan")
-			}
-			if errors.Is(err, snapshotSubject.ErrSchoolMismatch) {
+			case errors.Is(err, snapshotSubject.ErrSchoolMismatch):
 				return fiber.NewError(fiber.StatusForbidden, "Subject bukan milik school ini")
+			default:
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot subject")
 			}
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot subject")
 		}
 
-		// === Ambil ClassParentSnapshot ===
+		// === Snapshot Class Parent (tanpa kolom URL) ===
 		parentSnap, err := fetchClassParentSnapshot(tx, req.SchoolID, req.ClassParentID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -173,26 +203,28 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil snapshot class parent")
 		}
 
-		// === Build model (isi snapshots) ===
+		// === Build model + isi snapshots ===
 		m := req.ToModel()
 		m.ClassSubjectSlug = &uniqueSlug
-		// subject snapshots
+
+		// Subject snapshots
 		m.ClassSubjectSubjectNameSnapshot = &subjSnap.Name
 		m.ClassSubjectSubjectCodeSnapshot = &subjSnap.Code
 		m.ClassSubjectSubjectSlugSnapshot = &subjSnap.Slug
-		m.ClassSubjectSubjectURLSnapshot = subjSnap.URL
-		// class_parent snapshots
+		m.ClassSubjectSubjectURLSnapshot = subjSnap.URL // asumsi subject memang punya URL snapshot
+
+		// Class Parent snapshots
 		m.ClassSubjectClassParentCodeSnapshot = parentSnap.Code
 		m.ClassSubjectClassParentSlugSnapshot = parentSnap.Slug
-		m.ClassSubjectClassParentLevelSnapshot = parentSnap.Level
-		m.ClassSubjectClassParentURLSnapshot = parentSnap.URL
+		m.ClassSubjectClassParentLevelSnapshot = parentSnap.Level // <-- tipe sekarang cocok (*int16)
 		m.ClassSubjectClassParentNameSnapshot = parentSnap.Name
 
-		// === UPSERT race-safe: DO NOTHING (tanpa target) ===
+		// Opsional: derive URL dari slug parent—DISET hanya jika field-nya ada di model.
+		setParentURLSnapshotIfExists(&m, parentURLFromSlug(parentSnap.Slug))
+
+		// === Upsert race-safe: DO NOTHING ===
 		res := tx.
-			Clauses(clause.OnConflict{
-				DoNothing: true,
-			}).
+			Clauses(clause.OnConflict{DoNothing: true}).
 			Create(&m)
 
 		if res.Error != nil {
@@ -200,7 +232,7 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 		}
 
 		if res.RowsAffected == 0 {
-			// Sudah ada — ambil existing & kembalikan 200 OK
+			// Sudah ada — ambil existing (idempotent)
 			var existing csModel.ClassSubjectModel
 			if err := tx.
 				Where(`
@@ -210,6 +242,7 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 					AND class_subject_deleted_at IS NULL
 				`, req.SchoolID, req.ClassParentID, req.SubjectID).
 				Take(&existing).Error; err != nil {
+
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					// race ekstrem — retry sekali
 					if er2 := tx.Create(&m).Error; er2 != nil {
@@ -359,7 +392,6 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 			m.ClassSubjectClassParentCodeSnapshot = parentSnap.Code
 			m.ClassSubjectClassParentSlugSnapshot = parentSnap.Slug
 			m.ClassSubjectClassParentLevelSnapshot = parentSnap.Level
-			m.ClassSubjectClassParentURLSnapshot = parentSnap.URL
 			m.ClassSubjectClassParentNameSnapshot = parentSnap.Name
 		}
 

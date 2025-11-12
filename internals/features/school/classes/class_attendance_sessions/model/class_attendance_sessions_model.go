@@ -9,7 +9,7 @@ import (
 )
 
 /* =========================
-   Enums (selaras dgn DB)
+   ENUMS (selaras dgn DB)
 ========================= */
 
 type SessionStatus string
@@ -29,7 +29,8 @@ const (
 )
 
 /* =========================================
-   Model: class_attendance_sessions
+   MODEL: class_attendance_sessions
+   (single snapshot: csst_snapshot)
 ========================================= */
 
 type ClassAttendanceSessionModel struct {
@@ -38,7 +39,7 @@ type ClassAttendanceSessionModel struct {
 
 	// Tenant & relasi utama
 	ClassAttendanceSessionSchoolID   uuid.UUID  `gorm:"type:uuid;not null;column:class_attendance_session_school_id" json:"class_attendance_session_school_id"`
-	ClassAttendanceSessionScheduleID *uuid.UUID `gorm:"type:uuid;not null;column:class_attendance_session_schedule_id" json:"class_attendance_session_schedule_id"`
+	ClassAttendanceSessionScheduleID *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_schedule_id" json:"class_attendance_session_schedule_id"`
 	ClassAttendanceSessionRuleID     *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_rule_id" json:"class_attendance_session_rule_id,omitempty"`
 
 	// SLUG opsional
@@ -63,7 +64,7 @@ type ClassAttendanceSessionModel struct {
 	ClassAttendanceSessionOverrideReason  *string    `gorm:"type:text;column:class_attendance_session_override_reason" json:"class_attendance_session_override_reason,omitempty"`
 	ClassAttendanceSessionOverrideEventID *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_override_event_id" json:"class_attendance_session_override_event_id,omitempty"`
 
-	// Override resource (opsional) → jika NULL pakai snapshot CSST
+	// Override resource (opsional)
 	ClassAttendanceSessionTeacherID   *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_teacher_id" json:"class_attendance_session_teacher_id,omitempty"`
 	ClassAttendanceSessionClassRoomID *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_class_room_id" json:"class_attendance_session_class_room_id,omitempty"`
 	ClassAttendanceSessionCSSTID      *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_csst_id" json:"class_attendance_session_csst_id,omitempty"`
@@ -80,40 +81,30 @@ type ClassAttendanceSessionModel struct {
 	ClassAttendanceSessionLeaveCount   *int    `gorm:"column:class_attendance_session_leave_count" json:"class_attendance_session_leave_count,omitempty"`
 
 	/* ==========================
-	   SNAPSHOTS (raw JSONB)
+	   SNAPSHOT TUNGGAL (CSST)
 	========================== */
-	ClassAttendanceSessionCSSTSnapshot    datatypes.JSONMap `gorm:"type:jsonb;column:class_attendance_session_csst_snapshot" json:"class_attendance_session_csst_snapshot,omitempty"`
-	ClassAttendanceSessionTeacherSnapshot datatypes.JSONMap `gorm:"type:jsonb;column:class_attendance_session_teacher_snapshot" json:"class_attendance_session_teacher_snapshot,omitempty"`
-	ClassAttendanceSessionRoomSnapshot    datatypes.JSONMap `gorm:"type:jsonb;column:class_attendance_session_room_snapshot" json:"class_attendance_session_room_snapshot,omitempty"`
+	ClassAttendanceSessionCSSTSnapshot datatypes.JSONMap `gorm:"type:jsonb;column:class_attendance_session_csst_snapshot" json:"class_attendance_session_csst_snapshot,omitempty"`
 
 	/* ===========================================================
-	   GENERATED (read-only; diisi DB dari snapshot)  → gorm:"->"
+	   GENERATED (read-only; diisi DB dari snapshot)
 	=========================================================== */
 
-	// From CSST snapshot
-	ClassAttendanceSessionCSSTIDSnap    *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_csst_id_snap" json:"class_attendance_session_csst_id_snap,omitempty"`
-	ClassAttendanceSessionSubjectIDSnap *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_subject_id_snap" json:"class_attendance_session_subject_id_snap,omitempty"`
-	ClassAttendanceSessionSectionIDSnap *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_section_id_snap" json:"class_attendance_session_section_id_snap,omitempty"`
-	ClassAttendanceSessionTeacherIDSnap *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_teacher_id_snap" json:"class_attendance_session_teacher_id_snap,omitempty"`
-	ClassAttendanceSessionRoomIDSnap    *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_room_id_snap" json:"class_attendance_session_room_id_snap,omitempty"`
+	// IDs turunannya
+	ClassAttendanceSessionCSSTIDSnapshot    *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_csst_id_snapshot" json:"class_attendance_session_csst_id_snapshot,omitempty"`
+	ClassAttendanceSessionSubjectIDSnapshot *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_subject_id_snapshot" json:"class_attendance_session_subject_id_snapshot,omitempty"`
+	ClassAttendanceSessionSectionIDSnapshot *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_section_id_snapshot" json:"class_attendance_session_section_id_snapshot,omitempty"`
+	ClassAttendanceSessionTeacherIDSnapshot *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_teacher_id_snapshot" json:"class_attendance_session_teacher_id_snapshot,omitempty"`
+	ClassAttendanceSessionRoomIDSnapshot    *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_room_id_snapshot" json:"class_attendance_session_room_id_snapshot,omitempty"`
 
-	ClassAttendanceSessionSubjectCodeSnap *string `gorm:"type:text;->;column:class_attendance_session_subject_code_snap" json:"class_attendance_session_subject_code_snap,omitempty"`
-	ClassAttendanceSessionSubjectNameSnap *string `gorm:"type:text;->;column:class_attendance_session_subject_name_snap" json:"class_attendance_session_subject_name_snap,omitempty"`
-	ClassAttendanceSessionSectionNameSnap *string `gorm:"type:text;->;column:class_attendance_session_section_name_snap" json:"class_attendance_session_section_name_snap,omitempty"`
-	ClassAttendanceSessionTeacherNameSnap *string `gorm:"type:text;->;column:class_attendance_session_teacher_name_snap" json:"class_attendance_session_teacher_name_snap,omitempty"`
-	ClassAttendanceSessionRoomNameSnap    *string `gorm:"type:text;->;column:class_attendance_session_room_name_snap" json:"class_attendance_session_room_name_snap,omitempty"`
+	// Label turunannya
+	ClassAttendanceSessionSubjectCodeSnapshot *string `gorm:"type:text;->;column:class_attendance_session_subject_code_snapshot" json:"class_attendance_session_subject_code_snapshot,omitempty"`
+	ClassAttendanceSessionSubjectNameSnapshot *string `gorm:"type:text;->;column:class_attendance_session_subject_name_snapshot" json:"class_attendance_session_subject_name_snapshot,omitempty"`
+	ClassAttendanceSessionSectionNameSnapshot *string `gorm:"type:text;->;column:class_attendance_session_section_name_snapshot" json:"class_attendance_session_section_name_snapshot,omitempty"`
+	ClassAttendanceSessionTeacherNameSnapshot *string `gorm:"type:text;->;column:class_attendance_session_teacher_name_snapshot" json:"class_attendance_session_teacher_name_snapshot,omitempty"`
+	ClassAttendanceSessionRoomNameSnapshot    *string `gorm:"type:text;->;column:class_attendance_session_room_name_snapshot" json:"class_attendance_session_room_name_snapshot,omitempty"`
 
+	// Display title hasil komposisi
 	ClassAttendanceSessionDisplayTitle *string `gorm:"type:text;->;column:class_attendance_session_display_title" json:"class_attendance_session_display_title,omitempty"`
-
-	// From TEACHER override snapshot
-	ClassAttendanceSessionOverrideTeacherIDSnap   *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_override_teacher_id_snap" json:"class_attendance_session_override_teacher_id_snap,omitempty"`
-	ClassAttendanceSessionOverrideTeacherNameSnap *string    `gorm:"type:text;->;column:class_attendance_session_override_teacher_name_snap" json:"class_attendance_session_override_teacher_name_snap,omitempty"`
-	ClassAttendanceSessionOverrideTeacherCodeSnap *string    `gorm:"type:text;->;column:class_attendance_session_override_teacher_code_snap" json:"class_attendance_session_override_teacher_code_snap,omitempty"`
-
-	// From ROOM override snapshot
-	ClassAttendanceSessionOverrideRoomIDSnap   *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_override_room_id_snap" json:"class_attendance_session_override_room_id_snap,omitempty"`
-	ClassAttendanceSessionOverrideRoomNameSnap *string    `gorm:"type:text;->;column:class_attendance_session_override_room_name_snap" json:"class_attendance_session_override_room_name_snap,omitempty"`
-	ClassAttendanceSessionOverrideRoomLocSnap  *string    `gorm:"type:text;->;column:class_attendance_session_override_room_loc_snap" json:"class_attendance_session_override_room_loc_snap,omitempty"`
 
 	// Audit
 	ClassAttendanceSessionCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:class_attendance_session_created_at" json:"class_attendance_session_created_at"`
@@ -121,4 +112,6 @@ type ClassAttendanceSessionModel struct {
 	ClassAttendanceSessionDeletedAt gorm.DeletedAt `gorm:"column:class_attendance_session_deleted_at;index" json:"class_attendance_session_deleted_at,omitempty"`
 }
 
-func (ClassAttendanceSessionModel) TableName() string { return "class_attendance_sessions" }
+func (ClassAttendanceSessionModel) TableName() string {
+	return "class_attendance_sessions"
+}
