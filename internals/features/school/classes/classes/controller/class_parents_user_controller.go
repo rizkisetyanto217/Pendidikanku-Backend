@@ -134,11 +134,13 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 					JOIN class_sections s
 					  ON s.class_sections_class_id = c.class_id
 					 AND s.class_sections_deleted_at IS NULL
-					LEFT JOIN class_section_students css
-					  ON css.class_section_students_section_id = s.class_sections_id
-					 AND css.class_section_students_deleted_at IS NULL
+					-- 🔁 ganti class_section_students -> student_class_sections
+					LEFT JOIN student_class_sections scs
+					  ON scs.student_class_section_section_id = s.class_sections_id
+					 AND scs.student_class_section_deleted_at IS NULL
+					 AND scs.student_class_section_status = 'active'
 					LEFT JOIN school_students ms
-					  ON ms.school_student_id = css.class_section_students_school_student_id
+					  ON ms.school_student_id = scs.student_class_section_school_student_id
 					 AND ms.school_student_deleted_at IS NULL
 					LEFT JOIN school_teachers mt
 					  ON mt.school_teacher_id = s.class_sections_teacher_id

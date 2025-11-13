@@ -33,11 +33,17 @@ func trimPtr(s *string) *string {
 }
 
 func parseDateYYYYMMDD(s string) (time.Time, bool) {
-	t, err := time.Parse("2006-01-02", strings.TrimSpace(s))
-	if err != nil {
+	s = strings.TrimSpace(s)
+	if s == "" {
 		return time.Time{}, false
 	}
-	return t, true
+	layouts := []string{"2006-01-02", "2006-1-2"}
+	for _, lo := range layouts {
+		if t, err := time.Parse(lo, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }
 
 func timePtrOrNil(t time.Time) *time.Time {
@@ -267,9 +273,16 @@ type CreateClassScheduleRuleLite struct {
 	CSSTSchoolID *uuid.UUID `json:"csst_school_id,omitempty" validate:"omitempty,uuid"` // hanya untuk validasi; tidak dipetakan lagi
 }
 
-func (r CreateClassScheduleRequest) ToModel(schoolID uuid.UUID) model.ClassScheduleModel {
-	start, _ := parseDateYYYYMMDD(r.ClassScheduleStartDate)
-	end, _ := parseDateYYYYMMDD(r.ClassScheduleEndDate)
+func (r CreateClassScheduleRequest) ToModel(schoolID uuid.UUID) (model.ClassScheduleModel, error) {
+	start, ok := parseDateYYYYMMDD(r.ClassScheduleStartDate)
+	if !ok {
+		return model.ClassScheduleModel{}, fmt.Errorf("class_schedule_start_date format invalid (gunakan YYYY-MM-DD)")
+	}
+
+	end, ok := parseDateYYYYMMDD(r.ClassScheduleEndDate)
+	if !ok {
+		return model.ClassScheduleModel{}, fmt.Errorf("class_schedule_end_date format invalid (gunakan YYYY-MM-DD)")
+	}
 
 	status := model.SessionStatusScheduled
 	if r.ClassScheduleStatus != nil {
@@ -297,7 +310,7 @@ func (r CreateClassScheduleRequest) ToModel(schoolID uuid.UUID) model.ClassSched
 		ClassScheduleEndDate:   end,
 		ClassScheduleStatus:    status,
 		ClassScheduleIsActive:  isActive,
-	}
+	}, nil
 }
 
 // Konversi Rules lite di body menjadi models lengkap (butuh schoolID & scheduleID)

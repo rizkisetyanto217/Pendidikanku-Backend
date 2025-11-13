@@ -20,7 +20,7 @@ import (
 	"schoolku_backend/internals/configs"
 	database "schoolku_backend/internals/databases"
 
-	attend "schoolku_backend/internals/features/school/classes/class_attendance_sessions/service"
+	// attend "schoolku_backend/internals/features/school/classes/class_attendance_sessions/service"
 	authsched "schoolku_backend/internals/features/users/auth/scheduler"
 
 	osshelper "schoolku_backend/internals/helpers/oss"
@@ -154,11 +154,11 @@ func initDB() *gorm.DB {
 
 func startWorkers(ctx context.Context, db *gorm.DB) {
 	// 1) Attendance auto-seed (T-60m; polling & batch via ENV)
-	attCfg, err := attend.LoadConfig()
-	if err != nil {
-		log.Fatalf("attendance config error: %v", err)
-	}
-	go attend.RunSeedWorker(ctx, db, attCfg)
+	// attCfg, err := attend.LoadConfig()
+	// if err != nil {
+	// 	log.Fatalf("attendance config error: %v", err)
+	// }
+	// go attend.RunSeedWorker(ctx, db, attCfg)
 
 	// 2) Auth: cleanup token blacklist
 	authsched.StartBlacklistCleanupScheduler(db)

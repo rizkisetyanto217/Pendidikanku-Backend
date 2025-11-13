@@ -27,15 +27,14 @@ import (
 
 /* =============== DTO Response (baru & ringkas) =============== */
 
+// type: internals/features/users/auth/dto_context.go (misal)
 type SchoolRoleOption struct {
 	SchoolID      uuid.UUID `json:"school_id"`
 	SchoolName    string    `json:"school_name"`
 	SchoolSlug    *string   `json:"school_slug,omitempty"`
-	SchoolIconURL *string   `json:"school_icon_url,omitempty"`
+	SchoolIconURL *string   `json:"school_icon_url,omitempty"` // ⬅️ icon url buat FE
 
-	Roles []string `json:"roles"`
-
-	// ⬇️ Tambahan baru (opsional, aman untuk klien lama)
+	Roles           []string   `json:"roles"`
 	SchoolTeacherID *uuid.UUID `json:"school_teacher_id,omitempty"`
 	SchoolStudentID *uuid.UUID `json:"school_student_id,omitempty"`
 }
@@ -49,7 +48,7 @@ type ScopeSelection struct {
 type MyScopeResponse struct {
 	UserID        uuid.UUID          `json:"user_id"`
 	UserName      string             `json:"user_name"`
-	UserAvatarURL *string            `json:"user_avatar_url,omitempty"` // ⬅️ baru
+	UserAvatarURL *string            `json:"user_avatar_url,omitempty"`
 	Memberships   []SchoolRoleOption `json:"memberships"`
 	Selection     *ScopeSelection    `json:"selection,omitempty"`
 }
@@ -158,16 +157,6 @@ func parseSchoolInfoFromJWT(c *fiber.Ctx) (ids []uuid.UUID, roleMap map[uuid.UUI
 }
 
 /* =============== Controller: GetMyContext (versi scope/role) =============== */
-// Tambahan saran DTO (pastikan struct kamu punya field ini):
-// type SchoolRoleOption struct {
-//     SchoolID      uuid.UUID  `json:"school_id"`
-//     SchoolName    string     `json:"school_name"`
-//     SchoolSlug    *string    `json:"school_slug,omitempty"`
-//     SchoolIconURL *string    `json:"school_icon_url,omitempty"`
-//     Roles         []string   `json:"roles"`
-//     SchoolTeacherID *uuid.UUID `json:"school_teacher_id,omitempty"`
-//     SchoolStudentID *uuid.UUID `json:"school_student_id,omitempty"`
-// }
 
 func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 	// 1) Ambil user_id via helperAuth (diisi middleware)
@@ -355,6 +344,7 @@ func (ac *AuthController) GetMySimpleContext(c *fiber.Ctx) error {
 
 		// isi pointer dengan aman (tanpa ambil alamat dari range var)
 		opt.SchoolSlug = strptr(s.SchoolSlug)
+		opt.SchoolIconURL = s.SchoolIconURL // ⬅️ icon URL dikirim ke FE
 
 		if b.teacherID != nil {
 			opt.SchoolTeacherID = b.teacherID

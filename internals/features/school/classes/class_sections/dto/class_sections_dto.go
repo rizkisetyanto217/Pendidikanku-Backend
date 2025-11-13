@@ -78,9 +78,9 @@ type ClassSectionCreateRequest struct {
 	ClassSectionName     string    `json:"class_section_name"      form:"class_section_name"      validate:"required,min=1,max=100"`
 
 	// Opsional (non-snapshot)
-	ClassSectionCode     *string `json:"class_section_code"     form:"class_section_code"`
-	ClassSectionSchedule *string `json:"class_section_schedule" form:"class_section_schedule"`
-	ClassSectionCapacity *int    `json:"class_section_capacity" form:"class_section_capacity"`
+	ClassSectionCode     *string `json:"class_section_code"      form:"class_section_code"`
+	ClassSectionSchedule *string `json:"class_section_schedule"  form:"class_section_schedule"`
+	ClassSectionCapacity *int    `json:"class_section_capacity"  form:"class_section_capacity"`
 	ClassSectionGroupURL *string `json:"class_section_group_url" form:"class_section_group_url"`
 
 	// Opsional: COUNTER
@@ -93,11 +93,11 @@ type ClassSectionCreateRequest struct {
 	// Status
 	ClassSectionIsActive *bool `json:"class_section_is_active" form:"class_section_is_active"`
 
-	// ====== SNAPSHOT IDS (opsional, sesuai DDL) ======
-	ClassSectionSchoolTeacherIDSnapshot          *uuid.UUID `json:"class_section_school_teacher_id_snapshot"            form:"class_section_school_teacher_id_snapshot"`
-	ClassSectionAssistantSchoolTeacherIDSnapshot *uuid.UUID `json:"class_section_assistant_school_teacher_id_snapshot" form:"class_section_assistant_school_teacher_id_snapshot"`
-	ClassSectionLeaderSchoolStudentIDSnapshot    *uuid.UUID `json:"class_section_leader_school_student_id_snapshot"    form:"class_section_leader_school_student_id_snapshot"`
-	ClassSectionClassRoomIDSnapshot              *uuid.UUID `json:"class_section_class_room_id_snapshot"               form:"class_section_class_room_id_snapshot"`
+	// ====== RELASI ID (live, sesuai DDL & model) ======
+	ClassSectionSchoolTeacherID          *uuid.UUID `json:"class_section_school_teacher_id"            form:"class_section_school_teacher_id"`
+	ClassSectionAssistantSchoolTeacherID *uuid.UUID `json:"class_section_assistant_school_teacher_id" form:"class_section_assistant_school_teacher_id"`
+	ClassSectionLeaderSchoolStudentID    *uuid.UUID `json:"class_section_leader_school_student_id"    form:"class_section_leader_school_student_id"`
+	ClassSectionClassRoomID              *uuid.UUID `json:"class_section_class_room_id"               form:"class_section_class_room_id"`
 
 	// TERM (opsional; kolom live untuk FK)
 	ClassSectionAcademicTermID *uuid.UUID `json:"class_section_academic_term_id" form:"class_section_academic_term_id"`
@@ -169,11 +169,11 @@ func (r ClassSectionCreateRequest) ToModel() *m.ClassSectionModel {
 		cs.ClassSectionTotalStudents = *r.ClassSectionTotalStudents
 	}
 
-	// Snapshot IDs (opsional)
-	cs.ClassSectionSchoolTeacherIDSnapshot = r.ClassSectionSchoolTeacherIDSnapshot
-	cs.ClassSectionAssistantSchoolTeacherIDSnapshot = r.ClassSectionAssistantSchoolTeacherIDSnapshot
-	cs.ClassSectionLeaderSchoolStudentIDSnapshot = r.ClassSectionLeaderSchoolStudentIDSnapshot
-	cs.ClassSectionClassRoomIDSnapshot = r.ClassSectionClassRoomIDSnapshot
+	// Relasi IDs (opsional)
+	cs.ClassSectionSchoolTeacherID = r.ClassSectionSchoolTeacherID
+	cs.ClassSectionAssistantSchoolTeacherID = r.ClassSectionAssistantSchoolTeacherID
+	cs.ClassSectionLeaderSchoolStudentID = r.ClassSectionLeaderSchoolStudentID
+	cs.ClassSectionClassRoomID = r.ClassSectionClassRoomID
 
 	// Pengaturan Subject-Teachers
 	if r.ClassSectionSubjectTeachersEnrollmentMode != nil {
@@ -230,32 +230,32 @@ type ClassSectionResponse struct {
 	ClassSectionUpdatedAt time.Time  `json:"class_section_updated_at"`
 	ClassSectionDeletedAt *time.Time `json:"class_section_deleted_at,omitempty"`
 
-	// ================== SNAPSHOTS (READ-ONLY) ==================
+	// ================== SNAPSHOTS & RELASI ==================
 	// Class (labels)
 	ClassSectionClassNameSnapshot *string `json:"class_section_class_name_snapshot,omitempty"`
 	ClassSectionClassSlugSnapshot *string `json:"class_section_class_slug_snapshot,omitempty"`
 
-	// Parent (labels)
-	ClassSectionClassParentIDSnapshot    *uuid.UUID `json:"class_section_class_parent_id_snapshot,omitempty"`
+	// Parent (id + labels)
+	ClassSectionClassParentID            *uuid.UUID `json:"class_section_class_parent_id,omitempty"`
 	ClassSectionClassParentNameSnapshot  *string    `json:"class_section_class_parent_name_snapshot,omitempty"`
 	ClassSectionClassParentSlugSnapshot  *string    `json:"class_section_class_parent_slug_snapshot,omitempty"`
 	ClassSectionClassParentLevelSnapshot *int16     `json:"class_section_class_parent_level_snapshot,omitempty"`
 
 	// People: ID + SLUG + RAW JSON
-	ClassSectionSchoolTeacherIDSnapshot   *uuid.UUID      `json:"class_section_school_teacher_id_snapshot,omitempty"`
+	ClassSectionSchoolTeacherID           *uuid.UUID      `json:"class_section_school_teacher_id,omitempty"`
 	ClassSectionSchoolTeacherSlugSnapshot *string         `json:"class_section_school_teacher_slug_snapshot,omitempty"`
 	ClassSectionSchoolTeacherSnapshot     json.RawMessage `json:"class_section_school_teacher_snapshot,omitempty"`
 
-	ClassSectionAssistantSchoolTeacherIDSnapshot   *uuid.UUID      `json:"class_section_assistant_school_teacher_id_snapshot,omitempty"`
+	ClassSectionAssistantSchoolTeacherID           *uuid.UUID      `json:"class_section_assistant_school_teacher_id,omitempty"`
 	ClassSectionAssistantSchoolTeacherSlugSnapshot *string         `json:"class_section_assistant_school_teacher_slug_snapshot,omitempty"`
 	ClassSectionAssistantSchoolTeacherSnapshot     json.RawMessage `json:"class_section_assistant_school_teacher_snapshot,omitempty"`
 
-	ClassSectionLeaderSchoolStudentIDSnapshot   *uuid.UUID      `json:"class_section_leader_school_student_id_snapshot,omitempty"`
+	ClassSectionLeaderSchoolStudentID           *uuid.UUID      `json:"class_section_leader_school_student_id,omitempty"`
 	ClassSectionLeaderSchoolStudentSlugSnapshot *string         `json:"class_section_leader_school_student_slug_snapshot,omitempty"`
 	ClassSectionLeaderSchoolStudentSnapshot     json.RawMessage `json:"class_section_leader_school_student_snapshot,omitempty"`
 
 	// Room: ID + SLUG + NAME + LOCATION + RAW JSON
-	ClassSectionClassRoomIDSnapshot       *uuid.UUID      `json:"class_section_class_room_id_snapshot,omitempty"`
+	ClassSectionClassRoomID               *uuid.UUID      `json:"class_section_class_room_id,omitempty"`
 	ClassSectionClassRoomSlugSnapshot     *string         `json:"class_section_class_room_slug_snapshot,omitempty"`
 	ClassSectionClassRoomNameSnapshot     *string         `json:"class_section_class_room_name_snapshot,omitempty"`
 	ClassSectionClassRoomLocationSnapshot *string         `json:"class_section_class_room_location_snapshot,omitempty"`
@@ -326,26 +326,26 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 		ClassSectionClassNameSnapshot: cs.ClassSectionClassNameSnapshot,
 		ClassSectionClassSlugSnapshot: cs.ClassSectionClassSlugSnapshot,
 
-		ClassSectionClassParentIDSnapshot:    cs.ClassSectionClassParentIDSnapshot,
+		ClassSectionClassParentID:            cs.ClassSectionClassParentID,
 		ClassSectionClassParentNameSnapshot:  cs.ClassSectionClassParentNameSnapshot,
 		ClassSectionClassParentSlugSnapshot:  cs.ClassSectionClassParentSlugSnapshot,
 		ClassSectionClassParentLevelSnapshot: cs.ClassSectionClassParentLevelSnapshot,
 
 		// People (IDs + slugs + JSON)
-		ClassSectionSchoolTeacherIDSnapshot:   cs.ClassSectionSchoolTeacherIDSnapshot,
+		ClassSectionSchoolTeacherID:           cs.ClassSectionSchoolTeacherID,
 		ClassSectionSchoolTeacherSlugSnapshot: cs.ClassSectionSchoolTeacherSlugSnapshot,
 		ClassSectionSchoolTeacherSnapshot:     toRaw(cs.ClassSectionSchoolTeacherSnapshot),
 
-		ClassSectionAssistantSchoolTeacherIDSnapshot:   cs.ClassSectionAssistantSchoolTeacherIDSnapshot,
+		ClassSectionAssistantSchoolTeacherID:           cs.ClassSectionAssistantSchoolTeacherID,
 		ClassSectionAssistantSchoolTeacherSlugSnapshot: cs.ClassSectionAssistantSchoolTeacherSlugSnapshot,
 		ClassSectionAssistantSchoolTeacherSnapshot:     toRaw(cs.ClassSectionAssistantSchoolTeacherSnapshot),
 
-		ClassSectionLeaderSchoolStudentIDSnapshot:   cs.ClassSectionLeaderSchoolStudentIDSnapshot,
+		ClassSectionLeaderSchoolStudentID:           cs.ClassSectionLeaderSchoolStudentID,
 		ClassSectionLeaderSchoolStudentSlugSnapshot: cs.ClassSectionLeaderSchoolStudentSlugSnapshot,
 		ClassSectionLeaderSchoolStudentSnapshot:     toRaw(cs.ClassSectionLeaderSchoolStudentSnapshot),
 
 		// Room (ID + slug + name + location + JSON)
-		ClassSectionClassRoomIDSnapshot:       cs.ClassSectionClassRoomIDSnapshot,
+		ClassSectionClassRoomID:               cs.ClassSectionClassRoomID,
 		ClassSectionClassRoomSlugSnapshot:     cs.ClassSectionClassRoomSlugSnapshot,
 		ClassSectionClassRoomNameSnapshot:     cs.ClassSectionClassRoomNameSnapshot,
 		ClassSectionClassRoomLocationSnapshot: cs.ClassSectionClassRoomLocationSnapshot,
@@ -370,11 +370,11 @@ func FromModelClassSection(cs *m.ClassSectionModel) ClassSectionResponse {
 /* ----------------- PATCH REQUEST ----------------- */
 
 type ClassSectionPatchRequest struct {
-	// Relasi snapshot IDs
-	ClassSectionSchoolTeacherIDSnapshot          PatchFieldCS[uuid.UUID] `json:"class_section_school_teacher_id_snapshot"`
-	ClassSectionAssistantSchoolTeacherIDSnapshot PatchFieldCS[uuid.UUID] `json:"class_section_assistant_school_teacher_id_snapshot"`
-	ClassSectionLeaderSchoolStudentIDSnapshot    PatchFieldCS[uuid.UUID] `json:"class_section_leader_school_student_id_snapshot"`
-	ClassSectionClassRoomIDSnapshot              PatchFieldCS[uuid.UUID] `json:"class_section_class_room_id_snapshot"`
+	// Relasi IDs (live)
+	ClassSectionSchoolTeacherID          PatchFieldCS[uuid.UUID] `json:"class_section_school_teacher_id"`
+	ClassSectionAssistantSchoolTeacherID PatchFieldCS[uuid.UUID] `json:"class_section_assistant_school_teacher_id"`
+	ClassSectionLeaderSchoolStudentID    PatchFieldCS[uuid.UUID] `json:"class_section_leader_school_student_id"`
+	ClassSectionClassRoomID              PatchFieldCS[uuid.UUID] `json:"class_section_class_room_id"`
 
 	// TERM (live)
 	ClassSectionAcademicTermID PatchFieldCS[uuid.UUID] `json:"class_section_academic_term_id"`
@@ -448,11 +448,11 @@ func (r *ClassSectionPatchRequest) Apply(cs *m.ClassSectionModel) {
 		*dst = &v
 	}
 
-	// Snapshot IDs
-	setUUIDPtr(r.ClassSectionSchoolTeacherIDSnapshot, &cs.ClassSectionSchoolTeacherIDSnapshot)
-	setUUIDPtr(r.ClassSectionAssistantSchoolTeacherIDSnapshot, &cs.ClassSectionAssistantSchoolTeacherIDSnapshot)
-	setUUIDPtr(r.ClassSectionLeaderSchoolStudentIDSnapshot, &cs.ClassSectionLeaderSchoolStudentIDSnapshot)
-	setUUIDPtr(r.ClassSectionClassRoomIDSnapshot, &cs.ClassSectionClassRoomIDSnapshot)
+	// Relasi IDs
+	setUUIDPtr(r.ClassSectionSchoolTeacherID, &cs.ClassSectionSchoolTeacherID)
+	setUUIDPtr(r.ClassSectionAssistantSchoolTeacherID, &cs.ClassSectionAssistantSchoolTeacherID)
+	setUUIDPtr(r.ClassSectionLeaderSchoolStudentID, &cs.ClassSectionLeaderSchoolStudentID)
+	setUUIDPtr(r.ClassSectionClassRoomID, &cs.ClassSectionClassRoomID)
 
 	// TERM
 	setUUIDPtr(r.ClassSectionAcademicTermID, &cs.ClassSectionAcademicTermID)
@@ -508,22 +508,30 @@ func (r *ClassSectionPatchRequest) Apply(cs *m.ClassSectionModel) {
 
 /* ----------------- Decoder PATCH ----------------- */
 
-// === Aliases yang diterima dari FE (snake_case, camelCase, short) ===
+// === Aliases yang diterima dari FE (snake_case, camelCase, short, + backward-compat *_snapshot) ===
 var (
-	aliasTeacherIDSnap = []string{
+	aliasTeacherID = []string{
+		"class_section_school_teacher_id", "school_teacher_id", "teacher_id",
 		"class_section_school_teacher_id_snapshot", "school_teacher_id_snapshot", "teacher_id_snapshot",
+		"classSectionSchoolTeacherId", "schoolTeacherId", "teacherId",
 		"classSectionSchoolTeacherIdSnapshot", "schoolTeacherIdSnapshot", "teacherIdSnapshot",
 	}
-	aliasAsstTeacherIDSnap = []string{
+	aliasAsstTeacherID = []string{
+		"class_section_assistant_school_teacher_id", "assistant_school_teacher_id", "assistant_teacher_id",
 		"class_section_assistant_school_teacher_id_snapshot", "assistant_school_teacher_id_snapshot", "assistant_teacher_id_snapshot",
+		"classSectionAssistantSchoolTeacherId", "assistantSchoolTeacherId", "assistantTeacherId",
 		"classSectionAssistantSchoolTeacherIdSnapshot", "assistantSchoolTeacherIdSnapshot", "assistantTeacherIdSnapshot",
 	}
-	aliasLeaderStudentIDSnap = []string{
+	aliasLeaderStudentID = []string{
+		"class_section_leader_school_student_id", "leader_school_student_id", "leader_student_id",
 		"class_section_leader_school_student_id_snapshot", "leader_school_student_id_snapshot", "leader_student_id_snapshot",
+		"classSectionLeaderSchoolStudentId", "leaderSchoolStudentId", "leaderStudentId",
 		"classSectionLeaderSchoolStudentIdSnapshot", "leaderSchoolStudentIdSnapshot", "leaderStudentIdSnapshot",
 	}
-	aliasRoomIDSnap = []string{
+	aliasRoomID = []string{
+		"class_section_class_room_id", "class_room_id", "room_id",
 		"class_section_class_room_id_snapshot", "class_room_id_snapshot", "room_id_snapshot",
+		"classSectionClassRoomId", "classRoomId", "roomId",
 		"classSectionClassRoomIdSnapshot", "classRoomIdSnapshot", "roomIdSnapshot",
 	}
 	aliasTermID = []string{
@@ -603,11 +611,11 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 			raw = map[string]any{}
 		}
 
-		// Snapshot IDs + TERM
-		setCanon(raw, "class_section_school_teacher_id_snapshot", aliasTeacherIDSnap)
-		setCanon(raw, "class_section_assistant_school_teacher_id_snapshot", aliasAsstTeacherIDSnap)
-		setCanon(raw, "class_section_leader_school_student_id_snapshot", aliasLeaderStudentIDSnap)
-		setCanon(raw, "class_section_class_room_id_snapshot", aliasRoomIDSnap)
+		// Relasi IDs + TERM
+		setCanon(raw, "class_section_school_teacher_id", aliasTeacherID)
+		setCanon(raw, "class_section_assistant_school_teacher_id", aliasAsstTeacherID)
+		setCanon(raw, "class_section_leader_school_student_id", aliasLeaderStudentID)
+		setCanon(raw, "class_section_class_room_id", aliasRoomID)
 		setCanon(raw, "class_section_academic_term_id", aliasTermID)
 
 		// Editable props
@@ -723,10 +731,10 @@ func DecodePatchClassSectionFromRequest(c *fiber.Ctx, dst *ClassSectionPatchRequ
 		}
 
 		// Map form fields (pakai alias)
-		markUUIDAliases(aliasTeacherIDSnap, &dst.ClassSectionSchoolTeacherIDSnapshot)
-		markUUIDAliases(aliasAsstTeacherIDSnap, &dst.ClassSectionAssistantSchoolTeacherIDSnapshot)
-		markUUIDAliases(aliasLeaderStudentIDSnap, &dst.ClassSectionLeaderSchoolStudentIDSnapshot)
-		markUUIDAliases(aliasRoomIDSnap, &dst.ClassSectionClassRoomIDSnapshot)
+		markUUIDAliases(aliasTeacherID, &dst.ClassSectionSchoolTeacherID)
+		markUUIDAliases(aliasAsstTeacherID, &dst.ClassSectionAssistantSchoolTeacherID)
+		markUUIDAliases(aliasLeaderStudentID, &dst.ClassSectionLeaderSchoolStudentID)
+		markUUIDAliases(aliasRoomID, &dst.ClassSectionClassRoomID)
 		markUUIDAliases(aliasTermID, &dst.ClassSectionAcademicTermID)
 
 		markStrAliases(aliasSlug, &dst.ClassSectionSlug)

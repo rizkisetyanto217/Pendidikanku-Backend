@@ -1,3 +1,4 @@
+// file: schedule_rules_user_controller.go (refactored)
 package controller
 
 import (
@@ -29,12 +30,11 @@ const (
 func clampLimitOffset(limitPtr, offsetPtr *int) (int, int) {
 	limit := defLimit
 	if limitPtr != nil {
-		switch {
-		case *limitPtr <= 0:
+		if *limitPtr < 1 {
 			limit = defLimit
-		case *limitPtr > maxLimit:
+		} else if *limitPtr > maxLimit {
 			limit = maxLimit
-		default:
+		} else {
 			limit = *limitPtr
 		}
 	}
@@ -49,12 +49,12 @@ func includeRulesFromQuery(c *fiber.Ctx) bool {
 	if c.QueryBool("include_rules") {
 		return true
 	}
-	inc := strings.ToLower(strings.TrimSpace(c.Query("include")))
+	inc := strings.TrimSpace(strings.ToLower(c.Query("include")))
 	if inc == "" {
 		return false
 	}
-	for _, p := range strings.Split(inc, ",") {
-		if strings.TrimSpace(p) == "rules" {
+	for _, part := range strings.Split(inc, ",") {
+		if strings.TrimSpace(part) == "rules" {
 			return true
 		}
 	}
@@ -62,13 +62,12 @@ func includeRulesFromQuery(c *fiber.Ctx) bool {
 }
 
 func resolveSchoolID(c *fiber.Ctx) (uuid.UUID, error) {
-	// Prefer explicit school context (DKM/Admin required).
-	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil &&
+		(mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
 		return helperAuth.EnsureSchoolAccessDKM(c, mc)
 	}
-	// Fallback to token (teacher-aware).
-	if act, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && act != uuid.Nil {
-		return act, nil
+	if scID, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && scID != uuid.Nil {
+		return scID, nil
 	}
 	return uuid.Nil, fiber.NewError(http.StatusForbidden, "Scope school tidak ditemukan")
 }
@@ -101,7 +100,7 @@ func buildScheduleOrder(sort *string) string {
 }
 
 /* =========================
-   Response type (with rules)
+   Response type
 ========================= */
 
 type classScheduleWithRules struct {
@@ -110,13 +109,13 @@ type classScheduleWithRules struct {
 }
 
 /* =========================
-   List (filters/sort/pagination + optional rules)
+   List schedules + optional rules
 ========================= */
-// file: internals/features/school/classes/class_schedules/controller/controller.go
+
 func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
-	// biar helper lain bisa akses DB bila perlu (slug→ID, dll.)
 	c.Locals("DB", ctl.DB)
 
+	// parse query
 	var q d.ListClassScheduleQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
@@ -129,14 +128,12 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 
 	withRules := includeRulesFromQuery(c)
 
-	// ===== paging (limit/offset gaya lama, dibatasi clamp) =====
 	limit, offset := clampLimitOffset(q.Limit, q.Offset)
 	orderExpr := buildScheduleOrder(q.Sort)
 
-	// ===== Base query: schedules =====
 	tx := ctl.DB.Model(&m.ClassScheduleModel{})
 
-	// alive only by default
+	// alive filter
 	if q.WithDeleted == nil || !*q.WithDeleted {
 		tx = tx.Where("class_schedule_deleted_at IS NULL")
 	}
@@ -144,15 +141,13 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 	// tenant
 	tx = tx.Where("class_schedule_school_id = ?", schoolID)
 
-	// status
+	// status filter
 	if q.Status != nil {
 		s := strings.ToLower(strings.TrimSpace(*q.Status))
-		switch s {
-		case "scheduled", "ongoing", "completed", "canceled":
-			tx = tx.Where("class_schedule_status = ?", s)
-		default:
+		if s != "scheduled" && s != "ongoing" && s != "completed" && s != "canceled" {
 			return helper.JsonError(c, http.StatusBadRequest, "status invalid")
 		}
+		tx = tx.Where("class_schedule_status = ?", s)
 	}
 
 	// active
@@ -160,59 +155,57 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		tx = tx.Where("class_schedule_is_active = ?", *q.IsActive)
 	}
 
-	// date range overlap filter
+	// date filters
 	if q.DateFrom != nil && strings.TrimSpace(*q.DateFrom) != "" {
-		if _, err := time.Parse("2006-01-02", strings.TrimSpace(*q.DateFrom)); err != nil {
+		dateFrom := strings.TrimSpace(*q.DateFrom)
+		if _, err := time.Parse("2006-01-02", dateFrom); err != nil {
 			return helper.JsonError(c, http.StatusBadRequest, "date_from invalid (YYYY-MM-DD)")
 		}
-		tx = tx.Where("class_schedule_end_date >= ?::date", strings.TrimSpace(*q.DateFrom))
+		tx = tx.Where("class_schedule_end_date >= ?::date", dateFrom)
 	}
+
 	if q.DateTo != nil && strings.TrimSpace(*q.DateTo) != "" {
-		if _, err := time.Parse("2006-01-02", strings.TrimSpace(*q.DateTo)); err != nil {
+		dateTo := strings.TrimSpace(*q.DateTo)
+		if _, err := time.Parse("2006-01-02", dateTo); err != nil {
 			return helper.JsonError(c, http.StatusBadRequest, "date_to invalid (YYYY-MM-DD)")
 		}
-		tx = tx.Where("class_schedule_start_date <= ?::date", strings.TrimSpace(*q.DateTo))
+		tx = tx.Where("class_schedule_start_date <= ?::date", dateTo)
 	}
 
 	// q on slug
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
-		term := strings.ToLower(strings.TrimSpace(*q.Q))
-		tx = tx.Where("class_schedule_slug IS NOT NULL AND lower(class_schedule_slug) LIKE ?", "%"+term+"%")
+		term := "%" + strings.ToLower(strings.TrimSpace(*q.Q)) + "%"
+		tx = tx.Where("class_schedule_slug IS NOT NULL AND lower(class_schedule_slug) LIKE ?", term)
 	}
 
-	// ===== Count first =====
+	// count
 	var total int64
 	if err := tx.Count(&total).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	// ===== Fetch schedules =====
+	// fetch schedules
 	var schedRows []m.ClassScheduleModel
-	if err := tx.
-		Order(orderExpr).
-		Limit(limit).
-		Offset(offset).
-		Find(&schedRows).Error; err != nil {
+	if err := tx.Order(orderExpr).Limit(limit).Offset(offset).Find(&schedRows).Error; err != nil {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	// 🔹 Pagination object (seragam)
+	// pagination
 	pg := helper.BuildPaginationFromOffset(total, offset, limit)
 
-	// ===== No rules? return classic response =====
+	// without rules → early return
 	if !withRules {
-		out := make([]d.ClassScheduleResponse, 0, len(schedRows))
-		for i := range schedRows {
-			out = append(out, d.FromModel(schedRows[i]))
+		resp := make([]d.ClassScheduleResponse, 0, len(schedRows))
+		for _, row := range schedRows {
+			resp = append(resp, d.FromModel(row))
 		}
-		return helper.JsonList(c, "ok", out, pg)
+		return helper.JsonList(c, "ok", resp, pg)
 	}
 
-	// ===== WITH RULES =====
-	// kumpulkan schedule_ids
-	sIDs := make([]uuid.UUID, 0, len(schedRows))
+	// WITH RULES
+	sIDs := make([]uuid.UUID, len(schedRows))
 	for i := range schedRows {
-		sIDs = append(sIDs, schedRows[i].ClassScheduleID)
+		sIDs[i] = schedRows[i].ClassScheduleID
 	}
 
 	rulesBySched, err := fetchRulesGrouped(ctl.DB, schoolID, sIDs, q.WithDeleted)
@@ -220,66 +213,66 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	// gabungkan
-	out := make([]classScheduleWithRules, 0, len(schedRows))
-	for i := range schedRows {
-		out = append(out, classScheduleWithRules{
-			Schedule: d.FromModel(schedRows[i]),
-			Rules:    rulesBySched[schedRows[i].ClassScheduleID],
+	combined := make([]classScheduleWithRules, 0, len(schedRows))
+	for _, sched := range schedRows {
+		combined = append(combined, classScheduleWithRules{
+			Schedule: d.FromModel(sched),
+			Rules:    rulesBySched[sched.ClassScheduleID],
 		})
 	}
 
-	// gunakan JsonListEx agar "includes" rapi (bukan ditaruh di pagination)
-	return helper.JsonListEx(c, "ok", out, pg, []string{"rules"})
+	return helper.JsonListEx(c, "ok", combined, pg, []string{"rules"})
 }
 
 /*
 	=========================
-	  Rules fetcher (safe for TEXT/TIME)
-
-=========================
+	  Fetch rules (fixed alias to avoid conflicts)
+	=========================
 */
+
 func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID, withDeleted *bool) (map[uuid.UUID][]d.ClassScheduleRuleResponse, error) {
-	out := make(map[uuid.UUID][]d.ClassScheduleRuleResponse, len(scheduleIDs))
+	out := make(map[uuid.UUID][]d.ClassScheduleRuleResponse)
+
 	if len(scheduleIDs) == 0 {
 		return out, nil
 	}
 
-	// Struct flat: waktu sebagai string (HH:MM:SS), weeks array sebagai pq.Int64Array
+	// Struct with SAFE field names
 	type ruleFlat struct {
 		ID                 uuid.UUID     `gorm:"column:class_schedule_rule_id"`
 		SchoolID           uuid.UUID     `gorm:"column:class_schedule_rule_school_id"`
 		ScheduleID         uuid.UUID     `gorm:"column:class_schedule_rule_schedule_id"`
 		DayOfWeek          int           `gorm:"column:class_schedule_rule_day_of_week"`
-		StartTimeStr       string        `gorm:"column:class_schedule_rule_start_time"` // HH:MM:SS
-		EndTimeStr         string        `gorm:"column:class_schedule_rule_end_time"`   // HH:MM:SS
+		StartTimeStr       string        `gorm:"column:start_time_str"` // <── FIXED
+		EndTimeStr         string        `gorm:"column:end_time_str"`   // <── FIXED
 		IntervalWeeks      int           `gorm:"column:class_schedule_rule_interval_weeks"`
 		StartOffsetWeeks   int           `gorm:"column:class_schedule_rule_start_offset_weeks"`
 		WeekParity         string        `gorm:"column:class_schedule_rule_week_parity"`
-		WeeksOfMonth       pq.Int64Array `gorm:"column:class_schedule_rule_weeks_of_month"` // int[]
+		WeeksOfMonth       pq.Int64Array `gorm:"column:class_schedule_rule_weeks_of_month"`
 		LastWeekOfMonth    bool          `gorm:"column:class_schedule_rule_last_week_of_month"`
 		CSSTID             uuid.UUID     `gorm:"column:class_schedule_rule_csst_id"`
 		CSSTSlugSnapshot   *string       `gorm:"column:class_schedule_rule_csst_slug_snapshot"`
-		CSSTSnapshotRaw    []byte        `gorm:"column:class_schedule_rule_csst_snapshot"` // jsonb
+		CSSTSnapshotRaw    []byte        `gorm:"column:class_schedule_rule_csst_snapshot"`
 		CSSTTeacherID      *uuid.UUID    `gorm:"column:class_schedule_rule_csst_student_teacher_id"`
 		CSSTSectionID      *uuid.UUID    `gorm:"column:class_schedule_rule_csst_class_section_id"`
 		CSSTClassSubjectID *uuid.UUID    `gorm:"column:class_schedule_rule_csst_class_subject_id"`
 		CSSTRoomID         *uuid.UUID    `gorm:"column:class_schedule_rule_csst_class_room_id"`
 		CreatedAt          time.Time     `gorm:"column:class_schedule_rule_created_at"`
 		UpdatedAt          time.Time     `gorm:"column:class_schedule_rule_updated_at"`
-		DeletedAt          *time.Time    `gorm:"column:class_schedule_rule_deleted_at"`
 	}
 
 	q := db.
 		Table("class_schedule_rules").
-		// waktu dipaksa ke string HH24:MI:SS agar aman di-scan
 		Select(`
 			class_schedule_rule_id,
 			class_schedule_rule_school_id,
 			class_schedule_rule_schedule_id,
 			class_schedule_rule_day_of_week,
-			to_char(class_schedule_rule_start_time::time, 'HH24:MI:SS') AS class_schedule_rule_start_time,
-			to_char(class_schedule_rule_end_time::time,   'HH24:MI:SS') AS class_schedule_rule_end_time,
+
+			-- gunakan alias berbeda agar tidak bentrok dgn kolom asli
+			to_char(class_schedule_rule_start_time::time, 'HH24:MI:SS') AS start_time_str,
+			to_char(class_schedule_rule_end_time::time,   'HH24:MI:SS') AS end_time_str,
+
 			class_schedule_rule_interval_weeks,
 			class_schedule_rule_start_offset_weeks,
 			class_schedule_rule_week_parity,
@@ -293,8 +286,7 @@ func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID,
 			class_schedule_rule_csst_class_subject_id,
 			class_schedule_rule_csst_class_room_id,
 			class_schedule_rule_created_at,
-			class_schedule_rule_updated_at,
-			class_schedule_rule_deleted_at
+			class_schedule_rule_updated_at
 		`).
 		Where("class_schedule_rule_school_id = ?", schoolID).
 		Where("class_schedule_rule_schedule_id IN ?", scheduleIDs)
@@ -305,8 +297,8 @@ func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID,
 
 	q = q.Order(`
 		class_schedule_rule_day_of_week ASC,
-		class_schedule_rule_start_time::time ASC,
-		class_schedule_rule_end_time::time   ASC,
+		class_schedule_rule_start_time ASC,
+		class_schedule_rule_end_time ASC,
 		class_schedule_rule_created_at ASC
 	`)
 
@@ -315,10 +307,7 @@ func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID,
 		return nil, err
 	}
 
-	for i := range rows {
-		r := rows[i]
-
-		// decode snapshot jsonb -> map[string]any (optional)
+	for _, r := range rows {
 		var snap map[string]any
 		if len(r.CSSTSnapshotRaw) > 0 {
 			_ = json.Unmarshal(r.CSSTSnapshotRaw, &snap)
@@ -329,8 +318,8 @@ func fetchRulesGrouped(db *gorm.DB, schoolID uuid.UUID, scheduleIDs []uuid.UUID,
 			ClassScheduleRuleSchoolID:             r.SchoolID,
 			ClassScheduleRuleScheduleID:           r.ScheduleID,
 			ClassScheduleRuleDayOfWeek:            r.DayOfWeek,
-			ClassScheduleRuleStartTime:            r.StartTimeStr, // "HH:MM:SS"
-			ClassScheduleRuleEndTime:              r.EndTimeStr,   // "HH:MM:SS"
+			ClassScheduleRuleStartTime:            r.StartTimeStr,
+			ClassScheduleRuleEndTime:              r.EndTimeStr,
 			ClassScheduleRuleIntervalWeeks:        r.IntervalWeeks,
 			ClassScheduleRuleStartOffsetWeeks:     r.StartOffsetWeeks,
 			ClassScheduleRuleWeekParity:           r.WeekParity,

@@ -1,263 +1,248 @@
-// file: internals/features/school/assessments/dto/assessment_dto.go
+// file: internals/features/school/submissions_assesments/assesments/dto/assessment_dto.go
 package dto
 
 import (
 	"strings"
 	"time"
 
-	model "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
-
 	"github.com/google/uuid"
+
+	assessModel "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
 )
 
-/* ==============================
-   CREATE (POST /assessments)
-============================== */
+/* ========================================================
+   REQUEST DTO
+======================================================== */
 
 type CreateAssessmentRequest struct {
-	// Tenant (diisi dari context di controller)
-	AssessmentSchoolID uuid.UUID `json:"assessment_school_id" validate:"required"`
+	// Diisi di controller (enforce tenant)
+	AssessmentSchoolID uuid.UUID `json:"assessment_school_id" validate:"-"`
 
-	// Relasi
-	AssessmentClassSectionSubjectTeacherID *uuid.UUID `json:"assessment_class_section_subject_teacher_id" validate:"omitempty,uuid"`
-	AssessmentTypeID                       *uuid.UUID `json:"assessment_type_id" validate:"omitempty,uuid"`
+	// Relasi utama
+	AssessmentClassSectionSubjectTeacherID *uuid.UUID `json:"assessment_class_section_subject_teacher_id" validate:"omitempty,uuid4"`
+	AssessmentTypeID                       *uuid.UUID `json:"assessment_type_id" validate:"omitempty,uuid4"`
 
 	// Identitas
 	AssessmentSlug        *string `json:"assessment_slug" validate:"omitempty,max=160"`
-	AssessmentTitle       string  `json:"assessment_title" validate:"required,max=180"`
-	AssessmentDescription *string `json:"assessment_description" validate:"omitempty"`
+	AssessmentTitle       string  `json:"assessment_title" validate:"omitempty,max=180"`
+	AssessmentDescription *string `json:"assessment_description"`
 
-	// Jadwal (mode 'date')
-	AssessmentStartAt     *time.Time `json:"assessment_start_at" validate:"omitempty"`
-	AssessmentDueAt       *time.Time `json:"assessment_due_at" validate:"omitempty"`
-	AssessmentPublishedAt *time.Time `json:"assessment_published_at" validate:"omitempty"`
-	AssessmentClosedAt    *time.Time `json:"assessment_closed_at" validate:"omitempty"`
+	// Jadwal (mode date)
+	AssessmentStartAt     *time.Time `json:"assessment_start_at"`
+	AssessmentDueAt       *time.Time `json:"assessment_due_at"`
+	AssessmentPublishedAt *time.Time `json:"assessment_published_at"`
+	AssessmentClosedAt    *time.Time `json:"assessment_closed_at"`
 
 	// Pengaturan
-	AssessmentDurationMinutes      *int     `json:"assessment_duration_minutes" validate:"omitempty,min=1,max=1440"`
-	AssessmentTotalAttemptsAllowed *int     `json:"assessment_total_attempts_allowed" validate:"omitempty,min=1,max=50"`
-	AssessmentMaxScore             *float64 `json:"assessment_max_score" validate:"omitempty,gte=0,lte=100"`
-	AssessmentIsPublished          *bool    `json:"assessment_is_published" validate:"omitempty"`
-	AssessmentAllowSubmission      *bool    `json:"assessment_allow_submission" validate:"omitempty"`
+	AssessmentKind                 string  `json:"assessment_kind" validate:"omitempty,oneof=quiz assignment_upload offline survey"`
+	AssessmentDurationMinutes      *int    `json:"assessment_duration_minutes" validate:"omitempty,gte=1,lte=1440"`
+	AssessmentTotalAttemptsAllowed int     `json:"assessment_total_attempts_allowed" validate:"omitempty,gte=1,lte=50"`
+	AssessmentMaxScore             float64 `json:"assessment_max_score" validate:"omitempty,gte=0,lte=100"`
+	AssessmentIsPublished          *bool   `json:"assessment_is_published"`
+	AssessmentAllowSubmission      *bool   `json:"assessment_allow_submission"`
 
-	// Audit pembuat
-	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id" validate:"omitempty,uuid"`
+	// Audit
+	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id" validate:"omitempty,uuid4"`
 
-	// Mode berbasis sesi (opsional)
-	AssessmentSubmissionMode    *model.AssessmentSubmissionMode `json:"assessment_submission_mode" validate:"omitempty,oneof=date session"`
-	AssessmentAnnounceSessionID *uuid.UUID                      `json:"assessment_announce_session_id" validate:"omitempty,uuid"`
-	AssessmentCollectSessionID  *uuid.UUID                      `json:"assessment_collect_session_id" validate:"omitempty,uuid"`
+	// Mode session (opsional)
+	AssessmentAnnounceSessionID *uuid.UUID `json:"assessment_announce_session_id" validate:"omitempty,uuid4"`
+	AssessmentCollectSessionID  *uuid.UUID `json:"assessment_collect_session_id" validate:"omitempty,uuid4"`
 }
 
+/*
+Normalize:
+  - trim string
+  - lowercase kind
+  - set default kind/attempts/max_score/is_published/allow_submission
+*/
 func (r *CreateAssessmentRequest) Normalize() {
-	if r.AssessmentSlug != nil {
-		s := strings.TrimSpace(*r.AssessmentSlug)
-		if s == "" {
-			r.AssessmentSlug = nil
-		} else {
-			r.AssessmentSlug = &s
+	trimPtr := func(s *string) *string {
+		if s == nil {
+			return nil
 		}
+		t := strings.TrimSpace(*s)
+		return &t
 	}
+
+	r.AssessmentSlug = trimPtr(r.AssessmentSlug)
+	r.AssessmentDescription = trimPtr(r.AssessmentDescription)
 	r.AssessmentTitle = strings.TrimSpace(r.AssessmentTitle)
-	if r.AssessmentDescription != nil {
-		d := strings.TrimSpace(*r.AssessmentDescription)
-		if d == "" {
-			r.AssessmentDescription = nil
-		} else {
-			r.AssessmentDescription = &d
-		}
+
+	if r.AssessmentKind != "" {
+		r.AssessmentKind = strings.ToLower(strings.TrimSpace(r.AssessmentKind))
+	}
+	if r.AssessmentKind == "" {
+		r.AssessmentKind = "quiz"
+	}
+
+	// default attempts
+	if r.AssessmentTotalAttemptsAllowed <= 0 {
+		r.AssessmentTotalAttemptsAllowed = 1
+	}
+
+	// default max score
+	if r.AssessmentMaxScore <= 0 {
+		r.AssessmentMaxScore = 100
+	}
+
+	// default flags
+	if r.AssessmentIsPublished == nil {
+		b := true
+		r.AssessmentIsPublished = &b
+	}
+	if r.AssessmentAllowSubmission == nil {
+		b := true
+		r.AssessmentAllowSubmission = &b
 	}
 }
 
-func (r CreateAssessmentRequest) ToModel() model.AssessmentModel {
-	// Defaults boolean
-	isPublished := true
-	if r.AssessmentIsPublished != nil {
-		isPublished = *r.AssessmentIsPublished
-	}
-	allowSubmission := true
-	if r.AssessmentAllowSubmission != nil {
-		allowSubmission = *r.AssessmentAllowSubmission
+// Convert Create DTO → Model
+func (r *CreateAssessmentRequest) ToModel() assessModel.AssessmentModel {
+	kind := assessModel.AssessmentKind(r.AssessmentKind)
+	if r.AssessmentKind == "" {
+		kind = assessModel.AssessmentKindQuiz
 	}
 
-	// Defaults numeric
-	maxScore := 100.0
-	if r.AssessmentMaxScore != nil {
-		maxScore = *r.AssessmentMaxScore
-	}
-	totalAttempts := 1
-	if r.AssessmentTotalAttemptsAllowed != nil {
-		totalAttempts = *r.AssessmentTotalAttemptsAllowed
-	}
-
-	// Default submission mode = "date"
-	mode := model.SubmissionModeDate
-	if r.AssessmentSubmissionMode != nil && strings.TrimSpace(string(*r.AssessmentSubmissionMode)) != "" {
-		mode = *r.AssessmentSubmissionMode
-	}
-
-	return model.AssessmentModel{
+	row := assessModel.AssessmentModel{
 		AssessmentSchoolID:                     r.AssessmentSchoolID,
 		AssessmentClassSectionSubjectTeacherID: r.AssessmentClassSectionSubjectTeacherID,
 		AssessmentTypeID:                       r.AssessmentTypeID,
-
-		AssessmentSlug:        r.AssessmentSlug,
-		AssessmentTitle:       r.AssessmentTitle,
-		AssessmentDescription: r.AssessmentDescription,
-
-		AssessmentStartAt:     r.AssessmentStartAt,
-		AssessmentDueAt:       r.AssessmentDueAt,
-		AssessmentPublishedAt: r.AssessmentPublishedAt,
-		AssessmentClosedAt:    r.AssessmentClosedAt,
-
-		AssessmentDurationMinutes:      r.AssessmentDurationMinutes,
-		AssessmentTotalAttemptsAllowed: totalAttempts,
-		AssessmentMaxScore:             maxScore,
-		AssessmentIsPublished:          isPublished,
-		AssessmentAllowSubmission:      allowSubmission,
-
-		AssessmentCreatedByTeacherID: r.AssessmentCreatedByTeacherID,
-
-		// Mode session (kalau diisi di controller akan juga di-set)
-		AssessmentSubmissionMode:    mode,
-		AssessmentAnnounceSessionID: r.AssessmentAnnounceSessionID,
-		AssessmentCollectSessionID:  r.AssessmentCollectSessionID,
+		AssessmentSlug:                         r.AssessmentSlug,
+		AssessmentTitle:                        r.AssessmentTitle,
+		AssessmentDescription:                  r.AssessmentDescription,
+		AssessmentStartAt:                      r.AssessmentStartAt,
+		AssessmentDueAt:                        r.AssessmentDueAt,
+		AssessmentPublishedAt:                  r.AssessmentPublishedAt,
+		AssessmentClosedAt:                     r.AssessmentClosedAt,
+		AssessmentKind:                         kind,
+		AssessmentDurationMinutes:              r.AssessmentDurationMinutes,
+		AssessmentTotalAttemptsAllowed:         r.AssessmentTotalAttemptsAllowed,
+		AssessmentMaxScore:                     r.AssessmentMaxScore,
+		AssessmentCreatedByTeacherID:           r.AssessmentCreatedByTeacherID,
+		AssessmentSubmissionMode:               assessModel.SubmissionModeDate, // akan dioverride di controller
+		AssessmentIsPublished:                  *r.AssessmentIsPublished,
+		AssessmentAllowSubmission:              *r.AssessmentAllowSubmission,
 	}
+
+	return row
 }
 
-/* ==============================
-   PATCH (PATCH /assessments/:id)
-============================== */
+/* ========================================================
+   PATCH DTO
+======================================================== */
 
 type PatchAssessmentRequest struct {
-	// Identitas
+	AssessmentClassSectionSubjectTeacherID *uuid.UUID `json:"assessment_class_section_subject_teacher_id" validate:"omitempty,uuid4"`
+	AssessmentTypeID                       *uuid.UUID `json:"assessment_type_id" validate:"omitempty,uuid4"`
+
 	AssessmentSlug        *string `json:"assessment_slug" validate:"omitempty,max=160"`
 	AssessmentTitle       *string `json:"assessment_title" validate:"omitempty,max=180"`
-	AssessmentDescription *string `json:"assessment_description" validate:"omitempty"`
+	AssessmentDescription *string `json:"assessment_description"`
 
-	// Jadwal
-	AssessmentStartAt     *time.Time `json:"assessment_start_at" validate:"omitempty"`
-	AssessmentDueAt       *time.Time `json:"assessment_due_at" validate:"omitempty"`
-	AssessmentPublishedAt *time.Time `json:"assessment_published_at" validate:"omitempty"`
-	AssessmentClosedAt    *time.Time `json:"assessment_closed_at" validate:"omitempty"`
+	AssessmentStartAt     *time.Time `json:"assessment_start_at"`
+	AssessmentDueAt       *time.Time `json:"assessment_due_at"`
+	AssessmentPublishedAt *time.Time `json:"assessment_published_at"`
+	AssessmentClosedAt    *time.Time `json:"assessment_closed_at"`
 
-	// Pengaturan
-	AssessmentDurationMinutes      *int     `json:"assessment_duration_minutes" validate:"omitempty,min=1,max=1440"`
-	AssessmentTotalAttemptsAllowed *int     `json:"assessment_total_attempts_allowed" validate:"omitempty,min=1,max=50"`
+	AssessmentKind                 *string  `json:"assessment_kind" validate:"omitempty,oneof=quiz assignment_upload offline survey"`
+	AssessmentDurationMinutes      *int     `json:"assessment_duration_minutes" validate:"omitempty,gte=1,lte=1440"`
+	AssessmentTotalAttemptsAllowed *int     `json:"assessment_total_attempts_allowed" validate:"omitempty,gte=1,lte=50"`
 	AssessmentMaxScore             *float64 `json:"assessment_max_score" validate:"omitempty,gte=0,lte=100"`
-	AssessmentIsPublished          *bool    `json:"assessment_is_published" validate:"omitempty"`
-	AssessmentAllowSubmission      *bool    `json:"assessment_allow_submission" validate:"omitempty"`
+	AssessmentIsPublished          *bool    `json:"assessment_is_published"`
+	AssessmentAllowSubmission      *bool    `json:"assessment_allow_submission"`
 
-	// Relasi
-	AssessmentClassSectionSubjectTeacherID *uuid.UUID `json:"assessment_class_section_subject_teacher_id" validate:"omitempty,uuid"`
-	AssessmentTypeID                       *uuid.UUID `json:"assessment_type_id" validate:"omitempty,uuid"`
+	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id" validate:"omitempty,uuid4"`
 
-	// Audit pembuat
-	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id" validate:"omitempty,uuid"`
-
-	// Mode session
-	AssessmentSubmissionMode    *model.AssessmentSubmissionMode `json:"assessment_submission_mode" validate:"omitempty,oneof=date session"`
-	AssessmentAnnounceSessionID *uuid.UUID                      `json:"assessment_announce_session_id" validate:"omitempty,uuid"`
-	AssessmentCollectSessionID  *uuid.UUID                      `json:"assessment_collect_session_id" validate:"omitempty,uuid"`
+	AssessmentAnnounceSessionID *uuid.UUID `json:"assessment_announce_session_id" validate:"omitempty,uuid4"`
+	AssessmentCollectSessionID  *uuid.UUID `json:"assessment_collect_session_id" validate:"omitempty,uuid4"`
 }
 
-func (p *PatchAssessmentRequest) Normalize() {
-	if p.AssessmentSlug != nil {
-		s := strings.TrimSpace(*p.AssessmentSlug)
-		if s == "" {
-			p.AssessmentSlug = nil
-		} else {
-			p.AssessmentSlug = &s
+func (r *PatchAssessmentRequest) Normalize() {
+	trimPtr := func(s *string) *string {
+		if s == nil {
+			return nil
 		}
+		t := strings.TrimSpace(*s)
+		return &t
 	}
-	if p.AssessmentTitle != nil {
-		t := strings.TrimSpace(*p.AssessmentTitle)
-		if t == "" {
-			p.AssessmentTitle = nil
-		} else {
-			p.AssessmentTitle = &t
-		}
-	}
-	if p.AssessmentDescription != nil {
-		d := strings.TrimSpace(*p.AssessmentDescription)
-		if d == "" {
-			p.AssessmentDescription = nil
-		} else {
-			p.AssessmentDescription = &d
-		}
+
+	r.AssessmentSlug = trimPtr(r.AssessmentSlug)
+	r.AssessmentTitle = trimPtr(r.AssessmentTitle)
+	r.AssessmentDescription = trimPtr(r.AssessmentDescription)
+
+	if r.AssessmentKind != nil {
+		k := strings.ToLower(strings.TrimSpace(*r.AssessmentKind))
+		r.AssessmentKind = &k
 	}
 }
 
-// Apply menerapkan PATCH ke model (tanpa menyimpan ke DB)
-func (p PatchAssessmentRequest) Apply(m *model.AssessmentModel) {
-	if p.AssessmentSlug != nil {
-		m.AssessmentSlug = p.AssessmentSlug
+// Apply PATCH ke model existing
+func (r *PatchAssessmentRequest) Apply(m *assessModel.AssessmentModel) {
+	if r.AssessmentClassSectionSubjectTeacherID != nil {
+		m.AssessmentClassSectionSubjectTeacherID = r.AssessmentClassSectionSubjectTeacherID
 	}
-	if p.AssessmentTitle != nil {
-		m.AssessmentTitle = strings.TrimSpace(*p.AssessmentTitle)
-	}
-	if p.AssessmentDescription != nil {
-		m.AssessmentDescription = p.AssessmentDescription
+	if r.AssessmentTypeID != nil {
+		m.AssessmentTypeID = r.AssessmentTypeID
 	}
 
-	if p.AssessmentStartAt != nil {
-		m.AssessmentStartAt = p.AssessmentStartAt
+	if r.AssessmentSlug != nil {
+		m.AssessmentSlug = r.AssessmentSlug
 	}
-	if p.AssessmentDueAt != nil {
-		m.AssessmentDueAt = p.AssessmentDueAt
+	if r.AssessmentTitle != nil {
+		m.AssessmentTitle = strings.TrimSpace(*r.AssessmentTitle)
 	}
-	if p.AssessmentPublishedAt != nil {
-		m.AssessmentPublishedAt = p.AssessmentPublishedAt
-	}
-	if p.AssessmentClosedAt != nil {
-		m.AssessmentClosedAt = p.AssessmentClosedAt
+	if r.AssessmentDescription != nil {
+		m.AssessmentDescription = r.AssessmentDescription
 	}
 
-	if p.AssessmentDurationMinutes != nil {
-		m.AssessmentDurationMinutes = p.AssessmentDurationMinutes
+	if r.AssessmentStartAt != nil {
+		m.AssessmentStartAt = r.AssessmentStartAt
 	}
-	if p.AssessmentTotalAttemptsAllowed != nil {
-		m.AssessmentTotalAttemptsAllowed = *p.AssessmentTotalAttemptsAllowed
+	if r.AssessmentDueAt != nil {
+		m.AssessmentDueAt = r.AssessmentDueAt
 	}
-	if p.AssessmentMaxScore != nil {
-		m.AssessmentMaxScore = *p.AssessmentMaxScore
+	if r.AssessmentPublishedAt != nil {
+		m.AssessmentPublishedAt = r.AssessmentPublishedAt
 	}
-	if p.AssessmentIsPublished != nil {
-		m.AssessmentIsPublished = *p.AssessmentIsPublished
-	}
-	if p.AssessmentAllowSubmission != nil {
-		m.AssessmentAllowSubmission = *p.AssessmentAllowSubmission
+	if r.AssessmentClosedAt != nil {
+		m.AssessmentClosedAt = r.AssessmentClosedAt
 	}
 
-	if p.AssessmentClassSectionSubjectTeacherID != nil {
-		m.AssessmentClassSectionSubjectTeacherID = p.AssessmentClassSectionSubjectTeacherID
+	if r.AssessmentKind != nil && *r.AssessmentKind != "" {
+		m.AssessmentKind = assessModel.AssessmentKind(*r.AssessmentKind)
 	}
-	if p.AssessmentTypeID != nil {
-		m.AssessmentTypeID = p.AssessmentTypeID
+	if r.AssessmentDurationMinutes != nil {
+		m.AssessmentDurationMinutes = r.AssessmentDurationMinutes
 	}
-	if p.AssessmentCreatedByTeacherID != nil {
-		m.AssessmentCreatedByTeacherID = p.AssessmentCreatedByTeacherID
+	if r.AssessmentTotalAttemptsAllowed != nil {
+		m.AssessmentTotalAttemptsAllowed = *r.AssessmentTotalAttemptsAllowed
+	}
+	if r.AssessmentMaxScore != nil {
+		m.AssessmentMaxScore = *r.AssessmentMaxScore
+	}
+	if r.AssessmentIsPublished != nil {
+		m.AssessmentIsPublished = *r.AssessmentIsPublished
+	}
+	if r.AssessmentAllowSubmission != nil {
+		m.AssessmentAllowSubmission = *r.AssessmentAllowSubmission
 	}
 
-	// Mode session & sesi terkait
-	if p.AssessmentSubmissionMode != nil {
-		m.AssessmentSubmissionMode = *p.AssessmentSubmissionMode
+	if r.AssessmentCreatedByTeacherID != nil {
+		m.AssessmentCreatedByTeacherID = r.AssessmentCreatedByTeacherID
 	}
-	if p.AssessmentAnnounceSessionID != nil {
-		m.AssessmentAnnounceSessionID = p.AssessmentAnnounceSessionID
-	}
-	if p.AssessmentCollectSessionID != nil {
-		m.AssessmentCollectSessionID = p.AssessmentCollectSessionID
-	}
+
+	// Session IDs sendiri di-handle di controller (finalAnnID/finalColID),
+	// jadi di sini kita nggak sentuh, supaya logikanya tetap terkonsolidasi di controller.
 }
 
-/* ==============================
-   RESPONSES
-============================== */
+/* ========================================================
+   RESPONSE DTO
+======================================================== */
 
 type AssessmentResponse struct {
-	AssessmentID                           uuid.UUID  `json:"assessment_id"`
-	AssessmentSchoolID                     uuid.UUID  `json:"assessment_school_id"`
+	AssessmentID       uuid.UUID `json:"assessment_id"`
+	AssessmentSchoolID uuid.UUID `json:"assessment_school_id"`
+
 	AssessmentClassSectionSubjectTeacherID *uuid.UUID `json:"assessment_class_section_subject_teacher_id,omitempty"`
 	AssessmentTypeID                       *uuid.UUID `json:"assessment_type_id,omitempty"`
 
@@ -270,6 +255,7 @@ type AssessmentResponse struct {
 	AssessmentPublishedAt *time.Time `json:"assessment_published_at,omitempty"`
 	AssessmentClosedAt    *time.Time `json:"assessment_closed_at,omitempty"`
 
+	AssessmentKind                 string  `json:"assessment_kind"`
 	AssessmentDurationMinutes      *int    `json:"assessment_duration_minutes,omitempty"`
 	AssessmentTotalAttemptsAllowed int     `json:"assessment_total_attempts_allowed"`
 	AssessmentMaxScore             float64 `json:"assessment_max_score"`
@@ -278,70 +264,36 @@ type AssessmentResponse struct {
 
 	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id,omitempty"`
 
-	// Mode session
 	AssessmentSubmissionMode    string     `json:"assessment_submission_mode"`
 	AssessmentAnnounceSessionID *uuid.UUID `json:"assessment_announce_session_id,omitempty"`
 	AssessmentCollectSessionID  *uuid.UUID `json:"assessment_collect_session_id,omitempty"`
 
-	// 🔹 Snapshots (read-only)
-	AssessmentCSSTSnapshot            map[string]any `json:"assessment_csst_snapshot"`
-	AssessmentAnnounceSessionSnapshot map[string]any `json:"assessment_announce_session_snapshot"`
-	AssessmentCollectSessionSnapshot  map[string]any `json:"assessment_collect_session_snapshot"`
+	AssessmentCSSTSnapshot            map[string]any `json:"assessment_csst_snapshot,omitempty"`
+	AssessmentAnnounceSessionSnapshot map[string]any `json:"assessment_announce_session_snapshot,omitempty"`
+	AssessmentCollectSessionSnapshot  map[string]any `json:"assessment_collect_session_snapshot,omitempty"`
 
-	AssessmentCreatedAt time.Time  `json:"assessment_created_at"`
-	AssessmentUpdatedAt time.Time  `json:"assessment_updated_at"`
-	AssessmentDeletedAt *time.Time `json:"assessment_deleted_at,omitempty"`
+	AssessmentCreatedAt time.Time `json:"assessment_created_at"`
+	AssessmentUpdatedAt time.Time `json:"assessment_updated_at"`
 }
 
-type ListAssessmentResponse struct {
-	Data   []AssessmentResponse `json:"data"`
-	Total  int64                `json:"total"`
-	Limit  int                  `json:"limit"`
-	Offset int                  `json:"offset"`
-}
-
-func FromModelAssesment(m model.AssessmentModel) AssessmentResponse {
-	// DeletedAt → *time.Time
-	var deletedAt *time.Time
-	if m.AssessmentDeletedAt.Valid {
-		t := m.AssessmentDeletedAt.Time
-		deletedAt = &t
-	}
-
-	// JSONB snapshots (datatypes.JSONMap adalah map[string]any)
-	var csstSnap map[string]any
-	if m.AssessmentCSSTSnapshot != nil {
-		csstSnap = make(map[string]any, len(m.AssessmentCSSTSnapshot))
-		for k, v := range m.AssessmentCSSTSnapshot {
-			csstSnap[k] = v
+// Converter Model → Response DTO
+func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
+	// cast datatypes.JSONMap → map[string]any
+	toMap := func(j any) map[string]any {
+		if j == nil {
+			return map[string]any{}
 		}
-	} else {
-		csstSnap = map[string]any{}
-	}
-
-	var annSnap map[string]any
-	if m.AssessmentAnnounceSessionSnapshot != nil {
-		annSnap = make(map[string]any, len(m.AssessmentAnnounceSessionSnapshot))
-		for k, v := range m.AssessmentAnnounceSessionSnapshot {
-			annSnap[k] = v
+		if mm, ok := j.(map[string]any); ok {
+			return mm
 		}
-	} else {
-		annSnap = map[string]any{}
-	}
-
-	var colSnap map[string]any
-	if m.AssessmentCollectSessionSnapshot != nil {
-		colSnap = make(map[string]any, len(m.AssessmentCollectSessionSnapshot))
-		for k, v := range m.AssessmentCollectSessionSnapshot {
-			colSnap[k] = v
-		}
-	} else {
-		colSnap = map[string]any{}
+		// datatypes.JSONMap underlying type memang map[string]any
+		return map[string]any{}
 	}
 
 	return AssessmentResponse{
-		AssessmentID:                           m.AssessmentID,
-		AssessmentSchoolID:                     m.AssessmentSchoolID,
+		AssessmentID:       m.AssessmentID,
+		AssessmentSchoolID: m.AssessmentSchoolID,
+
 		AssessmentClassSectionSubjectTeacherID: m.AssessmentClassSectionSubjectTeacherID,
 		AssessmentTypeID:                       m.AssessmentTypeID,
 
@@ -354,6 +306,7 @@ func FromModelAssesment(m model.AssessmentModel) AssessmentResponse {
 		AssessmentPublishedAt: m.AssessmentPublishedAt,
 		AssessmentClosedAt:    m.AssessmentClosedAt,
 
+		AssessmentKind:                 string(m.AssessmentKind),
 		AssessmentDurationMinutes:      m.AssessmentDurationMinutes,
 		AssessmentTotalAttemptsAllowed: m.AssessmentTotalAttemptsAllowed,
 		AssessmentMaxScore:             m.AssessmentMaxScore,
@@ -366,20 +319,11 @@ func FromModelAssesment(m model.AssessmentModel) AssessmentResponse {
 		AssessmentAnnounceSessionID: m.AssessmentAnnounceSessionID,
 		AssessmentCollectSessionID:  m.AssessmentCollectSessionID,
 
-		AssessmentCSSTSnapshot:            csstSnap,
-		AssessmentAnnounceSessionSnapshot: annSnap,
-		AssessmentCollectSessionSnapshot:  colSnap,
+		AssessmentCSSTSnapshot:            toMap(m.AssessmentCSSTSnapshot),
+		AssessmentAnnounceSessionSnapshot: toMap(m.AssessmentAnnounceSessionSnapshot),
+		AssessmentCollectSessionSnapshot:  toMap(m.AssessmentCollectSessionSnapshot),
 
 		AssessmentCreatedAt: m.AssessmentCreatedAt,
 		AssessmentUpdatedAt: m.AssessmentUpdatedAt,
-		AssessmentDeletedAt: deletedAt,
 	}
-}
-
-func FromModelsAssesments(items []model.AssessmentModel) []AssessmentResponse {
-	out := make([]AssessmentResponse, 0, len(items))
-	for _, it := range items {
-		out = append(out, FromModelAssesment(it))
-	}
-	return out
 }

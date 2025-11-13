@@ -186,12 +186,15 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	// filter umum untuk alias class table
 	applyCommonFilters := func(tx *gorm.DB, aliasClass string, q dto.ListClassQuery) *gorm.DB {
 		tx = tx.Where(aliasClass + ".class_deleted_at IS NULL")
-		if q.ParentID != nil {
-			tx = tx.Where(aliasClass+".class_class_parent_id = ?", *q.ParentID)
+
+		// 🔁 pakai field baru dari DTO: ClassParentID & ClassTermID
+		if q.ClassParentID != nil {
+			tx = tx.Where(aliasClass+".class_class_parent_id = ?", *q.ClassParentID)
 		}
-		if q.TermID != nil {
-			tx = tx.Where(aliasClass+".class_academic_term_id = ?", *q.TermID)
+		if q.ClassTermID != nil {
+			tx = tx.Where(aliasClass+".class_academic_term_id = ?", *q.ClassTermID)
 		}
+
 		if raw := strings.TrimSpace(c.Query("id")); raw != "" {
 			var ids []uuid.UUID
 			for _, part := range strings.Split(raw, ",") {

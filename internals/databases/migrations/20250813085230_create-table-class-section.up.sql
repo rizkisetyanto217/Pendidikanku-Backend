@@ -69,18 +69,18 @@ CREATE TABLE IF NOT EXISTS class_sections (
   class_section_class_parent_level_snapshot SMALLINT,
 
   -- People (teacher/assistant/leader)
-  class_section_school_teacher_id_snapshot              UUID,
+  class_section_school_teacher_id              UUID,
   class_section_school_teacher_slug_snapshot            VARCHAR(100),
   class_section_school_teacher_snapshot                 JSONB,
-  class_section_assistant_school_teacher_id_snapshot    UUID,
+  class_section_assistant_school_teacher_id    UUID,
   class_section_assistant_school_teacher_slug_snapshot  VARCHAR(100),
   class_section_assistant_school_teacher_snapshot       JSONB,
-  class_section_leader_school_student_id_snapshot       UUID,
+  class_section_leader_school_student_id       UUID,
   class_section_leader_school_student_slug_snapshot     VARCHAR(100),
   class_section_leader_school_student_snapshot          JSONB,
 
   -- Room
-  class_section_class_room_id_snapshot        UUID,
+  class_section_class_room_id        UUID,
   class_section_class_room_slug_snapshot      VARCHAR(100),
   -- 🔽 tambahan agar sinkron dgn helper ApplyRoomSnapshotToSection
   class_section_class_room_name_snapshot      VARCHAR(160),
@@ -163,21 +163,21 @@ CREATE INDEX IF NOT EXISTS idx_section_term_school_alive
   ON class_sections (class_section_academic_term_id, class_section_school_id)
   WHERE class_section_deleted_at IS NULL;
 
--- 🔹 Snapshot ID lookups (alive)
-CREATE INDEX IF NOT EXISTS idx_section_teacher_id_snapshot_alive
-  ON class_sections (class_section_school_teacher_id_snapshot, class_section_school_id)
+-- 🔹 Snapshot ID lookups (alive) — pakai kolom ID yang bener (tanpa _snapshot)
+CREATE INDEX IF NOT EXISTS idx_section_teacher_id_alive
+  ON class_sections (class_section_school_teacher_id, class_section_school_id)
   WHERE class_section_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_section_asst_teacher_id_snapshot_alive
-  ON class_sections (class_section_assistant_school_teacher_id_snapshot, class_section_school_id)
+CREATE INDEX IF NOT EXISTS idx_section_asst_teacher_id_alive
+  ON class_sections (class_section_assistant_school_teacher_id, class_section_school_id)
   WHERE class_section_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_section_leader_student_id_snapshot_alive
-  ON class_sections (class_section_leader_school_student_id_snapshot, class_section_school_id)
+CREATE INDEX IF NOT EXISTS idx_section_leader_student_id_alive
+  ON class_sections (class_section_leader_school_student_id, class_section_school_id)
   WHERE class_section_deleted_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_section_room_id_snapshot_alive
-  ON class_sections (class_section_class_room_id_snapshot, class_section_school_id)
+CREATE INDEX IF NOT EXISTS idx_section_room_id_alive
+  ON class_sections (class_section_class_room_id, class_section_school_id)
   WHERE class_section_deleted_at IS NULL;
 
 -- Scope tenant + active + recent

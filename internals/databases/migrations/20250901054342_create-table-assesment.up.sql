@@ -63,16 +63,31 @@ ON class_section_subject_teachers (
 -- =========================================================
 -- 2) ASSESSMENTS — clean relation (ONLY TO CSST) + saklar session
 -- =========================================================
+-- =========================================================
+-- ENUM: assessment_kind_enum (bentuk assessment)
+-- =========================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'assessment_kind_enum') THEN
+    CREATE TYPE assessment_kind_enum AS ENUM (
+      'quiz',
+      'assignment_upload',
+      'offline',
+      'survey'
+    );
+  END IF;
+END$$;
+
 CREATE TABLE IF NOT EXISTS assessments (
   assessment_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
   assessment_school_id UUID NOT NULL
     REFERENCES schools(school_id) ON DELETE CASCADE,
 
-  -- Hanya relasi ke CSST (tenant-safe dijaga via FK komposit di bawah)
+  -- Hanya relasi ke CSST (tenant tidak dipaksa komposit di DB)
   assessment_class_section_subject_teacher_id UUID NULL,
 
-  -- Tipe penilaian (tenant-safe via FK komposit di bawah)
+  -- Tipe penilaian (kategori akademik, tenant-safe di-backend)
   assessment_type_id UUID,
 
   assessment_slug VARCHAR(160),
@@ -87,6 +102,7 @@ CREATE TABLE IF NOT EXISTS assessments (
   assessment_closed_at    TIMESTAMPTZ,
 
   -- Pengaturan
+  assessment_kind assessment_kind_enum NOT NULL DEFAULT 'quiz', -- bentuk: quiz / assignment_upload / offline / survey
   assessment_duration_minutes       INT,
   assessment_total_attempts_allowed INT NOT NULL DEFAULT 1,
   assessment_max_score NUMERIC(5,2) NOT NULL DEFAULT 100
@@ -116,7 +132,7 @@ CREATE TABLE IF NOT EXISTS assessments (
 );
 
 -- =========================================================
--- 3) FK KE CSST (single-col + composite tenant-safe)
+-- 3) FK KE CSST (single-col saja)
 -- =========================================================
 DO $$
 BEGIN
@@ -127,43 +143,29 @@ BEGIN
       REFERENCES class_section_subject_teachers(class_section_subject_teacher_id)
       ON UPDATE CASCADE ON DELETE SET NULL;
   END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_assessment_csst_school_tenant_safe') THEN
-    ALTER TABLE assessments
-      ADD CONSTRAINT fk_assessment_csst_school_tenant_safe
-      FOREIGN KEY (
-        assessment_class_section_subject_teacher_id,
-        assessment_school_id
-      )
-      REFERENCES class_section_subject_teachers(
-        class_section_subject_teacher_id,
-        class_section_subject_teacher_school_id
-      )
-      ON UPDATE CASCADE ON DELETE SET NULL;
-  END IF;
 END$$;
 
 -- =========================================================
--- 4) FK TENANT-SAFE KE assessment_types (komposit id+tenant)
+-- 4) FK KE assessment_types (single-col saja)
 -- =========================================================
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_assessment_type_tenant_safe') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_assessment_type') THEN
     ALTER TABLE assessments
-      ADD CONSTRAINT fk_assessment_type_tenant_safe
-      FOREIGN KEY (assessment_type_id, assessment_school_id)
-      REFERENCES assessment_types(assessment_type_id, assessment_type_school_id)
+      ADD CONSTRAINT fk_assessment_type
+      FOREIGN KEY (assessment_type_id)
+      REFERENCES assessment_types(assessment_type_id)
       ON UPDATE CASCADE ON DELETE SET NULL;
   END IF;
 END$$;
 
--- (opsional) index bantu untuk join cepat dari sisi assessments
-CREATE INDEX IF NOT EXISTS idx_assessments_type_tenant
-  ON assessments (assessment_type_id, assessment_school_id)
+-- index bantu untuk join cepat ke assessment_types
+CREATE INDEX IF NOT EXISTS idx_assessments_type
+  ON assessments (assessment_type_id)
   WHERE assessment_deleted_at IS NULL;
 
 -- =========================================================
--- 5) FK OPSIONAL KE class_attendance_sessions (KONDISIONAL)
+-- 5) FK OPSIONAL KE class_attendance_sessions
 -- =========================================================
 DO $$
 BEGIN
@@ -228,9 +230,12 @@ CREATE INDEX IF NOT EXISTS idx_assessments_collect_session_alive
   ON assessments (assessment_collect_session_id)
   WHERE assessment_deleted_at IS NULL;
 
+CREATE INDEX IF NOT EXISTS idx_assessments_kind_alive
+  ON assessments (assessment_school_id, assessment_kind)
+  WHERE assessment_deleted_at IS NULL;
+
 CREATE INDEX IF NOT EXISTS brin_assessments_created_at
   ON assessments USING BRIN (assessment_created_at);
-
 
 
 -- =========================================================

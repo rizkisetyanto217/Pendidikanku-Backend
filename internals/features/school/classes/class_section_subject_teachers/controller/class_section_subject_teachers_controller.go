@@ -357,8 +357,8 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 			finalRoomSnap = &tmp
 			finalClassRoomID = req.ClassSectionSubjectTeacherClassRoomID
 		} else {
-			if sec.ClassSectionClassRoomIDSnapshot != nil {
-				rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, schoolID, *sec.ClassSectionClassRoomIDSnapshot)
+			if sec.ClassSectionClassRoomID != nil {
+				rs, err := roomSnapshot.ValidateAndSnapshotRoom(tx, schoolID, *sec.ClassSectionClassRoomID)
 				if err != nil {
 					var fe *fiber.Error
 					if errors.As(err, &fe) {
@@ -368,7 +368,7 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 				}
 				tmp := *rs
 				finalRoomSnap = &tmp
-				idCopy := *sec.ClassSectionClassRoomIDSnapshot
+				idCopy := *sec.ClassSectionClassRoomID
 				finalClassRoomID = &idCopy
 			} else if len(sec.ClassSectionClassRoomSnapshot) > 0 {
 				jb := datatypes.JSON(sec.ClassSectionClassRoomSnapshot)

@@ -80,18 +80,18 @@ NOTE: class_name TIDAK diterima; diisi otomatis server.
 */
 type CreateClassRequest struct {
 	// Wajib
-	ClassSchoolID      uuid.UUID `json:"class_school_id"       form:"class_school_id"       validate:"required"`
-	ClassClassParentID uuid.UUID `json:"class_parent_id"       form:"class_parent_id"       validate:"required"` // JSON tetap pakai class_parent_id agar kompatibel
-	ClassSlug          string    `json:"class_slug"            form:"class_slug"            validate:"omitempty,min=1,max=160"`
+	ClassSchoolID      uuid.UUID `json:"class_school_id"        form:"class_school_id"        validate:"required"`
+	ClassClassParentID uuid.UUID `json:"class_class_parent_id"  form:"class_class_parent_id"  validate:"required"`
+	ClassSlug          string    `json:"class_slug"             form:"class_slug"             validate:"omitempty,min=1,max=160"`
 
 	// Periode
 	ClassStartDate *time.Time `json:"class_start_date,omitempty"         form:"class_start_date"`
 	ClassEndDate   *time.Time `json:"class_end_date,omitempty"           form:"class_end_date"`
 
 	// Registrasi / Term
-	ClassAcademicTermID       *uuid.UUID `json:"class_term_id,omitempty"                form:"class_term_id"`
-	ClassRegistrationOpensAt  *time.Time `json:"class_registration_opens_at,omitempty"  form:"class_registration_opens_at"`
-	ClassRegistrationClosesAt *time.Time `json:"class_registration_closes_at,omitempty" form:"class_registration_closes_at"`
+	ClassAcademicTermID       *uuid.UUID `json:"class_academic_term_id,omitempty"         form:"class_academic_term_id"`
+	ClassRegistrationOpensAt  *time.Time `json:"class_registration_opens_at,omitempty"    form:"class_registration_opens_at"`
+	ClassRegistrationClosesAt *time.Time `json:"class_registration_closes_at,omitempty"   form:"class_registration_closes_at"`
 
 	// Kuota
 	ClassQuotaTotal *int `json:"class_quota_total,omitempty" form:"class_quota_total"`
@@ -143,7 +143,7 @@ func (r *CreateClassRequest) Validate() error {
 		return errors.New("class_school_id required")
 	}
 	if r.ClassClassParentID == uuid.Nil {
-		return errors.New("class_parent_id required")
+		return errors.New("class_class_parent_id required")
 	}
 	if r.ClassRegistrationOpensAt != nil && r.ClassRegistrationClosesAt != nil &&
 		r.ClassRegistrationClosesAt.Before(*r.ClassRegistrationOpensAt) {
@@ -219,11 +219,11 @@ type PatchClassRequest struct {
 	ClassSlug PatchFieldClass[string] `json:"class_slug"`
 
 	// ganti parent kelas (wajib non-null kalau dipatch)
-	ClassClassParentID PatchFieldClass[uuid.UUID] `json:"class_parent_id"`
+	ClassClassParentID PatchFieldClass[uuid.UUID] `json:"class_class_parent_id"`
 
 	ClassStartDate            PatchFieldClass[*time.Time] `json:"class_start_date"`
 	ClassEndDate              PatchFieldClass[*time.Time] `json:"class_end_date"`
-	ClassAcademicTermID       PatchFieldClass[*uuid.UUID] `json:"class_term_id"`
+	ClassAcademicTermID       PatchFieldClass[*uuid.UUID] `json:"class_academic_term_id"`
 	ClassRegistrationOpensAt  PatchFieldClass[*time.Time] `json:"class_registration_opens_at"`
 	ClassRegistrationClosesAt PatchFieldClass[*time.Time] `json:"class_registration_closes_at"`
 
@@ -312,10 +312,10 @@ func (r *PatchClassRequest) Validate() error {
 	// parent id guard
 	if r.ClassClassParentID.Present {
 		if r.ClassClassParentID.Value == nil {
-			return errors.New("class_parent_id cannot be null")
+			return errors.New("class_class_parent_id cannot be null")
 		}
 		if *r.ClassClassParentID.Value == uuid.Nil {
-			return errors.New("class_parent_id is invalid")
+			return errors.New("class_class_parent_id is invalid")
 		}
 	}
 	return nil
@@ -413,10 +413,10 @@ type ClassResponse struct {
 	// PK & relasi inti
 	ClassID       uuid.UUID `json:"class_id"`
 	ClassSchoolID uuid.UUID `json:"class_school_id"`
-	// JSON tetap expose sebagai class_parent_id & class_term_id (kompatibel),
-	// tapi sumbernya dari kolom baru.
-	ClassParentID uuid.UUID  `json:"class_parent_id"`
-	ClassTermID   *uuid.UUID `json:"class_term_id,omitempty"`
+
+	// JSON dan nama field disamakan dengan model:
+	ClassClassParentID   uuid.UUID  `json:"class_class_parent_id"`
+	ClassAcademicTermID  *uuid.UUID `json:"class_academic_term_id,omitempty"`
 
 	// Identitas
 	ClassSlug string `json:"class_slug"`
@@ -449,19 +449,19 @@ type ClassResponse struct {
 	ClassImageObjectKeyOld       *string    `json:"class_image_object_key_old,omitempty"`
 	ClassImageDeletePendingUntil *time.Time `json:"class_image_delete_pending_until,omitempty"`
 
-	// Snapshots (tetap pakai nama lama agar familiar di client)
+	// Snapshots — nama JSON disamakan persis dgn model
 	// Parent
-	ClassParentCodeSnapshot  *string `json:"class_parent_code_snapshot,omitempty"`
-	ClassParentNameSnapshot  *string `json:"class_parent_name_snapshot,omitempty"`
-	ClassParentSlugSnapshot  *string `json:"class_parent_slug_snapshot,omitempty"`
-	ClassParentLevelSnapshot *int16  `json:"class_parent_level_snapshot,omitempty"`
-	ClassParentURLSnapshot   *string `json:"class_parent_url_snapshot,omitempty"`
+	ClassParentCodeSnapshot  *string `json:"class_class_parent_code_snapshot,omitempty"`
+	ClassParentNameSnapshot  *string `json:"class_class_parent_name_snapshot,omitempty"`
+	ClassParentSlugSnapshot  *string `json:"class_class_parent_slug_snapshot,omitempty"`
+	ClassParentLevelSnapshot *int16  `json:"class_class_parent_level_snapshot,omitempty"`
+	ClassParentURLSnapshot   *string `json:"class_class_parent_url_snapshot,omitempty"`
 
 	// Term
-	ClassTermAcademicYearSnapshot *string `json:"class_term_academic_year_snapshot,omitempty"`
-	ClassTermNameSnapshot         *string `json:"class_term_name_snapshot,omitempty"`
-	ClassTermSlugSnapshot         *string `json:"class_term_slug_snapshot,omitempty"`
-	ClassTermAngkatanSnapshot     *string `json:"class_term_angkatan_snapshot,omitempty"`
+	ClassTermAcademicYearSnapshot *string `json:"class_academic_term_academic_year_snapshot,omitempty"`
+	ClassTermNameSnapshot         *string `json:"class_academic_term_name_snapshot,omitempty"`
+	ClassTermSlugSnapshot         *string `json:"class_academic_term_slug_snapshot,omitempty"`
+	ClassTermAngkatanSnapshot     *string `json:"class_academic_term_angkatan_snapshot,omitempty"`
 
 	// Audit
 	ClassCreatedAt time.Time `json:"class_created_at"`
@@ -490,9 +490,8 @@ func FromModel(m *model.ClassModel) ClassResponse {
 		ClassID:       m.ClassID,
 		ClassSchoolID: m.ClassSchoolID,
 
-		// mapping ke JSON kompatibel
-		ClassParentID: m.ClassClassParentID,
-		ClassTermID:   m.ClassAcademicTermID,
+		ClassClassParentID:  m.ClassClassParentID,
+		ClassAcademicTermID: m.ClassAcademicTermID,
 
 		ClassSlug: m.ClassSlug,
 		ClassName: name,
@@ -518,7 +517,6 @@ func FromModel(m *model.ClassModel) ClassResponse {
 		ClassImageObjectKeyOld:       m.ClassImageObjectKeyOld,
 		ClassImageDeletePendingUntil: m.ClassImageDeletePendingUntil,
 
-		// snapshots: kolom model sudah memakai prefix baru, tapi JSON tetap nama lama
 		ClassParentCodeSnapshot:  m.ClassParentCodeSnapshot,
 		ClassParentNameSnapshot:  m.ClassParentNameSnapshot,
 		ClassParentSlugSnapshot:  m.ClassParentSlugSnapshot,
@@ -542,12 +540,13 @@ QUERY / FILTER DTO (untuk list)
 */
 type ListClassQuery struct {
 	SchoolID     *uuid.UUID `query:"school_id"`
-	ParentID     *uuid.UUID `query:"parent_id"` // akan di-bind ke class_class_parent_id di layer repo
-	TermID       *uuid.UUID `query:"term_id"`   // akan di-bind ke class_academic_term_id di layer repo
-	Status       *string    `query:"status"`
-	DeliveryMode *string    `query:"delivery_mode"`
-	Slug         *string    `query:"slug"`
-	Search       *string    `query:"search"`
+	ClassParentID *uuid.UUID `query:"class_class_parent_id"`   // akan di-bind ke class_class_parent_id
+	ClassTermID   *uuid.UUID `query:"class_academic_term_id"`  // akan di-bind ke class_academic_term_id
+
+	Status       *string `query:"status"`
+	DeliveryMode *string `query:"delivery_mode"`
+	Slug         *string `query:"class_slug"`
+	Search       *string `query:"search"`
 
 	StartGe    *time.Time `query:"start_ge"`
 	StartLe    *time.Time `query:"start_le"`
@@ -789,12 +788,12 @@ func DecodePatchClassMultipart(c *fiber.Ctx, r *PatchClassRequest) error {
 	setStr(&r.ClassStatus, "class_status")
 
 	// uuid (non-null saat dipatch)
-	if err := setUUIDNonNull(&r.ClassClassParentID, "class_parent_id", "class_parent_id"); err != nil {
+	if err := setUUIDNonNull(&r.ClassClassParentID, "class_class_parent_id", "class_class_parent_id"); err != nil {
 		return err
 	}
 
 	// *uuid.UUID (nullable)
-	if err := setUUIDPtr(&r.ClassAcademicTermID, "class_term_id", "class_term_id"); err != nil {
+	if err := setUUIDPtr(&r.ClassAcademicTermID, "class_academic_term_id", "class_academic_term_id"); err != nil {
 		return err
 	}
 

@@ -59,7 +59,7 @@ Kemudian jalankan ulang migrasi:
 
 # Akun Owner
 
-SELECT fn_grant_role('876855ca-a717-440d-8a9c-5c65f336e9ba'::uuid, 'owner', NULL, NULL);
+SELECT fn_grant_role('2e6bf90c-2b2a-4ddb-a0e4-7593f7f1ec17'::uuid, 'owner', NULL, NULL);
 
 # JWT
 
@@ -91,3 +91,18 @@ killall -9 Postman
 
 
 # Menyamanakn denga
+
+
+
+# Masuk ke railway PSQL
+PGPASSWORD='nCzXbpAEDzqPjbwxGobwMvbyDHUpUsgP' psql \
+  -h shortline.proxy.rlwy.net \
+  -U postgres \
+  -p 46351 \
+  -d railway
+
+
+# Command dengan railway
+migrate -path internals/databases/migrations \
+  -database "postgresql://postgres:nCzXbpAEDzqPjbwxGobwMvbyDHUpUsgP@shortline.proxy.rlwy.net:46351/railway?sslmode=disable" \
+  down 2

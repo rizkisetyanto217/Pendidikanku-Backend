@@ -35,18 +35,29 @@ func NewClassAttendanceSessionController(db *gorm.DB) *ClassAttendanceSessionCon
 
 /* ========== small helpers ========== */
 
-func parseYMDLocal(s string) (*time.Time, error) {
+// Gabungkan tanggal (local) + waktu-of-day (time type dari DB) → timestamptz (local tz)
+func combineDateAndTime(date time.Time, tod time.Time) time.Time {
+	loc := time.Local
+	year, month, day := date.In(loc).Date()
+	h, m, s := tod.In(loc).Clock()
+	return time.Date(year, month, day, h, m, s, 0, loc)
+}
+
+// Parse JSON map dari string (kalau kosong → nil)
+func parseJSONMapPtr(s string) (map[string]any, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil, nil
 	}
-	t, err := time.ParseInLocation("2006-01-02", s, time.Local)
-	if err != nil {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
 		return nil, err
 	}
-	t0 := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
-	return &t0, nil
+	return m, nil
 }
+
+
+
 
 // Ambil nama tampilan CSST (fallback name)
 func getCSSTName(tx *gorm.DB, csstID uuid.UUID) (string, error) {
@@ -142,6 +153,16 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 				req.ClassAttendanceSessionDate = &dd
 			}
 		}
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_starts_at")); v != "" {
+			if t, err := time.Parse(time.RFC3339, v); err == nil {
+				req.ClassAttendanceSessionStartsAt = &t
+			}
+		}
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_ends_at")); v != "" {
+			if t, err := time.Parse(time.RFC3339, v); err == nil {
+				req.ClassAttendanceSessionEndsAt = &t
+			}
+		}
 		if v := strings.TrimSpace(c.FormValue("class_attendance_session_slug")); v != "" {
 			req.ClassAttendanceSessionSlug = &v
 		}
@@ -200,6 +221,20 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 			}
 		}
 
+		// ===== Rule (baru) =====
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_rule_id")); v != "" {
+			if id, err := uuid.Parse(v); err == nil {
+				req.ClassAttendanceSessionRuleId = &id
+			}
+		}
+		if v := strings.TrimSpace(c.FormValue("class_attendance_session_rule_snapshot")); v != "" {
+			if m, err := parseJSONMapPtr(v); err == nil {
+				req.ClassAttendanceSessionRuleSnapshot = m
+			} else {
+				return helper.JsonError(c, fiber.StatusBadRequest, "rule_snapshot tidak valid: "+err.Error())
+			}
+		}
+
 		// URLs via JSON field
 		var urlsJSON []attendanceDTO.ClassAttendanceSessionURLUpsert
 		if uj := strings.TrimSpace(c.FormValue("urls_json")); uj != "" {
@@ -241,7 +276,7 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 		req.ClassAttendanceSessionNote = &n
 	}
 
-	// ✅ Coerce zero-UUID schedule → nil (DTO Normalize)
+	// ✅ Coerce zero-UUIDs & minimal rule snapshot (DTO Normalize)
 	req.Normalize()
 
 	// Validasi payload (sesuai tag DTO)
@@ -311,7 +346,85 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 			}
 		}
 
-		// 3) Cek duplikasi aktif (school, date, [schedule nullable])
+		// 3) Validasi RULE (opsional) + bangun snapshot jika perlu
+		var (
+			ruleStart time.Time
+			ruleEnd   time.Time
+			haveRule  bool
+		)
+		if req.ClassAttendanceSessionRuleId != nil && *req.ClassAttendanceSessionRuleId != uuid.Nil {
+			// Ambil rule & pastikan tenant sama (dan bila ada schedule_id, harus match)
+			var r struct {
+				SchoolID      uuid.UUID `gorm:"column:school_id"`
+				ScheduleID    uuid.UUID `gorm:"column:schedule_id"`
+				DayOfWeek     int       `gorm:"column:day_of_week"`
+				StartTime     time.Time `gorm:"column:start_time"`
+				EndTime       time.Time `gorm:"column:end_time"`
+				WeekParity    *string   `gorm:"column:week_parity"`
+				IntervalWeeks int       `gorm:"column:interval_weeks"`
+				StartOffset   int       `gorm:"column:start_offset_weeks"`
+				WeeksOfMonth  *string   `gorm:"column:weeks_of_month_json"` // ambil sebagai JSON text
+				LastWeek      bool      `gorm:"column:last_week_of_month"`
+			}
+			const q = `
+SELECT
+  class_schedule_rule_school_id            AS school_id,
+  class_schedule_rule_schedule_id          AS schedule_id,
+  class_schedule_rule_day_of_week          AS day_of_week,
+  class_schedule_rule_start_time           AS start_time,
+  class_schedule_rule_end_time             AS end_time,
+  class_schedule_rule_week_parity::text    AS week_parity,
+  class_schedule_rule_interval_weeks       AS interval_weeks,
+  class_schedule_rule_start_offset_weeks   AS start_offset_weeks,
+  to_json(class_schedule_rule_weeks_of_month)::text AS weeks_of_month_json,
+  class_schedule_rule_last_week_of_month   AS last_week_of_month
+FROM class_schedule_rules
+WHERE class_schedule_rule_id = ?
+  AND class_schedule_rule_deleted_at IS NULL
+LIMIT 1`
+			if err := tx.Raw(q, *req.ClassAttendanceSessionRuleId).Scan(&r).Error; err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil rule")
+			}
+			if r.SchoolID == uuid.Nil {
+				return fiber.NewError(fiber.StatusBadRequest, "Rule tidak ditemukan")
+			}
+			if r.SchoolID != schoolID {
+				return fiber.NewError(fiber.StatusForbidden, "Rule bukan milik school Anda")
+			}
+			if req.ClassAttendanceSessionScheduleId != nil && r.ScheduleID != *req.ClassAttendanceSessionScheduleId {
+				return fiber.NewError(fiber.StatusBadRequest, "Rule tidak cocok dengan schedule yang dipilih")
+			}
+
+			// Snapshot: gunakan payload bila ada; kalau tidak, bangun dari DB
+			if req.ClassAttendanceSessionRuleSnapshot == nil {
+				m := map[string]any{
+					"rule_id":            req.ClassAttendanceSessionRuleId.String(),
+					"schedule_id":        r.ScheduleID.String(),
+					"day_of_week":        r.DayOfWeek,
+					"start_time":         r.StartTime.Format("15:04:05"),
+					"end_time":           r.EndTime.Format("15:04:05"),
+					"interval_weeks":     r.IntervalWeeks,
+					"start_offset_weeks": r.StartOffset,
+					"last_week_of_month": r.LastWeek,
+				}
+				if r.WeekParity != nil && strings.TrimSpace(*r.WeekParity) != "" {
+					m["week_parity"] = *r.WeekParity
+				}
+				if r.WeeksOfMonth != nil && strings.TrimSpace(*r.WeeksOfMonth) != "" {
+					// simpan JSON mentah (array int) — biarkan konsumsi di UI/BE sesuai kebutuhan
+					var arr any
+					_ = json.Unmarshal([]byte(*r.WeeksOfMonth), &arr)
+					m["weeks_of_month"] = arr
+				}
+				req.ClassAttendanceSessionRuleSnapshot = m
+			}
+
+			ruleStart = r.StartTime
+			ruleEnd = r.EndTime
+			haveRule = true
+		}
+
+		// 4) Cek duplikasi aktif (school, date, [schedule nullable])
 		effDate := func() time.Time {
 			if req.ClassAttendanceSessionDate != nil {
 				return *req.ClassAttendanceSessionDate
@@ -457,6 +570,26 @@ func (ctrl *ClassAttendanceSessionController) CreateClassAttendanceSession(c *fi
 		}
 		if effRoomID != nil {
 			m.ClassAttendanceSessionClassRoomID = effRoomID
+		}
+
+		// ===== Rule assignment & snapshot ke model =====
+		if req.ClassAttendanceSessionRuleId != nil && *req.ClassAttendanceSessionRuleId != uuid.Nil {
+			m.ClassAttendanceSessionRuleID = req.ClassAttendanceSessionRuleId
+		}
+		if req.ClassAttendanceSessionRuleSnapshot != nil {
+			m.ClassAttendanceSessionRuleSnapshot = req.ClassAttendanceSessionRuleSnapshot
+		}
+
+		// ===== Auto set starts_at/ends_at dari rule kalau kosong =====
+		if haveRule && req.ClassAttendanceSessionDate != nil {
+			if m.ClassAttendanceSessionStartsAt == nil {
+				t := combineDateAndTime(*req.ClassAttendanceSessionDate, ruleStart)
+				m.ClassAttendanceSessionStartsAt = &t
+			}
+			if m.ClassAttendanceSessionEndsAt == nil {
+				t := combineDateAndTime(*req.ClassAttendanceSessionDate, ruleEnd)
+				m.ClassAttendanceSessionEndsAt = &t
+			}
 		}
 
 		// 5) Simpan sesi

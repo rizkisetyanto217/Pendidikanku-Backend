@@ -2,6 +2,8 @@
 package controller
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -9,9 +11,11 @@ import (
 	"time"
 
 	sessiondto "schoolku_backend/internals/features/school/classes/class_attendance_sessions/dto"
+	attModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
 
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
+	helperOSS "schoolku_backend/internals/helpers/oss"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -78,6 +82,214 @@ func jsonToMap(j datatypes.JSON) map[string]any {
 	return m
 }
 
+// ===============================
+// Handlers
+// ===============================
+
+/*
+=========================================================
+POST /student-attendance (WITH URLs)
+  - JSON:
+    {
+    "attendance": { ...ClassAttendanceSessionParticipantCreateRequest... },
+    "urls": [ {op:"upsert", kind,label,url,object_key,order,is_primary,...}, ... ]
+    }
+
+- multipart/form-data:
+  - attendance_json: JSON ClassAttendanceSessionParticipantCreateRequest (wajib)
+  - urls_json: JSON array ClassAttendanceSessionParticipantURLOpDTO (opsional; op akan dipaksa "upsert")
+  - file uploads: otomatis upload ke OSS → tiap file jadi URL op upsert baru (kind=attachment)
+
+=========================================================
+*/
+func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
+	c.Locals("DB", ctl.DB)
+	var schoolID uuid.UUID
+
+	// resolve school
+	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
+		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
+			schoolID = id
+		} else {
+			if fe, ok := er.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
+		}
+	} else {
+		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+			schoolID = id
+		} else {
+			return helper.JsonError(c, fiber.StatusForbidden, "Scope school tidak ditemukan")
+		}
+	}
+
+	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
+
+	// ----- Parse payload ke DTO baru -----
+	var attReq sessiondto.ClassAttendanceSessionParticipantCreateRequest
+	var urlOps []sessiondto.ClassAttendanceSessionParticipantURLOpDTO
+
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		aj := strings.TrimSpace(c.FormValue("attendance_json"))
+		if aj == "" {
+			return helper.JsonError(c, fiber.StatusBadRequest, "attendance_json wajib diisi (ClassAttendanceSessionParticipantCreateRequest)")
+		}
+		if err := json.Unmarshal([]byte(aj), &attReq); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "attendance_json tidak valid: "+err.Error())
+		}
+
+		if uj := strings.TrimSpace(c.FormValue("urls_json")); uj != "" {
+			_ = json.Unmarshal([]byte(uj), &urlOps)
+		}
+		// paksa semua op → upsert
+		for i := range urlOps {
+			urlOps[i].Op = sessiondto.URLOpUpsert
+		}
+
+		// files → setiap file jadi URL op upsert baru (kind=attachment)
+		if form, ferr := c.MultipartForm(); ferr == nil && form != nil {
+			fhs, _ := helperOSS.CollectUploadFiles(form, nil)
+			if len(fhs) > 0 {
+				oss, oerr := helperOSS.NewOSSServiceFromEnv("")
+				if oerr != nil {
+					return helper.JsonError(c, fiber.StatusBadGateway, "OSS tidak siap")
+				}
+				ctx := context.Background()
+				for _, fh := range fhs {
+					publicURL, uerr := helperOSS.UploadAnyToOSS(ctx, oss, schoolID, "student_attendance", fh)
+					if uerr != nil {
+						return uerr
+					}
+					var key *string
+					if k, kerr := helperOSS.ExtractKeyFromPublicURL(publicURL); kerr == nil {
+						key = &k
+					}
+					op := sessiondto.ClassAttendanceSessionParticipantURLOpDTO{
+						Op:        sessiondto.URLOpUpsert,
+						Kind:      ptrStr("attachment"),
+						URL:       &publicURL,
+						ObjectKey: key,
+					}
+					urlOps = append(urlOps, op)
+				}
+			}
+		}
+	} else {
+		// JSON murni
+		var body struct {
+			Attendance sessiondto.ClassAttendanceSessionParticipantCreateRequest `json:"attendance"`
+			URLs       []sessiondto.ClassAttendanceSessionParticipantURLOpDTO    `json:"urls"`
+		}
+		raw := bytes.TrimSpace(c.Body())
+		if len(raw) == 0 {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Payload kosong")
+		}
+		if err := json.Unmarshal(raw, &body); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
+		}
+		attReq = body.Attendance
+		urlOps = body.URLs
+		// paksa op=upsert untuk create
+		for i := range urlOps {
+			urlOps[i].Op = sessiondto.URLOpUpsert
+			urlOps[i].ID = nil
+		}
+	}
+
+	// Set school ke request (tenant)
+	attReq.SchoolID = schoolID
+
+	// Validasi request
+	if err := ctl.Validator.Struct(&attReq); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	// Tenant guard: session harus milik school
+	if err := ctl.ensureSessionBelongsToSchool(c, attReq.SessionID, schoolID); err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	// =========================
+	// Transaksi
+	// =========================
+	var created attModel.ClassAttendanceSessionParticipantModel
+
+	if err := ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
+		// 1) create attendance (participant)
+		m := attReq.ToModel()
+		if err := tx.Create(&m).Error; err != nil {
+			if isDuplicateKey(err) {
+				return fiber.NewError(fiber.StatusConflict, "Kehadiran sudah tercatat (duplikat)")
+			}
+			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		}
+
+		// 2) URLs via URLMutations (create only)
+		muts, err := sessiondto.BuildURLMutations(m.ClassAttendanceSessionParticipantID, schoolID, urlOps)
+		if err != nil {
+			return err
+		}
+		if len(muts.ToCreate) > 0 {
+			if err := tx.Create(&muts.ToCreate).Error; err != nil {
+				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan lampiran")
+			}
+		}
+
+		// 3) enforce primary uniqueness per (participant, kind)
+		if err := ensurePrimaryUnique(tx, m.ClassAttendanceSessionParticipantID); err != nil {
+			return err
+		}
+
+		created = m
+		return nil
+	}); err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	// Ambil URLs (live) untuk response
+	var urls []attModel.ClassAttendanceSessionParticipantURLModel
+	_ = ctl.DB.
+		Where("class_attendance_session_participant_url_participant_id = ? AND class_attendance_session_participant_url_deleted_at IS NULL",
+			created.ClassAttendanceSessionParticipantID).
+		Order("class_attendance_session_participant_url_is_primary DESC, class_attendance_session_participant_url_order ASC, class_attendance_session_participant_url_created_at ASC").
+		Find(&urls)
+
+	c.Set("Location", "/student-attendance/"+created.ClassAttendanceSessionParticipantID.String())
+	return helper.JsonCreated(c, "Kehadiran & lampiran berhasil dibuat", fiber.Map{
+		"attendance": created,
+		"urls":       urls,
+	})
+}
+
+// parse "HH:MM[:SS]" jadi *time.Time (tanggal dummy 2000-01-01)
+func parseRuleTimeToPtr(s *string) *time.Time {
+	if s == nil {
+		return nil
+	}
+	str := strings.TrimSpace(*s)
+	if str == "" {
+		return nil
+	}
+
+	layouts := []string{"15:04:05", "15:04"}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, str); err == nil {
+			// pakai tanggal dummy supaya hanya time-of-day yang dipakai
+			tt := time.Date(2000, 1, 1, t.Hour(), t.Minute(), t.Second(), 0, time.Local)
+			return &tt
+		}
+	}
+	// kalau gagal parse, kita fallback nil aja (nggak hard error)
+	return nil
+}
+
 /* =================================================================
    LIST /admin/class-attendance-sessions — updated to DTO terbaru
 ================================================================= */
@@ -124,7 +336,13 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			includeSet[p] = true
 		}
 	}
-	wantUA := includeAll || includeSet["user_attendance"] || includeSet["user_attendances"] || includeSet["attendance"] || includeSet["ua"]
+	// pakai participants, bukan user_attendance lagi
+	wantParticipants :=
+		includeAll ||
+			includeSet["participants"] ||
+			includeSet["participant"] ||
+			includeSet["session_participants"] ||
+			includeSet["session_participant"]
 
 	// ===== Pagination =====
 	p := helper.ResolvePaging(c, 20, 200)
@@ -247,25 +465,61 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
-	// ===== Page data (UPDATED to DTO) =====
+	// ===== Page data (UPDATED to DTO, lengkap) =====
 	type row struct {
-		ID         uuid.UUID  `gorm:"column:class_attendance_session_id"`
-		SchoolID   uuid.UUID  `gorm:"column:class_attendance_session_school_id"`
+		// kunci utama
+		ID       uuid.UUID `gorm:"column:class_attendance_session_id"`
+		SchoolID uuid.UUID `gorm:"column:class_attendance_session_school_id"`
+
+		// relasi jadwal & rule
 		ScheduleID *uuid.UUID `gorm:"column:class_attendance_session_schedule_id"`
-		RoomID     *uuid.UUID `gorm:"column:class_attendance_session_class_room_id"`
-		TeacherID  *uuid.UUID `gorm:"column:class_attendance_session_teacher_id"`
+		RuleID     *uuid.UUID `gorm:"column:class_attendance_session_rule_id"`
 
-		Date      time.Time  `gorm:"column:class_attendance_session_date"`
-		Title     *string    `gorm:"column:class_attendance_session_title"`
-		Disp      *string    `gorm:"column:class_attendance_session_display_title"`
-		Gen       *string    `gorm:"column:class_attendance_session_general_info"`
-		Note      *string    `gorm:"column:class_attendance_session_note"`
-		DeletedAt *time.Time `gorm:"column:class_attendance_session_deleted_at"`
+		// slug
+		Slug *string `gorm:"column:class_attendance_session_slug"`
 
-		// hanya CSST snapshot raw yang tersisa
+		// waktu
+		Date     time.Time  `gorm:"column:class_attendance_session_date"`
+		StartsAt *time.Time `gorm:"column:class_attendance_session_starts_at"`
+		EndsAt   *time.Time `gorm:"column:class_attendance_session_ends_at"`
+
+		// status session
+		Status           string `gorm:"column:class_attendance_session_status"`
+		AttendanceStatus string `gorm:"column:class_attendance_session_attendance_status"`
+		Locked           bool   `gorm:"column:class_attendance_session_locked"`
+		IsOverride       bool   `gorm:"column:class_attendance_session_is_override"`
+		IsCanceled       bool   `gorm:"column:class_attendance_session_is_canceled"`
+
+		OriginalStartAt *time.Time `gorm:"column:class_attendance_session_original_start_at"`
+		OriginalEndAt   *time.Time `gorm:"column:class_attendance_session_original_end_at"`
+		Kind            *string    `gorm:"column:class_attendance_session_kind"`
+		OverrideReason  *string    `gorm:"column:class_attendance_session_override_reason"`
+		OverrideEventID *uuid.UUID `gorm:"column:class_attendance_session_override_event_id"`
+
+		// relasi guru & ruang
+		TeacherID *uuid.UUID `gorm:"column:class_attendance_session_teacher_id"`
+		RoomID    *uuid.UUID `gorm:"column:class_attendance_session_class_room_id"`
+
+		// relasi CSST (header class-Subject-Teacher)
+		CSSTID *uuid.UUID `gorm:"column:class_attendance_session_csst_id"`
+
+		// teks tampilan
+		Title        *string `gorm:"column:class_attendance_session_title"`
+		DisplayTitle *string `gorm:"column:class_attendance_session_display_title"`
+		Gen          *string `gorm:"column:class_attendance_session_general_info"`
+		Note         *string `gorm:"column:class_attendance_session_note"`
+
+		// counters attendance (rekap)
+		PresentCount *int `gorm:"column:class_attendance_session_present_count"`
+		AbsentCount  *int `gorm:"column:class_attendance_session_absent_count"`
+		LateCount    *int `gorm:"column:class_attendance_session_late_count"`
+		ExcusedCount *int `gorm:"column:class_attendance_session_excused_count"`
+		SickCount    *int `gorm:"column:class_attendance_session_sick_count"`
+		LeaveCount   *int `gorm:"column:class_attendance_session_leave_count"`
+
+		// snapshot CSST (JSON) + turunan kolom snapshot
 		CSSTSnap datatypes.JSON `gorm:"column:class_attendance_session_csst_snapshot"`
 
-		// generated snapshot columns (pakai *_snapshot)
 		CSSTIDSnapshot      *uuid.UUID `gorm:"column:class_attendance_session_csst_id_snapshot"`
 		SubjectIDSnapshot   *uuid.UUID `gorm:"column:class_attendance_session_subject_id_snapshot"`
 		SectionIDSnapshot   *uuid.UUID `gorm:"column:class_attendance_session_section_id_snapshot"`
@@ -276,6 +530,18 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		SectionNameSnapshot *string    `gorm:"column:class_attendance_session_section_name_snapshot"`
 		TeacherNameSnapshot *string    `gorm:"column:class_attendance_session_teacher_name_snapshot"`
 		RoomNameSnapshot    *string    `gorm:"column:class_attendance_session_room_name_snapshot"`
+
+		// rule snapshot (JSON & turunan)
+		RuleSnapshot           datatypes.JSON `gorm:"column:class_attendance_session_rule_snapshot"`
+		RuleDayOfWeekSnapshot  *int           `gorm:"column:class_attendance_session_rule_day_of_week_snapshot"`
+		RuleStartTimeSnapshot  *string        `gorm:"column:class_attendance_session_rule_start_time_snapshot"`
+		RuleEndTimeSnapshot    *string        `gorm:"column:class_attendance_session_rule_end_time_snapshot"`
+		RuleWeekParitySnapshot *string        `gorm:"column:class_attendance_session_rule_week_parity_snapshot"`
+
+		// audit
+		CreatedAt time.Time  `gorm:"column:class_attendance_session_created_at"`
+		UpdatedAt time.Time  `gorm:"column:class_attendance_session_updated_at"`
+		DeletedAt *time.Time `gorm:"column:class_attendance_session_deleted_at"`
 	}
 
 	var rows []row
@@ -284,18 +550,35 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			cas.class_attendance_session_id,
 			cas.class_attendance_session_school_id,
 			cas.class_attendance_session_schedule_id,
-			cas.class_attendance_session_class_room_id,
-			cas.class_attendance_session_teacher_id,
-
+			cas.class_attendance_session_rule_id,
+			cas.class_attendance_session_slug,
 			cas.class_attendance_session_date,
+			cas.class_attendance_session_starts_at,
+			cas.class_attendance_session_ends_at,
+			cas.class_attendance_session_status,
+			cas.class_attendance_session_attendance_status,
+			cas.class_attendance_session_locked,
+			cas.class_attendance_session_is_override,
+			cas.class_attendance_session_is_canceled,
+			cas.class_attendance_session_original_start_at,
+			cas.class_attendance_session_original_end_at,
+			cas.class_attendance_session_kind,
+			cas.class_attendance_session_override_reason,
+			cas.class_attendance_session_override_event_id,
+			cas.class_attendance_session_teacher_id,
+			cas.class_attendance_session_class_room_id,
+			cas.class_attendance_session_csst_id,
 			cas.class_attendance_session_title,
 			cas.class_attendance_session_display_title,
 			cas.class_attendance_session_general_info,
 			cas.class_attendance_session_note,
-			cas.class_attendance_session_deleted_at,
-
+			cas.class_attendance_session_present_count,
+			cas.class_attendance_session_absent_count,
+			cas.class_attendance_session_late_count,
+			cas.class_attendance_session_excused_count,
+			cas.class_attendance_session_sick_count,
+			cas.class_attendance_session_leave_count,
 			cas.class_attendance_session_csst_snapshot,
-
 			cas.class_attendance_session_csst_id_snapshot,
 			cas.class_attendance_session_subject_id_snapshot,
 			cas.class_attendance_session_section_id_snapshot,
@@ -305,7 +588,15 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			cas.class_attendance_session_subject_name_snapshot,
 			cas.class_attendance_session_section_name_snapshot,
 			cas.class_attendance_session_teacher_name_snapshot,
-			cas.class_attendance_session_room_name_snapshot
+			cas.class_attendance_session_room_name_snapshot,
+			cas.class_attendance_session_rule_snapshot,
+			cas.class_attendance_session_rule_day_of_week_snapshot,
+			cas.class_attendance_session_rule_start_time_snapshot,
+			cas.class_attendance_session_rule_end_time_snapshot,
+			cas.class_attendance_session_rule_week_parity_snapshot,
+			cas.class_attendance_session_created_at,
+			cas.class_attendance_session_updated_at,
+			cas.class_attendance_session_deleted_at
 		`).
 		Order(orderExpr).
 		Order("cas.class_attendance_session_date DESC, cas.class_attendance_session_id DESC").
@@ -321,125 +612,201 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	}
 
 	// ===== Prefetch UA (opsional) =====
-	type UserAttendanceLite struct {
-		UserAttendanceID uuid.UUID  `json:"user_attendance_id"`
-		SessionID        uuid.UUID  `json:"user_attendance_session_id"`
-		SchoolStudentID  uuid.UUID  `json:"user_attendance_school_student_id"`
-		Status           string     `json:"user_attendance_status"`
-		TypeID           *uuid.UUID `json:"user_attendance_type_id,omitempty"`
-		Desc             *string    `json:"user_attendance_desc,omitempty"`
-		Score            *float64   `json:"user_attendance_score,omitempty"`
-		IsPassed         *bool      `json:"user_attendance_is_passed,omitempty"`
-		UserNote         *string    `json:"user_attendance_user_note,omitempty"`
-		TeacherNote      *string    `json:"user_attendance_teacher_note,omitempty"`
-		CreatedAt        time.Time  `json:"user_attendance_created_at"`
-		UpdatedAt        time.Time  `json:"user_attendance_updated_at"`
+	// ===== Prefetch Participants (opsional) =====
+	type SessionParticipantLite struct {
+		ParticipantID     uuid.UUID  `json:"participant_id"`
+		SessionID         uuid.UUID  `json:"participant_session_id"`
+		SchoolStudentID   *uuid.UUID `json:"participant_school_student_id,omitempty"`
+		Kind              string     `json:"participant_kind"`
+		State             string     `json:"participant_state"`
+		TypeID            *uuid.UUID `json:"participant_type_id,omitempty"`
+		Desc              *string    `json:"participant_desc,omitempty"`
+		Score             *float64   `json:"participant_score,omitempty"`
+		IsPassed          *bool      `json:"participant_is_passed,omitempty"`
+		UserNote          *string    `json:"participant_user_note,omitempty"`
+		TeacherNote       *string    `json:"participant_teacher_note,omitempty"`
+		CheckinAt         *time.Time `json:"participant_checkin_at,omitempty"`
+		CheckoutAt        *time.Time `json:"participant_checkout_at,omitempty"`
+		LateSeconds       *int       `json:"participant_late_seconds,omitempty"`
+		CreatedAt         time.Time  `json:"participant_created_at"`
+		UpdatedAt         time.Time  `json:"participant_updated_at"`
+		MarkedAt          *time.Time `json:"participant_marked_at,omitempty"`
+		MarkedByTeacherID *uuid.UUID `json:"participant_marked_by_teacher_id,omitempty"`
+		Method            *string    `json:"participant_method,omitempty"`
+		TeacherRole       *string    `json:"participant_teacher_role,omitempty"`
+		Lat               *float64   `json:"participant_lat,omitempty"`
+		Lng               *float64   `json:"participant_lng,omitempty"`
+		DistanceM         *int       `json:"participant_distance_m,omitempty"`
 	}
-	uaMap := map[uuid.UUID][]UserAttendanceLite{}
 
-	if wantUA && len(rows) > 0 {
-		uaStatus := strings.ToLower(strings.TrimSpace(c.Query("ua_status")))
-		uaTypeIDPtr, err := parseUUIDPtr(c.Query("ua_type_id"), "ua_type_id")
+	partMap := map[uuid.UUID][]SessionParticipantLite{}
+
+	if wantParticipants && len(rows) > 0 {
+		// filter via query param baru
+		state := strings.ToLower(strings.TrimSpace(c.Query("participant_state")))
+		kind := strings.ToLower(strings.TrimSpace(c.Query("participant_kind")))
+
+		typeIDPtr, err := parseUUIDPtr(c.Query("participant_type_id"), "participant_type_id")
 		if err != nil {
 			return err
 		}
-		var uaStudentIDs []uuid.UUID
-		if ids, err := parseUUIDList(c.Query("ua_student_id")); err != nil {
+
+		// filter by student
+		var studentIDs []uuid.UUID
+		if ids, err := parseUUIDList(c.Query("participant_student_id")); err != nil {
 			return err
 		} else if len(ids) > 0 {
-			uaStudentIDs = ids
+			studentIDs = ids
 		} else if ids, err := parseUUIDList(c.Query("school_student_id")); err != nil {
 			return err
 		} else if len(ids) > 0 {
-			uaStudentIDs = ids
+			studentIDs = ids
 		}
-		var uaLike *string
-		if q := strings.TrimSpace(c.Query("ua_q")); q != "" {
+
+		// text search
+		var like *string
+		if q := strings.TrimSpace(c.Query("participant_q")); q != "" {
 			pat := "%" + q + "%"
-			uaLike = &pat
+			like = &pat
 		}
-		var uaIsPassedPtr *bool
-		if s := strings.TrimSpace(c.Query("ua_is_passed")); s != "" {
+
+		// is_passed
+		var isPassedPtr *bool
+		if s := strings.TrimSpace(c.Query("participant_is_passed")); s != "" {
 			if b, e := strconv.ParseBool(s); e == nil {
-				uaIsPassedPtr = &b
+				isPassedPtr = &b
 			} else {
-				return helper.JsonError(c, fiber.StatusBadRequest, "ua_is_passed tidak valid (true/false)")
+				return helper.JsonError(c, fiber.StatusBadRequest, "participant_is_passed tidak valid (true/false)")
 			}
 		}
 
-		uaQ := ctrl.DB.Table("user_attendance AS ua").
-			Where("ua.user_attendance_deleted_at IS NULL").
-			Where("ua.user_attendance_school_id = ?", schoolID).
-			Where("ua.user_attendance_session_id IN ?", pageIDs)
+		// ==== QUERY ke tabel baru: class_attendance_session_participants ====
+		paQ := ctrl.DB.Table("class_attendance_session_participants AS p").
+			Where("p.class_attendance_session_participant_deleted_at IS NULL").
+			Where("p.class_attendance_session_participant_school_id = ?", schoolID).
+			Where("p.class_attendance_session_participant_session_id IN ?", pageIDs)
 
-		if uaStatus != "" {
-			uaQ = uaQ.Where("LOWER(ua.user_attendance_status) = ?", uaStatus)
+		if state != "" {
+			paQ = paQ.Where("LOWER(p.class_attendance_session_participant_state) = ?", state)
 		}
-		if uaTypeIDPtr != nil {
-			uaQ = uaQ.Where("ua.user_attendance_type_id = ?", *uaTypeIDPtr)
+		if kind != "" {
+			paQ = paQ.Where("LOWER(p.class_attendance_session_participant_kind) = ?", kind)
 		}
-		if len(uaStudentIDs) > 0 {
-			uaQ = uaQ.Where("ua.user_attendance_school_student_id IN ?", uaStudentIDs)
+		if typeIDPtr != nil {
+			paQ = paQ.Where("p.class_attendance_session_participant_type_id = ?", *typeIDPtr)
 		}
-		if uaLike != nil {
-			uaQ = uaQ.Where(`
-				(ua.user_attendance_desc ILIKE ?
-				 OR ua.user_attendance_user_note ILIKE ?
-				 OR ua.user_attendance_teacher_note ILIKE ?)`, *uaLike, *uaLike, *uaLike)
+		if len(studentIDs) > 0 {
+			paQ = paQ.Where("p.class_attendance_session_participant_school_student_id IN ?", studentIDs)
 		}
-		if uaIsPassedPtr != nil {
-			uaQ = uaQ.Where("ua.user_attendance_is_passed = ?", *uaIsPassedPtr)
+		if like != nil {
+			paQ = paQ.Where(`
+				(p.class_attendance_session_participant_desc ILIKE ?
+				 OR p.class_attendance_session_participant_user_note ILIKE ?
+				 OR p.class_attendance_session_participant_teacher_note ILIKE ?)`,
+				*like, *like, *like)
+		}
+		if isPassedPtr != nil {
+			paQ = paQ.Where("p.class_attendance_session_participant_is_passed = ?", *isPassedPtr)
 		}
 
-		// Role-scope Student/Parent
+		// Role-scope Student/Parent (hanya boleh lihat participant miliknya)
 		if !isAdmin && !isTeacher {
 			if userID == uuid.Nil {
 				return helper.JsonError(c, fiber.StatusUnauthorized, "User tidak terautentik")
 			}
-			uaQ = uaQ.Joins(`
-				JOIN school_students ms ON ms.school_student_id = ua.user_attendance_school_student_id
+			paQ = paQ.Joins(`
+				JOIN school_students ms
+				  ON ms.school_student_id = p.class_attendance_session_participant_school_student_id
 				 AND ms.school_student_deleted_at IS NULL
 				 AND ms.school_student_user_id = ?
 				 AND ms.school_student_school_id = ?
 			`, userID, schoolID)
 		}
 
-		type uaRow struct {
-			ID, SessionID, StudentID uuid.UUID
-			Status                   string
-			TypeID                   *uuid.UUID
-			Desc, UserNote           *string
-			TeacherNote              *string
-			Score                    *float64
-			IsPassed                 *bool
-			CreatedAt, UpdatedAt     time.Time
+		type paRow struct {
+			ID, SessionID     uuid.UUID
+			SchoolStudentID   *uuid.UUID
+			Kind, State       string
+			TypeID            *uuid.UUID
+			Desc, UserNote    *string
+			TeacherNote       *string
+			Score             *float64
+			IsPassed          *bool
+			CheckinAt         *time.Time
+			CheckoutAt        *time.Time
+			LateSeconds       *int
+			CreatedAt         time.Time
+			UpdatedAt         time.Time
+			MarkedAt          *time.Time
+			MarkedByTeacherID *uuid.UUID
+			Method            *string
+			TeacherRole       *string
+			Lat               *float64
+			Lng               *float64
+			DistanceM         *int
 		}
-		var uaRows []uaRow
-		if err := uaQ.
+
+		var paRows []paRow
+		if err := paQ.
 			Select(`
-				ua.user_attendance_id,
-				ua.user_attendance_session_id,
-				ua.user_attendance_school_student_id,
-				ua.user_attendance_status,
-				ua.user_attendance_type_id,
-				ua.user_attendance_desc,
-				ua.user_attendance_score,
-				ua.user_attendance_is_passed,
-				ua.user_attendance_user_note,
-				ua.user_attendance_teacher_note,
-				ua.user_attendance_created_at,
-				ua.user_attendance_updated_at
+				p.class_attendance_session_participant_id,
+				p.class_attendance_session_participant_session_id,
+				p.class_attendance_session_participant_school_student_id,
+				p.class_attendance_session_participant_kind,
+				p.class_attendance_session_participant_state,
+				p.class_attendance_session_participant_type_id,
+				p.class_attendance_session_participant_desc,
+				p.class_attendance_session_participant_score,
+				p.class_attendance_session_participant_is_passed,
+				p.class_attendance_session_participant_user_note,
+				p.class_attendance_session_participant_teacher_note,
+				p.class_attendance_session_participant_checkin_at,
+				p.class_attendance_session_participant_checkout_at,
+				p.class_attendance_session_participant_late_seconds,
+				p.class_attendance_session_participant_marked_at,
+				p.class_attendance_session_participant_marked_by_teacher_id,
+				p.class_attendance_session_participant_method,
+				p.class_attendance_session_participant_teacher_role,
+				p.class_attendance_session_participant_lat,
+				p.class_attendance_session_participant_lng,
+				p.class_attendance_session_participant_distance_m,
+				p.class_attendance_session_participant_created_at,
+				p.class_attendance_session_participant_updated_at
 			`).
-			Order("ua.user_attendance_session_id ASC, ua.user_attendance_created_at ASC, ua.user_attendance_id ASC").
-			Find(&uaRows).Error; err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil user_attendance")
+			Order(`
+				p.class_attendance_session_participant_session_id ASC,
+				p.class_attendance_session_participant_created_at ASC,
+				p.class_attendance_session_participant_id ASC
+			`).
+			Find(&paRows).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data peserta absensi")
 		}
-		for _, r := range uaRows {
-			uaMap[r.SessionID] = append(uaMap[r.SessionID], UserAttendanceLite{
-				UserAttendanceID: r.ID, SessionID: r.SessionID, SchoolStudentID: r.StudentID,
-				Status: r.Status, TypeID: r.TypeID, Desc: r.Desc, Score: r.Score,
-				IsPassed: r.IsPassed, UserNote: r.UserNote, TeacherNote: r.TeacherNote,
-				CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+
+		for _, r := range paRows {
+			partMap[r.SessionID] = append(partMap[r.SessionID], SessionParticipantLite{
+				ParticipantID:     r.ID,
+				SessionID:         r.SessionID,
+				SchoolStudentID:   r.SchoolStudentID,
+				Kind:              r.Kind,
+				State:             r.State,
+				TypeID:            r.TypeID,
+				Desc:              r.Desc,
+				Score:             r.Score,
+				IsPassed:          r.IsPassed,
+				UserNote:          r.UserNote,
+				TeacherNote:       r.TeacherNote,
+				CheckinAt:         r.CheckinAt,
+				CheckoutAt:        r.CheckoutAt,
+				LateSeconds:       r.LateSeconds,
+				CreatedAt:         r.CreatedAt,
+				UpdatedAt:         r.UpdatedAt,
+				MarkedAt:          r.MarkedAt,
+				MarkedByTeacherID: r.MarkedByTeacherID,
+				Method:            r.Method,
+				TeacherRole:       r.TeacherRole,
+				Lat:               r.Lat,
+				Lng:               r.Lng,
+				DistanceM:         r.DistanceM,
 			})
 		}
 	}
@@ -450,22 +817,58 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 		if r.Gen != nil {
 			gen = *r.Gen
 		}
+
 		return sessiondto.ClassAttendanceSessionResponse{
-			ClassAttendanceSessionId:           r.ID,
-			ClassAttendanceSessionSchoolId:     r.SchoolID,
-			ClassAttendanceSessionScheduleId:   r.ScheduleID,
-			ClassAttendanceSessionDate:         r.Date,
+			// kunci & tenant
+			ClassAttendanceSessionId:       r.ID,
+			ClassAttendanceSessionSchoolId: r.SchoolID,
+
+			// relasi jadwal
+			ClassAttendanceSessionScheduleId: r.ScheduleID,
+			ClassAttendanceSessionSlug:       r.Slug,
+
+			// waktu
+			ClassAttendanceSessionDate:     r.Date,
+			ClassAttendanceSessionStartsAt: r.StartsAt,
+			ClassAttendanceSessionEndsAt:   r.EndsAt,
+
+			// status
+			ClassAttendanceSessionStatus:           r.Status,
+			ClassAttendanceSessionAttendanceStatus: r.AttendanceStatus,
+			ClassAttendanceSessionLocked:           r.Locked,
+			ClassAttendanceSessionIsOverride:       r.IsOverride,
+			ClassAttendanceSessionIsCanceled:       r.IsCanceled,
+
+			ClassAttendanceSessionOriginalStartAt: r.OriginalStartAt,
+			ClassAttendanceSessionOriginalEndAt:   r.OriginalEndAt,
+			ClassAttendanceSessionKind:            r.Kind,
+			ClassAttendanceSessionOverrideReason:  r.OverrideReason,
+			ClassAttendanceSessionOverrideEventId: r.OverrideEventID,
+
+			// relasi guru & ruang
+			ClassAttendanceSessionTeacherId:   r.TeacherID,
+			ClassAttendanceSessionClassRoomId: r.RoomID,
+
+			// CSST relasi
+			ClassAttendanceSessionCSSTId: r.CSSTID,
+
+			// teks tampilan
 			ClassAttendanceSessionTitle:        r.Title,
-			ClassAttendanceSessionDisplayTitle: r.Disp,
+			ClassAttendanceSessionDisplayTitle: r.DisplayTitle,
 			ClassAttendanceSessionGeneralInfo:  gen,
 			ClassAttendanceSessionNote:         r.Note,
-			ClassAttendanceSessionTeacherId:    r.TeacherID,
-			ClassAttendanceSessionClassRoomId:  r.RoomID,
 
-			// only CSST raw snapshot left
+			// counters
+			ClassAttendanceSessionPresentCount: r.PresentCount,
+			ClassAttendanceSessionAbsentCount:  r.AbsentCount,
+			ClassAttendanceSessionLateCount:    r.LateCount,
+			ClassAttendanceSessionExcusedCount: r.ExcusedCount,
+			ClassAttendanceSessionSickCount:    r.SickCount,
+			ClassAttendanceSessionLeaveCount:   r.LeaveCount,
+
+			// snapshot CSST — dikembalikan sebagai map (bukan string mentah)
 			ClassAttendanceSessionCSSTSnapshot: jsonToMap(r.CSSTSnap),
 
-			// generated snapshots
 			ClassAttendanceSessionCSSTIdSnapshot:      r.CSSTIDSnapshot,
 			ClassAttendanceSessionSubjectIdSnapshot:   r.SubjectIDSnapshot,
 			ClassAttendanceSessionSectionIdSnapshot:   r.SectionIDSnapshot,
@@ -477,6 +880,17 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 			ClassAttendanceSessionTeacherNameSnapshot: r.TeacherNameSnapshot,
 			ClassAttendanceSessionRoomNameSnapshot:    r.RoomNameSnapshot,
 
+			// rule snapshot — juga dikembalikan sebagai map
+			// rule snapshot — juga dikembalikan sebagai map
+			ClassAttendanceSessionRuleSnapshot:           jsonToMap(r.RuleSnapshot),
+			ClassAttendanceSessionRuleDayOfWeekSnapshot:  r.RuleDayOfWeekSnapshot,
+			ClassAttendanceSessionRuleStartTimeSnapshot:  parseRuleTimeToPtr(r.RuleStartTimeSnapshot),
+			ClassAttendanceSessionRuleEndTimeSnapshot:    parseRuleTimeToPtr(r.RuleEndTimeSnapshot),
+			ClassAttendanceSessionRuleWeekParitySnapshot: r.RuleWeekParitySnapshot,
+
+			// audit
+			ClassAttendanceSessionCreatedAt: r.CreatedAt,
+			ClassAttendanceSessionUpdatedAt: r.UpdatedAt,
 			ClassAttendanceSessionDeletedAt: r.DeletedAt,
 		}
 	}
@@ -484,16 +898,16 @@ func (ctrl *ClassAttendanceSessionController) ListClassAttendanceSessions(c *fib
 	// ===== Meta =====
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
 
-	if wantUA {
-		type SessionWithUA struct {
+	if wantParticipants {
+		type SessionWithParticipants struct {
 			sessiondto.ClassAttendanceSessionResponse
-			UserAttendance []UserAttendanceLite `json:"user_attendance,omitempty"`
+			Participants []SessionParticipantLite `json:"participants,omitempty"`
 		}
-		out := make([]SessionWithUA, 0, len(rows))
+		out := make([]SessionWithParticipants, 0, len(rows))
 		for _, r := range rows {
-			out = append(out, SessionWithUA{
+			out = append(out, SessionWithParticipants{
 				ClassAttendanceSessionResponse: buildBase(r),
-				UserAttendance:                 uaMap[r.ID],
+				Participants:                   partMap[r.ID],
 			})
 		}
 		return helper.JsonList(c, "ok", out, pg)
@@ -521,7 +935,7 @@ func (ctrl *ClassAttendanceSessionController) ListMyTeachingSessions(c *fiber.Ct
 		if fe, ok := er.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
-		return helper.JsonError(c, fiber.StatusBadRequest, er.Error())
+		return helper.JsonError(c, http.StatusBadRequest, er.Error())
 	}
 	var schoolID uuid.UUID
 	switch {

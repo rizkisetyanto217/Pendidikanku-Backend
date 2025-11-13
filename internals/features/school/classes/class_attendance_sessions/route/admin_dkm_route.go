@@ -17,8 +17,8 @@ func AttendanceSessionsAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// =====================
 	// User Attendance Types (CRUD)
 	// =====================
-	uattCtl := uaCtrl.NewStudentAttendanceTypeController(db)
-	uatt := schoolGroup.Group("/student-attendance-types")
+	uattCtl := uaCtrl.NewClassAttendanceSessionParticipantTypeController(db)
+	uatt := schoolGroup.Group("/attendance-participant-types")
 	uatt.Post("/", uattCtl.Create)
 	uatt.Get("/", uattCtl.List)
 	uatt.Patch("/:id", uattCtl.Patch)

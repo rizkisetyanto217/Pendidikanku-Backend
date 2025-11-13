@@ -166,7 +166,7 @@ func ApplyRoomSnapshotToSection(mcs *secModel.ClassSectionModel, rs *RoomSnapsho
 // ApplyRoomIDAndSnapshotToSection mengisi ID snapshot dan JSON snapshot sekaligus.
 func ApplyRoomIDAndSnapshotToSection(mcs *secModel.ClassSectionModel, roomID *uuid.UUID, rs *RoomSnapshot) {
 	// set ID snapshot (boleh nil untuk clear)
-	mcs.ClassSectionClassRoomIDSnapshot = roomID
+	mcs.ClassSectionClassRoomID = roomID
 	// set JSON & turunan
 	ApplyRoomSnapshotToSection(mcs, rs)
 }

@@ -43,7 +43,6 @@ func NewAssessmentController(db *gorm.DB) *AssessmentController {
 /* ========================================================
    Helpers
 ======================================================== */
-// ===== struktur helper utk SELECT sesi =====
 
 // ====== util autofill judul & deskripsi ======
 func autofillTitle(current string, csstName *string, annTitle *string) string {
@@ -58,6 +57,7 @@ func autofillTitle(current string, csstName *string, annTitle *string) string {
 	}
 	return "Penilaian"
 }
+
 func autofillDesc(curr *string, ann *sessRow, col *sessRow) *string {
 	has := func(s string) bool { return strings.TrimSpace(s) != "" }
 	if curr != nil && has(*curr) {
@@ -138,6 +138,7 @@ func pickTime(s *sessRow) time.Time {
 	}
 	return time.Now().UTC()
 }
+
 func makeSessionSnap(s *sessRow) datatypes.JSONMap {
 	if s == nil {
 		return datatypes.JSONMap{}
@@ -153,7 +154,7 @@ func makeSessionSnap(s *sessRow) datatypes.JSONMap {
 		m["date"] = s.Date.UTC()
 	}
 	if s.Title != nil && strings.TrimSpace(*s.Title) != "" {
-		m["title"] = strings.TrimSpace(*s.Title) // ← tadinya "display_title"
+		m["title"] = strings.TrimSpace(*s.Title)
 	}
 	return datatypes.JSONMap(m)
 }
@@ -163,14 +164,11 @@ func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
 }
 
 // validasi guru milik school
-// assertTeacherBelongsToSchool: pastikan school_teacher milik school
-// was: func (ctl *AssessmentController) assertTeacherBelongsToSchool(ctx fiber.Ctx, schoolID uuid.UUID, teacherID *uuid.UUID) error
 func (ctl *AssessmentController) assertTeacherBelongsToSchool(c *fiber.Ctx, schoolID uuid.UUID, teacherID *uuid.UUID) error {
 	if teacherID == nil || *teacherID == uuid.Nil {
 		return nil
 	}
 
-	// Ambil school_id dari school_teachers
 	var row struct {
 		M uuid.UUID `gorm:"column:m"`
 	}
@@ -182,7 +180,6 @@ func (ctl *AssessmentController) assertTeacherBelongsToSchool(c *fiber.Ctx, scho
 		return err
 	}
 
-	// Pastikan teacher milik school yang sama
 	if row.M != schoolID {
 		return fiber.NewError(fiber.StatusForbidden, "Guru bukan milik school Anda")
 	}
@@ -191,18 +188,17 @@ func (ctl *AssessmentController) assertTeacherBelongsToSchool(c *fiber.Ctx, scho
 
 // Resolver akses: DKM/Admin via helper, atau Teacher pada school tsb.
 func resolveSchoolForDKMOrTeacher(c *fiber.Ctx) (uuid.UUID, error) {
-	// 1) Ambil school context (path/header/cookie/query/host/token)
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return uuid.Nil, err
 	}
 
-	// 2) Coba jalur DKM/Admin
+	// DKM/Admin
 	if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil && id != uuid.Nil {
 		return id, nil
 	}
 
-	// 3) Fallback: izinkan GURU pada school ini
+	// Fallback: Teacher
 	var schoolID uuid.UUID
 	if mc.ID != uuid.Nil {
 		schoolID = mc.ID
@@ -280,7 +276,6 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	}
 
 	// Validasi creator teacher (opsional)
-	// before: if err := ctl.assertTeacherBelongsToSchool(*c, mid, req.AssessmentCreatedByTeacherID); err != nil {
 	if err := ctl.assertTeacherBelongsToSchool(c, mid, req.AssessmentCreatedByTeacherID); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
@@ -321,7 +316,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		}
 
 		row := req.ToModel()
-		row.AssessmentSubmissionMode = "session"
+		row.AssessmentSubmissionMode = model.SubmissionModeSession
 
 		// Turunkan start/due dari sesi bila belum diisi
 		if row.AssessmentStartAt == nil && ann != nil {
@@ -372,7 +367,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	}
 
 	row := req.ToModel()
-	row.AssessmentSubmissionMode = "date"
+	row.AssessmentSubmissionMode = model.SubmissionModeDate
 
 	// Auto-title (pakai csstName bila title kosong)
 	row.AssessmentTitle = autofillTitle(row.AssessmentTitle, csstName, nil)
@@ -430,7 +425,6 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	}
 
 	// validasi guru bila diubah
-	// before: if err := ctl.assertTeacherBelongsToSchool(*c, mid, req.AssessmentCreatedByTeacherID); err != nil {
 	if err := ctl.assertTeacherBelongsToSchool(c, mid, req.AssessmentCreatedByTeacherID); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
@@ -514,7 +508,7 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		req.Apply(&existing)
 
 		// Set mode & session ids final
-		existing.AssessmentSubmissionMode = "session"
+		existing.AssessmentSubmissionMode = model.SubmissionModeSession
 		existing.AssessmentAnnounceSessionID = finalAnnID
 		existing.AssessmentCollectSessionID = finalColID
 
@@ -572,7 +566,7 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 
 	// Terapkan PATCH & set mode/date
 	req.Apply(&existing)
-	existing.AssessmentSubmissionMode = "date"
+	existing.AssessmentSubmissionMode = model.SubmissionModeDate
 
 	// Jika pindah ke date → bersihkan session IDs & snapshots bila user clear
 	existing.AssessmentAnnounceSessionID = finalAnnID // akan nil jika user kirim UUID nil
@@ -593,7 +587,6 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 
 // DELETE /assessments/:id (soft delete)
 func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
-	// Pastikan helper slug→id bisa akses DB dari context
 	c.Locals("DB", ctl.DB)
 
 	id, err := parseUUIDParam(c, "id")

@@ -1,12 +1,13 @@
+// file: internals/features/school/assessments/controller/assessment_list_controller.go
 package controller
 
 import (
+	"strings"
+
 	dto "schoolku_backend/internals/features/school/submissions_assesments/assesments/dto"
 	model "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
-
-	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -67,7 +68,11 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		}
 		mid = id
 	} else {
-		return helper.JsonError(c, helperAuth.ErrSchoolContextMissing.Code, helperAuth.ErrSchoolContextMissing.Message)
+		return helper.JsonError(
+			c,
+			helperAuth.ErrSchoolContextMissing.Code,
+			helperAuth.ErrSchoolContextMissing.Message,
+		)
 	}
 
 	// 2) Authorize: minimal member school (any role)
@@ -98,7 +103,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	}
 	wantTypes := includeAll || includes["type"] || includes["types"] || eqTrue(c.Query("with_types"))
 
-	// opsi URL (metadata saja)
+	// opsi URL (metadata saja – implementasi URL bisa nyusul)
 	withURLs := eqTrue(c.Query("with_urls"))
 	urlsPublishedOnly := eqTrue(c.Query("urls_published_only"))
 	urlsLimitPer := atoiOr(0, c.Query("urls_limit_per")) // 0 = tanpa batas
@@ -137,10 +142,10 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		sdPtr = &sortDir
 	}
 
-	// 4) Base query (singular columns)
+	// 4) Base query (hanya alive)
 	qry := ctl.DB.WithContext(c.Context()).
 		Model(&model.AssessmentModel{}).
-		Where("assessment_school_id = ?", mid)
+		Where("assessment_school_id = ? AND assessment_deleted_at IS NULL", mid)
 
 	if typeID != nil {
 		qry = qry.Where("assessment_type_id = ?", *typeID)

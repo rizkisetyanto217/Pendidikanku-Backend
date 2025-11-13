@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	attDTO "schoolku_backend/internals/features/school/classes/class_attendance_sessions/dto"
 	attModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
+	attDTO "schoolku_backend/internals/features/school/classes/class_attendance_sessions/dto"
 
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
@@ -80,18 +80,18 @@ func (ctl *StudentAttendanceController) ensureSessionBelongsToSchool(c *fiber.Ct
 POST /student-attendance (WITH URLs)
   - JSON:
     {
-    "attendance": { ...StudentClassSessionAttendanceCreateRequest... },
-    "urls": [ {op:"upsert", kind,label,href,object_key,order,is_primary,...}, ... ]
+    "attendance": { ...ClassAttendanceSessionParticipantCreateRequest... },
+    "urls": [ {op:"upsert", kind,label,url,object_key,order,is_primary,...}, ... ]
     }
 
 - multipart/form-data:
-  - attendance_json: JSON StudentClassSessionAttendanceCreateRequest (wajib)
-  - urls_json: JSON array StudentClassSessionAttendanceURLOpDTO (opsional; op akan dipaksa "upsert")
+  - attendance_json: JSON ClassAttendanceSessionParticipantCreateRequest (wajib)
+  - urls_json: JSON array ClassAttendanceSessionParticipantURLOpDTO (opsional; op akan dipaksa "upsert")
   - file uploads: otomatis upload ke OSS → tiap file jadi URL op upsert baru (kind=attachment)
 
 =========================================================
 */
-func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
+func (ctl *StudentAttendanceController) CreateAttendanceParticipantsWithURLs(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 	var schoolID uuid.UUID
 
@@ -116,13 +116,13 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
 
 	// ----- Parse payload ke DTO baru -----
-	var attReq attDTO.StudentClassSessionAttendanceCreateRequest
-	var urlOps []attDTO.StudentClassSessionAttendanceURLOpDTO
+	var attReq attDTO.ClassAttendanceSessionParticipantCreateRequest
+	var urlOps []attDTO.ClassAttendanceSessionParticipantURLOpDTO
 
 	if strings.HasPrefix(ct, "multipart/form-data") {
 		aj := strings.TrimSpace(c.FormValue("attendance_json"))
 		if aj == "" {
-			return helper.JsonError(c, fiber.StatusBadRequest, "attendance_json wajib diisi (StudentClassSessionAttendanceCreateRequest)")
+			return helper.JsonError(c, fiber.StatusBadRequest, "attendance_json wajib diisi (ClassAttendanceSessionParticipantCreateRequest)")
 		}
 		if err := json.Unmarshal([]byte(aj), &attReq); err != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "attendance_json tidak valid: "+err.Error())
@@ -154,10 +154,10 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 					if k, kerr := helperOSS.ExtractKeyFromPublicURL(publicURL); kerr == nil {
 						key = &k
 					}
-					op := attDTO.StudentClassSessionAttendanceURLOpDTO{
+					op := attDTO.ClassAttendanceSessionParticipantURLOpDTO{
 						Op:        attDTO.URLOpUpsert,
 						Kind:      ptrStr("attachment"),
-						Href:      &publicURL,
+						URL:       &publicURL,
 						ObjectKey: key,
 					}
 					urlOps = append(urlOps, op)
@@ -167,8 +167,8 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 	} else {
 		// JSON murni
 		var body struct {
-			Attendance attDTO.StudentClassSessionAttendanceCreateRequest `json:"attendance"`
-			URLs       []attDTO.StudentClassSessionAttendanceURLOpDTO    `json:"urls"`
+			Attendance attDTO.ClassAttendanceSessionParticipantCreateRequest `json:"attendance"`
+			URLs       []attDTO.ClassAttendanceSessionParticipantURLOpDTO    `json:"urls"`
 		}
 		raw := bytes.TrimSpace(c.Body())
 		if len(raw) == 0 {
@@ -186,6 +186,9 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 		}
 	}
 
+	// Set school ke request (tenant)
+	attReq.SchoolID = schoolID
+
 	// Validasi request
 	if err := ctl.Validator.Struct(&attReq); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -199,16 +202,13 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// Set school ke request
-	attReq.SchoolID = schoolID
-
 	// =========================
 	// Transaksi
 	// =========================
-	var created attModel.StudentClassSessionAttendanceModel
+	var created attModel.ClassAttendanceSessionParticipantModel
 
 	if err := ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// 1) create attendance
+		// 1) create attendance (participant)
 		m := attReq.ToModel()
 		if err := tx.Create(&m).Error; err != nil {
 			if isDuplicateKey(err) {
@@ -218,7 +218,7 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 		}
 
 		// 2) URLs via URLMutations (create only)
-		muts, err := attDTO.BuildURLMutations(m.StudentClassSessionAttendanceID, schoolID, urlOps)
+		muts, err := attDTO.BuildURLMutations(m.ClassAttendanceSessionParticipantID, schoolID, urlOps)
 		if err != nil {
 			return err
 		}
@@ -228,8 +228,8 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 			}
 		}
 
-		// 3) enforce primary uniqueness per (attendance, kind)
-		if err := ensurePrimaryUnique(tx, m.StudentClassSessionAttendanceID); err != nil {
+		// 3) enforce primary uniqueness per (participant, kind)
+		if err := ensurePrimaryUnique(tx, m.ClassAttendanceSessionParticipantID); err != nil {
 			return err
 		}
 
@@ -243,13 +243,14 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 	}
 
 	// Ambil URLs (live) untuk response
-	var urls []attModel.StudentClassSessionAttendanceURLModel
+	var urls []attModel.ClassAttendanceSessionParticipantURLModel
 	_ = ctl.DB.
-		Where("student_class_session_attendance_url_attendance_id = ? AND student_class_session_attendance_url_deleted_at IS NULL", created.StudentClassSessionAttendanceID).
-		Order("student_class_session_attendance_url_is_primary DESC, student_class_session_attendance_url_order ASC, student_class_session_attendance_url_created_at ASC").
+		Where("class_attendance_session_participant_url_participant_id = ? AND class_attendance_session_participant_url_deleted_at IS NULL",
+			created.ClassAttendanceSessionParticipantID).
+		Order("class_attendance_session_participant_url_is_primary DESC, class_attendance_session_participant_url_order ASC, class_attendance_session_participant_url_created_at ASC").
 		Find(&urls)
 
-	c.Set("Location", "/student-attendance/"+created.StudentClassSessionAttendanceID.String())
+	c.Set("Location", "/student-attendance/"+created.ClassAttendanceSessionParticipantID.String())
 	return helper.JsonCreated(c, "Kehadiran & lampiran berhasil dibuat", fiber.Map{
 		"attendance": created,
 		"urls":       urls,
@@ -258,12 +259,12 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 
 /*
 =========================================================
-PATCH /student-attendance/:id?  (atau body.attendance_id)
-Body JSON: attDTO.StudentClassSessionAttendancePatchRequest
+PATCH /student-attendance/:id?  (atau body.participant_id)
+Body JSON: ClassAttendanceSessionParticipantPatchRequest
 - Tri-state attendance fields
 - URLs ops: [{op:"upsert"|"delete", id?, kind?, ...}]
 Multipart (opsional):
-- patch_json: JSON StudentClassSessionAttendancePatchRequest
+- patch_json: JSON ClassAttendanceSessionParticipantPatchRequest
 - files[]: tiap file akan ditambahkan sebagai URL op "upsert" baru (kind=attachment)
 =========================================================
 */
@@ -289,7 +290,7 @@ func (ctl *StudentAttendanceController) Patch(c *fiber.Ctx) error {
 		}
 	}
 
-	var req attDTO.StudentClassSessionAttendancePatchRequest
+	var req attDTO.ClassAttendanceSessionParticipantPatchRequest
 	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
 
 	if strings.HasPrefix(ct, "multipart/form-data") {
@@ -319,10 +320,10 @@ func (ctl *StudentAttendanceController) Patch(c *fiber.Ctx) error {
 					if k, kerr := helperOSS.ExtractKeyFromPublicURL(publicURL); kerr == nil {
 						key = &k
 					}
-					req.URLs = append(req.URLs, attDTO.StudentClassSessionAttendanceURLOpDTO{
+					req.URLs = append(req.URLs, attDTO.ClassAttendanceSessionParticipantURLOpDTO{
 						Op:        attDTO.URLOpUpsert,
 						Kind:      ptrStr("attachment"),
-						Href:      &publicURL,
+						URL:       &publicURL,
 						ObjectKey: key,
 					})
 				}
@@ -339,26 +340,26 @@ func (ctl *StudentAttendanceController) Patch(c *fiber.Ctx) error {
 		}
 	}
 
-	// attendance_id dari path kalau belum ada
-	if req.AttendanceID == uuid.Nil {
+	// participant_id dari path kalau belum ada
+	if req.ParticipantID == uuid.Nil {
 		if s := strings.TrimSpace(c.Params("id")); s != "" {
 			if id, e := uuid.Parse(s); e == nil {
-				req.AttendanceID = id
+				req.ParticipantID = id
 			}
 		}
 	}
-	if req.AttendanceID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "attendance_id wajib diisi")
+	if req.ParticipantID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "participant_id wajib diisi")
 	}
 
 	// ── Transaksi ──
 	if err := ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		// load + FOR UPDATE (tenant guard)
-		var m attModel.StudentClassSessionAttendanceModel
+		var m attModel.ClassAttendanceSessionParticipantModel
 		q := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("student_class_session_attendance_id = ? AND student_class_session_attendance_deleted_at IS NULL", req.AttendanceID)
+			Where("class_attendance_session_participant_id = ? AND class_attendance_session_participant_deleted_at IS NULL", req.ParticipantID)
 		if schoolID != uuid.Nil {
-			q = q.Where("student_class_session_attendance_school_id = ?", schoolID)
+			q = q.Where("class_attendance_session_participant_school_id = ?", schoolID)
 		}
 		if err := q.First(&m).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -376,7 +377,7 @@ func (ctl *StudentAttendanceController) Patch(c *fiber.Ctx) error {
 		}
 
 		// URL ops → mutations
-		muts, err := attDTO.BuildURLMutations(m.StudentClassSessionAttendanceID, m.StudentClassSessionAttendanceSchoolID, req.URLs)
+		muts, err := attDTO.BuildURLMutations(m.ClassAttendanceSessionParticipantID, m.ClassAttendanceSessionParticipantSchoolID, req.URLs)
 		if err != nil {
 			return err
 		}
@@ -389,9 +390,10 @@ func (ctl *StudentAttendanceController) Patch(c *fiber.Ctx) error {
 		}
 		// update (merge partial)
 		for _, u := range muts.ToUpdate {
-			var cur attModel.StudentClassSessionAttendanceURLModel
+			var cur attModel.ClassAttendanceSessionParticipantURLModel
 			if err := tx.
-				Where("student_class_session_attendance_url_id = ? AND student_class_session_attendance_url_deleted_at IS NULL", u.StudentClassSessionAttendanceURLID).
+				Where("class_attendance_session_participant_url_id = ? AND class_attendance_session_participant_url_deleted_at IS NULL",
+					u.ClassAttendanceSessionParticipantURLID).
 				First(&cur).Error; err != nil {
 				return err
 			}
@@ -402,15 +404,15 @@ func (ctl *StudentAttendanceController) Patch(c *fiber.Ctx) error {
 		}
 		// delete (soft)
 		if len(muts.ToDelete) > 0 {
-			if err := tx.Model(&attModel.StudentClassSessionAttendanceURLModel{}).
-				Where("student_class_session_attendance_url_id IN ?", muts.ToDelete).
-				Update("student_class_session_attendance_url_deleted_at", gorm.Expr("NOW()")).Error; err != nil {
+			if err := tx.Model(&attModel.ClassAttendanceSessionParticipantURLModel{}).
+				Where("class_attendance_session_participant_url_id IN ?", muts.ToDelete).
+				Update("class_attendance_session_participant_url_deleted_at", gorm.Expr("NOW()")).Error; err != nil {
 				return err
 			}
 		}
 
-		// normalize primary unik per (attendance, kind)
-		if err := ensurePrimaryUnique(tx, m.StudentClassSessionAttendanceID); err != nil {
+		// normalize primary unik per (participant, kind)
+		if err := ensurePrimaryUnique(tx, m.ClassAttendanceSessionParticipantID); err != nil {
 			return err
 		}
 		return nil
@@ -422,14 +424,15 @@ func (ctl *StudentAttendanceController) Patch(c *fiber.Ctx) error {
 	}
 
 	// Balikan state terbaru
-	var urls []attModel.StudentClassSessionAttendanceURLModel
+	var urls []attModel.ClassAttendanceSessionParticipantURLModel
 	_ = ctl.DB.
-		Where("student_class_session_attendance_url_attendance_id = ? AND student_class_session_attendance_url_deleted_at IS NULL", req.AttendanceID).
-		Order("student_class_session_attendance_url_is_primary DESC, student_class_session_attendance_url_order ASC, student_class_session_attendance_url_created_at ASC").
+		Where("class_attendance_session_participant_url_participant_id = ? AND class_attendance_session_participant_url_deleted_at IS NULL",
+			req.ParticipantID).
+		Order("class_attendance_session_participant_url_is_primary DESC, class_attendance_session_participant_url_order ASC, class_attendance_session_participant_url_created_at ASC").
 		Find(&urls)
 
 	return helper.JsonUpdated(c, "Attendance berhasil di-update", fiber.Map{
-		"attendance_id": req.AttendanceID,
+		"attendance_id": req.ParticipantID, // tetap pakai key lama di response kalau mau backward-compatible
 		"urls":          urls,
 	})
 }
@@ -458,9 +461,9 @@ func (ctl *StudentAttendanceController) Delete(c *fiber.Ctx) error {
 		}
 	}
 
-	attID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+	participantID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "attendance id tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "participant id tidak valid")
 	}
 	urlID, err := uuid.Parse(strings.TrimSpace(c.Params("url_id")))
 	if err != nil {
@@ -468,14 +471,14 @@ func (ctl *StudentAttendanceController) Delete(c *fiber.Ctx) error {
 	}
 
 	// Ambil row, pastikan tenant & owner benar
-	var row attModel.StudentClassSessionAttendanceURLModel
+	var row attModel.ClassAttendanceSessionParticipantURLModel
 	if err := ctl.DB.WithContext(c.Context()).
 		Where(`
-			student_class_session_attendance_url_id = ?
-			AND student_class_session_attendance_url_attendance_id = ?
-			AND student_class_session_attendance_url_school_id = ?
-			AND student_class_session_attendance_url_deleted_at IS NULL
-		`, urlID, attID, schoolID).
+			class_attendance_session_participant_url_id = ?
+			AND class_attendance_session_participant_url_participant_id = ?
+			AND class_attendance_session_participant_url_school_id = ?
+			AND class_attendance_session_participant_url_deleted_at IS NULL
+		`, urlID, participantID, schoolID).
 		Take(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, fiber.StatusNotFound, "URL tidak ditemukan")
@@ -485,8 +488,8 @@ func (ctl *StudentAttendanceController) Delete(c *fiber.Ctx) error {
 
 	// Opsional: pindahkan object aktif ke spam/
 	var trashURL *string
-	if row.StudentClassSessionAttendanceURLHref != nil && strings.TrimSpace(*row.StudentClassSessionAttendanceURLHref) != "" {
-		if moved, mErr := helperOSS.MoveToSpamByPublicURLENV(*row.StudentClassSessionAttendanceURLHref, 0); mErr == nil && strings.TrimSpace(moved) != "" {
+	if row.ClassAttendanceSessionParticipantURL != nil && strings.TrimSpace(*row.ClassAttendanceSessionParticipantURL) != "" {
+		if moved, mErr := helperOSS.MoveToSpamByPublicURLENV(*row.ClassAttendanceSessionParticipantURL, 0); mErr == nil && strings.TrimSpace(moved) != "" {
 			trashURL = &moved
 		}
 	}
@@ -502,19 +505,19 @@ func (ctl *StudentAttendanceController) Delete(c *fiber.Ctx) error {
 
 	// Soft-delete
 	if err := ctl.DB.WithContext(c.Context()).
-		Model(&attModel.StudentClassSessionAttendanceURLModel{}).
-		Where("student_class_session_attendance_url_id = ?", row.StudentClassSessionAttendanceURLID).
+		Model(&attModel.ClassAttendanceSessionParticipantURLModel{}).
+		Where("class_attendance_session_participant_url_id = ?", row.ClassAttendanceSessionParticipantURLID).
 		Updates(map[string]any{
-			"student_class_session_attendance_url_deleted_at":           time.Now(),
-			"student_class_session_attendance_url_trash_url":            trashURL,
-			"student_class_session_attendance_url_delete_pending_until": cutoff,
-			"student_class_session_attendance_url_updated_at":           time.Now(),
+			"class_attendance_session_participant_url_deleted_at":           time.Now(),
+			"class_attendance_session_participant_url_trash_url":            trashURL,
+			"class_attendance_session_participant_url_delete_pending_until": cutoff,
+			"class_attendance_session_participant_url_updated_at":           time.Now(),
 		}).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus URL")
 	}
 
 	return helper.JsonDeleted(c, "Lampiran dihapus (soft-delete)", fiber.Map{
-		"attendance_id": attID,
+		"attendance_id": participantID,
 		"url_id":        urlID,
 		"trash_url":     trashURL,
 		"purge_after":   cutoff,
@@ -523,66 +526,70 @@ func (ctl *StudentAttendanceController) Delete(c *fiber.Ctx) error {
 
 /* ========================= Internals ========================= */
 
-func ensurePrimaryUnique(tx *gorm.DB, attendanceID uuid.UUID) error {
+func ensurePrimaryUnique(tx *gorm.DB, participantID uuid.UUID) error {
 	var primaries []struct {
 		Kind string
 		ID   uuid.UUID
 	}
 	if err := tx.
-		Model(&attModel.StudentClassSessionAttendanceURLModel{}).
-		Select("student_class_session_attendance_url_kind AS kind, MIN(student_class_session_attendance_url_id) AS id").
-		Where("student_class_session_attendance_url_attendance_id = ? AND student_class_session_attendance_url_deleted_at IS NULL AND student_class_session_attendance_url_is_primary = TRUE", attendanceID).
-		Group("student_class_session_attendance_url_kind").
+		Model(&attModel.ClassAttendanceSessionParticipantURLModel{}).
+		Select("class_attendance_session_participant_url_kind AS kind, MIN(class_attendance_session_participant_url_id) AS id").
+		Where(`
+			class_attendance_session_participant_url_participant_id = ?
+			AND class_attendance_session_participant_url_deleted_at IS NULL
+			AND class_attendance_session_participant_url_is_primary = TRUE
+		`, participantID).
+		Group("class_attendance_session_participant_url_kind").
 		Scan(&primaries).Error; err != nil {
 		return err
 	}
 	for _, pk := range primaries {
-		if err := tx.Model(&attModel.StudentClassSessionAttendanceURLModel{}).
+		if err := tx.Model(&attModel.ClassAttendanceSessionParticipantURLModel{}).
 			Where(`
-				student_class_session_attendance_url_attendance_id = ?
-				AND student_class_session_attendance_url_kind = ?
-				AND student_class_session_attendance_url_deleted_at IS NULL
-				AND student_class_session_attendance_url_id <> ?
-			`, attendanceID, pk.Kind, pk.ID).
-			Update("student_class_session_attendance_url_is_primary", false).Error; err != nil {
+				class_attendance_session_participant_url_participant_id = ?
+				AND class_attendance_session_participant_url_kind = ?
+				AND class_attendance_session_participant_url_deleted_at IS NULL
+				AND class_attendance_session_participant_url_id <> ?
+			`, participantID, pk.Kind, pk.ID).
+			Update("class_attendance_session_participant_url_is_primary", false).Error; err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func mergeURL(cur *attModel.StudentClassSessionAttendanceURLModel, patch *attModel.StudentClassSessionAttendanceURLModel) {
-	if patch.StudentClassSessionAttendanceURLKind != "" {
-		cur.StudentClassSessionAttendanceURLKind = patch.StudentClassSessionAttendanceURLKind
+func mergeURL(cur *attModel.ClassAttendanceSessionParticipantURLModel, patch *attModel.ClassAttendanceSessionParticipantURLModel) {
+	if patch.ClassAttendanceSessionParticipantURLKind != "" {
+		cur.ClassAttendanceSessionParticipantURLKind = patch.ClassAttendanceSessionParticipantURLKind
 	}
-	if patch.StudentClassSessionAttendanceURLLabel != nil {
-		cur.StudentClassSessionAttendanceURLLabel = patch.StudentClassSessionAttendanceURLLabel
+	if patch.ClassAttendanceSessionParticipantURLLabel != nil {
+		cur.ClassAttendanceSessionParticipantURLLabel = patch.ClassAttendanceSessionParticipantURLLabel
 	}
-	cur.StudentClassSessionAttendanceURLOrder = patch.StudentClassSessionAttendanceURLOrder
-	cur.StudentClassSessionAttendanceURLIsPrimary = patch.StudentClassSessionAttendanceURLIsPrimary
+	cur.ClassAttendanceSessionParticipantURLOrder = patch.ClassAttendanceSessionParticipantURLOrder
+	cur.ClassAttendanceSessionParticipantURLIsPrimary = patch.ClassAttendanceSessionParticipantURLIsPrimary
 
-	if patch.StudentClassSessionAttendanceURLHref != nil {
-		cur.StudentClassSessionAttendanceURLHref = patch.StudentClassSessionAttendanceURLHref
+	if patch.ClassAttendanceSessionParticipantURL != nil {
+		cur.ClassAttendanceSessionParticipantURL = patch.ClassAttendanceSessionParticipantURL
 	}
-	if patch.StudentClassSessionAttendanceURLObjectKey != nil {
-		cur.StudentClassSessionAttendanceURLObjectKey = patch.StudentClassSessionAttendanceURLObjectKey
+	if patch.ClassAttendanceSessionParticipantURLObjectKey != nil {
+		cur.ClassAttendanceSessionParticipantURLObjectKey = patch.ClassAttendanceSessionParticipantURLObjectKey
 	}
-	if patch.StudentClassSessionAttendanceURLObjectKeyOld != nil {
-		cur.StudentClassSessionAttendanceURLObjectKeyOld = patch.StudentClassSessionAttendanceURLObjectKeyOld
+	if patch.ClassAttendanceSessionParticipantURLOld != nil {
+		cur.ClassAttendanceSessionParticipantURLOld = patch.ClassAttendanceSessionParticipantURLOld
 	}
-	if patch.StudentClassSessionAttendanceURLTrashURL != nil {
-		cur.StudentClassSessionAttendanceURLTrashURL = patch.StudentClassSessionAttendanceURLTrashURL
+	if patch.ClassAttendanceSessionParticipantURLObjectKeyOld != nil {
+		cur.ClassAttendanceSessionParticipantURLObjectKeyOld = patch.ClassAttendanceSessionParticipantURLObjectKeyOld
 	}
-	if patch.StudentClassSessionAttendanceURLDeletePendingUntil != nil {
-		cur.StudentClassSessionAttendanceURLDeletePendingUntil = patch.StudentClassSessionAttendanceURLDeletePendingUntil
+	if patch.ClassAttendanceSessionParticipantURLDeletePendingUntil != nil {
+		cur.ClassAttendanceSessionParticipantURLDeletePendingUntil = patch.ClassAttendanceSessionParticipantURLDeletePendingUntil
 	}
-	if patch.StudentClassSessionAttendanceURLUploaderTeacherID != nil {
-		cur.StudentClassSessionAttendanceURLUploaderTeacherID = patch.StudentClassSessionAttendanceURLUploaderTeacherID
+	if patch.ClassAttendanceSessionParticipantURLUploaderTeacherID != nil {
+		cur.ClassAttendanceSessionParticipantURLUploaderTeacherID = patch.ClassAttendanceSessionParticipantURLUploaderTeacherID
 	}
-	if patch.StudentClassSessionAttendanceURLUploaderStudentID != nil {
-		cur.StudentClassSessionAttendanceURLUploaderStudentID = patch.StudentClassSessionAttendanceURLUploaderStudentID
+	if patch.ClassAttendanceSessionParticipantURLUploaderStudentID != nil {
+		cur.ClassAttendanceSessionParticipantURLUploaderStudentID = patch.ClassAttendanceSessionParticipantURLUploaderStudentID
 	}
-	cur.StudentClassSessionAttendanceURLUpdatedAt = time.Now()
+	cur.ClassAttendanceSessionParticipantURLUpdatedAt = time.Now()
 }
 
 // kecil

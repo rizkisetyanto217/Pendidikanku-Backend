@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -33,30 +32,7 @@ func stringsTrimLower(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
 
-func slugifySimple(s string) string {
-	s = stringsTrimLower(s)
-	var b strings.Builder
-	prevDash := false
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-			prevDash = false
-			continue
-		}
-		if unicode.IsSpace(r) || r == '_' || r == '-' || r == '/' {
-			if !prevDash {
-				b.WriteByte('-')
-				prevDash = true
-			}
-			continue
-		}
-	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" {
-		out = "room"
-	}
-	return out
-}
+const maxScheduleDays =  180 *2 // misal maksimal 2 tahun
 
 func ptr[T any](v T) *T { return &v }
 
@@ -76,224 +52,9 @@ type GenerateOptions struct {
 }
 
 /* =========================
-   Helper selector dinamis
-========================= */
-
-// nyusun COALESCE dinamis dari kandidat kolom yang eksis
-func sel(cols map[string]struct{}, tableAlias string, candidates ...string) string {
-	parts := []string{}
-	for _, c := range candidates {
-		if _, ok := cols[strings.ToLower(c)]; ok {
-			parts = append(parts, fmt.Sprintf("%s.%s", tableAlias, c))
-		}
-	}
-	if len(parts) == 0 {
-		return "NULL"
-	}
-	if len(parts) == 1 {
-		return parts[0]
-	}
-	return fmt.Sprintf("COALESCE(%s)", strings.Join(parts, ","))
-}
-
-/* =========================
    CSST rich loader
+   (tanpa information_schema, pakai schema fix)
 ========================= */
-
-func (g *Generator) getCSSTRich(ctx context.Context, expectSchool uuid.UUID, csstID uuid.UUID) (*csstRich, error) {
-	// Deteksi kolom per tabel
-	csstCols, _ := g.tableColumns(ctx, "class_section_subject_teachers")
-	subjCols, _ := g.tableColumns(ctx, "subjects")
-	secCols, _ := g.tableColumns(ctx, "class_sections")
-	teaCols, _ := g.tableColumns(ctx, "school_teachers")
-	roomCols, _ := g.tableColumns(ctx, "class_rooms")
-	bookCols, _ := g.tableColumns(ctx, "class_subject_books")
-
-	// kunci
-	idCol := firstExisting(csstCols, "class_section_subject_teacher_id", "id")
-	schoolCol := firstExisting(csstCols, "class_section_subject_teacher_school_id", "school_id")
-	if idCol == "" || schoolCol == "" {
-		return nil, fmt.Errorf("CSST: kolom id/school_id tidak ditemukan")
-	}
-
-	deletedCol := firstExisting(csstCols, "class_section_subject_teacher_deleted_at", "deleted_at")
-	whereDeleted := ""
-	if deletedCol != "" {
-		whereDeleted = fmt.Sprintf(" AND csst.%s IS NULL", deletedCol)
-	}
-
-	// === SLUG & NAME dasar ===
-	slugExpr := sel(csstCols, "csst",
-		"class_section_subject_teacher_slug", "class_section_subject_teacher_code", "slug", "code")
-	nameExpr := sel(csstCols, "csst",
-		"class_section_subject_teacher_name", "name", "title", "label")
-
-	// === SUBJECT === (COALESCE ke *_snapshot bila JOIN kosong)
-	subjectIDExpr := sel(csstCols, "csst",
-		"class_section_subject_teacher_subject_id", "subject_id",
-		"class_section_subject_teacher_subject_id_snapshot")
-	subjectCodeExpr := fmt.Sprintf("COALESCE(%s, %s)",
-		sel(subjCols, "subj", "subject_code", "code"),
-		sel(csstCols, "csst", "class_section_subject_teacher_subject_code_snapshot"))
-	subjectNameExpr := fmt.Sprintf("COALESCE(%s, %s)",
-		sel(subjCols, "subj", "subject_name", "name", "title"),
-		sel(csstCols, "csst", "class_section_subject_teacher_subject_name_snapshot"))
-	subjectSlugExpr := sel(csstCols, "csst",
-		"class_section_subject_teacher_subject_slug_snapshot")
-
-	// === SECTION ===
-	sectionIDExpr := sel(csstCols, "csst",
-		"class_section_subject_teacher_class_section_id", "class_section_id", "section_id")
-	sectionNameExpr := fmt.Sprintf("COALESCE(%s, %s)",
-		sel(secCols, "sec", "class_section_name", "name", "title"),
-		sel(csstCols, "csst", "class_section_subject_teacher_class_section_name_snapshot"))
-
-	// === TEACHER ===
-	teacherIDExpr := sel(csstCols, "csst",
-		"class_section_subject_teacher_school_teacher_id", "school_teacher_id", "teacher_id")
-	teacherCodeExpr := fmt.Sprintf("COALESCE(%s, %s)",
-		sel(teaCols, "tea", "school_teacher_code", "teacher_code", "code"),
-		sel(csstCols, "csst", "class_section_subject_teacher_school_teacher_code_snapshot"))
-	teacherNameExpr := fmt.Sprintf("COALESCE(%s, %s)",
-		sel(teaCols, "tea", "school_teacher_name", "teacher_name", "name", "full_name"),
-		sel(csstCols, "csst", "class_section_subject_teacher_school_teacher_name_snapshot"))
-	teacherSnapExpr := sel(csstCols, "csst",
-		"class_section_subject_teacher_school_teacher_snapshot")
-
-	// === ROOM ===
-	roomIDExpr := sel(csstCols, "csst",
-		"class_section_subject_teacher_class_room_id", "class_room_id", "room_id")
-	roomCodeExpr := fmt.Sprintf("COALESCE(%s, %s)",
-		sel(roomCols, "room", "class_room_code", "room_code", "code"),
-		sel(csstCols, "csst", "class_section_subject_teacher_class_room_code_snapshot"))
-	roomNameExpr := fmt.Sprintf("COALESCE(%s, %s)",
-		sel(roomCols, "room", "class_room_name", "room_name", "name", "title"),
-		sel(csstCols, "csst", "class_section_subject_teacher_class_room_name_snapshot"))
-
-	// === BOOK ===
-	bookIDExpr := sel(csstCols, "csst",
-		"class_section_subject_teacher_class_subject_book_id", "class_subject_book_id", "book_id")
-	bookCodeExpr := fmt.Sprintf("COALESCE(%s, %s)",
-		sel(bookCols, "book", "class_subject_book_code", "book_code", "code"),
-		sel(csstCols, "csst", "class_section_subject_teacher_book_code_snapshot"))
-	bookNameExpr := fmt.Sprintf("COALESCE(%s, %s)",
-		sel(bookCols, "book", "class_subject_book_name", "book_name", "name", "title"),
-		sel(csstCols, "csst", "class_section_subject_teacher_book_title_snapshot"))
-	bookSnapExpr := sel(csstCols, "csst",
-		"class_section_subject_teacher_class_subject_book_snapshot")
-
-	// Join ON enable/disable
-	q := fmt.Sprintf(`
-SELECT
-  csst.%s AS id,
-  csst.%s AS school_id,
-  COALESCE(%s, csst.%s::text) AS slug,
-  %s       AS name,
-
-  %s AS subject_id,
-  %s AS subject_code,
-  %s AS subject_name,
-  %s AS subject_slug,
-
-  %s AS section_id,
-  %s AS section_name,
-
-  %s AS teacher_id,
-  %s AS teacher_code,
-  %s AS teacher_name,
-
-  %s AS room_id,
-  %s AS room_code,
-  %s AS room_name,
-
-  %s AS class_subject_book_id,
-  %s AS book_code,
-  %s AS book_name,
-
-  %s AS teacher_snapshot,
-  %s AS book_snapshot
-FROM class_section_subject_teachers csst
-LEFT JOIN subjects subj
-  ON %s AND subj.subject_id = %s
-LEFT JOIN class_sections sec
-  ON %s AND sec.class_section_id = %s
-LEFT JOIN school_teachers tea
-  ON %s AND tea.school_teacher_id = %s
-LEFT JOIN class_rooms room
-  ON %s AND room.class_room_id = %s
-LEFT JOIN class_subject_books book
-  ON %s AND book.class_subject_book_id = %s
-WHERE csst.%s = ?%s
-LIMIT 1`,
-		// heads
-		idCol, schoolCol,
-		slugExpr, idCol,
-		nameExpr,
-
-		subjectIDExpr, subjectCodeExpr, subjectNameExpr, subjectSlugExpr,
-		sectionIDExpr, sectionNameExpr,
-		teacherIDExpr, teacherCodeExpr, teacherNameExpr,
-		roomIDExpr, roomCodeExpr, roomNameExpr,
-		bookIDExpr, bookCodeExpr, bookNameExpr,
-		teacherSnapExpr, bookSnapExpr,
-
-		func() string {
-			if subjectIDExpr != "NULL" {
-				return "TRUE"
-			} else {
-				return "FALSE"
-			}
-		}(), subjectIDExpr,
-		func() string {
-			if sectionIDExpr != "NULL" {
-				return "TRUE"
-			} else {
-				return "FALSE"
-			}
-		}(), sectionIDExpr,
-		func() string {
-			if teacherIDExpr != "NULL" {
-				return "TRUE"
-			} else {
-				return "FALSE"
-			}
-		}(), teacherIDExpr,
-		func() string {
-			if roomIDExpr != "NULL" {
-				return "TRUE"
-			} else {
-				return "FALSE"
-			}
-		}(), roomIDExpr,
-		func() string {
-			if bookIDExpr != "NULL" {
-				return "TRUE"
-			} else {
-				return "FALSE"
-			}
-		}(), bookIDExpr,
-		idCol, whereDeleted,
-	)
-
-	var row csstRich
-	if err := g.DB.WithContext(ctx).Raw(q, csstID).Scan(&row).Error; err != nil {
-		return nil, err
-	}
-	if row.ID == uuid.Nil {
-		return nil, gorm.ErrRecordNotFound
-	}
-	if expectSchool != uuid.Nil && row.SchoolID != expectSchool {
-		return nil, fmt.Errorf("tenant mismatch csst.school=%s != expect=%s", row.SchoolID, expectSchool)
-	}
-	if strings.TrimSpace(row.Slug) == "" {
-		row.Slug = row.ID.String()
-	}
-
-	// Hydrate dari JSON snapshot bila ada kekosongan
-	hydrateFromSnapshots(&row)
-
-	return &row, nil
-}
 
 type csstRich struct {
 	ID       uuid.UUID `gorm:"column:id"`
@@ -327,6 +88,102 @@ type csstRich struct {
 	BookCode     *string    `gorm:"column:book_code"`
 	BookName     *string    `gorm:"column:book_name"`
 	BookSnapshot *string    `gorm:"column:book_snapshot"` // raw JSON
+}
+
+func (g *Generator) getCSSTRich(
+	ctx context.Context,
+	expectSchool uuid.UUID,
+	csstID uuid.UUID,
+) (*csstRich, error) {
+	// SQL statis berdasarkan schema terbaru
+	q := `
+SELECT
+  csst.class_section_subject_teacher_id                    AS id,
+  csst.class_section_subject_teacher_school_id             AS school_id,
+  COALESCE(
+    csst.class_section_subject_teacher_slug,
+    csst.class_section_subject_teacher_id::text
+  )                                                        AS slug,
+  COALESCE(
+    csst.class_section_subject_teacher_book_title_snapshot,
+    csst.class_section_subject_teacher_subject_name_snapshot,
+    sec.class_section_name
+  )                                                        AS name,
+
+  -- Subject
+  csst.class_section_subject_teacher_subject_id_snapshot   AS subject_id,
+  COALESCE(subj.subject_code,
+           csst.class_section_subject_teacher_subject_code_snapshot)
+                                                           AS subject_code,
+  COALESCE(subj.subject_name,
+           csst.class_section_subject_teacher_subject_name_snapshot)
+                                                           AS subject_name,
+  csst.class_section_subject_teacher_subject_slug_snapshot AS subject_slug,
+
+  -- Section
+  csst.class_section_subject_teacher_class_section_id      AS section_id,
+  COALESCE(sec.class_section_name,
+           csst.class_section_subject_teacher_class_section_name_snapshot)
+                                                           AS section_name,
+
+  -- Teacher
+  csst.class_section_subject_teacher_school_teacher_id     AS teacher_id,
+  tea.school_teacher_code                                  AS teacher_code,
+  COALESCE(
+    csst.class_section_subject_teacher_school_teacher_name_snapshot,
+    tea.school_teacher_user_teacher_name_snapshot
+  )                                                        AS teacher_name,
+  csst.class_section_subject_teacher_school_teacher_snapshot::text
+                                                           AS teacher_snapshot,
+
+  -- Room
+  csst.class_section_subject_teacher_class_room_id         AS room_id,
+  room.class_room_code                                     AS room_code,
+  COALESCE(room.class_room_name,
+           csst.class_section_subject_teacher_class_room_name_snapshot)
+                                                           AS room_name,
+
+  -- Book
+  csst.class_section_subject_teacher_class_subject_book_id AS class_subject_book_id,
+  NULL::text                                               AS book_code,
+  csst.class_section_subject_teacher_book_title_snapshot   AS book_name,
+  csst.class_section_subject_teacher_class_subject_book_snapshot::text
+                                                           AS book_snapshot
+FROM class_section_subject_teachers csst
+LEFT JOIN subjects subj
+  ON subj.subject_id = csst.class_section_subject_teacher_subject_id_snapshot
+LEFT JOIN class_sections sec
+  ON sec.class_section_id = csst.class_section_subject_teacher_class_section_id
+LEFT JOIN school_teachers tea
+  ON tea.school_teacher_id = csst.class_section_subject_teacher_school_teacher_id
+LEFT JOIN class_rooms room
+  ON room.class_room_id = csst.class_section_subject_teacher_class_room_id
+WHERE csst.class_section_subject_teacher_id = ?
+  AND csst.class_section_subject_teacher_deleted_at IS NULL
+`
+	args := []any{csstID}
+	if expectSchool != uuid.Nil {
+		q += "  AND csst.class_section_subject_teacher_school_id = ?\n"
+		args = append(args, expectSchool)
+	}
+	q += "LIMIT 1"
+
+	var row csstRich
+	if err := g.DB.WithContext(ctx).Raw(q, args...).Scan(&row).Error; err != nil {
+		return nil, err
+	}
+	if row.ID == uuid.Nil {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	if strings.TrimSpace(row.Slug) == "" {
+		row.Slug = row.ID.String()
+	}
+
+	// Lengkapi dari snapshot JSON bila ada
+	hydrateFromSnapshots(&row)
+
+	return &row, nil
 }
 
 // Lengkapi field dari JSON snapshot bila join/kolom snapshot string kosong
@@ -424,6 +281,7 @@ func putStr(m datatypes.JSONMap, key string, v *string) {
 		m[key] = strings.TrimSpace(*v)
 	}
 }
+
 func putUUID(m datatypes.JSONMap, key string, v *uuid.UUID) {
 	if v != nil && *v != uuid.Nil {
 		m[key] = v.String()
@@ -435,7 +293,7 @@ func (g *Generator) buildCSSTSnapshotJSON(
 	expectSchoolID uuid.UUID,
 	csstID uuid.UUID,
 ) (datatypes.JSONMap, *uuid.UUID, *string, error) {
-	// a) RICH loader
+	// a) RICH loader (schema fix, tanpa information_schema)
 	if rich, err := g.getCSSTRich(ctx, expectSchoolID, csstID); err == nil && rich != nil {
 		out := datatypes.JSONMap{
 			"csst_id":   rich.ID.String(),
@@ -450,7 +308,7 @@ func (g *Generator) buildCSSTSnapshotJSON(
 		putUUID(out, "subject_id", rich.SubjectID)
 		putStr(out, "subject_code", rich.SubjectCode)
 		putStr(out, "subject_name", rich.SubjectName)
-		putStr(out, "subject_slug", rich.SubjectSlug) // NEW
+		putStr(out, "subject_slug", rich.SubjectSlug)
 
 		// Section
 		putUUID(out, "section_id", rich.SectionID)
@@ -500,7 +358,7 @@ func (g *Generator) buildCSSTSnapshotJSON(
 }
 
 /* =========================
-   Rule rows & section lite
+   Rules & snapshots
 ========================= */
 
 type ruleRow struct {
@@ -512,16 +370,35 @@ type ruleRow struct {
 	EndStr          string        `gorm:"column:end_str"`
 	IntervalWeeks   int           `gorm:"column:class_schedule_rule_interval_weeks"`
 	StartOffset     int           `gorm:"column:class_schedule_rule_start_offset_weeks"`
-	WeekParity      string        `gorm:"column:class_schedule_rule_week_parity"`
+	WeekParity      *string       `gorm:"column:class_schedule_rule_week_parity"`
 	WeeksOfMonth    pq.Int64Array `gorm:"column:class_schedule_rule_weeks_of_month"`
 	LastWeekOfMonth bool          `gorm:"column:class_schedule_rule_last_week_of_month"`
 	CSSTID          *uuid.UUID    `gorm:"column:class_schedule_rule_csst_id"`
 }
 
-type sectionLite struct {
-	ID       uuid.UUID `gorm:"column:class_section_id"`
-	SchoolID uuid.UUID `gorm:"column:class_section_school_id"`
-	Name     *string   `gorm:"column:class_section_name"`
+// Builder snapshot rule → format selaras controller Create
+func buildRuleSnapshot(r ruleRow) datatypes.JSONMap {
+	out := datatypes.JSONMap{
+		"rule_id":            r.ID.String(),
+		"schedule_id":        r.ScheduleID.String(),
+		"day_of_week":        r.DayOfWeek,
+		"start_time":         r.StartStr, // "HH:MM:SS"
+		"end_time":           r.EndStr,   // "HH:MM:SS"
+		"interval_weeks":     r.IntervalWeeks,
+		"start_offset_weeks": r.StartOffset,
+		"last_week_of_month": r.LastWeekOfMonth,
+	}
+	if r.WeekParity != nil && strings.TrimSpace(*r.WeekParity) != "" {
+		out["week_parity"] = strings.TrimSpace(*r.WeekParity) // "odd"|"even"
+	}
+	if len(r.WeeksOfMonth) > 0 {
+		arr := make([]int, 0, len(r.WeeksOfMonth))
+		for _, w := range r.WeeksOfMonth {
+			arr = append(arr, int(w))
+		}
+		out["weeks_of_month"] = arr
+	}
+	return out
 }
 
 /* =========================
@@ -532,7 +409,11 @@ func (g *Generator) GenerateSessionsForSchedule(ctx context.Context, scheduleID 
 	return g.GenerateSessionsForScheduleWithOpts(ctx, scheduleID, nil)
 }
 
-func (g *Generator) GenerateSessionsForScheduleWithOpts(ctx context.Context, scheduleID string, opts *GenerateOptions) (created int, err error) {
+func (g *Generator) GenerateSessionsForScheduleWithOpts(
+	ctx context.Context,
+	scheduleID string,
+	opts *GenerateOptions,
+) (created int, err error) {
 	// Defaults
 	if opts == nil {
 		opts = &GenerateOptions{}
@@ -559,20 +440,33 @@ func (g *Generator) GenerateSessionsForScheduleWithOpts(ctx context.Context, sch
 		Take(&sch).Error; err != nil {
 		return 0, err
 	}
+
 	startLocal := startOfDayInLoc(sch.ClassScheduleStartDate, loc)
 	endLocal := startOfDayInLoc(sch.ClassScheduleEndDate, loc)
+
+	// Guard: end < start → tidak generate
 	if endLocal.Before(startLocal) {
-		return 0, nil
+		return 0, fmt.Errorf("invalid date range: start_date (%s) after end_date (%s)",
+			sch.ClassScheduleStartDate.Format("2006-01-02"),
+			sch.ClassScheduleEndDate.Format("2006-01-02"),
+		)
 	}
 
-	// 2) Ambil rules (+ CSST per-rule bila ada)
-	cRules, _ := g.tableColumns(ctx, "class_schedule_rules")
-	csstSelect := "NULL::uuid"
-	if _, ok := cRules["class_schedule_rule_csst_id"]; ok {
-		csstSelect = "class_schedule_rule_csst_id"
+	// Guard: batasi maksimum range hari
+	daysSpan := int(endLocal.Sub(startLocal).Hours()/24) + 1
+	if daysSpan <= 0 {
+		return 0, nil
 	}
+	if daysSpan > maxScheduleDays {
+		return 0, fmt.Errorf(
+			"date range too long for schedule %s: %d days (max %d)",
+			sch.ClassScheduleID, daysSpan, maxScheduleDays,
+		)
+	}
+
+	// 2) Ambil rules (+ CSST per-rule bila ada) — TANPA information_schema
 	var rr []ruleRow
-	qRules := fmt.Sprintf(`
+	qRules := `
 SELECT
   class_schedule_rule_id,
   class_schedule_rule_school_id,
@@ -585,11 +479,11 @@ SELECT
   class_schedule_rule_week_parity,
   class_schedule_rule_weeks_of_month,
   class_schedule_rule_last_week_of_month,
-  %s AS class_schedule_rule_csst_id
+  class_schedule_rule_csst_id           AS class_schedule_rule_csst_id
 FROM class_schedule_rules
 WHERE class_schedule_rule_schedule_id = ?
   AND class_schedule_rule_deleted_at IS NULL
-ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`, csstSelect)
+ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`
 	if err = g.DB.WithContext(ctx).Raw(qRules, sch.ClassScheduleID).Scan(&rr).Error; err != nil {
 		return 0, err
 	}
@@ -614,11 +508,12 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`, csstS
 		}
 	}
 
-	// Caches
+	// Caches (per scheduler run)
 	csstSnapCache := map[uuid.UUID]datatypes.JSONMap{}
 	csstTeacherIDCache := map[uuid.UUID]*uuid.UUID{}
 	csstNameCache := map[uuid.UUID]*string{}
 	meetingCountByCSST := map[uuid.UUID]int{}
+	roomFromCSSTCache := map[uuid.UUID]*uuid.UUID{}
 
 	// 3) Expand occurrences
 	rows := make([]sessModel.ClassAttendanceSessionModel, 0, 1024)
@@ -684,12 +579,24 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`, csstS
 			row.ClassAttendanceSessionTeacherID = effTeacherFromCSST
 		}
 
-		// RoomID (tanpa snapshot)
+		// RoomID (tanpa snapshot) — resolve dari CSST / Section bila DefaultRoom kosong
 		if opts.DefaultRoomID != nil {
 			row.ClassAttendanceSessionClassRoomID = opts.DefaultRoomID
 		} else if ruleCSST != nil {
-			if rid, _, er := g.ResolveRoomFromCSSTOrSection(ctx, sch.ClassScheduleSchoolID, ruleCSST); er == nil && rid != nil {
-				row.ClassAttendanceSessionClassRoomID = rid
+			// Cache hasil resolve room per CSST
+			if cached, ok := roomFromCSSTCache[*ruleCSST]; ok {
+				if cached != nil && *cached != uuid.Nil {
+					row.ClassAttendanceSessionClassRoomID = cached
+				}
+			} else {
+				if rid, _, er := g.ResolveRoomFromCSSTOrSection(ctx, sch.ClassScheduleSchoolID, ruleCSST); er == nil && rid != nil {
+					roomFromCSSTCache[*ruleCSST] = rid
+					row.ClassAttendanceSessionClassRoomID = rid
+				} else {
+					// tandai sudah pernah dicoba tapi tidak ada
+					var zero uuid.UUID
+					roomFromCSSTCache[*ruleCSST] = &zero
+				}
 			}
 		}
 
@@ -710,6 +617,7 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`, csstS
 			ClassAttendanceSessionSchoolID:         sch.ClassScheduleSchoolID,
 			ClassAttendanceSessionScheduleID:       ptrUUID(sch.ClassScheduleID),
 			ClassAttendanceSessionRuleID:           nil,
+			ClassAttendanceSessionRuleSnapshot:     nil, // tak ada rule
 			ClassAttendanceSessionDate:             dateUTC,
 			ClassAttendanceSessionStartsAt:         nil,
 			ClassAttendanceSessionEndsAt:           nil,
@@ -748,6 +656,7 @@ ORDER BY class_schedule_rule_day_of_week, class_schedule_rule_start_time`, csstS
 					ClassAttendanceSessionSchoolID:         sch.ClassScheduleSchoolID,
 					ClassAttendanceSessionScheduleID:       ptrUUID(sch.ClassScheduleID),
 					ClassAttendanceSessionRuleID:           &rid,
+					ClassAttendanceSessionRuleSnapshot:     buildRuleSnapshot(r),
 					ClassAttendanceSessionDate:             dateUTC,
 					ClassAttendanceSessionStartsAt:         &startAtUTC,
 					ClassAttendanceSessionEndsAt:           &endAtUTC,
@@ -833,148 +742,61 @@ func (g *Generator) ResolveRoomFromCSSTOrSection(
 	return nil, nil, nil
 }
 
-func (g *Generator) getRoomOrSectionFromCSST(ctx context.Context, csst uuid.UUID) (roomID *uuid.UUID, sectionID *uuid.UUID, schoolID uuid.UUID, sectionName *string, err error) {
-	cols, err := g.tableColumns(ctx, "class_section_subject_teachers")
-	if err != nil {
-		return nil, nil, uuid.Nil, nil, err
-	}
-	idCol := firstExisting(cols, "class_section_subject_teacher_id", "id")
-	schoolCol := firstExisting(cols, "class_section_subject_teacher_school_id", "school_id")
-	roomCol := firstExisting(cols, "class_section_subject_teacher_room_id", "class_room_id", "room_id")
-	sectionCol := firstExisting(cols, "class_section_subject_teacher_section_id", "class_section_id", "section_id")
-	deletedCol := firstExisting(cols, "class_section_subject_teacher_deleted_at", "deleted_at")
-
-	if idCol == "" || schoolCol == "" {
-		return nil, nil, uuid.Nil, nil, fmt.Errorf("getRoomOrSectionFromCSST: kolom minimal (id/school_id) tidak ditemukan di CSST")
-	}
-
-	roomExpr := "NULL::uuid"
-	if roomCol != "" {
-		roomExpr = fmt.Sprintf("csst.%s", roomCol)
-	}
-	secExpr := "NULL::uuid"
-	if sectionCol != "" {
-		secExpr = fmt.Sprintf("csst.%s", sectionCol)
-	}
-	whereDeleted := ""
-	if deletedCol != "" {
-		whereDeleted = fmt.Sprintf(" AND csst.%s IS NULL", deletedCol)
-	}
-
-	q := fmt.Sprintf(`
-SELECT
-  csst.%s AS csst_id,
-  csst.%s AS school_id,
-  %s      AS room_id,
-  %s      AS section_id
-FROM class_section_subject_teachers csst
-WHERE csst.%s = ?
-%s
-LIMIT 1`, idCol, schoolCol, roomExpr, secExpr, idCol, whereDeleted)
-
+// STATIC, no information_schema: pakai kolom fix
+func (g *Generator) getRoomOrSectionFromCSST(
+	ctx context.Context,
+	csstID uuid.UUID,
+) (roomID *uuid.UUID, sectionID *uuid.UUID, schoolID uuid.UUID, sectionName *string, err error) {
 	var row struct {
-		CSST     uuid.UUID  `gorm:"column:csst_id"`
-		SchoolID uuid.UUID  `gorm:"column:school_id"`
-		RoomID   *uuid.UUID `gorm:"column:room_id"`
-		Section  *uuid.UUID `gorm:"column:section_id"`
+		SchoolID    uuid.UUID  `gorm:"column:school_id"`
+		RoomID      *uuid.UUID `gorm:"column:room_id"`
+		SectionID   *uuid.UUID `gorm:"column:section_id"`
+		SectionName *string    `gorm:"column:section_name"`
 	}
-	if er := g.DB.WithContext(ctx).Raw(q, csst).Scan(&row).Error; er != nil {
+
+	q := `
+SELECT
+  csst.class_section_subject_teacher_school_id   AS school_id,
+  csst.class_section_subject_teacher_class_room_id    AS room_id,
+  csst.class_section_subject_teacher_class_section_id AS section_id,
+  sec.class_section_name                         AS section_name
+FROM class_section_subject_teachers csst
+LEFT JOIN class_sections sec
+  ON sec.class_section_id = csst.class_section_subject_teacher_class_section_id
+WHERE csst.class_section_subject_teacher_id = ?
+  AND csst.class_section_subject_teacher_deleted_at IS NULL
+LIMIT 1`
+	if er := g.DB.WithContext(ctx).Raw(q, csstID).Scan(&row).Error; er != nil {
 		return nil, nil, uuid.Nil, nil, er
 	}
 
-	var secName *string
-	if row.Section != nil && *row.Section != uuid.Nil {
-		if s, er := g.getSectionNameAndSchool(ctx, *row.Section); er == nil {
-			secName = s.Name
-			if row.SchoolID == uuid.Nil {
-				row.SchoolID = s.SchoolID
-			}
-		}
-	}
-
-	return row.RoomID, row.Section, row.SchoolID, secName, nil
+	return row.RoomID, row.SectionID, row.SchoolID, row.SectionName, nil
 }
 
-func (g *Generator) getRoomFromSection(ctx context.Context, sectionID uuid.UUID) (roomID *uuid.UUID, schoolID uuid.UUID, name *string, err error) {
-	cols, err := g.tableColumns(ctx, "class_sections")
-	if err != nil {
-		return nil, uuid.Nil, nil, err
-	}
-	idCol := firstExisting(cols, "class_section_id", "id")
-	schoolCol := firstExisting(cols, "class_section_school_id", "school_id")
-	nameCol := firstExisting(cols, "class_section_name", "name")
-	roomCol := firstExisting(cols, "class_section_room_id", "class_room_id", "room_id")
-	deletedCol := firstExisting(cols, "class_section_deleted_at", "deleted_at")
-
-	if idCol == "" || schoolCol == "" {
-		return nil, uuid.Nil, nil, fmt.Errorf("getRoomFromSection: kolom minimal (id/school_id) tidak ditemukan")
-	}
-
-	roomExpr := "NULL::uuid"
-	if roomCol != "" {
-		roomExpr = fmt.Sprintf("s.%s", roomCol)
-	}
-	nameExpr := "NULL::text"
-	if nameCol != "" {
-		nameExpr = fmt.Sprintf("s.%s", nameCol)
-	}
-	whereDeleted := ""
-	if deletedCol != "" {
-		whereDeleted = fmt.Sprintf(" AND s.%s IS NULL", deletedCol)
-	}
-
-	q := fmt.Sprintf(`
-SELECT
-  s.%s AS class_section_id,
-  s.%s AS class_section_school_id,
-  %s   AS class_section_name,
-  %s   AS class_room_id
-FROM class_sections s
-WHERE s.%s = ?
-%s
-LIMIT 1`, idCol, schoolCol, nameExpr, roomExpr, idCol, whereDeleted)
-
+// STATIC, no information_schema
+func (g *Generator) getRoomFromSection(
+	ctx context.Context,
+	sectionID uuid.UUID,
+) (roomID *uuid.UUID, schoolID uuid.UUID, name *string, err error) {
 	var row struct {
-		ID       uuid.UUID  `gorm:"column:class_section_id"`
-		SchoolID uuid.UUID  `gorm:"column:class_section_school_id"`
-		Name     *string    `gorm:"column:class_section_name"`
-		RoomID   *uuid.UUID `gorm:"column:class_room_id"`
+		SchoolID uuid.UUID  `gorm:"column:school_id"`
+		Name     *string    `gorm:"column:section_name"`
+		RoomID   *uuid.UUID `gorm:"column:room_id"`
 	}
+
+	q := `
+SELECT
+  s.class_section_school_id AS school_id,
+  s.class_section_name      AS section_name,
+  s.class_section_class_room_id   AS room_id
+FROM class_sections s
+WHERE s.class_section_id = ?
+  AND s.class_section_deleted_at IS NULL
+LIMIT 1`
 	if er := g.DB.WithContext(ctx).Raw(q, sectionID).Scan(&row).Error; er != nil {
 		return nil, uuid.Nil, nil, er
 	}
 	return row.RoomID, row.SchoolID, row.Name, nil
-}
-
-func (g *Generator) getSectionNameAndSchool(ctx context.Context, sectionID uuid.UUID) (*sectionLite, error) {
-	cols, err := g.tableColumns(ctx, "class_sections")
-	if err != nil {
-		return nil, err
-	}
-	idCol := firstExisting(cols, "class_section_id", "id")
-	schoolCol := firstExisting(cols, "class_section_school_id", "school_id")
-	nameCol := firstExisting(cols, "class_section_name", "name")
-	if idCol == "" || schoolCol == "" {
-		return nil, fmt.Errorf("getSectionNameAndSchool: kolom minimal tidak ditemukan")
-	}
-	nameExpr := "NULL::text"
-	if nameCol != "" {
-		nameExpr = fmt.Sprintf("s.%s", nameCol)
-	}
-	q := fmt.Sprintf(`
-SELECT
-  s.%s AS class_section_id,
-  s.%s AS class_section_school_id,
-  %s   AS class_section_name
-FROM class_sections s
-WHERE s.%s = ?
-LIMIT 1`, idCol, schoolCol, nameExpr, idCol)
-
-	var row sectionLite
-	if er := g.DB.WithContext(ctx).Raw(q, sectionID).Scan(&row).Error; er != nil {
-		return nil, er
-	}
-	return &row, nil
 }
 
 // Buat Room default untuk Section (bila belum ada sama sekali).
@@ -995,94 +817,34 @@ func (g *Generator) ensureSectionRoom(
 	}
 	slug := fmt.Sprintf("section-%s", strings.ReplaceAll(sectionID.String(), "-", "")) // unik per section
 
-	cols, err := g.tableColumns(ctx, "class_rooms")
-	if err != nil {
-		return nil, nil, err
-	}
-	hasSlug := firstExisting(cols, "class_room_slug", "slug") != ""
-
+	// 1) Cek dulu kalau sudah pernah dibuat
 	var existing roomModel.ClassRoomModel
-	if hasSlug {
-		if er := g.DB.WithContext(ctx).
-			Where("class_room_school_id = ? AND class_room_slug = ? AND class_room_deleted_at IS NULL", schoolID, slug).
-			Limit(1).
-			Take(&existing).Error; er == nil && existing.ClassRoomID != uuid.Nil {
-			id := existing.ClassRoomID
-			return &id, nil, nil
-		}
+	if err := g.DB.WithContext(ctx).
+		Where("class_room_school_id = ? AND class_room_slug = ? AND class_room_deleted_at IS NULL",
+			schoolID, slug).
+		Limit(1).
+		Take(&existing).Error; err == nil && existing.ClassRoomID != uuid.Nil {
+		id := existing.ClassRoomID
+		return &id, nil, nil
 	}
 
+	// 2) Belum ada → buat baru
 	cr := roomModel.ClassRoomModel{
 		ClassRoomSchoolID:  schoolID,
 		ClassRoomName:      baseName,
 		ClassRoomIsVirtual: false,
 		ClassRoomIsActive:  true,
 	}
-	if hasSlug {
-		s := slug
-		cr.ClassRoomSlug = &s
-	} else {
-		code := "SEC-" + strings.ToUpper(slugifySimple(baseName))
-		cr.ClassRoomCode = &code
-	}
+	s := slug
+	cr.ClassRoomSlug = &s
 
 	tx := g.DB.WithContext(ctx)
-	if hasSlug {
-		if er := tx.Clauses(clause.OnConflict{Columns: []clause.Column{
-			{Name: "class_room_school_id"},
-			{Name: "class_room_slug"},
-		}, DoNothing: true}).Create(&cr).Error; er != nil {
-			return nil, nil, er
-		}
-		if cr.ClassRoomID == uuid.Nil {
-			if er := tx.
-				Where("class_room_school_id = ? AND class_room_slug = ? AND class_room_deleted_at IS NULL", schoolID, slug).
-				Take(&cr).Error; er != nil {
-				return nil, nil, er
-			}
-		}
-	} else {
-		if er := tx.Create(&cr).Error; er != nil {
-			return nil, nil, er
-		}
+	if err := tx.Create(&cr).Error; err != nil {
+		return nil, nil, err
 	}
 
 	id := cr.ClassRoomID
 	return &id, nil, nil
-}
-
-/* =========================
-   Helpers (schema detection)
-========================= */
-
-func (g *Generator) tableColumns(ctx context.Context, table string) (map[string]struct{}, error) {
-	type colRow struct {
-		ColumnName string `gorm:"column:column_name"`
-	}
-	var rows []colRow
-
-	q := `
-SELECT column_name
-FROM information_schema.columns
-WHERE table_name = ?
-  AND table_schema = ANY (current_schemas(true))`
-	if err := g.DB.WithContext(ctx).Raw(q, table).Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	out := make(map[string]struct{}, len(rows))
-	for _, r := range rows {
-		out[strings.ToLower(strings.TrimSpace(r.ColumnName))] = struct{}{}
-	}
-	return out, nil
-}
-
-func firstExisting(cols map[string]struct{}, candidates ...string) string {
-	for _, c := range candidates {
-		if _, ok := cols[strings.ToLower(c)]; ok {
-			return c
-		}
-	}
-	return ""
 }
 
 /* =========================
@@ -1157,7 +919,13 @@ func dateMatchesRuleRow(dLocal, baseStartLocal time.Time, r ruleRow) bool {
 	if wkAdj%interval != 0 {
 		return false
 	}
-	switch r.WeekParity {
+
+	// --- PARITY (pointer-safe) ---
+	parity := ""
+	if r.WeekParity != nil {
+		parity = strings.ToLower(strings.TrimSpace(*r.WeekParity))
+	}
+	switch parity {
 	case "odd":
 		if ((wkAdj/interval)+1)%2 != 1 {
 			return false
@@ -1167,6 +935,8 @@ func dateMatchesRuleRow(dLocal, baseStartLocal time.Time, r ruleRow) bool {
 			return false
 		}
 	}
+
+	// Weeks-of-month filter
 	if len(r.WeeksOfMonth) > 0 {
 		wm := weekOfMonthISO(dLocal)
 		ok := false
@@ -1180,6 +950,8 @@ func dateMatchesRuleRow(dLocal, baseStartLocal time.Time, r ruleRow) bool {
 			return false
 		}
 	}
+
+	// Last-week-of-month
 	if r.LastWeekOfMonth && !isLastWeekOfMonth(dLocal) {
 		return false
 	}

@@ -208,7 +208,8 @@ func applyClassParentAndTermSnapshotToSection(mcs *secModel.ClassSectionModel, s
 	}
 
 	// ---------- PARENT ----------
-	mcs.ClassSectionClassParentIDSnapshot = s.ParentID
+	// model terbaru: pakai ClassSectionClassParentID (bukan ...IDSnapshot)
+	mcs.ClassSectionClassParentID = s.ParentID
 
 	pName := strings.TrimSpace(s.ParentName)
 	if pName != "" {
@@ -407,9 +408,9 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		applyClassParentAndTermSnapshotToSection(m, snap)
 	}
 
-	// ==== Snapshot ROOM (opsional, via *_id_snapshot) ====
-	if m.ClassSectionClassRoomIDSnapshot != nil {
-		rs, err := sectionroomsnap.ValidateAndSnapshotRoom(tx, schoolID, *m.ClassSectionClassRoomIDSnapshot)
+	// ==== Snapshot ROOM (opsional, via class_section_class_room_id) ====
+	if m.ClassSectionClassRoomID != nil {
+		rs, err := sectionroomsnap.ValidateAndSnapshotRoom(tx, schoolID, *m.ClassSectionClassRoomID)
 		if err != nil {
 			_ = tx.Rollback()
 			var fe *fiber.Error
@@ -502,19 +503,6 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		if key, kErr := helperOSS.ExtractKeyFromPublicURL(publicURL); kErr == nil {
 			m.ClassSectionImageObjectKey = &key
 		}
-
-		// ===== (Alternatif) paksa semua image jadi WebP, non-image ditolak =====
-		// publicURL, err := helper.UploadImageToOSS(c.Context(), ossSvc, schoolID, slot, fh)
-		// if err != nil {
-		//   _ = tx.Rollback()
-		//   var fe *fiber.Error
-		//   if errors.As(err, &fe) { return fe }
-		//   return fiber.NewError(fiber.StatusBadGateway, "Gagal upload gambar")
-		// }
-		// m.ClassSectionImageURL = &publicURL
-		// if key, kErr := helper.ExtractKeyFromPublicURL(publicURL); kErr == nil {
-		//   m.ClassSectionImageObjectKey = &key
-		// }
 	}
 
 	// ---- INSERT ----
@@ -601,18 +589,18 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 	}
 
-	// Siapkan snapshot ROOM bila *_id_snapshot dipatch
+	// Siapkan snapshot ROOM bila room_id dipatch
 	var (
 		roomSnapRequested bool
 		roomSnap          *sectionroomsnap.RoomSnapshot
 	)
-	if req.ClassSectionClassRoomIDSnapshot.Present {
+	if req.ClassSectionClassRoomID.Present {
 		roomSnapRequested = true
-		if req.ClassSectionClassRoomIDSnapshot.Value != nil {
+		if req.ClassSectionClassRoomID.Value != nil {
 			rs, err := sectionroomsnap.ValidateAndSnapshotRoom(
 				tx,
 				existing.ClassSectionSchoolID,
-				*req.ClassSectionClassRoomIDSnapshot.Value,
+				*req.ClassSectionClassRoomID.Value,
 			)
 			if err != nil {
 				_ = tx.Rollback()
@@ -691,7 +679,7 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		newActive = *req.ClassSectionIsActive.Value
 	}
 
-	// Apply perubahan model dasar (termasuk snapshot IDs)
+	// Apply perubahan model dasar (termasuk relasi IDs)
 	req.Apply(&existing)
 
 	// Apply room snapshot jika field-nya dipatch (clear jika nil)

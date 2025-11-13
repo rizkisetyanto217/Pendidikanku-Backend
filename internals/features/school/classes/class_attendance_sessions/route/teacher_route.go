@@ -18,7 +18,7 @@ func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	// =====================
 	// Attendance Sessions
 	// =====================
-	sGroup := schoolGroup.Group("/sessions")
+	sGroup := schoolGroup.Group("/attendance-sessions")
 	sGroup.Post("/", sessionController.CreateClassAttendanceSession)
 	sGroup.Put("/:id", sessionController.PatchClassAttendanceSessionUrl)
 	sGroup.Delete("/:id", sessionController.DeleteClassAttendanceSessionUrl)
@@ -27,8 +27,8 @@ func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	// =====================
 	// User Attendance Types (CRUD)
 	// =====================
-	uattCtl := uaCtrl.NewStudentAttendanceTypeController(db)
-	uatt := schoolGroup.Group("/student-attendance-types")
+	uattCtl := uaCtrl.NewClassAttendanceSessionParticipantTypeController(db)
+	uatt := schoolGroup.Group("/attendance-participant-types")
 	uatt.Post("/", uattCtl.Create)
 	uatt.Get("/", uattCtl.List)
 	uatt.Patch("/:id", uattCtl.Patch)

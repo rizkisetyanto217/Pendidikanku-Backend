@@ -217,7 +217,11 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 	}
 
 	// 4) Build header
-	header := req.ToModel(actSchoolID)
+	// 4) Build header
+	header, err := req.ToModel(actSchoolID)
+	if err != nil {
+		return helper.JsonError(c, http.StatusBadRequest, err.Error())
+	}
 	if header.ClassScheduleStartDate.After(header.ClassScheduleEndDate) {
 		return helper.JsonError(c, http.StatusBadRequest, "start_date harus <= end_date")
 	}

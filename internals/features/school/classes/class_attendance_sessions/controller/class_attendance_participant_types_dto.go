@@ -1,4 +1,4 @@
-// file: internals/features/attendance/controller/student_attendance_type_controller.go
+// file: internals/features/attendance/controller/class_attendance_session_participant_type_controller.go
 package controller
 
 import (
@@ -17,13 +17,13 @@ import (
 	"gorm.io/gorm"
 )
 
-type StudentAttendanceTypeController struct {
+type ClassAttendanceSessionParticipantTypeController struct {
 	DB        *gorm.DB
 	Validator *validator.Validate
 }
 
-func NewStudentAttendanceTypeController(db *gorm.DB) *StudentAttendanceTypeController {
-	return &StudentAttendanceTypeController{
+func NewClassAttendanceSessionParticipantTypeController(db *gorm.DB) *ClassAttendanceSessionParticipantTypeController {
+	return &ClassAttendanceSessionParticipantTypeController{
 		DB:        db,
 		Validator: validator.New(),
 	}
@@ -38,7 +38,7 @@ func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
 // =============== Handlers ===============
 
 // POST /
-func (ctl *StudentAttendanceTypeController) Create(c *fiber.Ctx) error {
+func (ctl *ClassAttendanceSessionParticipantTypeController) Create(c *fiber.Ctx) error {
 	// School context via helpers (slug/ID di path/header/query/host) → wajib DKM/Admin
 	c.Locals("DB", ctl.DB)
 	var schoolID uuid.UUID
@@ -60,12 +60,12 @@ func (ctl *StudentAttendanceTypeController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	var in dto.StudentClassSessionAttendanceTypeCreateDTO
+	var in dto.ClassAttendanceSessionParticipantTypeCreateDTO
 	if err := c.BodyParser(&in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	// Enforce tenant dari context
-	in.StudentClassSessionAttendanceTypeSchoolID = schoolID
+	in.ClassAttendanceSessionParticipantTypeSchoolID = schoolID
 
 	if err := dto.ValidateStruct(ctl.Validator, &in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -79,15 +79,11 @@ func (ctl *StudentAttendanceTypeController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonCreated(c, "Berhasil membuat attendance type", dto.FromModel(m))
+	return helper.JsonCreated(c, "Berhasil membuat participant type", dto.FromModel(m))
 }
 
 // GET /
-// file: internals/features/attendance/controller/student_attendance_type_controller.go
-// ... import & type tetap
-
-// GET /
-func (ctl *StudentAttendanceTypeController) List(c *fiber.Ctx) error {
+func (ctl *ClassAttendanceSessionParticipantTypeController) List(c *fiber.Ctx) error {
 	// School context (DKM/Admin jika eksplisit; jika tidak, fallback token/teacher)
 	c.Locals("DB", ctl.DB)
 	var schoolID uuid.UUID
@@ -109,12 +105,11 @@ func (ctl *StudentAttendanceTypeController) List(c *fiber.Ctx) error {
 	}
 
 	// ===== Paging standar (jsonresponse)
-	// default per_page=20, max=200; mendukung ?page=&per_page= dan alias ?limit=
 	p := helper.ResolvePaging(c, 20, 200)
 
 	// ===== Query filter dari querystring
-	q := dto.StudentClassSessionAttendanceTypeListQuery{
-		StudentClassSessionAttendanceTypeSchoolID: schoolID,
+	q := dto.ClassAttendanceSessionParticipantTypeListQuery{
+		ClassAttendanceSessionParticipantTypeSchoolID: schoolID,
 		Limit:  p.Limit,
 		Offset: p.Offset,
 	}
@@ -175,12 +170,12 @@ func (ctl *StudentAttendanceTypeController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	var rows []model.StudentClassSessionAttendanceTypeModel
+	var rows []model.ClassAttendanceSessionParticipantTypeModel
 	if err := g.Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	items := make([]dto.StudentClassSessionAttendanceTypeItem, len(rows))
+	items := make([]dto.ClassAttendanceSessionParticipantTypeItem, len(rows))
 	for i := range rows {
 		items[i] = dto.FromModel(&rows[i])
 	}
@@ -191,7 +186,7 @@ func (ctl *StudentAttendanceTypeController) List(c *fiber.Ctx) error {
 }
 
 // PATCH /:id
-func (ctl *StudentAttendanceTypeController) Patch(c *fiber.Ctx) error {
+func (ctl *ClassAttendanceSessionParticipantTypeController) Patch(c *fiber.Ctx) error {
 	// School context
 	c.Locals("DB", ctl.DB)
 	var schoolID uuid.UUID
@@ -218,12 +213,12 @@ func (ctl *StudentAttendanceTypeController) Patch(c *fiber.Ctx) error {
 	}
 
 	// ambil data existing
-	var m model.StudentClassSessionAttendanceTypeModel
+	var m model.ClassAttendanceSessionParticipantTypeModel
 	if err := ctl.DB.WithContext(c.Context()).
 		Where(`
-			student_class_session_attendance_type_id = ?
-			AND student_class_session_attendance_type_school_id = ?
-			AND student_class_session_attendance_type_deleted_at IS NULL
+			class_attendance_session_participant_type_id = ?
+			AND class_attendance_session_participant_type_school_id = ?
+			AND class_attendance_session_participant_type_deleted_at IS NULL
 		`, id, schoolID).
 		First(&m).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -232,13 +227,13 @@ func (ctl *StudentAttendanceTypeController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	var in dto.StudentClassSessionAttendanceTypePatchDTO
+	var in dto.ClassAttendanceSessionParticipantTypePatchDTO
 	if err := c.BodyParser(&in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	// enforce key dari path + context
-	in.StudentClassSessionAttendanceTypeID = id
-	in.StudentClassSessionAttendanceTypeSchoolID = schoolID
+	in.ClassAttendanceSessionParticipantTypeID = id
+	in.ClassAttendanceSessionParticipantTypeSchoolID = schoolID
 
 	if err := dto.ValidateStruct(ctl.Validator, &in); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
@@ -250,13 +245,13 @@ func (ctl *StudentAttendanceTypeController) Patch(c *fiber.Ctx) error {
 	if err := ctl.DB.WithContext(c.Context()).
 		Model(&m).
 		Select(
-			"student_class_session_attendance_type_code",
-			"student_class_session_attendance_type_label",
-			"student_class_session_attendance_type_slug",
-			"student_class_session_attendance_type_color",
-			"student_class_session_attendance_type_desc",
-			"student_class_session_attendance_type_is_active",
-			"student_class_session_attendance_type_updated_at",
+			"class_attendance_session_participant_type_code",
+			"class_attendance_session_participant_type_label",
+			"class_attendance_session_participant_type_slug",
+			"class_attendance_session_participant_type_color",
+			"class_attendance_session_participant_type_desc",
+			"class_attendance_session_participant_type_is_active",
+			"class_attendance_session_participant_type_updated_at",
 		).
 		Updates(&m).Error; err != nil {
 		if isDuplicateKey(err) {
@@ -265,11 +260,11 @@ func (ctl *StudentAttendanceTypeController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonUpdated(c, "Berhasil mengubah attendance type", dto.FromModel(&m))
+	return helper.JsonUpdated(c, "Berhasil mengubah participant type", dto.FromModel(&m))
 }
 
 // DELETE /:id (soft delete)
-func (ctl *StudentAttendanceTypeController) Delete(c *fiber.Ctx) error {
+func (ctl *ClassAttendanceSessionParticipantTypeController) Delete(c *fiber.Ctx) error {
 	// School context
 	c.Locals("DB", ctl.DB)
 	var schoolID uuid.UUID
@@ -296,15 +291,15 @@ func (ctl *StudentAttendanceTypeController) Delete(c *fiber.Ctx) error {
 	}
 
 	res := ctl.DB.WithContext(c.Context()).
-		Model(&model.StudentClassSessionAttendanceTypeModel{}).
+		Model(&model.ClassAttendanceSessionParticipantTypeModel{}).
 		Where(`
-			student_class_session_attendance_type_id = ?
-			AND student_class_session_attendance_type_school_id = ?
-			AND student_class_session_attendance_type_deleted_at IS NULL
+			class_attendance_session_participant_type_id = ?
+			AND class_attendance_session_participant_type_school_id = ?
+			AND class_attendance_session_participant_type_deleted_at IS NULL
 		`, id, schoolID).
 		Updates(map[string]any{
-			"student_class_session_attendance_type_deleted_at": time.Now(),
-			"student_class_session_attendance_type_updated_at": time.Now(),
+			"class_attendance_session_participant_type_deleted_at": time.Now(),
+			"class_attendance_session_participant_type_updated_at": time.Now(),
 		})
 	if res.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, res.Error.Error())
@@ -313,11 +308,11 @@ func (ctl *StudentAttendanceTypeController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusNotFound, "Tidak ditemukan / sudah dihapus")
 	}
 
-	return helper.JsonDeleted(c, "Berhasil menghapus attendance type", fiber.Map{"id": id})
+	return helper.JsonDeleted(c, "Berhasil menghapus participant type", fiber.Map{"id": id})
 }
 
 // POST /:id/restore
-func (ctl *StudentAttendanceTypeController) Restore(c *fiber.Ctx) error {
+func (ctl *ClassAttendanceSessionParticipantTypeController) Restore(c *fiber.Ctx) error {
 	// School context
 	c.Locals("DB", ctl.DB)
 	var schoolID uuid.UUID
@@ -344,15 +339,15 @@ func (ctl *StudentAttendanceTypeController) Restore(c *fiber.Ctx) error {
 	}
 
 	res := ctl.DB.WithContext(c.Context()).
-		Model(&model.StudentClassSessionAttendanceTypeModel{}).
+		Model(&model.ClassAttendanceSessionParticipantTypeModel{}).
 		Where(`
-			student_class_session_attendance_type_id = ?
-			AND student_class_session_attendance_type_school_id = ?
-			AND student_class_session_attendance_type_deleted_at IS NOT NULL
+			class_attendance_session_participant_type_id = ?
+			AND class_attendance_session_participant_type_school_id = ?
+			AND class_attendance_session_participant_type_deleted_at IS NOT NULL
 		`, id, schoolID).
 		Updates(map[string]any{
-			"student_class_session_attendance_type_deleted_at": nil,
-			"student_class_session_attendance_type_updated_at": time.Now(),
+			"class_attendance_session_participant_type_deleted_at": nil,
+			"class_attendance_session_participant_type_updated_at": time.Now(),
 		})
 	if res.Error != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, res.Error.Error())
@@ -361,5 +356,5 @@ func (ctl *StudentAttendanceTypeController) Restore(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusNotFound, "Tidak ditemukan / sudah aktif")
 	}
 
-	return helper.JsonOK(c, "Berhasil restore attendance type", fiber.Map{"id": id})
+	return helper.JsonOK(c, "Berhasil restore participant type", fiber.Map{"id": id})
 }

@@ -16,7 +16,9 @@ func AllSchoolRoutes(user fiber.Router, db *gorm.DB) {
 	// 🕌 Group: /schools
 	school := user.Group("/schools")
 
-	
+	// ⬅️ ini yang tadinya salah
+	school.Post("/", schoolCtrl.CreateSchoolDKM)
+
 	// Lebih spesifik dulu supaya tidak bentrok dengan "/:slug"
 	school.Get("/verified", schoolCtrl.GetAllVerifiedSchools)
 	school.Get("/verified/:id", schoolCtrl.GetVerifiedSchoolByID)

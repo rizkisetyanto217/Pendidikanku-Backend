@@ -1,3 +1,4 @@
+// file: internals/features/school/classes/class_attendance_sessions/model/class_attendance_session_model.go
 package model
 
 import (
@@ -30,7 +31,7 @@ const (
 
 /* =========================================
    MODEL: class_attendance_sessions
-   (single snapshot: csst_snapshot)
+   (single snapshot: csst_snapshot + rule_snapshot)
 ========================================= */
 
 type ClassAttendanceSessionModel struct {
@@ -70,41 +71,61 @@ type ClassAttendanceSessionModel struct {
 	ClassAttendanceSessionCSSTID      *uuid.UUID `gorm:"type:uuid;column:class_attendance_session_csst_id" json:"class_attendance_session_csst_id,omitempty"`
 
 	// Info & rekap
-	ClassAttendanceSessionTitle        *string `gorm:"type:text;column:class_attendance_session_title" json:"class_attendance_session_title,omitempty"`
-	ClassAttendanceSessionGeneralInfo  string  `gorm:"type:text;not null;default:'';column:class_attendance_session_general_info" json:"class_attendance_session_general_info"`
-	ClassAttendanceSessionNote         *string `gorm:"type:text;column:class_attendance_session_note" json:"class_attendance_session_note,omitempty"`
-	ClassAttendanceSessionPresentCount *int    `gorm:"column:class_attendance_session_present_count" json:"class_attendance_session_present_count,omitempty"`
-	ClassAttendanceSessionAbsentCount  *int    `gorm:"column:class_attendance_session_absent_count" json:"class_attendance_session_absent_count,omitempty"`
-	ClassAttendanceSessionLateCount    *int    `gorm:"column:class_attendance_session_late_count" json:"class_attendance_session_late_count,omitempty"`
-	ClassAttendanceSessionExcusedCount *int    `gorm:"column:class_attendance_session_excused_count" json:"class_attendance_session_excused_count,omitempty"`
-	ClassAttendanceSessionSickCount    *int    `gorm:"column:class_attendance_session_sick_count" json:"class_attendance_session_sick_count,omitempty"`
-	ClassAttendanceSessionLeaveCount   *int    `gorm:"column:class_attendance_session_leave_count" json:"class_attendance_session_leave_count,omitempty"`
+	ClassAttendanceSessionTitle       *string `gorm:"type:text;column:class_attendance_session_title" json:"class_attendance_session_title,omitempty"`
+	ClassAttendanceSessionGeneralInfo string  `gorm:"type:text;not null;default:'';column:class_attendance_session_general_info" json:"class_attendance_session_general_info"`
+	ClassAttendanceSessionNote        *string `gorm:"type:text;column:class_attendance_session_note" json:"class_attendance_session_note,omitempty"`
+
+	ClassAttendanceSessionPresentCount *int `gorm:"column:class_attendance_session_present_count" json:"class_attendance_session_present_count,omitempty"`
+	ClassAttendanceSessionAbsentCount  *int `gorm:"column:class_attendance_session_absent_count" json:"class_attendance_session_absent_count,omitempty"`
+	ClassAttendanceSessionLateCount    *int `gorm:"column:class_attendance_session_late_count" json:"class_attendance_session_late_count,omitempty"`
+	ClassAttendanceSessionExcusedCount *int `gorm:"column:class_attendance_session_excused_count" json:"class_attendance_session_excused_count,omitempty"`
+	ClassAttendanceSessionSickCount    *int `gorm:"column:class_attendance_session_sick_count" json:"class_attendance_session_sick_count,omitempty"`
+	ClassAttendanceSessionLeaveCount   *int `gorm:"column:class_attendance_session_leave_count" json:"class_attendance_session_leave_count,omitempty"`
 
 	/* ==========================
 	   SNAPSHOT TUNGGAL (CSST)
 	========================== */
 	ClassAttendanceSessionCSSTSnapshot datatypes.JSONMap `gorm:"type:jsonb;column:class_attendance_session_csst_snapshot" json:"class_attendance_session_csst_snapshot,omitempty"`
 
+	/* ==========================
+	   SNAPSHOT RULE (jejak saat generate)
+	   contoh payload:
+	   {
+	     "rule_id":"...", "day_of_week":3,
+	     "start_time":"13:00:00","end_time":"14:30:00",
+	     "interval_weeks":1,"start_offset":0,
+	     "week_parity":"all","weeks_of_month":[1,3],
+	     "last_week_of_month":false
+	   }
+	========================== */
+	ClassAttendanceSessionRuleSnapshot datatypes.JSONMap `gorm:"type:jsonb;column:class_attendance_session_rule_snapshot" json:"class_attendance_session_rule_snapshot,omitempty"`
+
 	/* ===========================================================
 	   GENERATED (read-only; diisi DB dari snapshot)
 	=========================================================== */
 
-	// IDs turunannya
+	// IDs turunannya (dari CSST snapshot)
 	ClassAttendanceSessionCSSTIDSnapshot    *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_csst_id_snapshot" json:"class_attendance_session_csst_id_snapshot,omitempty"`
 	ClassAttendanceSessionSubjectIDSnapshot *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_subject_id_snapshot" json:"class_attendance_session_subject_id_snapshot,omitempty"`
 	ClassAttendanceSessionSectionIDSnapshot *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_section_id_snapshot" json:"class_attendance_session_section_id_snapshot,omitempty"`
 	ClassAttendanceSessionTeacherIDSnapshot *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_teacher_id_snapshot" json:"class_attendance_session_teacher_id_snapshot,omitempty"`
 	ClassAttendanceSessionRoomIDSnapshot    *uuid.UUID `gorm:"type:uuid;->;column:class_attendance_session_room_id_snapshot" json:"class_attendance_session_room_id_snapshot,omitempty"`
 
-	// Label turunannya
+	// Label turunannya (dari CSST snapshot)
 	ClassAttendanceSessionSubjectCodeSnapshot *string `gorm:"type:text;->;column:class_attendance_session_subject_code_snapshot" json:"class_attendance_session_subject_code_snapshot,omitempty"`
 	ClassAttendanceSessionSubjectNameSnapshot *string `gorm:"type:text;->;column:class_attendance_session_subject_name_snapshot" json:"class_attendance_session_subject_name_snapshot,omitempty"`
 	ClassAttendanceSessionSectionNameSnapshot *string `gorm:"type:text;->;column:class_attendance_session_section_name_snapshot" json:"class_attendance_session_section_name_snapshot,omitempty"`
 	ClassAttendanceSessionTeacherNameSnapshot *string `gorm:"type:text;->;column:class_attendance_session_teacher_name_snapshot" json:"class_attendance_session_teacher_name_snapshot,omitempty"`
 	ClassAttendanceSessionRoomNameSnapshot    *string `gorm:"type:text;->;column:class_attendance_session_room_name_snapshot" json:"class_attendance_session_room_name_snapshot,omitempty"`
 
-	// Display title hasil komposisi
+	// Display title hasil komposisi (generated)
 	ClassAttendanceSessionDisplayTitle *string `gorm:"type:text;->;column:class_attendance_session_display_title" json:"class_attendance_session_display_title,omitempty"`
+
+	// Turunan dari RULE snapshot (generated)
+	ClassAttendanceSessionRuleDayOfWeekSnapshot  *int       `gorm:"->;column:class_attendance_session_rule_day_of_week_snapshot" json:"class_attendance_session_rule_day_of_week_snapshot,omitempty"`
+	ClassAttendanceSessionRuleStartTimeSnapshot  *time.Time `gorm:"type:time;->;column:class_attendance_session_rule_start_time_snapshot" json:"class_attendance_session_rule_start_time_snapshot,omitempty"`
+	ClassAttendanceSessionRuleEndTimeSnapshot    *time.Time `gorm:"type:time;->;column:class_attendance_session_rule_end_time_snapshot" json:"class_attendance_session_rule_end_time_snapshot,omitempty"`
+	ClassAttendanceSessionRuleWeekParitySnapshot *string    `gorm:"type:text;->;column:class_attendance_session_rule_week_parity_snapshot" json:"class_attendance_session_rule_week_parity_snapshot,omitempty"`
 
 	// Audit
 	ClassAttendanceSessionCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:class_attendance_session_created_at" json:"class_attendance_session_created_at"`
@@ -114,4 +135,19 @@ type ClassAttendanceSessionModel struct {
 
 func (ClassAttendanceSessionModel) TableName() string {
 	return "class_attendance_sessions"
+}
+
+// Optional guard: pastikan JSONMap tidak NULL saat insert/update
+func (m *ClassAttendanceSessionModel) BeforeSave(tx *gorm.DB) error {
+	if m.ClassAttendanceSessionCSSTSnapshot == nil {
+		m.ClassAttendanceSessionCSSTSnapshot = datatypes.JSONMap{}
+	}
+	if m.ClassAttendanceSessionRuleSnapshot == nil && m.ClassAttendanceSessionRuleID != nil {
+		// Kalau ada rule_id, kita prefer ada snapshot (biar lolos CHECK).
+		// Biar gak gagal, isi minimal (akan dioverwrite generator).
+		m.ClassAttendanceSessionRuleSnapshot = datatypes.JSONMap{
+			"rule_id": m.ClassAttendanceSessionRuleID.String(),
+		}
+	}
+	return nil
 }

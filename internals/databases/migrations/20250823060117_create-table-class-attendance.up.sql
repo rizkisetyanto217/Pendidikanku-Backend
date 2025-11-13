@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   -- SLUG (opsional; unik per tenant saat alive)
   class_attendance_session_slug VARCHAR(160),
 
-  -- occurrence (tanggal + waktu)
+  -- occurrence (tanggal + waktu aktual yang dipakai sesi)
   class_attendance_session_date      DATE NOT NULL,
   class_attendance_session_starts_at TIMESTAMPTZ,
   class_attendance_session_ends_at   TIMESTAMPTZ,
@@ -70,10 +70,10 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
   class_attendance_session_sick_count    INT,
   class_attendance_session_leave_count   INT,
 
-  -- ===== Satu SNAPSHOT (CSST + turunan) =====
+  -- ===== Snapshot CSST (sumber data turunan) =====
   class_attendance_session_csst_snapshot JSONB,
 
-  -- ===== Kolom turunan (GENERATED) dari snapshot =====
+  -- ===== Kolom turunan (GENERATED) dari snapshot CSST =====
   class_attendance_session_csst_id_snapshot    UUID   GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'csst_id')::uuid) STORED,
   class_attendance_session_subject_id_snapshot UUID   GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'subject_id')::uuid) STORED,
   class_attendance_session_section_id_snapshot UUID   GENERATED ALWAYS AS ((class_attendance_session_csst_snapshot->>'section_id')::uuid) STORED,
@@ -100,6 +100,19 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
            THEN ' (' || (class_attendance_session_csst_snapshot->>'teacher_name') || ')' ELSE '' END
       , '')
     ) STORED,
+
+  -- ===== Snapshot RULE (jejak pola saat generate) =====
+  class_attendance_session_rule_snapshot JSONB,
+
+  -- Turunan (GENERATED) dari rule snapshot (untuk filter cepat)
+  class_attendance_session_rule_day_of_week_snapshot INT
+    GENERATED ALWAYS AS ((class_attendance_session_rule_snapshot->>'day_of_week')::INT) STORED,
+class_attendance_session_rule_start_time_snapshot TEXT
+  GENERATED ALWAYS AS (NULLIF(class_attendance_session_rule_snapshot->>'start_time','')) STORED,
+class_attendance_session_rule_end_time_snapshot TEXT
+  GENERATED ALWAYS AS (NULLIF(class_attendance_session_rule_snapshot->>'end_time','')) STORED,
+  class_attendance_session_rule_week_parity_snapshot TEXT
+    GENERATED ALWAYS AS (NULLIF(class_attendance_session_rule_snapshot->>'week_parity','')) STORED,
 
   -- audit
   class_attendance_session_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -131,6 +144,12 @@ CREATE TABLE IF NOT EXISTS class_attendance_sessions (
     CHECK (
       class_attendance_session_override_event_id IS NULL
       OR class_attendance_session_is_override = TRUE
+    ),
+  -- jika ada rule_id, sebaiknya snapshot rule juga ada (opsional tapi baik)
+  CONSTRAINT chk_cas_rule_snapshot_when_rule
+    CHECK (
+      class_attendance_session_rule_id IS NULL
+      OR class_attendance_session_rule_snapshot IS NOT NULL
     )
 );
 
@@ -257,6 +276,19 @@ CREATE INDEX IF NOT EXISTS gin_cas_display_title_trgm_alive
   USING GIN ((lower(class_attendance_session_display_title)) gin_trgm_ops)
   WHERE class_attendance_session_deleted_at IS NULL
     AND class_attendance_session_display_title IS NOT NULL;
+
+-- GIN untuk rule snapshot (filter by day_of_week, parity, dll)
+CREATE INDEX IF NOT EXISTS gin_cas_rule_snapshot
+  ON class_attendance_sessions
+  USING GIN (class_attendance_session_rule_snapshot);
+
+-- BTree untuk turunan rule (query umum: hari & jam)
+CREATE INDEX IF NOT EXISTS idx_cas_rule_day_start_alive
+  ON class_attendance_sessions (
+    class_attendance_session_rule_day_of_week_snapshot,
+    class_attendance_session_rule_start_time_snapshot
+  )
+  WHERE class_attendance_session_deleted_at IS NULL;
 
 
 
