@@ -17,55 +17,6 @@ import (
 )
 
 // =====================================================
-// GET /api/u/:school_id/classes/slug/:slug   (PUBLIC)
-// =====================================================
-func (ctrl *ClassController) GetClassBySlug(c *fiber.Ctx) error {
-	// Pastikan helper slug→id bisa akses DB
-	c.Locals("DB", ctrl.DB)
-
-	// 1) Resolve school context secara publik
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		return err // helper sudah kasih 400 kalau konteks tak ada
-	}
-
-	var schoolID uuid.UUID
-	if mc.ID != uuid.Nil {
-		schoolID = mc.ID
-	} else {
-		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
-		if er != nil {
-			if er == gorm.ErrRecordNotFound {
-				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
-		}
-		schoolID = id
-	}
-
-	// 2) Normalisasi slug kelas
-	slug := helper.Slugify(c.Params("slug"), 120)
-
-	// 3) Ambil data kelas (public)
-	var m model.ClassModel
-	if err := ctrl.DB.
-		Where(`
-			class_school_id = ?
-			AND lower(class_slug) = lower(?)
-			AND class_deleted_at IS NULL
-		`, schoolID, slug).
-		First(&m).Error; err != nil {
-
-		if err == gorm.ErrRecordNotFound {
-			return helper.JsonError(c, fiber.StatusNotFound, "Kelas tidak ditemukan")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
-	}
-
-	return helper.JsonOK(c, "Data diterima", dto.FromModel(&m))
-}
-
-// =====================================================
 // GET /api/u/:school_id/classes/list        (PUBLIC)
 // =====================================================
 func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	sessiondto "schoolku_backend/internals/features/school/classes/class_attendance_sessions/dto"
-	attModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
+	attendanceModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
 
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
@@ -198,7 +198,7 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 	}
 
 	// Set school ke request (tenant)
-	attReq.SchoolID = schoolID
+	attReq.ClassAttendanceSessionParticipantSchoolID = schoolID
 
 	// Validasi request
 	if err := ctl.Validator.Struct(&attReq); err != nil {
@@ -206,7 +206,11 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 	}
 
 	// Tenant guard: session harus milik school
-	if err := ctl.ensureSessionBelongsToSchool(c, attReq.SessionID, schoolID); err != nil {
+	if err := ctl.ensureSessionBelongsToSchool(
+		c,
+		attReq.ClassAttendanceSessionParticipantSessionID,
+		schoolID,
+	); err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
@@ -216,7 +220,7 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 	// =========================
 	// Transaksi
 	// =========================
-	var created attModel.ClassAttendanceSessionParticipantModel
+	var created attendanceModel.ClassAttendanceSessionParticipantModel
 
 	if err := ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		// 1) create attendance (participant)
@@ -254,7 +258,7 @@ func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
 	}
 
 	// Ambil URLs (live) untuk response
-	var urls []attModel.ClassAttendanceSessionParticipantURLModel
+	var urls []attendanceModel.ClassAttendanceSessionParticipantURLModel
 	_ = ctl.DB.
 		Where("class_attendance_session_participant_url_participant_id = ? AND class_attendance_session_participant_url_deleted_at IS NULL",
 			created.ClassAttendanceSessionParticipantID).

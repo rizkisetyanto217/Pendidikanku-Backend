@@ -146,6 +146,36 @@ func (p *PatchQuizQuestionRequest) ApplyToModel(m *qmodel.QuizQuestionModel) err
 }
 
 /* =========================================================
+   LIST QUERY (GET /quiz-questions)
+========================================================= */
+
+type ListQuizQuestionsQuery struct {
+	SchoolID *uuid.UUID `query:"school_id" validate:"omitempty,uuid4"`
+	ID       *uuid.UUID `query:"id" validate:"omitempty,uuid4"`      // quiz_question_id
+	QuizID   *uuid.UUID `query:"quiz_id" validate:"omitempty,uuid4"` // filter by quiz
+
+	Type string `query:"type" validate:"omitempty,oneof=single essay"`
+	Q    string `query:"q" validate:"omitempty,max=200"` // search text/explanation
+
+	Page    int    `query:"page" validate:"omitempty,gte=0"`
+	PerPage int    `query:"per_page" validate:"omitempty,gte=0,lte=200"`
+	Sort    string `query:"sort" validate:"omitempty,oneof=created_at desc_created_at points desc_points type desc_type"`
+
+	WithQuiz bool `query:"with_quiz"` // kalau true → preload quiz parent & embed di response
+}
+
+/* =========================================================
+   Lite Quiz info (embed di question jika with_quiz=true)
+========================================================= */
+
+type QuizLiteResponse struct {
+	QuizID          uuid.UUID `json:"quiz_id"`
+	QuizSlug        *string   `json:"quiz_slug,omitempty"`
+	QuizTitle       string    `json:"quiz_title"`
+	QuizIsPublished bool      `json:"quiz_is_published"`
+}
+
+/* =========================================================
    RESPONSE
 ========================================================= */
 
@@ -162,6 +192,9 @@ type QuizQuestionResponse struct {
 
 	QuizQuestionCreatedAt string `json:"quiz_question_created_at"`
 	QuizQuestionUpdatedAt string `json:"quiz_question_updated_at"`
+
+	// Optional: parent quiz (jika with_quiz=true dan sudah di-Preload)
+	Quiz *QuizLiteResponse `json:"quiz,omitempty"`
 }
 
 func FromModelQuizQuestion(m *qmodel.QuizQuestionModel) *QuizQuestionResponse {
@@ -170,6 +203,18 @@ func FromModelQuizQuestion(m *qmodel.QuizQuestionModel) *QuizQuestionResponse {
 		tmp := json.RawMessage(m.QuizQuestionAnswers)
 		ans = &tmp
 	}
+
+	// Build lite quiz jika di-preload
+	var quizLite *QuizLiteResponse
+	if m.Quiz != nil {
+		quizLite = &QuizLiteResponse{
+			QuizID:          m.Quiz.QuizID,
+			QuizSlug:        m.Quiz.QuizSlug,
+			QuizTitle:       m.Quiz.QuizTitle,
+			QuizIsPublished: m.Quiz.QuizIsPublished,
+		}
+	}
+
 	return &QuizQuestionResponse{
 		QuizQuestionID:          m.QuizQuestionID,
 		QuizQuestionQuizID:      m.QuizQuestionQuizID,
@@ -182,6 +227,7 @@ func FromModelQuizQuestion(m *qmodel.QuizQuestionModel) *QuizQuestionResponse {
 		QuizQuestionExplanation: m.QuizQuestionExplanation,
 		QuizQuestionCreatedAt:   m.QuizQuestionCreatedAt.UTC().Format(timeRFC3339),
 		QuizQuestionUpdatedAt:   m.QuizQuestionUpdatedAt.UTC().Format(timeRFC3339),
+		Quiz:                    quizLite,
 	}
 }
 

@@ -153,15 +153,6 @@ var meta authMeta
    CSRF + Origin helpers
 ========================== */
 
-func sameSiteForDeployment() string {
-	// Jika FE & BE beda origin (cross-site), HARUS "None"
-	// Kalau satu site, pakai "Strict" (atau "Lax") untuk proteksi lebih
-	if os.Getenv("CROSS_SITE") == "1" {
-		return "None"
-	}
-	return "Strict"
-}
-
 // Ambil origin yang valid dari header Origin/Referer
 func getRequestOrigin(c *fiber.Ctx) string {
 	origin := strings.TrimSpace(c.Get("Origin"))

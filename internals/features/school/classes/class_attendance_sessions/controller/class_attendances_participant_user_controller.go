@@ -46,13 +46,13 @@ func (ctl *StudentAttendanceController) buildListQuery(
 		}
 	}
 
-	// state_in (present|absent|late|excused|sick|leave)
+	// state_in (present|absent|late|excused|sick|leave|unmarked)
 	if len(q.StateIn) > 0 {
 		valid := make([]string, 0, len(q.StateIn))
 		for _, v := range q.StateIn {
 			vv := strings.ToLower(strings.TrimSpace(v))
 			switch vv {
-			case "present", "absent", "late", "excused", "sick", "leave":
+			case "present", "absent", "late", "excused", "sick", "leave", "unmarked":
 				valid = append(valid, vv)
 			}
 		}
@@ -360,8 +360,7 @@ func (ctl *StudentAttendanceController) List(c *fiber.Ctx) error {
 /*
 =================================================================================
 CREATE — POST /student-attendance
-Body: attDTO.ClassAttendanceSessionParticipantCreateRequest
-- URLs: []attDTO.ClassAttendanceSessionParticipantURLOpDTO (di dalam DTO)
+Body JSON: ClassAttendanceSessionParticipantCreateRequest
 =================================================================================
 */
 func (ctl *StudentAttendanceController) Create(c *fiber.Ctx) error {
@@ -417,17 +416,20 @@ func (ctl *StudentAttendanceController) Create(c *fiber.Ctx) error {
 	}
 
 	// paksa tenant dari context
-	req.SchoolID = schoolID
+	req.ClassAttendanceSessionParticipantSchoolID = schoolID
 
 	// Basic required fields
-	if req.SessionID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "session_id wajib diisi")
+	if req.ClassAttendanceSessionParticipantSessionID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "class_attendance_session_participant_session_id wajib diisi")
 	}
 	// minimal salah satu participant (student/teacher)
-	hasStudent := req.SchoolStudentID != nil && *req.SchoolStudentID != uuid.Nil
-	hasTeacher := req.SchoolTeacherID != nil && *req.SchoolTeacherID != uuid.Nil
+	hasStudent := req.ClassAttendanceSessionParticipantSchoolStudentID != nil &&
+		*req.ClassAttendanceSessionParticipantSchoolStudentID != uuid.Nil
+	hasTeacher := req.ClassAttendanceSessionParticipantSchoolTeacherID != nil &&
+		*req.ClassAttendanceSessionParticipantSchoolTeacherID != uuid.Nil
 	if !hasStudent && !hasTeacher {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Minimal salah satu dari school_student_id atau school_teacher_id wajib diisi")
+		return helper.JsonError(c, fiber.StatusBadRequest,
+			"Minimal salah satu dari class_attendance_session_participant_school_student_id atau class_attendance_session_participant_school_teacher_id wajib diisi")
 	}
 
 	// Validasi dengan validator di DTO (kalau controller punya)
@@ -438,7 +440,11 @@ func (ctl *StudentAttendanceController) Create(c *fiber.Ctx) error {
 	}
 
 	// Pastikan session milik school ini (tenant-safe)
-	if err := ctl.ensureSessionBelongsToSchool(c, req.SessionID, schoolID); err != nil {
+	if err := ctl.ensureSessionBelongsToSchool(
+		c,
+		req.ClassAttendanceSessionParticipantSessionID,
+		schoolID,
+	); err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
@@ -466,7 +472,11 @@ func (ctl *StudentAttendanceController) Create(c *fiber.Ctx) error {
 
 		// 2) URL create (gunakan DTO URLMutations baru)
 		if len(req.URLs) > 0 {
-			muts, err := attDTO.BuildURLMutations(m.ClassAttendanceSessionParticipantID, req.SchoolID, req.URLs)
+			muts, err := attDTO.BuildURLMutations(
+				m.ClassAttendanceSessionParticipantID,
+				req.ClassAttendanceSessionParticipantSchoolID,
+				req.URLs,
+			)
 			if err != nil {
 				return err
 			}

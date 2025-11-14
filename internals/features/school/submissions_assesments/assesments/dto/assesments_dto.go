@@ -231,8 +231,7 @@ func (r *PatchAssessmentRequest) Apply(m *assessModel.AssessmentModel) {
 		m.AssessmentCreatedByTeacherID = r.AssessmentCreatedByTeacherID
 	}
 
-	// Session IDs sendiri di-handle di controller (finalAnnID/finalColID),
-	// jadi di sini kita nggak sentuh, supaya logikanya tetap terkonsolidasi di controller.
+	// Session IDs di-handle di controller
 }
 
 /* ========================================================
@@ -286,7 +285,6 @@ func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
 		if mm, ok := j.(map[string]any); ok {
 			return mm
 		}
-		// datatypes.JSONMap underlying type memang map[string]any
 		return map[string]any{}
 	}
 
@@ -326,4 +324,40 @@ func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
 		AssessmentCreatedAt: m.AssessmentCreatedAt,
 		AssessmentUpdatedAt: m.AssessmentUpdatedAt,
 	}
+}
+
+/* ========================================================
+   COMBINED DTO: Assessment + Quiz(es)
+======================================================== */
+
+type CreateAssessmentWithQuizzesRequest struct {
+	Assessment CreateAssessmentRequest `json:"assessment" validate:"required"`
+	Quiz       *CreateQuizInline       `json:"quiz,omitempty"`
+	Quizzes    []CreateQuizInline      `json:"quizzes,omitempty"`
+}
+
+// Normalize: normalize assessment + semua quiz inline
+func (r *CreateAssessmentWithQuizzesRequest) Normalize() {
+	r.Assessment.Normalize()
+
+	if r.Quiz != nil {
+		r.Quiz.Normalize()
+	}
+	for i := range r.Quizzes {
+		r.Quizzes[i].Normalize()
+	}
+}
+
+// FlattenQuizzes:
+// - Kalau ada "quizzes" dan len>0 → pakai itu
+// - Else kalau ada "quiz" tunggal → jadikan slice 1 elemen
+// - Else → nil
+func (r *CreateAssessmentWithQuizzesRequest) FlattenQuizzes() []CreateQuizInline {
+	if len(r.Quizzes) > 0 {
+		return r.Quizzes
+	}
+	if r.Quiz != nil {
+		return []CreateQuizInline{*r.Quiz}
+	}
+	return nil
 }

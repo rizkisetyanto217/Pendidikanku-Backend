@@ -1,3 +1,4 @@
+// file: internals/features/school/classes/class_schedules/dto/class_schedule_rule_dto.go
 package dto
 
 import (
@@ -39,7 +40,8 @@ func weeksToPQ(in []int) pq.Int64Array {
 	return out
 }
 
-func formatTOD(t time.Time) string {
+// sekarang formatTOD terima model.TimeOnly (bukan time.Time)
+func formatTOD(t model.TimeOnly) string {
 	if t.IsZero() {
 		return ""
 	}
@@ -79,6 +81,13 @@ func (r CreateClassScheduleRuleRequest) ToModel(schoolID uuid.UUID) (model.Class
 		return model.ClassScheduleRuleModel{}, ErrInvalidEndTime
 	}
 
+	// bungkus ke TimeOnly
+	startTO := model.TimeOnly{}
+	startTO.Time = st
+
+	endTO := model.TimeOnly{}
+	endTO.Time = et
+
 	interval := 1
 	if r.ClassScheduleRuleIntervalWeeks != nil {
 		interval = *r.ClassScheduleRuleIntervalWeeks
@@ -108,8 +117,8 @@ func (r CreateClassScheduleRuleRequest) ToModel(schoolID uuid.UUID) (model.Class
 		ClassScheduleRuleScheduleID: r.ClassScheduleRuleScheduleID,
 
 		ClassScheduleRuleDayOfWeek: r.ClassScheduleRuleDayOfWeek,
-		ClassScheduleRuleStartTime: st,
-		ClassScheduleRuleEndTime:   et,
+		ClassScheduleRuleStartTime: startTO,
+		ClassScheduleRuleEndTime:   endTO,
 
 		ClassScheduleRuleIntervalWeeks:    interval,
 		ClassScheduleRuleStartOffsetWeeks: offset,
@@ -142,14 +151,18 @@ func (r UpdateClassScheduleRuleRequest) Apply(m *model.ClassScheduleRuleModel) e
 	}
 	if r.ClassScheduleRuleStartTime != nil {
 		if t, ok := parseTimeOfDay(*r.ClassScheduleRuleStartTime); ok {
-			m.ClassScheduleRuleStartTime = t
+			to := model.TimeOnly{}
+			to.Time = t
+			m.ClassScheduleRuleStartTime = to
 		} else {
 			return ErrInvalidStartTime
 		}
 	}
 	if r.ClassScheduleRuleEndTime != nil {
 		if t, ok := parseTimeOfDay(*r.ClassScheduleRuleEndTime); ok {
-			m.ClassScheduleRuleEndTime = t
+			to := model.TimeOnly{}
+			to.Time = t
+			m.ClassScheduleRuleEndTime = to
 		} else {
 			return ErrInvalidEndTime
 		}

@@ -14,6 +14,5 @@ func ClassUserRoutes(r fiber.Router, db *gorm.DB) {
 	// Tenant-aware prefix
 	classes := r.Group("/:school_id/classes")
 	classes.Get("/list", cls.ListClasses) // list kelas (read-only)
-	classes.Get("/slug/:slug", cls.GetClassBySlug)
 
 }

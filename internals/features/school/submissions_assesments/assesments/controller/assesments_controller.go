@@ -19,6 +19,8 @@ import (
 
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
+	quizDTO "schoolku_backend/internals/features/school/submissions_assesments/quizzes/dto"
+	quizModel "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
 )
 
 /*
@@ -221,16 +223,29 @@ func resolveSchoolForDKMOrTeacher(c *fiber.Ctx) (uuid.UUID, error) {
 /* ===============================
    Handlers
 =============================== */
+/* ===============================
+   Handlers
+=============================== */
 
 // POST /assessments
+// Body: CreateAssessmentWithQuizzesRequest
+// - "assessment": data assessment
+// - "quiz": 1 quiz, atau
+// - "quizzes": array quiz (kalau >1)
 func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	var req dto.CreateAssessmentRequest
+	var req dto.CreateAssessmentWithQuizzesRequest
 	if err := c.BodyParser(&req); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	req.Normalize()
+
+	// Flatten quiz: pakai "quizzes" kalau ada; else "quiz" tunggal
+	quizParts := req.FlattenQuizzes()
+	if len(quizParts) == 0 {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Minimal harus ada 1 quiz")
+	}
 
 	// 🔒 resolve & authorize
 	mid, err := resolveSchoolForDKMOrTeacher(c)
@@ -240,14 +255,29 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	// Enforce tenant
-	req.AssessmentSchoolID = mid
+	// Enforce tenant di assessment
+	req.Assessment.AssessmentSchoolID = mid
+
+	// DTO validation
+	if err := ctl.Validator.Struct(&req.Assessment); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+	for i := range quizParts {
+		if err := ctl.Validator.Struct(&quizParts[i]); err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		}
+	}
 
 	// =============== CSST SNAPSHOT (opsional, +auto teacher & auto-title) ===============
 	var csstSnap datatypes.JSONMap
 	var csstName *string
-	if req.AssessmentClassSectionSubjectTeacherID != nil && *req.AssessmentClassSectionSubjectTeacherID != uuid.Nil {
-		cs, er := snapshot.ValidateAndSnapshotCSST(ctl.DB.WithContext(c.Context()), mid, *req.AssessmentClassSectionSubjectTeacherID)
+	if req.Assessment.AssessmentClassSectionSubjectTeacherID != nil &&
+		*req.Assessment.AssessmentClassSectionSubjectTeacherID != uuid.Nil {
+		cs, er := snapshot.ValidateAndSnapshotCSST(
+			ctl.DB.WithContext(c.Context()),
+			mid,
+			*req.Assessment.AssessmentClassSectionSubjectTeacherID,
+		)
 		if er != nil {
 			if fe, ok := er.(*fiber.Error); ok {
 				return helper.JsonError(c, fe.Code, fe.Message)
@@ -255,9 +285,10 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, er.Error())
 		}
 		// Auto-isi created_by_teacher_id
-		if req.AssessmentCreatedByTeacherID == nil && cs.TeacherID != nil && *cs.TeacherID != uuid.Nil {
+		if req.Assessment.AssessmentCreatedByTeacherID == nil &&
+			cs.TeacherID != nil && *cs.TeacherID != uuid.Nil {
 			tid := *cs.TeacherID
-			req.AssessmentCreatedByTeacherID = &tid
+			req.Assessment.AssessmentCreatedByTeacherID = &tid
 		}
 		// simpan csst name utk autofill judul
 		csstName = cs.Name
@@ -270,52 +301,73 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// DTO validation
-	if err := ctl.Validator.Struct(&req); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
-
 	// Validasi creator teacher (opsional)
-	if err := ctl.assertTeacherBelongsToSchool(c, mid, req.AssessmentCreatedByTeacherID); err != nil {
+	if err := ctl.assertTeacherBelongsToSchool(
+		c,
+		mid,
+		req.Assessment.AssessmentCreatedByTeacherID,
+	); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// ====== Tentukan mode dari presence sesi ======
-	hasAnn := req.AssessmentAnnounceSessionID != nil && *req.AssessmentAnnounceSessionID != uuid.Nil
-	hasCol := req.AssessmentCollectSessionID != nil && *req.AssessmentCollectSessionID != uuid.Nil
+	hasAnn := req.Assessment.AssessmentAnnounceSessionID != nil &&
+		*req.Assessment.AssessmentAnnounceSessionID != uuid.Nil
+	hasCol := req.Assessment.AssessmentCollectSessionID != nil &&
+		*req.Assessment.AssessmentCollectSessionID != uuid.Nil
 	mode := "date"
 	if hasAnn || hasCol {
 		mode = "session"
 	}
 
+	tableName := (&model.AssessmentModel{}).TableName()
+
+	// Mulai transaksi
+	tx := ctl.DB.WithContext(c.Context()).Begin()
+	if tx.Error != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuka transaksi")
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	var row model.AssessmentModel
+
 	// ====== MODE: session ======
 	if mode == "session" {
 		var ann, col *sessRow
 		if hasAnn {
-			r, er := ctl.fetchSess(c, *req.AssessmentAnnounceSessionID)
+			r, er := ctl.fetchSess(c, *req.Assessment.AssessmentAnnounceSessionID)
 			if er != nil {
+				tx.Rollback()
 				return helper.JsonError(c, fiber.StatusBadRequest, "Sesi announce tidak ditemukan")
 			}
 			if r.Deleted != nil || r.SchoolID != mid {
+				tx.Rollback()
 				return helper.JsonError(c, fiber.StatusForbidden, "Sesi announce bukan milik school Anda / sudah dihapus")
 			}
 			ann = r
 		}
 		if hasCol {
-			r, er := ctl.fetchSess(c, *req.AssessmentCollectSessionID)
+			r, er := ctl.fetchSess(c, *req.Assessment.AssessmentCollectSessionID)
 			if er != nil {
+				tx.Rollback()
 				return helper.JsonError(c, fiber.StatusBadRequest, "Sesi collect tidak ditemukan")
 			}
 			if r.Deleted != nil || r.SchoolID != mid {
+				tx.Rollback()
 				return helper.JsonError(c, fiber.StatusForbidden, "Sesi collect bukan milik school Anda / sudah dihapus")
 			}
 			col = r
 		}
 		if ann != nil && col != nil && pickTime(col).Before(pickTime(ann)) {
+			tx.Rollback()
 			return helper.JsonError(c, fiber.StatusBadRequest, "collect_session harus sama atau setelah announce_session")
 		}
 
-		row := req.ToModel()
+		row = req.Assessment.ToModel()
 		row.AssessmentSubmissionMode = model.SubmissionModeSession
 
 		// Turunkan start/due dari sesi bila belum diisi
@@ -353,34 +405,124 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		if col != nil {
 			row.AssessmentCollectSessionSnapshot = makeSessionSnap(col)
 		}
-
-		if err := ctl.DB.WithContext(c.Context()).Create(&row).Error; err != nil {
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat assessment")
+	} else {
+		// ===== MODE: date =====
+		if req.Assessment.AssessmentStartAt != nil && req.Assessment.AssessmentDueAt != nil &&
+			req.Assessment.AssessmentDueAt.Before(*req.Assessment.AssessmentStartAt) {
+			tx.Rollback()
+			return helper.JsonError(c, fiber.StatusBadRequest, "assessment_due_at harus setelah atau sama dengan assessment_start_at")
 		}
-		return helper.JsonCreated(c, "Assessment (mode session) berhasil dibuat", dto.FromModelAssesment(row))
+
+		row = req.Assessment.ToModel()
+		row.AssessmentSubmissionMode = model.SubmissionModeDate
+
+		// Auto-title (pakai csstName bila title kosong)
+		row.AssessmentTitle = autofillTitle(row.AssessmentTitle, csstName, nil)
+
+		// Snapshot CSST bila ada
+		if csstSnap != nil {
+			row.AssessmentCSSTSnapshot = csstSnap
+		}
 	}
 
-	// ===== MODE: date =====
-	if req.AssessmentStartAt != nil && req.AssessmentDueAt != nil &&
-		req.AssessmentDueAt.Before(*req.AssessmentStartAt) {
-		return helper.JsonError(c, fiber.StatusBadRequest, "assessment_due_at harus setelah atau sama dengan assessment_start_at")
+	// ===== Auto-slug assessment (unik per school) =====
+	{
+		var baseSlug string
+		if row.AssessmentSlug != nil && strings.TrimSpace(*row.AssessmentSlug) != "" {
+			baseSlug = helper.Slugify(*row.AssessmentSlug, 100)
+		} else {
+			title := strings.TrimSpace(row.AssessmentTitle)
+			if title == "" {
+				title = "assessment"
+			}
+			baseSlug = helper.SuggestSlugFromName(title)
+		}
+
+		uniqueSlug, err := helper.EnsureUniqueSlugCI(
+			c.Context(),
+			tx,
+			tableName,
+			"assessment_slug",
+			baseSlug,
+			func(q *gorm.DB) *gorm.DB {
+				return q.Where("assessment_school_id = ?", mid).
+					Where("assessment_deleted_at IS NULL")
+			},
+			100,
+		)
+		if err != nil {
+			tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal generate slug assessment")
+		}
+		row.AssessmentSlug = &uniqueSlug
 	}
 
-	row := req.ToModel()
-	row.AssessmentSubmissionMode = model.SubmissionModeDate
-
-	// Auto-title (pakai csstName bila title kosong)
-	row.AssessmentTitle = autofillTitle(row.AssessmentTitle, csstName, nil)
-
-	// Snapshot CSST bila ada
-	if csstSnap != nil {
-		row.AssessmentCSSTSnapshot = csstSnap
-	}
-
-	if err := ctl.DB.WithContext(c.Context()).Create(&row).Error; err != nil {
+	// Simpan assessment dulu
+	if err := tx.Create(&row).Error; err != nil {
+		tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat assessment")
 	}
-	return helper.JsonCreated(c, "Assessment (mode date) berhasil dibuat", dto.FromModelAssesment(row))
+
+	// ==============================
+	// 2) Buat semua quiz (1..N)
+	// ==============================
+	createdQuizzes := make([]quizModel.QuizModel, 0, len(quizParts))
+
+	for i := range quizParts {
+		qm := quizParts[i].ToModel(mid, row.AssessmentID)
+
+		// Slug quiz (unik per school; fallback "quiz")
+		var baseSlug string
+		if qm.QuizSlug != nil && strings.TrimSpace(*qm.QuizSlug) != "" {
+			baseSlug = helper.Slugify(*qm.QuizSlug, 160)
+		} else {
+			title := strings.TrimSpace(qm.QuizTitle)
+			if title == "" {
+				title = "quiz"
+			}
+			baseSlug = helper.Slugify(title, 160)
+		}
+
+		uniqSlug, err := helper.EnsureUniqueSlugCI(
+			c.Context(),
+			tx,
+			"quizzes",
+			"quiz_slug",
+			baseSlug,
+			func(q *gorm.DB) *gorm.DB {
+				return q.Where("quiz_school_id = ? AND quiz_deleted_at IS NULL", mid)
+			},
+			160,
+		)
+		if err != nil {
+			tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyiapkan slug quiz")
+		}
+		qm.QuizSlug = &uniqSlug
+
+		if err := tx.Create(qm).Error; err != nil {
+			tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat quiz")
+		}
+
+		createdQuizzes = append(createdQuizzes, *qm)
+	}
+
+	// Commit transaksi
+	if err := tx.Commit().Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal commit transaksi")
+	}
+
+	// Response: assessment + quizzes
+	msg := "Assessment (mode date) berhasil dibuat"
+	if mode == "session" {
+		msg = "Assessment (mode session) berhasil dibuat"
+	}
+
+	return helper.JsonCreated(c, msg, fiber.Map{
+		"assessment": dto.FromModelAssesment(row),
+		"quizzes":    quizDTO.FromModels(createdQuizzes),
+	})
 }
 
 // PATCH /assessments/:id
@@ -428,6 +570,8 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	if err := ctl.assertTeacherBelongsToSchool(c, mid, req.AssessmentCreatedByTeacherID); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
+
+	tableName := (&model.AssessmentModel{}).TableName()
 
 	// ==== (Opsional) update CSST snapshot bila CSST diubah ====
 	if req.AssessmentClassSectionSubjectTeacherID != nil {
@@ -540,6 +684,49 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 			existing.AssessmentCollectSessionSnapshot = datatypes.JSONMap{}
 		}
 
+		// ===== Auto-slug (jaga unik, exclude diri sendiri) =====
+		var baseSlug string
+		if req.AssessmentSlug != nil {
+			slugIn := strings.TrimSpace(*req.AssessmentSlug)
+			if slugIn == "" {
+				title := strings.TrimSpace(existing.AssessmentTitle)
+				if title == "" {
+					title = "assessment"
+				}
+				baseSlug = helper.SuggestSlugFromName(title)
+			} else {
+				baseSlug = helper.Slugify(slugIn, 100)
+			}
+		} else {
+			if existing.AssessmentSlug != nil && strings.TrimSpace(*existing.AssessmentSlug) != "" {
+				baseSlug = helper.Slugify(*existing.AssessmentSlug, 100)
+			} else {
+				title := strings.TrimSpace(existing.AssessmentTitle)
+				if title == "" {
+					title = "assessment"
+				}
+				baseSlug = helper.SuggestSlugFromName(title)
+			}
+		}
+
+		uniqueSlug, err := helper.EnsureUniqueSlugCI(
+			c.Context(),
+			ctl.DB,
+			tableName,
+			"assessment_slug",
+			baseSlug,
+			func(q *gorm.DB) *gorm.DB {
+				return q.Where("assessment_school_id = ?", mid).
+					Where("assessment_deleted_at IS NULL").
+					Where("assessment_id <> ?", id)
+			},
+			100,
+		)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal generate slug assessment")
+		}
+		existing.AssessmentSlug = &uniqueSlug
+
 		existing.AssessmentUpdatedAt = time.Now()
 		if err := ctl.DB.WithContext(c.Context()).Save(&existing).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui assessment")
@@ -576,6 +763,51 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	}
 	if finalColID == nil {
 		existing.AssessmentCollectSessionSnapshot = datatypes.JSONMap{}
+	}
+
+	// ===== Auto-slug (jaga unik, exclude diri sendiri) =====
+	{
+		var baseSlug string
+		if req.AssessmentSlug != nil {
+			slugIn := strings.TrimSpace(*req.AssessmentSlug)
+			if slugIn == "" {
+				title := strings.TrimSpace(existing.AssessmentTitle)
+				if title == "" {
+					title = "assessment"
+				}
+				baseSlug = helper.SuggestSlugFromName(title)
+			} else {
+				baseSlug = helper.Slugify(slugIn, 100)
+			}
+		} else {
+			if existing.AssessmentSlug != nil && strings.TrimSpace(*existing.AssessmentSlug) != "" {
+				baseSlug = helper.Slugify(*existing.AssessmentSlug, 100)
+			} else {
+				title := strings.TrimSpace(existing.AssessmentTitle)
+				if title == "" {
+					title = "assessment"
+				}
+				baseSlug = helper.SuggestSlugFromName(title)
+			}
+		}
+
+		uniqueSlug, err := helper.EnsureUniqueSlugCI(
+			c.Context(),
+			ctl.DB,
+			tableName,
+			"assessment_slug",
+			baseSlug,
+			func(q *gorm.DB) *gorm.DB {
+				return q.Where("assessment_school_id = ?", mid).
+					Where("assessment_deleted_at IS NULL").
+					Where("assessment_id <> ?", id)
+			},
+			100,
+		)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal generate slug assessment")
+		}
+		existing.AssessmentSlug = &uniqueSlug
 	}
 
 	existing.AssessmentUpdatedAt = time.Now()

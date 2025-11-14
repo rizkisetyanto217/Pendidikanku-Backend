@@ -78,6 +78,11 @@ func AuthJWT(o AuthJWTOpts) fiber.Handler {
 			c.Locals(helperAuth.LocTeacherRecords, v) // parseTeacherRecordsFromLocals bisa handling bentuk generic
 		}
 
+		// ✅ student_records (INI YANG KURANG)
+		if v, ok := claims["student_records"]; ok {
+			c.Locals(helperAuth.LocStudentRecords, v)
+		}
+
 		// active_school_id (harus string untuk helperAuth)
 		if s, ok := claims["active_school_id"].(string); ok && strings.TrimSpace(s) != "" {
 			c.Locals(helperAuth.LocActiveSchoolID, strings.TrimSpace(s))

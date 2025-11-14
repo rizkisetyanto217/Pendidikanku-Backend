@@ -1,12 +1,10 @@
 package controller
 
 import (
-	"errors"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 
 	dto "schoolku_backend/internals/features/school/submissions_assesments/submissions/dto"
 	model "schoolku_backend/internals/features/school/submissions_assesments/submissions/model"
@@ -15,7 +13,7 @@ import (
 	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
-// GET /:id (READ — member; student hanya boleh lihat miliknya)
+// GET /submissions/list (LIST — member; student hanya lihat miliknya)
 func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 	c.Locals("DB", ctrl.DB)
 
@@ -24,6 +22,7 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+
 	var mid uuid.UUID
 	if mc.ID != uuid.Nil {
 		mid = mc.ID
@@ -42,57 +41,73 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		return err
 	}
 
-	// 3) Parse param :id
-	subID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
-	if err != nil || subID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "submission id tidak valid")
+	// 3) Base query: semua submission milik school ini
+	tx := ctrl.DB.WithContext(c.Context()).
+		Model(&model.Submission{}).
+		Where(`
+			submission_school_id = ?
+			AND submission_deleted_at IS NULL
+		`, mid)
+
+	// 4) Role flags
+	isStudent := helperAuth.IsStudent(c)
+	isTeacher := helperAuth.IsTeacher(c)
+	isDKM := helperAuth.IsDKM(c)
+
+	// Student hanya boleh akses submission miliknya
+	if isStudent && !isTeacher && !isDKM {
+		if sid, _ := helperAuth.GetSchoolStudentIDForSchool(c, mid); sid != uuid.Nil {
+			tx = tx.Where("submission_student_id = ?", sid)
+		} else {
+			// Student tapi tidak punya relasi school_student -> kosongkan list
+			paging := helper.ResolvePaging(c, 20, 100)
+			pagination := helper.BuildPaginationFromPage(0, paging.Page, paging.PerPage)
+			return helper.JsonList(c, "OK", []any{}, pagination)
+		}
 	}
 
-	// 4) Load submission milik tenant ini
-	var row model.Submission
-	if err := ctrl.DB.WithContext(c.Context()).
-		Where(`
-			submission_id = ?
-			AND submission_school_id = ?
-			AND submission_deleted_at IS NULL
-		`, subID, mid).
-		First(&row).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Submission tidak ditemukan")
+	// 5) Optional filters
+	// ?assessment_id=<uuid>
+	if s := strings.TrimSpace(c.Query("assessment_id")); s != "" {
+		if aid, er := uuid.Parse(s); er == nil && aid != uuid.Nil {
+			tx = tx.Where("submission_assessment_id = ?", aid)
 		}
+	}
+
+	// ?student_id=<uuid> (hanya untuk DKM/Teacher)
+	if !isStudent {
+		if s := strings.TrimSpace(c.Query("student_id")); s != "" {
+			if sid, er := uuid.Parse(s); er == nil && sid != uuid.Nil {
+				tx = tx.Where("submission_student_id = ?", sid)
+			}
+		}
+	}
+
+	// 6) Pagination (pakai helper)
+	paging := helper.ResolvePaging(c, 20, 100)
+
+	var total int64
+	if err := tx.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 5) Student hanya boleh akses submission miliknya
-	if helperAuth.IsStudent(c) && !helperAuth.IsDKM(c) && !helperAuth.IsTeacher(c) {
-		if sid, _ := helperAuth.GetSchoolStudentIDForSchool(c, mid); sid == uuid.Nil || sid != row.SubmissionStudentID {
-			return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak diizinkan melihat submission ini")
-		}
+	var rows []model.Submission
+	if err := tx.
+		Order("submission_created_at DESC").
+		Offset(paging.Offset).
+		Limit(paging.Limit).
+		Find(&rows).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	// 6) Response (+optional URLs jika ?with_urls=1/true/yes)
-	if truthy(c.Query("with_urls")) {
-		var urls []model.SubmissionURLModel
-		_ = ctrl.DB.WithContext(c.Context()).
-			Where(`
-				submission_url_submission_id = ?
-				AND submission_url_school_id = ?
-				AND submission_url_deleted_at IS NULL
-			`, row.SubmissionID, mid).
-			Order("submission_url_is_primary DESC, submission_url_order ASC, submission_url_created_at ASC").
-			Find(&urls)
-
-		return helper.JsonOK(c, "OK", fiber.Map{
-			"submission": dto.FromModel(&row),
-			"urls":       urls, // kalau mau pakai DTO URL, bisa map ke dto.SubmissionURLItem di sini
-		})
+	// 7) Mapping ke DTO
+	items := make([]any, 0, len(rows))
+	for i := range rows {
+		items = append(items, dto.FromModel(&rows[i]))
 	}
 
-	return helper.JsonOK(c, "OK", dto.FromModel(&row))
-}
+	// 8) Build pagination full (TotalPages, HasNext, HasPrev, dsb)
+	pagination := helper.BuildPaginationFromPage(total, paging.Page, paging.PerPage)
 
-// helper kecil buat query bool
-func truthy(s string) bool {
-	v := strings.ToLower(strings.TrimSpace(s))
-	return v == "1" || v == "true" || v == "yes"
+	return helper.JsonList(c, "OK", items, pagination)
 }

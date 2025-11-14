@@ -2,6 +2,9 @@
 package model
 
 import (
+	"database/sql/driver"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -9,6 +12,66 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
+
+// TimeOnly menyimpan jam-menit-detik saja (tanggal dummy 2000-01-01)
+type TimeOnly struct {
+	time.Time
+}
+
+func (t *TimeOnly) Scan(value interface{}) error {
+	if value == nil {
+		t.Time = time.Time{}
+		return nil
+	}
+
+	switch v := value.(type) {
+	case time.Time:
+		// Kalau drivernya sudah kasih time.Time, ya sudah
+		t.Time = v
+		return nil
+	case []byte:
+		return t.parse(string(v))
+	case string:
+		return t.parse(v)
+	default:
+		return fmt.Errorf("cannot scan type %T into TimeOnly", value)
+	}
+}
+
+func (t *TimeOnly) parse(s string) error {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		t.Time = time.Time{}
+		return nil
+	}
+
+	// normalize "HH:MM" jadi "HH:MM:SS"
+	if len(s) == 5 {
+		s += ":00"
+	}
+
+	parsed, err := time.Parse("15:04:05", s)
+	if err != nil {
+		return err
+	}
+
+	// pakai tanggal dummy 2000-01-01 (atau bebas)
+	t.Time = time.Date(2000, 1, 1, parsed.Hour(), parsed.Minute(), parsed.Second(), 0, time.Local)
+	return nil
+}
+
+func (t TimeOnly) Value() (driver.Value, error) {
+	if t.Time.IsZero() {
+		return nil, nil
+	}
+	// Simpan ke DB sebagai "HH:MM:SS"
+	return t.Format("15:04:05"), nil
+}
+
+// Helper kecil kalau mau
+func (t TimeOnly) HHMM() string {
+	return t.Format("15:04")
+}
 
 type WeekParityEnum string
 
@@ -27,9 +90,9 @@ type ClassScheduleRuleModel struct {
 	ClassScheduleRuleScheduleID uuid.UUID `gorm:"column:class_schedule_rule_schedule_id;type:uuid;not null" json:"class_schedule_rule_schedule_id"`
 
 	// Pola per pekan
-	ClassScheduleRuleDayOfWeek int       `gorm:"column:class_schedule_rule_day_of_week;not null" json:"class_schedule_rule_day_of_week"`
-	ClassScheduleRuleStartTime time.Time `gorm:"column:class_schedule_rule_start_time;type:time;not null" json:"class_schedule_rule_start_time"`
-	ClassScheduleRuleEndTime   time.Time `gorm:"column:class_schedule_rule_end_time;type:time;not null" json:"class_schedule_rule_end_time"`
+	ClassScheduleRuleDayOfWeek int      `gorm:"column:class_schedule_rule_day_of_week;not null" json:"class_schedule_rule_day_of_week"`
+	ClassScheduleRuleStartTime TimeOnly `gorm:"column:class_schedule_rule_start_time;type:time;not null" json:"class_schedule_rule_start_time"`
+	ClassScheduleRuleEndTime   TimeOnly `gorm:"column:class_schedule_rule_end_time;type:time;not null" json:"class_schedule_rule_end_time"`
 
 	// Opsi pola
 	ClassScheduleRuleIntervalWeeks    int            `gorm:"column:class_schedule_rule_interval_weeks;not null;default:1" json:"class_schedule_rule_interval_weeks"`

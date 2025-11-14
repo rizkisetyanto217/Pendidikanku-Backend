@@ -4,6 +4,7 @@ package helper
 import (
 	"encoding/base64"
 	"encoding/json"
+	"log"
 	"strings"
 
 	helper "schoolku_backend/internals/helpers"
@@ -642,14 +643,24 @@ func GetSchoolStudentIDsFromToken(c *fiber.Ctx) ([]uuid.UUID, error) {
 }
 
 func GetSchoolStudentIDForSchool(c *fiber.Ctx, schoolID uuid.UUID) (uuid.UUID, error) {
+	log.Println("DEBUG schoolID =", schoolID)
+
 	if schoolID == uuid.Nil {
 		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "school_id wajib")
 	}
+
+	// lihat apa isi locals-nya
+	log.Printf("DEBUG Locals(%s) = %#v\n", LocStudentRecords, c.Locals(LocStudentRecords))
+
 	recs, err := parseStudentRecordsFromLocals(c)
 	if err != nil {
+		log.Println("DEBUG parseStudentRecordsFromLocals error:", err)
 		return uuid.Nil, err
 	}
+	log.Println("DEBUG student recs:", recs)
+
 	for _, r := range recs {
+		log.Println("DEBUG compare", r.SchoolID, "vs", schoolID, "sid =", r.SchoolStudentID)
 		if r.SchoolID == schoolID && r.SchoolStudentID != uuid.Nil {
 			return r.SchoolStudentID, nil
 		}

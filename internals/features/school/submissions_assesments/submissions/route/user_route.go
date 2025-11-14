@@ -4,20 +4,21 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 
-	urlscontroller "schoolku_backend/internals/features/school/submissions_assesments/submissions/controller"
+	submissionController "schoolku_backend/internals/features/school/submissions_assesments/submissions/controller"
 )
 
-// RegisterSubmissionUrlsUserRoute
-// Base: /api/u/submission-urls
-// Nested opsional: /api/u/submissions/:submission_id/urls
+// RegisterSubmissionUserRoute
+// Base: /api/u/:school_id/submissions
 func SubmissionUserRoutes(r fiber.Router, db *gorm.DB) {
-
 	// Controller untuk Submissions
-	subCtrl := urlscontroller.NewSubmissionController(db)
+	subCtrl := submissionController.NewSubmissionController(db)
 
-	sub := r.Group("/submissions")
-	sub.Get("/list", subCtrl.List)     // GET   /submissions
-	sub.Post("/", subCtrl.Create)      // POST  /submissions
-	sub.Patch("/:id", subCtrl.Patch)   // PATCH /submissions/:id
-	sub.Delete("/:id", subCtrl.Delete) // DELETE /submissions/:id
+	// Group by school_id di path
+	g := r.Group("/:school_id")
+
+	sub := g.Group("/submissions")
+	sub.Get("/list", subCtrl.List)     // GET    /:school_id/submissions/list
+	sub.Post("/", subCtrl.Create)      // POST   /:school_id/submissions
+	sub.Patch("/:id", subCtrl.Patch)   // PATCH  /:school_id/submissions/:id
+	sub.Delete("/:id", subCtrl.Delete) // DELETE /:school_id/submissions/:id
 }

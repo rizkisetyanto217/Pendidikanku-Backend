@@ -21,14 +21,7 @@ type PatchFieldUserAttendance[T any] struct {
 	Value   *T
 }
 
-/*************  ✨ Windsurf Command ⭐  *************/
-// UnmarshalJSON parses a JSON-encoded value and stores it in the Value field.
-//
-// If the JSON value is "null", the Value field is set to nil.
-// Otherwise, the JSON value is unmarshaled into the Value field.
-// If unmarshaling fails, an error is returned.
-// The Present field is always set to true when this function is called.
-/*******  d482f074-d516-40aa-8edc-24ffe5a83b84  *******/func (p *PatchFieldUserAttendance[T]) UnmarshalJSON(b []byte) error {
+func (p *PatchFieldUserAttendance[T]) UnmarshalJSON(b []byte) error {
 	p.Present = true
 	if bytes.Equal(bytes.TrimSpace(b), []byte("null")) {
 		p.Value = nil
@@ -112,103 +105,150 @@ type ClassAttendanceSessionParticipantURLOpDTO struct {
 
 /* ===================== Create DTO ===================== */
 
+// JSON TAG = persis nama kolom di model
 type ClassAttendanceSessionParticipantCreateRequest struct {
-	SchoolID  uuid.UUID `json:"school_id"  validate:"required,uuid4"`
-	SessionID uuid.UUID `json:"session_id" validate:"required,uuid4"`
+	ClassAttendanceSessionParticipantSchoolID  uuid.UUID `json:"class_attendance_session_participant_school_id"  validate:"required,uuid4"`
+	ClassAttendanceSessionParticipantSessionID uuid.UUID `json:"class_attendance_session_participant_session_id" validate:"required,uuid4"`
 
 	// participant
-	Kind            *string    `json:"kind,omitempty" validate:"omitempty,oneof=student teacher assistant guest"` // default: student
-	SchoolStudentID *uuid.UUID `json:"school_student_id,omitempty" validate:"omitempty,uuid4"`
-	SchoolTeacherID *uuid.UUID `json:"school_teacher_id,omitempty" validate:"omitempty,uuid4"`
-	TeacherRole     *string    `json:"teacher_role,omitempty" validate:"omitempty,oneof=primary co substitute observer assistant"`
+	ClassAttendanceSessionParticipantKind *string `json:"class_attendance_session_participant_kind,omitempty" validate:"omitempty,oneof=student teacher assistant guest"`
 
-	// state kehadiran (enum attendance_state_enum)
-	State    *string    `json:"state,omitempty" validate:"omitempty,oneof=present absent late excused sick leave"`
-	TypeID   *uuid.UUID `json:"type_id,omitempty" validate:"omitempty,uuid4"`
-	Desc     *string    `json:"desc,omitempty"`
-	Score    *float64   `json:"score,omitempty" validate:"omitempty,gte=0,lte=100"`
-	IsPassed *bool      `json:"is_passed,omitempty"`
+	// relasi detail
+	ClassAttendanceSessionParticipantSchoolStudentID *uuid.UUID `json:"class_attendance_session_participant_school_student_id,omitempty" validate:"omitempty,uuid4"`
+	ClassAttendanceSessionParticipantSchoolTeacherID *uuid.UUID `json:"class_attendance_session_participant_school_teacher_id,omitempty" validate:"omitempty,uuid4"`
+	ClassAttendanceSessionParticipantTeacherRole     *string    `json:"class_attendance_session_participant_teacher_role,omitempty" validate:"omitempty,oneof=primary co substitute observer assistant"`
 
-	CheckinAt  *time.Time `json:"checkin_at,omitempty"`
-	CheckoutAt *time.Time `json:"checkout_at,omitempty"`
+	// state kehadiran
+	ClassAttendanceSessionParticipantState  *string    `json:"class_attendance_session_participant_state,omitempty" validate:"omitempty,oneof=present absent late excused sick leave unmarked"`
+	ClassAttendanceSessionParticipantTypeID *uuid.UUID `json:"class_attendance_session_participant_type_id,omitempty" validate:"omitempty,uuid4"`
 
-	MarkedAt    *time.Time `json:"marked_at,omitempty"`
-	MarkedByTID *uuid.UUID `json:"marked_by_teacher_id,omitempty" validate:"omitempty,uuid4"`
-	Method      *string    `json:"method,omitempty" validate:"omitempty,oneof=manual qr geo import api self"`
+	// penilaian / desc
+	ClassAttendanceSessionParticipantDesc     *string  `json:"class_attendance_session_participant_desc,omitempty"`
+	ClassAttendanceSessionParticipantScore    *float64 `json:"class_attendance_session_participant_score,omitempty" validate:"omitempty,gte=0,lte=100"`
+	ClassAttendanceSessionParticipantIsPassed *bool    `json:"class_attendance_session_participant_is_passed,omitempty"`
 
-	Lat         *float64 `json:"lat,omitempty"`
-	Lng         *float64 `json:"lng,omitempty"`
-	DistanceM   *int     `json:"distance_m,omitempty" validate:"omitempty,min=0"`
-	LateSeconds *int     `json:"late_seconds,omitempty" validate:"omitempty,min=0"`
+	// waktu
+	ClassAttendanceSessionParticipantCheckinAt  *time.Time `json:"class_attendance_session_participant_checkin_at,omitempty"`
+	ClassAttendanceSessionParticipantCheckoutAt *time.Time `json:"class_attendance_session_participant_checkout_at,omitempty"`
 
-	UserNote    *string    `json:"user_note,omitempty"`
-	TeacherNote *string    `json:"teacher_note,omitempty"`
-	LockedAt    *time.Time `json:"locked_at,omitempty"`
+	// meta penandaan
+	ClassAttendanceSessionParticipantMarkedAt          *time.Time `json:"class_attendance_session_participant_marked_at,omitempty"`
+	ClassAttendanceSessionParticipantMarkedByTeacherID *uuid.UUID `json:"class_attendance_session_participant_marked_by_teacher_id,omitempty" validate:"omitempty,uuid4"`
+
+	// metode
+	ClassAttendanceSessionParticipantMethod *string `json:"class_attendance_session_participant_method,omitempty" validate:"omitempty,oneof=manual qr geo import api self"`
+
+	// geo
+	ClassAttendanceSessionParticipantLat       *float64 `json:"class_attendance_session_participant_lat,omitempty"`
+	ClassAttendanceSessionParticipantLng       *float64 `json:"class_attendance_session_participant_lng,omitempty"`
+	ClassAttendanceSessionParticipantDistanceM *int     `json:"class_attendance_session_participant_distance_m,omitempty" validate:"omitempty,min=0"`
+
+	// telat
+	ClassAttendanceSessionParticipantLateSeconds *int `json:"class_attendance_session_participant_late_seconds,omitempty" validate:"omitempty,min=0"`
+
+	// notes
+	ClassAttendanceSessionParticipantUserNote    *string    `json:"class_attendance_session_participant_user_note,omitempty"`
+	ClassAttendanceSessionParticipantTeacherNote *string    `json:"class_attendance_session_participant_teacher_note,omitempty"`
+	ClassAttendanceSessionParticipantLockedAt    *time.Time `json:"class_attendance_session_participant_locked_at,omitempty"`
 
 	URLs []ClassAttendanceSessionParticipantURLOpDTO `json:"urls,omitempty" validate:"omitempty,dive"`
 }
 
 func (r ClassAttendanceSessionParticipantCreateRequest) ToModel() attendanceModel.ClassAttendanceSessionParticipantModel {
-	// kind default → student
-	kindStr := "student"
-	if r.Kind != nil && strings.TrimSpace(*r.Kind) != "" {
-		kindStr = strings.ToLower(strings.TrimSpace(*r.Kind))
+	// ================================
+	// KIND auto-detect:
+	// 1) Kalau client isi explicit → pakai itu
+	// 2) Kalau ada teacher_id      → "teacher"
+	// 3) Selain itu                → "student"
+	// ================================
+	var kindStr string
+	if r.ClassAttendanceSessionParticipantKind != nil && strings.TrimSpace(*r.ClassAttendanceSessionParticipantKind) != "" {
+		// explicit dari client
+		kindStr = strings.ToLower(strings.TrimSpace(*r.ClassAttendanceSessionParticipantKind))
+	} else if r.ClassAttendanceSessionParticipantSchoolTeacherID != nil && *r.ClassAttendanceSessionParticipantSchoolTeacherID != uuid.Nil {
+		// auto: ada teacher_id
+		kindStr = string(attendanceModel.ParticipantKindTeacher)
+	} else {
+		// default: student
+		kindStr = string(attendanceModel.ParticipantKindStudent)
 	}
 
-	// state default → present
-	stateStr := "present"
-	if r.State != nil && strings.TrimSpace(*r.State) != "" {
-		stateStr = strings.ToLower(strings.TrimSpace(*r.State))
+	// ================================
+	// STATE default → present
+	// ================================
+	stateStr := string(attendanceModel.AttendanceStatePresent)
+	if r.ClassAttendanceSessionParticipantState != nil && strings.TrimSpace(*r.ClassAttendanceSessionParticipantState) != "" {
+		stateStr = strings.ToLower(strings.TrimSpace(*r.ClassAttendanceSessionParticipantState))
+	}
+
+	// normalisasi waktu ke UTC (kalau ada)
+	var checkinUTC, checkoutUTC, markedUTC, lockedUTC *time.Time
+
+	if r.ClassAttendanceSessionParticipantCheckinAt != nil {
+		t := r.ClassAttendanceSessionParticipantCheckinAt.UTC()
+		checkinUTC = &t
+	}
+	if r.ClassAttendanceSessionParticipantCheckoutAt != nil {
+		t := r.ClassAttendanceSessionParticipantCheckoutAt.UTC()
+		checkoutUTC = &t
+	}
+	if r.ClassAttendanceSessionParticipantMarkedAt != nil {
+		t := r.ClassAttendanceSessionParticipantMarkedAt.UTC()
+		markedUTC = &t
+	}
+	if r.ClassAttendanceSessionParticipantLockedAt != nil {
+		t := r.ClassAttendanceSessionParticipantLockedAt.UTC()
+		lockedUTC = &t
 	}
 
 	m := attendanceModel.ClassAttendanceSessionParticipantModel{
-		ClassAttendanceSessionParticipantSchoolID:  r.SchoolID,
-		ClassAttendanceSessionParticipantSessionID: r.SessionID,
+		ClassAttendanceSessionParticipantSchoolID:  r.ClassAttendanceSessionParticipantSchoolID,
+		ClassAttendanceSessionParticipantSessionID: r.ClassAttendanceSessionParticipantSessionID,
 
 		ClassAttendanceSessionParticipantKind:  attendanceModel.ParticipantKind(kindStr),
 		ClassAttendanceSessionParticipantState: attendanceModel.AttendanceState(stateStr),
 
-		ClassAttendanceSessionParticipantDesc:     r.Desc,
-		ClassAttendanceSessionParticipantScore:    r.Score,
-		ClassAttendanceSessionParticipantIsPassed: r.IsPassed,
+		ClassAttendanceSessionParticipantDesc:     r.ClassAttendanceSessionParticipantDesc,
+		ClassAttendanceSessionParticipantScore:    r.ClassAttendanceSessionParticipantScore,
+		ClassAttendanceSessionParticipantIsPassed: r.ClassAttendanceSessionParticipantIsPassed,
 
-		ClassAttendanceSessionParticipantCheckinAt:  r.CheckinAt,
-		ClassAttendanceSessionParticipantCheckoutAt: r.CheckoutAt,
+		ClassAttendanceSessionParticipantCheckinAt:  checkinUTC,
+		ClassAttendanceSessionParticipantCheckoutAt: checkoutUTC,
 
-		ClassAttendanceSessionParticipantMarkedAt: r.MarkedAt,
+		ClassAttendanceSessionParticipantMarkedAt: markedUTC,
 
-		ClassAttendanceSessionParticipantLat:       r.Lat,
-		ClassAttendanceSessionParticipantLng:       r.Lng,
-		ClassAttendanceSessionParticipantDistanceM: r.DistanceM,
+		ClassAttendanceSessionParticipantLat:       r.ClassAttendanceSessionParticipantLat,
+		ClassAttendanceSessionParticipantLng:       r.ClassAttendanceSessionParticipantLng,
+		ClassAttendanceSessionParticipantDistanceM: r.ClassAttendanceSessionParticipantDistanceM,
 
-		ClassAttendanceSessionParticipantLateSeconds: r.LateSeconds,
+		ClassAttendanceSessionParticipantLateSeconds: r.ClassAttendanceSessionParticipantLateSeconds,
 
-		ClassAttendanceSessionParticipantUserNote:    r.UserNote,
-		ClassAttendanceSessionParticipantTeacherNote: r.TeacherNote,
-		ClassAttendanceSessionParticipantLockedAt:    r.LockedAt,
+		ClassAttendanceSessionParticipantUserNote:    r.ClassAttendanceSessionParticipantUserNote,
+		ClassAttendanceSessionParticipantTeacherNote: r.ClassAttendanceSessionParticipantTeacherNote,
+		ClassAttendanceSessionParticipantLockedAt:    lockedUTC,
 	}
 
 	// relasi student/teacher
-	if r.SchoolStudentID != nil {
-		m.ClassAttendanceSessionParticipantSchoolStudentID = r.SchoolStudentID
+	if r.ClassAttendanceSessionParticipantSchoolStudentID != nil {
+		m.ClassAttendanceSessionParticipantSchoolStudentID = r.ClassAttendanceSessionParticipantSchoolStudentID
 	}
-	if r.SchoolTeacherID != nil {
-		m.ClassAttendanceSessionParticipantSchoolTeacherID = r.SchoolTeacherID
+	if r.ClassAttendanceSessionParticipantSchoolTeacherID != nil {
+		m.ClassAttendanceSessionParticipantSchoolTeacherID = r.ClassAttendanceSessionParticipantSchoolTeacherID
 	}
-	if r.TeacherRole != nil && strings.TrimSpace(*r.TeacherRole) != "" {
-		role := attendanceModel.TeacherRole(strings.ToLower(strings.TrimSpace(*r.TeacherRole)))
+	if r.ClassAttendanceSessionParticipantTeacherRole != nil && strings.TrimSpace(*r.ClassAttendanceSessionParticipantTeacherRole) != "" {
+		role := attendanceModel.TeacherRole(strings.ToLower(strings.TrimSpace(*r.ClassAttendanceSessionParticipantTeacherRole)))
 		m.ClassAttendanceSessionParticipantTeacherRole = &role
 	}
 
 	// type
-	if r.TypeID != nil {
-		m.ClassAttendanceSessionParticipantTypeID = r.TypeID
+	if r.ClassAttendanceSessionParticipantTypeID != nil {
+		m.ClassAttendanceSessionParticipantTypeID = r.ClassAttendanceSessionParticipantTypeID
 	}
-	if r.MarkedByTID != nil {
-		m.ClassAttendanceSessionParticipantMarkedByTeacherID = r.MarkedByTID
+	if r.ClassAttendanceSessionParticipantMarkedByTeacherID != nil {
+		m.ClassAttendanceSessionParticipantMarkedByTeacherID = r.ClassAttendanceSessionParticipantMarkedByTeacherID
 	}
-	if r.Method != nil && strings.TrimSpace(*r.Method) != "" {
-		mv := strings.ToLower(strings.TrimSpace(*r.Method))
+	if r.ClassAttendanceSessionParticipantMethod != nil && strings.TrimSpace(*r.ClassAttendanceSessionParticipantMethod) != "" {
+		mv := strings.ToLower(strings.TrimSpace(*r.ClassAttendanceSessionParticipantMethod))
 		m.ClassAttendanceSessionParticipantMethod = &mv
 	}
 
@@ -218,71 +258,91 @@ func (r ClassAttendanceSessionParticipantCreateRequest) ToModel() attendanceMode
 /* ===================== Patch DTO (tri-state) ===================== */
 
 type ClassAttendanceSessionParticipantPatchRequest struct {
-	ParticipantID uuid.UUID `json:"participant_id" validate:"required,uuid4"`
+	ClassAttendanceSessionParticipantID uuid.UUID `json:"class_attendance_session_participant_id" validate:"required,uuid4"`
 
 	// basic
-	State    PatchFieldUserAttendance[string]    `json:"state,omitempty"` // present|absent|late|excused|sick|leave
-	TypeID   PatchFieldUserAttendance[uuid.UUID] `json:"type_id,omitempty"`
-	Desc     PatchFieldUserAttendance[string]    `json:"desc,omitempty"`
-	Score    PatchFieldUserAttendance[float64]   `json:"score,omitempty"`
-	IsPassed PatchFieldUserAttendance[bool]      `json:"is_passed,omitempty"`
+	ClassAttendanceSessionParticipantState    PatchFieldUserAttendance[string]    `json:"class_attendance_session_participant_state,omitempty"`
+	ClassAttendanceSessionParticipantTypeID   PatchFieldUserAttendance[uuid.UUID] `json:"class_attendance_session_participant_type_id,omitempty"`
+	ClassAttendanceSessionParticipantDesc     PatchFieldUserAttendance[string]    `json:"class_attendance_session_participant_desc,omitempty"`
+	ClassAttendanceSessionParticipantScore    PatchFieldUserAttendance[float64]   `json:"class_attendance_session_participant_score,omitempty"`
+	ClassAttendanceSessionParticipantIsPassed PatchFieldUserAttendance[bool]      `json:"class_attendance_session_participant_is_passed,omitempty"`
 
-	CheckinAt  PatchFieldUserAttendance[time.Time] `json:"checkin_at,omitempty"`
-	CheckoutAt PatchFieldUserAttendance[time.Time] `json:"checkout_at,omitempty"`
+	ClassAttendanceSessionParticipantCheckinAt  PatchFieldUserAttendance[time.Time] `json:"class_attendance_session_participant_checkin_at,omitempty"`
+	ClassAttendanceSessionParticipantCheckoutAt PatchFieldUserAttendance[time.Time] `json:"class_attendance_session_participant_checkout_at,omitempty"`
 
-	MarkedAt    PatchFieldUserAttendance[time.Time] `json:"marked_at,omitempty"`
-	MarkedByTID PatchFieldUserAttendance[uuid.UUID] `json:"marked_by_teacher_id,omitempty"`
+	ClassAttendanceSessionParticipantMarkedAt          PatchFieldUserAttendance[time.Time] `json:"class_attendance_session_participant_marked_at,omitempty"`
+	ClassAttendanceSessionParticipantMarkedByTeacherID PatchFieldUserAttendance[uuid.UUID] `json:"class_attendance_session_participant_marked_by_teacher_id,omitempty"`
 
-	Method PatchFieldUserAttendance[string] `json:"method,omitempty"` // manual|qr|geo|import|api|self
+	ClassAttendanceSessionParticipantMethod PatchFieldUserAttendance[string] `json:"class_attendance_session_participant_method,omitempty"`
 
-	Lat         PatchFieldUserAttendance[float64] `json:"lat,omitempty"`
-	Lng         PatchFieldUserAttendance[float64] `json:"lng,omitempty"`
-	DistanceM   PatchFieldUserAttendance[int]     `json:"distance_m,omitempty"`
-	LateSeconds PatchFieldUserAttendance[int]     `json:"late_seconds,omitempty"`
+	ClassAttendanceSessionParticipantLat         PatchFieldUserAttendance[float64] `json:"class_attendance_session_participant_lat,omitempty"`
+	ClassAttendanceSessionParticipantLng         PatchFieldUserAttendance[float64] `json:"class_attendance_session_participant_lng,omitempty"`
+	ClassAttendanceSessionParticipantDistanceM   PatchFieldUserAttendance[int]     `json:"class_attendance_session_participant_distance_m,omitempty"`
+	ClassAttendanceSessionParticipantLateSeconds PatchFieldUserAttendance[int]     `json:"class_attendance_session_participant_late_seconds,omitempty"`
 
-	UserNote    PatchFieldUserAttendance[string]    `json:"user_note,omitempty"`
-	TeacherNote PatchFieldUserAttendance[string]    `json:"teacher_note,omitempty"`
-	LockedAt    PatchFieldUserAttendance[time.Time] `json:"locked_at,omitempty"`
+	ClassAttendanceSessionParticipantUserNote    PatchFieldUserAttendance[string]    `json:"class_attendance_session_participant_user_note,omitempty"`
+	ClassAttendanceSessionParticipantTeacherNote PatchFieldUserAttendance[string]    `json:"class_attendance_session_participant_teacher_note,omitempty"`
+	ClassAttendanceSessionParticipantLockedAt    PatchFieldUserAttendance[time.Time] `json:"class_attendance_session_participant_locked_at,omitempty"`
 
 	URLs []ClassAttendanceSessionParticipantURLOpDTO `json:"urls,omitempty" validate:"omitempty,dive"`
 }
 
 func (p ClassAttendanceSessionParticipantPatchRequest) ApplyPatch(m *attendanceModel.ClassAttendanceSessionParticipantModel) error {
-	if v, ok := p.State.Get(); ok {
+	if v, ok := p.ClassAttendanceSessionParticipantState.Get(); ok {
 		if v == nil || strings.TrimSpace(*v) == "" {
-			// kalau dikosongkan → default present
-			m.ClassAttendanceSessionParticipantState = attendanceModel.AttendanceState("present")
+			m.ClassAttendanceSessionParticipantState = attendanceModel.AttendanceStatePresent
 		} else {
 			m.ClassAttendanceSessionParticipantState = attendanceModel.AttendanceState(
 				strings.ToLower(strings.TrimSpace(*v)),
 			)
 		}
 	}
-	if v, ok := p.TypeID.Get(); ok {
+	if v, ok := p.ClassAttendanceSessionParticipantTypeID.Get(); ok {
 		m.ClassAttendanceSessionParticipantTypeID = v
 	}
-	if v, ok := p.Desc.Get(); ok {
+	if v, ok := p.ClassAttendanceSessionParticipantDesc.Get(); ok {
 		m.ClassAttendanceSessionParticipantDesc = v
 	}
-	if v, ok := p.Score.Get(); ok {
+	if v, ok := p.ClassAttendanceSessionParticipantScore.Get(); ok {
 		m.ClassAttendanceSessionParticipantScore = v
 	}
-	if v, ok := p.IsPassed.Get(); ok {
+	if v, ok := p.ClassAttendanceSessionParticipantIsPassed.Get(); ok {
 		m.ClassAttendanceSessionParticipantIsPassed = v
 	}
-	if v, ok := p.CheckinAt.Get(); ok {
-		m.ClassAttendanceSessionParticipantCheckinAt = v
+
+	// waktu: paksa UTC & support null
+	if v, ok := p.ClassAttendanceSessionParticipantCheckinAt.Get(); ok {
+		if v == nil {
+			m.ClassAttendanceSessionParticipantCheckinAt = nil
+		} else {
+			t := v.UTC()
+			m.ClassAttendanceSessionParticipantCheckinAt = &t
+		}
 	}
-	if v, ok := p.CheckoutAt.Get(); ok {
-		m.ClassAttendanceSessionParticipantCheckoutAt = v
+
+	if v, ok := p.ClassAttendanceSessionParticipantCheckoutAt.Get(); ok {
+		if v == nil {
+			m.ClassAttendanceSessionParticipantCheckoutAt = nil
+		} else {
+			t := v.UTC()
+			m.ClassAttendanceSessionParticipantCheckoutAt = &t
+		}
 	}
-	if v, ok := p.MarkedAt.Get(); ok {
-		m.ClassAttendanceSessionParticipantMarkedAt = v
+
+	if v, ok := p.ClassAttendanceSessionParticipantMarkedAt.Get(); ok {
+		if v == nil {
+			m.ClassAttendanceSessionParticipantMarkedAt = nil
+		} else {
+			t := v.UTC()
+			m.ClassAttendanceSessionParticipantMarkedAt = &t
+		}
 	}
-	if v, ok := p.MarkedByTID.Get(); ok {
+
+	if v, ok := p.ClassAttendanceSessionParticipantMarkedByTeacherID.Get(); ok {
 		m.ClassAttendanceSessionParticipantMarkedByTeacherID = v
 	}
-	if v, ok := p.Method.Get(); ok {
+
+	if v, ok := p.ClassAttendanceSessionParticipantMethod.Get(); ok {
 		if v == nil || strings.TrimSpace(*v) == "" {
 			m.ClassAttendanceSessionParticipantMethod = nil
 		} else {
@@ -290,36 +350,43 @@ func (p ClassAttendanceSessionParticipantPatchRequest) ApplyPatch(m *attendanceM
 			m.ClassAttendanceSessionParticipantMethod = &mv
 		}
 	}
-	if v, ok := p.Lat.Get(); ok {
+
+	if v, ok := p.ClassAttendanceSessionParticipantLat.Get(); ok {
 		m.ClassAttendanceSessionParticipantLat = v
 	}
-	if v, ok := p.Lng.Get(); ok {
+	if v, ok := p.ClassAttendanceSessionParticipantLng.Get(); ok {
 		m.ClassAttendanceSessionParticipantLng = v
 	}
-	if v, ok := p.DistanceM.Get(); ok {
+	if v, ok := p.ClassAttendanceSessionParticipantDistanceM.Get(); ok {
 		m.ClassAttendanceSessionParticipantDistanceM = v
 	}
-	if v, ok := p.LateSeconds.Get(); ok {
+	if v, ok := p.ClassAttendanceSessionParticipantLateSeconds.Get(); ok {
 		m.ClassAttendanceSessionParticipantLateSeconds = v
 	}
-	if v, ok := p.UserNote.Get(); ok {
+	if v, ok := p.ClassAttendanceSessionParticipantUserNote.Get(); ok {
 		m.ClassAttendanceSessionParticipantUserNote = v
 	}
-	if v, ok := p.TeacherNote.Get(); ok {
+	if v, ok := p.ClassAttendanceSessionParticipantTeacherNote.Get(); ok {
 		m.ClassAttendanceSessionParticipantTeacherNote = v
 	}
-	if v, ok := p.LockedAt.Get(); ok {
-		m.ClassAttendanceSessionParticipantLockedAt = v
+	if v, ok := p.ClassAttendanceSessionParticipantLockedAt.Get(); ok {
+		if v == nil {
+			m.ClassAttendanceSessionParticipantLockedAt = nil
+		} else {
+			t := v.UTC()
+			m.ClassAttendanceSessionParticipantLockedAt = &t
+		}
 	}
 	return nil
 }
 
 /* ===================== Query DTO (for List) ===================== */
 
+// (boleh tetap pakai nama pendek utk query string, tidak ngaruh ke JSON body)
 type ListClassAttendanceSessionParticipantQuery struct {
 	Search CSV `query:"search"`
 
-	StateIn  CSV `query:"state_in"`  // present|absent|late|excused|sick|leave
+	StateIn  CSV `query:"state_in"`  // present|absent|late|excused|sick|leave|unmarked
 	MethodIn CSV `query:"method_in"` // manual|qr|geo|import|api|self
 	KindIn   CSV `query:"kind_in"`   // student|teacher|assistant|guest
 

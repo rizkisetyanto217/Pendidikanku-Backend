@@ -11,15 +11,19 @@ import (
 	"github.com/google/uuid"
 )
 
+/* =========================================================
+   READ / LIST
+========================================================= */
+
 // GET /quiz-questions
-// Query: quiz_id, type, q, page, per_page, sort
-// GET /quiz-questions
-// Query: quiz_id, type, q, page, per_page, sort
+// Contoh:
+//
+//	/quiz-questions?quiz_id=...&with_quiz=true
+//	/quiz-questions?id=...&with_quiz=true
 func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
-	// biar helper GetSchoolIDBySlug bisa akses DB dari context
 	c.Locals("DB", ctl.DB)
 
-	// 1) Resolve school context (path/header/cookie/query/host/token)
+	// 1) Resolve school context (boleh member)
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -28,64 +32,80 @@ func (ctl *QuizQuestionsController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// slug → id jika perlu
 	var schoolID uuid.UUID
-	if mc.ID != uuid.Nil {
+	switch {
+	case mc.ID != uuid.Nil:
 		schoolID = mc.ID
-	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetSchoolIDBySlug(c, s)
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
 		if er != nil || id == uuid.Nil {
 			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
 		schoolID = id
-	} else {
-		return helper.JsonError(c, helperAuth.ErrSchoolContextMissing.Code, helperAuth.ErrSchoolContextMissing.Message)
+	default:
+		return helper.JsonError(c, fiber.StatusBadRequest, "School context hilang")
 	}
 
-	// 2) Authorize: minimal member school (semua role)
+	// Minimal member school
 	if err := helperAuth.EnsureMemberSchool(c, schoolID); err != nil {
-		return err
-	}
-
-	// 3) Query params
-	var quizID *uuid.UUID
-	if s := strings.TrimSpace(c.Query("quiz_id")); s != "" {
-		if id, e := uuid.Parse(s); e == nil {
-			quizID = &id
-		} else {
-			return helper.JsonError(c, fiber.StatusBadRequest, "quiz_id tidak valid")
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
 		}
+		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 	}
-	qType := strings.TrimSpace(c.Query("type")) // "single"|"essay"|empty
-	q := strings.TrimSpace(c.Query("q"))
-	sort := strings.TrimSpace(c.Query("sort"))
 
-	// 4) Paging (jsonresponse style)
-	p := helper.ResolvePaging(c, 20, 200) // default 20, max 200
+	// 2) Parse query
+	var q qdto.ListQuizQuestionsQuery
+	if err := c.QueryParser(&q); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
+	}
+	if err := ctl.Validator.Struct(&q); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+	// Force tenant
+	q.SchoolID = &schoolID
 
-	// 5) Query data (tenant-scoped)
-	dbq := ctl.DB.WithContext(c.Context()).
-		Model(&qmodel.QuizQuestionModel{})
-	dbq = ctl.applyFilters(dbq, schoolID, quizID, qType, q)
+	// 3) Paging
+	p := helper.ResolvePaging(c, 20, 200)
 
+	// 4) Base query
+	dbq := ctl.DB.WithContext(c.Context()).Model(&qmodel.QuizQuestionModel{})
+
+	// Filter by specific question ID (opsional)
+	if q.ID != nil && *q.ID != uuid.Nil {
+		dbq = dbq.Where("quiz_question_id = ?", *q.ID)
+	}
+
+	// Filter lain: quiz_id, type, q
+	dbq = ctl.applyFilters(dbq, schoolID, q.QuizID, q.Type, q.Q)
+
+	// 5) Count
 	var total int64
 	if err := dbq.Count(&total).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	dbq = ctl.applySort(dbq, sort)
+	// 6) Sort + pagination
+	dbq = ctl.applySort(dbq, q.Sort)
 	if p.Limit > 0 {
 		dbq = dbq.Offset(p.Offset).Limit(p.Limit)
 	}
 
+	// 7) Optional preload parent quiz
+	if q.WithQuiz {
+		dbq = dbq.Preload("Quiz")
+	}
+
+	// 8) Fetch
 	var rows []qmodel.QuizQuestionModel
 	if err := dbq.Find(&rows).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
+	// 9) DTO
 	out := qdto.FromModelsQuizQuestions(rows)
 
-	// 6) Response (pagination lengkap)
+	// 10) Pagination response
 	pg := helper.BuildPaginationFromOffset(total, p.Offset, p.Limit)
 	return helper.JsonList(c, "ok", out, pg)
 }

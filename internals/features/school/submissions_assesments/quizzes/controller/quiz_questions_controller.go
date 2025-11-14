@@ -259,16 +259,6 @@ func (ctl *QuizQuestionsController) Delete(c *fiber.Ctx) error {
 	return helper.JsonDeleted(c, "Soal dihapus", nil)
 }
 
-/* =========================================================
-   Small utils
-========================================================= */
-
-func pageOffset(page, perPage int) int {
-	if page <= 0 {
-		return 0
-	}
-	return page * perPage
-}
 
 /* =========================================================
    DB error helpers

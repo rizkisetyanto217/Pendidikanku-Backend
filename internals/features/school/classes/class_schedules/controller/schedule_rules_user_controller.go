@@ -4,7 +4,6 @@ package controller
 import (
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -22,24 +21,6 @@ type ClassScheduleRuleListController struct{ DB *gorm.DB }
 
 func NewClassScheduleRuleListController(db *gorm.DB) *ClassScheduleRuleListController {
 	return &ClassScheduleRuleListController{DB: db}
-}
-
-// parse "HH:MM[:SS]" jadi *time.Time (tanggal dummy 2000-01-01, zona lokal)
-func parseTODToTimePtr(s string) *time.Time {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return nil
-	}
-	// terima "15:04:05" atau "15:04"
-	if t, err := time.ParseInLocation("15:04:05", s, time.Local); err == nil {
-		tt := time.Date(2000, 1, 1, t.Hour(), t.Minute(), t.Second(), 0, time.Local)
-		return &tt
-	}
-	if t, err := time.ParseInLocation("15:04", s, time.Local); err == nil {
-		tt := time.Date(2000, 1, 1, t.Hour(), t.Minute(), 0, 0, time.Local)
-		return &tt
-	}
-	return nil
 }
 
 type listMeta struct {

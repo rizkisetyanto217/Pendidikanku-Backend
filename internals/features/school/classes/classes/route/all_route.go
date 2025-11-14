@@ -14,7 +14,6 @@ func AllClassRoutes(admin fiber.Router, db *gorm.DB) {
 	// /admin/:school_id/classes (READ endpoints umum)
 	classes := admin.Group("/:school_id/classes")
 	classes.Get("/list", h.ListClasses)
-	classes.Get("/slug/:slug", h.GetClassBySlug)
 
 	// /admin/:school_id/class-parents (READ endpoints umum)
 	cp := classctrl.NewClassParentController(db, nil)

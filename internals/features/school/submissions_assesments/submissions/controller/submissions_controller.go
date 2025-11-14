@@ -98,45 +98,72 @@ func applySort(q *gorm.DB, sort string) *gorm.DB {
 }
 
 /* =========================
+   Helpers (local)
+========================= */
+
+// Ambil school_id dari path dan pastikan valid UUID
+func parseSchoolIDParam(c *fiber.Ctx) (uuid.UUID, error) {
+	raw := strings.TrimSpace(c.Params("school_id"))
+	if raw == "" {
+		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "school_id wajib di path")
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil || id == uuid.Nil {
+		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "school_id tidak valid")
+	}
+	return id, nil
+}
+
+// Student-only: pastikan user adalah student di school ini
+func resolveStudentSchoolFromParam(c *fiber.Ctx) (uuid.UUID, error) {
+	schoolID, err := parseSchoolIDParam(c)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if err := helperAuth.EnsureStudentSchool(c, schoolID); err != nil {
+		return uuid.Nil, err
+	}
+	return schoolID, nil
+}
+
+// DKM/Teacher/Owner: untuk kelola attachment submission
+func resolveTeacherSchoolFromParam(c *fiber.Ctx) (uuid.UUID, error) {
+	schoolID, err := parseSchoolIDParam(c)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if err := helperAuth.EnsureDKMOrTeacherSchool(c, schoolID); err != nil && !helperAuth.IsOwner(c) {
+		return uuid.Nil, err
+	}
+	return schoolID, nil
+}
+
+/* =========================
    Handlers
 ========================= */
 
-// POST / (STUDENT ONLY)
+// POST /:school_id/submissions  (STUDENT ONLY)
 func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 	c.Locals("DB", ctrl.DB)
 
-	// ---------- Role & School context (STUDENT) ----------
-	mc, _ := helperAuth.ResolveSchoolContext(c)
-
-	var schoolID uuid.UUID
-	if mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "" {
-		id, er := func() (uuid.UUID, error) {
-			if mc.ID != uuid.Nil {
-				return mc.ID, nil
-			}
-			return helperAuth.GetSchoolIDBySlug(c, mc.Slug)
-		}()
-		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusNotFound, "School (context) tidak ditemukan")
+	// ---------- Role & School context (STUDENT via :school_id) ----------
+	schoolID, err := resolveStudentSchoolFromParam(c)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
 		}
-		schoolID = id
-		if err := helperAuth.EnsureStudentSchool(c, schoolID); err != nil {
-			return err
-		}
-	} else {
-		id, err := helperAuth.GetActiveSchoolID(c)
-		if err != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "School aktif tidak ditemukan di token")
-		}
-		schoolID = id
-		if err := helperAuth.EnsureStudentSchool(c, schoolID); err != nil {
-			return err
-		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// Ambil student_id milik caller pada school ini
-	sid, err := helperAuth.GetSchoolStudentIDForSchool(c, schoolID)
-	if err != nil || sid == uuid.Nil {
+	sid, err := helperAuth.GetSchoolStudentIDSmart(c, ctrl.DB, schoolID)
+	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	if sid == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusForbidden, "Hanya siswa terdaftar yang diizinkan membuat submission")
 	}
 
@@ -423,22 +450,23 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 }
 
 /*
-PATCH /submissions/:id/urls   (WRITE — DKM/Teacher/Admin/Owner)
+PATCH /:school_id/submissions/:id/urls   (WRITE — DKM/Teacher/Admin/Owner)
 */
 func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 	c.Locals("DB", ctrl.DB)
 
-	// ── Resolve school + role guard (DKM/Teacher/Owner) ──
-	subID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+	// ── Resolve school + role guard (DKM/Teacher/Owner) via :school_id ──
+	schoolID, err := resolveTeacherSchoolFromParam(c)
 	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	subID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+	if err != nil || subID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "submission id tidak valid")
-	}
-	schoolID, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
-	if err != nil || schoolID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "School ID tidak ditemukan di token")
-	}
-	if err := helperAuth.EnsureDKMOrTeacherSchool(c, schoolID); err != nil && !helperAuth.IsOwner(c) {
-		return err
 	}
 
 	// Pastikan submission milik school ini
@@ -728,26 +756,27 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 }
 
 /*
-DELETE /submissions/:submissionId/urls/:urlId
+DELETE /:school_id/submissions/:submissionId/urls/:urlId
 */
 func (ctrl *SubmissionController) Delete(c *fiber.Ctx) error {
 	c.Locals("DB", ctrl.DB)
 
-	subID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+	// ── Resolve school + role guard ──
+	schoolID, err := resolveTeacherSchoolFromParam(c)
 	if err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	subID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+	if err != nil || subID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "submission id tidak valid")
 	}
 	urlID, err := uuid.Parse(strings.TrimSpace(c.Params("urlId")))
-	if err != nil {
+	if err != nil || urlID == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "url id tidak valid")
-	}
-
-	schoolID, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
-	if err != nil || schoolID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusUnauthorized, "School ID tidak ditemukan di token")
-	}
-	if err := helperAuth.EnsureDKMOrTeacherSchool(c, schoolID); err != nil && !helperAuth.IsOwner(c) {
-		return err
 	}
 
 	// Ambil rownya (live)
