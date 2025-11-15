@@ -311,7 +311,6 @@ func pickImageFile(c *fiber.Ctx, names ...string) *multipart.FileHeader {
 /* =========================================================
    HANDLERS
 ========================================================= */
-
 // POST /admin/class-sections
 func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	log.Printf("[SECTIONS][CREATE] ▶️ incoming request")
@@ -319,18 +318,25 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	// ---- School context ----
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		return err
+		var fe *fiber.Error
+		if errors.As(err, &fe) {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
 	}
+
 	var schoolID uuid.UUID
 	switch {
 	case mc.ID != uuid.Nil:
 		schoolID = mc.ID
+
 	case strings.TrimSpace(mc.Slug) != "":
 		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
 		if er != nil {
 			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
 		}
 		schoolID = id
+
 	default:
 		id, er := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
 		if er != nil || id == uuid.Nil {
@@ -338,38 +344,43 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		}
 		schoolID = id
 	}
+
 	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
-		return err
+		var fe *fiber.Error
+		if errors.As(err, &fe) {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar sebagai staff di school ini")
 	}
 
 	// ---- Parse req ----
 	var req secDTO.ClassSectionCreateRequest
 	if err := c.BodyParser(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	req.ClassSectionSchoolID = schoolID
 	req.Normalize()
 
 	// ---- Validasi ringan ----
 	if strings.TrimSpace(req.ClassSectionName) == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "Nama section wajib diisi")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Nama section wajib diisi")
 	}
 	if req.ClassSectionCapacity != nil && *req.ClassSectionCapacity < 0 {
-		return fiber.NewError(fiber.StatusBadRequest, "Capacity tidak boleh negatif")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Capacity tidak boleh negatif")
 	}
 	if req.ClassSectionSubjectTeachersMaxSubjectsPerStudent != nil && *req.ClassSectionSubjectTeachersMaxSubjectsPerStudent < 0 {
-		return fiber.NewError(fiber.StatusBadRequest, "Batas maksimal mapel per siswa tidak boleh negatif")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Batas maksimal mapel per siswa tidak boleh negatif")
 	}
 	if req.ClassSectionSubjectTeachersEnrollmentMode != nil && strings.TrimSpace(*req.ClassSectionSubjectTeachersEnrollmentMode) != "" {
 		if !isValidEnrollmentMode(*req.ClassSectionSubjectTeachersEnrollmentMode) {
-			return fiber.NewError(fiber.StatusBadRequest, "Mode enrolment Subject-Teachers tidak valid (self_select | assigned | hybrid)")
+			return helper.JsonError(c, fiber.StatusBadRequest, "Mode enrolment Subject-Teachers tidak valid (self_select | assigned | hybrid)")
 		}
 	}
 
 	// ---- TX ----
 	tx := ctrl.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, tx.Error.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, tx.Error.Error())
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -386,13 +397,13 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 			First(&cls).Error; err != nil {
 			_ = tx.Rollback()
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return fiber.NewError(fiber.StatusBadRequest, "Class tidak ditemukan")
+				return helper.JsonError(c, fiber.StatusBadRequest, "Class tidak ditemukan")
 			}
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal validasi class")
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi class")
 		}
 		if cls.ClassSchoolID != schoolID {
 			_ = tx.Rollback()
-			return fiber.NewError(fiber.StatusForbidden, "Class bukan milik school Anda")
+			return helper.JsonError(c, fiber.StatusForbidden, "Class bukan milik school Anda")
 		}
 	}
 
@@ -403,7 +414,11 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	// ---- Snapshot relasi (class→parent/term) ----
 	if snap, err := snapshotClassParentAndTerm(tx, schoolID, req.ClassSectionClassID); err != nil {
 		_ = tx.Rollback()
-		return err
+		var fe *fiber.Error
+		if errors.As(err, &fe) {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil snapshot class: "+err.Error())
 	} else {
 		applyClassParentAndTermSnapshotToSection(m, snap)
 	}
@@ -443,7 +458,7 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	)
 	if uErr != nil {
 		_ = tx.Rollback()
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 	}
 	m.ClassSectionSlug = uniqueSlug
 
@@ -454,12 +469,12 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	plainCode, err := buildSectionJoinCode(m.ClassSectionSlug, m.ClassSectionID)
 	if err != nil {
 		_ = tx.Rollback()
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membangun join code")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membangun join code")
 	}
 	hashed, err := bcryptHash(plainCode)
 	if err != nil {
 		_ = tx.Rollback()
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal meng-hash join code")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal meng-hash join code")
 	}
 	now := time.Now()
 	m.ClassSectionCode = &plainCode
@@ -472,33 +487,31 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		m.ClassSectionTeacherCodeSetAt = &now
 	} else {
 		_ = tx.Rollback()
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal meng-hash teacher join code")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal meng-hash teacher join code")
 	}
 
 	// ==========================
 	// 🔼 Upload file dari form-data ("file")
 	// ==========================
 	if fh, err := c.FormFile("file"); err == nil && fh != nil && fh.Size > 0 {
-		// inisialisasi OSS service
 		ossSvc, err := helperOSS.NewOSSServiceFromEnv("")
 		if err != nil {
 			_ = tx.Rollback()
-			return fiber.NewError(fiber.StatusBadGateway, "Konfigurasi OSS tidak valid")
+			return helper.JsonError(c, fiber.StatusBadGateway, "Konfigurasi OSS tidak valid")
 		}
 
-		// slot direktori: schools/{schoolID}/images/class-sections (auto buat oleh helper)
 		slot := "class-sections"
 
-		// ===== Opsi default: fleksibel (image -> WebP, non-image -> raw) =====
 		publicURL, err := helperOSS.UploadAnyToOSS(c.Context(), ossSvc, schoolID, slot, fh)
 		if err != nil {
 			_ = tx.Rollback()
 			var fe *fiber.Error
 			if errors.As(err, &fe) {
-				return fe
+				return helper.JsonError(c, fe.Code, fe.Message)
 			}
-			return fiber.NewError(fiber.StatusBadGateway, "Gagal upload file")
+			return helper.JsonError(c, fiber.StatusBadGateway, "Gagal upload file")
 		}
+
 		m.ClassSectionImageURL = &publicURL
 		if key, kErr := helperOSS.ExtractKeyFromPublicURL(publicURL); kErr == nil {
 			m.ClassSectionImageObjectKey = &key
@@ -508,17 +521,15 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	// ---- INSERT ----
 	if err := tx.Create(m).Error; err != nil {
 		_ = tx.Rollback()
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat section")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat section")
 	}
 
 	if err := tx.Commit().Error; err != nil {
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return helper.JsonCreated(c, "Section berhasil dibuat", fiber.Map{
-		"section":            secDTO.FromModelClassSection(m),
-		"uploaded_image_url": m.ClassSectionImageURL,
-		"join_code_preview":  plainCode,
-	})
+
+	// ✅ Konsisten: data = 1 object section DTO
+	return helper.JsonCreated(c, "Section berhasil dibuat", secDTO.FromModelClassSection(m))
 }
 
 // PATCH /admin/class-sections/:id

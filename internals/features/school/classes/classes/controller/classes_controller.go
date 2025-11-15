@@ -167,13 +167,18 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		log.Printf("[CLASSES][CREATE] ❌ resolve school ctx error: %v", err)
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
 	}
+
 	var schoolID uuid.UUID
 	switch {
 	case mc.ID != uuid.Nil:
 		schoolID = mc.ID
 		log.Printf("[CLASSES][CREATE] 🕌 school_id from ctx.ID=%s", schoolID)
+
 	case strings.TrimSpace(mc.Slug) != "":
 		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
 		if er != nil {
@@ -182,6 +187,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		}
 		schoolID = id
 		log.Printf("[CLASSES][CREATE] 🕌 school_id from slug=%s → %s", mc.Slug, schoolID)
+
 	default:
 		id, er := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
 		if er != nil || id == uuid.Nil {
@@ -191,16 +197,20 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		schoolID = id
 		log.Printf("[CLASSES][CREATE] 🕌 school_id from token=%s", schoolID)
 	}
+
 	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
 		log.Printf("[CLASSES][CREATE] ❌ ensure staff school failed: %v", err)
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar sebagai staff di school ini")
 	}
 
 	/* ---- Parse request & paksa tenant ---- */
 	var req dto.CreateClassRequest
 	if err := c.BodyParser(&req); err != nil {
 		log.Printf("[CLASSES][CREATE] ❌ body parse error: %v", err)
-		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	req.ClassSchoolID = schoolID
 	req.Normalize()
@@ -210,11 +220,11 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	/* ---- Validasi ---- */
 	if err := req.Validate(); err != nil {
 		log.Printf("[CLASSES][CREATE] ❌ req validate error: %v", err)
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 	if err := validate.Struct(req); err != nil {
 		log.Printf("[CLASSES][CREATE] ❌ struct validate error: %v", err)
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, "Validasi data kelas gagal: "+err.Error())
 	}
 
 	/* ---- Bentuk model awal ---- */
@@ -226,7 +236,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	tx := ctrl.DB.WithContext(c.Context()).Begin()
 	if tx.Error != nil {
 		log.Printf("[CLASSES][CREATE] ❌ begin tx error: %v", tx.Error)
-		return fiber.NewError(fiber.StatusInternalServerError, tx.Error.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, tx.Error.Error())
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -247,8 +257,9 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	if err != nil {
 		_ = tx.Rollback().Error
 		log.Printf("[CLASSES][CREATE] ❌ build base slug error: %v", err)
-		return fiber.NewError(fiber.StatusBadRequest, "Gagal membentuk slug dasar: "+err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, "Gagal membentuk slug dasar: "+err.Error())
 	}
+
 	uniqueSlug, err := helper.EnsureUniqueSlugCI(
 		c.Context(), tx,
 		"classes", "class_slug",
@@ -261,7 +272,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	if err != nil {
 		_ = tx.Rollback().Error
 		log.Printf("[CLASSES][CREATE] ❌ ensure unique slug error: %v", err)
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghasilkan slug unik")
 	}
 	m.ClassSlug = uniqueSlug
 	log.Printf("[CLASSES][CREATE] ✅ unique_slug='%s'", m.ClassSlug)
@@ -270,12 +281,18 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	if err := classParentSnapshot.HydrateClassParentSnapshot(c.Context(), tx, schoolID, m); err != nil {
 		_ = tx.Rollback().Error
 		log.Printf("[CLASSES][CREATE] ❌ parent snapshot error: %v", err)
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil snapshot parent: "+err.Error())
 	}
 	if err := academicTermsSnapshot.HydrateAcademicTermSnapshot(c.Context(), tx, schoolID, m); err != nil {
 		_ = tx.Rollback().Error
 		log.Printf("[CLASSES][CREATE] ❌ term snapshot error: %v", err)
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil snapshot term: "+err.Error())
 	}
 
 	/* ---- class_name (gabungan parent + term) ---- */
@@ -290,11 +307,13 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		_ = tx.Rollback().Error
 		low := strings.ToLower(err.Error())
 		log.Printf("[CLASSES][CREATE] ❌ insert error: %v", err)
+
 		if strings.Contains(low, "uq_classes_slug_per_school_alive") ||
 			(strings.Contains(low, "duplicate") && strings.Contains(low, "class_slug")) {
-			return fiber.NewError(fiber.StatusConflict, "Slug sudah digunakan di school ini")
+			return helper.JsonError(c, fiber.StatusConflict, "Slug sudah digunakan di school ini")
 		}
-		return fiber.NewError(fiber.StatusInternalServerError, "Gagal membuat data kelas")
+
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat data kelas")
 	}
 	log.Printf("[CLASSES][CREATE] 💾 created class_id=%s", m.ClassID)
 
@@ -345,26 +364,25 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		if err := statsSvc.EnsureForSchool(tx, schoolID); err != nil {
 			_ = tx.Rollback().Error
 			log.Printf("[CLASSES][CREATE] ❌ ensure stats error: %v", err)
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal inisialisasi lembaga_stats: "+err.Error())
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal inisialisasi lembaga_stats: "+err.Error())
 		}
 		if err := statsSvc.IncActiveClasses(tx, schoolID, +1); err != nil {
 			_ = tx.Rollback().Error
 			log.Printf("[CLASSES][CREATE] ❌ inc active classes error: %v", err)
-			return fiber.NewError(fiber.StatusInternalServerError, "Gagal update lembaga_stats: "+err.Error())
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal update lembaga_stats: "+err.Error())
 		}
 	}
 
 	/* ---- Commit ---- */
 	if err := tx.Commit().Error; err != nil {
 		log.Printf("[CLASSES][CREATE] ❌ commit error: %v", err)
-		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	log.Printf("[CLASSES][CREATE] ✅ done in %s", time.Since(start))
-	return helper.JsonCreated(c, "Kelas berhasil dibuat", fiber.Map{
-		"class":              dto.FromModel(m),
-		"uploaded_image_url": uploadedURL,
-	})
+
+	// ⬇️ INI BAGIAN PENTING: langsung balikin 1 object class
+	return helper.JsonCreated(c, "Kelas berhasil dibuat", dto.FromModel(m))
 }
 
 /* =========================== PATCH =========================== */

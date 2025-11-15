@@ -1,4 +1,4 @@
-// file: internals/features/school/classes/classes/controller/class_parent_controller.go
+// file: internals/features/school/classes/classes/controller/class_parents_controller.go
 package controller
 
 import (
@@ -180,14 +180,15 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 	_ = ctl.DB.WithContext(c.Context()).
 		First(&ent, "class_parent_id = ?", ent.ClassParentID).Error
 
-	// 10) Response
-	return helper.JsonCreated(c, "Berhasil membuat parent kelas", fiber.Map{
-		"class_parent":       cpdto.FromModelClassParent(ent),
-		"uploaded_image_url": uploadedURL,
-	})
+	// 10) Response — data langsung object class_parent
+	return helper.JsonCreated(c, "Berhasil membuat parent kelas", cpdto.FromModelClassParent(ent))
 }
 
-// PATCH /api/a/:school_id/class-parents/:id
+/*
+=========================================================
+PATCH /api/a/:school_id/class-parents/:id
+=========================================================
+*/
 func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
@@ -420,21 +421,21 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 	}
 
 	if needRefresh {
-		// --- 1) Refresh snapshot di tabel classes (SUDAH ADA punyamu) ---
+		// --- 1) Refresh snapshot di tabel classes ---
 		type classmodel = classModel.ClassModel
 		if err := tx.Model(&classmodel{}).
-			Where("class_school_id = ? AND class_parent_id = ?", ent.ClassParentSchoolID, ent.ClassParentID).
+			Where("class_school_id = ? AND class_class_parent_id = ?", ent.ClassParentSchoolID, ent.ClassParentID).
 			Updates(map[string]any{
-				"class_parent_code_snapshot": func() any {
+				"class_class_parent_code_snapshot": func() any {
 					if ent.ClassParentCode == nil {
 						return gorm.Expr("NULL")
 					}
 					return *ent.ClassParentCode
 				}(),
-				"class_parent_name_snapshot":  newName,
-				"class_parent_slug_snapshot":  newSlug,
-				"class_parent_level_snapshot": newLevel,
-				"class_updated_at":            time.Now(),
+				"class_class_parent_name_snapshot":  newName,
+				"class_class_parent_slug_snapshot":  newSlug,
+				"class_class_parent_level_snapshot": newLevel,
+				"class_updated_at":                  time.Now(),
 			}).Error; err != nil {
 
 			_ = tx.Rollback()
@@ -442,38 +443,22 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		}
 
 		// --- 2) Refresh snapshot di tabel class_sections ---
-		// Catatan:
-		// - class_sections TIDAK punya class_parent_id langsung, jadi kita join via classes:
-		//   class_sections.class_section_class_id = classes.class_id
-		//   dan filter classes.class_parent_id = parent yang berubah
-		// - Kunci JSON di bawah ('id','code','name','slug','level') harus konsisten
-		//   dengan generated columns kamu (ClassSectionParentNameSnap, dll).
-		//   Kalau generated column kamu baca path lain, sesuaikan nama kuncinya.
 		execErr := tx.Exec(`
         UPDATE class_sections AS cs
         SET
-            class_section_parent_snapshot = jsonb_build_object(
-                'id',    $1,
-                'code',  $2,
-                'name',  $3,
-                'slug',  $4,
-                'level', $5
-            ),
-            class_section_snapshot_updated_at = NOW(),
-            class_section_updated_at = NOW()
+            class_section_class_parent_id             = $1,
+            class_section_class_parent_name_snapshot  = $2,
+            class_section_class_parent_slug_snapshot  = $3,
+            class_section_class_parent_level_snapshot = $4,
+            class_section_snapshot_updated_at         = NOW(),
+            class_section_updated_at                  = NOW()
         FROM classes AS c
         WHERE
             cs.class_section_class_id = c.class_id
-            AND c.class_parent_id = $1
-            AND cs.class_section_school_id = $6
+            AND c.class_class_parent_id = $1
+            AND cs.class_section_school_id = $5
     `,
 			ent.ClassParentID,
-			func() any {
-				if ent.ClassParentCode == nil {
-					return nil
-				}
-				return *ent.ClassParentCode
-			}(),
 			ent.ClassParentName,
 			func() any {
 				if ent.ClassParentSlug == nil {
@@ -489,85 +474,51 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 			}(),
 			ent.ClassParentSchoolID,
 		).Error
+
 		if execErr != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyegarkan snapshot class_sections")
 		}
 
 		// --- 3) Refresh snapshot di CSST (class_section_subject_teachers) ---
-		// Sisipkan/overwrite node "parent" di snapshot class_subject milik CSST
-		// Join: CSST -> Sections -> Classes (filter parent yang berubah)
+		// Untuk sekarang: cukup update updated_at berdasarkan section & parent.
 		execErr2 := tx.Exec(`
     UPDATE class_section_subject_teachers AS csst
     SET
-        class_section_subject_teacher_class_subject_snapshot =
-            COALESCE(class_section_subject_teacher_class_subject_snapshot, '{}'::jsonb)
-            || jsonb_build_object(
-                'parent',
-                jsonb_strip_nulls(
-                    jsonb_build_object(
-                        'id',    $1,
-                        'code',  $2,
-                        'name',  $3,
-                        'slug',  $4,
-                        'level', $5
-                    )
-                )
-            ),
         class_section_subject_teacher_updated_at = NOW()
     FROM class_sections AS sec
     JOIN classes AS c
       ON sec.class_section_class_id = c.class_id
     WHERE
-        csst.class_section_subject_teacher_section_id = sec.class_section_id
-        AND c.class_parent_id = $1
-        AND csst.class_section_subject_teacher_school_id = $6
+        csst.class_section_subject_teacher_class_section_id = sec.class_section_id
+        AND c.class_class_parent_id = $1
+        AND csst.class_section_subject_teacher_school_id = $2
 `,
 			ent.ClassParentID,
-			func() any {
-				if ent.ClassParentCode == nil {
-					return nil
-				}
-				return *ent.ClassParentCode
-			}(),
-			ent.ClassParentName,
-			func() any {
-				if ent.ClassParentSlug == nil {
-					return nil
-				}
-				return *ent.ClassParentSlug
-			}(),
-			func() any {
-				if ent.ClassParentLevel == nil {
-					return nil
-				}
-				return *ent.ClassParentLevel
-			}(),
 			ent.ClassParentSchoolID,
 		).Error
+
 		if execErr2 != nil {
 			_ = tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyegarkan snapshot CSST")
 		}
-
 	}
 
 	if err := tx.Commit().Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	return helper.JsonOK(c, "Berhasil memperbarui parent kelas", fiber.Map{
-		"class_parent":        cpdto.FromModelClassParent(&ent),
-		"uploaded_image_url":  uploadedURL,
-		"moved_old_image_url": movedOld,
-	})
+	// Response: pakai JsonUpdated, data = single class_parent object
+	_ = uploadedURL
+	_ = movedOld
+
+	return helper.JsonUpdated(c, "Berhasil memperbarui parent kelas", cpdto.FromModelClassParent(&ent))
 }
 
 /*
 =========================================================
-
-	DELETE (soft delete, staff only) + optional file cleanup
-	=========================================================
+DELETE (soft delete, staff only) + optional file cleanup
+=========================================================
 */
 func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 	idStr := strings.TrimSpace(c.Params("id"))
@@ -617,21 +568,7 @@ func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 		// _, _ = helperOSS.DeleteByPublicURLENV(imageURL, 15*time.Second)
 	}
 
-	return helper.JsonOK(c, "Berhasil menghapus parent kelas", fiber.Map{"class_parent_id": ent.ClassParentID})
-}
-
-/*
-=========================================================
-
-	Util
-	=========================================================
-*/
-func clampLimit(v, def, max int) int {
-	if v <= 0 {
-		return def
-	}
-	if v > max {
-		return max
-	}
-	return v
+	return helper.JsonDeleted(c, "Berhasil menghapus parent kelas", fiber.Map{
+		"class_parent_id": ent.ClassParentID,
+	})
 }

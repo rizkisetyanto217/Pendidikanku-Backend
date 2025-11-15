@@ -212,11 +212,83 @@ func enrichPaginationWithCountAndOpts(p *Pagination, data any) {
 }
 
 /* ===============================
-   JSON responses (standar)
+   Error helpers (standard shape)
 =================================*/
 
+type ErrorResponse struct {
+	Success   bool                `json:"success"`
+	Message   string              `json:"message"`
+	ErrorCode string              `json:"error_code,omitempty"`
+	Errors    map[string][]string `json:"errors,omitempty"`
+}
+
+func statusToErrorCode(status int) string {
+	switch status {
+	case fiber.StatusBadRequest:
+		return "BAD_REQUEST"
+	case fiber.StatusUnauthorized:
+		return "UNAUTHORIZED"
+	case fiber.StatusForbidden:
+		return "FORBIDDEN"
+	case fiber.StatusNotFound:
+		return "NOT_FOUND"
+	case fiber.StatusUnprocessableEntity:
+		return "VALIDATION_ERROR"
+	case fiber.StatusConflict:
+		return "CONFLICT"
+	default:
+		if status >= 500 {
+			return "INTERNAL_ERROR"
+		}
+		return "ERROR"
+	}
+}
+
+// JsonError: error generic (bukan validasi)
+func JsonError(c *fiber.Ctx, status int, message string) error {
+	if strings.TrimSpace(message) == "" {
+		// fallback message default dari Fiber kalau kosong
+		if fe := fiber.ErrInternalServerError; status == 0 || status >= 500 {
+			message = fe.Message
+		}
+	}
+	if status == 0 {
+		status = fiber.StatusInternalServerError
+	}
+
+	resp := ErrorResponse{
+		Success:   false,
+		Message:   message,
+		ErrorCode: statusToErrorCode(status),
+	}
+	return c.Status(status).JSON(resp)
+}
+
+// JsonValidationError: khusus error validasi (422)
+func JsonValidationError(c *fiber.Ctx, fieldErrors map[string][]string) error {
+	if fieldErrors == nil {
+		fieldErrors = map[string][]string{}
+	}
+	resp := ErrorResponse{
+		Success:   false,
+		Message:   "validation failed",
+		ErrorCode: "VALIDATION_ERROR",
+		Errors:    fieldErrors,
+	}
+	return c.Status(fiber.StatusUnprocessableEntity).JSON(resp)
+}
+
+/* ===============================
+   JSON responses (standard success)
+=================================*/
+
+// JsonList: list dengan pagination (GET /list dsb)
 func JsonList(c *fiber.Ctx, message string, data any, pagination any) error {
+	if strings.TrimSpace(message) == "" {
+		message = "ok"
+	}
 	body := fiber.Map{
+		"success": true,
 		"message": message,
 		"data":    data,
 	}
@@ -227,8 +299,13 @@ func JsonList(c *fiber.Ctx, message string, data any, pagination any) error {
 	return c.Status(fiber.StatusOK).JSON(body)
 }
 
+// JsonListEx: list + includes (misal dropdowns, metadata)
 func JsonListEx(c *fiber.Ctx, message string, data any, pagination any, includes any) error {
+	if strings.TrimSpace(message) == "" {
+		message = "ok"
+	}
 	body := fiber.Map{
+		"success": true,
 		"message": message,
 		"data":    data,
 	}
@@ -242,40 +319,50 @@ func JsonListEx(c *fiber.Ctx, message string, data any, pagination any, includes
 	return c.Status(fiber.StatusOK).JSON(body)
 }
 
+// JsonOK: response sukses generic (GET detail, dsb)
 func JsonOK(c *fiber.Ctx, message string, data any) error {
+	if strings.TrimSpace(message) == "" {
+		message = "ok"
+	}
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
 		"message": message,
 		"data":    data,
 	})
 }
 
+// JsonCreated: response sukses create (POST)
 func JsonCreated(c *fiber.Ctx, message string, data any) error {
+	if strings.TrimSpace(message) == "" {
+		message = "created"
+	}
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"success": true,
 		"message": message,
 		"data":    data,
 	})
 }
 
+// JsonUpdated: response sukses update (PATCH/PUT)
 func JsonUpdated(c *fiber.Ctx, message string, data any) error {
+	if strings.TrimSpace(message) == "" {
+		message = "updated"
+	}
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
 		"message": message,
 		"data":    data,
 	})
 }
 
-
+// JsonDeleted: response sukses delete (DELETE)
 func JsonDeleted(c *fiber.Ctx, message string, data any) error {
+	if strings.TrimSpace(message) == "" {
+		message = "deleted"
+	}
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
 		"message": message,
 		"data":    data,
-	})
-}
-
-func JsonError(c *fiber.Ctx, status int, message string) error {
-	return c.Status(status).JSON(fiber.Map{
-		"error": fiber.Map{
-			"code":    status,
-			"message": message,
-		},
 	})
 }

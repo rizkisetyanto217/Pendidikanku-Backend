@@ -193,11 +193,41 @@ func isCrossSite(c *fiber.Ctx) bool {
 	return !strings.EqualFold(origin, reqOrigin)
 }
 
-func sameSiteForRequest(c *fiber.Ctx) string {
-	if isCrossSite(c) {
-		return "None" // cookie akan dikirim cross-site (butuh Secure=true)
+// ==========================
+// School helpers (slug → id)
+// ==========================
+
+// Ambil school_id dari slug (wajib ada di tabel schools)
+func findSchoolIDBySlug(ctx context.Context, db *gorm.DB, slug string) (uuid.UUID, error) {
+	slug = strings.TrimSpace(slug)
+	if db == nil {
+		return uuid.Nil, fiber.NewError(fiber.StatusInternalServerError, "DB belum siap")
 	}
-	return "Strict" // same-site -> keamanan lebih ketat
+	if slug == "" {
+		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "school_slug wajib diisi")
+	}
+
+	ctxQ, cancel := context.WithTimeout(ctx, qryTimeoutShort)
+	defer cancel()
+
+	var id uuid.UUID
+	// Sesuaikan nama kolom kalau beda (diasumsikan: school_slug & school_deleted_at)
+	err := db.WithContext(ctxQ).
+		Raw(`
+			SELECT school_id
+			FROM schools
+			WHERE school_slug = ?
+			  AND (school_deleted_at IS NULL)
+			LIMIT 1
+		`, slug).
+		Scan(&id).Error
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if id == uuid.Nil {
+		return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "Sekolah tidak ditemukan")
+	}
+	return id, nil
 }
 
 // Double-submit CSRF: cookie "XSRF-TOKEN" vs header "X-CSRF-Token"
@@ -645,7 +675,30 @@ func grantDefaultUserRole(ctx context.Context, db *gorm.DB, userID uuid.UUID) er
 			userID.String(), roleIDStr).Error
 }
 
-// Ambil roles via function claim (jika ada) atau fallback query manual
+// Filter RolesClaim supaya hanya berisi 1 school_id tertentu.
+// Mengembalikan (claimBaru, ok). ok=false kalau user tidak punya role di school tsb.
+func filterRolesClaimToSchool(rc helpersAuth.RolesClaim, schoolID uuid.UUID) (helpersAuth.RolesClaim, bool) {
+	if schoolID == uuid.Nil {
+		return rc, false
+	}
+
+	filtered := helpersAuth.RolesClaim{
+		RolesGlobal: rc.RolesGlobal, // global tetap
+		SchoolRoles: make([]helpersAuth.SchoolRolesEntry, 0, 1),
+	}
+
+	for _, sr := range rc.SchoolRoles {
+		if sr.SchoolID == schoolID {
+			filtered.SchoolRoles = append(filtered.SchoolRoles, sr)
+		}
+	}
+
+	if len(filtered.SchoolRoles) == 0 {
+		return filtered, false
+	}
+	return filtered, true
+}
+
 // Ambil roles via function claim (jika ada) lalu fallback manual + ENRICH student/teacher.
 func getUserRolesClaim(ctx context.Context, db *gorm.DB, userID uuid.UUID) (helpersAuth.RolesClaim, error) {
 	out := helpersAuth.RolesClaim{

@@ -4,11 +4,12 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"strings"
+	"sync"
+
 	modelCSST "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
-	"strings"
-	"sync"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -68,7 +69,7 @@ func detectCSSTFKs(db *gorm.DB) {
 			csstPK = "class_section_subject_teacher_id"
 		}
 
-		// timestamps (tambahkan varian singular/plural)
+		// timestamps
 		csstCreatedAtCol = firstExisting(db, tbl,
 			"class_section_subject_teacher_created_at",
 			"class_section_subject_teachers_created_at",
@@ -86,18 +87,17 @@ func detectCSSTFKs(db *gorm.DB) {
 			csstUpdatedAtCol = "updated_at"
 		}
 		csstDeletedAtCol = firstExisting(db, tbl,
-			"class_section_subject_teacher_deleted_at", // ← ini yang kamu pakai
+			"class_section_subject_teacher_deleted_at",
 			"class_section_subject_teachers_deleted_at",
 			"deleted_at",
 		)
 		if csstDeletedAtCol == "" {
-			// fallback aman: anggap tidak ada soft delete -> gunakan kolom yang pasti ada agar tidak error
 			csstDeletedAtCol = "deleted_at"
 		}
 
 		// tenant & status
 		csstSchoolCol = firstExisting(db, tbl,
-			"class_section_subject_teacher_school_id", // ← terlihat di log kamu
+			"class_section_subject_teacher_school_id",
 			"class_section_subject_teachers_school_id",
 			"school_id",
 		)
@@ -171,8 +171,8 @@ type csstJoinedRow struct {
 	modelCSST.ClassSectionSubjectTeacherModel
 
 	// class_subjects
-	ClassSubjectID        *uuid.UUID `json:"class_subject_id,omitempty"         gorm:"column:class_subject_id"`
-	ClassSubjectSubjectID *uuid.UUID `json:"class_subject_subject_id,omitempty" gorm:"column:class_subject_subject_id"`
+	ClassSubjectID        *uuid.UUID `gorm:"column:class_subject_id"`
+	ClassSubjectSubjectID *uuid.UUID `gorm:"column:class_subject_subject_id"`
 
 	// subjects
 	SubjectID   *uuid.UUID `gorm:"column:subject_id"`
@@ -195,19 +195,24 @@ type csstJoinedRow struct {
 	TeacherName       *string    `gorm:"column:teacher_name"`
 }
 
+// ⬇️ DI SINI kita embed model langsung, supaya field CSST muncul langsung di root JSON
 type csstItemWithRefs struct {
-	CSST         modelCSST.ClassSectionSubjectTeacherModel `json:"csst"`
+	modelCSST.ClassSectionSubjectTeacherModel
+
 	ClassSubject *struct {
 		ClassSubjectID        *uuid.UUID `json:"class_subject_id,omitempty"`
 		ClassSubjectSubjectID *uuid.UUID `json:"class_subject_subject_id,omitempty"`
 	} `json:"class_subject,omitempty"`
+
 	Subject *subjectLite `json:"subject,omitempty"`
 	Section *sectionLite `json:"section,omitempty"`
 	Teacher *teacherLite `json:"teacher,omitempty"`
 }
 
 func toCSSTResp(r csstJoinedRow) csstItemWithRefs {
-	out := csstItemWithRefs{CSST: r.ClassSectionSubjectTeacherModel}
+	out := csstItemWithRefs{
+		ClassSectionSubjectTeacherModel: r.ClassSectionSubjectTeacherModel,
+	}
 
 	if r.ClassSubjectID != nil || r.ClassSubjectSubjectID != nil {
 		out.ClassSubject = &struct {
@@ -258,11 +263,7 @@ type listQuery struct {
 	Sort        *string `query:"sort"`     // asc|desc
 }
 
-/* ================================ Handler ================================ */
 /* ================================ Handler (NO-INCLUDE, NO-JOIN) ================================ */
-// file: internals/features/school/academics/subject/controller/class_section_subject_teachers_user_controller.go
-
-// ... (imports & types tetap)
 
 func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	detectCSSTFKs(ctl.DB)
@@ -271,8 +272,13 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	// === School context (PUBLIC): no role check ===
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		return err
+		var fe *fiber.Error
+		if errors.As(err, &fe) {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
 	}
+
 	var schoolID uuid.UUID
 	if mc.ID != uuid.Nil {
 		schoolID = mc.ID
@@ -286,7 +292,12 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		}
 		schoolID = id
 	} else {
-		return helperAuth.ErrSchoolContextMissing
+		// pakai JsonError dengan info dari ErrSchoolContextMissing
+		return helper.JsonError(
+			c,
+			helperAuth.ErrSchoolContextMissing.Code,
+			helperAuth.ErrSchoolContextMissing.Message,
+		)
 	}
 
 	// path :id (detail)

@@ -284,8 +284,6 @@ func NewClassSectionSubjectTeacherController(db *gorm.DB) *ClassSectionSubjectTe
 
 /* ======================== CREATE ======================== */
 // POST /admin/:school_id/class-section-subject-teachers
-/* ======================== CREATE ======================== */
-// POST /admin/:school_id/class-section-subject-teachers
 func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
