@@ -1,3 +1,4 @@
+// file: internals/features/academics/books/route/class_books_user_route.go
 package route
 
 import (
@@ -7,20 +8,47 @@ import (
 	"gorm.io/gorm"
 )
 
-// Panggil dengan: route.ClassBooksUserRoutes(app.Group("/api/u"), db)
+// Panggil dengan: AllClassBooksRoutes(app.Group("/api/u"), db)
+//
 // Hasil endpoint:
 //
-//	GET /api/u/:school_id/books/list
-//	GET /api/u/:school_id/class-subject-books/list
+//   - GET /api/u/i/:school_id/books/list
+//   - GET /api/u/i/:school_id/class-subject-books/list
+//   - GET /api/u/s/:school_slug/books/list
+//   - GET /api/u/s/:school_slug/class-subject-books/list
+//
+// Resolver school di controller sudah token-aware + slug-aware:
+//  1. Coba active_school_id dari token,
+//  2. fallback ke ResolveSchoolContext (baca :school_id atau :school_slug).
 func AllClassBooksRoutes(r fiber.Router, db *gorm.DB) {
 	booksCtl := &cbController.BooksController{DB: db}
 	csbCtl := &cbController.ClassSubjectBookController{DB: db}
 
-	// /api/u/:school_id/books/list
-	books := r.Group("/books")
-	books.Get("/list", booksCtl.List)
+	// =========================
+	// 1) By school_id (UUID)
+	//    /api/u/i/:school_id/...
+	// =========================
+	rByID := r.Group("/i/:school_id")
 
-	// /api/u/:school_id/class-subject-books/list
-	csb := r.Group("/class-subject-books")
-	csb.Get("/list", csbCtl.List)
+	// /api/u/i/:school_id/books/list
+	booksByID := rByID.Group("/books")
+	booksByID.Get("/list", booksCtl.List)
+
+	// /api/u/i/:school_id/class-subject-books/list
+	csbByID := rByID.Group("/class-subject-books")
+	csbByID.Get("/list", csbCtl.List)
+
+	// =========================
+	// 2) By school_slug
+	//    /api/u/s/:school_slug/...
+	// =========================
+	rBySlug := r.Group("/s/:school_slug")
+
+	// /api/u/s/:school_slug/books/list
+	booksBySlug := rBySlug.Group("/books")
+	booksBySlug.Get("/list", booksCtl.List)
+
+	// /api/u/s/:school_slug/class-subject-books/list
+	csbBySlug := rBySlug.Group("/class-subject-books")
+	csbBySlug.Get("/list", csbCtl.List)
 }
