@@ -2,8 +2,6 @@
 package controller
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -11,11 +9,9 @@ import (
 	"time"
 
 	sessiondto "schoolku_backend/internals/features/school/classes/class_attendance_sessions/dto"
-	attendanceModel "schoolku_backend/internals/features/school/classes/class_attendance_sessions/model"
 
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
-	helperOSS "schoolku_backend/internals/helpers/oss"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -85,192 +81,6 @@ func jsonToMap(j datatypes.JSON) map[string]any {
 // ===============================
 // Handlers
 // ===============================
-
-/*
-=========================================================
-POST /student-attendance (WITH URLs)
-  - JSON:
-    {
-    "attendance": { ...ClassAttendanceSessionParticipantCreateRequest... },
-    "urls": [ {op:"upsert", kind,label,url,object_key,order,is_primary,...}, ... ]
-    }
-
-- multipart/form-data:
-  - attendance_json: JSON ClassAttendanceSessionParticipantCreateRequest (wajib)
-  - urls_json: JSON array ClassAttendanceSessionParticipantURLOpDTO (opsional; op akan dipaksa "upsert")
-  - file uploads: otomatis upload ke OSS → tiap file jadi URL op upsert baru (kind=attachment)
-
-=========================================================
-*/
-func (ctl *StudentAttendanceController) CreateWithURLs(c *fiber.Ctx) error {
-	c.Locals("DB", ctl.DB)
-	var schoolID uuid.UUID
-
-	// resolve school
-	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
-			schoolID = id
-		} else {
-			if fe, ok := er.(*fiber.Error); ok {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
-		}
-	} else {
-		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			schoolID = id
-		} else {
-			return helper.JsonError(c, fiber.StatusForbidden, "Scope school tidak ditemukan")
-		}
-	}
-
-	ct := strings.ToLower(strings.TrimSpace(c.Get("Content-Type")))
-
-	// ----- Parse payload ke DTO baru -----
-	var attReq sessiondto.ClassAttendanceSessionParticipantCreateRequest
-	var urlOps []sessiondto.ClassAttendanceSessionParticipantURLOpDTO
-
-	if strings.HasPrefix(ct, "multipart/form-data") {
-		aj := strings.TrimSpace(c.FormValue("attendance_json"))
-		if aj == "" {
-			return helper.JsonError(c, fiber.StatusBadRequest, "attendance_json wajib diisi (ClassAttendanceSessionParticipantCreateRequest)")
-		}
-		if err := json.Unmarshal([]byte(aj), &attReq); err != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "attendance_json tidak valid: "+err.Error())
-		}
-
-		if uj := strings.TrimSpace(c.FormValue("urls_json")); uj != "" {
-			_ = json.Unmarshal([]byte(uj), &urlOps)
-		}
-		// paksa semua op → upsert
-		for i := range urlOps {
-			urlOps[i].Op = sessiondto.URLOpUpsert
-		}
-
-		// files → setiap file jadi URL op upsert baru (kind=attachment)
-		if form, ferr := c.MultipartForm(); ferr == nil && form != nil {
-			fhs, _ := helperOSS.CollectUploadFiles(form, nil)
-			if len(fhs) > 0 {
-				oss, oerr := helperOSS.NewOSSServiceFromEnv("")
-				if oerr != nil {
-					return helper.JsonError(c, fiber.StatusBadGateway, "OSS tidak siap")
-				}
-				ctx := context.Background()
-				for _, fh := range fhs {
-					publicURL, uerr := helperOSS.UploadAnyToOSS(ctx, oss, schoolID, "student_attendance", fh)
-					if uerr != nil {
-						return uerr
-					}
-					var key *string
-					if k, kerr := helperOSS.ExtractKeyFromPublicURL(publicURL); kerr == nil {
-						key = &k
-					}
-					op := sessiondto.ClassAttendanceSessionParticipantURLOpDTO{
-						Op:        sessiondto.URLOpUpsert,
-						Kind:      ptrStr("attachment"),
-						URL:       &publicURL,
-						ObjectKey: key,
-					}
-					urlOps = append(urlOps, op)
-				}
-			}
-		}
-	} else {
-		// JSON murni
-		var body struct {
-			Attendance sessiondto.ClassAttendanceSessionParticipantCreateRequest `json:"attendance"`
-			URLs       []sessiondto.ClassAttendanceSessionParticipantURLOpDTO    `json:"urls"`
-		}
-		raw := bytes.TrimSpace(c.Body())
-		if len(raw) == 0 {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Payload kosong")
-		}
-		if err := json.Unmarshal(raw, &body); err != nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
-		}
-		attReq = body.Attendance
-		urlOps = body.URLs
-		// paksa op=upsert untuk create
-		for i := range urlOps {
-			urlOps[i].Op = sessiondto.URLOpUpsert
-			urlOps[i].ID = nil
-		}
-	}
-
-	// Set school ke request (tenant)
-	attReq.ClassAttendanceSessionParticipantSchoolID = schoolID
-
-	// Validasi request
-	if err := ctl.Validator.Struct(&attReq); err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
-
-	// Tenant guard: session harus milik school
-	if err := ctl.ensureSessionBelongsToSchool(
-		c,
-		attReq.ClassAttendanceSessionParticipantSessionID,
-		schoolID,
-	); err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-
-	// =========================
-	// Transaksi
-	// =========================
-	var created attendanceModel.ClassAttendanceSessionParticipantModel
-
-	if err := ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// 1) create attendance (participant)
-		m := attReq.ToModel()
-		if err := tx.Create(&m).Error; err != nil {
-			if isDuplicateKey(err) {
-				return fiber.NewError(fiber.StatusConflict, "Kehadiran sudah tercatat (duplikat)")
-			}
-			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
-		}
-
-		// 2) URLs via URLMutations (create only)
-		muts, err := sessiondto.BuildURLMutations(m.ClassAttendanceSessionParticipantID, schoolID, urlOps)
-		if err != nil {
-			return err
-		}
-		if len(muts.ToCreate) > 0 {
-			if err := tx.Create(&muts.ToCreate).Error; err != nil {
-				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menyimpan lampiran")
-			}
-		}
-
-		// 3) enforce primary uniqueness per (participant, kind)
-		if err := ensurePrimaryUnique(tx, m.ClassAttendanceSessionParticipantID); err != nil {
-			return err
-		}
-
-		created = m
-		return nil
-	}); err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-
-	// Ambil URLs (live) untuk response
-	var urls []attendanceModel.ClassAttendanceSessionParticipantURLModel
-	_ = ctl.DB.
-		Where("class_attendance_session_participant_url_participant_id = ? AND class_attendance_session_participant_url_deleted_at IS NULL",
-			created.ClassAttendanceSessionParticipantID).
-		Order("class_attendance_session_participant_url_is_primary DESC, class_attendance_session_participant_url_order ASC, class_attendance_session_participant_url_created_at ASC").
-		Find(&urls)
-
-	c.Set("Location", "/student-attendance/"+created.ClassAttendanceSessionParticipantID.String())
-	return helper.JsonCreated(c, "Kehadiran & lampiran berhasil dibuat", fiber.Map{
-		"attendance": created,
-		"urls":       urls,
-	})
-}
 
 // parse "HH:MM[:SS]" jadi *time.Time (tanggal dummy 2000-01-01)
 func parseRuleTimeToPtr(s *string) *time.Time {

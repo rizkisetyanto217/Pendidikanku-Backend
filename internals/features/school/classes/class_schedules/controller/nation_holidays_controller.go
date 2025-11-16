@@ -49,6 +49,7 @@ func parseDateYYYYMMDD(s string) (time.Time, bool) {
    ========================= */
 
 func (ctl *NationalHolidayController) Create(c *fiber.Ctx) error {
+	// Hanya owner platform yang boleh bikin libur nasional
 	if !helperAuth.IsOwner(c) {
 		return helper.JsonError(c, http.StatusForbidden, "Hanya owner yang diizinkan")
 	}
@@ -80,6 +81,7 @@ func (ctl *NationalHolidayController) Create(c *fiber.Ctx) error {
    ========================= */
 
 func (ctl *NationalHolidayController) Patch(c *fiber.Ctx) error {
+	// OWNER ONLY
 	if !helperAuth.IsOwner(c) {
 		return helper.JsonError(c, http.StatusForbidden, "Hanya owner yang diizinkan")
 	}
@@ -93,6 +95,7 @@ func (ctl *NationalHolidayController) Patch(c *fiber.Ctx) error {
 	if err := ctl.DB.
 		Where("national_holiday_id = ? AND national_holiday_deleted_at IS NULL", id).
 		First(&existing).Error; err != nil {
+
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "holiday not found")
 		}
@@ -125,6 +128,7 @@ func (ctl *NationalHolidayController) Patch(c *fiber.Ctx) error {
    ========================= */
 
 func (ctl *NationalHolidayController) Delete(c *fiber.Ctx) error {
+	// OWNER ONLY
 	if !helperAuth.IsOwner(c) {
 		return helper.JsonError(c, http.StatusForbidden, "Hanya owner yang diizinkan")
 	}
@@ -138,6 +142,7 @@ func (ctl *NationalHolidayController) Delete(c *fiber.Ctx) error {
 	if err := ctl.DB.
 		Where("national_holiday_id = ? AND national_holiday_deleted_at IS NULL", id).
 		First(&existing).Error; err != nil {
+
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return helper.JsonError(c, http.StatusNotFound, "holiday not found")
 		}
@@ -154,6 +159,7 @@ func (ctl *NationalHolidayController) Delete(c *fiber.Ctx) error {
 
 /* =========================
    Get By ID  (PUBLIC)
+   - with_deleted=true → OWNER ONLY
    ========================= */
 
 func (ctl *NationalHolidayController) GetByID(c *fiber.Ctx) error {
@@ -163,6 +169,11 @@ func (ctl *NationalHolidayController) GetByID(c *fiber.Ctx) error {
 	}
 
 	withDeleted := strings.TrimSpace(c.Query("with_deleted")) == "true"
+
+	// Kalau mau lihat yang sudah terhapus → OWNER ONLY
+	if withDeleted && !helperAuth.IsOwner(c) {
+		return helper.JsonError(c, http.StatusForbidden, "Hanya owner yang diizinkan melihat data terhapus")
+	}
 
 	q := ctl.DB.WithContext(c.Context()).Model(&m.NationalHolidayModel{})
 	if withDeleted {
@@ -185,7 +196,9 @@ func (ctl *NationalHolidayController) GetByID(c *fiber.Ctx) error {
 }
 
 /* =========================
-   List (index)  (PUBLIC)
+   List (index)
+   - PUBLIC untuk data alive
+   - WithDeleted=true → OWNER ONLY
    ========================= */
 
 func (ctl *NationalHolidayController) List(c *fiber.Ctx) error {
@@ -201,8 +214,12 @@ func (ctl *NationalHolidayController) List(c *fiber.Ctx) error {
 
 	tx := ctl.DB.WithContext(c.Context()).Model(&m.NationalHolidayModel{})
 
-	// with_deleted
-	if q.WithDeleted != nil && *q.WithDeleted {
+	// with_deleted: kalau true → butuh owner
+	includeDeleted := q.WithDeleted != nil && *q.WithDeleted
+	if includeDeleted {
+		if !helperAuth.IsOwner(c) {
+			return helper.JsonError(c, http.StatusForbidden, "Hanya owner yang diizinkan melihat data terhapus")
+		}
 		tx = tx.Unscoped()
 	} else {
 		tx = tx.Where("national_holiday_deleted_at IS NULL")

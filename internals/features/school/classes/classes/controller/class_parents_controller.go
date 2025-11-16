@@ -44,7 +44,7 @@ func getImageFormFile(c *fiber.Ctx) (*multipart.FileHeader, error) {
 
 /*
 =========================================================
-CREATE (staff only) — slug unik + optional upload (save to DB)
+CREATE (DKM only) — slug unik + optional upload (save to DB)
 =========================================================
 */
 func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
@@ -89,8 +89,8 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "School context wajib via URL (school_id/school_slug)")
 	}
 
-	// 3) Staff guard di MASJID TARGET
-	if err := helperAuth.EnsureStaffSchoolStrict(c, schoolID); err != nil {
+	// 3) Guard: hanya DKM/Admin di school ini
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 
@@ -186,7 +186,7 @@ func (ctl *ClassParentController) Create(c *fiber.Ctx) error {
 
 /*
 =========================================================
-PATCH /api/a/:school_id/class-parents/:id
+PATCH /api/a/:school_id/class-parents/:id  (DKM only)
 =========================================================
 */
 func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
@@ -218,8 +218,8 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// Guard staff/tenant
-	if err := helperAuth.EnsureStaffSchool(c, ent.ClassParentSchoolID); err != nil {
+	// Guard: hanya DKM/Admin di tenant yang sama
+	if err := helperAuth.EnsureDKMSchool(c, ent.ClassParentSchoolID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -517,7 +517,7 @@ func (ctl *ClassParentController) Patch(c *fiber.Ctx) error {
 
 /*
 =========================================================
-DELETE (soft delete, staff only) + optional file cleanup
+DELETE (soft delete, DKM only) + optional file cleanup
 =========================================================
 */
 func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
@@ -537,8 +537,8 @@ func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// Guard akses staff pada school terkait
-	if err := helperAuth.EnsureStaffSchool(c, ent.ClassParentSchoolID); err != nil {
+	// Guard akses: hanya DKM/Admin pada school terkait
+	if err := helperAuth.EnsureDKMSchool(c, ent.ClassParentSchoolID); err != nil {
 		return err
 	}
 

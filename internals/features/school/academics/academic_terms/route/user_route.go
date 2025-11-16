@@ -19,14 +19,11 @@ import (
 // Versi yang pakai token (tanpa :school_id / :school_slug) bisa
 // kamu buat terpisah, misalnya di UserAcademicTermsRoutes.
 // ===========================================
-func AllAcademicTermsRoutes(user fiber.Router, db *gorm.DB) {
+func AcademicUserTermsRoutes(user fiber.Router, db *gorm.DB) {
 	termCtl := academicTermCtl.NewAcademicTermController(db, nil)
 
 	// 1) /api/u/:school_id/academic-terms/list
-	rByID := user.Group("/i/:school_id/academic-terms")
+	rByID := user.Group("/academic-terms")
 	rByID.Get("/list", termCtl.List)
 
-	// 2) /api/u/m/:school_slug/academic-terms/list
-	rBySlug := user.Group("/s/:school_slug/academic-terms")
-	rBySlug.Get("/list", termCtl.List)
 }

@@ -70,14 +70,34 @@ func pickImageFile(c *fiber.Ctx, names ...string) *multipart.FileHeader {
 func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	ctl.ensureValidator()
 
-	// 🔒 Ambil context school & guard
+	// 🔒 Ambil context school & guard: DKM/Admin only (owner global boleh)
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		return err
+
+	var schoolID uuid.UUID
+	switch {
+	case mc.ID != uuid.Nil:
+		schoolID = mc.ID
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+		if er != nil {
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+		}
+		schoolID = id
+	default:
+		return helperAuth.ErrSchoolContextMissing
+	}
+
+	// Kalau bukan owner → wajib DKM/Admin di school ini
+	if !helperAuth.IsOwner(c) {
+		if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+			return err
+		}
 	}
 
 	// 👀 Deteksi multipart
@@ -229,7 +249,8 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	// 💾 Simpan awal (tanpa image)
 	if err := ctl.DB.WithContext(reqCtx(c)).Create(&m).Error; err != nil {
 		if isUniqueViolation(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Nama/Kode/Slug ruang sudah digunakan")
+			// Di sini kita anggap yang paling mungkin bentrok itu slug
+			return helper.JsonError(c, fiber.StatusConflict, "Slug ruang sudah digunakan, silakan ubah nama/slug")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan data")
 	}
@@ -299,13 +320,33 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 	ctl.ensureValidator()
 
+	// 🔒 DKM/Admin only (owner boleh) + resolve school
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		return err
+
+	var schoolID uuid.UUID
+	switch {
+	case mc.ID != uuid.Nil:
+		schoolID = mc.ID
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+		if er != nil {
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+		}
+		schoolID = id
+	default:
+		return helperAuth.ErrSchoolContextMissing
+	}
+
+	if !helperAuth.IsOwner(c) {
+		if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+			return err
+		}
 	}
 
 	id, err := uuid.Parse(c.Params("id"))
@@ -336,7 +377,7 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Gagal menerapkan perubahan: "+err.Error())
 	}
 
-	// === NEW: Auto-update slug ketika nama berubah, kecuali slug diisi eksplisit ===
+	// === Auto-update slug ketika nama berubah, kecuali slug diisi eksplisit ===
 	if req.ClassRoomName != nil {
 		// Hanya generate otomatis jika user TIDAK kirim slug baru
 		if req.ClassRoomSlug == nil || strings.TrimSpace(*req.ClassRoomSlug) == "" {
@@ -373,11 +414,12 @@ func (ctl *ClassRoomController) Update(c *fiber.Ctx) error {
 			m.ClassRoomSlug = &slug
 		}
 	}
-	// === END NEW ===
+	// === END slug logic ===
 
 	if err := ctl.DB.WithContext(reqCtx(c)).Save(&m).Error; err != nil {
 		if isUniqueViolation(err) {
-			return helper.JsonError(c, fiber.StatusConflict, "Nama/Kode/Slug ruang sudah digunakan")
+			// Di sini juga: yang kita anggap bentrok slug/kode, tapi nama boleh sama
+			return helper.JsonError(c, fiber.StatusConflict, "Slug atau kode ruang sudah digunakan")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengubah data")
 	}
@@ -395,14 +437,33 @@ func (ctl *ClassRoomController) Patch(c *fiber.Ctx) error {
 /* ============================ DELETE ============================ */
 
 func (ctl *ClassRoomController) Delete(c *fiber.Ctx) error {
-	// Require DKM/Admin + resolve schoolID
+	// Require DKM/Admin (owner boleh) + resolve schoolID
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		return err
+
+	var schoolID uuid.UUID
+	switch {
+	case mc.ID != uuid.Nil:
+		schoolID = mc.ID
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+		if er != nil {
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+		}
+		schoolID = id
+	default:
+		return helperAuth.ErrSchoolContextMissing
+	}
+
+	if !helperAuth.IsOwner(c) {
+		if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+			return err
+		}
 	}
 
 	id, err := uuid.Parse(c.Params("id"))
@@ -426,14 +487,33 @@ func (ctl *ClassRoomController) Delete(c *fiber.Ctx) error {
 /* ============================ RESTORE ============================ */
 
 func (ctl *ClassRoomController) Restore(c *fiber.Ctx) error {
-	// Require DKM/Admin + resolve schoolID
+	// Require DKM/Admin (owner boleh) + resolve schoolID
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		return err
+
+	var schoolID uuid.UUID
+	switch {
+	case mc.ID != uuid.Nil:
+		schoolID = mc.ID
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+		if er != nil {
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+		}
+		schoolID = id
+	default:
+		return helperAuth.ErrSchoolContextMissing
+	}
+
+	if !helperAuth.IsOwner(c) {
+		if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+			return err
+		}
 	}
 
 	id, err := uuid.Parse(c.Params("id"))
@@ -450,8 +530,8 @@ func (ctl *ClassRoomController) Restore(c *fiber.Ctx) error {
 		})
 	if tx.Error != nil {
 		if isUniqueViolation(tx.Error) {
-			// Restore bisa bentrok dengan partial unique (nama/kode/slug sudah dipakai baris alive lain)
-			return helper.JsonError(c, fiber.StatusConflict, "Gagal restore: nama/kode/slug sudah dipakai entri lain")
+			// Restore bisa bentrok because slug/kode terbentur entri alive lain
+			return helper.JsonError(c, fiber.StatusConflict, "Gagal restore: slug atau kode sudah dipakai entri lain")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal restore data")
 	}

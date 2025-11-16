@@ -13,31 +13,18 @@ import (
 	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
-// GET /submissions/list (LIST — member; student hanya lihat miliknya)
+// GET /submissions/list (LIST — member; student hanya lihat miliknya, school via token)
 func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 	c.Locals("DB", ctrl.DB)
 
-	// 1) Resolve school context (slug/id)
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// 1) Ambil school dari token (via helper yang sudah ada: parseSchoolIDParam -> GetActiveSchoolID)
+	schoolID, err := parseSchoolIDParam(c)
 	if err != nil {
 		return err
 	}
 
-	var mid uuid.UUID
-	if mc.ID != uuid.Nil {
-		mid = mc.ID
-	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetSchoolIDBySlug(c, s)
-		if er != nil || id == uuid.Nil {
-			return fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
-		}
-		mid = id
-	} else {
-		return helperAuth.ErrSchoolContextMissing
-	}
-
 	// 2) Authorize minimal member school
-	if err := helperAuth.EnsureMemberSchool(c, mid); err != nil {
+	if err := helperAuth.EnsureMemberSchool(c, schoolID); err != nil {
 		return err
 	}
 
@@ -47,7 +34,7 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		Where(`
 			submission_school_id = ?
 			AND submission_deleted_at IS NULL
-		`, mid)
+		`, schoolID)
 
 	// 4) Role flags
 	isStudent := helperAuth.IsStudent(c)
@@ -56,7 +43,7 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 
 	// Student hanya boleh akses submission miliknya
 	if isStudent && !isTeacher && !isDKM {
-		if sid, _ := helperAuth.GetSchoolStudentIDForSchool(c, mid); sid != uuid.Nil {
+		if sid, _ := helperAuth.GetSchoolStudentIDForSchool(c, schoolID); sid != uuid.Nil {
 			tx = tx.Where("submission_student_id = ?", sid)
 		} else {
 			// Student tapi tidak punya relasi school_student -> kosongkan list
@@ -74,7 +61,7 @@ func (ctrl *SubmissionController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// ?student_id=<uuid> (hanya untuk DKM/Teacher)
+	// ?student_id=<uuid> (hanya untuk non-student / staff)
 	if !isStudent {
 		if s := strings.TrimSpace(c.Query("student_id")); s != "" {
 			if sid, er := uuid.Parse(s); er == nil && sid != uuid.Nil {

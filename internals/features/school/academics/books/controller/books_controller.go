@@ -34,11 +34,9 @@ func strPtrIfNotEmpty(s string) *string {
 	return &v
 }
 
-// letakkan di bawah import, di file books_controller.go
-
 // nilIfEmptyPtr: kalau pointer kosong → kembalikan gorm.Expr("NULL"),
 // kalau ada isinya → kembalikan string-nya (biar bisa dipakai di map Updates).
-func nilIfEmptyPtr(p *string) interface{} { // pakai interface{} biar aman di semua versi Go
+func nilIfEmptyPtr(p *string) interface{} {
 	if p == nil || strings.TrimSpace(*p) == "" {
 		return gorm.Expr("NULL")
 	}
@@ -124,15 +122,23 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 	p.Normalize()
 	log.Printf("[BOOKS][CREATE] Parsed: title=%q author=%q slug=%v", p.BookTitle, derefStr(p.BookAuthor), p.BookSlug)
 
-	// 2) School context + guard
+	// 2) School context + guard (khusus teacher / owner)
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		return err
+	schoolID := mc.ID
+	if schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "school_id tidak valid")
 	}
+
+	// Owner global → lolos; selain itu wajib teacher di school ini
+	if !helperAuth.IsOwner(c) {
+		if err := helperAuth.EnsureTeacherSchool(c, schoolID); err != nil {
+			return err
+		}
+	}
+
 	p.BookSchoolID = schoolID
 	log.Printf("[BOOKS][CREATE] school_id=%s", schoolID)
 
@@ -249,14 +255,19 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 		c.Locals("DB", h.DB)
 	}
 
-	// --- Tenant guard ---
+	// --- Tenant guard (teacher / owner) ---
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		return err
+	schoolID := mc.ID
+	if schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "school_id tidak valid")
+	}
+	if !helperAuth.IsOwner(c) {
+		if err := helperAuth.EnsureTeacherSchool(c, schoolID); err != nil {
+			return err
+		}
 	}
 
 	// --- Param ---
@@ -438,13 +449,20 @@ func (h *BooksController) Delete(c *fiber.Ctx) error {
 	if c.Locals("DB") == nil {
 		c.Locals("DB", h.DB)
 	}
+
+	// --- Tenant guard (teacher / owner) ---
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		return err
+	schoolID := mc.ID
+	if schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "school_id tidak valid")
+	}
+	if !helperAuth.IsOwner(c) {
+		if err := helperAuth.EnsureTeacherSchool(c, schoolID); err != nil {
+			return err
+		}
 	}
 
 	rawID := strings.TrimSpace(c.Params("id"))

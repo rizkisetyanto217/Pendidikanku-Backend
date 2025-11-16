@@ -7,12 +7,12 @@ import (
 	"gorm.io/gorm"
 )
 
-// Register TEACHER routes for assessment types, assessments, and assessment urls
+// Register TEACHER routes for assessments (manage own school scope via token/context)
 func AssessmentTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	assessCtrl := ctr.NewAssessmentController(db)
 
-	// Base group pakai :school_id di path
-	g := r.Group("/:school_id")
+	// TANPA :school_id – school diambil dari context/token di controller
+	g := r.Group("")
 
 	// ---------- Assessments (TEACHER: manage own school scope) ----------
 	assessGroup := g.Group("/assessments")

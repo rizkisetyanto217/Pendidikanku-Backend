@@ -101,17 +101,16 @@ func applySort(q *gorm.DB, sort string) *gorm.DB {
    Helpers (local)
 ========================= */
 
-// Ambil school_id dari path dan pastikan valid UUID
+// Ambil school_id dari token aktif (bukan dari path)
 func parseSchoolIDParam(c *fiber.Ctx) (uuid.UUID, error) {
-	raw := strings.TrimSpace(c.Params("school_id"))
-	if raw == "" {
-		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "school_id wajib di path")
+	schoolID, err := helperAuth.GetActiveSchoolID(c)
+	if err != nil {
+		return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "School aktif di token tidak ditemukan")
 	}
-	id, err := uuid.Parse(raw)
-	if err != nil || id == uuid.Nil {
-		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "school_id tidak valid")
+	if schoolID == uuid.Nil {
+		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "School aktif di token tidak valid")
 	}
-	return id, nil
+	return schoolID, nil
 }
 
 // Student-only: pastikan user adalah student di school ini
@@ -142,11 +141,11 @@ func resolveTeacherSchoolFromParam(c *fiber.Ctx) (uuid.UUID, error) {
    Handlers
 ========================= */
 
-// POST /:school_id/submissions  (STUDENT ONLY)
+// POST /submissions  (STUDENT ONLY, school dari token)
 func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 	c.Locals("DB", ctrl.DB)
 
-	// ---------- Role & School context (STUDENT via :school_id) ----------
+	// ---------- Role & School context (STUDENT via token) ----------
 	schoolID, err := resolveStudentSchoolFromParam(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -450,12 +449,12 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 }
 
 /*
-PATCH /:school_id/submissions/:id/urls   (WRITE — DKM/Teacher/Admin/Owner)
+PATCH /submissions/:id/urls   (WRITE — DKM/Teacher/Admin/Owner, school via token)
 */
 func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 	c.Locals("DB", ctrl.DB)
 
-	// ── Resolve school + role guard (DKM/Teacher/Owner) via :school_id ──
+	// ── Resolve school + role guard (DKM/Teacher/Owner) via token ──
 	schoolID, err := resolveTeacherSchoolFromParam(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -756,12 +755,12 @@ func (ctrl *SubmissionController) Patch(c *fiber.Ctx) error {
 }
 
 /*
-DELETE /:school_id/submissions/:submissionId/urls/:urlId
+DELETE /submissions/:id/urls/:urlId
 */
 func (ctrl *SubmissionController) Delete(c *fiber.Ctx) error {
 	c.Locals("DB", ctrl.DB)
 
-	// ── Resolve school + role guard ──
+	// ── Resolve school + role guard via token ──
 	schoolID, err := resolveTeacherSchoolFromParam(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {

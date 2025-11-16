@@ -51,6 +51,7 @@ func LembagaPublicRoutes(r fiber.Router, db *gorm.DB) {
 	SubjectRoutes.AllSubjectRoutes(r, db)
 	ClassSectionsRoutes.AllClassSectionRoutes(r, db)
 	CSSTRoutes.AllCSSTRoutes(r, db)
+	ScheduleRoutes.AllScheduleRoutes(r, db)
 
 	// Classes (public read)
 	// ClassRoutes.ClassPublicRoutes(r, db)
@@ -69,7 +70,6 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	SemesterStatsRoutes.UserClassAttendanceSemesterUserRoutes(r, db)
 	ClassSectionsRoutes.ClassSectionUserRoutes(r, db)
 	ClassAttendanceSessionsRoutes.AttendanceSessionsTeacherRoutes(r, db)
-	ScheduleRoutes.ScheduleUserRoutes(r, db)
 
 	// CertificateRoutes.CertificateUserRoutes(r, db)
 	AssessmentsRoutes.AssessmentUserRoutes(r, db)
@@ -77,6 +77,11 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	SubmissionsRoutes.SubmissionUserRoutes(r, db)
 	QuizzesRoutes.QuizzesTeacherRoutes(r, db)
 	QuizzesRoutes.QuizzesUserRoutes(r, db)
+	AcademicYearRoutes.AcademicUserTermsRoutes(r, db)
+	ClassBooksRoutes.ClassBooksUserRoutes(r, db)
+
+	SubjectRoutes.SubjectUserRoutes(r, db)
+	RoomsRoutes.RoomsUserRoutes(r, db)
 	// Classes (user actions: enroll, progress, dsb)
 	// ClassRoutes.ClassUserRoutes(r, db)
 

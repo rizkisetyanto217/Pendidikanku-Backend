@@ -13,8 +13,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// --- helpers: ambil section + guard staff ---
-func (ctrl *ClassSectionController) loadSectionForStaff(c *fiber.Ctx) (*secModel.ClassSectionModel, error) {
+// --- helpers: ambil section + guard DKM/Admin ---
+func (ctrl *ClassSectionController) loadSectionForDKM(c *fiber.Ctx) (*secModel.ClassSectionModel, error) {
 	sectionID, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
 		return nil, helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
@@ -29,8 +29,9 @@ func (ctrl *ClassSectionController) loadSectionForStaff(c *fiber.Ctx) (*secModel
 		}
 		return nil, helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data section")
 	}
-	// Guard akses staff
-	if err := helperAuth.EnsureStaffSchool(c, m.ClassSectionSchoolID); err != nil {
+
+	// Guard akses: hanya DKM/Admin
+	if err := helperAuth.EnsureDKMSchool(c, m.ClassSectionSchoolID); err != nil {
 		return nil, err
 	}
 	return &m, nil
@@ -95,9 +96,9 @@ func (ctrl *ClassSectionController) rotateTeacherJoinCode(tx *gorm.DB, m *secMod
 
 // GET /admin/class-sections/:id/join-code/student
 func (ctrl *ClassSectionController) GetStudentJoinCode(c *fiber.Ctx) error {
-	m, err := ctrl.loadSectionForStaff(c)
+	m, err := ctrl.loadSectionForDKM(c)
 	if err != nil {
-		return err // sudah JSON error dihelper
+		return err // sudah JSON error di helper
 	}
 
 	tx := ctrl.DB.WithContext(c.Context()).Begin()
@@ -130,7 +131,7 @@ func (ctrl *ClassSectionController) GetStudentJoinCode(c *fiber.Ctx) error {
 
 // GET /admin/class-sections/:id/join-code/teacher
 func (ctrl *ClassSectionController) GetTeacherJoinCode(c *fiber.Ctx) error {
-	m, err := ctrl.loadSectionForStaff(c)
+	m, err := ctrl.loadSectionForDKM(c)
 	if err != nil {
 		return err
 	}
@@ -167,7 +168,7 @@ func (ctrl *ClassSectionController) GetTeacherJoinCode(c *fiber.Ctx) error {
 // GET /admin/class-sections/:id/join-codes
 // Optional: ?rotate_teacher=1
 func (ctrl *ClassSectionController) GetJoinCodes(c *fiber.Ctx) error {
-	m, err := ctrl.loadSectionForStaff(c)
+	m, err := ctrl.loadSectionForDKM(c)
 	if err != nil {
 		return err
 	}
@@ -229,7 +230,7 @@ func (ctrl *ClassSectionController) GetJoinCodes(c *fiber.Ctx) error {
 
 // POST /admin/class-sections/:id/join-code/student/rotate
 func (ctrl *ClassSectionController) RotateStudentJoinCode(c *fiber.Ctx) error {
-	m, err := ctrl.loadSectionForStaff(c)
+	m, err := ctrl.loadSectionForDKM(c)
 	if err != nil {
 		return err
 	}
@@ -243,6 +244,7 @@ func (ctrl *ClassSectionController) RotateStudentJoinCode(c *fiber.Ctx) error {
 			panic(r)
 		}
 	}()
+
 	// force new code (abaikan yang lama)
 	plain, er := buildSectionJoinCode(m.ClassSectionSlug, m.ClassSectionID)
 	if er != nil {
@@ -277,7 +279,7 @@ func (ctrl *ClassSectionController) RotateStudentJoinCode(c *fiber.Ctx) error {
 
 // POST /admin/class-sections/:id/join-code/teacher/rotate
 func (ctrl *ClassSectionController) RotateTeacherJoinCode(c *fiber.Ctx) error {
-	m, err := ctrl.loadSectionForStaff(c)
+	m, err := ctrl.loadSectionForDKM(c)
 	if err != nil {
 		return err
 	}
@@ -291,6 +293,7 @@ func (ctrl *ClassSectionController) RotateTeacherJoinCode(c *fiber.Ctx) error {
 			panic(r)
 		}
 	}()
+
 	plain, er := ctrl.rotateTeacherJoinCode(tx, m)
 	if er != nil {
 		_ = tx.Rollback()

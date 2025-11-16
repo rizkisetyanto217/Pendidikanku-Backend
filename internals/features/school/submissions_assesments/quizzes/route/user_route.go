@@ -10,28 +10,21 @@ import (
 /*
 Catatan:
 - Base (user/public): /api/u
-- Controller sisi user WAJIB filter quizzes_is_published = true. (Di-controller, bukan di route)
-- Kita expose 2 varian base segment school:
-  1) /api/u/:school_id/...
-  2) /api/u/:school_slug/...
+- Controller sisi user WAJIB filter quizzes_is_published = true (di-controller, bukan di route).
+- School context diambil via ResolveSchoolContext (token / slug / dll), bukan path.
 - Path utama (baru):
-  - /api/u/:school_x/quizzes/...
-  - /api/u/:school_x/quiz-questions/...
-  - /api/u/:school_x/quizzes/attempts/...
-  - /api/u/:school_x/quizzes/attempt-answers/...
-- Alias kompatibel (tetap hidup):
-  - /api/u/:school_x/user-quiz-attempts/...
-  - /api/u/:school_x/user-quiz-attempt-answers/...
+  - /api/u/quizzes/...
+  - /api/u/quiz-questions/...
+  - /api/u/quizzes/attempts/...
+  - /api/u/quizzes/attempt-answers/...
+- Alias kompatibel:
+  - /api/u/user-quiz-attempts/...
+  - /api/u/user-quiz-attempt-answers/...
 */
 
 func QuizzesUserRoutes(r fiber.Router, db *gorm.DB) {
-	// Varian by school_id
-	mid := r.Group("/:school_id")
-	mountQuizUserRoutes(mid, db)
-
-	// Varian by school_slug
-	mslug := r.Group("/:school_slug")
-	mountQuizUserRoutes(mslug, db)
+	// Langsung mount di base /api/u
+	mountQuizUserRoutes(r, db)
 }
 
 func mountQuizUserRoutes(base fiber.Router, db *gorm.DB) {
@@ -39,18 +32,18 @@ func mountQuizUserRoutes(base fiber.Router, db *gorm.DB) {
 	// QUIZZES (read-only publik)
 	// ============================
 	quizCtrl := quizcontroller.NewQuizController(db)
-	quizzes := base.Group("/quizzes") // -> /api/u/:school_x/quizzes
+	quizzes := base.Group("/quizzes") // -> /api/u/quizzes
 
-	quizzes.Get("/", quizCtrl.List)     // GET /api/u/:school_x/quizzes
+	quizzes.Get("/", quizCtrl.List)     // GET /api/u/quizzes
 	quizzes.Get("/list", quizCtrl.List) // alias
 
 	// ============================
 	// QUIZ QUESTIONS (read-only)
 	// ============================
 	qqCtrl := quizcontroller.NewQuizQuestionsController(db)
-	qq := base.Group("/quiz-questions") // -> /api/u/:school_x/quiz-questions
+	qq := base.Group("/quiz-questions") // -> /api/u/quiz-questions
 
-	qq.Get("/", qqCtrl.List)     // GET /api/u/:school_x/quiz-questions?quiz_id=&type=&q=&page=&per_page=&sort=
+	qq.Get("/", qqCtrl.List)     // GET /api/u/quiz-questions?quiz_id=&type=&q=&page=&per_page=&sort=
 	qq.Get("/list", qqCtrl.List) // alias
 
 	// ============================
@@ -60,11 +53,11 @@ func mountQuizUserRoutes(base fiber.Router, db *gorm.DB) {
 	uqAttemptCtrl := quizcontroller.NewStudentQuizAttemptsController(db)
 
 	// Nested utama
-	attempts := quizzes.Group("/attempts") // -> /api/u/:school_x/quizzes/attempts
+	attempts := quizzes.Group("/attempts") // -> /api/u/quizzes/attempts
 	mountUserAttemptsGroup(attempts, uqAttemptCtrl)
 
 	// Alias kompatibel (rute lama)
-	attemptsAlias := base.Group("/user-quiz-attempts") // -> /api/u/:school_x/user-quiz-attempts
+	attemptsAlias := base.Group("/user-quiz-attempts") // -> /api/u/user-quiz-attempts
 	mountUserAttemptsGroup(attemptsAlias, uqAttemptCtrl)
 
 	// ============================
@@ -74,17 +67,17 @@ func mountQuizUserRoutes(base fiber.Router, db *gorm.DB) {
 	uqaCtrl := quizcontroller.NewStudentQuizAttemptAnswersController(db)
 
 	// Nested utama
-	ans := quizzes.Group("/attempt-answers") // -> /api/u/:school_x/quizzes/attempt-answers
-	mountUserAttemptAnswersGroup(ans, uqaCtrl, true /*user mode: no patch/delete*/)
+	ans := quizzes.Group("/attempt-answers") // -> /api/u/quizzes/attempt-answers
+	mountUserAttemptAnswersGroup(ans, uqaCtrl, true /* user mode: no patch/delete */)
 
 	// Alias kompatibel (rute lama)
-	ansAlias := base.Group("/user-quiz-attempt-answers") // -> /api/u/:school_x/user-quiz-attempt-answers
+	ansAlias := base.Group("/user-quiz-attempt-answers") // -> /api/u/user-quiz-attempt-answers
 	mountUserAttemptAnswersGroup(ansAlias, uqaCtrl, true)
 }
 
 // Hindari duplikasi handler untuk attempts (nested & alias)
 func mountUserAttemptsGroup(g fiber.Router, ctrl *quizcontroller.StudentQuizAttemptsController) {
-	g.Get("/", ctrl.List)         // GET list (boleh juga dipanggil sebagai /list lewat mapping reverse proxy kalau mau)
+	g.Get("/", ctrl.List)         // GET list
 	g.Get("/list", ctrl.List)     // alias
 	g.Post("/", ctrl.Create)      // POST create attempt
 	g.Patch("/:id", ctrl.Patch)   // PATCH attempt by id

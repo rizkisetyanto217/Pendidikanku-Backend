@@ -14,7 +14,7 @@ func ScheduleAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	sched := dailyctl.New(db, nil)
 
 	// ⬇️ tambahkan :school_id di path supaya helper ResolveSchoolContext bisa resolve dari path
-	grpSched := admin.Group("/:school_id/class-schedules")
+	grpSched := admin.Group("/class-schedules")
 
 	grpSched.Post("/", sched.Create)
 	grpSched.Patch("/:id", sched.Patch)

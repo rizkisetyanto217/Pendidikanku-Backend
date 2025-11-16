@@ -9,8 +9,8 @@ import (
 )
 
 func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
-	// ✅ Group dengan school context
-	schoolGroup := r.Group("/:school_id")
+	// ✅ Base group tanpa :school_id
+	base := r.Group("") // school context lewat helper di controller
 
 	// Controller untuk sessions
 	sessionController := uaCtrl.NewClassAttendanceSessionController(db)
@@ -18,7 +18,7 @@ func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	// =====================
 	// Attendance Sessions
 	// =====================
-	sGroup := schoolGroup.Group("/attendance-sessions")
+	sGroup := base.Group("/attendance-sessions")
 	sGroup.Post("/", sessionController.CreateClassAttendanceSession)
 	sGroup.Put("/:id", sessionController.PatchClassAttendanceSessionUrl)
 	sGroup.Delete("/:id", sessionController.DeleteClassAttendanceSessionUrl)
@@ -28,7 +28,7 @@ func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	// User Attendance Types (CRUD)
 	// =====================
 	uattCtl := uaCtrl.NewClassAttendanceSessionParticipantTypeController(db)
-	uatt := schoolGroup.Group("/attendance-participant-types")
+	uatt := base.Group("/attendance-participant-types")
 	uatt.Post("/", uattCtl.Create)
 	uatt.Get("/", uattCtl.List)
 	uatt.Patch("/:id", uattCtl.Patch)

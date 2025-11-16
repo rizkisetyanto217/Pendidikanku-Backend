@@ -59,9 +59,7 @@ func isUniqueViolation(err error) bool {
 
 /* ========================= Handlers ========================= */
 
-/* ========================= Handlers ========================= */
-
-// POST /assessment-types — staff (DKM/Admin/Owner/Superadmin)
+// POST /assessment-types — DKM/Admin untuk school tsb
 func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 	// Pastikan helper slug→id bisa akses DB dari context
 	c.Locals("DB", ctl.DB)
@@ -72,7 +70,7 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 	}
 	req = req.Normalize()
 
-	// 🔒 School context + ensure DKM/Admin untuk school tsb
+	// 🔒 School context
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -80,12 +78,22 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
+
+	// Resolve + basic access (versi lama)
 	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	// 🔒 Pakai RBAC baru: hanya role DKM/Admin di school ini
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 	}
 
 	// Validasi bobot 0..100
@@ -135,7 +143,7 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "Assessment type dibuat", mapToResponse(&row))
 }
 
-// PATCH /assessment-types/:id — staff
+// PATCH /assessment-types/:id — DKM/Admin
 func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 	// Pastikan helper slug→id bisa akses DB dari context
 	c.Locals("DB", ctl.DB)
@@ -153,7 +161,7 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// 🔒 School context + ensure DKM/Admin
+	// 🔒 School context
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -167,6 +175,14 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	// 🔒 DKM/Admin check
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 	}
 
 	var existing model.AssessmentTypeModel
@@ -244,7 +260,7 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Assessment type diperbarui", mapToResponse(&after))
 }
 
-// DELETE /assessment-types/:id — staff
+// DELETE /assessment-types/:id — DKM/Admin
 func (ctl *AssessmentTypeController) Delete(c *fiber.Ctx) error {
 	// Pastikan helper slug→id bisa akses DB dari context
 	c.Locals("DB", ctl.DB)
@@ -254,7 +270,7 @@ func (ctl *AssessmentTypeController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "assessment_type_id tidak valid")
 	}
 
-	// 🔒 School context + ensure DKM/Admin
+	// 🔒 School context
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -268,6 +284,14 @@ func (ctl *AssessmentTypeController) Delete(c *fiber.Ctx) error {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	// 🔒 DKM/Admin check
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 	}
 
 	var row model.AssessmentTypeModel

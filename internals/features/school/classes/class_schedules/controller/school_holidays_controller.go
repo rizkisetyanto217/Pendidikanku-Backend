@@ -35,8 +35,10 @@ func NewSchoolHoliday(db *gorm.DB, v *validator.Validate) *SchoolHolidayControll
    Small helpers
    ========================= */
 
+// (asumsikan parseDateYYYYMMDD & writePGError sudah ada di file lain / helper yang sama package)
+
 /* =========================
-   Create  (OWNER or DKM/Admin School)
+   Create  (DKM/Admin School ONLY)
    Path: POST /:school_id/holidays/school
    ========================= */
 
@@ -45,11 +47,10 @@ func (ctl *SchoolHolidayController) Create(c *fiber.Ctx) error {
 	if err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
-	// owner bypass, selain itu wajib DKM/Admin school tsb
-	if !helperAuth.IsOwner(c) {
-		if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
-			return er
-		}
+
+	// 🔐 Hanya DKM/Admin dari school ini
+	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
+		return er
 	}
 
 	var req d.CreateSchoolHolidayRequest
@@ -75,7 +76,7 @@ func (ctl *SchoolHolidayController) Create(c *fiber.Ctx) error {
 }
 
 /* =========================
-   Patch  (OWNER or DKM/Admin School)
+   Patch  (DKM/Admin School ONLY)
    Path: PATCH /:school_id/holidays/school/:id
    ========================= */
 
@@ -84,10 +85,10 @@ func (ctl *SchoolHolidayController) Patch(c *fiber.Ctx) error {
 	if err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
-	if !helperAuth.IsOwner(c) {
-		if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
-			return er
-		}
+
+	// 🔐 Hanya DKM/Admin dari school ini
+	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
+		return er
 	}
 
 	id, err := parseUUIDParam(c, "id")
@@ -123,7 +124,7 @@ func (ctl *SchoolHolidayController) Patch(c *fiber.Ctx) error {
 }
 
 /* =========================
-   Delete (soft)  (OWNER or DKM/Admin School)
+   Delete (soft)  (DKM/Admin School ONLY)
    Path: DELETE /:school_id/holidays/school/:id
    ========================= */
 
@@ -132,10 +133,10 @@ func (ctl *SchoolHolidayController) Delete(c *fiber.Ctx) error {
 	if err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
-	if !helperAuth.IsOwner(c) {
-		if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
-			return er
-		}
+
+	// 🔐 Hanya DKM/Admin dari school ini
+	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
+		return er
 	}
 
 	id, err := parseUUIDParam(c, "id")

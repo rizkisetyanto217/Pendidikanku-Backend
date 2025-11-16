@@ -35,29 +35,47 @@ func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
 	return uuid.Parse(strings.TrimSpace(c.Params(name)))
 }
 
+// helper: resolve schoolID dari context (id / slug) + enforce DKM/admin
+func (ctl *ClassAttendanceSessionParticipantTypeController) resolveDKMSchoolID(c *fiber.Ctx) (uuid.UUID, error) {
+	c.Locals("DB", ctl.DB)
+
+	mc, err := helperAuth.ResolveSchoolContext(c)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	var schoolID uuid.UUID
+	switch {
+	case mc.ID != uuid.Nil:
+		schoolID = mc.ID
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+		if er != nil {
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				return uuid.Nil, helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+			}
+			return uuid.Nil, helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+		}
+		schoolID = id
+	default:
+		return uuid.Nil, helperAuth.ErrSchoolContextMissing
+	}
+
+	// Hanya DKM/Admin di school ini
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+		return uuid.Nil, err
+	}
+
+	return schoolID, nil
+}
+
 // =============== Handlers ===============
 
 // POST /
 func (ctl *ClassAttendanceSessionParticipantTypeController) Create(c *fiber.Ctx) error {
-	// School context via helpers (slug/ID di path/header/query/host) → wajib DKM/Admin
-	c.Locals("DB", ctl.DB)
-	var schoolID uuid.UUID
-	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
-			schoolID = id
-		} else {
-			if fe, ok := er.(*fiber.Error); ok {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
-		}
-	} else {
-		// Fallback: prefer TEACHER → DKM/Admin (single-tenant token)
-		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			schoolID = id
-		} else {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "Scope school tidak ditemukan")
-		}
+	schoolID, err := ctl.resolveDKMSchoolID(c)
+	if err != nil {
+		return err
 	}
 
 	var in dto.ClassAttendanceSessionParticipantTypeCreateDTO
@@ -84,24 +102,9 @@ func (ctl *ClassAttendanceSessionParticipantTypeController) Create(c *fiber.Ctx)
 
 // GET /
 func (ctl *ClassAttendanceSessionParticipantTypeController) List(c *fiber.Ctx) error {
-	// School context (DKM/Admin jika eksplisit; jika tidak, fallback token/teacher)
-	c.Locals("DB", ctl.DB)
-	var schoolID uuid.UUID
-	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
-			schoolID = id
-		} else {
-			if fe, ok := er.(*fiber.Error); ok {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
-		}
-	} else {
-		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			schoolID = id
-		} else {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "Scope school tidak ditemukan")
-		}
+	schoolID, err := ctl.resolveDKMSchoolID(c)
+	if err != nil {
+		return err
 	}
 
 	// ===== Paging standar (jsonresponse)
@@ -187,24 +190,9 @@ func (ctl *ClassAttendanceSessionParticipantTypeController) List(c *fiber.Ctx) e
 
 // PATCH /:id
 func (ctl *ClassAttendanceSessionParticipantTypeController) Patch(c *fiber.Ctx) error {
-	// School context
-	c.Locals("DB", ctl.DB)
-	var schoolID uuid.UUID
-	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
-			schoolID = id
-		} else {
-			if fe, ok := er.(*fiber.Error); ok {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
-		}
-	} else {
-		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			schoolID = id
-		} else {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "Scope school tidak ditemukan")
-		}
+	schoolID, err := ctl.resolveDKMSchoolID(c)
+	if err != nil {
+		return err
 	}
 
 	id, err := parseUUIDParam(c, "id")
@@ -265,24 +253,9 @@ func (ctl *ClassAttendanceSessionParticipantTypeController) Patch(c *fiber.Ctx) 
 
 // DELETE /:id (soft delete)
 func (ctl *ClassAttendanceSessionParticipantTypeController) Delete(c *fiber.Ctx) error {
-	// School context
-	c.Locals("DB", ctl.DB)
-	var schoolID uuid.UUID
-	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
-			schoolID = id
-		} else {
-			if fe, ok := er.(*fiber.Error); ok {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
-		}
-	} else {
-		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			schoolID = id
-		} else {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "Scope school tidak ditemukan")
-		}
+	schoolID, err := ctl.resolveDKMSchoolID(c)
+	if err != nil {
+		return err
 	}
 
 	id, err := parseUUIDParam(c, "id")
@@ -313,24 +286,9 @@ func (ctl *ClassAttendanceSessionParticipantTypeController) Delete(c *fiber.Ctx)
 
 // POST /:id/restore
 func (ctl *ClassAttendanceSessionParticipantTypeController) Restore(c *fiber.Ctx) error {
-	// School context
-	c.Locals("DB", ctl.DB)
-	var schoolID uuid.UUID
-	if mc, err := helperAuth.ResolveSchoolContext(c); err == nil && (mc.ID != uuid.Nil || strings.TrimSpace(mc.Slug) != "") {
-		if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil {
-			schoolID = id
-		} else {
-			if fe, ok := er.(*fiber.Error); ok {
-				return helper.JsonError(c, fe.Code, fe.Message)
-			}
-			return helper.JsonError(c, fiber.StatusForbidden, er.Error())
-		}
-	} else {
-		if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			schoolID = id
-		} else {
-			return helper.JsonError(c, fiber.StatusUnauthorized, "Scope school tidak ditemukan")
-		}
+	schoolID, err := ctl.resolveDKMSchoolID(c)
+	if err != nil {
+		return err
 	}
 
 	id, err := parseUUIDParam(c, "id")

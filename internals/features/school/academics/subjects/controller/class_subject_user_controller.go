@@ -15,44 +15,44 @@ import (
 	"gorm.io/gorm"
 )
 
-/*
-=========================================================
-LIST (Sederhana)
-GET /admin/class-subjects
-
-Query (mengikuti DTO ListClassSubjectQuery):
-  - q                 : cari pada desc (ILIKE)
-  - is_active         : bool
-  - class_parent_id   : UUID
-  - subject_id        : UUID
-  - with_deleted      : bool (default false)
-  - order_by          : order_index|created_at|updated_at (default: created_at)
-  - sort              : asc|desc (default: asc)
-  - limit/per_page, page/offset
-
-=========================================================
-*/
 func (h *ClassSubjectController) List(c *fiber.Ctx) error {
-	// ===== School context (PUBLIC): no role check =====
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		return err
-	}
+	// Kalau helper lain butuh DB di Locals
+	c.Locals("DB", h.DB)
+
+	// =====================================================
+	// 1) Tentukan schoolID:
+	//    - Prioritas: dari token (GetSchoolIDFromTokenPreferTeacher)
+	//    - Fallback: dari ResolveSchoolContext (id / slug)
+	// =====================================================
+
 	var schoolID uuid.UUID
-	switch {
-	case mc.ID != uuid.Nil:
-		schoolID = mc.ID
-	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
-		if er != nil {
-			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
-		}
+
+	// 1. Coba dulu dari token (kalau user login & token punya school)
+	if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
 		schoolID = id
-	default:
-		return helperAuth.ErrSchoolContextMissing
+	} else {
+		// 2. Kalau tidak ada / gagal dari token → pakai konteks umum (path/header/query/host)
+		mc, err := helperAuth.ResolveSchoolContext(c)
+		if err != nil {
+			return err
+		}
+
+		switch {
+		case mc.ID != uuid.Nil:
+			schoolID = mc.ID
+		case strings.TrimSpace(mc.Slug) != "":
+			id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+			if er != nil {
+				if errors.Is(er, gorm.ErrRecordNotFound) {
+					return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+			}
+			schoolID = id
+		default:
+			// bener-bener nggak dapat apapun
+			return helperAuth.ErrSchoolContextMissing
+		}
 	}
 
 	// ===== Parse query DTO (toleran) =====

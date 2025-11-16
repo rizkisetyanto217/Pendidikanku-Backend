@@ -182,14 +182,15 @@ func getCSSTCore(tx *gorm.DB, schoolID, csstID uuid.UUID) (csstCore, error) {
 =========================
 
 	Create
-	=========================
+
+=========================
 */
 func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	// Guard role
-	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
-		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
+	// 🔐 Guard role: hanya DKM + Teacher
+	if !(helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak (hanya DKM/Guru yang diizinkan)")
 	}
 
 	// 1) school dari PATH + pastikan membership
@@ -197,7 +198,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 	if err != nil {
 		return helper.JsonError(c, http.StatusBadRequest, "school_id invalid di path")
 	}
-	if er := helperAuth.EnsureMemberSchool(c, actSchoolID); er != nil {
+	if er := helperAuth.EnsureDKMOrTeacherSchool(c, actSchoolID); er != nil {
 		return er
 	}
 
@@ -216,7 +217,6 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// 4) Build header
 	// 4) Build header
 	header, err := req.ToModel(actSchoolID)
 	if err != nil {
@@ -322,7 +322,7 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 					"room_id":               core.RoomID,
 				}
 
-				// Fallback override teacher/room jika payload kosong (tetap dipertahankan)
+				// Fallback override teacher/room jika payload kosong
 				if ms[i].ClassAttendanceSessionTeacherID == nil && core.TeacherID != nil {
 					v := *core.TeacherID
 					ms[i].ClassAttendanceSessionTeacherID = &v
@@ -331,14 +331,6 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 					v := *core.RoomID
 					ms[i].ClassAttendanceSessionClassRoomID = &v
 				}
-
-				// CHANGED: Hapus penulisan snapshot override teacher/room.
-				//   DULU:
-				//     ms[i].ClassAttendanceSessionTeacherSnapshot = datatypes.JSONMap{...}
-				//     ms[i].ClassAttendanceSessionRoomSnapshot    = datatypes.JSONMap{...}
-				//   SEKARANG:
-				//     Tidak lagi menyimpan snapshot ini, karena skema terbaru
-				//     hanya memakai CSST raw snapshot + kolom turunan *_snapshot.
 			}
 
 			if len(ms) > 0 {
@@ -428,9 +420,9 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	// Guard role
-	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
-		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
+	// 🔐 Guard role: hanya DKM + Teacher
+	if !(helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak (hanya DKM/Guru yang diizinkan)")
 	}
 
 	id, err := parseUUIDParam(c, "id")
@@ -487,9 +479,9 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	// Guard role
-	if !(helperAuth.IsOwner(c) || helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
-		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
+	// 🔐 Guard role: hanya DKM + Teacher
+	if !(helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
+		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak (hanya DKM/Guru yang diizinkan)")
 	}
 
 	id, err := parseUUIDParam(c, "id")

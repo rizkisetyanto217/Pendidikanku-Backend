@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -119,12 +120,12 @@ func randomString(n int) string {
 
 type TeacherRecord struct {
 	ID       uuid.UUID `json:"school_teacher_id" gorm:"column:school_teacher_id"`
-	SchoolID uuid.UUID `json:"school_id"        gorm:"column:school_teacher_school_id"`
+	SchoolID uuid.UUID `json:"-"                 gorm:"column:school_teacher_school_id"`
 }
 
 type StudentRecord struct {
 	ID       uuid.UUID `json:"school_student_id" gorm:"column:school_student_id"`
-	SchoolID uuid.UUID `json:"school_id"        gorm:"column:school_student_school_id"`
+	SchoolID uuid.UUID `json:"-"                 gorm:"column:school_student_school_id"`
 }
 
 /* ==========================
@@ -198,6 +199,11 @@ func isCrossSite(c *fiber.Ctx) bool {
 // ==========================
 
 // Ambil school_id dari slug (wajib ada di tabel schools)
+// ==========================
+// School helpers (slug → id)
+// ==========================
+
+// Ambil school_id dari slug (wajib ada di tabel schools)
 func findSchoolIDBySlug(ctx context.Context, db *gorm.DB, slug string) (uuid.UUID, error) {
 	slug = strings.TrimSpace(slug)
 	if db == nil {
@@ -210,22 +216,31 @@ func findSchoolIDBySlug(ctx context.Context, db *gorm.DB, slug string) (uuid.UUI
 	ctxQ, cancel := context.WithTimeout(ctx, qryTimeoutShort)
 	defer cancel()
 
-	var id uuid.UUID
-	// Sesuaikan nama kolom kalau beda (diasumsikan: school_slug & school_deleted_at)
+	var idStr string
+	// ➜ pakai ::text supaya pasti dikirim sebagai string
 	err := db.WithContext(ctxQ).
 		Raw(`
-			SELECT school_id
+			SELECT school_id::text
 			FROM schools
 			WHERE school_slug = ?
 			  AND (school_deleted_at IS NULL)
 			LIMIT 1
 		`, slug).
-		Scan(&id).Error
+		Scan(&idStr).Error
 	if err != nil {
 		return uuid.Nil, err
 	}
-	if id == uuid.Nil {
+
+	idStr = strings.TrimSpace(idStr)
+	if idStr == "" {
 		return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "Sekolah tidak ditemukan")
+	}
+
+	id, perr := uuid.Parse(idStr)
+	if perr != nil {
+		// log biar kelihatan kalau ada data aneh di DB
+		log.Printf("[findSchoolIDBySlug] parse uuid failed: %v (value=%q)", perr, idStr)
+		return uuid.Nil, fiber.NewError(fiber.StatusInternalServerError, "Data sekolah tidak valid")
 	}
 	return id, nil
 }
@@ -255,7 +270,6 @@ func enforceCSRF(c *fiber.Ctx) error {
 	return nil
 }
 
-// Set XSRF token (bukan HttpOnly agar FE bisa baca nilai cookie untuk dikirim header)
 // utils
 // Set XSRF token (bukan HttpOnly agar FE bisa baca nilai cookie untuk dikirim header)
 
@@ -888,6 +902,14 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
+	// ⬇️ Ambil slug dari URL params: /api/:school_slug/auth/login
+	schoolSlug := strings.TrimSpace(c.Params("school_slug"))
+	if schoolSlug == "" {
+		// Kalau kamu mau fallback ke "login global", bisa diubah,
+		// tapi untuk kasusmu slug memang wajib.
+		return helpers.JsonError(c, fiber.StatusBadRequest, "school_slug wajib ada di URL")
+	}
+
 	// Ambil minimal user (include kolom password)
 	userLight, err := authRepo.FindUserByEmailOrUsernameLight(db, input.Identifier)
 	if err != nil {
@@ -914,14 +936,32 @@ func Login(db *gorm.DB, c *fiber.Ctx) error {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data user")
 	}
 
-	// Roles (roles_global & school_roles)
+	// Roles (roles_global & school_roles) — masih full multi-school
 	rolesClaim, err := getUserRolesClaim(c.Context(), db, userFull.ID)
 	if err != nil {
 		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil roles user")
 	}
 
-	// Issue tokens — cukup berdasarkan rolesClaim
-	return issueTokensWithRoles(c, db, *userFull, rolesClaim)
+	// ⬇️ Resolve slug → school_id
+	schoolID, err := findSchoolIDBySlug(c.Context(), db, schoolSlug)
+	if err != nil {
+		// kalau error-nya fiber.Error, teruskan kodenya
+		if fe, ok := err.(*fiber.Error); ok {
+			return helpers.JsonError(c, fe.Code, fe.Message)
+		}
+		log.Printf("[login] findSchoolIDBySlug error: %v", err)
+		return helpers.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data sekolah")
+	}
+
+	// ⬇️ Filter rolesClaim supaya hanya untuk school_id tersebut
+	filteredClaim, ok := filterRolesClaimToSchool(rolesClaim, schoolID)
+	if !ok {
+		// user ini tidak punya peran apapun di sekolah ini
+		return helpers.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar di sekolah ini")
+	}
+
+	// Issue tokens — sekarang rolesClaim sudah terseleksi 1 sekolah
+	return issueTokensWithRoles(c, db, *userFull, filteredClaim)
 }
 
 /*
@@ -1098,12 +1138,28 @@ func buildAccessClaims(
 	schoolIDs []string,
 	isOwner bool,
 	activeSchoolID *string,
-	tenantProfile *string, // single (active), opsional
-	schoolRoles []SchoolRoleWithTenant, // ⬅️ gabungan
+	tenantProfile *string,
+	schoolRoles []SchoolRoleWithTenant,
 	teacherRecords []TeacherRecord,
 	studentRecords []StudentRecord,
 	now time.Time,
 ) jwt.MapClaims {
+	// --- tentukan single school_id ---
+	var schoolID string
+	if activeSchoolID != nil && strings.TrimSpace(*activeSchoolID) != "" {
+		schoolID = strings.TrimSpace(*activeSchoolID)
+	} else if len(schoolIDs) > 0 {
+		schoolID = strings.TrimSpace(schoolIDs[0])
+	}
+
+	var teacherID, studentID string
+	if len(teacherRecords) > 0 {
+		teacherID = teacherRecords[0].ID.String()
+	}
+	if len(studentRecords) > 0 {
+		studentID = studentRecords[0].ID.String()
+	}
+
 	claims := jwt.MapClaims{
 		"typ":          "access",
 		"sub":          user.ID.String(),
@@ -1111,24 +1167,27 @@ func buildAccessClaims(
 		"user_name":    user.UserName,
 		"full_name":    user.FullName,
 		"roles_global": rc.RolesGlobal,
-		"school_roles": schoolRoles, // ⬅️ sudah gabungan
+		"school_roles": schoolRoles,
 		"school_ids":   schoolIDs,
 		"is_owner":     isOwner,
 		"iat":          now.Unix(),
 		"exp":          now.Add(accessTTLDefault).Unix(),
 	}
-	if activeSchoolID != nil {
-		claims["active_school_id"] = *activeSchoolID
+
+	if schoolID != "" {
+		claims["school_id"] = schoolID
 	}
+
 	if tenantProfile != nil && *tenantProfile != "" {
-		claims["school_tenant_profile"] = *tenantProfile // tetap ada untuk convenience
+		claims["school_tenant_profile"] = *tenantProfile
 	}
-	if len(teacherRecords) > 0 {
-		claims["teacher_records"] = teacherRecords
+	if teacherID != "" {
+		claims["teacher_id"] = teacherID
 	}
-	if len(studentRecords) > 0 {
-		claims["student_records"] = studentRecords
+	if studentID != "" {
+		claims["student_id"] = studentID
 	}
+
 	return claims
 }
 
@@ -1140,32 +1199,71 @@ func buildLoginResponseUser(
 	isOwner bool,
 	activeSchoolID *string,
 	tenantProfile *string, // single (active), opsional
-	schoolRoles []SchoolRoleWithTenant, // ⬅️ gabungan
+	schoolRoles []SchoolRoleWithTenant, // sudah 1 sekolah (karena difilter slug)
 	teacherRecords []TeacherRecord,
 	studentRecords []StudentRecord,
 ) fiber.Map {
+	// --- 1) tentukan school_id tunggal ---
+	var schoolID string
+	if activeSchoolID != nil && strings.TrimSpace(*activeSchoolID) != "" {
+		schoolID = strings.TrimSpace(*activeSchoolID)
+	} else if len(schoolIDs) > 0 {
+		schoolID = strings.TrimSpace(schoolIDs[0])
+	}
+
+	// --- 2) flatten roles jadi []string sederhana ---
+	roleSet := map[string]struct{}{}
+	for _, sr := range schoolRoles {
+		for _, r := range sr.Roles {
+			v := strings.ToLower(strings.TrimSpace(r))
+			if v == "" {
+				continue
+			}
+			roleSet[v] = struct{}{}
+		}
+	}
+	roles := make([]string, 0, len(roleSet))
+	for r := range roleSet {
+		roles = append(roles, r)
+	}
+	sort.Strings(roles)
+
+	// --- 3) flags convenience ---
+	isAdmin := rolesClaimHas(rc, "dkm") || rolesClaimHas(rc, "admin") || isOwner
+	isTeacher := rolesClaimHas(rc, "teacher")
+	isStudent := rolesClaimHas(rc, "student")
+
+	// --- 4) bentuk response sederhana ---
 	resp := fiber.Map{
-		"id":           user.ID,
-		"user_name":    user.UserName,
-		"email":        user.Email,
-		"full_name":    user.FullName,
-		"roles_global": rc.RolesGlobal,
-		"school_roles": schoolRoles, // ⬅️ sudah gabungan
-		"school_ids":   schoolIDs,
-		"is_owner":     isOwner,
+		"id":        user.ID,
+		"user_name": user.UserName,
+		"email":     user.Email,
+		"full_name": user.FullName,
+
+		"roles": roles,
+
+		"is_owner":   isOwner,
+		"is_admin":   isAdmin,
+		"is_teacher": isTeacher,
+		"is_student": isStudent,
 	}
-	if activeSchoolID != nil {
-		resp["active_school_id"] = *activeSchoolID
+
+	if schoolID != "" {
+		resp["school_id"] = schoolID
 	}
+
 	if tenantProfile != nil && *tenantProfile != "" {
-		resp["school_tenant_profile"] = *tenantProfile // masih disediakan
+		resp["school_tenant_profile"] = *tenantProfile
 	}
+
+	// --- 5) teacher_id & student_id (single, bukan array) ---
 	if len(teacherRecords) > 0 {
-		resp["teacher_records"] = teacherRecords
+		resp["teacher_id"] = teacherRecords[0].ID
 	}
 	if len(studentRecords) > 0 {
-		resp["student_records"] = studentRecords
+		resp["student_id"] = studentRecords[0].ID
 	}
+
 	return resp
 }
 

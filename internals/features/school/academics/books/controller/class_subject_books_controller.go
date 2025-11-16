@@ -31,14 +31,34 @@ Body: CreateClassSubjectBookRequest
 =========================================================
 */
 func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
-	// 🔐 Tenant scope
+	// 🔐 Tenant scope: DKM/Admin only (owner global tetep boleh)
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		return err
+
+	var schoolID uuid.UUID
+	switch {
+	case mc.ID != uuid.Nil:
+		schoolID = mc.ID
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+		if er != nil {
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+		}
+		schoolID = id
+	default:
+		return helperAuth.ErrSchoolContextMissing
+	}
+
+	// Kalau bukan owner → wajib DKM/Admin di school ini
+	if !helperAuth.IsOwner(c) {
+		if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+			return err
+		}
 	}
 
 	// 🔎 Parse + validate body
@@ -240,13 +260,33 @@ PUT /admin/class-subject-books/:id
 =========================================================
 */
 func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
+	// 🔐 Tenant scope: DKM/Admin only (owner juga boleh)
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		return err
+
+	var schoolID uuid.UUID
+	switch {
+	case mc.ID != uuid.Nil:
+		schoolID = mc.ID
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+		if er != nil {
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+		}
+		schoolID = id
+	default:
+		return helperAuth.ErrSchoolContextMissing
+	}
+
+	if !helperAuth.IsOwner(c) {
+		if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+			return err
+		}
 	}
 
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
@@ -416,13 +456,33 @@ DELETE /admin/class-subject-books/:id?force=true
 =========================================================
 */
 func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
+	// 🔐 Tenant scope: DKM/Admin (owner boleh)
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		return err
+
+	var schoolID uuid.UUID
+	switch {
+	case mc.ID != uuid.Nil:
+		schoolID = mc.ID
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+		if er != nil {
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+		}
+		schoolID = id
+	default:
+		return helperAuth.ErrSchoolContextMissing
+	}
+
+	if !helperAuth.IsOwner(c) {
+		if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+			return err
+		}
 	}
 
 	adminSchoolID, _ := helperAuth.GetSchoolIDFromToken(c)

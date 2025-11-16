@@ -37,7 +37,7 @@ func NewSubjectsController(db *gorm.DB, v interface{ Struct(any) error }) *Subje
 /*
 =========================================================
 
-	CREATE (staff only) — slug unik + optional upload
+	CREATE (DKM/Admin only) — slug unik + optional upload
 
 =========================================================
 */
@@ -62,11 +62,12 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	// 2) Resolve school context + staff guard
+	// 2) Resolve school context + DKM/Admin guard
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
+
 	var schoolID uuid.UUID
 	switch {
 	case mc.ID != uuid.Nil:
@@ -74,17 +75,18 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 	case strings.TrimSpace(mc.Slug) != "":
 		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
 		if er != nil {
-			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
 		}
 		schoolID = id
 	default:
-		id, er := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
-		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak ditemukan")
-		}
-		schoolID = id
+		return helperAuth.ErrSchoolContextMissing
 	}
-	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
+
+	// 🔒 Hanya DKM/Admin di school ini
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 
@@ -201,13 +203,11 @@ func (h *SubjectsController) Create(c *fiber.Ctx) error {
 /*
 =========================================================
 
-	PATCH (staff only) — tri-state + slug unique + optional upload
+	PATCH (DKM/Admin only) — tri-state + slug unique + optional upload
 	+ sync snapshot ke class_subjects (name/code/slug[/url])
 
 =========================================================
 */
-// PATCH (staff only) — tri-state + slug unique + optional upload
-// + sync snapshot ke class_subjects (name/code/slug[/url])
 func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 	log.Printf("[SUBJECTS][PATCH] ▶️ incoming request")
 	c.Locals("DB", h.DB)
@@ -228,8 +228,8 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// Guard staff pada school terkait
-	if err := helperAuth.EnsureStaffSchool(c, ent.SubjectSchoolID); err != nil {
+	// Guard: Hanya DKM/Admin pada school terkait
+	if err := helperAuth.EnsureDKMSchool(c, ent.SubjectSchoolID); err != nil {
 		return err
 	}
 
@@ -254,9 +254,6 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 	// Paksa context & normalisasi
 	req.SchoolID = &ent.SubjectSchoolID
 	req.Normalize()
-
-	// ====== Normalisasi tri-state ringan tambahan ======
-	// (opsional — aman dibiarkan; tetap seperti versi kamu sebelumnya)
 
 	// ====== Uniqueness checks (bila berubah) ======
 	// code
@@ -530,7 +527,7 @@ func (h *SubjectsController) Patch(c *fiber.Ctx) error {
 /*
 =========================================================
 
-	DELETE (soft delete, staff only) + optional file cleanup
+	DELETE (soft delete, DKM/Admin only) + optional file cleanup
 	- Idempotent: kalau sudah deleted, tetap boleh lanjut cleanup
 	- image_url: diambil dari query/form, fallback ke ent.SubjectImageURL
 
@@ -555,8 +552,8 @@ func (h *SubjectsController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "DB error")
 	}
 
-	// Guard akses staff pada school terkait
-	if err := helperAuth.EnsureStaffSchool(c, ent.SubjectSchoolID); err != nil {
+	// Guard: Hanya DKM/Admin pada school terkait
+	if err := helperAuth.EnsureDKMSchool(c, ent.SubjectSchoolID); err != nil {
 		return err
 	}
 

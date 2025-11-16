@@ -19,32 +19,53 @@ import (
 )
 
 /* ============================ LIST ============================ */
-
 func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
-	// Resolve konteks school (path/header/cookie/query/host/token)
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		return err // fiber.Error dari resolver
-	}
+	// Kalau helper lain butuh DB dari Locals
+	c.Locals("DB", ctl.DB)
 
-	// Dapatkan schoolID (slug→id jika perlu)
+	// =====================================================
+	// 1) Tentukan schoolID:
+	//    - Prioritas: dari token (GetSchoolIDFromTokenPreferTeacher)
+	//    - Fallback: dari path/header/query/host via ResolveSchoolContext (id atau slug)
+	// =====================================================
+
 	var schoolID uuid.UUID
-	if mc.ID != uuid.Nil {
-		schoolID = mc.ID
-	} else {
-		id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
-		if er != nil {
-			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school")
-		}
+
+	// 1. Coba dulu dari token (jika ada token, ini yang dipakai)
+	if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
 		schoolID = id
+	} else {
+		// 2. Kalau tidak ada di token → pakai konteks multi-source (path/header/query/host)
+		mc, err := helperAuth.ResolveSchoolContext(c)
+		if err != nil {
+			// biasanya udah fiber.Error yang rapi
+			return err
+		}
+
+		if mc.ID != uuid.Nil {
+			// ada school_id langsung
+			schoolID = mc.ID
+		} else if strings.TrimSpace(mc.Slug) != "" {
+			// tidak ada ID, tapi ada slug → resolve ke ID
+			id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
+			if er != nil {
+				if errors.Is(er, gorm.ErrRecordNotFound) {
+					return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school")
+			}
+			schoolID = id
+		} else {
+			// bener-bener nggak ada sumber school
+			return helper.JsonError(c, fiber.StatusBadRequest, "Konteks school wajib (token atau school_id/slug).")
+		}
 	}
 
-	// Authorization: read = member OR DKM/Admin
+	// =====================================================
+	// 2) Authorization: DKM/Admin, kalau bukan → minimal anggota
+	// =====================================================
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
-		// bukan DKM/Admin → cek membership
+		// bukan DKM/Admin → cek membership biasa
 		if !helperAuth.UserHasSchool(c, schoolID) {
 			return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar pada school ini (membership).")
 		}
@@ -239,7 +260,7 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 🔹 Pagination final lewat helper (JsonList akan auto tambah count & per_page_options)
+	// 🔹 Pagination final
 	pg := helper.BuildPaginationFromOffset(total, p.Offset(), p.Limit())
 	return helper.JsonList(c, "ok", out, pg)
 }

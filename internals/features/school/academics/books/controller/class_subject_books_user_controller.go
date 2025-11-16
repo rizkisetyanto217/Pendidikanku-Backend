@@ -2,6 +2,7 @@
 package controller
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -17,7 +18,18 @@ import (
 /*
 =========================================================
 LIST (simple, pakai DTO, tanpa join)
-GET /admin/:school_id/class-subject-books
+
+Contoh route (admin / DKM-only):
+
+  - GET /api/a/:school_id/class-subject-books/list
+  - GET /api/a/m/:school_slug/class-subject-books/list
+  - atau versi token-scope-only kalau dipasang di group yang pakai UseSchoolScope
+
+Resolver school:
+
+1) Kalau ada token & active_school → pakai school dari token.
+2) Kalau tidak ada / gagal → pakai ResolveSchoolContext (ID atau slug).
+3) Kalau tetap tidak ada → ErrSchoolContextMissing.
 
 Query:
   - id / ids         : UUID atau comma-separated UUIDs
@@ -33,13 +45,54 @@ Query:
 =========================================================
 */
 func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
-	// 🔐 School scope + DKM/Admin
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		return err
+	// DB ke locals supaya helper yang butuh DB via context tetap jalan
+	c.Locals("DB", h.DB)
+
+	// ===== Resolve school_id (token-aware + fallback slug/ID) =====
+	var schoolID uuid.UUID
+
+	// 1) Coba dari token dulu (active_school)
+	if id, err := helperAuth.GetActiveSchoolID(c); err == nil && id != uuid.Nil {
+		schoolID = id
+	} else {
+		// 2) Fallback: ResolveSchoolContext (PUBLIC-style, pakai ID / slug di path)
+		mc, err2 := helperAuth.ResolveSchoolContext(c)
+		if err2 != nil {
+			// bisa ErrSchoolContextMissing atau fiber.Error lain
+			return err2
+		}
+
+		switch {
+		case mc.ID != uuid.Nil:
+			// Sudah dapat ID langsung
+			schoolID = mc.ID
+
+		case strings.TrimSpace(mc.Slug) != "":
+			// mc.Slug bisa berisi UUID atau slug beneran
+			s := strings.TrimSpace(mc.Slug)
+			if id2, errParse := uuid.Parse(s); errParse == nil {
+				// Ternyata UUID → pakai langsung
+				schoolID = id2
+			} else {
+				// Beneran slug → resolve dari DB
+				id2, er := helperAuth.GetSchoolIDBySlug(c, s)
+				if er != nil {
+					if errors.Is(er, gorm.ErrRecordNotFound) {
+						return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+					}
+					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+				}
+				schoolID = id2
+			}
+
+		default:
+			// Tidak ada ID, tidak ada slug → context kurang
+			return helperAuth.ErrSchoolContextMissing
+		}
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
+
+	// 🔐 DKM/Admin only untuk school ini
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 
@@ -93,9 +146,11 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 
 	// ===== Filters =====
 	// id / ids
+	var err error
 	if qBase, err = applyIDsFilter(c, qBase); err != nil {
 		return err
 	}
+
 	// class_subject_id
 	if q.ClassSubjectID != nil {
 		qBase = qBase.Where("csb.class_subject_book_class_subject_id = ?", *q.ClassSubjectID)
@@ -106,6 +161,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, "class_subject_id tidak valid")
 		}
 	}
+
 	// book_id
 	if q.BookID != nil {
 		qBase = qBase.Where("csb.class_subject_book_book_id = ?", *q.BookID)
@@ -116,6 +172,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, "book_id tidak valid")
 		}
 	}
+
 	// is_active
 	if q.IsActive != nil {
 		if *q.IsActive {
@@ -133,6 +190,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 			return helper.JsonError(c, fiber.StatusBadRequest, "is_active tidak valid")
 		}
 	}
+
 	// q: cari di slug relasi & snapshots
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
 		needle := "%" + strings.TrimSpace(*q.Q) + "%"

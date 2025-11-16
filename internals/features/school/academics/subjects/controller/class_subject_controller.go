@@ -95,13 +95,31 @@ func setParentURLSnapshotIfExists(m *csModel.ClassSubjectModel, url *string) {
 =========================================================
 */
 func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
-	// 🔐 Context & auth
+	// 🔐 Context school
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
+
+	var schoolID uuid.UUID
+	switch {
+	case mc.ID != uuid.Nil:
+		schoolID = mc.ID
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+		if er != nil {
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+		}
+		schoolID = id
+	default:
+		return helperAuth.ErrSchoolContextMissing
+	}
+
+	// 🔒 Role: HANYA DKM/Admin di school ini
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 
@@ -291,13 +309,31 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 =========================================================
 */
 func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
-	// 🔐 Context & role
+	// 🔐 Context school
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
+
+	var schoolID uuid.UUID
+	switch {
+	case mc.ID != uuid.Nil:
+		schoolID = mc.ID
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+		if er != nil {
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+		}
+		schoolID = id
+	default:
+		return helperAuth.ErrSchoolContextMissing
+	}
+
+	// 🔒 Role: HANYA DKM/Admin di school ini
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 
@@ -517,13 +553,31 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 =========================================================
 */
 func (h *ClassSubjectController) Delete(c *fiber.Ctx) error {
-	// 🔐 Context + role check (DKM/Admin)
+	// 🔐 Context school
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return err
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
+
+	var schoolID uuid.UUID
+	switch {
+	case mc.ID != uuid.Nil:
+		schoolID = mc.ID
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+		if er != nil {
+			if errors.Is(er, gorm.ErrRecordNotFound) {
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+		}
+		schoolID = id
+	default:
+		return helperAuth.ErrSchoolContextMissing
+	}
+
+	// 🔒 Role: DKM/Admin di school ini
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
 

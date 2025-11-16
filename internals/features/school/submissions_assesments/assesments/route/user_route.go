@@ -12,8 +12,8 @@ func AssessmentUserRoutes(r fiber.Router, db *gorm.DB) {
 	typeCtrl := ctr.NewAssessmentTypeController(db)
 	assessCtrl := ctr.NewAssessmentController(db)
 
-	// Base group pakai :school_id di path
-	g := r.Group("/:school_id")
+	// TANPA :school_id – pakai ResolveSchoolContext / token
+	g := r.Group("")
 
 	// ---------- Assessment Types (USER/TEACHER: read-only) ----------
 	typeGroup := g.Group("/assessment-types")

@@ -15,7 +15,7 @@ func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// kalau ada middleware versi by-param, pakai itu:
 	// grp := admin.Group("/:school_id/classes", schoolkuMiddleware.IsSchoolAdminByParam("school_id"))
 
-	grp := admin.Group("/:school_id/classes", schoolkuMiddleware.IsSchoolAdmin())
+	grp := admin.Group("/classes", schoolkuMiddleware.IsSchoolAdmin())
 	{
 		grp.Post("/", classHandler.CreateClass)
 		grp.Patch("/:id", classHandler.PatchClass)
@@ -26,7 +26,7 @@ func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	parentHandler := classctrl.NewClassParentController(db, nil)
 
 	// Prefix school_id biar ResolveSchoolContext dapat konteks langsung
-	classParents := admin.Group("/:school_id/class-parents", schoolkuMiddleware.IsSchoolAdmin())
+	classParents := admin.Group("/class-parents", schoolkuMiddleware.IsSchoolAdmin())
 	{
 		classParents.Post("/", parentHandler.Create)
 		classParents.Patch("/:id", parentHandler.Patch)
@@ -41,7 +41,7 @@ func ClassAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	// kalau ada middleware versi by-param, bisa:
 	// enrollGrp := admin.Group("/:school_id/class-enrollments", schoolkuMiddleware.IsSchoolAdminByParam("school_id"))
 
-	enrollGrp := admin.Group("/:school_id/class-enrollments", schoolkuMiddleware.IsSchoolAdmin())
+	enrollGrp := admin.Group("/class-enrollments", schoolkuMiddleware.IsSchoolAdmin())
 	{
 		// LIST: GET /:school_id/class-enrollments
 		enrollGrp.Get("/list", enrollHandler.List)

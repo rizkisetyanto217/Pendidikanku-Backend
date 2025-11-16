@@ -28,13 +28,13 @@ func AcademicTermsAdminRoutes(api fiber.Router, db *gorm.DB) {
 	base.Patch("/academic-terms/:id", termCtl.Patch)
 	base.Delete("/academic-terms/:id", termCtl.Delete)
 
-	// 2) PATH-SCOPED by school_id
-	base.Post("/:school_id/academic-terms", termCtl.Create)
-	base.Patch("/:school_id/academic-terms/:id", termCtl.Patch)
-	base.Delete("/:school_id/academic-terms/:id", termCtl.Delete)
+	// // 2) PATH-SCOPED by school_id
+	// base.Post("/:school_id/academic-terms", termCtl.Create)
+	// base.Patch("/:school_id/academic-terms/:id", termCtl.Patch)
+	// base.Delete("/:school_id/academic-terms/:id", termCtl.Delete)
 
-	// 3) PATH-SCOPED by school_slug
-	base.Post("/m/:school_slug/academic-terms", termCtl.Create)
-	base.Patch("/m/:school_slug/academic-terms/:id", termCtl.Patch)
-	base.Delete("/m/:school_slug/academic-terms/:id", termCtl.Delete)
+	// // 3) PATH-SCOPED by school_slug
+	// base.Post("/m/:school_slug/academic-terms", termCtl.Create)
+	// base.Patch("/m/:school_slug/academic-terms/:id", termCtl.Patch)
+	// base.Delete("/m/:school_slug/academic-terms/:id", termCtl.Delete)
 }

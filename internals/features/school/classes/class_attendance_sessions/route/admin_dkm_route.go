@@ -11,14 +11,15 @@ import (
 // Contoh penggunaan middleware auth jika ada:
 // import mw "schoolku_backend/internals/middlewares"
 func AttendanceSessionsAdminRoutes(r fiber.Router, db *gorm.DB) {
-	// ✅ Group dengan school context
-	schoolGroup := r.Group("/:school_id")
+	// ✅ Base group tanpa :school_id
+	base := r.Group("") // school_id diambil dari context/token di controller
 
 	// =====================
 	// User Attendance Types (CRUD)
 	// =====================
 	uattCtl := uaCtrl.NewClassAttendanceSessionParticipantTypeController(db)
-	uatt := schoolGroup.Group("/attendance-participant-types")
+	uatt := base.Group("/attendance-participant-types")
+
 	uatt.Post("/", uattCtl.Create)
 	uatt.Get("/", uattCtl.List)
 	uatt.Patch("/:id", uattCtl.Patch)

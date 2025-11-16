@@ -60,9 +60,15 @@ func bindAndValidate[T any](c *fiber.Ctx, v *validator.Validate, dst *T) error {
 ========================================================= */
 
 func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
+	// optional kalau kamu konsisten pakai di helper lain
+	c.Locals("DB", ctl.DB)
+
 	var p dto.AcademicTermCreateDTO
 	if err := bindAndValidate(c, ctl.Validator, &p); err != nil {
-		return httpErr(c, err.(*fiber.Error).Code, err.Error())
+		if fe, ok := err.(*fiber.Error); ok {
+			return httpErr(c, fe.Code, fe.Message)
+		}
+		return httpErr(c, fiber.StatusBadRequest, err.Error())
 	}
 	p.Normalize()
 
@@ -70,14 +76,17 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusBadRequest, "Tanggal akhir harus >= tanggal mulai")
 	}
 
-	// === School context (eksplisit & DKM only) ===
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// === School context dari TOKEN (DKM only) ===
+	schoolID, err := helperAuth.GetActiveSchoolIDFromToken(c)
 	if err != nil {
-		return httpErr(c, err.(*fiber.Error).Code, err.Error())
+		if fe, ok := err.(*fiber.Error); ok {
+			return httpErr(c, fe.Code, fe.Message)
+		}
+		return httpErr(c, fiber.StatusUnauthorized, err.Error())
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		return httpErr(c, err.(*fiber.Error).Code, err.Error())
+	// Pastikan dia DKM/Admin di school tsb
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+		return err
 	}
 
 	// Uniqueness per school untuk code (opsional)
@@ -132,21 +141,27 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 
 func (ctl *AcademicTermController) Update(c *fiber.Ctx) error { return ctl.updateCommon(c, false) }
 func (ctl *AcademicTermController) Patch(c *fiber.Ctx) error  { return ctl.updateCommon(c, true) }
+
 func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
+	// optional locals DB
+	c.Locals("DB", ctl.DB)
+
 	idStr := c.Params("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		return httpErr(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// === School context (eksplisit & DKM only), sama seperti Create ===
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// === School context dari TOKEN (DKM only), sama seperti Create ===
+	schoolID, err := helperAuth.GetActiveSchoolIDFromToken(c)
 	if err != nil {
-		return httpErr(c, err.(*fiber.Error).Code, err.Error())
+		if fe, ok := err.(*fiber.Error); ok {
+			return httpErr(c, fe.Code, fe.Message)
+		}
+		return httpErr(c, fiber.StatusUnauthorized, err.Error())
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		return httpErr(c, err.(*fiber.Error).Code, err.Error())
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+		return err
 	}
 
 	var out dto.AcademicTermResponseDTO
@@ -164,7 +179,10 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 
 		var p dto.AcademicTermUpdateDTO
 		if err := bindAndValidate(c, ctl.Validator, &p); err != nil {
-			return httpErr(c, err.(*fiber.Error).Code, err.Error())
+			if fe, ok := err.(*fiber.Error); ok {
+				return httpErr(c, fe.Code, fe.Message)
+			}
+			return httpErr(c, fiber.StatusBadRequest, err.Error())
 		}
 
 		// === Samakan normalisasi dengan Create ===
@@ -182,7 +200,6 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 		}
 
 		// === Abaikan slug dari payload (selaras Create) ===
-		// Force abaikan apapun yang dikirim user pada PATCH
 		p.AcademicTermSlug = nil
 
 		// Validasi tanggal jika diubah
@@ -287,7 +304,7 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 					"class_term_name_snapshot":          ent.AcademicTermName,
 					"class_term_slug_snapshot":          ent.AcademicTermSlug,
 					"class_term_angkatan_snapshot":      ent.AcademicTermAngkatan,
-					"class_name":                        recomputeName, // opsional tapi disarankan
+					"class_name":                        recomputeName,
 					"class_updated_at":                  time.Now(),
 				}).Error; err != nil {
 				return httpErr(c, fiber.StatusInternalServerError, "Gagal menyegarkan snapshot kelas")
@@ -314,20 +331,25 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 ========================================================= */
 
 func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
+	// optional locals DB
+	c.Locals("DB", ctl.DB)
+
 	idStr := c.Params("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		return httpErr(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// === School context (eksplisit & DKM only) ===
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// === School context dari TOKEN (DKM only) ===
+	schoolID, err := helperAuth.GetActiveSchoolIDFromToken(c)
 	if err != nil {
-		return httpErr(c, err.(*fiber.Error).Code, err.Error())
+		if fe, ok := err.(*fiber.Error); ok {
+			return httpErr(c, fe.Code, fe.Message)
+		}
+		return httpErr(c, fiber.StatusUnauthorized, err.Error())
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		return httpErr(c, err.(*fiber.Error).Code, err.Error())
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+		return err
 	}
 
 	var ent model.AcademicTermModel
@@ -354,22 +376,23 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 ============================================ */
 
 func (ctl *AcademicTermController) Restore(c *fiber.Ctx) error {
+	// optional locals DB
+	c.Locals("DB", ctl.DB)
+
 	idStr := c.Params("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		return httpErr(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	schoolID, err := helperAuth.GetActiveSchoolID(c)
+	// === School context dari TOKEN (DKM only) ===
+	schoolID, err := helperAuth.GetActiveSchoolIDFromToken(c)
 	if err != nil {
-		if id2, err2 := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err2 == nil {
-			schoolID = id2
-		} else {
-			return httpErr(c, fiber.StatusUnauthorized, "School context tidak ditemukan")
+		if fe, ok := err.(*fiber.Error); ok {
+			return httpErr(c, fe.Code, fe.Message)
 		}
+		return httpErr(c, fiber.StatusUnauthorized, err.Error())
 	}
-
-	// === DKM only
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}
@@ -404,22 +427,23 @@ func (ctl *AcademicTermController) Restore(c *fiber.Ctx) error {
 ============================================ */
 
 func (ctl *AcademicTermController) SetActive(c *fiber.Ctx) error {
+	// optional locals DB
+	c.Locals("DB", ctl.DB)
+
 	idStr := c.Params("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		return httpErr(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	schoolID, err := helperAuth.GetActiveSchoolID(c)
+	// === School context dari TOKEN (DKM only) ===
+	schoolID, err := helperAuth.GetActiveSchoolIDFromToken(c)
 	if err != nil {
-		if id2, err2 := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err2 == nil {
-			schoolID = id2
-		} else {
-			return httpErr(c, fiber.StatusUnauthorized, "School context tidak ditemukan")
+		if fe, ok := err.(*fiber.Error); ok {
+			return httpErr(c, fe.Code, fe.Message)
 		}
+		return httpErr(c, fiber.StatusUnauthorized, err.Error())
 	}
-
-	// === DKM only
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
 	}

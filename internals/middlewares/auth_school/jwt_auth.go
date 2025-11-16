@@ -7,7 +7,6 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 
-	// <-- pakai konstanta & helper kamu
 	helperAuth "schoolku_backend/internals/helpers/auth"
 )
 
@@ -61,31 +60,45 @@ func AuthJWT(o AuthJWTOpts) fiber.Handler {
 		// Simpan raw claims (opsional)
 		c.Locals("jwt_claims", claims)
 
-		// === HYDRATE LOCALS YANG DIHARAPKAN HELPER ===
+		// === HYDRATE LOCALS YANG DIHARAPKAN HELPER BARU ===
 
-		// roles_global
+		// roles_global → LocRolesGlobal
 		if v, ok := claims["roles_global"]; ok {
-			c.Locals(helperAuth.LocRolesGlobal, v) // helperAuth.GetRolesGlobal bisa handling []any atau []string
+			c.Locals(helperAuth.LocRolesGlobal, v)
 		}
 
-		// school_roles
+		// school_roles → LocSchoolRoles
 		if v, ok := claims["school_roles"]; ok {
-			c.Locals(helperAuth.LocSchoolRoles, v) // parseSchoolRoles bisa handling []map[string]any / []any
+			c.Locals(helperAuth.LocSchoolRoles, v)
 		}
 
-		// teacher_records
-		if v, ok := claims["teacher_records"]; ok {
-			c.Locals(helperAuth.LocTeacherRecords, v) // parseTeacherRecordsFromLocals bisa handling bentuk generic
+		// is_owner → LocIsOwner (kalau ada)
+		if v, ok := claims["is_owner"]; ok {
+			switch t := v.(type) {
+			case bool:
+				c.Locals(helperAuth.LocIsOwner, t)
+			case string:
+				s := strings.ToLower(strings.TrimSpace(t))
+				if s == "true" || s == "1" || s == "yes" {
+					c.Locals(helperAuth.LocIsOwner, true)
+				}
+			}
 		}
 
-		// ✅ student_records (INI YANG KURANG)
-		if v, ok := claims["student_records"]; ok {
-			c.Locals(helperAuth.LocStudentRecords, v)
+		// school_id (single session) → LocActiveSchoolID + LocSchoolID
+		if sid := strClaim(claims, "school_id"); sid != "" {
+			c.Locals(helperAuth.LocActiveSchoolID, sid)
+			c.Locals(helperAuth.LocSchoolID, sid)
 		}
 
-		// active_school_id (harus string untuk helperAuth)
-		if s, ok := claims["active_school_id"].(string); ok && strings.TrimSpace(s) != "" {
-			c.Locals(helperAuth.LocActiveSchoolID, strings.TrimSpace(s))
+		// teacher_id → LocTeacherID
+		if tid := strClaim(claims, "teacher_id"); tid != "" {
+			c.Locals(helperAuth.LocTeacherID, tid)
+		}
+
+		// student_id → LocStudentID
+		if sid := strClaim(claims, "student_id"); sid != "" {
+			c.Locals(helperAuth.LocStudentID, sid)
 		}
 
 		// user_id: ambil id/sub/user_id dalam urutan preferensi
@@ -102,12 +115,14 @@ func AuthJWT(o AuthJWTOpts) fiber.Handler {
 		if v := c.Locals(helperAuth.LocUserID); v != nil {
 			if s, ok := v.(string); ok {
 				if _, err := uuid.Parse(strings.TrimSpace(s)); err != nil {
-					// biarkan helperAuth yang menolak nanti; atau kamu bisa langsung return 401 di sini
+					// boleh langsung 401 kalau mau strict:
+					// return fiber.NewError(fiber.StatusUnauthorized, "user_id tidak valid")
+					// sekarang kita biarkan helper yang menolak nanti.
 				}
 			}
 		}
 
-		// === Build & set roles_claim (struct) ===
+		// === (OPSIONAL) Build & set roles_claim struct untuk pemakaian lain ===
 		rc := helperAuth.RolesClaim{
 			RolesGlobal: readStringSlice(claims["roles_global"]),
 			SchoolRoles: make([]helperAuth.SchoolRolesEntry, 0),
@@ -134,7 +149,7 @@ func AuthJWT(o AuthJWTOpts) fiber.Handler {
 				}
 			}
 		}
-		c.Locals("roles_claim", rc) // ✅ penting untuk IsOwnerGlobal & middleware lain
+		c.Locals("roles_claim", rc)
 
 		// Turunkan "role" legacy supaya guard lama tidak error "Role not found"
 		EnsureLegacyRoleLocal(c)
@@ -153,13 +168,35 @@ func strClaim(m jwt.MapClaims, key string) string {
 	return ""
 }
 
-// letakkan di file yang sama (package middleware), di bawah kode AuthJWT
+// util: ubah nilai interface{} → []string (robust untuk []string atau []any)
+func readStringSlice(v any) []string {
+	out := make([]string, 0)
+	switch t := v.(type) {
+	case []string:
+		for _, s := range t {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+	case []any:
+		for _, it := range t {
+			if s, ok := it.(string); ok {
+				s = strings.TrimSpace(s)
+				if s != "" {
+					out = append(out, s)
+				}
+			}
+		}
+	}
+	return out
+}
 
 // EnsureLegacyRoleLocal mengisi c.Locals("role") (legacy) dari klaim modern.
 // Prioritas: school_roles (dkm > admin > teacher > student > user)
-// lalu roles_global, lalu teacher_records, terakhir fallback "user".
+// lalu roles_global, terakhir fallback "user".
 func EnsureLegacyRoleLocal(c *fiber.Ctx) {
-	// jika sudah ada role legacy, biarkan
+	// kalau sudah ada "role" dan tidak kosong, jangan diutak-atik
 	if v := c.Locals("role"); v != nil {
 		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
 			return
@@ -188,6 +225,13 @@ func EnsureLegacyRoleLocal(c *fiber.Ctx) {
 	// 1) dari school_roles
 	if mr := c.Locals(helperAuth.LocSchoolRoles); mr != nil {
 		switch t := mr.(type) {
+		case []helperAuth.SchoolRolesEntry:
+			for _, e := range t {
+				if r := pick(e.Roles, "dkm", "admin", "teacher", "student", "user"); r != "" {
+					c.Locals("role", r)
+					return
+				}
+			}
 		case []map[string]any:
 			for _, m := range t {
 				roles := readStringSlice(m["roles"])
@@ -206,13 +250,6 @@ func EnsureLegacyRoleLocal(c *fiber.Ctx) {
 					}
 				}
 			}
-		case []helperAuth.SchoolRolesEntry:
-			for _, e := range t {
-				if r := pick(e.Roles, "dkm", "admin", "teacher", "student", "user"); r != "" {
-					c.Locals("role", r)
-					return
-				}
-			}
 		}
 	}
 
@@ -225,51 +262,6 @@ func EnsureLegacyRoleLocal(c *fiber.Ctx) {
 		}
 	}
 
-	// 3) jika ada teacher_records → set "teacher"
-	if tr := c.Locals(helperAuth.LocTeacherRecords); tr != nil {
-		switch t := tr.(type) {
-		case []any:
-			if len(t) > 0 {
-				c.Locals("role", "teacher")
-				return
-			}
-		case []map[string]any:
-			if len(t) > 0 {
-				c.Locals("role", "teacher")
-				return
-			}
-		case []helperAuth.TeacherRecordEntry:
-			if len(t) > 0 {
-				c.Locals("role", "teacher")
-				return
-			}
-		}
-	}
-
-	// 4) fallback
+	// 3) fallback: user
 	c.Locals("role", "user")
-}
-
-// util: ubah nilai interface{} → []string (robust untuk []string atau []any)
-func readStringSlice(v any) []string {
-	out := make([]string, 0)
-	switch t := v.(type) {
-	case []string:
-		for _, s := range t {
-			s = strings.TrimSpace(s)
-			if s != "" {
-				out = append(out, s)
-			}
-		}
-	case []any:
-		for _, it := range t {
-			if s, ok := it.(string); ok {
-				s = strings.TrimSpace(s)
-				if s != "" {
-					out = append(out, s)
-				}
-			}
-		}
-	}
-	return out
 }

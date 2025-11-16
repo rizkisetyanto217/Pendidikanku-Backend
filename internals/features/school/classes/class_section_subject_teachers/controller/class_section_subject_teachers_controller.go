@@ -240,7 +240,6 @@ func validateCSBForSection(ctx context.Context, tx *gorm.DB, schoolID, sectionID
 	}
 
 	// Tenant & Parent dari CSB -> ClassSubject
-	// Tenant & Parent dari CSB -> ClassSubject
 	var csb struct {
 		SchoolID uuid.UUID
 		ParentID uuid.UUID
@@ -285,13 +284,39 @@ func NewClassSectionSubjectTeacherController(db *gorm.DB) *ClassSectionSubjectTe
 /* ======================== CREATE ======================== */
 // POST /admin/:school_id/class-section-subject-teachers
 func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
+	// Resolve school context
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		return err
+
+	var schoolID uuid.UUID
+	switch {
+	case mc.ID != uuid.Nil:
+		schoolID = mc.ID
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+		if er != nil || id == uuid.Nil {
+			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+		}
+		schoolID = id
+	default:
+		id, er := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
+		if er != nil || id == uuid.Nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak ditemukan")
+		}
+		schoolID = id
+	}
+
+	// 🔒 Hanya DKM/Admin yang boleh mengelola CSST
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusForbidden, "Hanya DKM/Admin yang diizinkan")
 	}
 
 	var req dto.CreateClassSectionSubjectTeacherRequest
@@ -586,13 +611,39 @@ func (ctl *ClassSectionSubjectTeacherController) Create(c *fiber.Ctx) error {
 /* ======================== UPDATE (partial) ======================== */
 // PUT /admin/:school_id/class-section-subject-teachers/:id
 func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
+	// Resolve school context
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		return err
+
+	var schoolID uuid.UUID
+	switch {
+	case mc.ID != uuid.Nil:
+		schoolID = mc.ID
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+		if er != nil || id == uuid.Nil {
+			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+		}
+		schoolID = id
+	default:
+		id, er := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
+		if er != nil || id == uuid.Nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak ditemukan")
+		}
+		schoolID = id
+	}
+
+	// 🔒 Hanya DKM/Admin
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusForbidden, "Hanya DKM/Admin yang diizinkan")
 	}
 
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
@@ -609,19 +660,19 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 	}
 
 	return ctl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// Ambil row
+		// Ambil row (dibatasi tenant)
 		var row modelCSST.ClassSectionSubjectTeacherModel
 		if err := tx.
-			Where("class_section_subject_teacher_id = ? AND class_section_subject_teacher_deleted_at IS NULL", id).
+			Where(`
+				class_section_subject_teacher_id = ?
+				AND class_section_subject_teacher_school_id = ?
+				AND class_section_subject_teacher_deleted_at IS NULL
+			`, id, schoolID).
 			First(&row).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan")
 			}
 			return helper.JsonError(c, http.StatusInternalServerError, err.Error())
-		}
-		// Tenant guard
-		if row.ClassSectionSubjectTeacherSchoolID != schoolID {
-			return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 		}
 
 		// Precheck konsistensi jika section/CSB berubah
@@ -757,13 +808,39 @@ func (ctl *ClassSectionSubjectTeacherController) Update(c *fiber.Ctx) error {
 
 /* ======================== DELETE (soft) ======================== */
 func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
+	// Resolve school context
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		return err
+
+	var schoolID uuid.UUID
+	switch {
+	case mc.ID != uuid.Nil:
+		schoolID = mc.ID
+	case strings.TrimSpace(mc.Slug) != "":
+		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+		if er != nil || id == uuid.Nil {
+			return helper.JsonError(c, http.StatusNotFound, "School (slug) tidak ditemukan")
+		}
+		schoolID = id
+	default:
+		id, er := helperAuth.GetSchoolIDFromTokenPreferTeacher(c)
+		if er != nil || id == uuid.Nil {
+			return helper.JsonError(c, http.StatusBadRequest, "School context tidak ditemukan")
+		}
+		schoolID = id
+	}
+
+	// 🔒 Hanya DKM/Admin
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusForbidden, "Hanya DKM/Admin yang diizinkan")
 	}
 
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
@@ -773,14 +850,15 @@ func (ctl *ClassSectionSubjectTeacherController) Delete(c *fiber.Ctx) error {
 
 	var row modelCSST.ClassSectionSubjectTeacherModel
 	if err := ctl.DB.WithContext(c.Context()).
-		First(&row, "class_section_subject_teacher_id = ?", id).Error; err != nil {
+		Where(`
+			class_section_subject_teacher_id = ?
+			AND class_section_subject_teacher_school_id = ?
+		`, id, schoolID).
+		First(&row).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return helper.JsonError(c, http.StatusNotFound, "Data tidak ditemukan")
 		}
 		return helper.JsonError(c, http.StatusInternalServerError, err.Error())
-	}
-	if row.ClassSectionSubjectTeacherSchoolID != schoolID {
-		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak")
 	}
 	if row.ClassSectionSubjectTeacherDeletedAt.Valid {
 		return helper.JsonDeleted(c, "Sudah terhapus", fiber.Map{"id": id})

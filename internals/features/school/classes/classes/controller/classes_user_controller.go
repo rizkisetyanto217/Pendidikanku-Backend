@@ -17,7 +17,7 @@ import (
 )
 
 // =====================================================
-// GET /api/u/:school_id/classes/list        (PUBLIC)
+// GET /api/u/classes/list        (USER, pakai token)
 // =====================================================
 func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	// DB ke Locals agar helper bisa dipakai
@@ -71,8 +71,14 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		return tx.Joins(j), true
 	}
 
-	// --- resolve tenant scope publik ---
+	// --- resolve tenant scope: token → ResolveSchoolContext → query (?school_id / ?school_slug) ---
 	getTenantSchoolIDs := func() ([]uuid.UUID, error) {
+		// 1) PRIORITAS: dari token (user bisa punya beberapa sekolah)
+		if ids, err := helperAuth.GetSchoolIDsFromToken(c); err == nil && len(ids) > 0 {
+			return ids, nil
+		}
+
+		// 2) Fallback: dari ResolveSchoolContext (path/header/host/query)
 		if mc, er := helperAuth.ResolveSchoolContext(c); er == nil {
 			if mc.ID != uuid.Nil {
 				return []uuid.UUID{mc.ID}, nil
@@ -88,10 +94,8 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 				return []uuid.UUID{id}, nil
 			}
 		}
-		if ids, err := helperAuth.GetSchoolIDsFromToken(c); err == nil && len(ids) > 0 {
-			return ids, nil
-		}
 
+		// 3) Fallback terakhir: ?school_id (comma separated)
 		var out []uuid.UUID
 		if rawIDs := strings.TrimSpace(c.Query("school_id")); rawIDs != "" {
 			for _, part := range strings.Split(rawIDs, ",") {
@@ -106,6 +110,8 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 				out = append(out, id)
 			}
 		}
+
+		// Kalau belum ada juga, coba ?school_slug
 		if len(out) == 0 {
 			if rawSlugs := strings.TrimSpace(c.Query("school_slug")); rawSlugs != "" {
 				slugs := make([]string, 0, 4)
@@ -128,8 +134,12 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 				}
 			}
 		}
+
 		if len(out) == 0 {
-			return nil, fiber.NewError(fiber.StatusBadRequest, "School context tidak ditemukan. Sertakan :school_id pada path atau header X-Active-School-ID / ?school_id / ?school_slug.")
+			return nil, fiber.NewError(
+				fiber.StatusBadRequest,
+				"School context tidak ditemukan. Gunakan token dengan school aktif atau sertakan school_id / school_slug.",
+			)
 		}
 		return out, nil
 	}
@@ -211,7 +221,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		return tx
 	}
 
-	// 1) Tenant scope (PUBLIC)
+	// 1) Tenant scope (token → context → query)
 	schoolIDs, err := getTenantSchoolIDs()
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {

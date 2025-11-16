@@ -1,0 +1,24 @@
+// file: internals/features/school/schedule_rooms/rooms/routes/class_room_user_routes.go
+package routes
+
+import (
+	"github.com/gofiber/fiber/v2"
+	"gorm.io/gorm"
+
+	clsCtl "schoolku_backend/internals/features/school/academics/rooms/controller"
+)
+
+// RoomsUserRoutes — route USER (read-only).
+// Contoh mount dari caller:
+//
+//	user := api.Group("/api/u") // atau "/api/p" jika publik
+//	routes.RoomsUserRoutes(user, db)
+func RoomsUserRoutes(user fiber.Router, db *gorm.DB) {
+	ctl := clsCtl.NewClassRoomController(db, nil)
+	// Tambah school_id agar ResolveSchoolContext bisa resolve dari path
+	g := user.Group("/class-rooms")
+
+	// Read-only endpoints
+	g.Get("/list", ctl.List)
+
+}

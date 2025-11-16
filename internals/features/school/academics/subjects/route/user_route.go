@@ -3,7 +3,6 @@ package router
 
 import (
 	subjectsController "schoolku_backend/internals/features/school/academics/subjects/controller"
-	schoolkuMiddleware "schoolku_backend/internals/middlewares/features"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -17,34 +16,20 @@ Contoh mount:
 
 Sehingga endpoint jadi:
 
-	GET /api/u/:school_id/subjects/list
-	GET /api/u/:school_slug/subjects/list
-	dst.
+	GET /api/u/subjects/list
+	GET /api/u/class-subjects/list
 */
-func AllSubjectRoutes(r fiber.Router, db *gorm.DB) {
+func SubjectUserRoutes(r fiber.Router, db *gorm.DB) {
 	// Controllers
 	subjectCtl := &subjectsController.SubjectsController{DB: db}
 	classSubjectCtl := &subjectsController.ClassSubjectController{DB: db}
 
-	// ===== Base by school_id =====
-	baseByID := r.Group("/:school_id") // set ctx school dari param
-	// tambahkan middleware auth ringan bila perlu (mis. RequireLogin / IsSchoolMember)
+	// Base: token-based school context (no :school_id / :school_slug di path)
+	// r di sini biasanya sudah /api/u
 
-	subjectsByID := baseByID.Group("/subjects")
-	subjectsByID.Get("/list", subjectCtl.ListSubjects)
+	subjects := r.Group("/subjects")
+	subjects.Get("/list", subjectCtl.List)
 
-	classSubjectsByID := baseByID.Group("/class-subjects")
-	classSubjectsByID.Get("/list", classSubjectCtl.List)
-
-	// ===== Base by school_slug (opsional dukung slug/subdomain) =====
-	baseBySlug := r.Group("/:school_slug",
-		schoolkuMiddleware.UseSchoolScope(),
-	)
-
-	subjectsBySlug := baseBySlug.Group("/subjects")
-	subjectsBySlug.Get("/list", subjectCtl.ListSubjects)
-
-	classSubjectsBySlug := baseBySlug.Group("/class-subjects")
-	classSubjectsBySlug.Get("/list", classSubjectCtl.List)
-
+	classSubjects := r.Group("/class-subjects")
+	classSubjects.Get("/list", classSubjectCtl.List)
 }

@@ -10,27 +10,29 @@ import (
 // Middleware alias biar ringkas
 type Middleware = fiber.Handler
 
-// RegisterSubmissionRoutes (ADMIN)
+// RegisterSubmissionRoutes (ADMIN / STAFF)
 // Base (di /api/a misalnya):
-//   - /api/a/schools/:school_id/submissions          (LIST + CREATE)
-//   - /api/a/schools/:school_id/submissions/:id      (PATCH, DELETE, GET BY ID kalau nanti ada)
-//   - (nanti) /api/a/schools/:school_id/submissions/:submission_id/urls  → nested URLs
+//   - GET    /api/a/submissions/list
+//   - POST   /api/a/submissions
+//   - PATCH  /api/a/submissions/:id/urls
+//   - DELETE /api/a/submissions/:id/urls/:urlId
+// School diambil dari token (active school), bukan dari path.
 func SubmissionAdminRoutes(r fiber.Router, db *gorm.DB) {
 	// Controller untuk Submissions
 	subCtrl := submissionController.NewSubmissionController(db)
 
-	// Group dengan school_id di path → dibaca oleh ResolveSchoolContext
-	sub := r.Group("/schools/:school_id/submissions")
+	// Tanpa :school_id di path
+	sub := r.Group("/submissions")
 
 	// LIST
-	sub.Get("/", subCtrl.List) // GET    /schools/:school_id/submissions
+	sub.Get("/list", subCtrl.List) // GET    /submissions/list
 
-	// CREATE
-	sub.Post("/", subCtrl.Create) // POST   /schools/:school_id/submissions
+	// CREATE (boleh juga dipakai staff kalau controller mengizinkan)
+	sub.Post("/", subCtrl.Create) // POST   /submissions
 
-	// UPDATE
-	sub.Patch("/:id", subCtrl.Patch) // PATCH  /schools/:school_id/submissions/:id
+	// UPDATE URLS (nested)
+	sub.Patch("/:id/urls", subCtrl.Patch) // PATCH  /submissions/:id/urls
 
-	// DELETE
-	sub.Delete("/:id", subCtrl.Delete) // DELETE /schools/:school_id/submissions/:id
+	// DELETE URL
+	sub.Delete("/:id/urls/:urlId", subCtrl.Delete) // DELETE /submissions/:id/urls/:urlId
 }

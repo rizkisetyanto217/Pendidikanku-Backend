@@ -199,13 +199,7 @@ func enrichEnrollmentExtras(ctx context.Context, db *gorm.DB, schoolID uuid.UUID
 }
 
 /* =======================================================
-   Routes
-   - POST   /:school_id/class-enrollments
-   - GET    /:school_id/class-enrollments/:id
-   - PATCH  /:school_id/class-enrollments/:id
-   - PATCH  /:school_id/class-enrollments/:id/status
-   - PATCH  /:school_id/class-enrollments/:id/payment
-   - DELETE /:school_id/class-enrollments/:id
+   Routes (ADMIN/PMB — DKM/Admin only)
 ======================================================= */
 
 // POST /:school_id/class-enrollments
@@ -215,7 +209,8 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if er := helperAuth.EnsureMemberSchool(c, schoolID); er != nil {
+	// ⬇️ DKM/Admin only
+	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
 		return er
 	}
 
@@ -296,40 +291,14 @@ func (ctl *StudentClassEnrollmentController) Create(c *fiber.Ctx) error {
 	return helper.JsonCreated(c, "created", list[0])
 }
 
-// GET /:school_id/class-enrollments/:id
-func (ctl *StudentClassEnrollmentController) GetByID(c *fiber.Ctx) error {
-	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
-	if err != nil {
-		return err
-	}
-	if er := helperAuth.EnsureMemberSchool(c, schoolID); er != nil {
-		return er
-	}
-	id, err := parseUUIDParam(c, "id")
-	if err != nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
-
-	var m emodel.StudentClassEnrollmentModel
-	if err := ctl.DB.WithContext(c.Context()).
-		Where("student_class_enrollments_school_id = ?", schoolID).
-		First(&m, "student_class_enrollments_id = ?", id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "not found")
-		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
-	}
-
-	return helper.JsonOK(c, "ok", dto.FromModelStudentClassEnrollment(&m))
-}
-
 // PATCH /:school_id/class-enrollments/:id
 func (ctl *StudentClassEnrollmentController) Update(c *fiber.Ctx) error {
 	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
 	if err != nil {
 		return err
 	}
-	if er := helperAuth.EnsureMemberSchool(c, schoolID); er != nil {
+	// ⬇️ DKM/Admin only
+	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
 		return er
 	}
 	id, err := parseUUIDParam(c, "id")
@@ -374,7 +343,8 @@ func (ctl *StudentClassEnrollmentController) UpdateStatus(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if er := helperAuth.EnsureMemberSchool(c, schoolID); er != nil {
+	// ⬇️ DKM/Admin only
+	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
 		return er
 	}
 	id, err := parseUUIDParam(c, "id")
@@ -461,7 +431,8 @@ func (ctl *StudentClassEnrollmentController) AssignPayment(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if er := helperAuth.EnsureMemberSchool(c, schoolID); er != nil {
+	// ⬇️ DKM/Admin only
+	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
 		return er
 	}
 	id, err := parseUUIDParam(c, "id")
@@ -505,7 +476,8 @@ func (ctl *StudentClassEnrollmentController) Delete(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if er := helperAuth.EnsureMemberSchool(c, schoolID); er != nil {
+	// ⬇️ DKM/Admin only
+	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
 		return er
 	}
 	id, err := parseUUIDParam(c, "id")
@@ -528,4 +500,129 @@ func (ctl *StudentClassEnrollmentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	return helper.JsonDeleted(c, "deleted", fiber.Map{"student_class_enrollments_id": id})
+}
+
+func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
+	// ========== tenant ==========
+	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
+	if err != nil {
+		return err
+	}
+
+	// ❗ Skenario 1: hanya DKM/Admin (boleh tambahkan bendahara kalau mau)
+	// - EnsureDKMSchool = role "dkm" + "admin" yang terdaftar di school ini
+	if er := helperAuth.EnsureDKMSchool(c, schoolID); er != nil {
+		return er
+	}
+
+	// ========== query ==========
+	var q dto.ListStudentClassEnrollmentQuery
+	if err := c.QueryParser(&q); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "invalid query")
+	}
+	// status_in (comma-separated → slice)
+	if raw := strings.TrimSpace(c.Query("status_in")); raw != "" {
+		sts, er := parseStatusInParam(raw)
+		if er != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, er.Error())
+		}
+		q.StatusIn = sts
+	}
+	// view mode
+	view := strings.ToLower(strings.TrimSpace(c.Query("view"))) // "", "compact", "full"
+
+	// paging
+	pg := helper.ResolvePaging(c, 20, 200)
+
+	// ========== base query ==========
+	base := ctl.DB.WithContext(c.Context()).
+		Model(&emodel.StudentClassEnrollmentModel{}).
+		Where("student_class_enrollments_school_id = ?", schoolID)
+
+	// OnlyAlive default: true (filter soft-delete)
+	onlyAlive := true
+	if q.OnlyAlive != nil {
+		onlyAlive = *q.OnlyAlive
+	}
+	if onlyAlive {
+		base = base.Where("student_class_enrollments_deleted_at IS NULL")
+	}
+
+	// ========== filters ==========
+	if q.StudentID != nil && *q.StudentID != uuid.Nil {
+		base = base.Where("student_class_enrollments_school_student_id = ?", *q.StudentID)
+	}
+	if q.ClassID != nil && *q.ClassID != uuid.Nil {
+		base = base.Where("student_class_enrollments_class_id = ?", *q.ClassID)
+	}
+	if len(q.StatusIn) > 0 {
+		base = base.Where("student_class_enrollments_status IN ?", q.StatusIn)
+	}
+	if q.AppliedFrom != nil {
+		base = base.Where("student_class_enrollments_applied_at >= ?", *q.AppliedFrom)
+	}
+	if q.AppliedTo != nil {
+		base = base.Where("student_class_enrollments_applied_at <= ?", *q.AppliedTo)
+	}
+
+	// ========== count ==========
+	var total int64
+	if err := base.Count(&total).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to count")
+	}
+
+	// ========== data ==========
+	tx := base // copy builder for data fetch
+
+	// optimisasi kolom saat compact -> pastikan semua field untuk DTO compact ikut di-select
+	if view == "compact" || view == "summary" {
+		tx = tx.Select([]string{
+			// id & status & nominal
+			"student_class_enrollments_id",
+			"student_class_enrollments_status",
+			"student_class_enrollments_total_due_idr",
+
+			// convenience (mirror snapshot & ids)
+			"student_class_enrollments_school_student_id",
+			"student_class_enrollments_student_name_snapshot",
+			"student_class_enrollments_class_id",
+			"student_class_enrollments_class_name_snapshot",
+
+			// term (denormalized, optional)
+			"student_class_enrollments_term_id",
+			"student_class_enrollments_term_name_snapshot",
+			"student_class_enrollments_term_academic_year_snapshot",
+			"student_class_enrollments_term_angkatan_snapshot",
+
+			// payment snapshot (untuk derive PaymentStatus/CheckoutURL)
+			"student_class_enrollments_payment_snapshot",
+
+			// jejak penting
+			"student_class_enrollments_applied_at",
+		})
+	}
+
+	var rows []emodel.StudentClassEnrollmentModel
+	if err := tx.
+		Order(orderClause(q.OrderBy, q.Sort)).
+		Offset(pg.Offset).
+		Limit(pg.Limit).
+		Find(&rows).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "failed to fetch")
+	}
+
+	pagination := helper.BuildPaginationFromOffset(total, pg.Offset, pg.Limit)
+
+	// ========== mapping sesuai view ==========
+	if view == "compact" || view == "summary" {
+		compact := dto.FromModelsCompact(rows)
+		return helper.JsonList(c, "ok", compact, pagination)
+	}
+
+	// default: full payload
+	resp := dto.FromModels(rows)
+	// (opsional) enrich convenience fields tambahan (Username, dsb.)
+	enrichEnrollmentExtras(c.Context(), ctl.DB, schoolID, resp)
+
+	return helper.JsonList(c, "ok", resp, pagination)
 }

@@ -266,13 +266,8 @@ type ScopeChoice struct {
 }
 
 /* ==========================
-   Middleware 1 — UseSchoolScope
-   (menetapkan active_school_id & active_role)
+   Middleware helpers
 ========================== */
-
-/* util kecil tetap sama: getLocalsAsStrings, asString, trimLower, extractSchoolID, extractRole,
-   getSchoolRoles, getSchoolIDsPref, rolePriority, bestRoleFor, respondNeedScope
-   (biarkan seperti punyamu—dipakai sebagian) */
 
 // --- helper: cek role ada di school tertentu (dari locals school_roles) ---
 func roleInSchool(c *fiber.Ctx, schoolID, role string) bool {
@@ -293,18 +288,22 @@ func roleInSchool(c *fiber.Ctx, schoolID, role string) bool {
 	return false
 }
 
-// Tambah util ini
+// extractor STRICT: hanya balikin kalau benar-benar UUID school_id
 func extractSchoolIDStrict(c *fiber.Ctx) string {
-	// 1) Kalau middleware dipasang di group yang memang punya param
+	// 1) param biasa
 	for _, key := range []string{"school_id", "id", "mid"} {
 		if v := strings.TrimSpace(c.Params(key)); v != "" {
-			return v
+			if _, err := uuid.Parse(v); err == nil {
+				return v
+			}
 		}
 	}
 
-	// 2) Fallback standar (query/header/body/form)
+	// 2) Fallback standar (query/header/body/form) → tapi validasi UUID
 	if v := extractSchoolID(c); v != "" {
-		return v
+		if _, err := uuid.Parse(v); err == nil {
+			return v
+		}
 	}
 
 	// 3) Parse path manual untuk beberapa pola umum
@@ -318,24 +317,28 @@ func extractSchoolIDStrict(c *fiber.Ctx) string {
 	// 3a) /api/(a|u)/:school_id/...
 	if n >= 3 && strings.EqualFold(parts[0], "api") &&
 		(strings.EqualFold(parts[1], "a") || strings.EqualFold(parts[1], "u")) {
-		// kalau segmen ke-2 bukan "slug" atau "schools", treat sebagai school_id langsung
-		if !strings.EqualFold(parts[2], "slug") && !strings.EqualFold(parts[2], "schools") {
-			return parts[2]
+		cand := strings.TrimSpace(parts[2])
+		if _, err := uuid.Parse(cand); err == nil {
+			return cand
 		}
-		// 3b) /api/(a|u)/schools/:school_id/...
+
+		// /api/(a|u)/schools/:school_id/...
 		if strings.EqualFold(parts[2], "schools") && n >= 4 {
-			return parts[3]
+			cand = strings.TrimSpace(parts[3])
+			if _, err := uuid.Parse(cand); err == nil {
+				return cand
+			}
 		}
-		// 3c) /api/(a|u)/slug/:school_slug/...  (kalau kamu pakai slug di beberapa tempat)
-		if strings.EqualFold(parts[2], "slug") && n >= 4 {
-			return parts[3]
-		}
+		// /api/(a|u)/slug/:school_slug/... → slug, sengaja di-skip
 	}
 
-	// 3d) Pola lain: cari kata "schools" lalu ambil segmen setelahnya
+	// 3d) Pola lain: cari kata "schools" lalu ambil segmen setelahnya (kalau UUID)
 	for i := 0; i < n-1; i++ {
 		if strings.EqualFold(parts[i], "schools") {
-			return parts[i+1]
+			cand := strings.TrimSpace(parts[i+1])
+			if _, err := uuid.Parse(cand); err == nil {
+				return cand
+			}
 		}
 	}
 
@@ -343,14 +346,15 @@ func extractSchoolIDStrict(c *fiber.Ctx) string {
 }
 
 /* ==========================
-   STRICT SCOPE — by PATH ONLY
+   STRICT SCOPE — by PATH + token fallback
 ========================== */
 
-// UseSchoolScope (strict):
-// - Ambil school_id dari PATH (atau eksplisit query/header/body).
-// - Non-owner: wajib merupakan school yang ada di token.
-// - Role: jika dikirim user, harus ada di school tersebut; jika tidak, pilih best role DI school itu.
-// - Set locals: active_school_id, active_role (+ kompat: school_id, role)
+// UseSchoolScope (strict-ish):
+// - Coba ambil school_id dari PATH/param (UUID).
+// - Kalau kosong, fallback ke GetActiveSchoolIDFromToken (1 sesi = 1 sekolah).
+// - Non-owner: school harus ada di token (school_roles).
+// - Role: jika dikirim user, harus ada di school tsb; kalau tidak, pilih best role di school tsb.
+// - Set locals: active_school_id, active_role (+ kompat: school_id, role).
 func UseSchoolScope() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 
@@ -362,16 +366,15 @@ func UseSchoolScope() fiber.Handler {
 			return c.Next()
 		}
 
-		// ⛑️ BYPASS semua route PUBLIC
+		// 2) BYPASS semua route PUBLIC
 		if strings.HasPrefix(p, "/api/public/") {
 			return c.Next()
 		}
 
-		// 2) 🔑 BYPASS join-teacher (dua pola):
+		// 3) BYPASS join-teacher (dua pola):
 		//    - POST /api/u/:school_id/join-teacher
 		//    - POST /api/u/m/:school_slug/join-teacher
 		if c.Method() == fiber.MethodPost && strings.HasPrefix(p, "/api/u/") && strings.HasSuffix(p, "/join-teacher") {
-			// validasi pola dasar untuk kehati-hatian
 			segs := strings.Split(p, "/") // e.g. ["", "api", "u", "<uuid>", "join-teacher"] atau ["", "api", "u", "m", "<slug>", "join-teacher"]
 			if len(segs) == 5 && segs[0] == "" && segs[1] == "api" && segs[2] == "u" && segs[4] == "join-teacher" {
 				// pola : /api/u/:school_id/join-teacher
@@ -384,22 +387,30 @@ func UseSchoolScope() fiber.Handler {
 			// jika tidak cocok, lanjut ke scope strict seperti biasa
 		}
 
-		log.Println("🎯 [MIDDLEWARE] UseSchoolScope (STRICT by path)")
+		log.Println("🎯 [MIDDLEWARE] UseSchoolScope (STRICT by path + token fallback) | Path:", c.Path(), "| Method:", c.Method())
 
 		isOwner := helper.IsOwner(c)
 
-		// ⬇️ pakai extractor baru
+		// 1) Coba ambil dari PATH/PARAM (UUID saja)
 		reqSchool := strings.TrimSpace(extractSchoolIDStrict(c))
 
+		// 2) Fallback: kalau kosong, ambil dari token (active school)
 		if reqSchool == "" {
-			return fiber.NewError(fiber.StatusBadRequest, "school_id wajib di path atau parameter")
+			if id, err := helper.GetActiveSchoolIDFromToken(c); err == nil && id != uuid.Nil {
+				reqSchool = id.String()
+			} else {
+				return fiber.NewError(fiber.StatusBadRequest, "school_id wajib di path, parameter, atau token")
+			}
 		}
+
+		// Validasi UUID
 		if _, err := uuid.Parse(reqSchool); err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "school_id pada path tidak valid, error")
+			return fiber.NewError(fiber.StatusBadRequest, "school_id tidak valid")
 		}
 
 		reqRole := trimLower(extractRole(c))
 
+		// OWNER bypass
 		if isOwner {
 			if reqRole == "" {
 				reqRole = constants.RoleOwner
@@ -412,6 +423,7 @@ func UseSchoolScope() fiber.Handler {
 			return c.Next()
 		}
 
+		// Ambil roles yang dimiliki user di school ini
 		var rolesAtSchool []string
 		for _, mr := range getSchoolRoles(c) {
 			if strings.EqualFold(mr.SchoolID, reqSchool) {
@@ -435,6 +447,7 @@ func UseSchoolScope() fiber.Handler {
 			}
 		}
 
+		// Set locals scope
 		c.Locals("active_school_id", reqSchool)
 		c.Locals("active_role", activeRole)
 		c.Locals("school_id", reqSchool)
@@ -448,18 +461,22 @@ func UseSchoolScope() fiber.Handler {
 /*
 	==========================
 	  Guard: path ↔ scope harus cocok (defense in depth)
-
-==========================
+	==========================
 */
+
 func RequirePathScopeMatch() fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		if !strings.HasPrefix(c.Path(), "/api/a/") {
+		if !strings.HasPrefix(strings.ToLower(c.Path()), "/api/a/") {
 			return c.Next()
 		}
+
 		pathID := strings.TrimSpace(extractSchoolIDStrict(c))
+
+		// kalau path memang tidak mengandung UUID sebagai school_id → skip check
 		if pathID == "" {
-			return fiber.NewError(fiber.StatusBadRequest, "school_id path tidak valid")
+			return c.Next()
 		}
+
 		active := strings.TrimSpace(asString(c.Locals("active_school_id")))
 		if active == "" {
 			return fiber.NewError(fiber.StatusUnauthorized, "Scope school belum ditentukan")
@@ -516,7 +533,8 @@ func IsSchoolAdmin() fiber.Handler {
 	}
 }
 
-// Opsional: jika kamu butuh endpoint yang mengizinkan teacher juga
+// IsSchoolStaff:
+// - Izinkan admin/dkm/teacher (plus owner).
 func IsSchoolStaff() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		log.Println("🔐 [MIDDLEWARE] IsSchoolStaff (STRICT) | Path:", c.Path(), "| Method:", c.Method())

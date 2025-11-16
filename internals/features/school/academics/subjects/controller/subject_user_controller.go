@@ -22,31 +22,45 @@ order_by: code|name|created_at|updated_at
 sort: asc|desc
 =========================================================
 */
-func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
-	// === School context (PUBLIC): no role check ===
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		// balas dengan skema error JSON standar
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
+func (h *SubjectsController) List(c *fiber.Ctx) error {
+	// Kalau ada helper lain yang butuh DB di Locals
+	c.Locals("DB", h.DB)
 
+	// =====================================================
+	// 1) Tentukan schoolID:
+	//    - Prioritas: dari token (GetSchoolIDFromTokenPreferTeacher)
+	//    - Fallback: dari ResolveSchoolContext (id / slug)
+	// =====================================================
 	var schoolID uuid.UUID
-	if mc.ID != uuid.Nil {
-		schoolID = mc.ID
-	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetSchoolIDBySlug(c, s)
-		if er != nil {
-			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
-		}
+
+	// 1. Coba dulu dari token
+	if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
 		schoolID = id
 	} else {
-		return helper.JsonError(c, fiber.StatusBadRequest, helperAuth.ErrSchoolContextMissing.Error())
+		// 2. Kalau nggak dapat dari token → pakai context multi-sumber
+		mc, err := helperAuth.ResolveSchoolContext(c)
+		if err != nil {
+			// balas dengan skema error JSON standar
+			if fe, ok := err.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		}
+
+		if mc.ID != uuid.Nil {
+			schoolID = mc.ID
+		} else if s := strings.TrimSpace(mc.Slug); s != "" {
+			id, er := helperAuth.GetSchoolIDBySlug(c, s)
+			if er != nil {
+				if errors.Is(er, gorm.ErrRecordNotFound) {
+					return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+			}
+			schoolID = id
+		} else {
+			return helper.JsonError(c, fiber.StatusBadRequest, helperAuth.ErrSchoolContextMissing.Error())
+		}
 	}
 
 	// --- Query params & defaults ---
@@ -149,6 +163,7 @@ func (h *SubjectsController) ListSubjects(c *fiber.Ctx) error {
 	// --- response standar ---
 	return helper.JsonList(c, "ok", subjectDTO.FromSubjectModels(rows), meta)
 }
+
 
 /* ================= Helpers lokal ================= */
 

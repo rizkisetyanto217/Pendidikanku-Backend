@@ -20,13 +20,12 @@ func AttendanceSessionsUserRoutes(r fiber.Router, db *gorm.DB) {
 	attendanceSessionGroup := schoolGroup.Group("/attendance-sessions")
 	attendanceSessionGroup.Get("/list", attendanceSessionController.ListClassAttendanceSessions) // GET /:school_id/sessions/list
 
-
 	// User Attendance (read-only + CRUD untuk user)
-	ua := uaCtrl.NewStudentAttendanceController(db)
+	ua := uaCtrl.NewClassAttendanceSessionParticipantController(db)
 	uaGroup := schoolGroup.Group("/attendance-participants")
 	uaGroup.Get("/list", ua.List)
-	uaGroup.Post("/", ua.CreateWithURLs) // POST /:school_id/user-sessions
-	uaGroup.Patch("/:id", ua.Patch)      // PATCH /:school_id/user-sessions/:id
+	uaGroup.Post("/", ua.CreateAttendanceParticipantsWithURLs) // POST /:school_id/user-sessions
+	uaGroup.Patch("/:id", ua.Patch)                            // PATCH /:school_id/user-sessions/:id
 	uaGroup.Delete("/:id", ua.Delete)
 
 	// User Attendance Types (read-only)

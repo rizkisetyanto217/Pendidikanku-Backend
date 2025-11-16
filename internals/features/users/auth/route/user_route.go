@@ -14,20 +14,31 @@ func AuthRoutes(app *fiber.App, db *gorm.DB) {
 	// rate limiter global
 	app.Use(rateLimiter.GlobalRateLimiter())
 
-	// --- PUBLIC (/auth) ---
-	publicAuth := app.Group("/api/auth")
+	// ==========================
+	// PUBLIC (SCOPED BY school_slug)
+	// Base: /api/:school_slug/auth
+	// ==========================
+	publicAuth := app.Group("/api/:school_slug/auth")
+
 	publicAuth.Post("/login", rateLimiter.LoginRateLimiter(), authController.Login)
 	publicAuth.Post("/register", rateLimiter.RegisterRateLimiter(), authController.Register)
 	publicAuth.Post("/forgot-password/reset", authController.ResetPassword)
-	// publicAuth.Post("/login-google", authController.LoginGoogle)
+	// publicAuth.Post("/login-google", authController.LoginGoogle) // kalau nanti diaktifin, juga ikut slug
 
-	// ⬇️⬇️ Tambahkan ini:
-	publicAuth.Get("/csrf", authController.CSRF)
+	// ==========================
+	// CSRF & REFRESH TOKEN (GLOBAL)
+	// Tetap di /api/auth supaya cocok dengan cookie path
+	// ==========================
+	baseAuth := app.Group("/api/auth")
+	baseAuth.Get("/csrf", authController.CSRF)
+	baseAuth.Post("/refresh-token", authController.RefreshToken)
 
-	publicAuth.Post("/refresh-token", authController.RefreshToken)
+	// ==========================
+	// PROTECTED (SCOPED BY school_slug)
+	// Base: /api/:school_slug/auth
+	// ==========================
+	protectedAuth := app.Group("/api/:school_slug/auth")
 
-	// --- PROTECTED (/api/auth ...) ---
-	protectedAuth := app.Group("/api/auth")
 	protectedAuth.Post("/logout", authController.Logout)
 	protectedAuth.Post("/change-password", authController.ChangePassword)
 	protectedAuth.Put("/update-user-name", authController.UpdateUserName)

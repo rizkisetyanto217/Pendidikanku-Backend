@@ -16,7 +16,7 @@ import (
 func RoomsAdminRoutes(admin fiber.Router, db *gorm.DB) {
 	ctl := clsCtl.NewClassRoomController(db, nil) // validator nil
 	// Tambah :school_id biar ResolveSchoolContext bisa resolve dari path
-	g := admin.Group("/:school_id/class-rooms")
+	g := admin.Group("/class-rooms")
 
 	// Write
 	g.Post("/", ctl.Create)

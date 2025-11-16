@@ -10,36 +10,49 @@ import (
 	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
 )
 
-/*
-GET /:school_id/class-enrollments
-?status_in=a,b,c
-?applied_from=...
-?applied_to=...
-?only_alive=true|false
-?order_by=created_at|applied_at|updated_at
-?sort=asc|desc
-?limit=...
-?offset=...
-?view=compact|full   <-- NEW (default: full)
-*/
-func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
+// Skenario 2: endpoint khusus murid → hanya melihat enrollments miliknya sendiri
+//
+// GET /api/u/:school_id/my/class-enrollments
+// ?status_in=...
+// ?applied_from=...
+// ?applied_to=...
+// ?order_by=...
+// ?sort=...
+// ?limit=...
+// ?offset=...
+// ?view=compact|full
+func (ctl *StudentClassEnrollmentController) ListMy(c *fiber.Ctx) error {
 	// ========== tenant ==========
 	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
 	if err != nil {
 		return err
 	}
-	if er := helperAuth.EnsureMemberSchool(c, schoolID); er != nil {
-		return er
+
+	// Hanya murid dari school ini yang diizinkan
+	if err := helperAuth.EnsureStudentSchool(c, schoolID); err != nil {
+		return err
 	}
+
+	// Ambil daftar student_id dari token / context
+	studentIDs, err := helperAuth.GetSchoolStudentIDsFromToken(c)
+	if err != nil || len(studentIDs) == 0 {
+		return helper.JsonError(c, fiber.StatusUnauthorized, "Konteks murid tidak ditemukan")
+	}
+
+	// Untuk endpoint "my", kita pakai satu ID (mis. yang pertama)
+	studentID := studentIDs[0]
 
 	// ========== query ==========
 	var q dto.ListStudentClassEnrollmentQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "invalid query")
 	}
+
+	// FORCE: hanya enrollment milik murid ini
+	q.StudentID = &studentID
+
 	// status_in (comma-separated → slice)
 	if raw := strings.TrimSpace(c.Query("status_in")); raw != "" {
 		sts, er := parseStatusInParam(raw)
@@ -48,6 +61,7 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 		}
 		q.StatusIn = sts
 	}
+
 	// view mode
 	view := strings.ToLower(strings.TrimSpace(c.Query("view"))) // "", "compact", "full"
 
@@ -57,24 +71,11 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	// ========== base query ==========
 	base := ctl.DB.WithContext(c.Context()).
 		Model(&emodel.StudentClassEnrollmentModel{}).
-		Where("student_class_enrollments_school_id = ?", schoolID)
+		Where("student_class_enrollments_school_id = ?", schoolID).
+		Where("student_class_enrollments_school_student_id = ?", studentID).
+		Where("student_class_enrollments_deleted_at IS NULL") // untuk murid, biasanya hanya alive
 
-	// OnlyAlive default: true (filter soft-delete)
-	onlyAlive := true
-	if q.OnlyAlive != nil {
-		onlyAlive = *q.OnlyAlive
-	}
-	if onlyAlive {
-		base = base.Where("student_class_enrollments_deleted_at IS NULL")
-	}
-
-	// ========== filters ==========
-	if q.StudentID != nil && *q.StudentID != uuid.Nil {
-		base = base.Where("student_class_enrollments_school_student_id = ?", *q.StudentID)
-	}
-	if q.ClassID != nil && *q.ClassID != uuid.Nil {
-		base = base.Where("student_class_enrollments_class_id = ?", *q.ClassID)
-	}
+	// ========== filters tambahan ==========
 	if len(q.StatusIn) > 0 {
 		base = base.Where("student_class_enrollments_status IN ?", q.StatusIn)
 	}
@@ -92,33 +93,26 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 	}
 
 	// ========== data ==========
-	// ========== data ==========
-	tx := base // copy builder for data fetch
+	tx := base
 
-	// optimisasi kolom saat compact -> pastikan semua field untuk DTO compact ikut di-select
+	// murid juga bisa pakai compact view biar ringan
 	if view == "compact" || view == "summary" {
 		tx = tx.Select([]string{
-			// id & status & nominal
 			"student_class_enrollments_id",
 			"student_class_enrollments_status",
 			"student_class_enrollments_total_due_idr",
 
-			// convenience (mirror snapshot & ids)
 			"student_class_enrollments_school_student_id",
 			"student_class_enrollments_student_name_snapshot",
 			"student_class_enrollments_class_id",
 			"student_class_enrollments_class_name_snapshot",
 
-			// term (denormalized, optional)
 			"student_class_enrollments_term_id",
 			"student_class_enrollments_term_name_snapshot",
 			"student_class_enrollments_term_academic_year_snapshot",
 			"student_class_enrollments_term_angkatan_snapshot",
 
-			// payment snapshot (untuk derive PaymentStatus/CheckoutURL)
 			"student_class_enrollments_payment_snapshot",
-
-			// jejak penting
 			"student_class_enrollments_applied_at",
 		})
 	}
@@ -134,16 +128,14 @@ func (ctl *StudentClassEnrollmentController) List(c *fiber.Ctx) error {
 
 	pagination := helper.BuildPaginationFromOffset(total, pg.Offset, pg.Limit)
 
-	// ========== mapping sesuai view ==========
 	if view == "compact" || view == "summary" {
 		compact := dto.FromModelsCompact(rows)
 		return helper.JsonList(c, "ok", compact, pagination)
 	}
 
-	// default: full payload
 	resp := dto.FromModels(rows)
-	// (opsional) enrich convenience fields tambahan (Username, dsb.)
-	enrichEnrollmentExtras(c.Context(), ctl.DB, schoolID, resp)
+	// Untuk murid biasanya nggak perlu enrich extras heavy, tapi kalau mau boleh:
+	// enrichEnrollmentExtras(c.Context(), ctl.DB, schoolID, resp)
 
 	return helper.JsonList(c, "ok", resp, pagination)
 }

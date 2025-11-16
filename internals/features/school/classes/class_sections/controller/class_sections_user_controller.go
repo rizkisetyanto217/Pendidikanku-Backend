@@ -43,29 +43,40 @@ func parseUUIDList(s string) ([]uuid.UUID, error) {
 }
 
 // GET /api/{a|u}/:school_id/class-sections/list
-
-// GET /api/{a|u}/:school_id/class-sections/list
 func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
-	// ---------- School context ----------
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
+	// ---------- School context: token > slug/id ----------
 	var schoolID uuid.UUID
-	switch {
-	case mc.ID != uuid.Nil:
-		schoolID = mc.ID
-	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
-		if er != nil {
-			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+
+	// 1) Coba dari token dulu (student/teacher/dkm/admin/bendahara)
+	if sid, errTok := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); errTok == nil && sid != uuid.Nil {
+		schoolID = sid
+	} else {
+		// 2) Fallback ke ResolveSchoolContext (path param / header / dll)
+		mc, err := helperAuth.ResolveSchoolContext(c)
+		if err != nil {
+			if fe, ok := err.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 		}
-		schoolID = id
-	default:
-		return helper.JsonError(c, fiber.StatusBadRequest, helperAuth.ErrSchoolContextMissing.Error())
+
+		switch {
+		case mc.ID != uuid.Nil:
+			schoolID = mc.ID
+
+		case strings.TrimSpace(mc.Slug) != "":
+			id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+			if er != nil {
+				if er == gorm.ErrRecordNotFound {
+					return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+			}
+			schoolID = id
+
+		default:
+			return helper.JsonError(c, fiber.StatusBadRequest, helperAuth.ErrSchoolContextMissing.Error())
+		}
 	}
 
 	// ---------- Search term ----------
@@ -184,7 +195,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 				Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 				Where("class_section_subject_teacher_deleted_at IS NULL").
 				Where("class_section_subject_teacher_school_id = ?", schoolID).
-				Where("class_section_subject_teacher_class_section_id IN ?", targetIDs) // ✅ kolom baru
+				Where("class_section_subject_teacher_class_section_id IN ?", targetIDs)
 			if activeOnly != nil {
 				csstQ = csstQ.Where("class_section_subject_teacher_is_active = ?", *activeOnly)
 			}
@@ -196,7 +207,7 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 			bySection := make(map[uuid.UUID][]csstModel.ClassSectionSubjectTeacherModel, len(targetIDs))
 			for i := range csstRows {
 				r := csstRows[i]
-				bySection[r.ClassSectionSubjectTeacherClassSectionID] = // ✅ field model baru
+				bySection[r.ClassSectionSubjectTeacherClassSectionID] =
 					append(bySection[r.ClassSectionSubjectTeacherClassSectionID], r)
 			}
 

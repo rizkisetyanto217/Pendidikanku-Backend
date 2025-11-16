@@ -22,28 +22,59 @@ var fallbackValidator = validator.New()
 
 /* ================= Handlers ================= */
 
-// GET /api/a/academic-terms
-// GET /api/u/:school_id/academic-terms
+// PUBLIC (tapi aware token)
+//
+// Skenario:
+// 1) Kalau user login dan token punya active_school → pakai school dari token.
+// 2) Kalau tidak ada / gagal baca token → pakai konteks PUBLIC:
+//   - /api/u/:school_id/academic-terms/list       (UUID di path)
+//   - /api/u/:school_slug/academic-terms/list     (slug di path)
+//
+// 3) Kalau semua sumber gagal → ErrSchoolContextMissing.
 func (ctl *AcademicTermController) List(c *fiber.Ctx) error {
-	// ===== School context (PUBLIC) =====
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		return err
-	}
+	// Biar helper lain yang baca dari Locals("DB") tetap bisa jalan
+	c.Locals("DB", ctl.DB)
+
 	var schoolID uuid.UUID
-	if mc.ID != uuid.Nil {
-		schoolID = mc.ID
-	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetSchoolIDBySlug(c, s)
-		if er != nil {
-			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
-		}
+
+	/* ========= 1) Coba dari TOKEN dulu (jika ada) ========= */
+	if id, err := helperAuth.GetActiveSchoolID(c); err == nil && id != uuid.Nil {
+		// Kalau berhasil baca active school dari token → langsung pakai ini
 		schoolID = id
 	} else {
-		return helperAuth.ErrSchoolContextMissing
+		/* ========= 2) Fallback: PUBLIC context (ID / slug) ========= */
+
+		mc, err2 := helperAuth.ResolveSchoolContext(c)
+		if err2 != nil {
+			// ErrSchoolContextMissing atau fiber.Error dari helper
+			return err2
+		}
+
+		if mc.ID != uuid.Nil {
+			// Sudah ada ID langsung dari context
+			schoolID = mc.ID
+		} else if s := strings.TrimSpace(mc.Slug); s != "" {
+			// mc.Slug bisa berisi:
+			// - beneran slug,
+			// - atau sebenarnya UUID yang dikirim via path (/:school_id)
+			if id2, errParse := uuid.Parse(s); errParse == nil {
+				// Kalau ternyata valid UUID → treat sebagai school_id
+				schoolID = id2
+			} else {
+				// Beneran slug → resolve via DB
+				id2, er := helperAuth.GetSchoolIDBySlug(c, s)
+				if er != nil {
+					if errors.Is(er, gorm.ErrRecordNotFound) {
+						return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+					}
+					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+				}
+				schoolID = id2
+			}
+		} else {
+			// Tidak ada ID, tidak ada slug → context kurang
+			return helperAuth.ErrSchoolContextMissing
+		}
 	}
 
 	// ==== Query → DTO + validasi ====

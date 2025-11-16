@@ -10,42 +10,34 @@ import (
 /*
 Catatan:
 - Pasang middleware RequireTeacher di parent router `r` (prefix: /api/t).
-- Kita expose 2 varian base segment school:
-  1) /api/t/:school_id/...
-  2) /api/t/:school_slug/...
+- School context diambil dari ResolveSchoolContext (token / dsb), bukan dari path.
 - Path hasil:
-  - /api/t/:school_id/quizzes-teacher/...
-  - /api/t/:school_id/quiz-questions-teacher/...
-  - (alias) /api/t/:school_id/quiz-items-teacher/...
-  - /api/t/:school_id/quizzes-teacher/attempt-answers-teacher/...
-  - /api/t/:school_id/quizzes-teacher/attempts-teacher/...
-  (dan varian yang sama untuk :school_slug)
+  - /api/t/quizzes-teacher/...
+  - /api/t/quiz-questions-teacher/...
+  - (alias) /api/t/quiz-items-teacher/...
+  - /api/t/quizzes-teacher/attempt-answers-teacher/...
+  - /api/t/quizzes-teacher/attempts-teacher/...
 */
 
 func QuizzesTeacherRoutes(r fiber.Router, db *gorm.DB) {
-	// Varian by school_id
-	mid := r.Group("/:school_id")
-	mountQuizTeacherRoutes(mid, db)
-
-	// Varian by school_slug
-	mslug := r.Group("/:school_slug")
-	mountQuizTeacherRoutes(mslug, db)
+	// Langsung mount di base /api/t
+	mountQuizTeacherRoutes(r, db)
 }
 
 func mountQuizTeacherRoutes(base fiber.Router, db *gorm.DB) {
 	// ============================
-	// QUIZZES (master) -> /.../quizzes-teacher
+	// QUIZZES (master) -> /api/t/quizzes-teacher
 	// ============================
 	quizCtrl := quizcontroller.NewQuizController(db)
 	quizzes := base.Group("/quizzes-teacher")
 
-	quizzes.Post("/", quizCtrl.Create)      // POST   /api/t/:school_x/quizzes-teacher
-	quizzes.Patch("/:id", quizCtrl.Patch)   // PATCH  /api/t/:school_x/quizzes-teacher/:id
-	quizzes.Delete("/:id", quizCtrl.Delete) // DELETE /api/t/:school_x/quizzes-teacher/:id
+	quizzes.Post("/", quizCtrl.Create)      // POST   /api/t/quizzes-teacher
+	quizzes.Patch("/:id", quizCtrl.Patch)   // PATCH  /api/t/quizzes-teacher/:id
+	quizzes.Delete("/:id", quizCtrl.Delete) // DELETE /api/t/quizzes-teacher/:id
 
 	// ============================
 	// QUIZ QUESTIONS (soal & opsi JSONB)
-	// -> /.../quiz-questions-teacher  (+ alias /.../quiz-items-teacher)
+	// -> /api/t/quiz-questions-teacher  (+ alias /api/t/quiz-items-teacher)
 	// ============================
 	qqCtrl := quizcontroller.NewQuizQuestionsController(db)
 	qqMain := base.Group("/quiz-questions-teacher")
@@ -62,10 +54,10 @@ func mountQuizTeacherRoutes(base fiber.Router, db *gorm.DB) {
 	uqaCtrl := quizcontroller.NewStudentQuizAttemptAnswersController(db)
 	ans := quizzes.Group("/attempt-answers-teacher")
 
-	ans.Get("/", uqaCtrl.List)         // GET    /api/t/:school_x/quizzes-teacher/attempt-answers-teacher?attempt_id=...&question_id=...
-	ans.Post("/", uqaCtrl.Create)      // POST   /api/t/:school_x/quizzes-teacher/attempt-answers-teacher
-	ans.Patch("/:id", uqaCtrl.Patch)   // PATCH  /api/t/:school_x/quizzes-teacher/attempt-answers-teacher/:id
-	ans.Delete("/:id", uqaCtrl.Delete) // DELETE /api/t/:school_x/quizzes-teacher/attempt-answers-teacher/:id
+	ans.Get("/", uqaCtrl.List)         // GET    /api/t/quizzes-teacher/attempt-answers-teacher?attempt_id=...&question_id=...
+	ans.Post("/", uqaCtrl.Create)      // POST   /api/t/quizzes-teacher/attempt-answers-teacher
+	ans.Patch("/:id", uqaCtrl.Patch)   // PATCH  /api/t/quizzes-teacher/attempt-answers-teacher/:id
+	ans.Delete("/:id", uqaCtrl.Delete) // DELETE /api/t/quizzes-teacher/attempt-answers-teacher/:id
 
 	// ============================
 	// USER QUIZ ATTEMPTS
@@ -74,10 +66,10 @@ func mountQuizTeacherRoutes(base fiber.Router, db *gorm.DB) {
 	uqAttemptCtrl := quizcontroller.NewStudentQuizAttemptsController(db)
 	attempts := quizzes.Group("/attempts-teacher")
 
-	attempts.Get("/", uqAttemptCtrl.List)         // GET    /api/t/:school_x/quizzes-teacher/attempts-teacher?quiz_id=&student_id=&status=&active_only=true
-	attempts.Post("/", uqAttemptCtrl.Create)      // POST   /api/t/:school_x/quizzes-teacher/attempts-teacher
-	attempts.Patch("/:id", uqAttemptCtrl.Patch)   // PATCH  /api/t/:school_x/quizzes-teacher/attempts-teacher/:id
-	attempts.Delete("/:id", uqAttemptCtrl.Delete) // DELETE /api/t/:school_x/quizzes-teacher/attempts-teacher/:id
+	attempts.Get("/", uqAttemptCtrl.List)         // GET    /api/t/quizzes-teacher/attempts-teacher?quiz_id=&student_id=&status=&active_only=true
+	attempts.Post("/", uqAttemptCtrl.Create)      // POST   /api/t/quizzes-teacher/attempts-teacher
+	attempts.Patch("/:id", uqAttemptCtrl.Patch)   // PATCH  /api/t/quizzes-teacher/attempts-teacher/:id
+	attempts.Delete("/:id", uqAttemptCtrl.Delete) // DELETE /api/t/quizzes-teacher/attempts-teacher/:id
 }
 
 // Hindari duplikasi handler antara quiz-questions-teacher dan alias quiz-items-teacher

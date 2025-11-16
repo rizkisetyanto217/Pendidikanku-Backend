@@ -311,6 +311,7 @@ func pickImageFile(c *fiber.Ctx, names ...string) *multipart.FileHeader {
 /* =========================================================
    HANDLERS
 ========================================================= */
+
 // POST /admin/class-sections
 func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	log.Printf("[SECTIONS][CREATE] ▶️ incoming request")
@@ -345,12 +346,13 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 		schoolID = id
 	}
 
-	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
+	// ⬇️ hanya DKM/admin yang boleh buat section
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		var fe *fiber.Error
 		if errors.As(err, &fe) {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
-		return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar sebagai staff di school ini")
+		return helper.JsonError(c, fiber.StatusForbidden, "Hanya DKM/admin yang diizinkan mengelola section")
 	}
 
 	// ---- Parse req ----
@@ -570,8 +572,8 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Guard staff school
-	if err := helperAuth.EnsureStaffSchool(c, existing.ClassSectionSchoolID); err != nil {
+	// Guard akses DKM/admin pada school terkait
+	if err := helperAuth.EnsureDKMSchool(c, existing.ClassSectionSchoolID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -835,8 +837,8 @@ func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Guard akses staff pada school terkait
-	if err := helperAuth.EnsureStaffSchool(c, m.ClassSectionSchoolID); err != nil {
+	// Guard akses DKM/admin pada school terkait
+	if err := helperAuth.EnsureDKMSchool(c, m.ClassSectionSchoolID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}

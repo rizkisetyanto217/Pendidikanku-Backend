@@ -163,7 +163,7 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 	start := time.Now()
 	log.Printf("[CLASSES][CREATE] ▶️ incoming request")
 
-	/* ---- Resolve School Context + Staff Guard ---- */
+	/* ---- Resolve School Context + Guard DKM/Admin ---- */
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		log.Printf("[CLASSES][CREATE] ❌ resolve school ctx error: %v", err)
@@ -198,12 +198,13 @@ func (ctrl *ClassController) CreateClass(c *fiber.Ctx) error {
 		log.Printf("[CLASSES][CREATE] 🕌 school_id from token=%s", schoolID)
 	}
 
-	if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
-		log.Printf("[CLASSES][CREATE] ❌ ensure staff school failed: %v", err)
+	// 🔒 Hanya DKM/Admin yang boleh bikin kelas
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
+		log.Printf("[CLASSES][CREATE] ❌ ensure DKM school failed: %v", err)
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
-		return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar sebagai staff di school ini")
+		return helper.JsonError(c, fiber.StatusForbidden, "Hanya DKM/Admin yang diizinkan untuk mengelola kelas")
 	}
 
 	/* ---- Parse request & paksa tenant ---- */
@@ -424,8 +425,8 @@ func (ctrl *ClassController) PatchClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// ---- Guard staff pada school terkait ----
-	if err := helperAuth.EnsureStaffSchool(c, existing.ClassSchoolID); err != nil {
+	// 🔒 Guard: hanya DKM/Admin di school terkait
+	if err := helperAuth.EnsureDKMSchool(c, existing.ClassSchoolID); err != nil {
 		_ = tx.Rollback().Error
 		return err
 	}
@@ -691,8 +692,8 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// Guard staff pada school terkait
-	if err := helperAuth.EnsureStaffSchool(c, m.ClassSchoolID); err != nil {
+	// 🔒 Guard: hanya DKM/Admin pada school terkait
+	if err := helperAuth.EnsureDKMSchool(c, m.ClassSchoolID); err != nil {
 		_ = tx.Rollback()
 		return err
 	}

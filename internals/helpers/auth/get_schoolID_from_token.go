@@ -1,10 +1,9 @@
-// file: internals/helpers/helper.go
+// file: internals/helpers/auth/helper.go
 package helper
 
 import (
 	"encoding/base64"
 	"encoding/json"
-	"log"
 	"strings"
 
 	helper "schoolku_backend/internals/helpers"
@@ -23,19 +22,22 @@ const (
 	LocUserID = "user_id" // string | uuid
 
 	// Generic lists (legacy / optional)
-	LocSchoolIDs        = "school_ids"         // []string | []uuid.UUID
-	LocSchoolAdminIDs   = "school_admin_ids"   // []string | []uuid.UUID
-	LocSchoolDKMIDs     = "school_dkm_ids"     // []string | []uuid.UUID
-	LocSchoolTeacherIDs = "school_teacher_ids" // []string | []uuid.UUID
-	LocSchoolStudentIDs = "school_student_ids" // []string | []uuid.UUID
+	LocSchoolIDs        = "school_ids"         // []string | []uuid.UUID (optional)
+	LocSchoolAdminIDs   = "school_admin_ids"   // legacy (optional)
+	LocSchoolDKMIDs     = "school_dkm_ids"     // legacy (optional)
+	LocSchoolTeacherIDs = "school_teacher_ids" // legacy (optional)
+	LocSchoolStudentIDs = "school_student_ids" // legacy (optional)
 
 	// New structured claims (from verified middleware → set to locals)
 	LocRolesGlobal    = "roles_global"     // []string
 	LocSchoolRoles    = "school_roles"     // []SchoolRolesEntry | []map[string]any
 	LocIsOwner        = "is_owner"         // bool | "true"/"false"
-	LocActiveSchoolID = "active_school_id" // string UUID
-	LocTeacherRecords = "teacher_records"  // []TeacherRecordEntry | []map[string]any
-	LocStudentRecords = "student_records"  // []StudentRecordEntry | []map[string]any
+	LocActiveSchoolID = "active_school_id" // string UUID (optional)
+
+	// Convenience (disarankan middleware ikut set dari JWT claim)
+	LocSchoolID  = "school_id"  // string UUID
+	LocTeacherID = "teacher_id" // string UUID
+	LocStudentID = "student_id" // string UUID
 )
 
 /* ============================================
@@ -63,7 +65,7 @@ type StudentRecordEntry struct {
 }
 
 /* ============================================
-   Tiny shared helpers
+   Tiny shared DB helpers
    ============================================ */
 
 func quickHasTable(db *gorm.DB, table string) bool {
@@ -83,6 +85,10 @@ func quickHasFunction(db *gorm.DB, name string) bool {
 	_ = db.Raw(`SELECT EXISTS(SELECT 1 FROM pg_proc WHERE proname = ?)`, name).Scan(&ok).Error
 	return ok
 }
+
+/* ============================================
+   Locals normalizer
+   ============================================ */
 
 func normalizeLocalsToStrings(v any) []string {
 	out := make([]string, 0)
@@ -161,27 +167,31 @@ func parseUUIDSliceFromLocals(c *fiber.Ctx, key string) ([]uuid.UUID, error) {
 }
 
 /* ============================================
-   JWT fallback utilities (NO signature verify).
-   Pakai HANYA untuk data non-kritis (mis. user id fallback).
+   JWT payload reader (NO signature verify)
+   Hanya sebagai fallback / data non-kritis
    ============================================ */
 
 func readJWTClaims(c *fiber.Ctx) map[string]any {
 	auth := strings.TrimSpace(c.Get("Authorization"))
-	if auth != "" {
-		parts := strings.SplitN(auth, " ", 2)
-		token := parts[len(parts)-1]
-		seg := strings.Split(token, ".")
-		if len(seg) >= 2 {
-			if payload, err := base64.RawURLEncoding.DecodeString(seg[1]); err == nil {
-				var m map[string]any
-				_ = json.Unmarshal(payload, &m)
-				if len(m) > 0 {
-					return m
-				}
-			}
-		}
+	if auth == "" {
+		return nil
 	}
-	return nil
+	parts := strings.SplitN(auth, " ", 2)
+	token := parts[len(parts)-1]
+	seg := strings.Split(token, ".")
+	if len(seg) < 2 {
+		return nil
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(seg[1])
+	if err != nil {
+		return nil
+	}
+	var m map[string]any
+	_ = json.Unmarshal(payload, &m)
+	if len(m) == 0 {
+		return nil
+	}
+	return m
 }
 
 func claimString(claims map[string]any, key string) string {
@@ -207,11 +217,11 @@ func claimAny(claims map[string]any, key string) any {
 }
 
 /* ============================================
-   roles_global & school_roles (STRICT: locals only)
+   roles_global & school_roles
    ============================================ */
 
 func GetRolesGlobal(c *fiber.Ctx) []string {
-	v := c.Locals(LocRolesGlobal) // ← hanya locals terverifikasi
+	v := c.Locals(LocRolesGlobal)
 	out := make([]string, 0)
 	switch t := v.(type) {
 	case []string:
@@ -256,10 +266,10 @@ func GetRole(c *fiber.Ctx) string {
 	return ""
 }
 
-// --- school_roles parsing (STRICT: NO claims-first) ---
+// --- school_roles parsing ---
 
 func parseSchoolRoles(c *fiber.Ctx) ([]SchoolRolesEntry, error) {
-	v := c.Locals(LocSchoolRoles) // ← hanya locals dari middleware
+	v := c.Locals(LocSchoolRoles)
 	if v == nil {
 		return nil, fiber.NewError(fiber.StatusUnauthorized, LocSchoolRoles+" tidak ditemukan di token")
 	}
@@ -296,6 +306,7 @@ func parseSchoolRoles(c *fiber.Ctx) ([]SchoolRolesEntry, error) {
 			return nil, fiber.NewError(fiber.StatusUnauthorized, LocSchoolRoles+" kosong")
 		}
 		return out, nil
+
 	case []map[string]any:
 		out := make([]SchoolRolesEntry, 0, len(t))
 		for _, m := range t {
@@ -307,6 +318,7 @@ func parseSchoolRoles(c *fiber.Ctx) ([]SchoolRolesEntry, error) {
 			return nil, fiber.NewError(fiber.StatusUnauthorized, LocSchoolRoles+" kosong/invalid")
 		}
 		return out, nil
+
 	case []interface{}:
 		out := make([]SchoolRolesEntry, 0, len(t))
 		for _, it := range t {
@@ -321,26 +333,8 @@ func parseSchoolRoles(c *fiber.Ctx) ([]SchoolRolesEntry, error) {
 		}
 		return out, nil
 	}
-	return nil, fiber.NewError(fiber.StatusBadRequest, LocSchoolRoles+" format tidak didukung")
-}
 
-func getSchoolIDsFromSchoolRoles(c *fiber.Ctx) ([]uuid.UUID, error) {
-	entries, err := parseSchoolRoles(c)
-	if err != nil {
-		return nil, err
-	}
-	seen := map[uuid.UUID]struct{}{}
-	out := make([]uuid.UUID, 0, len(entries))
-	for _, e := range entries {
-		if _, ok := seen[e.SchoolID]; !ok {
-			seen[e.SchoolID] = struct{}{}
-			out = append(out, e.SchoolID)
-		}
-	}
-	if len(out) == 0 {
-		return nil, fiber.NewError(fiber.StatusUnauthorized, "school_id tidak ada pada school_roles")
-	}
-	return out, nil
+	return nil, fiber.NewError(fiber.StatusBadRequest, LocSchoolRoles+" format tidak didukung")
 }
 
 func HasRoleInSchool(c *fiber.Ctx, schoolID uuid.UUID, role string) bool {
@@ -365,30 +359,104 @@ func HasRoleInSchool(c *fiber.Ctx, schoolID uuid.UUID, role string) bool {
 }
 
 /* ============================================
-   active_school_id & role flags (STRICT: locals)
+   active_school_id & school_id helpers
    ============================================ */
 
 func GetActiveSchoolIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
-	v := c.Locals(LocActiveSchoolID)
-	if v == nil {
-		return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, LocActiveSchoolID+" tidak ditemukan di token")
-	}
-	switch t := v.(type) {
-	case string:
-		id, err := uuid.Parse(strings.TrimSpace(t))
-		if err != nil || id == uuid.Nil {
-			return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, LocActiveSchoolID+" tidak valid")
+	// 1) Prefer locals "active_school_id"
+	if v := c.Locals(LocActiveSchoolID); v != nil {
+		switch t := v.(type) {
+		case string:
+			id, err := uuid.Parse(strings.TrimSpace(t))
+			if err != nil || id == uuid.Nil {
+				return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, LocActiveSchoolID+" tidak valid")
+			}
+			return id, nil
+		case uuid.UUID:
+			if t != uuid.Nil {
+				return t, nil
+			}
 		}
-		return id, nil
-	case uuid.UUID:
-		if t != uuid.Nil {
-			return t, nil
-		}
 	}
-	return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, LocActiveSchoolID+" tidak valid")
+
+	// 2) Coba dari school_roles (dengan asumsi 1 sekolah per sesi)
+	if entries, err := parseSchoolRoles(c); err == nil && len(entries) > 0 {
+		return entries[0].SchoolID, nil
+	}
+
+	// 3) Fallback dari claim school_id
+	claims := readJWTClaims(c)
+	if s := claimString(claims, "school_id"); s != "" {
+		id, err := uuid.Parse(s)
+		if err == nil && id != uuid.Nil {
+			return id, nil
+		}
+		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "school_id di token tidak valid")
+	}
+
+	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "school_id tidak ditemukan di token")
 }
 
 func GetActiveSchoolID(c *fiber.Ctx) (uuid.UUID, error) { return GetActiveSchoolIDFromToken(c) }
+
+// Admin/DKM legacy helper – sekarang sama saja: 1 sesi = 1 sekolah
+func GetSchoolIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
+	return GetActiveSchoolIDFromToken(c)
+}
+
+// Prefer teacher scope → sekarang cukup sama dengan aktif
+func GetSchoolIDFromTokenPreferTeacher(c *fiber.Ctx) (uuid.UUID, error) {
+	return GetActiveSchoolIDFromToken(c)
+}
+
+// Multi-school legacy helper – sekarang selalu 0 atau 1
+func GetSchoolIDsFromToken(c *fiber.Ctx) ([]uuid.UUID, error) {
+	id, err := GetActiveSchoolIDFromToken(c)
+	if err != nil || id == uuid.Nil {
+		return nil, err
+	}
+	return []uuid.UUID{id}, nil
+}
+
+/* ============================================
+   User ID
+   ============================================ */
+
+func GetUserIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
+	// 1) locals (diset middleware)
+	if id, err := parseFirstUUIDFromLocals(c, LocUserID); err == nil && id != uuid.Nil {
+		return id, nil
+	}
+
+	// 2) legacy locals "sub"/"id"
+	for _, key := range []string{"sub", "id"} {
+		if v := c.Locals(key); v != nil {
+			if s, ok := v.(string); ok {
+				if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
+					c.Locals(LocUserID, id.String())
+					return id, nil
+				}
+			}
+		}
+	}
+
+	// 3) Fallback: baca langsung JWT payload (tanpa verify)
+	claims := readJWTClaims(c)
+	for _, k := range []string{"id", "sub", "user_id"} {
+		if s := claimString(claims, k); s != "" {
+			if id, err := uuid.Parse(s); err == nil {
+				c.Locals(LocUserID, id.String())
+				return id, nil
+			}
+		}
+	}
+
+	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "user_id tidak ditemukan di token")
+}
+
+/* ============================================
+   Role flags (global)
+   ============================================ */
 
 func IsOwner(c *fiber.Ctx) bool {
 	if v := c.Locals(LocIsOwner); v != nil {
@@ -405,11 +473,18 @@ func IsOwner(c *fiber.Ctx) bool {
 	return strings.ToLower(GetRole(c)) == "owner"
 }
 
-func roleExistsInAnySchool(c *fiber.Ctx, role string) bool {
-	ids, err := getSchoolIDsFromSchoolRoles(c)
-	if err == nil {
-		for _, id := range ids {
-			if HasRoleInSchool(c, id, role) {
+func isAnySchoolRole(c *fiber.Ctx, role string) bool {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role == "" {
+		return false
+	}
+	entries, err := parseSchoolRoles(c)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		for _, r := range e.Roles {
+			if r == role {
 				return true
 			}
 		}
@@ -421,498 +496,179 @@ func IsDKM(c *fiber.Ctx) bool {
 	if strings.ToLower(GetRole(c)) == "dkm" {
 		return true
 	}
-	if roleExistsInAnySchool(c, "dkm") {
+	if HasGlobalRole(c, "dkm") || HasGlobalRole(c, "admin") {
 		return true
 	}
+	if isAnySchoolRole(c, "dkm") || isAnySchoolRole(c, "admin") {
+		return true
+	}
+	// Legacy locals fallback
 	return HasUUIDClaim(c, LocSchoolDKMIDs) || HasUUIDClaim(c, LocSchoolAdminIDs)
 }
 
 func IsTeacher(c *fiber.Ctx) bool {
-	if recs, err := parseTeacherRecordsFromLocals(c); err == nil && len(recs) > 0 {
-		return true
-	}
 	if strings.EqualFold(GetRole(c), "teacher") || HasGlobalRole(c, "teacher") {
 		return true
 	}
-	return roleExistsInAnySchool(c, "teacher")
+	if isAnySchoolRole(c, "teacher") {
+		return true
+	}
+	if _, err := GetTeacherIDFromToken(c); err == nil {
+		return true
+	}
+	return HasUUIDClaim(c, LocSchoolTeacherIDs)
 }
 
 func IsStudent(c *fiber.Ctx) bool {
-	if recs, err := parseStudentRecordsFromLocals(c); err == nil && len(recs) > 0 {
-		return true
-	}
 	if strings.EqualFold(GetRole(c), "student") || HasGlobalRole(c, "student") {
 		return true
 	}
-	if roleExistsInAnySchool(c, "student") {
+	if isAnySchoolRole(c, "student") {
+		return true
+	}
+	if _, err := GetStudentIDFromToken(c, uuid.Nil); err == nil {
 		return true
 	}
 	return HasUUIDClaim(c, LocSchoolStudentIDs)
 }
 
 /* ============================================
-   teacher_records / student_records (STRICT: locals)
+   teacher_id / student_id helpers (single)
    ============================================ */
 
-type recordPair struct{ SchoolID, SecondID uuid.UUID }
+func getUUIDFromLocalsOrClaim(c *fiber.Ctx, localsKey, claimKey, humanName string) (uuid.UUID, error) {
+	// 1) locals
+	if v := c.Locals(localsKey); v != nil {
+		switch t := v.(type) {
+		case string:
+			id, err := uuid.Parse(strings.TrimSpace(t))
+			if err == nil && id != uuid.Nil {
+				return id, nil
+			}
+		case uuid.UUID:
+			if t != uuid.Nil {
+				return t, nil
+			}
+		}
+	}
 
-func drainPair(m map[string]any, schoolKey, secondKey string) (recordPair, bool) {
-	var rp recordPair
-	if s, ok := m[schoolKey].(string); ok {
-		if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
-			rp.SchoolID = id
+	// 2) fallback JWT payload
+	claims := readJWTClaims(c)
+	if s := claimString(claims, claimKey); s != "" {
+		id, err := uuid.Parse(s)
+		if err == nil && id != uuid.Nil {
+			return id, nil
 		}
+		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, humanName+" tidak valid di token")
 	}
-	if s, ok := m[secondKey].(string); ok {
-		if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
-			rp.SecondID = id
-		}
-	}
-	return rp, rp.SchoolID != uuid.Nil && rp.SecondID != uuid.Nil
+
+	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, humanName+" tidak ditemukan di token")
 }
 
-func parsePairsFromLocals(c *fiber.Ctx, localsKey, schoolKey, secondKey string) ([]recordPair, error) {
-	// STRICT: hanya locals, tidak mengambil dari JWT mentah
-	v := c.Locals(localsKey)
-	if v == nil {
-		return nil, fiber.NewError(fiber.StatusUnauthorized, localsKey+" tidak ditemukan di token")
-	}
-	switch t := v.(type) {
-	case []map[string]any:
-		out := make([]recordPair, 0, len(t))
-		for _, m := range t {
-			if rp, ok := drainPair(m, schoolKey, secondKey); ok {
-				out = append(out, rp)
-			}
-		}
-		if len(out) == 0 {
-			return nil, fiber.NewError(fiber.StatusUnauthorized, localsKey+" kosong/invalid")
-		}
-		return out, nil
-	case []interface{}:
-		out := make([]recordPair, 0, len(t))
-		for _, it := range t {
-			if m, ok := it.(map[string]any); ok {
-				if rp, ok := drainPair(m, schoolKey, secondKey); ok {
-					out = append(out, rp)
-				}
-			}
-		}
-		if len(out) == 0 {
-			return nil, fiber.NewError(fiber.StatusUnauthorized, localsKey+" kosong/invalid")
-		}
-		return out, nil
-	case []TeacherRecordEntry:
-		if localsKey == LocTeacherRecords {
-			out := make([]recordPair, 0, len(t))
-			for _, r := range t {
-				if r.SchoolID != uuid.Nil && r.SchoolTeacherID != uuid.Nil {
-					out = append(out, recordPair{r.SchoolID, r.SchoolTeacherID})
-				}
-			}
-			if len(out) == 0 {
-				return nil, fiber.NewError(fiber.StatusUnauthorized, localsKey+" kosong")
-			}
-			return out, nil
-		}
-	case []StudentRecordEntry:
-		if localsKey == LocStudentRecords {
-			out := make([]recordPair, 0, len(t))
-			for _, r := range t {
-				if r.SchoolID != uuid.Nil && r.SchoolStudentID != uuid.Nil {
-					out = append(out, recordPair{r.SchoolID, r.SchoolStudentID})
-				}
-			}
-			if len(out) == 0 {
-				return nil, fiber.NewError(fiber.StatusUnauthorized, localsKey+" kosong")
-			}
-			return out, nil
-		}
-	}
-	return nil, fiber.NewError(fiber.StatusBadRequest, localsKey+" format tidak didukung")
+func GetTeacherIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
+	return getUUIDFromLocalsOrClaim(c, LocTeacherID, "teacher_id", "teacher_id")
 }
 
-// ---- TEACHER ----
-func parseTeacherRecordsFromLocals(c *fiber.Ctx) ([]TeacherRecordEntry, error) {
-	pairs, err := parsePairsFromLocals(c, LocTeacherRecords, "school_id", "school_teacher_id")
+// NOTE: schoolID di-ignore karena 1 sesi = 1 sekolah.
+func GetStudentIDFromToken(c *fiber.Ctx, _ uuid.UUID) (uuid.UUID, error) {
+	return getUUIDFromLocalsOrClaim(c, LocStudentID, "student_id", "student_id")
+}
+
+/* ============================================
+   Teacher / Student “records” (compat, 1 sekolah)
+   ============================================ */
+
+func GetTeacherRecordsFromToken(c *fiber.Ctx) ([]TeacherRecordEntry, error) {
+	tid, err := GetTeacherIDFromToken(c)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]TeacherRecordEntry, 0, len(pairs))
-	for _, p := range pairs {
-		out = append(out, TeacherRecordEntry{SchoolTeacherID: p.SecondID, SchoolID: p.SchoolID})
-	}
-	return out, nil
-}
-
-func GetTeacherRecordsFromToken(c *fiber.Ctx) ([]TeacherRecordEntry, error) {
-	return parseTeacherRecordsFromLocals(c)
+	sid, _ := GetActiveSchoolIDFromToken(c)
+	return []TeacherRecordEntry{
+		{SchoolTeacherID: tid, SchoolID: sid},
+	}, nil
 }
 
 func GetSchoolTeacherIDsFromToken(c *fiber.Ctx) ([]uuid.UUID, error) {
-	recs, err := parseTeacherRecordsFromLocals(c)
+	tid, err := GetTeacherIDFromToken(c)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]uuid.UUID, 0, len(recs))
-	seen := map[uuid.UUID]struct{}{}
-	for _, r := range recs {
-		if r.SchoolTeacherID == uuid.Nil {
-			continue
-		}
-		if _, ok := seen[r.SchoolTeacherID]; !ok {
-			seen[r.SchoolTeacherID] = struct{}{}
-			out = append(out, r.SchoolTeacherID)
-		}
-	}
-	if len(out) == 0 {
-		return nil, fiber.NewError(fiber.StatusUnauthorized, "school_teacher_id tidak ditemukan di token")
-	}
-	return out, nil
+	return []uuid.UUID{tid}, nil
 }
 
 func GetSchoolTeacherIDForSchool(c *fiber.Ctx, schoolID uuid.UUID) (uuid.UUID, error) {
 	if schoolID == uuid.Nil {
 		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "school_id wajib")
 	}
-	recs, err := parseTeacherRecordsFromLocals(c)
+	act, err := GetActiveSchoolIDFromToken(c)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	for _, r := range recs {
-		if r.SchoolID == schoolID && r.SchoolTeacherID != uuid.Nil {
-			return r.SchoolTeacherID, nil
-		}
+	if act != schoolID {
+		return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "school_teacher_id untuk school tersebut tidak ada di token")
 	}
-	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "school_teacher_id untuk school tersebut tidak ada di token")
+	return GetTeacherIDFromToken(c)
 }
 
 func GetPrimarySchoolTeacherID(c *fiber.Ctx) (uuid.UUID, error) {
-	recs, err := parseTeacherRecordsFromLocals(c)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	if act, err2 := GetActiveSchoolIDFromToken(c); err2 == nil && act != uuid.Nil {
-		if mt, e := GetSchoolTeacherIDForSchool(c, act); e == nil {
-			return mt, nil
-		}
-	}
-	if len(recs) > 0 && recs[0].SchoolTeacherID != uuid.Nil {
-		return recs[0].SchoolTeacherID, nil
-	}
-	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "school_teacher_id tidak tersedia")
-}
-
-// ---- STUDENT ----
-func parseStudentRecordsFromLocals(c *fiber.Ctx) ([]StudentRecordEntry, error) {
-	pairs, err := parsePairsFromLocals(c, LocStudentRecords, "school_id", "school_student_id")
-	if err != nil {
-		return nil, err
-	}
-	out := make([]StudentRecordEntry, 0, len(pairs))
-	for _, p := range pairs {
-		out = append(out, StudentRecordEntry{SchoolStudentID: p.SecondID, SchoolID: p.SchoolID})
-	}
-	return out, nil
+	return GetTeacherIDFromToken(c)
 }
 
 func GetStudentRecordsFromToken(c *fiber.Ctx) ([]StudentRecordEntry, error) {
-	return parseStudentRecordsFromLocals(c)
-}
-
-func GetSchoolStudentIDsFromToken(c *fiber.Ctx) ([]uuid.UUID, error) {
-	recs, err := parseStudentRecordsFromLocals(c)
+	sid, err := GetStudentIDFromToken(c, uuid.Nil)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]uuid.UUID, 0, len(recs))
-	seen := map[uuid.UUID]struct{}{}
-	for _, r := range recs {
-		if r.SchoolStudentID == uuid.Nil {
-			continue
-		}
-		if _, ok := seen[r.SchoolStudentID]; !ok {
-			seen[r.SchoolStudentID] = struct{}{}
-			out = append(out, r.SchoolStudentID)
-		}
+	schoolID, _ := GetActiveSchoolIDFromToken(c)
+	return []StudentRecordEntry{
+		{SchoolStudentID: sid, SchoolID: schoolID},
+	}, nil
+}
+
+func GetSchoolStudentIDsFromToken(c *fiber.Ctx) ([]uuid.UUID, error) {
+	sid, err := GetStudentIDFromToken(c, uuid.Nil)
+	if err != nil {
+		return nil, err
 	}
-	if len(out) == 0 {
-		return nil, fiber.NewError(fiber.StatusUnauthorized, "school_student_id tidak ditemukan di token")
-	}
-	return out, nil
+	return []uuid.UUID{sid}, nil
 }
 
 func GetSchoolStudentIDForSchool(c *fiber.Ctx, schoolID uuid.UUID) (uuid.UUID, error) {
-	log.Println("DEBUG schoolID =", schoolID)
-
 	if schoolID == uuid.Nil {
 		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "school_id wajib")
 	}
-
-	// lihat apa isi locals-nya
-	log.Printf("DEBUG Locals(%s) = %#v\n", LocStudentRecords, c.Locals(LocStudentRecords))
-
-	recs, err := parseStudentRecordsFromLocals(c)
+	act, err := GetActiveSchoolIDFromToken(c)
 	if err != nil {
-		log.Println("DEBUG parseStudentRecordsFromLocals error:", err)
 		return uuid.Nil, err
 	}
-	log.Println("DEBUG student recs:", recs)
-
-	for _, r := range recs {
-		log.Println("DEBUG compare", r.SchoolID, "vs", schoolID, "sid =", r.SchoolStudentID)
-		if r.SchoolID == schoolID && r.SchoolStudentID != uuid.Nil {
-			return r.SchoolStudentID, nil
-		}
+	if act != schoolID {
+		return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "school_student_id untuk school tersebut tidak ada di token")
 	}
-	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "school_student_id untuk school tersebut tidak ada di token")
+	return GetStudentIDFromToken(c, schoolID)
 }
 
 func GetPrimarySchoolStudentID(c *fiber.Ctx) (uuid.UUID, error) {
-	recs, err := parseStudentRecordsFromLocals(c)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	if act, err2 := GetActiveSchoolIDFromToken(c); err2 == nil && act != uuid.Nil {
-		if sid, e := GetSchoolStudentIDForSchool(c, act); e == nil {
-			return sid, nil
-		}
-	}
-	if len(recs) > 0 && recs[0].SchoolStudentID != uuid.Nil {
-		return recs[0].SchoolStudentID, nil
-	}
-	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "school_student_id tidak tersedia")
+	return GetStudentIDFromToken(c, uuid.Nil)
 }
 
-// Helper alias for controller
-func GetStudentIDFromToken(c *fiber.Ctx, schoolID uuid.UUID) (uuid.UUID, error) {
-	return GetSchoolStudentIDForSchool(c, schoolID)
+/* Alias yang dipakai controller lama */
+func GetStudentIDFromTokenCompat(c *fiber.Ctx, schoolID uuid.UUID) (uuid.UUID, error) {
+	return GetStudentIDFromToken(c, schoolID)
 }
 
 /* ============================================
-   Single-tenant getters (compat + new token)
-   ============================================ */
-
-func GetUserIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
-	if id, err := parseFirstUUIDFromLocals(c, LocUserID); err == nil && id != uuid.Nil {
-		return id, nil
-	}
-	if v := c.Locals("sub"); v != nil {
-		if s, ok := v.(string); ok {
-			if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
-				c.Locals(LocUserID, id.String())
-				return id, nil
-			}
-		}
-	}
-	if v := c.Locals("id"); v != nil {
-		if s, ok := v.(string); ok {
-			if id, err := uuid.Parse(strings.TrimSpace(s)); err == nil {
-				c.Locals(LocUserID, id.String())
-				return id, nil
-			}
-		}
-	}
-	// Fallback terakhir: dari JWT mentah (non-kritis untuk auth scoping)
-	claims := readJWTClaims(c)
-	for _, k := range []string{"id", "sub", "user_id"} {
-		if s := claimString(claims, k); s != "" {
-			if id, err := uuid.Parse(s); err == nil {
-				c.Locals(LocUserID, id.String())
-				return id, nil
-			}
-		}
-	}
-	return uuid.Nil, fiber.NewError(fiber.StatusUnauthorized, "user_id tidak ditemukan di token")
-}
-
-// Admin/DKM only (legacy behavior)
-func GetSchoolIDFromToken(c *fiber.Ctx) (uuid.UUID, error) {
-	if id, err := parseFirstUUIDFromLocals(c, LocSchoolDKMIDs); err == nil {
-		return id, nil
-	}
-	return parseFirstUUIDFromLocals(c, LocSchoolAdminIDs)
-}
-
-// Prefer teacher scope
-func GetSchoolIDFromTokenPreferTeacher(c *fiber.Ctx) (uuid.UUID, error) {
-	if recs, err := parseTeacherRecordsFromLocals(c); err == nil && len(recs) > 0 {
-		if act, err2 := GetActiveSchoolIDFromToken(c); err2 == nil && act != uuid.Nil {
-			for _, r := range recs {
-				if r.SchoolID == act {
-					return act, nil
-				}
-			}
-		}
-		return recs[0].SchoolID, nil
-	}
-	if id, err := GetSchoolIDFromToken(c); err == nil {
-		return id, nil
-	}
-	if ids, err := parseUUIDSliceFromLocals(c, LocSchoolIDs); err == nil && len(ids) > 0 {
-		return ids[0], nil
-	}
-	if ids, err := getSchoolIDsFromSchoolRoles(c); err == nil && len(ids) > 0 {
-		return ids[0], nil
-	}
-	return parseFirstUUIDFromLocals(c, LocSchoolAdminIDs)
-}
-
-/* ============================================
-   Multi-tenant getter (STRICT-ish)
-   ============================================ */
-
-func GetSchoolIDsFromToken(c *fiber.Ctx) ([]uuid.UUID, error) {
-	// 1) langsung dari locals (diset middleware)
-	if ids, err := parseUUIDSliceFromLocals(c, LocSchoolIDs); err == nil && len(ids) > 0 {
-		return ids, nil
-	}
-
-	// 2) teacher_records → daftar school
-	if recs, err := parseTeacherRecordsFromLocals(c); err == nil && len(recs) > 0 {
-		seen := map[uuid.UUID]struct{}{}
-		out := make([]uuid.UUID, 0, len(recs))
-		for _, r := range recs {
-			if _, ok := seen[r.SchoolID]; !ok {
-				seen[r.SchoolID] = struct{}{}
-				out = append(out, r.SchoolID)
-			}
-		}
-		if len(out) > 0 {
-			return out, nil
-		}
-	}
-
-	// 3) student_records → daftar school
-	if recs, err := parseStudentRecordsFromLocals(c); err == nil && len(recs) > 0 {
-		seen := map[uuid.UUID]struct{}{}
-		out := make([]uuid.UUID, 0, len(recs))
-		for _, r := range recs {
-			if _, ok := seen[r.SchoolID]; !ok {
-				seen[r.SchoolID] = struct{}{}
-				out = append(out, r.SchoolID)
-			}
-		}
-		if len(out) > 0 {
-			return out, nil
-		}
-	}
-
-	// 4) fallback dari school_roles terstruktur
-	if ids, err := getSchoolIDsFromSchoolRoles(c); err == nil && len(ids) > 0 {
-		return ids, nil
-	}
-
-	// 5) terakhir: kumpulkan dari locals legacy per peran
-	groups := []string{LocSchoolTeacherIDs, LocSchoolDKMIDs, LocSchoolAdminIDs, LocSchoolStudentIDs}
-	seen := map[uuid.UUID]struct{}{}
-	out := make([]uuid.UUID, 0, 4)
-	var anyFound bool
-	for _, key := range groups {
-		v := c.Locals(key)
-		if v == nil {
-			continue
-		}
-		anyFound = true
-		for _, s := range normalizeLocalsToStrings(v) {
-			id, err := uuid.Parse(strings.TrimSpace(s))
-			if err != nil {
-				return nil, fiber.NewError(fiber.StatusBadRequest, key+" berisi UUID tidak valid")
-			}
-			if id == uuid.Nil {
-				continue
-			}
-			if _, ok := seen[id]; !ok {
-				seen[id] = struct{}{}
-				out = append(out, id)
-			}
-		}
-	}
-	if !anyFound || len(out) == 0 {
-		if id, err := GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-			return []uuid.UUID{id}, nil
-		}
-		return nil, fiber.NewError(fiber.StatusUnauthorized, "School ID tidak ditemukan di token")
-	}
-	return out, nil
-}
-
-/* ============================================
-   DB-role helpers (unchanged logic)
-   ============================================ */
-
-func EnsureGlobalRole(tx *gorm.DB, userID uuid.UUID, roleName string, assignedBy *uuid.UUID) error {
-	if !quickHasTable(tx, "roles") || !quickHasTable(tx, "user_roles") {
-		return nil
-	}
-	if quickHasFunction(tx, "fn_grant_role") {
-		var idStr string
-		if assignedBy != nil {
-			return tx.Raw(`SELECT fn_grant_role(?::uuid, ?::text, NULL::uuid, ?::uuid)::text`, userID, strings.ToLower(roleName), *assignedBy).Scan(&idStr).Error
-		}
-		return tx.Raw(`SELECT fn_grant_role(?::uuid, ?::text, NULL::uuid, NULL::uuid)::text`, userID, strings.ToLower(roleName)).Scan(&idStr).Error
-	}
-
-	var roleID string
-	if err := tx.Raw(`SELECT role_id::text FROM roles WHERE LOWER(role_name)=LOWER(?) LIMIT 1`, roleName).Scan(&roleID).Error; err != nil {
-		return err
-	}
-	if roleID == "" {
-		if err := tx.Raw(`INSERT INTO roles(role_name) VALUES (LOWER(?)) RETURNING role_id::text`, roleName).Scan(&roleID).Error; err != nil {
-			return err
-		}
-	}
-
-	var exists bool
-	if err := tx.Raw(`SELECT EXISTS(SELECT 1 FROM user_roles WHERE user_id=?::uuid AND role_id=?::uuid AND school_id IS NULL AND deleted_at IS NULL)`, userID, roleID).Scan(&exists).Error; err != nil {
-		return err
-	}
-	if exists {
-		return nil
-	}
-
-	if assignedBy != nil {
-		return tx.Exec(`INSERT INTO user_roles(user_id, role_id, school_id, assigned_at, assigned_by) VALUES (?::uuid, ?::uuid, NULL, now(), ?::uuid)`, userID, roleID, *assignedBy).Error
-	}
-	return tx.Exec(`INSERT INTO user_roles(user_id, role_id, school_id, assigned_at) VALUES (?::uuid, ?::uuid, NULL, now())`, userID, roleID).Error
-}
-
-func GrantScopedRoleDKM(tx *gorm.DB, userID, schoolID uuid.UUID) error {
-	if !quickHasTable(tx, "roles") || !quickHasTable(tx, "user_roles") {
-		return nil
-	}
-	if quickHasFunction(tx, "fn_grant_role") {
-		var idStr string
-		return tx.Raw(`SELECT fn_grant_role(?::uuid, 'dkm'::text, ?::uuid, ?::uuid)::text`, userID, schoolID, userID).Scan(&idStr).Error
-	}
-
-	var roleID string
-	if err := tx.Raw(`SELECT role_id::text FROM roles WHERE LOWER(role_name)='dkm' LIMIT 1`).Scan(&roleID).Error; err != nil {
-		return err
-	}
-	if roleID == "" {
-		if err := tx.Raw(`INSERT INTO roles(role_name) VALUES ('dkm') RETURNING role_id::text`).Scan(&roleID).Error; err != nil {
-			return err
-		}
-	}
-	var exists bool
-	if err := tx.Raw(`SELECT EXISTS(SELECT 1 FROM user_roles WHERE user_id=?::uuid AND role_id=?::uuid AND school_id=?::uuid AND deleted_at IS NULL)`, userID, roleID, schoolID).Scan(&exists).Error; err != nil {
-		return err
-	}
-	if exists {
-		return nil
-	}
-	return tx.Exec(`INSERT INTO user_roles(user_id, role_id, school_id, assigned_at, assigned_by) VALUES (?::uuid, ?::uuid, ?::uuid, now(), ?::uuid)`, userID, roleID, schoolID, userID).Error
-}
-
-/* ============================================
-   Misc
+   Single-tenant helpers (compat)
    ============================================ */
 
 func HasUUIDClaim(c *fiber.Ctx, key string) bool {
 	ids, err := parseUUIDSliceFromLocals(c, key)
 	return err == nil && len(ids) > 0
 }
+
+/* ============================================
+   Multi-tenant claim helper (untuk RolesClaim struct)
+   ============================================ */
 
 func GetActiveSchoolIDIfSingle(rc RolesClaim) *string {
 	if len(rc.SchoolRoles) == 1 && rc.SchoolRoles[0].SchoolID != uuid.Nil {
@@ -923,55 +679,44 @@ func GetActiveSchoolIDIfSingle(rc RolesClaim) *string {
 }
 
 /* ============================================
-   Per-school legacy helpers (per school)
+   Per-school helpers (compat)
    ============================================ */
 
-func hasUUIDClaimForSchool(c *fiber.Ctx, key string, schoolID uuid.UUID) bool {
+func IsTeacherInSchool(c *fiber.Ctx, schoolID uuid.UUID) bool {
 	if schoolID == uuid.Nil {
 		return false
 	}
-	ids, err := parseUUIDSliceFromLocals(c, key)
-	if err != nil {
-		return false
-	}
-	for _, id := range ids {
-		if id == schoolID {
+	// 1) Jika token aktif di school ini dan punya teacher_id → true
+	if act, err := GetActiveSchoolIDFromToken(c); err == nil && act == schoolID {
+		if _, err := GetTeacherIDFromToken(c); err == nil {
 			return true
 		}
 	}
-	return false
-}
-
-func IsTeacherInSchool(c *fiber.Ctx, schoolID uuid.UUID) bool {
-	if recs, err := parseTeacherRecordsFromLocals(c); err == nil {
-		for _, r := range recs {
-			if r.SchoolID == schoolID {
-				return true
-			}
-		}
-	}
-	return hasUUIDClaimForSchool(c, LocSchoolTeacherIDs, schoolID)
+	// 2) legacy locals
+	return HasUUIDClaim(c, LocSchoolTeacherIDs)
 }
 
 func IsStudentInSchool(c *fiber.Ctx, schoolID uuid.UUID) bool {
-	if recs, err := parseStudentRecordsFromLocals(c); err == nil {
-		for _, r := range recs {
-			if r.SchoolID == schoolID {
-				return true
-			}
+	if schoolID == uuid.Nil {
+		return false
+	}
+	if act, err := GetActiveSchoolIDFromToken(c); err == nil && act == schoolID {
+		if _, err := GetStudentIDFromToken(c, schoolID); err == nil {
+			return true
 		}
 	}
-	return hasUUIDClaimForSchool(c, LocSchoolStudentIDs, schoolID)
+	return HasUUIDClaim(c, LocSchoolStudentIDs)
 }
 
 func IsDKMInSchool(c *fiber.Ctx, schoolID uuid.UUID) bool {
-	if hasUUIDClaimForSchool(c, LocSchoolDKMIDs, schoolID) {
+	if schoolID == uuid.Nil {
+		return false
+	}
+	// Dengan model baru, presence cukup dicek via roles
+	if HasRoleInSchool(c, schoolID, "dkm") || HasRoleInSchool(c, schoolID, "admin") {
 		return true
 	}
-	if hasUUIDClaimForSchool(c, LocSchoolAdminIDs, schoolID) {
-		return true
-	}
-	return false
+	return HasUUIDClaim(c, LocSchoolDKMIDs) || HasUUIDClaim(c, LocSchoolAdminIDs)
 }
 
 /* ============================================
@@ -982,23 +727,11 @@ func isSchoolPresentInToken(c *fiber.Ctx, schoolID uuid.UUID) bool {
 	if schoolID == uuid.Nil {
 		return false
 	}
-	// 1) school_roles terstruktur
-	if entries, err := parseSchoolRoles(c); err == nil {
-		for _, e := range entries {
-			if e.SchoolID == schoolID {
-				return true
-			}
-		}
+	act, err := GetActiveSchoolIDFromToken(c)
+	if err != nil || act == uuid.Nil {
+		return false
 	}
-	// 2) school_ids umum (hanya jika middleware set)
-	if ids, err := parseUUIDSliceFromLocals(c, LocSchoolIDs); err == nil {
-		for _, id := range ids {
-			if id == schoolID {
-				return true
-			}
-		}
-	}
-	return false
+	return act == schoolID
 }
 
 /* ============================================
@@ -1048,7 +781,6 @@ func markGuardOK(c *fiber.Ctx, schoolID uuid.UUID) {
 	}
 }
 
-// NOTE: nama & signature dipertahankan agar kompatibel.
 func ensureRolesInSchool(
 	c *fiber.Ctx,
 	schoolID uuid.UUID,
@@ -1066,7 +798,7 @@ func ensureRolesInSchool(
 		return nil
 	}
 
-	// 2) Presence gate (STRICT)
+	// 2) Presence gate
 	if !isSchoolPresentInToken(c, schoolID) {
 		return helper.JsonError(c, fiber.StatusForbidden, "School ini tidak ada dalam token Anda")
 	}
@@ -1076,7 +808,7 @@ func ensureRolesInSchool(
 		return err
 	}
 
-	// 4) Cek peran terstruktur
+	// 4) Cek peran di school_roles
 	for _, r := range roles {
 		r = strings.ToLower(strings.TrimSpace(r))
 		if HasRoleInSchool(c, schoolID, r) {
@@ -1085,7 +817,7 @@ func ensureRolesInSchool(
 		}
 	}
 
-	// 5) Legacy per-school fallback
+	// 5) Legacy fallback
 	if legacyFallback != nil && legacyFallback() {
 		markGuardOK(c, schoolID)
 		return nil
@@ -1098,7 +830,7 @@ func ensureRolesInSchool(
 }
 
 /* ============================================
-   Publik wrappers (nama & signature tidak berubah)
+   Publik wrappers (nama & signature dipertahankan)
    ============================================ */
 
 func EnsureMemberSchool(c *fiber.Ctx, schoolID uuid.UUID) error {
@@ -1148,8 +880,9 @@ func OwnerOnly() fiber.Handler {
 	}
 }
 
+
 /* ============================================
-   OPTIONAL: Middleware util untuk write-lock
+   Middleware util untuk write-lock
    ============================================ */
 
 // Pastikan semua POST/PUT/PATCH/DELETE ke /api/a/:school_id/* sudah lewat Ensure*School
@@ -1185,4 +918,86 @@ func ParseSchoolIDFromPath(c *fiber.Ctx) (uuid.UUID, error) {
 		return uuid.Nil, helper.JsonError(c, fiber.StatusBadRequest, "school_id path tidak valid")
 	}
 	return id, nil
+}
+
+/* ============================================
+   DB-role helpers (unchanged logic)
+   ============================================ */
+
+func EnsureGlobalRole(tx *gorm.DB, userID uuid.UUID, roleName string, assignedBy *uuid.UUID) error {
+	if !quickHasTable(tx, "roles") || !quickHasTable(tx, "user_roles") {
+		return nil
+	}
+	if quickHasFunction(tx, "fn_grant_role") {
+		var idStr string
+		if assignedBy != nil {
+			return tx.Raw(`SELECT fn_grant_role(?::uuid, ?::text, NULL::uuid, ?::uuid)::text`,
+				userID, strings.ToLower(roleName), *assignedBy).Scan(&idStr).Error
+		}
+		return tx.Raw(`SELECT fn_grant_role(?::uuid, ?::text, NULL::uuid, NULL::uuid)::text`,
+			userID, strings.ToLower(roleName)).Scan(&idStr).Error
+	}
+
+	var roleID string
+	if err := tx.Raw(`SELECT role_id::text FROM roles WHERE LOWER(role_name)=LOWER(?) LIMIT 1`, roleName).Scan(&roleID).Error; err != nil {
+		return err
+	}
+	if roleID == "" {
+		if err := tx.Raw(`INSERT INTO roles(role_name) VALUES (LOWER(?)) RETURNING role_id::text`, roleName).Scan(&roleID).Error; err != nil {
+			return err
+		}
+	}
+
+	var exists bool
+	if err := tx.Raw(`SELECT EXISTS(
+		SELECT 1 FROM user_roles
+		WHERE user_id=?::uuid AND role_id=?::uuid AND school_id IS NULL AND deleted_at IS NULL
+	)`, userID, roleID).Scan(&exists).Error; err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
+	if assignedBy != nil {
+		return tx.Exec(`INSERT INTO user_roles(user_id, role_id, school_id, assigned_at, assigned_by)
+			VALUES (?::uuid, ?::uuid, NULL, now(), ?::uuid)`, userID, roleID, *assignedBy).Error
+	}
+	return tx.Exec(`INSERT INTO user_roles(user_id, role_id, school_id, assigned_at)
+		VALUES (?::uuid, ?::uuid, NULL, now())`, userID, roleID).Error
+}
+
+func GrantScopedRoleDKM(tx *gorm.DB, userID, schoolID uuid.UUID) error {
+	if !quickHasTable(tx, "roles") || !quickHasTable(tx, "user_roles") {
+		return nil
+	}
+	if quickHasFunction(tx, "fn_grant_role") {
+		var idStr string
+		return tx.Raw(`SELECT fn_grant_role(?::uuid, 'dkm'::text, ?::uuid, ?::uuid)::text`,
+			userID, schoolID, userID).Scan(&idStr).Error
+	}
+
+	var roleID string
+	if err := tx.Raw(`SELECT role_id::text FROM roles WHERE LOWER(role_name)='dkm' LIMIT 1`).Scan(&roleID).Error; err != nil {
+		return err
+	}
+	if roleID == "" {
+		if err := tx.Raw(`INSERT INTO roles(role_name) VALUES ('dkm') RETURNING role_id::text`).Scan(&roleID).Error; err != nil {
+			return err
+		}
+	}
+	var exists bool
+	if err := tx.Raw(`SELECT EXISTS(
+		SELECT 1 FROM user_roles
+		WHERE user_id=?::uuid AND role_id=?::uuid AND school_id=?::uuid AND deleted_at IS NULL
+	)`, userID, roleID, schoolID).Scan(&exists).Error; err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
+	return tx.Exec(`INSERT INTO user_roles(user_id, role_id, school_id, assigned_at, assigned_by)
+		VALUES (?::uuid, ?::uuid, ?::uuid, now(), ?::uuid)`,
+		userID, roleID, schoolID, userID).Error
 }

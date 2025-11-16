@@ -19,30 +19,45 @@ import (
 	=========================================================
 */
 func (ctl *ClassParentController) List(c *fiber.Ctx) error {
-	// -------- Resolve school context --------
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
+	// Biar helper lain bisa ambil DB dari Locals kalau perlu
+	c.Locals("DB", ctl.DB)
+
+	// =====================================================
+	// 1) Tentukan schoolID:
+	//    - Prioritas: dari token (GetSchoolIDFromTokenPreferTeacher)
+	//    - Fallback: dari ResolveSchoolContext (id / slug)
+	// =====================================================
 
 	var schoolID uuid.UUID
-	switch {
-	case mc.ID != uuid.Nil:
-		schoolID = mc.ID
-	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
-		if er != nil {
-			if er == gorm.ErrRecordNotFound {
-				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school")
-		}
+
+	// 1. Coba dulu dari token (teacher/student/dll)
+	if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
 		schoolID = id
-	default:
-		return helper.JsonError(c, fiber.StatusBadRequest, helperAuth.ErrSchoolContextMissing.Error())
+	} else {
+		// 2. Kalau gagal / tidak ada token → pakai context multi-sumber
+		mc, err := helperAuth.ResolveSchoolContext(c)
+		if err != nil {
+			if fe, ok := err.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		}
+
+		switch {
+		case mc.ID != uuid.Nil:
+			schoolID = mc.ID
+		case strings.TrimSpace(mc.Slug) != "":
+			id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
+			if er != nil {
+				if er == gorm.ErrRecordNotFound {
+					return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school")
+			}
+			schoolID = id
+		default:
+			return helper.JsonError(c, fiber.StatusBadRequest, helperAuth.ErrSchoolContextMissing.Error())
+		}
 	}
 
 	// -------- query params --------
@@ -51,13 +66,15 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")
 	}
 
-	// ✅ Paging (standar jsonresponse) — hilangkan clampLimit
+	// ✅ Paging (standar jsonresponse)
 	p := helper.ResolvePaging(c, 20, 200)
 
 	// only_my flag
 	onlyMy := false
 	if v := strings.TrimSpace(c.Query("only_my")); v != "" {
-		onlyMy = strings.EqualFold(v, "1") || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
+		onlyMy = strings.EqualFold(v, "1") ||
+			strings.EqualFold(v, "true") ||
+			strings.EqualFold(v, "yes")
 	}
 
 	// -------- base query --------
@@ -134,7 +151,6 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 					JOIN class_sections s
 					  ON s.class_sections_class_id = c.class_id
 					 AND s.class_sections_deleted_at IS NULL
-					-- 🔁 ganti class_section_students -> student_class_sections
 					LEFT JOIN student_class_sections scs
 					  ON scs.student_class_section_section_id = s.class_sections_id
 					 AND scs.student_class_section_deleted_at IS NULL

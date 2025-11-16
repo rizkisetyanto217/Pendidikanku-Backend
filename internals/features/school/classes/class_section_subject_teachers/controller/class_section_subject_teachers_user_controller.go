@@ -264,7 +264,6 @@ type listQuery struct {
 }
 
 /* ================================ Handler (NO-INCLUDE, NO-JOIN) ================================ */
-
 func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	detectCSSTFKs(ctl.DB)
 	_ = csstSubjectFK
@@ -300,6 +299,11 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		)
 	}
 
+	// ❌ JANGAN ada EnsureStaffSchool di sini
+	// if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
+	//     return err
+	// }
+
 	// path :id (detail)
 	var pathID *uuid.UUID
 	if s := strings.TrimSpace(c.Params("id")); s != "" {
@@ -317,21 +321,18 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	}
 
 	// ===== Paging (standar jsonresponse) =====
-	// default per_page=20, max=200; hormati ?offset= bila dikirim
 	p := helper.ResolvePaging(c, 20, 200)
 	if q.Offset != nil && *q.Offset >= 0 {
 		p.Offset = *q.Offset
 	}
 	limit, offset := p.Limit, p.Offset
 
-	// qparams tambahan (tanpa include)
 	sectionID := strings.TrimSpace(c.Query("section_id"))
 	classSubID := strings.TrimSpace(c.Query("class_subject_id"))
-	subjectID := strings.TrimSpace(c.Query("subject_id")) // via subquery (tanpa join)
+	subjectID := strings.TrimSpace(c.Query("subject_id"))
 	teacherID := strings.TrimSpace(c.Query("teacher_id"))
 	qtext := strings.TrimSpace(strings.ToLower(c.Query("q")))
 
-	// sorting whitelist
 	orderBy := fmt.Sprintf("csst.%s", csstCreatedAtCol)
 	if q.OrderBy != nil {
 		switch strings.ToLower(*q.OrderBy) {
@@ -356,12 +357,11 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		sort = "DESC"
 	}
 
-	/* ===================== BASE QUERY (DATA) ===================== */
+	// BASE QUERY
 	tx := ctl.DB.
 		Table("class_section_subject_teachers AS csst").
 		Where(fmt.Sprintf("csst.%s = ?", csstSchoolCol), schoolID)
 
-	// soft delete guard
 	if q.WithDeleted == nil || !*q.WithDeleted {
 		tx = tx.Where(fmt.Sprintf("csst.%s IS NULL", csstDeletedAtCol))
 	}
@@ -369,10 +369,9 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		tx = tx.Where(fmt.Sprintf("csst.%s = ?", csstIsActiveCol), *q.IsActive)
 	}
 
-	// SELECT kolom dasar (semua dari CSST saja)
 	selectCols := []string{"csst.*"}
 
-	// ============= FILTERS (tanpa join) =============
+	// FILTERS
 	if teacherID != "" && csstTeacherFK != "" {
 		if _, e := uuid.Parse(teacherID); e == nil {
 			tx = tx.Where(fmt.Sprintf("csst.%s = ?", csstTeacherFK), teacherID)
@@ -388,7 +387,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			tx = tx.Where(fmt.Sprintf("csst.%s = ?", csstClassSubjectFK), classSubID)
 		}
 	}
-	// subject_id — via subquery ke class_subjects (tanpa JOIN)
 	if subjectID != "" && csstClassSubjectFK != "" {
 		if _, e := uuid.Parse(subjectID); e == nil {
 			tx = tx.Where(fmt.Sprintf(`
@@ -401,13 +399,11 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 			`, csstClassSubjectFK, csstSchoolCol), subjectID)
 		}
 	}
-
-	// qtext (display_name snapshot)
 	if qtext != "" {
 		tx = tx.Where("LOWER(csst.class_section_subject_teacher_display_name) LIKE ?", "%"+qtext+"%")
 	}
 
-	// ===== DETAIL BY ID =====
+	// DETAIL BY ID
 	if pathID != nil {
 		var row csstJoinedRow
 		if err := tx.
@@ -422,7 +418,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		return helper.JsonOK(c, "OK", toCSSTResp(row))
 	}
 
-	/* ============================ COUNT ============================ */
+	// COUNT
 	countTx := ctl.DB.
 		Table("class_section_subject_teachers AS csst").
 		Where(fmt.Sprintf("csst.%s = ?", csstSchoolCol), schoolID)
@@ -469,7 +465,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total data")
 	}
 
-	/* ============================= LIST ============================ */
+	// LIST
 	var rows []csstJoinedRow
 	if err := tx.
 		Select(strings.Join(selectCols, ", ")).
@@ -485,7 +481,6 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		out = append(out, toCSSTResp(r))
 	}
 
-	// ===== Pagination meta + response standar =====
 	pg := helper.BuildPaginationFromOffset(total, offset, limit)
 	return helper.JsonList(c, "ok", out, pg)
 }
