@@ -12,8 +12,10 @@ import (
 	"gorm.io/gorm"
 
 	dto "schoolku_backend/internals/features/school/academics/academic_terms/dto"
-	model "schoolku_backend/internals/features/school/academics/academic_terms/model"
-	classmodel "schoolku_backend/internals/features/school/classes/classes/model"
+
+	termModel "schoolku_backend/internals/features/school/academics/academic_terms/model"
+	classSectionModel "schoolku_backend/internals/features/school/classes/class_sections/model"
+	classModel "schoolku_backend/internals/features/school/classes/classes/model"
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
 )
@@ -92,7 +94,7 @@ func (ctl *AcademicTermController) Create(c *fiber.Ctx) error {
 	// Uniqueness per school untuk code (opsional)
 	if p.AcademicTermCode != nil && strings.TrimSpace(*p.AcademicTermCode) != "" {
 		var cnt int64
-		if err := ctl.DB.Model(&model.AcademicTermModel{}).
+		if err := ctl.DB.Model(&termModel.AcademicTermModel{}).
 			Where("academic_term_school_id = ? AND academic_term_code = ?", schoolID, *p.AcademicTermCode).
 			Count(&cnt).Error; err != nil {
 			return httpErr(c, fiber.StatusInternalServerError, "Gagal memeriksa kode")
@@ -167,7 +169,7 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 	var out dto.AcademicTermResponseDTO
 
 	txErr := ctl.DB.Transaction(func(tx *gorm.DB) error {
-		var ent model.AcademicTermModel
+		var ent termModel.AcademicTermModel
 		if err := tx.
 			Where("academic_term_school_id = ? AND academic_term_id = ?", schoolID, id).
 			First(&ent).Error; err != nil {
@@ -220,7 +222,7 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 		// Uniqueness kode jika berubah
 		if p.AcademicTermCode != nil && strings.TrimSpace(*p.AcademicTermCode) != "" {
 			var cnt int64
-			if err := tx.Model(&model.AcademicTermModel{}).
+			if err := tx.Model(&termModel.AcademicTermModel{}).
 				Where(`academic_term_school_id = ? AND academic_term_code = ? AND academic_term_id <> ?`,
 					schoolID, *p.AcademicTermCode, ent.AcademicTermID).
 				Count(&cnt).Error; err != nil {
@@ -296,7 +298,7 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
 				ent.AcademicTermName, ent.AcademicTermName, ent.AcademicTermName,
 			)
 
-			if err := tx.Model(&classmodel.ClassModel{}).
+			if err := tx.Model(&classModel.ClassModel{}).
 				Where("class_school_id = ? AND class_term_id = ? AND class_deleted_at IS NULL",
 					schoolID, ent.AcademicTermID).
 				Updates(map[string]any{
@@ -329,6 +331,10 @@ func (ctl *AcademicTermController) updateCommon(c *fiber.Ctx, _ bool) error {
    DELETE (soft) — DKM only
    DELETE /admin/academic-terms/:id
 ========================================================= */
+/* =========================================================
+   DELETE (soft) — DKM only
+   DELETE /admin/academic-terms/:id
+========================================================= */
 
 func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 	// optional locals DB
@@ -352,7 +358,8 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 		return err
 	}
 
-	var ent model.AcademicTermModel
+	// 1) Pastikan term-nya ada
+	var ent termModel.AcademicTermModel
 	if err := ctl.DB.
 		Where("academic_term_school_id = ? AND academic_term_id = ?", schoolID, id).
 		First(&ent).Error; err != nil {
@@ -362,9 +369,36 @@ func (ctl *AcademicTermController) Delete(c *fiber.Ctx) error {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
+	// 2) CEGAH delete kalau masih ada kelas yang pakai term ini
+	var classCount int64
+	if err := ctl.DB.
+		Model(&classModel.ClassModel{}).
+		Where("class_school_id = ? AND class_academic_term_id = ? AND class_deleted_at IS NULL", schoolID, id).
+		Count(&classCount).Error; err != nil {
+		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengecek relasi kelas")
+	}
+
+	// 3) CEGAH delete kalau masih ada class_sections yang pakai term ini
+	var sectionCount int64
+	if err := ctl.DB.
+		Model(&classSectionModel.ClassSectionModel{}).
+		Where("class_section_school_id = ? AND class_section_academic_term_id = ? AND class_section_deleted_at IS NULL", schoolID, id).
+		Count(&sectionCount).Error; err != nil {
+		return httpErr(c, fiber.StatusInternalServerError, "Gagal mengecek relasi rombel")
+	}
+
+	if classCount > 0 || sectionCount > 0 {
+		// Bisa kamu ganti msg sesuai kebutuhan UX
+		return httpErr(c, fiber.StatusConflict,
+			"Tidak dapat menghapus tahun akademik karena masih ada kelas/rombel yang menggunakan tahun akademik ini. Silakan nonaktifkan atau pindahkan kelas & rombel terlebih dahulu.",
+		)
+	}
+
+	// 4) Aman → soft delete term
 	if err := ctl.DB.Delete(&ent).Error; err != nil {
 		return httpErr(c, fiber.StatusInternalServerError, "Gagal menghapus data")
 	}
+
 	return helper.JsonDeleted(c, "Berhasil menghapus tahun akademik", fiber.Map{
 		"academic_term_id": id,
 	})
@@ -397,7 +431,7 @@ func (ctl *AcademicTermController) Restore(c *fiber.Ctx) error {
 		return err
 	}
 
-	var ent model.AcademicTermModel
+	var ent termModel.AcademicTermModel
 	if err := ctl.DB.Unscoped().
 		Where("academic_term_school_id = ? AND academic_term_id = ?", schoolID, id).
 		First(&ent).Error; err != nil {
@@ -448,7 +482,7 @@ func (ctl *AcademicTermController) SetActive(c *fiber.Ctx) error {
 		return err
 	}
 
-	var ent model.AcademicTermModel
+	var ent termModel.AcademicTermModel
 	if err := ctl.DB.
 		Where("academic_term_school_id = ? AND academic_term_id = ?", schoolID, id).
 		First(&ent).Error; err != nil {

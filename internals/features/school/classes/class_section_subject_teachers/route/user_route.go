@@ -11,29 +11,25 @@ import (
 
 /*
 User routes: read-only (student/parent/teacher)
+
 Contoh mount:
 
-	SubjectUserRoutes(app.Group("/api/u"), db)
+	CSSTUserRoutes(app.Group("/api/u"), db)
 
 Sehingga endpoint jadi:
 
-	GET /api/u/:school_id/subjects/list
-	GET /api/u/:school_slug/subjects/list
-	dst.
-*/
-func AllCSSTRoutes(r fiber.Router, db *gorm.DB) {
-	// Controllers
+	GET /api/u/class-section-subject-teachers/list
 
+Catatan:
+- school diambil dari token (active_school) via UseSchoolScope.
+- Kalau token tidak ada / active_school kosong → harusnya balikin ErrSchoolContextMissing dari helper.
+*/
+func CSSTUserRoutes(r fiber.Router, db *gorm.DB) {
+	// Controller
 	csstCtl := &csstController.ClassSectionSubjectTeacherController{DB: db}
 
-	// ===== Base by school_id =====
-	baseByID := r.Group("/:school_id")
-	csstByID := baseByID.Group("/class-section-subject-teachers")
-	csstByID.Get("/list", csstCtl.List)
-
-	// ===== Base by school_slug (beri prefix 'slug' agar tidak bentrok) =====
-	baseBySlug := r.Group("/slug/:school_slug", schoolkuMiddleware.UseSchoolScope())
-	csstBySlug := baseBySlug.Group("/class-section-subject-teachers")
-	csstBySlug.Get("/list", csstCtl.List)
-
+	// Pure token-scope: Tidak pakai :school_id / :school_slug di path
+	base := r.Group("/", schoolkuMiddleware.UseSchoolScope())
+	csst := base.Group("/class-section-subject-teachers")
+	csst.Get("/list", csstCtl.List)
 }

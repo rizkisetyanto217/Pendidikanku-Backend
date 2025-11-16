@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	dto "schoolku_backend/internals/features/school/academics/books/dto"
-	model "schoolku_backend/internals/features/school/academics/books/model"
+	bookModel "schoolku_backend/internals/features/school/academics/books/model"
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
 	helperOSS "schoolku_backend/internals/helpers/oss"
@@ -202,7 +202,7 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 					log.Printf("[BOOKS][CREATE] upload OK url=%s key=%q", uploadedURL, objKey)
 
 					if err := h.DB.WithContext(c.Context()).
-						Model(&model.BookModel{}).
+						Model(&bookModel.BookModel{}).
 						Where("book_id = ?", ent.BookID).
 						Updates(map[string]any{
 							"book_image_url":        uploadedURL,
@@ -288,7 +288,7 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 	}()
 
 	// --- Lock entity ---
-	var m model.BookModel
+	var m bookModel.BookModel
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 		First(&m, "book_id = ?", bookID).Error; err != nil {
 		_ = tx.Rollback().Error
@@ -416,7 +416,7 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 		upd["class_subject_book_book_publication_year_snapshot"] = gorm.Expr("NULL")
 	}
 
-	if err := tx.Model(&model.ClassSubjectBookModel{}).
+	if err := tx.Model(&bookModel.ClassSubjectBookModel{}).
 		Where(`
 			class_subject_book_school_id = ?
 			AND class_subject_book_book_id = ?
@@ -445,6 +445,13 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 
 =========================================================
 */
+/*
+=========================================================
+
+    DELETE (soft) - /api/a/:school_id/books/:id
+
+=========================================================
+*/
 func (h *BooksController) Delete(c *fiber.Ctx) error {
 	if c.Locals("DB") == nil {
 		c.Locals("DB", h.DB)
@@ -465,36 +472,60 @@ func (h *BooksController) Delete(c *fiber.Ctx) error {
 		}
 	}
 
+	// --- Parse book_id ---
 	rawID := strings.TrimSpace(c.Params("id"))
-	urlID, err := uuid.Parse(rawID)
-	if err != nil || urlID == uuid.Nil {
-		return helper.JsonError(c, fiber.StatusBadRequest, "book_url_id tidak valid")
+	bookID, err := uuid.Parse(rawID)
+	if err != nil || bookID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "book_id tidak valid")
 	}
 
-	var u model.BookURLModel
-	if err := h.DB.First(&u, "book_url_id = ?", urlID).Error; err != nil {
+	// --- Ambil entity buku ---
+	var b bookModel.BookModel
+	if err := h.DB.
+		Where("book_school_id = ? AND book_id = ?", schoolID, bookID).
+		First(&b).Error; err != nil {
+
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return helper.JsonError(c, fiber.StatusNotFound, "Data URL tidak ditemukan")
+			return helper.JsonError(c, fiber.StatusNotFound, "Data buku tidak ditemukan")
 		}
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data URL")
-	}
-	if u.BookURLSchoolID != schoolID {
-		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak")
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data buku")
 	}
 
-	// Soft delete
-	if err := h.DB.Delete(&u).Error; err != nil {
-		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus URL")
+	// === GUARD 1: Masih dipakai di BookURL? ===
+	var urlCount int64
+	if err := h.DB.
+		Model(&bookModel.BookURLModel{}).
+		Where("book_url_school_id = ? AND book_url_book_id = ? AND book_url_deleted_at IS NULL", schoolID, bookID).
+		Count(&urlCount).Error; err != nil {
+
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengecek relasi URL buku")
 	}
 
-	// (Opsional) tandai pending window untuk cleanup OSS oleh worker (mis. 7 hari)
-	if u.BookURLObjectKey != nil {
-		_ = h.DB.Model(&model.BookURLModel{}).
-			Where("book_url_id = ?", urlID).
-			Update("book_url_delete_pending_until", time.Now().Add(7*24*time.Hour)).Error
+	// === GUARD 2: Masih dipakai di ClassSubjectBook? ===
+	var csbCount int64
+	if err := h.DB.
+		Model(&bookModel.ClassSubjectBookModel{}).
+		Where("class_subject_book_school_id = ? AND class_subject_book_book_id = ? AND class_subject_book_deleted_at IS NULL", schoolID, bookID).
+		Count(&csbCount).Error; err != nil {
+
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengecek relasi buku pada mata pelajaran")
 	}
 
-	return helper.JsonDeleted(c, "URL buku berhasil dihapus", fiber.Map{
-		"book_url_id": urlID,
+	if urlCount > 0 || csbCount > 0 {
+		// Bisa kamu tweak kalimatnya biar lebih friendly
+		return helper.JsonError(
+			c,
+			fiber.StatusConflict,
+			"Tidak dapat menghapus buku karena masih digunakan di URL buku atau terhubung dengan mata pelajaran. Silakan hapus/putuskan relasi tersebut terlebih dahulu.",
+		)
+	}
+
+	// --- Aman → soft delete buku ---
+	if err := h.DB.Delete(&b).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus buku")
+	}
+
+	return helper.JsonDeleted(c, "Buku berhasil dihapus", fiber.Map{
+		"book_id": bookID,
 	})
 }

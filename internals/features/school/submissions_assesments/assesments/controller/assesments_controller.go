@@ -17,10 +17,12 @@ import (
 	dto "schoolku_backend/internals/features/school/submissions_assesments/assesments/dto"
 	model "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
 
-	helper "schoolku_backend/internals/helpers"
-	helperAuth "schoolku_backend/internals/helpers/auth"
 	quizDTO "schoolku_backend/internals/features/school/submissions_assesments/quizzes/dto"
 	quizModel "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
+	helper "schoolku_backend/internals/helpers"
+	helperAuth "schoolku_backend/internals/helpers/auth"
+
+	submissionsModel "schoolku_backend/internals/features/school/submissions_assesments/submissions/model"
 )
 
 /*
@@ -817,6 +819,9 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Assessment (mode date) diperbarui", dto.FromModelAssesment(existing))
 }
 
+// tambahin import di atas:
+// subModel "schoolku_backend/internals/features/assessments/submissions/model"
+
 // DELETE /assessments/:id (soft delete)
 func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
@@ -835,6 +840,27 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
+	// 🔒 GUARD: cek apakah assessment masih dipakai oleh submissions
+	var usedCount int64
+	if err := ctl.DB.WithContext(c.Context()).
+		Model(&submissionsModel.Submission{}).
+		Where(`
+			submission_school_id = ?
+			AND submission_assessment_id = ?
+			AND submission_deleted_at IS NULL
+		`, mid, id).
+		Count(&usedCount).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengecek relasi submissions")
+	}
+	if usedCount > 0 {
+		return helper.JsonError(
+			c,
+			fiber.StatusBadRequest,
+			"Tidak dapat menghapus assessment karena masih memiliki submission siswa.",
+		)
+	}
+
+	// 🔎 Ambil row assessment yang masih hidup
 	var row model.AssessmentModel
 	if err := ctl.DB.WithContext(c.Context()).
 		Where(`
@@ -849,6 +875,7 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
+	// 🗑 Soft delete
 	if err := ctl.DB.WithContext(c.Context()).Delete(&row).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus assessment")
 	}

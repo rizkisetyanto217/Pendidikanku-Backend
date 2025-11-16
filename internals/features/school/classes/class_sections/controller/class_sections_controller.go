@@ -21,6 +21,7 @@ import (
 	helperOSS "schoolku_backend/internals/helpers/oss"
 
 	semstats "schoolku_backend/internals/features/lembaga/stats/semester_stats/service"
+	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	secDTO "schoolku_backend/internals/features/school/classes/class_sections/dto"
 	secModel "schoolku_backend/internals/features/school/classes/class_sections/model"
 	classModel "schoolku_backend/internals/features/school/classes/classes/model"
@@ -841,6 +842,28 @@ func (ctrl *ClassSectionController) SoftDeleteClassSection(c *fiber.Ctx) error {
 	if err := helperAuth.EnsureDKMSchool(c, m.ClassSectionSchoolID); err != nil {
 		_ = tx.Rollback()
 		return err
+	}
+
+	// 🔒 GUARD: masih dipakai di class_section_subject_teachers (CSST)?
+	var csstCount int64
+	if err := tx.Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+		Where(`
+			class_section_subject_teacher_school_id = ?
+			AND class_section_subject_teacher_class_section_id = ?
+			AND class_section_subject_teacher_deleted_at IS NULL
+		`, m.ClassSectionSchoolID, m.ClassSectionID).
+		Count(&csstCount).Error; err != nil {
+
+		_ = tx.Rollback()
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengecek relasi subject teachers")
+	}
+
+	if csstCount > 0 {
+		_ = tx.Rollback()
+		return fiber.NewError(
+			fiber.StatusBadRequest,
+			"Section tidak dapat dihapus karena masih digunakan oleh pengampu mapel (subject teachers). Mohon hapus/ubah pengampu yang terkait terlebih dahulu.",
+		)
 	}
 
 	wasActive := m.ClassSectionIsActive

@@ -14,6 +14,8 @@ import (
 	schoolDto "schoolku_backend/internals/features/lembaga/school_yayasans/schools/dto"
 	schoolModel "schoolku_backend/internals/features/lembaga/school_yayasans/schools/model"
 
+	classModel "schoolku_backend/internals/features/school/classes/classes/model"
+
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -443,76 +445,84 @@ func (mc *SchoolController) Patch(c *fiber.Ctx) error {
 	})
 }
 
-// DELETE /api/schools/:id/files { "url": "https://..." }
-type deleteReq struct {
-	URL string `json:"url"`
-}
-
+// 🟢 DELETE SCHOOL
 func (mc *SchoolController) Delete(c *fiber.Ctx) error {
 	id, err := parseSchoolID(c)
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// ===== AUTH via helperAuth (DKM only) =====
+	// 🔒 AUTH: minimal DKM di school tsb (atau Owner kalau mau lebih ketat)
 	schoolID, aerr := helperAuth.EnsureSchoolAccessDKM(c, helperAuth.SchoolContext{ID: id})
 	if aerr != nil {
-		return helper.JsonError(c, aerr.(*fiber.Error).Code, aerr.Error())
+		if fe, ok := aerr.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusForbidden, aerr.Error())
 	}
 	if schoolID != id {
 		return helper.JsonError(c, fiber.StatusForbidden, "Akses ditolak: school tidak sesuai")
 	}
-	// ==========================================
 
-	var body deleteReq
-	if err := c.BodyParser(&body); err != nil || strings.TrimSpace(body.URL) == "" {
-		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid (butuh url)")
+	// Pastikan school exist & belum soft-deleted
+	var sch schoolModel.SchoolModel
+	if err := mc.DB.
+		Where("school_id = ? AND school_deleted_at IS NULL", id).
+		First(&sch).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return helper.JsonError(c, fiber.StatusNotFound, "School tidak ditemukan / sudah dihapus")
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data school")
 	}
 
-	if !withinSchoolScope(id, body.URL) {
-		return helper.JsonError(c, fiber.StatusForbidden, "URL di luar scope school ini")
+	// =======================
+	// GUARD RELASI
+	// =======================
+
+	// pattern: hitung data aktif di tabel2 inti → kalau >0, tolak
+	type dep struct {
+		name  string
+		count int64
 	}
 
-	spamURL, mvErr := helperOSS.MoveToSpamByPublicURLENV(body.URL, 15*time.Second)
-	if mvErr != nil {
-		return helper.JsonError(c, fiber.StatusBadGateway, fmt.Sprintf("Gagal memindahkan ke spam: %v", mvErr))
+	deps := []dep{
+		// school_profiles
+		func() dep {
+			var n int64
+			_ = mc.DB.Model(&schoolModel.SchoolProfileModel{}).
+				Where("school_profile_school_id = ? AND school_profile_deleted_at IS NULL", id).
+				Count(&n).Error
+			return dep{name: "profil sekolah", count: n}
+		}(),
+		// classes
+		func() dep {
+			var n int64
+			_ = mc.DB.Model(&classModel.ClassModel{}).
+				Where("class_school_id = ? AND class_deleted_at IS NULL", id).
+				Count(&n).Error
+			return dep{name: "kelas (classes)", count: n}
+		}(),
 	}
 
-	var m schoolModel.SchoolModel
-	if err := mc.DB.First(&m, "school_id = ?", id).Error; err == nil {
-		changed := false
-		now := time.Now()
-
-		if m.SchoolLogoURL != nil && *m.SchoolLogoURL == body.URL {
-			m.SchoolLogoURL = nil
-			m.SchoolLogoObjectKey = nil
-			changed = true
-		}
-		if m.SchoolLogoURLOld != nil && *m.SchoolLogoURLOld == body.URL {
-			m.SchoolLogoURLOld = nil
-			m.SchoolLogoObjectKeyOld = nil
-			m.SchoolLogoDeletePendingUntil = nil
-			changed = true
-		}
-		if m.SchoolBackgroundURL != nil && *m.SchoolBackgroundURL == body.URL {
-			m.SchoolBackgroundURL = nil
-			m.SchoolBackgroundObjectKey = nil
-			changed = true
-		}
-		if m.SchoolBackgroundURLOld != nil && *m.SchoolBackgroundURLOld == body.URL {
-			m.SchoolBackgroundURLOld = nil
-			m.SchoolBackgroundObjectKeyOld = nil
-			m.SchoolBackgroundDeletePendingUntil = nil
-			changed = true
-		}
-		if changed {
-			m.SchoolUpdatedAt = now
-			_ = mc.DB.Save(&m).Error // best-effort
+	for _, d := range deps {
+		if d.count > 0 {
+			return helper.JsonError(
+				c,
+				fiber.StatusBadRequest,
+				fmt.Sprintf("Tidak dapat menghapus school karena masih ada %s terkait (%d record).", d.name, d.count),
+			)
 		}
 	}
 
-	return helper.JsonOK(c, "Dipindahkan ke spam", fiber.Map{
-		"from_url": body.URL,
-		"spam_url": spamURL,
+	// =======================
+	// Soft delete school
+	// =======================
+
+	if err := mc.DB.Delete(&sch).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus school")
+	}
+
+	return helper.JsonDeleted(c, "School berhasil dihapus", fiber.Map{
+		"school_id": sch.SchoolID,
 	})
 }

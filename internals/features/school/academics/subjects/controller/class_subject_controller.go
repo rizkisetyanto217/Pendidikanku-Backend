@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	classSubjectBookModel "schoolku_backend/internals/features/school/academics/books/model"
 	csDTO "schoolku_backend/internals/features/school/academics/subjects/dto"
 	csModel "schoolku_backend/internals/features/school/academics/subjects/model"
 	snapshotSubject "schoolku_backend/internals/features/school/academics/subjects/snapshot"
@@ -606,6 +607,27 @@ func (h *ClassSubjectController) Delete(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh menghapus data milik school lain")
 		}
 
+		// ===== GUARD: masih dipakai di class_subject_books? =====
+		var usedCount int64
+		if err := tx.Model(&classSubjectBookModel.ClassSubjectBookModel{}).
+			Where(`
+				class_subject_book_school_id = ?
+				AND class_subject_book_class_subject_id = ?
+				AND class_subject_book_deleted_at IS NULL
+			`, schoolID, m.ClassSubjectID).
+			Count(&usedCount).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengecek relasi buku")
+		}
+
+		if usedCount > 0 {
+			// Blokir baik soft maupun hard delete
+			return fiber.NewError(
+				fiber.StatusBadRequest,
+				"Class subject tidak dapat dihapus karena masih digunakan pada relasi buku (class_subject_books). Hapus/ubah relasi tersebut terlebih dahulu.",
+			)
+		}
+
+		// ===== Lanjut hapus (kalau sudah tidak dipakai) =====
 		if force {
 			// hard delete benar-benar hapus row
 			if err := tx.Unscoped().Delete(&csModel.ClassSubjectModel{}, "class_subject_id = ?", id).Error; err != nil {

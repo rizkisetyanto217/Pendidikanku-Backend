@@ -542,6 +542,28 @@ func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 		return err
 	}
 
+	// ===== GUARD: masih dipakai di classes? =====
+	var usedCount int64
+	if err := ctl.DB.WithContext(c.Context()).
+		Model(&classModel.ClassModel{}).
+		Where(`
+			class_school_id = ?
+			AND class_class_parent_id = ?
+			AND class_deleted_at IS NULL
+		`, ent.ClassParentSchoolID, ent.ClassParentID).
+		Count(&usedCount).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengecek relasi kelas")
+	}
+
+	if usedCount > 0 {
+		return helper.JsonError(
+			c,
+			fiber.StatusBadRequest,
+			"Parent kelas tidak dapat dihapus karena masih digunakan oleh kelas aktif. Mohon hapus/ubah kelas yang terkait terlebih dahulu.",
+		)
+	}
+
+	// ==== Soft delete parent ====
 	now := time.Now()
 	if err := ctl.DB.WithContext(c.Context()).
 		Model(&classModel.ClassParentModel{}).
@@ -564,8 +586,6 @@ func (ctl *ClassParentController) Delete(c *fiber.Ctx) error {
 		if _, err := helperOSS.MoveToSpamByPublicURLENV(imageURL, 0); err != nil {
 			// optional: log.Print(err)
 		}
-		// Kalau mau hard-delete:
-		// _, _ = helperOSS.DeleteByPublicURLENV(imageURL, 15*time.Second)
 	}
 
 	return helper.JsonDeleted(c, "Berhasil menghapus parent kelas", fiber.Map{

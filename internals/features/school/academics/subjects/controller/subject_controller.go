@@ -12,6 +12,7 @@ import (
 
 	subjectDTO "schoolku_backend/internals/features/school/academics/subjects/dto"
 	subjectModel "schoolku_backend/internals/features/school/academics/subjects/model"
+	 
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
 	helperOSS "schoolku_backend/internals/helpers/oss"
@@ -555,6 +556,28 @@ func (h *SubjectsController) Delete(c *fiber.Ctx) error {
 	// Guard: Hanya DKM/Admin pada school terkait
 	if err := helperAuth.EnsureDKMSchool(c, ent.SubjectSchoolID); err != nil {
 		return err
+	}
+
+	// ===== GUARD: cek apakah subject masih dipakai di class_subjects =====
+	var usedCount int64
+	if err := h.DB.WithContext(c.Context()).
+		Model(&subjectModel.ClassSubjectModel{}).
+		Where(`
+			class_subject_school_id = ?
+			AND class_subject_subject_id = ?
+			AND class_subject_deleted_at IS NULL
+		`, ent.SubjectSchoolID, ent.SubjectID).
+		Count(&usedCount).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengecek pemakaian subject")
+	}
+
+	if usedCount > 0 {
+		// Bisa kamu tweak wording-nya
+		return helper.JsonError(
+			c,
+			fiber.StatusBadRequest,
+			"Subject tidak dapat dihapus karena masih digunakan pada mapel kelas (class_subjects). Hapus/ubah relasi tersebut terlebih dahulu.",
+		)
 	}
 
 	// Soft delete bila belum

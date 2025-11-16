@@ -9,6 +9,7 @@ import (
 	csbDTO "schoolku_backend/internals/features/school/academics/books/dto"
 	csbModel "schoolku_backend/internals/features/school/academics/books/model"
 	bookSnap "schoolku_backend/internals/features/school/academics/books/snapshot"
+	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
 
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
@@ -510,6 +511,26 @@ func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusForbidden, "Tidak boleh menghapus data milik school lain")
 		}
 
+		// 🔒 GUARD: tidak boleh dihapus kalau masih dipakai CSST
+		var csstCount int64
+		if err := tx.
+			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+			Where(
+				"class_section_subject_teacher_school_id = ? AND class_section_subject_teacher_class_subject_book_id = ? AND class_section_subject_teacher_deleted_at IS NULL",
+				schoolID, m.ClassSubjectBookID,
+			).
+			Count(&csstCount).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengecek relasi ke pengampu mapel (CSST)")
+		}
+
+		if csstCount > 0 {
+			return fiber.NewError(
+				fiber.StatusBadRequest,
+				"Tidak dapat menghapus relasi buku karena masih digunakan di pengampu mapel/rombel (CSST). Nonaktifkan atau hapus CSST terkait terlebih dahulu.",
+			)
+		}
+
+		// === path hard delete (force) ===
 		if force {
 			if err := tx.Delete(&csbModel.ClassSubjectBookModel{}, "class_subject_book_id = ?", id).Error; err != nil {
 				msg := strings.ToLower(err.Error())
@@ -519,6 +540,7 @@ func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 				return fiber.NewError(fiber.StatusInternalServerError, "Gagal menghapus data")
 			}
 		} else {
+			// === path soft delete ===
 			if m.ClassSubjectBookDeletedAt.Valid {
 				return fiber.NewError(fiber.StatusBadRequest, "Data sudah dihapus")
 			}

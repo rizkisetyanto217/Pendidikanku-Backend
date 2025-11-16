@@ -20,6 +20,10 @@ import (
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
 
+	classSectionModel "schoolku_backend/internals/features/school/classes/class_sections/model"
+
+	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
+
 	dto "schoolku_backend/internals/features/school/academics/rooms/dto"
 	model "schoolku_backend/internals/features/school/academics/rooms/model"
 	helperOSS "schoolku_backend/internals/helpers/oss"
@@ -435,6 +439,7 @@ func (ctl *ClassRoomController) Patch(c *fiber.Ctx) error {
 }
 
 /* ============================ DELETE ============================ */
+/* ============================ DELETE ============================ */
 
 func (ctl *ClassRoomController) Delete(c *fiber.Ctx) error {
 	// Require DKM/Admin (owner boleh) + resolve schoolID
@@ -466,12 +471,48 @@ func (ctl *ClassRoomController) Delete(c *fiber.Ctx) error {
 		}
 	}
 
-	id, err := uuid.Parse(c.Params("id"))
-	if err != nil {
+	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+	if err != nil || id == uuid.Nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
-	// Pastikan tenant match & alive → soft delete
+	/* ========== GUARD: cek apakah room masih dipakai ========== */
+
+	// 1) Dipakai di class_sections ?
+	var secCount int64
+	if err := ctl.DB.Model(&classSectionModel.ClassSectionModel{}).
+		Where(`
+			class_section_school_id = ?
+			AND class_section_class_room_id = ?
+			AND class_section_deleted_at IS NULL
+		`, schoolID, id).
+		Count(&secCount).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengecek pemakaian room di kelas/rombel")
+	}
+
+	// 2) Dipakai di class_section_subject_teachers (CSST) ?
+	var csstCount int64
+	if err := ctl.DB.Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+		Where(`
+			class_section_subject_teacher_school_id = ?
+			AND class_section_subject_teacher_class_room_id = ?
+			AND class_section_subject_teacher_deleted_at IS NULL
+		`, schoolID, id).
+		Count(&csstCount).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengecek pemakaian room di pengampu mapel")
+	}
+
+	if secCount > 0 || csstCount > 0 {
+		// Bisa kamu pecah kalau mau sebut detail, tapi simple dulu aja
+		return helper.JsonError(
+			c,
+			fiber.StatusBadRequest,
+			"Tidak dapat menghapus ruang kelas karena masih digunakan di kelas/rombel atau pengampu mapel. Lepaskan relasi tersebut terlebih dahulu.",
+		)
+	}
+
+	/* ========== Aman → soft delete ========== */
+
 	tx := ctl.DB.WithContext(reqCtx(c)).Model(&model.ClassRoomModel{}).
 		Where("class_room_id = ? AND class_room_school_id = ? AND class_room_deleted_at IS NULL", id, schoolID).
 		Update("class_room_deleted_at", time.Now())
@@ -481,7 +522,8 @@ func (ctl *ClassRoomController) Delete(c *fiber.Ctx) error {
 	if tx.RowsAffected == 0 {
 		return helper.JsonError(c, fiber.StatusNotFound, "Data tidak ditemukan / sudah terhapus")
 	}
-	return helper.JsonDeleted(c, "Deleted", fiber.Map{"deleted": true})
+
+	return helper.JsonDeleted(c, "Ruang kelas berhasil dihapus", fiber.Map{"class_room_id": id})
 }
 
 /* ============================ RESTORE ============================ */

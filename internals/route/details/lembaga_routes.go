@@ -53,11 +53,6 @@ func LembagaPublicRoutes(r fiber.Router, db *gorm.DB) {
 	CSSTRoutes.AllCSSTRoutes(r, db)
 	ScheduleRoutes.AllScheduleRoutes(r, db)
 
-	// Classes (public read)
-	// ClassRoutes.ClassPublicRoutes(r, db)
-	// Tambahkan modul lain (public) di sini:
-	// SectionRoutes.SectionPublicRoutes(r, db)
-	// ScheduleRoutes.SchedulePublicRoutes(r, db)
 	SchoolRoutes.AllSchoolRoutes(r, db)
 }
 
@@ -82,12 +77,7 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 
 	SubjectRoutes.SubjectUserRoutes(r, db)
 	RoomsRoutes.RoomsUserRoutes(r, db)
-	// Classes (user actions: enroll, progress, dsb)
-	// ClassRoutes.ClassUserRoutes(r, db)
-
-	// Tambahkan modul lain (user) di sini:
-	// StudentRoutes.StudentUserRoutes(r, db)
-	// ScheduleRoutes.ScheduleUserRoutes(r, db)
+	CSSTRoutes.CSSTUserRoutes(r, db)
 }
 
 /* ===================== ADMIN ===================== */

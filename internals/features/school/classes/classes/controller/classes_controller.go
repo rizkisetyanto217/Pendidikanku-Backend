@@ -19,6 +19,7 @@ import (
 	// Services & helpers
 	"schoolku_backend/internals/features/lembaga/stats/lembaga_stats/service"
 	academicTermsSnapshot "schoolku_backend/internals/features/school/academics/academic_terms/snapshot"
+	classSectionModel "schoolku_backend/internals/features/school/classes/class_sections/model"
 	dto "schoolku_backend/internals/features/school/classes/classes/dto"
 	classmodel "schoolku_backend/internals/features/school/classes/classes/model"
 	classParentSnapshot "schoolku_backend/internals/features/school/classes/classes/snapshot"
@@ -696,6 +697,28 @@ func (ctrl *ClassController) SoftDeleteClass(c *fiber.Ctx) error {
 	if err := helperAuth.EnsureDKMSchool(c, m.ClassSchoolID); err != nil {
 		_ = tx.Rollback()
 		return err
+	}
+
+	// 🔒 GUARD: masih dipakai di class_sections?
+	var sectionCount int64
+	if err := tx.WithContext(c.Context()).
+		Model(&classSectionModel.ClassSectionModel{}).
+		Where(`
+			class_section_school_id = ?
+			AND class_section_class_id = ?
+			AND class_section_deleted_at IS NULL
+		`, m.ClassSchoolID, m.ClassID).
+		Count(&sectionCount).Error; err != nil {
+
+		_ = tx.Rollback()
+		return fiber.NewError(fiber.StatusInternalServerError, "Gagal mengecek relasi class sections")
+	}
+	if sectionCount > 0 {
+		_ = tx.Rollback()
+		return fiber.NewError(
+			fiber.StatusBadRequest,
+			"Kelas tidak dapat dihapus karena masih digunakan oleh rombongan belajar (class sections). Mohon hapus/ubah class section yang terkait terlebih dahulu.",
+		)
 	}
 
 	wasActive := (m.ClassStatus == classmodel.ClassStatusActive)

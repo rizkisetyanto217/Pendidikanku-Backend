@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	dto "schoolku_backend/internals/features/school/submissions_assesments/assesments/dto"
-	model "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
+	assesmentModel "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
 
@@ -34,7 +34,7 @@ func NewAssessmentTypeController(db *gorm.DB) *AssessmentTypeController {
 
 /* ========================= Helpers ========================= */
 
-func mapToResponse(m *model.AssessmentTypeModel) dto.AssessmentTypeResponse {
+func mapToResponse(m *assesmentModel.AssessmentTypeModel) dto.AssessmentTypeResponse {
 	return dto.AssessmentTypeResponse{
 		AssessmentTypeID:            m.AssessmentTypeID,
 		AssessmentTypeSchoolID:      m.AssessmentTypeSchoolID,
@@ -103,7 +103,7 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 	}
 
 	now := time.Now()
-	row := model.AssessmentTypeModel{
+	row := assesmentModel.AssessmentTypeModel{
 		AssessmentTypeID:            uuid.New(),
 		AssessmentTypeSchoolID:      schoolID, // ⛔ enforce dari context (anti cross-tenant)
 		AssessmentTypeKey:           strings.TrimSpace(req.AssessmentTypeKey),
@@ -185,7 +185,7 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 	}
 
-	var existing model.AssessmentTypeModel
+	var existing assesmentModel.AssessmentTypeModel
 	if err := ctl.DB.WithContext(c.Context()).
 		Where("assessment_type_id = ? AND assessment_type_school_id = ? AND assessment_type_deleted_at IS NULL", id, schoolID).
 		First(&existing).Error; err != nil {
@@ -241,7 +241,7 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 	updates["assessment_type_updated_at"] = time.Now()
 
 	if err := ctl.DB.WithContext(c.Context()).
-		Model(&model.AssessmentTypeModel{}).
+		Model(&assesmentModel.AssessmentTypeModel{}).
 		Where("assessment_type_id = ? AND assessment_type_school_id = ?", id, schoolID).
 		Updates(updates).Error; err != nil {
 		if isUniqueViolation(err) {
@@ -250,7 +250,7 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	var after model.AssessmentTypeModel
+	var after assesmentModel.AssessmentTypeModel
 	if err := ctl.DB.WithContext(c.Context()).
 		Where("assessment_type_id = ? AND assessment_type_school_id = ?", id, schoolID).
 		First(&after).Error; err != nil {
@@ -259,6 +259,10 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 
 	return helper.JsonUpdated(c, "Assessment type diperbarui", mapToResponse(&after))
 }
+
+// tambahkan import di atas:
+//
+// assessmentModel "schoolku_backend/internals/features/assessments/model"
 
 // DELETE /assessment-types/:id — DKM/Admin
 func (ctl *AssessmentTypeController) Delete(c *fiber.Ctx) error {
@@ -294,7 +298,29 @@ func (ctl *AssessmentTypeController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 	}
 
-	var row model.AssessmentTypeModel
+	// 🔒 GUARD: cek apakah assessment type masih dipakai di assessments
+	var usedCount int64
+	if err := ctl.DB.WithContext(c.Context()).
+		Model(&assesmentModel.AssessmentModel{}).
+		Where(`
+			assessment_school_id = ?
+			AND assessment_type_id = ?
+			AND assessment_deleted_at IS NULL
+		`, schoolID, id).
+		Count(&usedCount).Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengecek relasi assessment")
+	}
+
+	if usedCount > 0 {
+		return helper.JsonError(
+			c,
+			fiber.StatusBadRequest,
+			"Tidak dapat menghapus tipe penilaian karena masih digunakan oleh beberapa assessment.",
+		)
+	}
+
+	// Kalau sudah dipastikan tidak dipakai, baru ambil row dan hapus
+	var row assesmentModel.AssessmentTypeModel
 	if err := ctl.DB.WithContext(c.Context()).
 		Where("assessment_type_id = ? AND assessment_type_school_id = ?", id, schoolID).
 		First(&row).Error; err != nil {

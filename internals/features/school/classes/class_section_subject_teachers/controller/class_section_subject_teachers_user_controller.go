@@ -264,34 +264,46 @@ type listQuery struct {
 }
 
 /* ================================ Handler (NO-INCLUDE, NO-JOIN) ================================ */
+
 func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	detectCSSTFKs(ctl.DB)
 	_ = csstSubjectFK
 
-	// === School context (PUBLIC): no role check ===
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		var fe *fiber.Error
-		if errors.As(err, &fe) {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak valid")
+	// === School context: token → :school_id → :school_slug ===
+	var schoolID uuid.UUID
+
+	// 1) Dari token: active_school (sesuaikan dgn helper kamu)
+	if sid, err := helperAuth.GetActiveSchoolID(c); err == nil && sid != uuid.Nil {
+		schoolID = sid
 	}
 
-	var schoolID uuid.UUID
-	if mc.ID != uuid.Nil {
-		schoolID = mc.ID
-	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetSchoolIDBySlug(c, s)
-		if er != nil {
-			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+	// 2) Kalau belum ada, coba dari path :school_id
+	if schoolID == uuid.Nil {
+		if raw := strings.TrimSpace(c.Params("school_id")); raw != "" {
+			id, err := uuid.Parse(raw)
+			if err != nil || id == uuid.Nil {
+				return helper.JsonError(c, fiber.StatusBadRequest, "school_id path tidak valid")
 			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+			schoolID = id
 		}
-		schoolID = id
-	} else {
-		// pakai JsonError dengan info dari ErrSchoolContextMissing
+	}
+
+	// 3) Kalau masih kosong, coba dari :school_slug di path
+	if schoolID == uuid.Nil {
+		if slug := strings.TrimSpace(c.Params("school_slug")); slug != "" {
+			id, er := helperAuth.GetSchoolIDBySlug(c, slug)
+			if er != nil {
+				if errors.Is(er, gorm.ErrRecordNotFound) {
+					return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+			}
+			schoolID = id
+		}
+	}
+
+	// 4) Kalau tetep nggak ada → context missing
+	if schoolID == uuid.Nil {
 		return helper.JsonError(
 			c,
 			helperAuth.ErrSchoolContextMissing.Code,
@@ -299,9 +311,9 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		)
 	}
 
-	// ❌ JANGAN ada EnsureStaffSchool di sini
+	// ❌ Jangan pakai EnsureStaffSchool di endpoint user (read-only)
 	// if err := helperAuth.EnsureStaffSchool(c, schoolID); err != nil {
-	//     return err
+	// 	return err
 	// }
 
 	// path :id (detail)
@@ -314,7 +326,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		pathID = &id
 	}
 
-	// qparams umum
+	// query params umum
 	var q listQuery
 	if err := c.QueryParser(&q); err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Query tidak valid")

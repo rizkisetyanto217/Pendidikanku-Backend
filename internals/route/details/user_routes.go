@@ -38,6 +38,4 @@ func UserRoutes(app *fiber.App, db *gorm.DB) {
 	// (tetap) route lain yg memang butuh login
 	userTeacher.UserTeachersRoute(userGroup, db)
 
-	// ❌ HAPUS/PASTIKAN TIDAK ADA LAGI:
-	// teacherProfile.AllTeacherUserRoute(userGroup, db)
 }

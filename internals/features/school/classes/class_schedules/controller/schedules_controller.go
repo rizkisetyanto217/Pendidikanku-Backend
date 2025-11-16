@@ -472,10 +472,6 @@ func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 	return helper.JsonUpdated(c, "Schedule updated", d.FromModel(existing))
 }
 
-/* =========================
-   Soft Delete
-   ========================= */
-
 func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
@@ -512,7 +508,40 @@ func (ctl *ClassScheduleController) Delete(c *fiber.Ctx) error {
 		}
 	}
 
-	// GORM soft delete → set class_schedule_deleted_at
+	// 🔒 GUARD 1: masih ada class_schedule_rules yang pakai schedule ini?
+	var ruleCount int64
+	if err := ctl.DB.
+		Model(&m.ClassScheduleRuleModel{}).
+		Where(`
+			class_schedule_rule_schedule_id = ?
+			AND class_schedule_rule_deleted_at IS NULL
+		`, existing.ClassScheduleID).
+		Count(&ruleCount).Error; err != nil {
+		return helper.JsonError(c, http.StatusInternalServerError, "Gagal mengecek relasi rules")
+	}
+
+	// 🔒 GUARD 2: masih ada class_attendance_sessions yang pakai schedule ini?
+	var sessCount int64
+	if err := ctl.DB.
+		Model(&sessModel.ClassAttendanceSessionModel{}).
+		Where(`
+			class_attendance_session_schedule_id = ?
+			AND class_attendance_session_deleted_at IS NULL
+		`, existing.ClassScheduleID).
+		Count(&sessCount).Error; err != nil {
+		return helper.JsonError(c, http.StatusInternalServerError, "Gagal mengecek relasi sesi")
+	}
+
+	if ruleCount > 0 || sessCount > 0 {
+		return helper.JsonError(
+			c,
+			http.StatusBadRequest,
+			"Tidak dapat menghapus jadwal karena masih ada rule atau sesi absensi yang terhubung. "+
+				"Mohon hapus / sesuaikan rule dan sesi terkait terlebih dahulu.",
+		)
+	}
+
+	// ✅ Aman: tidak ada rule/sesi terhubung → lanjut soft delete
 	if err := ctl.DB.Delete(&existing).Error; err != nil {
 		return writePGError(c, err)
 	}
