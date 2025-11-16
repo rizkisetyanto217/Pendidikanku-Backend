@@ -2,7 +2,6 @@
 package controller
 
 import (
-	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 /* ============================ LIST ============================ */
@@ -25,50 +23,19 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 
 	// =====================================================
 	// 1) Tentukan schoolID:
-	//    - Prioritas: dari token (GetSchoolIDFromTokenPreferTeacher)
-	//    - Fallback: dari path/header/query/host via ResolveSchoolContext (id atau slug)
+	//    Sekarang: WAJIB dari token, bukan dari slug/path
 	// =====================================================
 
-	var schoolID uuid.UUID
-
-	// 1. Coba dulu dari token (jika ada token, ini yang dipakai)
-	if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
-		schoolID = id
-	} else {
-		// 2. Kalau tidak ada di token → pakai konteks multi-source (path/header/query/host)
-		mc, err := helperAuth.ResolveSchoolContext(c)
-		if err != nil {
-			// biasanya udah fiber.Error yang rapi
-			return err
-		}
-
-		if mc.ID != uuid.Nil {
-			// ada school_id langsung
-			schoolID = mc.ID
-		} else if strings.TrimSpace(mc.Slug) != "" {
-			// tidak ada ID, tapi ada slug → resolve ke ID
-			id, er := helperAuth.GetSchoolIDBySlug(c, mc.Slug)
-			if er != nil {
-				if errors.Is(er, gorm.ErrRecordNotFound) {
-					return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-				}
-				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school")
-			}
-			schoolID = id
-		} else {
-			// bener-bener nggak ada sumber school
-			return helper.JsonError(c, fiber.StatusBadRequest, "Konteks school wajib (token atau school_id/slug).")
-		}
+	schoolID, err := helperAuth.GetSchoolIDFromToken(c)
+	if err != nil || schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak ditemukan di token")
 	}
 
 	// =====================================================
-	// 2) Authorization: DKM/Admin, kalau bukan → minimal anggota
+	// 2) Authorization: HANYA DKM/Admin school ini
 	// =====================================================
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
-		// bukan DKM/Admin → cek membership biasa
-		if !helperAuth.UserHasSchool(c, schoolID) {
-			return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar pada school ini (membership).")
-		}
+		return err
 	}
 
 	// ===== Parse query params =====
@@ -182,24 +149,24 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 	// payload
 	type sectionLite struct {
 		ID            uuid.UUID  `json:"id"`
-		ClassID       uuid.UUID  `json:"class_id"`
-		TeacherID     *uuid.UUID `json:"teacher_id"`
-		ClassRoomID   *uuid.UUID `json:"class_room_id"`
+		ClassID       *uuid.UUID `json:"class_id,omitempty"`
+		TeacherID     *uuid.UUID `json:"teacher_id,omitempty"`
+		ClassRoomID   *uuid.UUID `json:"class_room_id,omitempty"`
 		Slug          string     `json:"slug"`
 		Name          string     `json:"name"`
-		Code          *string    `json:"code"`
-		Schedule      *string    `json:"schedule"`
-		Capacity      *int       `json:"capacity"`
+		Code          *string    `json:"code,omitempty"`
+		Schedule      *string    `json:"schedule,omitempty"`
+		Capacity      *int       `json:"capacity,omitempty"`
 		TotalStudents int        `json:"total_students"`
-		GroupURL      *string    `json:"group_url"`
+		GroupURL      *string    `json:"group_url,omitempty"`
 		IsActive      bool       `json:"is_active"`
 		CreatedAt     time.Time  `json:"created_at"`
 		UpdatedAt     time.Time  `json:"updated_at"`
 	}
 	type roomWithExpand struct {
 		dto.ClassRoomResponse
-		Sections      []sectionLite `json:"sections,omitempty"`
-		SectionsCount *int          `json:"sections_count,omitempty"`
+		Sections      []sectionLite `json:"class_sections,omitempty"`
+		SectionsCount *int          `json:"class_sections_count,omitempty"`
 	}
 
 	out := make([]roomWithExpand, 0, len(rooms))
@@ -207,7 +174,7 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		out = append(out, roomWithExpand{ClassRoomResponse: dto.ToClassRoomResponse(m)})
 	}
 
-	// include sections (batch)
+	// include sections (batch) — pakai nama kolom BARU: class_section_*
 	if withSections && len(rooms) > 0 {
 		roomIDs := make([]uuid.UUID, 0, len(rooms))
 		indexByID := make(map[uuid.UUID]int, len(rooms))
@@ -220,24 +187,24 @@ func (ctl *ClassRoomController) List(c *fiber.Ctx) error {
 		if err := ctl.DB.WithContext(reqCtx(c)).
 			Table("class_sections").
 			Select(`
-				class_sections_id               AS id,
-				class_sections_class_id         AS class_id,
-				class_sections_teacher_id       AS teacher_id,
-				class_sections_class_room_id    AS class_room_id,
-				class_sections_slug             AS slug,
-				class_sections_name             AS name,
-				class_sections_code             AS code,
-				class_sections_schedule         AS schedule,
-				class_sections_capacity         AS capacity,
-				class_sections_total_students   AS total_students,
-				class_sections_group_url        AS group_url,
-				class_sections_is_active        AS is_active,
-				class_sections_created_at       AS created_at,
-				class_sections_updated_at       AS updated_at
+				class_section_id                AS id,
+				class_section_class_id          AS class_id,
+				class_section_school_teacher_id AS teacher_id,
+				class_section_class_room_id     AS class_room_id,
+				class_section_slug              AS slug,
+				class_section_name              AS name,
+				class_section_code              AS code,
+				class_section_schedule          AS schedule,
+				class_section_capacity          AS capacity,
+				class_section_total_students    AS total_students,
+				class_section_group_url         AS group_url,
+				class_section_is_active         AS is_active,
+				class_section_created_at        AS created_at,
+				class_section_updated_at        AS updated_at
 			`).
-			Where("class_sections_school_id = ? AND class_sections_deleted_at IS NULL", schoolID).
-			Where("class_sections_class_room_id IN ?", roomIDs).
-			Order("class_sections_created_at DESC").
+			Where("class_section_school_id = ? AND class_section_deleted_at IS NULL", schoolID).
+			Where("class_section_class_room_id IN ?", roomIDs).
+			Order("class_section_created_at DESC").
 			Scan(&secs).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil class sections")
 		}

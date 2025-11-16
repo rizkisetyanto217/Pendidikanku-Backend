@@ -11,9 +11,10 @@ import (
 
 func ClassUserRoutes(r fiber.Router, db *gorm.DB) {
 	// ===== Classes (READ-ONLY untuk user) =====
+	clsParent := classCtrl.NewClassParentController(db, nil)
 	cls := classCtrl.NewClassController(db)
 	// Tenant-aware prefix
-	classes := r.Group("/:school_id/classes")
+	classes := r.Group("/classes")
 	classes.Get("/list", cls.ListClasses) // list kelas (read-only)
 
 	// ===== Class Enrollments (khusus murid: hanya miliknya sendiri) =====
@@ -21,5 +22,8 @@ func ClassUserRoutes(r fiber.Router, db *gorm.DB) {
 
 	// Prefix: /api/u/:school_id/my/class-enrollments
 	// (asumsi: router ini di-mount di /api/u)
-	r.Get("/:school_id/my/class-enrollments", enroll.ListMy)
+	r.Get("/my/class-enrollments", enroll.ListMy)
+
+	classParent := r.Group("/class-parents")
+	classParent.Get("/list", clsParent.List)
 }

@@ -74,34 +74,20 @@ func pickImageFile(c *fiber.Ctx, names ...string) *multipart.FileHeader {
 func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	ctl.ensureValidator()
 
-	// 🔒 Ambil context school & guard: DKM/Admin only (owner global boleh)
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
+	// Pastikan DB tersedia di context (dipakai helper auth / slug helper)
+	if c.Locals("DB") == nil {
+		c.Locals("DB", ctl.DB)
+	}
+
+	// 🔒 Ambil school_id dari token, wajib ada
+	schoolID, err := helperAuth.GetSchoolIDFromToken(c)
+	if err != nil || schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "School context tidak ditemukan di token")
+	}
+
+	// 🔒 Hanya DKM/Admin school ini
+	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		return err
-	}
-
-	var schoolID uuid.UUID
-	switch {
-	case mc.ID != uuid.Nil:
-		schoolID = mc.ID
-	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
-		if er != nil {
-			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
-		}
-		schoolID = id
-	default:
-		return helperAuth.ErrSchoolContextMissing
-	}
-
-	// Kalau bukan owner → wajib DKM/Admin di school ini
-	if !helperAuth.IsOwner(c) {
-		if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
-			return err
-		}
 	}
 
 	// 👀 Deteksi multipart
@@ -187,7 +173,7 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 			req.ClassRoomPasscode = &v
 		}
 
-		// schedule & notes: harap kirim JSON array of objects → []dto.AnyObject
+		// schedule & notes
 		if v := strings.TrimSpace(c.FormValue("class_room_schedule")); v != "" {
 			var arr []dto.AnyObject
 			if err := json.Unmarshal([]byte(v), &arr); err == nil {
@@ -200,7 +186,6 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 				req.ClassRoomNotes = arr
 			}
 		}
-
 	} else {
 		// JSON / x-www-form-urlencoded
 		if err := c.BodyParser(&req); err != nil {
@@ -253,7 +238,6 @@ func (ctl *ClassRoomController) Create(c *fiber.Ctx) error {
 	// 💾 Simpan awal (tanpa image)
 	if err := ctl.DB.WithContext(reqCtx(c)).Create(&m).Error; err != nil {
 		if isUniqueViolation(err) {
-			// Di sini kita anggap yang paling mungkin bentrok itu slug
 			return helper.JsonError(c, fiber.StatusConflict, "Slug ruang sudah digunakan, silakan ubah nama/slug")
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan data")
