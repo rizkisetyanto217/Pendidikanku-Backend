@@ -225,9 +225,6 @@ func resolveSchoolForDKMOrTeacher(c *fiber.Ctx) (uuid.UUID, error) {
 /* ===============================
    Handlers
 =============================== */
-/* ===============================
-   Handlers
-=============================== */
 
 // POST /assessments
 // Body: CreateAssessmentWithQuizzesRequest
@@ -259,6 +256,12 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	}
 	// Enforce tenant di assessment
 	req.Assessment.AssessmentSchoolID = mid
+
+	// ====== Auto isi assessment_quiz_total kalau belum diisi di payload ======
+	if req.Assessment.AssessmentQuizTotal == nil || *req.Assessment.AssessmentQuizTotal <= 0 {
+		qt := len(quizParts)
+		req.Assessment.AssessmentQuizTotal = &qt
+	}
 
 	// DTO validation
 	if err := ctl.Validator.Struct(&req.Assessment); err != nil {
@@ -818,9 +821,6 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	}
 	return helper.JsonUpdated(c, "Assessment (mode date) diperbarui", dto.FromModelAssesment(existing))
 }
-
-// tambahin import di atas:
-// subModel "schoolku_backend/internals/features/assessments/submissions/model"
 
 // DELETE /assessments/:id (soft delete)
 func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {

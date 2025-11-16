@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -32,8 +33,23 @@ type Submission struct {
 	SubmissionSubmittedAt *time.Time `gorm:"type:timestamptz;column:submission_submitted_at" json:"submission_submitted_at,omitempty"`
 	SubmissionIsLate      *bool      `gorm:"column:submission_is_late" json:"submission_is_late,omitempty"`
 
-	SubmissionScore    *float64 `gorm:"type:numeric(5,2);column:submission_score" json:"submission_score,omitempty"`
-	SubmissionFeedback *string  `gorm:"type:text;column:submission_feedback" json:"submission_feedback,omitempty"`
+	// Nilai akhir
+	SubmissionScore *float64 `gorm:"type:numeric(5,2);column:submission_score" json:"submission_score,omitempty"`
+
+	// Breakdown nilai per komponen (quiz, tugas kecil, dsb) dalam bentuk JSONB
+	// Contoh bentuk:
+	// {
+	//   "components": [
+	//     { "kind": "quiz", "quiz_id": "...", "score": 80, "max_score": 100, "weight": 0.4 },
+	//     { "kind": "task", "task_id": "...", "score": 90, "max_score": 100, "weight": 0.6 }
+	//   ]
+	// }
+	SubmissionScores datatypes.JSONMap `gorm:"type:jsonb;column:submission_scores" json:"submission_scores,omitempty"`
+
+	// Berapa quiz/komponen yang sudah benar-benar selesai (misal attempt sudah submit & di-score)
+	SubmissionQuizFinished int `gorm:"type:smallint;not null;default:0;column:submission_quiz_finished" json:"submission_quiz_finished"`
+
+	SubmissionFeedback *string `gorm:"type:text;column:submission_feedback" json:"submission_feedback,omitempty"`
 
 	SubmissionGradedByTeacherID *uuid.UUID `gorm:"type:uuid;column:submission_graded_by_teacher_id" json:"submission_graded_by_teacher_id,omitempty"`
 	SubmissionGradedAt          *time.Time `gorm:"type:timestamptz;column:submission_graded_at" json:"submission_graded_at,omitempty"`

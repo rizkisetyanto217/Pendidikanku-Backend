@@ -3,7 +3,7 @@ package controller
 
 import (
 	dto "schoolku_backend/internals/features/school/submissions_assesments/assesments/dto"
-	model "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
+	assessmentModel "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
 	helper "schoolku_backend/internals/helpers"
 	"strings"
 
@@ -74,7 +74,8 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 	}
 
 	// 4) Query tenant-scoped
-	qry := ctl.DB.Model(&model.AssessmentTypeModel{}).
+	qry := ctl.DB.WithContext(c.Context()).
+		Model(&assessmentModel.AssessmentTypeModel{}).
 		Where("assessment_type_school_id = ?", filt.AssessmentTypeSchoolID)
 
 	if filt.Active != nil {
@@ -93,7 +94,7 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	var rows []model.AssessmentTypeModel
+	var rows []assessmentModel.AssessmentTypeModel
 	if err := qry.
 		Order(func() string {
 			if filt.SortBy == nil {
@@ -124,7 +125,7 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		out = append(out, mapToResponse(&rows[i]))
 	}
 
-	// ⬇️ gunakan meta konsisten (page, per_page, total, total_pages, has_next, has_prev, count, per_page_options)
+	// meta offset-based
 	meta := helper.BuildPaginationFromOffset(total, filt.Offset, filt.Limit)
 	return helper.JsonList(c, "ok", out, meta)
 }

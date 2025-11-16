@@ -66,6 +66,8 @@ func (r CreateSubmissionRequest) ToModel() subModel.Submission {
 		SubmissionStatus:      status,
 		SubmissionSubmittedAt: r.SubmissionSubmittedAt,
 		SubmissionIsLate:      r.SubmissionIsLate,
+		// submission_scores      → nil (default)
+		// submission_quiz_finished → 0 (default)
 		// created_at/updated_at dikelola DB (default now())
 	}
 }
@@ -81,11 +83,13 @@ type PatchSubmissionRequest struct {
 	SubmissionSubmittedAt *PatchField[time.Time]                 `json:"submission_submitted_at,omitempty"`
 	SubmissionIsLate      *PatchField[bool]                      `json:"submission_is_late,omitempty"`
 
-	// penilaian
-	SubmissionScore    *PatchField[float64]   `json:"submission_score,omitempty"` // 0..100 (cek di controller)
-	SubmissionFeedback *PatchField[string]    `json:"submission_feedback,omitempty"`
-	SubmissionGradedBy *PatchField[uuid.UUID] `json:"submission_graded_by_teacher_id,omitempty"`
-	SubmissionGradedAt *PatchField[time.Time] `json:"submission_graded_at,omitempty"`
+	// penilaian (final & breakdown)
+	SubmissionScore        *PatchField[float64]        `json:"submission_score,omitempty"` // 0..100 (cek di controller)
+	SubmissionFeedback     *PatchField[string]         `json:"submission_feedback,omitempty"`
+	SubmissionScores       *PatchField[map[string]any] `json:"submission_scores,omitempty"`        // JSON breakdown
+	SubmissionQuizFinished *PatchField[int]            `json:"submission_quiz_finished,omitempty"` // progress quiz selesai
+	SubmissionGradedBy     *PatchField[uuid.UUID]      `json:"submission_graded_by_teacher_id,omitempty"`
+	SubmissionGradedAt     *PatchField[time.Time]      `json:"submission_graded_at,omitempty"`
 }
 
 /*
@@ -123,6 +127,14 @@ func (p *PatchSubmissionRequest) ToUpdates() map[string]any {
 					upd[key] = *f.Value
 				}
 			}
+		case *PatchField[int]:
+			if f != nil && f.ShouldUpdate() {
+				if f.IsNull() {
+					upd[key] = nil
+				} else {
+					upd[key] = *f.Value
+				}
+			}
 		case *PatchField[uuid.UUID]:
 			if f != nil && f.ShouldUpdate() {
 				if f.IsNull() {
@@ -147,6 +159,15 @@ func (p *PatchSubmissionRequest) ToUpdates() map[string]any {
 					upd[key] = *f.Value
 				}
 			}
+		case *PatchField[map[string]any]:
+			if f != nil && f.ShouldUpdate() {
+				if f.IsNull() {
+					upd[key] = nil
+				} else {
+					// langsung simpan map → akan di-marshal sebagai JSONB oleh driver
+					upd[key] = *f.Value
+				}
+			}
 		}
 	}
 
@@ -159,6 +180,8 @@ func (p *PatchSubmissionRequest) ToUpdates() map[string]any {
 	// penilaian
 	put("submission_score", p.SubmissionScore)
 	put("submission_feedback", p.SubmissionFeedback)
+	put("submission_scores", p.SubmissionScores)
+	put("submission_quiz_finished", p.SubmissionQuizFinished)
 	put("submission_graded_by_teacher_id", p.SubmissionGradedBy)
 	put("submission_graded_at", p.SubmissionGradedAt)
 
@@ -170,18 +193,22 @@ func (p *PatchSubmissionRequest) ToUpdates() map[string]any {
    ========================= */
 
 type GradeSubmissionRequest struct {
-	SubmissionScore    *PatchField[float64]   `json:"submission_score,omitempty"` // 0..100
-	SubmissionFeedback *PatchField[string]    `json:"submission_feedback,omitempty"`
-	SubmissionGradedBy *PatchField[uuid.UUID] `json:"submission_graded_by_teacher_id,omitempty"`
-	SubmissionGradedAt *PatchField[time.Time] `json:"submission_graded_at,omitempty"`
+	SubmissionScore        *PatchField[float64]        `json:"submission_score,omitempty"` // 0..100
+	SubmissionFeedback     *PatchField[string]         `json:"submission_feedback,omitempty"`
+	SubmissionScores       *PatchField[map[string]any] `json:"submission_scores,omitempty"`        // breakdown komponen
+	SubmissionQuizFinished *PatchField[int]            `json:"submission_quiz_finished,omitempty"` // berapa quiz/komponen yang sudah selesai
+	SubmissionGradedBy     *PatchField[uuid.UUID]      `json:"submission_graded_by_teacher_id,omitempty"`
+	SubmissionGradedAt     *PatchField[time.Time]      `json:"submission_graded_at,omitempty"`
 }
 
 func (g *GradeSubmissionRequest) ToUpdates() map[string]any {
 	return (&PatchSubmissionRequest{
-		SubmissionScore:    g.SubmissionScore,
-		SubmissionFeedback: g.SubmissionFeedback,
-		SubmissionGradedBy: g.SubmissionGradedBy,
-		SubmissionGradedAt: g.SubmissionGradedAt,
+		SubmissionScore:        g.SubmissionScore,
+		SubmissionFeedback:     g.SubmissionFeedback,
+		SubmissionScores:       g.SubmissionScores,
+		SubmissionQuizFinished: g.SubmissionQuizFinished,
+		SubmissionGradedBy:     g.SubmissionGradedBy,
+		SubmissionGradedAt:     g.SubmissionGradedAt,
 	}).ToUpdates()
 }
 
@@ -224,10 +251,12 @@ type SubmissionResponse struct {
 	SubmissionSubmittedAt *time.Time                `json:"submission_submitted_at,omitempty"`
 	SubmissionIsLate      *bool                     `json:"submission_is_late,omitempty"`
 
-	SubmissionScore             *float64   `json:"submission_score,omitempty"`
-	SubmissionFeedback          *string    `json:"submission_feedback,omitempty"`
-	SubmissionGradedByTeacherID *uuid.UUID `json:"submission_graded_by_teacher_id,omitempty"`
-	SubmissionGradedAt          *time.Time `json:"submission_graded_at,omitempty"`
+	SubmissionScore             *float64       `json:"submission_score,omitempty"`
+	SubmissionScores            map[string]any `json:"submission_scores,omitempty"`
+	SubmissionQuizFinished      int            `json:"submission_quiz_finished"`
+	SubmissionFeedback          *string        `json:"submission_feedback,omitempty"`
+	SubmissionGradedByTeacherID *uuid.UUID     `json:"submission_graded_by_teacher_id,omitempty"`
+	SubmissionGradedAt          *time.Time     `json:"submission_graded_at,omitempty"`
 
 	SubmissionCreatedAt time.Time  `json:"submission_created_at"`
 	SubmissionUpdatedAt time.Time  `json:"submission_updated_at"`
@@ -240,6 +269,13 @@ func FromModel(m *subModel.Submission) SubmissionResponse {
 		t := m.SubmissionDeletedAt.Time
 		del = &t
 	}
+
+	// konversi datatypes.JSONMap → map[string]any
+	var scores map[string]any
+	if m.SubmissionScores != nil {
+		scores = map[string]any(m.SubmissionScores)
+	}
+
 	return SubmissionResponse{
 		SubmissionID:           m.SubmissionID,
 		SubmissionSchoolID:     m.SubmissionSchoolID,
@@ -252,6 +288,8 @@ func FromModel(m *subModel.Submission) SubmissionResponse {
 		SubmissionIsLate:      m.SubmissionIsLate,
 
 		SubmissionScore:             m.SubmissionScore,
+		SubmissionScores:            scores,
+		SubmissionQuizFinished:      m.SubmissionQuizFinished,
 		SubmissionFeedback:          m.SubmissionFeedback,
 		SubmissionGradedByTeacherID: m.SubmissionGradedByTeacherID,
 		SubmissionGradedAt:          m.SubmissionGradedAt,

@@ -13,12 +13,14 @@ import (
 	"gorm.io/gorm"
 
 	dto "schoolku_backend/internals/features/school/submissions_assesments/assesments/dto"
-	assesmentModel "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
+	assessmentModel "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
 
 	assessSvc "schoolku_backend/internals/features/school/submissions_assesments/assesments/service"
 )
+
+/* ========================= Controller ========================= */
 
 type AssessmentTypeController struct {
 	DB        *gorm.DB
@@ -34,17 +36,9 @@ func NewAssessmentTypeController(db *gorm.DB) *AssessmentTypeController {
 
 /* ========================= Helpers ========================= */
 
-func mapToResponse(m *assesmentModel.AssessmentTypeModel) dto.AssessmentTypeResponse {
-	return dto.AssessmentTypeResponse{
-		AssessmentTypeID:            m.AssessmentTypeID,
-		AssessmentTypeSchoolID:      m.AssessmentTypeSchoolID,
-		AssessmentTypeKey:           m.AssessmentTypeKey,
-		AssessmentTypeName:          m.AssessmentTypeName,
-		AssessmentTypeWeightPercent: m.AssessmentTypeWeightPercent,
-		AssessmentTypeIsActive:      m.AssessmentTypeIsActive,
-		AssessmentTypeCreatedAt:     m.AssessmentTypeCreatedAt,
-		AssessmentTypeUpdatedAt:     m.AssessmentTypeUpdatedAt,
-	}
+func mapToResponse(m *assessmentModel.AssessmentTypeModel) dto.AssessmentTypeResponse {
+	// supaya tetep 1 sumber kebenaran di dto.FromModel
+	return dto.FromModel(*m)
 }
 
 func isUniqueViolation(err error) bool {
@@ -79,7 +73,7 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// Resolve + basic access (versi lama)
+	// Resolve + basic access
 	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -96,30 +90,35 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 	}
 
-	// Validasi bobot 0..100
+	// Enforce tenant: selalu override dari context, abaikan dari client
+	req.AssessmentTypeSchoolID = schoolID
+
+	// Validasi request
+	if err := ctl.Validator.Struct(&req); err != nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	}
+
+	// Guard ekstra bobot 0..100
 	if req.AssessmentTypeWeightPercent < 0 || req.AssessmentTypeWeightPercent > 100 {
 		return helper.JsonError(c, fiber.StatusUnprocessableEntity,
 			"assessment_type_weight_percent harus di antara 0 hingga 100")
 	}
 
 	now := time.Now()
-	row := assesmentModel.AssessmentTypeModel{
-		AssessmentTypeID:            uuid.New(),
-		AssessmentTypeSchoolID:      schoolID, // ⛔ enforce dari context (anti cross-tenant)
-		AssessmentTypeKey:           strings.TrimSpace(req.AssessmentTypeKey),
-		AssessmentTypeName:          strings.TrimSpace(req.AssessmentTypeName),
-		AssessmentTypeWeightPercent: req.AssessmentTypeWeightPercent,
-		AssessmentTypeIsActive:      true,
-		AssessmentTypeCreatedAt:     now,
-		AssessmentTypeUpdatedAt:     now,
-	}
-	if req.AssessmentTypeIsActive != nil {
-		row.AssessmentTypeIsActive = *req.AssessmentTypeIsActive
-	}
+
+	// Build model dari DTO (supaya semua quiz settings ikut keisi dengan default)
+	row := req.ToModel()
+	row.AssessmentTypeID = uuid.New()
+	row.AssessmentTypeCreatedAt = now
+	row.AssessmentTypeUpdatedAt = now
 
 	// Validasi agregat aktif ≤ 100
 	if row.AssessmentTypeIsActive {
-		sum, err := assessSvc.New().SumActiveWeights(ctl.DB.WithContext(c.Context()), schoolID, nil)
+		sum, err := assessSvc.New().SumActiveWeights(
+			ctl.DB.WithContext(c.Context()),
+			schoolID,
+			nil,
+		)
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total bobot")
 		}
@@ -185,7 +184,7 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 	}
 
-	var existing assesmentModel.AssessmentTypeModel
+	var existing assessmentModel.AssessmentTypeModel
 	if err := ctl.DB.WithContext(c.Context()).
 		Where("assessment_type_id = ? AND assessment_type_school_id = ? AND assessment_type_deleted_at IS NULL", id, schoolID).
 		First(&existing).Error; err != nil {
@@ -211,7 +210,11 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 
 	// Validasi agregat (aktif) ≤ 100 — exclude row ini
 	if finalActive {
-		sum, err := assessSvc.New().SumActiveWeights(ctl.DB.WithContext(c.Context()), schoolID, &existing.AssessmentTypeID)
+		sum, err := assessSvc.New().SumActiveWeights(
+			ctl.DB.WithContext(c.Context()),
+			schoolID,
+			&existing.AssessmentTypeID,
+		)
 		if err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghitung total bobot")
 		}
@@ -235,13 +238,42 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 	if req.AssessmentTypeIsActive != nil {
 		updates["assessment_type_is_active"] = *req.AssessmentTypeIsActive
 	}
+
+	// ===== quiz settings =====
+	if req.AssessmentTypeShuffleQuestions != nil {
+		updates["assessment_type_shuffle_questions"] = *req.AssessmentTypeShuffleQuestions
+	}
+	if req.AssessmentTypeShuffleOptions != nil {
+		updates["assessment_type_shuffle_options"] = *req.AssessmentTypeShuffleOptions
+	}
+	if req.AssessmentTypeShowCorrectAfterSubmit != nil {
+		updates["assessment_type_show_correct_after_submit"] = *req.AssessmentTypeShowCorrectAfterSubmit
+	}
+	if req.AssessmentTypeOneQuestionPerPage != nil {
+		updates["assessment_type_one_question_per_page"] = *req.AssessmentTypeOneQuestionPerPage
+	}
+	if req.AssessmentTypeTimeLimitMin != nil {
+		// Catatan: dengan desain ini kita belum bisa clear ke NULL (tanpa batas) via PATCH.
+		// Kalau mau, nanti bisa tambahin flag khusus mis. time_limit_min_null=true.
+		updates["assessment_type_time_limit_min"] = *req.AssessmentTypeTimeLimitMin
+	}
+	if req.AssessmentTypeAttemptsAllowed != nil {
+		updates["assessment_type_attempts_allowed"] = *req.AssessmentTypeAttemptsAllowed
+	}
+	if req.AssessmentTypeRequireLogin != nil {
+		updates["assessment_type_require_login"] = *req.AssessmentTypeRequireLogin
+	}
+	if req.AssessmentTypePreventBackNavigation != nil {
+		updates["assessment_type_prevent_back_navigation"] = *req.AssessmentTypePreventBackNavigation
+	}
+
 	if len(updates) == 0 {
 		return helper.JsonOK(c, "OK", mapToResponse(&existing))
 	}
 	updates["assessment_type_updated_at"] = time.Now()
 
 	if err := ctl.DB.WithContext(c.Context()).
-		Model(&assesmentModel.AssessmentTypeModel{}).
+		Model(&assessmentModel.AssessmentTypeModel{}).
 		Where("assessment_type_id = ? AND assessment_type_school_id = ?", id, schoolID).
 		Updates(updates).Error; err != nil {
 		if isUniqueViolation(err) {
@@ -250,7 +282,7 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
-	var after assesmentModel.AssessmentTypeModel
+	var after assessmentModel.AssessmentTypeModel
 	if err := ctl.DB.WithContext(c.Context()).
 		Where("assessment_type_id = ? AND assessment_type_school_id = ?", id, schoolID).
 		First(&after).Error; err != nil {
@@ -259,10 +291,6 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 
 	return helper.JsonUpdated(c, "Assessment type diperbarui", mapToResponse(&after))
 }
-
-// tambahkan import di atas:
-//
-// assessmentModel "schoolku_backend/internals/features/assessments/model"
 
 // DELETE /assessment-types/:id — DKM/Admin
 func (ctl *AssessmentTypeController) Delete(c *fiber.Ctx) error {
@@ -301,7 +329,7 @@ func (ctl *AssessmentTypeController) Delete(c *fiber.Ctx) error {
 	// 🔒 GUARD: cek apakah assessment type masih dipakai di assessments
 	var usedCount int64
 	if err := ctl.DB.WithContext(c.Context()).
-		Model(&assesmentModel.AssessmentModel{}).
+		Model(&assessmentModel.AssessmentModel{}).
 		Where(`
 			assessment_school_id = ?
 			AND assessment_type_id = ?
@@ -320,7 +348,7 @@ func (ctl *AssessmentTypeController) Delete(c *fiber.Ctx) error {
 	}
 
 	// Kalau sudah dipastikan tidak dipakai, baru ambil row dan hapus
-	var row assesmentModel.AssessmentTypeModel
+	var row assessmentModel.AssessmentTypeModel
 	if err := ctl.DB.WithContext(c.Context()).
 		Where("assessment_type_id = ? AND assessment_type_school_id = ?", id, schoolID).
 		First(&row).Error; err != nil {

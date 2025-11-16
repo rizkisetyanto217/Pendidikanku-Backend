@@ -263,6 +263,34 @@ type listQuery struct {
 	Sort        *string `query:"sort"`     // asc|desc
 }
 
+/* ============ Helper: parse list UUID (buat query param id, dst) ============ */
+
+func parseUUIDList(s string) ([]uuid.UUID, error) {
+	parts := strings.Split(s, ",")
+	out := make([]uuid.UUID, 0, len(parts))
+	seen := make(map[uuid.UUID]struct{}, len(parts))
+
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		id, err := uuid.Parse(p)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			out = append(out, id)
+		}
+	}
+
+	if len(out) == 0 {
+		return nil, fiber.NewError(fiber.StatusBadRequest, "daftar id kosong")
+	}
+	return out, nil
+}
+
 /* ================================ Handler (NO-INCLUDE, NO-JOIN) ================================ */
 
 func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
@@ -345,6 +373,16 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	teacherID := strings.TrimSpace(c.Query("teacher_id"))
 	qtext := strings.TrimSpace(strings.ToLower(c.Query("q")))
 
+	// ✅ NEW: filter by id via query param (bisa multi)
+	var filterIDs []uuid.UUID
+	if s := strings.TrimSpace(c.Query("id")); s != "" {
+		ids, err := parseUUIDList(s)
+		if err != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "id tidak valid: "+err.Error())
+		}
+		filterIDs = ids
+	}
+
 	orderBy := fmt.Sprintf("csst.%s", csstCreatedAtCol)
 	if q.OrderBy != nil {
 		switch strings.ToLower(*q.OrderBy) {
@@ -381,9 +419,14 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		tx = tx.Where(fmt.Sprintf("csst.%s = ?", csstIsActiveCol), *q.IsActive)
 	}
 
+	// ✅ apply filter id list ke data query
+	if len(filterIDs) > 0 {
+		tx = tx.Where(fmt.Sprintf("csst.%s IN ?", csstPK), filterIDs)
+	}
+
 	selectCols := []string{"csst.*"}
 
-	// FILTERS
+	// FILTERS lain
 	if teacherID != "" && csstTeacherFK != "" {
 		if _, e := uuid.Parse(teacherID); e == nil {
 			tx = tx.Where(fmt.Sprintf("csst.%s = ?", csstTeacherFK), teacherID)
@@ -415,7 +458,7 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 		tx = tx.Where("LOWER(csst.class_section_subject_teacher_display_name) LIKE ?", "%"+qtext+"%")
 	}
 
-	// DETAIL BY ID
+	// DETAIL BY ID (path)
 	if pathID != nil {
 		var row csstJoinedRow
 		if err := tx.
@@ -441,6 +484,12 @@ func (ctl *ClassSectionSubjectTeacherController) List(c *fiber.Ctx) error {
 	if q.IsActive != nil {
 		countTx = countTx.Where(fmt.Sprintf("csst.%s = ?", csstIsActiveCol), *q.IsActive)
 	}
+
+	// ✅ apply filter id list ke count query
+	if len(filterIDs) > 0 {
+		countTx = countTx.Where(fmt.Sprintf("csst.%s IN ?", csstPK), filterIDs)
+	}
+
 	if teacherID != "" && csstTeacherFK != "" {
 		if _, e := uuid.Parse(teacherID); e == nil {
 			countTx = countTx.Where(fmt.Sprintf("csst.%s = ?", csstTeacherFK), teacherID)

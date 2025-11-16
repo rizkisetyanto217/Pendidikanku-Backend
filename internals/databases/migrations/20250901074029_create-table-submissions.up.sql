@@ -7,6 +7,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- CREATE EXTENSION IF NOT EXISTS btree_gist; -- hanya perlu jika pakai EXCLUDE
 
+
 -- =========================================================
 -- 4) SUBMISSIONS (pengumpulan tugas oleh siswa)
 -- =========================================================
@@ -34,8 +35,16 @@ CREATE TABLE IF NOT EXISTS submissions (
   submission_submitted_at TIMESTAMPTZ,
   submission_is_late      BOOLEAN,
 
-  -- penilaian
-  submission_score    NUMERIC(5,2) CHECK (submission_score >= 0 AND submission_score <= 100),
+  -- penilaian (final & breakdown)
+  submission_score NUMERIC(5,2)
+    CHECK (submission_score >= 0 AND submission_score <= 100),
+
+  -- JSON untuk menyimpan detail komponen nilai
+  -- misalnya: list quiz, tugas kecil, sub-section, beserta bobot & skor
+  submission_scores JSONB,
+
+  submission_quiz_finished SMALLINT NOT NULL DEFAULT 0, -- berapa yang sudah selesai/skoring
+
   submission_feedback TEXT,
 
   -- pengoreksi: relasi ke school_teachers
@@ -94,6 +103,19 @@ CREATE INDEX IF NOT EXISTS brin_submissions_created_at
 -- CREATE INDEX IF NOT EXISTS gin_submissions_feedback_trgm_alive
 --   ON submissions USING GIN ((LOWER(submission_feedback)) gin_trgm_ops)
 --   WHERE submission_deleted_at IS NULL;
+
+-- (opsional) index JSON untuk search by komponen/quiz_id
+CREATE INDEX IF NOT EXISTS gin_submissions_scores
+  ON submissions USING GIN (submission_scores);
+
+-- (opsional) index buat progress bar / query "belum selesai semua"
+-- misal: cari yang quiz_finished < quiz_total
+-- CREATE INDEX IF NOT EXISTS idx_submissions_quiz_progress_alive
+--   ON submissions (submission_quiz_finished, submission_quiz_total)
+--   WHERE submission_deleted_at IS NULL;
+
+
+
 
 -- =========================================================
 -- 5) SUBMISSION_URLS (lampiran kiriman user)

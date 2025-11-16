@@ -29,6 +29,8 @@ func getSortClauseAssessment(sortBy, sortDir *string) string {
 			col = "assessment_due_at"
 		case "created_at":
 			col = "assessment_created_at"
+		case "quiz_total", "assessment_quiz_total":
+			col = "assessment_quiz_total"
 		}
 	}
 	dir := "DESC"

@@ -142,6 +142,12 @@ func resolveTeacherSchoolFromParam(c *fiber.Ctx) (uuid.UUID, error) {
 ========================= */
 
 // POST /submissions  (STUDENT ONLY, school dari token)
+
+/* =========================
+   Handlers
+========================= */
+
+// POST /submissions  (STUDENT ONLY, school dari token)
 func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 	c.Locals("DB", ctrl.DB)
 
@@ -271,40 +277,38 @@ func (ctrl *SubmissionController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// ---------- Normalisasi minor submission ----------
-	status := model.SubmissionStatusSubmitted
-	if subReq.SubmissionStatus != nil {
-		status = *subReq.SubmissionStatus
-	}
-
 	// ---------- Transaksi ----------
 	var created *model.Submission
 
 	if err := ctrl.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
-		// 1) Simpan submission
-		sub := &model.Submission{
-			SubmissionSchoolID:     subReq.SubmissionSchoolID,
-			SubmissionAssessmentID: subReq.SubmissionAssessmentID,
-			SubmissionStudentID:    subReq.SubmissionStudentID,
-			SubmissionText:         subReq.SubmissionText,
-			SubmissionStatus:       status,
-			SubmissionSubmittedAt:  subReq.SubmissionSubmittedAt,
-			SubmissionIsLate:       subReq.SubmissionIsLate,
+		// 1) Simpan submission pakai DTO → Model
+		sub := subReq.ToModel()
+
+		// Pastikan status minimal "submitted" kalau kosong
+		if sub.SubmissionStatus == "" {
+			sub.SubmissionStatus = model.SubmissionStatusSubmitted
 		}
-		if (sub.SubmissionStatus == model.SubmissionStatusSubmitted || sub.SubmissionStatus == model.SubmissionStatusResubmitted) &&
+
+		// Auto-submitted_at kalau status submitted/resubmitted tapi belum ada waktu
+		if (sub.SubmissionStatus == model.SubmissionStatusSubmitted ||
+			sub.SubmissionStatus == model.SubmissionStatusResubmitted) &&
 			sub.SubmissionSubmittedAt == nil {
 			now := time.Now()
 			sub.SubmissionSubmittedAt = &now
 		}
 
-		if err := tx.Create(sub).Error; err != nil {
+		// submission_scores & submission_quiz_finished dibiarkan default:
+		//   - scores: NULL (nanti diisi saat grading)
+		//   - quiz_finished: 0
+
+		if err := tx.Create(&sub).Error; err != nil {
 			le := strings.ToLower(err.Error())
 			if strings.Contains(le, "duplicate key") || strings.Contains(le, "unique constraint") {
 				return fiber.NewError(fiber.StatusConflict, "Submission untuk assessment & student ini sudah ada")
 			}
 			return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 		}
-		created = sub
+		created = &sub
 
 		// 2) Build URL models dari upserts JSON/bracket
 		var urlModels []model.SubmissionURLModel

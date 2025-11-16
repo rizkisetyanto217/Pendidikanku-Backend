@@ -21,7 +21,19 @@ type CreateAssessmentTypeRequest struct {
 	AssessmentTypeKey           string    `json:"assessment_type_key" validate:"required,max=32"`
 	AssessmentTypeName          string    `json:"assessment_type_name" validate:"required,max=120"`
 	AssessmentTypeWeightPercent float64   `json:"assessment_type_weight_percent" validate:"gte=0,lte=100"`
-	AssessmentTypeIsActive      *bool     `json:"assessment_type_is_active" validate:"omitempty"`
+
+	AssessmentTypeIsActive *bool `json:"assessment_type_is_active" validate:"omitempty"`
+
+	// ===== Default quiz settings (optional di request; pakai default kalau null) =====
+
+	AssessmentTypeShuffleQuestions       *bool `json:"assessment_type_shuffle_questions" validate:"omitempty"`
+	AssessmentTypeShuffleOptions         *bool `json:"assessment_type_shuffle_options" validate:"omitempty"`
+	AssessmentTypeShowCorrectAfterSubmit *bool `json:"assessment_type_show_correct_after_submit" validate:"omitempty"`
+	AssessmentTypeOneQuestionPerPage     *bool `json:"assessment_type_one_question_per_page" validate:"omitempty"`
+	AssessmentTypeTimeLimitMin           *int  `json:"assessment_type_time_limit_min" validate:"omitempty,min=0"`
+	AssessmentTypeAttemptsAllowed        *int  `json:"assessment_type_attempts_allowed" validate:"omitempty,min=1"`
+	AssessmentTypeRequireLogin           *bool `json:"assessment_type_require_login" validate:"omitempty"`
+	AssessmentTypePreventBackNavigation  *bool `json:"assessment_type_prevent_back_navigation" validate:"omitempty"`
 }
 
 // Patch (PATCH /assessment-types/:id) — partial update
@@ -29,6 +41,15 @@ type PatchAssessmentTypeRequest struct {
 	AssessmentTypeName          *string  `json:"assessment_type_name" validate:"omitempty,max=120"`
 	AssessmentTypeWeightPercent *float64 `json:"assessment_type_weight_percent" validate:"omitempty,gte=0,lte=100"`
 	AssessmentTypeIsActive      *bool    `json:"assessment_type_is_active" validate:"omitempty"`
+
+	AssessmentTypeShuffleQuestions       *bool `json:"assessment_type_shuffle_questions" validate:"omitempty"`
+	AssessmentTypeShuffleOptions         *bool `json:"assessment_type_shuffle_options" validate:"omitempty"`
+	AssessmentTypeShowCorrectAfterSubmit *bool `json:"assessment_type_show_correct_after_submit" validate:"omitempty"`
+	AssessmentTypeOneQuestionPerPage     *bool `json:"assessment_type_one_question_per_page" validate:"omitempty"`
+	AssessmentTypeTimeLimitMin           *int  `json:"assessment_type_time_limit_min" validate:"omitempty,min=0"`
+	AssessmentTypeAttemptsAllowed        *int  `json:"assessment_type_attempts_allowed" validate:"omitempty,min=1"`
+	AssessmentTypeRequireLogin           *bool `json:"assessment_type_require_login" validate:"omitempty"`
+	AssessmentTypePreventBackNavigation  *bool `json:"assessment_type_prevent_back_navigation" validate:"omitempty"`
 }
 
 // List filter (GET /assessment-types)
@@ -52,9 +73,20 @@ type AssessmentTypeResponse struct {
 	AssessmentTypeKey           string    `json:"assessment_type_key"`
 	AssessmentTypeName          string    `json:"assessment_type_name"`
 	AssessmentTypeWeightPercent float64   `json:"assessment_type_weight_percent"`
-	AssessmentTypeIsActive      bool      `json:"assessment_type_is_active"`
-	AssessmentTypeCreatedAt     time.Time `json:"assessment_type_created_at"`
-	AssessmentTypeUpdatedAt     time.Time `json:"assessment_type_updated_at"`
+
+	// Default quiz settings (dibaca frontend buat seed QuizSettings)
+	AssessmentTypeShuffleQuestions       bool `json:"assessment_type_shuffle_questions"`
+	AssessmentTypeShuffleOptions         bool `json:"assessment_type_shuffle_options"`
+	AssessmentTypeShowCorrectAfterSubmit bool `json:"assessment_type_show_correct_after_submit"`
+	AssessmentTypeOneQuestionPerPage     bool `json:"assessment_type_one_question_per_page"`
+	AssessmentTypeTimeLimitMin           *int `json:"assessment_type_time_limit_min,omitempty"`
+	AssessmentTypeAttemptsAllowed        int  `json:"assessment_type_attempts_allowed"`
+	AssessmentTypeRequireLogin           bool `json:"assessment_type_require_login"`
+	AssessmentTypePreventBackNavigation  bool `json:"assessment_type_prevent_back_navigation"`
+
+	AssessmentTypeIsActive  bool      `json:"assessment_type_is_active"`
+	AssessmentTypeCreatedAt time.Time `json:"assessment_type_created_at"`
+	AssessmentTypeUpdatedAt time.Time `json:"assessment_type_updated_at"`
 }
 
 type ListAssessmentTypeResponse struct {
@@ -80,12 +112,64 @@ func (r CreateAssessmentTypeRequest) ToModel() model.AssessmentTypeModel {
 	if r.AssessmentTypeIsActive != nil {
 		isActive = *r.AssessmentTypeIsActive
 	}
+
+	// Default untuk quiz settings — harus sync dengan default di SQL
+	shuffleQuestions := false
+	if r.AssessmentTypeShuffleQuestions != nil {
+		shuffleQuestions = *r.AssessmentTypeShuffleQuestions
+	}
+
+	shuffleOptions := false
+	if r.AssessmentTypeShuffleOptions != nil {
+		shuffleOptions = *r.AssessmentTypeShuffleOptions
+	}
+
+	showCorrect := true
+	if r.AssessmentTypeShowCorrectAfterSubmit != nil {
+		showCorrect = *r.AssessmentTypeShowCorrectAfterSubmit
+	}
+
+	onePerPage := false
+	if r.AssessmentTypeOneQuestionPerPage != nil {
+		onePerPage = *r.AssessmentTypeOneQuestionPerPage
+	}
+
+	var timeLimit *int
+	if r.AssessmentTypeTimeLimitMin != nil {
+		timeLimit = r.AssessmentTypeTimeLimitMin
+	}
+
+	attempts := 1
+	if r.AssessmentTypeAttemptsAllowed != nil {
+		attempts = *r.AssessmentTypeAttemptsAllowed
+	}
+
+	requireLogin := true
+	if r.AssessmentTypeRequireLogin != nil {
+		requireLogin = *r.AssessmentTypeRequireLogin
+	}
+
+	preventBack := false
+	if r.AssessmentTypePreventBackNavigation != nil {
+		preventBack = *r.AssessmentTypePreventBackNavigation
+	}
+
 	return model.AssessmentTypeModel{
 		AssessmentTypeSchoolID:      r.AssessmentTypeSchoolID,
 		AssessmentTypeKey:           r.AssessmentTypeKey,
 		AssessmentTypeName:          r.AssessmentTypeName,
 		AssessmentTypeWeightPercent: r.AssessmentTypeWeightPercent,
-		AssessmentTypeIsActive:      isActive,
+
+		AssessmentTypeShuffleQuestions:       shuffleQuestions,
+		AssessmentTypeShuffleOptions:         shuffleOptions,
+		AssessmentTypeShowCorrectAfterSubmit: showCorrect,
+		AssessmentTypeOneQuestionPerPage:     onePerPage,
+		AssessmentTypeTimeLimitMin:           timeLimit,
+		AssessmentTypeAttemptsAllowed:        attempts,
+		AssessmentTypeRequireLogin:           requireLogin,
+		AssessmentTypePreventBackNavigation:  preventBack,
+
+		AssessmentTypeIsActive: isActive,
 	}
 }
 
@@ -100,6 +184,33 @@ func (p PatchAssessmentTypeRequest) Apply(m *model.AssessmentTypeModel) {
 	if p.AssessmentTypeIsActive != nil {
 		m.AssessmentTypeIsActive = *p.AssessmentTypeIsActive
 	}
+
+	if p.AssessmentTypeShuffleQuestions != nil {
+		m.AssessmentTypeShuffleQuestions = *p.AssessmentTypeShuffleQuestions
+	}
+	if p.AssessmentTypeShuffleOptions != nil {
+		m.AssessmentTypeShuffleOptions = *p.AssessmentTypeShuffleOptions
+	}
+	if p.AssessmentTypeShowCorrectAfterSubmit != nil {
+		m.AssessmentTypeShowCorrectAfterSubmit = *p.AssessmentTypeShowCorrectAfterSubmit
+	}
+	if p.AssessmentTypeOneQuestionPerPage != nil {
+		m.AssessmentTypeOneQuestionPerPage = *p.AssessmentTypeOneQuestionPerPage
+	}
+	if p.AssessmentTypeTimeLimitMin != nil {
+		// Catatan: dengan desain ini kita belum bisa "clear" jadi NULL lewat PATCH (hanya ubah nilai).
+		// Kalau butuh clear, nanti bisa ditambah flag khusus.
+		m.AssessmentTypeTimeLimitMin = p.AssessmentTypeTimeLimitMin
+	}
+	if p.AssessmentTypeAttemptsAllowed != nil {
+		m.AssessmentTypeAttemptsAllowed = *p.AssessmentTypeAttemptsAllowed
+	}
+	if p.AssessmentTypeRequireLogin != nil {
+		m.AssessmentTypeRequireLogin = *p.AssessmentTypeRequireLogin
+	}
+	if p.AssessmentTypePreventBackNavigation != nil {
+		m.AssessmentTypePreventBackNavigation = *p.AssessmentTypePreventBackNavigation
+	}
 }
 
 func FromModel(m model.AssessmentTypeModel) AssessmentTypeResponse {
@@ -109,9 +220,19 @@ func FromModel(m model.AssessmentTypeModel) AssessmentTypeResponse {
 		AssessmentTypeKey:           m.AssessmentTypeKey,
 		AssessmentTypeName:          m.AssessmentTypeName,
 		AssessmentTypeWeightPercent: m.AssessmentTypeWeightPercent,
-		AssessmentTypeIsActive:      m.AssessmentTypeIsActive,
-		AssessmentTypeCreatedAt:     m.AssessmentTypeCreatedAt,
-		AssessmentTypeUpdatedAt:     m.AssessmentTypeUpdatedAt,
+
+		AssessmentTypeShuffleQuestions:       m.AssessmentTypeShuffleQuestions,
+		AssessmentTypeShuffleOptions:         m.AssessmentTypeShuffleOptions,
+		AssessmentTypeShowCorrectAfterSubmit: m.AssessmentTypeShowCorrectAfterSubmit,
+		AssessmentTypeOneQuestionPerPage:     m.AssessmentTypeOneQuestionPerPage,
+		AssessmentTypeTimeLimitMin:           m.AssessmentTypeTimeLimitMin,
+		AssessmentTypeAttemptsAllowed:        m.AssessmentTypeAttemptsAllowed,
+		AssessmentTypeRequireLogin:           m.AssessmentTypeRequireLogin,
+		AssessmentTypePreventBackNavigation:  m.AssessmentTypePreventBackNavigation,
+
+		AssessmentTypeIsActive:  m.AssessmentTypeIsActive,
+		AssessmentTypeCreatedAt: m.AssessmentTypeCreatedAt,
+		AssessmentTypeUpdatedAt: m.AssessmentTypeUpdatedAt,
 	}
 }
 

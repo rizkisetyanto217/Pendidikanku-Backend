@@ -61,8 +61,12 @@ type AssessmentModel struct {
 	AssessmentDurationMinutes      *int           `gorm:"column:assessment_duration_minutes" json:"assessment_duration_minutes,omitempty"`
 	AssessmentTotalAttemptsAllowed int            `gorm:"not null;default:1;column:assessment_total_attempts_allowed" json:"assessment_total_attempts_allowed"`
 	AssessmentMaxScore             float64        `gorm:"type:numeric(5,2);not null;default:100;column:assessment_max_score" json:"assessment_max_score"`
-	AssessmentIsPublished          bool           `gorm:"not null;default:true;column:assessment_is_published" json:"assessment_is_published"`
-	AssessmentAllowSubmission      bool           `gorm:"not null;default:true;column:assessment_allow_submission" json:"assessment_allow_submission"`
+
+	// total quiz/komponen quiz di assessment ini (global, sama utk semua siswa)
+	AssessmentQuizTotal int `gorm:"type:smallint;not null;default:0;column:assessment_quiz_total" json:"assessment_quiz_total"`
+
+	AssessmentIsPublished     bool `gorm:"not null;default:true;column:assessment_is_published" json:"assessment_is_published"`
+	AssessmentAllowSubmission bool `gorm:"not null;default:true;column:assessment_allow_submission" json:"assessment_allow_submission"`
 
 	// Audit pembuat (opsional)
 	AssessmentCreatedByTeacherID *uuid.UUID `gorm:"type:uuid;column:assessment_created_by_teacher_id" json:"assessment_created_by_teacher_id,omitempty"`

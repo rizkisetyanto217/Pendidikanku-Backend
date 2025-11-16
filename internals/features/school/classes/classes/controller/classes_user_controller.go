@@ -148,7 +148,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	applyCommonFilters := func(tx *gorm.DB, aliasClass string, q dto.ListClassQuery) *gorm.DB {
 		tx = tx.Where(aliasClass + ".class_deleted_at IS NULL")
 
-		// 🔁 pakai field baru dari DTO: ClassParentID & ClassTermID
+		// pakai field baru dari DTO: ClassParentID & ClassTermID
 		if q.ClassParentID != nil {
 			tx = tx.Where(aliasClass+".class_class_parent_id = ?", *q.ClassParentID)
 		}
@@ -156,29 +156,17 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			tx = tx.Where(aliasClass+".class_academic_term_id = ?", *q.ClassTermID)
 		}
 
+		// filter by ID hanya pakai ?id=...
 		if raw := strings.TrimSpace(c.Query("id")); raw != "" {
 			var ids []uuid.UUID
 			for _, part := range strings.Split(raw, ",") {
-				if part = strings.TrimSpace(part); part == "" {
+				part = strings.TrimSpace(part)
+				if part == "" {
 					continue
 				}
 				id, err := uuid.Parse(part)
 				if err != nil {
-					return tx.Where("1=0")
-				}
-				ids = append(ids, id)
-			}
-			if len(ids) > 0 {
-				tx = tx.Where(aliasClass+".class_id IN ?", ids)
-			}
-		} else if raw := strings.TrimSpace(c.Query("class_id")); raw != "" {
-			var ids []uuid.UUID
-			for _, part := range strings.Split(raw, ",") {
-				if part = strings.TrimSpace(part); part == "" {
-					continue
-				}
-				id, err := uuid.Parse(part)
-				if err != nil {
+					// kalau ada UUID invalid → kosongkan hasil (daripada 400)
 					return tx.Where("1=0")
 				}
 				ids = append(ids, id)
@@ -187,6 +175,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 				tx = tx.Where(aliasClass+".class_id IN ?", ids)
 			}
 		}
+
 		if q.Status != nil && strings.TrimSpace(*q.Status) != "" {
 			tx = tx.Where(aliasClass+".class_status = ?", strings.ToLower(strings.TrimSpace(*q.Status)))
 		}
@@ -198,7 +187,10 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		}
 		if q.Search != nil && strings.TrimSpace(*q.Search) != "" {
 			s := "%" + strings.ToLower(strings.TrimSpace(*q.Search)) + "%"
-			tx = tx.Where(`LOWER(COALESCE(`+aliasClass+`.class_notes,'')) LIKE ? OR LOWER(`+aliasClass+`.class_slug) LIKE ?`, s, s)
+			tx = tx.Where(
+				`LOWER(COALESCE(`+aliasClass+`.class_notes,'')) LIKE ? OR LOWER(`+aliasClass+`.class_slug) LIKE ?`,
+				s, s,
+			)
 		}
 		if q.StartGe != nil {
 			tx = tx.Where(aliasClass+".class_start_date >= ?", *q.StartGe)
@@ -237,6 +229,23 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	}
 	q.Normalize()
 
+	// alias legacy: ?class_parent_id= → isi ke ClassParentID jika belum ada
+	if q.ClassParentID == nil {
+		if raw := strings.TrimSpace(c.Query("class_parent_id")); raw != "" {
+			if id, err := uuid.Parse(raw); err == nil {
+				q.ClassParentID = &id
+			}
+		}
+	}
+
+	// alias legacy search: ?q= → isi ke Search kalau Search masih nil
+	if q.Search == nil {
+		if raw := strings.TrimSpace(c.Query("q")); raw != "" {
+			s := strings.ToLower(raw)
+			q.Search = &s
+		}
+	}
+
 	includeStr := strings.ToLower(strings.TrimSpace(c.Query("include")))
 	includeAll := includeStr == "all"
 	includes := map[string]bool{}
@@ -251,13 +260,23 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 
 	sectionsOnlyActive := strings.EqualFold(strings.TrimSpace(c.Query("sections_active")), "true")
 
-	searchQ := strings.ToLower(strings.TrimSpace(c.Query("q")))
+	// searchQ dari DTO.Search (sudah include alias ?q)
+	searchQ := ""
+	if q.Search != nil && strings.TrimSpace(*q.Search) != "" {
+		searchQ = strings.ToLower(strings.TrimSpace(*q.Search))
+	}
 	if searchQ != "" {
 		wantSubjects = true
 	}
 	like := "%" + searchQ + "%"
+
 	parentName := strings.ToLower(strings.TrimSpace(c.Query("parent_name")))
 	parentLike := "%" + parentName + "%"
+
+	// 🔥 bonus: kalau filter pakai class_parent → otomatis include subjects
+	if q.ClassParentID != nil {
+		wantSubjects = true
+	}
 
 	// 3) Pagination & Sorting
 	pg := helper.ResolvePaging(c, 20, 200) // default 20, max 200
@@ -289,7 +308,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	var total int64
 
 	if searchQ != "" {
-		// SEARCH MODE: JOIN subjects via class_subjects by PARENT (baru)
+		// SEARCH MODE: JOIN subjects via class_subjects by PARENT
 		filter := ctrl.DB.Table("classes AS c").
 			Where("c.class_school_id IN ?", schoolIDs).
 			Joins(`
@@ -299,6 +318,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 				  AND cs.class_subject_is_active = TRUE
 				  AND cs.class_subject_deleted_at IS NULL
 			`).
+			// NOTE: di sini masih pakai join subjects (untuk search di subject_name)
 			Joins(`LEFT JOIN subjects AS s ON s.subject_id = cs.class_subject_subject_id`)
 
 		filter = applyCommonFilters(filter, "c", q)
@@ -515,10 +535,18 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 
 	// 7) Prefetch subjects (opsional) — via class_parent (bukan class_id)
 	type SubjectLite struct {
-		SubjectID      uuid.UUID `json:"subject_id"       gorm:"column:subject_id"`
-		SubjectName    string    `json:"subject_name"     gorm:"column:subject_name"`
-		ClassSubjectID uuid.UUID `json:"class_subject_id" gorm:"column:class_subject_id"`
+		ClassSubjectID uuid.UUID  `json:"class_subject_id"                     gorm:"column:class_subject_id"`
+		SubjectID      uuid.UUID  `json:"subject_id"                           gorm:"column:subject_id"`
+		SubjectName    string     `json:"subject_name"                         gorm:"column:subject_name"`
+		SubjectCode    *string    `json:"subject_code,omitempty"               gorm:"column:subject_code"`
+		SubjectSlug    *string    `json:"subject_slug,omitempty"               gorm:"column:subject_slug"`
+		IsCore         bool       `json:"is_core"                              gorm:"column:is_core"`
+		OrderIndex     *int       `json:"order_index,omitempty"                gorm:"column:order_index"`
+		MinPassing     *int       `json:"min_passing_score,omitempty"          gorm:"column:min_passing_score"`
+		WeightOnReport *int       `json:"weight_on_report,omitempty"           gorm:"column:weight_on_report"`
+		CreatedAt      *time.Time `json:"class_subject_created_at,omitempty"   gorm:"column:class_subject_created_at"`
 	}
+
 	subjectsMap := map[uuid.UUID][]SubjectLite{} // key: class_id
 
 	if wantSubjects && len(rows) > 0 {
@@ -537,17 +565,23 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		}
 
 		type subjRow struct {
-			ParentID       uuid.UUID `gorm:"column:parent_id"`
-			SubjectID      uuid.UUID `gorm:"column:subject_id"`
-			SubjectName    string    `gorm:"column:subject_name"`
-			ClassSubjectID uuid.UUID `gorm:"column:class_subject_id"`
+			ParentID       uuid.UUID  `gorm:"column:parent_id"`
+			ClassSubjectID uuid.UUID  `gorm:"column:class_subject_id"`
+			SubjectID      uuid.UUID  `gorm:"column:subject_id"`
+			SubjectName    string     `gorm:"column:subject_name"`
+			SubjectCode    *string    `gorm:"column:subject_code"`
+			SubjectSlug    *string    `gorm:"column:subject_slug"`
+			IsCore         bool       `gorm:"column:is_core"`
+			OrderIndex     *int       `gorm:"column:order_index"`
+			MinPassing     *int       `gorm:"column:min_passing_score"`
+			WeightOnReport *int       `gorm:"column:weight_on_report"`
+			CreatedAt      *time.Time `gorm:"column:class_subject_created_at"`
 		}
 		var sjRows []subjRow
 
 		if len(parentIDs) > 0 {
 			if err := ctrl.DB.
 				Table("class_subjects AS cs").
-				Joins(`JOIN subjects AS s ON s.subject_id = cs.class_subject_subject_id`).
 				Where(`
 					cs.class_subject_school_id IN ?
 					AND cs.class_subject_is_active = TRUE
@@ -556,11 +590,18 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 				Where("cs.class_subject_class_parent_id IN ?", parentIDs).
 				Select(`
 					cs.class_subject_class_parent_id AS parent_id,
-					s.subject_id,
-					s.subject_name,
-					cs.class_subject_id
+					cs.class_subject_id,
+					cs.class_subject_subject_id AS subject_id,
+					COALESCE(cs.class_subject_subject_name_snapshot, '') AS subject_name,
+					cs.class_subject_subject_code_snapshot AS subject_code,
+					cs.class_subject_subject_slug_snapshot AS subject_slug,
+					cs.class_subject_is_core AS is_core,
+					cs.class_subject_order_index AS order_index,
+					cs.class_subject_min_passing_score AS min_passing_score,
+					cs.class_subject_weight_on_report AS weight_on_report,
+					cs.class_subject_created_at AS class_subject_created_at
 				`).
-				Order("s.subject_name ASC").
+				Order("cs.class_subject_order_index NULLS LAST, LOWER(cs.class_subject_subject_name_snapshot) ASC").
 				Scan(&sjRows).Error; err != nil {
 				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil subject kelas")
 			}
@@ -569,9 +610,16 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		parentSubjects := make(map[uuid.UUID][]SubjectLite, len(parentIDs))
 		for _, r := range sjRows {
 			parentSubjects[r.ParentID] = append(parentSubjects[r.ParentID], SubjectLite{
+				ClassSubjectID: r.ClassSubjectID,
 				SubjectID:      r.SubjectID,
 				SubjectName:    r.SubjectName,
-				ClassSubjectID: r.ClassSubjectID,
+				SubjectCode:    r.SubjectCode,
+				SubjectSlug:    r.SubjectSlug,
+				IsCore:         r.IsCore,
+				OrderIndex:     r.OrderIndex,
+				MinPassing:     r.MinPassing,
+				WeightOnReport: r.WeightOnReport,
+				CreatedAt:      r.CreatedAt,
 			})
 		}
 

@@ -38,8 +38,13 @@ type CreateAssessmentRequest struct {
 	AssessmentDurationMinutes      *int    `json:"assessment_duration_minutes" validate:"omitempty,gte=1,lte=1440"`
 	AssessmentTotalAttemptsAllowed int     `json:"assessment_total_attempts_allowed" validate:"omitempty,gte=1,lte=50"`
 	AssessmentMaxScore             float64 `json:"assessment_max_score" validate:"omitempty,gte=0,lte=100"`
-	AssessmentIsPublished          *bool   `json:"assessment_is_published"`
-	AssessmentAllowSubmission      *bool   `json:"assessment_allow_submission"`
+
+	// total quiz/komponen quiz di assessment ini (global, sama utk semua siswa)
+	// opsional; kalau kosong, bisa diisi di controller dari jumlah quiz inline
+	AssessmentQuizTotal *int `json:"assessment_quiz_total" validate:"omitempty,gte=0,lte=255"`
+
+	AssessmentIsPublished     *bool `json:"assessment_is_published"`
+	AssessmentAllowSubmission *bool `json:"assessment_allow_submission"`
 
 	// Audit
 	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id" validate:"omitempty,uuid4"`
@@ -85,6 +90,12 @@ func (r *CreateAssessmentRequest) Normalize() {
 		r.AssessmentMaxScore = 100
 	}
 
+	// quiz_total tidak dipaksa di sini; bisa diisi dari jumlah quiz inline di controller
+	if r.AssessmentQuizTotal != nil && *r.AssessmentQuizTotal < 0 {
+		z := 0
+		r.AssessmentQuizTotal = &z
+	}
+
 	// default flags
 	if r.AssessmentIsPublished == nil {
 		b := true
@@ -103,6 +114,11 @@ func (r *CreateAssessmentRequest) ToModel() assessModel.AssessmentModel {
 		kind = assessModel.AssessmentKindQuiz
 	}
 
+	quizTotal := 0
+	if r.AssessmentQuizTotal != nil && *r.AssessmentQuizTotal > 0 {
+		quizTotal = *r.AssessmentQuizTotal
+	}
+
 	row := assessModel.AssessmentModel{
 		AssessmentSchoolID:                     r.AssessmentSchoolID,
 		AssessmentClassSectionSubjectTeacherID: r.AssessmentClassSectionSubjectTeacherID,
@@ -118,6 +134,7 @@ func (r *CreateAssessmentRequest) ToModel() assessModel.AssessmentModel {
 		AssessmentDurationMinutes:              r.AssessmentDurationMinutes,
 		AssessmentTotalAttemptsAllowed:         r.AssessmentTotalAttemptsAllowed,
 		AssessmentMaxScore:                     r.AssessmentMaxScore,
+		AssessmentQuizTotal:                    quizTotal,
 		AssessmentCreatedByTeacherID:           r.AssessmentCreatedByTeacherID,
 		AssessmentSubmissionMode:               assessModel.SubmissionModeDate, // akan dioverride di controller
 		AssessmentIsPublished:                  *r.AssessmentIsPublished,
@@ -148,8 +165,12 @@ type PatchAssessmentRequest struct {
 	AssessmentDurationMinutes      *int     `json:"assessment_duration_minutes" validate:"omitempty,gte=1,lte=1440"`
 	AssessmentTotalAttemptsAllowed *int     `json:"assessment_total_attempts_allowed" validate:"omitempty,gte=1,lte=50"`
 	AssessmentMaxScore             *float64 `json:"assessment_max_score" validate:"omitempty,gte=0,lte=100"`
-	AssessmentIsPublished          *bool    `json:"assessment_is_published"`
-	AssessmentAllowSubmission      *bool    `json:"assessment_allow_submission"`
+
+	// boleh PATCH total quiz juga kalau guru edit struktur penilaian
+	AssessmentQuizTotal *int `json:"assessment_quiz_total" validate:"omitempty,gte=0,lte=255"`
+
+	AssessmentIsPublished     *bool `json:"assessment_is_published"`
+	AssessmentAllowSubmission *bool `json:"assessment_allow_submission"`
 
 	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id" validate:"omitempty,uuid4"`
 
@@ -173,6 +194,11 @@ func (r *PatchAssessmentRequest) Normalize() {
 	if r.AssessmentKind != nil {
 		k := strings.ToLower(strings.TrimSpace(*r.AssessmentKind))
 		r.AssessmentKind = &k
+	}
+
+	if r.AssessmentQuizTotal != nil && *r.AssessmentQuizTotal < 0 {
+		z := 0
+		r.AssessmentQuizTotal = &z
 	}
 }
 
@@ -220,6 +246,12 @@ func (r *PatchAssessmentRequest) Apply(m *assessModel.AssessmentModel) {
 	if r.AssessmentMaxScore != nil {
 		m.AssessmentMaxScore = *r.AssessmentMaxScore
 	}
+
+	if r.AssessmentQuizTotal != nil {
+		// udah dinormalize minimal 0
+		m.AssessmentQuizTotal = *r.AssessmentQuizTotal
+	}
+
 	if r.AssessmentIsPublished != nil {
 		m.AssessmentIsPublished = *r.AssessmentIsPublished
 	}
@@ -231,7 +263,7 @@ func (r *PatchAssessmentRequest) Apply(m *assessModel.AssessmentModel) {
 		m.AssessmentCreatedByTeacherID = r.AssessmentCreatedByTeacherID
 	}
 
-	// Session IDs di-handle di controller
+	// Session IDs di-handle di controller (karena terkait submission_mode)
 }
 
 /* ========================================================
@@ -258,8 +290,11 @@ type AssessmentResponse struct {
 	AssessmentDurationMinutes      *int    `json:"assessment_duration_minutes,omitempty"`
 	AssessmentTotalAttemptsAllowed int     `json:"assessment_total_attempts_allowed"`
 	AssessmentMaxScore             float64 `json:"assessment_max_score"`
-	AssessmentIsPublished          bool    `json:"assessment_is_published"`
-	AssessmentAllowSubmission      bool    `json:"assessment_allow_submission"`
+
+	// total quiz/komponen quiz global untuk assessment ini
+	AssessmentQuizTotal       int  `json:"assessment_quiz_total"`
+	AssessmentIsPublished     bool `json:"assessment_is_published"`
+	AssessmentAllowSubmission bool `json:"assessment_allow_submission"`
 
 	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id,omitempty"`
 
@@ -308,6 +343,7 @@ func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
 		AssessmentDurationMinutes:      m.AssessmentDurationMinutes,
 		AssessmentTotalAttemptsAllowed: m.AssessmentTotalAttemptsAllowed,
 		AssessmentMaxScore:             m.AssessmentMaxScore,
+		AssessmentQuizTotal:            m.AssessmentQuizTotal,
 		AssessmentIsPublished:          m.AssessmentIsPublished,
 		AssessmentAllowSubmission:      m.AssessmentAllowSubmission,
 

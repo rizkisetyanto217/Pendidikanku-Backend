@@ -82,15 +82,32 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 		Model(&cpmodel.ClassParentModel{}).
 		Where("class_parent_school_id = ? AND class_parent_deleted_at IS NULL", schoolID)
 
-	// ----- filter by id(s) -----
-	if s := strings.TrimSpace(c.Query("class_parent_id")); s != "" {
+	// ----- filter by id (single) -----
+	//   prefer: ?id=UUID
+	//   legacy: ?class_parent_id=UUID
+	if s := strings.TrimSpace(c.Query("id")); s != "" {
+		id, perr := uuid.Parse(s)
+		if perr != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "id tidak valid (uuid)")
+		}
+		tx = tx.Where("class_parent_id = ?", id)
+	} else if s := strings.TrimSpace(c.Query("class_parent_id")); s != "" {
 		id, perr := uuid.Parse(s)
 		if perr != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "class_parent_id tidak valid (uuid)")
 		}
 		tx = tx.Where("class_parent_id = ?", id)
 	}
-	if s := strings.TrimSpace(c.Query("class_parent_ids")); s != "" {
+
+	// ----- filter by ids (multiple, comma-separated) -----
+	//   prefer: ?ids=UUID1,UUID2
+	//   legacy: ?class_parent_ids=UUID1,UUID2
+	if raw := strings.TrimSpace(c.Query("ids")); raw != "" || strings.TrimSpace(c.Query("class_parent_ids")) != "" {
+		s := raw
+		if s == "" {
+			s = strings.TrimSpace(c.Query("class_parent_ids"))
+		}
+
 		parts := strings.Split(s, ",")
 		ids := make([]uuid.UUID, 0, len(parts))
 		for _, pstr := range parts {
@@ -100,7 +117,7 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 			}
 			id, perr := uuid.Parse(pstr)
 			if perr != nil {
-				return helper.JsonError(c, fiber.StatusBadRequest, "class_parent_ids mengandung UUID tidak valid")
+				return helper.JsonError(c, fiber.StatusBadRequest, "ids/class_parent_ids mengandung UUID tidak valid")
 			}
 			ids = append(ids, id)
 		}
@@ -122,6 +139,7 @@ func (ctl *ClassParentController) List(c *fiber.Ctx) error {
 	if q.CreatedGt != nil {
 		tx = tx.Where("class_parent_created_at > ?", *q.CreatedGt)
 	}
+
 	if q.CreatedLt != nil {
 		tx = tx.Where("class_parent_created_at < ?", *q.CreatedLt)
 	}

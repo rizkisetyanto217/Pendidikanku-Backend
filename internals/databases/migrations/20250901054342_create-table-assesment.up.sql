@@ -11,6 +11,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- 1) ASSESSMENT_TYPES (master types)
 --    - tabel plural
 --    - kolom singular (prefix assessment_type_)
+--    - menyimpan default rule perilaku kuis/penilaian
 -- =========================================================
 CREATE TABLE IF NOT EXISTS assessment_types (
   assessment_type_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -21,9 +22,42 @@ CREATE TABLE IF NOT EXISTS assessment_types (
   assessment_type_key  VARCHAR(32)  NOT NULL,  -- unik per school (uas, uts, tugas, ...)
   assessment_type_name VARCHAR(120) NOT NULL,
 
+  -- Bobot untuk perhitungan nilai akhir (0–100%)
   assessment_type_weight_percent NUMERIC(5,2) NOT NULL DEFAULT 0
     CHECK (assessment_type_weight_percent >= 0 AND assessment_type_weight_percent <= 100),
 
+  -- ============================
+  -- Default pengaturan kuis
+  -- (diambil dari React QuizSettings)
+  -- ============================
+
+  -- Acak urutan pertanyaan
+  assessment_type_shuffle_questions BOOLEAN NOT NULL DEFAULT FALSE,
+
+  -- Acak urutan opsi jawaban
+  assessment_type_shuffle_options  BOOLEAN NOT NULL DEFAULT FALSE,
+
+  -- Tampilkan jawaban benar / review setelah submit
+  assessment_type_show_correct_after_submit BOOLEAN NOT NULL DEFAULT TRUE,
+
+  -- Satu pertanyaan per halaman (pagination saat mengerjakan)
+  assessment_type_one_question_per_page BOOLEAN NOT NULL DEFAULT FALSE,
+
+  -- Batas waktu pengerjaan (menit); NULL = tanpa batas
+  assessment_type_time_limit_min INTEGER
+    CHECK (assessment_type_time_limit_min IS NULL OR assessment_type_time_limit_min >= 0),
+
+  -- Maksimal percobaan (attempts); minimal 1
+  assessment_type_attempts_allowed INTEGER NOT NULL DEFAULT 1
+    CHECK (assessment_type_attempts_allowed >= 1),
+
+  -- Wajib login saat mengerjakan
+  assessment_type_require_login BOOLEAN NOT NULL DEFAULT TRUE,
+
+  -- Blok navigasi "back" (kurangi kecurangan)
+  assessment_type_prevent_back_navigation BOOLEAN NOT NULL DEFAULT FALSE,
+
+  -- Status aktif type ini
   assessment_type_is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
   assessment_type_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -48,7 +82,6 @@ CREATE INDEX IF NOT EXISTS idx_assessment_types_school_active
 -- BRIN waktu
 CREATE INDEX IF NOT EXISTS brin_assessment_types_created_at
   ON assessment_types USING BRIN (assessment_type_created_at);
-
 
 
 -- =========================================================
@@ -77,6 +110,8 @@ BEGIN
     );
   END IF;
 END$$;
+
+
 
 CREATE TABLE IF NOT EXISTS assessments (
   assessment_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -107,6 +142,9 @@ CREATE TABLE IF NOT EXISTS assessments (
   assessment_total_attempts_allowed INT NOT NULL DEFAULT 1,
   assessment_max_score NUMERIC(5,2) NOT NULL DEFAULT 100
     CHECK (assessment_max_score >= 0 AND assessment_max_score <= 100),
+
+  -- total quiz/komponen quiz di assessment ini (global, sama untuk semua siswa)
+  assessment_quiz_total SMALLINT NOT NULL DEFAULT 0,
 
   assessment_is_published     BOOLEAN NOT NULL DEFAULT TRUE,
   assessment_allow_submission BOOLEAN NOT NULL DEFAULT TRUE,
