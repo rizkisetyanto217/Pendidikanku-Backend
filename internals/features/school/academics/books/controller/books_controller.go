@@ -92,6 +92,14 @@ func dumpMultipartKeys(c *fiber.Ctx) {
 	}
 }
 
+// helper kecil buat log
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
 // POST /api/books
 func (h *BooksController) Create(c *fiber.Ctx) error {
 	log.Printf("[BOOKS][CREATE] ▶ incoming request %s %s", c.Method(), c.OriginalURL())
@@ -125,7 +133,11 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 	// 2) School context + guard (khusus teacher / owner)
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		return err
+		// pastikan error dari helper juga dibungkus dalam JSON standard
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 	schoolID := mc.ID
 	if schoolID == uuid.Nil {
@@ -135,7 +147,10 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 	// Owner global → lolos; selain itu wajib teacher di school ini
 	if !helperAuth.IsOwner(c) {
 		if err := helperAuth.EnsureTeacherSchool(c, schoolID); err != nil {
-			return err
+			if fe, ok := err.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 		}
 	}
 
@@ -162,7 +177,7 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 	log.Printf("[BOOKS][CREATE] uniqueSlug=%q", uniqueSlug)
 
 	// 4) Create entity
-	ent := p.ToModel() // *model.BookModel
+	ent := p.ToModel() // *bookModel.BookModel
 	ent.BookSchoolID = schoolID
 	ent.BookSlug = &uniqueSlug
 	if err := h.DB.Create(ent).Error; err != nil {
@@ -234,18 +249,9 @@ func (h *BooksController) Create(c *fiber.Ctx) error {
 	resp := dto.ToBookResponse(ent)
 	log.Printf("[BOOKS][CREATE] respond book_id=%s image_url=%v", ent.BookID, resp.BookImageURL)
 
-	return helper.JsonCreated(c, "Buku berhasil dibuat", fiber.Map{
-		"book":               resp,
-		"uploaded_image_url": uploadedURL,
-	})
-}
+	// data langsung = objek buku (tanpa wrapper "book", tanpa uploaded_image_url)
+	return helper.JsonCreated(c, "Buku berhasil dibuat", resp)
 
-// helper kecil buat log
-func derefStr(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
 }
 
 // PATCH /api/a/:school_id/books/:id
@@ -258,7 +264,10 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 	// --- Tenant guard (teacher / owner) ---
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 	schoolID := mc.ID
 	if schoolID == uuid.Nil {
@@ -266,7 +275,10 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 	}
 	if !helperAuth.IsOwner(c) {
 		if err := helperAuth.EnsureTeacherSchool(c, schoolID); err != nil {
-			return err
+			if fe, ok := err.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 		}
 	}
 
@@ -433,9 +445,9 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 	}
 
 	// --- Response ---
-	return helper.JsonOK(c, "Buku berhasil diperbarui", fiber.Map{
-		"book": dto.ToBookResponse(&m),
-	})
+	resp := dto.ToBookResponse(&m)
+	return helper.JsonUpdated(c, "Buku berhasil diperbarui", resp)
+
 }
 
 /*
@@ -445,10 +457,11 @@ func (h *BooksController) Patch(c *fiber.Ctx) error {
 
 =========================================================
 */
+
 /*
 =========================================================
 
-    DELETE (soft) - /api/a/:school_id/books/:id
+	DELETE (soft) - /api/a/:school_id/books/:id
 
 =========================================================
 */
@@ -460,7 +473,10 @@ func (h *BooksController) Delete(c *fiber.Ctx) error {
 	// --- Tenant guard (teacher / owner) ---
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 	schoolID := mc.ID
 	if schoolID == uuid.Nil {
@@ -468,7 +484,10 @@ func (h *BooksController) Delete(c *fiber.Ctx) error {
 	}
 	if !helperAuth.IsOwner(c) {
 		if err := helperAuth.EnsureTeacherSchool(c, schoolID); err != nil {
-			return err
+			if fe, ok := err.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 		}
 	}
 

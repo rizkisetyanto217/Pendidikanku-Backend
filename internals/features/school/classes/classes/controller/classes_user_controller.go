@@ -257,6 +257,8 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 
 	wantSubjects := includeAll || includes["subject"] || includes["subjects"]
 	wantSections := includeAll || includes["class_sections"]
+	// subject_books selalu ikut kalau subjects diminta dan user minta "books/subject_books"
+	wantSubjectBooks := wantSubjects && (includeAll || includes["books"] || includes["subject_books"] || includes["class_subject_books"])
 
 	sectionsOnlyActive := strings.EqualFold(strings.TrimSpace(c.Query("sections_active")), "true")
 
@@ -534,6 +536,20 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 	}
 
 	// 7) Prefetch subjects (opsional) — via class_parent (bukan class_id)
+	type BookLite struct {
+		ClassSubjectBookID uuid.UUID  `json:"class_subject_book_id"             gorm:"column:class_subject_book_id"`
+		BookID             uuid.UUID  `json:"book_id"                           gorm:"column:book_id"`
+		BookTitle          string     `json:"book_title"                        gorm:"column:book_title"`
+		BookAuthor         *string    `json:"book_author,omitempty"             gorm:"column:book_author"`
+		BookSlug           *string    `json:"book_slug,omitempty"               gorm:"column:book_slug"`
+		BookPublisher      *string    `json:"book_publisher,omitempty"          gorm:"column:book_publisher"`
+		BookYear           *int16     `json:"book_publication_year,omitempty"   gorm:"column:book_publication_year"`
+		BookImageURL       *string    `json:"book_image_url,omitempty"          gorm:"column:book_image_url"`
+		IsActive           bool       `json:"is_active"                         gorm:"column:is_active"`
+		Desc               *string    `json:"desc,omitempty"                    gorm:"column:desc"`
+		CreatedAt          *time.Time `json:"class_subject_book_created_at,omitempty" gorm:"column:class_subject_book_created_at"`
+	}
+
 	type SubjectLite struct {
 		ClassSubjectID uuid.UUID  `json:"class_subject_id"                     gorm:"column:class_subject_id"`
 		SubjectID      uuid.UUID  `json:"subject_id"                           gorm:"column:subject_id"`
@@ -545,6 +561,8 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 		MinPassing     *int       `json:"min_passing_score,omitempty"          gorm:"column:min_passing_score"`
 		WeightOnReport *int       `json:"weight_on_report,omitempty"           gorm:"column:weight_on_report"`
 		CreatedAt      *time.Time `json:"class_subject_created_at,omitempty"   gorm:"column:class_subject_created_at"`
+
+		Books []BookLite `json:"books,omitempty"`
 	}
 
 	subjectsMap := map[uuid.UUID][]SubjectLite{} // key: class_id
@@ -607,6 +625,77 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 			}
 		}
 
+		// ==== Prefetch class_subject_books untuk semua class_subject di halaman ini (opsional) ====
+		booksBySubject := map[uuid.UUID][]BookLite{}
+		if wantSubjectBooks && len(sjRows) > 0 {
+			subjectIDSet := map[uuid.UUID]struct{}{}
+			for _, r := range sjRows {
+				subjectIDSet[r.ClassSubjectID] = struct{}{}
+			}
+			subjectIDs := make([]uuid.UUID, 0, len(subjectIDSet))
+			for id := range subjectIDSet {
+				subjectIDs = append(subjectIDs, id)
+			}
+
+			if len(subjectIDs) > 0 {
+				type bookRow struct {
+					ClassSubjectID     uuid.UUID  `gorm:"column:class_subject_id"`
+					ClassSubjectBookID uuid.UUID  `gorm:"column:class_subject_book_id"`
+					BookID             uuid.UUID  `gorm:"column:book_id"`
+					BookTitle          string     `gorm:"column:book_title"`
+					BookAuthor         *string    `gorm:"column:book_author"`
+					BookSlug           *string    `gorm:"column:book_slug"`
+					BookPublisher      *string    `gorm:"column:book_publisher"`
+					BookYear           *int16     `gorm:"column:book_publication_year"`
+					BookImageURL       *string    `gorm:"column:book_image_url"`
+					IsActive           bool       `gorm:"column:is_active"`
+					Desc               *string    `gorm:"column:desc"`
+					CreatedAt          *time.Time `gorm:"column:class_subject_book_created_at"`
+				}
+
+				var bRows []bookRow
+				if err := ctrl.DB.
+					Table("class_subject_books AS csb").
+					Select(`
+						csb.class_subject_book_class_subject_id AS class_subject_id,
+						csb.class_subject_book_id,
+						csb.class_subject_book_book_id AS book_id,
+						csb.class_subject_book_book_title_snapshot AS book_title,
+						csb.class_subject_book_book_author_snapshot AS book_author,
+						csb.class_subject_book_book_slug_snapshot AS book_slug,
+						csb.class_subject_book_book_publisher_snapshot AS book_publisher,
+						csb.class_subject_book_book_publication_year_snapshot AS book_publication_year,
+						csb.class_subject_book_book_image_url_snapshot AS book_image_url,
+						csb.class_subject_book_is_active AS is_active,
+						csb.class_subject_book_desc AS desc,
+						csb.class_subject_book_created_at
+					`).
+					Where("csb.class_subject_book_deleted_at IS NULL").
+					Where("csb.class_subject_book_school_id IN ?", schoolIDs).
+					Where("csb.class_subject_book_class_subject_id IN ?", subjectIDs).
+					Order("LOWER(csb.class_subject_book_book_title_snapshot) ASC, csb.class_subject_book_created_at DESC").
+					Scan(&bRows).Error; err != nil {
+					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil buku subject kelas")
+				}
+
+				for _, br := range bRows {
+					booksBySubject[br.ClassSubjectID] = append(booksBySubject[br.ClassSubjectID], BookLite{
+						ClassSubjectBookID: br.ClassSubjectBookID,
+						BookID:             br.BookID,
+						BookTitle:          br.BookTitle,
+						BookAuthor:         br.BookAuthor,
+						BookSlug:           br.BookSlug,
+						BookPublisher:      br.BookPublisher,
+						BookYear:           br.BookYear,
+						BookImageURL:       br.BookImageURL,
+						IsActive:           br.IsActive,
+						Desc:               br.Desc,
+						CreatedAt:          br.CreatedAt,
+					})
+				}
+			}
+		}
+
 		parentSubjects := make(map[uuid.UUID][]SubjectLite, len(parentIDs))
 		for _, r := range sjRows {
 			parentSubjects[r.ParentID] = append(parentSubjects[r.ParentID], SubjectLite{
@@ -620,6 +709,7 @@ func (ctrl *ClassController) ListClasses(c *fiber.Ctx) error {
 				MinPassing:     r.MinPassing,
 				WeightOnReport: r.WeightOnReport,
 				CreatedAt:      r.CreatedAt,
+				Books:          booksBySubject[r.ClassSubjectID],
 			})
 		}
 

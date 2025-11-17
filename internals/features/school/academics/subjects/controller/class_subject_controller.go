@@ -26,7 +26,7 @@ type ClassSubjectController struct {
 	DB *gorm.DB
 }
 
-/* ====== Tambahkan ini (helper kecil) ====== */
+/* ====== Helper kecil ====== */
 func ptrStr(p *string) string {
 	if p == nil {
 		return ""
@@ -38,7 +38,7 @@ func ptrStr(p *string) string {
 type classParentSnap struct {
 	Code  *string
 	Slug  *string
-	Level *int16 // <-- samakan dengan tipe di model/DB kamu
+	Level *int16 // samakan dengan tipe di model/DB kamu
 	Name  *string
 }
 
@@ -96,38 +96,51 @@ func setParentURLSnapshotIfExists(m *csModel.ClassSubjectModel, url *string) {
 =========================================================
 */
 func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
-	// 🔐 Context school
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		return err
-	}
+	c.Locals("DB", h.DB)
 
+	// 🔐 Resolve school_id: PRIORITAS dari token, fallback ke context (ID/slug)
 	var schoolID uuid.UUID
-	switch {
-	case mc.ID != uuid.Nil:
-		schoolID = mc.ID
-	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
-		if er != nil {
-			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
-		}
+
+	if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
 		schoolID = id
-	default:
-		return helperAuth.ErrSchoolContextMissing
+	} else {
+		mc, err := helperAuth.ResolveSchoolContext(c)
+		if err != nil {
+			if fe, ok := err.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		}
+
+		switch {
+		case mc.ID != uuid.Nil:
+			schoolID = mc.ID
+		case strings.TrimSpace(mc.Slug) != "":
+			id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+			if er != nil {
+				if errors.Is(er, gorm.ErrRecordNotFound) {
+					return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+			}
+			schoolID = id
+		default:
+			return helper.JsonError(c, fiber.StatusBadRequest, "Konteks sekolah tidak ditemukan")
+		}
 	}
 
 	// 🔒 Role: HANYA DKM/Admin di school ini
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 	}
 
 	// 📦 Parse payload
 	var req csDTO.CreateClassSubjectRequest
 	if err := c.BodyParser(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	req.SchoolID = schoolID // force tenant
 
@@ -147,7 +160,8 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 
 	// ✅ Validasi
 	if err := validator.New().Struct(req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		// bisa di-upgrade ke JsonValidationError kalau mau field-level
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// 🧾 Transaksi
@@ -235,7 +249,7 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 		// Class Parent snapshots
 		m.ClassSubjectClassParentCodeSnapshot = parentSnap.Code
 		m.ClassSubjectClassParentSlugSnapshot = parentSnap.Slug
-		m.ClassSubjectClassParentLevelSnapshot = parentSnap.Level // <-- tipe sekarang cocok (*int16)
+		m.ClassSubjectClassParentLevelSnapshot = parentSnap.Level
 		m.ClassSubjectClassParentNameSnapshot = parentSnap.Name
 
 		// Opsional: derive URL dari slug parent—DISET hanya jika field-nya ada di model.
@@ -283,7 +297,11 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 		c.Locals("http_status", fiber.StatusCreated)
 		return nil
 	}); err != nil {
-		return err
+		// Semua error dari transaksi dibungkus ke JsonError standar
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	// === Response ===
@@ -295,10 +313,10 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 		}
 	}
 
-	return c.Status(status).JSON(fiber.Map{
-		"message": "Class subject berhasil diproses",
-		"data":    csDTO.FromClassSubjectModel(m),
-	})
+	if status == fiber.StatusCreated {
+		return helper.JsonCreated(c, "Class subject berhasil diproses", csDTO.FromClassSubjectModel(m))
+	}
+	return helper.JsonOK(c, "Class subject sudah ada (idempotent)", csDTO.FromClassSubjectModel(m))
 }
 
 /*
@@ -310,44 +328,57 @@ func (h *ClassSubjectController) Create(c *fiber.Ctx) error {
 =========================================================
 */
 func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
-	// 🔐 Context school
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		return err
-	}
+	c.Locals("DB", h.DB)
 
+	// 🔐 Resolve school_id: PRIORITAS dari token, fallback ke context
 	var schoolID uuid.UUID
-	switch {
-	case mc.ID != uuid.Nil:
-		schoolID = mc.ID
-	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
-		if er != nil {
-			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
-		}
+
+	if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
 		schoolID = id
-	default:
-		return helperAuth.ErrSchoolContextMissing
+	} else {
+		mc, err := helperAuth.ResolveSchoolContext(c)
+		if err != nil {
+			if fe, ok := err.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		}
+
+		switch {
+		case mc.ID != uuid.Nil:
+			schoolID = mc.ID
+		case strings.TrimSpace(mc.Slug) != "":
+			id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+			if er != nil {
+				if errors.Is(er, gorm.ErrRecordNotFound) {
+					return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+			}
+			schoolID = id
+		default:
+			return helper.JsonError(c, fiber.StatusBadRequest, "Konteks sekolah tidak ditemukan")
+		}
 	}
 
 	// 🔒 Role: HANYA DKM/Admin di school ini
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 	}
 
 	// Param ID
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	// Parse payload
 	var req csDTO.UpdateClassSubjectRequest
 	if err := c.BodyParser(&req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "Payload tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "Payload tidak valid")
 	}
 	req.SchoolID = &schoolID
 
@@ -368,7 +399,7 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 
 	// Validasi DTO
 	if err := validator.New().Struct(req); err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
 	// Transaksi
@@ -537,7 +568,10 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 		c.Locals("updated_class_subject", m)
 		return nil
 	}); err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	// Response
@@ -554,32 +588,45 @@ func (h *ClassSubjectController) Update(c *fiber.Ctx) error {
 =========================================================
 */
 func (h *ClassSubjectController) Delete(c *fiber.Ctx) error {
-	// 🔐 Context school
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		return err
-	}
+	c.Locals("DB", h.DB)
 
+	// 🔐 Resolve school_id: PRIORITAS dari token, fallback ke context
 	var schoolID uuid.UUID
-	switch {
-	case mc.ID != uuid.Nil:
-		schoolID = mc.ID
-	case strings.TrimSpace(mc.Slug) != "":
-		id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
-		if er != nil {
-			if errors.Is(er, gorm.ErrRecordNotFound) {
-				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-			}
-			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
-		}
+
+	if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
 		schoolID = id
-	default:
-		return helperAuth.ErrSchoolContextMissing
+	} else {
+		mc, err := helperAuth.ResolveSchoolContext(c)
+		if err != nil {
+			if fe, ok := err.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		}
+
+		switch {
+		case mc.ID != uuid.Nil:
+			schoolID = mc.ID
+		case strings.TrimSpace(mc.Slug) != "":
+			id, er := helperAuth.GetSchoolIDBySlug(c, strings.TrimSpace(mc.Slug))
+			if er != nil {
+				if errors.Is(er, gorm.ErrRecordNotFound) {
+					return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal resolve school dari slug")
+			}
+			schoolID = id
+		default:
+			return helper.JsonError(c, fiber.StatusBadRequest, "Konteks sekolah tidak ditemukan")
+		}
 	}
 
 	// 🔒 Role: DKM/Admin di school ini
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusForbidden, err.Error())
 	}
 
 	// Hanya Admin (bukan sekadar DKM) yang boleh hard delete
@@ -587,12 +634,12 @@ func (h *ClassSubjectController) Delete(c *fiber.Ctx) error {
 	isAdmin := adminSchoolID != uuid.Nil && adminSchoolID == schoolID
 	force := strings.EqualFold(c.Query("force"), "true")
 	if force && !isAdmin {
-		return fiber.NewError(fiber.StatusForbidden, "Hanya admin yang boleh hard delete")
+		return helper.JsonError(c, fiber.StatusForbidden, "Hanya admin yang boleh hard delete")
 	}
 
 	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "ID tidak valid")
+		return helper.JsonError(c, fiber.StatusBadRequest, "ID tidak valid")
 	}
 
 	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
@@ -650,7 +697,10 @@ func (h *ClassSubjectController) Delete(c *fiber.Ctx) error {
 		c.Locals("deleted_class_subject", m)
 		return nil
 	}); err != nil {
-		return err
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	m := c.Locals("deleted_class_subject").(csModel.ClassSubjectModel)
