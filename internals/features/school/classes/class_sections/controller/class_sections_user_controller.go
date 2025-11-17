@@ -116,7 +116,8 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	// ---------- Filters ----------
 	var (
 		sectionIDs []uuid.UUID
-		classIDs   []uuid.UUID // <--- NEW: filter by class_id
+		classIDs   []uuid.UUID
+		teacherIDs []uuid.UUID // NEW: filter by school_teacher
 		activeOnly *bool
 	)
 
@@ -129,13 +130,26 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		sectionIDs = ids
 	}
 
-	// NEW: filter by class_id (mendukung 1 atau banyak, comma-separated)
+	// filter by class_id (mendukung multi)
 	if s := strings.TrimSpace(c.Query("class_id")); s != "" {
 		ids, e := parseUUIDList(s)
 		if e != nil {
 			return helper.JsonError(c, fiber.StatusBadRequest, "class_id tidak valid: "+e.Error())
 		}
 		classIDs = ids
+	}
+
+	// NEW: filter by school_teacher_id (alias: teacher_id), mendukung multi
+	rawTeacher := strings.TrimSpace(c.Query("school_teacher_id"))
+	if rawTeacher == "" {
+		rawTeacher = strings.TrimSpace(c.Query("teacher_id"))
+	}
+	if rawTeacher != "" {
+		ids, e := parseUUIDList(rawTeacher)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "school_teacher_id/teacher_id tidak valid: "+e.Error())
+		}
+		teacherIDs = ids
 	}
 
 	if s := strings.TrimSpace(c.Query("is_active")); s != "" {
@@ -154,9 +168,13 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		tx = tx.Where("class_section_id IN ?", sectionIDs)
 	}
 
-	// NEW: apply filter class_id ke kolom FK-nya
 	if len(classIDs) > 0 {
 		tx = tx.Where("class_section_class_id IN ?", classIDs)
+	}
+
+	// 🔥 apply filter wali/teacher section ke kolom FK
+	if len(teacherIDs) > 0 {
+		tx = tx.Where("class_section_school_teacher_id IN ?", teacherIDs)
 	}
 
 	if activeOnly != nil {

@@ -13,6 +13,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -28,6 +29,8 @@ import (
 
 	// Snapshot (section room snapshot)
 	sectionroomsnap "schoolku_backend/internals/features/school/classes/class_sections/snapshot"
+
+	teachersnap "schoolku_backend/internals/features/lembaga/school_yayasans/teachers_students/snapshot"
 )
 
 /* =========================================================
@@ -312,7 +315,6 @@ func pickImageFile(c *fiber.Ctx, names ...string) *multipart.FileHeader {
 /* =========================================================
    HANDLERS
 ========================================================= */
-
 // POST /admin/class-sections
 func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	log.Printf("[SECTIONS][CREATE] ▶️ incoming request")
@@ -413,6 +415,24 @@ func (ctrl *ClassSectionController) CreateClassSection(c *fiber.Ctx) error {
 	// ---- Map req -> model ----
 	m := req.ToModel()
 	m.ClassSectionSchoolID = schoolID
+
+	// ==== Snapshot GURU (opsional, via class_section_school_teacher_id) ====
+	if m.ClassSectionSchoolTeacherID != nil {
+		ts, err := teachersnap.ValidateAndSnapshotTeacher(
+			tx,
+			schoolID,
+			*m.ClassSectionSchoolTeacherID,
+		)
+		if err != nil {
+			_ = tx.Rollback()
+			var fe *fiber.Error
+			if errors.As(err, &fe) {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil snapshot guru: "+err.Error())
+		}
+		m.ClassSectionSchoolTeacherSnapshot = teachersnap.ToJSON(ts)
+	}
 
 	// ---- Snapshot relasi (class→parent/term) ----
 	if snap, err := snapshotClassParentAndTerm(tx, schoolID, req.ClassSectionClassID); err != nil {
@@ -603,11 +623,15 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		}
 	}
 
-	// Siapkan snapshot ROOM bila room_id dipatch
+	// Siapkan snapshot ROOM & GURU bila id dipatch
 	var (
 		roomSnapRequested bool
 		roomSnap          *sectionroomsnap.RoomSnapshot
+
+		teacherSnapRequested bool
+		teacherSnapJSON      datatypes.JSON
 	)
+
 	if req.ClassSectionClassRoomID.Present {
 		roomSnapRequested = true
 		if req.ClassSectionClassRoomID.Value != nil {
@@ -628,6 +652,31 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 		} else {
 			// dipatch NULL → clear snapshot
 			roomSnap = nil
+		}
+	}
+
+	// Snapshot guru bila school_teacher_id dipatch
+	if req.ClassSectionSchoolTeacherID.Present {
+		teacherSnapRequested = true
+
+		if req.ClassSectionSchoolTeacherID.Value != nil {
+			ts, err := teachersnap.ValidateAndSnapshotTeacher(
+				tx,
+				existing.ClassSectionSchoolID,
+				*req.ClassSectionSchoolTeacherID.Value,
+			)
+			if err != nil {
+				_ = tx.Rollback()
+				var fe *fiber.Error
+				if errors.As(err, &fe) {
+					return helper.JsonError(c, fe.Code, fe.Message)
+				}
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal validasi guru")
+			}
+			teacherSnapJSON = teachersnap.ToJSON(ts)
+		} else {
+			// dipatch NULL → kosongkan snapshot
+			teacherSnapJSON = teachersnap.ToJSON(nil)
 		}
 	}
 
@@ -699,6 +748,11 @@ func (ctrl *ClassSectionController) UpdateClassSection(c *fiber.Ctx) error {
 	// Apply room snapshot jika field-nya dipatch (clear jika nil)
 	if roomSnapRequested {
 		sectionroomsnap.ApplyRoomSnapshotToSection(&existing, roomSnap)
+	}
+
+	// Apply teacher snapshot bila field-nya dipatch
+	if teacherSnapRequested {
+		existing.ClassSectionSchoolTeacherSnapshot = teacherSnapJSON
 	}
 
 	// Save
