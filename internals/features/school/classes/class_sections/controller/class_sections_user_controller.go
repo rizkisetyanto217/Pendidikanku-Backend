@@ -116,8 +116,11 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	// ---------- Filters ----------
 	var (
 		sectionIDs []uuid.UUID
+		classIDs   []uuid.UUID // <--- NEW: filter by class_id
 		activeOnly *bool
 	)
+
+	// filter by section id (existing)
 	if s := strings.TrimSpace(c.Query("id")); s != "" {
 		ids, e := parseUUIDList(s)
 		if e != nil {
@@ -125,6 +128,16 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 		}
 		sectionIDs = ids
 	}
+
+	// NEW: filter by class_id (mendukung 1 atau banyak, comma-separated)
+	if s := strings.TrimSpace(c.Query("class_id")); s != "" {
+		ids, e := parseUUIDList(s)
+		if e != nil {
+			return helper.JsonError(c, fiber.StatusBadRequest, "class_id tidak valid: "+e.Error())
+		}
+		classIDs = ids
+	}
+
 	if s := strings.TrimSpace(c.Query("is_active")); s != "" {
 		v := c.QueryBool("is_active")
 		activeOnly = &v
@@ -140,6 +153,12 @@ func (ctrl *ClassSectionController) List(c *fiber.Ctx) error {
 	if len(sectionIDs) > 0 {
 		tx = tx.Where("class_section_id IN ?", sectionIDs)
 	}
+
+	// NEW: apply filter class_id ke kolom FK-nya
+	if len(classIDs) > 0 {
+		tx = tx.Where("class_section_class_id IN ?", classIDs)
+	}
+
 	if activeOnly != nil {
 		tx = tx.Where("class_section_is_active = ?", *activeOnly)
 	}
