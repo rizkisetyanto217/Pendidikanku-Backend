@@ -11,9 +11,6 @@ Masukan number untuk mengarahkan mau berapa banyak file yang di up/down. Misal 1
 migrate -path internals/databases/migrations \
  -database "postgresql://postgres.kkxflcqxkifqhysyijmx:Wedangjahe217@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require" up
 
- migrate -path internals/databases/migrations \
-  -database "postgres://postgres.kkxflcqxkifqhysyijmx:Wedangjahe217@db-xxxxx.supabase.co:5432/postgres?sslmode=require" up 4
-
  
 migrate -verbose -lock-timeout 5 \
   -path internals/databases/migrations \

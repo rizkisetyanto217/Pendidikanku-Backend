@@ -55,7 +55,7 @@ func isUniqueViolation(err error) bool {
 
 // POST /assessment-types — DKM/Admin untuk school tsb
 func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
-	// Pastikan helper slug→id bisa akses DB dari context
+	// Pastikan helper slug→id bisa akses DB dari context (kalau ada yang butuh)
 	c.Locals("DB", ctl.DB)
 
 	var req dto.CreateAssessmentTypeRequest
@@ -64,25 +64,19 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 	}
 	req = req.Normalize()
 
-	// 🔒 School context
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// 🔒 School context: STRICT dari token active_school
+	schoolID, err := helperAuth.GetActiveSchoolID(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-
-	// Resolve + basic access
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	if schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "School aktif di token tidak ditemukan")
 	}
 
-	// 🔒 Pakai RBAC baru: hanya role DKM/Admin di school ini
+	// 🔒 RBAC: hanya role DKM/Admin di school ini
 	if err := helperAuth.EnsureDKMSchool(c, schoolID); err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
@@ -144,7 +138,7 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 
 // PATCH /assessment-types/:id — DKM/Admin
 func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
-	// Pastikan helper slug→id bisa akses DB dari context
+	// Pastikan helper slug→id bisa akses DB dari context (kalau ada yang butuh)
 	c.Locals("DB", ctl.DB)
 
 	id, err := parseUUIDParam(c, "id")
@@ -160,20 +154,16 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// 🔒 School context
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// 🔒 School context: STRICT dari token active_school
+	schoolID, err := helperAuth.GetActiveSchoolID(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	if schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "School aktif di token tidak ditemukan")
 	}
 
 	// 🔒 DKM/Admin check
@@ -294,7 +284,7 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 
 // DELETE /assessment-types/:id — DKM/Admin
 func (ctl *AssessmentTypeController) Delete(c *fiber.Ctx) error {
-	// Pastikan helper slug→id bisa akses DB dari context
+	// Pastikan helper slug→id bisa akses DB dari context (kalau ada yang butuh)
 	c.Locals("DB", ctl.DB)
 
 	id, err := parseUUIDParam(c, "id")
@@ -302,20 +292,16 @@ func (ctl *AssessmentTypeController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "assessment_type_id tidak valid")
 	}
 
-	// 🔒 School context
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// 🔒 School context: STRICT dari token active_school
+	schoolID, err := helperAuth.GetActiveSchoolID(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
-	schoolID, err := helperAuth.EnsureSchoolAccessDKM(c, mc)
-	if err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+	if schoolID == uuid.Nil {
+		return helper.JsonError(c, fiber.StatusBadRequest, "School aktif di token tidak ditemukan")
 	}
 
 	// 🔒 DKM/Admin check

@@ -15,40 +15,57 @@ import (
 
 // GET /assessment-types?active=&q=&limit=&offset=&sort_by=&sort_dir=
 func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
-	// Pastikan helper slug→id bisa akses DB dari context
+	// Pastikan helper slug→id bisa akses DB dari context (kalau masih butuh fallback)
 	c.Locals("DB", ctl.DB)
 
-	// 1) Resolve school context
-	mc, err := helperAuth.ResolveSchoolContext(c)
-	if err != nil {
-		if fe, ok := err.(*fiber.Error); ok {
-			return helper.JsonError(c, fe.Code, fe.Message)
-		}
-		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
-	}
+	// =====================================================
+	// 1) Tentukan schoolID:
+	//    - Prioritas: dari token (GetSchoolIDFromTokenPreferTeacher)
+	//    - Fallback: dari ResolveSchoolContext (id / slug)
+	// =====================================================
+	var schoolID uuid.UUID
 
-	// slug → id (jika perlu)
-	var mid uuid.UUID
-	if mc.ID != uuid.Nil {
-		mid = mc.ID
-	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetSchoolIDBySlug(c, s)
-		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-		}
-		mid = id
+	// 1. Coba dari token dulu (user sudah pilih school di FE)
+	if id, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && id != uuid.Nil {
+		schoolID = id
 	} else {
-		return helper.JsonError(c, helperAuth.ErrSchoolContextMissing.Code, helperAuth.ErrSchoolContextMissing.Message)
+		// 2. Fallback lama: resolve dari context (id/slug) kalau memang masih dipakai
+		mc, err := helperAuth.ResolveSchoolContext(c)
+		if err != nil {
+			if fe, ok := err.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
+		}
+
+		// slug → id (jika perlu)
+		if mc.ID != uuid.Nil {
+			schoolID = mc.ID
+		} else if s := strings.TrimSpace(mc.Slug); s != "" {
+			id, er := helperAuth.GetSchoolIDBySlug(c, s)
+			if er != nil || id == uuid.Nil {
+				return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
+			}
+			schoolID = id
+		} else {
+			return helper.JsonError(c, helperAuth.ErrSchoolContextMissing.Code, helperAuth.ErrSchoolContextMissing.Message)
+		}
 	}
 
+	// =====================================================
 	// 2) Authorize: minimal member school (any role)
-	if !helperAuth.UserHasSchool(c, mid) {
-		return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar pada school ini (membership).")
+	//    (student/teacher/dkm/admin/bendahara)
+	// =====================================================
+	if err := helperAuth.EnsureMemberSchool(c, schoolID); err != nil {
+		// EnsureMemberSchool sudah balikin JsonError yang rapi
+		return err
 	}
 
+	// =====================================================
 	// 3) Build filter & validate
+	// =====================================================
 	var filt dto.ListAssessmentTypeFilter
-	filt.AssessmentTypeSchoolID = mid
+	filt.AssessmentTypeSchoolID = schoolID
 
 	// Filters opsional
 	if v := strings.TrimSpace(c.Query("active")); v != "" {
@@ -73,7 +90,9 @@ func (ctl *AssessmentTypeController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
+	// =====================================================
 	// 4) Query tenant-scoped
+	// =====================================================
 	qry := ctl.DB.WithContext(c.Context()).
 		Model(&assessmentModel.AssessmentTypeModel{}).
 		Where("assessment_type_school_id = ?", filt.AssessmentTypeSchoolID)

@@ -40,6 +40,49 @@ func getSortClauseAssessment(sortBy, sortDir *string) string {
 	return col + " " + dir
 }
 
+// Resolve school utk list assessment:
+// 1) Coba dari active_school (token)
+// 2) Kalau tidak ada, pakai ResolveSchoolContext (id/slug)
+// 3) Semua jalur wajib cek membership (UserHasSchool)
+func resolveSchoolForAssessmentList(c *fiber.Ctx) (uuid.UUID, error) {
+	// 1) Dari token: active_school
+	if sid, err := helperAuth.GetActiveSchoolID(c); err == nil && sid != uuid.Nil {
+		if !helperAuth.UserHasSchool(c, sid) {
+			return uuid.Nil, helperAuth.ErrSchoolContextForbidden
+		}
+		return sid, nil
+	}
+
+	// 2) Fallback: ResolveSchoolContext (id/slug/host)
+	mc, err := helperAuth.ResolveSchoolContext(c)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	// ID langsung
+	if mc.ID != uuid.Nil {
+		if !helperAuth.UserHasSchool(c, mc.ID) {
+			return uuid.Nil, helperAuth.ErrSchoolContextForbidden
+		}
+		return mc.ID, nil
+	}
+
+	// Slug → id
+	if s := strings.TrimSpace(mc.Slug); s != "" {
+		id, er := helperAuth.GetSchoolIDBySlug(c, s)
+		if er != nil || id == uuid.Nil {
+			return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
+		}
+		if !helperAuth.UserHasSchool(c, id) {
+			return uuid.Nil, helperAuth.ErrSchoolContextForbidden
+		}
+		return id, nil
+	}
+
+	// 3) Kalau semua gagal → context missing
+	return uuid.Nil, helperAuth.ErrSchoolContextMissing
+}
+
 // GET /assessments
 // Query (opsional):
 //
@@ -50,39 +93,17 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	// Pastikan helper slug→id bisa akses DB dari context
 	c.Locals("DB", ctl.DB)
 
-	// 1) Resolve school context
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// 1) Resolve school (prioritas token, lalu id/slug) + cek membership
+	mid, err := resolveSchoolForAssessmentList(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
 			return helper.JsonError(c, fe.Code, fe.Message)
 		}
+		// fallback: bad request kalau error bukan fiber.Error
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// slug → id (jika perlu)
-	var mid uuid.UUID
-	if mc.ID != uuid.Nil {
-		mid = mc.ID
-	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetSchoolIDBySlug(c, s)
-		if er != nil || id == uuid.Nil {
-			return helper.JsonError(c, fiber.StatusNotFound, "School (slug) tidak ditemukan")
-		}
-		mid = id
-	} else {
-		return helper.JsonError(
-			c,
-			helperAuth.ErrSchoolContextMissing.Code,
-			helperAuth.ErrSchoolContextMissing.Message,
-		)
-	}
-
-	// 2) Authorize: minimal member school (any role)
-	if !helperAuth.UserHasSchool(c, mid) {
-		return helper.JsonError(c, fiber.StatusForbidden, "Anda tidak terdaftar pada school ini (membership).")
-	}
-
-	// 3) Query parameters
+	// 2) Query parameters
 	var (
 		typeIDStr = strings.TrimSpace(c.Query("type_id"))
 		csstIDStr = strings.TrimSpace(c.Query("csst_id"))

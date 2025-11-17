@@ -190,36 +190,23 @@ func (ctl *AssessmentController) assertTeacherBelongsToSchool(c *fiber.Ctx, scho
 	return nil
 }
 
-// Resolver akses: DKM/Admin via helper, atau Teacher pada school tsb.
+// Resolver akses: DKM/Admin atau Teacher pada school tsb, dengan school_id DARI TOKEN.
 func resolveSchoolForDKMOrTeacher(c *fiber.Ctx) (uuid.UUID, error) {
-	mc, err := helperAuth.ResolveSchoolContext(c)
+	// Ambil school aktif dari token
+	schoolID, err := helperAuth.GetActiveSchoolID(c)
 	if err != nil {
 		return uuid.Nil, err
 	}
-
-	// DKM/Admin
-	if id, er := helperAuth.EnsureSchoolAccessDKM(c, mc); er == nil && id != uuid.Nil {
-		return id, nil
-	}
-
-	// Fallback: Teacher
-	var schoolID uuid.UUID
-	if mc.ID != uuid.Nil {
-		schoolID = mc.ID
-	} else if s := strings.TrimSpace(mc.Slug); s != "" {
-		id, er := helperAuth.GetSchoolIDBySlug(c, s)
-		if er != nil || id == uuid.Nil {
-			return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "School (slug) tidak ditemukan")
-		}
-		schoolID = id
-	} else {
+	if schoolID == uuid.Nil {
 		return uuid.Nil, helperAuth.ErrSchoolContextMissing
 	}
 
-	if helperAuth.IsTeacherInSchool(c, schoolID) {
-		return schoolID, nil
+	// Pastikan user punya role DKM/Admin/Teacher di school ini
+	if err := helperAuth.EnsureDKMOrTeacherSchool(c, schoolID); err != nil {
+		return uuid.Nil, err
 	}
-	return uuid.Nil, helperAuth.ErrSchoolContextForbidden
+
+	return schoolID, nil
 }
 
 /* ===============================
@@ -246,7 +233,7 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "Minimal harus ada 1 quiz")
 	}
 
-	// 🔒 resolve & authorize
+	// 🔒 resolve & authorize (DKM/Admin atau Teacher) DARI TOKEN
 	mid, err := resolveSchoolForDKMOrTeacher(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -548,7 +535,7 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
-	// 🔒 resolve & authorize
+	// 🔒 resolve & authorize (DKM/Admin atau Teacher) DARI TOKEN
 	mid, err := resolveSchoolForDKMOrTeacher(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -831,7 +818,7 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, "assessment_id tidak valid")
 	}
 
-	// 🔒 resolve & authorize
+	// 🔒 resolve & authorize (DKM/Admin atau Teacher) DARI TOKEN
 	mid, err := resolveSchoolForDKMOrTeacher(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
