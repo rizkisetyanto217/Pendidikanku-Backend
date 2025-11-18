@@ -281,6 +281,15 @@ CREATE INDEX IF NOT EXISTS idx_assessments_kind_alive
 CREATE INDEX IF NOT EXISTS brin_assessments_created_at
   ON assessments USING BRIN (assessment_created_at);
 
+  -- Index opsional, kalau nanti sering dipakai buat sort/filter
+CREATE INDEX IF NOT EXISTS idx_assessments_submissions_total_alive
+  ON assessments (assessment_school_id, assessment_submissions_total)
+  WHERE assessment_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_assessments_submissions_graded_total_alive
+  ON assessments (assessment_school_id, assessment_submissions_graded_total)
+  WHERE assessment_deleted_at IS NULL;
+
 
 -- =========================================================
 -- 7) ASSESSMENT_URLS (selaras dgn announcement_urls)

@@ -42,15 +42,6 @@ func mountQuizRoutes(g fiber.Router, db *gorm.DB) {
 	qs.Patch("/:id", qqCtrl.Patch)   // PATCH /api/a/quizzes/questions/:id
 	qs.Delete("/:id", qqCtrl.Delete) // DELETE /api/a/quizzes/questions/:id
 
-	// USER QUIZ ATTEMPT ANSWERS
-	uqaCtrl := quizcontroller.NewStudentQuizAttemptAnswersController(db)
-	ans := g.Group("/attempt-answers") // -> /api/a/quizzes/attempt-answers
-
-	ans.Get("/", uqaCtrl.List)         // GET    /api/a/quizzes/attempt-answers?attempt_id=...&question_id=...
-	ans.Post("/", uqaCtrl.Create)      // POST   /api/a/quizzes/attempt-answers
-	ans.Patch("/:id", uqaCtrl.Patch)   // PATCH  /api/a/quizzes/attempt-answers/:id
-	ans.Delete("/:id", uqaCtrl.Delete) // DELETE /api/a/quizzes/attempt-answers/:id
-
 	// USER QUIZ ATTEMPTS
 	uqAttemptCtrl := quizcontroller.NewStudentQuizAttemptsController(db)
 	attempts := g.Group("/attempts") // -> /api/a/quizzes/attempts

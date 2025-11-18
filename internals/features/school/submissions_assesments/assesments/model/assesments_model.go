@@ -69,6 +69,10 @@ type AssessmentModel struct {
 	// total quiz/komponen quiz di assessment ini (global, sama utk semua siswa)
 	AssessmentQuizTotal int `gorm:"type:smallint;not null;default:0;column:assessment_quiz_total" json:"assessment_quiz_total"`
 
+	// agregat submissions (diupdate dari service)
+	AssessmentSubmissionsTotal       int `gorm:"not null;default:0;column:assessment_submissions_total" json:"assessment_submissions_total"`
+	AssessmentSubmissionsGradedTotal int `gorm:"not null;default:0;column:assessment_submissions_graded_total" json:"assessment_submissions_graded_total"`
+
 	AssessmentIsPublished     bool `gorm:"not null;default:true;column:assessment_is_published" json:"assessment_is_published"`
 	AssessmentAllowSubmission bool `gorm:"not null;default:true;column:assessment_allow_submission" json:"assessment_allow_submission"`
 

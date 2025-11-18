@@ -48,18 +48,6 @@ func mountQuizTeacherRoutes(base fiber.Router, db *gorm.DB) {
 	mountQuizQuestionsGroup(qqAlias, qqCtrl)
 
 	// ============================
-	// USER QUIZ ATTEMPT ANSWERS (guru review/ubah)
-	// child dari /quizzes-teacher -> /attempt-answers-teacher
-	// ============================
-	uqaCtrl := quizcontroller.NewStudentQuizAttemptAnswersController(db)
-	ans := quizzes.Group("/attempt-answers-teacher")
-
-	ans.Get("/", uqaCtrl.List)         // GET    /api/t/quizzes-teacher/attempt-answers-teacher?attempt_id=...&question_id=...
-	ans.Post("/", uqaCtrl.Create)      // POST   /api/t/quizzes-teacher/attempt-answers-teacher
-	ans.Patch("/:id", uqaCtrl.Patch)   // PATCH  /api/t/quizzes-teacher/attempt-answers-teacher/:id
-	ans.Delete("/:id", uqaCtrl.Delete) // DELETE /api/t/quizzes-teacher/attempt-answers-teacher/:id
-
-	// ============================
 	// USER QUIZ ATTEMPTS
 	// child dari /quizzes-teacher -> /attempts-teacher
 	// ============================

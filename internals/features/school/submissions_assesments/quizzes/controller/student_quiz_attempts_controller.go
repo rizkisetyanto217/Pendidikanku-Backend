@@ -1,15 +1,13 @@
-// file: internals/features/school/submissions_assesments/quizzes/controller/student_quiz_attempts_controller.go
 package controller
 
 import (
 	"errors"
 	"strings"
 
+	validator "github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-
-	validator "github.com/go-playground/validator/v10"
 
 	qdto "schoolku_backend/internals/features/school/submissions_assesments/quizzes/dto"
 	qmodel "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
@@ -23,7 +21,9 @@ type StudentQuizAttemptsController struct {
 }
 
 func NewStudentQuizAttemptsController(db *gorm.DB) *StudentQuizAttemptsController {
-	return &StudentQuizAttemptsController{DB: db}
+	return &StudentQuizAttemptsController{
+		DB: db,
+	}
 }
 
 func (ctl *StudentQuizAttemptsController) ensureValidator() {
@@ -51,6 +51,7 @@ func (ctl *StudentQuizAttemptsController) getQuizSchoolID(quizID uuid.UUID) (uui
 		Scan(&schoolIDStr).Error; err != nil {
 		return uuid.Nil, err
 	}
+
 	if strings.TrimSpace(schoolIDStr) == "" {
 		return uuid.Nil, fiber.NewError(fiber.StatusNotFound, "Quiz tidak ditemukan / sudah dihapus")
 	}
@@ -62,6 +63,7 @@ func (ctl *StudentQuizAttemptsController) getQuizSchoolID(quizID uuid.UUID) (uui
 	return mid, nil
 }
 
+// Validasi status (pakai enum dari model)
 func validAttemptStatus(s qmodel.StudentQuizAttemptStatus) bool {
 	switch s {
 	case qmodel.StudentQuizAttemptInProgress,
@@ -164,6 +166,7 @@ func (ctl *StudentQuizAttemptsController) Create(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyimpan attempt")
 	}
+
 	return helper.JsonCreated(c, "Berhasil memulai attempt", qdto.FromModelStudentQuizAttempt(m))
 }
 
@@ -257,8 +260,6 @@ func (ctl *StudentQuizAttemptsController) Delete(c *fiber.Ctx) error {
 	}
 	return helper.JsonDeleted(c, "Berhasil menghapus", fiber.Map{"deleted_id": id})
 }
-
-// file: internals/features/school/submissions_assesments/quizzes/controller/student_quiz_attempts_controller.go
 
 // GET /student-quiz-attempts?quiz_id=&student_id=&status=&active_only=true&school_id=&all=1
 func (ctl *StudentQuizAttemptsController) List(c *fiber.Ctx) error {
@@ -385,7 +386,7 @@ func (ctl *StudentQuizAttemptsController) List(c *fiber.Ctx) error {
 	return helper.JsonList(c, "OK", qdto.FromModelsStudentQuizAttempts(rows), pagination)
 }
 
-// util kecil; taruh di file yang sama (bawah) atau pakai util umummu
+// util kecil
 func parseBool(s string) bool {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "1", "true", "yes", "y", "on":

@@ -60,19 +60,6 @@ func mountQuizUserRoutes(base fiber.Router, db *gorm.DB) {
 	attemptsAlias := base.Group("/user-quiz-attempts") // -> /api/u/user-quiz-attempts
 	mountUserAttemptsGroup(attemptsAlias, uqAttemptCtrl)
 
-	// ============================
-	// USER QUIZ ATTEMPT ANSWERS (submit jawaban)
-	// nested di /quizzes + alias kompatibel
-	// ============================
-	uqaCtrl := quizcontroller.NewStudentQuizAttemptAnswersController(db)
-
-	// Nested utama
-	ans := quizzes.Group("/attempt-answers") // -> /api/u/quizzes/attempt-answers
-	mountUserAttemptAnswersGroup(ans, uqaCtrl, true /* user mode: no patch/delete */)
-
-	// Alias kompatibel (rute lama)
-	ansAlias := base.Group("/user-quiz-attempt-answers") // -> /api/u/user-quiz-attempt-answers
-	mountUserAttemptAnswersGroup(ansAlias, uqaCtrl, true)
 }
 
 // Hindari duplikasi handler untuk attempts (nested & alias)
@@ -82,17 +69,4 @@ func mountUserAttemptsGroup(g fiber.Router, ctrl *quizcontroller.StudentQuizAtte
 	g.Post("/", ctrl.Create)      // POST create attempt
 	g.Patch("/:id", ctrl.Patch)   // PATCH attempt by id
 	g.Delete("/:id", ctrl.Delete) // DELETE attempt by id
-}
-
-// Hindari duplikasi handler untuk attempt-answers (nested & alias)
-func mountUserAttemptAnswersGroup(g fiber.Router, ctrl *quizcontroller.StudentQuizAttemptAnswersController, userMode bool) {
-	g.Get("/", ctrl.List)     // GET list
-	g.Get("/list", ctrl.List) // alias
-	g.Post("/", ctrl.Create)  // POST submit jawaban
-
-	// Di user mode, tidak expose PATCH/DELETE (sesuai catatan)
-	if !userMode {
-		g.Patch("/:id", ctrl.Patch)
-		g.Delete("/:id", ctrl.Delete)
-	}
 }

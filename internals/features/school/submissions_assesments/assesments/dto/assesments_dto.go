@@ -134,7 +134,7 @@ func (r *CreateAssessmentRequest) ToModel() assessModel.AssessmentModel {
 		AssessmentSubmissionMode:               assessModel.SubmissionModeDate, // akan dioverride di controller
 		AssessmentIsPublished:                  *r.AssessmentIsPublished,
 		AssessmentAllowSubmission:              *r.AssessmentAllowSubmission,
-		// AssessmentTypeIsGradedSnapshot: default false (pakai zero value / DB default)
+		// Counters submissions biarkan pakai default DB (0)
 	}
 
 	return row
@@ -263,8 +263,9 @@ func (r *PatchAssessmentRequest) Apply(m *assessModel.AssessmentModel) {
 }
 
 /*
-	========================================================
-	  RESPONSE DTO
+========================================================
+
+	RESPONSE DTO
 
 ========================================================
 */
@@ -294,7 +295,11 @@ type AssessmentResponse struct {
 	AssessmentIsPublished     bool `json:"assessment_is_published"`
 	AssessmentAllowSubmission bool `json:"assessment_allow_submission"`
 
-	// ⬇⬇⬇ baru: flag hasil grading
+	// counter submissions (read-only; diisi dari backend)
+	AssessmentSubmissionsTotal       int `json:"assessment_submissions_total"`
+	AssessmentSubmissionsGradedTotal int `json:"assessment_submissions_graded_total"`
+
+	// flag hasil grading tipe assessment
 	AssessmentTypeIsGradedSnapshot bool `json:"assessment_type_is_graded_snapshot"`
 
 	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id,omitempty"`
@@ -357,7 +362,10 @@ func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
 		AssessmentIsPublished:          m.AssessmentIsPublished,
 		AssessmentAllowSubmission:      m.AssessmentAllowSubmission,
 
-		// ⬇⬇⬇ baru: mirror kolom + model
+		// mirror kolom model
+		AssessmentSubmissionsTotal:       m.AssessmentSubmissionsTotal,
+		AssessmentSubmissionsGradedTotal: m.AssessmentSubmissionsGradedTotal,
+
 		AssessmentTypeIsGradedSnapshot: m.AssessmentTypeIsGradedSnapshot,
 
 		AssessmentCreatedByTeacherID: m.AssessmentCreatedByTeacherID,
