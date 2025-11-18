@@ -13,16 +13,16 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
+	csstModel "schoolku_backend/internals/features/school/classes/class_section_subject_teachers/model"
 	"schoolku_backend/internals/features/school/classes/class_section_subject_teachers/snapshot"
 	dto "schoolku_backend/internals/features/school/submissions_assesments/assesments/dto"
 	model "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
 
 	quizDTO "schoolku_backend/internals/features/school/submissions_assesments/quizzes/dto"
 	quizModel "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
+	submissionsModel "schoolku_backend/internals/features/school/submissions_assesments/submissions/model"
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
-
-	submissionsModel "schoolku_backend/internals/features/school/submissions_assesments/submissions/model"
 )
 
 /*
@@ -163,10 +163,6 @@ func makeSessionSnap(s *sessRow) datatypes.JSONMap {
 	return datatypes.JSONMap(m)
 }
 
-func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
-	return uuid.Parse(strings.TrimSpace(c.Params(name)))
-}
-
 // validasi guru milik school
 func (ctl *AssessmentController) assertTeacherBelongsToSchool(c *fiber.Ctx, schoolID uuid.UUID, teacherID *uuid.UUID) error {
 	if teacherID == nil || *teacherID == uuid.Nil {
@@ -302,6 +298,22 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusBadRequest, err.Error())
 	}
 
+	// =============== Assessment Type SNAPSHOT (opsional) ===============
+	var typeSnap datatypes.JSONMap
+	var typeIsGradedSnap *bool
+
+	if req.Assessment.AssessmentTypeID != nil && *req.Assessment.AssessmentTypeID != uuid.Nil {
+		ts, graded, er := ctl.buildAssessmentTypeSnapshot(c, mid, *req.Assessment.AssessmentTypeID)
+		if er != nil {
+			if fe, ok := er.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, er.Error())
+		}
+		typeSnap = ts
+		typeIsGradedSnap = &graded
+	}
+
 	// ====== Tentukan mode dari presence sesi ======
 	hasAnn := req.Assessment.AssessmentAnnounceSessionID != nil &&
 		*req.Assessment.AssessmentAnnounceSessionID != uuid.Nil
@@ -397,6 +409,14 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		if col != nil {
 			row.AssessmentCollectSessionSnapshot = makeSessionSnap(col)
 		}
+
+		// Snapshot tipe assessment
+		if typeSnap != nil {
+			row.AssessmentTypeSnapshot = typeSnap
+		}
+		if typeIsGradedSnap != nil {
+			row.AssessmentTypeIsGradedSnapshot = *typeIsGradedSnap
+		}
 	} else {
 		// ===== MODE: date =====
 		if req.Assessment.AssessmentStartAt != nil && req.Assessment.AssessmentDueAt != nil &&
@@ -414,6 +434,14 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		// Snapshot CSST bila ada
 		if csstSnap != nil {
 			row.AssessmentCSSTSnapshot = csstSnap
+		}
+
+		// Snapshot tipe assessment
+		if typeSnap != nil {
+			row.AssessmentTypeSnapshot = typeSnap
+		}
+		if typeIsGradedSnap != nil { // 👈 TAMBAH INI
+			row.AssessmentTypeIsGradedSnapshot = *typeIsGradedSnap
 		}
 	}
 
@@ -453,6 +481,25 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 	if err := tx.Create(&row).Error; err != nil {
 		tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat assessment")
+	}
+
+	// 🔼 UP: tambah total_assessments di CSST kalau ada relasi
+	if row.AssessmentClassSectionSubjectTeacherID != nil && *row.AssessmentClassSectionSubjectTeacherID != uuid.Nil {
+		if err := tx.WithContext(c.Context()).
+			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+			Where(`
+				class_section_subject_teacher_school_id = ?
+				AND class_section_subject_teacher_id = ?
+				AND class_section_subject_teacher_deleted_at IS NULL
+			`, mid, *row.AssessmentClassSectionSubjectTeacherID).
+			Update(
+				"class_section_subject_teacher_total_assessments",
+				gorm.Expr("class_section_subject_teacher_total_assessments + 1"),
+			).Error; err != nil {
+
+			tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate total assessment mapel")
+		}
 	}
 
 	// ==============================
@@ -557,6 +604,9 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		}
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
+
+	// Simpan CSST lama untuk hitung UP/DOWN
+	oldCSSTID := existing.AssessmentClassSectionSubjectTeacherID
 
 	// validasi guru bila diubah
 	if err := ctl.assertTeacherBelongsToSchool(c, mid, req.AssessmentCreatedByTeacherID); err != nil {
@@ -676,6 +726,14 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 			existing.AssessmentCollectSessionSnapshot = datatypes.JSONMap{}
 		}
 
+		// ==== Update snapshot tipe assessment bila perlu ====
+		if err := ctl.applyAssessmentTypePatch(c, mid, &existing, &req); err != nil {
+			if fe, ok := err.(*fiber.Error); ok {
+				return helper.JsonError(c, fe.Code, fe.Message)
+			}
+			return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+		}
+
 		// ===== Auto-slug (jaga unik, exclude diri sendiri) =====
 		var baseSlug string
 		if req.AssessmentSlug != nil {
@@ -723,6 +781,46 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 		if err := ctl.DB.WithContext(c.Context()).Save(&existing).Error; err != nil {
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui assessment")
 		}
+
+		// 🔁 DOWN/UP kalau CSST berubah
+		newCSSTID := existing.AssessmentClassSectionSubjectTeacherID
+		if !uuidPtrEqual(oldCSSTID, newCSSTID) {
+			// CSST lama: -1
+			if oldCSSTID != nil && *oldCSSTID != uuid.Nil {
+				if err := ctl.DB.WithContext(c.Context()).
+					Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+					Where(`
+						class_section_subject_teacher_school_id = ?
+						AND class_section_subject_teacher_id = ?
+						AND class_section_subject_teacher_deleted_at IS NULL
+					`, mid, *oldCSSTID).
+					Update(
+						"class_section_subject_teacher_total_assessments",
+						gorm.Expr("CASE WHEN class_section_subject_teacher_total_assessments > 0 THEN class_section_subject_teacher_total_assessments - 1 ELSE 0 END"),
+					).Error; err != nil {
+
+					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate total assessment mapel (csst lama)")
+				}
+			}
+			// CSST baru: +1
+			if newCSSTID != nil && *newCSSTID != uuid.Nil {
+				if err := ctl.DB.WithContext(c.Context()).
+					Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+					Where(`
+						class_section_subject_teacher_school_id = ?
+						AND class_section_subject_teacher_id = ?
+						AND class_section_subject_teacher_deleted_at IS NULL
+					`, mid, *newCSSTID).
+					Update(
+						"class_section_subject_teacher_total_assessments",
+						gorm.Expr("class_section_subject_teacher_total_assessments + 1"),
+					).Error; err != nil {
+
+					return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate total assessment mapel (csst baru)")
+				}
+			}
+		}
+
 		return helper.JsonUpdated(c, "Assessment (mode session) diperbarui", dto.FromModelAssesment(existing))
 	}
 
@@ -755,6 +853,14 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	}
 	if finalColID == nil {
 		existing.AssessmentCollectSessionSnapshot = datatypes.JSONMap{}
+	}
+
+	// ==== Update snapshot tipe assessment bila perlu ====
+	if err := ctl.applyAssessmentTypePatch(c, mid, &existing, &req); err != nil {
+		if fe, ok := err.(*fiber.Error); ok {
+			return helper.JsonError(c, fe.Code, fe.Message)
+		}
+		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
 	// ===== Auto-slug (jaga unik, exclude diri sendiri) =====
@@ -806,14 +912,119 @@ func (ctl *AssessmentController) Patch(c *fiber.Ctx) error {
 	if err := ctl.DB.WithContext(c.Context()).Save(&existing).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal memperbarui assessment")
 	}
+
+	// 🔁 DOWN/UP kalau CSST berubah
+	newCSSTID := existing.AssessmentClassSectionSubjectTeacherID
+	if !uuidPtrEqual(oldCSSTID, newCSSTID) {
+		// CSST lama: -1
+		if oldCSSTID != nil && *oldCSSTID != uuid.Nil {
+			if err := ctl.DB.WithContext(c.Context()).
+				Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+				Where(`
+					class_section_subject_teacher_school_id = ?
+					AND class_section_subject_teacher_id = ?
+					AND class_section_subject_teacher_deleted_at IS NULL
+				`, mid, *oldCSSTID).
+				Update(
+					"class_section_subject_teacher_total_assessments",
+					gorm.Expr("CASE WHEN class_section_subject_teacher_total_assessments > 0 THEN class_section_subject_teacher_total_assessments - 1 ELSE 0 END"),
+				).Error; err != nil {
+
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate total assessment mapel (csst lama)")
+			}
+		}
+		// CSST baru: +1
+		if newCSSTID != nil && *newCSSTID != uuid.Nil {
+			if err := ctl.DB.WithContext(c.Context()).
+				Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+				Where(`
+					class_section_subject_teacher_school_id = ?
+					AND class_section_subject_teacher_id = ?
+					AND class_section_subject_teacher_deleted_at IS NULL
+				`, mid, *newCSSTID).
+				Update(
+					"class_section_subject_teacher_total_assessments",
+					gorm.Expr("class_section_subject_teacher_total_assessments + 1"),
+				).Error; err != nil {
+
+				return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate total assessment mapel (csst baru)")
+			}
+		}
+	}
+
 	return helper.JsonUpdated(c, "Assessment (mode date) diperbarui", dto.FromModelAssesment(existing))
+}
+
+/* ========================================================
+   Helpers tambahan untuk Assessment Type Snapshot
+======================================================== */
+
+func (ctl *AssessmentController) buildAssessmentTypeSnapshot(
+	c *fiber.Ctx,
+	schoolID uuid.UUID,
+	typeID uuid.UUID,
+) (datatypes.JSONMap, bool, error) {
+	var at model.AssessmentTypeModel
+	if err := ctl.DB.WithContext(c.Context()).
+		Where(`
+			assessment_type_id = ?
+			AND assessment_type_school_id = ?
+			AND assessment_type_deleted_at IS NULL
+		`, typeID, schoolID).
+		Take(&at).Error; err != nil {
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, false, fiber.NewError(fiber.StatusBadRequest, "Tipe assessment tidak ditemukan")
+		}
+		return nil, false, err
+	}
+
+	return datatypes.JSONMap{
+		"id":                        at.AssessmentTypeID,
+		"key":                       at.AssessmentTypeKey,
+		"name":                      at.AssessmentTypeName,
+		"show_correct_after_submit": at.AssessmentTypeShowCorrectAfterSubmit,
+		"is_graded":                 at.AssessmentTypeIsGraded, // 👈 snapshot JSON
+	}, at.AssessmentTypeIsGraded, nil // 👈 kembalikan juga bool-nya
+}
+
+func (ctl *AssessmentController) applyAssessmentTypePatch(
+	c *fiber.Ctx,
+	schoolID uuid.UUID,
+	existing *model.AssessmentModel,
+	req *dto.PatchAssessmentRequest,
+) error {
+	// Kalau field tidak dikirim → jangan apa-apa
+	if req.AssessmentTypeID == nil {
+		return nil
+	}
+
+	// Kalau dikirim UUID nil → clear type + snapshot
+	if *req.AssessmentTypeID == uuid.Nil {
+		existing.AssessmentTypeID = nil
+		existing.AssessmentTypeSnapshot = datatypes.JSONMap{}
+		existing.AssessmentTypeIsGradedSnapshot = false // 👈 clear juga flag
+		return nil
+	}
+
+	// Else: load type & set snapshot
+	snap, graded, err := ctl.buildAssessmentTypeSnapshot(c, schoolID, *req.AssessmentTypeID)
+	if err != nil {
+		return err
+	}
+
+	v := *req.AssessmentTypeID
+	existing.AssessmentTypeID = &v
+	existing.AssessmentTypeSnapshot = snap
+	existing.AssessmentTypeIsGradedSnapshot = graded // 👈 sinkron flag snapshot
+	return nil
 }
 
 // DELETE /assessments/:id (soft delete)
 func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	id, err := parseUUIDParam(c, "id")
+	id, err := helper.ParseUUIDParam(c, "id")
 	if err != nil {
 		return helper.JsonError(c, fiber.StatusBadRequest, "assessment_id tidak valid")
 	}
@@ -839,6 +1050,7 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 		Count(&usedCount).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengecek relasi submissions")
 	}
+
 	if usedCount > 0 {
 		return helper.JsonError(
 			c,
@@ -862,9 +1074,44 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil data")
 	}
 
-	// 🗑 Soft delete
-	if err := ctl.DB.WithContext(c.Context()).Delete(&row).Error; err != nil {
+	// 🗑 Soft delete + DOWN agregat dalam transaksi
+	tx := ctl.DB.WithContext(c.Context()).Begin()
+	if tx.Error != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuka transaksi penghapusan")
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// Soft delete assessment
+	if err := tx.WithContext(c.Context()).Delete(&row).Error; err != nil {
+		tx.Rollback()
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus assessment")
+	}
+
+	// 🔽 DOWN: turunkan total_assessments di CSST jika ada relasi
+	if row.AssessmentClassSectionSubjectTeacherID != nil && *row.AssessmentClassSectionSubjectTeacherID != uuid.Nil {
+		if err := tx.WithContext(c.Context()).
+			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
+			Where(`
+				class_section_subject_teacher_school_id = ?
+				AND class_section_subject_teacher_id = ?
+				AND class_section_subject_teacher_deleted_at IS NULL
+			`, mid, *row.AssessmentClassSectionSubjectTeacherID).
+			Update(
+				"class_section_subject_teacher_total_assessments",
+				gorm.Expr("CASE WHEN class_section_subject_teacher_total_assessments > 0 THEN class_section_subject_teacher_total_assessments - 1 ELSE 0 END"),
+			).Error; err != nil {
+
+			tx.Rollback()
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate total assessment mapel")
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal commit penghapusan assessment")
 	}
 
 	return helper.JsonDeleted(c, "Assessment dihapus", fiber.Map{
@@ -875,6 +1122,16 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 /* ========================================================
    Helpers (local)
 ======================================================== */
+
+func uuidPtrEqual(a, b *uuid.UUID) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
 
 func atoiOr(def int, s string) int {
 	if s == "" {

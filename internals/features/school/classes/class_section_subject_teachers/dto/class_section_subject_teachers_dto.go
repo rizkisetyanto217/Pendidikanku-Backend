@@ -88,10 +88,12 @@ type UpdateClassSectionSubjectTeacherRequest struct {
 	ClassSectionSubjectTeacherIsActive *bool `json:"class_section_subject_teacher_is_active" validate:"omitempty"`
 }
 
-/* =========================================================
-   2) RESPONSE DTO — sinkron SQL/model terbaru
-========================================================= */
+/*
+	=========================================================
+	  2) RESPONSE DTO — sinkron SQL/model terbaru
 
+=========================================================
+*/
 type ClassSectionSubjectTeacherResponse struct {
 	/* ===== IDs & Relations ===== */
 	ClassSectionSubjectTeacherID                       uuid.UUID  `json:"class_section_subject_teacher_id"`
@@ -108,10 +110,11 @@ type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherGroupURL    *string `json:"class_section_subject_teacher_group_url,omitempty"`
 
 	/* ===== Agregat & kapasitas ===== */
-	ClassSectionSubjectTeacherTotalAttendance int    `json:"class_section_subject_teacher_total_attendance"`
-	ClassSectionSubjectTeacherCapacity        *int   `json:"class_section_subject_teacher_capacity,omitempty"`
-	ClassSectionSubjectTeacherEnrolledCount   int    `json:"class_section_subject_teacher_enrolled_count"`
-	ClassSectionSubjectTeacherDeliveryMode    string `json:"class_section_subject_teacher_delivery_mode"`
+	ClassSectionSubjectTeacherTotalAttendance  int    `json:"class_section_subject_teacher_total_attendance"`
+	ClassSectionSubjectTeacherCapacity         *int   `json:"class_section_subject_teacher_capacity,omitempty"`
+	ClassSectionSubjectTeacherEnrolledCount    int    `json:"class_section_subject_teacher_enrolled_count"`
+	ClassSectionSubjectTeacherTotalAssessments int    `json:"class_section_subject_teacher_total_assessments"`
+	ClassSectionSubjectTeacherDeliveryMode     string `json:"class_section_subject_teacher_delivery_mode"`
 
 	/* ===== SECTION snapshots (varchar/text) ===== */
 	ClassSectionSubjectTeacherClassSectionSlugSnapshot *string `json:"class_section_subject_teacher_class_section_slug_snapshot,omitempty"`
@@ -261,10 +264,11 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		ClassSectionSubjectTeacherGroupURL:    m.ClassSectionSubjectTeacherGroupURL,
 
 		// Agregat & kapasitas
-		ClassSectionSubjectTeacherTotalAttendance: m.ClassSectionSubjectTeacherTotalAttendance,
-		ClassSectionSubjectTeacherCapacity:        m.ClassSectionSubjectTeacherCapacity,
-		ClassSectionSubjectTeacherEnrolledCount:   m.ClassSectionSubjectTeacherEnrolledCount,
-		ClassSectionSubjectTeacherDeliveryMode:    string(m.ClassSectionSubjectTeacherDeliveryMode),
+		ClassSectionSubjectTeacherTotalAttendance:  m.ClassSectionSubjectTeacherTotalAttendance,
+		ClassSectionSubjectTeacherCapacity:         m.ClassSectionSubjectTeacherCapacity,
+		ClassSectionSubjectTeacherEnrolledCount:    m.ClassSectionSubjectTeacherEnrolledCount,
+		ClassSectionSubjectTeacherTotalAssessments: m.ClassSectionSubjectTeacherTotalAssessments,
+		ClassSectionSubjectTeacherDeliveryMode:     string(m.ClassSectionSubjectTeacherDeliveryMode),
 
 		// SECTION snapshots
 		ClassSectionSubjectTeacherClassSectionSlugSnapshot: m.ClassSectionSubjectTeacherClassSectionSlugSnapshot,

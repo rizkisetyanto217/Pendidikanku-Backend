@@ -34,6 +34,10 @@ const (
 	AssessmentKindSurvey           AssessmentKind = "survey"
 )
 
+// =========================
+// Model: assessments
+// =========================
+
 type AssessmentModel struct {
 	// PK & Tenant
 	AssessmentID       uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:assessment_id" json:"assessment_id"`
@@ -68,18 +72,24 @@ type AssessmentModel struct {
 	AssessmentIsPublished     bool `gorm:"not null;default:true;column:assessment_is_published" json:"assessment_is_published"`
 	AssessmentAllowSubmission bool `gorm:"not null;default:true;column:assessment_allow_submission" json:"assessment_allow_submission"`
 
+	// Flag apakah nilai sudah digenerate / di-finalkan
+	AssessmentTypeIsGradedSnapshot bool `gorm:"not null;default:false;column:assessment_type_is_graded_snapshot" json:"assessment_type_is_graded_snapshot"`
+
 	// Audit pembuat (opsional)
 	AssessmentCreatedByTeacherID *uuid.UUID `gorm:"type:uuid;column:assessment_created_by_teacher_id" json:"assessment_created_by_teacher_id,omitempty"`
+
+	// Snapshot tipe assessment (key, name, weight, rules, dll)
+	AssessmentTypeSnapshot datatypes.JSONMap `gorm:"type:jsonb;not null;default:'{}';column:assessment_type_snapshot" json:"assessment_type_snapshot,omitempty"`
+
+	// Snapshots relasi (CSST & sesi kehadiran)
+	AssessmentCSSTSnapshot            datatypes.JSONMap `gorm:"type:jsonb;not null;default:'{}';column:assessment_csst_snapshot" json:"assessment_csst_snapshot,omitempty"`
+	AssessmentAnnounceSessionSnapshot datatypes.JSONMap `gorm:"type:jsonb;not null;default:'{}';column:assessment_announce_session_snapshot" json:"assessment_announce_session_snapshot,omitempty"`
+	AssessmentCollectSessionSnapshot  datatypes.JSONMap `gorm:"type:jsonb;not null;default:'{}';column:assessment_collect_session_snapshot" json:"assessment_collect_session_snapshot,omitempty"`
 
 	// Mode pengumpulan (by date / by session)
 	AssessmentSubmissionMode    AssessmentSubmissionMode `gorm:"type:text;not null;default:'date';column:assessment_submission_mode" json:"assessment_submission_mode"`
 	AssessmentAnnounceSessionID *uuid.UUID               `gorm:"type:uuid;column:assessment_announce_session_id" json:"assessment_announce_session_id,omitempty"`
 	AssessmentCollectSessionID  *uuid.UUID               `gorm:"type:uuid;column:assessment_collect_session_id" json:"assessment_collect_session_id,omitempty"`
-
-	// Snapshots (JSONB, NOT NULL, default '{}'::jsonb)
-	AssessmentCSSTSnapshot            datatypes.JSONMap `gorm:"type:jsonb;not null;default:'{}';column:assessment_csst_snapshot" json:"assessment_csst_snapshot,omitempty"`
-	AssessmentAnnounceSessionSnapshot datatypes.JSONMap `gorm:"type:jsonb;not null;default:'{}';column:assessment_announce_session_snapshot" json:"assessment_announce_session_snapshot,omitempty"`
-	AssessmentCollectSessionSnapshot  datatypes.JSONMap `gorm:"type:jsonb;not null;default:'{}';column:assessment_collect_session_snapshot" json:"assessment_collect_session_snapshot,omitempty"`
 
 	// Timestamps & soft delete
 	AssessmentCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:assessment_created_at" json:"assessment_created_at"`

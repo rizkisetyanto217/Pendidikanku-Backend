@@ -47,6 +47,8 @@ type AssessmentTypeModel struct {
 	// Status aktif type ini
 	AssessmentTypeIsActive bool `gorm:"not null;default:true;column:assessment_type_is_active" json:"assessment_type_is_active"`
 
+	AssessmentTypeIsGraded bool `gorm:"column:assessment_type_is_graded"` // 👈 baru
+
 	AssessmentTypeCreatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:assessment_type_created_at" json:"assessment_type_created_at"`
 	AssessmentTypeUpdatedAt time.Time      `gorm:"type:timestamptz;not null;default:now();column:assessment_type_updated_at" json:"assessment_type_updated_at"`
 	AssessmentTypeDeletedAt gorm.DeletedAt `gorm:"column:assessment_type_deleted_at;index" json:"assessment_type_deleted_at,omitempty"`

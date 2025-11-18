@@ -1077,7 +1077,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 						school_student_user_profile_id,
 						school_student_slug,
 						school_student_status,
-						school_student_sections,
+						school_student_class_sections,
 						school_student_user_profile_name_snapshot
 					) VALUES (?, ?, ?, 'active', '[]'::jsonb, ?)
 					RETURNING school_student_id
@@ -1092,7 +1092,7 @@ func (h *PaymentController) CreateRegistrationAndPayment(c *fiber.Ctx) error {
 						school_student_user_profile_id,
 						school_student_slug,
 						school_student_status,
-						school_student_sections
+						school_student_class_sections
 					) VALUES (?, ?, ?, 'active', '[]'::jsonb)
 					RETURNING school_student_id
 				`, schoolID, profileID, genSlug).Scan(&newIDStr).Error; er != nil {

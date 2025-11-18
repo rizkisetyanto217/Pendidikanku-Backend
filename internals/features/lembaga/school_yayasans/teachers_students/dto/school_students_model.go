@@ -50,7 +50,7 @@ func normalizeStatusPtr(s *studentmodel.SchoolStudentStatus) (*studentmodel.Scho
 }
 
 /* =========================================================
-   (Opsional) Type item untuk render sections (JSONB)
+   (Opsional) Type item untuk render class_sections (JSONB)
    — backend yang memelihara; hanya tampil di response
 ========================================================= */
 
@@ -404,6 +404,9 @@ type SchoolStudentResp struct {
 	SchoolStudentJoinedAt *time.Time `json:"school_student_joined_at,omitempty"`
 	SchoolStudentLeftAt   *time.Time `json:"school_student_left_at,omitempty"`
 
+	// flag: butuh penempatan ke class_sections?
+	SchoolStudentNeedsClassSections bool `json:"school_student_needs_class_sections"`
+
 	// snapshots users_profile
 	SchoolStudentUserProfileNameSnapshot              *string `json:"school_student_user_profile_name_snapshot,omitempty"`
 	SchoolStudentUserProfileAvatarURLSnapshot         *string `json:"school_student_user_profile_avatar_url_snapshot,omitempty"`
@@ -418,8 +421,8 @@ type SchoolStudentResp struct {
 	SchoolStudentSchoolIconURLSnapshot       *string `json:"school_student_school_icon_url_snapshot,omitempty"`
 	SchoolStudentSchoolBackgroundURLSnapshot *string `json:"school_student_school_background_url_snapshot,omitempty"`
 
-	// Sections (read-only dari backend)
-	SchoolStudentSections []SchoolStudentSectionItem `json:"school_student_sections"`
+	// Class sections (read-only dari backend)
+	SchoolStudentSections []SchoolStudentSectionItem `json:"school_student_class_sections"`
 
 	SchoolStudentCreatedAt time.Time  `json:"school_student_created_at"`
 	SchoolStudentUpdatedAt time.Time  `json:"school_student_updated_at"`
@@ -433,10 +436,10 @@ func FromModel(m *studentmodel.SchoolStudentModel) SchoolStudentResp {
 		delAt = &t
 	}
 
-	// decode JSONB sections -> []SchoolStudentSectionItem
+	// decode JSONB class_sections -> []SchoolStudentSectionItem
 	sections := make([]SchoolStudentSectionItem, 0)
-	if len(m.SchoolStudentSections) > 0 {
-		_ = json.Unmarshal(m.SchoolStudentSections, &sections) // aman: fallback ke [] saat error
+	if len(m.SchoolStudentClassSections) > 0 {
+		_ = json.Unmarshal(m.SchoolStudentClassSections, &sections) // fallback: [] kalau error
 	}
 
 	return SchoolStudentResp{
@@ -451,6 +454,8 @@ func FromModel(m *studentmodel.SchoolStudentModel) SchoolStudentResp {
 
 		SchoolStudentJoinedAt: m.SchoolStudentJoinedAt,
 		SchoolStudentLeftAt:   m.SchoolStudentLeftAt,
+
+		SchoolStudentNeedsClassSections: m.SchoolStudentNeedsClassSections,
 
 		// snapshots users_profile
 		SchoolStudentUserProfileNameSnapshot:              m.SchoolStudentUserProfileNameSnapshot,

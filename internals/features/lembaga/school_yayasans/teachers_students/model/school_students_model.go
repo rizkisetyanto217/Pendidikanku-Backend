@@ -24,7 +24,7 @@ var validSchoolStudentStatus = map[SchoolStudentStatus]struct{}{
 	SchoolStudentAlumni:   {},
 }
 
-// Opsional: helper untuk manipulasi JSONB sections di service layer
+// Opsional: helper untuk manipulasi JSONB class sections di service layer
 type SchoolStudentSectionItem struct {
 	ClassSectionID             uuid.UUID `json:"class_section_id"`
 	IsActive                   bool      `json:"is_active"`
@@ -58,6 +58,9 @@ type SchoolStudentModel struct {
 	SchoolStudentJoinedAt *time.Time `gorm:"column:school_student_joined_at;type:timestamptz" json:"school_student_joined_at,omitempty"`
 	SchoolStudentLeftAt   *time.Time `gorm:"column:school_student_left_at;type:timestamptz" json:"school_student_left_at,omitempty"`
 
+	// Flag: butuh penempatan ke class_sections?
+	SchoolStudentNeedsClassSections bool `gorm:"column:school_student_needs_class_sections;type:boolean;not null;default:false" json:"school_student_needs_class_sections"`
+
 	// Catatan
 	SchoolStudentNote *string `gorm:"column:school_student_note;type:text" json:"school_student_note,omitempty"`
 
@@ -68,15 +71,15 @@ type SchoolStudentModel struct {
 	SchoolStudentUserProfileParentNameSnapshot        *string `gorm:"column:school_student_user_profile_parent_name_snapshot;type:varchar(80)" json:"school_student_user_profile_parent_name_snapshot,omitempty"`
 	SchoolStudentUserProfileParentWhatsappURLSnapshot *string `gorm:"column:school_student_user_profile_parent_whatsapp_url_snapshot;type:varchar(50)" json:"school_student_user_profile_parent_whatsapp_url_snapshot,omitempty"`
 
-	// ===== MASJID SNAPSHOT (/me render cepat) — sesuai SQL terbaru =====
+	// ===== SCHOOL SNAPSHOT (/me render cepat) =====
 	SchoolStudentSchoolNameSnapshot          *string `gorm:"column:school_student_school_name_snapshot;type:varchar(100)" json:"school_student_school_name_snapshot,omitempty"`
 	SchoolStudentSchoolSlugSnapshot          *string `gorm:"column:school_student_school_slug_snapshot;type:varchar(100)" json:"school_student_school_slug_snapshot,omitempty"`
 	SchoolStudentSchoolLogoURLSnapshot       *string `gorm:"column:school_student_school_logo_url_snapshot;type:text" json:"school_student_school_logo_url_snapshot,omitempty"`
 	SchoolStudentSchoolIconURLSnapshot       *string `gorm:"column:school_student_school_icon_url_snapshot;type:text" json:"school_student_school_icon_url_snapshot,omitempty"`
 	SchoolStudentSchoolBackgroundURLSnapshot *string `gorm:"column:school_student_school_background_url_snapshot;type:text" json:"school_student_school_background_url_snapshot,omitempty"`
 
-	// ===== JSONB SECTIONS (NOT NULL DEFAULT '[]') =====
-	SchoolStudentSections datatypes.JSON `gorm:"column:school_student_sections;type:jsonb;not null" json:"school_student_sections"`
+	// ===== JSONB CLASS SECTIONS (NOT NULL DEFAULT '[]') =====
+	SchoolStudentClassSections datatypes.JSON `gorm:"column:school_student_class_sections;type:jsonb;not null" json:"school_student_class_sections"`
 
 	// Audit & Soft delete
 	SchoolStudentCreatedAt time.Time      `gorm:"column:school_student_created_at;type:timestamptz;not null;default:now();autoCreateTime" json:"school_student_created_at"`
@@ -89,8 +92,8 @@ func (SchoolStudentModel) TableName() string { return "school_students" }
 // Hooks ringan (mirror aturan SQL)
 func (m *SchoolStudentModel) BeforeCreate(tx *gorm.DB) error {
 	// JSONB guard
-	if len(m.SchoolStudentSections) == 0 {
-		m.SchoolStudentSections = datatypes.JSON([]byte("[]"))
+	if len(m.SchoolStudentClassSections) == 0 {
+		m.SchoolStudentClassSections = datatypes.JSON([]byte("[]"))
 	}
 	// Validasi status
 	if _, ok := validSchoolStudentStatus[m.SchoolStudentStatus]; !ok {
@@ -105,8 +108,8 @@ func (m *SchoolStudentModel) BeforeSave(tx *gorm.DB) error {
 		return errors.New("invalid school_student_status")
 	}
 	// JSONB guard
-	if len(m.SchoolStudentSections) == 0 {
-		m.SchoolStudentSections = datatypes.JSON([]byte("[]"))
+	if len(m.SchoolStudentClassSections) == 0 {
+		m.SchoolStudentClassSections = datatypes.JSON([]byte("[]"))
 	}
 	return nil
 }

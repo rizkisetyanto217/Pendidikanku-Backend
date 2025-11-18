@@ -23,6 +23,7 @@ type CreateAssessmentTypeRequest struct {
 	AssessmentTypeWeightPercent float64   `json:"assessment_type_weight_percent" validate:"gte=0,lte=100"`
 
 	AssessmentTypeIsActive *bool `json:"assessment_type_is_active" validate:"omitempty"`
+	AssessmentTypeIsGraded *bool `json:"assessment_type_is_graded" validate:"omitempty"` // 👈 baru
 
 	// ===== Default quiz settings (optional di request; pakai default kalau null) =====
 
@@ -41,6 +42,7 @@ type PatchAssessmentTypeRequest struct {
 	AssessmentTypeName          *string  `json:"assessment_type_name" validate:"omitempty,max=120"`
 	AssessmentTypeWeightPercent *float64 `json:"assessment_type_weight_percent" validate:"omitempty,gte=0,lte=100"`
 	AssessmentTypeIsActive      *bool    `json:"assessment_type_is_active" validate:"omitempty"`
+	AssessmentTypeIsGraded      *bool    `json:"assessment_type_is_graded" validate:"omitempty"` // 👈 baru
 
 	AssessmentTypeShuffleQuestions       *bool `json:"assessment_type_shuffle_questions" validate:"omitempty"`
 	AssessmentTypeShuffleOptions         *bool `json:"assessment_type_shuffle_options" validate:"omitempty"`
@@ -84,7 +86,9 @@ type AssessmentTypeResponse struct {
 	AssessmentTypeRequireLogin           bool `json:"assessment_type_require_login"`
 	AssessmentTypePreventBackNavigation  bool `json:"assessment_type_prevent_back_navigation"`
 
-	AssessmentTypeIsActive  bool      `json:"assessment_type_is_active"`
+	AssessmentTypeIsActive bool `json:"assessment_type_is_active"`
+	AssessmentTypeIsGraded bool `json:"assessment_type_is_graded"` // 👈 baru
+
 	AssessmentTypeCreatedAt time.Time `json:"assessment_type_created_at"`
 	AssessmentTypeUpdatedAt time.Time `json:"assessment_type_updated_at"`
 }
@@ -111,6 +115,12 @@ func (r CreateAssessmentTypeRequest) ToModel() model.AssessmentTypeModel {
 	isActive := true
 	if r.AssessmentTypeIsActive != nil {
 		isActive = *r.AssessmentTypeIsActive
+	}
+
+	// Default: secara umum assessment type adalah graded
+	isGraded := true
+	if r.AssessmentTypeIsGraded != nil {
+		isGraded = *r.AssessmentTypeIsGraded
 	}
 
 	// Default untuk quiz settings — harus sync dengan default di SQL
@@ -170,6 +180,7 @@ func (r CreateAssessmentTypeRequest) ToModel() model.AssessmentTypeModel {
 		AssessmentTypePreventBackNavigation:  preventBack,
 
 		AssessmentTypeIsActive: isActive,
+		AssessmentTypeIsGraded: isGraded, // 👈 baru masuk model
 	}
 }
 
@@ -183,6 +194,9 @@ func (p PatchAssessmentTypeRequest) Apply(m *model.AssessmentTypeModel) {
 	}
 	if p.AssessmentTypeIsActive != nil {
 		m.AssessmentTypeIsActive = *p.AssessmentTypeIsActive
+	}
+	if p.AssessmentTypeIsGraded != nil { // 👈 baru
+		m.AssessmentTypeIsGraded = *p.AssessmentTypeIsGraded
 	}
 
 	if p.AssessmentTypeShuffleQuestions != nil {
@@ -230,7 +244,9 @@ func FromModel(m model.AssessmentTypeModel) AssessmentTypeResponse {
 		AssessmentTypeRequireLogin:           m.AssessmentTypeRequireLogin,
 		AssessmentTypePreventBackNavigation:  m.AssessmentTypePreventBackNavigation,
 
-		AssessmentTypeIsActive:  m.AssessmentTypeIsActive,
+		AssessmentTypeIsActive: m.AssessmentTypeIsActive,
+		AssessmentTypeIsGraded: m.AssessmentTypeIsGraded, // 👈 baru ikut ke response
+
 		AssessmentTypeCreatedAt: m.AssessmentTypeCreatedAt,
 		AssessmentTypeUpdatedAt: m.AssessmentTypeUpdatedAt,
 	}

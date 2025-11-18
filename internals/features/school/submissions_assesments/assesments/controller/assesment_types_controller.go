@@ -34,6 +34,10 @@ func NewAssessmentTypeController(db *gorm.DB) *AssessmentTypeController {
 	}
 }
 
+func parseUUIDParam(c *fiber.Ctx, name string) (uuid.UUID, error) {
+	return uuid.Parse(strings.TrimSpace(c.Params(name)))
+}
+
 /* ========================= Helpers ========================= */
 
 func mapToResponse(m *assessmentModel.AssessmentTypeModel) dto.AssessmentTypeResponse {
@@ -105,6 +109,14 @@ func (ctl *AssessmentTypeController) Create(c *fiber.Ctx) error {
 	row.AssessmentTypeID = uuid.New()
 	row.AssessmentTypeCreatedAt = now
 	row.AssessmentTypeUpdatedAt = now
+
+	// 🔥 AUTO: set assessment_type_is_graded dari weight
+	// kalau mau strict: aktif & berbobot -> graded
+	if row.AssessmentTypeWeightPercent > 0 && row.AssessmentTypeIsActive {
+		row.AssessmentTypeIsGraded = true
+	} else {
+		row.AssessmentTypeIsGraded = false
+	}
 
 	// Validasi agregat aktif ≤ 100
 	if row.AssessmentTypeIsActive {
@@ -258,10 +270,12 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 	}
 
 	if len(updates) == 0 {
+		// Tidak ada perubahan: balikin data existing saja
 		return helper.JsonOK(c, "OK", mapToResponse(&existing))
 	}
 	updates["assessment_type_updated_at"] = time.Now()
 
+	// Update assessment_type
 	if err := ctl.DB.WithContext(c.Context()).
 		Model(&assessmentModel.AssessmentTypeModel{}).
 		Where("assessment_type_id = ? AND assessment_type_school_id = ?", id, schoolID).
@@ -272,11 +286,27 @@ func (ctl *AssessmentTypeController) Patch(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
 	}
 
+	// Ambil data terbaru
 	var after assessmentModel.AssessmentTypeModel
 	if err := ctl.DB.WithContext(c.Context()).
 		Where("assessment_type_id = ? AND assessment_type_school_id = ?", id, schoolID).
 		First(&after).Error; err != nil {
 		return helper.JsonError(c, fiber.StatusInternalServerError, err.Error())
+	}
+
+	// ⬇⬇⬇ sinkronkan assessment_type_is_graded_snapshot di semua assessment yang pakai type ini
+	isGraded := after.AssessmentTypeWeightPercent > 0
+
+	if err := ctl.DB.WithContext(c.Context()).
+		Model(&assessmentModel.AssessmentModel{}).
+		Where(`
+			assessment_school_id = ?
+			AND assessment_type_id = ?
+			AND assessment_deleted_at IS NULL
+		`, schoolID, id).
+		Update("assessment_type_is_graded_snapshot", isGraded).Error; err != nil {
+
+		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menyinkronkan flag graded pada assessment")
 	}
 
 	return helper.JsonUpdated(c, "Assessment type diperbarui", mapToResponse(&after))

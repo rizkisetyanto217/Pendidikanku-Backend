@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS assessment_types (
   -- Satu pertanyaan per halaman (pagination saat mengerjakan)
   assessment_type_one_question_per_page BOOLEAN NOT NULL DEFAULT FALSE,
 
+  assessment_type_is_graded BOOLEAN NOT NULL DEFAULT FALSE,
+
   -- Batas waktu pengerjaan (menit); NULL = tanpa batas
   assessment_type_time_limit_min INTEGER
     CHECK (assessment_type_time_limit_min IS NULL OR assessment_type_time_limit_min >= 0),
@@ -151,6 +153,10 @@ CREATE TABLE IF NOT EXISTS assessments (
 
   -- Audit
   assessment_created_by_teacher_id UUID,
+
+  assessment_type_is_graded_snapshot BOOLEAN NOT NULL DEFAULT FALSE,
+
+  assessment_type_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
 
   -- Snapshot
   assessment_csst_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,

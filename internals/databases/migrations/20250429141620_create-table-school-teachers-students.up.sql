@@ -251,6 +251,7 @@ CREATE TABLE IF NOT EXISTS school_students (
   -- Operasional
   school_student_joined_at TIMESTAMPTZ,
   school_student_left_at   TIMESTAMPTZ,
+  school_student_needs_class_sections BOOLEAN NOT NULL DEFAULT FALSE,
 
   -- Catatan
   school_student_note TEXT,
@@ -279,8 +280,8 @@ CREATE TABLE IF NOT EXISTS school_students (
   --   "class_section_image_url": "https://...",
   --   "class_section_image_object_key": "..."
   -- }
-  school_student_sections JSONB NOT NULL DEFAULT '[]'::jsonb,
-  CONSTRAINT ck_ms_sections_is_array CHECK (jsonb_typeof(school_student_sections) = 'array'),
+  school_student_class_sections JSONB NOT NULL DEFAULT '[]'::jsonb,
+  CONSTRAINT ck_ms_sections_is_array CHECK (jsonb_typeof(school_student_class_sections) = 'array'),
 
   -- Audit
   school_student_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -333,19 +334,19 @@ CREATE INDEX IF NOT EXISTS gin_ms_note_trgm_alive
 
 -- JSONB containment (sections)
 CREATE INDEX IF NOT EXISTS gin_ms_sections
-  ON school_students USING GIN (school_student_sections jsonb_path_ops)
+  ON school_students USING GIN (school_student_class_sections jsonb_path_ops)
   WHERE school_student_deleted_at IS NULL;
 
 -- Partial index: punya section aktif
 CREATE INDEX IF NOT EXISTS ix_ms_has_active_section_per_tenant
   ON school_students (school_student_school_id)
   WHERE school_student_deleted_at IS NULL
-    AND school_student_sections @? '$ ? (@.is_active == true)';
+    AND school_student_class_sections @? '$ ? (@.is_active == true)';
 
 -- Functional index: aktif_count (tanpa kolom turunan)
 CREATE INDEX IF NOT EXISTS ix_ms_sections_active_count_expr
   ON school_students (
-    (jsonb_array_length(jsonb_path_query_array(school_student_sections, '$ ? (@.is_active == true)')))
+    (jsonb_array_length(jsonb_path_query_array(school_student_class_sections, '$ ? (@.is_active == true)')))
   )
   WHERE school_student_deleted_at IS NULL;
 

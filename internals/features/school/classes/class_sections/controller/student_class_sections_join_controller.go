@@ -185,7 +185,7 @@ func getOrCreateSchoolStudentWithSnapshots(
 		"school_student_user_profile_id": userProfileID,
 		"school_student_slug":            newID.String(),
 		"school_student_status":          "active",
-		"school_student_sections":        datatypes.JSON([]byte("[]")),
+		"school_student_class_sections":  datatypes.JSON([]byte("[]")),
 		"school_student_created_at":      now,
 		"school_student_updated_at":      now,
 	}

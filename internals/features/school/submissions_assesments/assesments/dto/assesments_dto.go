@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 
 	assessModel "schoolku_backend/internals/features/school/submissions_assesments/assesments/model"
 )
@@ -54,12 +55,6 @@ type CreateAssessmentRequest struct {
 	AssessmentCollectSessionID  *uuid.UUID `json:"assessment_collect_session_id" validate:"omitempty,uuid4"`
 }
 
-/*
-Normalize:
-  - trim string
-  - lowercase kind
-  - set default kind/attempts/max_score/is_published/allow_submission
-*/
 func (r *CreateAssessmentRequest) Normalize() {
 	trimPtr := func(s *string) *string {
 		if s == nil {
@@ -139,6 +134,7 @@ func (r *CreateAssessmentRequest) ToModel() assessModel.AssessmentModel {
 		AssessmentSubmissionMode:               assessModel.SubmissionModeDate, // akan dioverride di controller
 		AssessmentIsPublished:                  *r.AssessmentIsPublished,
 		AssessmentAllowSubmission:              *r.AssessmentAllowSubmission,
+		// AssessmentTypeIsGradedSnapshot: default false (pakai zero value / DB default)
 	}
 
 	return row
@@ -263,13 +259,15 @@ func (r *PatchAssessmentRequest) Apply(m *assessModel.AssessmentModel) {
 		m.AssessmentCreatedByTeacherID = r.AssessmentCreatedByTeacherID
 	}
 
-	// Session IDs di-handle di controller (karena terkait submission_mode)
+	// Session IDs di-handle di controller (karena terkait submission_mode & snapshot)
 }
 
-/* ========================================================
-   RESPONSE DTO
-======================================================== */
+/*
+	========================================================
+	  RESPONSE DTO
 
+========================================================
+*/
 type AssessmentResponse struct {
 	AssessmentID       uuid.UUID `json:"assessment_id"`
 	AssessmentSchoolID uuid.UUID `json:"assessment_school_id"`
@@ -296,6 +294,9 @@ type AssessmentResponse struct {
 	AssessmentIsPublished     bool `json:"assessment_is_published"`
 	AssessmentAllowSubmission bool `json:"assessment_allow_submission"`
 
+	// ⬇⬇⬇ baru: flag hasil grading
+	AssessmentTypeIsGradedSnapshot bool `json:"assessment_type_is_graded_snapshot"`
+
 	AssessmentCreatedByTeacherID *uuid.UUID `json:"assessment_created_by_teacher_id,omitempty"`
 
 	AssessmentSubmissionMode    string     `json:"assessment_submission_mode"`
@@ -306,21 +307,30 @@ type AssessmentResponse struct {
 	AssessmentAnnounceSessionSnapshot map[string]any `json:"assessment_announce_session_snapshot,omitempty"`
 	AssessmentCollectSessionSnapshot  map[string]any `json:"assessment_collect_session_snapshot,omitempty"`
 
+	// Snapshot tipe assessment (key, name, weight, rules, dll)
+	AssessmentTypeSnapshot map[string]any `json:"assessment_type_snapshot,omitempty"`
+
 	AssessmentCreatedAt time.Time `json:"assessment_created_at"`
 	AssessmentUpdatedAt time.Time `json:"assessment_updated_at"`
 }
 
 // Converter Model → Response DTO
 func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
-	// cast datatypes.JSONMap → map[string]any
+	// cast datatypes.JSONMap / map[string]any → map[string]any
 	toMap := func(j any) map[string]any {
 		if j == nil {
-			return map[string]any{}
+			return nil
 		}
-		if mm, ok := j.(map[string]any); ok {
-			return mm
+
+		switch v := j.(type) {
+		case map[string]any:
+			return v
+		case datatypes.JSONMap:
+			// datatypes.JSONMap adalah alias map[string]any, tapi beda type
+			return map[string]any(v)
+		default:
+			return nil
 		}
-		return map[string]any{}
 	}
 
 	return AssessmentResponse{
@@ -347,6 +357,9 @@ func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
 		AssessmentIsPublished:          m.AssessmentIsPublished,
 		AssessmentAllowSubmission:      m.AssessmentAllowSubmission,
 
+		// ⬇⬇⬇ baru: mirror kolom + model
+		AssessmentTypeIsGradedSnapshot: m.AssessmentTypeIsGradedSnapshot,
+
 		AssessmentCreatedByTeacherID: m.AssessmentCreatedByTeacherID,
 
 		AssessmentSubmissionMode:    string(m.AssessmentSubmissionMode),
@@ -356,6 +369,8 @@ func FromModelAssesment(m assessModel.AssessmentModel) AssessmentResponse {
 		AssessmentCSSTSnapshot:            toMap(m.AssessmentCSSTSnapshot),
 		AssessmentAnnounceSessionSnapshot: toMap(m.AssessmentAnnounceSessionSnapshot),
 		AssessmentCollectSessionSnapshot:  toMap(m.AssessmentCollectSessionSnapshot),
+
+		AssessmentTypeSnapshot: toMap(m.AssessmentTypeSnapshot),
 
 		AssessmentCreatedAt: m.AssessmentCreatedAt,
 		AssessmentUpdatedAt: m.AssessmentUpdatedAt,
