@@ -483,19 +483,34 @@ func (ctl *AssessmentController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal membuat assessment")
 	}
 
-	// 🔼 UP: tambah total_assessments di CSST kalau ada relasi
+	// 🔼 UP: tambah total_assessments (+ graded / ungraded) di CSST kalau ada relasi
 	if row.AssessmentClassSectionSubjectTeacherID != nil && *row.AssessmentClassSectionSubjectTeacherID != uuid.Nil {
+		isGraded := row.AssessmentTypeIsGradedSnapshot // bool
+
+		updates := map[string]any{
+			"class_section_subject_teacher_total_assessments": gorm.Expr(
+				"class_section_subject_teacher_total_assessments + 1",
+			),
+		}
+
+		if isGraded {
+			updates["class_section_subject_teacher_total_assessments_graded"] = gorm.Expr(
+				"class_section_subject_teacher_total_assessments_graded + 1",
+			)
+		} else {
+			updates["class_section_subject_teacher_total_assessments_ungraded"] = gorm.Expr(
+				"class_section_subject_teacher_total_assessments_ungraded + 1",
+			)
+		}
+
 		if err := tx.WithContext(c.Context()).
 			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 			Where(`
-				class_section_subject_teacher_school_id = ?
-				AND class_section_subject_teacher_id = ?
-				AND class_section_subject_teacher_deleted_at IS NULL
-			`, mid, *row.AssessmentClassSectionSubjectTeacherID).
-			Update(
-				"class_section_subject_teacher_total_assessments",
-				gorm.Expr("class_section_subject_teacher_total_assessments + 1"),
-			).Error; err != nil {
+			class_section_subject_teacher_school_id = ?
+			AND class_section_subject_teacher_id = ?
+			AND class_section_subject_teacher_deleted_at IS NULL
+		`, mid, *row.AssessmentClassSectionSubjectTeacherID).
+			Updates(updates).Error; err != nil {
 
 			tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate total assessment mapel")
@@ -1091,19 +1106,37 @@ func (ctl *AssessmentController) Delete(c *fiber.Ctx) error {
 		return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal menghapus assessment")
 	}
 
-	// 🔽 DOWN: turunkan total_assessments di CSST jika ada relasi
+	// 🔽 DOWN: turunkan total_assessments (+ graded / ungraded) di CSST jika ada relasi
 	if row.AssessmentClassSectionSubjectTeacherID != nil && *row.AssessmentClassSectionSubjectTeacherID != uuid.Nil {
+		isGraded := row.AssessmentTypeIsGradedSnapshot
+
+		updates := map[string]any{
+			"class_section_subject_teacher_total_assessments": gorm.Expr(
+				"CASE WHEN class_section_subject_teacher_total_assessments > 0 " +
+					"THEN class_section_subject_teacher_total_assessments - 1 ELSE 0 END",
+			),
+		}
+
+		if isGraded {
+			updates["class_section_subject_teacher_total_assessments_graded"] = gorm.Expr(
+				"CASE WHEN class_section_subject_teacher_total_assessments_graded > 0 " +
+					"THEN class_section_subject_teacher_total_assessments_graded - 1 ELSE 0 END",
+			)
+		} else {
+			updates["class_section_subject_teacher_total_assessments_ungraded"] = gorm.Expr(
+				"CASE WHEN class_section_subject_teacher_total_assessments_ungraded > 0 " +
+					"THEN class_section_subject_teacher_total_assessments_ungraded - 1 ELSE 0 END",
+			)
+		}
+
 		if err := tx.WithContext(c.Context()).
 			Model(&csstModel.ClassSectionSubjectTeacherModel{}).
 			Where(`
-				class_section_subject_teacher_school_id = ?
-				AND class_section_subject_teacher_id = ?
-				AND class_section_subject_teacher_deleted_at IS NULL
-			`, mid, *row.AssessmentClassSectionSubjectTeacherID).
-			Update(
-				"class_section_subject_teacher_total_assessments",
-				gorm.Expr("CASE WHEN class_section_subject_teacher_total_assessments > 0 THEN class_section_subject_teacher_total_assessments - 1 ELSE 0 END"),
-			).Error; err != nil {
+			class_section_subject_teacher_school_id = ?
+			AND class_section_subject_teacher_id = ?
+			AND class_section_subject_teacher_deleted_at IS NULL
+		`, mid, *row.AssessmentClassSectionSubjectTeacherID).
+			Updates(updates).Error; err != nil {
 
 			tx.Rollback()
 			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengupdate total assessment mapel")

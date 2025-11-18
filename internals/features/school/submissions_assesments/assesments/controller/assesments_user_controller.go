@@ -156,6 +156,13 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		isPublished = &b
 	}
 
+	// ➕ NEW: filter graded / ungraded (pakai snapshot is_graded)
+	var isGraded *bool
+	if gs := strings.TrimSpace(c.Query("is_graded")); gs != "" {
+		b := strings.EqualFold(gs, "true") || gs == "1"
+		isGraded = &b
+	}
+
 	// sorting
 	var sbPtr, sdPtr *string
 	if sortBy != "" {
@@ -178,6 +185,9 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	}
 	if isPublished != nil {
 		qry = qry.Where("assessment_is_published = ?", *isPublished)
+	}
+	if isGraded != nil {
+		qry = qry.Where("assessment_type_is_graded_snapshot = ?", *isGraded)
 	}
 	if qStr != "" {
 		q := "%" + strings.ToLower(qStr) + "%"
