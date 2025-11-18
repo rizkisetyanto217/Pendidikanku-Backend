@@ -24,6 +24,11 @@ type CreateClassSubjectBookRequest struct {
 	// opsional; controller yang normalize + ensure-unique (alive-only)
 	ClassSubjectBookSlug *string `json:"class_subject_book_slug" validate:"omitempty,max=160"`
 
+	// flags & ordering
+	ClassSubjectBookIsPrimary  *bool `json:"class_subject_book_is_primary"  validate:"omitempty"`
+	ClassSubjectBookIsRequired *bool `json:"class_subject_book_is_required" validate:"omitempty"`
+	ClassSubjectBookOrder      *int  `json:"class_subject_book_order"       validate:"omitempty"`
+
 	// default true kalau tidak dikirim
 	ClassSubjectBookIsActive *bool   `json:"class_subject_book_is_active" validate:"omitempty"`
 	ClassSubjectBookDesc     *string `json:"class_subject_book_desc"      validate:"omitempty,max=2000"`
@@ -53,13 +58,29 @@ func (r CreateClassSubjectBookRequest) ToModel() model.ClassSubjectBookModel {
 	if r.ClassSubjectBookIsActive != nil {
 		isActive = *r.ClassSubjectBookIsActive
 	}
+
+	isPrimary := false
+	if r.ClassSubjectBookIsPrimary != nil {
+		isPrimary = *r.ClassSubjectBookIsPrimary
+	}
+
+	isRequired := true
+	if r.ClassSubjectBookIsRequired != nil {
+		isRequired = *r.ClassSubjectBookIsRequired
+	}
+
 	return model.ClassSubjectBookModel{
 		ClassSubjectBookSchoolID:       r.ClassSubjectBookSchoolID,
 		ClassSubjectBookClassSubjectID: r.ClassSubjectBookClassSubjectID,
 		ClassSubjectBookBookID:         r.ClassSubjectBookBookID,
-		ClassSubjectBookSlug:           r.ClassSubjectBookSlug,
-		ClassSubjectBookIsActive:       isActive,
-		ClassSubjectBookDesc:           r.ClassSubjectBookDesc,
+
+		ClassSubjectBookSlug:       r.ClassSubjectBookSlug,
+		ClassSubjectBookIsPrimary:  isPrimary,
+		ClassSubjectBookIsRequired: isRequired,
+		ClassSubjectBookOrder:      r.ClassSubjectBookOrder,
+
+		ClassSubjectBookIsActive: isActive,
+		ClassSubjectBookDesc:     r.ClassSubjectBookDesc,
 	}
 }
 
@@ -71,6 +92,10 @@ type UpdateClassSubjectBookRequest struct {
 
 	// controller yang ensure-unique (alive-only)
 	ClassSubjectBookSlug *string `json:"class_subject_book_slug" validate:"omitempty,max=160"`
+
+	ClassSubjectBookIsPrimary  *bool `json:"class_subject_book_is_primary"  validate:"omitempty"`
+	ClassSubjectBookIsRequired *bool `json:"class_subject_book_is_required" validate:"omitempty"`
+	ClassSubjectBookOrder      *int  `json:"class_subject_book_order"       validate:"omitempty"`
 
 	ClassSubjectBookIsActive *bool   `json:"class_subject_book_is_active" validate:"omitempty"`
 	ClassSubjectBookDesc     *string `json:"class_subject_book_desc"      validate:"omitempty,max=2000"`
@@ -92,6 +117,15 @@ func (r *UpdateClassSubjectBookRequest) Apply(m *model.ClassSubjectBookModel) er
 	}
 	if r.ClassSubjectBookIsActive != nil {
 		m.ClassSubjectBookIsActive = *r.ClassSubjectBookIsActive
+	}
+	if r.ClassSubjectBookIsPrimary != nil {
+		m.ClassSubjectBookIsPrimary = *r.ClassSubjectBookIsPrimary
+	}
+	if r.ClassSubjectBookIsRequired != nil {
+		m.ClassSubjectBookIsRequired = *r.ClassSubjectBookIsRequired
+	}
+	if r.ClassSubjectBookOrder != nil {
+		m.ClassSubjectBookOrder = r.ClassSubjectBookOrder
 	}
 	if r.ClassSubjectBookDesc != nil {
 		d := strings.TrimSpace(*r.ClassSubjectBookDesc)
@@ -122,6 +156,8 @@ type ListClassSubjectBookQuery struct {
 	ClassSubjectID *uuid.UUID `query:"class_subject_id" validate:"omitempty"`
 	BookID         *uuid.UUID `query:"book_id" validate:"omitempty"`
 	IsActive       *bool      `query:"is_active" validate:"omitempty"`
+	IsPrimary      *bool      `query:"is_primary" validate:"omitempty"`
+	IsRequired     *bool      `query:"is_required" validate:"omitempty"`
 	WithDeleted    *bool      `query:"with_deleted" validate:"omitempty"`
 
 	// q: cari di slug relasi & judul buku snapshot & nama/slug subject snapshot (LOWER LIKE/TRGM)
@@ -183,8 +219,11 @@ type ClassSubjectBookResponse struct {
 
 	ClassSubjectBookSlug *string `json:"class_subject_book_slug,omitempty"`
 
-	ClassSubjectBookIsActive bool    `json:"class_subject_book_is_active"`
-	ClassSubjectBookDesc     *string `json:"class_subject_book_desc,omitempty"`
+	ClassSubjectBookIsPrimary  bool    `json:"class_subject_book_is_primary"`
+	ClassSubjectBookIsRequired bool    `json:"class_subject_book_is_required"`
+	ClassSubjectBookOrder      *int    `json:"class_subject_book_order,omitempty"`
+	ClassSubjectBookIsActive   bool    `json:"class_subject_book_is_active"`
+	ClassSubjectBookDesc       *string `json:"class_subject_book_desc,omitempty"`
 
 	// snapshots dari books
 	ClassSubjectBookBookTitleSnapshot           *string `json:"class_subject_book_book_title_snapshot,omitempty"`
@@ -194,8 +233,8 @@ type ClassSubjectBookResponse struct {
 	ClassSubjectBookBookPublicationYearSnapshot *int16  `json:"class_subject_book_book_publication_year_snapshot,omitempty"`
 	ClassSubjectBookBookImageURLSnapshot        *string `json:"class_subject_book_book_image_url_snapshot,omitempty"`
 
-	// snapshots dari subjects
-	ClassSubjectBookSubjectIDSnapshot   *uuid.UUID `json:"class_subject_book_subject_id_snapshot,omitempty"`
+	// snapshots subject
+	ClassSubjectBookSubjectID           *uuid.UUID `json:"class_subject_book_subject_id,omitempty"`
 	ClassSubjectBookSubjectCodeSnapshot *string    `json:"class_subject_book_subject_code_snapshot,omitempty"`
 	ClassSubjectBookSubjectNameSnapshot *string    `json:"class_subject_book_subject_name_snapshot,omitempty"`
 	ClassSubjectBookSubjectSlugSnapshot *string    `json:"class_subject_book_subject_slug_snapshot,omitempty"`
@@ -235,9 +274,13 @@ func FromModel(m model.ClassSubjectBookModel) ClassSubjectBookResponse {
 		ClassSubjectBookClassSubjectID: m.ClassSubjectBookClassSubjectID,
 		ClassSubjectBookBookID:         m.ClassSubjectBookBookID,
 
-		ClassSubjectBookSlug:      m.ClassSubjectBookSlug,
-		ClassSubjectBookIsActive:  m.ClassSubjectBookIsActive,
-		ClassSubjectBookDesc:      m.ClassSubjectBookDesc,
+		ClassSubjectBookSlug:       m.ClassSubjectBookSlug,
+		ClassSubjectBookIsPrimary:  m.ClassSubjectBookIsPrimary,
+		ClassSubjectBookIsRequired: m.ClassSubjectBookIsRequired,
+		ClassSubjectBookOrder:      m.ClassSubjectBookOrder,
+		ClassSubjectBookIsActive:   m.ClassSubjectBookIsActive,
+		ClassSubjectBookDesc:       m.ClassSubjectBookDesc,
+
 		ClassSubjectBookCreatedAt: m.ClassSubjectBookCreatedAt,
 		ClassSubjectBookUpdatedAt: m.ClassSubjectBookUpdatedAt,
 		ClassSubjectBookDeletedAt: deletedAt,
@@ -251,7 +294,7 @@ func FromModel(m model.ClassSubjectBookModel) ClassSubjectBookResponse {
 		ClassSubjectBookBookImageURLSnapshot:        m.ClassSubjectBookBookImageURLSnapshot,
 
 		// snapshots subject
-		ClassSubjectBookSubjectIDSnapshot:   m.ClassSubjectBookSubjectIDSnapshot,
+		ClassSubjectBookSubjectID:           m.ClassSubjectBookSubjectID,
 		ClassSubjectBookSubjectCodeSnapshot: m.ClassSubjectBookSubjectCodeSnapshot,
 		ClassSubjectBookSubjectNameSnapshot: m.ClassSubjectBookSubjectNameSnapshot,
 		ClassSubjectBookSubjectSlugSnapshot: m.ClassSubjectBookSubjectSlugSnapshot,

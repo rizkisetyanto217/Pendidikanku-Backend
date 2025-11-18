@@ -36,6 +36,8 @@ Query:
   - class_subject_id : UUID
   - book_id          : UUID
   - is_active        : bool
+  - is_primary       : bool
+  - is_required      : bool
   - with_deleted     : bool
   - q                : cari di slug relasi, judul buku snapshot, nama/slug subject snapshot
   - sort (legacy)    : created_at_asc|created_at_desc|updated_at_asc|updated_at_desc
@@ -191,6 +193,42 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		}
 	}
 
+	// is_primary
+	if q.IsPrimary != nil {
+		if *q.IsPrimary {
+			qBase = qBase.Where("csb.class_subject_book_is_primary = TRUE")
+		} else {
+			qBase = qBase.Where("csb.class_subject_book_is_primary = FALSE")
+		}
+	} else if v := strings.ToLower(strings.TrimSpace(c.Query("is_primary"))); v != "" {
+		switch v {
+		case "true", "1":
+			qBase = qBase.Where("csb.class_subject_book_is_primary = TRUE")
+		case "false", "0":
+			qBase = qBase.Where("csb.class_subject_book_is_primary = FALSE")
+		default:
+			return helper.JsonError(c, fiber.StatusBadRequest, "is_primary tidak valid")
+		}
+	}
+
+	// is_required
+	if q.IsRequired != nil {
+		if *q.IsRequired {
+			qBase = qBase.Where("csb.class_subject_book_is_required = TRUE")
+		} else {
+			qBase = qBase.Where("csb.class_subject_book_is_required = FALSE")
+		}
+	} else if v := strings.ToLower(strings.TrimSpace(c.Query("is_required"))); v != "" {
+		switch v {
+		case "true", "1":
+			qBase = qBase.Where("csb.class_subject_book_is_required = TRUE")
+		case "false", "0":
+			qBase = qBase.Where("csb.class_subject_book_is_required = FALSE")
+		default:
+			return helper.JsonError(c, fiber.StatusBadRequest, "is_required tidak valid")
+		}
+	}
+
 	// q: cari di slug relasi & snapshots
 	if q.Q != nil && strings.TrimSpace(*q.Q) != "" {
 		needle := "%" + strings.TrimSpace(*q.Q) + "%"
@@ -217,6 +255,9 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		"csb.class_subject_book_class_subject_id",
 		"csb.class_subject_book_book_id",
 		"csb.class_subject_book_slug",
+		"csb.class_subject_book_is_primary",
+		"csb.class_subject_book_is_required",
+		"csb.class_subject_book_order",
 		"csb.class_subject_book_is_active",
 		"csb.class_subject_book_desc",
 		"csb.class_subject_book_created_at",
@@ -232,7 +273,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		"csb.class_subject_book_book_image_url_snapshot",
 
 		// snapshots SUBJECT (inline di csb)
-		"csb.class_subject_book_subject_id_snapshot",
+		"csb.class_subject_book_subject_id",
 		"csb.class_subject_book_subject_code_snapshot",
 		"csb.class_subject_book_subject_name_snapshot",
 		"csb.class_subject_book_subject_slug_snapshot",
@@ -244,6 +285,9 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		ClassSubjectBookClassSubjectID uuid.UUID  `gorm:"column:class_subject_book_class_subject_id"`
 		ClassSubjectBookBookID         uuid.UUID  `gorm:"column:class_subject_book_book_id"`
 		ClassSubjectBookSlug           *string    `gorm:"column:class_subject_book_slug"`
+		ClassSubjectBookIsPrimary      bool       `gorm:"column:class_subject_book_is_primary"`
+		ClassSubjectBookIsRequired     bool       `gorm:"column:class_subject_book_is_required"`
+		ClassSubjectBookOrder          *int       `gorm:"column:class_subject_book_order"`
 		ClassSubjectBookIsActive       bool       `gorm:"column:class_subject_book_is_active"`
 		ClassSubjectBookDesc           *string    `gorm:"column:class_subject_book_desc"`
 		ClassSubjectBookCreatedAt      time.Time  `gorm:"column:class_subject_book_created_at"`
@@ -259,7 +303,7 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 		ClassSubjectBookBookImageURLSnapshot        *string `gorm:"column:class_subject_book_book_image_url_snapshot"`
 
 		// SUBJECT snapshots
-		ClassSubjectBookSubjectIDSnapshot   *uuid.UUID `gorm:"column:class_subject_book_subject_id_snapshot"`
+		ClassSubjectBookSubjectID           *uuid.UUID `gorm:"column:class_subject_book_subject_id"`
 		ClassSubjectBookSubjectCodeSnapshot *string    `gorm:"column:class_subject_book_subject_code_snapshot"`
 		ClassSubjectBookSubjectNameSnapshot *string    `gorm:"column:class_subject_book_subject_name_snapshot"`
 		ClassSubjectBookSubjectSlugSnapshot *string    `gorm:"column:class_subject_book_subject_slug_snapshot"`
@@ -283,14 +327,14 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 			ClassSubjectBookSchoolID:       r.ClassSubjectBookSchoolID,
 			ClassSubjectBookClassSubjectID: r.ClassSubjectBookClassSubjectID,
 			ClassSubjectBookBookID:         r.ClassSubjectBookBookID,
-			ClassSubjectBookSlug:           r.ClassSubjectBookSlug,
-			ClassSubjectBookIsActive:       r.ClassSubjectBookIsActive,
-			ClassSubjectBookDesc:           r.ClassSubjectBookDesc,
-			ClassSubjectBookCreatedAt:      r.ClassSubjectBookCreatedAt,
-			ClassSubjectBookUpdatedAt:      r.ClassSubjectBookUpdatedAt,
-			ClassSubjectBookDeletedAt:      r.ClassSubjectBookDeletedAt,
 
-			// BOOK snapshots
+			ClassSubjectBookSlug:       r.ClassSubjectBookSlug,
+			ClassSubjectBookIsPrimary:  r.ClassSubjectBookIsPrimary,
+			ClassSubjectBookIsRequired: r.ClassSubjectBookIsRequired,
+			ClassSubjectBookOrder:      r.ClassSubjectBookOrder,
+			ClassSubjectBookIsActive:   r.ClassSubjectBookIsActive,
+			ClassSubjectBookDesc:       r.ClassSubjectBookDesc,
+
 			ClassSubjectBookBookTitleSnapshot:           r.ClassSubjectBookBookTitleSnapshot,
 			ClassSubjectBookBookAuthorSnapshot:          r.ClassSubjectBookBookAuthorSnapshot,
 			ClassSubjectBookBookSlugSnapshot:            r.ClassSubjectBookBookSlugSnapshot,
@@ -298,11 +342,14 @@ func (h *ClassSubjectBookController) List(c *fiber.Ctx) error {
 			ClassSubjectBookBookPublicationYearSnapshot: r.ClassSubjectBookBookPublicationYearSnapshot,
 			ClassSubjectBookBookImageURLSnapshot:        r.ClassSubjectBookBookImageURLSnapshot,
 
-			// SUBJECT snapshots
-			ClassSubjectBookSubjectIDSnapshot:   r.ClassSubjectBookSubjectIDSnapshot,
+			ClassSubjectBookSubjectID:           r.ClassSubjectBookSubjectID,
 			ClassSubjectBookSubjectCodeSnapshot: r.ClassSubjectBookSubjectCodeSnapshot,
 			ClassSubjectBookSubjectNameSnapshot: r.ClassSubjectBookSubjectNameSnapshot,
 			ClassSubjectBookSubjectSlugSnapshot: r.ClassSubjectBookSubjectSlugSnapshot,
+
+			ClassSubjectBookCreatedAt: r.ClassSubjectBookCreatedAt,
+			ClassSubjectBookUpdatedAt: r.ClassSubjectBookUpdatedAt,
+			ClassSubjectBookDeletedAt: r.ClassSubjectBookDeletedAt,
 		})
 	}
 

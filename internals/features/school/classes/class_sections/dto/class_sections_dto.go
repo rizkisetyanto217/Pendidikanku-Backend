@@ -824,14 +824,15 @@ type ClassSectionJoinResponse struct {
 
 // Create
 type CreateClassSectionSubjectTeacherRequest struct {
-	ClassSectionSubjectTeacherSchoolID           *uuid.UUID `json:"class_section_subject_teacher_school_id"  validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherClassSectionID     uuid.UUID  `json:"class_section_subject_teacher_class_section_id" validate:"required,uuid"`
-	ClassSectionSubjectTeacherClassSubjectBookID uuid.UUID  `json:"class_section_subject_teacher_class_subject_book_id" validate:"required,uuid"`
+	ClassSectionSubjectTeacherSchoolID       *uuid.UUID `json:"class_section_subject_teacher_school_id"  validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherClassSectionID uuid.UUID  `json:"class_section_subject_teacher_class_section_id" validate:"required,uuid"`
+	// NEW: relasi ke CLASS_SUBJECT (bukan lagi class_subject_book)
+	ClassSectionSubjectTeacherClassSubjectID uuid.UUID `json:"class_section_subject_teacher_class_subject_id" validate:"required,uuid"`
 
 	// pakai school_teachers.school_teacher_id
 	ClassSectionSubjectTeacherSchoolTeacherID uuid.UUID `json:"class_section_subject_teacher_school_teacher_id" validate:"required,uuid"`
 
-	// opsional: snapshot asisten (bukan FK kolom live)
+	// opsional: asisten
 	ClassSectionSubjectTeacherAssistantSchoolTeacherID *uuid.UUID `json:"class_section_subject_teacher_assistant_school_teacher_id" validate:"omitempty,uuid"`
 
 	// SLUG (opsional)
@@ -852,10 +853,11 @@ type CreateClassSectionSubjectTeacherRequest struct {
 
 // Update (partial)
 type UpdateClassSectionSubjectTeacherRequest struct {
-	ClassSectionSubjectTeacherSchoolID           *uuid.UUID `json:"class_section_subject_teacher_school_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherClassSectionID     *uuid.UUID `json:"class_section_subject_teacher_class_section_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherClassSubjectBookID *uuid.UUID `json:"class_section_subject_teacher_class_subject_book_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherSchoolTeacherID    *uuid.UUID `json:"class_section_subject_teacher_school_teacher_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherSchoolID       *uuid.UUID `json:"class_section_subject_teacher_school_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherClassSectionID *uuid.UUID `json:"class_section_subject_teacher_class_section_id" validate:"omitempty,uuid"`
+	// NEW
+	ClassSectionSubjectTeacherClassSubjectID  *uuid.UUID `json:"class_section_subject_teacher_class_subject_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherSchoolTeacherID *uuid.UUID `json:"class_section_subject_teacher_school_teacher_id" validate:"omitempty,uuid"`
 
 	ClassSectionSubjectTeacherAssistantSchoolTeacherID *uuid.UUID `json:"class_section_subject_teacher_assistant_school_teacher_id" validate:"omitempty,uuid"`
 
@@ -870,20 +872,29 @@ type UpdateClassSectionSubjectTeacherRequest struct {
 /* ----------------- RESPONSE (CSST) ----------------- */
 
 type ClassSectionSubjectTeacherResponse struct {
-	ClassSectionSubjectTeacherID                       uuid.UUID  `json:"class_section_subject_teacher_id"`
-	ClassSectionSubjectTeacherSchoolID                 uuid.UUID  `json:"class_section_subject_teacher_school_id"`
-	ClassSectionSubjectTeacherClassSectionID           uuid.UUID  `json:"class_section_subject_teacher_class_section_id"`
-	ClassSectionSubjectTeacherClassSubjectID           uuid.UUID  `json:"class_section_subject_teacher_class_subject_id"` // alias untuk FE lama (isi dari ...BookID)
-	ClassSectionSubjectTeacherClassSubjectBookID       uuid.UUID  `json:"class_section_subject_teacher_class_subject_book_id"`
-	ClassSectionSubjectTeacherTeacherID                uuid.UUID  `json:"class_section_subject_teacher_teacher_id"` // alias FE lama (isi dari SchoolTeacherID)
+	ClassSectionSubjectTeacherID             uuid.UUID `json:"class_section_subject_teacher_id"`
+	ClassSectionSubjectTeacherSchoolID       uuid.UUID `json:"class_section_subject_teacher_school_id"`
+	ClassSectionSubjectTeacherClassSectionID uuid.UUID `json:"class_section_subject_teacher_class_section_id"`
+
+	// NEW: id CLASS_SUBJECT (kolom asli)
+	ClassSectionSubjectTeacherClassSubjectID uuid.UUID `json:"class_section_subject_teacher_class_subject_id"`
+
+	// Legacy alias untuk FE lama yang masih baca *_class_subject_book_id
+	// Isinya sama dengan ClassSectionSubjectTeacherClassSubjectID
+	ClassSectionSubjectTeacherClassSubjectBookID uuid.UUID `json:"class_section_subject_teacher_class_subject_book_id"`
+
+	// alias FE lama (teacher_id)
+	ClassSectionSubjectTeacherTeacherID                uuid.UUID  `json:"class_section_subject_teacher_teacher_id"`
 	ClassSectionSubjectTeacherSchoolTeacherID          uuid.UUID  `json:"class_section_subject_teacher_school_teacher_id"`
 	ClassSectionSubjectTeacherAssistantSchoolTeacherID *uuid.UUID `json:"class_section_subject_teacher_assistant_school_teacher_id,omitempty"`
-	ClassSectionSubjectTeacherRoomID                   *uuid.UUID `json:"class_section_subject_teacher_room_id,omitempty"` // alias FE lama (isi dari ClassRoomID)
-	ClassSectionSubjectTeacherClassRoomID              *uuid.UUID `json:"class_section_subject_teacher_class_room_id,omitempty"`
+
+	// alias FE lama (room_id)
+	ClassSectionSubjectTeacherRoomID      *uuid.UUID `json:"class_section_subject_teacher_room_id,omitempty"`
+	ClassSectionSubjectTeacherClassRoomID *uuid.UUID `json:"class_section_subject_teacher_class_room_id,omitempty"`
 
 	// read-only (generated by DB)
-	ClassSectionSubjectTeacherTeacherNameSnap                    *string `json:"class_section_subject_teacher_teacher_name_snap,omitempty"`           // alias FE lama (isi dari SchoolTeacherNameSnapshot)
-	ClassSectionSubjectTeacherAssistantTeacherNameSnap           *string `json:"class_section_subject_teacher_assistant_teacher_name_snap,omitempty"` // alias FE lama (isi dari AssistantSchoolTeacherNameSnapshot)
+	ClassSectionSubjectTeacherTeacherNameSnap                    *string `json:"class_section_subject_teacher_teacher_name_snap,omitempty"`           // alias FE lama
+	ClassSectionSubjectTeacherAssistantTeacherNameSnap           *string `json:"class_section_subject_teacher_assistant_teacher_name_snap,omitempty"` // alias FE lama
 	ClassSectionSubjectTeacherSchoolTeacherNameSnapshot          *string `json:"class_section_subject_teacher_school_teacher_name_snapshot,omitempty"`
 	ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot *string `json:"class_section_subject_teacher_assistant_school_teacher_name_snapshot,omitempty"`
 
@@ -901,9 +912,10 @@ type ClassSectionSubjectTeacherResponse struct {
 
 func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectionSubjectTeacherModel {
 	row := csstModel.ClassSectionSubjectTeacherModel{
-		ClassSectionSubjectTeacherClassSectionID:     r.ClassSectionSubjectTeacherClassSectionID,
-		ClassSectionSubjectTeacherClassSubjectBookID: r.ClassSectionSubjectTeacherClassSubjectBookID,
-		ClassSectionSubjectTeacherSchoolTeacherID:    r.ClassSectionSubjectTeacherSchoolTeacherID,
+		ClassSectionSubjectTeacherClassSectionID: r.ClassSectionSubjectTeacherClassSectionID,
+		// NEW: mapping ke field model terbaru
+		ClassSectionSubjectTeacherClassSubjectID:  r.ClassSectionSubjectTeacherClassSubjectID,
+		ClassSectionSubjectTeacherSchoolTeacherID: r.ClassSectionSubjectTeacherSchoolTeacherID,
 
 		ClassSectionSubjectTeacherSlug:        trimLowerPtr(r.ClassSectionSubjectTeacherSlug),
 		ClassSectionSubjectTeacherDescription: trimPtr(r.ClassSectionSubjectTeacherDescription),
@@ -932,8 +944,8 @@ func (r UpdateClassSectionSubjectTeacherRequest) Apply(row *csstModel.ClassSecti
 	if r.ClassSectionSubjectTeacherClassSectionID != nil {
 		row.ClassSectionSubjectTeacherClassSectionID = *r.ClassSectionSubjectTeacherClassSectionID
 	}
-	if r.ClassSectionSubjectTeacherClassSubjectBookID != nil {
-		row.ClassSectionSubjectTeacherClassSubjectBookID = *r.ClassSectionSubjectTeacherClassSubjectBookID
+	if r.ClassSectionSubjectTeacherClassSubjectID != nil {
+		row.ClassSectionSubjectTeacherClassSubjectID = *r.ClassSectionSubjectTeacherClassSubjectID
 	}
 	if r.ClassSectionSubjectTeacherSchoolTeacherID != nil {
 		row.ClassSectionSubjectTeacherSchoolTeacherID = *r.ClassSectionSubjectTeacherSchoolTeacherID
@@ -965,10 +977,15 @@ func FromClassSectionSubjectTeacherModel(row csstModel.ClassSectionSubjectTeache
 		deletedAt = &t
 	}
 	resp := ClassSectionSubjectTeacherResponse{
-		ClassSectionSubjectTeacherID:                       row.ClassSectionSubjectTeacherID,
-		ClassSectionSubjectTeacherSchoolID:                 row.ClassSectionSubjectTeacherSchoolID,
-		ClassSectionSubjectTeacherClassSectionID:           row.ClassSectionSubjectTeacherClassSectionID,
-		ClassSectionSubjectTeacherClassSubjectBookID:       row.ClassSectionSubjectTeacherClassSubjectBookID,
+		ClassSectionSubjectTeacherID:             row.ClassSectionSubjectTeacherID,
+		ClassSectionSubjectTeacherSchoolID:       row.ClassSectionSubjectTeacherSchoolID,
+		ClassSectionSubjectTeacherClassSectionID: row.ClassSectionSubjectTeacherClassSectionID,
+
+		// id CLASS_SUBJECT (baru)
+		ClassSectionSubjectTeacherClassSubjectID: row.ClassSectionSubjectTeacherClassSubjectID,
+		// alias lama *_class_subject_book_id → isi sama
+		ClassSectionSubjectTeacherClassSubjectBookID: row.ClassSectionSubjectTeacherClassSubjectID,
+
 		ClassSectionSubjectTeacherSchoolTeacherID:          row.ClassSectionSubjectTeacherSchoolTeacherID,
 		ClassSectionSubjectTeacherAssistantSchoolTeacherID: row.ClassSectionSubjectTeacherAssistantSchoolTeacherID,
 
@@ -984,8 +1001,7 @@ func FromClassSectionSubjectTeacherModel(row csstModel.ClassSectionSubjectTeache
 		ClassSectionSubjectTeacherDeletedAt: deletedAt,
 	}
 
-	// Aliases untuk kompat FE lama (field dengan nama lama diisi dari yang baru)
-	resp.ClassSectionSubjectTeacherClassSubjectID = row.ClassSectionSubjectTeacherClassSubjectBookID
+	// Aliases untuk kompat FE lama
 	resp.ClassSectionSubjectTeacherTeacherID = row.ClassSectionSubjectTeacherSchoolTeacherID
 	resp.ClassSectionSubjectTeacherRoomID = row.ClassSectionSubjectTeacherClassRoomID
 
@@ -1042,7 +1058,6 @@ func CSSTLiteFromModel(row csstModel.ClassSectionSubjectTeacherModel) CSSTItemLi
 		Teacher: struct {
 			ID string `json:"id"`
 		}{
-			// gunakan SchoolTeacherID (baru)
 			ID: row.ClassSectionSubjectTeacherSchoolTeacherID.String(),
 		},
 		ClassSubject: struct {
@@ -1052,7 +1067,8 @@ func CSSTLiteFromModel(row csstModel.ClassSectionSubjectTeacherModel) CSSTItemLi
 				Name *string `json:"name,omitempty"`
 			} `json:"subject"`
 		}{
-			ID: row.ClassSectionSubjectTeacherClassSubjectBookID.String(),
+			// pakai CLASS_SUBJECT ID (baru)
+			ID: row.ClassSectionSubjectTeacherClassSubjectID.String(),
 		},
 		GroupURL: nil,
 		Stats: &struct {

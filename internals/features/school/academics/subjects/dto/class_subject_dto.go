@@ -1,4 +1,3 @@
-// file: internals/features/lembaga/class_subjects/dto/class_subject_dto.go
 package dto
 
 import (
@@ -13,7 +12,7 @@ import (
 
 /* =========================================================
    0) helpers
-   ========================================================= */
+========================================================= */
 
 func trimPtr(s *string) *string {
 	if s == nil {
@@ -51,7 +50,7 @@ func int16ToIntPtr(p *int16) *int {
 
 /* =========================================================
    1) REQUEST DTO
-   ========================================================= */
+========================================================= */
 
 type CreateClassSubjectRequest struct {
 	SchoolID      uuid.UUID `json:"class_subject_school_id"        validate:"required"`
@@ -122,7 +121,7 @@ type ListClassSubjectQuery struct {
 
 /* =========================================================
    2) RESPONSE DTO (basic + snapshots)
-   ========================================================= */
+========================================================= */
 
 type ClassSubjectResponse struct {
 	ID       uuid.UUID `json:"class_subject_id"`
@@ -155,7 +154,7 @@ type ClassSubjectResponse struct {
 	SubjectSlugSnapshot *string `json:"class_subject_subject_slug_snapshot,omitempty"`
 	SubjectURLSnapshot  *string `json:"class_subject_subject_url_snapshot,omitempty"`
 
-	// ============ Snapshots: class_parent (prefix class_parent) ============
+	// ============ Snapshots: class_parent ============
 	ClassParentCodeSnapshot  *string `json:"class_subject_class_parent_code_snapshot,omitempty"`
 	ClassParentSlugSnapshot  *string `json:"class_subject_class_parent_slug_snapshot,omitempty"`
 	ClassParentLevelSnapshot *int16  `json:"class_subject_class_parent_level_snapshot,omitempty"`
@@ -182,7 +181,7 @@ type ClassSubjectListResponse struct {
 
 /* =========================================================
    3) MAPPERS (basic)
-   ========================================================= */
+========================================================= */
 
 func (r CreateClassSubjectRequest) ToModel() csModel.ClassSubjectModel {
 	isActive := true
@@ -336,7 +335,7 @@ func (r UpdateClassSubjectRequest) Apply(m *csModel.ClassSubjectModel) {
 
 /* =========================================================
    4) NESTED: class_subject_books + book (simple books)
-   ========================================================= */
+========================================================= */
 
 type BookLite struct {
 	BookID     uuid.UUID `json:"book_id"`

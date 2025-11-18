@@ -95,8 +95,11 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 			return err // sudah mengembalikan fiber.Error yang pas
 		}
 
-		// 🏗️ Build model
+		// 🏗️ Build model dari DTO (sudah mengisi is_primary, is_required, order, is_active, desc)
 		m := req.ToModel()
+
+		// sanity: paksa tenant
+		m.ClassSubjectBookSchoolID = schoolID
 
 		// 🧩 SLUG: normalize + ensure-unique per tenant (alive-only)
 		baseSlug := ""
@@ -143,8 +146,8 @@ func (h *ClassSubjectBookController) Create(c *fiber.Ctx) error {
 		m.ClassSubjectBookBookPublicationYearSnapshot = snapB.PublicationYear
 		m.ClassSubjectBookBookImageURLSnapshot = snapB.ImageURL
 
-		// 🧊 Isi snapshot SUBJECT
-		m.ClassSubjectBookSubjectIDSnapshot = &snapS.SubjectID
+		// 🧊 Isi snapshot SUBJECT (pakai field baru)
+		m.ClassSubjectBookSubjectID = &snapS.SubjectID
 		if snapS.Code != nil {
 			m.ClassSubjectBookSubjectCodeSnapshot = snapS.Code
 		}
@@ -324,7 +327,7 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusBadRequest, "Data sudah dihapus")
 		}
 
-		// Terapkan perubahan field dasar
+		// Terapkan perubahan field dasar (termasuk is_primary, is_required, order)
 		if err := req.Apply(&m); err != nil {
 			return fiber.NewError(fiber.StatusBadRequest, err.Error())
 		}
@@ -338,7 +341,7 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 			if err != nil {
 				return err
 			}
-			m.ClassSubjectBookSubjectIDSnapshot = &snapS.SubjectID
+			m.ClassSubjectBookSubjectID = &snapS.SubjectID
 			m.ClassSubjectBookSubjectCodeSnapshot = snapS.Code
 			m.ClassSubjectBookSubjectNameSnapshot = snapS.Name
 			m.ClassSubjectBookSubjectSlugSnapshot = snapS.Slug
@@ -353,7 +356,11 @@ func (h *ClassSubjectBookController) Update(c *fiber.Ctx) error {
 			if err != nil {
 				return fiber.NewError(fiber.StatusBadRequest, "Buku tidak ditemukan")
 			}
-			m.ClassSubjectBookBookTitleSnapshot = &snapB.Title
+			if snapB.Title != "" {
+				m.ClassSubjectBookBookTitleSnapshot = &snapB.Title
+			} else {
+				m.ClassSubjectBookBookTitleSnapshot = nil
+			}
 			m.ClassSubjectBookBookAuthorSnapshot = snapB.Author
 			m.ClassSubjectBookBookSlugSnapshot = snapB.Slug
 			m.ClassSubjectBookBookPublisherSnapshot = snapB.Publisher
@@ -499,7 +506,7 @@ func (h *ClassSubjectBookController) Delete(c *fiber.Ctx) error {
 	}
 
 	var deleted csbModel.ClassSubjectBookModel
-	if err := h.DB.Transaction(func(tx *gorm.DB) error {
+	if err := h.DB.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
 		var m csbModel.ClassSubjectBookModel
 		if err := tx.First(&m, "class_subject_book_id = ?", id).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {

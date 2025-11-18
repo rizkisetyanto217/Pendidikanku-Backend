@@ -1,15 +1,13 @@
+
+
 -- +migrate Up
 /* =======================================================================
    MIGRATION: CSST (class_section_subject_teachers)
-              + SCSST (student_class_section_subject_teachers)
+   Versi: relasi ke class_subjects (bukan lagi ke class_subject_books)
    ======================================================================= */
 
 BEGIN;
--- +migrate Up
-/* =======================================================================
-   MIGRATION: CSST (class_section_subject_teachers)
-              FINAL VERSION — with KKM, meetings target, graded counts
-   ======================================================================= */
+
 -- =========================================================
 -- EXTENSIONS (safe to repeat)
 -- =========================================================
@@ -40,13 +38,6 @@ BEGIN
       UNIQUE (class_section_id, class_section_school_id);
   END IF;
 
-  PERFORM 1 FROM pg_constraint WHERE conname = 'uq_class_subject_books_id_tenant';
-  IF NOT FOUND THEN
-    ALTER TABLE class_subject_books
-      ADD CONSTRAINT uq_class_subject_books_id_tenant
-      UNIQUE (class_subject_book_id, class_subject_book_school_id);
-  END IF;
-
   PERFORM 1 FROM pg_constraint WHERE conname = 'uq_school_teachers_id_tenant';
   IF NOT FOUND THEN
     ALTER TABLE school_teachers
@@ -66,25 +57,31 @@ END$$;
 -- TABLE: class_section_subject_teachers (CSST)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
-  class_section_subject_teacher_id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_section_subject_teacher_school_id        UUID NOT NULL
+  class_section_subject_teacher_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  class_section_subject_teacher_school_id UUID NOT NULL
     REFERENCES schools(school_id) ON DELETE CASCADE,
 
   -- Identitas & fasilitas
-  class_section_subject_teacher_slug             VARCHAR(160),
-  class_section_subject_teacher_description      TEXT,
-  class_section_subject_teacher_group_url        TEXT,
+  class_section_subject_teacher_slug        VARCHAR(160),
+  class_section_subject_teacher_description TEXT,
+  class_section_subject_teacher_group_url   TEXT,
 
   -- Agregat & kapasitas
-  class_section_subject_teacher_total_attendance INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_total_meetings_target INT,
-  class_section_subject_teacher_capacity         INT,
-  class_section_subject_teacher_enrolled_count   INT NOT NULL DEFAULT 0,
+  class_section_subject_teacher_total_attendance        INT NOT NULL DEFAULT 0,
+  class_section_subject_teacher_total_meetings_target   INT,
+  class_section_subject_teacher_capacity                INT,
+  class_section_subject_teacher_enrolled_count          INT NOT NULL DEFAULT 0,
 
   -- Assessment counts
-  class_section_subject_teacher_total_assessments           INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_total_assessments_graded    INT NOT NULL DEFAULT 0,
-  class_section_subject_teacher_total_assessments_ungraded  INT NOT NULL DEFAULT 0,
+  class_section_subject_teacher_total_assessments          INT NOT NULL DEFAULT 0,
+  class_section_subject_teacher_total_assessments_graded   INT NOT NULL DEFAULT 0,
+  class_section_subject_teacher_total_assessments_ungraded INT NOT NULL DEFAULT 0,
+
+  -- NEW: total murid yang lulus passing score di CSST ini
+  class_section_subject_teacher_total_students_passed      INT NOT NULL DEFAULT 0,
+
+  -- NEW: total buku
+  class_section_subject_teacher_total_books INT NOT NULL DEFAULT 0,
 
   -- Delivery mode
   class_section_subject_teacher_delivery_mode class_delivery_mode_enum NOT NULL DEFAULT 'offline',
@@ -101,9 +98,9 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   -- =======================
   -- ROOM snapshot (JSONB)
   -- =======================
-  class_section_subject_teacher_class_room_id                UUID,
-  class_section_subject_teacher_class_room_slug_snapshot     VARCHAR(160),
-  class_section_subject_teacher_class_room_snapshot          JSONB,
+  class_section_subject_teacher_class_room_id            UUID,
+  class_section_subject_teacher_class_room_slug_snapshot VARCHAR(160),
+  class_section_subject_teacher_class_room_snapshot      JSONB,
 
   class_section_subject_teacher_class_room_name_snapshot     TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_class_room_snapshot->>'name')) STORED,
   class_section_subject_teacher_class_room_slug_snapshot_gen TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_class_room_snapshot->>'slug')) STORED,
@@ -124,46 +121,40 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   class_section_subject_teacher_assistant_school_teacher_name_snapshot TEXT GENERATED ALWAYS AS ((class_section_subject_teacher_assistant_school_teacher_snapshot->>'name')) STORED,
 
   -- =======================
-  -- CLASS_SUBJECT_BOOK snapshot
+  -- SUBJECT (via CLASS_SUBJECT) snapshot
   -- =======================
-  class_section_subject_teacher_class_subject_book_id            UUID NOT NULL,
-  class_section_subject_teacher_class_subject_book_slug_snapshot VARCHAR(160),
-  class_section_subject_teacher_class_subject_book_snapshot      JSONB,
-
-  -- BOOK derived
-  class_section_subject_teacher_book_title_snapshot        TEXT
-    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_book_snapshot->'book'->>'title')) STORED,
-  class_section_subject_teacher_book_author_snapshot       TEXT
-    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_book_snapshot->'book'->>'author')) STORED,
-  class_section_subject_teacher_book_slug_snapshot         TEXT
-    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_book_snapshot->'book'->>'slug')) STORED,
-  class_section_subject_teacher_book_image_url_snapshot    TEXT
-    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_book_snapshot->'book'->>'image_url')) STORED,
-
-  -- SUBJECT derived
-  class_section_subject_teacher_subject_id_snapshot        UUID,
-  class_section_subject_teacher_subject_name_snapshot      TEXT
-    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_book_snapshot->'subject'->>'name')) STORED,
-  class_section_subject_teacher_subject_code_snapshot      TEXT
-    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_book_snapshot->'subject'->>'code')) STORED,
-  class_section_subject_teacher_subject_slug_snapshot      TEXT
-    GENERATED ALWAYS AS ((class_section_subject_teacher_class_subject_book_snapshot->'subject'->>'slug')) STORED,
+  class_section_subject_teacher_class_subject_id      UUID NOT NULL,
+  class_section_subject_teacher_subject_id_snapshot   UUID,
+  class_section_subject_teacher_subject_name_snapshot VARCHAR(160),
+  class_section_subject_teacher_subject_code_snapshot VARCHAR(80),
+  class_section_subject_teacher_subject_slug_snapshot VARCHAR(160),
 
   -- =======================
-  -- NEW: KKM SNAPSHOT
+  -- KKM SNAPSHOT (opsional override per CSST)
   -- =======================
   class_section_subject_teacher_min_passing_score INT,
 
   -- Status & audit
-  class_section_subject_teacher_is_active   BOOLEAN     NOT NULL DEFAULT TRUE,
-  class_section_subject_teacher_created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_section_subject_teacher_updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_section_subject_teacher_deleted_at  TIMESTAMPTZ,
+  class_section_subject_teacher_is_active  BOOLEAN     NOT NULL DEFAULT TRUE,
+  class_section_subject_teacher_created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_section_subject_teacher_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  class_section_subject_teacher_deleted_at TIMESTAMPTZ,
 
   -- Checks
-  CONSTRAINT ck_csst_capacity_nonneg CHECK (class_section_subject_teacher_capacity IS NULL OR class_section_subject_teacher_capacity >= 0),
-  CONSTRAINT ck_csst_enrolled_nonneg CHECK (class_section_subject_teacher_enrolled_count >= 0),
-  CONSTRAINT ck_csst_min_passing_score_nonneg CHECK (class_section_subject_teacher_min_passing_score IS NULL OR class_section_subject_teacher_min_passing_score >= 0),
+  CONSTRAINT ck_csst_capacity_nonneg CHECK (
+    class_section_subject_teacher_capacity IS NULL
+    OR class_section_subject_teacher_capacity >= 0
+  ),
+  CONSTRAINT ck_csst_enrolled_nonneg CHECK (
+    class_section_subject_teacher_enrolled_count >= 0
+  ),
+  CONSTRAINT ck_csst_min_passing_score_nonneg CHECK (
+    class_section_subject_teacher_min_passing_score IS NULL
+    OR class_section_subject_teacher_min_passing_score >= 0
+  ),
+  CONSTRAINT ck_csst_total_students_passed_nonneg CHECK (
+    class_section_subject_teacher_total_students_passed >= 0
+  ),
 
   -- FKs (tenant-safe)
   CONSTRAINT fk_csst_section_tenant FOREIGN KEY (
@@ -172,10 +163,10 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
   ) REFERENCES class_sections (class_section_id, class_section_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
-  CONSTRAINT fk_csst_class_subject_book_tenant FOREIGN KEY (
-    class_section_subject_teacher_class_subject_book_id,
+  CONSTRAINT fk_csst_class_subject_tenant FOREIGN KEY (
+    class_section_subject_teacher_class_subject_id,
     class_section_subject_teacher_school_id
-  ) REFERENCES class_subject_books (class_subject_book_id, class_subject_book_school_id)
+  ) REFERENCES class_subjects (class_subject_id, class_subject_school_id)
     ON UPDATE CASCADE ON DELETE CASCADE,
 
   CONSTRAINT fk_csst_teacher_tenant FOREIGN KEY (
@@ -200,18 +191,25 @@ CREATE TABLE IF NOT EXISTS class_section_subject_teachers (
 -- =========================================================
 -- INDEXES
 -- =========================================================
-CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_tenant
-  ON class_section_subject_teachers (class_section_subject_teacher_id, class_section_subject_teacher_school_id);
 
+-- Pair unik id+tenant
+CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_id_tenant
+  ON class_section_subject_teachers (
+    class_section_subject_teacher_id,
+    class_section_subject_teacher_school_id
+  );
+
+-- Unik kombinasi per (school, section, subject, teacher) — alive only
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_unique_alive
   ON class_section_subject_teachers (
     class_section_subject_teacher_school_id,
     class_section_subject_teacher_class_section_id,
-    class_section_subject_teacher_class_subject_book_id,
+    class_section_subject_teacher_class_subject_id,
     class_section_subject_teacher_school_teacher_id
   )
   WHERE class_section_subject_teacher_deleted_at IS NULL;
 
+-- Unik slug per tenant (alive only, CI)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_slug_per_tenant_alive
   ON class_section_subject_teachers (
     class_section_subject_teacher_school_id,
@@ -220,6 +218,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_csst_slug_per_tenant_alive
   WHERE class_section_subject_teacher_deleted_at IS NULL
     AND class_section_subject_teacher_slug IS NOT NULL;
 
+-- Filter umum (alive only)
 CREATE INDEX IF NOT EXISTS idx_csst_school_alive
   ON class_section_subject_teachers (class_section_subject_teacher_school_id)
   WHERE class_section_subject_teacher_deleted_at IS NULL;
@@ -232,7 +231,26 @@ CREATE INDEX IF NOT EXISTS idx_csst_total_meetings_target
   ON class_section_subject_teachers (class_section_subject_teacher_total_meetings_target)
   WHERE class_section_subject_teacher_deleted_at IS NULL;
 
+-- NEW: index total_students_passed (opsional, buat reporting cepat)
+CREATE INDEX IF NOT EXISTS idx_csst_total_students_passed_alive
+  ON class_section_subject_teachers (class_section_subject_teacher_total_students_passed)
+  WHERE class_section_subject_teacher_deleted_at IS NULL;
+
+-- (opsional) index by section / subject / teacher untuk listing cepat
+CREATE INDEX IF NOT EXISTS idx_csst_by_section_alive
+  ON class_section_subject_teachers (class_section_subject_teacher_class_section_id)
+  WHERE class_section_subject_teacher_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_csst_by_subject_alive
+  ON class_section_subject_teachers (class_section_subject_teacher_class_subject_id)
+  WHERE class_section_subject_teacher_deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_csst_by_teacher_alive
+  ON class_section_subject_teachers (class_section_subject_teacher_school_teacher_id)
+  WHERE class_section_subject_teacher_deleted_at IS NULL;
+
 COMMIT;
+
 
 
 -- =========================================================

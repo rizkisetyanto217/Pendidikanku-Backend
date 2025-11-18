@@ -70,8 +70,9 @@ CREATE INDEX IF NOT EXISTS gin_books_author_trgm_alive
   WHERE book_deleted_at IS NULL;
 
 
+
 /* =========================================================
-   TABLE: class_subject_books  (relasi Subject ↔️ Book per tenant)
+   TABLE: class_subject_books  (relasi ClassSubject ↔ Book per tenant)
    ========================================================= */
 CREATE TABLE IF NOT EXISTS class_subject_books (
   class_subject_book_id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -80,18 +81,22 @@ CREATE TABLE IF NOT EXISTS class_subject_books (
   class_subject_book_school_id        UUID NOT NULL
     REFERENCES schools(school_id) ON DELETE CASCADE,
 
-  -- relasi
-  class_subject_book_class_subject_id UUID NOT NULL
-    REFERENCES class_subjects(class_subject_id) ON DELETE CASCADE,
+  -- relasi ke template mapel (class_subjects)
+  class_subject_book_class_subject_id UUID NOT NULL,
 
-  class_subject_book_book_id          UUID NOT NULL
-    REFERENCES books(book_id) ON DELETE RESTRICT,
+  -- relasi ke master buku
+  class_subject_book_book_id          UUID NOT NULL,
 
   -- human-friendly identifier (opsional)
   class_subject_book_slug             VARCHAR(160),
 
-  class_subject_book_is_active        BOOLEAN NOT NULL DEFAULT TRUE,
-  class_subject_book_desc             TEXT,
+  -- flags & ordering
+  class_subject_book_is_primary   BOOLEAN NOT NULL DEFAULT FALSE,  -- buku utama?
+  class_subject_book_is_required  BOOLEAN NOT NULL DEFAULT TRUE,   -- wajib atau opsional
+  class_subject_book_order        INT,                              -- urutan tampil
+
+  class_subject_book_is_active    BOOLEAN NOT NULL DEFAULT TRUE,
+  class_subject_book_desc         TEXT,
 
   /* ============================
      SNAPSHOTS dari books
@@ -104,16 +109,35 @@ CREATE TABLE IF NOT EXISTS class_subject_books (
   class_subject_book_book_publication_year_snapshot  SMALLINT,
   class_subject_book_book_image_url_snapshot         TEXT,
 
-  class_subject_book_subject_id_snapshot   UUID,
+  -- snapshot SUBJECT (dari class_subject/subject)
+  class_subject_book_subject_id   UUID,
   class_subject_book_subject_code_snapshot VARCHAR(40),
   class_subject_book_subject_name_snapshot VARCHAR(120),
   class_subject_book_subject_slug_snapshot VARCHAR(160),
 
-
   -- timestamps (explicit)
   class_subject_book_created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   class_subject_book_updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  class_subject_book_deleted_at       TIMESTAMPTZ
+  class_subject_book_deleted_at       TIMESTAMPTZ,
+
+  -- tenant-safe pair untuk FK komposit downstream
+  CONSTRAINT uq_class_subject_books_id_tenant UNIQUE (
+    class_subject_book_id,
+    class_subject_book_school_id
+  ),
+
+  -- ===== FK KOMPOSIT TENANT-SAFE =====
+  CONSTRAINT fk_csb_class_subject_same_school FOREIGN KEY (
+    class_subject_book_class_subject_id,
+    class_subject_book_school_id
+  ) REFERENCES class_subjects (class_subject_id, class_subject_school_id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+
+  CONSTRAINT fk_csb_book_same_school FOREIGN KEY (
+    class_subject_book_book_id,
+    class_subject_book_school_id
+  ) REFERENCES books (book_id, book_school_id)
+    ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
 -- Unik per (tenant, class_subject, book) — soft-delete aware
@@ -182,23 +206,17 @@ CREATE INDEX IF NOT EXISTS idx_csb_book_slug_snap_alive
   WHERE class_subject_book_deleted_at IS NULL
     AND class_subject_book_book_slug_snapshot IS NOT NULL;
 
-
-/* =========================================================
-   5) INDEX — bantu pencarian cepat di snapshot SUBJECT
-========================================================= */
--- Cari cepat berdasarkan nama subject (trgm, alive only)
+-- INDEX — bantu pencarian cepat di snapshot SUBJECT
 CREATE INDEX IF NOT EXISTS gin_csb_subject_name_snap_trgm_alive
   ON class_subject_books USING GIN (LOWER(class_subject_book_subject_name_snapshot) gin_trgm_ops)
   WHERE class_subject_book_deleted_at IS NULL
     AND class_subject_book_subject_name_snapshot IS NOT NULL;
 
--- Lookup cepat slug subject snapshot (case-insensitive, alive only)
 CREATE INDEX IF NOT EXISTS idx_csb_subject_slug_snap_alive
   ON class_subject_books (LOWER(class_subject_book_subject_slug_snapshot))
   WHERE class_subject_book_deleted_at IS NULL
     AND class_subject_book_subject_slug_snapshot IS NOT NULL;
 
--- (Opsional) kode subject snapshot (case-insensitive, alive only)
 CREATE INDEX IF NOT EXISTS idx_csb_subject_code_snap_alive
   ON class_subject_books (LOWER(class_subject_book_subject_code_snapshot))
   WHERE class_subject_book_deleted_at IS NULL

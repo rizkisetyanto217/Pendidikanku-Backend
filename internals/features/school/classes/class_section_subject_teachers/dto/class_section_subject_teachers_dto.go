@@ -37,7 +37,7 @@ func trimPtr(s *string) *string {
 }
 
 /* =========================================================
-   1) REQUEST DTO (FOLLOW SQL/MODEL)
+   1) REQUEST DTO (FOLLOW SQL/MODEL TERBARU)
 ========================================================= */
 
 // Create
@@ -45,8 +45,9 @@ type CreateClassSectionSubjectTeacherRequest struct {
 	// Biasanya diisi dari context auth pada controller
 	ClassSectionSubjectTeacherSchoolID *uuid.UUID `json:"class_section_subject_teacher_school_id"  validate:"omitempty,uuid"`
 
-	ClassSectionSubjectTeacherClassSectionID     uuid.UUID `json:"class_section_subject_teacher_class_section_id" validate:"required,uuid"`
-	ClassSectionSubjectTeacherClassSubjectBookID uuid.UUID `json:"class_section_subject_teacher_class_subject_book_id" validate:"required,uuid"`
+	// Relasi utama
+	ClassSectionSubjectTeacherClassSectionID uuid.UUID `json:"class_section_subject_teacher_class_section_id" validate:"required,uuid"`
+	ClassSectionSubjectTeacherClassSubjectID uuid.UUID `json:"class_section_subject_teacher_class_subject_id" validate:"required,uuid"`
 
 	// pakai school_teachers.school_teacher_id
 	ClassSectionSubjectTeacherSchoolTeacherID uuid.UUID `json:"class_section_subject_teacher_school_teacher_id" validate:"required,uuid"`
@@ -64,16 +65,20 @@ type CreateClassSectionSubjectTeacherRequest struct {
 	// enum: offline|online|hybrid
 	ClassSectionSubjectTeacherDeliveryMode *csstModel.ClassDeliveryMode `json:"class_section_subject_teacher_delivery_mode" validate:"omitempty,oneof=offline online hybrid"`
 
+	// Target pertemuan & KKM spesifik CSST (opsional)
+	ClassSectionSubjectTeacherTotalMeetingsTarget *int `json:"class_section_subject_teacher_total_meetings_target" validate:"omitempty"`
+	ClassSectionSubjectTeacherMinPassingScore     *int `json:"class_section_subject_teacher_min_passing_score" validate:"omitempty,gte=0"`
+
 	// Status
 	ClassSectionSubjectTeacherIsActive *bool `json:"class_section_subject_teacher_is_active" validate:"omitempty"`
 }
 
 // Update (partial)
 type UpdateClassSectionSubjectTeacherRequest struct {
-	ClassSectionSubjectTeacherSchoolID           *uuid.UUID `json:"class_section_subject_teacher_school_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherClassSectionID     *uuid.UUID `json:"class_section_subject_teacher_class_section_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherClassSubjectBookID *uuid.UUID `json:"class_section_subject_teacher_class_subject_book_id" validate:"omitempty,uuid"`
-	ClassSectionSubjectTeacherSchoolTeacherID    *uuid.UUID `json:"class_section_subject_teacher_school_teacher_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherSchoolID        *uuid.UUID `json:"class_section_subject_teacher_school_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherClassSectionID  *uuid.UUID `json:"class_section_subject_teacher_class_section_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherClassSubjectID  *uuid.UUID `json:"class_section_subject_teacher_class_subject_id" validate:"omitempty,uuid"`
+	ClassSectionSubjectTeacherSchoolTeacherID *uuid.UUID `json:"class_section_subject_teacher_school_teacher_id" validate:"omitempty,uuid"`
 
 	// ➕ Asisten (opsional)
 	ClassSectionSubjectTeacherAssistantSchoolTeacherID *uuid.UUID `json:"class_section_subject_teacher_assistant_school_teacher_id" validate:"omitempty,uuid"`
@@ -85,12 +90,15 @@ type UpdateClassSectionSubjectTeacherRequest struct {
 	ClassSectionSubjectTeacherCapacity     *int                         `json:"class_section_subject_teacher_capacity" validate:"omitempty"`
 	ClassSectionSubjectTeacherDeliveryMode *csstModel.ClassDeliveryMode `json:"class_section_subject_teacher_delivery_mode" validate:"omitempty,oneof=offline online hybrid"`
 
+	ClassSectionSubjectTeacherTotalMeetingsTarget *int `json:"class_section_subject_teacher_total_meetings_target" validate:"omitempty"`
+	ClassSectionSubjectTeacherMinPassingScore     *int `json:"class_section_subject_teacher_min_passing_score" validate:"omitempty,gte=0"`
+
 	ClassSectionSubjectTeacherIsActive *bool `json:"class_section_subject_teacher_is_active" validate:"omitempty"`
 }
 
 /*
-	=========================================================
-	  2) RESPONSE DTO — sinkron SQL/model terbaru
+=========================================================
+ 2. RESPONSE DTO — sinkron SQL/model terbaru
 
 =========================================================
 */
@@ -99,7 +107,7 @@ type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherID                       uuid.UUID  `json:"class_section_subject_teacher_id"`
 	ClassSectionSubjectTeacherSchoolID                 uuid.UUID  `json:"class_section_subject_teacher_school_id"`
 	ClassSectionSubjectTeacherClassSectionID           uuid.UUID  `json:"class_section_subject_teacher_class_section_id"`
-	ClassSectionSubjectTeacherClassSubjectBookID       uuid.UUID  `json:"class_section_subject_teacher_class_subject_book_id"`
+	ClassSectionSubjectTeacherClassSubjectID           uuid.UUID  `json:"class_section_subject_teacher_class_subject_id"`
 	ClassSectionSubjectTeacherSchoolTeacherID          uuid.UUID  `json:"class_section_subject_teacher_school_teacher_id"`
 	ClassSectionSubjectTeacherAssistantSchoolTeacherID *uuid.UUID `json:"class_section_subject_teacher_assistant_school_teacher_id,omitempty"`
 	ClassSectionSubjectTeacherClassRoomID              *uuid.UUID `json:"class_section_subject_teacher_class_room_id,omitempty"`
@@ -110,11 +118,18 @@ type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherGroupURL    *string `json:"class_section_subject_teacher_group_url,omitempty"`
 
 	/* ===== Agregat & kapasitas ===== */
-	ClassSectionSubjectTeacherTotalAttendance  int    `json:"class_section_subject_teacher_total_attendance"`
-	ClassSectionSubjectTeacherCapacity         *int   `json:"class_section_subject_teacher_capacity,omitempty"`
-	ClassSectionSubjectTeacherEnrolledCount    int    `json:"class_section_subject_teacher_enrolled_count"`
-	ClassSectionSubjectTeacherTotalAssessments int    `json:"class_section_subject_teacher_total_assessments"`
-	ClassSectionSubjectTeacherDeliveryMode     string `json:"class_section_subject_teacher_delivery_mode"`
+	ClassSectionSubjectTeacherTotalAttendance          int    `json:"class_section_subject_teacher_total_attendance"`
+	ClassSectionSubjectTeacherTotalMeetingsTarget      *int   `json:"class_section_subject_teacher_total_meetings_target,omitempty"`
+	ClassSectionSubjectTeacherCapacity                 *int   `json:"class_section_subject_teacher_capacity,omitempty"`
+	ClassSectionSubjectTeacherEnrolledCount            int    `json:"class_section_subject_teacher_enrolled_count"`
+	ClassSectionSubjectTeacherTotalAssessments         int    `json:"class_section_subject_teacher_total_assessments"`
+	ClassSectionSubjectTeacherTotalAssessmentsGraded   int    `json:"class_section_subject_teacher_total_assessments_graded"`
+	ClassSectionSubjectTeacherTotalAssessmentsUngraded int    `json:"class_section_subject_teacher_total_assessments_ungraded"`
+	ClassSectionSubjectTeacherTotalStudentsPassed      int    `json:"class_section_subject_teacher_total_students_passed"`
+	ClassSectionSubjectTeacherDeliveryMode             string `json:"class_section_subject_teacher_delivery_mode"`
+
+	// ➕ NEW: total books
+	ClassSectionSubjectTeacherTotalBooks int `json:"class_section_subject_teacher_total_books"`
 
 	/* ===== SECTION snapshots (varchar/text) ===== */
 	ClassSectionSubjectTeacherClassSectionSlugSnapshot *string `json:"class_section_subject_teacher_class_section_slug_snapshot,omitempty"`
@@ -139,21 +154,14 @@ type ClassSectionSubjectTeacherResponse struct {
 	ClassSectionSubjectTeacherSchoolTeacherNameSnapshot          *string `json:"class_section_subject_teacher_school_teacher_name_snapshot,omitempty"`
 	ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot *string `json:"class_section_subject_teacher_assistant_school_teacher_name_snapshot,omitempty"`
 
-	/* ===== CLASS_SUBJECT_BOOK snapshot ===== */
-	ClassSectionSubjectTeacherClassSubjectBookSlugSnapshot *string         `json:"class_section_subject_teacher_class_subject_book_slug_snapshot,omitempty"`
-	ClassSectionSubjectTeacherClassSubjectBookSnapshot     *datatypes.JSON `json:"class_section_subject_teacher_class_subject_book_snapshot,omitempty"`
-
-	/* ===== Generated dari CSB snapshot (BOOK*) ===== */
-	ClassSectionSubjectTeacherBookTitleSnapshot    *string `json:"class_section_subject_teacher_book_title_snapshot,omitempty"`
-	ClassSectionSubjectTeacherBookAuthorSnapshot   *string `json:"class_section_subject_teacher_book_author_snapshot,omitempty"`
-	ClassSectionSubjectTeacherBookSlugSnapshot     *string `json:"class_section_subject_teacher_book_slug_snapshot,omitempty"`
-	ClassSectionSubjectTeacherBookImageURLSnapshot *string `json:"class_section_subject_teacher_book_image_url_snapshot,omitempty"`
-
-	/* ===== Generated dari CSB snapshot (SUBJECT*) ===== */
+	/* ===== SUBJECT (via CLASS_SUBJECT) snapshot ===== */
 	ClassSectionSubjectTeacherSubjectIDSnapshot   *uuid.UUID `json:"class_section_subject_teacher_subject_id_snapshot,omitempty"`
 	ClassSectionSubjectTeacherSubjectNameSnapshot *string    `json:"class_section_subject_teacher_subject_name_snapshot,omitempty"`
 	ClassSectionSubjectTeacherSubjectCodeSnapshot *string    `json:"class_section_subject_teacher_subject_code_snapshot,omitempty"`
 	ClassSectionSubjectTeacherSubjectSlugSnapshot *string    `json:"class_section_subject_teacher_subject_slug_snapshot,omitempty"`
+
+	/* ===== KKM SNAPSHOT (opsional override per CSST) ===== */
+	ClassSectionSubjectTeacherMinPassingScore *int `json:"class_section_subject_teacher_min_passing_score,omitempty"`
 
 	/* ===== Status & audit ===== */
 	ClassSectionSubjectTeacherIsActive  bool       `json:"class_section_subject_teacher_is_active"`
@@ -168,11 +176,12 @@ type ClassSectionSubjectTeacherResponse struct {
 
 func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectionSubjectTeacherModel {
 	m := csstModel.ClassSectionSubjectTeacherModel{
-		ClassSectionSubjectTeacherClassSectionID:     r.ClassSectionSubjectTeacherClassSectionID,
-		ClassSectionSubjectTeacherClassSubjectBookID: r.ClassSectionSubjectTeacherClassSubjectBookID,
-		ClassSectionSubjectTeacherSchoolTeacherID:    r.ClassSectionSubjectTeacherSchoolTeacherID,
+		// Wajib
+		ClassSectionSubjectTeacherClassSectionID:  r.ClassSectionSubjectTeacherClassSectionID,
+		ClassSectionSubjectTeacherClassSubjectID:  r.ClassSectionSubjectTeacherClassSubjectID,
+		ClassSectionSubjectTeacherSchoolTeacherID: r.ClassSectionSubjectTeacherSchoolTeacherID,
 
-		// opsional
+		// Opsional basic
 		ClassSectionSubjectTeacherSlug:        trimLowerPtr(r.ClassSectionSubjectTeacherSlug), // slug → lowercase
 		ClassSectionSubjectTeacherDescription: trimPtr(r.ClassSectionSubjectTeacherDescription),
 		ClassSectionSubjectTeacherClassRoomID: r.ClassSectionSubjectTeacherClassRoomID,
@@ -196,6 +205,12 @@ func (r CreateClassSectionSubjectTeacherRequest) ToModel() csstModel.ClassSectio
 	if r.ClassSectionSubjectTeacherDeliveryMode != nil {
 		m.ClassSectionSubjectTeacherDeliveryMode = *r.ClassSectionSubjectTeacherDeliveryMode
 	}
+	if r.ClassSectionSubjectTeacherTotalMeetingsTarget != nil {
+		m.ClassSectionSubjectTeacherTotalMeetingsTarget = r.ClassSectionSubjectTeacherTotalMeetingsTarget
+	}
+	if r.ClassSectionSubjectTeacherMinPassingScore != nil {
+		m.ClassSectionSubjectTeacherMinPassingScore = r.ClassSectionSubjectTeacherMinPassingScore
+	}
 
 	return m
 }
@@ -207,8 +222,8 @@ func (r UpdateClassSectionSubjectTeacherRequest) Apply(m *csstModel.ClassSection
 	if r.ClassSectionSubjectTeacherClassSectionID != nil {
 		m.ClassSectionSubjectTeacherClassSectionID = *r.ClassSectionSubjectTeacherClassSectionID
 	}
-	if r.ClassSectionSubjectTeacherClassSubjectBookID != nil {
-		m.ClassSectionSubjectTeacherClassSubjectBookID = *r.ClassSectionSubjectTeacherClassSubjectBookID
+	if r.ClassSectionSubjectTeacherClassSubjectID != nil {
+		m.ClassSectionSubjectTeacherClassSubjectID = *r.ClassSectionSubjectTeacherClassSubjectID
 	}
 	if r.ClassSectionSubjectTeacherSchoolTeacherID != nil {
 		m.ClassSectionSubjectTeacherSchoolTeacherID = *r.ClassSectionSubjectTeacherSchoolTeacherID
@@ -236,6 +251,12 @@ func (r UpdateClassSectionSubjectTeacherRequest) Apply(m *csstModel.ClassSection
 	if r.ClassSectionSubjectTeacherDeliveryMode != nil {
 		m.ClassSectionSubjectTeacherDeliveryMode = *r.ClassSectionSubjectTeacherDeliveryMode
 	}
+	if r.ClassSectionSubjectTeacherTotalMeetingsTarget != nil {
+		m.ClassSectionSubjectTeacherTotalMeetingsTarget = r.ClassSectionSubjectTeacherTotalMeetingsTarget
+	}
+	if r.ClassSectionSubjectTeacherMinPassingScore != nil {
+		m.ClassSectionSubjectTeacherMinPassingScore = r.ClassSectionSubjectTeacherMinPassingScore
+	}
 	if r.ClassSectionSubjectTeacherIsActive != nil {
 		m.ClassSectionSubjectTeacherIsActive = *r.ClassSectionSubjectTeacherIsActive
 	}
@@ -253,7 +274,7 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		ClassSectionSubjectTeacherID:                       m.ClassSectionSubjectTeacherID,
 		ClassSectionSubjectTeacherSchoolID:                 m.ClassSectionSubjectTeacherSchoolID,
 		ClassSectionSubjectTeacherClassSectionID:           m.ClassSectionSubjectTeacherClassSectionID,
-		ClassSectionSubjectTeacherClassSubjectBookID:       m.ClassSectionSubjectTeacherClassSubjectBookID,
+		ClassSectionSubjectTeacherClassSubjectID:           m.ClassSectionSubjectTeacherClassSubjectID,
 		ClassSectionSubjectTeacherSchoolTeacherID:          m.ClassSectionSubjectTeacherSchoolTeacherID,
 		ClassSectionSubjectTeacherAssistantSchoolTeacherID: m.ClassSectionSubjectTeacherAssistantSchoolTeacherID,
 		ClassSectionSubjectTeacherClassRoomID:              m.ClassSectionSubjectTeacherClassRoomID,
@@ -264,11 +285,16 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		ClassSectionSubjectTeacherGroupURL:    m.ClassSectionSubjectTeacherGroupURL,
 
 		// Agregat & kapasitas
-		ClassSectionSubjectTeacherTotalAttendance:  m.ClassSectionSubjectTeacherTotalAttendance,
-		ClassSectionSubjectTeacherCapacity:         m.ClassSectionSubjectTeacherCapacity,
-		ClassSectionSubjectTeacherEnrolledCount:    m.ClassSectionSubjectTeacherEnrolledCount,
-		ClassSectionSubjectTeacherTotalAssessments: m.ClassSectionSubjectTeacherTotalAssessments,
-		ClassSectionSubjectTeacherDeliveryMode:     string(m.ClassSectionSubjectTeacherDeliveryMode),
+		ClassSectionSubjectTeacherTotalAttendance:          m.ClassSectionSubjectTeacherTotalAttendance,
+		ClassSectionSubjectTeacherTotalMeetingsTarget:      m.ClassSectionSubjectTeacherTotalMeetingsTarget,
+		ClassSectionSubjectTeacherCapacity:                 m.ClassSectionSubjectTeacherCapacity,
+		ClassSectionSubjectTeacherEnrolledCount:            m.ClassSectionSubjectTeacherEnrolledCount,
+		ClassSectionSubjectTeacherTotalBooks:               m.ClassSectionSubjectTeacherTotalBooks, // ➕ NEW
+		ClassSectionSubjectTeacherTotalAssessments:         m.ClassSectionSubjectTeacherTotalAssessments,
+		ClassSectionSubjectTeacherTotalAssessmentsGraded:   m.ClassSectionSubjectTeacherTotalAssessmentsGraded,
+		ClassSectionSubjectTeacherTotalAssessmentsUngraded: m.ClassSectionSubjectTeacherTotalAssessmentsUngraded,
+		ClassSectionSubjectTeacherTotalStudentsPassed:      m.ClassSectionSubjectTeacherTotalStudentsPassed,
+		ClassSectionSubjectTeacherDeliveryMode:             string(m.ClassSectionSubjectTeacherDeliveryMode),
 
 		// SECTION snapshots
 		ClassSectionSubjectTeacherClassSectionSlugSnapshot: m.ClassSectionSubjectTeacherClassSectionSlugSnapshot,
@@ -291,21 +317,14 @@ func FromClassSectionSubjectTeacherModel(m csstModel.ClassSectionSubjectTeacherM
 		ClassSectionSubjectTeacherSchoolTeacherNameSnapshot:          m.ClassSectionSubjectTeacherSchoolTeacherNameSnapshot,
 		ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot: m.ClassSectionSubjectTeacherAssistantSchoolTeacherNameSnapshot,
 
-		// CSB snapshot
-		ClassSectionSubjectTeacherClassSubjectBookSlugSnapshot: m.ClassSectionSubjectTeacherClassSubjectBookSlugSnapshot,
-		ClassSectionSubjectTeacherClassSubjectBookSnapshot:     m.ClassSectionSubjectTeacherClassSubjectBookSnapshot,
-
-		// BOOK* generated
-		ClassSectionSubjectTeacherBookTitleSnapshot:    m.ClassSectionSubjectTeacherBookTitleSnapshot,
-		ClassSectionSubjectTeacherBookAuthorSnapshot:   m.ClassSectionSubjectTeacherBookAuthorSnapshot,
-		ClassSectionSubjectTeacherBookSlugSnapshot:     m.ClassSectionSubjectTeacherBookSlugSnapshot,
-		ClassSectionSubjectTeacherBookImageURLSnapshot: m.ClassSectionSubjectTeacherBookImageURLSnapshot,
-
-		// SUBJECT* generated
+		// SUBJECT snapshot
 		ClassSectionSubjectTeacherSubjectIDSnapshot:   m.ClassSectionSubjectTeacherSubjectIDSnapshot,
 		ClassSectionSubjectTeacherSubjectNameSnapshot: m.ClassSectionSubjectTeacherSubjectNameSnapshot,
 		ClassSectionSubjectTeacherSubjectCodeSnapshot: m.ClassSectionSubjectTeacherSubjectCodeSnapshot,
 		ClassSectionSubjectTeacherSubjectSlugSnapshot: m.ClassSectionSubjectTeacherSubjectSlugSnapshot,
+
+		// KKM
+		ClassSectionSubjectTeacherMinPassingScore: m.ClassSectionSubjectTeacherMinPassingScore,
 
 		// Status & audit
 		ClassSectionSubjectTeacherIsActive:  m.ClassSectionSubjectTeacherIsActive,

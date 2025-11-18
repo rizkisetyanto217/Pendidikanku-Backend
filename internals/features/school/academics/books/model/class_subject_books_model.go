@@ -17,8 +17,12 @@ type ClassSubjectBookModel struct {
 	ClassSubjectBookClassSubjectID uuid.UUID `gorm:"column:class_subject_book_class_subject_id;type:uuid;not null;index:idx_csb_class_subject_alive" json:"class_subject_book_class_subject_id"`
 	ClassSubjectBookBookID         uuid.UUID `gorm:"column:class_subject_book_book_id;type:uuid;not null;index:idx_csb_book_alive" json:"class_subject_book_book_id"`
 
-	/* ============ Identitas & Status ============ */
-	ClassSubjectBookSlug     *string `gorm:"column:class_subject_book_slug;type:varchar(160)" json:"class_subject_book_slug,omitempty"`
+	/* ============ Identitas & Flags ============ */
+	ClassSubjectBookSlug       *string `gorm:"column:class_subject_book_slug;type:varchar(160)" json:"class_subject_book_slug,omitempty"`
+	ClassSubjectBookIsPrimary  bool    `gorm:"column:class_subject_book_is_primary;type:boolean;not null;default:false" json:"class_subject_book_is_primary"`
+	ClassSubjectBookIsRequired bool    `gorm:"column:class_subject_book_is_required;type:boolean;not null;default:true" json:"class_subject_book_is_required"`
+	ClassSubjectBookOrder      *int    `gorm:"column:class_subject_book_order" json:"class_subject_book_order,omitempty"`
+
 	ClassSubjectBookIsActive bool    `gorm:"column:class_subject_book_is_active;not null;default:true;index:idx_csb_active_alive" json:"class_subject_book_is_active"`
 	ClassSubjectBookDesc     *string `gorm:"column:class_subject_book_desc;type:text" json:"class_subject_book_desc,omitempty"`
 
@@ -31,7 +35,7 @@ type ClassSubjectBookModel struct {
 	ClassSubjectBookBookImageURLSnapshot        *string `gorm:"column:class_subject_book_book_image_url_snapshot" json:"class_subject_book_book_image_url_snapshot,omitempty"`
 
 	/* ============ SNAPSHOTS dari subjects ============ */
-	ClassSubjectBookSubjectIDSnapshot   *uuid.UUID `gorm:"column:class_subject_book_subject_id_snapshot;type:uuid" json:"class_subject_book_subject_id_snapshot,omitempty"`
+	ClassSubjectBookSubjectID   *uuid.UUID `gorm:"column:class_subject_book_subject_id;type:uuid" json:"class_subject_book_subject_id_snapshot,omitempty"`
 	ClassSubjectBookSubjectCodeSnapshot *string    `gorm:"column:class_subject_book_subject_code_snapshot;type:varchar(40)" json:"class_subject_book_subject_code_snapshot,omitempty"`
 	ClassSubjectBookSubjectNameSnapshot *string    `gorm:"column:class_subject_book_subject_name_snapshot;type:varchar(120)" json:"class_subject_book_subject_name_snapshot,omitempty"`
 	ClassSubjectBookSubjectSlugSnapshot *string    `gorm:"column:class_subject_book_subject_slug_snapshot;type:varchar(160)" json:"class_subject_book_subject_slug_snapshot,omitempty"`
