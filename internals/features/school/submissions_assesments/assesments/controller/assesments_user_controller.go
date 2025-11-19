@@ -9,6 +9,9 @@ import (
 	helper "schoolku_backend/internals/helpers"
 	helperAuth "schoolku_backend/internals/helpers/auth"
 
+	quizDTO "schoolku_backend/internals/features/school/submissions_assesments/quizzes/dto"
+	quizModel "schoolku_backend/internals/features/school/submissions_assesments/quizzes/model"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
@@ -88,7 +91,6 @@ func resolveSchoolForAssessmentList(c *fiber.Ctx) (uuid.UUID, error) {
 //
 //	type_id, csst_id, id, ids, is_published, is_graded, q, limit, offset, sort_by, sort_dir
 //	with_urls, urls_published_only, urls_limit_per, urls_order
-//	include=types (untuk embed object type per item)
 func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	// Pastikan helper slug→id bisa akses DB dari context
 	c.Locals("DB", ctl.DB)
@@ -108,7 +110,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		typeIDStr = strings.TrimSpace(c.Query("type_id"))
 		csstIDStr = strings.TrimSpace(c.Query("csst_id"))
 
-		// 🔹 NEW: filter by assessment_id
+		// filter by assessment_id / ids
 		idStr  = strings.TrimSpace(c.Query("id"))
 		idsStr = strings.TrimSpace(c.Query("ids"))
 
@@ -119,17 +121,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		sortBy   = strings.TrimSpace(c.Query("sort_by"))
 		sortDir  = strings.TrimSpace(c.Query("sort_dir"))
 	)
-
-	// include flags
-	includeStr := strings.ToLower(strings.TrimSpace(c.Query("include")))
-	includeAll := includeStr == "all"
-	includes := map[string]bool{}
-	for _, p := range strings.Split(includeStr, ",") {
-		if x := strings.TrimSpace(p); x != "" {
-			includes[x] = true
-		}
-	}
-	wantTypes := includeAll || includes["type"] || includes["types"] || eqTrue(c.Query("with_types"))
 
 	// opsi URL (metadata saja – implementasi URL bisa nyusul)
 	withURLs := eqTrue(c.Query("with_urls"))
@@ -154,7 +145,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// 🔹 NEW: parse filter id & ids
+	// filter id & ids
 	var (
 		assessmentID  *uuid.UUID
 		assessmentIDs []uuid.UUID
@@ -190,7 +181,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		isPublished = &b
 	}
 
-	// ➕ filter graded / ungraded (pakai snapshot is_graded)
+	// filter graded / ungraded (pakai snapshot is_graded)
 	var isGraded *bool
 	if gs := strings.TrimSpace(c.Query("is_graded")); gs != "" {
 		b := strings.EqualFold(gs, "true") || gs == "1"
@@ -211,14 +202,13 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		Model(&model.AssessmentModel{}).
 		Where("assessment_school_id = ? AND assessment_deleted_at IS NULL", mid)
 
-	// 🔹 APPLY FILTERS
+	// APPLY FILTERS
 	if typeID != nil {
 		qry = qry.Where("assessment_type_id = ?", *typeID)
 	}
 	if csstID != nil {
 		qry = qry.Where("assessment_class_section_subject_teacher_id = ?", *csstID)
 	}
-	// NEW: filter by id / ids
 	if assessmentID != nil {
 		qry = qry.Where("assessment_id = ?", *assessmentID)
 	}
@@ -264,10 +254,12 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		WeightPercent float64   `json:"weight_percent" gorm:"column:assessment_type_weight_percent"`
 		IsActive      bool      `json:"is_active"      gorm:"column:assessment_type_is_active"`
 	}
+
 	type assessmentWithExpand struct {
 		dto.AssessmentResponse
-		Type      *typeLite `json:"type,omitempty"`
-		URLsCount *int      `json:"urls_count,omitempty"`
+		Type      *typeLite              `json:"type,omitempty"`
+		URLsCount *int                   `json:"urls_count,omitempty"`
+		Quizzes   []quizDTO.QuizResponse `json:"quizzes,omitempty"`
 	}
 
 	out := make([]assessmentWithExpand, 0, len(rows))
@@ -314,15 +306,51 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		}
 	}
 
-	// attach TYPE per item jika diminta
-	if wantTypes {
+	// attach TYPE per item jika diminta (boleh kamu matikan kalau nggak dipakai)
+	// di sini aku biarkan logika lama kalau suatu saat mau hidupkan lagi via include
+	// (sekarang default: tidak pakai include flag)
+	for i := range rows {
+		if rows[i].AssessmentTypeID == nil {
+			continue
+		}
+		if t, ok := typeMap[*rows[i].AssessmentTypeID]; ok {
+			tc := t
+			out[i].Type = &tc
+		}
+	}
+
+	// ================================
+	// SELALU: QUIZZES EXPAND
+	// ================================
+	if len(rows) > 0 {
+		// Ambil semua assessment_id di page ini
+		aIDs := make([]uuid.UUID, 0, len(rows))
 		for i := range rows {
-			if rows[i].AssessmentTypeID == nil {
+			aIDs = append(aIDs, rows[i].AssessmentID)
+		}
+
+		var qrows []quizModel.QuizModel
+		if err := ctl.DB.WithContext(c.Context()).
+			Model(&quizModel.QuizModel{}).
+			Where("quiz_school_id = ? AND quiz_deleted_at IS NULL", mid).
+			Where("quiz_assessment_id IN ?", aIDs).
+			Find(&qrows).Error; err != nil {
+			return helper.JsonError(c, fiber.StatusInternalServerError, "Gagal mengambil quizzes")
+		}
+
+		quizMap := make(map[uuid.UUID][]quizDTO.QuizResponse, len(aIDs))
+		for i := range qrows {
+			if qrows[i].QuizAssessmentID == nil {
 				continue
 			}
-			if t, ok := typeMap[*rows[i].AssessmentTypeID]; ok {
-				tc := t
-				out[i].Type = &tc
+			aid := *qrows[i].QuizAssessmentID
+			quizMap[aid] = append(quizMap[aid], quizDTO.FromModel(&qrows[i]))
+		}
+
+		// tempel ke output
+		for i := range rows {
+			if qs, ok := quizMap[rows[i].AssessmentID]; ok && len(qs) > 0 {
+				out[i].Quizzes = qs
 			}
 		}
 	}
@@ -338,7 +366,6 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 			"urls_published_only": urlsPublishedOnly,
 			"urls_limit_per":      urlsLimitPer,
 			"urls_order":          urlsOrder,
-			"include_types":       wantTypes,
 		},
 	)
 }

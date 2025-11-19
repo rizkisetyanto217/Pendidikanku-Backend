@@ -100,11 +100,39 @@ func preloadQuestions(tx *gorm.DB, q *dto.ListQuizzesQuery) *gorm.DB {
 /* =======================
    Auth helper (DKM/Admin ATAU Teacher)
 ======================= */
+/* =======================
+   Auth helper (DKM/Admin ATAU Teacher)
+======================= */
 
 func resolveSchoolForDKMOrTeacher(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) {
 	// injek DB agar GetSchoolIDBySlug bisa jalan
 	c.Locals("DB", db)
 
+	// =====================================================
+	// 1) Coba ambil school dari TOKEN dulu
+	//    (aktifkan prefer teacher; kalau ada active_school di token, pakai itu)
+	// =====================================================
+	if sid, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err != nil {
+		// Kalau helper balikin fiber.Error, oper aja ke atas
+		if fe, ok := err.(*fiber.Error); ok {
+			return uuid.Nil, fe
+		}
+		return uuid.Nil, err
+	} else if sid != uuid.Nil {
+		mid := sid
+
+		// Pastikan user ini DKM/Admin/Teacher di school tsb
+		if err := helperAuth.EnsureDKMOrTeacherSchool(c, mid); err != nil {
+			// ensureRolesInSchool udah handle pesan errornya
+			return uuid.Nil, err
+		}
+		return mid, nil
+	}
+
+	// =====================================================
+	// 2) Fallback: pakai school context (id / slug)
+	//    (misal untuk kasus legacy / public path dengan :school_slug)
+	// =====================================================
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		return uuid.Nil, err
@@ -123,17 +151,14 @@ func resolveSchoolForDKMOrTeacher(c *fiber.Ctx, db *gorm.DB) (uuid.UUID, error) 
 		return uuid.Nil, helperAuth.ErrSchoolContextMissing
 	}
 
-	// 1) DKM/Admin?
-	if err := helperAuth.EnsureDKMSchool(c, mid); err == nil {
-		return mid, nil
-	}
-	// 2) Teacher pada school ini?
-	if _, err := helperAuth.GetSchoolTeacherIDForSchool(c, mid); err == nil {
-		return mid, nil
+	// =====================================================
+	// 3) Pastikan user DKM/Admin/Teacher di school ini
+	// =====================================================
+	if err := helperAuth.EnsureDKMOrTeacherSchool(c, mid); err != nil {
+		return uuid.Nil, err
 	}
 
-	// 3) gagal
-	return uuid.Nil, helperAuth.ErrSchoolContextForbidden
+	return mid, nil
 }
 
 /* =======================
