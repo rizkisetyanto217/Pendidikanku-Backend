@@ -41,11 +41,15 @@ type ClassScheduleRuleListResponse struct {
 	Route contoh:
 	  GET /api/a/:school_id/class-schedule-rules
 
+	Resolver school:
+	  1) Coba dari token (GetSchoolIDFromTokenPreferTeacher).
+	  2) Kalau tidak ada → ResolveSchoolContext (id / slug dari path/query).
+
 =========================================================
 */
 func (ctl *ClassScheduleRuleListController) List(c *fiber.Ctx) error {
-	// ===== Tenant (wajib :school_id di path) =====
-	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
+	// ===== Tenant: prioritas token, fallback path/query/slug =====
+	schoolID, err := resolveSchoolID(c)
 	if err != nil {
 		return err
 	}
@@ -155,16 +159,16 @@ func (ctl *ClassScheduleRuleListController) List(c *fiber.Ctx) error {
 	LIST PUBLIC — untuk umum / murid / tamu (READ-ONLY)
 	Route contoh:
 	  GET /api/u/:school_id/class-schedule-rules
-	Catatan:
-	  - Tidak cek role (bisa diakses tanpa login, atau minimal JWT biasa).
-	  - Tetap tenant-safe via :school_id.
-	  - Hanya data alive (deleted_at IS NULL).
+
+	Resolver school:
+	  1) Coba dari token (kalau ada, supaya konsisten context).
+	  2) Kalau tidak ada → ResolveSchoolContext (id / slug dari path/query).
 
 =========================================================
 */
 func (ctl *ClassScheduleRuleListController) ListPublic(c *fiber.Ctx) error {
-	// ===== Tenant dari path (wajib punya :school_id) =====
-	schoolID, err := helperAuth.ParseSchoolIDFromPath(c)
+	// ===== Tenant: prioritas token, fallback path/query/slug =====
+	schoolID, err := resolveSchoolID(c)
 	if err != nil {
 		return err
 	}

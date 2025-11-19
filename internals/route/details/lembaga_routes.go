@@ -78,6 +78,10 @@ func LembagaUserRoutes(r fiber.Router, db *gorm.DB) {
 	SubjectRoutes.SubjectUserRoutes(r, db)
 	RoomsRoutes.RoomsUserRoutes(r, db)
 	CSSTRoutes.CSSTUserRoutes(r, db)
+
+	ScheduleRoutes.ScheduleUserRoutes(r, db)
+	// CertificateRoutes.CertificateUserRoutes(r, db)
+	// CertificateRoutes.CertificateTeacherRoutes(r, db)
 }
 
 /* ===================== ADMIN ===================== */

@@ -8,28 +8,22 @@ import (
 	"gorm.io/gorm"
 )
 
-// Contoh penggunaan middleware auth jika ada:
-// import mw "schoolku_backend/internals/middlewares"
-
 func AttendanceSessionsUserRoutes(r fiber.Router, db *gorm.DB) {
-	// ✅ Group dengan school context
-	schoolGroup := r.Group("/:school_id")
-
-	// Attendance Sessions
+	// Attendance Sessions (read-only untuk user)
 	attendanceSessionController := uaCtrl.NewClassAttendanceSessionController(db)
-	attendanceSessionGroup := schoolGroup.Group("/attendance-sessions")
-	attendanceSessionGroup.Get("/list", attendanceSessionController.ListClassAttendanceSessions) // GET /:school_id/sessions/list
+	asg := r.Group("/attendance-sessions")
+	asg.Get("/list", attendanceSessionController.ListClassAttendanceSessions)
 
-	// User Attendance (read-only + CRUD untuk user)
+	// Attendance Participants (user CRUD)
 	ua := uaCtrl.NewClassAttendanceSessionParticipantController(db)
-	uaGroup := schoolGroup.Group("/attendance-participants")
-	uaGroup.Get("/list", ua.List)
-	uaGroup.Post("/", ua.CreateAttendanceParticipantsWithURLs) // POST /:school_id/user-sessions
-	uaGroup.Patch("/:id", ua.Patch)                            // PATCH /:school_id/user-sessions/:id
-	uaGroup.Delete("/:id", ua.Delete)
+	uag := r.Group("/attendance-participants")
+	uag.Get("/list", ua.List)
+	uag.Post("/", ua.CreateAttendanceParticipantsWithURLs)
+	uag.Patch("/:id", ua.Patch)
+	uag.Delete("/:id", ua.Delete)
 
-	// User Attendance Types (read-only)
+	// Attendance Participant Types (read-only)
 	uattCtl := uaCtrl.NewClassAttendanceSessionParticipantTypeController(db)
-	uatt := schoolGroup.Group("/attendance-participant-types")
-	uatt.Get("/", uattCtl.List)
+	utg := r.Group("/attendance-participant-types")
+	utg.Get("/", uattCtl.List)
 }

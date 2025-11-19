@@ -129,14 +129,17 @@ func ParseBoolLoose(s string) (bool, bool) {
 // --- ganti helper csstCore & getCSSTCore ---
 
 type csstCore struct {
-	ID            uuid.UUID
-	SchoolID      uuid.UUID
-	Slug          *string
-	SectionID     *uuid.UUID
-	SubjectBookID *uuid.UUID // anchor ke class_subject_books
-	SubjectID     *uuid.UUID // di-resolve via class_subjects
-	TeacherID     *uuid.UUID
-	RoomID        *uuid.UUID
+	ID        uuid.UUID
+	SchoolID  uuid.UUID
+	Slug      *string
+	SectionID *uuid.UUID
+
+	// Di model baru kita sudah punya subject snapshot,
+	// jadi cukup ambil dari situ (tanpa join ke class_subject_books)
+	SubjectID *uuid.UUID
+
+	TeacherID *uuid.UUID
+	RoomID    *uuid.UUID
 }
 
 func getCSSTCore(tx *gorm.DB, schoolID, csstID uuid.UUID) (csstCore, error) {
@@ -144,24 +147,16 @@ func getCSSTCore(tx *gorm.DB, schoolID, csstID uuid.UUID) (csstCore, error) {
 	err := tx.
 		Table("class_section_subject_teachers AS csst").
 		Select(`
-			csst.class_section_subject_teacher_id                AS id,
-			csst.class_section_subject_teacher_school_id         AS school_id,
-			csst.class_section_subject_teacher_slug              AS slug,
-			csst.class_section_subject_teacher_class_section_id  AS section_id,
-			csst.class_section_subject_teacher_class_subject_book_id AS subject_book_id,
-			s.class_subject_subject_id                           AS subject_id,    -- << ambil dari class_subjects
-			csst.class_section_subject_teacher_school_teacher_id AS teacher_id,
-			csst.class_section_subject_teacher_class_room_id     AS room_id
-		`).
-		Joins(`
-			LEFT JOIN class_subject_books b
-				   ON b.class_subject_book_id = csst.class_section_subject_teacher_class_subject_book_id
-				  AND b.class_subject_book_school_id = csst.class_section_subject_teacher_school_id
-		`).
-		Joins(`
-			LEFT JOIN class_subjects s
-				   ON s.class_subject_id = b.class_subject_book_class_subject_id
-				  AND s.class_subject_school_id = b.class_subject_book_school_id
+			csst.class_section_subject_teacher_id                       AS id,
+			csst.class_section_subject_teacher_school_id                AS school_id,
+			csst.class_section_subject_teacher_slug                     AS slug,
+			csst.class_section_subject_teacher_class_section_id         AS section_id,
+
+			-- pakai subject_id dari SNAPSHOT (tanpa join ke class_subjects/books)
+			csst.class_section_subject_teacher_subject_id_snapshot      AS subject_id,
+
+			csst.class_section_subject_teacher_school_teacher_id        AS teacher_id,
+			csst.class_section_subject_teacher_class_room_id            AS room_id
 		`).
 		Where(`
 			csst.class_section_subject_teacher_id = ?
@@ -193,11 +188,13 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak (hanya DKM/Guru yang diizinkan)")
 	}
 
-	// 1) school dari PATH + pastikan membership
-	actSchoolID, err := helperAuth.ParseSchoolIDFromPath(c)
+	// 1) school context: PRIORITAS token, fallback path/query/slug
+	actSchoolID, err := resolveSchoolID(c)
 	if err != nil {
-		return helper.JsonError(c, http.StatusBadRequest, "school_id invalid di path")
+		return err
 	}
+
+	// 2) Pastikan user memang DKM/Teacher di school ini
 	if er := helperAuth.EnsureDKMOrTeacherSchool(c, actSchoolID); er != nil {
 		return er
 	}
@@ -271,7 +268,6 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 					"csst_id":               core.ID.String(),
 					"slug":                  core.Slug,
 					"section_id":            core.SectionID,
-					"class_subject_book_id": core.SubjectBookID,
 					"subject_id":            core.SubjectID,
 					"teacher_id":            core.TeacherID,
 					"room_id":               core.RoomID,
@@ -316,7 +312,6 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 					"csst_id":               core.ID.String(),
 					"slug":                  core.Slug,
 					"section_id":            core.SectionID,
-					"class_subject_book_id": core.SubjectBookID,
 					"subject_id":            core.SubjectID,
 					"teacher_id":            core.TeacherID,
 					"room_id":               core.RoomID,
@@ -420,9 +415,20 @@ func (ctl *ClassScheduleController) Create(c *fiber.Ctx) error {
 func (ctl *ClassScheduleController) Patch(c *fiber.Ctx) error {
 	c.Locals("DB", ctl.DB)
 
-	// 🔐 Guard role: hanya DKM + Teacher
+	// 🔐 Guard role: hanya DKM + Teacher (global)
 	if !(helperAuth.IsDKM(c) || helperAuth.IsTeacher(c)) {
 		return helper.JsonError(c, http.StatusForbidden, "Akses ditolak (hanya DKM/Guru yang diizinkan)")
+	}
+
+	// 1) school context: PRIORITAS token, fallback path/query/slug
+	actSchoolID, err := resolveSchoolID(c)
+	if err != nil {
+		return err
+	}
+
+	// 2) Pastikan user memang DKM/Teacher di school ini
+	if er := helperAuth.EnsureDKMOrTeacherSchool(c, actSchoolID); er != nil {
+		return er
 	}
 
 	id, err := parseUUIDParam(c, "id")

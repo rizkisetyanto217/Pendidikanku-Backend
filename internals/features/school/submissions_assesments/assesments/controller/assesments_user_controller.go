@@ -86,7 +86,7 @@ func resolveSchoolForAssessmentList(c *fiber.Ctx) (uuid.UUID, error) {
 // GET /assessments
 // Query (opsional):
 //
-//	type_id, csst_id, is_published, q, limit, offset, sort_by, sort_dir
+//	type_id, csst_id, id, ids, is_published, is_graded, q, limit, offset, sort_by, sort_dir
 //	with_urls, urls_published_only, urls_limit_per, urls_order
 //	include=types (untuk embed object type per item)
 func (ctl *AssessmentController) List(c *fiber.Ctx) error {
@@ -107,12 +107,17 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	var (
 		typeIDStr = strings.TrimSpace(c.Query("type_id"))
 		csstIDStr = strings.TrimSpace(c.Query("csst_id"))
-		qStr      = strings.TrimSpace(c.Query("q"))
-		isPubStr  = strings.TrimSpace(c.Query("is_published"))
-		limit     = atoiOr(20, c.Query("limit"))
-		offset    = atoiOr(0, c.Query("offset"))
-		sortBy    = strings.TrimSpace(c.Query("sort_by"))
-		sortDir   = strings.TrimSpace(c.Query("sort_dir"))
+
+		// 🔹 NEW: filter by assessment_id
+		idStr  = strings.TrimSpace(c.Query("id"))
+		idsStr = strings.TrimSpace(c.Query("ids"))
+
+		qStr     = strings.TrimSpace(c.Query("q"))
+		isPubStr = strings.TrimSpace(c.Query("is_published"))
+		limit    = atoiOr(20, c.Query("limit"))
+		offset   = atoiOr(0, c.Query("offset"))
+		sortBy   = strings.TrimSpace(c.Query("sort_by"))
+		sortDir  = strings.TrimSpace(c.Query("sort_dir"))
 	)
 
 	// include flags
@@ -132,7 +137,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 	urlsLimitPer := atoiOr(0, c.Query("urls_limit_per")) // 0 = tanpa batas
 	urlsOrder := strings.ToLower(strings.TrimSpace(c.Query("urls_order")))
 
-	// parse filter id
+	// parse filter type & csst
 	var typeID, csstID *uuid.UUID
 	if typeIDStr != "" {
 		if u, e := uuid.Parse(typeIDStr); e == nil {
@@ -149,6 +154,35 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		}
 	}
 
+	// 🔹 NEW: parse filter id & ids
+	var (
+		assessmentID  *uuid.UUID
+		assessmentIDs []uuid.UUID
+	)
+
+	if idStr != "" {
+		if u, e := uuid.Parse(idStr); e == nil {
+			assessmentID = &u
+		} else {
+			return helper.JsonError(c, fiber.StatusBadRequest, "id tidak valid")
+		}
+	}
+
+	if idsStr != "" {
+		parts := strings.Split(idsStr, ",")
+		for _, p := range parts {
+			s := strings.TrimSpace(p)
+			if s == "" {
+				continue
+			}
+			u, e := uuid.Parse(s)
+			if e != nil {
+				return helper.JsonError(c, fiber.StatusBadRequest, "ids mengandung UUID yang tidak valid")
+			}
+			assessmentIDs = append(assessmentIDs, u)
+		}
+	}
+
 	// filter boolean
 	var isPublished *bool
 	if isPubStr != "" {
@@ -156,7 +190,7 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		isPublished = &b
 	}
 
-	// ➕ NEW: filter graded / ungraded (pakai snapshot is_graded)
+	// ➕ filter graded / ungraded (pakai snapshot is_graded)
 	var isGraded *bool
 	if gs := strings.TrimSpace(c.Query("is_graded")); gs != "" {
 		b := strings.EqualFold(gs, "true") || gs == "1"
@@ -177,11 +211,19 @@ func (ctl *AssessmentController) List(c *fiber.Ctx) error {
 		Model(&model.AssessmentModel{}).
 		Where("assessment_school_id = ? AND assessment_deleted_at IS NULL", mid)
 
+	// 🔹 APPLY FILTERS
 	if typeID != nil {
 		qry = qry.Where("assessment_type_id = ?", *typeID)
 	}
 	if csstID != nil {
 		qry = qry.Where("assessment_class_section_subject_teacher_id = ?", *csstID)
+	}
+	// NEW: filter by id / ids
+	if assessmentID != nil {
+		qry = qry.Where("assessment_id = ?", *assessmentID)
+	}
+	if len(assessmentIDs) > 0 {
+		qry = qry.Where("assessment_id IN ?", assessmentIDs)
 	}
 	if isPublished != nil {
 		qry = qry.Where("assessment_is_published = ?", *isPublished)

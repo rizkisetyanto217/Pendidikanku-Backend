@@ -61,8 +61,18 @@ func includeRulesFromQuery(c *fiber.Ctx) bool {
 	return false
 }
 
-// PUBLIC: pakai token kalau ada, kalau tidak ada pakai id / slug dari context (path/query)
+/*
+PUBLIC resolver: PRIORITAS token dulu.
+1) Coba ambil school dari token (GetSchoolIDFromTokenPreferTeacher).
+2) Kalau tidak ada / gagal → pakai ResolveSchoolContext (path/query: id/slug).
+*/
 func resolveSchoolID(c *fiber.Ctx) (uuid.UUID, error) {
+	// 1) Coba dari token dulu (kalau user login & token punya school context)
+	if sid, err := helperAuth.GetSchoolIDFromTokenPreferTeacher(c); err == nil && sid != uuid.Nil {
+		return sid, nil
+	}
+
+	// 2) Fallback ke resolver PUBLIC (params/query/slug)
 	mc, err := helperAuth.ResolveSchoolContext(c)
 	if err != nil {
 		if fe, ok := err.(*fiber.Error); ok {
@@ -71,12 +81,12 @@ func resolveSchoolID(c *fiber.Ctx) (uuid.UUID, error) {
 		return uuid.Nil, fiber.NewError(http.StatusBadRequest, err.Error())
 	}
 
-	// 1) Kalau ResolveSchoolContext sudah punya ID (biasanya dari token / :school_id / ?school_id)
+	// 2a) Kalau ResolveSchoolContext sudah punya ID (biasanya dari :school_id / ?school_id)
 	if mc.ID != uuid.Nil {
 		return mc.ID, nil
 	}
 
-	// 2) Kalau nggak ada ID tapi ada slug → resolve ke ID
+	// 2b) Kalau nggak ada ID tapi ada slug → resolve slug → ID
 	if s := strings.TrimSpace(mc.Slug); s != "" {
 		id, er := helperAuth.GetSchoolIDBySlug(c, s)
 		if er != nil {
@@ -138,10 +148,11 @@ func (ctl *ClassScheduleController) List(c *fiber.Ctx) error {
 		return helper.JsonError(c, http.StatusBadRequest, err.Error())
 	}
 
-	// 🔓 PUBLIC school context (token kalau ada, kalau tidak ada pakai path/query/slug)
+	// 🔓 PUBLIC school context:
+	//    - Prioritas: dari token (GetSchoolIDFromTokenPreferTeacher)
+	//    - Fallback: dari path/query/slug (ResolveSchoolContext)
 	schoolID, err := resolveSchoolID(c)
 	if err != nil {
-		// err di sini sudah *fiber.Error, biarin Fiber yang handle
 		return err
 	}
 

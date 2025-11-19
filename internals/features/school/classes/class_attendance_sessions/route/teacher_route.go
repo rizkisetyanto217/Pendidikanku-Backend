@@ -22,7 +22,7 @@ func AttendanceSessionsTeacherRoutes(r fiber.Router, db *gorm.DB) {
 	sGroup.Post("/", sessionController.CreateClassAttendanceSession)
 	sGroup.Put("/:id", sessionController.PatchClassAttendanceSessionUrl)
 	sGroup.Delete("/:id", sessionController.DeleteClassAttendanceSessionUrl)
-	sGroup.Get("/teacher/me", sessionController.ListMyTeachingSessions)
+
 
 	// =====================
 	// User Attendance Types (CRUD)
